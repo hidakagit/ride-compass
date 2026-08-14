@@ -75,3 +75,47 @@ async def test_get_roads_returns_none_when_response_missing_elements():
     result = await client.get_roads(http_client, BBOX)
 
     assert result is None
+
+
+async def test_get_ways_and_nodes_parses_topology_with_ids():
+    data = {
+        "elements": [
+            {"type": "node", "id": 1, "lat": 35.70, "lon": 139.70},
+            {"type": "node", "id": 2, "lat": 35.701, "lon": 139.701},
+            {
+                "type": "way",
+                "id": 100,
+                "tags": {"highway": "residential"},
+                "nodes": [1, 2],
+            },
+            {"type": "way", "id": 101, "tags": {"highway": "track"}, "nodes": []},  # nodesが空なら無視
+        ]
+    }
+    client = OverpassClient()
+
+    result = await client.get_ways_and_nodes(FakeHttpClient(data=data), BBOX)
+
+    assert result is not None
+    ways, nodes = result
+    assert ways == [{"id": 100, "tags": {"highway": "residential"}, "nodes": [1, 2]}]
+    assert nodes == {1: (35.70, 139.70), 2: (35.701, 139.701)}
+
+
+async def test_get_ways_and_nodes_returns_none_on_request_error():
+    import httpx
+
+    client = OverpassClient()
+    http_client = FakeHttpClient(raises=httpx.ConnectError("boom", request=httpx.Request("POST", "http://x")))
+
+    result = await client.get_ways_and_nodes(http_client, BBOX)
+
+    assert result is None
+
+
+async def test_get_ways_and_nodes_returns_none_when_response_missing_elements():
+    client = OverpassClient()
+    http_client = FakeHttpClient(data={"unexpected": True})
+
+    result = await client.get_ways_and_nodes(http_client, BBOX)
+
+    assert result is None

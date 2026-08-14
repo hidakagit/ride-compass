@@ -10,6 +10,16 @@ from pydantic import BaseModel
 ROAD_TILE_MIN_ZOOM = 12
 ROAD_TILE_MAX_ZOOM = 15
 
+# Road Graphの永続化キャッシュ単位（GraphService, road_graph_repository.py）。
+# RegionServiceのROAD_TILE_MIN_ZOOM/MAX_ZOOMはMapLibreの表示ズームに追従するための範囲だが、
+# Road Graphには「現在の表示ズーム」という概念が無く、キャッシュの正確なカバレッジ判定
+# （「このタイルは取得済みか」という単純な真偽判定にできる）だけが目的のため、
+# 単一の固定ズームレベルとする。z12は東京付近で1辺約8km程度（1辺=360/2^12度）。
+# 細かすぎるとOverpassへの問い合わせ回数（=タイル数）が増え、粗すぎると1回の
+# 問い合わせが大きくなり公開Overpassインスタンスへの負荷が増す、というトレードオフの
+# 暫定値であり、実データが蓄積された段階で見直す余地がある。
+ROAD_GRAPH_TILE_ZOOM = 12
+
 
 class BoundingBox(BaseModel):
     min_latitude: float
@@ -31,3 +41,36 @@ def tile_bounds_lonlat(z: int, x: int, y: int) -> BoundingBox:
         max_latitude=lat_top,
         max_longitude=lon_right,
     )
+
+
+# Web Mercatorで表現できる緯度の限界（tile_bounds_lonlat(0, 0, 0)の緯度範囲と一致）。
+# BoundingBoxはCoordinatesと異なり緯度の範囲を検証しない（仕様上どんな値も受け付ける）ため、
+# 万一範囲外の値（例: 90度を超える不正な入力）が渡された場合、_lonlat_to_tile_indexの
+# math.log(負の値)がValueError（math domain error）を送出しうる。これを避けるため
+# 呼び出し前に有効範囲へクランプする。
+_MAX_MERCATOR_LATITUDE = 85.05112878
+
+
+def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
+    """緯度経度からそれを含むXYZタイルのx,yを求める（tile_bounds_lonlatの逆関数）。"""
+    n = 2**z
+    x = int((lon + 180.0) / 360.0 * n)
+    clamped_lat = max(-_MAX_MERCATOR_LATITUDE, min(lat, _MAX_MERCATOR_LATITUDE))
+    lat_rad = math.radians(clamped_lat)
+    y = int((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+    return x, y
+
+
+def tiles_covering_bbox(bbox: BoundingBox, z: int) -> list[tuple[int, int]]:
+    """bboxを覆う最小限のXYZタイル群の(x, y)一覧を返す（Road Graphのタイル単位キャッシュ用）。
+
+    XYZタイルはyが北から南へ増加する（緯度と逆向き）ため、北西端（min_longitude,
+    max_latitude）と南東端（max_longitude, min_latitude）のタイル座標からx,yそれぞれの
+    範囲を求める。
+    """
+    n = 2**z
+    x_start, y_start = _lonlat_to_tile_index(bbox.min_longitude, bbox.max_latitude, z)
+    x_end, y_end = _lonlat_to_tile_index(bbox.max_longitude, bbox.min_latitude, z)
+    x_start, x_end = sorted((max(0, min(x_start, n - 1)), max(0, min(x_end, n - 1))))
+    y_start, y_end = sorted((max(0, min(y_start, n - 1)), max(0, min(y_end, n - 1))))
+    return [(x, y) for x in range(x_start, x_end + 1) for y in range(y_start, y_end + 1)]

@@ -1,0 +1,149 @@
+import httpx
+
+from app.domain.attributes import SurfaceAttribute, build_surface_attributes
+from app.domain.graph import RoadGraph, WaySpec, build_road_graph
+from app.domain.osm_adapter import osm_ways_to_way_specs
+from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
+from app.infrastructure.overpass_client import OverpassClient
+
+
+class GraphService:
+    """指定bboxのOSM道路データからRoad Graph（Node/Directed Edge）を構築する。
+
+    OSM Adapter（domain/osm_adapter.py）を介して、OverpassClientが返すOSM生データを
+    データソース非依存の`WaySpec`へ変換してからbuild_road_graphへ渡す（仕様書2・47章の
+    「OSM Adapter/Importer → Road Graph」の分離、Phase 2）。
+
+    既存のルート探索（RoutingService/RouteGenerator）・地図表示（RegionService）とは
+    独立しており、どちらからも参照されない。
+
+    `repository`（infrastructure/road_graph_repository.RoadGraphRepository）を渡すと、
+    `get_or_build_graph_with_attributes`がPostGISをread-throughキャッシュとして使う。
+    渡さない場合（既定）は、Phase 1-5と同じ「毎回Overpassから構築する」挙動のまま
+    （既存の`build_graph_for_bbox`/`build_graph_with_surface_tags_for_bbox`の呼び出し方・
+    挙動には一切影響しない）。
+
+    `repository`指定時の`get_or_build_graph_with_attributes`は、タイル取得時に
+    交差点分割（build_road_graph）を行わない。生のOSM Way/Nodeデータだけをタイル単位で
+    永続化し、実際の分割計算はDB上の既知の生データ全体から近傍Wayを含めて都度行う
+    （タイル境界依存の交差点分割不一致問題への根本対応。詳細はdocs/architecture.md参照）。
+    """
+
+    def __init__(self, overpass_client: OverpassClient, http_client: httpx.AsyncClient, repository=None):
+        self._overpass_client = overpass_client
+        self._http_client = http_client
+        self._repository = repository
+
+    async def build_graph_for_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+        built = await self._build(bbox)
+        return built[0] if built is not None else None
+
+    async def build_graph_with_surface_tags_for_bbox(
+        self, bbox: BoundingBox
+    ) -> tuple[RoadGraph, dict[int, str | None]] | None:
+        """RoadGraphと、同じOverpass取得結果由来のosm_way_id→surfaceタグを同時に返す。
+
+        Surface Attribute生成（domain/attributes.py: build_surface_attributes）は
+        Road Graph構築に使ったのと同じWay情報を必要とするため、Overpassへの
+        再問い合わせを避けるためにこのメソッドを設けている（1回の取得結果を共有する）。
+        """
+        built = await self._build(bbox)
+        if built is None:
+            return None
+        graph, way_specs = built
+        surface_by_way_id = {w.osm_way_id: w.surface for w in way_specs if w.osm_way_id is not None}
+        return graph, surface_by_way_id
+
+    async def get_or_build_graph_with_attributes(
+        self, bbox: BoundingBox, data_source: str = "osm-overpass"
+    ) -> tuple[RoadGraph, dict[str, SurfaceAttribute]] | None:
+        """PostGISキャッシュ（`repository`）があれば優先的に使い、無ければOverpassから
+        生データを取得してキャッシュへ保存する（`repository`が未設定なら常にOverpassから
+        直接構築する、Phase1-5と同じ挙動）。
+
+        `repository`指定時は、まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`の
+        XYZタイル群に分解し、タイルごとに「生データを取得済みか」を`is_tile_cached`で
+        正確に判定する（地域路面レイヤー/RegionServiceと同じ「タイル単位で厳密に
+        キャッシュする」考え方）。未取得のタイルだけをOverpassへ順に問い合わせて
+        （公開Overpassインスタンスへの配慮として並列化しない）**生のOSM Way/Nodeデータを
+        そのまま**永続化する（この時点ではEdgeへの分割は行わない）。
+
+        全タイルの生データ取得を保証した後、`get_way_specs_with_closure`でDB上の
+        既知の生データ全体から対象Wayとその近傍Wayを取得し、その場でbuild_road_graphを
+        実行して交差点分割を計算する。これにより、どのタイル経由で取得したデータかに
+        関わらず一貫した分割結果が得られる（タイル境界依存の交差点分割不一致問題への
+        根本対応。詳細・残存する制約はdocs/architecture.md参照）。
+        """
+        if self._repository is None:
+            return await self._fetch_graph_with_surface_attributes(bbox, data_source)
+
+        any_tile_fetch_failed = False
+        for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
+            if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
+                continue
+
+            tile_bbox = tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y)
+            result = await self._overpass_client.get_ways_and_nodes(self._http_client, tile_bbox)
+            if result is None:
+                # Overpass取得に失敗した場合はマークしない（次回リクエストで再取得を試みる。
+                # RegionServiceのroad-surfaceタイルキャッシュと同じ方針）。この場合、
+                # 対象範囲を完全にはカバーできていないため、最終的にNoneを返す
+                # （道路が無い空の地域と取得失敗を区別するため。下記参照）。
+                any_tile_fetch_failed = True
+                continue
+
+            raw_ways, node_coords = result
+            way_specs = osm_ways_to_way_specs(raw_ways)
+            await self._repository.save_raw_ways(way_specs, node_coords)
+            await self._repository.mark_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y)
+
+        if any_tile_fetch_failed:
+            return None
+
+        # 必要なタイルの生データは全て取得済み（元々キャッシュ済み、または今回の取得に成功）。
+        way_specs, node_coords, primary_way_ids = await self._repository.get_way_specs_with_closure(bbox)
+        if not way_specs:
+            # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
+            return RoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
+
+        graph = build_road_graph(way_specs, node_coords)
+        surface_by_way_id = {w.osm_way_id: w.surface for w in way_specs if w.osm_way_id is not None}
+        surface_attributes = build_surface_attributes(graph, surface_by_way_id, data_source=data_source)
+
+        # 永続化・返却するのは主対象Way分のみ（近傍Wayは分割の文脈情報として使うだけで、
+        # この呼び出しでは保存・返却しない。road_graph_repository.pyのdocstring参照）。
+        primary_edges = {
+            edge_id: edge for edge_id, edge in graph.edges.items() if edge.osm_way_id in primary_way_ids
+        }
+        referenced_node_ids = {edge.from_node_id for edge in primary_edges.values()} | {
+            edge.to_node_id for edge in primary_edges.values()
+        }
+        primary_nodes = {node_id: node for node_id, node in graph.nodes.items() if node_id in referenced_node_ids}
+        primary_graph = RoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
+        primary_surface_attributes = {
+            edge_id: attribute for edge_id, attribute in surface_attributes.items() if edge_id in primary_edges
+        }
+
+        await self._repository.save_graph(primary_graph, way_ids_to_replace=primary_way_ids)
+        await self._repository.save_surface_attributes(list(primary_surface_attributes.values()))
+
+        return primary_graph, primary_surface_attributes
+
+    async def _fetch_graph_with_surface_attributes(
+        self, bbox: BoundingBox, data_source: str
+    ) -> tuple[RoadGraph, dict[str, SurfaceAttribute]] | None:
+        built = await self.build_graph_with_surface_tags_for_bbox(bbox)
+        if built is None:
+            return None
+        graph, surface_by_way_id = built
+        surface_attributes = build_surface_attributes(graph, surface_by_way_id, data_source=data_source)
+        return graph, surface_attributes
+
+    async def _build(self, bbox: BoundingBox) -> tuple[RoadGraph, list[WaySpec]] | None:
+        result = await self._overpass_client.get_ways_and_nodes(self._http_client, bbox)
+        if result is None:
+            return None
+        raw_ways, nodes = result
+        way_specs = osm_ways_to_way_specs(raw_ways)
+        graph = build_road_graph(way_specs, nodes)
+        return graph, way_specs

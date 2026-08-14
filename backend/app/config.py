@@ -6,6 +6,11 @@ class Settings(BaseSettings):
 
     cors_allowed_origins: str = "http://localhost:3000"
     openrouteservice_api_key: str = ""
+    # Road Graph/Road Attributeの永続化先（PostGIS）。docker-compose.ymlのpostgresサービスに
+    # 対応する。現時点ではどのAPIエンドポイントもこれに依存していない（DBが無くても
+    # 既存機能は動作する）。GraphService/ElevationAttributeServiceへrepositoryを明示的に
+    # 注入した場合にのみ使われる（infrastructure/database.py, road_graph_repository.py）。
+    database_url: str = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     # 基礎地図プロキシ（/api/basemap）のスタイルJSON内URL書き換えに使う絶対URL。
     # MapLibreは相対URLをスタイル自身の取得元ではなくページのオリジンに対して解決してしまう
     # ため絶対URLへの書き換えが必須で、かつフロントエンド（Next.jsのrewrites経由でこの

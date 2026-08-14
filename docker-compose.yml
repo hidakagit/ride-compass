@@ -18,7 +18,8 @@ services:
       - "8000:8000"
     environment:
       CORS_ALLOWED_ORIGINS: http://localhost:3000
-      DATABASE_URL: postgresql://ridecompass:ridecompass@postgres:5432/ridecompass
+      # SQLAlchemyの非同期エンジン（asyncpgドライバ）用のURLスキーム。
+      DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@postgres:5432/ridecompass
       BASEMAP_PUBLIC_BASE_URL: http://localhost:3000/api/basemap
     volumes:
       # 標高/路面/地図タイルの永続キャッシュ（SQLite＋ファイルキャッシュ）をコンテナ再作成後も保持する

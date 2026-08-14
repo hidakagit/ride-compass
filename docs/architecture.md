@@ -16,6 +16,12 @@
 - ✅ UI再構成: 左サイドバー（操作パネル・候補一覧、折りたたみ可）＋右地図の2ペインレイアウトに変更。地図レイヤーを「変わらないデータ（標高・路面、全候補へ常時重ね描き可）」と「時間で変わるデータ（風、選択中候補にのみ動的表示）」に分離
 - ✅ Step 10: 地域レイヤー（標高＝国土地理院 色別標高図のラスタタイル、路面＝自前生成のベクタタイル`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）。Step5-9はいずれも「候補ルート沿い」に限定した標高・風・路面の取得だったのに対し、候補ルートの有無に関わらず**表示中の地図の範囲全体**に標高・OSM/Overpassの路面データを重ね描きできるようにした。「変わらないデータはタイル表示で統一する」方針のもと、標高は国土地理院の色別標高図タイルをそのまま重ね（バックエンドAPI不要）、路面はOverpassのデータをバックエンドでMVT（Mapbox Vector Tile）に変換し基礎地図タイルと同じファイルキャッシュで永続化して配信する方式にしており、**両者は排他ではなく同時に重ね表示できる**。あわせて地図タイル（OpenFreeMap）をバックエンド経由でプロキシ＋ファイルキャッシュする仕組み（`GET /api/basemap/{path}`, `POST /api/basemap/refresh`）も追加した
 - ⬜ Step 11以降: 未定（MVPの主要機能は一通り実装済み）
+- ✅ Road Graph移行 Phase 1: Node/Directed Edgeという内部モデル（`domain/graph.py`）を新規導入。既存のルート探索（`RoutingService`/`RouteGenerator`、openrouteservice委譲）・地図表示（`RegionService`、路面MVTタイル）はいずれも無変更で、Road Graphは独立した並行構造として追加した（詳細は「Road Graph移行 Phase 1」参照）。Phase 0の現状調査結果は本ドキュメント末尾の「9. Road Graph移行（進行中）」を参照
+- ✅ Road Graph移行 Phase 2: OSMのタグ語彙（`oneway`文字列等）の解釈を`domain/graph.py`から`domain/osm_adapter.py`（新規、OSM Adapter/Importer）へ分離。`build_road_graph`はデータソース非依存の`WaySpec`契約のみを受け取る形にした（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ Road Graph移行 Phase 3: 標高・路面をRoad Attribute（`domain/attributes.py`のElevationAttribute/SurfaceAttribute）としてEdgeへ紐付ける仕組みを新規導入。既存のルート単位の評価（ElevationService/RouteGenerator）は無変更で、Edge単位の属性生成は独立した並行機能として追加した（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ Road Graph移行 Phase 4: Road Attribute→Edge Costを算出するEvaluation Engine（`domain/evaluation.py`, `services/evaluation_service.py`）を新規導入。既存の`RouteScorer`/`domain/difficulty.py`（ルート単位の評価）には触れず、Edge単位の評価ロジックとして独立に追加した（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ Road Graph移行 Phase 5: Evaluation Engineの重み（`RoutePreference`）を`route_preference.yaml`へ外部化。`scoring.yaml`/`load_scoring_weights`と同じパターンだが別ファイル・別関数として分離した（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ Road Graph移行: 永続化（PostGIS）。SQLAlchemy+GeoAlchemy2でRoad Graph/Road AttributeをPostGISへ保存・読込できるようにし、GraphService/ElevationAttributeServiceにread-throughキャッシュとして配線した。**この開発環境には接続可能なPostGISが無いため、実DBに対する動作確認は未実施**（詳細は「9. Road Graph移行（進行中）」参照）
 
 ---
 
@@ -25,7 +31,7 @@
 |---|---|---|
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
-| DB | PostgreSQL + PostGIS | Step1-2では未接続。Docker Composeにコンテナのみ用意 |
+| DB | PostgreSQL + PostGIS | 既存のルート探索等（Step1-10）からは引き続き未接続。Road Graph移行の「永続化」で、SQLAlchemy+GeoAlchemy2経由の読み書きコードを追加（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。ただしdev環境にPostGISが無く実接続は未検証（詳細は9章） |
 | ルーティングエンジン | **暫定: openrouteservice API**（`cycling-road`プロファイル、外部APIキー方式）<br>**将来: Valhalla自前構築（Docker）** | `RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）が `get_directions(waypoints: list[Coordinates])` を実装したクライアント（現在は`ORSClient`）を受け取る形にし、将来Valhalla用クライアントに差し替え可能にしてある。2点間（Step3）・多点経由（Step4の周回）の両方に対応 |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **Open-Meteo Forecast API**（APIキー不要） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`current`＋`hourly`をまとめて取得し、「地点＋時刻」で天候を引ける設計（後述） |
@@ -171,7 +177,11 @@ RideCompass/
         scoring.py               ✅ normalize_min_max（Step8）
         difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9）
         wind.py                   ✅ WindCalculator.wind_penalty（Step7）
-        region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）
+        region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）。ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox（Road Graphのタイル単位キャッシュ用、新規）
+        graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
+        osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
+        attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
+        evaluation.py                  ✅ RoutePreference, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応、surface extras/valuesのパース含む）。将来Valhallaに差し替え可能
         route_generator.py     ✅ 8方位の周回候補を並列生成＋標高・風・路面・総合スコア・区間詳細を統合（Step4-5-7-8-9）
@@ -180,18 +190,23 @@ RideCompass/
         wind_service.py            ✅ 点列から区間ごとのwind_penaltyとwind_scoreを算出（Step7、Step9でget_wind_profileに変更）
         route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）
         region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）
+        graph_service.py            ✅ GraphService.build_graph_for_bbox(bbox)でOverpass取得+Road Graph構築を統合（Road Graph移行Phase 1、新規。永続化なし、既存サービスから未参照。Phase 3でbuild_graph_with_surface_tags_for_bboxを追加）
+        elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graph(graph)でEdge単位の標高属性（形状点をGSI APIへ問い合わせ）を算出（Road Graph移行Phase 3、新規。ElevationServiceとは別実装、ElevationClientのキャッシュのみ共有）
+        evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes)でEdge Costを算出（Road Graph移行Phase 4、新規。I/Oなし、Evaluation Engineのオーケストレーション層。Phase 5でload_route_preference()を追加しデフォルトに配線）
       infrastructure/
         ors_client.py           ✅ openrouteservice Directions API（cycling-road、複数経由地対応、extra_info=surface）
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
         weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ）
-        overpass_client.py         ✅ Overpass API（地域全体のOSM道路データ取得、Step10）
+        overpass_client.py         ✅ Overpass API（地域全体のOSM道路データ取得、Step10。get_ways_and_nodesをRoad Graph移行Phase 1で追加、Way/Node IDを保持したトポロジー取得用）
         vector_tile.py               ✅ 路面データをMVT（Mapbox Vector Tile）にエンコード（Web Mercator投影、Step10改訂）
         cache_db.py                 ✅ SQLite永続キャッシュ（標高のみ、Step5用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
+        database.py                  ✅ SQLAlchemy非同期エンジン・セッションファクトリ（Road Graph移行「永続化」、新規。DB未接続でも既存機能に影響なし）
+        road_graph_models.py         ✅ road_nodes/road_edges/elevation_attributes/surface_attributesのSQLAlchemy ORMモデル（PostGIS Geometry型、Road Graph移行「永続化」、新規）。OsmRawNodeRow/OsmRawWayRow（生OSMデータ、配列型+GINインデックス）を「根本修正」で追加
+        road_graph_repository.py     ✅ RoadGraphRepository（bbox空間検索・UPSERT・ドメインモデル⇔ORM行変換・is_tile_cached/mark_tile_cached）（Road Graph移行「永続化」、新規。実PostGIS未検証）。save_raw_ways/get_way_specs_with_closureを「根本修正」で追加、save_graphにway_ids_to_replaceによるdelete-then-reinsertを追加
         valhalla_client.py        ⬜ 将来
-        osm_repository.py            ⬜
-        database.py                   ⬜
+        osm_repository.py            ⬜（road_graph_repository.pyが実質この役割を担う）
     tests/
       test_health.py          ✅
       test_geo.py             ✅ destination_point / haversine_distance_km / sample_indices / sample_line_coordinates / sample_line_points / compass_label / bearing_betweenの検証
@@ -210,16 +225,24 @@ RideCompass/
       test_scoring.py         ✅ normalize_min_maxの方向反転・全同値時の中立100点・None扱いの検証
       test_route_scorer.py    ✅ RouteScorer.scoreの正常系・指標欠損時の重み再正規化の検証
       test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
-      test_region.py           ✅ tile_bounds_lonlatの検証（zoom0で全世界を覆う・隣接タイルの境界一致など、Step10改訂）
+      test_region.py           ✅ tile_bounds_lonlatの検証（zoom0で全世界を覆う・隣接タイルの境界一致など、Step10改訂）。tiles_covering_bboxの検証（単一/複数タイル・世界端でのクランプ）を追加（Road Graphのタイル単位キャッシュ導入時、新規）
       test_region_service.py  ✅ RegionService.get_road_surface_tileのタイルキャッシュ利用/未キャッシュ時の挙動の検証（Step10改訂）
       test_region_routes.py   ✅ /api/region/road-surface-tiles/{z}/{x}/{y}.pbfのDIモックテスト・ズーム範囲外リクエストの400（Step10改訂）
-      test_overpass_client.py ✅ OverpassClient.get_roadsの正常系・エラー時のNone返却（Step10）
+      test_overpass_client.py ✅ OverpassClient.get_roadsの正常系・エラー時のNone返却（Step10）。get_ways_and_nodesの検証をRoad Graph移行Phase 1で追加
+      test_graph.py            ✅ build_road_graphのWay分割（交差点/端点/形状点）・direction処理・内部ID/OSM IDの分離・距離計算の検証（Road Graph移行Phase 1、新規。Phase 2でWaySpec契約に合わせて更新）
+      test_osm_adapter.py      ✅ osm_way_to_way_specのonewayタグ解釈（yes/-1/大文字小文字・空白/未知の値）・highway受け渡し・ノード数不足時の除外の検証（Road Graph移行Phase 2、新規。Phase 3でsurfaceタグ受け渡しの検証を追加）
+      test_attributes.py       ✅ compute_elevation_attribute（登り/下り/混在/欠損値/有効点不足）・build_surface_attributes（osm_way_id対応/未知way/way_id無し）の検証（Road Graph移行Phase 3、新規）
+      test_elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graphのDIモックテスト（複数Edge独立性・欠損値・空グラフ）（Road Graph移行Phase 3、新規）
+      test_evaluation.py       ✅ is_edge_allowed（Hard Constraint）・compute_edge_cost（平坦舗装/激坂未舗装の比較・属性欠損時のフォールバック・重み変更）の検証（Road Graph移行Phase 4、新規）
+      test_evaluation_service.py ✅ EvaluationService.evaluate_graphのDIモックテスト（Hard Constraint除外・属性欠損・空グラフ・カスタムRoutePreference）（Road Graph移行Phase 4、新規。Phase 5でload_route_preference（既定パス/カスタムパス）・設定ファイル経由デフォルトの検証を追加）
+      test_graph_service.py   ✅ GraphService.build_graph_for_bboxのDIモックテスト（Road Graph移行Phase 1、新規）。get_or_build_graph_with_attributesのタイル単位キャッシュ動作（単一/複数タイル・部分キャッシュ・一部タイル取得失敗）の検証を追加
       test_vector_tile.py      ✅ encode_road_surface_tileのデコード可能性・座標範囲・surface_goodプロパティ・2点未満のway除外の検証（Step10改訂）
       test_cache_db.py        ✅ 標高のSQLite永続キャッシュ読み書きの検証（Step5用。路面セルのテストはStep10改訂で撤去）
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
       test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
+    route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
     requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）
     Dockerfile                ✅
@@ -440,3 +463,210 @@ interface WeatherConditions {
 候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）は、いずれもタイル形式（標高はGSIのラスタタイル、路面は自前生成のMVT）で配信するため、Step5-9のようなJSONのレスポンスモデルを持たない。バックエンド側の`domain/region.py`にはタイル範囲計算に使う`BoundingBox`（Pydanticモデル）が残っているが、これはOverpassへの問い合わせに使う内部的な値であり、フロントエンドとの間でJSONとしてやり取りするものではない（フロント側に対応する型定義は無い）。
 
 これで仕様書18章記載の`RouteCandidate`の項目、地図可視化用の`segments`（Step9）、および候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）が出揃った。
+
+---
+
+## 9. Road Graph移行（進行中）
+
+「OSMを基礎としたRoad Graphを中心に据え、そのRoad Graphへ各種属性を後から追加できる構造へ段階的に移行する」ための移行仕様書に基づく作業。Phase 0（現状調査）→Phase 1（Road Graph導入）まで完了。既存機能（Step1-10）は無変更。
+
+### Phase 0で判明した現状（移行前）
+
+- **Node/Edgeの概念が存在しなかった**: 道路は(1)ORSが返すGeoJSON LineString（`RouteCandidate.geometry`）、(2)等間隔12点サンプリングの`RouteSegmentDetail`、(3)Overpass由来でID破棄済みの路面MVTタイル、という3つの無関係な形でのみ扱われていた
+- **経路探索は完全にopenrouteserviceへ委譲**: `RoutingService`/`RouteGenerator`はORSをブラックボックスとして使い、標高・風・路面の評価は「経路が返ってきた後」の後付けスコアリング（`RouteScorer`, `domain/difficulty.py`）に過ぎず、Edge Costが探索そのものに影響する仕組みは無かった
+- **永続的なedge_id体系が無い**: `OverpassClient.get_roads`はOSM Way/Node IDを取得直後に破棄していた
+- PostGIS（docker-compose）は用意されているが、backendコードから未接続
+
+### Phase 1で実施した内容
+
+既存のルート探索・地図表示には一切手を加えず、Road Graphを**独立した並行構造**として追加した。
+
+- **`backend/app/domain/graph.py`**（新規）: `Node`（node_id, latitude, longitude, osm_node_id）、`DirectedEdge`（edge_id, from_node_id, to_node_id, geometry, distance_m, osm_way_id, highway）、`RoadGraph`（graph_version, nodes, edges）のPydanticモデルと、純粋関数`build_road_graph(osm_ways, osm_nodes) -> RoadGraph`を実装。
+  - 分割地点（Node化する条件）は「各Wayの端点」または「複数Way間・同一Way内で複数回参照されるノード」とし、それ以外の中間点はNode化せずEdgeの`geometry`内の形状点として保持する（仕様書7・9章）
+  - `oneway`タグ（`yes`/`-1`等）に応じて片方向のみ、それ以外は双方向（A→B, B→A）のDirected Edgeを生成する（仕様書8章）
+  - 内部ID（`node-N`, `edge-N`の連番）とOSM ID（`osm_node_id`, `osm_way_id`）を明確に分離し、OSM IDをそのまま内部IDとして使わない（仕様書11章：「osm_way_idを永続的な道路の識別子として扱わないこと」）
+  - `graph_version`は過剰なバージョン管理機構を導入せず、生成時刻ベースの文字列のみ（仕様書12章の方針どおり最小実装）
+- **`backend/app/infrastructure/overpass_client.py`**: 新規メソッド`get_ways_and_nodes(client, bbox)`を追加。既存の`get_roads`（`out geom`でジオメトリのみ取得、ID破棄、地域路面レイヤー表示専用）とは別に、Way ID・Node IDとノード参照関係（トポロジー）を保持したまま取得する（`(._;>;); out body;`）。既存の`get_roads`・その呼び出し元（`RegionService`）は無変更
+- **`backend/app/services/graph_service.py`**（新規）: `GraphService.build_graph_for_bbox(bbox)`がOverpass取得とグラフ構築を統合する。**Phase 1時点では永続化を行わない**（呼び出しのたびに構築、DB/ファイルキャッシュ未実装）。既存の`RouteGenerator`・`RegionService`のどちらからも参照されない、完全に独立したサービス
+- **テスト**: `test_graph.py`（Way分割・交差点検出・oneway処理・ID分離・距離計算の単体テスト）、`test_graph_service.py`、`test_overpass_client.py`への追加分。既存を含む全147件がグリーン
+
+### Phase 1で意図的に行わなかったこと（スコープ外の判断）
+
+移行仕様書のPhase 1完了条件には「既存ルート探索がRoad Graphを利用できる」との記載があるが、これは仕様書34章「探索アルゴリズムを独断で変更しない」・39章「新しい経路探索アルゴリズムの独自実装は対象外」と直接競合する（現在の探索はORSへの完全委譲であり、内部Road Graphを実際の経路探索に使わせるには探索エンジンそのものの置き換えが必要になる）。そのため今回は「Road Graphを生成できる」ことのみを完了条件とし、`route_generator.py`/`routing_service.py`への組み込みは行っていない。Road GraphをEvaluation Engine・Route Engineへ接続する判断は、Phase 3（Road Attributes）・Phase 4（Evaluation Engine分離）以降で改めて提案する。
+
+同様に、永続化（SQLite/PostGIS/ファイルキャッシュ）もPhase 1では未実装。DB選定（既存の未使用PostGISを採用するか、`cache_db.py`/`tile_cache.py`と同様の軽量方式を踏襲するか）はユーザー判断が必要な事項として残している（仕様書38章）。
+
+### Phase 2で実施した内容
+
+Phase 1時点では、`domain/graph.py: build_road_graph`が交差点分割などの純粋なグラフ構築ロジックと、OSMの`oneway`タグ文字列（`"yes"`/`"-1"`等）の解釈という**OSM固有の語彙知識**を同居させてしまっていた。これはPhase 2の目的（「OSMのデータ形式が変更されても、Road Graph内部モデルへの影響を最小化する」、仕様書22章）に反するため分離した。
+
+- **`backend/app/domain/graph.py`**: `build_road_graph`の入力契約として`WaySpec`（データソース非依存、`osm_way_id`, `node_ids`, `highway`, `direction: "forward"|"backward"|"both"`）を新設。`ONEWAY_FORWARD_ONLY`/`ONEWAY_BACKWARD_ONLY`（OSMタグの生値）と、それを解釈する分岐は`domain/graph.py`から削除した。`build_road_graph`はもはや`tags`辞書という概念自体を知らない
+- **`backend/app/domain/osm_adapter.py`**（新規、OSM Adapter/Importerに相当）: `osm_way_to_way_spec(raw_way: dict) -> WaySpec | None`が、OSMの`oneway`タグ（`yes`/`-1`/`reverse`等、大文字小文字・前後空白を無視）を`WaySpec.direction`へ変換し、`highway`タグをそのまま渡す。ノードが2未満のwayは経路探索上の区間になり得ないためNoneを返す（Adapter側でフィルタする）
+- **`backend/app/services/graph_service.py`**: `GraphService.build_graph_for_bbox`が`OverpassClient.get_ways_and_nodes` → `osm_adapter.osm_ways_to_way_specs` → `build_road_graph`の順で配線するよう更新。責務の流れが仕様書47章の「OSM → OSM Adapter/Importer → Road Graph」と一致する形になった
+- 既存の`OverpassClient.get_roads`（地域路面レイヤー用、Step10）は無変更。ルート探索・地図表示への影響なし
+- テスト: `test_graph.py`を`WaySpec`ベースに更新（`oneway`文字列ではなく`direction`を直接指定する形に変更）、`test_osm_adapter.py`を新規作成（oneway解釈・highway受け渡し・ノード数フィルタの検証）。既存を含む全157件がグリーン
+
+このリファクタリングにより、将来Overpassのクエリ形式が変わったり、OSM以外のデータソース（PBF一括抽出等）へ切り替える場合も、変更は`osm_adapter.py`（と対応する新Adapter）に閉じ、`build_road_graph`のグラフ構築アルゴリズムは無変更で使えることが期待される。
+
+### Phase 3で実施した内容
+
+標高・路面をRoad Attribute（仕様書13-16章）としてEdgeへ紐付ける仕組みを追加した。既存のルート単位の評価（`ElevationService`, `RouteGenerator`, `domain/road.py`のORS/Overpass由来のroad_score）は無変更で、Edge単位の属性生成は独立した並行機能として追加している。
+
+- **`backend/app/domain/attributes.py`**（新規）: `ElevationAttribute`（edge_id, start/end_elevation_m, elevation_gain_m/loss_m, average/max/min_grade, data_source, data_version, calculated_at）と`SurfaceAttribute`（edge_id, surface_type, confidence, data_source, data_version, calculated_at）のPydanticモデル。仕様書13章の方針どおりEdge本体（`domain/graph.py`）とは別モデルとして定義し、`surface_type`はOSMタグの生値のみを保持し評価用スコア（`surface_score`等）は含まない（正規化・スコア化はPhase 4以降のEvaluation Engineの責務、仕様書24-26章）
+  - `compute_elevation_attribute(edge_id, points, elevations, data_source)`: Edgeの形状点列とその標高値から獲得標高・喪失標高・符号付き勾配（average/max/min_grade）を算出する純粋関数。既存の`ElevationService.get_profile`（ルート単位、12点サンプリング用）とは別実装（意図的に非共有。既存の動いているルート生成フローに影響を与えないため、詳細は「Phase 3で意図的に行わなかったこと」参照）
+  - `build_surface_attributes(graph, surface_by_way_id, data_source)`: RoadGraphの各EdgeへOSMの`surface`タグ（`osm_way_id`経由で対応付け）を割り当てる純粋関数。1つのOSM Wayが複数Edgeに分割されている場合は同じsurface_typeを共有する
+- **`backend/app/domain/graph.py`**: `WaySpec`に`surface: str | None`フィールドを追加（`highway`と同様、OSM Adapterが抽出する生タグ）。`DirectedEdge`へは持たせない（Edge本体とRoad Attributeの分離を維持するため、仕様書10・13章）
+- **`backend/app/domain/osm_adapter.py`**: `osm_way_to_way_spec`が`tags.get("surface")`も`WaySpec.surface`へ抽出するよう拡張
+- **`backend/app/services/elevation_attribute_service.py`**（新規）: `ElevationAttributeService.get_attributes_for_graph(graph)`が、RoadGraphの各Edgeの形状点（`geometry`）を国土地理院APIへ問い合わせ、Edgeごとの`ElevationAttribute`を算出する。既存の`ElevationClient`（緯度経度キャッシュ、SQLite永続化）をそのまま再利用するため、ルート生成側で既に問い合わせ済みの地点はキャッシュヒットする
+- **`backend/app/services/graph_service.py`**: 新規メソッド`build_graph_with_surface_tags_for_bbox(bbox)`を追加。Road Graph構築に使ったのと同じOverpass取得結果（1回のみ）から`RoadGraph`と`dict[osm_way_id, surface]`を同時に返す（Surface Attribute生成のために再度Overpassへ問い合わせることを避けるため）。既存の`build_graph_for_bbox`は無変更（内部実装のみ共通化）
+- テスト: `test_attributes.py`（登り/下り/混在勾配・欠損値・osm_way_id対応の検証）、`test_elevation_attribute_service.py`（DIモック）を新規作成。`test_osm_adapter.py`・`test_graph_service.py`に追加分。既存を含む全173件がグリーン
+
+### Phase 3で意図的に行わなかったこと（スコープ外の判断）
+
+- **標高計算ロジックを既存`ElevationService`と共有しなかった**: `ElevationService.get_profile`はルート単位・12点サンプリングという既存の使われ方に最適化されており、獲得標高（gain）のみを返し喪失標高（loss）や符号付き勾配（min/max_grade）を持たない。これをEdge単位の要件に合わせて拡張・共有化することも検討したが、Step5-9から動いている既存ルート生成フローに影響を与えるリスクがあるため見送り、`compute_elevation_attribute`として独立した実装にした（約15行の計算ロジックの重複だが、既存機能への影響ゼロを優先）。将来的に共通化する場合は、まず`ElevationService`側のテストが厚く保たれていることを確認してから検討する
+- **正規化・スコア化（surface_score等）は実装しなかった**: 仕様書24-26章のRaw AttributeとScoreの分離方針に従い、Phase 3は「属性の導入」までに留め、スコア化はPhase 4（Evaluation Engine分離）以降で改めて設計する
+- **交通・自転車インフラ・信号密度の属性は追加しなかった**: 現時点でこれらのデータソースが存在しない（仕様書39章は新規データソース連携を今回のスコープ外としていないが、既存データの整理を優先する仕様書Phase 3の方針「新機能を大量に追加することよりも、既存データをRoad Graph中心に整理することを優先する」に従い、既存の標高・路面のみを対象とした）
+- **APIエンドポイントは追加しなかった**: `GraphService`同様、Phase 3の属性生成機能もAPIやUIには未接続（内部的に呼び出し・テスト可能な状態に留めている）
+- **永続化は引き続き未実装**: 属性もRoad Graphと同様、呼び出しのたびに計算する設計。DB選定（PostGIS採用か、軽量方式継続か）は依然ユーザー判断待ち
+
+### Phase 4で実施した内容
+
+Phase 4着手前に「Evaluation Engineを何に対して作るか」という設計判断が生じたため、ユーザーに確認した。選択肢は(a) Phase1-3で作ったRoad Graph/Road Attribute側に新設する、(b) 既存の`RouteScorer`/`domain/difficulty.py`（route_generator.py内、ルート単位）を独立モジュールとして抽出する、(c)両方、の3案を提示し、(a)（Road Graph側への新設、既存のライブなルート生成コードには触れない）を採用した。
+
+- **`backend/app/domain/evaluation.py`**（新規、Evaluation Engine本体）:
+  - `RoutePreference`（`elevation_weight`, `road_weight`）: 仕様書27章のRoute Preference。現時点で実装済みのRoad Attribute（標高・路面）のみを対象とし、交通・自転車インフラ・信号等、未実装の属性用の重みは追加していない。重みのYAML外部化は仕様書のPhase分割どおりPhase 5の作業として明示的に見送った（デフォルト値を持つPydanticモデルとしてのみ用意し、呼び出し元が差し替え可能な構造にした）
+  - `is_edge_allowed(edge)`: Hard Constraint（仕様書29章）。`highway`タグが`motorway`/`motorway_link`/`trunk`/`trunk_link`のEdgeを自転車通行不可として除外する。Phase 1から`DirectedEdge.highway`が既に保持されていたため、新たなデータソースなしで実装できた
+  - `compute_edge_cost(edge, elevation_attribute, surface_attribute, preference)`: Road Attributeから Edge Costを算出する。**Score部分は新しい正規化方式を発明せず、既存の`domain/difficulty.py`（`gradient_difficulty`, `road_difficulty`, `composite_difficulty`。Step9で地図の難易度レイヤー用に導入済み、0-100・値が大きいほど走りにくい絶対基準）をそのまま再利用した**。Cost自体は「difficulty(0-100)を距離への乗算ペナルティ（1.0〜2.0倍）に変換する」という初期実装で、仕様書31章の方針どおり将来別方式に差し替え可能な独立した関数にしてある
+- **`backend/app/services/evaluation_service.py`**（新規）: `EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes)`がRoadGraphの全Edgeに対し`compute_edge_cost`を適用する。I/Oを行わない点は既存の`RouteScorer`（`services/route_scorer.py`、docstringに「I/Oを行わない純粋なクラス」と明記）と同じ位置づけで、この既存の設計精神を踏襲した
+- Edge Costは仕様書32章の方針どおりRoad Graphへ恒久保存しない（`EvaluationService`の戻り値としてのみ存在する使い捨てのdict）
+- テスト: `test_evaluation.py`（Hard Constraint・平坦舗装と激坂未舗装の比較・属性欠損時のフォールバック・重み変更）、`test_evaluation_service.py`（DIモック）を新規作成。既存を含む全185件がグリーン
+
+### Phase 5で実施した内容
+
+Phase 4で導入した`RoutePreference`（重み）はPydanticモデルとしてのみ存在し、デフォルト値（0.5/0.5）がコードに埋め込まれていた。Phase 5でこれを設定ファイルへ外部化した。
+
+- **`backend/app/route_preference.yaml`**（新規）: `route_preference.elevation_weight`/`road_weight`。既存の`scoring.yaml`（ルート単位・candidate集合内の相対評価、`RouteScorer`が使う4指標）とは対象が異なる別設定のため、Phase 4完了時点の引き継ぎ事項で検討課題としていた「共用するか分離するか」は**分離**を選択した。同じ「重み」という概念でも、一方はルート候補同士の相対比較（min-max正規化）、もう一方は単体のEdgeに対する絶対評価という異なる意味を持つため、混同を避けるため
+- **`backend/app/services/evaluation_service.py`**: `load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePreference`を追加（`route_scorer.py`の`load_scoring_weights`と同じI/Oパターン、YAML読み込みという性質上services層に配置）。`EvaluationService.__init__`のデフォルト値を、ハードコードされた`RoutePreference()`から`load_route_preference()`に置き換えた。`preference`引数を明示的に渡すこれまでの呼び出し方（テスト等）には影響しない
+- 複数プロファイル（快適性重視/トレーニング重視等、仕様書27・45章）は今回実装しない（仕様書Phase 5の方針「UIから変更する必要は今回必須ではない。まずは内部的に変更可能な構造を作る」に従う）。`load_route_preference`が`path`引数を取る構造にしてあるため、将来的に`route_preference_comfort.yaml`等を追加してパスを切り替えるだけで対応でき、コード変更は不要という設計にしてある
+- テスト: `load_route_preference`の既定パス・カスタムパス読み込み、`EvaluationService()`のデフォルトが設定ファイル経由になったことの検証を追加。既存を含む全188件がグリーン
+
+### Road Graph・Road Attributeの永続化（PostGIS）
+
+Phase 1-5完了時点の引き継ぎ事項だった「永続化方式の決定」について、ユーザーの意思決定によりPostGISを採用した。**このdev環境にはDocker/PostgreSQLが無く、実際のPostGISに接続しての動作確認ができていない**ことをユーザーに明示した上で、コード実装のみを先に進めることで合意して着手した（後述「未検証の範囲」を参照）。
+
+#### 前提として必要になった修正: ID安定化
+
+永続化キャッシュが機能するには、同じ現実の交差点・道路区間には常に同じ`node_id`/`edge_id`が振られる必要がある。しかしPhase 1時点の実装は`node_id`/`edge_id`をビルド呼び出しごとにリセットされる連番（`node-1`, `edge-1`...）で採番しており、同じ地域を2回ビルドしても内部IDが一致しない状態だった。これは永続化を実装する前提として`domain/graph.py`を修正した。
+
+- `node_id`は`osm_node_id`から決定論的に導出（`osm-node-<id>`）
+- `edge_id`は`osm_way_id`＋Way内でのセグメント順序＋方向から決定論的に導出（`way-<osm_way_id>-seg<n>-fwd/bwd`）
+- 仕様書11章の「osm_way_idを永続的な道路の識別子として扱わないこと」は維持（内部IDはOSM IDの生値そのものではなく別表現にしている）
+- 既存テスト（`node_id != str(osm_node_id)`等の「内部IDはOSM IDと別物」という検証）に変更なく通ることを確認。新たに「同一入力から複数回ビルドしても同じID集合になること」を検証するテストを追加
+
+#### 実装内容
+
+- **技術選定**: SQLAlchemy 2.0（非同期、asyncpgドライバ）+ GeoAlchemy2（PostGISのGeometry型）+ Shapely（Python側のジオメトリ操作）。このプロジェクトで初めてのORM/リレーショナルDB利用（既存のcache_db.pyはSQLiteの素の`sqlite3`モジュール、tile_cache.pyはファイルキャッシュで、いずれもリレーショナルではない）
+- **マイグレーションツールは導入しない**: Alembic等は使わず、`create_tables()`が`Base.metadata.create_all`相当を実行するのみ（cache_db.pyの`CREATE TABLE IF NOT EXISTS`と同じ「必要最小限」の思想、仕様書12章）
+- **`backend/app/infrastructure/road_graph_models.py`**（新規）: SQLAlchemy ORMモデル4種（`road_nodes`, `road_edges`, `elevation_attributes`, `surface_attributes`）。`elevation_attributes`/`surface_attributes`は`road_edges.edge_id`への外部キー（`ON DELETE CASCADE`）で、ドメインモデルと同じく「Edge本体とAttributeの分離」を維持
+- **`backend/app/infrastructure/road_graph_repository.py`**（新規）: `RoadGraphRepository`クラス。`get_graph_in_bbox`（`ST_Intersects`/`ST_MakeEnvelope`によるbbox空間検索）、`save_graph`（`Session.merge`によるUPSERT、Node→Edgeの順でflushしFK制約を満たす）、標高/路面属性の取得・保存。ドメインのPydanticモデルとORM行の相互変換関数を持つ
+- **`backend/app/infrastructure/database.py`**（新規）: 非同期エンジン・セッションファクトリ（アプリ全体で1エンジンを共有する標準的なSQLAlchemyの使い方）
+- **`GraphService`**: 新規メソッド`get_or_build_graph_with_attributes(bbox)`を追加。`repository`（コンストラクタの新規オプション引数、既定`None`）を渡した場合のみキャッシュを使う。渡さなければPhase 1-5と全く同じ「毎回Overpassから構築する」挙動のまま（既存メソッド`build_graph_for_bbox`/`build_graph_with_surface_tags_for_bbox`も無変更）
+- **`ElevationAttributeService`**: `get_attributes_for_graph`が`repository`（同じく既定`None`のオプション引数）指定時のみEdge単位でキャッシュを確認し、未取得のEdgeだけGSI APIへ問い合わせる。部分キャッシュ（一部Edgeだけキャッシュ済み）にも対応
+- **`config.py`**: `database_url`を追加（既定値はdocker-compose.ymlのpostgresサービスに対応）。`docker-compose.yml`の`DATABASE_URL`をSQLAlchemy非同期エンジン用に`postgresql+asyncpg://`スキームへ修正（これまで一度も実際に使われていなかった値のため、書き換えても既存動作への影響なし）
+- テスト: `test_graph.py`にID安定性の検証を追加。`test_graph_service.py`/`test_elevation_attribute_service.py`に、インメモリの`FakeRoadGraphRepository`/`FakeElevationAttributeRepository`を使ったキャッシュヒット/ミス/部分キャッシュのオーケストレーションロジックのテストを追加。既存を含む全199件がグリーン
+
+#### 未検証の範囲（重要）
+
+このdev環境にはDocker/PostgreSQLが無く、`road_graph_repository.py`のSQL/ORMマッピングは**実際のPostGISに対して一度も実行されていない**。以下で部分的に静的検証は行った。
+
+- `Base.metadata.create_all`相当のDDLをpostgresqlダイアレクトでコンパイルし、`geometry(POINT,4326)`等の型・外部キー制約が意図通り生成されることを確認
+- `get_graph_in_bbox`の`ST_Intersects`/`ST_MakeEnvelope`を使ったSELECT文をpostgresqlダイアレクトでコンパイルし、SQLとして正しい形になることを確認
+
+ただし、実際のPostGISへの接続・PostGIS拡張の有効化・`Session.merge`によるUPSERT・GeoAlchemy2の`from_shape`/`to_shape`によるジオメトリ変換の往復（特に緯度経度の軸順の取り違えがないか）は未検証。**ユーザーがDocker等でPostGISを起動できるようになった時点で、実接続での動作確認が必須。**
+
+#### 意図的な設計上の簡略化（既知の制約）
+
+- Node/Edgeの更新（OSM側の変更に追従した再取得・古いデータの失効判定）は実装していない。`updated_at`列は保持しているが、TTLベースの失効等の利用はまだ無い
+- 「bboxと交差するEdgeが1件でもDBにあればキャッシュヒット」という不正確な簡易判定は、後述のタイル単位キャッシュ導入により解消済み
+
+### RegionServiceの路面データとSurfaceAttributeの統合検討 → タイル単位キャッシュの導入
+
+ユーザーから「RegionServiceの路面データとSurfaceAttributeを統合できないか」という検討依頼を受け、以下の選択肢を分析した。
+
+- **A. RegionServiceのデータソースをRoad Graph/PostGIS経由に完全移行**: 却下。RegionServiceは現在ゼロDB依存で動いている実運用機能であり、PostGIS必須にすると「PostGISが落ちている間、地図の路面表示という既存機能が丸ごと壊れる」。実際、このdev環境は今もPostGIS未接続であり、この方針は「既存機能を維持できることを最優先する」という大原則に反する
+- **B. Overpassクエリ方式だけを統一**（RegionServiceも`get_ways_and_nodes`を使うよう変更）: 見送り。今この2つのサービスが同時に同じ地域へ問い合わせる実運用シナリオが存在しない（Road Graph側はまだどのAPI/UIからも呼ばれていない）ため、実運用コード（RegionService）を変更するリスクに見合う効果が今は無い
+- **C. Road Graph側のキャッシュ単位をRegionServiceのタイル方式に合わせる**: **採用**。RegionServiceには一切手を入れず、Road Graph側だけをXYZタイル境界単位のキャッシュに変更する。これは「bboxの一部だけが過去に取得済みの場合に断片的なデータを返してしまう」という永続化Phase時点の既知の制約の解消と表裏一体であり、RegionServiceへの依存もリスクも生じさせない
+- **D. 統合しない（現状維持）**: Cの実施により部分的に採用（データソース自体は統合しない）
+
+#### Cの実装内容: Road Graphのタイル単位キャッシュ
+
+- **`backend/app/domain/region.py`**: `ROAD_GRAPH_TILE_ZOOM = 12`（Road Graph専用の固定ズームレベル。RegionServiceの`ROAD_TILE_MIN_ZOOM`/`MAX_ZOOM`はMapLibreの表示ズームに追従するための範囲だが、Road Graphには「現在の表示ズーム」という概念が無いため単一の固定値とした）。`tiles_covering_bbox(bbox, z)`（新規）を追加。任意のbboxを覆う最小限のXYZタイル群の(x,y)一覧を返す純粋関数で、既存の`tile_bounds_lonlat`（その逆関数に相当）と対で使う
+- **`backend/app/infrastructure/road_graph_models.py`**: `RoadGraphTileRow`（新規、`road_graph_tiles`テーブル）を追加。「このタイルはOverpassへの問い合わせを完了した」ことだけを記録する取得済みマーカー（`road_nodes`/`road_edges`にデータが実在するかどうかとは独立して判定する）
+- **`backend/app/infrastructure/road_graph_repository.py`**: `is_tile_cached(zoom, x, y)`/`mark_tile_cached(zoom, x, y)`を追加
+- **`backend/app/services/graph_service.py`**: `get_or_build_graph_with_attributes`を書き換え。要求bboxを`tiles_covering_bbox`でタイル群に分解し、タイルごとに`is_tile_cached`で正確に判定、未取得タイルだけをOverpassへ**順に**問い合わせて（公開Overpassインスタンスへの配慮として並列化しない、RegionServiceと同じ方針）永続化する。Overpass取得に失敗したタイルはマークしない（次回リクエストで再取得を試みる、RegionServiceの路面タイルキャッシュと同じ方針）。全タイルの取得を保証してから`get_graph_in_bbox`でDBを読むため、返るデータは常に要求bboxを正確にカバーする
+- テスト: `test_region.py`に`tiles_covering_bbox`の検証（単一タイルに収まるケース・複数タイルにまたがるケース・世界の端でのクランプ）を追加。`test_graph_service.py`のタイルキャッシュ系テストを、実際のタイル境界（`tile_bounds_lonlat`から逆算した既知のbbox）を使う形に書き換え、複数タイルにまたがるリクエスト・部分キャッシュ・一部タイルのみ取得失敗するケースを検証。既存を含む全205件がグリーン
+
+### 設計・実装レビュー（Phase 1-5・永続化・タイルキャッシュ一式）
+
+ユーザーの依頼により、`backend/`のRoad Graph移行作業一式（frontend/は別プロセスが並行作業中のため対象外）をコードレビューした。7件の指摘のうち4件を修正し、3件は既知の制約として記録するに留めた（理由は各項目に記載）。
+
+#### 修正した指摘
+
+1. **`.env.example`のDATABASE_URLが同期スキーム（`postgresql://`）のままだった**: `database.py`が非同期エンジン（asyncpgドライバ）を要求するため、コメント「not yet used by the backend」も含めて`postgresql+asyncpg://`へ修正し、実態に合わせた説明に更新した。`config.py`のデフォルト値・`docker-compose.yml`は既に正しかったが、開発者が`.env.example`をコピーして使う際に接続エラーになる状態だった
+2. **`get_or_build_graph_with_attributes`が「取得失敗」と「道路が無い地域を正常に確認できた」を区別できていなかった**: 海・公園など道路が1本も無い地域は、Overpass取得自体は成功して空のグラフを返すが、旧実装は`get_graph_in_bbox`が0件ヒット（=None）を返すケースを一律「失敗」として扱っていた。タイルは正しくキャッシュ済みとしてマークされ続けるため、**そのような地域へのリクエストは永久にNoneを返し続ける**バグだった。取得ループ中に実際の取得失敗（`any_tile_fetch_failed`）を追跡し、失敗が無ければ0件ヒットを「空だが正常」として扱うよう修正した
+3. **`GraphService`のFK前提条件が`ElevationAttributeService`にドキュメント化されていなかった**: `repository`指定時、`ElevationAttributeService.get_attributes_for_graph`はEdgeがPostGISに保存済みであることを暗黙に要求する（`elevation_attributes.edge_id`が`road_edges.edge_id`への外部キーのため）。`GraphService.build_graph_for_bbox`（DB未保存）から得たRoadGraphと組み合わせると外部キー制約違反になる、現状は到達しないが将来の誤用を招きうる罠だったため、docstringに前提条件を明記した
+4. **`_lonlat_to_tile_index`が範囲外の緯度でmath domain errorを起こしうる**: `BoundingBox`は`Coordinates`と異なり緯度の範囲を検証しないため、90度を超える値が渡された場合`math.log(負の値)`で`ValueError`を送出しうる状態だった。Web Mercatorの有効範囲（±85.0511度）へクランプするよう修正し、回帰テストを追加した
+
+#### 既知の制約として記録するに留めた指摘（意図的に未修正）
+
+5. ~~**タイル境界の位置によって、同じOSM Wayの交差点分割が取得タイミング次第で変わりうる**~~ → **根本修正済み**。詳細は次項「タイル境界依存の交差点分割不一致問題：根本修正」を参照
+6. **同一タイルへの同時リクエストに対するロック機構が無い**: `is_tile_cached`確認→Overpass取得→`save_raw_ways`→`mark_tile_cached`の一連の流れはトランザクション分離されておらず、2つのリクエストが同時に同じ未取得タイルへアクセスすると両方がOverpassへ問い合わせてしまう（「並列化せず順に問い合わせる」という設計意図が単一リクエスト内でのみ有効）。ただし、これは既存の`RegionService`の路面タイルキャッシュ（`tile_cache.py`）も同じ弱点を持っており、このプロジェクトが既に許容している既知のリスクパターンと同等であるため、Road Graph側だけを先に対策することはしなかった
+7. **`save_graph`等がNode/Edge/Attributeごとに`Session.merge`を個別実行しており、1タイルあたり数百〜数千回のクエリになりうる**: バルクUPSERT（`INSERT ... ON CONFLICT DO UPDATE`）に置き換えれば改善するが、実PostGISに接続できないこの環境ではGeoAlchemy2のジオメトリ値を含むバルク文が正しく動くか検証できない。誤った書き換えを未検証のまま入れるより、パフォーマンス課題として記録し、実接続確認のタイミングで対応する方が安全と判断した
+
+修正後、レビューで追加した回帰テスト（DATABASE_URLの整合性は自動テスト対象外、緯度クランプ・空地域の扱いの2件）を含め、既存を含む全207件がグリーン（この時点。後述の根本修正でさらに増える）。
+
+### タイル境界依存の交差点分割不一致問題：根本修正
+
+レビュー指摘5について、対応レベルをユーザーに確認したところ「根本修正」を選択。**生のOSMデータ（Way/Node）とRoad Graph構築（交差点分割）を分離する**設計に作り直した。
+
+#### 設計
+
+```
+Overpass（タイル単位で問い合わせ）
+    ↓
+生のOSM Way/Nodeデータをそのまま永続化（osm_raw_ways / osm_raw_nodes）
+    ↓ ※取得元タイルに依存しない安定した層。素直にUPSERTしてよい
+    ↓
+Road Graph構築リクエスト時、DB上の既知の生データ全体から
+「要求bbox内にノードを持つWay（主対象）」と
+「それらのWayが参照する全ノード（Way全長分）を1つでも共有するWay（近傍）」を取得
+    ↓
+build_road_graph（無変更）をこの結合されたWay集合に対して実行
+    ↓
+主対象Way分のEdgeのみをdelete-then-reinsertで永続化（近傍Wayの永続化には触れない）
+```
+
+- **`backend/app/infrastructure/road_graph_models.py`**: `OsmRawNodeRow`/`OsmRawWayRow`（新規）。`OsmRawWayRow.node_ids`はPostgreSQL配列型（`ARRAY(BigInteger)`）で保存し、GINインデックス（`&&`演算子による重なり検索）を張る。**実装中に発見した問題**: `osm_node_id`/`osm_way_id`を単一列の整数主キーにすると、SQLAlchemyが自動的に`BIGSERIAL`（自動採番）だと解釈してしまう（DDLコンパイルで確認）。これらは常にOSM側のIDを明示的に指定する値のため、`autoincrement=False`を明示して回避した
+- **`backend/app/infrastructure/road_graph_repository.py`**:
+  - `save_raw_ways(way_specs, node_coords)`: 生データのUPSERT。Wayのタグ・ノード列は取得元タイルに関わらず常に同じ内容になるため曖昧さが無い
+  - `get_way_specs_with_closure(bbox)`: 主対象Way（bbox内にノードを持つ）→ それらの全ノード（Way全長分）→ それらのノードを共有する近傍Wayを2段階のクエリで取得する。戻り値は`(WaySpec一覧, ノード座標, 主対象WayのosmWay ID集合)`
+  - `save_graph(graph, way_ids_to_replace)`: `way_ids_to_replace`を指定すると、そのosm_way_idを持つ既存Edge行を全削除してから挿入し直す（delete-then-reinsert）。これにより、Wayの分割結果が変わった場合でも孤立した古いEdge行が残らない
+- **`backend/app/services/graph_service.py`**: `get_or_build_graph_with_attributes`を書き換え。タイル取得ループはEdge構築を一切行わず`save_raw_ways`のみ呼ぶ。全タイルの生データ取得を保証した後、`get_way_specs_with_closure`→`build_road_graph`（無変更）→ 主対象Way分のみを`save_graph(..., way_ids_to_replace=primary_way_ids)`で保存、という流れに変更した
+- テスト: `test_graph_service.py`の`FakeRoadGraphRepository`を実際のclosureロジック（1ホップ近傍探索）で実装し直した。**新規回帰テスト`test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shared_node`**で、Way Wがタイル境界をまたぎ側道Bと交差点を共有するケースを構築し、「Bを含むタイルを直接見た場合」と「Bを含まないタイルだけを見るがBは既に別途取得済みの場合」の両方で、Wが同じ分割結果（4 Edge、同じ距離集合）になることを確認した
+
+#### この設計で解決されること・残る限界
+
+- **解決**: 近傍Wayが既にDBに存在する限り（＝そのWayを含むタイルが過去に一度でも取得されていれば）、どのタイル経由で「主対象」の計算をトリガーしたかに関わらず、交差点の分割結果が一貫する
+- **残る限界（結果整合的、1ホップに限定）**: 近傍探索は主対象Wayの全長分のノードから1ホップに限定している。近傍として取得したWay自身が、さらに別の（まだ近傍探索の対象外の）Wayと交差点を共有している場合、その交差点は近傍Way自身が別のリクエストで「主対象」として処理されるまで最新の状態に反映されない。道路網全体の連結成分を毎回たどる完全な整合性チェックはコストに見合わないと判断し、トレードオフとして許容した。実務上は、routeが実際に通る範囲を何度かリクエストするうちに自然と収束していく設計になっている
+- **意図的に永続化しない対象**: 近傍Wayとして取得したWay自身のEdgeは、この呼び出しでは保存・更新しない（不完全な文脈で計算した分割結果によって、他のリクエストが正しく永続化したEdgeを誤って上書きしないため）
+
+既存を含む全208件がグリーン（実PostGISへの接続・GIN索引の実動作・配列型のOverlap検索は引き続き未検証、DDL・クエリのコンパイルチェックのみ実施済み）。
+
+### 次のPhaseへの引き継ぎ事項
+
+- **最優先**: 実際のPostGISに接続しての動作確認（上記「未検証の範囲」）。特にGINインデックス・配列Overlap検索・`autoincrement=False`の実際の挙動は要確認
+- `compute_edge_cost`のCost計算式（distanceへの乗算ペナルティ）は初期実装であり、仕様書31章が求める「複数のCost計算方式を比較検討できる」構造は、実際に2つ目の方式を試すタイミングでリファクタリングの必要性を再評価する
+- Phase 6（Dynamic Data対応）に進む場合、風などの時間依存データをEvaluation Engineへ渡す設計（仕様書20・44章：Edge+Travel Direction+Departure Timeから評価）が必要。現在の`compute_edge_cost`は静的属性のみを引数に取る形になっているため、Dynamic Contextを追加引数として拡張する形が自然か検討する
+- 複数のRoute Preferenceプロファイル（快適性重視/トレーニング重視等）を実際に追加する場合、`route_preference.yaml`をどう複数化するか（1ファイルに複数プロファイルをまとめるか、ファイルを分けるか）は、実際にUI/APIから選択可能にするタイミング（Phase 5範囲外）で改めて設計する
+- `ROAD_GRAPH_TILE_ZOOM = 12`は暫定値（東京付近で1辺約8km）。実データが蓄積された段階で、Overpassへの問い合わせ回数とキャッシュ粒度のトレードオフを見直す余地がある
+- RegionServiceとRoad Graphのデータソース統合（選択肢A）は、Road Graphが実際にRoute Engineへ接続され「本当に使われる」段階になってから改めて検討する

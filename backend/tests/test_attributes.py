@@ -1,0 +1,117 @@
+from app.domain.attributes import build_surface_attributes, compute_elevation_attribute
+from app.domain.graph import DirectedEdge, Node, RoadGraph
+from app.domain.route import Coordinates
+
+P1 = Coordinates(latitude=35.700, longitude=139.700)
+P2 = Coordinates(latitude=35.701, longitude=139.700)
+P3 = Coordinates(latitude=35.702, longitude=139.700)
+
+
+def test_compute_elevation_attribute_uphill():
+    attr = compute_elevation_attribute("edge-1", [P1, P2, P3], [10.0, 20.0, 40.0], data_source="test")
+
+    assert attr.edge_id == "edge-1"
+    assert attr.start_elevation_m == 10.0
+    assert attr.end_elevation_m == 40.0
+    assert attr.elevation_gain_m == 30.0
+    assert attr.elevation_loss_m == 0.0
+    assert attr.max_grade is not None and attr.max_grade > 0
+    assert attr.min_grade is not None and attr.min_grade > 0
+    assert attr.average_grade is not None and attr.average_grade > 0
+    assert attr.data_source == "test"
+    assert attr.calculated_at
+
+
+def test_compute_elevation_attribute_downhill_has_loss_and_negative_grade():
+    attr = compute_elevation_attribute("edge-1", [P1, P2, P3], [40.0, 20.0, 10.0], data_source="test")
+
+    assert attr.elevation_gain_m == 0.0
+    assert attr.elevation_loss_m == 30.0
+    assert attr.max_grade is not None and attr.max_grade < 0
+    assert attr.min_grade is not None and attr.min_grade < 0
+    assert attr.average_grade is not None and attr.average_grade < 0
+
+
+def test_compute_elevation_attribute_mixed_gain_and_loss():
+    attr = compute_elevation_attribute("edge-1", [P1, P2, P3], [10.0, 30.0, 15.0], data_source="test")
+
+    assert attr.elevation_gain_m == 20.0
+    assert attr.elevation_loss_m == 15.0
+    assert attr.max_grade is not None and attr.max_grade > 0  # 登り区間
+    assert attr.min_grade is not None and attr.min_grade < 0  # 下り区間
+
+
+def test_compute_elevation_attribute_ignores_none_values():
+    attr = compute_elevation_attribute("edge-1", [P1, P2, P3], [10.0, None, 20.0], data_source="test")
+
+    # Noneの点は除外され、有効な2点（10.0→20.0）だけで評価される
+    assert attr.start_elevation_m == 10.0
+    assert attr.end_elevation_m == 20.0
+    assert attr.elevation_gain_m == 10.0
+
+
+def test_compute_elevation_attribute_returns_all_none_when_fewer_than_two_valid_points():
+    attr = compute_elevation_attribute("edge-1", [P1, P2], [10.0, None], data_source="test")
+
+    assert attr.edge_id == "edge-1"
+    assert attr.start_elevation_m is None
+    assert attr.elevation_gain_m is None
+    assert attr.average_grade is None
+    assert attr.data_source == "test"
+    assert attr.calculated_at
+
+
+def _make_graph(edges: dict[str, DirectedEdge]) -> RoadGraph:
+    node = Node(node_id="node-1", latitude=35.7, longitude=139.7)
+    return RoadGraph(graph_version="v1", nodes={"node-1": node}, edges=edges)
+
+
+def test_build_surface_attributes_maps_by_osm_way_id():
+    edge = DirectedEdge(
+        edge_id="edge-1",
+        from_node_id="node-1",
+        to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]],
+        distance_m=100.0,
+        osm_way_id=100,
+    )
+    graph = _make_graph({"edge-1": edge})
+
+    attributes = build_surface_attributes(graph, surface_by_way_id={100: "asphalt"}, data_source="osm-overpass")
+
+    assert attributes["edge-1"].surface_type == "asphalt"
+    assert attributes["edge-1"].edge_id == "edge-1"
+    assert attributes["edge-1"].data_source == "osm-overpass"
+    assert attributes["edge-1"].confidence is None
+
+
+def test_build_surface_attributes_unknown_way_id_is_none():
+    edge = DirectedEdge(
+        edge_id="edge-1",
+        from_node_id="node-1",
+        to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]],
+        distance_m=100.0,
+        osm_way_id=999,
+    )
+    graph = _make_graph({"edge-1": edge})
+
+    attributes = build_surface_attributes(graph, surface_by_way_id={100: "asphalt"}, data_source="osm-overpass")
+
+    assert attributes["edge-1"].surface_type is None
+
+
+def test_build_surface_attributes_edge_without_osm_way_id_is_none():
+    edge = DirectedEdge(
+        edge_id="edge-1",
+        from_node_id="node-1",
+        to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]],
+        distance_m=100.0,
+        osm_way_id=None,
+    )
+    graph = _make_graph({"edge-1": edge})
+
+    attributes = build_surface_attributes(graph, surface_by_way_id={100: "asphalt"}, data_source="osm-overpass")
+
+    assert attributes["edge-1"].surface_type is None
