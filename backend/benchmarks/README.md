@@ -104,16 +104,41 @@
    bbox内の全Edge（この規模では8.5万〜15.5万行）をORM経由でPythonオブジェクト化
    （shapelyでのgeometry decode込み）する必要があり、この読み出し自体が数秒〜十数秒
    かかる。しかも`get_road_surface_ways_in_bbox`（同じファイル内、密集タイルでの同種の
-   CPU処理）とは異なり`asyncio.to_thread`でラップされていない（`get_graph_in_bbox`は
+   CPU処理）とは異なり`asyncio.to_thread`でラップされていなかった（`get_graph_in_bbox`は
    このタスク以前は本番未接続の死んだコードだったため、この形でイベントループを塞ぐ
-   リスクが実際に顕在化していなかった）。次の改善候補として記録するが、今回のタスクの
-   スコープ（書き込み省略パス）には含めていない。
+   リスクが実際に顕在化していなかった）→ **7番で修正済み**。
 
    また、COLD実測値（1km 154.4秒／4km 152.5秒）はStage 1-3（closure＋build＋save）の
    単純合計（1km: 11.0+6.0+81.2=98.2秒／4km: 13.9+6.0+103.5=123.4秒）より大きい
-   （差は約29〜56秒）。`build_surface_attributes`（closureグラフ全体に対するCPU処理、
-   単独では計測していない）やタイルキャッシュ判定ループが要因と推測されるが、
-   詳細な内訳分解はまだ行っていない。
+   （差は約29〜56秒）。`build_surface_attributes`が要因ではないかと推測していたが、
+   **7番の追加調査で否定された**（実測1.32秒、closureグラフ全体361,839 Edge分でも
+   無視できる規模）。
+
+7. **6番で見つかった2件のフォローアップに対応**（`bench_postgis_prepare.py`は改修せず、
+   対象範囲を直接計測するアドホックスクリプトで検証）。
+
+   - **`get_graph_in_bbox`を`asyncio.to_thread`でラップ → 修正済み**
+     （`road_graph_repository.py`）。単体実測（都心4km相当bbox、Edge 151,820件・
+     Node 59,270件）で**13.30秒**——`get_road_surface_ways_in_bbox`と同じ理由
+     （shapelyでのgeometry decodeを伴う大量行のORM→Pythonオブジェクト化）でイベント
+     ループを塞いでいたため、`get_road_surface_ways_in_bbox`と同じパターン
+     （行取得はasync、CPU変換部分だけを`asyncio.to_thread`）を適用した。
+     `get_surface_attributes`（geometry decode無し、単純なフィールドコピー）も同時に
+     計測し**4.74秒**（151,820件）——こちらはCPU処理というより多数チャンク
+     （`_ID_CHUNK_SIZE`単位）のDBラウンドトリップ蓄積が主要因と見られ、今回は対象外
+     とした。
+
+   - **COLDの未解明分（29〜56秒）の原因調査 → `build_surface_attributes`ではないと判明**。
+     直接計測（都心4km相当bbox）: `get_way_specs_with_closure` 17.38秒、
+     `build_road_graph` 10.55秒（Edge 361,839件・Node 137,514件）、
+     `build_surface_attributes` **1.32秒**（361,839件、Pydanticモデル構築のみで
+     十分軽い）、`primary_edges`フィルタ 0.13秒。この4つの合計（29.4秒）は
+     `bench_postgis_prepare.py`が最初に記録したclosure+build単体の値（1km:
+     17秒、4km:20秒）とほぼ一致しており、**「未解明分」の主因は隠れたコストではなく、
+     GCを無効化していない・別々のタイミングで計測したことによる実行時変動**
+     （closureだけでも実行間で13.9秒⇔17.4秒とばらつく）である可能性が高い。
+     save_graph側の詳細な内訳分解は行っていないため断定はできないが、追加の
+     コード変更は不要と判断した。
 
 ## 各ファイル
 

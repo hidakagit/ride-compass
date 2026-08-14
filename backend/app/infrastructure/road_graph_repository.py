@@ -184,6 +184,12 @@ def _rows_to_road_surface_ways(
     return ways
 
 
+def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[RoadNodeRow]) -> RoadGraph:
+    nodes = {row.node_id: _node_row_to_domain(row) for row in node_rows}
+    edges = {row.edge_id: _edge_row_to_domain(row) for row in edge_rows}
+    return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
+
+
 def _primary_way_conditions(envelope):
     """「主対象Way」＝bboxのenvelopeとST_Intersectsで交差するWay、を表すWHERE条件。
     `get_way_specs_with_closure`と`is_split_up_to_date`の両方が同じ「何が主対象Wayか」の
@@ -269,9 +275,11 @@ class RoadGraphRepository:
             node_stmt = select(RoadNodeRow).where(RoadNodeRow.node_id.in_(id_chunk))
             node_rows.extend((await self._session.execute(node_stmt)).scalars().all())
 
-        nodes = {row.node_id: _node_row_to_domain(row) for row in node_rows}
-        edges = {row.edge_id: _edge_row_to_domain(row) for row in edge_rows}
-        return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
+        # 密集した都市部のbboxではEdge/Nodeが数万〜十数万行になり、shapelyへのgeometry
+        # decode（to_shape）だけで数秒〜十数秒のCPU処理になる（get_road_surface_ways_in_bbox
+        # と同じ理由。bench_postgis_prepare.py実測でこの呼び出し単体13.3秒、東京都心4km
+        # 相当bbox・Edge151,820件）。asyncio.to_threadで逃さないとイベントループを塞ぐ。
+        return await asyncio.to_thread(_rows_to_road_graph, edge_rows, node_rows)
 
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         """bboxと交差する全ての主対象Way（`_primary_way_conditions`と同じ定義。
