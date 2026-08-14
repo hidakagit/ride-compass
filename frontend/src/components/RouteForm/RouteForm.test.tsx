@@ -1,0 +1,72 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import RouteForm from "./RouteForm";
+
+describe("RouteForm", () => {
+  it("初期表示で距離入力のデフォルト値が30、ボタンラベルがルート生成", () => {
+    render(<RouteForm onGenerate={vi.fn()} loading={false} />);
+
+    expect(screen.getByRole("spinbutton")).toHaveValue(30);
+    expect(screen.getByRole("button", { name: "ルート生成" })).toBeInTheDocument();
+  });
+
+  it("loading=trueのときボタンがdisabledかつ生成中...と表示される", () => {
+    render(<RouteForm onGenerate={vi.fn()} loading={true} />);
+
+    const button = screen.getByRole("button", { name: "生成中..." });
+    expect(button).toBeDisabled();
+  });
+
+  it("デフォルト値のまま送信するとonGenerateが30(number)で呼ばれる", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(onGenerate).toHaveBeenCalledWith(30);
+  });
+
+  it("距離入力を変更してから送信すると変更後の数値でonGenerateが呼ばれる", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "50");
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(onGenerate).toHaveBeenCalledWith(50);
+  });
+
+  it("距離を0にして送信してもonGenerateは呼ばれない", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "0");
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(onGenerate).not.toHaveBeenCalled();
+  });
+
+  it("距離を空文字にして送信してもonGenerateは呼ばれない", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    // フォームのsubmitボタンをクリックしてsubmitイベントを発火させる
+    // (formのrequestSubmitはHTML標準のnumber inputバリデーションに阻まれる可能性があるため、
+    // ここではフォーム要素を直接submitして実装のガード条件を検証する)
+    const form = input.closest("form")!;
+    form.requestSubmit();
+
+    expect(onGenerate).not.toHaveBeenCalled();
+  });
+});

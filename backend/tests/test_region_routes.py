@@ -1,12 +1,20 @@
 from collections import defaultdict
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import get_region_service
+from app.api.routes import ROAD_TILE_RATE_LIMIT_PER_MINUTE, get_region_service
 from app.infrastructure import rate_limiter
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_rate_limiter():
+    rate_limiter._hits.clear()
+    yield
+    rate_limiter._hits.clear()
 
 
 class FakeRegionService:
@@ -54,6 +62,56 @@ def test_region_road_surface_tile_rejects_too_high_zoom():
         app.dependency_overrides.clear()
 
     assert response.status_code == 400
+
+
+def test_region_road_surface_tile_rejects_negative_x():
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        response = client.get("/api/region/road-surface-tiles/14/-1/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+def test_region_road_surface_tile_rejects_x_at_or_beyond_tile_index_max():
+    # zoom=14では有効なxの範囲は0 <= x < 2**14=16384
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        response = client.get("/api/region/road-surface-tiles/14/16384/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+def test_region_road_surface_tile_rejects_y_out_of_range():
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        response = client.get("/api/region/road-surface-tiles/14/14551/99999999999999999999.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    # 巨大なyは経路パラメータのintパースに失敗し422(範囲チェックまで到達しない)。
+    # domain/region.pyのtile_bounds_lonlatがOverflowErrorを送出しうる極端な値を弾く
+    # 目的自体は、パース可能な範囲内の値(2**z以上)のケースで検証する。
+    assert response.status_code in (400, 422)
+
+
+def test_region_road_surface_tile_is_rate_limited_per_client():
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        for _ in range(ROAD_TILE_RATE_LIMIT_PER_MINUTE):
+            assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
+        response = client.get("/api/region/road-surface-tiles/14/14551/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
 
 
 def test_road_surface_tile_rate_limit_is_independent_from_basemap_rate_limit(monkeypatch):

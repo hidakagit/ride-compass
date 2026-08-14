@@ -143,6 +143,30 @@ def _build_route_generator_with_lightweight_deps():
     )
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"latitude": 91},
+        {"latitude": -91},
+        {"longitude": 181},
+        {"longitude": -181},
+        {"distance_km": 0},
+        {"distance_km": -5},
+        {"distance_tolerance_km": 0},
+        {"route_type": "not-a-real-type"},
+    ],
+)
+def test_generate_routes_rejects_invalid_request_body(overrides):
+    app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator([])
+
+    try:
+        response = client.post("/api/routes/generate", json={**REQUEST_BODY, **overrides})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
 def test_get_route_generator_selects_engine_from_settings(monkeypatch):
     monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
     assert _build_route_generator_with_lightweight_deps().engine_name == "openrouteservice"

@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes import get_routing_service
@@ -55,3 +56,22 @@ def test_preview_route_returns_502_on_routing_error():
 
     assert response.status_code == 502
     assert "ルート取得に失敗しました" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"origin": {"latitude": 91, "longitude": 139.7387}, "destination": REQUEST_BODY["destination"]},
+        {"origin": {"latitude": 35.7597, "longitude": 181}, "destination": REQUEST_BODY["destination"]},
+        {"origin": REQUEST_BODY["origin"], "destination": {"latitude": -91, "longitude": 139.75}},
+    ],
+)
+def test_preview_route_rejects_out_of_range_coordinates(body):
+    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService()
+
+    try:
+        response = client.post("/api/routes/preview", json=body)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
