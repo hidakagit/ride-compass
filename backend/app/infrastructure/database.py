@@ -14,7 +14,19 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        # RenderはSupabaseのDirect Connection（IPv6専用）へ発信できない
+        # （実機でOSError(101, 'Network is unreachable')を確認）ため、本番はSupabaseの
+        # Transaction pooler（Supavisor、IPv4対応）経由に接続する運用に変更した。
+        # Transaction poolerは呼び出しごとに物理コネクションが変わりうるため、asyncpgの
+        # デフォルト動作（サーバー側prepared statementをコネクション単位でキャッシュする）
+        # と噛み合わず、別の物理コネクションに使い回されたキャッシュ済みstatement名を
+        # 参照してエラーになりうる。statement_cache_size=0でこのキャッシュ自体を無効化する
+        # （Direct Connection/ローカルPG18に対しても安全に使える設定のため常時適用する）。
+        _engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            connect_args={"statement_cache_size": 0},
+        )
     return _engine
 
 
