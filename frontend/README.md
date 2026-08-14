@@ -1,4 +1,16 @@
+This is the frontend (Next.js + TypeScript + MapLibre GL JS) for [RideCompass](../README.md). For project overview, setup with the backend, and architecture details, see the [repository root README](../README.md) and [docs/architecture.md](../docs/architecture.md).
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Testing
+
+```bash
+npm test        # vitest run
+npm run lint     # eslint
+npx tsc --noEmit # type check
+```
+
+UIの実機確認には `node scripts/smoke-check.mjs` （`npm run dev`起動後、headless ChromiumでトップページをスクリーンショットするPlaywrightスモークスクリプト）が使える。
 
 ## Getting Started
 

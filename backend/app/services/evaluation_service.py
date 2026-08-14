@@ -5,6 +5,7 @@ import yaml
 from app.domain.attributes import ElevationAttribute, SurfaceAttribute
 from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
 from app.domain.graph import RoadGraph
+from app.domain.weather import WeatherConditions
 
 ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
 
@@ -40,6 +41,7 @@ class EvaluationService:
         graph: RoadGraph,
         elevation_attributes: dict[str, ElevationAttribute],
         surface_attributes: dict[str, SurfaceAttribute],
+        wind: WeatherConditions | None = None,
     ) -> dict[str, EdgeCostResult]:
         return {
             edge_id: compute_edge_cost(
@@ -47,6 +49,7 @@ class EvaluationService:
                 elevation_attributes.get(edge_id),
                 surface_attributes.get(edge_id),
                 self._preference,
+                wind=wind,
             )
             for edge_id, edge in graph.edges.items()
         }

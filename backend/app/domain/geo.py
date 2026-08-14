@@ -78,7 +78,10 @@ def sample_line_points(geometry: dict, sample_count: int) -> list[tuple[int, Coo
 
     標高・風・路面をそれぞれ同じ点集合で評価し、区間ごとに1つの配列として整合させるために使う
     （路面種別はopenrouteserviceのインデックス範囲で返るため、インデックスの共有が必要）。
+    OpenRouteServiceEngine専用（Road Graphエンジンは経路上のEdgeを直接走査するため
+    使わない）。
     """
     raw_points = geometry["coordinates"]
     indices = sample_indices(len(raw_points), sample_count)
     return [(i, Coordinates(latitude=raw_points[i][1], longitude=raw_points[i][0])) for i in indices]
+

@@ -25,6 +25,24 @@ def test_paved_percent_returns_none_for_none_input():
     assert paved_percent(None) is None
 
 
+def test_paved_percent_excludes_unknown_surface_from_denominator():
+    # 不明（ID 0）は「悪い路面」ではなく「判定不能」なので分母から除外する
+    # （classify_osm_surfaceがタグ無しをNoneにするのと同じ正準定義。domain/road.py参照）。
+    summary = [
+        {"value": 0, "distance": 5000.0, "amount": 50.0},  # Unknown（分母から除外）
+        {"value": 1, "distance": 2500.0, "amount": 25.0},  # Paved
+        {"value": 10, "distance": 2500.0, "amount": 25.0},  # Gravel
+    ]
+
+    assert paved_percent(summary) == 50.0  # 判定できた50%のうち半分が舗装
+
+
+def test_paved_percent_returns_none_when_all_unknown():
+    summary = [{"value": 0, "distance": 5000.0, "amount": 100.0}]
+
+    assert paved_percent(summary) is None
+
+
 def test_surface_id_at_index_finds_containing_range():
     values = [[0, 4, 1], [5, 9, 10]]
 
@@ -43,6 +61,12 @@ def test_is_good_surface_matches_good_surface_ids():
     assert is_good_surface(1) is True  # Paved
     assert is_good_surface(11) is False  # Dirt
     assert is_good_surface(None) is None
+
+
+def test_is_good_surface_treats_unknown_id_as_none():
+    # ID 0（Unknown）はFalse（悪い）ではなくNone（判定不能）。OSMタグ語彙の
+    # classify_osm_surfaceが未知タグにNoneを返すのと同じ扱い（正準定義の統一）。
+    assert is_good_surface(0) is None
 
 
 def test_classify_osm_surface_matches_known_good_tags():

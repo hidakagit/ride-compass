@@ -15,6 +15,7 @@
 - ✅ Step 9: 候補ルートの難易度可視化。Step5-7-8で取得済みの標高・風・路面の生データ（区間ごとの詳細）を捨てずに`RouteCandidate.segments`として返し、地図上に区間ごとの難易度（絶対基準で0-100点）を色分けして重ね描き。区間クリックで到達予想時刻付きのポップアップ表示に対応
 - ✅ UI再構成: 左サイドバー（操作パネル・候補一覧、折りたたみ可）＋右地図の2ペインレイアウトに変更。地図レイヤーを「変わらないデータ（標高・路面、全候補へ常時重ね描き可）」と「時間で変わるデータ（風、選択中候補にのみ動的表示）」に分離
 - ✅ Step 10: 地域レイヤー（標高＝国土地理院 色別標高図のラスタタイル、路面＝自前生成のベクタタイル`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）。Step5-9はいずれも「候補ルート沿い」に限定した標高・風・路面の取得だったのに対し、候補ルートの有無に関わらず**表示中の地図の範囲全体**に標高・OSM/Overpassの路面データを重ね描きできるようにした。「変わらないデータはタイル表示で統一する」方針のもと、標高は国土地理院の色別標高図タイルをそのまま重ね（バックエンドAPI不要）、路面はOverpassのデータをバックエンドでMVT（Mapbox Vector Tile）に変換し基礎地図タイルと同じファイルキャッシュで永続化して配信する方式にしており、**両者は排他ではなく同時に重ね表示できる**。あわせて地図タイル（OpenFreeMap）をバックエンド経由でプロキシ＋ファイルキャッシュする仕組み（`GET /api/basemap/{path}`, `POST /api/basemap/refresh`）も追加した
+- ✅ フロントエンドUX改善: モバイル対応（[frontend/src/app/page.tsx](../frontend/src/app/page.tsx)・[frontend/src/hooks/useIsMobile.ts](../frontend/src/hooks/useIsMobile.ts)）とデバッグモード（[frontend/src/lib/debugLog.ts](../frontend/src/lib/debugLog.ts)等）を追加。画面幅640px以下（`useIsMobile`の`MOBILE_BREAKPOINT_PX`、`globals.css`の`@media`と一致させ、両者のズレをテストで自動検証）では左サイドバーを`position:fixed`のオーバーレイ式ドロワーに切り替え、背景タップ・Escapeキー・左スワイプで閉じられるようにした（`role="dialog"` `aria-modal`・背後ペインへの`inert`付与を含む）。あわせて、地図右下の「現在地に移動」ボタン（`useLocation.handleLocateMe`）でマウント時取得とは別に現在地を再取得できるようにし、失敗時はエラーメッセージを表示する。デバッグモード（サイドバーのチェックボックス、`localStorage`に永続化）をONにすると、地図のリクエスト/表示イベントと外部API呼び出しを画面下部の`DebugConsole`とブラウザコンソールに逐次ログする（`services/`配下の各fetchラッパー・`MapView.tsx`のmapイベントハンドラから`debugLog()`を呼ぶ形で計装）。UI確認用に`frontend/scripts/smoke-check.mjs`（Playwrightでトップページのスクリーンショットを撮る簡易スモークスクリプト）も追加した
 - ⬜ Step 11以降: 未定（MVPの主要機能は一通り実装済み）
 - ✅ Road Graph移行 Phase 1: Node/Directed Edgeという内部モデル（`domain/graph.py`）を新規導入。既存のルート探索（`RoutingService`/`RouteGenerator`、openrouteservice委譲）・地図表示（`RegionService`、路面MVTタイル）はいずれも無変更で、Road Graphは独立した並行構造として追加した（詳細は「Road Graph移行 Phase 1」参照）。Phase 0の現状調査結果は本ドキュメント末尾の「9. Road Graph移行（進行中）」を参照
 - ✅ Road Graph移行 Phase 2: OSMのタグ語彙（`oneway`文字列等）の解釈を`domain/graph.py`から`domain/osm_adapter.py`（新規、OSM Adapter/Importer）へ分離。`build_road_graph`はデータソース非依存の`WaySpec`契約のみを受け取る形にした（詳細は「9. Road Graph移行（進行中）」参照）
@@ -22,6 +23,11 @@
 - ✅ Road Graph移行 Phase 4: Road Attribute→Edge Costを算出するEvaluation Engine（`domain/evaluation.py`, `services/evaluation_service.py`）を新規導入。既存の`RouteScorer`/`domain/difficulty.py`（ルート単位の評価）には触れず、Edge単位の評価ロジックとして独立に追加した（詳細は「9. Road Graph移行（進行中）」参照）
 - ✅ Road Graph移行 Phase 5: Evaluation Engineの重み（`RoutePreference`）を`route_preference.yaml`へ外部化。`scoring.yaml`/`load_scoring_weights`と同じパターンだが別ファイル・別関数として分離した（詳細は「9. Road Graph移行（進行中）」参照）
 - ✅ Road Graph移行: 永続化（PostGIS）。SQLAlchemy+GeoAlchemy2でRoad Graph/Road AttributeをPostGISへ保存・読込できるようにし、GraphService/ElevationAttributeServiceにread-throughキャッシュとして配線した。**この開発環境には接続可能なPostGISが無いため、実DBに対する動作確認は未実施**（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ Road Graph移行: タイル境界依存の交差点分割不一致問題の根本修正。生のOSM Way/NodeデータとRoad Graph構築（交差点分割）を分離し、DB上の既知の生データ全体から近傍Wayを含めて都度計算する設計にした（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ **Road Graphを実際のルーティングへ接続（完全移行）**: `/api/routes/generate`のルート生成をopenrouteservice委譲からRoad Graph + NetworkX（Dijkstra）ベースに全面置き換えた。Phase 6（Dynamic Data対応・風）もこの移行の一環として実装。実機検証で2つの重大な性能問題（8方位並列Overpass問い合わせがレート制限で全滅する、標高取得がRoad Graph全体に対して行われ非現実的に遅い）を発見・修正し、東京都内の実データで動作確認済み（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ **ルーティングエンジンの切り替え対応**: Road Graphベースの自前ルーティング（経路探索そのもの）は将来拡張として並行開発を続けることとし、現状はマップの見える化・評価に必要な情報（標高・風・路面）の精査を優先するため、`/api/routes/generate`をopenrouteservice委譲でも動作するよう切り替え可能にした。完全移行で削除した`ElevationService`/`WindService`とopenrouteservice委譲版のルート生成ロジックを復元し、`config.py`の`routing_engine`設定（既定値`openrouteservice`）で`api/routes.py`の`get_route_generator`がどちらを注入するか切り替える（詳細は後述）
+- ✅ **設計レビューと推奨アクション対応（ポート分割・評価値定義の統一・レート制限）**: エンジン切り替え導入直後に仕様書・実装全体の設計レビューを実施し、優先度上位4件を実装した。(1)周回生成戦略（8方位・距離フィルタ・スコアリング）を単一の`RouteGenerator`（`services/route_generator.py`）へ集約し、経路計算・評価を`LoopRoutingEngine`ポート（`OpenRouteServiceEngine`/`RoadGraphEngine`）として分離、(2)エンジン間で食い違っていた評価値の定義（road_scoreの不明路面の扱い・区間難易度の重みソース）を統一しレスポンスへ`engine`フィールドを追加、(3)最も高コストな`/api/routes/generate`へper-IPレート制限＋同時実行数ガードを追加、(4)`ORSClient`のコネクションをDI経由の共有方式へ統一（詳細は「ルーティングエンジンの切り替え対応」参照）
+- ✅ **Renderデプロイの反映確認**: `GET /health`のレスポンスに`commit`（Renderが自動注入する`RENDER_GIT_COMMIT`）と`started_at`（プロセス起動時刻）を追加し、Render上に実際にデプロイされているコミットが手元のgit HEADと一致しているか外部から確認できるようにした（詳細は「Renderデプロイの反映確認」参照）
 
 ---
 
@@ -32,7 +38,8 @@
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
 | DB | PostgreSQL + PostGIS | 既存のルート探索等（Step1-10）からは引き続き未接続。Road Graph移行の「永続化」で、SQLAlchemy+GeoAlchemy2経由の読み書きコードを追加（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。ただしdev環境にPostGISが無く実接続は未検証（詳細は9章） |
-| ルーティングエンジン | **暫定: openrouteservice API**（`cycling-road`プロファイル、外部APIキー方式）<br>**将来: Valhalla自前構築（Docker）** | `RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）が `get_directions(waypoints: list[Coordinates])` を実装したクライアント（現在は`ORSClient`）を受け取る形にし、将来Valhalla用クライアントに差し替え可能にしてある。2点間（Step3）・多点経由（Step4の周回）の両方に対応 |
+| ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **切り替え可能**（既定: openrouteservice API、`config.py`の`routing_engine`設定で`road_graph`にも切替可） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価だけを`LoopRoutingEngine`ポート経由で`OpenRouteServiceEngine`（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、外部APIキー方式、Road Graph移行前の実装）または`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のNetworkX Dijkstraを使う）へ委譲する。ルーティング自体（自前の経路探索）は将来拡張として開発を続ける一方、現状はマップの見える化・評価に必要な情報の精査を優先するため既定値はopenrouteservice。レスポンスの`engine`フィールドでどちらが生成したかを識別できる。詳細は9章および「ルーティングエンジンの切り替え対応」参照 |
+| ルーティングエンジン（単一区間確認、`/api/routes/preview`） | openrouteservice API（`cycling-road`プロファイル、外部APIキー方式） | Step3の疎通確認用エンドポイントは移行対象外のまま残置。`RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）が`get_directions(waypoints: list[Coordinates])`を実装したクライアント（`ORSClient`）を受け取る形 |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **Open-Meteo Forecast API**（APIキー不要） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`current`＋`hourly`をまとめて取得し、「地点＋時刻」で天候を引ける設計（後述） |
 | 標高 | **国土地理院（GSI）標高API**（APIキー不要、日本国内限定） | `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）がルートを12点にサンプリングして問い合わせ、獲得標高・最高/最低標高・最大勾配を算出 |
@@ -48,8 +55,17 @@
 ### バックエンド運用上の注意（Windows: `uvicorn --reload` の多重プロセス）
 Windows環境では `uvicorn --reload` はリローダー親プロセスとワーカー子プロセス（`multiprocessing.spawn`）に分かれる。親プロセスだけを `taskkill` すると子プロセスが孤児化して同じポートに残り続け、古い設定（環境変数など）のまま応答し続けることがある。`.env` を編集後にAPIの挙動が変わらない場合は、`netstat -ano | findstr :8000` で該当ポートを握っている全PIDを確認し、それら全てを `taskkill /F /PID <PID>` で終了してから起動し直すこと。また `.env` の変更は `--reload` のファイル監視対象外のため、変更後は必ずプロセスの完全な再起動が必要。また、複数ファイルを短時間に連続編集すると `WatchFiles` の再読み込みが1回分しか発火せず、古いコードのまま動き続けることが実機で確認された（`404 Not Found` になる等）。挙動が古いままに見える場合は一度プロセスを完全に再起動すること。
 
+### Renderデプロイの反映確認
+Renderへのデプロイ（`git push`からのビルド完了）が実際にサービスへ反映されたかを、デプロイ操作をしたブラウザ以外（別端末・CLI・監視ツール等）からでも確認できるようにするため、バックエンド・フロントエンドの両方にデプロイ識別情報を返すエンドポイントを用意している。
+
+- **`commit`**: RenderのWebサービス（gitリポジトリと連携したデプロイ）には`RENDER_GIT_COMMIT`（デプロイされたコミットのフルSHA）が自動的に環境変数として注入される（Render側の設定不要、`.env`にも書かない）。ローカル開発環境ではこの環境変数が無いため`null`になる
+- **`started_at`**: プロセス起動時刻（ISO8601、モジュール読み込み時に一度だけ評価）。Renderはデプロイのたびにプロセスを再起動するため、直近デプロイのおおよその時刻としても使える（`commit`が変わっていなくても、再起動自体が起きたかどうかの確認に有用）
+- **バックエンド**: `GET /health`（`backend/app/api/routes.py`、`backend/app/config.py`の`Settings.render_git_commit`、`backend/app/version.py`の`STARTED_AT`）。`test_health.py`でcommitのnull/反映両パターンを検証済み
+- **フロントエンド**: `GET /api/version`（[frontend/src/app/api/version/route.ts](../frontend/src/app/api/version/route.ts)、新規のRoute Handler）。`process.env.RENDER_GIT_COMMIT`を直接読み、バックエンドと同じレスポンス形（`status`/`commit`/`started_at`）を返す。`export const dynamic = "force-dynamic"`でビルド時の静的最適化・キャッシュを無効化し、リクエストのたびにサーバーの現在の状態を返すことを保証している（`next build`のルート一覧で`ƒ /api/version`＝動的レンダリングになっていることを確認済み）。`route.test.ts`（Vitest）でcommitのnull/反映両パターン・started_atの妥当性を検証
+- **確認方法**: `curl https://<render-backend>.onrender.com/health`と`curl https://<render-frontend>.onrender.com/api/version`（またはブラウザで直接開く）でそれぞれ`commit`を取得し、ローカルの`git rev-parse HEAD`と比較する。両方一致していれば最新版が反映されている
+
 ### 周回ルート生成のアルゴリズムと既知の制約（Step4）
-`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）は、8方位それぞれについて「方位θの方向に半径R」「方位θ+45°の方向に半径R」の2経由地点を`domain/geo.py`の`destination_point`（球面三角法）で計算し、`[現在地, 経由地A, 経由地B, 現在地]`をopenrouteservice Directions APIに1回のリクエストで渡す。半径Rは`distance_km / 3`という固定ヒューリスティック。8方位分は`asyncio.gather`で並列実行し、失敗した方位はスキップする。
+`RouteGenerator`＋`OpenRouteServiceEngine`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)・[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、Step4当時は`route_generator.py`という単一ファイルだったが「ルーティングエンジンの切り替え対応」で戦略とエンジンに分離した）は、8方位それぞれについて「方位θの方向に半径R」「方位θ+45°の方向に半径R」の2経由地点を`domain/geo.py`の`destination_point`（球面三角法）で計算し、`[現在地, 経由地A, 経由地B, 現在地]`をopenrouteservice Directions APIに1回のリクエストで渡す。半径Rは`distance_km / 3`という固定ヒューリスティック。8方位分は`asyncio.gather`で並列実行し、失敗した方位はスキップする。
 
 実機検証（王子駅付近、15km/30km指定）では8方位すべてが成功し、目標距離に対して+10〜+16%程度（許容差±5km以内）に収まった。ただし適応的な半径調整は行っていないため、道路網の形状次第では大きくずれる方位が出る可能性がある。将来の改善点:
 - 半径を反復調整して目標距離に近づける適応的探索
@@ -154,6 +170,37 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 既知の制約: Overpassの取得範囲をタイル境界でクリップしていないため、タイル境界をまたぐ道路のジオメトリはタイルローカル座標が0-4096の範囲をわずかに超えることがある（前述、実害はない）。未キャッシュのタイルはOverpassへの実問い合わせが必要なため、初回表示時（特に一度に複数タイルを要求する広いビューポート）は数秒〜十数秒かかることがある（公開Overpassインスタンスの応答速度に依存。Step10当初のセル単位キャッシュと同様の性質で、2回目以降はタイル単位でキャッシュが効くため高速になる）。
 
+### ルーティングエンジンの切り替え対応（openrouteservice ⇄ Road Graph）
+「Road Graphを実際のルーティングへ接続する移行（完全移行）」で`/api/routes/generate`をopenrouteservice委譲からRoad Graph + NetworkX（Dijkstra）ベースへ全面置き換えたが、Road Graphの経路探索自体（ルーティングエンジンとしての精度・速度）はまだ発展途上で、今後も継続して手を入れる将来拡張と位置付けている。一方で、標高・風・路面といった「評価に必要な情報」の取得方法や地図上の見える化は、経路探索エンジンがどちらであっても検証を進めたい。そのため、経路探索エンジンを設定で切り替えられるようにし、openrouteservice委譲（外部APIキーのみで動く、枯れた実装）を使いながら評価まわりの精査を進められるようにした。
+
+- **戦略（共通）とエンジン（差し替え可能）の分離**: 当初は「2つの`generate_loops`実装を丸ごと並行して残す」形で切り替えを導入したが、8方位・半径ヒューリスティック・距離許容フィルタ・`RouteScorer`適用・ソートという周回生成戦略が二重化し、仕様書5章の将来拡張（適応的半径調整・候補地点選定の改善等）を2回ずつ実装することになるため、直後の設計レビュー（後述）でポート分割へリファクタリングした。現在の構造:
+  - **`RouteGenerator`**（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)、戦略層・単一実装）: 経由地点の計算（`destination_point`）、8方位分の`trace_loop`並列実行、距離許容範囲フィルタ、`RouteScorer`によるtotal_score付与・ソートを持つ。エンジンには`LoopRoutingEngine`（Protocol）として`prepare`（リクエスト単位の共有準備）／`trace_loop`（1方位分の経路と距離）／`evaluate_loops`（**距離フィルタ通過後の候補だけ**への標高・風・路面評価）の3段階で委譲する。評価を後段に分離しているのは、棄却済み候補への外部API問い合わせ（GSI標高等）を避けるため（旧openrouteservice版が持っていたクォータ節約の挙動を両エンジン共通の戦略として保証する形。Road Graph版は従来フィルタ前に標高を取得していたが、この分割でフィルタ後のみになった）
+  - **`OpenRouteServiceEngine`**（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)）: 経路はopenrouteservice Directions API（`RoutingService`/`ORSClient`）へ1方位1リクエストで委譲し、評価は復元した`ElevationService`（12点サンプリング）・`WindService`（区間ごとの推定到達時刻の風）で行う
+  - **`RoadGraphEngine`**（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)）: `prepare`でRoad Graphを1回だけ取得しEdge Cost・NetworkXグラフ・起点スナップ・出発時点の風を構築、`trace_loop`でDijkstra探索、`evaluate_loops`で経路上のEdgeだけに標高を取得する（完全移行時の実機検証で判明した性能問題への対応をポート3段階へ対応付けた形）
+- **`domain/geo.py`/`domain/road.py`のサンプリング・路面判定関数も復元**: `sample_indices`/`sample_line_coordinates`/`sample_line_points`（`geo.py`）と`GOOD_SURFACE_IDS`/`paved_percent`/`surface_id_at_index`/`is_good_surface`（`road.py`）は、完全移行で「Road Graphエンジンからは参照されなくなった」という理由で削除されていたが、`OpenRouteServiceEngine`が引き続き必要とするため復元した。Road Graphエンジンは代わりに`domain/road.py`の`classify_osm_surface`（OSMタグ基準）を使っており、この2系統の路面判定関数群（openrouteserviceの数値ID基準 / OSMタグ基準）は今後も両方残る（意味の統一は後述）。
+- **設定と既定値**: `config.py`に`routing_engine: Literal["openrouteservice", "road_graph"]`を追加した（`.env`の`ROUTING_ENGINE`で上書き可）。現状はマップの見える化・評価情報の精査を優先するという方針に合わせ、既定値は`openrouteservice`にした（Road Graphエンジンを使うには`.env`で明示的に`road_graph`を指定する）。
+- **DI（`api/routes.py`の`get_route_generator`）**: `settings.routing_engine`の値に応じてどちらのエンジンを構築し`RouteGenerator`へ渡すかを切り替える。両エンジン分の依存を`Depends`パラメータとして宣言しているため、FastAPIの制約上、実際には使わない側の依存（`httpx.AsyncClient`等、いずれもこの時点では実I/Oを伴わない軽量なオブジェクト）も毎リクエスト構築されるが、条件分岐に応じて一部の`Depends`だけを解決する簡便な方法が無いため単純さを優先した（コード上のコメント参照）。
+- **`/api/routes/preview`は無変更**: Step3の疎通確認用エンドポイントは元々`RoutingService`/`ORSClient`を直接使っており、今回のエンジン切り替えの対象外（従来通りopenrouteserviceのみ）。
+
+#### 設計レビュー（エンジン切り替え後）と対応した推奨アクション
+
+エンジン切り替え導入直後に仕様書・実装・将来拡張の観点で設計レビューを実施し、優先度上位4件を実装した。
+
+1. **評価値の定義統一＋`engine`フィールド（レビュー指摘H2）**: エンジン間で同じフィールド名の数値の意味が食い違っていた3点のうち2点を統一した。
+   - **road_scoreの不明路面の扱い**: openrouteservice数値ID版`paved_percent`は不明を分母に含めて実質減点していたが、OSMタグ版（`classify_osm_surface`ベースの距離加重集計）と同じ「**不明は分母から除外**（不明≠悪い路面）、全区間不明ならNone」へ統一した。あわせて`is_good_surface`もID 0（Unknown）を`False`ではなく`None`（判定不能）へ変更し、両語彙の3値判定（良い/悪い/不明）の意味を揃えた（`domain/road.py`冒頭の「正準定義」コメント参照）
+   - **区間難易度（`segments[].difficulty`）の合成重み**: openrouteservice版は`scoring.yaml`（候補集合内の相対評価用）を流用しており、`route_preference.yaml`を使うRoad Graph版と地図の色分けが食い違っていた。**両エンジンとも`route_preference.yaml`（Edge単位の絶対評価用の重み）へ統一**した。`scoring.yaml`はルート単位のtotal_score専用となり、役割の境界が明確になった（副次効果として、旧openrouteservice版がリクエストごとに行っていた`load_scoring_weights()`のファイルI/Oも除去された）
+   - **wind_scoreの意味の違いは意図的に残す**: openrouteservice版は区間ごとの推定到達時刻の風（時間変化あり）、Road Graph版は出発時点の風の一様適用（探索中は到達時刻が未確定という制約）。将来の時間展開対応まで統一できないため、レスポンスに**`engine`フィールド**（`RouteGenerateResponse.engine`、フロントの`types/route.ts`にも追加しデバッグログに出力）を追加し、どちらの定義の数値かを識別可能にした
+2. **`/api/routes/generate`のレート制限・同時実行ガード（レビュー指摘H3)**: 最も高コストなエンドポイント（openrouteservice: 外部APIクォータ消費 / road_graph: コールド時40〜70秒＋Overpass/GSI大量問い合わせ）が無防備だったため、既存の`check_rate_limit`によるper-IP上限（`GENERATE_RATE_LIMIT_PER_MINUTE = 10`/分）と、プロセス全体の同時実行数上限（`GENERATE_MAX_CONCURRENT = 2`、`asyncio.Semaphore`）を追加した。上限超過は待たせず429で即座に返す（ブラウザのリトライ・連打による外部サービスへの負荷の積み上げ防止）
+3. **`ORSClient`のコネクション共有（レビュー指摘M1）**: 呼び出しごとに新規`httpx.AsyncClient`を生成していた（8方位の周回生成でTLSハンドシェイク8回。`ElevationClient`で実測57秒→7秒の差を生んだのと同じパターン）ため、他のクライアントと同様にDI（`get_routing_service`）が生成する共有コネクションのコンストラクタ注入へ統一した
+4. **ポート分割（レビュー指摘H1）**: 前述の「戦略（共通）とエンジン（差し替え可能）の分離」
+
+レビューで指摘されたが今回は見送った項目（既知の課題として記録）:
+- **Road Graph版の`segments`肥大化（M3）**: Edge=区間のため4kmで150〜230区間、30km×8候補では数千区間になりペイロード・描画コストが嵩む。表示用の集約（約500m単位のビン化等）をAPI境界で行う案
+- **周回品質（M4）**: 両エンジンとも「行きと帰りが同じ道」の往復型周回を防ぐ仕組みが無い。Road Graph版は「前の脚で使ったEdgeのコストを一時的に引き上げる」ことで自前修正でき、自前エンジンの差別化ポイントになりうる
+- **`find_nearest_node`の距離上限が無い（M5）**: 起点が道路網から極端に遠い場合も最近傍Nodeへ黙ってスナップする
+- **`RoutingService`へのORS固有パース漏れ（M2）**: `properties.extras.surface`のパースはORS固有のため、将来Valhalla等へ差し替える際は`ORSClient`側へ移す必要がある
+- **`WeatherService.get_conditions(at=...)`のhourly範囲外ガード未実装（L3）**: openrouteservice版が既定へ戻ったことで実使用中の既知制約となった（20km/h想定の周回では実害はほぼ無い）
+
 ---
 
 ## 2. ディレクトリ構成
@@ -165,9 +212,10 @@ RideCompass/
   backend/
     app/
       main.py                ✅ FastAPI app, CORS
-      config.py               ✅ pydantic-settings（.env読込、basemap_public_base_url含む）
+      config.py               ✅ pydantic-settings（.env読込、basemap_public_base_url含む）。routing_engine（"openrouteservice" | "road_graph"、既定openrouteservice）を「ルーティングエンジンの切り替え対応」で追加。render_git_commit（Render自動注入のRENDER_GIT_COMMIT、ローカルはnull）を「Renderデプロイの反映確認」で追加
+      version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「Renderデプロイの反映確認」で新規）
       api/
-        routes.py             ✅ GET /health, POST /api/routes/preview, POST /api/routes/generate, GET /api/weather, GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf, GET /api/basemap/{path}, POST /api/basemap/refresh
+        routes.py             ✅ GET /health, POST /api/routes/preview, POST /api/routes/generate（per-IPレート制限＋同時実行数ガード付き、設計レビュー対応）, GET /api/weather, GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf, GET /api/basemap/{path}, POST /api/basemap/refresh
       domain/
         route.py               ✅ Coordinates, RouteSegment（surface_summary/surface_values含む）, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions
@@ -181,18 +229,21 @@ RideCompass/
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
-        evaluation.py                  ✅ RoutePreference, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）
+        evaluation.py                  ✅ RoutePreference, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加
+        routing.py                     ✅ build_networkx_graph, find_nearest_node, shortest_path_node_ids, path_to_edge_ids, concat_node_paths（「完全移行」で新規。Route Engine、NetworkXのDijkstraをラップ）
       services/
-        routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応、surface extras/valuesのパース含む）。将来Valhallaに差し替え可能
-        route_generator.py     ✅ 8方位の周回候補を並列生成＋標高・風・路面・総合スコア・区間詳細を統合（Step4-5-7-8-9）
-        elevation_service.py   ✅ 点列から標高プロファイル・生の標高配列を算出（Step5、Step9でgeometryではなくpoints受け取りに変更）
-        weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）
-        wind_service.py            ✅ 点列から区間ごとのwind_penaltyとwind_scoreを算出（Step7、Step9でget_wind_profileに変更）
-        route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）
+        routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応、surface extras/valuesのパース含む）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
+        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・RouteScorer適用を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）
+        openrouteservice_engine.py ✅ `OpenRouteServiceEngine`。経路はRoutingService（openrouteservice委譲）、評価はElevationService+WindService（ルート単位12点サンプリング）で行うエンジン（Road Graph移行前の実装をポート化）
+        road_graph_engine.py   ✅ `RoadGraphEngine`。Road Graph + Evaluation Engine + Route Engine（domain/routing.py）で経路・評価を行うエンジン（「完全移行」の実装をポート化。prepareでRoad Graph1回取得、evaluate_loopsで経路上Edgeのみ標高取得）
+        elevation_service.py    ✅ ルートのGeoJSON LineStringを12点サンプリングし、GSI標高APIで獲得標高・最高/最低標高・最大勾配を算出（Step5。「完全移行」でRoad Graphエンジンからは不要になり一度削除、「ルーティングエンジンの切り替え対応」で`OpenRouteServiceEngine`用に復元）
+        wind_service.py         ✅ ルートのサンプル点ごとに推定到達時刻の風からwind_penalty/wind_scoreを算出（Step7。elevation_service.pyと同じ経緯で削除→復元）
+        weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）。RoadGraphEngineからは出発時点・起点付近の風を取得する用途で（「完全移行」）、OpenRouteServiceEngineからはWindService経由で区間ごとの推定到達時刻の風を取得する用途で、それぞれ呼ばれる
+        route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）。「完全移行」後もRoad Graphベースの候補に対しそのまま再利用
         region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）
-        graph_service.py            ✅ GraphService.build_graph_for_bbox(bbox)でOverpass取得+Road Graph構築を統合（Road Graph移行Phase 1、新規。永続化なし、既存サービスから未参照。Phase 3でbuild_graph_with_surface_tags_for_bboxを追加）
-        elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graph(graph)でEdge単位の標高属性（形状点をGSI APIへ問い合わせ）を算出（Road Graph移行Phase 3、新規。ElevationServiceとは別実装、ElevationClientのキャッシュのみ共有）
-        evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes)でEdge Costを算出（Road Graph移行Phase 4、新規。I/Oなし、Evaluation Engineのオーケストレーション層。Phase 5でload_route_preference()を追加しデフォルトに配線）
+        graph_service.py            ✅ GraphService.build_graph_for_bbox(bbox)でOverpass取得+Road Graph構築を統合（Road Graph移行Phase 1、新規。Phase 3でbuild_graph_with_surface_tags_for_bboxを追加）。「完全移行」でRouteGeneratorから実際に参照されるようになった
+        elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graph(graph)でEdge単位の標高属性（形状点をGSI APIへ問い合わせ）を算出（Road Graph移行Phase 3、新規）。「完全移行」でRouteGeneratorから、確定した経路上のEdgeだけに絞って呼ばれるようになった（性能上の理由、9章参照）
+        evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes, wind=None)でEdge Costを算出（Road Graph移行Phase 4、新規。Phase 5でload_route_preference()を追加。「完全移行」でwind引数を追加しRouteGeneratorから参照されるようになった）
       infrastructure/
         ors_client.py           ✅ openrouteservice Directions API（cycling-road、複数経由地対応、extra_info=surface）
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
@@ -202,26 +253,31 @@ RideCompass/
         cache_db.py                 ✅ SQLite永続キャッシュ（標高のみ、Step5用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
+        rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
+        debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
         database.py                  ✅ SQLAlchemy非同期エンジン・セッションファクトリ（Road Graph移行「永続化」、新規。DB未接続でも既存機能に影響なし）
         road_graph_models.py         ✅ road_nodes/road_edges/elevation_attributes/surface_attributesのSQLAlchemy ORMモデル（PostGIS Geometry型、Road Graph移行「永続化」、新規）。OsmRawNodeRow/OsmRawWayRow（生OSMデータ、配列型+GINインデックス）を「根本修正」で追加
         road_graph_repository.py     ✅ RoadGraphRepository（bbox空間検索・UPSERT・ドメインモデル⇔ORM行変換・is_tile_cached/mark_tile_cached）（Road Graph移行「永続化」、新規。実PostGIS未検証）。save_raw_ways/get_way_specs_with_closureを「根本修正」で追加、save_graphにway_ids_to_replaceによるdelete-then-reinsertを追加
         valhalla_client.py        ⬜ 将来
         osm_repository.py            ⬜（road_graph_repository.pyが実質この役割を担う）
     tests/
-      test_health.py          ✅
-      test_geo.py             ✅ destination_point / haversine_distance_km / sample_indices / sample_line_coordinates / sample_line_points / compass_label / bearing_betweenの検証
+      test_health.py          ✅ status/started_at（ISO8601）の検証、commitがRENDER_GIT_COMMIT未設定時null・設定時はその値を反映すること（「Renderデプロイの反映確認」で追加）
+      test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
       test_routing_service.py ✅ ORSClientをモックした単体テスト（surface_summary/surface_valuesのパース含む）
       test_routes_preview.py  ✅ RoutingServiceをDIでモックしたAPIテスト
-      test_route_generator.py ✅ 8方位生成・許容範囲フィルタ・失敗時スキップ・標高/wind_score/total_scoreマージ・segments構築
-      test_routes_generate.py ✅ RouteGeneratorをDIでモックしたAPIテスト
-      test_elevation_service.py ✅ 獲得標高/最大勾配の計算、欠損データ・データ不足時の扱い、生の標高配列の検証
+      test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 経由地点が起点始点/終点の周回を成すこと・距離許容フィルタ・失敗方位のスキップ・prepare失敗時の空返却・**評価が距離フィルタ通過候補だけに行われること**・total_scoreソート・engine_name公開（設計レビュー対応のポート分割で新規）
+      test_openrouteservice_engine.py ✅ OpenRouteServiceEngineのエンドツーエンド検証（RouteGenerator経由）: 8方位生成・経路取得失敗時スキップ・標高/風プロファイルのマージ・total_score算出・segments構築・engine_name（旧test_route_generator.pyのopenrouteservice版から改組）
+      test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 起点を中心とした「車輪」状のRoad Graphフィクスチャによる8方位生成・許容範囲フィルタ・経路探索失敗時スキップ・標高/路面/風の集計・segments構築・Overpass問い合わせが1回のみ・標高取得がパス上のEdgeだけ＆距離フィルタ通過候補だけに絞られること（性能回帰テスト）・engine_name（旧test_route_generator.pyのRoad Graph版から改組）
+      test_routing.py          ✅ build_networkx_graph（Hard Constraint除外）・find_nearest_node・shortest_path_node_ids（コスト最小経路・到達不能・始点=終点）・path_to_edge_ids・concat_node_pathsの検証（「完全移行」で新規）
+      test_routes_generate.py ✅ get_route_generatorをDIでモックしたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429・settings.routing_engineによるエンジン選択の検証を設計レビュー対応で追加）
+      test_elevation_service.py ✅ 標高プロファイル（獲得標高・最高/最低標高・最大勾配）の算出・欠損値・有効点2点未満時の扱いの検証（Step5。elevation_service.pyと同じ経緯で削除→復元）
+      test_wind_service.py    ✅ 区間ごとの推定到達時刻の計算・wind_penalty算出・天候取得失敗時の扱いの検証（Step7。wind_service.pyと同じ経緯で削除→復元）
       test_elevation_client_cache.py ✅ 同一/近傍座標でのキャッシュ再利用・遠方座標での再取得
       test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
       test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
       test_weather_route.py   ✅ /api/weatherのDIモックテスト
-      test_wind.py             ✅ WindCalculator.wind_penaltyの向かい風/追い風/横風の検証
-      test_wind_service.py    ✅ FakeWeatherServiceを使った区間加重平均・区間ごとのwind_penalty・欠損時の扱いの検証
-      test_road.py             ✅ paved_percent / surface_id_at_index / is_good_surface / classify_osm_surfaceの検証
+      test_wind.py             ✅ WindCalculator.wind_penaltyの向かい風/追い風/横風の検証（domain/wind.py自体は「完全移行」後もdomain/evaluation.py: compute_wind_penaltyから再利用）
+      test_road.py             ✅ classify_osm_surface（OSMタグ基準）とpaved_percent/surface_id_at_index/is_good_surface（openrouteservice数値ID基準、「完全移行」で一度撤去→「ルーティングエンジンの切り替え対応」で復元）の検証。不明路面（ID 0）の「分母から除外・None判定」への統一（設計レビュー対応）の検証を含む
       test_scoring.py         ✅ normalize_min_maxの方向反転・全同値時の中立100点・None扱いの検証
       test_route_scorer.py    ✅ RouteScorer.scoreの正常系・指標欠損時の重み再正規化の検証
       test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
@@ -233,7 +289,7 @@ RideCompass/
       test_osm_adapter.py      ✅ osm_way_to_way_specのonewayタグ解釈（yes/-1/大文字小文字・空白/未知の値）・highway受け渡し・ノード数不足時の除外の検証（Road Graph移行Phase 2、新規。Phase 3でsurfaceタグ受け渡しの検証を追加）
       test_attributes.py       ✅ compute_elevation_attribute（登り/下り/混在/欠損値/有効点不足）・build_surface_attributes（osm_way_id対応/未知way/way_id無し）の検証（Road Graph移行Phase 3、新規）
       test_elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graphのDIモックテスト（複数Edge独立性・欠損値・空グラフ）（Road Graph移行Phase 3、新規）
-      test_evaluation.py       ✅ is_edge_allowed（Hard Constraint）・compute_edge_cost（平坦舗装/激坂未舗装の比較・属性欠損時のフォールバック・重み変更）の検証（Road Graph移行Phase 4、新規）
+      test_evaluation.py       ✅ is_edge_allowed（Hard Constraint）・compute_edge_cost（平坦舗装/激坂未舗装の比較・属性欠損時のフォールバック・重み変更）の検証（Road Graph移行Phase 4、新規）。compute_wind_penalty（向かい風/追い風）・風統合の検証を「完全移行」（Phase 6）で追加
       test_evaluation_service.py ✅ EvaluationService.evaluate_graphのDIモックテスト（Hard Constraint除外・属性欠損・空グラフ・カスタムRoutePreference）（Road Graph移行Phase 4、新規。Phase 5でload_route_preference（既定パス/カスタムパス）・設定ファイル経由デフォルトの検証を追加）
       test_graph_service.py   ✅ GraphService.build_graph_for_bboxのDIモックテスト（Road Graph移行Phase 1、新規）。get_or_build_graph_with_attributesのタイル単位キャッシュ動作（単一/複数タイル・部分キャッシュ・一部タイル取得失敗）の検証を追加
       test_vector_tile.py      ✅ encode_road_surface_tileのデコード可能性・座標範囲・surface_goodプロパティ・2点未満のway除外の検証（Step10改訂）
@@ -241,10 +297,11 @@ RideCompass/
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
       test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
+      test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
-    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）
+    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加
     Dockerfile                ✅
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto
@@ -254,6 +311,7 @@ RideCompass/
       app/
         page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持（UI再構成）
         layout.tsx              ✅
+        api/version/route.ts    ✅ GET /api/version。RENDER_GIT_COMMIT/起動時刻を返すRoute Handler（force-dynamic）。バックエンドの/healthと対になるRenderデプロイ確認用（「Renderデプロイの反映確認」で新規）
       components/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
         LocationControl/LocationControl.tsx ✅ 現在地表示・手動緯度経度入力フォーム（UI再構成、MapViewから分離）
@@ -262,6 +320,15 @@ RideCompass/
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
         WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水確率表示（Step6）
+        DebugPanel/DebugPanel.tsx    ✅ サイドバーのデバッグモードON/OFFチェックボックス（フロントエンドUX改善）
+        DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを画面下部に表示（フロントエンドUX改善）
+      hooks/
+        useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
+        useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
+        useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
+        useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
+      lib/
+        debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
       services/
         healthApi.ts             ✅
         routeApi.ts               ✅ previewRoute() / generateRoutes()
@@ -296,8 +363,12 @@ Valhallaは自前構築の複雑さ（OSM PBF抽出・タイルビルド）を�
 ### 現状
 
 ```
-GET /health
-→ 200 { "status": "ok" }
+GET /health   # commit/started_atはRenderへのデプロイ確認用（後述「Renderデプロイの反映確認」参照）
+→ 200 { "status": "ok", "commit": "a1b2c3d4e5f6...", "started_at": "2026-08-14T10:00:00+00:00" }
+  # commit: Renderが自動注入するRENDER_GIT_COMMIT（デプロイされたコミットのフルSHA）。
+  #         ローカル開発環境では環境変数が無いためnull
+  # started_at: プロセス起動時刻（UTC、ISO8601）。Renderはデプロイのたびにプロセスを
+  #             再起動するため、直近デプロイのおおよその時刻としても使える
 
 POST /api/routes/preview   # Step3: 単一区間のルート取得確認用（暫定エンドポイント。デバッグ・疎通確認用に残置）
 Request:
@@ -308,6 +379,9 @@ Response 502（openrouteservice呼び出し失敗時）:
 { "detail": "ルート取得に失敗しました: ..." }
 
 POST /api/routes/generate   # Step4: 周回ルート候補生成、Step5: 標高フィールド追加、Step7: wind_score追加、Step8: road_score/total_score追加
+                            # ルーティングエンジンはsettings.routing_engineで切り替え（既定openrouteservice、9章参照）。
+                            # レスポンスのengineフィールドでどちらのエンジンが生成したかを識別できる
+                            # （wind_score等はエンジンによって算出の意味が異なるため。設計レビュー対応で追加）。
 Request:
 { "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5, "route_type":"loop" }
 Response 200:
@@ -326,13 +400,18 @@ Response 200:
           "gradient_percent":0.2, "wind_penalty":-0.83, "road_surface_good":true,
           "elevation_difficulty":2.0, "wind_difficulty":0.0, "road_difficulty":0.0, "difficulty":0.4
         }
-        /* ...区間の数だけ続く（12点サンプリング＝11区間前後） */
+        /* ...区間の数だけ続く（openrouteserviceエンジン: 12点サンプリング＝11区間前後 / road_graphエンジン: Edge数分） */
       ],
       "geometry": { "type":"LineString","coordinates":[...] }
     },
     ...（total_scoreが高い順、最大8件）
-  ]
+  ],
+  "engine": "openrouteservice"
 }
+Response 429（per-IPで1分あたりGENERATE_RATE_LIMIT_PER_MINUTE=10回を超過、またはプロセス全体の
+             同時実行数GENERATE_MAX_CONCURRENT=2に到達している場合。最も高コストなエンドポイントのため、
+             外部サービス（openrouteservice/Overpass/GSI）への負荷の積み上げを防ぐ。設計レビュー対応で追加）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 GET /api/weather?latitude=35.7597&longitude=139.7387   # Step6: 現在地の天候
 Response 200:
@@ -344,11 +423,17 @@ GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # Step10改訂: 表示中�
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`プロパティ（true=舗装/false=未舗装/null=不明）を持つ
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
+Response 400（x/yがそのズームレベルで存在しうる範囲 `0 <= x,y < 2**z` を外れる場合。直接APIを叩かれた場合の安全弁で、通常はMapLibreが範囲外のタイルを要求しないため到達しない）:
+{ "detail": "タイル座標が範囲外です。" }
+Response 429（同一クライアントIPから1分あたり120リクエスト（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を超えた場合。`infrastructure/rate_limiter.py`によるプロセス内メモリのみの固定窓レート制限）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送
 Response 502（上流取得失敗時）:
 { "detail": "地図タイルの取得に失敗しました" }
+Response 429（同一クライアントIPから1分あたり300リクエスト（`BASEMAP_RATE_LIMIT_PER_MINUTE`）を超えた場合。road-surface-tilesと同じ`rate_limiter.py`を使うが上限値は別）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 POST /api/basemap/refresh   # Step10: 地図タイルキャッシュを全消去（フロントの「変わらないデータを更新」ボタン）
 Response 200:
@@ -405,6 +490,8 @@ interface RouteSegment {
   distance_km: number;
   duration_minutes: number;
   geometry: GeoJSON.LineString;
+  surface_summary: object[] | null;
+  surface_values: unknown[][] | null;
 }
 
 interface RouteSegmentDetail {
@@ -662,11 +749,56 @@ build_road_graph（無変更）をこの結合されたWay集合に対して実�
 
 既存を含む全208件がグリーン（実PostGISへの接続・GIN索引の実動作・配列型のOverlap検索は引き続き未検証、DDL・クエリのコンパイルチェックのみ実施済み）。
 
+### Road Graphを実際のルーティングへ接続する移行（完全移行）
+
+ユーザーから「Road Graphを実際のルーティングに接続する、完全に移行する」との指示を受けた。これはPhase 1-5・「永続化」・「根本修正」で構築してきたRoad Graph/Road Attribute/Evaluation Engineを、これまでのように既存のopenrouteservice委譲（`route_generator.py`）と並行する独立構造のままにせず、**実際に`/api/routes/generate`のルート生成そのものを置き換える**作業。仕様書34章「探索アルゴリズムを独断で変更しない」との緊張関係があったため、着手前にユーザーへ3点確認した。
+
+#### 着手前に確認した設計判断
+
+1. **パスファインディングアルゴリズム**: 自前でDijkstraを実装 vs 標準ライブラリ（NetworkX）を導入 → **NetworkXを導入**を選択。「独自の経路探索アルゴリズムの実装はしない」という仕様書の原則と、標準ライブラリの利用は矛盾しないという判断
+2. **移行範囲**: 経路探索の中核のみ置き換え（風は旧WindServiceを流用） vs 全面作り直し（標高・路面・風を含むルート生成ロジック全体をRoad Graph中心に再設計、風はEvaluation Engine未実装のため先にPhase 6実装が必要） → **全面作り直し**を選択。Phase 6（Dynamic Data対応・風）が前提として必要になることを理解した上での選択
+3. **PostGIS前提**: 依存なしで先に動くように組む vs 先にPostGISを用意する → **依存なしで先に動くように組む**を選択。`repository`を注入しない構成（毎回Overpass/GSIへ問い合わせる）で、まず実際に動くことを検証する方針
+
+#### 実施内容
+
+- **Phase 6（Dynamic Data対応・風）を`domain/evaluation.py`へ実装**: `RoutePreference`に`wind_weight`を追加（デフォルト値をelevation:road:wind = 0.25:0.30:0.45に変更、`route_preference.yaml`も更新）。`compute_wind_penalty(edge, wind)`（新規）がEdgeの進行方向と風向風速から`domain/wind.py: WindCalculator`を使って（既存のまま再利用）wind_penaltyを算出し、`compute_edge_cost`のCost計算に組み込んだ。**既知の簡略化**: 出発時刻からの推定累積走行時間に応じた風の時間変化は見ない（探索中はまだ累積走行時間が確定しないため）。出発時点・起点付近の風をルート全体に一様適用する
+- **`backend/app/domain/routing.py`（新規、Route Engine）**: `build_networkx_graph`（RoadGraph+Edge CostからNetworkXの`DiGraph`を構築、Hard Constraintで除外されたEdgeは含めない）、`find_nearest_node`（総当たりで指定地点に最も近いNodeを探す、PostGIS未使用のため空間インデックス無し）、`shortest_path_node_ids`（`nx.dijkstra_path`をそのまま利用）、`path_to_edge_ids`、`concat_node_paths`
+- **`backend/app/services/route_generator.py`を全面書き換え**: `RoutingService`/`ElevationService`/`WindService`への依存を無くし、`GraphService`/`ElevationAttributeService`/`EvaluationService`/`WeatherService`/`RouteScorer`/`RoutePreference`を使う構成にした。8方位の候補地点をジオメトリで計算する部分（`destination_point`）は従来のまま流用。`RouteScorer`・`scoring.yaml`（ルート単位の総合スコアリング）も既存のまま再利用した（Evaluation Engineとは対象が異なる別の重み設定のため、混同しないという方針を維持）
+- **`backend/app/api/routes.py`のDIを配線し直し**: `get_route_generator`が新しい依存関係を注入するよう変更。`/api/routes/preview`（Step3の疎通確認用エンドポイント）は引き続き`RoutingService`/`ORSClient`を使うため無変更
+- **不要になったコードを削除**: `services/elevation_service.py`・`services/wind_service.py`（ルート単位・12点サンプリングの評価、Road Graph移行によりEdge単位の評価に置き換わったため）とそれぞれのテスト。`domain/geo.py`の`sample_indices`/`sample_line_coordinates`/`sample_line_points`（ルート単位サンプリング専用で他に呼び出し元が無くなったため）。`domain/road.py`の`paved_percent`/`surface_id_at_index`/`is_good_surface`/`GOOD_SURFACE_IDS`（openrouteserviceの`extra_info=surface`数値ID形式専用で、Road Graphへの移行によりOSMタグ形式の`classify_osm_surface`のみを使うようになったため）。削除前にGrep等で他に参照が無いことを確認した上で削除している
+- **`requirements.txt`に`networkx==3.4.2`を追加**
+
+#### 実機検証で発見・修正した2つの重大な性能問題
+
+コードを書き終えた時点でテストは全てグリーンだったが、**実際にこのdev環境で動いているバックエンドへ生のリクエストを送ってみたところ、8方位すべてが失敗し空の結果が返る**という問題を発見した。単体テストは全てモックを使っており、この種の実運用上の問題は検出できなかった。以下の手順で原因を切り分けて修正した。
+
+1. **8方位が並列にOverpassへ問い合わせて拒否される**: 当初の実装は方位ごとに個別のbboxを計算し、`GraphService.get_or_build_graph_with_attributes`を8並列（`asyncio.gather`）で呼んでいた。公開Overpassインスタンスへ8並列で問い合わせたところ、全て拒否・失敗する事象を実機で確認した。**修正**: 起点を中心とした単一の円（8方位分の経由地点をすべて覆う半径）でRoad Graphを1回だけ取得し、8方位全てで共有する設計に変更した。これにより`generate_loops`全体でOverpassへの問い合わせは1回のみになった（`OverpassClient`が既に持つ「未キャッシュのセルを並列化せず順に問い合わせる」という公開インスタンスへの配慮の精神を、方位間でも徹底する形）
+2. **標高取得がRoad Graph全体に対して行われ非現実的に遅い**: 当初の実装は、経路探索前にRoad Graph全体（bboxによっては数万Edge）に対して`ElevationAttributeService.get_attributes_for_graph`を呼んでいた。実機検証で、200Edge分の標高取得に約12秒かかることを確認し、実際の対象（東京都心部で約6.5万Edge）に外挿すると1方位あたり1時間近くかかる計算になることが判明した。**修正**: 経路探索用のEdge Costからは標高を除外し（distance・路面・風のみで計算）、Dijkstra探索で最短路を確定した「後」に、その経路上のEdge（数十〜数百程度）だけに絞って標高を取得する設計に変更した。**この結果、標高（勾配）は実際の経路選択には影響せず、経路確定後の表示・スコアリング用途にのみ使われる**という重要な仕様変更を伴う（`RoutePreference.elevation_weight`は区間ごとの難易度表示や`RouteScorer`の総合スコアには反映されるが、Dijkstra探索自体には反映されない）
+
+修正後、実機（このdev環境の実際のバックエンドプロセス、および直接`RouteGenerator`を呼び出すスクリプトの両方）で東京・王子駅付近、距離4km指定のリクエストが成功することを確認した。8方位全てで妥当な候補（距離4.46〜6.28km、獲得標高14〜44m、road_score=100.0、区間数154〜234）が生成され、`total_score`によるランキングも機能した。所要時間は約40〜70秒（PostGISキャッシュ無しのため、Overpass取得＋経路確定後の標高取得を毎回行う。パフォーマンス上の既知の制約として次項に記載）。
+
+#### 新規/更新テスト
+
+- `test_evaluation.py`: `compute_wind_penalty`の向かい風/追い風、`compute_edge_cost`への風統合の検証を追加
+- `test_routing.py`（新規）: `build_networkx_graph`（Hard Constraint除外）、`find_nearest_node`、`shortest_path_node_ids`（コスト最小経路の選択・到達不能・始点=終点）、`path_to_edge_ids`、`concat_node_paths`の検証
+- `test_route_generator.py`（全面書き換え）: 起点を中心とした「車輪」状のRoad Graphフィクスチャ（`build_loop_graph`）を新規構築。**フィクスチャ構築時に発見したバグ**: 隣接方位の経由地点が同一の実座標を指すにもかかわらず別々のNodeとして作ってしまい、最近接ノード探索が別方位のNodeへ誤ってスナップする問題があった（実データでは実在の交差点1つに収束するため起きない、テストフィクスチャ特有の問題）。共有Nodeを使う「スポーク＋アーク」構造に直して解決した。Overpass呼び出しが1回だけであること・標高取得がパス上のEdgeだけに絞られていること（フルグラフではないこと）を回帰テストとして明示的に追加
+- `test_road.py`/`test_geo.py`: 削除した関数のテストを撤去
+- 既存を含む全205件がグリーン
+
+#### 既知の制約・次に検討すべきこと
+
+- **標高が経路選択に影響しない**: 上記の性能問題への対応の結果、勾配がきついかどうかは経路の「選び方」には反映されず、確定した経路の「見せ方」（区間ごとの難易度表示、`RouteScorer`の総合スコア）にのみ反映される。PostGISキャッシュが有効になれば、標高もあらかじめEdge Attributeとして永続化されているため、探索時にも安価に参照できるようになり、この制約は解消できる可能性がある
+- **1リクエストあたり40〜70秒**: PostGISキャッシュ無しの初期実装としては動作するが、実用的なレスポンス速度ではない。次の最優先事項は引き続き実際のPostGIS接続確認（次項参照）
+- **風は出発時点の一様値**: Dynamic Data対応の簡略化として、Edgeごとの推定到達時刻による風の時間変化は見ていない
+- **`_bbox_around_point`のマージン（`BBOX_MARGIN_RATIO`/`BBOX_MARGIN_MIN_KM`）は暫定値**: 実データでの検証は小さい距離（4km）でしか行っていない。大きい距離（15km・30km等、既存Step4での実機検証相当）でも同様に機能するかは未検証
+- **NetworkXの`DiGraph`は同一ノード間の並行Edgeを1本しか保持できない**: 稀なケースで最安のEdgeが選ばれない可能性がある（`MultiDiGraph`への変更は今回未実施）
+
 ### 次のPhaseへの引き継ぎ事項
 
-- **最優先**: 実際のPostGISに接続しての動作確認（上記「未検証の範囲」）。特にGINインデックス・配列Overlap検索・`autoincrement=False`の実際の挙動は要確認
+- **最優先**: 実際のPostGISに接続しての動作確認・キャッシュ有効化。前述の「1リクエストあたり40〜70秒」を大幅に改善できる見込みがあり、優先度が上がった
+- 大きい距離（15km・30km等）でのRoad Graphベースのルート生成の実機検証（現時点では4kmでのみ確認済み）
 - `compute_edge_cost`のCost計算式（distanceへの乗算ペナルティ）は初期実装であり、仕様書31章が求める「複数のCost計算方式を比較検討できる」構造は、実際に2つ目の方式を試すタイミングでリファクタリングの必要性を再評価する
-- Phase 6（Dynamic Data対応）に進む場合、風などの時間依存データをEvaluation Engineへ渡す設計（仕様書20・44章：Edge+Travel Direction+Departure Timeから評価）が必要。現在の`compute_edge_cost`は静的属性のみを引数に取る形になっているため、Dynamic Contextを追加引数として拡張する形が自然か検討する
-- 複数のRoute Preferenceプロファイル（快適性重視/トレーニング重視等）を実際に追加する場合、`route_preference.yaml`をどう複数化するか（1ファイルに複数プロファイルをまとめるか、ファイルを分けるか）は、実際にUI/APIから選択可能にするタイミング（Phase 5範囲外）で改めて設計する
+- 標高が経路選択に影響しない制約（前述）をPostGISキャッシュ有効化後に解消するかどうかの検討
+- 複数のRoute Preferenceプロファイル（快適性重視/トレーニング重視等）を実際に追加する場合、`route_preference.yaml`をどう複数化するかは、実際にUI/APIから選択可能にするタイミングで改めて設計する
 - `ROAD_GRAPH_TILE_ZOOM = 12`は暫定値（東京付近で1辺約8km）。実データが蓄積された段階で、Overpassへの問い合わせ回数とキャッシュ粒度のトレードオフを見直す余地がある
-- RegionServiceとRoad Graphのデータソース統合（選択肢A）は、Road Graphが実際にRoute Engineへ接続され「本当に使われる」段階になってから改めて検討する
+- RegionServiceとRoad Graphのデータソース統合（選択肢A）は、Road Graphが実際にRoute Engineへ接続され「本当に使われる」段階になった今、改めて検討の俎上に載る余地がある

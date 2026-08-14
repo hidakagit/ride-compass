@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +8,12 @@ class Settings(BaseSettings):
 
     cors_allowed_origins: str = "http://localhost:3000"
     openrouteservice_api_key: str = ""
+    # /api/routes/generateのルーティングエンジン切り替え。"road_graph"（自前Road Graph+
+    # NetworkX Dijkstra、外部APIキー不要だがルーティング自体は開発中。road_graph_engine.py）と
+    # "openrouteservice"（外部APIキー方式、Road Graph移行前の実装。openrouteservice_engine.py）
+    # のどちらを使うかを選べる。ルーティング部分は将来拡張として並行開発を続ける一方、
+    # 現状はマップの見える化・評価に必要な情報の精査を優先するため、既定値はopenrouteservice。
+    routing_engine: Literal["road_graph", "openrouteservice"] = "openrouteservice"
     # Road Graph/Road Attributeの永続化先（PostGIS）。docker-compose.ymlのpostgresサービスに
     # 対応する。現時点ではどのAPIエンドポイントもこれに依存していない（DBが無くても
     # 既存機能は動作する）。GraphService/ElevationAttributeServiceへrepositoryを明示的に
@@ -21,6 +29,12 @@ class Settings(BaseSettings):
     # 調査用デバッグモード。有効にすると外部API呼び出し（Open-Meteo/Overpass/OpenFreeMap）
     # やタイルキャッシュのhit/missをイベント単位でDEBUGログに出力する（main.pyのlogging設定を参照）。
     debug_mode: bool = False
+    # Renderへデプロイされたgitサービスには`RENDER_GIT_COMMIT`（デプロイされたコミットの
+    # フルSHA）が自動的に環境変数として注入される（.envには書かない。ローカル開発では
+    # 未設定のためNoneのまま）。`/health`のレスポンスに含め、Render上で実際に動いている
+    # コミットが手元のgit HEADと一致しているか（＝最新版が反映されているか）を外部から
+    # 確認できるようにする（詳細はdocs/architecture.md参照）。
+    render_git_commit: str | None = None
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

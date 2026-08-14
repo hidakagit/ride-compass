@@ -79,8 +79,9 @@ def test_evaluate_graph_uses_custom_route_preference():
 def test_load_route_preference_reads_default_config_file():
     preference = load_route_preference()
 
-    assert preference.elevation_weight == 0.5
-    assert preference.road_weight == 0.5
+    assert preference.elevation_weight == 0.25
+    assert preference.road_weight == 0.30
+    assert preference.wind_weight == 0.45
 
 
 def test_load_route_preference_reads_custom_path(tmp_path):
@@ -109,7 +110,7 @@ def test_evaluation_service_without_explicit_preference_uses_config_file_default
 
     default_via_config = EvaluationService().evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
     explicit_matching_weights = EvaluationService(
-        RoutePreference(elevation_weight=0.5, road_weight=0.5)
+        RoutePreference(elevation_weight=0.25, road_weight=0.30, wind_weight=0.45)
     ).evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
 
     assert default_via_config.difficulty == explicit_matching_weights.difficulty

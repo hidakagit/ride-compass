@@ -1,4 +1,10 @@
-import type { RouteCandidate, RouteGenerateRequest, RoutePreviewRequest, RouteSegment } from "@/types/route";
+import type {
+  RouteCandidate,
+  RouteGenerateRequest,
+  RouteGenerateResponse,
+  RoutePreviewRequest,
+  RouteSegment,
+} from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -30,6 +36,7 @@ export async function previewRoute(request: RoutePreviewRequest): Promise<RouteS
 }
 
 export async function generateRoutes(request: RouteGenerateRequest): Promise<RouteCandidate[]> {
-  const result = await postJson<{ routes: RouteCandidate[] }>("/api/routes/generate", request);
+  const result = await postJson<RouteGenerateResponse>("/api/routes/generate", request);
+  debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
   return result.routes;
 }

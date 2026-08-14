@@ -1,132 +1,149 @@
+"""RouteGenerator（周回生成戦略、エンジン非依存）の単体テスト。
+
+エンジンの中身（openrouteservice/Road Graph）は各エンジンのテスト
+（test_openrouteservice_engine.py / test_road_graph_engine.py）で検証し、
+ここでは戦略側の責務（経由地点の計算・距離許容範囲フィルタ・失敗方位のスキップ・
+評価が生存候補だけに行われること・total_scoreソート）をFakeエンジンで検証する。
+"""
+
 from app.domain.errors import RoutingError
-from app.domain.route import Coordinates, RouteSegment
-from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator
+from app.domain.route import Coordinates, RouteCandidate
+from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator, TracedLoop, candidate_identity
 from app.services.route_scorer import RouteScorer
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
-
 SCORING_WEIGHTS = {"distance_weight": 0.30, "elevation_weight": 0.15, "wind_weight": 0.30, "road_weight": 0.25}
-
-
-def make_route_scorer() -> RouteScorer:
-    return RouteScorer(SCORING_WEIGHTS)
 
 
 def make_geometry():
     return {"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]}
 
 
-class FakeRoutingService:
-    """呼び出し順（asyncio.gatherが生成順に同期実行することに依存）に対応する結果を返す。
+class FakeEngine:
+    """方位→距離（またはException）の対応を返すフェイクエンジン。
 
-    フェイク自体に`await`を挟まないため、CPythonのasyncioは各コルーチンを
-    生成順に完了させる。そのため`outcomes`のインデックスはDIRECTIONS_DEGの順序と対応する。
+    trace_loopに渡されたwaypoints・evaluate_loopsに渡されたtracedを記録し、
+    戦略側の呼び出し内容を検証できるようにする。
     """
 
-    def __init__(self, outcomes: list):
-        self._outcomes = outcomes
-        self._call_count = 0
+    engine_name = "fake"
 
-    async def get_route(self, waypoints: list[Coordinates]) -> RouteSegment:
-        outcome = self._outcomes[self._call_count]
-        self._call_count += 1
+    def __init__(self, distances_by_bearing: dict[int, float | Exception], prepare_result: object = "ctx"):
+        self._distances = distances_by_bearing
+        self._prepare_result = prepare_result
+        self.prepare_calls: list[tuple[Coordinates, float]] = []
+        self.traced_waypoints: dict[int, list[Coordinates]] = {}
+        self.evaluated_traced: list[TracedLoop] | None = None
+
+    async def prepare(self, origin, radius_km):
+        self.prepare_calls.append((origin, radius_km))
+        return self._prepare_result
+
+    async def trace_loop(self, context, waypoints, bearing):
+        self.traced_waypoints[bearing] = waypoints
+        outcome = self._distances[bearing]
         if isinstance(outcome, Exception):
             raise outcome
-        return outcome
+        return TracedLoop(bearing=bearing, distance_km=outcome, data=None)
 
-
-def segment(distance_km: float) -> RouteSegment:
-    return RouteSegment(distance_km=distance_km, duration_minutes=distance_km * 3, geometry=make_geometry())
-
-
-class FakeElevationService:
-    async def get_profile(self, points: list[Coordinates]) -> dict:
-        return {
-            "elevation_gain_m": 100.0,
-            "min_elevation_m": 0.0,
-            "max_elevation_m": 50.0,
-            "max_gradient_percent": 8.0,
-            "elevations": [0.0] * len(points),
-        }
-
-
-class FakeWindService:
-    async def get_wind_profile(self, points: list[Coordinates], start_time) -> dict:
-        segments = [
-            {"distance_km": 1.0, "bearing_deg": 0.0, "arrival_time": start_time, "wind_penalty": 1.5}
-            for _ in range(max(len(points) - 1, 0))
+    async def evaluate_loops(self, context, traced, start_time):
+        self.evaluated_traced = traced
+        return [
+            RouteCandidate(
+                **candidate_identity(t.bearing),
+                distance_km=t.distance_km,
+                geometry=make_geometry(),
+            )
+            for t in traced
         ]
-        return {"wind_score": 1.5, "segments": segments}
+
+
+def make_generator(distances_by_bearing, **kwargs) -> tuple[RouteGenerator, FakeEngine]:
+    engine = FakeEngine(distances_by_bearing, **kwargs)
+    return RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS)), engine
 
 
 async def test_generates_one_candidate_per_direction_when_all_within_tolerance():
-    outcomes = [segment(30.0) for _ in DIRECTIONS_DEG]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert len(candidates) == len(DIRECTIONS_DEG)
-    assert [c.id for c in candidates] == [f"route-{b:03d}" for b in DIRECTIONS_DEG]
+    assert {c.id for c in candidates} == {f"route-{b:03d}" for b in DIRECTIONS_DEG}
 
 
 async def test_filters_out_candidates_outside_tolerance():
-    # 北(0)と東(90)だけ許容範囲外の距離にする
-    distances = [50.0, 30.0, 10.0, 30.0, 30.0, 30.0, 30.0, 30.0]
-    outcomes = [segment(d) for d in distances]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+    distances = {b: 30.0 for b in DIRECTIONS_DEG}
+    distances[0] = 50.0
+    distances[90] = 10.0
+    generator, _ = make_generator(distances)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert "route-000" not in [c.id for c in candidates]
-    assert "route-090" not in [c.id for c in candidates]
+    ids = [c.id for c in candidates]
+    assert "route-000" not in ids
+    assert "route-090" not in ids
     assert len(candidates) == len(DIRECTIONS_DEG) - 2
 
 
-async def test_sorts_candidates_by_closeness_to_target_distance():
-    distances = [33.0, 30.0, 27.0, 34.0, 26.0, 30.0, 30.0, 30.0]
-    outcomes = [segment(d) for d in distances]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+async def test_skips_directions_that_fail_without_raising():
+    distances = {b: 30.0 for b in DIRECTIONS_DEG}
+    distances[0] = RoutingError("no route")
+    distances[135] = RoutingError("no route")
+    generator, _ = make_generator(distances)
 
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    diffs = [abs(c.distance_km - 30.0) for c in candidates]
+    assert len(candidates) == len(DIRECTIONS_DEG) - 2
+
+
+async def test_returns_empty_list_when_prepare_returns_none():
+    generator, engine = make_generator({b: 30.0 for b in DIRECTIONS_DEG}, prepare_result=None)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert candidates == []
+    assert engine.evaluated_traced is None  # 評価まで進まない
+
+
+async def test_evaluate_receives_only_survivors_sorted_by_distance_closeness():
+    # 許容範囲外(50.0)は評価に渡らず、渡る候補は目標距離に近い順に並ぶ
+    distances = {0: 50.0, 45: 33.0, 90: 30.5, 135: 36.0, 180: 29.0, 225: 30.0, 270: 31.0, 315: 34.0}
+    generator, engine = make_generator(distances)
+
+    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert engine.evaluated_traced is not None
+    assert all(t.bearing != 0 for t in engine.evaluated_traced)
+    diffs = [abs(t.distance_km - 30.0) for t in engine.evaluated_traced]
     assert diffs == sorted(diffs)
 
 
-async def test_skips_directions_that_fail_without_raising():
-    outcomes = [segment(30.0) if i % 3 != 0 else RoutingError("no route") for i in range(len(DIRECTIONS_DEG))]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+async def test_evaluate_is_skipped_when_no_candidates_survive():
+    generator, engine = make_generator({b: 100.0 for b in DIRECTIONS_DEG})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    # i=0,3,6 が失敗するので8-3=5件
-    assert len(candidates) == 5
+    assert candidates == []
+    assert engine.evaluated_traced is None
 
 
-async def test_merges_elevation_profile_into_candidates():
-    outcomes = [segment(30.0) for _ in DIRECTIONS_DEG]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+async def test_waypoints_form_a_loop_starting_and_ending_at_origin():
+    generator, engine = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
 
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.elevation_gain_m == 100.0 for c in candidates)
-    assert all(c.max_gradient_percent == 8.0 for c in candidates)
-
-
-async def test_merges_wind_score_into_candidates():
-    outcomes = [segment(30.0) for _ in DIRECTIONS_DEG]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
-
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
-
-    assert all(c.wind_score == 1.5 for c in candidates)
+    for bearing in DIRECTIONS_DEG:
+        waypoints = engine.traced_waypoints[bearing]
+        assert len(waypoints) == 4
+        assert waypoints[0] == ORIGIN
+        assert waypoints[-1] == ORIGIN
+        assert waypoints[1] != ORIGIN and waypoints[2] != ORIGIN
 
 
-async def test_merges_total_score_and_sorts_by_it_descending():
-    # 標高・風・路面（未取得のためNone）は全候補で同条件なので、total_scoreの順序は距離の近さの順序と一致するはず
-    distances = [33.0, 30.0, 27.0, 34.0, 26.0, 30.0, 30.0, 30.0]
-    outcomes = [segment(d) for d in distances]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+async def test_sorts_final_candidates_by_total_score_descending():
+    distances = {0: 33.0, 45: 30.0, 90: 27.0, 135: 34.0, 180: 26.0, 225: 30.0, 270: 30.0, 315: 30.0}
+    generator, _ = make_generator(distances)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
@@ -135,18 +152,7 @@ async def test_merges_total_score_and_sorts_by_it_descending():
     assert scores == sorted(scores, reverse=True)
 
 
-async def test_builds_segment_details_for_map_visualization():
-    outcomes = [segment(30.0) for _ in DIRECTIONS_DEG]
-    generator = RouteGenerator(FakeRoutingService(outcomes), FakeElevationService(), FakeWindService(), make_route_scorer())
+def test_engine_name_is_exposed():
+    generator, _ = make_generator({})
 
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
-
-    for candidate in candidates:
-        # make_geometry()は2点なので区間は1つ
-        assert len(candidate.segments) == 1
-        seg = candidate.segments[0]
-        assert seg.cumulative_distance_km == 0.0
-        assert seg.gradient_percent == 0.0  # FakeElevationServiceの標高はどの点も同じ
-        assert seg.wind_penalty == 1.5
-        assert seg.road_surface_good is None  # サンプルのRouteSegmentにsurface_valuesが無いため
-        assert seg.difficulty is not None  # 標高・風の指標は揃っているので合成できる
+    assert generator.engine_name == "fake"

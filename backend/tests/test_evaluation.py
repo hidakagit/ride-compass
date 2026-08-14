@@ -1,6 +1,9 @@
+import pytest
+
 from app.domain.attributes import ElevationAttribute, SurfaceAttribute
-from app.domain.evaluation import RoutePreference, compute_edge_cost, is_edge_allowed
+from app.domain.evaluation import RoutePreference, compute_edge_cost, compute_wind_penalty, is_edge_allowed
 from app.domain.graph import DirectedEdge
+from app.domain.weather import WeatherConditions
 
 
 def _edge(**overrides) -> DirectedEdge:
@@ -79,6 +82,66 @@ def test_compute_edge_cost_missing_attributes_falls_back_to_distance_only():
     assert result.allowed is True
     assert result.difficulty is None
     assert result.cost == 250.0
+
+
+def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
+    return WeatherConditions(
+        temperature_c=20.0,
+        wind_speed_ms=wind_speed_ms,
+        wind_direction_deg=wind_direction_deg,
+        wind_direction_label="北",
+        precipitation_probability_percent=None,
+        observed_at="2026-01-01T00:00",
+    )
+
+
+def test_compute_wind_penalty_headwind_is_positive():
+    # Edgeは北向き（bearing=0）に進む。北から吹いてくる風（wind_direction_deg=0）は正面からの
+    # 向かい風になるはず（domain/wind.py: WindCalculatorの規約と同じ）。
+    edge = _edge(geometry=[[35.700, 139.700], [35.701, 139.700]])
+    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
+
+    penalty = compute_wind_penalty(edge, wind)
+
+    assert penalty == pytest.approx(5.0, abs=0.1)
+
+
+def test_compute_wind_penalty_tailwind_is_negative():
+    edge = _edge(geometry=[[35.700, 139.700], [35.701, 139.700]])
+    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=180.0)  # 南から北へ吹く=追い風
+
+    penalty = compute_wind_penalty(edge, wind)
+
+    assert penalty == pytest.approx(-5.0, abs=0.1)
+
+
+def test_compute_wind_penalty_returns_none_without_wind():
+    edge = _edge()
+
+    assert compute_wind_penalty(edge, None) is None
+
+
+def test_compute_edge_cost_headwind_costs_more_than_tailwind():
+    edge = _edge(distance_m=100.0, geometry=[[35.700, 139.700], [35.701, 139.700]])
+    elevation = _elevation_attr(0.0)
+    surface = _surface_attr("asphalt")
+
+    headwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), wind=_wind(8.0, 0.0))
+    tailwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), wind=_wind(8.0, 180.0))
+
+    assert headwind_result.difficulty > tailwind_result.difficulty
+    assert headwind_result.cost > tailwind_result.cost
+
+
+def test_compute_edge_cost_without_wind_ignores_wind_weight():
+    edge = _edge(distance_m=100.0)
+    elevation = _elevation_attr(0.0)
+    surface = _surface_attr("asphalt")
+
+    result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # windを渡さない
+
+    # 標高・路面がどちらも「易しい」なら、風が無視される限りdifficultyは0のはず
+    assert result.difficulty == 0.0
 
 
 def test_compute_edge_cost_respects_custom_weights():

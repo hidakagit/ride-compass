@@ -7,8 +7,17 @@ DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/cycling-road/ge
 
 
 class ORSClient:
-    def __init__(self, api_key: str):
+    """openrouteservice Directions APIのクライアント。
+
+    `http_client`は呼び出し元（DI）が生成・クローズを管理する共有コネクション。
+    以前は呼び出しごとに新規`httpx.AsyncClient`を生成しており、8方位の周回生成では
+    TLSハンドシェイクを8回やり直していた（ElevationClientで実測57秒→7秒の差を生んだ
+    のと同じパターン）ため、他のクライアントと同様にコンストラクタ注入へ統一した。
+    """
+
+    def __init__(self, api_key: str, http_client: httpx.AsyncClient):
         self._api_key = api_key
+        self._http_client = http_client
 
     async def get_directions(self, waypoints: list[Coordinates]) -> dict:
         payload = {
@@ -21,9 +30,8 @@ class ORSClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(DIRECTIONS_URL, json=payload, headers=headers)
-                response.raise_for_status()
+            response = await self._http_client.post(DIRECTIONS_URL, json=payload, headers=headers)
+            response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise RoutingError(f"openrouteservice returned {exc.response.status_code}: {exc.response.text}") from exc
         except httpx.RequestError as exc:

@@ -11,7 +11,7 @@ class ElevationAttribute(BaseModel):
     """Edgeへ紐付ける標高属性（仕様書15章）。Edge本体（domain/graph.py）とは独立して保持する。
 
     average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。
-    有効な標高が2点未満の場合は全フィールドNoneのまま返す（既存のElevationServiceと同じ
+    有効な標高が2点未満の場合は全フィールドNoneのまま返す（Road Graph移行前のルート単位評価と同じ
     「取得失敗は握りつぶしてnull」方針、docs/architecture.md「標高計算のアルゴリズムと
     既知の制約」参照）。
     """
@@ -59,7 +59,7 @@ def compute_elevation_attribute(
 ) -> ElevationAttribute:
     """Edgeの形状点列とそれぞれの標高値からElevationAttributeを算出する。
 
-    標高が取得できなかった点（None）は除外して評価する（既存のElevationServiceと同じ方針）。
+    標高が取得できなかった点（None）は除外して評価する（Road Graph移行前のルート単位評価と同じ方針）。
     """
     valid = [(p, e) for p, e in zip(points, elevations) if e is not None]
     if len(valid) < 2:

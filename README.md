@@ -17,6 +17,8 @@
 - ✅ **Step 9**: 候補ルートの難易度可視化。地図上にルートを区間（約12点サンプリング＝11区間）ごとの色分けで重ね描きする。標高・勾配・風・路面のいずれも、ロードバイク走行の一般的な目安に基づく絶対基準（Step8の相対評価とは異なる）で緑（易しい）〜赤（難しい）に着色。区間クリックで「距離・到達予想時刻・勾配・風・路面」のポップアップを表示し、時系列（推定到達時刻）を考慮した見方ができる
 - ✅ **UI再構成**: 左サイドバー（操作パネル・候補一覧、折りたたみ可）＋右地図の2ペインレイアウトに変更。地図レイヤーは「変わらないデータ（標高・路面）」と「時間で変わるデータ（風）」で扱いを分離: 標高/路面は選択に関係なく**全候補**へチェックON/OFFで常時重ね描きし、風は選択中の候補にのみ自動で色分け表示する。選択中候補は色分けの種類に関わらず常時ハロー（薄い縁取り）で識別できる
 - ✅ **Step 10**: 地域レイヤー（標高＝国土地理院 色別標高図のラスタタイル、路面＝自前生成のベクタタイル`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）。候補ルートの有無に関わらず、**表示中の地図の範囲全体**に標高・OSM/Overpassの路面データを重ね描きできるようにした（Step5-9はいずれも「候補ルート沿い」限定だったのに対し、地域全体を対象にする点が新しい）。標高・路面とも「変わらないデータはタイル表示で統一する」方針のもと、標高は国土地理院の色別標高図タイルをそのまま重ね、路面はOverpassから取得したOSMデータをバックエンドでMVT（Mapbox Vector Tile）形式に変換し、地図タイルと同じファイルキャッシュで永続化して配信する。MapLibreのvector sourceとして扱えるため、区間クリックで路面情報を見るポップアップも維持している。**標高と路面は排他ではなく同時に重ね表示できる**。あわせて、地図タイル（OpenFreeMap）をバックエンド経由でプロキシ＋ファイルキャッシュする仕組み（`GET /api/basemap/{path}`, `POST /api/basemap/refresh`）も追加し、初回以降はオフラインに近い形で地図を表示できるようにした
+- ✅ **フロントエンドUX改善**: スマホ幅（640px以下）では左サイドバーを画面上に重なる開閉式ドロワーに変更し、背景タップ・スワイプ・Escapeキーで閉じられるようにした。地図右下に「現在地に移動」ボタンを追加し、位置情報を再取得できるようにした（失敗時はエラー表示）。サイドバーのチェックボックスで有効化できる「デバッグモード」では、地図のタイル取得・API呼び出しの詳細ログを画面下部に表示する
+- ✅ **バックエンド: 自前Road Graphルーティングの試験実装＋エンジン切り替え**: `/api/routes/generate`のルート生成を、自前のRoad Graph（OSM/Overpass由来）+NetworkX（Dijkstra）で行う実装を試験的に追加した。ただし自前ルーティング自体はまだ発展途上のため、現状はマップの見える化・評価に必要な情報（標高・風・路面）の精査を優先し、`.env`の`ROUTING_ENGINE`設定で従来のopenrouteservice委譲（既定）とRoad Graphのどちらを使うか切り替えられるようにしてある（詳細は[docs/architecture.md](docs/architecture.md)参照）
 - ⬜ Step 11以降: 未定（現時点でMVPの主要機能は一通り実装済み）
 
 ## 構成
@@ -46,7 +48,7 @@ docker compose up --build
 
 - フロントエンド: http://localhost:3000
 - バックエンド: http://localhost:8000/health
-- Postgres(PostGIS): localhost:5432（現時点ではバックエンドから未接続。将来のための土台）
+- Postgres(PostGIS): localhost:5432（Road Graph/Road Attributeの永続化用にSQLAlchemy+GeoAlchemy2の読み書きコードは実装済みだが、このdev環境では実接続の検証ができておらず、`GraphService`/`ElevationAttributeService`へ`repository`を明示的に注入しない限り既存のAPIエンドポイントはどれもこのDBを使わない。詳細は[docs/architecture.md](docs/architecture.md)9章参照）
 
 ### ローカルで個別起動する場合
 
@@ -59,12 +61,13 @@ python -m venv .venv
 pip install -r requirements.txt
 cp .env.example .env
 # .env の OPENROUTESERVICE_API_KEY に openrouteservice.org で取得したキーを設定
+# ROUTING_ENGINE は既定値openrouteservice。road_graphに変えると自前Road Graphルーティング（試験実装、APIキー不要）を使う
 uvicorn app.main:app --reload
 ```
 
 - ヘルスチェック: `curl http://localhost:8000/health`
 - 単一区間ルート確認: `curl -X POST http://localhost:8000/api/routes/preview -H "Content-Type: application/json" -d '{"origin":{"latitude":35.7597,"longitude":139.7387},"destination":{"latitude":35.71,"longitude":139.75}}'`
-- 周回ルート生成確認: `curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: application/json" -d '{"latitude":35.7597,"longitude":139.7387,"distance_km":15,"distance_tolerance_km":5,"route_type":"loop"}'`（8方位分のopenrouteservice呼び出し＋各候補の標高・風評価取得のため10秒前後かかる。openrouteservice無料枠は日次2000リクエストが上限で、連続実行すると消費するので注意）
+- 周回ルート生成確認: `curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: application/json" -d '{"latitude":35.7597,"longitude":139.7387,"distance_km":15,"distance_tolerance_km":5,"route_type":"loop"}'`（8方位分のopenrouteservice呼び出し＋各候補の標高・風評価取得のため10秒前後かかる。openrouteservice無料枠は日次2000リクエストが上限で、連続実行すると消費するので注意。1クライアントIPあたり1分間10回・プロセス全体で同時2件のレート制限があり、超過分は429が返る）
 - 天候確認: `curl "http://localhost:8000/api/weather?latitude=35.7597&longitude=139.7387"`
 - テスト: `pytest`
 
@@ -86,7 +89,7 @@ npm run dev
 - **地図タイル**: MapLibre GL JS の地図タイルには、APIキー不要の [OpenFreeMap](https://openfreemap.org/) を使用している。`tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあるため採用していない。本番運用時は利用規約を確認の上、専用プロバイダへの切り替えを検討すること。
 - **maplibre-gl のバージョン固定**: `maplibre-gl` は `^5.24.0` に固定している。最新メジャー（v6系）は Web Worker のURL解決方法が Next.js のバンドラ（Turbopack / Webpack）と相性が悪く、地図タイルが永久に読み込まれない不具合を確認したため。詳細は [docs/architecture.md](docs/architecture.md) を参照。
 - **ルーティングエンジン**: openrouteservice API（`cycling-road`プロファイル）を暫定利用。`RoutingService`（[backend/app/services/routing_service.py](backend/app/services/routing_service.py)）を挟んでいるため、将来Valhalla等へ差し替え可能。APIキーは無料枠でも1分あたりのレート制限があるため、ルート生成を連打すると一時的に502が返ることがある。
-- **周回ルート生成のヒューリスティック**: 8方位×固定半径（距離の1/3）で候補地点を決め、その1周をopenrouteserviceに1回で問い合わせる簡易方式（[backend/app/services/route_generator.py](backend/app/services/route_generator.py)）。適応的な半径調整は行っていないため、方位によって実際の距離にばらつきが出る（デフォルトの許容差は±5km）。詳細・既知の制約は [docs/architecture.md](docs/architecture.md) を参照。
+- **周回ルート生成のヒューリスティック**: 8方位×固定半径（距離の1/3）で候補地点を決める簡易方式。周回生成戦略は[backend/app/services/route_generator.py](backend/app/services/route_generator.py)（エンジン非依存の単一実装）が持ち、経由地点間の経路計算・評価は`ROUTING_ENGINE`設定に応じて[backend/app/services/openrouteservice_engine.py](backend/app/services/openrouteservice_engine.py)（既定）または[backend/app/services/road_graph_engine.py](backend/app/services/road_graph_engine.py)（自前Road Graph、試験実装）へ委譲する。レスポンスの`engine`フィールドでどちらが生成したか識別できる。適応的な半径調整は行っていないため、方位によって実際の距離にばらつきが出る（デフォルトの許容差は±5km）。詳細・既知の制約は [docs/architecture.md](docs/architecture.md) を参照。
 - **標高API**: 国土地理院（GSI）標高APIを使用（APIキー不要、日本国内限定）。1リクエスト=1地点のAPIのため、各ルートを12点にサンプリングして問い合わせる（[backend/app/services/elevation_service.py](backend/app/services/elevation_service.py)）。当初リクエストごとに新規コネクションを張っていたため15km生成に約57秒かかっていたが、コネクション再利用に直してから約7秒に短縮した（実機検証で確認済み）。さらに緯度経度を丸めたキーでSQLiteに永続化するキャッシュ（[backend/app/infrastructure/elevation_client.py](backend/app/infrastructure/elevation_client.py)・[backend/app/infrastructure/cache_db.py](backend/app/infrastructure/cache_db.py)）を追加し、起点が同じ再生成では標高取得分（全体の1〜2割程度）を短縮している。プロセス再起動やコンテナ再作成をまたいで使い回される永続キャッシュで、サイズ上限・退避（LRU等）は無い点、タイル一括取得への発展は将来課題（[docs/architecture.md](docs/architecture.md) 参照）。
 - **天候API**: Open-Meteo Forecast APIを使用（APIキー不要）。`current`（現在の気象）と`hourly`（当日+翌日の時間別予報）を1回のリクエストでまとめて取得し、緯度経度を丸めたキーで30分TTLのキャッシュを行う（[backend/app/infrastructure/weather_client.py](backend/app/infrastructure/weather_client.py)）。`WeatherService.get_conditions(point, at=...)`は時刻を指定できる設計にしてあり、Step6のUIでは「現在の天候」のみ表示するが、将来ルート上の各点＋推定到達時刻を渡す形にそのまま拡張できる。
 - **風評価（`wind_score`）**: `WindService`（[backend/app/services/wind_service.py](backend/app/services/wind_service.py)）が各候補ルートを12点サンプリングし、区間ごとに「起点からの累積距離 ÷ 仮定巡航速度20km/h」で推定到達時刻を計算、その地点・時刻の風を`WeatherService.get_conditions(point, at=...)`（Step6）から取得する。走行方位は`geo.py`の`bearing_between`で区間ごとに算出し、`WindCalculator.wind_penalty`（[backend/app/domain/wind.py](backend/app/domain/wind.py)）で`風速 × cos(風向 − 走行方位)`から向かい風/追い風の度合いを計算、区間距離で加重平均した値を`wind_score`（符号付きm/s、正=向かい風・負=追い風）として返す。仮定巡航速度は現状固定値で、将来ユーザー設定可能にする拡張ポイント。天候はTTLキャッシュ済みのため、近接するサンプル点は追加リクエストなしで評価できる。

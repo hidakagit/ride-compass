@@ -3,10 +3,6 @@
 node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出されるため、同じ現実の
 交差点・道路区間に対する保存は常に同じ主キーへのUPSERT（`Session.merge`）になる。
 
-既知の制約（未検証・要注意）: この開発環境には接続可能なPostGIS/PostgreSQLが無いため、
-このファイルのSQL/ORMマッピングは実DBに対して一度も実行検証できていない。ユーザーが
-Docker等でpostgresコンテナを起動した後、実接続での動作確認が必要。
-
 `get_graph_in_bbox`自体は「指定bboxと交差するEdgeを返す」単純な空間検索であり、
 「そのbboxが過去に完全に取得済みかどうか」は判定しない。正確なキャッシュカバレッジ判定は
 `RoadGraphTileRow`（タイル取得済みマーカー、is_tile_cached/mark_tile_cached）が担う。

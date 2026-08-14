@@ -1,15 +1,36 @@
-import asyncio
-from datetime import datetime, timedelta, timezone
+"""周回ルート生成の戦略層（エンジン非依存）。
 
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
-from app.domain.errors import RoutingError
-from app.domain.geo import compass_label, destination_point, haversine_distance_km, sample_line_points
-from app.domain.road import is_good_surface, paved_percent, surface_id_at_index
-from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.services.elevation_service import ElevationService
-from app.services.route_scorer import RouteScorer, load_scoring_weights
-from app.services.routing_service import RoutingService
-from app.services.wind_service import WindService
+「8方位×固定半径で経由地点を決め、各方位の周回を距離許容範囲でフィルタし、
+RouteScorerで総合スコアを付けて並べ替える」という周回生成戦略を1箇所に持つ。
+経由地点間の実際の経路計算と評価値（標高・風・路面）の取得方法はエンジン
+（`LoopRoutingEngine`実装）へ委譲し、`config.py`の`routing_engine`設定で
+`OpenRouteServiceEngine`（openrouteservice委譲）と`RoadGraphEngine`
+（自前Road Graph + NetworkX Dijkstra）を切り替える。
+
+この分割により、周回戦略側の将来拡張（適応的な半径調整・道路実データからの
+候補地点選定・候補数の増加等、仕様書7-11章・docs/architecture.md 5章）は
+エンジンに関わらず1箇所の変更で済む。
+
+エンジンの契約（LoopRoutingEngine）:
+- `engine_name`: レスポンスの`engine`フィールドに入る識別子
+- `prepare(origin, radius_km)`: 1リクエスト分の共有準備（Road Graph構築等）。
+  候補生成が不可能な場合はNoneを返す（→ 空の候補リスト）
+- `trace_loop(context, waypoints, bearing)`: 1方位分の周回経路を引き、距離と
+  エンジン固有の中間データを`TracedLoop`で返す。失敗はRoutingErrorをraiseする
+  （その方位はスキップされる）
+- `evaluate_loops(context, traced, start_time)`: 距離フィルタを通過した候補
+  **だけ**に標高・風・路面の評価を行い、完全な`RouteCandidate`群を返す。
+  棄却済み候補に外部API問い合わせを浪費しないための2段階分割
+"""
+
+import asyncio
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any, Protocol
+
+from app.domain.geo import compass_label, destination_point
+from app.domain.route import Coordinates, RouteCandidate
+from app.services.route_scorer import RouteScorer
 
 # 8方位（北を0として時計回り）
 DIRECTIONS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
@@ -20,30 +41,48 @@ RADIUS_RATIO = 1 / 3
 
 # サーバーのローカル時刻＝Asia/Tokyoという簡易近似（Open-Meteoのhourlyもtimezone=Asia/Tokyo
 # 指定でnaiveなローカル時刻文字列を返すため整合している。詳細はdocs/architecture.md参照）。
-# IANAタイムゾーンDB（zoneinfo）はWindows等で別途tzdataパッケージが要るため、日本にDSTが
-# 無いことを利用して固定オフセットで表現し、追加依存なしでdatetimeをtz-awareにする。
-# tz-awareにすることで.isoformat()にオフセットが付き、フロントの`new Date(iso)`が
-# ブラウザのローカルタイムゾーンに関わらず同じ絶対時刻として解釈できるようになる。
+# 日本にDSTが無いことを利用して固定オフセットで表現し、追加依存（tzdata）なしで
+# datetimeをtz-awareにする。
 JST = timezone(timedelta(hours=9))
 
-# 標高・風・路面を同じ点集合で評価するためのサンプリング密度。
-# 密度を上げると地図の難易度レイヤーは滑らかになるが、GSI/Open-Meteoへの問い合わせ数が
-# 比例して増え生成時間が伸びるため、Step5-7から使ってきた密度をそのまま踏襲する（既知の制約）。
-SAMPLE_COUNT = 12
+
+@dataclass
+class TracedLoop:
+    """trace_loopの結果。距離フィルタに必要な情報と、evaluate_loopsが完全な
+    RouteCandidateを組み立てるためのエンジン固有の中間データを運ぶ。"""
+
+    bearing: int
+    distance_km: float
+    data: Any
+
+
+def candidate_identity(bearing: int) -> dict[str, str]:
+    """方位から候補のid・方位ラベルを導出する（両エンジンで共通の命名規則）。"""
+    return {"id": f"route-{bearing:03d}", "direction_label": compass_label(bearing)}
+
+
+class LoopRoutingEngine(Protocol):
+    engine_name: str
+
+    async def prepare(self, origin: Coordinates, radius_km: float) -> Any | None: ...
+
+    async def trace_loop(self, context: Any, waypoints: list[Coordinates], bearing: int) -> TracedLoop: ...
+
+    async def evaluate_loops(
+        self, context: Any, traced: list[TracedLoop], start_time: datetime
+    ) -> list[RouteCandidate]: ...
 
 
 class RouteGenerator:
-    def __init__(
-        self,
-        routing_service: RoutingService,
-        elevation_service: ElevationService,
-        wind_service: WindService,
-        route_scorer: RouteScorer,
-    ):
-        self._routing_service = routing_service
-        self._elevation_service = elevation_service
-        self._wind_service = wind_service
+    """周回ルート候補の生成戦略。経路計算と評価はengineへ委譲する。"""
+
+    def __init__(self, engine: LoopRoutingEngine, route_scorer: RouteScorer):
+        self._engine = engine
         self._route_scorer = route_scorer
+
+    @property
+    def engine_name(self) -> str:
+        return self._engine.engine_name
 
     async def generate_loops(
         self,
@@ -53,143 +92,38 @@ class RouteGenerator:
     ) -> list[RouteCandidate]:
         radius_km = distance_km * RADIUS_RATIO
 
+        context = await self._engine.prepare(origin, radius_km)
+        if context is None:
+            return []
+
         results = await asyncio.gather(
-            *(self._build_candidate(origin, bearing, radius_km) for bearing in DIRECTIONS_DEG),
+            *(
+                self._engine.trace_loop(context, self._loop_waypoints(origin, bearing, radius_km), bearing)
+                for bearing in DIRECTIONS_DEG
+            ),
             return_exceptions=True,
         )
 
-        pairs = [r for r in results if isinstance(r, tuple)]
-        pairs = [(c, sv) for c, sv in pairs if abs(c.distance_km - distance_km) <= distance_tolerance_km]
-        pairs.sort(key=lambda cs: abs(cs[0].distance_km - distance_km))
+        traced = [r for r in results if isinstance(r, TracedLoop)]
+        traced = [t for t in traced if abs(t.distance_km - distance_km) <= distance_tolerance_km]
+        # 評価前に目標距離に近い順へ並べておく（最終順序はtotal_scoreで決まるが、
+        # 評価順・candidates内の並びを安定させるため）。
+        traced.sort(key=lambda t: abs(t.distance_km - distance_km))
 
-        candidates = [c for c, _ in pairs]
-        surface_values_per_candidate = [sv for _, sv in pairs]
+        if not traced:
+            return []
 
-        # 標高・風・路面を同じ点集合（インデックス付き）で評価する
-        sampled = [sample_line_points(c.geometry, SAMPLE_COUNT) for c in candidates]
-        points_per_candidate = [[point for _, point in s] for s in sampled]
-        indices_per_candidate = [[index for index, _ in s] for s in sampled]
-
-        # 棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
-        profiles = await asyncio.gather(
-            *(self._elevation_service.get_profile(points) for points in points_per_candidate)
-        )
-        elevations_per_candidate = [profile.pop("elevations") for profile in profiles]
-        candidates = [c.model_copy(update=profile) for c, profile in zip(candidates, profiles)]
-
-        # 出発時刻を「今」として、各候補の風負荷を評価する
         start_time = datetime.now(JST)
-        wind_profiles = await asyncio.gather(
-            *(self._wind_service.get_wind_profile(points, start_time) for points in points_per_candidate)
-        )
-        wind_segments_per_candidate = [wp["segments"] for wp in wind_profiles]
-        candidates = [
-            c.model_copy(update={"wind_score": wp["wind_score"]}) for c, wp in zip(candidates, wind_profiles)
-        ]
+        candidates = await self._engine.evaluate_loops(context, traced, start_time)
 
-        # 地図の難易度レイヤー用に、区間ごとの詳細（標高・風・路面・難易度）を組み立てる
-        weights = load_scoring_weights()
-        candidates = [
-            c.model_copy(
-                update={
-                    "segments": self._build_segment_details(
-                        points=points_per_candidate[i],
-                        indices=indices_per_candidate[i],
-                        elevations=elevations_per_candidate[i],
-                        wind_segments=wind_segments_per_candidate[i],
-                        surface_values=surface_values_per_candidate[i],
-                        weights=weights,
-                    )
-                }
-            )
-            for i, c in enumerate(candidates)
-        ]
-
-        # 距離・獲得標高・風・路面を合成したtotal_scoreを算出し、良い候補が先頭に来るよう並べ替える
         candidates = self._route_scorer.score(candidates, distance_km)
         candidates.sort(key=lambda c: c.total_score if c.total_score is not None else -1, reverse=True)
 
         return candidates
 
-    async def _build_candidate(
-        self, origin: Coordinates, bearing: int, radius_km: float
-    ) -> tuple[RouteCandidate, list[list] | None]:
+    @staticmethod
+    def _loop_waypoints(origin: Coordinates, bearing: int, radius_km: float) -> list[Coordinates]:
+        """方位bearingの周回経由地点列: 起点→θ方向に半径R→θ+45°方向に半径R→起点。"""
         waypoint_a = destination_point(origin, bearing, radius_km)
         waypoint_b = destination_point(origin, (bearing + 45) % 360, radius_km)
-
-        try:
-            segment = await self._routing_service.get_route([origin, waypoint_a, waypoint_b, origin])
-        except RoutingError as exc:
-            raise RoutingError(f"direction {bearing} failed: {exc}") from exc
-
-        candidate = RouteCandidate(
-            id=f"route-{bearing:03d}",
-            direction_label=compass_label(bearing),
-            distance_km=segment.distance_km,
-            geometry=segment.geometry,
-            road_score=paved_percent(segment.surface_summary),
-        )
-        return candidate, segment.surface_values
-
-    def _build_segment_details(
-        self,
-        points: list[Coordinates],
-        indices: list[int],
-        elevations: list[float | None],
-        wind_segments: list[dict],
-        surface_values: list[list] | None,
-        weights: dict[str, float],
-    ) -> list[RouteSegmentDetail]:
-        segments = []
-        cumulative_km = 0.0
-
-        for i in range(len(points) - 1):
-            wind_segment = wind_segments[i] if i < len(wind_segments) else None
-            distance_km = (
-                wind_segment["distance_km"] if wind_segment else haversine_distance_km(points[i], points[i + 1])
-            )
-
-            e1 = elevations[i] if i < len(elevations) else None
-            e2 = elevations[i + 1] if i + 1 < len(elevations) else None
-            gradient_percent = None
-            if e1 is not None and e2 is not None and distance_km > 0:
-                gradient_percent = abs(e2 - e1) / (distance_km * 1000) * 100
-
-            wind_penalty = wind_segment["wind_penalty"] if wind_segment else None
-            arrival_time = wind_segment["arrival_time"] if wind_segment else None
-
-            surface_id = surface_id_at_index(indices[i], surface_values)
-            road_surface_good = is_good_surface(surface_id)
-
-            elevation_diff = gradient_difficulty(gradient_percent)
-            wind_diff = wind_difficulty(wind_penalty)
-            road_diff = road_difficulty(road_surface_good)
-            difficulty = composite_difficulty(
-                [
-                    (elevation_diff, weights["elevation_weight"]),
-                    (wind_diff, weights["wind_weight"]),
-                    (road_diff, weights["road_weight"]),
-                ]
-            )
-
-            segments.append(
-                RouteSegmentDetail(
-                    start_latitude=points[i].latitude,
-                    start_longitude=points[i].longitude,
-                    end_latitude=points[i + 1].latitude,
-                    end_longitude=points[i + 1].longitude,
-                    cumulative_distance_km=round(cumulative_km, 2),
-                    distance_km=round(distance_km, 2),
-                    estimated_arrival_time=arrival_time.isoformat() if arrival_time else None,
-                    gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
-                    wind_penalty=wind_penalty,
-                    road_surface_good=road_surface_good,
-                    elevation_difficulty=elevation_diff,
-                    wind_difficulty=wind_diff,
-                    road_difficulty=road_diff,
-                    difficulty=difficulty,
-                )
-            )
-            cumulative_km += distance_km
-
-        return segments
+        return [origin, waypoint_a, waypoint_b, origin]

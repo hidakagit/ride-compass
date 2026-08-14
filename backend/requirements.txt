@@ -10,3 +10,4 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 geoalchemy2==0.16.0
 shapely==2.0.6
+networkx==3.4.2

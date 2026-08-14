@@ -9,6 +9,8 @@ export interface RouteSegment {
   distance_km: number;
   duration_minutes: number;
   geometry: GeoJSON.LineString;
+  surface_summary: Record<string, unknown>[] | null;
+  surface_values: unknown[][] | null;
 }
 
 export interface RoutePreviewRequest {
@@ -54,4 +56,11 @@ export interface RouteGenerateRequest {
   distance_km: number;
   distance_tolerance_km: number;
   route_type: "loop";
+}
+
+export interface RouteGenerateResponse {
+  routes: RouteCandidate[];
+  // どちらのルーティングエンジンが生成した候補か（"openrouteservice" | "road_graph"）。
+  // wind_score等はエンジンによって算出の意味が異なるため、評価値の比較時の識別に使う。
+  engine: string;
 }

@@ -13,9 +13,13 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 from pydantic import BaseModel
 
 from app.domain.attributes import ElevationAttribute, SurfaceAttribute
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty
+from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
+from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
 from app.domain.road import classify_osm_surface
+from app.domain.route import Coordinates
+from app.domain.weather import WeatherConditions
+from app.domain.wind import WindCalculator
 
 # 自転車で法的・実質的に通行できない道路種別（Hard Constraint、仕様書29章）。
 # Costを上げるのではなく探索対象から除外する。将来、access/bicycleタグ等の
@@ -26,14 +30,14 @@ DISALLOWED_HIGHWAY_TYPES = {"motorway", "motorway_link", "trunk", "trunk_link"}
 class RoutePreference(BaseModel):
     """Evaluation Engineが使う重み（仕様書27章）。
 
-    現時点ではRoad Attributeとして実装済みの標高・路面のみを対象とする
-    （交通・自転車インフラ・信号は未実装、Phase 3参照）。設定ファイルからの外部化は
-    Phase 5で行う方針（仕様書40章のPhase分割）のため、ここではデフォルト値を持つ
-    Pydanticモデルとしてのみ用意し、YAML等の読み込み機構はまだ追加しない。
+    現時点ではRoad Attributeとして実装済みの標高・路面と、Dynamic Data対応（Phase 6）の
+    風を対象とする（交通・自転車インフラ・信号は未実装、Phase 3参照）。設定ファイルからの
+    外部化はPhase 5で実施済み（route_preference.yaml、services/evaluation_service.py）。
     """
 
-    elevation_weight: float = 0.5
-    road_weight: float = 0.5
+    elevation_weight: float = 0.25
+    road_weight: float = 0.30
+    wind_weight: float = 0.45
 
 
 class EdgeCostResult(BaseModel):
@@ -45,7 +49,8 @@ class EdgeCostResult(BaseModel):
     cost/difficultyはNoneになる。
 
     Road Graphへ恒久保存しない（仕様書32章）。このモデルは呼び出しごとの計算結果を
-    表すだけであり、Route Preferenceが変われば同じEdgeでも異なる結果になりうる。
+    表すだけであり、Route Preference・出発時刻（風）が変われば同じEdgeでも異なる
+    結果になりうる。
     """
 
     edge_id: str
@@ -65,28 +70,58 @@ def is_edge_allowed(edge: DirectedEdge) -> bool:
     return edge.highway not in DISALLOWED_HIGHWAY_TYPES
 
 
+def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> float | None:
+    """Edgeの進行方向（from_node→to_node）と風向風速からwind_penaltyを算出する
+    （Dynamic Data対応、仕様書20・44章：Edge + Travel Direction + Timeから評価する）。
+
+    正=向かい風、負=追い風（domain/wind.py: WindCalculatorをそのまま再利用）。風は
+    Edgeに永続保存しない（動的データでありRoad Attributeとして扱わない、仕様書20章）。
+
+    既知の簡略化: 本来は出発時刻とEdgeまでの推定累積走行時間から「そのEdgeを実際に
+    通過するであろう時刻」の風を使うべきだが（ルート単位評価の`WindService`
+    （`services/wind_service.py`、`routing_engine=="openrouteservice"`のときは今も
+    `OpenRouteServiceEngine`が使う）はこの方式）、経路探索中（Dijkstra探索の途中）は
+    まだ累積走行時間が確定していないため、探索対象領域全体で単一の風（出発時点・
+    起点付近の風）を一様に適用する簡略化を採用している。将来、時間展開グラフ等で
+    より精密化する余地がある（docs/architecture.md参照）。
+    """
+    if wind is None or len(edge.geometry) < 2:
+        return None
+    start_lat, start_lon = edge.geometry[0]
+    end_lat, end_lon = edge.geometry[-1]
+    bearing = bearing_between(
+        Coordinates(latitude=start_lat, longitude=start_lon), Coordinates(latitude=end_lat, longitude=end_lon)
+    )
+    return WindCalculator.wind_penalty(wind.wind_speed_ms, wind.wind_direction_deg, bearing)
+
+
 def compute_edge_cost(
     edge: DirectedEdge,
     elevation_attribute: ElevationAttribute | None,
     surface_attribute: SurfaceAttribute | None,
     preference: RoutePreference,
+    wind: WeatherConditions | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
     具体的な計算式（difficultyを距離への乗算ペナルティとして反映する方式）は今回の
     初期実装であり、固定ではない。加重和・ペナルティ方式などを比較検討できるよう、
     この関数だけを差し替えれば済む独立した責務にしてある（仕様書31章）。
+
+    `wind`は省略可能（Noneなら風は評価に含めない、既存呼び出し元との後方互換）。
     """
     if not is_edge_allowed(edge):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_attribute.surface_type) if surface_attribute else None
+    wind_penalty = compute_wind_penalty(edge, wind)
 
     difficulty = composite_difficulty(
         [
             (gradient_difficulty(gradient_percent), preference.elevation_weight),
             (road_difficulty(is_good_surface), preference.road_weight),
+            (wind_difficulty(wind_penalty), preference.wind_weight),
         ]
     )
 
