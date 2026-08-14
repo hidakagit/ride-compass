@@ -15,18 +15,20 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         # RenderはSupabaseのDirect Connection（IPv6専用）へ発信できない
-        # （実機でOSError(101, 'Network is unreachable')を確認）ため、本番はSupabaseの
-        # Transaction pooler（Supavisor、IPv4対応）経由に接続する運用に変更した。
-        # Transaction poolerは呼び出しごとに物理コネクションが変わりうるため、asyncpgの
-        # デフォルト動作（サーバー側prepared statementをコネクション単位でキャッシュする）
-        # と噛み合わず、別の物理コネクションに使い回されたキャッシュ済みstatement名を
-        # 参照してエラーになりうる。statement_cache_size=0でこのキャッシュ自体を無効化する
-        # （Direct Connection/ローカルPG18に対しても安全に使える設定のため常時適用する）。
-        _engine = create_async_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            connect_args={"statement_cache_size": 0},
-        )
+        # （実機でOSError(101, 'Network is unreachable')を確認）ため、本番は
+        # SupabaseのSession pooler（IPv4対応、ポート5432）経由に接続する。
+        #
+        # Transaction pooler（ポート6543）は当初検討したが、asyncpgがサーバー側
+        # prepared statementを`__asyncpg_stmt_N__`という連番名で明示的に発行する実装のため、
+        # 呼び出しごとに物理コネクションが変わりうるTransaction poolerでは「別クライアントが
+        # 同じ物理コネクションに残した同名のprepared statement」と衝突しうる
+        # （DuplicatePreparedStatementError、実機で確認）。SQLAlchemyの公式ドキュメントは
+        # prepared_statement_name_func（UUID採番）での回避を案内しているが、手元の
+        # SQLAlchemy 2.0.36ではconnect_args経由で渡してもこの関数が一切呼ばれず
+        # （実機で検証済み）効果がなかった。Session poolerはクライアントごとに専有の
+        # 物理コネクションを保持するため、この種の衝突が構造的に起きず、追加設定なしで
+        # 動作する（実機で同時10接続を検証済み）。
+        _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     return _engine
 
 
