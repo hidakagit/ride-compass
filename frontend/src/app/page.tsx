@@ -6,7 +6,7 @@ import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
-import MapLayerControls from "@/components/MapLayerControls/MapLayerControls";
+import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
@@ -228,23 +228,20 @@ export default function Home() {
               onManualSubmit={handleManualSubmit}
             />
 
-            <RouteForm onGenerate={handleGenerate} loading={loading} />
+            {/* ルート生成は「地図レイヤーだけ使いたい」用途では不要なため、折りたたみ
+                （デフォルト閉）にして地図側の視界を優先する。候補一覧・エラーもルート生成の
+                一部としてこの中にまとめる（レイヤーのON/OFFは地図上のMapOverlayControlsへ移動済み）。 */}
+            <details className={styles.routeSection}>
+              <summary className={styles.routeSectionSummary}>ルート生成</summary>
+              <RouteForm onGenerate={handleGenerate} loading={loading} />
+              {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
+              <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+            </details>
 
-            {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
-
-            <MapLayerControls
-              showElevation={showElevation}
-              onShowElevationToggle={setShowElevation}
-              showRoad={showRoad}
-              onShowRoadToggle={setShowRoad}
-              dynamicLayerOn={dynamicLayerOn}
-              onDynamicLayerToggle={setDynamicLayerOn}
-              hasDetail={hasDetail}
-              regionZoomTooWide={regionZoomTooWide}
-              onRefresh={() => setRefreshToken((v) => v + 1)}
-            />
-
-            <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+            {/* 基礎地図・路面タイルのキャッシュ更新は日常操作ではない運用ボタンのため最下部に置く */}
+            <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
+              変わらないデータを更新
+            </button>
           </>
         )}
       </aside>
@@ -266,6 +263,17 @@ export default function Home() {
           dynamicLayerOn={dynamicLayerOn}
           onRegionZoomHintChange={setRegionZoomTooWide}
           refreshToken={refreshToken}
+        />
+
+        <MapOverlayControls
+          showElevation={showElevation}
+          onShowElevationToggle={setShowElevation}
+          showRoad={showRoad}
+          onShowRoadToggle={setShowRoad}
+          dynamicLayerOn={dynamicLayerOn}
+          onDynamicLayerToggle={setDynamicLayerOn}
+          hasDetail={hasDetail}
+          regionZoomTooWide={regionZoomTooWide}
         />
 
         <button

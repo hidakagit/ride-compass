@@ -86,7 +86,9 @@ a {
 }
 
 .app-sidebar {
-  width: 340px;
+  /* 以前は340pxだったが、レイヤー操作を地図上（MapOverlayControls）へ移して
+     サイドバーの中身が減ったため、地図の視界を優先して縮小した */
+  width: 280px;
   flex-shrink: 0;
   overflow-y: auto;
   border-right: 1px solid var(--color-border);
@@ -121,7 +123,7 @@ a {
     left: 0;
     bottom: 0;
     z-index: 45;
-    width: min(85vw, 340px);
+    width: min(85vw, 300px);
     background: var(--background);
     box-shadow: 2px 0 16px rgba(0, 0, 0, 0.3);
   }

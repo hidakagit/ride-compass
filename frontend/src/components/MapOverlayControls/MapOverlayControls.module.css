@@ -1,0 +1,107 @@
+/* 地図（page.module.cssの.mapPane、position:relative）の左上に重ねる。
+   z-indexは現在地ボタン（20）と同じ層。モバイルのドロワー（z:45）・暗幕（z:40）より下。 */
+.wrapper {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+  /* 地図のドラッグ操作を妨げないよう、余白部分はイベントを透過させる */
+  pointer-events: none;
+}
+
+.wrapper > * {
+  pointer-events: auto;
+}
+
+/* モバイルではサイドバーの開閉トグル（globals.css: .app-sidebar.is-collapsedで
+   fixed top:0.5rem left:0.5rem）が左上に固定表示されるため、その右側へずらす */
+@media (max-width: 640px) {
+  .wrapper {
+    left: 3.75rem;
+    top: 0.5rem;
+  }
+}
+
+.chipRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* 背景に--color-surface（ダークモードでも白のまま）を使うため、文字色も固定の暗色にする
+   （var(--foreground)だとダークモードで白地に白文字になる） */
+.chip {
+  min-height: 36px;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: #171717;
+  font-size: var(--font-size-md);
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+}
+
+.chip:disabled {
+  color: var(--color-neutral);
+  cursor: default;
+}
+
+.chipActive {
+  composes: chip;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+
+.zoomWarning {
+  background: var(--color-surface);
+  color: var(--color-warning-strong);
+  font-size: var(--font-size-sm);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow-float);
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--color-surface);
+  color: #171717; /* .chipと同じ理由（白地固定のためダークモードでも暗色文字） */
+  font-size: var(--font-size-sm);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow-float);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border-radius: 2px;
+}
+
+.swatchSpaced {
+  composes: swatch;
+  margin-left: 0.4rem;
+}
+
+.swatchGood {
+  background: var(--color-success);
+}
+
+.swatchBad {
+  background: var(--color-danger);
+}
+
+.swatchUnknown {
+  background: var(--color-neutral);
+}
+
+.swatchNormal {
+  background: var(--color-warning);
+}
