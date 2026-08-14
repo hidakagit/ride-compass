@@ -391,3 +391,70 @@ async def test_mark_tile_cached_is_idempotent(road_graph_repository):
     await road_graph_repository.mark_tile_cached(zoom=12, x=1, y=1)  # 再マークしても例外なし
 
     assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is True
+
+
+# --- get_road_surface_tile_mvt（ST_AsMVTによるDB側MVT生成）---
+
+# NODE1/NODE2（35.700付近）を含むz14タイル。テストデータの座標から逆算せず、
+# tile_bounds_lonlatの結果で包含を検証してから使う（下のフィクスチャ的アサーション参照）。
+MVT_Z, MVT_X, MVT_Y = 14, 14549, 6450
+
+
+def _mvt_tile_bbox():
+    from app.domain.region import tile_bounds_lonlat
+
+    bbox = tile_bounds_lonlat(MVT_Z, MVT_X, MVT_Y)
+    # テストデータ（NODE1/NODE2）が本当にこのタイルへ入っている前提の自己検証
+    assert bbox.min_latitude <= NODE1[0] <= bbox.max_latitude
+    assert bbox.min_longitude <= NODE1[1] <= bbox.max_longitude
+    return bbox
+
+
+async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_no_ways(road_graph_repository):
+    tile = await road_graph_repository.get_road_surface_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox())
+
+    assert tile == b""
+
+
+async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classification(road_graph_repository):
+    """生成されたMVTがPythonエンコーダ（infrastructure/vector_tile.py）と同じ契約
+    （レイヤー名road_surface・surface_goodプロパティ・不明はキー省略）を満たすことを、
+    実際にデコードして確認する。分類はclassify_osm_surfaceと同じタグ集合
+    （空白trim・小文字化込み）に従う。
+    """
+    import mapbox_vector_tile
+
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", surface=" Asphalt "),  # trim+lower→良い
+        WaySpec(osm_way_id=2, node_ids=[1, 2], highway="track", surface="gravel"),  # 悪い
+        WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential"),  # タグ無し→不明
+        WaySpec(osm_way_id=4, node_ids=[1, 2], highway="residential", surface="mystery_tag"),  # 未知→不明
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox())
+
+    decoded = mapbox_vector_tile.decode(tile)
+    assert set(decoded.keys()) == {"road_surface"}
+    properties = sorted(
+        (feature["properties"] for feature in decoded["road_surface"]["features"]),
+        key=lambda p: (len(p), str(p.get("surface_good"))),
+    )
+    # 不明（タグ無し・未知タグ）はsurface_goodキー自体が省略される（フロントエンドの
+    # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）
+    assert properties == [{}, {}, {"surface_good": False}, {"surface_good": True}]
+
+
+async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_repository):
+    import mapbox_vector_tile
+
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", surface="asphalt"),  # タイル内
+        WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential", surface="asphalt"),  # タイル外(35.75付近)
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox())
+
+    decoded = mapbox_vector_tile.decode(tile)
+    assert len(decoded["road_surface"]["features"]) == 1

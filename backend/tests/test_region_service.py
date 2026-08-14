@@ -58,14 +58,14 @@ async def test_get_road_surface_tile_skips_caching_on_fetch_failure():
 
 
 class FakeRegionRepository:
-    """RoadGraphRepositoryのRegionServiceが使う部分（カバレッジ判定と路面way取得）のフェイク。"""
+    """RoadGraphRepositoryのRegionServiceが使う部分（カバレッジ判定とMVT生成）のフェイク。"""
 
-    def __init__(self, covered: bool = True, ways=(), error: Exception | None = None):
+    def __init__(self, covered: bool = True, tile: bytes = b"fake-mvt-tile", error: Exception | None = None):
         self._covered = covered
-        self._ways = list(ways)
+        self._tile = tile
         self._error = error
         self.is_tile_cached_calls: list[tuple[int, int, int]] = []
-        self.get_ways_call_count = 0
+        self.get_tile_call_count = 0
 
     async def is_tile_cached(self, zoom, x, y):
         if self._error is not None:
@@ -73,29 +73,41 @@ class FakeRegionRepository:
         self.is_tile_cached_calls.append((zoom, x, y))
         return self._covered
 
-    async def get_road_surface_ways_in_bbox(self, bbox):
-        self.get_ways_call_count += 1
-        return self._ways
-
-
-POSTGIS_WAYS = [([[35.755, 139.735], [35.756, 139.736]], "asphalt")]
+    async def get_road_surface_tile_mvt(self, z, x, y, bbox):
+        self.get_tile_call_count += 1
+        return self._tile
 
 
 async def test_covered_tile_is_served_from_postgis_without_overpass():
     overpass_client = FakeOverpassClient(ways=[])
-    repository = FakeRegionRepository(covered=True, ways=POSTGIS_WAYS)
+    repository = FakeRegionRepository(covered=True)
     service = RegionService(overpass_client, http_client=None, repository=repository)
 
     tile_bytes = await service.get_road_surface_tile(Z, X, Y)
 
-    assert isinstance(tile_bytes, bytes) and len(tile_bytes) > 0
+    # PostGIS（ST_AsMVT）が生成したバイト列がそのまま返る（Python側で再エンコードしない）
+    assert tile_bytes == b"fake-mvt-tile"
     assert overpass_client.call_count == 0
-    assert repository.get_ways_call_count == 1
+    assert repository.get_tile_call_count == 1
     # カバレッジ判定はz12の祖先タイル（z14の x,y を2段丸めた値）で行う
     assert repository.is_tile_cached_calls == [(12, X >> 2, Y >> 2)]
     # PostGIS由来のタイルもファイルキャッシュへ保存される（2回目はDBへも行かない）
     await service.get_road_surface_tile(Z, X, Y)
-    assert repository.get_ways_call_count == 1
+    assert repository.get_tile_call_count == 1
+
+
+async def test_covered_tile_with_no_roads_caches_empty_mvt():
+    """カバレッジ内で道路0本（ST_AsMVTがNULL→空バイト列）のタイルもキャッシュされ、
+    2回目以降DBへ行かないこと（「データが無いことを確認済み」はキャッシュしてよい。
+    カバレッジ外の空タイルをキャッシュしないのとは区別する）。"""
+    repository = FakeRegionRepository(covered=True, tile=b"")
+    service = RegionService(FakeOverpassClient(ways=[]), http_client=None, repository=repository)
+
+    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+
+    assert tile_bytes == b""
+    await service.get_road_surface_tile(Z, X, Y)
+    assert repository.get_tile_call_count == 1
 
 
 async def test_uncovered_tile_falls_back_to_overpass_when_enabled():
@@ -108,7 +120,7 @@ async def test_uncovered_tile_falls_back_to_overpass_when_enabled():
 
     assert isinstance(tile_bytes, bytes) and len(tile_bytes) > 0
     assert overpass_client.call_count == 1
-    assert repository.get_ways_call_count == 0  # カバレッジ外ではway取得まで行かない
+    assert repository.get_tile_call_count == 0  # カバレッジ外ではMVT生成まで行かない
 
 
 async def test_uncovered_tile_returns_empty_without_overpass_when_fallback_disabled():
@@ -132,7 +144,7 @@ async def test_uncovered_tile_returns_empty_without_overpass_when_fallback_disab
 async def test_postgis_error_falls_back_to_overpass():
     ways_data = [{"tags": {"surface": "asphalt"}, "coordinates": [[35.755, 139.735], [35.756, 139.736]]}]
     overpass_client = FakeOverpassClient(ways=ways_data)
-    repository = FakeRegionRepository(covered=True, ways=POSTGIS_WAYS, error=RuntimeError("db down"))
+    repository = FakeRegionRepository(covered=True, error=RuntimeError("db down"))
     service = RegionService(overpass_client, http_client=None, repository=repository)
 
     tile_bytes = await service.get_road_surface_tile(Z, X, Y)

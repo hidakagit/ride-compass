@@ -31,11 +31,13 @@ class RegionService:
     データソース（docs/osm-pbf-import.md Phase 2）:
     `repository`（RoadGraphRepository）を渡すと**PostGISを第一系統**とする。要求タイルの
     z12祖先タイルが取得済みマーク（road_graph_tiles、PBF取込バッチ or Road Graphの
-    タイル取得が記録）されていれば、osm_raw_ways.geomの空間検索だけでタイルを生成し、
-    Overpassへは一切問い合わせない。カバレッジ外・DB障害時は`overpass_fallback_enabled`に
-    従い従来のOverpass問い合わせへフォールバックする（falseなら空タイルを返し、後から
-    取込された際に再生成できるようキャッシュには保存しない）。
-    `repository`を渡さない場合（既定）は従来どおりOverpassのみで動作する。
+    タイル取得が記録）されていれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）で
+    タイルを丸ごと生成し、Overpassへは一切問い合わせない（way行の転送とPython側の
+    エンコードCPU処理を避ける。理由はroad_graph_repository.pyの
+    _ROAD_SURFACE_TILE_MVT_SQLコメント参照）。カバレッジ外・DB障害時は
+    `overpass_fallback_enabled`に従い従来のOverpass問い合わせへフォールバックする
+    （falseなら空タイルを返し、後から取込された際に再生成できるようキャッシュには
+    保存しない）。`repository`を渡さない場合（既定）は従来どおりOverpassのみで動作する。
     """
 
     def __init__(
@@ -50,8 +52,9 @@ class RegionService:
         self._repository = repository
         self._overpass_fallback_enabled = overpass_fallback_enabled
 
-    async def _ways_from_repository(self, z: int, x: int, y: int, fields: dict) -> list[dict] | None:
-        """PostGISからタイル1枚分の路面wayを取得する。カバレッジ外はNone（フォールバック判定へ）。
+    async def _tile_from_repository(self, z: int, x: int, y: int, fields: dict) -> bytes | None:
+        """PostGIS側（ST_AsMVT）でタイル1枚分のMVTを丸ごと生成する。カバレッジ外はNone
+        （フォールバック判定へ）。
 
         DB障害もNoneを返す（ログ方針: エラーは常時WARNINGで出す。障害時にOverpassへ
         フォールバックできる構造を保ち、PostGIS停止が地図の路面表示という既存機能を
@@ -62,18 +65,14 @@ class RegionService:
             if not await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y):
                 fields["postgis"] = "uncovered"
                 return None
-            bbox = tile_bounds_lonlat(z, x, y)
-            raw = await self._repository.get_road_surface_ways_in_bbox(bbox)
+            tile_bytes = await self._repository.get_road_surface_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
         except Exception as exc:  # noqa: BLE001 DB障害はフォールバックで吸収する（上記docstring）
             logger.warning("路面タイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
             fields["postgis"] = "error"
             fields["postgis_error"] = repr(exc)
             return None
         fields["postgis"] = "hit"
-        return [
-            {"coordinates": coordinates, "surface_good": classify_osm_surface(surface)}
-            for coordinates, surface in raw
-        ]
+        return tile_bytes
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> bytes:
         path = _tile_cache_path(z, x, y)
@@ -86,14 +85,17 @@ class RegionService:
                 return content
             fields["cache"] = "miss"
 
-            ways: list[dict] | None = None
+            # 第一系統: PostGISでMVTまで丸ごと生成（カバレッジ外・DB障害時はNoneが返り、
+            # 以下のOverpass/空タイルへのフォールバックに続く）。
             if self._repository is not None:
-                ways = await self._ways_from_repository(z, x, y, fields)
+                postgis_tile = await self._tile_from_repository(z, x, y, fields)
+                if postgis_tile is not None:
+                    fields["source"] = "postgis"
+                    fields["tile_bytes"] = len(postgis_tile)
+                    await asyncio.to_thread(tile_cache.set, path, postgis_tile, ROAD_SURFACE_TILE_CONTENT_TYPE)
+                    return postgis_tile
 
-            if ways is not None:
-                fields["source"] = "postgis"
-                fetch_failed = False
-            elif self._overpass_fallback_enabled:
+            if self._overpass_fallback_enabled:
                 fields["source"] = "overpass"
                 bbox = tile_bounds_lonlat(z, x, y)
                 raw_ways = await self._overpass_client.get_roads(self._http_client, bbox)
@@ -120,12 +122,14 @@ class RegionService:
                 ways = []
                 fetch_failed = True
 
+            # （ここから下はOverpassフォールバック・空タイルのみが通るPythonエンコード経路。
+            # PostGIS第一系統はST_AsMVTがエンコードまで済ませるため通らない）
             # MVTエンコードはCPU専用の同期処理。await無しで直接呼ぶとway数の多い密集タイルで
             # イベントループを数百ms単位で塞ぎ、同時に処理中の他リクエスト（ルート生成等）を
             # 足止めすることが実測で判明したため、tile_cache.get/setと同じくasyncio.to_thread
             # 経由にする（backend/benchmarks/bench_event_loop_stall.py参照）。
             #
-            # ここは_ways_from_repositoryと違いtry/exceptで保護されておらず、密集タイル・
+            # ここは_tile_from_repositoryと違いtry/exceptで保護されておらず、密集タイル・
             # 同時実行下でのメモリ圧迫等でエンコードが失敗すると素の500がクライアントへ
             # 返っていた（実機で確認: 取込範囲の境界付近でレイヤーON/OFFを繰り返した際に発生）。
             # DB読み取り失敗と同じ「常時WARNING＋安全側で空タイル返却」の方針に合わせる。

@@ -163,10 +163,10 @@ PBFはnode→way→relationの順に並んでいる。pyosmiumの`NodeLocationsF
 
 `get_road_surface_tile`のOverpass問い合わせ部分を差し替えた:
 
-1. タイルbboxで`osm_raw_ways`を`ST_Intersects`検索（geom列＋空間インデックス、`RoadGraphRepository.get_road_surface_ways_in_bbox`）し、`surface`タグから`classify_osm_surface`で3値分類 → 既存の`encode_road_surface_tile`でMVT化（既存のファイルキャッシュ・`asyncio.to_thread`方針は維持）
+1. タイルbboxで`osm_raw_ways`を`ST_Intersects`検索し、**MVTエンコードまで含めてPostGIS側で丸ごと生成**（`RoadGraphRepository.get_road_surface_tile_mvt`、`ST_AsMVT`/`ST_AsMVTGeom`。surface3値分類も同じクエリ内のCASE式で行い、タグ集合は`domain/road.py`の定数をバインドして単一ソース化）。ファイルキャッシュ方針は維持（2026-08-15改修。当初はway行をPythonへ転送して`encode_road_surface_tile`でMVT化していたが、遠隔DB（Supabaseムンバイ）では行転送＋Python側CPU処理で1タイル数秒かかり、パンのバースト時に3並列の待ち行列が30秒を超えてフロントエンドNext.jsのrewritesプロキシ（デフォルト30秒）がタイムアウト500を返す主因になっていた）
 2. **カバレッジ判定**: 表示タイル（z12-15）のz12祖先タイル（`domain/region.py: tile_ancestor`、新規）が`road_graph_tiles`にマーク済みかで判定する。マーク済みならDBが正（0件でも正しい空）、未マークなら取込範囲外
 3. DB接続不可・取込範囲外の場合は、`settings.overpass_fallback_enabled`（新設、既定true）に従いOverpassへフォールバック。falseなら空タイルを返す（**キャッシュには保存しない**。後からPBF取込された際に正しいタイルを再生成できるようにするため）。フォールバック発動・範囲外アクセスはログ方針に従い常時WARNINGで記録する
-4. 将来最適化: PostGISの`ST_AsMVT`でMVT生成をSQL側へ寄せる案があるが、既存エンコーダとの出力互換検証が必要なため初期実装では見送った
+4. ~~将来最適化: PostGISの`ST_AsMVT`でMVT生成をSQL側へ寄せる案があるが、既存エンコーダとの出力互換検証が必要なため初期実装では見送った~~ → 2026-08-15に実施済み（上記1参照。出力互換は`tests/test_road_graph_repository.py`のMVTデコード検証で担保。Overpassフォールバック経路のみ従来の`encode_road_surface_tile`を使い続ける）
 
 DIは`RegionService(overpass_client, http_client, repository=None, overpass_fallback_enabled=True)`の形で既存パターン（`GraphService`と同じ「repository任意注入」）を踏襲し、`road_graph_use_repository`有効時のみ注入する。実DB検証は`backend/scripts/verify_phase2_e2e.py`（9項目）で、取込範囲内タイルがPostGISのみで生成される（東京駅付近z14で3,304地物・Overpass呼び出し0回）ことを確認済み。
 

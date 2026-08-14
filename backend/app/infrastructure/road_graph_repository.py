@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import LineString, Point
-from sqlalchemy import BigInteger, any_, cast, delete, func, or_, select, text, update
+from sqlalchemy import BigInteger, Text, any_, bindparam, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -36,6 +36,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.domain.attributes import ElevationAttribute, SurfaceAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
+from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
+from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, TILE_EXTENT
 from app.infrastructure.road_graph_models import (
     Base,
     ElevationAttributeRow,
@@ -174,14 +176,51 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
     return point.y, point.x  # (latitude, longitude)
 
 
-def _rows_to_road_surface_ways(
-    rows: Iterable[tuple],
-) -> list[tuple[list[list[float]], str | None]]:
-    ways: list[tuple[list[list[float]], str | None]] = []
-    for geom, surface in rows:
-        line = to_shape(geom)
-        ways.append(([[lat, lon] for lon, lat in line.coords], surface))
-    return ways
+# 路面タイル（MVT）をPostGIS側で丸ごと生成するクエリ（get_road_surface_tile_mvt参照）。
+#
+# 以前は「bbox内の全way行（数千件のジオメトリ）をPythonへ転送→shapelyでdecode→
+# mapbox_vector_tileでencode」という構成で、遠隔DB（Supabaseムンバイ）では行転送だけで
+# 数秒、Python側のCPU処理（GILを握る）でさらに数秒かかり、パン操作のバースト時は
+# 3並列の待ち行列が30秒を超えてフロントエンド（Next.jsのrewritesプロキシ、デフォルト
+# 30秒タイムアウト）が一律500を返す不具合の主因になっていた。ST_AsMVTなら転送は
+# 完成済みタイル1個（数十KB）で済み、エンコードはPostGISのC実装が担う。
+#
+# surface_goodの分類はdomain/road.pyのclassify_osm_surfaceと同義（タグ集合も同じ定数を
+# バインドする）: 良い=true / 悪い=false / 不明(タグ無し・未知タグ)=NULL。
+# ST_AsMVTはNULL値のプロパティをfeatureから省略するため、MVT上は「キー無し」になり、
+# Python実装（mapbox_vector_tileもNone値を省略）ともフロントエンドの
+# ["get","surface_good"]==null判定（不明=グレー表示）とも互換。
+# lower(btrim())はclassify_osm_surfaceのstrip().lower()に対応する（btrimはASCII空白のみ
+# だが、OSMのsurfaceタグに全角空白等が入るケースは実データ上考慮しない）。
+#
+# ST_AsMVTGeom: 対象タイルのWeb Mercator範囲（ST_TileEnvelope、XYZ方式でPython側の
+# tile_bounds_lonlatと同じタイル座標系）へ射影し、extent=TILE_EXTENT（Pythonエンコーダと
+# 同じ4096）・バッファ256（MVT標準値。タイル境界を跨ぐ線の描画継続に必要）でクリップする。
+# クリップ後に空になったジオメトリはNULLになるため外側のWHEREで除外する。
+_ROAD_SURFACE_TILE_MVT_SQL = (
+    text(
+        """
+        SELECT ST_AsMVT(mvt.*, :layer_name, :extent, 'geom') FROM (
+            SELECT
+                ST_AsMVTGeom(
+                    ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                ) AS geom,
+                CASE
+                    WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
+                    WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
+                END AS surface_good
+            FROM osm_raw_ways w
+            WHERE w.geom IS NOT NULL
+              AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+        ) mvt
+        WHERE mvt.geom IS NOT NULL
+        """
+    )
+    .bindparams(
+        bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+        bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+    )
+)
 
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[RoadNodeRow]) -> RoadGraph:
@@ -268,17 +307,18 @@ class RoadGraphRepository:
             return None
 
         node_ids = sorted({row.from_node_id for row in edge_rows} | {row.to_node_id for row in edge_rows})
-        # 都心部のbboxではNode数が数万件になり、IN句展開はasyncpgのパラメータ上限
-        # （32767個）を超えうるためチャンク分割する。
+        # =ANY(配列)化の理由はget_elevation_attributesのコメント参照（1要素=1パラメータの
+        # IN句展開と異なり配列全体で1パラメータのため、WAN経由でのラウンドトリップ増加を
+        # 避けられる。50,000件チャンクなのでasyncpgのパラメータ上限32767個の問題も無い）。
         node_rows = []
-        for id_chunk in _chunked(node_ids, _ID_CHUNK_SIZE):
-            node_stmt = select(RoadNodeRow).where(RoadNodeRow.node_id.in_(id_chunk))
+        for id_chunk in _chunked(node_ids, 50_000):
+            node_stmt = select(RoadNodeRow).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
             node_rows.extend((await self._session.execute(node_stmt)).scalars().all())
 
         # 密集した都市部のbboxではEdge/Nodeが数万〜十数万行になり、shapelyへのgeometry
-        # decode（to_shape）だけで数秒〜十数秒のCPU処理になる（get_road_surface_ways_in_bbox
-        # と同じ理由。bench_postgis_prepare.py実測でこの呼び出し単体13.3秒、東京都心4km
-        # 相当bbox・Edge151,820件）。asyncio.to_threadで逃さないとイベントループを塞ぐ。
+        # decode（to_shape）だけで数秒〜十数秒のCPU処理になる（bench_postgis_prepare.py
+        # 実測でこの呼び出し単体13.3秒、東京都心4km相当bbox・Edge151,820件）。
+        # asyncio.to_threadで逃さないとイベントループを塞ぐ。
         return await asyncio.to_thread(_rows_to_road_graph, edge_rows, node_rows)
 
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
@@ -513,35 +553,51 @@ class RoadGraphRepository:
 
         return way_specs, node_coords, primary_way_ids
 
-    async def get_road_surface_ways_in_bbox(
-        self, bbox: BoundingBox
-    ) -> list[tuple[list[list[float]], str | None]]:
-        """地域路面レイヤー（RegionServiceのMVTタイル生成）用に、bboxと交差するWayの
-        ジオメトリ（[[lat, lon], ...]）とsurfaceタグを返す（docs/osm-pbf-import.md Phase 2）。
+    async def get_road_surface_tile_mvt(self, z: int, x: int, y: int, bbox: BoundingBox) -> bytes:
+        """地域路面レイヤー用のMVTタイル1枚を、PostGIS側（ST_AsMVT）で丸ごと生成して返す
+        （docs/osm-pbf-import.md Phase 2。クエリの設計意図は_ROAD_SURFACE_TILE_MVT_SQLの
+        コメント参照）。対象wayが1本も無い場合は空バイト列（有効な空MVT）。
 
         Road Graph構築（get_way_specs_with_closure）と異なり交差点分割・近傍closureは
-        不要で、表示に必要な「線とsurfaceタグ」だけを実体化済みgeom列から直接引く。
+        不要で、表示に必要な「線とsurface分類」だけをタイルへ焼き込む。
         カバレッジ判定（このbboxのデータが取込済みか）は行わない。呼び出し側
         （RegionService）がis_tile_cachedで先に保証すること。
+
+        bboxは呼び出し側がtile_bounds_lonlatで求めたz/x/yと同じタイルの経緯度範囲
+        （検索条件はST_TileEnvelopeから導出せず既存のbbox表現を使い、従来の検索述語との
+        パリティとgistインデックス利用を明確にする）。
         """
-        envelope = func.ST_MakeEnvelope(
-            bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude, 4326
+        result = await self._session.execute(
+            _ROAD_SURFACE_TILE_MVT_SQL,
+            {
+                "layer_name": ROAD_SURFACE_LAYER_NAME,
+                "extent": TILE_EXTENT,
+                "z": z,
+                "x": x,
+                "y": y,
+                "xmin": bbox.min_longitude,
+                "ymin": bbox.min_latitude,
+                "xmax": bbox.max_longitude,
+                "ymax": bbox.max_latitude,
+            },
         )
-        stmt = select(OsmRawWayRow.geom, OsmRawWayRow.surface).where(
-            OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, envelope)
-        )
-        rows = (await self._session.execute(stmt)).all()
-        # 密集した都市部のタイルではshapelyへのgeom変換だけで1万件超のCPU処理になり、
-        # asyncio.to_threadで逃さないとイベントループを塞ぐ（infrastructure/vector_tile.py
-        # のMVTエンコードと同じ理由。api/routes.pyのROAD_TILE_MAX_CONCURRENT参照）。
-        return await asyncio.to_thread(_rows_to_road_surface_ways, rows)
+        tile = result.scalar()
+        # 対象0行のときST_AsMVT（集約関数）はNULLを返す。長さ0のバイト列は
+        # 「featureが1つも無い有効なMVT」としてMapLibreがそのまま受理する。
+        return bytes(tile) if tile is not None else b""
 
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         if not edge_ids:
             return {}
         result: dict[str, ElevationAttribute] = {}
-        for id_chunk in _chunked(edge_ids, _ID_CHUNK_SIZE):
-            stmt = select(ElevationAttributeRow).where(ElevationAttributeRow.edge_id.in_(id_chunk))
+        # =ANY(配列)は1要素=1パラメータのIN句と異なり配列全体で1パラメータのため、
+        # WAN経由（Supabase等）でラウンドトリップ回数がそのまま遅延に乗る問題を避けられる
+        # （get_way_specs_with_closureのノード座標取得と同じ手法。50,000件のチャンク幅も
+        # そちらと合わせている。実測はbackend/benchmarks/README.md参照）。
+        for id_chunk in _chunked(edge_ids, 50_000):
+            stmt = select(ElevationAttributeRow).where(
+                ElevationAttributeRow.edge_id == any_(cast(id_chunk, ARRAY(Text)))
+            )
             for row in (await self._session.execute(stmt)).scalars().all():
                 result[row.edge_id] = _elevation_row_to_domain(row)
         return result
@@ -580,8 +636,10 @@ class RoadGraphRepository:
         if not edge_ids:
             return {}
         result: dict[str, SurfaceAttribute] = {}
-        for id_chunk in _chunked(edge_ids, _ID_CHUNK_SIZE):
-            stmt = select(SurfaceAttributeRow).where(SurfaceAttributeRow.edge_id.in_(id_chunk))
+        # =ANY(配列)化の理由はget_elevation_attributesのコメント参照。都心4km相当bbox
+        # （edge_id 151,820件・チャンク数16）でSupabase(WAN)実測: 変更前7.97〜11.49秒。
+        for id_chunk in _chunked(edge_ids, 50_000):
+            stmt = select(SurfaceAttributeRow).where(SurfaceAttributeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
             for row in (await self._session.execute(stmt)).scalars().all():
                 result[row.edge_id] = _surface_row_to_domain(row)
         return result

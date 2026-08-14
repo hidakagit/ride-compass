@@ -836,7 +836,7 @@ Phase 0に続き、docs/osm-pbf-import.mdの設計に沿ってPBF取込バッチ
 docs/osm-pbf-import.md「Phase B」の実施記録（2026-08-14）。地域路面レイヤー（路面ベクタタイル）のデータソースをPostGIS第一系統へ変更し、本番想定（Supabase）の容量予算にも対応した。
 
 - **カバレッジ判定**: 表示タイル（z12-15）を`domain/region.py: tile_ancestor`（新規、右シフトによる祖先タイル計算）でz12へ丸め、`road_graph_tiles`の取得済みマークで「このタイルのデータはDBにあるか」を正確に判定する。PBF取込バッチとRoad Graphのタイル取得が同じマークを共有しているため、どちらで取得された範囲でも路面タイルはDBだけで生成できる
-- **タイル生成**: `RoadGraphRepository.get_road_surface_ways_in_bbox`（新規）が`osm_raw_ways.geom`（Phase 1で実体化済み）の`ST_Intersects`検索で線とsurfaceタグを引き、既存の`encode_road_surface_tile`でMVT化する。ファイルキャッシュ・`asyncio.to_thread`の既存方針は無変更
+- **タイル生成**: `RoadGraphRepository.get_road_surface_tile_mvt`が`osm_raw_ways.geom`（Phase 1で実体化済み）の`ST_Intersects`検索とMVTエンコード（`ST_AsMVT`/`ST_AsMVTGeom`、surface3値分類のCASE式込み）を1クエリでPostGIS側にて実行し、完成済みタイル1個だけを転送する。ファイルキャッシュの既存方針は無変更（2026-08-15改修。当初のway行転送＋Pythonエンコード構成は、遠隔DBで1タイル数秒→パンのバースト時にNext.jsプロキシの30秒タイムアウト500を招いていた。Overpassフォールバック経路のみ従来の`encode_road_surface_tile`を使用）
 - **フォールバック**: 取込範囲外・DB障害時は`settings.overpass_fallback_enabled`（新設、既定true）に従い従来のOverpass問い合わせへフォールバックする（「PostGIS停止が既存機能を丸ごと壊さない」という過去の選択肢A却下時の懸念への回答）。falseなら空タイルを返し**キャッシュには保存しない**（後から取込された際に再生成させるため）。フォールバック発動・範囲外アクセスはログ方針どおり常時WARNING
 - **容量予算対応（ユーザー要件: Supabaseフリー500MB→安全枠300MB）**: 実測内訳を取り、閉包クエリの空間検索化（Phase 1）以降未使用になっていたGINインデックス`ix_osm_raw_ways_node_ids`（28MB）を`create_tables()`で冪等に削除。DB全体は313MB→**284MB**となり、現行取込bbox（東京都心35.60,139.65-35.75,139.85）が300MB予算内のプロトタイプ基準規模であることを確認した。取込バッチの完了サマリに`db_size_mb`を追加し、超過を取込時点で検知できるようにした
 - **検証**: ユニットテスト追加（PostGIS系統/フォールバック有無/DB障害/`tile_ancestor`）で全367件グリーン、実DB検証`backend/scripts/verify_phase2_e2e.py`で9項目PASS（取込範囲内z14タイル: 3,304地物をOverpass呼び出し0回で生成、z12タイル・範囲外の両フォールバック分岐も確認）。Phase 0検証22項目も回帰PASS
