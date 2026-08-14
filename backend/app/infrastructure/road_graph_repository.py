@@ -1,5 +1,26 @@
 """Road Graph・Road AttributeのPostGIS永続化層。
 
+責務ごとに4つのリポジトリへ分割している（改善計画T6。変更理由が異なる操作を
+1クラスに同居させない）:
+- `RawOsmRepository`: 生OSM層（osm_raw_ways/osm_raw_nodes）とタイル取得マーカー
+  （road_graph_tiles）。データ取込・closure読み出しの都合で変わる
+- `DerivedGraphRepository`: 派生グラフ（road_nodes/road_edges）と鮮度判定（split_at）。
+  交差点分割アルゴリズムの都合で変わる
+- `AttributeRepository`: Edge単位のRoad Attribute（elevation/surface_attributes）。
+  属性の種類追加の都合で変わる
+- `RoadSurfaceTileQuery`: 地域路面レイヤー表示用のMVT生成（読み取り専用）。
+  地図表示の都合で変わる
+`RoadGraphRepository`は4つを既存の公開APIのまま束ねるファサード（DI・テストの
+安定した注入点）。新しいコードは用途に応じて個別リポジトリを直接使ってよい。
+
+**トランザクション境界の規約（T6で確立）**: 本モジュールの書き込みメソッドは
+一切commitしない。呼び出し側（サービス層）が操作のまとまりごとに
+`RoadGraphRepository.commit()`を呼んで確定する。4リポジトリは同一AsyncSessionを
+共有するため、どのリポジトリ経由の変更もまとめて確定される。
+例: GraphServiceは「タイルの生データ保存＋取得済みマーク」を1コミット、
+「分割結果の保存＋SurfaceAttribute保存」を1コミットにする（以前は各メソッドが
+内部でcommitしており、保存とマークの原子性が呼び出し順の暗黙規約に依存していた）。
+
 node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出されるため、同じ現実の
 交差点・道路区間に対する保存は常に同じ主キーへのUPSERT（`Session.merge`）になる。
 
@@ -293,55 +314,59 @@ def _way_spec_row_to_domain(row: OsmRawWayRow) -> WaySpec:
     )
 
 
-class RoadGraphRepository:
-    """Road Graph・Road AttributeのPostGIS読み書き。1リクエスト（1トランザクション）に
-    つき1インスタンスを想定し、`AsyncSession`をDIで受け取る。
+async def _bulk_upsert(
+    session: AsyncSession,
+    model,
+    rows: list[dict],
+    index_elements: list[str],
+    update_columns: list[str] | None,
+    change_detection_columns: list[str] | None = None,
+) -> None:
+    """INSERT ... ON CONFLICTによるバルクUPSERT。
+
+    行単位のSession.mergeは1行ごとにSELECT+INSERT/UPDATEのラウンドトリップが発生し、
+    都心部のbbox（数万Node・十数万Edge）では1リクエストが数十分オーダーになることを
+    実機で確認したため（設計レビュー指摘7）、複数行VALUESの一括文に置き換えた。
+    update_columns=Noneは競合時に何もしない（DO NOTHING）。
+
+    change_detection_columns指定時は、そのカラム群が実際に変わった行だけを更新する
+    （`ON CONFLICT ... DO UPDATE ... WHERE`。条件がfalseの行は`update_columns`に
+    `updated_at`等の監査用カラムを含めていてもそれ自体を含め一切更新されない）。
+    内容が同一な再UPSERT（例: 1つのWayが複数タイルにまたがり、隣接タイルを後から
+    取得しただけで無関係なWayを再送してしまうケース）で`updated_at`が無意味に進むのを防ぎ、
+    鮮度判定（`is_split_up_to_date`）を安定させるために使う。
     """
+    for chunk in _chunked(rows, _BULK_CHUNK_ROWS):
+        stmt = pg_insert(model).values(chunk)
+        if update_columns:
+            where_clause = None
+            if change_detection_columns:
+                where_clause = or_(
+                    *(
+                        getattr(model, column).is_distinct_from(stmt.excluded[column])
+                        for column in change_detection_columns
+                    )
+                )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=index_elements,
+                set_={column: stmt.excluded[column] for column in update_columns},
+                where=where_clause,
+            )
+        else:
+            stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
+        await session.execute(stmt)
+
+
+class _SessionRepository:
+    """1リクエスト（1トランザクション）につき1インスタンスを想定し、`AsyncSession`を
+    DIで受け取る共通基底。commitは持たない（モジュールdocstringの規約参照）。"""
 
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def _bulk_upsert(
-        self,
-        model,
-        rows: list[dict],
-        index_elements: list[str],
-        update_columns: list[str] | None,
-        change_detection_columns: list[str] | None = None,
-    ) -> None:
-        """INSERT ... ON CONFLICTによるバルクUPSERT。
 
-        行単位のSession.mergeは1行ごとにSELECT+INSERT/UPDATEのラウンドトリップが発生し、
-        都心部のbbox（数万Node・十数万Edge）では1リクエストが数十分オーダーになることを
-        実機で確認したため（設計レビュー指摘7）、複数行VALUESの一括文に置き換えた。
-        update_columns=Noneは競合時に何もしない（DO NOTHING）。
-
-        change_detection_columns指定時は、そのカラム群が実際に変わった行だけを更新する
-        （`ON CONFLICT ... DO UPDATE ... WHERE`。条件がfalseの行は`update_columns`に
-        `updated_at`等の監査用カラムを含めていてもそれ自体を含め一切更新されない）。
-        内容が同一な再UPSERT（例: 1つのWayが複数タイルにまたがり、隣接タイルを後から
-        取得しただけで無関係なWayを再送してしまうケース）で`updated_at`が無意味に進むのを防ぎ、
-        鮮度判定（`is_split_up_to_date`）を安定させるために使う。
-        """
-        for chunk in _chunked(rows, _BULK_CHUNK_ROWS):
-            stmt = pg_insert(model).values(chunk)
-            if update_columns:
-                where_clause = None
-                if change_detection_columns:
-                    where_clause = or_(
-                        *(
-                            getattr(model, column).is_distinct_from(stmt.excluded[column])
-                            for column in change_detection_columns
-                        )
-                    )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=index_elements,
-                    set_={column: stmt.excluded[column] for column in update_columns},
-                    where=where_clause,
-                )
-            else:
-                stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
-            await self._session.execute(stmt)
+class DerivedGraphRepository(_SessionRepository):
+    """派生グラフ（road_nodes/road_edges、交差点分割の結果）の読み書きと鮮度判定。"""
 
     async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
         envelope = func.ST_MakeEnvelope(
@@ -428,7 +453,8 @@ class RoadGraphRepository:
             }
             for node in graph.nodes.values()
         ]
-        await self._bulk_upsert(RoadNodeRow, node_rows, ["node_id"], ["osm_node_id", "geom", "updated_at"])
+        await _bulk_upsert(
+            self._session, RoadNodeRow, node_rows, ["node_id"], ["osm_node_id", "geom", "updated_at"])
 
         if way_ids_to_replace:
             for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
@@ -451,13 +477,17 @@ class RoadGraphRepository:
             for edge in graph.edges.values()
             if way_ids_to_replace is None or edge.osm_way_id in way_ids_to_replace
         ]
-        await self._bulk_upsert(
+        await _bulk_upsert(
+            self._session,
             RoadEdgeRow,
             edge_rows,
             ["edge_id"],
             ["from_node_id", "to_node_id", "geom", "distance_m", "osm_way_id", "highway", "updated_at"],
         )
-        await self._session.commit()
+
+
+class RawOsmRepository(_SessionRepository):
+    """生OSM層（osm_raw_ways/osm_raw_nodes）とタイル取得マーカー（road_graph_tiles）の読み書き。"""
 
     async def save_raw_ways(self, way_specs: list[WaySpec], node_coords: dict[int, tuple[float, float]]) -> None:
         """生のOSM Way/Nodeデータを永続化する。Wayのタグ・ノード列は取得元タイルに
@@ -486,7 +516,8 @@ class RoadGraphRepository:
                     "updated_at": now,
                 }
             )
-        await self._bulk_upsert(OsmRawNodeRow, node_rows, ["osm_node_id"], ["geom", "updated_at"])
+        await _bulk_upsert(
+            self._session, OsmRawNodeRow, node_rows, ["osm_node_id"], ["geom", "updated_at"])
 
         way_rows_by_id: dict[int, dict] = {}
         for way in way_specs:
@@ -509,7 +540,8 @@ class RoadGraphRepository:
                 "geom": geom,
                 "updated_at": now,
             }
-        await self._bulk_upsert(
+        await _bulk_upsert(
+            self._session,
             OsmRawWayRow,
             list(way_rows_by_id.values()),
             ["osm_way_id"],
@@ -519,7 +551,6 @@ class RoadGraphRepository:
             # という前提の下でnode_ids側の比較に委ねる。
             change_detection_columns=["node_ids", "highway", "surface", "direction"],
         )
-        await self._session.commit()
 
     async def get_way_specs_with_closure(
         self, bbox: BoundingBox
@@ -599,6 +630,30 @@ class RoadGraphRepository:
 
         return way_specs, node_coords, primary_way_ids
 
+
+    async def is_tile_cached(self, zoom: int, x: int, y: int) -> bool:
+        stmt = select(RoadGraphTileRow).where(
+            RoadGraphTileRow.zoom == zoom, RoadGraphTileRow.x == x, RoadGraphTileRow.y == y
+        )
+        row = (await self._session.execute(stmt)).scalars().first()
+        return row is not None
+
+    async def mark_tile_cached(self, zoom: int, x: int, y: int) -> None:
+        # 以前はSession.merge（ORM。INSERTがflushまで保留される）だったが、T6でcommitを
+        # サービス層へ移した結果、同一トランザクション内の後続の生SQL実行
+        # （get_road_surface_tile_mvt等。text()の実行はautoflushの対象外）から保留中の行が
+        # 見えない問題が顕在化した。即時実行されるCoreのUPSERTへ変更する
+        # （_bulk_upsertと同じ方式。挙動は従来のmerge＝存在すればfetched_at更新と同じ）。
+        stmt = pg_insert(RoadGraphTileRow).values(zoom=zoom, x=x, y=y, fetched_at=datetime.now(timezone.utc))
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["zoom", "x", "y"], set_={"fetched_at": stmt.excluded.fetched_at}
+        )
+        await self._session.execute(stmt)
+
+
+class RoadSurfaceTileQuery(_SessionRepository):
+    """地域路面レイヤー（RegionService）表示用のMVT生成。読み取り専用でcommit対象の書き込みは無い。"""
+
     async def get_road_surface_tile_mvt(
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> bytes | None:
@@ -644,6 +699,14 @@ class RoadGraphRepository:
         # 「featureが1つも無い有効なMVT」としてMapLibreがそのまま受理する。
         return bytes(tile) if tile is not None else b""
 
+
+class AttributeRepository(_SessionRepository):
+    """Edge単位のRoad Attribute（elevation_attributes/surface_attributes）の読み書き。
+
+    新しい属性種別（交通・信号密度等）を追加するときはこのクラスへメソッドを足す
+    （他のリポジトリには触れない。docs/design-review-2026-08-15.md 設計原則6）。
+    """
+
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         if not edge_ids:
             return {}
@@ -679,7 +742,8 @@ class RoadGraphRepository:
             }
             for a in attributes
         ]
-        await self._bulk_upsert(
+        await _bulk_upsert(
+            self._session,
             ElevationAttributeRow,
             rows,
             ["edge_id"],
@@ -688,7 +752,6 @@ class RoadGraphRepository:
                 "average_grade", "max_grade", "min_grade", "data_source", "data_version", "calculated_at",
             ],
         )
-        await self._session.commit()
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, SurfaceAttribute]:
         if not edge_ids:
@@ -716,23 +779,81 @@ class RoadGraphRepository:
             }
             for a in attributes
         ]
-        await self._bulk_upsert(
+        await _bulk_upsert(
+            self._session,
             SurfaceAttributeRow,
             rows,
             ["edge_id"],
             ["surface_type", "confidence", "data_source", "data_version", "calculated_at"],
         )
+
+
+class RoadGraphRepository:
+    """責務別の4リポジトリを既存の公開APIのまま束ねるファサード（改善計画T6）。
+
+    DI（api/dependencies.py）・テスト・検証スクリプトからの安定した注入点として残す。
+    新しいコードは用途に応じて個別のリポジトリ（raw_osm/graph/attributes/tile_query
+    属性）を直接使ってよく、委譲メソッドは呼び出し側の移行が済んだものから削除できる。
+    書き込みメソッドはcommitしない。呼び出し側（サービス層）が操作のまとまりごとに
+    `commit()`を呼ぶ（モジュールdocstringの規約参照）。
+    """
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+        self.raw_osm = RawOsmRepository(session)
+        self.graph = DerivedGraphRepository(session)
+        self.attributes = AttributeRepository(session)
+        self.tile_query = RoadSurfaceTileQuery(session)
+
+    async def commit(self) -> None:
+        """ここまでの書き込みを確定する。4リポジトリは同一セッションを共有するため、
+        どのリポジトリ経由の変更もまとめて確定される。"""
         await self._session.commit()
+
+    # --- 生OSM層・タイルマーカー（RawOsmRepository） ---
+
+    async def save_raw_ways(self, way_specs: list[WaySpec], node_coords: dict[int, tuple[float, float]]) -> None:
+        await self.raw_osm.save_raw_ways(way_specs, node_coords)
+
+    async def get_way_specs_with_closure(
+        self, bbox: BoundingBox
+    ) -> tuple[list[WaySpec], dict[int, tuple[float, float]], set[int]]:
+        return await self.raw_osm.get_way_specs_with_closure(bbox)
 
     async def is_tile_cached(self, zoom: int, x: int, y: int) -> bool:
-        stmt = select(RoadGraphTileRow).where(
-            RoadGraphTileRow.zoom == zoom, RoadGraphTileRow.x == x, RoadGraphTileRow.y == y
-        )
-        row = (await self._session.execute(stmt)).scalars().first()
-        return row is not None
+        return await self.raw_osm.is_tile_cached(zoom, x, y)
 
     async def mark_tile_cached(self, zoom: int, x: int, y: int) -> None:
-        await self._session.merge(
-            RoadGraphTileRow(zoom=zoom, x=x, y=y, fetched_at=datetime.now(timezone.utc))
-        )
-        await self._session.commit()
+        await self.raw_osm.mark_tile_cached(zoom, x, y)
+
+    # --- 派生グラフ（DerivedGraphRepository） ---
+
+    async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+        return await self.graph.get_graph_in_bbox(bbox)
+
+    async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
+        return await self.graph.is_split_up_to_date(bbox)
+
+    async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
+        await self.graph.save_graph(graph, way_ids_to_replace=way_ids_to_replace)
+
+    # --- Road Attribute（AttributeRepository） ---
+
+    async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
+        return await self.attributes.get_elevation_attributes(edge_ids)
+
+    async def save_elevation_attributes(self, attributes: list[ElevationAttribute]) -> None:
+        await self.attributes.save_elevation_attributes(attributes)
+
+    async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, SurfaceAttribute]:
+        return await self.attributes.get_surface_attributes(edge_ids)
+
+    async def save_surface_attributes(self, attributes: list[SurfaceAttribute]) -> None:
+        await self.attributes.save_surface_attributes(attributes)
+
+    # --- 表示用MVT（RoadSurfaceTileQuery） ---
+
+    async def get_road_surface_tile_mvt(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> bytes | None:
+        return await self.tile_query.get_road_surface_tile_mvt(z, x, y, bbox, coverage_tile)

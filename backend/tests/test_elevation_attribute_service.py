@@ -116,6 +116,10 @@ class FakeElevationAttributeRepository:
         for attribute in attributes:
             self.attributes[attribute.edge_id] = attribute
 
+    async def commit(self) -> None:
+        # サービス層が保存のまとまりごとにcommitを呼ぶ規約（T6）。Fakeはno-op。
+        pass
+
 
 async def test_without_repository_always_calls_elevation_client():
     edge = DirectedEdge(

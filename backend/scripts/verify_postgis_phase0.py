@@ -235,8 +235,12 @@ async def main() -> int:
             z, x, y = FIXTURE_TILE
             check("未マークのタイルはis_tile_cached=False", not await repo.is_tile_cached(z, x, y))
             await repo.mark_tile_cached(z, x, y)
-            await repo.mark_tile_cached(z, x, y)  # merge冪等性
+            await repo.mark_tile_cached(z, x, y)  # UPSERT冪等性
             check("マーク後はis_tile_cached=True", await repo.is_tile_cached(z, x, y))
+            # T6以降、repositoryの書き込みメソッドはcommitしない（呼び出し側が確定する規約）。
+            # ブロック内の読み書きは同一セッションで完結するが、ここで確定しないと
+            # セッション終了時にロールバックされ、後続の別セッションから見えなくなる。
+            await repo.commit()
 
         print("== 5. GraphService統合（タイルキャッシュのオーケストレーション） ==")
         # 生データ・Edgeを一旦消し、GraphServiceがゼロから構築する流れを検証する

@@ -67,6 +67,9 @@ class ElevationAttributeService:
         if self._repository is not None and computed:
             async with self._repository_lock:
                 await self._repository.save_elevation_attributes(list(computed.values()))
+                # repositoryはcommitしない規約（road_graph_repository.pyのdocstring参照）のため、
+                # 保存のまとまりをここで確定する。
+                await self._repository.commit()
 
         return {**cached, **computed}
 

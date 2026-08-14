@@ -131,6 +131,11 @@ class GraphService:
             way_specs = osm_ways_to_way_specs(raw_ways)
             await self._repository.save_raw_ways(way_specs, node_coords)
             await self._repository.mark_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y)
+            # 「生データ保存＋取得済みマーク」をタイル単位の1コミットで確定する
+            # （repositoryはcommitしない規約。road_graph_repository.pyのdocstring参照。
+            # 同一トランザクションなので、途中で落ちてもマークだけ残る・データだけ残るという
+            # 中途半端な状態にならない）。
+            await self._repository.commit()
 
         if any_tile_fetch_failed:
             return None
@@ -172,6 +177,8 @@ class GraphService:
 
         await self._repository.save_graph(primary_graph, way_ids_to_replace=primary_way_ids)
         await self._repository.save_surface_attributes(list(primary_surface_attributes.values()))
+        # 「分割結果の保存＋SurfaceAttribute保存」を1コミットで確定する（上記と同じ規約）。
+        await self._repository.commit()
 
         return primary_graph, primary_surface_attributes
 

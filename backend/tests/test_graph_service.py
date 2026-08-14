@@ -71,6 +71,11 @@ class FakeRoadGraphRepository:
         self._raw_way_touched_at: dict[int, int] = {}
         self._way_split_at: dict[int, int] = {}
 
+    async def commit(self) -> None:
+        # 実装はサービス層が操作のまとまりごとにcommitを呼ぶ規約（T6）。Fakeは即時反映の
+        # インメモリ辞書のためno-op（呼ばれること自体はオーケストレーションの一部として許容）。
+        pass
+
     def _primary_way_ids_in_bbox(self, bbox: BoundingBox) -> set[int]:
         primary_node_ids = {
             node_id
