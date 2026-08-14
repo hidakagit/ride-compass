@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { checkBackendHealth } from "@/services/healthApi";
+import styles from "./BackendStatus.module.css";
 
 export default function BackendStatus() {
   const [status, setStatus] = useState<"checking" | "ok" | "ng">("checking");
@@ -11,11 +12,7 @@ export default function BackendStatus() {
   }, []);
 
   const label = { checking: "確認中...", ok: "Backend: OK", ng: "Backend: NG" }[status];
-  const color = { checking: "#888", ok: "#16a34a", ng: "#dc2626" }[status];
+  const statusClass = { checking: styles.checking, ok: styles.ok, ng: styles.ng }[status];
 
-  return (
-    <span style={{ color, fontWeight: 600 }}>
-      {label}
-    </span>
-  );
+  return <span className={`${styles.status} ${statusClass}`}>{label}</span>;
 }

@@ -1,0 +1,15 @@
+.status {
+  font-weight: 600;
+}
+
+.checking {
+  color: var(--color-muted-strong);
+}
+
+.ok {
+  color: var(--color-success);
+}
+
+.ng {
+  color: var(--color-danger);
+}

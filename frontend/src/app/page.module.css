@@ -1,0 +1,63 @@
+.toggleButton {
+  align-self: flex-start;
+}
+
+.title {
+  font-size: 1.3rem;
+  margin-bottom: var(--space-1);
+}
+
+.subtitle {
+  color: var(--color-muted);
+  font-size: var(--font-size-md);
+}
+
+.errorMessage {
+  color: var(--color-danger);
+  font-size: var(--font-size-md);
+}
+
+.mapPane {
+  flex: 1;
+  position: relative;
+}
+
+.locateButton {
+  position: absolute;
+  right: var(--space-3);
+  /* MapLibreの既定のアトリビューション表示（右下）と重ならないよう間隔を空ける。
+     デバッグモード表示中はpage.tsxがDebugConsoleの高さぶんインラインstyleで上書きする。 */
+  bottom: 2.5rem;
+  z-index: 20;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  font-size: 1.3rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.locateButtonBusy {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.locateError {
+  position: absolute;
+  right: var(--space-3);
+  bottom: 6.25rem;
+  z-index: 20;
+  max-width: 220px;
+  background: var(--color-surface);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow-float);
+}

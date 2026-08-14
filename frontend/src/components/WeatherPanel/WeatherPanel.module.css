@@ -1,0 +1,13 @@
+.text {
+  font-size: 0.9rem;
+}
+
+.loading {
+  composes: text;
+  color: var(--color-muted);
+}
+
+.error {
+  composes: text;
+  color: var(--color-danger);
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Coordinates, LocationSource } from "@/types/route";
+import styles from "./LocationControl.module.css";
 
 const SOURCE_LABEL: Record<LocationSource, string> = {
   geolocation: "現在地（取得済み）",
@@ -32,8 +33,8 @@ export default function LocationControl({
   onManualSubmit,
 }: LocationControlProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+    <div className={styles.wrapper}>
+      <div className={styles.sourceRow}>
         <span>
           位置情報: {SOURCE_LABEL[source]}
           <br />
@@ -45,14 +46,14 @@ export default function LocationControl({
       </button>
 
       {showManualInput && (
-        <form onSubmit={onManualSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+        <form onSubmit={onManualSubmit} className={styles.manualForm}>
           <label>
             緯度
             <input
               type="text"
               value={manualLat}
               onChange={(e) => onManualLatChange(e.target.value)}
-              style={{ marginLeft: "0.25rem", width: "8rem" }}
+              className={styles.manualInput}
             />
           </label>
           <label>
@@ -61,7 +62,7 @@ export default function LocationControl({
               type="text"
               value={manualLng}
               onChange={(e) => onManualLngChange(e.target.value)}
-              style={{ marginLeft: "0.25rem", width: "8rem" }}
+              className={styles.manualInput}
             />
           </label>
           <button type="submit">設定</button>

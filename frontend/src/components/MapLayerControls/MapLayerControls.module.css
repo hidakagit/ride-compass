@@ -1,0 +1,67 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+.sectionLabel {
+  color: var(--color-muted);
+  margin-bottom: 0.2rem;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.checkboxLabelMuted {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--color-neutral);
+}
+
+.zoomWarning {
+  color: var(--color-warning-strong);
+  margin: 0.25rem 0 0;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border-radius: 2px;
+}
+
+.swatchSpaced {
+  composes: swatch;
+  margin-left: 0.4rem;
+}
+
+.swatchGood {
+  background: var(--color-success);
+}
+
+.swatchBad {
+  background: var(--color-danger);
+}
+
+.swatchUnknown {
+  background: var(--color-neutral);
+}
+
+.swatchNormal {
+  background: var(--color-warning);
+}
+
+.refreshButton {
+  align-self: flex-start;
+}

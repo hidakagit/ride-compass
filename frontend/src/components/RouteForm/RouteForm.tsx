@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import styles from "./RouteForm.module.css";
 
 interface RouteFormProps {
   onGenerate: (distanceKm: number) => void;
@@ -18,7 +19,7 @@ export default function RouteForm({ onGenerate, loading }: RouteFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+    <form onSubmit={handleSubmit} className={styles.form}>
       <label>
         距離
         <input
@@ -27,7 +28,7 @@ export default function RouteForm({ onGenerate, loading }: RouteFormProps) {
           step="1"
           value={distance}
           onChange={(e) => setDistance(e.target.value)}
-          style={{ marginLeft: "0.5rem", width: "5rem" }}
+          className={styles.distanceInput}
         />
         km
       </label>

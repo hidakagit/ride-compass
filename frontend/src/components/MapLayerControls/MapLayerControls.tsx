@@ -1,5 +1,7 @@
 "use client";
 
+import styles from "./MapLayerControls.module.css";
+
 interface MapLayerControlsProps {
   showElevation: boolean;
   onShowElevationToggle: (on: boolean) => void;
@@ -27,34 +29,27 @@ export default function MapLayerControls({
   const showWindLegend = dynamicLayerOn && hasDetail;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+    <div className={styles.wrapper}>
       <strong>地図レイヤー</strong>
 
       <div>
-        <div style={{ color: "#666", marginBottom: "0.2rem" }}>常時表示（表示中の地域全体・変わらないデータ、標高/路面は同時に重ね表示可）</div>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+        <div className={styles.sectionLabel}>常時表示（表示中の地域全体・変わらないデータ、標高/路面は同時に重ね表示可）</div>
+        <label className={styles.checkboxLabel}>
           <input type="checkbox" checked={showElevation} onChange={(e) => onShowElevationToggle(e.target.checked)} />
           標高（国土地理院 色別標高図）
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+        <label className={styles.checkboxLabel}>
           <input type="checkbox" checked={showRoad} onChange={(e) => onShowRoadToggle(e.target.checked)} />
           路面で色分け
         </label>
         {showRoad && regionZoomTooWide && (
-          <p style={{ color: "#b45309", margin: "0.25rem 0 0" }}>表示範囲が広すぎます。地図をズームインしてください。</p>
+          <p className={styles.zoomWarning}>表示範囲が広すぎます。地図をズームインしてください。</p>
         )}
       </div>
 
       <div>
-        <div style={{ color: "#666", marginBottom: "0.2rem" }}>選択中ルートのみ（時間で変わるデータ）</div>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            color: hasDetail ? undefined : "#999",
-          }}
-        >
+        <div className={styles.sectionLabel}>選択中ルートのみ（時間で変わるデータ）</div>
+        <label className={hasDetail ? styles.checkboxLabel : styles.checkboxLabelMuted}>
           <input
             type="checkbox"
             checked={dynamicLayerOn}
@@ -66,28 +61,28 @@ export default function MapLayerControls({
       </div>
 
       {showRoadLegend && (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-          <span style={{ width: "10px", height: "10px", background: "#16a34a", display: "inline-block", borderRadius: "2px" }} />
+        <div className={styles.legendRow}>
+          <span className={`${styles.swatch} ${styles.swatchGood}`} />
           舗装路
-          <span style={{ width: "10px", height: "10px", background: "#dc2626", display: "inline-block", borderRadius: "2px", marginLeft: "0.4rem" }} />
+          <span className={`${styles.swatchSpaced} ${styles.swatchBad}`} />
           未舗装等
-          <span style={{ width: "10px", height: "10px", background: "#9ca3af", display: "inline-block", borderRadius: "2px", marginLeft: "0.4rem" }} />
+          <span className={`${styles.swatchSpaced} ${styles.swatchUnknown}`} />
           不明
         </div>
       )}
 
       {showWindLegend && (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-          <span style={{ width: "10px", height: "10px", background: "#16a34a", display: "inline-block", borderRadius: "2px" }} />
+        <div className={styles.legendRow}>
+          <span className={`${styles.swatch} ${styles.swatchGood}`} />
           易しい
-          <span style={{ width: "10px", height: "10px", background: "#f59e0b", display: "inline-block", borderRadius: "2px", marginLeft: "0.4rem" }} />
+          <span className={`${styles.swatchSpaced} ${styles.swatchNormal}`} />
           普通
-          <span style={{ width: "10px", height: "10px", background: "#dc2626", display: "inline-block", borderRadius: "2px", marginLeft: "0.4rem" }} />
+          <span className={`${styles.swatchSpaced} ${styles.swatchBad}`} />
           難しい
         </div>
       )}
 
-      <button type="button" onClick={onRefresh} style={{ alignSelf: "flex-start" }}>
+      <button type="button" onClick={onRefresh} className={styles.refreshButton}>
         変わらないデータを更新
       </button>
     </div>

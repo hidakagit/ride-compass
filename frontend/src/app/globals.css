@@ -1,6 +1,34 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* 共通デザイントークン。各コンポーネントの*.module.cssから参照する。
+     ダークモードでの再定義は行わない（--background/--foreground以外は元々
+     コンポーネント側でも常に同じ値をハードコードしていたため、ここでの一元化は
+     見た目を変えない範囲＝重複していた値をまとめるだけに留めている）。 */
+  --color-surface: #ffffff;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+  --color-warning-strong: #b45309;
+  --color-accent: #2563eb;
+  --color-accent-bg: #eff6ff;
+  --color-muted: #666666;
+  --color-muted-strong: #888888;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+  --color-border-muted: #cccccc;
+  --color-neutral: #9ca3af;
+
+  --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+
+  --font-size-sm: 0.8rem;
+  --font-size-md: 0.85rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -45,5 +73,99 @@ a {
 @media (prefers-color-scheme: dark) {
   html {
     color-scheme: dark;
+  }
+}
+
+/* レイアウトの主要要素。インラインstyleでは@mediaクエリを表現できないため、ブレークポイントで
+   挙動を変える必要がある部分（サイドバーの位置取り・幅）だけをここに切り出す。
+   それ以外の見た目（余白・並び順など）は既存どおりコンポーネント側のインラインstyleで扱う。 */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  height: 100dvh; /* モバイルブラウザのアドレスバー出現/消滅による高さのガタつきを避ける */
+}
+
+.app-sidebar {
+  width: 340px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-sidebar.is-collapsed {
+  width: 2.75rem;
+  padding: 0.5rem 0.25rem;
+}
+
+/* スマホ幅: 固定340pxのサイドバーがフレックスレイアウトのまま画面のほとんどを占めて
+   しまう問題への対応。position:fixedにしてフレックスの計算から外すことで、地図側
+   （flex:1のペイン）は常に画面いっぱいに広がった状態を保ち、サイドバーはその上に重なる
+   開閉式ドロワーになる。MapView側はMapLibreの内蔵ResizeObserverでコンテナのサイズ変化に
+   自動追従するため、この切り替えのために明示的なmap.resize()呼び出しは不要。
+   幅は画面いっぱい（100%）ではなく一部（85vw、最大340px）に留め、右側に地図を透けさせる。
+   背景タップで閉じる操作を成立させるにはタップ対象となる背景（地図）が見えている必要が
+   あるため（page.tsx側でその背景に半透明のバックドロップを重ねてクリックを検知する）。
+
+   このブレークポイント（640px）はfrontend/src/hooks/useIsMobile.tsが出す
+   MOBILE_BREAKPOINT_PXと一致させること。ズレるとCSS上はオーバーレイ表示なのにJS側は
+   デスクトップ判定のまま、という状態になり、暗幕・aria-modal・Escape/スワイプでの
+   クローズが効かなくなる（frontend/src/hooks/useIsMobile.test.tsで自動検証している）。 */
+@media (max-width: 640px) {
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 45;
+    width: min(85vw, 340px);
+    background: var(--background);
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.3);
+  }
+
+  .app-sidebar.is-collapsed {
+    top: 0.5rem;
+    left: 0.5rem;
+    bottom: auto;
+    width: auto;
+    border-right: none;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  /* ドロワー展開中に背後の地図に重ねる暗幕。page.tsx側でisMobile && !sidebarCollapsedの
+     ときのみ描画し、クリックでcloseSidebar()を呼ぶ（背景タップで閉じる操作）。 */
+  .app-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  /* サイドバー内・デバッグコンソール内のボタン/チェックボックス/入力欄は、指でのタップに
+     適した領域（目安44px角）を確保する */
+  .app-sidebar button,
+  .app-debug-console button {
+    min-height: 44px;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .app-sidebar input[type="checkbox"] {
+    width: 1.4rem;
+    height: 1.4rem;
+  }
+
+  .app-sidebar input[type="text"],
+  .app-sidebar input[type="number"] {
+    min-height: 44px;
+    font-size: 16px; /* iOS Safariでフォーカス時に自動ズームされるのを防ぐ */
+  }
+
+  .app-sidebar label {
+    min-height: 44px;
+    align-items: center;
   }
 }

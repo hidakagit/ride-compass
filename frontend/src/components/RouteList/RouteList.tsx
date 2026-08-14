@@ -1,6 +1,7 @@
 "use client";
 
 import type { RouteCandidate } from "@/types/route";
+import styles from "./RouteList.module.css";
 
 interface RouteListProps {
   routes: RouteCandidate[];
@@ -12,7 +13,7 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
   if (routes.length === 0) return null;
 
   return (
-    <ul style={{ listStyle: "none", padding: 0, margin: "0.75rem 0 0", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+    <ul className={styles.list}>
       {routes.map((route) => {
         const selected = route.id === selectedRouteId;
         return (
@@ -20,15 +21,7 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
             <button
               type="button"
               onClick={() => onSelect(route.id)}
-              style={{
-                width: "100%",
-                textAlign: "left",
-                padding: "0.5rem 0.75rem",
-                borderRadius: "6px",
-                border: selected ? "2px solid #2563eb" : "1px solid #ccc",
-                background: selected ? "#eff6ff" : "white",
-                cursor: "pointer",
-              }}
+              className={selected ? `${styles.item} ${styles.itemSelected}` : styles.item}
             >
               {route.total_score != null && (
                 <strong>総合スコア {Math.round(route.total_score)}点 / </strong>

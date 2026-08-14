@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/scripts/.smoke-check-screenshot.png
 
 # next.js
 /.next/

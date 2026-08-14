@@ -4,27 +4,46 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MapView from "@/components/Map/MapView";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
-import DebugConsole from "@/components/DebugConsole/DebugConsole";
+import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapLayerControls from "@/components/MapLayerControls/MapLayerControls";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
+import { useDebugEnabled } from "@/hooks/useDebugLog";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
+import { useLocation } from "@/hooks/useLocation";
 import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather } from "@/services/weatherApi";
-import type { Coordinates, LocationSource, RouteCandidate } from "@/types/route";
+import type { Coordinates, RouteCandidate } from "@/types/route";
 import type { WeatherConditions } from "@/types/weather";
+import styles from "./page.module.css";
 
-// 開発時の初期地点フォールバック: 東京都北区・王子駅付近
-const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
 const DISTANCE_TOLERANCE_KM = 5;
 
+// 現在地に移動ボタン・そのエラー表示の、地図右下からの間隔（px）。
+// デバッグモードOFF時はMapLibreの既定のアトリビューション表示（右下）と重ならない程度の
+// 間隔（rem指定、既存の見た目を維持）、ON時はDebugConsole（画面下部に最大
+// DEBUG_CONSOLE_MAX_HEIGHT_PX分重なる）の上に出るようpx単位で計算する。
+const LOCATE_BUTTON_HEIGHT_PX = 44;
+const LOCATE_BUTTON_GAP_PX = 12;
+
 export default function Home() {
-  const [location, setLocation] = useState<Coordinates>(DEFAULT_LOCATION);
-  const [locationSource, setLocationSource] = useState<LocationSource>("default");
-  const [manualLat, setManualLat] = useState(String(DEFAULT_LOCATION.latitude));
-  const [manualLng, setManualLng] = useState(String(DEFAULT_LOCATION.longitude));
-  const [showManualInput, setShowManualInput] = useState(false);
+  const {
+    location,
+    locationSource,
+    manualLat,
+    manualLng,
+    showManualInput,
+    locating,
+    locateError,
+    setManualLat,
+    setManualLng,
+    toggleManualInput,
+    handleManualSubmit,
+    handleLocateMe,
+  } = useLocation();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -41,27 +60,66 @@ export default function Home() {
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const debugEnabled = useDebugEnabled();
+
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
-  // 現在地取得（失敗時は王子付近のデフォルト座標のまま）
-  useEffect(() => {
-    if (!navigator.geolocation) return;
+  // スマホ幅では地図を常に主役として見せたいため、初回にモバイル判定された時だけ
+  // サイドバーを自動的に閉じる（以降はユーザーの開閉操作を尊重し、リサイズのたびに
+  // 勝手に閉じ直したりはしない）。
+  // useIsomorphicLayoutEffectを使うのは、useIsMobile自身のisMobile判定も同じ理由で
+  // レイアウトエフェクト化しているため（ちらつき防止）。ここも通常のuseEffectのままだと、
+  // isMobileがペイント前に確定してもこちらの折りたたみ反映がペイント後にずれ込み、
+  // 結局モバイル初回表示でサイドバー全開のドロワーが一瞬見えてしまう。
+  const isMobile = useIsMobile();
+  const appliedMobileDefaultRef = useRef(false);
+  useIsomorphicLayoutEffect(() => {
+    if (isMobile && !appliedMobileDefaultRef.current) {
+      appliedMobileDefaultRef.current = true;
+      setSidebarCollapsed(true);
+    }
+  }, [isMobile]);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-        setLocationSource("geolocation");
-      },
-      () => {
-        setLocationSource("default");
-      },
-      { timeout: 8000 }
-    );
+  // モバイルのドロワーを閉じる共通処理。背景タップ・スワイプ・Escapeキーのいずれから
+  // 閉じた場合も、フォーカスが失われたパネル内要素からトグルボタンへ戻す（キーボード/
+  // スクリーンリーダー利用時に閉じた後の操作起点を見失わないようにするため）。
+  const closeSidebar = useCallback(() => {
+    setSidebarCollapsed(true);
+    toggleButtonRef.current?.focus();
   }, []);
+
+  // モバイルでドロワー展開中のみ、Escapeキーで閉じられるようにする
+  useEffect(() => {
+    if (!isMobile || sidebarCollapsed) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeSidebar();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isMobile, sidebarCollapsed, closeSidebar]);
+
+  // モバイルでドロワー展開中のみ、左方向へのスワイプで閉じる。縦方向の移動量が大きい
+  // 場合はパネル内リストのスクロール操作とみなして無視する。
+  const SWIPE_CLOSE_THRESHOLD_PX = 60;
+  function handleSidebarTouchStart(e: React.TouchEvent) {
+    if (!isMobile || sidebarCollapsed) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }
+  function handleSidebarTouchEnd(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || !isMobile || sidebarCollapsed) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (dx < -SWIPE_CLOSE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy)) {
+      closeSidebar();
+    }
+  }
 
   // 現在地が変わったらその地点の天候を取得（ルート生成時の風評価の起点にもなる）。
   // マウント直後はDEFAULT_LOCATIONで取得が走り、その直後にGeolocationが成功すると
@@ -94,15 +152,6 @@ export default function Home() {
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
 
-  function handleManualSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const latitude = Number(manualLat);
-    const longitude = Number(manualLng);
-    if (Number.isNaN(latitude) || Number.isNaN(longitude)) return;
-    setLocation({ latitude, longitude });
-    setLocationSource("manual");
-  }
-
   async function handleGenerate(distanceKm: number) {
     setLoading(true);
     setErrorMessage(null);
@@ -126,25 +175,30 @@ export default function Home() {
     }
   }
 
+  const locateButtonBottomPx = debugEnabled ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX : null;
+  const locateErrorBottomPx = debugEnabled
+    ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX + LOCATE_BUTTON_HEIGHT_PX + LOCATE_BUTTON_GAP_PX
+    : null;
+  const isDrawerOpen = isMobile && !sidebarCollapsed;
+
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
+    <div className="app-shell">
+      {isDrawerOpen && <div className="app-sidebar-backdrop" onClick={closeSidebar} aria-hidden="true" />}
+
       <aside
-        style={{
-          width: sidebarCollapsed ? "2.75rem" : "340px",
-          flexShrink: 0,
-          overflowY: "auto",
-          borderRight: "1px solid #e5e7eb",
-          padding: sidebarCollapsed ? "0.5rem 0.25rem" : "1rem",
-          display: "flex",
-          flexDirection: "column",
-          gap: "1rem",
-        }}
+        className={`app-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}
+        onTouchStart={handleSidebarTouchStart}
+        onTouchEnd={handleSidebarTouchEnd}
+        role={isDrawerOpen ? "dialog" : undefined}
+        aria-modal={isDrawerOpen ? true : undefined}
+        aria-label={isDrawerOpen ? "メニュー" : undefined}
       >
         <button
+          ref={toggleButtonRef}
           type="button"
           onClick={() => setSidebarCollapsed((v) => !v)}
           aria-label={sidebarCollapsed ? "パネルを開く" : "パネルを閉じる"}
-          style={{ alignSelf: "flex-start" }}
+          className={styles.toggleButton}
         >
           {sidebarCollapsed ? "▶" : "◀"}
         </button>
@@ -152,8 +206,8 @@ export default function Home() {
         {!sidebarCollapsed && (
           <>
             <header>
-              <h1 style={{ fontSize: "1.3rem", marginBottom: "0.25rem" }}>RideCompass</h1>
-              <p style={{ color: "#666", fontSize: "0.85rem" }}>ロードバイク向け周回ルート生成アプリ（プロトタイプ）</p>
+              <h1 className={styles.title}>RideCompass</h1>
+              <p className={styles.subtitle}>ロードバイク向け周回ルート生成アプリ（プロトタイプ）</p>
             </header>
 
             <BackendStatus />
@@ -168,13 +222,13 @@ export default function Home() {
               showManualInput={showManualInput}
               onManualLatChange={setManualLat}
               onManualLngChange={setManualLng}
-              onToggleManualInput={() => setShowManualInput((v) => !v)}
+              onToggleManualInput={toggleManualInput}
               onManualSubmit={handleManualSubmit}
             />
 
             <RouteForm onGenerate={handleGenerate} loading={loading} />
 
-            {errorMessage && <p style={{ color: "#dc2626", fontSize: "0.85rem" }}>{errorMessage}</p>}
+            {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
 
             <MapLayerControls
               showElevation={showElevation}
@@ -193,7 +247,14 @@ export default function Home() {
         )}
       </aside>
 
-      <div style={{ flex: 1, position: "relative" }}>
+      {/*
+        inertは、モバイルでドロワーがrole="dialog" aria-modal="true"として開いている間、
+        その裏に隠れているこのペイン（地図・現在地ボタン・DebugConsole）をフォーカス不能かつ
+        スクリーンリーダーから見えない状態にする。これが無いと、キーボード操作でドロワー内の
+        最後の要素からTabを送った際に、暗幕の下に隠れているはずのこのペイン内の要素（現在地
+        ボタン等）へフォーカスが抜けてしまい、aria-modalの宣言と実際の挙動が食い違う。
+      */}
+      <div className={styles.mapPane} inert={isDrawerOpen}>
         <MapView
           routes={routes}
           selectedRouteId={selectedRouteId}
@@ -204,6 +265,28 @@ export default function Home() {
           onRegionZoomHintChange={setRegionZoomTooWide}
           refreshToken={refreshToken}
         />
+
+        <button
+          type="button"
+          onClick={handleLocateMe}
+          disabled={locating}
+          aria-label="現在地に移動"
+          title="現在地に移動"
+          className={locating ? `${styles.locateButton} ${styles.locateButtonBusy}` : styles.locateButton}
+          style={locateButtonBottomPx != null ? { bottom: `${locateButtonBottomPx}px` } : undefined}
+        >
+          {locating ? "…" : "◎"}
+        </button>
+
+        {locateError && (
+          <p
+            className={styles.locateError}
+            style={locateErrorBottomPx != null ? { bottom: `${locateErrorBottomPx}px` } : undefined}
+          >
+            {locateError}
+          </p>
+        )}
+
         <DebugConsole />
       </div>
     </div>
