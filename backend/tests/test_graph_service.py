@@ -249,6 +249,48 @@ async def test_get_or_build_graph_returns_none_on_overpass_failure_with_reposito
     assert repository.cached_tiles == set()
 
 
+async def test_fallback_disabled_uncovered_tile_returns_none_without_overpass():
+    """overpass_fallback_enabled=False時、未取込タイルは「データ未整備」としてNoneを返し、
+    Overpassへは一切問い合わせない（docs/osm-pbf-import.md Phase 3）。"""
+    ways = [{"id": 100, "tags": {"highway": "residential"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    overpass_client = FakeOverpassClient(result=(ways, nodes))
+    repository = FakeRoadGraphRepository()
+    service = GraphService(
+        overpass_client, http_client=None, repository=repository, overpass_fallback_enabled=False
+    )
+
+    result = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert result is None
+    assert overpass_client.call_count == 0
+    assert repository.cached_tiles == set()  # 未整備タイルを取得済み扱いにしない
+
+
+async def test_fallback_disabled_covered_tiles_still_served_from_repository():
+    """overpass_fallback_enabled=Falseでも、取込済み（タイルマーク済み）の範囲は
+    従来どおりDBだけでグラフを構築できる。"""
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    # 1回目（フォールバック有効）で取込み、2回目はフォールバック無効の別インスタンスで読む
+    # （PBF取込バッチがマークした状態の再現）
+    repository = FakeRoadGraphRepository()
+    importer_like = GraphService(
+        FakeOverpassClient(result=(ways, nodes)), http_client=None, repository=repository
+    )
+    await importer_like.get_or_build_graph_with_attributes(BBOX)
+
+    overpass_client = FakeOverpassClient(result=(ways, nodes))
+    service = GraphService(
+        overpass_client, http_client=None, repository=repository, overpass_fallback_enabled=False
+    )
+    result = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert result is not None
+    assert len(result[0].edges) == 2
+    assert overpass_client.call_count == 0
+
+
 async def test_with_repository_legitimately_empty_area_returns_empty_graph_not_none():
     # Overpassへの問い合わせ自体は成功するが、道路が1本も無い地域（海・公園等）を模す。
     overpass_client = FakeOverpassClient(result=([], {}))

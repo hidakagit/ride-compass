@@ -22,12 +22,15 @@
 - ✅ Road Graph移行 Phase 3: 標高・路面をRoad Attribute（`domain/attributes.py`のElevationAttribute/SurfaceAttribute）としてEdgeへ紐付ける仕組みを新規導入。既存のルート単位の評価（ElevationService/RouteGenerator）は無変更で、Edge単位の属性生成は独立した並行機能として追加した（詳細は「9. Road Graph移行（進行中）」参照）
 - ✅ Road Graph移行 Phase 4: Road Attribute→Edge Costを算出するEvaluation Engine（`domain/evaluation.py`, `services/evaluation_service.py`）を新規導入。既存の`RouteScorer`/`domain/difficulty.py`（ルート単位の評価）には触れず、Edge単位の評価ロジックとして独立に追加した（詳細は「9. Road Graph移行（進行中）」参照）
 - ✅ Road Graph移行 Phase 5: Evaluation Engineの重み（`RoutePreference`）を`route_preference.yaml`へ外部化。`scoring.yaml`/`load_scoring_weights`と同じパターンだが別ファイル・別関数として分離した（詳細は「9. Road Graph移行（進行中）」参照）
-- ✅ Road Graph移行: 永続化（PostGIS）。SQLAlchemy+GeoAlchemy2でRoad Graph/Road AttributeをPostGISへ保存・読込できるようにし、GraphService/ElevationAttributeServiceにread-throughキャッシュとして配線した。**この開発環境には接続可能なPostGISが無いため、実DBに対する動作確認は未実施**（詳細は「9. Road Graph移行（進行中）」参照）
+- ✅ Road Graph移行: 永続化（PostGIS）。SQLAlchemy+GeoAlchemy2でRoad Graph/Road AttributeをPostGISへ保存・読込できるようにし、GraphService/ElevationAttributeServiceにread-throughキャッシュとして配線した。実装当時は接続可能なPostGISが無く未検証だったが、**後日ローカルのPostgreSQL 18 + PostGIS 3.6に対する検証を完了**（「実PostGISでの動作検証（Phase 0）」参照）
 - ✅ Road Graph移行: タイル境界依存の交差点分割不一致問題の根本修正。生のOSM Way/NodeデータとRoad Graph構築（交差点分割）を分離し、DB上の既知の生データ全体から近傍Wayを含めて都度計算する設計にした（詳細は「9. Road Graph移行（進行中）」参照）
 - ✅ **Road Graphを実際のルーティングへ接続（完全移行）**: `/api/routes/generate`のルート生成をopenrouteservice委譲からRoad Graph + NetworkX（Dijkstra）ベースに全面置き換えた。Phase 6（Dynamic Data対応・風）もこの移行の一環として実装。実機検証で2つの重大な性能問題（8方位並列Overpass問い合わせがレート制限で全滅する、標高取得がRoad Graph全体に対して行われ非現実的に遅い）を発見・修正し、東京都内の実データで動作確認済み（詳細は「9. Road Graph移行（進行中）」参照）
 - ✅ **ルーティングエンジンの切り替え対応**: Road Graphベースの自前ルーティング（経路探索そのもの）は将来拡張として並行開発を続けることとし、現状はマップの見える化・評価に必要な情報（標高・風・路面）の精査を優先するため、`/api/routes/generate`をopenrouteservice委譲でも動作するよう切り替え可能にした。完全移行で削除した`ElevationService`/`WindService`とopenrouteservice委譲版のルート生成ロジックを復元し、`config.py`の`routing_engine`設定（既定値`openrouteservice`）で`api/routes.py`の`get_route_generator`がどちらを注入するか切り替える（詳細は後述）
 - ✅ **設計レビューと推奨アクション対応（ポート分割・評価値定義の統一・レート制限）**: エンジン切り替え導入直後に仕様書・実装全体の設計レビューを実施し、優先度上位4件を実装した。(1)周回生成戦略（8方位・距離フィルタ・スコアリング）を単一の`RouteGenerator`（`services/route_generator.py`）へ集約し、経路計算・評価を`LoopRoutingEngine`ポート（`OpenRouteServiceEngine`/`RoadGraphEngine`）として分離、(2)エンジン間で食い違っていた評価値の定義（road_scoreの不明路面の扱い・区間難易度の重みソース）を統一しレスポンスへ`engine`フィールドを追加、(3)最も高コストな`/api/routes/generate`へper-IPレート制限＋同時実行数ガードを追加、(4)`ORSClient`のコネクションをDI経由の共有方式へ統一（詳細は「ルーティングエンジンの切り替え対応」参照）
 - ✅ **Renderデプロイの反映確認**: `GET /health`のレスポンスに`commit`（Renderが自動注入する`RENDER_GIT_COMMIT`）と`started_at`（プロセス起動時刻）を追加し、Render上に実際にデプロイされているコミットが手元のgit HEADと一致しているか外部から確認できるようにした（詳細は「Renderデプロイの反映確認」参照）
+- ✅ **OSM PBF取込バッチ（Overpass依存解消のPhase 0-1）**: 利用するOSMデータをPBF（Geofabrik/BBBike抽出ファイル）からPostGISへ事前取込するバッチ（`backend/app/batch/import_pbf.py`、取込要素はプロファイルYAMLで宣言）を新規実装し、実PostGIS（ローカルPostgreSQL 18＋PostGIS 3.6）での永続化層の動作検証（Phase 0）と、東京都心の実データ取込→**Overpassへの問い合わせゼロでの`road_graph`ルート生成完走**（Phase 1 E2E）まで確認した。あわせて実データ規模で実用不能だった行単位UPSERT（レビュー指摘7）のバルク化・閉包クエリの空間検索化・`AsyncSession`同時使用バグの修正を実施（設計・詳細は docs/osm-pbf-import.md および9章「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」参照）
+- ✅ **地域路面レイヤーのPostGIS化（Overpass依存解消のPhase 2）**: `RegionService`の路面ベクタタイル生成をPostGIS第一系統に変更した。表示タイル（z12-15）のz12祖先タイルが取込済みマークされていれば`osm_raw_ways.geom`の空間検索だけでMVTを生成し（Overpass問い合わせなし）、取込範囲外・DB障害時は`overpass_fallback_enabled`設定（既定true）に従いOverpassへフォールバックする。本番想定のSupabaseフリープラン（500MB）に対する容量予算300MBへ収めるため、未使用になっていたGINインデックス（28MB）を削除しDB実測284MBとした（詳細は9章「RegionServiceのPostGIS化（Phase 2）」参照）
+- ✅ **Supabase取込とOverpass停止（Overpass依存解消のPhase 3）**: 本番想定DB＝Supabase（`.env`の`DATABASE_URL`）へPBF取込を実施し、`.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`に設定した。**PostGISが唯一のOSMデータソースとなり、Overpassへの問い合わせは発生しない**（フォールバックのロジックはコードに併存させ、設定のみで無効化。ユーザー指示）。容量安全のため取込bboxはローカルの約7割（35.61,139.67-35.74,139.83）へ縮小し、Supabase実測196MB（生OSM層120MB＋ルート生成E2E由来の導出データ）で300MB予算内。`GraphService`にもフォールバック無効化フラグを追加した（詳細は9章「Supabase取込とOverpass停止（Phase 3）」参照）
 
 ---
 
@@ -37,7 +40,7 @@
 |---|---|---|
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
-| DB | PostgreSQL + PostGIS | 既存のルート探索等（Step1-10）からは引き続き未接続。Road Graph移行の「永続化」で、SQLAlchemy+GeoAlchemy2経由の読み書きコードを追加（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。ただしdev環境にPostGISが無く実接続は未検証（詳細は9章） |
+| DB | PostgreSQL + PostGIS | 既存のルート探索等（Step1-10）からは引き続き未接続。Road Graph移行の「永続化」で、SQLAlchemy+GeoAlchemy2経由の読み書きコードを追加（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境ではネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）に対して実接続検証済み（9章「実PostGISでの動作検証（Phase 0）」参照） |
 | ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **切り替え可能**（既定: openrouteservice API、`config.py`の`routing_engine`設定で`road_graph`にも切替可） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価だけを`LoopRoutingEngine`ポート経由で`OpenRouteServiceEngine`（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、外部APIキー方式、Road Graph移行前の実装）または`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のNetworkX Dijkstraを使う）へ委譲する。ルーティング自体（自前の経路探索）は将来拡張として開発を続ける一方、現状はマップの見える化・評価に必要な情報の精査を優先するため既定値はopenrouteservice。レスポンスの`engine`フィールドでどちらが生成したかを識別できる。詳細は9章および「ルーティングエンジンの切り替え対応」参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | openrouteservice API（`cycling-road`プロファイル、外部APIキー方式） | Step3の疎通確認用エンドポイントは移行対象外のまま残置。`RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）が`get_directions(waypoints: list[Coordinates])`を実装したクライアント（`ORSClient`）を受け取る形 |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
@@ -662,7 +665,9 @@ Phase 1-5完了時点の引き継ぎ事項だった「永続化方式の決定�
 - **`config.py`**: `database_url`を追加（既定値はdocker-compose.ymlのpostgresサービスに対応）。`docker-compose.yml`の`DATABASE_URL`をSQLAlchemy非同期エンジン用に`postgresql+asyncpg://`スキームへ修正（これまで一度も実際に使われていなかった値のため、書き換えても既存動作への影響なし）
 - テスト: `test_graph.py`にID安定性の検証を追加。`test_graph_service.py`/`test_elevation_attribute_service.py`に、インメモリの`FakeRoadGraphRepository`/`FakeElevationAttributeRepository`を使ったキャッシュヒット/ミス/部分キャッシュのオーケストレーションロジックのテストを追加。既存を含む全199件がグリーン
 
-#### 未検証の範囲（重要）
+#### 未検証の範囲（重要）→ 解消済み
+
+**【後日解消】本節の未検証項目は、後述「実PostGISでの動作検証（Phase 0）」ですべて実機確認済み。** 以下は実装当時の記録として残す。
 
 このdev環境にはDocker/PostgreSQLが無く、`road_graph_repository.py`のSQL/ORMマッピングは**実際のPostGISに対して一度も実行されていない**。以下で部分的に静的検証は行った。
 
@@ -708,7 +713,7 @@ Phase 1-5完了時点の引き継ぎ事項だった「永続化方式の決定�
 
 5. ~~**タイル境界の位置によって、同じOSM Wayの交差点分割が取得タイミング次第で変わりうる**~~ → **根本修正済み**。詳細は次項「タイル境界依存の交差点分割不一致問題：根本修正」を参照
 6. **同一タイルへの同時リクエストに対するロック機構が無い**: `is_tile_cached`確認→Overpass取得→`save_raw_ways`→`mark_tile_cached`の一連の流れはトランザクション分離されておらず、2つのリクエストが同時に同じ未取得タイルへアクセスすると両方がOverpassへ問い合わせてしまう（「並列化せず順に問い合わせる」という設計意図が単一リクエスト内でのみ有効）。ただし、これは既存の`RegionService`の路面タイルキャッシュ（`tile_cache.py`）も同じ弱点を持っており、このプロジェクトが既に許容している既知のリスクパターンと同等であるため、Road Graph側だけを先に対策することはしなかった
-7. **`save_graph`等がNode/Edge/Attributeごとに`Session.merge`を個別実行しており、1タイルあたり数百〜数千回のクエリになりうる**: バルクUPSERT（`INSERT ... ON CONFLICT DO UPDATE`）に置き換えれば改善するが、実PostGISに接続できないこの環境ではGeoAlchemy2のジオメトリ値を含むバルク文が正しく動くか検証できない。誤った書き換えを未検証のまま入れるより、パフォーマンス課題として記録し、実接続確認のタイミングで対応する方が安全と判断した
+7. ~~**`save_graph`等がNode/Edge/Attributeごとに`Session.merge`を個別実行しており、1タイルあたり数百〜数千回のクエリになりうる**~~ → **解消済み（Phase 1で必須と判明し対応）**。都心部bbox（Edge十数万）で1リクエストが数十分オーダーになることをE2Eで確認し、全保存系をバルクUPSERT（`INSERT ... ON CONFLICT`、1000行/文）へ置き換えた（詳細は「OSM PBF取込バッチ（Phase 1）」参照）。当時の判断（実接続確認まで見送り）の記録として残す: バルクUPSERT（`INSERT ... ON CONFLICT DO UPDATE`）に置き換えれば改善するが、実PostGISに接続できないこの環境ではGeoAlchemy2のジオメトリ値を含むバルク文が正しく動くか検証できない。誤った書き換えを未検証のまま入れるより、パフォーマンス課題として記録し、実接続確認のタイミングで対応する方が安全と判断した
 
 修正後、レビューで追加した回帰テスト（DATABASE_URLの整合性は自動テスト対象外、緯度クランプ・空地域の扱いの2件）を含め、既存を含む全207件がグリーン（この時点。後述の根本修正でさらに増える）。
 
@@ -793,9 +798,67 @@ build_road_graph（無変更）をこの結合されたWay集合に対して実�
 - **`_bbox_around_point`のマージン（`BBOX_MARGIN_RATIO`/`BBOX_MARGIN_MIN_KM`）は暫定値**: 実データでの検証は小さい距離（4km）でしか行っていない。大きい距離（15km・30km等、既存Step4での実機検証相当）でも同様に機能するかは未検証
 - **NetworkXの`DiGraph`は同一ノード間の並行Edgeを1本しか保持できない**: 稀なケースで最安のEdgeが選ばれない可能性がある（`MultiDiGraph`への変更は今回未実施）
 
+### 実PostGISでの動作検証（Phase 0）
+
+OSMデータのPBF事前取込によるOverpass依存解消の設計検討（docs/osm-pbf-import.md）に着手するにあたり、その前提（同設計書「9. 段階的導入計画」のPhase 0）として、これまで未検証だった永続化層の実DB動作確認を実施した。
+
+- **環境**: dev機にDockerは無いが、**ネイティブのPostgreSQL 18.6（Windowsサービス`postgresql-x64-18`、ポート5432）が稼働しており、PostGIS 3.6.2が利用可能**だったためこれを使用した（docker-compose.ymlの`postgis/postgis:16-3.4`は使っていない。イメージのPG16との差異は現時点で問題になっていない）。`ridecompass`ロール／`ridecompass` DB／PostGIS拡張／全7テーブルはローカルに作成済み
+- **検証方法**: `backend/scripts/verify_postgis_phase0.py`（新規）。交差点共有・タイル境界外の近傍Way・一方通行を含む小さなフィクスチャ（実OSMと衝突しない910兆台の架空ID）を実DBへ書き込み、22項目を検証して終了時に全行削除する。再実行可能
+- **結果**: 22/22 PASS（2026-08-14）。具体的に実機確認できたこと:
+  - `create_tables()`の冪等性（既存スキーマ・PostGIS拡張ありでも成功）
+  - `save_raw_ways`のUPSERT、GINインデックス（`node_ids`の`&&`検索）による`get_way_specs_with_closure`の主対象／1ホップ近傍の判定
+  - `save_graph`の`Session.merge` UPSERT・FK制約（Node→Edge順）・delete-then-reinsertの冪等性
+  - `ST_MakeEnvelope`/`ST_Intersects`によるbbox空間検索、GeoAlchemy2 `from_shape`/`to_shape`のジオメトリ往復で**緯度経度の軸順の取り違えが無い**こと（懸念事項だった）
+  - elevation/surface attributesの保存・読込（timestamptzの往復含む）
+  - `is_tile_cached`/`mark_tile_cached`、および`GraphService.get_or_build_graph_with_attributes`のオーケストレーション一式（初回はタイル数分だけデータソースへ問い合わせ、2回目はDBのみで完結し問い合わせゼロ）
+- **注意（未決定事項）**: `backend/.env`の`DATABASE_URL`は現在**Supabase（クラウドPostgres）を指している**。今回の検証は環境変数`DATABASE_URL`で一時的にローカルDBへ上書きして実施した（.envは変更していない）。ローカルPG18とSupabaseのどちらを恒常的な開発用DBとするかは、PBF取込のPhase 1着手時に決める
+- **残課題**: バルクUPSERT性能（レビュー指摘7、行単位`Session.merge`）は未対応のまま（PBF取込バッチはCOPY方式で最初から回避する設計）。ランタイムDI（`api/routes.py`への`repository`注入）も未配線
+
+### OSM PBF取込バッチ（Phase 1）
+
+Phase 0に続き、docs/osm-pbf-import.mdの設計に沿ってPBF取込バッチを実装し、E2E（Overpassゼロでのルート生成）まで検証した。
+
+- **実装物**: `backend/app/batch/`（`import_pbf.py`＝CLI本体、`profile.py`＝取込プロファイルの読み込み/マッチング、`pbf_source.py`＝pyosmium依存を閉じ込めた読取層、`import_profile.yaml`＝既定プロファイル）。依存は`requirements-batch.txt`（`osmium==4.1.1`、webサービスには入れない）。スキーマは`osm_raw_ways.geom`列（実体化済みLINESTRING＋GiST索引＋旧データのバックフィル）と`osm_import_runs`テーブル（実行記録）を追加
+- **DI配線**: `config.py`の`road_graph_use_repository`（既定false）。trueで`get_graph_service`/`get_elevation_attribute_service`へ`RoadGraphRepository`を注入する
+- **実測（BBBike Tokyo抽出79MB、bbox=35.60,139.65,35.75,139.85）**: 取込150,265 way / 511,948ノード / 16タイル（z12）マーク、194秒。DBサイズは導出データ（road_edges 155,086行等）込みで約298MB
+- **E2E（東京駅起点、4km周回、`scripts/verify_phase1_e2e.py`）**: 「呼ばれたら失敗するOverpassスタブ」を注入した状態で8方位すべての候補生成に成功し、**Overpass呼び出し0回**を確認。所要222.7秒（prepare 187s / trace 5.6s / evaluate 29s）
+- **Phase 1で発見・修正した問題（実データ規模で初めて顕在化）**:
+  1. **行単位`Session.merge`が実用不能（レビュー指摘7の顕在化）**: 都心bbox（主対象way約4.8万・Edge十数万）でE2Eが10分以上無応答。全保存系（`save_graph`/`save_raw_ways`/attributes）を複数行VALUESのバルクUPSERTへ置き換え（1000行/文、asyncpgのパラメータ上限32767を考慮したチャンク分割）
+  2. **`get_way_specs_with_closure`のGIN配列検索がスケールしない**: 数十万要素の配列パラメータによる`&&`検索を、空間検索（主対象＝bboxと`ST_Intersects`するway、近傍＝主対象全長の`ST_Extent`と交差するway。旧semanticsの上位互換/上位集合で正しさは維持）へ置き換え。`osm_raw_ways.geom`が前提のため`create_tables()`に旧データのgeomバックフィルを追加
+  3. **`AsyncSession`の同時使用クラッシュ**: `RoadGraphEngine.evaluate_loops`が候補ごとに`asyncio.gather`で並列実行するため、注入した`ElevationAttributeService`のrepository（単一セッション）が同時使用され`IllegalStateChangeError`で落ちることをE2Eで確認。repositoryアクセスのみ`asyncio.Lock`で直列化（GSIへのHTTP問い合わせは並列のまま）。再入検出フェイクによる回帰テストを追加
+- **既知の制約・次の課題**:
+  - **prepareの187秒**: 大半は「タイル取得済みでも毎リクエスト、生データから交差点分割を再計算し全Edgeを再保存する」現設計のコスト（closureクエリ＋`build_road_graph`＋十数万行の再UPSERT）。生データが変わっていなければ`road_edges`を直接読む省略パスの導入が次の最適化候補
+  - E2Eは東京都心（日本有数の道路密度）での数値。郊外ではway数が1桁少なくなり大幅に短くなる見込みだが未計測
+  - 天候（Open-Meteo）・標高（GSI）は引き続き外部API（Phase 1の解消対象はOverpassのみ）
+
+### RegionServiceのPostGIS化（Phase 2）
+
+docs/osm-pbf-import.md「Phase B」の実施記録（2026-08-14）。地域路面レイヤー（路面ベクタタイル）のデータソースをPostGIS第一系統へ変更し、本番想定（Supabase）の容量予算にも対応した。
+
+- **カバレッジ判定**: 表示タイル（z12-15）を`domain/region.py: tile_ancestor`（新規、右シフトによる祖先タイル計算）でz12へ丸め、`road_graph_tiles`の取得済みマークで「このタイルのデータはDBにあるか」を正確に判定する。PBF取込バッチとRoad Graphのタイル取得が同じマークを共有しているため、どちらで取得された範囲でも路面タイルはDBだけで生成できる
+- **タイル生成**: `RoadGraphRepository.get_road_surface_ways_in_bbox`（新規）が`osm_raw_ways.geom`（Phase 1で実体化済み）の`ST_Intersects`検索で線とsurfaceタグを引き、既存の`encode_road_surface_tile`でMVT化する。ファイルキャッシュ・`asyncio.to_thread`の既存方針は無変更
+- **フォールバック**: 取込範囲外・DB障害時は`settings.overpass_fallback_enabled`（新設、既定true）に従い従来のOverpass問い合わせへフォールバックする（「PostGIS停止が既存機能を丸ごと壊さない」という過去の選択肢A却下時の懸念への回答）。falseなら空タイルを返し**キャッシュには保存しない**（後から取込された際に再生成させるため）。フォールバック発動・範囲外アクセスはログ方針どおり常時WARNING
+- **容量予算対応（ユーザー要件: Supabaseフリー500MB→安全枠300MB）**: 実測内訳を取り、閉包クエリの空間検索化（Phase 1）以降未使用になっていたGINインデックス`ix_osm_raw_ways_node_ids`（28MB）を`create_tables()`で冪等に削除。DB全体は313MB→**284MB**となり、現行取込bbox（東京都心35.60,139.65-35.75,139.85）が300MB予算内のプロトタイプ基準規模であることを確認した。取込バッチの完了サマリに`db_size_mb`を追加し、超過を取込時点で検知できるようにした
+- **検証**: ユニットテスト追加（PostGIS系統/フォールバック有無/DB障害/`tile_ancestor`）で全367件グリーン、実DB検証`backend/scripts/verify_phase2_e2e.py`で9項目PASS（取込範囲内z14タイル: 3,304地物をOverpass呼び出し0回で生成、z12タイル・範囲外の両フォールバック分岐も確認）。Phase 0検証22項目も回帰PASS
+
+### Supabase取込とOverpass停止（Phase 3）
+
+docs/osm-pbf-import.md「Phase C」の実施記録（2026-08-14）。ユーザー要件: 本番はSupabase（フリープラン500MB、安全枠300MB以内でプロトタイプ実施）、**Overpassフォールバックは設定で無効化しロジックは併存させる**。
+
+- **Supabase接続確認**: `.env`の`DATABASE_URL`（`?ssl=require`付きDirect connection）でSQLAlchemy+asyncpgから接続できることを確認（PostgreSQL 17.6、PostGIS 3.3.7導入済み、ベース19MB）。疎通チェック用に`backend/scripts/check_db_connection.py`を追加。取込バッチのasyncpg直結パスには`?ssl=require`→`?sslmode=require`のDSN正規化（`_asyncpg_dsn`）を追加した（`ssl=`はSQLAlchemyのasyncpgダイアレクト固有の書き方のため）
+- **取込**: 容量試算（ローカル実測284MBが予算上限規模＋標高属性の将来増分）に基づき、**bboxを約7割へ縮小**（35.61,139.67-35.74,139.83。東京駅・新宿・渋谷・上野・池袋を含む）して取込んだ。実測: 116,336 way / 389,493ノード / z12タイル4枚 / 195秒 / 取込後120MB
+- **`GraphService`のフォールバック無効化フラグ**: Phase 2で`RegionService`に入れた`overpass_fallback_enabled`を`GraphService`にも追加。無効時、未取込タイルを含むルート生成リクエストはOverpassへ行かず「データ未整備」としてNoneを返す（常時WARNING）。`repository`未注入の構成では両サービスともフラグに関わらず従来どおりOverpassを使う（DBなし構成の互換性維持）
+- **設定**: `.env`を`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`へ変更。**コードは無変更で`.env`の2行だけで切り戻せる**
+- **検証（すべてSupabaseに対して実施）**: Phase 2検証9項目PASS（東京駅付近z14タイルはローカルと同一の3,304地物）、ルート生成E2E成功（8方位・Overpass呼び出し0回・336.6秒。prepare 295秒とローカル比+108秒はWANレイテンシ分）。ユニットテスト全370件グリーン
+- **容量**: E2E後のSupabase実測196MB（予算300MBに対し余裕約100MB）。**導出データ（road_edges等）はルート生成が要求した地域ぶんだけ増える**が、生OSM層から再計算可能なキャッシュのため、逼迫時は該当行のDELETEが安全な圧力弁になる（docs/osm-pbf-import.md 10章）
+
 ### 次のPhaseへの引き継ぎ事項
 
-- **最優先**: 実際のPostGISに接続しての動作確認・キャッシュ有効化。前述の「1リクエストあたり40〜70秒」を大幅に改善できる見込みがあり、優先度が上がった
+- ~~**最優先**: 実際のPostGISに接続しての動作確認~~ → **完了**（Phase 0）
+- ~~**PBF取込のPhase 2（RegionServiceのPostGIS第一系統化）・Phase 3（Supabase取込・Overpass停止）**~~ → **完了**（前2項）。Overpass依存解消の計画（docs/osm-pbf-import.md）は全Phase完了
+- **prepare 295秒（Supabase・都心）の短縮**: 生データ不変時の分割再計算・全量再保存の省略が最有力候補（ローカル187秒→Supabase 295秒とWANレイテンシで悪化しており、再保存の省略はWAN環境ほど効く）
+- **Renderデプロイへの反映**: Render側の環境変数に`DATABASE_URL`（Supabase）・`ROAD_GRAPH_USE_REPOSITORY`・`OVERPASS_FALLBACK_ENABLED`を設定すれば同じ姿勢で動く（未実施。Render→Supabase間のレイテンシは要実測）
+- **OSMデータの更新運用**: 月次程度でPBF再取込（docs/osm-pbf-import.md 8章）。`--prune`（削除way掃除）は未実装のまま
 - 大きい距離（15km・30km等）でのRoad Graphベースのルート生成の実機検証（現時点では4kmでのみ確認済み）
 - `compute_edge_cost`のCost計算式（distanceへの乗算ペナルティ）は初期実装であり、仕様書31章が求める「複数のCost計算方式を比較検討できる」構造は、実際に2つ目の方式を試すタイミングでリファクタリングの必要性を再評価する
 - 標高が経路選択に影響しない制約（前述）をPostGISキャッシュ有効化後に解消するかどうかの検討

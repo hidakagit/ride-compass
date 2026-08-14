@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 
 from app.domain.attributes import SurfaceAttribute, build_surface_attributes
@@ -5,6 +7,8 @@ from app.domain.graph import RoadGraph, WaySpec, build_road_graph
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.overpass_client import OverpassClient
+
+logger = logging.getLogger("ridecompass.graph")
 
 
 class GraphService:
@@ -29,10 +33,21 @@ class GraphService:
     （タイル境界依存の交差点分割不一致問題への根本対応。詳細はdocs/architecture.md参照）。
     """
 
-    def __init__(self, overpass_client: OverpassClient, http_client: httpx.AsyncClient, repository=None):
+    def __init__(
+        self,
+        overpass_client: OverpassClient,
+        http_client: httpx.AsyncClient,
+        repository=None,
+        overpass_fallback_enabled: bool = True,
+    ):
         self._overpass_client = overpass_client
         self._http_client = http_client
         self._repository = repository
+        # PBF取込範囲外のタイルをOverpassへ問い合わせて補完するか（docs/osm-pbf-import.md
+        # Phase 3）。Falseなら未取込タイルを含むリクエストは「データ未整備」としてNoneを
+        # 返す（Overpassへは行かない）。`repository`未指定時はこのフラグに関わらず常に
+        # Overpassから構築する（DBなし構成ではOverpassが唯一のデータソースのため）。
+        self._overpass_fallback_enabled = overpass_fallback_enabled
 
     async def build_graph_for_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
         built = await self._build(bbox)
@@ -81,6 +96,18 @@ class GraphService:
         for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
             if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
                 continue
+
+            if not self._overpass_fallback_enabled:
+                # 取込範囲外＋フォールバック無効。データ未整備として即Noneを返す
+                # （ログ方針: 常時WARNING。PBF取込漏れ・想定外の範囲へのリクエストを
+                # 運用で気づけるようにする。docs/osm-pbf-import.md Phase 3）。
+                logger.warning(
+                    "Road Graphタイルが取込範囲外（Overpassフォールバック無効） z=%d x=%d y=%d "
+                    "bbox=(%.2f,%.2f,%.2f,%.2f)",
+                    ROAD_GRAPH_TILE_ZOOM, x, y,
+                    bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
+                )
+                return None
 
             tile_bbox = tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y)
             result = await self._overpass_client.get_ways_and_nodes(self._http_client, tile_bbox)

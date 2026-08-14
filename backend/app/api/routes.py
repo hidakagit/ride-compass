@@ -13,8 +13,10 @@ from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.domain.weather import WeatherConditions
 from app.infrastructure import tile_cache
 from app.infrastructure.basemap_client import BasemapClient
+from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import get_stats, record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.rate_limiter import check_rate_limit
@@ -140,14 +142,33 @@ def get_evaluation_service(
 async def get_graph_service():
     # ルート生成は周回全体を覆うbboxを1回のOverpass問い合わせで取得するため、
     # 地域路面レイヤー（タイル単位、15秒）より長めのタイムアウトにする。
+    # road_graph_use_repository有効時はPostGISをread-throughキャッシュとして注入し、
+    # PBF取込済み（タイルマーク済み）の範囲ではOverpassへ問い合わせない（config.py参照）。
     async with httpx.AsyncClient(timeout=30.0) as http_client:
-        yield GraphService(OverpassClient(), http_client)
+        if settings.road_graph_use_repository:
+            async with get_session_factory()() as session:
+                yield GraphService(
+                    OverpassClient(),
+                    http_client,
+                    repository=RoadGraphRepository(session),
+                    overpass_fallback_enabled=settings.overpass_fallback_enabled,
+                )
+        else:
+            yield GraphService(OverpassClient(), http_client)
 
 
 async def get_elevation_attribute_service():
-    # Road GraphのEdge形状点ごとに問い合わせるため、リクエスト単位でコネクションを使い回す
+    # Road GraphのEdge形状点ごとに問い合わせるため、リクエスト単位でコネクションを使い回す。
+    # road_graph_use_repository有効時はEdge単位の標高キャッシュ（PostGIS）を注入する
+    # （GraphService側とは別セッション。各操作が独立にcommitするため同居させる必要は無い）。
     async with httpx.AsyncClient(timeout=10.0) as http_client:
-        yield ElevationAttributeService(ElevationClient(), http_client)
+        if settings.road_graph_use_repository:
+            async with get_session_factory()() as session:
+                yield ElevationAttributeService(
+                    ElevationClient(), http_client, repository=RoadGraphRepository(session)
+                )
+        else:
+            yield ElevationAttributeService(ElevationClient(), http_client)
 
 
 def get_route_generator(
@@ -263,6 +284,10 @@ async def get_weather(
 
 
 async def get_region_service():
+    # road_graph_use_repository有効時はPostGISを第一系統として注入する（PBF取込済みの
+    # 範囲ではOverpassへ問い合わせない。フォールバックの可否はoverpass_fallback_enabled。
+    # docs/osm-pbf-import.md Phase 2）。
+    #
     # OverpassClientのクエリは[timeout:25]（サーバー側が内部で使ってよい上限秒数）を
     # 指定しているのに、以前はhttpxクライアント側のタイムアウトが15.0秒とそれより短く
     # 設定されていた。密集した市街地のbboxは実測で10〜15秒以上かかることがあり、
@@ -271,7 +296,16 @@ async def get_region_service():
     # 不具合が実機（Renderデプロイ）で確認された。クエリの内部タイムアウトに余裕を持って
     # 揃える（graph_service.pyのget_graph_serviceと同じ30.0秒）。
     async with httpx.AsyncClient(timeout=30.0) as http_client:
-        yield RegionService(OverpassClient(), http_client)
+        if settings.road_graph_use_repository:
+            async with get_session_factory()() as session:
+                yield RegionService(
+                    OverpassClient(),
+                    http_client,
+                    repository=RoadGraphRepository(session),
+                    overpass_fallback_enabled=settings.overpass_fallback_enabled,
+                )
+        else:
+            yield RegionService(OverpassClient(), http_client)
 
 
 @router.get("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")

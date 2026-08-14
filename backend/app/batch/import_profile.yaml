@@ -1,0 +1,16 @@
+# PBF取込プロファイル（docs/osm-pbf-import.md 5.2節）。
+# 取込対象の要素を宣言する。matchは「タグ名: 許容値」のANDマッチで、
+# "*" はタグの存在のみを要求する（値は任意）。値のリスト指定も可。
+version: 1
+elements:
+  - name: roads
+    element_type: way
+    match:
+      highway: "*"
+    target: osm_raw_ways
+  # --- 将来の拡張例（有効化にはコード側のtarget対応も必要） ---
+  # - name: drinking_water
+  #   element_type: node
+  #   match:
+  #     amenity: ["drinking_water"]
+  #   target: osm_raw_pois

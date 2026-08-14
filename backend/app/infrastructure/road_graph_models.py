@@ -8,7 +8,7 @@ road_graph_repository.pyが担う。
 from datetime import datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -41,9 +41,12 @@ class OsmRawNodeRow(Base):
 class OsmRawWayRow(Base):
     """OSMの生Wayデータ（WaySpec相当。domain/osm_adapter.pyでタグ解釈済みの状態で保存する）。
 
-    node_idsはWayが参照するノードIDの順序付き配列。「このノードをどのWayが参照しているか」
-    という近傍探索（get_way_specs_with_closure）に使うため、GINインデックスで配列の
-    重なり（&&演算子）を高速に検索できるようにする。
+    node_idsはWayが参照するノードIDの順序付き配列。当初は近傍探索
+    （get_way_specs_with_closure）のためにGINインデックス（&&演算子）を張っていたが、
+    実データ規模でスケールしないことが判明しgeom列の空間検索へ置き換えたため、
+    GINインデックスは廃止した（28MBの容量削減にもなる。Supabaseフリープランの
+    容量制約に対応するdocs/osm-pbf-import.md 10章参照）。node_ids自体は
+    build_road_graphへの入力として引き続き必要。
 
     Wayのタグ・ノード列自体は、それを取得したタイルに関わらず常に同じ内容になる
     （road_edgesの分割結果と異なり曖昧さが無い）ため、素直にUPSERTしてよい。
@@ -57,9 +60,12 @@ class OsmRawWayRow(Base):
     highway: Mapped[str | None] = mapped_column(String, nullable=True)
     surface: Mapped[str | None] = mapped_column(String, nullable=True)
     direction: Mapped[str] = mapped_column(String, nullable=False)
+    # Wayの実体化済みLINESTRING（PBF取込バッチ・save_raw_waysがノード座標から算出して保存）。
+    # node_ids→osm_raw_nodesのJOINなしにタイルbboxの空間検索で線ジオメトリを引くための列で、
+    # 地域路面レイヤー（RegionService）のPostGIS読み替え（docs/osm-pbf-import.md Phase 2）に使う。
+    # 座標が判明しているノードが2点未満のWay（抽出ファイル境界等）はNULLになりうる。
+    geom = mapped_column(Geometry(geometry_type="LINESTRING", srid=4326, spatial_index=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (Index("ix_osm_raw_ways_node_ids", "node_ids", postgresql_using="gin"),)
 
 
 class RoadNodeRow(Base):
@@ -113,6 +119,30 @@ class SurfaceAttributeRow(Base):
     data_source: Mapped[str] = mapped_column(String, nullable=False)
     data_version: Mapped[str | None] = mapped_column(String, nullable=True)
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OsmImportRunRow(Base):
+    """PBF取込バッチ（app/batch/import_pbf.py）の実行記録。
+
+    pbf_timestampはPBFヘッダのosmosis_replication_timestamp（＝OSMデータの鮮度）。
+    「どの時点のOSMに基づくデータか」の追跡と、Road Attributeのdata_versionの導出元に使う。
+    profile_hashは取込プロファイル（YAML）のSHA-256で、どの設定で取り込んだかを追跡する。
+    """
+
+    __tablename__ = "osm_import_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pbf_name: Mapped[str] = mapped_column(String, nullable=False)
+    pbf_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    profile_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # 取込範囲（"min_lat,min_lon,max_lat,max_lon"）。--bbox未指定時はPBFヘッダのbbox、
+    # それも無ければNULL。
+    bbox: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)  # running | succeeded | failed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    way_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    node_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class RoadGraphTileRow(Base):

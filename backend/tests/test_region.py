@@ -79,3 +79,34 @@ def test_tiles_covering_bbox_does_not_raise_for_out_of_range_latitude():
     tiles = tiles_covering_bbox(out_of_range_bbox, z)
 
     assert all(0 <= tx < n and 0 <= ty < n for tx, ty in tiles)
+
+
+def test_tile_ancestor_maps_finer_tiles_into_their_z12_parent():
+    from app.domain.region import tile_ancestor
+
+    # z14のタイルはz12の祖先タイルへ2段丸められる（x,yとも右シフト2）
+    assert tile_ancestor(14, 14551, 6447, 12) == (14551 >> 2, 6447 >> 2)
+    # 同一ズームならそのまま
+    assert tile_ancestor(12, 3637, 1611, 12) == (3637, 1611)
+    # z15（表示最大ズーム）→z12は3段
+    assert tile_ancestor(15, 29102, 12894, 12) == (29102 >> 3, 12894 >> 3)
+
+
+def test_tile_ancestor_rejects_coarser_zoom_than_ancestor():
+    from app.domain.region import tile_ancestor
+
+    with pytest.raises(ValueError):
+        tile_ancestor(11, 0, 0, 12)
+
+
+def test_tile_ancestor_bounds_are_contained_in_ancestor_bounds():
+    from app.domain.region import tile_ancestor
+
+    z, x, y = 15, 29102, 12894
+    ax, ay = tile_ancestor(z, x, y, 12)
+    child = tile_bounds_lonlat(z, x, y)
+    parent = tile_bounds_lonlat(12, ax, ay)
+    assert parent.min_longitude <= child.min_longitude
+    assert parent.max_longitude >= child.max_longitude
+    assert parent.min_latitude <= child.min_latitude
+    assert parent.max_latitude >= child.max_latitude

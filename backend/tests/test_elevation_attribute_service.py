@@ -1,3 +1,5 @@
+import asyncio
+
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.elevation_attribute_service import ElevationAttributeService
 
@@ -146,6 +148,57 @@ async def test_with_repository_cache_miss_fetches_and_persists():
     assert client.call_count == 2
     assert repository.save_call_count == 1
     assert "edge-1" in repository.attributes
+
+
+class ReentrancyDetectingRepository(FakeElevationAttributeRepository):
+    """repositoryへの同時アクセス（再入）を検出するフェイク。
+
+    実体のRoadGraphRepositoryはSQLAlchemyのAsyncSessionを内包しており、複数コルーチン
+    から同時に使うとIllegalStateChangeErrorになる（RoadGraphEngine.evaluate_loopsが
+    候補ごとにasyncio.gatherで並列に呼ぶ経路で、実PostGIS E2Eにて実際にクラッシュを
+    確認した）。このフェイクはget/saveの実行中に別コルーチンが入ってきたら失敗を記録する。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._in_use = False
+        self.concurrent_access_detected = False
+
+    async def _guard(self):
+        if self._in_use:
+            self.concurrent_access_detected = True
+        self._in_use = True
+        await asyncio.sleep(0)  # 制御を手放し、並列呼び出しに割り込む機会を与える
+        self._in_use = False
+
+    async def get_elevation_attributes(self, edge_ids):
+        await self._guard()
+        return await super().get_elevation_attributes(edge_ids)
+
+    async def save_elevation_attributes(self, attributes):
+        await self._guard()
+        await super().save_elevation_attributes(attributes)
+
+
+async def test_concurrent_calls_serialize_repository_access():
+    """8候補並列のevaluate_loopsを模して同時に呼んでも、repositoryアクセスが
+    直列化されること（AsyncSessionの同時使用クラッシュの回帰テスト）。"""
+    edges = [
+        DirectedEdge(
+            edge_id=f"edge-{i}", from_node_id="node-1", to_node_id="node-1",
+            geometry=[[35.700 + i * 0.001, 139.700], [35.701 + i * 0.001, 139.700]], distance_m=100.0,
+        )
+        for i in range(4)
+    ]
+    client = FakeElevationClient({})
+    repository = ReentrancyDetectingRepository()
+    service = ElevationAttributeService(client, http_client=None, repository=repository)
+
+    await asyncio.gather(*(service.get_attributes_for_graph(_make_graph(edge)) for edge in edges))
+
+    assert not repository.concurrent_access_detected
+    assert repository.get_call_count == 4
+    assert repository.save_call_count == 4
 
 
 async def test_with_repository_cache_hit_skips_elevation_client():

@@ -42,13 +42,20 @@ class ElevationAttributeService:
         self._http_client = http_client
         self._repository = repository
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+        # repositoryが内包するSQLAlchemyのAsyncSessionは複数コルーチンからの同時使用が
+        # 不可（IllegalStateChangeErrorになる）。このサービスはRoadGraphEngineの
+        # evaluate_loopsから候補ごとにasyncio.gatherで並列に呼ばれるため（実E2Eで
+        # クラッシュを確認）、repositoryアクセスだけをロックで直列化する。GSIへの
+        # HTTP問い合わせ（_get_attribute）はロック外のまま並列に走る。
+        self._repository_lock = asyncio.Lock()
 
     async def get_attributes_for_graph(self, graph: RoadGraph) -> dict[str, ElevationAttribute]:
         edges = list(graph.edges.values())
 
         cached: dict[str, ElevationAttribute] = {}
         if self._repository is not None and edges:
-            cached = await self._repository.get_elevation_attributes([e.edge_id for e in edges])
+            async with self._repository_lock:
+                cached = await self._repository.get_elevation_attributes([e.edge_id for e in edges])
 
         missing = [e for e in edges if e.edge_id not in cached]
         if not missing:
@@ -58,7 +65,8 @@ class ElevationAttributeService:
         computed = {edge.edge_id: attribute for edge, attribute in zip(missing, results)}
 
         if self._repository is not None and computed:
-            await self._repository.save_elevation_attributes(list(computed.values()))
+            async with self._repository_lock:
+                await self._repository.save_elevation_attributes(list(computed.values()))
 
         return {**cached, **computed}
 
