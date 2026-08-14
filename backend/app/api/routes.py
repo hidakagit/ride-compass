@@ -1,7 +1,6 @@
 import asyncio
 from typing import Literal
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
@@ -16,6 +15,7 @@ from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import get_stats, record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
+from app.infrastructure.http_client import get_http_client
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.overpass_client import OverpassClient
@@ -95,26 +95,21 @@ def debug_stats() -> dict:
     }
 
 
-async def get_routing_service():
+def get_routing_service():
     # /api/routes/preview（Step3の疎通確認用エンドポイント）専用に加え、
     # settings.routing_engine=="openrouteservice"のときは/api/routes/generateからも使われる。
-    # 8方位の周回生成でTLSハンドシェイクを繰り返さないよう、リクエスト単位で
-    # コネクションを共有する（ors_client.pyのdocstring参照）。
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        yield RoutingService(ORSClient(settings.openrouteservice_api_key, http_client))
+    # httpx.AsyncClientはプロセス全体で使い回す（infrastructure/http_client.py参照）。
+    return RoutingService(ORSClient(settings.openrouteservice_api_key, get_http_client(10.0)))
 
 
-async def get_elevation_service():
-    # openrouteserviceエンジン専用（1ルートあたり十数地点を問い合わせるため、
-    # リクエスト単位でコネクションを使い回す）。Road Graphエンジンは代わりに
-    # get_elevation_attribute_serviceを使う。
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        yield ElevationService(ElevationClient(), http_client)
+def get_elevation_service():
+    # openrouteserviceエンジン専用（1ルートあたり十数地点を問い合わせる）。
+    # Road Graphエンジンは代わりにget_elevation_attribute_serviceを使う。
+    return ElevationService(ElevationClient(), get_http_client(10.0))
 
 
-async def get_weather_service():
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        yield WeatherService(WeatherClient(), http_client)
+def get_weather_service():
+    return WeatherService(WeatherClient(), get_http_client(10.0))
 
 
 def get_wind_service(
@@ -144,31 +139,29 @@ async def get_graph_service():
     # 地域路面レイヤー（タイル単位、15秒）より長めのタイムアウトにする。
     # road_graph_use_repository有効時はPostGISをread-throughキャッシュとして注入し、
     # PBF取込済み（タイルマーク済み）の範囲ではOverpassへ問い合わせない（config.py参照）。
-    async with httpx.AsyncClient(timeout=30.0) as http_client:
-        if settings.road_graph_use_repository:
-            async with get_session_factory()() as session:
-                yield GraphService(
-                    OverpassClient(),
-                    http_client,
-                    repository=RoadGraphRepository(session),
-                    overpass_fallback_enabled=settings.overpass_fallback_enabled,
-                )
-        else:
-            yield GraphService(OverpassClient(), http_client)
+    http_client = get_http_client(30.0)
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield GraphService(
+                OverpassClient(),
+                http_client,
+                repository=RoadGraphRepository(session),
+                overpass_fallback_enabled=settings.overpass_fallback_enabled,
+            )
+    else:
+        yield GraphService(OverpassClient(), http_client)
 
 
 async def get_elevation_attribute_service():
     # Road GraphのEdge形状点ごとに問い合わせるため、リクエスト単位でコネクションを使い回す。
     # road_graph_use_repository有効時はEdge単位の標高キャッシュ（PostGIS）を注入する
     # （GraphService側とは別セッション。各操作が独立にcommitするため同居させる必要は無い）。
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        if settings.road_graph_use_repository:
-            async with get_session_factory()() as session:
-                yield ElevationAttributeService(
-                    ElevationClient(), http_client, repository=RoadGraphRepository(session)
-                )
-        else:
-            yield ElevationAttributeService(ElevationClient(), http_client)
+    http_client = get_http_client(10.0)
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield ElevationAttributeService(ElevationClient(), http_client, repository=RoadGraphRepository(session))
+    else:
+        yield ElevationAttributeService(ElevationClient(), http_client)
 
 
 def get_route_generator(
@@ -295,17 +288,17 @@ async def get_region_service():
     # 先に打ち切ってしまい、本来成功するはずの問い合わせがタイムアウトエラー扱いになる
     # 不具合が実機（Renderデプロイ）で確認された。クエリの内部タイムアウトに余裕を持って
     # 揃える（graph_service.pyのget_graph_serviceと同じ30.0秒）。
-    async with httpx.AsyncClient(timeout=30.0) as http_client:
-        if settings.road_graph_use_repository:
-            async with get_session_factory()() as session:
-                yield RegionService(
-                    OverpassClient(),
-                    http_client,
-                    repository=RoadGraphRepository(session),
-                    overpass_fallback_enabled=settings.overpass_fallback_enabled,
-                )
-        else:
-            yield RegionService(OverpassClient(), http_client)
+    http_client = get_http_client(30.0)
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield RegionService(
+                OverpassClient(),
+                http_client,
+                repository=RoadGraphRepository(session),
+                overpass_fallback_enabled=settings.overpass_fallback_enabled,
+            )
+    else:
+        yield RegionService(OverpassClient(), http_client)
 
 
 @router.get("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")
@@ -333,9 +326,8 @@ async def region_road_surface_tile(
     return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
 
 
-async def get_basemap_client():
-    async with httpx.AsyncClient(timeout=15.0) as http_client:
-        yield BasemapClient(http_client, settings.basemap_public_base_url)
+def get_basemap_client():
+    return BasemapClient(get_http_client(15.0), settings.basemap_public_base_url)
 
 
 @router.get("/api/basemap/{path:path}")
