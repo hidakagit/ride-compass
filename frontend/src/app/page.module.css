@@ -1,5 +1,11 @@
 .toggleButton {
   align-self: flex-start;
+  /* background（var(--color-surface)）は常に白固定だが、colorを指定しないとbodyのcolor
+     （ダークモードで明るい色になるvar(--foreground)）を継承し、白背景に白文字同然になって
+     ✕/☰が実質見えなくなる不具合が実機（Android Chrome）で確認された。locateButton
+     （page.module.css）・MapOverlayControls.module.cssの.chip/.legendRowと同じ理由で
+     明示的に固定する。 */
+  color: #171717;
 }
 
 .title {
