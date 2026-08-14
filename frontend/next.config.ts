@@ -6,6 +6,15 @@ const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL ?? "http://localho
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  experimental: {
+    // rewritesの外部プロキシ（下記basemap/road-surface-tiles）はデフォルト30秒で打ち切られ、
+    // その際「フロントエンド発の500」が返る（next/dist/server/lib/router-utils/proxy-request.js。
+    // バックエンドは処理を完走しているのにブラウザだけ500になる）。路面タイルはST_AsMVT化で
+    // 通常30秒を大きく下回るようになったが、遠隔DB（Supabase）の一時的な混雑等の外れ値で
+    // タイルが「永久の空白」（MapLibreは失敗タイルを再試行しない）になるのを避けるため、
+    // 余裕を持たせる。ミリ秒指定。
+    proxyTimeout: 60_000,
+  },
   // 基礎地図タイルをバックエンド経由でキャッシュしつつ、ブラウザからは常にフロントエンドと
   // 同一オリジン（localhost:3000）で見えるようにする。地図タイルをAPI呼び出しと別オリジンの
   // tiles.openfreemap.orgから直接取得していた頃と違い、両方をバックエンドの同一オリジンから

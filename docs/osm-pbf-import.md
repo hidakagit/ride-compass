@@ -164,7 +164,7 @@ PBFはnode→way→relationの順に並んでいる。pyosmiumの`NodeLocationsF
 `get_road_surface_tile`のOverpass問い合わせ部分を差し替えた:
 
 1. タイルbboxで`osm_raw_ways`を`ST_Intersects`検索し、**MVTエンコードまで含めてPostGIS側で丸ごと生成**（`RoadGraphRepository.get_road_surface_tile_mvt`、`ST_AsMVT`/`ST_AsMVTGeom`。surface3値分類も同じクエリ内のCASE式で行い、タグ集合は`domain/road.py`の定数をバインドして単一ソース化）。ファイルキャッシュ方針は維持（2026-08-15改修。当初はway行をPythonへ転送して`encode_road_surface_tile`でMVT化していたが、遠隔DB（Supabaseムンバイ）では行転送＋Python側CPU処理で1タイル数秒かかり、パンのバースト時に3並列の待ち行列が30秒を超えてフロントエンドNext.jsのrewritesプロキシ（デフォルト30秒）がタイムアウト500を返す主因になっていた）
-2. **カバレッジ判定**: 表示タイル（z12-15）のz12祖先タイル（`domain/region.py: tile_ancestor`、新規）が`road_graph_tiles`にマーク済みかで判定する。マーク済みならDBが正（0件でも正しい空）、未マークなら取込範囲外
+2. **カバレッジ判定**: 表示タイル（z12-15）のz12祖先タイル（`domain/region.py: tile_ancestor`、新規）が`road_graph_tiles`にマーク済みかで判定する。マーク済みならDBが正（0件でも正しい空）、未マークなら取込範囲外。2026-08-15からこの判定はMVT生成と同じ1クエリへ畳み込まれている（遠隔DBの往復1回分を節約。カバレッジ外ではCASE式の遅延評価によりMVT生成サブクエリ自体が実行されない）
 3. DB接続不可・取込範囲外の場合は、`settings.overpass_fallback_enabled`（新設、既定true）に従いOverpassへフォールバック。falseなら空タイルを返す（**キャッシュには保存しない**。後からPBF取込された際に正しいタイルを再生成できるようにするため）。フォールバック発動・範囲外アクセスはログ方針に従い常時WARNINGで記録する
 4. ~~将来最適化: PostGISの`ST_AsMVT`でMVT生成をSQL側へ寄せる案があるが、既存エンコーダとの出力互換検証が必要なため初期実装では見送った~~ → 2026-08-15に実施済み（上記1参照。出力互換は`tests/test_road_graph_repository.py`のMVTデコード検証で担保。Overpassフォールバック経路のみ従来の`encode_road_surface_tile`を使い続ける）
 

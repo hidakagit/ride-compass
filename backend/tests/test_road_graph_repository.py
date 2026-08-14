@@ -393,11 +393,13 @@ async def test_mark_tile_cached_is_idempotent(road_graph_repository):
     assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is True
 
 
-# --- get_road_surface_tile_mvt（ST_AsMVTによるDB側MVT生成）---
+# --- get_road_surface_tile_mvt（ST_AsMVTによるDB側MVT生成・カバレッジ判定込み1クエリ）---
 
 # NODE1/NODE2（35.700付近）を含むz14タイル。テストデータの座標から逆算せず、
 # tile_bounds_lonlatの結果で包含を検証してから使う（下のフィクスチャ的アサーション参照）。
 MVT_Z, MVT_X, MVT_Y = 14, 14549, 6450
+# get_road_surface_tile_mvtへ渡すz12祖先タイル（RegionServiceがtile_ancestorで計算する値と同じ）
+MVT_COVERAGE_TILE = (12, MVT_X >> 2, MVT_Y >> 2)
 
 
 def _mvt_tile_bbox():
@@ -410,8 +412,29 @@ def _mvt_tile_bbox():
     return bbox
 
 
-async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_no_ways(road_graph_repository):
-    tile = await road_graph_repository.get_road_surface_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox())
+async def _mark_mvt_coverage(road_graph_repository):
+    zoom, x, y = MVT_COVERAGE_TILE
+    await road_graph_repository.mark_tile_cached(zoom=zoom, x=x, y=y)
+
+
+async def test_get_road_surface_tile_mvt_returns_none_when_uncovered(road_graph_repository):
+    """z12祖先タイルが未マーク（取込範囲外）ならNone（wayの有無に関わらずフォールバック判定へ）。"""
+    way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", surface="asphalt")
+    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    assert tile is None
+
+
+async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_covered_but_no_ways(road_graph_repository):
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
 
     assert tile == b""
 
@@ -431,8 +454,11 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
         WaySpec(osm_way_id=4, node_ids=[1, 2], highway="residential", surface="mystery_tag"),  # 未知→不明
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_repository)
 
-    tile = await road_graph_repository.get_road_surface_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox())
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
 
     decoded = mapbox_vector_tile.decode(tile)
     assert set(decoded.keys()) == {"road_surface"}
@@ -453,8 +479,11 @@ async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_r
         WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential", surface="asphalt"),  # タイル外(35.75付近)
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
+    await _mark_mvt_coverage(road_graph_repository)
 
-    tile = await road_graph_repository.get_road_surface_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox())
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
 
     decoded = mapbox_vector_tile.decode(tile)
     assert len(decoded["road_surface"]["features"]) == 1

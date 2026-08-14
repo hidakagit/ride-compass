@@ -58,23 +58,20 @@ async def test_get_road_surface_tile_skips_caching_on_fetch_failure():
 
 
 class FakeRegionRepository:
-    """RoadGraphRepositoryのRegionServiceが使う部分（カバレッジ判定とMVT生成）のフェイク。"""
+    """RoadGraphRepositoryのRegionServiceが使う部分（カバレッジ判定込みMVT生成）のフェイク。"""
 
     def __init__(self, covered: bool = True, tile: bytes = b"fake-mvt-tile", error: Exception | None = None):
         self._covered = covered
         self._tile = tile
         self._error = error
-        self.is_tile_cached_calls: list[tuple[int, int, int]] = []
-        self.get_tile_call_count = 0
+        self.mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
 
-    async def is_tile_cached(self, zoom, x, y):
+    async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
         if self._error is not None:
             raise self._error
-        self.is_tile_cached_calls.append((zoom, x, y))
-        return self._covered
-
-    async def get_road_surface_tile_mvt(self, z, x, y, bbox):
-        self.get_tile_call_count += 1
+        self.mvt_calls.append((z, x, y, coverage_tile))
+        if not self._covered:
+            return None  # カバレッジ外（実装と同じくNoneで表現）
         return self._tile
 
 
@@ -88,12 +85,11 @@ async def test_covered_tile_is_served_from_postgis_without_overpass():
     # PostGIS（ST_AsMVT）が生成したバイト列がそのまま返る（Python側で再エンコードしない）
     assert tile_bytes == b"fake-mvt-tile"
     assert overpass_client.call_count == 0
-    assert repository.get_tile_call_count == 1
-    # カバレッジ判定はz12の祖先タイル（z14の x,y を2段丸めた値）で行う
-    assert repository.is_tile_cached_calls == [(12, X >> 2, Y >> 2)]
+    # カバレッジ判定はz12の祖先タイル（z14の x,y を2段丸めた値）で行う（MVT生成と同一クエリ）
+    assert repository.mvt_calls == [(Z, X, Y, (12, X >> 2, Y >> 2))]
     # PostGIS由来のタイルもファイルキャッシュへ保存される（2回目はDBへも行かない）
     await service.get_road_surface_tile(Z, X, Y)
-    assert repository.get_tile_call_count == 1
+    assert len(repository.mvt_calls) == 1
 
 
 async def test_covered_tile_with_no_roads_caches_empty_mvt():
@@ -107,7 +103,7 @@ async def test_covered_tile_with_no_roads_caches_empty_mvt():
 
     assert tile_bytes == b""
     await service.get_road_surface_tile(Z, X, Y)
-    assert repository.get_tile_call_count == 1
+    assert len(repository.mvt_calls) == 1
 
 
 async def test_uncovered_tile_falls_back_to_overpass_when_enabled():
@@ -120,7 +116,8 @@ async def test_uncovered_tile_falls_back_to_overpass_when_enabled():
 
     assert isinstance(tile_bytes, bytes) and len(tile_bytes) > 0
     assert overpass_client.call_count == 1
-    assert repository.get_tile_call_count == 0  # カバレッジ外ではMVT生成まで行かない
+    # カバレッジ判定はMVT生成と同一クエリ（1往復）。カバレッジ外はNoneが返りフォールバックへ
+    assert len(repository.mvt_calls) == 1
 
 
 async def test_uncovered_tile_returns_empty_without_overpass_when_fallback_disabled():
@@ -135,9 +132,9 @@ async def test_uncovered_tile_returns_empty_without_overpass_when_fallback_disab
     assert isinstance(tile_bytes, bytes)
     assert overpass_client.call_count == 0
     # 空タイルはキャッシュされない（後からPBF取込された際に再生成できるようにする）ため、
-    # 次のリクエストでも再度カバレッジ判定が走る
+    # 次のリクエストでも再度カバレッジ判定（＝MVTクエリ）が走る
     await service.get_road_surface_tile(Z, X, Y)
-    assert len(repository.is_tile_cached_calls) == 2
+    assert len(repository.mvt_calls) == 2
     assert overpass_client.call_count == 0
 
 

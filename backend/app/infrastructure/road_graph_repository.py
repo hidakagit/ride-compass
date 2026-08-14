@@ -177,24 +177,41 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 # ST_AsMVTGeom: 対象タイルのWeb Mercator範囲（ST_TileEnvelope、XYZ方式でPython側の
 # tile_bounds_lonlatと同じタイル座標系）へ射影し、extent=TILE_EXTENT（Pythonエンコーダと
 # 同じ4096）・バッファ256（MVT標準値。タイル境界を跨ぐ線の描画継続に必要）でクリップする。
-# クリップ後に空になったジオメトリはNULLになるため外側のWHEREで除外する。
+# クリップ後に空になったジオメトリはNULLになるため内側のWHEREで除外する。
+#
+# カバレッジ判定（road_graph_tilesのz12祖先タイルマーク）も同じクエリへ畳み込み、
+# 1タイルあたりのDB往復を1回にする（Supabaseが遠隔リージョンにあり、往復1回の削減が
+# そのまま数百ms〜1秒程度の短縮になる。以前はis_tile_cached＋MVT生成の2往復だった）。
+# CASE式は条件がfalseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が
+# 実行されない。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
-        SELECT ST_AsMVT(mvt.*, :layer_name, :extent, 'geom') FROM (
-            SELECT
-                ST_AsMVTGeom(
-                    ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
-                ) AS geom,
-                CASE
-                    WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
-                    WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
-                END AS surface_good
-            FROM osm_raw_ways w
-            WHERE w.geom IS NOT NULL
-              AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
-        ) mvt
-        WHERE mvt.geom IS NOT NULL
+        WITH coverage AS (
+            SELECT EXISTS(
+                SELECT 1 FROM road_graph_tiles
+                WHERE zoom = :coverage_zoom AND x = :coverage_x AND y = :coverage_y
+            ) AS covered
+        )
+        SELECT
+            coverage.covered,
+            CASE WHEN coverage.covered THEN (
+                SELECT ST_AsMVT(mvt.*, :layer_name, :extent, 'geom') FROM (
+                    SELECT
+                        ST_AsMVTGeom(
+                            ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                        ) AS geom,
+                        CASE
+                            WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
+                            WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
+                        END AS surface_good
+                    FROM osm_raw_ways w
+                    WHERE w.geom IS NOT NULL
+                      AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+                ) mvt
+                WHERE mvt.geom IS NOT NULL
+            ) END AS tile
+        FROM coverage
         """
     )
     .bindparams(
@@ -564,23 +581,33 @@ class RoadGraphRepository:
 
         return way_specs, node_coords, primary_way_ids
 
-    async def get_road_surface_tile_mvt(self, z: int, x: int, y: int, bbox: BoundingBox) -> bytes:
+    async def get_road_surface_tile_mvt(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> bytes | None:
         """地域路面レイヤー用のMVTタイル1枚を、PostGIS側（ST_AsMVT）で丸ごと生成して返す
         （docs/osm-pbf-import.md Phase 2。クエリの設計意図は_ROAD_SURFACE_TILE_MVT_SQLの
-        コメント参照）。対象wayが1本も無い場合は空バイト列（有効な空MVT）。
+        コメント参照）。
+
+        カバレッジ判定も同じクエリで行う（DB往復1回化）: `coverage_tile`（(zoom, x, y)、
+        呼び出し側がtile_ancestorで求めたz12祖先タイル）がroad_graph_tilesに未マークなら
+        None（取込範囲外。呼び出し側でOverpass/空タイルへのフォールバック判定へ）。
+        マーク済みで対象wayが1本も無い場合は空バイト列（有効な空MVT、「道路が無いことを
+        確認済み」の正常応答でNoneとは区別される）。
 
         Road Graph構築（get_way_specs_with_closure）と異なり交差点分割・近傍closureは
         不要で、表示に必要な「線とsurface分類」だけをタイルへ焼き込む。
-        カバレッジ判定（このbboxのデータが取込済みか）は行わない。呼び出し側
-        （RegionService）がis_tile_cachedで先に保証すること。
 
         bboxは呼び出し側がtile_bounds_lonlatで求めたz/x/yと同じタイルの経緯度範囲
         （検索条件はST_TileEnvelopeから導出せず既存のbbox表現を使い、従来の検索述語との
         パリティとgistインデックス利用を明確にする）。
         """
+        coverage_zoom, coverage_x, coverage_y = coverage_tile
         result = await self._session.execute(
             _ROAD_SURFACE_TILE_MVT_SQL,
             {
+                "coverage_zoom": coverage_zoom,
+                "coverage_x": coverage_x,
+                "coverage_y": coverage_y,
                 "layer_name": ROAD_SURFACE_LAYER_NAME,
                 "extent": TILE_EXTENT,
                 "z": z,
@@ -592,8 +619,10 @@ class RoadGraphRepository:
                 "ymax": bbox.max_latitude,
             },
         )
-        tile = result.scalar()
-        # 対象0行のときST_AsMVT（集約関数）はNULLを返す。長さ0のバイト列は
+        covered, tile = result.one()
+        if not covered:
+            return None
+        # カバレッジ内で対象0行のときST_AsMVT（集約関数）はNULLを返す。長さ0のバイト列は
         # 「featureが1つも無い有効なMVT」としてMapLibreがそのまま受理する。
         return bytes(tile) if tile is not None else b""
 

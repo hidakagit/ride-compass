@@ -52,12 +52,20 @@ ROAD_TILE_RATE_LIMIT_PER_MINUTE = 120
 #
 # 上限超過分は即座に429を返すルート生成とは異なり、こちらは「待たせて全件処理する」
 # （semaphoreの取得をブロックさせる）方式にしている。MapLibreは失敗したタイル要求を
-# 自動再試行しないため、429にすると1画面に収まる範囲で3枚を超えるタイル（皇居周辺のような
+# 自動再試行しないため、429にすると1画面に収まる範囲で上限を超えるタイル（皇居周辺のような
 # 広い範囲では珍しくない）が永久に空白のまま描画されない不具合が実機で発生した。
 # 待たせる方式でもRender再起動事故の再発防止という目的は変わらない（同時に重い処理が
 # 走る数はROAD_TILE_MAX_CONCURRENTのまま増えないため）。/healthはこのsemaphoreを
 # 経由しない別の同期ハンドラのため、待機中のタイル要求に巻き込まれず応答し続けられる。
-ROAD_TILE_MAX_CONCURRENT = 3
+#
+# 上限値6の根拠: Python側がCPUバウンドだった頃は3（それ以上はRenderの小さいインスタンスで
+# CPUを奪い合う）だったが、ST_AsMVT化でタイル処理はほぼDB応答待ち（プロセスCPUをほぼ
+# 使わない）になったため、律速はSupabase側の同時クエリ負荷とSQLAlchemyの接続プール
+# （既定pool_size=5+max_overflow=10=最大15接続）に変わった。6ならルート生成用の接続と
+# 合わせてもプール上限に収まり、コールドタイルのバースト時の待ち行列（1枚2〜3秒×行列長）を
+# 半減できる。フロントのプロキシタイムアウト（60秒、frontend/next.config.ts参照）に対し
+# 30枚超のコールドバーストでも余裕を保てる計算（ceil(30/6)×3秒≒15秒）。
+ROAD_TILE_MAX_CONCURRENT = 6
 _road_tile_semaphore = asyncio.Semaphore(ROAD_TILE_MAX_CONCURRENT)
 BASEMAP_RATE_LIMIT_PER_MINUTE = 300
 # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
@@ -346,7 +354,15 @@ async def region_road_surface_tile(
     # 原因になる。
     async with _road_tile_semaphore:
         tile_bytes = await region_service.get_road_surface_tile(z, x, y)
-    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
+    # ブラウザ側HTTPキャッシュを1時間許可する。路面データはPBF取込時にしか変わらないため、
+    # ページ再読み込み・再訪時の同一タイル再取得（＝バーストの主成分）を丸ごと省ける。
+    # サーバーからブラウザキャッシュは無効化できないため、取込・範囲拡大の反映遅れを
+    # 最大1時間に抑える値にする（サーバー側ディスクキャッシュの一括削除とは独立）。
+    return Response(
+        content=tile_bytes,
+        media_type="application/vnd.mapbox-vector-tile",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 def get_basemap_client():

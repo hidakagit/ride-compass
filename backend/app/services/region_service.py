@@ -61,15 +61,19 @@ class RegionService:
         丸ごと壊さないようにする）。
         """
         try:
+            # カバレッジ判定（z12祖先タイルのマーク確認）はMVT生成と同じ1クエリへ
+            # 畳み込まれている（遠隔DBの往復1回分を節約。repository側のdocstring参照）。
             ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
-            if not await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y):
-                fields["postgis"] = "uncovered"
-                return None
-            tile_bytes = await self._repository.get_road_surface_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
+            tile_bytes = await self._repository.get_road_surface_tile_mvt(
+                z, x, y, tile_bounds_lonlat(z, x, y), (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
+            )
         except Exception as exc:  # noqa: BLE001 DB障害はフォールバックで吸収する（上記docstring）
             logger.warning("路面タイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
             fields["postgis"] = "error"
             fields["postgis_error"] = repr(exc)
+            return None
+        if tile_bytes is None:
+            fields["postgis"] = "uncovered"
             return None
         fields["postgis"] = "hit"
         return tile_bytes
