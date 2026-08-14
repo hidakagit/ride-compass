@@ -1,17 +1,25 @@
+import asyncio
+
 import httpx
 
 from app.domain.region import BoundingBox
 from app.infrastructure.debug_log import log_external_call
 
-# 複数の公開Overpassミラーへ順に問い合わせる。実機（Renderデプロイ）で、既定の
+# 複数の公開Overpassミラーへ同時に問い合わせる。実機（Renderデプロイ）で、既定の
 # overpass-api.de単独だと「同一クエリを別経路（開発機）から直接叩くと数千件のwayが
 # 数秒〜十秒程度で返るのに、Render経由だと2〜3秒で0件（elements: []、remarkも無し）」
 # という現象が確認された。HTTPエラーにはならないため既存の例外ハンドリングでは
 # 検知できず、その「0件」がRegionServiceのタイル永続キャッシュへそのまま焼き付いて
-# しまい、路面レイヤーがそのタイルだけ永久に空表示になっていた。公開インスタンスの
-# レート制限/優先度低下（同一IPからの短時間の連続問い合わせに対して処理予算を
-# 減らし早期に打ち切る、既知の挙動）が原因と推測される。単一ミラーの「200 OKだが
-# 0件」を信用せず、他のミラーでも0件と分かるまでは「本当に対象が無い」と判断しない。
+# しまい、路面レイヤーがそのタイルだけ永久に空表示になっていた。単一ミラーの
+# 「200 OKだが0件」を信用せず、他のミラーでも0件と分かるまでは「本当に対象が無い」と
+# 判断しない。
+#
+# 当初は順に問い合わせていたが、実機で公開Overpassエコシステム全体がRender経由の
+# 送信元IPに対して広く遅延・失敗する状況（1ミラーあたり平均10〜20秒、3ミラー合計で
+# 最大90秒）が観測され、順次フォールバックだと1タイルの応答に1分以上かかる悪化を招いた。
+# 全ミラーへ同時に問い合わせ、最初に0件でない結果が返った時点で採用し残りは打ち切る
+# 方式に変更した。最悪ケースの所要時間が「ミラー数×タイムアウト」から「タイムアウト1回分」
+# に短縮される（成功率そのものは変わらないが、失敗する場合も速く失敗できる）。
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
@@ -24,50 +32,63 @@ REQUEST_HEADERS = {"User-Agent": "RideCompass/0.1 (dev; road-surface region laye
 
 
 class OverpassClient:
-    """OSMのOverpass API（複数の公開ミラーへフォールバック）のクライアント。
+    """OSMのOverpass API（複数の公開ミラーへ同時フォールバック）のクライアント。
 
-    指定bbox内の道路（highwayタグを持つway）を取得する。公開インスタンスへの配慮として、
-    呼び出し元（RegionService/GraphService）は未キャッシュのセルを並列化せず順に問い合わせる。
+    指定bbox内の道路（highwayタグを持つway）を取得する。
     """
 
+    async def _query_one(
+        self, client: httpx.AsyncClient, url: str, query: str, log_category: str, log_fields: dict
+    ) -> dict | None:
+        with log_external_call(log_category, mirror=url, **log_fields) as fields:
+            try:
+                response = await client.post(url, data={"data": query}, headers=REQUEST_HEADERS)
+                response.raise_for_status()
+                data = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                fields["result"] = "error"
+                fields["error"] = repr(exc)
+                return None
+
+            elements = data.get("elements")
+            if elements is None:
+                # elementsキー自体が無いのはこのミラーのプロトコル異常。result="error"にして
+                # 常時WARNINGへ乗せる（道路が無い地域は空のelementsが返るためここには来ない）。
+                fields["result"] = "error"
+                fields["error"] = "no_elements_in_response"
+                return None
+
+            fields["result"] = "ok"
+            fields["element_count"] = len(elements)
+            return data
+
     async def _query(self, client: httpx.AsyncClient, query: str, log_category: str, **log_fields) -> dict | None:
-        """queryを複数ミラーへ順に試行し、最初に0件でない結果を返したミラーのdataを返す。
+        """queryを全ミラーへ同時に問い合わせ、最初に0件でない結果を返したミラーのdataを採用する。
 
-        全ミラーがエラー、または「elementsキー自体が無い」（プロトコル異常）だった場合は
-        None。全ミラーが成功したが0件だった場合は、その最後の（＝どのミラーでも変わらない
-        はずの）dataをそのまま返す（本当に対象が無いケースとして扱う）。
+        非同期タスクとして並行実行し、`asyncio.as_completed`で完了順に確認する。0件でない
+        結果が見つかり次第、残りのタスクはキャンセルして打ち切る（無駄な問い合わせを続けない）。
+        全ミラーがエラー、または「elementsキー自体が無い」場合はNone。全ミラーが成功したが
+        0件だった場合は、そのdataをそのまま返す（本当に対象が無いケースとして扱う）。
         """
+        tasks = [
+            asyncio.create_task(self._query_one(client, url, query, log_category, log_fields)) for url in OVERPASS_URLS
+        ]
         last_empty_data: dict | None = None
-
-        for url in OVERPASS_URLS:
-            with log_external_call(log_category, mirror=url, **log_fields) as fields:
-                try:
-                    response = await client.post(url, data={"data": query}, headers=REQUEST_HEADERS)
-                    response.raise_for_status()
-                    data = response.json()
-                except (httpx.HTTPError, ValueError) as exc:
-                    fields["result"] = "error"
-                    fields["error"] = repr(exc)
+        try:
+            for finished in asyncio.as_completed(tasks):
+                data = await finished
+                if data is None:
                     continue
-
-                elements = data.get("elements")
-                if elements is None:
-                    # elementsキー自体が無いのはこのミラーのプロトコル異常(docstring参照)。
-                    # result="error"にして常時WARNINGへ乗せる(道路が無い地域は空のelementsが
-                    # 返るためここには来ない。debug_log.pyがカテゴリ単位で抑制する)。
-                    fields["result"] = "error"
-                    fields["error"] = "no_elements_in_response"
-                    continue
-
-                fields["result"] = "ok"
-                fields["element_count"] = len(elements)
-                if elements:
+                if data["elements"]:
                     return data
                 # このミラーは成功したが0件。レート制限による見せかけの0件の可能性が
-                # あるため、他のミラーでも確認できるまでは即座に信用しない。
+                # あるため、他のミラーの結果を待ってから判断する。
                 last_empty_data = data
-
-        return last_empty_data
+            return last_empty_data
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
 
     async def get_roads(self, client: httpx.AsyncClient, bbox: BoundingBox) -> list[dict] | None:
         query = (

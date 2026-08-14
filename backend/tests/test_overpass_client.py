@@ -146,36 +146,30 @@ def _way_element(way_id: int) -> dict:
     }
 
 
-async def test_get_roads_falls_back_to_next_mirror_when_first_mirror_returns_zero_elements():
-    # 実機(Render)で確認された現象の再現: 1本目のミラーは200 OKだがelements:[]
-    # (レート制限による見せかけの0件の可能性)、2本目のミラーは本物のデータを返す。
+async def test_get_roads_uses_the_mirror_that_returns_non_zero_elements():
+    # 実機(Render)で確認された現象の再現: 一部のミラーは200 OKだがelements:[]
+    # (レート制限による見せかけの0件の可能性)、他のミラーは本物のデータを返す。
+    # 全ミラーへ同時に問い合わせ、0件でない結果を採用する。
     assert len(OVERPASS_URLS) >= 2, "このテストは最低2つのミラーがある前提"
-    primary, secondary = OVERPASS_URLS[0], OVERPASS_URLS[1]
-    http_client = FakeMultiMirrorHttpClient(
-        {
-            primary: {"elements": []},
-            secondary: {"elements": [_way_element(1)]},
-        }
-    )
+    responses = {url: {"elements": []} for url in OVERPASS_URLS}
+    responses[OVERPASS_URLS[-1]] = {"elements": [_way_element(1)]}
+    http_client = FakeMultiMirrorHttpClient(responses)
     client = OverpassClient()
 
     ways = await client.get_roads(http_client, BBOX)
 
     assert ways is not None and len(ways) == 1
-    assert http_client.requested_urls == [primary, secondary]
+    # 同時に全ミラーへ問い合わせるため、成功したミラー以外も呼ばれている。
+    assert set(http_client.requested_urls) == set(OVERPASS_URLS)
 
 
-async def test_get_roads_falls_back_to_next_mirror_on_error():
+async def test_get_roads_uses_the_mirror_that_succeeds_when_others_error():
     import httpx
 
     assert len(OVERPASS_URLS) >= 2
-    primary, secondary = OVERPASS_URLS[0], OVERPASS_URLS[1]
-    http_client = FakeMultiMirrorHttpClient(
-        {
-            primary: httpx.ConnectError("boom", request=httpx.Request("POST", primary)),
-            secondary: {"elements": [_way_element(1)]},
-        }
-    )
+    responses = {url: httpx.ConnectError("boom", request=httpx.Request("POST", url)) for url in OVERPASS_URLS}
+    responses[OVERPASS_URLS[-1]] = {"elements": [_way_element(1)]}
+    http_client = FakeMultiMirrorHttpClient(responses)
     client = OverpassClient()
 
     ways = await client.get_roads(http_client, BBOX)
@@ -191,7 +185,7 @@ async def test_get_roads_returns_empty_list_when_all_mirrors_agree_on_zero_eleme
     ways = await client.get_roads(http_client, BBOX)
 
     assert ways == []
-    assert http_client.requested_urls == OVERPASS_URLS
+    assert set(http_client.requested_urls) == set(OVERPASS_URLS)
 
 
 async def test_get_roads_returns_none_when_all_mirrors_error():
