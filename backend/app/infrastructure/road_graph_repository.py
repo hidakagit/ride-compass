@@ -19,7 +19,8 @@ node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出される�
 分割結果が変わった場合に孤立した古いEdge行が残らないようにする。
 """
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 
 from geoalchemy2.shape import from_shape, to_shape
@@ -158,6 +159,16 @@ def _surface_row_to_domain(row: SurfaceAttributeRow) -> SurfaceAttribute:
 def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
     point = to_shape(row.geom)
     return point.y, point.x  # (latitude, longitude)
+
+
+def _rows_to_road_surface_ways(
+    rows: Iterable[tuple],
+) -> list[tuple[list[list[float]], str | None]]:
+    ways: list[tuple[list[list[float]], str | None]] = []
+    for geom, surface in rows:
+        line = to_shape(geom)
+        ways.append(([[lat, lon] for lon, lat in line.coords], surface))
+    return ways
 
 
 def _way_spec_row_to_domain(row: OsmRawWayRow) -> WaySpec:
@@ -428,11 +439,10 @@ class RoadGraphRepository:
             OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, envelope)
         )
         rows = (await self._session.execute(stmt)).all()
-        ways: list[tuple[list[list[float]], str | None]] = []
-        for geom, surface in rows:
-            line = to_shape(geom)
-            ways.append(([[lat, lon] for lon, lat in line.coords], surface))
-        return ways
+        # 密集した都市部のタイルではshapelyへのgeom変換だけで1万件超のCPU処理になり、
+        # asyncio.to_threadで逃さないとイベントループを塞ぐ（infrastructure/vector_tile.py
+        # のMVTエンコードと同じ理由。api/routes.pyのROAD_TILE_MAX_CONCURRENT参照）。
+        return await asyncio.to_thread(_rows_to_road_surface_ways, rows)
 
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         if not edge_ids:

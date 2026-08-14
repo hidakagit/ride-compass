@@ -41,6 +41,15 @@ router = APIRouter()
 # 路面タイルはOverpassへの実問い合わせ・ディスクキャッシュ書き込みを、basemapはOpenFreeMapへの
 # 中継を伴うため、無制限に叩かれると外部サービス負荷やディスク消費に繋がる（詳細はrate_limiter.py）。
 ROAD_TILE_RATE_LIMIT_PER_MINUTE = 120
+# 密集した都市部のタイルはPostGISから1万件超のwayが返ることがあり、Supabaseが遠隔
+# リージョンにあるとその転送・パース・MVTエンコードだけで1タイルあたり数秒かかる
+# （実測: 東京駅付近z13タイルで約7.6秒）。地図の短時間パン/ズームでブラウザが並列に
+# 大量のタイルを要求すると、この重い処理が同時に積み上がりCPUを奪い合い、Renderの
+# ヘルスチェックすら応答できず「Instance failed」でプロセスごと再起動される事故が実機で
+# 発生した。ルート生成（GENERATE_MAX_CONCURRENT）と同じ考え方で同時実行数を制限し、
+# 上限超過分は待たせず429にすることでプロセス全体が巻き込まれないようにする。
+ROAD_TILE_MAX_CONCURRENT = 3
+_road_tile_semaphore = asyncio.Semaphore(ROAD_TILE_MAX_CONCURRENT)
 BASEMAP_RATE_LIMIT_PER_MINUTE = 300
 # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
 # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
@@ -322,7 +331,15 @@ async def region_road_surface_tile(
     tile_index_max = 2**z
     if not (0 <= x < tile_index_max) or not (0 <= y < tile_index_max):
         raise HTTPException(status_code=400, detail="タイル座標が範囲外です。")
-    tile_bytes = await region_service.get_road_surface_tile(z, x, y)
+    # 同時実行数の上限に達している場合は待たせず即座に429を返す（ROAD_TILE_MAX_CONCURRENTの
+    # コメント参照。locked()確認とacquireの間に隙間はあるが、多少の超過は許容する簡易実装で
+    # generate_routesと同じ）。キャッシュヒットは軽量（実測数ms）なのですぐ解放されるため、
+    # 実質的に重い（PostGIS問い合わせを伴う）リクエストだけが詰まりの原因になる。
+    if _road_tile_semaphore.locked():
+        record_rate_limit_rejection("road-tile-concurrency", _client_id(request), f"concurrent={ROAD_TILE_MAX_CONCURRENT}")
+        raise HTTPException(status_code=429, detail="路面タイルの取得が混み合っています。しばらく待ってから再試行してください。")
+    async with _road_tile_semaphore:
+        tile_bytes = await region_service.get_road_surface_tile(z, x, y)
     return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
 
 
