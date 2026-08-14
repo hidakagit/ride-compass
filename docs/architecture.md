@@ -827,7 +827,7 @@ Phase 0に続き、docs/osm-pbf-import.mdの設計に沿ってPBF取込バッチ
   2. **`get_way_specs_with_closure`のGIN配列検索がスケールしない**: 数十万要素の配列パラメータによる`&&`検索を、空間検索（主対象＝bboxと`ST_Intersects`するway、近傍＝主対象全長の`ST_Extent`と交差するway。旧semanticsの上位互換/上位集合で正しさは維持）へ置き換え。`osm_raw_ways.geom`が前提のため`create_tables()`に旧データのgeomバックフィルを追加
   3. **`AsyncSession`の同時使用クラッシュ**: `RoadGraphEngine.evaluate_loops`が候補ごとに`asyncio.gather`で並列実行するため、注入した`ElevationAttributeService`のrepository（単一セッション）が同時使用され`IllegalStateChangeError`で落ちることをE2Eで確認。repositoryアクセスのみ`asyncio.Lock`で直列化（GSIへのHTTP問い合わせは並列のまま）。再入検出フェイクによる回帰テストを追加
 - **既知の制約・次の課題**:
-  - **prepareの187秒**: 大半は「タイル取得済みでも毎リクエスト、生データから交差点分割を再計算し全Edgeを再保存する」現設計のコスト（closureクエリ＋`build_road_graph`＋十数万行の再UPSERT）。生データが変わっていなければ`road_edges`を直接読む省略パスの導入が次の最適化候補
+  - ~~**prepareの187秒**: 大半は「タイル取得済みでも毎リクエスト、生データから交差点分割を再計算し全Edgeを再保存する」現設計のコスト（closureクエリ＋`build_road_graph`＋十数万行の再UPSERT）。生データが変わっていなければ`road_edges`を直接読む省略パスの導入が次の最適化候補~~ → **解消済み**。`RoadGraphRepository.is_split_up_to_date`＋`get_graph_in_bbox`による省略パスを実装（`osm_raw_ways.split_at`と`updated_at`の比較で鮮度判定。`save_raw_ways`のUPSERTを内容不変時のno-op化した上で導入。1つのWayが複数タイルにまたがると隣接タイル取得だけでstale誤判定する問題への対処）。実測値は`backend/benchmarks/README.md`参照
   - E2Eは東京都心（日本有数の道路密度）での数値。郊外ではway数が1桁少なくなり大幅に短くなる見込みだが未計測
   - 天候（Open-Meteo）・標高（GSI）は引き続き外部API（Phase 1の解消対象はOverpassのみ）
 
@@ -856,7 +856,7 @@ docs/osm-pbf-import.md「Phase C」の実施記録（2026-08-14）。ユーザ�
 
 - ~~**最優先**: 実際のPostGISに接続しての動作確認~~ → **完了**（Phase 0）
 - ~~**PBF取込のPhase 2（RegionServiceのPostGIS第一系統化）・Phase 3（Supabase取込・Overpass停止）**~~ → **完了**（前2項）。Overpass依存解消の計画（docs/osm-pbf-import.md）は全Phase完了
-- **prepare 295秒（Supabase・都心）の短縮**: 生データ不変時の分割再計算・全量再保存の省略が最有力候補（ローカル187秒→Supabase 295秒とWANレイテンシで悪化しており、再保存の省略はWAN環境ほど効く）
+- **prepare 295秒（Supabase・都心）の短縮**: 生データ不変時の分割再計算・全量再保存の省略パス（`is_split_up_to_date`、上記参照）はローカルPostGISで実装・実測済みだが、Supabase（WAN経由）での実測はまだ行っていない。再保存の省略はWAN環境ほど効く見込みのため、Supabase環境での再計測が次のステップ
 - **Renderデプロイへの反映**: Render側の環境変数に`DATABASE_URL`（Supabase）・`ROAD_GRAPH_USE_REPOSITORY`・`OVERPASS_FALLBACK_ENABLED`を設定すれば同じ姿勢で動く（未実施。Render→Supabase間のレイテンシは要実測）
 - **OSMデータの更新運用**: 月次程度でPBF再取込（docs/osm-pbf-import.md 8章）。`--prune`（削除way掃除）は未実装のまま
 - 大きい距離（15km・30km等）でのRoad Graphベースのルート生成の実機検証（現時点では4kmでのみ確認済み）

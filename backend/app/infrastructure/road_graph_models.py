@@ -50,6 +50,15 @@ class OsmRawWayRow(Base):
 
     Wayのタグ・ノード列自体は、それを取得したタイルに関わらず常に同じ内容になる
     （road_edgesの分割結果と異なり曖昧さが無い）ため、素直にUPSERTしてよい。
+    ただし`updated_at`は内容が実際に変わった行だけを更新する（`save_raw_ways`参照）。
+    1つのWayが複数タイルにまたがるのは普通にあるため、無条件に`updated_at`を
+    更新すると、隣接タイルを後から取得しただけで無関係なWayの`updated_at`が
+    進んでしまい、`is_split_up_to_date`の鮮度判定を誤らせる。
+
+    `split_at`は、このWayが最後に`save_graph`でsplit処理された時刻（Edge生成が
+    0件でもスタンプする）。`updated_at`と比較することで、生データが変わって
+    いなければroad_edgesを再構築せず直接読める省略パスを実現する
+    （`RoadGraphRepository.is_split_up_to_date`/`GraphService`参照）。
     """
 
     __tablename__ = "osm_raw_ways"
@@ -66,6 +75,13 @@ class OsmRawWayRow(Base):
     # 座標が判明しているノードが2点未満のWay（抽出ファイル境界等）はNULLになりうる。
     geom = mapped_column(Geometry(geometry_type="LINESTRING", srid=4326, spatial_index=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # このWayが最後にsave_graph(..., way_ids_to_replace=...)でsplit処理された時刻。
+    # road_edgesへ実際に1件もEdgeを生成しなかったWay（座標既知ノードが2点未満のセグメントしか
+    # 無い等、domain/graph.py: build_road_graph参照）でもスタンプする（road_edges側の行の有無を
+    # 鮮度シグナルにすると、そうしたWayを含むbboxが永久にstale判定され続けるため）。
+    # GraphService.get_or_build_graph_with_attributesの省略パス（is_split_up_to_date）が、
+    # このWayの分割結果が生データ（updated_at）より新しいかどうかの判定に使う。
+    split_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class RoadNodeRow(Base):

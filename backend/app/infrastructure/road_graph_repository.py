@@ -6,9 +6,12 @@ node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出される�
 `get_graph_in_bbox`自体は「指定bboxと交差するEdgeを返す」単純な空間検索であり、
 「そのbboxが過去に完全に取得済みかどうか」は判定しない。正確なキャッシュカバレッジ判定は
 `RoadGraphTileRow`（タイル取得済みマーカー、is_tile_cached/mark_tile_cached）が担う。
-呼び出し側（GraphService）は、対象bboxを覆う全タイルが取得済みであることを先に保証してから
-`get_graph_in_bbox`を呼ぶ（地域路面レイヤー/RegionServiceがXYZタイル境界を単位に厳密な
-キャッシュ単位を実現しているのと同じ考え方。詳細はdocs/architecture.md参照）。
+呼び出し側（GraphService）は、対象bboxを覆う全タイルが取得済みであることを先に保証し、
+かつ`is_split_up_to_date`で生データ（osm_raw_ways）が前回のsplit以降変わっていないことを
+確認してから`get_graph_in_bbox`を呼ぶ（地域路面レイヤー/RegionServiceがXYZタイル境界を
+単位に厳密なキャッシュ単位を実現しているのと同じ考え方。詳細はdocs/architecture.md参照）。
+生データが変わっていた場合は`get_way_specs_with_closure`→`build_road_graph`→`save_graph`の
+通常経路（closure再計算＋Edge全量再UPSERT）へフォールバックする。
 
 `save_raw_ways`/`get_way_specs_with_closure`は、タイル境界依存の交差点分割不一致問題
 （docs/architecture.md参照）への根本対応として追加した。生のOSM Way/Nodeデータ
@@ -25,7 +28,7 @@ from datetime import datetime, timezone
 
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import LineString, Point
-from sqlalchemy import BigInteger, any_, cast, delete, func, select, text
+from sqlalchemy import BigInteger, any_, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -79,6 +82,16 @@ async def create_tables(engine: AsyncEngine) -> None:
         )
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS idx_osm_raw_ways_geom ON osm_raw_ways USING gist (geom)")
+        )
+        # 生データ不変時の省略パス（is_split_up_to_date）で追加したosm_raw_ways.split_at列
+        # （既存DB向けの冪等な追加）
+        await conn.execute(
+            text("ALTER TABLE osm_raw_ways ADD COLUMN IF NOT EXISTS split_at TIMESTAMPTZ")
+        )
+        # save_graphの削除ステップ（DELETE FROM road_edges WHERE osm_way_id IN (...)）が
+        # インデックス無しで動いていたため追加（既存DB向けの冪等な追加）
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS idx_road_edges_osm_way_id ON road_edges USING btree (osm_way_id)")
         )
         # geom列導入前に保存された既存行のバックフィル（node_ids→osm_raw_nodesから
         # LINESTRINGを再構成）。get_way_specs_with_closureはgeomを前提とした空間検索の
@@ -171,6 +184,14 @@ def _rows_to_road_surface_ways(
     return ways
 
 
+def _primary_way_conditions(envelope):
+    """「主対象Way」＝bboxのenvelopeとST_Intersectsで交差するWay、を表すWHERE条件。
+    `get_way_specs_with_closure`と`is_split_up_to_date`の両方が同じ「何が主対象Wayか」の
+    定義を使う必要があるため、述語がずれないようここへ共通化する。
+    """
+    return (OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, envelope))
+
+
 def _way_spec_row_to_domain(row: OsmRawWayRow) -> WaySpec:
     return WaySpec(
         osm_way_id=row.osm_way_id,
@@ -195,6 +216,7 @@ class RoadGraphRepository:
         rows: list[dict],
         index_elements: list[str],
         update_columns: list[str] | None,
+        change_detection_columns: list[str] | None = None,
     ) -> None:
         """INSERT ... ON CONFLICTによるバルクUPSERT。
 
@@ -202,13 +224,29 @@ class RoadGraphRepository:
         都心部のbbox（数万Node・十数万Edge）では1リクエストが数十分オーダーになることを
         実機で確認したため（設計レビュー指摘7）、複数行VALUESの一括文に置き換えた。
         update_columns=Noneは競合時に何もしない（DO NOTHING）。
+
+        change_detection_columns指定時は、そのカラム群が実際に変わった行だけを更新する
+        （`ON CONFLICT ... DO UPDATE ... WHERE`。条件がfalseの行は`update_columns`に
+        `updated_at`等の監査用カラムを含めていてもそれ自体を含め一切更新されない）。
+        内容が同一な再UPSERT（例: 1つのWayが複数タイルにまたがり、隣接タイルを後から
+        取得しただけで無関係なWayを再送してしまうケース）で`updated_at`が無意味に進むのを防ぎ、
+        鮮度判定（`is_split_up_to_date`）を安定させるために使う。
         """
         for chunk in _chunked(rows, _BULK_CHUNK_ROWS):
             stmt = pg_insert(model).values(chunk)
             if update_columns:
+                where_clause = None
+                if change_detection_columns:
+                    where_clause = or_(
+                        *(
+                            getattr(model, column).is_distinct_from(stmt.excluded[column])
+                            for column in change_detection_columns
+                        )
+                    )
                 stmt = stmt.on_conflict_do_update(
                     index_elements=index_elements,
                     set_={column: stmt.excluded[column] for column in update_columns},
+                    where=where_clause,
                 )
             else:
                 stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
@@ -235,6 +273,37 @@ class RoadGraphRepository:
         edges = {row.edge_id: _edge_row_to_domain(row) for row in edge_rows}
         return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
+    async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
+        """bboxと交差する全ての主対象Way（`_primary_way_conditions`と同じ定義。
+        `get_way_specs_with_closure`参照）について、最後のsplit（`save_graph`の
+        `way_ids_to_replace`呼び出し）が現在の生データ（`osm_raw_ways.updated_at`）より
+        新しいかどうかを判定する。Wayが1本も無ければ（道路の無い地域）自明にTrue。
+
+        Trueなら`get_graph_in_bbox`+`get_surface_attributes`で直接読み出してよい
+        （`GraphService.get_or_build_graph_with_attributes`の省略パス）。Falseなら
+        `get_way_specs_with_closure`→`build_road_graph`→`save_graph`の通常経路で
+        再構築が必要。
+
+        `get_graph_in_bbox`とは判定基準が異なる点に注意: こちらは「Wayが主対象bboxと
+        交差するか」（way-membership）で判定するのに対し、`get_graph_in_bbox`は
+        「Edgeの実ジオメトリがbboxと交差するか」（geometry-membership）で読み出す。
+        交差点分割の結果、境界付近でこの2つが完全には一致しない場合がありうるが、
+        呼び出し元（RoadGraphEngine）は探索半径に対しBBOX_MARGIN_MIN_KM（最低2km）の
+        マージンを既に載せてbboxを渡しているため許容する。
+        """
+        envelope = func.ST_MakeEnvelope(
+            bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude, 4326
+        )
+        stale_stmt = (
+            select(OsmRawWayRow.osm_way_id)
+            .where(
+                *_primary_way_conditions(envelope),
+                or_(OsmRawWayRow.split_at.is_(None), OsmRawWayRow.split_at < OsmRawWayRow.updated_at),
+            )
+            .limit(1)
+        )
+        return (await self._session.execute(stale_stmt)).first() is None
+
     async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
         """RoadGraphをroad_nodes/road_edgesへ永続化する。
 
@@ -248,6 +317,10 @@ class RoadGraphRepository:
         （不完全な文脈で計算した分割結果によって、他のリクエストが正しく永続化した
         Edgeを誤って上書き・破壊しないため）。
         Noneの場合は`graph`内の全Edgeを単純にUPSERTする（従来の挙動）。
+
+        `way_ids_to_replace`指定時は、その各osm_way_idについて`osm_raw_ways.split_at`も
+        この時刻へ更新する（`is_split_up_to_date`の鮮度判定に使う。Edgeを1件も生成しなかった
+        Wayでもスタンプする点に注意。road_graph_models.py: OsmRawWayRowのdocstring参照）。
         """
         now = datetime.now(timezone.utc)
         # Edgeがroad_nodes.node_idを外部キー参照するため、先にNodeを一括UPSERTする
@@ -266,6 +339,9 @@ class RoadGraphRepository:
         if way_ids_to_replace:
             for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
                 await self._session.execute(delete(RoadEdgeRow).where(RoadEdgeRow.osm_way_id.in_(id_chunk)))
+                await self._session.execute(
+                    update(OsmRawWayRow).where(OsmRawWayRow.osm_way_id.in_(id_chunk)).values(split_at=now)
+                )
 
         edge_rows = [
             {
@@ -292,6 +368,12 @@ class RoadGraphRepository:
     async def save_raw_ways(self, way_specs: list[WaySpec], node_coords: dict[int, tuple[float, float]]) -> None:
         """生のOSM Way/Nodeデータを永続化する。Wayのタグ・ノード列は取得元タイルに
         依存せず一意に決まるため、build_road_graphの分割結果とは異なり素直にUPSERTしてよい。
+
+        ただしosm_raw_waysの`updated_at`は内容が実際に変わった行だけを更新する
+        （road_graph_models.py: OsmRawWayRowのdocstring参照）。1つのWayが複数タイルに
+        またがるのは普通にあり、Overpassはタイル単位で問い合わせてもWay全体を返すため、
+        隣接タイルを後から取得しただけで無関係なWayを毎回再送してしまう。無条件に
+        `updated_at`を更新すると`is_split_up_to_date`の鮮度判定を誤らせる。
         """
         if not way_specs:
             return
@@ -338,6 +420,10 @@ class RoadGraphRepository:
             list(way_rows_by_id.values()),
             ["osm_way_id"],
             ["node_ids", "highway", "surface", "direction", "geom", "updated_at"],
+            # geomは比較対象に含めない: PostGISのgeometry `=`（is_distinct_fromの内部比較）は
+            # 形状の完全一致ではなくbbox一致のため、node_idsが変わらなければgeomも変わらない
+            # という前提の下でnode_ids側の比較に委ねる。
+            change_detection_columns=["node_ids", "highway", "surface", "direction"],
         )
         await self._session.commit()
 
@@ -379,9 +465,7 @@ class RoadGraphRepository:
         envelope = func.ST_MakeEnvelope(
             bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude, 4326
         )
-        primary_id_stmt = select(OsmRawWayRow.osm_way_id).where(
-            OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, envelope)
-        )
+        primary_id_stmt = select(OsmRawWayRow.osm_way_id).where(*_primary_way_conditions(envelope))
         primary_way_ids = set((await self._session.execute(primary_id_stmt)).scalars().all())
         if not primary_way_ids:
             return [], {}, set()

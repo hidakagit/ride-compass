@@ -167,6 +167,127 @@ async def test_save_raw_ways_with_empty_list_is_a_noop(road_graph_repository):
     assert result == ([], {}, set())
 
 
+async def test_is_split_up_to_date_returns_true_when_no_ways_in_bbox(road_graph_repository):
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+
+async def test_is_split_up_to_date_returns_false_for_way_saved_raw_but_never_split(road_graph_repository):
+    # 通常の初回リクエスト相当: 生データは取得済みだが、まだsave_graphでsplitされていない。
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is False
+
+
+async def test_is_split_up_to_date_returns_true_after_save_raw_ways_and_save_graph(road_graph_repository):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+
+async def test_is_split_up_to_date_returns_false_after_way_content_changes_without_resplitting(
+    road_graph_repository,
+):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+    changed_way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="gravel")
+    await road_graph_repository.save_raw_ways([changed_way], nodes)  # save_graphは呼ばない
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is False
+
+
+async def test_is_split_up_to_date_stays_true_after_semantically_identical_resave(road_graph_repository):
+    """Finding Aの回帰テスト: 内容が完全に同一なWayの再保存はupdated_atを進めない
+    （_bulk_upsertのON CONFLICT ... DO UPDATE ... WHERE句が実際に機能していることの確認）。
+    隣接タイルの取得でOverpassが同じWayを再送するケースを模す。
+    """
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+    # 内容が完全に同一なWayを再保存
+    identical_way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
+    await road_graph_repository.save_raw_ways([identical_way], nodes)
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+
+async def test_is_split_up_to_date_true_again_after_resave_reflects_new_split(road_graph_repository):
+    # stale -> save_graph -> 再度fresh、という自己修復ラウンドトリップ。
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+
+    changed_way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="gravel")
+    await road_graph_repository.save_raw_ways([changed_way], nodes)
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is False
+
+    graph_v2 = build_road_graph([changed_way], nodes, graph_version="v2")
+    await road_graph_repository.save_graph(graph_v2, way_ids_to_replace={100})
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+
+async def test_save_graph_stamps_split_at_only_for_way_ids_to_replace(road_graph_repository):
+    ways = [
+        WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
+        WaySpec(osm_way_id=200, node_ids=[3, 4], highway="residential"),
+    ]
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    await road_graph_repository.save_raw_ways(ways, nodes)
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100, 200})
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE3_4) is True
+
+    # way100だけを再split（way200には触れない）
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+
+    # way200の生データを変更する。split_atが更新されていなければ（＝100だけの
+    # save_graph呼び出しでway200のsplit_atが誤って進んでいなければ）staleになるはず。
+    changed_way200 = WaySpec(osm_way_id=200, node_ids=[3, 4], highway="residential", surface="gravel")
+    await road_graph_repository.save_raw_ways([changed_way200], nodes)
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE3_4) is False
+
+
+async def test_is_split_up_to_date_true_for_way_that_produces_zero_edges_after_split(road_graph_repository):
+    """Finding Bの回帰テスト: 座標既知ノードが2点未満のセグメントしか生成しないWay
+    （road_edgesに1件も行が無い）でも、save_graphがsplit_atをスタンプしていれば
+    is_split_up_to_dateはFalseに固定されない。
+
+    way100([1,5,2])は、way101がnode5を共有するためnode5が交差点分割点になり、
+    [1,5]と[5,2]の2セグメントに割れる。node5の座標は未知のため、どちらのセグメントも
+    既知座標1点のみとなりEdge化されない（domain/graph.py参照）。ただしway100自体の
+    geomは既知の1・2番ノード2点から実体化されるため「主対象Way」の対象にはなる。
+    """
+    way100 = WaySpec(osm_way_id=100, node_ids=[1, 5, 2], highway="residential")
+    way101 = WaySpec(osm_way_id=101, node_ids=[5, 6], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}  # node5, node6は座標未知
+    await road_graph_repository.save_raw_ways([way100, way101], nodes)
+
+    graph = build_road_graph([way100, way101], nodes, graph_version="v1")
+    way100_edges = {eid: e for eid, e in graph.edges.items() if e.osm_way_id == 100}
+    assert way100_edges == {}  # 前提の確認: 本当に0 Edge
+
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+
+    assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
+
+
 async def test_get_elevation_attributes_returns_empty_dict_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_elevation_attributes([]) == {}
 

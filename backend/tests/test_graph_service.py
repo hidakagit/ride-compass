@@ -64,31 +64,55 @@ class FakeRoadGraphRepository:
         self.cached_tiles = set()
         self.save_graph_call_count = 0
         self.save_raw_ways_call_count = 0
+        self.get_way_specs_with_closure_call_count = 0
+        # updated_at/split_at相当。実DBのタイムスタンプの代わりに単調増加クロックを使う
+        # （is_split_up_to_dateのFake版が「split >= touch」で鮮度判定できれば十分なため）。
+        self._clock = 0
+        self._raw_way_touched_at: dict[int, int] = {}
+        self._way_split_at: dict[int, int] = {}
 
-    async def save_raw_ways(self, way_specs: list[WaySpec], node_coords: dict[int, tuple[float, float]]) -> None:
-        self.save_raw_ways_call_count += 1
-        for way in way_specs:
-            if way.osm_way_id is None:
-                continue
-            self.raw_ways[way.osm_way_id] = way
-            for node_id in way.node_ids:
-                if node_id in node_coords:
-                    self.raw_node_coords[node_id] = node_coords[node_id]
-
-    async def get_way_specs_with_closure(
-        self, bbox: BoundingBox
-    ) -> tuple[list[WaySpec], dict[int, tuple[float, float]], set[int]]:
+    def _primary_way_ids_in_bbox(self, bbox: BoundingBox) -> set[int]:
         primary_node_ids = {
             node_id
             for node_id, (lat, lon) in self.raw_node_coords.items()
             if bbox.min_latitude <= lat <= bbox.max_latitude and bbox.min_longitude <= lon <= bbox.max_longitude
         }
         if not primary_node_ids:
+            return set()
+        return {way_id for way_id, way in self.raw_ways.items() if set(way.node_ids) & primary_node_ids}
+
+    async def save_raw_ways(self, way_specs: list[WaySpec], node_coords: dict[int, tuple[float, float]]) -> None:
+        self.save_raw_ways_call_count += 1
+        self._clock += 1
+        now = self._clock
+        for way in way_specs:
+            if way.osm_way_id is None:
+                continue
+            existing = self.raw_ways.get(way.osm_way_id)
+            # 実装のchange_detection_columns（node_ids/highway/surface/direction）と同じ
+            # 比較対象。内容が同一な再保存ではtouched_atを進めない（Finding Aの再現）。
+            content_changed = existing is None or (
+                existing.node_ids,
+                existing.highway,
+                existing.surface,
+                existing.direction,
+            ) != (way.node_ids, way.highway, way.surface, way.direction)
+            self.raw_ways[way.osm_way_id] = way
+            for node_id in way.node_ids:
+                if node_id in node_coords:
+                    self.raw_node_coords[node_id] = node_coords[node_id]
+            if content_changed:
+                self._raw_way_touched_at[way.osm_way_id] = now
+
+    async def get_way_specs_with_closure(
+        self, bbox: BoundingBox
+    ) -> tuple[list[WaySpec], dict[int, tuple[float, float]], set[int]]:
+        self.get_way_specs_with_closure_call_count += 1
+        primary_way_ids = self._primary_way_ids_in_bbox(bbox)
+        if not primary_way_ids:
             return [], {}, set()
 
-        primary_ways = {
-            way_id: way for way_id, way in self.raw_ways.items() if set(way.node_ids) & primary_node_ids
-        }
+        primary_ways = {way_id: self.raw_ways[way_id] for way_id in primary_way_ids}
         all_referenced_node_ids = {node_id for way in primary_ways.values() for node_id in way.node_ids}
         neighbor_ways = {
             way_id: way for way_id, way in self.raw_ways.items() if set(way.node_ids) & all_referenced_node_ids
@@ -100,10 +124,40 @@ class FakeRoadGraphRepository:
         node_coords = {nid: self.raw_node_coords[nid] for nid in final_node_ids if nid in self.raw_node_coords}
         return way_specs, node_coords, set(primary_ways.keys())
 
+    async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
+        primary_way_ids = self._primary_way_ids_in_bbox(bbox)
+        for way_id in primary_way_ids:
+            touched_at = self._raw_way_touched_at.get(way_id, 0)
+            split_at = self._way_split_at.get(way_id, -1)
+            if split_at < touched_at:
+                return False
+        return True
+
+    async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+        # 実装（ST_Intersects(Edge.geom, envelope)）の簡易近似: Edgeのジオメトリ上の
+        # いずれかの点がbbox内にあればマッチしたとみなす。
+        matched_edges = {
+            edge_id: edge
+            for edge_id, edge in self.edges.items()
+            if any(
+                bbox.min_latitude <= lat <= bbox.max_latitude and bbox.min_longitude <= lon <= bbox.max_longitude
+                for lat, lon in edge.geometry
+            )
+        }
+        if not matched_edges:
+            return None
+        node_ids = {e.from_node_id for e in matched_edges.values()} | {e.to_node_id for e in matched_edges.values()}
+        matched_nodes = {nid: self.nodes[nid] for nid in node_ids if nid in self.nodes}
+        return RoadGraph(graph_version="cached", nodes=matched_nodes, edges=matched_edges)
+
     async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
         self.save_graph_call_count += 1
+        self._clock += 1
+        now = self._clock
         if way_ids_to_replace:
             self.edges = {eid: e for eid, e in self.edges.items() if e.osm_way_id not in way_ids_to_replace}
+            for way_id in way_ids_to_replace:
+                self._way_split_at[way_id] = now
         self.nodes.update(graph.nodes)
         for edge_id, edge in graph.edges.items():
             if way_ids_to_replace is not None and edge.osm_way_id not in way_ids_to_replace:
@@ -221,6 +275,82 @@ async def test_with_repository_cache_hit_skips_overpass():
     assert first[1].keys() == second[1].keys()
 
 
+async def test_with_repository_second_call_skips_closure_and_save_when_split_is_up_to_date():
+    """生データ不変時の省略パス: 2回目の呼び出しはclosure再計算・save_graphを行わず、
+    is_split_up_to_date→get_graph_in_bboxで直接読み出す。"""
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    overpass_client = FakeOverpassClient(result=(ways, nodes))
+    repository = FakeRoadGraphRepository()
+    service = GraphService(overpass_client, http_client=None, repository=repository)
+
+    first = await service.get_or_build_graph_with_attributes(BBOX)
+    second = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert overpass_client.call_count == 1  # タイルキャッシュヒットでOverpassは1回だけ
+    assert repository.get_way_specs_with_closure_call_count == 1  # 省略パスでclosureは1回だけ
+    assert repository.save_graph_call_count == 1  # 省略パスでsaveも1回だけ
+    assert first is not None and second is not None
+    assert set(first[0].edges.keys()) == set(second[0].edges.keys())
+    assert first[1].keys() == second[1].keys()
+
+
+async def test_with_repository_falls_back_to_slow_path_when_raw_way_content_actually_changes():
+    """Wayの内容（surfaceタグ）が実際に変わっていれば、is_split_up_to_dateがFalseを返し
+    低速パス（closure再計算＋save_graph）が再実行される（Finding B: road_edges直読みが
+    stale化を正しく検知できることの確認）。"""
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    overpass_client = FakeOverpassClient(result=(ways, nodes))
+    repository = FakeRoadGraphRepository()
+    service = GraphService(overpass_client, http_client=None, repository=repository)
+
+    await service.get_or_build_graph_with_attributes(BBOX)
+    assert repository.get_way_specs_with_closure_call_count == 1
+    assert repository.save_graph_call_count == 1
+
+    # Wayのsurfaceタグが変わった状況を、save_raw_waysの直接呼び出しでシミュレートする
+    # （実際には別タイル経由の再取得やPBF再取込で起こりうる。タイルは既にキャッシュ済みの
+    # ため、通常のGraphServiceフローからは再度save_raw_waysは呼ばれない）。
+    await repository.save_raw_ways(
+        [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="gravel", direction="both")],
+        nodes,
+    )
+
+    second = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert repository.get_way_specs_with_closure_call_count == 2  # 変更を検知して低速パス再実行
+    assert repository.save_graph_call_count == 2
+    assert second is not None
+    assert all(a.surface_type == "gravel" for a in second[1].values())
+
+
+async def test_with_repository_semantically_identical_resave_does_not_trigger_slow_path():
+    """内容が同一な再保存（隣接タイル取得でOverpassが同じWayを再送するケースを模す）では
+    is_split_up_to_dateがFalseへ倒れず、低速パスが再発火しないこと（Finding Aの回帰）。"""
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    overpass_client = FakeOverpassClient(result=(ways, nodes))
+    repository = FakeRoadGraphRepository()
+    service = GraphService(overpass_client, http_client=None, repository=repository)
+
+    await service.get_or_build_graph_with_attributes(BBOX)
+    assert repository.get_way_specs_with_closure_call_count == 1
+    assert repository.save_graph_call_count == 1
+
+    # 内容が完全に同一なWayを再保存（隣接タイルの取得でOverpassが同じWayを再送するケース）。
+    await repository.save_raw_ways(
+        [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt", direction="both")],
+        nodes,
+    )
+
+    second = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert repository.get_way_specs_with_closure_call_count == 1  # 低速パスは再発火しない
+    assert repository.save_graph_call_count == 1
+    assert second is not None
+
+
 async def test_with_repository_cache_miss_when_different_tile():
     ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
     nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
@@ -311,6 +441,9 @@ async def test_with_repository_legitimately_empty_area_returns_empty_graph_not_n
     assert overpass_client.call_count == 1
     assert second is not None
     assert second[0].edges == {}
+    # 道路が無い地域は対象Wayが0件のためis_split_up_to_dateが自明にTrue（fresh）となり、
+    # 1回目の呼び出しからclosure再計算自体が発生しない。
+    assert repository.get_way_specs_with_closure_call_count == 0
 
 
 async def test_with_repository_bbox_spanning_two_tiles_fetches_both_and_merges():

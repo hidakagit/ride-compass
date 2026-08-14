@@ -31,6 +31,8 @@ class GraphService:
     交差点分割（build_road_graph）を行わない。生のOSM Way/Nodeデータだけをタイル単位で
     永続化し、実際の分割計算はDB上の既知の生データ全体から近傍Wayを含めて都度行う
     （タイル境界依存の交差点分割不一致問題への根本対応。詳細はdocs/architecture.md参照）。
+    ただし生データが前回のsplit以降変わっていなければ、その分割計算・永続化を丸ごと省略して
+    既存のroad_edges/road_nodesを直接読む（`RoadGraphRepository.is_split_up_to_date`参照）。
     """
 
     def __init__(
@@ -83,11 +85,17 @@ class GraphService:
         （公開Overpassインスタンスへの配慮として並列化しない）**生のOSM Way/Nodeデータを
         そのまま**永続化する（この時点ではEdgeへの分割は行わない）。
 
-        全タイルの生データ取得を保証した後、`get_way_specs_with_closure`でDB上の
+        全タイルの生データ取得を保証した後、まず`is_split_up_to_date`で「対象bboxの生データが
+        前回のsplit以降変わっていないか」を確認する。変わっていなければ`get_graph_in_bbox`+
+        `get_surface_attributes`でroad_edges/road_nodes/surface_attributesを直接読み出す
+        （省略パス。closure再計算・Edge全量再UPSERTを丸ごと避けられる。実データでの計測は
+        `benchmarks/bench_postgis_prepare.py`参照）。
+
+        生データが変わっていた場合（または未取込）は、`get_way_specs_with_closure`でDB上の
         既知の生データ全体から対象Wayとその近傍Wayを取得し、その場でbuild_road_graphを
-        実行して交差点分割を計算する。これにより、どのタイル経由で取得したデータかに
-        関わらず一貫した分割結果が得られる（タイル境界依存の交差点分割不一致問題への
-        根本対応。詳細・残存する制約はdocs/architecture.md参照）。
+        実行して交差点分割を計算する通常経路にフォールバックする。これにより、どのタイル
+        経由で取得したデータかに関わらず一貫した分割結果が得られる（タイル境界依存の
+        交差点分割不一致問題への根本対応。詳細・残存する制約はdocs/architecture.md参照）。
         """
         if self._repository is None:
             return await self._fetch_graph_with_surface_attributes(bbox, data_source)
@@ -126,6 +134,17 @@ class GraphService:
 
         if any_tile_fetch_failed:
             return None
+
+        # 生データ（osm_raw_ways）が前回のsplit以降変わっていなければ、closure再計算・
+        # Edge全量再UPSERTを省略してroad_edges/road_nodesを直接読む（実測で全体の
+        # 85〜90%を占めるsave_graphのコストを丸ごと避けられる。docs/osm-pbf-import.md参照）。
+        if await self._repository.is_split_up_to_date(bbox):
+            graph = await self._repository.get_graph_in_bbox(bbox)
+            if graph is None:
+                # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
+                return RoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
+            surface_attributes = await self._repository.get_surface_attributes(list(graph.edges.keys()))
+            return graph, surface_attributes
 
         # 必要なタイルの生データは全て取得済み（元々キャッシュ済み、または今回の取得に成功）。
         way_specs, node_coords, primary_way_ids = await self._repository.get_way_specs_with_closure(bbox)
