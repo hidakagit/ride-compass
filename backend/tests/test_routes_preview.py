@@ -1,7 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import PREVIEW_RATE_LIMIT_PER_MINUTE, get_routing_service
+from app.api.dependencies import get_routing_service
+from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.route import RouteSegment
 from app.infrastructure import rate_limiter
@@ -96,7 +97,7 @@ def test_preview_route_is_rate_limited_per_client():
     app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService(segment=segment)
 
     try:
-        for _ in range(PREVIEW_RATE_LIMIT_PER_MINUTE):
+        for _ in range(settings.preview_rate_limit_per_minute):
             assert client.post("/api/routes/preview", json=REQUEST_BODY).status_code == 200
         response = client.post("/api/routes/preview", json=REQUEST_BODY)
     finally:

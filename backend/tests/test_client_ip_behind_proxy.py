@@ -5,7 +5,7 @@ Renderは自前のロードバランサーをWebサービスの手前に置く�
 --proxy-headers（既定で有効）はX-Forwarded-Forを見てrequest.client.hostを実際の
 訪問者IPへ書き換えられるが、--forwarded-allow-ips（既定は127.0.0.1のみ）で信頼される
 ピアからの接続でなければヘッダーは無視される。backend/Dockerfileでこのオプションを
-渡し忘れると、api/routes.py: _client_id（infrastructure/rate_limiter.pyが使う）が
+渡し忘れると、api/dependencies.py: client_id（infrastructure/rate_limiter.pyのキーに使う）が
 「実際の訪問者ごと」ではなく「Renderの内部プロキシ」という単一の値になり、路面タイル/
 basemapタイルのレート制限をデプロイ先の全アクセスが共有してしまい、通常のパン/ズーム
 操作だけで上限に達して429になる不具合が実機で確認された（ローカルはリバースプロキシを
@@ -19,7 +19,7 @@ _client_idが返す値の違いを確認する。
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-import app.api.routes as routes_module
+import app.api.routers.region as region_module
 from app.main import app
 
 FORWARDED_CLIENT_IP = "203.0.113.5"
@@ -33,18 +33,20 @@ def _client_id_seen_by(trusted_hosts) -> str:
     client = TestClient(wrapped)
 
     captured: list[str] = []
-    real_client_id = routes_module._client_id
+    # ルータは`from app.api.dependencies import client_id`で取り込んだモジュール属性を
+    # 呼び出し時に参照するため、region側のモジュール属性を差し替えれば観測できる。
+    real_client_id = region_module.client_id
 
     def spy_client_id(request):
         client_id = real_client_id(request)
         captured.append(client_id)
         return client_id
 
-    routes_module._client_id = spy_client_id
+    region_module.client_id = spy_client_id
     try:
         client.get(ROAD_TILE_PATH, headers={"X-Forwarded-For": f"{FORWARDED_CLIENT_IP}, 10.0.0.1"})
     finally:
-        routes_module._client_id = real_client_id
+        region_module.client_id = real_client_id
 
     assert len(captured) == 1
     return captured[0]

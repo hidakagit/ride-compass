@@ -28,7 +28,9 @@ def main() -> None:
     schema = app.openapi()
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
     # indent固定・末尾改行あり: 再生成のdiffが内容の変化だけを反映するようにする。
-    OUTPUT_PATH.write_text(json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # newline="\n"固定: Windowsで実行してもCRLFにならないようにする（CI（Linux）の
+    # ドリフト検知と生成環境によらずバイト単位で一致させるため）。
+    OUTPUT_PATH.write_text(json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {OUTPUT_PATH}")
 
 

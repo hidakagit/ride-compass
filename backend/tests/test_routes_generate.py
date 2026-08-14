@@ -1,11 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import (
-    GENERATE_RATE_LIMIT_PER_MINUTE,
-    _generate_semaphore,
-    get_route_generator,
-)
+from app.api.dependencies import get_route_generator
+from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import RoutePreference
 from app.domain.route import RouteCandidate
@@ -98,7 +95,7 @@ def test_generate_routes_is_rate_limited_per_client():
     app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator([])
 
     try:
-        for _ in range(GENERATE_RATE_LIMIT_PER_MINUTE):
+        for _ in range(settings.generate_rate_limit_per_minute):
             assert client.post("/api/routes/generate", json=REQUEST_BODY).status_code == 200
         response = client.post("/api/routes/generate", json=REQUEST_BODY)
     finally:

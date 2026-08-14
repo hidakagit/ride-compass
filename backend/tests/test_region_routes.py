@@ -3,7 +3,8 @@ from collections import defaultdict
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import ROAD_TILE_RATE_LIMIT_PER_MINUTE, get_region_service
+from app.api.dependencies import get_region_service
+from app.config import settings
 from app.infrastructure import rate_limiter
 from app.main import app
 
@@ -105,7 +106,7 @@ def test_region_road_surface_tile_is_rate_limited_per_client():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        for _ in range(ROAD_TILE_RATE_LIMIT_PER_MINUTE):
+        for _ in range(settings.road_tile_rate_limit_per_minute):
             assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
         response = client.get("/api/region/road-surface-tiles/14/14551/6447.pbf")
     finally:

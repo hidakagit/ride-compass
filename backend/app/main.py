@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router
+from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware
 
@@ -49,4 +49,4 @@ app.add_middleware(
 # 含めた全体を計測・記録したいため、CORSより外側に置く)。
 app.middleware("http")(request_log_middleware)
 
-app.include_router(router)
+app.include_router(api_router)

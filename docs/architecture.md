@@ -219,7 +219,8 @@ RideCompass/
       config.py               ✅ pydantic-settings（.env読込、basemap_public_base_url含む）。routing_engine（"openrouteservice" | "road_graph"、既定openrouteservice）を「ルーティングエンジンの切り替え対応」で追加。render_git_commit（Render自動注入のRENDER_GIT_COMMIT、ローカルはnull）を「Renderデプロイの反映確認」で追加
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「Renderデプロイの反映確認」で新規）
       api/
-        routes.py             ✅ GET /health, POST /api/routes/preview, POST /api/routes/generate（per-IPレート制限＋同時実行数ガード付き、設計レビュー対応）, GET /api/weather, GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf, GET /api/basemap/{path}, POST /api/basemap/refresh
+        dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）
       domain/
         route.py               ✅ Coordinates, RouteSegment（surface_summary/surface_values含む）, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions

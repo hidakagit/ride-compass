@@ -49,6 +49,35 @@ class Settings(BaseSettings):
     # 確認できるようにする（詳細はdocs/architecture.md参照）。
     render_git_commit: str | None = None
 
+    # --- 認証なしエンドポイントのper-IPレート制限・同時実行上限（api/routers/*が参照） ---
+    # 元はapi/routes.pyのモジュール定数だったが、環境（Render無料枠/ローカル/負荷試験）で
+    # 調整したい運用値のため.envで上書き可能にした（改善計画T5）。各値の根拠は以下の通り。
+    #
+    # /preview・/weatherは/generateほど高コストではないが、いずれも外部APIの無料枠を
+    # 消費する（openrouteservice: 日次2000リクエストをgenerateと共有 / Open-Meteo）。
+    preview_rate_limit_per_minute: int = 20
+    weather_rate_limit_per_minute: int = 60
+    # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
+    # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
+    # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。
+    # 上限超過は待たせず429で即座に返す（ブラウザのリトライや連打で外部サービスへの負荷が
+    # 積み上がることを防ぐ）。
+    generate_rate_limit_per_minute: int = 10
+    generate_max_concurrent: int = 2
+    # 路面タイルはPostGIS問い合わせ・ディスクキャッシュ書き込みを伴うため、無制限に叩かれると
+    # 外部サービス負荷やディスク消費に繋がる。同時実行上限6の根拠: ST_AsMVT化でタイル処理は
+    # ほぼDB応答待ちになり、律速はSupabase側の同時クエリ負荷とSQLAlchemyの接続プール
+    # （既定pool_size=5+max_overflow=10=最大15接続）。6ならルート生成用の接続と合わせても
+    # プール上限に収まり、コールドタイルのバースト時の待ち行列を半減できる
+    # （詳細な経緯はapi/routers/region.pyのコメント参照）。
+    road_tile_rate_limit_per_minute: int = 120
+    road_tile_max_concurrent: int = 6
+    basemap_rate_limit_per_minute: int = 300
+    # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
+    # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
+    # Overpass/OpenFreeMapへの実問い合わせが毎回発生し続けてしまう）。
+    basemap_refresh_rate_limit_per_minute: int = 6
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return self.cors_allowed_origins.split(",")

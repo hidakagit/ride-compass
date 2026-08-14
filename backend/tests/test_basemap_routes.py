@@ -1,7 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import BASEMAP_RATE_LIMIT_PER_MINUTE, BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE, get_basemap_client
+from app.api.dependencies import get_basemap_client
+from app.config import settings
 from app.infrastructure import rate_limiter, tile_cache
 from app.main import app
 
@@ -51,7 +52,7 @@ def test_basemap_proxy_is_rate_limited_per_client():
     app.dependency_overrides[get_basemap_client] = lambda: FakeBasemapClient((b"x", "application/json"))
 
     try:
-        for _ in range(BASEMAP_RATE_LIMIT_PER_MINUTE):
+        for _ in range(settings.basemap_rate_limit_per_minute):
             assert client.get("/api/basemap/styles/liberty").status_code == 200
         response = client.get("/api/basemap/styles/liberty")
     finally:
@@ -73,7 +74,7 @@ def test_basemap_refresh_clears_tile_cache(tmp_path, monkeypatch):
 def test_basemap_refresh_is_rate_limited_per_client(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
 
-    for _ in range(BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE):
+    for _ in range(settings.basemap_refresh_rate_limit_per_minute):
         assert client.post("/api/basemap/refresh").status_code == 200
     response = client.post("/api/basemap/refresh")
 
