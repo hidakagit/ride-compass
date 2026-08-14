@@ -1,6 +1,6 @@
 # OSM PBF取込バッチ設計（Overpass依存の解消）
 
-ステータス: Phase 3（Supabase取込・Overpassフォールバック設定無効化）に続き、**Phase 4（関東圏への拡大・highwayフィルタリング）完了**（2026-08-15）。実装・検証の詳細記録は docs/architecture.md 9章「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
+ステータス: Phase 3（Supabase取込・Overpassフォールバック設定無効化）に続き、**Phase 4（関東圏への拡大・highwayフィルタリング）完了**（2026-08-15）。実装・検証の詳細記録は [decisions/road-graph-migration.md](decisions/road-graph-migration.md)（旧architecture.md 9章）の「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
 
 **現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Supabase）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。取込済み範囲はデフォルト位置（王子・35.7597,139.7387）を中心とした半径25km（bbox 35.5345,139.4611-35.9849,140.0163）。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
 
