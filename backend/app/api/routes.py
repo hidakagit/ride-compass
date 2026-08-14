@@ -233,7 +233,7 @@ async def region_road_surface_tile(
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
-    if not check_rate_limit(_client_id(request), ROAD_TILE_RATE_LIMIT_PER_MINUTE):
+    if not check_rate_limit(f"road-tile:{_client_id(request)}", ROAD_TILE_RATE_LIMIT_PER_MINUTE):
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     # MapLibre側もvector sourceのminzoom/maxzoomでこの範囲外は要求しないが、
     # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。
@@ -258,7 +258,7 @@ async def get_basemap_client():
 async def basemap_proxy(
     path: str, request: Request, basemap_client: BasemapClient = Depends(get_basemap_client)
 ) -> Response:
-    if not check_rate_limit(_client_id(request), BASEMAP_RATE_LIMIT_PER_MINUTE):
+    if not check_rate_limit(f"basemap:{_client_id(request)}", BASEMAP_RATE_LIMIT_PER_MINUTE):
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     result = await basemap_client.get(path)
     if result is None:
