@@ -856,7 +856,7 @@ docs/osm-pbf-import.md「Phase C」の実施記録（2026-08-14）。ユーザ�
 
 - ~~**最優先**: 実際のPostGISに接続しての動作確認~~ → **完了**（Phase 0）
 - ~~**PBF取込のPhase 2（RegionServiceのPostGIS第一系統化）・Phase 3（Supabase取込・Overpass停止）**~~ → **完了**（前2項）。Overpass依存解消の計画（docs/osm-pbf-import.md）は全Phase完了
-- **prepare 295秒（Supabase・都心）の短縮**: 生データ不変時の分割再計算・全量再保存の省略パス（`is_split_up_to_date`、上記参照）はローカルPostGISで実装・実測済みだが、Supabase（WAN経由）での実測はまだ行っていない。再保存の省略はWAN環境ほど効く見込みのため、Supabase環境での再計測が次のステップ
+- ~~**prepare 295秒（Supabase・都心）の短縮**: 生データ不変時の分割再計算・全量再保存の省略パス（`is_split_up_to_date`、上記参照）はローカルPostGISで実装・実測済みだが、Supabase（WAN経由）での実測はまだ行っていない。再保存の省略はWAN環境ほど効く見込みのため、Supabase環境での再計測が次のステップ~~ → **実測済み**。Supabase（WAN経由、東京都心実データ）でCOLD/WARM実測: 1km 126.0s→18.0s（約7.0倍）、4km 211.0s→27.9s（約7.6倍）。短縮の絶対値（108〜183秒）はローカルPostGIS実測（143〜137秒）と同等以上だが、短縮**倍率**はローカル（10〜14倍）よりむしろ低い — WARM側も`is_split_up_to_date`・`get_graph_in_bbox`・`get_surface_attributes`のラウンドトリップ回数分だけWAN遅延の影響を受ける（例: `is_split_up_to_date`単体がローカル20〜30msに対しSupabaseでは780〜810ms）ため、COLD側の一括UPSERTほどには短縮率が伸びない。詳細は`backend/benchmarks/README.md`参照
 - **Renderデプロイへの反映**: Render側の環境変数に`DATABASE_URL`（Supabase）・`ROAD_GRAPH_USE_REPOSITORY`・`OVERPASS_FALLBACK_ENABLED`を設定すれば同じ姿勢で動く（未実施。Render→Supabase間のレイテンシは要実測）
 - **OSMデータの更新運用**: 月次程度でPBF再取込（docs/osm-pbf-import.md 8章）。`--prune`（削除way掃除）は未実装のまま
 - 大きい距離（15km・30km等）でのRoad Graphベースのルート生成の実機検証（現時点では4kmでのみ確認済み）
