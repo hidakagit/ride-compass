@@ -24,13 +24,22 @@ RouteScorerで総合スコアを付けて並べ替える」という周回生成
 """
 
 import asyncio
+import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
+from app.domain.errors import RoutingError
 from app.domain.geo import compass_label, destination_point
 from app.domain.route import Coordinates, RouteCandidate
 from app.services.route_scorer import RouteScorer
+
+# ルート生成のステージ別サマリログ(方針は docs/logging.md)。1リクエスト=1行のINFOで
+# prepare/trace/evaluateの所要時間と候補の減り方(8方位→trace成功→距離フィルタ通過)を残し、
+# 「候補が少ない/生成が遅い」の切り分けをRenderのログだけで完結できるようにする。
+# 候補0件(ユーザーに何も返せない)はWARNINGへ昇格し、方位別の失敗理由はDEBUGで補足する。
+logger = logging.getLogger("ridecompass.generate")
 
 # 8方位（北を0として時計回り）
 DIRECTIONS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
@@ -91,11 +100,20 @@ class RouteGenerator:
         distance_tolerance_km: float,
     ) -> list[RouteCandidate]:
         radius_km = distance_km * RADIUS_RATIO
+        started = time.monotonic()
+        # 常時出るサマリログ用に座標を2桁(≈1km)へ丸める(debug_log.pyの方針と同じ)。
+        origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
 
         context = await self._engine.prepare(origin, radius_km)
+        prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
+            logger.warning(
+                "generate engine=%s origin=%s target_km=%.1f -> no context (road data unavailable) prepare_ms=%d",
+                self.engine_name, origin_label, distance_km, prepare_ms,
+            )
             return []
 
+        trace_started = time.monotonic()
         results = await asyncio.gather(
             *(
                 self._engine.trace_loop(context, self._loop_waypoints(origin, bearing, radius_km), bearing)
@@ -103,22 +121,62 @@ class RouteGenerator:
             ),
             return_exceptions=True,
         )
+        trace_ms = round((time.monotonic() - trace_started) * 1000)
 
-        traced = [r for r in results if isinstance(r, TracedLoop)]
-        traced = [t for t in traced if abs(t.distance_km - distance_km) <= distance_tolerance_km]
+        traced_all: list[TracedLoop] = []
+        failed_bearings: list[int] = []
+        for bearing, result in zip(DIRECTIONS_DEG, results):
+            if isinstance(result, TracedLoop):
+                traced_all.append(result)
+            elif isinstance(result, RoutingError):
+                # 個々の方位の失敗は準正常(道路網次第で起きる)。件数はINFOサマリに含め、
+                # 理由はDEBUGで補足する。全滅した場合のみ後段でWARNINGになる。
+                failed_bearings.append(bearing)
+                logger.debug("trace bearing=%d failed: %s", bearing, result)
+            elif isinstance(result, BaseException):
+                # RoutingError以外はエンジンの不具合の可能性が高いため、スタックトレース付きで残す。
+                failed_bearings.append(bearing)
+                logger.error("trace bearing=%d unexpected error", bearing, exc_info=result)
+
+        traced = [t for t in traced_all if abs(t.distance_km - distance_km) <= distance_tolerance_km]
+        filtered_out = len(traced_all) - len(traced)
+        for t in traced_all:
+            if abs(t.distance_km - distance_km) > distance_tolerance_km:
+                logger.debug(
+                    "distance filter rejected bearing=%d distance_km=%.1f (target=%.1f±%.1f)",
+                    t.bearing, t.distance_km, distance_km, distance_tolerance_km,
+                )
         # 評価前に目標距離に近い順へ並べておく（最終順序はtotal_scoreで決まるが、
         # 評価順・candidates内の並びを安定させるため）。
         traced.sort(key=lambda t: abs(t.distance_km - distance_km))
 
         if not traced:
+            logger.warning(
+                "generate engine=%s origin=%s target_km=%.1f -> no candidates "
+                "(trace_ok=%d/%d trace_failed=%s filtered_out=%d) prepare_ms=%d trace_ms=%d",
+                self.engine_name, origin_label, distance_km,
+                len(traced_all), len(DIRECTIONS_DEG), failed_bearings, filtered_out,
+                prepare_ms, trace_ms,
+            )
             return []
 
+        evaluate_started = time.monotonic()
         start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
 
         candidates = self._route_scorer.score(candidates, distance_km)
         candidates.sort(key=lambda c: c.total_score if c.total_score is not None else -1, reverse=True)
+        evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
+        total_ms = round((time.monotonic() - started) * 1000)
 
+        logger.info(
+            "generate engine=%s origin=%s target_km=%.1f -> candidates=%d "
+            "trace_ok=%d/%d trace_failed=%s filtered_out=%d "
+            "prepare_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
+            self.engine_name, origin_label, distance_km, len(candidates),
+            len(traced_all), len(DIRECTIONS_DEG), failed_bearings, filtered_out,
+            prepare_ms, trace_ms, evaluate_ms, total_ms,
+        )
         return candidates
 
     @staticmethod

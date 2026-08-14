@@ -4,6 +4,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.infrastructure.debug_log import log_throttled_warning
+
 # 標高（ルート沿いの点取得、Step5）はプロセス再起動やコンテナ再作成をまたいで使い回すため、
 # メモリ内辞書ではなくファイルベースのSQLiteに永続化する（新規pip依存なし）。
 # 路面の地域レイヤー（Step10）はベクタタイル（バイナリ）のため、こちらではなく
@@ -79,11 +81,15 @@ def _get_elevation_sync(lat: float, lon: float):
     # キャッシュは高速化のための最適化であり、標高取得そのものの成否には関与しない
     # （GSI APIへのフォールバックが常に効く）。DBロック競合等でSQLiteが失敗しても
     # ルート生成全体を巻き添えにせず、「未キャッシュ」として扱ってフォールバックさせる。
+    # ただしフォールバックで隠れたままにならないよう、失敗自体は抑制付きWARNINGで
+    # 常時記録する（キャッシュが継続的に壊れている＝GSIへの問い合わせが減らず遅い、
+    # という状態に運用側が気づけるようにする。docs/logging.md参照）。
     try:
         conn = _get_connection()
         row = conn.execute("SELECT elevation_m FROM elevation_cache WHERE lat = ? AND lon = ?", (lat, lon)).fetchone()
         return MISSING if row is None else row[0]
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        log_throttled_warning("cache:elevation-sqlite", "[cache:elevation-sqlite] read failed error=%r", exc)
         _discard_connection()
         return MISSING
 
@@ -96,7 +102,8 @@ def _set_elevation_sync(lat: float, lon: float, elevation_m: float | None) -> No
             (lat, lon, elevation_m, _now_iso()),
         )
         conn.commit()
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        log_throttled_warning("cache:elevation-sqlite", "[cache:elevation-sqlite] write failed error=%r", exc)
         _discard_connection()
 
 

@@ -21,4 +21,7 @@ EXPOSE 8000
 # 上限に達して429になる不具合が実機で確認された（ローカルはリバースプロキシを挟まないため
 # 再現しない）。コンテナへの着信経路はRenderのプロキシ経由のみのため、
 # --forwarded-allow-ips='*'で信頼してよい。
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+# --no-access-log: アクセスログはapp側のミドルウェア(infrastructure/request_log.py)が
+# リクエストID・所要時間付きの1行サマリとして出すため、uvicorn標準のアクセスログは
+# 二重になるだけの上に情報が少ない(IDも所要時間も無い)ので止める。
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*", "--no-access-log"]

@@ -13,6 +13,7 @@ from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.domain.weather import WeatherConditions
 from app.infrastructure import tile_cache
 from app.infrastructure.basemap_client import BasemapClient
+from app.infrastructure.debug_log import get_stats, record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.overpass_client import OverpassClient
@@ -64,6 +65,22 @@ def health() -> dict[str, str | None]:
         "status": "ok",
         "commit": settings.render_git_commit,
         "started_at": STARTED_AT.isoformat(),
+    }
+
+
+@router.get("/api/debug/stats")
+def debug_stats() -> dict:
+    # 外部API呼び出し・キャッシュの集計(カテゴリ別の呼び出し数/エラー数/ヒット率/所要時間)と
+    # 429拒否数のプロセス内スナップショット(infrastructure/debug_log.py)。ログを目視で数えずに
+    # キャッシュヒット率等を確認するための運用エンドポイント。集計値のみで秘匿情報や個別の
+    # 座標を含まないため、debug_modeに関わらず/healthと同様に常時公開する。
+    # プロセス再起動でリセットされる点に注意(started_atで起点を判別できる)。
+    return {
+        "commit": settings.render_git_commit,
+        "started_at": STARTED_AT.isoformat(),
+        "engine": settings.routing_engine,
+        "debug_mode": settings.debug_mode,
+        **get_stats(),
     }
 
 
@@ -193,10 +210,12 @@ async def generate_routes(
     route_generator: RouteGenerator = Depends(get_route_generator),
 ) -> RouteGenerateResponse:
     if not check_rate_limit(f"generate:{_client_id(http_request)}", GENERATE_RATE_LIMIT_PER_MINUTE):
+        record_rate_limit_rejection("generate", _client_id(http_request), f"{GENERATE_RATE_LIMIT_PER_MINUTE}/min")
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
     # 積み上がるのを防ぐ。locked()確認とacquireの間に隙間はあるが、多少の超過は許容する簡易実装）。
     if _generate_semaphore.locked():
+        record_rate_limit_rejection("generate-concurrency", _client_id(http_request), f"concurrent={GENERATE_MAX_CONCURRENT}")
         raise HTTPException(status_code=429, detail="ルート生成が混み合っています。しばらく待ってから再試行してください。")
     async with _generate_semaphore:
         origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
@@ -234,6 +253,7 @@ async def region_road_surface_tile(
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
     if not check_rate_limit(f"road-tile:{_client_id(request)}", ROAD_TILE_RATE_LIMIT_PER_MINUTE):
+        record_rate_limit_rejection("road-tile", _client_id(request), f"{ROAD_TILE_RATE_LIMIT_PER_MINUTE}/min")
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     # MapLibre側もvector sourceのminzoom/maxzoomでこの範囲外は要求しないが、
     # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。
@@ -259,6 +279,7 @@ async def basemap_proxy(
     path: str, request: Request, basemap_client: BasemapClient = Depends(get_basemap_client)
 ) -> Response:
     if not check_rate_limit(f"basemap:{_client_id(request)}", BASEMAP_RATE_LIMIT_PER_MINUTE):
+        record_rate_limit_rejection("basemap", _client_id(request), f"{BASEMAP_RATE_LIMIT_PER_MINUTE}/min")
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     result = await basemap_client.get(path)
     if result is None:

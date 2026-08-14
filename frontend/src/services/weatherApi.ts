@@ -15,14 +15,17 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
 
   const response = await fetch(url);
   const durationMs = Math.round(performance.now() - startedAt);
+  // サーバーログとの突き合わせ用リクエストID(routeApi.tsと同じ扱い)。
+  const requestId = response.headers.get("x-request-id");
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    debugLog("api:weather", `失敗 (HTTP ${response.status})`, { durationMs, errorBody });
-    throw new Error(errorBody?.detail ?? `天候の取得に失敗しました（HTTP ${response.status}）`);
+    debugLog("api:weather", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody });
+    const detail = errorBody?.detail ?? `天候の取得に失敗しました（HTTP ${response.status}）`;
+    throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
   }
 
   const data = await response.json();
-  debugLog("api:weather", "成功", { durationMs, precipitation_probability_percent: data.precipitation_probability_percent });
+  debugLog("api:weather", "成功", { durationMs, requestId, precipitation_probability_percent: data.precipitation_probability_percent });
   return data;
 }

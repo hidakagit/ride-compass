@@ -25,5 +25,7 @@ export async function refreshBasemapCache(): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/basemap/refresh`, { method: "POST" });
   debugLog("api:basemap-refresh", response.ok ? "成功" : `失敗 (HTTP ${response.status})`, {
     durationMs: Math.round(performance.now() - startedAt),
+    // サーバーログとの突き合わせ用リクエストID(routeApi.tsと同じ扱い)
+    requestId: response.headers.get("x-request-id"),
   });
 }

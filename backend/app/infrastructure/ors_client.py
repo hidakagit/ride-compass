@@ -2,8 +2,13 @@ import httpx
 
 from app.domain.errors import RoutingError
 from app.domain.route import Coordinates
+from app.infrastructure.debug_log import log_external_call
 
 DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/cycling-road/geojson"
+
+# openrouteserviceが返す無料枠の残量ヘッダ(日次2000リクエスト)。ルート生成1回で
+# 最大8方位分を消費するため、枯渇が近いかどうかをログ・統計から追えるようにする。
+QUOTA_REMAINING_HEADER = "x-ratelimit-remaining"
 
 
 class ORSClient:
@@ -29,17 +34,23 @@ class ORSClient:
             "Content-Type": "application/json",
         }
 
-        try:
-            response = await self._http_client.post(DIRECTIONS_URL, json=payload, headers=headers)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise RoutingError(f"openrouteservice returned {exc.response.status_code}: {exc.response.text}") from exc
-        except httpx.RequestError as exc:
-            raise RoutingError(f"openrouteservice request failed: {exc}") from exc
+        with log_external_call("routing:openrouteservice", waypoint_count=len(waypoints)) as fields:
+            try:
+                response = await self._http_client.post(DIRECTIONS_URL, json=payload, headers=headers)
+                fields["status"] = response.status_code
+                fields["quota_remaining"] = response.headers.get(QUOTA_REMAINING_HEADER)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RoutingError(
+                    f"openrouteservice returned {exc.response.status_code}: {exc.response.text}"
+                ) from exc
+            except httpx.RequestError as exc:
+                raise RoutingError(f"openrouteservice request failed: {exc}") from exc
 
-        data = response.json()
-        features = data.get("features")
-        if not features:
-            raise RoutingError("openrouteservice returned no route")
+            data = response.json()
+            features = data.get("features")
+            if not features:
+                raise RoutingError("openrouteservice returned no route")
 
-        return features[0]
+            fields["result"] = "ok"
+            return features[0]

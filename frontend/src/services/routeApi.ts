@@ -19,15 +19,19 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   const durationMs = Math.round(performance.now() - startedAt);
+  // バックエンドが全リクエストに付与するリクエストID(backend/app/infrastructure/request_log.py)。
+  // サーバーログと突き合わせるためDebugConsoleと失敗時のエラーメッセージに含める。
+  const requestId = response.headers.get("x-request-id");
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    debugLog("api:route", `失敗 (HTTP ${response.status})`, { path, durationMs, errorBody });
-    throw new Error(errorBody?.detail ?? `リクエストに失敗しました（HTTP ${response.status}）`);
+    debugLog("api:route", `失敗 (HTTP ${response.status})`, { path, durationMs, requestId, errorBody });
+    const detail = errorBody?.detail ?? `リクエストに失敗しました（HTTP ${response.status}）`;
+    throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
   }
 
   const data = await response.json();
-  debugLog("api:route", "成功", { path, durationMs });
+  debugLog("api:route", "成功", { path, durationMs, requestId });
   return data;
 }
 

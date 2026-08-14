@@ -15,6 +15,7 @@ from app.infrastructure.debug_log import log_external_call
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
 ]
 
 # httpxの既定User-Agent（python-httpx/x.x.x）だとOverpassの公開インスタンスに406を返される
@@ -51,7 +52,11 @@ class OverpassClient:
 
                 elements = data.get("elements")
                 if elements is None:
-                    fields["result"] = "no_elements"
+                    # elementsキー自体が無いのはこのミラーのプロトコル異常(docstring参照)。
+                    # result="error"にして常時WARNINGへ乗せる(道路が無い地域は空のelementsが
+                    # 返るためここには来ない。debug_log.pyがカテゴリ単位で抑制する)。
+                    fields["result"] = "error"
+                    fields["error"] = "no_elements_in_response"
                     continue
 
                 fields["result"] = "ok"
