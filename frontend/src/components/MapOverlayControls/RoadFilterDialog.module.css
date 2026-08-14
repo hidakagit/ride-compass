@@ -15,7 +15,7 @@
   width: min(92vw, 26rem);
   max-height: min(85vh, 40rem);
   background: var(--color-surface);
-  color: #171717; /* 背景を常に白固定にしているため、他のオーバーレイ部品と同じ理由で明示的に固定する */
+  color: var(--foreground);
   border-radius: var(--radius-lg);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   display: flex;
@@ -88,7 +88,6 @@
   min-height: 40px;
   padding: 0.35rem var(--space-2);
   border-radius: var(--radius-sm);
-  color: #171717;
   font-size: var(--font-size-md);
   cursor: pointer;
 }

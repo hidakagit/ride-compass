@@ -2,10 +2,7 @@
   --background: #ffffff;
   --foreground: #171717;
 
-  /* 共通デザイントークン。各コンポーネントの*.module.cssから参照する。
-     ダークモードでの再定義は行わない（--background/--foreground以外は元々
-     コンポーネント側でも常に同じ値をハードコードしていたため、ここでの一元化は
-     見た目を変えない範囲＝重複していた値をまとめるだけに留めている）。 */
+  /* 共通デザイントークン。各コンポーネントの*.module.cssから参照する。 */
   --color-surface: #ffffff;
   --color-danger: #dc2626;
   --color-success: #16a34a;
@@ -19,8 +16,7 @@
   --color-border-strong: #d1d5db;
   --color-border-muted: #cccccc;
   --color-neutral: #9ca3af;
-  /* サイドバー内で情報のまとまりを示すカード背景。--color-surfaceが常に白固定なのと同じ理由
-     （実機でのダークモード可読性問題）で、こちらも常に淡いグレーに固定する。 */
+  /* サイドバー内で情報のまとまりを示すカード背景 */
   --color-surface-2: #f3f4f2;
   --color-accent-strong: #1d4ed8;
 
@@ -39,10 +35,29 @@
   --radius-lg: 16px;
 }
 
+/* かつては--background/--foreground以外のトークンをダークモードで再定義せず常に固定色
+   （白背景・#171717文字）にしていた。理由は、以前ダークモードだけ--foregroundが明るい色に
+   反転する一方でサーフェス背景は白固定のままだったコンポーネントで「白背景に白文字」が
+   実機（Android Chrome）で頻発したため。しかし固定色のまま運用した結果、サイドバー内の
+   カード（infoCard/legendCard等）が常に白背景のままとなり、ダークモード本体（黒背景）との
+   コントラストが強すぎて見づらいという別の問題が実機で見つかった。
+   根本原因は「サーフェス背景だけ固定・文字色だけ反転」という不一致だったため、ここでは
+   サーフェス系トークンもダークモードで正しくペアで反転させる（背景を暗く、文字はvar(--foreground)
+   の反転後の値を使う）ことで両方の問題を解消する。これに伴い、各コンポーネント側で
+   個別にcolor: #171717を固定していた箇所は不要になったため順次var(--foreground)へ戻した。 */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --color-surface: #2a2a2d;
+    --color-surface-2: #1c1c1f;
+    --color-accent-bg: #16233d;
+    --color-muted: #a1a1a6;
+    --color-muted-strong: #c7c7cc;
+    --color-border: #3a3a3d;
+    --color-border-strong: #505054;
+    --color-border-muted: #38383b;
+    --color-neutral: #8e8e93;
   }
 }
 

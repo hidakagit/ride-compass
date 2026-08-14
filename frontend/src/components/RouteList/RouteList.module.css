@@ -20,10 +20,7 @@
   border-radius: 6px;
   border: 1px solid var(--color-border-muted);
   background: var(--color-surface);
-  /* backgroundは常に白固定でダークモードでも変わらないが、colorを指定しないと
-     bodyのcolor（ダークモードで明るい色になるvar(--foreground)）を継承してしまい
-     読めなくなる（page.module.cssの.locateButtonと同じ理由で実機で確認された不具合）。 */
-  color: #171717;
+  color: var(--foreground);
   cursor: pointer;
 }
 

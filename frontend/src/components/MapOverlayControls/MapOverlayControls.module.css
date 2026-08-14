@@ -31,15 +31,13 @@
   gap: var(--space-2);
 }
 
-/* 背景に--color-surface（ダークモードでも白のまま）を使うため、文字色も固定の暗色にする
-   （var(--foreground)だとダークモードで白地に白文字になる） */
 .chip {
   min-height: 36px;
   padding: 0.35rem 0.9rem;
   border-radius: 999px;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
-  color: #171717;
+  color: var(--foreground);
   font-size: var(--font-size-md);
   box-shadow: var(--shadow-float);
   cursor: pointer;
@@ -65,10 +63,10 @@
   margin-left: 0.4rem;
   border-radius: 999px;
   flex-shrink: 0;
-  /* 親の「路面」チップは非アクティブ時=白背景/アクティブ時=アクセント色背景の両方が
-     ありうる。ドットは常に白地+アクセント枠線で固定し、どちらの上でも視認できるようにする
-     （赤=--color-dangerはエラー表示で使っているため、絞り込み中という中立的な状態には
-     使わない）。 */
+  /* 親の「路面」チップは非アクティブ時=var(--color-surface)背景（テーマに応じて明暗反転）/
+     アクティブ時=アクセント色背景の両方がありうる。ドットは常に白地+アクセント枠線で固定し、
+     どちらの上でも視認できるようにする（赤=--color-dangerはエラー表示で使っているため、
+     絞り込み中という中立的な状態には使わない）。 */
   background: #ffffff;
   border: 1.5px solid var(--color-accent);
 }
