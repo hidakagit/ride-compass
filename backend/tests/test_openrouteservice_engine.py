@@ -5,6 +5,7 @@ RouteGenerator（戦略層）を通したエンドツーエンドで、エンジ
 戦略側の責務（距離フィルタ・失敗スキップ等）はtest_route_generator.pyで検証済み。
 """
 
+from app.domain.difficulty import gradient_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -136,6 +137,43 @@ async def test_builds_segment_details_for_map_visualization():
         assert seg.wind_penalty == 1.5
         assert seg.road_surface_good is None  # サンプルのRouteSegmentにsurface_valuesが無いため
         assert seg.difficulty is not None  # 標高・風の指標は揃っているので合成できる
+
+
+class FakeDescendingElevationService:
+    """下り区間を表す標高（後の点ほど10m低い）を返す。"""
+
+    async def get_profile(self, points: list[Coordinates]) -> dict:
+        return {
+            "elevation_gain_m": 0.0,
+            "min_elevation_m": 40.0,
+            "max_elevation_m": 50.0,
+            "max_gradient_percent": 1.0,
+            "elevations": [50.0 - 10.0 * i for i in range(len(points))],
+        }
+
+
+async def test_segment_gradient_is_signed_and_negative_for_downhill():
+    """segments[].gradient_percentは符号付き（進行方向基準、下り=負）であること。
+
+    RoadGraphEngine（ElevationAttribute.average_grade、符号付き）と意味を統一する。
+    以前は絶対値で返しており、フロントの勾配色分けモード（routeStyleModes.tsの
+    「下り」カテゴリ）が既定エンジンで一度も表示されない不整合があった（設計レビューB1）。
+    """
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeDescendingElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    seg = candidates[0].segments[0]
+    # 区間距離1.0km（FakeWindService）で標高差-10m → -1.0%
+    assert seg.gradient_percent == -1.0
+    # 難易度は勾配の絶対値で決まる（下りを「易しすぎる」扱いにはしない、domain/difficulty.py）
+    assert seg.elevation_difficulty == gradient_difficulty(1.0)
 
 
 async def test_engine_name_is_openrouteservice():

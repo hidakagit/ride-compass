@@ -15,7 +15,13 @@ class RouteSegment(BaseModel):
 
 
 class RouteSegmentDetail(BaseModel):
-    """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。"""
+    """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
+
+    gradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負）。
+    両エンジン共通（openrouteservice: 区間標高差から算出 / road_graph:
+    ElevationAttribute.average_grade）。フロントの勾配色分け（routeStyleModes.ts）は
+    この符号を前提に「下り」カテゴリを持つため、絶対値で返してはならない。
+    """
 
     start_latitude: float
     start_longitude: float

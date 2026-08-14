@@ -27,7 +27,7 @@
 - 備考: 後続T2以降はすべてこのCIを安全網として進める。将来的にPostGISサービスコンテナを
   足して統合テストも回す拡張余地あり（今回は必須にしない）。
 
-### - [ ] T2. `gradient_percent` の符号統一〔B1〕規模S
+### - [x] T2. `gradient_percent` の符号統一〔B1〕規模S（2026-08-15完了）
 
 1. `backend/tests/test_openrouteservice_engine.py` に「下り区間で負のgradient_percentが返る」検証を追加（先にredを確認）。
 2. `backend/app/services/openrouteservice_engine.py` `_build_segment_details` の

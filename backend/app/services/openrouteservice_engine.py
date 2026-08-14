@@ -136,7 +136,13 @@ class OpenRouteServiceEngine:
             e2 = elevations[i + 1] if i + 1 < len(elevations) else None
             gradient_percent = None
             if e1 is not None and e2 is not None and distance_km > 0:
-                gradient_percent = abs(e2 - e1) / (distance_km * 1000) * 100
+                # 符号付き（進行方向基準、登り=正/下り=負）。RoadGraphEngineの
+                # ElevationAttribute.average_gradeと意味を統一する（domain/route.py:
+                # RouteSegmentDetailの正準定義参照）。以前は絶対値で返しており、
+                # フロントの勾配色分け（routeStyleModes.tsの「下り」カテゴリ）が
+                # 本エンジンでは一度も表示されない不整合があった。難易度への変換は
+                # gradient_difficultyが内部で絶対値を取るため影響しない。
+                gradient_percent = (e2 - e1) / (distance_km * 1000) * 100
 
             wind_penalty = wind_segment["wind_penalty"] if wind_segment else None
             arrival_time = wind_segment["arrival_time"] if wind_segment else None
