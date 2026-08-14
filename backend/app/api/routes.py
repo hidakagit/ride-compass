@@ -240,7 +240,14 @@ async def get_weather(
 
 
 async def get_region_service():
-    async with httpx.AsyncClient(timeout=15.0) as http_client:
+    # OverpassClientのクエリは[timeout:25]（サーバー側が内部で使ってよい上限秒数）を
+    # 指定しているのに、以前はhttpxクライアント側のタイムアウトが15.0秒とそれより短く
+    # 設定されていた。密集した市街地のbboxは実測で10〜15秒以上かかることがあり、
+    # サーバー側がまだ処理を続けている（＝最終的には成功する）リクエストをクライアント側が
+    # 先に打ち切ってしまい、本来成功するはずの問い合わせがタイムアウトエラー扱いになる
+    # 不具合が実機（Renderデプロイ）で確認された。クエリの内部タイムアウトに余裕を持って
+    # 揃える（graph_service.pyのget_graph_serviceと同じ30.0秒）。
+    async with httpx.AsyncClient(timeout=30.0) as http_client:
         yield RegionService(OverpassClient(), http_client)
 
 
