@@ -1,10 +1,14 @@
 # OSM PBF取込バッチ設計（Overpass依存の解消）
 
-ステータス: **Phase 3（Supabase取込・Overpassフォールバック設定無効化）まで完了**（2026-08-14）。実装・検証の詳細記録は docs/architecture.md 9章「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
+ステータス: Phase 3（Supabase取込・Overpassフォールバック設定無効化）に続き、**Phase 4（関東圏への拡大・highwayフィルタリング）完了**（2026-08-15）。実装・検証の詳細記録は docs/architecture.md 9章「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
 
-**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Supabase）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。取込済み範囲は東京都心 35.61,139.67-35.74,139.83。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
+**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Supabase）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。取込済み範囲はデフォルト位置（王子・35.7597,139.7387）を中心とした半径25km（bbox 35.5345,139.4611-35.9849,140.0163）。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
 
-**容量方針（本番想定）**: 本番はSupabaseを想定し、フリープランの容量500MBに対して**安全枠300MB以内**をプロトタイプのデータ量予算とする。Supabase実測: ベース19MB → 生OSM層取込後120MB → ルート生成利用（導出データ生成）後**196MB**。約100MBの余裕がある。取込バッチは完了サマリに`db_size_mb`を常時出力するため、範囲を広げる際はこの値で予算内かを確認する。
+**取込プロファイル（2026-08-15更新）**: `import_profile.yaml`のhighwayマッチを`"*"`から自転車で通行しうる種別（trunk/primary/secondary/tertiary/unclassified/residential/living_street/cycleway/track、および各`_link`）のみへ限定。都心の実データでは全highway種別の73%がfootway/service/steps/path/pedestrian等（自転車ルーティングに使われない）で占められており、除外により生データ量を概算1/3に圧縮できる（副次効果としてルート探索候補から「階段」等も消える）。既存データのクリーンアップ（除外種別の行を`osm_raw_ways`/`osm_raw_nodes`及び派生テーブルから削除）も実施済み。
+
+**容量方針（本番想定）**: 本番はSupabaseを想定し、フリープランの容量500MBに対して**予算400MB以内**とする（2026-08-15にユーザー要件を300MB→400MBへ更新）。Supabase実測の推移: Phase 3直後196MB→運用で292MBまで増加→highwayフィルタ対象外データのクリーンアップで**74.4MB**まで圧縮→半径25km（王子中心）取込後**約342MB**（残り約58MB）。取込バッチは完了サマリに`db_size_mb`を常時出力するため、範囲を広げる際はこの値で予算内かを確認する。派生データ（road_edges等）はルート生成が実際に使った地域ぶんだけ組織的に増えるキャッシュのため、残り予算を圧迫してきたら該当行のDELETEが圧力弁になる（次回リクエストで再生成される）。
+
+**既知の性能上の落とし穴（2026-08-15発見・修正）**: `road_edges.from_node_id`/`to_node_id`（外部キー参照列）に索引が無く、`road_nodes`から行を削除するたびに整合性チェックで`road_edges`の全件シーケンシャルスキャンが走っていた（ローカル検証で35,550行の削除に27分かかった）。`idx_road_edges_from_node_id`/`idx_road_edges_to_node_id`を追加して解消（`road_graph_repository.py`の`create_tables`、`idx_road_edges_osm_way_id`追加時と同じ経緯）。容量予算の「圧力弁」（road_edges等のDELETE）を実際に使う場面で効いてくるため、Supabase等の既存DBには`create_tables()`の再実行（冪等）が必要。
 
 ## 1. 目的と背景
 
@@ -190,10 +194,11 @@ DIは`RegionService(overpass_client, http_client, repository=None, overpass_fall
 | **1** | ✅ **完了（2026-08-14）**。取込バッチ本体（pyosmium＋プロファイル＋COPYバルクロード＋`osm_import_runs`＋タイルマーク＋geom列）を実装。BBBike Tokyo抽出（79MB）から150,265 way/511,948ノードを194秒で取込（bbox指定・z12タイル16枚マーク）し、E2E（東京駅・4km周回・Overpassスタブ注入）で**Overpass呼び出し0回**の8方位候補生成完走を確認（222.7秒）。実データ規模で顕在化した性能・並行性の3問題（行単位merge・GIN配列検索・AsyncSession同時使用）も修正（詳細はarchitecture.md「OSM PBF取込バッチ（Phase 1）」） | Phase 0 |
 | **2** | ✅ **完了（2026-08-14）**。RegionServiceのPostGIS第一系統化（z12祖先タイルでのカバレッジ判定・`overpass_fallback_enabled`設定・DB障害/範囲外時のフォールバック）。あわせて容量予算対応として未使用GINインデックス（28MB）を削除し、取込バッチのサマリへ`db_size_mb`を追加。実DB検証`scripts/verify_phase2_e2e.py`で9項目PASS（詳細は7章Phase B） | Phase 1 |
 | **3** | ✅ **完了（2026-08-14）**。本番想定DB＝**Supabase**（`.env`のDATABASE_URL）へ縮小bbox（35.61,139.67-35.74,139.83、東京駅・新宿・渋谷・上野・池袋を含む）を取込（116,336 way / 389,493ノード / z12タイル4枚 / 195秒 / 取込後120MB）。`GraphService`へもフォールバック無効化フラグを追加し、`.env`で`OVERPASS_FALLBACK_ENABLED=false`＋`ROAD_GRAPH_USE_REPOSITORY=true`に設定（**ロジックは併存、設定のみで無効化**）。Supabaseに対しPhase 2検証9項目・ルート生成E2E（8方位成功・Overpassゼロ・336.6秒）を確認。取込バッチはasyncpg直結用に`?ssl=require`→`sslmode=require`のDSN正規化を追加 | Phase 2 |
+| **4** | ✅ **完了（2026-08-15）**。予算400MB内での関東圏への拡大: (1) `import_profile.yaml`のhighwayマッチを自転車で通行しうる13種別へ限定（生データ量が概算1/3に）、(2) Supabase上の既存データから除外種別（footway/service/steps等）をクリーンアップ（292MB→74.4MB）、(3) `road_edges.from_node_id`/`to_node_id`索引欠如を発見・修正（road_nodes削除27分→数秒）、(4) デフォルト位置（王子）中心の同心円半径別way/node件数をKanto PBF（Geofabrik、487MB）から1パスで分析、(5) ユーザー選定の半径25kmで実取込（273,947 way / 1,182,433ノード / z12タイル56枚 / 596.5秒 / 取込後342MB）。新規カバー範囲（大宮駅付近）でPostGISのみでのMVT生成をスモークテストで確認 | Phase 3 |
 
 ## 10. リスク・未解決事項
 
-- **本番DBの容量（Supabaseフリー500MB・安全枠300MB）**: ローカル実測（Phase 1-2）は東京都心bbox 0.15°×0.2°で導出データ込み284MB（GINインデックス28MB削除後）と予算上限規模だったため、**Phase 3のSupabase取込ではbboxを約7割（35.61,139.67-35.74,139.83）へ縮小**した。Supabase実測: ベース19MB → 生OSM層120MB → ルート生成E2E後196MB。**導出データ（road_edges/surface_attributes等）はルート生成が要求した地域ぶんだけ蓄積されていく**点に注意（生OSM層と違い取込時に確定しない）。ただし導出テーブルはすべて生OSM層から再計算可能なキャッシュなので、予算が逼迫したら該当行のDELETEが安全な圧力弁になる（次回リクエストで再生成される）。取込バッチが完了サマリに`db_size_mb`を出すため、超過は取込時点で気づける。さらに広げる場合は(1)対象地域の入れ替え、(2)導出テーブルの圧縮（surface_attributesのway単位化等）、(3)有償プランを検討する
+- **本番DBの容量（Supabaseフリー500MB・予算400MB）**: Phase 4（2026-08-15）で関東圏（Geofabrik kanto-latest.osm.pbf）全域をフィルタ後でも試算すると生データ層だけで約1.9GB（way 1,312,048件・node 8,900,206件）となり、フィルタリングだけでは関東7都県フルカバーには全く届かないことが実測で判明した。**現実的な運用は「王子（デフォルト位置）中心の同心円状に、実測サイズを見ながら段階的に広げる」**。Phase 4時点はSupabase実測342MB（残り約58MB）。**導出データ（road_edges/surface_attributes等）はルート生成が要求した地域ぶんだけ蓄積されていく**点に注意（生OSM層と違い取込時に確定しない。都心の実測では「フル活用時」に生データ層の約51%相当が追加で乗った）。ただし導出テーブルはすべて生OSM層から再計算可能なキャッシュなので、予算が逼迫したら該当行のDELETEが安全な圧力弁になる（次回リクエストで再生成される。ただしこの圧力弁自体がPhase 4で発覚した索引欠如の影響を受けていたため、`create_tables()`の再実行を先に済ませておくこと）。取込バッチが完了サマリに`db_size_mb`を出すため、超過は取込時点で気づける。さらに広げる場合は(1)半径をさらに広げて実測、(2)導出テーブルの圧縮（surface_attributesのway単位化等）、(3)有償プランを検討する
 - ~~**毎リクエストの分割再計算・全量再保存のコスト**: タイル取得済みでも`get_or_build_graph_with_attributes`は生データからの交差点分割と全Edge再UPSERTを毎回行うため、都心bboxでprepareに約187秒かかる（E2E実測）。生データ不変時に`road_edges`を直接読む省略パスが次の最適化候補~~ → **解消済み**。`RoadGraphRepository.is_split_up_to_date`（`osm_raw_ways.split_at`と`updated_at`の比較）＋`get_graph_in_bbox`による省略パスを実装し、`GraphService.get_or_build_graph_with_attributes`に配線した（architecture.md「OSM PBF取込バッチ（Phase 1）」参照）
 - ~~**実PostGIS未検証のコードの上に建てる**~~: **解消済み**。Phase 0で`road_graph_repository.py`の全操作を実PostGIS（ローカルPG18.6＋PostGIS 3.6.2）に対して検証した
 - **開発用DBの選定が未決定**: `backend/.env`の`DATABASE_URL`は現在Supabase（クラウドPostgres）を指しており、Phase 0検証はローカルPG18へ環境変数で上書きして実施した。Phase 1着手時に「ローカルPG18／Supabase／Render Postgres」のどれを取込先の正とするか決める（取込バッチは`--database-url`でどこへでも向けられる設計のため、複数併用も可能）

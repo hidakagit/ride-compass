@@ -6,7 +6,24 @@ elements:
   - name: roads
     element_type: way
     match:
-      highway: "*"
+      # 自転車で通行しうる種別のみ取込（歩行者専用・施設内経路・階段・自動車専用道等は除外）。
+      # 都心実データではhighway=*全件の73%がfootway/service/steps/path/pedestrian等で
+      # 占められており、除外することで生データ量を概算1/3に圧縮できる（関東圏への拡大に
+      # 向けた容量対策）。副次的にルート探索の候補から「階段」等の非現実的な経路も消える。
+      highway:
+        - trunk
+        - trunk_link
+        - primary
+        - primary_link
+        - secondary
+        - secondary_link
+        - tertiary
+        - tertiary_link
+        - unclassified
+        - residential
+        - living_street
+        - cycleway
+        - track
     target: osm_raw_ways
   # --- 将来の拡張例（有効化にはコード側のtarget対応も必要） ---
   # - name: drinking_water

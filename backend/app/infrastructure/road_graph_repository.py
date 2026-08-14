@@ -96,6 +96,16 @@ async def create_tables(engine: AsyncEngine) -> None:
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS idx_road_edges_osm_way_id ON road_edges USING btree (osm_way_id)")
         )
+        # road_nodesへのDELETE（容量予算超過時の圧力弁・古いhighway種別のクリーンアップ等）が
+        # from_node_id/to_node_id経由のFK整合性チェックでroad_edgesの全件シーケンシャル
+        # スキャンを行っていたため追加（既存DB向けの冪等な追加。関東圏拡大に向けた
+        # クリーンアップ作業で発覚: 35,550行の削除に27分かかった）
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS idx_road_edges_from_node_id ON road_edges USING btree (from_node_id)")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS idx_road_edges_to_node_id ON road_edges USING btree (to_node_id)")
+        )
         # geom列導入前に保存された既存行のバックフィル（node_ids→osm_raw_nodesから
         # LINESTRINGを再構成）。get_way_specs_with_closureはgeomを前提とした空間検索の
         # ため、NULLのままだと旧データが閉包対象から漏れる。座標が判明しているノードが
