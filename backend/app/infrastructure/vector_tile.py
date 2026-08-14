@@ -35,8 +35,10 @@ def _tile_bounds_mercator(z: int, x: int, y: int) -> tuple[float, float, float, 
 
 
 def encode_road_surface_tile(z: int, x: int, y: int, ways: list[dict]) -> bytes:
-    """路面way（{"coordinates": [[lat, lon], ...], "surface_good": bool | None}の配列）を
-    z/x/yのMVT（Mapbox Vector Tile）にエンコードする。
+    """路面way（{"coordinates": [[lat, lon], ...], "surface_good": bool | None,
+    "surface": str | None, "highway": str | None}の配列）をz/x/yのMVT（Mapbox Vector Tile）に
+    エンコードする。surface/highwayはPostGIS側生成（_ROAD_SURFACE_TILE_MVT_SQL）と同じ契約で、
+    値がNone（キー無しも同義）のプロパティはmapbox_vector_tileがfeatureから省略する。
 
     タイル座標系はMVT仕様通り、原点(0,0)がタイル左上・y軸下向き（標準的な画像ピクセル座標と同じ）。
     Web Mercatorへ投影してからタイルのMercator範囲に対する線形スケールでタイルローカル座標
@@ -60,7 +62,11 @@ def encode_road_surface_tile(z: int, x: int, y: int, ways: list[dict]) -> bytes:
         features.append(
             {
                 "geometry": {"type": "LineString", "coordinates": coordinates},
-                "properties": {"surface_good": way["surface_good"]},
+                "properties": {
+                    "surface_good": way["surface_good"],
+                    "surface": way.get("surface"),
+                    "highway": way.get("highway"),
+                },
             }
         )
 

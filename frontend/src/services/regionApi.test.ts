@@ -11,8 +11,9 @@ describe("regionApi", () => {
     expect(ROAD_TILE_MAX_ZOOM).toBe(15);
   });
 
-  it("roadSurfaceTileUrlはwindow.location.originを使ったタイルURLテンプレートを返す", () => {
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf`);
+  it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
+    // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=2`);
   });
 
   describe("refreshBasemapCache", () => {

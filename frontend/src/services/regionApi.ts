@@ -4,6 +4,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 
+// タイル内容の世代。タイルへ焼き込むプロパティが増えた（内容の互換性が変わった）ときに
+// 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
+// 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
+// （region_service.pyの_tile_cache_path）と対で更新すること。
+// v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
+const ROAD_SURFACE_TILE_VERSION = "2";
+
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの
 // 取得はMapLibreがWeb Worker内で行うため、相対パスのままだと「ページのオリジンに対して
@@ -12,7 +19,7 @@ const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 // 必要があるため、モジュール読み込み時ではなく呼び出し時（クライアントサイドのみ）に
 // 評価する関数として提供する。
 export function roadSurfaceTileUrl(): string {
-  return `${window.location.origin}${ROAD_SURFACE_TILE_PATH}`;
+  return `${window.location.origin}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
 }
 
 // バックエンド（domain/region.py）のROAD_TILE_MIN_ZOOM/MAX_ZOOMと一致させる。

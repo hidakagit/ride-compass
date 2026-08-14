@@ -16,7 +16,12 @@ ROAD_SURFACE_TILE_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/road-surface/{z}/{x}/{y}.pbf"
+    # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。パスへ世代を含める
+    # ことで、プロパティ追加前に保存された旧タイルをキャッシュヒットさせない（旧世代の
+    # ファイルは「変わらないデータを更新」のclear_allでまとめて消える）。フロントエンドの
+    # タイルURLのバージョンクエリ（regionApi.tsのROAD_SURFACE_TILE_VERSION、ブラウザ
+    # キャッシュのバスト用）と役割が対になっている。
+    return f"region/road-surface/v2/{z}/{x}/{y}.pbf"
 
 
 class RegionService:
@@ -103,10 +108,14 @@ class RegionService:
                 fields["source"] = "overpass"
                 bbox = tile_bounds_lonlat(z, x, y)
                 raw_ways = await self._overpass_client.get_roads(self._http_client, bbox)
+                # surfaceの正規化（strip().lower()）はPostGIS側生成のlower(btrim())と同じ契約。
+                # 空文字タグはNone（プロパティ省略＝不明）へ倒す。
                 ways = [
                     {
                         "coordinates": raw["coordinates"],
                         "surface_good": classify_osm_surface(raw.get("tags", {}).get("surface")),
+                        "surface": ((raw.get("tags", {}).get("surface") or "").strip().lower() or None),
+                        "highway": raw.get("tags", {}).get("highway"),
                     }
                     for raw in (raw_ways or [])
                 ]

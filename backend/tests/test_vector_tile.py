@@ -11,8 +11,18 @@ def _decode(tile_bytes: bytes) -> dict:
 
 def test_encode_road_surface_tile_produces_a_decodable_layer_with_expected_properties():
     ways = [
-        {"coordinates": [[35.7550, 139.7350], [35.7560, 139.7360]], "surface_good": True},
-        {"coordinates": [[35.7570, 139.7370], [35.7580, 139.7380]], "surface_good": False},
+        {
+            "coordinates": [[35.7550, 139.7350], [35.7560, 139.7360]],
+            "surface_good": True,
+            "surface": "asphalt",
+            "highway": "residential",
+        },
+        {
+            "coordinates": [[35.7570, 139.7370], [35.7580, 139.7380]],
+            "surface_good": False,
+            "surface": "gravel",
+            "highway": "track",
+        },
         {"coordinates": [[35.7590, 139.7390], [35.7600, 139.7400]], "surface_good": None},
     ]
 
@@ -21,8 +31,13 @@ def test_encode_road_surface_tile_produces_a_decodable_layer_with_expected_prope
 
     features = decoded[ROAD_SURFACE_LAYER_NAME]["features"]
     assert len(features) == 3
-    surface_values = {f["properties"].get("surface_good") for f in features}
-    assert surface_values == {True, False, None}
+    properties = sorted((f["properties"] for f in features), key=lambda p: p.get("surface") or "")
+    # None値（surface/highwayキー無しの旧形式含む）のプロパティはfeatureから省略される
+    assert properties == [
+        {},
+        {"surface_good": True, "surface": "asphalt", "highway": "residential"},
+        {"surface_good": False, "surface": "gravel", "highway": "track"},
+    ]
 
 
 def test_encode_road_surface_tile_places_points_within_tile_extent_for_a_point_inside_the_tile():

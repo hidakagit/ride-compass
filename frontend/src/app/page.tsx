@@ -7,6 +7,16 @@ import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
+import {
+  DEFAULT_ROAD_STYLE_MODE_ID,
+  isRoadStyleModeId,
+  type RoadStyleModeId,
+} from "@/components/Map/roadStyleModes";
+import {
+  DEFAULT_ROUTE_STYLE_MODE_ID,
+  isRouteStyleModeId,
+  type RouteStyleModeId,
+} from "@/components/Map/routeStyleModes";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
@@ -21,6 +31,26 @@ import type { WeatherConditions } from "@/types/weather";
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
+
+// 色分けモード（路面・ルート）の保存先。プライベートブラウジング等でlocalStorageが
+// 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
+// 握りつぶす。
+const ROAD_STYLE_MODE_STORAGE_KEY = "ridecompass:road-style-mode";
+const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
+
+function loadStoredStyleMode<T extends string>(storageKey: string, isValid: (v: string | null) => v is T, fallback: T): T {
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    if (isValid(stored)) return stored;
+  } catch {
+    // 読み出し不可はデフォルト扱い
+  }
+  return fallback;
+}
+
+// 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
+// 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
+const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 
 // 現在地に移動ボタン・そのエラー表示の、地図右下からの間隔（px）。
 // デバッグモードOFF時はMapLibreの既定のアトリビューション表示（右下）と重ならない程度の
@@ -56,7 +86,9 @@ export default function Home() {
 
   const [showElevation, setShowElevation] = useState(false);
   const [showRoad, setShowRoad] = useState(false);
-  const [dynamicLayerOn, setDynamicLayerOn] = useState(true);
+  const [roadStyleModeId, setRoadStyleModeId] = useState<RoadStyleModeId>(DEFAULT_ROAD_STYLE_MODE_ID);
+  const [routeLayerOn, setRouteLayerOn] = useState(true);
+  const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -83,6 +115,56 @@ export default function Home() {
       setSidebarCollapsed(true);
     }
   }, [isMobile]);
+
+  // 前回選んだ色分けモード（路面・ルート）を復元する。useStateの初期化子でlocalStorageを
+  // 読むとSSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
+  // レイアウトエフェクトなのはサイドバー折りたたみと同じちらつき防止の理由。
+  useIsomorphicLayoutEffect(() => {
+    setRoadStyleModeId(loadStoredStyleMode(ROAD_STYLE_MODE_STORAGE_KEY, isRoadStyleModeId, DEFAULT_ROAD_STYLE_MODE_ID));
+    setRouteStyleModeId(
+      loadStoredStyleMode(ROUTE_STYLE_MODE_STORAGE_KEY, isRouteStyleModeId, DEFAULT_ROUTE_STYLE_MODE_ID),
+    );
+  }, []);
+
+  const handleRoadStyleModeChange = useCallback((id: RoadStyleModeId) => {
+    setRoadStyleModeId(id);
+    try {
+      window.localStorage.setItem(ROAD_STYLE_MODE_STORAGE_KEY, id);
+    } catch {
+      // 保存不可でも選択自体はこのセッション内で有効
+    }
+  }, []);
+
+  const handleRouteStyleModeChange = useCallback((id: RouteStyleModeId) => {
+    setRouteStyleModeId(id);
+    try {
+      window.localStorage.setItem(ROUTE_STYLE_MODE_STORAGE_KEY, id);
+    } catch {
+      // 保存不可でも選択自体はこのセッション内で有効
+    }
+  }, []);
+
+  // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
+  // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
+  // 両系統を管理できる。その場の絞り込み操作なのでlocalStorageへは保存しない。
+  const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useState<Record<string, string[]>>({});
+  const hiddenRoadLegendKeys = hiddenLegendKeysByMode[roadStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
+  const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
+  const toggleHiddenLegendKey = useCallback((modeId: string, key: string) => {
+    setHiddenLegendKeysByMode((prev) => {
+      const current = prev[modeId] ?? [];
+      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+      return { ...prev, [modeId]: next };
+    });
+  }, []);
+  const handleRoadLegendToggle = useCallback(
+    (key: string) => toggleHiddenLegendKey(roadStyleModeId, key),
+    [roadStyleModeId, toggleHiddenLegendKey],
+  );
+  const handleRouteLegendToggle = useCallback(
+    (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
+    [routeStyleModeId, toggleHiddenLegendKey],
+  );
 
   // モバイルのドロワーを閉じる共通処理。背景タップ・スワイプ・Escapeキーのいずれから
   // 閉じた場合も、フォーカスが失われたパネル内要素からトグルボタンへ戻す（キーボード/
@@ -260,7 +342,11 @@ export default function Home() {
           location={location}
           showElevation={showElevation}
           showRoad={showRoad}
-          dynamicLayerOn={dynamicLayerOn}
+          roadStyleModeId={roadStyleModeId}
+          hiddenRoadLegendKeys={hiddenRoadLegendKeys}
+          routeLayerOn={routeLayerOn}
+          routeStyleModeId={routeStyleModeId}
+          hiddenRouteLegendKeys={hiddenRouteLegendKeys}
           onRegionZoomHintChange={setRegionZoomTooWide}
           refreshToken={refreshToken}
         />
@@ -270,8 +356,16 @@ export default function Home() {
           onShowElevationToggle={setShowElevation}
           showRoad={showRoad}
           onShowRoadToggle={setShowRoad}
-          dynamicLayerOn={dynamicLayerOn}
-          onDynamicLayerToggle={setDynamicLayerOn}
+          roadStyleModeId={roadStyleModeId}
+          onRoadStyleModeChange={handleRoadStyleModeChange}
+          hiddenRoadLegendKeys={hiddenRoadLegendKeys}
+          onRoadLegendToggle={handleRoadLegendToggle}
+          routeLayerOn={routeLayerOn}
+          onRouteLayerToggle={setRouteLayerOn}
+          routeStyleModeId={routeStyleModeId}
+          onRouteStyleModeChange={handleRouteStyleModeChange}
+          hiddenRouteLegendKeys={hiddenRouteLegendKeys}
+          onRouteLegendToggle={handleRouteLegendToggle}
           hasDetail={hasDetail}
           regionZoomTooWide={regionZoomTooWide}
         />

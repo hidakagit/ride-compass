@@ -24,7 +24,12 @@ Z, X, Y = 14, 14551, 6447
 
 
 async def test_get_road_surface_tile_returns_mvt_bytes():
-    ways_data = [{"tags": {"surface": "asphalt"}, "coordinates": [[35.755, 139.735], [35.756, 139.736]]}]
+    ways_data = [
+        {
+            "tags": {"surface": " Asphalt ", "highway": "residential"},
+            "coordinates": [[35.755, 139.735], [35.756, 139.736]],
+        }
+    ]
     overpass_client = FakeOverpassClient(ways=ways_data)
     service = RegionService(overpass_client, http_client=None)
 
@@ -33,6 +38,13 @@ async def test_get_road_surface_tile_returns_mvt_bytes():
     assert isinstance(tile_bytes, bytes)
     assert len(tile_bytes) > 0
     assert overpass_client.call_count == 1
+    # Overpassフォールバック経路でもPostGIS側生成と同じプロパティ契約（surface_good・
+    # 正規化済みsurface・highway）でエンコードされること
+    import mapbox_vector_tile
+
+    decoded = mapbox_vector_tile.decode(tile_bytes)
+    properties = [f["properties"] for f in decoded["road_surface"]["features"]]
+    assert properties == [{"surface_good": True, "surface": "asphalt", "highway": "residential"}]
 
 
 async def test_get_road_surface_tile_reuses_cache_on_second_call():

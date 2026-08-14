@@ -6,6 +6,9 @@ import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMa
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinates, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM, refreshBasemapCache, roadSurfaceTileUrl } from "@/services/regionApi";
+import { DEFAULT_ROAD_STYLE_MODE_ID, getRoadStyleMode, type RoadStyleModeId } from "@/components/Map/roadStyleModes";
+import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
+import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import { debugLog } from "@/lib/debugLog";
 
 // 地図タイルはフロントエンド自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）
@@ -76,24 +79,11 @@ export function segmentsToFeatureCollection(
   };
 }
 
-// 0-100の難易度を緑(易しい)〜黄〜赤(難しい)に補間する。データが無い区間はグレー表示にする。
-function buildDifficultyColorExpression(field: string) {
-  return [
-    "case",
-    ["==", ["get", field], null],
-    "#9ca3af",
-    ["interpolate", ["linear"], ["get", field], 0, "#16a34a", 50, "#f59e0b", 100, "#dc2626"],
-  ];
-}
-
-const ROAD_SURFACE_COLOR_EXPRESSION = [
-  "case",
-  ["==", ["get", "surface_good"], null],
-  "#9ca3af",
-  ["==", ["get", "surface_good"], true],
-  "#16a34a",
-  "#dc2626",
-];
+// 路面レイヤーの色分け式はモード定義（roadStyleModes.ts）、ルートレイヤー（風・勾配）の
+// 色分け式はrouteStyleModes.tsから取得する。レイヤー作成時はデフォルトモードの式で作り、
+// 以降のモード切替はsetPaintProperty/setFilterによる式の差し替えのみ（路面タイルには
+// surface_good/surface/highwayが、ルートのsegmentsにはwind_difficulty/gradient_percentが
+// すべて入っているため再取得は不要）。
 
 function setLayerVisibility(map: MapLibreMap, layerId: string, visible: boolean) {
   if (!map.getLayer(layerId)) return;
@@ -171,11 +161,15 @@ function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], selecte
   runWhenStyleReady(map, applyData);
 }
 
-// 風は「時間で変わるデータ」として、選択中候補にのみ動的に重ね描きする
-function drawDetailSegments(map: MapLibreMap, segments: RouteSegmentDetail[]) {
+// ルートレイヤー（有向・選択中ルート基準のデータ。風・勾配）は、選択中候補にのみ
+// 動的に重ね描きする。色分けモード・凡例フィルタの切替はスタイル式の差し替えのみ。
+function drawDetailSegments(
+  map: MapLibreMap,
+  segments: RouteSegmentDetail[],
+  mode: RouteStyleMode,
+  hiddenLegendKeys: readonly string[]
+) {
   const data = segmentsToFeatureCollection(segments);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const colorExpression = buildDifficultyColorExpression("wind_difficulty") as any;
 
   const applyData = () => {
     const source = map.getSource(DETAIL_SOURCE_ID) as GeoJSONSource | undefined;
@@ -187,9 +181,14 @@ function drawDetailSegments(map: MapLibreMap, segments: RouteSegmentDetail[]) {
         id: DETAIL_LAYER_ID,
         type: "line",
         source: DETAIL_SOURCE_ID,
-        paint: { "line-color": colorExpression, "line-width": 6, "line-opacity": 1 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        paint: { "line-color": mode.colorExpression as any, "line-width": 6, "line-opacity": 1 },
       });
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setPaintProperty(DETAIL_LAYER_ID, "line-color", mode.colorExpression as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setFilter(DETAIL_LAYER_ID, buildLegendFilterExpression(mode.legend, hiddenLegendKeys) as any);
     setLayerVisibility(map, DETAIL_LAYER_ID, true);
   };
 
@@ -253,7 +252,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       "source-layer": ROAD_TILE_SOURCE_LAYER,
       paint: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": ROAD_SURFACE_COLOR_EXPRESSION as any,
+        "line-color": getRoadStyleMode(DEFAULT_ROAD_STYLE_MODE_ID).colorExpression as any,
         "line-width": 3,
         "line-opacity": 0.8,
       },
@@ -263,10 +262,22 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-function setRoadSurfaceTileVisibility(map: MapLibreMap, visible: boolean) {
+// 路面レイヤーの表示状態を現在のモードに合わせて一括反映する。レイヤーは3つのモードで
+// 共有するため色式を毎回差し替え、凡例で非表示にしたカテゴリはフィルタ式で除外する。
+function applyRoadLayerState(
+  map: MapLibreMap,
+  showRoad: boolean,
+  modeId: RoadStyleModeId,
+  hiddenLegendKeys: readonly string[]
+) {
   runWhenStyleReady(map, () => {
     ensureRoadSurfaceTileLayer(map);
-    setLayerVisibility(map, ROAD_TILE_LAYER_ID, visible);
+    setLayerVisibility(map, ROAD_TILE_LAYER_ID, showRoad);
+    const mode = getRoadStyleMode(modeId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-color", mode.colorExpression as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setFilter(ROAD_TILE_LAYER_ID, buildLegendFilterExpression(mode.legend, hiddenLegendKeys) as any);
   });
 }
 
@@ -335,7 +346,11 @@ interface MapViewProps {
   location: Coordinates;
   showElevation: boolean;
   showRoad: boolean;
-  dynamicLayerOn: boolean;
+  roadStyleModeId: RoadStyleModeId;
+  hiddenRoadLegendKeys: readonly string[];
+  routeLayerOn: boolean;
+  routeStyleModeId: RouteStyleModeId;
+  hiddenRouteLegendKeys: readonly string[];
   onRegionZoomHintChange: (tooWide: boolean) => void;
   refreshToken: number;
 }
@@ -346,7 +361,11 @@ export default function MapView({
   location,
   showElevation,
   showRoad,
-  dynamicLayerOn,
+  roadStyleModeId,
+  hiddenRoadLegendKeys,
+  routeLayerOn,
+  routeStyleModeId,
+  hiddenRouteLegendKeys,
   onRegionZoomHintChange,
   refreshToken,
 }: MapViewProps) {
@@ -361,7 +380,17 @@ export default function MapView({
   const [styleLoadFailed, setStyleLoadFailed] = useState(false);
   const showRoadRef = useRef(showRoad);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
-  const redrawPropsRef = useRef({ routes, selectedRouteId, dynamicLayerOn, showElevation, showRoad });
+  const redrawPropsRef = useRef({
+    routes,
+    selectedRouteId,
+    routeLayerOn,
+    routeStyleModeId,
+    hiddenRouteLegendKeys,
+    showElevation,
+    showRoad,
+    roadStyleModeId,
+    hiddenRoadLegendKeys,
+  });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
@@ -374,8 +403,28 @@ export default function MapView({
   }, [onRegionZoomHintChange]);
 
   useEffect(() => {
-    redrawPropsRef.current = { routes, selectedRouteId, dynamicLayerOn, showElevation, showRoad };
-  }, [routes, selectedRouteId, dynamicLayerOn, showElevation, showRoad]);
+    redrawPropsRef.current = {
+      routes,
+      selectedRouteId,
+      routeLayerOn,
+      routeStyleModeId,
+      hiddenRouteLegendKeys,
+      showElevation,
+      showRoad,
+      roadStyleModeId,
+      hiddenRoadLegendKeys,
+    };
+  }, [
+    routes,
+    selectedRouteId,
+    routeLayerOn,
+    routeStyleModeId,
+    hiddenRouteLegendKeys,
+    showElevation,
+    showRoad,
+    roadStyleModeId,
+    hiddenRoadLegendKeys,
+  ]);
 
   // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
   // カスタムソース/レイヤーを含むスタイル全体を差し替えるため、こちらで追加した
@@ -384,11 +433,20 @@ export default function MapView({
   // タイルソースのため、再取得は不要（キャッシュがクリアされていれば次のタイル要求で
   // 自動的に新しいタイルが生成される）。
   const redrawAllLayers = useCallback((map: MapLibreMap) => {
-    const { routes, selectedRouteId, dynamicLayerOn, showElevation, showRoad } = redrawPropsRef.current;
+    const {
+      routes,
+      selectedRouteId,
+      routeLayerOn,
+      routeStyleModeId,
+      hiddenRouteLegendKeys,
+      showElevation,
+      showRoad,
+      roadStyleModeId,
+      hiddenRoadLegendKeys,
+    } = redrawPropsRef.current;
     ensureGsiReliefLayer(map);
     setGsiReliefVisibility(map, showElevation);
-    ensureRoadSurfaceTileLayer(map);
-    setRoadSurfaceTileVisibility(map, showRoad);
+    applyRoadLayerState(map, showRoad, roadStyleModeId, hiddenRoadLegendKeys);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
 
     drawBaseRoutes(map, routes, selectedRouteId);
@@ -396,8 +454,8 @@ export default function MapView({
     drawSelectedOutline(map, routes, selectedRouteId);
 
     const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
-    if (dynamicLayerOn && selected?.segments) {
-      drawDetailSegments(map, selected.segments);
+    if (routeLayerOn && selected?.segments) {
+      drawDetailSegments(map, selected.segments, getRouteStyleMode(routeStyleModeId), hiddenRouteLegendKeys);
     } else {
       hideDetailSegments(map);
     }
@@ -428,7 +486,7 @@ export default function MapView({
     ensureGsiReliefLayer(map);
     ensureRoadSurfaceTileLayer(map);
 
-    // 路面レイヤーの区間・風の詳細区間をクリックすると詳細をポップアップ表示する
+    // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
     function handleClick(e: MapMouseEvent) {
       const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID].filter((id) => map.getLayer(id));
@@ -571,18 +629,19 @@ export default function MapView({
     drawSelectedOutline(map, routes, selectedRouteId);
   }, [routes, selectedRouteId]);
 
-  // 風の動的レイヤー（選択中候補のみ）
+  // ルートレイヤー（有向データ: 風・勾配。選択中候補のみ）。ON/OFF・色分けモード・
+  // 凡例フィルタのいずれの切替もスタイル式の差し替えだけで反映される
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    if (dynamicLayerOn && selectedCandidate?.segments) {
-      drawDetailSegments(map, selectedCandidate.segments);
+    if (routeLayerOn && selectedCandidate?.segments) {
+      drawDetailSegments(map, selectedCandidate.segments, getRouteStyleMode(routeStyleModeId), hiddenRouteLegendKeys);
     } else {
       hideDetailSegments(map);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, selectedRouteId, dynamicLayerOn]);
+  }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
   // 標高チェックの切替時は、ラスタレイヤーのvisibilityを切り替えるだけ（データ取得不要）
   useEffect(() => {
@@ -591,14 +650,16 @@ export default function MapView({
     setGsiReliefVisibility(map, showElevation);
   }, [showElevation]);
 
-  // 路面チェックの切替時も、ベクタタイルレイヤーのvisibilityを切り替えるだけ（データ取得は
-  // MapLibreがパン/ズームに応じて自動で行うため、明示的なfetchは不要）
+  // 路面ON/OFF・色分けモード・凡例フィルタの切替は、いずれもvisibility/スタイル式/
+  // フィルタ式の差し替えのみで反映される（データ取得はMapLibreがパン/ズームに応じて
+  // 自動で行うため、明示的なfetchは不要）。マウント直後にも一度走り、localStorageから
+  // 復元されたモードをデフォルト式で作られたレイヤーへ反映する。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    setRoadSurfaceTileVisibility(map, showRoad);
+    applyRoadLayerState(map, showRoad, roadStyleModeId, hiddenRoadLegendKeys);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
-  }, [showRoad]);
+  }, [showRoad, roadStyleModeId, hiddenRoadLegendKeys]);
 
   // 「変わらないデータを更新」ボタン: 基礎地図タイル・路面ベクタタイルのキャッシュをクリアして
   // スタイルを再読み込みする。setStyle()はカスタムレイヤーを消すため、style.load後に

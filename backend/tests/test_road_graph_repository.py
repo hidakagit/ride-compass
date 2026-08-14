@@ -441,9 +441,9 @@ async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_covered_but_no
 
 async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classification(road_graph_repository):
     """生成されたMVTがPythonエンコーダ（infrastructure/vector_tile.py）と同じ契約
-    （レイヤー名road_surface・surface_goodプロパティ・不明はキー省略）を満たすことを、
-    実際にデコードして確認する。分類はclassify_osm_surfaceと同じタグ集合
-    （空白trim・小文字化込み）に従う。
+    （レイヤー名road_surface・surface_good/surface/highwayプロパティ・不明はキー省略）を
+    満たすことを、実際にデコードして確認する。分類はclassify_osm_surfaceと同じタグ集合
+    （空白trim・小文字化込み）に従い、surfaceプロパティにも同じ正規化済みの生タグが入る。
     """
     import mapbox_vector_tile
 
@@ -464,11 +464,17 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     assert set(decoded.keys()) == {"road_surface"}
     properties = sorted(
         (feature["properties"] for feature in decoded["road_surface"]["features"]),
-        key=lambda p: (len(p), str(p.get("surface_good"))),
+        key=lambda p: p.get("surface") or "",
     )
     # 不明（タグ無し・未知タグ）はsurface_goodキー自体が省略される（フロントエンドの
-    # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）
-    assert properties == [{}, {}, {"surface_good": False}, {"surface_good": True}]
+    # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）。
+    # surfaceタグ無しも同様にsurfaceキーごと省略される。
+    assert properties == [
+        {"highway": "residential"},
+        {"surface_good": True, "surface": "asphalt", "highway": "residential"},
+        {"surface_good": False, "surface": "gravel", "highway": "track"},
+        {"surface": "mystery_tag", "highway": "residential"},
+    ]
 
 
 async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_repository):

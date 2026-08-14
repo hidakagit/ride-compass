@@ -174,6 +174,12 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 # lower(btrim())はclassify_osm_surfaceのstrip().lower()に対応する（btrimはASCII空白のみ
 # だが、OSMのsurfaceタグに全角空白等が入るケースは実データ上考慮しない）。
 #
+# surface（正規化済み生タグ）とhighway（OSM道路種別）もプロパティとして焼き込む。
+# フロントエンドが色分けモード（舗装/未舗装・路面種別・道路種別）をスタイル式の差し替え
+# だけで切り替えられるようにするためで、surface_good（3値の正準分類。ルート評価と共通）
+# は従来互換のためそのまま残す。surfaceはフロントエンドのグルーピングが文字列一致で
+# 済むようlower(btrim())で正規化した値を入れる。
+#
 # ST_AsMVTGeom: 対象タイルのWeb Mercator範囲（ST_TileEnvelope、XYZ方式でPython側の
 # tile_bounds_lonlatと同じタイル座標系）へ射影し、extent=TILE_EXTENT（Pythonエンコーダと
 # 同じ4096）・バッファ256（MVT標準値。タイル境界を跨ぐ線の描画継続に必要）でクリップする。
@@ -204,7 +210,9 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         CASE
                             WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
                             WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
-                        END AS surface_good
+                        END AS surface_good,
+                        lower(btrim(w.surface)) AS surface,
+                        w.highway AS highway
                     FROM osm_raw_ways w
                     WHERE w.geom IS NOT NULL
                       AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
