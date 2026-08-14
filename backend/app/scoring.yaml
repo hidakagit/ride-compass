@@ -1,0 +1,7 @@
+# 総合スコア(total_score)算出時の各指標の重み。合計が1.0になるよう管理する。
+# 一部の候補で特定の指標が取得できなかった場合は、残りの重みで再正規化して合成する。
+scoring:
+  distance_weight: 0.30
+  elevation_weight: 0.15
+  wind_weight: 0.30
+  road_weight: 0.25

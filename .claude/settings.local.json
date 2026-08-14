@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(pip --version)",
+      "Bash(git --version)",
+      "Bash(python -m venv .venv)",
+      "Bash(\".venv/Scripts/python.exe\" -m pip install --quiet --upgrade pip)",
+      "Bash(\".venv/Scripts/python.exe\" -m pip install --quiet -r requirements.txt)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest -q)",
+      "Bash(npx --yes create-next-app@latest frontend --typescript --app --eslint --src-dir --import-alias \"@/*\" --no-tailwind --use-npm)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
