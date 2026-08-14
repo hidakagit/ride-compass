@@ -16,7 +16,7 @@
 
 ## Phase 1: 安全網と即修正（今すぐ）
 
-### - [ ] T1. CI導入（GitHub Actions）〔B2〕規模M・最優先
+### - [x] T1. CI導入（GitHub Actions）〔B2〕規模M・最優先（2026-08-15完了）
 
 - `.github/workflows/ci.yml` を新規作成。トリガー: push / pull_request。
 - ジョブ構成:
