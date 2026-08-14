@@ -69,4 +69,30 @@ describe("RouteForm", () => {
 
     expect(onGenerate).not.toHaveBeenCalled();
   });
+
+  it("距離を0にして送信するとエラーメッセージが表示される(以前はサイレント失敗だった)", async () => {
+    const user = userEvent.setup();
+    render(<RouteForm onGenerate={vi.fn()} loading={false} />);
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "0");
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("距離は0より大きい値を入力してください。");
+  });
+
+  it("上限(100km)を超える距離を送信するとonGenerateは呼ばれずエラーが表示される", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "150");
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("距離は100km以下で入力してください。");
+  });
 });

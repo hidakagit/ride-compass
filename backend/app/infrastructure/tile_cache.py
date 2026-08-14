@@ -1,9 +1,12 @@
 import hashlib
+import logging
 import shutil
 
 from app.infrastructure.cache_db import DATA_DIR
 
 CACHE_DIR = DATA_DIR / "tile_cache"
+
+logger = logging.getLogger("app.infrastructure.tile_cache")
 
 
 def _cache_key(path: str) -> str:
@@ -23,18 +26,33 @@ def get(path: str) -> tuple[bytes, str] | None:
     """キャッシュ済みなら(内容, Content-Type)を返す。未キャッシュならNone。"""
     key = _cache_key(path)
     content_file = CACHE_DIR / f"{key}.bin"
-    if not content_file.is_file():
+    try:
+        if not content_file.is_file():
+            return None
+        meta_file = CACHE_DIR / f"{key}.meta"
+        content_type = meta_file.read_text(encoding="utf-8") if meta_file.is_file() else "application/octet-stream"
+        return content_file.read_bytes(), content_type
+    except OSError:
+        # is_file()確認とread_bytes()の間にclear_all()（rmtree）と競合すると
+        # FileNotFoundError等が起きうる。未キャッシュ扱いにフォールバックし、
+        # 呼び出し元に再取得させる。
+        logger.warning("tile cache read failed for path=%s, treating as cache miss", path, exc_info=True)
         return None
-    meta_file = CACHE_DIR / f"{key}.meta"
-    content_type = meta_file.read_text(encoding="utf-8") if meta_file.is_file() else "application/octet-stream"
-    return content_file.read_bytes(), content_type
 
 
 def set(path: str, content: bytes, content_type: str) -> None:
-    key = _cache_key(path)
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / f"{key}.bin").write_bytes(content)
-    (CACHE_DIR / f"{key}.meta").write_text(content_type, encoding="utf-8")
+    # キャッシュ書き込みはあくまで高速化目的で、呼び出し元は取得済みのcontentを既に
+    # 返せる状態にある。ディスクフル・権限エラー等（OSError）でここが失敗しても、
+    # basemap/road-surfaceタイルの配信自体を丸ごと500にする理由にはならないため、
+    # 標高・天候キャッシュ（cache_db.py）と同じ「キャッシュ書き込み失敗は握りつぶす」
+    # 方針に合わせ、警告ログのみでno-opにフォールバックする。
+    try:
+        key = _cache_key(path)
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        (CACHE_DIR / f"{key}.bin").write_bytes(content)
+        (CACHE_DIR / f"{key}.meta").write_text(content_type, encoding="utf-8")
+    except OSError:
+        logger.warning("tile cache write failed for path=%s (disk full/permission?)", path, exc_info=True)
 
 
 def clear_all() -> None:

@@ -8,9 +8,24 @@ from collections import defaultdict
 _WINDOW_SECONDS = 60.0
 _hits: dict[str, list[float]] = defaultdict(list)
 
+# _hitsはウィンドウ超過分のタイムスタンプを都度間引くが、キー自体（"category:IP"）は
+# アクセスが無くなった後も残り続けるため、一度でもアクセスしたIPが辞書に無期限に
+# 溜まり続けるメモリリークになる（IPをローテーションされると特に顕著）。定期的に
+# 全キーを掃除して、直近ウィンドウ内にヒットが無いキーを削除する。
+_SWEEP_INTERVAL_SECONDS = 300.0
+_last_sweep = time.monotonic()
+
+
+def _sweep(now: float) -> None:
+    cutoff = now - _WINDOW_SECONDS
+    stale_client_ids = [client_id for client_id, hits in _hits.items() if not hits or hits[-1] <= cutoff]
+    for client_id in stale_client_ids:
+        del _hits[client_id]
+
 
 def check_rate_limit(client_id: str, max_requests: int, window_seconds: float = _WINDOW_SECONDS) -> bool:
     """client_idからの直近window_seconds秒間のリクエスト数がmax_requests以下ならTrue（許可）。"""
+    global _last_sweep
     now = time.monotonic()
     hits = _hits[client_id]
     cutoff = now - window_seconds
@@ -19,4 +34,7 @@ def check_rate_limit(client_id: str, max_requests: int, window_seconds: float = 
     if len(hits) >= max_requests:
         return False
     hits.append(now)
+    if now - _last_sweep >= _SWEEP_INTERVAL_SECONDS:
+        _sweep(now)
+        _last_sweep = now
     return True

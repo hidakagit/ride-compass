@@ -30,25 +30,33 @@ class WeatherService:
         if not hourly or not hourly.get("time"):
             return None
 
-        if at is None:
-            current = data.get("current")
-            if not current:
-                return None
-            observed_at = current["time"]
-            temperature = current["temperature_2m"]
-            wind_speed = current["wind_speed_10m"]
-            wind_direction = current["wind_direction_10m"]
-            precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
-        else:
-            target = at.strftime("%Y-%m-%dT%H:%M")
-            index = self._nearest_hourly_index(hourly["time"], target)
-            if index is None:
-                return None
-            observed_at = hourly["time"][index]
-            temperature = hourly["temperature_2m"][index]
-            wind_speed = hourly["wind_speed_10m"][index]
-            wind_direction = hourly["wind_direction_10m"][index]
-            precipitation_probability = hourly["precipitation_probability"][index]
+        # Open-Meteoが200を返してもJSON形状が期待と食い違う（一時的なAPI障害・スキーマ変更等）
+        # 場合、直下の添字アクセスがKeyError/IndexErrorを送出しうる。ここで捕捉せず伝播させると
+        # 「取得失敗は握りつぶしてnull」という他の外部API（標高・路面）と同じ方針から外れ、
+        # 8方位分の候補が確定済みでも1件の異常レスポンスでルート生成全体が500になってしまう
+        # （route_generator.pyのgatherはtrace_loopのみreturn_exceptions=True保護対象）。
+        try:
+            if at is None:
+                current = data.get("current")
+                if not current:
+                    return None
+                observed_at = current["time"]
+                temperature = current["temperature_2m"]
+                wind_speed = current["wind_speed_10m"]
+                wind_direction = current["wind_direction_10m"]
+                precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
+            else:
+                target = at.strftime("%Y-%m-%dT%H:%M")
+                index = self._nearest_hourly_index(hourly["time"], target)
+                if index is None:
+                    return None
+                observed_at = hourly["time"][index]
+                temperature = hourly["temperature_2m"][index]
+                wind_speed = hourly["wind_speed_10m"][index]
+                wind_direction = hourly["wind_direction_10m"][index]
+                precipitation_probability = hourly["precipitation_probability"][index]
+        except (KeyError, IndexError, TypeError):
+            return None
 
         return WeatherConditions(
             temperature_c=temperature,

@@ -38,6 +38,7 @@ export default function Home() {
     showManualInput,
     locating,
     locateError,
+    manualLocationError,
     setManualLat,
     setManualLng,
     toggleManualInput,
@@ -220,6 +221,7 @@ export default function Home() {
               manualLat={manualLat}
               manualLng={manualLng}
               showManualInput={showManualInput}
+              manualLocationError={manualLocationError}
               onManualLatChange={setManualLat}
               onManualLngChange={setManualLng}
               onToggleManualInput={toggleManualInput}

@@ -31,7 +31,7 @@ describe("regionApi", () => {
       expect(options.method).toBe("POST");
     });
 
-    it("fetchがok:falseでも例外を伝播しない(実装がthrowしていないため)", async () => {
+    it("fetchがok:falseの場合は例外を投げる(以前は無反応に見えるサイレント失敗だった)", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -41,10 +41,10 @@ describe("regionApi", () => {
         }),
       );
 
-      await expect(refreshBasemapCache()).resolves.toBeUndefined();
+      await expect(refreshBasemapCache()).rejects.toThrow(/502/);
     });
 
-    it("fetch自体が例外を投げる場合は実装にtry/catchが無いため例外が伝播する", async () => {
+    it("fetch自体が例外を投げる場合もエラーとして伝播する", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
 
       await expect(refreshBasemapCache()).rejects.toThrow("network error");

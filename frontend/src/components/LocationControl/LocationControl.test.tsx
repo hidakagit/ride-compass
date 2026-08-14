@@ -11,6 +11,7 @@ function baseProps() {
     manualLat: "",
     manualLng: "",
     showManualInput: false,
+    manualLocationError: null,
     onManualLatChange: vi.fn(),
     onManualLngChange: vi.fn(),
     onToggleManualInput: vi.fn(),

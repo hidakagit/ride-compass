@@ -19,7 +19,9 @@ class RoutingService:
         try:
             summary = feature["properties"]["summary"]
             geometry = feature["geometry"]
-        except KeyError as exc:
+            distance_km = summary["distance"] / 1000
+            duration_minutes = summary["duration"] / 60
+        except (KeyError, TypeError) as exc:
             raise RoutingError(f"unexpected routing response shape: missing {exc}") from exc
 
         # surfaceはextra_infoで要求した付随情報。無くても致命的ではないため欠損を許容する。
@@ -28,8 +30,8 @@ class RoutingService:
         surface_values = surface_extras.get("values")
 
         return RouteSegment(
-            distance_km=summary["distance"] / 1000,
-            duration_minutes=summary["duration"] / 60,
+            distance_km=distance_km,
+            duration_minutes=duration_minutes,
             geometry=geometry,
             surface_summary=surface_summary,
             surface_values=surface_values,

@@ -15,6 +15,7 @@ export interface UseLocationResult {
   showManualInput: boolean;
   locating: boolean;
   locateError: string | null;
+  manualLocationError: string | null;
   setManualLat: (value: string) => void;
   setManualLng: (value: string) => void;
   toggleManualInput: () => void;
@@ -37,6 +38,7 @@ export function useLocation(): UseLocationResult {
   const [showManualInput, setShowManualInput] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
+  const [manualLocationError, setManualLocationError] = useState<string | null>(null);
 
   const latestGeolocationRequestId = useRef(0);
 
@@ -98,9 +100,24 @@ export function useLocation(): UseLocationResult {
   const handleManualSubmit = useCallback(
     (event: React.FormEvent) => {
       event.preventDefault();
+      // Number("")は0を返しNaNにならないため、空欄のまま送信すると気づかず(0,0)
+      // （ギニア湾沖）へ切り替わっていた。trim()で空欄を先に弾き、範囲外の値
+      // （緯度±90度・経度±180度を超える値）も明示的にエラー表示する。
+      if (manualLat.trim() === "" || manualLng.trim() === "") {
+        setManualLocationError("緯度・経度を入力してください。");
+        return;
+      }
       const latitude = Number(manualLat);
       const longitude = Number(manualLng);
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) return;
+      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+        setManualLocationError("緯度・経度は数値で入力してください。");
+        return;
+      }
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        setManualLocationError("緯度は-90〜90、経度は-180〜180の範囲で入力してください。");
+        return;
+      }
+      setManualLocationError(null);
       setLocation({ latitude, longitude });
       setLocationSource("manual");
     },
@@ -115,6 +132,7 @@ export function useLocation(): UseLocationResult {
     showManualInput,
     locating,
     locateError,
+    manualLocationError,
     setManualLat,
     setManualLng,
     toggleManualInput,

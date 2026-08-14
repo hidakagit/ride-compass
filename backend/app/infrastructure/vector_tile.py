@@ -9,10 +9,17 @@ MERCATOR_EXTENT_M = math.pi * EARTH_RADIUS_M
 TILE_EXTENT = 4096
 ROAD_SURFACE_LAYER_NAME = "road_surface"
 
+# Web Mercatorで表現できる緯度の限界（domain/region.pyの_MAX_MERCATOR_LATITUDEと同じ値）。
+# lat=-90ちょうどではtan(0)=0でmath.log(0)がValueErrorになる。Overpassのway座標は
+# タイル境界でクリップせずそのまま渡るため、極めて稀に異常な入力座標が来た場合の
+# クラッシュを避けるためクランプする。
+_MAX_MERCATOR_LATITUDE = 85.05112878
+
 
 def _lonlat_to_mercator(lon: float, lat: float) -> tuple[float, float]:
+    clamped_lat = max(-_MAX_MERCATOR_LATITUDE, min(lat, _MAX_MERCATOR_LATITUDE))
     x = lon * MERCATOR_EXTENT_M / 180.0
-    y = math.log(math.tan((90.0 + lat) * math.pi / 360.0)) / (math.pi / 180.0)
+    y = math.log(math.tan((90.0 + clamped_lat) * math.pi / 360.0)) / (math.pi / 180.0)
     y = y * MERCATOR_EXTENT_M / 180.0
     return x, y
 

@@ -2,7 +2,7 @@ import asyncio
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app.config import settings
@@ -40,6 +40,15 @@ router = APIRouter()
 # 中継を伴うため、無制限に叩かれると外部サービス負荷やディスク消費に繋がる（詳細はrate_limiter.py）。
 ROAD_TILE_RATE_LIMIT_PER_MINUTE = 120
 BASEMAP_RATE_LIMIT_PER_MINUTE = 300
+# refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
+# 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
+# Overpass/OpenFreeMapへの実問い合わせが毎回発生し続けてしまう）。
+BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE = 6
+# /preview・/weatherは/generateほど高コストではないが、いずれも外部APIの無料枠を
+# 消費する（openrouteservice: 日次2000リクエストをgenerateと共有 / Open-Meteo）ため、
+# 他の認証なしエンドポイントと同様に歯止めを設ける。
+PREVIEW_RATE_LIMIT_PER_MINUTE = 20
+WEATHER_RATE_LIMIT_PER_MINUTE = 60
 
 # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
 # 標高・天候の外部API、無料枠は日次2000リクエスト / road_graphエンジン: Overpass・GSIへの
@@ -179,8 +188,12 @@ class RoutePreviewRequest(BaseModel):
 @router.post("/api/routes/preview", response_model=RouteSegment)
 async def preview_route(
     request: RoutePreviewRequest,
+    http_request: Request,
     routing_service: RoutingService = Depends(get_routing_service),
 ) -> RouteSegment:
+    if not check_rate_limit(f"preview:{_client_id(http_request)}", PREVIEW_RATE_LIMIT_PER_MINUTE):
+        record_rate_limit_rejection("preview", _client_id(http_request), f"{PREVIEW_RATE_LIMIT_PER_MINUTE}/min")
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     try:
         return await routing_service.get_route([request.origin, request.destination])
     except RoutingError as exc:
@@ -190,8 +203,11 @@ async def preview_route(
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    distance_km: float = Field(gt=0)
-    distance_tolerance_km: float = Field(gt=0, default=5.0)
+    # 上限が無いと1リクエストで外部API無料枠（openrouteservice: 日次2000）を枯渇させたり、
+    # road_graphエンジンでbboxが際限なく広がりタイル問い合わせが長時間ハングしうる。
+    # 既存の実機検証は30kmまでのため、余裕を見つつも無制限は避ける値として100kmとする。
+    distance_km: float = Field(gt=0, le=100)
+    distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
     route_type: Literal["loop"] = "loop"
 
 
@@ -229,10 +245,17 @@ async def generate_routes(
 
 @router.get("/api/weather", response_model=WeatherConditions)
 async def get_weather(
-    latitude: float,
-    longitude: float,
+    http_request: Request,
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WeatherConditions:
+    # 以前はここでの範囲チェックをCoordinates（Pydanticモデル）任せにしており、
+    # 範囲外の値（例: latitude=999）はFastAPIの422ではなくpydantic.ValidationErrorが
+    # 関数内から送出され未処理の500になっていた。Queryのge/leでFastAPI層で弾く。
+    if not check_rate_limit(f"weather:{_client_id(http_request)}", WEATHER_RATE_LIMIT_PER_MINUTE):
+        record_rate_limit_rejection("weather", _client_id(http_request), f"{WEATHER_RATE_LIMIT_PER_MINUTE}/min")
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     conditions = await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude))
     if conditions is None:
         raise HTTPException(status_code=502, detail="天候情報の取得に失敗しました")
@@ -296,8 +319,15 @@ async def basemap_proxy(
 
 
 @router.post("/api/basemap/refresh")
-def basemap_refresh() -> dict[str, str]:
+def basemap_refresh(request: Request) -> dict[str, str]:
     # 基礎地図タイルと路面ベクタタイル（Step10）は同じファイルキャッシュを共有しているため、
-    # この一括クリアで両方とも消える。
+    # この一括クリアで両方とも消える。認証が無いため、連打でキャッシュが常に温まらず
+    # 外部サービス（Overpass/OpenFreeMap）への実問い合わせが発生し続けることを防ぐため
+    # 他のエンドポイントよりも厳しいレート制限をかける。
+    if not check_rate_limit(f"basemap-refresh:{_client_id(request)}", BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE):
+        record_rate_limit_rejection(
+            "basemap-refresh", _client_id(request), f"{BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE}/min"
+        )
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     tile_cache.clear_all()
     return {"status": "ok"}

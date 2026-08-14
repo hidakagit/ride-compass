@@ -9,14 +9,16 @@ import { debugLog } from "@/lib/debugLog";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
   const startedAt = performance.now();
   debugLog("api:route", `POST ${path}`, { body });
 
+  // タイムアウトが無いとバックエンドがハングした場合に「生成中...」が無期限に続く。
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const durationMs = Math.round(performance.now() - startedAt);
   // バックエンドが全リクエストに付与するリクエストID(backend/app/infrastructure/request_log.py)。
@@ -30,17 +32,25 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
   }
 
-  const data = await response.json();
+  let data: T;
+  try {
+    data = await response.json();
+  } catch {
+    debugLog("api:route", "失敗 (不正なレスポンス)", { path, durationMs, requestId });
+    throw new Error("サーバーからの応答の解析に失敗しました");
+  }
   debugLog("api:route", "成功", { path, durationMs, requestId });
   return data;
 }
 
 export async function previewRoute(request: RoutePreviewRequest): Promise<RouteSegment> {
-  return postJson<RouteSegment>("/api/routes/preview", request);
+  return postJson<RouteSegment>("/api/routes/preview", request, 15000);
 }
 
 export async function generateRoutes(request: RouteGenerateRequest): Promise<RouteCandidate[]> {
-  const result = await postJson<RouteGenerateResponse>("/api/routes/generate", request);
+  // road_graphエンジンはコールド時40〜70秒かかりうる(docs/architecture.md)ため、
+  // previewより長めのタイムアウトにする。
+  const result = await postJson<RouteGenerateResponse>("/api/routes/generate", request, 90000);
   debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
   return result.routes;
 }

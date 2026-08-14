@@ -15,6 +15,7 @@ interface LocationControlProps {
   manualLat: string;
   manualLng: string;
   showManualInput: boolean;
+  manualLocationError: string | null;
   onManualLatChange: (value: string) => void;
   onManualLngChange: (value: string) => void;
   onToggleManualInput: () => void;
@@ -27,6 +28,7 @@ export default function LocationControl({
   manualLat,
   manualLng,
   showManualInput,
+  manualLocationError,
   onManualLatChange,
   onManualLngChange,
   onToggleManualInput,
@@ -66,6 +68,11 @@ export default function LocationControl({
             />
           </label>
           <button type="submit">設定</button>
+          {manualLocationError && (
+            <p role="alert" style={{ color: "#991b1b", fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
+              {manualLocationError}
+            </p>
+          )}
         </form>
       )}
     </div>

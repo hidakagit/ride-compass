@@ -28,7 +28,13 @@ def destination_point(origin: Coordinates, bearing_deg: float, distance_km: floa
         math.cos(angular_distance) - math.sin(lat1) * math.sin(lat2),
     )
 
-    return Coordinates(latitude=math.degrees(lat2), longitude=math.degrees(lon2))
+    # 経度は球面三角法の計算結果をそのまま度数化すると±180度を超えることがある
+    # （日付変更線付近が起点の場合。Coordinatesはge=-180/le=180を検証するため、
+    # 正規化しないとValidationErrorが8方位分のwaypoint計算中に同期的に送出され、
+    # generate_loopsのgather(return_exceptions=True)による方位単位の保護をすり抜けて
+    # リクエスト全体が500になる）。[-180, 180)へ正規化する。
+    lon2_deg = (math.degrees(lon2) + 180) % 360 - 180
+    return Coordinates(latitude=math.degrees(lat2), longitude=lon2_deg)
 
 
 def bearing_between(origin: Coordinates, destination: Coordinates) -> float:

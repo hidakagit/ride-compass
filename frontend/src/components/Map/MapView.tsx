@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -354,6 +354,11 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  // 描画コールバックはmap.once("load", ...)頼み(runWhenStyleReady)だが、スタイルURL自体が
+  // 404/5xx等で取得できない場合MapLibreは"load"ではなく"error"を発火するため、地図が
+  // 無言で空白のまま永久に止まる問題があった。スタイルが一度もreadyにならないまま
+  // errorが起きた場合はユーザーへ可視のメッセージを出す。
+  const [styleLoadFailed, setStyleLoadFailed] = useState(false);
   const showRoadRef = useRef(showRoad);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
   const redrawPropsRef = useRef({ routes, selectedRouteId, dynamicLayerOn, showElevation, showRoad });
@@ -463,10 +468,19 @@ export default function MapView({
     // 起点）が確定したタイミングを示す。
     function handleLoad() {
       debugLog("map:lifecycle", "load（スタイル読み込み完了）");
+      setStyleLoadFailed(false);
     }
     function handleMapError(e: MapLibreErrorEvent) {
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
       debugLog("map:error", e.error?.message ?? "unknown error", { sourceId });
+      // スタイル自体がまだ一度もreadyになっていない状態でのerrorは、個別タイルの一過性の
+      // 失敗ではなくスタイル取得そのものの失敗である可能性が高い（runWhenStyleReadyが
+      // 頼るmap.once("load", ...)がこの後発火しないままdrawBaseRoutes等の描画コールバックが
+      // 永久にスキップされる）。デバッグモードに関わらずユーザーへ気づけるようにする。
+      const tagged = map as unknown as { __rcStyleReady?: boolean };
+      if (!tagged.__rcStyleReady) {
+        setStyleLoadFailed(true);
+      }
     }
     function handleMoveEnd() {
       const bounds = map.getBounds();
@@ -595,11 +609,43 @@ export default function MapView({
     if (!map || refreshToken === 0) return;
 
     (async () => {
-      await refreshBasemapCache();
-      map.once("style.load", () => redrawAllLayers(map));
-      map.setStyle(`${MAP_STYLE}?t=${Date.now()}`);
+      try {
+        await refreshBasemapCache();
+        map.once("style.load", () => redrawAllLayers(map));
+        map.setStyle(`${MAP_STYLE}?t=${Date.now()}`);
+      } catch (error) {
+        // refreshBasemapCacheは以前例外を投げない実装だったため、ここでのcatchが無くても
+        // 問題なかったが、失敗を呼び出し元へ伝えるよう修正した結果、未処理のPromise
+        // rejectionになるのを防ぐ必要がある。
+        debugLog("map:error", `basemap refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     })();
   }, [refreshToken, redrawAllLayers]);
 
-  return <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+      {styleLoadFailed && (
+        <div
+          role="alert"
+          style={{
+            position: "absolute",
+            top: "1rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "#fef2f2",
+            color: "#991b1b",
+            border: "1px solid #fecaca",
+            borderRadius: "0.5rem",
+            padding: "0.5rem 1rem",
+            fontSize: "0.85rem",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            zIndex: 10,
+          }}
+        >
+          地図の読み込みに失敗しました。しばらくしてから再読み込みしてください。
+        </div>
+      )}
+    </div>
+  );
 }

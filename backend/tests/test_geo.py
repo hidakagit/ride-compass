@@ -36,6 +36,18 @@ def test_destination_point_zero_distance_returns_same_point():
     assert math.isclose(result.longitude, EQUATOR.longitude, abs_tol=1e-9)
 
 
+def test_destination_point_normalizes_longitude_past_antimeridian():
+    # 起点が日付変更線付近（例: フィジー近海）にあると、正規化前は経度が180度を
+    # 超えCoordinatesのValidationErrorを送出していた（Coordinatesはge=-180/le=180）。
+    origin = Coordinates(latitude=-17.7, longitude=179.95)
+
+    result = destination_point(origin, bearing_deg=90, distance_km=10)
+
+    assert -180.0 <= result.longitude <= 180.0
+    # 東へ進んだ結果は日付変更線をまたいで-180近辺に折り返されるはず
+    assert result.longitude < 0
+
+
 def test_haversine_distance_km_matches_known_bearing_distance():
     # destination_pointで作った点との距離は、指定したdistance_kmとほぼ一致するはず
     point = destination_point(EQUATOR, bearing_deg=90, distance_km=111.2)

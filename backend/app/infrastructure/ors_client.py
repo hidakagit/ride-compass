@@ -47,8 +47,11 @@ class ORSClient:
             except httpx.RequestError as exc:
                 raise RoutingError(f"openrouteservice request failed: {exc}") from exc
 
-            data = response.json()
-            features = data.get("features")
+            try:
+                data = response.json()
+                features = data.get("features")
+            except (ValueError, AttributeError) as exc:
+                raise RoutingError(f"openrouteservice returned unparseable response: {exc}") from exc
             if not features:
                 raise RoutingError("openrouteservice returned no route")
 
