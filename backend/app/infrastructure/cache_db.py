@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,10 +14,20 @@ DB_PATH = DATA_DIR / "ridecompass_cache.db"
 # 「未キャッシュ」と「キャッシュ済みだが値がNone（取得失敗）」を区別するための番兵。
 MISSING = object()
 
+# スレッドごとに接続を1本だけ張って使い回す（呼び出しのたびに新規接続 + PRAGMA +
+# CREATE TABLE IF NOT EXISTSを実行し直すと大幅に遅くなることが実測で判明したため。
+# 800回連続呼び出しで約140倍の差、backend/benchmarks/bench_elevation_cache.py・
+# README.md参照）。get/set は`asyncio.to_thread`経由で呼ばれ、既定のThreadPoolExecutorは
+# ワーカースレッドを使い捨てず再利用するため、スレッドローカルに接続をキャッシュすれば
+# 実質的に「接続の使い回し」が成立する。sqlite3.Connectionは複数スレッドから同時に
+# 使う設計にはしていない（既定のcheck_same_thread=Trueのまま）ため、1接続=1スレッド
+# 専有という制約とも矛盾しない。
+_thread_local = threading.local()
 
-def _connect() -> sqlite3.Connection:
+
+def _connect(path: Path) -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS elevation_cache (
@@ -31,6 +42,35 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _get_connection() -> sqlite3.Connection:
+    """呼び出しスレッドのキャッシュ済み接続を返す。無い場合、またはDB_PATHが
+    キャッシュ時点から変わっている場合（テストのmonkeypatch等）は張り直す。"""
+    cached_conn = getattr(_thread_local, "conn", None)
+    cached_path = getattr(_thread_local, "db_path", None)
+    if cached_conn is not None and cached_path == DB_PATH:
+        return cached_conn
+
+    if cached_conn is not None:
+        cached_conn.close()
+
+    conn = _connect(DB_PATH)
+    _thread_local.conn = conn
+    _thread_local.db_path = DB_PATH
+    return conn
+
+
+def _discard_connection() -> None:
+    """キャッシュ済み接続を破棄する（クエリ失敗時、壊れた接続を次回張り直させるため）。"""
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+    _thread_local.conn = None
+    _thread_local.db_path = None
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -40,33 +80,24 @@ def _get_elevation_sync(lat: float, lon: float):
     # （GSI APIへのフォールバックが常に効く）。DBロック競合等でSQLiteが失敗しても
     # ルート生成全体を巻き添えにせず、「未キャッシュ」として扱ってフォールバックさせる。
     try:
-        conn = _connect()
-    except sqlite3.Error:
-        return MISSING
-    try:
+        conn = _get_connection()
         row = conn.execute("SELECT elevation_m FROM elevation_cache WHERE lat = ? AND lon = ?", (lat, lon)).fetchone()
         return MISSING if row is None else row[0]
     except sqlite3.Error:
+        _discard_connection()
         return MISSING
-    finally:
-        conn.close()
 
 
 def _set_elevation_sync(lat: float, lon: float, elevation_m: float | None) -> None:
     try:
-        conn = _connect()
-    except sqlite3.Error:
-        return
-    try:
+        conn = _get_connection()
         conn.execute(
             "INSERT OR REPLACE INTO elevation_cache (lat, lon, elevation_m, fetched_at) VALUES (?, ?, ?, ?)",
             (lat, lon, elevation_m, _now_iso()),
         )
         conn.commit()
     except sqlite3.Error:
-        pass
-    finally:
-        conn.close()
+        _discard_connection()
 
 
 async def get_elevation(lat: float, lon: float):

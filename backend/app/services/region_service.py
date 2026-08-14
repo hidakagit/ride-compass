@@ -47,7 +47,11 @@ class RegionService:
                 {"coordinates": raw["coordinates"], "surface_good": classify_osm_surface(raw.get("tags", {}).get("surface"))}
                 for raw in (raw_ways or [])
             ]
-            tile_bytes = encode_road_surface_tile(z, x, y, ways)
+            # MVTエンコードはCPU専用の同期処理。await無しで直接呼ぶとway数の多い密集タイルで
+            # イベントループを数百ms単位で塞ぎ、同時に処理中の他リクエスト（ルート生成等）を
+            # 足止めすることが実測で判明したため、tile_cache.get/setと同じくasyncio.to_thread
+            # 経由にする（backend/benchmarks/bench_event_loop_stall.py参照）。
+            tile_bytes = await asyncio.to_thread(encode_road_surface_tile, z, x, y, ways)
             fields["way_count"] = len(ways)
 
             # Overpass取得に失敗した場合（raw_ways is None）はキャッシュに保存しない。

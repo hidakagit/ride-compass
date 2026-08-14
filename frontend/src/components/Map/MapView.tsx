@@ -37,7 +37,10 @@ const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 
-function routesToFeatureCollection(
+// routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBoundsはexportして
+// MapView.bench.ts（vitestのbench API）からGeoJSON構築のコストを直接計測できるようにしてある
+// （ベンチマーク用途のみ。MapView自身は下のprivateなラッパー関数経由でしか呼ばない）。
+export function routesToFeatureCollection(
   routes: RouteCandidate[],
   selectedRouteId: string | null
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, { selected: boolean }> {
@@ -54,7 +57,7 @@ function routesToFeatureCollection(
   };
 }
 
-function segmentsToFeatureCollection(
+export function segmentsToFeatureCollection(
   segments: RouteSegmentDetail[]
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, RouteSegmentDetail> {
   return {
@@ -274,15 +277,22 @@ function updateRoadZoomHint(map: MapLibreMap, showRoad: boolean, onChange: (tooW
   onChange(showRoad && map.getZoom() < ROAD_TILE_MIN_ZOOM);
 }
 
-function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[]) {
-  if (routes.length === 0) return;
-
+// 全候補のgeometryを包含するbounds計算そのものは地図インスタンスに依存しない純粋な処理
+// のため、fitBoundsToRoutesから切り出してベンチマーク可能にしてある（MapView.bench.ts）。
+export function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
   const bounds = new maplibregl.LngLatBounds();
   for (const route of routes) {
     for (const [lng, lat] of route.geometry.coordinates) {
       bounds.extend([lng, lat]);
     }
   }
+  return bounds;
+}
+
+function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[]) {
+  if (routes.length === 0) return;
+
+  const bounds = computeRouteBounds(routes);
 
   runWhenStyleReady(map, () => map.fitBounds(bounds, { padding: 40 }));
 }
