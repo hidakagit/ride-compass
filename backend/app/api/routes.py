@@ -46,8 +46,15 @@ ROAD_TILE_RATE_LIMIT_PER_MINUTE = 120
 # （実測: 東京駅付近z13タイルで約7.6秒）。地図の短時間パン/ズームでブラウザが並列に
 # 大量のタイルを要求すると、この重い処理が同時に積み上がりCPUを奪い合い、Renderの
 # ヘルスチェックすら応答できず「Instance failed」でプロセスごと再起動される事故が実機で
-# 発生した。ルート生成（GENERATE_MAX_CONCURRENT）と同じ考え方で同時実行数を制限し、
-# 上限超過分は待たせず429にすることでプロセス全体が巻き込まれないようにする。
+# 発生した。ルート生成（GENERATE_MAX_CONCURRENT）と同じ考え方で同時実行数を制限する。
+#
+# 上限超過分は即座に429を返すルート生成とは異なり、こちらは「待たせて全件処理する」
+# （semaphoreの取得をブロックさせる）方式にしている。MapLibreは失敗したタイル要求を
+# 自動再試行しないため、429にすると1画面に収まる範囲で3枚を超えるタイル（皇居周辺のような
+# 広い範囲では珍しくない）が永久に空白のまま描画されない不具合が実機で発生した。
+# 待たせる方式でもRender再起動事故の再発防止という目的は変わらない（同時に重い処理が
+# 走る数はROAD_TILE_MAX_CONCURRENTのまま増えないため）。/healthはこのsemaphoreを
+# 経由しない別の同期ハンドラのため、待機中のタイル要求に巻き込まれず応答し続けられる。
 ROAD_TILE_MAX_CONCURRENT = 3
 _road_tile_semaphore = asyncio.Semaphore(ROAD_TILE_MAX_CONCURRENT)
 BASEMAP_RATE_LIMIT_PER_MINUTE = 300
@@ -331,13 +338,10 @@ async def region_road_surface_tile(
     tile_index_max = 2**z
     if not (0 <= x < tile_index_max) or not (0 <= y < tile_index_max):
         raise HTTPException(status_code=400, detail="タイル座標が範囲外です。")
-    # 同時実行数の上限に達している場合は待たせず即座に429を返す（ROAD_TILE_MAX_CONCURRENTの
-    # コメント参照。locked()確認とacquireの間に隙間はあるが、多少の超過は許容する簡易実装で
-    # generate_routesと同じ）。キャッシュヒットは軽量（実測数ms）なのですぐ解放されるため、
-    # 実質的に重い（PostGIS問い合わせを伴う）リクエストだけが詰まりの原因になる。
-    if _road_tile_semaphore.locked():
-        record_rate_limit_rejection("road-tile-concurrency", _client_id(request), f"concurrent={ROAD_TILE_MAX_CONCURRENT}")
-        raise HTTPException(status_code=429, detail="路面タイルの取得が混み合っています。しばらく待ってから再試行してください。")
+    # 同時実行数の上限（ROAD_TILE_MAX_CONCURRENTのコメント参照）は、超過分を待たせて
+    # 全件処理する（即座に429で拒否しない）。キャッシュヒットは軽量（実測数ms）なので
+    # すぐ解放され、実質的に重い（PostGIS問い合わせを伴う）リクエストだけが待ち行列の
+    # 原因になる。
     async with _road_tile_semaphore:
         tile_bytes = await region_service.get_road_surface_tile(z, x, y)
     return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
