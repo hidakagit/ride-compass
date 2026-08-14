@@ -1,0 +1,112 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.panel section + section {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-muted-strong);
+  margin: 0 0 0.3rem;
+}
+
+.mutedHint {
+  color: var(--color-neutral);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.zoomWarning {
+  color: var(--color-warning-strong);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.legendCaption {
+  color: var(--color-muted-strong);
+  font-size: var(--font-size-sm);
+  margin: 0.4rem 0 0.2rem;
+}
+
+.legendCaption:first-child {
+  margin-top: 0;
+}
+
+.legendRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: var(--font-size-sm);
+}
+
+/* 地図上の凡例と同じく、参照表示のみ（タップでは操作しない） */
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* 非表示中のカテゴリは薄く+取り消し線で「消してある」ことを示す */
+.legendItemHidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.modeGroup {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.modeItem {
+  min-height: 32px;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.modeItemActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+
+.legendCheckboxList {
+  display: flex;
+  flex-direction: column;
+}
+
+/* サイドバー内なので、地図上に浮かべていた時ほどタップ領域を大きく取る必要はないが、
+   複数選択の操作しやすさは変わらず重要なため行全体をクリック可能にする */
+.legendCheckboxRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0.25rem 0;
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.legendCheckboxRow:hover {
+  background: var(--color-surface-2);
+}

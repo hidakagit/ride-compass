@@ -3,7 +3,10 @@
 }
 
 .title {
-  font-size: 1.3rem;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--color-accent);
   margin-bottom: var(--space-1);
 }
 
@@ -15,6 +18,35 @@
 .errorMessage {
   color: var(--color-danger);
   font-size: var(--font-size-md);
+}
+
+/* 天候・位置情報をひとまとまりのカードにして、サイドバー内の情報のグルーピングを
+   視覚的に分かりやすくする */
+.infoCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+/* 地図の凡例（MapLegendPanel）も.infoCardと同じカード見た目でグルーピングする */
+.legendCard {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+/* デバッグモード・バックエンド疎通確認は開発者向けの補助情報のため、他の情報より
+   一段控えめな見た目（小さく・淡く）で1行にまとめる */
+.systemRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 
 .routeSection {
@@ -34,8 +66,19 @@
   align-self: flex-start;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
-  /* 運用ボタンのため通常のボタンより控えめな見た目にする */
+  /* 運用ボタンのため、枠や背景を持つ通常のボタンとは見た目を分け、控えめなテキストリンク
+     として表示する（触ってよい頻度が低いことが見た目からも伝わるようにする） */
+  background: transparent;
+  border: none;
+  padding: 0.3rem 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   margin-top: auto;
+}
+
+.refreshButton:hover:not(:disabled) {
+  color: var(--foreground);
+  border-color: transparent;
 }
 
 .mapPane {

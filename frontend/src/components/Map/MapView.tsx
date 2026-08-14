@@ -6,10 +6,18 @@ import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMa
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinates, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM, refreshBasemapCache, roadSurfaceTileUrl } from "@/services/regionApi";
-import { DEFAULT_ROAD_STYLE_MODE_ID, getRoadStyleMode, type RoadStyleModeId } from "@/components/Map/roadStyleModes";
+import {
+  ROAD_FILTER_AXES,
+  ROAD_LINE_COLOR_AXIS_ID,
+  ROAD_LINE_WIDTH_AXIS_ID,
+  ROAD_LINE_DASH_AXIS_ID,
+  getRoadFilterAxis,
+  type RoadFilterAxisId,
+} from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
-import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
+import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import { debugLog } from "@/lib/debugLog";
+import styles from "./MapView.module.css";
 
 // 地図タイルはフロントエンド自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）
 // から取得する。バックエンドAPI呼び出し（:8000）と同一オリジンにすると、大量のタイル
@@ -39,6 +47,11 @@ const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
+// widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
+// 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
+// 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
+const DEFAULT_ROAD_LINE_WIDTH = 3;
+const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
 
 // routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBoundsはexportして
 // MapView.bench.ts（vitestのbench API）からGeoJSON構築のコストを直接計測できるようにしてある
@@ -79,9 +92,9 @@ export function segmentsToFeatureCollection(
   };
 }
 
-// 路面レイヤーの色分け式はモード定義（roadStyleModes.ts）、ルートレイヤー（風・勾配）の
-// 色分け式はrouteStyleModes.tsから取得する。レイヤー作成時はデフォルトモードの式で作り、
-// 以降のモード切替はsetPaintProperty/setFilterによる式の差し替えのみ（路面タイルには
+// 路面レイヤーの色分け式は常に固定（roadFilterAxes.tsのROAD_LINE_COLOR_AXIS_ID）、
+// ルートレイヤー（風・勾配）の色分け式はモード定義（routeStyleModes.ts）から取得する。
+// ルート側は以降のモード切替もsetPaintProperty/setFilterによる式の差し替えのみ（路面タイルには
 // surface_good/surface/highwayが、ルートのsegmentsにはwind_difficulty/gradient_percentが
 // すべて入っているため再取得は不要）。
 
@@ -252,8 +265,12 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       "source-layer": ROAD_TILE_SOURCE_LAYER,
       paint: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": getRoadStyleMode(DEFAULT_ROAD_STYLE_MODE_ID).colorExpression as any,
-        "line-width": 3,
+        "line-color": getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).colorExpression as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-width": (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).widthExpression ?? DEFAULT_ROAD_LINE_WIDTH) as any,
+        "line-dasharray":
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (getRoadFilterAxis(ROAD_LINE_DASH_AXIS_ID).dashArrayExpression ?? DEFAULT_ROAD_LINE_DASHARRAY) as any,
         "line-opacity": 0.8,
       },
       layout: { visibility: "none" },
@@ -262,22 +279,29 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 路面レイヤーの表示状態を現在のモードに合わせて一括反映する。レイヤーは3つのモードで
-// 共有するため色式を毎回差し替え、凡例で非表示にしたカテゴリはフィルタ式で除外する。
+// 路面レイヤーの表示状態を一括反映する。色（line-color）は常に「路面の種類」軸
+// （ROAD_LINE_COLOR_AXIS_ID）の配色で固定し、ユーザーが選ぶ余地は持たない
+// （自転車走行の実用上最も情報量が多い軸のため。絞り込みで1カテゴリまで狭めた別の軸を
+// 色分けに選べてしまうと単色になり情報量が無くなる、という混乱があった）。
+// 「道路の種類」は色を掛け合わせず、太さ（line-width、ROAD_LINE_WIDTH_AXIS_ID）と
+// 線種（line-dasharray、ROAD_LINE_DASH_AXIS_ID。不明・他だけ破線）で別途常時反映する
+// （roadFilterAxes.ts参照）。色・太さ・線種ともensureRoadSurfaceTileLayerでレイヤー作成時に
+// 一度だけ設定し、以降は変わらないためここでは触らない。
+// フィルタは「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」の
+// ように独立した軸を同時に絞り込みたいため、全軸のhiddenKeysをANDで束ねる。
 function applyRoadLayerState(
   map: MapLibreMap,
   showRoad: boolean,
-  modeId: RoadStyleModeId,
-  hiddenLegendKeys: readonly string[]
+  hiddenKeysByAxis: Record<RoadFilterAxisId, readonly string[]>
 ) {
   runWhenStyleReady(map, () => {
     ensureRoadSurfaceTileLayer(map);
     setLayerVisibility(map, ROAD_TILE_LAYER_ID, showRoad);
-    const mode = getRoadStyleMode(modeId);
+    const combinedFilter = buildCombinedLegendFilterExpression(
+      ROAD_FILTER_AXES.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] }))
+    );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-color", mode.colorExpression as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setFilter(ROAD_TILE_LAYER_ID, buildLegendFilterExpression(mode.legend, hiddenLegendKeys) as any);
+    map.setFilter(ROAD_TILE_LAYER_ID, combinedFilter as any);
   });
 }
 
@@ -346,8 +370,9 @@ interface MapViewProps {
   location: Coordinates;
   showElevation: boolean;
   showRoad: boolean;
-  roadStyleModeId: RoadStyleModeId;
-  hiddenRoadLegendKeys: readonly string[];
+  /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
+   * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
+  roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
@@ -361,8 +386,7 @@ export default function MapView({
   location,
   showElevation,
   showRoad,
-  roadStyleModeId,
-  hiddenRoadLegendKeys,
+  roadHiddenKeysByMode,
   routeLayerOn,
   routeStyleModeId,
   hiddenRouteLegendKeys,
@@ -378,6 +402,10 @@ export default function MapView({
   // 無言で空白のまま永久に止まる問題があった。スタイルが一度もreadyにならないまま
   // errorが起きた場合はユーザーへ可視のメッセージを出す。
   const [styleLoadFailed, setStyleLoadFailed] = useState(false);
+  // 初期表示直後は基礎地図タイルの取得が終わるまで数秒間ほぼ白紙のまま何も見えず、
+  // 初めて開いたユーザーには「壊れている」ように映りかねなかった。最初のidle
+  // （表示中のタイル取得が一通り落ち着いたタイミング）までスケルトンを重ねて示す。
+  const [initialTilesLoading, setInitialTilesLoading] = useState(true);
   const showRoadRef = useRef(showRoad);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
   const redrawPropsRef = useRef({
@@ -388,8 +416,7 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     showRoad,
-    roadStyleModeId,
-    hiddenRoadLegendKeys,
+    roadHiddenKeysByMode,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -411,8 +438,7 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       showRoad,
-      roadStyleModeId,
-      hiddenRoadLegendKeys,
+      roadHiddenKeysByMode,
     };
   }, [
     routes,
@@ -422,8 +448,7 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     showRoad,
-    roadStyleModeId,
-    hiddenRoadLegendKeys,
+    roadHiddenKeysByMode,
   ]);
 
   // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
@@ -441,12 +466,11 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       showRoad,
-      roadStyleModeId,
-      hiddenRoadLegendKeys,
+      roadHiddenKeysByMode,
     } = redrawPropsRef.current;
     ensureGsiReliefLayer(map);
     setGsiReliefVisibility(map, showElevation);
-    applyRoadLayerState(map, showRoad, roadStyleModeId, hiddenRoadLegendKeys);
+    applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
 
     drawBaseRoutes(map, routes, selectedRouteId);
@@ -464,6 +488,10 @@ export default function MapView({
   // 地図初期化
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+
+    // アンマウント後にidleイベントが届いてもsetStateしないためのガード
+    // （BackendStatusのcancelledガードと同じ考え方）
+    let cancelled = false;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -538,7 +566,11 @@ export default function MapView({
       const tagged = map as unknown as { __rcStyleReady?: boolean };
       if (!tagged.__rcStyleReady) {
         setStyleLoadFailed(true);
+        setInitialTilesLoading(false);
       }
+    }
+    function handleFirstIdle() {
+      if (!cancelled) setInitialTilesLoading(false);
     }
     function handleMoveEnd() {
       const bounds = map.getBounds();
@@ -560,8 +592,10 @@ export default function MapView({
     map.on("error", handleMapError);
     map.on("moveend", handleMoveEnd);
     map.on("zoomend", handleZoomEnd);
+    map.once("idle", handleFirstIdle);
 
     return () => {
+      cancelled = true;
       map.off("click", handleClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
@@ -650,16 +684,15 @@ export default function MapView({
     setGsiReliefVisibility(map, showElevation);
   }, [showElevation]);
 
-  // 路面ON/OFF・色分けモード・凡例フィルタの切替は、いずれもvisibility/スタイル式/
-  // フィルタ式の差し替えのみで反映される（データ取得はMapLibreがパン/ズームに応じて
-  // 自動で行うため、明示的なfetchは不要）。マウント直後にも一度走り、localStorageから
-  // 復元されたモードをデフォルト式で作られたレイヤーへ反映する。
+  // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
+  // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
+  // fetchは不要）。色は常に固定（ROAD_LINE_COLOR_AXIS_ID）のためここでは差し替えない。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyRoadLayerState(map, showRoad, roadStyleModeId, hiddenRoadLegendKeys);
+    applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
-  }, [showRoad, roadStyleModeId, hiddenRoadLegendKeys]);
+  }, [showRoad, roadHiddenKeysByMode]);
 
   // 「変わらないデータを更新」ボタン: 基礎地図タイル・路面ベクタタイルのキャッシュをクリアして
   // スタイルを再読み込みする。setStyle()はカスタムレイヤーを消すため、style.load後に
@@ -686,6 +719,12 @@ export default function MapView({
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+      {initialTilesLoading && !styleLoadFailed && (
+        <div className={styles.loadingOverlay} aria-hidden="true">
+          <span className={styles.spinner} />
+          <span className={styles.loadingText}>地図を読み込み中…</span>
+        </div>
+      )}
       {styleLoadFailed && (
         <div
           role="alert"

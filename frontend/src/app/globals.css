@@ -19,6 +19,10 @@
   --color-border-strong: #d1d5db;
   --color-border-muted: #cccccc;
   --color-neutral: #9ca3af;
+  /* サイドバー内で情報のまとまりを示すカード背景。--color-surfaceが常に白固定なのと同じ理由
+     （実機でのダークモード可読性問題）で、こちらも常に淡いグレーに固定する。 */
+  --color-surface-2: #f3f4f2;
+  --color-accent-strong: #1d4ed8;
 
   --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
 
@@ -29,6 +33,10 @@
 
   --font-size-sm: 0.8rem;
   --font-size-md: 0.85rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -54,7 +62,8 @@ body {
   flex-direction: column;
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans",
+    "Yu Gothic UI", "Meiryo", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -68,6 +77,61 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* ボタン・入力欄の既定見た目。個々のCSS Module側のクラスセレクタ（.chip等）は
+   セレクタ詳細度でこれより優先されるため、意図的にスタイル済みの要素（地図上のチップ等）を
+   上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。 */
+button {
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* type="submit"は各フォームの主操作（ルート生成・緯度経度の設定）のため、
+   アクセントカラーで塗って他のボタンと差をつける */
+button[type="submit"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+button[type="submit"]:hover:not(:disabled) {
+  background: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
+}
+
+input[type="text"],
+input[type="number"] {
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  padding: 0.4rem 0.6rem;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -57,8 +57,24 @@
   color: #ffffff;
 }
 
-/* チップ＋▾ボタンを1つのセグメントコントロールとして隣接させ、「▾はそのチップの
-   補助操作（色分けモード選択）」という関係が見た目でも分かるようにする（路面・ルート共通） */
+/* 「路面」チップに乗せる、絞り込み中であることだけを示す印。実際の絞り込み内容は
+   サイドバー（MapLegendPanel）の凡例で示すため、ここは数字も文章も持たない。 */
+.filterDot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-left: 0.4rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  /* 親の「路面」チップは非アクティブ時=白背景/アクティブ時=アクセント色背景の両方が
+     ありうる。ドットは常に白地+アクセント枠線で固定し、どちらの上でも視認できるようにする
+     （赤=--color-dangerはエラー表示で使っているため、絞り込み中という中立的な状態には
+     使わない）。 */
+  background: #ffffff;
+  border: 1.5px solid var(--color-accent);
+}
+
+/* チップ＋⚙ボタンを1つのセグメントコントロールとして隣接させ、「⚙はそのチップの
+   補助操作（絞り込み設定を開く）」という関係が見た目でも分かるようにする */
 .chipGroup {
   display: flex;
 }
@@ -69,94 +85,11 @@
   border-bottom-right-radius: 0;
 }
 
-/* 色分けモードを開く小ボタン。チップ本体の補助操作なので、チップより横幅を絞る */
+/* 絞り込み設定ダイアログを開く小ボタン。チップ本体の補助操作なので、チップより横幅を絞る */
 .modeMenuButton {
   composes: chip;
   padding: 0.35rem 0.55rem;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   border-left: none;
-}
-
-.modeMenuButtonOpen {
-  border-color: var(--color-accent);
-}
-
-.modeMenu {
-  display: flex;
-  flex-direction: column;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  box-shadow: var(--shadow-float);
-  overflow: hidden;
-}
-
-/* .chipと同じ理由（白地固定のためダークモードでも暗色文字） */
-.modeItem {
-  min-height: 36px;
-  padding: 0.35rem 0.9rem;
-  border: none;
-  background: transparent;
-  color: #171717;
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-}
-
-.modeItemActive {
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.zoomWarning {
-  background: var(--color-surface);
-  color: var(--color-warning-strong);
-  font-size: var(--font-size-sm);
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  box-shadow: var(--shadow-float);
-}
-
-.legendRow {
-  display: flex;
-  align-items: center;
-  /* 路面種別モードは凡例が6項目になるため、画面幅が足りなければ折り返す */
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  max-width: min(90vw, 26rem);
-  background: var(--color-surface);
-  color: #171717; /* .chipと同じ理由（白地固定のためダークモードでも暗色文字） */
-  font-size: var(--font-size-sm);
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  box-shadow: var(--shadow-float);
-}
-
-/* 凡例項目はカテゴリ表示/非表示のトグルボタン。ボタンのデフォルト装飾を外し、
-   従来の凡例テキストと同じ見た目にする（色は.legendRowから継承） */
-.legendItemButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.1rem 0.2rem;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  cursor: pointer;
-}
-
-/* 非表示中のカテゴリは薄く+取り消し線で「消してある」ことを示す */
-.legendItemHidden {
-  opacity: 0.45;
-  text-decoration: line-through;
-}
-
-.swatch {
-  width: 10px;
-  height: 10px;
-  display: inline-block;
-  border-radius: 2px;
 }

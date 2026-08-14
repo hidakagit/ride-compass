@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ROAD_STYLE_MODES, getRoadStyleMode, type RoadStyleModeId } from "@/components/Map/roadStyleModes";
-import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
-import type { LegendEntry } from "@/components/Map/legendFilter";
+import { useRef, useState } from "react";
+import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
+import RoadFilterDialog from "./RoadFilterDialog";
 import styles from "./MapOverlayControls.module.css";
 
 interface MapOverlayControlsProps {
@@ -11,99 +10,49 @@ interface MapOverlayControlsProps {
   onShowElevationToggle: (on: boolean) => void;
   showRoad: boolean;
   onShowRoadToggle: (on: boolean) => void;
-  roadStyleModeId: RoadStyleModeId;
-  onRoadStyleModeChange: (id: RoadStyleModeId) => void;
-  /** 現在の路面モードで非表示にしている凡例カテゴリのキー（page.tsxがモード別に保持） */
-  hiddenRoadLegendKeys: readonly string[];
-  onRoadLegendToggle: (key: string) => void;
+  /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー（page.tsxが軸別に保持）。
+   * ここでは「保存済みの絞り込みがあるか」（チップのドット表示）にしか使わない。
+   * 実際の絞り込み内容はサイドバー側（MapLegendPanel）で見せる。 */
+  roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
+  /** RoadFilterDialog（別ウィンドウ）で「保存」を押したときにまとめて呼ばれる */
+  onRoadSettingsSave: (hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => void;
   routeLayerOn: boolean;
   onRouteLayerToggle: (on: boolean) => void;
-  routeStyleModeId: RouteStyleModeId;
-  onRouteStyleModeChange: (id: RouteStyleModeId) => void;
-  hiddenRouteLegendKeys: readonly string[];
-  onRouteLegendToggle: (key: string) => void;
   hasDetail: boolean;
-  regionZoomTooWide: boolean;
 }
 
-// 地図レイヤーのON/OFFは「地図を見ながら頻繁に切り替える」操作のため、サイドバー内の
-// チェックボックスではなく地図上のトグルチップとして重ね描きする（サイドバーを開閉せずに
-// 操作できるようにする）。凡例・ズーム警告も対象レイヤーがONのときだけ地図上に出すことで、
-// サイドバー側の常設の説明文を不要にしている。
-//
-// チップは2系統の「入れ物」で、どちらも本体タップ=ON/OFF・▾=色分けモード選択の同じ型:
-// - 路面▾: 無方向・地域固定データ（roadStyleModes.ts）。いつでも使える
-// - ルート▾: 有向・選択中ルート基準のデータ（routeStyleModes.ts）。ルートが決まって
-//   初めて意味を持つため、未選択時は本体・▾とも非活性にする（非表示にしないのは、
-//   「ルートを作るとここに情報が出る」という機能の存在に気づけるようにするため）
-// 凡例は選択中モードの定義から生成し、各項目はタップでそのカテゴリの表示/非表示を
-// 切り替えるフィルタとして機能する（「砂利道だけ見たい」「きつい登りだけ光らせたい」
-// といった取捨選択のため）。
+// 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」トグルチップ（レイヤーのON/OFF）と、
+// 路面の絞り込みを開く⚙ボタンだけにする。凡例・絞り込み内容の詳細・ルートの色分け選択は
+// すべてサイドバー側のMapLegendPanelにまとめてあり、ここは「サイドバーの何を見ているか」の
+// 最小限の紐づけ（チップの押下状態・絞り込み中を示す小さなドット）だけを担当する
+// （地図上部に凡例や絞り込み文言まで積み上げると地図自体が狭くなり見づらいという指摘を受けて、
+// 表示系の詳細情報は全てサイドバーへ移した）。
 export default function MapOverlayControls({
   showElevation,
   onShowElevationToggle,
   showRoad,
   onShowRoadToggle,
-  roadStyleModeId,
-  onRoadStyleModeChange,
-  hiddenRoadLegendKeys,
-  onRoadLegendToggle,
+  roadHiddenKeysByMode,
+  onRoadSettingsSave,
   routeLayerOn,
   onRouteLayerToggle,
-  routeStyleModeId,
-  onRouteStyleModeChange,
-  hiddenRouteLegendKeys,
-  onRouteLegendToggle,
   hasDetail,
-  regionZoomTooWide,
 }: MapOverlayControlsProps) {
-  // 同時に開くメニューは1つだけ（もう片方の▾を押したら開き直す）
-  const [openMenu, setOpenMenu] = useState<"road" | "route" | null>(null);
+  const [roadDialogOpen, setRoadDialogOpen] = useState(false);
+  const roadDialogButtonRef = useRef<HTMLButtonElement>(null);
 
-  const roadStyleMode = getRoadStyleMode(roadStyleModeId);
-  const routeStyleMode = getRouteStyleMode(routeStyleModeId);
-  const showRoadLegend = showRoad && !regionZoomTooWide;
-  const showRouteLegend = routeLayerOn && hasDetail;
+  // 保存済みの絞り込みがあるかどうか（2軸合計）。チップ上のドット表示にのみ使う。
+  const roadHiddenCount = ROAD_FILTER_AXES.reduce(
+    (sum, axis) => sum + (roadHiddenKeysByMode[axis.id]?.length ?? 0),
+    0
+  );
 
-  function handleRoadModeSelect(id: RoadStyleModeId) {
-    onRoadStyleModeChange(id);
-    setOpenMenu(null);
-    // モードを選んだ＝その色分けを見たい意思表示なので、レイヤーがOFFならONにする
-    // （「メニューで選んだのに地図に何も出ない」を防ぐ）
-    if (!showRoad) onShowRoadToggle(true);
-  }
-
-  function handleRouteModeSelect(id: RouteStyleModeId) {
-    onRouteStyleModeChange(id);
-    setOpenMenu(null);
-    if (!routeLayerOn) onRouteLayerToggle(true);
-  }
-
-  function renderLegend(
-    legend: readonly LegendEntry[],
-    hiddenKeys: readonly string[],
-    onToggle: (key: string) => void
-  ) {
-    return (
-      <div className={styles.legendRow}>
-        {legend.map((entry) => {
-          const visible = !hiddenKeys.includes(entry.key);
-          return (
-            <button
-              key={entry.key}
-              type="button"
-              aria-pressed={visible}
-              onClick={() => onToggle(entry.key)}
-              className={visible ? styles.legendItemButton : `${styles.legendItemButton} ${styles.legendItemHidden}`}
-              title={visible ? `${entry.label}を非表示にする` : `${entry.label}を表示する`}
-            >
-              <span className={styles.swatch} style={{ background: entry.color }} />
-              {entry.label}
-            </button>
-          );
-        })}
-      </div>
-    );
+  function handleRoadDialogClose() {
+    setRoadDialogOpen(false);
+    // ダイアログを開いた起点（⚙ボタン）へフォーカスを戻す（キーボード/スクリーンリーダー
+    // 利用時に、閉じた後の操作起点を見失わないようにするため。page.tsxのモバイル
+    // ドロワーclose処理と同じ考え方）
+    roadDialogButtonRef.current?.focus();
   }
 
   return (
@@ -116,7 +65,8 @@ export default function MapOverlayControls({
           className={showElevation ? styles.chipActive : styles.chip}
           title="国土地理院の色別標高図を重ねる"
         >
-          標高
+          {/* ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける */}
+          標高図
         </button>
         <div className={styles.chipGroup}>
           <button
@@ -124,91 +74,43 @@ export default function MapOverlayControls({
             aria-pressed={showRoad}
             onClick={() => onShowRoadToggle(!showRoad)}
             className={showRoad ? styles.chipActive : styles.chip}
-            title={`道路を色分けする（${roadStyleMode.label}）`}
+            title="道路を路面材質・種類で色分け表示（詳細はサイドバー参照）"
           >
             路面
+            {/* 絞り込み中であることだけを示す最小限の印。実際の内容はサイドバーの凡例
+                （dimmed表示）で分かるため、ここでは件数も文章も持たない。 */}
+            {roadHiddenCount > 0 && <span className={styles.filterDot} aria-hidden="true" />}
           </button>
           <button
+            ref={roadDialogButtonRef}
             type="button"
-            aria-label="路面の色分けを選択"
-            aria-expanded={openMenu === "road"}
-            onClick={() => setOpenMenu(openMenu === "road" ? null : "road")}
-            className={openMenu === "road" ? `${styles.modeMenuButton} ${styles.modeMenuButtonOpen}` : styles.modeMenuButton}
-            title="路面の色分けを選択"
+            aria-haspopup="dialog"
+            aria-label={roadHiddenCount > 0 ? "路面の表示設定を開く（絞り込み中）" : "路面の表示設定を開く"}
+            onClick={() => setRoadDialogOpen(true)}
+            className={styles.modeMenuButton}
+            title="路面の表示設定を開く（絞り込み）"
           >
-            ▾
+            ⚙
           </button>
         </div>
-        <div className={styles.chipGroup}>
-          <button
-            type="button"
-            aria-pressed={routeLayerOn && hasDetail}
-            disabled={!hasDetail}
-            onClick={() => onRouteLayerToggle(!routeLayerOn)}
-            className={routeLayerOn && hasDetail ? styles.chipActive : styles.chip}
-            title={
-              hasDetail ? `選択中ルート沿いの情報を色分けする（${routeStyleMode.label}）` : "ルートを生成・選択すると使えます"
-            }
-          >
-            ルート
-          </button>
-          <button
-            type="button"
-            aria-label="ルートの色分けを選択"
-            aria-expanded={openMenu === "route"}
-            disabled={!hasDetail}
-            onClick={() => setOpenMenu(openMenu === "route" ? null : "route")}
-            className={
-              openMenu === "route" ? `${styles.modeMenuButton} ${styles.modeMenuButtonOpen}` : styles.modeMenuButton
-            }
-            title={hasDetail ? "ルートの色分けを選択" : "ルートを生成・選択すると使えます"}
-          >
-            ▾
-          </button>
-        </div>
+        <button
+          type="button"
+          aria-pressed={routeLayerOn && hasDetail}
+          disabled={!hasDetail}
+          onClick={() => onRouteLayerToggle(!routeLayerOn)}
+          className={routeLayerOn && hasDetail ? styles.chipActive : styles.chip}
+          title={hasDetail ? "選択中ルート沿いの情報を色分け表示（詳細はサイドバー参照）" : "ルートを生成・選択すると使えます"}
+        >
+          ルート
+        </button>
       </div>
 
-      {openMenu === "road" && (
-        <div className={styles.modeMenu} role="radiogroup" aria-label="路面の色分け">
-          {ROAD_STYLE_MODES.map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              role="radio"
-              aria-checked={mode.id === roadStyleModeId}
-              onClick={() => handleRoadModeSelect(mode.id)}
-              className={mode.id === roadStyleModeId ? `${styles.modeItem} ${styles.modeItemActive}` : styles.modeItem}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {openMenu === "route" && (
-        <div className={styles.modeMenu} role="radiogroup" aria-label="ルートの色分け">
-          {ROUTE_STYLE_MODES.map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              role="radio"
-              aria-checked={mode.id === routeStyleModeId}
-              onClick={() => handleRouteModeSelect(mode.id)}
-              className={mode.id === routeStyleModeId ? `${styles.modeItem} ${styles.modeItemActive}` : styles.modeItem}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {showRoad && regionZoomTooWide && (
-        <p className={styles.zoomWarning}>表示範囲が広すぎます。ズームインしてください。</p>
-      )}
-
-      {showRoadLegend && renderLegend(roadStyleMode.legend, hiddenRoadLegendKeys, onRoadLegendToggle)}
-
-      {showRouteLegend && renderLegend(routeStyleMode.legend, hiddenRouteLegendKeys, onRouteLegendToggle)}
+      <RoadFilterDialog
+        open={roadDialogOpen}
+        onClose={handleRoadDialogClose}
+        roadHiddenKeysByMode={roadHiddenKeysByMode}
+        onSave={onRoadSettingsSave}
+      />
     </div>
   );
 }

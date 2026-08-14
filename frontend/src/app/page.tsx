@@ -7,11 +7,8 @@ import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
-import {
-  DEFAULT_ROAD_STYLE_MODE_ID,
-  isRoadStyleModeId,
-  type RoadStyleModeId,
-} from "@/components/Map/roadStyleModes";
+import MapLegendPanel from "@/components/MapLegendPanel/MapLegendPanel";
+import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   isRouteStyleModeId,
@@ -32,10 +29,10 @@ import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
 
-// 色分けモード（路面・ルート）の保存先。プライベートブラウジング等でlocalStorageが
+// 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
 // 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
-// 握りつぶす。
-const ROAD_STYLE_MODE_STORAGE_KEY = "ridecompass:road-style-mode";
+// 握りつぶす。路面側は色分けモードを持たない（常に固定色。roadFilterAxes.ts参照）ため
+// 対応する保存先は無い。
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 
 function loadStoredStyleMode<T extends string>(storageKey: string, isValid: (v: string | null) => v is T, fallback: T): T {
@@ -86,7 +83,6 @@ export default function Home() {
 
   const [showElevation, setShowElevation] = useState(false);
   const [showRoad, setShowRoad] = useState(false);
-  const [roadStyleModeId, setRoadStyleModeId] = useState<RoadStyleModeId>(DEFAULT_ROAD_STYLE_MODE_ID);
   const [routeLayerOn, setRouteLayerOn] = useState(true);
   const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -116,23 +112,13 @@ export default function Home() {
     }
   }, [isMobile]);
 
-  // 前回選んだ色分けモード（路面・ルート）を復元する。useStateの初期化子でlocalStorageを
+  // 前回選んだ色分けモード（ルート）を復元する。useStateの初期化子でlocalStorageを
   // 読むとSSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
   // レイアウトエフェクトなのはサイドバー折りたたみと同じちらつき防止の理由。
   useIsomorphicLayoutEffect(() => {
-    setRoadStyleModeId(loadStoredStyleMode(ROAD_STYLE_MODE_STORAGE_KEY, isRoadStyleModeId, DEFAULT_ROAD_STYLE_MODE_ID));
     setRouteStyleModeId(
       loadStoredStyleMode(ROUTE_STYLE_MODE_STORAGE_KEY, isRouteStyleModeId, DEFAULT_ROUTE_STYLE_MODE_ID),
     );
-  }, []);
-
-  const handleRoadStyleModeChange = useCallback((id: RoadStyleModeId) => {
-    setRoadStyleModeId(id);
-    try {
-      window.localStorage.setItem(ROAD_STYLE_MODE_STORAGE_KEY, id);
-    } catch {
-      // 保存不可でも選択自体はこのセッション内で有効
-    }
   }, []);
 
   const handleRouteStyleModeChange = useCallback((id: RouteStyleModeId) => {
@@ -148,7 +134,13 @@ export default function Home() {
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる。その場の絞り込み操作なのでlocalStorageへは保存しない。
   const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useState<Record<string, string[]>>({});
-  const hiddenRoadLegendKeys = hiddenLegendKeysByMode[roadStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
+  // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
+  // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
+  // 同時に絞り込みたい、という使い方に対応するため）。両軸分の非表示キーをまとめて
+  // MapView/MapOverlayControlsへ渡す。
+  const roadHiddenKeysByMode = Object.fromEntries(
+    ROAD_FILTER_AXES.map((axis) => [axis.id, hiddenLegendKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS]),
+  ) as unknown as Record<RoadFilterAxisId, readonly string[]>;
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
   const toggleHiddenLegendKey = useCallback((modeId: string, key: string) => {
     setHiddenLegendKeysByMode((prev) => {
@@ -157,10 +149,13 @@ export default function Home() {
       return { ...prev, [modeId]: next };
     });
   }, []);
-  const handleRoadLegendToggle = useCallback(
-    (key: string) => toggleHiddenLegendKey(roadStyleModeId, key),
-    [roadStyleModeId, toggleHiddenLegendKey],
-  );
+  // 路面の絞り込み設定は別ウィンドウ（RoadFilterDialog）内でまとめて編集し、「保存」を
+  // 押すまでは地図に反映しない（キャンセル/×で閉じれば破棄）。保存時にこのハンドラが
+  // 一括で呼ばれ、両軸分の絞り込みキーの反映・レイヤー表示ONを1つの操作として行う。
+  const handleRoadSettingsSave = useCallback((hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => {
+    setHiddenLegendKeysByMode((prev) => ({ ...prev, ...hiddenKeysByMode }));
+    setShowRoad(true);
+  }, []);
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
@@ -283,7 +278,9 @@ export default function Home() {
           aria-label={sidebarCollapsed ? "パネルを開く" : "パネルを閉じる"}
           className={styles.toggleButton}
         >
-          {sidebarCollapsed ? "▶" : "◀"}
+          {/* 矢印記号は開閉の意味が伝わりにくかったため、より広く認知されている
+              ハンバーガー/クローズアイコンに変更 */}
+          {sidebarCollapsed ? "☰" : "✕"}
         </button>
 
         {!sidebarCollapsed && (
@@ -293,22 +290,48 @@ export default function Home() {
               <p className={styles.subtitle}>ロードバイク向け周回ルート生成アプリ（プロトタイプ）</p>
             </header>
 
-            <BackendStatus />
-            <DebugPanel />
-            <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+            {/* 天候・位置情報はユーザーがまず知りたい情報のため、開発者向けの補助情報
+                （デバッグモード・バックエンド疎通確認）より上に置く */}
+            <div className={styles.infoCard}>
+              <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
 
-            <LocationControl
-              location={location}
-              source={locationSource}
-              manualLat={manualLat}
-              manualLng={manualLng}
-              showManualInput={showManualInput}
-              manualLocationError={manualLocationError}
-              onManualLatChange={setManualLat}
-              onManualLngChange={setManualLng}
-              onToggleManualInput={toggleManualInput}
-              onManualSubmit={handleManualSubmit}
-            />
+              <LocationControl
+                location={location}
+                source={locationSource}
+                manualLat={manualLat}
+                manualLng={manualLng}
+                showManualInput={showManualInput}
+                manualLocationError={manualLocationError}
+                onManualLatChange={setManualLat}
+                onManualLngChange={setManualLng}
+                onToggleManualInput={toggleManualInput}
+                onManualSubmit={handleManualSubmit}
+              />
+            </div>
+
+            {/* 地図に何が描かれているか（色・太さの意味、絞り込み状態、ルートの色分け選択）は
+                すべてここにまとめる。地図の上（MapOverlayControls）には、押下状態と
+                絞り込み中を示す小さなドットだけを残し、詳細説明は地図に重ねない
+                （地図の視界を優先するため）。 */}
+            <div className={styles.legendCard}>
+              <MapLegendPanel
+                showRoad={showRoad}
+                roadHiddenKeysByMode={roadHiddenKeysByMode}
+                regionZoomTooWide={regionZoomTooWide}
+                routeLayerOn={routeLayerOn}
+                onRouteLayerToggle={setRouteLayerOn}
+                routeStyleModeId={routeStyleModeId}
+                onRouteStyleModeChange={handleRouteStyleModeChange}
+                hiddenRouteLegendKeys={hiddenRouteLegendKeys}
+                onRouteLegendToggle={handleRouteLegendToggle}
+                hasDetail={hasDetail}
+              />
+            </div>
+
+            <div className={styles.systemRow}>
+              <DebugPanel />
+              <BackendStatus />
+            </div>
 
             {/* ルート生成は「地図レイヤーだけ使いたい」用途では不要なため、折りたたみ
                 （デフォルト閉）にして地図側の視界を優先する。候補一覧・エラーもルート生成の
@@ -342,8 +365,7 @@ export default function Home() {
           location={location}
           showElevation={showElevation}
           showRoad={showRoad}
-          roadStyleModeId={roadStyleModeId}
-          hiddenRoadLegendKeys={hiddenRoadLegendKeys}
+          roadHiddenKeysByMode={roadHiddenKeysByMode}
           routeLayerOn={routeLayerOn}
           routeStyleModeId={routeStyleModeId}
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
@@ -356,18 +378,11 @@ export default function Home() {
           onShowElevationToggle={setShowElevation}
           showRoad={showRoad}
           onShowRoadToggle={setShowRoad}
-          roadStyleModeId={roadStyleModeId}
-          onRoadStyleModeChange={handleRoadStyleModeChange}
-          hiddenRoadLegendKeys={hiddenRoadLegendKeys}
-          onRoadLegendToggle={handleRoadLegendToggle}
+          roadHiddenKeysByMode={roadHiddenKeysByMode}
+          onRoadSettingsSave={handleRoadSettingsSave}
           routeLayerOn={routeLayerOn}
           onRouteLayerToggle={setRouteLayerOn}
-          routeStyleModeId={routeStyleModeId}
-          onRouteStyleModeChange={handleRouteStyleModeChange}
-          hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-          onRouteLegendToggle={handleRouteLegendToggle}
           hasDetail={hasDetail}
-          regionZoomTooWide={regionZoomTooWide}
         />
 
         <button

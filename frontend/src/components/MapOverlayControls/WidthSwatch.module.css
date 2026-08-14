@@ -1,0 +1,19 @@
+/* 地図の線を模した横長のバー。高さで太さの違いを表現する（widthはWidthSwatch.tsxが指定） */
+.bar {
+  display: inline-block;
+  border-radius: 2px;
+  background: var(--color-muted-strong);
+  flex-shrink: 0;
+}
+
+/* 「不明・他」用。地図のline-dasharray（実際の道幅と無関係なため太さでは目立たせない）と
+   同じ考え方で、縞模様にして実線カテゴリと見分けられるようにする */
+.barDashed {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-muted-strong) 0,
+    var(--color-muted-strong) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}

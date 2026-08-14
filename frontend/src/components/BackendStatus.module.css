@@ -1,15 +1,19 @@
 .status {
-  font-weight: 600;
+  font-size: var(--font-size-sm);
 }
 
 .checking {
   color: var(--color-muted-strong);
 }
 
+/* 正常時は「常時主張する情報」ではないため、太字・彩色をやめて他の補助情報と同程度に
+   目立たなくする */
 .ok {
-  color: var(--color-success);
+  color: var(--color-muted);
 }
 
+/* 異常時だけは何が起きているか気づけるよう、はっきり目立たせる */
 .ng {
+  font-weight: 600;
   color: var(--color-danger);
 }

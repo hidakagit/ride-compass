@@ -21,7 +21,9 @@ export default function BackendStatus() {
     };
   }, []);
 
-  const label = { checking: "確認中...", ok: "Backend: OK", ng: "Backend: NG" }[status];
+  // 正常時は静かに（小さく・淡く）、異常時だけ目立たせる。常時「OK」を主張する必要は無く、
+  // ユーザーが気にすべきは「使えない理由」があるときだけという考え方。
+  const label = { checking: "サーバー接続を確認中…", ok: "サーバー接続: OK", ng: "サーバーに接続できません" }[status];
   const statusClass = { checking: styles.checking, ok: styles.ok, ng: styles.ng }[status];
 
   return <span className={`${styles.status} ${statusClass}`}>{label}</span>;

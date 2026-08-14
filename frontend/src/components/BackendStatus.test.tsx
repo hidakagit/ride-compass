@@ -8,23 +8,23 @@ vi.mock("@/services/healthApi");
 const mockedCheckBackendHealth = vi.mocked(checkBackendHealth);
 
 describe("BackendStatus", () => {
-  it("初期描画(未解決)では確認中...を表示する", () => {
+  it("初期描画(未解決)ではサーバー接続を確認中…を表示する", () => {
     mockedCheckBackendHealth.mockReturnValue(new Promise(() => {}));
     render(<BackendStatus />);
-    expect(screen.getByText("確認中...")).toBeInTheDocument();
+    expect(screen.getByText("サーバー接続を確認中…")).toBeInTheDocument();
   });
 
-  it("checkBackendHealthがtrueに解決するとBackend: OKを表示する", async () => {
+  it("checkBackendHealthがtrueに解決するとサーバー接続: OKを表示する", async () => {
     mockedCheckBackendHealth.mockResolvedValue(true);
     render(<BackendStatus />);
 
-    await waitFor(() => expect(screen.getByText("Backend: OK")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("サーバー接続: OK")).toBeInTheDocument());
   });
 
-  it("checkBackendHealthがfalseに解決するとBackend: NGを表示する", async () => {
+  it("checkBackendHealthがfalseに解決するとサーバーに接続できませんを表示する", async () => {
     mockedCheckBackendHealth.mockResolvedValue(false);
     render(<BackendStatus />);
 
-    await waitFor(() => expect(screen.getByText("Backend: NG")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("サーバーに接続できません")).toBeInTheDocument());
   });
 });
