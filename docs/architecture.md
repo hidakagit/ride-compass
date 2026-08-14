@@ -339,8 +339,9 @@ RideCompass/
         weatherApi.ts             ✅ getCurrentWeather()
         regionApi.ts               ✅ roadSurfaceTileUrl() / ROAD_TILE_MIN_ZOOM/MAX_ZOOM / refreshBasemapCache()（Step10改訂。路面がタイル化されJSON型を持たなくなったため`types/region.ts`は削除済み）
       types/
-        route.ts                  ✅（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等）
-        weather.ts                 ✅（WeatherConditions）
+        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する
+        route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
+        weather.ts                 ✅ 同上（WeatherConditions）
   docker-compose.yml            ✅ (frontend/backend/postgres)
   .env.example                  ✅
   .gitignore                    ✅

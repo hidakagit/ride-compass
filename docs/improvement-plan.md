@@ -49,7 +49,7 @@
 
 ## Phase 2: 境界の固定と内部再配置（次の大規模変更前）
 
-### - [ ] T4. OpenAPIからのフロント型生成〔D2〕規模M
+### - [x] T4. OpenAPIからのフロント型生成〔D2〕規模M（2026-08-15完了）
 
 - backend: `python -c "..."` または起動中サーバーから `openapi.json` を出力するnpm/justスクリプトを用意。
 - frontend: `openapi-typescript` を導入し、`src/types/generated/api.d.ts` を生成。
@@ -154,3 +154,4 @@
 | 2026-08-15 | T1 | .github/workflows/ci.yml 追加。ローカルで全チェックgreen確認（backend 391件・frontend 122件・eslint・tsc） |
 | 2026-08-15 | T2 | 符号付きへ統一（backend 392件green）。正準定義をdomain/route.pyへ明記、architecture.md追記 |
 | 2026-08-15 | T3 | useMemo化（lint・tsc・vitest 122件green）。Phase 1完了 |
+| 2026-08-15 | T4 | export_openapi.py＋openapi-typescript導入。types/route.ts・weather.tsを生成型の再エクスポート化（geometryのみGeoJSON補正、Required<>で必須化）。CIにapi-contractドリフト検知ジョブ追加。surface_summary/valuesは契約が自動導出になったため個別整理は不要と判断 |

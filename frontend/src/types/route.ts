@@ -1,66 +1,40 @@
-export interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
+// APIの型はbackendのOpenAPIスキーマから生成した generated/api.d.ts を正とし、
+// このファイルはその再エクスポート＋フロント専用の補正だけを持つ（手書きの二重管理を
+// しない。docs/improvement-plan.md T4）。backendのレスポンスモデルを変更したら
+// backend/scripts/export_openapi.py → npm run generate:api で生成物を更新すること
+// （CIのapi-contractジョブがドリフトを検知する）。
+//
+// Required<>で包む理由: pydanticはデフォルトNoneのフィールドもJSONに常に含めて
+// 返すが、OpenAPI上は「必須でない」扱いになりopenapi-typescriptの生成型では
+// optional（`?`）になる。実際のレスポンス形に合わせて必須へ戻す。
+//
+// geometryだけ手動で補正する理由: backend側はGeoJSONを`dict`（自由なオブジェクト）と
+// して扱うためスキーマに構造が現れない。フロントは座標へアクセスするため
+// GeoJSON.LineString（@types/geojson）で具体化する。
+import type { components } from "./generated/api";
 
+type Schemas = components["schemas"];
+
+export type Coordinates = Schemas["Coordinates"];
+
+// フロント専用（位置情報の出所）。APIには現れない。
 export type LocationSource = "geolocation" | "manual" | "default";
 
-export interface RouteSegment {
-  distance_km: number;
-  duration_minutes: number;
+export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
   geometry: GeoJSON.LineString;
-  surface_summary: Record<string, unknown>[] | null;
-  surface_values: unknown[][] | null;
-}
+};
 
-export interface RoutePreviewRequest {
-  origin: Coordinates;
-  destination: Coordinates;
-}
+export type RoutePreviewRequest = Schemas["RoutePreviewRequest"];
 
-export interface RouteSegmentDetail {
-  start_latitude: number;
-  start_longitude: number;
-  end_latitude: number;
-  end_longitude: number;
-  cumulative_distance_km: number;
-  distance_km: number;
-  estimated_arrival_time: string | null;
-  gradient_percent: number | null;
-  wind_penalty: number | null;
-  road_surface_good: boolean | null;
-  elevation_difficulty: number | null;
-  wind_difficulty: number | null;
-  road_difficulty: number | null;
-  difficulty: number | null;
-}
+export type RouteSegmentDetail = Required<Schemas["RouteSegmentDetail"]>;
 
-export interface RouteCandidate {
-  id: string;
-  direction_label: string;
-  distance_km: number;
+export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry" | "segments"> & {
   geometry: GeoJSON.LineString;
-  elevation_gain_m: number | null;
-  min_elevation_m: number | null;
-  max_elevation_m: number | null;
-  max_gradient_percent: number | null;
-  wind_score: number | null;
-  road_score: number | null;
-  total_score: number | null;
   segments: RouteSegmentDetail[] | null;
-}
+};
 
-export interface RouteGenerateRequest {
-  latitude: number;
-  longitude: number;
-  distance_km: number;
-  distance_tolerance_km: number;
-  route_type: "loop";
-}
+export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];
 
-export interface RouteGenerateResponse {
+export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "routes"> & {
   routes: RouteCandidate[];
-  // どちらのルーティングエンジンが生成した候補か（"openrouteservice" | "road_graph"）。
-  // wind_score等はエンジンによって算出の意味が異なるため、評価値の比較時の識別に使う。
-  engine: string;
-}
+};

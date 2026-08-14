@@ -1,0 +1,797 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RideCompass API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/debug/stats": {
+      "get": {
+        "summary": "Debug Stats",
+        "operationId": "debug_stats_api_debug_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Debug Stats Api Debug Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/routes/preview": {
+      "post": {
+        "summary": "Preview Route",
+        "operationId": "preview_route_api_routes_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteSegment"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/routes/generate": {
+      "post": {
+        "summary": "Generate Routes",
+        "operationId": "generate_routes_api_routes_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteGenerateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/weather": {
+      "get": {
+        "summary": "Get Weather",
+        "operationId": "get_weather_api_weather_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherConditions"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
+      "get": {
+        "summary": "Region Road Surface Tile",
+        "operationId": "region_road_surface_tile_api_region_road_surface_tiles__z___x___y__pbf_get",
+        "parameters": [
+          {
+            "name": "z",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Z"
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "X"
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Y"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/basemap/{path}": {
+      "get": {
+        "summary": "Basemap Proxy",
+        "operationId": "basemap_proxy_api_basemap__path__get",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/basemap/refresh": {
+      "post": {
+        "summary": "Basemap Refresh",
+        "operationId": "basemap_refresh_api_basemap_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Basemap Refresh Api Basemap Refresh Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Coordinates": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "Coordinates"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "RouteCandidate": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "direction_label": {
+            "type": "string",
+            "title": "Direction Label"
+          },
+          "distance_km": {
+            "type": "number",
+            "title": "Distance Km"
+          },
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          },
+          "elevation_gain_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Gain M"
+          },
+          "min_elevation_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Elevation M"
+          },
+          "max_elevation_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Elevation M"
+          },
+          "max_gradient_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Gradient Percent"
+          },
+          "wind_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Score"
+          },
+          "road_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Road Score"
+          },
+          "total_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Score"
+          },
+          "segments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RouteSegmentDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "direction_label",
+          "distance_km",
+          "geometry"
+        ],
+        "title": "RouteCandidate"
+      },
+      "RouteGenerateRequest": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude"
+          },
+          "distance_km": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Distance Km"
+          },
+          "distance_tolerance_km": {
+            "type": "number",
+            "maximum": 50.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Distance Tolerance Km",
+            "default": 5.0
+          },
+          "route_type": {
+            "type": "string",
+            "const": "loop",
+            "title": "Route Type",
+            "default": "loop"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude",
+          "distance_km"
+        ],
+        "title": "RouteGenerateRequest"
+      },
+      "RouteGenerateResponse": {
+        "properties": {
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/RouteCandidate"
+            },
+            "type": "array",
+            "title": "Routes"
+          },
+          "engine": {
+            "type": "string",
+            "title": "Engine"
+          }
+        },
+        "type": "object",
+        "required": [
+          "routes",
+          "engine"
+        ],
+        "title": "RouteGenerateResponse"
+      },
+      "RoutePreviewRequest": {
+        "properties": {
+          "origin": {
+            "$ref": "#/components/schemas/Coordinates"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/Coordinates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "title": "RoutePreviewRequest"
+      },
+      "RouteSegment": {
+        "properties": {
+          "distance_km": {
+            "type": "number",
+            "title": "Distance Km"
+          },
+          "duration_minutes": {
+            "type": "number",
+            "title": "Duration Minutes"
+          },
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          },
+          "surface_summary": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface Summary"
+          },
+          "surface_values": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "distance_km",
+          "duration_minutes",
+          "geometry"
+        ],
+        "title": "RouteSegment"
+      },
+      "RouteSegmentDetail": {
+        "properties": {
+          "start_latitude": {
+            "type": "number",
+            "title": "Start Latitude"
+          },
+          "start_longitude": {
+            "type": "number",
+            "title": "Start Longitude"
+          },
+          "end_latitude": {
+            "type": "number",
+            "title": "End Latitude"
+          },
+          "end_longitude": {
+            "type": "number",
+            "title": "End Longitude"
+          },
+          "cumulative_distance_km": {
+            "type": "number",
+            "title": "Cumulative Distance Km"
+          },
+          "distance_km": {
+            "type": "number",
+            "title": "Distance Km"
+          },
+          "estimated_arrival_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Arrival Time"
+          },
+          "gradient_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gradient Percent"
+          },
+          "wind_penalty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Penalty"
+          },
+          "road_surface_good": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Road Surface Good"
+          },
+          "elevation_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Difficulty"
+          },
+          "wind_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Difficulty"
+          },
+          "road_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Road Difficulty"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_latitude",
+          "start_longitude",
+          "end_latitude",
+          "end_longitude",
+          "cumulative_distance_km",
+          "distance_km"
+        ],
+        "title": "RouteSegmentDetail",
+        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負）。\n両エンジン共通（openrouteservice: 区間標高差から算出 / road_graph:\nElevationAttribute.average_grade）。フロントの勾配色分け（routeStyleModes.ts）は\nこの符号を前提に「下り」カテゴリを持つため、絶対値で返してはならない。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WeatherConditions": {
+        "properties": {
+          "temperature_c": {
+            "type": "number",
+            "title": "Temperature C"
+          },
+          "wind_speed_ms": {
+            "type": "number",
+            "title": "Wind Speed Ms"
+          },
+          "wind_direction_deg": {
+            "type": "number",
+            "title": "Wind Direction Deg"
+          },
+          "wind_direction_label": {
+            "type": "string",
+            "title": "Wind Direction Label"
+          },
+          "precipitation_probability_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Probability Percent"
+          },
+          "observed_at": {
+            "type": "string",
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "temperature_c",
+          "wind_speed_ms",
+          "wind_direction_deg",
+          "wind_direction_label",
+          "precipitation_probability_percent",
+          "observed_at"
+        ],
+        "title": "WeatherConditions"
+      }
+    }
+  }
+}

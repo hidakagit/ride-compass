@@ -1,8 +1,5 @@
-export interface WeatherConditions {
-  temperature_c: number;
-  wind_speed_ms: number;
-  wind_direction_deg: number;
-  wind_direction_label: string;
-  precipitation_probability_percent: number | null;
-  observed_at: string;
-}
+// backendのOpenAPIスキーマから生成した generated/api.d.ts の再エクスポート
+// （経緯・更新手順は types/route.ts のコメント参照）。
+import type { components } from "./generated/api";
+
+export type WeatherConditions = components["schemas"]["WeatherConditions"];
