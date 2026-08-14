@@ -55,6 +55,12 @@
   border-radius: 50%;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
+  /* background（var(--color-surface)）は常に白固定でダークモードでも変わらないが、
+     colorを指定しないとbodyのcolor（ダークモードで明るい色になる var(--foreground)）を
+     継承してしまい、白背景に明るい色のアイコンが重なって実質見えなくなる不具合が
+     Android実機（ダークモード）で確認された。MapOverlayControls.module.cssの
+     .chip/.legendRowと同じ理由で明示的に固定する。 */
+  color: #171717;
   box-shadow: var(--shadow-float);
   font-size: 1.3rem;
   line-height: 1;
