@@ -163,6 +163,45 @@
    ローカルと同程度かそれ以上の速度が出ることもある（1km COLD: 126.0秒 vs
    ローカル154.4秒）。
 
+9. **8番のWARM内訳をSupabase（WAN）で分解計測 → 主犯は`get_graph_in_bbox`のCPU処理と判明**。
+   `is_split_up_to_date`/`get_graph_in_bbox`/`get_surface_attributes`をそれぞれ単体で
+   計測するアドホックスクリプトを実行（都心駅起点、実データ、min値）:
+
+   | シナリオ | `is_split_up_to_date` | `get_graph_in_bbox` | `get_surface_attributes` |
+   |---|---|---|---|
+   | 1km（Edge 82,611件） | 0.79秒 | 9.17秒 | 4.97秒 |
+   | 4km（Edge 151,820件） | 0.79秒 | 14.25秒 | 7.97秒 |
+
+   `get_graph_in_bbox`がWARM全体の約6割を占め最大コスト。ローカルでの単体計測
+   （4km・CPU処理のみで13.3秒、7番参照）とほぼ同じ規模のため、正体はネットワーク
+   ラウンドトリップではなく**shapelyでのgeometry decodeそのもの（CPU処理）**と判明。
+
+   `get_surface_attributes`（`_chunked(edge_ids, _ID_CHUNK_SIZE=10_000)`+`.in_()`、
+   1km 9回・4km 16回のラウンドトリップ）は、`get_way_specs_with_closure`のノード座標
+   取得で既に使われている`=ANY(配列)`パターン（1要素=1パラメータのIN句展開と異なり
+   配列全体で1パラメータになり、パラメータ数上限を気にせず1回のクエリに収まる）へ
+   `get_graph_in_bbox`のNode取得・`get_elevation_attributes`と合わせて置き換えた
+   （`road_graph_repository.py`、チャンク幅は同じ理由で50,000に統一。ラウンドトリップは
+   1km 9→2回・4km 16→4回に減少）。改修後に同条件で再計測:
+
+   | シナリオ | `get_graph_in_bbox`（前→後） | `get_surface_attributes`（前→後） |
+   |---|---|---|
+   | 1km | 9.17秒 → 9.00秒（誤差範囲） | 4.97秒 → 4.19秒（約16%減） |
+   | 4km | 14.25秒 → 14.81秒（悪化、誤差範囲） | 7.97秒 → 7.33秒（約8%減） |
+
+   `get_surface_attributes`はラウンドトリップ削減の効果が小さいながら見られた
+   （副作用の無い改修のため採用）が、`get_graph_in_bbox`は実質無変化——このスケール
+   （Edge数万〜十数万件）ではラウンドトリップ回数よりもshapely decodeのCPU時間の方が
+   支配的で、ラウンドトリップ削減だけでは効かないことが分かった。なお対照として
+   コード変更していない`is_split_up_to_date`も0.79秒→1.45秒とブレており、WAN計測は
+   実行間variance自体が大きい点に注意（改修効果はこのノイズ幅に近い）。
+
+   **残課題として上位**: `get_graph_in_bbox`のCPU律速（geometry decode）を削減する
+   には、ラウンドトリップ数の削減とは異なるアプローチ（例: 全Edgeを都度Pythonの
+   shapelyオブジェクトへ変換せず必要な範囲だけ遅延デコードする、PostGIS側で
+   GeoJSON等の軽量な表現に変換してから受け取る等）が必要。今回のスコープ外として
+   次回の検討候補に残す。
+
 ## 各ファイル
 
 | ファイル | 対象 |
