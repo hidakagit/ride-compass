@@ -1,5 +1,5 @@
 from app.domain.region import BoundingBox
-from app.infrastructure.overpass_client import OverpassClient
+from app.infrastructure.overpass_client import OVERPASS_URLS, OverpassClient
 
 
 class FakeResponse:
@@ -24,6 +24,23 @@ class FakeHttpClient:
         if self._raises:
             raise self._raises
         return FakeResponse(self._data)
+
+
+class FakeMultiMirrorHttpClient:
+    """ミラーURLごとに異なる応答(データ・例外)を返せるフェイク。
+    レート制限で最初のミラーだけ0件になる等、ミラーフォールバックの検証に使う。
+    """
+
+    def __init__(self, responses_by_url: dict[str, dict | Exception]):
+        self._responses_by_url = responses_by_url
+        self.requested_urls: list[str] = []
+
+    async def post(self, url, data=None, headers=None):
+        self.requested_urls.append(url)
+        response = self._responses_by_url[url]
+        if isinstance(response, Exception):
+            raise response
+        return FakeResponse(response)
 
 
 BBOX = BoundingBox(min_latitude=35.70, min_longitude=139.70, max_latitude=35.71, max_longitude=139.71)
@@ -117,5 +134,74 @@ async def test_get_ways_and_nodes_returns_none_when_response_missing_elements():
     http_client = FakeHttpClient(data={"unexpected": True})
 
     result = await client.get_ways_and_nodes(http_client, BBOX)
+
+    assert result is None
+
+
+def _way_element(way_id: int) -> dict:
+    return {
+        "type": "way",
+        "tags": {"highway": "residential"},
+        "geometry": [{"lat": 35.70, "lon": 139.70}, {"lat": 35.701, "lon": 139.701}],
+    }
+
+
+async def test_get_roads_falls_back_to_next_mirror_when_first_mirror_returns_zero_elements():
+    # 実機(Render)で確認された現象の再現: 1本目のミラーは200 OKだがelements:[]
+    # (レート制限による見せかけの0件の可能性)、2本目のミラーは本物のデータを返す。
+    assert len(OVERPASS_URLS) >= 2, "このテストは最低2つのミラーがある前提"
+    primary, secondary = OVERPASS_URLS[0], OVERPASS_URLS[1]
+    http_client = FakeMultiMirrorHttpClient(
+        {
+            primary: {"elements": []},
+            secondary: {"elements": [_way_element(1)]},
+        }
+    )
+    client = OverpassClient()
+
+    ways = await client.get_roads(http_client, BBOX)
+
+    assert ways is not None and len(ways) == 1
+    assert http_client.requested_urls == [primary, secondary]
+
+
+async def test_get_roads_falls_back_to_next_mirror_on_error():
+    import httpx
+
+    assert len(OVERPASS_URLS) >= 2
+    primary, secondary = OVERPASS_URLS[0], OVERPASS_URLS[1]
+    http_client = FakeMultiMirrorHttpClient(
+        {
+            primary: httpx.ConnectError("boom", request=httpx.Request("POST", primary)),
+            secondary: {"elements": [_way_element(1)]},
+        }
+    )
+    client = OverpassClient()
+
+    ways = await client.get_roads(http_client, BBOX)
+
+    assert ways is not None and len(ways) == 1
+
+
+async def test_get_roads_returns_empty_list_when_all_mirrors_agree_on_zero_elements():
+    # 全ミラーが揃って0件なら、本当に対象が無いケースとして空リストを返す（Noneではない）。
+    http_client = FakeMultiMirrorHttpClient({url: {"elements": []} for url in OVERPASS_URLS})
+    client = OverpassClient()
+
+    ways = await client.get_roads(http_client, BBOX)
+
+    assert ways == []
+    assert http_client.requested_urls == OVERPASS_URLS
+
+
+async def test_get_roads_returns_none_when_all_mirrors_error():
+    import httpx
+
+    http_client = FakeMultiMirrorHttpClient(
+        {url: httpx.ConnectError("boom", request=httpx.Request("POST", url)) for url in OVERPASS_URLS}
+    )
+    client = OverpassClient()
+
+    result = await client.get_roads(http_client, BBOX)
 
     assert result is None
