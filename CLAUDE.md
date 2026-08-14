@@ -3,6 +3,10 @@
 サイクリング向け周回ルート生成アプリ。backend（FastAPI）+ frontend（Next.js）。
 アーキテクチャ全体は docs/architecture.md 参照。
 
+設計レビュー（2026-08-15）の指摘と改善実行計画は docs/improvement-plan.md にある。
+リファクタリング・機能追加の着手前に該当タスクの有無を確認し、完了したらチェックを更新すること。
+設計原則10箇条は docs/design-review-2026-08-15.md 末尾を参照。
+
 ## ログ方針（必読）
 
 **コードを追加・変更するときは docs/logging.md のログ方針に従うこと。** 要点:
