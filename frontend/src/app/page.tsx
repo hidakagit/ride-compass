@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView from "@/components/Map/MapView";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
@@ -138,9 +138,17 @@ export default function Home() {
   // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
   // 同時に絞り込みたい、という使い方に対応するため）。両軸分の非表示キーをまとめて
   // MapView/MapOverlayControlsへ渡す。
-  const roadHiddenKeysByMode = Object.fromEntries(
-    ROAD_FILTER_AXES.map((axis) => [axis.id, hiddenLegendKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS]),
-  ) as unknown as Record<RoadFilterAxisId, readonly string[]>;
+  // useMemoで参照を安定させる: このオブジェクトはMapView側のエフェクト依存
+  // （applyRoadLayerState→map.setFilter）に入るため、毎レンダー新規生成すると
+  // 天候取得等の無関係な再レンダーのたびにフィルタ式の再適用が走ってしまう
+  // （NO_HIDDEN_LEGEND_KEYSで参照固定した意図がここで無効化されていた。設計レビューB3）。
+  const roadHiddenKeysByMode = useMemo(
+    () =>
+      Object.fromEntries(
+        ROAD_FILTER_AXES.map((axis) => [axis.id, hiddenLegendKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS]),
+      ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
+    [hiddenLegendKeysByMode],
+  );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
   const toggleHiddenLegendKey = useCallback((modeId: string, key: string) => {
     setHiddenLegendKeysByMode((prev) => {

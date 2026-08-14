@@ -38,7 +38,7 @@
 - 完了条件: 既定エンジン（openrouteservice）でフロントの勾配モードに「下り（青）」が出うる状態。
   `gradient_difficulty` は内部で `abs()` を取るため難易度・total_scoreに影響が無いことをテストで確認。
 
-### - [ ] T3. `page.tsx` の `roadHiddenKeysByMode` をuseMemo化〔B3〕規模S
+### - [x] T3. `page.tsx` の `roadHiddenKeysByMode` をuseMemo化〔B3〕規模S（2026-08-15完了）
 
 - `frontend/src/app/page.tsx` の `Object.fromEntries(...)` を
   `useMemo(..., [hiddenLegendKeysByMode])` で包み、参照を安定化。
@@ -151,3 +151,6 @@
 | 日付 | 完了タスク | 備考 |
 |---|---|---|
 | 2026-08-15 | （計画作成） | レビュー実施・本計画策定 |
+| 2026-08-15 | T1 | .github/workflows/ci.yml 追加。ローカルで全チェックgreen確認（backend 391件・frontend 122件・eslint・tsc） |
+| 2026-08-15 | T2 | 符号付きへ統一（backend 392件green）。正準定義をdomain/route.pyへ明記、architecture.md追記 |
+| 2026-08-15 | T3 | useMemo化（lint・tsc・vitest 122件green）。Phase 1完了 |
