@@ -28,7 +28,15 @@ def get_engine() -> AsyncEngine:
         # （実機で検証済み）効果がなかった。Session poolerはクライアントごとに専有の
         # 物理コネクションを保持するため、この種の衝突が構造的に起きず、追加設定なしで
         # 動作する（実機で同時10接続を検証済み）。
-        _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        # command_timeout: Supabaseが遠隔リージョン（ムンバイ）にあり密集タイルのクエリは
+        # 実測7〜8秒かかるが、路面タイルのバースト（短時間の連続パン/ズーム）でDB/pooler側が
+        # 混雑すると数分単位でクエリが返らなくなることを実機で確認した（最悪194秒）。
+        # タイムアウト無しだとリクエストが無期限にハングし続けるため、正常系（〜8秒）に
+        # 余裕を持たせつつ上限を設ける。ここで発生するTimeoutErrorはExceptionのサブクラス
+        # のため、region_service.pyの既存のtry/exceptで捕捉され空タイルへ安全に劣化する。
+        _engine = create_async_engine(
+            settings.database_url, pool_pre_ping=True, connect_args={"command_timeout": 20}
+        )
     return _engine
 
 

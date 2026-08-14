@@ -124,7 +124,26 @@ class RegionService:
             # イベントループを数百ms単位で塞ぎ、同時に処理中の他リクエスト（ルート生成等）を
             # 足止めすることが実測で判明したため、tile_cache.get/setと同じくasyncio.to_thread
             # 経由にする（backend/benchmarks/bench_event_loop_stall.py参照）。
-            tile_bytes = await asyncio.to_thread(encode_road_surface_tile, z, x, y, ways)
+            #
+            # ここは_ways_from_repositoryと違いtry/exceptで保護されておらず、密集タイル・
+            # 同時実行下でのメモリ圧迫等でエンコードが失敗すると素の500がクライアントへ
+            # 返っていた（実機で確認: 取込範囲の境界付近でレイヤーON/OFFを繰り返した際に発生）。
+            # DB読み取り失敗と同じ「常時WARNING＋安全側で空タイル返却」の方針に合わせる。
+            # 空タイルはキャッシュしない（way数が変われば次回成功しうるため）。
+            try:
+                tile_bytes = await asyncio.to_thread(encode_road_surface_tile, z, x, y, ways)
+            except Exception as exc:
+                logger.warning(
+                    "路面タイルのMVTエンコードに失敗 z=%d x=%d y=%d way_count=%d error=%r",
+                    z,
+                    x,
+                    y,
+                    len(ways),
+                    exc,
+                )
+                fields["encode"] = "error"
+                fields["encode_error"] = repr(exc)
+                return await asyncio.to_thread(encode_road_surface_tile, z, x, y, [])
             fields["way_count"] = len(ways)
 
             if not fetch_failed:

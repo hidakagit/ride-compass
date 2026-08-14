@@ -285,7 +285,23 @@ export default function Home() {
           className={locating ? `${styles.locateButton} ${styles.locateButtonBusy}` : styles.locateButton}
           style={locateButtonBottomPx != null ? { bottom: `${locateButtonBottomPx}px` } : undefined}
         >
-          {locating ? "…" : "◎"}
+          {locating ? (
+            "…"
+          ) : (
+            // 以前はUnicode文字「◎」を使っていたが、Android Chrome実機では書体（Noto Sans）が
+            // 中央のドットを描画せず単なる白丸に見える不具合が実機で確認されたため、フォントに
+            // 依存しないSVGアイコン（十字線+中心ドット、地図アプリの現在地アイコンの定番形状）
+            // に置き換えた。
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+              <path
+                d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
         </button>
 
         {locateError && (

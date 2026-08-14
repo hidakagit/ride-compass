@@ -139,3 +139,30 @@ async def test_postgis_error_falls_back_to_overpass():
 
     assert isinstance(tile_bytes, bytes) and len(tile_bytes) > 0
     assert overpass_client.call_count == 1  # DB障害時はOverpassへフォールバックして機能を維持する
+
+
+async def test_encode_failure_returns_empty_tile_instead_of_raising(monkeypatch):
+    """MVTエンコードが失敗（密集タイル・同時実行下でのメモリ圧迫等を想定）しても、
+    素の例外をraiseせず空タイルへ安全に劣化すること（実機で素の500が返っていた不具合の回帰防止）。
+    """
+    overpass_client = FakeOverpassClient(ways=[{"tags": {}, "coordinates": [[35.755, 139.735], [35.756, 139.736]]}])
+    service = RegionService(overpass_client, http_client=None)
+
+    import app.services.region_service as region_service_module
+
+    call_count = 0
+    real_encode = region_service_module.encode_road_surface_tile
+
+    def flaky_encode(z, x, y, ways):
+        nonlocal call_count
+        call_count += 1
+        if ways:  # 実データを含む1回目の呼び出しだけ失敗させる
+            raise ValueError("boom")
+        return real_encode(z, x, y, ways)
+
+    monkeypatch.setattr(region_service_module, "encode_road_surface_tile", flaky_encode)
+
+    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+
+    assert isinstance(tile_bytes, bytes)
+    assert call_count == 2  # 失敗後、空wayで再度エンコードして復旧する
