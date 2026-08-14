@@ -26,6 +26,7 @@ import asyncio
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 
+import shapely
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import LineString, Point
 from sqlalchemy import BigInteger, Text, any_, bindparam, cast, delete, func, or_, select, text, update
@@ -124,26 +125,6 @@ async def create_tables(engine: AsyncEngine) -> None:
         await conn.execute(text("DROP INDEX IF EXISTS ix_osm_raw_ways_node_ids"))
 
 
-def _node_row_to_domain(row: RoadNodeRow) -> Node:
-    point = to_shape(row.geom)
-    return Node(node_id=row.node_id, latitude=point.y, longitude=point.x, osm_node_id=row.osm_node_id)
-
-
-def _edge_row_to_domain(row: RoadEdgeRow) -> DirectedEdge:
-    # DirectedEdge.geometryは[[lat, lon], ...]だが、Shapely/PostGISの座標順は(lon, lat)。
-    line = to_shape(row.geom)
-    geometry = [[lat, lon] for lon, lat in line.coords]
-    return DirectedEdge(
-        edge_id=row.edge_id,
-        from_node_id=row.from_node_id,
-        to_node_id=row.to_node_id,
-        geometry=geometry,
-        distance_m=row.distance_m,
-        osm_way_id=row.osm_way_id,
-        highway=row.highway,
-    )
-
-
 def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
     return ElevationAttribute(
         edge_id=row.edge_id,
@@ -224,8 +205,38 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
 
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[RoadNodeRow]) -> RoadGraph:
-    nodes = {row.node_id: _node_row_to_domain(row) for row in node_rows}
-    edges = {row.edge_id: _edge_row_to_domain(row) for row in edge_rows}
+    """`get_graph_in_bbox`用。Edge/Nodeが数万〜十数万行になる規模のため、1行ずつ
+    `to_shape()`を呼ぶ従来実装ではなく`shapely.from_wkb()`のバッチAPI（GEOS呼び出しの
+    ループをPython側ではなくC側で回す）でgeometryを一括デコードし、Pydanticの
+    `model_construct`（フィールド検証をスキップ。DB由来で型が保証済みのため安全）で
+    Node/DirectedEdgeを構築する。実データ（東京都心4km相当bbox、Edge151,820件・
+    Node59,270件）での実測でCPU時間を約37%削減（6.11秒→3.84秒、
+    backend/benchmarks/README.md参照）。
+    """
+    edge_rows = list(edge_rows)
+    node_rows = list(node_rows)
+    edge_lines = shapely.from_wkb([bytes(row.geom.data) for row in edge_rows])
+    node_points = shapely.from_wkb([bytes(row.geom.data) for row in node_rows])
+
+    nodes = {
+        row.node_id: Node.model_construct(
+            node_id=row.node_id, latitude=point.y, longitude=point.x, osm_node_id=row.osm_node_id
+        )
+        for row, point in zip(node_rows, node_points)
+    }
+    edges = {
+        row.edge_id: DirectedEdge.model_construct(
+            edge_id=row.edge_id,
+            from_node_id=row.from_node_id,
+            to_node_id=row.to_node_id,
+            # DirectedEdge.geometryは[[lat, lon], ...]だが、Shapely/PostGISの座標順は(lon, lat)。
+            geometry=[[lat, lon] for lon, lat in line.coords],
+            distance_m=row.distance_m,
+            osm_way_id=row.osm_way_id,
+            highway=row.highway,
+        )
+        for row, line in zip(edge_rows, edge_lines)
+    }
     return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
 
