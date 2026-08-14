@@ -130,14 +130,14 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 ### UI再構成: サイドバー＋地図レイヤーの静的/動的分離
 Step9の可視化はモード切替（総合難易度/標高/風/路面のいずれか1つ）＋選択中候補のみという設計だったが、ユーザーから「データの性質（時間で変わる/変わらない）によって持ち方・見せ方を分けたい」「左に操作パネル、右に地図」という要望を受け、UIを再構成した。
 
-- **レイアウト**（[frontend/src/app/page.tsx](../frontend/src/app/page.tsx)）: `display:flex; height:100vh`のルート要素の下に、折りたたみ可能な`<aside>`（左サイドバー: タイトル・`BackendStatus`・`WeatherPanel`・`LocationControl`・`RouteForm`・`MapLayerControls`・`RouteList`）と`flex:1`の地図ペイン（`MapView`）を並べる。位置情報（現在地取得・手動入力）の状態は`MapView`から`page.tsx`（`Home`）に引き上げ、`MapView`は`location`等をpropsで受け取る「地図描画に専念する」薄いコンポーネントにした。
+- **レイアウト**（[frontend/src/app/page.tsx](../frontend/src/app/page.tsx)）: `display:flex; height:100vh`のルート要素の下に、折りたたみ可能な`<aside>`（左サイドバー: タイトル・`BackendStatus`・`WeatherPanel`・`LocationControl`・`RouteForm`・`MapOverlayControls`・`RouteList`）と`flex:1`の地図ペイン（`MapView`）を並べる。位置情報（現在地取得・手動入力）の状態は`MapView`から`page.tsx`（`Home`）に引き上げ、`MapView`は`location`等をpropsで受け取る「地図描画に専念する」薄いコンポーネントにした。
 - **レイヤー構成の分離**（[frontend/src/components/Map/MapView.tsx](../frontend/src/components/Map/MapView.tsx)）: 4種類のMapLibreレイヤーを常設する構成に変更。
   1. `route-candidates-line`（既存）: 全候補のベース表示（amber未選択/blue選択）。`staticLayer==="none"`のときのみ表示。
-  2. `route-static-segments-line`（新規）: **全候補**のセグメントを`elevation_difficulty`/`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapLayerControls`のチェックボックスでON/OFF）。
+  2. `route-static-segments-line`（新規）: **全候補**のセグメントを`elevation_difficulty`/`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapOverlayControls`のチェックボックスでON/OFF）。
   3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする。
   4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ`wind_difficulty`で色分け。「風の影響を表示」チェックがONかつ選択中候補にセグメントがある場合のみ表示。従来あった総合難易度/標高/風/路面のモード切替は廃止し、風のみに絞った（総合スコアはルート一覧の`total_score`表示で代替）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は常時、④は最前面。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
-- **静的レイヤーのチェックボックス**（[frontend/src/components/MapLayerControls/MapLayerControls.tsx](../frontend/src/components/MapLayerControls/MapLayerControls.tsx)）: 「標高」「路面」はそれぞれ独立したON/OFFのチェックボックス（`showElevation`, `showRoad`）で制御する。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。
+- **静的レイヤーのチェックボックス**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: 「標高」「路面」はそれぞれ独立したON/OFFのチェックボックス（`showElevation`, `showRoad`）で制御する。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。
 - **`isStyleLoaded()`起因の描画スキップ**: 実装時、地図初期化直後や候補選択直後にレイヤーが表示されない不具合が実機確認（Playwright）で見つかった。原因は、各描画関数が使っていた「`map.isStyleLoaded()`がfalseなら`map.once("load", ...)`で待つ」というガード。`isStyleLoaded()`は初期スタイル読み込み後もタイル読み込み中は一時的にfalseを返すが、MapLibreの`load`イベントは初回読み込み時に一度しか発火しない。そのため、候補選択でカメラが動いてタイル読み込み中に描画関数が呼ばれると、`isStyleLoaded()===false`と判定されて`once("load", ...)`を登録するが、その`load`はもう二度と来ず、描画が永久にスキップされていた。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
 
 ### 地域レイヤー（標高・路面の常時オーバーレイ）と地図タイルキャッシュの設計（Step10）
@@ -168,7 +168,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 - **イベントループのブロッキング回避**: `tile_cache`の読み書きは同期的なディスクI/O。基礎地図読み込み時は数十件のタイル/フォントリクエストが同時に来るため、`asyncio.to_thread`を介さず直接呼ぶとイベントループ全体をブロックし、同時に処理中の他のリクエスト（ルート生成等）が数十秒単位で詰まることを実機確認した。`BasemapClient.get`・`RegionService.get_road_surface_tile`はいずれも`tile_cache.get`/`set`を必ず`asyncio.to_thread`経由で呼ぶ。
 - **ベクタタイルの取得はWeb Worker内で行われる（実機確認で発見・修正済み）**: MapLibreはラスタタイル（`Image`要素、メインスレッド）とベクタタイル（`fetch`、Web Worker内）でタイルの取得方法が異なる。ラスタタイルのURL（`MAP_STYLE`や地理院タイルのURL）は相対パス・絶対パスいずれもページのオリジンに対して解決されるが、ベクタタイルのURLをWorker内から相対パスのまま渡すと`Failed to construct 'Request': Failed to parse URL from ...`のエラーで取得自体が失敗することを実機確認した（Workerの実行コンテキストはページとは別のベースURL解決になるため）。そのため路面ベクタタイルのURLは`window.location.origin`を使って呼び出し時に明示的に絶対URL化している（[frontend/src/services/regionApi.ts](../frontend/src/services/regionApi.ts)の`roadSurfaceTileUrl()`）。`window`はクライアントサイドでのみ参照可能なため、モジュール読み込み時に評価される定数ではなく、呼び出し時に評価される関数として実装してある点に注意（Next.jsのクライアントコンポーネントも初回はサーバー側でレンダリングされるため、モジュールの最上位で`window`を参照するとSSR時にクラッシュする）。
 
-#### フロントエンドの表示制御（`MapLayerControls.tsx`, `MapView.tsx`）
+#### フロントエンドの表示制御（`MapOverlayControls.tsx`, `MapView.tsx`）
 標高・路面は「変わらないデータ（表示中の地域全体）」として、選択中候補とは独立したチェックボックス（`showElevation`, `showRoad`）で制御する。標高がラスタタイル表示になったことで路面の線と色を奪い合わなくなったため、**両者は排他ではなく同時にON/OFFできる**（初期実装では同じ線の色を奪い合うため`staticLayer: "none" | "elevation" | "road"`の単一値で排他制御していたが、Step10改訂時に独立制御へ変更した）。標高・路面のいずれも、チェックボックスの切替時はレイヤーのvisibilityを切り替えるだけ（`setGsiReliefVisibility` / `setRoadSurfaceTileVisibility`）で、明示的なデータ取得コードは書いていない。路面がベクタタイルになったことで、Step10当初にあった「地図の`moveend`イベント（パン/ズーム終了、500msデバウンス）を検知してビューポートのbboxを`/api/region/road-surface`にfetchする」という独自ロジックは丸ごと不要になった。タイルの取得・キャッシュ・パン/ズームへの追随はすべてMapLibre自身が面倒を見るため、フロントエンドのコードはソースを一度登録するだけでよい（標高ラスタと全く同じ扱いになった）。「表示範囲が広すぎます」の案内も、bbox対角距離の計算ではなく、路面ベクタタイルの`minzoom`（`ROAD_TILE_MIN_ZOOM = 12`）と`map.getZoom()`を比較するだけの単純な判定（`updateRoadZoomHint`）に置き換わった。判定は`zoom`イベントとチェックボックスの切替の両方をトリガーに行う（標高はラスタタイルのためこの判定の対象外）。
 
 既知の制約: Overpassの取得範囲をタイル境界でクリップしていないため、タイル境界をまたぐ道路のジオメトリはタイルローカル座標が0-4096の範囲をわずかに超えることがある（前述、実害はない）。未キャッシュのタイルはOverpassへの実問い合わせが必要なため、初回表示時（特に一度に複数タイルを要求する広いビューポート）は数秒〜十数秒かかることがある（公開Overpassインスタンスの応答速度に依存。Step10当初のセル単位キャッシュと同様の性質で、2回目以降はタイル単位でキャッシュが効くため高速になる）。
@@ -267,7 +267,7 @@ RideCompass/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがRENDER_GIT_COMMIT未設定時null・設定時はその値を反映すること（「Renderデプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
       test_routing_service.py ✅ ORSClientをモックした単体テスト（surface_summary/surface_valuesのパース含む）
-      test_routes_preview.py  ✅ RoutingServiceをDIでモックしたAPIテスト
+      test_routes_preview.py  ✅ RoutingServiceをDIでモックしたAPIテスト。per-IPレート制限（20回/分）の429検証を追加
       test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 経由地点が起点始点/終点の周回を成すこと・距離許容フィルタ・失敗方位のスキップ・prepare失敗時の空返却・**評価が距離フィルタ通過候補だけに行われること**・total_scoreソート・engine_name公開（設計レビュー対応のポート分割で新規）
       test_openrouteservice_engine.py ✅ OpenRouteServiceEngineのエンドツーエンド検証（RouteGenerator経由）: 8方位生成・経路取得失敗時スキップ・標高/風プロファイルのマージ・total_score算出・segments構築・engine_name（旧test_route_generator.pyのopenrouteservice版から改組）
       test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 起点を中心とした「車輪」状のRoad Graphフィクスチャによる8方位生成・許容範囲フィルタ・経路探索失敗時スキップ・標高/路面/風の集計・segments構築・Overpass問い合わせが1回のみ・標高取得がパス上のEdgeだけ＆距離フィルタ通過候補だけに絞られること（性能回帰テスト）・engine_name（旧test_route_generator.pyのRoad Graph版から改組）
@@ -278,7 +278,7 @@ RideCompass/
       test_elevation_client_cache.py ✅ 同一/近傍座標でのキャッシュ再利用・遠方座標での再取得
       test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
       test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
-      test_weather_route.py   ✅ /api/weatherのDIモックテスト
+      test_weather_route.py   ✅ /api/weatherのDIモックテスト。per-IPレート制限（60回/分）の429検証を追加
       test_wind.py             ✅ WindCalculator.wind_penaltyの向かい風/追い風/横風の検証（domain/wind.py自体は「完全移行」後もdomain/evaluation.py: compute_wind_penaltyから再利用）
       test_road.py             ✅ classify_osm_surface（OSMタグ基準）とpaved_percent/surface_id_at_index/is_good_surface（openrouteservice数値ID基準、「完全移行」で一度撤去→「ルーティングエンジンの切り替え対応」で復元）の検証。不明路面（ID 0）の「分母から除外・None判定」への統一（設計レビュー対応）の検証を含む
       test_scoring.py         ✅ normalize_min_maxの方向反転・全同値時の中立100点・None扱いの検証
@@ -298,9 +298,9 @@ RideCompass/
       test_vector_tile.py      ✅ encode_road_surface_tileのデコード可能性・座標範囲・surface_goodプロパティ・2点未満のway除外の検証（Step10改訂）
       test_cache_db.py        ✅ 標高のSQLite永続キャッシュ読み書きの検証（Step5用。路面セルのテストはStep10改訂で撤去）
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
-      test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）
+      test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）。basemap/refreshのper-IPレート制限（6回/分）の429検証を追加
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
-      test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証
+      test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
@@ -318,7 +318,7 @@ RideCompass/
       components/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
         LocationControl/LocationControl.tsx ✅ 現在地表示・手動緯度経度入力フォーム（UI再構成、MapViewから分離）
-        MapLayerControls/MapLayerControls.tsx ✅ 標高/路面（独立チェックボックス、同時表示可）・風（チェックボックス）・凡例・地域が広すぎる場合の案内・タイルキャッシュ更新ボタン（UI再構成, Step10）
+        MapOverlayControls/MapOverlayControls.tsx ✅ 標高/路面（独立チェックボックス、同時表示可）・風（チェックボックス）・凡例・地域が広すぎる場合の案内・タイルキャッシュ更新ボタン（UI再構成, Step10）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
@@ -373,6 +373,13 @@ GET /health   # commit/started_atはRenderへのデプロイ確認用（後述�
   # started_at: プロセス起動時刻（UTC、ISO8601）。Renderはデプロイのたびにプロセスを
   #             再起動するため、直近デプロイのおおよその時刻としても使える
 
+GET /api/debug/stats   # 外部API呼び出し・キャッシュのカテゴリ別集計（呼び出し数/エラー数/ヒット率/所要時間）と
+                       # 429拒否数のプロセス内スナップショット（infrastructure/debug_log.py）。集計値のみで
+                       # 座標等は含まないため、debug_modeに関わらず/healthと同様に常時公開。プロセス再起動でリセット
+Response 200:
+{ "commit": null, "started_at": "2026-08-14T10:00:00+00:00", "engine": "openrouteservice", "debug_mode": false, ... }
+  # ...以降は外部APIカテゴリ（elevation/weather/overpass/basemap等）ごとの呼び出し統計
+
 POST /api/routes/preview   # Step3: 単一区間のルート取得確認用（暫定エンドポイント。デバッグ・疎通確認用に残置）
 Request:
 { "origin": {"latitude":35.7597,"longitude":139.7387}, "destination": {"latitude":35.71,"longitude":139.75} }
@@ -380,6 +387,8 @@ Response 200:
 { "distance_km": 6.85, "duration_minutes": 17.9, "geometry": { "type":"LineString","coordinates":[...] } }
 Response 502（openrouteservice呼び出し失敗時）:
 { "detail": "ルート取得に失敗しました: ..." }
+Response 429（同一クライアントIPから1分あたり20リクエスト（`PREVIEW_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 POST /api/routes/generate   # Step4: 周回ルート候補生成、Step5: 標高フィールド追加、Step7: wind_score追加、Step8: road_score/total_score追加
                             # ルーティングエンジンはsettings.routing_engineで切り替え（既定openrouteservice、9章参照）。
@@ -421,6 +430,8 @@ Response 200:
 { "temperature_c":24.6, "wind_speed_ms":1.93, "wind_direction_deg":69.0, "wind_direction_label":"東", "precipitation_probability_percent":100.0, "observed_at":"2026-08-13T21:15" }
 Response 502（Open-Meteo呼び出し失敗時）:
 { "detail": "天候情報の取得に失敗しました" }
+Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # Step10改訂: 表示中ビューポート全体の路面データ（OSM/Overpassを自前でMVTに変換したベクタタイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`プロパティ（true=舗装/false=未舗装/null=不明）を持つ
@@ -441,6 +452,9 @@ Response 429（同一クライアントIPから1分あたり300リクエスト�
 POST /api/basemap/refresh   # Step10: 地図タイルキャッシュを全消去（フロントの「変わらないデータを更新」ボタン）
 Response 200:
 { "status": "ok" }
+Response 429（同一クライアントIPから1分あたり6リクエスト（`BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE`）を超えた場合。
+             全キャッシュ削除という重い操作かつ連打の意味が薄いため、他のbasemapエンドポイントより低い上限にしている）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 ```
 
 標高の地域オーバーレイ（Step10）はバックエンドAPIを持たない。フロントエンドが国土地理院の色別標高図タイル（`https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png`）をMapLibreのraster sourceとして直接取得するため、上記のようなJSON APIは存在しない（詳細は「標高オーバーレイ（国土地理院 色別標高図、ラスタタイル）」を参照）。

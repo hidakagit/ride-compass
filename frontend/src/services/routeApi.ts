@@ -6,6 +6,7 @@ import type {
   RouteSegment,
 } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
+import { formatErrorDetail } from "@/lib/apiError";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -28,7 +29,7 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
     debugLog("api:route", `失敗 (HTTP ${response.status})`, { path, durationMs, requestId, errorBody });
-    const detail = errorBody?.detail ?? `リクエストに失敗しました（HTTP ${response.status}）`;
+    const detail = formatErrorDetail(errorBody?.detail) ?? `リクエストに失敗しました（HTTP ${response.status}）`;
     throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
   }
 

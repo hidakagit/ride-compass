@@ -1,6 +1,7 @@
 import type { Coordinates } from "@/types/route";
 import type { WeatherConditions } from "@/types/weather";
 import { debugLog } from "@/lib/debugLog";
+import { formatErrorDetail } from "@/lib/apiError";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -22,7 +23,7 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
     debugLog("api:weather", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody });
-    const detail = errorBody?.detail ?? `天候の取得に失敗しました（HTTP ${response.status}）`;
+    const detail = formatErrorDetail(errorBody?.detail) ?? `天候の取得に失敗しました（HTTP ${response.status}）`;
     throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
   }
 

@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import BASEMAP_RATE_LIMIT_PER_MINUTE, get_basemap_client
+from app.api.routes import BASEMAP_RATE_LIMIT_PER_MINUTE, BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE, get_basemap_client
 from app.infrastructure import rate_limiter, tile_cache
 from app.main import app
 
@@ -68,3 +68,13 @@ def test_basemap_refresh_clears_tile_cache(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert tile_cache.get("styles/liberty") is None
+
+
+def test_basemap_refresh_is_rate_limited_per_client(tmp_path, monkeypatch):
+    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
+
+    for _ in range(BASEMAP_REFRESH_RATE_LIMIT_PER_MINUTE):
+        assert client.post("/api/basemap/refresh").status_code == 200
+    response = client.post("/api/basemap/refresh")
+
+    assert response.status_code == 429

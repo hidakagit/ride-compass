@@ -1,10 +1,21 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import get_weather_service
+from app.api.routes import WEATHER_RATE_LIMIT_PER_MINUTE, get_weather_service
 from app.domain.weather import WeatherConditions
+from app.infrastructure import rate_limiter
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_rate_limiter():
+    # rate_limiterはプロセス内グローバルの固定窓カウンタのため、テスト間で
+    # 消し込まないと前のテストのリクエストが今のテストの上限に食い込む。
+    rate_limiter._hits.clear()
+    yield
+    rate_limiter._hits.clear()
 
 
 class FakeWeatherService:
@@ -46,3 +57,25 @@ def test_get_weather_returns_502_when_unavailable():
         app.dependency_overrides.clear()
 
     assert response.status_code == 502
+
+
+def test_get_weather_is_rate_limited_per_client():
+    conditions = WeatherConditions(
+        temperature_c=24.6,
+        wind_speed_ms=2.5,
+        wind_direction_deg=69,
+        wind_direction_label="東",
+        precipitation_probability_percent=60,
+        observed_at="2026-08-13T21:15",
+    )
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
+
+    try:
+        for _ in range(WEATHER_RATE_LIMIT_PER_MINUTE):
+            params = {"latitude": 35.7597, "longitude": 139.7387}
+            assert client.get("/api/weather", params=params).status_code == 200
+        response = client.get("/api/weather", params={"latitude": 35.7597, "longitude": 139.7387})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
