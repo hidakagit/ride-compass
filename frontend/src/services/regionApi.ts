@@ -8,8 +8,10 @@ const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
 // 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
 // （region_service.pyの_tile_cache_path）と対で更新すること。
+// v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
+// surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-const ROAD_SURFACE_TILE_VERSION = "2";
+const ROAD_SURFACE_TILE_VERSION = "3";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

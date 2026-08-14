@@ -1,0 +1,30 @@
+{
+  "good": [
+    "asphalt",
+    "bricks",
+    "chipseal",
+    "concrete",
+    "concrete:lanes",
+    "concrete:plates",
+    "paved",
+    "paving_stones"
+  ],
+  "bad": [
+    "cobblestone",
+    "compacted",
+    "dirt",
+    "earth",
+    "fine_gravel",
+    "grass",
+    "gravel",
+    "ground",
+    "mud",
+    "pebblestone",
+    "rock",
+    "sand",
+    "sett",
+    "unhewn_cobblestone",
+    "unpaved",
+    "woodchips"
+  ]
+}

@@ -1,12 +1,44 @@
 import { describe, expect, it } from "vitest";
+import surfaceTags from "@/types/generated/surface-tags.json";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "./legendFilter";
 import {
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
   ROAD_LINE_WIDTH_AXIS_ID,
   ROAD_LINE_DASH_AXIS_ID,
+  SURFACE_GROUPS,
   getRoadFilterAxis,
 } from "./roadFilterAxes";
+
+describe("路面グループとbackend正準分類（surface-tags.json）の整合", () => {
+  // surface-tags.jsonはbackendのdomain/road.py（GOOD/BAD_OSM_SURFACE_TAGS）から
+  // backend/scripts/export_openapi.pyが生成する（CIのapi-contractジョブがドリフト検知）。
+  // かつてchipsealが表示上はアスファルト（緑）なのに評価上は不明（road_scoreの分母から
+  // 除外）で、地図の色とルート評価が食い違っていた（設計レビューF1）。この検証で
+  // 「片側だけタグを増減した」状態をCIで検出する。
+  const good = new Set(surfaceTags.good);
+  const bad = new Set(surfaceTags.bad);
+  const allGroupValues = SURFACE_GROUPS.flatMap((g) => g.values);
+
+  it("表示グループの全タグ集合は正準分類済みタグ（good∪bad）と一致し、重複割り当ても無い", () => {
+    expect(new Set(allGroupValues)).toEqual(new Set([...surfaceTags.good, ...surfaceTags.bad]));
+    expect(new Set(allGroupValues).size).toBe(allGroupValues.length);
+  });
+
+  it("舗装系グループ（asphalt/concrete）はgoodのみ、未舗装系（gravel/dirt）はbadのみを含む", () => {
+    const byKey = Object.fromEntries(SURFACE_GROUPS.map((g) => [g.key, g.values]));
+    for (const tag of [...byKey.asphalt, ...byKey.concrete]) {
+      expect(good.has(tag), `${tag} は舗装系グループにあるが正準分類はgoodでない`).toBe(true);
+    }
+    for (const tag of [...byKey.gravel, ...byKey.dirt]) {
+      expect(bad.has(tag), `${tag} は未舗装系グループにあるが正準分類はbadでない`).toBe(true);
+    }
+    // 「石畳・敷石」はgood（paving_stones/bricks）とbad（sett等）が混在する意図的な
+    // 中立グループ（roadFilterAxes.tsのコメント参照）。混在が保たれていることを確認する。
+    expect(byKey.stones.some((tag) => good.has(tag))).toBe(true);
+    expect(byKey.stones.some((tag) => bad.has(tag))).toBe(true);
+  });
+});
 
 describe("roadFilterAxes", () => {
   it("2つの独立した軸（路面の種類・道路の種類）を定義している", () => {

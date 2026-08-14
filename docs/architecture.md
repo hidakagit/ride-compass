@@ -205,6 +205,30 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 - **`RoutingService`へのORS固有パース漏れ（M2）**: `properties.extras.surface`のパースはORS固有のため、将来Valhalla等へ差し替える際は`ORSClient`側へ移す必要がある
 - **`WeatherService.get_conditions(at=...)`のhourly範囲外ガード未実装（L3）**: openrouteservice版が既定へ戻ったことで実使用中の既知制約となった（20km/h想定の周回では実害はほぼ無い）
 
+### 道路種別（highway）の3つのスコープと路面（surface）語彙の正準定義
+
+道路種別・路面の語彙は目的の異なる複数の定義が共存する。混同・片側だけの変更を防ぐため、関係をここへ集約する（改善計画T7）。
+
+**道路種別（highway）— 3つのスコープは目的が異なる別定義（統一しない）:**
+
+| スコープ | 定義場所 | 内容 | 変更理由 |
+|---|---|---|---|
+| 取込スコープ | [backend/app/batch/import_profile.yaml](../backend/app/batch/import_profile.yaml) | trunk〜residential・cycleway・track等（footway/pedestrian/steps/service/motorway系は除外） | データ容量・表示/探索の少なくとも一方で使うか |
+| ルーティング可否（Hard Constraint） | `domain/evaluation.py: DISALLOWED_HIGHWAY_TYPES` | motorway/trunk系を自転車通行不可として探索から除外 | 法規・安全 |
+| 表示グルーピング | [frontend/src/components/Map/roadFilterAxes.ts](../frontend/src/components/Map/roadFilterAxes.ts) `HIGHWAY_GROUPS` | 幹線/主要道/生活道路/自転車・歩行者道/農道・林道の5分類＋不明 | 地図の見やすさ |
+
+- **trunkは取り込むが走らせない**: 地図表示（幹線道路の把握・回避判断）のために取込対象だが、ルート探索ではHard Constraintで除外される。矛盾ではなく意図的な役割分担
+- **フロント凡例にはfootway/pedestrian/steps等の値も含まれる**が、本番（PostGIS第一系統）ではこれらは取込対象外のためタイルに現れない（Overpassフォールバック有効時のみ現れうる）。凡例定義を取込プロファイルへ機械的に合わせることはしない（フォールバック時の表示崩れ防止と、取込スコープ変更時に凡例が壊れないことを優先）
+- いずれかを変更する場合はこの表と各定義場所のコメントを同時に更新すること
+
+**路面（surface）— 正準は1箇所、他はすべて追従:**
+
+- 正準定義: `domain/road.py` の `GOOD_OSM_SURFACE_TAGS` / `BAD_OSM_SURFACE_TAGS`（3値分類の意味はファイル冒頭の「正準定義」コメント参照）
+- PostGIS側のMVT生成SQL（`road_graph_repository.py`）は正準集合をバインドパラメータとして直接参照（二重定義なし）
+- フロントの表示グループ（`roadFilterAxes.ts: SURFACE_GROUPS`）は、`backend/scripts/export_openapi.py` が書き出す `frontend/src/types/generated/surface-tags.json` と `roadFilterAxes.test.ts` で突き合わせて整合を検証する（「表示グループの全タグ＝正準分類済みタグ全体」「舗装系グループはgoodのみ・未舗装系はbadのみ」。CIのapi-contractジョブがドリフト検知）
+- 「石畳・敷石」グループのみgood/bad混在の意図的な中立グループ（材質として同類のため。色も良し悪しを示さない紫）
+- タグ集合を変更したら路面タイルの世代（`region_service.py: _tile_cache_path` と `regionApi.ts: ROAD_SURFACE_TILE_VERSION` の対）を上げること（surface_goodの焼き込み値が変わるため）
+
 ---
 
 ## 2. ディレクトリ構成

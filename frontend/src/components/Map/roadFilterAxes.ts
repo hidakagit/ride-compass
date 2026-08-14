@@ -63,7 +63,7 @@ const COLOR_AMBER = "#d97706";
 const COLOR_BROWN = "#92400e";
 const COLOR_SKY = "#0284c7";
 
-interface CategoryGroup {
+export interface CategoryGroup {
   key: string;
   label: string;
   color: string;
@@ -74,7 +74,16 @@ interface CategoryGroup {
 }
 
 // OSMのsurfaceタグの表示用グルーピング。タグ値はバックエンド側でlower/trim正規化済み。
-const SURFACE_GROUPS: CategoryGroup[] = [
+//
+// 語彙の正準はbackendのdomain/road.py（GOOD/BAD_OSM_SURFACE_TAGS）で、その内容は
+// types/generated/surface-tags.json（backend/scripts/export_openapi.pyが書き出し）として
+// このリポジトリへコミットされている。roadFilterAxes.test.tsが「表示グループの全タグ＝
+// 正準分類済みタグ全体」「舗装系グループはgoodのみ・未舗装系はbadのみ」を検証するため、
+// どちらか片方だけタグを増減するとテストが割れる（改善計画T7。かつてchipsealが
+// 表示上はアスファルト（緑）なのに評価上は不明、という食い違いがあった）。
+// 「石畳・敷石」だけはgood（paving_stones/bricks）とbad（sett/cobblestone等）が混在する
+// 意図的な中立グループ（材質としては同類のため。色も良し悪しを示さない紫にしてある）。
+export const SURFACE_GROUPS: CategoryGroup[] = [
   { key: "asphalt", label: "アスファルト", color: COLOR_GOOD, values: ["asphalt", "paved", "chipseal"] },
   {
     key: "concrete",

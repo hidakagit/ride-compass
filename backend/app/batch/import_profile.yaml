@@ -6,10 +6,17 @@ elements:
   - name: roads
     element_type: way
     match:
-      # 自転車で通行しうる種別のみ取込（歩行者専用・施設内経路・階段・自動車専用道等は除外）。
-      # 都心実データではhighway=*全件の73%がfootway/service/steps/path/pedestrian等で
-      # 占められており、除外することで生データ量を概算1/3に圧縮できる（関東圏への拡大に
-      # 向けた容量対策）。副次的にルート探索の候補から「階段」等の非現実的な経路も消える。
+      # 取込スコープ＝「地図表示とルート探索の少なくとも一方で使う種別」。
+      # 歩行者専用（footway/pedestrian/steps/path）・施設内経路（service）・自動車専用
+      # （motorway系）は両方の用途で不要のため除外する。都心実データではhighway=*全件の
+      # 73%がfootway/service/steps/path/pedestrian等で占められており、除外することで
+      # 生データ量を概算1/3に圧縮できる（関東圏への拡大に向けた容量対策）。
+      #
+      # 注意: trunk/trunk_linkは**地図表示（幹線道路の把握）のために取り込む**が、
+      # ルート探索ではHard Constraint（domain/evaluation.py: DISALLOWED_HIGHWAY_TYPES）
+      # により自転車通行不可として除外される。「取込スコープ／ルーティング可否／表示
+      # グルーピング」の3つは目的が異なる別定義であり、3者の関係はdocs/architecture.mdの
+      # 「道路種別（highway）の3つのスコープ」を参照。ここを変更したら同表も更新すること。
       highway:
         - trunk
         - trunk_link

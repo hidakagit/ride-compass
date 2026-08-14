@@ -54,7 +54,29 @@ def is_good_surface(surface_id: int | None) -> bool | None:
 
 # OSMのsurfaceタグ（自由記述に近い文字列）版。openrouteserviceの数値IDとは別の語彙のため、
 # GOOD_SURFACE_IDSとは独立した基準として持つ（考え方は同じ: 走行しやすい舗装路面かどうか）。
-GOOD_OSM_SURFACE_TAGS = {"asphalt", "paved", "concrete", "paving_stones", "concrete:plates", "concrete:lanes"}
+#
+# この2集合が路面語彙の**単一ソース**であり、以下がすべてここへ追従する
+# （改善計画T7。docs/design-review-2026-08-15.md 設計原則1）:
+# - PostGIS側のMVT生成SQL（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLがバインド）
+# - フロントエンドの路面グループ定義との整合検証
+#   （backend/scripts/export_openapi.pyがsurface-tags.jsonとして書き出し、
+#   frontend/src/components/Map/roadFilterAxes.test.tsが表示グループとの対応を検証する。
+#   タグを増減したらexport_openapi.pyの再実行とフロントのグループ定義の追従が必要）
+GOOD_OSM_SURFACE_TAGS = {
+    "asphalt",
+    "paved",
+    "concrete",
+    "paving_stones",
+    "concrete:plates",
+    "concrete:lanes",
+    # チップシール（表面処理舗装）。フロントの表示グループでは「アスファルト」に含めて
+    # 緑表示していたのに評価上は不明（分母から除外）で、地図の色とルート評価が食い違って
+    # いた（設計レビューF1）。ロードバイクで普通に走れる舗装のためGOODへ分類する。
+    "chipseal",
+    # レンガ舗装。paving_stonesと同様の平滑な舗装ブロックとして扱う（同F1、
+    # フロントの「石畳・敷石」グループ内で唯一未分類だった）。
+    "bricks",
+}
 BAD_OSM_SURFACE_TAGS = {
     "unpaved",
     "gravel",
@@ -70,6 +92,11 @@ BAD_OSM_SURFACE_TAGS = {
     "mud",
     "woodchips",
     "earth",
+    # 岩盤・粗い岩。フロントの「砂利・締固め」グループでは可視化済みなのに評価上は
+    # 不明だった（設計レビューF1）。ロードバイクでは走行困難のためBADへ分類する。
+    "rock",
+    # 切り出していない粗い石畳。sett/cobblestoneと同等以下の走行性。
+    "unhewn_cobblestone",
 }
 
 
