@@ -87,6 +87,15 @@
   color: var(--color-muted);
 }
 
+/* デバッグログのチェックボックスとログ起動ボタンを1つの塊として扱い、systemRowの
+   flex-wrapで他の項目（研究モード等）と別行になっても、この2つだけは常に横並びを保つ
+   （チェックON時にボタンが下の行へ落ちて縦積みの「メニュー」に見えるのを防ぐ）。 */
+.debugControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 .refreshButton {
   align-self: flex-start;
   font-size: var(--font-size-sm);
@@ -237,17 +246,17 @@
 
 /* 「設定」内のデバッグログ起動ボタン（systemRowの他の項目=文字だけの控えめな見た目とは
    区別し、押せるボタンだと分かるよう枠を付ける）。ONのときはlocateButton等と同じ
-   アクセントカラーで強調する。 */
+   アクセントカラーで強調する。チェックボックスの真横に収まるよう、文言は持たずアイコン
+   のみ（ラベルはaria-label/titleで提供）にしている。 */
 .logToggleButton {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  justify-content: center;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  padding: 0.15rem 0.5rem;
+  padding: 0.2rem;
   background: transparent;
   color: var(--color-muted);
-  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 

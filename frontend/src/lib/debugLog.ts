@@ -2,12 +2,15 @@
 // フレームワーク非依存のシングルトンとして持つことで、Reactコンポーネントだけでなく
 // services/配下のfetchラッパーやMapView.tsxのmapイベントハンドラからも直接呼べるようにする。
 
+export type DebugLogLevel = "info" | "warn" | "error";
+
 export interface DebugLogEntry {
   id: number;
   time: string;
   category: string;
   message: string;
   detail?: unknown;
+  level: DebugLogLevel;
 }
 
 const STORAGE_KEY = "ridecompass:debug-enabled";
@@ -52,10 +55,11 @@ function formatTime(date: Date): string {
   return `${date.toTimeString().slice(0, 8)}.${String(date.getMilliseconds()).padStart(3, "0")}`;
 }
 
-export function debugLog(category: string, message: string, detail?: unknown): void {
+export function debugLog(category: string, message: string, detail?: unknown, level: DebugLogLevel = "info"): void {
   if (!enabled) return;
-  const entry: DebugLogEntry = { id: nextId++, time: formatTime(new Date()), category, message, detail };
+  const entry: DebugLogEntry = { id: nextId++, time: formatTime(new Date()), category, message, detail, level };
   entries = [...entries, entry].slice(-MAX_ENTRIES);
-  console.debug(`[RideCompass Debug] [${category}] ${message}`, detail ?? "");
+  const consoleFn = level === "error" ? console.error : level === "warn" ? console.warn : console.debug;
+  consoleFn(`[RideCompass Debug] [${category}] ${message}`, detail ?? "");
   notify();
 }
