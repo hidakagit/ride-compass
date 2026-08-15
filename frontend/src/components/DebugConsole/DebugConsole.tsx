@@ -10,10 +10,19 @@ import styles from "./DebugConsole.module.css";
 // 位置を計算する際にも参照する。
 export const DEBUG_CONSOLE_MAX_HEIGHT_PX = 220;
 
+interface DebugConsoleProps {
+  /** パネル自体の開閉（デバッグモードのON/OFFとは別。常時占有させたくないという実機
+   * フィードバックを受け、page.tsxの右上起動アイコンから開閉する、T42） */
+  open: boolean;
+  onClose: () => void;
+}
+
 // デバッグモードON時のみ、地図コンテナの下端に重ねて表示するイベントログ。
 // マップの表示イベント（初期化・タイル/スタイル要求・パン/ズーム）と外部API呼び出し
 // （天候/ルート生成/地域レイヤー/基礎地図）を発生順に積む。DebugPanelのトグルと状態を共有する。
-export default function DebugConsole() {
+// デバッグモードON＝ログの記録自体は常時有効だが、このパネル表示は別途openで制御する
+// （常時ONだと画面の目立つ面積を占有し続けるという実機フィードバック、T42）。
+export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
   const enabled = useDebugEnabled();
   const entries = useDebugLogEntries();
   const listRef = useRef<HTMLDivElement>(null);
@@ -23,7 +32,7 @@ export default function DebugConsole() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
-  if (!enabled) return null;
+  if (!enabled || !open) return null;
 
   return (
     // app-debug-consoleはglobals.css側のモバイル向けタップ領域ルール
@@ -33,9 +42,14 @@ export default function DebugConsole() {
     <div className={`${styles.console} app-debug-console`}>
       <div className={styles.header}>
         <strong>デバッグログ（{entries.length}件）</strong>
-        <button type="button" onClick={clearDebugLog} className={styles.clearButton}>
-          クリア
-        </button>
+        <div className={styles.headerButtons}>
+          <button type="button" onClick={clearDebugLog} className={styles.clearButton}>
+            クリア
+          </button>
+          <button type="button" onClick={onClose} aria-label="デバッグログを閉じる" className={styles.closeButton}>
+            ✕
+          </button>
+        </div>
       </div>
       <div ref={listRef} className={styles.entries}>
         {entries.length === 0 && <p className={styles.emptyMessage}>イベント待機中...（地図を操作するかAPIを呼び出してください）</p>}

@@ -26,8 +26,24 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+.headerButtons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .clearButton {
   font-size: 0.7rem;
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  color: #e5e7eb;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem;
 }
 
 .entries {
