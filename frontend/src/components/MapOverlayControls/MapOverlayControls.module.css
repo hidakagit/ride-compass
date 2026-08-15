@@ -72,6 +72,11 @@
   cursor: pointer;
   text-align: center;
   line-height: 1.15;
+  /* 地図キャンバス（touch-action: none）の上に重なるボタンにも同じくnoneを与える。
+     無指定（既定auto）のままだと、2本指ピンチの片方がこのチップに乗ったとき
+     ブラウザがタッチ開始点ごとにtouch-actionを見て地図ジェスチャーとして確定できず、
+     ピンチズームが反応しない/ページの既定ズームに化けることがある（実機フィードバック調査）。 */
+  touch-action: none;
 }
 
 .iconChip:disabled {
@@ -114,6 +119,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* .iconChipと同じ理由（ピンチの片方の指がここに乗ると地図のジェスチャーとして
+     確定しないことがあるため） */
+  touch-action: none;
 }
 
 .summaryLayerLabel {
