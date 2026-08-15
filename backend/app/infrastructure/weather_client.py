@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import httpx
@@ -12,7 +13,28 @@ CACHE_PRECISION = 2
 # 標高と異なり天候は時間で変化するため、恒久キャッシュではなくTTLを設ける。
 CACHE_TTL_SECONDS = 30 * 60
 
+# ルート生成中はWindServiceが区間ごとに（同時実行数5で）Open-Meteoへ問い合わせるため、
+# 1ルートの評価だけで数十件のリクエストが短時間に集中しうる。Open-Meteoの無料枠は
+# 短時間バーストへの許容度が低く、実測でこの範囲でも429 Too Many Requestsを返すことが
+# あり、単発の/api/weather呼び出し（現在地表示）まで巻き込まれて502になっていた
+# （原因調査ログ参照）。429は数百ms〜数秒待てば解消する一時的な状態のため、
+# 短いバックオフで数回だけ再試行する。
+RETRY_STATUS_CODE = 429
+MAX_RETRIES = 2
+RETRY_BACKOFF_SECONDS = 0.3
+
 _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Retry-Afterヘッダ（秒数形式のみ想定、Open-Meteoは日付形式を返さない）を解釈する。"""
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 class WeatherClient:
@@ -47,14 +69,26 @@ class WeatherClient:
                 "wind_speed_unit": "ms",
             }
 
-            try:
-                response = await client.get(OPEN_METEO_URL, params=params)
-                response.raise_for_status()
-                data = response.json()
-            except (httpx.HTTPError, ValueError) as exc:
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                return None
+            attempt = 0
+            while True:
+                try:
+                    response = await client.get(OPEN_METEO_URL, params=params)
+                    response.raise_for_status()
+                    data = response.json()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == RETRY_STATUS_CODE and attempt < MAX_RETRIES:
+                        attempt += 1
+                        fields["retries"] = attempt
+                        await asyncio.sleep(_retry_after_seconds(exc.response) or RETRY_BACKOFF_SECONDS * attempt)
+                        continue
+                    fields["result"] = "error"
+                    fields["error"] = repr(exc)
+                    return None
+                except (httpx.HTTPError, ValueError) as exc:
+                    fields["result"] = "error"
+                    fields["error"] = repr(exc)
+                    return None
 
             fields["result"] = "ok"
             fields["status"] = getattr(response, "status_code", None)

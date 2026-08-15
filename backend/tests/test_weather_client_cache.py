@@ -32,6 +32,40 @@ class FailingHttpClient:
         raise httpx.RequestError("boom")
 
 
+class TooManyRequestsResponse:
+    status_code = 429
+    headers: dict = {}
+
+    def raise_for_status(self):
+        raise httpx.HTTPStatusError("429 Too Many Requests", request=None, response=self)
+
+    def json(self):
+        raise AssertionError("json() should not be called when raise_for_status() raises")
+
+
+class RetryThenSucceedHttpClient:
+    """1回目・2回目は429、3回目(最終試行)で成功する上流を模する。"""
+
+    def __init__(self, payload):
+        self.call_count = 0
+        self._payload = payload
+
+    async def get(self, url, params=None):
+        self.call_count += 1
+        if self.call_count < 3:
+            return TooManyRequestsResponse()
+        return FakeResponse(self._payload)
+
+
+class AlwaysTooManyRequestsHttpClient:
+    def __init__(self):
+        self.call_count = 0
+
+    async def get(self, url, params=None):
+        self.call_count += 1
+        return TooManyRequestsResponse()
+
+
 @pytest.fixture(autouse=True)
 def clear_weather_cache():
     weather_client_module._forecast_cache.clear()
@@ -81,3 +115,26 @@ async def test_get_forecast_returns_none_on_request_error():
     result = await client.get_forecast(FailingHttpClient(), point)
 
     assert result is None
+
+
+async def test_get_forecast_retries_on_429_and_recovers():
+    client = WeatherClient()
+    http_client = RetryThenSucceedHttpClient({"current": {}, "hourly": {}})
+    point = Coordinates(latitude=35.77, longitude=139.88)
+
+    result = await client.get_forecast(http_client, point)
+
+    assert result == {"current": {}, "hourly": {}}
+    assert http_client.call_count == 3
+
+
+async def test_get_forecast_returns_none_after_exhausting_429_retries():
+    client = WeatherClient()
+    http_client = AlwaysTooManyRequestsHttpClient()
+    point = Coordinates(latitude=35.88, longitude=139.99)
+
+    result = await client.get_forecast(http_client, point)
+
+    assert result is None
+    # 初回 + MAX_RETRIES回の再試行 = 呼び出し合計
+    assert http_client.call_count == weather_client_module.MAX_RETRIES + 1
