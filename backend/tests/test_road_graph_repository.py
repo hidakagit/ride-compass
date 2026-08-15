@@ -503,6 +503,145 @@ async def test_get_nearest_stop_poi_counts_counts_pois_near_each_point(road_grap
     assert result == [2, 0]
 
 
+# --- 静的道路属性P1残り（交通ストレス・自転車インフラ・交差点密度の評価組み込み） ---
+
+
+async def test_get_way_tags_returns_empty_dict_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_way_tags([]) == {}
+
+
+async def test_get_way_tags_joins_via_osm_way_id(road_graph_repository):
+    way = WaySpec(
+        osm_way_id=100, node_ids=[1, 2], highway="residential", tags={"lanes": "2", "maxspeed": "40"}
+    )
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    result = await road_graph_repository.get_way_tags([edge_id, "nonexistent-edge"])
+
+    assert set(result.keys()) == {edge_id}
+    assert result[edge_id] == {"lanes": "2", "maxspeed": "40"}
+
+
+async def test_get_way_tags_is_empty_dict_when_raw_way_not_found(road_graph_repository):
+    """road_edges.osm_way_idに対応するosm_raw_ways行が無い場合（LEFT JOINで不一致）は`{}`
+    （get_surface_attributesのNoneとは違い、taglessと同じ扱いにする。domain/evaluation.py:
+    compute_edge_costのway_tagsコメント参照）。"""
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)  # save_raw_waysを呼ばない＝osm_raw_ways側は空
+    edge_id = next(iter(graph.edges))
+
+    result = await road_graph_repository.get_way_tags([edge_id])
+
+    assert result[edge_id] == {}
+
+
+async def test_get_nearest_way_tags_returns_empty_list_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_nearest_way_tags([]) == []
+
+
+async def test_get_nearest_way_tags_matches_nearby_edge_and_returns_highway_and_tags(road_graph_repository):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result = await road_graph_repository.get_nearest_way_tags([NODE1], max_distance_m=30.0)
+
+    assert result == [("primary", {"maxspeed": "60"})]
+
+
+async def test_get_nearest_way_tags_returns_none_highway_and_empty_tags_beyond_max_distance_m(road_graph_repository):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result = await road_graph_repository.get_nearest_way_tags([(35.9, 140.0)], max_distance_m=30.0)
+
+    assert result == [(None, {})]
+
+
+async def test_get_intersection_counts_returns_empty_dict_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_intersection_counts([]) == {}
+
+
+async def test_get_intersection_counts_counts_degree_3_node_as_intersection(road_graph_repository):
+    """NODE2を3本のWayが共有する（次数3）ため交差点として数えられ、そこへ接続する
+    全Edgeが1件を報告する（NODE2自体がEdgeの端点＝距離0のため常にmax_distance_m以内）。
+    NODE1・NODE3・NODE4は行き止まり（次数1）のため交差点ではない。"""
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    graph = build_road_graph([way_a, way_b, way_c], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_ids = list(graph.edges.keys())
+
+    result = await road_graph_repository.get_intersection_counts(edge_ids, max_distance_m=30.0)
+
+    assert set(result.keys()) == set(edge_ids)
+    assert all(count == 1 for count in result.values())
+
+
+async def test_get_intersection_counts_degree_2_pass_through_node_is_not_an_intersection(road_graph_repository):
+    """NODE2を2本のWayが共有するだけ（次数2、単純な通過点）では交差点扱いにならない。"""
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3}
+    graph = build_road_graph([way_a, way_b], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_ids = list(graph.edges.keys())
+
+    result = await road_graph_repository.get_intersection_counts(edge_ids, max_distance_m=30.0)
+
+    assert all(count == 0 for count in result.values())
+
+
+async def test_get_intersection_counts_edge_far_from_any_intersection_is_zero(road_graph_repository):
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    # NODE1/2/3/4のクラスタとは無関係な独立したWay（次数3の交差点から遠い）。
+    way_isolated = WaySpec(osm_way_id=200, node_ids=[5, 6], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4, 5: (35.600, 139.600), 6: (35.601, 139.601)}
+    graph = build_road_graph([way_a, way_b, way_c, way_isolated], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    isolated_edge_ids = [
+        edge_id for edge_id, edge in graph.edges.items() if edge.osm_way_id == 200
+    ]
+
+    result = await road_graph_repository.get_intersection_counts(isolated_edge_ids, max_distance_m=30.0)
+
+    assert all(count == 0 for count in result.values())
+
+
+async def test_get_nearest_intersection_counts_returns_empty_list_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_nearest_intersection_counts([]) == []
+
+
+async def test_get_nearest_intersection_counts_counts_intersections_near_each_point(road_graph_repository):
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    graph = build_road_graph([way_a, way_b, way_c], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result = await road_graph_repository.get_nearest_intersection_counts(
+        [NODE2, NODE1], max_distance_m=30.0
+    )
+
+    assert result == [1, 0]
+
+
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):
     assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is False
 

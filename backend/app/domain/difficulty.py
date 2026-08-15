@@ -4,6 +4,8 @@
 
 from typing import NamedTuple
 
+from app.domain.traffic import BicycleInfraClass
+
 # 勾配(%)の目安: 0-3%易しい、3-6%普通、6-9%大変、9%以上激坂
 _GRADIENT_BREAKPOINTS = [(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.0, 100.0)]
 
@@ -20,6 +22,28 @@ _ROAD_HARD_SCORE = 80.0
 # （docs/static-road-attributes-plan.md §3）のため暫定値。
 _STOP_DENSITY_MAX_PER_KM = 4.0
 _STOP_DENSITY_HARD_SCORE = 100.0
+
+# 交通ストレス(1-4、domain/traffic.py: traffic_stress_level)の目安: 1が最も易しく4が最も大変。
+# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。
+_TRAFFIC_STRESS_MIN_LEVEL = 1
+_TRAFFIC_STRESS_MAX_LEVEL = 4
+
+# 自転車インフラ分類(domain/traffic.py: BicycleInfraClass)の目安: 分離自転車道が最も易しく、
+# 自転車通行禁止が最も大変。unknownは評価しない（None）。静的道路属性P1残り、暫定値。
+_BICYCLE_INFRA_DIFFICULTY_SCORES: dict[str, float] = {
+    "separated": 0.0,
+    "lane": 20.0,
+    "shared_busway": 40.0,
+    "shared_pedestrian": 50.0,
+    "roadway": 80.0,
+    "prohibited": 100.0,
+}
+
+# 交差点密度(次数3以上のNodeの合計回数/km)の目安: 0回/kmが最も易しく、2回/km(500mに1回)を
+# 最大値とする。停止密度（信号・横断歩道等）よりも出現頻度が低い想定のため上限を低く取る。
+# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。
+_INTERSECTION_DENSITY_MAX_PER_KM = 2.0
+_INTERSECTION_DENSITY_HARD_SCORE = 100.0
 
 
 def _piecewise_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
@@ -66,8 +90,39 @@ def stop_difficulty(stop_count_per_km: float | None) -> float | None:
     return round(clamped / _STOP_DENSITY_MAX_PER_KM * _STOP_DENSITY_HARD_SCORE, 1)
 
 
+def traffic_stress_difficulty(traffic_stress_level: int | None) -> float | None:
+    """交通ストレス(1-4、domain/traffic.py: traffic_stress_level)を難易度へ変換する。
+    レベルが高いほど走りにくいため単調増加。判定不能（未知のhighway等）はNone。"""
+    if traffic_stress_level is None:
+        return None
+    return round(
+        _piecewise_linear(
+            traffic_stress_level, [(_TRAFFIC_STRESS_MIN_LEVEL, 0.0), (_TRAFFIC_STRESS_MAX_LEVEL, 100.0)]
+        ),
+        1,
+    )
+
+
+def bicycle_infra_difficulty(bicycle_infra: BicycleInfraClass | None) -> float | None:
+    """自転車インフラ分類(domain/traffic.py: classify_bicycle_infrastructure)を難易度へ
+    変換する。unknown・未取得はNone（評価しない。road_difficulty等と同じ「不明は無視」方針）。"""
+    if bicycle_infra is None:
+        return None
+    return _BICYCLE_INFRA_DIFFICULTY_SCORES.get(bicycle_infra)
+
+
+def intersection_difficulty(intersection_count_per_km: float | None) -> float | None:
+    """交差点密度(次数3以上のNodeの合計回数/km)を難易度へ変換する。密度が高いほど
+    停止・減速・注意力の消費が増えるため単調増加。データ無し（Noneまたは負値）はNone。"""
+    if intersection_count_per_km is None or intersection_count_per_km < 0:
+        return None
+    clamped = min(intersection_count_per_km, _INTERSECTION_DENSITY_MAX_PER_KM)
+    return round(clamped / _INTERSECTION_DENSITY_MAX_PER_KM * _INTERSECTION_DENSITY_HARD_SCORE, 1)
+
+
 class AxisDifficulties(NamedTuple):
-    """4軸（勾配・向かい風・路面・停止密度）の難易度と、重み付き合成値。
+    """7軸（勾配・向かい風・路面・停止密度・交通ストレス・自転車インフラ・交差点密度）の
+    難易度と、重み付き合成値。
 
     「生値セット→軸別difficulty→composite_difficulty」という同一の組み立てが
     OpenRouteServiceEngine._build_segment_details / RoadGraphEngine._build_segment_details /
@@ -80,6 +135,9 @@ class AxisDifficulties(NamedTuple):
     wind: float | None
     road: float | None
     stop: float | None
+    traffic: float | None
+    infra: float | None
+    intersection: float | None
     composite: float | None
 
 
@@ -88,30 +146,52 @@ def evaluate_axis_difficulties(
     wind_penalty: float | None,
     road_surface_good: bool | None,
     stop_count_per_km: float | None,
+    traffic_stress_level_value: int | None,
+    bicycle_infra: BicycleInfraClass | None,
+    intersection_count_per_km: float | None,
     elevation_weight: float,
     wind_weight: float,
     road_weight: float,
     stop_weight: float,
+    traffic_weight: float,
+    infra_weight: float,
+    intersection_weight: float,
 ) -> AxisDifficulties:
-    """4軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
+    """7軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
 
     RoutePreference型（domain/evaluation.py）をここで受け取らないのは、evaluation.pyが
     本モジュールへ依存しているため（循環import回避）。重みは呼び出し元が
-    `preference.elevation_weight`等をそのまま渡す。
+    `preference.elevation_weight`等をそのまま渡す。traffic_stress_level_valueの引数名が
+    `traffic_stress_level`（関数名）と衝突するため`_value`サフィックスを付けている。
     """
     elevation = gradient_difficulty(gradient_percent)
     wind = wind_difficulty(wind_penalty)
     road = road_difficulty(road_surface_good)
     stop = stop_difficulty(stop_count_per_km)
+    traffic = traffic_stress_difficulty(traffic_stress_level_value)
+    infra = bicycle_infra_difficulty(bicycle_infra)
+    intersection = intersection_difficulty(intersection_count_per_km)
     composite = composite_difficulty(
         [
             (elevation, elevation_weight),
             (wind, wind_weight),
             (road, road_weight),
             (stop, stop_weight),
+            (traffic, traffic_weight),
+            (infra, infra_weight),
+            (intersection, intersection_weight),
         ]
     )
-    return AxisDifficulties(elevation=elevation, wind=wind, road=road, stop=stop, composite=composite)
+    return AxisDifficulties(
+        elevation=elevation,
+        wind=wind,
+        road=road,
+        stop=stop,
+        traffic=traffic,
+        infra=infra,
+        intersection=intersection,
+        composite=composite,
+    )
 
 
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:

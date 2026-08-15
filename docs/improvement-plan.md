@@ -457,12 +457,13 @@
   観測可能になった
 - **T9（surface_attributes導出化）**: ✅完了（2026-08-15、詳細は本ファイル「Phase 3」節の
   T9項目参照）
-- **静的属性P1（node取込・評価組み込み）**: ✅**主要部分完了（2026-08-16）**。
-  信号・横断歩道・一時停止・踏切のnode取込機構（`osm_raw_pois`新テーブル、migration 0005）と
-  「停止密度」評価軸（両エンジンのEdge Cost/区間難易度への統合）を実装。詳細は
-  `docs/static-road-attributes-plan.md` P1節参照。**スコープを絞った**（ユーザー承認済み）:
-  交差点密度（intersectionDensity）とtrafficStress/bicycle_infra（P0由来way属性）の
-  評価組み込みは、実装規模を理由に別タスクへ分離し未着手のまま残す
+- **静的属性P1（node取込・評価組み込み）**: ✅**完了（2026-08-16。自転車歩行者道スコープ拡張等の
+  残り4点はP2据え置き）**。信号・横断歩道・一時停止・踏切のnode取込機構（`osm_raw_pois`新テーブル、
+  migration 0005）と「停止密度」評価軸（同日前半）に続き、交差点密度（intersectionDensity）・
+  trafficStress・bicycle_infra（P0由来way属性）の評価組み込みも同日後半に実施（ユーザー承認の
+  うえ当初のスコープ分離判断を見直し、同ラウンドで実施）。7軸すべて`route_preference.yaml`
+  （区間難易度・探索コスト）のみに追加し`scoring.yaml`（おすすめ度）には追加しない方針を維持。
+  詳細は`docs/static-road-attributes-plan.md` P1節参照
 
 ---
 
@@ -759,3 +760,4 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 | 2026-08-16 | T43〜T47 | 第4回レビュー対応を全件実施。T43: `domain/difficulty.py`へ`evaluate_axis_difficulties`（軸別difficulty＋合成値をまとめて返すNamedTuple）を追加し、両エンジンの`_build_segment_details`・`compute_edge_cost`の3箇所の重複合成ブロックを置換（評価軸追加時の編集箇所3→1）。T44: `SURFACE_MATCH_MAX_DISTANCE_M`/`STOP_POI_MATCH_MAX_DISTANCE_M`を`domain/road.py`/`domain/traffic.py`へ集約し、openrouteservice_engine.py・AttributeRepository（個別リポジトリ＋ファサード委譲6箇所）をimport参照へ統一。T45: `ComparisonPanel.tsx`の`formatWeights`を`SCORING_AXES`/`PREFERENCE_AXES`カタログからの生成へ置換（stop_weightの欠落を解消）、`METRIC_ROWS`へ停止密度行を追加、テスト3件追加。T46: `staticAttributeLayers.ts`へ`BICYCLE_INFRA_LABELS`をexportし`MapView.tsx`の重複辞書を削除。T47: static-road-attributes-plan.mdへscoring軸判断項目を追記、.env.exampleへDBなし構成の評価縮退を追記、restart-dev.bat/stop-dev.batへ用途コメントを追加（削除せずコミット対象化）。backend 531件・frontend 148件（新規3件含む）・eslint（変更ファイルのみ、既存の無関係な未コミット変更除く）・tsc全green |
 | 2026-08-16 | T48・T49 | ユーザー依頼（計画外の品質観点）でDependabot（`.github/dependabot.yml`、npm/pip/github-actions週次）とクリティカルパスE2E自動化を実施。E2Eはバックエンド・外部APIに依存させず、`frontend/e2e/fixtures.ts`のPlaywrightネットワークモックで`/api/routes/generate`・`/api/weather`・`/api/basemap/**`・`/api/region/road-surface-tiles/**`を置換（API契約の正しさはapi-contractジョブが別途担保する設計分担）。ルート生成→表示・レイヤーON/OFFの2本を`playwright.config.ts`（Chromium1種、`next build && next start`）＋CIの`e2e`ジョブとして追加。vitestが`e2e/**`を誤検出する問題を`vitest.config.mts`のexcludeで解消。frontend 148件・eslint・tsc・E2E2件すべてgreen |
 | 2026-08-16 | T25 | 静的属性P1で評価軸が増えたことによりトリガー成立、評価軸カタログ化を実施。`frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、`mapLayers.ts`と同じ型）。ラベルを`Record<keyof ScoringWeights\|RoutePreferenceWeights, ...>`で書きOpenAPI生成型への完全性チェックをドリフト検知に使う（新規生成物・テスト無し）。`WeightPanel.tsx`・`RouteList.tsx`のハードコードをカタログ生成へ置換、副次効果でUI入力欄が無かった`stop_weight`も自動追加。`score_breakdown`の新規表示UIはスコープ外とした（ユーザー承認、モバイルUI改修との競合回避）。backend 531件・frontend 146件・eslint・tsc全green |
+| 2026-08-16 | 静的属性P1残り（intersectionDensity・trafficStress・bicycle_infra評価組み込み） | ユーザー依頼で当初分離していたP1残りスコープを実施。ユーザー承認のうえ、intersectionDensityを当初案（road_graphエンジンはグラフ内Node次数を直接計算）から「半径内の交差点（次数3以上のroad_node）件数」という停止POIと同一の空間マッチ方式へ設計変更し、両エンジンとも同じ形の実装に統一（結果として当初の分離理由だったORS側の実装規模増加が解消され、同ラウンドで完了）。`AttributeRepository`へ`get_way_tags`/`get_nearest_way_tags`/`get_intersection_counts`/`get_nearest_intersection_counts`を新規実装（get_surface_attributes/get_nearest_surface_tagsと同じJOIN・空間KNNパターンの踏襲、交差点は`road_edges`のfrom/to隣接ノード集合から次数を都度導出）。`domain/difficulty.py: evaluate_axis_difficulties`を4軸→7軸へ拡張（T43で1箇所化済みのため呼び出し元3箇所は引数追加のみ）。`RoutePreference`へ`traffic_weight`/`infra_weight`/`intersection_weight`追加、7軸すべて`route_preference.yaml`のみに追加し`scoring.yaml`には追加しない（stop_weightと同じ判断、R-5対応）。`RouteSegmentDetail`/`RouteCandidate`へ新フィールド追加、OpenAPI/フロント型再生成。`evaluationAxes.ts`のPREFERENCE_AXESへ3軸追加・`WeightPanel.tsx`の既定値更新。backend 581件（新規47件、repository統合テストで次数3/2判定・空間マッチ境界を検証）・frontend 153件・eslint・tsc全green。詳細はdocs/static-road-attributes-plan.md P1節参照 |

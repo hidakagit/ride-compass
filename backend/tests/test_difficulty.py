@@ -1,9 +1,13 @@
 from app.domain.difficulty import (
+    bicycle_infra_difficulty,
     composite_difficulty,
     distance_weighted_difficulty,
+    evaluate_axis_difficulties,
     gradient_difficulty,
+    intersection_difficulty,
     road_difficulty,
     stop_difficulty,
+    traffic_stress_difficulty,
     wind_difficulty,
 )
 
@@ -123,3 +127,95 @@ def test_distance_weighted_difficulty_zero_total_distance_returns_none():
 
 def test_distance_weighted_difficulty_empty_returns_none():
     assert distance_weighted_difficulty([]) is None
+
+
+def test_traffic_stress_difficulty_level_1_is_easiest():
+    assert traffic_stress_difficulty(1) == 0.0
+
+
+def test_traffic_stress_difficulty_level_4_is_hardest():
+    assert traffic_stress_difficulty(4) == 100.0
+
+
+def test_traffic_stress_difficulty_is_linear_between_min_and_max():
+    # (2.5-1)/(4-1)*100 = 50.0
+    assert traffic_stress_difficulty(2.5) == 50.0
+
+
+def test_traffic_stress_difficulty_none_passthrough():
+    assert traffic_stress_difficulty(None) is None
+
+
+def test_bicycle_infra_difficulty_separated_is_easiest():
+    assert bicycle_infra_difficulty("separated") == 0.0
+
+
+def test_bicycle_infra_difficulty_prohibited_is_hardest():
+    assert bicycle_infra_difficulty("prohibited") == 100.0
+
+
+def test_bicycle_infra_difficulty_orders_classes_by_dedication():
+    assert (
+        bicycle_infra_difficulty("separated")
+        < bicycle_infra_difficulty("lane")
+        < bicycle_infra_difficulty("shared_busway")
+        < bicycle_infra_difficulty("shared_pedestrian")
+        < bicycle_infra_difficulty("roadway")
+        < bicycle_infra_difficulty("prohibited")
+    )
+
+
+def test_bicycle_infra_difficulty_none_passthrough():
+    assert bicycle_infra_difficulty(None) is None
+
+
+def test_bicycle_infra_difficulty_unknown_class_is_none():
+    # unknown（highway自体が不明）は評価しない
+    assert bicycle_infra_difficulty("unknown") is None
+
+
+def test_intersection_difficulty_zero_density_is_easiest():
+    assert intersection_difficulty(0.0) == 0.0
+
+
+def test_intersection_difficulty_increases_with_density():
+    assert intersection_difficulty(1.0) == 50.0
+
+
+def test_intersection_difficulty_caps_at_100_for_high_density():
+    assert intersection_difficulty(10.0) == 100.0
+
+
+def test_intersection_difficulty_none_passthrough():
+    assert intersection_difficulty(None) is None
+
+
+def test_intersection_difficulty_negative_is_none():
+    assert intersection_difficulty(-1.0) is None
+
+
+def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
+    result = evaluate_axis_difficulties(
+        6.0, 4.0, True, 2.0, 2, "lane", 1.0,
+        elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
+        traffic_weight=1.0, infra_weight=1.0, intersection_weight=1.0,
+    )
+
+    assert result.elevation == gradient_difficulty(6.0)
+    assert result.wind == wind_difficulty(4.0)
+    assert result.road == road_difficulty(True)
+    assert result.stop == stop_difficulty(2.0)
+    assert result.traffic == traffic_stress_difficulty(2)
+    assert result.infra == bicycle_infra_difficulty("lane")
+    assert result.intersection == intersection_difficulty(1.0)
+    assert result.composite is not None
+
+
+def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
+    result = evaluate_axis_difficulties(
+        None, None, None, None, None, None, None,
+        elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
+        traffic_weight=1.0, infra_weight=1.0, intersection_weight=1.0,
+    )
+
+    assert result == (None, None, None, None, None, None, None, None)

@@ -188,6 +188,24 @@ class GraphService:
             return {}
         return await self._repository.get_stop_poi_counts(edge_ids)
 
+    async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
+        """指定edge_idそれぞれの許可リストタグ（静的道路属性P0）を返す（静的道路属性P1残り、
+        交通ストレス・自転車インフラ評価の入力）。get_stop_poi_countsと同じ
+        「repositoryが無ければ`{}`」パターン。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_way_tags(edge_ids)
+
+    async def get_intersection_counts(self, edge_ids: list[str]) -> dict[str, int]:
+        """指定edge_idそれぞれの交差点密度評価用カウント（静的道路属性P1残り、
+        intersectionDensity）を返す。get_stop_poi_countsと同じ
+        「repositoryが無ければ`{}`」パターン。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_intersection_counts(edge_ids)
+
     async def _fetch_graph_with_surface_attributes(
         self, bbox: BoundingBox
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:

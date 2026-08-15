@@ -472,6 +472,39 @@
             ],
             "title": "Stop Density"
           },
+          "traffic_stress_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traffic Stress Score"
+          },
+          "bicycle_infra_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bicycle Infra Score"
+          },
+          "intersection_density": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intersection Density"
+          },
           "total_score": {
             "anyOf": [
               {
@@ -531,7 +564,7 @@
           "geometry"
         ],
         "title": "RouteCandidate",
-        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、\n静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷\n合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。"
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、\n静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷\n合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。\n\n`traffic_stress_score`: ルート全体の交通ストレス（1-4）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。\n`bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)\n（domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。\n`intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。\nいずれも静的道路属性P1残り。"
       },
       "RouteGenerateRequest": {
         "properties": {
@@ -641,6 +674,21 @@
             "type": "number",
             "minimum": 0.0,
             "title": "Stop Weight"
+          },
+          "traffic_weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Traffic Weight"
+          },
+          "infra_weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Infra Weight"
+          },
+          "intersection_weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Intersection Weight"
           }
         },
         "type": "object",
@@ -648,7 +696,10 @@
           "elevation_weight",
           "road_weight",
           "wind_weight",
-          "stop_weight"
+          "stop_weight",
+          "traffic_weight",
+          "infra_weight",
+          "intersection_weight"
         ],
         "title": "RoutePreferenceWeights",
         "description": "Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。\nキーはroute_preference.yamlと同じ。\n\ndomain/evaluation.pyのRoutePreferenceと同形だが、API境界では「フィールド省略時に\nクラス既定値が黙って入る」ことを避けるため、全フィールド必須の別モデルにしている\n（上書きするなら全軸を明示する）。"
@@ -816,6 +867,28 @@
             ],
             "title": "Road Surface Good"
           },
+          "traffic_stress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traffic Stress"
+          },
+          "bicycle_infra": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bicycle Infra"
+          },
           "elevation_difficulty": {
             "anyOf": [
               {
@@ -859,6 +932,39 @@
               }
             ],
             "title": "Stop Difficulty"
+          },
+          "traffic_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traffic Difficulty"
+          },
+          "infra_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Infra Difficulty"
+          },
+          "intersection_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intersection Difficulty"
           },
           "difficulty": {
             "anyOf": [

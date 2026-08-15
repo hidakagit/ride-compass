@@ -22,13 +22,22 @@
 
 import asyncio
 
-from app.domain.difficulty import evaluate_axis_difficulties
+from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.traffic import STOP_POI_MATCH_MAX_DISTANCE_M, distance_weighted_stop_density
+from app.domain.traffic import (
+    INTERSECTION_MATCH_MAX_DISTANCE_M,
+    STOP_POI_MATCH_MAX_DISTANCE_M,
+    classify_bicycle_infrastructure,
+    distance_weighted_bicycle_infra_score,
+    distance_weighted_intersection_density,
+    distance_weighted_stop_density,
+    is_dedicated_bicycle_infra,
+    traffic_stress_level,
+)
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
 from app.services.route_generator import TracedLoop, candidate_identity
@@ -118,15 +127,29 @@ class OpenRouteServiceEngine:
             flat_stop_counts = await self._repository.get_nearest_stop_poi_counts(
                 flat_points, max_distance_m=STOP_POI_MATCH_MAX_DISTANCE_M
             )
+            # 交通ストレス・自転車インフラ・交差点密度評価（静的道路属性P1残り）も同じ
+            # サンプル点集合を使い、全候補分をまとめて1回で問い合わせる。
+            flat_way_tags = await self._repository.get_nearest_way_tags(
+                flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
+            )
+            flat_intersection_counts = await self._repository.get_nearest_intersection_counts(
+                flat_points, max_distance_m=INTERSECTION_MATCH_MAX_DISTANCE_M
+            )
         else:
             flat_surface_tags = [None] * sum(point_counts)
             flat_stop_counts = [None] * sum(point_counts)
+            flat_way_tags = [None] * sum(point_counts)
+            flat_intersection_counts = [None] * sum(point_counts)
         surface_tags_per_candidate: list[list[str | None]] = []
         stop_counts_per_candidate: list[list[int | None]] = []
+        way_tags_per_candidate: list[list[tuple[str | None, dict[str, str]] | None]] = []
+        intersection_counts_per_candidate: list[list[int | None]] = []
         offset = 0
         for count in point_counts:
             surface_tags_per_candidate.append(flat_surface_tags[offset : offset + count])
             stop_counts_per_candidate.append(flat_stop_counts[offset : offset + count])
+            way_tags_per_candidate.append(flat_way_tags[offset : offset + count])
+            intersection_counts_per_candidate.append(flat_intersection_counts[offset : offset + count])
             offset += count
 
         # 距離フィルタで棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
@@ -156,6 +179,8 @@ class OpenRouteServiceEngine:
                 wind_segments=wind_segments_per_candidate[i],
                 surface_tags=surface_tags_per_candidate[i],
                 stop_counts=stop_counts_per_candidate[i],
+                way_tags=way_tags_per_candidate[i],
+                intersection_counts=intersection_counts_per_candidate[i],
                 route_geometry=c.geometry,
             )
             road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
@@ -165,8 +190,26 @@ class OpenRouteServiceEngine:
             stop_density = distance_weighted_stop_density(
                 [(s.distance_km, stop_counts_per_candidate[i][j]) for j, s in enumerate(segments)]
             )
+            # 交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）も同じ「サンプル点iの
+            # 値を区間iの代表値として使う」近似で集約する。
+            traffic_stress_score = distance_weighted_difficulty([(s.traffic_stress, s.distance_km) for s in segments])
+            bicycle_infra_score = distance_weighted_bicycle_infra_score(
+                [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
+            )
+            intersection_density = distance_weighted_intersection_density(
+                [(s.distance_km, intersection_counts_per_candidate[i][j]) for j, s in enumerate(segments)]
+            )
             results.append(
-                c.model_copy(update={"segments": segments, "road_score": road_score, "stop_density": stop_density})
+                c.model_copy(
+                    update={
+                        "segments": segments,
+                        "road_score": road_score,
+                        "stop_density": stop_density,
+                        "traffic_stress_score": traffic_stress_score,
+                        "bicycle_infra_score": bicycle_infra_score,
+                        "intersection_density": intersection_density,
+                    }
+                )
             )
         return results
 
@@ -178,6 +221,8 @@ class OpenRouteServiceEngine:
         wind_segments: list[dict],
         surface_tags: list[str | None],
         stop_counts: list[int | None],
+        way_tags: list[tuple[str | None, dict[str, str]] | None],
+        intersection_counts: list[int | None],
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
@@ -216,9 +261,20 @@ class OpenRouteServiceEngine:
             stop_count = stop_counts[i] if i < len(stop_counts) else None
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
+            point_way_tags = way_tags[i] if i < len(way_tags) else None
+            highway, tags = point_way_tags if point_way_tags is not None else (None, None)
+            traffic_stress = traffic_stress_level(highway, tags) if tags is not None else None
+            bicycle_infra = classify_bicycle_infrastructure(tags, highway) if tags is not None else None
+            intersection_count = intersection_counts[i] if i < len(intersection_counts) else None
+            intersection_count_per_km = (
+                intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
+            )
+
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
+                traffic_stress, bicycle_infra, intersection_count_per_km,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
+                preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
@@ -240,10 +296,15 @@ class OpenRouteServiceEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=wind_penalty,
                     road_surface_good=road_surface_good,
+                    traffic_stress=traffic_stress,
+                    bicycle_infra=bicycle_infra,
                     elevation_difficulty=axis_difficulties.elevation,
                     wind_difficulty=axis_difficulties.wind,
                     road_difficulty=axis_difficulties.road,
                     stop_difficulty=axis_difficulties.stop,
+                    traffic_difficulty=axis_difficulties.traffic,
+                    infra_difficulty=axis_difficulties.infra,
+                    intersection_difficulty=axis_difficulties.intersection,
                     difficulty=axis_difficulties.composite,
                 )
             )

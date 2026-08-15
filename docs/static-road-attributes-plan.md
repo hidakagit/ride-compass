@@ -1,13 +1,14 @@
 # 静的道路属性の棚卸しと実装計画（調査報告・2026-08-15）
 
-**ステータス（2026-08-16更新）: P0完了・P1主要部分完了**。P0（タグ保持基盤・
-`domain/traffic.py`・MVT拡張v4・交通ストレス/自転車インフラレイヤー）・既存データへの
-再取込・T9（surface列化）はいずれも完了済み（詳細は
-[improvement-plan.md](improvement-plan.md)「静的道路属性 P0」節）。P1は
-下記§3の1〜3のうち「node取込機構」「停止密度評価」を2026-08-16に実装完了（詳細は
-本節末尾の実装結果を参照）。intersectionDensity・trafficStress/bicycle_infra評価組み込み・
+**ステータス（2026-08-16更新）: P0完了・P1完了（自転車歩行者道スコープ拡張等の残り4点を除く）**。
+P0（タグ保持基盤・`domain/traffic.py`・MVT拡張v4・交通ストレス/自転車インフラレイヤー）・
+既存データへの再取込・T9（surface列化）はいずれも完了済み（詳細は
+[improvement-plan.md](improvement-plan.md)「静的道路属性 P0」節）。P1は下記§3の1〜3を
+2026-08-16に実装完了（node取込機構・停止密度評価は同日前半、intersectionDensity・
+trafficStress/bicycle_infra評価組み込みは同日後半。詳細は本節末尾の実装結果を参照）。
 自転車歩行者道スコープ拡張・`bicycle=no`Hard Constraint・name/refのMVT焼き込み（§3 P1の
-4〜6、および2の後半）は未着手のまま残る。以下は元の調査報告（2026-08-15時点、着手前）。
+4〜6、および2の後半）はP2据え置きの候補として引き続き未着手。以下は元の調査報告
+（2026-08-15時点、着手前）。
 
 新レイヤー（交通ストレス・自転車インフラ・信号密度等）追加に向けた、OSM静的道路属性の
 棚卸しと実装方針の提案。動的データ（天気・風・降水）は対象外。
@@ -170,22 +171,21 @@ P0は**表示（レイヤー）まで**。ルート評価への組み込みは�
 1. node取込機構（`osm_raw_pois`テーブル＋プロファイルnode要素）: 信号・横断歩道・一時停止・踏切
    ✅**完了（2026-08-16）**
 2. signalDensity ✅**完了（「停止密度」として実装、下記参照）** / intersectionDensity
-   （交差点は既存`road_edges`から次数導出、新規取得不要）**未着手**（road_graphエンジンは
-   グラフ全体をメモリに持つため容易だが、ORSエンジン側は経路サンプル点ごとに新規のDB空間
-   問い合わせが要り実装規模が増えるため、ユーザー承認のうえ本ラウンドのスコープから分離）
+   ✅**完了（2026-08-16後半、下記実装結果参照）**。当初はORSエンジン側の実装規模を理由に
+   本ラウンドから分離する想定だったが、「半径内の交差点件数」という停止POIと同一の空間マッチ
+   方式に設計を統一したことで両エンジンとも同じ形の実装に収まったため、同ラウンドで実施した
 3. `EvaluationService`への組み込み: `compute_edge_cost`に**停止密度**の項を追加✅完了。
-   trafficStress・インフラの項追加は**未着手**（P0時点でway属性としては取得済みだが評価組み込みは
-   別スコープとして分離）。`route_preference.yaml`に`stop_weight`追加✅完了、`RouteCandidate`への
-   ルート単位集約値は`stop_density`として追加✅完了（`trafficStressScore`等は未着手）。
-   **未着手のtrafficStress・intersectionDensity（＝下記P2）を評価組み込みする際の判断項目**
-   （複雑度平衡レビュー第4回R-5）: stop_weight追加時は`route_preference.yaml`（区間難易度・
-   Edge Cost、絶対評価）のみへ追加し、`scoring.yaml`（total_score＝おすすめ度、候補集合内の
-   相対評価）へは追加しなかった（ユーザー承認済みのスコープ判断）。この結果、停止密度は
-   区間の色分け・探索コストには効くが、候補の並び順（おすすめ度）には一切効かない非対称が
-   生じている。trafficStress等の追加でも同じ判断が必要になるため、着手時のタスク定義へ
-   「`scoring.yaml`側にも軸を追加するか」を明示的な検討項目として含めること（放置すると
-   「評価には入れたが推薦には入れ忘れた」が既成事実化しやすいため、一連の軸追加ごとに
-   都度判断する）
+   **trafficStress・bicycle_infra（自転車インフラ）の項追加も✅完了（2026-08-16後半）**。
+   `route_preference.yaml`に`stop_weight`・`traffic_weight`・`infra_weight`・
+   `intersection_weight`をすべて追加✅完了、`RouteCandidate`へのルート単位集約値は
+   `stop_density`・`traffic_stress_score`・`bicycle_infra_score`・`intersection_density`として
+   追加✅完了。
+   **scoring.yaml組み込みの判断**（複雑度平衡レビュー第4回R-5で明示要求された検討項目）:
+   trafficStress・bicycle_infra・intersectionDensityの3軸も、stop_weightと同じくユーザー承認の
+   うえ`route_preference.yaml`（区間難易度・Edge Cost、絶対評価）のみへ追加し、`scoring.yaml`
+   （total_score＝おすすめ度、候補集合内の相対評価）へは追加しなかった。7軸すべてが
+   「区間の色分け・探索コストには効くが、候補の並び順（おすすめ度）には一切効かない」という
+   一貫した非対称になっている（今後の評価軸追加でも都度この判断が必要）。
 4. 自転車歩行者道の取込スコープ拡張（path/footway＋bicycle可のみ。プロファイルにエントリ追加）
    **未着手**
 5. `bicycle=no`のHard Constraint追加、`oneway:bicycle`例外の解釈 **未着手**
@@ -205,6 +205,39 @@ node要素2ルール）。**ADR決定2（フォールバック撤去条件成立
 （repository未注入）」と「実測0件」をNone/0で区別する設計（road_score等の既存方針を踏襲）。
 backend 531件・frontend 146件・eslint・tsc全green、dev機PGへmigration適用・
 Tokyo.osm.pbfでのdry-run実行（信号等81,921件マッチ）で実データ動作確認済み。
+
+**実装結果（intersectionDensity・trafficStress・bicycle_infra評価組み込み、2026-08-16後半）**:
+分類関数（`traffic_stress_level`・`classify_bicycle_infrastructure`）はP0で実装済みのため、
+今回は「評価パイプラインへの接続」が中心。
+
+- **交通ストレス・自転車インフラ**: 生タグの供給元を新設した`AttributeRepository.get_way_tags`
+  （road_graphエンジン、`get_surface_attributes`と同じ`osm_way_id`経由JOIN）／
+  `get_nearest_way_tags`（ORSエンジン、`get_nearest_surface_tags`と同じ空間KNN、highway＋tagsを
+  返す）で統一。road_graphエンジンは`DirectedEdge.highway`（既に保持済み）と組み合わせて評価時に
+  `traffic_stress_level`/`classify_bicycle_infrastructure`を呼ぶ（分類はSQL側に持たせず、
+  stop_countと同じ「repositoryはtags生値を返すだけ、分類は呼び出し側のPython」設計）
+- **intersectionDensity**: 当初案（road_graphエンジンはグラフ内Node次数を直接計算、ORSエンジンは
+  別方式）を、両エンジンとも「半径内の交差点（次数`INTERSECTION_DEGREE_THRESHOLD`=3以上の
+  road_node）件数」という統一定義へ変更した。`road_nodes`テーブル自体は次数を保持していない
+  （`build_road_graph`のNode化条件は「Wayの端点、または複数Wayに共有されるNode」であり次数2の
+  単純な通過点もNode化されうるため、次数はクエリ時に`road_edges`のfrom/to隣接ノード集合から
+  導出する）。新規SQL2種（`get_intersection_counts`は指定edge_idの集合に限定して集計、
+  `get_nearest_intersection_counts`はサンプル点集合の外接矩形を約1km広げた範囲でroad_edgesを
+  絞り込んでから集計）で、DB全体のroad_edgesを毎回走査しないようにした
+- **合成**: `domain/difficulty.py: evaluate_axis_difficulties`を4軸→7軸へ拡張（改善計画T43で
+  3箇所の重複合成ブロックを1関数に集約済みだったため、呼び出し元3箇所は引数を足すだけで済んだ）。
+  新規`traffic_stress_difficulty`（1-4を線形マップ）・`bicycle_infra_difficulty`（分類ごとの
+  カテゴリカルスコア）・`intersection_difficulty`（区分線形、暫定値）
+- **API**: `RouteSegmentDetail`へ`traffic_stress`/`bicycle_infra`（生値）・`traffic_difficulty`/
+  `infra_difficulty`/`intersection_difficulty`、`RouteCandidate`へ`traffic_stress_score`/
+  `bicycle_infra_score`/`intersection_density`（ルート単位集約）を追加。OpenAPI/フロント型再生成
+- **フロント**: `lib/evaluationAxes.ts`のPREFERENCE_AXESへ3軸追加（型のコンパイル時完全性
+  チェックがドリフト検知を兼ねるため新規テストは不要、既存の設計どおり）。`WeightPanel.tsx`の
+  既定値をbackend route_preference.yamlと同じ配分に更新。新規のルート色分けモード・
+  比較表の行追加は行っていない（バックエンド評価組み込みが今回のスコープ、表示UIは対象外）
+- 完了条件: backend 581件（新規47件: domain単体・repository統合テスト・エンジンテスト）・
+  frontend全テスト・eslint・tsc全green。repository統合テスト（`ridecompass_test`DB）で
+  次数3/次数2判定・空間マッチ半径境界のケースを実データ相当の合成グラフで検証済み
 
 ### P2（将来検討）
 

@@ -84,10 +84,14 @@ class FakeGraphService:
         surface_attributes: dict | None = None,
         stop_counts: dict | None = None,
         stop_data_available: bool = True,
+        way_tags: dict | None = None,
+        intersection_counts: dict | None = None,
     ):
         self._graph = graph
         self._surface_attributes = surface_attributes or {}
         self._stop_counts = stop_counts or {}
+        self._way_tags = way_tags or {}
+        self._intersection_counts = intersection_counts or {}
         # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
         # （GraphService.get_stop_poi_counts(repository=None)と同じ{}を返す）。Trueは
         # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
@@ -105,6 +109,15 @@ class FakeGraphService:
         if not self._stop_data_available:
             return {}
         return {edge_id: self._stop_counts.get(edge_id, 0) for edge_id in edge_ids}
+
+    async def get_way_tags(self, edge_ids):
+        # 静的道路属性P1残り。既定は{}（未設定時は「repository未注入」相当で既存
+        # アサーションに影響しない）。way_tagsに指定されたedge_idのみ実値を返す。
+        return {edge_id: self._way_tags[edge_id] for edge_id in edge_ids if edge_id in self._way_tags}
+
+    async def get_intersection_counts(self, edge_ids):
+        # 同上（intersectionDensity）。
+        return {edge_id: self._intersection_counts[edge_id] for edge_id in edge_ids if edge_id in self._intersection_counts}
 
 
 class FakeElevationAttributeService:
@@ -132,10 +145,14 @@ def make_generator(
     surface_attributes: dict | None = None,
     stop_counts: dict | None = None,
     stop_data_available: bool = True,
+    way_tags: dict | None = None,
+    intersection_counts: dict | None = None,
     wind: WeatherConditions | None = None,
     route_preference: RoutePreference | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
-    graph_service = FakeGraphService(graph, surface_attributes, stop_counts, stop_data_available)
+    graph_service = FakeGraphService(
+        graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts
+    )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
     engine = RoadGraphEngine(
@@ -323,6 +340,40 @@ async def test_candidate_stop_density_is_none_when_data_unavailable():
 
     assert candidate.stop_density is None
     assert all(s.stop_difficulty is None for s in candidate.segments)
+
+
+async def test_candidate_reflects_bicycle_infra_from_way_tags():
+    # 静的道路属性P1残り。way_tagsが取得できた区間は自転車インフラの生値・難易度・
+    # ルート集約値が反映される（このテストのbuild_loop_graphはEdge.highwayを持たない
+    # ため、highway必須の交通ストレスはNoneのまま。highway非依存のbicycle_infraだけ検証する）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
+    way_tags = {edge_ids[0]: {"cycleway": "track"}}
+    generator, _, _ = make_generator(graph, way_tags=way_tags)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.bicycle_infra_score is not None
+    segment_with_track = next(s for s in candidate.segments if s.bicycle_infra == "separated")
+    assert segment_with_track.infra_difficulty == 0.0
+
+
+async def test_candidate_aggregates_intersection_density_from_path_edges():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
+    intersection_counts = {edge_ids[0]: 2}
+    generator, _, _ = make_generator(graph, intersection_counts=intersection_counts)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.intersection_density is not None
+    assert candidate.intersection_density > 0.0
+    segment_with_intersections = next(
+        s for s in candidate.segments if s.intersection_difficulty is not None and s.intersection_difficulty > 0
+    )
+    assert segment_with_intersections.difficulty is not None
 
 
 async def test_candidate_aggregates_wind_score_when_weather_available():
