@@ -246,12 +246,14 @@ Render側の`DATABASE_URL`を新しいOracleインスタンスへ向け（`postg
 
 ### 残課題（運用整備）
 
-- **DB接続パスワードの保管場所が未整備**: 生成したパスワードはローカルWindows機の一時ファイル（`%LOCALAPPDATA%\Temp\db_password.txt`）に置いてあるのみで、正式なシークレット管理（パスワードマネージャ等）に移していない
-- **ローカル`backend/.env`の`DATABASE_URL`が旧Supabaseを指したまま**: Supabase解約後は接続不能になる。ローカル既定をどこへ向けるか（ローカルPG推奨。本番Oracleを既定にすると開発作業が本番DBへ向く事故リスク）の判断が必要
-- **`verify_phase2_e2e.py`の300MB予算チェックの更新**: Oracle移行後の容量方針（実質無制限）に合わせて修正する
-- **Oracle側の実課金額が未確認**: Usage APIのレポーティング遅延のため、インシデント時の課金（あれば）を含めコンソールのCost Analysisで後日確認する必要がある
-- **管理者IPが動的**: セキュリティリスト・iptables双方で管理者アクセスを自宅IPの/32で許可しているが、動的IPのため変わった場合は更新が必要
-- **Supabase側の後始末は未着手**: 新DBの安定稼働を確認してから、Supabaseプロジェクトの扱い（解約等）を判断する
+- ~~DB接続パスワードの保管場所が未整備~~ ✅完了（2026-08-15）: `%LOCALAPPDATA%\Temp\db_password.txt`（自動クリア対象の一時フォルダ）から`backend/.env.oracle.local`（`.gitignore`の`.env.*.local`パターンでコミット対象外）へ移設し、元ファイルは削除
+- ~~ローカル`backend/.env`の`DATABASE_URL`が旧Supabaseを指したまま~~ ✅完了（2026-08-15）: ローカルPG（`localhost:5432/ridecompass`、開発（ネイティブPG）プロファイル）へ向け直し、`OVERPASS_FALLBACK_ENABLED`もdevプロファイルの`true`へ修正
+- ~~`verify_phase2_e2e.py`の300MB予算チェックの更新~~ ✅完了（2026-08-15）: Supabase無料枠の名残だった容量アサーションを削除し、DBサイズは情報表示のみに変更（Oracle移行で容量は実質制約でなくなったため）
+- ~~Oracle側の実課金額が未確認~~ ✅確認済み（2026-08-15）: `oci usage-api usage-summary request-summarized-usages`で過去30日分を確認し、課金項目1件・`computed-amount=0.0 JPY`（Always Free枠内、A1.Flex 2 OCPU/12GB＋ブロックボリューム150GBともに枠内に収まっている）
+- ~~管理者IPが動的~~ ✅確認済み（2026-08-15）: セキュリティリストの許可IPは`[REDACTED-IP]/32`で現在の実IPと一致（更新不要）。IPが変わった場合の更新コマンド:
+  `oci network security-list update --security-list-id <SL_OCID> --ingress-security-rules file://rules.json --force`
+  （既存ルールをJSONで取得→該当`source`を差し替えて再投入する。SL OCIDは`[REDACTED-OCID]`）。iptables側は別途SSHでの手動更新が必要（未自動化）
+- **Supabase側の後始末は未着手**: 新DBの安定稼働を確認してから、Supabaseプロジェクトの扱い（解約等）を判断する（ユーザー判断待ち、今回は対象外）
 
 ## 12. 関東全域拡大 ✅ 完了（2026-08-15）
 
