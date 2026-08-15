@@ -187,6 +187,51 @@ async def test_get_forecast_returns_none_after_exhausting_connect_timeout_retrie
     assert http_client.call_count == weather_client_module.MAX_RETRIES + 1
 
 
+async def test_get_forecast_uses_stale_cache_when_refetch_fails():
+    client = WeatherClient()
+    point = Coordinates(latitude=35.44, longitude=139.55)
+    await client.get_forecast(FakeHttpClient({"current": {}, "hourly": {}, "tag": "original"}), point)
+
+    key = WeatherClient.cache_key(point)
+    fetched_at, data = weather_client_module._forecast_cache[key]
+    weather_client_module._forecast_cache[key] = (fetched_at - weather_client_module.CACHE_TTL_SECONDS - 1, data)
+
+    result = await client.get_forecast(AlwaysConnectTimeoutHttpClient(), point)
+
+    assert result == {"current": {}, "hourly": {}, "tag": "original"}
+
+
+async def test_get_forecast_returns_none_when_stale_cache_exceeds_fallback_window():
+    client = WeatherClient()
+    point = Coordinates(latitude=35.46, longitude=139.57)
+    await client.get_forecast(FakeHttpClient({"current": {}, "hourly": {}}), point)
+
+    key = WeatherClient.cache_key(point)
+    fetched_at, data = weather_client_module._forecast_cache[key]
+    weather_client_module._forecast_cache[key] = (
+        fetched_at - weather_client_module.STALE_FALLBACK_MAX_AGE_SECONDS - 1,
+        data,
+    )
+
+    result = await client.get_forecast(AlwaysConnectTimeoutHttpClient(), point)
+
+    assert result is None
+
+
+async def test_get_forecast_many_uses_stale_cache_for_point_that_fails_refetch():
+    client = WeatherClient()
+    point = Coordinates(latitude=35.48, longitude=139.59)
+    await client.get_forecast(FakeHttpClient({"current": {}, "hourly": {}, "tag": "stale"}), point)
+
+    key = WeatherClient.cache_key(point)
+    fetched_at, data = weather_client_module._forecast_cache[key]
+    weather_client_module._forecast_cache[key] = (fetched_at - weather_client_module.CACHE_TTL_SECONDS - 1, data)
+
+    results = await client.get_forecast_many(AlwaysConnectTimeoutHttpClient(), [point])
+
+    assert results[key]["tag"] == "stale"
+
+
 async def test_get_forecast_many_batches_uncached_points_into_one_request():
     client = WeatherClient()
     payload = [{"current": {}, "hourly": {}, "tag": "a"}, {"current": {}, "hourly": {}, "tag": "b"}]

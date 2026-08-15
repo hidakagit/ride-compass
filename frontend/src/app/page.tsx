@@ -327,6 +327,7 @@ export default function Home() {
         return {
           id: layer.id,
           label: layer.label,
+          chipLabel: layer.chipLabel ?? layer.label,
           on: layerVisibility[layer.id],
           disabled,
           title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}（設定はサイドバー）`,

@@ -31,6 +31,15 @@
   overflow-y: auto;
 }
 
+/* チップ1つ分の行。ON中で条件サマリがあるレイヤーは、チップの右にサマリ行を並べる
+   （以前は列の下にまとめて縦積みだったが、複数レイヤーがONのとき対応関係が分かりにくい
+   という実機フィードバックを受け、該当チップの横へ移した）。 */
+.chipRowItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
    小さいボタンで、以前の文字だけの横スクロールチップより地図の占有面積が小さい。
    サイドバー側（MapLayersPanel）の「表示」チップは引き続きLayerChip（テキストのみ）を使う。 */
@@ -45,6 +54,7 @@
      ボタンまで一律に広げないようmin-widthのみ揃える）。 */
   min-width: 3.2rem;
   width: max-content;
+  flex-shrink: 0;
   padding: 0.3rem 0.3rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
@@ -79,7 +89,10 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  max-width: 100%;
+  /* チップと横並びになったため、残り幅まで伸びつつ収まらない分は省略記号で切る
+     （flexアイテムのデフォルトmin-width:autoだとテキスト分だけ広がり親の折り返しを妨げるため0にする） */
+  flex: 1;
+  min-width: 0;
   min-height: 30px;
   padding: 0.25rem 0.7rem;
   border-radius: 999px;

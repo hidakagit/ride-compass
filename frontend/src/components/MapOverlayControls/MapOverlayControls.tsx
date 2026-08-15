@@ -9,6 +9,8 @@ import styles from "./MapOverlayControls.module.css";
 export interface OverlayLayerChip {
   id: MapLayerId;
   label: string;
+  /** アイコンチップ下に出す短縮表記（未指定ならlabelを使う）。サマリ行は引き続きlabelを使う */
+  chipLabel?: string;
   on: boolean;
   disabled?: boolean;
   /** チップのtitle（ONにすると何が出るか、disabledなら使えない理由） */
@@ -42,44 +44,47 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
 // サイドバーへ移した）。このコンポーネントはレイヤー固有の知識を持たない汎用の描画係で、
 // レイヤーが増えてもここは変更不要（mapLayers.tsのコメント参照）。
 export default function MapOverlayControls({ layers, onToggle, onSummaryClick }: MapOverlayControlsProps) {
-  const summaries = layers.filter((layer) => layer.on && !layer.disabled && layer.summary);
-
   return (
     <div className={styles.wrapper}>
       <div className={styles.chipRow}>
         {layers.map((layer) => {
           const Icon = LAYER_ICONS[layer.id];
+          const showSummary = layer.on && !layer.disabled && layer.summary;
           return (
-            <button
-              key={layer.id}
-              type="button"
-              aria-pressed={layer.on && !layer.disabled}
-              disabled={layer.disabled}
-              title={layer.title}
-              onClick={() => onToggle(layer.id, !layer.on)}
-              className={layer.on && !layer.disabled ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip}
-            >
-              <Icon />
-              <span className={styles.iconLabel}>{layer.label}</span>
-            </button>
+            // チップとその条件サマリを1行にまとめる。以前はサマリをチップ列の下にまとめて
+            // 縦に並べていたが、複数レイヤーがONのとき「どのチップの条件か」が離れて分かり
+            // にくいという実機フィードバックを受け、該当チップの横へ移した。
+            <div key={layer.id} className={styles.chipRowItem}>
+              <button
+                type="button"
+                aria-pressed={layer.on && !layer.disabled}
+                disabled={layer.disabled}
+                title={layer.title}
+                onClick={() => onToggle(layer.id, !layer.on)}
+                className={
+                  layer.on && !layer.disabled ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip
+                }
+              >
+                <Icon />
+                <span className={styles.iconLabel}>{layer.chipLabel ?? layer.label}</span>
+              </button>
+              {showSummary && (
+                <button
+                  type="button"
+                  onClick={() => onSummaryClick(layer.id)}
+                  className={styles.summaryButton}
+                  title="タップするとサイドバーで設定を変更できます"
+                >
+                  <span className={styles.summaryLayerLabel}>{layer.label}:</span> {layer.summary}
+                  <span aria-hidden="true" className={styles.summaryArrow}>
+                    ▸
+                  </span>
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
-
-      {summaries.map((layer) => (
-        <button
-          key={layer.id}
-          type="button"
-          onClick={() => onSummaryClick(layer.id)}
-          className={styles.summaryButton}
-          title="タップするとサイドバーで設定を変更できます"
-        >
-          <span className={styles.summaryLayerLabel}>{layer.label}:</span> {layer.summary}
-          <span aria-hidden="true" className={styles.summaryArrow}>
-            ▸
-          </span>
-        </button>
-      ))}
     </div>
   );
 }

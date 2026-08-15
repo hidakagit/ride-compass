@@ -22,8 +22,13 @@ export type MapLayerKind = "static" | "dynamic";
 
 export interface MapLayerDescriptor {
   id: MapLayerId;
-  /** チップ・サイドバーのセクション見出しに共通で使う表示名 */
+  /** サイドバーのセクション見出し・条件サマリ・チップのtitleで使う正式名称 */
   label: string;
+  /** 地図上のアイコンチップ下に出す短縮表記。未指定ならlabelをそのまま使う。
+   * チップ幅は文字数に連動するため（MapOverlayControls.module.cssの.iconChip参照）、
+   * 長いlabelはここで短くしてチップ幅を他レイヤーと揃える。正式名称は引き続きlabel
+   * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
+  chipLabel?: string;
   kind: MapLayerKind;
   /** ONにすると何が表示されるかの短い説明（チップのtitle・サイドバーの補足に使う） */
   description: string;
@@ -49,12 +54,14 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   {
     id: "trafficStress",
     label: "交通ストレス",
+    chipLabel: "ストレス",
     kind: "static",
     description: "道路種別・車線数・制限速度・自転車インフラから推定した交通ストレス(1-4)を色分け表示",
   },
   {
     id: "bicycleInfra",
     label: "自転車インフラ",
+    chipLabel: "インフラ",
     kind: "static",
     description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
   },
