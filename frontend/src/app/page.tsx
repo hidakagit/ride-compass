@@ -260,19 +260,31 @@ export default function Home() {
     [hiddenLegendKeysByMode],
   );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
-  const toggleHiddenLegendKey = useCallback((modeId: string, key: string) => {
-    setHiddenLegendKeysByMode((prev) => {
-      const current = prev[modeId] ?? [];
-      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-      return { ...prev, [modeId]: next };
-    });
-  }, []);
+  // T32の保存はエフェクトではなく、状態を変えるハンドラ内で更新後の値を明示的に書く
+  // （handleRouteStyleModeChangeと同じ流儀）。エフェクトでの保存だと、開発時StrictModeの
+  // 再マウントで「復元前の既定値の保存」が復元読み出しへ割り込み、保存済み設定を既定値で
+  // 上書きする実害をPlaywright実機確認で観測したため。
+  const toggleHiddenLegendKey = useCallback(
+    (modeId: string, key: string) => {
+      const current = hiddenLegendKeysByMode[modeId] ?? [];
+      const nextKeys = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+      const next = { ...hiddenLegendKeysByMode, [modeId]: nextKeys };
+      setHiddenLegendKeysByMode(next);
+      saveStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY, next);
+    },
+    [hiddenLegendKeysByMode],
+  );
   // 道路情報の「すべて表示/すべて隠す」一括操作（1軸分の非表示キー全体の置き換え）。
   // 個別チェックはtoggleHiddenLegendKeyをそのまま使う（絞り込みは即時反映、T31。
   // レイヤーの自動ONはMapLayersPanel側が担う）。
-  const handleRoadAxisSetHidden = useCallback((axisId: RoadFilterAxisId, hiddenKeys: string[]) => {
-    setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
-  }, []);
+  const handleRoadAxisSetHidden = useCallback(
+    (axisId: RoadFilterAxisId, hiddenKeys: string[]) => {
+      const next = { ...hiddenLegendKeysByMode, [axisId]: hiddenKeys };
+      setHiddenLegendKeysByMode(next);
+      saveStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY, next);
+    },
+    [hiddenLegendKeysByMode],
+  );
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
@@ -282,21 +294,19 @@ export default function Home() {
   // 参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
   const debouncedRoadHiddenKeysByMode = useDebouncedValue(roadHiddenKeysByMode, ROAD_FILTER_DEBOUNCE_MS);
 
-  // 「地図の見え方」設定と「ルートを作る」開閉は変更のたびに保存する（T32。読み書きの
-  // 失敗はsaveStoredJson内で握りつぶし、既定値へのフォールバックとして扱う。マウント直後は
-  // 既定値がそのまま保存され、直後に上の復元エフェクトの再レンダーで復元値が保存し直される）。
-  useEffect(() => {
-    saveStoredJson(LAYER_VISIBILITY_STORAGE_KEY, layerVisibility);
-  }, [layerVisibility]);
-  useEffect(() => {
-    saveStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY, hiddenLegendKeysByMode);
-  }, [hiddenLegendKeysByMode]);
-  useEffect(() => {
-    saveStoredJson(GENERATE_OPEN_STORAGE_KEY, generateOpen);
-  }, [generateOpen]);
+  const handleLayerToggle = useCallback(
+    (id: MapLayerId, on: boolean) => {
+      const next = { ...layerVisibility, [id]: on };
+      setLayerVisibility(next);
+      saveStoredJson(LAYER_VISIBILITY_STORAGE_KEY, next);
+    },
+    [layerVisibility],
+  );
 
-  const handleLayerToggle = useCallback((id: MapLayerId, on: boolean) => {
-    setLayerVisibility((prev) => ({ ...prev, [id]: on }));
+  // 「ルートを作る」の開閉もT32の保存対象（ハンドラ内で保存する理由は上のコメント参照）
+  const handleGenerateOpenChange = useCallback((open: boolean) => {
+    setGenerateOpen(open);
+    saveStoredJson(GENERATE_OPEN_STORAGE_KEY, open);
   }, []);
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
@@ -353,13 +363,13 @@ export default function Home() {
   // 開いた後の再レンダーを待ってから（次フレームで）スクロール・フォーカスする
   // （handleLayerSummaryClickと同じ手法）。
   const handleGoToGenerate = useCallback(() => {
-    setGenerateOpen(true);
+    handleGenerateOpenChange(true);
     requestAnimationFrame(() => {
       const heading = document.getElementById(GENERATE_SECTION_TITLE_ID);
       heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
       heading?.focus?.({ preventScroll: true });
     });
-  }, []);
+  }, [handleGenerateOpenChange]);
 
   // モバイルのドロワーを閉じる共通処理。背景タップ・スワイプ・Escapeキーのいずれから
   // 閉じた場合も、フォーカスが失われたパネル内要素からトグルボタンへ戻す（キーボード/
@@ -542,7 +552,7 @@ export default function Home() {
             <details
               className={styles.blockSection}
               open={generateOpen}
-              onToggle={(e) => setGenerateOpen(e.currentTarget.open)}
+              onToggle={(e) => handleGenerateOpenChange(e.currentTarget.open)}
             >
               <summary id={GENERATE_SECTION_TITLE_ID} className={styles.blockSummary}>
                 ルートを作る
