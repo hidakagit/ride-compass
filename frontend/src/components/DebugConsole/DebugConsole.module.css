@@ -1,29 +1,54 @@
 /* このパネル専用の配色（ターミナル風の暗いオーバーレイ）。アプリ全体のライトテーマとは
    独立した見た目のため、グローバルなデザイントークンではなくこのモジュール内に留める。 */
 
+/* 一般ユーザーは使わない開発者向け機能のため、地図やサイドバーに場所を固定せず、
+   ビューポート基準で浮かせた独立パネルにする（「設定」内のボタンから開閉、T43）。
+   位置はドラッグで動かせる（DebugConsole.tsxのposition state）。既定位置は右下寄り
+   （モバイルタブバーの上に重ならないよう分だけ底上げ）。背景を半透明にして、パネルの
+   裏の地図がうっすら透けるようにする（ドッキング型の不透明パネルからの変更点）。 */
 .console {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed;
+  right: var(--space-3);
+  bottom: calc(var(--mobile-tabbar-height) + var(--space-3));
+  width: min(22rem, calc(100vw - 2 * var(--space-3)));
   /* max-heightの値(220px)はDebugConsole.tsxがエクスポートするDEBUG_CONSOLE_MAX_HEIGHT_PXと
      一致させること（frontend/src/components/DebugConsole/DebugConsole.test.tsxで自動検証） */
   max-height: 220px;
   display: flex;
   flex-direction: column;
-  background: rgba(17, 24, 39, 0.92);
+  background: rgba(17, 24, 39, 0.8);
+  backdrop-filter: blur(4px);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
   color: #e5e7eb;
   font-family: monospace;
   font-size: 0.75rem;
-  z-index: 10;
+  /* モバイルの下部シート・タブバー（z:45）より前面に出す（独立ウィンドウとして常に
+     手前に見せる。BottomSheetを開いたままでもこのパネルは隠れない）。 */
+  z-index: 50;
 }
 
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 0.4rem;
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.dragHandle {
+  cursor: grab;
+  padding: 0 0.2rem;
+  touch-action: none;
+  color: #9ca3af;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .headerButtons {

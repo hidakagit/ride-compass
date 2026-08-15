@@ -40,8 +40,12 @@
   align-items: center;
   justify-content: center;
   gap: 0.15rem;
-  width: 3.2rem;
-  padding: 0.3rem 0.15rem;
+  /* 幅は固定せず内容に合わせて伸ばす（「自転車インフラ」等の長いラベルが折り返して
+     二段になり読みにくいという実機フィードバックを受け、1行固定に変更。短いラベルの
+     ボタンまで一律に広げないようmin-widthのみ揃える）。 */
+  min-width: 3.2rem;
+  width: max-content;
+  padding: 0.3rem 0.3rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
@@ -64,17 +68,9 @@
 }
 
 .iconLabel {
-  font-size: 0.6rem;
-  white-space: normal;
-  /* word-break:keep-allだとCJKの文字列も改行不可の1語扱いになり、「自転車インフラ」等の
-     長いラベルが箱からはみ出す。既定(normal)のままCJKは任意の文字境界で折り返す。 */
-}
-
-/* レイヤー一覧とtrailingButton（デバッグログ起動等、レイヤー以外のON/OFF）を分ける区切り線 */
-.trailingDivider {
-  width: 100%;
-  height: 1px;
-  background: var(--color-border-strong);
+  font-size: 0.58rem;
+  /* ラベルは常に1行（折り返さない）。幅は.iconChip側がmax-contentで内容に合わせる。 */
+  white-space: nowrap;
 }
 
 /* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
