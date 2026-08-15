@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timedelta
 
 from app.domain.geo import bearing_between, haversine_distance_km
@@ -6,21 +5,20 @@ from app.domain.route import Coordinates
 from app.domain.wind import ASSUMED_SPEED_KMH, WindCalculator
 from app.services.weather_service import WeatherService
 
-MAX_CONCURRENT_REQUESTS = 5
-
 
 class WindService:
     """指定された点列から、走行中に受ける風の影響（区間ごとのwind_penaltyとルート全体のwind_score）を算出する。
 
     サンプル点は呼び出し元（`RouteGenerator`）が渡す（標高・路面と同じ点集合・同じ並びで評価するため）。
     各区間について「起点からの累積距離÷仮定巡航速度」で推定到達時刻を計算、その時刻・地点の風を
-    `WeatherService`（Step6で「地点＋時刻」対応済み）から取得して`WindCalculator`で区間ごとのペナルティを求める。
-    `semaphore`はコンストラクタで1つだけ生成し共有する（`ElevationService`と同じ理由）。
+    `WeatherService.get_conditions_many`でまとめて取得し`WindCalculator`で区間ごとのペナルティを求める。
+    以前は区間ごとに個別リクエスト（同時実行数5で並列）していたが、本番（Render、共有の送信元IP）では
+    ルート1本の生成だけでOpen-Meteo側の429が常態化していたため、Open-Meteoのマルチロケーション機能で
+    1リクエストへ集約した（原因調査ログ参照）。
     """
 
     def __init__(self, weather_service: WeatherService):
         self._weather_service = weather_service
-        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
     async def get_wind_profile(self, points: list[Coordinates], start_time: datetime) -> dict:
         if len(points) < 2:
@@ -43,11 +41,10 @@ class WindService:
             )
             cumulative_km += segment_distance_km
 
-        async def fetch(meta):
-            async with self._semaphore:
-                return await self._weather_service.get_conditions(meta["point"], at=meta["arrival_time"])
-
-        conditions = await asyncio.gather(*(fetch(meta) for meta in segment_meta))
+        conditions = await self._weather_service.get_conditions_many(
+            [meta["point"] for meta in segment_meta],
+            [meta["arrival_time"] for meta in segment_meta],
+        )
 
         segments = []
         weighted_penalties = []

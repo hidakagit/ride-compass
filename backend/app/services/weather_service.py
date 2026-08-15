@@ -25,7 +25,25 @@ class WeatherService:
         data = await self._client.get_forecast(self._http_client, point)
         if data is None:
             return None
+        return self._conditions_from_data(data, at)
 
+    async def get_conditions_many(
+        self, points: list[Coordinates], times: list[datetime | None]
+    ) -> list[WeatherConditions | None]:
+        """複数地点の天候を、可能な限り1回のOpen-Meteo呼び出しでまとめて取得する（WindService用）。
+
+        地点ごとの時刻（times[i]）が異なっていても、予報自体は地点ごとにforecast_days分の
+        hourly系列をまとめて取得しているため、取得後にそれぞれ最も近い時刻を選ぶだけでよい
+        （get_conditionsと同じ選択ロジックを_conditions_from_dataへ切り出して共有する）。
+        """
+        forecasts = await self._client.get_forecast_many(self._http_client, points)
+        results = []
+        for point, at in zip(points, times):
+            data = forecasts.get(self._client.cache_key(point))
+            results.append(None if data is None else self._conditions_from_data(data, at))
+        return results
+
+    def _conditions_from_data(self, data: dict, at: datetime | None) -> WeatherConditions | None:
         hourly = data.get("hourly")
         if not hourly or not hourly.get("time"):
             return None

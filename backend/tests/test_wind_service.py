@@ -33,9 +33,11 @@ class FakeWeatherService:
         self._conditions = conditions_by_call
         self.calls: list[tuple[Coordinates, datetime | None]] = []
 
-    async def get_conditions(self, point: Coordinates, at: datetime | None = None) -> WeatherConditions | None:
-        self.calls.append((point, at))
-        return self._conditions[len(self.calls) - 1]
+    async def get_conditions_many(
+        self, points: list[Coordinates], times: list[datetime | None]
+    ) -> list[WeatherConditions | None]:
+        self.calls.extend(zip(points, times))
+        return self._conditions
 
 
 async def test_constant_headwind_yields_that_wind_speed_as_score():
