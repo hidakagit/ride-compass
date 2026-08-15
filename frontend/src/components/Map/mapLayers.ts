@@ -82,6 +82,10 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   {
     id: "intersections",
     label: "交差点密度",
+    // chipLabel未指定のままだと5文字の"交差点密度"がそのままチップ幅（width: max-content）に
+    // 反映され、他レイヤーのチップ（trafficStress/bicycleInfra/accidentsは4文字以下の
+    // chipLabelで揃えている）より横に長くなり列が不揃いに見えていた（実機フィードバック）。
+    chipLabel: "交差点",
     kind: "static",
     description: "接続路3本以上の交差点を表示（接続数が多いほど大きい円）",
   },
