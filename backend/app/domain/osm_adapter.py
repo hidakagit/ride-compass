@@ -7,7 +7,10 @@ OSM（Overpass由来のWay/Nodeデータ）の語彙（`tags`辞書、`oneway`�
 切り替えたりしても、影響範囲はこのファイル（と対応するAdapter）に限定される。
 """
 
+from pydantic import BaseModel
+
 from app.domain.graph import WaySpec
+from app.domain.traffic import classify_stop_poi
 
 # OSMのoneway値のうち「逆方向への通行不可」を意味するもの。bicycle固有の例外
 # （oneway:bicycle=no等）はここでは扱わない（Evaluation Engine側の関心事。
@@ -82,4 +85,55 @@ def osm_way_to_way_spec(raw_way: dict) -> WaySpec | None:
 
 def osm_ways_to_way_specs(raw_ways: list[dict]) -> list[WaySpec]:
     specs = (osm_way_to_way_spec(way) for way in raw_ways)
+    return [spec for spec in specs if spec is not None]
+
+
+# 信号・横断歩道・一時停止・踏切のnode取込で保持するタグの許可リスト（静的道路属性P1）。
+# highway/railwayはclassify_stop_poiの分類根拠そのものだが、値をそのまま保持しておくと
+# 将来の分類精緻化（例: crossing=uncontrolled/traffic_signalsの区別）を再取込無しに
+# 遡って行える（ALLOWED_WAY_TAGSと同じ「生タグ保持」の考え方）。
+ALLOWED_NODE_TAGS = frozenset({"highway", "railway", "crossing"})
+
+
+class POISpec(BaseModel):
+    """信号・横断歩道・一時停止・踏切等、停止・減速要因になるnodeの取込単位（静的道路属性P1）。
+
+    WaySpecと対称に、データソースに依存しない契約（PBF取込・将来のOverpass双方が
+    ここへ変換してから渡す想定）。build_road_graphの入力ではないため、graph.pyではなく
+    ここに置く。
+    """
+
+    osm_node_id: int
+    kind: str
+    tags: dict[str, str] = {}
+    latitude: float
+    longitude: float
+
+
+def osm_node_to_poi_spec(raw_node: dict) -> POISpec | None:
+    """`{"id": int, "tags": dict, "lat": float, "lon": float}`形式のnode要素をPOISpecへ
+    変換する。信号・横断歩道・一時停止・踏切のいずれにも該当しないnode（大多数の
+    形状点）はNoneを返す（osm_raw_poisは分類できたnodeだけを保持する、road_graph_models.py:
+    OsmRawPoiRow参照）。
+    """
+    tags = raw_node.get("tags", {})
+    kind = classify_stop_poi(tags)
+    if kind is None:
+        return None
+
+    return POISpec(
+        osm_node_id=raw_node["id"],
+        kind=kind,
+        tags=_filter_allowed_node_tags(tags),
+        latitude=raw_node["lat"],
+        longitude=raw_node["lon"],
+    )
+
+
+def _filter_allowed_node_tags(tags: dict) -> dict[str, str]:
+    return {key: str(value) for key, value in tags.items() if key in ALLOWED_NODE_TAGS and value is not None}
+
+
+def osm_nodes_to_poi_specs(raw_nodes: list[dict]) -> list[POISpec]:
+    specs = (osm_node_to_poi_spec(node) for node in raw_nodes)
     return [spec for spec in specs if spec is not None]

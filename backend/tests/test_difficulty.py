@@ -3,6 +3,7 @@ from app.domain.difficulty import (
     distance_weighted_difficulty,
     gradient_difficulty,
     road_difficulty,
+    stop_difficulty,
     wind_difficulty,
 )
 
@@ -58,6 +59,26 @@ def test_road_difficulty_bad_surface_is_hard():
 
 def test_road_difficulty_none_passthrough():
     assert road_difficulty(None) is None
+
+
+def test_stop_difficulty_zero_density_is_easiest():
+    assert stop_difficulty(0.0) == 0.0
+
+
+def test_stop_difficulty_increases_with_density():
+    assert stop_difficulty(2.0) == 50.0
+
+
+def test_stop_difficulty_caps_at_100_for_high_density():
+    assert stop_difficulty(10.0) == 100.0
+
+
+def test_stop_difficulty_none_passthrough():
+    assert stop_difficulty(None) is None
+
+
+def test_stop_difficulty_negative_is_none():
+    assert stop_difficulty(-1.0) is None
 
 
 def test_composite_difficulty_weighted_average():

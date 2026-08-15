@@ -13,7 +13,7 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 from pydantic import BaseModel
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
+from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, stop_difficulty, wind_difficulty
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
 from app.domain.road import classify_osm_surface
@@ -30,14 +30,17 @@ DISALLOWED_HIGHWAY_TYPES = {"motorway", "motorway_link", "trunk", "trunk_link"}
 class RoutePreference(BaseModel):
     """Evaluation Engineが使う重み（仕様書27章）。
 
-    現時点ではRoad Attributeとして実装済みの標高・路面と、Dynamic Data対応（Phase 6）の
-    風を対象とする（交通・自転車インフラ・信号は未実装、Phase 3参照）。設定ファイルからの
-    外部化はPhase 5で実施済み（route_preference.yaml、services/evaluation_service.py）。
+    Road Attributeとして実装済みの標高・路面・停止密度（信号・横断歩道・一時停止・踏切、
+    静的道路属性P1）と、Dynamic Data対応（Phase 6）の風を対象とする（交通ストレス・
+    自転車インフラは未実装のまま、docs/static-road-attributes-plan.md P1参照）。
+    設定ファイルからの外部化はPhase 5で実施済み（route_preference.yaml、
+    services/evaluation_service.py）。
     """
 
-    elevation_weight: float = 0.25
-    road_weight: float = 0.30
-    wind_weight: float = 0.45
+    elevation_weight: float = 0.20
+    road_weight: float = 0.25
+    wind_weight: float = 0.35
+    stop_weight: float = 0.20
 
 
 class EdgeCostResult(BaseModel):
@@ -101,6 +104,7 @@ def compute_edge_cost(
     surface_type: str | None,
     preference: RoutePreference,
     wind: WeatherConditions | None = None,
+    stop_count: int | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -109,6 +113,8 @@ def compute_edge_cost(
     この関数だけを差し替えれば済む独立した責務にしてある（仕様書31章）。
 
     `wind`は省略可能（Noneなら風は評価に含めない、既存呼び出し元との後方互換）。
+    `stop_count`はこのEdge上の信号・横断歩道・一時停止・踏切の合計個数（静的道路属性P1）。
+    Noneはデータ無し（未評価、compute_edge_cost自体は0個と区別する）。
     """
     if not is_edge_allowed(edge):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
@@ -116,12 +122,14 @@ def compute_edge_cost(
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_type)
     wind_penalty = compute_wind_penalty(edge, wind)
+    stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
 
     difficulty = composite_difficulty(
         [
             (gradient_difficulty(gradient_percent), preference.elevation_weight),
             (road_difficulty(is_good_surface), preference.road_weight),
             (wind_difficulty(wind_penalty), preference.wind_weight),
+            (stop_difficulty(stop_count_per_km), preference.stop_weight),
         ]
     )
 

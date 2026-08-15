@@ -13,6 +13,12 @@ _WIND_MAX_MS = 8.0
 _ROAD_EASY_SCORE = 0.0
 _ROAD_HARD_SCORE = 80.0
 
+# 停止密度(信号・横断歩道・一時停止・踏切の合計回数/km)の目安: 0回/kmが最も易しく、
+# 4回/km(250mに1回)を最大値とする。静的道路属性P1、スコアの本格チューニングはP2据え置き
+# （docs/static-road-attributes-plan.md §3）のため暫定値。
+_STOP_DENSITY_MAX_PER_KM = 4.0
+_STOP_DENSITY_HARD_SCORE = 100.0
+
 
 def _piecewise_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
     if value <= breakpoints[0][0]:
@@ -46,6 +52,16 @@ def road_difficulty(is_good_surface: bool | None) -> float | None:
     if is_good_surface is None:
         return None
     return _ROAD_EASY_SCORE if is_good_surface else _ROAD_HARD_SCORE
+
+
+def stop_difficulty(stop_count_per_km: float | None) -> float | None:
+    """信号・横断歩道・一時停止・踏切の合計密度(回/km)を難易度へ変換する。
+    密度が高いほど停止・減速が多く走りにくいため単調増加。データ無し（Noneまたは
+    負値。Edge単位でカウント不能なケースは呼び出し元がNoneを渡す）はNone。"""
+    if stop_count_per_km is None or stop_count_per_km < 0:
+        return None
+    clamped = min(stop_count_per_km, _STOP_DENSITY_MAX_PER_KM)
+    return round(clamped / _STOP_DENSITY_MAX_PER_KM * _STOP_DENSITY_HARD_SCORE, 1)
 
 
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:

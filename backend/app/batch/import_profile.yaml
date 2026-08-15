@@ -32,6 +32,25 @@ elements:
         - cycleway
         - track
     target: osm_raw_ways
+  # 静的道路属性P1（docs/static-road-attributes-plan.md）: 信号・横断歩道・一時停止。
+  # highway=*とrailway=*は別タグキーのためOR条件になり、1ルールのANDマッチでは
+  # 表現できない。踏切用に下のrailway_level_crossingルールを分けている。
+  - name: stop_inducing_highway_nodes
+    element_type: node
+    match:
+      highway:
+        - traffic_signals
+        - crossing
+        - stop
+        - give_way
+    target: osm_raw_pois
+  # 静的道路属性P1: 踏切。
+  - name: railway_level_crossings
+    element_type: node
+    match:
+      railway:
+        - level_crossing
+    target: osm_raw_pois
   # --- 将来の拡張例（有効化にはコード側のtarget対応も必要） ---
   # - name: drinking_water
   #   element_type: node

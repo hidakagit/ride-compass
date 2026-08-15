@@ -1,8 +1,12 @@
 """PBF取込プロファイル（YAML）の読み込みとタグマッチング（docs/osm-pbf-import.md 5.2節）。
 
-取込対象の要素を宣言的に指定する。現在サポートするのは「wayをosm_raw_waysへ取り込む」
-ルールのみだが、将来のPOI等は「エントリ追加＋対応するelement_type/targetのwriter実装」で
-拡張する（取込コアはこのプロファイル語彙のまま変えない）。
+取込対象の要素を宣言的に指定する。「wayをosm_raw_waysへ取り込む」に加え、静的道路属性P1
+（docs/static-road-attributes-plan.md）で「nodeをosm_raw_poisへ取り込む」を追加した。
+将来の拡張も同じく「エントリ追加＋対応するelement_type/targetのwriter実装」で行う
+（取込コアはこのプロファイル語彙のまま変えない）。matchはANDマッチのみのため、
+複数タグキーのOR条件（例: highway=*またはrailway=level_crossing）は複数ルールに分けて
+表現する（同じtargetへ複数ルールが書き込むのは想定内、matching_ruleは最初に一致した
+ルールを返す）。
 """
 
 import hashlib
@@ -12,8 +16,8 @@ from pathlib import Path
 import yaml
 
 SUPPORTED_VERSION = 1
-SUPPORTED_ELEMENT_TYPES = {"way"}
-SUPPORTED_TARGETS = {"osm_raw_ways"}
+SUPPORTED_ELEMENT_TYPES = {"way", "node"}
+SUPPORTED_TARGETS = {"osm_raw_ways", "osm_raw_pois"}
 
 
 class ProfileError(ValueError):

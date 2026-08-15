@@ -42,7 +42,9 @@ class EvaluationService:
         elevation_attributes: dict[str, ElevationAttribute],
         surface_attributes: dict[str, str | None],
         wind: WeatherConditions | None = None,
+        stop_counts: dict[str, int] | None = None,
     ) -> dict[str, EdgeCostResult]:
+        stop_counts = stop_counts or {}
         return {
             edge_id: compute_edge_cost(
                 edge,
@@ -50,6 +52,7 @@ class EvaluationService:
                 surface_attributes.get(edge_id),
                 self._preference,
                 wind=wind,
+                stop_count=stop_counts.get(edge_id),
             )
             for edge_id, edge in graph.edges.items()
         }

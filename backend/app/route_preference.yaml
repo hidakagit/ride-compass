@@ -1,10 +1,12 @@
 # Evaluation Engine（domain/evaluation.py）がEdge Costを算出する際の既定の重み。
 # scoring.yaml（ルート単位・candidate集合内の相対評価、RouteScorer用）とは対象が異なる
 # 別設定（Edge単位・単体のEdgeに対する絶対評価、EvaluationService用）のため分離している。
-# 標高・路面（Phase3）に加え、風（Dynamic Data対応、Phase6）も対象に含む。
-# 3項目の比率は、Step8時点のscoring.yaml（elevation:wind:road = 0.15:0.30:0.25、
-# distance_weightを除く）のバランス感を踏襲した参考値。
+# 標高・路面（Phase3）・風（Dynamic Data対応、Phase6）に加え、停止密度（信号・横断歩道・
+# 一時停止・踏切、静的道路属性P1）も対象に含む。4項目の比率は、Step8時点のscoring.yaml
+# （elevation:wind:road = 0.15:0.30:0.25、distance_weightを除く）のバランス感を踏襲しつつ、
+# stop_weightぶんを他3項目から按分した参考値（スコアの本格チューニングはP2据え置き）。
 route_preference:
-  elevation_weight: 0.25
-  road_weight: 0.30
-  wind_weight: 0.45
+  elevation_weight: 0.20
+  road_weight: 0.25
+  wind_weight: 0.35
+  stop_weight: 0.20

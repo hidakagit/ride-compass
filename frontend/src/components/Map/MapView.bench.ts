@@ -49,6 +49,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       elevation_difficulty: (i * 7) % 100,
       wind_difficulty: (i * 13) % 100,
       road_difficulty: (i * 17) % 100,
+      stop_difficulty: (i * 19) % 100,
       difficulty: (i * 11) % 100,
     });
   }
@@ -69,6 +70,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       max_gradient_percent: 8.2,
       wind_score: 1.5,
       road_score: 82.3,
+      stop_density: 0.8,
       total_score: 70 + i,
       score_breakdown: null,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),

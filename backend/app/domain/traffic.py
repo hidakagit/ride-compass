@@ -110,6 +110,50 @@ TRAFFIC_STRESS_BASE_BY_HIGHWAY: dict[str, int] = {
 }
 
 
+StopPoiKind = Literal["traffic_signals", "crossing", "stop", "give_way", "level_crossing"]
+
+_HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
+    "traffic_signals": "traffic_signals",
+    "crossing": "crossing",
+    "stop": "stop",
+    "give_way": "give_way",
+}
+
+
+def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
+    """信号・横断歩道・一時停止・踏切の分類（静的道路属性P1、計画書§2.2）。node取込の
+    対象node判定にも使う（osm_adapter.py: osm_node_to_poi_spec、Noneを返すnodeは取込対象外）。
+
+    railway=level_crossingとhighway=*は独立したタグのため、両方が同一nodeに付く場合は
+    railway側を優先する（踏切は自転車にとって一時停止の法的義務が信号・横断歩道より
+    強く、質的に異なるため）。いずれにも該当しなければNone（対象外・評価しない）。
+    """
+    if (tags.get("railway") or "").strip().lower() == "level_crossing":
+        return "level_crossing"
+    highway = (tags.get("highway") or "").strip().lower()
+    return _HIGHWAY_STOP_KINDS.get(highway)
+
+
+def distance_weighted_stop_density(segments: list[tuple[float, int | None]]) -> float | None:
+    """(区間distance_km, 区間内の停止要因count)のリストから、ルート全体の停止密度
+    （回/km）を求める（静的道路属性P1）。domain/difficulty.pyのdistance_weighted_*と違い
+    「率の加重平均」ではなく「合計count÷合計distance_km」が正しい集約（密度は加算的な量の
+    比であり、区間ごとに既に正規化された値の平均ではないため）。
+
+    countがNoneの区間は「データ未取得（例: repository未注入）」を表し、0（実測でPOI無し）
+    とは区別して集計から除外する（distance_weighted_difficulty等、他のdistance_weighted_*と
+    同じ「欠損は除外し残りで再正規化」の考え方）。除外後に1区間も残らない、または距離の
+    合計が0以下ならNone。"""
+    available = [(distance, count) for distance, count in segments if count is not None]
+    if not available:
+        return None
+    distance_sum = sum(distance for distance, _ in available)
+    if distance_sum <= 0:
+        return None
+    count_sum = sum(count for _, count in available)
+    return round(count_sum / distance_sum, 2)
+
+
 def traffic_stress_level(highway: str | None, tags: dict[str, str]) -> int | None:
     """交通ストレス（LTS: Level of Traffic Stress風の1-4段階。「交通量」ではなく
     「推定交通ストレス」、計画書§2.4）。基本値はhighwayのみで決まり、未知のhighwayは

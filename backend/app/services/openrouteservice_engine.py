@@ -22,12 +22,13 @@
 
 import asyncio
 
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
+from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, stop_difficulty, wind_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.traffic import distance_weighted_stop_density
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
 from app.services.route_generator import TracedLoop, candidate_identity
@@ -54,6 +55,10 @@ def sample_count_for_distance(distance_km: float) -> int:
 # geometryは同じ道路でも数m単位でずれうるため、GPSノイズ程度の誤差は許容しつつ、
 # 別の道路（並走する歩道等）へ誤スナップしない範囲としてこの値を選んだ。
 SURFACE_MATCH_MAX_DISTANCE_M = 30.0
+
+# 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1）。
+# road_graphエンジン側のget_stop_poi_counts既定値（AttributeRepository）と揃える。
+STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
 
 # prepareが返す「準備不要」を表すコンテキスト（本エンジンはリクエスト単位の共有準備を持たない）。
 _NO_CONTEXT = object()
@@ -112,12 +117,20 @@ class OpenRouteServiceEngine:
             flat_surface_tags = await self._repository.get_nearest_surface_tags(
                 flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
             )
+            # 停止密度評価（信号・横断歩道・一時停止・踏切、静的道路属性P1）も同じサンプル点集合を
+            # 使い、路面と同様に全候補分をまとめて1回で問い合わせる。
+            flat_stop_counts = await self._repository.get_nearest_stop_poi_counts(
+                flat_points, max_distance_m=STOP_POI_MATCH_MAX_DISTANCE_M
+            )
         else:
             flat_surface_tags = [None] * sum(point_counts)
+            flat_stop_counts = [None] * sum(point_counts)
         surface_tags_per_candidate: list[list[str | None]] = []
+        stop_counts_per_candidate: list[list[int | None]] = []
         offset = 0
         for count in point_counts:
             surface_tags_per_candidate.append(flat_surface_tags[offset : offset + count])
+            stop_counts_per_candidate.append(flat_stop_counts[offset : offset + count])
             offset += count
 
         # 距離フィルタで棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
@@ -146,10 +159,19 @@ class OpenRouteServiceEngine:
                 elevations=elevations_per_candidate[i],
                 wind_segments=wind_segments_per_candidate[i],
                 surface_tags=surface_tags_per_candidate[i],
+                stop_counts=stop_counts_per_candidate[i],
                 route_geometry=c.geometry,
             )
             road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
-            results.append(c.model_copy(update={"segments": segments, "road_score": road_score}))
+            # stop_density（回/km）も路面と同じ「サンプル点iの値を区間iの代表値として使う」
+            # 近似（road_graph_engine.pyの_aggregate_stop_densityと集約方法は同じ。repository
+            # 未注入時はNoneが並び、distance_weighted_stop_density側で「実測0件」と区別して除外される）。
+            stop_density = distance_weighted_stop_density(
+                [(s.distance_km, stop_counts_per_candidate[i][j]) for j, s in enumerate(segments)]
+            )
+            results.append(
+                c.model_copy(update={"segments": segments, "road_score": road_score, "stop_density": stop_density})
+            )
         return results
 
     def _build_segment_details(
@@ -159,6 +181,7 @@ class OpenRouteServiceEngine:
         elevations: list[float | None],
         wind_segments: list[dict],
         surface_tags: list[str | None],
+        stop_counts: list[int | None],
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
@@ -194,15 +217,19 @@ class OpenRouteServiceEngine:
             arrival_time = wind_segment["arrival_time"] if wind_segment else None
 
             road_surface_good = classify_osm_surface(surface_tags[i])
+            stop_count = stop_counts[i] if i < len(stop_counts) else None
+            stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
             elevation_diff = gradient_difficulty(gradient_percent)
             wind_diff = wind_difficulty(wind_penalty)
             road_diff = road_difficulty(road_surface_good)
+            stop_diff = stop_difficulty(stop_count_per_km)
             difficulty = composite_difficulty(
                 [
                     (elevation_diff, preference.elevation_weight),
                     (wind_diff, preference.wind_weight),
                     (road_diff, preference.road_weight),
+                    (stop_diff, preference.stop_weight),
                 ]
             )
 
@@ -228,6 +255,7 @@ class OpenRouteServiceEngine:
                     elevation_difficulty=elevation_diff,
                     wind_difficulty=wind_diff,
                     road_difficulty=road_diff,
+                    stop_difficulty=stop_diff,
                     difficulty=difficulty,
                 )
             )

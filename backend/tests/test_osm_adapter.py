@@ -1,4 +1,9 @@
-from app.domain.osm_adapter import osm_way_to_way_spec, osm_ways_to_way_specs
+from app.domain.osm_adapter import (
+    osm_node_to_poi_spec,
+    osm_nodes_to_poi_specs,
+    osm_way_to_way_spec,
+    osm_ways_to_way_specs,
+)
 
 
 def test_way_without_oneway_tag_becomes_both_directions():
@@ -111,3 +116,39 @@ def test_osm_ways_to_way_specs_filters_out_invalid_ways():
 
     assert len(specs) == 1
     assert specs[0].osm_way_id == 100
+
+
+def test_osm_node_to_poi_spec_classifies_traffic_signals():
+    spec = osm_node_to_poi_spec({"id": 200, "tags": {"highway": "traffic_signals"}, "lat": 35.7, "lon": 139.7})
+
+    assert spec is not None
+    assert spec.osm_node_id == 200
+    assert spec.kind == "traffic_signals"
+    assert spec.latitude == 35.7
+    assert spec.longitude == 139.7
+
+
+def test_osm_node_to_poi_spec_unrelated_node_returns_none():
+    # 大多数の形状点（対象タグを持たないnode）はNone、取込対象外
+    assert osm_node_to_poi_spec({"id": 200, "tags": {}, "lat": 35.7, "lon": 139.7}) is None
+
+
+def test_osm_node_to_poi_spec_keeps_only_allowed_tags():
+    spec = osm_node_to_poi_spec(
+        {"id": 200, "tags": {"highway": "crossing", "crossing": "zebra", "name": "unrelated"}, "lat": 0.0, "lon": 0.0}
+    )
+
+    assert spec is not None
+    assert spec.tags == {"highway": "crossing", "crossing": "zebra"}
+
+
+def test_osm_nodes_to_poi_specs_filters_out_unrelated_nodes():
+    raw_nodes = [
+        {"id": 200, "tags": {"highway": "traffic_signals"}, "lat": 0.0, "lon": 0.0},
+        {"id": 201, "tags": {}, "lat": 0.0, "lon": 0.0},
+    ]
+
+    specs = osm_nodes_to_poi_specs(raw_nodes)
+
+    assert len(specs) == 1
+    assert specs[0].osm_node_id == 200

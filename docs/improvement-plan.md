@@ -350,10 +350,23 @@
   Playwright実機確認（重み上書き→2回生成→比較表2列表示→地図上に色分岐した2本の重ね描き線）
   で動作確認済み
 
-### - [ ] T25. 評価軸カタログ化（Phase 3）〔§10-8〕規模M — トリガー: 静的属性P1（評価組み込み）と同時
+### - [x] T25. 評価軸カタログ化（Phase 3）〔§10-8〕規模M（2026-08-16完了）
 
 - 軸のid/表示名/重みキー/説明の1カタログ化。内訳表示・RouteListのhint文言・重みUIを
   カタログから列挙生成（早すぎる汎用化を避けるため、軸が実際に増える時点まで着手しない）
+- 実施: `frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、
+  `mapLayers.ts`と同じ「カタログ＋汎用列挙」の型）。ラベルを`Record<keyof ScoringWeights, ...>`
+  / `Record<keyof RoutePreferenceWeights, ...>`として書き、OpenAPI生成型（T4）に対する
+  コンパイル時の完全性チェックをドリフト検知として使う（新規の生成物・テストは追加しない）。
+  `WeightPanel.tsx`のSCORING_FIELDS/PREFERENCE_FIELDS、`RouteList.tsx`のhint文言をこの
+  カタログからの生成へ置換（手作業で3箇所に分散していたラベルを1箇所化）。副次効果として、
+  route_preference側で唯一UI入力欄が無かった`stop_weight`（静的属性P1で追加）も
+  自動的に入力欄へ現れるようになった。バックエンド側は`test_route_scorer.py`の既存の
+  axis id固定テストがそのままドリフト検知を兼ねる（コメントでフロント側との対応を明記）
+- **スコープを絞った**（ユーザー承認済み）: `score_breakdown`は追加（T23）以降
+  フロントのどこにも表示されていないと判明したが、新規の内訳表示UI自体は今回作らず
+  カタログ基盤のみとした（新規UIサーフェスを増やすとモバイルUI改修と競合するリスクがあるため）
+- 完了条件: frontend 146件・eslint・tsc全green、backend 531件green
 
 ---
 
@@ -436,8 +449,12 @@
   観測可能になった
 - **T9（surface_attributes導出化）**: ✅完了（2026-08-15、詳細は本ファイル「Phase 3」節の
   T9項目参照）
-- **静的属性P1（node取込・評価組み込み）**: signal/crossing等のnode取込機構、
-  EvaluationServiceへの組み込みは計画書のP1（トリガー未成立）のまま
+- **静的属性P1（node取込・評価組み込み）**: ✅**主要部分完了（2026-08-16）**。
+  信号・横断歩道・一時停止・踏切のnode取込機構（`osm_raw_pois`新テーブル、migration 0005）と
+  「停止密度」評価軸（両エンジンのEdge Cost/区間難易度への統合）を実装。詳細は
+  `docs/static-road-attributes-plan.md` P1節参照。**スコープを絞った**（ユーザー承認済み）:
+  交差点密度（intersectionDensity）とtrafficStress/bicycle_infra（P0由来way属性）の
+  評価組み込みは、実装規模を理由に別タスクへ分離し未着手のまま残す
 
 ---
 
@@ -621,3 +638,5 @@ T29〜T32（フロントUI一貫性再編）で整理したサイドバー構成
 | 2026-08-15 | T14・T15（残り） | T9完了で解禁された残りの小粒整理をまとめて実施。T14: `build_graph_for_bbox`（アプリ内・scripts内どちらからも未参照と確認）を削除、`/api/routes/preview`のフロント`previewRoute()`が実UIから未使用である実態をarchitecture.mdへ追記。T15: `ASSUMED_SPEED_KMH`重複定義を`domain/wind.py`へ集約（wind_service.py/road_graph_engine.pyはimportに置換）、`repository=None`引数へ`RoadGraphRepository \| None`型注釈を3サービス（GraphService/RegionService/ElevationAttributeService）に追加。T14・T15とも完了、lifespanベース構築（C5）のみ既存の見送り判断を維持。backend 471件green |
 | 2026-08-15 | T21 | 関東本土全域への静的属性再取込み完了によりトリガー成立、評価のエンジン非依存化を実装。ORSエンジンの路面評価をextras数値ID語彙から`AttributeRepository.get_nearest_surface_tags`（PostGIS KNN+ST_DWithin、全候補分を1回のSQLで一括処理）による自前DB空間マッチへ置換。`domain/road.py`のORS数値ID語彙4関数を削除し、両エンジン共通の`distance_weighted_road_score`を新設（road_graph_engine.pyの`_aggregate_road_score`は薄いラッパーへ縮小）。`ORSClient`の`extra_info=surface`・`RoutingService`のextrasパース・`RouteSegment.surface_summary/surface_values`も削除。backend 468件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。`get_nearest_surface_tags`のDB統合テストはローカルネイティブPGへ実接続して実行・PASS確認済み |
 | 2026-08-15 | （モバイル実機フィードバック対応） | スマホ実機検証での8点の使いにくさを起票・全件完了。T33: レイヤーチップ折り返し。T34: サイドバードロワーを下部タブバー＋部分シート（`BottomSheet`新規、暗幕なし・地図を隠さない）へ再構成、実装中にMapLibre帰属表示のタブバー下への隠れを発見し修正。T35: 緯度経度手動入力を撤去（`useLocation`/`LocationControl`縮小）。T36: 天候表示を常設ヘッダへ移動。T37: アプリ名見出しを削除。T38: 「地図の見え方」の各レイヤーをアコーディオン化（デフォルト全閉）。T39/T40: 交通ストレス・自転車インフラの凡例に判定基準/道路情報との違いの説明文を追加。frontend 146件・eslint・tsc全green、Playwright実機確認（390px幅・1280px幅）で全項目確認済み |
+| 2026-08-16 | 静的属性P1（node取込・停止密度評価、主要部分） | 信号・横断歩道・一時停止・踏切のnode取込機構（`osm_raw_pois`新テーブル、migration 0005、`domain/traffic.py: classify_stop_poi`、`osm_adapter.py: osm_node_to_poi_spec`、`pbf_source.py`のpyosmium `node()`ハンドラ、`import_profile.yaml`のnode要素2ルール）と「停止密度」評価軸（`AttributeRepository.get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`RoutePreference.stop_weight`、`compute_edge_cost`・両エンジンのEdge Cost/区間難易度への統合、`RouteCandidate.stop_density`/`RouteSegmentDetail.stop_difficulty`）を実装。ユーザー承認のうえスコープを絞り、交差点密度（intersectionDensity）とtrafficStress/bicycle_infra（P0由来way属性）の評価組み込みは別タスクへ分離。PBF取込バッチはRawOsmRepositoryを経由せず直接asyncpg COPYで書くため、Overpassフォールバック側は元々ADR方針どおり無改修。backend 531件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。dev機ネイティブPGへmigration 0005適用（空DB・既存DBとも冪等確認）、Tokyo.osm.pbfでdry-run実行し信号等81,921件のマッチを実データで確認済み。詳細はdocs/static-road-attributes-plan.md P1節参照 |
+| 2026-08-16 | T25 | 静的属性P1で評価軸が増えたことによりトリガー成立、評価軸カタログ化を実施。`frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、`mapLayers.ts`と同じ型）。ラベルを`Record<keyof ScoringWeights\|RoutePreferenceWeights, ...>`で書きOpenAPI生成型への完全性チェックをドリフト検知に使う（新規生成物・テスト無し）。`WeightPanel.tsx`・`RouteList.tsx`のハードコードをカタログ生成へ置換、副次効果でUI入力欄が無かった`stop_weight`も自動追加。`score_breakdown`の新規表示UIはスコープ外とした（ユーザー承認、モバイルUI改修との競合回避）。backend 531件・frontend 146件・eslint・tsc全green |

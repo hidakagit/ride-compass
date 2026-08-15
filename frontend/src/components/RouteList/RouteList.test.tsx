@@ -16,6 +16,7 @@ function makeRoute(overrides: Partial<RouteCandidate>): RouteCandidate {
     max_gradient_percent: null,
     wind_score: null,
     road_score: null,
+    stop_density: null,
     total_score: null,
     score_breakdown: null,
     segments: null,

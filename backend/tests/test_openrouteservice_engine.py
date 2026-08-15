@@ -74,15 +74,23 @@ class FakeSurfaceRepository:
     """`RoadGraphRepository.get_nearest_surface_tags`のFake（改善計画T21）。全候補分が
     1回のDBラウンドトリップにまとめられることを検証できるよう、呼び出し履歴を記録する。"""
 
-    def __init__(self, default_tag: str | None = "asphalt"):
+    def __init__(self, default_tag: str | None = "asphalt", default_stop_count: int = 0):
         self._default_tag = default_tag
+        self._default_stop_count = default_stop_count
         self.calls: list[list[tuple[float, float]]] = []
+        self.stop_count_calls: list[list[tuple[float, float]]] = []
 
     async def get_nearest_surface_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = 30.0
     ) -> list[str | None]:
         self.calls.append(points)
         return [self._default_tag for _ in points]
+
+    async def get_nearest_stop_poi_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = 15.0
+    ) -> list[int]:
+        self.stop_count_calls.append(points)
+        return [self._default_stop_count for _ in points]
 
 
 def make_generator(outcomes: list) -> RouteGenerator:
@@ -194,6 +202,56 @@ async def test_road_surface_good_is_false_for_unpaved_tag_from_repository():
 
     assert all(seg.road_surface_good is False for c in candidates for seg in c.segments)
     assert all(c.road_score == 0.0 for c in candidates)
+
+
+async def test_stop_density_reflects_nearest_poi_counts_when_repository_injected():
+    repository = FakeSurfaceRepository(default_tag="asphalt", default_stop_count=2)
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.stop_density is not None and c.stop_density > 0.0 for c in candidates)
+    assert all(seg.stop_difficulty is not None and seg.stop_difficulty > 0.0 for c in candidates for seg in c.segments)
+    # 全候補分のサンプル点をまとめて1回のDBラウンドトリップで問い合わせる（路面と同じ方針）
+    assert len(repository.stop_count_calls) == 1
+
+
+async def test_stop_density_is_zero_without_nearby_pois():
+    repository = FakeSurfaceRepository(default_tag="asphalt", default_stop_count=0)
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.stop_density == 0.0 for c in candidates)
+
+
+async def test_stop_density_is_none_without_repository():
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+    )  # repository未注入
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.stop_density is None for c in candidates)
+    assert all(seg.stop_difficulty is None for c in candidates for seg in c.segments)
 
 
 class FakeDescendingElevationService:

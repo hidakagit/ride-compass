@@ -6,8 +6,9 @@ DB・PBFファイルを要する結合部分はscripts/verify_phase1_e2e.py（�
 import pytest
 from shapely import wkb as shapely_wkb
 
-from app.batch.import_pbf import _status_count, build_way_record, parse_bbox, way_in_bbox
+from app.batch.import_pbf import _status_count, build_poi_record, build_way_record, parse_bbox, poi_in_bbox, way_in_bbox
 from app.domain.graph import WaySpec
+from app.domain.osm_adapter import POISpec
 from app.domain.region import BoundingBox
 
 
@@ -71,6 +72,34 @@ class TestBuildWayRecord:
     def test_empty_tags_serialize_to_empty_json_object(self):
         record = build_way_record(self._spec([1, 2]), {})
         assert record[4] == "{}"
+
+
+class TestPoiInBbox:
+    BBOX = BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=36.0, max_longitude=140.0)
+
+    def _spec(self, latitude, longitude) -> POISpec:
+        return POISpec(osm_node_id=1, kind="traffic_signals", latitude=latitude, longitude=longitude)
+
+    def test_no_bbox_accepts_everything(self):
+        assert poi_in_bbox(self._spec(0.0, 0.0), None)
+
+    def test_inside_bbox_is_accepted(self):
+        assert poi_in_bbox(self._spec(35.5, 139.5), self.BBOX)
+
+    def test_outside_bbox_is_rejected(self):
+        assert not poi_in_bbox(self._spec(34.0, 138.0), self.BBOX)
+
+
+class TestBuildPoiRecord:
+    def test_record_fields(self):
+        spec = POISpec(osm_node_id=200, kind="crossing", tags={"highway": "crossing"}, latitude=35.0, longitude=139.0)
+        record = build_poi_record(spec)
+        assert record == (200, "crossing", '{"highway": "crossing"}', 139.0, 35.0)
+
+    def test_empty_tags_serialize_to_empty_json_object(self):
+        spec = POISpec(osm_node_id=200, kind="stop", latitude=35.0, longitude=139.0)
+        record = build_poi_record(spec)
+        assert record[2] == "{}"
 
 
 def test_status_count_parses_asyncpg_command_status():

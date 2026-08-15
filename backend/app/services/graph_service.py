@@ -177,6 +177,17 @@ class GraphService:
 
         return primary_graph, primary_surface_attributes
 
+    async def get_stop_poi_counts(self, edge_ids: list[str]) -> dict[str, int]:
+        """指定edge_idそれぞれの停止密度評価用カウント（信号・横断歩道・一時停止・踏切、
+        静的道路属性P1）を返す。`get_or_build_graph_with_attributes`の3経路分岐とは独立した
+        呼び出しにしている（`repository`が無ければ`{}`を返すだけで済み、Overpassフォールバック
+        経路には新属性を実装しないというADR方針とも自然に整合するため。docs/decisions/
+        pre-static-attributes-gate.md）。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_stop_poi_counts(edge_ids)
+
     async def _fetch_graph_with_surface_attributes(
         self, bbox: BoundingBox
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:

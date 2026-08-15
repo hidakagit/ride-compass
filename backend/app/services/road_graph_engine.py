@@ -31,13 +31,14 @@ from datetime import datetime, timedelta
 
 import networkx as nx
 
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
+from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, stop_difficulty, wind_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.traffic import distance_weighted_stop_density
 from app.domain.routing import build_networkx_graph, concat_node_paths, find_nearest_node, path_to_edge_ids, shortest_path_node_ids
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
@@ -62,6 +63,7 @@ class _RoadGraphContext:
     graph: RoadGraph
     nx_graph: nx.DiGraph
     surface_attributes: dict[str, str | None]
+    stop_counts: dict[str, int]
     wind: WeatherConditions | None
     origin_node: str
 
@@ -91,6 +93,9 @@ class RoadGraphEngine:
         if built is None or not built[0].edges:
             return None
         graph, surface_attributes = built
+        # 静的道路属性P1（信号・横断歩道・一時停止・踏切）。探索コスト自体にも反映されるよう
+        # ここで取得する（surface_attributesと同じくprepareで1回だけ・全方位で共有）。
+        stop_counts = await self._graph_service.get_stop_poi_counts(list(graph.edges.keys()))
 
         origin_node = find_nearest_node(graph, origin)
         if origin_node is None:
@@ -98,13 +103,16 @@ class RoadGraphEngine:
 
         wind = await self._weather_service.get_conditions(origin)
         # 探索用Costは標高を含めない（理由はモジュールdocstring参照）。
-        search_edge_costs = self._evaluation_service.evaluate_graph(graph, {}, surface_attributes, wind=wind)
+        search_edge_costs = self._evaluation_service.evaluate_graph(
+            graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts
+        )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 
         return _RoadGraphContext(
             graph=graph,
             nx_graph=nx_graph,
             surface_attributes=surface_attributes,
+            stop_counts=stop_counts,
             wind=wind,
             origin_node=origin_node,
         )
@@ -159,8 +167,14 @@ class RoadGraphEngine:
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         road_score = _aggregate_road_score(edges_in_path, context.surface_attributes)
         wind_score = _aggregate_wind_score(edges_in_path, context.wind)
+        stop_density = _aggregate_stop_density(edges_in_path, context.stop_counts)
         segments = self._build_segment_details(
-            edges_in_path, elevation_attributes, context.surface_attributes, context.wind, start_time
+            edges_in_path,
+            elevation_attributes,
+            context.surface_attributes,
+            context.stop_counts,
+            context.wind,
+            start_time,
         )
 
         return RouteCandidate(
@@ -169,6 +183,7 @@ class RoadGraphEngine:
             geometry=geometry,
             wind_score=wind_score,
             road_score=road_score,
+            stop_density=stop_density,
             segments=segments,
             **elevation_stats,
         )
@@ -178,6 +193,7 @@ class RoadGraphEngine:
         edges: list[DirectedEdge],
         elevation_attributes: dict,
         surface_attributes: dict[str, str | None],
+        stop_counts: dict[str, int],
         wind: WeatherConditions | None,
         start_time: datetime,
     ) -> list[RouteSegmentDetail]:
@@ -189,19 +205,23 @@ class RoadGraphEngine:
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
             surface_type = surface_attributes.get(edge.edge_id)
+            stop_count = stop_counts.get(edge.edge_id)
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, wind)
             road_surface_good = classify_osm_surface(surface_type)
+            stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
             elevation_diff = gradient_difficulty(gradient_percent)
             wind_diff = wind_difficulty(wind_penalty)
             road_diff = road_difficulty(road_surface_good)
+            stop_diff = stop_difficulty(stop_count_per_km)
             difficulty = composite_difficulty(
                 [
                     (elevation_diff, preference.elevation_weight),
                     (wind_diff, preference.wind_weight),
                     (road_diff, preference.road_weight),
+                    (stop_diff, preference.stop_weight),
                 ]
             )
 
@@ -237,6 +257,7 @@ class RoadGraphEngine:
                     elevation_difficulty=elevation_diff,
                     wind_difficulty=wind_diff,
                     road_difficulty=road_diff,
+                    stop_difficulty=stop_diff,
                     difficulty=difficulty,
                 )
             )
@@ -298,6 +319,18 @@ def _aggregate_road_score(edges: list[DirectedEdge], surface_attributes: dict[st
     """
     return distance_weighted_road_score(
         [(edge.distance_m, classify_osm_surface(surface_attributes.get(edge.edge_id))) for edge in edges]
+    )
+
+
+def _aggregate_stop_density(edges: list[DirectedEdge], stop_counts: dict[str, int]) -> float | None:
+    """経路全体の信号・横断歩道・一時停止・踏切の合計密度(回/km)。Edge単位のカウントを
+    domain/traffic.py: distance_weighted_stop_density（両エンジン共通の集約定義、
+    静的道路属性P1）へ渡す薄いラッパー。stop_countsに無いEdge（repository未注入等で
+    データ自体を取得していない）はNone扱いとし、distance_weighted_stop_density側で
+    「実測0件」と区別して除外される（road_score等の「不明はNone」と同じ方針）。
+    """
+    return distance_weighted_stop_density(
+        [(edge.distance_m / 1000, stop_counts.get(edge.edge_id)) for edge in edges]
     )
 
 
