@@ -784,7 +784,7 @@ export default function MapView({
     }
     function handleMapError(e: MapLibreErrorEvent) {
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
-      debugLog("map:error", e.error?.message ?? "unknown error", { sourceId });
+      debugLog("map:error", e.error?.message ?? "unknown error", { sourceId }, "error");
       // スタイル自体がまだ一度もreadyになっていない状態でのerrorは、個別タイルの一過性の
       // 失敗ではなくスタイル取得そのものの失敗である可能性が高い（runWhenStyleReadyが
       // 頼るmap.once("load", ...)がこの後発火しないままdrawBaseRoutes等の描画コールバックが
@@ -961,7 +961,12 @@ export default function MapView({
         // refreshBasemapCacheは以前例外を投げない実装だったため、ここでのcatchが無くても
         // 問題なかったが、失敗を呼び出し元へ伝えるよう修正した結果、未処理のPromise
         // rejectionになるのを防ぐ必要がある。
-        debugLog("map:error", `basemap refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+        debugLog(
+          "map:error",
+          `basemap refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+          undefined,
+          "error",
+        );
       }
     })();
   }, [refreshToken, redrawAllLayers]);

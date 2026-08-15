@@ -43,18 +43,25 @@ export async function refreshBasemapCache(): Promise<void> {
     });
     const durationMs = Math.round(performance.now() - startedAt);
     const requestId = response.headers.get("x-request-id");
-    debugLog("api:basemap-refresh", response.ok ? "成功" : `失敗 (HTTP ${response.status})`, {
-      durationMs,
-      requestId,
-    });
+    debugLog(
+      "api:basemap-refresh",
+      response.ok ? "成功" : `失敗 (HTTP ${response.status})`,
+      { durationMs, requestId },
+      response.ok ? "info" : "error",
+    );
     if (!response.ok) {
       throw new Error(`地図キャッシュの更新に失敗しました（HTTP ${response.status}）`);
     }
   } catch (error) {
-    debugLog("api:basemap-refresh", "失敗 (通信エラー)", {
-      durationMs: Math.round(performance.now() - startedAt),
-      error: error instanceof Error ? error.message : String(error),
-    });
+    debugLog(
+      "api:basemap-refresh",
+      "失敗 (通信エラー)",
+      {
+        durationMs: Math.round(performance.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "error",
+    );
     throw error instanceof Error ? error : new Error("地図キャッシュの更新に失敗しました");
   }
 }

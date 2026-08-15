@@ -6,7 +6,7 @@ import { clearDebugLog } from "@/lib/debugLog";
 import styles from "./DebugConsole.module.css";
 
 // DebugConsole.module.cssの.consoleが持つmax-heightと一致させること。
-export const DEBUG_CONSOLE_MAX_HEIGHT_PX = 220;
+export const DEBUG_CONSOLE_MAX_HEIGHT_PX = 420;
 
 interface DebugConsoleProps {
   /** パネル自体の開閉（デバッグモードのON/OFFとは別。常時占有させたくないという実機
@@ -114,9 +114,9 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
       <div ref={listRef} className={styles.entries}>
         {entries.length === 0 && <p className={styles.emptyMessage}>イベント待機中...（地図を操作するかAPIを呼び出してください）</p>}
         {entries.map((entry) => (
-          <div key={entry.id} className={styles.entry}>
+          <div key={entry.id} className={styles.entry} data-level={entry.level}>
             <span className={styles.entryTime}>{entry.time}</span> <span className={styles.entryCategory}>[{entry.category}]</span>{" "}
-            {entry.message}
+            <span className={styles.entryMessage}>{entry.message}</span>
             {entry.detail != null && <span className={styles.entryDetail}> {JSON.stringify(entry.detail)}</span>}
           </div>
         ))}

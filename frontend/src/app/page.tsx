@@ -564,23 +564,29 @@ export default function Home() {
   // 「設定」ブロックの中身: ログ・研究モード・疎通確認・キャッシュ更新など、一般ユーザーは
   // 触らない開発者向け機能をまとめる。デバッグログの起動ボタンは、デバッグモード
   // （DebugPanelのチェック）がONのときだけ現れる（以前の地図上trailingButtonと同じ条件）。
+  // チェックボックスと同じdebugControl内に置いてnowrapにすることで、他のsystemRow項目
+  // （研究モード等）と並んで縦積みの「メニュー」に見えないようにしている。アイコンのみの
+  // ボタンにしているのも、チェックボックスと同じ文言を隣に並べる冗長さを避けるため。
   // 起動すると地図に浮かぶ独立したフローティングパネル（DebugConsole）が開く（T43）。
   function renderSettingsSectionBody() {
     return (
       <>
         <div className={styles.systemRow}>
-          <DebugPanel />
-          {debugEnabled && (
-            <button
-              type="button"
-              onClick={() => setDebugConsoleOpen((v) => !v)}
-              aria-pressed={debugConsoleOpen}
-              className={styles.logToggleButton}
-            >
-              <LogIcon size={14} />
-              {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-            </button>
-          )}
+          <div className={styles.debugControl}>
+            <DebugPanel />
+            {debugEnabled && (
+              <button
+                type="button"
+                onClick={() => setDebugConsoleOpen((v) => !v)}
+                aria-pressed={debugConsoleOpen}
+                aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+                title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+                className={styles.logToggleButton}
+              >
+                <LogIcon size={14} />
+              </button>
+            )}
+          </div>
           <ResearchPanel />
           <BackendStatus />
         </div>

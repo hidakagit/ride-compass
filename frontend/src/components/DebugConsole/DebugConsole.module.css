@@ -15,9 +15,10 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(22rem, calc(100vw - 2 * var(--space-3)));
-  /* max-heightの値(220px)はDebugConsole.tsxがエクスポートするDEBUG_CONSOLE_MAX_HEIGHT_PXと
-     一致させること（frontend/src/components/DebugConsole/DebugConsole.test.tsxで自動検証） */
-  max-height: 220px;
+  /* max-heightの値(420px)はDebugConsole.tsxがエクスポートするDEBUG_CONSOLE_MAX_HEIGHT_PXと
+     一致させること（frontend/src/components/DebugConsole/DebugConsole.test.tsxで自動検証）。
+     220pxでは数行しか見えずスクロールが多いというフィードバックを受け拡大した。 */
+  max-height: 420px;
   display: flex;
   flex-direction: column;
   background: rgba(17, 24, 39, 0.8);
@@ -87,7 +88,20 @@
 
 .entry {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 0.1rem 0;
+  padding: 0.1rem 0.3rem;
+  border-left: 2px solid transparent;
+}
+
+/* エラー・警告は背景も薄く色付けし、一覧をざっと流し読みしても目に留まるようにする
+   （levelはlib/debugLog.tsのDebugLogLevel、失敗系メッセージにのみ付与） */
+.entry[data-level="error"] {
+  border-left-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.entry[data-level="warn"] {
+  border-left-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
 }
 
 .entryTime,
@@ -97,4 +111,17 @@
 
 .entryCategory {
   color: #60a5fa;
+}
+
+.entryMessage {
+  color: #e5e7eb;
+}
+
+.entry[data-level="error"] .entryMessage {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.entry[data-level="warn"] .entryMessage {
+  color: #fbbf24;
 }

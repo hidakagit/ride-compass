@@ -29,7 +29,7 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    debugLog("api:route", `失敗 (HTTP ${response.status})`, { path, durationMs, requestId, errorBody });
+    debugLog("api:route", `失敗 (HTTP ${response.status})`, { path, durationMs, requestId, errorBody }, "error");
     const detail = formatErrorDetail(errorBody?.detail) ?? `リクエストに失敗しました（HTTP ${response.status}）`;
     throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
   }
@@ -38,7 +38,7 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
   try {
     data = await response.json();
   } catch {
-    debugLog("api:route", "失敗 (不正なレスポンス)", { path, durationMs, requestId });
+    debugLog("api:route", "失敗 (不正なレスポンス)", { path, durationMs, requestId }, "error");
     throw new Error("サーバーからの応答の解析に失敗しました");
   }
   debugLog("api:route", "成功", { path, durationMs, requestId });
