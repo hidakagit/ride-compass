@@ -3,22 +3,24 @@
 
 /* 一般ユーザーは使わない開発者向け機能のため、地図やサイドバーに場所を固定せず、
    ビューポート基準で浮かせた独立パネルにする（「設定」内のボタンから開閉、T43）。
-   位置はドラッグで動かせる（DebugConsole.tsxのposition state）。既定位置は画面中央
-   （以前は右下寄りだったが、モバイルの下部パネルと重なって操作しづらいという実機
-   フィードバックを受け変更した）。ドラッグ開始後はDebugConsole.tsx側がtransformを
-   無効化しtop/leftの絶対値へ切り替える（このtranslateとの二重適用を避けるため）。
-   背景を半透明にして、パネルの裏の地図がうっすら透けるようにする
-   （ドッキング型の不透明パネルからの変更点）。 */
+   位置はドラッグで動かせる（DebugConsole.tsxのposition state）。既定位置は左右中央・
+   上寄り（常設の天候ヘッダの下、地図上のアイコン列あたりから始まる高さ）。以前は
+   画面中央だったが、システム状況セクションを足して縦に長くなったことで中央寄せだと
+   上下にはみ出しやすくなったため、天候ヘッダとは重ならない範囲で上へ寄せた。
+   ドラッグ開始後はDebugConsole.tsx側がtransformを無効化しtop/leftの絶対値へ切り替える
+   （このtranslateとの二重適用を避けるため）。背景を半透明にして、パネルの裏の地図が
+   うっすら透けるようにする（ドッキング型の不透明パネルからの変更点）。 */
 .console {
   position: fixed;
-  top: 50%;
+  top: 4.25rem;
   left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(22rem, calc(100vw - 2 * var(--space-3)));
-  /* max-heightの値(420px)はDebugConsole.tsxがエクスポートするDEBUG_CONSOLE_MAX_HEIGHT_PXと
+  transform: translateX(-50%);
+  width: min(26rem, calc(100vw - 2 * var(--space-3)));
+  /* max-heightの値(560px)はDebugConsole.tsxがエクスポートするDEBUG_CONSOLE_MAX_HEIGHT_PXと
      一致させること（frontend/src/components/DebugConsole/DebugConsole.test.tsxで自動検証）。
-     220pxでは数行しか見えずスクロールが多いというフィードバックを受け拡大した。 */
-  max-height: 420px;
+     システム状況セクションを追加した分、ログ本文の表示行数が減らないよう合わせて拡大した。
+     top(4.25rem)との合計が一般的なモバイル機の画面の高さに収まる範囲で選んでいる。 */
+  max-height: 560px;
   display: flex;
   flex-direction: column;
   background: rgba(17, 24, 39, 0.8);
@@ -74,6 +76,50 @@
   line-height: 1;
   cursor: pointer;
   padding: 0.2rem;
+}
+
+/* /api/debug/statsの表示（バックエンド側の外部API呼び出し集計・適用中のcommit等）。
+   ログ本文（.entries）とは別の情報源のため区切り線で分け、常時見える固定領域にする
+   （ログのように件数無制限で伸びる領域ではないため.entriesのようなスクロールは持たせない）。 */
+.stats {
+  flex-shrink: 0;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  overflow-wrap: anywhere;
+}
+
+.statsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #9ca3af;
+  margin-bottom: 0.15rem;
+}
+
+.statsRefreshButton {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.05rem 0.4rem;
+  cursor: pointer;
+}
+
+.statsError {
+  color: #f87171;
+}
+
+.statsLine {
+  padding: 0.05rem 0;
+}
+
+.statsLine[data-level="error"] {
+  color: #f87171;
+}
+
+.statsLine[data-level="warn"] {
+  color: #fbbf24;
 }
 
 .entries {
