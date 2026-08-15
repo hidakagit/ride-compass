@@ -1,0 +1,130 @@
+.refreshButton {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.05rem 0.4rem;
+  cursor: pointer;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.error {
+  color: #f87171;
+}
+
+.muted {
+  color: #9ca3af;
+}
+
+/* フロント/バックの適用バージョンを2枚のカードに並べる。狭幅では折り返して縦積みになる。 */
+.versionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.versionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+}
+
+.versionLabel {
+  color: #9ca3af;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.commit {
+  color: #e5e7eb;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.startedAt,
+.meta {
+  color: #9ca3af;
+}
+
+.sectionHeading {
+  color: #9ca3af;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 0.2rem;
+}
+
+/* テーブルは狭幅でカテゴリ名が長いと崩れるため、横スクロールで吸収する
+   （ページ全体を横スクロールさせないためのラッパー）。 */
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.table th,
+.table td {
+  text-align: right;
+  padding: 0.15rem 0.4rem;
+}
+
+.table th:first-child,
+.table td:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+
+.table thead th {
+  color: #9ca3af;
+  font-weight: 400;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.table tbody tr[data-level="error"] {
+  color: #f87171;
+}
+
+.categoryCell {
+  color: #60a5fa;
+}
+
+.table tbody tr[data-level="error"] .categoryCell {
+  color: #f87171;
+}
+
+.rejections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.rejectionBadge {
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: var(--radius-md);
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+}

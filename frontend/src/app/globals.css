@@ -198,12 +198,13 @@ input[type="number"] {
    ズレるとCSS上の見た目とJS側の分岐（page.tsxのisMobile）が食い違う
    （frontend/src/hooks/useIsMobile.test.tsで自動検証している）。 */
 @media (max-width: 640px) {
-  /* サイドバー・BottomSheet・デバッグコンソール内のボタン/チェックボックス/入力欄は、
-     指でのタップに適した領域（目安44px角）を確保する。app-bottom-sheetは
-     BottomSheet.module.cssのクラス名がハッシュ化されグローバルCSSから参照できないため
-     併用しているマーカークラス（DebugConsoleの.app-debug-consoleと同じ手法）。 */
+  /* サイドバー・BottomSheet・開発者向けフローティングパネル（デバッグログ/システム状況）
+     内のボタン/チェックボックス/入力欄は、指でのタップに適した領域（目安44px角）を
+     確保する。app-bottom-sheetはBottomSheet.module.cssのクラス名がハッシュ化され
+     グローバルCSSから参照できないため併用しているマーカークラス（FloatingPanelの
+     .app-floating-panelと同じ手法）。 */
   .app-sidebar button,
-  .app-debug-console button,
+  .app-floating-panel button,
   .app-bottom-sheet button {
     min-height: 44px;
     padding: 0.5rem 0.9rem;

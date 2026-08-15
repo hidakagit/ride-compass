@@ -6,9 +6,10 @@ import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
+import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
-import { LogIcon } from "@/components/Map/icons";
+import { LogIcon, StatusIcon } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
@@ -173,6 +174,7 @@ export default function Home() {
   // 別（常時画面を占有させたくないという実機フィードバックを受け、右上の起動アイコンで
   // 開閉する方式へ変更、モバイル実機フィードバック対応T42）。デフォルト閉。
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
+  const [systemStatusOpen, setSystemStatusOpen] = useState(false);
 
   const debugEnabled = useDebugEnabled();
   const researchEnabled = useResearchEnabled();
@@ -561,13 +563,17 @@ export default function Home() {
     );
   }
 
-  // 「設定」ブロックの中身: ログ・研究モード・疎通確認・キャッシュ更新など、一般ユーザーは
-  // 触らない開発者向け機能をまとめる。デバッグログの起動ボタンは、デバッグモード
-  // （DebugPanelのチェック）がONのときだけ現れる（以前の地図上trailingButtonと同じ条件）。
-  // チェックボックスと同じdebugControl内に置いてnowrapにすることで、他のsystemRow項目
-  // （研究モード等）と並んで縦積みの「メニュー」に見えないようにしている。アイコンのみの
-  // ボタンにしているのも、チェックボックスと同じ文言を隣に並べる冗長さを避けるため。
-  // 起動すると地図に浮かぶ独立したフローティングパネル（DebugConsole）が開く（T43）。
+  // 「設定」ブロックの中身: ログ・システム状況・研究モード・疎通確認・キャッシュ更新など、
+  // 一般ユーザーは触らない開発者向け機能をまとめる。デバッグログの起動ボタンは、デバッグ
+  // モード（DebugPanelのチェック）がONのときだけ現れる（以前の地図上trailingButtonと
+  // 同じ条件。ログの記録自体がチェックボックス依存のため）。システム状況（commit・起動
+  // 日時・外部API呼出サマリ）はデバッグログの記録有無と無関係に確認したい情報のため、
+  // 常時表示のボタンにしている。チェックボックスと同じdebugControl内に置いてnowrapに
+  // することで、他のsystemRow項目（研究モード等）と並んで縦積みの「メニュー」に見えない
+  // ようにしている。アイコンのみのボタンにしているのも、隣に文言を並べる冗長さを避けるため。
+  // 起動すると地図に浮かぶ独立したフローティングパネルが開く（T43）。ログ本文（DebugConsole）
+  // とシステム状況（SystemStatusPanel）は情報源・更新頻度が異なるため別パネルに分離した
+  // （2026-08-16、ユーザーFB「中身が混ざって見にくい」）。
   function renderSettingsSectionBody() {
     return (
       <>
@@ -581,11 +587,21 @@ export default function Home() {
                 aria-pressed={debugConsoleOpen}
                 aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
                 title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-                className={styles.logToggleButton}
+                className={styles.panelToggleButton}
               >
                 <LogIcon size={14} />
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setSystemStatusOpen((v) => !v)}
+              aria-pressed={systemStatusOpen}
+              aria-label={systemStatusOpen ? "システム状況を隠す" : "システム状況を表示"}
+              title={systemStatusOpen ? "システム状況を隠す" : "システム状況を表示"}
+              className={styles.panelToggleButton}
+            >
+              <StatusIcon size={14} />
+            </button>
           </div>
           <ResearchPanel />
           <BackendStatus />
@@ -715,9 +731,11 @@ export default function Home() {
 
           {locateError && <p className={styles.locateError}>{locateError}</p>}
 
-          {/* デバッグログの起動は「設定」ブロック内のボタン（renderSettingsSectionBody）から。
-              position: fixedの独立フローティングパネルのためDOM上の位置は表示に影響しない。 */}
+          {/* デバッグログ・システム状況の起動は「設定」ブロック内のボタン
+              （renderSettingsSectionBody）から。position: fixedの独立フローティングパネルの
+              ためDOM上の位置は表示に影響しない。 */}
           <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
+          <SystemStatusPanel open={systemStatusOpen} onClose={() => setSystemStatusOpen(false)} />
         </div>
       </div>
 
