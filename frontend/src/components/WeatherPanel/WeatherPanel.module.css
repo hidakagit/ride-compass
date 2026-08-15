@@ -1,13 +1,31 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-accent);
+}
+
+.row svg {
+  flex-shrink: 0;
+}
+
+/* 見落としやすいという実機フィードバック（T57）を受け、既定文字色より一段濃く・太くして
+   常設ヘッダの中でも視認性を確保する。風以外（気温・降水確率）も同じ行に続くため、
+   風だけを強調する配色ではなく行全体を強めるほうが読みやすい。 */
 .text {
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--foreground);
 }
 
 .loading {
   composes: text;
+  font-weight: 400;
   color: var(--color-muted);
 }
 
 .error {
   composes: text;
+  font-weight: 400;
   color: var(--color-danger);
 }
