@@ -1,9 +1,11 @@
 from datetime import datetime
 
 from app.domain.route import Coordinates
+from app.infrastructure.weather_client import WeatherClient
 from app.services.weather_service import WeatherService
 
 POINT = Coordinates(latitude=35.7597, longitude=139.7387)
+OTHER_POINT = Coordinates(latitude=35.1, longitude=139.1)
 
 SAMPLE_DATA = {
     "current": {
@@ -28,6 +30,11 @@ class FakeWeatherClient:
 
     async def get_forecast(self, http_client, point):
         return self._data
+
+    async def get_forecast_many(self, http_client, points):
+        return {WeatherClient.cache_key(point): self._data for point in points}
+
+    cache_key = staticmethod(WeatherClient.cache_key)
 
 
 async def test_get_conditions_returns_current_when_at_is_none():
@@ -70,3 +77,29 @@ async def test_get_conditions_returns_none_when_forecast_unavailable():
     conditions = await service.get_conditions(POINT)
 
     assert conditions is None
+
+
+async def test_get_conditions_many_returns_conditions_per_point():
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
+
+    results = await service.get_conditions_many(
+        [POINT, OTHER_POINT],
+        [None, datetime(2026, 8, 13, 22, 10)],
+    )
+
+    assert len(results) == 2
+    assert results[0].observed_at == "2026-08-13T21:15"
+    assert results[1].observed_at == "2026-08-13T22:00"
+
+
+async def test_get_conditions_many_returns_none_for_points_without_forecast():
+    class MissingSomeForecastsClient(FakeWeatherClient):
+        async def get_forecast_many(self, http_client, points):
+            return {WeatherClient.cache_key(points[0]): None, WeatherClient.cache_key(points[1]): SAMPLE_DATA}
+
+    service = WeatherService(MissingSomeForecastsClient(SAMPLE_DATA), http_client=None)
+
+    results = await service.get_conditions_many([POINT, OTHER_POINT], [None, None])
+
+    assert results[0] is None
+    assert results[1] is not None

@@ -13,12 +13,11 @@ CACHE_PRECISION = 2
 # 標高と異なり天候は時間で変化するため、恒久キャッシュではなくTTLを設ける。
 CACHE_TTL_SECONDS = 30 * 60
 
-# ルート生成中はWindServiceが区間ごとに（同時実行数5で）Open-Meteoへ問い合わせるため、
-# 1ルートの評価だけで数十件のリクエストが短時間に集中しうる。実測ではこの程度の
-# 同時実行数（5並列）だけでも、Open-Meteo側の429 Too Many Requestsに加えて
-# ConnectTimeout（TLSハンドシェイクの混雑によるものとみられる接続タイムアウト）が
-# 発生し、単発の/api/weather呼び出し（現在地表示）まで巻き込まれて502になっていた
-# （原因調査ログ参照）。どちらも数百ms〜数秒待てば解消する一時的な状態のため、
+# 本番（Render、共有の送信元IP）では、単発の/api/weather呼び出し（現在地表示）だけでも
+# Open-Meteo側の429 Too Many RequestsやConnectTimeout（TLSハンドシェイクの混雑による
+# ものとみられる接続タイムアウト）が発生し502になることが実測で確認された（原因調査ログ参照）。
+# WindServiceのルート評価は元々区間ごとに個別リクエストしておりこれを悪化させていたため
+# get_forecast_manyで1リクエストへ集約したが、単発呼び出し側の対策としてこちらも
 # 短いバックオフで数回だけ再試行する。
 RETRY_STATUS_CODE = 429
 MAX_RETRIES = 2
@@ -52,8 +51,49 @@ class WeatherClient:
     天候は付随情報のため、取得できなかった場合は例外を投げず`None`を返す。
     """
 
+    @staticmethod
+    def cache_key(point: Coordinates) -> tuple[float, float]:
+        return (round(point.latitude, CACHE_PRECISION), round(point.longitude, CACHE_PRECISION))
+
+    async def _fetch_json(self, client: httpx.AsyncClient, params: dict, fields: dict) -> object | None:
+        """再試行込みでOpen-Meteoを叩き、成功したらJSON本体を返す。失敗時はfieldsへ記録しNoneを返す
+        （呼び出し元は単一地点・複数地点どちらの形状（object/array）で解釈するかを判断する）。"""
+        attempt = 0
+        while True:
+            try:
+                response = await client.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
+                response.raise_for_status()
+                fields["result"] = "ok"
+                fields["status"] = getattr(response, "status_code", None)
+                return response.json()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == RETRY_STATUS_CODE and attempt < MAX_RETRIES:
+                    attempt += 1
+                    fields["retries"] = attempt
+                    await asyncio.sleep(_retry_after_seconds(exc.response) or RETRY_BACKOFF_SECONDS * attempt)
+                    continue
+                fields["result"] = "error"
+                fields["error"] = repr(exc)
+                return None
+            except httpx.TransportError as exc:
+                # 接続タイムアウト等、応答自体を受け取れなかった失敗。ConnectTimeoutは
+                # 実測で数並列アクセスだけでも発生しており(原因調査ログ参照)、429と同様に
+                # 短時間で解消することが多いため同じ回数だけ再試行する。
+                if attempt < MAX_RETRIES:
+                    attempt += 1
+                    fields["retries"] = attempt
+                    await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
+                    continue
+                fields["result"] = "error"
+                fields["error"] = repr(exc)
+                return None
+            except (httpx.HTTPError, ValueError) as exc:
+                fields["result"] = "error"
+                fields["error"] = repr(exc)
+                return None
+
     async def get_forecast(self, client: httpx.AsyncClient, point: Coordinates) -> dict | None:
-        key = (round(point.latitude, CACHE_PRECISION), round(point.longitude, CACHE_PRECISION))
+        key = self.cache_key(point)
 
         with log_external_call("weather:open-meteo", lat=key[0], lon=key[1]) as fields:
             cached = _forecast_cache.get(key)
@@ -74,40 +114,67 @@ class WeatherClient:
                 "wind_speed_unit": "ms",
             }
 
-            attempt = 0
-            while True:
-                try:
-                    response = await client.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
-                    response.raise_for_status()
-                    data = response.json()
-                    break
-                except httpx.HTTPStatusError as exc:
-                    if exc.response.status_code == RETRY_STATUS_CODE and attempt < MAX_RETRIES:
-                        attempt += 1
-                        fields["retries"] = attempt
-                        await asyncio.sleep(_retry_after_seconds(exc.response) or RETRY_BACKOFF_SECONDS * attempt)
-                        continue
-                    fields["result"] = "error"
-                    fields["error"] = repr(exc)
-                    return None
-                except httpx.TransportError as exc:
-                    # 接続タイムアウト等、応答自体を受け取れなかった失敗。ConnectTimeoutは
-                    # 実測で数並列アクセスだけでも発生しており(原因調査ログ参照)、429と同様に
-                    # 短時間で解消することが多いため同じ回数だけ再試行する。
-                    if attempt < MAX_RETRIES:
-                        attempt += 1
-                        fields["retries"] = attempt
-                        await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
-                        continue
-                    fields["result"] = "error"
-                    fields["error"] = repr(exc)
-                    return None
-                except (httpx.HTTPError, ValueError) as exc:
-                    fields["result"] = "error"
-                    fields["error"] = repr(exc)
-                    return None
+            data = await self._fetch_json(client, params, fields)
+            if data is None:
+                return None
 
-            fields["result"] = "ok"
-            fields["status"] = getattr(response, "status_code", None)
             _forecast_cache[key] = (time.time(), data)
             return data
+
+    async def get_forecast_many(
+        self, client: httpx.AsyncClient, points: list[Coordinates]
+    ) -> dict[tuple[float, float], dict | None]:
+        """複数地点の予報を、可能な限り1回のOpen-Meteo呼び出しにまとめて取得する。
+
+        WindServiceはルート1本につき区間数ぶん（最大数十件）weatherを個別リクエストしており、
+        本番（Render、共有の送信元IP）ではこれだけで429が常態化し天候取得が全滅する事態が
+        起きていた（原因調査ログ参照）。Open-Meteoは緯度経度をカンマ区切りで渡すと地点ごとの
+        予報配列を1リクエストで返せるため、これを使ってリクエスト数自体を減らす。
+        地点はcache_key（丸め精度CACHE_PRECISION）単位で重複排除し、キャッシュ済みの地点は
+        リクエストに含めない。
+        """
+        keys: list[tuple[float, float]] = []
+        seen: set[tuple[float, float]] = set()
+        for point in points:
+            key = self.cache_key(point)
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+
+        results: dict[tuple[float, float], dict | None] = {}
+        now = time.time()
+        to_fetch: list[tuple[float, float]] = []
+        for key in keys:
+            cached = _forecast_cache.get(key)
+            if cached is not None and now - cached[0] < CACHE_TTL_SECONDS:
+                results[key] = cached[1]
+            else:
+                to_fetch.append(key)
+
+        if to_fetch:
+            with log_external_call(
+                "weather:open-meteo", lat=to_fetch[0][0], lon=to_fetch[0][1], locations=len(to_fetch)
+            ) as fields:
+                fields["cache"] = "miss"
+                params = {
+                    "latitude": ",".join(str(lat) for lat, _lon in to_fetch),
+                    "longitude": ",".join(str(lon) for _lat, lon in to_fetch),
+                    "current": "temperature_2m,wind_speed_10m,wind_direction_10m",
+                    "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability",
+                    "forecast_days": 2,
+                    "timezone": "Asia/Tokyo",
+                    "wind_speed_unit": "ms",
+                }
+
+                data = await self._fetch_json(client, params, fields)
+                # 1地点のみのリクエストはOpen-Meteoが配列ではなく単一objectを返すため、
+                # 常に地点数ぶんの配列として扱えるようここで揃える。
+                entries = data if isinstance(data, list) else ([data] if data is not None else [])
+                for key, entry in zip(to_fetch, entries):
+                    _forecast_cache[key] = (now, entry)
+                    results[key] = entry
+                # 上流の応答件数がリクエストと食い違う異常時は、対応しきれない残りをNone扱いにする。
+                for key in to_fetch[len(entries) :]:
+                    results[key] = None
+
+        return {key: results.get(key) for key in keys}
