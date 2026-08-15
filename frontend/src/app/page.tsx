@@ -9,7 +9,7 @@ import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugCon
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
-import BottomSheet from "@/components/BottomSheet/BottomSheet";
+import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
   MAP_LAYERS,
   layerSectionDomId,
@@ -62,6 +62,9 @@ const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
 const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
+// モバイル下部シート（「ルートを作る」/「地図の見え方」）の高さ。2シートは排他表示のため
+// 1つの値を共有する（BottomSheetのheightVh props参照）。
+const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 
 function loadStoredStyleMode<T extends string>(storageKey: string, isValid: (v: string | null) => v is T, fallback: T): T {
   try {
@@ -171,6 +174,7 @@ export default function Home() {
   // モバイルで開いている下部シート（「ルートを作る」/「地図の見え方」の排他表示、または
   // どちらも閉じたnull＝地図全面表示）。デスクトップでは使わない。
   const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
+  const [mobileSheetHeightVh, setMobileSheetHeightVh] = useState(DEFAULT_SHEET_HEIGHT_VH);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   // デバッグログパネル自体の開閉。デバッグモードON＝ログ記録は常時有効だが、パネル表示は
@@ -221,6 +225,11 @@ export default function Home() {
 
     const storedGenerateOpen = loadStoredJson(GENERATE_OPEN_STORAGE_KEY);
     if (typeof storedGenerateOpen === "boolean") setGenerateOpen(storedGenerateOpen);
+
+    const storedSheetHeight = loadStoredJson(MOBILE_SHEET_HEIGHT_STORAGE_KEY);
+    if (typeof storedSheetHeight === "number" && Number.isFinite(storedSheetHeight)) {
+      setMobileSheetHeightVh(clampSheetHeightVh(storedSheetHeight));
+    }
   }, []);
 
   const handleRouteStyleModeChange = useCallback((id: RouteStyleModeId) => {
@@ -379,6 +388,16 @@ export default function Home() {
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback((sheet: "route" | "map") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
+  }, []);
+
+  // 下部シートの高さ変更。ドラッグ中/キー操作中は見た目の即時反映のみ（onHeightChange）、
+  // 確定時のみ保存する（onHeightCommit。ドラッグ中の毎フレーム書き込みを避けるため、
+  // T32の他設定と異なりハンドラを分けている）。
+  const handleMobileSheetHeightChange = useCallback((vh: number) => {
+    setMobileSheetHeightVh(vh);
+  }, []);
+  const handleMobileSheetHeightCommit = useCallback((vh: number) => {
+    saveStoredJson(MOBILE_SHEET_HEIGHT_STORAGE_KEY, vh);
   }, []);
 
   // 現在地が変わったらその地点の天候を取得(ルート生成時の風評価の起点にもなる)。
@@ -756,6 +775,9 @@ export default function Home() {
             onClose={() => setMobileSheet(null)}
             title="ルートを作る"
             titleId={GENERATE_SECTION_TITLE_ID}
+            heightVh={mobileSheetHeightVh}
+            onHeightChange={handleMobileSheetHeightChange}
+            onHeightCommit={handleMobileSheetHeightCommit}
           >
             {renderRouteSectionBody()}
           </BottomSheet>
@@ -765,6 +787,9 @@ export default function Home() {
             onClose={() => setMobileSheet(null)}
             title="地図の見え方"
             titleId={MAP_SETTINGS_SHEET_TITLE_ID}
+            heightVh={mobileSheetHeightVh}
+            onHeightChange={handleMobileSheetHeightChange}
+            onHeightCommit={handleMobileSheetHeightCommit}
           >
             {renderMapSettingsSectionBody()}
           </BottomSheet>

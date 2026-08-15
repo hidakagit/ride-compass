@@ -122,6 +122,22 @@
   }
 }
 
+/* MapView.tsxでattributionControlを常時コンパクト（ⓘアイコン）固定にした上で、
+   既定の白背景円もアプリの他の浮動UI（現在地ボタン等）と揃うよう馴染ませる。
+   アイコン自体（.maplibregl-ctrl-attrib-button の背景画像）は地図の上に乗るため
+   常に視認できる白系のまま変えず、外側の背景色と影だけをトークンに合わせる
+   （ダークモードでアイコンごと暗くすると地図に埋もれて見えなくなるため）。 */
+:global(.app-map-pane .maplibregl-ctrl-attrib.maplibregl-compact),
+:global(.app-map-pane .maplibregl-ctrl-attrib.maplibregl-compact-show) {
+  background-color: var(--color-surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-float);
+}
+
+:global(.app-map-pane .maplibregl-ctrl-attrib a) {
+  color: var(--color-muted);
+}
+
 .locateButton {
   position: absolute;
   right: var(--space-3);

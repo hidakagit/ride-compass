@@ -695,6 +695,7 @@ export default function MapView({
       style: MAP_STYLE,
       center: [location.longitude, location.latitude],
       zoom: 13,
+      attributionControl: { compact: true },
       // デバッグモード時、MapLibreが発行するリクエスト（スタイル/スプライト/グリフ/
       // 基礎地図タイル・路面タイルのTileJSON/実タイル）を種別ごとに逐一ログする。
       // debugLog()自体はデバッグモード無効時は即returnするため、常時attachして問題ない。
@@ -706,6 +707,23 @@ export default function MapView({
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
     debugLog("map:lifecycle", "初期化", { center: [location.longitude, location.latitude], zoom: 13 });
+
+    // MapLibreのAttributionControlは既定でcompact:true（ⓘアイコン化）だが、初期化直後は
+    // まだ属性表示するデータが無く"maplibregl-attrib-empty"のため、この時点ではコンパクト
+    // 化のクラスがまだ付いていない。スタイル読み込み完了後にstyledata/sourcedataイベント
+    // 経由でMapLibre内部が初めて属性データを反映するタイミングで"maplibregl-compact"と
+    // 同時に"maplibregl-compact-show"（展開状態＝「MapLibre | © OpenFreeMap」の全文表示）も
+    // 付与される。ユーザーが一度でも地図をドラッグすればdragイベントで自動的に閉じるが、
+    // それまでの間は他のUI（レイヤーチップ等）と重なって読みにくい、という実機フィードバックの
+    // 原因になっていた。AttributionControl自身と同じイベント（styledata/sourcedata）を
+    // 購読し、都度コンパクト表示（アイコンのみ）へ揃える（「変わらないデータを更新」による
+    // setStyle再読み込み時の再発にも同じ仕組みで対応できる）。
+    const attribEl = mapContainerRef.current?.querySelector(".maplibregl-ctrl-attrib");
+    function collapseAttribution() {
+      attribEl?.classList.remove("maplibregl-compact-show");
+    }
+    map.on("styledata", collapseAttribution);
+    map.on("sourcedata", collapseAttribution);
 
     // MapLibre自体もコンテナの内蔵ResizeObserverでの自動追従を持つが、デバッグモード時に
     // 実機で「地図が画面幅の一部にしか描画されず残りが黒くなる」不具合を確認した
@@ -813,6 +831,8 @@ export default function MapView({
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      map.off("styledata", collapseAttribution);
+      map.off("sourcedata", collapseAttribution);
       map.off("click", handleClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
