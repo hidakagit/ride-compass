@@ -47,6 +47,11 @@ class WeatherService:
                 precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
             else:
                 target = at.strftime("%Y-%m-%dT%H:%M")
+                if not self._within_hourly_range(hourly["time"], target):
+                    # 取得済みhourly（forecast_days=2分）の範囲外。範囲内の最も近い時刻を
+                    # 代用すると「遠い未来/過去の天候」として誤って提示することになるため、
+                    # 範囲外は素直にNoneを返す（他の欠損時と同じ方針）。
+                    return None
                 index = self._nearest_hourly_index(hourly["time"], target)
                 if index is None:
                     return None
@@ -66,6 +71,14 @@ class WeatherService:
             precipitation_probability_percent=precipitation_probability,
             observed_at=observed_at,
         )
+
+    @staticmethod
+    def _within_hourly_range(times: list[str], target: str) -> bool:
+        if not times:
+            return False
+        target_dt = datetime.fromisoformat(target)
+        parsed = [datetime.fromisoformat(t) for t in times]
+        return min(parsed) <= target_dt <= max(parsed)
 
     @staticmethod
     def _nearest_hourly_index(times: list[str], target: str) -> int | None:

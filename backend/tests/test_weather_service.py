@@ -55,6 +55,15 @@ async def test_get_conditions_returns_nearest_hourly_for_future_time():
     assert conditions.precipitation_probability_percent == 70
 
 
+async def test_get_conditions_returns_none_when_at_is_outside_hourly_range():
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
+
+    # hourlyは2026-08-13の20:00-23:00のみ。翌日はhourlyの範囲外。
+    conditions = await service.get_conditions(POINT, at=datetime(2026, 8, 14, 10, 0))
+
+    assert conditions is None
+
+
 async def test_get_conditions_returns_none_when_forecast_unavailable():
     service = WeatherService(FakeWeatherClient(None), http_client=None)
 
