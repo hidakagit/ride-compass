@@ -76,5 +76,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # LayoutProps等のNext.jsが生成するグローバル型（.next/types/、tsconfigのincludeに
+      # 含まれる）を作る。ローカルはnext devの実行で自然に生成済みだが、CIのクリーン
+      # チェックアウトには無く、無いままだとtscが「Cannot find name 'LayoutProps'」で
+      # 失敗する（初回CI実行で発覚）。next typegenはフルビルドなしで型だけを生成する。
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm test
