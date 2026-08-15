@@ -3,10 +3,6 @@
 import { useEffect, useRef } from "react";
 import styles from "./BottomSheet.module.css";
 
-/** 下部タブバー（page.tsxのnav）のaria-label。タップアウトで閉じる判定から除外するための
- * 目印として参照する（タブの再タップは専用のトグル処理に任せる、下のuseEffect参照）。 */
-const MOBILE_TAB_BAR_LABEL = "パネル切り替え";
-
 interface BottomSheetProps {
   open: boolean;
   onClose: () => void;
@@ -44,15 +40,16 @@ export function clampSheetHeightVh(vh: number): number {
 // モバイル実機フィードバック対応T34: 「サイドバーで設定をいじっている間、地図を直接
 // 確認できない」という実機フィードバックを受け、全面ドロワー＋暗幕だった旧UIを置き換える。
 // フルスクリーンの暗幕は意図的に敷かない（シート表示中も上に見えている地図をパン/ズーム
-// できる状態を保つ）。閉じる操作は✕ボタン・シート外タップ・下スワイプ・呼び出し側の
-// タブ再タップの4通り（後述の実機フィードバックでシート外タップも追加した）。
+// できる状態を保つ）。閉じる操作は✕ボタン・下スワイプ・呼び出し側のタブ再タップの3通り。
+// 一度「シート外タップでも閉じる」を試したが、「地図をぐりぐり操作しながら凡例を見たい」
+// という実機フィードバックで撤回した（シート外のタップ・スクロール＝地図操作は
+// シートを開いたまま自由にできて欲しい、という要望のため）。
 //
 // 以前は「シート内のスクロールが下スワイプと誤認されて閉じてしまう」不具合があった。
 // 下スワイプでの閉じる判定（handleTouchStart/handleTouchEnd）をシート全体
 // （.bodyの内容スクロールを含む）で拾っていたのが原因で、.body側でtouch
 // イベントのbubbleを止めて解消した（下のJSX、.body要素のonTouchStart/onTouchEnd参照）。
-// 併せて「パネル外タップでは閉じない」という以前の方針も、実機フィードバックで
-// 使いにくいとの指摘を受けて撤回し、シート外タップでも閉じるようにした（下のuseEffect）。
+// この修正は上の撤回とは独立に維持する（スクロール操作自体は引き続き閉じる原因にしない）。
 export default function BottomSheet({
   open,
   onClose,
@@ -68,7 +65,6 @@ export default function BottomSheet({
   // 足し込む。pointerIdで対象を絞るのは、まれに複数指が絡んだ場合に別指のmove/upで誤反応
   // しないようにするため。
   const dragRef = useRef<{ pointerId: number; startClientY: number; startHeightVh: number } | null>(null);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -77,25 +73,6 @@ export default function BottomSheet({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  // シート外タップで閉じる。pointerdown（クリック確定より早い時点）で判定するため、
-  // 地図側のドラッグ操作が始まった瞬間にもシートが引っ込む（クリック完了を待たない分、
-  // 地図をすぐ操作し始められる）。下部タブバーは専用のトグル処理（page.tsxの
-  // handleMobileTabClick、同じタブの再タップで閉じる）を持つため対象から除外する。
-  // ここでも閉じてしまうと、閉じる処理がタブ側のトグルと競合し「再タップで閉じたはずが
-  // 直後に開き直る」動きになる。
-  useEffect(() => {
-    if (!open) return;
-    function handlePointerDownOutside(e: PointerEvent) {
-      const target = e.target;
-      if (!(target instanceof Node)) return;
-      if (sheetRef.current?.contains(target)) return;
-      if (target instanceof Element && target.closest(`[aria-label="${MOBILE_TAB_BAR_LABEL}"]`)) return;
-      onClose();
-    }
-    document.addEventListener("pointerdown", handlePointerDownOutside);
-    return () => document.removeEventListener("pointerdown", handlePointerDownOutside);
   }, [open, onClose]);
 
   if (!open) return null;
@@ -168,7 +145,6 @@ export default function BottomSheet({
     // 見た目自体はstyles.sheetに任せつつ、このマーカークラスだけ併用している
     // （DebugConsoleの.app-debug-consoleと同じ手法）。
     <div
-      ref={sheetRef}
       className={`${styles.sheet} app-bottom-sheet`}
       role="dialog"
       aria-labelledby={titleId}
