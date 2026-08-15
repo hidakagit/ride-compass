@@ -33,6 +33,7 @@ from app.domain.graph import RoadGraph, WaySpec, build_road_graph  # noqa: E402
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox  # noqa: E402
 from app.domain.osm_adapter import osm_ways_to_way_specs  # noqa: E402
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
+from app.infrastructure.migrate import apply_pending_migrations  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository, create_tables  # noqa: E402
 from app.services.graph_service import GraphService  # noqa: E402
 
@@ -132,6 +133,9 @@ async def main() -> int:
     await create_tables(engine)  # 既存テーブルがあっても成功すること（IF NOT EXISTS相当）
     await create_tables(engine)  # 2回目も成功すること
     check("create_tablesが既存スキーマに対して冪等", True)
+    applied_first = await apply_pending_migrations(engine)
+    applied_second = await apply_pending_migrations(engine)  # 2回目は空リスト（適用済みスキップ）
+    check("apply_pending_migrationsが冪等（2回目は再適用しない）", applied_second == [])
 
     await cleanup(engine)  # 前回の失敗残骸があれば除去
 

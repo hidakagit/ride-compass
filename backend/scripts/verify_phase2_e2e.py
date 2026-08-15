@@ -28,6 +28,7 @@ from sqlalchemy import text  # noqa: E402
 from app.domain.region import ROAD_TILE_MIN_ZOOM, BoundingBox, tiles_covering_bbox  # noqa: E402
 from app.infrastructure import tile_cache  # noqa: E402
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
+from app.infrastructure.migrate import apply_pending_migrations  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository, create_tables  # noqa: E402
 from app.services.region_service import RegionService  # noqa: E402
 
@@ -75,6 +76,7 @@ async def main() -> int:
         async with engine.connect() as conn:
             size_before = (await conn.execute(text("SELECT pg_database_size(current_database())"))).scalar()
         await create_tables(engine)
+        await apply_pending_migrations(engine)  # GINインデックス削除等はT17でマイグレーションへ移設
         async with engine.connect() as conn:
             size_after = (await conn.execute(text("SELECT pg_database_size(current_database())"))).scalar()
             gin_exists = (

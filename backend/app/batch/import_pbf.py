@@ -42,6 +42,7 @@ from app.config import settings
 from app.domain.graph import WaySpec
 from app.domain.osm_adapter import osm_way_to_way_spec
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox
+from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 
 logger = logging.getLogger("app.batch.import_pbf")
@@ -292,7 +293,8 @@ async def run_import(
         sqlalchemy_url = database_url or settings.database_url
         engine = create_async_engine(sqlalchemy_url)
         try:
-            await create_tables(engine)  # 新テーブル（osm_import_runs）・geom列の冪等な作成を含む
+            await create_tables(engine)  # 新テーブル（osm_import_runs等）の冪等な作成
+            await apply_pending_migrations(engine)  # 列追加・インデックス・バックフィル（T17）
         finally:
             await engine.dispose()
 

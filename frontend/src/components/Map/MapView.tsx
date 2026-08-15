@@ -34,8 +34,10 @@ const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
 
 // 路面のベクタタイル内のレイヤー名。バックエンド（infrastructure/vector_tile.pyの
-// ROAD_SURFACE_LAYER_NAME）と一致させる必要がある。
-const ROAD_TILE_SOURCE_LAYER = "road_surface";
+// ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（改善計画T19: export_openapi.pyが
+// 書き出すgenerated/region-tile-config.jsonとregionTileConfig.test.tsの照合テストが
+// ドリフトを検知する。exportしているのはそのテストから参照するため）。
+export const ROAD_TILE_SOURCE_LAYER = "road_surface";
 
 const ROUTES_SOURCE_ID = "route-candidates";
 const ROUTES_LAYER_ID = "route-candidates-line";

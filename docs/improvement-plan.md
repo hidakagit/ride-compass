@@ -1,6 +1,8 @@
 # 改善実行計画（2026-08-15 設計レビュー対応）
 
 [design-review-2026-08-15.md](design-review-2026-08-15.md) の指摘に対する実行計画。
+同日の第2回レビュー（[complexity-review-2026-08-15.md](complexity-review-2026-08-15.md)、複雑度平衡の観点）
+の対応タスク（T16〜T22）は後半の「第2回レビュー対応」節にある。
 **進捗はこのファイルのチェックボックスを更新して管理する**（完了時に `[x]`＋完了日を追記）。
 
 ## 進め方の原則
@@ -107,10 +109,12 @@
 
 ## Phase 3: 機能追加と合わせて（トリガー条件付き）
 
-### - [ ] T9. `surface_attributes` の導出化〔C4/E2〕規模M — トリガー: 関東圏へのデータ拡大 or 容量逼迫
+### - [ ] T9. `surface_attributes` の導出化〔C4/E2〕規模M — トリガー: **静的道路属性のスキーマ変更・再取込と同一バッチで実施**（第2回レビューI-6でトリガー更新。旧: 関東圏拡大 or 容量逼迫）
 
 - surfaceを `road_edges` 列に持たせる（highwayと同じ扱い）か、`osm_raw_ways` とのJOINで導出し、
   `surface_attributes` テーブルを廃止。WARM時間（現状8〜11秒の主成分）と容量の削減を実測で確認。
+- 単独で実施すると再取込が二度手間になるため、静的属性実装（T16ゲート通過後）の
+  マイグレーション・再取込に同梱する。スキーマ変更はT17のマイグレーション機構経由で行う。
 
 ### - [ ] T10. DEMタイル化＋標高キャッシュ1系統化〔E3/F3〕規模L — トリガー: 標高評価の本格精査
 
@@ -146,6 +150,94 @@
 
 ---
 
+## 第2回レビュー対応（2026-08-15・複雑度平衡レビュー）
+
+[complexity-review-2026-08-15.md](complexity-review-2026-08-15.md) の指摘（I-1〜I-10）に対する実行計画。
+
+### 着手前ゲート: 静的道路属性（[static-road-attributes-plan.md](static-road-attributes-plan.md)）の実装前に完了させる
+
+順序の根拠: 属性1つあたりの変更箇所（現状backend 7〜9箇所）を増幅している要因
+（手書きALTER・ファサード・検知テスト無しの同期ペア）を先に除去しないと、
+このコストが約10属性分繰り返される。T16の決定がT17以降の作業の形を決めるため最初に行う。
+
+### - [x] T16. 静的属性 実装前ゲートADR〔I-1/I-3/I-4〕規模S〜M・最優先（コード変更なし）（2026-08-15完了）
+
+- `docs/decisions/pre-static-attributes-gate.md` を新規作成し、以下3点を決定する
+  （ADRはドラフト→ユーザー承認で確定）:
+  1. **評価のエンジン非依存化**〔I-1〕: ORS産geometryのサンプル点を自前DBのEdgeへ空間マッチ
+     （PostGIS KNN）して属性を読む「評価の一本化」を目標状態とするか。目標とする場合、
+     実装（T21）までの間、**新しい評価指標はORSエンジンでは最初からNoneを返す**設計を正とする
+  2. **Overpassフォールバック撤去条件**〔I-4〕: 例「関東圏PBF取込完了＋本番でフォールバック
+     発動ログ0件が2週間継続」。成立後にT22で一括削除。**それまで新属性はフォールバック側に
+     実装しない**
+  3. **マイグレーション方式**〔I-3〕: 番号付きSQLファイル＋適用記録テーブルの最小機構
+     （Alembicフル導入はしない）。T17で実装
+- 完了条件: 3決定が承認済みでdecisions/に記録され、静的属性計画の実装方針がこのADRを前提に
+  確定できる状態。
+
+### - [x] T17. 最小マイグレーション機構の導入〔I-3〕規模M — T16の後（2026-08-15完了）
+
+- `backend/migrations/`（番号付きSQL）＋適用記録テーブル＋適用スクリプトの最小構成（50行程度）。
+- 既存の `create_tables` 内の冪等ALTER×6・インデックス操作・バックフィルUPDATEを
+  migration 0001 として移設し、`create_tables` は新規DB向けの `metadata.create_all`＋
+  PostGIS拡張のみに凍結する（以後のALTER追記を禁止。設計原則2）。
+- 完了条件: dev機PG18で「空DBから」「既存DBから」の両方で適用が冪等に成功し、全テストgreen。
+
+### - [x] T18. Repositoryファサードの委譲メソッド調査〔I-5〕規模S（2026-08-15完了・当初案から縮小）
+
+- **着手時に前提が誤りと判明**: `GraphService`/`ElevationAttributeService`/`RegionService`は
+  `RoadGraphRepository`の具象型ではなくフラットな委譲メソッド群をダックタイピングで期待する
+  設計になっており、対応するテストも同じフラットな形の`FakeRoadGraphRepository`等を独立して
+  注入している。委譲メソッドは過渡的重複ではなく、サービス層とテストが依存する正式な
+  インターフェース契約だった。呼び出し側をネスト参照（`.raw_osm.*`等）へ書き換えると、
+  3サービス分のFakeも複製する必要が生じ、結合度が増す方向になる（依存性逆転に反する）。
+  ユーザーに確認のうえ、当初案（委譲メソッド削除）を取りやめ、以下の縮小版で実施した。
+- 実施内容: `RoadGraphRepository`のdocstringを訂正し、
+  「フラットな形がサービス層の正式契約である」ことと「新しい属性メソッドは個別リポジトリへ
+  実装したうえで、同じ流儀でファサードにもフラットな委譲メソッドを対称に追加する」規約を明記。
+  複雑度平衡レビュー（I-5・Keep List・設計原則7）と本タスクを訂正済み。
+- 完了条件: docstring更新のみ（コード動作は無変更）。設計原則7を「追加しない」から
+  「対称に追加する」へ訂正済み。
+
+### - [x] T19. 残存手動同期ペア2組へのドリフト検知テスト〔I-8〕規模S（2026-08-15完了）
+
+- ①MVTレイヤー名（`vector_tile.ROAD_SURFACE_LAYER_NAME` ↔ `MapView.ROAD_TILE_SOURCE_LAYER`）
+  ②タイル世代（`region_service._tile_cache_path` のv番号 ↔ `regionApi.ts`の`?v=`クエリ値）。
+- `surface-tags.json` と同じ方式で自動化: `region_service.py`にハードコードされていた`v3`を
+  `ROAD_SURFACE_TILE_VERSION`定数へ抽出し、`export_openapi.py`が`region-tile-config.json`
+  （`layer_name`/`tile_version`）として書き出す。`MapView.ROAD_TILE_SOURCE_LAYER`をexportし、
+  `regionApi.test.ts`が生成物と突き合わせる（タイル世代は`roadSurfaceTileUrl()`の実際の
+  `?v=`値を検証対象にし、2重の手書き定数を作らない）。CIのapi-contractジョブでドリフト検知。
+- 完了条件: どちらか片側だけ変えるとCIが割れる。backend397件・frontend129件・eslint・tsc
+  すべてgreenを確認。
+
+### - [x] T20. 本番/開発プロファイルの1表明示〔I-9〕規模S（docs/設定例のみ・任意）（2026-08-15完了）
+
+- `.env.example`（または architecture.md）に「本番=PostGIS＋フォールバック無効＋ORSエンジン /
+  開発 / CI」の設定値一覧を1表で明示する。コード変更なし。
+- 実施: `.env.example`末尾へ本番（Render+Supabase）/開発（ネイティブPG）/開発（DBなし・既定）
+  の3プロファイル比較表を追記。
+
+### 条件付き・後続（静的属性の実装後、またはT16の条件成立後）
+
+### - [ ] T21. 評価のエンジン非依存化（一本化）〔I-1/I-7〕規模L — トリガー: T16で目標化を決定し、静的属性の取込が完了していること
+
+- ORSエンジンの評価（路面・将来の新属性）を、ORS extras依存から「サンプル点→自前DB Edge
+  空間マッチ→属性読み出し」へ置き換える。カバレッジ外の挙動（None評価で候補は返す）を先に定義。
+- 完了に伴い削除できるもの: `domain/road.py` のORS数値ID語彙（`GOOD_SURFACE_IDS`/
+  `paved_percent`/`surface_id_at_index`/`is_good_surface`）、`RoutingService` のextrasパース、
+  `RouteSegment.surface_summary/surface_values`（OpenAPI再生成でフロント型からも消える）。
+- 静的属性が取り込まれる前に着手しない（照合対象の属性が無いと価値が出ない）。
+
+### - [ ] T22. Overpassフォールバックの一括撤去〔I-4〕規模M — トリガー: T16で決めた撤去条件の成立
+
+- `overpass_fallback_enabled` 分岐（GraphService/RegionService）・`vector_tile.py`
+  （PythonMVTエンコーダ）・`OverpassClient.get_roads` と対応テストを一括削除。
+- 完了条件: タイル生成経路がPostGIS（ST_AsMVT）1系統になり、カバレッジ外は空タイル＋
+  常時WARNINGのみ。architecture.mdの該当記述を同一コミットで現状化。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -159,3 +251,9 @@
 | 2026-08-15 | T6 | RoadGraphRepositoryを責務別4クラス(RawOsm/DerivedGraph/Attribute/TileQuery)＋公開API互換ファサードへ分割。書き込みメソッドのcommitを全廃しサービス層が操作のまとまりごとにcommit()する規約へ（「生データ保存＋タイルマーク」「分割結果＋SurfaceAttribute」が各1コミットになり原子性が向上）。mark_tile_cachedはmerge→Core UPSERT化(text()実行がautoflush対象外のため)。全392件green |
 | 2026-08-15 | T5 | api/routes.py(400行)をdependencies.py＋routers/5ファイルへ分割、レート制限・同時実行上限8値をSettingsへ外部化(.env上書き可)。テストはimportパスのみ更新で全392件green、OpenAPI再生成で契約不変を確認 |
 | 2026-08-15 | T4 | export_openapi.py＋openapi-typescript導入。types/route.ts・weather.tsを生成型の再エクスポート化（geometryのみGeoJSON補正、Required<>で必須化）。CIにapi-contractドリフト検知ジョブ追加。surface_summary/valuesは契約が自動導出になったため個別整理は不要と判断 |
+| 2026-08-15 | （第2回レビュー） | 複雑度平衡レビュー実施（complexity-review-2026-08-15.md）。静的属性の着手前ゲートT16〜T20と条件付きT21〜T22を追加、T9のトリガーを「静的属性の再取込と同一バッチ」へ更新 |
+| 2026-08-15 | T16 | 実装前ゲートADR（decisions/pre-static-attributes-gate.md）を承認・確定。決定1: 評価のエンジン非依存化を目標状態化（実装T21は静的属性取込後、それまで新指標はORS側None）／決定2: フォールバック撤去条件を承認（関東圏PBF完了＋発動ログ0件2週間）／決定3: 最小自前マイグレーション機構を採用（Alembic不採用） |
+| 2026-08-15 | T17 | `infrastructure/migrate.py`（`apply_pending_migrations`、`schema_migrations`テーブルで適用管理）を新規実装。`create_tables`内の冪等ALTER×6・インデックス操作・バックフィルUPDATEを`migrations/0001_legacy_backfill_and_indexes.sql`へ移設し内容無変更で凍結。呼び出し元3箇所（import_pbf.py・verify_postgis_phase0.py・verify_phase2_e2e.py）を更新、`scripts/apply_migrations.py`を新規追加。dev機の実DB（既存スキーマ）・新規テストDBの両方で冪等性を実機確認、バックエンド397件全green |
+| 2026-08-15 | T18 | 当初案（委譲メソッド削除・呼び出し側をネスト参照へ変更）が誤りと判明したため縮小実施。ファサードのフラット委譲メソッド群はGraphService/ElevationAttributeService/RegionServiceとテストFakeが依存する正式契約と確認し、docstringへ「新属性メソッドも対称にファサードへ追加する」規約を明記。複雑度平衡レビューのI-5・Keep List・設計原則7を訂正 |
+| 2026-08-15 | T19 | region_service.pyにハードコードされていたタイル世代`v3`を`ROAD_SURFACE_TILE_VERSION`定数へ抽出。export_openapi.pyが`region-tile-config.json`（レイヤー名・タイル世代）を新規出力し、`MapView.ROAD_TILE_SOURCE_LAYER`をexport、regionApi.test.tsで生成物と照合するドリフト検知テストを追加。backend397件・frontend129件・eslint・tsc全green |
+| 2026-08-15 | T20 | `.env.example`末尾へ本番/開発（ネイティブPG）/開発（DBなし・既定）の3プロファイル比較表を追記。コード変更なし。ゲートタスクT16〜T20が全完了、静的道路属性計画の実装に着手可能な状態に |

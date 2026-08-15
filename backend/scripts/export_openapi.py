@@ -19,11 +19,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
+from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.region_service import ROAD_SURFACE_TILE_VERSION  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
 SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
+REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -44,6 +47,13 @@ def main() -> None:
     _write_json(
         SURFACE_TAGS_PATH,
         {"good": sorted(GOOD_OSM_SURFACE_TAGS), "bad": sorted(BAD_OSM_SURFACE_TAGS)},
+    )
+    # 路面ベクタタイルのレイヤー名・世代（改善計画T19）。フロントの手書き定数
+    # （MapView.tsx: ROAD_TILE_SOURCE_LAYER / regionApi.ts: ROAD_SURFACE_TILE_VERSION）が
+    # このJSONとregionTileConfig.test.tsで突き合わされる（CIのapi-contractジョブがドリフト検知）。
+    _write_json(
+        REGION_TILE_CONFIG_PATH,
+        {"layer_name": ROAD_SURFACE_LAYER_NAME, "tile_version": ROAD_SURFACE_TILE_VERSION},
     )
 
 

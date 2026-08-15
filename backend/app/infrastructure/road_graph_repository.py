@@ -86,74 +86,22 @@ def _chunked(items: list, size: int) -> Iterator[list]:
 
 
 async def create_tables(engine: AsyncEngine) -> None:
-    """スキーマを作成する。PostGIS拡張の有効化を含む。
+    """新規DB向けの基本スキーマを作成する（PostGIS拡張の有効化＋ORMモデルからのcreate_all）。
 
-    Alembic等のマイグレーションツールは導入していない（既存のcache_db.pyと同様、
-    CREATE TABLE IF NOT EXISTS相当の最小構成。仕様書12章の「過剰な仕組みを導入しない」
-    方針を踏襲）。将来スキーマ変更が頻繁になった段階で見直す。
+    列追加・インデックス追加・データバックフィルといった一度きりのスキーマ変更は
+    `migrations/`配下の番号付きSQLファイル（`infrastructure/migrate.py:
+    apply_pending_migrations`）で行う（改善計画T17）。以前はこの関数へALTER文を直接
+    追記する方式だったが、静的道路属性計画（docs/static-road-attributes-plan.md）に向けて
+    列追加が繰り返される見込みのため分離した（decisions/pre-static-attributes-gate.md 決定3）。
+    このため、実DBに対して呼び出す場合は本関数の直後に`apply_pending_migrations`も
+    呼び出すこと（呼び出し例: `app/batch/import_pbf.py`）。
 
-    create_allは既存テーブルへの列追加を行わないため、後から追加した列は
-    ADD COLUMN IF NOT EXISTSで冪等に補う（新規DBではcreate_allが列・索引ごと作るため
-    no-opになる。索引名idx_osm_raw_ways_geomはGeoAlchemy2のspatial_index=Trueが
-    生成する既定名に合わせている）。
+    Alembic等のフル機能マイグレーションツールは導入していない（このプロジェクトの規模には
+    過剰と判断、decisions/pre-static-attributes-gate.md 決定3参照）。
     """
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.run_sync(Base.metadata.create_all)
-        # PBF取込（Phase 1）で追加したosm_raw_ways.geom列（既存DB向けの冪等な追加）
-        await conn.execute(
-            text("ALTER TABLE osm_raw_ways ADD COLUMN IF NOT EXISTS geom geometry(LINESTRING,4326)")
-        )
-        await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS idx_osm_raw_ways_geom ON osm_raw_ways USING gist (geom)")
-        )
-        # 生データ不変時の省略パス（is_split_up_to_date）で追加したosm_raw_ways.split_at列
-        # （既存DB向けの冪等な追加）
-        await conn.execute(
-            text("ALTER TABLE osm_raw_ways ADD COLUMN IF NOT EXISTS split_at TIMESTAMPTZ")
-        )
-        # save_graphの削除ステップ（DELETE FROM road_edges WHERE osm_way_id IN (...)）が
-        # インデックス無しで動いていたため追加（既存DB向けの冪等な追加）
-        await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS idx_road_edges_osm_way_id ON road_edges USING btree (osm_way_id)")
-        )
-        # road_nodesへのDELETE（容量予算超過時の圧力弁・古いhighway種別のクリーンアップ等）が
-        # from_node_id/to_node_id経由のFK整合性チェックでroad_edgesの全件シーケンシャル
-        # スキャンを行っていたため追加（既存DB向けの冪等な追加。関東圏拡大に向けた
-        # クリーンアップ作業で発覚: 35,550行の削除に27分かかった）
-        await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS idx_road_edges_from_node_id ON road_edges USING btree (from_node_id)")
-        )
-        await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS idx_road_edges_to_node_id ON road_edges USING btree (to_node_id)")
-        )
-        # geom列導入前に保存された既存行のバックフィル（node_ids→osm_raw_nodesから
-        # LINESTRINGを再構成）。get_way_specs_with_closureはgeomを前提とした空間検索の
-        # ため、NULLのままだと旧データが閉包対象から漏れる。座標が判明しているノードが
-        # 2点未満の行はNULLのまま（save_raw_ways/PBF取込と同じ意味論）。
-        await conn.execute(
-            text(
-                """
-                UPDATE osm_raw_ways w
-                SET geom = sub.line
-                FROM (
-                    SELECT w2.osm_way_id, ST_MakeLine(n.geom ORDER BY u.ord) AS line
-                    FROM osm_raw_ways w2
-                    JOIN LATERAL unnest(w2.node_ids) WITH ORDINALITY AS u(node_id, ord) ON true
-                    JOIN osm_raw_nodes n ON n.osm_node_id = u.node_id
-                    WHERE w2.geom IS NULL
-                    GROUP BY w2.osm_way_id
-                    HAVING count(*) >= 2
-                ) sub
-                WHERE w.osm_way_id = sub.osm_way_id
-                """
-            )
-        )
-        # 旧・閉包クエリ用のGINインデックス（node_ids &&）の廃止（既存DB向けの冪等な削除）。
-        # geom列の空間検索への置き換えで未使用になり、実測28MB（東京都心取込時）を占めて
-        # いたため、Supabaseフリープラン等の容量制約に合わせて削除する
-        # （road_graph_models.py: OsmRawWayRowのdocstring参照）。
-        await conn.execute(text("DROP INDEX IF EXISTS ix_osm_raw_ways_node_ids"))
 
 
 def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
@@ -789,11 +737,23 @@ class AttributeRepository(_SessionRepository):
 
 
 class RoadGraphRepository:
-    """責務別の4リポジトリを既存の公開APIのまま束ねるファサード（改善計画T6）。
+    """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
+    フラットな委譲メソッド群として公開するファサード（改善計画T6）。
 
-    DI（api/dependencies.py）・テスト・検証スクリプトからの安定した注入点として残す。
-    新しいコードは用途に応じて個別のリポジトリ（raw_osm/graph/attributes/tile_query
-    属性）を直接使ってよく、委譲メソッドは呼び出し側の移行が済んだものから削除できる。
+    **このフラットな形（`repository.save_raw_ways(...)`等、`repository.raw_osm.save_raw_ways(...)`
+    ではない）が、`GraphService`/`ElevationAttributeService`/`RegionService`が依存する
+    正式なインターフェースである（改善計画T18で確認・確定）。各サービスは`RoadGraphRepository`
+    という具象クラスではなくこのフラットな形をダックタイピングで期待しており、対応するテストは
+    それぞれ独立した`FakeRoadGraphRepository`/`FakeRegionRepository`等（同じくフラットな形）を
+    注入する。個別リポジトリ（`.raw_osm`/`.graph`/`.attributes`/`.tile_query`）への直接アクセスは
+    このファサード自身の実装内部、または検証スクリプト・ファサード単体テストなど
+    「フラットな契約を経由しない」ことが明確な用途に限定する。
+
+    **新しい属性の読み書きメソッドを追加するとき**（例: 静的道路属性計画の新属性）は、
+    対応する個別リポジトリへメソッドを実装したうえで、**既存と同じ流儀でこのファサードにも
+    フラットな委譲メソッドを追加する**（対称性を崩さない。サービス層がフラット契約に依存して
+    いる以上、ここへの追加は重複ではなく契約の一部）。
+
     書き込みメソッドはcommitしない。呼び出し側（サービス層）が操作のまとまりごとに
     `commit()`を呼ぶ（モジュールdocstringの規約参照）。
     """

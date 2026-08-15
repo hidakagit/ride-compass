@@ -14,16 +14,20 @@ logger = logging.getLogger("ridecompass.region")
 
 ROAD_SURFACE_TILE_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 
+# タイル内容の世代。パスへ世代を含めることで、プロパティ追加前に保存された旧タイルを
+# キャッシュヒットさせない（旧世代のファイルは「変わらないデータを更新」のclear_allで
+# まとめて消える）。フロントエンドのタイルURLのバージョンクエリ（regionApi.tsの
+# ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
+# （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
+# regionApi.test.tsの照合テストがドリフトを検知する）。
+# v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
+# 改善計画T7）でsurface_goodの値が変わった世代。
+# v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
+ROAD_SURFACE_TILE_VERSION = "3"
+
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
-    # 改善計画T7）でsurface_goodの値が変わった世代。
-    # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。パスへ世代を含める
-    # ことで、プロパティ追加前に保存された旧タイルをキャッシュヒットさせない（旧世代の
-    # ファイルは「変わらないデータを更新」のclear_allでまとめて消える）。フロントエンドの
-    # タイルURLのバージョンクエリ（regionApi.tsのROAD_SURFACE_TILE_VERSION、ブラウザ
-    # キャッシュのバスト用）と役割が対になっている。
-    return f"region/road-surface/v3/{z}/{x}/{y}.pbf"
+    return f"region/road-surface/v{ROAD_SURFACE_TILE_VERSION}/{z}/{x}/{y}.pbf"
 
 
 class RegionService:

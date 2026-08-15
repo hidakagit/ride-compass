@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { ROAD_TILE_SOURCE_LAYER } from "@/components/Map/MapView";
 import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM, refreshBasemapCache, roadSurfaceTileUrl } from "./regionApi";
+
+// ROAD_SURFACE_TILE_VERSION自体はregionApi.tsからexportされていないため、
+// roadSurfaceTileUrl()の?v=から実際に使われている値を取り出して比較する
+// （2重に手書き定数を持たず、実際の挙動を検証対象にする）。
+function tileVersionFromUrl(url: string): string {
+  return new URL(url).searchParams.get("v") ?? "";
+}
 
 describe("regionApi", () => {
   afterEach(() => {
@@ -14,6 +23,15 @@ describe("regionApi", () => {
   it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
     expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=3`);
+  });
+
+  // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
+  // region_service.ROAD_SURFACE_TILE_VERSIONからbackend/scripts/export_openapi.pyが生成する
+  // （CIのapi-contractジョブがドリフト検知、改善計画T19）。片側だけ値を変えて再生成・
+  // コミットし忘れた状態をCIで検出する。
+  it("路面ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
+    expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.layer_name);
+    expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(regionTileConfig.tile_version);
   });
 
   describe("refreshBasemapCache", () => {

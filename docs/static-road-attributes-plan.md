@@ -6,6 +6,10 @@
 
 関連: [architecture.md](architecture.md) / [improvement-plan.md](improvement-plan.md)（T9/T11/T12が本計画と関係）
 
+**着手前ゲート**: 本計画の実装は、複雑度平衡レビュー（[complexity-review-2026-08-15.md](complexity-review-2026-08-15.md)）
+で定めた **T16〜T19（ゲートADR・マイグレーション機構・ファサード削減・同期ペア検知テスト）の完了後**に開始する
+（improvement-plan.md「第2回レビュー対応」参照）。T9（surface列化）は本計画のスキーマ変更・再取込に同梱する。
+
 ---
 
 ## 1. 現状調査の結果
