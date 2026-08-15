@@ -23,16 +23,17 @@ class GraphService:
     独立しており、どちらからも参照されない。
 
     `repository`（infrastructure/road_graph_repository.RoadGraphRepository）を渡すと、
-    `get_or_build_graph_with_attributes`がPostGISをread-throughキャッシュとして使う。
-    渡さない場合（既定）は、Phase 1-5と同じ「毎回Overpassから構築する」挙動のまま
+    `get_or_build_graph_with_attributes`はPostGIS（PBF取込バッチ等でタイル取得済みマーク
+    された範囲）のみを読み、Overpassへは問い合わせない（改善計画T22でOverpassフォールバックを
+    撤去済み）。渡さない場合（既定）は、Phase 1-5と同じ「毎回Overpassから構築する」挙動のまま
     （既存の`build_graph_with_surface_tags_for_bbox`の呼び出し方・挙動には一切影響しない）。
 
     `repository`指定時の`get_or_build_graph_with_attributes`は、タイル取得時に
-    交差点分割（build_road_graph）を行わない。生のOSM Way/Nodeデータだけをタイル単位で
-    永続化し、実際の分割計算はDB上の既知の生データ全体から近傍Wayを含めて都度行う
-    （タイル境界依存の交差点分割不一致問題への根本対応。詳細はdocs/architecture.md参照）。
-    ただし生データが前回のsplit以降変わっていなければ、その分割計算・永続化を丸ごと省略して
-    既存のroad_edges/road_nodesを直接読む（`RoadGraphRepository.is_split_up_to_date`参照）。
+    交差点分割（build_road_graph）を行わない。分割計算はDB上の既知の生データ全体から
+    近傍Wayを含めて都度行う（タイル境界依存の交差点分割不一致問題への根本対応。
+    詳細はdocs/architecture.md参照）。ただし生データが前回のsplit以降変わっていなければ、
+    その分割計算・永続化を丸ごと省略して既存のroad_edges/road_nodesを直接読む
+    （`RoadGraphRepository.is_split_up_to_date`参照）。
     """
 
     def __init__(
@@ -40,16 +41,10 @@ class GraphService:
         overpass_client: OverpassClient,
         http_client: httpx.AsyncClient,
         repository: RoadGraphRepository | None = None,
-        overpass_fallback_enabled: bool = True,
     ):
         self._overpass_client = overpass_client
         self._http_client = http_client
         self._repository = repository
-        # PBF取込範囲外のタイルをOverpassへ問い合わせて補完するか（docs/osm-pbf-import.md
-        # Phase 3）。Falseなら未取込タイルを含むリクエストは「データ未整備」としてNoneを
-        # 返す（Overpassへは行かない）。`repository`未指定時はこのフラグに関わらず常に
-        # Overpassから構築する（DBなし構成ではOverpassが唯一のデータソースのため）。
-        self._overpass_fallback_enabled = overpass_fallback_enabled
 
     async def build_graph_with_surface_tags_for_bbox(
         self, bbox: BoundingBox
@@ -70,18 +65,16 @@ class GraphService:
     async def get_or_build_graph_with_attributes(
         self, bbox: BoundingBox
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:
-        """PostGISキャッシュ（`repository`）があれば優先的に使い、無ければOverpassから
-        生データを取得してキャッシュへ保存する（`repository`が未設定なら常にOverpassから
+        """PostGISキャッシュ（`repository`）があれば使う（`repository`が未設定なら常にOverpassから
         直接構築する、Phase1-5と同じ挙動）。
 
         `repository`指定時は、まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`の
         XYZタイル群に分解し、タイルごとに「生データを取得済みか」を`is_tile_cached`で
         正確に判定する（地域路面レイヤー/RegionServiceと同じ「タイル単位で厳密に
-        キャッシュする」考え方）。未取得のタイルだけをOverpassへ順に問い合わせて
-        （公開Overpassインスタンスへの配慮として並列化しない）**生のOSM Way/Nodeデータを
-        そのまま**永続化する（この時点ではEdgeへの分割は行わない）。
+        キャッシュする」考え方）。未取得のタイルが1つでもあれば、そのbboxは「データ未整備」
+        としてNoneを返す（Overpassへは問い合わせない。改善計画T22）。
 
-        全タイルの生データ取得を保証した後、まず`is_split_up_to_date`で「対象bboxの生データが
+        全タイルの生データ取得を確認できた後、まず`is_split_up_to_date`で「対象bboxの生データが
         前回のsplit以降変わっていないか」を確認する。変わっていなければ`get_graph_in_bbox`で
         road_edges/road_nodesを直接読み出し、`get_surface_attributes`で
         road_edges.osm_way_id経由のosm_raw_ways.surfaceをJOIN導出する（省略パス。
@@ -97,44 +90,18 @@ class GraphService:
         if self._repository is None:
             return await self._fetch_graph_with_surface_attributes(bbox)
 
-        any_tile_fetch_failed = False
         for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
             if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
                 continue
 
-            if not self._overpass_fallback_enabled:
-                # 取込範囲外＋フォールバック無効。データ未整備として即Noneを返す
-                # （ログ方針: 常時WARNING。PBF取込漏れ・想定外の範囲へのリクエストを
-                # 運用で気づけるようにする。docs/osm-pbf-import.md Phase 3）。
-                logger.warning(
-                    "Road Graphタイルが取込範囲外（Overpassフォールバック無効） z=%d x=%d y=%d "
-                    "bbox=(%.2f,%.2f,%.2f,%.2f)",
-                    ROAD_GRAPH_TILE_ZOOM, x, y,
-                    bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
-                )
-                return None
-
-            tile_bbox = tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y)
-            result = await self._overpass_client.get_ways_and_nodes(self._http_client, tile_bbox)
-            if result is None:
-                # Overpass取得に失敗した場合はマークしない（次回リクエストで再取得を試みる。
-                # RegionServiceのroad-surfaceタイルキャッシュと同じ方針）。この場合、
-                # 対象範囲を完全にはカバーできていないため、最終的にNoneを返す
-                # （道路が無い空の地域と取得失敗を区別するため。下記参照）。
-                any_tile_fetch_failed = True
-                continue
-
-            raw_ways, node_coords = result
-            way_specs = osm_ways_to_way_specs(raw_ways)
-            await self._repository.save_raw_ways(way_specs, node_coords)
-            await self._repository.mark_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y)
-            # 「生データ保存＋取得済みマーク」をタイル単位の1コミットで確定する
-            # （repositoryはcommitしない規約。road_graph_repository.pyのdocstring参照。
-            # 同一トランザクションなので、途中で落ちてもマークだけ残る・データだけ残るという
-            # 中途半端な状態にならない）。
-            await self._repository.commit()
-
-        if any_tile_fetch_failed:
+            # 取込範囲外。データ未整備として即Noneを返す（Overpassへは問い合わせない。
+            # 改善計画T22でOverpassフォールバックを撤去済み。ログ方針: 常時WARNING。
+            # PBF取込漏れ・想定外の範囲へのリクエストを運用で気づけるようにする）。
+            logger.warning(
+                "Road Graphタイルが取込範囲外 z=%d x=%d y=%d bbox=(%.2f,%.2f,%.2f,%.2f)",
+                ROAD_GRAPH_TILE_ZOOM, x, y,
+                bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
+            )
             return None
 
         # 生データ（osm_raw_ways）が前回のsplit以降変わっていなければ、closure再計算・

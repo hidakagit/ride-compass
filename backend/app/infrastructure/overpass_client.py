@@ -9,8 +9,10 @@ from app.infrastructure.debug_log import log_external_call
 # overpass-api.de単独だと「同一クエリを別経路（開発機）から直接叩くと数千件のwayが
 # 数秒〜十秒程度で返るのに、Render経由だと2〜3秒で0件（elements: []、remarkも無し）」
 # という現象が確認された。HTTPエラーにはならないため既存の例外ハンドリングでは
-# 検知できず、その「0件」がRegionServiceのタイル永続キャッシュへそのまま焼き付いて
-# しまい、路面レイヤーがそのタイルだけ永久に空表示になっていた。単一ミラーの
+# 検知できず、その「0件」がタイル永続キャッシュへそのまま焼き付いてしまい、
+# そのタイルだけ永久に空表示になっていた（当時は地域路面レイヤーもOverpass経由。
+# 現在は`get_ways_and_nodes`＝Road Graph構築専用だが、同じ問題が起こりうる点は変わらない）。
+# 単一ミラーの
 # 「200 OKだが0件」を信用せず、他のミラーでも0件と分かるまでは「本当に対象が無い」と
 # 判断しない。
 #
@@ -28,13 +30,14 @@ OVERPASS_URLS = [
 
 # httpxの既定User-Agent（python-httpx/x.x.x）だとOverpassの公開インスタンスに406を返される
 # ことを実機確認したため、利用ポリシーに沿ってアプリを識別できるUser-Agentを明示する。
-REQUEST_HEADERS = {"User-Agent": "RideCompass/0.1 (dev; road-surface region layer)"}
+REQUEST_HEADERS = {"User-Agent": "RideCompass/0.1 (dev; road-graph construction)"}
 
 
 class OverpassClient:
     """OSMのOverpass API（複数の公開ミラーへ同時フォールバック）のクライアント。
 
-    指定bbox内の道路（highwayタグを持つway）を取得する。
+    `GraphService`の`repository`未接続時（DBなし構成）のRoad Graph構築でのみ使う
+    （改善計画T22でOverpassフォールバックを撤去済みのため、それ以外の経路からは呼ばれない）。
     """
 
     async def _query_one(
@@ -90,46 +93,16 @@ class OverpassClient:
                 if not task.done():
                     task.cancel()
 
-    async def get_roads(self, client: httpx.AsyncClient, bbox: BoundingBox) -> list[dict] | None:
-        query = (
-            "[out:json][timeout:25];"
-            f"way[\"highway\"]({bbox.min_latitude},{bbox.min_longitude},{bbox.max_latitude},{bbox.max_longitude});"
-            "out geom;"
-        )
-
-        data = await self._query(
-            client,
-            query,
-            "region:overpass",
-            bbox=(bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude),
-        )
-        if data is None:
-            return None
-
-        ways = []
-        for element in data["elements"]:
-            if element.get("type") != "way":
-                continue
-            geometry = element.get("geometry")
-            if not geometry:
-                continue
-            ways.append(
-                {
-                    "tags": element.get("tags", {}),
-                    "coordinates": [[point["lat"], point["lon"]] for point in geometry],
-                }
-            )
-        return ways
-
     async def get_ways_and_nodes(
         self, client: httpx.AsyncClient, bbox: BoundingBox
     ) -> tuple[list[dict], dict[int, tuple[float, float]]] | None:
         """指定bbox内の道路（highwayタグを持つway）を、Way ID・Node IDとノード間の参照関係
         （トポロジー）を保持したまま取得する。
 
-        `get_roads`（`out geom`でジオメトリのみ取得、ID無し。地域路面レイヤーの地図表示用）とは
-        異なり、Road Graph構築（交差点でのWay分割）にはどのノードをどのWayが共有しているかが
-        必要なため、`(._;>;)`でwayが参照する全nodeを再帰的に取得し、ID付きで返す。
+        Road Graph構築（交差点でのWay分割）にはどのノードをどのWayが共有しているかが
+        必要なため、`(._;>;)`でwayが参照する全nodeを再帰的に取得し、ID付きで返す
+        （`GraphService`の`repository`未接続時のみ使う。地域路面レイヤーはPostGISのみを
+        参照し、Overpassへは問い合わせない。改善計画T22）。
         """
         query = (
             "[out:json][timeout:25];"

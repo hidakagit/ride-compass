@@ -1,69 +1,14 @@
 import mapbox_vector_tile
 
-from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, TILE_EXTENT, encode_road_surface_tile
-
-Z, X, Y = 14, 14551, 6447  # 王子駅付近を含むタイル
+from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty_road_surface_tile
 
 
 def _decode(tile_bytes: bytes) -> dict:
     return mapbox_vector_tile.decode(tile_bytes, default_options={"y_coord_down": True})
 
 
-def test_encode_road_surface_tile_produces_a_decodable_layer_with_expected_properties():
-    ways = [
-        {
-            "coordinates": [[35.7550, 139.7350], [35.7560, 139.7360]],
-            "surface_good": True,
-            "surface": "asphalt",
-            "highway": "residential",
-        },
-        {
-            "coordinates": [[35.7570, 139.7370], [35.7580, 139.7380]],
-            "surface_good": False,
-            "surface": "gravel",
-            "highway": "track",
-        },
-        {"coordinates": [[35.7590, 139.7390], [35.7600, 139.7400]], "surface_good": None},
-    ]
-
-    tile_bytes = encode_road_surface_tile(Z, X, Y, ways)
-    decoded = _decode(tile_bytes)
-
-    features = decoded[ROAD_SURFACE_LAYER_NAME]["features"]
-    assert len(features) == 3
-    properties = sorted((f["properties"] for f in features), key=lambda p: p.get("surface") or "")
-    # None値（surface/highwayキー無しの旧形式含む）のプロパティはfeatureから省略される
-    assert properties == [
-        {},
-        {"surface_good": True, "surface": "asphalt", "highway": "residential"},
-        {"surface_good": False, "surface": "gravel", "highway": "track"},
-    ]
-
-
-def test_encode_road_surface_tile_places_points_within_tile_extent_for_a_point_inside_the_tile():
-    # タイルの中心に近い点は、タイルローカル座標でも概ね中央（0-4096の範囲内）に来るはず
-    ways = [{"coordinates": [[35.7555, 139.7355], [35.7556, 139.7356]], "surface_good": True}]
-
-    tile_bytes = encode_road_surface_tile(Z, X, Y, ways)
-    decoded = _decode(tile_bytes)
-
-    feature = decoded[ROAD_SURFACE_LAYER_NAME]["features"][0]
-    for px, py in feature["geometry"]["coordinates"]:
-        assert 0 <= px <= TILE_EXTENT
-        assert 0 <= py <= TILE_EXTENT
-
-
-def test_encode_road_surface_tile_skips_ways_with_fewer_than_two_points():
-    ways = [{"coordinates": [[35.7555, 139.7355]], "surface_good": True}]
-
-    tile_bytes = encode_road_surface_tile(Z, X, Y, ways)
-    decoded = _decode(tile_bytes)
-
-    assert decoded[ROAD_SURFACE_LAYER_NAME]["features"] == []
-
-
-def test_encode_road_surface_tile_handles_empty_ways():
-    tile_bytes = encode_road_surface_tile(Z, X, Y, [])
+def test_encode_empty_road_surface_tile_produces_a_decodable_layer_with_no_features():
+    tile_bytes = encode_empty_road_surface_tile()
 
     decoded = _decode(tile_bytes)
 

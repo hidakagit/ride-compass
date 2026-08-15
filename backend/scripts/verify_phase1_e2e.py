@@ -53,10 +53,6 @@ class FailingOverpassClient:
         self.call_count += 1
         return None
 
-    async def get_roads(self, client, bbox):
-        self.call_count += 1
-        return None
-
 
 async def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")

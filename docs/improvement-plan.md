@@ -278,20 +278,35 @@
   `get_nearest_surface_tags`のDB統合テストはローカルネイティブPGに対して実行し
   （スナップ半径内/範囲外/複数点の順序保持を確認）、実際にPostGIS上で動作することを確認済み
 
-### - [ ] T22. Overpassフォールバックの一括撤去〔I-4〕規模M — トリガー: T16で決めた撤去条件の成立
+### - [x] T22. Overpassフォールバックの一括撤去〔I-4〕規模M（2026-08-16完了）
 
 - `overpass_fallback_enabled` 分岐（GraphService/RegionService）・`vector_tile.py`
   （PythonMVTエンコーダ）・`OverpassClient.get_roads` と対応テストを一括削除。
 - 完了条件: タイル生成経路がPostGIS（ST_AsMVT）1系統になり、カバレッジ外は空タイル＋
   常時WARNINGのみ。architecture.mdの該当記述を同一コミットで現状化。
-- **撤去条件の成立見込みと確認手順**（2026-08-16 第4回レビューR-2で追記）: 条件前半
-  （関東圏PBF取込完了）は2026-08-15に成立済みのため、**最短2026-08-29に撤去可能**。
-  着手前に本番（Render）ログを2026-08-15〜29の範囲で検索し、次の2点がいずれも0件である
-  ことを確認する: ①「取込範囲外」WARNING（GraphService/RegionServiceの
-  「Overpassフォールバック無効」メッセージ。カバレッジ外アクセスの有無）
-  ②`region:overpass`/`graph:overpass`カテゴリのログ（フォールバック実発動の有無。
-  本番はfallback無効のため通常は構造的に0件）。あわせて`/api/debug/stats`の該当カテゴリの
-  呼び出し数も0であることを確認する。
+- **撤去条件を改定**（2026-08-16、ユーザー提起＋ADR決定2改定）: 当初条件2（本番ログ2週間連続0件）
+  を撤廃した。理由: プロトタイプを個人で試行錯誤している低利用規模の段階では、2週間待っても
+  該当ログの母数がほぼ増えず、時間経過が検証の信頼性を実質的に上げない。また本番は既に
+  `OVERPASS_FALLBACK_ENABLED=false`で運用中のため、撤去しても本番の挙動自体は変わらない
+  （既に無効化された経路の削除に過ぎない）。詳細は
+  [decisions/pre-static-attributes-gate.md 決定2改定](decisions/pre-static-attributes-gate.md)参照。
+  条件1（関東圏PBF取込完了）は2026-08-15に成立済みのため、待機なしで着手した。
+- **実施内容**: `config.py`の`overpass_fallback_enabled`設定を削除。`GraphService`（repositoryモード）は
+  未取込タイルを含むリクエストへ即Noneを返す読み出し専用へ変更（`OverpassClient.get_ways_and_nodes`
+  はDBなし構成専用として残置）。`RegionService`は`overpass_client`/`http_client`引数ごと削除し
+  `repository`のみを受け取る形へ縮小、カバレッジ外は`vector_tile.py: encode_empty_road_surface_tile`
+  （空フィーチャのみの軽量エンコーダへ縮小、旧`encode_road_surface_tile`のジオメトリ変換・
+  Mercator投影コードは削除）を返す。`OverpassClient.get_roads`を削除（`get_ways_and_nodes`は
+  DBなし構成のRoad Graph構築専用として存続）。way数スケーリングを計測していた
+  `bench_vector_tile.py`・`bench_event_loop_stall.py`は対象機能が構造的に消えたため削除、
+  `benchmarks/README.md`・`run_all.py`・`_synthetic.py`を追従。`scripts/verify_phase1_e2e.py`・
+  `verify_phase2_e2e.py`・`.env.example`（2箇所）・`docs/architecture.md`・
+  `docs/osm-pbf-import.md`・`docs/static-road-attributes-plan.md`を現状化。
+- 完了条件確認: backend 568件全green（`test_graph_service.py`のrepositoryモード関連テストは
+  「GraphServiceが自らOverpassを取得・永続化する」設計から「PBF取込バッチ等が投入済みのデータを
+  読むだけ」の設計へテスト前提を作り直した。タイル境界をまたぐ交差点分割の回帰テスト
+  `test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shared_node`は
+  repositoryへの直接シード方式に置き換えて同じ回帰を引き続き検証）。
 
 ---
 
@@ -761,3 +776,4 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 | 2026-08-16 | T48・T49 | ユーザー依頼（計画外の品質観点）でDependabot（`.github/dependabot.yml`、npm/pip/github-actions週次）とクリティカルパスE2E自動化を実施。E2Eはバックエンド・外部APIに依存させず、`frontend/e2e/fixtures.ts`のPlaywrightネットワークモックで`/api/routes/generate`・`/api/weather`・`/api/basemap/**`・`/api/region/road-surface-tiles/**`を置換（API契約の正しさはapi-contractジョブが別途担保する設計分担）。ルート生成→表示・レイヤーON/OFFの2本を`playwright.config.ts`（Chromium1種、`next build && next start`）＋CIの`e2e`ジョブとして追加。vitestが`e2e/**`を誤検出する問題を`vitest.config.mts`のexcludeで解消。frontend 148件・eslint・tsc・E2E2件すべてgreen |
 | 2026-08-16 | T25 | 静的属性P1で評価軸が増えたことによりトリガー成立、評価軸カタログ化を実施。`frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、`mapLayers.ts`と同じ型）。ラベルを`Record<keyof ScoringWeights\|RoutePreferenceWeights, ...>`で書きOpenAPI生成型への完全性チェックをドリフト検知に使う（新規生成物・テスト無し）。`WeightPanel.tsx`・`RouteList.tsx`のハードコードをカタログ生成へ置換、副次効果でUI入力欄が無かった`stop_weight`も自動追加。`score_breakdown`の新規表示UIはスコープ外とした（ユーザー承認、モバイルUI改修との競合回避）。backend 531件・frontend 146件・eslint・tsc全green |
 | 2026-08-16 | 静的属性P1残り（intersectionDensity・trafficStress・bicycle_infra評価組み込み） | ユーザー依頼で当初分離していたP1残りスコープを実施。ユーザー承認のうえ、intersectionDensityを当初案（road_graphエンジンはグラフ内Node次数を直接計算）から「半径内の交差点（次数3以上のroad_node）件数」という停止POIと同一の空間マッチ方式へ設計変更し、両エンジンとも同じ形の実装に統一（結果として当初の分離理由だったORS側の実装規模増加が解消され、同ラウンドで完了）。`AttributeRepository`へ`get_way_tags`/`get_nearest_way_tags`/`get_intersection_counts`/`get_nearest_intersection_counts`を新規実装（get_surface_attributes/get_nearest_surface_tagsと同じJOIN・空間KNNパターンの踏襲、交差点は`road_edges`のfrom/to隣接ノード集合から次数を都度導出）。`domain/difficulty.py: evaluate_axis_difficulties`を4軸→7軸へ拡張（T43で1箇所化済みのため呼び出し元3箇所は引数追加のみ）。`RoutePreference`へ`traffic_weight`/`infra_weight`/`intersection_weight`追加、7軸すべて`route_preference.yaml`のみに追加し`scoring.yaml`には追加しない（stop_weightと同じ判断、R-5対応）。`RouteSegmentDetail`/`RouteCandidate`へ新フィールド追加、OpenAPI/フロント型再生成。`evaluationAxes.ts`のPREFERENCE_AXESへ3軸追加・`WeightPanel.tsx`の既定値更新。backend 581件（新規47件、repository統合テストで次数3/2判定・空間マッチ境界を検証）・frontend 153件・eslint・tsc全green。詳細はdocs/static-road-attributes-plan.md P1節参照 |
+| 2026-08-16 | T22 | ユーザー提起により撤去条件（本番ログ2週間連続0件）を撤廃（低利用規模のプロトタイプ段階では時間経過が検証の信頼性を上げないため。decisions/pre-static-attributes-gate.md 決定2改定）、待機なしで着手・完了。`overpass_fallback_enabled`設定・`GraphService`/`RegionService`のフォールバック分岐・`OverpassClient.get_roads`・Python側MVTエンコーダ（`encode_road_surface_tile`）を削除し、地域路面レイヤーをPostGIS（ST_AsMVT）単独系統へ一本化（カバレッジ外は空タイル）。`RegionService`は`overpass_client`/`http_client`引数ごと不要になり縮小。way数スケーリングを計測していた`bench_vector_tile.py`・`bench_event_loop_stall.py`を削除。`test_graph_service.py`のrepositoryモードテスト群を「GraphServiceが自ら取得・永続化する」前提から「PBF取込済みデータを読むだけ」前提へ作り直し（タイル境界交差点分割の回帰テストは直接シード方式へ置換して同じ回帰を継続検証）。backend 568件全green、benchmarks/scripts/docs（architecture.md・osm-pbf-import.md等）を追従更新 |

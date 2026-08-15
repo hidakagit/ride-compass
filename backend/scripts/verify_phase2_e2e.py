@@ -8,9 +8,10 @@
 
 検証項目:
 1. create_tables()の再実行で旧GINインデックスが削除されること
-2. 取込範囲内のタイル: PostGISだけでMVTが生成され、地物が入っており、Overpass呼び出し0回
-3. 取込範囲外のタイル（フォールバック無効): 空タイルが返り、Overpass呼び出し0回
-4. 取込範囲外のタイル（フォールバック有効): Overpass（スタブ）へフォールバックすること
+2. 取込範囲内のタイル: PostGISだけでMVTが生成され、地物が入っている
+3. 取込範囲外のタイル: 空タイルが返る（改善計画T22でOverpassフォールバックを撤去済み。
+   docs/decisions/pre-static-attributes-gate.md 決定2改定）
+4. z12（カバレッジズームと同一）のタイルもPostGISのみで生成される
 
 ファイルキャッシュは一時ディレクトリへ差し替えるため、実運用のタイルキャッシュを汚さない。
 """
@@ -56,15 +57,6 @@ def feature_count(tile_bytes: bytes) -> int:
     return sum(len(layer["features"]) for layer in decoded.values())
 
 
-class FailingOverpassClient:
-    def __init__(self):
-        self.call_count = 0
-
-    async def get_roads(self, client, bbox):
-        self.call_count += 1
-        return None
-
-
 async def main() -> int:
     # 実運用のファイルキャッシュ（backend/data/tile_cache）を読まない・汚さない
     tile_cache.CACHE_DIR = Path(tempfile.mkdtemp(prefix="phase2_tile_cache_"))
@@ -89,56 +81,32 @@ async def main() -> int:
               f"Oracle移行後は容量が実質制約でないため予算アサーションは行わない）")
 
         print("== 2. 取込範囲内タイル: PostGISのみで生成 ==")
-        overpass = FailingOverpassClient()
         x, y = tile_at(35.681, 139.767, VERIFY_ZOOM)  # 東京駅付近（取込bbox内）
         async with session_factory() as session:
-            service = RegionService(
-                overpass, http_client=None, repository=RoadGraphRepository(session)
-            )
+            service = RegionService(repository=RoadGraphRepository(session))
             tile_bytes = await service.get_road_surface_tile(VERIFY_ZOOM, x, y)
             count = feature_count(tile_bytes)
             check("MVTに路面地物が含まれる", count > 0, f"features={count}")
-            check("Overpassは呼ばれない", overpass.call_count == 0, f"calls={overpass.call_count}")
             print(f"  tile z{VERIFY_ZOOM}/{x}/{y}: {len(tile_bytes)} bytes, {count} features")
 
             # 2回目はファイルキャッシュから返る（DBへも行かない）ことを軽く確認
             tile_bytes_2 = await service.get_road_surface_tile(VERIFY_ZOOM, x, y)
             check("2回目はキャッシュから同一タイルが返る", tile_bytes_2 == tile_bytes)
 
-        print("== 3. 取込範囲外タイル（フォールバック無効）: 空タイル・Overpassゼロ ==")
-        overpass = FailingOverpassClient()
+        print("== 3. 取込範囲外タイル: 空タイル ==")
         ox, oy = tile_at(34.70, 137.73, VERIFY_ZOOM)  # 浜松付近（取込範囲外）
         async with session_factory() as session:
-            service = RegionService(
-                overpass, http_client=None, repository=RoadGraphRepository(session),
-                overpass_fallback_enabled=False,
-            )
+            service = RegionService(repository=RoadGraphRepository(session))
             empty_tile = await service.get_road_surface_tile(VERIFY_ZOOM, ox, oy)
             check("範囲外は空タイル", feature_count(empty_tile) == 0)
-            check("範囲外でもOverpassは呼ばれない（フォールバック無効）", overpass.call_count == 0)
-
-        print("== 4. 取込範囲外タイル（フォールバック有効）: Overpassへフォールバック ==")
-        overpass = FailingOverpassClient()
-        async with session_factory() as session:
-            service = RegionService(
-                overpass, http_client=None, repository=RoadGraphRepository(session),
-                overpass_fallback_enabled=True,
-            )
-            await service.get_road_surface_tile(VERIFY_ZOOM, ox, oy)
-            check("範囲外はOverpassへフォールバックする", overpass.call_count == 1,
-                  f"calls={overpass.call_count}")
 
         # 表示ズーム下限（=カバレッジズームと同一のz12）でも動くことを確認
-        print("== 5. z12（カバレッジズームと同一）のタイル ==")
-        overpass = FailingOverpassClient()
+        print("== 4. z12（カバレッジズームと同一）のタイル ==")
         zx, zy = tile_at(35.681, 139.767, ROAD_TILE_MIN_ZOOM)
         async with session_factory() as session:
-            service = RegionService(
-                overpass, http_client=None, repository=RoadGraphRepository(session)
-            )
+            service = RegionService(repository=RoadGraphRepository(session))
             z12_tile = await service.get_road_surface_tile(ROAD_TILE_MIN_ZOOM, zx, zy)
-            check("z12タイルもPostGISのみで生成される",
-                  feature_count(z12_tile) > 0 and overpass.call_count == 0)
+            check("z12タイルもPostGISのみで生成される", feature_count(z12_tile) > 0)
     finally:
         await engine.dispose()
 

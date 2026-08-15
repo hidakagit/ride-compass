@@ -183,7 +183,6 @@ async def _run_scenario(
                     _FailingOverpassClient(),
                     http_client,
                     repository=RoadGraphRepository(session),
-                    overpass_fallback_enabled=False,
                 )
                 built = await service.get_or_build_graph_with_attributes(bbox)
                 assert built is not None and built[0].edges, "空グラフが返った(取込範囲を確認)"

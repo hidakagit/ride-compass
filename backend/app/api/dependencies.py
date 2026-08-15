@@ -87,9 +87,11 @@ RouteGenerationBuilder = Callable[[RoutePreference | None, dict[str, float] | No
 
 async def get_graph_service():
     # ルート生成は周回全体を覆うbboxを1回のOverpass問い合わせで取得するため、
-    # 地域路面レイヤー（タイル単位、15秒）より長めのタイムアウトにする。
-    # road_graph_use_repository有効時はPostGISをread-throughキャッシュとして注入し、
-    # PBF取込済み（タイルマーク済み）の範囲ではOverpassへ問い合わせない（config.py参照）。
+    # 地域路面レイヤー（タイル単位、15秒）より長めのタイムアウトにする
+    # （road_graph_use_repository無効時のDBなし構成でのみ実際にOverpassへ問い合わせる）。
+    # road_graph_use_repository有効時はPostGISのみを参照し、取込範囲外はOverpassへ
+    # 問い合わせずデータ未整備として扱う（改善計画T22でOverpassフォールバックを撤去済み。
+    # config.py参照）。
     http_client = get_http_client(30.0)
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
@@ -97,7 +99,6 @@ async def get_graph_service():
                 OverpassClient(),
                 http_client,
                 repository=RoadGraphRepository(session),
-                overpass_fallback_enabled=settings.overpass_fallback_enabled,
             )
     else:
         yield GraphService(OverpassClient(), http_client)
@@ -177,28 +178,15 @@ def get_route_generation_builder(
 
 
 async def get_region_service():
-    # road_graph_use_repository有効時はPostGISを第一系統として注入する（PBF取込済みの
-    # 範囲ではOverpassへ問い合わせない。フォールバックの可否はoverpass_fallback_enabled。
-    # docs/osm-pbf-import.md Phase 2）。
-    #
-    # OverpassClientのクエリは[timeout:25]（サーバー側が内部で使ってよい上限秒数）を
-    # 指定しているのに、以前はhttpxクライアント側のタイムアウトが15.0秒とそれより短く
-    # 設定されていた。密集した市街地のbboxは実測で10〜15秒以上かかることがあり、
-    # サーバー側がまだ処理を続けている（＝最終的には成功する）リクエストをクライアント側が
-    # 先に打ち切ってしまい、本来成功するはずの問い合わせがタイムアウトエラー扱いになる
-    # 不具合が実機（Renderデプロイ）で確認された。クエリの内部タイムアウトに余裕を持って
-    # 揃える（get_graph_serviceと同じ30.0秒）。
-    http_client = get_http_client(30.0)
+    # PostGISのみを参照する（PBF取込済みの範囲外・DB障害時は空タイルを返す。
+    # Overpassフォールバックは改善計画T22で撤去済み。docs/osm-pbf-import.md Phase 2、
+    # docs/decisions/pre-static-attributes-gate.md 決定2改定）。road_graph_use_repository
+    # 無効時（DBなし構成）はrepository自体を注入しないため、路面レイヤーは常に空タイルになる。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
-            yield RegionService(
-                OverpassClient(),
-                http_client,
-                repository=RoadGraphRepository(session),
-                overpass_fallback_enabled=settings.overpass_fallback_enabled,
-            )
+            yield RegionService(repository=RoadGraphRepository(session))
     else:
-        yield RegionService(OverpassClient(), http_client)
+        yield RegionService()
 
 
 def get_basemap_client():

@@ -35,8 +35,8 @@ width/shoulderは実測値（0.3%/0.0%）でP2据え置きを確定（§2.1参�
 | # | 項目 | 現状 |
 |---|---|---|
 | 1 | 地図ライブラリ | MapLibre GL JS v5（固定、Next.js App Router）。`MapView.tsx`が描画専任 |
-| 2 | ベクタータイル取得 | 自前MVT `GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`（z12-15）。PostGIS `ST_AsMVT`が第一系統（`road_graph_repository.py: RoadSurfaceTileQuery`）、Overpass＋Pythonエンコードはフォールバック。Next.js rewritesで同一オリジン化、`tile_cache`（ファイル、世代v3）に永続化 |
-| 3 | OSMデータ取得 | 第一系統: PBF取込バッチ（`app/batch/import_pbf.py`、pyosmium）→ PostGIS `osm_raw_ways`/`osm_raw_nodes`。取込対象は `import_profile.yaml` で宣言。フォールバック: `OverpassClient`（本番は無効） |
+| 2 | ベクタータイル取得 | 自前MVT `GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`（z12-15）。PostGIS `ST_AsMVT`が第一系統（`road_graph_repository.py: RoadSurfaceTileQuery`）。Next.js rewritesで同一オリジン化、`tile_cache`（ファイル、世代v4）に永続化。**2026-08-16追記: Overpass＋Pythonエンコードのフォールバックは改善計画T22で撤去済み（取込範囲外は空タイル）** |
+| 3 | OSMデータ取得 | PBF取込バッチ（`app/batch/import_pbf.py`、pyosmium）→ PostGIS `osm_raw_ways`/`osm_raw_nodes`。取込対象は `import_profile.yaml` で宣言。**2026-08-16追記: Overpassフォールバックは改善計画T22で撤去済み。`OverpassClient`は`road_graph_use_repository=false`（DBなし構成）でのRoad Graph構築専用として残る** |
 | 4 | 現在取得しているOSMタグ | **wayの `highway` / `surface` / `oneway`（→direction）の3つのみ**。他のタグは `osm_adapter.py: osm_way_to_way_spec` の変換時にすべて破棄され、DBにも残らない。**ノードのタグは一切取得していない**（`osm_raw_nodes`は座標のみ＝信号・横断歩道等は現状ゼロ） |
 | 5 | 路面の内部モデル | `surface`生タグ → `domain/road.py: classify_osm_surface`（GOOD/BAD_OSM_SURFACE_TAGS が正準の単一ソース）→ 3値 `surface_good`。Edge単位では `surface_attributes` テーブル（`SurfaceAttribute`） |
 | 6 | 道路セグメントの内部モデル | `WaySpec`（osm_way_id, node_ids, highway, surface, direction）→ `build_road_graph` で交差点分割 → `Node`/`DirectedEdge`（Edgeは`highway`生値のみ保持）。属性は `elevation_attributes`/`surface_attributes` に分離（Edge本体と属性データの分離が既に設計原則） |
