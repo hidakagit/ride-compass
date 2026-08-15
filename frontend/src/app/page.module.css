@@ -222,8 +222,37 @@
   cursor: pointer;
 }
 
+/* 「設定」タブ用の修飾。一般ユーザーが日常的に使う「ルートを作る」「地図の見え方」の
+   2タブより控えめな幅にする（開発者向け機能への入り口のため目立たせすぎない、T43）。 */
+.tabButtonSmall {
+  flex: 0 0 4rem;
+  font-size: var(--font-size-sm);
+}
+
 .tabButtonActive {
   color: var(--color-accent-strong);
   font-weight: 700;
+  background: var(--color-accent-bg);
+}
+
+/* 「設定」内のデバッグログ起動ボタン（systemRowの他の項目=文字だけの控えめな見た目とは
+   区別し、押せるボタンだと分かるよう枠を付ける）。ONのときはlocateButton等と同じ
+   アクセントカラーで強調する。 */
+.logToggleButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.logToggleButton[aria-pressed="true"] {
+  color: var(--color-accent-strong);
+  border-color: var(--color-accent);
   background: var(--color-accent-bg);
 }

@@ -5,7 +5,7 @@ import MapView from "@/components/Map/MapView";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
-import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
+import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import { LogIcon } from "@/components/Map/icons";
@@ -99,25 +99,16 @@ function saveStoredJson(key: string, value: unknown): void {
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
 const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 
-// 現在地に移動ボタン・そのエラー表示の、地図右下からの間隔（px）。
-// デバッグモードOFF時はMapLibreの既定のアトリビューション表示（右下）と重ならない程度の
-// 間隔（rem指定、既存の見た目を維持）、ON時はDebugConsole（画面下部に最大
-// DEBUG_CONSOLE_MAX_HEIGHT_PX分重なる）の上に出るようpx単位で計算する。
-const LOCATE_BUTTON_HEIGHT_PX = 44;
-const LOCATE_BUTTON_GAP_PX = 12;
-
-// モバイル下部タブバーの高さ（globals.cssの--mobile-tabbar-height、3.5rem=56pxと一致させる）。
-// 現在地ボタン等がタブバーの上に出るよう、モバイルでは常にこの分だけ底上げする。
-const MOBILE_TABBAR_HEIGHT_PX = 56;
-
 // 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>とモバイルのBottomSheetの
 // 見出しの両方で使う（両者は排他表示のためid重複しない）。地図の見え方セクション
 // （MapLayersPanel）のルート未生成時の案内からの誘導スクロール先でもある。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 // モバイルの「地図の見え方」シート見出しのDOM id。
 const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
+// モバイルの「設定」シート見出しのDOM id。
+const SETTINGS_SHEET_TITLE_ID = "settings-sheet-title";
 
-type MobileSheet = "route" | "map" | null;
+type MobileSheet = "route" | "map" | "settings" | null;
 
 export default function Home() {
   const { location, locationSource, locating, locateError, handleLocateMe } = useLocation();
@@ -387,7 +378,7 @@ export default function Home() {
   }, [isMobile, handleGenerateOpenChange]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
-  const handleMobileTabClick = useCallback((sheet: "route" | "map") => {
+  const handleMobileTabClick = useCallback((sheet: "route" | "map" | "settings") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
   }, []);
 
@@ -497,22 +488,6 @@ export default function Home() {
     }
   }
 
-  // DebugConsoleパネルが実際に開いているとき（debugEnabledだけでなくdebugConsoleOpenも
-  // trueのとき）のみJSで計算してインラインstyleを当てる（DebugConsoleの高さ基準。
-  // パネル非表示時はpage.module.cssの@media (max-width:640px)側の既定値がタブバー分の
-  // クリアランスを含めて計算済みのため、ここではnullのままCSSに委ねる）。
-  const debugConsoleVisible = debugEnabled && debugConsoleOpen;
-  const locateButtonBottomPx = debugConsoleVisible
-    ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX + (isMobile ? MOBILE_TABBAR_HEIGHT_PX : 0)
-    : null;
-  const locateErrorBottomPx = debugConsoleVisible
-    ? DEBUG_CONSOLE_MAX_HEIGHT_PX +
-      LOCATE_BUTTON_GAP_PX +
-      LOCATE_BUTTON_HEIGHT_PX +
-      LOCATE_BUTTON_GAP_PX +
-      (isMobile ? MOBILE_TABBAR_HEIGHT_PX : 0)
-    : null;
-
   // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37。
   // デスクトップの<details>とモバイルのBottomSheetの両方から呼ぶ、モバイル実機
   // フィードバック対応T34）。
@@ -561,45 +536,57 @@ export default function Home() {
     );
   }
 
-  // 「地図の見え方」＋「開発者向け」の中身。開発者向けは末尾に含める（モバイルでも同じ
-  // シートから触れるようにする。デスクトップは以前は別ブロックだったが、内容は同じ
-  // <details>のためコード上の重複を避けてここへ統合した、T34）。
+  // 「地図の見え方」の中身。開発者向け機能はrenderSettingsSectionBody（独立した
+  // 「設定」ブロック）へ分離済み（一般ユーザーは使わないログ起動を地図上のアイコンから
+  // 追い出した際に、「地図の見え方」内の折りたたみからも独立ブロックへ格上げした、T43）。
   function renderMapSettingsSectionBody() {
     return (
-      <>
-        <div className={styles.legendCard}>
-          <MapLayersPanel
-            layerVisibility={layerVisibility}
-            onLayerToggle={handleLayerToggle}
-            roadHiddenKeysByMode={roadHiddenKeysByMode}
-            onRoadLegendToggle={toggleHiddenLegendKey}
-            onRoadAxisSetHidden={handleRoadAxisSetHidden}
-            regionZoomTooWide={regionZoomTooWide}
-            routeStyleModeId={routeStyleModeId}
-            onRouteStyleModeChange={handleRouteStyleModeChange}
-            hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-            onRouteLegendToggle={handleRouteLegendToggle}
-            hasDetail={hasDetail}
-            onGoToGenerate={handleGoToGenerate}
-          />
-        </div>
+      <div className={styles.legendCard}>
+        <MapLayersPanel
+          layerVisibility={layerVisibility}
+          onLayerToggle={handleLayerToggle}
+          roadHiddenKeysByMode={roadHiddenKeysByMode}
+          onRoadLegendToggle={toggleHiddenLegendKey}
+          onRoadAxisSetHidden={handleRoadAxisSetHidden}
+          regionZoomTooWide={regionZoomTooWide}
+          routeStyleModeId={routeStyleModeId}
+          onRouteStyleModeChange={handleRouteStyleModeChange}
+          hiddenRouteLegendKeys={hiddenRouteLegendKeys}
+          onRouteLegendToggle={handleRouteLegendToggle}
+          hasDetail={hasDetail}
+          onGoToGenerate={handleGoToGenerate}
+        />
+      </div>
+    );
+  }
 
-        {/* 開発者向け: ログ・研究モード・疎通確認・キャッシュ更新。一般ユーザーの視界から
-            外すためデフォルト閉の折りたたみにする（T30） */}
-        <details className={styles.blockSection}>
-          <summary className={styles.blockSummary}>開発者向け</summary>
-          <div className={styles.blockBody}>
-            <div className={styles.systemRow}>
-              <DebugPanel />
-              <ResearchPanel />
-              <BackendStatus />
-            </div>
-            {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
-            <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
-              地図データを再読み込み
+  // 「設定」ブロックの中身: ログ・研究モード・疎通確認・キャッシュ更新など、一般ユーザーは
+  // 触らない開発者向け機能をまとめる。デバッグログの起動ボタンは、デバッグモード
+  // （DebugPanelのチェック）がONのときだけ現れる（以前の地図上trailingButtonと同じ条件）。
+  // 起動すると地図に浮かぶ独立したフローティングパネル（DebugConsole）が開く（T43）。
+  function renderSettingsSectionBody() {
+    return (
+      <>
+        <div className={styles.systemRow}>
+          <DebugPanel />
+          {debugEnabled && (
+            <button
+              type="button"
+              onClick={() => setDebugConsoleOpen((v) => !v)}
+              aria-pressed={debugConsoleOpen}
+              className={styles.logToggleButton}
+            >
+              <LogIcon size={14} />
+              {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
             </button>
-          </div>
-        </details>
+          )}
+          <ResearchPanel />
+          <BackendStatus />
+        </div>
+        {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
+        <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
+          地図データを再読み込み
+        </button>
       </>
     );
   }
@@ -631,10 +618,10 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
-                    「B. 地図の見え方（表示系・即時反映、開発者向けを含む）」の2ブロック構成
-                    （UI一貫性再編T30、モバイル実機フィードバック対応T34で開発者向けをBへ統合）。
-                    生成に効く条件（出発地点・距離・重み）が画面のあちこちに分散していた状態を
-                    解消し、系統ごとに反映タイミングを揃える。 */}
+                    「B. 地図の見え方（表示系・即時反映）」「C. 設定（開発者向け）」の
+                    3ブロック構成（UI一貫性再編T30、地図上のログアイコン廃止に伴い開発者向けを
+                    Bから独立ブロックへ格上げ、T43）。生成に効く条件（出発地点・距離・重み）が
+                    画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。 */}
 
                 {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
                     編集は生成ボタンを押すまで地図へ影響しない。 */}
@@ -657,6 +644,13 @@ export default function Home() {
                   <h2 className={styles.blockHeading}>地図の見え方</h2>
                   {renderMapSettingsSectionBody()}
                 </section>
+
+                {/* C. 設定: デバッグログ起動・研究モード・疎通確認・キャッシュ更新など、
+                    一般ユーザーは通常触らない機能。デフォルト閉の折りたたみにする（T30・T43）。 */}
+                <details className={styles.blockSection}>
+                  <summary className={styles.blockSummary}>設定</summary>
+                  <div className={styles.blockBody}>{renderSettingsSectionBody()}</div>
+                </details>
               </>
             )}
           </aside>
@@ -683,23 +677,7 @@ export default function Home() {
             experimentSlots={researchEnabled ? experimentSlots : []}
           />
 
-          <MapOverlayControls
-            layers={overlayLayers}
-            onToggle={handleLayerToggle}
-            onSummaryClick={handleLayerSummaryClick}
-            trailingButton={
-              debugEnabled
-                ? {
-                    icon: <LogIcon />,
-                    label: "ログ",
-                    active: debugConsoleOpen,
-                    onClick: () => setDebugConsoleOpen((v) => !v),
-                    ariaLabel: debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く",
-                    title: debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く",
-                  }
-                : undefined
-            }
-          />
+          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
 
           <button
             type="button"
@@ -708,7 +686,6 @@ export default function Home() {
             aria-label="現在地に移動"
             title="現在地に移動"
             className={locating ? `${styles.locateButton} ${styles.locateButtonBusy}` : styles.locateButton}
-            style={locateButtonBottomPx != null ? { bottom: `${locateButtonBottomPx}px` } : undefined}
           >
             {locating ? (
               "…"
@@ -729,24 +706,18 @@ export default function Home() {
             )}
           </button>
 
-          {locateError && (
-            <p
-              className={styles.locateError}
-              style={locateErrorBottomPx != null ? { bottom: `${locateErrorBottomPx}px` } : undefined}
-            >
-              {locateError}
-            </p>
-          )}
+          {locateError && <p className={styles.locateError}>{locateError}</p>}
 
-          {/* デバッグログの起動アイコンは地図左上のアイコン列（MapOverlayControls）の
-              trailingButtonへ統合済み（デバッグモードOFF中はそもそも記録が無いため
-              渡さない＝非表示）。 */}
+          {/* デバッグログの起動は「設定」ブロック内のボタン（renderSettingsSectionBody）から。
+              position: fixedの独立フローティングパネルのためDOM上の位置は表示に影響しない。 */}
           <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
         </div>
       </div>
 
-      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート2枚へ置換
-          （モバイル実機フィードバック対応T34）。シート表示中も地図の上側が見えたまま
+      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート3枚へ置換
+          （モバイル実機フィードバック対応T34、開発者向け機能の独立ブロック化に伴い
+          「設定」タブを追加、T43）。「設定」は一般ユーザーが日常的に使う2タブより
+          控えめな幅にする（tabButtonSmall）。シート表示中も地図の上側が見えたまま
           パン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
       {isMobile && (
         <>
@@ -766,6 +737,18 @@ export default function Home() {
               className={mobileSheet === "map" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
             >
               地図の見え方
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileSheet === "settings"}
+              onClick={() => handleMobileTabClick("settings")}
+              className={
+                mobileSheet === "settings"
+                  ? `${styles.tabButton} ${styles.tabButtonSmall} ${styles.tabButtonActive}`
+                  : `${styles.tabButton} ${styles.tabButtonSmall}`
+              }
+            >
+              設定
             </button>
           </nav>
 
@@ -791,6 +774,18 @@ export default function Home() {
             onHeightCommit={handleMobileSheetHeightCommit}
           >
             {renderMapSettingsSectionBody()}
+          </BottomSheet>
+
+          <BottomSheet
+            open={mobileSheet === "settings"}
+            onClose={() => setMobileSheet(null)}
+            title="設定"
+            titleId={SETTINGS_SHEET_TITLE_ID}
+            heightVh={mobileSheetHeightVh}
+            onHeightChange={handleMobileSheetHeightChange}
+            onHeightCommit={handleMobileSheetHeightCommit}
+          >
+            {renderSettingsSectionBody()}
           </BottomSheet>
         </>
       )}
