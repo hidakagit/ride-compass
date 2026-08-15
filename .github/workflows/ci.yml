@@ -6,6 +6,10 @@
 #   TEST_DATABASE_URL を注入する（conftest.py参照）。
 # - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
 #   失敗を早く返す。
+# - e2e: クリティカルパス（ルート生成→表示、レイヤー切替）のPlaywrightスモークテスト
+#   （改善計画「別の切り口」対応）。バックエンド・外部API（openrouteservice/Open-Meteo/
+#   OpenFreeMap）には依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
+#   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
 name: CI
 
 on:
@@ -83,3 +87,25 @@ jobs:
       - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

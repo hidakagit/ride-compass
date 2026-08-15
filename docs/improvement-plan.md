@@ -669,6 +669,50 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 
 ---
 
+## 品質保証の追加施策（2026-08-16・計画外レビュー）
+
+第4回複雑度平衡レビュー後、ユーザーから「テストカバレッジ・パフォーマンス計測など計画に無い観点」の
+検討依頼を受け、既存の改善計画（設計レビュー系）とは別軸で品質保証体制のギャップを棚卸しした。
+投資対効果の高い2点（依存関係の脆弱性検知・クリティカルパスのE2E自動化）をT48/T49として実施。
+残り（カバレッジ可視化・バンドルサイズ計測・本番エラー監視）は現段階では優先度を下げて見送り。
+
+### - [x] T48. Dependabot導入〔依存関係の脆弱性検知〕規模S（2026-08-16完了）
+
+- `.github/dependabot.yml`を新規作成。npm（`/frontend`）・pip（`/backend`）・github-actions（`/`）の
+  3エコシステムを週次でスキャン。自動マージはせず、PRが立ったら既存CI（backend/frontend/api-contract）の
+  greenを確認して取り込む運用とする。
+- 完了条件: 設定ファイルのみ（コード変更なし）。次回の週次スキャンでPRが起票されるかは
+  実際のGitHub側スケジュールに依存するため未検証。
+
+### - [x] T49. クリティカルパスのE2E自動化〔Playwright, CI組み込み〕規模M（2026-08-16完了）
+
+- 背景: これまでの「Playwright実機確認」（T27・T34等）はすべてタスク実施時にAIエージェントが
+  手動でPlaywrightを叩く一回性の検証で、継続的な回帰防止スイートではなかった。地図UI変更のたびに
+  人手（AI操作）で確認し直す運用コストを、CIでの自動E2Eへ一部移す。
+- 設計判断（バックエンド・外部APIには依存させない）: 実バックエンド＋実外部API
+  （openrouteservice/Open-Meteo/OpenFreeMap）に接続するE2Eは、APIキー等のCIシークレット管理・
+  無料枠消費・DBセットアップ・ネットワーク起因のflakinessを抱える。APIレスポンスの型的な正しさは
+  既存の`api-contract`ジョブ（OpenAPIドリフト検知）が別途担保しているため、E2Eは
+  「有効なAPIレスポンスが来たときにフロントが正しく描画・操作できるか」に対象を絞り、
+  `frontend/e2e/fixtures.ts`でPlaywrightのネットワークインターセプト（`page.route`）により
+  `/api/routes/generate`・`/api/weather`・`/api/basemap/**`（MapLibreスタイルを空スタイルに差し替え）・
+  `/api/region/road-surface-tiles/**`をすべてモックする。この結果、E2Eジョブはバックエンドプロセス・
+  DB・APIキーを一切必要とせず、frontendのみで完結する。
+- 対象は2本のスモークテスト（`frontend/e2e/smoke.spec.ts`）: ①ルート生成→候補一覧の表示
+  （距離入力→生成ボタン→モック2候補が一覧に表示されることを確認）②地図レイヤーのON/OFF切替
+  （地図上のレイヤーチップの`aria-pressed`が反転することを確認。サイドバー側にも同名チップが
+  あるため完全一致で地図上のチップに絞り込む必要があった）。
+- `playwright.config.ts`: `next build && next start`（プロダクションビルド）をwebServerとして起動、
+  Chromium1ブラウザのみ（クロスブラウザ検証が目的ではなくフロントのリグレッション検知が目的のため）。
+- 既存のvitest（`npm test`）が`frontend/e2e/**`を`*.spec.ts`パターンで誤って拾ってしまう問題が発覚し、
+  `vitest.config.mts`へ`exclude: [...configDefaults.exclude, "e2e/**"]`を追加して分離した。
+- CIへ`e2e`ジョブを新規追加（`.github/workflows/ci.yml`、`frontend`ジョブと独立、DB/シークレット不要）。
+  失敗時のみ`playwright-report`をartifactアップロードする。
+- 完了条件: ローカルで`npm run test:e2e`2件green、既存`npm test`148件green・eslint・tsc green
+  （いずれも確認済み）。CI上での実行結果は次回push/PRで確認。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -713,4 +757,5 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 | 2026-08-16 | 静的属性P1（node取込・停止密度評価、主要部分） | 信号・横断歩道・一時停止・踏切のnode取込機構（`osm_raw_pois`新テーブル、migration 0005、`domain/traffic.py: classify_stop_poi`、`osm_adapter.py: osm_node_to_poi_spec`、`pbf_source.py`のpyosmium `node()`ハンドラ、`import_profile.yaml`のnode要素2ルール）と「停止密度」評価軸（`AttributeRepository.get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`RoutePreference.stop_weight`、`compute_edge_cost`・両エンジンのEdge Cost/区間難易度への統合、`RouteCandidate.stop_density`/`RouteSegmentDetail.stop_difficulty`）を実装。ユーザー承認のうえスコープを絞り、交差点密度（intersectionDensity）とtrafficStress/bicycle_infra（P0由来way属性）の評価組み込みは別タスクへ分離。PBF取込バッチはRawOsmRepositoryを経由せず直接asyncpg COPYで書くため、Overpassフォールバック側は元々ADR方針どおり無改修。backend 531件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。dev機ネイティブPGへmigration 0005適用（空DB・既存DBとも冪等確認）、Tokyo.osm.pbfでdry-run実行し信号等81,921件のマッチを実データで確認済み。詳細はdocs/static-road-attributes-plan.md P1節参照 |
 | 2026-08-16 | （第4回レビュー） | 複雑度平衡レビュー第2弾を全ソース通読で実施（complexity-review-2026-08-16.md、詳細版はArtifact公開）。第2回指摘I-1〜I-10の完済を実コードで確認（I-4のみ条件待ち）。残課題R-1〜R-10のうち実装対応をT43〜T47として起票、T22へ撤去期限（最短2026-08-29）と発動ログ確認手順を追記。設計原則10箇条を改訂（原則1/2/8/9を更新） |
 | 2026-08-16 | T43〜T47 | 第4回レビュー対応を全件実施。T43: `domain/difficulty.py`へ`evaluate_axis_difficulties`（軸別difficulty＋合成値をまとめて返すNamedTuple）を追加し、両エンジンの`_build_segment_details`・`compute_edge_cost`の3箇所の重複合成ブロックを置換（評価軸追加時の編集箇所3→1）。T44: `SURFACE_MATCH_MAX_DISTANCE_M`/`STOP_POI_MATCH_MAX_DISTANCE_M`を`domain/road.py`/`domain/traffic.py`へ集約し、openrouteservice_engine.py・AttributeRepository（個別リポジトリ＋ファサード委譲6箇所）をimport参照へ統一。T45: `ComparisonPanel.tsx`の`formatWeights`を`SCORING_AXES`/`PREFERENCE_AXES`カタログからの生成へ置換（stop_weightの欠落を解消）、`METRIC_ROWS`へ停止密度行を追加、テスト3件追加。T46: `staticAttributeLayers.ts`へ`BICYCLE_INFRA_LABELS`をexportし`MapView.tsx`の重複辞書を削除。T47: static-road-attributes-plan.mdへscoring軸判断項目を追記、.env.exampleへDBなし構成の評価縮退を追記、restart-dev.bat/stop-dev.batへ用途コメントを追加（削除せずコミット対象化）。backend 531件・frontend 148件（新規3件含む）・eslint（変更ファイルのみ、既存の無関係な未コミット変更除く）・tsc全green |
+| 2026-08-16 | T48・T49 | ユーザー依頼（計画外の品質観点）でDependabot（`.github/dependabot.yml`、npm/pip/github-actions週次）とクリティカルパスE2E自動化を実施。E2Eはバックエンド・外部APIに依存させず、`frontend/e2e/fixtures.ts`のPlaywrightネットワークモックで`/api/routes/generate`・`/api/weather`・`/api/basemap/**`・`/api/region/road-surface-tiles/**`を置換（API契約の正しさはapi-contractジョブが別途担保する設計分担）。ルート生成→表示・レイヤーON/OFFの2本を`playwright.config.ts`（Chromium1種、`next build && next start`）＋CIの`e2e`ジョブとして追加。vitestが`e2e/**`を誤検出する問題を`vitest.config.mts`のexcludeで解消。frontend 148件・eslint・tsc・E2E2件すべてgreen |
 | 2026-08-16 | T25 | 静的属性P1で評価軸が増えたことによりトリガー成立、評価軸カタログ化を実施。`frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、`mapLayers.ts`と同じ型）。ラベルを`Record<keyof ScoringWeights\|RoutePreferenceWeights, ...>`で書きOpenAPI生成型への完全性チェックをドリフト検知に使う（新規生成物・テスト無し）。`WeightPanel.tsx`・`RouteList.tsx`のハードコードをカタログ生成へ置換、副次効果でUI入力欄が無かった`stop_weight`も自動追加。`score_breakdown`の新規表示UIはスコープ外とした（ユーザー承認、モバイルUI改修との競合回避）。backend 531件・frontend 146件・eslint・tsc全green |
