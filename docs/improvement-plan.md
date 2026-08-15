@@ -130,23 +130,38 @@
 - pgRouting / プロセス内グラフキャッシュ / 事前縮約の比較ADRを書き、実装方針を決めてから着手する。
   現状の「リクエスト毎全量ロード」のまま機能を積まないこと。
 
-### - [ ] T13. `WeatherService.get_conditions(at=...)` のhourly範囲外ガード〔既知L3〕規模S — トリガー: `at`を使う機能追加時
+### - [x] T13. `WeatherService.get_conditions(at=...)` のhourly範囲外ガード〔既知L3〕規模S（2026-08-15完了）
+
+- `at`がhourly取得範囲（forecast_days=2分）外のとき、最も近い時刻の値を誤って代用せず
+  Noneを返すガード（`_within_hourly_range`）を追加。トリガー（`at`を使う機能追加）を待たずに
+  T14/T15-C5と合わせて着手（並行セッションがT9で触れていないファイルのため実施可能だった）。
+- 完了条件: 範囲外指定時にNoneを返すテストを追加。backend 473件green
 
 ---
 
 ## Phase 4: 現時点では対応不要（任意・ついで）
 
-### - [ ] T14. デッドコード削除 規模S
+### - [ ] T14. デッドコード削除 規模S（一部完了）
 
-- `database.py: get_session` 削除／`graph_service.py: build_graph_for_bbox` のscripts専用明記or削除／
-  `/api/routes/preview` の位置づけをdocsで実態に合わせる。
+- `database.py: get_session` 削除 ✅完了（2026-08-15。どこからも参照されていないことを確認して削除）
+- `graph_service.py: build_graph_for_bbox` のscripts専用明記or削除 — 未着手。
+  `graph_service.py`は別セッションのT9（surface_attributes導出化）が現在進行中で触れているため、
+  T9完了後に着手すること
+- `/api/routes/preview` の位置づけをdocsで実態に合わせる — 未着手
 
-### - [ ] T15. 小粒の整理 規模S
+### - [ ] T15. 小粒の整理 規模S（一部検討・見送り）
 
-- `ASSUMED_SPEED_KMH` をdomain定数へ統一（wind_service.py / road_graph_engine.py）。
-- `repository=None` 引数への型注釈（`RoadGraphRepository | None`）追加（3サービス）。
-- `get_route_generator` のlifespanベース構築への変更（C5）。
-- `MapView.tsx`（751行）の分割は、レイヤー追加が続く場合のみ検討。
+- `ASSUMED_SPEED_KMH` をdomain定数へ統一（wind_service.py / road_graph_engine.py）— 未着手。
+  `road_graph_engine.py`がT9進行中のため着手不可（T9完了後）
+- `repository=None` 引数への型注釈（`RoadGraphRepository | None`）追加（3サービス）— 未着手。
+  対象3サービスのうち`GraphService`がT9進行中のファイルのため着手不可（T9完了後）
+- `get_route_generator` のlifespanベース構築への変更（C5）— **検討のうえ見送り**（2026-08-15）。
+  `app/main.py`に`lifespan`自体が未導入で新規追加が必要な点、T23でこの関数がリクエスト毎の
+  `scoring_weights`/`route_preference`上書きに対応する`build()`クロージャへ再構成済みのため
+  lifespan化できるのは`settings.routing_engine`分岐のみで実利が薄い点、元のC5指摘
+  （design-review-2026-08-15.md）自体が「オブジェクト構築は軽量で現状許容」「P3〜P4」と
+  優先度を低く見積もっていた点から、見た目の粒度に見合わないリスクと判断し着手しなかった
+- `MapView.tsx`（751行）の分割は、レイヤー追加が続く場合のみ検討。未着手
 
 ---
 
@@ -418,3 +433,4 @@
 | 2026-08-15 | T28(C) | ユーザー許可を得てOracle側PostgreSQL設定を変更・反映。`shared_buffers 128MB→3GB`・`max_wal_size 1GB→8GB`・`checkpoint_timeout 5min→30min`・`maintenance_work_mem 64MB→1GB`。`systemctl restart postgresql`で反映、本番タイル取得で疎通確認済み。T28完了（大規模実測検証のみ次回持ち越し） |
 | 2026-08-15 | P0(静的属性) | `osm_raw_ways.tags jsonb`（許可リスト18タグ）・`domain/traffic.py`（交通ストレス/自転車インフラ純関数）・MVT拡張（v3→v4）・フロント新規2レイヤーを実装。backend 464件・frontend 148件全green、ローカル・本番DBへmigration適用済み、Playwright実機確認済み。T9・範囲拡大・P1は別タスクとして残す |
 | 2026-08-15 | カバレッジ実測（関東全域） | `measure_tag_coverage.py`新規作成（backend 472件green）。kanto-latest.osm.pbf全域（131万way）で実測し、東京都心試算より全般に低いことを確認。width/shoulderのP2据え置きを確定、smoothness/cycleway系の疎さ・lanes/maxspeedが幹線限定であることをP1着手時の前提として記録 |
+| 2026-08-15 | T13・T14(一部)・T15-C5検討 | 別セッションのT9（surface_attributes導出化）と並行して、T9未接触のファイルに限定して実施。T13（WeatherServiceのhourly範囲外ガード）完了、T14は`database.py: get_session`削除のみ完了（残り2項目はT9対象ファイルのため保留）、T15-C5（lifespanベース構築）は検討のうえ見送り（詳細は各タスクの節を参照）。backend 473件green |
