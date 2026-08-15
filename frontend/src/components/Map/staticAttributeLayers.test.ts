@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCIDENT_COLOR_EXPRESSION,
+  ACCIDENT_LEGEND,
+  ACCIDENT_RADIUS_EXPRESSION,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LEGEND,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
@@ -58,5 +61,33 @@ describe("staticAttributeLayers", () => {
       const colors = legend.map((e) => e.color);
       expect(new Set(colors).size).toBe(colors.length);
     }
+  });
+
+  it("事故レイヤーの凡例キーは自転車関連/その他の2値で重複が無い", () => {
+    const keys = ACCIDENT_LEGEND.map((e) => e.key);
+    expect(new Set(keys)).toEqual(new Set(["bicycle", "other"]));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("事故レイヤーの凡例は一意な色を持つ", () => {
+    const colors = ACCIDENT_LEGEND.map((e) => e.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("事故レイヤーの色分け式は凡例の色以外を使わない", () => {
+    const legendColors = new Set(ACCIDENT_LEGEND.map((e) => e.color));
+    const expressionColors = ACCIDENT_COLOR_EXPRESSION.filter(
+      (item): item is string => typeof item === "string" && item.startsWith("#"),
+    );
+    expect(expressionColors.length).toBeGreaterThan(0);
+    for (const color of expressionColors) {
+      expect(legendColors.has(color)).toBe(true);
+    }
+  });
+
+  it("死亡事故（fatal=true）は非死亡事故より大きい円で強調される", () => {
+    expect(ACCIDENT_RADIUS_EXPRESSION[0]).toBe("case");
+    const [, , fatalRadius, defaultRadius] = ACCIDENT_RADIUS_EXPRESSION as [string, unknown[], number, number];
+    expect(fatalRadius).toBeGreaterThan(defaultRadius);
   });
 });

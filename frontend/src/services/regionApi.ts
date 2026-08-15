@@ -3,6 +3,7 @@ import { debugLog } from "@/lib/debugLog";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
+const ACCIDENT_TILE_PATH = "/api/region/accident-tiles/{z}/{x}/{y}.pbf";
 
 // タイル内容の世代。タイルへ焼き込むプロパティが増えた（内容の互換性が変わった）ときに
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
@@ -24,6 +25,15 @@ const ROAD_SURFACE_TILE_VERSION = "4";
 // 評価する関数として提供する。
 export function roadSurfaceTileUrl(): string {
   return `${window.location.origin}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
+}
+
+// 事故レイヤー（外部静的データソース T50）のタイル世代。バックエンド側
+// （accident_service.pyのACCIDENT_TILE_VERSION）と対で更新すること。
+// v1: 初回実装（involves_bicycle/fatal/occurred_yearプロパティ）。
+const ACCIDENT_TILE_VERSION = "1";
+
+export function accidentTileUrl(): string {
+  return `${window.location.origin}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
 // バックエンド（domain/region.py）のROAD_TILE_MIN_ZOOM/MAX_ZOOMと一致させる。

@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # （詳細な経緯はapi/routers/region.pyのコメント参照）。
     road_tile_rate_limit_per_minute: int = 120
     road_tile_max_concurrent: int = 6
+    # 事故タイル（外部静的データソース T50）。road_tileと同じ理由（PostGIS問い合わせ・
+    # ディスクキャッシュ書き込みを伴う）で同種の歯止めを持つが、accident_pointsは
+    # road_edgesよりテーブルが小さく1タイルあたりのクエリコストも低いため、road_tileより
+    # やや緩い上限にしている。
+    accident_tile_rate_limit_per_minute: int = 120
+    accident_tile_max_concurrent: int = 6
     basemap_rate_limit_per_minute: int = 300
     # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
     # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、

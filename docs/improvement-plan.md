@@ -729,6 +729,117 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 
 ---
 
+## 外部静的データソース検討対応（2026-08-16）
+
+[external-data-sources-review-2026-08-16.md](external-data-sources-review-2026-08-16.md)
+（外部静的データソースの精査・実行計画、同ドキュメント§4）の実施順（§4.6）に沿ったタスク起票。
+DEMタイル化（同ドキュメント優先2）は既存T10と同一のため新規タスクは起こさず、
+T10の実行設計として同ドキュメント§4.2を参照する形にする。
+
+### - [ ] T50. 警察庁事故データ→事故密度軸（8軸目）規模L — 取得・保持・表示先行は2026-08-16完了、評価組み込みが残作業
+
+- **2026-08-16訂正**: 起票時点では本票CSVの入手をユーザー作業（手動ダウンロード）と
+  想定していたが、実際のURL構造を確認したところ
+  `https://www.npa.go.jp/publications/statistics/koutsuu/opendata/{year}/honhyo_{year}.csv`
+  という年号だけで組み立てられる予測可能なパスで、2019〜2024年の全年で同一命名規則
+  （`honhyo_`/`hojuhyo_`/`kosokuhyo_`）を確認済み。ログイン・利用登録不要、robots.txtにも
+  制限記述なし、直接GETでHTTP 200・text/csvが返ることを確認済み（2024年分62.8MB）。
+  したがって**CSV取得はバッチに組み込める**（ユーザー作業は不要）。コード表
+  （`codebook_{year}.xlsx`、当事者種別コード等）も同じ命名規則で取得可能だが、こちらは
+  `domain/accident.py: involves_bicycle`の分類ロジックを書く際の参照資料として一度確認すれば
+  足りるため、実行時バッチでの取得対象には含めない。
+- 詳細設計は外部静的データソースレビュー§4.1参照。取込（`import_accidents.py`新規。
+  年次リストを引数に`honhyo_{year}.csv`をHTTP取得→Shift_JISデコード→ステージング→MERGE、
+  `log_external_call`で取得を囲み404等はWARNING常時出力・スキップして継続）→
+  保持（migration 0006、`accident_points`/`accident_import_runs`）→表示先行
+  （`/api/region/accident-tiles/{z}/{x}/{y}.pbf`、kind=static新規レイヤー）→評価組み込み
+  （`get_accident_counts`/`get_nearest_accident_counts`、`accident_difficulty`を8軸目として
+  `evaluate_axis_difficulties`へ、`route_preference.yaml`のみ・`scoring.yaml`は非対称維持）の順。
+- 完了条件: DMS変換・自転車関連判定の単体テスト、ST_DWithin境界の統合テスト、実CSVでの
+  dry-run、Playwright表示確認、backend/frontend全green。
+
+**実装結果（取得・保持・表示先行、2026-08-16）**:
+
+- **取得**: `app/batch/import_accidents.py`（新規）。年次リストから`honhyo_{year}.csv`のURLを
+  組み立ててHTTP取得（`backend/data/accidents/`へ保存、既取得分は再ダウンロードしない）、
+  CP932デコード→`csv.reader`で1行ずつストリーム処理→関東7都県（`domain/accident.py:
+  KANTO_PREFECTURE_CODES`）へ絞り込み。**2019〜2021年は本票CSVが58列構成（2022年以降は
+  68列）と実データで判明し非対応**（列数不一致はその年の取込全体をValueErrorで明示的に
+  失敗させる設計。詳細は同ファイルのモジュールdocstring参照）。2022〜2024年の3年分を
+  実際に取り込み、関東で303,455件（自転車関連92,955件・死亡事故2,032件）を確認済み
+- **保持**: migration 0006（`accident_points`/`accident_import_runs`、`accident_models.py`）。
+  `domain/accident.py`（新規・純関数）: 都道府県コード表・当事者種別コード表は
+  2026-08-16に実際にコード表CSV（`npa.go.jp/.../koudohyou/`）を取得して確認した値を使用
+  （51/52=軽車両-自転車/駆動補助機付自転車を`involves_bicycle`、死者数>0を`is_fatal`）。
+  緯度・経度は度分秒連結表記（右5桁=秒×1000、次2桁=分、残り=度）から10進変換
+- **表示**: `/api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accident_repository.py:
+  AccidentTileQuery`＋`accident_service.py: AccidentService`、road_surfaceと違い
+  カバレッジ判定は無い＝関東全域が一律で対象）。フロントは新規レイヤー「事故（警察庁統計）」
+  （`mapLayers.ts`、kind=static）、円レイヤー（`MapView.tsx`、色=自転車関連/その他、
+  死亡事故は円を拡大）、クリックポップアップ、サイドバー凡例（`MapLayersPanel.tsx`）。
+  `next.config.ts`にproxy rewriteを追加（road-surface-tilesと同じ理由、追加し忘れると
+  フロントから404になることを実機で発見）
+- 完了条件のうち「実CSVでのdry-run」「Playwright表示確認」「backend/frontend全green」は
+  達成（backend 595件・frontend 153件・eslint・tsc全green、Playwright実機確認で
+  地図上のドット表示・凡例・クリックポップアップ・チップON/OFFを確認）。「ST_DWithin境界の
+  統合テスト」は評価組み込み（`get_accident_counts`等、未着手）と合わせて残作業
+- **残作業（評価組み込み）**: `AttributeRepository.get_accident_counts`/
+  `get_nearest_accident_counts`（`get_stop_poi_counts`と同型）、`accident_difficulty`を
+  8軸目として`evaluate_axis_difficulties`へ、`route_preference.yaml`へ`accident_weight`
+  追加（`scoring.yaml`は非対称維持の方針どおり追加しない）。2019〜2021年データの取込
+  （別スキーマの列位置調査が必要）も任意の拡張として残る
+
+### - [ ] T51. 指定路線コンフレーション機構＋N10/N12・ナショナルサイクルルート表示 規模L
+
+- 詳細設計は外部静的データソースレビュー§4.3参照。「線データをroad_edgesへ対応付ける」
+  パターンD初回実装（migration 0007、`route_designations`/`designation_attributes`、
+  バッファマッチ`ST_Length(ST_Intersection(edge, ST_Buffer(designation, 20m)))/ST_Length(edge) ≥ 0.5`）。
+  N10/N12（緊急輸送道路・重要物流道路、GeoJSON登録不要で取得済み確認）は
+  trafficStress補正＋MVT表示、ナショナルサイクルルート（太平洋岸自転車道・りんりんロード、
+  KML/GPX登録不要）はまず独自線ソースでの表示のみ先行。
+- 特段の外部トリガー待ちは無く着手可能（データ入手に登録手続き不要と確認済み）。
+- 完了条件: 既知路線（国道16号・6号等）の目視確認、matched_ratio分布・バッファ幅比較での
+  誤対応（並行側道・歩道の巻き込み）実測、backend/frontend全green。
+
+### - [ ] T52. JICE舗装点検DB 調査ゲート実行 規模S（調査のみ）〜L（採用時）— トリガー: JICE返信
+
+- **現状: JICEへ照会メール送信済み（2026-08-16）、返信待ち**（利用資格・料金・緯度経度有無・
+  関東収録範囲の4点を1通で照会済み、詳細は外部静的データソースレビュー§4.4）。
+- 返信到達後、ゲート1〜3（緯度経度有無→収録範囲→T51機構でのマッチ精度実測、目安80%以上）を
+  順に確認し、途中で✕なら見送り。通過した場合のみ`pavement_sections`/`pavement_attributes`を
+  実装（新軸にはせず、既存smoothnessスコアへ「実測MCI優先」の入力ソースとして合成）。
+- 完了条件: ゲート0〜3の結果を本ファイルまたはレビュードキュメントへ追記し、採否を確定する。
+
+### - [ ] T53. JARTIC交通量によるtrafficStress較正 規模M（研究IF側の検証作業）— トリガー: 特になし（手が空いたとき）
+
+- 詳細設計は外部静的データソースレビュー§4.5参照。評価パイプラインには入れず、
+  1回のスナップショット収集（`collect_jartic.py`新規、dev機PostgreSQLのみ保持）→
+  観測点近傍エッジの`traffic_stress_level`と実交通量分布の突き合わせで完結させる。
+  定期収集は較正に不足する場合のみ検討（停止条件を先に決めておく）。
+- 完了条件: LTS段階間で交通量分布が単調に分離しているかの分析結果を記録し、
+  分離が悪ければ`TRAFFIC_STRESS_BASE_BY_HIGHWAY`等の見直し材料とする。
+
+### - [ ] T54. 既取込データの可視化漏れ解消（停止要因POI・交差点密度レイヤー）規模S〜M
+
+- 背景: 2026-08-16の棚卸しで判明。`osm_raw_pois`（信号・横断歩道・一時停止・踏切、
+  migration 0005・P1で導入済み）は評価（停止密度軸）にのみ使われており、地図上に
+  一切表示されていない（対応するAPIエンドポイント・レイヤーが存在しない）。
+  intersectionDensity（交差点密度、次数3以上のroad_node）も同様に評価専用で、
+  可視化レイヤーが無い。どちらも**新規データ取得不要**（既存テーブル・既存派生値の表示化のみ）。
+- 実施内容案: T50のaccident-tilesと同型の点/密度タイルエンドポイントを新設し、
+  kind=staticの新規レイヤーとしてmapLayers.tsへ追加（種別ごとの凡例、ズーム制限は
+  既存の路面レイヤーに準拠）。着手前にレイヤーが増えることでの`MapLayersPanel`の
+  情報過多にならないか検討する（R-6のフロント分割閾値記録も参照）。
+- 完了条件: 停止要因POI・交差点密度が地図上で確認できる。Playwright実機確認。
+  backend/frontend全green。
+
+**未起票のまま据え置き（既存文書で追跡継続、二重管理を避ける）**: `name`/`ref`のMVT焼き込み・
+`tracktype`表示・`bicycle=no`のHard Constraint・`oneway:bicycle`例外は
+[static-road-attributes-plan.md](static-road-attributes-plan.md) P1節の未着手項目4〜6として
+既に記録済みのため、本節では新規タスク化しない。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -776,4 +887,7 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 | 2026-08-16 | T48・T49 | ユーザー依頼（計画外の品質観点）でDependabot（`.github/dependabot.yml`、npm/pip/github-actions週次）とクリティカルパスE2E自動化を実施。E2Eはバックエンド・外部APIに依存させず、`frontend/e2e/fixtures.ts`のPlaywrightネットワークモックで`/api/routes/generate`・`/api/weather`・`/api/basemap/**`・`/api/region/road-surface-tiles/**`を置換（API契約の正しさはapi-contractジョブが別途担保する設計分担）。ルート生成→表示・レイヤーON/OFFの2本を`playwright.config.ts`（Chromium1種、`next build && next start`）＋CIの`e2e`ジョブとして追加。vitestが`e2e/**`を誤検出する問題を`vitest.config.mts`のexcludeで解消。frontend 148件・eslint・tsc・E2E2件すべてgreen |
 | 2026-08-16 | T25 | 静的属性P1で評価軸が増えたことによりトリガー成立、評価軸カタログ化を実施。`frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、`mapLayers.ts`と同じ型）。ラベルを`Record<keyof ScoringWeights\|RoutePreferenceWeights, ...>`で書きOpenAPI生成型への完全性チェックをドリフト検知に使う（新規生成物・テスト無し）。`WeightPanel.tsx`・`RouteList.tsx`のハードコードをカタログ生成へ置換、副次効果でUI入力欄が無かった`stop_weight`も自動追加。`score_breakdown`の新規表示UIはスコープ外とした（ユーザー承認、モバイルUI改修との競合回避）。backend 531件・frontend 146件・eslint・tsc全green |
 | 2026-08-16 | 静的属性P1残り（intersectionDensity・trafficStress・bicycle_infra評価組み込み） | ユーザー依頼で当初分離していたP1残りスコープを実施。ユーザー承認のうえ、intersectionDensityを当初案（road_graphエンジンはグラフ内Node次数を直接計算）から「半径内の交差点（次数3以上のroad_node）件数」という停止POIと同一の空間マッチ方式へ設計変更し、両エンジンとも同じ形の実装に統一（結果として当初の分離理由だったORS側の実装規模増加が解消され、同ラウンドで完了）。`AttributeRepository`へ`get_way_tags`/`get_nearest_way_tags`/`get_intersection_counts`/`get_nearest_intersection_counts`を新規実装（get_surface_attributes/get_nearest_surface_tagsと同じJOIN・空間KNNパターンの踏襲、交差点は`road_edges`のfrom/to隣接ノード集合から次数を都度導出）。`domain/difficulty.py: evaluate_axis_difficulties`を4軸→7軸へ拡張（T43で1箇所化済みのため呼び出し元3箇所は引数追加のみ）。`RoutePreference`へ`traffic_weight`/`infra_weight`/`intersection_weight`追加、7軸すべて`route_preference.yaml`のみに追加し`scoring.yaml`には追加しない（stop_weightと同じ判断、R-5対応）。`RouteSegmentDetail`/`RouteCandidate`へ新フィールド追加、OpenAPI/フロント型再生成。`evaluationAxes.ts`のPREFERENCE_AXESへ3軸追加・`WeightPanel.tsx`の既定値更新。backend 581件（新規47件、repository統合テストで次数3/2判定・空間マッチ境界を検証）・frontend 153件・eslint・tsc全green。詳細はdocs/static-road-attributes-plan.md P1節参照 |
+| 2026-08-16 | （外部静的データソース検討対応） | external-data-sources-review-2026-08-16.mdの実行計画をT50〜T54として起票。T50: 警察庁事故データ／T51: 指定路線コンフレーション機構＋N10/N12・NCR表示（着手可能）／T52: JICE舗装DB調査ゲート（JICE返信待ち、継続中）／T53: JARTIC較正（研究IF側）／T54: 既取込データ（停止要因POI・交差点密度）の可視化漏れ解消（2026-08-16の追加棚卸しで判明、新規データ取得不要） |
+| 2026-08-16 | T50訂正（CSV取得のユーザー作業前提を撤回） | ユーザーからの指摘を受け警察庁事故統計CSVの配布URL構造を実機確認（WebFetch）。`honhyo_{year}.csv`等が年号だけで組み立てられる予測可能なパスで、2019〜2024年で同一命名規則・ログイン不要・robots.txt制限なしを確認し、直接GETでHTTP 200を実測（2024年分62.8MB）。T50・external-data-sources-review-2026-08-16.md §4.1/§4.6を「CSV取得もバッチに組み込める（ユーザー作業不要）」へ訂正、T50のトリガーを撤去 |
 | 2026-08-16 | T22 | ユーザー提起により撤去条件（本番ログ2週間連続0件）を撤廃（低利用規模のプロトタイプ段階では時間経過が検証の信頼性を上げないため。decisions/pre-static-attributes-gate.md 決定2改定）、待機なしで着手・完了。`overpass_fallback_enabled`設定・`GraphService`/`RegionService`のフォールバック分岐・`OverpassClient.get_roads`・Python側MVTエンコーダ（`encode_road_surface_tile`）を削除し、地域路面レイヤーをPostGIS（ST_AsMVT）単独系統へ一本化（カバレッジ外は空タイル）。`RegionService`は`overpass_client`/`http_client`引数ごと不要になり縮小。way数スケーリングを計測していた`bench_vector_tile.py`・`bench_event_loop_stall.py`を削除。`test_graph_service.py`のrepositoryモードテスト群を「GraphServiceが自ら取得・永続化する」前提から「PBF取込済みデータを読むだけ」前提へ作り直し（タイル境界交差点分割の回帰テストは直接シード方式へ置換して同じ回帰を継続検証）。backend 568件全green、benchmarks/scripts/docs（architecture.md・osm-pbf-import.md等）を追従更新 |
+| 2026-08-16 | T50（取得・保持・表示先行） | 警察庁交通事故統計オープンデータの取込・表示を実装。`domain/accident.py`（DMS変換・当事者種別/都道府県コード判定、コード表CSVを実取得して値を確認）、`app/batch/import_accidents.py`（年号からURLを組み立てて直接HTTP取得、関東7都県へ絞り込み）、migration 0006（`accident_points`/`accident_import_runs`）を新規実装。**2019〜2021年は本票CSVが58列構成（2022年以降は68列）と実データで判明し非対応と判断**（列数不一致はその年の取込全体を明示的に失敗させる設計）。2022〜2024年を実際にdev DBへ取込み関東303,455件（自転車関連92,955件・死亡2,032件）を確認。表示は`/api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accident_repository.py`/`accident_service.py`新規、road_surfaceと異なりカバレッジ判定なし）＋フロント新規レイヤー「事故（警察庁統計）」（円マーカー、色=自転車関連/その他、死亡事故は拡大表示）。実装中に`next.config.ts`へのproxy rewrite追加漏れ（新エンドポイントがフロント経由で404になる）をPlaywright実機確認で発見・修正。backend 595件・frontend 153件・eslint・tsc全green、Playwright実機確認（レイヤーON/OFF・地図上のドット表示・サイドバー凡例）で表示を確認。評価組み込み（8軸目化）は残作業として引き続きT50に残す（詳細はT50節参照） |

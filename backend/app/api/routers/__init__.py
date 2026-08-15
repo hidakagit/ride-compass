@@ -5,6 +5,8 @@
 - routes.py: /api/routes/preview, /api/routes/generate（ルート生成）
 - weather.py: /api/weather
 - region.py: /api/region/road-surface-tiles/{z}/{x}/{y}.pbf（地域路面レイヤー）
+- accidents.py: /api/region/accident-tiles/{z}/{x}/{y}.pbf（外部静的データソース T50。
+  警察庁交通事故統計レイヤー）
 - basemap.py: /api/basemap/{path}, /api/basemap/refresh（基礎地図プロキシ）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。
@@ -12,11 +14,12 @@ DI工場（サービスの組み立て）はapi/dependencies.pyに集約して�
 
 from fastapi import APIRouter
 
-from app.api.routers import basemap, health, region, routes, weather
+from app.api.routers import accidents, basemap, health, region, routes, weather
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(routes.router)
 api_router.include_router(weather.router)
 api_router.include_router(region.router)
+api_router.include_router(accidents.router)
 api_router.include_router(basemap.router)

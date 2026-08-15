@@ -152,6 +152,7 @@ export default function Home() {
     road: false,
     trafficStress: false,
     bicycleInfra: false,
+    accidents: false,
     route: true,
   });
   const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
@@ -691,6 +692,7 @@ export default function Home() {
             showRoad={layerVisibility.road}
             showTrafficStress={layerVisibility.trafficStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
+            showAccidents={layerVisibility.accidents}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             routeLayerOn={layerVisibility.route}
             routeStyleModeId={routeStyleModeId}
