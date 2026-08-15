@@ -40,6 +40,7 @@ from app.domain.road import classify_osm_surface
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_networkx_graph, concat_node_paths, find_nearest_node, path_to_edge_ids, shortest_path_node_ids
 from app.domain.weather import WeatherConditions
+from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import EvaluationService
 from app.services.graph_service import GraphService
@@ -52,11 +53,6 @@ from app.services.weather_service import WeatherService
 # 実データでの検証結果次第で見直す（docs/architecture.md参照）。
 BBOX_MARGIN_RATIO = 0.3
 BBOX_MARGIN_MIN_KM = 2.0
-
-# 仮定巡航速度。区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風を
-# ルート全体に一様適用する簡略化のため、到達時刻そのものはwindのfetchには使わない。
-# domain/evaluation.py: compute_wind_penaltyのdocstring参照）。
-ASSUMED_SPEED_KMH = 20.0
 
 
 @dataclass
@@ -209,6 +205,9 @@ class RoadGraphEngine:
                 ]
             )
 
+            # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
+            # 一様適用する簡略化のため、到達時刻そのものはwindのfetchには使わない。
+            # domain/evaluation.py: compute_wind_penaltyのdocstring参照）。
             elapsed_hours = cumulative_km / ASSUMED_SPEED_KMH
             arrival_time = start_time + timedelta(hours=elapsed_hours)
 

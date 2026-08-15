@@ -188,29 +188,6 @@ class FakeRoadGraphRepository:
         self.cached_tiles.add((zoom, x, y))
 
 
-async def test_build_graph_for_bbox_returns_road_graph():
-    ways = [{"id": 100, "tags": {"highway": "residential"}, "nodes": [1, 2]}]
-    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
-    overpass_client = FakeOverpassClient(result=(ways, nodes))
-    service = GraphService(overpass_client, http_client=None)
-
-    graph = await service.build_graph_for_bbox(BBOX)
-
-    assert graph is not None
-    assert len(graph.nodes) == 2
-    assert len(graph.edges) == 2  # 双方向
-    assert overpass_client.call_count == 1
-
-
-async def test_build_graph_for_bbox_returns_none_on_overpass_failure():
-    overpass_client = FakeOverpassClient(result=None)
-    service = GraphService(overpass_client, http_client=None)
-
-    graph = await service.build_graph_for_bbox(BBOX)
-
-    assert graph is None
-
-
 async def test_build_graph_with_surface_tags_returns_graph_and_way_surface_map():
     ways = [
         {"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]},

@@ -1,5 +1,10 @@
 import math
 
+# 仮定巡航速度。区間ごとの推定到達時刻（風評価用）の算出にのみ使う。MVPでは固定値。
+# 将来はユーザー入力/プロファイルに応じて可変にする拡張ポイント（wind_service.py/
+# road_graph_engine.py共通）。
+ASSUMED_SPEED_KMH = 20.0
+
 
 class WindCalculator:
     """走行方位と風向風速から、走行への風の影響（ペナルティ）を計算する。

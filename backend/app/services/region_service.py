@@ -8,6 +8,7 @@ from app.domain.road import classify_osm_surface
 from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.overpass_client import OverpassClient
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_road_surface_tile
 
 logger = logging.getLogger("ridecompass.region")
@@ -57,7 +58,7 @@ class RegionService:
         self,
         overpass_client: OverpassClient,
         http_client: httpx.AsyncClient,
-        repository=None,
+        repository: RoadGraphRepository | None = None,
         overpass_fallback_enabled: bool = True,
     ):
         self._overpass_client = overpass_client

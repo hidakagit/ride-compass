@@ -156,20 +156,29 @@
 
 ## Phase 4: 現時点では対応不要（任意・ついで）
 
-### - [ ] T14. デッドコード削除 規模S（一部完了）
+### - [x] T14. デッドコード削除 規模S（2026-08-15完了）
 
 - `database.py: get_session` 削除 ✅完了（2026-08-15。どこからも参照されていないことを確認して削除）
-- `graph_service.py: build_graph_for_bbox` のscripts専用明記or削除 — 未着手。
-  `graph_service.py`は別セッションのT9（surface_attributes導出化）が現在進行中で触れているため、
-  T9完了後に着手すること
-- `/api/routes/preview` の位置づけをdocsで実態に合わせる — 未着手
+- `graph_service.py: build_graph_for_bbox` ✅完了（2026-08-15）: アプリ内・scripts内どちらからも
+  呼ばれておらず（テストのみが参照）、scripts専用の需要も無いことを確認したため削除。
+  `_build`共通ヘルパーを使う`build_graph_with_surface_tags_for_bbox`は実運用（`GraphService`内部の
+  フォールバック経路）で使われているため維持。関連テスト2件・docstring参照
+  （graph_service.py/elevation_attribute_service.py/architecture.md）を追従修正
+- `/api/routes/preview` の位置づけをdocsで実態に合わせる ✅完了（2026-08-15）: バックエンドの
+  エンドポイント自体は元々「Step3の疎通確認用・残置」と明記済みだったが、フロントエンド
+  `routeApi.ts: previewRoute()`がどのUIコンポーネントからも呼ばれていない（テストのみ参照）
+  実態が未記載だったため、architecture.md（モジュール一覧・API一覧の両方）へ追記
 
-### - [ ] T15. 小粒の整理 規模S（一部検討・見送り）
+### - [x] T15. 小粒の整理 規模S（2026-08-15完了・lifespan化のみ見送り）
 
-- `ASSUMED_SPEED_KMH` をdomain定数へ統一（wind_service.py / road_graph_engine.py）— 未着手。
-  `road_graph_engine.py`がT9進行中のため着手不可（T9完了後）
-- `repository=None` 引数への型注釈（`RoadGraphRepository | None`）追加（3サービス）— 未着手。
-  対象3サービスのうち`GraphService`がT9進行中のファイルのため着手不可（T9完了後）
+- `ASSUMED_SPEED_KMH` をdomain定数へ統一 ✅完了（2026-08-15）: `domain/wind.py`
+  （`WindCalculator`と同じ「風評価」文脈のため配置）へ集約し、
+  wind_service.py/road_graph_engine.pyの重複定義を削除してimportへ置換。
+  road_graph_engine.py側固有の「表示専用・windのfetchには使わない」という利用文脈の注記は
+  呼び出し箇所のコメントとして維持
+- `repository=None` 引数への型注釈（`RoadGraphRepository | None`）追加 ✅完了（2026-08-15）:
+  対象3サービス（GraphService/RegionService/ElevationAttributeService）すべてに追加。
+  infrastructureはservicesに依存しないため循環importの懸念無し
 - `get_route_generator` のlifespanベース構築への変更（C5）— **検討のうえ見送り**（2026-08-15）。
   `app/main.py`に`lifespan`自体が未導入で新規追加が必要な点、T23でこの関数がリクエスト毎の
   `scoring_weights`/`route_preference`上書きに対応する`build()`クロージャへ再構成済みのため
@@ -407,11 +416,14 @@
   実データ投入後は表示がほぼ空になる見込み。lanes/maxspeedは幹線道路(55.8%/38.2%)でのみ
   機能し生活道路(1.8%/1.6%)ではほぼ効かないため、trafficStressは生活道路で
   highway基本値頼みになる。P1着手時（評価組み込み）はこの低カバレッジを前提にすること
-- **既存データへの再取込**: ✅**現行25km圏内は完了（2026-08-15）**。本番Oracle DBへ同一bboxで
-  再取込み（run_id=2、273,947way、db_size_mb 315→297）し、`tags`列を実データで埋めた
-  （tags非空67,705/273,947way≈24.7%）。詳細はosm-pbf-import.md 9章Phase 6参照。
-  **関東全域への範囲拡大（T28(B)大規模GiST検証を兼ねる）は別判断待ちで未実施**
-  （現行スコープ外のためsmoothness/tunnel/bridge等は依然王子25km圏内のみで観測可能）
+- **既存データへの再取込**: ✅**完了（2026-08-15、25km圏内→関東本土全域の2段階で実施）**。
+  まず本番Oracle DBへ同一bboxで再取込み（run_id=2、273,947way、db_size_mb 315→297）し
+  `tags`列を実データで埋めた（詳細はosm-pbf-import.md 9章Phase 6）。続けて関東本土7都県
+  （bbox 34.85,138.35-37.20,140.95、離島除外）へ拡大——`osm_raw_ways`/`osm_raw_nodes`を
+  TRUNCATEしてT28(B)（GiST遅延作成）を実地発火させ、ways=1,308,092・elapsed=777.4秒
+  （約13分、事前見積もり20〜70分を大幅に上回る好結果）で完走（詳細はosm-pbf-import.md
+  9章Phase 7・12章）。これでsmoothness/tunnel/bridge等の静的属性が関東本土全域で
+  観測可能になった
 - **T9（surface_attributes導出化）**: ✅完了（2026-08-15、詳細は本ファイル「Phase 3」節の
   T9項目参照）
 - **静的属性P1（node取込・評価組み込み）**: signal/crossing等のnode取込機構、
@@ -507,8 +519,10 @@
 | 2026-08-15 | T13・T14(一部)・T15-C5検討 | 別セッションのT9（surface_attributes導出化）と並行して、T9未接触のファイルに限定して実施。T13（WeatherServiceのhourly範囲外ガード）完了、T14は`database.py: get_session`削除のみ完了（残り2項目はT9対象ファイルのため保留）、T15-C5（lifespanベース構築）は検討のうえ見送り（詳細は各タスクの節を参照）。backend 473件green |
 | 2026-08-15 | T9 | `surface_attributes`テーブルを廃止し`road_edges.osm_way_id`経由で`osm_raw_ways.surface`をJOIN導出する方式へ変更。`SurfaceAttribute`型を`dict[str, str \| None]`へ単純化し`GraphService`3経路・`compute_edge_cost`・`EvaluationService`・`RoadGraphEngine`を追従、`migrations/0004_drop_surface_attributes.sql`を追加。backend 473件green、dev機PG18へmigration適用・`verify_postgis_phase0.py`23/23 PASS・`bench_postgis_prepare.py`実測（詳細はT9節・benchmarks/README.md 11番）済み |
 | 2026-08-15 | 既存データへの再取込（本番・25km圏内） | T9完了後、本番Oracle DBへ同一bbox（王子中心25km、Phase 5と同一）で再取込み（run_id=2、273,947way・14チャンク・1450.2秒・db_size_mb 315→297）。dry-runで件数一致を事前確認。起動時の`apply_pending_migrations`によりmigration 0004も同時適用（本番`routing_engine`既定は`openrouteservice`のため実害無しを確認済み）。取込後smoke: tags非空67,705/273,947way（約24.7%）、`get_road_surface_tile_mvt`（王子z14）23,774バイト生成を確認。関東全域への拡大（T28(B)大規模検証）は別判断待ちで未実施。詳細はosm-pbf-import.md 9章Phase 6 |
+| 2026-08-15 | 関東本土全域への拡大（T28(B)大規模検証） | ヘッダbboxが伊豆・小笠原等の離島を含み危険と判明したため、本土7都県のbbox（34.85,138.35-37.20,140.95）をdry-runで検証（本土捕捉率99.7%）。ユーザー承認のうえ本番`osm_raw_ways`/`osm_raw_nodes`をTRUNCATEしT28(B)の空テーブル分岐を発火させて実取込み。**ways=1,308,092・nodes=7,793,238・66チャンク・elapsed=777.4秒（約13分）・db_size_mb=1364**、GiST一括再構築2.4秒。事前見積もり20〜70分を大幅に上回る好結果でT28(A)(B)(C)の効果を実地確認。ways=940,000超からの緩やかな残存減速（GiST起因ではなさそう）を次回の調査対象として記録。`verify_postgis_phase0.py`23/23 PASS・4地点タイル生成スモーク確認済み。詳細はosm-pbf-import.md 9章Phase 7・12章 |
 | 2026-08-15 | （UI導線レビュー） | フロントUIの導線整理を実施。反映タイミング・保存・配置の3軸不統一、「路面」の3義衝突、デバッグモード2役を特定し、T29〜T32を起票 |
 | 2026-08-15 | T29 | `lib/researchMode.ts`＋`useResearchEnabled`＋`ResearchPanel`を新設し、重み上書き・実験スロット・比較表・地図重ね描きの条件を`researchEnabled`へ切替。DebugPanelは「デバッグログを表示」（ログ専任）へ改名。frontend 151件・eslint・tsc全green |
 | 2026-08-15 | T30 | サイドバーを「ルートを作る」（生成条件集約・最上部デフォルト開）/「地図の見え方」/「開発者向け」（デフォルト閉）へ再編。レイヤーON/OFFを共通`LayerChip`へ統一、`ErrorText`共通化、空状態ガイド・ルート未生成時の誘導リンク追加。用語改名: 路面→道路情報（レイヤー）/舗装・未舗装（色分けモード）/舗装率（重み）、総合スコア→おすすめ度、デフォルト→初期地点、変わらないデータを更新→地図データを再読み込み、勾配凡例の範囲明示、交通ストレス凡例へ説明語追加、重みラベルを表示語と一致。frontend 152件全green |
 | 2026-08-15 | T31 | 道路情報の絞り込みを即時反映へ統一（`RoadFilterEditor`削除、凡例チェック＋軸ごと一括ボタンへ。地図反映のみ`useDebouncedValue`400msで連続タップを合流）。生成条件のdirty検知（位置・距離・重みのスナップショット比較）と再生成ヒントを追加、RouteFormを制御化。frontend 151件全green |
 | 2026-08-15 | T32 | レイヤーON/OFF・非表示キー・「ルートを作る」開閉をlocalStorageへ保存/復元。エフェクト保存起因のStrictMode上書き問題をPlaywrightで検出しハンドラ内保存へ修正。実機確認は用語・3ブロック構成・自動ON・リロード復元・おすすめ度表示・dirtyヒントの28項目全OK（実ルート生成含む） |
+| 2026-08-15 | T14・T15（残り） | T9完了で解禁された残りの小粒整理をまとめて実施。T14: `build_graph_for_bbox`（アプリ内・scripts内どちらからも未参照と確認）を削除、`/api/routes/preview`のフロント`previewRoute()`が実UIから未使用である実態をarchitecture.mdへ追記。T15: `ASSUMED_SPEED_KMH`重複定義を`domain/wind.py`へ集約（wind_service.py/road_graph_engine.pyはimportに置換）、`repository=None`引数へ`RoadGraphRepository \| None`型注釈を3サービス（GraphService/RegionService/ElevationAttributeService）に追加。T14・T15とも完了、lifespanベース構築（C5）のみ既存の見送り判断を維持。backend 471件green |

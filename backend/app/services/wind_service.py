@@ -3,13 +3,10 @@ from datetime import datetime, timedelta
 
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.route import Coordinates
-from app.domain.wind import WindCalculator
+from app.domain.wind import ASSUMED_SPEED_KMH, WindCalculator
 from app.services.weather_service import WeatherService
 
 MAX_CONCURRENT_REQUESTS = 5
-
-# 仮定巡航速度。MVPでは固定値。将来はユーザー入力/プロファイルに応じて可変にする拡張ポイント。
-ASSUMED_SPEED_KMH = 20.0
 
 
 class WindService:

@@ -7,6 +7,7 @@ from app.domain.graph import RoadGraph, WaySpec, build_road_graph
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.overpass_client import OverpassClient
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
 
@@ -24,8 +25,7 @@ class GraphService:
     `repository`（infrastructure/road_graph_repository.RoadGraphRepository）を渡すと、
     `get_or_build_graph_with_attributes`がPostGISをread-throughキャッシュとして使う。
     渡さない場合（既定）は、Phase 1-5と同じ「毎回Overpassから構築する」挙動のまま
-    （既存の`build_graph_for_bbox`/`build_graph_with_surface_tags_for_bbox`の呼び出し方・
-    挙動には一切影響しない）。
+    （既存の`build_graph_with_surface_tags_for_bbox`の呼び出し方・挙動には一切影響しない）。
 
     `repository`指定時の`get_or_build_graph_with_attributes`は、タイル取得時に
     交差点分割（build_road_graph）を行わない。生のOSM Way/Nodeデータだけをタイル単位で
@@ -39,7 +39,7 @@ class GraphService:
         self,
         overpass_client: OverpassClient,
         http_client: httpx.AsyncClient,
-        repository=None,
+        repository: RoadGraphRepository | None = None,
         overpass_fallback_enabled: bool = True,
     ):
         self._overpass_client = overpass_client
@@ -50,10 +50,6 @@ class GraphService:
         # 返す（Overpassへは行かない）。`repository`未指定時はこのフラグに関わらず常に
         # Overpassから構築する（DBなし構成ではOverpassが唯一のデータソースのため）。
         self._overpass_fallback_enabled = overpass_fallback_enabled
-
-    async def build_graph_for_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
-        built = await self._build(bbox)
-        return built[0] if built is not None else None
 
     async def build_graph_with_surface_tags_for_bbox(
         self, bbox: BoundingBox

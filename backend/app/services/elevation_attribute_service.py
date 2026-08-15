@@ -6,6 +6,7 @@ from app.domain.attributes import ElevationAttribute, compute_elevation_attribut
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.route import Coordinates
 from app.infrastructure.elevation_client import ElevationClient
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 MAX_CONCURRENT_REQUESTS = 5
 DATA_SOURCE = "gsi-dem"
@@ -33,11 +34,17 @@ class ElevationAttributeService:
     への外部キー（ON DELETE CASCADE）を持つため、渡す`graph`は事前に同じ`repository`
     経由でDBへ保存済み（`road_edges`にそのedge_idの行が存在する状態）でなければならない。
     `GraphService.get_or_build_graph_with_attributes`で得たRoadGraphはこの条件を満たすが、
-    `GraphService.build_graph_for_bbox`等の非キャッシュ系メソッドで得たRoadGraph（DB未保存）
-    を`repository`指定時に渡すと、`save_elevation_attributes`が外部キー制約違反で失敗する。
+    `GraphService.build_graph_with_surface_tags_for_bbox`等の非キャッシュ系メソッドで得た
+    RoadGraph（DB未保存）を`repository`指定時に渡すと、`save_elevation_attributes`が
+    外部キー制約違反で失敗する。
     """
 
-    def __init__(self, client: ElevationClient, http_client: httpx.AsyncClient, repository=None):
+    def __init__(
+        self,
+        client: ElevationClient,
+        http_client: httpx.AsyncClient,
+        repository: RoadGraphRepository | None = None,
+    ):
         self._client = client
         self._http_client = http_client
         self._repository = repository
