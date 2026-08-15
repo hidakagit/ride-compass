@@ -30,3 +30,6 @@ postgres-data/
 
 # 永続キャッシュ（標高/路面/地図タイル）
 backend/data/
+
+# restart-dev.bat のバックグラウンド起動ログ
+/logs/
