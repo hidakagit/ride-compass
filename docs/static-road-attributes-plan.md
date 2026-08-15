@@ -16,6 +16,12 @@ MVT拡張v4・交通ストレス/自転車インフラレイヤー。詳細は
 想定だったが、中核ルーティング評価ロジックに触れる別スコープのためP0実装時に切り離した
 （improvement-plan.md参照）。
 
+**カバレッジ実測（関東全域、2026-08-15）**: `backend/scripts/measure_tag_coverage.py`で
+kanto-latest.osm.pbf（取込対象131万way）を実測。東京都心試算より全般に低い
+（lanes 8.7%・maxspeed 6.2%・name 8.3%、都心試算の半分程度）。P0実装済みの
+smoothness(0.1%)・cycleway系(各0.0〜0.6%)も低く、実データ投入後は表示が疎になる見込み。
+width/shoulderは実測値（0.3%/0.0%）でP2据え置きを確定（§2.1参照）。
+
 ---
 
 ## 1. 現状調査の結果
@@ -77,8 +83,8 @@ DBに存在しない。ノードタグ（信号・横断歩道・一時停止・
 | 自転車道（車道上） | `cycleway=*`, `cycleway:left/right/both=*` | way | 中（left/right統合の正規化） | 小 | ★★★★★ | bicycleInfrastructureScore | 高 | 自転車走行環境・交通ストレス | **採用 P0** |
 | 自転車通行可否 | `bicycle=*`（yes/no/designated/use_sidewalk/dismount） | way | 易 | 小 | ★★★★★ | インフラ分類・Hard Constraint | 高 | ルート制約 | **採用 P0** |
 | 自動車通行制限 | `motor_vehicle=*`, `access=*` | way | 易 | 小 | ★★★★☆ | trafficStress補正（車が来ない道） | 中 | 交通ストレス・ルート制約 | **採用 P0** |
-| 道路幅員 | `width=*`（`est_width`も） | way | 中（"3.5"/"3.5 m"表記ゆれ） | 小 | ★★★★☆（ただし日本のカバレッジ低） | trafficStress補正 | 中 | 交通ストレス | **採用 P1**（カバレッジ実測後に判断） |
-| 路肩 | `shoulder=*` | way | 易 | 小 | ★★★★☆（カバレッジ極低の見込み） | trafficStress補正 | 低 | 安全性 | **保留 P2**（カバレッジ実測待ち） |
+| 道路幅員 | `width=*`（`est_width`も） | way | 中（"3.5"/"3.5 m"表記ゆれ） | 小 | ★★★★☆（ただし日本のカバレッジ低） | trafficStress補正 | 中 | 交通ストレス | **保留 P2**（2026-08-15関東全域実測: 0.3%、評価に使えるレベルでないため見送り確定） |
+| 路肩 | `shoulder=*` | way | 易 | 小 | ★★★★☆（カバレッジ極低の見込み） | trafficStress補正 | 低 | 安全性 | **保留 P2**（2026-08-15関東全域実測: 0.0%、見送り確定） |
 | トンネル | `tunnel=yes` | way | 易 | 小 | ★★★☆☆ | 減点フラグ | 高（回避判断） | 安全性・快適性 | **採用 P0**（保持は軽い） |
 | 橋・高架 | `bridge=yes`, `layer=*`, `embankment=yes` | way | 易 | 小 | ★★★☆☆ | 将来の風評価連携 | 中 | UI表示＋将来 | **採用 P0**（bridgeのみ。layer/embankmentはP2） |
 | 歩行者共用 | `highway=path/footway` + `bicycle=yes/designated`（自転車歩行者道） | way | 中（**取込スコープ拡張が必要**、後述） | 中（行数増） | ★★★★☆ | インフラ分類（速度低下要因として区別） | 高 | 自転車走行環境 | **採用 P1** |

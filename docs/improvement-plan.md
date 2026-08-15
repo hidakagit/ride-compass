@@ -369,8 +369,14 @@
 
 ### 未着手（P0に続くタスク）
 
-- **カバレッジ実測の再実施**: 2026-08-15の容量試算（[Static Attributes Capacity
-  Estimate]メモリ）は東京都心スコープでの実測。関東圏の実データでのタグ付与率は未実測
+- **カバレッジ実測の再実施**: ✅完了（2026-08-15、`backend/scripts/measure_tag_coverage.py`
+  新規作成）。関東全域PBF（kanto-latest.osm.pbf、取込対象131万way）で実測。
+  東京都心スコープの旧試算より全体的に低い（例: lanes 16.9%→8.7%、name 18.0%→8.3%、
+  maxspeed 16.4%→6.2%）。**width(0.3%)・shoulder(0.0%)はP2据え置きが確定**（想定通り）。
+  一方、P0で実装済みのsmoothness(0.1%)・cycleway系(各0.0〜0.6%)が想定より遥かに疎で、
+  実データ投入後は表示がほぼ空になる見込み。lanes/maxspeedは幹線道路(55.8%/38.2%)でのみ
+  機能し生活道路(1.8%/1.6%)ではほぼ効かないため、trafficStressは生活道路で
+  highway基本値頼みになる。P1着手時（評価組み込み）はこの低カバレッジを前提にすること
 - **既存データへの再取込**: 本番・ローカルとも`tags`列はスキーマ上追加されたのみで、
   既存行は`tags='{}'`のまま（既存インポート済みデータは新タグを持たない）。
   smoothness/tunnel/bridgeが実データで見えるようにするには、範囲拡大（T28検証）と
@@ -411,3 +417,4 @@
 | 2026-08-15 | T28(A/B) | PBF初回取込の後半チャンク減速対策。(A)未使用の`osm_raw_nodes.geom` GiST廃止（本番DB315MB→253MB、約20%削減）(B)初回空DB取込時のみ`osm_raw_ways.geom` GiST後作成（実装済み・大規模検証は次回取込時）。(C)Oracle側PG設定はSSH sudo制約でブロックされ保留 |
 | 2026-08-15 | T28(C) | ユーザー許可を得てOracle側PostgreSQL設定を変更・反映。`shared_buffers 128MB→3GB`・`max_wal_size 1GB→8GB`・`checkpoint_timeout 5min→30min`・`maintenance_work_mem 64MB→1GB`。`systemctl restart postgresql`で反映、本番タイル取得で疎通確認済み。T28完了（大規模実測検証のみ次回持ち越し） |
 | 2026-08-15 | P0(静的属性) | `osm_raw_ways.tags jsonb`（許可リスト18タグ）・`domain/traffic.py`（交通ストレス/自転車インフラ純関数）・MVT拡張（v3→v4）・フロント新規2レイヤーを実装。backend 464件・frontend 148件全green、ローカル・本番DBへmigration適用済み、Playwright実機確認済み。T9・範囲拡大・P1は別タスクとして残す |
+| 2026-08-15 | カバレッジ実測（関東全域） | `measure_tag_coverage.py`新規作成（backend 472件green）。kanto-latest.osm.pbf全域（131万way）で実測し、東京都心試算より全般に低いことを確認。width/shoulderのP2据え置きを確定、smoothness/cycleway系の疎さ・lanes/maxspeedが幹線限定であることをP1着手時の前提として記録 |
