@@ -1,16 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
-import { ACCIDENT_TILE_SOURCE_LAYER, ROAD_TILE_SOURCE_LAYER } from "@/components/Map/MapView";
+import {
+  ACCIDENT_TILE_SOURCE_LAYER,
+  INTERSECTION_SOURCE_LAYER,
+  ROAD_TILE_SOURCE_LAYER,
+  STOP_POI_SOURCE_LAYER,
+} from "@/components/Map/MapView";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
 } from "./regionApi";
 
-// ROAD_SURFACE_TILE_VERSION自体はregionApi.tsからexportされていないため、
-// roadSurfaceTileUrl()の?v=から実際に使われている値を取り出して比較する
+// ROAD_SURFACE_TILE_VERSION/POI_TILE_VERSION自体はregionApi.tsからexportされていないため、
+// 各tileUrl()の?v=から実際に使われている値を取り出して比較する
 // （2重に手書き定数を持たず、実際の挙動を検証対象にする）。
 function tileVersionFromUrl(url: string): string {
   return new URL(url).searchParams.get("v") ?? "";
@@ -36,8 +42,19 @@ describe("regionApi", () => {
   // （CIのapi-contractジョブがドリフト検知、改善計画T19）。片側だけ値を変えて再生成・
   // コミットし忘れた状態をCIで検出する。
   it("路面ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
-    expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.layer_name);
-    expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(regionTileConfig.tile_version);
+    expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.road_surface.layer_name);
+    expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(regionTileConfig.road_surface.tile_version);
+  });
+
+  it("poiTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
+    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=1`);
+  });
+
+  // 停止要因POI・交差点密度タイル（改善計画T54）も同じドリフト検知の対象にする。
+  it("POI/交差点密度ベクタタイルのレイヤー名・世代がbackend生成物と一致する", () => {
+    expect(STOP_POI_SOURCE_LAYER).toBe(regionTileConfig.poi.stop_poi_layer_name);
+    expect(INTERSECTION_SOURCE_LAYER).toBe(regionTileConfig.poi.intersection_layer_name);
+    expect(tileVersionFromUrl(poiTileUrl())).toBe(regionTileConfig.poi.tile_version);
   });
 
   // 外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代も同じドリフト検知

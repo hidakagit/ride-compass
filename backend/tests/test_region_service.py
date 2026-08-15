@@ -21,6 +21,7 @@ class FakeRegionRepository:
         self._tile = tile
         self._error = error
         self.mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
+        self.poi_mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
 
     async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
         if self._error is not None:
@@ -28,6 +29,14 @@ class FakeRegionRepository:
         self.mvt_calls.append((z, x, y, coverage_tile))
         if not self._covered:
             return None  # カバレッジ外（実装と同じくNoneで表現）
+        return self._tile
+
+    async def get_poi_tile_mvt(self, z, x, y, bbox, coverage_tile):
+        if self._error is not None:
+            raise self._error
+        self.poi_mvt_calls.append((z, x, y, coverage_tile))
+        if not self._covered:
+            return None
         return self._tile
 
 
@@ -89,5 +98,47 @@ async def test_no_repository_returns_empty_mvt():
     service = RegionService()
 
     tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+
+    assert isinstance(tile_bytes, bytes)
+
+
+# 改善計画T54: 停止要因POI・交差点密度レイヤー。get_road_surface_tileと同じ_get_tile経由の
+# 契約（カバレッジ判定・キャッシュ・エラー処理）を共有するため、代表的なケースのみ確認する
+# （全パターンの再検証はget_road_surface_tile側のテストで既に担保済み）。
+
+
+async def test_poi_tile_covered_is_served_from_postgis_and_cached_independently_of_road_tile():
+    repository = FakeRegionRepository(covered=True, tile=b"fake-poi-tile")
+    service = RegionService(repository=repository)
+
+    tile_bytes = await service.get_poi_tile(Z, X, Y)
+
+    assert tile_bytes == b"fake-poi-tile"
+    assert repository.poi_mvt_calls == [(Z, X, Y, (12, X >> 2, Y >> 2))]
+    assert repository.mvt_calls == []  # 路面タイル側のクエリは呼ばれない
+
+    # road_surface/poiは別キャッシュパス・別ファイルキャッシュエントリのため、路面タイルを
+    # 先に取得していても互いのキャッシュヒットに影響しない
+    await service.get_road_surface_tile(Z, X, Y)
+    await service.get_poi_tile(Z, X, Y)
+    assert len(repository.poi_mvt_calls) == 1
+    assert len(repository.mvt_calls) == 1
+
+
+async def test_poi_tile_uncovered_returns_empty_mvt_without_caching():
+    repository = FakeRegionRepository(covered=False)
+    service = RegionService(repository=repository)
+
+    tile_bytes = await service.get_poi_tile(Z, X, Y)
+
+    assert isinstance(tile_bytes, bytes)
+    await service.get_poi_tile(Z, X, Y)
+    assert len(repository.poi_mvt_calls) == 2
+
+
+async def test_poi_tile_no_repository_returns_empty_mvt():
+    service = RegionService()
+
+    tile_bytes = await service.get_poi_tile(Z, X, Y)
 
     assert isinstance(tile_bytes, bytes)

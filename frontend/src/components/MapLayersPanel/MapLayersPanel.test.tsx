@@ -6,7 +6,16 @@ import MapLayersPanel from "./MapLayersPanel";
 
 function baseProps() {
   return {
-    layerVisibility: { elevation: false, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: false },
+    layerVisibility: {
+      elevation: false,
+      road: false,
+      trafficStress: false,
+      bicycleInfra: false,
+      stopPoi: false,
+      intersections: false,
+      accidents: false,
+      route: false,
+    },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
     onRoadLegendToggle: vi.fn(),
@@ -43,6 +52,8 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-trafficStress")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-intersections")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
@@ -61,7 +72,16 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: true, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
+        layerVisibility={{
+          elevation: true,
+          road: false,
+          trafficStress: false,
+          bicycleInfra: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
         onLayerToggle={onLayerToggle}
       />,
     );
@@ -131,7 +151,16 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
+        layerVisibility={{
+          elevation: false,
+          road: true,
+          trafficStress: false,
+          bicycleInfra: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
         regionZoomTooWide={true}
       />,
     );
@@ -142,7 +171,19 @@ describe("MapLayersPanel", () => {
 
   it("道路情報ONのとき色・太さ両方の軸見出しが表示される", () => {
     render(
-      <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, accidents: false, route: false }} />,
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: true,
+          trafficStress: false,
+          bicycleInfra: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+      />,
     );
     openSection("road");
     expect(screen.getByText(/色：路面の種類/)).toBeInTheDocument();
@@ -154,7 +195,16 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
+        layerVisibility={{
+          elevation: false,
+          road: true,
+          trafficStress: false,
+          bicycleInfra: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,
     );
@@ -173,6 +223,19 @@ describe("MapLayersPanel", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("bicycleInfra");
     expect(screen.getByText(/道路情報レイヤーの/)).toBeInTheDocument();
+  });
+
+  it("停止要因POIの凡例（種別ごとの色分け）が表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("stopPoi");
+    expect(screen.getByText("信号")).toBeInTheDocument();
+    expect(screen.getByText("踏切")).toBeInTheDocument();
+  });
+
+  it("交差点密度の凡例（接続数の説明）が表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("intersections");
+    expect(screen.getByText(/接続数が多いほど円が大きくなります/)).toBeInTheDocument();
   });
 
   it("hasDetail=falseのときルート欄は案内のみで、表示チップも非活性", () => {
@@ -209,7 +272,16 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         hasDetail={true}
-        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
+        layerVisibility={{
+          elevation: false,
+          road: false,
+          trafficStress: false,
+          bicycleInfra: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
         onRouteStyleModeChange={onRouteStyleModeChange}
         onLayerToggle={onLayerToggle}
       />,
@@ -229,7 +301,16 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         hasDetail={true}
-        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: true }}
+        layerVisibility={{
+          elevation: false,
+          road: false,
+          trafficStress: false,
+          bicycleInfra: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: true,
+        }}
         onLayerToggle={onLayerToggle}
       />,
     );

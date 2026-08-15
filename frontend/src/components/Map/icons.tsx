@@ -81,6 +81,29 @@ export function AccidentIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 停止要因: 信号機のシルエット（3灯） */
+export function StopPoiIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <rect x="7" y="2" width="6" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="10" cy="5.3" r="1" fill="currentColor" />
+      <circle cx="10" cy="8.5" r="1" fill="currentColor" />
+      <circle cx="10" cy="11.7" r="1" fill="currentColor" />
+      <path d="M10 15v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 交差点密度: 十字に交わる2本の道路 */
+export function IntersectionIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M10 1.5v17M1.5 10h17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="10" cy="10" r="2.4" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (

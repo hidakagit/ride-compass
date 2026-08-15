@@ -7,11 +7,14 @@ ridecompass_test DB(conftest.pyのroad_graph_session/road_graph_repositoryフィ
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import text
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Point
+from sqlalchemy import insert, text
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import WaySpec, build_road_graph
 from app.domain.region import BoundingBox
+from app.infrastructure.road_graph_models import OsmRawPoiRow
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
@@ -867,3 +870,83 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_
         actual = properties_by_highway[highway]
         assert actual.get("bicycle_infra") == expected_infra, (highway, tags)
         assert actual.get("traffic_stress") == expected_stress, (highway, tags)
+
+
+# --- get_poi_tile_mvt（改善計画T54: 停止要因POI・交差点密度の可視化） ---
+
+NODE5 = (35.6995, 139.6995)
+NODE6 = (35.7005, 139.7005)
+
+
+async def test_get_poi_tile_mvt_returns_none_when_uncovered(road_graph_repository):
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    assert tile is None
+
+
+async def test_get_poi_tile_mvt_returns_empty_bytes_when_covered_but_no_data(road_graph_repository):
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    assert tile == b""
+
+
+async def test_get_poi_tile_mvt_encodes_stop_poi_kind(road_graph_repository, road_graph_session):
+    """osm_raw_poisのkindがそのままstop_poiレイヤーのkindプロパティへ焼き込まれる。"""
+    import mapbox_vector_tile
+
+    await road_graph_session.execute(
+        insert(OsmRawPoiRow),
+        [
+            {
+                "osm_node_id": 1,
+                "kind": "traffic_signals",
+                "tags": {},
+                "geom": from_shape(Point(NODE1[1], NODE1[0]), srid=4326),
+                "updated_at": datetime.now(timezone.utc),
+            },
+            {
+                "osm_node_id": 2,
+                "kind": "level_crossing",
+                "tags": {},
+                "geom": from_shape(Point(NODE2[1], NODE2[0]), srid=4326),
+                "updated_at": datetime.now(timezone.utc),
+            },
+        ],
+    )
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    # intersectionレイヤーは対象0件のため、MVT上はレイヤー自体が存在しない
+    # （空バイト列を結合するだけで空featuresのレイヤーは焼かない。MapLibre側は
+    # source-layerが無いタイルを「そのレイヤーは0件」として扱うため実害はない）。
+    decoded = mapbox_vector_tile.decode(tile)
+    assert "intersection" not in decoded
+    kinds = sorted(f["properties"]["kind"] for f in decoded["stop_poi"]["features"])
+    assert kinds == ["level_crossing", "traffic_signals"]
+
+
+async def test_get_poi_tile_mvt_encodes_intersections_at_degree_threshold(road_graph_repository):
+    """次数3以上のroad_nodeだけがintersectionレイヤーへ乗り、degreeプロパティを持つ
+    （domain/traffic.py: INTERSECTION_DEGREE_THRESHOLD=3と同じ閾値）。次数1のnode2/5/6は
+    乗らない。"""
+    import mapbox_vector_tile
+
+    ways = [
+        WaySpec(osm_way_id=101, node_ids=[1, 2], highway="residential"),
+        WaySpec(osm_way_id=102, node_ids=[1, 5], highway="residential"),
+        WaySpec(osm_way_id=103, node_ids=[1, 6], highway="residential"),
+    ]
+    nodes = {1: NODE1, 2: NODE2, 5: NODE5, 6: NODE6}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    decoded = mapbox_vector_tile.decode(tile)
+    assert "stop_poi" not in decoded  # 同じ理由でstop_poi側もレイヤー自体が存在しない
+    assert len(decoded["intersection"]["features"]) == 1
+    assert decoded["intersection"]["features"][0]["properties"]["degree"] == 3

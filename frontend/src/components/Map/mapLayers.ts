@@ -16,7 +16,15 @@
 // 静的データと動的データを混同しない、という設計方針（docs/static-road-attributes-plan.md）
 // をUI上のグルーピングにもそのまま反映する。
 
-export type MapLayerId = "elevation" | "road" | "trafficStress" | "bicycleInfra" | "accidents" | "route";
+export type MapLayerId =
+  | "elevation"
+  | "road"
+  | "trafficStress"
+  | "bicycleInfra"
+  | "stopPoi"
+  | "intersections"
+  | "accidents"
+  | "route";
 
 export type MapLayerKind = "static" | "dynamic";
 
@@ -64,6 +72,18 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     chipLabel: "インフラ",
     kind: "static",
     description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
+  },
+  {
+    id: "stopPoi",
+    label: "停止要因",
+    kind: "static",
+    description: "信号・横断歩道・一時停止・踏切の位置を種別ごとに色分け表示",
+  },
+  {
+    id: "intersections",
+    label: "交差点密度",
+    kind: "static",
+    description: "接続路3本以上の交差点を表示（接続数が多いほど大きい円）",
   },
   {
     id: "accidents",

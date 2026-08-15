@@ -40,6 +40,11 @@ const nextConfig: NextConfig = {
         source: "/api/region/accident-tiles/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/region/accident-tiles/:path*`,
       },
+      // 停止要因POI・交差点密度レイヤー（改善計画T54）も同じ理由で同一オリジン経由にする。
+      {
+        source: "/api/region/poi-tiles/:path*",
+        destination: `${BACKEND_INTERNAL_URL}/api/region/poi-tiles/:path*`,
+      },
     ];
   },
 };

@@ -66,7 +66,12 @@ from app.domain.traffic import (
     STOP_POI_MATCH_MAX_DISTANCE_M,
     TRAFFIC_STRESS_BASE_BY_HIGHWAY,
 )
-from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, TILE_EXTENT
+from app.infrastructure.vector_tile import (
+    INTERSECTION_LAYER_NAME,
+    ROAD_SURFACE_LAYER_NAME,
+    STOP_POI_LAYER_NAME,
+    TILE_EXTENT,
+)
 from app.infrastructure.road_graph_models import (
     Base,
     ElevationAttributeRow,
@@ -274,6 +279,93 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
             for level in (1, 2, 3, 4)
         ),
     )
+)
+
+
+# 改善計画T54（既取込データの可視化漏れ解消）: 停止要因POI（osm_raw_pois）・交差点密度
+# （road_nodes次数）を1タイルへ焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定
+# （road_graph_tilesのz12祖先タイルマーク）を再利用しつつ、対象データソースが別テーブルの
+# 点データのため道路（way）とは独立のクエリにする。
+#
+# stop_poiレイヤーはosm_raw_pois内のkindタグをそのまま焼き込むだけ（GiST索引を使う
+# ST_Intersects、_STOP_POI_COUNTS_SQLと同じテーブル）。
+#
+# intersectionレイヤーは「次数3以上のroad_node」（domain/traffic.py:
+# INTERSECTION_DEGREE_THRESHOLD）をタイルbbox内で都度計算する。_INTERSECTION_COUNTS_SQLと
+# 同じ「degreesは独立したCTEとして1回だけ計算し、JOIN ONの内側へサブクエリとして埋め込まない」
+# 設計（同コメント参照。埋め込むとO(件数^2)に劣化する）。candidate_nodesはbboxの`&&`
+# （GiST索引）で先に絞り、endpoints側はcandidate_nodesのnode_idにIN一致するroad_edgesのみを
+# from_node_id/to_node_id索引（migration 0001）で引く。隣接ノードがタイル境界の外にあっても
+# 次数計算自体はcandidate_nodes側のnode_idを起点にしたendpoints/degrees CTEで正しく求まる
+# （相手ノードの位置は問わない）。
+#
+# 2レイヤーのST_AsMVT結果はどちらも独立したbytea値で、MVT（protobuf、レイヤーはrepeated
+# フィールド）は単純なbytea結合（||）で複数レイヤーを1レスポンスへ束ねられる。片方が0件で
+# NULLになった場合はCOALESCEで空バイト列にしてから結合する（NULL || bytea はNULLになり
+# もう片方のレイヤーごと失われるため）。
+_POI_TILE_MVT_SQL = text(
+    """
+    WITH coverage AS (
+        SELECT EXISTS(
+            SELECT 1 FROM road_graph_tiles
+            WHERE zoom = :coverage_zoom AND x = :coverage_x AND y = :coverage_y
+        ) AS covered
+    )
+    SELECT
+        coverage.covered,
+        CASE WHEN coverage.covered THEN (
+            COALESCE((
+                SELECT ST_AsMVT(mvt.*, :stop_poi_layer, :extent, 'geom') FROM (
+                    SELECT
+                        ST_AsMVTGeom(
+                            ST_Transform(p.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                        ) AS geom,
+                        p.kind AS kind
+                    FROM osm_raw_pois p
+                    WHERE ST_Intersects(p.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+                ) mvt
+                WHERE mvt.geom IS NOT NULL
+            ), ''::bytea)
+            ||
+            COALESCE((
+                SELECT ST_AsMVT(mvt.*, :intersection_layer, :extent, 'geom') FROM (
+                    WITH candidate_nodes AS (
+                        SELECT node_id, geom
+                        FROM road_nodes
+                        WHERE geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                    ),
+                    endpoints AS (
+                        SELECT e.from_node_id AS node_id, e.to_node_id AS neighbor_id
+                        FROM road_edges e
+                        WHERE e.from_node_id IN (SELECT node_id FROM candidate_nodes)
+                        UNION
+                        SELECT e.to_node_id AS node_id, e.from_node_id AS neighbor_id
+                        FROM road_edges e
+                        WHERE e.to_node_id IN (SELECT node_id FROM candidate_nodes)
+                    ),
+                    degrees AS (
+                        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+                        FROM endpoints
+                        GROUP BY node_id
+                        HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
+                    )
+                    SELECT
+                        ST_AsMVTGeom(
+                            ST_Transform(cn.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                        ) AS geom,
+                        d.degree AS degree
+                    FROM degrees d
+                    JOIN candidate_nodes cn ON cn.node_id = d.node_id
+                ) mvt
+                WHERE mvt.geom IS NOT NULL
+            ), ''::bytea)
+        ) END AS tile
+    FROM coverage
+    """
+).bindparams(
+    bindparam("stop_poi_layer", value=STOP_POI_LAYER_NAME, type_=Text()),
+    bindparam("intersection_layer", value=INTERSECTION_LAYER_NAME, type_=Text()),
+    bindparam("degree_threshold", value=INTERSECTION_DEGREE_THRESHOLD),
 )
 
 
@@ -893,7 +985,8 @@ class RawOsmRepository(_SessionRepository):
 
 
 class RoadSurfaceTileQuery(_SessionRepository):
-    """地域路面レイヤー（RegionService）表示用のMVT生成。読み取り専用でcommit対象の書き込みは無い。"""
+    """地域路面レイヤー・停止要因POI/交差点密度レイヤー（RegionService）表示用のMVT生成。
+    読み取り専用でcommit対象の書き込みは無い。"""
 
     async def get_road_surface_tile_mvt(
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
@@ -938,6 +1031,36 @@ class RoadSurfaceTileQuery(_SessionRepository):
             return None
         # カバレッジ内で対象0行のときST_AsMVT（集約関数）はNULLを返す。長さ0のバイト列は
         # 「featureが1つも無い有効なMVT」としてMapLibreがそのまま受理する。
+        return bytes(tile) if tile is not None else b""
+
+    async def get_poi_tile_mvt(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> bytes | None:
+        """停止要因POI・交差点密度レイヤー用のMVTタイル1枚を、PostGIS側（ST_AsMVT）で
+        丸ごと生成して返す（改善計画T54）。get_road_surface_tile_mvtと同じ契約
+        （カバレッジ外はNone、カバレッジ内で対象0件は空バイト列）。クエリの設計意図は
+        _POI_TILE_MVT_SQLのコメント参照。
+        """
+        coverage_zoom, coverage_x, coverage_y = coverage_tile
+        result = await self._session.execute(
+            _POI_TILE_MVT_SQL,
+            {
+                "coverage_zoom": coverage_zoom,
+                "coverage_x": coverage_x,
+                "coverage_y": coverage_y,
+                "extent": TILE_EXTENT,
+                "z": z,
+                "x": x,
+                "y": y,
+                "xmin": bbox.min_longitude,
+                "ymin": bbox.min_latitude,
+                "xmax": bbox.max_longitude,
+                "ymax": bbox.max_latitude,
+            },
+        )
+        covered, tile = result.one()
+        if not covered:
+            return None
         return bytes(tile) if tile is not None else b""
 
 
@@ -1291,3 +1414,8 @@ class RoadGraphRepository:
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> bytes | None:
         return await self.tile_query.get_road_surface_tile_mvt(z, x, y, bbox, coverage_tile)
+
+    async def get_poi_tile_mvt(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> bytes | None:
+        return await self.tile_query.get_poi_tile_mvt(z, x, y, bbox, coverage_tile)

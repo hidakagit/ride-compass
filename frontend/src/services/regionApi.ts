@@ -4,6 +4,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 const ACCIDENT_TILE_PATH = "/api/region/accident-tiles/{z}/{x}/{y}.pbf";
+const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 
 // タイル内容の世代。タイルへ焼き込むプロパティが増えた（内容の互換性が変わった）ときに
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
@@ -36,7 +37,21 @@ export function accidentTileUrl(): string {
   return `${window.location.origin}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
+// 停止要因POI・交差点密度レイヤー（改善計画T54）の世代。バックエンド（region_service.py:
+// POI_TILE_VERSION）と対で上げる。ROAD_SURFACE_TILE_VERSIONと同じ理由（ブラウザHTTP
+// キャッシュのバスト用）。
+// v1: 初版（stop_poi・intersectionの2レイヤー）。
+const POI_TILE_VERSION = "1";
+
+// 停止要因POI・交差点密度の地域レイヤー（改善計画T54）のベクタタイルURL。
+// roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
+// 呼び出し時に評価する関数として提供する。
+export function poiTileUrl(): string {
+  return `${window.location.origin}${POI_TILE_PATH}?v=${POI_TILE_VERSION}`;
+}
+
 // バックエンド（domain/region.py）のROAD_TILE_MIN_ZOOM/MAX_ZOOMと一致させる。
+// POI/交差点密度レイヤーもT54で同じズーム範囲に準拠する（api/routers/region.py参照）。
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
 

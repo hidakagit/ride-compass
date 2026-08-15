@@ -22,9 +22,14 @@ class FakeRegionService:
     def __init__(self, tile_bytes=b"\x00\x01\x02"):
         self._tile_bytes = tile_bytes
         self.last_request = None
+        self.last_poi_request = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
+        return self._tile_bytes
+
+    async def get_poi_tile(self, z, x, y):
+        self.last_poi_request = (z, x, y)
         return self._tile_bytes
 
 
@@ -113,6 +118,51 @@ def test_region_road_surface_tile_is_rate_limited_per_client():
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
+
+
+def test_region_poi_tile_returns_mvt_bytes():
+    fake = FakeRegionService(tile_bytes=b"\x04\x05\x06")
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.content == b"\x04\x05\x06"
+    assert response.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+    assert fake.last_poi_request == (14, 14551, 6447)
+
+
+def test_region_poi_tile_rejects_too_low_zoom():
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        response = client.get("/api/region/poi-tiles/5/10/10.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_limit():
+    # T54: poi-tileはroad-tileと同じsettings.road_tile_rate_limit_per_minuteを使うが、
+    # レート制限キーのprefixは別（region.py: _check_tile_rate_limit）。road-tile側の
+    # 上限を使い切ってもpoi-tileには影響しないこと（road_surface_tile_rate_limit_is_
+    # independent_from_basemap_rate_limitと同じ回帰観点）。
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        for _ in range(settings.road_tile_rate_limit_per_minute):
+            assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
+        assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
+
+        response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
 
 
 def test_road_surface_tile_rate_limit_is_independent_from_basemap_rate_limit(monkeypatch):

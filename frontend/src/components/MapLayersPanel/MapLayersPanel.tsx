@@ -17,7 +17,13 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
-import { ACCIDENT_LEGEND, BICYCLE_INFRA_LEGEND, TRAFFIC_STRESS_LEGEND } from "@/components/Map/staticAttributeLayers";
+import {
+  ACCIDENT_LEGEND,
+  BICYCLE_INFRA_LEGEND,
+  INTERSECTION_LEGEND,
+  STOP_POI_LEGEND,
+  TRAFFIC_STRESS_LEGEND,
+} from "@/components/Map/staticAttributeLayers";
 import LayerChip from "@/components/Map/LayerChip";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -205,6 +211,27 @@ export default function MapLayersPanel({
               組み合わせて確認できます。
             </p>
             {renderLegendDisplay(BICYCLE_INFRA_LEGEND, [])}
+          </>
+        );
+      case "stopPoi":
+        // trafficStress/bicycleInfraと同じく絞り込みUIは持たず色分け表示のみ（T54）。
+        return (
+          <>
+            <p className={styles.mutedHint}>
+              信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを
+              数えて算出しているものを、種別ごとの色分けで直接確認できます。
+            </p>
+            {renderLegendDisplay(STOP_POI_LEGEND, [])}
+          </>
+        );
+      case "intersections":
+        return (
+          <>
+            <p className={styles.mutedHint}>
+              接続する道路が3本以上ある交差点です。接続数が多いほど円が大きくなります。
+              評価の「交差点密度」軸が近傍のこれらを数えて算出しています。
+            </p>
+            {renderLegendDisplay(INTERSECTION_LEGEND, [])}
           </>
         );
       case "accidents":
