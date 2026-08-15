@@ -173,6 +173,10 @@ export default function Home() {
   const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  // デバッグログパネル自体の開閉。デバッグモードON＝ログ記録は常時有効だが、パネル表示は
+  // 別（常時画面を占有させたくないという実機フィードバックを受け、右上の起動アイコンで
+  // 開閉する方式へ変更、モバイル実機フィードバック対応T42）。デフォルト閉。
+  const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
 
   const debugEnabled = useDebugEnabled();
   const researchEnabled = useResearchEnabled();
@@ -473,13 +477,15 @@ export default function Home() {
     }
   }
 
-  // デバッグモード時のみJSで計算してインラインstyleを当てる（DebugConsoleの高さ基準。
-  // 非デバッグ時はpage.module.cssの@media (max-width:640px)側の既定値がタブバー分の
+  // DebugConsoleパネルが実際に開いているとき（debugEnabledだけでなくdebugConsoleOpenも
+  // trueのとき）のみJSで計算してインラインstyleを当てる（DebugConsoleの高さ基準。
+  // パネル非表示時はpage.module.cssの@media (max-width:640px)側の既定値がタブバー分の
   // クリアランスを含めて計算済みのため、ここではnullのままCSSに委ねる）。
-  const locateButtonBottomPx = debugEnabled
+  const debugConsoleVisible = debugEnabled && debugConsoleOpen;
+  const locateButtonBottomPx = debugConsoleVisible
     ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX + (isMobile ? MOBILE_TABBAR_HEIGHT_PX : 0)
     : null;
-  const locateErrorBottomPx = debugEnabled
+  const locateErrorBottomPx = debugConsoleVisible
     ? DEBUG_CONSOLE_MAX_HEIGHT_PX +
       LOCATE_BUTTON_GAP_PX +
       LOCATE_BUTTON_HEIGHT_PX +
@@ -696,7 +702,28 @@ export default function Home() {
             </p>
           )}
 
-          <DebugConsole />
+          {/* デバッグログの起動アイコン。パネル自体を常時表示すると画面の目立つ面積を
+              占有し続けるという実機フィードバックを受け、右上の小さいアイコンから開閉する
+              方式にした（モバイル実機フィードバック対応T42）。デバッグモードOFF中は
+              そもそも記録が無いため表示しない。 */}
+          {debugEnabled && (
+            <button
+              type="button"
+              onClick={() => setDebugConsoleOpen((v) => !v)}
+              aria-pressed={debugConsoleOpen}
+              aria-label={debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く"}
+              title={debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く"}
+              className={
+                debugConsoleOpen
+                  ? `${styles.debugToggleButton} ${styles.debugToggleButtonActive}`
+                  : styles.debugToggleButton
+              }
+            >
+              ログ
+            </button>
+          )}
+
+          <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
         </div>
       </div>
 
