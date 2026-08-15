@@ -167,6 +167,11 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  /* 地図キャンバス（MapLibreがtouch-action: noneを付与）の上に重なるボタンのため、
+     無指定（既定auto）のままだと2本指ピンチの片方がここに乗ったときブラウザが
+     タッチ開始点ごとにtouch-actionを見て地図ジェスチャーとして確定できず、
+     ピンチズームが反応しないことがある（スマホ実機フィードバック調査、2026-08-16）。 */
+  touch-action: none;
 }
 
 .locateButtonBusy {
