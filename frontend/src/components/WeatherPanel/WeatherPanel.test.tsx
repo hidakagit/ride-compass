@@ -24,7 +24,7 @@ describe("WeatherPanel", () => {
   it("errorがある場合はエラーテキストを表示し天候テキストは表示しない", () => {
     render(<WeatherPanel weather={null} loading={false} error="失敗しました" />);
     expect(screen.getByText("失敗しました")).toBeInTheDocument();
-    expect(screen.queryByText(/現在の天候/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/の風/)).not.toBeInTheDocument();
   });
 
   it("weatherがnullでloading/errorも無い場合は何も描画しない", () => {

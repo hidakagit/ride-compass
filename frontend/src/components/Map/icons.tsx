@@ -131,6 +131,17 @@ export function LogIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 風（天候ヘッダ T57）: 渦を巻く気流を表す3本の曲線 */
+export function WindIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M2 6.5h11a2.5 2.5 0 1 0-2.2-3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2 10.5h14.5a2.5 2.5 0 1 1-2.2 3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2 14.5h8a2 2 0 1 1-1.8 2.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** システム状況: バージョン/稼働状況の確認を表す情報アイコン（円＋i） */
 export function StatusIcon({ size = 16 }: IconProps) {
   return (
