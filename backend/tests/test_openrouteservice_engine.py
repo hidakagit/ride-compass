@@ -74,9 +74,19 @@ class FakeSurfaceRepository:
     """`RoadGraphRepository.get_nearest_surface_tags`のFake（改善計画T21）。全候補分が
     1回のDBラウンドトリップにまとめられることを検証できるよう、呼び出し履歴を記録する。"""
 
-    def __init__(self, default_tag: str | None = "asphalt", default_stop_count: int = 0):
+    def __init__(
+        self,
+        default_tag: str | None = "asphalt",
+        default_stop_count: int = 0,
+        default_highway: str | None = "residential",
+        default_way_tags: dict[str, str] | None = None,
+        default_intersection_count: int = 0,
+    ):
         self._default_tag = default_tag
         self._default_stop_count = default_stop_count
+        self._default_highway = default_highway
+        self._default_way_tags = default_way_tags or {}
+        self._default_intersection_count = default_intersection_count
         self.calls: list[list[tuple[float, float]]] = []
         self.stop_count_calls: list[list[tuple[float, float]]] = []
 
@@ -91,6 +101,16 @@ class FakeSurfaceRepository:
     ) -> list[int]:
         self.stop_count_calls.append(points)
         return [self._default_stop_count for _ in points]
+
+    async def get_nearest_way_tags(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[tuple[str | None, dict[str, str]]]:
+        return [(self._default_highway, self._default_way_tags) for _ in points]
+
+    async def get_nearest_intersection_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[int]:
+        return [self._default_intersection_count for _ in points]
 
 
 def make_generator(outcomes: list) -> RouteGenerator:
@@ -237,6 +257,80 @@ async def test_stop_density_is_zero_without_nearby_pois():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.stop_density == 0.0 for c in candidates)
+
+
+async def test_traffic_stress_and_bicycle_infra_reflect_nearest_way_tags_when_repository_injected():
+    # 静的道路属性P1残り。get_nearest_way_tagsで取得したhighway/tagsから交通ストレス・
+    # 自転車インフラを評価する。
+    repository = FakeSurfaceRepository(
+        default_tag="asphalt", default_highway="primary", default_way_tags={"cycleway": "track"}
+    )
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(seg.traffic_stress == 2 for c in candidates for seg in c.segments)  # primary(4) - track(2)
+    assert all(seg.bicycle_infra == "separated" for c in candidates for seg in c.segments)
+    assert all(c.traffic_stress_score is not None for c in candidates)
+    assert all(c.bicycle_infra_score == 100.0 for c in candidates)
+
+
+async def test_traffic_stress_and_bicycle_infra_are_none_without_repository():
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(seg.traffic_stress is None for c in candidates for seg in c.segments)
+    assert all(seg.bicycle_infra is None for c in candidates for seg in c.segments)
+    assert all(c.traffic_stress_score is None and c.bicycle_infra_score is None for c in candidates)
+
+
+async def test_intersection_density_reflects_nearest_intersection_counts_when_repository_injected():
+    repository = FakeSurfaceRepository(default_tag="asphalt", default_intersection_count=1)
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.intersection_density is not None and c.intersection_density > 0.0 for c in candidates)
+    assert all(
+        seg.intersection_difficulty is not None and seg.intersection_difficulty > 0.0
+        for c in candidates
+        for seg in c.segments
+    )
+
+
+async def test_intersection_density_is_none_without_repository():
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.intersection_density is None for c in candidates)
 
 
 async def test_stop_density_is_none_without_repository():

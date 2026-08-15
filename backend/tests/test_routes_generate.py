@@ -141,7 +141,10 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
     captured: dict = {}
     app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
     scoring_weights = {"distance_weight": 0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}
-    route_preference = {"elevation_weight": 0.5, "road_weight": 0.25, "wind_weight": 0.2, "stop_weight": 0.05}
+    route_preference = {
+        "elevation_weight": 0.5, "road_weight": 0.25, "wind_weight": 0.2, "stop_weight": 0.05,
+        "traffic_weight": 0.0, "infra_weight": 0.0, "intersection_weight": 0.0,
+    }
 
     try:
         response = client.post(

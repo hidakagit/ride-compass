@@ -1,7 +1,10 @@
 from app.domain.traffic import (
     classify_bicycle_infrastructure,
     classify_stop_poi,
+    distance_weighted_bicycle_infra_score,
+    distance_weighted_intersection_density,
     distance_weighted_stop_density,
+    is_dedicated_bicycle_infra,
     parse_lanes,
     parse_maxspeed,
     smoothness_score,
@@ -199,3 +202,52 @@ class TestDistanceWeightedStopDensity:
 
     def test_all_none_counts_return_none(self):
         assert distance_weighted_stop_density([(1.0, None), (2.0, None)]) is None
+
+
+class TestDistanceWeightedIntersectionDensity:
+    # distance_weighted_stop_densityと同じ集約ロジック（_density_per_km共有）のため
+    # 基本ケースのみ確認する。詳細な境界値は上のTestDistanceWeightedStopDensity参照。
+    def test_sums_counts_over_total_distance(self):
+        assert distance_weighted_intersection_density([(1.0, 1), (3.0, 1)]) == 0.5
+
+    def test_none_counts_are_excluded_not_treated_as_zero(self):
+        assert distance_weighted_intersection_density([(1.0, 2), (9.0, None)]) == 2.0
+
+    def test_empty_returns_none(self):
+        assert distance_weighted_intersection_density([]) is None
+
+
+class TestIsDedicatedBicycleInfra:
+    def test_separated_is_dedicated(self):
+        assert is_dedicated_bicycle_infra("separated") is True
+
+    def test_lane_is_dedicated(self):
+        assert is_dedicated_bicycle_infra("lane") is True
+
+    def test_roadway_is_not_dedicated(self):
+        assert is_dedicated_bicycle_infra("roadway") is False
+
+    def test_shared_pedestrian_is_not_dedicated(self):
+        assert is_dedicated_bicycle_infra("shared_pedestrian") is False
+
+    def test_none_passthrough(self):
+        assert is_dedicated_bicycle_infra(None) is None
+
+
+class TestDistanceWeightedBicycleInfraScore:
+    def test_distance_weighted_percent_of_dedicated_infra(self):
+        # 3kmが専用インフラ・1kmが非専用 -> 75%
+        assert distance_weighted_bicycle_infra_score([(3.0, True), (1.0, False)]) == 75.0
+
+    def test_all_dedicated_is_100_percent(self):
+        assert distance_weighted_bicycle_infra_score([(5.0, True)]) == 100.0
+
+    def test_unknown_segments_excluded_from_denominator(self):
+        # Noneの区間(5km)は分母から除外し、残り2区間だけで計算する -> 1km/(1km+1km) = 50%
+        assert distance_weighted_bicycle_infra_score([(1.0, True), (1.0, False), (5.0, None)]) == 50.0
+
+    def test_all_unknown_returns_none(self):
+        assert distance_weighted_bicycle_infra_score([(1.0, None), (2.0, None)]) is None
+
+    def test_zero_known_distance_returns_none(self):
+        assert distance_weighted_bicycle_infra_score([]) is None

@@ -189,6 +189,13 @@ export interface components {
          *     `stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、
          *     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
          *     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
+         *
+         *     `traffic_stress_score`: ルート全体の交通ストレス（1-4）の距離加重平均
+         *     （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
+         *     `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
+         *     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
+         *     `intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。
+         *     いずれも静的道路属性P1残り。
          */
         RouteCandidate: {
             /** Id */
@@ -215,6 +222,12 @@ export interface components {
             road_score?: number | null;
             /** Stop Density */
             stop_density?: number | null;
+            /** Traffic Stress Score */
+            traffic_stress_score?: number | null;
+            /** Bicycle Infra Score */
+            bicycle_infra_score?: number | null;
+            /** Intersection Density */
+            intersection_density?: number | null;
             /** Total Score */
             total_score?: number | null;
             /** Score Breakdown */
@@ -272,6 +285,12 @@ export interface components {
             wind_weight: number;
             /** Stop Weight */
             stop_weight: number;
+            /** Traffic Weight */
+            traffic_weight: number;
+            /** Infra Weight */
+            infra_weight: number;
+            /** Intersection Weight */
+            intersection_weight: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {
@@ -350,6 +369,10 @@ export interface components {
             wind_penalty?: number | null;
             /** Road Surface Good */
             road_surface_good?: boolean | null;
+            /** Traffic Stress */
+            traffic_stress?: number | null;
+            /** Bicycle Infra */
+            bicycle_infra?: string | null;
             /** Elevation Difficulty */
             elevation_difficulty?: number | null;
             /** Wind Difficulty */
@@ -358,6 +381,12 @@ export interface components {
             road_difficulty?: number | null;
             /** Stop Difficulty */
             stop_difficulty?: number | null;
+            /** Traffic Difficulty */
+            traffic_difficulty?: number | null;
+            /** Infra Difficulty */
+            infra_difficulty?: number | null;
+            /** Intersection Difficulty */
+            intersection_difficulty?: number | null;
             /** Difficulty */
             difficulty?: number | null;
         };

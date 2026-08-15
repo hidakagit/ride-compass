@@ -19,6 +19,17 @@ from typing import Literal
 # 手動同期にしない（設計原則2）。
 STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
 
+# 交差点（次数3以上のroad_node）の空間マッチ用半径（静的道路属性P1残り、intersectionDensity）。
+# road_nodeは信号等のPOIと違い必ずEdgeの端点に位置するため、Edge単位（road_graphエンジン、
+# 端点そのもの）ではSTOP_POI_MATCH_MAX_DISTANCE_M相当でも十分だが、ORSエンジンのサンプル点は
+# ルートgeometry上の等間隔点でありグラフのNodeに一致するとは限らないため、路面評価
+# （domain/road.py: SURFACE_MATCH_MAX_DISTANCE_M=30m）と同じ「物理的な道路網特徴への
+# スナップ許容量」を採用する。
+INTERSECTION_MATCH_MAX_DISTANCE_M = 30.0
+
+# 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
+INTERSECTION_DEGREE_THRESHOLD = 3
+
 # smoothness→スコア(0-100)。未設定・未知の値はNone（評価しない）。
 _SMOOTHNESS_SCORES: dict[str, float] = {
     "excellent": 100.0,
@@ -141,16 +152,14 @@ def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
     return _HIGHWAY_STOP_KINDS.get(highway)
 
 
-def distance_weighted_stop_density(segments: list[tuple[float, int | None]]) -> float | None:
-    """(区間distance_km, 区間内の停止要因count)のリストから、ルート全体の停止密度
-    （回/km）を求める（静的道路属性P1）。domain/difficulty.pyのdistance_weighted_*と違い
-    「率の加重平均」ではなく「合計count÷合計distance_km」が正しい集約（密度は加算的な量の
-    比であり、区間ごとに既に正規化された値の平均ではないため）。
+def _density_per_km(segments: list[tuple[float, int | None]]) -> float | None:
+    """(区間distance_km, 区間内のcount)のリストから「合計count÷合計distance_km」を求める
+    （密度は加算的な量の比であり、区間ごとに既に正規化された値の平均ではないため、
+    domain/difficulty.pyのdistance_weighted_*とは異なる集約になる）。
 
-    countがNoneの区間は「データ未取得（例: repository未注入）」を表し、0（実測でPOI無し）
-    とは区別して集計から除外する（distance_weighted_difficulty等、他のdistance_weighted_*と
-    同じ「欠損は除外し残りで再正規化」の考え方）。除外後に1区間も残らない、または距離の
-    合計が0以下ならNone。"""
+    countがNoneの区間は「データ未取得（例: repository未注入）」を表し、0（実測で対象無し）
+    とは区別して集計から除外する。除外後に1区間も残らない、または距離の合計が0以下ならNone。
+    """
     available = [(distance, count) for distance, count in segments if count is not None]
     if not available:
         return None
@@ -159,6 +168,43 @@ def distance_weighted_stop_density(segments: list[tuple[float, int | None]]) -> 
         return None
     count_sum = sum(count for _, count in available)
     return round(count_sum / distance_sum, 2)
+
+
+def distance_weighted_stop_density(segments: list[tuple[float, int | None]]) -> float | None:
+    """(区間distance_km, 区間内の停止要因count)のリストから、ルート全体の停止密度
+    （回/km）を求める（静的道路属性P1）。"""
+    return _density_per_km(segments)
+
+
+def distance_weighted_intersection_density(segments: list[tuple[float, int | None]]) -> float | None:
+    """(区間distance_km, 区間内の交差点count)のリストから、ルート全体の交差点密度
+    （回/km）を求める（静的道路属性P1残り、intersectionDensity）。集約方法は
+    distance_weighted_stop_densityと同じ（stop_countsに無いEdge/サンプル点はNone扱いで
+    「データ未取得」と「実測0件」を区別する、road_score等と同じ方針）。"""
+    return _density_per_km(segments)
+
+
+# 分離自転車道・自転車レーンを「専用インフラ」とみなす分類（bicycle_infra_score算出用）。
+DEDICATED_BICYCLE_INFRA_CLASSES: frozenset[str] = frozenset({"separated", "lane"})
+
+
+def is_dedicated_bicycle_infra(bicycle_infra: BicycleInfraClass | None) -> bool | None:
+    """自転車インフラ分類が「専用インフラ（分離・レーン）」かどうかを3値で返す
+    （不明はNone。road.py: classify_osm_surfaceの3値判定と同じ考え方）。"""
+    if bicycle_infra is None:
+        return None
+    return bicycle_infra in DEDICATED_BICYCLE_INFRA_CLASSES
+
+
+def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]) -> float | None:
+    """(区間の距離, 専用の自転車インフラか)のペア列から、距離加重の専用インフラ率(%)を
+    算出する（domain/road.py: distance_weighted_road_scoreと同じ集約方法。不明区間は
+    分母から除外し、判定できる区間が1つも無ければNone）。"""
+    known = sum(distance for distance, is_dedicated in pairs if is_dedicated is not None)
+    if known <= 0:
+        return None
+    dedicated = sum(distance for distance, is_dedicated in pairs if is_dedicated)
+    return round(dedicated / known * 100, 1)
 
 
 def traffic_stress_level(highway: str | None, tags: dict[str, str]) -> int | None:

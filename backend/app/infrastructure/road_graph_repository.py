@@ -60,7 +60,12 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
-from app.domain.traffic import STOP_POI_MATCH_MAX_DISTANCE_M, TRAFFIC_STRESS_BASE_BY_HIGHWAY
+from app.domain.traffic import (
+    INTERSECTION_DEGREE_THRESHOLD,
+    INTERSECTION_MATCH_MAX_DISTANCE_M,
+    STOP_POI_MATCH_MAX_DISTANCE_M,
+    TRAFFIC_STRESS_BASE_BY_HIGHWAY,
+)
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, TILE_EXTENT
 from app.infrastructure.road_graph_models import (
     Base,
@@ -340,6 +345,126 @@ _NEAREST_STOP_POI_COUNTS_SQL = text(
     SELECT pts.ord, COUNT(p.osm_node_id) AS stop_count
     FROM pts
     LEFT JOIN osm_raw_pois p ON ST_DWithin(p.geom::geography, pts.geog, :max_distance_m)
+    GROUP BY pts.ord
+    ORDER BY pts.ord
+    """
+).bindparams(
+    bindparam("lats", type_=ARRAY(Float())),
+    bindparam("lons", type_=ARRAY(Float())),
+)
+
+# 静的道路属性P1残り（交通ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
+# 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
+# （domain/traffic.py: traffic_stress_level/classify_bicycle_infrastructureの入力）。
+_NEAREST_WAY_TAGS_SQL = text(
+    """
+    WITH pts AS (
+        SELECT
+            ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
+    )
+    SELECT pts.ord,
+           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.highway END AS highway,
+           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.tags END AS tags
+    FROM pts
+    LEFT JOIN LATERAL (
+        SELECT e.osm_way_id, e.geom
+        FROM road_edges e
+        ORDER BY e.geom <-> pts.geom
+        LIMIT 1
+    ) nearest ON true
+    LEFT JOIN osm_raw_ways w ON w.osm_way_id = nearest.osm_way_id
+    ORDER BY pts.ord
+    """
+).bindparams(
+    bindparam("lats", type_=ARRAY(Float())),
+    bindparam("lons", type_=ARRAY(Float())),
+)
+
+# 静的道路属性P1残り（intersectionDensity）。「次数3以上のNode」を交差点とみなし、
+# road_edgesのfrom/to隣接ノード集合から次数を導出する（road_nodes自体は次数を保持していない。
+# build_road_graphのNode化条件は「Wayの端点、または複数Wayに共有されるNode」であり、
+# 次数2の単純な通過点もNode化されうるため、次数はここで都度計算する必要がある）。
+# edge_idで指定範囲を絞ってから集計するため（road_graphエンジンは既に取得済みの
+# ローカルグラフのedge_id全量を渡す）、DB全体のroad_edgesを走査しない。
+_INTERSECTION_COUNTS_SQL = text(
+    """
+    WITH local_edges AS (
+        SELECT edge_id, from_node_id, to_node_id, geom
+        FROM road_edges
+        WHERE edge_id = ANY(CAST(:edge_ids AS text[]))
+    ),
+    endpoints AS (
+        SELECT from_node_id AS node_id, to_node_id AS neighbor_id FROM local_edges
+        UNION
+        SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM local_edges
+    ),
+    degrees AS (
+        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+        FROM endpoints
+        GROUP BY node_id
+        HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
+    ),
+    intersections AS (
+        SELECT rn.node_id, rn.geom
+        FROM road_nodes rn
+        JOIN degrees d ON d.node_id = rn.node_id
+    )
+    SELECT le.edge_id, COUNT(i.node_id) AS intersection_count
+    FROM local_edges le
+    LEFT JOIN intersections i ON ST_DWithin(i.geom::geography, le.geom::geography, :max_distance_m)
+    GROUP BY le.edge_id
+    """
+)
+
+# _NEAREST_INTERSECTION_COUNTS_SQLの外接矩形拡張量（度）。約1km相当（緯度35度付近で
+# 1度≈91km換算、0.01度≈910m）。road_edgesの一般的な区間長より十分大きく取り、範囲境界
+# 付近のNodeで隣接Edgeが範囲外に落ちて次数を過小評価しないための安全マージン。
+_INTERSECTION_ENVELOPE_MARGIN_DEG = 0.01
+
+# ORSエンジン用（サンプル点ごとの近傍交差点件数）。_INTERSECTION_COUNTS_SQLと同じ次数導出
+# ロジックだが、edge_idの一覧が無い（ルートgeometry上の任意サンプル点）ため、サンプル点集合の
+# 外接矩形を`:envelope_margin_deg`分広げた範囲でroad_edgesを絞り込んでから次数を計算する
+# （DB全体のroad_edgesを走査しないため。マージンは最大空間マッチ半径より十分大きく取り、
+# 範囲境界付近のNodeで隣接Edgeが範囲外に落ちて次数を過小評価しないようにする）。
+_NEAREST_INTERSECTION_COUNTS_SQL = text(
+    """
+    WITH pts AS (
+        SELECT
+            ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
+    ),
+    envelope AS (
+        SELECT ST_Expand(ST_Extent(geom), :envelope_margin_deg) AS bbox FROM pts
+    ),
+    local_edges AS (
+        SELECT e.from_node_id, e.to_node_id, e.geom
+        FROM road_edges e, envelope
+        WHERE e.geom && envelope.bbox
+    ),
+    endpoints AS (
+        SELECT from_node_id AS node_id, to_node_id AS neighbor_id FROM local_edges
+        UNION
+        SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM local_edges
+    ),
+    degrees AS (
+        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+        FROM endpoints
+        GROUP BY node_id
+        HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
+    ),
+    intersections AS (
+        SELECT rn.node_id, rn.geom
+        FROM road_nodes rn
+        JOIN degrees d ON d.node_id = rn.node_id
+    )
+    SELECT pts.ord, COUNT(i.node_id) AS intersection_count
+    FROM pts
+    LEFT JOIN intersections i ON ST_DWithin(i.geom::geography, pts.geog, :max_distance_m)
     GROUP BY pts.ord
     ORDER BY pts.ord
     """
@@ -931,6 +1056,99 @@ class AttributeRepository(_SessionRepository):
         by_ord = {ord_: stop_count for ord_, stop_count in result.all()}
         return [by_ord.get(i + 1, 0) for i in range(len(points))]
 
+    async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
+        """指定edge_idそれぞれについて、road_edges.osm_way_id経由のosm_raw_ways.tags
+        （静的道路属性P0の許可リストタグ）を返す（静的道路属性P1残り、交通ストレス・
+        自転車インフラ評価の入力）。get_surface_attributesと同じJOINパターン。
+
+        該当way自体が無い/tagsが空のEdgeは`{}`（highwayはEdge側に既に保持済みのため、
+        タグが空でも交通ストレスの基本値は評価できる。domain/evaluation.py:
+        compute_edge_cost参照）。「データ未取得（repository未注入）」との区別は
+        呼び出し元（本メソッド自体を呼ぶかどうか）で行う。
+        """
+        if not edge_ids:
+            return {}
+        result: dict[str, dict[str, str]] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            stmt = (
+                select(RoadEdgeRow.edge_id, OsmRawWayRow.tags)
+                .select_from(RoadEdgeRow)
+                .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
+                .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
+            )
+            for edge_id, tags in (await self._session.execute(stmt)).all():
+                result[edge_id] = tags or {}
+        return result
+
+    async def get_nearest_way_tags(
+        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
+    ) -> list[tuple[str | None, dict[str, str]]]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeが
+        参照するosm_raw_waysの(highway, tags)を返す（入力と同じ順序・同じ長さ、
+        静的道路属性P1残り）。get_nearest_surface_tagsと同じ空間マッチ方式で、
+        openrouteserviceエンジンの交通ストレス・自転車インフラ評価の入力になる。
+        """
+        if not points:
+            return []
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        result = await self._session.execute(
+            _NEAREST_WAY_TAGS_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
+        )
+        by_ord = {ord_: (highway, tags or {}) for ord_, highway, tags in result.all()}
+        return [by_ord.get(i + 1, (None, {})) for i in range(len(points))]
+
+    async def get_intersection_counts(
+        self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, int]:
+        """指定edge_idそれぞれについて、`max_distance_m`以内にある交差点（次数
+        `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（静的道路属性P1残り、
+        intersectionDensity）。road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。
+        get_stop_poi_countsと同じ「edge_idリストを渡して辞書で受け取る」形で、指定edge_idは
+        （0件でも）必ず結果に含まれる。
+
+        次数はDB全体ではなく指定edge_ids（呼び出し元が既に取得済みのローカルグラフの
+        全edge）に限定して都度計算する（_INTERSECTION_COUNTS_SQL参照。DB全体のroad_edgesを
+        毎回集計すると規模に応じて遅くなるため）。
+        """
+        if not edge_ids:
+            return {}
+        result: dict[str, int] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            rows = await self._session.execute(
+                _INTERSECTION_COUNTS_SQL,
+                {"edge_ids": id_chunk, "max_distance_m": max_distance_m, "degree_threshold": INTERSECTION_DEGREE_THRESHOLD},
+            )
+            for edge_id, intersection_count in rows.all():
+                result[edge_id] = intersection_count
+        return result
+
+    async def get_nearest_intersection_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
+    ) -> list[int]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある交差点（次数
+        `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（入力と同じ順序・
+        同じ長さ、静的道路属性P1残り）。get_nearest_stop_poi_countsと同じ考え方だが、
+        edge_idの一覧が無いため、サンプル点集合の外接矩形を広げた範囲でroad_edgesを
+        絞り込んでから次数を計算する（_NEAREST_INTERSECTION_COUNTS_SQL参照）。
+        """
+        if not points:
+            return []
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        result = await self._session.execute(
+            _NEAREST_INTERSECTION_COUNTS_SQL,
+            {
+                "lats": lats,
+                "lons": lons,
+                "max_distance_m": max_distance_m,
+                "degree_threshold": INTERSECTION_DEGREE_THRESHOLD,
+                "envelope_margin_deg": _INTERSECTION_ENVELOPE_MARGIN_DEG,
+            },
+        )
+        by_ord = {ord_: intersection_count for ord_, intersection_count in result.all()}
+        return [by_ord.get(i + 1, 0) for i in range(len(points))]
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -1018,6 +1236,24 @@ class RoadGraphRepository:
         self, points: list[tuple[float, float]], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> list[int]:
         return await self.attributes.get_nearest_stop_poi_counts(points, max_distance_m=max_distance_m)
+
+    async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
+        return await self.attributes.get_way_tags(edge_ids)
+
+    async def get_nearest_way_tags(
+        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
+    ) -> list[tuple[str | None, dict[str, str]]]:
+        return await self.attributes.get_nearest_way_tags(points, max_distance_m=max_distance_m)
+
+    async def get_intersection_counts(
+        self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, int]:
+        return await self.attributes.get_intersection_counts(edge_ids, max_distance_m=max_distance_m)
+
+    async def get_nearest_intersection_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
+    ) -> list[int]:
+        return await self.attributes.get_nearest_intersection_counts(points, max_distance_m=max_distance_m)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

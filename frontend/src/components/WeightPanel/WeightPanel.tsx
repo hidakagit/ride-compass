@@ -17,10 +17,13 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
 };
 
 export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = {
-  elevation_weight: 0.2,
-  road_weight: 0.25,
-  wind_weight: 0.35,
-  stop_weight: 0.2,
+  elevation_weight: 0.15,
+  road_weight: 0.19,
+  wind_weight: 0.26,
+  stop_weight: 0.15,
+  traffic_weight: 0.1,
+  infra_weight: 0.1,
+  intersection_weight: 0.05,
 };
 
 interface WeightPanelProps {

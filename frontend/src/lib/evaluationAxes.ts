@@ -53,6 +53,9 @@ const PREFERENCE_AXIS_META: Record<keyof RoutePreferenceWeights, Omit<Preference
   road_weight: { label: "舗装", description: "舗装路であるほど易しい" },
   wind_weight: { label: "風", description: "向かい風が弱いほど易しい" },
   stop_weight: { label: "信号・踏切等", description: "信号・横断歩道・一時停止・踏切が少ないほど易しい" },
+  traffic_weight: { label: "交通ストレス", description: "推定交通ストレス(1-4)が低いほど易しい" },
+  infra_weight: { label: "自転車インフラ", description: "分離自転車道・自転車レーン等の専用インフラが多いほど易しい" },
+  intersection_weight: { label: "交差点", description: "交差点(次数3以上の分岐点)が少ないほど易しい" },
 };
 
 export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = (

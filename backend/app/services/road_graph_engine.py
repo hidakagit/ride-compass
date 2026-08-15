@@ -36,9 +36,17 @@ from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.region import BoundingBox
+from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.traffic import distance_weighted_stop_density
+from app.domain.traffic import (
+    classify_bicycle_infrastructure,
+    distance_weighted_bicycle_infra_score,
+    distance_weighted_intersection_density,
+    distance_weighted_stop_density,
+    is_dedicated_bicycle_infra,
+    traffic_stress_level,
+)
 from app.domain.routing import build_networkx_graph, concat_node_paths, find_nearest_node, path_to_edge_ids, shortest_path_node_ids
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
@@ -64,6 +72,8 @@ class _RoadGraphContext:
     nx_graph: nx.DiGraph
     surface_attributes: dict[str, str | None]
     stop_counts: dict[str, int]
+    way_tags: dict[str, dict[str, str]]
+    intersection_counts: dict[str, int]
     wind: WeatherConditions | None
     origin_node: str
 
@@ -96,6 +106,11 @@ class RoadGraphEngine:
         # 静的道路属性P1（信号・横断歩道・一時停止・踏切）。探索コスト自体にも反映されるよう
         # ここで取得する（surface_attributesと同じくprepareで1回だけ・全方位で共有）。
         stop_counts = await self._graph_service.get_stop_poi_counts(list(graph.edges.keys()))
+        # 静的道路属性P1残り（交通ストレス・自転車インフラ・交差点密度）。同じくprepareで
+        # 1回だけ取得し全方位で共有する。way_tagsはEdgeのosm_way_id経由のタグ、
+        # intersection_countsはこのローカルグラフ内で計算した交差点件数（次数3以上のNode）。
+        way_tags = await self._graph_service.get_way_tags(list(graph.edges.keys()))
+        intersection_counts = await self._graph_service.get_intersection_counts(list(graph.edges.keys()))
 
         origin_node = find_nearest_node(graph, origin)
         if origin_node is None:
@@ -104,7 +119,8 @@ class RoadGraphEngine:
         wind = await self._weather_service.get_conditions(origin)
         # 探索用Costは標高を含めない（理由はモジュールdocstring参照）。
         search_edge_costs = self._evaluation_service.evaluate_graph(
-            graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts
+            graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts,
+            way_tags=way_tags, intersection_counts=intersection_counts,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 
@@ -113,6 +129,8 @@ class RoadGraphEngine:
             nx_graph=nx_graph,
             surface_attributes=surface_attributes,
             stop_counts=stop_counts,
+            way_tags=way_tags,
+            intersection_counts=intersection_counts,
             wind=wind,
             origin_node=origin_node,
         )
@@ -168,13 +186,22 @@ class RoadGraphEngine:
         road_score = _aggregate_road_score(edges_in_path, context.surface_attributes)
         wind_score = _aggregate_wind_score(edges_in_path, context.wind)
         stop_density = _aggregate_stop_density(edges_in_path, context.stop_counts)
+        intersection_density = _aggregate_intersection_density(edges_in_path, context.intersection_counts)
         segments = self._build_segment_details(
             edges_in_path,
             elevation_attributes,
             context.surface_attributes,
             context.stop_counts,
+            context.way_tags,
+            context.intersection_counts,
             context.wind,
             start_time,
+        )
+        traffic_stress_score = distance_weighted_difficulty(
+            [(s.traffic_stress, s.distance_km) for s in segments]
+        )
+        bicycle_infra_score = distance_weighted_bicycle_infra_score(
+            [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
         )
 
         return RouteCandidate(
@@ -184,6 +211,9 @@ class RoadGraphEngine:
             wind_score=wind_score,
             road_score=road_score,
             stop_density=stop_density,
+            traffic_stress_score=traffic_stress_score,
+            bicycle_infra_score=bicycle_infra_score,
+            intersection_density=intersection_density,
             segments=segments,
             **elevation_stats,
         )
@@ -194,6 +224,8 @@ class RoadGraphEngine:
         elevation_attributes: dict,
         surface_attributes: dict[str, str | None],
         stop_counts: dict[str, int],
+        way_tags: dict[str, dict[str, str]],
+        intersection_counts: dict[str, int],
         wind: WeatherConditions | None,
         start_time: datetime,
     ) -> list[RouteSegmentDetail]:
@@ -206,15 +238,26 @@ class RoadGraphEngine:
             elevation_attr = elevation_attributes.get(edge.edge_id)
             surface_type = surface_attributes.get(edge.edge_id)
             stop_count = stop_counts.get(edge.edge_id)
+            edge_way_tags = way_tags.get(edge.edge_id)
+            intersection_count = intersection_counts.get(edge.edge_id)
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, wind)
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
+            traffic_stress = traffic_stress_level(edge.highway, edge_way_tags) if edge_way_tags is not None else None
+            bicycle_infra = (
+                classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
+            )
+            intersection_count_per_km = (
+                intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
+            )
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
+                traffic_stress, bicycle_infra, intersection_count_per_km,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
+                preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
             )
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
@@ -246,10 +289,15 @@ class RoadGraphEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
                     road_surface_good=road_surface_good,
+                    traffic_stress=traffic_stress,
+                    bicycle_infra=bicycle_infra,
                     elevation_difficulty=axis_difficulties.elevation,
                     wind_difficulty=axis_difficulties.wind,
                     road_difficulty=axis_difficulties.road,
                     stop_difficulty=axis_difficulties.stop,
+                    traffic_difficulty=axis_difficulties.traffic,
+                    infra_difficulty=axis_difficulties.infra,
+                    intersection_difficulty=axis_difficulties.intersection,
                     difficulty=axis_difficulties.composite,
                 )
             )
@@ -323,6 +371,15 @@ def _aggregate_stop_density(edges: list[DirectedEdge], stop_counts: dict[str, in
     """
     return distance_weighted_stop_density(
         [(edge.distance_m / 1000, stop_counts.get(edge.edge_id)) for edge in edges]
+    )
+
+
+def _aggregate_intersection_density(edges: list[DirectedEdge], intersection_counts: dict[str, int]) -> float | None:
+    """経路全体の交差点（次数3以上のNode）の合計密度(回/km)。_aggregate_stop_densityと
+    同じ薄いラッパー（静的道路属性P1残り、intersectionDensity）。
+    """
+    return distance_weighted_intersection_density(
+        [(edge.distance_m / 1000, intersection_counts.get(edge.edge_id)) for edge in edges]
     )
 
 

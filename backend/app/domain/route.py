@@ -38,10 +38,19 @@ class RouteSegmentDetail(BaseModel):
     gradient_percent: float | None = None
     wind_penalty: float | None = None
     road_surface_good: bool | None = None
+    # 交通ストレス(1-4、domain/traffic.py: traffic_stress_level)・自転車インフラ分類
+    # （domain/traffic.py: BicycleInfraClass）の生値。road_surface_goodと同じく、難易度
+    # （traffic_difficulty/infra_difficulty）とは別に、将来の色分けモード等での利用に備えて
+    # 生値も保持する（静的道路属性P1残り）。
+    traffic_stress: int | None = None
+    bicycle_infra: str | None = None
     elevation_difficulty: float | None = None
     wind_difficulty: float | None = None
     road_difficulty: float | None = None
     stop_difficulty: float | None = None
+    traffic_difficulty: float | None = None
+    infra_difficulty: float | None = None
+    intersection_difficulty: float | None = None
     difficulty: float | None = None
 
 
@@ -72,6 +81,13 @@ class RouteCandidate(BaseModel):
     `stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、
     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
+
+    `traffic_stress_score`: ルート全体の交通ストレス（1-4）の距離加重平均
+    （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
+    `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
+    （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
+    `intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。
+    いずれも静的道路属性P1残り。
     """
 
     id: str
@@ -85,6 +101,9 @@ class RouteCandidate(BaseModel):
     wind_score: float | None = None
     road_score: float | None = None
     stop_density: float | None = None
+    traffic_stress_score: float | None = None
+    bicycle_infra_score: float | None = None
+    intersection_density: float | None = None
     total_score: float | None = None
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None

@@ -131,6 +131,9 @@ describe("routeApi", () => {
           wind_score: null,
           road_score: null,
           stop_density: null,
+          traffic_stress_score: null,
+          bicycle_infra_score: null,
+          intersection_density: null,
           total_score: null,
           score_breakdown: null,
           segments: null,
@@ -143,7 +146,10 @@ describe("routeApi", () => {
         distance_km: 30,
         distance_tolerance_km: 5,
         scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
-        route_preference: { elevation_weight: 0.2, road_weight: 0.25, wind_weight: 0.35, stop_weight: 0.2 },
+        route_preference: {
+          elevation_weight: 0.15, road_weight: 0.19, wind_weight: 0.26, stop_weight: 0.15,
+          traffic_weight: 0.1, infra_weight: 0.1, intersection_weight: 0.05,
+        },
         generated_at: "2026-08-15T12:00:00+09:00",
       };
       vi.stubGlobal(
