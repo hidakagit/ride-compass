@@ -68,6 +68,9 @@ def test_score_breakdown_contributions_sum_to_total_score():
 
     for c in scored:
         assert c.score_breakdown is not None
+        # このaxis id集合はフロントの評価軸カタログ（frontend/src/lib/evaluationAxes.ts:
+        # SCORING_AXES）が「重みキーから"_weight"を除いた値」として前提にしている
+        # （改善計画T25）。ここを変えたらフロント側の対応も必要。
         assert [e.axis for e in c.score_breakdown] == ["distance", "elevation", "wind", "road"]
         assert {e.axis: e.weight for e in c.score_breakdown} == {
             "distance": 0.30,

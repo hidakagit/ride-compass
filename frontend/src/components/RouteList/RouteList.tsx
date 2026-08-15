@@ -1,5 +1,6 @@
 "use client";
 
+import { SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RouteCandidate } from "@/types/route";
 import styles from "./RouteList.module.css";
 
@@ -8,6 +9,10 @@ interface RouteListProps {
   selectedRouteId: string | null;
   onSelect: (id: string) => void;
 }
+
+// 評価軸カタログ（lib/evaluationAxes.ts）から生成する（改善計画T25）。軸を増やしても
+// このファイルを直接編集する必要が無い。
+const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => axis.label).join("・")}を重み付けして算出（この一覧内での相対評価）`;
 
 export default function RouteList({ routes, selectedRouteId, onSelect }: RouteListProps) {
   if (routes.length === 0) return null;
@@ -19,9 +24,7 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
           候補同士でのみ比較できる相対評価であり、他のリクエストの結果とは比較できない）。
           表示名は「総合スコア」から「おすすめ度」へ変更（T30）: ルート色分けの「総合難易度」と
           極性が逆（スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。 */}
-      <p className={styles.scoreHint}>
-        おすすめ度は距離の合わせ込み・獲得標高・向かい風・舗装率を重み付けして算出（この一覧内での相対評価）
-      </p>
+      <p className={styles.scoreHint}>{SCORE_HINT}</p>
       <ul className={styles.list}>
         {routes.map((route) => {
           const selected = route.id === selectedRouteId;
