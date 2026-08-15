@@ -1237,6 +1237,10 @@ export default function MapView({
             fontSize: "0.85rem",
             boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
             zIndex: 10,
+            // 押せないメッセージ表示のため地図へタッチを素通しする（MapOverlayControlsの
+            // 隙間と同じ理由。既定のpointer-events: autoのままだとピンチの片方の指が
+            // ここに乗ったときページ全体のネイティブズームに化る）。
+            pointerEvents: "none",
           }}
         >
           地図の読み込みに失敗しました。しばらくしてから再読み込みしてください。
