@@ -109,12 +109,27 @@
 
 ## Phase 3: 機能追加と合わせて（トリガー条件付き）
 
-### - [ ] T9. `surface_attributes` の導出化〔C4/E2〕規模M — トリガー: **静的道路属性のスキーマ変更・再取込と同一バッチで実施**（第2回レビューI-6でトリガー更新。旧: 関東圏拡大 or 容量逼迫）
+### - [x] T9. `surface_attributes` の導出化〔C4/E2〕規模M（2026-08-15完了）
 
-- surfaceを `road_edges` 列に持たせる（highwayと同じ扱い）か、`osm_raw_ways` とのJOINで導出し、
-  `surface_attributes` テーブルを廃止。WARM時間（現状8〜11秒の主成分）と容量の削減を実測で確認。
-- 単独で実施すると再取込が二度手間になるため、静的属性実装（T16ゲート通過後）の
-  マイグレーション・再取込に同梱する。スキーマ変更はT17のマイグレーション機構経由で行う。
+- `surface_attributes`テーブルを廃止し、`road_edges.osm_way_id`経由で`osm_raw_ways.surface`を
+  LEFT JOINして導出する方式へ変更（`AttributeRepository.get_surface_attributes`）。
+  `osm_raw_ways.surface`は既存データにも既に入っているため再取込は不要だった
+  （当初想定の「静的属性の再取込と同一バッチ」から独立して単独実施、P0実装時の判断どおり）。
+- `SurfaceAttribute`型（Pydantic、`confidence`/`data_source`/`calculated_at`）はEdge Cost計算では
+  実質`surface_type`しか使われていなかったため廃止し、`dict[str, str | None]`（edge_id→surfaceタグ
+  生値）へ単純化。`domain/evaluation.py: compute_edge_cost`の`surface_attribute`引数も
+  `surface_type: str | None`に簡約（`classify_osm_surface`は元々None安全なため分岐が消えた）。
+  `GraphService`の3経路（DBなし構成・省略/fast path・通常/rebuild path）すべてをこの型に統一し、
+  rebuild経路の`save_surface_attributes`呼び出し自体を削除（Edge保存とは別テーブルへの
+  書き込みが構造的に無くなった）
+- `migrations/0004_drop_surface_attributes.sql`で`DROP TABLE`。JOINには既存の
+  `idx_road_edges_osm_way_id`（migration 0001）を使うため新規インデックス不要
+- 完了条件: backend 473件全green。dev機PG18へmigration 0004適用、
+  `verify_postgis_phase0.py`23/23 PASS実機確認済み。`bench_postgis_prepare.py`で実データ計測
+  （ローカルPostGIS、1km: save_graph単体8.25秒/WARM経路1.92秒、4km: 13.69秒/3.06秒）。
+  旧実装のSupabase WAN実測値とは接続環境が異なり直接比較不可だが、
+  「専用テーブルへの追加SELECT/UPSERTが構造的に消えた」ことは実装として確認済み
+  （詳細はbackend/benchmarks/README.md 11番）
 
 ### - [ ] T10. DEMタイル化＋標高キャッシュ1系統化〔E3/F3〕規模L — トリガー: 標高評価の本格精査
 
@@ -392,15 +407,71 @@
   実データ投入後は表示がほぼ空になる見込み。lanes/maxspeedは幹線道路(55.8%/38.2%)でのみ
   機能し生活道路(1.8%/1.6%)ではほぼ効かないため、trafficStressは生活道路で
   highway基本値頼みになる。P1着手時（評価組み込み）はこの低カバレッジを前提にすること
-- **既存データへの再取込**: 本番・ローカルとも`tags`列はスキーマ上追加されたのみで、
-  既存行は`tags='{}'`のまま（既存インポート済みデータは新タグを持たない）。
-  smoothness/tunnel/bridgeが実データで見えるようにするには、範囲拡大（T28検証）と
-  合わせた再取込が必要
-- **T9（surface_attributes導出化）**: 中核のルーティング評価ロジック
-  （EvaluationService・RoadGraphEngine等7ファイル）に触れる別スコープの変更のため、
-  P0とは切り離して別タスクとして実施する（再取込を伴わないため単独実施可）
+- **既存データへの再取込**: ✅**現行25km圏内は完了（2026-08-15）**。本番Oracle DBへ同一bboxで
+  再取込み（run_id=2、273,947way、db_size_mb 315→297）し、`tags`列を実データで埋めた
+  （tags非空67,705/273,947way≈24.7%）。詳細はosm-pbf-import.md 9章Phase 6参照。
+  **関東全域への範囲拡大（T28(B)大規模GiST検証を兼ねる）は別判断待ちで未実施**
+  （現行スコープ外のためsmoothness/tunnel/bridge等は依然王子25km圏内のみで観測可能）
+- **T9（surface_attributes導出化）**: ✅完了（2026-08-15、詳細は本ファイル「Phase 3」節の
+  T9項目参照）
 - **静的属性P1（node取込・評価組み込み）**: signal/crossing等のnode取込機構、
   EvaluationServiceへの組み込みは計画書のP1（トリガー未成立）のまま
+
+---
+
+## フロントUI一貫性再編（2026-08-15・UI導線レビュー）
+
+現状UIの導線整理で判明した課題（設定の反映タイミング・保存有無・配置の3軸がバラバラ、
+「路面」等の用語衝突、デバッグモードの2役兼務）への対応。方針は「設定を『生成条件』と
+『地図の見え方』の2系統へ再編し、系統ごとに反映タイミング・保存・エラー表示場所を統一する」。
+
+### - [x] T29. デバッグ/研究モードの分割 規模S（2026-08-15完了）
+
+- `lib/researchMode.ts`（localStorageキー `ridecompass:research-enabled`）＋`useResearchEnabled`
+  フックを新設し、デバッグモード（ログ表示専任）から研究機能を分離する。
+- WeightPanel表示・実験スロット記録・ComparisonPanel・MapViewスロット重ね描きの条件を
+  `debugEnabled`→`researchEnabled`へ切替。DebugPanelのラベルはログ表示専任へ改名し、
+  研究モードのトグル（ResearchPanel）を新設。
+- 完了条件: デバッグOFF×研究ONで重み調整・比較ができ、デバッグON×研究OFFでログのみ出る。
+
+### - [x] T30. サイドバー3ブロック再編＋用語統一 規模L（2026-08-15完了）
+
+- サイドバーを「A. ルートを作る」（位置・天候・距離・重み・生成・候補一覧・比較表）／
+  「B. 地図の見え方」（レイヤー設定）／「C. 開発者向け」（デフォルト閉。デバッグ・研究・
+  疎通・再読み込み）の3ブロックへ再編。Aは最上部・デフォルト開の折りたたみ。
+- レイヤーON/OFFは地図上と同一見た目のチップへ統一（サイドバー側のスイッチを置換）。
+- 用語改名: レイヤー「路面」→「道路情報」／ルート色分けモード「路面」→「舗装/未舗装」／
+  「総合スコア」→「おすすめ度」／重みラベルを候補一覧の表示語（距離の合わせ込み・獲得標高・
+  向かい風・舗装率）へ一致／難易度重み「標高」→「勾配」／グループ見出しを役割ベース
+  （「地図に重ねる情報」「生成したルートの色分け」）へ／「デフォルト（東京・王子）」→
+  「初期地点（東京・王子）」／「変わらないデータを更新」→「地図データを再読み込み」（Cへ移動）／
+  勾配凡例の範囲表記明確化・交通ストレス凡例の説明語追加。
+- 生成前の空状態プレースホルダ（候補一覧の位置に操作ガイド文）と、ルート色分けセクション
+  からAブロックへの誘導を追加。エラー表示は共通コンポーネント化（role=alert・操作箇所直下の原則）。
+- 完了条件: 全テスト・lint・tsc green、Playwright実機確認。
+
+### - [x] T31. 反映タイミングの系統別統一 規模M（2026-08-15完了）
+
+- **系統B（地図の見え方）＝即時反映**: 路面絞り込みの「下書き→適用」を廃止し、ルート凡例と
+  同じ即時チェックボックスへ統合（RoadFilterEditor削除）。連続タップの再描画負荷は
+  地図への反映をデバウンス（約400ms）して吸収。軸ごとに「すべて表示/すべて隠す」を追加。
+- **系統A（生成条件）＝生成ボタンで反映**: 生成済み候補と現在のフォーム値（位置・距離・重み）の
+  差分を検知し、「条件が変更されています。再生成で反映されます」ヒントを生成ボタン付近へ表示
+  （RouteFormのdistanceを制御コンポーネント化してpage.tsxで比較）。
+- 完了条件: チェック操作が即時に地図へ反映され（デバウンス後）、生成条件の編集は生成まで
+  地図に影響しないことをテストで担保。
+
+### - [x] T32. 地図設定の保存ポリシー統一 規模S（2026-08-15完了）
+
+- 実装補足: 保存はエフェクトではなく状態を変えるハンドラ内で更新後の値を明示的に書く方式
+  （色分けモードの既存保存と同じ流儀）。エフェクト保存だと開発時StrictModeの再マウントで
+  「復元前の既定値の保存」が復元読み出しへ割り込み、保存済み設定を既定値で上書きする実害を
+  Playwright実機確認で観測したため。
+
+- 系統B（レイヤーON/OFF・絞り込み/凡例の非表示キー）とAブロックの開閉状態をlocalStorageへ
+  保存（色分けモードの既存保存と同じフォールバック方針: 読み書き失敗は既定値へ）。
+- 完了条件: リロード後もレイヤー表示・絞り込みが復元される。系統A（位置・距離・重み）は
+  保存しないことを方針として明記。
 
 ---
 
@@ -434,3 +505,10 @@
 | 2026-08-15 | P0(静的属性) | `osm_raw_ways.tags jsonb`（許可リスト18タグ）・`domain/traffic.py`（交通ストレス/自転車インフラ純関数）・MVT拡張（v3→v4）・フロント新規2レイヤーを実装。backend 464件・frontend 148件全green、ローカル・本番DBへmigration適用済み、Playwright実機確認済み。T9・範囲拡大・P1は別タスクとして残す |
 | 2026-08-15 | カバレッジ実測（関東全域） | `measure_tag_coverage.py`新規作成（backend 472件green）。kanto-latest.osm.pbf全域（131万way）で実測し、東京都心試算より全般に低いことを確認。width/shoulderのP2据え置きを確定、smoothness/cycleway系の疎さ・lanes/maxspeedが幹線限定であることをP1着手時の前提として記録 |
 | 2026-08-15 | T13・T14(一部)・T15-C5検討 | 別セッションのT9（surface_attributes導出化）と並行して、T9未接触のファイルに限定して実施。T13（WeatherServiceのhourly範囲外ガード）完了、T14は`database.py: get_session`削除のみ完了（残り2項目はT9対象ファイルのため保留）、T15-C5（lifespanベース構築）は検討のうえ見送り（詳細は各タスクの節を参照）。backend 473件green |
+| 2026-08-15 | T9 | `surface_attributes`テーブルを廃止し`road_edges.osm_way_id`経由で`osm_raw_ways.surface`をJOIN導出する方式へ変更。`SurfaceAttribute`型を`dict[str, str \| None]`へ単純化し`GraphService`3経路・`compute_edge_cost`・`EvaluationService`・`RoadGraphEngine`を追従、`migrations/0004_drop_surface_attributes.sql`を追加。backend 473件green、dev機PG18へmigration適用・`verify_postgis_phase0.py`23/23 PASS・`bench_postgis_prepare.py`実測（詳細はT9節・benchmarks/README.md 11番）済み |
+| 2026-08-15 | 既存データへの再取込（本番・25km圏内） | T9完了後、本番Oracle DBへ同一bbox（王子中心25km、Phase 5と同一）で再取込み（run_id=2、273,947way・14チャンク・1450.2秒・db_size_mb 315→297）。dry-runで件数一致を事前確認。起動時の`apply_pending_migrations`によりmigration 0004も同時適用（本番`routing_engine`既定は`openrouteservice`のため実害無しを確認済み）。取込後smoke: tags非空67,705/273,947way（約24.7%）、`get_road_surface_tile_mvt`（王子z14）23,774バイト生成を確認。関東全域への拡大（T28(B)大規模検証）は別判断待ちで未実施。詳細はosm-pbf-import.md 9章Phase 6 |
+| 2026-08-15 | （UI導線レビュー） | フロントUIの導線整理を実施。反映タイミング・保存・配置の3軸不統一、「路面」の3義衝突、デバッグモード2役を特定し、T29〜T32を起票 |
+| 2026-08-15 | T29 | `lib/researchMode.ts`＋`useResearchEnabled`＋`ResearchPanel`を新設し、重み上書き・実験スロット・比較表・地図重ね描きの条件を`researchEnabled`へ切替。DebugPanelは「デバッグログを表示」（ログ専任）へ改名。frontend 151件・eslint・tsc全green |
+| 2026-08-15 | T30 | サイドバーを「ルートを作る」（生成条件集約・最上部デフォルト開）/「地図の見え方」/「開発者向け」（デフォルト閉）へ再編。レイヤーON/OFFを共通`LayerChip`へ統一、`ErrorText`共通化、空状態ガイド・ルート未生成時の誘導リンク追加。用語改名: 路面→道路情報（レイヤー）/舗装・未舗装（色分けモード）/舗装率（重み）、総合スコア→おすすめ度、デフォルト→初期地点、変わらないデータを更新→地図データを再読み込み、勾配凡例の範囲明示、交通ストレス凡例へ説明語追加、重みラベルを表示語と一致。frontend 152件全green |
+| 2026-08-15 | T31 | 道路情報の絞り込みを即時反映へ統一（`RoadFilterEditor`削除、凡例チェック＋軸ごと一括ボタンへ。地図反映のみ`useDebouncedValue`400msで連続タップを合流）。生成条件のdirty検知（位置・距離・重みのスナップショット比較）と再生成ヒントを追加、RouteFormを制御化。frontend 151件全green |
+| 2026-08-15 | T32 | レイヤーON/OFF・非表示キー・「ルートを作る」開閉をlocalStorageへ保存/復元。エフェクト保存起因のStrictMode上書き問題をPlaywrightで検出しハンドラ内保存へ修正。実機確認は用語・3ブロック構成・自動ON・リロード復元・おすすめ度表示・dirtyヒントの28項目全OK（実ルート生成含む） |
