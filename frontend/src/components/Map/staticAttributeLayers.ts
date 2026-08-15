@@ -64,6 +64,13 @@ const BICYCLE_INFRA_CATEGORIES: BicycleInfraCategory[] = [
   { key: "prohibited", label: "自転車通行不可", color: "#dc2626" },
 ];
 
+// key→labelの対訳表。MapView.tsxのポップアップ表示が参照する（改善計画T46。以前は
+// MapView.tsx内に同じ6件を手作業で複製しており、この配列とのドリフト検知テストが
+// 無かった。UI語彙表はカタログファイルにのみ書く、という方針の具体化）。
+export const BICYCLE_INFRA_LABELS: Record<string, string> = Object.fromEntries(
+  BICYCLE_INFRA_CATEGORIES.map((c) => [c.key, c.label]),
+);
+
 export const BICYCLE_INFRA_LEGEND: LegendEntry[] = [
   ...BICYCLE_INFRA_CATEGORIES.map((c) => ({
     key: c.key,

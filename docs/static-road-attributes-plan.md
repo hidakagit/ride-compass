@@ -176,7 +176,16 @@ P0は**表示（レイヤー）まで**。ルート評価への組み込みは�
 3. `EvaluationService`への組み込み: `compute_edge_cost`に**停止密度**の項を追加✅完了。
    trafficStress・インフラの項追加は**未着手**（P0時点でway属性としては取得済みだが評価組み込みは
    別スコープとして分離）。`route_preference.yaml`に`stop_weight`追加✅完了、`RouteCandidate`への
-   ルート単位集約値は`stop_density`として追加✅完了（`trafficStressScore`等は未着手）
+   ルート単位集約値は`stop_density`として追加✅完了（`trafficStressScore`等は未着手）。
+   **未着手のtrafficStress・intersectionDensity（＝下記P2）を評価組み込みする際の判断項目**
+   （複雑度平衡レビュー第4回R-5）: stop_weight追加時は`route_preference.yaml`（区間難易度・
+   Edge Cost、絶対評価）のみへ追加し、`scoring.yaml`（total_score＝おすすめ度、候補集合内の
+   相対評価）へは追加しなかった（ユーザー承認済みのスコープ判断）。この結果、停止密度は
+   区間の色分け・探索コストには効くが、候補の並び順（おすすめ度）には一切効かない非対称が
+   生じている。trafficStress等の追加でも同じ判断が必要になるため、着手時のタスク定義へ
+   「`scoring.yaml`側にも軸を追加するか」を明示的な検討項目として含めること（放置すると
+   「評価には入れたが推薦には入れ忘れた」が既成事実化しやすいため、一連の軸追加ごとに
+   都度判断する）
 4. 自転車歩行者道の取込スコープ拡張（path/footway＋bicycle可のみ。プロファイルにエントリ追加）
    **未着手**
 5. `bicycle=no`のHard Constraint追加、`oneway:bicycle`例外の解釈 **未着手**

@@ -13,7 +13,7 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 from pydantic import BaseModel
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, stop_difficulty, wind_difficulty
+from app.domain.difficulty import evaluate_axis_difficulties
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
 from app.domain.road import classify_osm_surface
@@ -124,14 +124,10 @@ def compute_edge_cost(
     wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
 
-    difficulty = composite_difficulty(
-        [
-            (gradient_difficulty(gradient_percent), preference.elevation_weight),
-            (road_difficulty(is_good_surface), preference.road_weight),
-            (wind_difficulty(wind_penalty), preference.wind_weight),
-            (stop_difficulty(stop_count_per_km), preference.stop_weight),
-        ]
-    )
+    difficulty = evaluate_axis_difficulties(
+        gradient_percent, wind_penalty, is_good_surface, stop_count_per_km,
+        preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
+    ).composite
 
     # difficulty(0-100)を距離に対する乗算ペナルティへ変換する。
     # 0=最も走りやすい(係数1.0=距離そのまま)、100=最も走りにくい(係数2.0=距離の2倍のコスト)。

@@ -1,5 +1,6 @@
 "use client";
 
+import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./ComparisonPanel.module.css";
 
@@ -30,18 +31,26 @@ const METRIC_ROWS: MetricRow[] = [
     format: (s) => (s.topCandidate.road_score != null ? `${Math.round(s.topCandidate.road_score)}%` : "—"),
   },
   {
+    label: "停止密度",
+    format: (s) => (s.topCandidate.stop_density != null ? `${s.topCandidate.stop_density.toFixed(2)} 回/km` : "—"),
+  },
+  {
     label: "総合難易度（絶対基準）",
     format: (s) => (s.topCandidate.overall_difficulty != null ? `${s.topCandidate.overall_difficulty.toFixed(1)}` : "—"),
   },
 ];
 
+// 重み表示は評価軸カタログ（lib/evaluationAxes.ts）から生成する（改善計画T45）。
+// 以前はここへ手作業で軸を列挙しており、静的属性P1で追加されたstop_weightが
+// 実験条件の表示から漏れていた（研究モードでstop_weightを変えて比較しても、
+// 条件表示に差が現れず「同条件なのに結果が違う」ように見える実害があった）。
+// カタログはWeightPanel/RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
 function formatWeights(slot: ExperimentSlot): string {
   const s = slot.conditions.scoring_weights;
   const p = slot.conditions.route_preference;
-  return (
-    `score 距離${s.distance_weight}/標高${s.elevation_weight}/風${s.wind_weight}/路面${s.road_weight}\n` +
-    `pref 標高${p.elevation_weight}/路面${p.road_weight}/風${p.wind_weight}`
-  );
+  const scoreLine = `score ${SCORING_AXES.map((axis) => `${axis.label}${s[axis.weightKey]}`).join("/")}`;
+  const prefLine = `pref ${PREFERENCE_AXES.map((axis) => `${axis.label}${p[axis.weightKey]}`).join("/")}`;
+  return `${scoreLine}\n${prefLine}`;
 }
 
 function formatGeneratedAt(iso: string): string {

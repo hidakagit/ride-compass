@@ -59,8 +59,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
-from app.domain.traffic import TRAFFIC_STRESS_BASE_BY_HIGHWAY
+from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
+from app.domain.traffic import STOP_POI_MATCH_MAX_DISTANCE_M, TRAFFIC_STRESS_BASE_BY_HIGHWAY
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, TILE_EXTENT
 from app.infrastructure.road_graph_models import (
     Base,
@@ -869,7 +869,7 @@ class AttributeRepository(_SessionRepository):
         return result
 
     async def get_nearest_surface_tags(
-        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
     ) -> list[str | None]:
         """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeの
         surfaceタグを返す（入力と同じ順序・同じ長さ。該当Edgeが無い/surfaceタグ無しはNone）。
@@ -890,7 +890,9 @@ class AttributeRepository(_SessionRepository):
         by_ord = {ord_: surface for ord_, surface in result.all()}
         return [by_ord.get(i + 1) for i in range(len(points))]
 
-    async def get_stop_poi_counts(self, edge_ids: list[str], max_distance_m: float = 15.0) -> dict[str, int]:
+    async def get_stop_poi_counts(
+        self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, int]:
         """指定edge_idそれぞれについて、`max_distance_m`以内にある信号・横断歩道・
         一時停止・踏切（osm_raw_pois）の合計件数を返す（静的道路属性P1）。
 
@@ -910,7 +912,7 @@ class AttributeRepository(_SessionRepository):
         return result
 
     async def get_nearest_stop_poi_counts(
-        self, points: list[tuple[float, float]], max_distance_m: float = 15.0
+        self, points: list[tuple[float, float]], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> list[int]:
         """(lat, lon)点列それぞれについて、`max_distance_m`以内にある信号・横断歩道・
         一時停止・踏切（osm_raw_pois）の件数を返す（入力と同じ順序・同じ長さ、静的道路属性P1）。
@@ -1003,15 +1005,17 @@ class RoadGraphRepository:
         return await self.attributes.get_surface_attributes(edge_ids)
 
     async def get_nearest_surface_tags(
-        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
     ) -> list[str | None]:
         return await self.attributes.get_nearest_surface_tags(points, max_distance_m=max_distance_m)
 
-    async def get_stop_poi_counts(self, edge_ids: list[str], max_distance_m: float = 15.0) -> dict[str, int]:
+    async def get_stop_poi_counts(
+        self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, int]:
         return await self.attributes.get_stop_poi_counts(edge_ids, max_distance_m=max_distance_m)
 
     async def get_nearest_stop_poi_counts(
-        self, points: list[tuple[float, float]], max_distance_m: float = 15.0
+        self, points: list[tuple[float, float]], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> list[int]:
         return await self.attributes.get_nearest_stop_poi_counts(points, max_distance_m=max_distance_m)
 

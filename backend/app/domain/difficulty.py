@@ -2,6 +2,8 @@
 # 絶対基準で0-100の「難易度」に変換する。Step8のtotal_score（候補集合内の相対評価）とは異なり、
 # 地図上の色分けは候補間の比較ではなく「客観的にどこが大変か」を示す目的のため絶対基準を採用する。
 
+from typing import NamedTuple
+
 # 勾配(%)の目安: 0-3%易しい、3-6%普通、6-9%大変、9%以上激坂
 _GRADIENT_BREAKPOINTS = [(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.0, 100.0)]
 
@@ -62,6 +64,54 @@ def stop_difficulty(stop_count_per_km: float | None) -> float | None:
         return None
     clamped = min(stop_count_per_km, _STOP_DENSITY_MAX_PER_KM)
     return round(clamped / _STOP_DENSITY_MAX_PER_KM * _STOP_DENSITY_HARD_SCORE, 1)
+
+
+class AxisDifficulties(NamedTuple):
+    """4軸（勾配・向かい風・路面・停止密度）の難易度と、重み付き合成値。
+
+    「生値セット→軸別difficulty→composite_difficulty」という同一の組み立てが
+    OpenRouteServiceEngine._build_segment_details / RoadGraphEngine._build_segment_details /
+    domain/evaluation.compute_edge_costの3箇所に重複していたための共通化（改善計画T43）。
+    呼び出し元は軸別フィールド（RouteSegmentDetail用）・compositeのみ（EdgeCostResult用）の
+    どちらか一方、または両方を使う。
+    """
+
+    elevation: float | None
+    wind: float | None
+    road: float | None
+    stop: float | None
+    composite: float | None
+
+
+def evaluate_axis_difficulties(
+    gradient_percent: float | None,
+    wind_penalty: float | None,
+    road_surface_good: bool | None,
+    stop_count_per_km: float | None,
+    elevation_weight: float,
+    wind_weight: float,
+    road_weight: float,
+    stop_weight: float,
+) -> AxisDifficulties:
+    """4軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
+
+    RoutePreference型（domain/evaluation.py）をここで受け取らないのは、evaluation.pyが
+    本モジュールへ依存しているため（循環import回避）。重みは呼び出し元が
+    `preference.elevation_weight`等をそのまま渡す。
+    """
+    elevation = gradient_difficulty(gradient_percent)
+    wind = wind_difficulty(wind_penalty)
+    road = road_difficulty(road_surface_good)
+    stop = stop_difficulty(stop_count_per_km)
+    composite = composite_difficulty(
+        [
+            (elevation, elevation_weight),
+            (wind, wind_weight),
+            (road, road_weight),
+            (stop, stop_weight),
+        ]
+    )
+    return AxisDifficulties(elevation=elevation, wind=wind, road=road, stop=stop, composite=composite)
 
 
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:
