@@ -54,6 +54,14 @@ const ROAD_FILTER_DEBOUNCE_MS = 400;
 // 対応する保存先は無い。
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 
+// 「地図の見え方」（系統B）の設定はすべてlocalStorageへ保存し、リロード後も復元する
+// （保存ポリシー統一、T32。以前は色分けモードだけが保存され、レイヤーON/OFF・絞り込みは
+// リロードで消えていた）。生成条件（系統A: 出発地点・距離・重み）は保存しない方針
+// （毎回現在地・既定値から始める）。
+const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
+const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
+const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
+
 function loadStoredStyleMode<T extends string>(storageKey: string, isValid: (v: string | null) => v is T, fallback: T): T {
   try {
     const stored = window.localStorage.getItem(storageKey);
@@ -62,6 +70,24 @@ function loadStoredStyleMode<T extends string>(storageKey: string, isValid: (v: 
     // 読み出し不可はデフォルト扱い
   }
   return fallback;
+}
+
+function loadStoredJson(key: string): unknown {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw == null ? null : JSON.parse(raw);
+  } catch {
+    // 読み出し不可・壊れたJSONはデフォルト扱い
+    return null;
+  }
+}
+
+function saveStoredJson(key: string, value: unknown): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // 保存不可でもこのセッション内の設定は有効
+  }
 }
 
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
@@ -137,6 +163,10 @@ export default function Home() {
     route: true,
   });
   const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
+  // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
+  // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
+  // 両系統を管理できる（localStorageへの保存・復元は下の復元エフェクト参照、T32）。
+  const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useState<Record<string, string[]>>({});
   // 「ルートを作る」セクションの開閉。主機能のためデフォルト開（「地図レイヤーだけ使いたい」
   // 人は一度閉じればよい。開閉の保存はT32）。
   const [generateOpen, setGenerateOpen] = useState(true);
@@ -168,13 +198,41 @@ export default function Home() {
     }
   }, [isMobile]);
 
-  // 前回選んだ色分けモード（ルート）を復元する。useStateの初期化子でlocalStorageを
-  // 読むとSSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
+  // 前回の「地図の見え方」設定（色分けモード・レイヤーON/OFF・絞り込みキー）と
+  // 「ルートを作る」の開閉を復元する。useStateの初期化子でlocalStorageを読むと
+  // SSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
   // レイアウトエフェクトなのはサイドバー折りたたみと同じちらつき防止の理由。
   useIsomorphicLayoutEffect(() => {
     setRouteStyleModeId(
       loadStoredStyleMode(ROUTE_STYLE_MODE_STORAGE_KEY, isRouteStyleModeId, DEFAULT_ROUTE_STYLE_MODE_ID),
     );
+
+    // レイヤーON/OFF: 既知のレイヤーIDかつboolean値のものだけ採用する（レイヤーの増減や
+    // 壊れた保存値があっても、残りの設定は活かして既定値で埋める）
+    const storedVisibility = loadStoredJson(LAYER_VISIBILITY_STORAGE_KEY);
+    if (typeof storedVisibility === "object" && storedVisibility !== null) {
+      setLayerVisibility((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next) as MapLayerId[]) {
+          const value = (storedVisibility as Record<string, unknown>)[id];
+          if (typeof value === "boolean") next[id] = value;
+        }
+        return next;
+      });
+    }
+
+    // 絞り込み・凡例の非表示キー: 「文字列の配列」の形のエントリだけ採用する
+    const storedHidden = loadStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY);
+    if (typeof storedHidden === "object" && storedHidden !== null) {
+      const entries = Object.entries(storedHidden as Record<string, unknown>).filter(
+        (entry): entry is [string, string[]] =>
+          Array.isArray(entry[1]) && entry[1].every((key) => typeof key === "string"),
+      );
+      if (entries.length > 0) setHiddenLegendKeysByMode(Object.fromEntries(entries));
+    }
+
+    const storedGenerateOpen = loadStoredJson(GENERATE_OPEN_STORAGE_KEY);
+    if (typeof storedGenerateOpen === "boolean") setGenerateOpen(storedGenerateOpen);
   }, []);
 
   const handleRouteStyleModeChange = useCallback((id: RouteStyleModeId) => {
@@ -186,10 +244,6 @@ export default function Home() {
     }
   }, []);
 
-  // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
-  // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
-  // 両系統を管理できる。その場の絞り込み操作なのでlocalStorageへは保存しない。
-  const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useState<Record<string, string[]>>({});
   // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
   // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
   // 同時に絞り込みたい、という使い方に対応するため）。両軸分の非表示キーをまとめて
@@ -227,6 +281,19 @@ export default function Home() {
   // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByModeを
   // 参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
   const debouncedRoadHiddenKeysByMode = useDebouncedValue(roadHiddenKeysByMode, ROAD_FILTER_DEBOUNCE_MS);
+
+  // 「地図の見え方」設定と「ルートを作る」開閉は変更のたびに保存する（T32。読み書きの
+  // 失敗はsaveStoredJson内で握りつぶし、既定値へのフォールバックとして扱う。マウント直後は
+  // 既定値がそのまま保存され、直後に上の復元エフェクトの再レンダーで復元値が保存し直される）。
+  useEffect(() => {
+    saveStoredJson(LAYER_VISIBILITY_STORAGE_KEY, layerVisibility);
+  }, [layerVisibility]);
+  useEffect(() => {
+    saveStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY, hiddenLegendKeysByMode);
+  }, [hiddenLegendKeysByMode]);
+  useEffect(() => {
+    saveStoredJson(GENERATE_OPEN_STORAGE_KEY, generateOpen);
+  }, [generateOpen]);
 
   const handleLayerToggle = useCallback((id: MapLayerId, on: boolean) => {
     setLayerVisibility((prev) => ({ ...prev, [id]: on }));
