@@ -6,9 +6,10 @@
      見えたまま＝タブの切り替え・再タップでの開閉ができる（globals.cssのトークン参照）。 */
   bottom: var(--mobile-tabbar-height);
   z-index: 45;
-  /* 「もう少し小さく」という実機フィードバックを受け65vh→50vhへ縮小
-     （モバイル実機フィードバック対応T41）。地図の見える面積を優先する。 */
-  max-height: 50vh;
+  /* 高さはBottomSheet.tsxのheightVh（初期値50vh、ハンドルドラッグ/キー操作で
+     20〜80vhの範囲で可変）をインラインstyleで指定する。以前は65vh→50vh固定
+     （モバイル実機フィードバック対応T41）だったが、「ちょうどいい高さ」は人により違うため
+     ユーザーが変えられるようにした。 */
   display: flex;
   flex-direction: column;
   background: var(--background);
@@ -16,13 +17,32 @@
   box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.3);
 }
 
+/* 高さ変更ハンドル。見た目の細いバーはそのままに、指での操作しやすさのため
+   当たり判定はpadding込みで縦方向に広く取る（目安44px角のタップ領域に準拠）。
+   role="separator"+tabIndexで矢印キーでも高さを変えられるようにする
+   （handleHandleKeyDown参照、ドラッグできないキーボード操作・支援技術への対応）。 */
 .handle {
+  width: 100%;
+  padding: 0.9rem 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.handle::before {
+  content: "";
   width: 36px;
   height: 4px;
   border-radius: 2px;
   background: var(--color-border-strong);
-  margin: 0.4rem auto 0.1rem;
-  flex-shrink: 0;
+}
+
+.handle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .header {
