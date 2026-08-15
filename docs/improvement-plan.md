@@ -819,19 +819,45 @@ T10の実行設計として同ドキュメント§4.2を参照する形にする
 - 完了条件: LTS段階間で交通量分布が単調に分離しているかの分析結果を記録し、
   分離が悪ければ`TRAFFIC_STRESS_BASE_BY_HIGHWAY`等の見直し材料とする。
 
-### - [ ] T54. 既取込データの可視化漏れ解消（停止要因POI・交差点密度レイヤー）規模S〜M
+### - [x] T54. 既取込データの可視化漏れ解消（停止要因POI・交差点密度レイヤー）規模S〜M（2026-08-16完了）
 
 - 背景: 2026-08-16の棚卸しで判明。`osm_raw_pois`（信号・横断歩道・一時停止・踏切、
   migration 0005・P1で導入済み）は評価（停止密度軸）にのみ使われており、地図上に
   一切表示されていない（対応するAPIエンドポイント・レイヤーが存在しない）。
   intersectionDensity（交差点密度、次数3以上のroad_node）も同様に評価専用で、
   可視化レイヤーが無い。どちらも**新規データ取得不要**（既存テーブル・既存派生値の表示化のみ）。
-- 実施内容案: T50のaccident-tilesと同型の点/密度タイルエンドポイントを新設し、
-  kind=staticの新規レイヤーとしてmapLayers.tsへ追加（種別ごとの凡例、ズーム制限は
-  既存の路面レイヤーに準拠）。着手前にレイヤーが増えることでの`MapLayersPanel`の
-  情報過多にならないか検討する（R-6のフロント分割閾値記録も参照）。
 - 完了条件: 停止要因POI・交差点密度が地図上で確認できる。Playwright実機確認。
   backend/frontend全green。
+
+**実装結果（2026-08-16）**: 別セッションが着手・大部分実装した状態で中断していたものを
+本セッションが引き継ぎ、その間に本流へ合流していたT50（警察庁事故データ）・T58（ピンチズーム
+修正）と統合して完成させた。
+
+- **表示**: `/api/region/poi-tiles/{z}/{x}/{y}.pbf`（新規）。road_surfaceと同じカバレッジ判定
+  （road_graph_tilesのz12祖先タイルマーク）を再利用しつつ、1タイルへ`stop_poi`・`intersection`
+  の2レイヤーを焼き込む（`_POI_TILE_MVT_SQL`、`RoadSurfaceTileQuery.get_poi_tile_mvt`）。
+  `RegionService`はroad_surface/poiの2種のタイル取得を共通の`_get_tile`ヘルパーへ統合。
+  フロントは「停止要因」「交差点密度」の2つの独立レイヤー（`mapLayers.ts`）、円マーカー
+  （`MapView.tsx`、停止要因は種別ごとの色分け、交差点密度は接続数で円の大きさを補間）、
+  クリックポップアップ、サイドバー凡例（`MapLayersPanel.tsx`）
+- **統合作業**: T54ブランチ（`.claude/worktrees/t54-poi-intersection-viz`）はT50と同じ
+  ファイル群（`mapLayers.ts`・`MapView.tsx`・`MapLayersPanel.tsx`・`MapOverlayControls.tsx`・
+  `regionApi.ts`・`staticAttributeLayers.ts`・`icons.tsx`・`export_openapi.py`・
+  `region-tile-config.json`）を独立に変更していたため、T50を含む形へrebaseし14ファイルの
+  コンフリクトを解消（すべて「両方の追加を残す」加算的マージ、削除・意味変更の衝突は無し）。
+  `region-tile-config.json`はT50が`{layer_name, tile_version, accident:{...}}`、T54が
+  `{road_surface:{...}, poi:{...}}`と異なるスキーマへ変更していたため、
+  `{road_surface:{...}, accident:{...}, poi:{...}}`へ統一。T54側にも
+  `next.config.ts`のproxy rewrite追加漏れ（T50で発見したのと同じ既知の落とし穴）があり、
+  合わせて追加した
+- **データ欠損の確認**: 実機確認でdev DBの`osm_raw_pois`が0件（signal/crossing等のnode取込が
+  このDBには未実施）と判明。`intersection`レイヤーは実データ（次数3以上のnode 8,517件）で
+  正常動作を確認（785 features/タイル、`degree`プロパティ確認済み）。`stop_poi`は0件のため
+  空レイヤーとして正常動作（エラーにはならない）が、視覚的な確認は再取込み後の課題として残る
+- 完了条件確認: backend 617件・frontend 187件（vitest workerタイムアウトが1件出たが
+  該当ファイル単体では8/8 pass、既知の並行セッション資源競合による偽陽性と確認）・tsc・eslint
+  全green。Playwright実機確認で「停止要因」「交差点密度」「事故（T50）」の3レイヤー同時ON、
+  サイドバー凡例、地図上の交差点密度ドット表示（実データ）を確認
 
 **未起票のまま据え置き（既存文書で追跡継続、二重管理を避ける）**: `name`/`ref`のMVT焼き込み・
 `tracktype`表示・`bicycle=no`のHard Constraint・`oneway:bicycle`例外は
@@ -847,17 +873,17 @@ T10の実行設計として同ドキュメント§4.2を参照する形にする
 読み込み中に戻る」は検証スクリプトのセレクタ不具合による誤検知と判明し再検証済みのため、
 起票対象からは除外している（詳細はレビュー文書の「訂正」節を参照）。
 
-### - [ ] T55. モバイル下部タブバー×北コンパスボタンの重なり解消 規模S
+### - [x] T55. モバイル下部タブバー×北コンパスボタンの重なり解消 規模S（2026-08-16誤検知と判明・起票対象外）
 
-- 390px幅で、地図左下の北コンパスボタン（現在地/方位リセット）が下部タブバー
-  （「ルートを作る」ラベルの1文字目）と重なり読みづらい。コンパスボタンの配置
-  （`position`/`bottom`等）に`.mobileTabBar`の高さ（T34で導入済みの
-  `--mobile-tabbar-height`変数、MapLibre帰属表示のmargin調整と同じ扱い）を反映させる。
-- あわせて、同条件（モバイル幅）で地図本体の初期表示に6秒以上かかる場面が1度観測された。
-  ヘッドレスブラウザのタッチエミュレーション特有の遅延の可能性が残るため、実機スマートフォンで
-  初期表示速度を確認し、実機でも遅い場合のみ別途調査する。
-- 完了条件: 390px幅のPlaywright実機確認でコンパスボタンとタブバーラベルの重なりが解消。
-  実機スマートフォンでの初期表示速度を確認した結果を本タスクへ記録。
+- 390px幅で、地図左下の黒丸「N」ボタンが下部タブバー（「ルートを作る」ラベルの1文字目）と
+  重なる所見だったが、Playwrightで再現・スクリーンショット確認したところ**アプリ自作の
+  ボタンではなく、Next.js開発モード（`next dev`）が既定で表示するDev Toolsインジケータ**
+  （`devIndicators.position`既定値`bottom-left`、本番ビルドには現れない）と判明した。
+  実際の地図コントロール（`maplibregl-ctrl-compass`）は右上に配置されており無関係。
+  アプリ側の修正は不要と判断し、起票対象から除外する（詳細は
+  [ui-review-2026-08-16.md](ui-review-2026-08-16.md)「訂正2」参照）。
+- 残る所見（同条件での地図初期表示6秒超）はヘッドレスブラウザのタッチエミュレーション特有の
+  遅延の可能性が残ったまま実機未検証。継続して気になる場合のみ実機スマートフォンで確認する。
 
 ### - [ ] T56. 初回ルート生成時の地図タイル一過性表示崩れの再現性確認 規模S（調査・優先度低）
 
@@ -947,3 +973,4 @@ T10の実行設計として同ドキュメント§4.2を参照する形にする
 | 2026-08-16 | （UI操作レビュー） | Playwright実機操作による一般ユーザー目線レビューを実施（docs/ui-review-2026-08-16.md）。北コンパスボタン重なり・タイル一過性崩れ・天候視認性の3件をT55〜T57として起票。当初最重要所見とした「候補選択で地図が読み込み中に戻る」は検証スクリプトのセレクタ不具合による誤検知と判明し、再検証（3候補連続切替、いずれも200〜300msで正常更新）のうえ起票対象から除外 |
 | 2026-08-16 | T58 | ユーザー報告（スマホでピンチイン・ピンチアウトが効かないことがある）を調査し修正。MapLibreのキャンバス自体は`touch-action: none`だが、地図上の自作オーバーレイボタン（レイヤーアイコン列・条件サマリ・現在地ボタン）に`touch-action`が無く、ピンチの片方の指がそこに乗ると地図ジェスチャーとして確定しないことが原因と特定。3要素へ`touch-action: none`を追加（CSSのみ、frontend既存テストgreen） |
 | 2026-08-16 | T50（取得・保持・表示先行） | 警察庁交通事故統計オープンデータの取込・表示を実装。`domain/accident.py`（DMS変換・当事者種別/都道府県コード判定、コード表CSVを実取得して値を確認）、`app/batch/import_accidents.py`（年号からURLを組み立てて直接HTTP取得、関東7都県へ絞り込み）、migration 0006（`accident_points`/`accident_import_runs`）を新規実装。**2019〜2021年は本票CSVが58列構成（2022年以降は68列）と実データで判明し非対応と判断**（列数不一致はその年の取込全体を明示的に失敗させる設計）。2022〜2024年を実際にdev DBへ取込み関東303,455件（自転車関連92,955件・死亡2,032件）を確認。表示は`/api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accident_repository.py`/`accident_service.py`新規、road_surfaceと異なりカバレッジ判定なし）＋フロント新規レイヤー「事故（警察庁統計）」（円マーカー、色=自転車関連/その他、死亡事故は拡大表示）。実装中に`next.config.ts`へのproxy rewrite追加漏れ（新エンドポイントがフロント経由で404になる）をPlaywright実機確認で発見・修正。backend 595件・frontend 153件・eslint・tsc全green、Playwright実機確認（レイヤーON/OFF・地図上のドット表示・サイドバー凡例）で表示を確認。評価組み込み（8軸目化）は残作業として引き続きT50に残す（詳細はT50節参照） |
+| 2026-08-16 | T54（引き継ぎ・完了） | 別セッションが`.claude/worktrees/t54-poi-intersection-viz`で着手・大部分実装した状態（プロセス終了・未コミットのまま中断）を発見し引き継いだ。`/api/region/poi-tiles/{z}/{x}/{y}.pbf`（停止要因POI・交差点密度の2レイヤーを1タイルに焼き込み）とフロント新規2レイヤー「停止要因」「交差点密度」の実装内容を検証（backend 578件・frontend単体40件・tsc・eslint全green、実装自体は完成していたと確認）のうえコミットし、並行して本流へ合流していたT50（警察庁事故データ）・T58（ピンチズーム修正）へrebaseして統合。T50と同じファイル群（mapLayers.ts・MapView.tsx・MapLayersPanel.tsx・MapOverlayControls.tsx・regionApi.ts・staticAttributeLayers.ts・icons.tsx・export_openapi.py・region-tile-config.json）を独立変更していたため14ファイルでコンフリクトが発生したが、すべて「両方の追加を残す」加算的マージで解消（意味的な衝突は無し）。region-tile-config.jsonは両者で異なるスキーマ変更をしていたため`{road_surface, accident, poi}`の3キー構成へ統一。T54側にも`next.config.ts`のproxy rewrite追加漏れ（T50で発見したのと同じ落とし穴）があり追加。統合後の実機確認でdev DBの`osm_raw_pois`が0件（該当データ未取込み）と判明したが、intersectionレイヤーは実データ（次数3以上のnode 8,517件、785 features/タイル）で正常動作を確認。backend 617件・frontend 187件・tsc・eslint全green、Playwright実機確認（停止要因・交差点密度・事故の3レイヤー同時ON、サイドバー凡例、実データでの交差点密度表示）。master a13d1f0→84a2511→52ed0a9でfast-forward |
