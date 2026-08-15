@@ -7,7 +7,7 @@
     .venv\\Scripts\\python.exe scripts\\verify_phase2_e2e.py
 
 検証項目:
-1. create_tables()の再実行で旧GINインデックスが削除されDBサイズが縮むこと（容量予算対応）
+1. create_tables()の再実行で旧GINインデックスが削除されること
 2. 取込範囲内のタイル: PostGISだけでMVTが生成され、地物が入っており、Overpass呼び出し0回
 3. 取込範囲外のタイル（フォールバック無効): 空タイルが返り、Overpass呼び出し0回
 4. 取込範囲外のタイル（フォールバック有効): Overpass（スタブ）へフォールバックすること
@@ -85,8 +85,8 @@ async def main() -> int:
                 )
             ).scalar()
         check("旧GINインデックス（ix_osm_raw_ways_node_ids）が削除されている", gin_exists is None)
-        print(f"  DBサイズ: {size_before / 1e6:.0f}MB -> {size_after / 1e6:.0f}MB")
-        check("DBサイズが300MB予算内", size_after < 300_000_000, f"{size_after / 1e6:.0f}MB")
+        print(f"  DBサイズ: {size_before / 1e6:.0f}MB -> {size_after / 1e6:.0f}MB（情報表示のみ。"
+              f"Oracle移行後は容量が実質制約でないため予算アサーションは行わない）")
 
         print("== 2. 取込範囲内タイル: PostGISのみで生成 ==")
         overpass = FailingOverpassClient()
