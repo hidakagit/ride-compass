@@ -50,16 +50,3 @@ def grid_point(rows: int, cols: int, row_fraction: float = 0.5, col_fraction: fl
         latitude=TOKYO_LAT + rows * row_fraction * GRID_SPACING_DEG,
         longitude=TOKYO_LON + cols * col_fraction * GRID_SPACING_DEG,
     )
-
-
-def synthetic_road_surface_ways(count: int, points_per_way: int = 12) -> list[dict]:
-    """RegionService/encode_road_surface_tileが受け取る形の合成way一覧を生成する。
-    座標はタイルz=14あたりの1タイル分の範囲に収まる程度の広がりにする。
-    """
-    ways = []
-    for i in range(count):
-        base_lat = TOKYO_LAT + (i % 50) * 0.0005
-        base_lon = TOKYO_LON + (i // 50) * 0.0005
-        coordinates = [[base_lat + j * 0.00003, base_lon + j * 0.00002] for j in range(points_per_way)]
-        ways.append({"coordinates": coordinates, "surface_good": (i % 3 != 0)})
-    return ways

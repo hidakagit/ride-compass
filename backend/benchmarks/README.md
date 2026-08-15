@@ -1,8 +1,7 @@
 # パフォーマンスベンチマーク
 
-`app/`のうちパフォーマンス上の懸念があった箇所（Road Graphルーティング、標高キャッシュ、
-ベクタタイル生成）を、実際のOverpass/GSI/PostGIS接続無しで再現できる合成データに対して
-計測する。追加のpip依存（pytest-benchmark等）は増やさず、`_harness.py`の
+`app/`のうちパフォーマンス上の懸念があった箇所（Road Graphルーティング、標高キャッシュ）を、
+実際のOverpass/GSI/PostGIS接続無しで再現できる合成データに対して計測する。追加のpip依存（pytest-benchmark等）は増やさず、`_harness.py`の
 `time.perf_counter`ベースの計測のみで完結する。`pytest`の通常のテストスイートには
 含まれない（ファイル名が`test_*.py`ではないため自動収集されない）。
 
@@ -53,6 +52,11 @@
    **65〜523ms**まで縮む（`encode_road_surface_tile`単体を`asyncio.to_thread`でラップした
    場合は35〜246ms）。絶対値はこのマシンの負荷変動でぶれるが、修正前後で常に一桁近く
    改善する関係は再現する。
+   **2026-08-16追記**: 改善計画T22でOverpassフォールバックを撤去し、`encode_road_surface_tile`
+   （Python側MVTエンコーダ）自体を`encode_empty_road_surface_tile`（空タイルのみを返す、
+   way数に依存しない定数コスト）へ置き換えたため、この計測が対象としていたway数スケーリング・
+   イベントループ停止の問題は構造的に発生しなくなった。`bench_vector_tile.py`・
+   `bench_event_loop_stall.py`は役目を終えたため削除済み。この項目は当時の修正の記録として残す。
 
 4. **`build_road_graph`（交差点分割）もリクエストのたびに（PostGIS未接続の既定構成では）
    再計算される**（**未修正**）。Way 40,044本・Node 20,164個の合成データで
@@ -263,8 +267,6 @@
 | `bench_nearest_node.py` | `domain/routing.py: find_nearest_node`の線形探索スケーリング |
 | `bench_graph_build.py` | `domain/graph.py: build_road_graph`の構築コスト |
 | `bench_route_trace.py` | `RoadGraphEngine`の8方位分の最近傍探索+Dijkstraをまとめて模擬 |
-| `bench_vector_tile.py` | `infrastructure/vector_tile.py: encode_road_surface_tile`のway数スケーリング |
-| `bench_event_loop_stall.py` | 上記MVTエンコードが同時実行中の他タスクをどれだけ足止めするか |
 | `bench_elevation_cache.py` | `infrastructure/cache_db.py`の接続張り直しコスト、`ElevationAttributeService`のend-to-end |
 | `_harness.py` | 計測用の共通ユーティリティ（外部依存無し） |
 | `_synthetic.py` | 合成の格子状道路網ジェネレータ（規模を揃えて比較するため） |

@@ -26,12 +26,6 @@ class Settings(BaseSettings):
     # database_urlのDBへ実際に接続できる環境でのみ有効化すること（既定Falseのままなら
     # 従来どおりDBなしで動作する）。
     road_graph_use_repository: bool = False
-    # PostGIS（road_graph_use_repository）有効時に、取込範囲外・DB障害時のOverpass
-    # フォールバックを許すかどうか。Phase 2ではtrue（既存挙動の維持）。取込範囲・
-    # データ品質に確信が持てた段階でfalseにするとOverpassへの問い合わせが完全に止まり、
-    # 範囲外の路面タイルは「データ未整備」として空になる（docs/osm-pbf-import.md Phase 3）。
-    # road_graph_use_repository=falseのときは実質無意味（常にOverpassを使う）。
-    overpass_fallback_enabled: bool = True
     # 基礎地図プロキシ（/api/basemap）のスタイルJSON内URL書き換えに使う絶対URL。
     # MapLibreは相対URLをスタイル自身の取得元ではなくページのオリジンに対して解決してしまう
     # ため絶対URLへの書き換えが必須で、かつフロントエンド（Next.jsのrewrites経由でこの

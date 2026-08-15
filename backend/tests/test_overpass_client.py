@@ -46,54 +46,6 @@ class FakeMultiMirrorHttpClient:
 BBOX = BoundingBox(min_latitude=35.70, min_longitude=139.70, max_latitude=35.71, max_longitude=139.71)
 
 
-async def test_get_roads_parses_ways_with_geometry():
-    data = {
-        "elements": [
-            {
-                "type": "way",
-                "tags": {"highway": "residential", "surface": "asphalt"},
-                "geometry": [{"lat": 35.70, "lon": 139.70}, {"lat": 35.701, "lon": 139.701}],
-            },
-            {"type": "node", "tags": {}},  # way以外は無視
-            {"type": "way", "tags": {"highway": "track"}, "geometry": []},  # geometryが空なら無視
-        ]
-    }
-    client = OverpassClient()
-
-    ways = await client.get_roads(FakeHttpClient(data=data), BBOX)
-
-    assert ways == [{"tags": {"highway": "residential", "surface": "asphalt"}, "coordinates": [[35.70, 139.70], [35.701, 139.701]]}]
-
-
-async def test_get_roads_includes_bbox_in_query():
-    client = OverpassClient()
-    http_client = FakeHttpClient(data={"elements": []})
-
-    await client.get_roads(http_client, BBOX)
-
-    assert "35.7,139.7,35.71,139.71" in http_client.last_query["data"]
-
-
-async def test_get_roads_returns_none_on_request_error():
-    import httpx
-
-    client = OverpassClient()
-    http_client = FakeHttpClient(raises=httpx.ConnectError("boom", request=httpx.Request("POST", "http://x")))
-
-    result = await client.get_roads(http_client, BBOX)
-
-    assert result is None
-
-
-async def test_get_roads_returns_none_when_response_missing_elements():
-    client = OverpassClient()
-    http_client = FakeHttpClient(data={"unexpected": True})
-
-    result = await client.get_roads(http_client, BBOX)
-
-    assert result is None
-
-
 async def test_get_ways_and_nodes_parses_topology_with_ids():
     data = {
         "elements": [
@@ -118,6 +70,15 @@ async def test_get_ways_and_nodes_parses_topology_with_ids():
     assert nodes == {1: (35.70, 139.70), 2: (35.701, 139.701)}
 
 
+async def test_get_ways_and_nodes_includes_bbox_in_query():
+    client = OverpassClient()
+    http_client = FakeHttpClient(data={"elements": []})
+
+    await client.get_ways_and_nodes(http_client, BBOX)
+
+    assert "35.7,139.7,35.71,139.71" in http_client.last_query["data"]
+
+
 async def test_get_ways_and_nodes_returns_none_on_request_error():
     import httpx
 
@@ -138,57 +99,66 @@ async def test_get_ways_and_nodes_returns_none_when_response_missing_elements():
     assert result is None
 
 
-def _way_element(way_id: int) -> dict:
-    return {
-        "type": "way",
-        "tags": {"highway": "residential"},
-        "geometry": [{"lat": 35.70, "lon": 139.70}, {"lat": 35.701, "lon": 139.701}],
-    }
+def _way_and_node_elements(way_id: int) -> list[dict]:
+    return [
+        {"type": "node", "id": way_id * 10 + 1, "lat": 35.70, "lon": 139.70},
+        {"type": "node", "id": way_id * 10 + 2, "lat": 35.701, "lon": 139.701},
+        {
+            "type": "way",
+            "id": way_id,
+            "tags": {"highway": "residential"},
+            "nodes": [way_id * 10 + 1, way_id * 10 + 2],
+        },
+    ]
 
 
-async def test_get_roads_uses_the_mirror_that_returns_non_zero_elements():
+async def test_get_ways_and_nodes_uses_the_mirror_that_returns_non_zero_elements():
     # 実機(Render)で確認された現象の再現: 一部のミラーは200 OKだがelements:[]
     # (レート制限による見せかけの0件の可能性)、他のミラーは本物のデータを返す。
     # 全ミラーへ同時に問い合わせ、0件でない結果を採用する。
     assert len(OVERPASS_URLS) >= 2, "このテストは最低2つのミラーがある前提"
     responses = {url: {"elements": []} for url in OVERPASS_URLS}
-    responses[OVERPASS_URLS[-1]] = {"elements": [_way_element(1)]}
+    responses[OVERPASS_URLS[-1]] = {"elements": _way_and_node_elements(1)}
     http_client = FakeMultiMirrorHttpClient(responses)
     client = OverpassClient()
 
-    ways = await client.get_roads(http_client, BBOX)
+    result = await client.get_ways_and_nodes(http_client, BBOX)
 
-    assert ways is not None and len(ways) == 1
+    assert result is not None
+    ways, _nodes = result
+    assert len(ways) == 1
     # 同時に全ミラーへ問い合わせるため、成功したミラー以外も呼ばれている。
     assert set(http_client.requested_urls) == set(OVERPASS_URLS)
 
 
-async def test_get_roads_uses_the_mirror_that_succeeds_when_others_error():
+async def test_get_ways_and_nodes_uses_the_mirror_that_succeeds_when_others_error():
     import httpx
 
     assert len(OVERPASS_URLS) >= 2
     responses = {url: httpx.ConnectError("boom", request=httpx.Request("POST", url)) for url in OVERPASS_URLS}
-    responses[OVERPASS_URLS[-1]] = {"elements": [_way_element(1)]}
+    responses[OVERPASS_URLS[-1]] = {"elements": _way_and_node_elements(1)}
     http_client = FakeMultiMirrorHttpClient(responses)
     client = OverpassClient()
 
-    ways = await client.get_roads(http_client, BBOX)
+    result = await client.get_ways_and_nodes(http_client, BBOX)
 
-    assert ways is not None and len(ways) == 1
+    assert result is not None
+    ways, _nodes = result
+    assert len(ways) == 1
 
 
-async def test_get_roads_returns_empty_list_when_all_mirrors_agree_on_zero_elements():
-    # 全ミラーが揃って0件なら、本当に対象が無いケースとして空リストを返す（Noneではない）。
+async def test_get_ways_and_nodes_returns_empty_when_all_mirrors_agree_on_zero_elements():
+    # 全ミラーが揃って0件なら、本当に対象が無いケースとして空を返す（Noneではない）。
     http_client = FakeMultiMirrorHttpClient({url: {"elements": []} for url in OVERPASS_URLS})
     client = OverpassClient()
 
-    ways = await client.get_roads(http_client, BBOX)
+    result = await client.get_ways_and_nodes(http_client, BBOX)
 
-    assert ways == []
+    assert result == ([], {})
     assert set(http_client.requested_urls) == set(OVERPASS_URLS)
 
 
-async def test_get_roads_returns_none_when_all_mirrors_error():
+async def test_get_ways_and_nodes_returns_none_when_all_mirrors_error():
     import httpx
 
     http_client = FakeMultiMirrorHttpClient(
@@ -196,6 +166,6 @@ async def test_get_roads_returns_none_when_all_mirrors_error():
     )
     client = OverpassClient()
 
-    result = await client.get_roads(http_client, BBOX)
+    result = await client.get_ways_and_nodes(http_client, BBOX)
 
     assert result is None
