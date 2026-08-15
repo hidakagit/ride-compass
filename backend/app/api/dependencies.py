@@ -12,6 +12,7 @@ from fastapi import Depends, Request
 
 from app.config import settings
 from app.domain.evaluation import RoutePreference
+from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.elevation_client import ElevationClient
@@ -20,6 +21,7 @@ from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
+from app.services.accident_service import AccidentService
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.elevation_service import ElevationService
 from app.services.evaluation_service import EvaluationService, load_route_preference
@@ -187,6 +189,17 @@ async def get_region_service():
             yield RegionService(repository=RoadGraphRepository(session))
     else:
         yield RegionService()
+
+
+async def get_accident_service():
+    # PostGISのみを参照する（get_region_serviceと同じ「road_graph_use_repository無効時は
+    # repository自体を注入しない」パターン）。事故データはroad_graph_tilesのカバレッジとは
+    # 無関係な独立データのため、DBなし構成では常に空タイルになる。
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield AccidentService(repository=AccidentTileQuery(session))
+    else:
+        yield AccidentService()
 
 
 def get_basemap_client():

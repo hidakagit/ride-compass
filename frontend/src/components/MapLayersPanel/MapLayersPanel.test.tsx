@@ -6,7 +6,7 @@ import MapLayersPanel from "./MapLayersPanel";
 
 function baseProps() {
   return {
-    layerVisibility: { elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: false },
+    layerVisibility: { elevation: false, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: false },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
     onRoadLegendToggle: vi.fn(),
@@ -43,7 +43,16 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-trafficStress")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
+  });
+
+  it("事故レイヤーのセクションに凡例（自転車関連/その他）が表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("accidents");
+
+    expect(screen.getByText("自転車関連")).toBeInTheDocument();
+    expect(screen.getByText("その他")).toBeInTheDocument();
   });
 
   it("各レイヤーの表示チップは閉じたセクションでも見え、ON/OFF状態をaria-pressedで反映し、操作でonLayerToggleが呼ばれる", async () => {
@@ -52,7 +61,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: true, road: false, trafficStress: false, bicycleInfra: false, route: false }}
+        layerVisibility={{ elevation: true, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
         onLayerToggle={onLayerToggle}
       />,
     );
@@ -122,7 +131,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }}
+        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
         regionZoomTooWide={true}
       />,
     );
@@ -133,7 +142,7 @@ describe("MapLayersPanel", () => {
 
   it("道路情報ONのとき色・太さ両方の軸見出しが表示される", () => {
     render(
-      <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }} />,
+      <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, accidents: false, route: false }} />,
     );
     openSection("road");
     expect(screen.getByText(/色：路面の種類/)).toBeInTheDocument();
@@ -145,7 +154,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }}
+        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,
     );
@@ -200,7 +209,7 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         hasDetail={true}
-        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: false }}
+        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: false }}
         onRouteStyleModeChange={onRouteStyleModeChange}
         onLayerToggle={onLayerToggle}
       />,
@@ -220,7 +229,7 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         hasDetail={true}
-        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: true }}
+        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, accidents: false, route: true }}
         onLayerToggle={onLayerToggle}
       />,
     );

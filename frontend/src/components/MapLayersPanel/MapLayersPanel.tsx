@@ -17,7 +17,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
-import { BICYCLE_INFRA_LEGEND, TRAFFIC_STRESS_LEGEND } from "@/components/Map/staticAttributeLayers";
+import { ACCIDENT_LEGEND, BICYCLE_INFRA_LEGEND, TRAFFIC_STRESS_LEGEND } from "@/components/Map/staticAttributeLayers";
 import LayerChip from "@/components/Map/LayerChip";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -205,6 +205,19 @@ export default function MapLayersPanel({
               組み合わせて確認できます。
             </p>
             {renderLegendDisplay(BICYCLE_INFRA_LEGEND, [])}
+          </>
+        );
+      case "accidents":
+        // 交通ストレス・自転車インフラと同じく絞り込みUIは持たず色分け表示のみ
+        // （外部静的データソース T50、表示先行フェーズ。評価組み込みは別タスク）。
+        return (
+          <>
+            <p className={styles.mutedHint}>
+              警察庁が公開する交通事故統計オープンデータ（本票、関東7都県・2022〜2024年）の
+              発生地点です。死亡事故は円を大きく表示します。2019〜2021年は本票のCSV形式が
+              異なるため未対応です。
+            </p>
+            {renderLegendDisplay(ACCIDENT_LEGEND, [])}
           </>
         );
       case "road":

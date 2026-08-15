@@ -6,7 +6,13 @@ import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMa
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinates, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM, refreshBasemapCache, roadSurfaceTileUrl } from "@/services/regionApi";
+import {
+  ROAD_TILE_MAX_ZOOM,
+  ROAD_TILE_MIN_ZOOM,
+  accidentTileUrl,
+  refreshBasemapCache,
+  roadSurfaceTileUrl,
+} from "@/services/regionApi";
 import {
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
@@ -18,6 +24,8 @@ import {
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import {
+  ACCIDENT_COLOR_EXPRESSION,
+  ACCIDENT_RADIUS_EXPRESSION,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
@@ -45,6 +53,11 @@ const GSI_RELIEF_ATTRIBUTION =
 // ドリフトを検知する。exportしているのはそのテストから参照するため）。
 export const ROAD_TILE_SOURCE_LAYER = "road_surface";
 
+// 事故レイヤー（外部静的データソース T50）のベクタタイル内のレイヤー名。バックエンド
+// （infrastructure/vector_tile.pyのACCIDENT_LAYER_NAME）と一致させる（ROAD_TILE_SOURCE_LAYERと
+// 同じドリフト検知の仕組み、region-tile-config.jsonのaccidentキー）。
+export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
+
 const ROUTES_SOURCE_ID = "route-candidates";
 const ROUTES_LAYER_ID = "route-candidates-line";
 const OUTLINE_SOURCE_ID = "route-selected-outline";
@@ -59,6 +72,8 @@ const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
 const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
+const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
+const ACCIDENT_LAYER_ID = "region-accidents-circle";
 // widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
@@ -435,6 +450,47 @@ function setBicycleInfraVisibility(map: MapLibreMap, visible: boolean) {
   });
 }
 
+// 事故レイヤー（外部静的データソース T50）。road_surfaceとは独立のベクタソース・タイル
+// エンドポイント（PBF取込範囲とは無関係に取込済みの警察庁データそのもの）のため、
+// ensureRoadSurfaceTileLayerと同じ「初期化時に一度だけ追加、以降はvisibility切替のみ」の
+// パターンだがソース自体を新規に持つ。円の色は自転車関連/その他（involves_bicycle）、
+// 大きさは死亡事故（fatal）の強調に使う（staticAttributeLayers.ts参照）。
+function ensureAccidentTileLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getSource(ACCIDENT_TILE_SOURCE_ID)) return;
+    map.addSource(ACCIDENT_TILE_SOURCE_ID, {
+      type: "vector",
+      tiles: [accidentTileUrl()],
+      minzoom: ROAD_TILE_MIN_ZOOM,
+      maxzoom: ROAD_TILE_MAX_ZOOM,
+    });
+    map.addLayer({
+      id: ACCIDENT_LAYER_ID,
+      type: "circle",
+      source: ACCIDENT_TILE_SOURCE_ID,
+      "source-layer": ACCIDENT_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "circle-color": ACCIDENT_COLOR_EXPRESSION as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "circle-radius": ACCIDENT_RADIUS_EXPRESSION as any,
+        "circle-opacity": 0.75,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff",
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+function setAccidentVisibility(map: MapLibreMap, visible: boolean) {
+  runWhenStyleReady(map, () => {
+    ensureAccidentTileLayer(map);
+    setLayerVisibility(map, ACCIDENT_LAYER_ID, visible);
+  });
+}
+
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
@@ -529,6 +585,20 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   return `<div style="font-size:0.85rem; line-height:1.6;">${rows.join("<br/>")}</div>`;
 }
 
+// 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
+interface AccidentPopupProperties {
+  fatal?: boolean | null;
+  involves_bicycle?: boolean | null;
+  occurred_year?: number | null;
+}
+
+function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
+  const rows = [properties.involves_bicycle ? "自転車関連事故" : "事故（自転車以外）"];
+  if (properties.fatal) rows.push("死亡事故");
+  if (properties.occurred_year != null) rows.push(`発生年: ${properties.occurred_year}`);
+  return `<div style="font-size:0.85rem; line-height:1.6;">${rows.join("<br/>")}</div>`;
+}
+
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
@@ -538,6 +608,8 @@ interface MapViewProps {
   /** 交通ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
   showTrafficStress: boolean;
   showBicycleInfra: boolean;
+  /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
+  showAccidents: boolean;
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
@@ -559,6 +631,7 @@ export default function MapView({
   showRoad,
   showTrafficStress,
   showBicycleInfra,
+  showAccidents,
   roadHiddenKeysByMode,
   routeLayerOn,
   routeStyleModeId,
@@ -592,6 +665,7 @@ export default function MapView({
     showRoad,
     showTrafficStress,
     showBicycleInfra,
+    showAccidents,
     roadHiddenKeysByMode,
     experimentSlots,
   });
@@ -617,6 +691,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      showAccidents,
       roadHiddenKeysByMode,
       experimentSlots,
     };
@@ -630,6 +705,7 @@ export default function MapView({
     showRoad,
     showTrafficStress,
     showBicycleInfra,
+    showAccidents,
     roadHiddenKeysByMode,
     experimentSlots,
   ]);
@@ -651,6 +727,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      showAccidents,
       roadHiddenKeysByMode,
       experimentSlots,
     } = redrawPropsRef.current;
@@ -660,6 +737,7 @@ export default function MapView({
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
     setTrafficStressVisibility(map, showTrafficStress);
     setBicycleInfraVisibility(map, showBicycleInfra);
+    setAccidentVisibility(map, showAccidents);
 
     drawBaseRoutes(map, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
@@ -735,13 +813,18 @@ export default function MapView({
     ensureRoadSurfaceTileLayer(map);
     ensureTrafficStressLayer(map);
     ensureBicycleInfraLayer(map);
+    ensureAccidentTileLayer(map);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
     function handleClick(e: MapMouseEvent) {
-      const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, BICYCLE_INFRA_LAYER_ID].filter(
-        (id) => map.getLayer(id)
-      );
+      const layers = [
+        DETAIL_LAYER_ID,
+        ROAD_TILE_LAYER_ID,
+        TRAFFIC_STRESS_LAYER_ID,
+        BICYCLE_INFRA_LAYER_ID,
+        ACCIDENT_LAYER_ID,
+      ].filter((id) => map.getLayer(id));
       if (layers.length === 0) return;
       const features = map.queryRenderedFeatures(e.point, { layers });
       if (features.length === 0) return;
@@ -750,16 +833,22 @@ export default function MapView({
       const html =
         feature.layer.id === DETAIL_LAYER_ID
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
-          : buildRoadSurfacePopupHtml(feature.properties as unknown as RoadSurfacePopupProperties);
+          : feature.layer.id === ACCIDENT_LAYER_ID
+            ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
+            : buildRoadSurfacePopupHtml(feature.properties as unknown as RoadSurfacePopupProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
     }
 
     function handleMouseMove(e: MapMouseEvent) {
-      const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, BICYCLE_INFRA_LAYER_ID].filter(
-        (id) => map.getLayer(id)
-      );
+      const layers = [
+        DETAIL_LAYER_ID,
+        ROAD_TILE_LAYER_ID,
+        TRAFFIC_STRESS_LAYER_ID,
+        BICYCLE_INFRA_LAYER_ID,
+        ACCIDENT_LAYER_ID,
+      ].filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         map.getCanvas().style.cursor = "";
         return;
@@ -933,6 +1022,13 @@ export default function MapView({
     if (!map) return;
     setBicycleInfraVisibility(map, showBicycleInfra);
   }, [showBicycleInfra]);
+
+  // 事故（外部静的データソース T50）も独立ソースだが同じくvisibilityの差し替えのみ。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setAccidentVisibility(map, showAccidents);
+  }, [showAccidents]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な

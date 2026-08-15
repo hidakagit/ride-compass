@@ -16,7 +16,7 @@
 // 静的データと動的データを混同しない、という設計方針（docs/static-road-attributes-plan.md）
 // をUI上のグルーピングにもそのまま反映する。
 
-export type MapLayerId = "elevation" | "road" | "trafficStress" | "bicycleInfra" | "route";
+export type MapLayerId = "elevation" | "road" | "trafficStress" | "bicycleInfra" | "accidents" | "route";
 
 export type MapLayerKind = "static" | "dynamic";
 
@@ -64,6 +64,13 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     chipLabel: "インフラ",
     kind: "static",
     description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
+  },
+  {
+    id: "accidents",
+    label: "事故（警察庁統計）",
+    chipLabel: "事故",
+    kind: "static",
+    description: "警察庁交通事故統計オープンデータ（関東7都県、2022〜2024年）の発生地点を表示",
   },
   {
     id: "route",

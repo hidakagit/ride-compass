@@ -2,7 +2,14 @@
 
 import type { ReactElement } from "react";
 import type { MapLayerId } from "@/components/Map/mapLayers";
-import { ElevationIcon, RoadIcon, TrafficStressIcon, BicycleInfraIcon, RouteIcon } from "@/components/Map/icons";
+import {
+  AccidentIcon,
+  ElevationIcon,
+  RoadIcon,
+  TrafficStressIcon,
+  BicycleInfraIcon,
+  RouteIcon,
+} from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
@@ -34,6 +41,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   road: RoadIcon,
   trafficStress: TrafficStressIcon,
   bicycleInfra: BicycleInfraIcon,
+  accidents: AccidentIcon,
   route: RouteIcon,
 };
 

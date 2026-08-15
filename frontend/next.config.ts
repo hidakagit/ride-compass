@@ -35,6 +35,11 @@ const nextConfig: NextConfig = {
         source: "/api/region/road-surface-tiles/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/region/road-surface-tiles/:path*`,
       },
+      // 事故レイヤー（外部静的データソース T50）も同じ理由で同一オリジン経由にする。
+      {
+        source: "/api/region/accident-tiles/:path*",
+        destination: `${BACKEND_INTERNAL_URL}/api/region/accident-tiles/:path*`,
+      },
     ];
   },
 };

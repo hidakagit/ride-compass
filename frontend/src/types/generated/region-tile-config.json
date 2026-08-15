@@ -1,4 +1,8 @@
 {
   "layer_name": "road_surface",
-  "tile_version": "4"
+  "tile_version": "4",
+  "accident": {
+    "layer_name": "accidents",
+    "tile_version": "1"
+  }
 }

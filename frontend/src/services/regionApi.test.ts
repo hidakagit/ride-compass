@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
-import { ROAD_TILE_SOURCE_LAYER } from "@/components/Map/MapView";
-import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM, refreshBasemapCache, roadSurfaceTileUrl } from "./regionApi";
+import { ACCIDENT_TILE_SOURCE_LAYER, ROAD_TILE_SOURCE_LAYER } from "@/components/Map/MapView";
+import {
+  ROAD_TILE_MAX_ZOOM,
+  ROAD_TILE_MIN_ZOOM,
+  accidentTileUrl,
+  refreshBasemapCache,
+  roadSurfaceTileUrl,
+} from "./regionApi";
 
 // ROAD_SURFACE_TILE_VERSION自体はregionApi.tsからexportされていないため、
 // roadSurfaceTileUrl()の?v=から実際に使われている値を取り出して比較する
@@ -32,6 +38,17 @@ describe("regionApi", () => {
   it("路面ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.layer_name);
     expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(regionTileConfig.tile_version);
+  });
+
+  // 外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代も同じドリフト検知
+  // の仕組みに乗せる（region-tile-config.jsonのaccidentキー、改善計画T19と同型）。
+  it("事故ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
+    expect(ACCIDENT_TILE_SOURCE_LAYER).toBe(regionTileConfig.accident.layer_name);
+    expect(tileVersionFromUrl(accidentTileUrl())).toBe(regionTileConfig.accident.tile_version);
+  });
+
+  it("accidentTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
+    expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1`);
   });
 
   describe("refreshBasemapCache", () => {

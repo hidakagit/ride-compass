@@ -66,6 +66,21 @@ export function BicycleInfraIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 事故（外部静的データソース T50）: 衝突を示す星形バースト */
+export function AccidentIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 1.5v5M10 13.5v5M1.5 10h5M13.5 10h5M4 4l3.5 3.5M16 4l-3.5 3.5M4 16l3.5-3.5M16 16l-3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <circle cx="10" cy="10" r="2.3" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (

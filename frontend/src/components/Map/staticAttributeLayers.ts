@@ -87,3 +87,29 @@ export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = [
   ...BICYCLE_INFRA_CATEGORIES.flatMap((c) => [c.key, c.color]),
   COLOR_UNKNOWN,
 ];
+
+// 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
+// backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論
+// （involves_bicycle=自転車が当事者A/Bのいずれかに該当、fatal=死者数>0）。
+const ACCIDENT_COLOR_BICYCLE = "#dc2626";
+const ACCIDENT_COLOR_OTHER = "#6b7280";
+
+export const ACCIDENT_LEGEND: LegendEntry[] = [
+  {
+    key: "bicycle",
+    label: "自転車関連",
+    color: ACCIDENT_COLOR_BICYCLE,
+    filter: ["==", ["get", "involves_bicycle"], true],
+  },
+  { key: "other", label: "その他", color: ACCIDENT_COLOR_OTHER, filter: ["==", ["get", "involves_bicycle"], false] },
+];
+
+export const ACCIDENT_COLOR_EXPRESSION: unknown[] = [
+  "case",
+  ["==", ["get", "involves_bicycle"], true],
+  ACCIDENT_COLOR_BICYCLE,
+  ACCIDENT_COLOR_OTHER,
+];
+
+// 死亡事故（fatal=true）は円を大きくして目立たせる（色は自転車関連/その他の軸を維持したまま強調）。
+export const ACCIDENT_RADIUS_EXPRESSION: unknown[] = ["case", ["==", ["get", "fatal"], true], 6, 3];

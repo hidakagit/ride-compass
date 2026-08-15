@@ -1,0 +1,82 @@
+"""警察庁交通事故統計オープンデータの取込で使う純関数群（外部静的データソース T50）。
+
+`domain/traffic.py`と同じ「純関数・unknown安全」の方針。本票CSVの列定義・コード値は
+2026-08-16に実データ（honhyo_2023.csv）とコード表CSV
+（https://www.npa.go.jp/publications/statistics/koutsuu/opendata/koudohyou/）を
+直接取得して確認したもの（2_koudohyou_todouhukenkoudo.csv・31_koudohyou_toujisyasyuetu.csv）。
+"""
+
+# 関東7都県の都道府県コード（NPA独自の採番。JIS X 0401とは異なる）。
+# import_profile.yamlのPBF取込bboxと同じ関東スコープに揃える。
+KANTO_PREFECTURE_CODES: dict[str, str] = {
+    "30": "東京",
+    "40": "茨城",
+    "41": "栃木",
+    "42": "群馬",
+    "43": "埼玉",
+    "44": "千葉",
+    "45": "神奈川",
+}
+
+# 当事者種別（31_koudohyou_toujisyasyuetu.csv）のうち自転車に該当するコード。
+# 51=軽車両－自転車、52=軽車両－駆動補助機付自転車（電動アシスト自転車）。
+# 59（軽車両－その他）は自転車ではない軽車両（手押し車等）のため含めない。
+BICYCLE_PARTY_TYPE_CODES: frozenset[str] = frozenset({"51", "52"})
+
+
+def is_kanto_prefecture(prefecture_code: str) -> bool:
+    return prefecture_code.strip() in KANTO_PREFECTURE_CODES
+
+
+def involves_bicycle(party_type_a: str, party_type_b: str) -> bool:
+    """当事者種別（当事者A・当事者B）のいずれかが自転車系コードなら自転車関連事故とみなす。"""
+    return party_type_a.strip() in BICYCLE_PARTY_TYPE_CODES or party_type_b.strip() in BICYCLE_PARTY_TYPE_CODES
+
+
+def is_fatal(death_count_raw: str) -> bool:
+    """「死者数」列（"000"等のゼロ埋め数値文字列）から死亡事故かどうかを判定する。"""
+    try:
+        return int(death_count_raw.strip()) > 0
+    except ValueError:
+        return False
+
+
+def build_accident_id(prefecture_code: str, police_station_code: str, honhyo_number: str, occurred_year: int) -> str:
+    """本票の複合キー（都道府県コード＋警察署等コード＋本票番号は年内でのみ一意）に
+    発生年を足して、年次再取込みでも冪等なグローバル一意キーにする。"""
+    return f"{occurred_year}-{prefecture_code.strip()}-{police_station_code.strip()}-{honhyo_number.strip()}"
+
+
+def _dms_to_decimal(raw: str) -> float | None:
+    """本票の緯度・経度列（度分秒を1つの数値へ連結した表記。右5桁=秒×1000、
+    次の2桁=分、残り=度）を10進の度へ変換する。欠損（空・非数値・全て0）や
+    分/秒が60以上になる不正値はNone（根拠のない推測はしない）。"""
+    value = raw.strip()
+    if not value.isdigit() or len(value) < 8:
+        return None
+    seconds = int(value[-5:]) / 1000.0
+    minutes = int(value[-7:-5])
+    degrees = int(value[:-7])
+    if minutes >= 60 or seconds >= 60:
+        return None
+    return degrees + minutes / 60.0 + seconds / 3600.0
+
+
+# 日本の緯度・経度のおおよその範囲（南鳥島・沖ノ鳥島等の離島を含む広めの値）。
+# 変換結果の妥当性チェック用であり、関東7都県への絞り込みはis_kanto_prefectureで別途行う。
+_JAPAN_LATITUDE_RANGE = (20.0, 46.0)
+_JAPAN_LONGITUDE_RANGE = (122.0, 154.0)
+
+
+def latitude_from_raw(raw: str) -> float | None:
+    value = _dms_to_decimal(raw)
+    if value is None or not (_JAPAN_LATITUDE_RANGE[0] <= value <= _JAPAN_LATITUDE_RANGE[1]):
+        return None
+    return value
+
+
+def longitude_from_raw(raw: str) -> float | None:
+    value = _dms_to_decimal(raw)
+    if value is None or not (_JAPAN_LONGITUDE_RANGE[0] <= value <= _JAPAN_LONGITUDE_RANGE[1]):
+        return None
+    return value

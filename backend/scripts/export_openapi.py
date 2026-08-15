@@ -19,8 +19,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
-from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME  # noqa: E402
+from app.infrastructure.vector_tile import ACCIDENT_LAYER_NAME, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.region_service import ROAD_SURFACE_TILE_VERSION  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
@@ -51,9 +52,17 @@ def main() -> None:
     # 路面ベクタタイルのレイヤー名・世代（改善計画T19）。フロントの手書き定数
     # （MapView.tsx: ROAD_TILE_SOURCE_LAYER / regionApi.ts: ROAD_SURFACE_TILE_VERSION）が
     # このJSONとregionTileConfig.test.tsで突き合わされる（CIのapi-contractジョブがドリフト検知）。
+    # accidentキーは外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代。
+    # フロントの手書き定数（MapView.tsx: ACCIDENT_TILE_SOURCE_LAYER / regionApi.ts:
+    # ACCIDENT_TILE_VERSION）がaccidentTileConfig.test.tsで突き合わされる（road_surfaceと同じ
+    # ドリフト検知の仕組み、改善計画T19）。
     _write_json(
         REGION_TILE_CONFIG_PATH,
-        {"layer_name": ROAD_SURFACE_LAYER_NAME, "tile_version": ROAD_SURFACE_TILE_VERSION},
+        {
+            "layer_name": ROAD_SURFACE_LAYER_NAME,
+            "tile_version": ROAD_SURFACE_TILE_VERSION,
+            "accident": {"layer_name": ACCIDENT_LAYER_NAME, "tile_version": ACCIDENT_TILE_VERSION},
+        },
     )
 
 
