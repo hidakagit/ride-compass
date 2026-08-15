@@ -706,6 +706,19 @@ export default function MapView({
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
     debugLog("map:lifecycle", "初期化", { center: [location.longitude, location.latitude], zoom: 13 });
+
+    // MapLibre自体もコンテナの内蔵ResizeObserverでの自動追従を持つが、デバッグモード時に
+    // 実機で「地図が画面幅の一部にしか描画されず残りが黒くなる」不具合を確認した
+    // （キャンバスのCSS幅がコンテナ幅より狭い値に固定されたまま更新されない）。原因は
+    // デバッグログの流入（タイル要求ごとにdebugLog→DebugConsole再レンダー→自動スクロール、
+    // モバイル実機フィードバック対応T34のisMobile確定に伴うレイアウト変化と重なる）が
+    // 内蔵ResizeObserverの通知を取りこぼすことと推測されるが、根本原因の特定に関わらず
+    // 「コンテナの実サイズ変化を検知したら明示的にmap.resize()する」独自の
+    // ResizeObserverを持たせるのが素直な対策のため、内蔵の自動追従に上乗せする形で追加する。
+    const resizeObserver = new ResizeObserver(() => {
+      mapRef.current?.resize();
+    });
+    resizeObserver.observe(mapContainerRef.current);
     // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
     // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）
     ensureGsiReliefLayer(map);
@@ -799,6 +812,7 @@ export default function MapView({
 
     return () => {
       cancelled = true;
+      resizeObserver.disconnect();
       map.off("click", handleClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
