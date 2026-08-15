@@ -1,5 +1,6 @@
-/* 地図（page.module.cssの.mapPane、position:relative）の左上に重ねる。
-   z-indexは現在地ボタン（20）と同じ層。モバイルのドロワー（z:45）・暗幕（z:40）より下。 */
+/* 地図（page.module.cssの.mapPane、position:relative）に重ねる。デスクトップ・モバイルとも
+   既定は左上（下の@mediaでモバイルのみ下部タブバーの上へ変更、T41）。
+   z-indexは現在地ボタン（20）と同じ層。モバイルのBottomSheet（z:45）より下。 */
 .wrapper {
   position: absolute;
   top: var(--space-3);
@@ -19,13 +20,19 @@
   pointer-events: auto;
 }
 
-/* モバイルではサイドバーの開閉トグル（globals.css: .app-sidebar.is-collapsedで
-   fixed top:0.5rem left:0.5rem）が左上に固定表示されるため、その右側へずらす */
+/* モバイルは上部（天候ヘッダ）と下部（タブバー）の両方に固定要素があり、チップまで
+   地図上部に浮かべると地図の実質的な表示領域が上下から挟まれて狭くなるという実機
+   フィードバックを受け、下部タブバーのすぐ上（「地図の見え方」タブの近く）へ寄せた
+   （モバイル実機フィードバック対応T41）。地図上部はヘッダ以外何も重ならず広く使える。
+   以前ここにあった「サイドバー開閉トグルの右へずらす」ためのleftオフセットは、
+   T34でモバイルのトグルボタン自体を廃止したため不要になり削除した。 */
 @media (max-width: 640px) {
   .wrapper {
-    left: 3.75rem;
-    top: 0.5rem;
-    max-width: calc(100% - 3.75rem - 0.5rem);
+    top: auto;
+    left: var(--space-2);
+    bottom: calc(var(--mobile-tabbar-height) + var(--space-2));
+    /* 右側は現在地ボタン（44px）＋余白の分だけ空け、チップ/サマリが重ならないようにする */
+    max-width: calc(100% - 4.5rem);
   }
 
   /* スマホでは横スクロールだと隠れているチップに気づきにくく指でも操作しにくいため、
