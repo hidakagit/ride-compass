@@ -22,6 +22,11 @@ CACHE_TTL_SECONDS = 30 * 60
 RETRY_STATUS_CODE = 429
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 0.3
+# 再試行を尽くしても失敗した場合、TTL切れ後もこの秒数以内のキャッシュがあれば代用する
+# （502で天候欄を丸ごと空にするより、多少古い予報を出す方が実用的なため）。予報自体は
+# forecast_days=2分をまとめて保持しているため、number（現在気象）はやや古くなりうるが
+# hourly（ルート評価が使う区間ごとの時刻別値）は取得時刻に関わらず妥当な範囲を保つ。
+STALE_FALLBACK_MAX_AGE_SECONDS = 3 * 60 * 60
 # 共有クライアントの既定タイムアウト（10秒）のままだと、ConnectTimeout1回の失敗だけで
 # 再試行の予算をほぼ使い切ってしまう。この呼び出しだけ短いタイムアウトへ上書きし、
 # 早期に失敗を検知して再試行に回す。
@@ -116,6 +121,9 @@ class WeatherClient:
 
             data = await self._fetch_json(client, params, fields)
             if data is None:
+                if cached is not None and time.time() - cached[0] < STALE_FALLBACK_MAX_AGE_SECONDS:
+                    fields["fallback"] = "stale_cache"
+                    return cached[1]
                 return None
 
             _forecast_cache[key] = (time.time(), data)
@@ -171,10 +179,26 @@ class WeatherClient:
                 # 常に地点数ぶんの配列として扱えるようここで揃える。
                 entries = data if isinstance(data, list) else ([data] if data is not None else [])
                 for key, entry in zip(to_fetch, entries):
-                    _forecast_cache[key] = (now, entry)
+                    # 失敗時（entry is None）は既存キャッシュを消さない。下のフォールバック
+                    # ループがそれを使えるようにするため（成功時のみ上書き）。
+                    if entry is not None:
+                        _forecast_cache[key] = (now, entry)
                     results[key] = entry
                 # 上流の応答件数がリクエストと食い違う異常時は、対応しきれない残りをNone扱いにする。
                 for key in to_fetch[len(entries) :]:
                     results[key] = None
+
+                # 再試行を尽くしても失敗した地点は、TTL切れ後もSTALE_FALLBACK_MAX_AGE_SECONDS
+                # 以内のキャッシュがあれば代用する（get_forecastと同じ方針）。
+                stale_fallback_count = 0
+                for key in to_fetch:
+                    if results.get(key) is not None:
+                        continue
+                    cached = _forecast_cache.get(key)
+                    if cached is not None and now - cached[0] < STALE_FALLBACK_MAX_AGE_SECONDS:
+                        results[key] = cached[1]
+                        stale_fallback_count += 1
+                if stale_fallback_count:
+                    fields["fallback"] = f"stale_cache:{stale_fallback_count}"
 
         return {key: results.get(key) for key in keys}
