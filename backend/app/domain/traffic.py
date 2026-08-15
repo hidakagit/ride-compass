@@ -190,8 +190,14 @@ DEDICATED_BICYCLE_INFRA_CLASSES: frozenset[str] = frozenset({"separated", "lane"
 
 def is_dedicated_bicycle_infra(bicycle_infra: BicycleInfraClass | None) -> bool | None:
     """自転車インフラ分類が「専用インフラ（分離・レーン）」かどうかを3値で返す
-    （不明はNone。road.py: classify_osm_surfaceの3値判定と同じ考え方）。"""
-    if bicycle_infra is None:
+    （不明はNone。road.py: classify_osm_surfaceの3値判定と同じ考え方）。
+
+    `classify_bicycle_infrastructure`は判定不能（highway等の入力が無い）な場合Noneではなく
+    文字列`"unknown"`を返す仕様のため、ここでも明示的にNone扱いする。これを怠ると、
+    ORSエンジンでway_tagsの空間マッチに失敗した区間（データ欠損）が「専用インフラではないと
+    確認された区間」としてdistance_weighted_bicycle_infra_scoreの分母に混入してしまう。
+    """
+    if bicycle_infra is None or bicycle_infra == "unknown":
         return None
     return bicycle_infra in DEDICATED_BICYCLE_INFRA_CLASSES
 

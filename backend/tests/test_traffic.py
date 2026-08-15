@@ -233,6 +233,13 @@ class TestIsDedicatedBicycleInfra:
     def test_none_passthrough(self):
         assert is_dedicated_bicycle_infra(None) is None
 
+    def test_unknown_is_treated_as_none_not_false(self):
+        # classify_bicycle_infrastructureは判定不能(highway等が無い)場合Noneではなく
+        # "unknown"を返す。ここでFalse扱いすると「データ欠損」が
+        # distance_weighted_bicycle_infra_scoreの分母に「非専用インフラ確定」として
+        # 混入してしまう(ORSエンジンでway_tagsの空間マッチに失敗した区間で発生しうる)。
+        assert is_dedicated_bicycle_infra("unknown") is None
+
 
 class TestDistanceWeightedBicycleInfraScore:
     def test_distance_weighted_percent_of_dedicated_infra(self):

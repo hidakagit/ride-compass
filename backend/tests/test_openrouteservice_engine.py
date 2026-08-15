@@ -282,6 +282,29 @@ async def test_traffic_stress_and_bicycle_infra_reflect_nearest_way_tags_when_re
     assert all(c.bicycle_infra_score == 100.0 for c in candidates)
 
 
+async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():
+    # get_nearest_way_tagsが空間マッチに失敗した点(highway=None)を返すケース
+    # （repository自体は注入されている＝実運用でも道路網カバレッジの境界等で起こりうる）。
+    # classify_bicycle_infrastructureは判定不能を"unknown"（Noneではない）で返すため、
+    # is_dedicated_bicycle_infraが"unknown"をNone扱いしないと、この「データ欠損」が
+    # 「専用インフラではないと確認された区間」としてbicycle_infra_scoreの分母へ
+    # 誤って混入してしまう(0.0にはならず、Noneのまま＝分母から除外されるのが正しい)。
+    repository = FakeSurfaceRepository(default_tag="asphalt", default_highway=None, default_way_tags={})
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(seg.bicycle_infra == "unknown" for c in candidates for seg in c.segments)
+    assert all(c.bicycle_infra_score is None for c in candidates)
+
+
 async def test_traffic_stress_and_bicycle_infra_are_none_without_repository():
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),

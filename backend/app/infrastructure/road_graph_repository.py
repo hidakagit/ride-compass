@@ -383,12 +383,38 @@ _NEAREST_WAY_TAGS_SQL = text(
     bindparam("lons", type_=ARRAY(Float())),
 )
 
+def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
+    """`&&`によるバウンディングボックス事前フィルタ用に、距離(m)を安全側の緯度経度差(度)へ
+    変換する。1度=100,000mという（実際の111,000mより小さい＝度換算では大きい）保守的な
+    換算を使い、経度方向の圧縮（高緯度ほど同じ距離が大きい経度差になる）を考慮しても
+    日本の緯度帯（〜46度）で確実に対象を包含する余裕を持たせる（cos(46°)≈0.69のため
+    最大でも約1.45倍の余裕があれば足りるところ、100,000/111,320≈0.9倍の余裕では
+    不足するため、さらに絞らず全体に1/70,000という大きめの換算係数を使う）。"""
+    return max_distance_m / 70_000.0
+
+
 # 静的道路属性P1残り（intersectionDensity）。「次数3以上のNode」を交差点とみなし、
 # road_edgesのfrom/to隣接ノード集合から次数を導出する（road_nodes自体は次数を保持していない。
 # build_road_graphのNode化条件は「Wayの端点、または複数Wayに共有されるNode」であり、
 # 次数2の単純な通過点もNode化されうるため、次数はここで都度計算する必要がある）。
 # edge_idで指定範囲を絞ってから集計するため（road_graphエンジンは既に取得済みの
 # ローカルグラフのedge_id全量を渡す）、DB全体のroad_edgesを走査しない。
+#
+# road_nodesとのJOINは`ST_DWithin(geom::geography, ...)`だけに頼らず、必ず`&&`
+# （バウンディングボックス重なり、GiST索引を素直に使う）を先に効かせてからST_DWithinで
+# 精密に絞り込む。`geom::geography`へキャストしたST_DWithinは本環境の実測でGiST索引を
+# 使わない全件Seq Scan + Nested Loopになり（road_nodes 25,608件で単純な1点問い合わせが
+# 132msかかることをEXPLAIN ANALYZEで確認）、複数点をまとめて処理すると数秒〜数十秒に
+# 劣化する。`&&`はgeometry型の演算子で確実にインデックスを使うため（_NEAREST_SURFACE_SQL等の
+# 既存クエリも`ORDER BY geom <-> geom`のKNN索引か`geom && bbox`のいずれかで索引を使わせており、
+# ST_DWithin(geography)単体には頼っていない）、まずこれで候補を数件程度まで絞ってから
+# ST_DWithinで正確な距離判定をする。
+#
+# `degrees`は独立したJOIN句として1回だけ参照する（`local_edges`側のJOIN ON句の中へ
+# `rn.node_id IN (SELECT ... FROM degrees)`のようにサブクエリとして埋め込まない）。
+# JOIN ONの内側に置くとPostgresがdegrees（内部でlocal_edges全件を再スキャンする集計）を
+# 外側local_edgesの行ごとに再実行するNested Loopを選び、O(件数^2)に劣化することを
+# 実測で確認した（2000件で15秒のstatement_timeoutに到達）。
 _INTERSECTION_COUNTS_SQL = text(
     """
     WITH local_edges AS (
@@ -402,33 +428,31 @@ _INTERSECTION_COUNTS_SQL = text(
         SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM local_edges
     ),
     degrees AS (
-        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+        SELECT node_id
         FROM endpoints
         GROUP BY node_id
         HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
-    ),
-    intersections AS (
-        SELECT rn.node_id, rn.geom
-        FROM road_nodes rn
-        JOIN degrees d ON d.node_id = rn.node_id
     )
-    SELECT le.edge_id, COUNT(i.node_id) AS intersection_count
+    SELECT le.edge_id, COUNT(d.node_id) AS intersection_count
     FROM local_edges le
-    LEFT JOIN intersections i ON ST_DWithin(i.geom::geography, le.geom::geography, :max_distance_m)
+    LEFT JOIN road_nodes rn
+        ON rn.geom && ST_Expand(le.geom, :max_distance_deg)
+        AND ST_DWithin(rn.geom::geography, le.geom::geography, :max_distance_m)
+    LEFT JOIN degrees d ON d.node_id = rn.node_id
     GROUP BY le.edge_id
     """
 )
 
-# _NEAREST_INTERSECTION_COUNTS_SQLの外接矩形拡張量（度）。約1km相当（緯度35度付近で
-# 1度≈91km換算、0.01度≈910m）。road_edgesの一般的な区間長より十分大きく取り、範囲境界
-# 付近のNodeで隣接Edgeが範囲外に落ちて次数を過小評価しないための安全マージン。
-_INTERSECTION_ENVELOPE_MARGIN_DEG = 0.01
-
-# ORSエンジン用（サンプル点ごとの近傍交差点件数）。_INTERSECTION_COUNTS_SQLと同じ次数導出
-# ロジックだが、edge_idの一覧が無い（ルートgeometry上の任意サンプル点）ため、サンプル点集合の
-# 外接矩形を`:envelope_margin_deg`分広げた範囲でroad_edgesを絞り込んでから次数を計算する
-# （DB全体のroad_edgesを走査しないため。マージンは最大空間マッチ半径より十分大きく取り、
-# 範囲境界付近のNodeで隣接Edgeが範囲外に落ちて次数を過小評価しないようにする）。
+# ORSエンジン用（サンプル点ごとの近傍交差点件数）。_INTERSECTION_COUNTS_SQLと違い、edge_idの
+# 一覧が無い（ルートgeometry上の任意サンプル点）ため、まず各点の近傍road_node候補を
+# 同じ`&&`先行フィルタ+ST_DWithinパターンで求め、その少数の候補nodeについてのみ
+# from_node_id/to_node_id（btree索引）で次数を計算する。以前は「サンプル点集合の外接矩形を
+# 広げた範囲のroad_edges全件から次数を先に計算し、その結果へ点をJOINする」実装だったが、
+# (1)8方位ぶんの点をまとめて1回のクエリに渡すため外接矩形がループ全体（最大約60km径）に
+# 及ぶ、(2)次数計算結果へのJOINがST_DWithin(geography)単体では索引を使わない総当たりになる
+# （_INTERSECTION_COUNTS_SQLのコメント参照）、の二重の理由で実データ大規模時に深刻に
+# 遅くなることを実測（EXPLAIN ANALYZEで数秒〜数十秒、本番規模ではさらに悪化する見込み）した
+# ため、点ごとに閉じた候補探索へ変更した。
 _NEAREST_INTERSECTION_COUNTS_SQL = text(
     """
     WITH pts AS (
@@ -438,35 +462,36 @@ _NEAREST_INTERSECTION_COUNTS_SQL = text(
             ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
         FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
     ),
-    envelope AS (
-        SELECT ST_Expand(ST_Extent(geom), :envelope_margin_deg) AS bbox FROM pts
+    nearby_nodes AS (
+        SELECT pts.ord, rn.node_id
+        FROM pts
+        JOIN road_nodes rn
+            ON rn.geom && ST_Expand(pts.geom, :max_distance_deg)
+            AND ST_DWithin(rn.geom::geography, pts.geog, :max_distance_m)
     ),
-    local_edges AS (
-        SELECT e.from_node_id, e.to_node_id, e.geom
-        FROM road_edges e, envelope
-        WHERE e.geom && envelope.bbox
+    candidate_nodes AS (
+        SELECT DISTINCT node_id FROM nearby_nodes
     ),
     endpoints AS (
-        SELECT from_node_id AS node_id, to_node_id AS neighbor_id FROM local_edges
+        SELECT e.from_node_id AS node_id, e.to_node_id AS neighbor_id
+        FROM road_edges e
+        WHERE e.from_node_id IN (SELECT node_id FROM candidate_nodes)
         UNION
-        SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM local_edges
+        SELECT e.to_node_id AS node_id, e.from_node_id AS neighbor_id
+        FROM road_edges e
+        WHERE e.to_node_id IN (SELECT node_id FROM candidate_nodes)
     ),
     degrees AS (
-        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+        SELECT node_id
         FROM endpoints
         GROUP BY node_id
         HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
-    ),
-    intersections AS (
-        SELECT rn.node_id, rn.geom
-        FROM road_nodes rn
-        JOIN degrees d ON d.node_id = rn.node_id
     )
-    SELECT pts.ord, COUNT(i.node_id) AS intersection_count
-    FROM pts
-    LEFT JOIN intersections i ON ST_DWithin(i.geom::geography, pts.geog, :max_distance_m)
-    GROUP BY pts.ord
-    ORDER BY pts.ord
+    SELECT nn.ord, COUNT(*) AS intersection_count
+    FROM nearby_nodes nn
+    JOIN degrees d ON d.node_id = nn.node_id
+    GROUP BY nn.ord
+    ORDER BY nn.ord
     """
 ).bindparams(
     bindparam("lats", type_=ARRAY(Float())),
@@ -1117,7 +1142,12 @@ class AttributeRepository(_SessionRepository):
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
                 _INTERSECTION_COUNTS_SQL,
-                {"edge_ids": id_chunk, "max_distance_m": max_distance_m, "degree_threshold": INTERSECTION_DEGREE_THRESHOLD},
+                {
+                    "edge_ids": id_chunk,
+                    "max_distance_m": max_distance_m,
+                    "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
+                    "degree_threshold": INTERSECTION_DEGREE_THRESHOLD,
+                },
             )
             for edge_id, intersection_count in rows.all():
                 result[edge_id] = intersection_count
@@ -1128,9 +1158,9 @@ class AttributeRepository(_SessionRepository):
     ) -> list[int]:
         """(lat, lon)点列それぞれについて、`max_distance_m`以内にある交差点（次数
         `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（入力と同じ順序・
-        同じ長さ、静的道路属性P1残り）。get_nearest_stop_poi_countsと同じ考え方だが、
-        edge_idの一覧が無いため、サンプル点集合の外接矩形を広げた範囲でroad_edgesを
-        絞り込んでから次数を計算する（_NEAREST_INTERSECTION_COUNTS_SQL参照）。
+        同じ長さ、静的道路属性P1残り）。get_nearest_stop_poi_countsと同じ考え方で、
+        点ごとの近傍road_node候補をGiST索引で求めてから次数を計算する
+        （_NEAREST_INTERSECTION_COUNTS_SQL参照）。
         """
         if not points:
             return []
@@ -1142,8 +1172,8 @@ class AttributeRepository(_SessionRepository):
                 "lats": lats,
                 "lons": lons,
                 "max_distance_m": max_distance_m,
+                "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
                 "degree_threshold": INTERSECTION_DEGREE_THRESHOLD,
-                "envelope_margin_deg": _INTERSECTION_ENVELOPE_MARGIN_DEG,
             },
         )
         by_ord = {ord_: intersection_count for ord_, intersection_count in result.all()}
