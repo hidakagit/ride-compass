@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.batch.profile import ImportProfile, load_profile, matching_rule
 from app.config import settings
 from app.domain.graph import WaySpec
-from app.domain.osm_adapter import osm_way_to_way_spec
+from app.domain.osm_adapter import POISpec, osm_node_to_poi_spec, osm_way_to_way_spec
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
@@ -59,6 +59,9 @@ _STAGE_WAYS_DDL = (
     "direction text, geom_wkb bytea)"
 )
 _STAGE_NODES_DDL = "CREATE TEMP TABLE _stage_osm_raw_nodes (osm_node_id bigint, lon float8, lat float8)"
+_STAGE_POIS_DDL = (
+    "CREATE TEMP TABLE _stage_osm_raw_pois (osm_node_id bigint, kind text, tags_json text, lon float8, lat float8)"
+)
 
 # tagsはasyncpgのCOPYバイナリプロトコルがjsonb型を直接受け付けないため、text列で
 # 一旦受けてからマージSQL側で::jsonbキャストする（geom_wkb→ST_GeomFromWKBと同じ考え方）。
@@ -87,11 +90,25 @@ FROM _stage_osm_raw_nodes
 ON CONFLICT (osm_node_id) DO NOTHING
 """
 
+# 静的道路属性P1（信号・横断歩道・一時停止・踏切のnode取込）。tagsのjsonbキャスト理由は
+# _MERGE_WAYS_SQLと同じ（asyncpg COPYバイナリプロトコルがjsonbを直接受け付けないため）。
+_MERGE_POIS_SQL = """
+INSERT INTO osm_raw_pois (osm_node_id, kind, tags, geom, updated_at)
+SELECT osm_node_id, kind, tags_json::jsonb, ST_SetSRID(ST_MakePoint(lon, lat), 4326), $1
+FROM _stage_osm_raw_pois
+ON CONFLICT (osm_node_id) DO UPDATE SET
+    kind = EXCLUDED.kind,
+    tags = EXCLUDED.tags,
+    geom = EXCLUDED.geom,
+    updated_at = EXCLUDED.updated_at
+"""
+
 
 @dataclass
 class Chunk:
     ways: list[tuple] = field(default_factory=list)
     nodes: list[tuple] = field(default_factory=list)
+    pois: list[tuple] = field(default_factory=list)
 
 
 def parse_bbox(text: str) -> BoundingBox:
@@ -115,6 +132,22 @@ def way_in_bbox(coords: dict[int, tuple[float, float]], bbox: BoundingBox | None
         bbox.min_latitude <= lat <= bbox.max_latitude and bbox.min_longitude <= lon <= bbox.max_longitude
         for lat, lon in coords.values()
     )
+
+
+def poi_in_bbox(spec: POISpec, bbox: BoundingBox | None) -> bool:
+    """POI（信号等の単独node）が取込対象か。wayと違い参照ノード集合を持たないため、
+    自身の座標がbbox内かどうかで直接判定する（bbox未指定なら常に対象）。"""
+    if bbox is None:
+        return True
+    return bbox.min_latitude <= spec.latitude <= bbox.max_latitude and (
+        bbox.min_longitude <= spec.longitude <= bbox.max_longitude
+    )
+
+
+def build_poi_record(spec: POISpec) -> tuple:
+    """POISpec→ステージング行。tagsはway側と同じ理由でJSON文字列化する。"""
+    tags_json = json.dumps(spec.tags, ensure_ascii=False)
+    return (spec.osm_node_id, spec.kind, tags_json, spec.longitude, spec.latitude)
 
 
 def build_way_record(spec: WaySpec, coords: dict[int, tuple[float, float]]) -> tuple:
@@ -185,8 +218,21 @@ class _Producer:
         if len(self._chunk.ways) >= CHUNK_WAY_LIMIT:
             self._flush()
 
+    def _node_sink(self, raw_node: dict) -> None:
+        # 静的道路属性P1。標準的なPBFはnode→way→relationの順でブロックが並ぶため、
+        # このコールバックはway処理が始まる前にほぼ全件完了する（POIは都市部でも
+        # 数万件オーダーで軽量、計画書§5.3）。チャンク分割は__way__件数基準のままでよく、
+        # 最初にflushされるチャンクへ多くのPOIがまとまって乗る形になるが、
+        # COPY→ON CONFLICTマージは冪等なため正しさに影響しない。
+        if self.abort.is_set():
+            raise RuntimeError("import aborted by consumer failure")
+        spec = osm_node_to_poi_spec(raw_node)
+        if spec is None or not poi_in_bbox(spec, self._bbox):
+            return
+        self._chunk.pois.append(build_poi_record(spec))
+
     def _flush(self) -> None:
-        if self._chunk.ways or self._chunk.nodes:
+        if self._chunk.ways or self._chunk.nodes or self._chunk.pois:
             self.queue.put(self._chunk)
             self._chunk = Chunk()
             self._chunk_node_seen = set()
@@ -199,8 +245,13 @@ class _Producer:
         def tag_filter(tags: dict[str, str]) -> bool:
             return matching_rule(self._profile, "way", tags) is not None
 
+        def node_tag_filter(tags: dict[str, str]) -> bool:
+            return matching_rule(self._profile, "node", tags) is not None
+
         try:
-            pbf_source.stream_ways(self._pbf_path, tag_filter, self._sink)
+            pbf_source.stream_ways(
+                self._pbf_path, tag_filter, self._sink, node_tag_filter, self._node_sink
+            )
             self._flush()
         except BaseException as exc:  # noqa: BLE001 スレッド境界を越えて伝搬させるため一旦捕捉
             self.error = exc
@@ -208,8 +259,8 @@ class _Producer:
             self.queue.put(None)
 
 
-async def _flush_chunk(conn: asyncpg.Connection, chunk: Chunk, updated_at: datetime) -> tuple[int, int]:
-    await conn.execute("TRUNCATE _stage_osm_raw_ways, _stage_osm_raw_nodes")
+async def _flush_chunk(conn: asyncpg.Connection, chunk: Chunk, updated_at: datetime) -> tuple[int, int, int]:
+    await conn.execute("TRUNCATE _stage_osm_raw_ways, _stage_osm_raw_nodes, _stage_osm_raw_pois")
     await conn.copy_records_to_table(
         "_stage_osm_raw_ways",
         records=chunk.ways,
@@ -218,11 +269,15 @@ async def _flush_chunk(conn: asyncpg.Connection, chunk: Chunk, updated_at: datet
     await conn.copy_records_to_table(
         "_stage_osm_raw_nodes", records=chunk.nodes, columns=["osm_node_id", "lon", "lat"]
     )
+    await conn.copy_records_to_table(
+        "_stage_osm_raw_pois", records=chunk.pois, columns=["osm_node_id", "kind", "tags_json", "lon", "lat"]
+    )
     # wayのgeom算出はステージング側で済んでいるため順序制約は無いが、参照整合の直感に
-    # 合わせてノード→wayの順でマージする
+    # 合わせてノード→way→POIの順でマージする
     node_status = await conn.execute(_MERGE_NODES_SQL, updated_at)
     way_status = await conn.execute(_MERGE_WAYS_SQL, updated_at)
-    return _status_count(way_status), _status_count(node_status)
+    poi_status = await conn.execute(_MERGE_POIS_SQL, updated_at)
+    return _status_count(way_status), _status_count(node_status), _status_count(poi_status)
 
 
 async def _mark_tiles(conn: asyncpg.Connection, bbox: BoundingBox, fetched_at: datetime) -> int:
@@ -266,6 +321,7 @@ async def run_import(
     producer_task = asyncio.create_task(asyncio.to_thread(producer.run))
     total_ways = 0
     total_nodes = 0
+    total_pois = 0
     chunk_count = 0
 
     async def _abort_and_join_producer() -> None:
@@ -288,12 +344,13 @@ async def run_import(
             while (chunk := await asyncio.to_thread(producer.queue.get)) is not None:
                 total_ways += len(chunk.ways)
                 total_nodes += len(chunk.nodes)
+                total_pois += len(chunk.pois)
             await producer_task
             if producer.error is not None:
                 raise producer.error
             logger.info(
-                "dry-run完了: matched_ways=%d node_rows=%d elapsed=%.1fs（DB書き込みなし）",
-                total_ways, total_nodes, time.perf_counter() - started,
+                "dry-run完了: matched_ways=%d node_rows=%d matched_pois=%d elapsed=%.1fs（DB書き込みなし）",
+                total_ways, total_nodes, total_pois, time.perf_counter() - started,
             )
             return 0
 
@@ -326,6 +383,7 @@ async def run_import(
             )
             await conn.execute(_STAGE_WAYS_DDL)
             await conn.execute(_STAGE_NODES_DDL)
+            await conn.execute(_STAGE_POIS_DDL)
 
             ways_is_empty = await conn.fetchval("SELECT NOT EXISTS (SELECT 1 FROM osm_raw_ways)")
             deferred_ways_index = bool(ways_is_empty)
@@ -335,13 +393,14 @@ async def run_import(
 
             try:
                 while (chunk := await asyncio.to_thread(producer.queue.get)) is not None:
-                    way_count, node_count = await _flush_chunk(conn, chunk, run_started_at)
+                    way_count, node_count, poi_count = await _flush_chunk(conn, chunk, run_started_at)
                     total_ways += way_count
                     total_nodes += node_count
+                    total_pois += poi_count
                     chunk_count += 1
                     logger.info(
-                        "chunk %d: ways+%d nodes+%d (累計 ways=%d nodes=%d)",
-                        chunk_count, way_count, node_count, total_ways, total_nodes,
+                        "chunk %d: ways+%d nodes+%d pois+%d (累計 ways=%d nodes=%d pois=%d)",
+                        chunk_count, way_count, node_count, poi_count, total_ways, total_nodes, total_pois,
                     )
             finally:
                 await producer_task
@@ -373,9 +432,9 @@ async def run_import(
             # docs/osm-pbf-import.md 10章）。取込のたびに現在のDBサイズをサマリへ出す。
             db_size_bytes = await conn.fetchval("SELECT pg_database_size(current_database())")
             logger.info(
-                "取込完了: run_id=%s ways=%d nodes=%d chunks=%d marked_tiles=%d(z%d) "
+                "取込完了: run_id=%s ways=%d nodes=%d pois=%d chunks=%d marked_tiles=%d(z%d) "
                 "pbf_timestamp=%s db_size_mb=%.0f elapsed=%.1fs",
-                run_id, total_ways, total_nodes, chunk_count, marked_tiles, ROAD_GRAPH_TILE_ZOOM,
+                run_id, total_ways, total_nodes, total_pois, chunk_count, marked_tiles, ROAD_GRAPH_TILE_ZOOM,
                 pbf_timestamp_raw, db_size_bytes / 1_000_000, time.perf_counter() - started,
             )
             return 0

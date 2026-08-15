@@ -18,6 +18,7 @@ function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail
     elevation_difficulty: 10,
     wind_difficulty: 20,
     road_difficulty: 0,
+    stop_difficulty: 0,
     difficulty: 12,
     ...overrides,
   };

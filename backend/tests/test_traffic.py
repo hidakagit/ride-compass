@@ -1,5 +1,7 @@
 from app.domain.traffic import (
     classify_bicycle_infrastructure,
+    classify_stop_poi,
+    distance_weighted_stop_density,
     parse_lanes,
     parse_maxspeed,
     smoothness_score,
@@ -140,3 +142,60 @@ class TestTrafficStressLevel:
     def test_unset_tags_do_not_apply_corrections(self):
         # 補正はタグが実際にある場合のみ適用する（unknownは補正しない）
         assert traffic_stress_level("tertiary", {}) == 3
+
+
+class TestClassifyStopPoi:
+    def test_traffic_signals(self):
+        assert classify_stop_poi({"highway": "traffic_signals"}) == "traffic_signals"
+
+    def test_crossing(self):
+        assert classify_stop_poi({"highway": "crossing"}) == "crossing"
+
+    def test_stop(self):
+        assert classify_stop_poi({"highway": "stop"}) == "stop"
+
+    def test_give_way(self):
+        assert classify_stop_poi({"highway": "give_way"}) == "give_way"
+
+    def test_level_crossing(self):
+        assert classify_stop_poi({"railway": "level_crossing"}) == "level_crossing"
+
+    def test_level_crossing_takes_priority_over_highway(self):
+        # 踏切と横断歩道タグが同一nodeに同居する場合、踏切側を優先する（一時停止義務が強いため）
+        assert classify_stop_poi({"highway": "crossing", "railway": "level_crossing"}) == "level_crossing"
+
+    def test_case_and_whitespace_insensitive(self):
+        assert classify_stop_poi({"highway": " Traffic_Signals "}) == "traffic_signals"
+
+    def test_missing_tags_is_none(self):
+        assert classify_stop_poi({}) is None
+
+    def test_unrelated_highway_value_is_none(self):
+        assert classify_stop_poi({"highway": "residential"}) is None
+
+
+class TestDistanceWeightedStopDensity:
+    def test_sums_counts_over_total_distance(self):
+        # 2区間: 1kmに2回、3kmに2回 -> 合計4回/合計4km = 1.0回/km
+        assert distance_weighted_stop_density([(1.0, 2), (3.0, 2)]) == 1.0
+
+    def test_is_total_ratio_not_average_of_rates(self):
+        # 単純平均(2.0回/kmと0回/kmの平均=1.0)ではなく、合計count/合計distanceになる
+        # 0.1kmに2回(20回/km相当)＋9.9kmに0回 -> 2/10.0 = 0.2回/km
+        assert distance_weighted_stop_density([(0.1, 2), (9.9, 0)]) == 0.2
+
+    def test_zero_total_distance_returns_none(self):
+        assert distance_weighted_stop_density([(0.0, 3)]) is None
+
+    def test_empty_returns_none(self):
+        assert distance_weighted_stop_density([]) is None
+
+    def test_no_stops_is_zero(self):
+        assert distance_weighted_stop_density([(5.0, 0)]) == 0.0
+
+    def test_none_counts_are_excluded_not_treated_as_zero(self):
+        # データ未取得(None)の区間は実測0とは区別し、集計から除外する（残り区間で再正規化）
+        assert distance_weighted_stop_density([(1.0, 2), (9.0, None)]) == 2.0
+
+    def test_all_none_counts_return_none(self):
+        assert distance_weighted_stop_density([(1.0, None), (2.0, None)]) is None

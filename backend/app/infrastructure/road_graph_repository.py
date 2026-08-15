@@ -310,6 +310,44 @@ _NEAREST_SURFACE_SQL = text(
     bindparam("lons", type_=ARRAY(Float())),
 )
 
+# 静的道路属性P1（信号・横断歩道・一時停止・踏切のnode取込・停止密度評価）。
+# _NEAREST_SURFACE_SQLと違い「最近傍1件」ではなく「距離内の件数」を求める単純な
+# LEFT JOIN + COUNTのため、ORDER BY <-> LIMITは使わない（T21コメントにある
+# 「WHEREをKNNと同居させる」アンチパターンには該当せず、GiST索引で素直に
+# index nested loopになる）。edge_idはWHEREで先に絞るため、LEFT JOINでも
+# 指定edge_id全件が0件を含めて1行ずつ返る。
+_STOP_POI_COUNTS_SQL = text(
+    """
+    SELECT e.edge_id, COUNT(p.osm_node_id) AS stop_count
+    FROM road_edges e
+    LEFT JOIN osm_raw_pois p ON ST_DWithin(p.geom::geography, e.geom::geography, :max_distance_m)
+    WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
+    GROUP BY e.edge_id
+    """
+)
+
+# ORSエンジン用（サンプル点ごとの近傍件数）。_NEAREST_SURFACE_SQLと同じUNNEST WITH
+# ORDINALITY構造だが、単純な件数JOINのため_NEAREST_SURFACE_SQLの回避策（WHEREを
+# LATERAL外へ出す）は元々不要。
+_NEAREST_STOP_POI_COUNTS_SQL = text(
+    """
+    WITH pts AS (
+        SELECT
+            ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
+    )
+    SELECT pts.ord, COUNT(p.osm_node_id) AS stop_count
+    FROM pts
+    LEFT JOIN osm_raw_pois p ON ST_DWithin(p.geom::geography, pts.geog, :max_distance_m)
+    GROUP BY pts.ord
+    ORDER BY pts.ord
+    """
+).bindparams(
+    bindparam("lats", type_=ARRAY(Float())),
+    bindparam("lons", type_=ARRAY(Float())),
+)
+
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[RoadNodeRow]) -> RoadGraph:
     """`get_graph_in_bbox`用。Edge/Nodeが数万〜十数万行になる規模のため、1行ずつ
@@ -852,6 +890,45 @@ class AttributeRepository(_SessionRepository):
         by_ord = {ord_: surface for ord_, surface in result.all()}
         return [by_ord.get(i + 1) for i in range(len(points))]
 
+    async def get_stop_poi_counts(self, edge_ids: list[str], max_distance_m: float = 15.0) -> dict[str, int]:
+        """指定edge_idそれぞれについて、`max_distance_m`以内にある信号・横断歩道・
+        一時停止・踏切（osm_raw_pois）の合計件数を返す（静的道路属性P1）。
+
+        road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。get_surface_attributes
+        と同じ「edge_idリストを渡して辞書で受け取る」形。指定edge_idは（該当POIが0件でも）
+        必ず結果に含まれる＝Noneではなく0として扱えることをEvaluationService側が前提にする。
+        """
+        if not edge_ids:
+            return {}
+        result: dict[str, int] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            rows = await self._session.execute(
+                _STOP_POI_COUNTS_SQL, {"edge_ids": id_chunk, "max_distance_m": max_distance_m}
+            )
+            for edge_id, stop_count in rows.all():
+                result[edge_id] = stop_count
+        return result
+
+    async def get_nearest_stop_poi_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = 15.0
+    ) -> list[int]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある信号・横断歩道・
+        一時停止・踏切（osm_raw_pois）の件数を返す（入力と同じ順序・同じ長さ、静的道路属性P1）。
+
+        改善計画T21のget_nearest_surface_tagsと同じ考え方（openrouteserviceエンジンが
+        geometry上のサンプル点をこのメソッドで自前DBへ空間マッチする）。1回のSQLで
+        全点をまとめて処理する。
+        """
+        if not points:
+            return []
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        result = await self._session.execute(
+            _NEAREST_STOP_POI_COUNTS_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
+        )
+        by_ord = {ord_: stop_count for ord_, stop_count in result.all()}
+        return [by_ord.get(i + 1, 0) for i in range(len(points))]
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -929,6 +1006,14 @@ class RoadGraphRepository:
         self, points: list[tuple[float, float]], max_distance_m: float = 30.0
     ) -> list[str | None]:
         return await self.attributes.get_nearest_surface_tags(points, max_distance_m=max_distance_m)
+
+    async def get_stop_poi_counts(self, edge_ids: list[str], max_distance_m: float = 15.0) -> dict[str, int]:
+        return await self.attributes.get_stop_poi_counts(edge_ids, max_distance_m=max_distance_m)
+
+    async def get_nearest_stop_poi_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = 15.0
+    ) -> list[int]:
+        return await self.attributes.get_nearest_stop_poi_counts(points, max_distance_m=max_distance_m)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

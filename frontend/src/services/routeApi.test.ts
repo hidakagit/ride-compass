@@ -130,6 +130,7 @@ describe("routeApi", () => {
           max_gradient_percent: null,
           wind_score: null,
           road_score: null,
+          stop_density: null,
           total_score: null,
           score_breakdown: null,
           segments: null,
@@ -142,7 +143,7 @@ describe("routeApi", () => {
         distance_km: 30,
         distance_tolerance_km: 5,
         scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
-        route_preference: { elevation_weight: 0.25, road_weight: 0.3, wind_weight: 0.45 },
+        route_preference: { elevation_weight: 0.2, road_weight: 0.25, wind_weight: 0.35, stop_weight: 0.2 },
         generated_at: "2026-08-15T12:00:00+09:00",
       };
       vi.stubGlobal(

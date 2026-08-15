@@ -1,8 +1,12 @@
 """PBF取込プロファイル（app/batch/profile.py）の読み込み・マッチングの検証。"""
 
+from pathlib import Path
+
 import pytest
 
 from app.batch.profile import ElementRule, ProfileError, load_profile, matching_rule, rule_matches
+
+DEFAULT_PROFILE_PATH = Path(__file__).resolve().parents[1] / "app" / "batch" / "import_profile.yaml"
 
 VALID_PROFILE = """
 version: 1
@@ -47,7 +51,7 @@ class TestLoadProfile:
         "content",
         [
             VALID_PROFILE.replace("version: 1", "version: 2"),
-            VALID_PROFILE.replace("element_type: way", "element_type: node"),
+            VALID_PROFILE.replace("element_type: way", "element_type: relation"),
             VALID_PROFILE.replace("target: osm_raw_ways", "target: unknown_table"),
             "version: 1\nelements: []\n",
             VALID_PROFILE.replace('highway: "*"', "highway: 123"),
@@ -88,3 +92,30 @@ class TestMatchingRule:
         assert matching_rule(profile, "way", {"building": "yes"}) is None
         # element_typeが違えばタグがマッチしても対象外
         assert matching_rule(profile, "node", {"highway": "residential"}) is None
+
+
+class TestDefaultProfile:
+    """実運用のimport_profile.yaml自体が正しくパースでき、静的道路属性P1の
+    node系ルール（highway=*系とrailway=level_crossingのOR分割）が意図通り
+    マッチすることを確認する（YAML手書き変更に対する回帰検知）。"""
+
+    def test_default_profile_loads(self):
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        assert profile.version == 1
+
+    def test_stop_inducing_highway_nodes_match(self):
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        assert matching_rule(profile, "node", {"highway": "traffic_signals"}) is not None
+        assert matching_rule(profile, "node", {"highway": "crossing"}) is not None
+        assert matching_rule(profile, "node", {"highway": "stop"}) is not None
+        assert matching_rule(profile, "node", {"highway": "give_way"}) is not None
+
+    def test_railway_level_crossing_matches(self):
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        rule = matching_rule(profile, "node", {"railway": "level_crossing"})
+        assert rule is not None
+        assert rule.target == "osm_raw_pois"
+
+    def test_unrelated_node_does_not_match(self):
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        assert matching_rule(profile, "node", {"amenity": "bench"}) is None

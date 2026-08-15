@@ -185,6 +185,10 @@ export interface components {
          *     呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので
          *     **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
          *     segments欠損時・全区間difficulty欠損時はNone。
+         *
+         *     `stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、
+         *     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
+         *     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
          */
         RouteCandidate: {
             /** Id */
@@ -209,6 +213,8 @@ export interface components {
             wind_score?: number | null;
             /** Road Score */
             road_score?: number | null;
+            /** Stop Density */
+            stop_density?: number | null;
             /** Total Score */
             total_score?: number | null;
             /** Score Breakdown */
@@ -264,6 +270,8 @@ export interface components {
             road_weight: number;
             /** Wind Weight */
             wind_weight: number;
+            /** Stop Weight */
+            stop_weight: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {
@@ -348,6 +356,8 @@ export interface components {
             wind_difficulty?: number | null;
             /** Road Difficulty */
             road_difficulty?: number | null;
+            /** Stop Difficulty */
+            stop_difficulty?: number | null;
             /** Difficulty */
             difficulty?: number | null;
         };

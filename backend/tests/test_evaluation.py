@@ -140,6 +140,28 @@ def test_compute_edge_cost_without_wind_ignores_wind_weight():
     assert result.difficulty == 0.0
 
 
+def test_compute_edge_cost_without_stop_count_ignores_stop_weight():
+    edge = _edge(distance_m=100.0)
+    elevation = _elevation_attr(0.0)
+    surface = "asphalt"
+
+    result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # stop_countを渡さない
+
+    assert result.difficulty == 0.0
+
+
+def test_compute_edge_cost_more_stops_costs_more():
+    edge = _edge(distance_m=1000.0)
+    elevation = _elevation_attr(0.0)
+    surface = "asphalt"
+
+    no_stops = compute_edge_cost(edge, elevation, surface, RoutePreference(), stop_count=0)
+    many_stops = compute_edge_cost(edge, elevation, surface, RoutePreference(), stop_count=4)
+
+    assert many_stops.difficulty > no_stops.difficulty
+    assert many_stops.cost > no_stops.cost
+
+
 def test_compute_edge_cost_respects_custom_weights():
     edge = _edge(distance_m=100.0)
     elevation = _elevation_attr(average_grade=12.0)  # 激坂

@@ -41,6 +41,7 @@ class RouteSegmentDetail(BaseModel):
     elevation_difficulty: float | None = None
     wind_difficulty: float | None = None
     road_difficulty: float | None = None
+    stop_difficulty: float | None = None
     difficulty: float | None = None
 
 
@@ -67,6 +68,10 @@ class RouteCandidate(BaseModel):
     呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので
     **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
     segments欠損時・全区間difficulty欠損時はNone。
+
+    `stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、
+    静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
+    合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
     """
 
     id: str
@@ -79,6 +84,7 @@ class RouteCandidate(BaseModel):
     max_gradient_percent: float | None = None
     wind_score: float | None = None
     road_score: float | None = None
+    stop_density: float | None = None
     total_score: float | None = None
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None

@@ -43,6 +43,29 @@ class OsmRawNodeRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class OsmRawPoiRow(Base):
+    """信号・横断歩道・一時停止・踏切等、停止・減速要因になるOSM nodeの生データ
+    （静的道路属性P1、docs/static-road-attributes-plan.md §4）。
+
+    osm_raw_nodesとは別テーブル。osm_raw_nodesはWayが参照する全nodeの座標を
+    無差別に保持する（形状点がほとんど）のに対し、こちらは`domain/traffic.py:
+    classify_stop_poi`で分類できたnode（対象タグを持つごく一部）だけを選別して
+    保持する（osm_adapter.py: osm_node_to_poi_spec）。
+
+    geomへの空間索引は必要（osm_raw_nodesのGiST廃止＝改善計画T28とは逆）。
+    road_edgesとのST_DWithin空間結合（AttributeRepository.get_stop_poi_counts等、
+    静的道路属性P1）で使う、この用途で初めて生まれる空間検索アクセスパターンのため。
+    """
+
+    __tablename__ = "osm_raw_pois"
+
+    osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    tags: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OsmRawWayRow(Base):
     """OSMの生Wayデータ（WaySpec相当。domain/osm_adapter.pyでタグ解釈済みの状態で保存する）。
 

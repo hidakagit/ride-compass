@@ -78,9 +78,21 @@ def build_loop_graph(origin: Coordinates, distance_km: float, *, skip_bearings: 
 
 
 class FakeGraphService:
-    def __init__(self, graph: RoadGraph | None, surface_attributes: dict | None = None):
+    def __init__(
+        self,
+        graph: RoadGraph | None,
+        surface_attributes: dict | None = None,
+        stop_counts: dict | None = None,
+        stop_data_available: bool = True,
+    ):
         self._graph = graph
         self._surface_attributes = surface_attributes or {}
+        self._stop_counts = stop_counts or {}
+        # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
+        # （GraphService.get_stop_poi_counts(repository=None)と同じ{}を返す）。Trueは
+        # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
+        # （AttributeRepository.get_stop_poi_countsの実挙動、テストで未設定のedge_idは0扱い）。
+        self._stop_data_available = stop_data_available
         self.call_count = 0
 
     async def get_or_build_graph_with_attributes(self, bbox):
@@ -88,6 +100,11 @@ class FakeGraphService:
         if self._graph is None:
             return None
         return self._graph, self._surface_attributes
+
+    async def get_stop_poi_counts(self, edge_ids):
+        if not self._stop_data_available:
+            return {}
+        return {edge_id: self._stop_counts.get(edge_id, 0) for edge_id in edge_ids}
 
 
 class FakeElevationAttributeService:
@@ -113,10 +130,12 @@ def make_generator(
     *,
     elevation_attributes: dict | None = None,
     surface_attributes: dict | None = None,
+    stop_counts: dict | None = None,
+    stop_data_available: bool = True,
     wind: WeatherConditions | None = None,
     route_preference: RoutePreference | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
-    graph_service = FakeGraphService(graph, surface_attributes)
+    graph_service = FakeGraphService(graph, surface_attributes, stop_counts, stop_data_available)
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
     engine = RoadGraphEngine(
@@ -267,6 +286,43 @@ async def test_candidate_aggregates_road_score_from_path_edges():
 
     assert candidate.road_score is not None
     assert 0.0 <= candidate.road_score <= 100.0
+
+
+async def test_candidate_aggregates_stop_density_from_path_edges():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
+    stop_counts = {edge_ids[0]: 3}
+    generator, _, _ = make_generator(graph, stop_counts=stop_counts)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.stop_density is not None
+    assert candidate.stop_density > 0.0
+    segment_with_stops = next(s for s in candidate.segments if s.stop_difficulty is not None and s.stop_difficulty > 0)
+    assert segment_with_stops.difficulty is not None
+
+
+async def test_candidate_stop_density_is_zero_without_any_stop_pois():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)  # stop_counts未指定（=repository注入済み・実測0件）
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.stop_density == 0.0
+
+
+async def test_candidate_stop_density_is_none_when_data_unavailable():
+    # repository未注入等でstop_poiデータ自体を取得できない場合は「実測0件」とは区別してNone
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph, stop_data_available=False)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.stop_density is None
+    assert all(s.stop_difficulty is None for s in candidate.segments)
 
 
 async def test_candidate_aggregates_wind_score_when_weather_available():

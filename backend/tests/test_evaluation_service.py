@@ -55,6 +55,37 @@ def test_evaluate_graph_empty_graph_returns_empty_dict():
     assert results == {}
 
 
+def test_evaluate_graph_passes_stop_counts_to_compute_edge_cost():
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=1000.0,
+    )
+    graph = _make_graph(edge)
+    elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=0.0, data_source="t", calculated_at="t")}
+    surface_attributes = {"edge-1": "asphalt"}
+
+    service = EvaluationService()
+    no_stops = service.evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
+    many_stops = service.evaluate_graph(
+        graph, elevation_attributes, surface_attributes, stop_counts={"edge-1": 4}
+    )["edge-1"]
+
+    assert many_stops.difficulty > no_stops.difficulty
+
+
+def test_evaluate_graph_missing_stop_counts_entry_is_none():
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=50.0,
+    )
+    graph = _make_graph(edge)
+
+    service = EvaluationService()
+    results = service.evaluate_graph(graph, {}, {}, stop_counts={})
+
+    assert results["edge-1"].difficulty is None
+
+
 def test_evaluate_graph_uses_custom_route_preference():
     from app.domain.evaluation import RoutePreference
 
@@ -79,9 +110,10 @@ def test_evaluate_graph_uses_custom_route_preference():
 def test_load_route_preference_reads_default_config_file():
     preference = load_route_preference()
 
-    assert preference.elevation_weight == 0.25
-    assert preference.road_weight == 0.30
-    assert preference.wind_weight == 0.45
+    assert preference.elevation_weight == 0.20
+    assert preference.road_weight == 0.25
+    assert preference.wind_weight == 0.35
+    assert preference.stop_weight == 0.20
 
 
 def test_load_route_preference_reads_custom_path(tmp_path):
@@ -110,7 +142,7 @@ def test_evaluation_service_without_explicit_preference_uses_config_file_default
 
     default_via_config = EvaluationService().evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
     explicit_matching_weights = EvaluationService(
-        RoutePreference(elevation_weight=0.25, road_weight=0.30, wind_weight=0.45)
+        RoutePreference(elevation_weight=0.20, road_weight=0.25, wind_weight=0.35, stop_weight=0.20)
     ).evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
 
     assert default_via_config.difficulty == explicit_matching_weights.difficulty

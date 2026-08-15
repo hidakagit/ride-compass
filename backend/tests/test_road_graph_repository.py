@@ -7,6 +7,7 @@ ridecompass_test DB(conftest.pyのroad_graph_session/road_graph_repositoryフィ
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import text
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import WaySpec, build_road_graph
@@ -419,6 +420,87 @@ async def test_get_nearest_surface_tags_preserves_input_order_for_multiple_point
     )
 
     assert result == [None, "gravel", "gravel", None]
+
+
+# --- 静的道路属性P1（信号・横断歩道・一時停止・踏切のnode取込・停止密度評価） ---
+# osm_raw_poisへの書き込みメソッドはRoadGraphRepositoryに無い（PBF取込バッチが直接asyncpg
+# COPYで書くため、ADR決定によりOverpassフォールバック側にも実装していない）。統合テストでは
+# セッションへ直接INSERTしてテストデータを用意する。
+
+
+async def _insert_poi(session, osm_node_id: int, kind: str, lat: float, lon: float) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO osm_raw_pois (osm_node_id, kind, tags, geom, updated_at) "
+            "VALUES (:id, :kind, '{}'::jsonb, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), now())"
+        ),
+        {"id": osm_node_id, "kind": kind, "lat": lat, "lon": lon},
+    )
+
+
+async def test_get_stop_poi_counts_returns_empty_dict_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_stop_poi_counts([]) == {}
+
+
+async def test_get_stop_poi_counts_counts_nearby_pois(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    await _insert_poi(road_graph_session, 901, "crossing", *NODE2)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_stop_poi_counts([edge_id], max_distance_m=30.0)
+
+    assert result[edge_id] == 2
+
+
+async def test_get_stop_poi_counts_edge_with_no_nearby_pois_is_zero_not_missing(road_graph_repository):
+    """該当POIが0件でもedge_id自体はNoneではなく0として結果に含まれる
+    （EvaluationServiceが「データ無し(None)」と「0件」を区別する前提）。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    result = await road_graph_repository.get_stop_poi_counts([edge_id])
+
+    assert result == {edge_id: 0}
+
+
+async def test_get_stop_poi_counts_ignores_pois_beyond_max_distance_m(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE3)  # 遠方
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_stop_poi_counts([edge_id], max_distance_m=30.0)
+
+    assert result[edge_id] == 0
+
+
+async def test_get_nearest_stop_poi_counts_returns_empty_list_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_nearest_stop_poi_counts([]) == []
+
+
+async def test_get_nearest_stop_poi_counts_counts_pois_near_each_point(road_graph_repository, road_graph_session):
+    await _insert_poi(road_graph_session, 900, "stop", *NODE1)
+    await _insert_poi(road_graph_session, 901, "give_way", *NODE1)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_nearest_stop_poi_counts(
+        [NODE1, NODE3], max_distance_m=30.0
+    )
+
+    assert result == [2, 0]
 
 
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):

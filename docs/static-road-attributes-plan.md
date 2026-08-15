@@ -1,10 +1,13 @@
 # 静的道路属性の棚卸しと実装計画（調査報告・2026-08-15）
 
-**ステータス（2026-08-15更新）: P0実装完了**（タグ保持基盤・`domain/traffic.py`・
-MVT拡張v4・交通ストレス/自転車インフラレイヤー。詳細は
-[improvement-plan.md](improvement-plan.md)「静的道路属性 P0」節）。既存データへの
-再取込・T9（surface列化、本計画とは切り離して別タスク化）・P1（node取込・評価組み込み）は
-未着手のまま残っている。以下は元の調査報告（2026-08-15時点、着手前）。
+**ステータス（2026-08-16更新）: P0完了・P1主要部分完了**。P0（タグ保持基盤・
+`domain/traffic.py`・MVT拡張v4・交通ストレス/自転車インフラレイヤー）・既存データへの
+再取込・T9（surface列化）はいずれも完了済み（詳細は
+[improvement-plan.md](improvement-plan.md)「静的道路属性 P0」節）。P1は
+下記§3の1〜3のうち「node取込機構」「停止密度評価」を2026-08-16に実装完了（詳細は
+本節末尾の実装結果を参照）。intersectionDensity・trafficStress/bicycle_infra評価組み込み・
+自転車歩行者道スコープ拡張・`bicycle=no`Hard Constraint・name/refのMVT焼き込み（§3 P1の
+4〜6、および2の後半）は未着手のまま残る。以下は元の調査報告（2026-08-15時点、着手前）。
 
 新レイヤー（交通ストレス・自転車インフラ・信号密度等）追加に向けた、OSM静的道路属性の
 棚卸しと実装方針の提案。動的データ（天気・風・降水）は対象外。
@@ -165,13 +168,34 @@ P0は**表示（レイヤー）まで**。ルート評価への組み込みは�
 ### P1（次に実装）— 点データとルート評価接続
 
 1. node取込機構（`osm_raw_pois`テーブル＋プロファイルnode要素）: 信号・横断歩道・一時停止・踏切
-2. signalDensity / intersectionDensity（交差点は既存`road_edges`から次数導出、新規取得不要）
-3. `EvaluationService`への組み込み: `compute_edge_cost`にtrafficStress・インフラ・停止密度の項を追加、
-   `route_preference.yaml`に重み追加、`RouteCandidate`へのルート単位集約値
-   （trafficStressScore・signalDensity等）の追加
+   ✅**完了（2026-08-16）**
+2. signalDensity ✅**完了（「停止密度」として実装、下記参照）** / intersectionDensity
+   （交差点は既存`road_edges`から次数導出、新規取得不要）**未着手**（road_graphエンジンは
+   グラフ全体をメモリに持つため容易だが、ORSエンジン側は経路サンプル点ごとに新規のDB空間
+   問い合わせが要り実装規模が増えるため、ユーザー承認のうえ本ラウンドのスコープから分離）
+3. `EvaluationService`への組み込み: `compute_edge_cost`に**停止密度**の項を追加✅完了。
+   trafficStress・インフラの項追加は**未着手**（P0時点でway属性としては取得済みだが評価組み込みは
+   別スコープとして分離）。`route_preference.yaml`に`stop_weight`追加✅完了、`RouteCandidate`への
+   ルート単位集約値は`stop_density`として追加✅完了（`trafficStressScore`等は未着手）
 4. 自転車歩行者道の取込スコープ拡張（path/footway＋bicycle可のみ。プロファイルにエントリ追加）
-5. `bicycle=no`のHard Constraint追加、`oneway:bicycle`例外の解釈
-6. name/refのMVT焼き込み（ポップアップ表示）、width（カバレッジ実測が良ければ）
+   **未着手**
+5. `bicycle=no`のHard Constraint追加、`oneway:bicycle`例外の解釈 **未着手**
+6. name/refのMVT焼き込み（ポップアップ表示）、width（カバレッジ実測が良ければ） **未着手**
+
+**実装結果（1〜3、2026-08-16）**: `osm_raw_pois`（`osm_node_id`/`kind`/`tags`/`geom`、GiST索引付き。
+migration 0005）を新設し、`domain/traffic.py: classify_stop_poi`（highway=traffic_signals/
+crossing/stop/give_way・railway=level_crossingの5種、踏切優先）で分類したnodeのみを保持する。
+取込はPBFバッチのみ（`pbf_source.py`にpyosmium `node()`ハンドラを追加、`import_profile.yaml`に
+node要素2ルール）。**ADR決定2（フォールバック撤去条件成立まで新属性はOverpass経路に実装しない）
+に従い、Overpassフォールバック側（`get_ways_and_nodes`のnode tags取得）は無改修のまま**。
+評価は`AttributeRepository.get_stop_poi_counts`（road_graphエンジン、`road_edges`との
+`ST_DWithin`空間結合）／`get_nearest_stop_poi_counts`（ORSエンジン、`get_nearest_surface_tags`と
+同じサンプル点空間マッチ）で導出し、`domain/difficulty.py: stop_difficulty`（区分線形、暫定値）・
+`domain/traffic.py: distance_weighted_stop_density`（合計count÷合計distance_kmの単純比）を経て
+両エンジンのEdge Cost・区間難易度・`RouteCandidate.stop_density`に反映する。「データ未取得
+（repository未注入）」と「実測0件」をNone/0で区別する設計（road_score等の既存方針を踏襲）。
+backend 531件・frontend 146件・eslint・tsc全green、dev機PGへmigration適用・
+Tokyo.osm.pbfでのdry-run実行（信号等81,921件マッチ）で実データ動作確認済み。
 
 ### P2（将来検討）
 
