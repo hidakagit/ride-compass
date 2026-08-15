@@ -1,12 +1,13 @@
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  /* 要素間の余白を詰めてほしいという実機フィードバックを受け縮小（T41） */
+  gap: var(--space-2);
 }
 
 .group + .group {
   border-top: 1px solid var(--color-border);
-  padding-top: var(--space-2);
+  padding-top: var(--space-1);
 }
 
 /* データの性質（変わらない/変わる）によるグループ見出し（mapLayers.tsのkind参照） */

@@ -26,10 +26,12 @@
 }
 
 /* サイドバーの2ブロック（ルートを作る／地図の見え方。開発者向けは地図の見え方へ統合済み、
-   T34）の共通枠。details（開閉あり）とsection（常時表示）の両方で使う */
+   T34）の共通枠。details（開閉あり）とsection（常時表示）の両方で使う。
+   要素間の余白をもっと詰めてほしいという実機フィードバックを受け、
+   space-3(0.75rem)基準からspace-2(0.5rem)基準へ縮小した（T41）。 */
 .blockSection {
   border-top: 1px solid var(--color-border);
-  padding-top: var(--space-3);
+  padding-top: var(--space-2);
 }
 
 .blockSummary {
@@ -37,20 +39,20 @@
   font-weight: bold;
   font-size: var(--font-size-md);
   /* summary直下のコンテンツとの間隔。閉じているときは影響しない */
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 /* 開閉を持たないブロックの見出し（blockSummaryと同じ見た目に揃える） */
 .blockHeading {
   font-weight: bold;
   font-size: var(--font-size-md);
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-2);
 }
 
 .blockBody {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 /* 生成前の空状態ガイド（初見ユーザー向けの「まず何をするか」） */
@@ -71,7 +73,7 @@
 .legendCard {
   background: var(--color-surface-2);
   border-radius: var(--radius-md);
-  padding: var(--space-3);
+  padding: var(--space-2);
 }
 
 /* デバッグモード・バックエンド疎通確認は開発者向けの補助情報のため、他の情報より
