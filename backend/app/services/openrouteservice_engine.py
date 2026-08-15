@@ -12,8 +12,12 @@
   （探索中は到達時刻が未確定という制約による簡略化）。長距離ほど乖離しうるため、
   レスポンスの`engine`フィールドでどちらの値かを識別できるようにしてある
 - `road_score`・`segments[].road_surface_good`・区間難易度の重み（route_preference.yaml）は
-  両エンジンで定義を統一済み（不明路面は分母から除外・難易度なし扱い。
-  domain/road.py参照）
+  両エンジンで定義を統一済み（不明路面は分母から除外・難易度なし扱い。domain/road.py参照）。
+  路面判定そのものも、本エンジンのサンプル点を自前DBのEdgeへ空間マッチ（`RoadGraphRepository.
+  get_nearest_surface_tags`）して読むOSMタグ語彙に統一されている（改善計画T21。以前は
+  openrouteservice側の数値ID語彙を使っていた）。`repository`未注入時
+  （`settings.road_graph_use_repository=false`）は空間マッチ自体を行わず、路面評価は
+  全区間Noneになる
 """
 
 import asyncio
@@ -22,8 +26,9 @@ from app.domain.difficulty import composite_difficulty, gradient_difficulty, roa
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
-from app.domain.road import is_good_surface, paved_percent, surface_id_at_index
+from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
 from app.services.route_generator import TracedLoop, candidate_identity
 from app.services.routing_service import RoutingService
@@ -45,6 +50,11 @@ def sample_count_for_distance(distance_km: float) -> int:
     """ルート距離から約SAMPLE_INTERVAL_KM間隔になるサンプル点数を決める（min/maxでクランプ）。"""
     return max(MIN_SAMPLE_COUNT, min(MAX_SAMPLE_COUNT, round(distance_km / SAMPLE_INTERVAL_KM) + 1))
 
+# サンプル点から自前DBのEdgeへ空間マッチする際のスナップ半径。OSMのgeometryとORSが返す
+# geometryは同じ道路でも数m単位でずれうるため、GPSノイズ程度の誤差は許容しつつ、
+# 別の道路（並走する歩道等）へ誤スナップしない範囲としてこの値を選んだ。
+SURFACE_MATCH_MAX_DISTANCE_M = 30.0
+
 # prepareが返す「準備不要」を表すコンテキスト（本エンジンはリクエスト単位の共有準備を持たない）。
 _NO_CONTEXT = object()
 
@@ -58,11 +68,15 @@ class OpenRouteServiceEngine:
         elevation_service: ElevationService,
         wind_service: WindService,
         route_preference: RoutePreference,
+        repository: RoadGraphRepository | None = None,
     ):
         self._routing_service = routing_service
         self._elevation_service = elevation_service
         self._wind_service = wind_service
         self._route_preference = route_preference
+        # 路面評価の空間マッチ用（改善計画T21）。GraphService/ElevationAttributeServiceと同じ
+        # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
+        self._repository = repository
 
     async def prepare(self, origin: Coordinates, radius_km: float):
         return _NO_CONTEXT
@@ -80,16 +94,31 @@ class OpenRouteServiceEngine:
                 **candidate_identity(t.bearing),
                 distance_km=t.data.distance_km,
                 geometry=t.data.geometry,
-                road_score=paved_percent(t.data.surface_summary),
             )
             for t in traced
         ]
-        surface_values_per_candidate = [t.data.surface_values for t in traced]
 
         # 標高・風・路面を同じ点集合（インデックス付き）で評価する
         sampled = [sample_line_points(c.geometry, sample_count_for_distance(c.distance_km)) for c in candidates]
         points_per_candidate = [[point for _, point in s] for s in sampled]
         indices_per_candidate = [[index for index, _ in s] for s in sampled]
+
+        # 路面評価: 同じサンプル点集合を自前DBのEdgeへ空間マッチする（改善計画T21）。候補ごとに
+        # 分けると最大MAX_SAMPLE_COUNT×候補数回のDBラウンドトリップに分割されるため、標高・風
+        # （非同期I/O律速でasyncio.gather）とは違い、こちらは全候補分をまとめて1回で問い合わせる。
+        point_counts = [len(points) for points in points_per_candidate]
+        if self._repository is not None:
+            flat_points = [(p.latitude, p.longitude) for points in points_per_candidate for p in points]
+            flat_surface_tags = await self._repository.get_nearest_surface_tags(
+                flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
+            )
+        else:
+            flat_surface_tags = [None] * sum(point_counts)
+        surface_tags_per_candidate: list[list[str | None]] = []
+        offset = 0
+        for count in point_counts:
+            surface_tags_per_candidate.append(flat_surface_tags[offset : offset + count])
+            offset += count
 
         # 距離フィルタで棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
         profiles = await asyncio.gather(
@@ -106,22 +135,22 @@ class OpenRouteServiceEngine:
             c.model_copy(update={"wind_score": wp["wind_score"]}) for c, wp in zip(candidates, wind_profiles)
         ]
 
-        # 地図の難易度レイヤー用に、区間ごとの詳細（標高・風・路面・難易度）を組み立てる
-        return [
-            c.model_copy(
-                update={
-                    "segments": self._build_segment_details(
-                        points=points_per_candidate[i],
-                        indices=indices_per_candidate[i],
-                        elevations=elevations_per_candidate[i],
-                        wind_segments=wind_segments_per_candidate[i],
-                        surface_values=surface_values_per_candidate[i],
-                        route_geometry=c.geometry,
-                    )
-                }
+        # 地図の難易度レイヤー用に、区間ごとの詳細（標高・風・路面・難易度）を組み立てる。
+        # road_score（候補単位の舗装率%）は区間のroad_surface_goodから距離加重で求める
+        # （road_graph_engine.pyと同じdistance_weighted_road_score、改善計画T21）。
+        results = []
+        for i, c in enumerate(candidates):
+            segments = self._build_segment_details(
+                points=points_per_candidate[i],
+                indices=indices_per_candidate[i],
+                elevations=elevations_per_candidate[i],
+                wind_segments=wind_segments_per_candidate[i],
+                surface_tags=surface_tags_per_candidate[i],
+                route_geometry=c.geometry,
             )
-            for i, c in enumerate(candidates)
-        ]
+            road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
+            results.append(c.model_copy(update={"segments": segments, "road_score": road_score}))
+        return results
 
     def _build_segment_details(
         self,
@@ -129,7 +158,7 @@ class OpenRouteServiceEngine:
         indices: list[int],
         elevations: list[float | None],
         wind_segments: list[dict],
-        surface_values: list[list] | None,
+        surface_tags: list[str | None],
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
@@ -164,8 +193,7 @@ class OpenRouteServiceEngine:
             wind_penalty = wind_segment["wind_penalty"] if wind_segment else None
             arrival_time = wind_segment["arrival_time"] if wind_segment else None
 
-            surface_id = surface_id_at_index(indices[i], surface_values)
-            road_surface_good = is_good_surface(surface_id)
+            road_surface_good = classify_osm_surface(surface_tags[i])
 
             elevation_diff = gradient_difficulty(gradient_percent)
             wind_diff = wind_difficulty(wind_penalty)

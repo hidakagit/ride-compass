@@ -707,36 +707,6 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Geometry"
-          },
-          "surface_summary": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Surface Summary"
-          },
-          "surface_values": {
-            "anyOf": [
-              {
-                "items": {
-                  "items": {},
-                  "type": "array"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Surface Values"
           }
         },
         "type": "object",

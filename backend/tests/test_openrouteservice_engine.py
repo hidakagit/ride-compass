@@ -70,6 +70,21 @@ class FakeWindService:
         return {"wind_score": 1.5, "segments": segments}
 
 
+class FakeSurfaceRepository:
+    """`RoadGraphRepository.get_nearest_surface_tags`のFake（改善計画T21）。全候補分が
+    1回のDBラウンドトリップにまとめられることを検証できるよう、呼び出し履歴を記録する。"""
+
+    def __init__(self, default_tag: str | None = "asphalt"):
+        self._default_tag = default_tag
+        self.calls: list[list[tuple[float, float]]] = []
+
+    async def get_nearest_surface_tags(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[str | None]:
+        self.calls.append(points)
+        return [self._default_tag for _ in points]
+
+
 def make_generator(outcomes: list) -> RouteGenerator:
     engine = OpenRouteServiceEngine(
         FakeRoutingService(outcomes),
@@ -140,8 +155,45 @@ async def test_builds_segment_details_for_map_visualization():
         assert seg.cumulative_distance_km == 0.0
         assert seg.gradient_percent == 0.0  # FakeElevationServiceの標高はどの点も同じ
         assert seg.wind_penalty == 1.5
-        assert seg.road_surface_good is None  # サンプルのRouteSegmentにsurface_valuesが無いため
+        assert seg.road_surface_good is None  # repository未注入のため空間マッチ自体を行わない
         assert seg.difficulty is not None  # 標高・風の指標は揃っているので合成できる
+    assert all(c.road_score is None for c in candidates)
+
+
+async def test_road_surface_good_reflects_spatial_match_when_repository_injected():
+    repository = FakeSurfaceRepository(default_tag="asphalt")
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(seg.road_surface_good is True for c in candidates for seg in c.segments)
+    assert all(c.road_score == 100.0 for c in candidates)
+    # 候補ごとに分割せず、全候補分のサンプル点をまとめて1回のDBラウンドトリップで問い合わせる
+    assert len(repository.calls) == 1
+
+
+async def test_road_surface_good_is_false_for_unpaved_tag_from_repository():
+    repository = FakeSurfaceRepository(default_tag="gravel")
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(seg.road_surface_good is False for c in candidates for seg in c.segments)
+    assert all(c.road_score == 0.0 for c in candidates)
 
 
 class FakeDescendingElevationService:
