@@ -1,4 +1,5 @@
 import type {
+  GenerationConditions,
   RouteCandidate,
   RouteGenerateRequest,
   RouteGenerateResponse,
@@ -48,10 +49,17 @@ export async function previewRoute(request: RoutePreviewRequest): Promise<RouteS
   return postJson<RouteSegment>("/api/routes/preview", request, 15000);
 }
 
-export async function generateRoutes(request: RouteGenerateRequest): Promise<RouteCandidate[]> {
+export interface GenerateRoutesResult {
+  routes: RouteCandidate[];
+  conditions: GenerationConditions;
+  engine: string;
+}
+
+export async function generateRoutes(request: RouteGenerateRequest): Promise<GenerateRoutesResult> {
   // road_graphエンジンはコールド時40〜70秒かかりうる(docs/architecture.md)ため、
   // previewより長めのタイムアウトにする。
   const result = await postJson<RouteGenerateResponse>("/api/routes/generate", request, 90000);
   debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
-  return result.routes;
+  // conditionsは実験スロット（比較・再現用、研究インターフェース改善 §10-3/6）の入力になる。
+  return { routes: result.routes, conditions: result.conditions, engine: result.engine };
 }

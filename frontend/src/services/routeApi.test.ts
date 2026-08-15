@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RouteCandidate, RouteGenerateRequest, RoutePreviewRequest, RouteSegment } from "@/types/route";
+import type {
+  GenerationConditions,
+  RouteCandidate,
+  RouteGenerateRequest,
+  RoutePreviewRequest,
+  RouteSegment,
+} from "@/types/route";
 import { generateRoutes, previewRoute } from "./routeApi";
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
@@ -113,7 +119,7 @@ describe("routeApi", () => {
       route_type: "loop",
     };
 
-    it("成功時はroutes配列をそのまま返す(engineは返り値に含まれない)", async () => {
+    it("成功時はroutes・conditions・engineを返す", async () => {
       const routes: RouteCandidate[] = [
         {
           id: "route-1",
@@ -129,21 +135,30 @@ describe("routeApi", () => {
           total_score: null,
           score_breakdown: null,
           segments: null,
+          overall_difficulty: null,
         },
       ];
+      const conditions: GenerationConditions = {
+        latitude: 35.0,
+        longitude: 139.0,
+        distance_km: 30,
+        distance_tolerance_km: 5,
+        scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
+        route_preference: { elevation_weight: 0.25, road_weight: 0.3, wind_weight: 0.45 },
+        generated_at: "2026-08-15T12:00:00+09:00",
+      };
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
           makeResponse({
-            json: async () => ({ routes, engine: "road_graph" }),
+            json: async () => ({ routes, engine: "road_graph", conditions }),
           }),
         ),
       );
 
       const result = await generateRoutes(request);
 
-      expect(result).toEqual(routes);
-      expect(result).not.toHaveProperty("engine");
+      expect(result).toEqual({ routes, engine: "road_graph", conditions });
     });
   });
 });

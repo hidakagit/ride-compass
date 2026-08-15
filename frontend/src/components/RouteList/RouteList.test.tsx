@@ -19,6 +19,7 @@ function makeRoute(overrides: Partial<RouteCandidate>): RouteCandidate {
     total_score: null,
     score_breakdown: null,
     segments: null,
+    overall_difficulty: null,
     ...overrides,
   };
 }

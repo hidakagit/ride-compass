@@ -1,4 +1,10 @@
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
+from app.domain.difficulty import (
+    composite_difficulty,
+    distance_weighted_difficulty,
+    gradient_difficulty,
+    road_difficulty,
+    wind_difficulty,
+)
 
 
 def test_gradient_difficulty_easy_flat_road():
@@ -70,3 +76,29 @@ def test_composite_difficulty_excludes_none_and_renormalizes():
 
 def test_composite_difficulty_all_none_returns_none():
     assert composite_difficulty([(None, 0.5), (None, 0.5)]) is None
+
+
+def test_distance_weighted_difficulty_weights_by_distance():
+    # 1kmのdifficulty=0.0と3kmのdifficulty=100.0 -> (0*1 + 100*3) / 4 = 75.0
+    result = distance_weighted_difficulty([(0.0, 1.0), (100.0, 3.0)])
+
+    assert result == 75.0
+
+
+def test_distance_weighted_difficulty_excludes_none_and_renormalizes():
+    # 2番目の区間(distance_km=5.0)はdifficulty欠損のため除外し、残り2区間の距離だけで平均する
+    result = distance_weighted_difficulty([(0.0, 1.0), (None, 5.0), (100.0, 1.0)])
+
+    assert result == 50.0
+
+
+def test_distance_weighted_difficulty_all_none_returns_none():
+    assert distance_weighted_difficulty([(None, 1.0), (None, 2.0)]) is None
+
+
+def test_distance_weighted_difficulty_zero_total_distance_returns_none():
+    assert distance_weighted_difficulty([(50.0, 0.0)]) is None
+
+
+def test_distance_weighted_difficulty_empty_returns_none():
+    assert distance_weighted_difficulty([]) is None

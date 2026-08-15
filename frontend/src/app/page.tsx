@@ -25,14 +25,17 @@ import {
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
+import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
+import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
 import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather } from "@/services/weatherApi";
-import type { Coordinates, RouteCandidate } from "@/types/route";
+import type { Coordinates, RouteCandidate, RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import type { WeatherConditions } from "@/types/weather";
+import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
@@ -85,6 +88,17 @@ export default function Home() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
+  // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
+  // 完全に維持する（一般ユーザーには影響しない）。
+  const [weightOverrideEnabled, setWeightOverrideEnabled] = useState(false);
+  const [scoringWeights, setScoringWeights] = useState<ScoringWeights>(DEFAULT_SCORING_WEIGHTS);
+  const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>(DEFAULT_ROUTE_PREFERENCE);
+
+  // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
+  // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
+  const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
   const [weather, setWeather] = useState<WeatherConditions | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
@@ -307,17 +321,37 @@ export default function Home() {
     setLoading(true);
     setErrorMessage(null);
     try {
-      const candidates = await generateRoutes({
+      const { routes: candidates, conditions, engine } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
         distance_km: distanceKm,
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
+        ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
       if (candidates.length === 0) {
         setErrorMessage("条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
+      } else if (debugEnabled) {
+        // 実験スロットへの記録はデバッグモード中の生成のみ（研究用機能を一般ユーザーの
+        // 通常操作から隠す方針、§14）。総合スコア最上位（=candidates[0]）を比較代表候補として
+        // 固定し、以降の候補選び直しでは変えない（スロット=生成結果のスナップショット）。
+        setExperimentSlots((prev) => {
+          const next: ExperimentSlot = {
+            id: `slot-${conditions.generated_at}-${Math.random().toString(36).slice(2, 8)}`,
+            color: EXPERIMENT_SLOT_COLORS[0],
+            conditions,
+            engine,
+            topCandidate: candidates[0],
+          };
+          // 色は「最新=0番目の色」という表示順ベースで割り当てる（スロットの入れ替わりに
+          // 関わらず、常に同じ位置=同じ色になるようにするため。個々のスロットに色を固定すると
+          // 古いスロットが押し出された後も残ったスロットの色がずれて見える）。
+          return [next, ...prev]
+            .slice(0, MAX_EXPERIMENT_SLOTS)
+            .map((slot, i) => ({ ...slot, color: EXPERIMENT_SLOT_COLORS[i % EXPERIMENT_SLOT_COLORS.length] }));
+        });
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "不明なエラーが発生しました");
@@ -406,6 +440,21 @@ export default function Home() {
               <BackendStatus />
             </div>
 
+            {/* 評価重みパネルは研究インターフェース改善のPhase2（§10-1/4）。デバッグモード配下に
+                置き、一般ユーザーの操作導線とは混ざらない場所にする（§14の分離方針）。 */}
+            {debugEnabled && (
+              <div className={styles.legendCard}>
+                <WeightPanel
+                  overrideEnabled={weightOverrideEnabled}
+                  onOverrideEnabledChange={setWeightOverrideEnabled}
+                  scoringWeights={scoringWeights}
+                  onScoringWeightsChange={setScoringWeights}
+                  routePreference={routePreference}
+                  onRoutePreferenceChange={setRoutePreference}
+                />
+              </div>
+            )}
+
             {/* ルート生成は「地図レイヤーだけ使いたい」用途では不要なため、折りたたみ
                 （デフォルト閉）にして地図側の視界を優先する。候補一覧・エラーもルート生成の
                 一部としてこの中にまとめる（レイヤーのON/OFFは地図上のMapOverlayControlsへ移動済み）。 */}
@@ -414,6 +463,9 @@ export default function Home() {
               <RouteForm onGenerate={handleGenerate} loading={loading} />
               {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
               <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+              {/* 実験スロット比較表（研究インターフェース改善 §10-3）。デバッグモード中の生成が
+                  2件以上たまったときだけ表示する。 */}
+              <ComparisonPanel slots={experimentSlots} />
             </details>
 
             {/* 基礎地図・路面タイルのキャッシュ更新は日常操作ではない運用ボタンのため最下部に置く */}
@@ -444,6 +496,7 @@ export default function Home() {
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
           onRegionZoomHintChange={setRegionZoomTooWide}
           refreshToken={refreshToken}
+          experimentSlots={debugEnabled ? experimentSlots : []}
         />
 
         <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />

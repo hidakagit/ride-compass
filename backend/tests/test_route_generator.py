@@ -7,7 +7,7 @@
 """
 
 from app.domain.errors import RoutingError
-from app.domain.route import Coordinates, RouteCandidate
+from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator, TracedLoop, candidate_identity
 from app.services.route_scorer import RouteScorer
 
@@ -156,3 +156,56 @@ def test_engine_name_is_exposed():
     generator, _ = make_generator({})
 
     assert generator.engine_name == "fake"
+
+
+def make_segment(distance_km: float, difficulty: float | None) -> RouteSegmentDetail:
+    return RouteSegmentDetail(
+        start_latitude=35.0,
+        start_longitude=139.0,
+        end_latitude=35.01,
+        end_longitude=139.01,
+        cumulative_distance_km=distance_km,
+        distance_km=distance_km,
+        difficulty=difficulty,
+    )
+
+
+class SegmentedFakeEngine(FakeEngine):
+    """evaluate_loopsがsegments付きのRouteCandidateを返すフェイクエンジン
+    （overall_difficultyの配線をエンジン非依存側で検証するため）。"""
+
+    def __init__(self, distances_by_bearing, segments_by_bearing, **kwargs):
+        super().__init__(distances_by_bearing, **kwargs)
+        self._segments_by_bearing = segments_by_bearing
+
+    async def evaluate_loops(self, context, traced, start_time):
+        self.evaluated_traced = traced
+        return [
+            RouteCandidate(
+                **candidate_identity(t.bearing),
+                distance_km=t.distance_km,
+                geometry=make_geometry(),
+                segments=self._segments_by_bearing.get(t.bearing),
+            )
+            for t in traced
+        ]
+
+
+async def test_overall_difficulty_is_distance_weighted_average_of_segments():
+    engine = SegmentedFakeEngine(
+        {0: 30.0},
+        {0: [make_segment(1.0, 0.0), make_segment(3.0, 100.0)]},
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert candidates[0].overall_difficulty == 75.0
+
+
+async def test_overall_difficulty_is_none_when_segments_missing():
+    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.overall_difficulty is None for c in candidates)

@@ -64,6 +64,13 @@ class RouteScoreComponent(BaseModel):
 
 
 class RouteCandidate(BaseModel):
+    """`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
+    （domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate
+    呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので
+    **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
+    segments欠損時・全区間difficulty欠損時はNone。
+    """
+
     id: str
     direction_label: str
     distance_km: float
@@ -77,3 +84,4 @@ class RouteCandidate(BaseModel):
     total_score: float | None = None
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None
+    overall_difficulty: float | None = None

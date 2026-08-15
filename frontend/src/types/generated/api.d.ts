@@ -178,7 +178,14 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** RouteCandidate */
+        /**
+         * RouteCandidate
+         * @description `overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
+         *     （domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate
+         *     呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので
+         *     **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
+         *     segments欠損時・全区間difficulty欠損時はNone。
+         */
         RouteCandidate: {
             /** Id */
             id: string;
@@ -208,6 +215,8 @@ export interface components {
             score_breakdown?: components["schemas"]["RouteScoreComponent"][] | null;
             /** Segments */
             segments?: components["schemas"]["RouteSegmentDetail"][] | null;
+            /** Overall Difficulty */
+            overall_difficulty?: number | null;
         };
         /** RouteGenerateRequest */
         RouteGenerateRequest: {

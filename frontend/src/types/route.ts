@@ -45,3 +45,10 @@ export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];
 export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "routes"> & {
   routes: RouteCandidate[];
 };
+
+export type ScoringWeights = Schemas["ScoringWeights"];
+export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
+
+// 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
+// 保持・比較表・再現性メモの入力になる。
+export type GenerationConditions = Schemas["GenerationConditions"];

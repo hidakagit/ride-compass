@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
+from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.geo import compass_label, destination_point
 from app.domain.route import Coordinates, RouteCandidate
@@ -163,6 +164,7 @@ class RouteGenerator:
         evaluate_started = time.monotonic()
         start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
+        candidates = [self._with_overall_difficulty(c) for c in candidates]
 
         candidates = self._route_scorer.score(candidates, distance_km)
         candidates.sort(key=lambda c: c.total_score if c.total_score is not None else -1, reverse=True)
@@ -178,6 +180,17 @@ class RouteGenerator:
             prepare_ms, trace_ms, evaluate_ms, total_ms,
         )
         return candidates
+
+    @staticmethod
+    def _with_overall_difficulty(candidate: RouteCandidate) -> RouteCandidate:
+        """segmentsの区間difficultyから距離加重平均のルート単位絶対基準集約値を付与する
+        （研究インターフェース改善 §10-7、両エンジン共通のためengine実装側には持たせない）。"""
+        if not candidate.segments:
+            return candidate
+        overall = distance_weighted_difficulty(
+            [(s.difficulty, s.distance_km) for s in candidate.segments]
+        )
+        return candidate.model_copy(update={"overall_difficulty": overall})
 
     @staticmethod
     def _loop_waypoints(origin: Coordinates, bearing: int, radius_km: float) -> list[Coordinates]:

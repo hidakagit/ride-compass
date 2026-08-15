@@ -499,6 +499,17 @@
               }
             ],
             "title": "Segments"
+          },
+          "overall_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Difficulty"
           }
         },
         "type": "object",
@@ -508,7 +519,8 @@
           "distance_km",
           "geometry"
         ],
-        "title": "RouteCandidate"
+        "title": "RouteCandidate",
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。"
       },
       "RouteGenerateRequest": {
         "properties": {

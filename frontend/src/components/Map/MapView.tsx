@@ -5,6 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinates, RouteCandidate, RouteSegmentDetail } from "@/types/route";
+import type { ExperimentSlot } from "@/types/experimentSlot";
 import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM, refreshBasemapCache, roadSurfaceTileUrl } from "@/services/regionApi";
 import {
   ROAD_FILTER_AXES,
@@ -45,6 +46,8 @@ const OUTLINE_SOURCE_ID = "route-selected-outline";
 const OUTLINE_LAYER_ID = "route-selected-outline-line";
 const DETAIL_SOURCE_ID = "route-detail-segments";
 const DETAIL_LAYER_ID = "route-detail-segments-line";
+const SLOTS_SOURCE_ID = "experiment-slots";
+const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
@@ -188,6 +191,47 @@ function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], selecte
         paint: { "line-color": "#1e3a8a", "line-width": 10, "line-opacity": 0.25 },
       },
       map.getLayer(ROUTES_LAYER_ID) ? ROUTES_LAYER_ID : undefined
+    );
+  };
+
+  runWhenStyleReady(map, applyData);
+}
+
+// 実験スロット（研究インターフェース改善 §10-3）の重ね描き。各スロットの代表候補
+// （topCandidate、生成直後のtotal_score最上位で固定）の全体形状をスロット別の色で描く
+// （「路面重視にしたら形が変わったか」等の比較が本命）。detail-segments（現在選択中の
+// 色分け表示）より下・base routes（8候補の参考線）より上に置くため、作成時にDETAIL_LAYER_IDの
+// 直下（既に存在すれば）を明示指定する（drawSelectedOutlineと同じ考え方）。
+function drawExperimentSlots(map: MapLibreMap, slots: ExperimentSlot[]) {
+  const data: GeoJSON.FeatureCollection<GeoJSON.LineString, { color: string }> = {
+    type: "FeatureCollection",
+    features: slots.map((slot) => ({
+      type: "Feature",
+      properties: { color: slot.color },
+      geometry: slot.topCandidate.geometry,
+    })),
+  };
+
+  const applyData = () => {
+    const source = map.getSource(SLOTS_SOURCE_ID) as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(data);
+      return;
+    }
+    map.addSource(SLOTS_SOURCE_ID, { type: "geojson", data });
+    map.addLayer(
+      {
+        id: SLOTS_LAYER_ID,
+        type: "line",
+        source: SLOTS_SOURCE_ID,
+        paint: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "line-color": ["get", "color"] as any,
+          "line-width": 4,
+          "line-opacity": 0.85,
+        },
+      },
+      map.getLayer(DETAIL_LAYER_ID) ? DETAIL_LAYER_ID : undefined
     );
   };
 
@@ -398,6 +442,9 @@ interface MapViewProps {
   hiddenRouteLegendKeys: readonly string[];
   onRegionZoomHintChange: (tooWide: boolean) => void;
   refreshToken: number;
+  /** 実験スロット（研究インターフェース改善 §10-3）。デバッグモードOFF時は呼び出し側が
+   * 空配列を渡すため、通常利用ではレイヤーは作られない。 */
+  experimentSlots: ExperimentSlot[];
 }
 
 export default function MapView({
@@ -412,6 +459,7 @@ export default function MapView({
   hiddenRouteLegendKeys,
   onRegionZoomHintChange,
   refreshToken,
+  experimentSlots,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -437,6 +485,7 @@ export default function MapView({
     showElevation,
     showRoad,
     roadHiddenKeysByMode,
+    experimentSlots,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -459,6 +508,7 @@ export default function MapView({
       showElevation,
       showRoad,
       roadHiddenKeysByMode,
+      experimentSlots,
     };
   }, [
     routes,
@@ -469,6 +519,7 @@ export default function MapView({
     showElevation,
     showRoad,
     roadHiddenKeysByMode,
+    experimentSlots,
   ]);
 
   // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
@@ -487,6 +538,7 @@ export default function MapView({
       showElevation,
       showRoad,
       roadHiddenKeysByMode,
+      experimentSlots,
     } = redrawPropsRef.current;
     ensureGsiReliefLayer(map);
     setGsiReliefVisibility(map, showElevation);
@@ -496,6 +548,7 @@ export default function MapView({
     drawBaseRoutes(map, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
     drawSelectedOutline(map, routes, selectedRouteId);
+    drawExperimentSlots(map, experimentSlots);
 
     const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
     if (routeLayerOn && selected?.segments) {
@@ -682,6 +735,14 @@ export default function MapView({
     if (!map) return;
     drawSelectedOutline(map, routes, selectedRouteId);
   }, [routes, selectedRouteId]);
+
+  // 実験スロットの重ね描き（研究インターフェース改善 §10-3）。デバッグモードOFF時は
+  // 呼び出し側（page.tsx）が空配列を渡すため、レイヤーは作られるが常に空になる。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    drawExperimentSlots(map, experimentSlots);
+  }, [experimentSlots]);
 
   // ルートレイヤー（有向データ: 風・勾配。選択中候補のみ）。ON/OFF・色分けモード・
   // 凡例フィルタのいずれの切替もスタイル式の差し替えだけで反映される

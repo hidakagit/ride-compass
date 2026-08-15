@@ -72,6 +72,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       total_score: 70 + i,
       score_breakdown: null,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
+      overall_difficulty: 45.6,
     });
   }
   return candidates;

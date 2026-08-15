@@ -285,17 +285,51 @@
 - 完了条件: frontend 134件・eslint・tsc全green。tsc/eslint/vitestに影響する型変更は無し
   （paint式の定数調整のみ）。
 
-### - [ ] T24. 比較環境（Phase 2）〔§10-3/4/7〕規模L — トリガー: T23完了後、静的属性P0レイヤーと前後可
+### - [x] T24. 比較環境（Phase 2）〔§10-3/4/7〕規模L（2026-08-15完了）
 
-- フロントの実験スロット（直近2〜3回の生成結果＋conditionsを保持、地図に色違い重ね描き、
-  生値・絶対難易度のみの比較表。total_scoreはスロット間比較に出さない）
-- デバッグモード配下の重み調整UI（scoring 4値＋preference 3値、T23のAPIを使用）
-- ルート単位の絶対基準集約値（segments難易度の距離加重平均）を`RouteCandidate`へ追加
+- `RouteCandidate.overall_difficulty`（segments難易度の距離加重平均、`domain/difficulty.py:
+  distance_weighted_difficulty`）を追加。`RouteGenerator.generate_loops`で両エンジン共通に付与
+  （エンジン非依存、evaluate_loops直後・スコアリング前）
+- デバッグモード配下の重み調整UI（`WeightPanel`、scoring 4値＋preference 3値の入力欄＋
+  「既定値に戻す」。上書き無効時は`scoring_weights`/`route_preference`をリクエストから省略し
+  既存挙動を完全維持）
+- フロントの実験スロット（`ExperimentSlot`、デバッグモード中の生成のみ直近3件をメモリ内保持。
+  代表候補はtotal_score最上位で生成時に固定。`ComparisonPanel`で生値・絶対難易度のみの比較表
+  （total_scoreはスロット間比較に出さない）、`MapView`にスロット別色（緑/オレンジ/紫）の
+  重ね描きレイヤーを追加）
+- 完了条件: backend 418件・frontend 141件・eslint・tsc全green、OpenAPI/フロント型再生成済み。
+  Playwright実機確認（重み上書き→2回生成→比較表2列表示→地図上に色分岐した2本の重ね描き線）
+  で動作確認済み
 
 ### - [ ] T25. 評価軸カタログ化（Phase 3）〔§10-8〕規模M — トリガー: 静的属性P1（評価組み込み）と同時
 
 - 軸のid/表示名/重みキー/説明の1カタログ化。内訳表示・RouteListのhint文言・重みUIを
   カタログから列挙生成（早すぎる汎用化を避けるため、軸が実際に増える時点まで着手しない）
+
+---
+
+## Oracle移行後対応（2026-08-15・DB移行完遂に伴う追加タスク）
+
+本番DBのOracle Cloud移行（docs/osm-pbf-import.md 9章Phase 5・11章）完了に伴うタスク。
+
+### - [ ] T28. PBF初回取込の減速防止（GiST対策）規模M — トリガー: 次の大規模取込（関東フルカバー拡大・静的属性P0再取込）の前に必須。単独実施も可
+
+- 背景: Oracle初回取込（空DB・関東25km・14チャンク）でチャンク所要時間が7秒→73秒へ単調増加。
+  原因は蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers超過後のランダムI/O）と調査済み
+  （docs/osm-pbf-import.md §10の該当項目参照）。関東フル（way約131万＝4.8倍）を現状のまま
+  取り込むとマージフェーズだけで数時間級になる試算。
+- 実施内容（推奨順）:
+  - **(A) `osm_raw_nodes.geom`のGiST廃止**: 全コードから空間検索されていない死荷重
+    （アクセスは常に`osm_node_id`指定）。`road_graph_models.py`の`spatial_index=False`化＋
+    migration 0002で`DROP INDEX IF EXISTS`（migration 0001の未使用GIN削除と同じパターン）
+  - **(C) Oracle側PG設定**: `shared_buffers=3GB`・`max_wal_size=4〜8GB`・
+    `checkpoint_timeout=30min`・`maintenance_work_mem=1〜2GB`（12GB機、設定変更＋再起動のみ）
+  - **(B) 初回ロード時の`osm_raw_ways.geom` GiST後作成**: `osm_raw_ways`が空のときのみ
+    DROP→全チャンク投入後にCREATE INDEX（PostGIS 3.1+のソート済み一括ビルド）。
+    月次UPSERT再取込は非空のため自動的に対象外（稼働中DBのインデックスを落とさない）。
+    途中失敗時のインデックス欠落はfinallyで再作成して担保
+- 完了条件: 空DBへの取込でチャンク時間が平坦（終盤も序盤の2倍以内）になること。
+  適用後の関東フル初回取込は15分前後の見込み（現状設計のままだと3.5〜8時間の試算）
 
 ---
 
@@ -322,3 +356,5 @@
 | 2026-08-15 | T23 | 研究ループ開通（Phase 1）: 重みのリクエスト上書き（get_route_generation_builderへDI再構成）・score_breakdown返却（全重み0ガード含む）・conditionsエコー・ルート色分けモード「路面」「総合難易度」追加・研究時構成をarchitecture.mdへ明文化。backend 408件・frontend 131件・eslint・tsc全green、OpenAPI/フロント型再生成済み |
 | 2026-08-15 | T26 | 区間表示の道なり化（RouteSegmentDetail.geometry、両エンジン・追加APIコール無し）＋ORSエンジンの距離連動サンプリング（約1km間隔・12〜32点）。フロントは形状優先描画（null時は直線代替）。backend 411件・frontend 134件全green |
 | 2026-08-15 | T27 | Playwright実機確認で発覚した「未選択候補と色分け線の輻輳」を修正。未選択候補の線をアンバー→スレートへ変更し幅・不透明度を調整（8候補比較は維持しつつ選択中候補の色分けを視覚的に主役化）。frontend 134件・eslint・tsc全green |
+| 2026-08-15 | （Oracle移行完遂） | 本番DBのOracle Cloud移行を完遂（スキーマ作成→Phase 0検証23/23→関東25km取込273,947way/559.5秒/315MB→Phase 2検証8/9→本番スモークOK）。初回取込の後半チャンク減速を調査しT28（GiST対策）を追加。詳細はdocs/osm-pbf-import.md 9章Phase 5・11章 |
+| 2026-08-15 | T24 | 研究インターフェースPhase2（比較環境）実装。`overall_difficulty`（絶対基準集約値）・`WeightPanel`（重み上書きUI）・`ExperimentSlot`（実験スロット、直近3件）・`ComparisonPanel`（比較表）・`MapView`スロット重ね描きを追加。backend 418件・frontend 141件全green、Playwright実機確認済み |

@@ -61,3 +61,20 @@ def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> fl
 
     total = sum(score * weight for score, weight in available) / weight_sum
     return round(total, 1)
+
+
+def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> float | None:
+    """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。ルート単位の
+    絶対基準集約値（研究インターフェース改善 §10-7）。difficultyがNoneの区間は除外し
+    残りの距離で再正規化する（composite_difficultyと同じ考え方）。1つも有効な区間が
+    無い、または距離の合計が0ならNone。"""
+    available = [(difficulty, distance) for difficulty, distance in segments if difficulty is not None]
+    if not available:
+        return None
+
+    distance_sum = sum(distance for _, distance in available)
+    if distance_sum <= 0:
+        return None
+
+    total = sum(difficulty * distance for difficulty, distance in available) / distance_sum
+    return round(total, 1)
