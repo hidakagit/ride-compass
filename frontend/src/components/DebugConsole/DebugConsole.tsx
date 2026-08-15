@@ -31,7 +31,7 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
   const dragRef = useRef<{ pointerId: number; startClientX: number; startClientY: number; startLeft: number; startTop: number } | null>(
     null,
   );
-  // null=CSSの既定位置（右下寄り）。ドラッグすると具体的なtop/leftへ切り替える。
+  // null=CSSの既定位置（画面中央）。ドラッグすると具体的なtop/leftへ切り替える。
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
-  // 開き直すたびに既定位置（右下寄り）へ戻す。ドラッグ位置は開いている間だけの一時的な
+  // 開き直すたびに既定位置（画面中央）へ戻す。ドラッグ位置は開いている間だけの一時的な
   // 配置という位置づけ（永続化はしない）。effect本体からの直接同期setState呼び出しを避け、
   // マイクロタスク経由で実行する（react-hooks/set-state-in-effect対策、page.tsxの
   // fetchWeatherForと同じ流儀）。
@@ -83,7 +83,11 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     <div
       ref={panelRef}
       className={`${styles.console} app-debug-console`}
-      style={position != null ? { top: `${position.top}px`, left: `${position.left}px`, right: "auto", bottom: "auto" } : undefined}
+      // ドラッグ中はCSSの既定中央寄せ（transform: translate(-50%, -50%)）を打ち消し、
+      // top/leftをそのまま画面座標として使う（打ち消さないと中央寄せ分だけ位置がずれる）。
+      style={
+        position != null ? { top: `${position.top}px`, left: `${position.left}px`, transform: "none" } : undefined
+      }
     >
       <div className={styles.header}>
         <div

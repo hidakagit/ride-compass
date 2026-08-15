@@ -19,9 +19,12 @@
 }
 
 /* レイヤー1つ分の折りたたみ（details）。モバイル実機フィードバック対応T38で
-   常時展開のsectionから変更。デフォルト全閉で初期スクロール量を最小化する。 */
+   常時展開のsectionから変更。デフォルト全閉で初期スクロール量を最小化する。
+   閉じている行のタップ領域はheader内の「表示」チップ（モバイルはグローバルCSSで
+   44px高に強制される、globals.css参照）が確保するため、section自体のpaddingは
+   最小限にとどめる（余白が大きくスクロールが増えるという実機フィードバックを受け縮小）。 */
 .layerSection {
-  padding: var(--space-2) 0;
+  padding: var(--space-1) 0;
 }
 
 .layerSection + .layerSection {
@@ -194,9 +197,13 @@
   color: #ffffff;
 }
 
+/* 各項目は短いラベル+スウォッチだけで、1行に収めると横幅の半分以上が空くという
+   実機フィードバックを受け、2列グリッドにして縦スクロール量を減らす（道路情報の
+   6+5項目、ルート凡例の3〜6項目のいずれも対象）。 */
 .legendCheckboxList {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-2);
 }
 
 /* サイドバー内なので、地図上に浮かべていた時ほどタップ領域を大きく取る必要はないが、

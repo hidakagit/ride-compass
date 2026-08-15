@@ -25,22 +25,15 @@ function renderSheet(onClose: () => void) {
 }
 
 // 実機フィードバック対応: シート内容のスクロールで誤って閉じる不具合の修正と、
-// シート外タップ/下部タブバー除外の新しい閉じる挙動を検証する。
+// 「シート外タップ・スクロール（地図操作）では閉じない」という挙動を検証する
+// （一度シート外タップでも閉じる仕様を試したが、地図を操作しながら凡例を見たいという
+// フィードバックで撤回した経緯があるため、リグレッションを防ぐテストとして残す）。
 describe("BottomSheet", () => {
-  it("シート外をpointerdownすると閉じる", () => {
+  it("シート外をpointerdownしても閉じない（地図操作を妨げない）", () => {
     const onClose = vi.fn();
     renderSheet(onClose);
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "地図(シート外)" }));
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("シート内をpointerdownしても閉じない", () => {
-    const onClose = vi.fn();
-    renderSheet(onClose);
-
-    fireEvent.pointerDown(screen.getByText("シートの中身がここに長く続く想定のテキスト"));
 
     expect(onClose).not.toHaveBeenCalled();
   });
