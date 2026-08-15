@@ -10,6 +10,7 @@ import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
@@ -28,6 +29,10 @@ import {
   ACCIDENT_RADIUS_EXPRESSION,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LABELS,
+  INTERSECTION_COLOR,
+  INTERSECTION_RADIUS_EXPRESSION,
+  STOP_POI_COLOR_EXPRESSION,
+  STOP_POI_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
 } from "@/components/Map/staticAttributeLayers";
 import { debugLog } from "@/lib/debugLog";
@@ -58,6 +63,13 @@ export const ROAD_TILE_SOURCE_LAYER = "road_surface";
 // 同じドリフト検知の仕組み、region-tile-config.jsonのaccidentキー）。
 export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
 
+// 停止要因POI・交差点密度タイル（改善計画T54）内のレイヤー名。バックエンド
+// （infrastructure/vector_tile.pyのSTOP_POI_LAYER_NAME/INTERSECTION_LAYER_NAME）と一致させる
+// 必要がある（ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
+// regionApi.test.ts参照）。
+export const STOP_POI_SOURCE_LAYER = "stop_poi";
+export const INTERSECTION_SOURCE_LAYER = "intersection";
+
 const ROUTES_SOURCE_ID = "route-candidates";
 const ROUTES_LAYER_ID = "route-candidates-line";
 const OUTLINE_SOURCE_ID = "route-selected-outline";
@@ -74,6 +86,9 @@ const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
 const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
+const POI_TILE_SOURCE_ID = "region-poi-tiles";
+const STOP_POI_LAYER_ID = "region-stop-poi-circle";
+const INTERSECTION_LAYER_ID = "region-intersection-circle";
 // widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
@@ -491,6 +506,79 @@ function setAccidentVisibility(map: MapLibreMap, visible: boolean) {
   });
 }
 
+// 停止要因POI・交差点密度（改善計画T54）は点データのため、路面・交通ストレス・自転車
+// インフラとは別の新規ベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
+// （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側もT54で同じ範囲に準拠）。
+function ensurePoiTileSource(map: MapLibreMap) {
+  if (map.getSource(POI_TILE_SOURCE_ID)) return;
+  map.addSource(POI_TILE_SOURCE_ID, {
+    type: "vector",
+    tiles: [poiTileUrl()],
+    minzoom: ROAD_TILE_MIN_ZOOM,
+    maxzoom: ROAD_TILE_MAX_ZOOM,
+  });
+}
+
+function ensureStopPoiLayer(map: MapLibreMap) {
+  const applyData = () => {
+    ensurePoiTileSource(map);
+    if (map.getLayer(STOP_POI_LAYER_ID)) return;
+    map.addLayer({
+      id: STOP_POI_LAYER_ID,
+      type: "circle",
+      source: POI_TILE_SOURCE_ID,
+      "source-layer": STOP_POI_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "circle-color": STOP_POI_COLOR_EXPRESSION as any,
+        "circle-radius": 4,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.9,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+function setStopPoiVisibility(map: MapLibreMap, visible: boolean) {
+  runWhenStyleReady(map, () => {
+    ensureStopPoiLayer(map);
+    setLayerVisibility(map, STOP_POI_LAYER_ID, visible);
+  });
+}
+
+function ensureIntersectionLayer(map: MapLibreMap) {
+  const applyData = () => {
+    ensurePoiTileSource(map);
+    if (map.getLayer(INTERSECTION_LAYER_ID)) return;
+    map.addLayer({
+      id: INTERSECTION_LAYER_ID,
+      type: "circle",
+      source: POI_TILE_SOURCE_ID,
+      "source-layer": INTERSECTION_SOURCE_LAYER,
+      paint: {
+        "circle-color": INTERSECTION_COLOR,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "circle-radius": INTERSECTION_RADIUS_EXPRESSION as any,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.75,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+function setIntersectionVisibility(map: MapLibreMap, visible: boolean) {
+  runWhenStyleReady(map, () => {
+    ensureIntersectionLayer(map);
+    setLayerVisibility(map, INTERSECTION_LAYER_ID, visible);
+  });
+}
+
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
@@ -599,6 +687,25 @@ function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
   return `<div style="font-size:0.85rem; line-height:1.6;">${rows.join("<br/>")}</div>`;
 }
 
+// 改善計画T54: 停止要因POI・交差点密度のクリックポップアップ用プロパティ。
+interface StopPoiPopupProperties {
+  kind?: string | null;
+}
+
+interface IntersectionPopupProperties {
+  degree?: number | null;
+}
+
+function buildStopPoiPopupHtml(properties: StopPoiPopupProperties): string {
+  const label = properties.kind ? (STOP_POI_LABELS[properties.kind] ?? properties.kind) : "不明";
+  return `<div style="font-size:0.85rem; line-height:1.6;">停止要因: ${label}</div>`;
+}
+
+function buildIntersectionPopupHtml(properties: IntersectionPopupProperties): string {
+  const degree = properties.degree != null ? `${properties.degree}本` : "不明";
+  return `<div style="font-size:0.85rem; line-height:1.6;">交差点（接続路 ${degree}）</div>`;
+}
+
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
@@ -610,6 +717,9 @@ interface MapViewProps {
   showBicycleInfra: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
+  /** 停止要因POI・交差点密度（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
+  showStopPoi: boolean;
+  showIntersections: boolean;
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
@@ -632,6 +742,8 @@ export default function MapView({
   showTrafficStress,
   showBicycleInfra,
   showAccidents,
+  showStopPoi,
+  showIntersections,
   roadHiddenKeysByMode,
   routeLayerOn,
   routeStyleModeId,
@@ -666,6 +778,8 @@ export default function MapView({
     showTrafficStress,
     showBicycleInfra,
     showAccidents,
+    showStopPoi,
+    showIntersections,
     roadHiddenKeysByMode,
     experimentSlots,
   });
@@ -692,6 +806,8 @@ export default function MapView({
       showTrafficStress,
       showBicycleInfra,
       showAccidents,
+      showStopPoi,
+      showIntersections,
       roadHiddenKeysByMode,
       experimentSlots,
     };
@@ -706,6 +822,8 @@ export default function MapView({
     showTrafficStress,
     showBicycleInfra,
     showAccidents,
+    showStopPoi,
+    showIntersections,
     roadHiddenKeysByMode,
     experimentSlots,
   ]);
@@ -728,6 +846,8 @@ export default function MapView({
       showTrafficStress,
       showBicycleInfra,
       showAccidents,
+      showStopPoi,
+      showIntersections,
       roadHiddenKeysByMode,
       experimentSlots,
     } = redrawPropsRef.current;
@@ -738,6 +858,8 @@ export default function MapView({
     setTrafficStressVisibility(map, showTrafficStress);
     setBicycleInfraVisibility(map, showBicycleInfra);
     setAccidentVisibility(map, showAccidents);
+    setStopPoiVisibility(map, showStopPoi);
+    setIntersectionVisibility(map, showIntersections);
 
     drawBaseRoutes(map, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
@@ -814,6 +936,8 @@ export default function MapView({
     ensureTrafficStressLayer(map);
     ensureBicycleInfraLayer(map);
     ensureAccidentTileLayer(map);
+    ensureStopPoiLayer(map);
+    ensureIntersectionLayer(map);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
@@ -824,6 +948,8 @@ export default function MapView({
         TRAFFIC_STRESS_LAYER_ID,
         BICYCLE_INFRA_LAYER_ID,
         ACCIDENT_LAYER_ID,
+        STOP_POI_LAYER_ID,
+        INTERSECTION_LAYER_ID,
       ].filter((id) => map.getLayer(id));
       if (layers.length === 0) return;
       const features = map.queryRenderedFeatures(e.point, { layers });
@@ -835,7 +961,11 @@ export default function MapView({
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
           : feature.layer.id === ACCIDENT_LAYER_ID
             ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
-            : buildRoadSurfacePopupHtml(feature.properties as unknown as RoadSurfacePopupProperties);
+            : feature.layer.id === STOP_POI_LAYER_ID
+              ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
+              : feature.layer.id === INTERSECTION_LAYER_ID
+                ? buildIntersectionPopupHtml(feature.properties as unknown as IntersectionPopupProperties)
+                : buildRoadSurfacePopupHtml(feature.properties as unknown as RoadSurfacePopupProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -848,6 +978,8 @@ export default function MapView({
         TRAFFIC_STRESS_LAYER_ID,
         BICYCLE_INFRA_LAYER_ID,
         ACCIDENT_LAYER_ID,
+        STOP_POI_LAYER_ID,
+        INTERSECTION_LAYER_ID,
       ].filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         map.getCanvas().style.cursor = "";
@@ -1029,6 +1161,19 @@ export default function MapView({
     if (!map) return;
     setAccidentVisibility(map, showAccidents);
   }, [showAccidents]);
+
+  // 停止要因POI・交差点密度（改善計画T54）も専用ソースの切替はvisibilityの差し替えのみ。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setStopPoiVisibility(map, showStopPoi);
+  }, [showStopPoi]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setIntersectionVisibility(map, showIntersections);
+  }, [showIntersections]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な

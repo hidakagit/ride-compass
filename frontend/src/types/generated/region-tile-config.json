@@ -1,8 +1,15 @@
 {
-  "layer_name": "road_surface",
-  "tile_version": "4",
+  "road_surface": {
+    "layer_name": "road_surface",
+    "tile_version": "4"
+  },
   "accident": {
     "layer_name": "accidents",
+    "tile_version": "1"
+  },
+  "poi": {
+    "stop_poi_layer_name": "stop_poi",
+    "intersection_layer_name": "intersection",
     "tile_version": "1"
   }
 }

@@ -19,10 +19,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
-from app.infrastructure.vector_tile import ACCIDENT_LAYER_NAME, ROAD_SURFACE_LAYER_NAME  # noqa: E402
+from app.infrastructure.vector_tile import (  # noqa: E402
+    ACCIDENT_LAYER_NAME,
+    INTERSECTION_LAYER_NAME,
+    ROAD_SURFACE_LAYER_NAME,
+    STOP_POI_LAYER_NAME,
+)
 from app.main import app  # noqa: E402
 from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
-from app.services.region_service import ROAD_SURFACE_TILE_VERSION  # noqa: E402
+from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
@@ -49,19 +54,20 @@ def main() -> None:
         SURFACE_TAGS_PATH,
         {"good": sorted(GOOD_OSM_SURFACE_TAGS), "bad": sorted(BAD_OSM_SURFACE_TAGS)},
     )
-    # 路面ベクタタイルのレイヤー名・世代（改善計画T19）。フロントの手書き定数
-    # （MapView.tsx: ROAD_TILE_SOURCE_LAYER / regionApi.ts: ROAD_SURFACE_TILE_VERSION）が
-    # このJSONとregionTileConfig.test.tsで突き合わされる（CIのapi-contractジョブがドリフト検知）。
-    # accidentキーは外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代。
-    # フロントの手書き定数（MapView.tsx: ACCIDENT_TILE_SOURCE_LAYER / regionApi.ts:
-    # ACCIDENT_TILE_VERSION）がaccidentTileConfig.test.tsで突き合わされる（road_surfaceと同じ
-    # ドリフト検知の仕組み、改善計画T19）。
+    # 地域ベクタタイルのレイヤー名・世代（改善計画T19、T50でaccidentキー・T54でpoiキーへ拡張）。
+    # フロントの手書き定数（MapView.tsx: ROAD_TILE_SOURCE_LAYER/ACCIDENT_TILE_SOURCE_LAYER/
+    # STOP_POI_SOURCE_LAYER/INTERSECTION_SOURCE_LAYER、regionApi.ts: 各tileUrl()の?v=）が
+    # このJSONとregionApi.test.tsで突き合わされる（CIのapi-contractジョブがドリフト検知）。
     _write_json(
         REGION_TILE_CONFIG_PATH,
         {
-            "layer_name": ROAD_SURFACE_LAYER_NAME,
-            "tile_version": ROAD_SURFACE_TILE_VERSION,
+            "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "tile_version": ROAD_SURFACE_TILE_VERSION},
             "accident": {"layer_name": ACCIDENT_LAYER_NAME, "tile_version": ACCIDENT_TILE_VERSION},
+            "poi": {
+                "stop_poi_layer_name": STOP_POI_LAYER_NAME,
+                "intersection_layer_name": INTERSECTION_LAYER_NAME,
+                "tile_version": POI_TILE_VERSION,
+            },
         },
     )
 

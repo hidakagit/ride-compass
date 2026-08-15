@@ -237,6 +237,62 @@
         }
       }
     },
+    "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
+      "get": {
+        "summary": "Region Poi Tile",
+        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）・交差点密度レイヤー（改善計画T54）。\n静的道路属性P1で評価にのみ使われていたosm_raw_pois/road_nodesの可視化。\n路面タイルと同じ歯止め・同時実行制御をそのまま流用する。",
+        "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
+        "parameters": [
+          {
+            "name": "z",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Z"
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "X"
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Y"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Accident Tile",

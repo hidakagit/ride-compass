@@ -8,6 +8,8 @@ import {
   RoadIcon,
   TrafficStressIcon,
   BicycleInfraIcon,
+  StopPoiIcon,
+  IntersectionIcon,
   RouteIcon,
 } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
@@ -41,6 +43,8 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   road: RoadIcon,
   trafficStress: TrafficStressIcon,
   bicycleInfra: BicycleInfraIcon,
+  stopPoi: StopPoiIcon,
+  intersections: IntersectionIcon,
   accidents: AccidentIcon,
   route: RouteIcon,
 };

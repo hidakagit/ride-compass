@@ -152,6 +152,8 @@ export default function Home() {
     road: false,
     trafficStress: false,
     bicycleInfra: false,
+    stopPoi: false,
+    intersections: false,
     accidents: false,
     route: true,
   });
@@ -692,6 +694,8 @@ export default function Home() {
             showRoad={layerVisibility.road}
             showTrafficStress={layerVisibility.trafficStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
+            showStopPoi={layerVisibility.stopPoi}
+            showIntersections={layerVisibility.intersections}
             showAccidents={layerVisibility.accidents}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             routeLayerOn={layerVisibility.route}

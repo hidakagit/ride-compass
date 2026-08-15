@@ -106,6 +106,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Poi Tile
+         * @description 停止要因POI（信号・横断歩道・一時停止・踏切）・交差点密度レイヤー（改善計画T54）。
+         *     静的道路属性P1で評価にのみ使われていたosm_raw_pois/road_nodesの可視化。
+         *     路面タイルと同じ歯止め・同時実行制御をそのまま流用する。
+         */
+        get: operations["region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -600,6 +622,39 @@ export interface operations {
         };
     };
     region_road_surface_tile_api_region_road_surface_tiles__z___x___y__pbf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get: {
         parameters: {
             query?: never;
             header?: never;
