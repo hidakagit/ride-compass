@@ -1,12 +1,12 @@
 # OSM PBF取込バッチ設計（Overpass依存の解消）
 
-ステータス: Phase 3（Supabase取込・Overpassフォールバック設定無効化）に続き、**Phase 4（関東圏への拡大・highwayフィルタリング）完了**（2026-08-15）。実装・検証の詳細記録は [decisions/road-graph-migration.md](decisions/road-graph-migration.md)（旧architecture.md 9章）の「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
+ステータス: Phase 4（関東圏への拡大・highwayフィルタリング）に続き、**Phase 5（Oracle Cloud移行）完了**（2026-08-15）。本番DBはOracle Cloud上の自前ホストPostGISで稼働中（11章）。実装・検証の詳細記録は [decisions/road-graph-migration.md](decisions/road-graph-migration.md)（旧architecture.md 9章）の「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
 
-**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Supabase）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。取込済み範囲はデフォルト位置（王子・35.7597,139.7387）を中心とした半径25km（bbox 35.5345,139.4611-35.9849,140.0163）。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
+**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Oracle Cloud、11章）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。取込済み範囲はデフォルト位置（王子・35.7597,139.7387）を中心とした半径25km（bbox 35.5345,139.4611-35.9849,140.0163）。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
 
 **取込プロファイル（2026-08-15更新）**: `import_profile.yaml`のhighwayマッチを`"*"`から自転車で通行しうる種別（trunk/primary/secondary/tertiary/unclassified/residential/living_street/cycleway/track、および各`_link`）のみへ限定。都心の実データでは全highway種別の73%がfootway/service/steps/path/pedestrian等（自転車ルーティングに使われない）で占められており、除外により生データ量を概算1/3に圧縮できる（副次効果としてルート探索候補から「階段」等も消える）。既存データのクリーンアップ（除外種別の行を`osm_raw_ways`/`osm_raw_nodes`及び派生テーブルから削除）も実施済み。
 
-**容量方針（本番想定）**: 本番はSupabaseを想定し、フリープランの容量500MBに対して**予算400MB以内**とする（2026-08-15にユーザー要件を300MB→400MBへ更新）。Supabase実測の推移: Phase 3直後196MB→運用で292MBまで増加→highwayフィルタ対象外データのクリーンアップで**74.4MB**まで圧縮→半径25km（王子中心）取込後**約342MB**（残り約58MB）。取込バッチは完了サマリに`db_size_mb`を常時出力するため、範囲を広げる際はこの値で予算内かを確認する。派生データ（road_edges等）はルート生成が実際に使った地域ぶんだけ組織的に増えるキャッシュのため、残り予算を圧迫してきたら該当行のDELETEが圧力弁になる（次回リクエストで再生成される）。
+**容量方針（本番想定）**: **2026-08-15更新: 本番DBはOracle Cloud（ブロックストレージ150GB、11章）へ移行したため、以下のSupabase時代の容量予算（400MB）は撤廃された。関東フルカバー（生データ層約1.9GB試算）も容量上は収まる。`verify_phase2_e2e.py`の「DBサイズ300MB予算内」チェックは旧前提のまま残っており更新が必要。** 〜以下は旧Supabase時代の記録〜 本番はSupabaseを想定し、フリープランの容量500MBに対して**予算400MB以内**とする（2026-08-15にユーザー要件を300MB→400MBへ更新）。Supabase実測の推移: Phase 3直後196MB→運用で292MBまで増加→highwayフィルタ対象外データのクリーンアップで**74.4MB**まで圧縮→半径25km（王子中心）取込後**約342MB**（残り約58MB）。取込バッチは完了サマリに`db_size_mb`を常時出力するため、範囲を広げる際はこの値で予算内かを確認する。派生データ（road_edges等）はルート生成が実際に使った地域ぶんだけ組織的に増えるキャッシュのため、残り予算を圧迫してきたら該当行のDELETEが圧力弁になる（次回リクエストで再生成される）。
 
 **既知の性能上の落とし穴（2026-08-15発見・修正）**: `road_edges.from_node_id`/`to_node_id`（外部キー参照列）に索引が無く、`road_nodes`から行を削除するたびに整合性チェックで`road_edges`の全件シーケンシャルスキャンが走っていた（ローカル検証で35,550行の削除に27分かかった）。`idx_road_edges_from_node_id`/`idx_road_edges_to_node_id`を追加して解消（`road_graph_repository.py`の`create_tables`、`idx_road_edges_osm_way_id`追加時と同じ経緯）。容量予算の「圧力弁」（road_edges等のDELETE）を実際に使う場面で効いてくるため、Supabase等の既存DBには`create_tables()`の再実行（冪等）が必要。
 
@@ -195,13 +195,58 @@ DIは`RegionService(overpass_client, http_client, repository=None, overpass_fall
 | **2** | ✅ **完了（2026-08-14）**。RegionServiceのPostGIS第一系統化（z12祖先タイルでのカバレッジ判定・`overpass_fallback_enabled`設定・DB障害/範囲外時のフォールバック）。あわせて容量予算対応として未使用GINインデックス（28MB）を削除し、取込バッチのサマリへ`db_size_mb`を追加。実DB検証`scripts/verify_phase2_e2e.py`で9項目PASS（詳細は7章Phase B） | Phase 1 |
 | **3** | ✅ **完了（2026-08-14）**。本番想定DB＝**Supabase**（`.env`のDATABASE_URL）へ縮小bbox（35.61,139.67-35.74,139.83、東京駅・新宿・渋谷・上野・池袋を含む）を取込（116,336 way / 389,493ノード / z12タイル4枚 / 195秒 / 取込後120MB）。`GraphService`へもフォールバック無効化フラグを追加し、`.env`で`OVERPASS_FALLBACK_ENABLED=false`＋`ROAD_GRAPH_USE_REPOSITORY=true`に設定（**ロジックは併存、設定のみで無効化**）。Supabaseに対しPhase 2検証9項目・ルート生成E2E（8方位成功・Overpassゼロ・336.6秒）を確認。取込バッチはasyncpg直結用に`?ssl=require`→`sslmode=require`のDSN正規化を追加 | Phase 2 |
 | **4** | ✅ **完了（2026-08-15）**。予算400MB内での関東圏への拡大: (1) `import_profile.yaml`のhighwayマッチを自転車で通行しうる13種別へ限定（生データ量が概算1/3に）、(2) Supabase上の既存データから除外種別（footway/service/steps等）をクリーンアップ（292MB→74.4MB）、(3) `road_edges.from_node_id`/`to_node_id`索引欠如を発見・修正（road_nodes削除27分→数秒）、(4) デフォルト位置（王子）中心の同心円半径別way/node件数をKanto PBF（Geofabrik、487MB）から1パスで分析、(5) ユーザー選定の半径25kmで実取込（273,947 way / 1,182,433ノード / z12タイル56枚 / 596.5秒 / 取込後342MB）。新規カバー範囲（大宮駅付近）でPostGISのみでのMVT生成をスモークテストで確認 | Phase 3 |
+| **5** | ✅ **完了（2026-08-15）**。本番DBをSupabase（フリー500MB）からOracle Cloud（自前ホストPostGIS、150GB）へ移行。動機はPhase 4で判明した「関東圏フルカバーには数GB級のストレージが要る」という試算に対し、Supabaseフリー枠では構造的に足りないため。インフラ構築・Render疎通に続き、スキーマ作成（`create_tables`＋migration 0001）→Phase 0検証23/23 PASS→関東PBF取込（Phase 4と同一bbox・273,947 way / 1,327,413ノード / z12タイル56枚 / 559.5秒 / 取込後315MB）→Phase 2検証8/9 PASS（FAILは旧300MB予算チェックのみ）→本番スモーク（王子・大宮の実タイル取得、範囲外は1秒台で空応答＝フォールバック無効を挙動確認）まで完了。詳細は「11. Oracle Cloud移行（DB基盤の自前ホスト化）」 | Phase 4 |
 
 ## 10. リスク・未解決事項
 
-- **本番DBの容量（Supabaseフリー500MB・予算400MB）**: Phase 4（2026-08-15）で関東圏（Geofabrik kanto-latest.osm.pbf）全域をフィルタ後でも試算すると生データ層だけで約1.9GB（way 1,312,048件・node 8,900,206件）となり、フィルタリングだけでは関東7都県フルカバーには全く届かないことが実測で判明した。**現実的な運用は「王子（デフォルト位置）中心の同心円状に、実測サイズを見ながら段階的に広げる」**。Phase 4時点はSupabase実測342MB（残り約58MB）。**導出データ（road_edges/surface_attributes等）はルート生成が要求した地域ぶんだけ蓄積されていく**点に注意（生OSM層と違い取込時に確定しない。都心の実測では「フル活用時」に生データ層の約51%相当が追加で乗った）。ただし導出テーブルはすべて生OSM層から再計算可能なキャッシュなので、予算が逼迫したら該当行のDELETEが安全な圧力弁になる（次回リクエストで再生成される。ただしこの圧力弁自体がPhase 4で発覚した索引欠如の影響を受けていたため、`create_tables()`の再実行を先に済ませておくこと）。取込バッチが完了サマリに`db_size_mb`を出すため、超過は取込時点で気づける。さらに広げる場合は(1)半径をさらに広げて実測、(2)導出テーブルの圧縮（surface_attributesのway単位化等）、(3)有償プランを検討する
+- **本番DBの容量（Supabaseフリー500MB・予算400MB）**: Phase 4（2026-08-15）で関東圏（Geofabrik kanto-latest.osm.pbf）全域をフィルタ後でも試算すると生データ層だけで約1.9GB（way 1,312,048件・node 8,900,206件）となり、フィルタリングだけでは関東7都県フルカバーには全く届かないことが実測で判明した。**現実的な運用は「王子（デフォルト位置）中心の同心円状に、実測サイズを見ながら段階的に広げる」**。Phase 4時点はSupabase実測342MB（残り約58MB）。**導出データ（road_edges/surface_attributes等）はルート生成が要求した地域ぶんだけ蓄積されていく**点に注意（生OSM層と違い取込時に確定しない。都心の実測では「フル活用時」に生データ層の約51%相当が追加で乗った）。ただし導出テーブルはすべて生OSM層から再計算可能なキャッシュなので、予算が逼迫したら該当行のDELETEが安全な圧力弁になる（次回リクエストで再生成される。ただしこの圧力弁自体がPhase 4で発覚した索引欠如の影響を受けていたため、`create_tables()`の再実行を先に済ませておくこと）。取込バッチが完了サマリに`db_size_mb`を出すため、超過は取込時点で気づける。**この容量制約への対応としてPhase 5（Oracle Cloud移行、11章）に着手済み**
 - ~~**毎リクエストの分割再計算・全量再保存のコスト**: タイル取得済みでも`get_or_build_graph_with_attributes`は生データからの交差点分割と全Edge再UPSERTを毎回行うため、都心bboxでprepareに約187秒かかる（E2E実測）。生データ不変時に`road_edges`を直接読む省略パスが次の最適化候補~~ → **解消済み**。`RoadGraphRepository.is_split_up_to_date`（`osm_raw_ways.split_at`と`updated_at`の比較）＋`get_graph_in_bbox`による省略パスを実装し、`GraphService.get_or_build_graph_with_attributes`に配線した（architecture.md「OSM PBF取込バッチ（Phase 1）」参照）
 - ~~**実PostGIS未検証のコードの上に建てる**~~: **解消済み**。Phase 0で`road_graph_repository.py`の全操作を実PostGIS（ローカルPG18.6＋PostGIS 3.6.2）に対して検証した
 - **開発用DBの選定が未決定**: `backend/.env`の`DATABASE_URL`は現在Supabase（クラウドPostgres）を指しており、Phase 0検証はローカルPG18へ環境変数で上書きして実施した。Phase 1着手時に「ローカルPG18／Supabase／Render Postgres」のどれを取込先の正とするか決める（取込バッチは`--database-url`でどこへでも向けられる設計のため、複数併用も可能）
 - **バッチ実行中のランタイム競合**: 取込中もwebサービスは同じテーブルを読む。UPSERTは行単位で整合するが、取込途中の範囲は「wayはあるがタイルマークがまだ無い」状態になり得る。タイルマークを最後にまとめて行うことで「マーク済み＝データ完備」の不変条件を守る（マーク前にOverpassフォールバックが動いても、同一IDへのUPSERTなので害はない）
 - **Windowsでのpyosmium**: wheelは提供されているが、大容量PBF処理のディスクバックインデックスの挙動はWindowsで実測して確認する
 - **`osm_raw_nodes`の位置更新**: node側UPSERTを`DO NOTHING`にする簡略化は「ノードが移動した」ケースを取りこぼす。`--prune`付きの完全再取込で回収できるため許容とするが、気になる場合は`DO UPDATE`（位置比較付き）へ変更可能
+- **初回取込の後半チャンク減速（2026-08-15調査済み・未対処）**: Oracle初回取込でチャンク所要時間が7秒→73秒へ単調増加した。原因は蓄積量に比例するGiST逐次挿入コスト（`osm_raw_nodes.geom`/`osm_raw_ways.geom`の2本、＋shared_buffers超過後のランダムI/O）と特定済み。特に`osm_raw_nodes.geom`のGiSTは**全コードから空間検索されておらず完全な死荷重**（廃止推奨）。関東フルカバー（way約131万＝4.8倍）への拡大時は現状のままだとマージだけで数時間級になる試算のため、拡大前に (A)nodes.geom GiST廃止 (B)初回空テーブル時のways.geom GiST後作成 (C)サーバ設定（shared_buffers等）を実施する。現行25km規模の月次再取込は約10分で許容範囲のため急がない
+
+## 11. Oracle Cloud移行（DB基盤の自前ホスト化）
+
+2026-08-15、本番DBをSupabase（フリー500MB）からOracle Cloud上の自前ホストPostGISへ移行する作業を実施。動機は9章Phase 4で判明した「関東圏フルカバーには生データ層だけで約1.9GB必要」という試算で、Supabaseフリー枠では構造的に対応できないため。Oracle Cloudの"Always Free"枠（Ampere A1、ブロックストレージ200GB）が候補として妥当と判断した。**2026-08-15にスキーマ作成・データ投入・検証まで完了し、本番はOracle Cloudで稼働中**（9章Phase 5参照）。
+
+### 構築したインフラ
+
+- **コンピュート**: `VM.Standard.A1.Flex`（Arm、2 OCPU/12GB。2026-06-15にOracleがAlways Free枠を4 OCPU/24GBから無告知で半減した後の新枠）、Ubuntu 24.04 aarch64、リージョン`ap-tokyo-1`（東京、単一AD `AP-TOKYO-1-AD-1`）
+- **ストレージ**: 150GBブロックボリュームをアタッチし、`/var/lib/postgresql/18/main`へbindマウント（ブートボリューム50GBとは分離。PostgreSQLのデータは全てブロックボリューム側）
+- **ネットワーク**: 専用VCN（`ridecompass-vcn`、10.0.0.0/16）＋パブリックサブネット。セキュリティリストとインスタンス内`iptables`の両方で、22番（管理者IPのみ）・5432番（管理者IP＋Renderのアウトバウンドレンジ`74.220.48.0/24`・`74.220.56.0/24`）を許可し、それ以外は拒否
+- **ミドルウェア**: PostgreSQL 18.6 + PostGIS 3.6（PGDG公式リポジトリ経由。dev機のローカルPG18.6/PostGIS 3.6.2とバージョン系統を揃えた）。ロール/DB`ridecompass`を作成し、リモート接続は`hostssl`+`scram-sha-256`のみ許可（平文接続不可）
+- **アカウント種別**: Always Freeのみのアカウントは新規Ampere A1インスタンス作成時に"Out of host capacity"が頻発したため、Pay As You Goへアップグレード（Always Free枠内のリソースはアップグレード後も無料のまま。アップグレードによりインスタンス確保の優先度が上がるとされる。詳細未公開の内部スロットリング「daily resource creation limit」にも一時的に遭遇した）
+
+### 発生したインシデントと対応（記録として残す）
+
+構築中に、意図せず**同名のAmpere A1インスタンスが最大39個まで並行して作成される事故**が発生した。原因は二重:
+
+1. 容量待ちリトライスクリプトが`oci compute instance launch --wait-for-state RUNNING`を使っていたが、**インスタンス作成自体は成功していても、作成後の状態待ちポーリングがネットワーク瞬断やAPIレート制限で失敗する**ケースがあり、これを「起動失敗」と誤判定してリトライを続けていた（結果、同じ意図で何個も作成される）
+2. 「保護対象以外のインスタンスを自動削除する」監視ループを`TaskStop`で停止したつもりが、**Windows/Git Bash環境ではバックグラウンドタスクのプロセスツリーが実際には生き残る**ことがあり、停止し損ねた古い監視ループが「保護対象ID」を古いまま記憶した状態で動き続け、新しく作った正常なインスタンスを誤って削除する、という事象が発生した
+
+対応: `Get-CimInstance Win32_Process`でコマンドライン込みの実プロセス一覧を取得し、該当する`bash.exe`/`oci.exe`を`Stop-Process -Force`で直接強制終了することで根絶。以降はバックグラウンドの自動リトライ・監視ループを使わず、**フォアグラウンドで1回ずつ実行し都度状態を確認する**方針に切り替えた。誤って作成された全インスタンスは削除済みで、最終的に1インスタンスのみが残っている。**この日のPAYG課金発生の有無はOracle Usage APIのレポーティング遅延（数時間〜1日）のため未確認**（後日Cost Analysisで要確認）。
+
+### Renderとの疎通確認
+
+Render側の`DATABASE_URL`を新しいOracleインスタンスへ向け（`postgresql+asyncpg://ridecompass:<password>@<Oracle instance public IP>:5432/ridecompass?ssl=require`）、再デプロイ後に`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`へリクエストを送信。OracleのPostgreSQLログで`client_addr`がRenderのアウトバウンドレンジ内であること、`ridecompass`ロールでSSL接続・クエリ実行まで到達していることを確認した（クエリ自体は`relation "road_graph_tiles" does not exist`で失敗しているが、これはスキーマ未作成のためで想定通り。アプリ側はこれを握りつぶして空タイルHTTP 200を返しており、既存のフォールバック設計が機能している）。
+
+### スキーマ作成・データ投入・検証（2026-08-15完了）
+
+1. **疎通確認**: `check_db_connection.py`でPG 18.6・PostGIS 3.6.4・空DB（16MB）を確認
+2. **スキーマ作成**: `create_tables()`＋`apply_pending_migrations()`（migration 0001適用）で10テーブル作成
+3. **Phase 0検証**: `verify_postgis_phase0.py` 23/23 PASS（冪等性・空間検索・UPSERT・タイルマーカー・GraphService統合）
+4. **データ投入**: `import_pbf.py`でkanto-latest.osm.pbf（Phase 4と同一bbox 35.5345,139.4611-35.9849,140.0163）を取込。273,947 way / 1,327,413ノード / z12タイル56枚マーク / 559.5秒 / 取込後315MB（run_id=1、pbf_timestamp=2026-08-13）。ノード数がSupabase時代の記録（1,182,433）より多いのは、Supabase側は都心データ既存状態への差分UPSERTで新規挿入分のみカウントされていたためで、空DBへの全量取込の今回が正
+5. **Phase 2検証**: `verify_phase2_e2e.py` 8/9 PASS。唯一のFAILは「DBサイズ300MB予算内」チェックで、これはSupabase時代の容量予算の名残（機能検証はすべて合格。チェックの更新はTODO）
+6. **本番スモーク**: Render経由で取込範囲内タイル（王子z14=12,417バイト・大宮z14=16,157バイト、約1秒）が返り、範囲外タイルは1秒台で空応答＝`OVERPASS_FALLBACK_ENABLED=false`が挙動レベルで確認できた
+
+### 残課題（運用整備）
+
+- **DB接続パスワードの保管場所が未整備**: 生成したパスワードはローカルWindows機の一時ファイル（`%LOCALAPPDATA%\Temp\db_password.txt`）に置いてあるのみで、正式なシークレット管理（パスワードマネージャ等）に移していない
+- **ローカル`backend/.env`の`DATABASE_URL`が旧Supabaseを指したまま**: Supabase解約後は接続不能になる。ローカル既定をどこへ向けるか（ローカルPG推奨。本番Oracleを既定にすると開発作業が本番DBへ向く事故リスク）の判断が必要
+- **`verify_phase2_e2e.py`の300MB予算チェックの更新**: Oracle移行後の容量方針（実質無制限）に合わせて修正する
+- **Oracle側の実課金額が未確認**: Usage APIのレポーティング遅延のため、インシデント時の課金（あれば）を含めコンソールのCost Analysisで後日確認する必要がある
+- **管理者IPが動的**: セキュリティリスト・iptables双方で管理者アクセスを自宅IPの/32で許可しているが、動的IPのため変わった場合は更新が必要
+- **Supabase側の後始末は未着手**: 新DBの安定稼働を確認してから、Supabaseプロジェクトの扱い（解約等）を判断する
