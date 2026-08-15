@@ -22,13 +22,13 @@ class FakeHttpClient:
         self.call_count = 0
         self._payload = payload
 
-    async def get(self, url, params=None):
+    async def get(self, url, params=None, timeout=None):
         self.call_count += 1
         return FakeResponse(self._payload)
 
 
 class FailingHttpClient:
-    async def get(self, url, params=None):
+    async def get(self, url, params=None, timeout=None):
         raise httpx.RequestError("boom")
 
 
@@ -50,7 +50,7 @@ class RetryThenSucceedHttpClient:
         self.call_count = 0
         self._payload = payload
 
-    async def get(self, url, params=None):
+    async def get(self, url, params=None, timeout=None):
         self.call_count += 1
         if self.call_count < 3:
             return TooManyRequestsResponse()
@@ -61,9 +61,32 @@ class AlwaysTooManyRequestsHttpClient:
     def __init__(self):
         self.call_count = 0
 
-    async def get(self, url, params=None):
+    async def get(self, url, params=None, timeout=None):
         self.call_count += 1
         return TooManyRequestsResponse()
+
+
+class RetryThenSucceedAfterConnectTimeoutHttpClient:
+    """1回目はConnectTimeout、2回目(最終試行)で成功する上流を模する。"""
+
+    def __init__(self, payload):
+        self.call_count = 0
+        self._payload = payload
+
+    async def get(self, url, params=None, timeout=None):
+        self.call_count += 1
+        if self.call_count < 2:
+            raise httpx.ConnectTimeout("timed out")
+        return FakeResponse(self._payload)
+
+
+class AlwaysConnectTimeoutHttpClient:
+    def __init__(self):
+        self.call_count = 0
+
+    async def get(self, url, params=None, timeout=None):
+        self.call_count += 1
+        raise httpx.ConnectTimeout("timed out")
 
 
 @pytest.fixture(autouse=True)
@@ -137,4 +160,26 @@ async def test_get_forecast_returns_none_after_exhausting_429_retries():
 
     assert result is None
     # 初回 + MAX_RETRIES回の再試行 = 呼び出し合計
+    assert http_client.call_count == weather_client_module.MAX_RETRIES + 1
+
+
+async def test_get_forecast_retries_on_connect_timeout_and_recovers():
+    client = WeatherClient()
+    http_client = RetryThenSucceedAfterConnectTimeoutHttpClient({"current": {}, "hourly": {}})
+    point = Coordinates(latitude=35.99, longitude=139.11)
+
+    result = await client.get_forecast(http_client, point)
+
+    assert result == {"current": {}, "hourly": {}}
+    assert http_client.call_count == 2
+
+
+async def test_get_forecast_returns_none_after_exhausting_connect_timeout_retries():
+    client = WeatherClient()
+    http_client = AlwaysConnectTimeoutHttpClient()
+    point = Coordinates(latitude=35.22, longitude=139.33)
+
+    result = await client.get_forecast(http_client, point)
+
+    assert result is None
     assert http_client.call_count == weather_client_module.MAX_RETRIES + 1

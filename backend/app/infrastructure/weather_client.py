@@ -14,14 +14,19 @@ CACHE_PRECISION = 2
 CACHE_TTL_SECONDS = 30 * 60
 
 # ルート生成中はWindServiceが区間ごとに（同時実行数5で）Open-Meteoへ問い合わせるため、
-# 1ルートの評価だけで数十件のリクエストが短時間に集中しうる。Open-Meteoの無料枠は
-# 短時間バーストへの許容度が低く、実測でこの範囲でも429 Too Many Requestsを返すことが
-# あり、単発の/api/weather呼び出し（現在地表示）まで巻き込まれて502になっていた
-# （原因調査ログ参照）。429は数百ms〜数秒待てば解消する一時的な状態のため、
+# 1ルートの評価だけで数十件のリクエストが短時間に集中しうる。実測ではこの程度の
+# 同時実行数（5並列）だけでも、Open-Meteo側の429 Too Many Requestsに加えて
+# ConnectTimeout（TLSハンドシェイクの混雑によるものとみられる接続タイムアウト）が
+# 発生し、単発の/api/weather呼び出し（現在地表示）まで巻き込まれて502になっていた
+# （原因調査ログ参照）。どちらも数百ms〜数秒待てば解消する一時的な状態のため、
 # 短いバックオフで数回だけ再試行する。
 RETRY_STATUS_CODE = 429
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 0.3
+# 共有クライアントの既定タイムアウト（10秒）のままだと、ConnectTimeout1回の失敗だけで
+# 再試行の予算をほぼ使い切ってしまう。この呼び出しだけ短いタイムアウトへ上書きし、
+# 早期に失敗を検知して再試行に回す。
+REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
 _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
@@ -72,7 +77,7 @@ class WeatherClient:
             attempt = 0
             while True:
                 try:
-                    response = await client.get(OPEN_METEO_URL, params=params)
+                    response = await client.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
                     response.raise_for_status()
                     data = response.json()
                     break
@@ -81,6 +86,18 @@ class WeatherClient:
                         attempt += 1
                         fields["retries"] = attempt
                         await asyncio.sleep(_retry_after_seconds(exc.response) or RETRY_BACKOFF_SECONDS * attempt)
+                        continue
+                    fields["result"] = "error"
+                    fields["error"] = repr(exc)
+                    return None
+                except httpx.TransportError as exc:
+                    # 接続タイムアウト等、応答自体を受け取れなかった失敗。ConnectTimeoutは
+                    # 実測で数並列アクセスだけでも発生しており(原因調査ログ参照)、429と同様に
+                    # 短時間で解消することが多いため同じ回数だけ再試行する。
+                    if attempt < MAX_RETRIES:
+                        attempt += 1
+                        fields["retries"] = attempt
+                        await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
                         continue
                     fields["result"] = "error"
                     fields["error"] = repr(exc)
