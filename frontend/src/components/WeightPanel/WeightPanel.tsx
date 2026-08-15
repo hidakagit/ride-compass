@@ -35,16 +35,21 @@ interface WeightField<T> {
   label: string;
 }
 
+// ラベルは候補一覧（RouteList）のおすすめ度説明文と同じ語を使う。「画面に出る数値と、
+// それを動かす重みは同じ語で呼ぶ」統一ルール（T30。以前は距離/風/路面と略していて、
+// どの表示値に効く重みなのか照合しづらかった）。
 const SCORING_FIELDS: WeightField<ScoringWeights>[] = [
-  { key: "distance_weight", label: "距離" },
+  { key: "distance_weight", label: "距離の合わせ込み" },
   { key: "elevation_weight", label: "獲得標高" },
-  { key: "wind_weight", label: "風" },
-  { key: "road_weight", label: "路面" },
+  { key: "wind_weight", label: "向かい風" },
+  { key: "road_weight", label: "舗装率" },
 ];
 
+// こちらはルート色分けモード（勾配・舗装/未舗装・風の影響）が可視化する区間難易度の
+// 構成要素に対応するため、その語に揃える（elevation_weightの実体は区間勾配由来の難易度）。
 const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = [
-  { key: "elevation_weight", label: "標高" },
-  { key: "road_weight", label: "路面" },
+  { key: "elevation_weight", label: "勾配" },
+  { key: "road_weight", label: "舗装" },
   { key: "wind_weight", label: "風" },
 ];
 
@@ -102,14 +107,14 @@ export default function WeightPanel({
       {overrideEnabled && (
         <div className={styles.groups}>
           <fieldset className={styles.group}>
-            <legend>ルートスコア重み（候補内の相対評価）</legend>
+            <legend>おすすめ度の重み（候補一覧内の相対評価）</legend>
             {SCORING_FIELDS.map((field) => (
               <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={onScoringWeightsChange} />
             ))}
           </fieldset>
 
           <fieldset className={styles.group}>
-            <legend>区間難易度重み（絶対評価。road_graphエンジンのみ形状に反映）</legend>
+            <legend>区間難易度の重み（絶対評価）</legend>
             {PREFERENCE_FIELDS.map((field) => (
               <WeightInput
                 key={String(field.key)}
@@ -118,6 +123,8 @@ export default function WeightPanel({
                 onChange={onRoutePreferenceChange}
               />
             ))}
+            {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
+            <p className={styles.note}>※ルート形状への反映は一部エンジン（road_graph）のみ</p>
           </fieldset>
 
           <button

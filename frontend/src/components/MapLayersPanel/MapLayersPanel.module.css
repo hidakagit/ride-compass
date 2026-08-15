@@ -49,21 +49,19 @@
   outline-offset: 2px;
 }
 
-.switchLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted-strong);
-  cursor: pointer;
-}
+/* ON/OFF操作はLayerChip（共通部品）。旧role=switchのチェックボックス用スタイルは廃止（T30） */
 
-.switchLabel input {
+/* 「ルートを作る」への誘導リンク（ルート未生成時の案内文内） */
+.inlineLink {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-left: 0.3rem;
+  color: var(--color-accent);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
-}
-
-.switchLabel input:disabled {
-  cursor: default;
 }
 
 .mutedHint {

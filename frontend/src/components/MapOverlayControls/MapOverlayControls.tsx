@@ -1,6 +1,7 @@
 "use client";
 
 import type { MapLayerId } from "@/components/Map/mapLayers";
+import LayerChip from "@/components/Map/LayerChip";
 import styles from "./MapOverlayControls.module.css";
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
@@ -36,17 +37,14 @@ export default function MapOverlayControls({ layers, onToggle, onSummaryClick }:
     <div className={styles.wrapper}>
       <div className={styles.chipRow}>
         {layers.map((layer) => (
-          <button
+          <LayerChip
             key={layer.id}
-            type="button"
-            aria-pressed={layer.on && !layer.disabled}
+            label={layer.label}
+            on={layer.on}
             disabled={layer.disabled}
-            onClick={() => onToggle(layer.id, !layer.on)}
-            className={layer.on && !layer.disabled ? styles.chipActive : styles.chip}
             title={layer.title}
-          >
-            {layer.label}
-          </button>
+            onClick={() => onToggle(layer.id, !layer.on)}
+          />
         ))}
       </div>
 

@@ -1,12 +1,14 @@
 "use client";
 
 import type { Coordinates, LocationSource } from "@/types/route";
+import ErrorText from "@/components/ErrorText/ErrorText";
 import styles from "./LocationControl.module.css";
 
 const SOURCE_LABEL: Record<LocationSource, string> = {
   geolocation: "現在地（取得済み）",
   manual: "手動入力",
-  default: "デフォルト（東京・王子）",
+  // 「デフォルト」は開発用語のため、初見でも意味が取れる表現にする（T30）
+  default: "初期地点（東京・王子）",
 };
 
 interface LocationControlProps {
@@ -37,8 +39,9 @@ export default function LocationControl({
   return (
     <div className={styles.wrapper}>
       <div className={styles.sourceRow}>
+        {/* ルート生成の入力（周回の起点）であることが伝わるよう「位置情報」から言い換える（T30） */}
         <span>
-          位置情報: {SOURCE_LABEL[source]}
+          出発地点: {SOURCE_LABEL[source]}
           <br />
           {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
         </span>
@@ -68,11 +71,7 @@ export default function LocationControl({
             />
           </label>
           <button type="submit">設定</button>
-          {manualLocationError && (
-            <p role="alert" style={{ color: "#991b1b", fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
-              {manualLocationError}
-            </p>
-          )}
+          {manualLocationError && <ErrorText>{manualLocationError}</ErrorText>}
         </form>
       )}
     </div>

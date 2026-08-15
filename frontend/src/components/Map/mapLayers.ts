@@ -39,9 +39,12 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   },
   {
     id: "road",
-    label: "路面",
+    // 実体は「路面の種類（色）×道路の種類（太さ）」の複合レイヤーのため、「路面」では
+    // 半分しか表せない。ルート色分けモードの「舗装/未舗装」・評価重みの「舗装率」との
+    // 用語衝突（同じ「路面」が3つの別物を指す）を避ける改名（T30）。
+    label: "道路情報",
     kind: "static",
-    description: "道路を路面材質・種類で色分け表示",
+    description: "道路を路面の種類（色）と道路の種類（太さ）で表示",
   },
   {
     id: "trafficStress",

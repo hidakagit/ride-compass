@@ -17,6 +17,7 @@ import {
 import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { BICYCLE_INFRA_LEGEND, TRAFFIC_STRESS_LEGEND } from "@/components/Map/staticAttributeLayers";
+import LayerChip from "@/components/Map/LayerChip";
 import RoadFilterEditor from "./RoadFilterEditor";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -34,13 +35,16 @@ interface MapLayersPanelProps {
   hiddenRouteLegendKeys: readonly string[];
   onRouteLegendToggle: (key: string) => void;
   hasDetail: boolean;
+  /** ルート未生成時の案内から「ルートを作る」セクションへ誘導する（page.tsxがスクロール） */
+  onGoToGenerate?: () => void;
 }
 
-// サイドバーのグループ見出し。データの性質（時間で変わる/変わらない）でレイヤーを分けて
-// 見せる（mapLayers.tsのkind参照。静的データと動的データを混同しない方針のUI反映）。
+// サイドバーのグループ見出し。内部的にはデータの性質（static/dynamic、mapLayers.tsのkind）で
+// 分かれているが、見出しは「変わらないデータ」のような実装都合の表現を避け、ユーザーから見た
+// 役割（地図に重ねるか、生成したルートの見え方か）で言い表す（T30）。
 const GROUP_HEADINGS: Record<MapLayerKind, string> = {
-  static: "地域レイヤー（変わらないデータ）",
-  dynamic: "ルートレイヤー（時間・選択で変わるデータ）",
+  static: "地図に重ねる情報",
+  dynamic: "生成したルートの色分け",
 };
 
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
@@ -61,6 +65,7 @@ export default function MapLayersPanel({
   hiddenRouteLegendKeys,
   onRouteLegendToggle,
   hasDetail,
+  onGoToGenerate,
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
@@ -156,7 +161,18 @@ export default function MapLayersPanel({
         );
       case "route":
         if (!hasDetail) {
-          return <p className={styles.mutedHint}>ルートを生成・選択すると使えます</p>;
+          // 生成前は使えない理由だけでなく、次の一歩（ルートを作るセクション）へ誘導する
+          // （地図上の条件サマリ→設定セクションへの誘導と同じパターンの逆方向、T30）
+          return (
+            <p className={styles.mutedHint}>
+              ルートを生成・選択すると使えます。
+              {onGoToGenerate && (
+                <button type="button" onClick={onGoToGenerate} className={styles.inlineLink}>
+                  「ルートを作る」へ
+                </button>
+              )}
+            </p>
+          );
         }
         return (
           <>
@@ -205,17 +221,16 @@ export default function MapLayersPanel({
                   <h3 id={`${domId}-title`} tabIndex={-1} className={styles.layerTitle}>
                     {layer.label}
                   </h3>
-                  <label className={styles.switchLabel}>
-                    表示
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      checked={layerVisibility[layer.id] && !disabled}
-                      disabled={disabled}
-                      onChange={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
-                      aria-label={`${layer.label}レイヤーを表示`}
-                    />
-                  </label>
+                  {/* ON/OFFは地図上のチップと同一部品（LayerChip）。見た目が同じ＝同じ操作だと
+                      伝えるため、role=switchのチェックボックスからチップへ統一した（T30） */}
+                  <LayerChip
+                    label="表示"
+                    ariaLabel={`${layer.label}レイヤーを表示`}
+                    on={layerVisibility[layer.id]}
+                    disabled={disabled}
+                    title={disabled ? "ルートを生成・選択すると使えます" : undefined}
+                    onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
+                  />
                 </div>
                 {renderSectionBody(layer)}
               </section>

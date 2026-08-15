@@ -23,6 +23,7 @@ import {
   isRouteStyleModeId,
   type RouteStyleModeId,
 } from "@/components/Map/routeStyleModes";
+import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
@@ -69,6 +70,10 @@ const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 const LOCATE_BUTTON_HEIGHT_PX = 44;
 const LOCATE_BUTTON_GAP_PX = 12;
 
+// 「ルートを作る」セクション見出しのDOM id。地図の見え方セクション（MapLayersPanel）の
+// ルート未生成時の案内からの誘導スクロール先（レイヤー設定への誘導と同じパターンの逆方向）。
+const GENERATE_SECTION_TITLE_ID = "generate-section-title";
+
 export default function Home() {
   const {
     location,
@@ -114,6 +119,9 @@ export default function Home() {
     route: true,
   });
   const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
+  // 「ルートを作る」セクションの開閉。主機能のためデフォルト開（「地図レイヤーだけ使いたい」
+  // 人は一度閉じればよい。開閉の保存はT32）。
+  const [generateOpen, setGenerateOpen] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -248,6 +256,18 @@ export default function Home() {
     setSidebarCollapsed(false);
     requestAnimationFrame(() => {
       const heading = document.getElementById(`${layerSectionDomId(id)}-title`);
+      heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      heading?.focus?.({ preventScroll: true });
+    });
+  }, []);
+
+  // 「地図の見え方」内のルート未生成案内から「ルートを作る」へ誘導する。閉じていれば開き、
+  // 開いた後の再レンダーを待ってから（次フレームで）スクロール・フォーカスする
+  // （handleLayerSummaryClickと同じ手法）。
+  const handleGoToGenerate = useCallback(() => {
+    setGenerateOpen(true);
+    requestAnimationFrame(() => {
+      const heading = document.getElementById(GENERATE_SECTION_TITLE_ID);
       heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
       heading?.focus?.({ preventScroll: true });
     });
@@ -403,82 +423,111 @@ export default function Home() {
               <p className={styles.subtitle}>ロードバイク向け周回ルート生成アプリ（プロトタイプ）</p>
             </header>
 
-            {/* 天候・位置情報はユーザーがまず知りたい情報のため、開発者向けの補助情報
-                （デバッグモード・バックエンド疎通確認）より上に置く */}
-            <div className={styles.infoCard}>
-              <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+            {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
+                「B. 地図の見え方（表示系・即時反映）」「C. 開発者向け（デフォルト閉）」の
+                3ブロック構成（UI一貫性再編T30）。生成に効く条件（出発地点・天候・距離・重み）が
+                画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。 */}
 
-              <LocationControl
-                location={location}
-                source={locationSource}
-                manualLat={manualLat}
-                manualLng={manualLng}
-                showManualInput={showManualInput}
-                manualLocationError={manualLocationError}
-                onManualLatChange={setManualLat}
-                onManualLngChange={setManualLng}
-                onToggleManualInput={toggleManualInput}
-                onManualSubmit={handleManualSubmit}
-              />
-            </div>
+            {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
+                編集は生成ボタンを押すまで地図へ影響しない。 */}
+            <details
+              className={styles.blockSection}
+              open={generateOpen}
+              onToggle={(e) => setGenerateOpen(e.currentTarget.open)}
+            >
+              <summary id={GENERATE_SECTION_TITLE_ID} className={styles.blockSummary}>
+                ルートを作る
+              </summary>
+              <div className={styles.blockBody}>
+                <div className={styles.infoCard}>
+                  <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+                  {/* 天候は単なる表示情報ではなく生成入力（風評価の起点）である文脈をここで示す */}
+                  <p className={styles.weatherHint}>風向・風速はルート候補の評価に使われます</p>
 
-            {/* 地図レイヤーの「細かな設定」（ON/OFF・凡例・絞り込み編集・ルートの色分け選択）は
-                すべてここにまとめる。地図の上（MapOverlayControls）にはON/OFFチップと
-                適用中の条件の1行サマリだけを残し、詳細は地図に重ねない（地図の視界を優先）。
-                サマリのタップでこのパネルの該当セクションへスクロールしてくる。 */}
-            <div className={styles.legendCard}>
-              <MapLayersPanel
-                layerVisibility={layerVisibility}
-                onLayerToggle={handleLayerToggle}
-                roadHiddenKeysByMode={roadHiddenKeysByMode}
-                onRoadFilterApply={handleRoadFilterApply}
-                regionZoomTooWide={regionZoomTooWide}
-                routeStyleModeId={routeStyleModeId}
-                onRouteStyleModeChange={handleRouteStyleModeChange}
-                hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-                onRouteLegendToggle={handleRouteLegendToggle}
-                hasDetail={hasDetail}
-              />
-            </div>
+                  <LocationControl
+                    location={location}
+                    source={locationSource}
+                    manualLat={manualLat}
+                    manualLng={manualLng}
+                    showManualInput={showManualInput}
+                    manualLocationError={manualLocationError}
+                    onManualLatChange={setManualLat}
+                    onManualLngChange={setManualLng}
+                    onToggleManualInput={toggleManualInput}
+                    onManualSubmit={handleManualSubmit}
+                  />
+                </div>
 
-            <div className={styles.systemRow}>
-              <DebugPanel />
-              <ResearchPanel />
-              <BackendStatus />
-            </div>
+                {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。重みは生成条件
+                    そのものなので、研究モードON時はこのブロック内へ現れる（§14の分離方針は
+                    研究モードのトグル自体を開発者向けブロックに置くことで維持）。 */}
+                {researchEnabled && (
+                  <div className={styles.legendCard}>
+                    <WeightPanel
+                      overrideEnabled={weightOverrideEnabled}
+                      onOverrideEnabledChange={setWeightOverrideEnabled}
+                      scoringWeights={scoringWeights}
+                      onScoringWeightsChange={setScoringWeights}
+                      routePreference={routePreference}
+                      onRoutePreferenceChange={setRoutePreference}
+                    />
+                  </div>
+                )}
 
-            {/* 評価重みパネルは研究インターフェース改善のPhase2（§10-1/4）。研究モード配下に
-                置き、一般ユーザーの操作導線とは混ざらない場所にする（§14の分離方針）。 */}
-            {researchEnabled && (
-              <div className={styles.legendCard}>
-                <WeightPanel
-                  overrideEnabled={weightOverrideEnabled}
-                  onOverrideEnabledChange={setWeightOverrideEnabled}
-                  scoringWeights={scoringWeights}
-                  onScoringWeightsChange={setScoringWeights}
-                  routePreference={routePreference}
-                  onRoutePreferenceChange={setRoutePreference}
-                />
+                <RouteForm onGenerate={handleGenerate} loading={loading} />
+                {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
+                {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
+                {routes.length === 0 && !loading && !errorMessage && (
+                  <p className={styles.emptyHint}>
+                    距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
+                  </p>
+                )}
+                <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+                {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
+                    2件以上たまったときだけ表示する。 */}
+                {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
               </div>
-            )}
-
-            {/* ルート生成は「地図レイヤーだけ使いたい」用途では不要なため、折りたたみ
-                （デフォルト閉）にして地図側の視界を優先する。候補一覧・エラーもルート生成の
-                一部としてこの中にまとめる（レイヤーのON/OFFは地図上のMapOverlayControlsへ移動済み）。 */}
-            <details className={styles.routeSection}>
-              <summary className={styles.routeSectionSummary}>ルート生成</summary>
-              <RouteForm onGenerate={handleGenerate} loading={loading} />
-              {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
-              <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-              {/* 実験スロット比較表（研究インターフェース改善 §10-3）。デバッグモード中の生成が
-                  2件以上たまったときだけ表示する。 */}
-              <ComparisonPanel slots={experimentSlots} />
             </details>
 
-            {/* 基礎地図・路面タイルのキャッシュ更新は日常操作ではない運用ボタンのため最下部に置く */}
-            <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
-              変わらないデータを更新
-            </button>
+            {/* B. 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
+                地図の上（MapOverlayControls）にはON/OFFチップと適用中の条件の1行サマリだけを
+                残し、詳細は地図に重ねない（地図の視界を優先）。サマリのタップでこのパネルの
+                該当セクションへスクロールしてくる。 */}
+            <section className={styles.blockSection}>
+              <h2 className={styles.blockHeading}>地図の見え方</h2>
+              <div className={styles.legendCard}>
+                <MapLayersPanel
+                  layerVisibility={layerVisibility}
+                  onLayerToggle={handleLayerToggle}
+                  roadHiddenKeysByMode={roadHiddenKeysByMode}
+                  onRoadFilterApply={handleRoadFilterApply}
+                  regionZoomTooWide={regionZoomTooWide}
+                  routeStyleModeId={routeStyleModeId}
+                  onRouteStyleModeChange={handleRouteStyleModeChange}
+                  hiddenRouteLegendKeys={hiddenRouteLegendKeys}
+                  onRouteLegendToggle={handleRouteLegendToggle}
+                  hasDetail={hasDetail}
+                  onGoToGenerate={handleGoToGenerate}
+                />
+              </div>
+            </section>
+
+            {/* C. 開発者向け: ログ・研究モード・疎通確認・キャッシュ更新。一般ユーザーの
+                視界から外すためデフォルト閉の折りたたみにする（T30） */}
+            <details className={styles.blockSection}>
+              <summary className={styles.blockSummary}>開発者向け</summary>
+              <div className={styles.blockBody}>
+                <div className={styles.systemRow}>
+                  <DebugPanel />
+                  <ResearchPanel />
+                  <BackendStatus />
+                </div>
+                {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
+                <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
+                  地図データを再読み込み
+                </button>
+              </div>
+            </details>
           </>
         )}
       </aside>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ErrorText from "@/components/ErrorText/ErrorText";
 import styles from "./RouteForm.module.css";
 
 interface RouteFormProps {
@@ -57,11 +58,7 @@ export default function RouteForm({ onGenerate, loading }: RouteFormProps) {
       <button type="submit" disabled={loading}>
         {loading ? "生成中..." : "ルート生成"}
       </button>
-      {error && (
-        <p role="alert" style={{ color: "#991b1b", fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
-          {error}
-        </p>
-      )}
+      {error && <ErrorText>{error}</ErrorText>}
     </form>
   );
 }

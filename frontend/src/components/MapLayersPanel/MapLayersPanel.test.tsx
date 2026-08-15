@@ -22,11 +22,11 @@ function baseProps() {
 // ここではパネルの枠組み（レイヤーカタログからのセクション生成・表示スイッチ・凡例の
 // 出し分け・ルートの色分け選択）を見る。
 describe("MapLayersPanel", () => {
-  it("レイヤーカタログの全レイヤーが、データの性質ごとのグループ見出しの下にセクションとして並ぶ", () => {
+  it("レイヤーカタログの全レイヤーが、役割ごとのグループ見出しの下にセクションとして並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
-    expect(screen.getByText(/地域レイヤー/)).toBeInTheDocument();
-    expect(screen.getByText(/ルートレイヤー/)).toBeInTheDocument();
+    expect(screen.getByText("地図に重ねる情報")).toBeInTheDocument();
+    expect(screen.getByText("生成したルートの色分け")).toBeInTheDocument();
     // 地図上の条件サマリからのスクロール先になるDOM id（layerSectionDomId）が振られている
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
@@ -35,7 +35,7 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
 
-  it("各レイヤーの表示スイッチがON/OFF状態を反映し、操作でonLayerToggleが呼ばれる", async () => {
+  it("各レイヤーの表示チップがON/OFF状態をaria-pressedで反映し、操作でonLayerToggleが呼ばれる", async () => {
     const user = userEvent.setup();
     const onLayerToggle = vi.fn();
     render(
@@ -46,17 +46,17 @@ describe("MapLayersPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("switch", { name: "標高図レイヤーを表示" })).toBeChecked();
-    expect(screen.getByRole("switch", { name: "路面レイヤーを表示" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "標高図レイヤーを表示" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "道路情報レイヤーを表示" })).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(screen.getByRole("switch", { name: "路面レイヤーを表示" }));
+    await user.click(screen.getByRole("button", { name: "道路情報レイヤーを表示" }));
     expect(onLayerToggle).toHaveBeenCalledWith("road", true);
 
-    await user.click(screen.getByRole("switch", { name: "標高図レイヤーを表示" }));
+    await user.click(screen.getByRole("button", { name: "標高図レイヤーを表示" }));
     expect(onLayerToggle).toHaveBeenCalledWith("elevation", false);
   });
 
-  it("路面OFFのときは案内のみで凡例は出ない（絞り込み編集は開ける）", () => {
+  it("道路情報OFFのときは案内のみで凡例は出ない（絞り込み編集は開ける）", () => {
     render(<MapLayersPanel {...baseProps()} />);
     expect(screen.getByText("表示をONにすると地図に出ます")).toBeInTheDocument();
     expect(screen.queryByText(/色：路面の種類/)).not.toBeInTheDocument();
@@ -64,7 +64,7 @@ describe("MapLayersPanel", () => {
     expect(screen.getByText(/絞り込みを編集/)).toBeInTheDocument();
   });
 
-  it("路面ON && regionZoomTooWide=trueのときズーム警告が表示され凡例は出ない", () => {
+  it("道路情報ON && regionZoomTooWide=trueのときズーム警告が表示され凡例は出ない", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
@@ -76,7 +76,7 @@ describe("MapLayersPanel", () => {
     expect(screen.queryByText(/色：路面の種類/)).not.toBeInTheDocument();
   });
 
-  it("路面ONのとき色・太さ両方の凡例が表示される", () => {
+  it("道路情報ONのとき色・太さ両方の凡例が表示される", () => {
     render(
       <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }} />,
     );
@@ -101,11 +101,21 @@ describe("MapLayersPanel", () => {
     expect(dimmed).toBe(true);
   });
 
-  it("hasDetail=falseのときルート欄は案内のみで、スイッチも非活性", () => {
+  it("hasDetail=falseのときルート欄は案内のみで、表示チップも非活性", () => {
     render(<MapLayersPanel {...baseProps()} hasDetail={false} />);
-    expect(screen.getByText("ルートを生成・選択すると使えます")).toBeInTheDocument();
+    expect(screen.getByText(/ルートを生成・選択すると使えます/)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "ルートの色分け" })).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "ルートレイヤーを表示" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ルートレイヤーを表示" })).toBeDisabled();
+  });
+
+  it("hasDetail=falseの案内からonGoToGenerateで「ルートを作る」へ誘導できる", async () => {
+    const user = userEvent.setup();
+    const onGoToGenerate = vi.fn();
+    render(<MapLayersPanel {...baseProps()} hasDetail={false} onGoToGenerate={onGoToGenerate} />);
+
+    await user.click(screen.getByRole("button", { name: "「ルートを作る」へ" }));
+
+    expect(onGoToGenerate).toHaveBeenCalled();
   });
 
   it("hasDetail=trueのときルートのモード選択・凡例チェックボックスが表示される", () => {

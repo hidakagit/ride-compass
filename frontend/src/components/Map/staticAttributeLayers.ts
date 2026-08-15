@@ -24,8 +24,8 @@ const TRAFFIC_STRESS_COLORS: Record<number, string> = {
 
 export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = [
   { key: "1", label: "1（快適）", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", ["get", "traffic_stress"], 1] },
-  { key: "2", label: "2", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", ["get", "traffic_stress"], 2] },
-  { key: "3", label: "3", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", ["get", "traffic_stress"], 3] },
+  { key: "2", label: "2（やや快適）", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", ["get", "traffic_stress"], 2] },
+  { key: "3", label: "3（やや注意）", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", ["get", "traffic_stress"], 3] },
   { key: "4", label: "4（ストレス大）", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", ["get", "traffic_stress"], 4] },
   { key: "unknown", label: "不明・他", color: COLOR_UNKNOWN, filter: ["!", ["has", "traffic_stress"]] },
 ];

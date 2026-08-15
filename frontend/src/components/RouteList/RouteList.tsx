@@ -16,9 +16,11 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
     <>
       {/* total_scoreは何点満点かや算出根拠が画面から分からなかったため、一覧の先頭に
           簡潔な説明を添える（backend/app/scoring.yamlの重み付けに対応。この一覧内の
-          候補同士でのみ比較できる相対評価であり、他のリクエストの結果とは比較できない） */}
+          候補同士でのみ比較できる相対評価であり、他のリクエストの結果とは比較できない）。
+          表示名は「総合スコア」から「おすすめ度」へ変更（T30）: ルート色分けの「総合難易度」と
+          極性が逆（スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。 */}
       <p className={styles.scoreHint}>
-        総合スコアは距離の合わせ込み・獲得標高・向かい風・舗装率を重み付けして算出（この一覧内での相対評価）
+        おすすめ度は距離の合わせ込み・獲得標高・向かい風・舗装率を重み付けして算出（この一覧内での相対評価）
       </p>
       <ul className={styles.list}>
         {routes.map((route) => {
@@ -31,7 +33,7 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
                 className={selected ? `${styles.item} ${styles.itemSelected}` : styles.item}
               >
                 {route.total_score != null && (
-                  <strong>総合スコア {Math.round(route.total_score)}点 / </strong>
+                  <strong>おすすめ度 {Math.round(route.total_score)}点 / </strong>
                 )}
                 {route.direction_label}方向 — {route.distance_km.toFixed(1)} km
                 {route.elevation_gain_m != null && ` / 獲得標高 ${Math.round(route.elevation_gain_m)} m`}

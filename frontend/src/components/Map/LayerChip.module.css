@@ -1,0 +1,26 @@
+/* レイヤーON/OFFチップの共通見た目（地図上・サイドバー内で同一）。
+   以前はMapOverlayControls.module.cssにあったものを共通部品化した（T30）。 */
+.chip {
+  min-height: 36px;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  font-size: var(--font-size-md);
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:disabled {
+  color: var(--color-neutral);
+  cursor: default;
+}
+
+.chipActive {
+  composes: chip;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}

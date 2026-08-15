@@ -23,7 +23,7 @@ describe("LocationControl", () => {
   it.each([
     ["geolocation" as LocationSource, "現在地（取得済み）"],
     ["manual" as LocationSource, "手動入力"],
-    ["default" as LocationSource, "デフォルト（東京・王子）"],
+    ["default" as LocationSource, "初期地点（東京・王子）"],
   ])("sourceが%sのとき「%s」が表示される", (source, label) => {
     render(<LocationControl {...baseProps()} source={source} />);
     // selectorをspanに絞る: 「手動入力」等のラベルは「緯度経度を手動入力」ボタンの

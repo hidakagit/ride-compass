@@ -37,30 +37,7 @@
   overflow-x: auto;
 }
 
-.chip {
-  min-height: 36px;
-  padding: 0.35rem 0.9rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--foreground);
-  font-size: var(--font-size-md);
-  box-shadow: var(--shadow-float);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.chip:disabled {
-  color: var(--color-neutral);
-  cursor: default;
-}
-
-.chipActive {
-  composes: chip;
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #ffffff;
-}
+/* チップ本体の見た目はLayerChip.module.css（共通部品）にある。 */
 
 /* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
    チップより一段控えめな見た目（小さめ・通常面色）にして、押下状態と混同させない。 */

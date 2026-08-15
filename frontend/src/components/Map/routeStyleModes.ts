@@ -83,18 +83,22 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
     ...buildSteppedMode(
       "gradient_percent",
       [
+        // 範囲表記は「〜10%」のような下限が読み取れない書き方を避け、境界値を両側とも
+        // 明示する（初見ユーザー向けの表記統一、T30）
         { key: "downhill", label: "下り", color: COLOR_DOWNHILL },
         { key: "flat", label: "平坦", color: COLOR_EASY },
-        { key: "up-mild", label: "上り〜6%", color: COLOR_UP_MILD },
-        { key: "up-steep", label: "〜10%", color: COLOR_UP_STEEP },
-        { key: "up-extreme", label: "10%〜", color: COLOR_HARD },
+        { key: "up-mild", label: "上り 2〜6%", color: COLOR_UP_MILD },
+        { key: "up-steep", label: "上り 6〜10%", color: COLOR_UP_STEEP },
+        { key: "up-extreme", label: "上り 10%超", color: COLOR_HARD },
       ],
       [-2, 2, 6, 10]
     ),
   },
   {
     id: "road",
-    label: "路面",
+    // 地域レイヤー「道路情報」（roadFilterAxes.tsの路面の種類）と同じ「路面」を名乗ると
+    // 別物なのに同名になるため、凡例（舗装路/未舗装路）と一致するこの名前にする（T30）
+    label: "舗装/未舗装",
     // road_surface_goodは3値（true=舗装/false=未舗装/null=不明）の真偽値プロパティのため、
     // 数値の段階分け（buildSteppedMode）は使わず判定値をそのままcase式・凡例フィルタにする。
     // 地域の路面レイヤー（roadFilterAxes.ts、タイルのsurfaceタグ）とは別系統で、こちらは
