@@ -2,7 +2,7 @@
 
 ステータス: Phase 4（関東圏への拡大・highwayフィルタリング）に続き、**Phase 5（Oracle Cloud移行）完了**（2026-08-15）。本番DBはOracle Cloud上の自前ホストPostGISで稼働中（11章）。実装・検証の詳細記録は [decisions/road-graph-migration.md](decisions/road-graph-migration.md)（旧architecture.md 9章）の「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」参照。
 
-**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Oracle Cloud、11章）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。取込済み範囲はデフォルト位置（王子・35.7597,139.7387）を中心とした半径25km（bbox 35.5345,139.4611-35.9849,140.0163）。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
+**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`＋`OVERPASS_FALLBACK_ENABLED=false`。PostGIS（Oracle Cloud、11章）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（フォールバックのロジック自体はコードに併存しており、`.env`の2行で切り戻せる）。**取込済み範囲は関東本土7都県（bbox 34.85,138.35-37.20,140.95、離島除く。12章で2026-08-15に拡大済み）**。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
 
 **取込プロファイル（2026-08-15更新）**: `import_profile.yaml`のhighwayマッチを`"*"`から自転車で通行しうる種別（trunk/primary/secondary/tertiary/unclassified/residential/living_street/cycleway/track、および各`_link`）のみへ限定。都心の実データでは全highway種別の73%がfootway/service/steps/path/pedestrian等（自転車ルーティングに使われない）で占められており、除外により生データ量を概算1/3に圧縮できる（副次効果としてルート探索候補から「階段」等も消える）。既存データのクリーンアップ（除外種別の行を`osm_raw_ways`/`osm_raw_nodes`及び派生テーブルから削除）も実施済み。
 
@@ -196,7 +196,8 @@ DIは`RegionService(overpass_client, http_client, repository=None, overpass_fall
 | **3** | ✅ **完了（2026-08-14）**。本番想定DB＝**Supabase**（`.env`のDATABASE_URL）へ縮小bbox（35.61,139.67-35.74,139.83、東京駅・新宿・渋谷・上野・池袋を含む）を取込（116,336 way / 389,493ノード / z12タイル4枚 / 195秒 / 取込後120MB）。`GraphService`へもフォールバック無効化フラグを追加し、`.env`で`OVERPASS_FALLBACK_ENABLED=false`＋`ROAD_GRAPH_USE_REPOSITORY=true`に設定（**ロジックは併存、設定のみで無効化**）。Supabaseに対しPhase 2検証9項目・ルート生成E2E（8方位成功・Overpassゼロ・336.6秒）を確認。取込バッチはasyncpg直結用に`?ssl=require`→`sslmode=require`のDSN正規化を追加 | Phase 2 |
 | **4** | ✅ **完了（2026-08-15）**。予算400MB内での関東圏への拡大: (1) `import_profile.yaml`のhighwayマッチを自転車で通行しうる13種別へ限定（生データ量が概算1/3に）、(2) Supabase上の既存データから除外種別（footway/service/steps等）をクリーンアップ（292MB→74.4MB）、(3) `road_edges.from_node_id`/`to_node_id`索引欠如を発見・修正（road_nodes削除27分→数秒）、(4) デフォルト位置（王子）中心の同心円半径別way/node件数をKanto PBF（Geofabrik、487MB）から1パスで分析、(5) ユーザー選定の半径25kmで実取込（273,947 way / 1,182,433ノード / z12タイル56枚 / 596.5秒 / 取込後342MB）。新規カバー範囲（大宮駅付近）でPostGISのみでのMVT生成をスモークテストで確認 | Phase 3 |
 | **5** | ✅ **完了（2026-08-15）**。本番DBをSupabase（フリー500MB）からOracle Cloud（自前ホストPostGIS、150GB）へ移行。動機はPhase 4で判明した「関東圏フルカバーには数GB級のストレージが要る」という試算に対し、Supabaseフリー枠では構造的に足りないため。インフラ構築・Render疎通に続き、スキーマ作成（`create_tables`＋migration 0001）→Phase 0検証23/23 PASS→関東PBF取込（Phase 4と同一bbox・273,947 way / 1,327,413ノード / z12タイル56枚 / 559.5秒 / 取込後315MB）→Phase 2検証8/9 PASS（FAILは旧300MB予算チェックのみ）→本番スモーク（王子・大宮の実タイル取得、範囲外は1秒台で空応答＝フォールバック無効を挙動確認）まで完了。詳細は「11. Oracle Cloud移行（DB基盤の自前ホスト化）」 | Phase 4 |
-| **6** | ✅ **完了（2026-08-15）**。改善計画T9（`surface_attributes`導出化）実装後、既存本番データへ`tags`列（静的道路属性P0、`osm_raw_ways.tags jsonb`）を反映するため、同一bbox（Phase 5と同じ25km圏）でOracle本番へ再取込み（run_id=2）。dry-runでmatched_ways=273,947が既存データと一致することを確認後に本実行。**ways=273,947・node差分0（既存ノードは位置不変のためUPSERT `DO NOTHING`）・14チャンク・elapsed=1450.2秒・取込後db_size_mb=297**（旧315MBから減少。要因は`surface_attributes`テーブル削除〔migration 0004〕とT28(A)の未使用GiST削除の効果がtags列追加分を上回ったため）。`import_pbf.py`起動時の`apply_pending_migrations`により**migration 0004も同時に本番へ適用**（本番`routing_engine`既定は`openrouteservice`で`road_graph`エンジン・`surface_attributes`は未使用のため、コード未デプロイ時点でのテーブル削除による実害は無いことを確認済み）。取込後smoke: `tags <> '{}'`が67,705/273,947way（約24.7%、lanes/name/bridge等が実データで確認できた）、`get_road_surface_tile_mvt`（王子z14）が23,774バイト生成（旧12,417バイトより増、タグ由来プロパティ追加分）。範囲拡大（関東全域・T28(B)大規模検証）は別途判断待ちで未実施 | Phase 5・T9 |
+| **6** | ✅ **完了（2026-08-15）**。改善計画T9（`surface_attributes`導出化）実装後、既存本番データへ`tags`列（静的道路属性P0、`osm_raw_ways.tags jsonb`）を反映するため、同一bbox（Phase 5と同じ25km圏）でOracle本番へ再取込み（run_id=2）。dry-runでmatched_ways=273,947が既存データと一致することを確認後に本実行。**ways=273,947・node差分0（既存ノードは位置不変のためUPSERT `DO NOTHING`）・14チャンク・elapsed=1450.2秒・取込後db_size_mb=297**（旧315MBから減少。要因は`surface_attributes`テーブル削除〔migration 0004〕とT28(A)の未使用GiST削除の効果がtags列追加分を上回ったため）。`import_pbf.py`起動時の`apply_pending_migrations`により**migration 0004も同時に本番へ適用**（本番`routing_engine`既定は`openrouteservice`で`road_graph`エンジン・`surface_attributes`は未使用のため、コード未デプロイ時点でのテーブル削除による実害は無いことを確認済み）。取込後smoke: `tags <> '{}'`が67,705/273,947way（約24.7%、lanes/name/bridge等が実データで確認できた）、`get_road_surface_tile_mvt`（王子z14）が23,774バイト生成（旧12,417バイトより増、タグ由来プロパティ追加分） | Phase 5・T9 |
+| **7** | ✅ **完了（2026-08-15）**。関東本土7都県への拡大＋T28(B)大規模検証（12章に詳細）。本土のみのbbox（34.85,138.35-37.20,140.95、離島除外・dry-runで本土捕捉率99.7%を確認）を算出し、`osm_raw_ways`/`osm_raw_nodes`をTRUNCATEしてから空テーブル取込み。**T28(B)の遅延GiST分岐が実際に発火し、ways=1,308,092・nodes=7,793,238・66チャンク・marked_tiles=1,020(z12)・db_size_mb=1364・elapsed=777.4秒（約13分）**で完走（事前見積もり20〜70分を大幅に上回る好結果、GiST一括再構築は2.4秒）。Phase 0検証23/23 PASS・4地点（王子・前橋・宇都宮・水戸）でのタイル生成スモーク確認済み。ways=940,000超からの緩やかな残存減速（GiST起因ではなさそう、詳細12章）を次回大規模取込み時の調査対象として記録 | Phase 6 |
 
 ## 10. リスク・未解決事項
 
@@ -251,3 +252,99 @@ Render側の`DATABASE_URL`を新しいOracleインスタンスへ向け（`postg
 - **Oracle側の実課金額が未確認**: Usage APIのレポーティング遅延のため、インシデント時の課金（あれば）を含めコンソールのCost Analysisで後日確認する必要がある
 - **管理者IPが動的**: セキュリティリスト・iptables双方で管理者アクセスを自宅IPの/32で許可しているが、動的IPのため変わった場合は更新が必要
 - **Supabase側の後始末は未着手**: 新DBの安定稼働を確認してから、Supabaseプロジェクトの扱い（解約等）を判断する
+
+## 12. 関東全域拡大 ✅ 完了（2026-08-15）
+
+改善計画「既存データへの再取込」の関東全域スコープ（T28(B) GiST遅延作成の大規模検証を兼ねる）。
+以下は準備段階の調査記録に続き、実行結果を追記したもの。
+
+### T28(B)を検証するには空テーブルからの取込みが前提
+
+`import_pbf.py`は起動時に`osm_raw_ways`が空かどうかで`deferred_ways_index`（ways.geom GiSTの遅延作成）を分岐する（330-334行目）。9章Phase 6の25km圏再取込みは既存行へのUPSERTだったためこの分岐に入っておらず、T28(B)は未検証のまま。**関東全域拡大でT28(B)を実地検証するには`osm_raw_ways`/`osm_raw_nodes`を先にTRUNCATEする必要がある。**
+
+### 取込範囲bboxの決定（本土のみ、離島除外）
+
+PBFヘッダのbboxをそのまま使うのは危険と判明した: `kanto-latest.osm.pbf`のヘッダbboxは
+`(18.625054, 134.045154, 37.15988, 155.605818)`で、東京都の行政区域に含まれる伊豆・小笠原・
+南鳥島・沖ノ鳥島まで含む（南は沖縄本島付近、東は日本近海を大きく越える）。この外接矩形を
+そのまま`--bbox`に使うと、データの無い太平洋上を「取得済み」と誤マークする（5.1節で
+既知の落とし穴として明記済みの事故パターン）。
+
+本土7都県（茨城・栃木・群馬・埼玉・千葉・東京・神奈川）の一般的な地理的extentから
+候補bbox `34.85,138.35,37.20,140.95`（南=千葉県野島崎34.897°N、東=千葉県犬吠埼140.870°E、
+西=群馬県西端138.4°E付近、北=栃木県北部37.15°N付近に安全マージンを加えたもの）を算出し、
+dry-runで検証:
+
+| 取込範囲 | matched_ways | node_rows | 備考 |
+|---|---|---|---|
+| bbox無し（ファイル全体、離島含む） | 1,312,048 | 8,900,206 | Phase4計画時の実測（測定条件は当時のdry-run） |
+| 候補bbox（本土のみ） | **1,308,092**（99.7%） | **8,840,643**（99.3%） | 2026-08-15実測、elapsed=1064.8s（DB書込みなし） |
+
+離島データ（way約3,956件・node約6万件、全体の0.3〜0.7%）だけを除外できており、本土は
+ほぼ完全に捕捉できている。**この候補bboxを採用可能と判断**。
+
+### TRUNCATE範囲
+
+`osm_raw_ways`/`osm_raw_nodes`の2テーブルのみで十分。`road_edges`/`road_nodes`/
+`elevation_attributes`/`road_graph_tiles`は触れる必要が無い:
+- `road_graph`エンジン専用の派生キャッシュ（`road_edges`等）は、`osm_raw_ways`が
+  変わっても`is_split_up_to_date`が自動でstale判定し次回アクセス時に再構築する
+  （FK制約も無いため孤児化しても壊れない）
+- `road_graph_tiles`の既存56タイルマークは新bboxのタイル集合の部分集合になるため
+  そのままで整合する（`ON CONFLICT DO NOTHING`で新マークが追加されるのみ）
+
+### 所要時間の見積もり（今回のdry-run実測を反映して更新）
+
+対象規模: way 1,308,092（現行の4.8倍）・node 8,840,643（現行の6.7倍）、合計約1,015万レコード。
+
+- **楽観**: 初回取込み（T28未適用）のchunk1実測（20,000way/7秒、GiST未肥大の「素の」速度）を
+  そのまま線形外挿 → 書込み本体**約10分**
+- **保守的**: 初回取込み全体の平均速度（273,947way+1,327,413node/559.5秒、GiST劣化込みの平均）
+  をそのまま線形外挿 → **約59分**。T28(A)（nodes.geom GiST恒久廃止、劣化要因のうちエントリ数最多
+  だった方）は既に効いているはずなので、これより悪化する可能性は低い
+- ways.geom GiST一括再構築（1.3M行、maintenance_work_mem 1GB）: 数分程度を別途加算
+- **総合の見立て: 20〜70分、中央値として35〜45分程度**。ただし本日の計測で「書込み無しdry-run
+  (1064.8秒)」が「書込み込みの本番再取込み(1450.2秒、9章Phase 6)」の実測と大きくは変わらない
+  比率だったことから、ディスクI/O・Oracle側の状態等モデル化しきれない実行時変動が
+  一定あることに留意（過信しない）
+
+### 可用性への影響（実行判断時に考慮すること）
+
+TRUNCATE〜再取込み完了までの間（見積もり20〜70分）、`RegionService`の路面タイル配信
+（`osm_raw_ways`を直接読む、本番で実際に使われている経路）が**現行25km圏で一時的に
+空タイルになる**（`OVERPASS_FALLBACK_ENABLED=false`のためエラーにはならないが、
+ユーザー体験としては劣化する）。`routing_engine`既定は`openrouteservice`のため
+ルート生成自体への影響は無い。
+
+軽減策の選択肢:
+1. そのまま許容する（バッチはUPSERT性質上、失敗時は同じコマンドの再実行で復旧できる。
+   ただし再実行時は`osm_raw_ways`が非空になっているためT28(B)の検証機会は失われる）
+2. 先に非本番環境（dev機ローカルPG等）で同規模データを使ってT28(B)の効果だけを
+   検証してから、実績を踏まえて本番へ適用する（本番の可用性リスクを完全に避けられるが、
+   別途大容量データの用意が要る）
+
+### 実行結果（2026-08-15）
+
+ユーザー承認のうえ、チェックリストどおり本番Oracle DBへ直接実行した。
+
+1. `TRUNCATE osm_raw_ways, osm_raw_nodes`実行（before: way 273,947・node 1,327,413 → after: 0・0）
+2. `import_pbf.py --bbox 34.85,138.35,37.20,140.95`を実行。起動直後に
+   「osm_raw_waysが空のため、geom列のGiSTインデックス構築を取込完了後へ遅延します」を確認
+   （**T28(B)分岐が実際に発火**）
+3. **run_id=3、ways=1,308,092（dry-run件数と完全一致）・nodes=7,793,238・66チャンク・
+   marked_tiles=1,020(z12)・db_size_mb=1364・elapsed=777.4秒（約13分）**。
+   ways.geom GiST一括再構築はわずか**2.4秒**（1.3M行のLINESTRINGに対して極めて高速）
+4. 事前見積もり（20〜70分、中央値35〜45分）を大幅に上回る好結果。T28(A)(B)(C)が
+   設計どおり効いたことを実地で確認できた
+5. スモーク: `verify_postgis_phase0.py` 23/23 PASS。路面タイル生成を4地点で確認
+   （王子=既存範囲26,691バイト・前橋=新規12,823バイト・宇都宮=新規24,406バイト・
+   水戸=新規12,421バイト、いずれも正常）
+
+**残った観察事項（T28の残課題として記録）**: chunk47付近（ways=940,000超）から明確な減速が
+見られた（前半チャンクは5〜8秒台、後半は20〜45秒台。約6〜9倍）。ただし初回取込み時の劣化
+（7秒→73秒、約10倍、GiST 2本が未対策だった時点の実測）と比べると明らかに緩和されている。
+T28(A)でnodes.geom GiSTを恒久廃止、T28(B)でways.geom GiSTも今回遅延できたため、**GiST起因の
+劣化要因は理論上どちらも取り除かれているはずだが、なお緩やかな減速が残った**。Oracle
+ブロックストレージのI/Oバースト枠消費、WAL/チェックポイント圧力の残存、またはPostgreSQLの
+他のMVCC関連コストなど、GiST以外の要因が疑わしい。実用上は13分で完走しており急ぎの追加
+対策は不要だが、次回のさらなる大規模取込み（全国規模等）を検討する際は調査対象として残す。
