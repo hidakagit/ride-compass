@@ -115,6 +115,18 @@ async def get_elevation_attribute_service():
         yield ElevationAttributeService(ElevationClient(), http_client)
 
 
+async def get_surface_match_repository():
+    # OpenRouteServiceEngineの路面評価（サンプル点→自前DBのEdge空間マッチ、改善計画T21）用。
+    # 他の各所（get_elevation_attribute_service等）と同じ「road_graph_use_repository無効時は
+    # Noneを注入し、該当評価をスキップさせる」パターン。専用セッションを使う理由も同様
+    # （GraphService/ElevationAttributeServiceと同居させる必要が無い読み取り専用アクセスのため）。
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield RoadGraphRepository(session)
+    else:
+        yield None
+
+
 def get_route_generation_builder(
     routing_service: RoutingService = Depends(get_routing_service),
     elevation_service: ElevationService = Depends(get_elevation_service),
@@ -122,6 +134,7 @@ def get_route_generation_builder(
     graph_service: GraphService = Depends(get_graph_service),
     elevation_attribute_service: ElevationAttributeService = Depends(get_elevation_attribute_service),
     weather_service: WeatherService = Depends(get_weather_service),
+    surface_match_repository: RoadGraphRepository | None = Depends(get_surface_match_repository),
 ) -> RouteGenerationBuilder:
     # 周回生成戦略（8方位・距離フィルタ・スコアリング）はRouteGeneratorが単一で持ち、
     # settings.routing_engineに応じて経路計算・評価のエンジンだけを差し替える（config.py参照）。
@@ -150,7 +163,10 @@ def get_route_generation_builder(
                 preference,
             )
         else:
-            engine = OpenRouteServiceEngine(routing_service, elevation_service, wind_service, preference)
+            engine = OpenRouteServiceEngine(
+                routing_service, elevation_service, wind_service, preference,
+                repository=surface_match_repository,
+            )
         return RouteGenerationSetup(
             generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
             scoring_weights=scoring_weights,

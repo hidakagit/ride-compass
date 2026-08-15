@@ -34,8 +34,6 @@ describe("routeApi", () => {
         distance_km: 12.3,
         duration_minutes: 45,
         geometry: { type: "LineString", coordinates: [] },
-        surface_summary: null,
-        surface_values: null,
       };
       const fetchMock = vi.fn().mockResolvedValue(
         makeResponse({

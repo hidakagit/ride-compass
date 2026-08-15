@@ -9,7 +9,7 @@ _GRADIENT_BREAKPOINTS = [(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.
 _WIND_MIN_MS = 0.0
 _WIND_MAX_MS = 8.0
 
-# 路面: 舗装路は易しい、非舗装は大変（domain/road.pyのGOOD_SURFACE_IDSと基準を統一）
+# 路面: 舗装路は易しい、非舗装は大変（domain/road.pyのclassify_osm_surfaceと基準を統一）
 _ROAD_EASY_SCORE = 0.0
 _ROAD_HARD_SCORE = 80.0
 

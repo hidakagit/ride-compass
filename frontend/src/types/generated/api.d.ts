@@ -301,12 +301,6 @@ export interface components {
             geometry: {
                 [key: string]: unknown;
             };
-            /** Surface Summary */
-            surface_summary?: {
-                [key: string]: unknown;
-            }[] | null;
-            /** Surface Values */
-            surface_values?: unknown[][] | null;
         };
         /**
          * RouteSegmentDetail

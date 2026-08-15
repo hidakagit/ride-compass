@@ -259,14 +259,24 @@
 
 ### 条件付き・後続（静的属性の実装後、またはT16の条件成立後）
 
-### - [ ] T21. 評価のエンジン非依存化（一本化）〔I-1/I-7〕規模L — トリガー: T16で目標化を決定し、静的属性の取込が完了していること
+### - [x] T21. 評価のエンジン非依存化（一本化）〔I-1/I-7〕規模L — トリガー: T16で目標化を決定し、静的属性の取込が完了していること（2026-08-15完了）
 
-- ORSエンジンの評価（路面・将来の新属性）を、ORS extras依存から「サンプル点→自前DB Edge
-  空間マッチ→属性読み出し」へ置き換える。カバレッジ外の挙動（None評価で候補は返す）を先に定義。
-- 完了に伴い削除できるもの: `domain/road.py` のORS数値ID語彙（`GOOD_SURFACE_IDS`/
-  `paved_percent`/`surface_id_at_index`/`is_good_surface`）、`RoutingService` のextrasパース、
-  `RouteSegment.surface_summary/surface_values`（OpenAPI再生成でフロント型からも消える）。
-- 静的属性が取り込まれる前に着手しない（照合対象の属性が無いと価値が出ない）。
+- ORSエンジンの路面評価を、ORS extras依存（数値ID語彙）から「サンプル点→自前DB Edge空間
+  マッチ→OSMタグ読み出し」へ置き換えた。`AttributeRepository.get_nearest_surface_tags`
+  （PostGIS、UNNEST+LATERAL+KNN`<->`索引スキャン→`ST_DWithin`実距離30mで足切り、1回のSQLで
+  全候補分の全サンプル点をまとめて処理）を新規実装し、`RoadGraphRepository`ファサードへ
+  対称に委譲（T18規約）。`OpenRouteServiceEngine`は他サービス（GraphService等）と同じ
+  「`repository: RoadGraphRepository | None = None`、未注入時は評価をスキップしNoneを返す」
+  パターンで注入
+- 削除済み: `domain/road.py` のORS数値ID語彙（`GOOD_SURFACE_IDS`/`UNKNOWN_SURFACE_ID`/
+  `paved_percent`/`surface_id_at_index`/`is_good_surface`）、`ORSClient`の`extra_info=surface`
+  リクエスト、`RoutingService`のextrasパース、`RouteSegment.surface_summary/surface_values`
+  （OpenAPI再生成でフロント型からも削除）
+- 新規: `domain/road.py: distance_weighted_road_score`（(距離, 判定)ペア列からの距離加重集計、
+  両エンジン共通）。`road_graph_engine.py: _aggregate_road_score`はこれを呼ぶ薄いラッパーへ縮小
+- 完了条件: backend 468件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。
+  `get_nearest_surface_tags`のDB統合テストはローカルネイティブPGに対して実行し
+  （スナップ半径内/範囲外/複数点の順序保持を確認）、実際にPostGIS上で動作することを確認済み
 
 ### - [ ] T22. Overpassフォールバックの一括撤去〔I-4〕規模M — トリガー: T16で決めた撤去条件の成立
 
@@ -609,4 +619,5 @@ T29〜T32（フロントUI一貫性再編）で整理したサイドバー構成
 | 2026-08-15 | T31 | 道路情報の絞り込みを即時反映へ統一（`RoadFilterEditor`削除、凡例チェック＋軸ごと一括ボタンへ。地図反映のみ`useDebouncedValue`400msで連続タップを合流）。生成条件のdirty検知（位置・距離・重みのスナップショット比較）と再生成ヒントを追加、RouteFormを制御化。frontend 151件全green |
 | 2026-08-15 | T32 | レイヤーON/OFF・非表示キー・「ルートを作る」開閉をlocalStorageへ保存/復元。エフェクト保存起因のStrictMode上書き問題をPlaywrightで検出しハンドラ内保存へ修正。実機確認は用語・3ブロック構成・自動ON・リロード復元・おすすめ度表示・dirtyヒントの28項目全OK（実ルート生成含む） |
 | 2026-08-15 | T14・T15（残り） | T9完了で解禁された残りの小粒整理をまとめて実施。T14: `build_graph_for_bbox`（アプリ内・scripts内どちらからも未参照と確認）を削除、`/api/routes/preview`のフロント`previewRoute()`が実UIから未使用である実態をarchitecture.mdへ追記。T15: `ASSUMED_SPEED_KMH`重複定義を`domain/wind.py`へ集約（wind_service.py/road_graph_engine.pyはimportに置換）、`repository=None`引数へ`RoadGraphRepository \| None`型注釈を3サービス（GraphService/RegionService/ElevationAttributeService）に追加。T14・T15とも完了、lifespanベース構築（C5）のみ既存の見送り判断を維持。backend 471件green |
+| 2026-08-15 | T21 | 関東本土全域への静的属性再取込み完了によりトリガー成立、評価のエンジン非依存化を実装。ORSエンジンの路面評価をextras数値ID語彙から`AttributeRepository.get_nearest_surface_tags`（PostGIS KNN+ST_DWithin、全候補分を1回のSQLで一括処理）による自前DB空間マッチへ置換。`domain/road.py`のORS数値ID語彙4関数を削除し、両エンジン共通の`distance_weighted_road_score`を新設（road_graph_engine.pyの`_aggregate_road_score`は薄いラッパーへ縮小）。`ORSClient`の`extra_info=surface`・`RoutingService`のextrasパース・`RouteSegment.surface_summary/surface_values`も削除。backend 468件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。`get_nearest_surface_tags`のDB統合テストはローカルネイティブPGへ実接続して実行・PASS確認済み |
 | 2026-08-15 | （モバイル実機フィードバック対応） | スマホ実機検証での8点の使いにくさを起票・全件完了。T33: レイヤーチップ折り返し。T34: サイドバードロワーを下部タブバー＋部分シート（`BottomSheet`新規、暗幕なし・地図を隠さない）へ再構成、実装中にMapLibre帰属表示のタブバー下への隠れを発見し修正。T35: 緯度経度手動入力を撤去（`useLocation`/`LocationControl`縮小）。T36: 天候表示を常設ヘッダへ移動。T37: アプリ名見出しを削除。T38: 「地図の見え方」の各レイヤーをアコーディオン化（デフォルト全閉）。T39/T40: 交通ストレス・自転車インフラの凡例に判定基準/道路情報との違いの説明文を追加。frontend 146件・eslint・tsc全green、Playwright実機確認（390px幅・1280px幅）で全項目確認済み |

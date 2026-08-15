@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 import shapely
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import LineString, Point
-from sqlalchemy import BigInteger, Text, any_, bindparam, cast, delete, func, or_, select, text, update
+from sqlalchemy import BigInteger, Float, Text, any_, bindparam, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -269,6 +269,45 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
             for level in (1, 2, 3, 4)
         ),
     )
+)
+
+
+# 座標点列→最近傍road_edgeのsurfaceタグ取得（改善計画T21、評価のエンジン非依存化）。
+# ORS産geometryのサンプル点を自前DBのEdgeへ空間マッチする用途。
+#
+# LATERAL側は`ORDER BY e.geom <-> pts.geom LIMIT 1`のみ（WHERE句を持たない）でGiST索引の
+# 純粋なKNNスキャンにする。最大距離の足切り（`ST_DWithin(..., ::geography, :max_distance_m)`）は
+# 選ばれた1行に対して外側のCASEで行う。当初はLATERAL内に`WHERE ST_DWithin(...)`を直接書いていたが、
+# `ORDER BY <-> LIMIT`にWHERE句を同居させると、範囲内に候補が無い点ではプランナが
+# 「フィルタに合う1行が見つかるまでKNN順に全行を舐める」実行計画になり、関東本土全域規模の
+# road_edges（134万行）で1点あたり数秒級に悪化することを実測で確認した（EXPLAIN ANALYZEで
+# `Rows Removed by Filter`が全行分出る。ローカルPostGIS実データ22,164行でも1点3.4秒）。
+# WHERE句を外側へ追い出すとLATERALは常にO(log n)のKNN索引スキャン1回で終わり、
+# 同条件で1点あたり数ミリ秒（12点合計38ms）まで改善した。
+_NEAREST_SURFACE_SQL = text(
+    """
+    WITH pts AS (
+        SELECT
+            ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
+    )
+    SELECT pts.ord,
+           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.surface END AS surface
+    FROM pts
+    LEFT JOIN LATERAL (
+        SELECT e.osm_way_id, e.geom
+        FROM road_edges e
+        ORDER BY e.geom <-> pts.geom
+        LIMIT 1
+    ) nearest ON true
+    LEFT JOIN osm_raw_ways w ON w.osm_way_id = nearest.osm_way_id
+    ORDER BY pts.ord
+    """
+).bindparams(
+    bindparam("lats", type_=ARRAY(Float())),
+    bindparam("lons", type_=ARRAY(Float())),
 )
 
 
@@ -791,6 +830,28 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = surface
         return result
 
+    async def get_nearest_surface_tags(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[str | None]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeの
+        surfaceタグを返す（入力と同じ順序・同じ長さ。該当Edgeが無い/surfaceタグ無しはNone）。
+
+        改善計画T21（評価のエンジン非依存化）: openrouteserviceエンジンがgeometry上の
+        サンプル点をこのメソッドで自前DBのEdgeへ空間マッチし、road_graphエンジンと
+        同じOSMタグ語彙（domain/road.py: classify_osm_surface）で評価できるようにする。
+        1回のSQLで全点をまとめて処理する（_NEAREST_SURFACE_SQL参照、点数分のラウンド
+        トリップを避ける）。
+        """
+        if not points:
+            return []
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        result = await self._session.execute(
+            _NEAREST_SURFACE_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
+        )
+        by_ord = {ord_: surface for ord_, surface in result.all()}
+        return [by_ord.get(i + 1) for i in range(len(points))]
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -863,6 +924,11 @@ class RoadGraphRepository:
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)
+
+    async def get_nearest_surface_tags(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[str | None]:
+        return await self.attributes.get_nearest_surface_tags(points, max_distance_m=max_distance_m)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

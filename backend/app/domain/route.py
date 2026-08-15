@@ -10,8 +10,6 @@ class RouteSegment(BaseModel):
     distance_km: float
     duration_minutes: float
     geometry: dict
-    surface_summary: list[dict] | None = None
-    surface_values: list[list] | None = None
 
 
 class RouteSegmentDetail(BaseModel):

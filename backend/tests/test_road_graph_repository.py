@@ -378,6 +378,49 @@ async def test_get_surface_attributes_is_none_when_raw_way_not_found(road_graph_
     assert result[edge_id] is None
 
 
+async def test_get_nearest_surface_tags_returns_empty_list_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_nearest_surface_tags([]) == []
+
+
+async def test_get_nearest_surface_tags_matches_nearby_edge_and_returns_its_surface(road_graph_repository):
+    """改善計画T21: openrouteserviceエンジンのサンプル点を自前DBのEdgeへ空間マッチする経路。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result = await road_graph_repository.get_nearest_surface_tags([NODE1], max_distance_m=30.0)
+
+    assert result == ["asphalt"]
+
+
+async def test_get_nearest_surface_tags_returns_none_beyond_max_distance_m(road_graph_repository):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result = await road_graph_repository.get_nearest_surface_tags([(35.9, 140.0)], max_distance_m=30.0)
+
+    assert result == [None]
+
+
+async def test_get_nearest_surface_tags_preserves_input_order_for_multiple_points(road_graph_repository):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="gravel")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result = await road_graph_repository.get_nearest_surface_tags(
+        [(35.9, 140.0), NODE1, NODE2, (35.9, 140.0)], max_distance_m=30.0
+    )
+
+    assert result == [None, "gravel", "gravel", None]
+
+
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):
     assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is False
 

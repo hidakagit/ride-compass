@@ -36,7 +36,7 @@ from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.region import BoundingBox
-from app.domain.road import classify_osm_surface
+from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_networkx_graph, concat_node_paths, find_nearest_node, path_to_edge_ids, shortest_path_node_ids
 from app.domain.weather import WeatherConditions
@@ -293,25 +293,12 @@ def _aggregate_elevation(edges: list[DirectedEdge], elevation_attributes: dict) 
 
 
 def _aggregate_road_score(edges: list[DirectedEdge], surface_attributes: dict[str, str | None]) -> float | None:
-    """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。
-    surfaceタグが無く走行しやすさを判定できない区間は分母から除外する
-    （domain/road.py: paved_percentと同じ定義。こちらはEdge単位のsurfaceタグから
-    距離加重で求める点が異なる）。
+    """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。Edge単位のsurfaceタグを
+    domain/road.py: distance_weighted_road_score（両エンジン共通の集約定義、改善計画T21）へ渡す薄いラッパー。
     """
-    known_distance = 0.0
-    good_distance = 0.0
-    for edge in edges:
-        surface_type = surface_attributes.get(edge.edge_id)
-        is_good = classify_osm_surface(surface_type)
-        if is_good is None:
-            continue
-        known_distance += edge.distance_m
-        if is_good:
-            good_distance += edge.distance_m
-
-    if known_distance == 0:
-        return None
-    return round(good_distance / known_distance * 100, 1)
+    return distance_weighted_road_score(
+        [(edge.distance_m, classify_osm_surface(surface_attributes.get(edge.edge_id))) for edge in edges]
+    )
 
 
 def _aggregate_wind_score(edges: list[DirectedEdge], wind: WeatherConditions | None) -> float | None:

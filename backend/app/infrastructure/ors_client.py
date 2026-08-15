@@ -25,9 +25,10 @@ class ORSClient:
         self._http_client = http_client
 
     async def get_directions(self, waypoints: list[Coordinates]) -> dict:
+        # extra_info=surface（ORS路面種別ID）は改善計画T21で廃止: 路面評価は自前DBの
+        # Edgeへの空間マッチ（OSMタグ語彙）へ統一済みのため、この付随情報は不要。
         payload = {
             "coordinates": [[point.longitude, point.latitude] for point in waypoints],
-            "extra_info": ["surface"],
         }
         headers = {
             "Authorization": self._api_key,
