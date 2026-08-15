@@ -31,12 +31,11 @@ from datetime import datetime, timedelta
 
 import networkx as nx
 
-from app.domain.difficulty import evaluate_axis_difficulties
+from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.region import BoundingBox
-from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.traffic import (
