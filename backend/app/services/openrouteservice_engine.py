@@ -22,13 +22,13 @@
 
 import asyncio
 
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, stop_difficulty, wind_difficulty
+from app.domain.difficulty import evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
-from app.domain.road import classify_osm_surface, distance_weighted_road_score
+from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.traffic import distance_weighted_stop_density
+from app.domain.traffic import STOP_POI_MATCH_MAX_DISTANCE_M, distance_weighted_stop_density
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
 from app.services.route_generator import TracedLoop, candidate_identity
@@ -51,14 +51,10 @@ def sample_count_for_distance(distance_km: float) -> int:
     """ルート距離から約SAMPLE_INTERVAL_KM間隔になるサンプル点数を決める（min/maxでクランプ）。"""
     return max(MIN_SAMPLE_COUNT, min(MAX_SAMPLE_COUNT, round(distance_km / SAMPLE_INTERVAL_KM) + 1))
 
-# サンプル点から自前DBのEdgeへ空間マッチする際のスナップ半径。OSMのgeometryとORSが返す
-# geometryは同じ道路でも数m単位でずれうるため、GPSノイズ程度の誤差は許容しつつ、
-# 別の道路（並走する歩道等）へ誤スナップしない範囲としてこの値を選んだ。
-SURFACE_MATCH_MAX_DISTANCE_M = 30.0
-
-# 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1）。
-# road_graphエンジン側のget_stop_poi_counts既定値（AttributeRepository）と揃える。
-STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
+# 空間マッチ半径（路面: domain/road.py: SURFACE_MATCH_MAX_DISTANCE_M、停止密度:
+# domain/traffic.py: STOP_POI_MATCH_MAX_DISTANCE_M）はdomain層の定数を参照する
+# （改善計画T44。road_graphエンジン側のAttributeRepositoryデフォルト引数も同じ定数を
+# 参照するため、値の重複管理を構造的に防ぐ）。
 
 # prepareが返す「準備不要」を表すコンテキスト（本エンジンはリクエスト単位の共有準備を持たない）。
 _NO_CONTEXT = object()
@@ -220,17 +216,9 @@ class OpenRouteServiceEngine:
             stop_count = stop_counts[i] if i < len(stop_counts) else None
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
-            elevation_diff = gradient_difficulty(gradient_percent)
-            wind_diff = wind_difficulty(wind_penalty)
-            road_diff = road_difficulty(road_surface_good)
-            stop_diff = stop_difficulty(stop_count_per_km)
-            difficulty = composite_difficulty(
-                [
-                    (elevation_diff, preference.elevation_weight),
-                    (wind_diff, preference.wind_weight),
-                    (road_diff, preference.road_weight),
-                    (stop_diff, preference.stop_weight),
-                ]
+            axis_difficulties = evaluate_axis_difficulties(
+                gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
+                preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
@@ -252,11 +240,11 @@ class OpenRouteServiceEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=wind_penalty,
                     road_surface_good=road_surface_good,
-                    elevation_difficulty=elevation_diff,
-                    wind_difficulty=wind_diff,
-                    road_difficulty=road_diff,
-                    stop_difficulty=stop_diff,
-                    difficulty=difficulty,
+                    elevation_difficulty=axis_difficulties.elevation,
+                    wind_difficulty=axis_difficulties.wind,
+                    road_difficulty=axis_difficulties.road,
+                    stop_difficulty=axis_difficulties.stop,
+                    difficulty=axis_difficulties.composite,
                 )
             )
             cumulative_km += distance_km

@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 
 import networkx as nx
 
-from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, stop_difficulty, wind_difficulty
+from app.domain.difficulty import evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
 from app.domain.graph import DirectedEdge, RoadGraph
@@ -212,17 +212,9 @@ class RoadGraphEngine:
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
-            elevation_diff = gradient_difficulty(gradient_percent)
-            wind_diff = wind_difficulty(wind_penalty)
-            road_diff = road_difficulty(road_surface_good)
-            stop_diff = stop_difficulty(stop_count_per_km)
-            difficulty = composite_difficulty(
-                [
-                    (elevation_diff, preference.elevation_weight),
-                    (wind_diff, preference.wind_weight),
-                    (road_diff, preference.road_weight),
-                    (stop_diff, preference.stop_weight),
-                ]
+            axis_difficulties = evaluate_axis_difficulties(
+                gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
+                preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
             )
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
@@ -254,11 +246,11 @@ class RoadGraphEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
                     road_surface_good=road_surface_good,
-                    elevation_difficulty=elevation_diff,
-                    wind_difficulty=wind_diff,
-                    road_difficulty=road_diff,
-                    stop_difficulty=stop_diff,
-                    difficulty=difficulty,
+                    elevation_difficulty=axis_difficulties.elevation,
+                    wind_difficulty=axis_difficulties.wind,
+                    road_difficulty=axis_difficulties.road,
+                    stop_difficulty=axis_difficulties.stop,
+                    difficulty=axis_difficulties.composite,
                 )
             )
             cumulative_km += distance_km

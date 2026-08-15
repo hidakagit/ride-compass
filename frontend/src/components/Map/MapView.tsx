@@ -19,6 +19,7 @@ import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import {
   BICYCLE_INFRA_COLOR_EXPRESSION,
+  BICYCLE_INFRA_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
 } from "@/components/Map/staticAttributeLayers";
 import { debugLog } from "@/lib/debugLog";
@@ -510,15 +511,6 @@ const SMOOTHNESS_LABELS: Record<string, string> = {
   horrible: "劣悪",
   very_horrible: "劣悪",
   impassable: "通行不能",
-};
-
-const BICYCLE_INFRA_LABELS: Record<string, string> = {
-  separated: "分離自転車道",
-  lane: "自転車レーン",
-  shared_busway: "バス専用道等の共用",
-  shared_pedestrian: "自転車歩行者道",
-  roadway: "車道（専用施設なし）",
-  prohibited: "自転車通行不可",
 };
 
 function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {

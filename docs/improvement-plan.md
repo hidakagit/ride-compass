@@ -284,6 +284,14 @@
   （PythonMVTエンコーダ）・`OverpassClient.get_roads` と対応テストを一括削除。
 - 完了条件: タイル生成経路がPostGIS（ST_AsMVT）1系統になり、カバレッジ外は空タイル＋
   常時WARNINGのみ。architecture.mdの該当記述を同一コミットで現状化。
+- **撤去条件の成立見込みと確認手順**（2026-08-16 第4回レビューR-2で追記）: 条件前半
+  （関東圏PBF取込完了）は2026-08-15に成立済みのため、**最短2026-08-29に撤去可能**。
+  着手前に本番（Render）ログを2026-08-15〜29の範囲で検索し、次の2点がいずれも0件である
+  ことを確認する: ①「取込範囲外」WARNING（GraphService/RegionServiceの
+  「Overpassフォールバック無効」メッセージ。カバレッジ外アクセスの有無）
+  ②`region:overpass`/`graph:overpass`カテゴリのログ（フォールバック実発動の有無。
+  本番はfallback無効のため通常は構造的に0件）。あわせて`/api/debug/stats`の該当カテゴリの
+  呼び出し数も0であることを確認する。
 
 ---
 
@@ -597,6 +605,70 @@ T29〜T32（フロントUI一貫性再編）で整理したサイドバー構成
 
 ---
 
+## 第4回レビュー対応（2026-08-16・複雑度平衡レビュー第2弾）
+
+[complexity-review-2026-08-16.md](complexity-review-2026-08-16.md) の指摘（R-1〜R-10）に対する実行計画。
+
+順序の根拠: T43〜T46はいずれも「評価軸・属性を増やすときの編集箇所」を減らす作業のため、
+静的道路属性P2（trafficStress・交差点密度の評価組み込み。軸が2つ増える）の**着手前**に
+完了させるとコスト削減が2回以上回収される。全項目とも挙動不変で既存テストが安全網になる。
+T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-29）待ちのため別トラック
+（確認手順はT22の節へ追記済み）。
+
+### - [x] T43. 区間評価の4軸合成をdomainへ一本化〔R-1〕規模S〜M・最優先（2026-08-16完了）
+
+- `domain/difficulty.py`へ「生値セット（gradient_percent・wind_penalty・road_surface_good・
+  stop_count_per_km）＋`RoutePreference`→軸別難易度＋合成difficulty」を返す純関数を1つ追加し、
+  `openrouteservice_engine._build_segment_details`・`road_graph_engine._build_segment_details`・
+  `domain/evaluation.compute_edge_cost`の3箇所の同文ブロックをその呼び出しへ置換する。
+  `RouteSegmentDetail`の構築（データ源がエンジン固有）はエンジン側に残す。
+- 完了条件: 挙動不変（backend全テストgreenのまま）。評価軸を追加するときの
+  「(難易度, 重み)リスト」の編集箇所が3→1になること。
+
+### - [x] T44. 空間マッチ半径定数のdomain集約〔R-3〕規模S（2026-08-16完了）
+
+- `SURFACE_MATCH_MAX_DISTANCE_M`（30m）を`domain/road.py`へ、
+  `STOP_POI_MATCH_MAX_DISTANCE_M`（15m）を`domain/traffic.py`へ移し、
+  `openrouteservice_engine.py`の定数定義と`AttributeRepository`各メソッド
+  （get_nearest_surface_tags / get_stop_poi_counts / get_nearest_stop_poi_counts）の
+  デフォルト引数をimport参照へ置換する（「コメントで揃える」手動同期の解消。設計原則2の具体化）。
+- 完了条件: 15.0 / 30.0 のリテラルがdomainの定数1箇所ずつになり、backend全テストgreen。
+
+### - [x] T45. ComparisonPanelの評価軸カタログ化〔R-4〕規模S（2026-08-16完了）
+
+- `formatWeights`を`SCORING_AXES`/`PREFERENCE_AXES`（lib/evaluationAxes.ts）からの列挙生成へ
+  置換する（現状はpref側が標高/路面/風の3軸ハードコードで、P1で追加された`stop_weight`が
+  実験条件の表示に出ない）。`METRIC_ROWS`へ停止密度（`stop_density`）の行を追加する。
+- 完了条件: 重み表示が全軸を含み、軸追加時にComparisonPanel.tsxの編集が不要になること。
+  frontend全テスト・eslint・tsc green。
+
+### - [x] T46. BICYCLE_INFRA_LABELSの重複解消〔R-7〕規模S（2026-08-16完了）
+
+- `MapView.tsx`のポップアップ用ラベル辞書（staticAttributeLayers.tsの
+  `BICYCLE_INFRA_CATEGORIES`と完全一致の写し）を、staticAttributeLayers.ts側から
+  key→labelを導出したexportへ置換する（UI語彙の正準1箇所化。設計原則8の具体化）。
+  `SMOOTHNESS_LABELS`は唯一の定義のため現状維持でよい。
+- 完了条件: 自転車インフラのラベル文言がstaticAttributeLayers.tsの1箇所になり、
+  frontend全テストgreen。
+
+### - [x] T47. docs・運用の小粒4点〔R-5/R-6/R-9/R-10〕規模S（2026-08-16完了）
+
+- **scoring軸判断の明記**〔R-5〕✅完了: static-road-attributes-plan.md P1節（項目3）へ、
+  trafficStress・intersectionDensity等の評価組み込み着手時に「`scoring.yaml`側にも
+  軸を追加するか」を明示判断項目とする旨を追記。
+- **フロント分割閾値の記録**〔R-6〕✅完了（本ファイルのT47記述自体が対応）: page.tsx/
+  MapView.tsxは現状維持とし、「静的レイヤー+2種類 または MapView 1,200行」到達時に
+  (a)静的レイヤーensure/setペアの宣言的ループ化 (b)page.tsxの保存付き状態の
+  useStoredState抽出、の2点のみ実施する方針を記録済み。
+- **DBなしプロファイルの縮退明記**〔R-9〕✅完了: `.env.example`のプロファイル比較表へ、
+  `ROAD_GRAPH_USE_REPOSITORY=false`では路面・停止密度評価が全区間Noneになる旨を追記。
+- **dev用batスクリプトの整理**〔R-10〕✅完了: `.gitignore`が既に`restart-dev.bat`の
+  ログ出力先（`/logs/`）を除外設定していることから正規の開発ツールと判断し、削除ではなく
+  コミット対象化する方針とした。両ファイルへ用途・関連ドキュメントへの参照を示す
+  ヘッダコメントを追加（内容は無変更）。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -639,4 +711,6 @@ T29〜T32（フロントUI一貫性再編）で整理したサイドバー構成
 | 2026-08-15 | T21 | 関東本土全域への静的属性再取込み完了によりトリガー成立、評価のエンジン非依存化を実装。ORSエンジンの路面評価をextras数値ID語彙から`AttributeRepository.get_nearest_surface_tags`（PostGIS KNN+ST_DWithin、全候補分を1回のSQLで一括処理）による自前DB空間マッチへ置換。`domain/road.py`のORS数値ID語彙4関数を削除し、両エンジン共通の`distance_weighted_road_score`を新設（road_graph_engine.pyの`_aggregate_road_score`は薄いラッパーへ縮小）。`ORSClient`の`extra_info=surface`・`RoutingService`のextrasパース・`RouteSegment.surface_summary/surface_values`も削除。backend 468件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。`get_nearest_surface_tags`のDB統合テストはローカルネイティブPGへ実接続して実行・PASS確認済み |
 | 2026-08-15 | （モバイル実機フィードバック対応） | スマホ実機検証での8点の使いにくさを起票・全件完了。T33: レイヤーチップ折り返し。T34: サイドバードロワーを下部タブバー＋部分シート（`BottomSheet`新規、暗幕なし・地図を隠さない）へ再構成、実装中にMapLibre帰属表示のタブバー下への隠れを発見し修正。T35: 緯度経度手動入力を撤去（`useLocation`/`LocationControl`縮小）。T36: 天候表示を常設ヘッダへ移動。T37: アプリ名見出しを削除。T38: 「地図の見え方」の各レイヤーをアコーディオン化（デフォルト全閉）。T39/T40: 交通ストレス・自転車インフラの凡例に判定基準/道路情報との違いの説明文を追加。frontend 146件・eslint・tsc全green、Playwright実機確認（390px幅・1280px幅）で全項目確認済み |
 | 2026-08-16 | 静的属性P1（node取込・停止密度評価、主要部分） | 信号・横断歩道・一時停止・踏切のnode取込機構（`osm_raw_pois`新テーブル、migration 0005、`domain/traffic.py: classify_stop_poi`、`osm_adapter.py: osm_node_to_poi_spec`、`pbf_source.py`のpyosmium `node()`ハンドラ、`import_profile.yaml`のnode要素2ルール）と「停止密度」評価軸（`AttributeRepository.get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`RoutePreference.stop_weight`、`compute_edge_cost`・両エンジンのEdge Cost/区間難易度への統合、`RouteCandidate.stop_density`/`RouteSegmentDetail.stop_difficulty`）を実装。ユーザー承認のうえスコープを絞り、交差点密度（intersectionDensity）とtrafficStress/bicycle_infra（P0由来way属性）の評価組み込みは別タスクへ分離。PBF取込バッチはRawOsmRepositoryを経由せず直接asyncpg COPYで書くため、Overpassフォールバック側は元々ADR方針どおり無改修。backend 531件・frontend 146件・eslint・tsc全green、OpenAPI/フロント型再生成済み。dev機ネイティブPGへmigration 0005適用（空DB・既存DBとも冪等確認）、Tokyo.osm.pbfでdry-run実行し信号等81,921件のマッチを実データで確認済み。詳細はdocs/static-road-attributes-plan.md P1節参照 |
+| 2026-08-16 | （第4回レビュー） | 複雑度平衡レビュー第2弾を全ソース通読で実施（complexity-review-2026-08-16.md、詳細版はArtifact公開）。第2回指摘I-1〜I-10の完済を実コードで確認（I-4のみ条件待ち）。残課題R-1〜R-10のうち実装対応をT43〜T47として起票、T22へ撤去期限（最短2026-08-29）と発動ログ確認手順を追記。設計原則10箇条を改訂（原則1/2/8/9を更新） |
+| 2026-08-16 | T43〜T47 | 第4回レビュー対応を全件実施。T43: `domain/difficulty.py`へ`evaluate_axis_difficulties`（軸別difficulty＋合成値をまとめて返すNamedTuple）を追加し、両エンジンの`_build_segment_details`・`compute_edge_cost`の3箇所の重複合成ブロックを置換（評価軸追加時の編集箇所3→1）。T44: `SURFACE_MATCH_MAX_DISTANCE_M`/`STOP_POI_MATCH_MAX_DISTANCE_M`を`domain/road.py`/`domain/traffic.py`へ集約し、openrouteservice_engine.py・AttributeRepository（個別リポジトリ＋ファサード委譲6箇所）をimport参照へ統一。T45: `ComparisonPanel.tsx`の`formatWeights`を`SCORING_AXES`/`PREFERENCE_AXES`カタログからの生成へ置換（stop_weightの欠落を解消）、`METRIC_ROWS`へ停止密度行を追加、テスト3件追加。T46: `staticAttributeLayers.ts`へ`BICYCLE_INFRA_LABELS`をexportし`MapView.tsx`の重複辞書を削除。T47: static-road-attributes-plan.mdへscoring軸判断項目を追記、.env.exampleへDBなし構成の評価縮退を追記、restart-dev.bat/stop-dev.batへ用途コメントを追加（削除せずコミット対象化）。backend 531件・frontend 148件（新規3件含む）・eslint（変更ファイルのみ、既存の無関係な未コミット変更除く）・tsc全green |
 | 2026-08-16 | T25 | 静的属性P1で評価軸が増えたことによりトリガー成立、評価軸カタログ化を実施。`frontend/src/lib/evaluationAxes.ts`新規（`SCORING_AXES`/`PREFERENCE_AXES`、`mapLayers.ts`と同じ型）。ラベルを`Record<keyof ScoringWeights\|RoutePreferenceWeights, ...>`で書きOpenAPI生成型への完全性チェックをドリフト検知に使う（新規生成物・テスト無し）。`WeightPanel.tsx`・`RouteList.tsx`のハードコードをカタログ生成へ置換、副次効果でUI入力欄が無かった`stop_weight`も自動追加。`score_breakdown`の新規表示UIはスコープ外とした（ユーザー承認、モバイルUI改修との競合回避）。backend 531件・frontend 146件・eslint・tsc全green |

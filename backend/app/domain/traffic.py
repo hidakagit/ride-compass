@@ -12,6 +12,13 @@ CASE式として実装しており、この関数群と1:1で対応させる（t
 
 from typing import Literal
 
+# 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
+# openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数、
+# GraphService.get_stop_poi_countsはこのデフォルトを暗黙使用）の両方がこの定数をimportして
+# 参照する。domain/road.py: SURFACE_MATCH_MAX_DISTANCE_Mと同じ理由で「コメントで揃える」
+# 手動同期にしない（設計原則2）。
+STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
+
 # smoothness→スコア(0-100)。未設定・未知の値はNone（評価しない）。
 _SMOOTHNESS_SCORES: dict[str, float] = {
     "excellent": 100.0,
