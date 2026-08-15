@@ -86,6 +86,31 @@
   margin-top: 0;
 }
 
+/* 道路情報の軸見出し行（見出し＋一括ボタンを1行に収める） */
+.axisHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.bulkRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.bulkButton {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .legendRow {
   display: flex;
   flex-wrap: wrap;

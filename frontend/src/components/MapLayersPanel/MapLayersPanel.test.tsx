@@ -8,7 +8,8 @@ function baseProps() {
     layerVisibility: { elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: false },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
-    onRoadFilterApply: vi.fn(),
+    onRoadLegendToggle: vi.fn(),
+    onRoadAxisSetHidden: vi.fn(),
     regionZoomTooWide: false,
     routeStyleModeId: "wind" as const,
     onRouteStyleModeChange: vi.fn(),
@@ -18,9 +19,9 @@ function baseProps() {
   };
 }
 
-// 絞り込み編集の下書き→適用の挙動そのものはRoadFilterEditor.test.tsxで検証する。
-// ここではパネルの枠組み（レイヤーカタログからのセクション生成・表示スイッチ・凡例の
-// 出し分け・ルートの色分け選択）を見る。
+// パネルの枠組み（レイヤーカタログからのセクション生成・表示チップ・凡例チェックの
+// 出し分け・ルートの色分け選択）を見る。道路情報の絞り込みは即時反映（T31で
+// 旧RoadFilterEditorの下書き→適用を廃止し、ルート凡例と同じチェック方式へ統一）。
 describe("MapLayersPanel", () => {
   it("レイヤーカタログの全レイヤーが、役割ごとのグループ見出しの下にセクションとして並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
@@ -56,15 +57,43 @@ describe("MapLayersPanel", () => {
     expect(onLayerToggle).toHaveBeenCalledWith("elevation", false);
   });
 
-  it("道路情報OFFのときは案内のみで凡例は出ない（絞り込み編集は開ける）", () => {
+  it("道路情報OFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    expect(screen.getByText("表示をONにすると地図に出ます")).toBeInTheDocument();
-    expect(screen.queryByText(/色：路面の種類/)).not.toBeInTheDocument();
-    // 絞り込み編集はOFF中でも使える（適用すると自動でONになる、旧⚙ダイアログと同じ挙動）
-    expect(screen.getByText(/絞り込みを編集/)).toBeInTheDocument();
+    expect(screen.getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
 
-  it("道路情報ON && regionZoomTooWide=trueのときズーム警告が表示され凡例は出ない", () => {
+  it("絞り込みチェックの操作でonRoadLegendToggleが呼ばれ、レイヤーOFFなら自動でONになる", async () => {
+    const user = userEvent.setup();
+    const onRoadLegendToggle = vi.fn();
+    const onLayerToggle = vi.fn();
+    render(<MapLayersPanel {...baseProps()} onRoadLegendToggle={onRoadLegendToggle} onLayerToggle={onLayerToggle} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /アスファルト/ }));
+
+    expect(onRoadLegendToggle).toHaveBeenCalledWith("surface", "asphalt");
+    expect(onLayerToggle).toHaveBeenCalledWith("road", true);
+  });
+
+  it("「すべて隠す」で軸の全カテゴリキーがonRoadAxisSetHiddenへ渡る", async () => {
+    const user = userEvent.setup();
+    const onRoadAxisSetHidden = vi.fn();
+    render(<MapLayersPanel {...baseProps()} onRoadAxisSetHidden={onRoadAxisSetHidden} />);
+
+    // 一括ボタンは軸ごとにあるため、1つ目（色＝路面の種類の軸）を操作する
+    await user.click(screen.getAllByRole("button", { name: "すべて隠す" })[0]);
+
+    expect(onRoadAxisSetHidden).toHaveBeenCalledWith("surface", [
+      "asphalt",
+      "concrete",
+      "stones",
+      "gravel",
+      "dirt",
+      "unknown",
+    ]);
+  });
+
+  it("道路情報ON && regionZoomTooWide=trueのときズーム警告が表示される（絞り込みは操作可能なまま）", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
@@ -73,10 +102,10 @@ describe("MapLayersPanel", () => {
       />,
     );
     expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
-    expect(screen.queryByText(/色：路面の種類/)).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
 
-  it("道路情報ONのとき色・太さ両方の凡例が表示される", () => {
+  it("道路情報ONのとき色・太さ両方の軸見出しが表示される", () => {
     render(
       <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }} />,
     );
@@ -85,7 +114,7 @@ describe("MapLayersPanel", () => {
     expect(screen.queryByText("表示範囲が広すぎます。ズームインしてください。")).not.toBeInTheDocument();
   });
 
-  it("非表示中の凡例カテゴリは薄く表示される（参照表示、操作はしない）", () => {
+  it("非表示中のカテゴリはチェックが外れた状態で表示される", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
@@ -93,12 +122,8 @@ describe("MapLayersPanel", () => {
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,
     );
-    // 「砂利・締固め」は凡例（span）と絞り込み編集のチェックボックス（label）の両方に
-    // 出るため、凡例側のspanだけを対象に判定する
-    const dimmed = screen
-      .getAllByText("砂利・締固め")
-      .some((el) => el.closest("span")?.className.includes("legendItemHidden"));
-    expect(dimmed).toBe(true);
+    expect(screen.getByRole("checkbox", { name: /砂利・締固め/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
   });
 
   it("hasDetail=falseのときルート欄は案内のみで、表示チップも非活性", () => {

@@ -5,6 +5,9 @@ import ErrorText from "@/components/ErrorText/ErrorText";
 import styles from "./RouteForm.module.css";
 
 interface RouteFormProps {
+  /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（page.tsx）に使うため親が持つ */
+  distance: string;
+  onDistanceChange: (value: string) => void;
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
 }
@@ -12,8 +15,7 @@ interface RouteFormProps {
 // backend/app/api/routes.pyのRouteGenerateRequest.distance_km（Field(gt=0, le=100)）と一致させる。
 const MAX_DISTANCE_KM = 100;
 
-export default function RouteForm({ onGenerate, loading }: RouteFormProps) {
-  const [distance, setDistance] = useState("30");
+export default function RouteForm({ distance, onDistanceChange, onGenerate, loading }: RouteFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   function handleSubmit(event: React.FormEvent) {
@@ -50,7 +52,7 @@ export default function RouteForm({ onGenerate, loading }: RouteFormProps) {
           max={MAX_DISTANCE_KM}
           step="1"
           value={distance}
-          onChange={(e) => setDistance(e.target.value)}
+          onChange={(e) => onDistanceChange(e.target.value)}
           className={styles.distanceInput}
         />
         km

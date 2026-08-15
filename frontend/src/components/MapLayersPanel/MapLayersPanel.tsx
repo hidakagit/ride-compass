@@ -12,23 +12,25 @@ import {
   ROAD_LINE_COLOR_AXIS_ID,
   ROAD_LINE_WIDTH_AXIS_ID,
   getRoadFilterAxis,
+  type RoadFilterAxis,
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
 import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { BICYCLE_INFRA_LEGEND, TRAFFIC_STRESS_LEGEND } from "@/components/Map/staticAttributeLayers";
 import LayerChip from "@/components/Map/LayerChip";
-import RoadFilterEditor from "./RoadFilterEditor";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
 
 interface MapLayersPanelProps {
   layerVisibility: MapLayerVisibility;
   onLayerToggle: (id: MapLayerId, on: boolean) => void;
-  /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー */
+  /** 道路情報の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** 絞り込み編集（RoadFilterEditor）で「適用」を押したときにまとめて呼ばれる */
-  onRoadFilterApply: (hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => void;
+  /** 凡例チェックの操作（即時反映。連続タップの再描画はpage.tsx側のデバウンスが吸収） */
+  onRoadLegendToggle: (axisId: RoadFilterAxisId, key: string) => void;
+  /** 「すべて表示/すべて隠す」の一括操作（非表示キー全体の置き換え） */
+  onRoadAxisSetHidden: (axisId: RoadFilterAxisId, hiddenKeys: string[]) => void;
   regionZoomTooWide: boolean;
   routeStyleModeId: RouteStyleModeId;
   onRouteStyleModeChange: (id: RouteStyleModeId) => void;
@@ -58,7 +60,8 @@ export default function MapLayersPanel({
   layerVisibility,
   onLayerToggle,
   roadHiddenKeysByMode,
-  onRoadFilterApply,
+  onRoadLegendToggle,
+  onRoadAxisSetHidden,
   regionZoomTooWide,
   routeStyleModeId,
   onRouteStyleModeChange,
@@ -74,6 +77,19 @@ export default function MapLayersPanel({
   function handleRouteModeSelect(id: RouteStyleModeId) {
     onRouteStyleModeChange(id);
     if (!layerVisibility.route) onLayerToggle("route", true);
+  }
+
+  // 道路情報の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditorごと廃止し、
+  // ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら、色分けモード選択と
+  // 同じくレイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
+  function handleRoadLegendToggle(axisId: RoadFilterAxisId, key: string) {
+    onRoadLegendToggle(axisId, key);
+    if (!layerVisibility.road) onLayerToggle("road", true);
+  }
+
+  function handleRoadAxisSetHidden(axisId: RoadFilterAxisId, hiddenKeys: string[]) {
+    onRoadAxisSetHidden(axisId, hiddenKeys);
+    if (!layerVisibility.road) onLayerToggle("road", true);
   }
 
   // 参照用の凡例（タップでは操作しない）。太さ軸（entry.widthを持つ）は太さバー、
@@ -101,9 +117,8 @@ export default function MapLayersPanel({
     );
   }
 
-  // ルート側は1モード・1系統のみで組み合わせ絞り込みの需要が無いため、凡例そのものを
-  // チェックボックスにして参照表示と絞り込み操作を1つのリストで兼ねる（即時反映。
-  // 路面側の「下書き→適用」と使い分ける理由はRoadFilterEditorのコメント参照）。
+  // 凡例そのものをチェックボックスにして、参照表示と絞り込み操作を1つのリストで兼ねる
+  // （即時反映。ルート凡例と道路情報の2軸が共通で使う、T31で方式統一）。
   function renderLegendCheckboxes(
     legend: readonly LegendEntry[],
     hiddenKeys: readonly string[],
@@ -129,6 +144,37 @@ export default function MapLayersPanel({
     );
   }
 
+  // 道路情報の1軸分（見出し＋一括操作＋凡例チェックボックス）。visualはこの軸が地図の
+  // どの視覚チャンネル（色/太さ）に反映されるかの表記。
+  function renderRoadAxis(axis: RoadFilterAxis, visual: string) {
+    const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? [];
+    const allKeys = axis.legend.map((entry) => entry.key);
+    return (
+      <div>
+        <div className={styles.axisHeader}>
+          <p className={styles.legendCaption}>
+            {visual}：{axis.label}
+          </p>
+          {/* 複数カテゴリの絞り込みはチェックの繰り返しになりがちなため、起点を揃える
+              一括ボタンでタップ数を減らす（旧「下書き→適用」廃止の代替、T31） */}
+          <div className={styles.bulkRow}>
+            <button type="button" className={styles.bulkButton} onClick={() => handleRoadAxisSetHidden(axis.id, [])}>
+              すべて表示
+            </button>
+            <button
+              type="button"
+              className={styles.bulkButton}
+              onClick={() => handleRoadAxisSetHidden(axis.id, allKeys)}
+            >
+              すべて隠す
+            </button>
+          </div>
+        </div>
+        {renderLegendCheckboxes(axis.legend, hiddenKeys, (key) => handleRoadLegendToggle(axis.id, key))}
+      </div>
+    );
+  }
+
   function renderSectionBody(layer: MapLayerDescriptor) {
     switch (layer.id) {
       case "elevation":
@@ -141,22 +187,18 @@ export default function MapLayersPanel({
       case "bicycleInfra":
         return renderLegendDisplay(BICYCLE_INFRA_LEGEND, []);
       case "road":
+        // 2軸とも凡例チェックボックス＝絞り込み操作（参照表示と操作を1つのリストで兼ねる、
+        // ルート凡例と同じ方式）。OFF中でも操作でき、操作すると自動でONになる。
         return (
           <>
-            {!layerVisibility.road && <p className={styles.mutedHint}>表示をONにすると地図に出ます</p>}
+            {!layerVisibility.road && (
+              <p className={styles.mutedHint}>表示はOFFです（絞り込みを操作すると自動でONになります）</p>
+            )}
             {layerVisibility.road && regionZoomTooWide && (
               <p className={styles.zoomWarning}>表示範囲が広すぎます。ズームインしてください。</p>
             )}
-            {layerVisibility.road && !regionZoomTooWide && (
-              <>
-                <p className={styles.legendCaption}>色：{roadColorAxis.label}</p>
-                {renderLegendDisplay(roadColorAxis.legend, roadHiddenKeysByMode[ROAD_LINE_COLOR_AXIS_ID] ?? [])}
-                <p className={styles.legendCaption}>太さ：{roadWidthAxis.label}</p>
-                {renderLegendDisplay(roadWidthAxis.legend, roadHiddenKeysByMode[ROAD_LINE_WIDTH_AXIS_ID] ?? [])}
-              </>
-            )}
-            {/* 絞り込み編集はOFF中でも開ける（適用すると自動でONになる。旧⚙ダイアログと同じ挙動） */}
-            <RoadFilterEditor savedHiddenKeys={roadHiddenKeysByMode} onApply={onRoadFilterApply} />
+            {renderRoadAxis(roadColorAxis, "色")}
+            {renderRoadAxis(roadWidthAxis, "太さ")}
           </>
         );
       case "route":

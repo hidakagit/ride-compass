@@ -1,18 +1,34 @@
+import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import RouteForm from "./RouteForm";
 
+// RouteFormは制御コンポーネント（距離はpage.tsxが持ち、生成条件のdirty判定に使う）のため、
+// テストでは距離stateを持つ最小のラッパーで包んで実際の入力操作を再現する。
+function ControlledRouteForm({
+  onGenerate,
+  loading,
+  initialDistance = "30",
+}: {
+  onGenerate: (distanceKm: number) => void;
+  loading: boolean;
+  initialDistance?: string;
+}) {
+  const [distance, setDistance] = useState(initialDistance);
+  return <RouteForm distance={distance} onDistanceChange={setDistance} onGenerate={onGenerate} loading={loading} />;
+}
+
 describe("RouteForm", () => {
   it("初期表示で距離入力のデフォルト値が30、ボタンラベルがルート生成", () => {
-    render(<RouteForm onGenerate={vi.fn()} loading={false} />);
+    render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} />);
 
     expect(screen.getByRole("spinbutton")).toHaveValue(30);
     expect(screen.getByRole("button", { name: "ルート生成" })).toBeInTheDocument();
   });
 
   it("loading=trueのときボタンがdisabledかつ生成中...と表示される", () => {
-    render(<RouteForm onGenerate={vi.fn()} loading={true} />);
+    render(<ControlledRouteForm onGenerate={vi.fn()} loading={true} />);
 
     const button = screen.getByRole("button", { name: "生成中..." });
     expect(button).toBeDisabled();
@@ -21,7 +37,7 @@ describe("RouteForm", () => {
   it("デフォルト値のまま送信するとonGenerateが30(number)で呼ばれる", async () => {
     const user = userEvent.setup();
     const onGenerate = vi.fn();
-    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
 
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
@@ -31,7 +47,7 @@ describe("RouteForm", () => {
   it("距離入力を変更してから送信すると変更後の数値でonGenerateが呼ばれる", async () => {
     const user = userEvent.setup();
     const onGenerate = vi.fn();
-    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
 
     const input = screen.getByRole("spinbutton");
     await user.clear(input);
@@ -44,7 +60,7 @@ describe("RouteForm", () => {
   it("距離を0にして送信してもonGenerateは呼ばれない", async () => {
     const user = userEvent.setup();
     const onGenerate = vi.fn();
-    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
 
     const input = screen.getByRole("spinbutton");
     await user.clear(input);
@@ -57,7 +73,7 @@ describe("RouteForm", () => {
   it("距離を空文字にして送信してもonGenerateは呼ばれない", async () => {
     const user = userEvent.setup();
     const onGenerate = vi.fn();
-    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
 
     const input = screen.getByRole("spinbutton");
     await user.clear(input);
@@ -72,7 +88,7 @@ describe("RouteForm", () => {
 
   it("距離を0にして送信するとエラーメッセージが表示される(以前はサイレント失敗だった)", async () => {
     const user = userEvent.setup();
-    render(<RouteForm onGenerate={vi.fn()} loading={false} />);
+    render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} />);
 
     const input = screen.getByRole("spinbutton");
     await user.clear(input);
@@ -85,7 +101,7 @@ describe("RouteForm", () => {
   it("上限(100km)を超える距離を送信するとonGenerateは呼ばれずエラーが表示される", async () => {
     const user = userEvent.setup();
     const onGenerate = vi.fn();
-    render(<RouteForm onGenerate={onGenerate} loading={false} />);
+    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
 
     const input = screen.getByRole("spinbutton");
     await user.clear(input);

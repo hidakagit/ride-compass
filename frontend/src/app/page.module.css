@@ -57,6 +57,13 @@
   margin: 0;
 }
 
+/* 「表示中の候補の生成条件と現在のフォーム値がずれている」ヒント（T31） */
+.dirtyHint {
+  color: var(--color-warning-strong);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
 /* 天候・位置情報をひとまとまりのカードにして、サイドバー内の情報のグルーピングを
    視覚的に分かりやすくする */
 .infoCard {

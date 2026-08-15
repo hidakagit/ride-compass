@@ -29,6 +29,7 @@ import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -42,6 +43,10 @@ import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } fro
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
+
+// 道路情報の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
+// （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
+const ROAD_FILTER_DEBOUNCE_MS = 400;
 
 // 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
 // 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
@@ -95,6 +100,19 @@ export default function Home() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
+  // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
+  // 出すため（生成条件系の反映タイミング可視化、T31）。
+  const [distanceInput, setDistanceInput] = useState("30");
+  // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
+  // （フィールド比較の列挙より差分検知の漏れが出にくい）。
+  const [generatedConditions, setGeneratedConditions] = useState<{
+    latitude: number;
+    longitude: number;
+    distanceKm: number;
+    weightsKey: string;
+  } | null>(null);
 
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
   // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
@@ -195,17 +213,20 @@ export default function Home() {
       return { ...prev, [modeId]: next };
     });
   }, []);
-  // 路面の絞り込み設定はサイドバーのRoadFilterEditor内で下書き編集し、「適用」を押すまで
-  // 地図に反映しない。適用時にこのハンドラが一括で呼ばれ、両軸分の絞り込みキーの反映・
-  // レイヤー表示ONを1つの操作として行う。
-  const handleRoadFilterApply = useCallback((hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => {
-    setHiddenLegendKeysByMode((prev) => ({ ...prev, ...hiddenKeysByMode }));
-    setLayerVisibility((prev) => ({ ...prev, road: true }));
+  // 道路情報の「すべて表示/すべて隠す」一括操作（1軸分の非表示キー全体の置き換え）。
+  // 個別チェックはtoggleHiddenLegendKeyをそのまま使う（絞り込みは即時反映、T31。
+  // レイヤーの自動ONはMapLayersPanel側が担う）。
+  const handleRoadAxisSetHidden = useCallback((axisId: RoadFilterAxisId, hiddenKeys: string[]) => {
+    setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
   }, []);
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
   );
+
+  // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByModeを
+  // 参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
+  const debouncedRoadHiddenKeysByMode = useDebouncedValue(roadHiddenKeysByMode, ROAD_FILTER_DEBOUNCE_MS);
 
   const handleLayerToggle = useCallback((id: MapLayerId, on: boolean) => {
     setLayerVisibility((prev) => ({ ...prev, [id]: on }));
@@ -342,6 +363,19 @@ export default function Home() {
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
 
+  // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）
+  const currentWeightsKey = JSON.stringify(weightOverrideEnabled ? { scoringWeights, routePreference } : null);
+
+  // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
+  // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する、T31）
+  const conditionsDirty =
+    generatedConditions != null &&
+    routes.length > 0 &&
+    (location.latitude !== generatedConditions.latitude ||
+      location.longitude !== generatedConditions.longitude ||
+      Number(distanceInput) !== generatedConditions.distanceKm ||
+      currentWeightsKey !== generatedConditions.weightsKey);
+
   async function handleGenerate(distanceKm: number) {
     setLoading(true);
     setErrorMessage(null);
@@ -356,6 +390,14 @@ export default function Home() {
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
+      // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
+      // 残るため更新しない（tryの成功パスでのみ更新する）
+      setGeneratedConditions({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        distanceKm,
+        weightsKey: currentWeightsKey,
+      });
       if (candidates.length === 0) {
         setErrorMessage("条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
       } else if (researchEnabled) {
@@ -474,7 +516,15 @@ export default function Home() {
                   </div>
                 )}
 
-                <RouteForm onGenerate={handleGenerate} loading={loading} />
+                <RouteForm
+                  distance={distanceInput}
+                  onDistanceChange={setDistanceInput}
+                  onGenerate={handleGenerate}
+                  loading={loading}
+                />
+                {conditionsDirty && (
+                  <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
+                )}
                 {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
                 {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
                 {routes.length === 0 && !loading && !errorMessage && (
@@ -500,7 +550,8 @@ export default function Home() {
                   layerVisibility={layerVisibility}
                   onLayerToggle={handleLayerToggle}
                   roadHiddenKeysByMode={roadHiddenKeysByMode}
-                  onRoadFilterApply={handleRoadFilterApply}
+                  onRoadLegendToggle={toggleHiddenLegendKey}
+                  onRoadAxisSetHidden={handleRoadAxisSetHidden}
                   regionZoomTooWide={regionZoomTooWide}
                   routeStyleModeId={routeStyleModeId}
                   onRouteStyleModeChange={handleRouteStyleModeChange}
@@ -548,7 +599,7 @@ export default function Home() {
           showRoad={layerVisibility.road}
           showTrafficStress={layerVisibility.trafficStress}
           showBicycleInfra={layerVisibility.bicycleInfra}
-          roadHiddenKeysByMode={roadHiddenKeysByMode}
+          roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
           routeLayerOn={layerVisibility.route}
           routeStyleModeId={routeStyleModeId}
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
