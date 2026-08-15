@@ -87,9 +87,9 @@
   color: var(--color-muted);
 }
 
-/* デバッグログのチェックボックスとログ起動ボタンを1つの塊として扱い、systemRowの
-   flex-wrapで他の項目（研究モード等）と別行になっても、この2つだけは常に横並びを保つ
-   （チェックON時にボタンが下の行へ落ちて縦積みの「メニュー」に見えるのを防ぐ）。 */
+/* デバッグログのチェックボックス・ログ起動ボタン・システム状況起動ボタンを1つの塊として
+   扱い、systemRowのflex-wrapで他の項目（研究モード等）と別行になっても、これらは常に
+   横並びを保つ（チェックON時にボタンが下の行へ落ちて縦積みの「メニュー」に見えるのを防ぐ）。 */
 .debugControl {
   display: inline-flex;
   align-items: center;
@@ -244,11 +244,11 @@
   background: var(--color-accent-bg);
 }
 
-/* 「設定」内のデバッグログ起動ボタン（systemRowの他の項目=文字だけの控えめな見た目とは
-   区別し、押せるボタンだと分かるよう枠を付ける）。ONのときはlocateButton等と同じ
-   アクセントカラーで強調する。チェックボックスの真横に収まるよう、文言は持たずアイコン
-   のみ（ラベルはaria-label/titleで提供）にしている。 */
-.logToggleButton {
+/* 「設定」内のデバッグログ・システム状況の起動ボタン共通（systemRowの他の項目=文字だけの
+   控えめな見た目とは区別し、押せるボタンだと分かるよう枠を付ける）。ONのときはlocateButton
+   等と同じアクセントカラーで強調する。チェックボックスの真横に収まるよう、文言は持たず
+   アイコンのみ（ラベルはaria-label/titleで提供）にしている。 */
+.panelToggleButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -260,7 +260,7 @@
   cursor: pointer;
 }
 
-.logToggleButton[aria-pressed="true"] {
+.panelToggleButton[aria-pressed="true"] {
   color: var(--color-accent-strong);
   border-color: var(--color-accent);
   background: var(--color-accent-bg);

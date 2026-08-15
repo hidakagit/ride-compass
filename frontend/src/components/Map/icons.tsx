@@ -92,3 +92,14 @@ export function LogIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+/** システム状況: バージョン/稼働状況の確認を表す情報アイコン（円＋i） */
+export function StatusIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="10" cy="6.6" r="0.9" fill="currentColor" />
+      <path d="M10 9.4v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}

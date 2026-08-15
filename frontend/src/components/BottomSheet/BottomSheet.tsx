@@ -143,7 +143,7 @@ export default function BottomSheet({
     // （.app-sidebar button, .app-bottom-sheet button等）が参照するグローバルなマーカー
     // クラス。CSS Modulesのクラス名はハッシュ化されグローバルCSSから参照できないため、
     // 見た目自体はstyles.sheetに任せつつ、このマーカークラスだけ併用している
-    // （DebugConsoleの.app-debug-consoleと同じ手法）。
+    // （FloatingPanelの.app-floating-panelと同じ手法）。
     <div
       className={`${styles.sheet} app-bottom-sheet`}
       role="dialog"

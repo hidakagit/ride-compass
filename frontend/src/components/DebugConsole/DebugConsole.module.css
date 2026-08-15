@@ -1,128 +1,13 @@
-/* このパネル専用の配色（ターミナル風の暗いオーバーレイ）。アプリ全体のライトテーマとは
-   独立した見た目のため、グローバルなデザイントークンではなくこのモジュール内に留める。 */
-
-/* 一般ユーザーは使わない開発者向け機能のため、地図やサイドバーに場所を固定せず、
-   ビューポート基準で浮かせた独立パネルにする（「設定」内のボタンから開閉、T43）。
-   位置はドラッグで動かせる（DebugConsole.tsxのposition state）。既定位置は左右中央・
-   上寄り（常設の天候ヘッダの下、地図上のアイコン列あたりから始まる高さ）。以前は
-   画面中央だったが、システム状況セクションを足して縦に長くなったことで中央寄せだと
-   上下にはみ出しやすくなったため、天候ヘッダとは重ならない範囲で上へ寄せた。
-   ドラッグ開始後はDebugConsole.tsx側がtransformを無効化しtop/leftの絶対値へ切り替える
-   （このtranslateとの二重適用を避けるため）。背景を半透明にして、パネルの裏の地図が
-   うっすら透けるようにする（ドッキング型の不透明パネルからの変更点）。 */
-.console {
-  position: fixed;
-  top: 4.25rem;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(26rem, calc(100vw - 2 * var(--space-3)));
-  /* max-heightの値(560px)はDebugConsole.tsxがエクスポートするDEBUG_CONSOLE_MAX_HEIGHT_PXと
-     一致させること（frontend/src/components/DebugConsole/DebugConsole.test.tsxで自動検証）。
-     システム状況セクションを追加した分、ログ本文の表示行数が減らないよう合わせて拡大した。
-     top(4.25rem)との合計が一般的なモバイル機の画面の高さに収まる範囲で選んでいる。 */
-  max-height: 560px;
-  display: flex;
-  flex-direction: column;
-  background: rgba(17, 24, 39, 0.8);
-  backdrop-filter: blur(4px);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-float);
-  color: #e5e7eb;
-  font-family: monospace;
-  font-size: 0.75rem;
-  /* モバイルの下部シート・タブバー（z:45）より前面に出す（独立ウィンドウとして常に
-     手前に見せる。BottomSheetを開いたままでもこのパネルは隠れない）。 */
-  z-index: 50;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.dragHandle {
-  cursor: grab;
-  padding: 0 0.2rem;
-  touch-action: none;
-  color: #9ca3af;
-}
-
-.title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.headerButtons {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
+/* パネルのシェル（配色・ドラッグ・ヘッダー）はFloatingPanel.module.cssへ共通化済み。
+   ここにはログ本文（.entries）専用のスタイルだけを残す。 */
 
 .clearButton {
   font-size: 0.7rem;
 }
 
-.closeButton {
-  background: transparent;
-  border: none;
-  color: #e5e7eb;
-  font-size: 0.9rem;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0.2rem;
-}
-
-/* /api/debug/statsの表示（バックエンド側の外部API呼び出し集計・適用中のcommit等）。
-   ログ本文（.entries）とは別の情報源のため区切り線で分け、常時見える固定領域にする
-   （ログのように件数無制限で伸びる領域ではないため.entriesのようなスクロールは持たせない）。 */
-.stats {
-  flex-shrink: 0;
-  padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  overflow-wrap: anywhere;
-}
-
-.statsHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #9ca3af;
-  margin-bottom: 0.15rem;
-}
-
-.statsRefreshButton {
-  font-size: 0.7rem;
-  color: #9ca3af;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: var(--radius-md);
-  padding: 0.05rem 0.4rem;
-  cursor: pointer;
-}
-
-.statsError {
-  color: #f87171;
-}
-
-.statsLine {
-  padding: 0.05rem 0;
-}
-
-.statsLine[data-level="error"] {
-  color: #f87171;
-}
-
-.statsLine[data-level="warn"] {
-  color: #fbbf24;
-}
-
 .entries {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.3rem 0.5rem;
   overflow-wrap: anywhere;
