@@ -16,10 +16,9 @@ interface LayerChipProps {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-// レイヤーON/OFFの唯一の操作部品。地図上（MapOverlayControls）とサイドバー
-// （MapLayersPanel）の両方で同じ見た目・同じ挙動のこのチップを使うことで、
-// 「どちらが本体か分からない別デザインのスイッチが2つある」状態を避ける
-// （UI一貫性再編T30。以前はサイドバー側だけrole=switchのチェックボックスだった）。
+// サイドバー（MapLayersPanel）の「表示」チップで使うテキストのみのON/OFFボタン。
+// 以前は地図上（MapOverlayControls）とも共有していたが、地図上はスペース節約のため
+// アイコン+短いラベルのボタン（MapOverlayControls.module.cssのiconChip）へ置き換えた。
 export default function LayerChip({ label, on, disabled, title, ariaLabel, onClick }: LayerChipProps) {
   return (
     <button

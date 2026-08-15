@@ -70,6 +70,33 @@ describe("MapOverlayControls", () => {
     expect(onSummaryClick).toHaveBeenCalledWith("road");
   });
 
+  it("trailingButtonを渡すとレイヤー一覧の下に区切り線付きで表示され、クリックでonClickが呼ばれる", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <MapOverlayControls
+        {...baseProps()}
+        trailingButton={{
+          icon: <span>icon</span>,
+          label: "ログ",
+          active: true,
+          onClick,
+          ariaLabel: "デバッグログを閉じる",
+        }}
+      />
+    );
+
+    const trailing = screen.getByRole("button", { name: "デバッグログを閉じる" });
+    expect(trailing).toHaveAttribute("aria-pressed", "true");
+    await user.click(trailing);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("trailingButtonを渡さなければ表示されない", () => {
+    render(<MapOverlayControls {...baseProps()} />);
+    expect(screen.queryByRole("button", { name: "ログ" })).not.toBeInTheDocument();
+  });
+
   it("OFF・disabled・summary無しのレイヤーにはサマリ行が出ない", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", label: "標高図", on: true, summary: null }, // 条件なし

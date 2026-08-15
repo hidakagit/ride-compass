@@ -8,6 +8,7 @@ import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
+import { LogIcon } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
@@ -682,7 +683,23 @@ export default function Home() {
             experimentSlots={researchEnabled ? experimentSlots : []}
           />
 
-          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
+          <MapOverlayControls
+            layers={overlayLayers}
+            onToggle={handleLayerToggle}
+            onSummaryClick={handleLayerSummaryClick}
+            trailingButton={
+              debugEnabled
+                ? {
+                    icon: <LogIcon />,
+                    label: "ログ",
+                    active: debugConsoleOpen,
+                    onClick: () => setDebugConsoleOpen((v) => !v),
+                    ariaLabel: debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く",
+                    title: debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く",
+                  }
+                : undefined
+            }
+          />
 
           <button
             type="button"
@@ -721,27 +738,9 @@ export default function Home() {
             </p>
           )}
 
-          {/* デバッグログの起動アイコン。パネル自体を常時表示すると画面の目立つ面積を
-              占有し続けるという実機フィードバックを受け、右上の小さいアイコンから開閉する
-              方式にした（モバイル実機フィードバック対応T42）。デバッグモードOFF中は
-              そもそも記録が無いため表示しない。 */}
-          {debugEnabled && (
-            <button
-              type="button"
-              onClick={() => setDebugConsoleOpen((v) => !v)}
-              aria-pressed={debugConsoleOpen}
-              aria-label={debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く"}
-              title={debugConsoleOpen ? "デバッグログを閉じる" : "デバッグログを開く"}
-              className={
-                debugConsoleOpen
-                  ? `${styles.debugToggleButton} ${styles.debugToggleButtonActive}`
-                  : styles.debugToggleButton
-              }
-            >
-              ログ
-            </button>
-          )}
-
+          {/* デバッグログの起動アイコンは地図左上のアイコン列（MapOverlayControls）の
+              trailingButtonへ統合済み（デバッグモードOFF中はそもそも記録が無いため
+              渡さない＝非表示）。 */}
           <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
         </div>
       </div>

@@ -165,32 +165,6 @@
   opacity: 0.6;
 }
 
-/* デバッグログの起動アイコン。MapLibreのNavigationControl（右上、+/-/コンパスの3ボタン
-   ≒87px+余白）の下に置く。パネル自体を常時占有させず、押したときだけ開く
-   （モバイル実機フィードバック対応T42）。 */
-.debugToggleButton {
-  position: absolute;
-  top: 6.5rem;
-  right: var(--space-3);
-  z-index: 20;
-  min-width: 32px;
-  height: 28px;
-  padding: 0 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--foreground);
-  box-shadow: var(--shadow-float);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.debugToggleButtonActive {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #ffffff;
-}
-
 .locateError {
   position: absolute;
   right: var(--space-3);

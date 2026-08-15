@@ -1,5 +1,6 @@
 /* 地図（page.module.cssの.mapPane、position:relative）に重ねる。デスクトップ・モバイルとも
-   既定は左上（下の@mediaでモバイルのみ下部タブバーの上へ変更、T41）。
+   常に左上（以前はモバイルのみ下部タブバー付近へ寄せていたが、アイコン化して縦一列に
+   圧縮したことで常時左上に置いても地図の視界を大きく妨げなくなったため統一した）。
    z-indexは現在地ボタン（20）と同じ層。モバイルのBottomSheet（z:45）より下。 */
 .wrapper {
   position: absolute;
@@ -20,35 +21,61 @@
   pointer-events: auto;
 }
 
-/* モバイルは上部（天候ヘッダ）と下部（タブバー）の両方に固定要素があり、チップまで
-   地図上部に浮かべると地図の実質的な表示領域が上下から挟まれて狭くなるという実機
-   フィードバックを受け、下部タブバーのすぐ上（「地図の見え方」タブの近く）へ寄せた
-   （モバイル実機フィードバック対応T41）。地図上部はヘッダ以外何も重ならず広く使える。
-   以前ここにあった「サイドバー開閉トグルの右へずらす」ためのleftオフセットは、
-   T34でモバイルのトグルボタン自体を廃止したため不要になり削除した。 */
-@media (max-width: 640px) {
-  .wrapper {
-    top: auto;
-    left: var(--space-2);
-    bottom: calc(var(--mobile-tabbar-height) + var(--space-2));
-    /* 右側は現在地ボタン（44px）＋余白の分だけ空け、チップ/サマリが重ならないようにする */
-    max-width: calc(100% - 4.5rem);
-  }
-  /* チップの折り返し（2行）は圧迫感が増えるという実機フィードバックにより撤回し、
-     デスクトップと同じ横スクロール1行へ戻した（モバイル実機フィードバック対応T42）。
-     以前の「横スクロールは気づきにくい」という指摘は、チップが地図上部に浮いていたことも
-     一因だったため、下部タブバー付近への移動（T41）と合わせて横スクロールのままで様子を見る。 */
-}
-
+/* アイコンチップの縦並び。画面が低い（モバイル横向き等）場合に地図の下端を超えないよう
+   縦スクロールで受ける。 */
 .chipRow {
   display: flex;
+  flex-direction: column;
   gap: var(--space-2);
-  /* レイヤーが増えて幅を超えた場合は横スクロール（1行を保つ） */
-  max-width: 100%;
-  overflow-x: auto;
+  max-height: min(70vh, 26rem);
+  overflow-y: auto;
 }
 
-/* チップ本体の見た目はLayerChip.module.css（共通部品）にある。 */
+/* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
+   小さいボタンで、以前の文字だけの横スクロールチップより地図の占有面積が小さい。
+   サイドバー側（MapLayersPanel）の「表示」チップは引き続きLayerChip（テキストのみ）を使う。 */
+.iconChip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  width: 3.2rem;
+  padding: 0.3rem 0.15rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.iconChip:disabled {
+  color: var(--color-neutral);
+  cursor: default;
+}
+
+.iconChipActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+
+.iconLabel {
+  font-size: 0.6rem;
+  white-space: normal;
+  /* word-break:keep-allだとCJKの文字列も改行不可の1語扱いになり、「自転車インフラ」等の
+     長いラベルが箱からはみ出す。既定(normal)のままCJKは任意の文字境界で折り返す。 */
+}
+
+/* レイヤー一覧とtrailingButton（デバッグログ起動等、レイヤー以外のON/OFF）を分ける区切り線 */
+.trailingDivider {
+  width: 100%;
+  height: 1px;
+  background: var(--color-border-strong);
+}
 
 /* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
    チップより一段控えめな見た目（小さめ・通常面色）にして、押下状態と混同させない。 */
