@@ -21,9 +21,16 @@
   max-width: 100%;
 }
 
-.wrapper > * {
-  pointer-events: auto;
-}
+/* .wrapperのpointer-events: noneは、ここより下のchipRow/chipRowItemにも継承される
+   （pointer-eventsは継承プロパティ）。以前は.wrapper > *（=chipRow）だけに
+   pointer-events: autoを戻していたが、それだとchipRow全体（行間のgap、サマリの無い
+   単独チップの右側の余白など、ボタンが実際には置かれていない領域も含む）がタッチを
+   捕まえてしまっていた。これらの隙間はtouch-actionが未指定（既定auto）のため、
+   2本指ピンチの片方の指がここに乗るとブラウザがページ全体のネイティブズームに
+   化ける（実機フィードバック「画面全体を拡大縮小してしまう」の原因）。
+   pointer-events: autoは実際に押せるボタン（.iconChip/.summaryButton）だけに
+   局所化し、それ以外の隙間は地図キャンバス（touch-action: none）へタッチを
+   素通しする。 */
 
 /* アイコンチップの縦並び。画面が低い（モバイル横向き等）場合に地図の下端を超えないよう
    縦スクロールで受ける。widthを明示しない場合、.wrapper側のalign-items: flex-startにより
@@ -77,6 +84,9 @@
      ブラウザがタッチ開始点ごとにtouch-actionを見て地図ジェスチャーとして確定できず、
      ピンチズームが反応しない/ページの既定ズームに化けることがある（実機フィードバック調査）。 */
   touch-action: none;
+  /* 親の.chipRow/.chipRowItemはpointer-events: none（.wrapperから継承）のため、
+     実際に押せるこのボタン自身にだけpointer-events: autoを戻す。 */
+  pointer-events: auto;
 }
 
 .iconChip:disabled {
@@ -122,6 +132,8 @@
   /* .iconChipと同じ理由（ピンチの片方の指がここに乗ると地図のジェスチャーとして
      確定しないことがあるため） */
   touch-action: none;
+  /* .iconChipと同じ理由（親のpointer-events: noneをボタン自身だけで打ち消す） */
+  pointer-events: auto;
 }
 
 .summaryLayerLabel {

@@ -191,6 +191,10 @@
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   box-shadow: var(--shadow-float);
+  /* 押せないメッセージ表示のため、地図キャンバスへタッチを素通しする
+     （MapOverlayControlsの隙間と同じ理由。ここが既定のpointer-events: autoのままだと、
+     ピンチの片方の指がこのメッセージに乗ったときページ全体のネイティブズームに化ける）。 */
+  pointer-events: none;
 }
 
 /* スマホ幅ではMapLibreの帰属表示が右下のコンパクトなⓘボタンになり、bottom: 2.5remの
