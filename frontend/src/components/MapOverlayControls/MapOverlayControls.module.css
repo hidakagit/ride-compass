@@ -13,8 +13,12 @@
   align-items: flex-start;
   /* 地図のドラッグ操作を妨げないよう、余白部分はイベントを透過させる */
   pointer-events: none;
-  /* サマリ行が地図を覆いすぎないよう最大幅を絞る（超過分は省略記号） */
-  max-width: min(28rem, calc(100% - 2 * var(--space-3)));
+  /* サマリ行が地図を覆いすぎないよう最大幅を絞る（超過分は省略記号）。max-widthだけでは
+     align-items: flex-startの下で.chipRowの実際の幅が定まらず（widthがautoのまま）、
+     子のwidth: 100%が正しいパーセンテージ基準を持てない（長い文字列がこの箱自体を
+     押し広げてしまう）ため、widthも明示してこの箱の幅を確定させる。 */
+  width: min(28rem, calc(100% - 2 * var(--space-3)));
+  max-width: 100%;
 }
 
 .wrapper > * {
@@ -22,11 +26,15 @@
 }
 
 /* アイコンチップの縦並び。画面が低い（モバイル横向き等）場合に地図の下端を超えないよう
-   縦スクロールで受ける。 */
+   縦スクロールで受ける。widthを明示しない場合、.wrapper側のalign-items: flex-startにより
+   このflexアイテムが内容量に合わせて伸びてしまい、長いサマリ文が.wrapperのmax-widthを
+   突き破って画面外まで見切れる不具合があったため、width: 100%で.wrapperの幅（≦max-width）
+   に固定し、子のsummaryButtonのellipsis（overflow: hidden）が正しく働くようにしている。 */
 .chipRow {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  width: 100%;
   max-height: min(70vh, 26rem);
   overflow-y: auto;
 }
