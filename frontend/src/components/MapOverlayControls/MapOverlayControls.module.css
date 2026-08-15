@@ -11,6 +11,8 @@
   align-items: flex-start;
   /* 地図のドラッグ操作を妨げないよう、余白部分はイベントを透過させる */
   pointer-events: none;
+  /* サマリ行が地図を覆いすぎないよう最大幅を絞る（超過分は省略記号） */
+  max-width: min(28rem, calc(100% - 2 * var(--space-3)));
 }
 
 .wrapper > * {
@@ -23,12 +25,16 @@
   .wrapper {
     left: 3.75rem;
     top: 0.5rem;
+    max-width: calc(100% - 3.75rem - 0.5rem);
   }
 }
 
 .chipRow {
   display: flex;
   gap: var(--space-2);
+  /* レイヤーが増えて幅を超えた場合は横スクロール（チップは折り返さず1行を保つ） */
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .chip {
@@ -41,6 +47,7 @@
   font-size: var(--font-size-md);
   box-shadow: var(--shadow-float);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .chip:disabled {
@@ -55,39 +62,34 @@
   color: #ffffff;
 }
 
-/* 「路面」チップに乗せる、絞り込み中であることだけを示す印。実際の絞り込み内容は
-   サイドバー（MapLegendPanel）の凡例で示すため、ここは数字も文章も持たない。 */
-.filterDot {
-  width: 0.55rem;
-  height: 0.55rem;
-  margin-left: 0.4rem;
-  border-radius: 999px;
-  flex-shrink: 0;
-  /* 親の「路面」チップは非アクティブ時=var(--color-surface)背景（テーマに応じて明暗反転）/
-     アクティブ時=アクセント色背景の両方がありうる。ドットは常に白地+アクセント枠線で固定し、
-     どちらの上でも視認できるようにする（赤=--color-dangerはエラー表示で使っているため、
-     絞り込み中という中立的な状態には使わない）。 */
-  background: #ffffff;
-  border: 1.5px solid var(--color-accent);
-}
-
-/* チップ＋⚙ボタンを1つのセグメントコントロールとして隣接させ、「⚙はそのチップの
-   補助操作（絞り込み設定を開く）」という関係が見た目でも分かるようにする */
-.chipGroup {
+/* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
+   チップより一段控えめな見た目（小さめ・通常面色）にして、押下状態と混同させない。 */
+.summaryButton {
   display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+  /* 長い条件は省略記号で切る（詳細はサイドバーで見る前提の要約表示のため） */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chipGroup > .chip,
-.chipGroup > .chipActive {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+.summaryLayerLabel {
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
-/* 絞り込み設定ダイアログを開く小ボタン。チップ本体の補助操作なので、チップより横幅を絞る */
-.modeMenuButton {
-  composes: chip;
-  padding: 0.35rem 0.55rem;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  border-left: none;
+.summaryArrow {
+  color: var(--color-neutral);
+  flex-shrink: 0;
 }

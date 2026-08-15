@@ -1,116 +1,69 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
-import RoadFilterDialog from "./RoadFilterDialog";
+import type { MapLayerId } from "@/components/Map/mapLayers";
 import styles from "./MapOverlayControls.module.css";
 
-interface MapOverlayControlsProps {
-  showElevation: boolean;
-  onShowElevationToggle: (on: boolean) => void;
-  showRoad: boolean;
-  onShowRoadToggle: (on: boolean) => void;
-  /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー（page.tsxが軸別に保持）。
-   * ここでは「保存済みの絞り込みがあるか」（チップのドット表示）にしか使わない。
-   * 実際の絞り込み内容はサイドバー側（MapLegendPanel）で見せる。 */
-  roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** RoadFilterDialog（別ウィンドウ）で「保存」を押したときにまとめて呼ばれる */
-  onRoadSettingsSave: (hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => void;
-  routeLayerOn: boolean;
-  onRouteLayerToggle: (on: boolean) => void;
-  hasDetail: boolean;
+/** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
+export interface OverlayLayerChip {
+  id: MapLayerId;
+  label: string;
+  on: boolean;
+  disabled?: boolean;
+  /** チップのtitle（ONにすると何が出るか、disabledなら使えない理由） */
+  title?: string;
+  /** ONのレイヤーに適用中の条件・状態の1行要約（絞り込み・色分けモード・ズーム案内等）。
+   * あればチップ行の下にサマリ行として表示する。無条件（既定のまま）ならnull。 */
+  summary?: string | null;
 }
 
-// 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」トグルチップ（レイヤーのON/OFF）と、
-// 路面の絞り込みを開く⚙ボタンだけにする。凡例・絞り込み内容の詳細・ルートの色分け選択は
-// すべてサイドバー側のMapLegendPanelにまとめてあり、ここは「サイドバーの何を見ているか」の
-// 最小限の紐づけ（チップの押下状態・絞り込み中を示す小さなドット）だけを担当する
-// （地図上部に凡例や絞り込み文言まで積み上げると地図自体が狭くなり見づらいという指摘を受けて、
-// 表示系の詳細情報は全てサイドバーへ移した）。
-export default function MapOverlayControls({
-  showElevation,
-  onShowElevationToggle,
-  showRoad,
-  onShowRoadToggle,
-  roadHiddenKeysByMode,
-  onRoadSettingsSave,
-  routeLayerOn,
-  onRouteLayerToggle,
-  hasDetail,
-}: MapOverlayControlsProps) {
-  const [roadDialogOpen, setRoadDialogOpen] = useState(false);
-  const roadDialogButtonRef = useRef<HTMLButtonElement>(null);
+interface MapOverlayControlsProps {
+  layers: readonly OverlayLayerChip[];
+  onToggle: (id: MapLayerId, on: boolean) => void;
+  /** サマリ行のタップ。page.tsxがサイドバーを開いて該当レイヤーの設定セクションへ誘導する */
+  onSummaryClick: (id: MapLayerId) => void;
+}
 
-  // 保存済みの絞り込みがあるかどうか（2軸合計）。チップ上のドット表示にのみ使う。
-  const roadHiddenCount = ROAD_FILTER_AXES.reduce(
-    (sum, axis) => sum + (roadHiddenKeysByMode[axis.id]?.length ?? 0),
-    0
-  );
-
-  function handleRoadDialogClose() {
-    setRoadDialogOpen(false);
-    // ダイアログを開いた起点（⚙ボタン）へフォーカスを戻す（キーボード/スクリーンリーダー
-    // 利用時に、閉じた後の操作起点を見失わないようにするため。page.tsxのモバイル
-    // ドロワーclose処理と同じ考え方）
-    roadDialogButtonRef.current?.focus();
-  }
+// 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」ON/OFFチップと、ONのレイヤーに
+// どんな条件が効いているかの1行サマリだけ。凡例・絞り込みの編集・色分けモードの選択など
+// 「細かな設定」はすべてサイドバー（MapLayersPanel）で行う（地図上に設定UIを積むと地図が
+// 狭くなる、というこれまでの方針を徹底し、以前ここにあった⚙ボタン＋設定ダイアログも
+// サイドバーへ移した）。このコンポーネントはレイヤー固有の知識を持たない汎用の描画係で、
+// レイヤーが増えてもここは変更不要（mapLayers.tsのコメント参照）。
+export default function MapOverlayControls({ layers, onToggle, onSummaryClick }: MapOverlayControlsProps) {
+  const summaries = layers.filter((layer) => layer.on && !layer.disabled && layer.summary);
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.chipRow}>
-        <button
-          type="button"
-          aria-pressed={showElevation}
-          onClick={() => onShowElevationToggle(!showElevation)}
-          className={showElevation ? styles.chipActive : styles.chip}
-          title="国土地理院の色別標高図を重ねる"
-        >
-          {/* ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける */}
-          標高図
-        </button>
-        <div className={styles.chipGroup}>
+        {layers.map((layer) => (
           <button
+            key={layer.id}
             type="button"
-            aria-pressed={showRoad}
-            onClick={() => onShowRoadToggle(!showRoad)}
-            className={showRoad ? styles.chipActive : styles.chip}
-            title="道路を路面材質・種類で色分け表示（詳細はサイドバー参照）"
+            aria-pressed={layer.on && !layer.disabled}
+            disabled={layer.disabled}
+            onClick={() => onToggle(layer.id, !layer.on)}
+            className={layer.on && !layer.disabled ? styles.chipActive : styles.chip}
+            title={layer.title}
           >
-            路面
-            {/* 絞り込み中であることだけを示す最小限の印。実際の内容はサイドバーの凡例
-                （dimmed表示）で分かるため、ここでは件数も文章も持たない。 */}
-            {roadHiddenCount > 0 && <span className={styles.filterDot} aria-hidden="true" />}
+            {layer.label}
           </button>
-          <button
-            ref={roadDialogButtonRef}
-            type="button"
-            aria-haspopup="dialog"
-            aria-label={roadHiddenCount > 0 ? "路面の表示設定を開く（絞り込み中）" : "路面の表示設定を開く"}
-            onClick={() => setRoadDialogOpen(true)}
-            className={styles.modeMenuButton}
-            title="路面の表示設定を開く（絞り込み）"
-          >
-            ⚙
-          </button>
-        </div>
-        <button
-          type="button"
-          aria-pressed={routeLayerOn && hasDetail}
-          disabled={!hasDetail}
-          onClick={() => onRouteLayerToggle(!routeLayerOn)}
-          className={routeLayerOn && hasDetail ? styles.chipActive : styles.chip}
-          title={hasDetail ? "選択中ルート沿いの情報を色分け表示（詳細はサイドバー参照）" : "ルートを生成・選択すると使えます"}
-        >
-          ルート
-        </button>
+        ))}
       </div>
 
-      <RoadFilterDialog
-        open={roadDialogOpen}
-        onClose={handleRoadDialogClose}
-        roadHiddenKeysByMode={roadHiddenKeysByMode}
-        onSave={onRoadSettingsSave}
-      />
+      {summaries.map((layer) => (
+        <button
+          key={layer.id}
+          type="button"
+          onClick={() => onSummaryClick(layer.id)}
+          className={styles.summaryButton}
+          title="タップするとサイドバーで設定を変更できます"
+        >
+          <span className={styles.summaryLayerLabel}>{layer.label}:</span> {layer.summary}
+          <span aria-hidden="true" className={styles.summaryArrow}>
+            ▸
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

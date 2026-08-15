@@ -1,0 +1,100 @@
+.editor {
+  margin-top: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.editorSummary {
+  padding: 0.45rem var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-muted-strong);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.editorSummary:hover {
+  background: var(--color-surface-2);
+}
+
+.body {
+  border-top: 1px solid var(--color-border);
+  padding-bottom: var(--space-1);
+}
+
+.sectionLabel {
+  padding: var(--space-2) var(--space-2) 0.15rem;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-muted-strong);
+  margin: 0;
+}
+
+.checkboxList {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-1);
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0.25rem var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.checkboxRow:hover {
+  background: var(--color-surface-2);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.dirtyHint {
+  margin-right: auto;
+  font-size: var(--font-size-sm);
+  color: var(--color-warning-strong);
+}
+
+.discardButton {
+  background: transparent;
+}
+
+/* 主操作（適用）だとひと目で分かるよう、フォームのsubmitボタンと同じアクセント塗り
+   （globals.cssのbutton[type="submit"]）に揃える。ここは<form>の外なのでtype="button"の
+   ままアクセントカラーを明示する。 */
+.applyButton {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.applyButton:hover:not(:disabled) {
+  background: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
+}
+
+.applyButton:disabled,
+.discardButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

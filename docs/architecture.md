@@ -106,15 +106,24 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 ### UI再構成: サイドバー＋地図レイヤーの静的/動的分離
 Step9の可視化はモード切替（総合難易度/標高/風/路面のいずれか1つ）＋選択中候補のみという設計だったが、ユーザーから「データの性質（時間で変わる/変わらない）によって持ち方・見せ方を分けたい」「左に操作パネル、右に地図」という要望を受け、UIを再構成した。
 
-- **レイアウト**（[frontend/src/app/page.tsx](../frontend/src/app/page.tsx)）: `display:flex; height:100vh`のルート要素の下に、折りたたみ可能な`<aside>`（左サイドバー: タイトル・`BackendStatus`・`WeatherPanel`・`LocationControl`・`RouteForm`・`MapOverlayControls`・`RouteList`）と`flex:1`の地図ペイン（`MapView`）を並べる。位置情報（現在地取得・手動入力）の状態は`MapView`から`page.tsx`（`Home`）に引き上げ、`MapView`は`location`等をpropsで受け取る「地図描画に専念する」薄いコンポーネントにした。
+- **レイアウト**（[frontend/src/app/page.tsx](../frontend/src/app/page.tsx)）: `display:flex; height:100vh`のルート要素の下に、折りたたみ可能な`<aside>`（左サイドバー: タイトル・`WeatherPanel`・`LocationControl`・`MapLayersPanel`・`RouteForm`・`RouteList`・`BackendStatus`等）と`flex:1`の地図ペイン（`MapView`＋地図上の`MapOverlayControls`）を並べる。位置情報（現在地取得・手動入力）の状態は`MapView`から`page.tsx`（`Home`）に引き上げ、`MapView`は`location`等をpropsで受け取る「地図描画に専念する」薄いコンポーネントにした。
 - **レイヤー構成の分離**（[frontend/src/components/Map/MapView.tsx](../frontend/src/components/Map/MapView.tsx)）: 4種類のMapLibreレイヤーを常設する構成に変更。
   1. `route-candidates-line`（既存）: 全候補のベース表示（amber未選択/blue選択）。`staticLayer==="none"`のときのみ表示。
   2. `route-static-segments-line`（新規）: **全候補**のセグメントを`elevation_difficulty`/`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapOverlayControls`のチェックボックスでON/OFF）。
   3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする。
   4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ`wind_difficulty`で色分け。「風の影響を表示」チェックがONかつ選択中候補にセグメントがある場合のみ表示。従来あった総合難易度/標高/風/路面のモード切替は廃止し、風のみに絞った（総合スコアはルート一覧の`total_score`表示で代替）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は常時、④は最前面。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
-- **静的レイヤーのチェックボックス**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: 「標高」「路面」はそれぞれ独立したON/OFFのチェックボックス（`showElevation`, `showRoad`）で制御する。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。
+- **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。ON/OFFの操作UIはその後のUI再構成（第2段、後述）で地図上のチップ＋サイドバーのスイッチに変わったが、「独立して同時表示可」という性質は変わっていない。
 - **`isStyleLoaded()`起因の描画スキップ**: 実装時、地図初期化直後や候補選択直後にレイヤーが表示されない不具合が実機確認（Playwright）で見つかった。原因は、各描画関数が使っていた「`map.isStyleLoaded()`がfalseなら`map.once("load", ...)`で待つ」というガード。`isStyleLoaded()`は初期スタイル読み込み後もタイル読み込み中は一時的にfalseを返すが、MapLibreの`load`イベントは初回読み込み時に一度しか発火しない。そのため、候補選択でカメラが動いてタイル読み込み中に描画関数が呼ばれると、`isStyleLoaded()===false`と判定されて`once("load", ...)`を登録するが、その`load`はもう二度と来ず、描画が永久にスキップされていた。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
+
+### UI再構成（第2段）: 地図上はON/OFF＋条件サマリ、細かな設定はサイドバーへ集約
+
+「細かな設定はサイドバーで実施し、地図画面ではON/OFFと適用中の条件が簡潔に分かる程度にしたい」「今後の静的レイヤー追加（交通ストレス等、[static-road-attributes-plan.md](static-road-attributes-plan.md)）や動的レイヤー追加（天候等）を汎用的にやりやすくしたい」という要望を受け、レイヤー操作UIを再構成した（2026-08-15）。
+
+- **レイヤーカタログ**（[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)、新規）: 各レイヤーの`id`/`label`/`kind`（static=地域固定・時間で不変 / dynamic=ルート・時間で変わる）/`description`を宣言する単一ソース。地図上のチップ行とサイドバーのセクション枠はこの配列の列挙で描画されるため、レイヤー追加は「カタログに1エントリ＋`page.tsx`に初期値とサマリ対応＋`MapLayersPanel`にセクション中身」で済む（詳細手順は同ファイル冒頭コメント）。
+- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする（`layerSectionDomId`）。旧実装にあった⚙ボタン＋絞り込みモーダル（`RoadFilterDialog`）は廃止。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。サマリ文言は`legendFilter.ts`の`summarizeLegendFilters`（軸の凡例定義だけに依存する汎用関数）が生成する。
+- **サイドバー**（[frontend/src/components/MapLayersPanel/MapLayersPanel.tsx](../frontend/src/components/MapLayersPanel/MapLayersPanel.tsx)、新規。旧`MapLegendPanel`と旧`RoadFilterDialog`を統合して置き換え）: `kind`ごとのグループ見出し（「地域レイヤー（変わらないデータ）」「ルートレイヤー（時間・選択で変わるデータ）」）の下に、レイヤーごとのセクション（見出し＋表示スイッチ＋凡例・設定）を並べる。路面の絞り込み編集は`RoadFilterEditor`（同ディレクトリ）が担い、モーダル時代の**下書き→適用**方式を維持する（チェックのたびに地図へ即時反映すると複数条件の組み合わせ編集がしづらい、という過去のフィードバックによる。ルート凡例のような単純なチェックは即時反映のままで使い分け）。絞り込みはOFF中でも編集でき、適用するとレイヤーが自動でONになる（旧ダイアログと同じ挙動）。
+- **状態管理**（`page.tsx`）: レイヤーON/OFFは個別のuseState（`showElevation`等）から`layerVisibility: Record<MapLayerId, boolean>`へ一般化した。`MapView`のprops（`showElevation`/`showRoad`/`routeLayerOn`）は従来のまま`layerVisibility`から導出して渡すため、`MapView.tsx`は無変更。
 
 ### 地域レイヤー（標高・路面の常時オーバーレイ）と地図タイルキャッシュの設計（Step10）
 Step5-9で実装した標高・風・路面はいずれも「生成済みの候補ルート沿い」に限定した評価だった。ユーザーから「候補を出す前に、そもそもどのあたりが走りやすい地形・路面なのか地図で見たい」という要望を受け、候補ルートの有無に関わらず**表示中の地図の範囲全体（ビューポート）**に標高・路面を重ね描きする機能を追加した。
@@ -144,8 +153,8 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 - **イベントループのブロッキング回避**: `tile_cache`の読み書きは同期的なディスクI/O。基礎地図読み込み時は数十件のタイル/フォントリクエストが同時に来るため、`asyncio.to_thread`を介さず直接呼ぶとイベントループ全体をブロックし、同時に処理中の他のリクエスト（ルート生成等）が数十秒単位で詰まることを実機確認した。`BasemapClient.get`・`RegionService.get_road_surface_tile`はいずれも`tile_cache.get`/`set`を必ず`asyncio.to_thread`経由で呼ぶ。
 - **ベクタタイルの取得はWeb Worker内で行われる（実機確認で発見・修正済み）**: MapLibreはラスタタイル（`Image`要素、メインスレッド）とベクタタイル（`fetch`、Web Worker内）でタイルの取得方法が異なる。ラスタタイルのURL（`MAP_STYLE`や地理院タイルのURL）は相対パス・絶対パスいずれもページのオリジンに対して解決されるが、ベクタタイルのURLをWorker内から相対パスのまま渡すと`Failed to construct 'Request': Failed to parse URL from ...`のエラーで取得自体が失敗することを実機確認した（Workerの実行コンテキストはページとは別のベースURL解決になるため）。そのため路面ベクタタイルのURLは`window.location.origin`を使って呼び出し時に明示的に絶対URL化している（[frontend/src/services/regionApi.ts](../frontend/src/services/regionApi.ts)の`roadSurfaceTileUrl()`）。`window`はクライアントサイドでのみ参照可能なため、モジュール読み込み時に評価される定数ではなく、呼び出し時に評価される関数として実装してある点に注意（Next.jsのクライアントコンポーネントも初回はサーバー側でレンダリングされるため、モジュールの最上位で`window`を参照するとSSR時にクラッシュする）。
 
-#### フロントエンドの表示制御（`MapOverlayControls.tsx`, `MapView.tsx`）
-標高・路面は「変わらないデータ（表示中の地域全体）」として、選択中候補とは独立したチェックボックス（`showElevation`, `showRoad`）で制御する。標高がラスタタイル表示になったことで路面の線と色を奪い合わなくなったため、**両者は排他ではなく同時にON/OFFできる**（初期実装では同じ線の色を奪い合うため`staticLayer: "none" | "elevation" | "road"`の単一値で排他制御していたが、Step10改訂時に独立制御へ変更した）。標高・路面のいずれも、チェックボックスの切替時はレイヤーのvisibilityを切り替えるだけ（`setGsiReliefVisibility` / `setRoadSurfaceTileVisibility`）で、明示的なデータ取得コードは書いていない。路面がベクタタイルになったことで、Step10当初にあった「地図の`moveend`イベント（パン/ズーム終了、500msデバウンス）を検知してビューポートのbboxを`/api/region/road-surface`にfetchする」という独自ロジックは丸ごと不要になった。タイルの取得・キャッシュ・パン/ズームへの追随はすべてMapLibre自身が面倒を見るため、フロントエンドのコードはソースを一度登録するだけでよい（標高ラスタと全く同じ扱いになった）。「表示範囲が広すぎます」の案内も、bbox対角距離の計算ではなく、路面ベクタタイルの`minzoom`（`ROAD_TILE_MIN_ZOOM = 12`）と`map.getZoom()`を比較するだけの単純な判定（`updateRoadZoomHint`）に置き換わった。判定は`zoom`イベントとチェックボックスの切替の両方をトリガーに行う（標高はラスタタイルのためこの判定の対象外）。
+#### フロントエンドの表示制御（`MapView.tsx`）
+標高・路面は「変わらないデータ（表示中の地域全体）」として、選択中候補とは独立にON/OFFする（操作UIは「UI再構成（第2段）」参照。`MapView`へは従来どおり`showElevation`/`showRoad`のpropsで渡る）。標高がラスタタイル表示になったことで路面の線と色を奪い合わなくなったため、**両者は排他ではなく同時にON/OFFできる**（初期実装では同じ線の色を奪い合うため`staticLayer: "none" | "elevation" | "road"`の単一値で排他制御していたが、Step10改訂時に独立制御へ変更した）。標高・路面のいずれも、表示切替時はレイヤーのvisibilityを切り替えるだけ（`setGsiReliefVisibility` / `setRoadSurfaceTileVisibility`）で、明示的なデータ取得コードは書いていない。路面がベクタタイルになったことで、Step10当初にあった「地図の`moveend`イベント（パン/ズーム終了、500msデバウンス）を検知してビューポートのbboxを`/api/region/road-surface`にfetchする」という独自ロジックは丸ごと不要になった。タイルの取得・キャッシュ・パン/ズームへの追随はすべてMapLibre自身が面倒を見るため、フロントエンドのコードはソースを一度登録するだけでよい（標高ラスタと全く同じ扱いになった）。「表示範囲が広すぎます」の案内も、bbox対角距離の計算ではなく、路面ベクタタイルの`minzoom`（`ROAD_TILE_MIN_ZOOM = 12`）と`map.getZoom()`を比較するだけの単純な判定（`updateRoadZoomHint`）に置き換わった。判定は`zoom`イベントと表示切替の両方をトリガーに行う（標高はラスタタイルのためこの判定の対象外）。
 
 既知の制約: Overpassの取得範囲をタイル境界でクリップしていないため、タイル境界をまたぐ道路のジオメトリはタイルローカル座標が0-4096の範囲をわずかに超えることがある（前述、実害はない）。未キャッシュのタイルはOverpassへの実問い合わせが必要なため、初回表示時（特に一度に複数タイルを要求する広いビューポート）は数秒〜十数秒かかることがある（公開Overpassインスタンスの応答速度に依存。Step10当初のセル単位キャッシュと同様の性質で、2回目以降はタイル単位でキャッシュが効くため高速になる）。
 
@@ -320,7 +329,9 @@ RideCompass/
       components/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
         LocationControl/LocationControl.tsx ✅ 現在地表示・手動緯度経度入力フォーム（UI再構成、MapViewから分離）
-        MapOverlayControls/MapOverlayControls.tsx ✅ 標高/路面（独立チェックボックス、同時表示可）・風（チェックボックス）・凡例・地域が広すぎる場合の案内・タイルキャッシュ更新ボタン（UI再構成, Step10）
+        Map/mapLayers.ts        ✅ 地図レイヤーのカタログ（id/label/kind/description、単一ソース）。チップ行とサイドバーのセクション枠はこの列挙で描画（UI再構成 第2段で新規）
+        MapOverlayControls/MapOverlayControls.tsx ✅ 地図上のON/OFFチップ行＋適用中条件の1行サマリ（タップでサイドバーの該当設定へ誘導）。レイヤー固有の知識を持たない汎用描画係（UI再構成 第2段で全面書き換え。旧⚙ボタン・RoadFilterDialogは廃止）
+        MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例 / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）

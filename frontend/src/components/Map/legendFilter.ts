@@ -44,3 +44,37 @@ export function buildCombinedLegendFilterExpression(
   if (clauses.length === 1) return clauses[0];
   return ["all", ...clauses];
 }
+
+export interface LegendFilterSummaryAxis {
+  /** 軸の名前（例:「路面の種類」）。カテゴリ名だけでは短く言えない場合のフォールバック文言に使う */
+  label: string;
+  legend: readonly LegendEntry[];
+  hiddenKeys: readonly string[];
+}
+
+// 適用中の絞り込みを地図上に1行で示すための要約文を作る（絞り込み無しならnull）。
+// 軸ごとに「表示中カテゴリを列挙」と「除外カテゴリを列挙」の短い方を選び、どちらも
+// 3件以上になる場合は軸名によるフォールバック（「◯◯を絞り込み中」）へ落とす。
+// 詳細な内訳はサイドバー（MapLayersPanel）の凡例・絞り込み編集で確認できるため、
+// ここでは「何かに絞られている」ことが一目で分かる簡潔さを優先する。
+// レイヤー固有の語彙を持たない（LegendEntryだけに依存する）ので、将来の凡例付き
+// レイヤー（交通ストレス等）でもそのまま使える。
+export function summarizeLegendFilters(axes: readonly LegendFilterSummaryAxis[]): string | null {
+  const parts: string[] = [];
+  for (const axis of axes) {
+    const hidden = axis.legend.filter((entry) => axis.hiddenKeys.includes(entry.key));
+    if (hidden.length === 0) continue;
+    const visible = axis.legend.filter((entry) => !axis.hiddenKeys.includes(entry.key));
+    if (visible.length === 0) {
+      // 全カテゴリ非表示は「何も出ない」状態なので、そのことが分かる文言にする
+      parts.push(`${axis.label}をすべて非表示`);
+    } else if (visible.length <= 2) {
+      parts.push(`${visible.map((entry) => entry.label).join("・")}のみ`);
+    } else if (hidden.length <= 2) {
+      parts.push(`${hidden.map((entry) => entry.label).join("・")}以外`);
+    } else {
+      parts.push(`${axis.label}を絞り込み中`);
+    }
+  }
+  return parts.length > 0 ? parts.join("／") : null;
+}

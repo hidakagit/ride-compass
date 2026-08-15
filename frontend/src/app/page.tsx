@@ -6,9 +6,17 @@ import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
-import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
-import MapLegendPanel from "@/components/MapLegendPanel/MapLegendPanel";
+import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
+import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
+import {
+  MAP_LAYERS,
+  layerSectionDomId,
+  type MapLayerId,
+  type MapLayerVisibility,
+} from "@/components/Map/mapLayers";
+import { summarizeLegendFilters } from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
+import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   isRouteStyleModeId,
@@ -81,9 +89,12 @@ export default function Home() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
 
-  const [showElevation, setShowElevation] = useState(false);
-  const [showRoad, setShowRoad] = useState(false);
-  const [routeLayerOn, setRouteLayerOn] = useState(true);
+  // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらここへ初期値を1つ足す）
+  const [layerVisibility, setLayerVisibility] = useState<MapLayerVisibility>({
+    elevation: false,
+    road: false,
+    route: true,
+  });
   const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
@@ -157,17 +168,71 @@ export default function Home() {
       return { ...prev, [modeId]: next };
     });
   }, []);
-  // 路面の絞り込み設定は別ウィンドウ（RoadFilterDialog）内でまとめて編集し、「保存」を
-  // 押すまでは地図に反映しない（キャンセル/×で閉じれば破棄）。保存時にこのハンドラが
-  // 一括で呼ばれ、両軸分の絞り込みキーの反映・レイヤー表示ONを1つの操作として行う。
-  const handleRoadSettingsSave = useCallback((hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => {
+  // 路面の絞り込み設定はサイドバーのRoadFilterEditor内で下書き編集し、「適用」を押すまで
+  // 地図に反映しない。適用時にこのハンドラが一括で呼ばれ、両軸分の絞り込みキーの反映・
+  // レイヤー表示ONを1つの操作として行う。
+  const handleRoadFilterApply = useCallback((hiddenKeysByMode: Record<RoadFilterAxisId, string[]>) => {
     setHiddenLegendKeysByMode((prev) => ({ ...prev, ...hiddenKeysByMode }));
-    setShowRoad(true);
+    setLayerVisibility((prev) => ({ ...prev, road: true }));
   }, []);
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
   );
+
+  const handleLayerToggle = useCallback((id: MapLayerId, on: boolean) => {
+    setLayerVisibility((prev) => ({ ...prev, [id]: on }));
+  }, []);
+
+  // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
+  // 路面はズーム不足の案内を絞り込みより優先する（ONにしたのに何も出ない状態の説明が先）。
+  const roadFilterSummary = useMemo(
+    () =>
+      summarizeLegendFilters(
+        ROAD_FILTER_AXES.map((axis) => ({
+          label: axis.label,
+          legend: axis.legend,
+          hiddenKeys: roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+        })),
+      ),
+    [roadHiddenKeysByMode],
+  );
+  const roadSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadFilterSummary;
+  // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
+  const routeSummary = hasDetail
+    ? `色分け: ${getRouteStyleMode(routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
+    : null;
+
+  // 地図上のチップ行はレイヤーカタログ（MAP_LAYERS）から組み立てる。レイヤーを追加したら
+  // summaryの対応をここへ1行足すだけでよい（チップ・サマリ行の描画は汎用）。
+  const overlayLayers = useMemo<OverlayLayerChip[]>(
+    () =>
+      MAP_LAYERS.map((layer) => {
+        const disabled = layer.id === "route" && !hasDetail;
+        const summary = layer.id === "road" ? roadSummary : layer.id === "route" ? routeSummary : null;
+        return {
+          id: layer.id,
+          label: layer.label,
+          on: layerVisibility[layer.id],
+          disabled,
+          title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}（設定はサイドバー）`,
+          summary,
+        };
+      }),
+    [hasDetail, layerVisibility, roadSummary, routeSummary],
+  );
+
+  // 地図上の条件サマリのタップで、サイドバーを開いて該当レイヤーの設定セクションへ誘導する。
+  // サイドバーが閉じていると中身が未マウントのため、開いた後の再レンダーを待ってから
+  // （次フレームで）スクロール・フォーカスする。
+  const handleLayerSummaryClick = useCallback((id: MapLayerId) => {
+    setSidebarCollapsed(false);
+    requestAnimationFrame(() => {
+      const heading = document.getElementById(`${layerSectionDomId(id)}-title`);
+      heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      heading?.focus?.({ preventScroll: true });
+    });
+  }, []);
 
   // モバイルのドロワーを閉じる共通処理。背景タップ・スワイプ・Escapeキーのいずれから
   // 閉じた場合も、フォーカスが失われたパネル内要素からトグルボタンへ戻す（キーボード/
@@ -317,17 +382,17 @@ export default function Home() {
               />
             </div>
 
-            {/* 地図に何が描かれているか（色・太さの意味、絞り込み状態、ルートの色分け選択）は
-                すべてここにまとめる。地図の上（MapOverlayControls）には、押下状態と
-                絞り込み中を示す小さなドットだけを残し、詳細説明は地図に重ねない
-                （地図の視界を優先するため）。 */}
+            {/* 地図レイヤーの「細かな設定」（ON/OFF・凡例・絞り込み編集・ルートの色分け選択）は
+                すべてここにまとめる。地図の上（MapOverlayControls）にはON/OFFチップと
+                適用中の条件の1行サマリだけを残し、詳細は地図に重ねない（地図の視界を優先）。
+                サマリのタップでこのパネルの該当セクションへスクロールしてくる。 */}
             <div className={styles.legendCard}>
-              <MapLegendPanel
-                showRoad={showRoad}
+              <MapLayersPanel
+                layerVisibility={layerVisibility}
+                onLayerToggle={handleLayerToggle}
                 roadHiddenKeysByMode={roadHiddenKeysByMode}
+                onRoadFilterApply={handleRoadFilterApply}
                 regionZoomTooWide={regionZoomTooWide}
-                routeLayerOn={routeLayerOn}
-                onRouteLayerToggle={setRouteLayerOn}
                 routeStyleModeId={routeStyleModeId}
                 onRouteStyleModeChange={handleRouteStyleModeChange}
                 hiddenRouteLegendKeys={hiddenRouteLegendKeys}
@@ -371,27 +436,17 @@ export default function Home() {
           routes={routes}
           selectedRouteId={selectedRouteId}
           location={location}
-          showElevation={showElevation}
-          showRoad={showRoad}
+          showElevation={layerVisibility.elevation}
+          showRoad={layerVisibility.road}
           roadHiddenKeysByMode={roadHiddenKeysByMode}
-          routeLayerOn={routeLayerOn}
+          routeLayerOn={layerVisibility.route}
           routeStyleModeId={routeStyleModeId}
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
           onRegionZoomHintChange={setRegionZoomTooWide}
           refreshToken={refreshToken}
         />
 
-        <MapOverlayControls
-          showElevation={showElevation}
-          onShowElevationToggle={setShowElevation}
-          showRoad={showRoad}
-          onShowRoadToggle={setShowRoad}
-          roadHiddenKeysByMode={roadHiddenKeysByMode}
-          onRoadSettingsSave={handleRoadSettingsSave}
-          routeLayerOn={routeLayerOn}
-          onRouteLayerToggle={setRouteLayerOn}
-          hasDetail={hasDetail}
-        />
+        <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
 
         <button
           type="button"
