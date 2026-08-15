@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView from "@/components/Map/MapView";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
+import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugConsole/DebugConsole";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
@@ -28,6 +29,7 @@ import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
+import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
@@ -119,6 +121,7 @@ export default function Home() {
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const debugEnabled = useDebugEnabled();
+  const researchEnabled = useResearchEnabled();
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
@@ -335,9 +338,10 @@ export default function Home() {
       setSelectedRouteId(candidates[0]?.id ?? null);
       if (candidates.length === 0) {
         setErrorMessage("条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
-      } else if (debugEnabled) {
-        // 実験スロットへの記録はデバッグモード中の生成のみ（研究用機能を一般ユーザーの
-        // 通常操作から隠す方針、§14）。総合スコア最上位（=candidates[0]）を比較代表候補として
+      } else if (researchEnabled) {
+        // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
+        // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立、改善計画T29）。
+        // おすすめ度最上位（=candidates[0]）を比較代表候補として
         // 固定し、以降の候補選び直しでは変えない（スロット=生成結果のスナップショット）。
         setExperimentSlots((prev) => {
           const next: ExperimentSlot = {
@@ -439,12 +443,13 @@ export default function Home() {
 
             <div className={styles.systemRow}>
               <DebugPanel />
+              <ResearchPanel />
               <BackendStatus />
             </div>
 
-            {/* 評価重みパネルは研究インターフェース改善のPhase2（§10-1/4）。デバッグモード配下に
+            {/* 評価重みパネルは研究インターフェース改善のPhase2（§10-1/4）。研究モード配下に
                 置き、一般ユーザーの操作導線とは混ざらない場所にする（§14の分離方針）。 */}
-            {debugEnabled && (
+            {researchEnabled && (
               <div className={styles.legendCard}>
                 <WeightPanel
                   overrideEnabled={weightOverrideEnabled}
@@ -500,7 +505,7 @@ export default function Home() {
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
           onRegionZoomHintChange={setRegionZoomTooWide}
           refreshToken={refreshToken}
-          experimentSlots={debugEnabled ? experimentSlots : []}
+          experimentSlots={researchEnabled ? experimentSlots : []}
         />
 
         <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
