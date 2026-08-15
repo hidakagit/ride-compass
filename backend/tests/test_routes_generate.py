@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_route_generator
+from app.api.dependencies import RouteGenerationSetup, get_route_generation_builder
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import RoutePreference
@@ -14,9 +14,9 @@ from app.infrastructure.weather_client import WeatherClient
 from app.main import app
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.elevation_service import ElevationService
-from app.services.evaluation_service import EvaluationService
+from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
-from app.services.route_scorer import RouteScorer
+from app.services.route_scorer import load_scoring_weights
 from app.services.routing_service import RoutingService
 from app.services.weather_service import WeatherService
 from app.services.wind_service import WindService
@@ -29,6 +29,13 @@ REQUEST_BODY = {
     "distance_km": 30,
     "distance_tolerance_km": 5,
     "route_type": "loop",
+}
+
+DEFAULT_SCORING_WEIGHTS = {
+    "distance_weight": 0.30,
+    "elevation_weight": 0.15,
+    "wind_weight": 0.30,
+    "road_weight": 0.25,
 }
 
 
@@ -51,6 +58,23 @@ class FakeRouteGenerator:
         return self._candidates
 
 
+def override_generation_builder(candidates: list[RouteCandidate], captured: dict | None = None):
+    """get_route_generation_builderのDI上書き。capturedを渡すと、エンドポイントが
+    ビルダーへ渡した重み上書き（無ければNone）を記録する。"""
+
+    def build(preference_override=None, scoring_weights_override=None) -> RouteGenerationSetup:
+        if captured is not None:
+            captured["preference"] = preference_override
+            captured["scoring"] = scoring_weights_override
+        return RouteGenerationSetup(
+            generator=FakeRouteGenerator(candidates),
+            scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
+            route_preference=preference_override or RoutePreference(),
+        )
+
+    return lambda: build
+
+
 def test_generate_routes_returns_candidates_and_engine():
     candidates = [
         RouteCandidate(
@@ -60,7 +84,7 @@ def test_generate_routes_returns_candidates_and_engine():
             geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
         )
     ]
-    app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator(candidates)
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder(candidates)
 
     try:
         response = client.post("/api/routes/generate", json=REQUEST_BODY)
@@ -76,7 +100,7 @@ def test_generate_routes_returns_candidates_and_engine():
 
 
 def test_generate_routes_returns_empty_list_when_no_candidates_match():
-    app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator([])
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
 
     try:
         response = client.post("/api/routes/generate", json=REQUEST_BODY)
@@ -89,10 +113,56 @@ def test_generate_routes_returns_empty_list_when_no_candidates_match():
     assert body["engine"] == "fake-engine"
 
 
+def test_generate_routes_echoes_applied_conditions():
+    # 実験の記録・再現用に、実際に適用された条件（重み含む）をレスポンスへエコーする
+    # （研究インターフェース改善 §10-6）。上書き無しの場合は既定重みがそのまま入る。
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+
+    try:
+        response = client.post("/api/routes/generate", json=REQUEST_BODY)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    conditions = response.json()["conditions"]
+    assert conditions["latitude"] == REQUEST_BODY["latitude"]
+    assert conditions["longitude"] == REQUEST_BODY["longitude"]
+    assert conditions["distance_km"] == REQUEST_BODY["distance_km"]
+    assert conditions["distance_tolerance_km"] == REQUEST_BODY["distance_tolerance_km"]
+    assert conditions["scoring_weights"] == DEFAULT_SCORING_WEIGHTS
+    assert conditions["route_preference"] == RoutePreference().model_dump()
+    # ISO8601（JST）。厳密な時刻は環境依存のため形式だけ確認する
+    assert "+09:00" in conditions["generated_at"]
+
+
+def test_generate_routes_applies_weight_overrides_and_echoes_them():
+    # リクエストの重み上書きがビルダーへ渡り、conditionsに適用値がエコーされる
+    # （研究インターフェース改善 §10-1）。
+    captured: dict = {}
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
+    scoring_weights = {"distance_weight": 0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}
+    route_preference = {"elevation_weight": 0.5, "road_weight": 0.25, "wind_weight": 0.25}
+
+    try:
+        response = client.post(
+            "/api/routes/generate",
+            json={**REQUEST_BODY, "scoring_weights": scoring_weights, "route_preference": route_preference},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert captured["scoring"] == scoring_weights
+    assert captured["preference"] == RoutePreference(**route_preference)
+    conditions = response.json()["conditions"]
+    assert conditions["scoring_weights"] == scoring_weights
+    assert conditions["route_preference"] == route_preference
+
+
 def test_generate_routes_is_rate_limited_per_client():
     # ルート生成は最も高コストなエンドポイント（外部APIクォータ・数十秒の処理時間）のため、
     # per-IPの上限を超えたリクエストは429で拒否する。
-    app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator([])
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
 
     try:
         for _ in range(settings.generate_rate_limit_per_minute):
@@ -106,7 +176,7 @@ def test_generate_routes_is_rate_limited_per_client():
 
 async def test_generate_routes_rejects_when_concurrency_limit_reached():
     # 同時実行数の上限に達している間は待たせず429を返す（外部サービスへの負荷の積み上げ防止）。
-    app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator([])
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
 
     acquired = 0
     try:
@@ -122,21 +192,17 @@ async def test_generate_routes_rejects_when_concurrency_limit_reached():
     assert response.status_code == 429
 
 
-def _build_route_generator_with_lightweight_deps():
-    # get_route_generatorはFastAPIのDependsで解決される前提の関数だが、ここでは
-    # 依存を直接渡して「settings.routing_engineに応じたエンジン選択」だけを検証する。
-    # いずれの依存もコンストラクタではI/Oを行わないため、http_clientはNoneでよい。
-    preference = RoutePreference()
-    return get_route_generator(
+def _lightweight_generation_builder():
+    # get_route_generation_builderはFastAPIのDependsで解決される前提の関数だが、ここでは
+    # 依存を直接渡して「settings.routing_engineに応じたエンジン選択」と重みの既定値/上書きの
+    # 反映だけを検証する。いずれの依存もコンストラクタではI/Oを行わないため、http_clientはNoneでよい。
+    return get_route_generation_builder(
         routing_service=RoutingService(ORSClient("test-key", http_client=None)),
         elevation_service=ElevationService(ElevationClient(), http_client=None),
         wind_service=WindService(WeatherService(WeatherClient(), http_client=None)),
         graph_service=GraphService(OverpassClient(), http_client=None),
         elevation_attribute_service=ElevationAttributeService(ElevationClient(), http_client=None),
-        evaluation_service=EvaluationService(preference),
         weather_service=WeatherService(WeatherClient(), http_client=None),
-        route_scorer=RouteScorer({"distance_weight": 0.30, "elevation_weight": 0.15, "wind_weight": 0.30, "road_weight": 0.25}),
-        route_preference=preference,
     )
 
 
@@ -151,10 +217,16 @@ def _build_route_generator_with_lightweight_deps():
         {"distance_km": -5},
         {"distance_tolerance_km": 0},
         {"route_type": "not-a-real-type"},
+        # 重み上書きは非負のみ許可。部分指定（フィールド欠け）は「クラス既定値が黙って入る」
+        # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
+        {"scoring_weights": {"distance_weight": -0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}},
+        {"scoring_weights": {"distance_weight": 0.5}},
+        {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
+        {"route_preference": {"elevation_weight": 0.5}},
     ],
 )
 def test_generate_routes_rejects_invalid_request_body(overrides):
-    app.dependency_overrides[get_route_generator] = lambda: FakeRouteGenerator([])
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
 
     try:
         response = client.post("/api/routes/generate", json={**REQUEST_BODY, **overrides})
@@ -164,9 +236,26 @@ def test_generate_routes_rejects_invalid_request_body(overrides):
     assert response.status_code == 422
 
 
-def test_get_route_generator_selects_engine_from_settings(monkeypatch):
+def test_generation_builder_selects_engine_from_settings(monkeypatch):
     monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
-    assert _build_route_generator_with_lightweight_deps().engine_name == "openrouteservice"
+    assert _lightweight_generation_builder()(None, None).generator.engine_name == "openrouteservice"
 
     monkeypatch.setattr(settings, "routing_engine", "road_graph")
-    assert _build_route_generator_with_lightweight_deps().engine_name == "road_graph"
+    assert _lightweight_generation_builder()(None, None).generator.engine_name == "road_graph"
+
+
+def test_generation_builder_uses_yaml_defaults_when_no_override():
+    setup = _lightweight_generation_builder()(None, None)
+
+    assert setup.scoring_weights == load_scoring_weights()
+    assert setup.route_preference == load_route_preference()
+
+
+def test_generation_builder_uses_overrides_when_provided():
+    preference = RoutePreference(elevation_weight=1.0, road_weight=0.0, wind_weight=0.0)
+    scoring_weights = {"distance_weight": 1.0, "elevation_weight": 0.0, "wind_weight": 0.0, "road_weight": 0.0}
+
+    setup = _lightweight_generation_builder()(preference, scoring_weights)
+
+    assert setup.route_preference is preference
+    assert setup.scoring_weights == scoring_weights

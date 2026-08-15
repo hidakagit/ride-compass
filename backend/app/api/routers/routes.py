@@ -1,16 +1,23 @@
 import asyncio
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import client_id, get_route_generator, get_routing_service
+from app.api.dependencies import (
+    RouteGenerationBuilder,
+    client_id,
+    get_route_generation_builder,
+    get_routing_service,
+)
 from app.config import settings
 from app.domain.errors import RoutingError
+from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
-from app.services.route_generator import RouteGenerator
+from app.services.route_generator import JST
 from app.services.routing_service import RoutingService
 
 router = APIRouter()
@@ -43,6 +50,33 @@ async def preview_route(
         raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
 
 
+class ScoringWeights(BaseModel):
+    """total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。
+
+    値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は
+    無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。
+    """
+
+    distance_weight: float = Field(ge=0)
+    elevation_weight: float = Field(ge=0)
+    wind_weight: float = Field(ge=0)
+    road_weight: float = Field(ge=0)
+
+
+class RoutePreferenceWeights(BaseModel):
+    """Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
+    キーはroute_preference.yamlと同じ。
+
+    domain/evaluation.pyのRoutePreferenceと同形だが、API境界では「フィールド省略時に
+    クラス既定値が黙って入る」ことを避けるため、全フィールド必須の別モデルにしている
+    （上書きするなら全軸を明示する）。
+    """
+
+    elevation_weight: float = Field(ge=0)
+    road_weight: float = Field(ge=0)
+    wind_weight: float = Field(ge=0)
+
+
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -52,6 +86,29 @@ class RouteGenerateRequest(BaseModel):
     distance_km: float = Field(gt=0, le=100)
     distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
     route_type: Literal["loop"] = "loop"
+    # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
+    # §10-1）。省略時はYAML既定値（scoring.yaml / route_preference.yaml）を使う。
+    # 実際に適用された値はレスポンスのconditionsへエコーされる。
+    scoring_weights: ScoringWeights | None = None
+    route_preference: RoutePreferenceWeights | None = None
+
+
+class GenerationConditions(BaseModel):
+    """この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
+
+    scoring_weights / route_preference は「リクエストで上書きされた値」または
+    「YAML既定値」のうち実際に使われた方。レスポンスJSONを保存すれば、同じ条件を
+    scoring_weights / route_preference としてそのまま再送して再現できる。
+    """
+
+    latitude: float
+    longitude: float
+    distance_km: float
+    distance_tolerance_km: float
+    scoring_weights: ScoringWeights
+    route_preference: RoutePreferenceWeights
+    # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
+    generated_at: str
 
 
 class RouteGenerateResponse(BaseModel):
@@ -60,13 +117,14 @@ class RouteGenerateResponse(BaseModel):
     # wind_score等はエンジンによって算出の意味が異なる（openrouteservice_engine.py参照）ため、
     # 評価値の精査・比較時にどちらの定義の数値かを判別できるようにする。
     engine: str
+    conditions: GenerationConditions
 
 
 @router.post("/api/routes/generate", response_model=RouteGenerateResponse)
 async def generate_routes(
     request: RouteGenerateRequest,
     http_request: Request,
-    route_generator: RouteGenerator = Depends(get_route_generator),
+    build_generation: RouteGenerationBuilder = Depends(get_route_generation_builder),
 ) -> RouteGenerateResponse:
     if not check_rate_limit(f"generate:{client_id(http_request)}", settings.generate_rate_limit_per_minute):
         record_rate_limit_rejection(
@@ -80,11 +138,31 @@ async def generate_routes(
             "generate-concurrency", client_id(http_request), f"concurrent={settings.generate_max_concurrent}"
         )
         raise HTTPException(status_code=429, detail="ルート生成が混み合っています。しばらく待ってから再試行してください。")
+
+    # 重みの上書き（省略時はビルダー側でYAML既定値を読む）。適用された値はconditionsへエコーする。
+    preference_override = (
+        RoutePreference(**request.route_preference.model_dump()) if request.route_preference else None
+    )
+    scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
+    setup = build_generation(preference_override, scoring_override)
+
     async with _generate_semaphore:
         origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
-        candidates = await route_generator.generate_loops(
+        candidates = await setup.generator.generate_loops(
             origin=origin,
             distance_km=request.distance_km,
             distance_tolerance_km=request.distance_tolerance_km,
         )
-    return RouteGenerateResponse(routes=candidates, engine=route_generator.engine_name)
+    return RouteGenerateResponse(
+        routes=candidates,
+        engine=setup.generator.engine_name,
+        conditions=GenerationConditions(
+            latitude=request.latitude,
+            longitude=request.longitude,
+            distance_km=request.distance_km,
+            distance_tolerance_km=request.distance_tolerance_km,
+            scoring_weights=ScoringWeights(**setup.scoring_weights),
+            route_preference=RoutePreferenceWeights(**setup.route_preference.model_dump()),
+            generated_at=datetime.now(JST).isoformat(),
+        ),
+    )

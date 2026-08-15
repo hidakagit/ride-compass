@@ -8,8 +8,8 @@ import {
 } from "./routeStyleModes";
 
 describe("routeStyleModes", () => {
-  it("2つのモード（風の影響・勾配）を定義し、デフォルトは風", () => {
-    expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual(["wind", "gradient"]);
+  it("4つのモード（風の影響・勾配・路面・総合難易度）を定義し、デフォルトは風", () => {
+    expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual(["wind", "gradient", "road", "difficulty"]);
     expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe("wind");
   });
 
@@ -66,9 +66,40 @@ describe("routeStyleModes", () => {
     expect(buildLegendFilterExpression(wind.legend, ["normal"])).toEqual(["all", ["!", normal!.filter]]);
   });
 
+  it("路面モードは3値（舗装/未舗装/データなし）を判定値そのままで色分けする", () => {
+    const road = getRouteStyleMode("road");
+    expect(road.legend.map((entry) => entry.key)).toEqual(["paved", "unpaved", "nodata"]);
+    // データ欠落（null）はグレーへ倒すのが最初の分岐（to-number変換を挟まない直接比較）
+    expect(road.colorExpression[0]).toBe("case");
+    expect(road.colorExpression[1]).toEqual(["==", ["get", "road_surface_good"], null]);
+    expect(road.colorExpression[2]).toBe("#9ca3af");
+    // 凡例タップのフィルタはtrue/false/nullの3値で排他になっている
+    const paved = road.legend.find((entry) => entry.key === "paved");
+    expect(paved?.filter).toEqual(["==", ["get", "road_surface_good"], true]);
+    expect(buildLegendFilterExpression(road.legend, ["unpaved"])).toEqual([
+      "all",
+      ["!", ["==", ["get", "road_surface_good"], false]],
+    ]);
+  });
+
+  it("総合難易度モードはdifficulty(0-100絶対基準)を風モードと同じ3段階で色分けする", () => {
+    const difficulty = getRouteStyleMode("difficulty");
+    expect(difficulty.legend.map((entry) => entry.key)).toEqual(["easy", "normal", "hard", "nodata"]);
+    expect(difficulty.colorExpression[1]).toEqual(["==", ["get", "difficulty"], null]);
+    const normal = difficulty.legend.find((entry) => entry.key === "normal");
+    expect(normal?.filter).toEqual([
+      "all",
+      ["!=", ["get", "difficulty"], null],
+      [">=", ["to-number", ["get", "difficulty"]], 33],
+      ["<", ["to-number", ["get", "difficulty"]], 66],
+    ]);
+  });
+
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {
     expect(isRouteStyleModeId("wind")).toBe(true);
     expect(isRouteStyleModeId("gradient")).toBe(true);
+    expect(isRouteStyleModeId("road")).toBe(true);
+    expect(isRouteStyleModeId("difficulty")).toBe(true);
     expect(isRouteStyleModeId("slope")).toBe(false);
     expect(isRouteStyleModeId("")).toBe(false);
     expect(isRouteStyleModeId(null)).toBe(false);

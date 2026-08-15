@@ -5,6 +5,9 @@
 すべてここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
 """
 
+from dataclasses import dataclass
+from typing import Callable
+
 from fastapi import Depends, Request
 
 from app.config import settings
@@ -66,18 +69,20 @@ def get_wind_service(
     return WindService(weather_service)
 
 
-def get_route_scorer() -> RouteScorer:
-    return RouteScorer(load_scoring_weights())
+@dataclass
+class RouteGenerationSetup:
+    """1回のルート生成に使う組み立て済みの部品と、実際に適用された評価条件。
+
+    scoring_weights / route_preference はレスポンスの条件エコー
+    （routers/routes.py: GenerationConditions）にそのまま使う。
+    """
+
+    generator: RouteGenerator
+    scoring_weights: dict[str, float]
+    route_preference: RoutePreference
 
 
-def get_route_preference() -> RoutePreference:
-    return load_route_preference()
-
-
-def get_evaluation_service(
-    route_preference: RoutePreference = Depends(get_route_preference),
-) -> EvaluationService:
-    return EvaluationService(route_preference)
+RouteGenerationBuilder = Callable[[RoutePreference | None, dict[str, float] | None], RouteGenerationSetup]
 
 
 async def get_graph_service():
@@ -110,34 +115,49 @@ async def get_elevation_attribute_service():
         yield ElevationAttributeService(ElevationClient(), http_client)
 
 
-def get_route_generator(
+def get_route_generation_builder(
     routing_service: RoutingService = Depends(get_routing_service),
     elevation_service: ElevationService = Depends(get_elevation_service),
     wind_service: WindService = Depends(get_wind_service),
     graph_service: GraphService = Depends(get_graph_service),
     elevation_attribute_service: ElevationAttributeService = Depends(get_elevation_attribute_service),
-    evaluation_service: EvaluationService = Depends(get_evaluation_service),
     weather_service: WeatherService = Depends(get_weather_service),
-    route_scorer: RouteScorer = Depends(get_route_scorer),
-    route_preference: RoutePreference = Depends(get_route_preference),
-) -> RouteGenerator:
+) -> RouteGenerationBuilder:
     # 周回生成戦略（8方位・距離フィルタ・スコアリング）はRouteGeneratorが単一で持ち、
     # settings.routing_engineに応じて経路計算・評価のエンジンだけを差し替える（config.py参照）。
     # 両エンジン分の依存関係をまとめてDepends宣言しているため、使わない側の依存
     # （httpx.AsyncClient等、いずれも実際のI/Oはこの時点で発生しない軽量なもの）も毎回
     # 構築されるが、FastAPIのDIで条件分岐に応じて一部のDependsだけを解決する簡単な方法が
     # 無いため、単純さを優先してこの形にしている。
-    if settings.routing_engine == "road_graph":
-        engine = RoadGraphEngine(
-            graph_service,
-            elevation_attribute_service,
-            evaluation_service,
-            weather_service,
-            route_preference,
+    #
+    # RouteGenerator本体ではなくビルダー（呼び出し可能）を返すのは、評価の重みを
+    # リクエストボディで上書きできるため（研究インターフェース改善 §10-1）。DI解決の時点では
+    # ボディが未検証のため、エンドポイントが検証済みの上書き値（無ければNone）を渡して
+    # 組み立てを完了する。上書きが無い場合はYAML既定値を読む（従来挙動と同一。
+    # YAMLはリクエスト毎に再読込されるため、編集はサーバー再起動なしで反映される）。
+    def build(
+        preference_override: RoutePreference | None = None,
+        scoring_weights_override: dict[str, float] | None = None,
+    ) -> RouteGenerationSetup:
+        preference = preference_override or load_route_preference()
+        scoring_weights = scoring_weights_override or load_scoring_weights()
+        if settings.routing_engine == "road_graph":
+            engine = RoadGraphEngine(
+                graph_service,
+                elevation_attribute_service,
+                EvaluationService(preference),
+                weather_service,
+                preference,
+            )
+        else:
+            engine = OpenRouteServiceEngine(routing_service, elevation_service, wind_service, preference)
+        return RouteGenerationSetup(
+            generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
+            scoring_weights=scoring_weights,
+            route_preference=preference,
         )
-    else:
-        engine = OpenRouteServiceEngine(routing_service, elevation_service, wind_service, route_preference)
-    return RouteGenerator(engine, route_scorer)
+
+    return build
 
 
 async def get_region_service():

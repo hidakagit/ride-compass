@@ -27,6 +27,15 @@ function makeSegments(count: number): RouteSegmentDetail[] {
   const segments: RouteSegmentDetail[] = [];
   for (let i = 0; i < count; i++) {
     segments.push({
+      // 実レスポンス同様、区間の道なり形状（数点のLineString）を持たせて計測する
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [139.7 + i * 0.001, 35.7 + i * 0.001],
+          [139.7 + (i + 0.5) * 0.001, 35.7 + (i + 0.4) * 0.001],
+          [139.7 + (i + 1) * 0.001, 35.7 + (i + 1) * 0.001],
+        ],
+      },
       start_latitude: 35.7 + i * 0.001,
       start_longitude: 139.7 + i * 0.001,
       end_latitude: 35.7 + (i + 1) * 0.001,
@@ -61,6 +70,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       wind_score: 1.5,
       road_score: 82.3,
       total_score: 70 + i,
+      score_breakdown: null,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
     });
   }

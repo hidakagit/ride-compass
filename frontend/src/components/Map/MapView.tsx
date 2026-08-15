@@ -75,22 +75,32 @@ export function routesToFeatureCollection(
   };
 }
 
+// 区間featureのproperties型。形状はfeature.geometry側に持たせるため、propertiesからは
+// geometryを除外する（クリック時のポップアップ表示に必要な値だけを残す）。
+export type RouteSegmentProperties = Omit<RouteSegmentDetail, "geometry">;
+
 export function segmentsToFeatureCollection(
   segments: RouteSegmentDetail[]
-): GeoJSON.FeatureCollection<GeoJSON.LineString, RouteSegmentDetail> {
+): GeoJSON.FeatureCollection<GeoJSON.LineString, RouteSegmentProperties> {
   return {
     type: "FeatureCollection",
-    features: segments.map((segment) => ({
-      type: "Feature",
-      properties: segment,
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [segment.start_longitude, segment.start_latitude],
-          [segment.end_longitude, segment.end_latitude],
-        ],
-      },
-    })),
+    features: segments.map((segment) => {
+      const { geometry, ...properties } = segment;
+      return {
+        type: "Feature",
+        properties,
+        // 区間の道なり形状（backendがルートgeometryから切り出した部分列）をそのまま使う。
+        // geometryが無い場合（古いレスポンス・2点未満のEdge等）のみ、従来どおり
+        // 始点・終点を結ぶ直線で代替する（カーブ区間では道路から外れる近似表示）。
+        geometry: geometry ?? {
+          type: "LineString",
+          coordinates: [
+            [segment.start_longitude, segment.start_latitude],
+            [segment.end_longitude, segment.end_latitude],
+          ],
+        },
+      };
+    }),
   };
 }
 
@@ -136,10 +146,18 @@ function drawBaseRoutes(map: MapLibreMap, routes: RouteCandidate[], selectedRout
       type: "line",
       source: ROUTES_SOURCE_ID,
       paint: {
-        // 未選択の候補もベースマップの道路色と紛れないよう、はっきりしたアンバー系にする
-        "line-color": ["case", ["get", "selected"], "#2563eb", "#f59e0b"],
-        "line-width": ["case", ["get", "selected"], 5, 3],
-        "line-opacity": ["case", ["get", "selected"], 1, 0.85],
+        // 未選択の候補は「背景の参考線」として見えればよく、選択中候補
+        // （特にroute-detail-segments-lineの路面/難易度色分け）を主役として引き立てる
+        // 脇役にする（以前はアンバー・幅3・不透明度0.85で選択中候補と競合し輻輳して
+        // 見づらかった。ユーザーFB「区間が荒すぎて実態がよくわからない」の後続改善）。
+        // 色はアンバーだとOpenFreeMapベースマップの主要道路（暖色系のオレンジ〜ベージュ）に
+        // 溶け込んで見分けが付きにくかったため、ベースマップに存在しない寒色（スレート）へ
+        // 変更した。8候補比較（地図上での見比べ）自体は維持したいため、消えるほど薄くは
+        // せず（実機確認で不透明度0.45は背景に埋没して見えなくなることを確認済み）、
+        // 「はっきり見えるが選択中候補ほどは目立たない」不透明度に調整している。
+        "line-color": ["case", ["get", "selected"], "#2563eb", "#64748b"],
+        "line-width": ["case", ["get", "selected"], 5, 2.5],
+        "line-opacity": ["case", ["get", "selected"], 1, 0.65],
       },
     });
   };
@@ -352,7 +370,7 @@ function formatRoad(good: boolean | null): string {
   return good ? "舗装路" : "未舗装路";
 }
 
-function buildSegmentPopupHtml(segment: RouteSegmentDetail): string {
+function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
   const gradient = segment.gradient_percent != null ? `${segment.gradient_percent.toFixed(1)}%` : "不明";
   return `<div style="font-size:0.85rem; line-height:1.6;">
     <strong>${segment.cumulative_distance_km.toFixed(1)} km地点</strong>（到達予想 ${formatTime(segment.estimated_arrival_time)}）<br/>
@@ -527,7 +545,7 @@ export default function MapView({
       const feature = features[0];
       const html =
         feature.layer.id === DETAIL_LAYER_ID
-          ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentDetail)
+          ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
           : buildRoadSurfacePopupHtml(feature.properties as unknown as { surface_good: boolean | null });
 
       popupRef.current?.remove();

@@ -308,6 +308,25 @@ async def test_candidate_segments_cover_every_edge_on_the_path():
     assert abs(total_segment_distance - candidate.distance_km) < 0.1
 
 
+async def test_candidate_segments_carry_edge_geometry_for_map_drawing():
+    # 区間の色分けを道路形状に沿って描くため、各区間はEdgeの形状点列をGeoJSON
+    # LineString（[lon, lat]順）として持つ（研究IF改善: 区間表示の道なり化）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    for seg in candidate.segments:
+        assert seg.geometry is not None
+        assert seg.geometry["type"] == "LineString"
+        coordinates = seg.geometry["coordinates"]
+        assert len(coordinates) >= 2
+        # 形状の端点はstart/endフィールドと一致する（GeoJSONは[lon, lat]順）
+        assert coordinates[0] == [seg.start_longitude, seg.start_latitude]
+        assert coordinates[-1] == [seg.end_longitude, seg.end_latitude]
+
+
 async def test_total_score_is_populated_and_candidates_sorted_descending():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)

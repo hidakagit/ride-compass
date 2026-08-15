@@ -127,6 +127,7 @@ describe("routeApi", () => {
           wind_score: null,
           road_score: null,
           total_score: null,
+          score_breakdown: null,
           segments: null,
         },
       ];

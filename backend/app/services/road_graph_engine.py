@@ -215,9 +215,17 @@ class RoadGraphEngine:
 
             start_lat, start_lon = edge.geometry[0]
             end_lat, end_lon = edge.geometry[-1]
+            # 区間の道なり形状はEdgeの形状点列そのもの（追加取得なし）。2点未満のEdgeは
+            # 形状にならないためNone（フロントは始点・終点の直線で代替描画する）。
+            segment_coordinates = [[lon, lat] for lat, lon in edge.geometry]
 
             segments.append(
                 RouteSegmentDetail(
+                    geometry=(
+                        {"type": "LineString", "coordinates": segment_coordinates}
+                        if len(segment_coordinates) >= 2
+                        else None
+                    ),
                     start_latitude=start_lat,
                     start_longitude=start_lon,
                     end_latitude=end_lat,

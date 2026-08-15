@@ -9,7 +9,12 @@ from app.domain.difficulty import gradient_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
-from app.services.openrouteservice_engine import OpenRouteServiceEngine
+from app.services.openrouteservice_engine import (
+    MAX_SAMPLE_COUNT,
+    MIN_SAMPLE_COUNT,
+    OpenRouteServiceEngine,
+    sample_count_for_distance,
+)
 from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator
 from app.services.route_scorer import RouteScorer
 
@@ -180,3 +185,48 @@ async def test_engine_name_is_openrouteservice():
     generator = make_generator([segment(30.0) for _ in DIRECTIONS_DEG])
 
     assert generator.engine_name == "openrouteservice"
+
+
+def test_sample_count_scales_with_distance_within_bounds():
+    # 約1km間隔・下限12（従来密度）・上限32（外部API問い合わせの安全弁）。
+    assert sample_count_for_distance(5.0) == MIN_SAMPLE_COUNT
+    assert sample_count_for_distance(11.0) == MIN_SAMPLE_COUNT
+    assert sample_count_for_distance(15.0) == 16
+    assert sample_count_for_distance(30.0) == 31
+    assert sample_count_for_distance(100.0) == MAX_SAMPLE_COUNT
+
+
+def make_dense_geometry(point_count: int) -> dict:
+    # 東方向へ等間隔に並ぶpoint_count個の座標列（値の同一性で区間形状の切り出しを検証する）
+    return {
+        "type": "LineString",
+        "coordinates": [[139.7 + i * 0.001, 35.75 + i * 0.0005] for i in range(point_count)],
+    }
+
+
+async def test_segments_carry_route_geometry_slices():
+    """区間は道なり形状（ルートgeometryの部分列）を持ち、隣接区間で連続し全体を覆うこと
+    （研究IF改善: 区間表示の道なり化。以前は始点・終点の直線チョードで描いており、
+    カーブ区間で色分け線が道路から外れていた）。"""
+    geometry = make_dense_geometry(100)
+    outcomes = [
+        RouteSegment(distance_km=30.0, duration_minutes=90.0, geometry=geometry) for _ in DIRECTIONS_DEG
+    ]
+    generator = make_generator(outcomes)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    seg_list = candidates[0].segments
+    # 30km → 31点サンプリング＝30区間
+    assert len(seg_list) == sample_count_for_distance(30.0) - 1
+    reconstructed = []
+    for seg in seg_list:
+        assert seg.geometry is not None
+        coordinates = seg.geometry["coordinates"]
+        assert len(coordinates) >= 2
+        # 形状の端点はstart/endフィールドと一致（GeoJSONは[lon, lat]順）
+        assert coordinates[0] == [seg.start_longitude, seg.start_latitude]
+        assert coordinates[-1] == [seg.end_longitude, seg.end_latitude]
+        # 隣接区間の境界点（前区間の終端＝次区間の始端）を除いて連結すると元のgeometryに戻る
+        reconstructed.extend(coordinates if not reconstructed else coordinates[1:])
+    assert reconstructed == geometry["coordinates"]

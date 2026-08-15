@@ -26,11 +26,18 @@ export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> &
 
 export type RoutePreviewRequest = Schemas["RoutePreviewRequest"];
 
-export type RouteSegmentDetail = Required<Schemas["RouteSegmentDetail"]>;
+// geometry: 区間の道なり形状（ルートgeometryの部分列）。バックエンドはdict|Noneのため
+// スキーマに構造が現れず、RouteCandidate.geometryと同じ理由で手動補正する（null許容）。
+export type RouteSegmentDetail = Omit<Required<Schemas["RouteSegmentDetail"]>, "geometry"> & {
+  geometry: GeoJSON.LineString | null;
+};
 
-export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry" | "segments"> & {
+export type RouteScoreComponent = Required<Schemas["RouteScoreComponent"]>;
+
+export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry" | "segments" | "score_breakdown"> & {
   geometry: GeoJSON.LineString;
   segments: RouteSegmentDetail[] | null;
+  score_breakdown: RouteScoreComponent[] | null;
 };
 
 export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];

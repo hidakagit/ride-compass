@@ -30,9 +30,20 @@ from app.services.routing_service import RoutingService
 from app.services.wind_service import WindService
 
 # 標高・風・路面を同じ点集合で評価するためのサンプリング密度。
-# 密度を上げると地図の難易度レイヤーは滑らかになるが、GSI/Open-Meteoへの問い合わせ数が
-# 比例して増え生成時間が伸びるため、Step5-7から使ってきた密度をそのまま踏襲する（既知の制約）。
-SAMPLE_COUNT = 12
+# 以前はルート距離に関わらず12点固定で、30kmルートでは1区間約2.7kmと粗く、地図の
+# 区間色分けから実態が読み取れなかった（研究IFレビューのフィードバック）。距離に応じて
+# 約1km間隔になるよう点数を決め、下限12点（従来密度を下回らない）・上限32点で頭打ちにする。
+# 上限は外部API問い合わせの安全弁: 標高は1点=GSI 1リクエスト（SQLiteキャッシュあり）のため、
+# 最悪ケースでも8候補×32点=256リクエスト/生成に収まる（風はTTL＋座標丸めキャッシュにより
+# 点数を増やしてもほぼ増えない）。地図の色分け粒度はこの点数がそのまま決める。
+SAMPLE_INTERVAL_KM = 1.0
+MIN_SAMPLE_COUNT = 12
+MAX_SAMPLE_COUNT = 32
+
+
+def sample_count_for_distance(distance_km: float) -> int:
+    """ルート距離から約SAMPLE_INTERVAL_KM間隔になるサンプル点数を決める（min/maxでクランプ）。"""
+    return max(MIN_SAMPLE_COUNT, min(MAX_SAMPLE_COUNT, round(distance_km / SAMPLE_INTERVAL_KM) + 1))
 
 # prepareが返す「準備不要」を表すコンテキスト（本エンジンはリクエスト単位の共有準備を持たない）。
 _NO_CONTEXT = object()
@@ -76,7 +87,7 @@ class OpenRouteServiceEngine:
         surface_values_per_candidate = [t.data.surface_values for t in traced]
 
         # 標高・風・路面を同じ点集合（インデックス付き）で評価する
-        sampled = [sample_line_points(c.geometry, SAMPLE_COUNT) for c in candidates]
+        sampled = [sample_line_points(c.geometry, sample_count_for_distance(c.distance_km)) for c in candidates]
         points_per_candidate = [[point for _, point in s] for s in sampled]
         indices_per_candidate = [[index for index, _ in s] for s in sampled]
 
@@ -105,6 +116,7 @@ class OpenRouteServiceEngine:
                         elevations=elevations_per_candidate[i],
                         wind_segments=wind_segments_per_candidate[i],
                         surface_values=surface_values_per_candidate[i],
+                        route_geometry=c.geometry,
                     )
                 }
             )
@@ -118,6 +130,7 @@ class OpenRouteServiceEngine:
         elevations: list[float | None],
         wind_segments: list[dict],
         surface_values: list[list] | None,
+        route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
         # 以前はscoring.yaml（候補集合内の相対評価用）を流用しており、RoadGraphEngineと
@@ -125,6 +138,10 @@ class OpenRouteServiceEngine:
         preference = self._route_preference
         segments = []
         cumulative_km = 0.0
+        # 区間の道なり形状: サンプル点はルートgeometry上の点（インデックス付き）なので、
+        # 隣接サンプル点間の座標列をそのまま切り出せば区間形状になる（追加のAPIコール無し。
+        # sample_indicesは狭義単調増加のインデックスを返すため各スライスは必ず2点以上）。
+        route_coordinates = route_geometry["coordinates"]
 
         for i in range(len(points) - 1):
             wind_segment = wind_segments[i] if i < len(wind_segments) else None
@@ -161,8 +178,15 @@ class OpenRouteServiceEngine:
                 ]
             )
 
+            segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
+
             segments.append(
                 RouteSegmentDetail(
+                    geometry=(
+                        {"type": "LineString", "coordinates": segment_coordinates}
+                        if len(segment_coordinates) >= 2
+                        else None
+                    ),
                     start_latitude=points[i].latitude,
                     start_longitude=points[i].longitude,
                     end_latitude=points[i + 1].latitude,

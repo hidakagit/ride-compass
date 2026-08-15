@@ -47,7 +47,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     id: "route",
     label: "ルート",
     kind: "dynamic",
-    description: "選択中ルート沿いの情報（風・勾配）を色分け表示",
+    description: "選択中ルート沿いの情報（風・勾配・路面・総合難易度）を色分け表示",
   },
 ];
 

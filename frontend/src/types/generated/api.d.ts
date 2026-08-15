@@ -151,6 +151,28 @@ export interface components {
             /** Longitude */
             longitude: number;
         };
+        /**
+         * GenerationConditions
+         * @description この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
+         *
+         *     scoring_weights / route_preference は「リクエストで上書きされた値」または
+         *     「YAML既定値」のうち実際に使われた方。レスポンスJSONを保存すれば、同じ条件を
+         *     scoring_weights / route_preference としてそのまま再送して再現できる。
+         */
+        GenerationConditions: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Distance Km */
+            distance_km: number;
+            /** Distance Tolerance Km */
+            distance_tolerance_km: number;
+            scoring_weights: components["schemas"]["ScoringWeights"];
+            route_preference: components["schemas"]["RoutePreferenceWeights"];
+            /** Generated At */
+            generated_at: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -182,6 +204,8 @@ export interface components {
             road_score?: number | null;
             /** Total Score */
             total_score?: number | null;
+            /** Score Breakdown */
+            score_breakdown?: components["schemas"]["RouteScoreComponent"][] | null;
             /** Segments */
             segments?: components["schemas"]["RouteSegmentDetail"][] | null;
         };
@@ -204,6 +228,8 @@ export interface components {
              * @constant
              */
             route_type: "loop";
+            scoring_weights?: components["schemas"]["ScoringWeights"] | null;
+            route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {
@@ -211,11 +237,50 @@ export interface components {
             routes: components["schemas"]["RouteCandidate"][];
             /** Engine */
             engine: string;
+            conditions: components["schemas"]["GenerationConditions"];
+        };
+        /**
+         * RoutePreferenceWeights
+         * @description Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
+         *     キーはroute_preference.yamlと同じ。
+         *
+         *     domain/evaluation.pyのRoutePreferenceと同形だが、API境界では「フィールド省略時に
+         *     クラス既定値が黙って入る」ことを避けるため、全フィールド必須の別モデルにしている
+         *     （上書きするなら全軸を明示する）。
+         */
+        RoutePreferenceWeights: {
+            /** Elevation Weight */
+            elevation_weight: number;
+            /** Road Weight */
+            road_weight: number;
+            /** Wind Weight */
+            wind_weight: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {
             origin: components["schemas"]["Coordinates"];
             destination: components["schemas"]["Coordinates"];
+        };
+        /**
+         * RouteScoreComponent
+         * @description total_scoreの1指標分の内訳（RouteScorerが算出。研究インターフェース改善 §10-2）。
+         *
+         *     - `score`: 候補集合内min-max正規化の0-100（相対評価。total_scoreと同じ性質で、
+         *       同じgenerate呼び出し内の候補同士でのみ比較できる）。指標を取得できなかった候補はNone
+         *     - `weight`: 合成に使った設定重み（scoring.yamlまたはリクエスト上書きの値そのまま）
+         *     - `contribution`: total_scoreへの寄与点（score×weight÷有効指標の重み和）。
+         *       有効な指標のcontributionを合計するとtotal_scoreに一致する（丸め誤差を除く）。
+         *       scoreがNone、または合成不能（total_score=None）のときはNone
+         */
+        RouteScoreComponent: {
+            /** Axis */
+            axis: string;
+            /** Score */
+            score?: number | null;
+            /** Weight */
+            weight: number;
+            /** Contribution */
+            contribution?: number | null;
         };
         /** RouteSegment */
         RouteSegment: {
@@ -242,8 +307,18 @@ export interface components {
          *     両エンジン共通（openrouteservice: 区間標高差から算出 / road_graph:
          *     ElevationAttribute.average_grade）。フロントの勾配色分け（routeStyleModes.ts）は
          *     この符号を前提に「下り」カテゴリを持つため、絶対値で返してはならない。
+         *
+         *     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
+         *     部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を
+         *     直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは
+         *     geometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:
+         *     segmentsToFeatureCollection）。
          */
         RouteSegmentDetail: {
+            /** Geometry */
+            geometry?: {
+                [key: string]: unknown;
+            } | null;
             /** Start Latitude */
             start_latitude: number;
             /** Start Longitude */
@@ -272,6 +347,23 @@ export interface components {
             road_difficulty?: number | null;
             /** Difficulty */
             difficulty?: number | null;
+        };
+        /**
+         * ScoringWeights
+         * @description total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。
+         *
+         *     値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は
+         *     無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。
+         */
+        ScoringWeights: {
+            /** Distance Weight */
+            distance_weight: number;
+            /** Elevation Weight */
+            elevation_weight: number;
+            /** Wind Weight */
+            wind_weight: number;
+            /** Road Weight */
+            road_weight: number;
         };
         /** ValidationError */
         ValidationError: {

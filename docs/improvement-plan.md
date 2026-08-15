@@ -238,6 +238,67 @@
 
 ---
 
+## 第3回レビュー対応（2026-08-15・研究インターフェース）
+
+[research-interface-review-2026-08-15.md](research-interface-review-2026-08-15.md)
+（評価モデル研究環境としての全体レビュー）の実行計画。
+
+### - [x] T23. 研究ループの開通（Phase 1）〔§10-1/2/5/6/9〕規模M（2026-08-15完了）
+
+- **重みのリクエスト上書き**（§10-1）: `RouteGenerateRequest`へ`scoring_weights`/`route_preference`
+  （省略可・全フィールド必須・非負）を追加。`dependencies.py`の`get_route_generator`を
+  `get_route_generation_builder`（上書き値を受けて組み立てを完了するビルダー）へ再構成
+- **total_score内訳の返却**（§10-2）: `RouteCandidate.score_breakdown`
+  （軸別の正規化スコア・重み・寄与点。寄与点の合計=total_score）。あわせて全重み0時の
+  ZeroDivisionを合成不能（total_score=None）へガード
+- **条件エコー**（§10-6）: `RouteGenerateResponse.conditions`（座標・距離・適用重み・生成時刻）。
+  レスポンスJSON保存＝再現条件になる
+- **ルート色分けモード追加**（§10-5）: `routeStyleModes.ts`へ「路面」（road_surface_good 3値）
+  「総合難易度」（difficulty 3段階）。segments返却済みデータのみでAPI変更なし
+- **研究時構成の明文化**（§10-9）: architecture.md「評価重みのリクエスト上書きと評価モデル
+  研究時の構成」節を新設（重み実験はroad_graphエンジンで行うこと等）
+- 完了条件: backend 408件・frontend 131件・eslint・tsc全green、OpenAPI再生成済み
+  （openapi.json/api.d.tsを同一コミットに含める）
+
+### - [x] T26. 区間表示の道なり化＋距離連動サンプリング〔ユーザーFB: 区間が荒すぎて実態が分からない〕規模M（2026-08-15完了）
+
+- `RouteSegmentDetail.geometry`（区間の道なり形状）を追加。ORSエンジンはルートgeometryの
+  サンプル点インデックスで切り出し、road_graphエンジンはEdge形状点列をそのまま付与
+  （いずれも追加APIコール無し）。フロント`segmentsToFeatureCollection`は形状を優先し、
+  null時のみ従来の始点・終点直線で代替。propertiesからは形状を除外
+- ORSエンジンのサンプリングを12点固定から距離連動へ（`sample_count_for_distance`:
+  約1km間隔・下限12点・上限32点。最悪でも8候補×32点=256 GSIリクエスト/生成）
+- 完了条件: backend 411件・frontend 134件・eslint・tsc全green、OpenAPI/フロント型再生成済み
+
+### - [x] T27. 未選択候補ルートの視覚的減光〔ユーザーFB: 見にくい〕規模S（2026-08-15完了）
+
+- T26（区間の道なり化）を実機（Playwright）で確認したところ、選択中ルートの路面/難易度色分けが
+  未選択7候補（アンバー・幅3・不透明度0.85）と輻輳し、色分けの主役が埋もれて見えることを確認。
+- `MapView.tsx`の`route-candidates-line`（未選択側）を、ベースマップ（OpenFreeMap、暖色系）に
+  溶け込みにくい寒色（スレート`#64748b`）へ変更し、幅2.5・不透明度0.65に調整。
+  8候補比較（KEEP対象、地図上での見比べ）は維持しつつ、選択中候補の色分けを主役として
+  引き立てる（不透明度0.45まで下げると背景に埋没して候補が見えなくなることを実機確認済みで
+  避けた。詳細な検討過程はMapView.tsxのコメント参照）。
+- 検証方法: `npx playwright`（プロジェクト依存の`playwright`パッケージ、ブラウザ済みインストール）で
+  実際にdevサーバーへ接続し、距離30kmでルート生成→「路面」「総合難易度」の各色分けモードへ
+  切替→スクリーンショットで目視確認（8候補すべて生成されたことをRouteListのテキストからも確認）。
+- 完了条件: frontend 134件・eslint・tsc全green。tsc/eslint/vitestに影響する型変更は無し
+  （paint式の定数調整のみ）。
+
+### - [ ] T24. 比較環境（Phase 2）〔§10-3/4/7〕規模L — トリガー: T23完了後、静的属性P0レイヤーと前後可
+
+- フロントの実験スロット（直近2〜3回の生成結果＋conditionsを保持、地図に色違い重ね描き、
+  生値・絶対難易度のみの比較表。total_scoreはスロット間比較に出さない）
+- デバッグモード配下の重み調整UI（scoring 4値＋preference 3値、T23のAPIを使用）
+- ルート単位の絶対基準集約値（segments難易度の距離加重平均）を`RouteCandidate`へ追加
+
+### - [ ] T25. 評価軸カタログ化（Phase 3）〔§10-8〕規模M — トリガー: 静的属性P1（評価組み込み）と同時
+
+- 軸のid/表示名/重みキー/説明の1カタログ化。内訳表示・RouteListのhint文言・重みUIを
+  カタログから列挙生成（早すぎる汎用化を避けるため、軸が実際に増える時点まで着手しない）
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -257,3 +318,7 @@
 | 2026-08-15 | T18 | 当初案（委譲メソッド削除・呼び出し側をネスト参照へ変更）が誤りと判明したため縮小実施。ファサードのフラット委譲メソッド群はGraphService/ElevationAttributeService/RegionServiceとテストFakeが依存する正式契約と確認し、docstringへ「新属性メソッドも対称にファサードへ追加する」規約を明記。複雑度平衡レビューのI-5・Keep List・設計原則7を訂正 |
 | 2026-08-15 | T19 | region_service.pyにハードコードされていたタイル世代`v3`を`ROAD_SURFACE_TILE_VERSION`定数へ抽出。export_openapi.pyが`region-tile-config.json`（レイヤー名・タイル世代）を新規出力し、`MapView.ROAD_TILE_SOURCE_LAYER`をexport、regionApi.test.tsで生成物と照合するドリフト検知テストを追加。backend397件・frontend129件・eslint・tsc全green |
 | 2026-08-15 | T20 | `.env.example`末尾へ本番/開発（ネイティブPG）/開発（DBなし・既定）の3プロファイル比較表を追記。コード変更なし。ゲートタスクT16〜T20が全完了、静的道路属性計画の実装に着手可能な状態に |
+| 2026-08-15 | （第3回レビュー） | 研究インターフェースレビュー実施（research-interface-review-2026-08-15.md）。判定「一部改善が必要」（土台A・操作環境未着工）。T23〜T25を追加 |
+| 2026-08-15 | T23 | 研究ループ開通（Phase 1）: 重みのリクエスト上書き（get_route_generation_builderへDI再構成）・score_breakdown返却（全重み0ガード含む）・conditionsエコー・ルート色分けモード「路面」「総合難易度」追加・研究時構成をarchitecture.mdへ明文化。backend 408件・frontend 131件・eslint・tsc全green、OpenAPI/フロント型再生成済み |
+| 2026-08-15 | T26 | 区間表示の道なり化（RouteSegmentDetail.geometry、両エンジン・追加APIコール無し）＋ORSエンジンの距離連動サンプリング（約1km間隔・12〜32点）。フロントは形状優先描画（null時は直線代替）。backend 411件・frontend 134件全green |
+| 2026-08-15 | T27 | Playwright実機確認で発覚した「未選択候補と色分け線の輻輳」を修正。未選択候補の線をアンバー→スレートへ変更し幅・不透明度を調整（8候補比較は維持しつつ選択中候補の色分けを視覚的に主役化）。frontend 134件・eslint・tsc全green |

@@ -56,3 +56,54 @@ def test_candidates_with_identical_metrics_get_equal_scores():
     scored = RouteScorer(WEIGHTS).score([a, b], target_distance_km=30.0)
 
     assert scored[0].total_score == scored[1].total_score == 100.0
+
+
+def test_score_breakdown_contributions_sum_to_total_score():
+    # total_scoreの内訳（軸別の正規化スコア・重み・寄与点）を返す（研究IF改善 §10-2）。
+    # 有効な指標の寄与点の合計はtotal_scoreに一致する（丸め誤差±0.2以内）。
+    good = candidate("good", distance_km=30.0, elevation_gain_m=50.0, wind_score=-1.0, road_score=90.0)
+    bad = candidate("bad", distance_km=40.0, elevation_gain_m=500.0, wind_score=3.0, road_score=10.0)
+
+    scored = RouteScorer(WEIGHTS).score([good, bad], target_distance_km=30.0)
+
+    for c in scored:
+        assert c.score_breakdown is not None
+        assert [e.axis for e in c.score_breakdown] == ["distance", "elevation", "wind", "road"]
+        assert {e.axis: e.weight for e in c.score_breakdown} == {
+            "distance": 0.30,
+            "elevation": 0.15,
+            "wind": 0.30,
+            "road": 0.25,
+        }
+        contributions = [e.contribution for e in c.score_breakdown if e.contribution is not None]
+        assert abs(sum(contributions) - c.total_score) <= 0.2
+
+
+def test_score_breakdown_missing_metric_has_none_contribution():
+    # 指標が取得できなかった軸はscore/contributionともNoneのまま内訳に含める
+    # （「この軸は評価に使われなかった」ことが分かるようにする）。
+    a = candidate("a", distance_km=30.0, elevation_gain_m=100.0, wind_score=None, road_score=50.0)
+    b = candidate("b", distance_km=32.0, elevation_gain_m=200.0, wind_score=None, road_score=80.0)
+
+    scored = RouteScorer(WEIGHTS).score([a, b], target_distance_km=30.0)
+
+    for c in scored:
+        wind_entry = next(e for e in c.score_breakdown if e.axis == "wind")
+        assert wind_entry.score is None
+        assert wind_entry.contribution is None
+        assert wind_entry.weight == 0.30
+
+
+def test_all_zero_weights_yield_none_total_score_without_crash():
+    # 重みのリクエスト上書き（研究IF改善 §10-1）で全重み0を渡した場合、
+    # ZeroDivisionErrorにせず合成不能（total_score=None）として扱う。
+    zero_weights = {"distance_weight": 0.0, "elevation_weight": 0.0, "wind_weight": 0.0, "road_weight": 0.0}
+    a = candidate("a", distance_km=30.0, elevation_gain_m=100.0, wind_score=0.5, road_score=80.0)
+    b = candidate("b", distance_km=35.0, elevation_gain_m=300.0, wind_score=2.0, road_score=40.0)
+
+    scored = RouteScorer(zero_weights).score([a, b], target_distance_km=30.0)
+
+    for c in scored:
+        assert c.total_score is None
+        assert c.score_breakdown is not None
+        assert all(e.contribution is None for e in c.score_breakdown)

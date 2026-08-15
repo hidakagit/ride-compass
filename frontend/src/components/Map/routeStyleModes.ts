@@ -10,7 +10,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 
-export type RouteStyleModeId = "wind" | "gradient";
+export type RouteStyleModeId = "wind" | "gradient" | "road" | "difficulty";
 
 export interface RouteStyleMode {
   id: RouteStyleModeId;
@@ -90,6 +90,46 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
         { key: "up-extreme", label: "10%〜", color: COLOR_HARD },
       ],
       [-2, 2, 6, 10]
+    ),
+  },
+  {
+    id: "road",
+    label: "路面",
+    // road_surface_goodは3値（true=舗装/false=未舗装/null=不明）の真偽値プロパティのため、
+    // 数値の段階分け（buildSteppedMode）は使わず判定値をそのままcase式・凡例フィルタにする。
+    // 地域の路面レイヤー（roadFilterAxes.ts、タイルのsurfaceタグ）とは別系統で、こちらは
+    // ルート生成時にエンジンが判定した区間ごとの値（segments[].road_surface_good）を表示する。
+    // segmentsに元から入っている値のため、モード追加によるデータ取得・API変更は無い
+    // （研究インターフェース改善 §10-5）。
+    legend: [
+      { key: "paved", label: "舗装路", color: COLOR_EASY, filter: ["==", ["get", "road_surface_good"], true] },
+      { key: "unpaved", label: "未舗装路", color: COLOR_HARD, filter: ["==", ["get", "road_surface_good"], false] },
+      { key: "nodata", label: "データなし", color: COLOR_NO_DATA, filter: ["==", ["get", "road_surface_good"], null] },
+    ],
+    colorExpression: [
+      "case",
+      ["==", ["get", "road_surface_good"], null],
+      COLOR_NO_DATA,
+      ["==", ["get", "road_surface_good"], true],
+      COLOR_EASY,
+      COLOR_HARD,
+    ],
+  },
+  {
+    id: "difficulty",
+    label: "総合難易度",
+    // difficultyは標高・風・路面をroute_preference.yaml（またはリクエストの重み上書き）の
+    // 重みで合成した0-100の絶対基準難易度（backend/app/domain/difficulty.py）。
+    // 「評価モデルが各区間をどれだけ走りにくいと見ているか」をそのまま地図で確認する用途
+    // （研究インターフェース改善 §10-5）。
+    ...buildSteppedMode(
+      "difficulty",
+      [
+        { key: "easy", label: "易しい", color: COLOR_EASY },
+        { key: "normal", label: "普通", color: COLOR_NORMAL },
+        { key: "hard", label: "難しい", color: COLOR_HARD },
+      ],
+      [33, 66]
     ),
   },
 ];
