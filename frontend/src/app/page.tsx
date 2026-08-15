@@ -107,6 +107,8 @@ export default function Home() {
   const [layerVisibility, setLayerVisibility] = useState<MapLayerVisibility>({
     elevation: false,
     road: false,
+    trafficStress: false,
+    bicycleInfra: false,
     route: true,
   });
   const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
@@ -490,6 +492,8 @@ export default function Home() {
           location={location}
           showElevation={layerVisibility.elevation}
           showRoad={layerVisibility.road}
+          showTrafficStress={layerVisibility.trafficStress}
+          showBicycleInfra={layerVisibility.bicycleInfra}
           roadHiddenKeysByMode={roadHiddenKeysByMode}
           routeLayerOn={layerVisibility.route}
           routeStyleModeId={routeStyleModeId}

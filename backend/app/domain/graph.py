@@ -66,6 +66,11 @@ class WaySpec(BaseModel):
     surface: str | None = None  # OSMのsurfaceタグ生値。DirectedEdgeへは持たせず、Road Attribute
     # 生成側（domain/attributes.py）がosm_way_id経由で参照する（仕様書13章：Edge本体と
     # 属性データの分離）。
+    # 静的道路属性の許可リストタグ（docs/static-road-attributes-plan.md P0、
+    # osm_adapter.py: ALLOWED_WAY_TAGS）。highway/surface同様、build_road_graphは
+    # 解釈しない（DirectedEdgeへは持たせない）。表示（MVT）・将来の評価拡張の
+    # 入力として、osm_way_id経由で別途参照する想定。
+    tags: dict[str, str] = {}
     direction: Literal["forward", "backward", "both"] = "both"
 
 

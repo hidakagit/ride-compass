@@ -16,7 +16,7 @@
 // 静的データと動的データを混同しない、という設計方針（docs/static-road-attributes-plan.md）
 // をUI上のグルーピングにもそのまま反映する。
 
-export type MapLayerId = "elevation" | "road" | "route";
+export type MapLayerId = "elevation" | "road" | "trafficStress" | "bicycleInfra" | "route";
 
 export type MapLayerKind = "static" | "dynamic";
 
@@ -42,6 +42,18 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     label: "路面",
     kind: "static",
     description: "道路を路面材質・種類で色分け表示",
+  },
+  {
+    id: "trafficStress",
+    label: "交通ストレス",
+    kind: "static",
+    description: "道路種別・車線数・制限速度・自転車インフラから推定した交通ストレス(1-4)を色分け表示",
+  },
+  {
+    id: "bicycleInfra",
+    label: "自転車インフラ",
+    kind: "static",
+    description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
   },
   {
     id: "route",

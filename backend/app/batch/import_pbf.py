@@ -24,6 +24,7 @@ Geofabrik/BBBike等のPBF抽出ファイルから、取込プロファイル（i
 
 import argparse
 import asyncio
+import json
 import logging
 import queue
 import sys
@@ -54,13 +55,16 @@ _QUEUE_MAX_CHUNKS = 4
 
 _STAGE_WAYS_DDL = (
     "CREATE TEMP TABLE _stage_osm_raw_ways "
-    "(osm_way_id bigint, node_ids bigint[], highway text, surface text, direction text, geom_wkb bytea)"
+    "(osm_way_id bigint, node_ids bigint[], highway text, surface text, tags_json text, "
+    "direction text, geom_wkb bytea)"
 )
 _STAGE_NODES_DDL = "CREATE TEMP TABLE _stage_osm_raw_nodes (osm_node_id bigint, lon float8, lat float8)"
 
+# tagsはasyncpgのCOPYバイナリプロトコルがjsonb型を直接受け付けないため、text列で
+# 一旦受けてからマージSQL側で::jsonbキャストする（geom_wkb→ST_GeomFromWKBと同じ考え方）。
 _MERGE_WAYS_SQL = """
-INSERT INTO osm_raw_ways (osm_way_id, node_ids, highway, surface, direction, geom, updated_at)
-SELECT osm_way_id, node_ids, highway, surface, direction,
+INSERT INTO osm_raw_ways (osm_way_id, node_ids, highway, surface, tags, direction, geom, updated_at)
+SELECT osm_way_id, node_ids, highway, surface, tags_json::jsonb, direction,
        CASE WHEN geom_wkb IS NULL THEN NULL ELSE ST_GeomFromWKB(geom_wkb, 4326) END,
        $1
 FROM _stage_osm_raw_ways
@@ -68,6 +72,7 @@ ON CONFLICT (osm_way_id) DO UPDATE SET
     node_ids = EXCLUDED.node_ids,
     highway = EXCLUDED.highway,
     surface = EXCLUDED.surface,
+    tags = EXCLUDED.tags,
     direction = EXCLUDED.direction,
     geom = EXCLUDED.geom,
     updated_at = EXCLUDED.updated_at
@@ -114,10 +119,12 @@ def way_in_bbox(coords: dict[int, tuple[float, float]], bbox: BoundingBox | None
 
 def build_way_record(spec: WaySpec, coords: dict[int, tuple[float, float]]) -> tuple:
     """WaySpec→ステージング行。geomは座標が判明しているノード2点以上のときのみWKBを持つ
-    （save_raw_waysのランタイム経路と同じ意味論）。"""
+    （save_raw_waysのランタイム経路と同じ意味論）。tagsは許可リスト適用済み
+    （osm_adapter.py: ALLOWED_WAY_TAGS）のためそのままJSON文字列化する。"""
     points = [coords[n] for n in spec.node_ids if n in coords]
     wkb = LineString([(lon, lat) for lat, lon in points]).wkb if len(points) >= 2 else None
-    return (spec.osm_way_id, spec.node_ids, spec.highway, spec.surface, spec.direction, wkb)
+    tags_json = json.dumps(spec.tags, ensure_ascii=False)
+    return (spec.osm_way_id, spec.node_ids, spec.highway, spec.surface, tags_json, spec.direction, wkb)
 
 
 def _asyncpg_dsn(sqlalchemy_url: str) -> str:
@@ -206,7 +213,7 @@ async def _flush_chunk(conn: asyncpg.Connection, chunk: Chunk, updated_at: datet
     await conn.copy_records_to_table(
         "_stage_osm_raw_ways",
         records=chunk.ways,
-        columns=["osm_way_id", "node_ids", "highway", "surface", "direction", "geom_wkb"],
+        columns=["osm_way_id", "node_ids", "highway", "surface", "tags_json", "direction", "geom_wkb"],
     )
     await conn.copy_records_to_table(
         "_stage_osm_raw_nodes", records=chunk.nodes, columns=["osm_node_id", "lon", "lat"]
@@ -300,6 +307,13 @@ async def run_import(
 
         conn = await asyncpg.connect(_asyncpg_dsn(sqlalchemy_url))
         run_id = None
+        # 初回（空テーブル）取込時のみ、osm_raw_ways.geomのGiSTを取込完了後まで遅延して
+        # 構築する（改善計画T28）。蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers
+        # 超過後のランダムI/O）が、チャンク処理時間が7秒→73秒へ単調増加する主因と判明した
+        # ため。月次UPSERT再取込は非空なのでこの分岐に入らず、既存インデックスをそのまま
+        # 使い続ける（稼働中DBのインデックスを落とさない）。
+        deferred_ways_index = False
+        ways_index_ensured = False
         try:
             run_id = await conn.fetchval(
                 "INSERT INTO osm_import_runs (pbf_name, pbf_timestamp, profile_hash, bbox, status, started_at) "
@@ -312,6 +326,12 @@ async def run_import(
             )
             await conn.execute(_STAGE_WAYS_DDL)
             await conn.execute(_STAGE_NODES_DDL)
+
+            ways_is_empty = await conn.fetchval("SELECT NOT EXISTS (SELECT 1 FROM osm_raw_ways)")
+            deferred_ways_index = bool(ways_is_empty)
+            if deferred_ways_index:
+                await conn.execute("DROP INDEX IF EXISTS idx_osm_raw_ways_geom")
+                logger.info("osm_raw_waysが空のため、geom列のGiSTインデックス構築を取込完了後へ遅延します")
 
             try:
                 while (chunk := await asyncio.to_thread(producer.queue.get)) is not None:
@@ -331,6 +351,18 @@ async def run_import(
             marked_tiles = 0
             if bbox is not None:
                 marked_tiles = await _mark_tiles(conn, bbox, run_started_at)
+
+            if deferred_ways_index:
+                index_started = time.perf_counter()
+                # ソート済み一括ビルド向けにセッション内だけmaintenance_work_memを引き上げる
+                # （このバッチ専用の接続で、完了後すぐcloseするため他セッションへ影響しない）
+                await conn.execute("SET maintenance_work_mem = '1GB'")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_osm_raw_ways_geom ON osm_raw_ways USING gist (geom)")
+                ways_index_ensured = True
+                logger.info(
+                    "osm_raw_ways.geom GiSTインデックスを再作成しました elapsed=%.1fs",
+                    time.perf_counter() - index_started,
+                )
 
             await conn.execute(
                 "UPDATE osm_import_runs SET status='succeeded', finished_at=$2, way_count=$3, node_count=$4 "
@@ -358,6 +390,15 @@ async def run_import(
                     logger.exception("osm_import_runsのfailed更新に失敗")
             raise
         finally:
+            # 途中失敗でもインデックス欠落を残さない（正しさは保たれるが遅くなるだけの状態を
+            # 放置しない）。CREATE INDEX IF NOT EXISTSは冪等なので再実行しても安全。
+            if deferred_ways_index and not ways_index_ensured:
+                try:
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_osm_raw_ways_geom ON osm_raw_ways USING gist (geom)"
+                    )
+                except Exception:  # noqa: BLE001 元の例外を隠さない
+                    logger.exception("geom GiSTインデックスの再作成に失敗しました（次回取込時に再試行される）")
             await conn.close()
     except BaseException:
         await _abort_and_join_producer()

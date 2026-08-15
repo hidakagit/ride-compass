@@ -5,7 +5,7 @@ import MapLayersPanel from "./MapLayersPanel";
 
 function baseProps() {
   return {
-    layerVisibility: { elevation: false, road: false, route: false },
+    layerVisibility: { elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: false },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
     onRoadFilterApply: vi.fn(),
@@ -30,6 +30,8 @@ describe("MapLayersPanel", () => {
     // 地図上の条件サマリからのスクロール先になるDOM id（layerSectionDomId）が振られている
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-trafficStress")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
 
@@ -39,7 +41,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: true, road: false, route: false }}
+        layerVisibility={{ elevation: true, road: false, trafficStress: false, bicycleInfra: false, route: false }}
         onLayerToggle={onLayerToggle}
       />,
     );
@@ -66,7 +68,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: false, road: true, route: false }}
+        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }}
         regionZoomTooWide={true}
       />,
     );
@@ -76,7 +78,7 @@ describe("MapLayersPanel", () => {
 
   it("路面ONのとき色・太さ両方の凡例が表示される", () => {
     render(
-      <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, route: false }} />,
+      <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }} />,
     );
     expect(screen.getByText(/色：路面の種類/)).toBeInTheDocument();
     expect(screen.getByText(/太さ：道路の種類/)).toBeInTheDocument();
@@ -87,7 +89,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerVisibility={{ elevation: false, road: true, route: false }}
+        layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,
     );
@@ -120,7 +122,7 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         hasDetail={true}
-        layerVisibility={{ elevation: false, road: false, route: false }}
+        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: false }}
         onRouteStyleModeChange={onRouteStyleModeChange}
         onLayerToggle={onLayerToggle}
       />,
@@ -139,7 +141,7 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         hasDetail={true}
-        layerVisibility={{ elevation: false, road: false, route: true }}
+        layerVisibility={{ elevation: false, road: false, trafficStress: false, bicycleInfra: false, route: true }}
         onLayerToggle={onLayerToggle}
       />,
     );

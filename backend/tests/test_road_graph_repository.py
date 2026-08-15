@@ -468,12 +468,32 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     )
     # 不明（タグ無し・未知タグ）はsurface_goodキー自体が省略される（フロントエンドの
     # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）。
-    # surfaceタグ無しも同様にsurfaceキーごと省略される。
+    # surfaceタグ無しも同様にsurfaceキーごと省略される。bicycle_infra/traffic_stressは
+    # highwayさえ分かれば常に決まる（静的道路属性P0、いずれもtags未設定の4件はどちらも
+    # highway=residential/trackで「roadway」「2」になる）。smoothness/tunnel/bridgeは
+    # tags自体が空のためキーが省略される。
     assert properties == [
-        {"highway": "residential"},
-        {"surface_good": True, "surface": "asphalt", "highway": "residential"},
-        {"surface_good": False, "surface": "gravel", "highway": "track"},
-        {"surface": "mystery_tag", "highway": "residential"},
+        {"highway": "residential", "bicycle_infra": "roadway", "traffic_stress": 2},
+        {
+            "surface_good": True,
+            "surface": "asphalt",
+            "highway": "residential",
+            "bicycle_infra": "roadway",
+            "traffic_stress": 2,
+        },
+        {
+            "surface_good": False,
+            "surface": "gravel",
+            "highway": "track",
+            "bicycle_infra": "roadway",
+            "traffic_stress": 2,
+        },
+        {
+            "surface": "mystery_tag",
+            "highway": "residential",
+            "bicycle_infra": "roadway",
+            "traffic_stress": 2,
+        },
     ]
 
 
@@ -493,3 +513,88 @@ async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_r
 
     decoded = mapbox_vector_tile.decode(tile)
     assert len(decoded["road_surface"]["features"]) == 1
+
+
+async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_graph_repository):
+    """静的道路属性P0: smoothnessは生タグの正規化のみ（surfaceと同じ流儀）、
+    tunnel/bridgeは'yes'のときだけtrueが焼かれ、それ以外はキー省略。"""
+    import mapbox_vector_tile
+
+    way_specs = [
+        WaySpec(
+            osm_way_id=1, node_ids=[1, 2], highway="residential",
+            tags={"smoothness": " Good ", "tunnel": "yes"},
+        ),
+        WaySpec(
+            osm_way_id=2, node_ids=[1, 2], highway="residential", tags={"bridge": "yes"},
+        ),
+        WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", tags={"tunnel": "no"}),
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    properties = [f["properties"] for f in decoded["road_surface"]["features"]]
+
+    tunnel_way = next(p for p in properties if p.get("smoothness") == "good")
+    assert tunnel_way["tunnel"] is True
+    assert "bridge" not in tunnel_way
+
+    bridge_way = next(p for p in properties if p.get("bridge") is True)
+    assert "tunnel" not in bridge_way
+    assert "smoothness" not in bridge_way
+
+    tunnel_no_way = next(p for p in properties if "smoothness" not in p and "bridge" not in p)
+    assert "tunnel" not in tunnel_no_way  # tunnel=noはfalseではなくキー自体を省略する
+
+
+async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_domain_traffic(
+    road_graph_repository,
+):
+    """SQLのCASE式がdomain/traffic.py（正準の判定ロジック）と同じ結果になることを、
+    複数のタグ組合せで突き合わせる（改善計画: 判定ロジックの二重実装ドリフト検知）。"""
+    import mapbox_vector_tile
+
+    from app.domain.traffic import classify_bicycle_infrastructure, traffic_stress_level
+
+    # highwayはこのテスト内で識別キーに使う（MVTのfeature順序はSQLのORDER BY省略により
+    # 保証されないため、各fixtureが一意なhighway値を持つよう構成する）。
+    fixtures: list[tuple[str | None, dict[str, str]]] = [
+        ("cycleway", {}),
+        ("primary", {"cycleway": "track"}),
+        ("primary_link", {"cycleway:left": "lane"}),
+        ("secondary", {"cycleway": "share_busway"}),
+        ("footway", {"bicycle": "designated"}),
+        ("path", {}),
+        ("residential", {"bicycle": "no"}),
+        ("secondary_link", {"motor_vehicle": "no"}),
+        ("tertiary", {"maxspeed": "60"}),
+        ("trunk", {"maxspeed": "30", "lanes": "2"}),
+        ("trunk_link", {"lanes": "5"}),
+    ]
+    way_specs = [
+        WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
+        for i, (highway, tags) in enumerate(fixtures)
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    assert len(decoded["road_surface"]["features"]) == len(fixtures)
+
+    # osm_way_idはプロパティに含まれないため、highway+タグの組合せで対応付ける
+    # （このテストのfixtureはhighway単体でも一意に区別できるよう設計）
+    properties_by_highway = {f["properties"].get("highway"): f["properties"] for f in decoded["road_surface"]["features"]}
+
+    for highway, tags in fixtures:
+        expected_infra = classify_bicycle_infrastructure(tags, highway)
+        expected_stress = traffic_stress_level(highway, tags)
+        actual = properties_by_highway[highway]
+        assert actual.get("bicycle_infra") == expected_infra, (highway, tags)
+        assert actual.get("traffic_stress") == expected_stress, (highway, tags)

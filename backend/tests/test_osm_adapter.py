@@ -62,6 +62,45 @@ def test_way_without_tags_key_defaults_to_both_direction():
     assert spec.highway is None
 
 
+def test_allowed_tags_are_kept_in_spec_tags():
+    spec = osm_way_to_way_spec(
+        {
+            "id": 100,
+            "tags": {"highway": "residential", "smoothness": "good", "lanes": "2", "maxspeed": "40"},
+            "nodes": [1, 2],
+        }
+    )
+
+    assert spec is not None
+    assert spec.tags == {"smoothness": "good", "lanes": "2", "maxspeed": "40"}
+
+
+def test_disallowed_tags_are_dropped_from_spec_tags():
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"highway": "residential", "not_in_allowlist": "x"}, "nodes": [1, 2]}
+    )
+
+    assert spec is not None
+    assert spec.tags == {}
+
+
+def test_highway_surface_oneway_are_not_duplicated_into_tags():
+    # highway/surface/onewayは専用フィールドで扱うため、tagsには含めない
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"highway": "residential", "surface": "asphalt", "oneway": "yes"}, "nodes": [1, 2]}
+    )
+
+    assert spec is not None
+    assert spec.tags == {}
+
+
+def test_missing_tags_key_yields_empty_spec_tags():
+    spec = osm_way_to_way_spec({"id": 100, "nodes": [1, 2]})
+
+    assert spec is not None
+    assert spec.tags == {}
+
+
 def test_osm_ways_to_way_specs_filters_out_invalid_ways():
     raw_ways = [
         {"id": 100, "tags": {"highway": "residential"}, "nodes": [1, 2]},

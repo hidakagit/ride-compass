@@ -59,6 +59,7 @@ from app.domain.attributes import ElevationAttribute, SurfaceAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
+from app.domain.traffic import TRAFFIC_STRESS_BASE_BY_HIGHWAY
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, TILE_EXTENT
 from app.infrastructure.road_graph_models import (
     Base,
@@ -169,6 +170,19 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 # そのまま数百ms〜1秒程度の短縮になる。以前はis_tile_cached＋MVT生成の2往復だった）。
 # CASE式は条件がfalseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が
 # 実行されない。
+# 静的道路属性 P0（docs/static-road-attributes-plan.md）追加プロパティの計算根拠:
+# - smoothness: 生タグをlower(btrim())で正規化して焼くだけ（surfaceと同じ流儀）
+# - tunnel/bridge: タグ値'yes'のときだけtrueを焼く（それ以外はキー省略＝ST_AsMVTがNULLを
+#   省略する既存の挙動をそのまま使う。「非該当」が大多数のため省略した方がタイルが軽い）
+# - traffic_stress/bicycle_infra: domain/traffic.py（traffic_stress_level/
+#   classify_bicycle_infrastructure）と1:1対応するCASE式。SQLにPythonを呼び出す手段が
+#   無いためやむを得ず判定ロジックを2箇所持つが、test_road_graph_repository.pyの
+#   整合性テストで同じ入力に対し常に同じ出力になることを担保する。
+#   traffic_stressの基本値（highway→1-4）はTRAFFIC_STRESS_BASE_BY_HIGHWAY（正準1箇所）から
+#   導出した配列をバインドし、ハードコードの二重管理を避ける（good_tags/bad_tagsと同じ方式）。
+#   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
+#   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
+#   弾いてunknown安全にする。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
@@ -191,8 +205,61 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
                         END AS surface_good,
                         lower(btrim(w.surface)) AS surface,
-                        w.highway AS highway
+                        w.highway AS highway,
+                        lower(btrim(w.tags->>'smoothness')) AS smoothness,
+                        CASE WHEN lower(btrim(w.tags->>'tunnel')) = 'yes' THEN true END AS tunnel,
+                        CASE WHEN lower(btrim(w.tags->>'bridge')) = 'yes' THEN true END AS bridge,
+                        CASE
+                            WHEN w.highway = 'cycleway' OR 'track' = ANY(cw.values) THEN 'separated'
+                            WHEN 'lane' = ANY(cw.values) THEN 'lane'
+                            WHEN cw.values && ARRAY['share_busway', 'shared_lane'] THEN 'shared_busway'
+                            WHEN w.highway IN ('path', 'footway')
+                                 AND lower(btrim(w.tags->>'bicycle')) IN ('yes', 'designated', 'permissive')
+                                THEN 'shared_pedestrian'
+                            WHEN lower(btrim(w.tags->>'bicycle')) = 'no' THEN 'prohibited'
+                            WHEN w.highway IS NOT NULL THEN 'roadway'
+                        END AS bicycle_infra,
+                        CASE
+                            WHEN ts.base IS NULL THEN NULL
+                            WHEN lower(btrim(w.tags->>'motor_vehicle')) = 'no' THEN 1
+                            ELSE GREATEST(1, LEAST(4,
+                                ts.base
+                                + CASE
+                                      WHEN 'track' = ANY(cw.values) THEN -2
+                                      WHEN 'lane' = ANY(cw.values) THEN -1
+                                      ELSE 0
+                                  END
+                                + CASE
+                                      WHEN btrim(w.tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                           AND trunc(btrim(w.tags->>'maxspeed')::numeric) <= 30 THEN -1
+                                      WHEN btrim(w.tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                           AND trunc(btrim(w.tags->>'maxspeed')::numeric) >= 60 THEN 1
+                                      ELSE 0
+                                  END
+                                + CASE
+                                      WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                           AND trunc(btrim(w.tags->>'lanes')::numeric) >= 4 THEN 1
+                                      ELSE 0
+                                  END
+                            ))
+                        END AS traffic_stress
                     FROM osm_raw_ways w
+                    CROSS JOIN LATERAL (
+                        SELECT ARRAY[
+                            lower(btrim(w.tags->>'cycleway')),
+                            lower(btrim(w.tags->>'cycleway:left')),
+                            lower(btrim(w.tags->>'cycleway:right')),
+                            lower(btrim(w.tags->>'cycleway:both'))
+                        ] AS values
+                    ) cw
+                    CROSS JOIN LATERAL (
+                        SELECT CASE
+                            WHEN w.highway = ANY(:ts_base1) THEN 1
+                            WHEN w.highway = ANY(:ts_base2) THEN 2
+                            WHEN w.highway = ANY(:ts_base3) THEN 3
+                            WHEN w.highway = ANY(:ts_base4) THEN 4
+                        END AS base
+                    ) ts
                     WHERE w.geom IS NOT NULL
                       AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
                 ) mvt
@@ -204,6 +271,14 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
     .bindparams(
         bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
         bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+        *(
+            bindparam(
+                f"ts_base{level}",
+                value=sorted(hw for hw, lv in TRAFFIC_STRESS_BASE_BY_HIGHWAY.items() if lv == level),
+                type_=ARRAY(Text()),
+            )
+            for level in (1, 2, 3, 4)
+        ),
     )
 )
 
@@ -258,6 +333,7 @@ def _way_spec_row_to_domain(row: OsmRawWayRow) -> WaySpec:
         node_ids=list(row.node_ids),
         highway=row.highway,
         surface=row.surface,
+        tags=row.tags or {},
         direction=row.direction,
     )
 
@@ -484,6 +560,7 @@ class RawOsmRepository(_SessionRepository):
                 "node_ids": way.node_ids,
                 "highway": way.highway,
                 "surface": way.surface,
+                "tags": way.tags,
                 "direction": way.direction,
                 "geom": geom,
                 "updated_at": now,
@@ -493,11 +570,11 @@ class RawOsmRepository(_SessionRepository):
             OsmRawWayRow,
             list(way_rows_by_id.values()),
             ["osm_way_id"],
-            ["node_ids", "highway", "surface", "direction", "geom", "updated_at"],
+            ["node_ids", "highway", "surface", "tags", "direction", "geom", "updated_at"],
             # geomは比較対象に含めない: PostGISのgeometry `=`（is_distinct_fromの内部比較）は
             # 形状の完全一致ではなくbbox一致のため、node_idsが変わらなければgeomも変わらない
             # という前提の下でnode_ids側の比較に委ねる。
-            change_detection_columns=["node_ids", "highway", "surface", "direction"],
+            change_detection_columns=["node_ids", "highway", "surface", "tags", "direction"],
         )
 
     async def get_way_specs_with_closure(

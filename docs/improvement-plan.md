@@ -312,24 +312,74 @@
 
 本番DBのOracle Cloud移行（docs/osm-pbf-import.md 9章Phase 5・11章）完了に伴うタスク。
 
-### - [ ] T28. PBF初回取込の減速防止（GiST対策）規模M — トリガー: 次の大規模取込（関東フルカバー拡大・静的属性P0再取込）の前に必須。単独実施も可
+### - [x] T28. PBF初回取込の減速防止（GiST対策）規模M（2026-08-15 A/B/C完了）
 
 - 背景: Oracle初回取込（空DB・関東25km・14チャンク）でチャンク所要時間が7秒→73秒へ単調増加。
   原因は蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers超過後のランダムI/O）と調査済み
   （docs/osm-pbf-import.md §10の該当項目参照）。関東フル（way約131万＝4.8倍）を現状のまま
   取り込むとマージフェーズだけで数時間級になる試算。
 - 実施内容（推奨順）:
-  - **(A) `osm_raw_nodes.geom`のGiST廃止**: 全コードから空間検索されていない死荷重
+  - **(A) `osm_raw_nodes.geom`のGiST廃止** ✅完了: 全コードから空間検索されていない死荷重
     （アクセスは常に`osm_node_id`指定）。`road_graph_models.py`の`spatial_index=False`化＋
-    migration 0002で`DROP INDEX IF EXISTS`（migration 0001の未使用GIN削除と同じパターン）
-  - **(C) Oracle側PG設定**: `shared_buffers=3GB`・`max_wal_size=4〜8GB`・
-    `checkpoint_timeout=30min`・`maintenance_work_mem=1〜2GB`（12GB機、設定変更＋再起動のみ）
-  - **(B) 初回ロード時の`osm_raw_ways.geom` GiST後作成**: `osm_raw_ways`が空のときのみ
-    DROP→全チャンク投入後にCREATE INDEX（PostGIS 3.1+のソート済み一括ビルド）。
-    月次UPSERT再取込は非空のため自動的に対象外（稼働中DBのインデックスを落とさない）。
-    途中失敗時のインデックス欠落はfinallyで再作成して担保
+    migration 0002で`DROP INDEX IF EXISTS`（migration 0001の未使用GIN削除と同じパターン）。
+    本番・ローカルとも適用済み。**実測: 本番DB 315MB→253MB（約20%削減）**、Phase 0検証23/23
+    PASS維持を確認
+  - **(B) 初回ロード時の`osm_raw_ways.geom` GiST後作成** ✅実装完了（未検証）:
+    `import_pbf.py`に実装済み（`osm_raw_ways`が空のときのみDROP→全チャンク投入後に
+    `SET maintenance_work_mem`＋`CREATE INDEX IF NOT EXISTS`で再作成。月次UPSERT再取込は
+    非空のため自動的に対象外＝稼働中DBのインデックスを落とさない。途中失敗時は`finally`で
+    再作成して担保）。**実際の大規模空DB取込での効果測定は未実施**（次に関東フル等の
+    大規模再取込を行うタイミングで検証すること）
+  - **(C) Oracle側PG設定** ✅完了（2026-08-15）: `/etc/postgresql/18/main/postgresql.conf`を
+    直接編集（変更前に`postgresql.conf.bak-t28c`としてバックアップ保存）し`systemctl restart
+    postgresql`で反映。`shared_buffers 128MB→3GB`・`max_wal_size 1GB→8GB`・
+    `checkpoint_timeout 5min→30min`・`maintenance_work_mem 64MB→1GB`（12GB機の設定）。
+    再起動後`pg_settings`で反映を確認、`/api/region/road-surface-tiles`実タイル取得（王子付近、
+    HTTP 200）で本番稼働に影響がないことをスモーク確認済み
 - 完了条件: 空DBへの取込でチャンク時間が平坦（終盤も序盤の2倍以内）になること。
-  適用後の関東フル初回取込は15分前後の見込み（現状設計のままだと3.5〜8時間の試算）
+  A/B/Cの実装・適用は完了したが、大規模空DB取込（関東フル等）での実測検証は
+  まだ行っていないため、体感効果の最終確認は次回の大規模再取込時に行う
+
+---
+
+## 静的道路属性 P0（2026-08-15・docs/static-road-attributes-plan.md）
+
+### - [x] P0. タグ保持基盤＋交通ストレス・自転車インフラ・路面状態レイヤー 規模L（2026-08-15完了）
+
+- **タグ保持基盤**: `osm_raw_ways.tags jsonb`列を追加（migration 0003）。許可リスト
+  （`osm_adapter.py: ALLOWED_WAY_TAGS`、18種）でフィルタしたタグのみ保持し、PBF取込
+  （`import_pbf.py`）・Overpassフォールバック双方が同じ`osm_way_to_way_spec`を通るため
+  同じ意味論になる
+- **`domain/traffic.py`新規**: `smoothness_score`・`parse_lanes`・`parse_maxspeed`・
+  `classify_bicycle_infrastructure`・`traffic_stress_level`の純関数群（すべてunknown安全）
+- **MVT拡張**（タイル世代v3→v4）: `smoothness`・`tunnel`・`bridge`・`traffic_stress`（1-4）・
+  `bicycle_infra`（列挙）をプロパティ追加。SQL側CASE式は`domain/traffic.py`と1:1対応させ、
+  DB統合テストで11通りのタグ組合せの突き合わせ整合性テストを追加（判定ロジックの二重実装
+  ドリフト検知）
+- **フロント**: 「交通ストレス」「自転車インフラ」を独立レイヤーとして新規追加
+  （`mapLayers.ts`・`staticAttributeLayers.ts`固定色分け、既存の「路面」の色分け軸選択とは
+  別系統）。smoothness/tunnel/bridge/traffic_stress/bicycle_infraは路面クリックポップアップへ
+  追加
+- **T28との関係**: P0のスキーマ変更（tags列追加）はT28のGiST対策と同じ再取込に含める
+  想定だったが、コード実装を先行させ、実データへの再取込・関東範囲拡大は別途実施する
+  （下記「未着手」参照）
+- 完了条件: backend 464件・frontend 148件・eslint・tsc全green、ローカル・本番DBへmigration
+  0002/0003適用済み、Playwright実機確認（交通ストレス・自転車インフラの色分け表示、
+  凡例、クリックポップアップでの新プロパティ表示）で動作確認済み
+
+### 未着手（P0に続くタスク）
+
+- **カバレッジ実測の再実施**: 2026-08-15の容量試算（[Static Attributes Capacity
+  Estimate]メモリ）は東京都心スコープでの実測。関東圏の実データでのタグ付与率は未実測
+- **既存データへの再取込**: 本番・ローカルとも`tags`列はスキーマ上追加されたのみで、
+  既存行は`tags='{}'`のまま（既存インポート済みデータは新タグを持たない）。
+  smoothness/tunnel/bridgeが実データで見えるようにするには、範囲拡大（T28検証）と
+  合わせた再取込が必要
+- **T9（surface_attributes導出化）**: 中核のルーティング評価ロジック
+  （EvaluationService・RoadGraphEngine等7ファイル）に触れる別スコープの変更のため、
+  P0とは切り離して別タスクとして実施する（再取込を伴わないため単独実施可）
+- **静的属性P1（node取込・評価組み込み）**: signal/crossing等のnode取込機構、
+  EvaluationServiceへの組み込みは計画書のP1（トリガー未成立）のまま
 
 ---
 
@@ -358,3 +408,6 @@
 | 2026-08-15 | T27 | Playwright実機確認で発覚した「未選択候補と色分け線の輻輳」を修正。未選択候補の線をアンバー→スレートへ変更し幅・不透明度を調整（8候補比較は維持しつつ選択中候補の色分けを視覚的に主役化）。frontend 134件・eslint・tsc全green |
 | 2026-08-15 | （Oracle移行完遂） | 本番DBのOracle Cloud移行を完遂（スキーマ作成→Phase 0検証23/23→関東25km取込273,947way/559.5秒/315MB→Phase 2検証8/9→本番スモークOK）。初回取込の後半チャンク減速を調査しT28（GiST対策）を追加。詳細はdocs/osm-pbf-import.md 9章Phase 5・11章 |
 | 2026-08-15 | T24 | 研究インターフェースPhase2（比較環境）実装。`overall_difficulty`（絶対基準集約値）・`WeightPanel`（重み上書きUI）・`ExperimentSlot`（実験スロット、直近3件）・`ComparisonPanel`（比較表）・`MapView`スロット重ね描きを追加。backend 418件・frontend 141件全green、Playwright実機確認済み |
+| 2026-08-15 | T28(A/B) | PBF初回取込の後半チャンク減速対策。(A)未使用の`osm_raw_nodes.geom` GiST廃止（本番DB315MB→253MB、約20%削減）(B)初回空DB取込時のみ`osm_raw_ways.geom` GiST後作成（実装済み・大規模検証は次回取込時）。(C)Oracle側PG設定はSSH sudo制約でブロックされ保留 |
+| 2026-08-15 | T28(C) | ユーザー許可を得てOracle側PostgreSQL設定を変更・反映。`shared_buffers 128MB→3GB`・`max_wal_size 1GB→8GB`・`checkpoint_timeout 5min→30min`・`maintenance_work_mem 64MB→1GB`。`systemctl restart postgresql`で反映、本番タイル取得で疎通確認済み。T28完了（大規模実測検証のみ次回持ち越し） |
+| 2026-08-15 | P0(静的属性) | `osm_raw_ways.tags jsonb`（許可リスト18タグ）・`domain/traffic.py`（交通ストレス/自転車インフラ純関数）・MVT拡張（v3→v4）・フロント新規2レイヤーを実装。backend 464件・frontend 148件全green、ローカル・本番DBへmigration適用済み、Playwright実機確認済み。T9・範囲拡大・P1は別タスクとして残す |

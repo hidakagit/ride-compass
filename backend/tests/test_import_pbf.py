@@ -39,14 +39,17 @@ class TestWayInBbox:
 
 
 class TestBuildWayRecord:
-    def _spec(self, node_ids) -> WaySpec:
-        return WaySpec(osm_way_id=100, node_ids=node_ids, highway="residential", surface="asphalt", direction="both")
+    def _spec(self, node_ids, **overrides) -> WaySpec:
+        fields = dict(osm_way_id=100, node_ids=node_ids, highway="residential", surface="asphalt", direction="both")
+        fields.update(overrides)
+        return WaySpec(**fields)
 
     def test_record_fields_and_wkb_geometry(self):
         coords = {1: (35.0, 139.0), 2: (35.001, 139.001)}
         record = build_way_record(self._spec([1, 2]), coords)
-        assert record[:5] == (100, [1, 2], "residential", "asphalt", "both")
-        line = shapely_wkb.loads(record[5])
+        assert record[:4] == (100, [1, 2], "residential", "asphalt")
+        assert record[5] == "both"
+        line = shapely_wkb.loads(record[6])
         # WKBは(lon, lat)順で格納される（PostGIS/Shapelyの座標順）
         assert list(line.coords) == [(139.0, 35.0), (139.001, 35.001)]
 
@@ -54,12 +57,20 @@ class TestBuildWayRecord:
         coords = {1: (35.0, 139.0), 3: (35.002, 139.002)}  # ノード2は位置不明
         record = build_way_record(self._spec([1, 2, 3]), coords)
         assert record[1] == [1, 2, 3]  # node_ids配列は完全なまま保持する
-        line = shapely_wkb.loads(record[5])
+        line = shapely_wkb.loads(record[6])
         assert list(line.coords) == [(139.0, 35.0), (139.002, 35.002)]
 
     def test_fewer_than_two_known_coords_yields_null_geom(self):
         record = build_way_record(self._spec([1, 2]), {1: (35.0, 139.0)})
-        assert record[5] is None
+        assert record[6] is None
+
+    def test_tags_are_json_serialized(self):
+        record = build_way_record(self._spec([1, 2], tags={"smoothness": "good"}), {})
+        assert record[4] == '{"smoothness": "good"}'
+
+    def test_empty_tags_serialize_to_empty_json_object(self):
+        record = build_way_record(self._spec([1, 2]), {})
+        assert record[4] == "{}"
 
 
 def test_status_count_parses_asyncpg_command_status():

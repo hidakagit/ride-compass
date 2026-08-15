@@ -9,7 +9,7 @@ from datetime import datetime
 
 from geoalchemy2 import Geometry
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -34,7 +34,12 @@ class OsmRawNodeRow(Base):
 
     # OSMのノードIDを常に明示的に指定するため、DB側の自動採番(BIGSERIAL)にしない。
     osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
-    geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=False)
+    # geomへの空間索引は張らない（改善計画T28）。全コードからのアクセスは常にosm_node_id
+    # 指定のみで、空間検索（ST_Intersects等）は一度も行われない。以前はGiSTを張っていたが、
+    # 「取込時の逐次挿入コストと容量を消費するだけの死荷重」と判明した（PBF初回取込で
+    # チャンク処理時間が7秒→73秒へ単調増加した事象の主因調査で発覚。エントリ数が最も多い
+    # インデックスだった）。既存DB向けの削除はmigrations/0002参照。
+    geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -68,6 +73,10 @@ class OsmRawWayRow(Base):
     node_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False)
     highway: Mapped[str | None] = mapped_column(String, nullable=True)
     surface: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 静的道路属性の許可リストタグ（docs/static-road-attributes-plan.md P0、
+    # osm_adapter.py: ALLOWED_WAY_TAGS）。highway/surfaceは既存の専用列のままここには
+    # 含めない。容量実測（2026-08-15）で本番規模+約9MBと軽微（無視できる）。
+    tags: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     direction: Mapped[str] = mapped_column(String, nullable=False)
     # Wayの実体化済みLINESTRING（PBF取込バッチ・save_raw_waysがノード座標から算出して保存）。
     # node_ids→osm_raw_nodesのJOINなしにタイルbboxの空間検索で線ジオメトリを引くための列で、

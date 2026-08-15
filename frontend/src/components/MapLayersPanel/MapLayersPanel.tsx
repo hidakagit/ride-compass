@@ -16,6 +16,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
+import { BICYCLE_INFRA_LEGEND, TRAFFIC_STRESS_LEGEND } from "@/components/Map/staticAttributeLayers";
 import RoadFilterEditor from "./RoadFilterEditor";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -128,6 +129,12 @@ export default function MapLayersPanel({
       case "elevation":
         // 設定項目が無いレイヤーは説明文のみ（将来、不透明度等の設定を足す場所）
         return <p className={styles.mutedHint}>{layer.description}</p>;
+      case "trafficStress":
+        // P0時点では絞り込みUIは持たず色分け表示のみ（staticAttributeLayers.ts参照）。
+        // 色分けは常時全カテゴリ表示のため、レイヤーOFF時も凡例だけ参考表示する。
+        return renderLegendDisplay(TRAFFIC_STRESS_LEGEND, []);
+      case "bicycleInfra":
+        return renderLegendDisplay(BICYCLE_INFRA_LEGEND, []);
       case "road":
         return (
           <>

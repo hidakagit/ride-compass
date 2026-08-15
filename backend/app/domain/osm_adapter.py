@@ -15,6 +15,41 @@ from app.domain.graph import WaySpec
 ONEWAY_FORWARD_ONLY = {"yes", "true", "1"}
 ONEWAY_BACKWARD_ONLY = {"-1", "reverse"}
 
+# 静的道路属性（docs/static-road-attributes-plan.md P0）で保持するタグの許可リスト。
+# highway/surface/onewayは既存の専用フィールドで扱うためここには含めない。
+# GOOD/BAD_OSM_SURFACE_TAGS（domain/road.py）と同じ「正準1箇所」の考え方で、
+# ここに無いタグはWaySpec.tagsへ残らない（生データ汚染を避ける、計画書§2.4）。
+# 容量実測（2026-08-15、static-attributes-capacity-estimate）: 本番規模で約9MB、
+# 誤差程度で安全。
+ALLOWED_WAY_TAGS = frozenset(
+    {
+        "smoothness",
+        "lanes",
+        "maxspeed",
+        "width",
+        "cycleway",
+        "cycleway:left",
+        "cycleway:right",
+        "cycleway:both",
+        "bicycle",
+        "motor_vehicle",
+        "access",
+        "oneway:bicycle",
+        "tunnel",
+        "bridge",
+        "name",
+        "ref",
+        "tracktype",
+        "shoulder",
+    }
+)
+
+
+def _filter_allowed_tags(tags: dict) -> dict[str, str]:
+    """許可リストに含まれるタグだけを、値を文字列化して残す（未設定タグは省略。
+    根拠のない推測はせず、無い場合はキー自体を持たせない＝raw=NULL相当）。"""
+    return {key: str(value) for key, value in tags.items() if key in ALLOWED_WAY_TAGS and value is not None}
+
 
 def osm_way_to_way_spec(raw_way: dict) -> WaySpec | None:
     """OverpassClient.get_ways_and_nodesが返すway要素
@@ -40,6 +75,7 @@ def osm_way_to_way_spec(raw_way: dict) -> WaySpec | None:
         node_ids=node_ids,
         highway=tags.get("highway"),
         surface=tags.get("surface"),
+        tags=_filter_allowed_tags(tags),
         direction=direction,
     )
 

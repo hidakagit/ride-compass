@@ -20,10 +20,12 @@ ROAD_SURFACE_TILE_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v4: 静的道路属性P0（docs/static-road-attributes-plan.md）でsmoothness/tunnel/bridge/
+# traffic_stress/bicycle_infraプロパティを追加した世代。
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "3"
+ROAD_SURFACE_TILE_VERSION = "4"
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:

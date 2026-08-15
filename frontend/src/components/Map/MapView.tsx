@@ -17,6 +17,10 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
+import {
+  BICYCLE_INFRA_COLOR_EXPRESSION,
+  TRAFFIC_STRESS_COLOR_EXPRESSION,
+} from "@/components/Map/staticAttributeLayers";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
@@ -52,6 +56,8 @@ const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
+const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
+const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 // widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
@@ -369,6 +375,65 @@ function applyRoadLayerState(
   });
 }
 
+// 交通ストレス・自転車インフラ（静的道路属性P0、docs/static-road-attributes-plan.md）は
+// 路面と同じベクタソース（タイルに新規プロパティが焼き込まれている）を再利用した
+// 独立レイヤー。色分け軸は路面のように選択式ではなく固定（staticAttributeLayers.ts）で、
+// 絞り込みUIも持たない（P0時点では色分け表示のみ）。ensureRoadSurfaceTileLayerと同じ
+// パターンで初期化時に一度だけ追加し、以降はvisibilityの切替のみで表示・非表示する。
+function ensureTrafficStressLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(TRAFFIC_STRESS_LAYER_ID)) return;
+    map.addLayer({
+      id: TRAFFIC_STRESS_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": TRAFFIC_STRESS_COLOR_EXPRESSION as any,
+        "line-width": 3,
+        "line-opacity": 0.85,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+function setTrafficStressVisibility(map: MapLibreMap, visible: boolean) {
+  runWhenStyleReady(map, () => {
+    ensureTrafficStressLayer(map);
+    setLayerVisibility(map, TRAFFIC_STRESS_LAYER_ID, visible);
+  });
+}
+
+function ensureBicycleInfraLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(BICYCLE_INFRA_LAYER_ID)) return;
+    map.addLayer({
+      id: BICYCLE_INFRA_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": BICYCLE_INFRA_COLOR_EXPRESSION as any,
+        "line-width": 3,
+        "line-opacity": 0.85,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+function setBicycleInfraVisibility(map: MapLibreMap, visible: boolean) {
+  runWhenStyleReady(map, () => {
+    ensureBicycleInfraLayer(map);
+    setLayerVisibility(map, BICYCLE_INFRA_LAYER_ID, visible);
+  });
+}
+
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
@@ -424,8 +489,52 @@ function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
   </div>`;
 }
 
-function buildRoadSurfacePopupHtml(properties: { surface_good: boolean | null }): string {
-  return `<div style="font-size:0.85rem;">路面: ${formatRoad(properties.surface_good)}</div>`;
+// 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
+// タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
+// 実際にはキー自体が存在しない）。
+interface RoadSurfacePopupProperties {
+  surface_good?: boolean | null;
+  smoothness?: string | null;
+  tunnel?: boolean | null;
+  bridge?: boolean | null;
+  traffic_stress?: number | null;
+  bicycle_infra?: string | null;
+}
+
+const SMOOTHNESS_LABELS: Record<string, string> = {
+  excellent: "非常に良い",
+  good: "良い",
+  intermediate: "普通",
+  bad: "悪い",
+  very_bad: "非常に悪い",
+  horrible: "劣悪",
+  very_horrible: "劣悪",
+  impassable: "通行不能",
+};
+
+const BICYCLE_INFRA_LABELS: Record<string, string> = {
+  separated: "分離自転車道",
+  lane: "自転車レーン",
+  shared_busway: "バス専用道等の共用",
+  shared_pedestrian: "自転車歩行者道",
+  roadway: "車道（専用施設なし）",
+  prohibited: "自転車通行不可",
+};
+
+function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
+  const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
+  if (properties.smoothness) {
+    rows.push(`路面状態: ${SMOOTHNESS_LABELS[properties.smoothness] ?? properties.smoothness}`);
+  }
+  if (properties.bicycle_infra) {
+    rows.push(`自転車インフラ: ${BICYCLE_INFRA_LABELS[properties.bicycle_infra] ?? properties.bicycle_infra}`);
+  }
+  if (properties.traffic_stress != null) {
+    rows.push(`交通ストレス: ${properties.traffic_stress}/4`);
+  }
+  if (properties.tunnel) rows.push("トンネル");
+  if (properties.bridge) rows.push("橋・高架");
+  return `<div style="font-size:0.85rem; line-height:1.6;">${rows.join("<br/>")}</div>`;
 }
 
 interface MapViewProps {
@@ -434,6 +543,9 @@ interface MapViewProps {
   location: Coordinates;
   showElevation: boolean;
   showRoad: boolean;
+  /** 交通ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
+  showTrafficStress: boolean;
+  showBicycleInfra: boolean;
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
@@ -453,6 +565,8 @@ export default function MapView({
   location,
   showElevation,
   showRoad,
+  showTrafficStress,
+  showBicycleInfra,
   roadHiddenKeysByMode,
   routeLayerOn,
   routeStyleModeId,
@@ -484,6 +598,8 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     showRoad,
+    showTrafficStress,
+    showBicycleInfra,
     roadHiddenKeysByMode,
     experimentSlots,
   });
@@ -507,6 +623,8 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       showRoad,
+      showTrafficStress,
+      showBicycleInfra,
       roadHiddenKeysByMode,
       experimentSlots,
     };
@@ -518,6 +636,8 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     showRoad,
+    showTrafficStress,
+    showBicycleInfra,
     roadHiddenKeysByMode,
     experimentSlots,
   ]);
@@ -537,6 +657,8 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       showRoad,
+      showTrafficStress,
+      showBicycleInfra,
       roadHiddenKeysByMode,
       experimentSlots,
     } = redrawPropsRef.current;
@@ -544,6 +666,8 @@ export default function MapView({
     setGsiReliefVisibility(map, showElevation);
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
+    setTrafficStressVisibility(map, showTrafficStress);
+    setBicycleInfraVisibility(map, showBicycleInfra);
 
     drawBaseRoutes(map, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
@@ -586,11 +710,15 @@ export default function MapView({
     // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）
     ensureGsiReliefLayer(map);
     ensureRoadSurfaceTileLayer(map);
+    ensureTrafficStressLayer(map);
+    ensureBicycleInfraLayer(map);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
     function handleClick(e: MapMouseEvent) {
-      const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID].filter((id) => map.getLayer(id));
+      const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, BICYCLE_INFRA_LAYER_ID].filter(
+        (id) => map.getLayer(id)
+      );
       if (layers.length === 0) return;
       const features = map.queryRenderedFeatures(e.point, { layers });
       if (features.length === 0) return;
@@ -599,14 +727,16 @@ export default function MapView({
       const html =
         feature.layer.id === DETAIL_LAYER_ID
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
-          : buildRoadSurfacePopupHtml(feature.properties as unknown as { surface_good: boolean | null });
+          : buildRoadSurfacePopupHtml(feature.properties as unknown as RoadSurfacePopupProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
     }
 
     function handleMouseMove(e: MapMouseEvent) {
-      const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID].filter((id) => map.getLayer(id));
+      const layers = [DETAIL_LAYER_ID, ROAD_TILE_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, BICYCLE_INFRA_LAYER_ID].filter(
+        (id) => map.getLayer(id)
+      );
       if (layers.length === 0) {
         map.getCanvas().style.cursor = "";
         return;
@@ -764,6 +894,19 @@ export default function MapView({
     if (!map) return;
     setGsiReliefVisibility(map, showElevation);
   }, [showElevation]);
+
+  // 交通ストレス・自転車インフラも路面と同じソースのため、切替はvisibilityの差し替えのみ。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setTrafficStressVisibility(map, showTrafficStress);
+  }, [showTrafficStress]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setBicycleInfraVisibility(map, showBicycleInfra);
+  }, [showBicycleInfra]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
