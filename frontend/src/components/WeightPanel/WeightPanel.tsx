@@ -1,5 +1,6 @@
 "use client";
 
+import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import styles from "./WeightPanel.module.css";
 
@@ -16,9 +17,10 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
 };
 
 export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = {
-  elevation_weight: 0.25,
-  road_weight: 0.3,
-  wind_weight: 0.45,
+  elevation_weight: 0.2,
+  road_weight: 0.25,
+  wind_weight: 0.35,
+  stop_weight: 0.2,
 };
 
 interface WeightPanelProps {
@@ -35,23 +37,20 @@ interface WeightField<T> {
   label: string;
 }
 
-// ラベルは候補一覧（RouteList）のおすすめ度説明文と同じ語を使う。「画面に出る数値と、
-// それを動かす重みは同じ語で呼ぶ」統一ルール（T30。以前は距離/風/路面と略していて、
-// どの表示値に効く重みなのか照合しづらかった）。
-const SCORING_FIELDS: WeightField<ScoringWeights>[] = [
-  { key: "distance_weight", label: "距離の合わせ込み" },
-  { key: "elevation_weight", label: "獲得標高" },
-  { key: "wind_weight", label: "向かい風" },
-  { key: "road_weight", label: "舗装率" },
-];
+// 軸のラベル・入力欄リストは評価軸カタログ（lib/evaluationAxes.ts）から生成する
+// （改善計画T25。軸を増やすたびにここへ手作業で追記するとRouteListのhint文言と
+// ズレていく「手動同期ペア」だったため、カタログを単一ソースにした）。
+// ラベルは候補一覧（RouteList）のおすすめ度説明文と同じ語を使う「画面に出る数値と、
+// それを動かす重みは同じ語で呼ぶ」統一ルール（T30）を踏襲する。
+const SCORING_FIELDS: WeightField<ScoringWeights>[] = SCORING_AXES.map((axis) => ({
+  key: axis.weightKey,
+  label: axis.label,
+}));
 
-// こちらはルート色分けモード（勾配・舗装/未舗装・風の影響）が可視化する区間難易度の
-// 構成要素に対応するため、その語に揃える（elevation_weightの実体は区間勾配由来の難易度）。
-const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = [
-  { key: "elevation_weight", label: "勾配" },
-  { key: "road_weight", label: "舗装" },
-  { key: "wind_weight", label: "風" },
-];
+const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES.map((axis) => ({
+  key: axis.weightKey,
+  label: axis.label,
+}));
 
 function WeightInput<T extends Record<string, number>>({
   field,
