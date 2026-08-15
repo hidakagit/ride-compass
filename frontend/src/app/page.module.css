@@ -1,22 +1,32 @@
+/* 画面全体の外枠。常設の天候ヘッダ（.weatherHeader）＋既存の.app-shell行（globals.css）を
+   縦に並べる（モバイル実機フィードバック対応T36）。画面の高さ確保はここが担う。 */
+.viewport {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh; /* モバイルブラウザのアドレスバー出現/消滅による高さのガタつきを避ける */
+}
+
+/* 常設の天候ヘッダ。以前はサイドバー内の「ルートを作る」ブロックに埋もれていて
+   スマホで見づらいという実機フィードバックを受け、デスクトップ・モバイル共通の
+   1行ヘッダへ移した（モバイル実機フィードバック対応T36）。風向・風速が生成条件
+   （風評価の起点）であることの説明は、狭いモバイル幅でも1行に収まるようtitle属性
+   （長押し/ホバーで見える補足）に持たせている。 */
+.weatherHeader {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0.35rem var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
 .toggleButton {
   align-self: flex-start;
 }
 
-.title {
-  font-size: 1.4rem;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--color-accent);
-  margin-bottom: var(--space-1);
-}
-
-.subtitle {
-  color: var(--color-muted);
-  font-size: var(--font-size-md);
-}
-
-/* サイドバーの3ブロック（ルートを作る／地図の見え方／開発者向け）の共通枠。
-   details（開閉あり）とsection（常時表示）の両方で使う */
+/* サイドバーの2ブロック（ルートを作る／地図の見え方。開発者向けは地図の見え方へ統合済み、
+   T34）の共通枠。details（開閉あり）とsection（常時表示）の両方で使う */
 .blockSection {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-3);
@@ -43,13 +53,6 @@
   gap: var(--space-3);
 }
 
-/* 天候が生成入力（風評価の起点）であることを示す補足。直上のWeatherPanelに寄せる */
-.weatherHint {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-  margin: -0.4rem 0 0;
-}
-
 /* 生成前の空状態ガイド（初見ユーザー向けの「まず何をするか」） */
 .emptyHint {
   color: var(--color-neutral);
@@ -64,18 +67,7 @@
   margin: 0;
 }
 
-/* 天候・位置情報をひとまとまりのカードにして、サイドバー内の情報のグルーピングを
-   視覚的に分かりやすくする */
-.infoCard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  background: var(--color-surface-2);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-}
-
-/* 地図の凡例（MapLegendPanel）も.infoCardと同じカード見た目でグルーピングする */
+/* 地図の凡例（MapLegendPanel）と同じカード見た目でグルーピングする */
 .legendCard {
   background: var(--color-surface-2);
   border-radius: var(--radius-md);
@@ -114,6 +106,18 @@
 .mapPane {
   flex: 1;
   position: relative;
+}
+
+/* MapLibreの帰属表示（.maplibregl-ctrl-bottom-left/right、ライセンス上必須）は地図
+   コンテナ自身の右下・左下に絶対配置されるため、固定表示の.mobileTabBarが乗ると
+   その下に隠れてしまう（Playwright実機確認で発覚）。z-indexで競合させるのではなく、
+   帰属表示自体をタブバーの高さぶん底上げする。マーカークラス.app-map-paneは
+   globals.cssのapp-debug-console等と同じ手法（page.tsxで併用するグローバルクラス）。 */
+@media (max-width: 640px) {
+  :global(.app-map-pane .maplibregl-ctrl-bottom-left),
+  :global(.app-map-pane .maplibregl-ctrl-bottom-right) {
+    margin-bottom: var(--mobile-tabbar-height);
+  }
 }
 
 .locateButton {
@@ -159,14 +163,49 @@
 
 /* スマホ幅ではMapLibreの帰属表示が右下のコンパクトなⓘボタンになり、bottom: 2.5remの
    現在地ボタンと重なって欠けて見える（実機スクリーンショットで確認）。ⓘボタンの上へ退避する。
-   デバッグモード時はpage.tsxのインラインstyle（DebugConsoleの高さ基準）がこれより優先される。 */
+   さらに画面下部に固定の.mobileTabBar（--mobile-tabbar-height）が乗るため、その分も
+   底上げする（モバイル実機フィードバック対応T34）。デバッグモード時はpage.tsxの
+   インラインstyle（DebugConsoleの高さ基準、こちらも同じくタブバー分を加算済み）が
+   これより優先される。 */
 @media (max-width: 640px) {
   .locateButton {
-    bottom: 5rem;
+    bottom: calc(5rem + var(--mobile-tabbar-height));
   }
 
   .locateError {
-    /* 現在地ボタンの上に出す関係を維持する（5rem + ボタン44px + 間隔12px） */
-    bottom: 8.5rem;
+    /* 現在地ボタンの上に出す関係を維持する（5rem + ボタン44px + 間隔12px + タブバー高さ） */
+    bottom: calc(8.5rem + var(--mobile-tabbar-height));
   }
+}
+
+/* モバイル下部固定のタブバー（「ルートを作る」/「地図の見え方」）。旧サイドバー
+   ドロワーの置き換え（モバイル実機フィードバック対応T34）。BottomSheetはこの上に乗る
+   （BottomSheet.module.cssのbottom: var(--mobile-tabbar-height)参照）。 */
+.mobileTabBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  height: var(--mobile-tabbar-height);
+  display: flex;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 -1px 8px rgba(0, 0, 0, 0.15);
+}
+
+.tabButton {
+  flex: 1;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.tabButtonActive {
+  color: var(--color-accent-strong);
+  font-weight: 700;
+  background: var(--color-accent-bg);
 }

@@ -9,6 +9,7 @@ import DebugConsole, { DEBUG_CONSOLE_MAX_HEIGHT_PX } from "@/components/DebugCon
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
+import BottomSheet from "@/components/BottomSheet/BottomSheet";
 import {
   MAP_LAYERS,
   layerSectionDomId,
@@ -101,26 +102,21 @@ const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 const LOCATE_BUTTON_HEIGHT_PX = 44;
 const LOCATE_BUTTON_GAP_PX = 12;
 
-// 「ルートを作る」セクション見出しのDOM id。地図の見え方セクション（MapLayersPanel）の
-// ルート未生成時の案内からの誘導スクロール先（レイヤー設定への誘導と同じパターンの逆方向）。
+// モバイル下部タブバーの高さ（globals.cssの--mobile-tabbar-height、3.5rem=56pxと一致させる）。
+// 現在地ボタン等がタブバーの上に出るよう、モバイルでは常にこの分だけ底上げする。
+const MOBILE_TABBAR_HEIGHT_PX = 56;
+
+// 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>とモバイルのBottomSheetの
+// 見出しの両方で使う（両者は排他表示のためid重複しない）。地図の見え方セクション
+// （MapLayersPanel）のルート未生成時の案内からの誘導スクロール先でもある。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
+// モバイルの「地図の見え方」シート見出しのDOM id。
+const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
+
+type MobileSheet = "route" | "map" | null;
 
 export default function Home() {
-  const {
-    location,
-    locationSource,
-    manualLat,
-    manualLng,
-    showManualInput,
-    locating,
-    locateError,
-    manualLocationError,
-    setManualLat,
-    setManualLng,
-    toggleManualInput,
-    handleManualSubmit,
-    handleLocateMe,
-  } = useLocation();
+  const { location, locationSource, locating, locateError, handleLocateMe } = useLocation();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -167,41 +163,29 @@ export default function Home() {
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる（localStorageへの保存・復元は下の復元エフェクト参照、T32）。
   const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useState<Record<string, string[]>>({});
-  // 「ルートを作る」セクションの開閉。主機能のためデフォルト開（「地図レイヤーだけ使いたい」
-  // 人は一度閉じればよい。開閉の保存はT32）。
+  // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開。
+  // 開閉の保存はT32）。モバイルはBottomSheetの開閉自体がこれに相当するため参照しない
+  // （モバイル実機フィードバック対応T34）。
   const [generateOpen, setGenerateOpen] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // モバイルで開いている下部シート（「ルートを作る」/「地図の見え方」の排他表示、または
+  // どちらも閉じたnull＝地図全面表示）。デスクトップでは使わない。
+  const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
-  const toggleButtonRef = useRef<HTMLButtonElement>(null);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const debugEnabled = useDebugEnabled();
   const researchEnabled = useResearchEnabled();
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
-  // スマホ幅では地図を常に主役として見せたいため、初回にモバイル判定された時だけ
-  // サイドバーを自動的に閉じる（以降はユーザーの開閉操作を尊重し、リサイズのたびに
-  // 勝手に閉じ直したりはしない）。
-  // useIsomorphicLayoutEffectを使うのは、useIsMobile自身のisMobile判定も同じ理由で
-  // レイアウトエフェクト化しているため（ちらつき防止）。ここも通常のuseEffectのままだと、
-  // isMobileがペイント前に確定してもこちらの折りたたみ反映がペイント後にずれ込み、
-  // 結局モバイル初回表示でサイドバー全開のドロワーが一瞬見えてしまう。
   const isMobile = useIsMobile();
-  const appliedMobileDefaultRef = useRef(false);
-  useIsomorphicLayoutEffect(() => {
-    if (isMobile && !appliedMobileDefaultRef.current) {
-      appliedMobileDefaultRef.current = true;
-      setSidebarCollapsed(true);
-    }
-  }, [isMobile]);
 
   // 前回の「地図の見え方」設定（色分けモード・レイヤーON/OFF・絞り込みキー）と
-  // 「ルートを作る」の開閉を復元する。useStateの初期化子でlocalStorageを読むと
-  // SSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
-  // レイアウトエフェクトなのはサイドバー折りたたみと同じちらつき防止の理由。
+  // 「ルートを作る」の開閉（デスクトップ）を復元する。useStateの初期化子でlocalStorageを
+  // 読むとSSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
+  // レイアウトエフェクトなのはちらつき防止のため（isMobile自身の判定と同じ理由）。
   useIsomorphicLayoutEffect(() => {
     setRouteStyleModeId(
       loadStoredStyleMode(ROUTE_STYLE_MODE_STORAGE_KEY, isRouteStyleModeId, DEFAULT_ROUTE_STYLE_MODE_ID),
@@ -347,69 +331,53 @@ export default function Home() {
     [hasDetail, layerVisibility, roadSummary, routeSummary],
   );
 
-  // 地図上の条件サマリのタップで、サイドバーを開いて該当レイヤーの設定セクションへ誘導する。
-  // サイドバーが閉じていると中身が未マウントのため、開いた後の再レンダーを待ってから
-  // （次フレームで）スクロール・フォーカスする。
-  const handleLayerSummaryClick = useCallback((id: MapLayerId) => {
-    setSidebarCollapsed(false);
-    requestAnimationFrame(() => {
-      const heading = document.getElementById(`${layerSectionDomId(id)}-title`);
-      heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-      heading?.focus?.({ preventScroll: true });
-    });
-  }, []);
+  // 地図上の条件サマリのタップで、「地図の見え方」設定（デスクトップはサイドバー、
+  // モバイルは下部シート）を開いて該当レイヤーの設定セクションへ誘導する。閉じていると
+  // 中身が未マウントのため、開いた後の再レンダーを待ってから（次フレームで）
+  // 対象セクションを展開・スクロール・フォーカスする。
+  const handleLayerSummaryClick = useCallback(
+    (id: MapLayerId) => {
+      if (isMobile) {
+        setMobileSheet("map");
+      } else {
+        setSidebarCollapsed(false);
+      }
+      requestAnimationFrame(() => {
+        const sectionId = layerSectionDomId(id);
+        const section = document.getElementById(sectionId);
+        // レイヤーごとの設定は折りたたみ（<details>、モバイル実機フィードバック対応T38）の
+        // ためデフォルト閉。誘導先が閉じたままではスクロールしても中身が見えないため開く。
+        if (section instanceof HTMLDetailsElement) section.open = true;
+        const heading = document.getElementById(`${sectionId}-title`);
+        heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+        heading?.focus?.({ preventScroll: true });
+      });
+    },
+    [isMobile],
+  );
 
-  // 「地図の見え方」内のルート未生成案内から「ルートを作る」へ誘導する。閉じていれば開き、
-  // 開いた後の再レンダーを待ってから（次フレームで）スクロール・フォーカスする
-  // （handleLayerSummaryClickと同じ手法）。
+  // 「地図の見え方」内のルート未生成案内から「ルートを作る」へ誘導する。デスクトップは
+  // 該当ブロックを開き、モバイルは「ルートを作る」シートを開く。開いた後の再レンダーを
+  // 待ってから（次フレームで）スクロール・フォーカスする（handleLayerSummaryClickと同じ手法）。
   const handleGoToGenerate = useCallback(() => {
-    handleGenerateOpenChange(true);
+    if (isMobile) {
+      setMobileSheet("route");
+    } else {
+      handleGenerateOpenChange(true);
+    }
     requestAnimationFrame(() => {
       const heading = document.getElementById(GENERATE_SECTION_TITLE_ID);
       heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
       heading?.focus?.({ preventScroll: true });
     });
-  }, [handleGenerateOpenChange]);
+  }, [isMobile, handleGenerateOpenChange]);
 
-  // モバイルのドロワーを閉じる共通処理。背景タップ・スワイプ・Escapeキーのいずれから
-  // 閉じた場合も、フォーカスが失われたパネル内要素からトグルボタンへ戻す（キーボード/
-  // スクリーンリーダー利用時に閉じた後の操作起点を見失わないようにするため）。
-  const closeSidebar = useCallback(() => {
-    setSidebarCollapsed(true);
-    toggleButtonRef.current?.focus();
+  // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
+  const handleMobileTabClick = useCallback((sheet: "route" | "map") => {
+    setMobileSheet((prev) => (prev === sheet ? null : sheet));
   }, []);
 
-  // モバイルでドロワー展開中のみ、Escapeキーで閉じられるようにする
-  useEffect(() => {
-    if (!isMobile || sidebarCollapsed) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") closeSidebar();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isMobile, sidebarCollapsed, closeSidebar]);
-
-  // モバイルでドロワー展開中のみ、左方向へのスワイプで閉じる。縦方向の移動量が大きい
-  // 場合はパネル内リストのスクロール操作とみなして無視する。
-  const SWIPE_CLOSE_THRESHOLD_PX = 60;
-  function handleSidebarTouchStart(e: React.TouchEvent) {
-    if (!isMobile || sidebarCollapsed) return;
-    const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }
-  function handleSidebarTouchEnd(e: React.TouchEvent) {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    if (!start || !isMobile || sidebarCollapsed) return;
-    const touch = e.changedTouches[0];
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    if (dx < -SWIPE_CLOSE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy)) {
-      closeSidebar();
-    }
-  }
-
-  // 現在地が変わったらその地点の天候を取得（ルート生成時の風評価の起点にもなる）。
+  // 現在地が変わったらその地点の天候を取得(ルート生成時の風評価の起点にもなる)。
   // マウント直後はDEFAULT_LOCATIONで取得が走り、その直後にGeolocationが成功すると
   // 実際の現在地でも取得が走る。ネットワーク遅延次第で先に投げた方が後に返ってくることが
   // あるため、リクエストごとに連番を振り「一番最後に投げたリクエストの結果か」を確認してから
@@ -505,227 +473,276 @@ export default function Home() {
     }
   }
 
-  const locateButtonBottomPx = debugEnabled ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX : null;
-  const locateErrorBottomPx = debugEnabled
-    ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX + LOCATE_BUTTON_HEIGHT_PX + LOCATE_BUTTON_GAP_PX
+  // デバッグモード時のみJSで計算してインラインstyleを当てる（DebugConsoleの高さ基準。
+  // 非デバッグ時はpage.module.cssの@media (max-width:640px)側の既定値がタブバー分の
+  // クリアランスを含めて計算済みのため、ここではnullのままCSSに委ねる）。
+  const locateButtonBottomPx = debugEnabled
+    ? DEBUG_CONSOLE_MAX_HEIGHT_PX + LOCATE_BUTTON_GAP_PX + (isMobile ? MOBILE_TABBAR_HEIGHT_PX : 0)
     : null;
-  const isDrawerOpen = isMobile && !sidebarCollapsed;
+  const locateErrorBottomPx = debugEnabled
+    ? DEBUG_CONSOLE_MAX_HEIGHT_PX +
+      LOCATE_BUTTON_GAP_PX +
+      LOCATE_BUTTON_HEIGHT_PX +
+      LOCATE_BUTTON_GAP_PX +
+      (isMobile ? MOBILE_TABBAR_HEIGHT_PX : 0)
+    : null;
 
-  return (
-    <div className="app-shell">
-      {isDrawerOpen && <div className="app-sidebar-backdrop" onClick={closeSidebar} aria-hidden="true" />}
+  // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37。
+  // デスクトップの<details>とモバイルのBottomSheetの両方から呼ぶ、モバイル実機
+  // フィードバック対応T34）。
+  function renderRouteSectionBody() {
+    return (
+      <>
+        <LocationControl location={location} source={locationSource} />
 
-      <aside
-        className={`app-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}
-        onTouchStart={handleSidebarTouchStart}
-        onTouchEnd={handleSidebarTouchEnd}
-        role={isDrawerOpen ? "dialog" : undefined}
-        aria-modal={isDrawerOpen ? true : undefined}
-        aria-label={isDrawerOpen ? "メニュー" : undefined}
-      >
-        <button
-          ref={toggleButtonRef}
-          type="button"
-          onClick={() => setSidebarCollapsed((v) => !v)}
-          aria-label={sidebarCollapsed ? "パネルを開く" : "パネルを閉じる"}
-          className={styles.toggleButton}
-        >
-          {/* 矢印記号は開閉の意味が伝わりにくかったため、より広く認知されている
-              ハンバーガー/クローズアイコンに変更 */}
-          {sidebarCollapsed ? "☰" : "✕"}
-        </button>
-
-        {!sidebarCollapsed && (
-          <>
-            <header>
-              <h1 className={styles.title}>RideCompass</h1>
-              <p className={styles.subtitle}>ロードバイク向け周回ルート生成アプリ（プロトタイプ）</p>
-            </header>
-
-            {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
-                「B. 地図の見え方（表示系・即時反映）」「C. 開発者向け（デフォルト閉）」の
-                3ブロック構成（UI一貫性再編T30）。生成に効く条件（出発地点・天候・距離・重み）が
-                画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。 */}
-
-            {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
-                編集は生成ボタンを押すまで地図へ影響しない。 */}
-            <details
-              className={styles.blockSection}
-              open={generateOpen}
-              onToggle={(e) => handleGenerateOpenChange(e.currentTarget.open)}
-            >
-              <summary id={GENERATE_SECTION_TITLE_ID} className={styles.blockSummary}>
-                ルートを作る
-              </summary>
-              <div className={styles.blockBody}>
-                <div className={styles.infoCard}>
-                  <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
-                  {/* 天候は単なる表示情報ではなく生成入力（風評価の起点）である文脈をここで示す */}
-                  <p className={styles.weatherHint}>風向・風速はルート候補の評価に使われます</p>
-
-                  <LocationControl
-                    location={location}
-                    source={locationSource}
-                    manualLat={manualLat}
-                    manualLng={manualLng}
-                    showManualInput={showManualInput}
-                    manualLocationError={manualLocationError}
-                    onManualLatChange={setManualLat}
-                    onManualLngChange={setManualLng}
-                    onToggleManualInput={toggleManualInput}
-                    onManualSubmit={handleManualSubmit}
-                  />
-                </div>
-
-                {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。重みは生成条件
-                    そのものなので、研究モードON時はこのブロック内へ現れる（§14の分離方針は
-                    研究モードのトグル自体を開発者向けブロックに置くことで維持）。 */}
-                {researchEnabled && (
-                  <div className={styles.legendCard}>
-                    <WeightPanel
-                      overrideEnabled={weightOverrideEnabled}
-                      onOverrideEnabledChange={setWeightOverrideEnabled}
-                      scoringWeights={scoringWeights}
-                      onScoringWeightsChange={setScoringWeights}
-                      routePreference={routePreference}
-                      onRoutePreferenceChange={setRoutePreference}
-                    />
-                  </div>
-                )}
-
-                <RouteForm
-                  distance={distanceInput}
-                  onDistanceChange={setDistanceInput}
-                  onGenerate={handleGenerate}
-                  loading={loading}
-                />
-                {conditionsDirty && (
-                  <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
-                )}
-                {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-                {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
-                {routes.length === 0 && !loading && !errorMessage && (
-                  <p className={styles.emptyHint}>
-                    距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
-                  </p>
-                )}
-                <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-                {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
-                    2件以上たまったときだけ表示する。 */}
-                {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
-              </div>
-            </details>
-
-            {/* B. 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
-                地図の上（MapOverlayControls）にはON/OFFチップと適用中の条件の1行サマリだけを
-                残し、詳細は地図に重ねない（地図の視界を優先）。サマリのタップでこのパネルの
-                該当セクションへスクロールしてくる。 */}
-            <section className={styles.blockSection}>
-              <h2 className={styles.blockHeading}>地図の見え方</h2>
-              <div className={styles.legendCard}>
-                <MapLayersPanel
-                  layerVisibility={layerVisibility}
-                  onLayerToggle={handleLayerToggle}
-                  roadHiddenKeysByMode={roadHiddenKeysByMode}
-                  onRoadLegendToggle={toggleHiddenLegendKey}
-                  onRoadAxisSetHidden={handleRoadAxisSetHidden}
-                  regionZoomTooWide={regionZoomTooWide}
-                  routeStyleModeId={routeStyleModeId}
-                  onRouteStyleModeChange={handleRouteStyleModeChange}
-                  hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-                  onRouteLegendToggle={handleRouteLegendToggle}
-                  hasDetail={hasDetail}
-                  onGoToGenerate={handleGoToGenerate}
-                />
-              </div>
-            </section>
-
-            {/* C. 開発者向け: ログ・研究モード・疎通確認・キャッシュ更新。一般ユーザーの
-                視界から外すためデフォルト閉の折りたたみにする（T30） */}
-            <details className={styles.blockSection}>
-              <summary className={styles.blockSummary}>開発者向け</summary>
-              <div className={styles.blockBody}>
-                <div className={styles.systemRow}>
-                  <DebugPanel />
-                  <ResearchPanel />
-                  <BackendStatus />
-                </div>
-                {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
-                <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
-                  地図データを再読み込み
-                </button>
-              </div>
-            </details>
-          </>
+        {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。重みは生成条件
+            そのものなので、研究モードON時はこのブロック内へ現れる（§14の分離方針は
+            研究モードのトグル自体を開発者向けブロックに置くことで維持）。 */}
+        {researchEnabled && (
+          <div className={styles.legendCard}>
+            <WeightPanel
+              overrideEnabled={weightOverrideEnabled}
+              onOverrideEnabledChange={setWeightOverrideEnabled}
+              scoringWeights={scoringWeights}
+              onScoringWeightsChange={setScoringWeights}
+              routePreference={routePreference}
+              onRoutePreferenceChange={setRoutePreference}
+            />
+          </div>
         )}
-      </aside>
 
-      {/*
-        inertは、モバイルでドロワーがrole="dialog" aria-modal="true"として開いている間、
-        その裏に隠れているこのペイン（地図・現在地ボタン・DebugConsole）をフォーカス不能かつ
-        スクリーンリーダーから見えない状態にする。これが無いと、キーボード操作でドロワー内の
-        最後の要素からTabを送った際に、暗幕の下に隠れているはずのこのペイン内の要素（現在地
-        ボタン等）へフォーカスが抜けてしまい、aria-modalの宣言と実際の挙動が食い違う。
-      */}
-      <div className={styles.mapPane} inert={isDrawerOpen}>
-        <MapView
-          routes={routes}
-          selectedRouteId={selectedRouteId}
-          location={location}
-          showElevation={layerVisibility.elevation}
-          showRoad={layerVisibility.road}
-          showTrafficStress={layerVisibility.trafficStress}
-          showBicycleInfra={layerVisibility.bicycleInfra}
-          roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
-          routeLayerOn={layerVisibility.route}
-          routeStyleModeId={routeStyleModeId}
-          hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-          onRegionZoomHintChange={setRegionZoomTooWide}
-          refreshToken={refreshToken}
-          experimentSlots={researchEnabled ? experimentSlots : []}
+        <RouteForm
+          distance={distanceInput}
+          onDistanceChange={setDistanceInput}
+          onGenerate={handleGenerate}
+          loading={loading}
         />
-
-        <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
-
-        <button
-          type="button"
-          onClick={handleLocateMe}
-          disabled={locating}
-          aria-label="現在地に移動"
-          title="現在地に移動"
-          className={locating ? `${styles.locateButton} ${styles.locateButtonBusy}` : styles.locateButton}
-          style={locateButtonBottomPx != null ? { bottom: `${locateButtonBottomPx}px` } : undefined}
-        >
-          {locating ? (
-            "…"
-          ) : (
-            // 以前はUnicode文字「◎」を使っていたが、Android Chrome実機では書体（Noto Sans）が
-            // 中央のドットを描画せず単なる白丸に見える不具合が実機で確認されたため、フォントに
-            // 依存しないSVGアイコン（十字線+中心ドット、地図アプリの現在地アイコンの定番形状）
-            // に置き換えた。
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" fill="currentColor" />
-              <path
-                d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          )}
-        </button>
-
-        {locateError && (
-          <p
-            className={styles.locateError}
-            style={locateErrorBottomPx != null ? { bottom: `${locateErrorBottomPx}px` } : undefined}
-          >
-            {locateError}
+        {conditionsDirty && (
+          <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
+        )}
+        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
+        {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
+        {routes.length === 0 && !loading && !errorMessage && (
+          <p className={styles.emptyHint}>
+            距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
           </p>
         )}
+        <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+        {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
+            2件以上たまったときだけ表示する。 */}
+        {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
+      </>
+    );
+  }
 
-        <DebugConsole />
+  // 「地図の見え方」＋「開発者向け」の中身。開発者向けは末尾に含める（モバイルでも同じ
+  // シートから触れるようにする。デスクトップは以前は別ブロックだったが、内容は同じ
+  // <details>のためコード上の重複を避けてここへ統合した、T34）。
+  function renderMapSettingsSectionBody() {
+    return (
+      <>
+        <div className={styles.legendCard}>
+          <MapLayersPanel
+            layerVisibility={layerVisibility}
+            onLayerToggle={handleLayerToggle}
+            roadHiddenKeysByMode={roadHiddenKeysByMode}
+            onRoadLegendToggle={toggleHiddenLegendKey}
+            onRoadAxisSetHidden={handleRoadAxisSetHidden}
+            regionZoomTooWide={regionZoomTooWide}
+            routeStyleModeId={routeStyleModeId}
+            onRouteStyleModeChange={handleRouteStyleModeChange}
+            hiddenRouteLegendKeys={hiddenRouteLegendKeys}
+            onRouteLegendToggle={handleRouteLegendToggle}
+            hasDetail={hasDetail}
+            onGoToGenerate={handleGoToGenerate}
+          />
+        </div>
+
+        {/* 開発者向け: ログ・研究モード・疎通確認・キャッシュ更新。一般ユーザーの視界から
+            外すためデフォルト閉の折りたたみにする（T30） */}
+        <details className={styles.blockSection}>
+          <summary className={styles.blockSummary}>開発者向け</summary>
+          <div className={styles.blockBody}>
+            <div className={styles.systemRow}>
+              <DebugPanel />
+              <ResearchPanel />
+              <BackendStatus />
+            </div>
+            {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
+            <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
+              地図データを再読み込み
+            </button>
+          </div>
+        </details>
+      </>
+    );
+  }
+
+  return (
+    <div className={styles.viewport}>
+      {/* 天候は生成条件（風評価の起点）だが、以前はサイドバー内の「ルートを作る」ブロックに
+          埋もれてスマホで見づらいという実機フィードバックを受け、常設ヘッダへ移した
+          （モバイル実機フィードバック対応T36）。デスクトップ・モバイル共通の1箇所。 */}
+      <header
+        className={styles.weatherHeader}
+        title="風向・風速はルート候補の評価に使われます"
+      >
+        <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+      </header>
+
+      <div className="app-shell">
+        {!isMobile && (
+          <aside className={`app-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              aria-label={sidebarCollapsed ? "パネルを開く" : "パネルを閉じる"}
+              className={styles.toggleButton}
+            >
+              {sidebarCollapsed ? "☰" : "✕"}
+            </button>
+
+            {!sidebarCollapsed && (
+              <>
+                {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
+                    「B. 地図の見え方（表示系・即時反映、開発者向けを含む）」の2ブロック構成
+                    （UI一貫性再編T30、モバイル実機フィードバック対応T34で開発者向けをBへ統合）。
+                    生成に効く条件（出発地点・距離・重み）が画面のあちこちに分散していた状態を
+                    解消し、系統ごとに反映タイミングを揃える。 */}
+
+                {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
+                    編集は生成ボタンを押すまで地図へ影響しない。 */}
+                <details
+                  className={styles.blockSection}
+                  open={generateOpen}
+                  onToggle={(e) => handleGenerateOpenChange(e.currentTarget.open)}
+                >
+                  <summary id={GENERATE_SECTION_TITLE_ID} className={styles.blockSummary}>
+                    ルートを作る
+                  </summary>
+                  <div className={styles.blockBody}>{renderRouteSectionBody()}</div>
+                </details>
+
+                {/* B. 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
+                    地図の上（MapOverlayControls）にはON/OFFチップと適用中の条件の1行サマリだけを
+                    残し、詳細は地図に重ねない（地図の視界を優先）。サマリのタップでこのパネルの
+                    該当セクションへスクロールしてくる。 */}
+                <section className={styles.blockSection}>
+                  <h2 className={styles.blockHeading}>地図の見え方</h2>
+                  {renderMapSettingsSectionBody()}
+                </section>
+              </>
+            )}
+          </aside>
+        )}
+
+        {/* app-map-paneはpage.module.css側のモバイル向けMapLibre帰属表示オフセット規則
+            （.maplibregl-ctrl-bottom-*、globals.cssのapp-debug-console等と同じマーカークラスの
+            手法）が参照するグローバルなマーカークラス。 */}
+        <div className={`${styles.mapPane} app-map-pane`}>
+          <MapView
+            routes={routes}
+            selectedRouteId={selectedRouteId}
+            location={location}
+            showElevation={layerVisibility.elevation}
+            showRoad={layerVisibility.road}
+            showTrafficStress={layerVisibility.trafficStress}
+            showBicycleInfra={layerVisibility.bicycleInfra}
+            roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
+            routeLayerOn={layerVisibility.route}
+            routeStyleModeId={routeStyleModeId}
+            hiddenRouteLegendKeys={hiddenRouteLegendKeys}
+            onRegionZoomHintChange={setRegionZoomTooWide}
+            refreshToken={refreshToken}
+            experimentSlots={researchEnabled ? experimentSlots : []}
+          />
+
+          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
+
+          <button
+            type="button"
+            onClick={handleLocateMe}
+            disabled={locating}
+            aria-label="現在地に移動"
+            title="現在地に移動"
+            className={locating ? `${styles.locateButton} ${styles.locateButtonBusy}` : styles.locateButton}
+            style={locateButtonBottomPx != null ? { bottom: `${locateButtonBottomPx}px` } : undefined}
+          >
+            {locating ? (
+              "…"
+            ) : (
+              // 以前はUnicode文字「◎」を使っていたが、Android Chrome実機では書体（Noto Sans）が
+              // 中央のドットを描画せず単なる白丸に見える不具合が実機で確認されたため、フォントに
+              // 依存しないSVGアイコン（十字線+中心ドット、地図アプリの現在地アイコンの定番形状）
+              // に置き換えた。
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" fill="currentColor" />
+                <path
+                  d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </button>
+
+          {locateError && (
+            <p
+              className={styles.locateError}
+              style={locateErrorBottomPx != null ? { bottom: `${locateErrorBottomPx}px` } : undefined}
+            >
+              {locateError}
+            </p>
+          )}
+
+          <DebugConsole />
+        </div>
       </div>
+
+      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート2枚へ置換
+          （モバイル実機フィードバック対応T34）。シート表示中も地図の上側が見えたまま
+          パン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
+      {isMobile && (
+        <>
+          <nav className={styles.mobileTabBar} aria-label="パネル切り替え">
+            <button
+              type="button"
+              aria-pressed={mobileSheet === "route"}
+              onClick={() => handleMobileTabClick("route")}
+              className={mobileSheet === "route" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
+            >
+              ルートを作る
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileSheet === "map"}
+              onClick={() => handleMobileTabClick("map")}
+              className={mobileSheet === "map" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
+            >
+              地図の見え方
+            </button>
+          </nav>
+
+          <BottomSheet
+            open={mobileSheet === "route"}
+            onClose={() => setMobileSheet(null)}
+            title="ルートを作る"
+            titleId={GENERATE_SECTION_TITLE_ID}
+          >
+            {renderRouteSectionBody()}
+          </BottomSheet>
+
+          <BottomSheet
+            open={mobileSheet === "map"}
+            onClose={() => setMobileSheet(null)}
+            title="地図の見え方"
+            titleId={MAP_SETTINGS_SHEET_TITLE_ID}
+          >
+            {renderMapSettingsSectionBody()}
+          </BottomSheet>
+        </>
+      )}
     </div>
   );
 }

@@ -17,6 +17,8 @@
   margin: 0 0 0.3rem;
 }
 
+/* レイヤー1つ分の折りたたみ（details）。モバイル実機フィードバック対応T38で
+   常時展開のsectionから変更。デフォルト全閉で初期スクロール量を最小化する。 */
 .layerSection {
   padding: var(--space-2) 0;
 }
@@ -25,18 +27,47 @@
   border-top: 1px dashed var(--color-border);
 }
 
+/* summaryをflexにすると既定のディスクロージャ三角（list-item由来）が消えるため、
+   .chevronで代わりの開閉インジケータを出す（MapOverlayControlsの.summaryArrowと同趣向）。 */
 .layerHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: 0.3rem;
+  cursor: pointer;
+  /* タップ領域を確保（サイドバー内ボタンのmin-height:44pxと揃える、モバイルCSS参照） */
+  min-height: 2.2rem;
+}
+
+.layerHeader::-webkit-details-marker {
+  display: none;
 }
 
 .layerTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: var(--font-size-md);
   font-weight: 700;
   margin: 0;
+}
+
+.chevron {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--color-neutral);
+  border-bottom: 2px solid var(--color-neutral);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.layerSection[open] > .layerHeader .chevron {
+  transform: rotate(45deg);
+}
+
+.layerBody {
+  padding-top: var(--space-2);
 }
 
 /* 地図上の条件サマリから飛んできたときのJSフォーカス用（クリック選択では出さない） */

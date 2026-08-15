@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { layerSectionDomId, type MapLayerId } from "@/components/Map/mapLayers";
 import MapLayersPanel from "./MapLayersPanel";
 
 function baseProps() {
@@ -17,6 +18,15 @@ function baseProps() {
     onRouteLegendToggle: vi.fn(),
     hasDetail: false,
   };
+}
+
+// 各レイヤーは折りたたみ（<details>、モバイル実機フィードバック対応T38）でデフォルト全閉のため、
+// セクション内の凡例・絞り込み等（renderSectionBodyの出力）を検証するテストは先にこれで開く。
+// 見出し（h3）やON/OFFチップ（LayerChip）は<summary>直下にあり閉じていても常に見えるため
+// 開く必要はない。
+function openSection(id: MapLayerId) {
+  const details = document.getElementById(layerSectionDomId(id));
+  if (details instanceof HTMLDetailsElement) details.open = true;
 }
 
 // パネルの枠組み（レイヤーカタログからのセクション生成・表示チップ・凡例チェックの
@@ -36,7 +46,7 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
 
-  it("各レイヤーの表示チップがON/OFF状態をaria-pressedで反映し、操作でonLayerToggleが呼ばれる", async () => {
+  it("各レイヤーの表示チップは閉じたセクションでも見え、ON/OFF状態をaria-pressedで反映し、操作でonLayerToggleが呼ばれる", async () => {
     const user = userEvent.setup();
     const onLayerToggle = vi.fn();
     render(
@@ -57,8 +67,21 @@ describe("MapLayersPanel", () => {
     expect(onLayerToggle).toHaveBeenCalledWith("elevation", false);
   });
 
+  it("チップ操作は所属するセクションの開閉状態を変えない", async () => {
+    const user = userEvent.setup();
+    render(<MapLayersPanel {...baseProps()} />);
+
+    const details = document.getElementById(layerSectionDomId("elevation")) as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "標高図レイヤーを表示" }));
+
+    expect(details.open).toBe(false);
+  });
+
   it("道路情報OFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openSection("road");
     expect(screen.getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
@@ -68,6 +91,7 @@ describe("MapLayersPanel", () => {
     const onRoadLegendToggle = vi.fn();
     const onLayerToggle = vi.fn();
     render(<MapLayersPanel {...baseProps()} onRoadLegendToggle={onRoadLegendToggle} onLayerToggle={onLayerToggle} />);
+    openSection("road");
 
     await user.click(screen.getByRole("checkbox", { name: /アスファルト/ }));
 
@@ -79,6 +103,7 @@ describe("MapLayersPanel", () => {
     const user = userEvent.setup();
     const onRoadAxisSetHidden = vi.fn();
     render(<MapLayersPanel {...baseProps()} onRoadAxisSetHidden={onRoadAxisSetHidden} />);
+    openSection("road");
 
     // 一括ボタンは軸ごとにあるため、1つ目（色＝路面の種類の軸）を操作する
     await user.click(screen.getAllByRole("button", { name: "すべて隠す" })[0]);
@@ -101,6 +126,7 @@ describe("MapLayersPanel", () => {
         regionZoomTooWide={true}
       />,
     );
+    openSection("road");
     expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
@@ -109,6 +135,7 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel {...baseProps()} layerVisibility={{ elevation: false, road: true, trafficStress: false, bicycleInfra: false, route: false }} />,
     );
+    openSection("road");
     expect(screen.getByText(/色：路面の種類/)).toBeInTheDocument();
     expect(screen.getByText(/太さ：道路の種類/)).toBeInTheDocument();
     expect(screen.queryByText("表示範囲が広すぎます。ズームインしてください。")).not.toBeInTheDocument();
@@ -122,12 +149,26 @@ describe("MapLayersPanel", () => {
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,
     );
+    openSection("road");
     expect(screen.getByRole("checkbox", { name: /砂利・締固め/ })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
   });
 
+  it("交通ストレスの凡例に判定基準の説明が表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("trafficStress");
+    expect(screen.getByText(/自転車専用帯・レーンの有無、制限速度、車線数で補正した/)).toBeInTheDocument();
+  });
+
+  it("自転車インフラの凡例に道路情報（路面）との違いの説明が表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("bicycleInfra");
+    expect(screen.getByText(/道路情報レイヤーの/)).toBeInTheDocument();
+  });
+
   it("hasDetail=falseのときルート欄は案内のみで、表示チップも非活性", () => {
     render(<MapLayersPanel {...baseProps()} hasDetail={false} />);
+    openSection("route");
     expect(screen.getByText(/ルートを生成・選択すると使えます/)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "ルートの色分け" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ルートレイヤーを表示" })).toBeDisabled();
@@ -137,6 +178,7 @@ describe("MapLayersPanel", () => {
     const user = userEvent.setup();
     const onGoToGenerate = vi.fn();
     render(<MapLayersPanel {...baseProps()} hasDetail={false} onGoToGenerate={onGoToGenerate} />);
+    openSection("route");
 
     await user.click(screen.getByRole("button", { name: "「ルートを作る」へ" }));
 
@@ -145,6 +187,7 @@ describe("MapLayersPanel", () => {
 
   it("hasDetail=trueのときルートのモード選択・凡例チェックボックスが表示される", () => {
     render(<MapLayersPanel {...baseProps()} hasDetail={true} />);
+    openSection("route");
     expect(screen.getByRole("radio", { name: "風の影響" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("checkbox", { name: /易しい/ })).toBeInTheDocument();
   });
@@ -162,6 +205,7 @@ describe("MapLayersPanel", () => {
         onLayerToggle={onLayerToggle}
       />,
     );
+    openSection("route");
 
     await user.click(screen.getByRole("radio", { name: "勾配" }));
 
@@ -180,6 +224,7 @@ describe("MapLayersPanel", () => {
         onLayerToggle={onLayerToggle}
       />,
     );
+    openSection("route");
 
     await user.click(screen.getByRole("radio", { name: "勾配" }));
 
@@ -197,6 +242,7 @@ describe("MapLayersPanel", () => {
         onRouteLegendToggle={onRouteLegendToggle}
       />,
     );
+    openSection("route");
 
     await user.click(screen.getByRole("checkbox", { name: /下り/ }));
 

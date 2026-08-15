@@ -10,7 +10,10 @@ interface LayerChipProps {
   title?: string;
   /** 表示テキストと別のアクセシブル名が必要な場合（サイドバー側の「表示」チップ等）に指定 */
   ariaLabel?: string;
-  onClick: () => void;
+  /** イベントを受け取れる形にしているのは、<summary>内に置く場合にクリックが
+   * 親のdetails開閉（ネイティブのデフォルト動作）へ伝播しないようpreventDefault/
+   * stopPropagationする呼び出し側（MapLayersPanel）があるため。 */
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
 // レイヤーON/OFFの唯一の操作部品。地図上（MapOverlayControls）とサイドバー

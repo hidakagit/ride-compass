@@ -10,21 +10,14 @@ const GEOLOCATION_TIMEOUT_MS = 8000;
 export interface UseLocationResult {
   location: Coordinates;
   locationSource: LocationSource;
-  manualLat: string;
-  manualLng: string;
-  showManualInput: boolean;
   locating: boolean;
   locateError: string | null;
-  manualLocationError: string | null;
-  setManualLat: (value: string) => void;
-  setManualLng: (value: string) => void;
-  toggleManualInput: () => void;
-  handleManualSubmit: (event: React.FormEvent) => void;
   handleLocateMe: () => void;
 }
 
 // 位置情報の取得・保持を一箇所に集約するフック（マウント時の自動取得／地図上の「現在地に
-// 移動」ボタンからの再取得／手動緯度経度入力の3経路をまとめる）。
+// 移動」ボタンからの再取得の2経路をまとめる。手動緯度経度入力はモバイル実機フィードバックで
+// 不要と判断し撤去済み、docs/improvement-plan.md T35）。
 //
 // マウント時取得（最大8秒かかりうる）とボタンからの取得は非同期に並走しうるため、後から
 // 発行したリクエストの結果を、先に発行したが遅れて返ってきたリクエストの結果が上書きして
@@ -33,12 +26,8 @@ export interface UseLocationResult {
 export function useLocation(): UseLocationResult {
   const [location, setLocation] = useState<Coordinates>(DEFAULT_LOCATION);
   const [locationSource, setLocationSource] = useState<LocationSource>("default");
-  const [manualLat, setManualLat] = useState(String(DEFAULT_LOCATION.latitude));
-  const [manualLng, setManualLng] = useState(String(DEFAULT_LOCATION.longitude));
-  const [showManualInput, setShowManualInput] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
-  const [manualLocationError, setManualLocationError] = useState<string | null>(null);
 
   const latestGeolocationRequestId = useRef(0);
 
@@ -95,48 +84,11 @@ export function useLocation(): UseLocationResult {
     );
   }, []);
 
-  const toggleManualInput = useCallback(() => setShowManualInput((v) => !v), []);
-
-  const handleManualSubmit = useCallback(
-    (event: React.FormEvent) => {
-      event.preventDefault();
-      // Number("")は0を返しNaNにならないため、空欄のまま送信すると気づかず(0,0)
-      // （ギニア湾沖）へ切り替わっていた。trim()で空欄を先に弾き、範囲外の値
-      // （緯度±90度・経度±180度を超える値）も明示的にエラー表示する。
-      if (manualLat.trim() === "" || manualLng.trim() === "") {
-        setManualLocationError("緯度・経度を入力してください。");
-        return;
-      }
-      const latitude = Number(manualLat);
-      const longitude = Number(manualLng);
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-        setManualLocationError("緯度・経度は数値で入力してください。");
-        return;
-      }
-      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-        setManualLocationError("緯度は-90〜90、経度は-180〜180の範囲で入力してください。");
-        return;
-      }
-      setManualLocationError(null);
-      setLocation({ latitude, longitude });
-      setLocationSource("manual");
-    },
-    [manualLat, manualLng]
-  );
-
   return {
     location,
     locationSource,
-    manualLat,
-    manualLng,
-    showManualInput,
     locating,
     locateError,
-    manualLocationError,
-    setManualLat,
-    setManualLng,
-    toggleManualInput,
-    handleManualSubmit,
     handleLocateMe,
   };
 }

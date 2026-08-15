@@ -183,9 +183,30 @@ export default function MapLayersPanel({
       case "trafficStress":
         // P0時点では絞り込みUIは持たず色分け表示のみ（staticAttributeLayers.ts参照）。
         // 色分けは常時全カテゴリ表示のため、レイヤーOFF時も凡例だけ参考表示する。
-        return renderLegendDisplay(TRAFFIC_STRESS_LEGEND, []);
+        // 判定基準が不明という実機フィードバック（モバイル実機フィードバック対応T39）を受け、
+        // backend/app/domain/traffic.py: traffic_stress_levelの要約を明記する。
+        return (
+          <>
+            <p className={styles.mutedHint}>
+              道路の種別を基準に、自転車専用帯・レーンの有無、制限速度、車線数で補正した
+              1（快適）〜4（ストレス大）の目安です。実際の交通量そのものは加味していません。
+            </p>
+            {renderLegendDisplay(TRAFFIC_STRESS_LEGEND, [])}
+          </>
+        );
       case "bicycleInfra":
-        return renderLegendDisplay(BICYCLE_INFRA_LEGEND, []);
+        // 「道路情報（路面）」との違いが分からないという実機フィードバック（同T40）を受け、
+        // 両者が独立した軸であることを明記する。
+        return (
+          <>
+            <p className={styles.mutedHint}>
+              自転車が走る帯の構造（専用道・レーン・車道混在など）を表します。道路情報レイヤーの
+              路面の種類（アスファルト/砂利など、舗装の物理的な状態）とは別の軸で、
+              組み合わせて確認できます。
+            </p>
+            {renderLegendDisplay(BICYCLE_INFRA_LEGEND, [])}
+          </>
+        );
       case "road":
         // 2軸とも凡例チェックボックス＝絞り込み操作（参照表示と操作を1つのリストで兼ねる、
         // ルート凡例と同じ方式）。OFF中でも操作でき、操作すると自動でONになる。
@@ -256,26 +277,38 @@ export default function MapLayersPanel({
             const disabled = isLayerDisabled(layer.id);
             const domId = layerSectionDomId(layer.id);
             return (
-              <section key={layer.id} id={domId} className={styles.layerSection}>
-                <div className={styles.layerHeader}>
+              // 要素ごとに折りたたむ階層メニュー（モバイル実機フィードバック対応T38。
+              // 以前は5レイヤー分の設定が常時全展開でスクロールが長かった）。デフォルト全閉。
+              // domIdはdetails自体に振る（地図上の条件サマリからの誘導、page.tsxの
+              // handleLayerSummaryClickがこのidで要素を取得しopen=trueにしてから
+              // スクロール・フォーカスする）。
+              <details key={layer.id} id={domId} className={styles.layerSection}>
+                <summary className={styles.layerHeader}>
                   {/* tabIndex=-1: 地図上の条件サマリから飛んできたときにJSからfocus()するため
                       （MapOverlayControls→page.tsxのスクロール誘導。クリックでは選択されない） */}
                   <h3 id={`${domId}-title`} tabIndex={-1} className={styles.layerTitle}>
+                    <span aria-hidden="true" className={styles.chevron} />
                     {layer.label}
                   </h3>
                   {/* ON/OFFは地図上のチップと同一部品（LayerChip）。見た目が同じ＝同じ操作だと
-                      伝えるため、role=switchのチェックボックスからチップへ統一した（T30） */}
+                      伝えるため、role=switchのチェックボックスからチップへ統一した（T30）。
+                      summary内のクリックはdetails開閉のデフォルト動作を伴うため、チップ操作が
+                      同時に開閉してしまわないようpreventDefault/stopPropagationする。 */}
                   <LayerChip
                     label="表示"
                     ariaLabel={`${layer.label}レイヤーを表示`}
                     on={layerVisibility[layer.id]}
                     disabled={disabled}
                     title={disabled ? "ルートを生成・選択すると使えます" : undefined}
-                    onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onLayerToggle(layer.id, !layerVisibility[layer.id]);
+                    }}
                   />
-                </div>
-                {renderSectionBody(layer)}
-              </section>
+                </summary>
+                <div className={styles.layerBody}>{renderSectionBody(layer)}</div>
+              </details>
             );
           })}
         </div>

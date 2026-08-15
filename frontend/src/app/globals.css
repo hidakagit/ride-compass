@@ -33,6 +33,11 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+
+  /* モバイルの下部タブバー（page.module.css）の高さ。BottomSheet.module.cssの
+     .sheetのbottomオフセットと一致させ、シートがタブバーの上にぴったり乗るようにする
+     （モバイル実機フィードバック対応T34）。 */
+  --mobile-tabbar-height: 3.5rem;
 }
 
 /* かつては--background/--foreground以外のトークンをダークモードで再定義せず常に固定色
@@ -157,16 +162,20 @@ input[type="number"] {
 
 /* レイアウトの主要要素。インラインstyleでは@mediaクエリを表現できないため、ブレークポイントで
    挙動を変える必要がある部分（サイドバーの位置取り・幅）だけをここに切り出す。
-   それ以外の見た目（余白・並び順など）は既存どおりコンポーネント側のインラインstyleで扱う。 */
+   それ以外の見た目（余白・並び順など）は既存どおりコンポーネント側のインラインstyleで扱う。
+   .app-shellは常設の天候ヘッダ（page.module.css: .weatherHeader）の下に来る行のため、
+   画面高さの確保は外側の.viewport（page.module.css）が担い、.app-shell自体はflex:1で
+   残り高さを埋める（モバイル実機フィードバック対応T34/T36）。 */
 .app-shell {
   display: flex;
-  height: 100vh;
-  height: 100dvh; /* モバイルブラウザのアドレスバー出現/消滅による高さのガタつきを避ける */
+  flex: 1;
+  min-height: 0; /* flexアイテム内のoverflow-y:autoを効かせるため */
 }
 
 .app-sidebar {
   /* 以前は340pxだったが、レイヤー操作を地図上（MapOverlayControls）へ移して
-     サイドバーの中身が減ったため、地図の視界を優先して縮小した */
+     サイドバーの中身が減ったため、地図の視界を優先して縮小した。
+     デスクトップ専用（モバイルは下部タブバー＋部分シートへ置換済み、T34） */
   width: 280px;
   flex-shrink: 0;
   overflow-y: auto;
@@ -182,70 +191,40 @@ input[type="number"] {
   padding: 0.5rem 0.25rem;
 }
 
-/* スマホ幅: 固定340pxのサイドバーがフレックスレイアウトのまま画面のほとんどを占めて
-   しまう問題への対応。position:fixedにしてフレックスの計算から外すことで、地図側
-   （flex:1のペイン）は常に画面いっぱいに広がった状態を保ち、サイドバーはその上に重なる
-   開閉式ドロワーになる。MapView側はMapLibreの内蔵ResizeObserverでコンテナのサイズ変化に
-   自動追従するため、この切り替えのために明示的なmap.resize()呼び出しは不要。
-   幅は画面いっぱい（100%）ではなく一部（85vw、最大340px）に留め、右側に地図を透けさせる。
-   背景タップで閉じる操作を成立させるにはタップ対象となる背景（地図）が見えている必要が
-   あるため（page.tsx側でその背景に半透明のバックドロップを重ねてクリックを検知する）。
-
-   このブレークポイント（640px）はfrontend/src/hooks/useIsMobile.tsが出す
-   MOBILE_BREAKPOINT_PXと一致させること。ズレるとCSS上はオーバーレイ表示なのにJS側は
-   デスクトップ判定のまま、という状態になり、暗幕・aria-modal・Escape/スワイプでの
-   クローズが効かなくなる（frontend/src/hooks/useIsMobile.test.tsで自動検証している）。 */
+/* スマホ幅: サイドバー（ドロワー）の代わりに下部タブバー＋部分シート（BottomSheet）を使う
+   （モバイル実機フィードバック対応T34。「編集中も地図を直接確認できない」という実機
+   フィードバックを受け、全面ドロワー＋暗幕だった旧UIを置き換えた）。このブレークポイント
+   （640px）はfrontend/src/hooks/useIsMobile.tsが出すMOBILE_BREAKPOINT_PXと一致させること。
+   ズレるとCSS上の見た目とJS側の分岐（page.tsxのisMobile）が食い違う
+   （frontend/src/hooks/useIsMobile.test.tsで自動検証している）。 */
 @media (max-width: 640px) {
-  .app-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 45;
-    width: min(85vw, 300px);
-    background: var(--background);
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.3);
-  }
-
-  .app-sidebar.is-collapsed {
-    top: 0.5rem;
-    left: 0.5rem;
-    bottom: auto;
-    width: auto;
-    border-right: none;
-    padding: 0;
-    box-shadow: none;
-  }
-
-  /* ドロワー展開中に背後の地図に重ねる暗幕。page.tsx側でisMobile && !sidebarCollapsedの
-     ときのみ描画し、クリックでcloseSidebar()を呼ぶ（背景タップで閉じる操作）。 */
-  .app-sidebar-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    background: rgba(0, 0, 0, 0.4);
-  }
-
-  /* サイドバー内・デバッグコンソール内のボタン/チェックボックス/入力欄は、指でのタップに
-     適した領域（目安44px角）を確保する */
+  /* サイドバー・BottomSheet・デバッグコンソール内のボタン/チェックボックス/入力欄は、
+     指でのタップに適した領域（目安44px角）を確保する。app-bottom-sheetは
+     BottomSheet.module.cssのクラス名がハッシュ化されグローバルCSSから参照できないため
+     併用しているマーカークラス（DebugConsoleの.app-debug-consoleと同じ手法）。 */
   .app-sidebar button,
-  .app-debug-console button {
+  .app-debug-console button,
+  .app-bottom-sheet button {
     min-height: 44px;
     padding: 0.5rem 0.9rem;
   }
 
-  .app-sidebar input[type="checkbox"] {
+  .app-sidebar input[type="checkbox"],
+  .app-bottom-sheet input[type="checkbox"] {
     width: 1.4rem;
     height: 1.4rem;
   }
 
   .app-sidebar input[type="text"],
-  .app-sidebar input[type="number"] {
+  .app-sidebar input[type="number"],
+  .app-bottom-sheet input[type="text"],
+  .app-bottom-sheet input[type="number"] {
     min-height: 44px;
     font-size: 16px; /* iOS Safariでフォーカス時に自動ズームされるのを防ぐ */
   }
 
-  .app-sidebar label {
+  .app-sidebar label,
+  .app-bottom-sheet label {
     min-height: 44px;
     align-items: center;
   }

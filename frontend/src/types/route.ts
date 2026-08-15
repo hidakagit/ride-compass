@@ -17,8 +17,9 @@ type Schemas = components["schemas"];
 
 export type Coordinates = Schemas["Coordinates"];
 
-// フロント専用（位置情報の出所）。APIには現れない。
-export type LocationSource = "geolocation" | "manual" | "default";
+// フロント専用（位置情報の出所）。APIには現れない。手動入力は撤去済み（改善計画T35）のため
+// "manual"は持たない。
+export type LocationSource = "geolocation" | "default";
 
 export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
   geometry: GeoJSON.LineString;

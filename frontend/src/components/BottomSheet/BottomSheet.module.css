@@ -1,0 +1,63 @@
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* 下部タブバー（page.module.css）のすぐ上に乗せる。タブバー自体はシート表示中も
+     見えたまま＝タブの切り替え・再タップでの開閉ができる（globals.cssのトークン参照）。 */
+  bottom: var(--mobile-tabbar-height);
+  z-index: 45;
+  max-height: 65vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.3);
+}
+
+.handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+  margin: 0.6rem auto 0.2rem;
+  flex-shrink: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0.2rem var(--space-4) var(--space-2);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  font-size: var(--font-size-md);
+  font-weight: bold;
+  margin: 0;
+}
+
+.title:focus {
+  outline: none;
+}
+
+.closeButton {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  font-size: 1.1rem;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.body {
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}

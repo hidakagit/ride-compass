@@ -487,6 +487,89 @@
 
 ---
 
+## モバイル実機フィードバック対応（2026-08-15）
+
+ユーザーが外出時にスマホ実機で検証した際の8点の使いにくさフィードバックへの対応。
+T29〜T32（フロントUI一貫性再編）で整理したサイドバー構成に対する、実機での追加ラウンド。
+方式決定（#2の下部シート×2）はユーザーに確認済み。
+
+### - [x] T33. レイヤーチップ列をモバイルで折り返し表示に 規模S（2026-08-15完了）
+
+- `MapOverlayControls.module.css`の`@media (max-width:640px)`内で`.chipRow`を横スクロール
+  （`overflow-x:auto`）から折り返し（`flex-wrap:wrap`）へ変更。レイヤー5種類は2行程度に収まり
+  スクロール操作自体が不要になる。
+- 完了条件: Playwright実機確認（390px幅）でチップ行のscrollWidth=clientWidthとなり
+  横スクロールが発生しないことを確認。
+
+### - [x] T34. モバイルを「ルート編集」「地図表示」の下部部分シート×2へ再構成 規模L（2026-08-15完了）
+
+- 新規`BottomSheet`コンポーネント（`frontend/src/components/BottomSheet/`）: 画面下部から
+  最大65vhせり上がる部分シート。フルスクリーンの暗幕は敷かず（シート表示中も地図の上側が
+  見えたままパン/ズームできる）、閉じる操作は✕ボタン・下スワイプ・タブ再タップの3通り。
+  `role="dialog"`のみで`aria-modal`は付けない（背後の地図を`inert`にしない）。
+- `page.tsx`のサイドバー中身を`renderRouteSectionBody()`/`renderMapSettingsSectionBody()`へ
+  関数化し、デスクトップの`<aside>`とモバイルの`BottomSheet`×2の両方から呼ぶ（中身の重複を
+  避ける）。開発者向け`<details>`は地図の見え方側の関数末尾へ統合（以前は独立した3つ目の
+  トップレベルブロックだったが、モバイルでも同じシートから触れるようにするため統合）。
+  モバイルは`<aside>`ドロワー・暗幕・`inert`を全廃し、下部固定タブバー（「ルートを作る」/
+  「地図の見え方」、`page.module.css: .mobileTabBar`）＋`mobileSheet`状態（排他表示）に置換。
+- 実装中の実機確認で、固定表示のタブバーがMapLibreの帰属表示（`.maplibregl-ctrl-bottom-*`、
+  ライセンス上必須）を覆い隠す問題を発見・修正（`page.module.css`でモバイル時のみ
+  `margin-bottom: var(--mobile-tabbar-height)`を帰属表示へ適用）。
+- 完了条件: backend/frontend全テスト・eslint・tsc green。Playwright実機確認（390px幅・
+  1280px幅の両方）でシート開閉・帰属表示の非隠蔽・実ルート生成フローの疎通を確認。
+
+### - [x] T35. 緯度経度の手動入力を削除 規模S（2026-08-15完了）
+
+- `useLocation.ts`から`manualLat`/`manualLng`/`showManualInput`/`manualLocationError`/
+  `toggleManualInput`/`handleManualSubmit`を削除（戻り値は`location`/`locationSource`/
+  `locating`/`locateError`/`handleLocateMe`のみ）。`LocationControl.tsx`を出発地点表示のみの
+  コンポーネントへ縮小。`types/route.ts`の`LocationSource`から未使用になった`"manual"`を削除。
+- 完了条件: frontend全テストgreen（手動入力関連テストは削除、残る現在地取得・表示のテストは
+  維持）。
+
+### - [x] T36. 天候情報を常設ヘッダへ移動 規模M（2026-08-15完了）
+
+- `page.module.css`に`.viewport`（画面全体の外枠、天候ヘッダ＋既存`.app-shell`行を縦に並べる）
+  ＋`.weatherHeader`（1行の常設ヘッダ）を新設。`globals.css`の`.app-shell`は`height:100dvh`から
+  `flex:1; min-height:0`へ変更し、外側の`.viewport`が高さ確保を担う形へ。
+- `WeatherPanel`を「ルートを作る」ブロックからこの常設ヘッダへ移動（デスクトップ・モバイル共通の
+  1箇所）。風向・風速が生成条件に効くことの説明は、狭いモバイル幅でも1行に収まるようヘッダの
+  `title`属性（長押し/ホバー補足）へ持たせた。
+- 完了条件: Playwright実機確認でヘッダに天候が表示されることを確認。
+
+### - [x] T37. アプリ名見出しを削除 規模S（2026-08-15完了）
+
+- `page.tsx`サイドバー内の`<h1>RideCompass</h1>`＋サブタイトルを削除。`page.module.css`の
+  `.title`/`.subtitle`（参照が無くなったため）も削除。ブラウザタブ名（`layout.tsx`の
+  `metadata.title`）はUI上には出ないため維持。
+- 完了条件: Playwright実機確認でサイドバー内にアプリ名が表示されないことを確認。
+
+### - [x] T38. 「地図の見え方」の各レイヤーをアコーディオン化 規模M（2026-08-15完了）
+
+- `MapLayersPanel.tsx`のレイヤーごとの`<section>`を`<details>`（デフォルト全閉）へ変更し、
+  `<summary>`に見出し＋ON/OFFチップを収めた。チップのクリックが`<details>`のネイティブ開閉と
+  競合しないよう、`LayerChip`の`onClick`をイベントを受け取れる形へ変更し
+  `preventDefault`/`stopPropagation`する。地図上の条件サマリからの誘導（`handleLayerSummaryClick`）
+  は、対象の`<details>`が閉じていたら`.open = true`を先に設定してから開く。
+- 完了条件: frontend全テストgreen（各テストは対象`<details>`を`.open = true`で開いてから
+  本文中の凡例・チェックボックスを検証するよう更新）。
+
+### - [x] T39. 交通ストレスの判定基準を凡例に明記 規模S（2026-08-15完了）
+
+- `MapLayersPanel.tsx`の`trafficStress`セクションに、`backend/app/domain/traffic.py:
+  traffic_stress_level`の要約（道路種別を基準に自転車専用帯・レーン・制限速度・車線数で
+  補正した1〜4の目安、実際の交通量は加味しない旨）を1〜2文で追加。
+- 完了条件: Playwright実機確認で説明文が表示されることを確認。
+
+### - [x] T40. 自転車インフラと道路情報（路面）の違いを明記 規模S（2026-08-15完了）
+
+- `MapLayersPanel.tsx`の`bicycleInfra`セクションに、道路情報レイヤーの路面種別（舗装の物理的
+  状態）とは別軸（自転車が走る帯の構造）であることを1文で追加。
+- 完了条件: Playwright実機確認で説明文が表示されることを確認。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -526,3 +609,4 @@
 | 2026-08-15 | T31 | 道路情報の絞り込みを即時反映へ統一（`RoadFilterEditor`削除、凡例チェック＋軸ごと一括ボタンへ。地図反映のみ`useDebouncedValue`400msで連続タップを合流）。生成条件のdirty検知（位置・距離・重みのスナップショット比較）と再生成ヒントを追加、RouteFormを制御化。frontend 151件全green |
 | 2026-08-15 | T32 | レイヤーON/OFF・非表示キー・「ルートを作る」開閉をlocalStorageへ保存/復元。エフェクト保存起因のStrictMode上書き問題をPlaywrightで検出しハンドラ内保存へ修正。実機確認は用語・3ブロック構成・自動ON・リロード復元・おすすめ度表示・dirtyヒントの28項目全OK（実ルート生成含む） |
 | 2026-08-15 | T14・T15（残り） | T9完了で解禁された残りの小粒整理をまとめて実施。T14: `build_graph_for_bbox`（アプリ内・scripts内どちらからも未参照と確認）を削除、`/api/routes/preview`のフロント`previewRoute()`が実UIから未使用である実態をarchitecture.mdへ追記。T15: `ASSUMED_SPEED_KMH`重複定義を`domain/wind.py`へ集約（wind_service.py/road_graph_engine.pyはimportに置換）、`repository=None`引数へ`RoadGraphRepository \| None`型注釈を3サービス（GraphService/RegionService/ElevationAttributeService）に追加。T14・T15とも完了、lifespanベース構築（C5）のみ既存の見送り判断を維持。backend 471件green |
+| 2026-08-15 | （モバイル実機フィードバック対応） | スマホ実機検証での8点の使いにくさを起票・全件完了。T33: レイヤーチップ折り返し。T34: サイドバードロワーを下部タブバー＋部分シート（`BottomSheet`新規、暗幕なし・地図を隠さない）へ再構成、実装中にMapLibre帰属表示のタブバー下への隠れを発見し修正。T35: 緯度経度手動入力を撤去（`useLocation`/`LocationControl`縮小）。T36: 天候表示を常設ヘッダへ移動。T37: アプリ名見出しを削除。T38: 「地図の見え方」の各レイヤーをアコーディオン化（デフォルト全閉）。T39/T40: 交通ストレス・自転車インフラの凡例に判定基準/道路情報との違いの説明文を追加。frontend 146件・eslint・tsc全green、Playwright実機確認（390px幅・1280px幅）で全項目確認済み |
