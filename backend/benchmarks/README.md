@@ -237,6 +237,25 @@
     環境でのprepare全体時間改善には直結しなかった。次の候補は転送列の絞り込みや
     より軽量なペイロード形式（例: 座標精度を落とす、不要列を選択しない）。
 
+11. **`surface_attributes`専用テーブルを廃止しosm_raw_ways.surfaceのJOIN導出へ
+    （改善計画T9、2026-08-15）**。road_edges.osm_way_id経由でosm_raw_ways.surfaceを
+    LEFT JOINして読む方式に変更し、`save_graph`とは別に行っていた
+    `save_surface_attributes`（Edge単位UPSERT）を廃止した。ローカルPostGIS（開発機、
+    実データ）で計測（`bench_postgis_prepare.py`。9番以降の計測はSupabase WAN経由
+    だったのに対しこちらはローカル接続のため直接比較はできない点に注意）:
+
+    | シナリオ | `save_graph`単体 | WARM経路end-to-end |
+    |---|---|---|
+    | 1km | 8.25秒（primary_edges=11,210） | 1.92秒（primary_edges=11,210） |
+    | 4km | 13.69秒（primary_edges=22,164） | 3.06秒（primary_edges=22,164） |
+
+    旧実装は`save_graph`に加えて`save_surface_attributes`（Edge数分のUPSERT）を
+    同じCOLD経路で追加実行し、WARM経路でも`get_surface_attributes`が専用テーブルへの
+    追加SELECT（9番の実測で1km 4.19秒・4km 7.33秒、WAN）を要していた。JOIN化により
+    どちらの経路も「追加のテーブルへのDB往復」自体が構造的に無くなった
+    （SELECT/UPSERT対象テーブルが1つ減った）。Supabase等WAN環境での定量比較は、
+    旧実装が既にコードから削除済みのため再測定できない。
+
 ## 各ファイル
 
 | ファイル | 対象 |

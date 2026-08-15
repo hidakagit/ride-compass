@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.graph import WaySpec, build_road_graph
 from app.domain.region import BoundingBox
 
@@ -349,28 +349,33 @@ async def test_get_surface_attributes_returns_empty_dict_for_empty_input(road_gr
     assert await road_graph_repository.get_surface_attributes([]) == {}
 
 
-async def test_save_surface_attributes_with_empty_list_is_a_noop(road_graph_repository):
-    await road_graph_repository.save_surface_attributes([])  # 例外を投げない
-
-
-async def test_surface_attributes_roundtrip(road_graph_repository):
-    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+async def test_get_surface_attributes_joins_via_osm_way_id(road_graph_repository):
+    """改善計画T9: surfaceは専用テーブルを持たず、road_edges.osm_way_id経由で
+    osm_raw_ways.surfaceをJOIN導出する。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     edge_id = next(iter(graph.edges))
-    now_iso = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
-
-    attribute = SurfaceAttribute(
-        edge_id=edge_id, surface_type="asphalt", confidence=None, data_source="osm", calculated_at=now_iso
-    )
-    await road_graph_repository.save_surface_attributes([attribute])
 
     result = await road_graph_repository.get_surface_attributes([edge_id, "nonexistent-edge"])
 
     assert set(result.keys()) == {edge_id}
-    assert result[edge_id].surface_type == "asphalt"
-    assert result[edge_id].data_source == "osm"
+    assert result[edge_id] == "asphalt"
+
+
+async def test_get_surface_attributes_is_none_when_raw_way_not_found(road_graph_repository):
+    """road_edges.osm_way_idに対応するosm_raw_ways行が無い場合（LEFT JOINで不一致）はNone。"""
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)  # save_raw_waysを呼ばない＝osm_raw_ways側は空
+    edge_id = next(iter(graph.edges))
+
+    result = await road_graph_repository.get_surface_attributes([edge_id])
+
+    assert result[edge_id] is None
 
 
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):

@@ -65,7 +65,7 @@ class _RoadGraphContext:
 
     graph: RoadGraph
     nx_graph: nx.DiGraph
-    surface_attributes: dict
+    surface_attributes: dict[str, str | None]
     wind: WeatherConditions | None
     origin_node: str
 
@@ -181,7 +181,7 @@ class RoadGraphEngine:
         self,
         edges: list[DirectedEdge],
         elevation_attributes: dict,
-        surface_attributes: dict,
+        surface_attributes: dict[str, str | None],
         wind: WeatherConditions | None,
         start_time: datetime,
     ) -> list[RouteSegmentDetail]:
@@ -192,11 +192,10 @@ class RoadGraphEngine:
         for edge in edges:
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
-            surface_attr = surface_attributes.get(edge.edge_id)
+            surface_type = surface_attributes.get(edge.edge_id)
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, wind)
-            surface_type = surface_attr.surface_type if surface_attr else None
             road_surface_good = classify_osm_surface(surface_type)
 
             elevation_diff = gradient_difficulty(gradient_percent)
@@ -294,17 +293,16 @@ def _aggregate_elevation(edges: list[DirectedEdge], elevation_attributes: dict) 
     }
 
 
-def _aggregate_road_score(edges: list[DirectedEdge], surface_attributes: dict) -> float | None:
+def _aggregate_road_score(edges: list[DirectedEdge], surface_attributes: dict[str, str | None]) -> float | None:
     """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。
     surfaceタグが無く走行しやすさを判定できない区間は分母から除外する
-    （domain/road.py: paved_percentと同じ定義。こちらはEdge単位のSurfaceAttributeから
+    （domain/road.py: paved_percentと同じ定義。こちらはEdge単位のsurfaceタグから
     距離加重で求める点が異なる）。
     """
     known_distance = 0.0
     good_distance = 0.0
     for edge in edges:
-        attribute = surface_attributes.get(edge.edge_id)
-        surface_type = attribute.surface_type if attribute else None
+        surface_type = surface_attributes.get(edge.edge_id)
         is_good = classify_osm_surface(surface_type)
         if is_good is None:
             continue

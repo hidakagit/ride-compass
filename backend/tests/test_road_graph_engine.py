@@ -6,7 +6,7 @@ Edge単位の集計とsegments構築）を検証する。戦略側の責務（�
 test_route_generator.pyで検証済み。
 """
 
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, Node, RoadGraph
@@ -83,7 +83,7 @@ class FakeGraphService:
         self._surface_attributes = surface_attributes or {}
         self.call_count = 0
 
-    async def get_or_build_graph_with_attributes(self, bbox, data_source="osm-overpass"):
+    async def get_or_build_graph_with_attributes(self, bbox):
         self.call_count += 1
         if self._graph is None:
             return None
@@ -259,10 +259,7 @@ async def test_elevation_is_not_fetched_for_candidates_rejected_by_distance_filt
 async def test_candidate_aggregates_road_score_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    surface_attributes = {
-        edge_ids[0]: SurfaceAttribute(edge_id=edge_ids[0], surface_type="asphalt", data_source="t", calculated_at="t"),
-        edge_ids[1]: SurfaceAttribute(edge_id=edge_ids[1], surface_type="gravel", data_source="t", calculated_at="t"),
-    }
+    surface_attributes = {edge_ids[0]: "asphalt", edge_ids[1]: "gravel"}
     generator, _, _ = make_generator(graph, surface_attributes=surface_attributes)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)

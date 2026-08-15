@@ -1,4 +1,4 @@
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.evaluation_service import EvaluationService, load_route_preference
 
@@ -19,7 +19,7 @@ def test_evaluate_graph_returns_result_per_edge():
     )
     graph = _make_graph(edge1, edge2)
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=2.0, data_source="t", calculated_at="t")}
-    surface_attributes = {"edge-1": SurfaceAttribute(edge_id="edge-1", surface_type="asphalt", data_source="t", calculated_at="t")}
+    surface_attributes = {"edge-1": "asphalt"}
 
     service = EvaluationService()
     results = service.evaluate_graph(graph, elevation_attributes, surface_attributes)
@@ -64,7 +64,7 @@ def test_evaluate_graph_uses_custom_route_preference():
     )
     graph = _make_graph(edge)
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=10.0, data_source="t", calculated_at="t")}
-    surface_attributes = {"edge-1": SurfaceAttribute(edge_id="edge-1", surface_type="asphalt", data_source="t", calculated_at="t")}
+    surface_attributes = {"edge-1": "asphalt"}
 
     default_service = EvaluationService()
     elevation_only_service = EvaluationService(RoutePreference(elevation_weight=1.0, road_weight=0.0))
@@ -104,7 +104,7 @@ def test_evaluation_service_without_explicit_preference_uses_config_file_default
     )
     graph = _make_graph(edge)
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=6.0, data_source="t", calculated_at="t")}
-    surface_attributes = {"edge-1": SurfaceAttribute(edge_id="edge-1", surface_type="gravel", data_source="t", calculated_at="t")}
+    surface_attributes = {"edge-1": "gravel"}
 
     from app.domain.evaluation import RoutePreference
 

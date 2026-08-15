@@ -29,24 +29,6 @@ class ElevationAttribute(BaseModel):
     calculated_at: str
 
 
-class SurfaceAttribute(BaseModel):
-    """Edgeへ紐付ける路面属性（仕様書16章）。
-
-    surface_typeはOSMのsurfaceタグの生値であり、評価用スコア（surface_score等）は
-    含まない。生値と評価値の分離はNormalizer/Evaluation Engineの責務とし、Phase 3では
-    属性の導入のみを対象とする（仕様書24-26章、Phase 4以降）。confidenceは現状
-    導出できる信頼度情報が無いため常にNone（将来、複数データソースの突合等で
-    算出できるようになった場合に備えたプレースホルダ、仕様書14章）。
-    """
-
-    edge_id: str
-    surface_type: str | None = None
-    confidence: float | None = None
-    data_source: str
-    data_version: str | None = None
-    calculated_at: str
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -103,25 +85,14 @@ def compute_elevation_attribute(
     )
 
 
-def build_surface_attributes(
-    graph: RoadGraph,
-    surface_by_way_id: dict[int, str | None],
-    data_source: str,
-) -> dict[str, SurfaceAttribute]:
+def surface_by_edge_id(graph: RoadGraph, surface_by_way_id: dict[int, str | None]) -> dict[str, str | None]:
     """RoadGraphの各Edgeに、同じOSM取得結果由来のsurfaceタグ（osm_way_id単位）を紐付ける。
 
     1つのOSM Wayが複数のDirected Edgeに分割されている場合（仕様書9章）、
-    それらは同じsurface_typeを共有する（Way単位のタグのため、Way内で路面が変わっても
+    それらは同じsurfaceタグ値を共有する（Way単位のタグのため、Way内で路面が変わっても
     OSM上は区別されない。より細かい粒度が必要になった場合は将来の課題とする）。
     """
-    now = _now_iso()
-    attributes: dict[str, SurfaceAttribute] = {}
-    for edge_id, edge in graph.edges.items():
-        surface_type = surface_by_way_id.get(edge.osm_way_id) if edge.osm_way_id is not None else None
-        attributes[edge_id] = SurfaceAttribute(
-            edge_id=edge_id,
-            surface_type=surface_type,
-            data_source=data_source,
-            calculated_at=now,
-        )
-    return attributes
+    return {
+        edge_id: surface_by_way_id.get(edge.osm_way_id) if edge.osm_way_id is not None else None
+        for edge_id, edge in graph.edges.items()
+    }

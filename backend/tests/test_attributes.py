@@ -1,4 +1,4 @@
-from app.domain.attributes import build_surface_attributes, compute_elevation_attribute
+from app.domain.attributes import compute_elevation_attribute, surface_by_edge_id
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 
@@ -66,7 +66,7 @@ def _make_graph(edges: dict[str, DirectedEdge]) -> RoadGraph:
     return RoadGraph(graph_version="v1", nodes={"node-1": node}, edges=edges)
 
 
-def test_build_surface_attributes_maps_by_osm_way_id():
+def test_surface_by_edge_id_maps_by_osm_way_id():
     edge = DirectedEdge(
         edge_id="edge-1",
         from_node_id="node-1",
@@ -77,15 +77,12 @@ def test_build_surface_attributes_maps_by_osm_way_id():
     )
     graph = _make_graph({"edge-1": edge})
 
-    attributes = build_surface_attributes(graph, surface_by_way_id={100: "asphalt"}, data_source="osm-overpass")
+    surfaces = surface_by_edge_id(graph, surface_by_way_id={100: "asphalt"})
 
-    assert attributes["edge-1"].surface_type == "asphalt"
-    assert attributes["edge-1"].edge_id == "edge-1"
-    assert attributes["edge-1"].data_source == "osm-overpass"
-    assert attributes["edge-1"].confidence is None
+    assert surfaces["edge-1"] == "asphalt"
 
 
-def test_build_surface_attributes_unknown_way_id_is_none():
+def test_surface_by_edge_id_unknown_way_id_is_none():
     edge = DirectedEdge(
         edge_id="edge-1",
         from_node_id="node-1",
@@ -96,12 +93,12 @@ def test_build_surface_attributes_unknown_way_id_is_none():
     )
     graph = _make_graph({"edge-1": edge})
 
-    attributes = build_surface_attributes(graph, surface_by_way_id={100: "asphalt"}, data_source="osm-overpass")
+    surfaces = surface_by_edge_id(graph, surface_by_way_id={100: "asphalt"})
 
-    assert attributes["edge-1"].surface_type is None
+    assert surfaces["edge-1"] is None
 
 
-def test_build_surface_attributes_edge_without_osm_way_id_is_none():
+def test_surface_by_edge_id_edge_without_osm_way_id_is_none():
     edge = DirectedEdge(
         edge_id="edge-1",
         from_node_id="node-1",
@@ -112,6 +109,6 @@ def test_build_surface_attributes_edge_without_osm_way_id_is_none():
     )
     graph = _make_graph({"edge-1": edge})
 
-    attributes = build_surface_attributes(graph, surface_by_way_id={100: "asphalt"}, data_source="osm-overpass")
+    surfaces = surface_by_edge_id(graph, surface_by_way_id={100: "asphalt"})
 
-    assert attributes["edge-1"].surface_type is None
+    assert surfaces["edge-1"] is None

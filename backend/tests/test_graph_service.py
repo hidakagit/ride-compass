@@ -60,7 +60,6 @@ class FakeRoadGraphRepository:
         self.raw_node_coords: dict[int, tuple[float, float]] = {}
         self.nodes = {}
         self.edges = {}
-        self.surface_attributes = {}
         self.cached_tiles = set()
         self.save_graph_call_count = 0
         self.save_raw_ways_call_count = 0
@@ -170,11 +169,17 @@ class FakeRoadGraphRepository:
             self.edges[edge_id] = edge
 
     async def get_surface_attributes(self, edge_ids):
-        return {eid: self.surface_attributes[eid] for eid in edge_ids if eid in self.surface_attributes}
-
-    async def save_surface_attributes(self, attributes):
-        for attribute in attributes:
-            self.surface_attributes[attribute.edge_id] = attribute
+        # 実装（road_edges LEFT JOIN osm_raw_ways ON osm_way_id）と同じ導出をインメモリで
+        # 再現する: edge_idがedgesに無ければ結果に含めず、osm_way_idが無い/raw_waysに
+        # 無ければsurface=None（改善計画T9、専用テーブルは持たない）。
+        result = {}
+        for edge_id in edge_ids:
+            edge = self.edges.get(edge_id)
+            if edge is None:
+                continue
+            way = self.raw_ways.get(edge.osm_way_id) if edge.osm_way_id is not None else None
+            result[edge_id] = way.surface if way is not None else None
+        return result
 
     async def is_tile_cached(self, zoom, x, y):
         return (zoom, x, y) in self.cached_tiles
@@ -257,12 +262,12 @@ async def test_with_repository_cache_miss_fetches_and_persists():
     assert result is not None
     graph, surface_attributes = result
     assert len(graph.edges) == 2  # 双方向
-    assert all(a.surface_type == "asphalt" for a in surface_attributes.values())
+    assert all(v == "asphalt" for v in surface_attributes.values())
     assert overpass_client.call_count == 1
     assert repository.save_raw_ways_call_count == 1
     assert repository.save_graph_call_count == 1
     assert len(repository.edges) == 2
-    assert len(repository.surface_attributes) == 2
+    assert len(surface_attributes) == 2
 
 
 async def test_with_repository_cache_hit_skips_overpass():
@@ -327,7 +332,7 @@ async def test_with_repository_falls_back_to_slow_path_when_raw_way_content_actu
     assert repository.get_way_specs_with_closure_call_count == 2  # 変更を検知して低速パス再実行
     assert repository.save_graph_call_count == 2
     assert second is not None
-    assert all(a.surface_type == "gravel" for a in second[1].values())
+    assert all(v == "gravel" for v in second[1].values())
 
 
 async def test_with_repository_semantically_identical_resave_does_not_trigger_slow_path():

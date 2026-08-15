@@ -6,8 +6,9 @@
   （road_graph_tiles）。データ取込・closure読み出しの都合で変わる
 - `DerivedGraphRepository`: 派生グラフ（road_nodes/road_edges）と鮮度判定（split_at）。
   交差点分割アルゴリズムの都合で変わる
-- `AttributeRepository`: Edge単位のRoad Attribute（elevation/surface_attributes）。
-  属性の種類追加の都合で変わる
+- `AttributeRepository`: Edge単位のRoad Attribute（elevation_attributes。surfaceは
+  road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出するため専用テーブルは持たない、
+  改善計画T9）。属性の種類追加の都合で変わる
 - `RoadSurfaceTileQuery`: 地域路面レイヤー表示用のMVT生成（読み取り専用）。
   地図表示の都合で変わる
 `RoadGraphRepository`は4つを既存の公開APIのまま束ねるファサード（DI・テストの
@@ -18,8 +19,8 @@
 `RoadGraphRepository.commit()`を呼んで確定する。4リポジトリは同一AsyncSessionを
 共有するため、どのリポジトリ経由の変更もまとめて確定される。
 例: GraphServiceは「タイルの生データ保存＋取得済みマーク」を1コミット、
-「分割結果の保存＋SurfaceAttribute保存」を1コミットにする（以前は各メソッドが
-内部でcommitしており、保存とマークの原子性が呼び出し順の暗黙規約に依存していた）。
+「分割結果の保存」を1コミットにする（以前は各メソッドが内部でcommitしており、
+保存とマークの原子性が呼び出し順の暗黙規約に依存していた）。
 
 node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出されるため、同じ現実の
 交差点・道路区間に対する保存は常に同じ主キーへのUPSERT（`Session.merge`）になる。
@@ -55,7 +56,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
@@ -69,7 +70,6 @@ from app.infrastructure.road_graph_models import (
     RoadEdgeRow,
     RoadGraphTileRow,
     RoadNodeRow,
-    SurfaceAttributeRow,
 )
 
 CACHED_GRAPH_VERSION = "cached"
@@ -115,17 +115,6 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
         average_grade=row.average_grade,
         max_grade=row.max_grade,
         min_grade=row.min_grade,
-        data_source=row.data_source,
-        data_version=row.data_version,
-        calculated_at=row.calculated_at.isoformat(),
-    )
-
-
-def _surface_row_to_domain(row: SurfaceAttributeRow) -> SurfaceAttribute:
-    return SurfaceAttribute(
-        edge_id=row.edge_id,
-        surface_type=row.surface_type,
-        confidence=row.confidence,
         data_source=row.data_source,
         data_version=row.data_version,
         calculated_at=row.calculated_at.isoformat(),
@@ -726,7 +715,10 @@ class RoadSurfaceTileQuery(_SessionRepository):
 
 
 class AttributeRepository(_SessionRepository):
-    """Edge単位のRoad Attribute（elevation_attributes/surface_attributes）の読み書き。
+    """Edge単位のRoad Attribute（elevation_attributes）の読み書き。
+
+    surfaceは専用テーブルを持たず、road_edges.osm_way_id経由でosm_raw_ways.surfaceを
+    JOINして都度導出する（改善計画T9でsurface_attributesテーブルを廃止）。
 
     新しい属性種別（交通・信号密度等）を追加するときはこのクラスへメソッドを足す
     （他のリポジトリには触れない。docs/design-review-2026-08-15.md 設計原則6）。
@@ -778,39 +770,26 @@ class AttributeRepository(_SessionRepository):
             ],
         )
 
-    async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, SurfaceAttribute]:
+    async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         if not edge_ids:
             return {}
-        result: dict[str, SurfaceAttribute] = {}
-        # =ANY(配列)化の理由はget_elevation_attributesのコメント参照。都心4km相当bbox
-        # （edge_id 151,820件・チャンク数16）でSupabase(WAN)実測: 変更前7.97〜11.49秒。
+        result: dict[str, str | None] = {}
+        # road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出する（改善計画T9、
+        # surface_attributesテーブル廃止）。JOINにはmigration 0001の
+        # idx_road_edges_osm_way_idを使う。osm_way_idが無いEdge（座標2点未満等）は
+        # LEFT JOINでsurface=Noneになる。=ANY(配列)化の理由はget_elevation_attributesの
+        # コメント参照。旧実装（専用テーブルへのSELECT）は都心4km相当bbox
+        # （edge_id 151,820件・チャンク数16）でSupabase(WAN)実測7.97〜11.49秒だった。
         for id_chunk in _chunked(edge_ids, 50_000):
-            stmt = select(SurfaceAttributeRow).where(SurfaceAttributeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
-            for row in (await self._session.execute(stmt)).scalars().all():
-                result[row.edge_id] = _surface_row_to_domain(row)
+            stmt = (
+                select(RoadEdgeRow.edge_id, OsmRawWayRow.surface)
+                .select_from(RoadEdgeRow)
+                .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
+                .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
+            )
+            for edge_id, surface in (await self._session.execute(stmt)).all():
+                result[edge_id] = surface
         return result
-
-    async def save_surface_attributes(self, attributes: list[SurfaceAttribute]) -> None:
-        if not attributes:
-            return
-        rows = [
-            {
-                "edge_id": a.edge_id,
-                "surface_type": a.surface_type,
-                "confidence": a.confidence,
-                "data_source": a.data_source,
-                "data_version": a.data_version,
-                "calculated_at": datetime.fromisoformat(a.calculated_at),
-            }
-            for a in attributes
-        ]
-        await _bulk_upsert(
-            self._session,
-            SurfaceAttributeRow,
-            rows,
-            ["edge_id"],
-            ["surface_type", "confidence", "data_source", "data_version", "calculated_at"],
-        )
 
 
 class RoadGraphRepository:
@@ -882,11 +861,8 @@ class RoadGraphRepository:
     async def save_elevation_attributes(self, attributes: list[ElevationAttribute]) -> None:
         await self.attributes.save_elevation_attributes(attributes)
 
-    async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, SurfaceAttribute]:
+    async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)
-
-    async def save_surface_attributes(self, attributes: list[SurfaceAttribute]) -> None:
-        await self.attributes.save_surface_attributes(attributes)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

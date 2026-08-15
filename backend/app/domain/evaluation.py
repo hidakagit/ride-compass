@@ -12,7 +12,7 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 
 from pydantic import BaseModel
 
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.difficulty import composite_difficulty, gradient_difficulty, road_difficulty, wind_difficulty
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
@@ -98,7 +98,7 @@ def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> 
 def compute_edge_cost(
     edge: DirectedEdge,
     elevation_attribute: ElevationAttribute | None,
-    surface_attribute: SurfaceAttribute | None,
+    surface_type: str | None,
     preference: RoutePreference,
     wind: WeatherConditions | None = None,
 ) -> EdgeCostResult:
@@ -114,7 +114,7 @@ def compute_edge_cost(
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
-    is_good_surface = classify_osm_surface(surface_attribute.surface_type) if surface_attribute else None
+    is_good_surface = classify_osm_surface(surface_type)
     wind_penalty = compute_wind_penalty(edge, wind)
 
     difficulty = composite_difficulty(

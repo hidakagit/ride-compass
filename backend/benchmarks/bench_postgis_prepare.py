@@ -93,7 +93,6 @@ async def _run_scenario(
     import httpx
     from sqlalchemy import update
 
-    from app.domain.attributes import build_surface_attributes
     from app.domain.graph import RoadGraph, build_road_graph
     from app.domain.route import Coordinates
     from app.infrastructure.road_graph_models import OsmRawWayRow
@@ -148,29 +147,25 @@ async def _run_scenario(
     )
 
     graph = build_road_graph(way_specs, node_coords)
-    surface_by_way_id = {w.osm_way_id: w.surface for w in way_specs if w.osm_way_id is not None}
-    surface_attributes = build_surface_attributes(graph, surface_by_way_id, data_source="osm-overpass")
     primary_edges = {eid: e for eid, e in graph.edges.items() if e.osm_way_id in primary_way_ids}
     referenced_node_ids = {e.from_node_id for e in primary_edges.values()} | {
         e.to_node_id for e in primary_edges.values()
     }
     primary_nodes = {nid: n for nid, n in graph.nodes.items() if nid in referenced_node_ids}
     primary_graph = RoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
-    primary_surface_attributes = [a for eid, a in surface_attributes.items() if eid in primary_edges]
     edge_note = f"primary_edges={len(primary_edges)} primary_nodes={len(primary_nodes)}"
 
-    # --- Stage 3: save_graph + save_surface_attributes（bulk UPSERT、DB書き込み） ---
+    # --- Stage 3: save_graph（bulk UPSERT、DB書き込み） ---
     # 既存データと同じ内容へのdelete-then-reinsertのため冪等（何度実行してもDBの内容は変わらない）。
+    # surfaceは専用テーブルを持たず、road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出する
+    # ため（改善計画T9）、保存対象はsave_graphのみになった。
     async def _save():
         async with session_factory() as session:
             repo = RoadGraphRepository(session)
             await repo.save_graph(primary_graph, way_ids_to_replace=primary_way_ids)
-            await repo.save_surface_attributes(primary_surface_attributes)
 
     results.append(
-        await _measure_async(
-            f"[{label}] save_graph + save_surface_attributes (bulk UPSERT)", _save, repeat=slow_repeat, note=edge_note
-        )
+        await _measure_async(f"[{label}] save_graph (bulk UPSERT)", _save, repeat=slow_repeat, note=edge_note)
     )
 
     # --- Stage 4: get_or_build_graph_with_attributes end-to-end（実際のprepare()と同じ呼び出し） ---

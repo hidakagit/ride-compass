@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
 from app.domain.graph import RoadGraph
 from app.domain.weather import WeatherConditions
@@ -40,7 +40,7 @@ class EvaluationService:
         self,
         graph: RoadGraph,
         elevation_attributes: dict[str, ElevationAttribute],
-        surface_attributes: dict[str, SurfaceAttribute],
+        surface_attributes: dict[str, str | None],
         wind: WeatherConditions | None = None,
     ) -> dict[str, EdgeCostResult]:
         return {

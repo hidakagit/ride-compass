@@ -133,19 +133,6 @@ class ElevationAttributeRow(Base):
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class SurfaceAttributeRow(Base):
-    __tablename__ = "surface_attributes"
-
-    edge_id: Mapped[str] = mapped_column(
-        String, ForeignKey("road_edges.edge_id", ondelete="CASCADE"), primary_key=True
-    )
-    surface_type: Mapped[str | None] = mapped_column(String, nullable=True)
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    data_source: Mapped[str] = mapped_column(String, nullable=False)
-    data_version: Mapped[str | None] = mapped_column(String, nullable=True)
-    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class OsmImportRunRow(Base):
     """PBF取込バッチ（app/batch/import_pbf.py）の実行記録。
 

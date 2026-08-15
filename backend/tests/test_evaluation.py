@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.attributes import ElevationAttribute, SurfaceAttribute
+from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import RoutePreference, compute_edge_cost, compute_wind_penalty, is_edge_allowed
 from app.domain.graph import DirectedEdge
 from app.domain.weather import WeatherConditions
@@ -22,10 +22,6 @@ def _edge(**overrides) -> DirectedEdge:
 
 def _elevation_attr(average_grade: float | None) -> ElevationAttribute:
     return ElevationAttribute(edge_id="edge-1", average_grade=average_grade, data_source="test", calculated_at="t")
-
-
-def _surface_attr(surface_type: str | None) -> SurfaceAttribute:
-    return SurfaceAttribute(edge_id="edge-1", surface_type=surface_type, data_source="test", calculated_at="t")
 
 
 def test_is_edge_allowed_excludes_motorway():
@@ -54,7 +50,7 @@ def test_compute_edge_cost_excludes_disallowed_edge():
 def test_compute_edge_cost_flat_and_paved_has_low_difficulty_and_cost_near_distance():
     edge = _edge(distance_m=100.0)
     elevation = _elevation_attr(average_grade=0.0)
-    surface = _surface_attr("asphalt")
+    surface = "asphalt"
 
     result = compute_edge_cost(edge, elevation, surface, RoutePreference())
 
@@ -66,8 +62,8 @@ def test_compute_edge_cost_flat_and_paved_has_low_difficulty_and_cost_near_dista
 def test_compute_edge_cost_steep_and_unpaved_costs_more_than_flat_and_paved():
     edge = _edge(distance_m=100.0)
 
-    easy_result = compute_edge_cost(edge, _elevation_attr(0.0), _surface_attr("asphalt"), RoutePreference())
-    hard_result = compute_edge_cost(edge, _elevation_attr(12.0), _surface_attr("gravel"), RoutePreference())
+    easy_result = compute_edge_cost(edge, _elevation_attr(0.0), "asphalt", RoutePreference())
+    hard_result = compute_edge_cost(edge, _elevation_attr(12.0), "gravel", RoutePreference())
 
     assert hard_result.difficulty > easy_result.difficulty
     assert hard_result.cost > easy_result.cost
@@ -124,7 +120,7 @@ def test_compute_wind_penalty_returns_none_without_wind():
 def test_compute_edge_cost_headwind_costs_more_than_tailwind():
     edge = _edge(distance_m=100.0, geometry=[[35.700, 139.700], [35.701, 139.700]])
     elevation = _elevation_attr(0.0)
-    surface = _surface_attr("asphalt")
+    surface = "asphalt"
 
     headwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), wind=_wind(8.0, 0.0))
     tailwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), wind=_wind(8.0, 180.0))
@@ -136,7 +132,7 @@ def test_compute_edge_cost_headwind_costs_more_than_tailwind():
 def test_compute_edge_cost_without_wind_ignores_wind_weight():
     edge = _edge(distance_m=100.0)
     elevation = _elevation_attr(0.0)
-    surface = _surface_attr("asphalt")
+    surface = "asphalt"
 
     result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # windを渡さない
 
@@ -147,7 +143,7 @@ def test_compute_edge_cost_without_wind_ignores_wind_weight():
 def test_compute_edge_cost_respects_custom_weights():
     edge = _edge(distance_m=100.0)
     elevation = _elevation_attr(average_grade=12.0)  # 激坂
-    surface = _surface_attr("asphalt")  # 舗装路（易しい）
+    surface = "asphalt"  # 舗装路（易しい）
 
     elevation_focused = compute_edge_cost(
         edge, elevation, surface, RoutePreference(elevation_weight=1.0, road_weight=0.0)

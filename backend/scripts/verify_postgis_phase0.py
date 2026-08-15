@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text  # noqa: E402
 
-from app.domain.attributes import ElevationAttribute, build_surface_attributes  # noqa: E402
+from app.domain.attributes import ElevationAttribute  # noqa: E402
 from app.domain.graph import RoadGraph, WaySpec, build_road_graph  # noqa: E402
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox  # noqa: E402
 from app.domain.osm_adapter import osm_ways_to_way_specs  # noqa: E402
@@ -207,16 +207,14 @@ async def main() -> int:
                   f"got={len(reloaded.edges) if reloaded else None}")
 
             print("== 3. Attribute（surface/elevation）の保存・読込 ==")
-            surface_attrs = build_surface_attributes(
-                primary_graph, {s.osm_way_id: s.surface for s in specs}, data_source="phase0-verify"
-            )
-            await repo.save_surface_attributes(list(surface_attrs.values()))
-            await repo.save_surface_attributes(list(surface_attrs.values()))  # UPSERT冪等性
+            # surfaceは専用テーブルを持たず、road_edges.osm_way_id経由でosm_raw_ways.surfaceを
+            # JOIN導出する（改善計画T9）。ステップ1のsave_raw_waysで既に保存済みのため、
+            # ここでの保存操作は不要。
             got_surface = await repo.get_surface_attributes(list(primary_edges))
             check("surface_attributesの件数一致（8件）", len(got_surface) == 8, f"got={len(got_surface)}")
             a_edge = "way-920000000001-seg0-fwd"
-            check("surface_typeの往復（Aはasphalt）",
-                  a_edge in got_surface and got_surface[a_edge].surface_type == "asphalt")
+            check("surfaceのJOIN導出（Aはasphalt）",
+                  got_surface.get(a_edge) == "asphalt")
 
             elev = ElevationAttribute(
                 edge_id=a_edge, start_elevation_m=10.0, end_elevation_m=15.5,
