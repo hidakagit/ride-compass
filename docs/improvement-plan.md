@@ -2072,6 +2072,50 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ---
 
+## 交差点密度レイヤーの地図可視化撤去（2026-08-17・ユーザー判断）
+
+### - [x] T96. 交差点密度を地図の独立可視化レイヤーから撤去（フロントのみ）規模S（2026-08-17完了）
+
+- 背景: ユーザーが実利用のうえ「道が何本交わっているかは地図の道路網を見れば分かり、
+  独立レイヤーとして可視化する意味が薄い」と判断（信号・踏切等の停止要因は種別が
+  道路の見た目から読み取れないため引き続き可視化する価値ありと判断、停止要因レイヤーは維持）。
+  ルーティング材料（`intersection_weight`評価軸、`get_intersection_counts`/
+  `get_nearest_intersection_counts`）は完全に別コードのため触れない。
+- 対応: フロントのみ変更（ユーザー選択、バックエンドは次項T97まで意図的に据え置き）。
+  `mapLayers.ts`のカタログから`intersections`エントリを削除、`MapView.tsx`の
+  `ensureIntersectionLayer`・`INTERSECTION_LAYER_ID`・`INTERSECTION_SOURCE_LAYER`・
+  ポップアップ・`STATIC_OVERLAY_LAYERS`/`LAYER_DATA_SOURCES`エントリを削除、
+  `staticAttributeLayers.ts`の`INTERSECTION_COLOR`/`INTERSECTION_LEGEND`/
+  `INTERSECTION_RADIUS_EXPRESSION`・絞り込み軸エントリを削除、`icons.tsx`の
+  `IntersectionIcon`・`MapOverlayControls.tsx`のアイコン対応・`MapLayersPanel.tsx`の
+  switch分岐・`page.tsx`のprops配線を削除。バックエンドのpoi-tiles MVT配信
+  （`_POI_TILE_MVT_SQL`のintersectionレイヤー部分）は停止要因と同一SQL関数内にあり
+  変更コスト・リスクが非対称に大きいため今回は触れない（T97参照）。
+- 完了条件: backend/frontendとも全テストgreen（バックエンド無変更）。実機確認で
+  地図上・サイドバーとも交差点密度チップ/セクションが表示されず、他レイヤー
+  （特に停止要因・道路情報）に影響が無いことを確認。
+
+### - [ ] T97. バックエンドpoi-tiles配信から交差点密度レイヤーを削除 規模S — トリガー: 次にpoi-tiles配信のSQL/region_service.pyを変更するタイミング
+
+- 背景: T96でフロントの交差点密度可視化を撤去した後も、バックエンドは
+  `_POI_TILE_MVT_SQL`（`road_graph_repository.py`）で引き続きintersectionレイヤーを
+  MVTへ焼き込んでいる（停止要因POIと同一SQL関数内で`||`結合しているため、
+  T96単独では触れなかった。ユーザー承認済みの判断）。フロントが二度と参照しないため
+  死荷重だが、単独では変更コストに見合わないと判断し、次にこのSQL・
+  `region_service.py`のpoi-tiles配信部分を触る機会にまとめて片付ける。
+- 対応（着手時に実施）: `_POI_TILE_MVT_SQL`からintersectionレイヤーの`COALESCE(...)`枝・
+  `bindparam("intersection_layer", ...)`を削除し停止要因のみのクエリへ簡素化、
+  `vector_tile.py`の`INTERSECTION_LAYER_NAME`・`region_service.py`経由で
+  `region-tile-config.json`が書き出す`poi.intersection_layer_name`、
+  `domain/traffic.py`の`INTERSECTION_DEGREE_THRESHOLD`（※`get_intersection_counts`等
+  ルーティング材料が引き続き使うため削除しない、MVT専用の記述だけ整理）を確認して
+  不要なら削除する。`regionApi.test.ts`等に残るintersection関連のドリフト検知テストが
+  あれば併せて整理する。POI_TILE_VERSIONの世代を上げる（T93と同じ理由）。
+- 完了条件: backend/frontend全テストgreen、`/api/region/poi-tiles`のレスポンスから
+  intersectionレイヤーが消えていることを確認。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |

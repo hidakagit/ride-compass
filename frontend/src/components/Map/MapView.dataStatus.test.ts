@@ -72,14 +72,6 @@ describe("computeLayerDataStatus", () => {
     expect(status).toEqual({});
   });
 
-  it("T54のようにosm_raw_poisだけ未取込の場合、同じソースでもsource-layerが別のintersectionsは影響を受けない", () => {
-    const map = fakeMap({
-      emptySourceLayers: [{ sourceId: sourceIdFor("stopPoi"), sourceLayer: "stop_poi" }],
-    });
-    const status = computeLayerDataStatus(map, new Set(), { stopPoi: true, intersections: true });
-    expect(status).toEqual({ stopPoi: "empty" });
-  });
-
   it("road/trafficStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
     const map = fakeMap({
       emptySourceLayers: [{ sourceId: sourceIdFor("road"), sourceLayer: "road_surface" }],

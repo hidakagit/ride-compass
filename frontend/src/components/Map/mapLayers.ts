@@ -16,7 +16,7 @@
 // （MapLayersPanel）のグループ見出しに使う。staticが8種に達しflatな一覧のまま並ぶと
 // 見つけやすさが悪化するため、kindより一段細かい単位で分ける:
 // - roadCondition（道路状態）: 道路情報・指定路線
-// - trafficSafety（交通・安全）: 交通ストレス・事故・停止要因・交差点密度
+// - trafficSafety（交通・安全）: 交通ストレス・事故・停止要因
 // - bicycleInfra（自転車インフラ）: 自転車インフラ
 // - terrain（地形）: 標高図
 
@@ -27,7 +27,6 @@ export type MapLayerId =
   | "bicycleInfra"
   | "designation"
   | "stopPoi"
-  | "intersections"
   | "accidents"
   | "route";
 
@@ -108,7 +107,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "車線数4以上: +1 ／ 対面通行の1車線: -1",
       "指定路線（緊急輸送道路・重要物流道路、下の「指定路線」レイヤーで個別に確認できます）に該当: +1",
       "車両通行不可（自転車専用）の区間は上記の補正に関わらず1に固定",
-      "上記の合計が1〜4の範囲を超える場合は範囲内に収まるよう丸めます（信号・一時停止の多さや交差点の密度は、別の「停止要因」「交差点」レイヤーで確認できます）",
+      "上記の合計が1〜4の範囲を超える場合は範囲内に収まるよう丸めます（信号・一時停止の多さは、別の「停止要因」レイヤーで確認できます）",
       "「不明・他」はpath/footway・高速道路等、判定基準に登録の無い道路種別です",
     ],
   },
@@ -156,20 +155,6 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     panelHint:
       "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
       "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
-  },
-  {
-    id: "intersections",
-    label: "交差点密度",
-    // chipLabel未指定のままだと5文字の"交差点密度"がそのままチップ幅（width: max-content）に
-    // 反映され、他レイヤーのチップ（trafficStress/bicycleInfra/accidentsは4文字以下の
-    // chipLabelで揃えている）より横に長くなり列が不揃いに見えていた（実機フィードバック）。
-    chipLabel: "交差点",
-    kind: "static",
-    category: "trafficSafety",
-    description: "接続路3本以上の交差点を表示（接続数が多いほど大きい円）",
-    panelHint:
-      "接続する道路が3本以上ある交差点です。接続数が多いほど円が大きくなります。" +
-      "評価の「交差点密度」軸が近傍のこれらを数えて算出しています。",
   },
   {
     id: "accidents",

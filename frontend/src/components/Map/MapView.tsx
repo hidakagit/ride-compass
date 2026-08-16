@@ -33,8 +33,6 @@ import {
   BICYCLE_INFRA_LABELS,
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_LABELS,
-  INTERSECTION_COLOR,
-  INTERSECTION_RADIUS_EXPRESSION,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
@@ -70,12 +68,15 @@ export const ROAD_TILE_SOURCE_LAYER = "road_surface";
 // 同じドリフト検知の仕組み、region-tile-config.jsonのaccidentキー）。
 export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
 
-// 停止要因POI・交差点密度タイル（改善計画T54）内のレイヤー名。バックエンド
-// （infrastructure/vector_tile.pyのSTOP_POI_LAYER_NAME/INTERSECTION_LAYER_NAME）と一致させる
-// 必要がある（ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
-// regionApi.test.ts参照）。
+// 停止要因POIタイル（改善計画T54）内のレイヤー名。バックエンド
+// （infrastructure/vector_tile.pyのSTOP_POI_LAYER_NAME）と一致させる必要がある
+// （ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
+// regionApi.test.ts参照）。同じpoi-tilesタイルにバックエンドは交差点密度（intersection）も
+// 焼き込んでいるが、地図上の独立可視化レイヤーとしては提供しない判断をしたため
+// （ルーティング材料のintersection_weightとしては引き続き使う。ユーザー判断:
+// 道が何本交わっているかは道路網を見れば分かり、可視化としての追加情報が薄いため）
+// フロント側では参照しない。
 export const STOP_POI_SOURCE_LAYER = "stop_poi";
-export const INTERSECTION_SOURCE_LAYER = "intersection";
 
 const ROUTES_SOURCE_ID = "route-candidates";
 const ROUTES_LAYER_ID = "route-candidates-line";
@@ -96,7 +97,6 @@ const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
 const STOP_POI_LAYER_ID = "region-stop-poi-circle";
-const INTERSECTION_LAYER_ID = "region-intersection-circle";
 // widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
@@ -545,31 +545,8 @@ function ensureStopPoiLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-function ensureIntersectionLayer(map: MapLibreMap) {
-  const applyData = () => {
-    ensurePoiTileSource(map);
-    if (map.getLayer(INTERSECTION_LAYER_ID)) return;
-    map.addLayer({
-      id: INTERSECTION_LAYER_ID,
-      type: "circle",
-      source: POI_TILE_SOURCE_ID,
-      "source-layer": INTERSECTION_SOURCE_LAYER,
-      paint: {
-        "circle-color": INTERSECTION_COLOR,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "circle-radius": INTERSECTION_RADIUS_EXPRESSION as any,
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.75,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
 // 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
-// 7レイヤー（標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI・交差点密度）は、
+// 6レイヤー（標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI）は、
 // いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
 // 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
 // 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
@@ -581,7 +558,6 @@ const STATIC_OVERLAY_LAYERS = [
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
-  { key: "intersections", layerId: INTERSECTION_LAYER_ID, ensure: ensureIntersectionLayer },
 ] as const satisfies readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[];
 
 type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
@@ -589,9 +565,7 @@ type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
 // road/trafficStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用しているため
 // （T59でroad_edgesが未構築の地点では、この4レイヤーが同時にempty/errorになるのが正しい
-// 挙動）、あえて同じsourceId/sourceLayerを指す。stopPoi/intersectionsは同じregion-poi-tiles
-// ソースだが別のsource-layer（T54のようにosm_raw_poisテーブルだけ未取込、というPOI種別ごとの
-// 片方だけの欠損を区別できるようにする）。elevationは国土地理院のラスタタイルで
+// 挙動）、あえて同じsourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
 // （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
 // MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
@@ -603,7 +577,6 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
-  { key: "intersections", sourceId: POI_TILE_SOURCE_ID, sourceLayer: INTERSECTION_SOURCE_LAYER },
   { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
 ];
 
@@ -721,8 +694,8 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
   });
 }
 
-// 改善計画T63: 標高を除く6レイヤー（交通ストレス・自転車インフラ・指定路線・事故・停止要因POI・
-// 交差点密度）の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSの
+// 改善計画T63: 標高を除く5レイヤー（交通ストレス・自転車インフラ・指定路線・事故・停止要因POI）の
+// 絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSの
 // keyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、他は1軸）を道路情報と同じ
 // buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする
 // （setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
@@ -969,23 +942,14 @@ function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}</div>`;
 }
 
-// 改善計画T54: 停止要因POI・交差点密度のクリックポップアップ用プロパティ。
+// 改善計画T54: 停止要因POIのクリックポップアップ用プロパティ。
 interface StopPoiPopupProperties {
   kind?: string | null;
-}
-
-interface IntersectionPopupProperties {
-  degree?: number | null;
 }
 
 function buildStopPoiPopupHtml(properties: StopPoiPopupProperties): string {
   const label = properties.kind ? (STOP_POI_LABELS[properties.kind] ?? properties.kind) : "不明";
   return `<div style="${POPUP_BODY_STYLE}">停止要因: ${label}</div>`;
-}
-
-function buildIntersectionPopupHtml(properties: IntersectionPopupProperties): string {
-  const degree = properties.degree != null ? `${properties.degree}本` : "不明";
-  return `<div style="${POPUP_BODY_STYLE}">交差点（接続路 ${degree}）</div>`;
 }
 
 interface MapViewProps {
@@ -1001,13 +965,12 @@ interface MapViewProps {
   showDesignation: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
-  /** 停止要因POI・交差点密度（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
+  /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
   showStopPoi: boolean;
-  showIntersections: boolean;
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** 交通ストレス・自転車インフラ・指定路線・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み軸
+  /** 交通ストレス・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
    * （改善計画T63、STATIC_FILTER_AXES参照）。事故のみ2軸を持ち、他は1軸。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
@@ -1034,7 +997,6 @@ export default function MapView({
   showDesignation,
   showAccidents,
   showStopPoi,
-  showIntersections,
   roadHiddenKeysByMode,
   staticLegendHiddenKeysByAxis,
   routeLayerOn,
@@ -1082,7 +1044,6 @@ export default function MapView({
     showDesignation,
     showAccidents,
     showStopPoi,
-    showIntersections,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1112,7 +1073,6 @@ export default function MapView({
       showDesignation,
       showAccidents,
       showStopPoi,
-      showIntersections,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1130,7 +1090,6 @@ export default function MapView({
     showDesignation,
     showAccidents,
     showStopPoi,
-    showIntersections,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1156,7 +1115,6 @@ export default function MapView({
       showDesignation,
       showAccidents,
       showStopPoi,
-      showIntersections,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1168,7 +1126,6 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
-      intersections: showIntersections,
     });
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
@@ -1207,7 +1164,6 @@ export default function MapView({
       showDesignation,
       showAccidents,
       showStopPoi,
-      showIntersections,
     } = redrawPropsRef.current;
     const status = computeLayerDataStatus(map, erroredSourceIdsRef.current, {
       elevation: showElevation,
@@ -1217,7 +1173,6 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
-      intersections: showIntersections,
     });
     if (layerDataStatusEqual(status, lastLayerDataStatusRef.current)) return;
     lastLayerDataStatusRef.current = status;
@@ -1307,8 +1262,7 @@ export default function MapView({
       const isRoadSurfaceFeature =
         feature.layer.id !== DETAIL_LAYER_ID &&
         feature.layer.id !== ACCIDENT_LAYER_ID &&
-        feature.layer.id !== STOP_POI_LAYER_ID &&
-        feature.layer.id !== INTERSECTION_LAYER_ID;
+        feature.layer.id !== STOP_POI_LAYER_ID;
       const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
       const html =
         feature.layer.id === DETAIL_LAYER_ID
@@ -1317,9 +1271,7 @@ export default function MapView({
             ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
             : feature.layer.id === STOP_POI_LAYER_ID
               ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
-              : feature.layer.id === INTERSECTION_LAYER_ID
-                ? buildIntersectionPopupHtml(feature.properties as unknown as IntersectionPopupProperties)
-                : buildRoadSurfacePopupHtml(roadSurfaceProperties);
+              : buildRoadSurfacePopupHtml(roadSurfaceProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -1544,11 +1496,11 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI・交差点密度は、いずれも
+  // 標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POIは、いずれも
   // 「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替えのみ」という
-  // 同型の7レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
+  // 同型の6レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
   // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
-  // いずれか1つのフラグが変わったときに他6つを再設定しても表示に影響しない）。
+  // いずれか1つのフラグが変わったときに他5つを再設定しても表示に影響しない）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1559,7 +1511,6 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
-      intersections: showIntersections,
     });
     // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
@@ -1572,11 +1523,10 @@ export default function MapView({
     showDesignation,
     showAccidents,
     showStopPoi,
-    showIntersections,
     recomputeLayerDataStatus,
   ]);
 
-  // 交通ストレス・自転車インフラ・指定路線・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み
+  // 交通ストレス・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み
   // （改善計画T63）。道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで
   // 反映される。
   useEffect(() => {

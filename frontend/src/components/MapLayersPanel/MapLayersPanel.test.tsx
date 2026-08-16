@@ -14,7 +14,6 @@ function baseProps() {
       bicycleInfra: false,
       designation: false,
       stopPoi: false,
-      intersections: false,
       accidents: false,
       route: false,
     },
@@ -27,17 +26,10 @@ function baseProps() {
       bicycleInfra: [],
       designation: [],
       stopPoi: [],
-      intersection: [],
       accidentParty: [],
       accidentSeverity: [],
     } as Record<
-      | "trafficStress"
-      | "bicycleInfra"
-      | "designation"
-      | "stopPoi"
-      | "intersection"
-      | "accidentParty"
-      | "accidentSeverity",
+      "trafficStress" | "bicycleInfra" | "designation" | "stopPoi" | "accidentParty" | "accidentSeverity",
       readonly string[]
     >,
     onStaticFilterLegendToggle: vi.fn(),
@@ -81,7 +73,6 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-intersections")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
@@ -100,7 +91,6 @@ describe("MapLayersPanel", () => {
     expect(groupTitleFor("trafficStress")).toBe("交通・安全");
     expect(groupTitleFor("accidents")).toBe("交通・安全");
     expect(groupTitleFor("stopPoi")).toBe("交通・安全");
-    expect(groupTitleFor("intersections")).toBe("交通・安全");
     expect(groupTitleFor("bicycleInfra")).toBe("自転車インフラ");
     expect(groupTitleFor("elevation")).toBe("地形");
     expect(groupTitleFor("route")).toBe("生成したルートの色分け");
@@ -149,7 +139,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -231,7 +220,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -254,7 +242,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -276,7 +263,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -309,7 +295,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -333,7 +318,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -356,7 +340,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -380,7 +363,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -403,7 +385,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -426,7 +407,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -478,14 +458,8 @@ describe("MapLayersPanel", () => {
     expect(screen.getByText("踏切")).toBeInTheDocument();
   });
 
-  it("交差点密度の凡例（接続数の説明）が表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openSection("intersections");
-    expect(screen.getByText(/接続数が多いほど円が大きくなります/)).toBeInTheDocument();
-  });
-
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（交通ストレス・自転車インフラ・停止要因POI・
-  // 交差点密度・事故）も、OFF中の案内・凡例チェックボックスの絞り込み操作・自動ONが道路情報と
+  // 事故）も、OFF中の案内・凡例チェックボックスの絞り込み操作・自動ONが道路情報と
   // 同じ挙動になったことを検証する。
   it("交通ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
@@ -494,46 +468,6 @@ describe("MapLayersPanel", () => {
     const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
     expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "1（快適）" })).toBeInTheDocument();
-  });
-
-  it("交差点密度の凡例は3段階＋不明・他の4件で、主要な交差点（6本以上）を選べる", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openSection("intersections");
-    expect(screen.getByRole("checkbox", { name: /6本以上（主要な交差点）/ })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "3本" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "4〜5本" })).toBeInTheDocument();
-  });
-
-  it("交差点密度の絞り込みチェックの操作でonStaticFilterLegendToggleがintersection軸で呼ばれ、レイヤーOFFなら自動でONになる", async () => {
-    const user = userEvent.setup();
-    const onStaticFilterLegendToggle = vi.fn();
-    const onLayerToggle = vi.fn();
-    render(
-      <MapLayersPanel
-        {...baseProps()}
-        onStaticFilterLegendToggle={onStaticFilterLegendToggle}
-        onLayerToggle={onLayerToggle}
-      />,
-    );
-    openSection("intersections");
-
-    await user.click(screen.getByRole("checkbox", { name: /6本以上（主要な交差点）/ }));
-
-    expect(onStaticFilterLegendToggle).toHaveBeenCalledWith("intersection", "major");
-    expect(onLayerToggle).toHaveBeenCalledWith("intersections", true);
-  });
-
-  it("交差点密度の「すべて隠す」で軸の全カテゴリキーがonStaticFilterAxisSetHiddenへ渡る", async () => {
-    const user = userEvent.setup();
-    const onStaticFilterAxisSetHidden = vi.fn();
-    render(<MapLayersPanel {...baseProps()} onStaticFilterAxisSetHidden={onStaticFilterAxisSetHidden} />);
-    openSection("intersections");
-
-    // 一括ボタンは絞り込み可能なレイヤー全体に軸ごとあるため、セクション内に絞ってクリックする
-    const section = document.getElementById(layerSectionDomId("intersections")) as HTMLElement;
-    await user.click(within(section).getByRole("button", { name: "すべて隠す" }));
-
-    expect(onStaticFilterAxisSetHidden).toHaveBeenCalledWith("intersection", ["minor", "mid", "major", "unknown"]);
   });
 
   it("事故のセクションは当事者・重大度の2軸が別々の見出しで表示され、死亡事故だけの絞り込みができる", async () => {
@@ -560,7 +494,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: [],
           designation: [],
           stopPoi: [],
-          intersection: [],
           accidentParty: [],
           accidentSeverity: ["nonfatal"],
         }}
@@ -612,7 +545,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: false,
         }}
@@ -642,7 +574,6 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
-          intersections: false,
           accidents: false,
           route: true,
         }}

@@ -109,16 +109,6 @@ export function StopPoiIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 交差点密度: 十字に交わる2本の道路 */
-export function IntersectionIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M10 1.5v17M1.5 10h17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="10" cy="10" r="2.4" fill="currentColor" />
-    </svg>
-  );
-}
-
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (

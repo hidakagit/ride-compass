@@ -51,7 +51,7 @@ const DISTANCE_TOLERANCE_KM = 5;
 // 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
 // （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
 // 道路情報の2軸に加え、改善計画T63で交通ストレス・自転車インフラ・指定路線・停止要因POI・
-// 交差点密度・事故（当事者/重大度）の絞り込みにも同じ猶予を適用する。
+// 事故（当事者/重大度）の絞り込みにも同じ猶予を適用する。
 const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 // 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
@@ -78,7 +78,6 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   bicycleInfra: false,
   designation: false,
   stopPoi: false,
-  intersections: false,
   accidents: false,
   route: true,
 };
@@ -262,7 +261,7 @@ export default function Home() {
     [hiddenLegendKeysByMode],
   );
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（交通ストレス・自転車インフラ・指定路線・
-  // 停止要因POI・交差点密度・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
+  // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
   const staticLegendHiddenKeysByAxis = useMemo(
     () =>
@@ -772,7 +771,6 @@ export default function Home() {
             showBicycleInfra={layerVisibility.bicycleInfra}
             showDesignation={layerVisibility.designation}
             showStopPoi={layerVisibility.stopPoi}
-            showIntersections={layerVisibility.intersections}
             showAccidents={layerVisibility.accidents}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
