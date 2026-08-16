@@ -1300,7 +1300,7 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   designation_attributes行が残る」ことを検証する統合テストを追加しgreen。
   docs（T51節またはdecisions/）へ「match_designations.pyの再実行が必要になる条件」を明文化。
 
-### - [ ] T67. match_designations.pyのINSERTをexecutemany化 規模S
+### - [x] T67. match_designations.pyのINSERTをexecutemany化 規模S（2026-08-16完了）
 
 - `_INSERT_SQL`をマッチ件数分（dev実測7,052行、本番は数万行想定）ループで1行ずつ
   `conn.execute`しており、本番（Oracle遠隔）ではRTT×行数がそのまま実行時間に乗る。
@@ -1309,6 +1309,9 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   現規模ではexecutemanyで十分。
 - 完了条件: dry-run→実行で従来と同一件数が書き込まれること。バッチのログ
   （docs/logging.md準拠の1行INFOサマリ）へ書き込み所要時間を追加。
+- **実装結果（2026-08-16）**: `conn.executemany`へ置換し、ログへ`insert_elapsed`
+  （INSERT部分のみの所要時間）を追加。dev DBで実行（road_edges増加により対象は
+  28,940件へ拡大していた）、insert_elapsed=4.1秒で完走。backend 652件green
 
 ### - [ ] T68. is_split_up_to_date用のstale限定部分GiST索引 規模S
 

@@ -98,14 +98,19 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
             return 0
 
         data_version = f"buffer{DESIGNATION_BUFFER_WIDTH_M:.0f}m"
+        insert_started = time.perf_counter()
         async with conn.transaction():
             await conn.execute(_DELETE_SQL, list(_KINDS))
-            for edge_id, kind, ratio in matched:
-                await conn.execute(_INSERT_SQL, edge_id, kind, ratio, data_version)
+            # 改善計画T67: 1行ずつconn.executeするとRTT×行数がそのまま実行時間に乗る
+            # （本番はOracle遠隔DBのため特に顕著）。executemanyで1ラウンドトリップにバッチ化する。
+            await conn.executemany(
+                _INSERT_SQL, [(edge_id, kind, ratio, data_version) for edge_id, kind, ratio in matched]
+            )
+        insert_elapsed = time.perf_counter() - insert_started
 
         logger.info(
-            "マッチング完了: candidates=%d matched=%d elapsed=%.1fs",
-            len(candidates), len(matched), time.perf_counter() - started,
+            "マッチング完了: candidates=%d matched=%d insert_elapsed=%.1fs elapsed=%.1fs",
+            len(candidates), len(matched), insert_elapsed, time.perf_counter() - started,
         )
         return 0
     finally:
