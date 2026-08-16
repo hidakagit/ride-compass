@@ -1344,7 +1344,7 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   存続する。取込直後は全行staleのためフルGiSTと同等サイズになる点は元々のタスク記述どおりで
   想定内、split進行で自然に縮む）。backend 666件green
 
-### - [ ] T69. get_way_specs_with_closureの近傍extent爆発の防衛 規模M・要設計判断
+### - [x] T69. get_way_specs_with_closureの近傍extent爆発の防衛 規模M・要設計判断（2026-08-16完了）
 
 - 近傍Wayの探索範囲を「主対象Way全体のST_Extent」で決めているため、bboxをかすめる
   1本の長大way（河川沿いサイクリングロード・幹線等で数十km）があるとextentがその全長へ
@@ -1360,6 +1360,15 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
     1行INFOサマリ（route_generator.py方式）でログし、実データで閾値を決めてから実装してよい。
 - 完了条件: タイル境界交差点分割の回帰テスト（test_graph_service.py）がgreenのまま、
   極端なextent拡大が発生しないことをログまたはテストで確認。
+- **実装結果（2026-08-16）**: 案aを採用。`NEIGHBOR_EXTENT_MAX_MARGIN_M`（10km）を追加し、
+  主対象Wayのextentを要求bboxからこのマージン分拡張した範囲へ`ST_Intersection`でクランプする
+  （主対象Wayは定義上すべて要求bboxと交差するため、クランプ結果が空集合になることはない）。
+  クランプが実際に発動した場合（raw extentとclamped extentが異なる場合）はWARNINGで
+  raw/clamped両方の座標を1行ログする。dev DBのEXPLAIN実測では通常時（クランプ不要な
+  ケース）はraw=clampedで一致することを確認。回帰テスト
+  `test_get_way_specs_with_closure_clamps_extent_of_a_long_primary_way`（node1からのびる
+  長大wayの遠端付近にある無関係wayが近傍として含まれないこと・WARNINGログを確認）を追加。
+  backend 667件green
 
 ---
 

@@ -4,6 +4,7 @@ ridecompass_test DB(conftest.pyのroad_graph_session/road_graph_repositoryフィ
 実接続が必要。接続できない環境ではフィクスチャがpytest.skip()する。
 """
 
+import logging
 from datetime import datetime, timezone
 
 import pytest
@@ -152,6 +153,34 @@ async def test_get_way_specs_with_closure_includes_neighbor_ways_sharing_a_node(
     assert primary_way_ids == {100}
     assert {w.osm_way_id for w in way_specs_out} == {100, 101}
     assert set(node_coords_out.keys()) == {1, 2, 3}
+
+
+async def test_get_way_specs_with_closure_clamps_extent_of_a_long_primary_way(road_graph_repository, caplog):
+    """改善計画T69の回帰テスト: bboxをかすめる1本の長大way(河川沿いサイクリングロード等)が
+    あると、以前は主対象Way全体のextentがその全長へ広がり、そこに交差する遠方の無関係な
+    wayまで近傍として読み込んでいた。extentは要求bboxをNEIGHBOR_EXTENT_MAX_MARGIN_M(10km)
+    分だけ拡張した範囲へクランプされ、far_wayは近傍として含まれないことを確認する。
+    """
+    far_node = (35.700, 140.200)  # node1から経度0.5度(緯度35.7度で約45km)離れた点
+    beyond_far_node = (35.700, 140.201)
+    way_specs = [
+        WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
+        # 長大way: node1(bbox内)からfar_nodeまで伸びる(主対象Wayとしてbboxと交差する)。
+        WaySpec(osm_way_id=200, node_ids=[1, 98], highway="trunk"),
+        # far_node付近だけに存在する無関係way(クランプ無しではextentに含まれてしまう)。
+        WaySpec(osm_way_id=300, node_ids=[98, 99], highway="residential"),
+    ]
+    node_coords = {1: NODE1, 2: NODE2, 98: far_node, 99: beyond_far_node}
+    await road_graph_repository.save_raw_ways(way_specs, node_coords)
+
+    with caplog.at_level(logging.WARNING, logger="app.infrastructure.road_graph_repository"):
+        way_specs_out, _, primary_way_ids = await road_graph_repository.get_way_specs_with_closure(
+            BBOX_AROUND_NODE1_2
+        )
+
+    assert primary_way_ids == {100, 200}
+    assert {w.osm_way_id for w in way_specs_out} == {100, 200}
+    assert any("クランプ" in r.message for r in caplog.records)
 
 
 async def test_save_raw_ways_is_idempotent_upsert(road_graph_repository):
