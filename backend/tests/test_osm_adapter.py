@@ -80,6 +80,16 @@ def test_allowed_tags_are_kept_in_spec_tags():
     assert spec.tags == {"smoothness": "good", "lanes": "2", "maxspeed": "40"}
 
 
+def test_segregated_tag_is_kept_in_spec_tags():
+    # 改善計画T99: shared_pedestrian_waysルールで新たに取り込む自転車歩行者道の歩車分離有無。
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"highway": "path", "bicycle": "yes", "segregated": "yes"}, "nodes": [1, 2]}
+    )
+
+    assert spec is not None
+    assert spec.tags == {"bicycle": "yes", "segregated": "yes"}
+
+
 def test_disallowed_tags_are_dropped_from_spec_tags():
     spec = osm_way_to_way_spec(
         {"id": 100, "tags": {"highway": "residential", "not_in_allowlist": "x"}, "nodes": [1, 2]}

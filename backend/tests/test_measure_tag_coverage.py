@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from measure_tag_coverage import CoverageCounter, highway_group  # noqa: E402
+from measure_tag_coverage import CoverageCounter, NodeTagCounter, highway_group  # noqa: E402
 
 
 class TestHighwayGroup:
@@ -65,3 +65,44 @@ class TestCoverageCounter:
 
         assert lines[0].startswith("対象way数: 1件")
         assert any("lanes" in line for line in lines)
+
+
+class TestNodeTagCounter:
+    """改善計画T102: barrier等、取込プロファイルにルールが無いnode属性の生カウント。"""
+
+    def test_counts_only_tags_of_interest(self):
+        counter = NodeTagCounter(frozenset({"barrier"}))
+        counter.add({"barrier": "gate", "amenity": "bench"})
+
+        assert counter.value_count[("barrier", "gate")] == 1
+        assert not any(tag == "amenity" for tag, _value in counter.value_count)
+
+    def test_blank_value_does_not_count_as_present(self):
+        counter = NodeTagCounter(frozenset({"barrier"}))
+        counter.add({"barrier": "  "})
+
+        assert counter.value_count == {}
+
+    def test_counts_by_distinct_value(self):
+        counter = NodeTagCounter(frozenset({"barrier"}))
+        counter.add({"barrier": "gate"})
+        counter.add({"barrier": "gate"})
+        counter.add({"barrier": "bollard"})
+
+        assert counter.value_count[("barrier", "gate")] == 2
+        assert counter.value_count[("barrier", "bollard")] == 1
+
+    def test_report_lines_note_missing_tags(self):
+        counter = NodeTagCounter(frozenset({"barrier"}))
+
+        lines = counter.report_lines()
+
+        assert any("見つかりませんでした" in line for line in lines)
+
+    def test_report_lines_include_value_and_count(self):
+        counter = NodeTagCounter(frozenset({"barrier"}))
+        counter.add({"barrier": "gate"})
+
+        lines = counter.report_lines()
+
+        assert any("barrier=gate: 1件" in line for line in lines)
