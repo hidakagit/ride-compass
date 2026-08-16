@@ -20,7 +20,7 @@
 | ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **切り替え可能**（既定: openrouteservice API、`config.py`の`routing_engine`設定で`road_graph`にも切替可） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価だけを`LoopRoutingEngine`ポート経由で`OpenRouteServiceEngine`（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、外部APIキー方式、Road Graph移行前の実装）または`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のNetworkX Dijkstraを使う）へ委譲する。ルーティング自体（自前の経路探索）は将来拡張として開発を続ける一方、現状はマップの見える化・評価に必要な情報の精査を優先するため既定値はopenrouteservice。レスポンスの`engine`フィールドでどちらが生成したかを識別できる。詳細は「ルーティングエンジンの切り替え対応」および[decisions/road-graph-migration.md](decisions/road-graph-migration.md)参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | openrouteservice API（`cycling-road`プロファイル、外部APIキー方式） | Step3の疎通確認用エンドポイントは移行対象外のまま残置。`RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）が`get_directions(waypoints: list[Coordinates])`を実装したクライアント（`ORSClient`）を受け取る形 |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
-| 天候 | **Open-Meteo Forecast API**（APIキー不要） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`current`＋`hourly`をまとめて取得し、「地点＋時刻」で天候を引ける設計（後述） |
+| 天候 | **Open-Meteo Forecast API**（APIキー不要） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`current`＋`hourly`をまとめて取得し、「地点＋時刻」で天候を引ける設計（後述）。周回ルート生成は8候補（方位）ぶんの風評価を並列実行するため、素朴には候補数ぶんのOpen-Meteo呼び出しがほぼ同時発火し本番の共有送信元IPで429が常態化する一因になっていた。`WeatherService.prefetch`/`WindService.prefetch`（[backend/app/services/wind_service.py](../backend/app/services/wind_service.py)）が候補間でサンプル点を合流させ、`get_forecast_many`のTTLキャッシュを先読みで温めることで、実質1リクエストへ集約する（`/api/debug/stats`の`error_types`/`last_error_type`等の診断情報拡張と併せて対応） |
 | 標高 | **国土地理院（GSI）標高API**（APIキー不要、日本国内限定） | `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）がルートを距離連動の点数（約1km間隔・12〜32点、`sample_count_for_distance`）でサンプリングして問い合わせ、獲得標高・最高/最低標高・最大勾配を算出 |
 | 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、`https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png`、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして直接重ね描き。バックエンドAPIを介さない。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
 | 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み（当初はOverpass API＋自前Python MVTエンコードだったが、PostGIS移行に伴い不要になった。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照） |
@@ -808,11 +808,14 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 `critical_logistics`/両方該当時は`both`/未該当はプロパティ欠落、`designation_attributes`を
 osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。
 
-### 静的レイヤー・タイル配信（フロント9レイヤー）
+### 静的レイヤー・タイル配信（フロント8レイヤー）
 
 [frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の
 `MAP_LAYERS`カタログは標高図・道路情報・交通ストレス・自転車インフラ・指定路線・停止要因・
-交差点密度・事故（警察庁統計）・ルートの9レイヤー。色分け・凡例・絞り込み軸の定義は
+事故（警察庁統計）・ルートの8レイヤー。交差点密度（次数3以上のroad_node）はバックエンドの
+`poi-tiles`が引き続き焼き込むが、道路網を見れば概ね自明という判断（改善計画T96）により
+地図上の独立可視化レイヤーとしては提供しない（`intersection_weight`のルーティング材料
+としては引き続き使う）。色分け・凡例・絞り込み軸の定義は
 [frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
 に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
 
