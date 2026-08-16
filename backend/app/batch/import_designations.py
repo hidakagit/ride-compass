@@ -32,6 +32,8 @@ import logging
 import sys
 import time
 import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +43,7 @@ from shapely.geometry import LineString
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
+from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへモデル登録するためのimport
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
@@ -70,14 +73,6 @@ _INSERT_SQL = """
 INSERT INTO route_designations (kind, name, pref_code, attrs, source, geom, updated_at)
 VALUES ($1, $2, $3, '{}'::jsonb, $4, ST_SetSRID(ST_GeomFromWKB($5), 4326), $6)
 """
-
-
-def _zip_url(kind: str, pref: str) -> str:
-    return (N10_URL_TEMPLATE if kind == "emergency_transport" else N12_URL_TEMPLATE).format(pref=pref)
-
-
-def _source_for_kind(kind: str) -> str:
-    return "ksj_n10" if kind == "emergency_transport" else "ksj_n12"
 
 
 async def _download_zip(client: httpx.AsyncClient, kind: str, pref: str) -> Path | None:
@@ -194,19 +189,47 @@ def _parse_n12_geojson(json_bytes: bytes) -> list[tuple[str | None, list[tuple[f
     return features
 
 
+@dataclass(frozen=True)
+class _DesignationKindSpec:
+    """kind→(取得URL・DB上のsource値・ZIP内メンバー名・パーサ)の対応（改善計画T75）。
+
+    以前はこの対応がURL組み立て・source文字列・ZIPメンバー名解決の3関数へ平行分岐で
+    分散し、いずれもelse側が暗黙にN12扱いへ倒れていた（kind追加時の編集漏れが静かに壊れる）。
+    未知kindは`_KIND_SPECS[kind]`のKeyErrorで即死させる（暗黙のフォールバックを許さない）。
+    """
+
+    url_template: str
+    source: str
+    member_template: str  # {pref}でformatするZIP内メンバー名
+    parser: Callable[[bytes], list[tuple[str | None, list[tuple[float, float]]]]]
+
+
+_KIND_SPECS: dict[str, _DesignationKindSpec] = {
+    "emergency_transport": _DesignationKindSpec(
+        url_template=N10_URL_TEMPLATE, source="ksj_n10", member_template="N10-15_{pref}.xml", parser=_parse_n10_gml
+    ),
+    "critical_logistics": _DesignationKindSpec(
+        url_template=N12_URL_TEMPLATE,
+        source="ksj_n12",
+        member_template="N12-21_{pref}.geojson",
+        parser=_parse_n12_geojson,
+    ),
+}
+
+
+def _zip_url(kind: str, pref: str) -> str:
+    return _KIND_SPECS[kind].url_template.format(pref=pref)
+
+
 def extract_features(zip_path: Path, kind: str, pref: str) -> list[tuple[str | None, list[tuple[float, float]]]]:
     """ZIP内の該当ファイル（N10=xml, N12=geojson）を展開しパースする（メモリ上、
     抽出ファイルをディスクへ書かない）。"""
-    if kind == "emergency_transport":
-        member_name = f"N10-15_{pref}.xml"
-        parser = _parse_n10_gml
-    else:
-        member_name = f"N12-21_{pref}.geojson"
-        parser = _parse_n12_geojson
+    spec = _KIND_SPECS[kind]
+    member_name = spec.member_template.format(pref=pref)
 
     with zipfile.ZipFile(zip_path) as zf:
         with zf.open(member_name) as f:
-            return parser(f.read())
+            return spec.parser(f.read())
 
 
 async def _write_designations(
@@ -245,7 +268,7 @@ async def run_import(database_url: str | None, dry_run: bool) -> int:
 
     zip_paths: dict[tuple[str, str], Path] = {}
     async with httpx.AsyncClient() as client:
-        for kind in ("emergency_transport", "critical_logistics"):
+        for kind in DESIGNATION_IMPORT_KINDS:
             for pref in KANTO_PREFECTURE_CODES_KSJ:
                 path = await _download_zip(client, kind, pref)
                 if path is not None:
@@ -277,7 +300,7 @@ async def run_import(database_url: str | None, dry_run: bool) -> int:
     try:
         for (kind, pref), path in sorted(zip_paths.items()):
             run_started_at = datetime.now(timezone.utc)
-            source = _source_for_kind(kind)
+            source = _KIND_SPECS[kind].source
             run_id = await conn.fetchval(
                 "INSERT INTO designation_import_runs (kind, source, status, started_at) "
                 "VALUES ($1, $2, 'running', $3) RETURNING id",

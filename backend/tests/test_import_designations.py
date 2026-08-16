@@ -8,15 +8,38 @@ from shapely.geometry import LineString
 
 from app.batch.import_designations import (
     _INSERT_SQL,
+    _KIND_SPECS,
     _parse_n10_gml,
     _parse_n12_geojson,
     _write_designations,
+    _zip_url,
 )
+from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from tests.conftest import TEST_DATABASE_URL
 
 
 def _asyncpg_dsn(sqlalchemy_url: str) -> str:
     return sqlalchemy_url.replace("+asyncpg", "").replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
+
+
+class TestKindSpecs:
+    def test_covers_every_import_kind(self):
+        # 改善計画T75: kind集合の正準はDESIGNATION_IMPORT_KINDS（domain/designation.py）。
+        # _KIND_SPECSはここに列挙されたkind全てをカバーしている必要がある。
+        assert set(_KIND_SPECS.keys()) == set(DESIGNATION_IMPORT_KINDS)
+
+    def test_zip_url_formats_prefecture_into_kind_specific_template(self):
+        assert _zip_url("emergency_transport", "13") == (
+            "https://nlftp.mlit.go.jp/ksj/gml/data/N10/N10-15/N10-15_13_GML.zip"
+        )
+        assert _zip_url("critical_logistics", "13") == (
+            "https://nlftp.mlit.go.jp/ksj/gml/data/N12/N12-21/N12-21_13_GML.zip"
+        )
+
+    def test_unknown_kind_raises_key_error(self):
+        # 未知kindは暗黙のフォールバックへ倒さずKeyErrorで即死させる（改善計画T75）。
+        with pytest.raises(KeyError):
+            _zip_url("national_cycle_route", "13")
 
 
 class TestParseN12Geojson:
