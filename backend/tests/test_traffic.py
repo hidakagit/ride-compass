@@ -8,6 +8,7 @@ from app.domain.traffic import (
     parse_lanes,
     parse_maxspeed,
     smoothness_score,
+    traffic_stress_breakdown,
     traffic_stress_level,
 )
 
@@ -158,6 +159,54 @@ class TestTrafficStressLevel:
 
     def test_is_designated_does_not_override_motor_vehicle_no_fixed_1(self):
         assert traffic_stress_level("primary", {"motor_vehicle": "no"}, is_designated=True) == 1
+
+
+class TestTrafficStressBreakdown:
+    # traffic_stress_levelはtraffic_stress_breakdown(...).levelの薄いラッパーのため、
+    # 最終値の網羅的な境界値検証はTestTrafficStressLevel側に任せ、ここでは内訳フィールド
+    # （改善計画T90、区間クリック時の判定根拠表示）が正しく分解されることだけを確認する。
+    def test_unknown_highway_has_none_base_and_level_with_zeroed_adjustments(self):
+        breakdown = traffic_stress_breakdown("motorway", {})
+        assert breakdown.base is None
+        assert breakdown.level is None
+        assert breakdown.cycleway_adjustment == 0
+        assert breakdown.maxspeed_adjustment == 0
+        assert breakdown.lanes_adjustment == 0
+        assert breakdown.designation_adjustment == 0
+        assert breakdown.motor_vehicle_no_override is False
+
+    def test_motor_vehicle_no_overrides_with_flag_set_and_other_adjustments_zeroed(self):
+        # 補正が実際に効く条件(track+高速+多車線+指定路線)を重ねても、固定1が優先される
+        breakdown = traffic_stress_breakdown(
+            "primary", {"motor_vehicle": "no", "cycleway": "track", "maxspeed": "80", "lanes": "6"}, is_designated=True
+        )
+        assert breakdown.base == 4
+        assert breakdown.motor_vehicle_no_override is True
+        assert breakdown.level == 1
+        assert breakdown.cycleway_adjustment == 0
+        assert breakdown.maxspeed_adjustment == 0
+        assert breakdown.lanes_adjustment == 0
+        assert breakdown.designation_adjustment == 0
+
+    def test_all_adjustments_reported_individually(self):
+        breakdown = traffic_stress_breakdown(
+            "tertiary", {"cycleway": "lane", "maxspeed": "60", "lanes": "4"}, is_designated=True
+        )
+        assert breakdown.base == 3
+        assert breakdown.cycleway_adjustment == -1
+        assert breakdown.maxspeed_adjustment == 1
+        assert breakdown.lanes_adjustment == 1
+        assert breakdown.designation_adjustment == 1
+        assert breakdown.motor_vehicle_no_override is False
+        # 3 - 1 + 1 + 1 + 1 = 5だがクランプで4
+        assert breakdown.level == 4
+
+    def test_level_matches_traffic_stress_level_for_same_inputs(self):
+        # 薄いラッパー(traffic_stress_level)と実装(traffic_stress_breakdown)が食い違わないこと
+        highway, tags, is_designated = "residential", {"cycleway": "track", "maxspeed": "30"}, True
+        assert traffic_stress_breakdown(highway, tags, is_designated).level == traffic_stress_level(
+            highway, tags, is_designated
+        )
 
 
 class TestClassifyStopPoi:

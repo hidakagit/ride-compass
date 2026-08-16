@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { layerSectionDomId, type MapLayerId } from "@/components/Map/mapLayers";
 import MapLayersPanel from "./MapLayersPanel";
+import styles from "./MapLayersPanel.module.css";
 
 function baseProps() {
   return {
@@ -63,11 +64,13 @@ function openSection(id: MapLayerId) {
 // 出し分け・ルートの色分け選択）を見る。道路情報の絞り込みは即時反映（T31で
 // 旧RoadFilterEditorの下書き→適用を廃止し、ルート凡例と同じチェック方式へ統一）。
 describe("MapLayersPanel", () => {
-  it("レイヤーカタログの全レイヤーが、役割ごとのグループ見出しの下にセクションとして並ぶ", () => {
+  it("レイヤーカタログの全レイヤーが、中分類ごとのグループ見出しの下にセクションとして並ぶ(改善計画T86)", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
-    expect(screen.getByText("地図に重ねる情報")).toBeInTheDocument();
-    expect(screen.getByText("生成したルートの色分け")).toBeInTheDocument();
+    // "自転車インフラ"はグループ見出しとレイヤー名（h3）の両方に現れるため、見出し（h2）に
+    // 絞って確認する。
+    const headings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    expect(headings).toEqual(["道路状態", "交通・安全", "自転車インフラ", "地形", "生成したルートの色分け"]);
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
@@ -78,6 +81,26 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-intersections")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
+  });
+
+  it("レイヤーが想定した中分類グループの下に属する(改善計画T86)", () => {
+    const { container } = render(<MapLayersPanel {...baseProps()} />);
+
+    function groupTitleFor(layerId: string): string | null {
+      const section = container.querySelector(`#map-layer-section-${layerId}`);
+      const group = section?.closest(`.${styles.group}`);
+      return group?.querySelector(`.${styles.groupTitle}`)?.textContent ?? null;
+    }
+
+    expect(groupTitleFor("road")).toBe("道路状態");
+    expect(groupTitleFor("designation")).toBe("道路状態");
+    expect(groupTitleFor("trafficStress")).toBe("交通・安全");
+    expect(groupTitleFor("accidents")).toBe("交通・安全");
+    expect(groupTitleFor("stopPoi")).toBe("交通・安全");
+    expect(groupTitleFor("intersections")).toBe("交通・安全");
+    expect(groupTitleFor("bicycleInfra")).toBe("自転車インフラ");
+    expect(groupTitleFor("elevation")).toBe("地形");
+    expect(groupTitleFor("route")).toBe("生成したルートの色分け");
   });
 
   it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路/両方該当）が表示される(外部静的データソース T51、改善計画T74)", () => {

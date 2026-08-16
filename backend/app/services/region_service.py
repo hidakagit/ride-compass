@@ -6,6 +6,7 @@ import httpx
 
 from app.config import settings
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
+from app.domain.traffic import TrafficStressBreakdown, traffic_stress_breakdown
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import log_external_call
@@ -257,3 +258,16 @@ class RegionService:
             x=x,
             y=y,
         )
+
+    async def get_traffic_stress_breakdown(self, latitude: float, longitude: float) -> TrafficStressBreakdown | None:
+        """クリック地点近傍の道路の交通ストレス判定内訳を返す（改善計画T90）。
+
+        `repository`未注入（DBなし構成）はNone。近傍（`get_nearest_way_tags`の既定
+        半径=道路評価と同じSURFACE_MATCH_MAX_DISTANCE_M）に対象道路が無い、または
+        highwayが判定基準に登録されていない場合はTrafficStressBreakdown(base=None,
+        level=None, ...)（タイル・区間評価と同じ「不明・他」の扱い）。
+        """
+        if self._repository is None:
+            return None
+        highway, tags, is_designated = (await self._repository.get_nearest_way_tags([(latitude, longitude)]))[0]
+        return traffic_stress_breakdown(highway, tags, is_designated)

@@ -10,6 +10,7 @@ import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  fetchTrafficStressBreakdown,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
@@ -66,6 +67,58 @@ describe("regionApi", () => {
 
   it("accidentTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
     expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1`);
+  });
+
+  describe("fetchTrafficStressBreakdown", () => {
+    it("latitude/longitudeをクエリに含めてGETし、JSONをそのまま返す", async () => {
+      const breakdown = {
+        base: 4,
+        cycleway_adjustment: 0,
+        maxspeed_adjustment: 1,
+        lanes_adjustment: 0,
+        designation_adjustment: 0,
+        motor_vehicle_no_override: false,
+        level: 4,
+      };
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => breakdown,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await fetchTrafficStressBreakdown(35.68, 139.77);
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(String(url)).toContain("/api/region/traffic-stress-breakdown");
+      expect(String(url)).toContain("latitude=35.68");
+      expect(String(url)).toContain("longitude=139.77");
+      expect(result).toEqual(breakdown);
+    });
+
+    it("近傍に対象道路が無い場合(null)もそのまま返す", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers(), json: async () => null }),
+      );
+
+      await expect(fetchTrafficStressBreakdown(35.68, 139.77)).resolves.toBeNull();
+    });
+
+    it("fetchがok:falseの場合は例外を投げる", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 429,
+          headers: new Headers(),
+          json: async () => ({ detail: "リクエストが多すぎます。" }),
+        }),
+      );
+
+      await expect(fetchTrafficStressBreakdown(35.68, 139.77)).rejects.toThrow(/リクエストが多すぎます/);
+    });
   });
 
   describe("refreshBasemapCache", () => {

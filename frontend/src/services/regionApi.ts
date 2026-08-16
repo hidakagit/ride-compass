@@ -1,4 +1,6 @@
+import type { TrafficStressBreakdown } from "@/types/traffic";
 import { debugLog } from "@/lib/debugLog";
+import { formatErrorDetail } from "@/lib/apiError";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -58,6 +60,35 @@ export function poiTileUrl(): string {
 // POI/交差点密度レイヤーもT54で同じズーム範囲に準拠する（api/routers/region.py参照）。
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
+
+// 交通ストレスの区間別判定内訳（改善計画T90）。地図上の道路クリック地点近傍の判定根拠
+// （ベース値・各補正・最終値）をポップアップへ表示するための取得のみのAPI。タイルURL系
+// （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
+// 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
+export async function fetchTrafficStressBreakdown(
+  latitude: number,
+  longitude: number,
+): Promise<TrafficStressBreakdown | null> {
+  const params = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
+  const url = `${API_BASE_URL}/api/region/traffic-stress-breakdown?${params}`;
+  const startedAt = performance.now();
+  debugLog("api:traffic-stress-breakdown", "リクエスト開始", { url });
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const durationMs = Math.round(performance.now() - startedAt);
+  const requestId = response.headers.get("x-request-id");
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    debugLog("api:traffic-stress-breakdown", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
+    const detail = formatErrorDetail(errorBody?.detail) ?? `交通ストレスの内訳取得に失敗しました（HTTP ${response.status}）`;
+    throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
+  }
+
+  const data: TrafficStressBreakdown | null = await response.json();
+  debugLog("api:traffic-stress-breakdown", "成功", { durationMs, requestId, level: data?.level });
+  return data;
+}
 
 export async function refreshBasemapCache(): Promise<void> {
   const startedAt = performance.now();

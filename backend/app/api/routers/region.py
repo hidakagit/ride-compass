@@ -1,10 +1,11 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.api.dependencies import client_id, get_region_service
 from app.config import settings
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
+from app.domain.traffic import TrafficStressBreakdown
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.region_service import RegionService
@@ -112,3 +113,20 @@ async def region_poi_tile(
         media_type="application/vnd.mapbox-vector-tile",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@router.get("/api/region/traffic-stress-breakdown")
+async def region_traffic_stress_breakdown(
+    request: Request,
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    region_service: RegionService = Depends(get_region_service),
+) -> TrafficStressBreakdown | None:
+    """交通ストレスの判定内訳（改善計画T90）。地図クリック地点近傍の道路について、
+    `domain/traffic.py: traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。
+    近傍に対象道路が無い、highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null
+    （タイル・区間評価と同じ「不明・他」の扱い）。タイル取得と同じ歯止め（クリックの連打対策）
+    を流用する。
+    """
+    _check_tile_rate_limit(request, "traffic-stress-breakdown")
+    return await region_service.get_traffic_stress_breakdown(latitude, longitude)

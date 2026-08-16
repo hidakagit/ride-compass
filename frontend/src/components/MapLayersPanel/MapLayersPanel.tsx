@@ -3,9 +3,9 @@
 import {
   MAP_LAYERS,
   layerSectionDomId,
+  type MapLayerCategory,
   type MapLayerDescriptor,
   type MapLayerId,
-  type MapLayerKind,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import {
@@ -46,13 +46,17 @@ interface MapLayersPanelProps {
   onGoToGenerate?: () => void;
 }
 
-// サイドバーのグループ見出し。内部的にはデータの性質（static/dynamic、mapLayers.tsのkind）で
-// 分かれているが、見出しは「変わらないデータ」のような実装都合の表現を避け、ユーザーから見た
-// 役割（地図に重ねるか、生成したルートの見え方か）で言い表す（T30）。
-const GROUP_HEADINGS: Record<MapLayerKind, string> = {
-  static: "地図に重ねる情報",
-  dynamic: "生成したルートの色分け",
+// サイドバーのグループ見出し。staticは中分類（mapLayers.ts: category、改善計画T86）ごとに
+// 分け、dynamic（route、今のところ1種のみ）は従来どおり単独の見出しにする。
+// 表示順はmapLayers.tsのコメントに列挙した順（道路状態→交通・安全→自転車インフラ→地形）。
+const STATIC_CATEGORY_ORDER: readonly MapLayerCategory[] = ["roadCondition", "trafficSafety", "bicycleInfra", "terrain"];
+const STATIC_CATEGORY_HEADINGS: Record<MapLayerCategory, string> = {
+  roadCondition: "道路状態",
+  trafficSafety: "交通・安全",
+  bicycleInfra: "自転車インフラ",
+  terrain: "地形",
 };
+const DYNAMIC_GROUP_HEADING = "生成したルートの色分け";
 
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
 // レイヤーごとに1セクション（見出し＋表示スイッチ＋凡例・絞り込み等の設定）を持ち、
@@ -318,50 +322,61 @@ export default function MapLayersPanel({
     return id === "route" && !hasDetail;
   }
 
-  const kinds: MapLayerKind[] = ["static", "dynamic"];
+  // レイヤー1件分のセクション（見出し＋ON/OFFチップ＋設定本文）。カテゴリ単位・kind単位
+  // どちらのグループ化でも同じ描画になる（改善計画T86でグルーピング単位をkindからcategoryへ
+  // 変更したが、レイヤー単体の描画自体は変えていない）。
+  function renderLayerSection(layer: MapLayerDescriptor) {
+    const disabled = isLayerDisabled(layer.id);
+    const domId = layerSectionDomId(layer.id);
+    return (
+      // 要素ごとに折りたたむ階層メニュー（モバイル実機フィードバック対応T38。
+      // 以前は5レイヤー分の設定が常時全展開でスクロールが長かった）。デフォルト全閉。
+      // domIdはdetails自体に振る（テストでdocument.getElementByIdから開閉する
+      // ためのフック。MapLayersPanel.test.tsxのopenSection参照）。
+      <details key={layer.id} id={domId} className={styles.layerSection}>
+        <summary className={styles.layerHeader}>
+          <h3 className={styles.layerTitle}>
+            <span aria-hidden="true" className={styles.chevron} />
+            {layer.label}
+          </h3>
+          {/* ON/OFFは地図上のチップと同一部品（LayerChip）。見た目が同じ＝同じ操作だと
+              伝えるため、role=switchのチェックボックスからチップへ統一した（T30）。
+              summary内のクリックはdetails開閉のデフォルト動作を伴うため、チップ操作が
+              同時に開閉してしまわないようpreventDefault/stopPropagationする。 */}
+          <LayerChip
+            label="表示"
+            ariaLabel={`${layer.label}レイヤーを表示`}
+            on={layerVisibility[layer.id]}
+            disabled={disabled}
+            title={disabled ? "ルートを生成・選択すると使えます" : undefined}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onLayerToggle(layer.id, !layerVisibility[layer.id]);
+            }}
+          />
+        </summary>
+        <div className={styles.layerBody}>{renderSectionBody(layer)}</div>
+      </details>
+    );
+  }
 
   return (
     <div className={styles.panel}>
-      {kinds.map((kind) => (
-        <div key={kind} className={styles.group}>
-          <h2 className={styles.groupTitle}>{GROUP_HEADINGS[kind]}</h2>
-          {MAP_LAYERS.filter((layer) => layer.kind === kind).map((layer) => {
-            const disabled = isLayerDisabled(layer.id);
-            const domId = layerSectionDomId(layer.id);
-            return (
-              // 要素ごとに折りたたむ階層メニュー（モバイル実機フィードバック対応T38。
-              // 以前は5レイヤー分の設定が常時全展開でスクロールが長かった）。デフォルト全閉。
-              // domIdはdetails自体に振る（テストでdocument.getElementByIdから開閉する
-              // ためのフック。MapLayersPanel.test.tsxのopenSection参照）。
-              <details key={layer.id} id={domId} className={styles.layerSection}>
-                <summary className={styles.layerHeader}>
-                  <h3 className={styles.layerTitle}>
-                    <span aria-hidden="true" className={styles.chevron} />
-                    {layer.label}
-                  </h3>
-                  {/* ON/OFFは地図上のチップと同一部品（LayerChip）。見た目が同じ＝同じ操作だと
-                      伝えるため、role=switchのチェックボックスからチップへ統一した（T30）。
-                      summary内のクリックはdetails開閉のデフォルト動作を伴うため、チップ操作が
-                      同時に開閉してしまわないようpreventDefault/stopPropagationする。 */}
-                  <LayerChip
-                    label="表示"
-                    ariaLabel={`${layer.label}レイヤーを表示`}
-                    on={layerVisibility[layer.id]}
-                    disabled={disabled}
-                    title={disabled ? "ルートを生成・選択すると使えます" : undefined}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onLayerToggle(layer.id, !layerVisibility[layer.id]);
-                    }}
-                  />
-                </summary>
-                <div className={styles.layerBody}>{renderSectionBody(layer)}</div>
-              </details>
-            );
-          })}
-        </div>
-      ))}
+      {STATIC_CATEGORY_ORDER.map((category) => {
+        const layers = MAP_LAYERS.filter((layer) => layer.kind === "static" && layer.category === category);
+        if (layers.length === 0) return null;
+        return (
+          <div key={category} className={styles.group}>
+            <h2 className={styles.groupTitle}>{STATIC_CATEGORY_HEADINGS[category]}</h2>
+            {layers.map(renderLayerSection)}
+          </div>
+        );
+      })}
+      <div className={styles.group}>
+        <h2 className={styles.groupTitle}>{DYNAMIC_GROUP_HEADING}</h2>
+        {MAP_LAYERS.filter((layer) => layer.kind === "dynamic").map(renderLayerSection)}
+      </div>
     </div>
   );
 }

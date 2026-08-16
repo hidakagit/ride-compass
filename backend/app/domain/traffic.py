@@ -12,6 +12,8 @@ CASE式として実装しており、この関数群と1:1で対応させる（t
 
 from typing import Literal
 
+from pydantic import BaseModel
+
 # 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
 # openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数、
 # GraphService.get_stop_poi_countsはこのデフォルトを暗黙使用）の両方がこの定数をimportして
@@ -228,10 +230,27 @@ def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]
     return round(dedicated / known * 100, 1)
 
 
-def traffic_stress_level(highway: str | None, tags: dict[str, str], is_designated: bool = False) -> int | None:
+class TrafficStressBreakdown(BaseModel):
+    """`traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に
+    「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と
+    同じ最終値。highwayが判定基準（`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に登録されていない
+    場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
+    """
+
+    base: int | None
+    cycleway_adjustment: int
+    maxspeed_adjustment: int
+    lanes_adjustment: int
+    designation_adjustment: int
+    motor_vehicle_no_override: bool
+    level: int | None
+
+
+def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_designated: bool = False) -> TrafficStressBreakdown:
     """交通ストレス（LTS: Level of Traffic Stress風の1-4段階。「交通量」ではなく
-    「推定交通ストレス」、計画書§2.4）。基本値はhighwayのみで決まり、未知のhighwayは
-    None（評価しない）。補正はタグが実際にある場合のみ適用する（unknownは補正しない）。
+    「推定交通ストレス」、計画書§2.4）を、各補正の適用有無・量が分かる内訳付きで返す。
+    基本値はhighwayのみで決まり、未知のhighwayはNone（評価しない）。補正はタグが
+    実際にある場合のみ適用する（unknownは補正しない）。
 
     cycleway系タグによる補正は`classify_bicycle_infrastructure`と同じ入力を別目的で
     解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
@@ -240,35 +259,71 @@ def traffic_stress_level(highway: str | None, tags: dict[str, str], is_designate
     データソース T51、`domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDS`）。
     大型車交通の代理指標として+1する（既存クランプ内、motor_vehicle=noの固定1より後段）。
     road_graph_repository.pyのMVT生成CASE式と1:1対応させる（test_road_graph_repository.pyの
-    整合性テストで担保）。
+    整合性テストで担保。判定ロジックの実装自体はここ1箇所にまとめ、`traffic_stress_level`は
+    `level`だけを取り出す薄いラッパーにすることで二重実装を避ける）。
     """
     base = TRAFFIC_STRESS_BASE_BY_HIGHWAY.get(highway or "")
     if base is None:
-        return None
+        return TrafficStressBreakdown(
+            base=None,
+            cycleway_adjustment=0,
+            maxspeed_adjustment=0,
+            lanes_adjustment=0,
+            designation_adjustment=0,
+            motor_vehicle_no_override=False,
+            level=None,
+        )
 
     # motor_vehicle=no（自転車可）は他の補正に関わらず1に固定（計画書§2.4）。
     if (tags.get("motor_vehicle") or "").strip().lower() == "no":
-        return 1
+        return TrafficStressBreakdown(
+            base=base,
+            cycleway_adjustment=0,
+            maxspeed_adjustment=0,
+            lanes_adjustment=0,
+            designation_adjustment=0,
+            motor_vehicle_no_override=True,
+            level=1,
+        )
 
-    level = base
     cycleway_values = _cycleway_values(tags)
     if "track" in cycleway_values:
-        level -= 2
+        cycleway_adjustment = -2
     elif "lane" in cycleway_values:
-        level -= 1
+        cycleway_adjustment = -1
+    else:
+        cycleway_adjustment = 0
 
     maxspeed = parse_maxspeed(tags)
-    if maxspeed is not None:
-        if maxspeed <= 30:
-            level -= 1
-        elif maxspeed >= 60:
-            level += 1
+    if maxspeed is not None and maxspeed <= 30:
+        maxspeed_adjustment = -1
+    elif maxspeed is not None and maxspeed >= 60:
+        maxspeed_adjustment = 1
+    else:
+        maxspeed_adjustment = 0
 
     lanes = parse_lanes(tags)
-    if lanes is not None and lanes >= 4:
-        level += 1
+    lanes_adjustment = 1 if lanes is not None and lanes >= 4 else 0
 
-    if is_designated:
-        level += 1
+    designation_adjustment = 1 if is_designated else 0
 
-    return max(1, min(4, level))
+    level = max(
+        1,
+        min(4, base + cycleway_adjustment + maxspeed_adjustment + lanes_adjustment + designation_adjustment),
+    )
+
+    return TrafficStressBreakdown(
+        base=base,
+        cycleway_adjustment=cycleway_adjustment,
+        maxspeed_adjustment=maxspeed_adjustment,
+        lanes_adjustment=lanes_adjustment,
+        designation_adjustment=designation_adjustment,
+        motor_vehicle_no_override=False,
+        level=level,
+    )
+
+
+def traffic_stress_level(highway: str | None, tags: dict[str, str], is_designated: bool = False) -> int | None:
+    """交通ストレス（1-4段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
+    docstringは`traffic_stress_breakdown`参照。"""
+    return traffic_stress_breakdown(highway, tags, is_designated).level
