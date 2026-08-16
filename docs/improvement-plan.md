@@ -984,9 +984,14 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
   一度ブロックされ、ユーザーへ状況説明の上で明示的な再試行指示を得てから実行した。
 
 **未起票のまま据え置き（既存文書で追跡継続、二重管理を避ける）**: `name`/`ref`のMVT焼き込み・
-`tracktype`表示・`bicycle=no`のHard Constraint・`oneway:bicycle`例外は
-[static-road-attributes-plan.md](static-road-attributes-plan.md) P1節の未着手項目4〜6として
-既に記録済みのため、本節では新規タスク化しない。
+`tracktype`表示は
+[static-road-attributes-plan.md](static-road-attributes-plan.md) §3.1の未着手項目として
+既に記録済みのため、本節では新規タスク化しない。**2026-08-17追記**: 自転車歩行者道の取込
+スコープ拡張・`bicycle=no`のHard Constraint（`oneway:bicycle`例外を含む）は、ユーザー承認済みの
+別ブランチ作業（`origin/claude/osm-roadbike-map-features-1yn5yi`、コミット`0f1f952`）をmasterへ
+統合し、T番号の衝突（同ブランチはT96〜T99を使用していたが、masterは既にT96〜T98を別件で
+使用済みだった）を避けてT99〜T102として本ファイルへ起票した（後方の「OSM追加属性の活用検討」節
+参照）ため、この据え置きリストから外す。
 
 ---
 
@@ -2154,6 +2159,78 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ---
 
+## OSM追加属性の活用検討（2026-08-17・別ブランチ作業をmasterへ統合、番号振り直し）
+
+[static-road-attributes-plan.md](static-road-attributes-plan.md)のタグ棚卸し・実測カバレッジ
+（関東全域131万way、`measure_tag_coverage.py`）をもとに、現在地図に出ていないOSM由来情報を
+実データ充当率込みで再ランク付けし、ユーザー承認を得た4件を起票する。
+
+**経緯（番号振り直しの理由）**: 本節は別ブランチ
+（`origin/claude/osm-roadbike-map-features-1yn5yi`、コミット`0f1f952`、2026-08-16 16:40 UTC）で
+先に「T96〜T99」として起票・ユーザー承認済みだった内容だが、そのブランチが分岐した後の
+masterで別件（交差点密度撤去・Open-Meteo 502緩和等）にT96〜T98を使ってしまい、番号が衝突した。
+ブランチはmasterへ未マージのまま残っていたため、内容を確認のうえT99〜T102へ振り直して
+masterへ統合する（コード変更は無く、元コミットもdocsのみ）。
+
+ランクで上位に挙がった「name/refのMVT焼き込み」（name 8.3%、UI表示用途）は元のブランチと同じく
+今回のスコープから除外し、static-road-attributes-plan.md §3.1の未着手項目として引き続き据え置く。
+
+### - [ ] T99. 自転車歩行者道の取込スコープ拡張〔static-road-attributes-plan.md §2.1/§3.1-1〕規模M
+
+- 背景: 現在の取込プロファイルは`highway=path/footway`を取込対象外としており、河川敷等でよく
+  見る自転車歩行者共用道（日本のサイクリングロードに多い形態）が地図・評価の対象から漏れている。
+  static-road-attributes-plan.md §2.1で有用性★★★★☆として採用判断済み（P1）だが未着手のまま。
+- 対応: `import_profile.yaml`に`highway=path/footway`かつ`bicycle=yes/designated`のway取込ルールを
+  追加し再取込。`domain/traffic.py: classify_bicycle_infrastructure`の`shared_pedestrian`分類
+  （分類ロジック自体は実装済み）に実データが流れるようにする。取込時に`segregated`タグ（歩行者と
+  物理分離されているか）も無料で拾えるなら`ALLOWED_WAY_TAGS`へ追加を検討（T102の実測を待たず、
+  取込コストがゼロならこのタスクに含めてよい）。
+- 完了条件: 対象範囲（Tokyo.osm.pbf等）で再取込し、自転車インフラレイヤーに`shared_pedestrian`
+  区間が表示されることをPlaywrightで確認。backend/frontend既存テストgreen。
+
+### - [ ] T100. `bicycle=no`のHard Constraint化＋`oneway:bicycle`例外の解釈〔static-road-attributes-plan.md §3.1-2/3〕規模S〜M
+
+- 背景: `bicycle`タグ自体はP0で取込・自転車インフラ分類に使用済みだが、`bicycle=no`
+  （自転車通行不可）が経路探索のHard Constraintへ未反映で、実際は通れない区間を提案しうる。
+  `oneway:bicycle`例外（自転車は一方通行規制の対象外、等）もP0でタグ自体は保持済みだが
+  未解釈のまま（`osm_adapter.py`のコメントで意図的に先送りと明記）。関連する2つの未反映を
+  まとめて1タスクとする（direction/access判定という同じ層の変更のため）。
+- 対応: `domain/evaluation.py: is_edge_allowed`（既存の`DISALLOWED_HIGHWAY_TYPES`と同じ関数）に
+  `bicycle=no`の除外条件を追加。`oneway:bicycle`は`osm_adapter.py`のdirection判定に例外分岐を
+  追加し、該当タグがある場合は`oneway`本体の値より優先させる。
+- 完了条件: `bicycle=no`区間が経路探索候補から除外されることを単体テストで確認。`oneway:bicycle`
+  の例外分岐についても単体テストを追加。既存経路へのリグレッションが無いことをbackendテスト
+  greenで確認。
+
+### - [ ] T101. 補給・休憩ポイントPOIレイヤー〔static-road-attributes-plan.md §2.3〕規模M
+
+- 背景: 停止要因POI（信号・横断歩道等）・交差点密度は`osm_raw_pois`テーブル＋MVT機構で実装済み
+  （T54）。同じ機構に、ロードバイクの実用性に直結する補給・休憩系POI（`shop=convenience`,
+  `amenity=vending_machine/toilets/drinking_water/bicycle_parking`）を相乗りさせる。
+- 対応: `import_profile.yaml`にnode取込ルールを追加（`osm_raw_pois.kind`へ`convenience`/
+  `vending_machine`/`toilets`/`drinking_water`/`bicycle_parking`等を追加）。新テーブルは不要
+  （既存`kind`カラムで種別管理）。表示は`stopPoi`と同様に独立レイヤーとして`mapLayers.ts`へ
+  1エントリ追加、種別ごとのアイコン・色分け。数が多い自販機はズーム制限を個別に検討。
+  評価ロジック（Edge Cost等）への組み込みは範囲外、P0の停止要因POIと同じく表示のみ。
+- 完了条件: `measure_tag_coverage.py`で各タグを事前実測し、極端に低い種別（未確立タグの道の駅・
+  サイクルステーション等は元々対象外）を除外した上で、少なくとも1種別（コンビニを推奨）が
+  地図上に表示されることをPlaywrightで確認。
+
+### - [ ] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S
+
+- 背景: `lit=*`（街灯の有無。早朝/夜間走行の安全性判断に有用）・`segregated=yes/no`
+  （自転車歩行者道の歩車分離、T99と関連）・`barrier=gate/bollard`（河川敷サイクリングロード等の
+  車止め、通行可否判定に影響）は、既存のタグ棚卸し（static-road-attributes-plan.md）でまだ
+  評価対象に入っていない。
+- 対応: `backend/scripts/measure_tag_coverage.py`の対象タグに`lit`/`segregated`/`barrier`を追加し、
+  既存実測と同条件（関東全域PBF）で計測する。結果を`static-road-attributes-plan.md`へ新規項目
+  として追記し、採用済みタグ（smoothness 0.1%等）と同水準以上なら採用候補（別タスクを起票）、
+  `width`/`shoulder`（0.3%/0.0%）と同水準なら見送りを判断する。
+- 完了条件: 3タグの実測値が`static-road-attributes-plan.md`に記載され、それぞれ採用/見送りの
+  判断が下されていること（実装自体は本タスクの範囲外）。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2226,3 +2303,4 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 | 2026-08-17 | T96 | ユーザー実利用フィードバック「交差点密度は道路網を見れば分かり可視化の意味が薄い」を受け、地図の独立可視化レイヤーから撤去（フロントのみ、ルーティング材料のintersection_weightは無変更）。`mapLayers.ts`のカタログ・`MapView.tsx`のensure関数/レイヤーID/ポップアップ/データ状態テーブル・`staticAttributeLayers.ts`の色/凡例/半径式・`icons.tsx`・`MapOverlayControls.tsx`・`MapLayersPanel.tsx`・`page.tsx`から関連コードを削除。バックエンドのpoi-tiles MVT配信は停止要因と同一SQL関数内にあり変更コストが非対称に大きいため据え置き、T97として起票。frontend 235件・tsc・eslint全green、Playwright実機確認済み |
 | 2026-08-17 | T98（別セッション作業の遡及記録） | 別セッションが着手・完了・コミット（`2cc7f44`）していたがT番号・記録が漏れていたため遡及起票。周回ルート8候補ぶんのOpen-Meteo呼び出しがほぼ完全並列発火し本番共有IPで429常態化・夜間502の一因になっていた問題を、`WeatherService.prefetch`/`WindService.prefetch`による候補間リクエスト集約で緩和。`/api/debug/stats`へ`error_types`/`last_error_type`等の診断情報を追加し`SystemStatusPanel`に反映。17ファイル370行追加・20行削除、新規テスト複数追加（詳細はT98節参照） |
 | 2026-08-17 | docs整合性の点検・修正 | `improvement-plan.md`を読み直し改善候補を洗い出し。(1) T96でarchitecture.md「静的レイヤー・タイル配信（フロント9レイヤー）」の更新が漏れていた（実際は8レイヤー、交差点密度を撤去済み）ことが判明し修正。(2) T98（上記）を遡及記録し、architecture.mdの天候の行へ候補間リクエスト集約の挙動説明を追記（`/api/debug/stats`拡張自体はコミット時に反映済みだった） |
+| 2026-08-17 | static-road-attributes-plan.mdの残タスク整理・別ブランチ統合 | 残タスク4件を検証のうえ§3.1として整理していたところ、ユーザー指摘により2件（自転車歩行者道スコープ拡張・bicycle=noのHard Constraint）が別ブランチ（`origin/claude/osm-roadbike-map-features-1yn5yi`、コミット`0f1f952`）で既に起票済み（ただしmasterへ未マージ）と判明。同ブランチはT96〜T99を使用していたが、masterは既に別件（交差点密度撤去・Open-Meteo 502緩和等）でT96〜T98を使用済みだったため衝突。ユーザー承認のうえ内容を確認し、T99〜T102として番号を振り直してmasterへ統合した（T99自転車歩行者道スコープ拡張／T100 bicycle=no Hard Constraint＋oneway:bicycle例外／T101補給・休憩POIレイヤー／T102 lit/segregated/barrierカバレッジ実測） |
