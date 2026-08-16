@@ -420,7 +420,7 @@ export default function Home() {
           chipLabel: layer.chipLabel ?? layer.label,
           on: layerVisibility[layer.id],
           disabled,
-          title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}（設定はサイドバー）`,
+          title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}[設定はサイドバー]`,
           summary,
           legendDetails,
         };

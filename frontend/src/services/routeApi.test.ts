@@ -64,7 +64,7 @@ describe("routeApi", () => {
         ),
       );
 
-      await expect(previewRoute(request)).rejects.toThrow("エラー詳細（req: req-123）");
+      await expect(previewRoute(request)).rejects.toThrow("エラー詳細[req: req-123]");
     });
 
     it("x-request-idヘッダが無い場合はメッセージに(req: ...)が付かない", async () => {
@@ -104,7 +104,7 @@ describe("routeApi", () => {
         ),
       );
 
-      await expect(previewRoute(request)).rejects.toThrow("リクエストに失敗しました（HTTP 502）");
+      await expect(previewRoute(request)).rejects.toThrow("リクエストに失敗しました[HTTP 502]");
     });
   });
 

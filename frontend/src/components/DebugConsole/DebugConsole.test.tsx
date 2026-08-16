@@ -32,7 +32,7 @@ describe("DebugConsole", () => {
 
     render(<DebugConsole open onClose={() => {}} />);
 
-    expect(screen.getByText("デバッグログ（1件）")).toBeInTheDocument();
+    expect(screen.getByText("デバッグログ[1件]")).toBeInTheDocument();
     expect(screen.getByText("タイル要求")).toBeInTheDocument();
     expect(screen.queryByText("システム状況")).not.toBeInTheDocument();
     expect(screen.queryByText(/engine/)).not.toBeInTheDocument();
@@ -42,11 +42,11 @@ describe("DebugConsole", () => {
     setDebugEnabled(true);
     act(() => debugLog("map", "タイル要求"));
     render(<DebugConsole open onClose={() => {}} />);
-    expect(screen.getByText("デバッグログ（1件）")).toBeInTheDocument();
+    expect(screen.getByText("デバッグログ[1件]")).toBeInTheDocument();
 
     act(() => screen.getByRole("button", { name: "クリア" }).click());
 
-    expect(screen.getByText("デバッグログ（0件）")).toBeInTheDocument();
+    expect(screen.getByText("デバッグログ[0件]")).toBeInTheDocument();
   });
 
   it("閉じるボタンでonCloseが呼ばれる", () => {

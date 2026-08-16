@@ -786,7 +786,7 @@ const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
   const gradient = segment.gradient_percent != null ? `${segment.gradient_percent.toFixed(1)}%` : "不明";
   return `<div style="${POPUP_BODY_STYLE}">
-    <strong>${segment.cumulative_distance_km.toFixed(1)} km地点</strong>（到達予想 ${formatTime(segment.estimated_arrival_time)}）<br/>
+    <strong>${segment.cumulative_distance_km.toFixed(1)} km地点</strong>[到達予想 ${formatTime(segment.estimated_arrival_time)}]<br/>
     勾配: ${gradient}<br/>
     風: ${formatWind(segment.wind_penalty)}<br/>
     路面: ${formatRoad(segment.road_surface_good)}
@@ -854,10 +854,10 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
 
 // 「基準値4＋指定路線+1なのに最終値が5でなく4なのはなぜか」という実機フィードバック
 // （改善計画T90への追加対応）。交通ストレスは1〜4の4段階に固定（mapLayers.tsの
-// panelHint「4段階（1=快適〜4=ストレス大）」と同じ語彙で揃える、複雑度平衡の
+// panelHint「4段階[1=快適〜4=ストレス大]」と同じ語彙で揃える、複雑度平衡の
 // 「UI語彙のカタログ集約」原則）で、各補正の合計がこの範囲を超えたら丸めることを
 // 明示していなかったため誤解を招いていた。合計の数式と丸めの有無を明示する。
-const TRAFFIC_STRESS_SCALE_INTRO = "交通ストレスは4段階（1=快適〜4=ストレス大）の目安です。";
+const TRAFFIC_STRESS_SCALE_INTRO = "交通ストレスは4段階[1=快適〜4=ストレス大]の目安です。";
 
 function formatSignedTerm(value: number): string {
   return value >= 0 ? `+${value}` : `${value}`;
@@ -868,9 +868,9 @@ function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): str
     return `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">この道路種別は交通ストレスの判定基準に登録されていません。</div>`;
   }
   const base = breakdown.base ?? 0;
-  const rows = [`基準値（道路種別）: ${base}`];
+  const rows = [`基準値[道路種別]: ${base}`];
   if (breakdown.motor_vehicle_no_override) {
-    rows.push("車両通行不可（自転車専用）のため、上記に関わらず1に固定");
+    rows.push("車両通行不可[自転車専用]のため、上記に関わらず1に固定");
   } else {
     const adjustments: Array<{ label: string; value: number }> = [];
     if (breakdown.cycleway_adjustment !== 0) {
@@ -883,7 +883,7 @@ function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): str
       adjustments.push({ label: "車線数", value: breakdown.lanes_adjustment });
     }
     if (breakdown.designation_adjustment !== 0) {
-      adjustments.push({ label: "指定路線（緊急輸送道路等）", value: breakdown.designation_adjustment });
+      adjustments.push({ label: "指定路線[緊急輸送道路等]", value: breakdown.designation_adjustment });
     }
     for (const adjustment of adjustments) {
       rows.push(`${adjustment.label}: ${formatSignedTerm(adjustment.value)}`);
@@ -936,7 +936,7 @@ interface AccidentPopupProperties {
 }
 
 function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
-  const rows = [properties.involves_bicycle ? "自転車関連事故" : "事故（自転車以外）"];
+  const rows = [properties.involves_bicycle ? "自転車関連事故" : "事故[自転車以外]"];
   if (properties.fatal) rows.push("死亡事故");
   if (properties.occurred_year != null) rows.push(`発生年: ${properties.occurred_year}`);
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}</div>`;

@@ -55,7 +55,7 @@ const METRIC_ROWS: MetricRow[] = [
       s.topCandidate.accident_density != null ? `${s.topCandidate.accident_density.toFixed(2)} 件/(km・年)` : "—",
   },
   {
-    label: "総合難易度（絶対基準）",
+    label: "総合難易度[絶対基準]",
     format: (s) => (s.topCandidate.overall_difficulty != null ? `${s.topCandidate.overall_difficulty.toFixed(1)}` : "—"),
   },
 ];
@@ -87,8 +87,8 @@ export default function ComparisonPanel({ slots }: ComparisonPanelProps) {
   return (
     <div className={styles.panel}>
       <p className={styles.hint}>
-        直近{slots.length}回の生成結果を比較（各列は各回のtotal_score最上位候補。生値・絶対難易度のみで、
-        リクエスト間の比較ができないtotal_scoreは含まない）
+        直近{slots.length}回の生成結果を比較[各列は各回のtotal_score最上位候補。生値・絶対難易度のみで、
+        リクエスト間の比較ができないtotal_scoreは含まない]
       </p>
       <div className={styles.tableWrap}>
         <table className={styles.table}>

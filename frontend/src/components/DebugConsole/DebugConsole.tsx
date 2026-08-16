@@ -37,7 +37,7 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     <FloatingPanel
       open={open}
       onClose={onClose}
-      title={`デバッグログ（${entries.length}件）`}
+      title={`デバッグログ[${entries.length}件]`}
       topRem={4.25}
       widthRem={22}
       maxHeightPx={420}
@@ -48,7 +48,7 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
       }
     >
       <div ref={listRef} className={styles.entries}>
-        {entries.length === 0 && <p className={styles.emptyMessage}>イベント待機中...（地図を操作するかAPIを呼び出してください）</p>}
+        {entries.length === 0 && <p className={styles.emptyMessage}>イベント待機中...[地図を操作するかAPIを呼び出してください]</p>}
         {entries.map((entry) => (
           <div key={entry.id} className={styles.entry} data-level={entry.level}>
             <span className={styles.entryTime}>{entry.time}</span> <span className={styles.entryCategory}>[{entry.category}]</span>{" "}

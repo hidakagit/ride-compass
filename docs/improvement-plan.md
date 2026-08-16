@@ -2324,6 +2324,41 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   テキスト変更に伴い`MapLayersPanel.test.tsx`の該当アサーションを更新。frontend 236件・
   tsc・eslint全green。
 
+### - [x] T106. システムUI文言の全角括弧を半角`[]`へ統一、指定路線「両方該当」ラベルの重複表現を削減、設計原則12を追記 規模M（2026-08-17完了）
+
+- 発端: T104はモバイルスクリーンショットで見切れていた1箇所（指定路線`both`ラベル）だけの
+  対症療法だった。ユーザーから「システムUI全般で全角カッコを[]にする意図だった」という
+  範囲の明確化と、「緊急輸送 かつ 重要物流道路[N10＋N12]のような重複表現の割愛」という
+  追加要望、および「地図アプリとして地図表示エリアを広く保つことが重要」という
+  設計思想を今後のためにドキュメント化してほしいという3点の依頼を受けた。
+- 対応:
+  - コードコメント・テストのit()タイトルを除く、ユーザーに実際に表示される文言
+    （ラベル・説明文・凡例・ポップアップ・エラーメッセージ）を対象に全角括弧「（）」を
+    半角`[]`へ一括置換。`mapLayers.ts`・`staticAttributeLayers.ts`・`layout.tsx`・
+    `page.tsx`・`ComparisonPanel.tsx`・`MapView.tsx`（ポップアップHTML含む）・
+    `MapLayersPanel.tsx`・`WeightPanel.tsx`・`RouteList.tsx`・`LocationControl.tsx`・
+    `DebugConsole.tsx`・`ResearchPanel.tsx`と、`services/*.ts`のエラーメッセージ5ファイル
+    （`weatherApi`/`routeApi`/`versionApi`/`regionApi`/`debugStatsApi`）が対象。
+    `debugLog(...)`の開発者向けデバッグコンソール出力は地図表示エリアと無関係のため対象外
+    と判断し据え置いた。
+  - 指定路線の`both`カテゴリラベルをユーザー指定表記どおり
+    `緊急輸送道路 かつ 重要物流道路[N10・N12]`→`緊急輸送 かつ 重要物流道路[N10＋N12]`へ変更
+    （共有語「道路」の重複を末尾へ寄せて割愛、N10/N12の区切りは全角「＋」を使用）。
+  - `docs/complexity-review-2026-08-16.md`の設計原則へ12条目「地図アプリとして地図表示
+    エリアを最大限確保することを優先する」を追記し、半角`[]`使用・共有語重複割愛を
+    今後のUI文言実装時の指針として明文化した。
+  - 副次的に発見・修正した回帰: `LocationControl.test.tsx`が`new RegExp(label)`でラベルを
+    正規表現化していたため、ラベル自体に`[]`を含めた結果`[取得済み]`が文字クラスとして
+    誤解釈され照合が壊れる実害を検出。正規表現特殊文字をエスケープしてから`RegExp`化する
+    よう修正。同様に`MapLayersPanel.test.tsx`の`/4段階（...）/`正規表現リテラルも
+    `\[`/`\]`エスケープへ更新。
+- 完了条件: 変更対象ファイルすべてでUI文言中の全角括弧が解消されたことをgrepで確認
+  （コメント・test titleは対象外と確認）。`MapLayersPanel.test.tsx`・`LocationControl.test.tsx`・
+  `DebugConsole.test.tsx`・`services/*.test.ts`の該当する古い文言アサーションを更新。
+  frontend 238件・tsc・eslint全green。Playwright実機確認（デスクトップ1280px・
+  モバイル390px）で指定路線セクションの新ラベル`緊急輸送 かつ 重要物流道路[N10＋N12]`と
+  交通ストレス凡例の`4段階[1=快適〜4=ストレス大]`が正しく表示・折り返されることを確認。
+
 ---
 
 ## バックエンド一時的な到達不能の調査（2026-08-17・ユーザー報告）
@@ -2437,3 +2472,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T103 | ユーザー報告（表示/非表示を切り替えられない、非表示にしようとすると一瞬ですぐ表示に戻る）を本番サイトで実機調査。「絞り込みを一括クリア」ボタンが条件付きレンダリング（`hasHiddenFilters`）で出現/消失するたび、パネル内の他のレイヤー表示トグルが上下にずれ（Playwrightでbounding box実測、最大25px程度）、直後のクリックが別要素（凡例チェックボックス等）に当たる誤操作を確認・再現。`MapLayersPanel.tsx`のボタンを条件付きレンダリングから常時マウント＋`visibility:hidden`（CSS、高さは常に確保）へ変更し解消。修正後はレイアウト位置が完全に不変であることを実機確認。回帰テスト追加、frontend 236件・tsc・eslint全green |
 | 2026-08-17 | T99本番再取込み | ユーザー承認のうえ`kanto-latest.osm.pbf`を本番Oracle Cloud DBへ再取込み（事前dry-runで`matched_ways=1,329,632`等を確認）。run_id=5、ways=1,329,632・nodes=147,291・pois=332,294（67チャンク、db_size_mb=2004、elapsed=904.0s、エラーなし、UPSERTのため非破壊的）。本番DBへ直接クエリし反映を確認: `shared_pedestrian_ways`該当17,584件（T102実測の「その他」グループ件数と一致）、うち`segregated`保持5,000件（約28.4%、実測どおり）、`lit`保持14,368件。T99を完全完了（`[x]`）へ更新 |
 | 2026-08-17 | T104 | ユーザーがモバイル実機スクショを提示（地図上の指定路線凡例内訳ポップアップで「緊急輸送道路 かつ 重要物流道路（N10・...」が末尾`N12）`ごと見切れ）。`MapOverlayControls.module.css: .detailRowLabel`の`white-space: nowrap`+`text-overflow: ellipsis`が原因と特定し、サイドバー側と同じ折り返し方式へ統一。あわせてユーザー提案（全角括弧→半角）を採用し該当ラベルを`[N10・N12]`へ変更。モバイル390px幅のPlaywright実機確認で2行折り返し・全文表示を確認。frontend 236件・tsc・eslint全green |
+| 2026-08-17 | T106 | ユーザー依頼によりT104を「システムUI全般」へ拡張。UI表示文言（コメント・test title除く）の全角括弧を半角`[]`へ一括置換（mapLayers/staticAttributeLayers/MapView等18ファイル＋services配下エラーメッセージ5ファイル）、指定路線`both`ラベルを`緊急輸送 かつ 重要物流道路[N10＋N12]`（共有語重複割愛）へ変更、設計原則12「地図表示エリア最大化優先」をcomplexity-review-2026-08-16.mdへ追記。副次的に`LocationControl.test.tsx`の`new RegExp(label)`が`[]`を文字クラスと誤解釈する回帰を発見・修正。frontend 238件・tsc・eslint全green、Playwright実機確認（デスクトップ・モバイル）済み |

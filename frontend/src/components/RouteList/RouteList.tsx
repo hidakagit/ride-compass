@@ -12,7 +12,7 @@ interface RouteListProps {
 
 // 評価軸カタログ（lib/evaluationAxes.ts）から生成する（改善計画T25）。軸を増やしても
 // このファイルを直接編集する必要が無い。
-const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => axis.label).join("・")}を重み付けして算出（この一覧内での相対評価）`;
+const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => axis.label).join("・")}を重み付けして算出[この一覧内での相対評価]`;
 
 export default function RouteList({ routes, selectedRouteId, onSelect }: RouteListProps) {
   if (routes.length === 0) return null;

@@ -4,9 +4,9 @@ import type { Coordinates, LocationSource } from "@/types/route";
 import styles from "./LocationControl.module.css";
 
 const SOURCE_LABEL: Record<LocationSource, string> = {
-  geolocation: "現在地（取得済み）",
+  geolocation: "現在地[取得済み]",
   // 「デフォルト」は開発用語のため、初見でも意味が取れる表現にする（T30）
-  default: "初期地点（東京・王子）",
+  default: "初期地点[東京・王子]",
 };
 
 interface LocationControlProps {

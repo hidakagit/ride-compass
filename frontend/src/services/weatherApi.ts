@@ -23,8 +23,8 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
     debugLog("api:weather", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `天候の取得に失敗しました（HTTP ${response.status}）`;
-    throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
+    const detail = formatErrorDetail(errorBody?.detail) ?? `天候の取得に失敗しました[HTTP ${response.status}]`;
+    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
   }
 
   let data: WeatherConditions;

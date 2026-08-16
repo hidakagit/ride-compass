@@ -12,11 +12,13 @@ function baseProps() {
 
 describe("LocationControl", () => {
   it.each([
-    ["geolocation" as LocationSource, "現在地（取得済み）"],
-    ["default" as LocationSource, "初期地点（東京・王子）"],
+    ["geolocation" as LocationSource, "現在地[取得済み]"],
+    ["default" as LocationSource, "初期地点[東京・王子]"],
   ])("sourceが%sのとき「%s」が表示される", (source, label) => {
     render(<LocationControl {...baseProps()} source={source} />);
-    expect(screen.getByText(new RegExp(label), { selector: "span" })).toBeInTheDocument();
+    // ラベルに含まれる[]は正規表現の特殊文字（文字クラス）のためエスケープしてから使う
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    expect(screen.getByText(new RegExp(escaped), { selector: "span" })).toBeInTheDocument();
   });
 
   it("緯度経度が小数点以下5桁でフォーマットされて表示される", () => {
