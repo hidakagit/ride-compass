@@ -59,28 +59,20 @@
 /* アイコンチップと▶トグルのペア。1レイヤーぶんの行そのもの（chipRowの直接の子）。
    ▶はこのチップ自身の開閉スイッチなので、間隔（gap）は詰めて見た目の対応関係を
    分かりやすくする（実機フィードバック「▶をもう少しアイコン側に近づけて」）。
-   position: relativeは、内訳パネル（.detailPanel）をこの行を起点にposition: absolute
-   配置するためのアンカー。パネルがフローから外れることで、▶を開いても後続の行が
-   フロー上で押し下げられない（実機フィードバック「▶展開で以降のアイコンまでずれる」
-   への対応）。z-indexはauto（デフォルト0相当）だとDOM順で後の行が上に重なってしまうため、
-   展開中の行だけ.iconWithToggleExpandedでz-indexを上げ、パネルが後続の行の下に
-   隠れないようにする。 */
+   内訳パネル（.detailPanel）はこの行の子ではなくdocument.bodyへポータルしてposition:
+   fixedで浮かせる（MapOverlayControls.tsx参照。chipRowのoverflow-y: autoの下で
+   position: absoluteのまま行の右にはみ出させると、CSSの仕様上暗黙にoverflow-xも
+   autoになりパネルがクリップされて見えなくなるため）。そのためこの行自体は
+   position: relativeを持たない、ただのflex行。 */
 .iconWithToggle {
-  position: relative;
-  z-index: 0;
   display: flex;
   align-items: center;
   gap: var(--space-1);
   flex-shrink: 0;
   /* .chipRow（縦方向flex）はalign-items既定値のstretchで、直接の子をchipRowの幅
-     いっぱいに広げる。それだと内訳パネルのleft: 100%がこの行の見た目の幅
-     （アイコン+▶ぶんの内容量）ではなく、引き伸ばされた行全体の右端を基準にしてしまい
-     画面外へ飛び出す。align-self: flex-startで内容量ぶんの幅に戻す。 */
+     いっぱいに広げる。align-self: flex-startで内容量ぶんの幅に戻し、チップの右側に
+     余分な当たり判定の空白ができないようにする。 */
   align-self: flex-start;
-}
-
-.iconWithToggleExpanded {
-  z-index: 1;
 }
 
 /* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
@@ -170,18 +162,17 @@
   transform: rotate(90deg);
 }
 
-/* ▶を開いたときの内訳パネル本体。.iconWithToggleを起点にposition: absoluteで右へ
-   張り出す（chipRowの縦のフローから外れるため、開いても後続行の位置に影響しない）。
+/* ▶を開いたときの内訳パネル本体。document.bodyへポータルし、position: fixedで
+   MapOverlayControls.tsxがJSで測った行の右隣（top/left/maxWidthはインラインstyle）に
+   浮かせる。chipRowの子として素直にposition: absoluteで右へ張り出す方式だと、chipRowの
+   overflow-y: autoの下でoverflow-xも暗黙にauto化しパネルがクリップされて見えなくなる
+   不具合があったため、chipRowの外（document.body直下）へ出している。
    地図を覆いすぎないよう不透明な面色ではなく半透明+ぼかしにして「薄く」見せる
    （実機フィードバック「常時横に出てくると見にくい」「押したときだけ薄く出るように」）。 */
 .detailPanel {
-  position: absolute;
-  top: 0;
-  left: 100%;
-  margin-left: var(--space-2);
-  /* アイコン列の左端(--space-3)・ギャップ・アイコン幅ぶんを差し引いた残りの横幅に
-     収まる範囲で、読みやすい最大幅までに留める。 */
-  width: min(18rem, calc(100vw - 9rem));
+  position: fixed;
+  z-index: 30;
+  width: 18rem;
   padding: 0.5rem 0.7rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
@@ -192,7 +183,8 @@
   /* .iconChipと同じ理由（ピンチの片方の指がここに乗ると地図のジェスチャーとして
      確定しないことがあるため） */
   touch-action: none;
-  /* .iconChipと同じ理由（親のpointer-events: noneをボタン自身だけで打ち消す） */
+  /* document.body直下（.wrapperの外）にポータルしているためpointer-events: none
+     は継承しない。明示しなくても既定でautoだが、他の要素と同様に明記しておく。 */
   pointer-events: auto;
 }
 
