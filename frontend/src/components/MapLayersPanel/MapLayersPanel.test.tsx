@@ -109,6 +109,20 @@ describe("MapLayersPanel", () => {
     expect(onClearAllFilters).toHaveBeenCalledTimes(1);
   });
 
+  it("「絞り込みを一括クリア」ボタンはhasHiddenFiltersの値に関わらずDOM上に常駐する（レイアウトシフト防止の回帰テスト）", () => {
+    // 実機バグ: 条件付きレンダリングでこの行が出現/消失すると、パネル内の他のボタン
+    // （レイヤーの表示トグル等）が上下にずれ、直後のクリックが別要素に当たる誤操作を
+    // Playwrightで実測確認した。visibility制御なら高さは常に確保されずれない。
+    const { container, rerender } = render(<MapLayersPanel {...baseProps()} hasHiddenFilters={false} />);
+    const buttonWhenHidden = container.querySelector('button[type="button"][disabled]');
+    expect(buttonWhenHidden).not.toBeNull();
+    expect(buttonWhenHidden?.textContent).toBe("絞り込みを一括クリア");
+
+    rerender(<MapLayersPanel {...baseProps()} hasHiddenFilters={true} />);
+    const buttonWhenVisible = screen.getByRole("button", { name: "絞り込みを一括クリア" });
+    expect(buttonWhenVisible).toBeEnabled();
+  });
+
   it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路/両方該当）が表示される(外部静的データソース T51、改善計画T74)", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("designation");
