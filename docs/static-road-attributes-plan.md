@@ -1,14 +1,17 @@
 # 静的道路属性の棚卸しと実装計画（調査報告・2026-08-15）
 
-**ステータス（2026-08-16更新）: P0完了・P1完了（自転車歩行者道スコープ拡張等の残り4点を除く）**。
+**ステータス（2026-08-17更新）: P0完了・P1完了（name/refのMVT焼き込みのみ§3.1に未着手で残存）**。
 P0（タグ保持基盤・`domain/traffic.py`・MVT拡張v4・交通ストレス/自転車インフラレイヤー）・
 既存データへの再取込・T9（surface列化）はいずれも完了済み（詳細は
 [improvement-plan.md](improvement-plan.md)「静的道路属性 P0」節）。P1は下記§3の1〜3を
 2026-08-16に実装完了（node取込機構・停止密度評価は同日前半、intersectionDensity・
 trafficStress/bicycle_infra評価組み込みは同日後半。詳細は本節末尾の実装結果を参照）。
-自転車歩行者道スコープ拡張・`bicycle=no`Hard Constraint・name/refのMVT焼き込み（§3 P1の
-4〜6、および2の後半）はP2据え置きの候補として引き続き未着手。以下は元の調査報告
-（2026-08-15時点、着手前）。
+残っていた自転車歩行者道スコープ拡張・`bicycle=no`Hard Constraint・`oneway:bicycle`例外
+（§3 P1の4〜5）は、2026-08-17にユーザー承認済みの別ブランチ作業を確認・番号を振り直したうえで
+[improvement-plan.md](improvement-plan.md)T99/T100として起票済み（二重管理を避けるため、
+進捗は改善計画側のチェックボックスで追跡する）。補給・休憩POI（§2.3）はT101、
+lit/segregated/barrierの新規候補（§2.5）はT102として同日起票。name/refのMVT焼き込みのみ
+P2据え置きの候補として引き続き未着手（§3.1）。以下は元の調査報告（2026-08-15時点、着手前）。
 
 新レイヤー（交通ストレス・自転車インフラ・信号密度等）追加に向けた、OSM静的道路属性の
 棚卸しと実装方針の提案。動的データ（天気・風・降水）は対象外。
@@ -111,18 +114,21 @@ DBに存在しない。ノードタグ（信号・横断歩道・一時停止・
 
 ### 2.3 POI（道路属性とは別カテゴリ）
 
-いずれも `import_profile.yaml` のnode要素＋`osm_raw_pois`（新テーブル）で同一機構により取込可能。
-**道路属性とはテーブル・レイヤー・優先度を分けて扱う**。全てP2。
+いずれも `import_profile.yaml` のnode要素＋`osm_raw_pois`（既存テーブル、P1でstop POI用に
+新設済みのものを流用）で同一機構により取込可能。**道路属性とはテーブル・レイヤー・優先度を
+分けて扱う**。コンビニ・トイレ・自販機・駐輪場・飲料水の5種は
+**[improvement-plan.md](improvement-plan.md)T101として起票済み（2026-08-17）**。
+道の駅・サイクルステーションはタグ運用の検証が別途必要なためP2据え置きのまま。
 
 | POI | OSMタグ | 備考 |
 |---|---|---|
-| コンビニ | `shop=convenience` | 補給計画に有用。カバレッジ良好 |
-| トイレ | `amenity=toilets` | カバレッジ良好 |
-| 自販機 | `amenity=vending_machine`（+`vending=drinks`） | 数が多い。ズーム制限必須 |
-| 駐輪場 | `amenity=bicycle_parking` | |
-| 飲料水 | `amenity=drinking_water` | プロファイルのコメント例そのまま |
-| 道の駅 | 単一の確立タグ無し（`highway=rest_area`等の併用が実態） | **タグ運用の実データ検証が必要**。推測で実装しない |
-| サイクルステーション | 確立タグ無し（`amenity=bicycle_repair_station`は空気入れ等） | 同上 |
+| コンビニ | `shop=convenience` | 補給計画に有用。カバレッジ良好。T101 |
+| トイレ | `amenity=toilets` | カバレッジ良好。T101 |
+| 自販機 | `amenity=vending_machine`（+`vending=drinks`） | 数が多い。ズーム制限必須。T101 |
+| 駐輪場 | `amenity=bicycle_parking` | T101 |
+| 飲料水 | `amenity=drinking_water` | プロファイルのコメント例そのまま。T101 |
+| 道の駅 | 単一の確立タグ無し（`highway=rest_area`等の併用が実態） | **タグ運用の実データ検証が必要**。推測で実装しない。P2据え置き |
+| サイクルステーション | 確立タグ無し（`amenity=bicycle_repair_station`は空気入れ等） | 同上。P2据え置き |
 
 ### 2.4 主要属性の判断基準（D項目）
 
@@ -147,6 +153,19 @@ DBに存在しない。ノードタグ（信号・横断歩道・一時停止・
   `shared_busway等`（cycleway*=share_busway/shared_lane）＞ `shared_pedestrian`（path/footway＋bicycle可＝自転車歩行者道、速い巡航には不向き）＞
   `roadway`（共用車道）/ `prohibited`（bicycle=no）/ `unknown`
 - **signalDensity / intersectionDensity**: 個数ではなく「個/km」。エッジ単位で保持しルートで距離加重集計
+
+### 2.5 未評価の新規候補（2026-08-17追記）
+
+2026-08-17のユーザー依頼（地図に未表示のOSM情報を実データ充当率込みで再ランク付け）で新たに
+挙がった、本計画の棚卸し（§2.1/2.2/2.3）にまだ無いタグ。カバレッジ未実測のため採用/見送りの
+判断はできず、**[improvement-plan.md](improvement-plan.md)T102として実測タスクを起票済み**
+（`measure_tag_coverage.py`に3タグを追加し関東全域PBFで実測、結果を本節に追記して判断する）。
+
+| 属性 | OSMタグ | 取得元 | 想定用途 | カバレッジ | 判断 |
+|---|---|---|---|---|---|
+| 街灯 | `lit=*` | way | 早朝/夜間走行時の安全性判断 | 未実測 | **T102で実測後判断** |
+| 歩車分離 | `segregated=yes/no` | way | 自転車歩行者道（§2.1「歩行者共用」T99）の歩車分離有無、分類の粒度向上 | 未実測 | **T102で実測後判断**（採用ならT99に含める） |
+| 車止め等の障害物 | `barrier=gate/bollard` | node | 河川敷サイクリングロード等での通行可否判定 | 未実測 | **T102で実測後判断** |
 
 ---
 
@@ -187,9 +206,25 @@ P0は**表示（レイヤー）まで**。ルート評価への組み込みは�
    「区間の色分け・探索コストには効くが、候補の並び順（おすすめ度）には一切効かない」という
    一貫した非対称になっている（今後の評価軸追加でも都度この判断が必要）。
 4. 自転車歩行者道の取込スコープ拡張（path/footway＋bicycle可のみ。プロファイルにエントリ追加）
-   **未着手**
-5. `bicycle=no`のHard Constraint追加、`oneway:bicycle`例外の解釈 **未着手**
-6. name/refのMVT焼き込み（ポップアップ表示）、width（カバレッジ実測が良ければ） **未着手**
+   **[improvement-plan.md](improvement-plan.md)T99として起票（2026-08-17）**
+5. `bicycle=no`のHard Constraint追加・`oneway:bicycle`例外の解釈
+   **[improvement-plan.md](improvement-plan.md)T100として起票（2026-08-17）**
+6. name/refのMVT焼き込み（ポップアップ表示）は**§3.1へ**（未着手のまま）。widthは§2.1のとおり
+   実測（0.3%）を根拠にP2据え置きが確定済み。
+
+### 3.1 P1残タスク（2026-08-17整理、未着手・トリガー無し＝手が空いたとき）
+
+`improvement-plan.md`側では二重管理を避けるためT番号を振らず本ファイルのみで管理する方針
+（旧4件のうち3件は2026-08-17にT99〜T101として改善計画側へ起票済み、上記4・5・§2.3参照）。
+残るのは以下の1件のみ。
+
+| 項目 | 対応内容 | 規模目安 | 確認（2026-08-17、コード上の根拠） |
+|---|---|---|---|
+| name/refのMVT焼き込み | `_ROAD_SURFACE_TILE_MVT_SQL`へ`name`/`ref`プロパティを追加し、路面クリックポップアップに道路名を表示する（タイル世代の対上げが必要、T93と同型） | S | `road_graph_repository.py`のMVT SQLに`name`/`ref`プロパティは無い |
+
+P0/P1着手時点（2026-08-15）からルート評価・表示の正確性を大きく損なう不具合ではなく、
+「あると良い」種類の改善のため、トリガー条件を設けず「手が空いたとき」の据え置きとする
+（`improvement-plan.md`のT10〜T12と同種の運用）。
 
 **実装結果（1〜3、2026-08-16）**: `osm_raw_pois`（`osm_node_id`/`kind`/`tags`/`geom`、GiST索引付き。
 migration 0005）を新設し、`domain/traffic.py: classify_stop_poi`（highway=traffic_signals/
