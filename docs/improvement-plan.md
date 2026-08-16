@@ -2301,6 +2301,29 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   Y座標が完全に不変であることをPlaywrightで確認。DOM常駐化を固定する回帰テストを追加。
   frontend 236件・tsc・eslint全green。
 
+### - [x] T104. 地図上の凡例内訳パネルで長いラベルが末尾ごと見切れる不具合を修正 規模S（2026-08-17完了）
+
+- 発端: ユーザーがモバイル実機のスクリーンショットを提示。地図上の指定路線レイヤーの凡例内訳
+  ポップアップ（`MapOverlayControls.tsx`の`.detailPanel`）で「緊急輸送道路 かつ 重要物流道路
+  （N10・...」のように末尾（`N12）`部分）が`...`で見切れていた（サイドバー側のボトムシート
+  表示では折り返されて全文表示されており、地図上のポップアップだけの問題と判明）。
+- 原因: `.detailRowLabel`（`MapOverlayControls.module.css`）が`white-space: nowrap` +
+  `text-overflow: ellipsis`で1行省略表示になっており、幅18remのパネルに収まらない長いラベルの
+  末尾が失われていた。サイドバー側の凡例行（`MapLayersPanel.module.css: .legendCheckboxRow`）は
+  同種のoverflow指定を持たず自然に折り返されるため問題が起きていなかった。
+- 対応:
+  - `.detailRowLabel`から`overflow: hidden`/`text-overflow: ellipsis`/`white-space: nowrap`を
+    削除し、サイドバー側と同じ「折り返して全文表示する」方式へ統一。
+  - ユーザー提案（全角括弧を半角へ）を採用し、最も長かったラベル
+    `staticAttributeLayers.ts`の指定路線`both`カテゴリを「緊急輸送道路 かつ 重要物流道路
+    （N10・N12）」→「緊急輸送道路 かつ 重要物流道路[N10・N12]」へ変更（半角の方が幅を取らず、
+    折り返し発生自体も減る）。他のラベル（`（N10）`等、単体では見切れていなかったもの）は
+    据え置き。
+- 完了条件: モバイル幅（390px）のPlaywright実機確認で、指定路線の凡例内訳ポップアップが
+  「緊急輸送道路 かつ 重要物流道路[N10・N12]」を2行に折り返して全文表示することを確認。
+  テキスト変更に伴い`MapLayersPanel.test.tsx`の該当アサーションを更新。frontend 236件・
+  tsc・eslint全green。
+
 ---
 
 ## 記録
@@ -2381,3 +2404,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T102（実測完了） | `backend/data/pbf/kanto-latest.osm.pbf`（対象way 1,329,632件）で実測。lit（全体1.1%・幹線4.8%）・segregated（全体0.6%だがT99の自転車歩行者道内では28.4%）とも既採用tag（smoothness 0.2%）を上回り採用推奨と判断、取込コストゼロのため`lit`も`ALLOWED_WAY_TAGS`へ追加（segregatedはT99で先行済み）。barrier（node、bollard 21,975件等）も採用推奨だが新規node取込ルールが必要なため実装は別タスク。backend 726件全green |
 | 2026-08-17 | T103 | ユーザー報告（表示/非表示を切り替えられない、非表示にしようとすると一瞬ですぐ表示に戻る）を本番サイトで実機調査。「絞り込みを一括クリア」ボタンが条件付きレンダリング（`hasHiddenFilters`）で出現/消失するたび、パネル内の他のレイヤー表示トグルが上下にずれ（Playwrightでbounding box実測、最大25px程度）、直後のクリックが別要素（凡例チェックボックス等）に当たる誤操作を確認・再現。`MapLayersPanel.tsx`のボタンを条件付きレンダリングから常時マウント＋`visibility:hidden`（CSS、高さは常に確保）へ変更し解消。修正後はレイアウト位置が完全に不変であることを実機確認。回帰テスト追加、frontend 236件・tsc・eslint全green |
 | 2026-08-17 | T99本番再取込み | ユーザー承認のうえ`kanto-latest.osm.pbf`を本番Oracle Cloud DBへ再取込み（事前dry-runで`matched_ways=1,329,632`等を確認）。run_id=5、ways=1,329,632・nodes=147,291・pois=332,294（67チャンク、db_size_mb=2004、elapsed=904.0s、エラーなし、UPSERTのため非破壊的）。本番DBへ直接クエリし反映を確認: `shared_pedestrian_ways`該当17,584件（T102実測の「その他」グループ件数と一致）、うち`segregated`保持5,000件（約28.4%、実測どおり）、`lit`保持14,368件。T99を完全完了（`[x]`）へ更新 |
+| 2026-08-17 | T104 | ユーザーがモバイル実機スクショを提示（地図上の指定路線凡例内訳ポップアップで「緊急輸送道路 かつ 重要物流道路（N10・...」が末尾`N12）`ごと見切れ）。`MapOverlayControls.module.css: .detailRowLabel`の`white-space: nowrap`+`text-overflow: ellipsis`が原因と特定し、サイドバー側と同じ折り返し方式へ統一。あわせてユーザー提案（全角括弧→半角）を採用し該当ラベルを`[N10・N12]`へ変更。モバイル390px幅のPlaywright実機確認で2行折り返し・全文表示を確認。frontend 236件・tsc・eslint全green |

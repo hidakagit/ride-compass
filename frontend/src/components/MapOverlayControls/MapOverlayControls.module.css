@@ -247,12 +247,13 @@
   border-top: 1px dashed var(--color-border);
 }
 
+/* 改善計画: 長いラベル（「緊急輸送道路 かつ 重要物流道路[N10・N12]」等）がellipsisで
+   末尾（N12等の重要な部分）ごと見切れる不具合を実機（モバイル）で報告を受け修正。
+   1行nowrap+ellipsisをやめ、サイドバー側（MapLayersPanel.module.css: .legendCheckboxRow、
+   overflow指定なし）と同じ「折り返して全文表示する」方式に揃える。 */
 .detailRowLabel {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .detailHiddenTag {

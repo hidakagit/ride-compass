@@ -129,7 +129,7 @@ describe("MapLayersPanel", () => {
 
     expect(screen.getByText("緊急輸送道路（N10）")).toBeInTheDocument();
     expect(screen.getByText("重要物流道路（N12）")).toBeInTheDocument();
-    expect(screen.getByText("緊急輸送道路 かつ 重要物流道路（N10・N12）")).toBeInTheDocument();
+    expect(screen.getByText("緊急輸送道路 かつ 重要物流道路[N10・N12]")).toBeInTheDocument();
   });
 
   it("事故レイヤーのセクションに凡例（自転車関連/その他）が表示される", () => {

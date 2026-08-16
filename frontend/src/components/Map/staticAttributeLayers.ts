@@ -153,7 +153,10 @@ export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = bicycleInfraDefs.colorE
 const DESIGNATION_CATEGORIES: CategoryDef[] = [
   { key: "emergency_transport", label: "緊急輸送道路（N10）", color: "#b91c1c" },
   { key: "critical_logistics", label: "重要物流道路（N12）", color: "#1d4ed8" },
-  { key: "both", label: "緊急輸送道路 かつ 重要物流道路（N10・N12）", color: "#7c3aed" },
+  // 改善計画: 全角括弧（）だと地図上の内訳パネル（幅が狭い）で見切れやすいという
+  // 実機報告（モバイル）を受け、半角[]へ変更（折り返し自体もCSS側で許可済み、
+  // MapOverlayControls.module.css: .detailRowLabel）。
+  { key: "both", label: "緊急輸送道路 かつ 重要物流道路[N10・N12]", color: "#7c3aed" },
 ];
 
 const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CATEGORIES, "対象外");
