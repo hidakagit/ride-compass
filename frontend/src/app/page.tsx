@@ -36,8 +36,8 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
+import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather } from "@/services/weatherApi";
 import type { Coordinates, RouteCandidate, RoutePreferenceWeights, ScoringWeights } from "@/types/route";
@@ -68,33 +68,16 @@ const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 // 1つの値を共有する（BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 
-function loadStoredStyleMode<T extends string>(storageKey: string, isValid: (v: string | null) => v is T, fallback: T): T {
-  try {
-    const stored = window.localStorage.getItem(storageKey);
-    if (isValid(stored)) return stored;
-  } catch {
-    // 読み出し不可はデフォルト扱い
-  }
-  return fallback;
-}
-
-function loadStoredJson(key: string): unknown {
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw == null ? null : JSON.parse(raw);
-  } catch {
-    // 読み出し不可・壊れたJSONはデフォルト扱い
-    return null;
-  }
-}
-
-function saveStoredJson(key: string, value: unknown): void {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // 保存不可でもこのセッション内の設定は有効
-  }
-}
+const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
+  elevation: false,
+  road: false,
+  trafficStress: false,
+  bicycleInfra: false,
+  stopPoi: false,
+  intersections: false,
+  accidents: false,
+  route: true,
+};
 
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
@@ -146,31 +129,99 @@ export default function Home() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
 
-  // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらここへ初期値を1つ足す）
-  const [layerVisibility, setLayerVisibility] = useState<MapLayerVisibility>({
-    elevation: false,
-    road: false,
-    trafficStress: false,
-    bicycleInfra: false,
-    stopPoi: false,
-    intersections: false,
-    accidents: false,
-    route: true,
-  });
-  const [routeStyleModeId, setRouteStyleModeId] = useState<RouteStyleModeId>(DEFAULT_ROUTE_STYLE_MODE_ID);
+  // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
+  // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState（改善計画T47 R-6）参照。
+  // 既知のレイヤーIDかつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、
+  // 残りの設定は活かしてデフォルトで埋める）。
+  const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
+    LAYER_VISIBILITY_STORAGE_KEY,
+    DEFAULT_LAYER_VISIBILITY,
+    {
+      serialize: (v) => JSON.stringify(v),
+      deserialize: (raw) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          return null;
+        }
+        if (typeof parsed !== "object" || parsed === null) return null;
+        const next = { ...DEFAULT_LAYER_VISIBILITY };
+        for (const id of Object.keys(next) as MapLayerId[]) {
+          const value = (parsed as Record<string, unknown>)[id];
+          if (typeof value === "boolean") next[id] = value;
+        }
+        return next;
+      },
+    },
+  );
+  // 色分けモード（ルート）。保存形式はJSON化しない生文字列（他の設定と異なる。
+  // isRouteStyleModeIdによる妥当性検証がJSON.parseを兼ねる）。
+  const [routeStyleModeId, setRouteStyleModeId] = useStoredState<RouteStyleModeId>(
+    ROUTE_STYLE_MODE_STORAGE_KEY,
+    DEFAULT_ROUTE_STYLE_MODE_ID,
+    { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(raw) ? raw : null) },
+  );
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
-  // 両系統を管理できる（localStorageへの保存・復元は下の復元エフェクト参照、T32）。
-  const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useState<Record<string, string[]>>({});
-  // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開。
-  // 開閉の保存はT32）。モバイルはBottomSheetの開閉自体がこれに相当するため参照しない
-  // （モバイル実機フィードバック対応T34）。
-  const [generateOpen, setGenerateOpen] = useState(true);
+  // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
+  const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useStoredState<Record<string, string[]>>(
+    HIDDEN_LEGEND_KEYS_STORAGE_KEY,
+    {},
+    {
+      serialize: (v) => JSON.stringify(v),
+      deserialize: (raw) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          return null;
+        }
+        if (typeof parsed !== "object" || parsed === null) return null;
+        const entries = Object.entries(parsed as Record<string, unknown>).filter(
+          (entry): entry is [string, string[]] =>
+            Array.isArray(entry[1]) && entry[1].every((key) => typeof key === "string"),
+        );
+        return entries.length > 0 ? Object.fromEntries(entries) : null;
+      },
+    },
+  );
+  // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開）。
+  // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない（モバイル実機
+  // フィードバック対応T34）。
+  const [generateOpen, setGenerateOpen] = useStoredState(GENERATE_OPEN_STORAGE_KEY, true, {
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => {
+      try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === "boolean" ? parsed : null;
+      } catch {
+        return null;
+      }
+    },
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // モバイルで開いている下部シート（「ルートを作る」/「地図の見え方」の排他表示、または
   // どちらも閉じたnull＝地図全面表示）。デスクトップでは使わない。
   const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
-  const [mobileSheetHeightVh, setMobileSheetHeightVh] = useState(DEFAULT_SHEET_HEIGHT_VH);
+  // ドラッグ中は毎フレームstateだけ更新し（見た目の即時反映）、保存はドラッグ確定時の
+  // commitMobileSheetHeightのみで行う（毎フレーム書き込みを避けるためautoSave: false）。
+  const [mobileSheetHeightVh, setMobileSheetHeightVh, commitMobileSheetHeight] = useStoredState(
+    MOBILE_SHEET_HEIGHT_STORAGE_KEY,
+    DEFAULT_SHEET_HEIGHT_VH,
+    {
+      autoSave: false,
+      serialize: (v) => JSON.stringify(v),
+      deserialize: (raw) => {
+        try {
+          const parsed = JSON.parse(raw);
+          return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
+        } catch {
+          return null;
+        }
+      },
+    },
+  );
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   // デバッグログパネル自体の開閉。デバッグモードON＝ログ記録は常時有効だが、パネル表示は
@@ -186,57 +237,6 @@ export default function Home() {
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
   const isMobile = useIsMobile();
-
-  // 前回の「地図の見え方」設定（色分けモード・レイヤーON/OFF・絞り込みキー）と
-  // 「ルートを作る」の開閉（デスクトップ）を復元する。useStateの初期化子でlocalStorageを
-  // 読むとSSR（プリレンダー）時のHTMLとハイドレーション結果がずれるため、マウント後に読む。
-  // レイアウトエフェクトなのはちらつき防止のため（isMobile自身の判定と同じ理由）。
-  useIsomorphicLayoutEffect(() => {
-    setRouteStyleModeId(
-      loadStoredStyleMode(ROUTE_STYLE_MODE_STORAGE_KEY, isRouteStyleModeId, DEFAULT_ROUTE_STYLE_MODE_ID),
-    );
-
-    // レイヤーON/OFF: 既知のレイヤーIDかつboolean値のものだけ採用する（レイヤーの増減や
-    // 壊れた保存値があっても、残りの設定は活かして既定値で埋める）
-    const storedVisibility = loadStoredJson(LAYER_VISIBILITY_STORAGE_KEY);
-    if (typeof storedVisibility === "object" && storedVisibility !== null) {
-      setLayerVisibility((prev) => {
-        const next = { ...prev };
-        for (const id of Object.keys(next) as MapLayerId[]) {
-          const value = (storedVisibility as Record<string, unknown>)[id];
-          if (typeof value === "boolean") next[id] = value;
-        }
-        return next;
-      });
-    }
-
-    // 絞り込み・凡例の非表示キー: 「文字列の配列」の形のエントリだけ採用する
-    const storedHidden = loadStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY);
-    if (typeof storedHidden === "object" && storedHidden !== null) {
-      const entries = Object.entries(storedHidden as Record<string, unknown>).filter(
-        (entry): entry is [string, string[]] =>
-          Array.isArray(entry[1]) && entry[1].every((key) => typeof key === "string"),
-      );
-      if (entries.length > 0) setHiddenLegendKeysByMode(Object.fromEntries(entries));
-    }
-
-    const storedGenerateOpen = loadStoredJson(GENERATE_OPEN_STORAGE_KEY);
-    if (typeof storedGenerateOpen === "boolean") setGenerateOpen(storedGenerateOpen);
-
-    const storedSheetHeight = loadStoredJson(MOBILE_SHEET_HEIGHT_STORAGE_KEY);
-    if (typeof storedSheetHeight === "number" && Number.isFinite(storedSheetHeight)) {
-      setMobileSheetHeightVh(clampSheetHeightVh(storedSheetHeight));
-    }
-  }, []);
-
-  const handleRouteStyleModeChange = useCallback((id: RouteStyleModeId) => {
-    setRouteStyleModeId(id);
-    try {
-      window.localStorage.setItem(ROUTE_STYLE_MODE_STORAGE_KEY, id);
-    } catch {
-      // 保存不可でも選択自体はこのセッション内で有効
-    }
-  }, []);
 
   // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
   // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
@@ -254,30 +254,24 @@ export default function Home() {
     [hiddenLegendKeysByMode],
   );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
-  // T32の保存はエフェクトではなく、状態を変えるハンドラ内で更新後の値を明示的に書く
-  // （handleRouteStyleModeChangeと同じ流儀）。エフェクトでの保存だと、開発時StrictModeの
-  // 再マウントで「復元前の既定値の保存」が復元読み出しへ割り込み、保存済み設定を既定値で
-  // 上書きする実害をPlaywright実機確認で観測したため。
   const toggleHiddenLegendKey = useCallback(
     (modeId: string, key: string) => {
-      const current = hiddenLegendKeysByMode[modeId] ?? [];
-      const nextKeys = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-      const next = { ...hiddenLegendKeysByMode, [modeId]: nextKeys };
-      setHiddenLegendKeysByMode(next);
-      saveStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY, next);
+      setHiddenLegendKeysByMode((prev) => {
+        const current = prev[modeId] ?? [];
+        const nextKeys = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+        return { ...prev, [modeId]: nextKeys };
+      });
     },
-    [hiddenLegendKeysByMode],
+    [setHiddenLegendKeysByMode],
   );
   // 道路情報の「すべて表示/すべて隠す」一括操作（1軸分の非表示キー全体の置き換え）。
   // 個別チェックはtoggleHiddenLegendKeyをそのまま使う（絞り込みは即時反映、T31。
   // レイヤーの自動ONはMapLayersPanel側が担う）。
   const handleRoadAxisSetHidden = useCallback(
     (axisId: RoadFilterAxisId, hiddenKeys: string[]) => {
-      const next = { ...hiddenLegendKeysByMode, [axisId]: hiddenKeys };
-      setHiddenLegendKeysByMode(next);
-      saveStoredJson(HIDDEN_LEGEND_KEYS_STORAGE_KEY, next);
+      setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
     },
-    [hiddenLegendKeysByMode],
+    [setHiddenLegendKeysByMode],
   );
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
@@ -290,18 +284,10 @@ export default function Home() {
 
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
-      const next = { ...layerVisibility, [id]: on };
-      setLayerVisibility(next);
-      saveStoredJson(LAYER_VISIBILITY_STORAGE_KEY, next);
+      setLayerVisibility((prev) => ({ ...prev, [id]: on }));
     },
-    [layerVisibility],
+    [setLayerVisibility],
   );
-
-  // 「ルートを作る」の開閉もT32の保存対象（ハンドラ内で保存する理由は上のコメント参照）
-  const handleGenerateOpenChange = useCallback((open: boolean) => {
-    setGenerateOpen(open);
-    saveStoredJson(GENERATE_OPEN_STORAGE_KEY, open);
-  }, []);
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
   // 路面はズーム不足の案内を絞り込みより優先する（ONにしたのに何も出ない状態の説明が先）。
@@ -391,14 +377,14 @@ export default function Home() {
     if (isMobile) {
       setMobileSheet("route");
     } else {
-      handleGenerateOpenChange(true);
+      setGenerateOpen(true);
     }
     requestAnimationFrame(() => {
       const heading = document.getElementById(GENERATE_SECTION_TITLE_ID);
       heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
       heading?.focus?.({ preventScroll: true });
     });
-  }, [isMobile, handleGenerateOpenChange]);
+  }, [isMobile, setGenerateOpen]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback((sheet: "route" | "map" | "settings") => {
@@ -407,13 +393,13 @@ export default function Home() {
 
   // 下部シートの高さ変更。ドラッグ中/キー操作中は見た目の即時反映のみ（onHeightChange）、
   // 確定時のみ保存する（onHeightCommit。ドラッグ中の毎フレーム書き込みを避けるため、
-  // T32の他設定と異なりハンドラを分けている）。
-  const handleMobileSheetHeightChange = useCallback((vh: number) => {
-    setMobileSheetHeightVh(vh);
-  }, []);
-  const handleMobileSheetHeightCommit = useCallback((vh: number) => {
-    saveStoredJson(MOBILE_SHEET_HEIGHT_STORAGE_KEY, vh);
-  }, []);
+  // useStoredStateのautoSave: falseとcommitMobileSheetHeightで分離している）。
+  const handleMobileSheetHeightChange = useCallback(
+    (vh: number) => {
+      setMobileSheetHeightVh(vh);
+    },
+    [setMobileSheetHeightVh],
+  );
 
   // 現在地が変わったらその地点の天候を取得(ルート生成時の風評価の起点にもなる)。
   // マウント直後はDEFAULT_LOCATIONで取得が走り、その直後にGeolocationが成功すると
@@ -573,7 +559,7 @@ export default function Home() {
           onRoadAxisSetHidden={handleRoadAxisSetHidden}
           regionZoomTooWide={regionZoomTooWide}
           routeStyleModeId={routeStyleModeId}
-          onRouteStyleModeChange={handleRouteStyleModeChange}
+          onRouteStyleModeChange={setRouteStyleModeId}
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
           onRouteLegendToggle={handleRouteLegendToggle}
           hasDetail={hasDetail}
@@ -671,7 +657,7 @@ export default function Home() {
                 <details
                   className={styles.blockSection}
                   open={generateOpen}
-                  onToggle={(e) => handleGenerateOpenChange(e.currentTarget.open)}
+                  onToggle={(e) => setGenerateOpen(e.currentTarget.open)}
                 >
                   <summary id={GENERATE_SECTION_TITLE_ID} className={styles.blockSummary}>
                     ルートを作る
@@ -807,7 +793,7 @@ export default function Home() {
             titleId={GENERATE_SECTION_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={handleMobileSheetHeightCommit}
+            onHeightCommit={commitMobileSheetHeight}
           >
             {renderRouteSectionBody()}
           </BottomSheet>
@@ -819,7 +805,7 @@ export default function Home() {
             titleId={MAP_SETTINGS_SHEET_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={handleMobileSheetHeightCommit}
+            onHeightCommit={commitMobileSheetHeight}
           >
             {renderMapSettingsSectionBody()}
           </BottomSheet>
@@ -831,7 +817,7 @@ export default function Home() {
             titleId={SETTINGS_SHEET_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={handleMobileSheetHeightCommit}
+            onHeightCommit={commitMobileSheetHeight}
           >
             {renderSettingsSectionBody()}
           </BottomSheet>
