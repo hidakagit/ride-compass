@@ -17,7 +17,10 @@
      align-items: flex-startの下で.chipRowの実際の幅が定まらず（widthがautoのまま）、
      子のwidth: 100%が正しいパーセンテージ基準を持てない（長い文字列がこの箱自体を
      押し広げてしまう）ため、widthも明示してこの箱の幅を確定させる。 */
-  width: min(28rem, calc(100% - 2 * var(--space-3)));
+  /* 右側3remはMapLibre既定のズームコントロール(top-right、ボタン29px+余白10px)の
+     専有幅ぶんを常に空けておく。ここを空けないと、幅の狭いスマホ画面でサマリ行が
+     ズームボタンの下に潜り込んで見た目・タップ判定とも重なる(実機フィードバック)。 */
+  width: min(28rem, calc(100% - 2 * var(--space-3) - 3rem));
   max-width: 100%;
 }
 
@@ -125,10 +128,7 @@
   font-size: var(--font-size-sm);
   box-shadow: var(--shadow-float);
   cursor: pointer;
-  /* 長い条件は省略記号で切る（詳細はサイドバーで見る前提の要約表示のため） */
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   /* .iconChipと同じ理由（ピンチの片方の指がここに乗ると地図のジェスチャーとして
      確定しないことがあるため） */
   touch-action: none;
@@ -139,6 +139,66 @@
 .summaryLayerLabel {
   font-weight: 700;
   flex-shrink: 0;
+}
+
+/* 絞り込みの対象カテゴリを表す色ドット/太さバー（summarySwatches）の並び。
+   「文字だけでは何が絞られているか一目で分からない」という実機フィードバックを受けて、
+   地図上の色・太さとすぐ対応が取れるよう要約文の前に添える。 */
+.summarySwatches {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* 除外側（「◯◯以外」）のカテゴリは、地図に実際に出ている表示中側の色と見分けられるよう
+   薄く見せる（除外＝地図から消えている、が伝わるように）。 */
+.swatchExcluded {
+  opacity: 0.4;
+}
+
+.swatchDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 太さ・線種（line-width/line-dasharray）で地図に反映するカテゴリ（道路の種類等）の
+   スウォッチ。色スウォッチのままだと「この色が地図に出る」という誤った期待を持たせて
+   しまうため（MapLayersPanel/WidthSwatch.tsxと同じ理由）、太さを表す横バーにする。 */
+.swatchBar {
+  width: 10px;
+  border-radius: 1px;
+  background: var(--color-muted-strong);
+  flex-shrink: 0;
+}
+
+.swatchBarDashed {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-muted-strong) 0,
+    var(--color-muted-strong) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+}
+
+/* 要約文の本体だけを省略記号で切る（スウォッチ・ラベル・矢印は常に全部見せる）。
+   summaryButton側で一括して切っていた頃はflexアイテム構成が変わるたびに挙動が
+   不安定だったため、切りたい対象（この文言だけ）に直接ellipsisを持たせる。 */
+.summaryText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .summaryArrow {

@@ -18,7 +18,7 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { summarizeLegendFilters } from "@/components/Map/legendFilter";
+import { summarizeLegendFilters, summarizeLegendFilterSwatches } from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
 import {
@@ -317,6 +317,21 @@ export default function Home() {
     [roadHiddenKeysByMode],
   );
   const roadSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadFilterSummary;
+  // サマリ文言の先頭に添える色スウォッチ。ズーム不足の案内文には対応するカテゴリが無いため
+  // 常にnull（roadSummaryがそのメッセージのときはこちらも無視される）。
+  const roadSummarySwatches = useMemo(
+    () =>
+      regionZoomTooWide
+        ? []
+        : summarizeLegendFilterSwatches(
+            ROAD_FILTER_AXES.map((axis) => ({
+              label: axis.label,
+              legend: axis.legend,
+              hiddenKeys: roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+            })),
+          ),
+    [regionZoomTooWide, roadHiddenKeysByMode],
+  );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
     ? `色分け: ${getRouteStyleMode(routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
@@ -329,6 +344,7 @@ export default function Home() {
       MAP_LAYERS.map((layer) => {
         const disabled = layer.id === "route" && !hasDetail;
         const summary = layer.id === "road" ? roadSummary : layer.id === "route" ? routeSummary : null;
+        const summarySwatches = layer.id === "road" ? roadSummarySwatches : undefined;
         return {
           id: layer.id,
           label: layer.label,
@@ -337,9 +353,10 @@ export default function Home() {
           disabled,
           title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}（設定はサイドバー）`,
           summary,
+          summarySwatches,
         };
       }),
-    [hasDetail, layerVisibility, roadSummary, routeSummary],
+    [hasDetail, layerVisibility, roadSummary, roadSummarySwatches, routeSummary],
   );
 
   // 地図上の条件サマリのタップで、「地図の見え方」設定（デスクトップはサイドバー、
