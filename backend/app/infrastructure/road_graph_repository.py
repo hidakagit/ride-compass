@@ -45,6 +45,7 @@ node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出される�
 """
 
 import asyncio
+import logging
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 
@@ -84,7 +85,18 @@ from app.infrastructure.road_graph_models import (
     RoadNodeRow,
 )
 
+logger = logging.getLogger("app.infrastructure.road_graph_repository")
+
 CACHED_GRAPH_VERSION = "cached"
+
+# 近傍Way探索範囲(extent)の上限マージン（改善計画T69）。bboxをかすめる1本の長大way
+# （河川沿いサイクリングロード・幹線等で数十km）があると、主対象Way全体のextentが
+# その全長へ広がり、そこに交差する全way・全nodeをロードしてしまう
+# （最悪ケースでメモリ・転送量・build_road_graph計算量が数十倍に膨らむ）。
+# extentを要求bboxからこのマージン分だけ拡張した範囲へクランプする（案a、実装最小）。
+# クランプ幅を超えて伸びるwayの端の交差点は「そのwayが主対象になる別リクエストで更新される」
+# 既存の結果整合性の考え方（本クラスdocstringの`get_way_specs_with_closure`該当節参照）に乗せる。
+NEIGHBOR_EXTENT_MAX_MARGIN_M = 10_000.0
 
 # バルクUPSERT1文あたりの行数。asyncpgのプリペアド文パラメータ上限（32767個）を
 # 最も列数の多いテーブル（8列）でも十分下回るサイズにする。
@@ -1034,10 +1046,11 @@ class RawOsmRepository(_SessionRepository):
 
         1. 主対象Way: bboxのenvelopeとST_Intersectsで交差するWay（旧実装の「bbox内に
            ノードを持つ」の上位互換。頂点がbbox内に無くてもbboxを横切るWayを含む）
-        2. 近傍Way: 主対象Way全体のextent（全長分の外接矩形、bbox外の部分も含む）と
-           交差するWay。「主対象とノードを共有するWay」の厳密な上位集合であり、
-           余分に含まれるWayは交差点判定の文脈情報が増えるだけで正しさを損なわない
-           （近傍Wayはこの呼び出しでは永続化しないため）
+        2. 近傍Way: 主対象Way全体のextent（全長分の外接矩形、bbox外の部分も含む。
+           NEIGHBOR_EXTENT_MAX_MARGIN_M分だけ拡張した要求bboxへクランプ済み、
+           改善計画T69）と交差するWay。「主対象とノードを共有するWay」の厳密な
+           上位集合であり、余分に含まれるWayは交差点判定の文脈情報が増えるだけで
+           正しさを損なわない（近傍Wayはこの呼び出しでは永続化しないため）
 
         戻り値は(WaySpec一覧, それらが参照する全ノードの座標, 主対象WayのosmWay ID集合)。
         3つ目の要素は`save_graph`の`way_ids_to_replace`にそのまま渡す想定。
@@ -1061,18 +1074,45 @@ class RawOsmRepository(_SessionRepository):
         if not primary_way_ids:
             return [], {}, set()
 
-        # 主対象Wayの全長分のextent（1回の集約クエリでbbox外へのはみ出し範囲を得る）
+        # 主対象Wayの全長分のextent（1回の集約クエリでbbox外へのはみ出し範囲を得る）。
+        # 改善計画T69: extentを要求bboxをNEIGHBOR_EXTENT_MAX_MARGIN_M分だけ拡張した範囲へ
+        # ST_Intersectionでクランプする。主対象Wayは定義上すべて要求bboxと交差するため、
+        # 拡張後のbboxとの交差は常に非空になる（クランプが空集合を返すことはない）。
         extent_row = (
             await self._session.execute(
                 text(
-                    "SELECT ST_XMin(e) AS xmin, ST_YMin(e) AS ymin, ST_XMax(e) AS xmax, ST_YMax(e) AS ymax "
-                    "FROM (SELECT ST_Extent(geom) AS e FROM osm_raw_ways "
+                    "SELECT ST_XMin(clamped) AS xmin, ST_YMin(clamped) AS ymin, "
+                    "ST_XMax(clamped) AS xmax, ST_YMax(clamped) AS ymax, "
+                    "ST_XMin(raw) AS raw_xmin, ST_YMin(raw) AS raw_ymin, "
+                    "ST_XMax(raw) AS raw_xmax, ST_YMax(raw) AS raw_ymax "
+                    "FROM (SELECT "
+                    "ST_SetSRID(ST_Extent(geom)::geometry, 4326) AS raw, "
+                    "ST_Intersection("
+                    "ST_SetSRID(ST_Extent(geom)::geometry, 4326), "
+                    "ST_Envelope(ST_Buffer(ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)::geography, "
+                    ":margin_m)::geometry)"
+                    ") AS clamped "
+                    "FROM osm_raw_ways "
                     "WHERE geom IS NOT NULL "
                     "AND ST_Intersects(geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))) s"
                 ),
-                bbox_params,
+                {**bbox_params, "margin_m": NEIGHBOR_EXTENT_MAX_MARGIN_M},
             )
         ).one()
+
+        if (
+            extent_row.raw_xmin != extent_row.xmin
+            or extent_row.raw_ymin != extent_row.ymin
+            or extent_row.raw_xmax != extent_row.xmax
+            or extent_row.raw_ymax != extent_row.ymax
+        ):
+            logger.warning(
+                "近傍Way探索のextentがマージン上限を超えたためクランプしました "
+                "raw=(%.2f,%.2f,%.2f,%.2f) clamped=(%.2f,%.2f,%.2f,%.2f) margin_m=%.0f",
+                extent_row.raw_xmin, extent_row.raw_ymin, extent_row.raw_xmax, extent_row.raw_ymax,
+                extent_row.xmin, extent_row.ymin, extent_row.xmax, extent_row.ymax,
+                NEIGHBOR_EXTENT_MAX_MARGIN_M,
+            )
 
         extent_envelope = func.ST_MakeEnvelope(
             extent_row.xmin, extent_row.ymin, extent_row.xmax, extent_row.ymax, 4326
