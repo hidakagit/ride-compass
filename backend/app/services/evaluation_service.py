@@ -5,9 +5,11 @@ import yaml
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
 from app.domain.graph import RoadGraph
+from app.domain.traffic import TrafficStressRecipe
 from app.domain.weather import WeatherConditions
 
 ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
+TRAFFIC_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "traffic_stress_recipe.yaml"
 
 
 def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePreference:
@@ -24,6 +26,16 @@ def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePre
     return RoutePreference(**config["route_preference"])
 
 
+def load_traffic_stress_recipe(path: Path = TRAFFIC_STRESS_RECIPE_CONFIG_PATH) -> TrafficStressRecipe:
+    """traffic_stress_recipe.yamlから既定の交通ストレスレシピ（軸の中身、
+    domain/traffic.py: TrafficStressRecipe参照）を読み込む。load_route_preferenceと同じ
+    パターン（軸間の重みとは別階層の設定のため別ファイル・別関数）。
+    """
+    with open(path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    return TrafficStressRecipe(**config["traffic_stress_recipe"])
+
+
 class EvaluationService:
     """Evaluation Engineのオーケストレーション層（仕様書26章）。
 
@@ -33,8 +45,13 @@ class EvaluationService:
     独立しており、既存のルート探索（RoutingService/RouteGenerator）からは参照されない。
     """
 
-    def __init__(self, preference: RoutePreference | None = None):
+    def __init__(
+        self,
+        preference: RoutePreference | None = None,
+        traffic_stress_recipe: TrafficStressRecipe | None = None,
+    ):
         self._preference = preference or load_route_preference()
+        self._traffic_stress_recipe = traffic_stress_recipe or load_traffic_stress_recipe()
 
     def evaluate_graph(
         self,
@@ -64,6 +81,7 @@ class EvaluationService:
                 accident_count=accident_counts.get(edge_id) if accident_counts is not None else None,
                 accident_years_covered=accident_years_covered,
                 is_designated=edge_id in designated_edge_ids,
+                traffic_stress_recipe=self._traffic_stress_recipe,
             )
             for edge_id, edge in graph.edges.items()
         }

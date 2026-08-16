@@ -40,6 +40,7 @@ from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.traffic import (
+    TrafficStressRecipe,
     classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
@@ -91,12 +92,14 @@ class RoadGraphEngine:
         evaluation_service: EvaluationService,
         weather_service: WeatherService,
         route_preference: RoutePreference,
+        traffic_stress_recipe: TrafficStressRecipe | None = None,
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
         self._evaluation_service = evaluation_service
         self._weather_service = weather_service
         self._route_preference = route_preference
+        self._traffic_stress_recipe = traffic_stress_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float) -> _RoadGraphContext | None:
         margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
@@ -259,7 +262,9 @@ class RoadGraphEngine:
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
             is_designated = edge.edge_id in context.designated_edge_ids
             traffic_stress = (
-                traffic_stress_level(edge.highway, edge_way_tags, is_designated) if edge_way_tags is not None else None
+                traffic_stress_level(edge.highway, edge_way_tags, is_designated, self._traffic_stress_recipe)
+                if edge_way_tags is not None
+                else None
             )
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None

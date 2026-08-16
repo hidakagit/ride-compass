@@ -1,11 +1,13 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from app.api.dependencies import client_id, get_region_service
+from app.api.routers.routes import TrafficStressRecipeOverride
 from app.config import settings
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
-from app.domain.traffic import TrafficStressBreakdown
+from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.region_service import RegionService
@@ -115,10 +117,17 @@ async def region_poi_tile(
     )
 
 
-@router.get("/api/region/traffic-stress-breakdown")
+class TrafficStressBreakdownRequest(BaseModel):
+    osm_way_id: int
+    # 研究モードでレシピを上書き中の内訳表示用（改善計画: 交通ストレスレシピ外出し基盤）。
+    # 省略時はdomain/traffic.py: DEFAULT_TRAFFIC_STRESS_RECIPEで計算する。
+    traffic_stress_recipe: TrafficStressRecipeOverride | None = None
+
+
+@router.post("/api/region/traffic-stress-breakdown")
 async def region_traffic_stress_breakdown(
-    request: Request,
-    osm_way_id: int = Query(),
+    body: TrafficStressBreakdownRequest,
+    http_request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> TrafficStressBreakdown | None:
     """交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
@@ -128,6 +137,11 @@ async def region_traffic_stress_breakdown(
     「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
     RegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
     タイル取得と同じ歯止め（クリックの連打対策）を流用する。
+
+    GETではなくPOST+JSONボディなのは、`traffic_stress_recipe`（レシピ上書き、改善計画:
+    交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
+    不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
     """
-    _check_tile_rate_limit(request, "traffic-stress-breakdown")
-    return await region_service.get_traffic_stress_breakdown(osm_way_id)
+    _check_tile_rate_limit(http_request, "traffic-stress-breakdown")
+    recipe = TrafficStressRecipe(**body.traffic_stress_recipe.model_dump()) if body.traffic_stress_recipe else None
+    return await region_service.get_traffic_stress_breakdown(body.osm_way_id, recipe)

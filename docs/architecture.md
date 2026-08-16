@@ -42,6 +42,7 @@ Renderへのデプロイ（`git push`からのビルド完了）が実際にサ�
 - **バックエンド**: `GET /health`（`backend/app/api/routes.py`、`backend/app/config.py`の`Settings.render_git_commit`、`backend/app/version.py`の`STARTED_AT`）。`test_health.py`でcommitのnull/反映両パターンを検証済み
 - **フロントエンド**: `GET /api/version`（[frontend/src/app/api/version/route.ts](../frontend/src/app/api/version/route.ts)、新規のRoute Handler）。`process.env.RENDER_GIT_COMMIT`を直接読み、バックエンドと同じレスポンス形（`status`/`commit`/`started_at`）を返す。`export const dynamic = "force-dynamic"`でビルド時の静的最適化・キャッシュを無効化し、リクエストのたびにサーバーの現在の状態を返すことを保証している（`next build`のルート一覧で`ƒ /api/version`＝動的レンダリングになっていることを確認済み）。`route.test.ts`（Vitest）でcommitのnull/反映両パターン・started_atの妥当性を検証
 - **確認方法**: `curl https://<render-backend>.onrender.com/health`と`curl https://<render-frontend>.onrender.com/api/version`（またはブラウザで直接開く）でそれぞれ`commit`を取得し、ローカルの`git rev-parse HEAD`と比較する。両方一致していれば最新版が反映されている
+- **タイルプロパティを削除する変更のデプロイ順序に注意**: backend・frontendはRender上で別サービスとして独立にデプロイされ、反映タイミングは同期しない。road-surface-tilesのプロパティ追加（v2〜v8）は常に後方互換だった（旧フロントは新プロパティを単に無視するだけ）が、v9（交通ストレスレシピ外出し基盤）は計算済みの`traffic_stress`プロパティを削除する初めての非互換変更。backendがv9を先に配信すると、まだ`["!", ["has","traffic_stress"]]`を使う旧フロントの凡例フィルタが全地物に一致し、交通ストレスレイヤーが全線「不明・他」（グレー）表示になる（数分〜デプロイ完了まで自己解消するが、その間は誤った見た目になる）。**frontendを先に（または同時に）デプロイし、backendのv9切替がfrontendの新実装より先に本番へ出ないようにする**こと。
 
 ### 周回ルート生成のアルゴリズムと既知の制約（Step4）
 `RouteGenerator`＋`OpenRouteServiceEngine`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)・[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、Step4当時は`route_generator.py`という単一ファイルだったが「ルーティングエンジンの切り替え対応」で戦略とエンジンに分離した）は、8方位それぞれについて「方位θの方向に半径R」「方位θ+45°の方向に半径R」の2経由地点を`domain/geo.py`の`destination_point`（球面三角法）で計算し、`[現在地, 経由地A, 経由地B, 現在地]`をopenrouteservice Directions APIに1回のリクエストで渡す。半径Rは`distance_km / 3`という固定ヒューリスティック。8方位分は`asyncio.gather`で並列実行し、失敗した方位はスキップする。
@@ -449,10 +450,14 @@ Request:
 Request（評価重みの上書き。研究用・省略可。docs/research-interface-review-2026-08-15.md §10-1）:
 { ...上記に加えて,
   "scoring_weights": { "distance_weight":0.1, "elevation_weight":0.2, "wind_weight":0.3, "road_weight":0.4 },
-  "route_preference": { "elevation_weight":0.5, "road_weight":0.25, "wind_weight":0.25 } }
-  # 省略時はscoring.yaml / route_preference.yamlの既定値。指定する場合は全フィールド必須・非負
-  # （部分指定でクラス既定値が黙って入る事故を防ぐ）。重みは有効指標の重み和で正規化されるため
-  # 合計1.0でなくてよい。scoring_weightsを全て0にするとtotal_score=nullになる（RouteScorer参照）
+  "route_preference": { "elevation_weight":0.5, "road_weight":0.25, "wind_weight":0.25 },
+  "traffic_stress_recipe": { "base_by_highway": {"primary":4, ...}, "cycleway_track_adjustment":-2, ... } }
+  # 省略時はscoring.yaml / route_preference.yaml / traffic_stress_recipe.yamlの既定値。指定する場合は
+  # 全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ、traffic_stress_recipeも同様）。
+  # 重みは有効指標の重み和で正規化されるため合計1.0でなくてよい。scoring_weightsを全て0にすると
+  # total_score=nullになる（RouteScorer参照）。traffic_stress_recipeは交通ストレス軸の中身
+  # （一次情報→二次情報の変換式、交通ストレスレシピ外出し基盤）の上書きで、route_preferenceの
+  # traffic_weight（軸間の重み）とは別階層（7章参照）
 Response 200:
 {
   "routes": [
@@ -495,6 +500,7 @@ Response 200:
     "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5,
     "scoring_weights": { "distance_weight":0.30, "elevation_weight":0.15, "wind_weight":0.30, "road_weight":0.25 },
     "route_preference": { "elevation_weight":0.25, "road_weight":0.30, "wind_weight":0.45 },
+    "traffic_stress_recipe": { "base_by_highway": {"primary":4, ...}, "cycleway_track_adjustment":-2, ... },
     "generated_at": "2026-08-15T14:30:00+09:00"
   }
 }
@@ -513,9 +519,13 @@ Response 429（同一クライアントIPから1分あたり60リクエスト（
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
-  highway/surface/smoothness/tunnel/bridge/`traffic_stress`(1-4)/`bicycle_infra`/`designation`/`osm_way_id`
-  （P0/P1/T51/T74/T90、現行タイル世代v8。7章参照）プロパティを持つ。`osm_way_id`は表示用ではなく、
-  区間クリック時の交通ストレス内訳取得（`GET /api/region/traffic-stress-breakdown`）がクリックされた
+  highway/surface/smoothness/tunnel/bridge/`bicycle_infra`/`designation`/`osm_way_id`、および交通ストレスの
+  材料タグ`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`
+  （P0/P1/T51/T74/T90/交通ストレスレシピ外出し基盤、現行タイル世代v9。7章参照）プロパティを持つ。
+  交通ストレスの最終値（1-4）はタイルへ焼き込まず、フロントエンド
+  （`trafficStressExpression.ts`、MapLibre expression）とルート採点（`domain/traffic.py:
+  traffic_stress_breakdown`）がそれぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
+  区間クリック時の交通ストレス内訳取得（`POST /api/region/traffic-stress-breakdown`）がクリックされた
   フィーチャーを曖昧さ無く引き直すための識別子（T90）
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
@@ -532,7 +542,11 @@ GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計�
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`accidents`。各地物（Point）は`involves_bicycle`（自転車関連か）・`fatal`（死亡事故か）プロパティを持つ
 Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`accident_tile_max_concurrent`で別枠）
 
-GET /api/region/traffic-stress-breakdown?osm_way_id={id}   # 交通ストレスの区間別判定内訳（T90）。クリックされた道路（road-surface-tilesが焼き込む`osm_way_id`）について、`traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す
+POST /api/region/traffic-stress-breakdown   # 交通ストレスの区間別判定内訳（T90）。クリックされた道路（road-surface-tilesが焼き込む`osm_way_id`）について、`traffic_stress_breakdown`が計算に使ったベース値・各補正・最終値を返す
+Request: `{ "osm_way_id": number, "traffic_stress_recipe"?: TrafficStressRecipeOverride }`。
+  `traffic_stress_recipe`省略時は既定レシピ（`domain/traffic.py: DEFAULT_TRAFFIC_STRESS_RECIPE`）。
+  GETでなくPOST+JSONボディなのは、レシピ上書きという複雑なオブジェクトをクエリパラメータで
+  渡すのが不自然なため（交通ストレスレシピ外出し基盤、`/api/routes/generate`と同じ形に統一）
 Response 200: `TrafficStressBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adjustment`/`lanes_adjustment`/`designation_adjustment`/`motor_vehicle_no_override`/`level`）。該当wayが存在しない・highwayが判定基準に未登録・DBなし構成の場合はnullまたはlevel=null
 Response 422（osm_way_idが整数でない場合）
 Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
@@ -686,6 +700,7 @@ interface RouteGenerateRequest {
   route_type: "loop";
   scoring_weights?: ScoringWeights;          // 評価重みの上書き（研究用・省略可、§10-1）
   route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み）
+  traffic_stress_recipe?: TrafficStressRecipeOverride; // 同上（交通ストレス軸の中身、7章参照）
 }
 
 interface WeatherConditions {
@@ -747,9 +762,19 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
   traffic_signals/crossing/stop/give_way/level_crossingへ分類、`STOP_POI_MATCH_MAX_DISTANCE_M
   =15m`でEdge/サンプル点へ空間マッチ）。集約は`distance_weighted_stop_density`
   （合計count÷合計distance_km）。
-- **交通ストレス**: `traffic_stress_level(highway, tags, is_designated)`がhighway基本値
-  （`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に自転車専用帯・制限速度・車線数・T51指定路線該当
-  （後述、+1補正）を加味した1-4の整数。未知highwayは評価対象外（None）。
+- **交通ストレス**: `traffic_stress_breakdown(highway, tags, is_designated, recipe)`がhighway
+  基本値（既定は`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に自転車専用帯・制限速度・車線数・T51指定
+  路線該当（後述、+1補正）を加味した1-4の整数。未知highwayは評価対象外（None）。
+  `traffic_stress_level`は`.level`だけを返す薄いラッパー。判定基準（highway別基準値・各補正の
+  閾値・補正量）は`domain/traffic.py: TrafficStressRecipe`という「レシピ」に切り出してあり
+  （交通ストレスレシピ外出し基盤）、`recipe`省略時は既定レシピ
+  （`DEFAULT_TRAFFIC_STRESS_RECIPE`、`traffic_stress_recipe.yaml`と同値）を使う。ルート採点は
+  `/api/routes/generate`のリクエストで`route_preference`と同じ形で上書き可能（研究モード用、
+  §10-1と同じ設計）。地図表示は最終値をタイルへ焼き込まず、材料タグ（後述）だけを焼き込んで
+  フロントエンド側（`frontend/src/components/Map/trafficStressExpression.ts`、MapLibre
+  expressionとして同じレシピを再現）で計算する。最終値を計算済みでタイル（全ユーザー共有
+  キャッシュ）へ焼き込む従来方式では、レシピを変えるたびに世界中のタイルキャッシュを
+  作り直す必要があった（T92/T93）ため、材料タグとレシピを分離した。
 - **自転車インフラ**: `classify_bicycle_infrastructure`がseparated/lane/shared_busway/
   shared_pedestrian/roadway/prohibited/unknownの7値に分類（優先順位あり）。cyclewayタグを
   交通ストレスと共有入力にしているため両軸は完全独立ではない（意図的、`traffic.py`
@@ -763,7 +788,7 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
 渡してEdge単位（RoadGraphEngine）、`get_nearest_*`＝サンプル点列を渡してKNN空間マッチ
 （OpenRouteServiceEngine）という対で揃えている。`get_way_tags_by_osm_way_id`（T90、
 osm_way_id完全一致の1行取得）はこの対に属さない別系統で、区間別交通ストレス内訳API
-（`GET /api/region/traffic-stress-breakdown`）専用。地図表示は同じ属性を`road-surface-tiles`
+（`POST /api/region/traffic-stress-breakdown`）専用。地図表示は同じ属性を`road-surface-tiles`
 （highway・surface同様プロパティとして焼き込み。交通ストレス・自転車インフラ）と、点データの
 `poi-tiles`（停止要因・交差点密度、後述）で提供する。
 
@@ -799,7 +824,7 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 評価粒度もedge単位any-matchからway単位ratio-matchへ統一されている。
 
 該当区間は新しい評価軸を増やさず、**交通ストレスへの+1補正のみ**として組み込む
-（`traffic_stress_level(highway, tags, is_designated)`、大型車交通の代理指標）。
+（`traffic_stress_breakdown`の`designation_adjustment`、大型車交通の代理指標）。
 `AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合。呼び出し時点で
 `road_edges`は構築済みのため、`road_edges.osm_way_id`経由で`designation_attributes`へJOINする）と
 `get_nearest_way_tags`が返す3要素目`is_designated`（OpenRouteServiceEngine、highway・tagsと
@@ -822,14 +847,14 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 タイル配信は3系統:
 
 1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
-   smoothness・tunnel・bridgeに加え、`traffic_stress`・`bicycle_infra`・`designation`
-   プロパティをLineString地物へ追加（P1・T51で拡張）。世代v2=surface/highway追加、
-   v3=surface正準拡充、v4=P0静的属性追加、v5=T51 designationプロパティ追加、
-   v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
+   smoothness・tunnel・bridgeに加え、`bicycle_infra`・`designation`・交通ストレスの材料タグ
+   （`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）をLineString地物へ追加
+   （P1・T51で拡張）。世代v2=surface/highway追加、v3=surface正準拡充、v4=P0静的属性追加、
+   v5=T51 designationプロパティ追加、v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
    v7=T90 osm_way_idプロパティ追加（区間クリック時の交通ストレス内訳取得の識別子）、
-   **v8=T93（統合レビュー2026-08-17 F-1）。T92のtraffic_stress判定ロジック変更が
-   世代の対上げを伴っておらずキャッシュが陳腐化しうる不整合を修正（プロパティ構成は不変）**
-   （現行）。
+   v8=T93（統合レビュー2026-08-17 F-1、T92のtraffic_stress判定ロジック変更の世代対上げ漏れ修正）、
+   **v9=交通ストレスレシピ外出し基盤。計算済みの`traffic_stress`最終値プロパティを廃止し、
+   材料タグへ差し替え（最終値の計算はフロントエンドのMapLibre expressionへ移した）**（現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
    停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。

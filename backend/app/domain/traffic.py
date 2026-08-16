@@ -4,15 +4,21 @@
 根拠のない推測はしない）。正準定義はここ1箇所（domain/road.pyのGOOD/BAD_OSM_SURFACE_TAGSと
 同じ「正準1箇所」の運用、改善計画T7原則）。
 
-MVT生成（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL）はSQL側で同じ判定基準を
-CASE式として実装しており、この関数群と1:1で対応させる（test_road_graph_repository.pyの
-整合性テストで突き合わせる。SQL側にPythonを呼び出す手段が無いため、判定ロジック自体は
-やむを得ず2箇所に存在するが、同じ入力に対し常に同じ出力になることをテストで担保する）。
+MVT生成（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL）はbicycle_infraのみSQL側で
+同じ判定基準をCASE式として実装しており、classify_bicycle_infrastructureと1:1対応させる
+（test_road_graph_repository.pyの整合性テストで突き合わせる。SQL側にPythonを呼び出す手段が
+無いため、判定ロジック自体はやむを得ず2箇所に存在するが、同じ入力に対し常に同じ出力になる
+ことをテストで担保する）。
+
+交通ストレス（traffic_stress_breakdown/traffic_stress_level）は改善計画（交通ストレスレシピ
+外出し基盤）以降、SQL側では最終値を計算しない（材料タグのみ焼き込み、最終値の計算は
+frontend/src/components/Map/trafficStressExpression.tsとこのモジュールがそれぞれ担う）。
+両者の整合はtrafficStressExpression.test.tsが担保する。
 """
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
 # openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数、
@@ -86,6 +92,23 @@ def _cycleway_values(tags: dict[str, str]) -> list[str]:
     return [tags[k].strip().lower() for k in keys if tags.get(k)]
 
 
+def _cycleway_class(tags: dict[str, str]) -> str | None:
+    """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
+    _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
+    （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
+    テストで担保）。traffic_stress_breakdownの補正選択と、export_openapi.pyが書き出す
+    交通ストレスの相互検証用フィクスチャ（traffic-stress-test-cases.json）の両方から使う。
+    """
+    cycleway_values = _cycleway_values(tags)
+    if "track" in cycleway_values:
+        return "track"
+    if "lane" in cycleway_values:
+        return "lane"
+    if any(v in ("shared_lane", "share_busway") for v in cycleway_values):
+        return "shared"
+    return None
+
+
 BicycleInfraClass = Literal[
     "separated", "lane", "shared_busway", "shared_pedestrian", "roadway", "prohibited", "unknown"
 ]
@@ -151,6 +174,35 @@ TRAFFIC_STRESS_BASE_BY_HIGHWAY: dict[str, int] = {
     "trunk": 4,
     "trunk_link": 4,
 }
+
+
+class TrafficStressRecipe(BaseModel):
+    """`traffic_stress_breakdown`の判定基準（highway別基準値＋各補正の閾値・補正量）を
+    まとめた「レシピ」。一次情報（OSMタグ）から二次情報（交通ストレス値）を作る変換式そのもの。
+
+    既定値（`DEFAULT_TRAFFIC_STRESS_RECIPE`）は本ファイルの従来のハードコード定数・分岐と
+    完全に一致させてある（後方互換）。研究フェーズでのレシピ調整・将来の個人最適化に向けて
+    外側の`RoutePreference`（軸間の重み）とは別に、この「軸の中身」自体をリクエスト単位で
+    上書きできるようにするための切り出し（地図表示側は`frontend/src/components/Map/
+    trafficStressExpression.ts`が同じレシピをMapLibre expressionとして再現する）。
+    """
+
+    base_by_highway: dict[str, int] = Field(default_factory=lambda: dict(TRAFFIC_STRESS_BASE_BY_HIGHWAY))
+    cycleway_track_adjustment: int = -2
+    cycleway_lane_adjustment: int = -1
+    cycleway_shared_adjustment: int = -1
+    maxspeed_low_threshold: int = 30
+    maxspeed_low_adjustment: int = -1
+    maxspeed_high_threshold: int = 60
+    maxspeed_high_adjustment: int = 1
+    lanes_high_threshold: int = 4
+    lanes_high_adjustment: int = 1
+    lanes_low_threshold: int = 1
+    lanes_low_adjustment: int = -1
+    designation_adjustment: int = 1
+
+
+DEFAULT_TRAFFIC_STRESS_RECIPE = TrafficStressRecipe()
 
 
 StopPoiKind = Literal["traffic_signals", "crossing", "stop", "give_way", "level_crossing"]
@@ -254,11 +306,18 @@ class TrafficStressBreakdown(BaseModel):
     level: int | None
 
 
-def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_designated: bool = False) -> TrafficStressBreakdown:
+def traffic_stress_breakdown(
+    highway: str | None,
+    tags: dict[str, str],
+    is_designated: bool = False,
+    recipe: TrafficStressRecipe | None = None,
+) -> TrafficStressBreakdown:
     """交通ストレス（LTS: Level of Traffic Stress風の1-4段階。「交通量」ではなく
     「推定交通ストレス」、計画書§2.4）を、各補正の適用有無・量が分かる内訳付きで返す。
     基本値はhighwayのみで決まり、未知のhighwayはNone（評価しない）。補正はタグが
     実際にある場合のみ適用する（unknownは補正しない）。
+
+    `recipe`省略時は`DEFAULT_TRAFFIC_STRESS_RECIPE`（従来のハードコード値と同一）を使う。
 
     cycleway系タグによる補正は`classify_bicycle_infrastructure`と同じ入力を別目的で
     解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
@@ -277,7 +336,8 @@ def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_desig
     ここへは合成せず別軸（`distance_weighted_stop_density`・`distance_weighted_intersection_density`、
     それぞれ独立した重みでユーザーが調整できる）のまま残している（改善計画T92で明文化）。
     """
-    base = TRAFFIC_STRESS_BASE_BY_HIGHWAY.get(highway or "")
+    recipe = recipe or DEFAULT_TRAFFIC_STRESS_RECIPE
+    base = recipe.base_by_highway.get(highway or "")
     if base is None:
         return TrafficStressBreakdown(
             base=None,
@@ -301,40 +361,40 @@ def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_desig
             level=1,
         )
 
-    cycleway_values = _cycleway_values(tags)
-    if "track" in cycleway_values:
-        cycleway_adjustment = -2
-    elif "lane" in cycleway_values:
-        cycleway_adjustment = -1
-    elif any(v in ("shared_lane", "share_busway") for v in cycleway_values):
+    cycleway_class = _cycleway_class(tags)
+    if cycleway_class == "track":
+        cycleway_adjustment = recipe.cycleway_track_adjustment
+    elif cycleway_class == "lane":
+        cycleway_adjustment = recipe.cycleway_lane_adjustment
+    elif cycleway_class == "shared":
         # 改善計画T92: 自転車と共有の車道表示（シェアードレーン・バス共用帯）は専用レーンより
         # 弱いがゼロではない緩和要因のため、classify_bicycle_infrastructure（自転車インフラ軸）
-        # と同じ判定基準を流用しlaneと同じ-1にする。実データ（関東本土の指定路線対象道路）で
+        # と同じ判定基準を流用しlaneと同じ既定-1にする。実データ（関東本土の指定路線対象道路）で
         # 15.6%（1,239件）に付いているタグだが、従来はここで判定対象外（0扱い）になっており、
         # 既に収集済みの情報が交通ストレス軸に反映されていなかった。
-        cycleway_adjustment = -1
+        cycleway_adjustment = recipe.cycleway_shared_adjustment
     else:
         cycleway_adjustment = 0
 
     maxspeed = parse_maxspeed(tags)
-    if maxspeed is not None and maxspeed <= 30:
-        maxspeed_adjustment = -1
-    elif maxspeed is not None and maxspeed >= 60:
-        maxspeed_adjustment = 1
+    if maxspeed is not None and maxspeed <= recipe.maxspeed_low_threshold:
+        maxspeed_adjustment = recipe.maxspeed_low_adjustment
+    elif maxspeed is not None and maxspeed >= recipe.maxspeed_high_threshold:
+        maxspeed_adjustment = recipe.maxspeed_high_adjustment
     else:
         maxspeed_adjustment = 0
 
     lanes = parse_lanes(tags)
-    if lanes is not None and lanes >= 4:
-        lanes_adjustment = 1
-    elif lanes is not None and lanes <= 1:
+    if lanes is not None and lanes >= recipe.lanes_high_threshold:
+        lanes_adjustment = recipe.lanes_high_adjustment
+    elif lanes is not None and lanes <= recipe.lanes_low_threshold:
         # 改善計画T92: 対面通行の1車線（センターラインなし等）は車の追い越し・すれ違いの
-        # 圧迫感が少なく、4車線以上の+1と対称に-1する。
-        lanes_adjustment = -1
+        # 圧迫感が少なく、4車線以上の+1と対称に既定-1する。
+        lanes_adjustment = recipe.lanes_low_adjustment
     else:
         lanes_adjustment = 0
 
-    designation_adjustment = 1 if is_designated else 0
+    designation_adjustment = recipe.designation_adjustment if is_designated else 0
 
     level = max(
         1,
@@ -352,7 +412,43 @@ def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_desig
     )
 
 
-def traffic_stress_level(highway: str | None, tags: dict[str, str], is_designated: bool = False) -> int | None:
+def traffic_stress_tile_ingredients(
+    highway: str | None, tags: dict[str, str], is_designated: bool = False
+) -> dict[str, object]:
+    """交通ストレスの材料タグを、road-surface-tilesのMVTが実際に焼き込むプロパティと
+    同じ形（キー名・値の有無）で返す。`export_openapi.py`が書き出す相互検証フィクスチャ
+    （traffic-stress-test-cases.json、フロントのtrafficStressExpression.test.tsが読む）専用。
+    `_ROAD_SURFACE_TILE_MVT_SQL`同様、値がNoneの項目はキーごと省略する
+    （ST_AsMVTがNULLプロパティを省略する挙動に合わせ、`["has", ...]`判定を正しく再現するため）。
+    designationは実際は`emergency_transport`/`critical_logistics`/`both`の3値を取るが、
+    交通ストレスへの補正は「該当するか否か」しか見ないため、ここでは代表して
+    `emergency_transport`のみを使う。
+    """
+    ingredients: dict[str, object] = {}
+    if highway is not None:
+        ingredients["highway"] = highway
+    cycleway_class = _cycleway_class(tags)
+    if cycleway_class is not None:
+        ingredients["cycleway_class"] = cycleway_class
+    maxspeed = parse_maxspeed(tags)
+    if maxspeed is not None:
+        ingredients["maxspeed_kmh"] = maxspeed
+    lanes = parse_lanes(tags)
+    if lanes is not None:
+        ingredients["lanes_count"] = lanes
+    if (tags.get("motor_vehicle") or "").strip().lower() == "no":
+        ingredients["motor_vehicle_no"] = True
+    if is_designated:
+        ingredients["designation"] = "emergency_transport"
+    return ingredients
+
+
+def traffic_stress_level(
+    highway: str | None,
+    tags: dict[str, str],
+    is_designated: bool = False,
+    recipe: TrafficStressRecipe | None = None,
+) -> int | None:
     """交通ストレス（1-4段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
     docstringは`traffic_stress_breakdown`参照。"""
-    return traffic_stress_breakdown(highway, tags, is_designated).level
+    return traffic_stress_breakdown(highway, tags, is_designated, recipe).level

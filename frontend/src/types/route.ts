@@ -49,6 +49,7 @@ export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse
 
 export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
+export type TrafficStressRecipeOverride = Schemas["TrafficStressRecipeOverride"];
 
 // 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
 // 保持・比較表・再現性メモの入力になる。

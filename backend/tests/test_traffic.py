@@ -1,4 +1,6 @@
 from app.domain.traffic import (
+    DEFAULT_TRAFFIC_STRESS_RECIPE,
+    TrafficStressRecipe,
     classify_bicycle_infrastructure,
     classify_stop_poi,
     distance_weighted_bicycle_infra_score,
@@ -232,6 +234,43 @@ class TestTrafficStressBreakdown:
         assert traffic_stress_breakdown(highway, tags, is_designated).level == traffic_stress_level(
             highway, tags, is_designated
         )
+
+
+class TestTrafficStressRecipeOverride:
+    """改善計画（交通ストレスレシピ外出し基盤）: recipe引数でbase_by_highway・各補正の
+    閾値・補正量を上書きできることを確認する。recipe省略時（既定レシピ）の挙動は
+    TestTrafficStressLevel/TestTrafficStressBreakdownで既に網羅済みのため、ここでは
+    「上書きが実際に効くこと」「他の呼び出し・既定レシピ自体に副作用が漏れないこと」
+    に絞る。
+    """
+
+    def test_base_by_highway_override_changes_base(self):
+        recipe = TrafficStressRecipe(base_by_highway={"secondary": 2})
+        assert traffic_stress_level("secondary", {}, recipe=recipe) == 2
+        # 既定レシピでは3のまま(上書きがDEFAULT_TRAFFIC_STRESS_RECIPEを書き換えていないこと)
+        assert traffic_stress_level("secondary", {}) == 3
+
+    def test_cycleway_adjustment_override(self):
+        recipe = TrafficStressRecipe(cycleway_lane_adjustment=-3)
+        assert traffic_stress_level("primary", {"cycleway": "lane"}, recipe=recipe) == 1  # 4-3
+
+    def test_maxspeed_threshold_override(self):
+        recipe = TrafficStressRecipe(maxspeed_high_threshold=40)
+        assert traffic_stress_level("tertiary", {"maxspeed": "40"}, recipe=recipe) == 4  # 3+1
+        # 既定レシピ(閾値60)では40は補正なし
+        assert traffic_stress_level("tertiary", {"maxspeed": "40"}) == 3
+
+    def test_designation_adjustment_override(self):
+        recipe = TrafficStressRecipe(designation_adjustment=2)
+        assert traffic_stress_level("residential", {}, is_designated=True, recipe=recipe) == 4  # 2+2
+
+    def test_motor_vehicle_no_override_ignores_recipe(self):
+        # motor_vehicle=noは常に1固定で、レシピの補正量に関わらず変わらない
+        recipe = TrafficStressRecipe(cycleway_lane_adjustment=-3, designation_adjustment=3)
+        assert traffic_stress_level("primary", {"motor_vehicle": "no"}, is_designated=True, recipe=recipe) == 1
+
+    def test_default_recipe_matches_default_traffic_stress_recipe_constant(self):
+        assert TrafficStressRecipe() == DEFAULT_TRAFFIC_STRESS_RECIPE
 
 
 class TestClassifyStopPoi:

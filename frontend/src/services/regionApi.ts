@@ -1,4 +1,5 @@
 import type { TrafficStressBreakdown } from "@/types/traffic";
+import type { TrafficStressRecipeOverride } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
@@ -12,6 +13,14 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
 // 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
 // （region_service.pyの_tile_cache_path）と対で更新すること。
+// v9: 交通ストレスレシピ外出し基盤。計算済みのtraffic_stress最終値プロパティを廃止し、
+// 材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no）へ差し替えた
+// （最終値の計算はtrafficStressExpression.tsがMapLibre expressionとして行う）。
+// v2〜v8はプロパティ追加のみで旧フロントとの後方互換が保たれていたが、v9はプロパティ削除を
+// 伴う初めての非互換変更。backend（road_graph_repository.py）がこの世代へ切り替わるより先に
+// この変更を含むfrontendをデプロイすること（逆順だと、この世代のtraffic_stress前提の凡例
+// フィルタが全地物に一致し、交通ストレスレイヤーが一時的に全線「不明・他」表示になる。
+// docs/architecture.md「Renderデプロイの反映確認」参照）。
 // v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92のtraffic_stress判定ロジック変更
 // （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）がタイル世代の対上げを
 // 伴っていなかったため、キャッシュ陳腐化を断つために世代のみ更新（プロパティ構成は不変）。
@@ -25,7 +34,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
 // surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-const ROAD_SURFACE_TILE_VERSION = "8";
+const ROAD_SURFACE_TILE_VERSION = "9";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの
@@ -72,13 +81,24 @@ export const ROAD_TILE_MAX_ZOOM = 15;
 // （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
-export async function fetchTrafficStressBreakdown(osmWayId: number): Promise<TrafficStressBreakdown | null> {
-  const params = new URLSearchParams({ osm_way_id: String(osmWayId) });
-  const url = `${API_BASE_URL}/api/region/traffic-stress-breakdown?${params}`;
+//
+// GETではなくPOST+JSONボディなのは、`recipe`（交通ストレスレシピの上書き、研究モードで
+// レシピを上書き中はここにも渡して地図・ルート採点と表示を一致させる）という複雑な
+// オブジェクトをクエリパラメータで渡すのが不自然なため（backend/app/api/routers/region.py参照）。
+export async function fetchTrafficStressBreakdown(
+  osmWayId: number,
+  recipe?: TrafficStressRecipeOverride,
+): Promise<TrafficStressBreakdown | null> {
+  const url = `${API_BASE_URL}/api/region/traffic-stress-breakdown`;
   const startedAt = performance.now();
-  debugLog("api:traffic-stress-breakdown", "リクエスト開始", { url });
+  debugLog("api:traffic-stress-breakdown", "リクエスト開始", { url, osmWayId });
 
-  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ osm_way_id: osmWayId, traffic_stress_recipe: recipe ?? null }),
+    signal: AbortSignal.timeout(15000),
+  });
   const durationMs = Math.round(performance.now() - startedAt);
   const requestId = response.headers.get("x-request-id");
 
