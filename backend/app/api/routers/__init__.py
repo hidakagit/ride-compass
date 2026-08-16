@@ -1,7 +1,8 @@
 """全ルータの組み立て（main.pyはこのapi_routerだけをincludeする）。
 
 エンドポイントは関心ごとに分割している（改善計画T5。旧api/routes.pyの単一ファイルから分割）:
-- health.py: /health, /api/debug/stats（デプロイ確認・運用統計）
+- health.py: /health, /api/debug/stats（デプロイ確認・運用統計）、
+  /api/debug/db-status（本番DB置き去り対策A: migration適用状況・データ投入バッチ実行状況、改善計画T74）
 - routes.py: /api/routes/preview, /api/routes/generate（ルート生成）
 - weather.py: /api/weather
 - region.py: /api/region/road-surface-tiles/{z}/{x}/{y}.pbf（地域路面レイヤー）

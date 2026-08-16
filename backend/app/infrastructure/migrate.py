@@ -64,3 +64,23 @@ async def apply_pending_migrations(engine: AsyncEngine, migrations_dir: Path = M
         newly_applied.append(path.name)
 
     return newly_applied
+
+
+async def list_pending_migrations(engine: AsyncEngine, migrations_dir: Path = MIGRATIONS_DIR) -> list[str]:
+    """未適用マイグレーションのファイル名一覧を返す（読み取り専用、適用はしない）。
+
+    改善計画T74の本番適用時、`route_designations`等を新設するmigration 0007自体が
+    本番へ一度も適用されていなかった（devだけ整備されて本番が置き去りになる）ことが
+    事後にしか発覚しなかった反省から、`/api/debug/db-status`が常時この状態を返せるように
+    する（対策A）。`apply_pending_migrations`と違い`schema_migrations`テーブルを
+    作成しない（GETリクエストでスキーマを変更しない）。テーブル自体が無い場合は
+    全マイグレーションを未適用として扱う。
+    """
+    async with engine.connect() as conn:
+        table_exists = await conn.scalar(text("SELECT to_regclass('schema_migrations') IS NOT NULL"))
+        applied: set[str] = set()
+        if table_exists:
+            applied = {
+                row[0] for row in (await conn.execute(text("SELECT filename FROM schema_migrations"))).all()
+            }
+    return sorted(path.name for path in migrations_dir.glob("*.sql") if path.name not in applied)
