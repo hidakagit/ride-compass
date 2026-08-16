@@ -1813,6 +1813,30 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 完了条件: frontend全テストgreen（vitest 214件・tsc・eslint）、Playwright実機確認
   （サイドバー・地図上▶ポップオーバー双方で区切り線・箇条書きの表示を確認）。
 
+### - [ ] T90. 交通ストレスの区間別判定内訳表示〔ユーザー提案C案〕規模M
+
+- 背景: T89の凡例改善（凡例の視覚分離・全体的な判定基準の箇条書き）は「1〜4段階のどれが
+  何を意味するか」という一般論までしか説明できない。「なぜこの道路が具体的にこのストレス
+  値なのか」という個別区間の内訳（例:「県道・制限速度50km/h→ベース4、専用レーンなし、
+  指定路線非該当で+1なし」）までは分からないため、地図上の道路をクリックすると内訳を
+  ポップアップ表示する案（T89検討時のC案）が挙がった。backend側の設計変更を要するため
+  T89のA/B（低コスト）とは切り離し、次イテレーションへ見送った。
+- 対応方針（見込み・着手時に再検討）: `_ROAD_SURFACE_TILE_MVT_SQL`
+  （backend/app/infrastructure/road_graph_repository.py）は`traffic_stress`の最終値のみを
+  MVTプロパティとして返しており、`domain/traffic.py: traffic_stress_level`が内部で計算する
+  補正内訳（cycleway補正・maxspeed補正・lanes補正・designation補正のどれが実際に効いたか）は
+  外部に出力されていない。以下のいずれかの設計が必要:
+  - (a) MVTタイルへ内訳を追加プロパティとして焼き込む（例: `stress_base`/`stress_speed_adj`
+    等）。タイルサイズ増加とのトレードオフ。
+  - (b) クリック時に別APIで該当wayのタグ（highway/maxspeed/lanes/cycleway系/designation該当）
+    を取得し、フロント側で`domain/traffic.py`相当のロジックを再現して表示する。追加の
+    ラウンドトリップとSQL/JS二重実装（`_ROAD_SURFACE_TILE_MVT_SQL`のCASE式との整合をどう
+    保つか）とのトレードオフ。
+  どちらもtraffic_stressの最終値そのものは変えない（表示専用の追加情報）。
+- 完了条件: 地図上の道路クリックで実際の判定内訳（ベース値・各補正・最終値）が確認できる。
+  backend/frontend全green、Playwright実機確認。
+- 関連: T89（凡例の視覚分離・全体的な判定基準の説明）の追加相談として起票。
+
 
 ## 記録
 

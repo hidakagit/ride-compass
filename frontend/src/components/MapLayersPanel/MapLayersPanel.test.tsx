@@ -253,7 +253,28 @@ describe("MapLayersPanel", () => {
   it("交通ストレスの凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("trafficStress");
-    expect(screen.getByText(/自転車専用帯・レーンの有無、制限速度、車線数で補正した/)).toBeInTheDocument();
+    expect(screen.getByText(/4段階（1=快適〜4=ストレス大）/)).toBeInTheDocument();
+  });
+
+  // 改善計画T89: 「ストレス1〜5評価基準が分かりにくい」という実機フィードバック対応。
+  // 1〜2文の要約だけでは加点/減点の内訳が伝わらなかったため、panelHintDetail（箇条書き）で補う。
+  it("交通ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("trafficStress");
+    expect(screen.getByText(/制限速度30km\/h以下: -1/)).toBeInTheDocument();
+    expect(screen.getByText(/車線数4以上: \+1/)).toBeInTheDocument();
+    expect(screen.getByText(/指定路線.*に該当: \+1/)).toBeInTheDocument();
+  });
+
+  // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解される実機フィードバックを
+  // 受け、区切り線付きの専用クラスで分離する（legendFilter.ts: LegendEntry.isFallback）。
+  it("交通ストレスの凡例で「不明・他」は数値段階と区切って表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("trafficStress");
+    const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
+    const fallbackLabel = within(section).getByText("不明・他（判定対象外の道路種別）");
+    const row = fallbackLabel.closest("label");
+    expect(row?.className).toMatch(/legendCheckboxRowFallback/);
   });
 
   it("自転車インフラの凡例に道路情報（路面）との違いの説明が表示される", () => {

@@ -222,3 +222,26 @@
 .legendCheckboxRow:hover {
   background: var(--color-surface-2);
 }
+
+/* 「不明・他」等の受け皿カテゴリを、1〜4等の実際の判定値と同列に見せない区切り
+   （改善計画T89）。2列グリッドの残り列を巻き込まないよう自身の行を専有させ、
+   上に区切り線を引いたうえでラベルを弱調表示する。 */
+.legendCheckboxRowFallback {
+  grid-column: 1 / -1;
+  margin-top: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--color-border);
+  color: var(--color-neutral);
+}
+
+/* 判定基準の内訳（mapLayers.ts: panelHintDetail）。panelHintの1文要約だけでは伝わらない
+   加点/減点の内訳を箇条書きで補う（改善計画T89）。 */
+.hintList {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--color-neutral);
+  font-size: var(--font-size-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}

@@ -125,8 +125,13 @@ export default function MapLayersPanel({
       <div className={styles.legendCheckboxList}>
         {legend.map((entry) => {
           const visible = !hiddenKeys.includes(entry.key);
+          // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線＋
+          // 弱調表示で分離する（改善計画T89、legendFilter.ts: LegendEntry.isFallback参照）。
+          const rowClassName = entry.isFallback
+            ? `${styles.legendCheckboxRow} ${styles.legendCheckboxRowFallback}`
+            : styles.legendCheckboxRow;
           return (
-            <label key={entry.key} className={styles.legendCheckboxRow}>
+            <label key={entry.key} className={rowClassName}>
               <input type="checkbox" checked={visible} onChange={() => onToggle(entry.key)} />
               {entry.width !== undefined ? (
                 <WidthSwatch width={entry.width} dashed={entry.dashed} />
@@ -229,6 +234,13 @@ export default function MapLayersPanel({
     return (
       <>
         {layer.panelHint && <p className={styles.mutedHint}>{layer.panelHint}</p>}
+        {layer.panelHintDetail && layer.panelHintDetail.length > 0 && (
+          <ul className={styles.hintList}>
+            {layer.panelHintDetail.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
         {renderOffHint(layer.id)}
         {staticFilterAxesFor(layer.id).map(renderStaticFilterAxis)}
       </>

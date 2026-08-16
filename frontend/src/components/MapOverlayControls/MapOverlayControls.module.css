@@ -239,6 +239,14 @@
   opacity: 0.5;
 }
 
+/* 「不明・他」等の受け皿カテゴリを、実際の判定値と同列に見せない区切り（改善計画T89、
+   MapLayersPanel.module.cssの.legendCheckboxRowFallbackと対応）。 */
+.detailRowFallback {
+  margin-top: 0.2rem;
+  padding-top: 0.3rem;
+  border-top: 1px dashed var(--color-border);
+}
+
 .detailRowLabel {
   flex: 1;
   min-width: 0;
