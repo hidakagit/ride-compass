@@ -1618,7 +1618,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   置換。get_nearest_way_tagsのみ4列→3要素タプルの変換が必要なため`value_fn`を渡す形。
   既存repository統合テスト無変更でbackend green
 
-### - [ ] T82. フロント カテゴリ凡例3点セットの共通ビルダー化 規模S〜M
+### - [x] T82. フロント カテゴリ凡例3点セットの共通ビルダー化 規模S〜M（2026-08-16完了）
 
 - `staticAttributeLayers.ts`のDESIGNATION_*一式（interface＋LABELS＋LEGEND＋
   COLOR_EXPRESSION）がBICYCLE_INFRA_*の逐語コピーで、STOP_POI_*も同型のため
@@ -1627,6 +1627,11 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   新設し3組を生成へ置換（TRAFFIC_STRESS=数値キー・ACCIDENT=case式・INTERSECTION=interpolateは
   同型でないため対象外）。設計原則8（UI語彙のカタログ集約）に沿う。
 - 完了条件: 生成結果が現行定義と同値であることをテストで確認、frontend全green。
+- **実装結果（2026-08-16）**: `buildCategoricalLayerDefs(property, categories, unknownLabel)`
+  を新設し、BICYCLE_INFRA/DESIGNATION/STOP_POIの3組（interface＋LABELS＋LEGEND＋
+  COLOR_EXPRESSION）を生成へ置換（3つの個別interfaceは共通`CategoryDef`へ統合）。
+  既存の`staticAttributeLayers.test.ts`（生成結果を直接検証、テスト側は無変更）24件green。
+  tsc・eslintも対象ファイルでgreen
 
 ### - [ ] T83. MapViewインタラクティブレイヤー配列のテーブル導出化 規模S
 
