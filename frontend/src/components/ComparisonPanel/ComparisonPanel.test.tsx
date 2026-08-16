@@ -91,6 +91,24 @@ describe("ComparisonPanel", () => {
     expect(screen.getByText("1.50 回/km")).toBeInTheDocument();
   });
 
+  it("交通ストレス・自転車インフラ率・交差点密度の行を表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
+    const slots = [
+      makeSlot({
+        id: "a",
+        topCandidate: makeCandidate({ traffic_stress_score: 2.3, bicycle_infra_score: 12.4, intersection_density: 3.1 }),
+      }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
+    ];
+    render(<ComparisonPanel slots={slots} />);
+
+    expect(screen.getByText("交通ストレス")).toBeInTheDocument();
+    expect(screen.getByText("2.3")).toBeInTheDocument();
+    expect(screen.getByText("自転車インフラ率")).toBeInTheDocument();
+    expect(screen.getByText("12%")).toBeInTheDocument();
+    expect(screen.getByText("交差点密度")).toBeInTheDocument();
+    expect(screen.getByText("3.10 回/km")).toBeInTheDocument();
+  });
+
   it("重みの表示(title属性)に評価軸カタログの全軸が含まれる(改善計画T45)", () => {
     // 以前はformatWeightsが3軸を手作業で列挙しており、静的属性P1で追加された
     // stop_weightが実験条件の表示から漏れていた(研究モードでstop_weightを変えて
