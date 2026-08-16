@@ -6,10 +6,17 @@
 }
 
 /* 「絞り込みを一括クリア」。パネル最上部・右寄せで、軸ごとの一括ボタン（.bulkButton）と
-   見た目を揃える（別の強い見た目にすると「危険な操作」に見えてしまうため）。 */
+   見た目を揃える（別の強い見た目にすると「危険な操作」に見えてしまうため）。
+   常にマウントし、絞り込みが無い間はvisibility:hiddenで見た目だけ消す
+   （display:noneや条件付きレンダリングだと高さが0になり、下のレイヤー行が詰まって
+   ずれる＝直後のクリックが別要素に当たる誤操作の原因になっていた。実機で確認・修正）。 */
 .clearAllRow {
   display: flex;
   justify-content: flex-end;
+}
+
+.clearAllRow:not([data-visible="true"]) {
+  visibility: hidden;
 }
 
 .group + .group {

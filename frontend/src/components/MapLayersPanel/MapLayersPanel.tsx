@@ -418,14 +418,23 @@ export default function MapLayersPanel({
     <div className={styles.panel}>
       {/* 各軸に「すべて表示」はあるが、複数レイヤーにまたがって絞り込んだ後に全部を
           1つずつ開いて戻すのは手間が大きい（ゆる～と等の地図ポータルの「消去」ボタンを
-          参考に追加）。絞り込みが無ければボタン自体を出さない。 */}
-      {hasHiddenFilters && (
-        <div className={styles.clearAllRow}>
-          <button type="button" className={styles.bulkButton} onClick={onClearAllFilters}>
-            絞り込みを一括クリア
-          </button>
-        </div>
-      )}
+          参考に追加）。絞り込みが無ければボタンを無効化・非表示にするが、要素自体は
+          常にマウントしたままにする（実機フィードバック: 条件付きレンダリングでこの行が
+          出現/消失するとパネル内の他のボタン（レイヤーの表示トグル等）が上下にずれ、
+          「消える直前・直後にクリックすると別の要素に当たる」誤操作を実測で確認したため。
+          visibilityで隠すだけならレイアウト上の高さは常に確保され、この種のずれが起きない）。 */}
+      <div className={styles.clearAllRow} data-visible={hasHiddenFilters}>
+        <button
+          type="button"
+          className={styles.bulkButton}
+          onClick={onClearAllFilters}
+          disabled={!hasHiddenFilters}
+          tabIndex={hasHiddenFilters ? 0 : -1}
+          aria-hidden={!hasHiddenFilters}
+        >
+          絞り込みを一括クリア
+        </button>
+      </div>
       {STATIC_CATEGORY_ORDER.map((category) => {
         const layers = MAP_LAYERS.filter((layer) => layer.kind === "static" && layer.category === category);
         if (layers.length === 0) return null;

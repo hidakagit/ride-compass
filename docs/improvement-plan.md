@@ -2273,6 +2273,32 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+## 「地図の見え方」表示トグル誤操作バグ修正（2026-08-17・ユーザー報告）
+
+### - [x] T103. MapLayersPanelの「絞り込みを一括クリア」出現/消失によるレイアウトシフト誤操作を修正 規模S（2026-08-17完了）
+
+- 発端: ユーザー報告「表示、非表示を切り替えられない。非表示にしようとしたら一瞬ですぐ表示になる」。
+  ローカルdevビルドの自動操作では終始再現せず、本番サイト（Render）へPlaywrightで直接接続して
+  調査。ユーザーからの「一括クリアボタンを一度押すとそれで再現しない？」という手がかりを受け、
+  「絞り込みを一括クリア」ボタン操作前後でレイヤー表示トグルのbounding boxを実測したところ、
+  Y座標が最大25px変動することを確認した。
+- 原因: `MapLayersPanel.tsx`の「絞り込みを一括クリア」ボタンが`{hasHiddenFilters && (...)}`の
+  条件付きレンダリングで出現/消失しており、出現・消失のたびにパネル内の後続要素
+  （レイヤーの表示トグル等）が上下にずれる。実機で「消える直前・直後にクリックすると、
+  ずれた先にある別要素（凡例チェックボックス等）に当たる」誤操作を`document.elementFromPoint`で
+  実測確認した（ボタンが消えた直後、以前レイヤートグルがあった座標には路面種別の凡例チェック
+  リストが来ていた）。
+- 対応: ボタンを常時マウントし、`hasHiddenFilters`に応じて`disabled`・`tabIndex=-1`・
+  `aria-hidden`・CSSの`visibility:hidden`で見た目と操作性のみを切り替える形へ変更
+  （`display:none`や条件付きレンダリングは高さが0になり後続要素がずれるため使わない）。
+  `aria-hidden`により`getByRole`等のアクセシビリティベースのクエリからは従来どおり除外される
+  （既存テストは無修正で通過することを確認）。
+- 完了条件: 修正後、同じ手順（絞り込み1件非表示化→一括クリア→レイヤートグル位置を実測）で
+  Y座標が完全に不変であることをPlaywrightで確認。DOM常駐化を固定する回帰テストを追加。
+  frontend 236件・tsc・eslint全green。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2348,3 +2374,5 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | static-road-attributes-plan.mdの残タスク整理・別ブランチ統合 | 残タスク4件を検証のうえ§3.1として整理していたところ、ユーザー指摘により2件（自転車歩行者道スコープ拡張・bicycle=noのHard Constraint）が別ブランチ（`origin/claude/osm-roadbike-map-features-1yn5yi`、コミット`0f1f952`）で既に起票済み（ただしmasterへ未マージ）と判明。同ブランチはT96〜T99を使用していたが、masterは既に別件（交差点密度撤去・Open-Meteo 502緩和等）でT96〜T98を使用済みだったため衝突。ユーザー承認のうえ内容を確認し、T99〜T102として番号を振り直してmasterへ統合した（T99自転車歩行者道スコープ拡張／T100 bicycle=no Hard Constraint＋oneway:bicycle例外／T101補給・休憩POIレイヤー／T102 lit/segregated/barrierカバレッジ実測） |
 | 2026-08-17 | T99・T102（コード実装のみ） | ユーザー依頼によりコード実装が完結する部分を先行実施。T99: `import_profile.yaml`へ`shared_pedestrian_ways`ルール（highway=footway/path AND bicycle=yes/designated/permissive）追加、`segregated`タグを`ALLOWED_WAY_TAGS`へ追加。YAMLで`bicycle: [yes, ...]`を無引用で書くとYAML 1.1のブール値解決規則で`ProfileError`になる罠を発見・引用符で回避。T102: `measure_tag_coverage.py`へ`CANDIDATE_WAY_TAGS`（lit/segregated）・`CANDIDATE_NODE_TAGS`（barrier、取込プロファイルにルールが無いため新設`NodeTagCounter`で値ごとの生カウントのみ報告）を追加。いずれも実際の再取込み・PBF実測（完了条件）はDBアクセス/PBFファイルの無い環境では実施できないためチェックは`[ ]`のまま。backend 713件全green |
 | 2026-08-17 | T100 | `domain/evaluation.py: is_edge_allowed`へ`way_tags`引数を追加し`bicycle=no`のHard Constraint除外を実装（road_graphエンジンは既存配線のみで自動的に有効化、openrouteserviceエンジンは対象外の非対称は既存のまま）。`osm_adapter.py`に`_resolve_direction`を新設し`oneway:bicycle`を`oneway`本体より優先させるcontraflow cycling対応を実装（PBF取込バッチも同じアダプタを経由するため二重実装なし）。本タスクは完了条件が単体テスト・backendテストgreenのみでDB/PBF不要だったため、T99・T102と異なりこのラウンドで完全に完了。backend 725件（新規12件）全green |
+| 2026-08-17 | T102（実測完了） | `backend/data/pbf/kanto-latest.osm.pbf`（対象way 1,329,632件）で実測。lit（全体1.1%・幹線4.8%）・segregated（全体0.6%だがT99の自転車歩行者道内では28.4%）とも既採用tag（smoothness 0.2%）を上回り採用推奨と判断、取込コストゼロのため`lit`も`ALLOWED_WAY_TAGS`へ追加（segregatedはT99で先行済み）。barrier（node、bollard 21,975件等）も採用推奨だが新規node取込ルールが必要なため実装は別タスク。backend 726件全green |
+| 2026-08-17 | T103 | ユーザー報告（表示/非表示を切り替えられない、非表示にしようとすると一瞬ですぐ表示に戻る）を本番サイトで実機調査。「絞り込みを一括クリア」ボタンが条件付きレンダリング（`hasHiddenFilters`）で出現/消失するたび、パネル内の他のレイヤー表示トグルが上下にずれ（Playwrightでbounding box実測、最大25px程度）、直後のクリックが別要素（凡例チェックボックス等）に当たる誤操作を確認・再現。`MapLayersPanel.tsx`のボタンを条件付きレンダリングから常時マウント＋`visibility:hidden`（CSS、高さは常に確保）へ変更し解消。修正後はレイアウト位置が完全に不変であることを実機確認。回帰テスト追加、frontend 236件・tsc・eslint全green |
