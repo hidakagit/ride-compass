@@ -1633,7 +1633,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   既存の`staticAttributeLayers.test.ts`（生成結果を直接検証、テスト側は無変更）24件green。
   tsc・eslintも対象ファイルでgreen
 
-### - [ ] T83. MapViewインタラクティブレイヤー配列のテーブル導出化 規模S
+### - [x] T83. MapViewインタラクティブレイヤー配列のテーブル導出化 規模S（2026-08-16完了）
 
 - handleClick/handleMouseMoveの2箇所に同一内容の8要素レイヤーID配列が手書き重複しており、
   `STATIC_OVERLAY_LAYERS`テーブル（T47 R-6）との三重管理。レイヤー追加時に片方を追記し
@@ -1642,6 +1642,13 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   DETAIL_LAYER_ID/ROAD_TILE_LAYER_IDを追加）。ポップアップビルダーの対応表も
   テーブルへのフィールド追加（interactive/popupBuilder）として一般化を検討。
 - 完了条件: レイヤー追加時に配列の手動追記が不要になること、frontend全green。
+- **実装結果（2026-08-16）**: `INTERACTIVE_LAYER_IDS`を新設し、`STATIC_OVERLAY_LAYERS`から
+  elevation（ラスタタイルのため地物クリック判定が効かない）を除いたlayerId列に
+  `DETAIL_LAYER_ID`/`ROAD_TILE_LAYER_ID`を加えて導出。handleClick/handleMouseMoveの
+  2箇所の手書き8要素配列を`INTERACTIVE_LAYER_IDS.filter((id) => map.getLayer(id))`へ置換
+  （生成順は元の手書き配列と一致することを確認済み）。ポップアップビルダーの対応表
+  一般化（handleClick内の1箇所のみで複製が無いため優先度低いと判断）は見送った。
+  tsc・eslintは対象ファイルでgreen、既存のMapView.segments.test.ts 3件green
 
 ### - [ ] T84. MapLayersPanel説明文のカタログ集約 規模S〜M
 

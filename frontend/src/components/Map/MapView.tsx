@@ -583,6 +583,19 @@ const STATIC_OVERLAY_LAYERS = [
 
 type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
 
+// クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
+// STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
+// 除いたものに、STATIC_OVERLAY_LAYERSの対象外であるDETAIL_LAYER_ID（ルート詳細区間）・
+// ROAD_TILE_LAYER_ID（路面）を加える（改善計画T83）。以前はhandleClick/handleMouseMoveの
+// 2箇所に同一の8要素配列を手書きしており、STATIC_OVERLAY_LAYERSと合わせて三重管理
+// だった。レイヤー追加時に片方だけ追記漏れすると「ポップアップは出るがカーソルが
+// 変わらない」等の非対称な劣化が検知されず残る。
+const INTERACTIVE_LAYER_IDS = [
+  DETAIL_LAYER_ID,
+  ROAD_TILE_LAYER_ID,
+  ...STATIC_OVERLAY_LAYERS.filter((layer) => layer.key !== "elevation").map((layer) => layer.layerId),
+] as const;
+
 function ensureAllStaticOverlayLayers(map: MapLibreMap) {
   for (const layer of STATIC_OVERLAY_LAYERS) layer.ensure(map);
 }
@@ -997,16 +1010,7 @@ export default function MapView({
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
     function handleClick(e: MapMouseEvent) {
-      const layers = [
-        DETAIL_LAYER_ID,
-        ROAD_TILE_LAYER_ID,
-        TRAFFIC_STRESS_LAYER_ID,
-        BICYCLE_INFRA_LAYER_ID,
-        DESIGNATION_LAYER_ID,
-        ACCIDENT_LAYER_ID,
-        STOP_POI_LAYER_ID,
-        INTERSECTION_LAYER_ID,
-      ].filter((id) => map.getLayer(id));
+      const layers = INTERACTIVE_LAYER_IDS.filter((id) => map.getLayer(id));
       if (layers.length === 0) return;
       const features = map.queryRenderedFeatures(e.point, { layers });
       if (features.length === 0) return;
@@ -1028,16 +1032,7 @@ export default function MapView({
     }
 
     function handleMouseMove(e: MapMouseEvent) {
-      const layers = [
-        DETAIL_LAYER_ID,
-        ROAD_TILE_LAYER_ID,
-        TRAFFIC_STRESS_LAYER_ID,
-        BICYCLE_INFRA_LAYER_ID,
-        DESIGNATION_LAYER_ID,
-        ACCIDENT_LAYER_ID,
-        STOP_POI_LAYER_ID,
-        INTERSECTION_LAYER_ID,
-      ].filter((id) => map.getLayer(id));
+      const layers = INTERACTIVE_LAYER_IDS.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         map.getCanvas().style.cursor = "";
         return;
