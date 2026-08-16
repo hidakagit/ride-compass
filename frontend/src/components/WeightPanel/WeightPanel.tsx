@@ -24,6 +24,7 @@ export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = {
   traffic_weight: 0.1,
   infra_weight: 0.1,
   intersection_weight: 0.05,
+  accident_weight: 0.08,
 };
 
 interface WeightPanelProps {

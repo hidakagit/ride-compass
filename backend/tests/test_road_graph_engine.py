@@ -86,12 +86,16 @@ class FakeGraphService:
         stop_data_available: bool = True,
         way_tags: dict | None = None,
         intersection_counts: dict | None = None,
+        accident_counts: dict | None = None,
+        accident_years_covered: int = 0,
     ):
         self._graph = graph
         self._surface_attributes = surface_attributes or {}
         self._stop_counts = stop_counts or {}
         self._way_tags = way_tags or {}
         self._intersection_counts = intersection_counts or {}
+        self._accident_counts = accident_counts or {}
+        self._accident_years_covered = accident_years_covered
         # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
         # （GraphService.get_stop_poi_counts(repository=None)と同じ{}を返す）。Trueは
         # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
@@ -118,6 +122,13 @@ class FakeGraphService:
     async def get_intersection_counts(self, edge_ids):
         # 同上（intersectionDensity）。
         return {edge_id: self._intersection_counts[edge_id] for edge_id in edge_ids if edge_id in self._intersection_counts}
+
+    async def get_accident_counts(self, edge_ids):
+        # 同上（事故密度、外部静的データソース T50残作業）。
+        return {edge_id: self._accident_counts[edge_id] for edge_id in edge_ids if edge_id in self._accident_counts}
+
+    async def get_accident_years_covered(self):
+        return self._accident_years_covered
 
 
 class FakeElevationAttributeService:
@@ -147,11 +158,14 @@ def make_generator(
     stop_data_available: bool = True,
     way_tags: dict | None = None,
     intersection_counts: dict | None = None,
+    accident_counts: dict | None = None,
+    accident_years_covered: int = 0,
     wind: WeatherConditions | None = None,
     route_preference: RoutePreference | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
-        graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts
+        graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
+        accident_counts, accident_years_covered,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
@@ -374,6 +388,38 @@ async def test_candidate_aggregates_intersection_density_from_path_edges():
         s for s in candidate.segments if s.intersection_difficulty is not None and s.intersection_difficulty > 0
     )
     assert segment_with_intersections.difficulty is not None
+
+
+async def test_candidate_aggregates_accident_density_from_path_edges():
+    # 外部静的データソース T50残作業（8軸目）。事故密度は件/(km・年)のため
+    # accident_years_coveredも指定する。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
+    accident_counts = {edge_ids[0]: 2}
+    generator, _, _ = make_generator(graph, accident_counts=accident_counts, accident_years_covered=2)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.accident_density is not None
+    assert candidate.accident_density > 0.0
+    segment_with_accidents = next(
+        s for s in candidate.segments if s.accident_difficulty is not None and s.accident_difficulty > 0
+    )
+    assert segment_with_accidents.difficulty is not None
+
+
+async def test_candidate_accident_density_is_none_when_years_covered_is_zero():
+    # accident_years_covered=0（事故データ未取込）は、件数があっても密度を算出できないためNone。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
+    accident_counts = {edge_ids[0]: 2}
+    generator, _, _ = make_generator(graph, accident_counts=accident_counts, accident_years_covered=0)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    assert candidate.accident_density is None
 
 
 async def test_candidate_aggregates_wind_score_when_weather_available():

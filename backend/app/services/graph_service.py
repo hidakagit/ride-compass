@@ -175,6 +175,23 @@ class GraphService:
             return {}
         return await self._repository.get_intersection_counts(edge_ids)
 
+    async def get_accident_counts(self, edge_ids: list[str]) -> dict[str, int]:
+        """指定edge_idそれぞれの事故密度評価用カウント（外部静的データソース T50残作業、
+        8軸目）を返す。get_stop_poi_countsと同じ「repositoryが無ければ`{}`」パターン。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_accident_counts(edge_ids)
+
+    async def get_accident_years_covered(self) -> int:
+        """事故データの収録年数を返す。get_stop_poi_countsと同じ
+        「repositoryが無ければ0」パターン（0はdistance_weighted_accident_density/
+        compute_edge_costの側で「データ無し」として扱われる）。
+        """
+        if self._repository is None:
+            return 0
+        return await self._repository.get_accident_years_covered()
+
     async def _fetch_graph_with_surface_attributes(
         self, bbox: BoundingBox
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:

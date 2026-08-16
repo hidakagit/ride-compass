@@ -19,7 +19,7 @@ describe("WeightPanel", () => {
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
 
-  it("上書き有効時はscoring 4値+preference 7値の入力欄を表示する", () => {
+  it("上書き有効時はscoring 4値+preference 8値の入力欄を表示する", () => {
     render(
       <WeightPanel
         overrideEnabled={true}
@@ -31,7 +31,7 @@ describe("WeightPanel", () => {
       />,
     );
 
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(11);
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(12);
   });
 
   it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
@@ -65,7 +65,7 @@ describe("WeightPanel", () => {
         onScoringWeightsChange={onScoringChange}
         routePreference={{
           elevation_weight: 0.9, road_weight: 0.9, wind_weight: 0.9, stop_weight: 0.9,
-          traffic_weight: 0.9, infra_weight: 0.9, intersection_weight: 0.9,
+          traffic_weight: 0.9, infra_weight: 0.9, intersection_weight: 0.9, accident_weight: 0.9,
         }}
         onRoutePreferenceChange={onPreferenceChange}
       />,

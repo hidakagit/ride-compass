@@ -81,12 +81,16 @@ class FakeSurfaceRepository:
         default_highway: str | None = "residential",
         default_way_tags: dict[str, str] | None = None,
         default_intersection_count: int = 0,
+        default_accident_count: int = 0,
+        accident_years_covered: int = 3,
     ):
         self._default_tag = default_tag
         self._default_stop_count = default_stop_count
         self._default_highway = default_highway
         self._default_way_tags = default_way_tags or {}
         self._default_intersection_count = default_intersection_count
+        self._default_accident_count = default_accident_count
+        self._accident_years_covered = accident_years_covered
         self.calls: list[list[tuple[float, float]]] = []
         self.stop_count_calls: list[list[tuple[float, float]]] = []
 
@@ -111,6 +115,14 @@ class FakeSurfaceRepository:
         self, points: list[tuple[float, float]], max_distance_m: float = 30.0
     ) -> list[int]:
         return [self._default_intersection_count for _ in points]
+
+    async def get_nearest_accident_counts(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[int]:
+        return [self._default_accident_count for _ in points]
+
+    async def get_accident_years_covered(self) -> int:
+        return self._accident_years_covered
 
 
 def make_generator(outcomes: list) -> RouteGenerator:
@@ -340,6 +352,39 @@ async def test_intersection_density_reflects_nearest_intersection_counts_when_re
         for c in candidates
         for seg in c.segments
     )
+
+
+async def test_accident_density_reflects_nearest_accident_counts_when_repository_injected():
+    # 外部静的データソース T50残作業（8軸目）。
+    repository = FakeSurfaceRepository(default_tag="asphalt", default_accident_count=1, accident_years_covered=2)
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.accident_density is not None and c.accident_density > 0.0 for c in candidates)
+    assert all(seg.accident_difficulty is not None and seg.accident_difficulty > 0 for c in candidates for seg in c.segments)
+
+
+async def test_accident_density_is_none_without_repository():
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.accident_density is None for c in candidates)
+    assert all(seg.accident_difficulty is None for c in candidates for seg in c.segments)
 
 
 async def test_intersection_density_is_none_without_repository():

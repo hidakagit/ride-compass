@@ -14,6 +14,7 @@ from sqlalchemy import insert, text
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import WaySpec, build_road_graph
 from app.domain.region import BoundingBox
+from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure.road_graph_models import OsmRawPoiRow
 
 NODE1 = (35.700, 139.700)
@@ -643,6 +644,123 @@ async def test_get_nearest_intersection_counts_counts_intersections_near_each_po
     )
 
     assert result == [1, 0]
+
+
+# --- 外部静的データソース T50残作業（事故密度の評価組み込み、8軸目） ---
+# accident_pointsへの書き込みメソッドはRoadGraphRepositoryに無い（import_accidents.pyが
+# 直接asyncpg COPYで書くため）。統合テストではセッションへ直接INSERTしてテストデータを用意する
+# （test_accident_repository.py: _insert_accidentと同じパターン）。
+
+
+async def _insert_accident(session, accident_id: str, kind_year: int, lat: float, lon: float, *, involves_bicycle: bool = False) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO accident_points (accident_id, occurred_year, fatal, involves_bicycle, attrs, geom, updated_at) "
+            "VALUES (:id, :year, false, :bicycle, '{}'::jsonb, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), now())"
+        ),
+        {"id": accident_id, "year": kind_year, "bicycle": involves_bicycle, "lat": lat, "lon": lon},
+    )
+
+
+async def _insert_accident_import_run(session, occurred_year: int, status: str = "succeeded") -> None:
+    await session.execute(
+        text(
+            "INSERT INTO accident_import_runs (occurred_year, file_name, status, started_at) "
+            "VALUES (:year, :file_name, :status, now())"
+        ),
+        {"year": occurred_year, "file_name": f"honhyo_{occurred_year}.csv", "status": status},
+    )
+
+
+async def test_get_accident_counts_returns_empty_dict_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_accident_counts([]) == {}
+
+
+async def test_get_accident_counts_counts_nearby_accidents(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_accident(road_graph_session, "2023-1", 2023, *NODE1, involves_bicycle=True)
+    await _insert_accident(road_graph_session, "2023-2", 2023, *NODE2, involves_bicycle=False)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_accident_counts([edge_id], max_distance_m=30.0)
+
+    assert result[edge_id] == 2
+
+
+async def test_get_accident_counts_bicycle_only_filters_to_bicycle_related(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_accident(road_graph_session, "2023-1", 2023, *NODE1, involves_bicycle=True)
+    await _insert_accident(road_graph_session, "2023-2", 2023, *NODE2, involves_bicycle=False)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_accident_counts([edge_id], bicycle_only=True, max_distance_m=30.0)
+
+    assert result[edge_id] == 1
+
+
+async def test_get_accident_counts_edge_with_no_nearby_accidents_is_zero_not_missing(road_graph_repository):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    result = await road_graph_repository.get_accident_counts([edge_id])
+
+    assert result == {edge_id: 0}
+
+
+async def test_get_accident_counts_ignores_accidents_beyond_max_distance_m(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_accident(road_graph_session, "2023-far", 2023, *NODE3)  # 遠方
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_accident_counts([edge_id], max_distance_m=30.0)
+
+    assert result[edge_id] == 0
+
+
+async def test_get_nearest_accident_counts_returns_empty_list_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_nearest_accident_counts([]) == []
+
+
+async def test_get_nearest_accident_counts_counts_accidents_near_each_point(road_graph_repository, road_graph_session):
+    await _insert_accident(road_graph_session, "2023-1", 2023, *NODE1)
+    await _insert_accident(road_graph_session, "2023-2", 2023, *NODE1)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_nearest_accident_counts([NODE1, NODE3], max_distance_m=30.0)
+
+    assert result == [2, 0]
+
+
+async def test_get_accident_years_covered_counts_distinct_succeeded_years(road_graph_repository, road_graph_session):
+    await _insert_accident_import_run(road_graph_session, 2022)
+    await _insert_accident_import_run(road_graph_session, 2023)
+    await _insert_accident_import_run(road_graph_session, 2024)
+    await _insert_accident_import_run(road_graph_session, 2021, status="failed")  # 失敗runは数えない
+    await road_graph_session.commit()
+
+    assert await road_graph_repository.get_accident_years_covered() == 3
+
+
+async def test_get_accident_years_covered_is_zero_when_no_runs(road_graph_repository):
+    assert await road_graph_repository.get_accident_years_covered() == 0
 
 
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):

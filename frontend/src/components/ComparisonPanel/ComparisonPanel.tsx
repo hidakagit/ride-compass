@@ -50,6 +50,11 @@ const METRIC_ROWS: MetricRow[] = [
       s.topCandidate.intersection_density != null ? `${s.topCandidate.intersection_density.toFixed(2)} 回/km` : "—",
   },
   {
+    label: "事故密度",
+    format: (s) =>
+      s.topCandidate.accident_density != null ? `${s.topCandidate.accident_density.toFixed(2)} 件/(km・年)` : "—",
+  },
+  {
     label: "総合難易度（絶対基準）",
     format: (s) => (s.topCandidate.overall_difficulty != null ? `${s.topCandidate.overall_difficulty.toFixed(1)}` : "—"),
   },

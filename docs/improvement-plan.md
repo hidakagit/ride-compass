@@ -737,7 +737,7 @@ T22（フォールバック撤去）は撤去条件の成立日（最短2026-08-
 DEMタイル化（同ドキュメント優先2）は既存T10と同一のため新規タスクは起こさず、
 T10の実行設計として同ドキュメント§4.2を参照する形にする。
 
-### - [ ] T50. 警察庁事故データ→事故密度軸（8軸目）規模L — 取得・保持・表示先行は2026-08-16完了、評価組み込みが残作業
+### - [x] T50. 警察庁事故データ→事故密度軸（8軸目）規模L（2026-08-16完了）
 
 - **2026-08-16訂正**: 起票時点では本票CSVの入手をユーザー作業（手動ダウンロード）と
   想定していたが、実際のURL構造を確認したところ
@@ -782,13 +782,28 @@ T10の実行設計として同ドキュメント§4.2を参照する形にする
   フロントから404になることを実機で発見）
 - 完了条件のうち「実CSVでのdry-run」「Playwright表示確認」「backend/frontend全green」は
   達成（backend 595件・frontend 153件・eslint・tsc全green、Playwright実機確認で
-  地図上のドット表示・凡例・クリックポップアップ・チップON/OFFを確認）。「ST_DWithin境界の
-  統合テスト」は評価組み込み（`get_accident_counts`等、未着手）と合わせて残作業
-- **残作業（評価組み込み）**: `AttributeRepository.get_accident_counts`/
-  `get_nearest_accident_counts`（`get_stop_poi_counts`と同型）、`accident_difficulty`を
-  8軸目として`evaluate_axis_difficulties`へ、`route_preference.yaml`へ`accident_weight`
-  追加（`scoring.yaml`は非対称維持の方針どおり追加しない）。2019〜2021年データの取込
-  （別スキーマの列位置調査が必要）も任意の拡張として残る
+  地図上のドット表示・凡例・クリックポップアップ・チップON/OFFを確認）。
+
+**実装結果（評価組み込み、2026-08-16）**: `AttributeRepository.get_accident_counts`/
+`get_nearest_accident_counts`（`get_stop_poi_counts`と同型、`bicycle_only`切替付き）＋
+`get_accident_years_covered`（`accident_import_runs`の成功run数から動的取得、
+ハードコード定数にしない）を新規実装し`RoadGraphRepository`ファサードへ対称に委譲。
+密度は「件/(km・年)」（`domain/accident.py: distance_weighted_accident_density`、
+収録年数で正規化する点がstop_density等と異なる）。`domain/difficulty.py:
+evaluate_axis_difficulties`を7軸→8軸へ拡張（改善計画T43で1箇所化済みのため呼び出し元
+3箇所は引数追加のみ）。`RoutePreference.accident_weight`（初期値0.08）を
+`route_preference.yaml`のみへ追加（`scoring.yaml`は既存7軸と同じ非対称維持、追加せず）。
+`RouteSegmentDetail.accident_difficulty`/`RouteCandidate.accident_density`追加、
+`RoutePreferenceWeights`（API境界）へも対称に追加、OpenAPI/フロント型再生成。
+フロントは`evaluationAxes.ts`のPREFERENCE_AXIS_METAへ1軸追加（型完全性チェックで
+自動ドリフト検知）、`WeightPanel.tsx`の既定値、`ComparisonPanel.tsx`の`METRIC_ROWS`へ
+事故密度行を追加（stop_density/intersection_densityと同じ前例に倣う、こちらは
+カタログからの自動生成ではないため手動追加が必要）。ST_DWithin境界の統合テストを含む
+完了条件を満たした。backend 645件（新規25件）・frontend自分の変更分は全green
+（eslint・vitest対象ファイル）。tsc: 本タスクが変更したファイルにエラーなし。
+なお実装時点で別セッションがpage.tsx/MapView.tsx/staticAttributeLayers.*を並行編集中で
+未完了のtsc差分が存在したが、本タスクとは無関係のため関知していない。
+2019〜2021年データの取込（別スキーマの列位置調査が必要）は任意の拡張として引き続き残る
 
 ### - [ ] T51. 指定路線コンフレーション機構＋N10/N12・ナショナルサイクルルート表示 規模L
 

@@ -45,6 +45,13 @@ _BICYCLE_INFRA_DIFFICULTY_SCORES: dict[str, float] = {
 _INTERSECTION_DENSITY_MAX_PER_KM = 2.0
 _INTERSECTION_DENSITY_HARD_SCORE = 100.0
 
+# 事故密度(件/(km・年)、domain/accident.py: distance_weighted_accident_density)の目安:
+# 0件/(km・年)が最も易しく、0.5件/(km・年)を最大値とする。関東7都県3年分で303,455件
+# （道路延長を考えるとkm・年あたり平均は1を大きく下回る水準）という実測規模を踏まえた
+# 暫定値（本格チューニングはP2据え置き）。外部静的データソース T50残作業。
+_ACCIDENT_DENSITY_MAX_PER_KM_YEAR = 0.5
+_ACCIDENT_DENSITY_HARD_SCORE = 100.0
+
 
 def _piecewise_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
     if value <= breakpoints[0][0]:
@@ -120,9 +127,19 @@ def intersection_difficulty(intersection_count_per_km: float | None) -> float | 
     return round(clamped / _INTERSECTION_DENSITY_MAX_PER_KM * _INTERSECTION_DENSITY_HARD_SCORE, 1)
 
 
+def accident_difficulty(accident_count_per_km_year: float | None) -> float | None:
+    """事故密度(件/(km・年)、domain/accident.py: distance_weighted_accident_density)を
+    難易度へ変換する。密度が高いほど走りにくいため単調増加。データ無し（Noneまたは負値）はNone。
+    外部静的データソース T50残作業（8軸目）。"""
+    if accident_count_per_km_year is None or accident_count_per_km_year < 0:
+        return None
+    clamped = min(accident_count_per_km_year, _ACCIDENT_DENSITY_MAX_PER_KM_YEAR)
+    return round(clamped / _ACCIDENT_DENSITY_MAX_PER_KM_YEAR * _ACCIDENT_DENSITY_HARD_SCORE, 1)
+
+
 class AxisDifficulties(NamedTuple):
-    """7軸（勾配・向かい風・路面・停止密度・交通ストレス・自転車インフラ・交差点密度）の
-    難易度と、重み付き合成値。
+    """8軸（勾配・向かい風・路面・停止密度・交通ストレス・自転車インフラ・交差点密度・
+    事故密度）の難易度と、重み付き合成値。
 
     「生値セット→軸別difficulty→composite_difficulty」という同一の組み立てが
     OpenRouteServiceEngine._build_segment_details / RoadGraphEngine._build_segment_details /
@@ -138,6 +155,7 @@ class AxisDifficulties(NamedTuple):
     traffic: float | None
     infra: float | None
     intersection: float | None
+    accident: float | None
     composite: float | None
 
 
@@ -149,6 +167,7 @@ def evaluate_axis_difficulties(
     traffic_stress_level_value: int | None,
     bicycle_infra: BicycleInfraClass | None,
     intersection_count_per_km: float | None,
+    accident_count_per_km_year: float | None,
     elevation_weight: float,
     wind_weight: float,
     road_weight: float,
@@ -156,8 +175,9 @@ def evaluate_axis_difficulties(
     traffic_weight: float,
     infra_weight: float,
     intersection_weight: float,
+    accident_weight: float,
 ) -> AxisDifficulties:
-    """7軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
+    """8軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
 
     RoutePreference型（domain/evaluation.py）をここで受け取らないのは、evaluation.pyが
     本モジュールへ依存しているため（循環import回避）。重みは呼び出し元が
@@ -171,6 +191,7 @@ def evaluate_axis_difficulties(
     traffic = traffic_stress_difficulty(traffic_stress_level_value)
     infra = bicycle_infra_difficulty(bicycle_infra)
     intersection = intersection_difficulty(intersection_count_per_km)
+    accident = accident_difficulty(accident_count_per_km_year)
     composite = composite_difficulty(
         [
             (elevation, elevation_weight),
@@ -180,6 +201,7 @@ def evaluate_axis_difficulties(
             (traffic, traffic_weight),
             (infra, infra_weight),
             (intersection, intersection_weight),
+            (accident, accident_weight),
         ]
     )
     return AxisDifficulties(
@@ -190,6 +212,7 @@ def evaluate_axis_difficulties(
         traffic=traffic,
         infra=infra,
         intersection=intersection,
+        accident=accident,
         composite=composite,
     )
 

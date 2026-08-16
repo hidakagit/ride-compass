@@ -79,6 +79,7 @@ class RoutePreferenceWeights(BaseModel):
     traffic_weight: float = Field(ge=0)
     infra_weight: float = Field(ge=0)
     intersection_weight: float = Field(ge=0)
+    accident_weight: float = Field(ge=0)
 
 
 class RouteGenerateRequest(BaseModel):

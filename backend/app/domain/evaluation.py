@@ -32,13 +32,14 @@ class RoutePreference(BaseModel):
     """Evaluation Engineが使う重み（仕様書27章）。
 
     Road Attributeとして実装済みの標高・路面・停止密度（信号・横断歩道・一時停止・踏切）・
-    交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）と、Dynamic Data対応
-    （Phase 6）の風を対象とする。設定ファイルからの外部化はPhase 5で実施済み
-    （route_preference.yaml、services/evaluation_service.py）。
+    交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）・事故密度（外部静的
+    データソース T50、8軸目）と、Dynamic Data対応（Phase 6）の風を対象とする。
+    設定ファイルからの外部化はPhase 5で実施済み（route_preference.yaml、
+    services/evaluation_service.py）。
 
-    traffic_weight/infra_weight/intersection_weightは区間難易度・探索コスト（本モデル）
-    にのみ効き、scoring.yaml（total_score＝おすすめ度、候補集合内の相対評価）には含めない
-    （stop_weightと同じ扱い。ユーザー承認済みのスコープ判断、静的道路属性P1参照）。
+    traffic_weight/infra_weight/intersection_weight/accident_weightは区間難易度・探索コスト
+    （本モデル）にのみ効き、scoring.yaml（total_score＝おすすめ度、候補集合内の相対評価）
+    には含めない（stop_weightと同じ扱い。ユーザー承認済みのスコープ判断、静的道路属性P1参照）。
     """
 
     elevation_weight: float = 0.15
@@ -48,6 +49,7 @@ class RoutePreference(BaseModel):
     traffic_weight: float = 0.10
     infra_weight: float = 0.10
     intersection_weight: float = 0.05
+    accident_weight: float = 0.08
 
 
 class EdgeCostResult(BaseModel):
@@ -114,6 +116,8 @@ def compute_edge_cost(
     stop_count: int | None = None,
     way_tags: dict[str, str] | None = None,
     intersection_count: int | None = None,
+    accident_count: int | None = None,
+    accident_years_covered: int = 0,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -130,6 +134,10 @@ def compute_edge_cost(
     評価できる（trafficStress_levelがhighwayのみでも決まるunknown安全設計のため）。
     `intersection_count`はこのEdge周辺の交差点（次数3以上のNode）の件数（静的道路属性P1残り）。
     Noneはデータ無し（未評価、0件と区別する）。
+    `accident_count`はこのEdge周辺の事故（accident_points）の件数（外部静的データソース
+    T50残作業、8軸目）。Noneはデータ無し（未評価、0件と区別する）。`accident_years_covered`は
+    事故データの収録年数（`AttributeRepository.get_accident_years_covered`）で、密度を
+    件/(km・年)へ正規化するために使う。
     """
     if not is_edge_allowed(edge):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
@@ -143,12 +151,18 @@ def compute_edge_cost(
     intersection_count_per_km = (
         intersection_count / (edge.distance_m / 1000) if intersection_count is not None and edge.distance_m > 0 else None
     )
+    accident_count_per_km_year = (
+        accident_count / (edge.distance_m / 1000) / accident_years_covered
+        if accident_count is not None and edge.distance_m > 0 and accident_years_covered > 0
+        else None
+    )
 
     difficulty = evaluate_axis_difficulties(
         gradient_percent, wind_penalty, is_good_surface, stop_count_per_km,
-        traffic_stress, bicycle_infra, intersection_count_per_km,
+        traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year,
         preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
         preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
+        preference.accident_weight,
     ).composite
 
     # difficulty(0-100)を距離に対する乗算ペナルティへ変換する。

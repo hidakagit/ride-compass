@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 
 import networkx as nx
 
+from app.domain.accident import distance_weighted_accident_density
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
@@ -73,6 +74,8 @@ class _RoadGraphContext:
     stop_counts: dict[str, int]
     way_tags: dict[str, dict[str, str]]
     intersection_counts: dict[str, int]
+    accident_counts: dict[str, int]
+    accident_years_covered: int
     wind: WeatherConditions | None
     origin_node: str
 
@@ -110,6 +113,10 @@ class RoadGraphEngine:
         # intersection_countsはこのローカルグラフ内で計算した交差点件数（次数3以上のNode）。
         way_tags = await self._graph_service.get_way_tags(list(graph.edges.keys()))
         intersection_counts = await self._graph_service.get_intersection_counts(list(graph.edges.keys()))
+        # 外部静的データソース T50残作業（事故密度、8軸目）。同じくprepareで1回だけ取得し
+        # 全方位で共有する。accident_years_coveredは密度の「件/(km・年)」正規化に使う。
+        accident_counts = await self._graph_service.get_accident_counts(list(graph.edges.keys()))
+        accident_years_covered = await self._graph_service.get_accident_years_covered()
 
         origin_node = find_nearest_node(graph, origin)
         if origin_node is None:
@@ -120,6 +127,7 @@ class RoadGraphEngine:
         search_edge_costs = self._evaluation_service.evaluate_graph(
             graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts,
             way_tags=way_tags, intersection_counts=intersection_counts,
+            accident_counts=accident_counts, accident_years_covered=accident_years_covered,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 
@@ -130,6 +138,8 @@ class RoadGraphEngine:
             stop_counts=stop_counts,
             way_tags=way_tags,
             intersection_counts=intersection_counts,
+            accident_counts=accident_counts,
+            accident_years_covered=accident_years_covered,
             wind=wind,
             origin_node=origin_node,
         )
@@ -186,6 +196,9 @@ class RoadGraphEngine:
         wind_score = _aggregate_wind_score(edges_in_path, context.wind)
         stop_density = _aggregate_stop_density(edges_in_path, context.stop_counts)
         intersection_density = _aggregate_intersection_density(edges_in_path, context.intersection_counts)
+        accident_density = _aggregate_accident_density(
+            edges_in_path, context.accident_counts, context.accident_years_covered
+        )
         segments = self._build_segment_details(
             edges_in_path,
             elevation_attributes,
@@ -193,6 +206,8 @@ class RoadGraphEngine:
             context.stop_counts,
             context.way_tags,
             context.intersection_counts,
+            context.accident_counts,
+            context.accident_years_covered,
             context.wind,
             start_time,
         )
@@ -213,6 +228,7 @@ class RoadGraphEngine:
             traffic_stress_score=traffic_stress_score,
             bicycle_infra_score=bicycle_infra_score,
             intersection_density=intersection_density,
+            accident_density=accident_density,
             segments=segments,
             **elevation_stats,
         )
@@ -225,6 +241,8 @@ class RoadGraphEngine:
         stop_counts: dict[str, int],
         way_tags: dict[str, dict[str, str]],
         intersection_counts: dict[str, int],
+        accident_counts: dict[str, int],
+        accident_years_covered: int,
         wind: WeatherConditions | None,
         start_time: datetime,
     ) -> list[RouteSegmentDetail]:
@@ -239,24 +257,33 @@ class RoadGraphEngine:
             stop_count = stop_counts.get(edge.edge_id)
             edge_way_tags = way_tags.get(edge.edge_id)
             intersection_count = intersection_counts.get(edge.edge_id)
+            accident_count = accident_counts.get(edge.edge_id)
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, wind)
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
-            traffic_stress = traffic_stress_level(edge.highway, edge_way_tags) if edge_way_tags is not None else None
+            traffic_stress = (
+                traffic_stress_level(edge.highway, edge_way_tags) if edge_way_tags is not None else None
+            )
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
             )
             intersection_count_per_km = (
                 intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
             )
+            accident_count_per_km_year = (
+                accident_count / distance_km / accident_years_covered
+                if accident_count is not None and distance_km > 0 and accident_years_covered > 0
+                else None
+            )
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                traffic_stress, bicycle_infra, intersection_count_per_km,
+                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
                 preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
+                preference.accident_weight,
             )
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
@@ -297,6 +324,7 @@ class RoadGraphEngine:
                     traffic_difficulty=axis_difficulties.traffic,
                     infra_difficulty=axis_difficulties.infra,
                     intersection_difficulty=axis_difficulties.intersection,
+                    accident_difficulty=axis_difficulties.accident,
                     difficulty=axis_difficulties.composite,
                 )
             )
@@ -379,6 +407,17 @@ def _aggregate_intersection_density(edges: list[DirectedEdge], intersection_coun
     """
     return distance_weighted_intersection_density(
         [(edge.distance_m / 1000, intersection_counts.get(edge.edge_id)) for edge in edges]
+    )
+
+
+def _aggregate_accident_density(
+    edges: list[DirectedEdge], accident_counts: dict[str, int], accident_years_covered: int
+) -> float | None:
+    """経路全体の事故密度(件/(km・年))。_aggregate_stop_density/_aggregate_intersection_density
+    と同じ薄いラッパー（外部静的データソース T50残作業、8軸目）。
+    """
+    return distance_weighted_accident_density(
+        [(edge.distance_m / 1000, accident_counts.get(edge.edge_id)) for edge in edges], accident_years_covered
     )
 
 
