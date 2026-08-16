@@ -1605,13 +1605,18 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   download_to_pathの3ケースをhttpx.MockTransportでテスト）。import_runs記録パターンは
   提案どおり見送り（現状2箇所のまま）。backend 672件green（新規4件）
 
-### - [ ] T81. ORDINALITY順序復元ヘルパの集約 規模S
+### - [x] T81. ORDINALITY順序復元ヘルパの集約 規模S（2026-08-16完了）
 
 - `by_ord = {...}; return [by_ord.get(i + 1, default) for ...]`イディオムが
   `road_graph_repository.py`の6メソッド目のコピーになった。「ordは1始まり・欠落は既定値」の
   暗黙規約が分散し、SQL側変更時のオフバイワン（全属性が隣のサンプル点の値になる）の温床。
 - 対応: `_chunked`と同格のモジュール内ヘルパへ集約し6メソッドを置換。
 - 完了条件: 既存repository統合テスト無変更でbackend全green。
+- **実装結果（2026-08-16）**: `_restore_ordinality_order(rows, count, default, value_fn=...)`
+  を新設し、対象5メソッド（get_nearest_surface_tags/get_nearest_stop_poi_counts/
+  get_nearest_way_tags/get_nearest_intersection_counts/get_nearest_accident_counts）を
+  置換。get_nearest_way_tagsのみ4列→3要素タプルの変換が必要なため`value_fn`を渡す形。
+  既存repository統合テスト無変更でbackend green
 
 ### - [ ] T82. フロント カテゴリ凡例3点セットの共通ビルダー化 規模S〜M
 

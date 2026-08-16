@@ -604,6 +604,22 @@ _NEAREST_WAY_TAGS_SQL = text(
     bindparam("kinds", type_=ARRAY(Text())),
 )
 
+def _restore_ordinality_order(rows, count: int, default, value_fn=lambda row: row[1]):
+    """`UNNEST(...) WITH ORDINALITY`で1始まりのord列を振ったSQL結果を、元の入力順・
+    入力件数のリストへ復元する（改善計画T81）。
+
+    「ordは1始まり・欠落（該当0件/範囲外）は既定値」という暗黙規約が、
+    get_nearest_surface_tags等6メソッドへ同型の`by_ord = {...}; return [by_ord.get(i+1,
+    default) for ...]`イディオムとして分散していた。SQL側変更時のオフバイワン
+    （全属性が隣のサンプル点の値になる）を防ぐため1箇所へ集約する。
+
+    `rows`の各行は先頭要素がord、`value_fn`がその行から値を組み立てる（既定は2列目を
+    そのまま使う。3列以上をタプルへ束ねる場合はvalue_fnを渡す）。
+    """
+    by_ord = {row[0]: value_fn(row) for row in rows}
+    return [by_ord.get(i + 1, default) for i in range(count)]
+
+
 def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
     """`&&`によるバウンディングボックス事前フィルタ用に、距離(m)を安全側の緯度経度差(度)へ
     変換する。1度=100,000mという（実際の111,000mより小さい＝度換算では大きい）保守的な
@@ -1329,8 +1345,7 @@ class AttributeRepository(_SessionRepository):
         result = await self._session.execute(
             _NEAREST_SURFACE_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
         )
-        by_ord = {ord_: surface for ord_, surface in result.all()}
-        return [by_ord.get(i + 1) for i in range(len(points))]
+        return _restore_ordinality_order(result.all(), len(points), None)
 
     async def get_stop_poi_counts(
         self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
@@ -1376,8 +1391,7 @@ class AttributeRepository(_SessionRepository):
                 "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
             },
         )
-        by_ord = {ord_: stop_count for ord_, stop_count in result.all()}
-        return [by_ord.get(i + 1, 0) for i in range(len(points))]
+        return _restore_ordinality_order(result.all(), len(points), 0)
 
     async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
         """指定edge_idそれぞれについて、road_edges.osm_way_id経由のosm_raw_ways.tags
@@ -1427,10 +1441,10 @@ class AttributeRepository(_SessionRepository):
                 "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS),
             },
         )
-        by_ord = {
-            ord_: (highway, tags or {}, is_designated) for ord_, highway, tags, is_designated in result.all()
-        }
-        return [by_ord.get(i + 1, (None, {}, False)) for i in range(len(points))]
+        return _restore_ordinality_order(
+            result.all(), len(points), (None, {}, False),
+            value_fn=lambda row: (row[1], row[2] or {}, row[3]),
+        )
 
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
@@ -1485,8 +1499,7 @@ class AttributeRepository(_SessionRepository):
                 "degree_threshold": INTERSECTION_DEGREE_THRESHOLD,
             },
         )
-        by_ord = {ord_: intersection_count for ord_, intersection_count in result.all()}
-        return [by_ord.get(i + 1, 0) for i in range(len(points))]
+        return _restore_ordinality_order(result.all(), len(points), 0)
 
     async def get_accident_counts(
         self, edge_ids: list[str], bicycle_only: bool = False, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
@@ -1534,8 +1547,7 @@ class AttributeRepository(_SessionRepository):
                 "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
             },
         )
-        by_ord = {ord_: accident_count for ord_, accident_count in result.all()}
-        return [by_ord.get(i + 1, 0) for i in range(len(points))]
+        return _restore_ordinality_order(result.all(), len(points), 0)
 
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数（accident_import_runsの成功run、年重複なし）を返す。
