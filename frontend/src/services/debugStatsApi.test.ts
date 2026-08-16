@@ -51,7 +51,7 @@ describe("getDebugStats", () => {
   it("ok:falseの場合はHTTPステータスを含むエラーを投げる", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeResponse({ ok: false, status: 500 })));
 
-    await expect(getDebugStats()).rejects.toThrow("システム状況の取得に失敗しました（HTTP 500）");
+    await expect(getDebugStats()).rejects.toThrow("システム状況の取得に失敗しました[HTTP 500]");
   });
 
   it("jsonのparseが失敗した場合は解析失敗のエラーを投げる", async () => {
@@ -67,5 +67,11 @@ describe("getDebugStats", () => {
     );
 
     await expect(getDebugStats()).rejects.toThrow("システム状況の解析に失敗しました");
+  });
+
+  it("fetch自体が失敗した場合（通信エラー）もそのままエラーを投げる", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(getDebugStats()).rejects.toThrow("Failed to fetch");
   });
 });
