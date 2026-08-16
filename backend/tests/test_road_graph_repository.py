@@ -1312,34 +1312,6 @@ async def test_get_poi_tile_mvt_encodes_stop_poi_kind(road_graph_repository, roa
 
     tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
-    # intersectionレイヤーは対象0件のため、MVT上はレイヤー自体が存在しない
-    # （空バイト列を結合するだけで空featuresのレイヤーは焼かない。MapLibre側は
-    # source-layerが無いタイルを「そのレイヤーは0件」として扱うため実害はない）。
     decoded = mapbox_vector_tile.decode(tile)
-    assert "intersection" not in decoded
     kinds = sorted(f["properties"]["kind"] for f in decoded["stop_poi"]["features"])
     assert kinds == ["level_crossing", "traffic_signals"]
-
-
-async def test_get_poi_tile_mvt_encodes_intersections_at_degree_threshold(road_graph_repository):
-    """次数3以上のroad_nodeだけがintersectionレイヤーへ乗り、degreeプロパティを持つ
-    （domain/traffic.py: INTERSECTION_DEGREE_THRESHOLD=3と同じ閾値）。次数1のnode2/5/6は
-    乗らない。"""
-    import mapbox_vector_tile
-
-    ways = [
-        WaySpec(osm_way_id=101, node_ids=[1, 2], highway="residential"),
-        WaySpec(osm_way_id=102, node_ids=[1, 5], highway="residential"),
-        WaySpec(osm_way_id=103, node_ids=[1, 6], highway="residential"),
-    ]
-    nodes = {1: NODE1, 2: NODE2, 5: NODE5, 6: NODE6}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-    await _mark_mvt_coverage(road_graph_repository)
-
-    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
-
-    decoded = mapbox_vector_tile.decode(tile)
-    assert "stop_poi" not in decoded  # 同じ理由でstop_poi側もレイヤー自体が存在しない
-    assert len(decoded["intersection"]["features"]) == 1
-    assert decoded["intersection"]["features"][0]["properties"]["degree"] == 3

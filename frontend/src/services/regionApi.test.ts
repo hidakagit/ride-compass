@@ -47,12 +47,12 @@ describe("regionApi", () => {
   });
 
   it("poiTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=1`);
+    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=2`);
   });
 
-  // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。バックエンドは
-  // 同じpoi-tilesへ交差点密度（intersection）レイヤーも引き続き焼き込むが、地図の
-  // 独立可視化レイヤーとしては提供しない判断（T96）のためフロントは参照しない。
+  // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
+  // （intersection）レイヤーは地図の独立可視化レイヤーとしては提供しない判断（T96）で
+  // フロントから参照が無くなっていたため、バックエンド側の配信自体もT97で撤去済み。
   it("POIベクタタイルのレイヤー名・世代がbackend生成物と一致する", () => {
     expect(STOP_POI_SOURCE_LAYER).toBe(regionTileConfig.poi.stop_poi_layer_name);
     expect(tileVersionFromUrl(poiTileUrl())).toBe(regionTileConfig.poi.tile_version);

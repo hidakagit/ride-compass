@@ -76,8 +76,8 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 - エンジン切替の併存・`LoopRoutingEngine` 3段階ポート契約
 - DI工場が使わない側エンジンの軽量依存も毎回構築（FastAPI制約への単純さ優先）
 - `/api/routes/preview` の残置（Step3疎通確認用）
-- `page.tsx` / `MapView.tsx` の分割見送り（閾値監視つき: 静的レイヤー+2種 or MapView 1,200行で
-  決めておいた2点のみ実施）
+- `page.tsx` / `MapView.tsx` の分割見送り（閾値監視つき。当初の閾値は決めておいた2点
+  ともT47で消化済み、T91で新閾値「MapView.tsx 1,800行 or STATIC_OVERLAY_LAYERS 10種」を再設定）
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
 - wind_scoreのエンジン間の意味差（engineフィールドで識別する管理された不整合）
 - PBF取込バッチのasyncpg COPY直行（Repository迂回）

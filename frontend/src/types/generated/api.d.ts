@@ -141,8 +141,11 @@ export interface paths {
         };
         /**
          * Region Poi Tile
-         * @description 停止要因POI（信号・横断歩道・一時停止・踏切）・交差点密度レイヤー（改善計画T54）。
-         *     静的道路属性P1で評価にのみ使われていたosm_raw_pois/road_nodesの可視化。
+         * @description 停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー（改善計画T54）。
+         *     静的道路属性P1で評価にのみ使われていたosm_raw_poisの可視化。交差点密度
+         *     （road_nodes次数）レイヤーもT54で同じタイルへ焼き込んでいたが、T96で地図上の
+         *     独立可視化レイヤーとしては撤去され参照が無くなったため、T97でこの配信からも削除した
+         *     （ルーティング材料のintersection_weightとしては`get_intersection_counts`等を引き続き使う）。
          *     路面タイルと同じ歯止め・同時実行制御をそのまま流用する。
          */
         get: operations["region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get"];

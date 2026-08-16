@@ -1014,7 +1014,7 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
 - 残る所見（同条件での地図初期表示6秒超）はヘッドレスブラウザのタッチエミュレーション特有の
   遅延の可能性が残ったまま実機未検証。継続して気になる場合のみ実機スマートフォンで確認する。
 
-### - [ ] T56. 初回ルート生成時の地図タイル一過性表示崩れの再現性確認 規模S（調査・優先度低）
+### - [x] T56. 初回ルート生成時の地図タイル一過性表示崩れの再現性確認 規模S（調査・優先度低、2026-08-17クローズ）
 
 - 初回「ルート生成」直後、地図が新しいルート範囲へズーム/パンする過程で、右半分だけ
   英語ローマ字ラベルの別スタイルタイルが矩形状に一瞬混在する場面が1度観測された
@@ -1028,6 +1028,13 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
   再現条件は「headless環境・候補到着直後」で、その後の操作で自然回復。headless固有の可能性を
   排除できておらず（Confidence: Medium）、実機スマートフォン・通常ブラウザでの再現性確認は
   本タスクの完了条件として引き続き残る。
+- **クローズ（2026-08-17）**: headed Chromium（`headless: false`、Claude Browserペインではなく
+  自前Playwrightスクリプト）で、デスクトップ幅（1280px）・モバイル幅（390px）それぞれ距離を
+  変えて4回ずつ（計8回、18〜42km、ズーム幅を変動させる目的）「ルート生成」を実行し、候補到着
+  直後から1.5秒間を150ms間隔で連続スクリーンショット（1回あたり11枚、計88枚）した。全ラウンド
+  で英語ローマ字タイルの混在・縮小正方形描画のいずれも観測されず、コンソールエラーも0件。
+  2026-08-16の観測がheadless固有（WebGLコンポジット周りの環境依存）だった可能性が高いと判断し、
+  完了条件どおりクローズする。
 
 ### - [x] T57. 天候インジケータの視認性向上 規模S（2026-08-16完了）
 
@@ -1955,7 +1962,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ## 統合レビュー対応フォローアップ（2026-08-16・review:all第1回の残り指摘）
 
-### - [ ] T91. MapView.tsx閾値監視の再設定〔統合レビューF-3〕規模S
+### - [x] T91. MapView.tsx閾値監視の再設定〔統合レビューF-3〕規模S（2026-08-17完了）
 
 - 背景: 複雑度平衡レビュー第4回R-6で「静的レイヤー+2種 or MapView 1,200行到達」を閾値に、
   到達時は決めておいた2点（宣言的レイヤー登録・useStoredState抽出）のみ実施し分割はしない、
@@ -1976,6 +1983,11 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   MapView.tsxは1,664行（T87分含む作業ツリー、前回確認比+286行）まで増加。今回増分自体は
   単一責務（データ取得状態表示）に閉じており品質悪化はないと判定。新閾値案（「1,800行 or
   STATIC_OVERLAY_LAYERS 10種到達」）を`/review:improve`経由での基準反映候補として提示。
+- **完了（2026-08-17）**: 新閾値案（MapView.tsx 1,800行 or STATIC_OVERLAY_LAYERS 10種到達）を
+  正式に採用し、`docs/complexity-review-2026-08-16.md`（R-6・Keep List・設計原則9）と
+  `.claude/commands/review/context.md`のKEEP記載を「当初閾値は消化済み、T91で新閾値へ再設定」
+  へ更新した。コード変更は不要（対応済みの2点はT47で完了済みのため）。現在値
+  （2026-08-17時点: MapView.tsx 1,634行・STATIC_OVERLAY_LAYERS 6種）はいずれの閾値も未到達。
 
 ---
 
@@ -2100,7 +2112,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   地図上・サイドバーとも交差点密度チップ/セクションが表示されず、他レイヤー
   （特に停止要因・道路情報）に影響が無いことを確認。
 
-### - [ ] T97. バックエンドpoi-tiles配信から交差点密度レイヤーを削除 規模S — トリガー: 次にpoi-tiles配信のSQL/region_service.pyを変更するタイミング
+### - [x] T97. バックエンドpoi-tiles配信から交差点密度レイヤーを削除 規模S（2026-08-17完了）
 
 - 背景: T96でフロントの交差点密度可視化を撤去した後も、バックエンドは
   `_POI_TILE_MVT_SQL`（`road_graph_repository.py`）で引き続きintersectionレイヤーを
@@ -2118,6 +2130,15 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   あれば併せて整理する。POI_TILE_VERSIONの世代を上げる（T93と同じ理由）。
 - 完了条件: backend/frontend全テストgreen、`/api/region/poi-tiles`のレスポンスから
   intersectionレイヤーが消えていることを確認。
+- **対応（2026-08-17）**: `_POI_TILE_MVT_SQL`をstop_poiのみの単純なクエリへ簡素化し
+  （intersectionレイヤーのCOALESCE枝・`bindparam("intersection_layer"/"degree_threshold")`を削除）、
+  `vector_tile.py: INTERSECTION_LAYER_NAME`・`encode_empty_poi_tile`のintersection空レイヤー・
+  `export_openapi.py`の`region-tile-config.json: poi.intersection_layer_name`出力を削除。
+  `INTERSECTION_DEGREE_THRESHOLD`はルーティング材料（`get_intersection_counts`等）が
+  引き続き使うため維持。`POI_TILE_VERSION`をv1→v2（backend/frontend対で更新）。
+  DB統合テスト（intersectionレイヤーの次数検証）を削除、`regionApi.test.ts`のURL世代・
+  コメントを更新。関連ドキュメント（region.py/region_service.pyの「POI・交差点密度」表記）も
+  「POI」単独へ整理。backend 734件・frontend 265件・tsc・eslint全green。
 
 ---
 
@@ -2548,3 +2569,7 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T104 | ユーザーがモバイル実機スクショを提示（地図上の指定路線凡例内訳ポップアップで「緊急輸送道路 かつ 重要物流道路（N10・...」が末尾`N12）`ごと見切れ）。`MapOverlayControls.module.css: .detailRowLabel`の`white-space: nowrap`+`text-overflow: ellipsis`が原因と特定し、サイドバー側と同じ折り返し方式へ統一。あわせてユーザー提案（全角括弧→半角）を採用し該当ラベルを`[N10・N12]`へ変更。モバイル390px幅のPlaywright実機確認で2行折り返し・全文表示を確認。frontend 236件・tsc・eslint全green |
 | 2026-08-17 | T106 | ユーザー依頼によりT104を「システムUI全般」へ拡張。UI表示文言（コメント・test title除く）の全角括弧を半角`[]`へ一括置換（mapLayers/staticAttributeLayers/MapView等18ファイル＋services配下エラーメッセージ5ファイル）、指定路線`both`ラベルを`緊急輸送 かつ 重要物流道路[N10＋N12]`（共有語重複割愛）へ変更、設計原則12「地図表示エリア最大化優先」をcomplexity-review-2026-08-16.mdへ追記。副次的に`LocationControl.test.tsx`の`new RegExp(label)`が`[]`を文字クラスと誤解釈する回帰を発見・修正。frontend 238件・tsc・eslint全green、Playwright実機確認（デスクトップ・モバイル）済み |
 | 2026-08-17 | T107（基盤フェーズ） | ユーザー相談（一次情報/二次情報の分離、二次情報側の重みを研究モード・将来は運用でも調整したい）を受け設計。交通ストレスの判定レシピをPython定数から`TrafficStressRecipe`（pydantic）へ外出しし、タイル（全ユーザー共有キャッシュ）には最終値でなく材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）だけを焼き込む方式へ変更（世代v8→v9）。最終値の計算はフロント（`trafficStressExpression.ts`、MapLibre expression、既定レシピは`export_openapi.py`書き出しJSON経由でPython側と同期）とルート採点（`domain/traffic.py`）がそれぞれ担う。`/api/routes/generate`にレシピのリクエスト上書きを追加、T90内訳ポップアップはGET→POST化。実装中にST_AsMVTがPostgres numeric型をtextへフォールバックする挙動をDB統合テストで発見・`::integer`キャストで修正（見逃せばフロントの数値比較も壊れていた）。今回は基盤のみで実際の調整UIパネルは次ラウンド。backend 733件・frontend 265件・tsc・eslint全green |
+| 2026-08-17 | T107（コードレビュー対応） | T107実装のコードレビューで5件（1: レシピ既定値がYAML/Python定数の2箇所に分裂しドリフト検知テストが無い、2: SQL⇔Python整合性テスト削除に伴いPython⇔JS間の実ドリフト検知が失われていた、3: lanes/maxspeed="0"でPythonとフロント式の判定が食い違う、4: v9はプロパティ削除を伴う初のタイル世代非互換変更でデプロイ順序次第で一時的に地図が全線グレー化しうる、5: `@maplibre/maplibre-gl-style-spec`を新規依存追加したがmaplibre-gl内蔵版とのバージョン乖離リスク）を検出・全件修正。`_cycleway_class`/`traffic_stress_tile_ingredients`をdomain/traffic.pyへ切り出し、`export_openapi.py`が`traffic_stress_level()`の実行結果を`traffic-stress-test-cases.json`へ書き出しフロントの`trafficStressExpression.test.ts`がこれを検証する形でPython⇔JS実ドリフト検知を復元。SQL側でmaxspeed/lanes="0"を無効値として除外。YAML既定値のドリフト検知テストを`route_preference.yaml`と同じ方式で追加。デプロイ順序の注意をregionApi.ts/region_service.py/architecture.mdへ明記。style-specをexact pin。backend 735件・frontend 265件・tsc・eslint全green |
+| 2026-08-17 | T91 | 統合レビューF-3（MapView.tsx閾値監視の空白化）に対応。当初閾値（静的レイヤー+2種 or MapView 1,200行）は決めておいた2点（宣言的レイヤー登録・useStoredState抽出）ともT47で消化済みと確認したうえで、統合レビュー第2回（2026-08-17）が提示した新閾値案「MapView.tsx 1,800行 or STATIC_OVERLAY_LAYERS 10種到達」を正式採用。`docs/complexity-review-2026-08-16.md`（R-6・Keep List・設計原則9）と`.claude/commands/review/context.md`のKEEP記載を更新。コード変更は無し。現在値（MapView.tsx 1,634行・STATIC_OVERLAY_LAYERS 6種）はいずれも未到達 |
+| 2026-08-17 | T97 | T96でフロントから交差点密度レイヤーの可視化を撤去した後も残っていたバックエンド配信（poi-tilesのintersectionレイヤー）を削除。`_POI_TILE_MVT_SQL`をstop_poi単独のクエリへ簡素化し、`vector_tile.py`・`export_openapi.py`・`region_service.py`・`region.py`のintersection関連記述を整理。ルーティング材料（`get_intersection_counts`・`INTERSECTION_DEGREE_THRESHOLD`）は無変更。`POI_TILE_VERSION`をv1→v2（backend/frontend対で更新）。intersectionレイヤーのDB統合テストを削除、`regionApi.test.ts`を追従。backend 734件・frontend 265件・tsc・eslint全green |
+| 2026-08-17 | T56 | headed Chromium（自前Playwrightスクリプト、Claude Browserペインではない）でデスクトップ・モバイル幅×距離違いで計8回ルート生成し、候補到着直後1.5秒間を150ms間隔で連続撮影（計88枚）して再現性を確認。全ラウンドでタイルの一過性崩れ・コンソールエラーとも観測されず、2026-08-16のheadless環境限定の症状だった可能性が高いと判断しクローズ |

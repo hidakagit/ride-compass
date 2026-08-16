@@ -120,10 +120,12 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
 ROAD_SURFACE_TILE_VERSION = "9"
 
-# 停止要因POI・交差点密度タイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
+# 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
+# v2: T97。地図の独立可視化レイヤーとしては使われなくなっていた（T96）intersectionレイヤーの
+# 配信自体を削除し、stop_poiのみの1レイヤー構成へ変更した世代。
 # v1: 初版（stop_poi・intersectionの2レイヤー）。
-POI_TILE_VERSION = "1"
+POI_TILE_VERSION = "2"
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
@@ -135,7 +137,7 @@ def _poi_tile_cache_path(z: int, x: int, y: int) -> str:
 
 
 class RegionService:
-    """候補ルートに紐づかない「地域全体」のレイヤー（路面、停止要因POI・交差点密度）を、
+    """候補ルートに紐づかない「地域全体」のレイヤー（路面、停止要因POI）を、
     標準的なXYZベクタタイルとして提供する。
 
     標高は国土地理院の色別標高図（ラスタタイル）をフロントエンドから直接重ね描きするため、
@@ -172,7 +174,7 @@ class RegionService:
 
         `repository_method`はRoadGraphRepositoryの委譲メソッド名（`get_road_surface_tile_mvt`/
         `get_poi_tile_mvt`）。両者は「カバレッジ外はNone・カバレッジ内0件は空バイト列」という
-        同じ契約のため、路面タイル・POI/交差点密度タイル（改善計画T54）で本メソッドを共有する。
+        同じ契約のため、路面タイル・POIタイル（改善計画T54）で本メソッドを共有する。
 
         DB障害もNoneを返す（ログ方針: エラーは常時WARNINGで出す。PostGIS停止時も
         地図表示という既存機能全体を落とさず、空タイルで安全側に倒す）。
@@ -255,9 +257,9 @@ class RegionService:
         )
 
     async def get_poi_tile(self, z: int, x: int, y: int) -> bytes:
-        """停止要因POI・交差点密度レイヤー（改善計画T54）用のMVTタイルを返す。
+        """停止要因POIレイヤー（改善計画T54）用のMVTタイルを返す。
         get_road_surface_tileと同じキャッシュ・カバレッジ判定・エラー処理を、対象データが
-        違うだけの_get_tileへ共通化して使う（osm_raw_pois/road_nodesが評価にのみ使われ
+        違うだけの_get_tileへ共通化して使う（osm_raw_poisが評価にのみ使われ
         地図上で確認できなかった問題への対応）。
         """
         return await self._get_tile(
@@ -265,7 +267,7 @@ class RegionService:
             cache_path=_poi_tile_cache_path(z, x, y),
             empty_tile=encode_empty_poi_tile(),
             external_call_name="region:poi-tile",
-            label="POI・交差点密度",
+            label="POI",
             z=z,
             x=x,
             y=y,
