@@ -1250,7 +1250,7 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   既存のrepository統合テスト（件数・境界値）が無変更でgreen（結果セットは不変のはず。
   `&&`は保守的マージンのため取りこぼしが無い）。
 
-### - [ ] T65. 路面MVTタイルの指定路線判定をway行ごとLATERALから事前集約JOINへ 規模S
+### - [x] T65. 路面MVTタイルの指定路線判定をway行ごとLATERALから事前集約JOINへ 規模S（2026-08-16完了）
 
 - `_ROAD_SURFACE_TILE_MVT_SQL`の`d` LATERAL（designation焼き込み、T51で追加）は、タイル内way
   1本ごとにroad_edges→designation_attributesの索引スキャンを実行する（way1本あたり約0.16ms）。
@@ -1270,6 +1270,13 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   （`d.is_ert`/`d.is_cl`の参照側は`COALESCE(..., false)`へ変更）
 - T51の残作業「フロント表示とパフォーマンス実地検証」と同じ箇所のため、T51側の検証前に
   実施するのが望ましい。
+- **実装結果（2026-08-16）**: `_ROAD_SURFACE_TILE_MVT_SQL`のdesignation判定を
+  `CROSS JOIN LATERAL`（way1本ごとの索引スキャン）から提案どおりの事前集約`LEFT JOIN`へ
+  書き換え。LEFT JOIN化に伴い`d.is_ert`/`d.is_cl`はtraffic_stress側の参照のみ
+  `COALESCE(..., false)`でNULL対応（designationプロパティのCASE式は`WHEN d.is_ert THEN ...`が
+  NULLで自然にfalse相当になるため無変更）。dev DBで実データ（z12/z14タイル、designation該当
+  206件を含む）を突き合わせ、書き換え前後でdesignationプロパティが完全一致することを確認。
+  test_road_graph_repository.pyの整合性テストも含めbackend 652件green
 - 完了条件: test_road_graph_repository.pyの整合性テスト（Python実装との同値性）が無変更でgreen。
   MVT出力のdesignationプロパティが書き換え前後で一致。
 
