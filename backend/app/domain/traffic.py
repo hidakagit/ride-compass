@@ -91,7 +91,14 @@ BicycleInfraClass = Literal[
 
 def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -> BicycleInfraClass:
     """自転車インフラ分類（優先順位: separated＞lane＞shared_busway等＞shared_pedestrian＞
-    roadway/prohibited＞unknown。計画書§2.4）。"""
+    roadway/prohibited＞unknown。計画書§2.4）。
+
+    cycleway/cycleway:left/right/bothタグは`traffic_stress_level`（本モジュール）でも
+    「専用自転車道の有無」の補正に使われている（trackなら-2、laneなら-1）。同じ入力を
+    別目的で解釈しているため、bicycle_infra_score（本分類ベース）とtraffic_stress_score
+    （交通ストレス）は完全には独立ではなく、専用自転車道が併設された区間では両方が
+    同時に「易しい」側へ動く（改善計画T62、意図的な設計でありバグではない）。
+    """
     cycleway_values = _cycleway_values(tags)
     bicycle = (tags.get("bicycle") or "").strip().lower()
 
@@ -110,7 +117,15 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
     return "unknown"
 
 
-# 交通ストレス基本値（highwayのみで決定、全wayで必ず決まる。計画書§2.4）。
+# 交通ストレス基本値（highwayのみで決定。計画書§2.4）。
+#
+# path/footway/pedestrian/bridleway/steps・motorway/motorway_link・service/roadは意図的に
+# 未登録（`traffic_stress_level`はbase=Noneのため常にNoneを返し、交通ストレス軸では評価
+# 対象外になる）。「登録漏れ」ではなく、他の2軸（roadFilterAxes.tsのhighway表示分類・
+# classify_bicycle_infrastructureの自転車インフラ分類）ではこれらのhighway値が評価対象に
+# なりうるため、3軸のカバレッジは意図的に揃っていない（改善計画T62）。値付けは
+# LTSの目安として根拠が弱く、本格チューニングはP2据え置き（不確かな推測でNone以外を
+# 返さない、という本ファイル冒頭の方針を優先した）。
 TRAFFIC_STRESS_BASE_BY_HIGHWAY: dict[str, int] = {
     "cycleway": 1,
     "living_street": 2,
@@ -217,6 +232,9 @@ def traffic_stress_level(highway: str | None, tags: dict[str, str]) -> int | Non
     """交通ストレス（LTS: Level of Traffic Stress風の1-4段階。「交通量」ではなく
     「推定交通ストレス」、計画書§2.4）。基本値はhighwayのみで決まり、未知のhighwayは
     None（評価しない）。補正はタグが実際にある場合のみ適用する（unknownは補正しない）。
+
+    cycleway系タグによる補正は`classify_bicycle_infrastructure`と同じ入力を別目的で
+    解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
     """
     base = TRAFFIC_STRESS_BASE_BY_HIGHWAY.get(highway or "")
     if base is None:
