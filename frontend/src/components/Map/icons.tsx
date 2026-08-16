@@ -66,6 +66,21 @@ export function BicycleInfraIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 指定路線（外部静的データソース T51、緊急輸送道路・重要物流道路）: 道路標識風の盾形 */
+export function DesignationIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 2 17 4.5v5.2c0 4.4-3 7.2-7 8.3-4-1.1-7-3.9-7-8.3V4.5L10 2Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** 事故（外部静的データソース T50）: 衝突を示す星形バースト */
 export function AccidentIcon({ size = 16 }: IconProps) {
   return (

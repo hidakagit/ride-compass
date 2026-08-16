@@ -192,6 +192,14 @@ class GraphService:
             return 0
         return await self._repository.get_accident_years_covered()
 
+    async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
+        """指定edge_idのうちKSJ N10/N12に該当するものの集合を返す（外部静的データソース
+        T51）。get_stop_poi_countsと同じ「repositoryが無ければ空集合」パターン。
+        """
+        if self._repository is None:
+            return set()
+        return await self._repository.get_designated_edge_ids(edge_ids)
+
     async def _fetch_graph_with_surface_attributes(
         self, bbox: BoundingBox
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:

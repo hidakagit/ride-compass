@@ -29,6 +29,8 @@ import {
   ACCIDENT_RADIUS_EXPRESSION,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LABELS,
+  DESIGNATION_COLOR_EXPRESSION,
+  DESIGNATION_LABELS,
   INTERSECTION_COLOR,
   INTERSECTION_RADIUS_EXPRESSION,
   STATIC_FILTER_AXES,
@@ -86,6 +88,7 @@ const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
 const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
+const DESIGNATION_LAYER_ID = "region-designation-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
@@ -446,6 +449,29 @@ function ensureBicycleInfraLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
+// 指定路線（外部静的データソース T51、KSJ N10/N12）。交通ストレス・自転車インフラと同じく
+// 路面と同じベクタソースを再利用する独立レイヤー。designationプロパティは該当区間のみ
+// 値を持つ（未該当はプロパティ欠落、DESIGNATION_COLOR_EXPRESSIONのcoalesceで灰色に倒す）。
+function ensureDesignationLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(DESIGNATION_LAYER_ID)) return;
+    map.addLayer({
+      id: DESIGNATION_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": DESIGNATION_COLOR_EXPRESSION as any,
+        "line-width": 3,
+        "line-opacity": 0.85,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
 // 事故レイヤー（外部静的データソース T50）。road_surfaceとは独立のベクタソース・タイル
 // エンドポイント（PBF取込範囲とは無関係に取込済みの警察庁データそのもの）のため、
 // ensureRoadSurfaceTileLayerと同じ「初期化時に一度だけ追加、以降はvisibility切替のみ」の
@@ -540,7 +566,7 @@ function ensureIntersectionLayer(map: MapLibreMap) {
 }
 
 // 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
-// 6レイヤー（標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度）は、
+// 7レイヤー（標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI・交差点密度）は、
 // いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
 // 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
 // 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
@@ -549,6 +575,7 @@ const STATIC_OVERLAY_LAYERS = [
   { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
   { key: "trafficStress", layerId: TRAFFIC_STRESS_LAYER_ID, ensure: ensureTrafficStressLayer },
   { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
+  { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
   { key: "intersections", layerId: INTERSECTION_LAYER_ID, ensure: ensureIntersectionLayer },
@@ -569,8 +596,8 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
   });
 }
 
-// 改善計画T63: 標高を除く5レイヤー（交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度）
-// の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSの
+// 改善計画T63: 標高を除く6レイヤー（交通ストレス・自転車インフラ・指定路線・事故・停止要因POI・
+// 交差点密度）の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSの
 // keyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、他は1軸）を道路情報と同じ
 // buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする
 // （setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
@@ -654,6 +681,8 @@ interface RoadSurfacePopupProperties {
   bridge?: boolean | null;
   traffic_stress?: number | null;
   bicycle_infra?: string | null;
+  /** 指定路線コンフレーション機構（外部静的データソース T51）。未該当はプロパティ欠落。 */
+  designation?: string | null;
 }
 
 const SMOOTHNESS_LABELS: Record<string, string> = {
@@ -677,6 +706,9 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   }
   if (properties.traffic_stress != null) {
     rows.push(`交通ストレス: ${properties.traffic_stress}/4`);
+  }
+  if (properties.designation) {
+    rows.push(DESIGNATION_LABELS[properties.designation] ?? properties.designation);
   }
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
@@ -725,6 +757,8 @@ interface MapViewProps {
   /** 交通ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
   showTrafficStress: boolean;
   showBicycleInfra: boolean;
+  /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。 */
+  showDesignation: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI・交差点密度（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
@@ -733,7 +767,7 @@ interface MapViewProps {
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** 交通ストレス・自転車インフラ・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み軸
+  /** 交通ストレス・自転車インフラ・指定路線・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み軸
    * （改善計画T63、STATIC_FILTER_AXES参照）。事故のみ2軸を持ち、他は1軸。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
@@ -754,6 +788,7 @@ export default function MapView({
   showRoad,
   showTrafficStress,
   showBicycleInfra,
+  showDesignation,
   showAccidents,
   showStopPoi,
   showIntersections,
@@ -791,6 +826,7 @@ export default function MapView({
     showRoad,
     showTrafficStress,
     showBicycleInfra,
+    showDesignation,
     showAccidents,
     showStopPoi,
     showIntersections,
@@ -820,6 +856,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      showDesignation,
       showAccidents,
       showStopPoi,
       showIntersections,
@@ -837,6 +874,7 @@ export default function MapView({
     showRoad,
     showTrafficStress,
     showBicycleInfra,
+    showDesignation,
     showAccidents,
     showStopPoi,
     showIntersections,
@@ -862,6 +900,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      showDesignation,
       showAccidents,
       showStopPoi,
       showIntersections,
@@ -873,6 +912,7 @@ export default function MapView({
       elevation: showElevation,
       trafficStress: showTrafficStress,
       bicycleInfra: showBicycleInfra,
+      designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       intersections: showIntersections,
@@ -962,6 +1002,7 @@ export default function MapView({
         ROAD_TILE_LAYER_ID,
         TRAFFIC_STRESS_LAYER_ID,
         BICYCLE_INFRA_LAYER_ID,
+        DESIGNATION_LAYER_ID,
         ACCIDENT_LAYER_ID,
         STOP_POI_LAYER_ID,
         INTERSECTION_LAYER_ID,
@@ -992,6 +1033,7 @@ export default function MapView({
         ROAD_TILE_LAYER_ID,
         TRAFFIC_STRESS_LAYER_ID,
         BICYCLE_INFRA_LAYER_ID,
+        DESIGNATION_LAYER_ID,
         ACCIDENT_LAYER_ID,
         STOP_POI_LAYER_ID,
         INTERSECTION_LAYER_ID,
@@ -1150,11 +1192,11 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度は、いずれも
+  // 標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI・交差点密度は、いずれも
   // 「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替えのみ」という
-  // 同型の6レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
+  // 同型の7レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
   // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
-  // いずれか1つのフラグが変わったときに他5つを再設定しても表示に影響しない）。
+  // いずれか1つのフラグが変わったときに他6つを再設定しても表示に影響しない）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1162,13 +1204,22 @@ export default function MapView({
       elevation: showElevation,
       trafficStress: showTrafficStress,
       bicycleInfra: showBicycleInfra,
+      designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       intersections: showIntersections,
     });
-  }, [showElevation, showTrafficStress, showBicycleInfra, showAccidents, showStopPoi, showIntersections]);
+  }, [
+    showElevation,
+    showTrafficStress,
+    showBicycleInfra,
+    showDesignation,
+    showAccidents,
+    showStopPoi,
+    showIntersections,
+  ]);
 
-  // 交通ストレス・自転車インフラ・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み
+  // 交通ストレス・自転車インフラ・指定路線・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み
   // （改善計画T63）。道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで
   // 反映される。
   useEffect(() => {

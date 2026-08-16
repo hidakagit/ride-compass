@@ -88,6 +88,7 @@ class FakeGraphService:
         intersection_counts: dict | None = None,
         accident_counts: dict | None = None,
         accident_years_covered: int = 0,
+        designated_edge_ids: set | None = None,
     ):
         self._graph = graph
         self._surface_attributes = surface_attributes or {}
@@ -96,6 +97,7 @@ class FakeGraphService:
         self._intersection_counts = intersection_counts or {}
         self._accident_counts = accident_counts or {}
         self._accident_years_covered = accident_years_covered
+        self._designated_edge_ids = designated_edge_ids or set()
         # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
         # （GraphService.get_stop_poi_counts(repository=None)と同じ{}を返す）。Trueは
         # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
@@ -130,6 +132,10 @@ class FakeGraphService:
     async def get_accident_years_covered(self):
         return self._accident_years_covered
 
+    async def get_designated_edge_ids(self, edge_ids):
+        # 指定路線コンフレーション機構（外部静的データソース T51）。
+        return {edge_id for edge_id in edge_ids if edge_id in self._designated_edge_ids}
+
 
 class FakeElevationAttributeService:
     def __init__(self, attributes: dict | None = None):
@@ -160,12 +166,13 @@ def make_generator(
     intersection_counts: dict | None = None,
     accident_counts: dict | None = None,
     accident_years_covered: int = 0,
+    designated_edge_ids: set | None = None,
     wind: WeatherConditions | None = None,
     route_preference: RoutePreference | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
-        accident_counts, accident_years_covered,
+        accident_counts, accident_years_covered, designated_edge_ids,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()

@@ -146,6 +146,19 @@ class TestTrafficStressLevel:
         # 補正はタグが実際にある場合のみ適用する（unknownは補正しない）
         assert traffic_stress_level("tertiary", {}) == 3
 
+    def test_is_designated_increases_by_1(self):
+        # 外部静的データソース T51（KSJ N10/N12該当の+1補正）。
+        assert traffic_stress_level("residential", {}, is_designated=True) == 3  # 2+1
+
+    def test_is_designated_defaults_to_false(self):
+        assert traffic_stress_level("residential", {}) == 2
+
+    def test_is_designated_clamped_to_4(self):
+        assert traffic_stress_level("primary", {}, is_designated=True) == 4
+
+    def test_is_designated_does_not_override_motor_vehicle_no_fixed_1(self):
+        assert traffic_stress_level("primary", {"motor_vehicle": "no"}, is_designated=True) == 1
+
 
 class TestClassifyStopPoi:
     def test_traffic_signals(self):

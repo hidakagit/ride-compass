@@ -253,6 +253,20 @@ export default function MapLayersPanel({
             {staticFilterAxesFor("bicycleInfra").map(renderStaticFilterAxis)}
           </>
         );
+      case "designation":
+        // 外部静的データソース T51（国土数値情報 N10/N12）。バッファマッチ（20m、交差率50%以上）
+        // でroad_edgesへ対応付けた区間を色分けする。該当区間はtrafficStress軸にも+1の
+        // 補正として反映される（road_graph_repository.py: traffic_stress_level参照）。
+        return (
+          <>
+            <p className={styles.mutedHint}>
+              国土数値情報の緊急輸送道路（N10）・重要物流道路（N12）に該当する区間です。
+              大型車の通行が多いと推定される目安として、交通ストレスの評価にも加味しています。
+            </p>
+            {renderOffHint("designation")}
+            {staticFilterAxesFor("designation").map(renderStaticFilterAxis)}
+          </>
+        );
       case "stopPoi":
         return (
           <>

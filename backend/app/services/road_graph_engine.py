@@ -76,6 +76,7 @@ class _RoadGraphContext:
     intersection_counts: dict[str, int]
     accident_counts: dict[str, int]
     accident_years_covered: int
+    designated_edge_ids: set[str]
     wind: WeatherConditions | None
     origin_node: str
 
@@ -117,6 +118,9 @@ class RoadGraphEngine:
         # 全方位で共有する。accident_years_coveredは密度の「件/(km・年)」正規化に使う。
         accident_counts = await self._graph_service.get_accident_counts(list(graph.edges.keys()))
         accident_years_covered = await self._graph_service.get_accident_years_covered()
+        # 指定路線コンフレーション機構（外部静的データソース T51）。KSJ N10/N12該当エッジの
+        # 集合を同じくprepareで1回だけ取得し全方位で共有する。
+        designated_edge_ids = await self._graph_service.get_designated_edge_ids(list(graph.edges.keys()))
 
         origin_node = find_nearest_node(graph, origin)
         if origin_node is None:
@@ -128,6 +132,7 @@ class RoadGraphEngine:
             graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts,
             way_tags=way_tags, intersection_counts=intersection_counts,
             accident_counts=accident_counts, accident_years_covered=accident_years_covered,
+            designated_edge_ids=designated_edge_ids,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 
@@ -140,6 +145,7 @@ class RoadGraphEngine:
             intersection_counts=intersection_counts,
             accident_counts=accident_counts,
             accident_years_covered=accident_years_covered,
+            designated_edge_ids=designated_edge_ids,
             wind=wind,
             origin_node=origin_node,
         )
@@ -208,6 +214,7 @@ class RoadGraphEngine:
             context.intersection_counts,
             context.accident_counts,
             context.accident_years_covered,
+            context.designated_edge_ids,
             context.wind,
             start_time,
         )
@@ -243,6 +250,7 @@ class RoadGraphEngine:
         intersection_counts: dict[str, int],
         accident_counts: dict[str, int],
         accident_years_covered: int,
+        designated_edge_ids: set[str],
         wind: WeatherConditions | None,
         start_time: datetime,
     ) -> list[RouteSegmentDetail]:
@@ -263,8 +271,9 @@ class RoadGraphEngine:
             wind_penalty = compute_wind_penalty(edge, wind)
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
+            is_designated = edge.edge_id in designated_edge_ids
             traffic_stress = (
-                traffic_stress_level(edge.highway, edge_way_tags) if edge_way_tags is not None else None
+                traffic_stress_level(edge.highway, edge_way_tags, is_designated) if edge_way_tags is not None else None
             )
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None

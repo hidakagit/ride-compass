@@ -15,6 +15,7 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.graph import WaySpec, build_road_graph
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
+from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*/route_designationsテーブルを登録するためのimport
 from app.infrastructure.road_graph_models import OsmRawPoiRow
 
 NODE1 = (35.700, 139.700)
@@ -763,6 +764,80 @@ async def test_get_accident_years_covered_is_zero_when_no_runs(road_graph_reposi
     assert await road_graph_repository.get_accident_years_covered() == 0
 
 
+# --- 指定路線コンフレーション機構（外部静的データソース T51） ---
+# designation_attributesへの書き込みメソッドはRoadGraphRepositoryに無い
+# （match_designations.pyが直接asyncpgで書くため）。統合テストではセッションへ
+# 直接INSERTしてテストデータを用意する（_insert_accidentと同じパターン）。
+
+
+async def _insert_designation_attribute(session, edge_id: str, kind: str, matched_ratio: float = 0.8) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO designation_attributes (edge_id, kind, matched_ratio, data_version, calculated_at) "
+            "VALUES (:edge_id, :kind, :ratio, 'test', now())"
+        ),
+        {"edge_id": edge_id, "kind": kind, "ratio": matched_ratio},
+    )
+
+
+async def test_get_designated_edge_ids_returns_empty_set_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_designated_edge_ids([]) == set()
+
+
+async def test_get_designated_edge_ids_returns_matching_edges(road_graph_repository, road_graph_session):
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[3, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    graph = build_road_graph([way_a, way_b], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_ids = list(graph.edges.keys())
+    designated_edge_id = next(e for e in edge_ids if e.startswith("way-100-"))
+    other_edge_id = next(e for e in edge_ids if e.startswith("way-101-"))
+
+    await _insert_designation_attribute(road_graph_session, designated_edge_id, "emergency_transport")
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_designated_edge_ids([designated_edge_id, other_edge_id])
+
+    assert result == {designated_edge_id}
+
+
+async def test_get_designated_edge_ids_ignores_kinds_outside_traffic_stress_set(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    # national_cycle_routeはTRAFFIC_STRESS_DESIGNATION_KINDSに含まれない（今回未実装のkind）。
+    await _insert_designation_attribute(road_graph_session, edge_id, "national_cycle_route")
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_designated_edge_ids([edge_id])
+
+    assert result == set()
+
+
+async def test_get_nearest_designated_flags_returns_empty_list_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_nearest_designated_flags([]) == []
+
+
+async def test_get_nearest_designated_flags_true_near_designated_edge(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    # build_road_graphは双方向Edge(fwd/bwd)を作り、両者は同一geometryのためKNNの最近傍解決が
+    # どちらを選ぶか保証されない。両方向へ同じdesignationを付与して結果を決定的にする。
+    for edge_id in graph.edges:
+        await _insert_designation_attribute(road_graph_session, edge_id, "critical_logistics")
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_nearest_designated_flags([NODE1, NODE3], max_distance_m=30.0)
+
+    assert result == [True, False]
+
+
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):
     assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is False
 
@@ -988,6 +1063,42 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_
         actual = properties_by_highway[highway]
         assert actual.get("bicycle_infra") == expected_infra, (highway, tags)
         assert actual.get("traffic_stress") == expected_stress, (highway, tags)
+
+
+async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stress_bonus(
+    road_graph_repository, road_graph_session,
+):
+    """指定路線コンフレーション機構（外部静的データソース T51）: designationプロパティと
+    traffic_stressの+1補正が、domain/traffic.py: traffic_stress_level(is_designated=True)と
+    一致することを突き合わせる（SQL⇔Python二重実装のドリフト検知）。"""
+    import mapbox_vector_tile
+
+    from app.domain.traffic import traffic_stress_level
+
+    designated_way = WaySpec(osm_way_id=200, node_ids=[1, 2], highway="residential")
+    plain_way = WaySpec(osm_way_id=201, node_ids=[1, 2], highway="tertiary")
+    await road_graph_repository.save_raw_ways([designated_way, plain_way], {1: NODE1, 2: NODE2})
+    graph = build_road_graph([designated_way, plain_way], {1: NODE1, 2: NODE2}, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    designated_edge_ids = [e for e in graph.edges if e.startswith("way-200-")]
+    for edge_id in designated_edge_ids:
+        await _insert_designation_attribute(road_graph_session, edge_id, "emergency_transport")
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    properties_by_highway = {f["properties"].get("highway"): f["properties"] for f in decoded["road_surface"]["features"]}
+
+    designated = properties_by_highway["residential"]
+    assert designated.get("designation") == "emergency_transport"
+    assert designated.get("traffic_stress") == traffic_stress_level("residential", {}, is_designated=True) == 3
+
+    plain = properties_by_highway["tertiary"]
+    assert "designation" not in plain
+    assert plain.get("traffic_stress") == traffic_stress_level("tertiary", {}) == 3
 
 
 # --- get_poi_tile_mvt（改善計画T54: 停止要因POI・交差点密度の可視化） ---
