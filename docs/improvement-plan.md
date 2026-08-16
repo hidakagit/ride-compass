@@ -1215,7 +1215,7 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
 将来の表示レイヤー用に許容（240kB）／`_NEAREST_WAY_TAGS_SQL`等のCASE内ST_DWithin二重評価は
 誤差レベル／ANALYZE統計はautovacuumが正常追随。
 
-### - [ ] T64. geographyキャストST_DWithinの索引不使用4クエリへ`&&`前置フィルタ追加 規模S〜M・最優先
+### - [x] T64. geographyキャストST_DWithinの索引不使用4クエリへ`&&`前置フィルタ追加 規模S〜M（2026-08-16完了）
 
 - 対象（road_graph_repository.py、いずれもJOIN条件がST_DWithin(geography)単体で
   GiST索引を使えず全件Join Filterになる）:
@@ -1236,9 +1236,16 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
 - 修正版の実測（同条件）: `_STOP_POI_COUNTS_SQL` 134.1秒→**0.44秒（306倍）**、
   `_NEAREST_ACCIDENT_COUNTS_SQL` 18.6秒→**0.24秒（79倍）**。いずれもGiST索引スキャンに変わる
   ことをEXPLAIN ANALYZEで確認済み。
-- 再発防止: docs/complexity-review-2026-08-16.md末尾の追加原則（評価軸追加の1本道）へ
-  「空間JOINを含むSQLは`&&`前置（または`ORDER BY <-> LIMIT`のKNN索引）必須。
-  ST_DWithin(geography)単体をJOIN条件にしない」をチェック項目として追記（同一コミット）。
+- 再発防止: docs/complexity-review-2026-08-16.md末尾の設計原則へ原則11「空間JOINを含むSQLは
+  `&&`前置（または`ORDER BY <-> LIMIT`のKNN索引）必須。ST_DWithin(geography)単体をJOIN条件に
+  しない」を新規追加（同一コミット）。
+- **実装結果（2026-08-16）**: 4クエリすべてへ`&&`前置フィルタ（`_meters_to_bbox_margin_deg`で
+  度換算）を追加。dev DBで`_STOP_POI_COUNTS_SQL`（200エッジ）を再検証し、
+  `EXPLAIN`が`Index Scan using idx_osm_raw_pois_geom ... Index Cond: (geom && st_expand(...))`
+  へ変化（修正前はJoin Filter）、実測1.2秒（同条件の元実装134.1秒から大幅短縮）を確認。
+  結果セットは不変（backend 652件、既存repository統合テスト無変更でgreen）。
+  `osm_raw_pois`/`accident_points`の`geom`列GiST索引（`idx_osm_raw_pois_geom`/
+  `idx_accident_points_geom`）は既存のため追加migration不要
 - 完了条件: 4クエリのEXPLAINでSeq Scan+Join Filterが消えGiST索引が使われること。
   既存のrepository統合テスト（件数・境界値）が無変更でgreen（結果セットは不変のはず。
   `&&`は保守的マージンのため取りこぼしが無い）。
