@@ -61,11 +61,20 @@ interface BicycleInfraCategory {
 
 // backend/app/domain/traffic.py: classify_bicycle_infrastructureの列挙値と1:1対応
 // （separated/lane/shared_busway/shared_pedestrian/roadway/prohibited、算出不能はunknown）。
+//
+// shared_pedestrianのラベル「歩道（自転車通行可）」は、roadFilterAxes.tsの「道路の種類」軸
+// にあるhighway分類グループ「自転車・歩行者道」（highway=cycleway/path/footway/pedestrian/
+// bridleway/steps）とは別概念（前者=自転車の通行条件、後者=道路種別タグ）だが、
+// 中黒の有無だけの表記だと紛らわしいため区別できる書き方にしてある（改善計画T62）。
+// 包含関係もきれいではない: highway=cycleway⊂separatedだが、path/footwayはbicycleタグ
+// 次第でshared_pedestrianになる場合とroadwayに落ちる場合があり、pedestrian/bridleway/
+// stepsはどちらの個別分岐も無くroadwayへ落ちる。cycleway=track併設の幹線道路は
+// highway側では「自転車・歩行者道」に入らないままseparatedになる（非対称）。
 const BICYCLE_INFRA_CATEGORIES: BicycleInfraCategory[] = [
   { key: "separated", label: "分離自転車道", color: "#16a34a" },
   { key: "lane", label: "自転車レーン", color: "#0d9488" },
   { key: "shared_busway", label: "バス専用道等の共用", color: "#d97706" },
-  { key: "shared_pedestrian", label: "自転車歩行者道", color: "#0284c7" },
+  { key: "shared_pedestrian", label: "歩道（自転車通行可）", color: "#0284c7" },
   { key: "roadway", label: "車道（専用施設なし）", color: "#7c3aed" },
   { key: "prohibited", label: "自転車通行不可", color: "#dc2626" },
 ];

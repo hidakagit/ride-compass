@@ -1031,6 +1031,45 @@ frontend 180件（他セッションとの並行実行によるvitest workerタ�
 
 ---
 
+## 属性の重複・包含関係レビュー対応（2026-08-16）
+
+ユーザーからの指摘（「自転車インフラ」は道路情報の中の「自転車・歩行者道」と意味が
+一部かぶっていないか）を受けた属性カタログの棚卸し。
+
+### - [x] T62. 自転車インフラ表示ラベルの衝突解消＋軸間の入力共有をコメントで明記 規模S（2026-08-16完了）
+
+- 棚卸し結果:
+  1. `bicycle_infra`の`shared_pedestrian`ラベル「自転車歩行者道」
+     （`staticAttributeLayers.ts`）と、「道路の種類」レイヤーの`highway`分類グループ
+     「自転車・歩行者道」（`roadFilterAxes.ts`、highway=cycleway/path/footway/
+     pedestrian/bridleway/steps）が中黒の有無だけの差で並存し紛らわしい。指しているもの
+     （前者=自転車の通行条件、後者=道路種別タグ）は異なり、包含関係もきれいではない
+     （highway=cycleway⊂separated、path/footwayはbicycleタグ次第でshared_pedestrianに
+     なる場合とroadwayに落ちる場合がある、pedestrian/bridleway/stepsはどちらにも
+     個別対応が無くroadwayへ落ちる、cycleway=track併設の幹線道路はhighway側では
+     「自転車・歩行者道」に入らないままseparatedになる、など）。
+  2. `traffic_stress_level`と`classify_bicycle_infrastructure`
+     （両方とも`domain/traffic.py`）が同じcycleway/cycleway:left/right/bothタグを
+     別々の目的で解釈している。そのため「専用自転車道が併設されている」という1つの
+     事実が、`交通ストレス`重みと`自転車インフラ`重み（`evaluationAxes.ts`）の両方を
+     同時に押し下げ、2軸は完全には直交しない。
+  3. `TRAFFIC_STRESS_BASE_BY_HIGHWAY`にpath/footway/pedestrian/bridleway/steps/
+     motorway/motorway_link/service/roadが登録されておらず、これらの区間は交通ストレス軸
+     では常にNone（評価対象外）になる一方、道路の種類・自転車インフラでは評価対象になり
+     うる（3軸のカバレッジが揃っていない）。
+- 対応方針: スコアリングの数値・挙動は変更しない（暫定値の本格チューニングはP2据え置き
+  のまま）。表示ラベルの衝突解消と、上記の設計上の非直交性・カバレッジ差を将来の読み手が
+  「バグ」と誤認しないよう根拠コメントとして明記する。
+  1. `staticAttributeLayers.ts`の`shared_pedestrian`ラベルを「自転車・歩行者道」と区別
+     できる表記へ変更（`roadway`の「車道（専用施設なし）」と対になる書き方に揃える）
+  2. `classify_bicycle_infrastructure`と`traffic_stress_level`のdocstringへ、同じ
+     cycleway系タグを別目的で解釈しており2軸が完全には直交しない旨の相互参照コメントを追加
+  3. `TRAFFIC_STRESS_BASE_BY_HIGHWAY`へ、テーブル外のhighway値が意図的に評価対象外
+     （None）である旨のコメントを追加
+- 完了条件: frontend/backend全テストgreen、tsc/eslintクリーン。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -1086,3 +1125,4 @@ frontend 180件（他セッションとの並行実行によるvitest workerタ�
 | 2026-08-16 | T50（取得・保持・表示先行） | 警察庁交通事故統計オープンデータの取込・表示を実装。`domain/accident.py`（DMS変換・当事者種別/都道府県コード判定、コード表CSVを実取得して値を確認）、`app/batch/import_accidents.py`（年号からURLを組み立てて直接HTTP取得、関東7都県へ絞り込み）、migration 0006（`accident_points`/`accident_import_runs`）を新規実装。**2019〜2021年は本票CSVが58列構成（2022年以降は68列）と実データで判明し非対応と判断**（列数不一致はその年の取込全体を明示的に失敗させる設計）。2022〜2024年を実際にdev DBへ取込み関東303,455件（自転車関連92,955件・死亡2,032件）を確認。表示は`/api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accident_repository.py`/`accident_service.py`新規、road_surfaceと異なりカバレッジ判定なし）＋フロント新規レイヤー「事故（警察庁統計）」（円マーカー、色=自転車関連/その他、死亡事故は拡大表示）。実装中に`next.config.ts`へのproxy rewrite追加漏れ（新エンドポイントがフロント経由で404になる）をPlaywright実機確認で発見・修正。backend 595件・frontend 153件・eslint・tsc全green、Playwright実機確認（レイヤーON/OFF・地図上のドット表示・サイドバー凡例）で表示を確認。評価組み込み（8軸目化）は残作業として引き続きT50に残す（詳細はT50節参照） |
 | 2026-08-16 | T54（引き継ぎ・完了） | 別セッションが`.claude/worktrees/t54-poi-intersection-viz`で着手・大部分実装した状態（プロセス終了・未コミットのまま中断）を発見し引き継いだ。`/api/region/poi-tiles/{z}/{x}/{y}.pbf`（停止要因POI・交差点密度の2レイヤーを1タイルに焼き込み）とフロント新規2レイヤー「停止要因」「交差点密度」の実装内容を検証（backend 578件・frontend単体40件・tsc・eslint全green、実装自体は完成していたと確認）のうえコミットし、並行して本流へ合流していたT50（警察庁事故データ）・T58（ピンチズーム修正）へrebaseして統合。T50と同じファイル群（mapLayers.ts・MapView.tsx・MapLayersPanel.tsx・MapOverlayControls.tsx・regionApi.ts・staticAttributeLayers.ts・icons.tsx・export_openapi.py・region-tile-config.json）を独立変更していたため14ファイルでコンフリクトが発生したが、すべて「両方の追加を残す」加算的マージで解消（意味的な衝突は無し）。region-tile-config.jsonは両者で異なるスキーマ変更をしていたため`{road_surface, accident, poi}`の3キー構成へ統一。T54側にも`next.config.ts`のproxy rewrite追加漏れ（T50で発見したのと同じ落とし穴）があり追加。統合後の実機確認でdev DBの`osm_raw_pois`が0件（該当データ未取込み）と判明したが、intersectionレイヤーは実データ（次数3以上のnode 8,517件、785 features/タイル）で正常動作を確認。backend 617件・frontend 187件・tsc・eslint全green、Playwright実機確認（停止要因・交差点密度・事故の3レイヤー同時ON、サイドバー凡例、実データでの交差点密度表示）。master a13d1f0→84a2511→52ed0a9でfast-forward |
 | 2026-08-16 | T47 R-6実装（トリガー成立） | T54で静的レイヤーが+2種類（停止要因POI・交差点密度）に達し、T47 R-6に記録済みだったトリガー条件が成立。(a)MapView.tsxの標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度6レイヤーぶんのensure/set関数ペアを`STATIC_OVERLAY_LAYERS`テーブル+ループへ置換、(b)page.tsxに散在していたlocalStorage読み書き（load/save関数＋復元用useIsomorphicLayoutEffect）を`useStoredState`フック（新規、hooks/useStoredState.ts）へ集約、を実施。別セッションが着手・未コミットのまま中断していた状態を引き継ぎ、内容確認（全diff読解）・frontend全200件・tsc・eslint・Playwright e2eスモーク2件green、レイヤーチップ全種の手動トグルでconsoleエラー無しを確認したうえでコミット。あわせて同じワーキングツリーにあった別件2点も検証のうえコミット: ComparisonPanelへtraffic_stress_score/bicycle_infra_score/intersection_density（静的属性P1残りで追加されたがMETRIC_ROWS未対応だった3軸）の行を追加、vitest.config.mtsへ`.claude/worktrees/**`の除外を追加（並行worktree配下の同名test.tsxをvitestが誤って拾い偽陽性を出す実害の対策） |
+| 2026-08-16 | T62 | ユーザー指摘（自転車インフラと道路情報の自転車・歩行者道分類が意味的にかぶっていないか）を受けた属性の重複・包含関係の棚卸しを実施し起票・完了。数値・スコアリング挙動は不変、表示ラベルと根拠コメントのみ変更。`staticAttributeLayers.ts`: `bicycle_infra=shared_pedestrian`のラベルを「自転車歩行者道」→「歩道（自転車通行可）」へ変更し、roadFilterAxes.tsの highway表示分類「自転車・歩行者道」との違い・非対称な包含関係をコメントで明記。`domain/traffic.py`: `classify_bicycle_infrastructure`と`traffic_stress_level`が同じcycleway系タグを別目的で解釈しており2軸（交通ストレス重み・自転車インフラ重み）が完全には直交しない旨を相互参照コメントで明記、`TRAFFIC_STRESS_BASE_BY_HIGHWAY`に登録の無いhighway値（path/footway等）が意図的に評価対象外である旨を追記。backend 621件・frontend 200件・tsc・eslint全green |
