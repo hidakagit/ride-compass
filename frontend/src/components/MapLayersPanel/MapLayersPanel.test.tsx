@@ -68,7 +68,7 @@ describe("MapLayersPanel", () => {
 
     expect(screen.getByText("地図に重ねる情報")).toBeInTheDocument();
     expect(screen.getByText("生成したルートの色分け")).toBeInTheDocument();
-    // 地図上の条件サマリからのスクロール先になるDOM id（layerSectionDomId）が振られている
+    // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-trafficStress")).toBeInTheDocument();

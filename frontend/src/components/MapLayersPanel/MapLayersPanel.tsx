@@ -57,10 +57,10 @@ const GROUP_HEADINGS: Record<MapLayerKind, string> = {
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
 // レイヤーごとに1セクション（見出し＋表示スイッチ＋凡例・絞り込み等の設定）を持ち、
 // セクションの枠組みはMAP_LAYERS（レイヤーカタログ）の列挙で描画する。地図の上
-// （MapOverlayControls）にはON/OFFチップと条件サマリだけを残し、サマリのタップで
-// このパネルの該当セクションへスクロールしてくる（layerSectionDomId参照）。
+// （MapOverlayControls）はON/OFFチップと▶で開く凡例の確認までで、絞り込みの変更や
+// 色分けモードの選択などの編集操作はすべてこのパネルの中だけで完結する。
 // 以前のMapLegendPanel（凡例の参照表示のみ）とRoadFilterDialog（地図上の⚙から開く
-// 絞り込みモーダル）を統合したもので、レイヤーの設定はこのパネルの中だけで完結する。
+// 絞り込みモーダル）を統合したもの。
 export default function MapLayersPanel({
   layerVisibility,
   onLayerToggle,
@@ -377,14 +377,11 @@ export default function MapLayersPanel({
             return (
               // 要素ごとに折りたたむ階層メニュー（モバイル実機フィードバック対応T38。
               // 以前は5レイヤー分の設定が常時全展開でスクロールが長かった）。デフォルト全閉。
-              // domIdはdetails自体に振る（地図上の条件サマリからの誘導、page.tsxの
-              // handleLayerSummaryClickがこのidで要素を取得しopen=trueにしてから
-              // スクロール・フォーカスする）。
+              // domIdはdetails自体に振る（テストでdocument.getElementByIdから開閉する
+              // ためのフック。MapLayersPanel.test.tsxのopenSection参照）。
               <details key={layer.id} id={domId} className={styles.layerSection}>
                 <summary className={styles.layerHeader}>
-                  {/* tabIndex=-1: 地図上の条件サマリから飛んできたときにJSからfocus()するため
-                      （MapOverlayControls→page.tsxのスクロール誘導。クリックでは選択されない） */}
-                  <h3 id={`${domId}-title`} tabIndex={-1} className={styles.layerTitle}>
+                  <h3 className={styles.layerTitle}>
                     <span aria-hidden="true" className={styles.chevron} />
                     {layer.label}
                   </h3>

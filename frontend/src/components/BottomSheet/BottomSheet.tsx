@@ -8,8 +8,8 @@ interface BottomSheetProps {
   onClose: () => void;
   /** シートの見出し（アクセシブル名にも使う） */
   title: string;
-  /** 見出しのDOM id。地図上の条件サマリ等、外部からこのシートの中身へフォーカスを送る
-   *起点として使うことがある（page.tsxのhandleLayerSummaryClick参照）。 */
+  /** 見出しのDOM id。外部からこのシートの中身へフォーカスを送る起点として使うことがある
+   *（page.tsxのhandleGoToGenerate参照）。 */
   titleId: string;
   children: React.ReactNode;
   /** シートの高さ（vh）。「ルートを作る」「地図の見え方」の2シートは排他表示のため、
