@@ -42,6 +42,7 @@ import httpx
 from shapely.geometry import LineString
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.batch._common import asyncpg_dsn, download_to_path
 from app.config import settings
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへモデル登録するためのimport
@@ -76,30 +77,13 @@ VALUES ($1, $2, $3, '{}'::jsonb, $4, ST_SetSRID(ST_GeomFromWKB($5), 4326), $6)
 
 
 async def _download_zip(client: httpx.AsyncClient, kind: str, pref: str) -> Path | None:
-    """都道府県別ZIPを直接取得しDATA_DIRへ保存する。404等の取得失敗はWARNINGで常時出力し
-    その都道府県をスキップする（docs/logging.mdのエラー常時WARNING方針）。既にダウンロード
-    済み（同名ファイルが存在）ならHTTPアクセスを省略する。
-    """
+    """都道府県別ZIPを直接取得しDATA_DIRへ保存する（改善計画T80、骨格は
+    app/batch/_common.py: download_to_pathへ共通化済み）。"""
     dest = DATA_DIR / f"{kind}_{pref}.zip"
-    if dest.exists():
-        logger.info("指定路線データは取得済みのためスキップ kind=%s pref=%s path=%s", kind, pref, dest)
-        return dest
-
     url = _zip_url(kind, pref)
-    tmp_dest = dest.with_suffix(".zip.part")
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        async with client.stream("GET", url, timeout=httpx.Timeout(60.0)) as response:
-            response.raise_for_status()
-            with open(tmp_dest, "wb") as f:
-                async for chunk in response.aiter_bytes():
-                    f.write(chunk)
-        tmp_dest.replace(dest)
-    except httpx.HTTPError as exc:
-        logger.warning("指定路線データ取得に失敗しました kind=%s pref=%s url=%s error=%r", kind, pref, url, exc)
-        tmp_dest.unlink(missing_ok=True)
-        return None
-    return dest
+    return await download_to_path(
+        client, url, dest, logger=logger, label="指定路線データ", context=f"kind={kind} pref={pref}"
+    )
 
 
 def _parse_n10_gml(xml_bytes: bytes) -> list[tuple[str | None, list[tuple[float, float]]]]:
@@ -294,8 +278,7 @@ async def run_import(database_url: str | None, dry_run: bool) -> int:
     finally:
         await engine.dispose()
 
-    dsn = sqlalchemy_url.replace("+asyncpg", "").replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
-    conn = await asyncpg.connect(dsn)
+    conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
     total_inserted = 0
     try:
         for (kind, pref), path in sorted(zip_paths.items()):

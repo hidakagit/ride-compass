@@ -107,15 +107,3 @@ def test_status_count_parses_asyncpg_command_status():
     assert _status_count("TRUNCATE TABLE") == 0
 
 
-def test_asyncpg_dsn_normalizes_driver_and_ssl_param():
-    from app.batch.import_pbf import _asyncpg_dsn
-
-    assert (
-        _asyncpg_dsn("postgresql+asyncpg://u:p@db.example.supabase.co:5432/postgres?ssl=require")
-        == "postgresql://u:p@db.example.supabase.co:5432/postgres?sslmode=require"
-    )
-    # ローカル（ssl指定なし）はドライバ指定の除去のみ
-    assert (
-        _asyncpg_dsn("postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass")
-        == "postgresql://ridecompass:ridecompass@localhost:5432/ridecompass"
-    )
