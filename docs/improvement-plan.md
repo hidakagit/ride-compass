@@ -1356,6 +1356,255 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
 
 ---
 
+## designation実装レビュー対応（2026-08-16・8角度コードレビュー）
+
+T51実装（指定路線N10/N12の取込・マッチング・評価・表示）の未コミット変更に対する
+コードレビュー（候補発見8角度＋1票候補の検証2エージェント、確定26件・要実測1件・棄却0件）
+の対応タスク。起票済みのT65〜T67と重複する指摘は除外済み。T70〜T73が正確性・データ欠損系で
+最優先、T74は設計判断（T66と関連）、T75以降は構造整理。
+
+### - [ ] T70. タイル世代v5の対上げ漏れ修正 規模S・最優先
+
+- backend `region_service.py: ROAD_SURFACE_TILE_VERSION`は"5"へ上がったが、
+  `frontend/src/services/regionApi.ts`の同名定数と生成物
+  `frontend/src/types/generated/region-tile-config.json`が"4"のまま（`export_openapi.py`
+  未再実行）。T19の「対で上げる」規約違反。フロント定数と生成物が両方旧値"4"で一致している
+  ためT19のドリフト検知テストはgreenのまま素通りする（CIのapi-contractジョブは再生成差分で
+  検知するはず）。
+- 影響: v4時代にタイル閲覧済みのブラウザが`?v=4`のHTTPキャッシュ済みタイル
+  （designationプロパティ無し・trafficStress+1補正前）を使い続け、指定路線レイヤーが
+  全区間灰色のままになる。
+- 対応: `export_openapi.py`を再実行して生成物を更新し、`regionApi.ts`の定数を"5"へ。
+- 完了条件: `roadSurfaceTileUrl()`が`?v=5`を返し、regionApi.test.ts含めfrontend全green。
+
+### - [ ] T71. import_designations.py取込の原子性・0件ガード・executemany化 規模S〜M・最優先
+
+- 問題1（原子性）: (kind, pref)単位のDELETE→INSERTがトランザクション外
+  （match_designations.pyの`conn.transaction()`と非対称）で、asyncpgのautocommitにより
+  1文ずつ確定する。INSERT途中の接続断・型エラーで「旧データDELETE済み・新データ一部のみ」の
+  中途半端な状態がDBへ確定し、後続のmatch_designations.pyはrun状態を確認せず欠けたデータで
+  designation_attributesを再計算する。
+- 問題2（0件ガード）: パーサが0件を返した場合もDELETEだけ実行され、status=succeeded・
+  count=0で「成功」として既存データが静かに消える。0件時のログもINFO固定で、
+  docs/logging.mdの「候補0件はWARNING以上・原因内訳を同行に」規約に違反。
+- 問題3（効率）: features（関東7都県5,084行）を1行ずつ`conn.execute`しており、
+  T67で解消したmatch側と同じRTT×行数問題をimport側が抱えている（T67のスコープはmatch側のみ）。
+- 対応: `async with conn.transaction()`で括り、0件時はDELETEせずWARNINGでスキップ、
+  INSERTは`conn.executemany`化（T67と同じ処方）。1行INFOサマリへ`insert_elapsed`追加。
+- 完了条件: 「0件時に既存データが残る」「途中失敗時に旧データが残る」のテスト追加、
+  backend全green。
+
+### - [ ] T72. designationパーサの防御強化（3要素座標・MultiLineString・複数セグメント）規模S〜M
+
+- N12 GeoJSON: `for lon, lat in geometry["coordinates"]`が3要素座標`[lon, lat, alt]`
+  （RFC 7946で合法）でValueErrorになりrun全体が異常終了する。また`type != "LineString"`
+  （MultiLineString等）のfeatureを無警告でスキップし、路線が黙って欠落する。
+- N10 GML: `curve.find(".//gml:posList")`が各gml:Curveの最初のposListしか読まず、
+  複数の`gml:LineStringSegment`を持つCurve（JPGISで合法）の2番目以降が無警告で
+  切り捨てられる。件数は合うためログから検出できず、バッファ交差率だけが縮んで
+  後半区間のedgeが指定路線と判定されなくなる。
+- 対応: 座標は先頭2要素のみ取得、MultiLineStringは対応または件数付きWARNING、
+  posListは`findall`で複数検出時に連結またはWARNING。関東7都県の実データで
+  複数セグメントCurve・非LineStringの実在数を先に計測して対応レベルを決めてよい。
+- 完了条件: 3ケースのユニットテスト追加、backend全green。
+
+### - [ ] T73. match_designations.pyの0件時WARNING昇格＋全消しガード 規模S
+
+- candidates=0/matched=0でも「マッチング完了」のINFO固定で、docs/logging.mdの
+  「候補0件はWARNINGへ昇格し原因内訳を同行に含める」規約に違反。かつ0件でも
+  designation_attributesを全kind分DELETE→0件INSERTするため、route_designationsが空
+  （import未実行・取込失敗後）やバッファ閾値不整合の場合に、評価（trafficStress加点）と
+  MVT表示のdesignationが静かに全消失する。
+- 対応: 0件時はWARNING（candidates/matchedの内訳を同行に）とし、candidates=0の場合は
+  DELETEを実行しない選択肢を検討。import側の0件WARNINGはT71に含む。
+- 完了条件: 0件経路のログレベルと全消しガードのテスト追加、backend全green。
+
+### - [ ] T74. MVT指定路線表現の見直し（粒度・重複kind・遅延構築依存）規模M・要設計判断
+
+`_ROAD_SURFACE_TILE_MVT_SQL`のdesignation表現に関する3つの関連問題。T66
+（save_graphのCASCADE消失）と対象が近接するため、同時に設計判断するのが望ましい。
+
+1. **粒度不一致**: MVT側はway単位のbool_or集約（1エッジでも該当すればway全長に
+   designation付与＋trafficStress+1）だが、評価側（get_designated_edge_ids→
+   traffic_stress_level）はedge単位。部分該当wayでポップアップ表示値と区間評価値が
+   同一地点で食い違う。整合性テストは1way≒1エッジの小規模フィクスチャのため検出しない。
+2. **重複kindの欠落**: designation CASEが単一値のため、N10・N12両方に該当するway
+   （幹線では十分起こる）はemergency_transportのみ出力され、凡例で「緊急輸送道路」を
+   非表示にするとN12でもある区間が地図から完全に消える。
+3. **遅延構築依存**: designationプロパティ（と+1補正）だけがroad_edges
+   （ルート生成地点周辺のみ遅延構築）JOIN経由で導出され、他プロパティの
+   osm_raw_ways自己完結という不変条件から外れている。本番では生成履歴の無いエリアの
+   指定路線レイヤーが表示されず、まだら表示になる。
+- 対応方針候補: ②はis_ert/is_clの2フラグをプロパティとして別々に出す。③は
+  route_designations（全域投入済みのraw層）へ直接マッチする事前計算、または
+  osm_way_id単位のマッチ結果テーブルを持つ（①の粒度定義の再検討と同時に）。
+- 完了条件: 部分該当way・重複kind・未構築エリアの3ケースを検証するテスト／実機確認。
+
+### - [ ] T75. designation kind追加の1本道整備（片側import化＋テーブル化）規模S
+
+- kind集合が、正準`domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDS`に加えて
+  ①MVT生成SQL内の文字列リテラル（`road_graph_repository.py`）
+  ②`match_designations.py: _KINDS`タプル ③`import_designations.py`のインラインタプル
+  の計4表現に分散している（設計原則2「数値定数は片側import」違反。kind追加時にMVT側だけ
+  旧2値で取り残され、整合性テストは既存2kindしか突き合わせないため検知されない）。
+- また`import_designations.py`のkind→URL・ソース名・パーサの対応が3関数の平行分岐に
+  分散し、いずれもelse側が暗黙にN12扱いへ倒れる（kind追加時の編集漏れが静かに壊れる。
+  improvement-plan.mdで予定されているナショナルサイクルルート追加時に顕在化）。
+- 対応: domainへ取込対象kind集合を定義し両バッチがimport。MVT SQLはバインド化
+  （T65の事前集約JOINへのパラメータ渡し）または整合性テストの全kind網羅化。
+  import側はkind→(url_template, source, member, parser)の単一テーブル`_KIND_SPECS`へ
+  畳み、未知kindはKeyErrorで即死させる。
+- 完了条件: kindを1箇所追加すれば全系統が追随する（追随しない箇所はテストが割れる）こと。
+
+### - [ ] T76. designated判定KNNの_NEAREST_WAY_TAGS_SQLへの統合 規模S〜M
+
+- `get_nearest_designated_flags`は、直前の`get_nearest_surface_tags`/`get_nearest_way_tags`と
+  同一のサンプル点集合に対するKNNを3本目の独立クエリ・独立ラウンドトリップとして再実行し、
+  SQL骨格（WITH pts＋LATERAL＋ST_DWithin判定）も4本目のコピーになっている。
+  KNN対象テーブルが属性間で異なる場合、並行道路付近でhighwayとis_designatedが別のway/edge
+  由来になる不整合の可能性もある。
+- 対応: `_NEAREST_WAY_TAGS_SQL`へdesignation判定列（EXISTS(designation_attributes ...)等）を
+  追加し、専用SQL・専用メソッド・エンジン側の3回目の呼び出しを削除する。is_designatedは
+  `traffic_stress_level`でtagsと必ず対で使われるため同居が自然。実装時にway_tags側KNNの
+  対象テーブルとedge_id解決の整合を確認すること。
+- 完了条件: DB統合テストで既存結果と同値、ラウンドトリップ数の削減を確認。backend全green。
+
+### - [ ] T77. get_designated_edge_idsの転送方式見直し 規模S・要実測
+
+- `graph.edges.keys()`全件（数千〜数万ID、数百KB級のtext[]）を毎prepareでアップロードするが、
+  designation_attributesの該当kind行を無フィルタで全取得しPython側で積集合を取る方が
+  転送量・往復数とも安い可能性が高い（レビュー判定PLAUSIBLE。テーブルはroad_edgesの
+  遅延構築範囲に比例して成長するため、行数を実測してから方式を決める）。
+- ついで: `_DESIGNATED_EDGE_IDS_SQL`のDISTINCTは呼び出し側のset化と二重で冗長
+  （除去は挙動不変。転送量削減目的で残すならコメント明記）。
+- 完了条件: dev/本番相当の行数・転送量を実測して方式決定、採用時は前提行数をコメント化。
+
+### - [ ] T78. ORSエンジンの点属性dataclass化（平行フラット配列の解消）規模M
+
+- designated_flags追加で同型の平行フラット配列が6本に達し、属性1つの追加に
+  「宣言・elseデフォルト・offsetループ内append・スライス・引数・`i < len(...)`ガード」の
+  同型セットを毎回コピーする構造の限界を超えた。append漏れ・順序ずれは防御的ガードが
+  「データ無し」として握りつぶすため、別属性の値が別地点へ紐づく誤評価がテストを
+  すり抜ける。
+- 対応: 点ごとの属性を1つのdataclassへ束ね、countsによる分割ヘルパでoffset簿記を
+  1箇所化する（属性追加が1フィールド追加で済む形に）。T52（JICE舗装DB）等の
+  次属性追加前に実施するとコストが回収される。
+- 完了条件: 挙動不変リファクタとして既存テスト無変更でbackend全green。
+
+### - [ ] T79. _build_segment_detailsのcontext渡し化 規模S
+
+- `road_graph_engine.py: _build_segment_details`が11個の位置引数を取り、うち8個は
+  呼び出し側の`_RoadGraphContext`フィールドの単純展開。同型`dict[str, int]`が3つ並び、
+  順序取り違えが型検査・実行時エラーで検知されない。
+- 対応: contextを1引数で渡す（残りはedges・elevation_attributes・start_time程度に縮む）か、
+  キーワード専用引数化。
+- 完了条件: 既存テスト無変更でbackend全green。
+
+### - [ ] T80. バッチ共通ヘルパ化（DSN変換・ダウンロード）規模S
+
+- asyncpg用DSN変換（replace 3連鎖）の同一実装が4箇所（import_pbf.py・import_accidents.py・
+  match_designations.py・import_designations.py）に増殖し、import_accidents.pyの
+  docstring「2箇所だけのため共通化しない」の前提が崩れた。
+- `_download_zip`は`_download_year`（import_accidents.py）の骨格
+  （dest存在チェック→.part一時ファイル→replace→HTTPError WARNING→.part削除）の
+  逐語レベル再実装。
+- 対応: バッチ共通モジュール（例: `app/batch/_common.py`）へDSN変換と
+  `download_to_path(client, url, dest, ...)`を抽出し全バッチから参照。
+  import_runs記録パターン（現在2箇所）は3箇所目が出た時点で共通化する（今回は見送り）。
+- 完了条件: 4バッチが共通ヘルパ経由になり、既存テストgreen。
+
+### - [ ] T81. ORDINALITY順序復元ヘルパの集約 規模S
+
+- `by_ord = {...}; return [by_ord.get(i + 1, default) for ...]`イディオムが
+  `road_graph_repository.py`の6メソッド目のコピーになった。「ordは1始まり・欠落は既定値」の
+  暗黙規約が分散し、SQL側変更時のオフバイワン（全属性が隣のサンプル点の値になる）の温床。
+- 対応: `_chunked`と同格のモジュール内ヘルパへ集約し6メソッドを置換。
+- 完了条件: 既存repository統合テスト無変更でbackend全green。
+
+### - [ ] T82. フロント カテゴリ凡例3点セットの共通ビルダー化 規模S〜M
+
+- `staticAttributeLayers.ts`のDESIGNATION_*一式（interface＋LABELS＋LEGEND＋
+  COLOR_EXPRESSION）がBICYCLE_INFRA_*の逐語コピーで、STOP_POI_*も同型のため
+  「文字列列挙プロパティのカテゴリ→3点セット」導出ロジックの複製が3組に達した。
+- 対応: `buildCategoricalLayerDefs({property, categories, unknownLabel})`的な共通ビルダーを
+  新設し3組を生成へ置換（TRAFFIC_STRESS=数値キー・ACCIDENT=case式・INTERSECTION=interpolateは
+  同型でないため対象外）。設計原則8（UI語彙のカタログ集約）に沿う。
+- 完了条件: 生成結果が現行定義と同値であることをテストで確認、frontend全green。
+
+### - [ ] T83. MapViewインタラクティブレイヤー配列のテーブル導出化 規模S
+
+- handleClick/handleMouseMoveの2箇所に同一内容の8要素レイヤーID配列が手書き重複しており、
+  `STATIC_OVERLAY_LAYERS`テーブル（T47 R-6）との三重管理。レイヤー追加時に片方を追記し
+  忘れると「ポップアップは出るがカーソルが変わらない」等の非対称な劣化が検知されず残る。
+- 対応: 配列を`STATIC_OVERLAY_LAYERS`から導出（elevation=ラスタを除外し
+  DETAIL_LAYER_ID/ROAD_TILE_LAYER_IDを追加）。ポップアップビルダーの対応表も
+  テーブルへのフィールド追加（interactive/popupBuilder）として一般化を検討。
+- 完了条件: レイヤー追加時に配列の手動追記が不要になること、frontend全green。
+
+### - [ ] T84. MapLayersPanel説明文のカタログ集約 規模S〜M
+
+- `case "designation"`は同型定型JSX（mutedHint＋renderOffHint＋staticFilterAxesFor）の
+  6case目の複製で、説明文が`mapLayers.ts`のdescriptionとは別にswitch内へハードコード
+  されている（文言修正時に片方だけ直り画面間で食い違う。elevationのcaseのみ
+  layer.description参照で不統一）。
+- 対応: カタログへpanelHint的フィールドを追加し、標準レイヤーはデータ駆動で描画、
+  caseは真に特殊なレイヤー（道路情報等）のみへ縮小（設計原則8）。
+- 完了条件: パネル説明文の定義箇所が1箇所になり、frontend全green。
+
+### - [ ] T85. designation加点エンジンテストの縮小 規模S・任意
+
+- `test_openrouteservice_engine.py`のdesignation加点テストがエンジン2個で全周生成を
+  2回実行するが、非指定側（=2の確認）は`test_traffic.py: test_is_designated_defaults_to_false`
+  と`default_designated=False`で走る既存エンジンテストで既にカバーされている。
+  エンジンテストは8方位フル実行で高コスト。
+- 対応: designated=True側1本へ縮小。ただし2値差分の対照実験としての意味もあるため任意
+  （縮小しない判断も可。その場合は本タスクを「見送り」でクローズ）。
+- 完了条件: 縮小する場合はスイート実行時間の短縮を確認しbackend全green。
+
+---
+
+## 将来の静的属性拡張に向けたUI整理検討（2026-08-16）
+
+ユーザーから提示された外部UI/UXレビュー指摘表（🔴高5点・🟠中4点・🟡低3点）を、
+将来の静的道路属性追加・分析研究に向けた投資価値の観点で検討した。指摘のうち
+#1（表示/分析の役割分離）・#3（表示ON/OFFと分析利用の反映タイミング分離）・
+#5（探索条件の独立UI領域）・#8（折りたたみ）・#9（表示条件/分析条件/データ詳細の分離）は
+フロントUI一貫性再編（T29〜T32・T38）で既に対応済みと確認し再起票しない。
+#6・#7（データの意味・凡例）はT39/T40で1〜2文の説明文と凡例を既に実装済みのため
+ⓘアイコン化までは過剰と判断し見送り。#10・#11・#12（デザインシステム・説明簡潔化・
+モバイル/オンボーディング）はユーザー提示の優先度どおり🟡低・ルート探索機能完成後に
+先送りする。現状のコードで実際にギャップが残っている#2・#4のみをT86・T87として起票する。
+
+### - [ ] T86. 静的レイヤーのカテゴリ化〔レビュー指摘#2〕規模S〜M
+
+- 背景: `mapLayers.ts`のMAP_LAYERSは`kind: static/dynamic`の2分類のみで、staticカテゴリが
+  既に8種（標高図・道路情報・交通ストレス・自転車インフラ・指定路線・停止要因・交差点密度・
+  事故）に達しflatな一覧のまま並ぶ（T38のアコーディオン化で縦の高さは抑えているが分類は
+  されていない）。JICE舗装DB（T52、JICE返信待ち）等の追加候補も控えており、レイヤー数が
+  増えるほど見つけやすさが悪化する。
+- 対応方針: `MapLayerDescriptor`へ中分類フィールドを追加し（例: 道路状態=道路情報・指定路線、
+  交通・安全=交通ストレス・事故・停止要因・交差点密度、自転車インフラ、地形=標高図）、
+  `MapLayersPanel`のグループ見出しを現状の`kind`単位からこの中分類単位へ変更する。
+  分類名・粒度は着手時に既存レイヤー構成を見ながら確定する（3〜4分類程度を想定）。
+- 完了条件: サイドバーのレイヤー一覧が中分類ごとに見出し分けされる。frontend全green、
+  Playwright実機確認。
+
+### - [ ] T87. レイヤーのデータ状態表示〔レビュー指摘#4〕規模S〜M
+
+- 背景: 現状`MapLayersPanel`は「表示OFF」「ズーム範囲外」（road専用の`zoomWarning`）の案内は
+  あるが、タイル取得失敗（T59の背景にあった502障害等）と、そのレイヤーの対象データが
+  0件（T54で判明した`osm_raw_pois`未取込のような欠損）を区別する表示が無く、
+  どちらも単に「何も描画されない」状態になる。事故CSV・指定路線マッチングのような
+  外部データソースが増えるほど、この区別の欠如が実際の問い合わせ・混乱につながりやすい。
+- 対応方針: 各静的レイヤーのタイル取得結果（MapView.tsxのsourcedata/errorイベント）を検知し、
+  レイヤーごとに「OFF」「読込中」「データなし（0件）」「取得失敗」の状態を`LayerChip`・
+  `MapLayersPanel`セクションへ反映する。road専用の`zoomWarning`表示パターンを他レイヤーへ
+  一般化できるか、着手時に設計する。
+- 完了条件: 意図的に空データ・取得エラーを発生させた状態でPlaywright実機確認し、
+  各状態が視覚的に区別できることを確認。frontend全green。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -1413,3 +1662,5 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
 | 2026-08-16 | T47 R-6実装（トリガー成立） | T54で静的レイヤーが+2種類（停止要因POI・交差点密度）に達し、T47 R-6に記録済みだったトリガー条件が成立。(a)MapView.tsxの標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度6レイヤーぶんのensure/set関数ペアを`STATIC_OVERLAY_LAYERS`テーブル+ループへ置換、(b)page.tsxに散在していたlocalStorage読み書き（load/save関数＋復元用useIsomorphicLayoutEffect）を`useStoredState`フック（新規、hooks/useStoredState.ts）へ集約、を実施。別セッションが着手・未コミットのまま中断していた状態を引き継ぎ、内容確認（全diff読解）・frontend全200件・tsc・eslint・Playwright e2eスモーク2件green、レイヤーチップ全種の手動トグルでconsoleエラー無しを確認したうえでコミット。あわせて同じワーキングツリーにあった別件2点も検証のうえコミット: ComparisonPanelへtraffic_stress_score/bicycle_infra_score/intersection_density（静的属性P1残りで追加されたがMETRIC_ROWS未対応だった3軸）の行を追加、vitest.config.mtsへ`.claude/worktrees/**`の除外を追加（並行worktree配下の同名test.tsxをvitestが誤って拾い偽陽性を出す実害の対策） |
 | 2026-08-16 | （PostGISクエリコストレビュー） | ユーザー依頼（個別データソース追加で遅いSQLが散見される）を受け全テーブル・全SQLを通読、dev DBでEXPLAIN ANALYZE実測。最重要所見はST_DWithin(geography)単体JOINの索引不使用4クエリ（停止POI 200エッジ134秒→`&&`前置で0.44秒/306倍、事故8点18.6秒→0.24秒/79倍を実測済み）。T64〜T69を起票。テーブル設計自体は健全で、問題は後発クエリの`&&`前置規約不徹底に集約されると結論 |
 | 2026-08-16 | T62 | ユーザー指摘（自転車インフラと道路情報の自転車・歩行者道分類が意味的にかぶっていないか）を受けた属性の重複・包含関係の棚卸しを実施し起票・完了。数値・スコアリング挙動は不変、表示ラベルと根拠コメントのみ変更。`staticAttributeLayers.ts`: `bicycle_infra=shared_pedestrian`のラベルを「自転車歩行者道」→「歩道（自転車通行可）」へ変更し、roadFilterAxes.tsの highway表示分類「自転車・歩行者道」との違い・非対称な包含関係をコメントで明記。`domain/traffic.py`: `classify_bicycle_infrastructure`と`traffic_stress_level`が同じcycleway系タグを別目的で解釈しており2軸（交通ストレス重み・自転車インフラ重み）が完全には直交しない旨を相互参照コメントで明記、`TRAFFIC_STRESS_BASE_BY_HIGHWAY`に登録の無いhighway値（path/footway等）が意図的に評価対象外である旨を追記。backend 621件・frontend 200件・tsc・eslint全green |
+| 2026-08-16 | （designation実装レビュー） | T51実装の未コミット変更へ8角度コードレビューを実施（候補発見8＋1票候補の検証2エージェント、確定26件・要実測1件・棄却0件。T65〜T67起票済み分は重複除外）。T70〜T85を起票。最優先はタイル世代対上げ漏れ（T70）と取込バッチのデータ欠損系（T71〜T73）、T74（MVT指定路線表現）はT66と関連する設計判断。log_external_call未使用は既存バッチ同一先例のため対象外、improvement-plan.mdのdiff内矛盾は作業ツリーで解消済みと確認 |
+| 2026-08-16 | （将来UI整理検討） | ユーザー提示の外部UI/UXレビュー指摘表12点を将来の静的属性拡張の観点で検討。🔴高5点中4点（#1/#3/#5/#8/#9）はT29〜T32・T38で対応済み、#6/#7はT39/T40で対応済みと確認し再起票せず、#10〜#12はユーザー提示どおり🟡低・先送り。現状ギャップが残る#2（レイヤーのカテゴリ化）・#4（データ状態の明示）のみT86・T87として起票 |
