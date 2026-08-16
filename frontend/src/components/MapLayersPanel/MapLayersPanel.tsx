@@ -220,91 +220,33 @@ export default function MapLayersPanel({
     );
   }
 
+  // 改善計画T84: trafficStress/bicycleInfra/designation/stopPoi/intersections/accidentsは
+  // 「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー（elevationはpanelHintのみ・
+  // road/routeは専用UIを持つ真に特殊なレイヤーのためこの関数の対象外）。以前はレイヤーごとに
+  // 同型JSXブロックを6つ複製し、説明文もmapLayers.tsのdescriptionとは別にここへハードコード
+  // していた（文言修正時に片方だけ直り画面間で食い違うリスク、設計原則8違反）。
+  function renderStandardSectionBody(layer: MapLayerDescriptor) {
+    return (
+      <>
+        {layer.panelHint && <p className={styles.mutedHint}>{layer.panelHint}</p>}
+        {renderOffHint(layer.id)}
+        {staticFilterAxesFor(layer.id).map(renderStaticFilterAxis)}
+      </>
+    );
+  }
+
   function renderSectionBody(layer: MapLayerDescriptor) {
     switch (layer.id) {
       case "elevation":
         // 設定項目が無いレイヤーは説明文のみ（将来、不透明度等の設定を足す場所）
-        return <p className={styles.mutedHint}>{layer.description}</p>;
+        return <p className={styles.mutedHint}>{layer.panelHint}</p>;
       case "trafficStress":
-        // 改善計画T63で凡例チェックボックス＝絞り込み操作へ変更（道路情報と同じ方式）。
-        // 判定基準が不明という実機フィードバック（モバイル実機フィードバック対応T39）を受け、
-        // backend/app/domain/traffic.py: traffic_stress_levelの要約を明記する。
-        return (
-          <>
-            <p className={styles.mutedHint}>
-              道路の種別を基準に、自転車専用帯・レーンの有無、制限速度、車線数で補正した
-              1（快適）〜4（ストレス大）の目安です。実際の交通量そのものは加味していません。
-            </p>
-            {renderOffHint("trafficStress")}
-            {staticFilterAxesFor("trafficStress").map(renderStaticFilterAxis)}
-          </>
-        );
       case "bicycleInfra":
-        // 「道路情報（路面）」との違いが分からないという実機フィードバック（同T40）を受け、
-        // 両者が独立した軸であることを明記する。
-        return (
-          <>
-            <p className={styles.mutedHint}>
-              自転車が走る帯の構造（専用道・レーン・車道混在など）を表します。道路情報レイヤーの
-              路面の種類（アスファルト/砂利など、舗装の物理的な状態）とは別の軸で、
-              組み合わせて確認できます。
-            </p>
-            {renderOffHint("bicycleInfra")}
-            {staticFilterAxesFor("bicycleInfra").map(renderStaticFilterAxis)}
-          </>
-        );
       case "designation":
-        // 外部静的データソース T51（国土数値情報 N10/N12）。バッファマッチ（20m、交差率50%以上）
-        // でroad_edgesへ対応付けた区間を色分けする。該当区間はtrafficStress軸にも+1の
-        // 補正として反映される（road_graph_repository.py: traffic_stress_level参照）。
-        return (
-          <>
-            <p className={styles.mutedHint}>
-              国土数値情報の緊急輸送道路（N10）・重要物流道路（N12）に該当する区間です。
-              大型車の通行が多いと推定される目安として、交通ストレスの評価にも加味しています。
-            </p>
-            {renderOffHint("designation")}
-            {staticFilterAxesFor("designation").map(renderStaticFilterAxis)}
-          </>
-        );
       case "stopPoi":
-        return (
-          <>
-            <p className={styles.mutedHint}>
-              信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを
-              数えて算出しているものを、種別ごとの色分けで直接確認できます。
-            </p>
-            {renderOffHint("stopPoi")}
-            {staticFilterAxesFor("stopPoi").map(renderStaticFilterAxis)}
-          </>
-        );
       case "intersections":
-        // 改善計画T63: degree（接続路の本数）を3段階に束ねた絞り込みへ変更。「主要な交差路
-        // だけ表示」で密度の高い箇所を判断しやすくする（詳細はstaticAttributeLayers.ts参照）。
-        return (
-          <>
-            <p className={styles.mutedHint}>
-              接続する道路が3本以上ある交差点です。接続数が多いほど円が大きくなります。
-              評価の「交差点密度」軸が近傍のこれらを数えて算出しています。
-            </p>
-            {renderOffHint("intersections")}
-            {staticFilterAxesFor("intersections").map(renderStaticFilterAxis)}
-          </>
-        );
       case "accidents":
-        // 改善計画T63: 当事者（自転車関連/その他）に加え、重大度（死亡事故か否か）を独立した
-        // 第2軸として絞り込み可能にした（道路情報の路面の種類×道路の種類と同じAND絞り込み）。
-        return (
-          <>
-            <p className={styles.mutedHint}>
-              警察庁が公開する交通事故統計オープンデータ（本票、関東7都県・2022〜2024年）の
-              発生地点です。死亡事故は円を大きく表示します。2019〜2021年は本票のCSV形式が
-              異なるため未対応です。
-            </p>
-            {renderOffHint("accidents")}
-            {staticFilterAxesFor("accidents").map(renderStaticFilterAxis)}
-          </>
-        );
+        return renderStandardSectionBody(layer);
       case "road":
         // 2軸とも凡例チェックボックス＝絞り込み操作（参照表示と操作を1つのリストで兼ねる、
         // ルート凡例と同じ方式）。OFF中でも操作でき、操作すると自動でONになる。

@@ -1650,7 +1650,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   一般化（handleClick内の1箇所のみで複製が無いため優先度低いと判断）は見送った。
   tsc・eslintは対象ファイルでgreen、既存のMapView.segments.test.ts 3件green
 
-### - [ ] T84. MapLayersPanel説明文のカタログ集約 規模S〜M
+### - [x] T84. MapLayersPanel説明文のカタログ集約 規模S〜M（2026-08-16完了）
 
 - `case "designation"`は同型定型JSX（mutedHint＋renderOffHint＋staticFilterAxesFor）の
   6case目の複製で、説明文が`mapLayers.ts`のdescriptionとは別にswitch内へハードコード
@@ -1659,6 +1659,13 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 対応: カタログへpanelHint的フィールドを追加し、標準レイヤーはデータ駆動で描画、
   caseは真に特殊なレイヤー（道路情報等）のみへ縮小（設計原則8）。
 - 完了条件: パネル説明文の定義箇所が1箇所になり、frontend全green。
+- **実装結果（2026-08-16）**: `MapLayerDescriptor`へ`panelHint?: string`を追加し、
+  trafficStress/bicycleInfra/designation/stopPoi/intersections/accidents（標準6レイヤー）と
+  elevationの説明文をmapLayers.tsへ集約。`MapLayersPanel.tsx`は
+  `renderStandardSectionBody(layer)`（panelHint＋renderOffHint＋staticFilterAxesFor）を新設し、
+  6caseすべてをこれへ委譲するfall-throughへ縮小。road/routeのみ引き続き専用JSXを保持
+  （真に特殊なレイヤー）。既存の`MapLayersPanel.test.tsx`（表示テキストを直接検証）27件green、
+  tsc・eslintも対象ファイルでgreen
 
 ### - [x] T85. designation加点エンジンテストの縮小 規模S・任意（2026-08-16見送りでクローズ）
 
