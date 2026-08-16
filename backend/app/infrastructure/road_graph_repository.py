@@ -531,45 +531,27 @@ _NEAREST_ACCIDENT_COUNTS_SQL = text(
 
 # 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
 # match_designations.pyの事前計算バッチが埋める（クエリ時にはバッファ交差計算をしない）。
-# edge_idキー版はDISTINCT一覧、サンプル点版は_NEAREST_SURFACE_SQLと同じ「WHEREをLATERAL外へ
-# 出す」KNNパターン（改善計画T21のコメント参照。ORDER BY <-> LIMIT 1にWHEREを同居させると
-# 範囲内に候補が無い点で全行スキャンに悪化することが実測済みのため）。
+# edge_idキー版はDISTINCT一覧（get_designated_edge_ids用）。サンプル点版は改善計画T76で
+# _NEAREST_WAY_TAGS_SQLへ統合し、専用クエリは廃止した（同一サンプル点集合に対する3本目の
+# 独立KNNラウンドトリップだったため。詳細は_NEAREST_WAY_TAGS_SQLのコメント参照）。
+#
+# 改善計画T77（転送方式の見直し検討）: 「呼び出し側のgraph.edges.keys()全件をedge_idsとして
+# アップロードする代わりに、designation_attributes全体（該当kind分）を無フィルタで取得し
+# Python側で積集合を取る方が安いのでは」という代替案を検討した。dev DBで実測（2026-08-16）
+# したところ、designation_attributes該当kind行数=28,940に対し、road_edgesは既に117,744件
+# （王子中心40kmbbox、生成済み範囲の蓄積分）で、大きめのループ生成リクエストの
+# graph.edges.keys()は同オーダー（数万件）になりうる。どちらの方向にアップロードしても
+# 転送量が大差ない規模のため、明確な優位が無いと判断し現状（edge_idsをWHERE ANYへ渡す方式、
+# インデックス付きPK検索）を維持する。designation_attributesが将来大きく育つ場合は
+# 再検討する。
+#
+# DISTINCTは呼び出し側（get_designated_edge_ids）のset()化と二重に見えるが、1エッジが
+# 複数kindに該当する場合（N10・N12両方等）に重複行がそのままネットワークへ乗るのを防ぐ
+# 転送量削減が目的のため意図的に残す。
 _DESIGNATED_EDGE_IDS_SQL = text(
     "SELECT DISTINCT edge_id FROM designation_attributes WHERE edge_id = ANY(CAST(:edge_ids AS text[])) "
     "AND kind = ANY(:kinds)"
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
-
-_NEAREST_DESIGNATED_FLAGS_SQL = text(
-    """
-    WITH pts AS (
-        SELECT
-            ord,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
-        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    )
-    SELECT pts.ord,
-           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m)
-                THEN EXISTS(
-                    SELECT 1 FROM designation_attributes da
-                    WHERE da.edge_id = nearest.edge_id AND da.kind = ANY(:kinds)
-                )
-                ELSE false
-           END AS is_designated
-    FROM pts
-    LEFT JOIN LATERAL (
-        SELECT e.edge_id, e.geom
-        FROM road_edges e
-        ORDER BY e.geom <-> pts.geom
-        LIMIT 1
-    ) nearest ON true
-    ORDER BY pts.ord
-    """
-).bindparams(
-    bindparam("lats", type_=ARRAY(Float())),
-    bindparam("lons", type_=ARRAY(Float())),
-    bindparam("kinds", type_=ARRAY(Text())),
-)
 
 # 事故データの収録年数（accident_import_runsの成功run数、年重複なしのdistinct件数）。
 # distance_weighted_accident_density（domain/accident.py）の「件/(km・年)」正規化に使う。
@@ -581,6 +563,12 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
 # 静的道路属性P1残り（交通ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
 # 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
 # （domain/traffic.py: traffic_stress_level/classify_bicycle_infrastructureの入力）。
+# 改善計画T76: is_designated（外部静的データソース T51、KSJ N10/N12該当）もここへ統合する。
+# 以前はget_nearest_designated_flagsが同一サンプル点集合に対して独立のLATERAL KNN
+# （WITH pts〜LEFT JOIN LATERAL road_edgesの骨格ごとコピー）を3本目のラウンドトリップとして
+# 実行しており、並行道路付近でhighway/tagsとis_designatedが別のedge由来になる不整合の
+# 可能性もあった。nearest.edge_idを1回のKNNで求め、designation_attributesへのEXISTSを
+# 同じCASE式（ST_DWithinゲート）に同居させることでクエリ・ラウンドトリップとも1本化する。
 _NEAREST_WAY_TAGS_SQL = text(
     """
     WITH pts AS (
@@ -592,10 +580,17 @@ _NEAREST_WAY_TAGS_SQL = text(
     )
     SELECT pts.ord,
            CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.highway END AS highway,
-           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.tags END AS tags
+           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.tags END AS tags,
+           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m)
+                THEN EXISTS(
+                    SELECT 1 FROM designation_attributes da
+                    WHERE da.edge_id = nearest.edge_id AND da.kind = ANY(:kinds)
+                )
+                ELSE false
+           END AS is_designated
     FROM pts
     LEFT JOIN LATERAL (
-        SELECT e.osm_way_id, e.geom
+        SELECT e.edge_id, e.osm_way_id, e.geom
         FROM road_edges e
         ORDER BY e.geom <-> pts.geom
         LIMIT 1
@@ -606,6 +601,7 @@ _NEAREST_WAY_TAGS_SQL = text(
 ).bindparams(
     bindparam("lats", type_=ARRAY(Float())),
     bindparam("lons", type_=ARRAY(Float())),
+    bindparam("kinds", type_=ARRAY(Text())),
 )
 
 def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
@@ -1409,21 +1405,32 @@ class AttributeRepository(_SessionRepository):
 
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[tuple[str | None, dict[str, str]]]:
+    ) -> list[tuple[str | None, dict[str, str], bool]]:
         """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeが
-        参照するosm_raw_waysの(highway, tags)を返す（入力と同じ順序・同じ長さ、
-        静的道路属性P1残り）。get_nearest_surface_tagsと同じ空間マッチ方式で、
-        openrouteserviceエンジンの交通ストレス・自転車インフラ評価の入力になる。
+        参照するosm_raw_waysの(highway, tags, is_designated)を返す（入力と同じ順序・同じ長さ、
+        静的道路属性P1残り＋外部静的データソースT51）。get_nearest_surface_tagsと同じ
+        空間マッチ方式で、openrouteserviceエンジンの交通ストレス・自転車インフラ・
+        指定路線該当（trafficStress補正）評価の入力になる。
+
+        is_designatedは以前get_nearest_designated_flagsという専用メソッド・専用SQLだったが、
+        同一サンプル点集合に対する3本目の独立KNNだったため改善計画T76でここへ統合した
+        （_NEAREST_WAY_TAGS_SQLのコメント参照）。
         """
         if not points:
             return []
         lats = [p[0] for p in points]
         lons = [p[1] for p in points]
         result = await self._session.execute(
-            _NEAREST_WAY_TAGS_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
+            _NEAREST_WAY_TAGS_SQL,
+            {
+                "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
+                "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS),
+            },
         )
-        by_ord = {ord_: (highway, tags or {}) for ord_, highway, tags in result.all()}
-        return [by_ord.get(i + 1, (None, {})) for i in range(len(points))]
+        by_ord = {
+            ord_: (highway, tags or {}, is_designated) for ord_, highway, tags, is_designated in result.all()
+        }
+        return [by_ord.get(i + 1, (None, {}, False)) for i in range(len(points))]
 
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
@@ -1555,28 +1562,6 @@ class AttributeRepository(_SessionRepository):
             result.update(edge_id for (edge_id,) in rows.all())
         return result
 
-    async def get_nearest_designated_flags(
-        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[bool]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeが
-        KSJ N10/N12に該当するかを返す（入力と同じ順序・同じ長さ、外部静的データソース T51）。
-        get_nearest_surface_tagsと同じ空間マッチ方式（openrouteserviceエンジンがgeometry上の
-        サンプル点をこのメソッドで自前DBへ空間マッチする）。
-        """
-        if not points:
-            return []
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        result = await self._session.execute(
-            _NEAREST_DESIGNATED_FLAGS_SQL,
-            {
-                "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
-                "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS),
-            },
-        )
-        by_ord = {ord_: is_designated for ord_, is_designated in result.all()}
-        return [by_ord.get(i + 1, False) for i in range(len(points))]
-
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -1670,7 +1655,7 @@ class RoadGraphRepository:
 
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[tuple[str | None, dict[str, str]]]:
+    ) -> list[tuple[str | None, dict[str, str], bool]]:
         return await self.attributes.get_nearest_way_tags(points, max_distance_m=max_distance_m)
 
     async def get_intersection_counts(
@@ -1703,11 +1688,6 @@ class RoadGraphRepository:
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         return await self.attributes.get_designated_edge_ids(edge_ids)
-
-    async def get_nearest_designated_flags(
-        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[bool]:
-        return await self.attributes.get_nearest_designated_flags(points, max_distance_m=max_distance_m)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

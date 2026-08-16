@@ -1519,8 +1519,16 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   `traffic_stress_level`でtagsと必ず対で使われるため同居が自然。実装時にway_tags側KNNの
   対象テーブルとedge_id解決の整合を確認すること。
 - 完了条件: DB統合テストで既存結果と同値、ラウンドトリップ数の削減を確認。backend全green。
+- **実装結果（2026-08-16）**: `_NEAREST_WAY_TAGS_SQL`のLATERAL副問い合わせへ`e.edge_id`を
+  追加し、`is_designated`列（designation_attributesへのEXISTS、既存のST_DWithinゲートに
+  同居）を返すよう拡張。`get_nearest_way_tags`の戻り値を`(highway, tags)`から
+  `(highway, tags, is_designated)`の3要素へ変更し、専用メソッド`get_nearest_designated_flags`・
+  専用SQL`_NEAREST_DESIGNATED_FLAGS_SQL`・ファサード委譲を削除。
+  `openrouteservice_engine.py`は1回のKNN結果から`flat_way_tags`/`flat_designated_flags`を
+  導出する形へ変更（`_build_segment_details`のシグネチャは無変更、T78/T79側の課題として残す）。
+  backend 669件green（Fake/DB統合テストとも新シグネチャへ追従）
 
-### - [ ] T77. get_designated_edge_idsの転送方式見直し 規模S・要実測
+### - [x] T77. get_designated_edge_idsの転送方式見直し 規模S・要実測（2026-08-16完了）
 
 - `graph.edges.keys()`全件（数千〜数万ID、数百KB級のtext[]）を毎prepareでアップロードするが、
   designation_attributesの該当kind行を無フィルタで全取得しPython側で積集合を取る方が
@@ -1529,6 +1537,15 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - ついで: `_DESIGNATED_EDGE_IDS_SQL`のDISTINCTは呼び出し側のset化と二重で冗長
   （除去は挙動不変。転送量削減目的で残すならコメント明記）。
 - 完了条件: dev/本番相当の行数・転送量を実測して方式決定、採用時は前提行数をコメント化。
+- **実装結果（2026-08-16、測定のうえ現状維持を決定）**: dev DBで実測（王子中心40kmbbox）
+  したところ、designation_attributes該当kind行数=28,940に対し、同bbox内road_edgesは
+  既に117,744件（生成済み範囲の蓄積）で、大きめのループ生成リクエストのgraph.edges.keys()は
+  同オーダー（数万件）になりうると判明。どちら向きにアップロードしても転送量が大差ない規模の
+  ため、代替案（無フィルタ全件取得＋Python側積集合）への切替による明確な優位は無いと判断し、
+  現状の実装（edge_idsをWHERE ANYへ渡す、インデックス付きPK検索）を維持することにした。
+  測定結果と判断根拠を`_DESIGNATED_EDGE_IDS_SQL`のコメントに記録（designation_attributesが
+  将来大きく育つ場合は再検討する旨も明記）。ついでのDISTINCT重複除去は、1エッジが複数kindに
+  該当する場合の重複行転送を防ぐ目的と判明したためコメントを追記し維持（除去しない判断）。
 
 ### - [ ] T78. ORSエンジンの点属性dataclass化（平行フラット配列の解消）規模M
 

@@ -110,8 +110,9 @@ class FakeSurfaceRepository:
 
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = 30.0
-    ) -> list[tuple[str | None, dict[str, str]]]:
-        return [(self._default_highway, self._default_way_tags) for _ in points]
+    ) -> list[tuple[str | None, dict[str, str], bool]]:
+        # is_designatedは改善計画T76でget_nearest_designated_flagsから統合された。
+        return [(self._default_highway, self._default_way_tags, self._default_designated) for _ in points]
 
     async def get_nearest_intersection_counts(
         self, points: list[tuple[float, float]], max_distance_m: float = 30.0
@@ -125,11 +126,6 @@ class FakeSurfaceRepository:
 
     async def get_accident_years_covered(self) -> int:
         return self._accident_years_covered
-
-    async def get_nearest_designated_flags(
-        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
-    ) -> list[bool]:
-        return [self._default_designated for _ in points]
 
 
 def make_generator(outcomes: list) -> RouteGenerator:
