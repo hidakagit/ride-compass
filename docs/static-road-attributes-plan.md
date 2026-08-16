@@ -8,13 +8,15 @@ P0（タグ保持基盤・`domain/traffic.py`・MVT拡張v4・交通ストレス
 trafficStress/bicycle_infra評価組み込みは同日後半。詳細は本節末尾の実装結果を参照）。
 残っていた自転車歩行者道スコープ拡張・`bicycle=no`Hard Constraint・`oneway:bicycle`例外
 （§3 P1の4〜5）は、2026-08-17にユーザー承認済みの別ブランチ作業を確認・番号を振り直したうえで
-[improvement-plan.md](improvement-plan.md)T99/T100として起票し、同日中に**T100は完了**
-（bicycle=no Hard Constraint・oneway:bicycle例外とも実装・テスト完了）。**T99はコード実装
-（取込ルール追加）まで完了し、実際の再取込みはユーザー判断のもと別途実施**。補給・休憩POI
+[improvement-plan.md](improvement-plan.md)T99/T100として起票し、同日中に**T99・T100とも完了**
+（T100はbicycle=no Hard Constraint・oneway:bicycle例外の実装・テスト完了。T99はコード実装に加え、
+ユーザー承認のうえ本番Oracle Cloud DBへ`kanto-latest.osm.pbf`を再取込みし、自転車歩行者道
+17,584件・うちsegregated保持5,000件を本番データとして反映済み）。補給・休憩POI
 （§2.3）はT101として起票済み・未着手。lit/segregated/barrierの新規候補（§2.5）はT102として
-**関東全域PBFで実測完了**（lit/segregatedは採用推奨と判断しタグ保持まで実施、barrierも
-採用推奨だが新規node取込ルールが必要なため実装は別タスク）。name/refのMVT焼き込みのみ
-P2据え置きの候補として引き続き未着手（§3.1）。以下は元の調査報告（2026-08-15時点、着手前）。
+**関東全域PBFで実測完了**（lit/segregatedは採用推奨と判断しタグ保持まで実施、T99の本番再取込みで
+lit 14,368件も反映済み。barrierも採用推奨だが新規node取込ルールが必要なため実装は別タスク）。
+name/refのMVT焼き込みのみP2据え置きの候補として引き続き未着手（§3.1）。以下は元の調査報告
+（2026-08-15時点、着手前）。
 
 新レイヤー（交通ストレス・自転車インフラ・信号密度等）追加に向けた、OSM静的道路属性の
 棚卸しと実装方針の提案。動的データ（天気・風・降水）は対象外。
