@@ -113,8 +113,46 @@
   white-space: nowrap;
 }
 
-/* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
-   チップより一段控えめな見た目（小さめ・通常面色）にして、押下状態と混同させない。 */
+/* チップ横の▶。既定では条件サマリを隠しておき、押した時だけ.summaryButtonを出す
+   トグル（実機フィードバック「絞り込み条件が常時横に出てくると見にくい」への対応）。
+   矢印の向きだけで開閉を示す小さいボタンにし、チップ本体より存在感を抑える。 */
+.expandToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-neutral);
+  cursor: pointer;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+.expandToggleActive {
+  color: var(--foreground);
+  border-color: var(--color-accent);
+}
+
+.expandArrow {
+  display: inline-block;
+  font-size: 0.6rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.expandArrowOpen {
+  transform: rotate(90deg);
+}
+
+/* ONのレイヤーに効いている条件の1行サマリ。▶を押したときだけ出すポップオーバーのため、
+   地図を覆いすぎないよう不透明な面色ではなく半透明+ぼかしにして「薄く」見せる
+   （実機フィードバック「常時横に出てくると見にくい」を受けて、既定非表示に加えて
+   見た目も背景の地図を邪魔しない軽さにした）。タップでサイドバーの該当設定へ移動する。 */
 .summaryButton {
   display: flex;
   align-items: center;
@@ -127,7 +165,9 @@
   padding: 0.25rem 0.7rem;
   border-radius: 999px;
   border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: var(--foreground);
   font-size: var(--font-size-sm);
   box-shadow: var(--shadow-float);

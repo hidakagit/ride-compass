@@ -57,20 +57,28 @@ describe("MapOverlayControls", () => {
     expect(routeChip).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("ONのレイヤーにsummaryがあればサマリ行が表示され、タップでonSummaryClickが呼ばれる", async () => {
+  it("ONのレイヤーにsummaryがあれば▶トグルが出るが、押すまでサマリ行は隠れている", async () => {
     const user = userEvent.setup();
     const onSummaryClick = vi.fn();
     const layers = baseLayers();
     layers[1] = { ...layers[1], on: true, summary: "アスファルトのみ" };
     render(<MapOverlayControls {...baseProps()} layers={layers} onSummaryClick={onSummaryClick} />);
 
+    // 既定では条件サマリを表示せず、開閉トグルだけが出る
+    expect(screen.queryByRole("button", { name: /路面:.*アスファルトのみ/ })).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "路面の絞り込み条件を表示" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
     const summaryButton = screen.getByRole("button", { name: /路面:.*アスファルトのみ/ });
     await user.click(summaryButton);
-
     expect(onSummaryClick).toHaveBeenCalledWith("road");
   });
 
-  it("summarySwatchesがあればサマリ行の先頭に色ドット・太さバーが並ぶ", () => {
+  it("summarySwatchesがあれば▶を開いたときにサマリ行の先頭に色ドット・太さバーが並ぶ", async () => {
+    const user = userEvent.setup();
     const layers = baseLayers();
     layers[1] = {
       ...layers[1],
@@ -90,6 +98,7 @@ describe("MapOverlayControls", () => {
       ],
     };
     const { container } = render(<MapOverlayControls {...baseProps()} layers={layers} />);
+    await user.click(screen.getByRole("button", { name: "路面の絞り込み条件を表示" }));
 
     const dot = container.querySelector('[style*="background: rgb(124, 58, 237)"]');
     expect(dot).toBeInTheDocument();

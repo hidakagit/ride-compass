@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import type { MapLayerId } from "@/components/Map/mapLayers";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import {
@@ -99,12 +99,30 @@ function renderSummarySwatches(groups: readonly SummarySwatchGroup[]) {
 // サイドバーへ移した）。このコンポーネントはレイヤー固有の知識を持たない汎用の描画係で、
 // レイヤーが増えてもここは変更不要（mapLayers.tsのコメント参照）。
 export default function MapOverlayControls({ layers, onToggle, onSummaryClick }: MapOverlayControlsProps) {
+  // 絞り込み条件サマリを常時表示すると地図の視界を圧迫するという実機フィードバックを受け、
+  // 既定は非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
+  // 複数レイヤーを同時に開いておきたい場合もあるため、開閉はレイヤーIDのSetで個別管理する。
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<MapLayerId>>(new Set());
+
+  const toggleExpanded = (id: MapLayerId) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className={styles.wrapper}>
       <div className={styles.chipRow}>
         {layers.map((layer) => {
           const Icon = LAYER_ICONS[layer.id];
           const showSummary = layer.on && !layer.disabled && layer.summary;
+          const isExpanded = Boolean(showSummary) && expandedIds.has(layer.id);
           return (
             // チップとその条件サマリを1行にまとめる。以前はサマリをチップ列の下にまとめて
             // 縦に並べていたが、複数レイヤーがONのとき「どのチップの条件か」が離れて分かり
@@ -124,6 +142,20 @@ export default function MapOverlayControls({ layers, onToggle, onSummaryClick }:
                 <span className={styles.iconLabel}>{layer.chipLabel ?? layer.label}</span>
               </button>
               {showSummary && (
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(layer.id)}
+                  aria-expanded={isExpanded}
+                  aria-label={`${layer.label}の絞り込み条件を${isExpanded ? "隠す" : "表示"}`}
+                  title="絞り込み条件を表示"
+                  className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
+                >
+                  <span aria-hidden="true" className={isExpanded ? `${styles.expandArrow} ${styles.expandArrowOpen}` : styles.expandArrow}>
+                    ▶
+                  </span>
+                </button>
+              )}
+              {isExpanded && (
                 <button
                   type="button"
                   onClick={() => onSummaryClick(layer.id)}
