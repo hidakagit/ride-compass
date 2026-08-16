@@ -55,11 +55,22 @@
 
 /* チップ1つ分の行。ON中で条件サマリがあるレイヤーは、チップの右にサマリ行を並べる
    （以前は列の下にまとめて縦積みだったが、複数レイヤーがONのとき対応関係が分かりにくい
-   という実機フィードバックを受け、該当チップの横へ移した）。 */
+   という実機フィードバックを受け、該当チップの横へ移した）。展開時の内訳パネルはチップより
+   丈が高くなりうるため、align-itemsをflex-startにしてパネルの上端をチップに揃える。 */
 .chipRowItem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
+}
+
+/* アイコンチップと▶トグルのペア。▶はこのチップ自身の開閉スイッチなので、内訳パネルとの
+   間隔（.chipRowItemのgap）より詰めて、見た目の対応関係を分かりやすくする
+   （実機フィードバック「▶をもう少しアイコン側に近づけて」）。 */
+.iconWithToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
 }
 
 /* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
@@ -149,35 +160,47 @@
   transform: rotate(90deg);
 }
 
-/* ONのレイヤーに効いている条件の1行サマリ。▶を押したときだけ出すポップオーバーのため、
-   地図を覆いすぎないよう不透明な面色ではなく半透明+ぼかしにして「薄く」見せる
-   （実機フィードバック「常時横に出てくると見にくい」を受けて、既定非表示に加えて
-   見た目も背景の地図を邪魔しない軽さにした）。タップでサイドバーの該当設定へ移動する。 */
-.summaryButton {
+/* ▶を開いたときの内訳パネル本体。地図を覆いすぎないよう不透明な面色ではなく
+   半透明+ぼかしにして「薄く」見せる（実機フィードバック「常時横に出てくると見にくい」
+   「押したときだけ薄く出るように」を受けて、既定非表示に加えて見た目も背景の地図を
+   邪魔しない軽さにした）。1行要約（.summaryButton）と全カテゴリ内訳（.detailBody）を
+   1枚のカードにまとめる。 */
+.detailPanel {
   display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  /* チップと横並びになったため、残り幅まで伸びつつ収まらない分は省略記号で切る
-     （flexアイテムのデフォルトmin-width:autoだとテキスト分だけ広がり親の折り返しを妨げるため0にする） */
+  flex-direction: column;
+  gap: var(--space-2);
   flex: 1;
   min-width: 0;
-  min-height: 30px;
-  padding: 0.25rem 0.7rem;
-  border-radius: 999px;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
   background: color-mix(in srgb, var(--color-surface) 78%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  color: var(--foreground);
-  font-size: var(--font-size-sm);
   box-shadow: var(--shadow-float);
-  cursor: pointer;
-  overflow: hidden;
   /* .iconChipと同じ理由（ピンチの片方の指がここに乗ると地図のジェスチャーとして
      確定しないことがあるため） */
   touch-action: none;
   /* .iconChipと同じ理由（親のpointer-events: noneをボタン自身だけで打ち消す） */
   pointer-events: auto;
+}
+
+/* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
+   カードの見た目（背景・枠・影）は親の.detailPanel側が持つため、ここは中身のレイアウトのみ。 */
+.summaryButton {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
 }
 
 .summaryLayerLabel {
@@ -248,4 +271,89 @@
 .summaryArrow {
   color: var(--color-neutral);
   flex-shrink: 0;
+}
+
+/* 1行要約だけでは「何が起きているか」が分からないという実機フィードバックを受けて追加した、
+   軸ごとの全カテゴリ内訳（表示中/非表示のいずれも並べる）。1行要約の下にまとめて置く。 */
+.detailBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-strong);
+  padding-top: var(--space-2);
+}
+
+.detailAxis {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.detailAxisLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--color-neutral);
+}
+
+.detailList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.detailRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--font-size-sm);
+}
+
+/* 非表示カテゴリは薄く見せ、右側に「非表示」バッジを添えて、地図上には出ていないことを
+   一目で分かるようにする（表示中と同じ並びに置いて全体像を見せつつ区別する）。 */
+.detailRowHidden {
+  opacity: 0.5;
+}
+
+.detailRowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailHiddenTag {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: var(--color-neutral);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+.detailSwatchDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.detailSwatchBar {
+  width: 14px;
+  border-radius: 1px;
+  background: var(--color-muted-strong);
+  flex-shrink: 0;
+}
+
+.detailSwatchBarDashed {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-muted-strong) 0,
+    var(--color-muted-strong) 2px,
+    transparent 2px,
+    transparent 4px
+  );
 }

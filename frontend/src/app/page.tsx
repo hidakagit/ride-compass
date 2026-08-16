@@ -18,7 +18,11 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { summarizeLegendFilters, summarizeLegendFilterSwatches } from "@/components/Map/legendFilter";
+import {
+  summarizeLegendFilters,
+  summarizeLegendFilterSwatches,
+  type LegendFilterSummaryAxis,
+} from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
@@ -345,17 +349,45 @@ export default function Home() {
           ),
     [regionZoomTooWide, roadHiddenKeysByMode],
   );
+  // ▶を開いたときの内訳パネル（1行要約だけでは何が起きているか分からないという
+  // 実機フィードバックへの対応）用に、軸ごとの全カテゴリ（表示中/非表示問わず）を渡す。
+  // ズーム不足で絞り込み自体が無意味なときは空にし、案内文（roadSummary）だけを見せる。
+  const roadLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
+    () =>
+      regionZoomTooWide
+        ? []
+        : ROAD_FILTER_AXES.map((axis) => ({
+            label: axis.label,
+            legend: axis.legend,
+            hiddenKeys: roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+          })),
+    [regionZoomTooWide, roadHiddenKeysByMode],
+  );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
     ? `色分け: ${getRouteStyleMode(routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
     : null;
+  const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
+    () =>
+      hasDetail
+        ? [{ label: "", legend: getRouteStyleMode(routeStyleModeId).legend, hiddenKeys: hiddenRouteLegendKeys }]
+        : [],
+    [hasDetail, routeStyleModeId, hiddenRouteLegendKeys],
+  );
 
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
   // （summarizeLegendFilters/summarizeLegendFilterSwatches）でチップ下に適用中の絞り込みを
   // 表示する。レイヤーごとに保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
   const staticFilterSummaries = useMemo(() => {
     const result: Partial<
-      Record<MapLayerId, { summary: string | null; swatches: ReturnType<typeof summarizeLegendFilterSwatches> }>
+      Record<
+        MapLayerId,
+        {
+          summary: string | null;
+          swatches: ReturnType<typeof summarizeLegendFilterSwatches>;
+          legendDetails: LegendFilterSummaryAxis[];
+        }
+      >
     > = {};
     const layerIds = new Set(STATIC_FILTER_AXES.map((axis) => axis.layerId));
     for (const layerId of layerIds) {
@@ -364,7 +396,11 @@ export default function Home() {
         legend: axis.legend,
         hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
       }));
-      result[layerId] = { summary: summarizeLegendFilters(axes), swatches: summarizeLegendFilterSwatches(axes) };
+      result[layerId] = {
+        summary: summarizeLegendFilters(axes),
+        swatches: summarizeLegendFilterSwatches(axes),
+        legendDetails: axes,
+      };
     }
     return result;
   }, [staticLegendHiddenKeysByAxis]);
@@ -383,6 +419,12 @@ export default function Home() {
               : (staticFilterSummaries[layer.id]?.summary ?? null);
         const summarySwatches =
           layer.id === "road" ? roadSummarySwatches : staticFilterSummaries[layer.id]?.swatches;
+        const legendDetails =
+          layer.id === "road"
+            ? roadLegendDetails
+            : layer.id === "route"
+              ? routeLegendDetails
+              : staticFilterSummaries[layer.id]?.legendDetails;
         return {
           id: layer.id,
           label: layer.label,
@@ -392,9 +434,19 @@ export default function Home() {
           title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}（設定はサイドバー）`,
           summary,
           summarySwatches,
+          legendDetails,
         };
       }),
-    [hasDetail, layerVisibility, roadSummary, roadSummarySwatches, routeSummary, staticFilterSummaries],
+    [
+      hasDetail,
+      layerVisibility,
+      roadLegendDetails,
+      roadSummary,
+      roadSummarySwatches,
+      routeLegendDetails,
+      routeSummary,
+      staticFilterSummaries,
+    ],
   );
 
   // 地図上の条件サマリのタップで、「地図の見え方」設定（デスクトップはサイドバー、
