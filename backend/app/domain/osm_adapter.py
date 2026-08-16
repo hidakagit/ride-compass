@@ -12,11 +12,35 @@ from pydantic import BaseModel
 from app.domain.graph import WaySpec
 from app.domain.traffic import classify_stop_poi
 
-# OSMのoneway値のうち「逆方向への通行不可」を意味するもの。bicycle固有の例外
-# （oneway:bicycle=no等）はここでは扱わない（Evaluation Engine側の関心事。
-# Road Graphは基本的な通行方向のみを保持する、仕様書10章の方針）。
+# OSMのoneway値のうち「逆方向への通行不可」を意味するもの。
 ONEWAY_FORWARD_ONLY = {"yes", "true", "1"}
 ONEWAY_BACKWARD_ONLY = {"-1", "reverse"}
+
+
+def _resolve_direction(tags: dict) -> str:
+    """`oneway`と`oneway:bicycle`から通行方向を決定する（改善計画T100）。
+
+    `oneway:bicycle`は「自転車に限り一方通行規制の対象外（またはbicycle独自の一方通行）」
+    という意味の例外タグで、値がある場合は`oneway`本体より優先する（現実のOSM上でも
+    contraflow cycling＝逆走可の代表的な表現。例: `oneway=yes` + `oneway:bicycle=no`は
+    「車は一方通行だが自転車は両方向通行可」）。`oneway:bicycle`が無い、または
+    forward/backward/no のいずれにも解決できない値の場合は`oneway`本体にフォールバックする。
+    """
+    oneway_bicycle = str(tags.get("oneway:bicycle", "")).strip().lower()
+    if oneway_bicycle in ONEWAY_BACKWARD_ONLY:
+        return "backward"
+    if oneway_bicycle in ONEWAY_FORWARD_ONLY:
+        return "forward"
+    if oneway_bicycle == "no":
+        return "both"
+
+    oneway = str(tags.get("oneway", "")).strip().lower()
+    if oneway in ONEWAY_BACKWARD_ONLY:
+        return "backward"
+    if oneway in ONEWAY_FORWARD_ONLY:
+        return "forward"
+    return "both"
+
 
 # 静的道路属性（docs/static-road-attributes-plan.md P0）で保持するタグの許可リスト。
 # highway/surface/onewayは既存の専用フィールドで扱うためここには含めない。
@@ -37,6 +61,8 @@ ALLOWED_WAY_TAGS = frozenset(
         "bicycle",
         "motor_vehicle",
         "access",
+        # 改善計画T100: 方向自体は_resolve_directionでWaySpec.directionへ解決済みだが、
+        # 生タグも表示・デバッグ用途に引き続き保持する（他の解釈済みタグと同じ扱い）。
         "oneway:bicycle",
         "tunnel",
         "bridge",
@@ -48,6 +74,11 @@ ALLOWED_WAY_TAGS = frozenset(
         # 取込コストがゼロ（既存のtags jsonbへ相乗り）なため、T102の採用可否判断を待たず保持する。
         # 分類ロジック（classify_bicycle_infrastructure）への反映はT102の実測結果を待って判断する。
         "segregated",
+        # 改善計画T102: 街灯の有無。関東全域実測で全体1.1%・幹線道路4.8%と既採用tagの水準を
+        # 上回り採用推奨と判断（詳細はstatic-road-attributes-plan.md §2.5）。取込コストは
+        # segregatedと同じくゼロ（既存way向けtags jsonbへ相乗り、新規node取込は不要）。
+        # 評価軸・表示への反映は別タスクで検討（本タスクはタグ保持のみ）。
+        "lit",
     }
 )
 
@@ -69,13 +100,7 @@ def osm_way_to_way_spec(raw_way: dict) -> WaySpec | None:
         return None
 
     tags = raw_way.get("tags", {})
-    oneway = str(tags.get("oneway", "")).strip().lower()
-    if oneway in ONEWAY_BACKWARD_ONLY:
-        direction = "backward"
-    elif oneway in ONEWAY_FORWARD_ONLY:
-        direction = "forward"
-    else:
-        direction = "both"
+    direction = _resolve_direction(tags)
 
     return WaySpec(
         osm_way_id=raw_way.get("id"),

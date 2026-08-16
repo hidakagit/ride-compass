@@ -37,12 +37,45 @@ def test_is_edge_allowed_allows_unknown_highway():
     assert is_edge_allowed(_edge(highway=None)) is True
 
 
+def test_is_edge_allowed_excludes_bicycle_no():
+    # 改善計画T100: bicycle=noのHard Constraint化。highway自体は許可種別でも除外する。
+    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": "no"}) is False
+
+
+def test_is_edge_allowed_bicycle_no_is_case_and_whitespace_insensitive():
+    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": " NO "}) is False
+
+
+def test_is_edge_allowed_allows_bicycle_yes():
+    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": "yes"}) is True
+
+
+def test_is_edge_allowed_allows_missing_way_tags():
+    # way_tags=None（未取得）は判断材料が無いため除外しない（highway不明時と同じ方針）。
+    assert is_edge_allowed(_edge(highway="residential"), None) is True
+
+
+def test_is_edge_allowed_allows_way_tags_without_bicycle_key():
+    assert is_edge_allowed(_edge(highway="residential"), {"lanes": "2"}) is True
+
+
 def test_compute_edge_cost_excludes_disallowed_edge():
     edge = _edge(highway="motorway")
     result = compute_edge_cost(edge, None, None, RoutePreference())
 
     assert result.allowed is False
     assert result.cost is None
+
+
+def test_compute_edge_cost_excludes_bicycle_no_edge():
+    # 改善計画T100: way_tags経由でbicycle=noが渡るとcompute_edge_cost全体がHard Constraintで
+    # 除外される（is_edge_allowedのテストと同じ判定を、実際の呼び出し経路で確認）。
+    edge = _edge(highway="residential")
+    result = compute_edge_cost(edge, None, None, RoutePreference(), way_tags={"bicycle": "no"})
+
+    assert result.allowed is False
+    assert result.cost is None
+    assert result.difficulty is None
     assert result.difficulty is None
     assert result.edge_id == "edge-1"
 

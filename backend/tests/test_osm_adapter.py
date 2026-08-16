@@ -54,6 +54,45 @@ def test_unknown_oneway_value_falls_back_to_both():
     assert spec.direction == "both"
 
 
+def test_oneway_bicycle_no_overrides_oneway_yes_to_both():
+    # 改善計画T100: 車は一方通行だが自転車は逆走可（contraflow cycling）の代表例。
+    spec = osm_way_to_way_spec({"id": 100, "tags": {"oneway": "yes", "oneway:bicycle": "no"}, "nodes": [1, 2]})
+
+    assert spec.direction == "both"
+
+
+def test_oneway_bicycle_forward_overrides_oneway_backward():
+    spec = osm_way_to_way_spec({"id": 100, "tags": {"oneway": "-1", "oneway:bicycle": "yes"}, "nodes": [1, 2]})
+
+    assert spec.direction == "forward"
+
+
+def test_oneway_bicycle_backward_overrides_oneway_forward():
+    spec = osm_way_to_way_spec({"id": 100, "tags": {"oneway": "yes", "oneway:bicycle": "-1"}, "nodes": [1, 2]})
+
+    assert spec.direction == "backward"
+
+
+def test_oneway_bicycle_tag_is_case_and_whitespace_insensitive():
+    spec = osm_way_to_way_spec({"id": 100, "tags": {"oneway": "yes", "oneway:bicycle": " NO "}, "nodes": [1, 2]})
+
+    assert spec.direction == "both"
+
+
+def test_missing_oneway_bicycle_falls_back_to_oneway():
+    spec = osm_way_to_way_spec({"id": 100, "tags": {"oneway": "yes"}, "nodes": [1, 2]})
+
+    assert spec.direction == "forward"
+
+
+def test_unknown_oneway_bicycle_value_falls_back_to_oneway():
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"oneway": "yes", "oneway:bicycle": "alternating"}, "nodes": [1, 2]}
+    )
+
+    assert spec.direction == "forward"
+
+
 def test_way_with_fewer_than_two_nodes_returns_none():
     assert osm_way_to_way_spec({"id": 100, "tags": {}, "nodes": [1]}) is None
     assert osm_way_to_way_spec({"id": 100, "tags": {}, "nodes": []}) is None
@@ -88,6 +127,14 @@ def test_segregated_tag_is_kept_in_spec_tags():
 
     assert spec is not None
     assert spec.tags == {"bicycle": "yes", "segregated": "yes"}
+
+
+def test_lit_tag_is_kept_in_spec_tags():
+    # 改善計画T102: 実測（全体1.1%・幹線4.8%）で採用推奨と判断したタグ。
+    spec = osm_way_to_way_spec({"id": 100, "tags": {"highway": "primary", "lit": "yes"}, "nodes": [1, 2]})
+
+    assert spec is not None
+    assert spec.tags == {"lit": "yes"}
 
 
 def test_disallowed_tags_are_dropped_from_spec_tags():
