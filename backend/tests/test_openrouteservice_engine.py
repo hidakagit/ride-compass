@@ -62,6 +62,9 @@ class FakeElevationService:
 
 
 class FakeWindService:
+    async def prefetch(self, points_per_candidate: list[list[Coordinates]]) -> None:
+        pass
+
     async def get_wind_profile(self, points: list[Coordinates], start_time) -> dict:
         segments = [
             {"distance_km": 1.0, "bearing_deg": 0.0, "arrival_time": start_time, "wind_penalty": 1.5}

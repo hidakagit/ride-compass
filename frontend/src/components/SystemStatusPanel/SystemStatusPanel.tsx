@@ -20,6 +20,13 @@ function formatStartedAt(iso: string): string {
   });
 }
 
+// last_error_type/last_error_atはバックエンド側で常に一緒に設定される（infrastructure/
+// debug_log.pyの_record）。片方だけnullになる想定はないが、型はそれぞれ独立のためガードする。
+function formatLastError(type: string | null, at: string | null): string {
+  if (!type || !at) return "—";
+  return `${type} (${formatStartedAt(at)})`;
+}
+
 // フロント・バックそれぞれの適用バージョン（commit・起動日時）とバックエンドの外部API
 // 呼び出しサマリを、ログ本文とは別の独立パネルとして表示する（設定内のボタンから開閉）。
 // 以前はDebugConsole（ログ本文）の上部に同居させていたが、更新頻度・情報源の異なる2種類の
@@ -113,22 +120,38 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
                     <th>カテゴリ</th>
                     <th>呼出</th>
                     <th>エラー</th>
+                    <th>最終失敗</th>
                     <th>hit率</th>
                     <th>平均</th>
                     <th>最大</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {externalEntries.map(([category, s]) => (
-                    <tr key={category} data-level={s.errors > 0 ? "error" : undefined}>
-                      <td className={styles.categoryCell}>{category}</td>
-                      <td>{s.calls}</td>
-                      <td>{s.errors}</td>
-                      <td>{s.cache_hit_rate != null ? `${Math.round(s.cache_hit_rate * 100)}%` : "—"}</td>
-                      <td>{s.avg_ms}ms</td>
-                      <td>{s.max_ms}ms</td>
-                    </tr>
-                  ))}
+                  {externalEntries.map(([category, s]) => {
+                    // エラーセルのtitleに内訳（原因別件数・再試行状況・stale代用回数）を出す。
+                    // 一覧に列を増やさずとも「429かタイムアウトか」等をホバーで確認できるようにする
+                    // （改善計画T92: /api/debug/statsで失敗の主な理由を推測できる情報がほしい、の対応）。
+                    const errorTypeParts = Object.entries(s.error_types).map(([type, count]) => `${type}:${count}`);
+                    if (s.retried_calls > 0) {
+                      errorTypeParts.push(`再試行あり ${s.retried_calls}件(延べ${s.retry_attempts_total}回)`);
+                    }
+                    if (s.stale_fallback_used > 0) {
+                      errorTypeParts.push(`古いキャッシュで代用 ${s.stale_fallback_used}件`);
+                    }
+                    return (
+                      <tr key={category} data-level={s.errors > 0 ? "error" : undefined}>
+                        <td className={styles.categoryCell}>{category}</td>
+                        <td>{s.calls}</td>
+                        <td title={errorTypeParts.length > 0 ? errorTypeParts.join(" / ") : undefined}>
+                          {s.errors}
+                        </td>
+                        <td>{formatLastError(s.last_error_type, s.last_error_at)}</td>
+                        <td>{s.cache_hit_rate != null ? `${Math.round(s.cache_hit_rate * 100)}%` : "—"}</td>
+                        <td>{s.avg_ms}ms</td>
+                        <td>{s.max_ms}ms</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

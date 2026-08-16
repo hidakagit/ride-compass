@@ -412,12 +412,21 @@ GET /health   # commit/started_atはRenderへのデプロイ確認用（後述�
   # started_at: プロセス起動時刻（UTC、ISO8601）。Renderはデプロイのたびにプロセスを
   #             再起動するため、直近デプロイのおおよその時刻としても使える
 
-GET /api/debug/stats   # 外部API呼び出し・キャッシュのカテゴリ別集計（呼び出し数/エラー数/ヒット率/所要時間）と
-                       # 429拒否数のプロセス内スナップショット（infrastructure/debug_log.py）。集計値のみで
-                       # 座標等は含まないため、debug_modeに関わらず/healthと同様に常時公開。プロセス再起動でリセット
+GET /api/debug/stats   # 外部API呼び出し・キャッシュのカテゴリ別集計（呼び出し数/エラー数/ヒット率/所要時間、
+                       # error_types内訳・last_error_type/at・last_success_at・retried_calls/
+                       # retry_attempts_total・stale_fallback_used。夜間502調査（改善計画T92）で
+                       # 「失敗の主な理由を推測できる程度の情報」として追加）と429拒否数のプロセス内
+                       # スナップショット（infrastructure/debug_log.py）。error_typesはHTTPステータス
+                       # （例: "http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・URL・
+                       # 座標は含まないため、debug_modeに関わらず/healthと同様に常時公開。
+                       # プロセス再起動でリセット
 Response 200:
-{ "commit": null, "started_at": "2026-08-14T10:00:00+00:00", "engine": "openrouteservice", "debug_mode": false, ... }
-  # ...以降は外部APIカテゴリ（elevation/weather/overpass/basemap等）ごとの呼び出し統計
+{ "commit": null, "started_at": "2026-08-14T10:00:00+00:00", "engine": "openrouteservice", "debug_mode": false,
+  "external": { "weather:open-meteo": { "calls": 120, "errors": 8, "error_types": {"http_429": 6, "ConnectTimeout": 2},
+    "last_error_type": "http_429", "last_error_at": "2026-08-17T21:03:11+00:00",
+    "last_success_at": "2026-08-17T21:04:02+00:00", "retried_calls": 15, "retry_attempts_total": 22,
+    "stale_fallback_used": 3, "cache_hit_rate": 0.71, "avg_ms": 340, "max_ms": 4200 }, ... },
+  "rate_limit_rejections": { ... } }
 
 POST /api/routes/preview   # Step3: 単一区間のルート取得確認用（暫定エンドポイント。デバッグ・疎通確認用に残置。
                            # フロントエンドの実運用UIからは呼ばれない。frontend/src/services/routeApi.ts:

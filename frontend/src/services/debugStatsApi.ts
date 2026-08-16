@@ -11,6 +11,15 @@ export interface ExternalCallStats {
   max_ms: number;
   avg_ms: number;
   cache_hit_rate: number | null;
+  // 失敗の主な理由を推測するための追加集計（改善計画T92夜間502調査）。error_typesは
+  // HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
+  error_types: Record<string, number>;
+  last_error_type: string | null;
+  last_error_at: string | null;
+  last_success_at: string | null;
+  retried_calls: number;
+  retry_attempts_total: number;
+  stale_fallback_used: number;
 }
 
 // backend/app/api/routers/health.py: debug_stats のレスポンス形状。

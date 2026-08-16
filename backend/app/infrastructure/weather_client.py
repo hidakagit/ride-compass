@@ -4,7 +4,7 @@ import time
 import httpx
 
 from app.domain.route import Coordinates
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import error_type_label, log_external_call
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -79,6 +79,7 @@ class WeatherClient:
                     continue
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
+                fields["error_type"] = error_type_label(exc)
                 return None
             except httpx.TransportError as exc:
                 # 接続タイムアウト等、応答自体を受け取れなかった失敗。ConnectTimeoutは
@@ -91,10 +92,12 @@ class WeatherClient:
                     continue
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
+                fields["error_type"] = error_type_label(exc)
                 return None
             except (httpx.HTTPError, ValueError) as exc:
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
+                fields["error_type"] = error_type_label(exc)
                 return None
 
     async def get_forecast(self, client: httpx.AsyncClient, point: Coordinates) -> dict | None:

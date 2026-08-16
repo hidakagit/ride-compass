@@ -3,7 +3,7 @@ import asyncio
 import httpx
 
 from app.domain.region import BoundingBox
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import error_type_label, log_external_call
 
 # 複数の公開Overpassミラーへ同時に問い合わせる。実機（Renderデプロイ）で、既定の
 # overpass-api.de単独だと「同一クエリを別経路（開発機）から直接叩くと数千件のwayが
@@ -51,6 +51,7 @@ class OverpassClient:
             except (httpx.HTTPError, ValueError) as exc:
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
+                fields["error_type"] = error_type_label(exc)
                 return None
 
             elements = data.get("elements")
@@ -59,6 +60,7 @@ class OverpassClient:
                 # 常時WARNINGへ乗せる（道路が無い地域は空のelementsが返るためここには来ない）。
                 fields["result"] = "error"
                 fields["error"] = "no_elements_in_response"
+                fields["error_type"] = "no_elements_in_response"
                 return None
 
             fields["result"] = "ok"
