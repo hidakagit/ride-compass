@@ -1101,9 +1101,20 @@ export default function MapView({
     });
     resizeObserver.observe(mapContainerRef.current);
     // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
-    // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）
-    ensureAllStaticOverlayLayers(map);
+    // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）。
+    // ensureAllStaticOverlayLayers内のtrafficStress/bicycleInfra/designationはROAD_TILE_SOURCE_ID
+    // （road_surfaceベクタソース）を再利用する依存関係があるため、そのソースを実際に作る
+    // ensureRoadSurfaceTileLayerを先に呼ぶ必要がある。いずれも初回はmap.once("load", ...)への
+    // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
+    // 以前はensureAllStaticOverlayLayers（elevationも含む）がensureRoadSurfaceTileLayerより
+    // 先だったため、trafficStress等のaddLayerがソース未作成のまま実行され
+    // 「source "region-road-surface-tiles" not found」エラーが発生していた（実機フィードバックで
+    // 発覚）。標高を先に単独ensureしてから路面ソースを作ることで「標高が最背面、その上に路面」
+    // の意図を保ったまま直す（ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが
+    // 自身のガードで無害化される）。
+    STATIC_OVERLAY_LAYERS.find((layer) => layer.key === "elevation")?.ensure(map);
     ensureRoadSurfaceTileLayer(map);
+    ensureAllStaticOverlayLayers(map);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
