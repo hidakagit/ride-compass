@@ -97,14 +97,18 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     // 改善計画T89: T39の1文要約だけでは「4段階であること」「何が加点/減点されるか」まで
     // 伝わらず「1〜5評価」と誤解される実機フィードバックが再発。panelHintの冒頭で段階数を
     // 明示し、内訳はpanelHintDetail（箇条書き）へ分離した。
+    // 改善計画T92: 「指定路線がほぼ全部ストレス最大（赤）で判定が粗い」という指摘を受け、
+    // 判定ロジック自体を見直した（幹線道路の一律扱いをやめ、県道級は国道級と分離、
+    // 既存タグの中で未活用だった項目を追加）。この一覧もその変更に合わせて更新している。
     panelHint: "道路の種別をもとに4段階（1=快適〜4=ストレス大）で判定した目安です。実際の交通量そのものは加味していません。",
     panelHintDetail: [
-      "基準値: 道路の種別（生活道路・幹線道路など）で決まります",
-      "分離された自転車道が併設: -2 ／ 自転車レーンが併設: -1",
+      "基準値: 道路の種別（生活道路・県道・国道など）で決まります。国道・幹線道路が最も高く、県道はやや低めです",
+      "分離された自転車道が併設: -2 ／ 自転車レーンが併設・自転車と共有の車線表示: -1",
       "制限速度30km/h以下: -1 ／ 60km/h以上: +1",
-      "車線数4以上: +1",
+      "車線数4以上: +1 ／ 対面通行の1車線: -1",
       "指定路線（緊急輸送道路・重要物流道路、下の「指定路線」レイヤーで個別に確認できます）に該当: +1",
       "車両通行不可（自転車専用）の区間は上記の補正に関わらず1に固定",
+      "上記の合計が1〜4の範囲を超える場合は範囲内に収まるよう丸めます（信号・一時停止の多さや交差点の密度は、別の「停止要因」「交差点」レイヤーで確認できます）",
       "「不明・他」はpath/footway・高速道路等、判定基準に登録の無い道路種別です",
     ],
   },
@@ -193,3 +197,32 @@ export type MapLayerVisibility = Record<MapLayerId, boolean>;
 export function layerSectionDomId(id: MapLayerId): string {
   return `map-layer-section-${id}`;
 }
+
+// レイヤーごとのデータ取得状態（改善計画T87）。「表示OFF」「ズーム範囲外」（road専用の
+// zoomWarning）はどちらも既存の案内があるが、タイル取得失敗（T59の背景にあった502障害等）と
+// そのレイヤーの対象データが0件（T54で判明したosm_raw_pois未取込のような欠損）を区別する
+// 表示が無く、どちらも単に「何も描画されない」状態になっていた。表示ONかつ正常時
+// （既知件数のデータが描画できている状態）はundefined（=キー自体を持たない）とし、
+// 特別な表示を出さない。MapView.tsxのsourcedata/sourcedataloading/errorイベントから算出する。
+export type LayerDataStatus = "loading" | "empty" | "error";
+export type LayerDataStatusByLayer = Partial<Record<MapLayerId, LayerDataStatus>>;
+
+export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
+  loading: "読み込み中です",
+  empty: "この範囲に表示できるデータがありません",
+  error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
+};
+
+// road/trafficStress/bicycleInfra/designationは同じroad_surfaceベクタタイル
+// （MapView.tsx: ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を
+// 共有しているため、そのタイルのminzoom未満（regionZoomTooWide）ではタイル自体が要求されず、
+// 4レイヤーとも同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
+// ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
+// （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
+// 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
+export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
+  "road",
+  "trafficStress",
+  "bicycleInfra",
+  "designation",
+];
