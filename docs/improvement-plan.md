@@ -1883,6 +1883,56 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   一致することを確認）。
 - 関連: T89（凡例の視覚分離・全体的な判定基準の説明）の追加相談として起票。
 
+---
+
+## 交通ストレス判定ロジックの精緻化（2026-08-17）
+
+### - [x] T92. 交通ストレス判定を実データに基づき精緻化＋評価軸の合成基準を明文化 規模M（2026-08-17完了）
+
+- 発端: ユーザー実機フィードバック「指定路線ならほぼすべて赤色（4/4）。実態にあった形で
+  もう少し評価して」。
+- 調査: 実データ（関東本土、`osm_raw_ways` 39,878件・指定路線該当11,102件）で検証。
+  - 指定路線該当の83.3%（9,251件）が最終値4/4。うち56%（6,225件）は`primary`/`secondary`/
+    `trunk`がいずれもbase=4で揃っており、指定路線の+1補正があってもなくてもどのみち4に
+    なる「補正が実質無意味」なケースだった。
+  - 一方、既に収集済みのタグの中に判定へ一切反映されていない差別化要因があった:
+    `cycleway=shared_lane`（自転車と共有の車線表示）が指定路線対象道路の15.6%（1,239件）に
+    付いているが「表示なし」と同じ0扱い、`lanes=1`（対面通行1車線）が319件あるが車線数の
+    軽減側補正が存在しなかった（4車線以上の+1のみ）。
+  - `secondary`（県道級）は実データ上も2〜3車線・40〜50km/h帯が主流で、`primary`/`trunk`
+    （国道級・幹線）と一律base=4は実態と乖離。`primary`/`trunk`は現実にも最もストレスが
+    高い区間であるため据え置き。
+- 追加相談: 「信号密度（停止要因）も交通ストレスへ合成できないか」という提案を受け、
+  合成すべきか独立軸のままにすべきかの判断基準を整理した。基準:
+  **交通ストレスへ合成するのは「この区間で自動車とどれだけ近く・速く・多く接するか」という
+  同一の構造を推定する手がかりに限る（道路種別・車線数・制限速度・自転車インフラ・指定路線、
+  T89で指定路線に適用した基準と同型）。信号・一時停止の密度や交差点密度は「立ち止まる
+  頻度・判断ポイントの多さ」という質的に別の負担であり、ユーザーが独立に重み調整したい
+  対象（`stop_weight`/`intersection_weight`）でもあるため合成しない。** 事故密度も
+  タグからの推測ではなく実測の結果指標であり性質が異なるため対象外。この基準を
+  `domain/traffic.py: traffic_stress_breakdown`のdocstringへ明文化した。
+- 対応:
+  - `backend/app/domain/traffic.py`: `TRAFFIC_STRESS_BASE_BY_HIGHWAY`の`secondary`/
+    `secondary_link`を4→3へ。`traffic_stress_breakdown`のcycleway補正へ
+    `shared_lane`/`share_busway`（-1、`lane`と同じ扱い）、車線数補正へ`lanes<=1`（-1、
+    4車線以上の+1と対称）を追加。
+  - `backend/app/infrastructure/road_graph_repository.py`: `_ROAD_SURFACE_TILE_MVT_SQL`の
+    CASE式を同じ条件で更新（SQL⇔Python二重実装、test_road_graph_repository.pyの
+    整合性テストで担保）。
+  - 試算（DB実データへ提案ロジックを適用）: 指定路線の4/4割合が83.3%→78.3%、全道路網では
+    24.4%→21.4%に低下を確認。
+  - UI説明文をレイアウトごとの粒度で更新: `mapLayers.ts`の`panelHintDetail`（サイドバー
+    「地図の見え方」設定画面・地図上▶詳細パネルの両方が参照する共通の箇条書き、基準値・
+    各補正の説明を新ロジックへ更新し「合計が範囲を超えたら丸める」旨と停止要因/交差点との
+    切り分けを追記）、`MapView.tsx`の区間別内訳ポップアップ（T90機能。冒頭に4段階の説明、
+    「合計 4 +1 = 5 → 上限の4に丸め」のように数式と丸めを明示、個別のタグ内容は主行の
+    自転車インフラ表示等に委ねポップアップ側は簡潔な数値のみに留める）。
+- 完了条件: backend 694件（新規11件含む: secondary基準値・shared_lane・lanes<=1の単体
+  テスト、SQL整合性テストへの新規fixture2件）・frontend（MapLayersPanel既存テスト35件が
+  更新後の文言でも通過することを確認）全green。
+
+---
+
 
 ## 記録
 
@@ -1945,3 +1995,4 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 | 2026-08-16 | （将来UI整理検討） | ユーザー提示の外部UI/UXレビュー指摘表12点を将来の静的属性拡張の観点で検討。🔴高5点中4点（#1/#3/#5/#8/#9）はT29〜T32・T38で対応済み、#6/#7はT39/T40で対応済みと確認し再起票せず、#10〜#12はユーザー提示どおり🟡低・先送り。現状ギャップが残る#2（レイヤーのカテゴリ化）・#4（データ状態の明示）のみT86・T87として起票 |
 | 2026-08-16 | T70〜T77 | designation実装レビュー対応を優先順位どおり実施。T70: 路面タイル世代v5の対上げ漏れ（フロント定数・生成物が旧v4のまま）を修正。T71: import_designations.pyのDELETE→INSERTをtransaction()で括り0件時はDELETEごとスキップ（既存データ保持）＋executemany化。T72: N12 GeoJSONの3要素座標・MultiLineString、N10 GMLの複数posListへの防御を追加。T73: match_designations.pyも0件時のDELETE全消しガード＋WARNING昇格。T75: kind集合の分散（3表現）をdomain/designation.py: DESIGNATION_IMPORT_KINDSへ一本化、import側は_KIND_SPECSテーブルへ統合（未知kindはKeyError即死）。T76: get_nearest_designated_flags（3本目の独立KNN）を_NEAREST_WAY_TAGS_SQLへ統合し専用SQL/メソッドを削除。T77: get_designated_edge_idsの転送方式をdev DB実測（designation_attributes 28,940行 vs road_edges 117,744行）のうえ現状維持を決定。T74（MVT指定路線表現の見直し）は新テーブル・新バッチを要する規模M相当と判明したため検討メモのみ残し未着手。あわせてT68（is_split_up_to_date用stale限定部分GiST索引、EXPLAIN実測で採用確認）・T69（get_way_specs_with_closureの近傍extent爆発防衛、ST_Intersectionでbboxの10kmマージンへクランプ）も実施。backend最終669件（DB統合テスト含む新規テストを各タスクで追加）、各タスクごとに個別コミット |
 | 2026-08-16 | 統合レビュー（review:all第1回）・T76チェック修正・T88 | daef76e..HEAD（8軸目・designation機構・PostGISコスト対策T64〜T69・designation実装レビュー対応T70〜T85）を対象に、overall/complexity/consistency/ui4種を統合実施（[history/2026-08-16_all.md](../.claude/commands/review/history/2026-08-16_all.md)）。backend 672件・frontend 212件（並走実行時のMapLayersPanel3件timeoutは単独再実行で全green、実行環境競合と判定）とPlaywright実機確認（変更画面＋主要導線1周）でP0/P1新設なしを確認。P1指摘（F-1: architecture.md未追従）をT88として起票・即実施：新設「§7 静的道路属性と8軸評価モデル」節に8軸一覧・重み表・P1各軸・T50事故密度・T51指定路線コンフレーション・タイル配信3系統・T59バックグラウンド構築を集約し、§2ディレクトリ構成・§4 API・§6データモデルも追従。P2指摘（F-2: T76チェックボックス未更新）も修正。F-3（MapView閾値監視の安全弁消化）・F-6（context.mdの鮮度）はレビュー基準側の課題のため/review:improveでの対応が別途必要 |
+| 2026-08-17 | T92 | ユーザー実機フィードバック「指定路線ならほぼすべて赤色。実態にあった形でもう少し評価して」を受け、dev DB実データ（関東本土、指定路線11,102件）で検証。指定路線該当の83.3%が最終値4/4、うち56%は`primary`/`secondary`/`trunk`が一律base=4のため+1補正が実質無意味と判明。また既存タグの中に未活用の差別化要因（`cycleway=shared_lane`15.6%・`lanes=1`319件）があると判明。「信号密度も合成できないか」という追加相談には、交通ストレスへ合成するのは「自動車への近接度」を推定する同一構造の手がかりに限る、信号・交差点密度は質的に別の負担で独立軸のまま残すべき、という基準を整理して回答（`traffic_stress_breakdown`のdocstringへ明文化）。合意のうえ`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の`secondary`/`secondary_link`を4→3、cycleway補正へ`shared_lane`/`share_busway`（-1）、車線数補正へ`lanes<=1`（-1）を追加（`road_graph_repository.py`のSQL CASE式も同期）。試算で指定路線の4/4割合が83.3%→78.3%に低下を確認。凡例（`mapLayers.ts: panelHintDetail`、サイドバー設定画面・地図上▶詳細パネル共通）とポップアップ内訳（T90機能）の説明文をレイアウトごとの粒度で更新。backend 694件（新規11件）・frontend（MapLayersPanel既存35件が更新後の文言でも通過）全green |

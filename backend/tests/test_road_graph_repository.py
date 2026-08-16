@@ -1132,6 +1132,10 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_
         ("tertiary", {"maxspeed": "60"}),
         ("trunk", {"maxspeed": "30", "lanes": "2"}),
         ("trunk_link", {"lanes": "5"}),
+        # 改善計画T92: shared_lane/share_busway（-1）・lanes<=1（-1）の新規補正もSQL⇔Python
+        # の整合性検証対象に含める。
+        ("unclassified", {"lanes": "1"}),
+        ("tertiary_link", {"cycleway": "shared_lane"}),
     ]
     way_specs = [
         WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)

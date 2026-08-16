@@ -195,7 +195,8 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   導出した配列をバインドし、ハードコードの二重管理を避ける（good_tags/bad_tagsと同じ方式）。
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
-#   弾いてunknown安全にする。
+#   弾いてunknown安全にする。改善計画T92: cycleway=shared_lane/share_busway（-1）・
+#   lanes<=1（-1）の2補正を追加。traffic.py: traffic_stress_breakdownと同じ条件分岐。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
@@ -246,6 +247,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                 + CASE
                                       WHEN 'track' = ANY(cw.values) THEN -2
                                       WHEN 'lane' = ANY(cw.values) THEN -1
+                                      WHEN cw.values && ARRAY['shared_lane', 'share_busway'] THEN -1
                                       ELSE 0
                                   END
                                 + CASE
@@ -258,6 +260,8 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                 + CASE
                                       WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
                                            AND trunc(btrim(w.tags->>'lanes')::numeric) >= 4 THEN 1
+                                      WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                           AND trunc(btrim(w.tags->>'lanes')::numeric) <= 1 THEN -1
                                       ELSE 0
                                   END
                                 + CASE WHEN COALESCE(d.is_ert, false) OR COALESCE(d.is_cl, false) THEN 1 ELSE 0 END

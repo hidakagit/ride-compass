@@ -128,6 +128,14 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
 # なりうるため、3軸のカバレッジは意図的に揃っていない（改善計画T62）。値付けは
 # LTSの目安として根拠が弱く、本格チューニングはP2据え置き（不確かな推測でNone以外を
 # 返さない、という本ファイル冒頭の方針を優先した）。
+#
+# secondaryのみprimary/trunkと分離（改善計画T92、4→3）: 実データ（関東本土、指定路線
+# 11,102件）で検証したところ、指定路線（+1補正）の83.3%が最終値4/4に張り付いており、
+# その56%はprimary/secondary/trunkが揃ってbase=4のため+1の有無に関わらずどのみち4になる
+# 「補正が実質無意味」なケースだった。実車線数・制限速度の分布（同調査）でもsecondaryは
+# 2〜3車線・40〜50km/h帯が主流でprimary/trunkより明確に軽く、一律base=4は実態と
+# 乖離していた。primary/trunk（国道級・幹線）は引き続き最もストレスが高い区間として
+# base=4を維持する（ここは実データ上も裏付けがあり変更しない）。
 TRAFFIC_STRESS_BASE_BY_HIGHWAY: dict[str, int] = {
     "cycleway": 1,
     "living_street": 2,
@@ -136,8 +144,8 @@ TRAFFIC_STRESS_BASE_BY_HIGHWAY: dict[str, int] = {
     "track": 2,
     "tertiary": 3,
     "tertiary_link": 3,
-    "secondary": 4,
-    "secondary_link": 4,
+    "secondary": 3,
+    "secondary_link": 3,
     "primary": 4,
     "primary_link": 4,
     "trunk": 4,
@@ -261,6 +269,13 @@ def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_desig
     road_graph_repository.pyのMVT生成CASE式と1:1対応させる（test_road_graph_repository.pyの
     整合性テストで担保。判定ロジックの実装自体はここ1箇所にまとめ、`traffic_stress_level`は
     `level`だけを取り出す薄いラッパーにすることで二重実装を避ける）。
+
+    採用している入力は一貫して「この区間で自動車とどれだけ近く・速く・多く接するか」という
+    同一の構造を推定する手がかりに限定している（道路種別・車線数・制限速度・自転車インフラの
+    有無・指定路線該当）。信号・一時停止等の停止密度や交差点密度は、質的に別種の負担
+    （立ち止まる頻度・判断ポイントの多さ）であり、この構造の手がかりではないため、意図的に
+    ここへは合成せず別軸（`distance_weighted_stop_density`・`distance_weighted_intersection_density`、
+    それぞれ独立した重みでユーザーが調整できる）のまま残している（改善計画T92で明文化）。
     """
     base = TRAFFIC_STRESS_BASE_BY_HIGHWAY.get(highway or "")
     if base is None:
@@ -291,6 +306,13 @@ def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_desig
         cycleway_adjustment = -2
     elif "lane" in cycleway_values:
         cycleway_adjustment = -1
+    elif any(v in ("shared_lane", "share_busway") for v in cycleway_values):
+        # 改善計画T92: 自転車と共有の車道表示（シェアードレーン・バス共用帯）は専用レーンより
+        # 弱いがゼロではない緩和要因のため、classify_bicycle_infrastructure（自転車インフラ軸）
+        # と同じ判定基準を流用しlaneと同じ-1にする。実データ（関東本土の指定路線対象道路）で
+        # 15.6%（1,239件）に付いているタグだが、従来はここで判定対象外（0扱い）になっており、
+        # 既に収集済みの情報が交通ストレス軸に反映されていなかった。
+        cycleway_adjustment = -1
     else:
         cycleway_adjustment = 0
 
@@ -303,7 +325,14 @@ def traffic_stress_breakdown(highway: str | None, tags: dict[str, str], is_desig
         maxspeed_adjustment = 0
 
     lanes = parse_lanes(tags)
-    lanes_adjustment = 1 if lanes is not None and lanes >= 4 else 0
+    if lanes is not None and lanes >= 4:
+        lanes_adjustment = 1
+    elif lanes is not None and lanes <= 1:
+        # 改善計画T92: 対面通行の1車線（センターラインなし等）は車の追い越し・すれ違いの
+        # 圧迫感が少なく、4車線以上の+1と対称に-1する。
+        lanes_adjustment = -1
+    else:
+        lanes_adjustment = 0
 
     designation_adjustment = 1 if is_designated else 0
 

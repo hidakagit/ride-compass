@@ -112,8 +112,17 @@ class TestTrafficStressLevel:
     def test_tertiary_base_is_3(self):
         assert traffic_stress_level("tertiary", {}) == 3
 
+    def test_secondary_base_is_3(self):
+        # 改善計画T92: secondaryはprimary/trunkと分離しtertiaryと同じ3へ（実データ検証の
+        # 結果、一律base=4だと指定路線の大半が最終値4/4に張り付いていたため）
+        assert traffic_stress_level("secondary", {}) == 3
+
     def test_primary_base_is_4(self):
         assert traffic_stress_level("primary", {}) == 4
+
+    def test_trunk_base_is_4(self):
+        # primary/trunkは実データ上も最もストレスが高い区間のため4のまま維持（T92では変更なし）
+        assert traffic_stress_level("trunk", {}) == 4
 
     def test_unknown_highway_is_none(self):
         assert traffic_stress_level("motorway", {}) is None
@@ -128,6 +137,13 @@ class TestTrafficStressLevel:
     def test_cycleway_lane_reduces_by_1(self):
         assert traffic_stress_level("primary", {"cycleway": "lane"}) == 3  # 4-1
 
+    def test_cycleway_shared_lane_reduces_by_1(self):
+        # 改善計画T92: 自転車と共有の車道表示（シェアードレーン）もlaneと同じ-1
+        assert traffic_stress_level("primary", {"cycleway": "shared_lane"}) == 3  # 4-1
+
+    def test_cycleway_share_busway_reduces_by_1(self):
+        assert traffic_stress_level("primary", {"cycleway": "share_busway"}) == 3  # 4-1
+
     def test_low_maxspeed_reduces_by_1(self):
         assert traffic_stress_level("primary", {"maxspeed": "30"}) == 3  # 4-1
 
@@ -136,6 +152,15 @@ class TestTrafficStressLevel:
 
     def test_many_lanes_increases_by_1(self):
         assert traffic_stress_level("tertiary", {"lanes": "4"}) == 4  # 3+1
+
+    def test_single_lane_reduces_by_1(self):
+        # 改善計画T92: 対面通行の1車線は4車線以上の+1と対称に-1
+        assert traffic_stress_level("primary", {"lanes": "1"}) == 3  # 4-1
+
+    def test_two_or_three_lanes_does_not_apply_adjustment(self):
+        # 2〜3車線は現状どおり中立（補正なし）
+        assert traffic_stress_level("primary", {"lanes": "2"}) == 4
+        assert traffic_stress_level("primary", {"lanes": "3"}) == 4
 
     def test_result_is_clamped_to_1_4_range(self):
         # cycleway基本値1から更に-2しても1未満にはならない
