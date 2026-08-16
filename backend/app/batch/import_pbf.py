@@ -38,6 +38,7 @@ import asyncpg
 from shapely.geometry import LineString
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.batch._common import asyncpg_dsn
 from app.batch.profile import ImportProfile, load_profile, matching_rule
 from app.config import settings
 from app.domain.graph import WaySpec
@@ -158,15 +159,6 @@ def build_way_record(spec: WaySpec, coords: dict[int, tuple[float, float]]) -> t
     wkb = LineString([(lon, lat) for lat, lon in points]).wkb if len(points) >= 2 else None
     tags_json = json.dumps(spec.tags, ensure_ascii=False)
     return (spec.osm_way_id, spec.node_ids, spec.highway, spec.surface, tags_json, spec.direction, wkb)
-
-
-def _asyncpg_dsn(sqlalchemy_url: str) -> str:
-    """SQLAlchemy用URL（postgresql+asyncpg://...?ssl=require）を、asyncpg.connectが
-    受け付けるDSNへ正規化する。`ssl=`クエリはSQLAlchemyのasyncpgダイアレクト固有の
-    書き方のため、libpq互換の`sslmode=`へ読み替える（Supabase等のリモートDB用。
-    ローカルのssl指定なしURLはドライバ指定の除去のみ）。"""
-    dsn = sqlalchemy_url.replace("+asyncpg", "")
-    return dsn.replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
 
 
 def _parse_pbf_timestamp(raw: str | None) -> datetime | None:
@@ -362,7 +354,7 @@ async def run_import(
         finally:
             await engine.dispose()
 
-        conn = await asyncpg.connect(_asyncpg_dsn(sqlalchemy_url))
+        conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
         run_id = None
         # 初回（空テーブル）取込時のみ、osm_raw_ways.geomのGiSTを取込完了後まで遅延して
         # 構築する（改善計画T28）。蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers

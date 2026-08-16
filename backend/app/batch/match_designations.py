@@ -24,6 +24,7 @@ import time
 
 import asyncpg
 
+from app.batch._common import asyncpg_dsn
 from app.config import settings
 from app.domain.designation import DESIGNATION_BUFFER_WIDTH_M, DESIGNATION_IMPORT_KINDS, DESIGNATION_MATCH_MIN_RATIO
 
@@ -110,9 +111,7 @@ async def _write_matches(
 async def run_match(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
     sqlalchemy_url = database_url or settings.database_url
-    dsn = sqlalchemy_url.replace("+asyncpg", "").replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
-
-    conn = await asyncpg.connect(dsn)
+    conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
     try:
         logger.info("マッチング開始: buffer_width_m=%.1f kinds=%s", DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
         rows = await conn.fetch(_MATCH_SQL, DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))

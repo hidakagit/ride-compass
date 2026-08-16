@@ -1583,7 +1583,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   edges・elevation_attributes・context・start_timeの4引数へ縮小。既存テスト無変更で
   backend 669件green
 
-### - [ ] T80. バッチ共通ヘルパ化（DSN変換・ダウンロード）規模S
+### - [x] T80. バッチ共通ヘルパ化（DSN変換・ダウンロード）規模S（2026-08-16完了）
 
 - asyncpg用DSN変換（replace 3連鎖）の同一実装が4箇所（import_pbf.py・import_accidents.py・
   match_designations.py・import_designations.py）に増殖し、import_accidents.pyの
@@ -1595,6 +1595,15 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   `download_to_path(client, url, dest, ...)`を抽出し全バッチから参照。
   import_runs記録パターン（現在2箇所）は3箇所目が出た時点で共通化する（今回は見送り）。
 - 完了条件: 4バッチが共通ヘルパ経由になり、既存テストgreen。
+- **実装結果（2026-08-16）**: `app/batch/_common.py`を新規作成し`asyncpg_dsn`・
+  `download_to_path`を実装。4バッチ（import_pbf.py・import_accidents.py・
+  match_designations.py・import_designations.py）すべてのDSN変換を置換、
+  `_download_year`（import_accidents.py）・`_download_zip`（import_designations.py）は
+  共通ヘルパへ委譲する薄いラッパーへ縮小（`_download_zip`は元々無かった取得完了ログ
+  size_mb/elapsedが副次的に追加された）。テスト側も重複していたローカル`_asyncpg_dsn`を
+  共通importへ置換し、`tests/test_batch_common.py`を新規作成（DSN変換1件＋
+  download_to_pathの3ケースをhttpx.MockTransportでテスト）。import_runs記録パターンは
+  提案どおり見送り（現状2箇所のまま）。backend 672件green（新規4件）
 
 ### - [ ] T81. ORDINALITY順序復元ヘルパの集約 規模S
 

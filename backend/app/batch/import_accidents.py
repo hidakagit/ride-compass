@@ -37,6 +37,7 @@ import httpx
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
+from app.batch._common import asyncpg_dsn, download_to_path
 from app.domain.accident import (
     build_accident_id,
     involves_bicycle,
@@ -103,13 +104,6 @@ def parse_years(text: str) -> list[int]:
     return years
 
 
-def _asyncpg_dsn(sqlalchemy_url: str) -> str:
-    """SQLAlchemy用URL（postgresql+asyncpg://...?ssl=require）を、asyncpg.connectが
-    受け付けるDSNへ正規化する（import_pbf.pyと同じ変換。2箇所だけのため共通化しない）。"""
-    dsn = sqlalchemy_url.replace("+asyncpg", "")
-    return dsn.replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
-
-
 def _status_count(status: str) -> int:
     try:
         return int(status.split()[-1])
@@ -118,37 +112,13 @@ def _status_count(status: str) -> int:
 
 
 async def _download_year(client: httpx.AsyncClient, year: int) -> Path | None:
-    """本票CSVを年号から組み立てたURLで直接取得し、DATA_DIRへ保存する。
-
-    404等の取得失敗はWARNINGで常時出力しその年をスキップする（1年分の取得失敗で
-    バッチ全体を止めない。docs/logging.mdのエラー常時WARNING方針）。既にダウンロード済み
-    （同名ファイルが存在）ならHTTPアクセスを省略する（62MB級のファイルを毎回再取得しない）。
-    """
+    """本票CSVを年号から組み立てたURLで直接取得し、DATA_DIRへ保存する（改善計画T80、
+    骨格はapp/batch/_common.py: download_to_pathへ共通化済み）。"""
     dest = DATA_DIR / f"honhyo_{year}.csv"
-    if dest.exists():
-        logger.info("本票CSVは取得済みのためスキップ year=%d path=%s", year, dest)
-        return dest
-
     url = HONHYO_URL_TEMPLATE.format(year=year)
-    started = time.perf_counter()
-    tmp_dest = dest.with_suffix(".csv.part")
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        async with client.stream("GET", url, timeout=httpx.Timeout(180.0)) as response:
-            response.raise_for_status()
-            with open(tmp_dest, "wb") as f:
-                async for chunk in response.aiter_bytes():
-                    f.write(chunk)
-        tmp_dest.replace(dest)
-    except httpx.HTTPError as exc:
-        logger.warning("本票CSV取得に失敗しました year=%d url=%s error=%r", year, url, exc)
-        tmp_dest.unlink(missing_ok=True)
-        return None
-    logger.info(
-        "本票CSV取得完了 year=%d size_mb=%.1f elapsed=%.1fs",
-        year, dest.stat().st_size / 1_000_000, time.perf_counter() - started,
+    return await download_to_path(
+        client, url, dest, logger=logger, label="本票CSV", context=f"year={year}", timeout_seconds=180.0
     )
-    return dest
 
 
 def iter_kanto_rows(csv_path: Path, year: int) -> Iterator[tuple]:
@@ -234,7 +204,7 @@ async def run_import(years: list[int], database_url: str | None, dry_run: bool) 
     finally:
         await engine.dispose()
 
-    conn = await asyncpg.connect(_asyncpg_dsn(sqlalchemy_url))
+    conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
     total_matched = 0
     total_upserted = 0
     try:

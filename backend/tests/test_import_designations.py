@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from shapely.geometry import LineString
 
+from app.batch._common import asyncpg_dsn
 from app.batch.import_designations import (
     _INSERT_SQL,
     _KIND_SPECS,
@@ -16,10 +17,6 @@ from app.batch.import_designations import (
 )
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from tests.conftest import TEST_DATABASE_URL
-
-
-def _asyncpg_dsn(sqlalchemy_url: str) -> str:
-    return sqlalchemy_url.replace("+asyncpg", "").replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
 
 
 class TestKindSpecs:
@@ -150,7 +147,7 @@ class TestParseN10Gml:
 @pytest_asyncio.fixture
 async def designation_conn():
     try:
-        conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
     try:

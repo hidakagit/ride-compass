@@ -10,6 +10,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
+from app.batch._common import asyncpg_dsn
 from app.batch.match_designations import _write_matches
 from app.domain.graph import WaySpec, build_road_graph
 from tests.conftest import TEST_DATABASE_URL
@@ -18,15 +19,11 @@ NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
 
 
-def _asyncpg_dsn(sqlalchemy_url: str) -> str:
-    return sqlalchemy_url.replace("+asyncpg", "").replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
-
-
 @pytest_asyncio.fixture
 async def designation_conn(road_graph_session):
     # road_graph_sessionはテーブル作成・後始末のためだけに依存する(接続不可時のskipも
     # このフィクスチャ経由で効く)。実際の読み書きはbatch側と同じasyncpg直結で行う。
-    conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
+    conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
     try:
         yield conn
     finally:
