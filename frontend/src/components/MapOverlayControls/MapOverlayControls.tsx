@@ -94,8 +94,13 @@ function renderLegendDetails(axes: readonly LegendFilterSummaryAxis[]) {
           <ul className={styles.detailList}>
             {axis.legend.map((entry) => {
               const hidden = axis.hiddenKeys.includes(entry.key);
+              // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線で
+              // 分離する（改善計画T89、MapLayersPanel.tsxの同種の区切りと対応）。
+              const rowClasses = [styles.detailRow];
+              if (hidden) rowClasses.push(styles.detailRowHidden);
+              if (entry.isFallback) rowClasses.push(styles.detailRowFallback);
               return (
-                <li key={entry.key} className={hidden ? `${styles.detailRow} ${styles.detailRowHidden}` : styles.detailRow}>
+                <li key={entry.key} className={rowClasses.join(" ")}>
                   {renderLegendSwatch(entry)}
                   <span className={styles.detailRowLabel}>{entry.label}</span>
                   {hidden && <span className={styles.detailHiddenTag}>非表示</span>}
