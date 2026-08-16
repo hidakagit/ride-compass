@@ -71,15 +71,22 @@ class EdgeCostResult(BaseModel):
     allowed: bool
 
 
-def is_edge_allowed(edge: DirectedEdge) -> bool:
-    """Hard Constraint（仕様書29章）。highwayタグが自転車で通行できない種別かどうかを判定する。
+def is_edge_allowed(edge: DirectedEdge, way_tags: dict[str, str] | None = None) -> bool:
+    """Hard Constraint（仕様書29章）。highwayタグが自転車で通行できない種別か、または
+    `bicycle=no`（自転車通行不可）が明示されているかを判定する（改善計画T100でbicycle=noを追加）。
 
-    highwayタグが無い（不明）場合は除外しない。判断材料が無いEdgeまで一律除外すると
-    経路探索対象が過度に狭まるため、不明な場合は許可しSoft Constraint側の評価に委ねる。
+    highwayタグが無い（不明）場合、way_tagsが無い（未取得）場合は除外しない。判断材料が
+    無いEdgeまで一律除外すると経路探索対象が過度に狭まるため、不明な場合は許可し
+    Soft Constraint側の評価に委ねる（trafficStress/bicycle_infra評価と同じway_tags=None時の
+    扱い、compute_edge_costのdocstring参照）。
     """
-    if edge.highway is None:
-        return True
-    return edge.highway not in DISALLOWED_HIGHWAY_TYPES
+    if edge.highway is not None and edge.highway in DISALLOWED_HIGHWAY_TYPES:
+        return False
+    if way_tags is not None:
+        bicycle = (way_tags.get("bicycle") or "").strip().lower()
+        if bicycle == "no":
+            return False
+    return True
 
 
 def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> float | None:
@@ -142,7 +149,7 @@ def compute_edge_cost(
     `is_designated`はこのEdgeがKSJ N10/N12（緊急輸送道路・重要物流道路）に該当するか
     （外部静的データソース T51）。trafficStressへの補正のみに使い、新しい評価軸は増やさない。
     """
-    if not is_edge_allowed(edge):
+    if not is_edge_allowed(edge, way_tags):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None

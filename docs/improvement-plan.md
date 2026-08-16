@@ -2198,19 +2198,33 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   再取込みは所要時間・DB状態変更を伴う別種の作業のため、コード実装とは別のタイミングで
   ユーザー判断のもと実行する。
 
-### - [ ] T100. `bicycle=no`のHard Constraint化＋`oneway:bicycle`例外の解釈〔static-road-attributes-plan.md §3.1-2/3〕規模S〜M
+### - [x] T100. `bicycle=no`のHard Constraint化＋`oneway:bicycle`例外の解釈〔static-road-attributes-plan.md §3.1-2/3〕規模S〜M（2026-08-17完了）
 
 - 背景: `bicycle`タグ自体はP0で取込・自転車インフラ分類に使用済みだが、`bicycle=no`
   （自転車通行不可）が経路探索のHard Constraintへ未反映で、実際は通れない区間を提案しうる。
   `oneway:bicycle`例外（自転車は一方通行規制の対象外、等）もP0でタグ自体は保持済みだが
   未解釈のまま（`osm_adapter.py`のコメントで意図的に先送りと明記）。関連する2つの未反映を
   まとめて1タスクとする（direction/access判定という同じ層の変更のため）。
-- 対応: `domain/evaluation.py: is_edge_allowed`（既存の`DISALLOWED_HIGHWAY_TYPES`と同じ関数）に
-  `bicycle=no`の除外条件を追加。`oneway:bicycle`は`osm_adapter.py`のdirection判定に例外分岐を
-  追加し、該当タグがある場合は`oneway`本体の値より優先させる。
-- 完了条件: `bicycle=no`区間が経路探索候補から除外されることを単体テストで確認。`oneway:bicycle`
-  の例外分岐についても単体テストを追加。既存経路へのリグレッションが無いことをbackendテスト
-  greenで確認。
+- 対応:
+  - `domain/evaluation.py: is_edge_allowed`に`way_tags`引数を追加し、`bicycle=no`のway全体を
+    Hard Constraintで除外する条件を追加（`DISALLOWED_HIGHWAY_TYPES`と同じ「除外」扱い、
+    `way_tags=None`＝データ未取得時は既存のhighway不明時と同じく許可する方針を踏襲）。
+    `compute_edge_cost`の唯一の呼び出し箇所を更新するだけで済んだ（`way_tags`は
+    trafficStress/bicycle_infra評価で既に受け取り済みのため新規配線不要）。road_graphエンジン
+    （`EvaluationService.evaluate_graph`）は既にway_tagsを渡しているため自動的に有効になる。
+    openrouteserviceエンジンは`compute_edge_cost`自体を呼ばない（外部APIが探索するため
+    `DISALLOWED_HIGHWAY_TYPES`と同じくroad_graphエンジン限定の機能、既存の非対称のまま）。
+  - `osm_adapter.py`に`_resolve_direction(tags)`を新設。`oneway:bicycle`に値があれば
+    （forward/backward/no）`oneway`本体より優先し、無ければ`oneway`にフォールバックする
+    （現実のcontraflow cycling表現、`oneway=yes`+`oneway:bicycle=no`＝車は一方通行だが
+    自転車は両方向通行可、が代表例）。PBF取込バッチもOverpass経路と同じ`osm_adapter.py`を
+    経由するため（import_pbf.py冒頭コメント参照）、新規の二重実装は発生していない。
+- 完了条件: `bicycle=no`区間が経路探索候補から除外されることを単体テストで確認
+  （`is_edge_allowed`5件＋`compute_edge_cost`1件）。`oneway:bicycle`の例外分岐も単体テスト
+  6件で確認（優先関係・大文字小文字/空白耐性・フォールバック・不明値時の挙動）。
+  backend 725件（新規12件）全green。
+- 備考: 本タスクの完了条件はコード・テストの範囲で完結しており（T99/T102と異なり実データ
+  再取込みは完了条件に含まれない）、DBアクセス/PBFファイルなしで完了できた。
 
 ### - [ ] T101. 補給・休憩ポイントPOIレイヤー〔static-road-attributes-plan.md §2.3〕規模M
 
@@ -2226,26 +2240,36 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   サイクルステーション等は元々対象外）を除外した上で、少なくとも1種別（コンビニを推奨）が
   地図上に表示されることをPlaywrightで確認。
 
-### - [ ] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S（2026-08-17計測コード実装完了・実測待ち）
+### - [x] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S（2026-08-17完了）
 
 - 背景: `lit=*`（街灯の有無。早朝/夜間走行の安全性判断に有用）・`segregated=yes/no`
   （自転車歩行者道の歩車分離、T99と関連）・`barrier=gate/bollard`（河川敷サイクリングロード等の
   車止め、通行可否判定に影響）は、既存のタグ棚卸し（static-road-attributes-plan.md）でまだ
   評価対象に入っていない。
-- 対応: `backend/scripts/measure_tag_coverage.py`に`CANDIDATE_WAY_TAGS`（`lit`/`segregated`、
-  既存`CoverageCounter`でway取込対象への付与率を計測）・`CANDIDATE_NODE_TAGS`（`barrier`）を追加。
-  `barrier`はnode属性かつ取込プロファイルに対応ルールが無く「対象母集団」が取れないため、
-  新設`NodeTagCounter`で値ごと（`barrier=gate`/`barrier=bollard`等）の生カウントのみ報告する
-  形にした（％ではなく件数で採用可否を判断できれば十分という設計判断）。`main()`は両方の
-  レポートを続けて出力する。
-- 完了条件（コード側、2026-08-17完了）: `NodeTagCounter`の単体テスト（値ごとのカウント・
-  空白値の除外・0件時のメッセージ）を追加。backend 713件全green。
-- **残作業（DBアクセス可能な環境待ち）**: 関東全域PBF（`kanto-latest.osm.pbf`）に対して
-  `measure_tag_coverage.py`を実行し、3タグの実測値を得る。結果を`static-road-attributes-plan.md`
-  §2.5へ追記し、採用済みタグ（smoothness 0.1%等）と同水準以上なら採用候補（別タスクを起票）、
-  `width`/`shoulder`（0.3%/0.0%）と同水準なら見送りを判断する（この判断自体は実測値が出てから）。
-  なお本スクリプトはPostGIS DBではなくPBFファイルを直接読むため、厳密には「DBアクセス」ではなく
-  「対象PBFファイル（`data/pbf/kanto-latest.osm.pbf`）へのアクセス」待ちである。
+- 対応（コード）: `backend/scripts/measure_tag_coverage.py`に`CANDIDATE_WAY_TAGS`（`lit`/
+  `segregated`、既存`CoverageCounter`でway取込対象への付与率を計測）・`CANDIDATE_NODE_TAGS`
+  （`barrier`）を追加。`barrier`はnode属性かつ取込プロファイルに対応ルールが無く「対象母集団」が
+  取れないため、新設`NodeTagCounter`で値ごと（`barrier=gate`/`barrier=bollard`等）の生カウントの
+  み報告する形にした。単体テスト追加、backend 713件全green。
+- **実測（2026-08-17、`backend/data/pbf/kanto-latest.osm.pbf`、対象way 1,329,632件）**:
+  - `lit`: 全体1.1%（幹線4.8%）
+  - `segregated`: 全体0.6%だが、T99で新規取込した自転車歩行者道（highway=footway/path AND
+    bicycle可）に限ると**28.4%**
+  - `barrier`（node、生カウント）: bollard 21,975・kerb 9,488・gate 8,535・cycle_barrier
+    3,980・toll_booth 1,271件（以下ロングテール）
+  - 比較対象: 既採用`smoothness`は同条件で0.2%、P2据え置き確定済み`width`/`shoulder`は
+    0.4%/0.0%
+- **判断**（詳細は[static-road-attributes-plan.md](static-road-attributes-plan.md) §2.5）:
+  `lit`・`segregated`とも既採用tagの実測水準を上回り**採用推奨**（`segregated`は特に
+  自転車歩行者道内28.4%という対象を絞った濃度が高い）。`barrier`も件数規模から**採用推奨**だが、
+  lit/segregatedと異なり対応する取込ルールが無いため実装は別タスクとして起票する
+  （stop_inducing_highway_nodes等と同じnode取込機構への相乗りを想定）。
+- 完了条件: 3タグの実測値が`static-road-attributes-plan.md`に記載され、それぞれ採用/見送りの
+  判断が下されていること（実装自体は本タスクの範囲外）→ 達成。`lit`/`segregated`は取込コストが
+  ゼロ（既存tags jsonbへ相乗り、再取込は必要）だったため、判断と同時に`ALLOWED_WAY_TAGS`へ
+  追加した（`segregated`はT99側で先行済み、`lit`は本タスクで追加）。評価軸・表示への反映
+  （`classify_bicycle_infrastructure`等）は別タスクで検討。`barrier`は新規node取込ルールが
+  必要なため実装は別タスクとして今後起票する。backend 726件全green。
 
 ---
 
@@ -2322,3 +2346,5 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T98（別セッション作業の遡及記録） | 別セッションが着手・完了・コミット（`2cc7f44`）していたがT番号・記録が漏れていたため遡及起票。周回ルート8候補ぶんのOpen-Meteo呼び出しがほぼ完全並列発火し本番共有IPで429常態化・夜間502の一因になっていた問題を、`WeatherService.prefetch`/`WindService.prefetch`による候補間リクエスト集約で緩和。`/api/debug/stats`へ`error_types`/`last_error_type`等の診断情報を追加し`SystemStatusPanel`に反映。17ファイル370行追加・20行削除、新規テスト複数追加（詳細はT98節参照） |
 | 2026-08-17 | docs整合性の点検・修正 | `improvement-plan.md`を読み直し改善候補を洗い出し。(1) T96でarchitecture.md「静的レイヤー・タイル配信（フロント9レイヤー）」の更新が漏れていた（実際は8レイヤー、交差点密度を撤去済み）ことが判明し修正。(2) T98（上記）を遡及記録し、architecture.mdの天候の行へ候補間リクエスト集約の挙動説明を追記（`/api/debug/stats`拡張自体はコミット時に反映済みだった） |
 | 2026-08-17 | static-road-attributes-plan.mdの残タスク整理・別ブランチ統合 | 残タスク4件を検証のうえ§3.1として整理していたところ、ユーザー指摘により2件（自転車歩行者道スコープ拡張・bicycle=noのHard Constraint）が別ブランチ（`origin/claude/osm-roadbike-map-features-1yn5yi`、コミット`0f1f952`）で既に起票済み（ただしmasterへ未マージ）と判明。同ブランチはT96〜T99を使用していたが、masterは既に別件（交差点密度撤去・Open-Meteo 502緩和等）でT96〜T98を使用済みだったため衝突。ユーザー承認のうえ内容を確認し、T99〜T102として番号を振り直してmasterへ統合した（T99自転車歩行者道スコープ拡張／T100 bicycle=no Hard Constraint＋oneway:bicycle例外／T101補給・休憩POIレイヤー／T102 lit/segregated/barrierカバレッジ実測） |
+| 2026-08-17 | T99・T102（コード実装のみ） | ユーザー依頼によりコード実装が完結する部分を先行実施。T99: `import_profile.yaml`へ`shared_pedestrian_ways`ルール（highway=footway/path AND bicycle=yes/designated/permissive）追加、`segregated`タグを`ALLOWED_WAY_TAGS`へ追加。YAMLで`bicycle: [yes, ...]`を無引用で書くとYAML 1.1のブール値解決規則で`ProfileError`になる罠を発見・引用符で回避。T102: `measure_tag_coverage.py`へ`CANDIDATE_WAY_TAGS`（lit/segregated）・`CANDIDATE_NODE_TAGS`（barrier、取込プロファイルにルールが無いため新設`NodeTagCounter`で値ごとの生カウントのみ報告）を追加。いずれも実際の再取込み・PBF実測（完了条件）はDBアクセス/PBFファイルの無い環境では実施できないためチェックは`[ ]`のまま。backend 713件全green |
+| 2026-08-17 | T100 | `domain/evaluation.py: is_edge_allowed`へ`way_tags`引数を追加し`bicycle=no`のHard Constraint除外を実装（road_graphエンジンは既存配線のみで自動的に有効化、openrouteserviceエンジンは対象外の非対称は既存のまま）。`osm_adapter.py`に`_resolve_direction`を新設し`oneway:bicycle`を`oneway`本体より優先させるcontraflow cycling対応を実装（PBF取込バッチも同じアダプタを経由するため二重実装なし）。本タスクは完了条件が単体テスト・backendテストgreenのみでDB/PBF不要だったため、T99・T102と異なりこのラウンドで完全に完了。backend 725件（新規12件）全green |
