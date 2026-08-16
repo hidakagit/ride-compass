@@ -20,6 +20,7 @@ import {
 } from "@/components/Map/mapLayers";
 import { summarizeLegendFilters, summarizeLegendFilterSwatches } from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
+import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
@@ -47,9 +48,11 @@ import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
 
-// 道路情報の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
+// 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
 // （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
-const ROAD_FILTER_DEBOUNCE_MS = 400;
+// 道路情報の2軸に加え、改善計画T63で交通ストレス・自転車インフラ・停止要因POI・交差点密度・
+// 事故（当事者/重大度）の絞り込みにも同じ猶予を適用する。
+const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 // 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
 // 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
@@ -253,6 +256,15 @@ export default function Home() {
       ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
     [hiddenLegendKeysByMode],
   );
+  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（交通ストレス・自転車インフラ・停止要因POI・
+  // 交差点密度・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより参照を安定させる。
+  const staticLegendHiddenKeysByAxis = useMemo(
+    () =>
+      Object.fromEntries(
+        STATIC_FILTER_AXES.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
+      ) as unknown as Record<StaticFilterAxisId, readonly string[]>,
+    [hiddenLegendKeysByMode],
+  );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
   const toggleHiddenLegendKey = useCallback(
     (modeId: string, key: string) => {
@@ -273,14 +285,27 @@ export default function Home() {
     },
     [setHiddenLegendKeysByMode],
   );
+  // 道路情報以外の絞り込み可能レイヤーの「すべて表示/すべて隠す」一括操作。
+  // handleRoadAxisSetHiddenと同じ実装（軸idをキーに非表示配列を丸ごと差し替えるだけ）だが、
+  // 呼び出し側の型（StaticFilterAxisId）を分けて誤った軸idの取り違えを防ぐ。
+  const handleStaticFilterAxisSetHidden = useCallback(
+    (axisId: StaticFilterAxisId, hiddenKeys: string[]) => {
+      setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
+    },
+    [setHiddenLegendKeysByMode],
+  );
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
   );
 
-  // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByModeを
-  // 参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
-  const debouncedRoadHiddenKeysByMode = useDebouncedValue(roadHiddenKeysByMode, ROAD_FILTER_DEBOUNCE_MS);
+  // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByMode/
+  // staticLegendHiddenKeysByAxisを参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
+  const debouncedRoadHiddenKeysByMode = useDebouncedValue(roadHiddenKeysByMode, LEGEND_FILTER_DEBOUNCE_MS);
+  const debouncedStaticLegendHiddenKeysByAxis = useDebouncedValue(
+    staticLegendHiddenKeysByAxis,
+    LEGEND_FILTER_DEBOUNCE_MS,
+  );
 
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
@@ -323,14 +348,39 @@ export default function Home() {
     ? `色分け: ${getRouteStyleMode(routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
     : null;
 
+  // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
+  // （summarizeLegendFilters/summarizeLegendFilterSwatches）でチップ下に適用中の絞り込みを
+  // 表示する。レイヤーごとに保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
+  const staticFilterSummaries = useMemo(() => {
+    const result: Partial<
+      Record<MapLayerId, { summary: string | null; swatches: ReturnType<typeof summarizeLegendFilterSwatches> }>
+    > = {};
+    const layerIds = new Set(STATIC_FILTER_AXES.map((axis) => axis.layerId));
+    for (const layerId of layerIds) {
+      const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layerId).map((axis) => ({
+        label: axis.label ?? "",
+        legend: axis.legend,
+        hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
+      }));
+      result[layerId] = { summary: summarizeLegendFilters(axes), swatches: summarizeLegendFilterSwatches(axes) };
+    }
+    return result;
+  }, [staticLegendHiddenKeysByAxis]);
+
   // 地図上のチップ行はレイヤーカタログ（MAP_LAYERS）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・サマリ行の描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(
     () =>
       MAP_LAYERS.map((layer) => {
         const disabled = layer.id === "route" && !hasDetail;
-        const summary = layer.id === "road" ? roadSummary : layer.id === "route" ? routeSummary : null;
-        const summarySwatches = layer.id === "road" ? roadSummarySwatches : undefined;
+        const summary =
+          layer.id === "road"
+            ? roadSummary
+            : layer.id === "route"
+              ? routeSummary
+              : (staticFilterSummaries[layer.id]?.summary ?? null);
+        const summarySwatches =
+          layer.id === "road" ? roadSummarySwatches : staticFilterSummaries[layer.id]?.swatches;
         return {
           id: layer.id,
           label: layer.label,
@@ -342,7 +392,7 @@ export default function Home() {
           summarySwatches,
         };
       }),
-    [hasDetail, layerVisibility, roadSummary, roadSummarySwatches, routeSummary],
+    [hasDetail, layerVisibility, roadSummary, roadSummarySwatches, routeSummary, staticFilterSummaries],
   );
 
   // 地図上の条件サマリのタップで、「地図の見え方」設定（デスクトップはサイドバー、
@@ -557,6 +607,9 @@ export default function Home() {
           roadHiddenKeysByMode={roadHiddenKeysByMode}
           onRoadLegendToggle={toggleHiddenLegendKey}
           onRoadAxisSetHidden={handleRoadAxisSetHidden}
+          staticFilterHiddenKeysByAxis={staticLegendHiddenKeysByAxis}
+          onStaticFilterLegendToggle={toggleHiddenLegendKey}
+          onStaticFilterAxisSetHidden={handleStaticFilterAxisSetHidden}
           regionZoomTooWide={regionZoomTooWide}
           routeStyleModeId={routeStyleModeId}
           onRouteStyleModeChange={setRouteStyleModeId}
@@ -701,6 +754,7 @@ export default function Home() {
             showIntersections={layerVisibility.intersections}
             showAccidents={layerVisibility.accidents}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
+            staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
             routeLayerOn={layerVisibility.route}
             routeStyleModeId={routeStyleModeId}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}

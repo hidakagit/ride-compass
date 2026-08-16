@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { layerSectionDomId, type MapLayerId } from "@/components/Map/mapLayers";
@@ -20,6 +20,19 @@ function baseProps() {
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
     onRoadLegendToggle: vi.fn(),
     onRoadAxisSetHidden: vi.fn(),
+    staticFilterHiddenKeysByAxis: {
+      trafficStress: [],
+      bicycleInfra: [],
+      stopPoi: [],
+      intersection: [],
+      accidentParty: [],
+      accidentSeverity: [],
+    } as Record<
+      "trafficStress" | "bicycleInfra" | "stopPoi" | "intersection" | "accidentParty" | "accidentSeverity",
+      readonly string[]
+    >,
+    onStaticFilterLegendToggle: vi.fn(),
+    onStaticFilterAxisSetHidden: vi.fn(),
     regionZoomTooWide: false,
     routeStyleModeId: "wind" as const,
     onRouteStyleModeChange: vi.fn(),
@@ -111,7 +124,9 @@ describe("MapLayersPanel", () => {
   it("道路情報OFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("road");
-    expect(screen.getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
+    // OFF案内の文言はT63で他レイヤーにも共通化されたため、セクション内に絞って確認する
+    const section = document.getElementById(layerSectionDomId("road")) as HTMLElement;
+    expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
 
@@ -236,6 +251,92 @@ describe("MapLayersPanel", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("intersections");
     expect(screen.getByText(/接続数が多いほど円が大きくなります/)).toBeInTheDocument();
+  });
+
+  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（交通ストレス・自転車インフラ・停止要因POI・
+  // 交差点密度・事故）も、OFF中の案内・凡例チェックボックスの絞り込み操作・自動ONが道路情報と
+  // 同じ挙動になったことを検証する。
+  it("交通ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("trafficStress");
+    // OFF案内の文言は他レイヤーとも共通のため、セクション内に絞って確認する
+    const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
+    expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "1（快適）" })).toBeInTheDocument();
+  });
+
+  it("交差点密度の凡例は3段階＋不明・他の4件で、主要な交差点（6本以上）を選べる", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("intersections");
+    expect(screen.getByRole("checkbox", { name: /6本以上（主要な交差点）/ })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "3本" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "4〜5本" })).toBeInTheDocument();
+  });
+
+  it("交差点密度の絞り込みチェックの操作でonStaticFilterLegendToggleがintersection軸で呼ばれ、レイヤーOFFなら自動でONになる", async () => {
+    const user = userEvent.setup();
+    const onStaticFilterLegendToggle = vi.fn();
+    const onLayerToggle = vi.fn();
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        onStaticFilterLegendToggle={onStaticFilterLegendToggle}
+        onLayerToggle={onLayerToggle}
+      />,
+    );
+    openSection("intersections");
+
+    await user.click(screen.getByRole("checkbox", { name: /6本以上（主要な交差点）/ }));
+
+    expect(onStaticFilterLegendToggle).toHaveBeenCalledWith("intersection", "major");
+    expect(onLayerToggle).toHaveBeenCalledWith("intersections", true);
+  });
+
+  it("交差点密度の「すべて隠す」で軸の全カテゴリキーがonStaticFilterAxisSetHiddenへ渡る", async () => {
+    const user = userEvent.setup();
+    const onStaticFilterAxisSetHidden = vi.fn();
+    render(<MapLayersPanel {...baseProps()} onStaticFilterAxisSetHidden={onStaticFilterAxisSetHidden} />);
+    openSection("intersections");
+
+    // 一括ボタンは絞り込み可能なレイヤー全体に軸ごとあるため、セクション内に絞ってクリックする
+    const section = document.getElementById(layerSectionDomId("intersections")) as HTMLElement;
+    await user.click(within(section).getByRole("button", { name: "すべて隠す" }));
+
+    expect(onStaticFilterAxisSetHidden).toHaveBeenCalledWith("intersection", ["minor", "mid", "major", "unknown"]);
+  });
+
+  it("事故のセクションは当事者・重大度の2軸が別々の見出しで表示され、死亡事故だけの絞り込みができる", async () => {
+    const user = userEvent.setup();
+    const onStaticFilterLegendToggle = vi.fn();
+    render(<MapLayersPanel {...baseProps()} onStaticFilterLegendToggle={onStaticFilterLegendToggle} />);
+    openSection("accidents");
+
+    expect(screen.getByText("当事者")).toBeInTheDocument();
+    expect(screen.getByText("重大度")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "死亡事故" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "死亡事故以外" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "死亡事故以外" }));
+    expect(onStaticFilterLegendToggle).toHaveBeenCalledWith("accidentSeverity", "nonfatal");
+  });
+
+  it("事故の非表示中カテゴリ（重大度）はチェックが外れた状態で表示される", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        staticFilterHiddenKeysByAxis={{
+          trafficStress: [],
+          bicycleInfra: [],
+          stopPoi: [],
+          intersection: [],
+          accidentParty: [],
+          accidentSeverity: ["nonfatal"],
+        }}
+      />,
+    );
+    openSection("accidents");
+    expect(screen.getByRole("checkbox", { name: "死亡事故以外" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "死亡事故" })).toBeChecked();
   });
 
   it("hasDetail=falseのときルート欄は案内のみで、表示チップも非活性", () => {
