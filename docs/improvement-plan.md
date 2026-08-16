@@ -1323,7 +1323,7 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   （INSERT部分のみの所要時間）を追加。dev DBで実行（road_edges増加により対象は
   28,940件へ拡大していた）、insert_elapsed=4.1秒で完走。backend 652件green
 
-### - [ ] T68. is_split_up_to_date用のstale限定部分GiST索引 規模S
+### - [x] T68. is_split_up_to_date用のstale限定部分GiST索引 規模S（2026-08-16完了）
 
 - `is_split_up_to_date`はリクエストごとにbbox内の全way（GiST走査＋split_atフィルタ）を
   スキャンしてstale行を探す。全way freshの定常状態が大多数なのに、bboxが大きいほど
@@ -1336,6 +1336,13 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
   （インデックスの肥大が気になる場合はsplit一巡後にREINDEX）。
 - 完了条件: 定常状態のdev DBでEXPLAINが部分索引を選ぶこと。既存テストgreen。
   import_pbf.pyのGiST後作成分岐（T28(B)）との整合（初回取込時の索引作成順）を確認。
+- **実装結果（2026-08-16）**: `migrations/0008_stale_way_partial_index.sql`として提案どおりの
+  部分索引を追加。dev DB・テストDB双方へ適用しEXPLAIN ANALYZEで`idx_osm_raw_ways_geom_stale`が
+  選ばれることを実測確認（実データでstale行1件を含むbboxに対しExecution Time 10ms）。
+  T28(B)の索引ドロップ＆再作成は`idx_osm_raw_ways_geom`（フルGiST）のみを対象にしており
+  今回の部分索引は対象外と確認した（新規PBF一括取込では今回追加した部分索引はドロップされず
+  存続する。取込直後は全行staleのためフルGiSTと同等サイズになる点は元々のタスク記述どおりで
+  想定内、split進行で自然に縮む）。backend 666件green
 
 ### - [ ] T69. get_way_specs_with_closureの近傍extent爆発の防衛 規模M・要設計判断
 
