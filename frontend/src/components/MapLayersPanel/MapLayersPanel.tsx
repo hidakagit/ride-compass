@@ -35,7 +35,7 @@ interface MapLayersPanelProps {
   onRoadLegendToggle: (axisId: RoadFilterAxisId, key: string) => void;
   /** 「すべて表示/すべて隠す」の一括操作（非表示キー全体の置き換え） */
   onRoadAxisSetHidden: (axisId: RoadFilterAxisId, hiddenKeys: string[]) => void;
-  /** 交通ストレス・自転車インフラ・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み軸
+  /** 交通ストレス・自転車インフラ・停止要因POI・事故（当事者/重大度）の絞り込み軸
    * （改善計画T63、STATIC_FILTER_AXES参照）。事故のみ2軸を持ち、他は1軸。 */
   staticFilterHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   onStaticFilterLegendToggle: (axisId: StaticFilterAxisId, key: string) => void;
@@ -119,8 +119,8 @@ export default function MapLayersPanel({
     if (!layerVisibility.road) onLayerToggle("road", true);
   }
 
-  // 改善計画T63: 道路情報以外の5レイヤー（交通ストレス・自転車インフラ・停止要因POI・
-  // 交差点密度・事故）の絞り込み。道路情報と同じ「即時反映＋操作したレイヤーを自動でON」の
+  // 改善計画T63: 道路情報以外の4レイヤー（交通ストレス・自転車インフラ・停止要因POI・
+  // 事故）の絞り込み。道路情報と同じ「即時反映＋操作したレイヤーを自動でON」の
   // 挙動を、STATIC_FILTER_AXESのlayerIdを使って軸非依存に実装する（layerIdは呼び出し側の
   // renderSectionBodyケースが自身のlayer.idとして渡す）。
   function handleStaticFilterLegendToggle(layerId: MapLayerId, axisId: StaticFilterAxisId, key: string) {
@@ -272,7 +272,7 @@ export default function MapLayersPanel({
     );
   }
 
-  // 改善計画T84: trafficStress/bicycleInfra/designation/stopPoi/intersections/accidentsは
+  // 改善計画T84: trafficStress/bicycleInfra/designation/stopPoi/accidentsは
   // 「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー（elevationはpanelHintのみ・
   // road/routeは専用UIを持つ真に特殊なレイヤーのためこの関数の対象外）。以前はレイヤーごとに
   // 同型JSXブロックを6つ複製し、説明文もmapLayers.tsのdescriptionとは別にここへハードコード
@@ -310,7 +310,6 @@ export default function MapLayersPanel({
       case "bicycleInfra":
       case "designation":
       case "stopPoi":
-      case "intersections":
       case "accidents":
         return renderStandardSectionBody(layer);
       case "road":

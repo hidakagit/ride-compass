@@ -7,8 +7,6 @@ import {
   ACCIDENT_SEVERITY_LEGEND,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LEGEND,
-  INTERSECTION_LEGEND,
-  INTERSECTION_RADIUS_EXPRESSION,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
@@ -16,42 +14,6 @@ import {
   TRAFFIC_STRESS_COLOR_EXPRESSION,
   TRAFFIC_STRESS_LEGEND,
 } from "./staticAttributeLayers";
-
-// MapLibreのfilter式（["==", ["coalesce", ["get","degree"], -1], 3]等）を実際に評価せず、
-// テスト内だけで簡易評価する。3段階の閾値バケットが「degree>=3の全整数を重複無く1つずつ
-// 覆う」ことを実測で検証するための最小限のインタプリタ（==,>=,<=,<,all,coalesce,getのみ対応）。
-function evalFilter(expr: unknown, degree: number | undefined): boolean {
-  if (!Array.isArray(expr)) throw new Error("not an expression");
-  const [op, ...args] = expr as [string, ...unknown[]];
-  switch (op) {
-    case "==":
-      return evalValue(args[0], degree) === evalValue(args[1], degree);
-    case ">=":
-      return (evalValue(args[0], degree) as number) >= (evalValue(args[1], degree) as number);
-    case "<=":
-      return (evalValue(args[0], degree) as number) <= (evalValue(args[1], degree) as number);
-    case "<":
-      return (evalValue(args[0], degree) as number) < (evalValue(args[1], degree) as number);
-    case "all":
-      return args.every((clause) => evalFilter(clause, degree));
-    default:
-      throw new Error(`unsupported op: ${op}`);
-  }
-}
-
-function evalValue(expr: unknown, degree: number | undefined): unknown {
-  if (!Array.isArray(expr)) return expr;
-  const [op, ...args] = expr as [string, ...unknown[]];
-  if (op === "get" && args[0] === "degree") return degree;
-  if (op === "coalesce") {
-    for (const candidate of args) {
-      const value = evalValue(candidate, degree);
-      if (value !== undefined && value !== null) return value;
-    }
-    return null;
-  }
-  throw new Error(`unsupported value expr: ${op}`);
-}
 
 describe("staticAttributeLayers", () => {
   it("交通ストレスの凡例キーは1-4+不明で、重複が無い", () => {
@@ -165,42 +127,6 @@ describe("staticAttributeLayers", () => {
     }
   });
 
-  // 改善計画T63: degree（接続路の本数）を円の大きさと同じ閾値（3・6）で3段階＋防御的な
-  // 不明・他に束ね、「主要な交差路だけ表示」という絞り込みを可能にした。
-  it("交差点密度の凡例キーはminor/mid/major/unknownの4件で重複が無い", () => {
-    const keys = INTERSECTION_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(new Set(["minor", "mid", "major", "unknown"]));
-    expect(new Set(keys).size).toBe(keys.length);
-  });
-
-  it("交差点密度のバケットはdegree>=3の整数を重複無く1つずつ覆う（3本刻みの実測1〜10で検証）", () => {
-    for (let degree = 1; degree <= 10; degree++) {
-      const matched = INTERSECTION_LEGEND.filter((entry) => evalFilter(entry.filter, degree));
-      if (degree < 3) {
-        // degree<3はbackend側がそもそも返さない想定域。unknownの防御的フォールバックのみ一致する。
-        expect(matched.map((e) => e.key)).toEqual(["unknown"]);
-      } else {
-        expect(matched).toHaveLength(1);
-      }
-    }
-    // プロパティ欠落（undefined→coalesceで-1）もunknownへ落ちる。
-    expect(INTERSECTION_LEGEND.filter((entry) => evalFilter(entry.filter, undefined)).map((e) => e.key)).toEqual([
-      "unknown",
-    ]);
-  });
-
-  it("交差点密度の凡例エントリごとに一意な色を持つ", () => {
-    const colors = INTERSECTION_LEGEND.map((e) => e.color);
-    expect(new Set(colors).size).toBe(colors.length);
-  });
-
-  it("交差点密度の半径式はdegree=3で最小、degree=6以上で最大に頭打ちする", () => {
-    expect(INTERSECTION_RADIUS_EXPRESSION[0]).toBe("interpolate");
-    // [interpolate, [linear], input, stop1, value1, stop2, value2]
-    const stops = INTERSECTION_RADIUS_EXPRESSION.slice(3) as number[];
-    expect(stops).toEqual([3, 4, 6, 9]);
-  });
-
   // 改善計画T63: 事故の「重大度」絞り込み軸（当事者=ACCIDENT_LEGENDとは独立、AND絞り込み）。
   it("事故の重大度の凡例キーは死亡事故/死亡事故以外の2値で重複が無い", () => {
     const keys = ACCIDENT_SEVERITY_LEGEND.map((e) => e.key);
@@ -225,7 +151,6 @@ describe("staticAttributeLayers", () => {
       trafficStress: TRAFFIC_STRESS_LEGEND,
       bicycleInfra: BICYCLE_INFRA_LEGEND,
       stopPoi: STOP_POI_LEGEND,
-      intersection: INTERSECTION_LEGEND,
       accidentParty: ACCIDENT_LEGEND,
       accidentSeverity: ACCIDENT_SEVERITY_LEGEND,
     };

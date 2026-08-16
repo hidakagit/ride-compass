@@ -1,7 +1,7 @@
 // 静的道路属性 P0（docs/static-road-attributes-plan.md）の新規レイヤー
 // （交通ストレス・自転車インフラ）、T54（既取込データの可視化漏れ解消）の
-// 停止要因POI・交差点密度レイヤー、外部静的データソース T50（警察庁交通事故統計）の
-// 色分け定義。
+// 停止要因POIレイヤー（交差点密度は同時に追加したがT96で地図可視化を撤去済み）、
+// 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 //
 // roadFilterAxes.tsの軸機構（複数の生タグ値を少数のグループへ束ねる、絞り込み可能・
 // 「路面」レイヤーの色分け軸として共有）とは異なり、これらはバックエンドが既に
@@ -9,18 +9,17 @@
 // involves_bicycle/fatal=真偽値）へ変換済みのプロパティのため、生値→グループの
 // 対応表は不要で単純なmatch/case式で足りる。
 // 交通ストレス・自転車インフラは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/
-// ROAD_TILE_SOURCE_LAYERを共有）と同じソースの独立レイヤーだが、停止要因POI・交差点密度
+// ROAD_TILE_SOURCE_LAYERを共有）と同じソースの独立レイヤーだが、停止要因POI
 // （region-poi-tiles）・事故（region-accident-tiles）は点データのためそれぞれ別ソース
-// （MapView.tsx参照）になる。
+// （MapView.tsx参照）になる。交差点密度（次数3以上のroad_node）はバックエンドの
+// poi-tilesが引き続き焼き込むが、道路網を見れば概ね自明という判断で地図上の独立可視化
+// レイヤーとしては提供しない（ルーティング材料のintersection_weightとしては引き続き使う）。
 // 改善計画T63: 各レイヤーの絞り込みはSTATIC_FILTER_AXES（ファイル末尾）にカタログ化し、
 // legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
 // buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
 // 機械的展開するのではなく、レイヤーごとにアプリの目的（安全・快適なルート判断）に沿った軸を選ぶ:
 // - 交通ストレス・自転車インフラ・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
 //   直接選べるカテゴリ絞り込みがそのまま「車道混在の区間だけ」「踏切だけ」等のニーズに合う。
-// - 交差点密度はdegree（接続路の本数）という連続量を単一カテゴリのまま扱っていたため、そもそも
-//   絞り込みようがなかった。円の大きさ（INTERSECTION_RADIUS_EXPRESSION）と同じ閾値（3・6）で
-//   3段階に束ね、「主要な交差路だけ表示」を実現する。
 // - 事故は当事者（自転車関連/その他）に加え、既に円の拡大で強調している重大度（死亡事故か否か）を
 //   独立した第2軸として持たせ、道路情報の「路面の種類×道路の種類」と同じAND絞り込みで
 //   「死亡事故だけ確認したい」に応える。
@@ -41,7 +40,7 @@ export interface CategoryDef {
 // （Object.fromEntries変換・["=="]フィルタ＋unknown用["!","has"]フォールバック・
 // ["match", ["coalesce",...]]色分け式）を逐語コピーしていたのを1箇所へ集約する。
 // TRAFFIC_STRESS（数値キー）・ACCIDENT（当事者/重大度の2値をcase式で直接書く方が
-// 自然）・INTERSECTION（degreeの連続量をinterpolateで束ねる）は同型でないため対象外。
+// 自然）は同型でないため対象外。
 function buildCategoricalLayerDefs(
   property: string,
   categories: readonly CategoryDef[],
@@ -230,58 +229,6 @@ export const STOP_POI_LABELS: Record<string, string> = stopPoiDefs.labels;
 export const STOP_POI_LEGEND: LegendEntry[] = stopPoiDefs.legend;
 export const STOP_POI_COLOR_EXPRESSION: unknown[] = stopPoiDefs.colorExpression;
 
-// 改善計画T54: 交差点密度（次数3以上のroad_node、backend/app/domain/traffic.py:
-// INTERSECTION_DEGREE_THRESHOLD）。次数（degree）が高いノードほど円を大きくし、「密度」を視覚化する。
-export const INTERSECTION_COLOR = "#0f766e";
-
-// 改善計画T63: degreeは連続量のため、単一カテゴリのままでは絞り込みようがなかった
-// （円の大きさで「密度」を目で見て把握はできても、地図上の他要素と重なって見づらいときに
-// 「主要な交差路だけ表示」で間引く手段が無かった）。円の大きさ（INTERSECTION_RADIUS_EXPRESSION、
-// degree=3で最小・6以上で最大に頭打ち）と同じ閾値で3段階に束ね、絞り込み可能にする。
-const INTERSECTION_COLOR_MINOR = "#5eead4";
-const INTERSECTION_COLOR_MID = "#14b8a6";
-
-// プロパティ欠落時は-1へ倒す（roadFilterAxes.tsのcoalesceパターンと同じ考え方）。
-function intersectionDegreeInput(): unknown[] {
-  return ["coalesce", ["get", "degree"], -1];
-}
-
-export const INTERSECTION_LEGEND: LegendEntry[] = [
-  { key: "minor", label: "3本", color: INTERSECTION_COLOR_MINOR, filter: ["==", intersectionDegreeInput(), 3] },
-  {
-    key: "mid",
-    label: "4〜5本",
-    color: INTERSECTION_COLOR_MID,
-    filter: ["all", [">=", intersectionDegreeInput(), 4], ["<=", intersectionDegreeInput(), 5]],
-  },
-  {
-    key: "major",
-    label: "6本以上（主要な交差点）",
-    color: INTERSECTION_COLOR,
-    filter: [">=", intersectionDegreeInput(), 6],
-  },
-  // backend側は次数3未満のnodeをそもそも返さない（INTERSECTION_DEGREE_THRESHOLD=3）ため
-  // 実際には出現しない想定の防御的フォールバック（他レイヤーのunknownと同じ扱い）。
-  {
-    key: "unknown",
-    label: "不明・他",
-    color: COLOR_UNKNOWN,
-    filter: ["<", intersectionDegreeInput(), 3],
-    isFallback: true,
-  },
-];
-
-// degree=3で半径4px、6以上で半径9pxまで線形補間する（それ以上の次数は稀なため頭打ちにする）。
-export const INTERSECTION_RADIUS_EXPRESSION: unknown[] = [
-  "interpolate",
-  ["linear"],
-  ["coalesce", ["get", "degree"], 3],
-  3,
-  4,
-  6,
-  9,
-];
-
 // 改善計画T63: 絞り込みUIの生成に使う、絞り込み可能な各静的レイヤーの軸カタログ。
 // 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
@@ -290,7 +237,6 @@ export type StaticFilterAxisId =
   | "bicycleInfra"
   | "designation"
   | "stopPoi"
-  | "intersection"
   | "accidentParty"
   | "accidentSeverity";
 
@@ -307,7 +253,6 @@ export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
   { axisId: "stopPoi", layerId: "stopPoi", legend: STOP_POI_LEGEND },
-  { axisId: "intersection", layerId: "intersections", legend: INTERSECTION_LEGEND },
   { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
   { axisId: "accidentSeverity", layerId: "accidents", label: "重大度", legend: ACCIDENT_SEVERITY_LEGEND },
 ];

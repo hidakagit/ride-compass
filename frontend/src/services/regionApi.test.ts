@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import {
   ACCIDENT_TILE_SOURCE_LAYER,
-  INTERSECTION_SOURCE_LAYER,
   ROAD_TILE_SOURCE_LAYER,
   STOP_POI_SOURCE_LAYER,
 } from "@/components/Map/MapView";
@@ -51,10 +50,11 @@ describe("regionApi", () => {
     expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=1`);
   });
 
-  // 停止要因POI・交差点密度タイル（改善計画T54）も同じドリフト検知の対象にする。
-  it("POI/交差点密度ベクタタイルのレイヤー名・世代がbackend生成物と一致する", () => {
+  // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。バックエンドは
+  // 同じpoi-tilesへ交差点密度（intersection）レイヤーも引き続き焼き込むが、地図の
+  // 独立可視化レイヤーとしては提供しない判断（T96）のためフロントは参照しない。
+  it("POIベクタタイルのレイヤー名・世代がbackend生成物と一致する", () => {
     expect(STOP_POI_SOURCE_LAYER).toBe(regionTileConfig.poi.stop_poi_layer_name);
-    expect(INTERSECTION_SOURCE_LAYER).toBe(regionTileConfig.poi.intersection_layer_name);
     expect(tileVersionFromUrl(poiTileUrl())).toBe(regionTileConfig.poi.tile_version);
   });
 
