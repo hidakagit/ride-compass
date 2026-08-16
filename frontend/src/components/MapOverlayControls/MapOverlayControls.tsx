@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import type { MapLayerId } from "@/components/Map/mapLayers";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
@@ -58,6 +59,16 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   route: RouteIcon,
 };
 
+// アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
+// JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
+const PANEL_GAP_PX = 8;
+
+interface PanelRect {
+  top: number;
+  left: number;
+  maxWidth: number;
+}
+
 // 凡例1カテゴリぶんのスウォッチ。太さ・線種で地図に反映するカテゴリ（entry.widthを持つ、
 // 例:「道路の種類」）は色スウォッチのままだと「この色が地図に出る」という誤った期待を
 // 持たせてしまう（WidthSwatch.tsxと同じ理由）ため、太さバーで示す。
@@ -109,8 +120,29 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
   // 複数レイヤーを同時に開いておきたい場合もあるため、開閉はレイヤーIDのSetで個別管理する。
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<MapLayerId>>(new Set());
+  // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
+  // （レイヤー数が多い画面向け）だが、CSSの仕様上overflow-yを指定するとoverflow-xも
+  // 暗黙にauto扱いになり、そのままではパネルをposition: absoluteでこの行の右へ
+  // はみ出させる従来方式だとchipRowにクリップされて何も見えなくなる（実機フィードバック
+  // 「▶を押しても何も出ない」＝この不具合）。document.bodyへポータルし、押した瞬間の
+  // 行の実際の画面位置をJSで測ってposition: fixedで配置することでクリップを回避する。
+  const [panelRects, setPanelRects] = useState<Partial<Record<MapLayerId, PanelRect>>>({});
+  const rowRefs = useRef<Partial<Record<MapLayerId, HTMLDivElement | null>>>({});
+  const chipRowRef = useRef<HTMLDivElement>(null);
 
   const toggleExpanded = (id: MapLayerId) => {
+    const isOpening = !expandedIds.has(id);
+    if (isOpening) {
+      const row = rowRefs.current[id];
+      if (row) {
+        const rect = row.getBoundingClientRect();
+        const left = rect.right + PANEL_GAP_PX;
+        setPanelRects((prev) => ({
+          ...prev,
+          [id]: { top: rect.top, left, maxWidth: Math.max(160, window.innerWidth - left - PANEL_GAP_PX) },
+        }));
+      }
+    }
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -122,21 +154,29 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     });
   };
 
+  // アイコン列をスクロールすると、position: fixedのパネルは行に追従できず表示が
+  // ずれたままになる。ずれたパネルを見せ続けるより、スクロールを開くと同時に
+  // いったん全部閉じる方が単純で分かりやすい。
+  const handleChipRowScroll = () => {
+    if (expandedIds.size > 0) setExpandedIds(new Set());
+  };
+
   return (
     <div className={styles.wrapper}>
-      <div className={styles.chipRow}>
+      <div className={styles.chipRow} ref={chipRowRef} onScroll={handleChipRowScroll}>
         {layers.map((layer) => {
           const Icon = LAYER_ICONS[layer.id];
           const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
           const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
           const isExpanded = canExpand && expandedIds.has(layer.id);
+          const panelRect = panelRects[layer.id];
           return (
-            // ▶を開いても後続レイヤーの位置がずれないよう、内訳パネルはこの行の中で
-            // position: absoluteにして通常のフロー（chipRowの縦積み）から外す
-            // （実機フィードバック「▶展開で以降のアイコンまでずれる」への対応）。
             <div
               key={layer.id}
-              className={isExpanded ? `${styles.iconWithToggle} ${styles.iconWithToggleExpanded}` : styles.iconWithToggle}
+              ref={(el) => {
+                rowRefs.current[layer.id] = el;
+              }}
+              className={styles.iconWithToggle}
             >
               <button
                 type="button"
@@ -168,15 +208,21 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                   </span>
                 </button>
               )}
-              {isExpanded && (
-                <div className={styles.detailPanel}>
-                  {layer.legendDetails && layer.legendDetails.length > 0 ? (
-                    renderLegendDetails(layer.legendDetails)
-                  ) : (
-                    <p className={styles.detailNotice}>{layer.summary}</p>
-                  )}
-                </div>
-              )}
+              {isExpanded &&
+                panelRect &&
+                createPortal(
+                  <div
+                    className={styles.detailPanel}
+                    style={{ top: panelRect.top, left: panelRect.left, maxWidth: panelRect.maxWidth }}
+                  >
+                    {layer.legendDetails && layer.legendDetails.length > 0 ? (
+                      renderLegendDetails(layer.legendDetails)
+                    ) : (
+                      <p className={styles.detailNotice}>{layer.summary}</p>
+                    )}
+                  </div>,
+                  document.body
+                )}
             </div>
           );
         })}
