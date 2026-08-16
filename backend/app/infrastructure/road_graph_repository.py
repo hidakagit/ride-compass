@@ -242,7 +242,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                            AND trunc(btrim(w.tags->>'lanes')::numeric) >= 4 THEN 1
                                       ELSE 0
                                   END
-                                + CASE WHEN d.is_ert OR d.is_cl THEN 1 ELSE 0 END
+                                + CASE WHEN COALESCE(d.is_ert, false) OR COALESCE(d.is_cl, false) THEN 1 ELSE 0 END
                             ))
                         END AS traffic_stress,
                         CASE
@@ -266,16 +266,20 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN w.highway = ANY(:ts_base4) THEN 4
                         END AS base
                     ) ts
-                    CROSS JOIN LATERAL (
+                    LEFT JOIN (
                         -- 指定路線コンフレーション機構（外部静的データソース T51）。
                         -- designation_attributesはmatch_designations.pyの事前計算バッチが埋める。
+                        -- 改善計画T65: way行ごとのCROSS JOIN LATERAL（way1本あたり索引スキャン）
+                        -- ではなく、designation_attributes全体（小テーブル）を先にosm_way_id単位へ
+                        -- 事前集約してからハッシュJOINする（実測6.27秒→0.36秒、約17倍）。
                         SELECT
-                            COALESCE(bool_or(da.kind = 'emergency_transport'), false) AS is_ert,
-                            COALESCE(bool_or(da.kind = 'critical_logistics'), false) AS is_cl
-                        FROM road_edges e
-                        JOIN designation_attributes da ON da.edge_id = e.edge_id
-                        WHERE e.osm_way_id = w.osm_way_id
-                    ) d
+                            e.osm_way_id,
+                            bool_or(da.kind = 'emergency_transport') AS is_ert,
+                            bool_or(da.kind = 'critical_logistics') AS is_cl
+                        FROM designation_attributes da
+                        JOIN road_edges e ON e.edge_id = da.edge_id
+                        GROUP BY e.osm_way_id
+                    ) d ON d.osm_way_id = w.osm_way_id
                     WHERE w.geom IS NOT NULL
                       AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
                 ) mvt
