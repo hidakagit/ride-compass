@@ -87,13 +87,16 @@ scoring.yamlは距離/標高/風/路面の4軸のまま、preference側にはsto
 妥当だが、放置するとP2でも「評価には入れたが推薦には入れ忘れた」が既成事実化しやすい。
 今は変更せず、P2タスク定義に「scoring軸へ追加するか」の明示判断を含める。
 
-### R-6. page.tsx（799行）・MapView.tsx（1,009行）の成長 → T47（閾値の記録のみ）
+### R-6. page.tsx（799行）・MapView.tsx（1,009行）の成長 → T47（閾値の記録のみ、T91で再設定）
 
 前回KEEP判断時（492行／751行）から+62%／+34%。増分は正当な機能追加（モバイル対応・研究IF）で、
-宣言的カタログのおかげで可読性はまだ保たれている。**今回は分割しない**。閾値を明文化する:
-「静的レイヤーをあと2種類追加する時点」または「MapView 1,200行到達」で、
-(a)静的レイヤーのensure/setペアの宣言的ループ化、(b)page.tsxの保存付き状態のuseStoredState抽出、
-の2点だけを行う（それ以上の分割はしない）。
+宣言的カタログのおかげで可読性はまだ保たれている。**今回は分割しない**。当初の閾値
+「静的レイヤーをあと2種類追加する時点」または「MapView 1,200行到達」は統合レビュー
+（2026-08-16）時点で両条件成立・約束の2点（(a)静的レイヤーのensure/setペアの宣言的ループ化、
+(b)page.tsxの保存付き状態のuseStoredState抽出）ともT47で消化済み。その後も静的レイヤー追加
+（T54の停止要因POI等）でMapView.tsxが増加し続けたため、T91（2026-08-17）で新しい閾値を
+再設定した: **「MapView.tsx 1,800行到達」または「STATIC_OVERLAY_LAYERS 10種到達」**
+（2026-08-17時点: 1,634行・6種）。到達時は改めて対応（分割要否を含む）を判断する。
 
 ### R-7. BICYCLE_INFRA_LABELSの語彙複製 → T46
 
@@ -136,7 +139,8 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
   to_thread・change_detection付きUPSERT。premature optimizationは今回もゼロ）
 - **`/api/routes/preview`の残置・MAX_CONCURRENT系の非共通化**
 - **ログ・観測基盤**（request_id全レコード注入・抑制付きWARNING・/api/debug/stats）
-- **page.tsx / MapView.tsx の現状維持**（R-6の閾値到達までは分割しない）
+- **page.tsx / MapView.tsx の現状維持**（R-6の閾値〔MapView.tsx 1,800行 or
+  STATIC_OVERLAY_LAYERS 10種、T91で再設定〕到達までは分割しない）
 
 ---
 
@@ -185,9 +189,10 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
 8. **UIの語彙表（ラベル・色・凡例）はカタログファイルにのみ書く。**コンポーネント内に
    Recordリテラルの対訳表を作らない。研究UI（ComparisonPanel等）も一般UIと同様に
    カタログから列挙生成する（R-4/R-7が根拠）
-9. **page.tsx / MapView.tsxへの追記は閾値監視つきで許可する**: 静的レイヤー+2種類または
-   MapView 1,200行に達したら、決めておいた2点（宣言的レイヤー登録・useStoredState抽出）だけを
-   実施し、それ以外の分割はしない
+9. **page.tsx / MapView.tsxへの追記は閾値監視つきで許可する**: 当初の閾値（静的レイヤー+2種類
+   またはMapView 1,200行）は決めておいた2点（宣言的レイヤー登録・useStoredState抽出）ともに
+   消化済み（T47）。T91（2026-08-17）で再設定した新閾値「MapView.tsx 1,800行」または
+   「STATIC_OVERLAY_LAYERS 10種」に達したら、そのとき改めて対応（分割要否を含む）を判断する
 10. 「何もしない」を明示的な判断として記録し、DEFERには必ずトリガー（可能なら日付）を付ける。
     トリガー未到達の項目を「ついで」に実装しない（維持。T22の2026-08-29が好例）
 11. **空間JOINを含むSQLは`&&`前置（またはKNNの`ORDER BY <-> LIMIT`）で必ずGiST索引を

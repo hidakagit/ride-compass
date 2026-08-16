@@ -27,7 +27,6 @@ from app.domain.traffic import (  # noqa: E402
 )
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
-    INTERSECTION_LAYER_NAME,
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
 )
@@ -116,10 +115,11 @@ def main() -> None:
         SURFACE_TAGS_PATH,
         {"good": sorted(GOOD_OSM_SURFACE_TAGS), "bad": sorted(BAD_OSM_SURFACE_TAGS)},
     )
-    # 地域ベクタタイルのレイヤー名・世代（改善計画T19、T50でaccidentキー・T54でpoiキーへ拡張）。
+    # 地域ベクタタイルのレイヤー名・世代（改善計画T19、T50でaccidentキー・T54でpoiキーへ拡張。
+    # T97でpoi.intersection_layer_nameを削除、交差点密度レイヤーの配信自体を撤去）。
     # フロントの手書き定数（MapView.tsx: ROAD_TILE_SOURCE_LAYER/ACCIDENT_TILE_SOURCE_LAYER/
-    # STOP_POI_SOURCE_LAYER/INTERSECTION_SOURCE_LAYER、regionApi.ts: 各tileUrl()の?v=）が
-    # このJSONとregionApi.test.tsで突き合わされる（CIのapi-contractジョブがドリフト検知）。
+    # STOP_POI_SOURCE_LAYER、regionApi.ts: 各tileUrl()の?v=）がこのJSONとregionApi.test.tsで
+    # 突き合わされる（CIのapi-contractジョブがドリフト検知）。
     _write_json(
         REGION_TILE_CONFIG_PATH,
         {
@@ -127,7 +127,6 @@ def main() -> None:
             "accident": {"layer_name": ACCIDENT_LAYER_NAME, "tile_version": ACCIDENT_TILE_VERSION},
             "poi": {
                 "stop_poi_layer_name": STOP_POI_LAYER_NAME,
-                "intersection_layer_name": INTERSECTION_LAYER_NAME,
                 "tile_version": POI_TILE_VERSION,
             },
         },

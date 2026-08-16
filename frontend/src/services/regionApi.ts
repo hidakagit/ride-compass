@@ -56,13 +56,15 @@ export function accidentTileUrl(): string {
   return `${window.location.origin}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
-// 停止要因POI・交差点密度レイヤー（改善計画T54）の世代。バックエンド（region_service.py:
+// 停止要因POIレイヤー（改善計画T54）の世代。バックエンド（region_service.py:
 // POI_TILE_VERSION）と対で上げる。ROAD_SURFACE_TILE_VERSIONと同じ理由（ブラウザHTTP
 // キャッシュのバスト用）。
+// v2: T97。地図の独立可視化レイヤーとしては使われなくなっていた（T96）intersectionレイヤーの
+// 配信自体をバックエンドから削除し、stop_poiのみの1レイヤー構成へ変更した世代。
 // v1: 初版（stop_poi・intersectionの2レイヤー）。
-const POI_TILE_VERSION = "1";
+const POI_TILE_VERSION = "2";
 
-// 停止要因POI・交差点密度の地域レイヤー（改善計画T54）のベクタタイルURL。
+// 停止要因POIの地域レイヤー（改善計画T54）のベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
 // 呼び出し時に評価する関数として提供する。
 export function poiTileUrl(): string {

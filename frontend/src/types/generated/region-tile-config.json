@@ -9,7 +9,6 @@
   },
   "poi": {
     "stop_poi_layer_name": "stop_poi",
-    "intersection_layer_name": "intersection",
-    "tile_version": "1"
+    "tile_version": "2"
   }
 }

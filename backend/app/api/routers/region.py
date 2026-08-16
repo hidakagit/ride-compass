@@ -14,7 +14,7 @@ from app.services.region_service import RegionService
 
 router = APIRouter()
 
-# 地域タイル（路面・停止要因POI/交差点密度）の同時実行上限
+# 地域タイル（路面・停止要因POI）の同時実行上限
 # （settings.road_tile_max_concurrent、値の根拠はconfig.py参照）。
 #
 # かつて密集した都市部のタイルはPostGISから1万件超のway行を転送してPython側でMVT
@@ -33,9 +33,9 @@ router = APIRouter()
 # 走る数は上限のまま増えないため）。/healthはこのsemaphoreを経由しない別の同期ハンドラの
 # ため、待機中のタイル要求に巻き込まれず応答し続けられる。
 #
-# 停止要因POI・交差点密度タイル（改善計画T54）も同じDB接続プールを取り合うため、
-# 専用semaphoreを新設せずこれを共有する（プール上限15接続に対し、独立semaphoreを
-# 追加すると2種のタイルの同時実行数の合計がプール上限を超えうる）。
+# 停止要因POIタイル（改善計画T54、T97で交差点密度レイヤーの配信は撤去）も同じDB接続
+# プールを取り合うため、専用semaphoreを新設せずこれを共有する（プール上限15接続に対し、
+# 独立semaphoreを追加すると2種のタイルの同時実行数の合計がプール上限を超えうる）。
 _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
 
@@ -43,7 +43,7 @@ def _check_tile_rate_limit(request: Request, prefix: str) -> None:
     """認証なしで叩ける地域タイルへの簡易な歯止め（1クライアントIPあたり1分間の上限）。
     地域タイルはPostGISへの実問い合わせ・ディスクキャッシュ書き込みを伴うため、
     無制限に叩かれるとDB負荷やディスク消費に繋がる（詳細はrate_limiter.py）。
-    路面・POI/交差点密度タイルで同じ上限値（settings.road_tile_rate_limit_per_minute）を
+    路面・POIタイルで同じ上限値（settings.road_tile_rate_limit_per_minute）を
     使うが、キー・記録先の`prefix`は種別ごとに分ける。
     """
     if not check_rate_limit(f"{prefix}:{client_id(request)}", settings.road_tile_rate_limit_per_minute):
@@ -52,8 +52,8 @@ def _check_tile_rate_limit(request: Request, prefix: str) -> None:
 
 
 def _validate_tile_coords(z: int, x: int, y: int) -> None:
-    """路面・POI/交差点密度タイルで共通のズーム/座標範囲チェック
-    （T54: POI/交差点密度タイルは既存の路面レイヤーと同じズーム範囲に準拠する）。
+    """路面・POIタイルで共通のズーム/座標範囲チェック
+    （T54: POIタイルは既存の路面レイヤーと同じズーム範囲に準拠する）。
     """
     # MapLibre側もvector sourceのminzoom/maxzoomでこの範囲外は要求しないが、
     # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。
@@ -102,8 +102,11 @@ async def region_poi_tile(
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
-    """停止要因POI（信号・横断歩道・一時停止・踏切）・交差点密度レイヤー（改善計画T54）。
-    静的道路属性P1で評価にのみ使われていたosm_raw_pois/road_nodesの可視化。
+    """停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー（改善計画T54）。
+    静的道路属性P1で評価にのみ使われていたosm_raw_poisの可視化。交差点密度
+    （road_nodes次数）レイヤーもT54で同じタイルへ焼き込んでいたが、T96で地図上の
+    独立可視化レイヤーとしては撤去され参照が無くなったため、T97でこの配信からも削除した
+    （ルーティング材料のintersection_weightとしては`get_intersection_counts`等を引き続き使う）。
     路面タイルと同じ歯止め・同時実行制御をそのまま流用する。
     """
     _check_tile_rate_limit(request, "poi-tile")
