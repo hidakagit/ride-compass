@@ -1507,7 +1507,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   （critical_logistics側も検証対象に追加＋`TRAFFIC_STRESS_DESIGNATION_KINDS`の値そのものを
   突き合わせるドリフト検知アサーションを追加）で代替。backend 670件green
 
-### - [ ] T76. designated判定KNNの_NEAREST_WAY_TAGS_SQLへの統合 規模S〜M
+### - [x] T76. designated判定KNNの_NEAREST_WAY_TAGS_SQLへの統合 規模S〜M（2026-08-16完了）
 
 - `get_nearest_designated_flags`は、直前の`get_nearest_surface_tags`/`get_nearest_way_tags`と
   同一のサンプル点集合に対するKNNを3本目の独立クエリ・独立ラウンドトリップとして再実行し、
@@ -1727,6 +1727,31 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ---
 
+## 統合レビュー対応（2026-08-16・review:all第1回）
+
+### - [x] T88. architecture.mdの現状化〔統合レビューF-1〕規模S〜M（2026-08-16完了）
+
+- 背景: `docs/architecture.md`は「コード変更と同一コミットで更新」ルールだが、
+  8軸目（事故密度、T50）・指定路線コンフレーション機構（T51）・migration 0006/0007/0008・
+  路面タイル世代v5・T59（地図タイル閲覧起点の道路グラフ構築）・静的レイヤー9系統（P0/P1含む）
+  が反映されないまま約40コミット分（daef76e..HEAD）進んでいた。実際にはP0/P1（静的道路属性、
+  交通ストレス・自転車インフラ・停止密度・交差点密度）自体もこの回以前から未反映だったと
+  判明（統合レビューPhase 4で発覚）。
+- 対応: 新設「## 7. 静的道路属性と8軸評価モデル」節で8軸の一覧・重み表・P1各軸・T50事故密度・
+  T51指定路線コンフレーション・静的レイヤー3系統のタイル配信・T59バックグラウンド構築を集約。
+  併せて§2ディレクトリ構成（domain/traffic.py・accident.py・designation.py・difficulty.py、
+  batch/一式、infrastructure/accident_repository.py・designation_models.py、
+  services/accident_service.py、migrations 0006-0008、frontend Map/staticAttributeLayers.ts・
+  icons.tsx・hooks/useStoredState.ts）・§4 API（poi-tiles/accident-tilesエンドポイント追加、
+  road-surface-tilesプロパティ更新）・§6データモデル（RouteSegmentDetail/RouteCandidateの
+  8軸フィールド）を現状化。
+- 完了条件: architecture.mdが8軸評価モデル・指定路線機構・T59・新規タイル世代を説明できる
+  状態になっていること（コードとの照合はレビュー実施時点のコードを一次情報として使用）。
+- 対応状況: 統合レビュー（[history/2026-08-16_all.md](../.claude/commands/review/history/2026-08-16_all.md)）
+  F-1として起票、ユーザー承認のうえ本タスクとして実施・完了。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -1787,3 +1812,4 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 | 2026-08-16 | （designation実装レビュー） | T51実装の未コミット変更へ8角度コードレビューを実施（候補発見8＋1票候補の検証2エージェント、確定26件・要実測1件・棄却0件。T65〜T67起票済み分は重複除外）。T70〜T85を起票。最優先はタイル世代対上げ漏れ（T70）と取込バッチのデータ欠損系（T71〜T73）、T74（MVT指定路線表現）はT66と関連する設計判断。log_external_call未使用は既存バッチ同一先例のため対象外、improvement-plan.mdのdiff内矛盾は作業ツリーで解消済みと確認 |
 | 2026-08-16 | （将来UI整理検討） | ユーザー提示の外部UI/UXレビュー指摘表12点を将来の静的属性拡張の観点で検討。🔴高5点中4点（#1/#3/#5/#8/#9）はT29〜T32・T38で対応済み、#6/#7はT39/T40で対応済みと確認し再起票せず、#10〜#12はユーザー提示どおり🟡低・先送り。現状ギャップが残る#2（レイヤーのカテゴリ化）・#4（データ状態の明示）のみT86・T87として起票 |
 | 2026-08-16 | T70〜T77 | designation実装レビュー対応を優先順位どおり実施。T70: 路面タイル世代v5の対上げ漏れ（フロント定数・生成物が旧v4のまま）を修正。T71: import_designations.pyのDELETE→INSERTをtransaction()で括り0件時はDELETEごとスキップ（既存データ保持）＋executemany化。T72: N12 GeoJSONの3要素座標・MultiLineString、N10 GMLの複数posListへの防御を追加。T73: match_designations.pyも0件時のDELETE全消しガード＋WARNING昇格。T75: kind集合の分散（3表現）をdomain/designation.py: DESIGNATION_IMPORT_KINDSへ一本化、import側は_KIND_SPECSテーブルへ統合（未知kindはKeyError即死）。T76: get_nearest_designated_flags（3本目の独立KNN）を_NEAREST_WAY_TAGS_SQLへ統合し専用SQL/メソッドを削除。T77: get_designated_edge_idsの転送方式をdev DB実測（designation_attributes 28,940行 vs road_edges 117,744行）のうえ現状維持を決定。T74（MVT指定路線表現の見直し）は新テーブル・新バッチを要する規模M相当と判明したため検討メモのみ残し未着手。あわせてT68（is_split_up_to_date用stale限定部分GiST索引、EXPLAIN実測で採用確認）・T69（get_way_specs_with_closureの近傍extent爆発防衛、ST_Intersectionでbboxの10kmマージンへクランプ）も実施。backend最終669件（DB統合テスト含む新規テストを各タスクで追加）、各タスクごとに個別コミット |
+| 2026-08-16 | 統合レビュー（review:all第1回）・T76チェック修正・T88 | daef76e..HEAD（8軸目・designation機構・PostGISコスト対策T64〜T69・designation実装レビュー対応T70〜T85）を対象に、overall/complexity/consistency/ui4種を統合実施（[history/2026-08-16_all.md](../.claude/commands/review/history/2026-08-16_all.md)）。backend 672件・frontend 212件（並走実行時のMapLayersPanel3件timeoutは単独再実行で全green、実行環境競合と判定）とPlaywright実機確認（変更画面＋主要導線1周）でP0/P1新設なしを確認。P1指摘（F-1: architecture.md未追従）をT88として起票・即実施：新設「§7 静的道路属性と8軸評価モデル」節に8軸一覧・重み表・P1各軸・T50事故密度・T51指定路線コンフレーション・タイル配信3系統・T59バックグラウンド構築を集約し、§2ディレクトリ構成・§4 API・§6データモデルも追従。P2指摘（F-2: T76チェックボックス未更新）も修正。F-3（MapView閾値監視の安全弁消化）・F-6（context.mdの鮮度）はレビュー基準側の課題のため/review:improveでの対応が別途必要 |
