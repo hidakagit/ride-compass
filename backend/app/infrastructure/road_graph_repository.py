@@ -430,11 +430,17 @@ _NEAREST_SURFACE_SQL = text(
 # 「WHEREをKNNと同居させる」アンチパターンには該当せず、GiST索引で素直に
 # index nested loopになる）。edge_idはWHEREで先に絞るため、LEFT JOINでも
 # 指定edge_id全件が0件を含めて1行ずつ返る。
+# 改善計画T64: JOIN条件がST_DWithin(geography)単体だとGiST索引を使わずJoin Filter
+# （全組み合わせ評価）に落ちる（_INTERSECTION_COUNTS_SQLのコメント・T64実測参照）。
+# `&&`（geometry型のバウンディングボックス演算子）を前置してGiST索引を先に使わせてから
+# ST_DWithinで精密判定する。
 _STOP_POI_COUNTS_SQL = text(
     """
     SELECT e.edge_id, COUNT(p.osm_node_id) AS stop_count
     FROM road_edges e
-    LEFT JOIN osm_raw_pois p ON ST_DWithin(p.geom::geography, e.geom::geography, :max_distance_m)
+    LEFT JOIN osm_raw_pois p
+        ON p.geom && ST_Expand(e.geom, :max_distance_deg)
+       AND ST_DWithin(p.geom::geography, e.geom::geography, :max_distance_m)
     WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
     GROUP BY e.edge_id
     """
@@ -448,12 +454,15 @@ _NEAREST_STOP_POI_COUNTS_SQL = text(
     WITH pts AS (
         SELECT
             ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
             ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
         FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
     )
     SELECT pts.ord, COUNT(p.osm_node_id) AS stop_count
     FROM pts
-    LEFT JOIN osm_raw_pois p ON ST_DWithin(p.geom::geography, pts.geog, :max_distance_m)
+    LEFT JOIN osm_raw_pois p
+        ON p.geom && ST_Expand(pts.geom, :max_distance_deg)
+       AND ST_DWithin(p.geom::geography, pts.geog, :max_distance_m)
     GROUP BY pts.ord
     ORDER BY pts.ord
     """
@@ -465,12 +474,14 @@ _NEAREST_STOP_POI_COUNTS_SQL = text(
 # 外部静的データソース T50残作業（事故密度の評価組み込み）。_STOP_POI_COUNTS_SQLと同じ
 # 「edge_idそれぞれの距離内件数」パターンだが、対象テーブルがaccident_pointsで
 # bicycle_only（当事者に自転車を含む事故のみに絞るか）の切替を追加している。
+# 改善計画T64: _STOP_POI_COUNTS_SQLと同じ理由で`&&`を前置する。
 _ACCIDENT_COUNTS_SQL = text(
     """
     SELECT e.edge_id, COUNT(a.accident_id) AS accident_count
     FROM road_edges e
     LEFT JOIN accident_points a
-        ON ST_DWithin(a.geom::geography, e.geom::geography, :max_distance_m)
+        ON a.geom && ST_Expand(e.geom, :max_distance_deg)
+       AND ST_DWithin(a.geom::geography, e.geom::geography, :max_distance_m)
        AND (:bicycle_only = false OR a.involves_bicycle)
     WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
     GROUP BY e.edge_id
@@ -483,13 +494,15 @@ _NEAREST_ACCIDENT_COUNTS_SQL = text(
     WITH pts AS (
         SELECT
             ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
             ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
         FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
     )
     SELECT pts.ord, COUNT(a.accident_id) AS accident_count
     FROM pts
     LEFT JOIN accident_points a
-        ON ST_DWithin(a.geom::geography, pts.geog, :max_distance_m)
+        ON a.geom && ST_Expand(pts.geom, :max_distance_deg)
+       AND ST_DWithin(a.geom::geography, pts.geog, :max_distance_m)
        AND (:bicycle_only = false OR a.involves_bicycle)
     GROUP BY pts.ord
     ORDER BY pts.ord
@@ -1280,9 +1293,11 @@ class AttributeRepository(_SessionRepository):
         if not edge_ids:
             return {}
         result: dict[str, int] = {}
+        max_distance_deg = _meters_to_bbox_margin_deg(max_distance_m)
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
-                _STOP_POI_COUNTS_SQL, {"edge_ids": id_chunk, "max_distance_m": max_distance_m}
+                _STOP_POI_COUNTS_SQL,
+                {"edge_ids": id_chunk, "max_distance_m": max_distance_m, "max_distance_deg": max_distance_deg},
             )
             for edge_id, stop_count in rows.all():
                 result[edge_id] = stop_count
@@ -1303,7 +1318,11 @@ class AttributeRepository(_SessionRepository):
         lats = [p[0] for p in points]
         lons = [p[1] for p in points]
         result = await self._session.execute(
-            _NEAREST_STOP_POI_COUNTS_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
+            _NEAREST_STOP_POI_COUNTS_SQL,
+            {
+                "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
+                "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
+            },
         )
         by_ord = {ord_: stop_count for ord_, stop_count in result.all()}
         return [by_ord.get(i + 1, 0) for i in range(len(points))]
@@ -1417,10 +1436,14 @@ class AttributeRepository(_SessionRepository):
         if not edge_ids:
             return {}
         result: dict[str, int] = {}
+        max_distance_deg = _meters_to_bbox_margin_deg(max_distance_m)
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
                 _ACCIDENT_COUNTS_SQL,
-                {"edge_ids": id_chunk, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m},
+                {
+                    "edge_ids": id_chunk, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m,
+                    "max_distance_deg": max_distance_deg,
+                },
             )
             for edge_id, accident_count in rows.all():
                 result[edge_id] = accident_count
@@ -1443,7 +1466,10 @@ class AttributeRepository(_SessionRepository):
         lons = [p[1] for p in points]
         result = await self._session.execute(
             _NEAREST_ACCIDENT_COUNTS_SQL,
-            {"lats": lats, "lons": lons, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m},
+            {
+                "lats": lats, "lons": lons, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m,
+                "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
+            },
         )
         by_ord = {ord_: accident_count for ord_, accident_count in result.all()}
         return [by_ord.get(i + 1, 0) for i in range(len(points))]

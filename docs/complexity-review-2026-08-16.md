@@ -190,3 +190,9 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
    実施し、それ以外の分割はしない
 10. 「何もしない」を明示的な判断として記録し、DEFERには必ずトリガー（可能なら日付）を付ける。
     トリガー未到達の項目を「ついで」に実装しない（維持。T22の2026-08-29が好例）
+11. **空間JOINを含むSQLは`&&`前置（またはKNNの`ORDER BY <-> LIMIT`）で必ずGiST索引を
+    使わせる。`ST_DWithin(geom::geography, ...)`単体をJOIN条件にしない。**
+    geographyキャストを挟むとPostGISプランナがgeometry型GiST索引を認識できず、
+    全組み合わせをJoin Filterで評価する（T21以前の`_NEAREST_SURFACE_SQL`、T51の
+    `match_designations.py`、T64の`_STOP_POI_COUNTS_SQL`等4クエリで同型の劣化を実測）。
+    新規の空間JOINを書くときは`_INTERSECTION_COUNTS_SQL`（`&&`前置の先例）を必ず参照する
