@@ -214,6 +214,15 @@ input[type="number"] {
   padding: var(--space-2) var(--space-3);
 }
 
+/* 既定は個別のz-index指定が無くDOM順で積み重なるため、MapOverlayControls側の
+   アイコンボタン列（z-index: 20、MapOverlayControls.module.cssの.wrapper）が地図キャンバス内の
+   ポップアップより前面に出て文字が隠れてしまう（実機フィードバック「ツールチップ背景が微妙、
+   ボタンより前面に出てほしい」）。.wrapperより上、詳細パネル（.detailPanel、z-index: 30）
+   より下に置く。 */
+.maplibregl-popup {
+  z-index: 25;
+}
+
 /* closeボタンはbutton要素のため、上のグローバルbutton既定（padding:0.5rem 0.9rem等、
    フォーム用に大きめ）がここにも継承される。地図ポップアップの×には過大で、縮めた
    本文padding（var(--space-2) var(--space-3)）と並ぶと不釣り合いに大きく間延びして見えた
