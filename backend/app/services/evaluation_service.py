@@ -45,6 +45,8 @@ class EvaluationService:
         stop_counts: dict[str, int] | None = None,
         way_tags: dict[str, dict[str, str]] | None = None,
         intersection_counts: dict[str, int] | None = None,
+        accident_counts: dict[str, int] | None = None,
+        accident_years_covered: int = 0,
     ) -> dict[str, EdgeCostResult]:
         stop_counts = stop_counts or {}
         return {
@@ -57,6 +59,8 @@ class EvaluationService:
                 stop_count=stop_counts.get(edge_id),
                 way_tags=way_tags.get(edge_id) if way_tags is not None else None,
                 intersection_count=intersection_counts.get(edge_id) if intersection_counts is not None else None,
+                accident_count=accident_counts.get(edge_id) if accident_counts is not None else None,
+                accident_years_covered=accident_years_covered,
             )
             for edge_id, edge in graph.edges.items()
         }

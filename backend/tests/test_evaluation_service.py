@@ -86,6 +86,37 @@ def test_evaluate_graph_missing_stop_counts_entry_is_none():
     assert results["edge-1"].difficulty is None
 
 
+def test_evaluate_graph_passes_accident_counts_to_compute_edge_cost():
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=1000.0,
+    )
+    graph = _make_graph(edge)
+    elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=0.0, data_source="t", calculated_at="t")}
+    surface_attributes = {"edge-1": "asphalt"}
+
+    service = EvaluationService()
+    no_accidents = service.evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
+    many_accidents = service.evaluate_graph(
+        graph, elevation_attributes, surface_attributes, accident_counts={"edge-1": 10}, accident_years_covered=3,
+    )["edge-1"]
+
+    assert many_accidents.difficulty > no_accidents.difficulty
+
+
+def test_evaluate_graph_missing_accident_counts_entry_is_none():
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=50.0,
+    )
+    graph = _make_graph(edge)
+
+    service = EvaluationService()
+    results = service.evaluate_graph(graph, {}, {}, accident_counts={}, accident_years_covered=3)
+
+    assert results["edge-1"].difficulty is None
+
+
 def test_evaluate_graph_uses_custom_route_preference():
     from app.domain.evaluation import RoutePreference
 
@@ -117,6 +148,7 @@ def test_load_route_preference_reads_default_config_file():
     assert preference.traffic_weight == 0.10
     assert preference.infra_weight == 0.10
     assert preference.intersection_weight == 0.05
+    assert preference.accident_weight == 0.08
 
 
 def test_load_route_preference_reads_custom_path(tmp_path):

@@ -55,6 +55,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       traffic_difficulty: (i * 23) % 100,
       infra_difficulty: (i * 29) % 100,
       intersection_difficulty: (i * 31) % 100,
+      accident_difficulty: (i * 37) % 100,
       difficulty: (i * 11) % 100,
     });
   }
@@ -79,6 +80,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       traffic_stress_score: 2.3,
       bicycle_infra_score: 45.6,
       intersection_density: 0.5,
+      accident_density: 0.1,
       total_score: 70 + i,
       score_breakdown: null,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),

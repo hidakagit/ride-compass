@@ -2,12 +2,14 @@
 # scoring.yaml（ルート単位・candidate集合内の相対評価、RouteScorer用）とは対象が異なる
 # 別設定（Edge単位・単体のEdgeに対する絶対評価、EvaluationService用）のため分離している。
 # 標高・路面（Phase3）・風（Dynamic Data対応、Phase6）・停止密度（信号・横断歩道・一時停止・
-# 踏切、静的道路属性P1）に加え、交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）
-# も対象に含む。7項目の比率は、元の4項目（elevation:wind:road:stop = 0.20:0.35:0.25:0.20）の
-# バランス感を保ったまま0.75倍し、残り0.25を新3項目（traffic:infra:intersection =
-# 0.10:0.10:0.05、intersectionは出現頻度が低い想定のため半分）へ配分した参考値
-# （スコアの本格チューニングはP2据え置き）。scoring.yamlには追加しない
-# （ユーザー承認済みのスコープ判断。おすすめ度の並び順には効かせない、静的道路属性P1参照）。
+# 踏切、静的道路属性P1）に加え、交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）・
+# 事故密度（外部静的データソース T50残作業、8軸目）も対象に含む。7項目の比率は、元の4項目
+# （elevation:wind:road:stop = 0.20:0.35:0.25:0.20）のバランス感を保ったまま0.75倍し、
+# 残り0.25を新3項目（traffic:infra:intersection = 0.10:0.10:0.05、intersectionは出現頻度が
+# 低い想定のため半分）へ配分した参考値だった。accident_weight追加時も既存7項目の値は変更せず
+# 追加のみ行う（既存バランスを保ったまま新項目を足す方針。スコアの本格チューニングはP2据え置き）。
+# scoring.yamlには追加しない（ユーザー承認済みのスコープ判断。おすすめ度の並び順には
+# 効かせない、静的道路属性P1参照）。
 route_preference:
   elevation_weight: 0.15
   road_weight: 0.19
@@ -16,3 +18,4 @@ route_preference:
   traffic_weight: 0.10
   infra_weight: 0.10
   intersection_weight: 0.05
+  accident_weight: 0.08

@@ -235,6 +235,10 @@ export interface components {
          *     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
          *     `intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。
          *     いずれも静的道路属性P1残り。
+         *
+         *     `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
+         *     domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
+         *     合計distance_km」に収録年数での正規化を加えた集約）。
          */
         RouteCandidate: {
             /** Id */
@@ -267,6 +271,8 @@ export interface components {
             bicycle_infra_score?: number | null;
             /** Intersection Density */
             intersection_density?: number | null;
+            /** Accident Density */
+            accident_density?: number | null;
             /** Total Score */
             total_score?: number | null;
             /** Score Breakdown */
@@ -330,6 +336,8 @@ export interface components {
             infra_weight: number;
             /** Intersection Weight */
             intersection_weight: number;
+            /** Accident Weight */
+            accident_weight: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {
@@ -426,6 +434,8 @@ export interface components {
             infra_difficulty?: number | null;
             /** Intersection Difficulty */
             intersection_difficulty?: number | null;
+            /** Accident Difficulty */
+            accident_difficulty?: number | null;
             /** Difficulty */
             difficulty?: number | null;
         };

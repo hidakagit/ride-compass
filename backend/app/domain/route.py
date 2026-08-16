@@ -51,6 +51,8 @@ class RouteSegmentDetail(BaseModel):
     traffic_difficulty: float | None = None
     infra_difficulty: float | None = None
     intersection_difficulty: float | None = None
+    # 外部静的データソース T50残作業（事故密度、8軸目）。
+    accident_difficulty: float | None = None
     difficulty: float | None = None
 
 
@@ -88,6 +90,10 @@ class RouteCandidate(BaseModel):
     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
     `intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。
     いずれも静的道路属性P1残り。
+
+    `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
+    domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
+    合計distance_km」に収録年数での正規化を加えた集約）。
     """
 
     id: str
@@ -104,6 +110,7 @@ class RouteCandidate(BaseModel):
     traffic_stress_score: float | None = None
     bicycle_infra_score: float | None = None
     intersection_density: float | None = None
+    accident_density: float | None = None
     total_score: float | None = None
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None

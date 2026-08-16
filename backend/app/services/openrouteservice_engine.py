@@ -22,6 +22,7 @@
 
 import asyncio
 
+from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M, distance_weighted_accident_density
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
@@ -135,21 +136,30 @@ class OpenRouteServiceEngine:
             flat_intersection_counts = await self._repository.get_nearest_intersection_counts(
                 flat_points, max_distance_m=INTERSECTION_MATCH_MAX_DISTANCE_M
             )
+            # 事故密度評価（外部静的データソース T50残作業、8軸目）も同じサンプル点集合を使う。
+            flat_accident_counts = await self._repository.get_nearest_accident_counts(
+                flat_points, max_distance_m=ACCIDENT_MATCH_MAX_DISTANCE_M
+            )
+            accident_years_covered = await self._repository.get_accident_years_covered()
         else:
             flat_surface_tags = [None] * sum(point_counts)
             flat_stop_counts = [None] * sum(point_counts)
             flat_way_tags = [None] * sum(point_counts)
             flat_intersection_counts = [None] * sum(point_counts)
+            flat_accident_counts = [None] * sum(point_counts)
+            accident_years_covered = 0
         surface_tags_per_candidate: list[list[str | None]] = []
         stop_counts_per_candidate: list[list[int | None]] = []
         way_tags_per_candidate: list[list[tuple[str | None, dict[str, str]] | None]] = []
         intersection_counts_per_candidate: list[list[int | None]] = []
+        accident_counts_per_candidate: list[list[int | None]] = []
         offset = 0
         for count in point_counts:
             surface_tags_per_candidate.append(flat_surface_tags[offset : offset + count])
             stop_counts_per_candidate.append(flat_stop_counts[offset : offset + count])
             way_tags_per_candidate.append(flat_way_tags[offset : offset + count])
             intersection_counts_per_candidate.append(flat_intersection_counts[offset : offset + count])
+            accident_counts_per_candidate.append(flat_accident_counts[offset : offset + count])
             offset += count
 
         # 距離フィルタで棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
@@ -181,6 +191,8 @@ class OpenRouteServiceEngine:
                 stop_counts=stop_counts_per_candidate[i],
                 way_tags=way_tags_per_candidate[i],
                 intersection_counts=intersection_counts_per_candidate[i],
+                accident_counts=accident_counts_per_candidate[i],
+                accident_years_covered=accident_years_covered,
                 route_geometry=c.geometry,
             )
             road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
@@ -199,6 +211,10 @@ class OpenRouteServiceEngine:
             intersection_density = distance_weighted_intersection_density(
                 [(s.distance_km, intersection_counts_per_candidate[i][j]) for j, s in enumerate(segments)]
             )
+            accident_density = distance_weighted_accident_density(
+                [(s.distance_km, accident_counts_per_candidate[i][j]) for j, s in enumerate(segments)],
+                accident_years_covered,
+            )
             results.append(
                 c.model_copy(
                     update={
@@ -208,6 +224,7 @@ class OpenRouteServiceEngine:
                         "traffic_stress_score": traffic_stress_score,
                         "bicycle_infra_score": bicycle_infra_score,
                         "intersection_density": intersection_density,
+                        "accident_density": accident_density,
                     }
                 )
             )
@@ -223,6 +240,8 @@ class OpenRouteServiceEngine:
         stop_counts: list[int | None],
         way_tags: list[tuple[str | None, dict[str, str]] | None],
         intersection_counts: list[int | None],
+        accident_counts: list[int | None],
+        accident_years_covered: int,
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
@@ -269,12 +288,19 @@ class OpenRouteServiceEngine:
             intersection_count_per_km = (
                 intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
             )
+            accident_count = accident_counts[i] if i < len(accident_counts) else None
+            accident_count_per_km_year = (
+                accident_count / distance_km / accident_years_covered
+                if accident_count is not None and distance_km > 0 and accident_years_covered > 0
+                else None
+            )
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                traffic_stress, bicycle_infra, intersection_count_per_km,
+                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
                 preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
+                preference.accident_weight,
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
@@ -305,6 +331,7 @@ class OpenRouteServiceEngine:
                     traffic_difficulty=axis_difficulties.traffic,
                     infra_difficulty=axis_difficulties.infra,
                     intersection_difficulty=axis_difficulties.intersection,
+                    accident_difficulty=axis_difficulties.accident,
                     difficulty=axis_difficulties.composite,
                 )
             )

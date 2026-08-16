@@ -20,6 +20,7 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     traffic_stress_score: null,
     bicycle_infra_score: null,
     intersection_density: null,
+    accident_density: null,
     total_score: 88,
     score_breakdown: null,
     segments: null,
@@ -41,7 +42,7 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
       scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
       route_preference: {
         elevation_weight: 0.15, road_weight: 0.19, wind_weight: 0.26, stop_weight: 0.15,
-        traffic_weight: 0.1, infra_weight: 0.1, intersection_weight: 0.05,
+        traffic_weight: 0.1, infra_weight: 0.1, intersection_weight: 0.05, accident_weight: 0.08,
       },
       generated_at: "2026-08-15T12:00:00+09:00",
     },
@@ -107,6 +108,17 @@ describe("ComparisonPanel", () => {
     expect(screen.getByText("12%")).toBeInTheDocument();
     expect(screen.getByText("交差点密度")).toBeInTheDocument();
     expect(screen.getByText("3.10 回/km")).toBeInTheDocument();
+  });
+
+  it("事故密度の行を表示する(外部静的データソース T50残作業、8軸目)", () => {
+    const slots = [
+      makeSlot({ id: "a", topCandidate: makeCandidate({ accident_density: 0.15 }) }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
+    ];
+    render(<ComparisonPanel slots={slots} />);
+
+    expect(screen.getByText("事故密度")).toBeInTheDocument();
+    expect(screen.getByText("0.15 件/(km・年)")).toBeInTheDocument();
   });
 
   it("重みの表示(title属性)に評価軸カタログの全軸が含まれる(改善計画T45)", () => {

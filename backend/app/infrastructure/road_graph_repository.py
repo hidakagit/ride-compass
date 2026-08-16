@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 import shapely
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import LineString, Point
-from sqlalchemy import BigInteger, Float, Text, any_, bindparam, cast, delete, func, or_, select, text, update
+from sqlalchemy import BigInteger, Boolean, Float, Text, any_, bindparam, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -59,6 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
+from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
@@ -443,6 +444,51 @@ _NEAREST_STOP_POI_COUNTS_SQL = text(
 ).bindparams(
     bindparam("lats", type_=ARRAY(Float())),
     bindparam("lons", type_=ARRAY(Float())),
+)
+
+# 外部静的データソース T50残作業（事故密度の評価組み込み）。_STOP_POI_COUNTS_SQLと同じ
+# 「edge_idそれぞれの距離内件数」パターンだが、対象テーブルがaccident_pointsで
+# bicycle_only（当事者に自転車を含む事故のみに絞るか）の切替を追加している。
+_ACCIDENT_COUNTS_SQL = text(
+    """
+    SELECT e.edge_id, COUNT(a.accident_id) AS accident_count
+    FROM road_edges e
+    LEFT JOIN accident_points a
+        ON ST_DWithin(a.geom::geography, e.geom::geography, :max_distance_m)
+       AND (:bicycle_only = false OR a.involves_bicycle)
+    WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
+    GROUP BY e.edge_id
+    """
+).bindparams(bindparam("bicycle_only", type_=Boolean()))
+
+# ORSエンジン用（サンプル点ごとの近傍件数）。_NEAREST_STOP_POI_COUNTS_SQLと同じ構造。
+_NEAREST_ACCIDENT_COUNTS_SQL = text(
+    """
+    WITH pts AS (
+        SELECT
+            ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
+    )
+    SELECT pts.ord, COUNT(a.accident_id) AS accident_count
+    FROM pts
+    LEFT JOIN accident_points a
+        ON ST_DWithin(a.geom::geography, pts.geog, :max_distance_m)
+       AND (:bicycle_only = false OR a.involves_bicycle)
+    GROUP BY pts.ord
+    ORDER BY pts.ord
+    """
+).bindparams(
+    bindparam("lats", type_=ARRAY(Float())),
+    bindparam("lons", type_=ARRAY(Float())),
+    bindparam("bicycle_only", type_=Boolean()),
+)
+
+# 事故データの収録年数（accident_import_runsの成功run数、年重複なしのdistinct件数）。
+# distance_weighted_accident_density（domain/accident.py）の「件/(km・年)」正規化に使う。
+# ハードコード定数にせず動的取得することで、将来の年次追加取込で自動的に正しくなる。
+_ACCIDENT_YEARS_COVERED_SQL = text(
+    "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
 
 # 静的道路属性P1残り（交通ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
@@ -1302,6 +1348,56 @@ class AttributeRepository(_SessionRepository):
         by_ord = {ord_: intersection_count for ord_, intersection_count in result.all()}
         return [by_ord.get(i + 1, 0) for i in range(len(points))]
 
+    async def get_accident_counts(
+        self, edge_ids: list[str], bicycle_only: bool = False, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, int]:
+        """指定edge_idそれぞれについて、`max_distance_m`以内にある事故（accident_points）の
+        合計件数を返す（外部静的データソース T50残作業）。`bicycle_only=True`なら
+        自転車関連事故のみに絞る。get_stop_poi_countsと同じ「edge_idリストを渡して辞書で
+        受け取る」形で、指定edge_idは（該当事故が0件でも）必ず結果に含まれる。
+        """
+        if not edge_ids:
+            return {}
+        result: dict[str, int] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            rows = await self._session.execute(
+                _ACCIDENT_COUNTS_SQL,
+                {"edge_ids": id_chunk, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m},
+            )
+            for edge_id, accident_count in rows.all():
+                result[edge_id] = accident_count
+        return result
+
+    async def get_nearest_accident_counts(
+        self,
+        points: list[tuple[float, float]],
+        bicycle_only: bool = False,
+        max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M,
+    ) -> list[int]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある事故の件数を返す
+        （入力と同じ順序・同じ長さ、外部静的データソース T50残作業）。
+        get_nearest_stop_poi_countsと同じ考え方（openrouteserviceエンジンがgeometry上の
+        サンプル点をこのメソッドで自前DBへ空間マッチする）。
+        """
+        if not points:
+            return []
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        result = await self._session.execute(
+            _NEAREST_ACCIDENT_COUNTS_SQL,
+            {"lats": lats, "lons": lons, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m},
+        )
+        by_ord = {ord_: accident_count for ord_, accident_count in result.all()}
+        return [by_ord.get(i + 1, 0) for i in range(len(points))]
+
+    async def get_accident_years_covered(self) -> int:
+        """事故データの収録年数（accident_import_runsの成功run、年重複なし）を返す。
+        distance_weighted_accident_density（domain/accident.py）の「件/(km・年)」
+        正規化に使う。1リクエスト1回だけ呼ぶ想定（stop_counts等と同じタイミング）。
+        """
+        result = await self._session.execute(_ACCIDENT_YEARS_COVERED_SQL)
+        return result.scalar_one()
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -1407,6 +1503,24 @@ class RoadGraphRepository:
         self, points: list[tuple[float, float]], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
     ) -> list[int]:
         return await self.attributes.get_nearest_intersection_counts(points, max_distance_m=max_distance_m)
+
+    async def get_accident_counts(
+        self, edge_ids: list[str], bicycle_only: bool = False, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, int]:
+        return await self.attributes.get_accident_counts(edge_ids, bicycle_only=bicycle_only, max_distance_m=max_distance_m)
+
+    async def get_nearest_accident_counts(
+        self,
+        points: list[tuple[float, float]],
+        bicycle_only: bool = False,
+        max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M,
+    ) -> list[int]:
+        return await self.attributes.get_nearest_accident_counts(
+            points, bicycle_only=bicycle_only, max_distance_m=max_distance_m
+        )
+
+    async def get_accident_years_covered(self) -> int:
+        return await self.attributes.get_accident_years_covered()
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

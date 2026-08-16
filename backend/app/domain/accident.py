@@ -6,6 +6,14 @@
 直接取得して確認したもの（2_koudohyou_todouhukenkoudo.csv・31_koudohyou_toujisyasyuetu.csv）。
 """
 
+# サンプル点/Edgeから事故地点へ空間マッチする際のスナップ半径（外部静的データソース T50残作業）。
+# 事故地点の緯度経度は本票の度分秒表記からの変換値で、信号等のOSM node（STOP_POI_MATCH_MAX_
+# DISTANCE_M=15m、domain/traffic.py）よりジオコーディング精度が粗い可能性があるため、
+# domain/road.py: SURFACE_MATCH_MAX_DISTANCE_M（30m）と同じ側に揃える。
+# openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数）の
+# 両方がこの定数をimportして参照する（改善計画T44と同じ「片側import」原則）。
+ACCIDENT_MATCH_MAX_DISTANCE_M = 30.0
+
 # 関東7都県の都道府県コード（NPA独自の採番。JIS X 0401とは異なる）。
 # import_profile.yamlのPBF取込bboxと同じ関東スコープに揃える。
 KANTO_PREFECTURE_CODES: dict[str, str] = {
@@ -80,3 +88,30 @@ def longitude_from_raw(raw: str) -> float | None:
     if value is None or not (_JAPAN_LONGITUDE_RANGE[0] <= value <= _JAPAN_LONGITUDE_RANGE[1]):
         return None
     return value
+
+
+def distance_weighted_accident_density(
+    segments: list[tuple[float, int | None]], years_covered: int
+) -> float | None:
+    """(区間distance_km, 区間内の事故count)のリストと収録年数から、ルート全体の事故密度
+    （件/(km・年)）を求める（外部静的データソース T50残作業）。
+
+    stop_density/intersection_density（domain/traffic.py: _density_per_km）と同じ
+    「合計count÷合計distance_km」の集約に、収録年数での正規化を加える点が異なる
+    （事故は複数年分を積み上げて集計するため、年数で割らないと収録年数を増やすほど
+    見かけ上密度が上がってしまう）。traffic.pyの_density_per_kmはモジュール非公開のため、
+    ここに薄く複製する（accident.py→traffic.pyへの依存は意味的に不要なため作らない）。
+    countがNoneの区間は「データ未取得」を表し、0（実測で対象無し）とは区別して集計から
+    除外する。除外後に1区間も残らない、距離の合計が0以下、またはyears_coveredが0以下なら
+    None。
+    """
+    if years_covered <= 0:
+        return None
+    available = [(distance, count) for distance, count in segments if count is not None]
+    if not available:
+        return None
+    distance_sum = sum(distance for distance, _ in available)
+    if distance_sum <= 0:
+        return None
+    count_sum = sum(count for _, count in available)
+    return round(count_sum / distance_sum / years_covered, 2)
