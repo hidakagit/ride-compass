@@ -37,12 +37,30 @@ export interface DebugStats {
 export async function getDebugStats(): Promise<DebugStats> {
   const startedAt = performance.now();
   debugLog("api:debug-stats", "リクエスト開始");
-  const response = await fetch(`${API_BASE_URL}/api/debug/stats`, { signal: AbortSignal.timeout(5000) });
+
+  // fetch()自体の失敗（バックエンド到達不能等の通信エラー）はresponse.okのチェック以前の
+  // 例外として送出されるため、ここで捕まえずにいると失敗がデバッグログに一切残らない
+  // （regionApi.tsのrefreshBasemapCacheで踏んだのと同じ問題）。
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/debug/stats`, { signal: AbortSignal.timeout(5000) });
+  } catch (error) {
+    debugLog(
+      "api:debug-stats",
+      "失敗 (通信エラー)",
+      {
+        durationMs: Math.round(performance.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "error",
+    );
+    throw error instanceof Error ? error : new Error("システム状況の取得に失敗しました");
+  }
   const durationMs = Math.round(performance.now() - startedAt);
 
   if (!response.ok) {
     debugLog("api:debug-stats", `失敗 (HTTP ${response.status})`, { durationMs }, "error");
-    throw new Error(`システム状況の取得に失敗しました（HTTP ${response.status}）`);
+    throw new Error(`システム状況の取得に失敗しました[HTTP ${response.status}]`);
   }
 
   let data: DebugStats;

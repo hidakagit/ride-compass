@@ -11,12 +11,29 @@ export interface FrontendVersion {
 export async function getFrontendVersion(): Promise<FrontendVersion> {
   const startedAt = performance.now();
   debugLog("api:version", "リクエスト開始");
-  const response = await fetch("/api/version", { signal: AbortSignal.timeout(5000) });
+
+  // fetch()自体の失敗はresponse.okのチェック以前の例外として送出されるため、ここで
+  // 捕まえずにいると失敗がデバッグログに一切残らない（debugStatsApi.tsのgetDebugStatsと同じ理由）。
+  let response: Response;
+  try {
+    response = await fetch("/api/version", { signal: AbortSignal.timeout(5000) });
+  } catch (error) {
+    debugLog(
+      "api:version",
+      "失敗 (通信エラー)",
+      {
+        durationMs: Math.round(performance.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "error",
+    );
+    throw error instanceof Error ? error : new Error("フロントエンドのバージョン取得に失敗しました");
+  }
   const durationMs = Math.round(performance.now() - startedAt);
 
   if (!response.ok) {
     debugLog("api:version", `失敗 (HTTP ${response.status})`, { durationMs }, "error");
-    throw new Error(`フロントエンドのバージョン取得に失敗しました（HTTP ${response.status}）`);
+    throw new Error(`フロントエンドのバージョン取得に失敗しました[HTTP ${response.status}]`);
   }
 
   let data: FrontendVersion;
