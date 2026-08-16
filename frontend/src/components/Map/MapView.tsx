@@ -340,13 +340,6 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-function setGsiReliefVisibility(map: MapLibreMap, visible: boolean) {
-  runWhenStyleReady(map, () => {
-    ensureGsiReliefLayer(map);
-    setLayerVisibility(map, GSI_RELIEF_LAYER_ID, visible);
-  });
-}
-
 // 路面もGSI標高ラスタと同じ考え方で、地図初期化時に一度だけベクタタイルのソース/レイヤーを
 // 追加し、以降はvisibilityの切替のみで表示・非表示する。標高ラスタの直後に追加することで、
 // 標高の上・ルート系レイヤーの下に描画される。
@@ -431,13 +424,6 @@ function ensureTrafficStressLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-function setTrafficStressVisibility(map: MapLibreMap, visible: boolean) {
-  runWhenStyleReady(map, () => {
-    ensureTrafficStressLayer(map);
-    setLayerVisibility(map, TRAFFIC_STRESS_LAYER_ID, visible);
-  });
-}
-
 function ensureBicycleInfraLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getLayer(BICYCLE_INFRA_LAYER_ID)) return;
@@ -456,13 +442,6 @@ function ensureBicycleInfraLayer(map: MapLibreMap) {
     });
   };
   runWhenStyleReady(map, applyData);
-}
-
-function setBicycleInfraVisibility(map: MapLibreMap, visible: boolean) {
-  runWhenStyleReady(map, () => {
-    ensureBicycleInfraLayer(map);
-    setLayerVisibility(map, BICYCLE_INFRA_LAYER_ID, visible);
-  });
 }
 
 // 事故レイヤー（外部静的データソース T50）。road_surfaceとは独立のベクタソース・タイル
@@ -497,13 +476,6 @@ function ensureAccidentTileLayer(map: MapLibreMap) {
     });
   };
   runWhenStyleReady(map, applyData);
-}
-
-function setAccidentVisibility(map: MapLibreMap, visible: boolean) {
-  runWhenStyleReady(map, () => {
-    ensureAccidentTileLayer(map);
-    setLayerVisibility(map, ACCIDENT_LAYER_ID, visible);
-  });
 }
 
 // 停止要因POI・交差点密度（改善計画T54）は点データのため、路面・交通ストレス・自転車
@@ -542,13 +514,6 @@ function ensureStopPoiLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-function setStopPoiVisibility(map: MapLibreMap, visible: boolean) {
-  runWhenStyleReady(map, () => {
-    ensureStopPoiLayer(map);
-    setLayerVisibility(map, STOP_POI_LAYER_ID, visible);
-  });
-}
-
 function ensureIntersectionLayer(map: MapLibreMap) {
   const applyData = () => {
     ensurePoiTileSource(map);
@@ -572,10 +537,33 @@ function ensureIntersectionLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-function setIntersectionVisibility(map: MapLibreMap, visible: boolean) {
+// 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
+// 6レイヤー（標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度）は、
+// いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
+// 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
+// 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
+// （改善計画T47 R-6: 静的レイヤーが+2種類に達した時点でのensure/setペアの宣言的ループ化）。
+const STATIC_OVERLAY_LAYERS = [
+  { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
+  { key: "trafficStress", layerId: TRAFFIC_STRESS_LAYER_ID, ensure: ensureTrafficStressLayer },
+  { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
+  { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
+  { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
+  { key: "intersections", layerId: INTERSECTION_LAYER_ID, ensure: ensureIntersectionLayer },
+] as const satisfies readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[];
+
+type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
+
+function ensureAllStaticOverlayLayers(map: MapLibreMap) {
+  for (const layer of STATIC_OVERLAY_LAYERS) layer.ensure(map);
+}
+
+function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverlayKey, boolean>) {
   runWhenStyleReady(map, () => {
-    ensureIntersectionLayer(map);
-    setLayerVisibility(map, INTERSECTION_LAYER_ID, visible);
+    for (const layer of STATIC_OVERLAY_LAYERS) {
+      layer.ensure(map);
+      setLayerVisibility(map, layer.layerId, flags[layer.key]);
+    }
   });
 }
 
@@ -851,15 +839,16 @@ export default function MapView({
       roadHiddenKeysByMode,
       experimentSlots,
     } = redrawPropsRef.current;
-    ensureGsiReliefLayer(map);
-    setGsiReliefVisibility(map, showElevation);
+    setStaticOverlayVisibility(map, {
+      elevation: showElevation,
+      trafficStress: showTrafficStress,
+      bicycleInfra: showBicycleInfra,
+      accidents: showAccidents,
+      stopPoi: showStopPoi,
+      intersections: showIntersections,
+    });
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
-    setTrafficStressVisibility(map, showTrafficStress);
-    setBicycleInfraVisibility(map, showBicycleInfra);
-    setAccidentVisibility(map, showAccidents);
-    setStopPoiVisibility(map, showStopPoi);
-    setIntersectionVisibility(map, showIntersections);
 
     drawBaseRoutes(map, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
@@ -931,13 +920,8 @@ export default function MapView({
     resizeObserver.observe(mapContainerRef.current);
     // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
     // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）
-    ensureGsiReliefLayer(map);
+    ensureAllStaticOverlayLayers(map);
     ensureRoadSurfaceTileLayer(map);
-    ensureTrafficStressLayer(map);
-    ensureBicycleInfraLayer(map);
-    ensureAccidentTileLayer(map);
-    ensureStopPoiLayer(map);
-    ensureIntersectionLayer(map);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
@@ -1135,45 +1119,23 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高チェックの切替時は、ラスタレイヤーのvisibilityを切り替えるだけ（データ取得不要）
+  // 標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度は、いずれも
+  // 「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替えのみ」という
+  // 同型の6レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
+  // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
+  // いずれか1つのフラグが変わったときに他5つを再設定しても表示に影響しない）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    setGsiReliefVisibility(map, showElevation);
-  }, [showElevation]);
-
-  // 交通ストレス・自転車インフラも路面と同じソースのため、切替はvisibilityの差し替えのみ。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setTrafficStressVisibility(map, showTrafficStress);
-  }, [showTrafficStress]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setBicycleInfraVisibility(map, showBicycleInfra);
-  }, [showBicycleInfra]);
-
-  // 事故（外部静的データソース T50）も独立ソースだが同じくvisibilityの差し替えのみ。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setAccidentVisibility(map, showAccidents);
-  }, [showAccidents]);
-
-  // 停止要因POI・交差点密度（改善計画T54）も専用ソースの切替はvisibilityの差し替えのみ。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setStopPoiVisibility(map, showStopPoi);
-  }, [showStopPoi]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setIntersectionVisibility(map, showIntersections);
-  }, [showIntersections]);
+    setStaticOverlayVisibility(map, {
+      elevation: showElevation,
+      trafficStress: showTrafficStress,
+      bicycleInfra: showBicycleInfra,
+      accidents: showAccidents,
+      stopPoi: showStopPoi,
+      intersections: showIntersections,
+    });
+  }, [showElevation, showTrafficStress, showBicycleInfra, showAccidents, showStopPoi, showIntersections]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
