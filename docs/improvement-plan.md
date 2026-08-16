@@ -858,6 +858,21 @@ T10の実行設計として同ドキュメント§4.2を参照する形にする
   該当ファイル単体では8/8 pass、既知の並行セッション資源競合による偽陽性と確認）・tsc・eslint
   全green。Playwright実機確認で「停止要因」「交差点密度」「事故（T50）」の3レイヤー同時ON、
   サイドバー凡例、地図上の交差点密度ドット表示（実データ）を確認
+- **本番データ欠損の解消（2026-08-16追記）**: ユーザー報告（本番onrender.comで停止要因・交差点密度・
+  事故が一切描画されない）を受けて本番Oracle Cloud DBを直接調査したところ、上記のdev DB欠損より
+  深刻な状態と判明した。`osm_raw_pois`・`accident_points`の2テーブルが**本番に存在しない**
+  （migration 0005・0006が未適用）、かつ`road_nodes`/`road_edges`（タイル描画が実際に読む
+  導出済み道路グラフ）が**本番で0件**（`GraphService.get_or_build_graph_with_attributes`の遅延
+  構築方式のため、生データ取込み直後はどの地点も未構築。ルート生成した地点のみその場で構築・
+  永続化される設計、docs/architecture.md参照）だった。対応: ①ユーザー許可を得てmigration 0005・
+  0006を本番へ適用、②本番へ`import_accidents.py --years 2022-2024`実行（303,455件、devと一致）、
+  ③本番へ`import_pbf.py`を前回と同じ関東本土bbox（34.85,138.35-37.20,140.95）・
+  `kanto-latest.osm.pbf`で再実行（アップサート、66チャンク・3056秒≒51分、
+  ways=1,308,092は前回と同数のまま`osm_raw_pois`332,004件を新規投入）。dev DBも同じPBF
+  （Tokyo.osm.pbf、既存と同じ小範囲bbox）で再取込みし`osm_raw_pois`46,688件を投入済み。
+  `road_nodes`/`road_edges`の本番一括先埋めは今回のスコープ外（設計どおり実際にルート生成
+  された地点から自然に埋まる想定のため）。大規模書き込み系コマンドは自動モードの安全分類器に
+  一度ブロックされ、ユーザーへ状況説明の上で明示的な再試行指示を得てから実行した。
 
 **未起票のまま据え置き（既存文書で追跡継続、二重管理を避ける）**: `name`/`ref`のMVT焼き込み・
 `tracktype`表示・`bicycle=no`のHard Constraint・`oneway:bicycle`例外は
@@ -930,6 +945,54 @@ frontend 180件（他セッションとの並行実行によるvitest workerタ�
 - 完了条件: frontend既存テストgreen（CSSのみの変更のため対象コンポーネントのテストに影響なし、
   vitest 5件確認済み）。ピンチ自体はヘッドレスブラウザでの自動テストが困難なため、
   実機での改善確認はユーザー側で追って行う。
+- **2026-08-16追記（根本原因の追加修正）**: 実機再確認で「部分的にズームができない」
+  「画面全体を拡大縮小してしまう」の両症状が残っていると報告あり、再調査。
+  `MapOverlayControls.module.css`の`.wrapper`は`pointer-events: none`で地図へタッチを
+  透過させる設計だったが、直下の`.chipRow`だけ`.wrapper > *`で`pointer-events: auto`に
+  戻していたため、ボタンの隙間（行間のgap・単独チップ横の余白）まで丸ごとタッチ捕捉領域に
+  なっていた。この隙間は`touch-action`未指定（既定auto）のため、ピンチの片方の指が乗ると
+  ブラウザがページ全体のネイティブズームに化けていた（T58当初の修正はボタン本体への対症療法で、
+  コンテナの隙間を塞いでいなかった）。`pointer-events: auto`を実際に押せる`.iconChip`/
+  `.summaryButton`だけに局所化し、隙間は`.wrapper`の`pointer-events: none`を継承して
+  地図へ素通しするよう修正。同じ穴があった`page.module.css`の`.locateError`と
+  `MapView.tsx`のエラーバナーにも`pointer-events: none`を追加。frontend全187件green。
+
+### - [x] T59. 地図タイル閲覧だけでも道路グラフ(road_nodes/road_edges)が構築されるよう対応 規模M（2026-08-16完了）
+
+- 背景: ユーザー報告（本番で停止要因・交差点密度・事故が描画されない）の調査中、
+  `road_nodes`/`road_edges`（道路情報・交通ストレス・自転車インフラ・交差点密度レイヤーの
+  タイル配信が実際に読むテーブル）が、**ルート生成（`GraphService.get_or_build_graph_with_attributes`
+  経由）でしか構築されない**設計と判明。地域タイル配信（`RegionService`）は`road_graph_tiles`
+  （生データ取込済みマーク）だけを見て`road_edges`を直接読むだけで、GraphServiceの構築ロジックを
+  一切呼んでいなかった。生データ（`osm_raw_ways`）を関東全域に取り込んでも、実際にルート生成
+  されたことがない地点は道路グラフが空のままになりうる。ユーザー指摘「ルート生成時にその場だけ
+  情報保持は微妙。ルート生成と地図の閲覧は別々の用途で使うこともある」を受けて対応。
+- 対応: `RegionService._tile_from_repository`が、カバレッジ内（生データ取込済み）と分かった
+  z12祖先タイルについて、`_maybe_trigger_graph_build`でバックグラウンド構築を起動するよう変更。
+  同期的に待たせるとNext.jsのrewritesプロキシ30秒タイムアウト（docs/architecture.md参照）に
+  触れかねないため、タイル応答自体はこれまでどおり即座に返し、構築は`asyncio.create_task`で
+  非同期に進める（次回以降の同じ地域へのアクセスから反映される）。実装のポイント:
+  - z12（`ROAD_GRAPH_TILE_ZOOM`）タイル単位でプロセス内メモリのみの重複起動防止セット
+    （`_building_graph_tiles`）を持ち、ビューポート内の多数のz13-15タイルリクエストが
+    同じz12祖先へ集約されても構築は1回だけ起動する（road-surface/poi両タイルの
+    リクエストからも同じキーで重複排除される）
+  - 直近`_GRAPH_CHECK_TTL_SECONDS`（300秒）以内に確認済みのタイルは再チェックしない
+    （既に最新でも地図を眺めるたびに`is_split_up_to_date`確認用の短命DBセッションを
+    開き続けない対策）
+  - `RegionService`のユニットテストで使う`FakeRegionRepository`はダックタイピングで
+    `RoadGraphRepository`を継承しないため、`isinstance`判定で自然に発火対象から外れ、
+    ユニットテストが実DBへ触れることはない
+- 本番Oracle Cloud DBの`road_nodes`/`road_edges`一括先埋めは今回のスコープ外（設計どおり
+  自然に埋まる想定のため。詳細はT54節「本番データ欠損の解消」参照）
+- 完了条件: backend 621件（新規テスト4件: 実リポジトリでの発火・フェイクでの非発火・
+  重複起動防止・TTLスキップ）全green
+
+### - [x] T60. 交差点密度チップの幅を他レイヤーと揃える 規模S（2026-08-16完了）
+
+- `chipLabel`未指定のため5文字の正式名称「交差点密度」がそのままチップ幅
+  （`width: max-content`）に反映され、4文字以下の`chipLabel`で揃えている他レイヤー
+  （trafficStress/bicycleInfra/accidents）より横に長く不揃いに見えていた（実機フィードバック）。
+  `mapLayers.ts`へ`chipLabel: "交差点"`（3文字）を追加。
 
 ---
 

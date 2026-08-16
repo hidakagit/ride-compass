@@ -19,8 +19,10 @@ class GraphService:
     データソース非依存の`WaySpec`へ変換してからbuild_road_graphへ渡す（仕様書2・47章の
     「OSM Adapter/Importer → Road Graph」の分離、Phase 2）。
 
-    既存のルート探索（RoutingService/RouteGenerator）・地図表示（RegionService）とは
-    独立しており、どちらからも参照されない。
+    既存のルート探索（RoutingService/RouteGenerator）から使われる。地図表示（RegionService）も
+    タイル配信のバックグラウンドで`get_or_build_graph_with_attributes`を呼ぶ（改善計画T59:
+    ルート生成した地点でしか道路グラフが構築されず、地図を眺めるだけの利用では
+    road_nodes/road_edgesが永遠に空のままだった問題への対応。region_service.py参照）。
 
     `repository`（infrastructure/road_graph_repository.RoadGraphRepository）を渡すと、
     `get_or_build_graph_with_attributes`はPostGIS（PBF取込バッチ等でタイル取得済みマーク
