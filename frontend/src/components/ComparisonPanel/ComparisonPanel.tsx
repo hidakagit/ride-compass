@@ -35,6 +35,21 @@ const METRIC_ROWS: MetricRow[] = [
     format: (s) => (s.topCandidate.stop_density != null ? `${s.topCandidate.stop_density.toFixed(2)} 回/km` : "—"),
   },
   {
+    label: "交通ストレス",
+    format: (s) =>
+      s.topCandidate.traffic_stress_score != null ? `${s.topCandidate.traffic_stress_score.toFixed(1)}` : "—",
+  },
+  {
+    label: "自転車インフラ率",
+    format: (s) =>
+      s.topCandidate.bicycle_infra_score != null ? `${Math.round(s.topCandidate.bicycle_infra_score)}%` : "—",
+  },
+  {
+    label: "交差点密度",
+    format: (s) =>
+      s.topCandidate.intersection_density != null ? `${s.topCandidate.intersection_density.toFixed(2)} 回/km` : "—",
+  },
+  {
     label: "総合難易度（絶対基準）",
     format: (s) => (s.topCandidate.overall_difficulty != null ? `${s.topCandidate.overall_difficulty.toFixed(1)}` : "—"),
   },
