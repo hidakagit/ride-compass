@@ -2,7 +2,7 @@
 
 import { useState, type ReactElement } from "react";
 import type { MapLayerId } from "@/components/Map/mapLayers";
-import type { LegendEntry } from "@/components/Map/legendFilter";
+import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
   DesignationIcon,
@@ -41,6 +41,12 @@ export interface OverlayLayerChip {
    * 文字だけでは「何かに絞られている」ことしか分からず、地図上の色との対応が
    * 一目で分からないという実機フィードバックを受けて追加した。 */
   summarySwatches?: readonly SummarySwatchGroup[];
+  /** ▶を開いたときに出す、軸ごとの全カテゴリ内訳（表示中/非表示のいずれも含む）。
+   * summaryの1行要約は「アスファルト・コンクリートのみ」のように一部カテゴリしか
+   * 名指ししない（3件以上は軸名だけのフォールバック文言になる）ため、それだけでは
+   * 何が起きているか分からないという実機フィードバックを受けて追加した。空/未指定なら
+   * 展開時もsummaryの1行のみを表示する（regionZoomTooWideのような案内文のみのケース）。 */
+  legendDetails?: readonly LegendFilterSummaryAxis[];
 }
 
 interface MapOverlayControlsProps {
@@ -92,6 +98,45 @@ function renderSummarySwatches(groups: readonly SummarySwatchGroup[]) {
   );
 }
 
+// 凡例1カテゴリぶんのスウォッチ（renderSummarySwatchesと同じ判定: 太さ軸はバー、色軸はドット）。
+function renderLegendSwatch(entry: LegendEntry) {
+  return entry.width !== undefined ? (
+    <span
+      className={entry.dashed ? `${styles.detailSwatchBar} ${styles.detailSwatchBarDashed}` : styles.detailSwatchBar}
+      style={{ height: `${Math.max(2, entry.width)}px` }}
+    />
+  ) : (
+    <span className={styles.detailSwatchDot} style={{ background: entry.color }} />
+  );
+}
+
+// ▶を開いたときの内訳パネル。1行要約とは違い、軸に属する全カテゴリを表示中/非表示の
+// 別なく並べ、非表示分だけ薄く見せる（「これだけで何が起きているか分かる」ことを優先し、
+// summarizeLegendFilters側のような3件以上での省略フォールバックは行わない）。
+function renderLegendDetails(axes: readonly LegendFilterSummaryAxis[]) {
+  return (
+    <div className={styles.detailBody}>
+      {axes.map((axis, axisIndex) => (
+        <div key={axis.label || axisIndex} className={styles.detailAxis}>
+          {axis.label && <div className={styles.detailAxisLabel}>{axis.label}</div>}
+          <ul className={styles.detailList}>
+            {axis.legend.map((entry) => {
+              const hidden = axis.hiddenKeys.includes(entry.key);
+              return (
+                <li key={entry.key} className={hidden ? `${styles.detailRow} ${styles.detailRowHidden}` : styles.detailRow}>
+                  {renderLegendSwatch(entry)}
+                  <span className={styles.detailRowLabel}>{entry.label}</span>
+                  {hidden && <span className={styles.detailHiddenTag}>非表示</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」ON/OFFチップと、ONのレイヤーに
 // どんな条件が効いているかの1行サマリだけ。凡例・絞り込みの編集・色分けモードの選択など
 // 「細かな設定」はすべてサイドバー（MapLayersPanel）で行う（地図上に設定UIを積むと地図が
@@ -128,49 +173,59 @@ export default function MapOverlayControls({ layers, onToggle, onSummaryClick }:
             // 縦に並べていたが、複数レイヤーがONのとき「どのチップの条件か」が離れて分かり
             // にくいという実機フィードバックを受け、該当チップの横へ移した。
             <div key={layer.id} className={styles.chipRowItem}>
-              <button
-                type="button"
-                aria-pressed={layer.on && !layer.disabled}
-                disabled={layer.disabled}
-                title={layer.title}
-                onClick={() => onToggle(layer.id, !layer.on)}
-                className={
-                  layer.on && !layer.disabled ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip
-                }
-              >
-                <Icon />
-                <span className={styles.iconLabel}>{layer.chipLabel ?? layer.label}</span>
-              </button>
-              {showSummary && (
+              <div className={styles.iconWithToggle}>
                 <button
                   type="button"
-                  onClick={() => toggleExpanded(layer.id)}
-                  aria-expanded={isExpanded}
-                  aria-label={`${layer.label}の絞り込み条件を${isExpanded ? "隠す" : "表示"}`}
-                  title="絞り込み条件を表示"
-                  className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
+                  aria-pressed={layer.on && !layer.disabled}
+                  disabled={layer.disabled}
+                  title={layer.title}
+                  onClick={() => onToggle(layer.id, !layer.on)}
+                  className={
+                    layer.on && !layer.disabled ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip
+                  }
                 >
-                  <span aria-hidden="true" className={isExpanded ? `${styles.expandArrow} ${styles.expandArrowOpen}` : styles.expandArrow}>
-                    ▶
-                  </span>
+                  <Icon />
+                  <span className={styles.iconLabel}>{layer.chipLabel ?? layer.label}</span>
                 </button>
-              )}
+                {showSummary && (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(layer.id)}
+                    aria-expanded={isExpanded}
+                    aria-label={`${layer.label}の絞り込み条件を${isExpanded ? "隠す" : "表示"}`}
+                    title="絞り込み条件を表示"
+                    className={
+                      isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle
+                    }
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={isExpanded ? `${styles.expandArrow} ${styles.expandArrowOpen}` : styles.expandArrow}
+                    >
+                      ▶
+                    </span>
+                  </button>
+                )}
+              </div>
               {isExpanded && (
-                <button
-                  type="button"
-                  onClick={() => onSummaryClick(layer.id)}
-                  className={styles.summaryButton}
-                  title="タップするとサイドバーで設定を変更できます"
-                >
-                  <span className={styles.summaryLayerLabel}>{layer.label}:</span>
-                  {layer.summarySwatches && layer.summarySwatches.length > 0 && (
-                    renderSummarySwatches(layer.summarySwatches)
-                  )}
-                  <span className={styles.summaryText}>{layer.summary}</span>
-                  <span aria-hidden="true" className={styles.summaryArrow}>
-                    ▸
-                  </span>
-                </button>
+                <div className={styles.detailPanel}>
+                  <button
+                    type="button"
+                    onClick={() => onSummaryClick(layer.id)}
+                    className={styles.summaryButton}
+                    title="タップするとサイドバーで設定を変更できます"
+                  >
+                    <span className={styles.summaryLayerLabel}>{layer.label}:</span>
+                    {layer.summarySwatches && layer.summarySwatches.length > 0 && (
+                      renderSummarySwatches(layer.summarySwatches)
+                    )}
+                    <span className={styles.summaryText}>{layer.summary}</span>
+                    <span aria-hidden="true" className={styles.summaryArrow}>
+                      ▸
+                    </span>
+                  </button>
+                  {layer.legendDetails && layer.legendDetails.length > 0 && renderLegendDetails(layer.legendDetails)}
+                </div>
               )}
             </div>
           );

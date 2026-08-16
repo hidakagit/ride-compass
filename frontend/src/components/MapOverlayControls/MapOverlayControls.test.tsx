@@ -106,6 +106,34 @@ describe("MapOverlayControls", () => {
     expect(container.querySelector('span[class*="swatchBar"]')).toBeInTheDocument();
   });
 
+  it("legendDetailsがあれば▶を開いたときに軸ごとの全カテゴリ内訳(表示中/非表示)が出る", async () => {
+    const user = userEvent.setup();
+    const layers = baseLayers();
+    layers[1] = {
+      ...layers[1],
+      on: true,
+      summary: "コンクリート以外",
+      legendDetails: [
+        {
+          label: "路面の種類",
+          legend: [
+            { key: "asphalt", label: "アスファルト", color: "#16a34a", filter: ["literal", true] },
+            { key: "concrete", label: "コンクリート", color: "#0d9488", filter: ["literal", true] },
+          ],
+          hiddenKeys: ["concrete"],
+        },
+      ],
+    };
+    render(<MapOverlayControls {...baseProps()} layers={layers} />);
+    await user.click(screen.getByRole("button", { name: "路面の絞り込み条件を表示" }));
+
+    // 1行要約だけでなく、軸見出し・非表示分を含む全カテゴリがそれ単体で読める形で出る
+    expect(screen.getByText("路面の種類")).toBeInTheDocument();
+    expect(screen.getByText("アスファルト")).toBeInTheDocument();
+    expect(screen.getByText("コンクリート")).toBeInTheDocument();
+    expect(screen.getByText("非表示")).toBeInTheDocument();
+  });
+
   it("OFF・disabled・summary無しのレイヤーにはサマリ行が出ない", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", label: "標高図", on: true, summary: null }, // 条件なし
