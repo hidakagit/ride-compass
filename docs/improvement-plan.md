@@ -1547,7 +1547,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   将来大きく育つ場合は再検討する旨も明記）。ついでのDISTINCT重複除去は、1エッジが複数kindに
   該当する場合の重複行転送を防ぐ目的と判明したためコメントを追記し維持（除去しない判断）。
 
-### - [ ] T78. ORSエンジンの点属性dataclass化（平行フラット配列の解消）規模M
+### - [x] T78. ORSエンジンの点属性dataclass化（平行フラット配列の解消）規模M（2026-08-16完了）
 
 - designated_flags追加で同型の平行フラット配列が6本に達し、属性1つの追加に
   「宣言・elseデフォルト・offsetループ内append・スライス・引数・`i < len(...)`ガード」の
@@ -1558,8 +1558,18 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   1箇所化する（属性追加が1フィールド追加で済む形に）。T52（JICE舗装DB）等の
   次属性追加前に実施するとコストが回収される。
 - 完了条件: 挙動不変リファクタとして既存テスト無変更でbackend全green。
+- **実装結果（2026-08-16）**: `_PointAttributes`dataclass（surface_tag/stop_count/highway/
+  tags/is_designated/intersection_count/accident_count）と汎用`_split_by_counts(flat, counts)`
+  ヘルパを新設。`evaluate_loops`は6本の平行フラット配列を1本の`flat_attributes`へ束ね、
+  `_build_segment_details`の引数も6個から`attributes: list[_PointAttributes]`1個へ縮小し、
+  境界外ガードも1箇所（`attributes[i] if i < len(attributes) else _PointAttributes()`）に
+  集約。`tags`のデフォルトは`{}`ではなく`None`にして「repository未注入（評価スキップ）」と
+  「repositoryはあるが空間マッチが範囲外（highway=None・tags={}）」の区別を保持
+  （`classify_bicycle_infrastructure`が`tags={}`だと"unknown"を返しうり、None時の
+  「呼び出し自体をスキップしNoneを返す」既存挙動と食い違うため、挙動不変の要件上重要な区別）。
+  既存テスト無変更でbackend 669件green
 
-### - [ ] T79. _build_segment_detailsのcontext渡し化 規模S
+### - [x] T79. _build_segment_detailsのcontext渡し化 規模S（2026-08-16完了）
 
 - `road_graph_engine.py: _build_segment_details`が11個の位置引数を取り、うち8個は
   呼び出し側の`_RoadGraphContext`フィールドの単純展開。同型`dict[str, int]`が3つ並び、
@@ -1567,6 +1577,11 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 対応: contextを1引数で渡す（残りはedges・elevation_attributes・start_time程度に縮む）か、
   キーワード専用引数化。
 - 完了条件: 既存テスト無変更でbackend全green。
+- **実装結果（2026-08-16）**: 提案どおりcontextを1引数化。呼び出し元8個の位置引数
+  （surface_attributes/stop_counts/way_tags/intersection_counts/accident_counts/
+  accident_years_covered/designated_edge_ids/wind）を`context`へ集約し、関数シグネチャは
+  edges・elevation_attributes・context・start_timeの4引数へ縮小。既存テスト無変更で
+  backend 669件green
 
 ### - [ ] T80. バッチ共通ヘルパ化（DSN変換・ダウンロード）規模S
 

@@ -21,6 +21,7 @@
 """
 
 import asyncio
+from dataclasses import dataclass
 
 from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M, distance_weighted_accident_density
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
@@ -68,6 +69,44 @@ def sample_count_for_distance(distance_km: float) -> int:
 
 # prepareが返す「準備不要」を表すコンテキスト（本エンジンはリクエスト単位の共有準備を持たない）。
 _NO_CONTEXT = object()
+
+
+@dataclass
+class _PointAttributes:
+    """サンプル点1つぶんの評価用属性（改善計画T78）。
+
+    以前はsurface_tags/stop_counts/way_tags/intersection_counts/accident_counts/
+    designated_flagsの6本の平行フラット配列で、属性1つの追加に「宣言・elseデフォルト・
+    offsetループ内append・スライス・引数・`i < len(...)`ガード」という同型セットを
+    毎回6箇所コピーする必要があった。append漏れ・順序ずれがあっても防御的ガードが
+    「データ無し」として握りつぶすため、別属性の値が別地点へ紐づく誤評価がテストを
+    すり抜けるリスクもあった。1つのdataclassへ束ね、offset簿記を`_split_by_counts`
+    （呼び出し側）へ1箇所化する。
+
+    デフォルト値は`repository`未注入時（DBなし構成）の値と一致させる。`highway`/`tags`は
+    「repositoryはあるが空間マッチが範囲外」（highway=None・tags={}、traffic_stress等は
+    Noneに評価される）と「repository自体が無い」（tags=None、評価自体をスキップ）を
+    区別する必要があるため、tagsのデフォルトは`{}`ではなく`None`にする。
+    """
+
+    surface_tag: str | None = None
+    stop_count: int | None = None
+    highway: str | None = None
+    tags: dict[str, str] | None = None
+    is_designated: bool = False
+    intersection_count: int | None = None
+    accident_count: int | None = None
+
+
+def _split_by_counts(flat: list, counts: list[int]) -> list[list]:
+    """`flat`を先頭から`counts`の各要素数ずつ切り出す（複数候補ぶんをまとめて1回で
+    問い合わせた結果を候補単位へ戻すoffset簿記の共通ヘルパ、改善計画T78）。"""
+    result = []
+    offset = 0
+    for count in counts:
+        result.append(flat[offset : offset + count])
+        offset += count
+    return result
 
 
 class OpenRouteServiceEngine:
@@ -136,8 +175,6 @@ class OpenRouteServiceEngine:
             flat_way_tags_full = await self._repository.get_nearest_way_tags(
                 flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
             )
-            flat_way_tags = [(highway, tags) for highway, tags, _ in flat_way_tags_full]
-            flat_designated_flags = [is_designated for _, _, is_designated in flat_way_tags_full]
             flat_intersection_counts = await self._repository.get_nearest_intersection_counts(
                 flat_points, max_distance_m=INTERSECTION_MATCH_MAX_DISTANCE_M
             )
@@ -146,29 +183,23 @@ class OpenRouteServiceEngine:
                 flat_points, max_distance_m=ACCIDENT_MATCH_MAX_DISTANCE_M
             )
             accident_years_covered = await self._repository.get_accident_years_covered()
+            # 6本の平行フラット配列（改善計画T78）を1つのdataclassへ束ねる。
+            flat_attributes = [
+                _PointAttributes(
+                    surface_tag=flat_surface_tags[i],
+                    stop_count=flat_stop_counts[i],
+                    highway=flat_way_tags_full[i][0],
+                    tags=flat_way_tags_full[i][1],
+                    is_designated=flat_way_tags_full[i][2],
+                    intersection_count=flat_intersection_counts[i],
+                    accident_count=flat_accident_counts[i],
+                )
+                for i in range(len(flat_points))
+            ]
         else:
-            flat_surface_tags = [None] * sum(point_counts)
-            flat_stop_counts = [None] * sum(point_counts)
-            flat_way_tags = [None] * sum(point_counts)
-            flat_intersection_counts = [None] * sum(point_counts)
-            flat_accident_counts = [None] * sum(point_counts)
             accident_years_covered = 0
-            flat_designated_flags = [False] * sum(point_counts)
-        surface_tags_per_candidate: list[list[str | None]] = []
-        stop_counts_per_candidate: list[list[int | None]] = []
-        way_tags_per_candidate: list[list[tuple[str | None, dict[str, str]] | None]] = []
-        intersection_counts_per_candidate: list[list[int | None]] = []
-        accident_counts_per_candidate: list[list[int | None]] = []
-        designated_flags_per_candidate: list[list[bool]] = []
-        offset = 0
-        for count in point_counts:
-            surface_tags_per_candidate.append(flat_surface_tags[offset : offset + count])
-            stop_counts_per_candidate.append(flat_stop_counts[offset : offset + count])
-            way_tags_per_candidate.append(flat_way_tags[offset : offset + count])
-            intersection_counts_per_candidate.append(flat_intersection_counts[offset : offset + count])
-            accident_counts_per_candidate.append(flat_accident_counts[offset : offset + count])
-            designated_flags_per_candidate.append(flat_designated_flags[offset : offset + count])
-            offset += count
+            flat_attributes = [_PointAttributes() for _ in range(sum(point_counts))]
+        attributes_per_candidate = _split_by_counts(flat_attributes, point_counts)
 
         # 距離フィルタで棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
         profiles = await asyncio.gather(
@@ -195,13 +226,8 @@ class OpenRouteServiceEngine:
                 indices=indices_per_candidate[i],
                 elevations=elevations_per_candidate[i],
                 wind_segments=wind_segments_per_candidate[i],
-                surface_tags=surface_tags_per_candidate[i],
-                stop_counts=stop_counts_per_candidate[i],
-                way_tags=way_tags_per_candidate[i],
-                intersection_counts=intersection_counts_per_candidate[i],
-                accident_counts=accident_counts_per_candidate[i],
+                attributes=attributes_per_candidate[i],
                 accident_years_covered=accident_years_covered,
-                designated_flags=designated_flags_per_candidate[i],
                 route_geometry=c.geometry,
             )
             road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
@@ -209,7 +235,7 @@ class OpenRouteServiceEngine:
             # 近似（road_graph_engine.pyの_aggregate_stop_densityと集約方法は同じ。repository
             # 未注入時はNoneが並び、distance_weighted_stop_density側で「実測0件」と区別して除外される）。
             stop_density = distance_weighted_stop_density(
-                [(s.distance_km, stop_counts_per_candidate[i][j]) for j, s in enumerate(segments)]
+                [(s.distance_km, attributes_per_candidate[i][j].stop_count) for j, s in enumerate(segments)]
             )
             # 交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）も同じ「サンプル点iの
             # 値を区間iの代表値として使う」近似で集約する。
@@ -218,10 +244,10 @@ class OpenRouteServiceEngine:
                 [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
             )
             intersection_density = distance_weighted_intersection_density(
-                [(s.distance_km, intersection_counts_per_candidate[i][j]) for j, s in enumerate(segments)]
+                [(s.distance_km, attributes_per_candidate[i][j].intersection_count) for j, s in enumerate(segments)]
             )
             accident_density = distance_weighted_accident_density(
-                [(s.distance_km, accident_counts_per_candidate[i][j]) for j, s in enumerate(segments)],
+                [(s.distance_km, attributes_per_candidate[i][j].accident_count) for j, s in enumerate(segments)],
                 accident_years_covered,
             )
             results.append(
@@ -245,13 +271,8 @@ class OpenRouteServiceEngine:
         indices: list[int],
         elevations: list[float | None],
         wind_segments: list[dict],
-        surface_tags: list[str | None],
-        stop_counts: list[int | None],
-        way_tags: list[tuple[str | None, dict[str, str]] | None],
-        intersection_counts: list[int | None],
-        accident_counts: list[int | None],
+        attributes: list[_PointAttributes],
         accident_years_covered: int,
-        designated_flags: list[bool],
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
@@ -286,20 +307,23 @@ class OpenRouteServiceEngine:
             wind_penalty = wind_segment["wind_penalty"] if wind_segment else None
             arrival_time = wind_segment["arrival_time"] if wind_segment else None
 
-            road_surface_good = classify_osm_surface(surface_tags[i])
-            stop_count = stop_counts[i] if i < len(stop_counts) else None
+            # 改善計画T78: 6本の平行フラット配列だったsurface_tags/stop_counts/way_tags/
+            # intersection_counts/accident_counts/designated_flagsを1つの_PointAttributesへ
+            # 束ねたことで、境界外ガードもここ1箇所に集約された。
+            attr = attributes[i] if i < len(attributes) else _PointAttributes()
+
+            road_surface_good = classify_osm_surface(attr.surface_tag)
+            stop_count = attr.stop_count
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
-            point_way_tags = way_tags[i] if i < len(way_tags) else None
-            highway, tags = point_way_tags if point_way_tags is not None else (None, None)
-            is_designated = designated_flags[i] if i < len(designated_flags) else False
+            highway, tags, is_designated = attr.highway, attr.tags, attr.is_designated
             traffic_stress = traffic_stress_level(highway, tags, is_designated) if tags is not None else None
             bicycle_infra = classify_bicycle_infrastructure(tags, highway) if tags is not None else None
-            intersection_count = intersection_counts[i] if i < len(intersection_counts) else None
+            intersection_count = attr.intersection_count
             intersection_count_per_km = (
                 intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
             )
-            accident_count = accident_counts[i] if i < len(accident_counts) else None
+            accident_count = attr.accident_count
             accident_count_per_km_year = (
                 accident_count / distance_km / accident_years_covered
                 if accident_count is not None and distance_km > 0 and accident_years_covered > 0
