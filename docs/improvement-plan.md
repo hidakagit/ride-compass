@@ -2175,18 +2175,28 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 ランクで上位に挙がった「name/refのMVT焼き込み」（name 8.3%、UI表示用途）は元のブランチと同じく
 今回のスコープから除外し、static-road-attributes-plan.md §3.1の未着手項目として引き続き据え置く。
 
-### - [ ] T99. 自転車歩行者道の取込スコープ拡張〔static-road-attributes-plan.md §2.1/§3.1-1〕規模M
+### - [ ] T99. 自転車歩行者道の取込スコープ拡張〔static-road-attributes-plan.md §2.1/§3.1-1〕規模M（2026-08-17コード実装完了・実データ検証待ち）
 
 - 背景: 現在の取込プロファイルは`highway=path/footway`を取込対象外としており、河川敷等でよく
   見る自転車歩行者共用道（日本のサイクリングロードに多い形態）が地図・評価の対象から漏れている。
   static-road-attributes-plan.md §2.1で有用性★★★★☆として採用判断済み（P1）だが未着手のまま。
-- 対応: `import_profile.yaml`に`highway=path/footway`かつ`bicycle=yes/designated`のway取込ルールを
-  追加し再取込。`domain/traffic.py: classify_bicycle_infrastructure`の`shared_pedestrian`分類
-  （分類ロジック自体は実装済み）に実データが流れるようにする。取込時に`segregated`タグ（歩行者と
-  物理分離されているか）も無料で拾えるなら`ALLOWED_WAY_TAGS`へ追加を検討（T102の実測を待たず、
-  取込コストがゼロならこのタスクに含めてよい）。
-- 完了条件: 対象範囲（Tokyo.osm.pbf等）で再取込し、自転車インフラレイヤーに`shared_pedestrian`
-  区間が表示されることをPlaywrightで確認。backend/frontend既存テストgreen。
+- 対応: `import_profile.yaml`へ`shared_pedestrian_ways`ルール（`highway=path/footway`かつ
+  `bicycle=yes/designated/permissive`のAND条件）を追加。`domain/traffic.py:
+  classify_bicycle_infrastructure`の`shared_pedestrian`分類（分類ロジック自体は実装済み）に
+  実データが流れるようにする。取込コストがゼロだったため`segregated`タグ（歩行者と物理分離
+  されているか）も`ALLOWED_WAY_TAGS`へ追加した（T102の実測を待たず含めた。分類ロジックへの
+  反映自体はT102の判断待ちで見送り）。
+  **YAMLの罠**: `bicycle: [yes, ...]`と無引用で書くとYAML 1.1のデフォルト解決規則で
+  `yes`がブール値`True`と解釈され`ProfileError`になる（`"yes"`と引用符必須）。テスト
+  （`test_import_profile.py::test_shared_pedestrian_ways_match`）が実際にYAMLをロードして
+  検証するため、この罠はテストで検知される形になっている。
+- 完了条件（コード側、2026-08-17完了）: `matching_rule`の単体テスト・`osm_way_to_way_spec`の
+  `segregated`保持テストを追加。backend 713件全green。
+- **残作業（DBアクセス可能な環境待ち、ユーザー指示によりこのラウンドでは意図的に未実施）**:
+  対象範囲（Tokyo.osm.pbf等）で実際に再取込みし、自転車インフラレイヤーに`shared_pedestrian`
+  区間が表示されることをPlaywrightで実機確認する。既存の関東本土全域データを持つ本番/dev DBへの
+  再取込みは所要時間・DB状態変更を伴う別種の作業のため、コード実装とは別のタイミングで
+  ユーザー判断のもと実行する。
 
 ### - [ ] T100. `bicycle=no`のHard Constraint化＋`oneway:bicycle`例外の解釈〔static-road-attributes-plan.md §3.1-2/3〕規模S〜M
 
@@ -2216,18 +2226,26 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   サイクルステーション等は元々対象外）を除外した上で、少なくとも1種別（コンビニを推奨）が
   地図上に表示されることをPlaywrightで確認。
 
-### - [ ] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S
+### - [ ] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S（2026-08-17計測コード実装完了・実測待ち）
 
 - 背景: `lit=*`（街灯の有無。早朝/夜間走行の安全性判断に有用）・`segregated=yes/no`
   （自転車歩行者道の歩車分離、T99と関連）・`barrier=gate/bollard`（河川敷サイクリングロード等の
   車止め、通行可否判定に影響）は、既存のタグ棚卸し（static-road-attributes-plan.md）でまだ
   評価対象に入っていない。
-- 対応: `backend/scripts/measure_tag_coverage.py`の対象タグに`lit`/`segregated`/`barrier`を追加し、
-  既存実測と同条件（関東全域PBF）で計測する。結果を`static-road-attributes-plan.md`へ新規項目
-  として追記し、採用済みタグ（smoothness 0.1%等）と同水準以上なら採用候補（別タスクを起票）、
-  `width`/`shoulder`（0.3%/0.0%）と同水準なら見送りを判断する。
-- 完了条件: 3タグの実測値が`static-road-attributes-plan.md`に記載され、それぞれ採用/見送りの
-  判断が下されていること（実装自体は本タスクの範囲外）。
+- 対応: `backend/scripts/measure_tag_coverage.py`に`CANDIDATE_WAY_TAGS`（`lit`/`segregated`、
+  既存`CoverageCounter`でway取込対象への付与率を計測）・`CANDIDATE_NODE_TAGS`（`barrier`）を追加。
+  `barrier`はnode属性かつ取込プロファイルに対応ルールが無く「対象母集団」が取れないため、
+  新設`NodeTagCounter`で値ごと（`barrier=gate`/`barrier=bollard`等）の生カウントのみ報告する
+  形にした（％ではなく件数で採用可否を判断できれば十分という設計判断）。`main()`は両方の
+  レポートを続けて出力する。
+- 完了条件（コード側、2026-08-17完了）: `NodeTagCounter`の単体テスト（値ごとのカウント・
+  空白値の除外・0件時のメッセージ）を追加。backend 713件全green。
+- **残作業（DBアクセス可能な環境待ち）**: 関東全域PBF（`kanto-latest.osm.pbf`）に対して
+  `measure_tag_coverage.py`を実行し、3タグの実測値を得る。結果を`static-road-attributes-plan.md`
+  §2.5へ追記し、採用済みタグ（smoothness 0.1%等）と同水準以上なら採用候補（別タスクを起票）、
+  `width`/`shoulder`（0.3%/0.0%）と同水準なら見送りを判断する（この判断自体は実測値が出てから）。
+  なお本スクリプトはPostGIS DBではなくPBFファイルを直接読むため、厳密には「DBアクセス」ではなく
+  「対象PBFファイル（`data/pbf/kanto-latest.osm.pbf`）へのアクセス」待ちである。
 
 ---
 

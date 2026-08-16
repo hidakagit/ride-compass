@@ -44,6 +44,10 @@ ALLOWED_WAY_TAGS = frozenset(
         "ref",
         "tracktype",
         "shoulder",
+        # 改善計画T99: shared_pedestrian_waysルールで新たに取り込む自転車歩行者道の歩車分離有無。
+        # 取込コストがゼロ（既存のtags jsonbへ相乗り）なため、T102の採用可否判断を待たず保持する。
+        # 分類ロジック（classify_bicycle_infrastructure）への反映はT102の実測結果を待って判断する。
+        "segregated",
     }
 )
 

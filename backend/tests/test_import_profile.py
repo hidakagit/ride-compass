@@ -110,6 +110,19 @@ class TestDefaultProfile:
         assert matching_rule(profile, "node", {"highway": "stop"}) is not None
         assert matching_rule(profile, "node", {"highway": "give_way"}) is not None
 
+    def test_shared_pedestrian_ways_match(self):
+        # 改善計画T99: 自転車歩行者共用道（highway=footway/path AND bicycle=yes/designated/
+        # permissive）が取り込まれ、単独のfootway/path（bicycle未設定）は引き続き除外されること。
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        for highway in ("footway", "path"):
+            for bicycle in ("yes", "designated", "permissive"):
+                rule = matching_rule(profile, "way", {"highway": highway, "bicycle": bicycle})
+                assert rule is not None, f"highway={highway} bicycle={bicycle} should match"
+                assert rule.target == "osm_raw_ways"
+        assert matching_rule(profile, "way", {"highway": "footway"}) is None
+        assert matching_rule(profile, "way", {"highway": "path", "bicycle": "no"}) is None
+        assert matching_rule(profile, "way", {"highway": "pedestrian", "bicycle": "yes"}) is None
+
     def test_railway_level_crossing_matches(self):
         profile = load_profile(DEFAULT_PROFILE_PATH)
         rule = matching_rule(profile, "node", {"railway": "level_crossing"})
