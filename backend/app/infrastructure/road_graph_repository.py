@@ -879,12 +879,16 @@ class DerivedGraphRepository(_SessionRepository):
     async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
         """RoadGraphをroad_nodes/road_edgesへ永続化する。
 
-        `way_ids_to_replace`を指定した場合、それらのosm_way_idを持つ既存Edge行を
-        全削除してから`graph`内の該当Edgeを挿入し直す（delete-then-reinsert）。
+        `way_ids_to_replace`を指定した場合、それらのosm_way_idを持つ既存Edge行のうち
+        「今回のgraphに同じedge_idで含まれないもの」だけを削除してから`graph`内の該当Edgeを
+        UPSERTする（改善計画T66: 全削除→無条件再挿入だと、分割結果が前回と変わらない
+        大多数のケースでも同じedge_idの行がDELETE→INSERTを経由してしまい、
+        `ON DELETE CASCADE`の`designation_attributes`等のEdge派生属性が巻き添えで
+        消える。edge_idは決定論的なため、分割結果が変わらなければ削除自体が不要）。
         `build_road_graph`は渡されたWay集合全体から交差点を再計算するため、
-        Wayの分割結果が前回と変わっていた場合でも、古い分割によるEdge行が
-        孤立して残らないようにするための措置（タイル境界依存の分割不一致問題への対応、
-        本ファイル冒頭のdocstring参照）。`way_ids_to_replace`外のosm_way_idを持つEdge
+        Wayの分割結果が実際に変わっていた場合は、古い分割によるEdge行（新graphに
+        存在しないedge_id）を削除して孤立させない（タイル境界依存の分割不一致問題への
+        対応、本ファイル冒頭のdocstring参照）。`way_ids_to_replace`外のosm_way_idを持つEdge
         （closureで近傍として取得しただけのWay）はこの呼び出しでは保存しない
         （不完全な文脈で計算した分割結果によって、他のリクエストが正しく永続化した
         Edgeを誤って上書き・破壊しないため）。
@@ -909,13 +913,6 @@ class DerivedGraphRepository(_SessionRepository):
         await _bulk_upsert(
             self._session, RoadNodeRow, node_rows, ["node_id"], ["osm_node_id", "geom", "updated_at"])
 
-        if way_ids_to_replace:
-            for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
-                await self._session.execute(delete(RoadEdgeRow).where(RoadEdgeRow.osm_way_id.in_(id_chunk)))
-                await self._session.execute(
-                    update(OsmRawWayRow).where(OsmRawWayRow.osm_way_id.in_(id_chunk)).values(split_at=now)
-                )
-
         edge_rows = [
             {
                 "edge_id": edge.edge_id,
@@ -930,6 +927,21 @@ class DerivedGraphRepository(_SessionRepository):
             for edge in graph.edges.values()
             if way_ids_to_replace is None or edge.osm_way_id in way_ids_to_replace
         ]
+
+        if way_ids_to_replace:
+            new_edge_ids = {row["edge_id"] for row in edge_rows}
+            for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
+                delete_stmt = delete(RoadEdgeRow).where(RoadEdgeRow.osm_way_id.in_(id_chunk))
+                # 今回も同じedge_idで再挿入される行はDELETE対象から除外する（上記docstring
+                # 参照）。new_edge_idsが空（対象way群がEdgeを1件も生成しなかった）場合は
+                # NOT INの右辺が空集合になり全削除相当のままで問題ない。
+                if new_edge_ids:
+                    delete_stmt = delete_stmt.where(RoadEdgeRow.edge_id.not_in(new_edge_ids))
+                await self._session.execute(delete_stmt)
+                await self._session.execute(
+                    update(OsmRawWayRow).where(OsmRawWayRow.osm_way_id.in_(id_chunk)).values(split_at=now)
+                )
+
         await _bulk_upsert(
             self._session,
             RoadEdgeRow,
