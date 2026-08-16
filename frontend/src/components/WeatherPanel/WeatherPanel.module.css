@@ -2,11 +2,55 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-accent);
+  /* --color-accentはダークモードで再定義されておらず(globals.css)、暗い背景との
+     コントラストがWCAG 3:1を割る。--foregroundはダークモードでもペアで反転するため
+     こちらに合わせる（globals.css冒頭のコメント方針と同じ理由） */
+  color: var(--foreground);
 }
 
 .row svg {
   flex-shrink: 0;
+}
+
+/* 項目（気温・風・降水確率）ごとの「アイコン+値」の塊。以前は"/"区切りの1文だったが、
+   区切りの"/"と風速の単位"m/s"の"/"が混ざって見え読みにくいという実機フィードバック（T61）を
+   受け、項目ごとにアイコンを添えて視覚的に区切る形へ変更した。 */
+.stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+/* 項目間の区切り線。以前の"/"の代わり（アイコンで項目の種類を、区切り線で境界を示す）。 */
+.divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+/* 単位（℃/m/s/%）は値より一段淡く・小さくして、値と単位が視覚的に混ざらないようにする
+   （「風の強さのm/sと区切りの/が混ざって見える」という実機フィードバックへの対応）。 */
+.unit {
+  font-weight: 400;
+  font-size: 0.8em;
+  color: var(--color-muted);
+}
+
+/* 画面には出さないが、アイコンだけでは伝わらない項目名（気温/風/降水確率）を
+   スクリーンリーダーへ伝える。標準的なclipパターン。 */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* 見落としやすいという実機フィードバック（T57）を受け、既定文字色より一段濃く・太くして
