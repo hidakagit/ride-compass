@@ -1660,7 +1660,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   caseは真に特殊なレイヤー（道路情報等）のみへ縮小（設計原則8）。
 - 完了条件: パネル説明文の定義箇所が1箇所になり、frontend全green。
 
-### - [ ] T85. designation加点エンジンテストの縮小 規模S・任意
+### - [x] T85. designation加点エンジンテストの縮小 規模S・任意（2026-08-16見送りでクローズ）
 
 - `test_openrouteservice_engine.py`のdesignation加点テストがエンジン2個で全周生成を
   2回実行するが、非指定側（=2の確認）は`test_traffic.py: test_is_designated_defaults_to_false`
@@ -1669,6 +1669,12 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 対応: designated=True側1本へ縮小。ただし2値差分の対照実験としての意味もあるため任意
   （縮小しない判断も可。その場合は本タスクを「見送り」でクローズ）。
 - 完了条件: 縮小する場合はスイート実行時間の短縮を確認しbackend全green。
+- **判断（2026-08-16、見送り）**: 実測したところ`test_openrouteservice_engine.py`全23件が
+  0.62秒、うち対象の`test_traffic_stress_reflects_designation_bonus_when_repository_injected`
+  （8方位×2エンジン生成）単体は0.01秒だった。「8方位フル実行で高コスト」という前提が
+  実データでは成立せず（Fakeベースのユニットテストで実I/Oが無いため）、削減しても
+  スイート実行時間への効果が無いに等しい。2値差分の対照実験としての可読性（同じテスト内で
+  designated=True/False双方が見える）を優先し、縮小せず現状維持を選択した。
 
 ---
 
