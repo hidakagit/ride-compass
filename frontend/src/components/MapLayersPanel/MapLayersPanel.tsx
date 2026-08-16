@@ -1,8 +1,12 @@
 "use client";
 
 import {
+  LAYER_DATA_STATUS_LABELS,
   MAP_LAYERS,
+  ROAD_SURFACE_SHARED_LAYER_IDS,
   layerSectionDomId,
+  type LayerDataStatus,
+  type LayerDataStatusByLayer,
   type MapLayerCategory,
   type MapLayerDescriptor,
   type MapLayerId,
@@ -37,6 +41,9 @@ interface MapLayersPanelProps {
   onStaticFilterLegendToggle: (axisId: StaticFilterAxisId, key: string) => void;
   onStaticFilterAxisSetHidden: (axisId: StaticFilterAxisId, hiddenKeys: string[]) => void;
   regionZoomTooWide: boolean;
+  /** レイヤーごとのデータ取得状態（改善計画T87、loading/empty/error）。MapView.tsxが
+   * タイル取得結果から算出する。表示OFF中や正常時はキー自体を持たない。 */
+  layerDataStatus: LayerDataStatusByLayer;
   routeStyleModeId: RouteStyleModeId;
   onRouteStyleModeChange: (id: RouteStyleModeId) => void;
   hiddenRouteLegendKeys: readonly string[];
@@ -80,6 +87,7 @@ export default function MapLayersPanel({
   onStaticFilterLegendToggle,
   onStaticFilterAxisSetHidden,
   regionZoomTooWide,
+  layerDataStatus,
   routeStyleModeId,
   onRouteStyleModeChange,
   hiddenRouteLegendKeys,
@@ -236,6 +244,34 @@ export default function MapLayersPanel({
     );
   }
 
+  // レイヤーの現在有効なデータ状態（改善計画T87）。表示OFF中、またはroad_surfaceタイルを
+  // 共有する4レイヤー（ROAD_SURFACE_SHARED_LAYER_IDS）がregionZoomTooWide中（ズーム範囲外の
+  // 案内が既に出ている）はundefinedを返し、案内自体を抑制する。セクション本文
+  // （renderDataStatusHint）とヘッダーのLayerChip状態ドット（renderLayerSection）の両方が
+  // この判定を共有する単一の入口にすることで、片方だけ抑制し忘れる食い違いを防ぐ
+  // （レビュー指摘: 以前はroadのswitchケースの呼び出し元だけでregionZoomTooWideを見ており、
+  // 同じソースを共有するtrafficStress/bicycleInfra/designationの本文や、road自身を含む
+  // 全レイヤーのヘッダーチップには抑制が効いていなかった）。
+  function visibleDataStatus(layerId: MapLayerId): LayerDataStatus | undefined {
+    if (!layerVisibility[layerId]) return undefined;
+    if (regionZoomTooWide && ROAD_SURFACE_SHARED_LAYER_IDS.includes(layerId)) return undefined;
+    return layerDataStatus[layerId];
+  }
+
+  // レイヤーのデータ取得状態を示す案内文。正常時（既知件数のデータが描画できている状態）は
+  // visibleDataStatusがundefinedを返すため何も出さない。取得失敗のみ警告色（zoomWarningと
+  // 同じ「ズームインしてください」に近い、行動を促す度合いが高いメッセージ）で目立たせ、
+  // 読込中・データなしはOFF案内と同じ弱調表示にする。
+  function renderDataStatusHint(layerId: MapLayerId) {
+    const status = visibleDataStatus(layerId);
+    if (!status) return null;
+    return (
+      <p className={status === "error" ? styles.dataStatusError : styles.mutedHint}>
+        {LAYER_DATA_STATUS_LABELS[status]}
+      </p>
+    );
+  }
+
   // 改善計画T84: trafficStress/bicycleInfra/designation/stopPoi/intersections/accidentsは
   // 「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー（elevationはpanelHintのみ・
   // road/routeは専用UIを持つ真に特殊なレイヤーのためこの関数の対象外）。以前はレイヤーごとに
@@ -252,6 +288,7 @@ export default function MapLayersPanel({
             ))}
           </ul>
         )}
+        {renderDataStatusHint(layer.id)}
         {renderOffHint(layer.id)}
         {staticFilterAxesFor(layer.id).map(renderStaticFilterAxis)}
       </>
@@ -261,8 +298,14 @@ export default function MapLayersPanel({
   function renderSectionBody(layer: MapLayerDescriptor) {
     switch (layer.id) {
       case "elevation":
-        // 設定項目が無いレイヤーは説明文のみ（将来、不透明度等の設定を足す場所）
-        return <p className={styles.mutedHint}>{layer.panelHint}</p>;
+        // 設定項目が無いレイヤーは説明文のみ（将来、不透明度等の設定を足す場所）。
+        // ラスタタイルのためデータ取得状態は取得失敗のみ検知対象（MapView.tsx参照）。
+        return (
+          <>
+            <p className={styles.mutedHint}>{layer.panelHint}</p>
+            {renderDataStatusHint(layer.id)}
+          </>
+        );
       case "trafficStress":
       case "bicycleInfra":
       case "designation":
@@ -281,6 +324,9 @@ export default function MapLayersPanel({
             {layerVisibility.road && regionZoomTooWide && (
               <p className={styles.zoomWarning}>表示範囲が広すぎます。ズームインしてください。</p>
             )}
+            {/* regionZoomTooWide中の抑制はrenderDataStatusHint内で一律に判定する
+                （ROAD_SURFACE_SHARED_LAYER_IDS参照）。 */}
+            {renderDataStatusHint("road")}
             {renderRoadAxis(roadColorAxis, "色")}
             {renderRoadAxis(roadWidthAxis, "太さ")}
           </>
@@ -355,6 +401,7 @@ export default function MapLayersPanel({
             ariaLabel={`${layer.label}レイヤーを表示`}
             on={layerVisibility[layer.id]}
             disabled={disabled}
+            dataStatus={visibleDataStatus(layer.id)}
             title={disabled ? "ルートを生成・選択すると使えます" : undefined}
             onClick={(event) => {
               event.preventDefault();

@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { layerSectionDomId, type MapLayerId } from "@/components/Map/mapLayers";
+import { layerSectionDomId, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import MapLayersPanel from "./MapLayersPanel";
 import styles from "./MapLayersPanel.module.css";
 
@@ -43,6 +43,7 @@ function baseProps() {
     onStaticFilterLegendToggle: vi.fn(),
     onStaticFilterAxisSetHidden: vi.fn(),
     regionZoomTooWide: false,
+    layerDataStatus: {} as LayerDataStatusByLayer,
     routeStyleModeId: "wind" as const,
     onRouteStyleModeChange: vi.fn(),
     hiddenRouteLegendKeys: [] as string[],
@@ -240,6 +241,155 @@ describe("MapLayersPanel", () => {
     openSection("road");
     expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
+  });
+
+  it("改善計画T87: 表示ONのレイヤーでlayerDataStatusがerrorのとき取得失敗の案内とチップの状態ドットが出る", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: false,
+          trafficStress: true,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+        layerDataStatus={{ trafficStress: "error" }}
+      />,
+    );
+    openSection("trafficStress");
+    expect(screen.getByText(/データの取得に失敗しました/)).toBeInTheDocument();
+  });
+
+  it("改善計画T87: layerDataStatusがemptyのとき「表示できるデータがありません」の案内が出る", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: false,
+          trafficStress: false,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: true,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+        layerDataStatus={{ stopPoi: "empty" }}
+      />,
+    );
+    openSection("stopPoi");
+    expect(screen.getByText("この範囲に表示できるデータがありません")).toBeInTheDocument();
+  });
+
+  it("改善計画T87: レイヤーが表示OFFのときはlayerDataStatusに値があっても案内を出さない", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerDataStatus={{ trafficStress: "error" }}
+      />,
+    );
+    openSection("trafficStress");
+    expect(screen.queryByText(/データの取得に失敗しました/)).not.toBeInTheDocument();
+  });
+
+  it("改善計画T87: 道路情報でregionZoomTooWide中はデータ状態の案内を出さない（ズーム警告と二重表示しない）", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: true,
+          trafficStress: false,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+        regionZoomTooWide={true}
+        layerDataStatus={{ road: "empty" }}
+      />,
+    );
+    openSection("road");
+    expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
+    expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
+  });
+
+  it("改善計画T87レビュー指摘: road_surfaceタイルを共有するtrafficStressも、regionZoomTooWide中はデータ状態の案内を出さない", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: false,
+          trafficStress: true,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+        regionZoomTooWide={true}
+        layerDataStatus={{ trafficStress: "empty" }}
+      />,
+    );
+    openSection("trafficStress");
+    expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
+  });
+
+  it("改善計画T87レビュー指摘: regionZoomTooWide中はroad_surface共有レイヤーのヘッダーチップにも状態ドット/ツールチップを出さない", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: true,
+          trafficStress: false,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: false,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+        regionZoomTooWide={true}
+        layerDataStatus={{ road: "empty" }}
+      />,
+    );
+    const roadChip = screen.getByRole("button", { name: "道路情報レイヤーを表示" });
+    expect(roadChip.title).not.toContain("この範囲に表示できるデータがありません");
+    expect(roadChip.querySelector("span[aria-hidden]")).not.toBeInTheDocument();
+  });
+
+  it("改善計画T87レビュー指摘: road_surface非共有レイヤー（stopPoi）はregionZoomTooWideの影響を受けない", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          road: false,
+          trafficStress: false,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: true,
+          intersections: false,
+          accidents: false,
+          route: false,
+        }}
+        regionZoomTooWide={true}
+        layerDataStatus={{ stopPoi: "empty" }}
+      />,
+    );
+    openSection("stopPoi");
+    expect(screen.getByText("この範囲に表示できるデータがありません")).toBeInTheDocument();
   });
 
   it("道路情報ONのとき色・太さ両方の軸見出しが表示される", () => {

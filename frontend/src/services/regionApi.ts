@@ -12,6 +12,9 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
 // 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
 // （region_service.pyの_tile_cache_path）と対で更新すること。
+// v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92のtraffic_stress判定ロジック変更
+// （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）がタイル世代の対上げを
+// 伴っていなかったため、キャッシュ陳腐化を断つために世代のみ更新（プロパティ構成は不変）。
 // v7: 改善計画T90。交通ストレスの区間別判定内訳表示のため、osm_way_idプロパティを追加した。
 // v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
 // 変更し、designationプロパティの3値目"both"（N10・N12両方該当）を追加した。
@@ -22,7 +25,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
 // surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-const ROAD_SURFACE_TILE_VERSION = "7";
+const ROAD_SURFACE_TILE_VERSION = "8";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

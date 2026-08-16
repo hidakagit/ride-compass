@@ -24,3 +24,45 @@
   border-color: var(--color-accent);
   color: #ffffff;
 }
+
+/* レイヤーのデータ取得状態を示す小さなドット（改善計画T87）。3状態を見た目でも
+   区別できるよう、塗り分けではなく形（塗りつぶし/中空/点滅）を変える。
+   クラス名はmapLayers.ts: LayerDataStatusの値（"loading"/"empty"/"error"）とそろえてあり、
+   LayerChip.tsx側は`styles[`statusDot_${dataStatus}`]`で動的に参照する。状態→視覚表現の
+   対訳表（Recordリテラル）をコンポーネント内に持たない、という設計原則8に沿うため
+   （docs/complexity-review-2026-08-16.md）。 */
+.statusDot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.statusDot_loading {
+  background: currentColor;
+  opacity: 0.5;
+  animation: rc-layer-chip-pulse 1.2s ease-in-out infinite;
+}
+
+.statusDot_empty {
+  background: transparent;
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
+.statusDot_error {
+  background: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+@keyframes rc-layer-chip-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}

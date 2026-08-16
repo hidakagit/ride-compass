@@ -35,7 +35,7 @@ describe("regionApi", () => {
 
   it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=7`);
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=8`);
   });
 
   // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /

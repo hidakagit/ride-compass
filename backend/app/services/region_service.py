@@ -96,6 +96,10 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92でtraffic_stress判定ロジック
+# （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）を変更したが
+# タイル世代の対上げを失念していた（T70に続き同型のミス）。焼き込み済みキャッシュの
+# 陳腐化を断つための世代更新のみで、CASE式自体はT92コミット時点から不変。
 # v7: 改善計画T90。交通ストレスの区間別判定内訳表示のため、クリックされたフィーチャーを
 # 曖昧さ無く引き直すosm_way_idプロパティを追加した世代。
 # v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
@@ -108,7 +112,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "7"
+ROAD_SURFACE_TILE_VERSION = "8"
 
 # 停止要因POI・交差点密度タイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
