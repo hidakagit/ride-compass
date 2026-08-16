@@ -2,6 +2,7 @@
 
 import type { ReactElement } from "react";
 import type { MapLayerId } from "@/components/Map/mapLayers";
+import type { LegendEntry } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
   ElevationIcon,
@@ -13,6 +14,14 @@ import {
   RouteIcon,
 } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
+
+/** サマリ行の先頭に添える色スウォッチ1グループぶん。表示中カテゴリの一覧なら
+ * excluded: false、除外カテゴリの一覧ならexcluded: true（薄く見せて区別する）。
+ * legendFilter.tsのsummarizeLegendFilterSwatchesが軸ごとに作る内訳と対応する。 */
+export interface SummarySwatchGroup {
+  excluded: boolean;
+  entries: readonly LegendEntry[];
+}
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
 export interface OverlayLayerChip {
@@ -27,6 +36,10 @@ export interface OverlayLayerChip {
   /** ONのレイヤーに適用中の条件・状態の1行要約（絞り込み・色分けモード・ズーム案内等）。
    * あればチップ行の下にサマリ行として表示する。無条件（既定のまま）ならnull。 */
   summary?: string | null;
+  /** summaryの先頭に添える色スウォッチ（絞り込みで個別カテゴリを名指しできた場合のみ）。
+   * 文字だけでは「何かに絞られている」ことしか分からず、地図上の色との対応が
+   * 一目で分からないという実機フィードバックを受けて追加した。 */
+  summarySwatches?: readonly SummarySwatchGroup[];
 }
 
 interface MapOverlayControlsProps {
@@ -48,6 +61,34 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   route: RouteIcon,
 };
+
+// サマリ行の先頭に添える色スウォッチ。太さ・線種で地図に反映するカテゴリ
+// （entry.widthを持つ、例:「道路の種類」）は色スウォッチのままだと「この色が地図に出る」
+// という誤った期待を持たせてしまう（WidthSwatch.tsxと同じ理由）ため、太さバーで示す。
+// 除外側（excluded）の一覧は薄く見せ、地図に出ている色（表示中側）と見分けられるようにする。
+function renderSummarySwatches(groups: readonly SummarySwatchGroup[]) {
+  return (
+    <span className={styles.summarySwatches} aria-hidden="true">
+      {groups.flatMap((group, groupIndex) =>
+        group.entries.map((entry) => (
+          <span
+            key={`${groupIndex}-${entry.key}`}
+            className={group.excluded ? `${styles.swatch} ${styles.swatchExcluded}` : styles.swatch}
+          >
+            {entry.width !== undefined ? (
+              <span
+                className={entry.dashed ? `${styles.swatchBar} ${styles.swatchBarDashed}` : styles.swatchBar}
+                style={{ height: `${Math.max(2, entry.width)}px` }}
+              />
+            ) : (
+              <span className={styles.swatchDot} style={{ background: entry.color }} />
+            )}
+          </span>
+        ))
+      )}
+    </span>
+  );
+}
 
 // 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」ON/OFFチップと、ONのレイヤーに
 // どんな条件が効いているかの1行サマリだけ。凡例・絞り込みの編集・色分けモードの選択など
@@ -87,7 +128,11 @@ export default function MapOverlayControls({ layers, onToggle, onSummaryClick }:
                   className={styles.summaryButton}
                   title="タップするとサイドバーで設定を変更できます"
                 >
-                  <span className={styles.summaryLayerLabel}>{layer.label}:</span> {layer.summary}
+                  <span className={styles.summaryLayerLabel}>{layer.label}:</span>
+                  {layer.summarySwatches && layer.summarySwatches.length > 0 && (
+                    renderSummarySwatches(layer.summarySwatches)
+                  )}
+                  <span className={styles.summaryText}>{layer.summary}</span>
                   <span aria-hidden="true" className={styles.summaryArrow}>
                     ▸
                   </span>

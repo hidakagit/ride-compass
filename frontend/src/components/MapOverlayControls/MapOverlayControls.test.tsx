@@ -70,6 +70,33 @@ describe("MapOverlayControls", () => {
     expect(onSummaryClick).toHaveBeenCalledWith("road");
   });
 
+  it("summarySwatchesがあればサマリ行の先頭に色ドット・太さバーが並ぶ", () => {
+    const layers = baseLayers();
+    layers[1] = {
+      ...layers[1],
+      on: true,
+      summary: "石畳・敷石以外",
+      summarySwatches: [
+        {
+          excluded: true,
+          entries: [{ key: "stones", label: "石畳・敷石", color: "#7c3aed", filter: ["literal", true] }],
+        },
+        {
+          excluded: false,
+          entries: [
+            { key: "track", label: "農道・林道", color: "#92400e", width: 1.75, filter: ["literal", true] },
+          ],
+        },
+      ],
+    };
+    const { container } = render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+    const dot = container.querySelector('[style*="background: rgb(124, 58, 237)"]');
+    expect(dot).toBeInTheDocument();
+    // 太さ軸のカテゴリは色ではなく太さバー（swatchBarクラス）で表す
+    expect(container.querySelector('span[class*="swatchBar"]')).toBeInTheDocument();
+  });
+
   it("OFF・disabled・summary無しのレイヤーにはサマリ行が出ない", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", label: "標高図", on: true, summary: null }, // 条件なし

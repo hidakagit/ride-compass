@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeLegendFilters, type LegendEntry } from "./legendFilter";
+import { summarizeLegendFilters, summarizeLegendFilterSwatches, type LegendEntry } from "./legendFilter";
 
 function makeLegend(labels: string[]): LegendEntry[] {
   return labels.map((label, i) => ({
@@ -61,5 +61,37 @@ describe("summarizeLegendFilters", () => {
 
   it("凡例に存在しない非表示キーは無視する（定義変更で過去のキーが残っていても安全）", () => {
     expect(summarizeLegendFilters([{ label: "路面の種類", legend: legend5, hiddenKeys: ["zombie"] }])).toBeNull();
+  });
+});
+
+describe("summarizeLegendFilterSwatches", () => {
+  const legend5 = makeLegend(["A", "B", "C", "D", "E"]);
+
+  it("絞り込みが無ければ空配列", () => {
+    expect(summarizeLegendFilterSwatches([{ label: "路面の種類", legend: legend5, hiddenKeys: [] }])).toEqual([]);
+  });
+
+  it("表示中カテゴリが2件以下なら、その表示中カテゴリをexcluded:falseで返す", () => {
+    const result = summarizeLegendFilterSwatches([
+      { label: "路面の種類", legend: legend5, hiddenKeys: ["k2", "k3", "k4"] },
+    ]);
+    expect(result).toEqual([{ excluded: false, entries: [legend5[0], legend5[1]] }]);
+  });
+
+  it("除外カテゴリが2件以下なら、その除外カテゴリをexcluded:trueで返す", () => {
+    const result = summarizeLegendFilterSwatches([{ label: "路面の種類", legend: legend5, hiddenKeys: ["k0"] }]);
+    expect(result).toEqual([{ excluded: true, entries: [legend5[0]] }]);
+  });
+
+  it("軸名フォールバック（表示中・除外とも3件以上、またはすべて非表示）はスウォッチに寄与しない", () => {
+    const legend7 = makeLegend(["A", "B", "C", "D", "E", "F", "G"]);
+    expect(
+      summarizeLegendFilterSwatches([{ label: "路面の種類", legend: legend7, hiddenKeys: ["k0", "k1", "k2"] }]),
+    ).toEqual([]);
+    expect(
+      summarizeLegendFilterSwatches([
+        { label: "路面の種類", legend: legend5, hiddenKeys: ["k0", "k1", "k2", "k3", "k4"] },
+      ]),
+    ).toEqual([]);
   });
 });
