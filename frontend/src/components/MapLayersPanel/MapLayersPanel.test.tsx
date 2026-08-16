@@ -48,6 +48,8 @@ function baseProps() {
     hiddenRouteLegendKeys: [] as string[],
     onRouteLegendToggle: vi.fn(),
     hasDetail: false,
+    hasHiddenFilters: false,
+    onClearAllFilters: vi.fn(),
   };
 }
 
@@ -101,6 +103,19 @@ describe("MapLayersPanel", () => {
     expect(groupTitleFor("bicycleInfra")).toBe("自転車インフラ");
     expect(groupTitleFor("elevation")).toBe("地形");
     expect(groupTitleFor("route")).toBe("生成したルートの色分け");
+  });
+
+  it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {
+    const user = userEvent.setup();
+    const onClearAllFilters = vi.fn();
+    const { rerender } = render(
+      <MapLayersPanel {...baseProps()} hasHiddenFilters={false} onClearAllFilters={onClearAllFilters} />,
+    );
+    expect(screen.queryByRole("button", { name: "絞り込みを一括クリア" })).not.toBeInTheDocument();
+
+    rerender(<MapLayersPanel {...baseProps()} hasHiddenFilters={true} onClearAllFilters={onClearAllFilters} />);
+    await user.click(screen.getByRole("button", { name: "絞り込みを一括クリア" }));
+    expect(onClearAllFilters).toHaveBeenCalledTimes(1);
   });
 
   it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路/両方該当）が表示される(外部静的データソース T51、改善計画T74)", () => {

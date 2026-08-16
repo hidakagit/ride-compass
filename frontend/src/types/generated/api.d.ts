@@ -163,11 +163,13 @@ export interface paths {
         };
         /**
          * Region Traffic Stress Breakdown
-         * @description 交通ストレスの判定内訳（改善計画T90）。地図クリック地点近傍の道路について、
-         *     `domain/traffic.py: traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。
-         *     近傍に対象道路が無い、highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null
-         *     （タイル・区間評価と同じ「不明・他」の扱い）。タイル取得と同じ歯止め（クリックの連打対策）
-         *     を流用する。
+         * @description 交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
+         *     路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:
+         *     traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
+         *     highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ
+         *     「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
+         *     RegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
+         *     タイル取得と同じ歯止め（クリックの連打対策）を流用する。
          */
         get: operations["region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get"];
         put?: never;
@@ -795,8 +797,7 @@ export interface operations {
     region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get: {
         parameters: {
             query: {
-                latitude: number;
-                longitude: number;
+                osm_way_id: number;
             };
             header?: never;
             path?: never;

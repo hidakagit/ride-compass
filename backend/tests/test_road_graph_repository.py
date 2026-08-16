@@ -575,6 +575,26 @@ async def test_get_way_tags_is_empty_dict_when_raw_way_not_found(road_graph_repo
     assert result[edge_id] == {}
 
 
+async def test_get_way_tags_by_osm_way_id_returns_highway_tags_and_is_designated(
+    road_graph_repository, road_graph_session
+):
+    """改善計画T90: 区間クリック時の交通ストレス内訳表示。get_nearest_way_tagsの空間マッチ
+    （交差点付近で別の道路を拾いうる、実機確認で判明）を避け、osm_way_id完全一致で引く。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    await _insert_designation_attribute(road_graph_session, 100, "critical_logistics")
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_way_tags_by_osm_way_id(100)
+
+    assert result == ("primary", {"maxspeed": "60"}, True)
+
+
+async def test_get_way_tags_by_osm_way_id_returns_none_when_way_not_found(road_graph_repository):
+    assert await road_graph_repository.get_way_tags_by_osm_way_id(999) is None
+
+
 async def test_get_nearest_way_tags_returns_empty_list_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_nearest_way_tags([]) == []
 
@@ -1008,8 +1028,9 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     # highway=residential/trackで「roadway」「2」になる）。smoothness/tunnel/bridgeは
     # tags自体が空のためキーが省略される。
     assert properties == [
-        {"highway": "residential", "bicycle_infra": "roadway", "traffic_stress": 2},
+        {"osm_way_id": 3, "highway": "residential", "bicycle_infra": "roadway", "traffic_stress": 2},
         {
+            "osm_way_id": 1,
             "surface_good": True,
             "surface": "asphalt",
             "highway": "residential",
@@ -1017,6 +1038,7 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
             "traffic_stress": 2,
         },
         {
+            "osm_way_id": 2,
             "surface_good": False,
             "surface": "gravel",
             "highway": "track",
@@ -1024,6 +1046,7 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
             "traffic_stress": 2,
         },
         {
+            "osm_way_id": 4,
             "surface": "mystery_tag",
             "highway": "residential",
             "bicycle_infra": "roadway",

@@ -295,6 +295,15 @@ export default function Home() {
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
   );
+  // 「絞り込みを一括クリア」（ゆる～と等の地図ポータルの「消去」ボタンを参考に追加）。
+  // 軸ごとの「すべて表示」を1つずつ押させず、道路情報・交通ストレス等の全軸＋ルート凡例の
+  // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
+  // 状態（どのレイヤーを表示するか）のため、ここでは触らない。
+  const hasHiddenFilters = useMemo(
+    () => Object.values(hiddenLegendKeysByMode).some((keys) => keys.length > 0),
+    [hiddenLegendKeysByMode],
+  );
+  const handleClearAllFilters = useCallback(() => setHiddenLegendKeysByMode({}), [setHiddenLegendKeysByMode]);
 
   // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByMode/
   // staticLegendHiddenKeysByAxisを参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
@@ -616,6 +625,8 @@ export default function Home() {
           onRouteLegendToggle={handleRouteLegendToggle}
           hasDetail={hasDetail}
           onGoToGenerate={handleGoToGenerate}
+          hasHiddenFilters={hasHiddenFilters}
+          onClearAllFilters={handleClearAllFilters}
         />
       </div>
     );

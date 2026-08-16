@@ -35,8 +35,8 @@ class FakeRegionService:
         self.last_poi_request = (z, x, y)
         return self._tile_bytes
 
-    async def get_traffic_stress_breakdown(self, latitude, longitude):
-        self.last_breakdown_request = (latitude, longitude)
+    async def get_traffic_stress_breakdown(self, osm_way_id):
+        self.last_breakdown_request = osm_way_id
         return self._traffic_stress_breakdown
 
 
@@ -186,21 +186,21 @@ def test_region_traffic_stress_breakdown_returns_breakdown_json():
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/traffic-stress-breakdown?latitude=35.68&longitude=139.77")
+        response = client.get("/api/region/traffic-stress-breakdown?osm_way_id=12345")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.json() == breakdown.model_dump()
-    assert fake.last_breakdown_request == (35.68, 139.77)
+    assert fake.last_breakdown_request == 12345
 
 
 def test_region_traffic_stress_breakdown_returns_null_when_service_returns_none():
-    # DBなし構成・近傍に対象道路が無い場合はRegionService側がNoneを返す
+    # DBなし構成・該当wayが無い場合はRegionService側がNoneを返す
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService(traffic_stress_breakdown=None)
 
     try:
-        response = client.get("/api/region/traffic-stress-breakdown?latitude=35.68&longitude=139.77")
+        response = client.get("/api/region/traffic-stress-breakdown?osm_way_id=12345")
     finally:
         app.dependency_overrides.clear()
 
@@ -208,11 +208,11 @@ def test_region_traffic_stress_breakdown_returns_null_when_service_returns_none(
     assert response.json() is None
 
 
-def test_region_traffic_stress_breakdown_rejects_out_of_range_latitude():
+def test_region_traffic_stress_breakdown_rejects_non_integer_osm_way_id():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        response = client.get("/api/region/traffic-stress-breakdown?latitude=999&longitude=139.77")
+        response = client.get("/api/region/traffic-stress-breakdown?osm_way_id=not-a-number")
     finally:
         app.dependency_overrides.clear()
 
@@ -227,7 +227,7 @@ def test_region_traffic_stress_breakdown_rate_limit_is_independent_from_road_sur
             assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
-        response = client.get("/api/region/traffic-stress-breakdown?latitude=35.68&longitude=139.77")
+        response = client.get("/api/region/traffic-stress-breakdown?osm_way_id=12345")
     finally:
         app.dependency_overrides.clear()
 

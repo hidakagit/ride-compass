@@ -5,6 +5,13 @@
   gap: var(--space-2);
 }
 
+/* 「絞り込みを一括クリア」。パネル最上部・右寄せで、軸ごとの一括ボタン（.bulkButton）と
+   見た目を揃える（別の強い見た目にすると「危険な操作」に見えてしまうため）。 */
+.clearAllRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .group + .group {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-1);

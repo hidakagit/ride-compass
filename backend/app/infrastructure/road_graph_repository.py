@@ -213,6 +213,12 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         ST_AsMVTGeom(
                             ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                         ) AS geom,
+                        -- クリック時の交通ストレス内訳表示（改善計画T90）が、ポップアップに
+                        -- 出た値と同じ行を曖昧さ無く引き直すための識別子。get_nearest_way_tags
+                        -- の空間マッチ(半径内最近傍)だと交差点付近で別の道路を拾いうる
+                        -- （実機確認で判明）ため、フィーチャーが指す行そのものをosm_way_id
+                        -- 完全一致で引く（get_way_tags_by_osm_way_id）。
+                        w.osm_way_id AS osm_way_id,
                         CASE
                             WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
                             WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
@@ -559,6 +565,22 @@ _DESIGNATED_EDGE_IDS_SQL = text(
 _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
+
+# 交通ストレスの区間別判定内訳表示（改善計画T90）。get_way_tags_by_osm_way_idが使う。
+# _NEAREST_WAY_TAGS_SQLと違い空間マッチをしない完全一致1行取得のため、KNNより単純。
+_WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
+    """
+    SELECT
+        w.highway,
+        w.tags,
+        EXISTS(
+            SELECT 1 FROM designation_attributes d
+            WHERE d.osm_way_id = w.osm_way_id AND d.kind = ANY(:kinds)
+        ) AS is_designated
+    FROM osm_raw_ways w
+    WHERE w.osm_way_id = :osm_way_id
+    """
+).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
 # 静的道路属性P1残り（交通ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
 # 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
@@ -1422,6 +1444,26 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = tags or {}
         return result
 
+    async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
+        """osm_way_id完全一致で(highway, tags, is_designated)を返す（改善計画T90）。
+
+        `get_nearest_way_tags`の空間マッチ（半径内最近傍）は、交差点付近など複数の道路が
+        近接する場所で、実際にクリックされたMVTフィーチャー（`_ROAD_SURFACE_TILE_MVT_SQL`が
+        同じosm_way_idをプロパティとして焼き込み済み）とは別の道路を拾いうることが実機確認で
+        判明した（ポップアップの`traffic_stress`表示値と、内訳ボタンで計算した値が食い違う）。
+        フィーチャーが指す行そのものをosm_way_idで引き直すことで、この不整合を構造的に防ぐ。
+
+        該当way自体が存在しない（極端な状況、タイル生成後の再取込等）場合はNone。
+        """
+        result = await self._session.execute(
+            _WAY_TAGS_BY_OSM_WAY_ID_SQL,
+            {"osm_way_id": osm_way_id, "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS)},
+        )
+        row = result.first()
+        if row is None:
+            return None
+        return (row.highway, row.tags or {}, row.is_designated)
+
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
     ) -> list[tuple[str | None, dict[str, str], bool]]:
@@ -1669,6 +1711,9 @@ class RoadGraphRepository:
 
     async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
         return await self.attributes.get_way_tags(edge_ids)
+
+    async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
+        return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
 
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M

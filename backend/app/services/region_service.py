@@ -96,6 +96,8 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v7: 改善計画T90。交通ストレスの区間別判定内訳表示のため、クリックされたフィーチャーを
+# 曖昧さ無く引き直すosm_way_idプロパティを追加した世代。
 # v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
 # 変更し、designationプロパティが同一way内でN10・N12の両方に該当する場合の3値目"both"を
 # 追加した世代。
@@ -106,7 +108,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "6"
+ROAD_SURFACE_TILE_VERSION = "7"
 
 # 停止要因POI・交差点密度タイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
@@ -259,15 +261,24 @@ class RegionService:
             y=y,
         )
 
-    async def get_traffic_stress_breakdown(self, latitude: float, longitude: float) -> TrafficStressBreakdown | None:
-        """クリック地点近傍の道路の交通ストレス判定内訳を返す（改善計画T90）。
+    async def get_traffic_stress_breakdown(self, osm_way_id: int) -> TrafficStressBreakdown | None:
+        """クリックされた道路（osm_way_id）の交通ストレス判定内訳を返す（改善計画T90）。
 
-        `repository`未注入（DBなし構成）はNone。近傍（`get_nearest_way_tags`の既定
-        半径=道路評価と同じSURFACE_MATCH_MAX_DISTANCE_M）に対象道路が無い、または
+        クリック地点の緯度経度から最近傍道路を空間マッチ（`get_nearest_way_tags`）で
+        引く方式は、交差点付近など複数の道路が近接する場所で、実際にクリックされた
+        MVTフィーチャーとは別の道路を拾い、ポップアップの表示値と内訳の計算値が食い違う
+        ことが実機確認で判明したため採用していない。フィーチャーのプロパティに含まれる
+        osm_way_id（`_ROAD_SURFACE_TILE_MVT_SQL`が焼き込み済み）で該当行を曖昧さ無く
+        引き直す。
+
+        `repository`未注入（DBなし構成）、または該当way自体が存在しない場合はNone。
         highwayが判定基準に登録されていない場合はTrafficStressBreakdown(base=None,
         level=None, ...)（タイル・区間評価と同じ「不明・他」の扱い）。
         """
         if self._repository is None:
             return None
-        highway, tags, is_designated = (await self._repository.get_nearest_way_tags([(latitude, longitude)]))[0]
+        result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
+        if result is None:
+            return None
+        highway, tags, is_designated = result
         return traffic_stress_breakdown(highway, tags, is_designated)

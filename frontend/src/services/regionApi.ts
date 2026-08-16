@@ -12,6 +12,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
 // 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
 // （region_service.pyの_tile_cache_path）と対で更新すること。
+// v7: 改善計画T90。交通ストレスの区間別判定内訳表示のため、osm_way_idプロパティを追加した。
 // v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
 // 変更し、designationプロパティの3値目"both"（N10・N12両方該当）を追加した。
 // v5: 指定路線コンフレーション機構（外部静的データソース T51）でdesignationプロパティを
@@ -21,7 +22,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
 // surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-const ROAD_SURFACE_TILE_VERSION = "6";
+const ROAD_SURFACE_TILE_VERSION = "7";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの
@@ -61,15 +62,15 @@ export function poiTileUrl(): string {
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
 
-// 交通ストレスの区間別判定内訳（改善計画T90）。地図上の道路クリック地点近傍の判定根拠
-// （ベース値・各補正・最終値）をポップアップへ表示するための取得のみのAPI。タイルURL系
+// 交通ストレスの区間別判定内訳（改善計画T90）。地図上の道路クリックで得たosm_way_id
+// （路面タイルのMVTプロパティに含まれる識別子）から判定根拠（ベース値・各補正・最終値）を
+// 取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
+// backend/app/services/region_service.py: get_traffic_stress_breakdownのdocstring参照
+// （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
-export async function fetchTrafficStressBreakdown(
-  latitude: number,
-  longitude: number,
-): Promise<TrafficStressBreakdown | null> {
-  const params = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
+export async function fetchTrafficStressBreakdown(osmWayId: number): Promise<TrafficStressBreakdown | null> {
+  const params = new URLSearchParams({ osm_way_id: String(osmWayId) });
   const url = `${API_BASE_URL}/api/region/traffic-stress-breakdown?${params}`;
   const startedAt = performance.now();
   debugLog("api:traffic-stress-breakdown", "リクエスト開始", { url });
