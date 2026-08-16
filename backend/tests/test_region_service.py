@@ -1,6 +1,11 @@
+import asyncio
+import time
+
 import pytest
 
 from app.infrastructure import tile_cache
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services import region_service as region_service_module
 from app.services.region_service import RegionService
 
 
@@ -142,3 +147,122 @@ async def test_poi_tile_no_repository_returns_empty_mvt():
     tile_bytes = await service.get_poi_tile(Z, X, Y)
 
     assert isinstance(tile_bytes, bytes)
+
+
+# 改善計画T59: ルート生成した地点でしか道路グラフ（road_nodes/road_edges）が構築されず、
+# 地図を眺めるだけの利用（ルート生成を経ない）では道路情報・交通ストレス・自転車インフラ・
+# 交差点密度レイヤーが永遠に空のままだった問題への対応。カバレッジ内タイルの応答時、
+# z12祖先タイル単位でバックグラウンド構築を起動する（_maybe_trigger_graph_build）。
+
+
+class _FakeRealRoadGraphRepository(RoadGraphRepository):
+    """isinstance(repository, RoadGraphRepository)による発火判定をテストするための
+    なりすまし。実DBセッションは使わない（__init__をオーバーライドしてsuper().__init__を
+    呼ばない。tile_query.get_road_surface_tile_mvt等への委譲も直接オーバーライドで避ける）。"""
+
+    def __init__(self, tile: bytes = b"fake-mvt-tile"):
+        self._tile = tile
+
+    async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
+        return self._tile
+
+    async def get_poi_tile_mvt(self, z, x, y, bbox, coverage_tile):
+        return self._tile
+
+
+@pytest.fixture(autouse=True)
+def _clear_graph_build_state():
+    """_building_graph_tiles/_last_build_checkはプロセス内メモリのみのモジュールグローバル
+    （region_service.pyのコメント参照、rate_limiter.pyと同じ割り切り）のため、
+    テスト間で汚染しないよう毎回クリアする。"""
+    region_service_module._building_graph_tiles.clear()
+    region_service_module._last_build_check.clear()
+    yield
+    region_service_module._building_graph_tiles.clear()
+    region_service_module._last_build_check.clear()
+
+
+async def test_covered_tile_with_real_repository_triggers_background_graph_build(monkeypatch):
+    """実リポジトリ（isinstance判定）なら、カバレッジ内タイルの応答時にz12祖先タイル分の
+    道路グラフ構築がバックグラウンドで起動される。"""
+    calls: list[tuple[int, int, int]] = []
+    build_started = asyncio.Event()
+
+    async def fake_build(ancestor_tile, checked_at):
+        calls.append(ancestor_tile)
+        build_started.set()
+
+    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
+
+    repository = _FakeRealRoadGraphRepository()
+    service = RegionService(repository=repository)
+
+    await service.get_road_surface_tile(Z, X, Y)
+    await asyncio.wait_for(build_started.wait(), timeout=1.0)
+
+    assert calls == [(12, X >> 2, Y >> 2)]
+
+
+async def test_covered_tile_with_fake_repository_does_not_trigger_background_build(monkeypatch):
+    """FakeRegionRepositoryはRoadGraphRepositoryを継承しないダックタイピングのため
+    isinstance判定に弾かれ、構築トリガーが発火しない（ユニットテストが実DBへ触れないため）。"""
+    calls: list[tuple[int, int, int]] = []
+
+    async def fake_build(ancestor_tile, checked_at):
+        calls.append(ancestor_tile)
+
+    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
+
+    repository = FakeRegionRepository(covered=True)
+    service = RegionService(repository=repository)
+
+    await service.get_road_surface_tile(Z, X, Y)
+    await asyncio.sleep(0)
+
+    assert calls == []
+
+
+async def test_graph_build_trigger_dedupes_concurrent_requests_for_same_tile(monkeypatch):
+    """同じz12祖先タイルへ路面・POI両方のタイルリクエストが短時間に来ても、構築は1回しか
+    起動しない（ビューポート内の多数のz13-15タイルリクエストによる重複起動防止）。"""
+    calls: list[tuple[int, int, int]] = []
+    release = asyncio.Event()
+
+    async def fake_build(ancestor_tile, checked_at):
+        calls.append(ancestor_tile)
+        await release.wait()
+
+    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
+
+    repository = _FakeRealRoadGraphRepository()
+    service = RegionService(repository=repository)
+
+    await service.get_road_surface_tile(Z, X, Y)
+    await service.get_poi_tile(Z, X, Y)  # 同じz12祖先を指す別タイル種別からのリクエスト
+    await asyncio.sleep(0)
+
+    release.set()
+    await asyncio.sleep(0)
+
+    assert calls == [(12, X >> 2, Y >> 2)]
+
+
+async def test_graph_build_trigger_skips_recently_checked_tile(monkeypatch):
+    """直近_GRAPH_CHECK_TTL_SECONDS以内に確認済みのz12タイルは、次のタイルリクエストで
+    再チェックしない（既に最新のタイルを眺めるたびに短命DBセッションを開き続けない対策）。"""
+    calls: list[tuple[int, int, int]] = []
+
+    async def fake_build(ancestor_tile, checked_at):
+        calls.append(ancestor_tile)
+
+    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
+    ancestor = (12, X >> 2, Y >> 2)
+    region_service_module._last_build_check[ancestor] = time.monotonic()
+
+    repository = _FakeRealRoadGraphRepository()
+    service = RegionService(repository=repository)
+
+    await service.get_road_surface_tile(Z, X, Y)
+    await asyncio.sleep(0)
+
+    assert calls == []
