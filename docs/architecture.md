@@ -247,7 +247,11 @@ RideCompass/
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
-        evaluation.py                  ✅ RoutePreference, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加
+        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/traffic_stress_level（highway,tags,is_designated）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）
+        accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, distance_weighted_accident_density（7章参照）
+        designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/TRAFFIC_STRESS_DESIGNATION_KINDS（7章参照）
+        evaluation.py                  ✅ RoutePreference（8軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加
+        difficulty.py                    ✅ AxisDifficulties（8軸）, evaluate_axis_difficulties, accident_difficulty等の軸別difficulty関数（Step9で標高/風/路面のみ導入、P1/T50で8軸へ拡張。7章参照）
         routing.py                     ✅ build_networkx_graph, find_nearest_node, shortest_path_node_ids, path_to_edge_ids, concat_node_paths（「完全移行」で新規。Route Engine、NetworkXのDijkstraをラップ）
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
@@ -258,7 +262,8 @@ RideCompass/
         wind_service.py         ✅ ルートのサンプル点ごとに推定到達時刻の風からwind_penalty/wind_scoreを算出（Step7。elevation_service.pyと同じ経緯で削除→復元）
         weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）。RoadGraphEngineからは出発時点・起点付近の風を取得する用途で（「完全移行」）、OpenRouteServiceEngineからはWindService経由で区間ごとの推定到達時刻の風を取得する用途で、それぞれ呼ばれる
         route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）。「完全移行」後もRoad Graphベースの候補に対しそのまま再利用
-        region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）
+        region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
+        accident_service.py          ✅ 事故点のタイル生成（accident_repository.py経由）。region_service.pyとは別系統（外部静的データソースT50、7章参照）
         graph_service.py            ✅ GraphService.build_graph_with_surface_tags_for_bbox(bbox)でOverpass取得+Road Graph構築を統合（Road Graph移行Phase 1〜3、新規）。「完全移行」でRouteGeneratorから実際に参照されるようになった
         elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graph(graph)でEdge単位の標高属性（形状点をGSI APIへ問い合わせ）を算出（Road Graph移行Phase 3、新規）。「完全移行」でRouteGeneratorから、確定した経路上のEdgeだけに絞って呼ばれるようになった（性能上の理由、decisions/road-graph-migration.md参照）
         evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes, wind=None)でEdge Costを算出（Road Graph移行Phase 4、新規。Phase 5でload_route_preference()を追加。「完全移行」でwind引数を追加しRouteGeneratorから参照されるようになった）
@@ -279,6 +284,14 @@ RideCompass/
         road_graph_repository.py     ✅ 責務別4リポジトリ＋ファサード（改善計画T6で分割）: RawOsmRepository（生OSM層・タイルマーカー）/ DerivedGraphRepository（road_nodes/edges・split_at鮮度判定）/ AttributeRepository（標高・路面属性）/ RoadSurfaceTileQuery（表示用MVT）/ RoadGraphRepository（既存公開APIを保つファサード、DI注入点）。**書き込みメソッドはcommitせず、サービス層が操作のまとまりごとにcommit()を呼ぶ規約**（トランザクション境界の詳細はモジュールdocstring参照）。save_raw_ways/get_way_specs_with_closureは「根本修正」で追加、save_graphはway_ids_to_replaceによるdelete-then-reinsert対応
         valhalla_client.py        ⬜ 将来
         osm_repository.py            ⬜（road_graph_repository.pyが実質この役割を担う）
+        accident_repository.py       ✅ AccidentTileQuery（事故点のMVT生成、accident_points専用。road_graph_repository.pyとは別系統）
+        designation_models.py        ✅ route_designations/designation_attributes/designation_import_runsのSQLAlchemy ORMモデル（外部静的データソースT51）
+      batch/                    ✅ PostGIS事前取込バッチ群（`.venv\Scripts\python.exe -m app.batch.<module>`で実行、いずれも--dry-run対応）
+        _common.py                ✅ asyncpg_dsn（SQLAlchemy URL→asyncpg DSN変換）, download_to_path（ZIP/CSV取得の共通骨格）。4バッチが参照する共通ヘルパ（改善計画T80）
+        import_pbf.py              ✅ OSM PBF→osm_raw_ways/osm_raw_nodes/osm_raw_pois取込（Road Graph移行「永続化」、詳細はdocs/osm-pbf-import.md）
+        import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
+        import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
+        match_designations.py         ✅ route_designations→road_edgesバッファマッチ事前計算（designation_attributes、外部静的データソースT51、7章参照）
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがRENDER_GIT_COMMIT未設定時null・設定時はその値を反映すること（「Renderデプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
@@ -318,7 +331,7 @@ RideCompass/
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
       test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
-    migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）
+    migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
@@ -337,8 +350,10 @@ RideCompass/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
         LocationControl/LocationControl.tsx ✅ 現在地表示・手動緯度経度入力フォーム（UI再構成、MapViewから分離）
         Map/mapLayers.ts        ✅ 地図レイヤーのカタログ（id/label/kind/description、単一ソース）。チップ行とサイドバーのセクション枠はこの列挙で描画（UI再構成 第2段で新規）
-        MapOverlayControls/MapOverlayControls.tsx ✅ 地図上のON/OFFチップ行＋適用中条件の1行サマリ（タップでサイドバーの該当設定へ誘導）。レイヤー固有の知識を持たない汎用描画係（UI再構成 第2段で全面書き換え。旧⚙ボタン・RoadFilterDialogは廃止）
-        MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例 / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
+        MapOverlayControls/MapOverlayControls.tsx ✅ 地図上のON/OFFチップ行＋▶で開く凡例内訳パネル（レイヤー固有の知識を持たない汎用描画係。UI再構成 第2段で全面書き換え、旧⚙ボタン・RoadFilterDialogは廃止。凡例パネルは実機フィードバックを受け位置ズレ・展開挙動を反復修正済み）
+        Map/staticAttributeLayers.ts ✅ P1/T50/T51の静的レイヤー色分け・凡例・絞り込み軸カタログ（TRAFFIC_STRESS/BICYCLE_INFRA/DESIGNATION/ACCIDENT/STOP_POI/INTERSECTION、STATIC_FILTER_AXES。7章参照）。buildCategoricalLayerDefsで同型3組を共通化（T82）
+        Map/icons.tsx              ✅ 地図上チップ用の自作SVGアイコン群（レイヤー数増加に伴う新規）
+        MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
@@ -350,6 +365,7 @@ RideCompass/
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
         useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
         useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
+        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）
       lib/
         debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
       services/
@@ -455,7 +471,12 @@ Response 200:
         }
         /* ...区間の数だけ続く（openrouteserviceエンジン: 距離連動サンプリング＝約1km間隔・12〜32点 / road_graphエンジン: Edge数分） */
       ],
-      "geometry": { "type":"LineString","coordinates":[...] }
+      "geometry": { "type":"LineString","coordinates":[...] },
+      "stop_density": 3.1, "traffic_stress_score": 2.4, "bicycle_infra_score": 18.0,
+      "intersection_density": 5.2, "accident_density": 0.03,
+      /* ↑ P1（停止密度〜交差点密度）・T50（事故密度）。route_preference.yaml側の重みのみに効き、
+         上のtotal_scoreには含まれない。segments[]側にも軸別difficulty・生値が入る（7章参照） */
+      "overall_difficulty": 22.5  /* segments.difficultyの距離加重平均（絶対基準、実験間比較用） */
     },
     ...（total_scoreが高い順、最大8件）
   ],
@@ -482,13 +503,23 @@ Response 429（同一クライアントIPから1分あたり60リクエスト（
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
-Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`プロパティ（true=舗装/false=未舗装/null=不明）を持つ
+Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
+  highway/surface/smoothness/tunnel/bridge/`traffic_stress`(1-4)/`bicycle_infra`/`designation`
+  （P0/P1/T51、現行タイル世代v5。7章参照）プロパティを持つ
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
 Response 400（x/yがそのズームレベルで存在しうる範囲 `0 <= x,y < 2**z` を外れる場合。直接APIを叩かれた場合の安全弁で、通常はMapLibreが範囲外のタイルを要求しないため到達しない）:
 { "detail": "タイル座標が範囲外です。" }
 Response 429（同一クライアントIPから1分あたり120リクエスト（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を超えた場合。`infrastructure/rate_limiter.py`によるプロセス内メモリのみの固定窓レート制限）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
+
+GET /api/region/poi-tiles/{z}/{x}/{y}.pbf   # 停止要因POI・交差点密度の点データ（T54、7章参照）。road-surface-tilesと同じズーム範囲・同じPostGIS第一系統
+Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`poi`。各地物（Point）は`kind`（traffic_signals/crossing/stop/give_way/level_crossing、停止要因）または`degree`（接続路数、交差点密度）を持つ
+Response 400/429: road-surface-tilesと同じ規約
+
+GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計オープンデータの発生地点（T50、7章参照）。`AccidentService`が担当し road-surface-tiles/poi-tiles とは別系統
+Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`accidents`。各地物（Point）は`involves_bicycle`（自転車関連か）・`fatal`（死亡事故か）プロパティを持つ
+Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`accident_tile_max_concurrent`で別枠）
 
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送
@@ -589,10 +620,17 @@ interface RouteSegmentDetail {
   gradient_percent: number | null;
   wind_penalty: number | null;
   road_surface_good: boolean | null;
+  traffic_stress: number | null;      // 1-4、P1残り（生値）
+  bicycle_infra: string | null;       // 分類の生値、P1残り
   elevation_difficulty: number | null;
   wind_difficulty: number | null;
   road_difficulty: number | null;
-  difficulty: number | null;
+  stop_difficulty: number | null;         // P1
+  traffic_difficulty: number | null;      // P1残り
+  infra_difficulty: number | null;        // P1残り
+  intersection_difficulty: number | null; // P1残り
+  accident_difficulty: number | null;     // T50（8軸目）
+  difficulty: number | null;              // 8軸の合成値（絶対基準0-100）
 }
 
 interface RouteScoreComponent {   // total_scoreの軸別内訳（研究IF改善 §10-2）
@@ -613,9 +651,15 @@ interface RouteCandidate {
   max_gradient_percent: number | null;
   wind_score: number | null;
   road_score: number | null;
+  stop_density: number | null;          // 回/km、P1
+  traffic_stress_score: number | null;  // 距離加重平均(1-4)、P1残り
+  bicycle_infra_score: number | null;   // 専用インフラ区間率(%)、P1残り
+  intersection_density: number | null;  // 回/km、P1残り
+  accident_density: number | null;      // 件/(km・年)、T50（8軸目）
   total_score: number | null;
   score_breakdown: RouteScoreComponent[] | null;
   segments: RouteSegmentDetail[] | null;
+  overall_difficulty: number | null;  // segments.difficultyの距離加重平均（絶対基準、実験間比較用。研究IF改善§10-7）
 }
 
 interface RouteGenerateRequest {
@@ -644,6 +688,141 @@ interface WeatherConditions {
 候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）は、いずれもタイル形式（標高はGSIのラスタタイル、路面はPostGIS/ST_AsMVTで生成したMVT）で配信するため、Step5-9のようなJSONのレスポンスモデルを持たない。バックエンド側の`domain/region.py`にはタイル範囲計算に使う`BoundingBox`（Pydanticモデル）が残っているが、これはPostGISクエリ・（DBなし構成での）Overpass問い合わせに使う内部的な値であり、フロントエンドとの間でJSONとしてやり取りするものではない（フロント側に対応する型定義は無い）。
 
 これで仕様書18章記載の`RouteCandidate`の項目、地図可視化用の`segments`（Step9）、および候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）が出揃った。
+
+---
+
+## 7. 静的道路属性と8軸評価モデル（P0/P1、外部静的データソースT50/T51）
+
+Step8時点の評価（距離・標高・風・路面の4指標）に加え、OSMタグ・警察庁事故統計・国土数値情報
+（KSJ）を材料とした4指標を追加し、区間難易度（`route_preference.yaml`）・地図の静的レイヤーの
+両方に反映した（`static-road-attributes-plan.md` P0/P1、
+[external-data-sources-review-2026-08-16.md](external-data-sources-review-2026-08-16.md)）。
+scoring.yaml（total_score）には含めない（stop_weightと同じスコープ判断、後述）。
+
+### 8軸の一覧と重み
+
+`domain/difficulty.py: evaluate_axis_difficulties`が8軸の生値と重みから軸別difficulty・
+合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する。重みは
+[backend/app/route_preference.yaml](../backend/app/route_preference.yaml)：
+
+| 軸 | weight フィールド | 既定値 | 生値の単位 | 算出元 |
+|---|---|---|---|---|
+| 標高（勾配） | `elevation_weight` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
+| 路面 | `road_weight` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
+| 風 | `wind_weight` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
+| 停止密度 | `stop_weight` | 0.15 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`） |
+| 交通ストレス | `traffic_weight` | 0.10 | 1-4 | P1（`domain/traffic.py: traffic_stress_level`） |
+| 自転車インフラ | `infra_weight` | 0.10 | 分類（6値） | P1（`domain/traffic.py: classify_bicycle_infrastructure`） |
+| 交差点密度 | `intersection_weight` | 0.05 | 回/km | P1（次数3以上のroad_node） |
+| 事故密度 | `accident_weight` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
+
+`scoring.yaml`（total_score・候補集合内相対評価）にはこの8軸のうち距離・標高・風・路面の
+4指標のみ残す（区間難易度と違い、停止密度以降の4指標は候補間の「おすすめ度」の並び順には
+効かせない、というユーザー承認済みのスコープ判断。P1着手時に決定）。**軸を追加するときは
+必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
+→ domain純関数 → `evaluate_axis_difficulties`への追加 → `route_preference.yaml` →
+`AttributeRepository`＋ファサード対称委譲 → 両エンジン（`OpenRouteServiceEngine`/
+`RoadGraphEngine`）→ フロント`evaluationAxes.ts`のカタログ1行。エンジンファイルに軸固有の
+知識（SQL・タグ解釈）を書き足さない。
+
+### 停止密度・交通ストレス・自転車インフラ・交差点密度（P1、OSM由来）
+
+- **停止密度**: `osm_raw_pois`（`domain/traffic.py: classify_stop_poi`が
+  traffic_signals/crossing/stop/give_way/level_crossingへ分類、`STOP_POI_MATCH_MAX_DISTANCE_M
+  =15m`でEdge/サンプル点へ空間マッチ）。集約は`distance_weighted_stop_density`
+  （合計count÷合計distance_km）。
+- **交通ストレス**: `traffic_stress_level(highway, tags, is_designated)`がhighway基本値
+  （`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に自転車専用帯・制限速度・車線数・T51指定路線該当
+  （後述、+1補正）を加味した1-4の整数。未知highwayは評価対象外（None）。
+- **自転車インフラ**: `classify_bicycle_infrastructure`がseparated/lane/shared_busway/
+  shared_pedestrian/roadway/prohibited/unknownの7値に分類（優先順位あり）。cyclewayタグを
+  交通ストレスと共有入力にしているため両軸は完全独立ではない（意図的、`traffic.py`
+  docstring参照）。
+- **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のroad_node。
+  `INTERSECTION_MATCH_MAX_DISTANCE_M=30m`で空間マッチ。
+
+いずれも`AttributeRepository`（`road_graph_repository.py`）の対称メソッド
+（`get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`get_way_tags`/`get_nearest_way_tags`、
+`get_intersection_counts`/`get_nearest_intersection_counts`）で提供し、`get_*`＝Edge集合を
+渡してEdge単位（RoadGraphEngine）、`get_nearest_*`＝サンプル点列を渡してKNN空間マッチ
+（OpenRouteServiceEngine）という対で揃えている。地図表示は同じ属性を`road-surface-tiles`
+（highway・surface同様プロパティとして焼き込み。交通ストレス・自転車インフラ）と、点データの
+`poi-tiles`（停止要因・交差点密度、後述）で提供する。
+
+### 事故密度（T50、警察庁交通事故統計オープンデータ）
+
+`app/batch/import_accidents.py`が本票CSV（年度別、`backend/data/accidents/`、ユーザーが
+年度ページから入手して配置）を取込む。関東7都県・2022〜2024年（2019〜2021年は本票のCSV列数が
+異なる別スキーマのため未対応）。migration `0006_add_accident_points.sql`で
+`accident_points`（`accident_id`主キー・`occurred_year`・`fatal`・`involves_bicycle`・
+`geom`）・`accident_import_runs`（取込実行の記録）を追加。`domain/accident.py`が
+純関数群（`ACCIDENT_MATCH_MAX_DISTANCE_M=30m`、`distance_weighted_accident_density`＝
+合計count÷合計distance_km÷収録年数で「件/(km・年)」へ正規化）を持つ。収録年数は
+`AttributeRepository.get_accident_years_covered`（`accident_import_runs`のsucceeded run数、
+年重複なし）でハードコードせず動的取得する。地図表示は`GET /api/region/accident-tiles`
+（後述、`AccidentService`/`AccidentTileQuery`）。
+
+### 指定路線コンフレーション機構（T51、国土数値情報 N10/N12）
+
+`app/batch/import_designations.py`が国土数値情報のN10（緊急輸送道路）・N12（重要物流道路）を
+都道府県別ZIP（公開URLから直接取得、`backend/data/designations/`）から取込み、
+`route_designations`（線データ、`kind`=`emergency_transport`/`critical_logistics`）へ
+`(kind, pref_code)`単位でDELETE→INSERTする（migration `0007_add_route_designations.sql`）。
+`app/batch/match_designations.py`が`route_designations`を`DESIGNATION_BUFFER_WIDTH_M=20m`で
+バッファし、road_edgesとの交差長比が`DESIGNATION_MATCH_MIN_RATIO=0.5`以上のEdgeを
+`designation_attributes`（Edge派生の事前計算、`elevation_attributes`と同じパターン）へ
+書き込む事前計算バッチ（取込後・OSM再取込後に再実行が必要）。定数はすべて`domain/designation.py`
+が正準（`DESIGNATION_IMPORT_KINDS`＝取込対象kind、`TRAFFIC_STRESS_DESIGNATION_KINDS`＝
+交通ストレス+1補正の対象kind。現状は同一集合だが概念的に別軸として別定数）。
+
+該当区間は新しい評価軸を増やさず、**交通ストレスへの+1補正のみ**として組み込む
+（`traffic_stress_level(highway, tags, is_designated)`、大型車交通の代理指標）。
+`AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合）と
+`get_nearest_way_tags`が返す3要素目`is_designated`（OpenRouteServiceEngine、highway・tagsと
+同一KNNに同居。旧`get_nearest_designated_flags`は改善計画T76で統合・削除済み）の対で提供する。
+地図表示は`road-surface-tiles`のMVTに`designation`プロパティ（`emergency_transport`/
+`critical_logistics`/未該当はプロパティ欠落、`designation_attributes`をosm_way_id単位へ
+事前集約してからJOIN）として焼き込む。
+
+### 静的レイヤー・タイル配信（フロント9レイヤー）
+
+[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の
+`MAP_LAYERS`カタログは標高図・道路情報・交通ストレス・自転車インフラ・指定路線・停止要因・
+交差点密度・事故（警察庁統計）・ルートの9レイヤー。色分け・凡例・絞り込み軸の定義は
+[frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
+に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
+
+タイル配信は3系統:
+
+1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
+   smoothness・tunnel・bridgeに加え、`traffic_stress`・`bicycle_infra`・`designation`
+   プロパティをLineString地物へ追加（P1・T51で拡張）。世代v2=surface/highway追加、
+   v3=surface正準拡充、v4=P0静的属性追加、**v5=T51 designationプロパティ追加**（現行）。
+2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
+   停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
+   `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。
+3. **`GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`**（`ACCIDENT_TILE_VERSION`、T50新規）:
+   事故地点の点データ（`involves_bicycle`・`fatal`）。`AccidentService`
+   （[backend/app/services/accident_service.py](../backend/app/services/accident_service.py)）・
+   専用リポジトリ`infrastructure/accident_repository.py`が担当し、`region_service.py`とは
+   別系統（データソースがOSM派生グラフではなく`accident_points`のため）。
+
+いずれもタイル世代はプロパティ追加のたびに上げ、`regionApi.ts`側の対応する定数
+（`ROAD_SURFACE_TILE_VERSION`/`POI_TILE_VERSION`/`ACCIDENT_TILE_VERSION`）とドリフト検知
+テスト（`regionApi.test.ts`、`export_openapi.py`が書き出す
+`generated/region-tile-config.json`との照合）で同期を保証する。
+
+### 地図タイル閲覧起点の道路グラフ構築（T59）
+
+上記のタイルは実際にはroad_nodes/road_edges（派生グラフ）を読むが、以前は`RouteGenerator`
+（ルート生成）経由でしか構築されず、地図を眺めるだけの利用では永遠に空のままだった。
+`RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）
+がタイル配信のたびに、対象z12祖先タイルの道路グラフが未構築・古ければ
+`GraphService.get_or_build_graph_with_attributes`をバックグラウンドタスク
+（`asyncio.create_task`、応答は待たせず即座に返す）として起動する。実際の構築（closure再計算・
+Edge全量再UPSERT）だけを`config.py: graph_build_max_concurrent`（既定1）で絞り、鮮度確認
+（`is_split_up_to_date`）は絞らない（T59緊急修正: 無制限の同時構築がDBコネクションプールを
+枯渇させ無関係な他タイル・API呼び出しまで502化した実障害への対応）。
 
 ---
 
