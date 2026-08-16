@@ -38,6 +38,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug/db-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Db Status
+         * @description 本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）
+         *     に追いついているかを1回のリクエストで確認できる診断エンドポイント（改善計画T74）。
+         *
+         *     `road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。
+         *     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
+         *     （docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
+         *     診断用途のため、DB障害時にHTTP 500にする必要はない）。
+         */
+        get: operations["db_status_api_debug_db_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/routes/preview": {
         parameters: {
             query?: never;
@@ -120,6 +146,30 @@ export interface paths {
          *     路面タイルと同じ歯止め・同時実行制御をそのまま流用する。
          */
         get: operations["region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/region/traffic-stress-breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Traffic Stress Breakdown
+         * @description 交通ストレスの判定内訳（改善計画T90）。地図クリック地点近傍の道路について、
+         *     `domain/traffic.py: traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。
+         *     近傍に対象道路が無い、highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null
+         *     （タイル・区間評価と同じ「不明・他」の扱い）。タイル取得と同じ歯止め（クリックの連打対策）
+         *     を流用する。
+         */
+        get: operations["region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -456,6 +506,29 @@ export interface components {
             /** Road Weight */
             road_weight: number;
         };
+        /**
+         * TrafficStressBreakdown
+         * @description `traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に
+         *     「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と
+         *     同じ最終値。highwayが判定基準（`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に登録されていない
+         *     場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
+         */
+        TrafficStressBreakdown: {
+            /** Base */
+            base: number | null;
+            /** Cycleway Adjustment */
+            cycleway_adjustment: number;
+            /** Maxspeed Adjustment */
+            maxspeed_adjustment: number;
+            /** Lanes Adjustment */
+            lanes_adjustment: number;
+            /** Designation Adjustment */
+            designation_adjustment: number;
+            /** Motor Vehicle No Override */
+            motor_vehicle_no_override: boolean;
+            /** Level */
+            level: number | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -512,6 +585,28 @@ export interface operations {
         };
     };
     debug_stats_api_debug_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    db_status_api_debug_db_status_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -684,6 +779,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrafficStressBreakdown"] | null;
                 };
             };
             /** @description Validation Error */

@@ -200,14 +200,29 @@ input[type="number"] {
 /* maplibre-gl.cssの.maplibregl-popup-content既定は背景色#fff固定で文字色を指定しないため、
    bodyのcolor（var(--foreground)）を継承する。ダークモードではvar(--foreground)が明るい色に
    反転する一方この背景だけ白固定のままなので「白背景に白文字」（closeボタンの×含む）になる。
-   ここでvar(--color-surface)/var(--foreground)ペアで固定し、tipの矢印も背景色に追従させる。 */
+   ここでvar(--color-surface)/var(--foreground)ペアで固定し、tipの矢印も背景色に追従させる。
+   既定のbox-shadow（0 1px 2px rgba(0,0,0,.1)）とborder-radius:3pxは淡すぎて、道路や
+   建物で色数の多い地図の上だと縁が視認しづらい（UIレビュー2026-08-16指摘）。他のカード
+   （page.module.css .legendCard等）と同じ角丸・枠線・浮き影のトークンに揃えて地図から
+   はっきり浮かせる。 */
 .maplibregl-popup-content {
   background: var(--color-surface);
   color: var(--foreground);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2) var(--space-3);
 }
 
+/* closeボタンはbutton要素のため、上のグローバルbutton既定（padding:0.5rem 0.9rem等、
+   フォーム用に大きめ）がここにも継承される。地図ポップアップの×には過大で、縮めた
+   本文padding（var(--space-2) var(--space-3)）と並ぶと不釣り合いに大きく間延びして見えた
+   ため、専用に詰める。 */
 .maplibregl-popup-close-button {
   color: var(--foreground);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
 }
 
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,

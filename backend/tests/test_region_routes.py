@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_region_service
 from app.config import settings
+from app.domain.traffic import TrafficStressBreakdown
 from app.infrastructure import rate_limiter
 from app.main import app
 
@@ -19,10 +20,12 @@ def clear_rate_limiter():
 
 
 class FakeRegionService:
-    def __init__(self, tile_bytes=b"\x00\x01\x02"):
+    def __init__(self, tile_bytes=b"\x00\x01\x02", traffic_stress_breakdown=None):
         self._tile_bytes = tile_bytes
+        self._traffic_stress_breakdown = traffic_stress_breakdown
         self.last_request = None
         self.last_poi_request = None
+        self.last_breakdown_request = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
@@ -31,6 +34,10 @@ class FakeRegionService:
     async def get_poi_tile(self, z, x, y):
         self.last_poi_request = (z, x, y)
         return self._tile_bytes
+
+    async def get_traffic_stress_breakdown(self, latitude, longitude):
+        self.last_breakdown_request = (latitude, longitude)
+        return self._traffic_stress_breakdown
 
 
 def test_region_road_surface_tile_returns_mvt_bytes():
@@ -159,6 +166,68 @@ def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_l
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
         response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+def test_region_traffic_stress_breakdown_returns_breakdown_json():
+    breakdown = TrafficStressBreakdown(
+        base=4,
+        cycleway_adjustment=0,
+        maxspeed_adjustment=1,
+        lanes_adjustment=0,
+        designation_adjustment=0,
+        motor_vehicle_no_override=False,
+        level=4,
+    )
+    fake = FakeRegionService(traffic_stress_breakdown=breakdown)
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/traffic-stress-breakdown?latitude=35.68&longitude=139.77")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == breakdown.model_dump()
+    assert fake.last_breakdown_request == (35.68, 139.77)
+
+
+def test_region_traffic_stress_breakdown_returns_null_when_service_returns_none():
+    # DBなし構成・近傍に対象道路が無い場合はRegionService側がNoneを返す
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService(traffic_stress_breakdown=None)
+
+    try:
+        response = client.get("/api/region/traffic-stress-breakdown?latitude=35.68&longitude=139.77")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_region_traffic_stress_breakdown_rejects_out_of_range_latitude():
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        response = client.get("/api/region/traffic-stress-breakdown?latitude=999&longitude=139.77")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+def test_region_traffic_stress_breakdown_rate_limit_is_independent_from_road_surface_tile_rate_limit():
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        for _ in range(settings.road_tile_rate_limit_per_minute):
+            assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
+        assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
+
+        response = client.get("/api/region/traffic-stress-breakdown?latitude=35.68&longitude=139.77")
     finally:
         app.dependency_overrides.clear()
 

@@ -6,10 +6,12 @@ import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMa
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinates, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
+import type { TrafficStressBreakdown } from "@/types/traffic";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  fetchTrafficStressBreakdown,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
@@ -674,9 +676,14 @@ function formatRoad(good: boolean | null): string {
   return good ? "舗装路" : "未舗装路";
 }
 
+// ポップアップ本文の共通スタイル。line-heightは以前1.6だったが、短い行の羅列に対して
+// 間延びして見えたため、サイドバーの他カード（page.module.css .legendCard等）に近い
+// 密度の1.4へ詰めた。
+const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
+
 function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
   const gradient = segment.gradient_percent != null ? `${segment.gradient_percent.toFixed(1)}%` : "不明";
-  return `<div style="font-size:0.85rem; line-height:1.6;">
+  return `<div style="${POPUP_BODY_STYLE}">
     <strong>${segment.cumulative_distance_km.toFixed(1)} km地点</strong>（到達予想 ${formatTime(segment.estimated_arrival_time)}）<br/>
     勾配: ${gradient}<br/>
     風: ${formatWind(segment.wind_penalty)}<br/>
@@ -709,6 +716,12 @@ const SMOOTHNESS_LABELS: Record<string, string> = {
   impassable: "通行不能",
 };
 
+// 交通ストレスの区間別判定内訳（改善計画T90）。ポップアップ内のボタン・結果表示先を
+// data属性で識別する（HTML文字列としてMapLibreのPopup#setHTMLへ渡すため、Reactの
+// イベントハンドラは使えず、addTo後にDOMを直接querySelectorして配線する）。
+const TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR = "data-traffic-stress-breakdown-button";
+const TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR = "data-traffic-stress-breakdown-result";
+
 function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
   const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
   if (properties.smoothness) {
@@ -725,7 +738,56 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   }
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
-  return `<div style="font-size:0.85rem; line-height:1.6;">${rows.join("<br/>")}</div>`;
+  const breakdownAffordance =
+    properties.traffic_stress != null
+      ? `<div style="margin-top:var(--space-1);">
+          <button type="button" ${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">交通ストレスの内訳を見る</button>
+          <div ${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}></div>
+        </div>`
+      : "";
+  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${breakdownAffordance}</div>`;
+}
+
+function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): string {
+  if (breakdown.level == null) {
+    return `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">この道路種別は交通ストレスの判定基準に登録されていません。</div>`;
+  }
+  const rows = [`基準値（道路種別）: ${breakdown.base}`];
+  if (breakdown.motor_vehicle_no_override) {
+    rows.push("車両通行不可（自転車専用）のため1に固定");
+  } else {
+    if (breakdown.cycleway_adjustment !== 0) rows.push(`自転車インフラ: ${breakdown.cycleway_adjustment}`);
+    if (breakdown.maxspeed_adjustment !== 0) {
+      rows.push(`制限速度: ${breakdown.maxspeed_adjustment > 0 ? "+" : ""}${breakdown.maxspeed_adjustment}`);
+    }
+    if (breakdown.lanes_adjustment !== 0) rows.push(`車線数: +${breakdown.lanes_adjustment}`);
+    if (breakdown.designation_adjustment !== 0) rows.push(`指定路線: +${breakdown.designation_adjustment}`);
+  }
+  rows.push(`<strong>最終値: ${breakdown.level}/4</strong>`);
+  return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${rows.join("<br/>")}</div>`;
+}
+
+// buildRoadSurfacePopupHtmlが出す「内訳を見る」ボタンをポップアップ表示後に配線する
+// （オンデマンド取得: 道路クリックのたびに毎回問い合わせると、色分けを見ながら地図を
+// 連続でクリックする通常操作でAPIコール・レート制限を無駄に消費するため）。
+function attachTrafficStressBreakdownHandler(popupElement: HTMLElement, latitude: number, longitude: number) {
+  const button = popupElement.querySelector<HTMLButtonElement>(`[${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR}]`);
+  const resultEl = popupElement.querySelector<HTMLElement>(`[${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}]`);
+  if (!button || !resultEl) return;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "取得中…";
+    try {
+      const breakdown = await fetchTrafficStressBreakdown(latitude, longitude);
+      resultEl.innerHTML = breakdown
+        ? buildTrafficStressBreakdownHtml(breakdown)
+        : `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
+    } catch {
+      resultEl.innerHTML = `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
+    } finally {
+      button.remove();
+    }
+  });
 }
 
 // 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
@@ -739,7 +801,7 @@ function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
   const rows = [properties.involves_bicycle ? "自転車関連事故" : "事故（自転車以外）"];
   if (properties.fatal) rows.push("死亡事故");
   if (properties.occurred_year != null) rows.push(`発生年: ${properties.occurred_year}`);
-  return `<div style="font-size:0.85rem; line-height:1.6;">${rows.join("<br/>")}</div>`;
+  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}</div>`;
 }
 
 // 改善計画T54: 停止要因POI・交差点密度のクリックポップアップ用プロパティ。
@@ -753,12 +815,12 @@ interface IntersectionPopupProperties {
 
 function buildStopPoiPopupHtml(properties: StopPoiPopupProperties): string {
   const label = properties.kind ? (STOP_POI_LABELS[properties.kind] ?? properties.kind) : "不明";
-  return `<div style="font-size:0.85rem; line-height:1.6;">停止要因: ${label}</div>`;
+  return `<div style="${POPUP_BODY_STYLE}">停止要因: ${label}</div>`;
 }
 
 function buildIntersectionPopupHtml(properties: IntersectionPopupProperties): string {
   const degree = properties.degree != null ? `${properties.degree}本` : "不明";
-  return `<div style="font-size:0.85rem; line-height:1.6;">交差点（接続路 ${degree}）</div>`;
+  return `<div style="${POPUP_BODY_STYLE}">交差点（接続路 ${degree}）</div>`;
 }
 
 interface MapViewProps {
@@ -1016,6 +1078,12 @@ export default function MapView({
       if (features.length === 0) return;
 
       const feature = features[0];
+      const isRoadSurfaceFeature =
+        feature.layer.id !== DETAIL_LAYER_ID &&
+        feature.layer.id !== ACCIDENT_LAYER_ID &&
+        feature.layer.id !== STOP_POI_LAYER_ID &&
+        feature.layer.id !== INTERSECTION_LAYER_ID;
+      const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
       const html =
         feature.layer.id === DETAIL_LAYER_ID
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
@@ -1025,10 +1093,17 @@ export default function MapView({
               ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
               : feature.layer.id === INTERSECTION_LAYER_ID
                 ? buildIntersectionPopupHtml(feature.properties as unknown as IntersectionPopupProperties)
-                : buildRoadSurfacePopupHtml(feature.properties as unknown as RoadSurfacePopupProperties);
+                : buildRoadSurfacePopupHtml(roadSurfaceProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+
+      // 交通ストレスの内訳ボタン（改善計画T90）は道路レイヤーかつtraffic_stressが
+      // 判定済みの区間だけに出るため、buildRoadSurfacePopupHtml側の出し分けと対応させる。
+      if (isRoadSurfaceFeature && roadSurfaceProperties.traffic_stress != null) {
+        const popupElement = popupRef.current.getElement();
+        if (popupElement) attachTrafficStressBreakdownHandler(popupElement, e.lngLat.lat, e.lngLat.lng);
+      }
     }
 
     function handleMouseMove(e: MapMouseEvent) {

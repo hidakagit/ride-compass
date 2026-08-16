@@ -27,6 +27,12 @@ class FakeRegionRepository:
         self._error = error
         self.mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
         self.poi_mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
+        self.nearest_way_tags_result: tuple[str | None, dict[str, str], bool] = (None, {}, False)
+        self.nearest_way_tags_calls: list[list[tuple[float, float]]] = []
+
+    async def get_nearest_way_tags(self, points, max_distance_m=30.0):
+        self.nearest_way_tags_calls.append(points)
+        return [self.nearest_way_tags_result for _ in points]
 
     async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
         if self._error is not None:
@@ -147,6 +153,46 @@ async def test_poi_tile_no_repository_returns_empty_mvt():
     tile_bytes = await service.get_poi_tile(Z, X, Y)
 
     assert isinstance(tile_bytes, bytes)
+
+
+# 改善計画T90: 交通ストレスの区間別判定内訳表示。get_nearest_way_tags（既存、静的道路属性P1残り・
+# 改善計画T76で統合済み）が返す(highway, tags, is_designated)を`domain/traffic.py:
+# traffic_stress_breakdown`へそのまま渡すだけの薄い委譲のため、判定ロジック自体の
+# 網羅的な境界値検証はtest_traffic.py::TestTrafficStressBreakdownに任せる。
+
+
+async def test_traffic_stress_breakdown_delegates_to_domain_function():
+    repository = FakeRegionRepository()
+    repository.nearest_way_tags_result = ("primary", {"maxspeed": "60"}, False)
+    service = RegionService(repository=repository)
+
+    breakdown = await service.get_traffic_stress_breakdown(35.68, 139.77)
+
+    assert breakdown is not None
+    assert breakdown.base == 4
+    assert breakdown.maxspeed_adjustment == 1
+    assert breakdown.level == 4
+    # (lat, lon)の順で1点だけ問い合わせる
+    assert repository.nearest_way_tags_calls == [[(35.68, 139.77)]]
+
+
+async def test_traffic_stress_breakdown_no_nearby_road_returns_none_level():
+    repository = FakeRegionRepository()  # 既定: 近傍に道路なし(None, {}, False)
+    service = RegionService(repository=repository)
+
+    breakdown = await service.get_traffic_stress_breakdown(35.68, 139.77)
+
+    assert breakdown is not None
+    assert breakdown.base is None
+    assert breakdown.level is None
+
+
+async def test_traffic_stress_breakdown_no_repository_returns_none():
+    # DBなし構成（repository未注入）はNone（他のRegionServiceメソッドの
+    # 「repository未注入時は機能自体が使えない」規約と同じ）
+    service = RegionService()
+
+    assert await service.get_traffic_stress_breakdown(35.68, 139.77) is None
 
 
 # 改善計画T59: ルート生成した地点でしか道路グラフ（road_nodes/road_edges）が構築されず、
