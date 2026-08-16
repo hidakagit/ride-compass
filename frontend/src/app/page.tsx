@@ -12,7 +12,12 @@ import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverl
 import { LogIcon, StatusIcon } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
-import { MAP_LAYERS, type MapLayerId, type MapLayerVisibility } from "@/components/Map/mapLayers";
+import {
+  MAP_LAYERS,
+  type LayerDataStatusByLayer,
+  type MapLayerId,
+  type MapLayerVisibility,
+} from "@/components/Map/mapLayers";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
@@ -222,6 +227,10 @@ export default function Home() {
     },
   );
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
+  // レイヤーごとのデータ取得状態（改善計画T87）。MapViewが実際のタイル取得結果
+  // （sourcedata/sourcedataloading/errorイベント）から算出し、サイドバー（MapLayersPanel）へ
+  // 「読込中」「データなし」「取得失敗」の表示として反映する。
+  const [layerDataStatus, setLayerDataStatus] = useState<LayerDataStatusByLayer>({});
   const [refreshToken, setRefreshToken] = useState(0);
   // デバッグログパネル自体の開閉。デバッグモードON＝ログ記録は常時有効だが、パネル表示は
   // 別（常時画面を占有させたくないという実機フィードバックを受け、右上の起動アイコンで
@@ -619,6 +628,7 @@ export default function Home() {
           onStaticFilterLegendToggle={toggleHiddenLegendKey}
           onStaticFilterAxisSetHidden={handleStaticFilterAxisSetHidden}
           regionZoomTooWide={regionZoomTooWide}
+          layerDataStatus={layerDataStatus}
           routeStyleModeId={routeStyleModeId}
           onRouteStyleModeChange={setRouteStyleModeId}
           hiddenRouteLegendKeys={hiddenRouteLegendKeys}
@@ -770,6 +780,7 @@ export default function Home() {
             routeStyleModeId={routeStyleModeId}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
             onRegionZoomHintChange={setRegionZoomTooWide}
+            onLayerDataStatusChange={setLayerDataStatus}
             refreshToken={refreshToken}
             experimentSlots={researchEnabled ? experimentSlots : []}
           />

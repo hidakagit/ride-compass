@@ -118,6 +118,14 @@
   margin: 0;
 }
 
+/* レイヤーのデータ取得失敗（改善計画T87）。読込中・データなしはmutedHint（弱調）で足りるが、
+   取得失敗は再読み込み等の行動を促したいためzoomWarningに近い強さの警告色にする。 */
+.dataStatusError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
 .legendCaption {
   color: var(--color-muted-strong);
   font-size: var(--font-size-sm);

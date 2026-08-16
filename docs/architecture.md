@@ -505,7 +505,7 @@ Response 429（同一クライアントIPから1分あたり60リクエスト（
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
   highway/surface/smoothness/tunnel/bridge/`traffic_stress`(1-4)/`bicycle_infra`/`designation`/`osm_way_id`
-  （P0/P1/T51/T74/T90、現行タイル世代v7。7章参照）プロパティを持つ。`osm_way_id`は表示用ではなく、
+  （P0/P1/T51/T74/T90、現行タイル世代v8。7章参照）プロパティを持つ。`osm_way_id`は表示用ではなく、
   区間クリック時の交通ストレス内訳取得（`GET /api/region/traffic-stress-breakdown`）がクリックされた
   フィーチャーを曖昧さ無く引き直すための識別子（T90）
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
@@ -812,7 +812,10 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
    プロパティをLineString地物へ追加（P1・T51で拡張）。世代v2=surface/highway追加、
    v3=surface正準拡充、v4=P0静的属性追加、v5=T51 designationプロパティ追加、
    v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
-   **v7=T90 osm_way_idプロパティ追加（区間クリック時の交通ストレス内訳取得の識別子）**（現行）。
+   v7=T90 osm_way_idプロパティ追加（区間クリック時の交通ストレス内訳取得の識別子）、
+   **v8=T93（統合レビュー2026-08-17 F-1）。T92のtraffic_stress判定ロジック変更が
+   世代の対上げを伴っておらずキャッシュが陳腐化しうる不整合を修正（プロパティ構成は不変）**
+   （現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
    停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。

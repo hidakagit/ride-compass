@@ -41,6 +41,7 @@ import {
   TRAFFIC_STRESS_COLOR_EXPRESSION,
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
+import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
@@ -585,6 +586,115 @@ const STATIC_OVERLAY_LAYERS = [
 
 type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
 
+// レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
+// road/trafficStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用しているため
+// （T59でroad_edgesが未構築の地点では、この4レイヤーが同時にempty/errorになるのが正しい
+// 挙動）、あえて同じsourceId/sourceLayerを指す。stopPoi/intersectionsは同じregion-poi-tiles
+// ソースだが別のsource-layer（T54のようにosm_raw_poisテーブルだけ未取込、というPOI種別ごとの
+// 片方だけの欠損を区別できるようにする）。elevationは国土地理院のラスタタイルで
+// source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
+// （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
+// MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
+// （MapView.dataStatus.test.ts）から個別レイヤーのsourceIdを参照できるようexportしている。
+export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; sourceLayer?: string }[] = [
+  { key: "road", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "trafficStress", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
+  { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
+  { key: "intersections", sourceId: POI_TILE_SOURCE_ID, sourceLayer: INTERSECTION_SOURCE_LAYER },
+  { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
+];
+
+// map.on("error"/"sourcedata"/"sourcedataloading", ...)の対象を絞り込むための集合
+// （ルート系・ハロー等、この機構の対象外のsourceIdは無視する）。
+const TRACKED_DATA_SOURCE_IDS = new Set(LAYER_DATA_SOURCES.map((entry) => entry.sourceId));
+
+// computeLayerDataStatusが必要とするMapインスタンスの最小限の形（構造的部分型のため、
+// 実際のMapLibreMapをそのまま渡せる。テストでは最小限のフェイクだけを用意すればよい）。
+interface DataStatusMapLike {
+  getSource(id: string): unknown;
+  isSourceLoaded(id: string): boolean;
+  querySourceFeatures(id: string, options: { sourceLayer: string }): unknown[];
+}
+
+// 表示ON中のレイヤーだけを対象に、(source, source-layer)ごとの現在状態から
+// loading/empty/errorを判定する純粋関数（MapView.segments.test.tsと同じ考え方でテスト可能に
+// エクスポートしている）。判定順序: エラー中 > 未読込(loading) > 読込済みだが0件(empty)。
+// 正常時（既知件数のデータが描画できている状態）はキー自体を持たない。
+export function computeLayerDataStatus(
+  map: DataStatusMapLike,
+  erroredSourceIds: ReadonlySet<string>,
+  visibility: Partial<Record<MapLayerId, boolean>>
+): LayerDataStatusByLayer {
+  const status: LayerDataStatusByLayer = {};
+  // road/trafficStress/bicycleInfra/designationのように複数レイヤーが同じ(sourceId,
+  // sourceLayer)を共有するため、querySourceFeatures（実タイルのフィーチャーを走査する
+  // 軽くない処理）を同じ引数で繰り返し呼ばないよう、この1回の呼び出し内でだけ結果を
+  // メモ化する（レビュー指摘: road_surfaceは実測6,273件、共有4レイヤー分で素朴には
+  // 4倍呼ばれていた。この関数はsourcedata等の高頻度イベントのたびに呼ばれるため無視できない）。
+  const emptyBySourceLayer = new Map<string, boolean>();
+  for (const { key, sourceId, sourceLayer } of LAYER_DATA_SOURCES) {
+    if (!visibility[key]) continue;
+    if (!map.getSource(sourceId)) continue;
+    if (erroredSourceIds.has(sourceId)) {
+      status[key] = "error";
+      continue;
+    }
+    if (!map.isSourceLoaded(sourceId)) {
+      status[key] = "loading";
+      continue;
+    }
+    if (!sourceLayer) continue;
+    const cacheKey = `${sourceId} ${sourceLayer}`;
+    let isEmpty = emptyBySourceLayer.get(cacheKey);
+    if (isEmpty === undefined) {
+      isEmpty = map.querySourceFeatures(sourceId, { sourceLayer }).length === 0;
+      emptyBySourceLayer.set(cacheKey, isEmpty);
+    }
+    if (isEmpty) status[key] = "empty";
+  }
+  return status;
+}
+
+function layerDataStatusEqual(a: LayerDataStatusByLayer, b: LayerDataStatusByLayer): boolean {
+  const aKeys = Object.keys(a) as MapLayerId[];
+  const bKeys = Object.keys(b) as MapLayerId[];
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
+// T87実機確認で判明した不具合の対策: erroredSourceIdsは「次の取得サイクル開始
+// （sourcedataloading）まで保持」する設計だが、失敗した地点から一度も再取得が発生しない
+// 別の地点（既にタイルがキャッシュ済みの地点）へ移動した場合、sourcedataloading自体が
+// 発火しないためエラー状態が解除される機会が永久に来ず「取得失敗」が誤って残り続けた
+// （バックエンド停止→別地点でエラー発生→バックエンド復旧→キャッシュ済みの元の地点へ戻っても
+// 「取得失敗」表示のまま、という形で実機確認時に再現）。パン/ズームが収束した時点
+// （moveend/zoomend）でも、保留中の取得が無い（isSourceLoaded=true）sourceは
+// 「このビューポートでは問題が無い」とみなしてエラーを解除する。
+//
+// 重要: 呼び出し元はmoveend/zoomend（ビューポートが実際に変わった時点）に限定し、"idle"から
+// 呼んではいけない。MapLibreのisSourceLoaded()は、タイルが'errored'（取得失敗のまま再試行
+// されていない）状態でも「保留中の要求が無い」という理由でtrueを返す（'errored'を'loaded'と
+// 同列に「settled」とみなすため）。ビューポートが変わっていない"idle"でこれを解除条件に使うと、
+// 今まさに進行中の障害（例: バックエンド停止で該当タイルがずっとerrored状態のまま）を
+// 「もう問題ない」と誤って解除してしまい、"取得失敗"表示が"データなし"に化けてしまう
+// （レビューで発見・修正、handleIdleRecompute参照）。moveend/zoomendは定義上ビューポートが
+// 実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは「新しいビューポートの
+// タイルは問題なく決着した」という意味を持てるが、同じ判定を"idle"だけに基づいて行うことは
+// できない。
+export function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSourceIds: Set<string>): boolean {
+  let changed = false;
+  for (const sourceId of erroredSourceIds) {
+    if (map.isSourceLoaded(sourceId)) {
+      erroredSourceIds.delete(sourceId);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
 // 除いたものに、STATIC_OVERLAY_LAYERSの対象外であるDETAIL_LAYER_ID（ルート詳細区間）・
@@ -631,11 +741,30 @@ function setStaticOverlayFilters(map: MapLibreMap, hiddenKeysByAxis: Record<Stat
   });
 }
 
+// road_surfaceタイルを共有する4レイヤー（mapLayers.ts: ROAD_SURFACE_SHARED_LAYER_IDS）の
+// いずれかが表示ONかを判定する。road_surfaceソースを参照する箇所（ズーム範囲外判定・
+// レイヤーデータ状態表示の抑制）が両方ともこのヘルパー経由でROAD_SURFACE_SHARED_LAYER_IDSを
+// 参照するようにし、「4レイヤーのどれが対象か」を1箇所（mapLayers.ts）だけが知っていれば
+// よい状態にする（改善計画T87レビュー指摘: 以前はroadの表示状態だけを見ていたため、
+// road自体はOFFのままtrafficStress等だけONの場合にズーム範囲外の案内が一切出なかった）。
+// MapView.segments.test.tsと同じ考え方でテスト可能にexportしている。
+export function isRoadSurfaceGroupVisible(visibility: Partial<Record<MapLayerId, boolean>>): boolean {
+  return ROAD_SURFACE_SHARED_LAYER_IDS.some((id) => visibility[id]);
+}
+
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
-function updateRoadZoomHint(map: MapLibreMap, showRoad: boolean, onChange: (tooWide: boolean) => void) {
-  onChange(showRoad && map.getZoom() < ROAD_TILE_MIN_ZOOM);
+// showRoadSurfaceGroupは isRoadSurfaceGroupVisible の結果（road_surfaceタイルを共有する
+// 4レイヤーのいずれかが表示ONか）。以前はroadの表示状態だけを見ていたため、road自体はOFFの
+// ままtrafficStress等だけONで同じソースを見ている場合にこの案内が一切出ない不整合があった
+// （改善計画T87レビュー指摘）。
+function updateRoadZoomHint(
+  map: MapLibreMap,
+  showRoadSurfaceGroup: boolean,
+  onChange: (tooWide: boolean) => void
+) {
+  onChange(showRoadSurfaceGroup && map.getZoom() < ROAD_TILE_MIN_ZOOM);
 }
 
 // 全候補のgeometryを包含するbounds計算そのものは地図インスタンスに依存しない純粋な処理
@@ -885,6 +1014,9 @@ interface MapViewProps {
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
   onRegionZoomHintChange: (tooWide: boolean) => void;
+  /** レイヤーごとのデータ取得状態（改善計画T87、loading/empty/error）。表示ONのレイヤーが
+   * 変わるたび・タイル取得の進行に応じて呼ばれる（値が変わらない限り呼ばない）。 */
+  onLayerDataStatusChange: (status: LayerDataStatusByLayer) => void;
   refreshToken: number;
   /** 実験スロット（研究インターフェース改善 §10-3）。デバッグモードOFF時は呼び出し側が
    * 空配列を渡すため、通常利用ではレイヤーは作られない。 */
@@ -909,6 +1041,7 @@ export default function MapView({
   routeStyleModeId,
   hiddenRouteLegendKeys,
   onRegionZoomHintChange,
+  onLayerDataStatusChange,
   refreshToken,
   experimentSlots,
 }: MapViewProps) {
@@ -925,8 +1058,17 @@ export default function MapView({
   // 初めて開いたユーザーには「壊れている」ように映りかねなかった。最初のidle
   // （表示中のタイル取得が一通り落ち着いたタイミング）までスケルトンを重ねて示す。
   const [initialTilesLoading, setInitialTilesLoading] = useState(true);
-  const showRoadRef = useRef(showRoad);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
+  const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
+  // T87: 'error'イベントでsourceIdが追加される。クリアされるのは(a)そのsourceIdに
+  // 'sourcedataloading'（＝新しい取得サイクルの開始）が届いたとき、または(b)ビューポートが
+  // 実際に変わった（moveend/zoomend）時点でisSourceLoaded()がtrueのとき、のいずれか
+  // （clearStaleTrackedSourceErrors参照）。"idle"だけでは解除しない
+  // （isSourceLoadedがtrueに戻っただけでは、失敗したタイル自体は再試行されず「保留中の要求が
+  // 無い」状態になっているだけの可能性があり、ビューポートが変わっていなければ今まさに
+  // 進行中の障害と区別できないため）。
+  const erroredSourceIdsRef = useRef<Set<string>>(new Set());
+  const lastLayerDataStatusRef = useRef<LayerDataStatusByLayer>({});
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -949,12 +1091,12 @@ export default function MapView({
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
   useEffect(() => {
-    showRoadRef.current = showRoad;
-  }, [showRoad]);
-
-  useEffect(() => {
     onRegionZoomHintChangeRef.current = onRegionZoomHintChange;
   }, [onRegionZoomHintChange]);
+
+  useEffect(() => {
+    onLayerDataStatusChangeRef.current = onLayerDataStatusChange;
+  }, [onLayerDataStatusChange]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -1030,7 +1172,11 @@ export default function MapView({
     });
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
-    updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
+    updateRoadZoomHint(
+      map,
+      isRoadSurfaceGroupVisible({ road: showRoad, trafficStress: showTrafficStress, bicycleInfra: showBicycleInfra, designation: showDesignation }),
+      onRegionZoomHintChangeRef.current
+    );
 
     drawBaseRoutes(map, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
@@ -1043,6 +1189,39 @@ export default function MapView({
     } else {
       hideDetailSegments(map);
     }
+  }, []);
+
+  // T87: レイヤーデータ状態（loading/empty/error）の再計算。呼び出し元は複数
+  // （tracked sourceのsourcedata/sourcedataloading/errorイベント、表示ON/OFFが変わる
+  // effect）だが、算出そのものはcomputeLayerDataStatus（純粋関数）に閉じているため
+  // ここでは「今のmap・エラー集合・表示状態を渡して呼ぶ」だけ。値が変わらなければ
+  // コールバックを呼ばない（page.tsx側のuseState更新→再レンダーを無駄に発生させないため）。
+  const recomputeLayerDataStatus = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const {
+      showElevation,
+      showRoad,
+      showTrafficStress,
+      showBicycleInfra,
+      showDesignation,
+      showAccidents,
+      showStopPoi,
+      showIntersections,
+    } = redrawPropsRef.current;
+    const status = computeLayerDataStatus(map, erroredSourceIdsRef.current, {
+      elevation: showElevation,
+      road: showRoad,
+      trafficStress: showTrafficStress,
+      bicycleInfra: showBicycleInfra,
+      designation: showDesignation,
+      accidents: showAccidents,
+      stopPoi: showStopPoi,
+      intersections: showIntersections,
+    });
+    if (layerDataStatusEqual(status, lastLayerDataStatusRef.current)) return;
+    lastLayerDataStatusRef.current = status;
+    onLayerDataStatusChangeRef.current(status);
   }, []);
 
   // 地図初期化
@@ -1165,9 +1344,15 @@ export default function MapView({
 
     // 路面はベクタタイルのminzoom未満だと描画されないため、ズームのたびに現在のズームと
     // 閾値を比較して「表示範囲が広すぎます」の案内を更新する（データ取得は発生しない、
-    // 単なる数値比較なので毎フレーム呼ばれても軽い）
+    // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
+    // propsを保持するredrawPropsRef.currentを直接読む（recomputeLayerDataStatusと同じ方式）。
     function handleZoom() {
-      updateRoadZoomHint(map, showRoadRef.current, onRegionZoomHintChangeRef.current);
+      const { showRoad, showTrafficStress, showBicycleInfra, showDesignation } = redrawPropsRef.current;
+      updateRoadZoomHint(
+        map,
+        isRoadSurfaceGroupVisible({ road: showRoad, trafficStress: showTrafficStress, bicycleInfra: showBicycleInfra, designation: showDesignation }),
+        onRegionZoomHintChangeRef.current
+      );
     }
 
     // マップの表示イベント（load完了・パン/ズーム確定・エラー）をデバッグログに記録する。
@@ -1189,9 +1374,30 @@ export default function MapView({
         setStyleLoadFailed(true);
         setInitialTilesLoading(false);
       }
+      // T87: レイヤーデータ状態の対象sourceで起きたエラーは「取得失敗」として記録する
+      // （エラー解除はhandleTrackedSourceDataLoading側、新しい取得サイクルの開始時のみ）。
+      if (sourceId && TRACKED_DATA_SOURCE_IDS.has(sourceId)) {
+        erroredSourceIdsRef.current.add(sourceId);
+        recomputeLayerDataStatus();
+      }
     }
     function handleFirstIdle() {
-      if (!cancelled) setInitialTilesLoading(false);
+      if (cancelled) return;
+      setInitialTilesLoading(false);
+      recomputeLayerDataStatus();
+    }
+    // T87: レイヤーデータ状態の対象sourceのタイル取得イベント。新しい取得サイクルの
+    // 開始（sourcedataloading）で直前のエラー状態をクリアし、進行・完了（sourcedata）の
+    // たびに再計算する（loading/empty/errorいずれも、実際の変化がなければ
+    // recomputeLayerDataStatus内でコールバックを呼ばない）。
+    function handleTrackedSourceDataLoading(e: maplibregl.MapSourceDataEvent) {
+      if (!TRACKED_DATA_SOURCE_IDS.has(e.sourceId)) return;
+      erroredSourceIdsRef.current.delete(e.sourceId);
+      recomputeLayerDataStatus();
+    }
+    function handleTrackedSourceData(e: maplibregl.MapSourceDataEvent) {
+      if (!TRACKED_DATA_SOURCE_IDS.has(e.sourceId)) return;
+      recomputeLayerDataStatus();
     }
     function handleMoveEnd() {
       const bounds = map.getBounds();
@@ -1201,9 +1407,32 @@ export default function MapView({
           ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].map((n) => Number(n.toFixed(4)))
           : null,
       });
+      if (clearStaleTrackedSourceErrors(map, erroredSourceIdsRef.current)) recomputeLayerDataStatus();
     }
     function handleZoomEnd() {
       debugLog("map:viewport", "zoomend", { zoom: Number(map.getZoom().toFixed(2)) });
+      if (clearStaleTrackedSourceErrors(map, erroredSourceIdsRef.current)) recomputeLayerDataStatus();
+    }
+    // T87実機確認で判明した不具合の対策その2: isSourceLoaded()がtrueになった直後の一瞬は
+    // querySourceFeatures()がまだ実際のフィーチャーを返さないタイミングがあり
+    // （isSourceLoadedとタイルのパース完了の間に競合がある）、その瞬間にsourcedataイベントで
+    // 再計算すると誤って"empty"と判定・確定してしまう。その後実際にフィーチャーが揃っても、
+    // 状態を変える追加のsourcedataイベントが来ないため、誤ったempty表示のまま固定されてしまう
+    // 不具合を実機で確認した（road_surfaceに実際は6,273件あるのに「データなし」のまま）。
+    // "idle"（描画が一通り落ち着いた状態、sourcedataより後発で頻度は低い）でも継続的に
+    // 再計算することで、この種のズレを取りこぼさず収束させる。
+    // 注意: ここではclearStaleTrackedSourceErrorsを呼ばない（handleMoveEnd/handleZoomEndとの
+    // 非対称は意図的）。"idle"はビューポートが変わっていなくても発火する（ポップアップを開く・
+    // マーカー移動等）ため、"isSourceLoaded()がtrue"であっても「今まさに進行中の障害で
+    // 該当タイルがerrored状態のまま留まっている」場合と区別できない
+    // （MapLibreのTileManager.loaded()は'errored'状態のタイルも'loaded'と同様に「保留中の
+    // 要求が無い」と扱うため、リトライされないまま即座にtrueを返しうる）。moveend/zoomendは
+    // 定義上ビューポートが実際に変わった時にしか発火しないため、そちらでのisSourceLoaded()の
+    // trueは「新しいビューポートには（把握できる範囲で）問題が無い」という意味を持てるが、
+    // "idle"でのtrueにはその保証が無く、進行中の実障害を「解除」してしまう
+    // （バックエンド障害中に"idle"で誤ってerrorが消え、"データなし"に化けるレビュー指摘で発覚）。
+    function handleIdleRecompute() {
+      recomputeLayerDataStatus();
     }
 
     map.on("click", handleClick);
@@ -1213,6 +1442,9 @@ export default function MapView({
     map.on("error", handleMapError);
     map.on("moveend", handleMoveEnd);
     map.on("zoomend", handleZoomEnd);
+    map.on("sourcedataloading", handleTrackedSourceDataLoading);
+    map.on("sourcedata", handleTrackedSourceData);
+    map.on("idle", handleIdleRecompute);
     map.once("idle", handleFirstIdle);
 
     return () => {
@@ -1227,6 +1459,9 @@ export default function MapView({
       map.off("error", handleMapError);
       map.off("moveend", handleMoveEnd);
       map.off("zoomend", handleZoomEnd);
+      map.off("sourcedataloading", handleTrackedSourceDataLoading);
+      map.off("sourcedata", handleTrackedSourceData);
+      map.off("idle", handleIdleRecompute);
       map.remove();
       mapRef.current = null;
       // markerRef/popupRefは破棄されたmapインスタンスに紐づいたままなのでリセットする。
@@ -1326,6 +1561,10 @@ export default function MapView({
       stopPoi: showStopPoi,
       intersections: showIntersections,
     });
+    // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
+    // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
+    // 状態が更新されるようにするため）。
+    recomputeLayerDataStatus();
   }, [
     showElevation,
     showTrafficStress,
@@ -1334,6 +1573,7 @@ export default function MapView({
     showAccidents,
     showStopPoi,
     showIntersections,
+    recomputeLayerDataStatus,
   ]);
 
   // 交通ストレス・自転車インフラ・指定路線・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み
@@ -1348,12 +1588,28 @@ export default function MapView({
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
   // fetchは不要）。色は常に固定（ROAD_LINE_COLOR_AXIS_ID）のためここでは差し替えない。
+  // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するtrafficStress/
+  // bicycleInfra/designationのON/OFFでも変わりうるため、依存配列に含めてこの3フラグが
+  // 変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままtrafficStress等
+  // だけONで表示範囲が広すぎる場合に案内が一切出なかった不整合の修正）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
-    updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
-  }, [showRoad, roadHiddenKeysByMode]);
+    updateRoadZoomHint(
+      map,
+      isRoadSurfaceGroupVisible({ road: showRoad, trafficStress: showTrafficStress, bicycleInfra: showBicycleInfra, designation: showDesignation }),
+      onRegionZoomHintChangeRef.current
+    );
+    recomputeLayerDataStatus();
+  }, [
+    showRoad,
+    showTrafficStress,
+    showBicycleInfra,
+    showDesignation,
+    roadHiddenKeysByMode,
+    recomputeLayerDataStatus,
+  ]);
 
   // 「変わらないデータを更新」ボタン: 基礎地図タイル・路面ベクタタイルのキャッシュをクリアして
   // スタイルを再読み込みする。setStyle()はカスタムレイヤーを消すため、style.load後に

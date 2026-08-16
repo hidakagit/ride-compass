@@ -1017,6 +1017,12 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
 - 複数回の生成操作を連続実行し、再現するか・再現条件（初回のみか、ズーム幅が大きい時か等）を
   切り分ける。再現しない場合はクローズしてよい。
 - 完了条件: 再現性の有無を記録。再現する場合のみ原因調査・修正へ進む。
+- 追加証跡（2026-08-16、統合レビューF-4）: headless Playwrightでの操作確認中に、候補到着直後に
+  地図が縮小正方形で描画され直後に自然回復する類似症状を観測（Phase 5スクリーンショット06→07、
+  詳細は[history/2026-08-16_all.md](../.claude/commands/review/history/2026-08-16_all.md)）。
+  再現条件は「headless環境・候補到着直後」で、その後の操作で自然回復。headless固有の可能性を
+  排除できておらず（Confidence: Medium）、実機スマートフォン・通常ブラウザでの再現性確認は
+  本タスクの完了条件として引き続き残る。
 
 ### - [x] T57. 天候インジケータの視認性向上 規模S（2026-08-16完了）
 
@@ -1773,7 +1779,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   （サイドバーに「道路状態」「交通・安全」「自転車インフラ」「地形」「生成したルートの色分け」の
   5見出しが表示され、各レイヤーが想定した分類の下に属することを確認）。
 
-### - [ ] T87. レイヤーのデータ状態表示〔レビュー指摘#4〕規模S〜M
+### - [x] T87. レイヤーのデータ状態表示〔レビュー指摘#4〕規模S〜M（2026-08-16完了）
 
 - 背景: 現状`MapLayersPanel`は「表示OFF」「ズーム範囲外」（road専用の`zoomWarning`）の案内は
   あるが、タイル取得失敗（T59の背景にあった502障害等）と、そのレイヤーの対象データが
@@ -1786,6 +1792,63 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   一般化できるか、着手時に設計する。
 - 完了条件: 意図的に空データ・取得エラーを発生させた状態でPlaywright実機確認し、
   各状態が視覚的に区別できることを確認。frontend全green。
+
+**実装結果（2026-08-16）**:
+
+- **判定ロジック**: `MapView.tsx`に純粋関数`computeLayerDataStatus`を新設（(source, source-layer)
+  ごとに`getSource`/`isSourceLoaded`/`querySourceFeatures`から`loading`/`empty`/`error`を判定、
+  正常時はキー自体を持たない）。road/trafficStress/bicycleInfra/designationは同じ
+  `road_surface`タイルを再利用するため意図的に同じsource/source-layerを指し、
+  road_edges未構築地点では4レイヤーが同時に`empty`になる（T59の遅延構築設計と整合）。
+  stopPoi/intersectionsは同じ`region-poi-tiles`ソースだが別のsource-layerのため、
+  T54のようにosm_raw_poisだけ未取込という片方だけの欠損を区別できる。
+  取得失敗は`error`イベントで対象sourceIdを記録し、次の`sourcedataloading`
+  （新しい取得サイクルの開始）まで保持する（`isSourceLoaded`がtrueに戻っただけでは
+  失敗したタイル自体が再試行されたとは限らないため、それだけを解除根拠にしない）。
+- **表示**: `LayerChip`に`dataStatus`props（表示ON時のみ状態ドット、loading=点滅・
+  empty=中空・error=赤塗り）を追加。`MapLayersPanel`に`renderDataStatusHint`を新設し、
+  road専用だった`zoomWarning`パターンを一般化（`renderStandardSectionBody`対象の6レイヤー・
+  elevation・road全てで使えるようにした。roadはregionZoomTooWide中は二重表示を避けるため
+  データ状態案内を抑制）。`mapLayers.ts`に`LayerDataStatus`/`LayerDataStatusByLayer`/
+  `LAYER_DATA_STATUS_LABELS`を追加（カタログ集約の方針どおり文言を1箇所に）。
+- **配線**: `MapView`の新規props`onLayerDataStatusChange`をpage.tsxが`useState`で受け、
+  `MapLayersPanel`へ`layerDataStatus`として渡す。表示ON/OFFが変わるeffect・
+  `sourcedata`/`sourcedataloading`/`error`イベントのたびに再計算し、値が変わらなければ
+  コールバックを呼ばない（不要な再レンダー防止）。
+- **実機確認（2026-08-16〜17）**: dev環境（localhost:3000/8000）を起動しBrowser経由で確認。
+  初回はこのセッションのBrowserペインが表示されておらずWebGLフレームをコンポジットできない
+  状態（`map.loaded()`が`false`のまま、`load`イベント未発火でカスタムソース未追加）で
+  検証できなかったが、ユーザーにペイン表示を依頼したところ解消し、実データでの3状態確認が
+  できた。
+  - **データなし**: dev DBは`osm_raw_pois`が0件（T54で判明済みの既知の欠損）のため、
+    「停止要因」チップに中空ドット、セクション本文に「この範囲に表示できるデータが
+    ありません」が実際に表示されることを確認（road/交通ストレス等、実データがある
+    レイヤーには何も出ないことも同時に確認）。
+  - **取得失敗**: backendプロセスを停止した状態で未取得のタイル座標へ地図を移動させ、
+    road/交通ストレス/停止要因/交差点密度/事故の5レイヤー（road_surfaceタイルを共有する
+    4レイヤーが同時にerrorになる設計どおりの挙動を含む）に「データの取得に失敗しました。
+    しばらくしてから再読み込みしてください」が表示されることを確認。
+  - **回復の実機確認で2件のバグを発見・修正**（ユニットテストでは再現できない、実際の
+    MapLibreイベント順序に起因する不具合）:
+    1. バックエンド復旧後、障害中に別地点で記録した`error`が、既にタイル取得済み
+       （キャッシュ済みで新規の`sourcedataloading`が発火しない）の地点へ戻っても
+       解除されず「取得失敗」表示が残り続けた。`moveend`/`zoomend`
+       （パン/ズーム収束時点）でも`isSourceLoaded=true`のsourceのエラーを解除する
+       `clearStaleTrackedSourceErrors`を追加して解消。
+    2. 1の修正確認中、実際には`road_surface`に6,273件のフィーチャーがあるのに
+       「この範囲に表示できるデータがありません」のまま固定される別の不具合を発見。
+       `isSourceLoaded`がtrueになる瞬間と`querySourceFeatures`が実際のフィーチャーを
+       返せるようになる瞬間の間にズレがあり、そのタイミングで確定した`empty`判定を
+       更新するきっかけ（sourcedataイベント）がその後発生しないケースがあった。
+       `idle`（描画が落ち着いた状態）でも継続的に再計算するリスナーを追加して解消。
+    修正後、同じ手順（backend停止→別地点でerror→backend復旧→キャッシュ済みの
+    正常地点へ戻る）を再実行し、正しく正常状態（road等はno-message、停止要因のみ
+    empty）へ回復することを確認済み。
+- **テスト**: `MapView.dataStatus.test.ts`（`computeLayerDataStatus`9ケース＋
+  `clearStaleTrackedSourceErrors`3ケースの計12件、フェイクmapオブジェクトで検証）、
+  `MapLayersPanel.test.tsx`に4件追加（error/empty表示・OFF中の非表示・
+  road regionZoomTooWide中の二重表示防止）。backend変更なし、
+  frontend全235件・tsc・eslint全green。
 
 ---
 
@@ -1885,6 +1948,32 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ---
 
+## 統合レビュー対応フォローアップ（2026-08-16・review:all第1回の残り指摘）
+
+### - [ ] T91. MapView.tsx閾値監視の再設定〔統合レビューF-3〕規模S
+
+- 背景: 複雑度平衡レビュー第4回R-6で「静的レイヤー+2種 or MapView 1,200行到達」を閾値に、
+  到達時は決めておいた2点（宣言的レイヤー登録・useStoredState抽出）のみ実施し分割はしない、
+  という契約を置いていた（T47で実施）。統合レビュー時点（MapView.tsx 1,299行）で両条件が
+  成立し約束の2点は消化済みと確認されたが、次の閾値が定義されないままだった。2026-08-16時点で
+  MapView.tsxはさらに1,378行まで増加しており（T54のPOI/交差点密度レイヤー等）、監視が空白の
+  まま静的レイヤー追加が続いている。
+- 対応: `docs/complexity-review-2026-08-16.md`・`.claude/commands/review/context.md`のKEEP記載を
+  「消化済み」へ更新し、新しい閾値を定義する（例:「次の静的レイヤー追加時に、MapViewに残る
+  手書きのソース/レイヤー登録ブロックのテーブル駆動化を検討」「1,500行で再評価」等、T86の
+  カテゴリ化と同じ発想で束ねるのが自然）。コード分割自体が必要かは着手時に判断し、不要なら
+  基準ファイルの更新のみで完了させる。
+- 完了条件: 新しい閾値・監視条件がKEEP記載として明文化されていること。
+- 対応状況: 統合レビュー（[history/2026-08-16_all.md](../.claude/commands/review/history/2026-08-16_all.md)）
+  F-3として起票。2026-08-16時点でMapView.tsx 1,378行（レビュー時点比+79行）まで増加を確認済み。
+- **未着手のまま悪化継続**（統合レビュー第2回、2026-08-17）:
+  [history/2026-08-17_all.md](../.claude/commands/review/history/2026-08-17_all.md) F-3で再確認。
+  MapView.tsxは1,664行（T87分含む作業ツリー、前回確認比+286行）まで増加。今回増分自体は
+  単一責務（データ取得状態表示）に閉じており品質悪化はないと判定。新閾値案（「1,800行 or
+  STATIC_OVERLAY_LAYERS 10種到達」）を`/review:improve`経由での基準反映候補として提示。
+
+---
+
 ## 交通ストレス判定ロジックの精緻化（2026-08-17）
 
 ### - [x] T92. 交通ストレス判定を実データに基づき精緻化＋評価軸の合成基準を明文化 規模M（2026-08-17完了）
@@ -1933,6 +2022,50 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ---
 
+## 統合レビュー対応フォローアップ（2026-08-17・review:all第2回の指摘）
+
+[history/2026-08-17_all.md](../.claude/commands/review/history/2026-08-17_all.md)
+（統合レビュー第2回。ユーザー指示によりリポジトリ全体を横断確認）の指摘に対する実行計画。
+
+### - [x] T93. 路面タイルキャッシュ世代の対上げ〔統合レビューF-1〕規模S（2026-08-17完了）
+
+- 背景: T92で`_ROAD_SURFACE_TILE_MVT_SQL`の`traffic_stress`判定ロジック（secondary系base値
+  4→3、shared_lane/share_busway・lanes<=1補正）を変更したが、`ROAD_SURFACE_TILE_VERSION`の
+  対上げを失念していた（T70に続き同型のミス2回目）。`tile_cache.py`にTTLは無く手動クリアでしか
+  失効しないため、T92以前にキャッシュ済みのタイルは古いtraffic_stress値を返し続け、
+  地図の色表示とT90の内訳ポップアップ（DBから毎回再計算）が食い違いうる状態だった。
+- 対応: `region_service.py`の`ROAD_SURFACE_TILE_VERSION`を`"7"`→`"8"`へ（プロパティ構成は
+  不変、世代のみ更新）。`regionApi.ts`側の対応定数も`"8"`へ。`export_openapi.py`を再実行し
+  `region-tile-config.json`を再生成（`openapi.json`・`api.d.ts`は内容不変を確認）。
+  `docs/architecture.md`（§4路面タイルプロパティの現行世代表記、§7世代履歴）を追従更新。
+  `regionApi.test.ts`のハードコード期待値（`?v=7`）を`?v=8`へ修正（ドリフト検知テスト本体は
+  生成物参照のため無修正で正しく機能）。
+- 完了条件: backend 694件・frontend 243件（いずれも単独実行）・tsc・eslint全green。
+  本番デプロイ後は`POST /api/basemap/refresh`相当のキャッシュクリアが別途必要
+  （デプロイ手順側の申し送り、コード対応はここまで）。
+
+### - [ ] T94. `RegionService.get_traffic_stress_breakdown`のログ方針統一〔統合レビューF-2〕規模S
+
+- 背景: 同クラスの`get_road_surface_tile`/`get_poi_tile`は`log_external_call`＋WARNING＋
+  グレースフルデグレードで統一されているが、T90新設の`get_traffic_stress_breakdown`だけ
+  素のDB呼び出しで、対応するtry/exceptも無い。DB例外時はミドルウェアがERRORとして捕捉するため
+  「エラーは常時出す」大原則には違反しないが、`/api/debug/stats`のカテゴリ別統計に計上されず
+  運用調査の精度が落ちる。
+- 対応方針: `log_external_call("region:traffic-stress-breakdown", osm_way_id=...)`で囲み、
+  DB例外時はWARNING＋`None`フォールバック（レスポンス契約`TrafficStressBreakdown | None`と
+  自然に整合）にするか、既存の例外伝播のままログのみ追加するかを実装時に判断する。
+- 完了条件: 新設のログ配線がテストで検証されていること。既存テストgreen。
+
+### - [ ] T95. architecture.md §7対称メソッド列挙の追記〔統合レビューF-4〕規模S
+
+- 背景: `docs/architecture.md`§7の`AttributeRepository`対称メソッド一覧に、T90で新設した
+  `get_way_tags_by_osm_way_id`（osm_way_id完全一致1行取得、`get_nearest_*`とは別系統）が
+  含まれていない。API仕様・タイル世代・目的は既に別箇所で文書化済みのため実害は軽微。
+- 対応: 対称メソッド列挙の後ろへ「`get_way_tags_by_osm_way_id`（T90、osm_way_id完全一致1行
+  取得、区間別内訳API専用）」を1行追記する。
+- 完了条件: docs追記のみ。
+
+---
 
 ## 記録
 
@@ -1995,4 +2128,9 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 | 2026-08-16 | （将来UI整理検討） | ユーザー提示の外部UI/UXレビュー指摘表12点を将来の静的属性拡張の観点で検討。🔴高5点中4点（#1/#3/#5/#8/#9）はT29〜T32・T38で対応済み、#6/#7はT39/T40で対応済みと確認し再起票せず、#10〜#12はユーザー提示どおり🟡低・先送り。現状ギャップが残る#2（レイヤーのカテゴリ化）・#4（データ状態の明示）のみT86・T87として起票 |
 | 2026-08-16 | T70〜T77 | designation実装レビュー対応を優先順位どおり実施。T70: 路面タイル世代v5の対上げ漏れ（フロント定数・生成物が旧v4のまま）を修正。T71: import_designations.pyのDELETE→INSERTをtransaction()で括り0件時はDELETEごとスキップ（既存データ保持）＋executemany化。T72: N12 GeoJSONの3要素座標・MultiLineString、N10 GMLの複数posListへの防御を追加。T73: match_designations.pyも0件時のDELETE全消しガード＋WARNING昇格。T75: kind集合の分散（3表現）をdomain/designation.py: DESIGNATION_IMPORT_KINDSへ一本化、import側は_KIND_SPECSテーブルへ統合（未知kindはKeyError即死）。T76: get_nearest_designated_flags（3本目の独立KNN）を_NEAREST_WAY_TAGS_SQLへ統合し専用SQL/メソッドを削除。T77: get_designated_edge_idsの転送方式をdev DB実測（designation_attributes 28,940行 vs road_edges 117,744行）のうえ現状維持を決定。T74（MVT指定路線表現の見直し）は新テーブル・新バッチを要する規模M相当と判明したため検討メモのみ残し未着手。あわせてT68（is_split_up_to_date用stale限定部分GiST索引、EXPLAIN実測で採用確認）・T69（get_way_specs_with_closureの近傍extent爆発防衛、ST_Intersectionでbboxの10kmマージンへクランプ）も実施。backend最終669件（DB統合テスト含む新規テストを各タスクで追加）、各タスクごとに個別コミット |
 | 2026-08-16 | 統合レビュー（review:all第1回）・T76チェック修正・T88 | daef76e..HEAD（8軸目・designation機構・PostGISコスト対策T64〜T69・designation実装レビュー対応T70〜T85）を対象に、overall/complexity/consistency/ui4種を統合実施（[history/2026-08-16_all.md](../.claude/commands/review/history/2026-08-16_all.md)）。backend 672件・frontend 212件（並走実行時のMapLayersPanel3件timeoutは単独再実行で全green、実行環境競合と判定）とPlaywright実機確認（変更画面＋主要導線1周）でP0/P1新設なしを確認。P1指摘（F-1: architecture.md未追従）をT88として起票・即実施：新設「§7 静的道路属性と8軸評価モデル」節に8軸一覧・重み表・P1各軸・T50事故密度・T51指定路線コンフレーション・タイル配信3系統・T59バックグラウンド構築を集約し、§2ディレクトリ構成・§4 API・§6データモデルも追従。P2指摘（F-2: T76チェックボックス未更新）も修正。F-3（MapView閾値監視の安全弁消化）・F-6（context.mdの鮮度）はレビュー基準側の課題のため/review:improveでの対応が別途必要 |
+| 2026-08-16 | （未完了タスク棚卸し）・T91起票 | ユーザー依頼により全90タスク＋関連ドキュメント（static-road-attributes-plan.md P1残り・統合レビューhistory）を棚卸し。未チェック7件（T10〜T12はトリガー未到達で現状維持、T52はJICE返信待ちでブロック中、T53・T56・T87は着手可能）を確認。統合レビューF-3（MapView.tsx閾値監視の安全弁消化、レビュー時点1,299行→棚卸し時点1,378行まで増加確認）をT91として新規起票。F-4（T56の再現証跡）はT56本文へ追記。F-2（T76チェック漏れ）は既に前回セッションで修正済みと確認（追加対応不要）。P1残り3項目（bicycle=no Hard Constraint・自転車歩行者道スコープ拡張・name/refのMVT焼き込み）はstatic-road-attributes-plan.mdで二重管理回避の方針どおり本ファイルへは転記せず |
+| 2026-08-16 | T87（1回目） | レイヤーのデータ状態表示（読込中/データなし/取得失敗）を実装。`MapView.tsx`に純粋関数`computeLayerDataStatus`を新設し(source, source-layer)ごとに判定、`LayerChip`の状態ドットと`MapLayersPanel`のセクション案内文（road専用だった`zoomWarning`パターンを一般化）へ反映。新規テスト13件、frontend全232件・tsc・eslint全green。dev環境をBrowser経由で実機確認しようとしたが、このセッションのBrowserペインがWebGLフレームをコンポジットできず（`map.loaded()`が操作後も`false`のまま）MapLibreの`load`イベントが発火せずカスタムソースが一度も追加されない制約に遭遇し、loading/empty/errorの3状態の視覚的な区別確認は持ち越しとした |
+| 2026-08-17 | T87（実機確認・2回目） | ユーザーがBrowserペインを表示したことで前回の制約が解消し、実機確認を完遂。dev DBの既知欠損（`osm_raw_pois`0件、T54）で「データなし」、backendプロセス停止で「取得失敗」（road/交通ストレス等road_surfaceタイル共有4レイヤーが同時にerrorになる設計どおりの挙動含む）を実データで確認。**この過程で実装のバグ2件を発見・修正**（ユニットテストでは再現できない実際のMapLibreイベント順序起因）: ①エラー解除条件が「次の取得サイクル開始」限定だったため、障害復旧後に既にキャッシュ済みの地点へ戻ってもエラー表示が残り続ける不具合→`moveend`/`zoomend`でも`isSourceLoaded=true`なら解除する`clearStaleTrackedSourceErrors`を追加、②`isSourceLoaded`がtrueになる瞬間と`querySourceFeatures`が実データを返せる瞬間のズレにより、実際は6,273件あるのに「データなし」のまま固定される不具合→`idle`イベントでの継続的な再計算を追加。修正後に同じ手順を再実行し正しい回復を確認。新規テスト3件追加（`clearStaleTrackedSourceErrors`、計12件）、frontend全235件・tsc・eslint全green |
 | 2026-08-17 | T92 | ユーザー実機フィードバック「指定路線ならほぼすべて赤色。実態にあった形でもう少し評価して」を受け、dev DB実データ（関東本土、指定路線11,102件）で検証。指定路線該当の83.3%が最終値4/4、うち56%は`primary`/`secondary`/`trunk`が一律base=4のため+1補正が実質無意味と判明。また既存タグの中に未活用の差別化要因（`cycleway=shared_lane`15.6%・`lanes=1`319件）があると判明。「信号密度も合成できないか」という追加相談には、交通ストレスへ合成するのは「自動車への近接度」を推定する同一構造の手がかりに限る、信号・交差点密度は質的に別の負担で独立軸のまま残すべき、という基準を整理して回答（`traffic_stress_breakdown`のdocstringへ明文化）。合意のうえ`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の`secondary`/`secondary_link`を4→3、cycleway補正へ`shared_lane`/`share_busway`（-1）、車線数補正へ`lanes<=1`（-1）を追加（`road_graph_repository.py`のSQL CASE式も同期）。試算で指定路線の4/4割合が83.3%→78.3%に低下を確認。凡例（`mapLayers.ts: panelHintDetail`、サイドバー設定画面・地図上▶詳細パネル共通）とポップアップ内訳（T90機能）の説明文をレイアウトごとの粒度で更新。backend 694件（新規11件）・frontend（MapLayersPanel既存35件が更新後の文言でも通過）全green |
+| 2026-08-17 | 統合レビュー（review:all第2回） | ユーザー指示によりリポジトリ全体（前回差分だけでなくlayer境界・DI・重複・スケール成立性・カタログ集約を既存コード全体で再確認）を対象に4種統合実施（[history/2026-08-17_all.md](../.claude/commands/review/history/2026-08-17_all.md)、Phase4は同日実施の[history/2026-08-17_consistency.md](../.claude/commands/review/history/2026-08-17_consistency.md)を統合）。backend 694件・frontend 243件（いずれも単独実行でall green、初回並走実行時のbackend 248件skipはサンドボックス環境のDB初回接続レイテンシによる一過性のものと再実行で確認）。P1指摘（F-1: T92のSQL変更がタイルキャッシュ世代に未反映、T70に続き同型のミス2回目）をT93として起票・即修正、P2指摘2件をT94・T95として起票、T91（MapView.tsx閾値監視）はF-3として再確認（1,378→1,664行まで悪化継続、新閾値案を提示）。レビュー基準自体への示唆（タイル世代対上げ・閾値運用ルールの2パターンともに2回目の再発）を`/review:improve`候補として記録 |
+| 2026-08-17 | T93 | 統合レビューF-1修正。`region_service.py: ROAD_SURFACE_TILE_VERSION`を`"7"`→`"8"`、`regionApi.ts`の対応定数も追従、`export_openapi.py`再実行で`region-tile-config.json`再生成（openapi.json/api.d.tsは内容不変）。`docs/architecture.md`の世代表記・履歴を追従、`regionApi.test.ts`のハードコード期待値を修正。backend 694件・frontend 243件・tsc・eslint全green |
