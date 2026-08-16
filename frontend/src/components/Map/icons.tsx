@@ -142,6 +142,37 @@ export function WindIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 気温（天候ヘッダ T61）: 温度計 */
+export function ThermometerIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M9 3.2v8.75a3 3 0 1 0 2 0V3.2a1 1 0 0 0-2 0Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle cx="10" cy="15" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** 降水確率（天候ヘッダ T61）: 雨粒 */
+export function RaindropIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 2.8C7.2 7 4.8 10.2 4.8 12.8a5.2 5.2 0 0 0 10.4 0C15.2 10.2 12.8 7 10 2.8Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** システム状況: バージョン/稼働状況の確認を表す情報アイコン（円＋i） */
 export function StatusIcon({ size = 16 }: IconProps) {
   return (
