@@ -1363,7 +1363,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 の対応タスク。起票済みのT65〜T67と重複する指摘は除外済み。T70〜T73が正確性・データ欠損系で
 最優先、T74は設計判断（T66と関連）、T75以降は構造整理。
 
-### - [ ] T70. タイル世代v5の対上げ漏れ修正 規模S・最優先
+### - [x] T70. タイル世代v5の対上げ漏れ修正 規模S・最優先（2026-08-16完了）
 
 - backend `region_service.py: ROAD_SURFACE_TILE_VERSION`は"5"へ上がったが、
   `frontend/src/services/regionApi.ts`の同名定数と生成物
@@ -1377,7 +1377,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 対応: `export_openapi.py`を再実行して生成物を更新し、`regionApi.ts`の定数を"5"へ。
 - 完了条件: `roadSurfaceTileUrl()`が`?v=5`を返し、regionApi.test.ts含めfrontend全green。
 
-### - [ ] T71. import_designations.py取込の原子性・0件ガード・executemany化 規模S〜M・最優先
+### - [x] T71. import_designations.py取込の原子性・0件ガード・executemany化 規模S〜M・最優先（2026-08-16完了）
 
 - 問題1（原子性）: (kind, pref)単位のDELETE→INSERTがトランザクション外
   （match_designations.pyの`conn.transaction()`と非対称）で、asyncpgのautocommitにより
@@ -1393,8 +1393,13 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   INSERTは`conn.executemany`化（T67と同じ処方）。1行INFOサマリへ`insert_elapsed`追加。
 - 完了条件: 「0件時に既存データが残る」「途中失敗時に旧データが残る」のテスト追加、
   backend全green。
+- **実装結果（2026-08-16）**: `_write_designations`ヘルパへDELETE+executemanyを
+  `async with conn.transaction()`で括って抽出し、features空時はDELETEごとスキップして
+  WARNINGログを出す。1行INFOサマリへ`insert_elapsed`を追加し、0件時はWARNINGへ昇格。
+  `tests/test_import_designations.py`に統合テスト3件（0件時保持・置換・executemany失敗時の
+  ロールバック、asyncpg.Connectionをmonkeypatchして模擬）を追加。backend 666件green
 
-### - [ ] T72. designationパーサの防御強化（3要素座標・MultiLineString・複数セグメント）規模S〜M
+### - [x] T72. designationパーサの防御強化（3要素座標・MultiLineString・複数セグメント）規模S〜M（2026-08-16完了）
 
 - N12 GeoJSON: `for lon, lat in geometry["coordinates"]`が3要素座標`[lon, lat, alt]`
   （RFC 7946で合法）でValueErrorになりrun全体が異常終了する。また`type != "LineString"`
@@ -1407,8 +1412,12 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   posListは`findall`で複数検出時に連結またはWARNING。関東7都県の実データで
   複数セグメントCurve・非LineStringの実在数を先に計測して対応レベルを決めてよい。
 - 完了条件: 3ケースのユニットテスト追加、backend全green。
+- **実装結果（2026-08-16）**: N12は`_linestrings_from_geometry`でLineString/MultiLineString
+  双方から座標配列を取り出し、3要素座標は先頭2要素のみ使用（RFC 7946のaltitude無視）。
+  非対応typeは件数付きWARNING。N10は`find`→`findall`化し、複数posListをdocument順に
+  連結（複数検出時はWARNING）。`tests/test_import_designations.py`にパーサ単体テスト6件を追加
 
-### - [ ] T73. match_designations.pyの0件時WARNING昇格＋全消しガード 規模S
+### - [x] T73. match_designations.pyの0件時WARNING昇格＋全消しガード 規模S（2026-08-16完了）
 
 - candidates=0/matched=0でも「マッチング完了」のINFO固定で、docs/logging.mdの
   「候補0件はWARNINGへ昇格し原因内訳を同行に含める」規約に違反。かつ0件でも
@@ -1418,6 +1427,11 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 対応: 0件時はWARNING（candidates/matchedの内訳を同行に）とし、candidates=0の場合は
   DELETEを実行しない選択肢を検討。import側の0件WARNINGはT71に含む。
 - 完了条件: 0件経路のログレベルと全消しガードのテスト追加、backend全green。
+- **実装結果（2026-08-16）**: DELETE+executemanyを`_write_matches`ヘルパへ抽出し、
+  candidates空時はDELETEごとスキップしてWARNING（`run_match`側の重複ログは削除）。
+  candidatesはあるがmatched=0（全件ratio閾値未満）の場合もWARNINGへ昇格。
+  `tests/test_match_designations.py`に統合テスト3件（0件時保持・置換・executemany失敗時の
+  ロールバック）を追加。backend 666件green
 
 ### - [ ] T74. MVT指定路線表現の見直し（粒度・重複kind・遅延構築依存）規模M・要設計判断
 

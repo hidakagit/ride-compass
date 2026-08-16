@@ -119,10 +119,25 @@ def _parse_n10_gml(xml_bytes: bytes) -> list[tuple[str | None, list[tuple[float,
     curves: dict[str, list[tuple[float, float]]] = {}
     for curve in root.iter(f"{{{_GML_NS['gml']}}}Curve"):
         curve_id = curve.get(f"{{{_GML_NS['gml']}}}id")
-        pos_list_el = curve.find(".//gml:posList", _GML_NS)
-        if curve_id is None or pos_list_el is None or not (pos_list_el.text or "").strip():
+        # JPGISでは1つのgml:Curveが複数のgml:LineStringSegment（＝複数posList）を持ちうる
+        # （改善計画T72）。findで最初の1つだけ読むと2番目以降が無警告で切り捨てられ、
+        # 件数は合うままバッファ交差率だけが縮んで後半区間が指定路線と判定されなくなる。
+        # 全posListをdocument順に連結する（連続するセグメント列という前提）。
+        pos_list_els = curve.findall(".//gml:posList", _GML_NS)
+        if curve_id is None or not pos_list_els:
             continue
-        values = [float(v) for v in pos_list_el.text.split()]
+        if len(pos_list_els) > 1:
+            logger.warning(
+                "gml:Curveが複数posListを持っています（連結して扱います） curve_id=%s segments=%d",
+                curve_id, len(pos_list_els),
+            )
+        values: list[float] = []
+        for pos_list_el in pos_list_els:
+            text = (pos_list_el.text or "").strip()
+            if text:
+                values.extend(float(v) for v in text.split())
+        if not values:
+            continue
         # posListは「lat lon lat lon...」の順（GML実データで確認済み）。
         # shapely/GeoJSON慣行の(lon, lat)へ入れ替える。
         curves[curve_id] = [(values[i + 1], values[i]) for i in range(0, len(values) - 1, 2)]
@@ -141,19 +156,41 @@ def _parse_n10_gml(xml_bytes: bytes) -> list[tuple[str | None, list[tuple[float,
     return features
 
 
+def _linestrings_from_geometry(geometry: dict) -> list[list]:
+    """LineString/MultiLineString双方から素の座標配列のリストを返す（改善計画T72、
+    MultiLineStringのfeatureが無警告でスキップされ路線が黙って欠落する問題への対応）。
+    それ以外のtype（Point等、KSJでは想定外）は空リスト。
+    """
+    geometry_type = geometry.get("type")
+    if geometry_type == "LineString":
+        return [geometry.get("coordinates", [])]
+    if geometry_type == "MultiLineString":
+        return list(geometry.get("coordinates", []))
+    return []
+
+
 def _parse_n12_geojson(json_bytes: bytes) -> list[tuple[str | None, list[tuple[float, float]]]]:
     """N12の素のGeoJSONから (路線名, [(lon, lat), ...]) のリストを返す。"""
     data = json.loads(json_bytes)
     features: list[tuple[str | None, list[tuple[float, float]]]] = []
+    skipped_types: dict[str, int] = {}
     for feature in data.get("features", []):
         geometry = feature.get("geometry") or {}
-        if geometry.get("type") != "LineString":
-            continue
-        coords = [(float(lon), float(lat)) for lon, lat in geometry["coordinates"]]
-        if len(coords) < 2:
+        lines = _linestrings_from_geometry(geometry)
+        if not lines:
+            geometry_type = geometry.get("type") or "unknown"
+            skipped_types[geometry_type] = skipped_types.get(geometry_type, 0) + 1
             continue
         name = (feature.get("properties") or {}).get("N12_004")
-        features.append((name, coords))
+        for raw_coords in lines:
+            # RFC 7946は[lon, lat, alt]の3要素座標を許容するため、先頭2要素のみ取得する
+            # （改善計画T72。3要素のままunpackするとValueErrorでrun全体が異常終了していた）。
+            coords = [(float(c[0]), float(c[1])) for c in raw_coords]
+            if len(coords) < 2:
+                continue
+            features.append((name, coords))
+    if skipped_types:
+        logger.warning("N12ジオメトリのうち非対応typeをスキップしました types=%s", skipped_types)
     return features
 
 
@@ -170,6 +207,36 @@ def extract_features(zip_path: Path, kind: str, pref: str) -> list[tuple[str | N
     with zipfile.ZipFile(zip_path) as zf:
         with zf.open(member_name) as f:
             return parser(f.read())
+
+
+async def _write_designations(
+    conn: asyncpg.Connection,
+    kind: str,
+    pref: str,
+    source: str,
+    features: list[tuple[str | None, list[tuple[float, float]]]],
+    run_started_at: datetime,
+) -> int:
+    """(kind, pref)単位でDELETE→INSERTを1トランザクションに括り、featuresが0件のときは
+    DELETEごとスキップする（改善計画T71）。
+
+    従来はDELETEと各INSERTがトランザクション外（asyncpgのautocommitで1文ずつ確定）で、
+    かつパーサが0件を返した場合もDELETEだけが実行され既存データが静かに消えていた。
+    0件時に何もしないことで、パーサの異常・取得データの一時的欠落がその都道府県の
+    既存指定路線を全消しする事故を防ぐ。
+    """
+    if not features:
+        logger.warning(
+            "指定路線データが0件のため取込をスキップします（既存データは保持） kind=%s pref=%s", kind, pref
+        )
+        return 0
+    async with conn.transaction():
+        await conn.execute(_DELETE_SQL, kind, pref)
+        await conn.executemany(
+            _INSERT_SQL,
+            [(kind, name, pref, source, LineString(coords).wkb, run_started_at) for name, coords in features],
+        )
+    return len(features)
 
 
 async def run_import(database_url: str | None, dry_run: bool) -> int:
@@ -218,20 +285,19 @@ async def run_import(database_url: str | None, dry_run: bool) -> int:
             )
             try:
                 features = extract_features(path, kind, pref)
-                await conn.execute(_DELETE_SQL, kind, pref)
-                for name, coords in features:
-                    await conn.execute(
-                        _INSERT_SQL, kind, name, pref, source, LineString(coords).wkb, run_started_at
-                    )
-                total_inserted += len(features)
+                insert_started = time.perf_counter()
+                count = await _write_designations(conn, kind, pref, source, features, run_started_at)
+                insert_elapsed = time.perf_counter() - insert_started
+                total_inserted += count
                 await conn.execute(
                     "UPDATE designation_import_runs SET status='succeeded', finished_at=$2, designation_count=$3 "
                     "WHERE id=$1",
-                    run_id, datetime.now(timezone.utc), len(features),
+                    run_id, datetime.now(timezone.utc), count,
                 )
-                logger.info(
-                    "取込完了 kind=%s pref=%s matched=%d elapsed=%.1fs",
-                    kind, pref, len(features), time.perf_counter() - started,
+                log = logger.warning if count == 0 else logger.info
+                log(
+                    "取込完了 kind=%s pref=%s matched=%d insert_elapsed=%.1fs elapsed=%.1fs",
+                    kind, pref, count, insert_elapsed, time.perf_counter() - started,
                 )
             except BaseException:
                 await conn.execute(
