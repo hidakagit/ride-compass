@@ -1070,6 +1070,44 @@ frontend 180件（他セッションとの並行実行によるvitest workerタ�
 
 ---
 
+## 静的属性レイヤーの絞り込みUI拡張（2026-08-16）
+
+ユーザー指摘（「道路情報と同様の絞り込みを他の静的道路属性でも実施したい」）を受けた検討。
+当初案（属性カテゴリのチェックボックスを機械的に横展開）を提示したところ、ユーザーから
+「交差点密度のような連続量は属性カテゴリ単位でなく、アプリの目的（安全・快適なルート判断）に
+沿った絞り込み方を再検討してほしい」という追加指摘を受け、レイヤーごとに絞り込み軸の設計を
+見直した。
+
+### - [x] T63. 静的属性5レイヤーへの絞り込みUI追加（交差点密度は閾値バケット化、事故は重大度軸を新設）規模M（2026-08-16完了）
+
+- 対応方針: `staticAttributeLayers.ts`の`STATIC_FILTER_AXES`カタログへ絞り込み軸を集約し、
+  `roadFilterAxes.ts`（道路情報）が使う汎用機構（`legendFilter.ts`の
+  `buildLegendFilterExpression`/`buildCombinedLegendFilterExpression`、`MapLayersPanel.tsx`の
+  凡例チェックボックス方式）をそのまま流用。属性値のカテゴリを機械的に絞り込み軸へ展開するのではなく、
+  レイヤーごとにアプリの目的に沿った軸を選定した:
+  - 交通ストレス・自転車インフラ・停止要因POIは名義尺度のため、既存のカテゴリをそのまま
+    絞り込み可能にした（変更なし、絞り込みUIの配線のみ追加）。
+  - 交差点密度はdegree（接続路の本数）という連続量を単一カテゴリのまま扱っていたため
+    そもそも絞り込みようがなかった。円の大きさ（`INTERSECTION_RADIUS_EXPRESSION`、degree=3で
+    最小・6以上で最大）と同じ閾値で「3本」「4〜5本」「6本以上（主要な交差点）」の3段階＋
+    防御的な「不明・他」に束ね、「主要な交差路だけ表示」を実現。
+  - 事故は既存の当事者軸（自転車関連/その他）に加え、既に円の拡大で強調していた重大度
+    （死亡事故か否か、`fatal`）を独立した第2軸として新設し、道路情報の「路面の種類×道路の種類」
+    と同じAND絞り込み（`buildCombinedLegendFilterExpression`）で「死亡事故だけ確認したい」に応えた。
+- 実装: `staticAttributeLayers.ts`（`INTERSECTION_LEGEND`の3+1バケット化、`ACCIDENT_SEVERITY_LEGEND`
+  新設、`STATIC_FILTER_AXES`カタログ）、`MapView.tsx`（`STATIC_FILTER_AXES`をlayerIdで
+  `STATIC_OVERLAY_LAYERS`と突き合わせる`setStaticOverlayFilters`を新設、道路情報の
+  `applyRoadLayerState`と同型）、`MapLayersPanel.tsx`（`renderLegendDisplay`（参照専用表示）を
+  廃止し、道路情報の`renderRoadAxis`と同型の`renderStaticFilterAxis`へ統一、OFF中でも操作可能・
+  自動ON案内も道路情報と揃える）、`page.tsx`（`hiddenLegendKeysByMode`の同一namespace内に
+  6軸ぶんのキーを追加、`staticLegendHiddenKeysByAxis`をuseMemoで安定化、道路情報と同じ400ms
+  デバウンス定数を`LEGEND_FILTER_DEBOUNCE_MS`へ改名して共有、地図上チップのサマリ行
+  （`summarizeLegendFilters`）も5レイヤーへ拡張）。
+- 完了条件: frontend全テストgreen（`staticAttributeLayers.test.ts`へ交差点密度バケットの
+  境界値網羅・事故重大度軸・`STATIC_FILTER_AXES`整合性のテストを追加）、tsc/eslintクリーン。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |

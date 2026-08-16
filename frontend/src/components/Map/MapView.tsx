@@ -31,9 +31,11 @@ import {
   BICYCLE_INFRA_LABELS,
   INTERSECTION_COLOR,
   INTERSECTION_RADIUS_EXPRESSION,
+  STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
+  type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
@@ -567,6 +569,26 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
   });
 }
 
+// 改善計画T63: 標高を除く5レイヤー（交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度）
+// の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSの
+// keyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、他は1軸）を道路情報と同じ
+// buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする
+// （setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
+function setStaticOverlayFilters(map: MapLibreMap, hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>) {
+  runWhenStyleReady(map, () => {
+    for (const layer of STATIC_OVERLAY_LAYERS) {
+      const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
+      if (axes.length === 0) continue;
+      layer.ensure(map);
+      const filter = buildCombinedLegendFilterExpression(
+        axes.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [] }))
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.setFilter(layer.layerId, filter as any);
+    }
+  });
+}
+
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
@@ -711,6 +733,9 @@ interface MapViewProps {
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
+  /** 交通ストレス・自転車インフラ・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み軸
+   * （改善計画T63、STATIC_FILTER_AXES参照）。事故のみ2軸を持ち、他は1軸。 */
+  staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
@@ -733,6 +758,7 @@ export default function MapView({
   showStopPoi,
   showIntersections,
   roadHiddenKeysByMode,
+  staticLegendHiddenKeysByAxis,
   routeLayerOn,
   routeStyleModeId,
   hiddenRouteLegendKeys,
@@ -769,6 +795,7 @@ export default function MapView({
     showStopPoi,
     showIntersections,
     roadHiddenKeysByMode,
+    staticLegendHiddenKeysByAxis,
     experimentSlots,
   });
 
@@ -797,6 +824,7 @@ export default function MapView({
       showStopPoi,
       showIntersections,
       roadHiddenKeysByMode,
+      staticLegendHiddenKeysByAxis,
       experimentSlots,
     };
   }, [
@@ -813,6 +841,7 @@ export default function MapView({
     showStopPoi,
     showIntersections,
     roadHiddenKeysByMode,
+    staticLegendHiddenKeysByAxis,
     experimentSlots,
   ]);
 
@@ -837,6 +866,7 @@ export default function MapView({
       showStopPoi,
       showIntersections,
       roadHiddenKeysByMode,
+      staticLegendHiddenKeysByAxis,
       experimentSlots,
     } = redrawPropsRef.current;
     setStaticOverlayVisibility(map, {
@@ -847,6 +877,7 @@ export default function MapView({
       stopPoi: showStopPoi,
       intersections: showIntersections,
     });
+    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(map, showRoad, onRegionZoomHintChangeRef.current);
 
@@ -1136,6 +1167,15 @@ export default function MapView({
       intersections: showIntersections,
     });
   }, [showElevation, showTrafficStress, showBicycleInfra, showAccidents, showStopPoi, showIntersections]);
+
+  // 交通ストレス・自転車インフラ・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み
+  // （改善計画T63）。道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで
+  // 反映される。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
+  }, [staticLegendHiddenKeysByAxis]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な

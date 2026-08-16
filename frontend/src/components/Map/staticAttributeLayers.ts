@@ -12,10 +12,21 @@
 // ROAD_TILE_SOURCE_LAYERを共有）と同じソースの独立レイヤーだが、停止要因POI・交差点密度
 // （region-poi-tiles）・事故（region-accident-tiles）は点データのためそれぞれ別ソース
 // （MapView.tsx参照）になる。
-// いずれも絞り込みUIは持たず色分け表示のみ（将来必要になればroadFilterAxes.ts側の機構への
-// 統合を検討）。
+// 改善計画T63: 各レイヤーの絞り込みはSTATIC_FILTER_AXES（ファイル末尾）にカタログ化し、
+// legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
+// buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
+// 機械的展開するのではなく、レイヤーごとにアプリの目的（安全・快適なルート判断）に沿った軸を選ぶ:
+// - 交通ストレス・自転車インフラ・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
+//   直接選べるカテゴリ絞り込みがそのまま「車道混在の区間だけ」「踏切だけ」等のニーズに合う。
+// - 交差点密度はdegree（接続路の本数）という連続量を単一カテゴリのまま扱っていたため、そもそも
+//   絞り込みようがなかった。円の大きさ（INTERSECTION_RADIUS_EXPRESSION）と同じ閾値（3・6）で
+//   3段階に束ね、「主要な交差路だけ表示」を実現する。
+// - 事故は当事者（自転車関連/その他）に加え、既に円の拡大で強調している重大度（死亡事故か否か）を
+//   独立した第2軸として持たせ、道路情報の「路面の種類×道路の種類」と同じAND絞り込みで
+//   「死亡事故だけ確認したい」に応える。
 
 import type { LegendEntry } from "./legendFilter";
+import type { MapLayerId } from "./mapLayers";
 
 const COLOR_UNKNOWN = "#9ca3af";
 
@@ -129,6 +140,25 @@ export const ACCIDENT_COLOR_EXPRESSION: unknown[] = [
 // 死亡事故（fatal=true）は円を大きくして目立たせる（色は自転車関連/その他の軸を維持したまま強調）。
 export const ACCIDENT_RADIUS_EXPRESSION: unknown[] = ["case", ["==", ["get", "fatal"], true], 6, 3];
 
+// 事故の「重大度」絞り込み軸（改善計画T63）。当事者（自転車関連/その他、ACCIDENT_LEGEND）とは
+// 独立した軸で、道路情報の路面の種類×道路の種類と同じAND絞り込み
+// （legendFilter.ts: buildCombinedLegendFilterExpression）を適用する。死亡事故は既に円の拡大
+// （ACCIDENT_RADIUS_EXPRESSION）で強調表示しているが、「死亡事故だけ確認したい」という安全確認の
+// 目的に直接応えるため絞り込み単体としても選べるようにする。fatalはmigration 0006でNOT NULL
+// （accident.py: is_fatalが常にbool値を返す）のため、ACCIDENT_LEGENDと異なり不明・他は無い。
+const ACCIDENT_SEVERITY_COLOR_FATAL = "#dc2626";
+const ACCIDENT_SEVERITY_COLOR_OTHER = "#9ca3af";
+
+export const ACCIDENT_SEVERITY_LEGEND: LegendEntry[] = [
+  { key: "fatal", label: "死亡事故", color: ACCIDENT_SEVERITY_COLOR_FATAL, filter: ["==", ["get", "fatal"], true] },
+  {
+    key: "nonfatal",
+    label: "死亡事故以外",
+    color: ACCIDENT_SEVERITY_COLOR_OTHER,
+    filter: ["==", ["get", "fatal"], false],
+  },
+];
+
 // 改善計画T54（既取込データの可視化漏れ解消）: 停止要因POI（信号・横断歩道・一時停止・踏切）。
 // osm_raw_pois（静的道路属性P1で取込済み）は評価（停止密度軸）にのみ使われ地図表示が
 // 無かったため、新規に色分け表示する。backend/app/domain/traffic.py: StopPoiKindの
@@ -172,12 +202,38 @@ export const STOP_POI_COLOR_EXPRESSION: unknown[] = [
 ];
 
 // 改善計画T54: 交差点密度（次数3以上のroad_node、backend/app/domain/traffic.py:
-// INTERSECTION_DEGREE_THRESHOLD）。kindのようなカテゴリ分類ではなく単一種別のため、
-// 凡例は1エントリのみ。次数（degree）が高いノードほど円を大きくし、「密度」を視覚化する。
+// INTERSECTION_DEGREE_THRESHOLD）。次数（degree）が高いノードほど円を大きくし、「密度」を視覚化する。
 export const INTERSECTION_COLOR = "#0f766e";
 
+// 改善計画T63: degreeは連続量のため、単一カテゴリのままでは絞り込みようがなかった
+// （円の大きさで「密度」を目で見て把握はできても、地図上の他要素と重なって見づらいときに
+// 「主要な交差路だけ表示」で間引く手段が無かった）。円の大きさ（INTERSECTION_RADIUS_EXPRESSION、
+// degree=3で最小・6以上で最大に頭打ち）と同じ閾値で3段階に束ね、絞り込み可能にする。
+const INTERSECTION_COLOR_MINOR = "#5eead4";
+const INTERSECTION_COLOR_MID = "#14b8a6";
+
+// プロパティ欠落時は-1へ倒す（roadFilterAxes.tsのcoalesceパターンと同じ考え方）。
+function intersectionDegreeInput(): unknown[] {
+  return ["coalesce", ["get", "degree"], -1];
+}
+
 export const INTERSECTION_LEGEND: LegendEntry[] = [
-  { key: "intersection", label: "交差点（接続路3本以上）", color: INTERSECTION_COLOR, filter: ["has", "degree"] },
+  { key: "minor", label: "3本", color: INTERSECTION_COLOR_MINOR, filter: ["==", intersectionDegreeInput(), 3] },
+  {
+    key: "mid",
+    label: "4〜5本",
+    color: INTERSECTION_COLOR_MID,
+    filter: ["all", [">=", intersectionDegreeInput(), 4], ["<=", intersectionDegreeInput(), 5]],
+  },
+  {
+    key: "major",
+    label: "6本以上（主要な交差点）",
+    color: INTERSECTION_COLOR,
+    filter: [">=", intersectionDegreeInput(), 6],
+  },
+  // backend側は次数3未満のnodeをそもそも返さない（INTERSECTION_DEGREE_THRESHOLD=3）ため
+  // 実際には出現しない想定の防御的フォールバック（他レイヤーのunknownと同じ扱い）。
+  { key: "unknown", label: "不明・他", color: COLOR_UNKNOWN, filter: ["<", intersectionDegreeInput(), 3] },
 ];
 
 // degree=3で半径4px、6以上で半径9pxまで線形補間する（それ以上の次数は稀なため頭打ちにする）。
@@ -189,4 +245,32 @@ export const INTERSECTION_RADIUS_EXPRESSION: unknown[] = [
   4,
   6,
   9,
+];
+
+// 改善計画T63: 絞り込みUIの生成に使う、絞り込み可能な各静的レイヤーの軸カタログ。
+// 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと
+// 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
+export type StaticFilterAxisId =
+  | "trafficStress"
+  | "bicycleInfra"
+  | "stopPoi"
+  | "intersection"
+  | "accidentParty"
+  | "accidentSeverity";
+
+export interface StaticFilterAxis {
+  axisId: StaticFilterAxisId;
+  layerId: MapLayerId;
+  /** 絞り込みパネルの軸見出し。1レイヤー1軸なら省略（レイヤー名で足りるため）。 */
+  label?: string;
+  legend: readonly LegendEntry[];
+}
+
+export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
+  { axisId: "trafficStress", layerId: "trafficStress", legend: TRAFFIC_STRESS_LEGEND },
+  { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
+  { axisId: "stopPoi", layerId: "stopPoi", legend: STOP_POI_LEGEND },
+  { axisId: "intersection", layerId: "intersections", legend: INTERSECTION_LEGEND },
+  { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
+  { axisId: "accidentSeverity", layerId: "accidents", label: "重大度", legend: ACCIDENT_SEVERITY_LEGEND },
 ];

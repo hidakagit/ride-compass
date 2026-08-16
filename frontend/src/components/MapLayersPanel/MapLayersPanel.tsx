@@ -17,13 +17,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
-import {
-  ACCIDENT_LEGEND,
-  BICYCLE_INFRA_LEGEND,
-  INTERSECTION_LEGEND,
-  STOP_POI_LEGEND,
-  TRAFFIC_STRESS_LEGEND,
-} from "@/components/Map/staticAttributeLayers";
+import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import LayerChip from "@/components/Map/LayerChip";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -37,6 +31,11 @@ interface MapLayersPanelProps {
   onRoadLegendToggle: (axisId: RoadFilterAxisId, key: string) => void;
   /** 「すべて表示/すべて隠す」の一括操作（非表示キー全体の置き換え） */
   onRoadAxisSetHidden: (axisId: RoadFilterAxisId, hiddenKeys: string[]) => void;
+  /** 交通ストレス・自転車インフラ・停止要因POI・交差点密度・事故（当事者/重大度）の絞り込み軸
+   * （改善計画T63、STATIC_FILTER_AXES参照）。事故のみ2軸を持ち、他は1軸。 */
+  staticFilterHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
+  onStaticFilterLegendToggle: (axisId: StaticFilterAxisId, key: string) => void;
+  onStaticFilterAxisSetHidden: (axisId: StaticFilterAxisId, hiddenKeys: string[]) => void;
   regionZoomTooWide: boolean;
   routeStyleModeId: RouteStyleModeId;
   onRouteStyleModeChange: (id: RouteStyleModeId) => void;
@@ -68,6 +67,9 @@ export default function MapLayersPanel({
   roadHiddenKeysByMode,
   onRoadLegendToggle,
   onRoadAxisSetHidden,
+  staticFilterHiddenKeysByAxis,
+  onStaticFilterLegendToggle,
+  onStaticFilterAxisSetHidden,
   regionZoomTooWide,
   routeStyleModeId,
   onRouteStyleModeChange,
@@ -98,29 +100,18 @@ export default function MapLayersPanel({
     if (!layerVisibility.road) onLayerToggle("road", true);
   }
 
-  // 参照用の凡例（タップでは操作しない）。太さ軸（entry.widthを持つ）は太さバー、
-  // それ以外は色スウォッチでプレビューする。非表示中のカテゴリは薄く+取り消し線にする。
-  function renderLegendDisplay(legend: readonly LegendEntry[], hiddenKeys: readonly string[]) {
-    return (
-      <div className={styles.legendRow}>
-        {legend.map((entry) => {
-          const visible = !hiddenKeys.includes(entry.key);
-          return (
-            <span
-              key={entry.key}
-              className={visible ? styles.legendItem : `${styles.legendItem} ${styles.legendItemHidden}`}
-            >
-              {entry.width !== undefined ? (
-                <WidthSwatch width={entry.width} dashed={entry.dashed} />
-              ) : (
-                <span className={styles.swatch} style={{ background: entry.color }} />
-              )}
-              {entry.label}
-            </span>
-          );
-        })}
-      </div>
-    );
+  // 改善計画T63: 道路情報以外の5レイヤー（交通ストレス・自転車インフラ・停止要因POI・
+  // 交差点密度・事故）の絞り込み。道路情報と同じ「即時反映＋操作したレイヤーを自動でON」の
+  // 挙動を、STATIC_FILTER_AXESのlayerIdを使って軸非依存に実装する（layerIdは呼び出し側の
+  // renderSectionBodyケースが自身のlayer.idとして渡す）。
+  function handleStaticFilterLegendToggle(layerId: MapLayerId, axisId: StaticFilterAxisId, key: string) {
+    onStaticFilterLegendToggle(axisId, key);
+    if (!layerVisibility[layerId]) onLayerToggle(layerId, true);
+  }
+
+  function handleStaticFilterAxisSetHidden(layerId: MapLayerId, axisId: StaticFilterAxisId, hiddenKeys: string[]) {
+    onStaticFilterAxisSetHidden(axisId, hiddenKeys);
+    if (!layerVisibility[layerId]) onLayerToggle(layerId, true);
   }
 
   // 凡例そのものをチェックボックスにして、参照表示と絞り込み操作を1つのリストで兼ねる
@@ -181,14 +172,61 @@ export default function MapLayersPanel({
     );
   }
 
+  // 改善計画T63: 道路情報以外の絞り込み可能レイヤーの1軸分（一括操作＋凡例チェックボックス）。
+  // axis.labelがある場合のみ見出しを出す（1レイヤー1軸なら外側のレイヤー見出しで十分なため、
+  // 事故のように1レイヤーに複数軸を持つ場合だけ「当事者」「重大度」で区別する）。
+  function renderStaticFilterAxis(axis: StaticFilterAxis) {
+    const hiddenKeys = staticFilterHiddenKeysByAxis[axis.axisId] ?? [];
+    const allKeys = axis.legend.map((entry) => entry.key);
+    return (
+      <div key={axis.axisId}>
+        <div className={styles.axisHeader}>
+          {axis.label && <p className={styles.legendCaption}>{axis.label}</p>}
+          <div className={styles.bulkRow}>
+            <button
+              type="button"
+              className={styles.bulkButton}
+              onClick={() => handleStaticFilterAxisSetHidden(axis.layerId, axis.axisId, [])}
+            >
+              すべて表示
+            </button>
+            <button
+              type="button"
+              className={styles.bulkButton}
+              onClick={() => handleStaticFilterAxisSetHidden(axis.layerId, axis.axisId, allKeys)}
+            >
+              すべて隠す
+            </button>
+          </div>
+        </div>
+        {renderLegendCheckboxes(axis.legend, hiddenKeys, (key) =>
+          handleStaticFilterLegendToggle(axis.layerId, axis.axisId, key),
+        )}
+      </div>
+    );
+  }
+
+  // layer.idの絞り込み軸一覧（STATIC_FILTER_AXES参照、事故のみ2件）。
+  function staticFilterAxesFor(layerId: MapLayerId): readonly StaticFilterAxis[] {
+    return STATIC_FILTER_AXES.filter((axis) => axis.layerId === layerId);
+  }
+
+  // 道路情報と同じ「OFF中でも絞り込み操作でき、操作すると自動でONになる」ことの案内文。
+  function renderOffHint(layerId: MapLayerId) {
+    return (
+      !layerVisibility[layerId] && (
+        <p className={styles.mutedHint}>表示はOFFです（絞り込みを操作すると自動でONになります）</p>
+      )
+    );
+  }
+
   function renderSectionBody(layer: MapLayerDescriptor) {
     switch (layer.id) {
       case "elevation":
         // 設定項目が無いレイヤーは説明文のみ（将来、不透明度等の設定を足す場所）
         return <p className={styles.mutedHint}>{layer.description}</p>;
       case "trafficStress":
-        // P0時点では絞り込みUIは持たず色分け表示のみ（staticAttributeLayers.ts参照）。
-        // 色分けは常時全カテゴリ表示のため、レイヤーOFF時も凡例だけ参考表示する。
+        // 改善計画T63で凡例チェックボックス＝絞り込み操作へ変更（道路情報と同じ方式）。
         // 判定基準が不明という実機フィードバック（モバイル実機フィードバック対応T39）を受け、
         // backend/app/domain/traffic.py: traffic_stress_levelの要約を明記する。
         return (
@@ -197,7 +235,8 @@ export default function MapLayersPanel({
               道路の種別を基準に、自転車専用帯・レーンの有無、制限速度、車線数で補正した
               1（快適）〜4（ストレス大）の目安です。実際の交通量そのものは加味していません。
             </p>
-            {renderLegendDisplay(TRAFFIC_STRESS_LEGEND, [])}
+            {renderOffHint("trafficStress")}
+            {staticFilterAxesFor("trafficStress").map(renderStaticFilterAxis)}
           </>
         );
       case "bicycleInfra":
@@ -210,33 +249,37 @@ export default function MapLayersPanel({
               路面の種類（アスファルト/砂利など、舗装の物理的な状態）とは別の軸で、
               組み合わせて確認できます。
             </p>
-            {renderLegendDisplay(BICYCLE_INFRA_LEGEND, [])}
+            {renderOffHint("bicycleInfra")}
+            {staticFilterAxesFor("bicycleInfra").map(renderStaticFilterAxis)}
           </>
         );
       case "stopPoi":
-        // trafficStress/bicycleInfraと同じく絞り込みUIは持たず色分け表示のみ（T54）。
         return (
           <>
             <p className={styles.mutedHint}>
               信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを
               数えて算出しているものを、種別ごとの色分けで直接確認できます。
             </p>
-            {renderLegendDisplay(STOP_POI_LEGEND, [])}
+            {renderOffHint("stopPoi")}
+            {staticFilterAxesFor("stopPoi").map(renderStaticFilterAxis)}
           </>
         );
       case "intersections":
+        // 改善計画T63: degree（接続路の本数）を3段階に束ねた絞り込みへ変更。「主要な交差路
+        // だけ表示」で密度の高い箇所を判断しやすくする（詳細はstaticAttributeLayers.ts参照）。
         return (
           <>
             <p className={styles.mutedHint}>
               接続する道路が3本以上ある交差点です。接続数が多いほど円が大きくなります。
               評価の「交差点密度」軸が近傍のこれらを数えて算出しています。
             </p>
-            {renderLegendDisplay(INTERSECTION_LEGEND, [])}
+            {renderOffHint("intersections")}
+            {staticFilterAxesFor("intersections").map(renderStaticFilterAxis)}
           </>
         );
       case "accidents":
-        // 交通ストレス・自転車インフラと同じく絞り込みUIは持たず色分け表示のみ
-        // （外部静的データソース T50、表示先行フェーズ。評価組み込みは別タスク）。
+        // 改善計画T63: 当事者（自転車関連/その他）に加え、重大度（死亡事故か否か）を独立した
+        // 第2軸として絞り込み可能にした（道路情報の路面の種類×道路の種類と同じAND絞り込み）。
         return (
           <>
             <p className={styles.mutedHint}>
@@ -244,7 +287,8 @@ export default function MapLayersPanel({
               発生地点です。死亡事故は円を大きく表示します。2019〜2021年は本票のCSV形式が
               異なるため未対応です。
             </p>
-            {renderLegendDisplay(ACCIDENT_LEGEND, [])}
+            {renderOffHint("accidents")}
+            {staticFilterAxesFor("accidents").map(renderStaticFilterAxis)}
           </>
         );
       case "road":
