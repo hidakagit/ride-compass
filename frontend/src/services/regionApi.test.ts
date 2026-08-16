@@ -35,7 +35,7 @@ describe("regionApi", () => {
 
   it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=6`);
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=7`);
   });
 
   // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
@@ -70,7 +70,7 @@ describe("regionApi", () => {
   });
 
   describe("fetchTrafficStressBreakdown", () => {
-    it("latitude/longitudeをクエリに含めてGETし、JSONをそのまま返す", async () => {
+    it("osm_way_idをクエリに含めてGETし、JSONをそのまま返す", async () => {
       const breakdown = {
         base: 4,
         cycleway_adjustment: 0,
@@ -88,22 +88,21 @@ describe("regionApi", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchTrafficStressBreakdown(35.68, 139.77);
+      const result = await fetchTrafficStressBreakdown(12345);
 
       const [url] = fetchMock.mock.calls[0];
       expect(String(url)).toContain("/api/region/traffic-stress-breakdown");
-      expect(String(url)).toContain("latitude=35.68");
-      expect(String(url)).toContain("longitude=139.77");
+      expect(String(url)).toContain("osm_way_id=12345");
       expect(result).toEqual(breakdown);
     });
 
-    it("近傍に対象道路が無い場合(null)もそのまま返す", async () => {
+    it("該当wayが無い場合(null)もそのまま返す", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers(), json: async () => null }),
       );
 
-      await expect(fetchTrafficStressBreakdown(35.68, 139.77)).resolves.toBeNull();
+      await expect(fetchTrafficStressBreakdown(12345)).resolves.toBeNull();
     });
 
     it("fetchがok:falseの場合は例外を投げる", async () => {
@@ -117,7 +116,7 @@ describe("regionApi", () => {
         }),
       );
 
-      await expect(fetchTrafficStressBreakdown(35.68, 139.77)).rejects.toThrow(/リクエストが多すぎます/);
+      await expect(fetchTrafficStressBreakdown(12345)).rejects.toThrow(/リクエストが多すぎます/);
     });
   });
 

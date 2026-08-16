@@ -1755,19 +1755,23 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 モバイル/オンボーディング）はユーザー提示の優先度どおり🟡低・ルート探索機能完成後に
 先送りする。現状のコードで実際にギャップが残っている#2・#4のみをT86・T87として起票する。
 
-### - [ ] T86. 静的レイヤーのカテゴリ化〔レビュー指摘#2〕規模S〜M
+### - [x] T86. 静的レイヤーのカテゴリ化〔レビュー指摘#2〕規模S〜M（2026-08-16完了）
 
 - 背景: `mapLayers.ts`のMAP_LAYERSは`kind: static/dynamic`の2分類のみで、staticカテゴリが
   既に8種（標高図・道路情報・交通ストレス・自転車インフラ・指定路線・停止要因・交差点密度・
   事故）に達しflatな一覧のまま並ぶ（T38のアコーディオン化で縦の高さは抑えているが分類は
   されていない）。JICE舗装DB（T52、JICE返信待ち）等の追加候補も控えており、レイヤー数が
   増えるほど見つけやすさが悪化する。
-- 対応方針: `MapLayerDescriptor`へ中分類フィールドを追加し（例: 道路状態=道路情報・指定路線、
-  交通・安全=交通ストレス・事故・停止要因・交差点密度、自転車インフラ、地形=標高図）、
-  `MapLayersPanel`のグループ見出しを現状の`kind`単位からこの中分類単位へ変更する。
-  分類名・粒度は着手時に既存レイヤー構成を見ながら確定する（3〜4分類程度を想定）。
-- 完了条件: サイドバーのレイヤー一覧が中分類ごとに見出し分けされる。frontend全green、
-  Playwright実機確認。
+- 対応: `MapLayerDescriptor`へ`category`フィールド（`roadCondition`/`trafficSafety`/
+  `bicycleInfra`/`terrain`の4分類、対応方針どおりの分類・粒度）を追加し、staticの8レイヤーへ
+  割り当てた（道路状態=道路情報・指定路線、交通・安全=交通ストレス・事故・停止要因・
+  交差点密度、自転車インフラ、地形=標高図）。`MapLayersPanel`のグループ見出しを`kind`単位から
+  この`category`単位へ変更（`STATIC_CATEGORY_ORDER`で列挙順を固定）。dynamic（route、1種のみ）は
+  従来どおり単独見出しのまま。`MapOverlayControls`（地図上のチップ行）は対応方針どおりフラットな
+  ままとし対象外。
+- 完了条件確認: frontend全green（vitest 219件・tsc・eslint）、Playwright実機確認
+  （サイドバーに「道路状態」「交通・安全」「自転車インフラ」「地形」「生成したルートの色分け」の
+  5見出しが表示され、各レイヤーが想定した分類の下に属することを確認）。
 
 ### - [ ] T87. レイヤーのデータ状態表示〔レビュー指摘#4〕規模S〜M
 
@@ -1846,28 +1850,37 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 - 完了条件: frontend全テストgreen（vitest 214件・tsc・eslint）、Playwright実機確認
   （サイドバー・地図上▶ポップオーバー双方で区切り線・箇条書きの表示を確認）。
 
-### - [ ] T90. 交通ストレスの区間別判定内訳表示〔ユーザー提案C案〕規模M
+### - [x] T90. 交通ストレスの区間別判定内訳表示〔ユーザー提案C案〕規模M（2026-08-16完了）
 
 - 背景: T89の凡例改善（凡例の視覚分離・全体的な判定基準の箇条書き）は「1〜4段階のどれが
   何を意味するか」という一般論までしか説明できない。「なぜこの道路が具体的にこのストレス
   値なのか」という個別区間の内訳（例:「県道・制限速度50km/h→ベース4、専用レーンなし、
   指定路線非該当で+1なし」）までは分からないため、地図上の道路をクリックすると内訳を
-  ポップアップ表示する案（T89検討時のC案）が挙がった。backend側の設計変更を要するため
-  T89のA/B（低コスト）とは切り離し、次イテレーションへ見送った。
-- 対応方針（見込み・着手時に再検討）: `_ROAD_SURFACE_TILE_MVT_SQL`
-  （backend/app/infrastructure/road_graph_repository.py）は`traffic_stress`の最終値のみを
-  MVTプロパティとして返しており、`domain/traffic.py: traffic_stress_level`が内部で計算する
-  補正内訳（cycleway補正・maxspeed補正・lanes補正・designation補正のどれが実際に効いたか）は
-  外部に出力されていない。以下のいずれかの設計が必要:
-  - (a) MVTタイルへ内訳を追加プロパティとして焼き込む（例: `stress_base`/`stress_speed_adj`
-    等）。タイルサイズ増加とのトレードオフ。
-  - (b) クリック時に別APIで該当wayのタグ（highway/maxspeed/lanes/cycleway系/designation該当）
-    を取得し、フロント側で`domain/traffic.py`相当のロジックを再現して表示する。追加の
-    ラウンドトリップとSQL/JS二重実装（`_ROAD_SURFACE_TILE_MVT_SQL`のCASE式との整合をどう
-    保つか）とのトレードオフ。
-  どちらもtraffic_stressの最終値そのものは変えない（表示専用の追加情報）。
-- 完了条件: 地図上の道路クリックで実際の判定内訳（ベース値・各補正・最終値）が確認できる。
-  backend/frontend全green、Playwright実機確認。
+  ポップアップ表示する案（T89検討時のC案）が挙がった。
+- 対応: 検討していた(b)方式（クリック時に別APIでタグ取得）を採用。ただし当初懸念していた
+  「SQL/JS二重実装」は発生させていない——`domain/traffic.py`に`traffic_stress_breakdown`を
+  新設し、判定ロジック（ベース値・cycleway/maxspeed/lanes/designation各補正・
+  motor_vehicle=no固定1）を内訳付きで1箇所に実装、`traffic_stress_level`はその`level`だけを
+  返す薄いラッパーへ縮小した（Python側の実装は引き続き1本、SQL側`_ROAD_SURFACE_TILE_MVT_SQL`の
+  CASE式との整合は既存の整合性テストで担保）。新規API
+  `GET /api/region/traffic-stress-breakdown?osm_way_id={id}`
+  （`RegionService.get_traffic_stress_breakdown`）が該当行を返す。フロントは道路クリック時の
+  ポップアップへ「内訳を見る」ボタンを追加し、押下時のみオンデマンド取得（クリック連打での
+  レート制限消費を避ける）。
+  - **実装中に発見した設計変更**: 当初はクリック地点の緯度経度から最近傍道路を空間マッチで
+    引く設計を予定していたが、実機（Playwright）検証で、交差点付近など道路が近接する場所では
+    ポップアップの表示値（実際にクリックされた道路のtraffic_stress）と内訳ボタンの計算値
+    （空間マッチが拾った別の道路）が食い違う不具合を発見した。クリック地点の緯度経度ではなく
+    `osm_way_id`（クリックされたMVTフィーチャーそのものが持つ識別子）の完全一致で引き直す
+    設計へ変更し、この不整合を構造的に解消した。`_ROAD_SURFACE_TILE_MVT_SQL`へ`osm_way_id`
+    プロパティを追加（路面タイル世代v6→v7）、`AttributeRepository.get_way_tags_by_osm_way_id`
+    （完全一致1行取得）を新規実装。
+- 完了条件確認: backend 688件（新規9件含む: `traffic_stress_breakdown`のdomain単体テスト、
+  `RoadGraphRepository.get_way_tags_by_osm_way_id`のDB統合テスト、`RegionService`・
+  APIルータのテスト）・frontend 219件・tsc・eslint全green。DB照会・HTTPエンドポイント直接
+  呼び出しで`osm_way_id`→内訳の一貫性を確認したうえ、Playwright実機確認（交通ストレス
+  レイヤーON→道路クリック→ポップアップの表示値と「内訳を見る」ボタン押下後の最終値が
+  一致することを確認）。
 - 関連: T89（凡例の視覚分離・全体的な判定基準の説明）の追加相談として起票。
 
 

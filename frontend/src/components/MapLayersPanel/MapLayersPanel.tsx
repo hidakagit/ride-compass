@@ -44,6 +44,11 @@ interface MapLayersPanelProps {
   hasDetail: boolean;
   /** ルート未生成時の案内から「ルートを作る」セクションへ誘導する（page.tsxがスクロール） */
   onGoToGenerate?: () => void;
+  /** いずれかの軸で絞り込み中（非表示カテゴリが1つ以上ある）か。falseの間は一括クリアボタン自体を出さない */
+  hasHiddenFilters: boolean;
+  /** 全軸の非表示カテゴリを一度に解除する（軸ごとの「すべて表示」を繰り返させない）。
+   * レイヤーのON/OFFには触れない（絞り込みとは別の状態のため） */
+  onClearAllFilters: () => void;
 }
 
 // サイドバーのグループ見出し。staticは中分類（mapLayers.ts: category、改善計画T86）ごとに
@@ -81,6 +86,8 @@ export default function MapLayersPanel({
   onRouteLegendToggle,
   hasDetail,
   onGoToGenerate,
+  hasHiddenFilters,
+  onClearAllFilters,
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
@@ -363,6 +370,16 @@ export default function MapLayersPanel({
 
   return (
     <div className={styles.panel}>
+      {/* 各軸に「すべて表示」はあるが、複数レイヤーにまたがって絞り込んだ後に全部を
+          1つずつ開いて戻すのは手間が大きい（ゆる～と等の地図ポータルの「消去」ボタンを
+          参考に追加）。絞り込みが無ければボタン自体を出さない。 */}
+      {hasHiddenFilters && (
+        <div className={styles.clearAllRow}>
+          <button type="button" className={styles.bulkButton} onClick={onClearAllFilters}>
+            絞り込みを一括クリア
+          </button>
+        </div>
+      )}
       {STATIC_CATEGORY_ORDER.map((category) => {
         const layers = MAP_LAYERS.filter((layer) => layer.kind === "static" && layer.category === category);
         if (layers.length === 0) return null;

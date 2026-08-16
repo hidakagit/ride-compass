@@ -504,8 +504,10 @@ Response 429（同一クライアントIPから1分あたり60リクエスト（
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
-  highway/surface/smoothness/tunnel/bridge/`traffic_stress`(1-4)/`bicycle_infra`/`designation`
-  （P0/P1/T51/T74、現行タイル世代v6。7章参照）プロパティを持つ
+  highway/surface/smoothness/tunnel/bridge/`traffic_stress`(1-4)/`bicycle_infra`/`designation`/`osm_way_id`
+  （P0/P1/T51/T74/T90、現行タイル世代v7。7章参照）プロパティを持つ。`osm_way_id`は表示用ではなく、
+  区間クリック時の交通ストレス内訳取得（`GET /api/region/traffic-stress-breakdown`）がクリックされた
+  フィーチャーを曖昧さ無く引き直すための識別子（T90）
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
 Response 400（x/yがそのズームレベルで存在しうる範囲 `0 <= x,y < 2**z` を外れる場合。直接APIを叩かれた場合の安全弁で、通常はMapLibreが範囲外のタイルを要求しないため到達しない）:
@@ -520,6 +522,11 @@ Response 400/429: road-surface-tilesと同じ規約
 GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計オープンデータの発生地点（T50、7章参照）。`AccidentService`が担当し road-surface-tiles/poi-tiles とは別系統
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`accidents`。各地物（Point）は`involves_bicycle`（自転車関連か）・`fatal`（死亡事故か）プロパティを持つ
 Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`accident_tile_max_concurrent`で別枠）
+
+GET /api/region/traffic-stress-breakdown?osm_way_id={id}   # 交通ストレスの区間別判定内訳（T90）。クリックされた道路（road-surface-tilesが焼き込む`osm_way_id`）について、`traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す
+Response 200: `TrafficStressBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adjustment`/`lanes_adjustment`/`designation_adjustment`/`motor_vehicle_no_override`/`level`）。該当wayが存在しない・highwayが判定基準に未登録・DBなし構成の場合はnullまたはlevel=null
+Response 422（osm_way_idが整数でない場合）
+Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
 
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送
@@ -804,7 +811,8 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
    smoothness・tunnel・bridgeに加え、`traffic_stress`・`bicycle_infra`・`designation`
    プロパティをLineString地物へ追加（P1・T51で拡張）。世代v2=surface/highway追加、
    v3=surface正準拡充、v4=P0静的属性追加、v5=T51 designationプロパティ追加、
-   **v6=T74 designationのosm_way_id基準化・3値化（`both`追加）**（現行）。
+   v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
+   **v7=T90 osm_way_idプロパティ追加（区間クリック時の交通ストレス内訳取得の識別子）**（現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
    停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。

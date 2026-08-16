@@ -695,6 +695,8 @@ function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
 interface RoadSurfacePopupProperties {
+  /** 交通ストレスの区間別判定内訳（改善計画T90）を引き直すための識別子。 */
+  osm_way_id?: number | null;
   surface_good?: boolean | null;
   smoothness?: string | null;
   tunnel?: boolean | null;
@@ -770,7 +772,9 @@ function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): str
 // buildRoadSurfacePopupHtmlが出す「内訳を見る」ボタンをポップアップ表示後に配線する
 // （オンデマンド取得: 道路クリックのたびに毎回問い合わせると、色分けを見ながら地図を
 // 連続でクリックする通常操作でAPIコール・レート制限を無駄に消費するため）。
-function attachTrafficStressBreakdownHandler(popupElement: HTMLElement, latitude: number, longitude: number) {
+// osmWayIdはクリックされたフィーチャーのプロパティ由来（緯度経度の空間マッチではなく
+// 完全一致で引き直す理由はfetchTrafficStressBreakdownのコメント参照）。
+function attachTrafficStressBreakdownHandler(popupElement: HTMLElement, osmWayId: number) {
   const button = popupElement.querySelector<HTMLButtonElement>(`[${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR}]`);
   const resultEl = popupElement.querySelector<HTMLElement>(`[${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}]`);
   if (!button || !resultEl) return;
@@ -778,7 +782,7 @@ function attachTrafficStressBreakdownHandler(popupElement: HTMLElement, latitude
     button.disabled = true;
     button.textContent = "取得中…";
     try {
-      const breakdown = await fetchTrafficStressBreakdown(latitude, longitude);
+      const breakdown = await fetchTrafficStressBreakdown(osmWayId);
       resultEl.innerHTML = breakdown
         ? buildTrafficStressBreakdownHtml(breakdown)
         : `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
@@ -1100,9 +1104,9 @@ export default function MapView({
 
       // 交通ストレスの内訳ボタン（改善計画T90）は道路レイヤーかつtraffic_stressが
       // 判定済みの区間だけに出るため、buildRoadSurfacePopupHtml側の出し分けと対応させる。
-      if (isRoadSurfaceFeature && roadSurfaceProperties.traffic_stress != null) {
+      if (isRoadSurfaceFeature && roadSurfaceProperties.traffic_stress != null && roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
-        if (popupElement) attachTrafficStressBreakdownHandler(popupElement, e.lngLat.lat, e.lngLat.lng);
+        if (popupElement) attachTrafficStressBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id);
       }
     }
 
