@@ -797,64 +797,45 @@ async def test_get_accident_years_covered_is_zero_when_no_runs(road_graph_reposi
 # designation_attributesへの書き込みメソッドはRoadGraphRepositoryに無い
 # （match_designations.pyが直接asyncpgで書くため）。統合テストではセッションへ
 # 直接INSERTしてテストデータを用意する（_insert_accidentと同じパターン）。
+#
+# 改善計画T74: designation_attributesはosm_way_id基準（osm_raw_ways FK）のため、
+# FK制約を満たすためsave_raw_waysでosm_raw_ways行を用意してからINSERTする。
 
 
-async def _insert_designation_attribute(session, edge_id: str, kind: str, matched_ratio: float = 0.8) -> None:
+async def _insert_designation_attribute(session, osm_way_id: int, kind: str, matched_ratio: float = 0.8) -> None:
     await session.execute(
         text(
-            "INSERT INTO designation_attributes (edge_id, kind, matched_ratio, data_version, calculated_at) "
-            "VALUES (:edge_id, :kind, :ratio, 'test', now())"
+            "INSERT INTO designation_attributes (osm_way_id, kind, matched_ratio, data_version, calculated_at) "
+            "VALUES (:osm_way_id, :kind, :ratio, 'test', now())"
         ),
-        {"edge_id": edge_id, "kind": kind, "ratio": matched_ratio},
+        {"osm_way_id": osm_way_id, "kind": kind, "ratio": matched_ratio},
     )
 
 
-async def test_save_graph_preserves_designation_attributes_when_resplit_is_identical(
+async def test_save_graph_resplit_does_not_affect_designation_attributes(
     road_graph_repository, road_graph_session
 ):
-    """改善計画T66の回帰テスト: way_ids_to_replace指定時のsave_graphは、以前は
-    対象way群のEdgeを無条件に全DELETE→再INSERTしており、分割結果が前回と変わらない
-    （edge_idが同一の）ケースでも`ON DELETE CASCADE`のdesignation_attributesが
-    巻き添えで消えていた。edge_idが変わらない再saveでは属性行が残ることを確認する。
-    """
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
-    edge_id = next(iter(graph.edges))
-
-    await _insert_designation_attribute(road_graph_session, edge_id, "emergency_transport")
-    await road_graph_session.commit()
-
-    # 同じWay・同じノード座標で再取得・再split（分割結果は前回と同一＝同じedge_id）。
-    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
-
-    assert await road_graph_repository.get_designated_edge_ids([edge_id]) == {edge_id}
-
-
-async def test_save_graph_drops_designation_attributes_for_edges_removed_by_resplit(
-    road_graph_repository, road_graph_session
-):
-    """再splitで実際にsegment構成が変わり、あるedge_idが新graphに存在しなくなる
-    ケースでは、CASCADEどおり古いedge_idのdesignation_attributesは消えるのが正しい挙動
-    （新edge_idは新規にmatch_designations.pyの再実行が必要、docs T66節参照）。
+    """改善計画T74の回帰テスト: designation_attributesはosm_way_id基準（osm_raw_ways FK）に
+    変更したため、road_edgesの再split（edge_idの変化、旧T66の懸念対象）では一切影響を
+    受けない。way構成が変わりsegment数（＝edge_id集合）が変化しても、同じosm_way_idである
+    限りget_designated_edge_idsは新edge_idに対して引き続きマッチする。
 
     v1: 近傍way300がnode6を共有するためway100はnode6で[1,6]/[6,2]の2segmentに分割される。
     v2: way300を含めずway100単独で再取得（node6はもう交差点ではない）ため、
-    way100は[1,2]の1segmentへ戻り、旧seg1（[6,2]側）のedge_idは新graphに存在しなくなる。
+    way100は[1,2]の1segmentへ戻る（segment数が4→2エッジへ変化＝実際に再split発生の証明）。
     """
     node6 = (35.7005, 139.7005)
     node7 = (35.699, 139.699)
     way100 = WaySpec(osm_way_id=100, node_ids=[1, 6, 2], highway="residential")
     way300 = WaySpec(osm_way_id=300, node_ids=[6, 7], highway="residential")
     nodes_v1 = {1: NODE1, 2: NODE2, 6: node6, 7: node7}
+    await road_graph_repository.save_raw_ways([way100, way300], nodes_v1)
     graph_v1 = build_road_graph([way100, way300], nodes_v1, graph_version="v1")
     await road_graph_repository.save_graph(graph_v1, way_ids_to_replace={100})
     way100_edges_v1 = sorted(eid for eid in graph_v1.edges if eid.startswith("way-100-"))
     assert len(way100_edges_v1) == 4  # [1,6]/[6,2]の2segment、双方向で4Edge（前提確認）
-    seg1_edge_id = next(eid for eid in way100_edges_v1 if "seg1" in eid)
 
-    await _insert_designation_attribute(road_graph_session, seg1_edge_id, "emergency_transport")
+    await _insert_designation_attribute(road_graph_session, 100, "emergency_transport")
     await road_graph_session.commit()
 
     # way300を含めずway100単独で再split（node6はもう交差点として扱われない）。
@@ -862,11 +843,12 @@ async def test_save_graph_drops_designation_attributes_for_edges_removed_by_resp
     nodes_v2 = {1: NODE1, 2: NODE2, 6: node6}
     graph_v2 = build_road_graph([way100_alone], nodes_v2, graph_version="v2")
     new_edge_ids = list(graph_v2.edges.keys())
-    assert seg1_edge_id not in new_edge_ids  # 前提: 本当にedge_idが変わっている（1segmentへ統合）
+    assert len(new_edge_ids) == 2  # [1,2]の1segment、双方向で2Edge（実際に再split発生の確認）
 
     await road_graph_repository.save_graph(graph_v2, way_ids_to_replace={100})
 
-    assert await road_graph_repository.get_designated_edge_ids([seg1_edge_id, *new_edge_ids]) == set()
+    # osm_way_id=100自体は変わっていないため、再split後の新edge_id全件がdesignatedと判定される。
+    assert await road_graph_repository.get_designated_edge_ids(new_edge_ids) == set(new_edge_ids)
 
 
 async def test_get_designated_edge_ids_returns_empty_set_for_empty_input(road_graph_repository):
@@ -877,13 +859,14 @@ async def test_get_designated_edge_ids_returns_matching_edges(road_graph_reposit
     way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     way_b = WaySpec(osm_way_id=101, node_ids=[3, 4], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    await road_graph_repository.save_raw_ways([way_a, way_b], nodes)
     graph = build_road_graph([way_a, way_b], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     edge_ids = list(graph.edges.keys())
     designated_edge_id = next(e for e in edge_ids if e.startswith("way-100-"))
     other_edge_id = next(e for e in edge_ids if e.startswith("way-101-"))
 
-    await _insert_designation_attribute(road_graph_session, designated_edge_id, "emergency_transport")
+    await _insert_designation_attribute(road_graph_session, 100, "emergency_transport")
     await road_graph_session.commit()
 
     result = await road_graph_repository.get_designated_edge_ids([designated_edge_id, other_edge_id])
@@ -894,12 +877,13 @@ async def test_get_designated_edge_ids_returns_matching_edges(road_graph_reposit
 async def test_get_designated_edge_ids_ignores_kinds_outside_traffic_stress_set(road_graph_repository, road_graph_session):
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
     graph = build_road_graph([way], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     edge_id = next(iter(graph.edges))
 
     # national_cycle_routeはTRAFFIC_STRESS_DESIGNATION_KINDSに含まれない（今回未実装のkind）。
-    await _insert_designation_attribute(road_graph_session, edge_id, "national_cycle_route")
+    await _insert_designation_attribute(road_graph_session, 100, "national_cycle_route")
     await road_graph_session.commit()
 
     result = await road_graph_repository.get_designated_edge_ids([edge_id])
@@ -913,12 +897,10 @@ async def test_get_nearest_way_tags_is_designated_true_near_designated_edge(road
     get_nearest_way_tagsへ統合した。"""
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
     graph = build_road_graph([way], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
-    # build_road_graphは双方向Edge(fwd/bwd)を作り、両者は同一geometryのためKNNの最近傍解決が
-    # どちらを選ぶか保証されない。両方向へ同じdesignationを付与して結果を決定的にする。
-    for edge_id in graph.edges:
-        await _insert_designation_attribute(road_graph_session, edge_id, "critical_logistics")
+    await _insert_designation_attribute(road_graph_session, 100, "critical_logistics")
     await road_graph_session.commit()
 
     result = await road_graph_repository.get_nearest_way_tags([NODE1, NODE3], max_distance_m=30.0)
@@ -1162,9 +1144,11 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
 
     改善計画T75: `_ROAD_SURFACE_TILE_MVT_SQL`のdesignation CASE式は
     domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDSの2値をリテラルで直接埋め込む
-    （2kind固定の設計、T74参照）。この2値がドリフトしていないかをここで突き合わせる:
+    （2kind固定の設計）。この2値がドリフトしていないかをここで突き合わせる:
     集合の値自体が変わったらこのテストの期待値ごと更新が必要になり、SQL側の見直し漏れに
-    気づける（kind追加時はSQLの構造自体の見直しが要る点はT74で別途起票済み）。
+    気づける（kind追加時はSQLの構造自体の見直しが要る）。
+
+    改善計画T74: 2kindの両方に該当するwayは3値目"both"として出力される（重複kind欠落対策）。
     """
     import mapbox_vector_tile
 
@@ -1176,15 +1160,17 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
     ert_way = WaySpec(osm_way_id=200, node_ids=[1, 2], highway="residential")
     cl_way = WaySpec(osm_way_id=202, node_ids=[1, 2], highway="secondary")
     plain_way = WaySpec(osm_way_id=201, node_ids=[1, 2], highway="tertiary")
-    await road_graph_repository.save_raw_ways([ert_way, cl_way, plain_way], {1: NODE1, 2: NODE2})
-    graph = build_road_graph([ert_way, cl_way, plain_way], {1: NODE1, 2: NODE2}, graph_version="v1")
+    # 改善計画T74: N10・N12両方に該当するway（重複kind）は3値目"both"として出力される
+    # （凡例で「緊急輸送道路」を非表示にしてもbothカテゴリとして表示され続ける）。
+    both_way = WaySpec(osm_way_id=203, node_ids=[1, 2], highway="unclassified")
+    ways = [ert_way, cl_way, plain_way, both_way]
+    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
+    graph = build_road_graph(ways, {1: NODE1, 2: NODE2}, graph_version="v1")
     await road_graph_repository.save_graph(graph)
-    ert_edge_ids = [e for e in graph.edges if e.startswith("way-200-")]
-    cl_edge_ids = [e for e in graph.edges if e.startswith("way-202-")]
-    for edge_id in ert_edge_ids:
-        await _insert_designation_attribute(road_graph_session, edge_id, "emergency_transport")
-    for edge_id in cl_edge_ids:
-        await _insert_designation_attribute(road_graph_session, edge_id, "critical_logistics")
+    await _insert_designation_attribute(road_graph_session, 200, "emergency_transport")
+    await _insert_designation_attribute(road_graph_session, 202, "critical_logistics")
+    await _insert_designation_attribute(road_graph_session, 203, "emergency_transport")
+    await _insert_designation_attribute(road_graph_session, 203, "critical_logistics")
     await road_graph_session.commit()
     await _mark_mvt_coverage(road_graph_repository)
 
@@ -1205,6 +1191,10 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
     plain = properties_by_highway["tertiary"]
     assert "designation" not in plain
     assert plain.get("traffic_stress") == traffic_stress_level("tertiary", {}) == 3
+
+    both = properties_by_highway["unclassified"]
+    assert both.get("designation") == "both"
+    assert both.get("traffic_stress") == traffic_stress_level("unclassified", {}, is_designated=True) == 3
 
 
 # --- get_poi_tile_mvt（改善計画T54: 停止要因POI・交差点密度の可視化） ---

@@ -80,12 +80,13 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
 
-  it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路）が表示される(外部静的データソース T51)", () => {
+  it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路/両方該当）が表示される(外部静的データソース T51、改善計画T74)", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("designation");
 
     expect(screen.getByText("緊急輸送道路（N10）")).toBeInTheDocument();
     expect(screen.getByText("重要物流道路（N12）")).toBeInTheDocument();
+    expect(screen.getByText("緊急輸送道路 かつ 重要物流道路（N10・N12）")).toBeInTheDocument();
   });
 
   it("事故レイヤーのセクションに凡例（自転車関連/その他）が表示される", () => {

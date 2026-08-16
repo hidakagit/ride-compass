@@ -95,6 +95,9 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
+# 変更し、designationプロパティが同一way内でN10・N12の両方に該当する場合の3値目"both"を
+# 追加した世代。
 # v5: 指定路線コンフレーション機構（外部静的データソース T51）でdesignationプロパティを
 # 追加し、traffic_stressへKSJ N10/N12該当の+1補正を組み込んだ世代。
 # v4: 静的道路属性P0（docs/static-road-attributes-plan.md）でsmoothness/tunnel/bridge/
@@ -102,7 +105,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "5"
+ROAD_SURFACE_TILE_VERSION = "6"
 
 # 停止要因POI・交差点密度タイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。

@@ -55,7 +55,13 @@ function buildCategoricalLayerDefs(
       color: c.color,
       filter: ["==", ["get", property], c.key],
     })),
-    { key: "unknown", label: unknownLabel, color: COLOR_UNKNOWN, filter: ["!", ["has", property]] },
+    {
+      key: "unknown",
+      label: unknownLabel,
+      color: COLOR_UNKNOWN,
+      filter: ["!", ["has", property]],
+      isFallback: true,
+    },
   ];
   const colorExpression: unknown[] = [
     "match",
@@ -75,12 +81,21 @@ const TRAFFIC_STRESS_COLORS: Record<number, string> = {
   4: "#dc2626",
 };
 
+// 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解されるという実機
+// フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
+// MapOverlayControls）に区切り線＋弱調表示させる。段階の意味そのものは1〜4のまま変えない。
 export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = [
   { key: "1", label: "1（快適）", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", ["get", "traffic_stress"], 1] },
   { key: "2", label: "2（やや快適）", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", ["get", "traffic_stress"], 2] },
   { key: "3", label: "3（やや注意）", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", ["get", "traffic_stress"], 3] },
   { key: "4", label: "4（ストレス大）", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", ["get", "traffic_stress"], 4] },
-  { key: "unknown", label: "不明・他", color: COLOR_UNKNOWN, filter: ["!", ["has", "traffic_stress"]] },
+  {
+    key: "unknown",
+    label: "不明・他（判定対象外の道路種別）",
+    color: COLOR_UNKNOWN,
+    filter: ["!", ["has", "traffic_stress"]],
+    isFallback: true,
+  },
 ];
 
 // プロパティ欠落時は-1へ倒し、どのケースにも一致しないようにする（["get",...]がnullのまま
@@ -131,11 +146,15 @@ export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = bicycleInfraDefs.colorE
 
 // 指定路線コンフレーション機構（外部静的データソース T51、国土数値情報N10/N12）の色分け定義。
 // backend/app/infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLの
-// designationプロパティ（emergency_transport/critical_logistics/未該当はプロパティ欠落）と
+// designationプロパティ（emergency_transport/critical_logistics/both/未該当はプロパティ欠落）と
 // 対応する。トラフィックストレス・自転車インフラと同じroad_surfaceソースの独立レイヤー。
+// 改善計画T74: N10・N12両方に該当するwayは3値目"both"として独立カテゴリ化する
+// （以前は単一値CASE式でemergency_transport側のみ出力され、凡例で「緊急輸送道路」を
+// 非表示にするとN12でもある区間が地図から完全に消えていた）。
 const DESIGNATION_CATEGORIES: CategoryDef[] = [
   { key: "emergency_transport", label: "緊急輸送道路（N10）", color: "#b91c1c" },
   { key: "critical_logistics", label: "重要物流道路（N12）", color: "#1d4ed8" },
+  { key: "both", label: "緊急輸送道路 かつ 重要物流道路（N10・N12）", color: "#7c3aed" },
 ];
 
 const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CATEGORIES, "対象外");
@@ -243,7 +262,13 @@ export const INTERSECTION_LEGEND: LegendEntry[] = [
   },
   // backend側は次数3未満のnodeをそもそも返さない（INTERSECTION_DEGREE_THRESHOLD=3）ため
   // 実際には出現しない想定の防御的フォールバック（他レイヤーのunknownと同じ扱い）。
-  { key: "unknown", label: "不明・他", color: COLOR_UNKNOWN, filter: ["<", intersectionDegreeInput(), 3] },
+  {
+    key: "unknown",
+    label: "不明・他",
+    color: COLOR_UNKNOWN,
+    filter: ["<", intersectionDegreeInput(), 3],
+    isFallback: true,
+  },
 ];
 
 // degree=3で半径4px、6以上で半径9pxまで線形補間する（それ以上の次数は稀なため頭打ちにする）。

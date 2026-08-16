@@ -1449,7 +1449,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   `tests/test_match_designations.py`に統合テスト3件（0件時保持・置換・executemany失敗時の
   ロールバック）を追加。backend 666件green
 
-### - [ ] T74. MVT指定路線表現の見直し（粒度・重複kind・遅延構築依存）規模M・要設計判断
+### - [x] T74. MVT指定路線表現の見直し（粒度・重複kind・遅延構築依存）規模M・要設計判断（2026-08-16完了）
 
 `_ROAD_SURFACE_TILE_MVT_SQL`のdesignation表現に関する3つの関連問題。T66
 （save_graphのCASCADE消失）と対象が近接するため、同時に設計判断するのが望ましい。
@@ -1480,6 +1480,31 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   次に着手する際は、まず③（事前計算テーブル化）から始めると①の再定義もその上に自然に
   乗る（事前計算をedge単位ではなくway単位の交差長比で持てば、①の「any-edge」から
   「ratio-based」への改善も同時に得られる）。
+- **実装結果（2026-08-16）**: ユーザー報告「指定路線が全路線・関東エリアで表示されない」の
+  原因調査を契機に着手。上記検討メモどおり③から着手し①・②を同時解消した。
+  - ③: `designation_attributes`のキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways
+    FK）へ変更（migration `0009_designation_attributes_osm_way_id.sql`、DROP→再作成）。
+    `match_designations.py`の`_MATCH_SQL`をroad_edges基準からosm_raw_ways基準へ書き換え。
+    これによりルート生成履歴に関係なく全域で即時表示されるようになった。
+  - ①: ③の副産物として、MVT表示（way単位bool_or集約）と評価側（旧: edge単位any-match）が
+    way単位ratio-matchへ統一された。トレードオフとして、長いwayの一部だけが実際に指定路線と
+    重なる場合、比率が閾値未満だとway全体が非該当になりうる点を`domain/designation.py`に
+    明記した（無条件の改善ではない）。
+  - ②: `_ROAD_SURFACE_TILE_MVT_SQL`のdesignation CASE式を3値化（`emergency_transport`/
+    `critical_logistics`/両方該当時`both`）。フロントは`staticAttributeLayers.ts`の
+    `DESIGNATION_CATEGORIES`に3件目を追加するだけで凡例・色分け・ポップアップが
+    `buildCategoricalLayerDefs`経由で自動反映された（2フラグ独立レイヤー案は
+    `MapLayersPanel`の1レイヤー1トグル前提を崩すため見送り）。
+  - `_DESIGNATED_EDGE_IDS_SQL`（road_edges経由でedge_id→osm_way_idマッピングしてJOIN、
+    呼び出し時点でroad_edgesは構築済みのためT74の対象外）・`_NEAREST_WAY_TAGS_SQL`
+    （nearest.osm_way_idで直接判定）も追随。
+  - road_edges再splitのCASCADE巻き添え（旧T66の懸念）はdesignation_attributesがosm_raw_ways
+    FKになったことで対象外になったため、回帰テスト2件を「way単位化によりresplitの影響を
+    受けない」ことを検証する新テストへ置換。
+  - タイル世代v5→v6を対で上げ、`export_openapi.py`を再実行して`region-tile-config.json`を
+    再生成。
+  - 運用: 本番・dev DBともにmigration適用後、`match_designations.py`の再実行が必須
+    （designation_attributesがDROPされ空になるため）。
 
 ### - [x] T75. designation kind追加の1本道整備（片側import化＋テーブル化）規模S（2026-08-16完了）
 
@@ -1751,6 +1776,43 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   F-1として起票、ユーザー承認のうえ本タスクとして実施・完了。
 
 ---
+
+## T74migration未適用による交通ストレス不具合対応・凡例見える化（2026-08-16）
+
+### - [x] T89. 交通ストレス凡例の見える化〔ユーザー報告〕規模S（2026-08-16完了）
+
+- 発端: ユーザー報告「交通ストレスが地図に表示されなくなった」。調査したところ、T74
+  （designation_attributesのosm_way_idキー化）のコードは実装済みだったが、対応migration
+  `0009_designation_attributes_osm_way_id.sql`のdev DB適用と`match_designations.py`の
+  再実行が未実施のままで、`_ROAD_SURFACE_TILE_MVT_SQL`が`column "osm_way_id" does not exist`
+  で失敗していた（`region_service.py`のDB障害フォールバックにより空タイルへ静かに劣化、
+  HTTPは200 OKのまま交通ストレス等road_surfaceタイル全系統が表示されない状態）。
+  migration適用＋バッチ再実行（match=11,102件）で復旧、Playwright実機確認済み。
+- 追加相談: 「そもそも交通ストレスの1〜5評価基準が分かりにくい」との指摘（実際は1〜4段階、
+  凡例に「不明・他」を含め5項目並ぶため誤解されやすい）。ユーザー承認のうえ低コスト対応
+  （凡例の視覚分離＋判定根拠の内訳表示）を実施し、高コストな区間クリック内訳表示
+  （backendがtraffic_stress算出根拠をレスポンスへ含める必要あり）は次イテレーション見送り。
+  あわせて「指定路線と交通ストレスを分ける基準」も検討: 指定路線（KSJ N10/N12）は行政指定
+  という「事実」の表示、交通ストレスは道路種別・車線数・制限速度・自転車インフラ・指定路線
+  該当を合成した「推定指標」であり、指定路線は交通ストレスの入力の一つ（bicycleInfraとの
+  関係と同型、T62で先例あり）。指定路線かどうか自体を個別確認できるようにする価値がある
+  ため統合はせず、両パネルの説明文を相互参照させる形にとどめた。
+- 対応:
+  - `legendFilter.ts`: `LegendEntry`へ`isFallback?: boolean`を追加。「不明・他」「対象外」
+    受け皿カテゴリ（trafficStress/intersection/buildCategoricalLayerDefs経由の全カテゴリ
+    軸）へ設定し、`MapLayersPanel.tsx`（区切り線＋弱調表示、CSS `.legendCheckboxRowFallback`）・
+    `MapOverlayControls.tsx`（同、`.detailRowFallback`）の両凡例UIで数値/順序段階と
+    視覚的に分離。
+  - `mapLayers.ts`: `MapLayerDescriptor`へ`panelHintDetail?: readonly string[]`を追加し、
+    trafficStressのpanelHintを「4段階（1=快適〜4=ストレス大）」明記へ書き換え、
+    `domain/traffic.py: traffic_stress_level`の加点/減点ロジック（基準値・自転車道-2/
+    レーン-1・速度±1・車線数+1・指定路線+1・motor_vehicle=no固定1・不明の理由）を
+    箇条書きで追加。designationのpanelHintにも「別レイヤーとして表示している理由」を追記し
+    相互参照させた。
+  - `MapLayersPanel.tsx`: `renderStandardSectionBody`が`panelHintDetail`を`<ul>`で描画。
+- 完了条件: frontend全テストgreen（vitest 214件・tsc・eslint）、Playwright実機確認
+  （サイドバー・地図上▶ポップオーバー双方で区切り線・箇条書きの表示を確認）。
+
 
 ## 記録
 

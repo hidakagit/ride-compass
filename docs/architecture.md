@@ -291,7 +291,7 @@ RideCompass/
         import_pbf.py              ✅ OSM PBF→osm_raw_ways/osm_raw_nodes/osm_raw_pois取込（Road Graph移行「永続化」、詳細はdocs/osm-pbf-import.md）
         import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
         import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
-        match_designations.py         ✅ route_designations→road_edgesバッファマッチ事前計算（designation_attributes、外部静的データソースT51、7章参照）
+        match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがRENDER_GIT_COMMIT未設定時null・設定時はその値を反映すること（「Renderデプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
@@ -331,7 +331,7 @@ RideCompass/
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
       test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
-    migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）
+    migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
@@ -505,7 +505,7 @@ Response 429（同一クライアントIPから1分あたり60リクエスト（
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
   highway/surface/smoothness/tunnel/bridge/`traffic_stress`(1-4)/`bicycle_infra`/`designation`
-  （P0/P1/T51、現行タイル世代v5。7章参照）プロパティを持つ
+  （P0/P1/T51/T74、現行タイル世代v6。7章参照）プロパティを持つ
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
 Response 400（x/yがそのズームレベルで存在しうる範囲 `0 <= x,y < 2**z` を外れる場合。直接APIを叩かれた場合の安全弁で、通常はMapLibreが範囲外のタイルを要求しないため到達しない）:
@@ -769,20 +769,26 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
 `route_designations`（線データ、`kind`=`emergency_transport`/`critical_logistics`）へ
 `(kind, pref_code)`単位でDELETE→INSERTする（migration `0007_add_route_designations.sql`）。
 `app/batch/match_designations.py`が`route_designations`を`DESIGNATION_BUFFER_WIDTH_M=20m`で
-バッファし、road_edgesとの交差長比が`DESIGNATION_MATCH_MIN_RATIO=0.5`以上のEdgeを
-`designation_attributes`（Edge派生の事前計算、`elevation_attributes`と同じパターン）へ
-書き込む事前計算バッチ（取込後・OSM再取込後に再実行が必要）。定数はすべて`domain/designation.py`
-が正準（`DESIGNATION_IMPORT_KINDS`＝取込対象kind、`TRAFFIC_STRESS_DESIGNATION_KINDS`＝
+バッファし、`osm_raw_ways`との交差長比が`DESIGNATION_MATCH_MIN_RATIO=0.5`以上のWayを
+`designation_attributes`（osm_way_id基準のWay派生の事前計算）へ書き込む事前計算バッチ
+（取込後・OSM再取込後に再実行が必要）。定数はすべて`domain/designation.py`が正準
+（`DESIGNATION_IMPORT_KINDS`＝取込対象kind、`TRAFFIC_STRESS_DESIGNATION_KINDS`＝
 交通ストレス+1補正の対象kind。現状は同一集合だが概念的に別軸として別定数）。
+
+改善計画T74（2026-08-16）: マッチング対象は当初`road_edges`（ルート生成地点周辺のみ遅延構築）
+だったが、`route_designations`が関東全域投入済みなのに表示がルート生成履歴のあるエリアに
+限られる不具合の根本対応として`osm_raw_ways`（関東全域自己完結）基準へ変更した。副作用として
+評価粒度もedge単位any-matchからway単位ratio-matchへ統一されている。
 
 該当区間は新しい評価軸を増やさず、**交通ストレスへの+1補正のみ**として組み込む
 （`traffic_stress_level(highway, tags, is_designated)`、大型車交通の代理指標）。
-`AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合）と
+`AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合。呼び出し時点で
+`road_edges`は構築済みのため、`road_edges.osm_way_id`経由で`designation_attributes`へJOINする）と
 `get_nearest_way_tags`が返す3要素目`is_designated`（OpenRouteServiceEngine、highway・tagsと
 同一KNNに同居。旧`get_nearest_designated_flags`は改善計画T76で統合・削除済み）の対で提供する。
 地図表示は`road-surface-tiles`のMVTに`designation`プロパティ（`emergency_transport`/
-`critical_logistics`/未該当はプロパティ欠落、`designation_attributes`をosm_way_id単位へ
-事前集約してからJOIN）として焼き込む。
+`critical_logistics`/両方該当時は`both`/未該当はプロパティ欠落、`designation_attributes`を
+osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。
 
 ### 静的レイヤー・タイル配信（フロント9レイヤー）
 
@@ -797,7 +803,8 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
 1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
    smoothness・tunnel・bridgeに加え、`traffic_stress`・`bicycle_infra`・`designation`
    プロパティをLineString地物へ追加（P1・T51で拡張）。世代v2=surface/highway追加、
-   v3=surface正準拡充、v4=P0静的属性追加、**v5=T51 designationプロパティ追加**（現行）。
+   v3=surface正準拡充、v4=P0静的属性追加、v5=T51 designationプロパティ追加、
+   **v6=T74 designationのosm_way_id基準化・3値化（`both`追加）**（現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
    停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。
