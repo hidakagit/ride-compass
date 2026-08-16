@@ -211,9 +211,16 @@ input[type="number"] {
    コンポーネントツリー上はlayoutより後）の出力順を保証しないため、単一クラス同士では
    詳細度が同点になりソース順（＝ビルドのたびに変わりうる）で決着してしまい、本番ビルドで
    実際にmaplibre-gl.css側の#fff固定が勝って「背景が真っ白・文字が薄い」まま直らなかった
-   （実機フィードバックで確認）。詳細度で確実に勝たせることでビルド順に依存しなくする。 */
+   （実機フィードバックで確認）。詳細度で確実に勝たせることでビルド順に依存しなくする。
+   背景は不透明固定だと直下の道路・地名が完全に隠れて見えないという実機フィードバックを
+   受け、MapOverlayControls.module.cssの.detailPanel（半透明+ぼかし、同じ「地図を覆いすぎない」
+   目的のポップアップ）と同じcolor-mix+backdrop-filterの手法に揃えた。.detailPanelは
+   常時薄く見せる凡例のため78%だが、こちらは押して能動的に開く情報カードで文字量も多いため
+   可読性を優先し88%とやや不透明寄りにしている。 */
 .maplibregl-popup > .maplibregl-popup-content {
-  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: var(--foreground);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -242,24 +249,27 @@ input[type="number"] {
   padding: var(--space-1) var(--space-2);
 }
 
+/* tip（吹き出しの三角形）はborder-colorで塗る単色の図形でbackdrop-filterが効かないため
+   完全な半透明にはならないが、.maplibregl-popup-contentと同じcolor-mix値を使うことで
+   見た目のトーンだけは揃える。 */
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
-  border-bottom-color: var(--color-surface);
+  border-bottom-color: color-mix(in srgb, var(--color-surface) 88%, transparent);
 }
 
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
 .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
 .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
-  border-top-color: var(--color-surface);
+  border-top-color: color-mix(in srgb, var(--color-surface) 88%, transparent);
 }
 
 .maplibregl-popup-anchor-left .maplibregl-popup-tip {
-  border-right-color: var(--color-surface);
+  border-right-color: color-mix(in srgb, var(--color-surface) 88%, transparent);
 }
 
 .maplibregl-popup-anchor-right .maplibregl-popup-tip {
-  border-left-color: var(--color-surface);
+  border-left-color: color-mix(in srgb, var(--color-surface) 88%, transparent);
 }
 
 @media (max-width: 640px) {

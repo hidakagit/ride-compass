@@ -750,23 +750,55 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${breakdownAffordance}</div>`;
 }
 
+// 「基準値4＋指定路線+1なのに最終値が5でなく4なのはなぜか」という実機フィードバック
+// （改善計画T90への追加対応）。交通ストレスは1〜4の4段階に固定（mapLayers.tsの
+// panelHint「4段階（1=快適〜4=ストレス大）」と同じ語彙で揃える、複雑度平衡の
+// 「UI語彙のカタログ集約」原則）で、各補正の合計がこの範囲を超えたら丸めることを
+// 明示していなかったため誤解を招いていた。合計の数式と丸めの有無を明示する。
+const TRAFFIC_STRESS_SCALE_INTRO = "交通ストレスは4段階（1=快適〜4=ストレス大）の目安です。";
+
+function formatSignedTerm(value: number): string {
+  return value >= 0 ? `+${value}` : `${value}`;
+}
+
 function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): string {
   if (breakdown.level == null) {
     return `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">この道路種別は交通ストレスの判定基準に登録されていません。</div>`;
   }
-  const rows = [`基準値（道路種別）: ${breakdown.base}`];
+  const base = breakdown.base ?? 0;
+  const rows = [`基準値（道路種別）: ${base}`];
   if (breakdown.motor_vehicle_no_override) {
-    rows.push("車両通行不可（自転車専用）のため1に固定");
+    rows.push("車両通行不可（自転車専用）のため、上記に関わらず1に固定");
   } else {
-    if (breakdown.cycleway_adjustment !== 0) rows.push(`自転車インフラ: ${breakdown.cycleway_adjustment}`);
-    if (breakdown.maxspeed_adjustment !== 0) {
-      rows.push(`制限速度: ${breakdown.maxspeed_adjustment > 0 ? "+" : ""}${breakdown.maxspeed_adjustment}`);
+    const adjustments: Array<{ label: string; value: number }> = [];
+    if (breakdown.cycleway_adjustment !== 0) {
+      adjustments.push({ label: "自転車インフラ", value: breakdown.cycleway_adjustment });
     }
-    if (breakdown.lanes_adjustment !== 0) rows.push(`車線数: +${breakdown.lanes_adjustment}`);
-    if (breakdown.designation_adjustment !== 0) rows.push(`指定路線: +${breakdown.designation_adjustment}`);
+    if (breakdown.maxspeed_adjustment !== 0) {
+      adjustments.push({ label: "制限速度", value: breakdown.maxspeed_adjustment });
+    }
+    if (breakdown.lanes_adjustment !== 0) {
+      adjustments.push({ label: "車線数", value: breakdown.lanes_adjustment });
+    }
+    if (breakdown.designation_adjustment !== 0) {
+      adjustments.push({ label: "指定路線（緊急輸送道路等）", value: breakdown.designation_adjustment });
+    }
+    for (const adjustment of adjustments) {
+      rows.push(`${adjustment.label}: ${formatSignedTerm(adjustment.value)}`);
+    }
+    if (adjustments.length > 0) {
+      const rawTotal = base + adjustments.reduce((sum, adjustment) => sum + adjustment.value, 0);
+      const formula = [`${base}`, ...adjustments.map((adjustment) => formatSignedTerm(adjustment.value))].join(" ");
+      if (rawTotal !== breakdown.level) {
+        const boundLabel = rawTotal > 4 ? "上限の4" : "下限の1";
+        rows.push(`合計 ${formula} = ${rawTotal} → ${boundLabel}に丸め`);
+      } else {
+        rows.push(`合計 ${formula} = ${rawTotal}`);
+      }
+    }
   }
   rows.push(`<strong>最終値: ${breakdown.level}/4</strong>`);
-  return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${rows.join("<br/>")}</div>`;
+  return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${TRAFFIC_STRESS_SCALE_INTRO}<br/><br/>${rows.join("<br/>")}</div>`;
 }
 
 // buildRoadSurfacePopupHtmlが出す「内訳を見る」ボタンをポップアップ表示後に配線する
