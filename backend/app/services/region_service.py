@@ -4,6 +4,7 @@ import time
 
 import httpx
 
+from app.config import settings
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
@@ -30,24 +31,38 @@ _building_graph_tiles: set[tuple[int, int, int]] = set()
 # is_split_up_to_date確認用の短命DBセッションを開き続けてしまう。
 _last_build_check: dict[tuple[int, int, int], float] = {}
 _GRAPH_CHECK_TTL_SECONDS = 300.0
+# 実際の構築（closure再計算・Edge全量再UPSERT）だけを絞る同時実行数上限（config.py:
+# graph_build_max_concurrentのコメント参照）。安価なis_split_up_to_date確認はここに
+# 含めない（このsemaphoreの後ろで待たされる必要が無い軽いクエリのため）。
+_graph_build_semaphore = asyncio.Semaphore(settings.graph_build_max_concurrent)
 
 
 async def _build_graph_for_tile_background(ancestor_tile: tuple[int, int, int], checked_at: float) -> None:
     """指定z12タイルの道路グラフが未構築・古ければ、GraphServiceの通常経路
     （is_split_up_to_date→必要なら再構築）でバックグラウンド構築する。リクエストの
     セッションとは別の新規セッションを使う（HTTPレスポンスが返った後もタスクを続けるため）。
+
+    鮮度確認（軽い）と実構築（重い、DBセッションを長時間保持）を別セッションに分け、
+    実構築だけを`_graph_build_semaphore`で絞る。1つのセッションを保持したまま
+    semaphore待ちにすると、密集した未構築エリアへの一斉アクセスで「順番待ちのタスクが
+    次々にDBコネクションだけ先取りして塞ぐ」ことになりかねないため（改善計画T59の
+    最初の実装で、無制限の同時構築がDBコネクションプールを枯渇させ無関係な他タイル・
+    API呼び出しまで502化した実障害を踏まえた対応）。
     """
     zoom, x, y = ancestor_tile
     bbox = tile_bounds_lonlat(zoom, x, y)
     try:
         async with get_session_factory()() as session:
-            repository = RoadGraphRepository(session)
-            if await repository.is_split_up_to_date(bbox):
+            if await RoadGraphRepository(session).is_split_up_to_date(bbox):
                 return
+
+        async with _graph_build_semaphore:
             started = time.monotonic()
-            async with httpx.AsyncClient() as http_client:
-                graph_service = GraphService(OverpassClient(), http_client, repository=repository)
-                built = await graph_service.get_or_build_graph_with_attributes(bbox)
+            async with get_session_factory()() as session:
+                repository = RoadGraphRepository(session)
+                async with httpx.AsyncClient() as http_client:
+                    graph_service = GraphService(OverpassClient(), http_client, repository=repository)
+                    built = await graph_service.get_or_build_graph_with_attributes(bbox)
             elapsed_ms = round((time.monotonic() - started) * 1000)
             edge_count = len(built[0].edges) if built else 0
             logger.info(

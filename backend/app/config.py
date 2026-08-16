@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     # やや緩い上限にしている。
     accident_tile_rate_limit_per_minute: int = 120
     accident_tile_max_concurrent: int = 6
+    # 地図タイル閲覧起点の道路グラフ構築（改善計画T59、RegionService._maybe_trigger_graph_build）。
+    # closure再計算・Edge全量再UPSERTを伴う重い処理（数十秒〜数分規模）で、DBセッションを
+    # 長時間保持する。road_tile_max_concurrent(6)+accident_tile_max_concurrent(6)で
+    # 接続プール上限15のうち既に12を使いうるため、残り枠を大きく占有しないよう低く抑える
+    # （密集した未構築エリアへの一斉アクセスでプールが枯渇し、無関係な他タイル・API呼び出しまで
+    # 502化した実障害を受けての対応）。ユーザー体験には影響しない完全なバックグラウンド処理
+    # のため、待たされても実害が無く1で十分（複数エリアへの構築要求は順番に処理される）。
+    graph_build_max_concurrent: int = 1
     basemap_rate_limit_per_minute: int = 300
     # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
     # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
