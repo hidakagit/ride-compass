@@ -1,12 +1,16 @@
-"""指定路線（route_designations）→road_edgesへのバッファマッチ事前計算バッチ
+"""指定路線（route_designations）→osm_raw_waysへのバッファマッチ事前計算バッチ
 （外部静的データソース T51、パターンD。docs/external-data-sources-review-2026-08-16.md §4.3）。
 
-線×線の割合計算は評価時導出には重いため、elevation_attributesと同じ「Edge派生の
+線×線の割合計算は評価時導出には重いため、elevation_attributesと同じ「派生データの
 事前計算」として`designation_attributes`へ書き込む。`import_designations.py`（route_designations
-の取込）後、およびOSM再取込（road_edgesが変わりうる）後に再実行する必要がある。
+の取込）後、およびOSM再取込（osm_raw_waysが変わりうる）後に再実行する必要がある。
 
-判定式: バッファ内交差長 / Edge全長 >= DESIGNATION_MATCH_MIN_RATIO
-（`domain/designation.py`が正準。バッファ幅もそこで定義）。同一(edge_id, kind)に対し
+改善計画T74: マッチング対象は当初road_edges（ルート生成地点周辺のみ遅延構築）だったが、
+route_designationsが全域投入済みなのに表示がルート生成履歴のあるエリアに限られる不具合の
+根本対応として、osm_raw_ways（関東全域自己完結）基準へ変更した。
+
+判定式: バッファ内交差長 / Way全長 >= DESIGNATION_MATCH_MIN_RATIO
+（`domain/designation.py`が正準。バッファ幅もそこで定義）。同一(osm_way_id, kind)に対し
 複数のroute_designations行が寄与しうる場合に二重計上しないよう、交差ジオメトリを
 ST_Unionしてから長さを測る。
 
@@ -32,23 +36,24 @@ logger = logging.getLogger("app.batch.match_designations")
 
 _KINDS = DESIGNATION_IMPORT_KINDS
 
-# バッファポリゴンはroute_designations行ごとに決定的（Edgeに依存しない）ため、先にCTEで
-# 1行1回だけ計算してからJOINする（MATERIALIZEDでインライン化を禁止し、road_edgesとの
+# バッファポリゴンはroute_designations行ごとに決定的（Wayに依存しない）ため、先にCTEで
+# 1行1回だけ計算してからJOINする（MATERIALIZEDでインライン化を禁止し、osm_raw_waysとの
 # JOIN内で行ごとに再計算されるのを防ぐ。route_designations側の長い線形をST_Bufferする
-# コストは無視できないため、これを対象road_edges件数分だけ繰り返すのが最初の実装で
+# コストは無視できないため、これを対象osm_raw_ways件数分だけ繰り返すのが最初の実装で
 # 遅かった主因と判定した）。
-# JOIN条件はST_Intersects(e.geom, b.buffer_geom)（どちらもgeometry型、::geographyキャスト
-# なし）にする。当初は`ST_DWithin(e.geom::geography, b.geom::geography, $1)`だったが、
-# geographyキャストを挟むとPostGISのプランナがroad_edges.geomのGiST索引
-# （idx_road_edges_geom）を認識できず、Join Filter（全組み合わせを評価してから絞り込み）に
-# 落ちてしまい、実データ（road_edges 22,164件×route_designations 5,084件）で
-# 30分超無応答になることを実測で確認した（EXPLAIN上のコストが14億→239万まで下がることも
-# 確認済み）。buffer_geomは既に20mバッファ済みのgeometryのため、素のST_Intersectsで
-# 意味的に等価かつ索引を使える（GiST演算子クラスがST_Intersectsを自動的に`&&`へ展開する）。
-# GROUP BYはe.edge_id（road_edgesの主キー）のみにする。e.geomは主キーに関数従属するため
+# JOIN条件はST_Intersects(w.geom, b.buffer_geom)（どちらもgeometry型、::geographyキャスト
+# なし）にする。当初road_edges版では`ST_DWithin(e.geom::geography, b.geom::geography, $1)`
+# だったが、geographyキャストを挟むとPostGISのプランナがGiST索引を認識できず、Join Filter
+# （全組み合わせを評価してから絞り込み）に落ちてしまい、実データで30分超無応答になることを
+# 実測で確認した（EXPLAIN上のコストが14億→239万まで下がることも確認済み）。buffer_geomは
+# 既に20mバッファ済みのgeometryのため、素のST_Intersectsで意味的に等価かつ索引
+# （osm_raw_ways.geomのGiST索引、spatial_index=True）を使える。
+# WHERE w.geom IS NOT NULLガード: osm_raw_ways.geomは座標既知ノードが2点未満のWay
+# （抽出ファイル境界等）でNULLになりうる（road_edges.geomと異なりNOT NULL制約が無い）。
+# GROUP BYはw.osm_way_id（osm_raw_waysの主キー）のみにする。w.geomは主キーに関数従属するため
 # 含める必要が無く、PostGISジオメトリを含めたGROUP BYはハッシュ・比較コストが高いため避ける。
-# ST_Unionでまとめてから測ることで、同一(edge_id, kind)へ複数のroute_designations行
-# （例: 隣接するN10区間データが同じEdge近傍を2本通る場合）が寄与しても交差長を二重計上しない。
+# ST_Unionでまとめてから測ることで、同一(osm_way_id, kind)へ複数のroute_designations行
+# （例: 隣接するN10区間データが同じWay近傍を2本通る場合）が寄与しても交差長を二重計上しない。
 _MATCH_SQL = """
 WITH buffered AS MATERIALIZED (
     SELECT id, kind, ST_Buffer(geom::geography, $1)::geometry AS buffer_geom
@@ -56,30 +61,30 @@ WITH buffered AS MATERIALIZED (
     WHERE kind = ANY($2)
 ),
 matched AS (
-    SELECT e.edge_id, b.kind,
-           ST_Length(e.geom::geography) AS edge_length_m,
+    SELECT w.osm_way_id, b.kind,
+           ST_Length(w.geom::geography) AS way_length_m,
            ST_Union(
-               ST_CollectionExtract(ST_Intersection(e.geom, b.buffer_geom), 2)
+               ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2)
            ) AS unioned
     FROM buffered b
-    JOIN road_edges e ON ST_Intersects(e.geom, b.buffer_geom)
-    GROUP BY e.edge_id, b.kind
+    JOIN osm_raw_ways w ON w.geom IS NOT NULL AND ST_Intersects(w.geom, b.buffer_geom)
+    GROUP BY w.osm_way_id, b.kind
 )
-SELECT edge_id, kind, ST_Length(unioned::geography) / NULLIF(edge_length_m, 0) AS ratio
+SELECT osm_way_id, kind, ST_Length(unioned::geography) / NULLIF(way_length_m, 0) AS ratio
 FROM matched
 """
 
 _DELETE_SQL = "DELETE FROM designation_attributes WHERE kind = ANY($1)"
 _INSERT_SQL = """
-INSERT INTO designation_attributes (edge_id, kind, matched_ratio, data_version, calculated_at)
+INSERT INTO designation_attributes (osm_way_id, kind, matched_ratio, data_version, calculated_at)
 VALUES ($1, $2, $3, $4, now())
 """
 
 
 async def _write_matches(
     conn: asyncpg.Connection,
-    candidates: list[tuple[str, str, float]],
-    matched: list[tuple[str, str, float]],
+    candidates: list[tuple[int, str, float]],
+    matched: list[tuple[int, str, float]],
     data_version: str,
 ) -> float:
     """DELETE→executemany INSERTを1トランザクションに括り、candidatesが0件のときは
@@ -103,7 +108,7 @@ async def _write_matches(
         # （本番はOracle遠隔DBのため特に顕著）。executemanyで1ラウンドトリップにバッチ化する。
         await conn.executemany(
             _INSERT_SQL,
-            [(edge_id, kind, ratio, data_version_local) for edge_id, kind, ratio in matched],
+            [(osm_way_id, kind, ratio, data_version_local) for osm_way_id, kind, ratio in matched],
         )
     return time.perf_counter() - insert_started
 
@@ -115,7 +120,7 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
     try:
         logger.info("マッチング開始: buffer_width_m=%.1f kinds=%s", DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
         rows = await conn.fetch(_MATCH_SQL, DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
-        candidates = [(r["edge_id"], r["kind"], r["ratio"]) for r in rows if r["ratio"] is not None]
+        candidates = [(r["osm_way_id"], r["kind"], r["ratio"]) for r in rows if r["ratio"] is not None]
         matched = [c for c in candidates if c[2] >= DESIGNATION_MATCH_MIN_RATIO]
 
         if dry_run:
@@ -147,7 +152,7 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="指定路線→road_edgesバッファマッチ事前計算バッチ（外部静的データソース T51）"
+        description="指定路線→osm_raw_waysバッファマッチ事前計算バッチ（外部静的データソース T51）"
     )
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="件数・分布集計のみでDBへ書き込まない")

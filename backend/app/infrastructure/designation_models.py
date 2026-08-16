@@ -6,7 +6,8 @@
 Base.metadata.create_all）に乗せるため同じ Base を使う。
 
 `route_designations`（raw層、外部指定線形の生値）・`designation_attributes`
-（Edge派生、elevation_attributes型だが1エッジが複数kindに該当しうるため複合PK）・
+（Way派生、1Wayが複数kindに該当しうるため複合PK。改善計画T74でedge_id基準からosm_way_id基準へ
+変更、road_edgesの遅延構築に依存しない全域表示のため）・
 `designation_import_runs`（osm_import_runs型の取込記録）の3テーブル。
 """
 
@@ -39,16 +40,18 @@ class RouteDesignationRow(Base):
 
 
 class DesignationAttributeRow(Base):
-    """road_edgesへのバッファマッチ結果（Edge派生、elevation_attributes型）。
+    """osm_raw_waysへのバッファマッチ結果（Way派生）。
 
-    1エッジがN10・N12双方に該当しうるため、elevation_attributesと違い
-    複合PK(edge_id, kind)にする（docs/external-data-sources-review-2026-08-16.md §4.3）。
+    改善計画T74: road_edges（ルート生成地点周辺のみ遅延構築）ではなくosm_raw_ways
+    （関東全域自己完結）を対象にすることで、ルート生成履歴に関係なく全域で表示できるようにする。
+    1つのWayがN10・N12双方に該当しうるため、複合PK(osm_way_id, kind)にする
+    （docs/external-data-sources-review-2026-08-16.md §4.3）。
     """
 
     __tablename__ = "designation_attributes"
 
-    edge_id: Mapped[str] = mapped_column(
-        String, ForeignKey("road_edges.edge_id", ondelete="CASCADE"), primary_key=True
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
     )
     kind: Mapped[str] = mapped_column(String, primary_key=True)
     matched_ratio: Mapped[float] = mapped_column(Float, nullable=False)

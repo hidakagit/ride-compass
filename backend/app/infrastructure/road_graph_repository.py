@@ -258,6 +258,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             ))
                         END AS traffic_stress,
                         CASE
+                            WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'
                             WHEN d.is_ert THEN 'emergency_transport'
                             WHEN d.is_cl THEN 'critical_logistics'
                         END AS designation
@@ -281,16 +282,17 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                     LEFT JOIN (
                         -- 指定路線コンフレーション機構（外部静的データソース T51）。
                         -- designation_attributesはmatch_designations.pyの事前計算バッチが埋める。
-                        -- 改善計画T65: way行ごとのCROSS JOIN LATERAL（way1本あたり索引スキャン）
-                        -- ではなく、designation_attributes全体（小テーブル）を先にosm_way_id単位へ
-                        -- 事前集約してからハッシュJOINする（実測6.27秒→0.36秒、約17倍）。
+                        -- 改善計画T74: キーがosm_way_idになったため、road_edges経由の間接JOIN
+                        -- （旧: designation_attributes.edge_id→road_edges.edge_id→osm_way_id）が
+                        -- 不要になった。designation_attributes自体を直接osm_way_id単位へ
+                        -- 事前集約する（改善計画T65の17倍高速化の知見はそのまま活きる。
+                        -- osm_way_id 1件に対しkindは高々2件のためbool_or集約コストは軽微）。
                         SELECT
-                            e.osm_way_id,
-                            bool_or(da.kind = 'emergency_transport') AS is_ert,
-                            bool_or(da.kind = 'critical_logistics') AS is_cl
-                        FROM designation_attributes da
-                        JOIN road_edges e ON e.edge_id = da.edge_id
-                        GROUP BY e.osm_way_id
+                            osm_way_id,
+                            bool_or(kind = 'emergency_transport') AS is_ert,
+                            bool_or(kind = 'critical_logistics') AS is_cl
+                        FROM designation_attributes
+                        GROUP BY osm_way_id
                     ) d ON d.osm_way_id = w.osm_way_id
                     WHERE w.geom IS NOT NULL
                       AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
@@ -531,26 +533,24 @@ _NEAREST_ACCIDENT_COUNTS_SQL = text(
 
 # 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
 # match_designations.pyの事前計算バッチが埋める（クエリ時にはバッファ交差計算をしない）。
-# edge_idキー版はDISTINCT一覧（get_designated_edge_ids用）。サンプル点版は改善計画T76で
-# _NEAREST_WAY_TAGS_SQLへ統合し、専用クエリは廃止した（同一サンプル点集合に対する3本目の
-# 独立KNNラウンドトリップだったため。詳細は_NEAREST_WAY_TAGS_SQLのコメント参照）。
+# サンプル点版は改善計画T76で_NEAREST_WAY_TAGS_SQLへ統合し、専用クエリは廃止した
+# （同一サンプル点集合に対する3本目の独立KNNラウンドトリップだったため。詳細は
+# _NEAREST_WAY_TAGS_SQLのコメント参照）。
 #
-# 改善計画T77（転送方式の見直し検討）: 「呼び出し側のgraph.edges.keys()全件をedge_idsとして
-# アップロードする代わりに、designation_attributes全体（該当kind分）を無フィルタで取得し
-# Python側で積集合を取る方が安いのでは」という代替案を検討した。dev DBで実測（2026-08-16）
-# したところ、designation_attributes該当kind行数=28,940に対し、road_edgesは既に117,744件
-# （王子中心40kmbbox、生成済み範囲の蓄積分）で、大きめのループ生成リクエストの
-# graph.edges.keys()は同オーダー（数万件）になりうる。どちらの方向にアップロードしても
-# 転送量が大差ない規模のため、明確な優位が無いと判断し現状（edge_idsをWHERE ANYへ渡す方式、
-# インデックス付きPK検索）を維持する。designation_attributesが将来大きく育つ場合は
-# 再検討する。
+# 改善計画T74: designation_attributesはosm_way_idキーへ変更したが、呼び出し元
+# （get_designated_edge_ids）は構築済みgraph（graph.edges.keys()、road_graph_engine.py）の
+# edge_idを受け取りedge_id集合を返す必要があるため、この経路だけはroad_edgesを経由して
+# edge_id→osm_way_idへマッピングしてからJOINする。呼び出し時点でgraphは既に構築済み
+# （road_edgesの遅延構築は完了済み）のため、この間接JOINはT74の「遅延構築依存」問題の
+# 対象外（MVT表示のように「ルート生成前に見えるか」が問題になる経路ではない）。
 #
 # DISTINCTは呼び出し側（get_designated_edge_ids）のset()化と二重に見えるが、1エッジが
 # 複数kindに該当する場合（N10・N12両方等）に重複行がそのままネットワークへ乗るのを防ぐ
 # 転送量削減が目的のため意図的に残す。
 _DESIGNATED_EDGE_IDS_SQL = text(
-    "SELECT DISTINCT edge_id FROM designation_attributes WHERE edge_id = ANY(CAST(:edge_ids AS text[])) "
-    "AND kind = ANY(:kinds)"
+    "SELECT DISTINCT e.edge_id FROM road_edges e "
+    "JOIN designation_attributes da ON da.osm_way_id = e.osm_way_id "
+    "WHERE e.edge_id = ANY(CAST(:edge_ids AS text[])) AND da.kind = ANY(:kinds)"
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
 # 事故データの収録年数（accident_import_runsの成功run数、年重複なしのdistinct件数）。
@@ -567,8 +567,11 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
 # 以前はget_nearest_designated_flagsが同一サンプル点集合に対して独立のLATERAL KNN
 # （WITH pts〜LEFT JOIN LATERAL road_edgesの骨格ごとコピー）を3本目のラウンドトリップとして
 # 実行しており、並行道路付近でhighway/tagsとis_designatedが別のedge由来になる不整合の
-# 可能性もあった。nearest.edge_idを1回のKNNで求め、designation_attributesへのEXISTSを
+# 可能性もあった。nearest.osm_way_idを1回のKNNで求め、designation_attributesへのEXISTSを
 # 同じCASE式（ST_DWithinゲート）に同居させることでクエリ・ラウンドトリップとも1本化する。
+# 改善計画T74: designation_attributesがosm_way_idキーになったため、EXISTS判定も
+# nearest.osm_way_id（既にKNNで取得済み、道路種別tags取得のosm_raw_ways JOINと同じキー）で
+# 直接判定する。edge_idを経由する必要が無くなった。
 _NEAREST_WAY_TAGS_SQL = text(
     """
     WITH pts AS (
@@ -584,13 +587,13 @@ _NEAREST_WAY_TAGS_SQL = text(
            CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m)
                 THEN EXISTS(
                     SELECT 1 FROM designation_attributes da
-                    WHERE da.edge_id = nearest.edge_id AND da.kind = ANY(:kinds)
+                    WHERE da.osm_way_id = nearest.osm_way_id AND da.kind = ANY(:kinds)
                 )
                 ELSE false
            END AS is_designated
     FROM pts
     LEFT JOIN LATERAL (
-        SELECT e.edge_id, e.osm_way_id, e.geom
+        SELECT e.osm_way_id, e.geom
         FROM road_edges e
         ORDER BY e.geom <-> pts.geom
         LIMIT 1
@@ -907,8 +910,10 @@ class DerivedGraphRepository(_SessionRepository):
         「今回のgraphに同じedge_idで含まれないもの」だけを削除してから`graph`内の該当Edgeを
         UPSERTする（改善計画T66: 全削除→無条件再挿入だと、分割結果が前回と変わらない
         大多数のケースでも同じedge_idの行がDELETE→INSERTを経由してしまい、
-        `ON DELETE CASCADE`の`designation_attributes`等のEdge派生属性が巻き添えで
-        消える。edge_idは決定論的なため、分割結果が変わらなければ削除自体が不要）。
+        `ON DELETE CASCADE`のEdge派生属性（elevation_attributes等）が巻き添えで
+        消える。edge_idは決定論的なため、分割結果が変わらなければ削除自体が不要。
+        なおdesignation_attributesは改善計画T74でosm_raw_ways基準のWay派生に変更したため、
+        Edgeの再splitでは影響を受けない）。
         `build_road_graph`は渡されたWay集合全体から交差点を再計算するため、
         Wayの分割結果が実際に変わっていた場合は、古い分割によるEdge行（新graphに
         存在しないedge_id）を削除して孤立させない（タイル境界依存の分割不一致問題への

@@ -26,6 +26,16 @@ DESIGNATION_IMPORT_KINDS: tuple[str, ...] = ("emergency_transport", "critical_lo
 # Python側（traffic_stress_level呼び出し元）の両方がこの集合を参照する。
 # 注意: `_ROAD_SURFACE_TILE_MVT_SQL`（MVTタイル生成、road_graph_repository.py）内の
 # designation CASE式はis_ert/is_clの2列固定でこの集合を直接バインドしていない
-# （2kind固定の設計。3kind目を追加する場合はSQLの構造自体の見直しが必要、改善計画T74参照）。
+# （2kind固定の設計。3kind目を追加する場合はSQLの構造自体の見直しが必要）。
 # tests/test_road_graph_repository.pyのドリフト検知テストがこの集合とSQLの2値を突き合わせる。
 TRAFFIC_STRESS_DESIGNATION_KINDS = frozenset(DESIGNATION_IMPORT_KINDS)
+
+# 改善計画T74（2026-08-16実装）: designation_attributesのマッチング対象は当初road_edges
+# （ルート生成地点周辺のみ遅延構築）だったが、route_designationsが関東全域投入済みなのに
+# 表示がルート生成履歴のあるエリアに限られる不具合（road_edges遅延構築依存）の根本対応として
+# osm_raw_ways（全域自己完結）基準へ変更した。副作用として評価粒度もedge単位any-matchから
+# way単位ratio-matchへ統一される。トレードオフ: 長いwayの一部だけが実際に指定路線と重なる
+# ケースでは、way全長に対する交差比率がDESIGNATION_MATCH_MIN_RATIO未満だとway全体が
+# 非該当になる（従来のedge単位判定では、重なる部分のedgeだけ正しく検出できていた）。
+# どちらが多く発生するかはOSM way分割粒度（交差点でどれだけ細かく切れているか）次第で、
+# 無条件の改善ではなくトレードオフとして残る。
