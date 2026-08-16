@@ -205,19 +205,7 @@ class RoadGraphEngine:
         accident_density = _aggregate_accident_density(
             edges_in_path, context.accident_counts, context.accident_years_covered
         )
-        segments = self._build_segment_details(
-            edges_in_path,
-            elevation_attributes,
-            context.surface_attributes,
-            context.stop_counts,
-            context.way_tags,
-            context.intersection_counts,
-            context.accident_counts,
-            context.accident_years_covered,
-            context.designated_edge_ids,
-            context.wind,
-            start_time,
-        )
+        segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
         traffic_stress_score = distance_weighted_difficulty(
             [(s.traffic_stress, s.distance_km) for s in segments]
         )
@@ -244,16 +232,14 @@ class RoadGraphEngine:
         self,
         edges: list[DirectedEdge],
         elevation_attributes: dict,
-        surface_attributes: dict[str, str | None],
-        stop_counts: dict[str, int],
-        way_tags: dict[str, dict[str, str]],
-        intersection_counts: dict[str, int],
-        accident_counts: dict[str, int],
-        accident_years_covered: int,
-        designated_edge_ids: set[str],
-        wind: WeatherConditions | None,
+        context: _RoadGraphContext,
         start_time: datetime,
     ) -> list[RouteSegmentDetail]:
+        # 改善計画T79: 以前は11個の位置引数を取り、うち8個はcontextフィールドの単純展開
+        # だった（同型dict[str, int]が3つ並び、順序取り違えが検知されない構造）。
+        # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
+        # （edges=方位ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
+        # 引数）のため、これらだけを個別引数として残しcontextを1引数で渡す。
         preference = self._route_preference
         segments = []
         cumulative_km = 0.0
@@ -261,17 +247,17 @@ class RoadGraphEngine:
         for edge in edges:
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
-            surface_type = surface_attributes.get(edge.edge_id)
-            stop_count = stop_counts.get(edge.edge_id)
-            edge_way_tags = way_tags.get(edge.edge_id)
-            intersection_count = intersection_counts.get(edge.edge_id)
-            accident_count = accident_counts.get(edge.edge_id)
+            surface_type = context.surface_attributes.get(edge.edge_id)
+            stop_count = context.stop_counts.get(edge.edge_id)
+            edge_way_tags = context.way_tags.get(edge.edge_id)
+            intersection_count = context.intersection_counts.get(edge.edge_id)
+            accident_count = context.accident_counts.get(edge.edge_id)
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
-            wind_penalty = compute_wind_penalty(edge, wind)
+            wind_penalty = compute_wind_penalty(edge, context.wind)
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
-            is_designated = edge.edge_id in designated_edge_ids
+            is_designated = edge.edge_id in context.designated_edge_ids
             traffic_stress = (
                 traffic_stress_level(edge.highway, edge_way_tags, is_designated) if edge_way_tags is not None else None
             )
@@ -282,8 +268,8 @@ class RoadGraphEngine:
                 intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
             )
             accident_count_per_km_year = (
-                accident_count / distance_km / accident_years_covered
-                if accident_count is not None and distance_km > 0 and accident_years_covered > 0
+                accident_count / distance_km / context.accident_years_covered
+                if accident_count is not None and distance_km > 0 and context.accident_years_covered > 0
                 else None
             )
 
