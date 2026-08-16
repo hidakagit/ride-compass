@@ -131,10 +131,28 @@
   「専用テーブルへの追加SELECT/UPSERTが構造的に消えた」ことは実装として確認済み
   （詳細はbackend/benchmarks/README.md 11番）
 
-### - [ ] T10. DEMタイル化＋標高キャッシュ1系統化〔E3/F3〕規模L — トリガー: 標高評価の本格精査
+### - [ ] T10. DEMタイル化＋標高キャッシュ1系統化〔E3/F3〕規模L — トリガー: 全道路網への標高属性の一括事前計算が必要になったとき（2026-08-16調査によりトリガー具体化）
 
 - GSIのDEMタイルを範囲ごと取得しローカルグリッド補間へ移行（docsの既存将来課題）。
 - 点単位SQLiteキャッシュとEdge単位PostGISキャッシュをDEMベースの1系統へ統合。
+- **トリガー調査（2026-08-16）**: 「標高評価の本格精査」という当初の抽象的なトリガー文言を
+  実施可否判断のため調査した結果、**精度向上を動機にした着手は不要**と判明した。
+  現行の点API（`getelevation.php`、`elevation_client.py`）はGSI側で
+  DEM1A→DEM5A→DEM5B/5C→DEM10Bの優先順位フォールバックを既に自動で行っており、
+  DEM1Aが整備済みの地点では今のコードのまま既にDEM1A精度を受け取っている
+  （[maps.gsi.go.jp/development/elevation.html](https://maps.gsi.go.jp/development/elevation.html)）。
+  DEM1AはDEM5A（航空レーザ測量）の同一データを1/5格子に内挿した派生データのため
+  測定精度自体はDEM5Aと同一で、違いは格子密度（5m→1m）のみ。区間勾配計算はOSM形状点
+  （多くは5m超間隔）ごとに標高取得する設計のため、ルート側のサンプリング密度を上げない限り
+  1m格子化の恩恵はほぼ出ない。またDEM1Aのカバレッジは2024年時点で3次メッシュ約46%
+  （2026年7月にも拡大中）と全国均一ではなく、現状の自動フォールバックに頼る方が
+  未整備地域での取りこぼしが少ない。
+  一方、既存の点キャッシュ（SQLite接続再利用、`bench_elevation_cache.py`実測で12倍高速化済み）と
+  Edge単位PostGISキャッシュにより「1地点1リクエスト」の実害も設計レビュー時点より
+  縮小済みと判断。想定できる唯一の正当なトリガーは精度ではなく**量**の問題
+  ——P0/P1で舗装・交通ストレス等をPBFバッチで全道路網へ事前計算したのと同じ発想で、
+  標高属性も点API逐次呼び出しでは非現実的な規模（全道路網一括）で必要になったときのみ、
+  DEMタイル一括取得＋ローカル補間が正当化される。それまでは現状維持とし、着手しない。
 
 ### - [ ] T11. `segments` のAPI境界ビン化〔E4・レビュー指摘M3〕規模M — トリガー: road_graphエンジン常用化
 
@@ -1505,6 +1523,21 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
     再生成。
   - 運用: 本番・dev DBともにmigration適用後、`match_designations.py`の再実行が必須
     （designation_attributesがDROPされ空になるため）。
+- **本番適用（2026-08-16）**: dev DB適用時にmigration 0007〜0009・`match_designations.py`を
+  実行したところ、本番Oracle Cloud DBには**migration 0007（route_designations/
+  designation_attributes新設）自体が未適用**、`route_designations`データも**未投入**
+  （`import_designations.py`が本番で一度も実行されていなかった）と判明した（T54の
+  「本番データ欠損」と同種の、機能追加時にdev DBだけ整備してdev/prod環境差分に気づかない
+  パターン）。対応: ①migration 0007・0008・0009を本番へ適用、②`import_designations.py`を
+  本番へ実行（5,084件、3.9s、devと同数）、③`match_designations.py`を本番へ実行
+  （osm_raw_ways 1,308,092件が対象、dry-run 326.7s→実行337.9s、candidates=307,888
+  matched=125,971）。検証: 本番`designation_attributes`のうちroad_edges未構築
+  （ルート生成未経験）のwayが**81,055件**（全体の64%）で、旧設計ではこれらが本番で
+  一切表示されなかったことを裏付けた。うちN10・N12両方該当（`both`）は38,705件。
+  **git push後、Renderの自動デプロイが完了するまでの間は旧コード（designation_attributes.
+  edge_id参照）が新スキーマに対しUndefinedColumnErrorを出すが、region_service.pyの
+  エラー握りつぶし＋空タイル返却フォールバックにより路面タイル全体が一時的に空表示になる
+  だけで、ハードダウンはしない**（自己解消、Renderデプロイ完了後に正常化）。
 
 ### - [x] T75. designation kind追加の1本道整備（片側import化＋テーブル化）規模S（2026-08-16完了）
 
