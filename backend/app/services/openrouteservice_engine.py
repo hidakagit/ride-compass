@@ -129,10 +129,15 @@ class OpenRouteServiceEngine:
                 flat_points, max_distance_m=STOP_POI_MATCH_MAX_DISTANCE_M
             )
             # 交通ストレス・自転車インフラ・交差点密度評価（静的道路属性P1残り）も同じ
-            # サンプル点集合を使い、全候補分をまとめて1回で問い合わせる。
-            flat_way_tags = await self._repository.get_nearest_way_tags(
+            # サンプル点集合を使い、全候補分をまとめて1回で問い合わせる。指定路線コンフレーション
+            # 機構（外部静的データソース T51、trafficStress補正）のis_designatedも、以前は
+            # 専用メソッドの3本目の独立KNNだったが、同一サンプル点集合に対するクエリのため
+            # get_nearest_way_tagsへ統合済み（改善計画T76）。
+            flat_way_tags_full = await self._repository.get_nearest_way_tags(
                 flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
             )
+            flat_way_tags = [(highway, tags) for highway, tags, _ in flat_way_tags_full]
+            flat_designated_flags = [is_designated for _, _, is_designated in flat_way_tags_full]
             flat_intersection_counts = await self._repository.get_nearest_intersection_counts(
                 flat_points, max_distance_m=INTERSECTION_MATCH_MAX_DISTANCE_M
             )
@@ -141,11 +146,6 @@ class OpenRouteServiceEngine:
                 flat_points, max_distance_m=ACCIDENT_MATCH_MAX_DISTANCE_M
             )
             accident_years_covered = await self._repository.get_accident_years_covered()
-            # 指定路線コンフレーション機構（外部静的データソース T51、trafficStress補正）も
-            # 同じサンプル点集合を使う。
-            flat_designated_flags = await self._repository.get_nearest_designated_flags(
-                flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
-            )
         else:
             flat_surface_tags = [None] * sum(point_counts)
             flat_stop_counts = [None] * sum(point_counts)

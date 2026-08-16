@@ -588,7 +588,7 @@ async def test_get_nearest_way_tags_matches_nearby_edge_and_returns_highway_and_
 
     result = await road_graph_repository.get_nearest_way_tags([NODE1], max_distance_m=30.0)
 
-    assert result == [("primary", {"maxspeed": "60"})]
+    assert result == [("primary", {"maxspeed": "60"}, False)]
 
 
 async def test_get_nearest_way_tags_returns_none_highway_and_empty_tags_beyond_max_distance_m(road_graph_repository):
@@ -600,7 +600,7 @@ async def test_get_nearest_way_tags_returns_none_highway_and_empty_tags_beyond_m
 
     result = await road_graph_repository.get_nearest_way_tags([(35.9, 140.0)], max_distance_m=30.0)
 
-    assert result == [(None, {})]
+    assert result == [(None, {}, False)]
 
 
 async def test_get_intersection_counts_returns_empty_dict_for_empty_input(road_graph_repository):
@@ -907,11 +907,10 @@ async def test_get_designated_edge_ids_ignores_kinds_outside_traffic_stress_set(
     assert result == set()
 
 
-async def test_get_nearest_designated_flags_returns_empty_list_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_nearest_designated_flags([]) == []
-
-
-async def test_get_nearest_designated_flags_true_near_designated_edge(road_graph_repository, road_graph_session):
+async def test_get_nearest_way_tags_is_designated_true_near_designated_edge(road_graph_repository, road_graph_session):
+    """改善計画T76の回帰テスト: is_designatedは以前get_nearest_designated_flagsという
+    専用メソッドだったが、同一サンプル点集合に対する3本目の独立KNNだったため
+    get_nearest_way_tagsへ統合した。"""
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     nodes = {1: NODE1, 2: NODE2}
     graph = build_road_graph([way], nodes, graph_version="v1")
@@ -922,9 +921,9 @@ async def test_get_nearest_designated_flags_true_near_designated_edge(road_graph
         await _insert_designation_attribute(road_graph_session, edge_id, "critical_logistics")
     await road_graph_session.commit()
 
-    result = await road_graph_repository.get_nearest_designated_flags([NODE1, NODE3], max_distance_m=30.0)
+    result = await road_graph_repository.get_nearest_way_tags([NODE1, NODE3], max_distance_m=30.0)
 
-    assert result == [True, False]
+    assert [is_designated for _, _, is_designated in result] == [True, False]
 
 
 async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):
