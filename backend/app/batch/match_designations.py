@@ -25,11 +25,11 @@ import time
 import asyncpg
 
 from app.config import settings
-from app.domain.designation import DESIGNATION_BUFFER_WIDTH_M, DESIGNATION_MATCH_MIN_RATIO
+from app.domain.designation import DESIGNATION_BUFFER_WIDTH_M, DESIGNATION_IMPORT_KINDS, DESIGNATION_MATCH_MIN_RATIO
 
 logger = logging.getLogger("app.batch.match_designations")
 
-_KINDS = ("emergency_transport", "critical_logistics")
+_KINDS = DESIGNATION_IMPORT_KINDS
 
 # バッファポリゴンはroute_designations行ごとに決定的（Edgeに依存しない）ため、先にCTEで
 # 1行1回だけ計算してからJOINする（MATERIALIZEDでインライン化を禁止し、road_edgesとの

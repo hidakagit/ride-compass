@@ -1481,7 +1481,7 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   乗る（事前計算をedge単位ではなくway単位の交差長比で持てば、①の「any-edge」から
   「ratio-based」への改善も同時に得られる）。
 
-### - [ ] T75. designation kind追加の1本道整備（片側import化＋テーブル化）規模S
+### - [x] T75. designation kind追加の1本道整備（片側import化＋テーブル化）規模S（2026-08-16完了）
 
 - kind集合が、正準`domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDS`に加えて
   ①MVT生成SQL内の文字列リテラル（`road_graph_repository.py`）
@@ -1496,6 +1496,16 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   import側はkind→(url_template, source, member, parser)の単一テーブル`_KIND_SPECS`へ
   畳み、未知kindはKeyErrorで即死させる。
 - 完了条件: kindを1箇所追加すれば全系統が追随する（追随しない箇所はテストが割れる）こと。
+- **実装結果（2026-08-16）**: `domain/designation.py`へ`DESIGNATION_IMPORT_KINDS`
+  （取込対象kindタプル、正準）を新設し、`TRAFFIC_STRESS_DESIGNATION_KINDS`はこれの
+  frozenset化として定義（概念上は別軸だが現状は同一集合と明記）。`match_designations.py`の
+  `_KINDS`ローカルタプルを廃止してこれをimport。`import_designations.py`は
+  URL・source・ZIPメンバー名・パーサの3関数平行分岐を`_KIND_SPECS: dict[str, _DesignationKindSpec]`
+  （kind→仕様の単一テーブル）へ統合し、`_KIND_SPECS[kind]`のKeyErrorで未知kindを即死させる形へ。
+  MVT SQL（`_ROAD_SURFACE_TILE_MVT_SQL`のis_ert/is_cl 2列固定）は2kind固定の構造自体が
+  T74（未着手）の設計判断待ちのためバインド化は見送り、整合性テストの全kind網羅化
+  （critical_logistics側も検証対象に追加＋`TRAFFIC_STRESS_DESIGNATION_KINDS`の値そのものを
+  突き合わせるドリフト検知アサーションを追加）で代替。backend 670件green
 
 ### - [ ] T76. designated判定KNNの_NEAREST_WAY_TAGS_SQLへの統合 規模S〜M
 

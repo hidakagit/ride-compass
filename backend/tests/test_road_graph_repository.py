@@ -1159,19 +1159,33 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
 ):
     """指定路線コンフレーション機構（外部静的データソース T51）: designationプロパティと
     traffic_stressの+1補正が、domain/traffic.py: traffic_stress_level(is_designated=True)と
-    一致することを突き合わせる（SQL⇔Python二重実装のドリフト検知）。"""
+    一致することを突き合わせる（SQL⇔Python二重実装のドリフト検知）。
+
+    改善計画T75: `_ROAD_SURFACE_TILE_MVT_SQL`のdesignation CASE式は
+    domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDSの2値をリテラルで直接埋め込む
+    （2kind固定の設計、T74参照）。この2値がドリフトしていないかをここで突き合わせる:
+    集合の値自体が変わったらこのテストの期待値ごと更新が必要になり、SQL側の見直し漏れに
+    気づける（kind追加時はSQLの構造自体の見直しが要る点はT74で別途起票済み）。
+    """
     import mapbox_vector_tile
 
+    from app.domain.designation import TRAFFIC_STRESS_DESIGNATION_KINDS
     from app.domain.traffic import traffic_stress_level
 
-    designated_way = WaySpec(osm_way_id=200, node_ids=[1, 2], highway="residential")
+    assert TRAFFIC_STRESS_DESIGNATION_KINDS == frozenset({"emergency_transport", "critical_logistics"})
+
+    ert_way = WaySpec(osm_way_id=200, node_ids=[1, 2], highway="residential")
+    cl_way = WaySpec(osm_way_id=202, node_ids=[1, 2], highway="secondary")
     plain_way = WaySpec(osm_way_id=201, node_ids=[1, 2], highway="tertiary")
-    await road_graph_repository.save_raw_ways([designated_way, plain_way], {1: NODE1, 2: NODE2})
-    graph = build_road_graph([designated_way, plain_way], {1: NODE1, 2: NODE2}, graph_version="v1")
+    await road_graph_repository.save_raw_ways([ert_way, cl_way, plain_way], {1: NODE1, 2: NODE2})
+    graph = build_road_graph([ert_way, cl_way, plain_way], {1: NODE1, 2: NODE2}, graph_version="v1")
     await road_graph_repository.save_graph(graph)
-    designated_edge_ids = [e for e in graph.edges if e.startswith("way-200-")]
-    for edge_id in designated_edge_ids:
+    ert_edge_ids = [e for e in graph.edges if e.startswith("way-200-")]
+    cl_edge_ids = [e for e in graph.edges if e.startswith("way-202-")]
+    for edge_id in ert_edge_ids:
         await _insert_designation_attribute(road_graph_session, edge_id, "emergency_transport")
+    for edge_id in cl_edge_ids:
+        await _insert_designation_attribute(road_graph_session, edge_id, "critical_logistics")
     await road_graph_session.commit()
     await _mark_mvt_coverage(road_graph_repository)
 
@@ -1181,9 +1195,13 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
     decoded = mapbox_vector_tile.decode(tile)
     properties_by_highway = {f["properties"].get("highway"): f["properties"] for f in decoded["road_surface"]["features"]}
 
-    designated = properties_by_highway["residential"]
-    assert designated.get("designation") == "emergency_transport"
-    assert designated.get("traffic_stress") == traffic_stress_level("residential", {}, is_designated=True) == 3
+    ert = properties_by_highway["residential"]
+    assert ert.get("designation") == "emergency_transport"
+    assert ert.get("traffic_stress") == traffic_stress_level("residential", {}, is_designated=True) == 3
+
+    cl = properties_by_highway["secondary"]
+    assert cl.get("designation") == "critical_logistics"
+    assert cl.get("traffic_stress") == traffic_stress_level("secondary", {}, is_designated=True) == 4
 
     plain = properties_by_highway["tertiary"]
     assert "designation" not in plain
