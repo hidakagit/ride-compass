@@ -2116,6 +2116,44 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 
 ---
 
+## 夜間のOpen-Meteo 502緩和（2026-08-17・別セッション作業の遡及記録）
+
+### - [x] T98. 候補間リクエスト集約による夜間の天候取得502緩和＋失敗理由の診断情報追加 規模M（2026-08-17完了、遡及起票）
+
+- 経緯: 本タスクは別セッションが着手・完了・コミット（`2cc7f44`）まで実施していたが、
+  T番号の付与・本ファイルへの記録が漏れていた（「1タスク=1コミット・T番号管理」規約からの
+  逸脱）。統合レビュー系の作業をしていた別セッションが`docs/improvement-plan.md`を読み直す
+  過程で発覚し、遡及的に起票・記録する。
+- 背景: 周回ルート生成は8候補（方位）ぶんの風評価をほぼ完全並列実行しており、素朴には
+  候補数ぶんのOpen-Meteo呼び出しがほぼ同時発火する。本番の共有送信元IPでこれが429常態化・
+  夜間帯の502の一因になっていた。
+- 対応:
+  - `backend/app/services/weather_service.py`: `WeatherService.prefetch(points)`を新設
+    （複数地点の予報を`get_forecast_many`でまとめて1回取得しキャッシュへ先読み、結果は
+    使い捨て）。
+  - `backend/app/services/wind_service.py`: `WindService.prefetch(points_per_candidate)`を
+    新設（候補ごとのサンプル点を合流させ`WeatherService.prefetch`へ1回だけ委譲）。
+  - `backend/app/services/openrouteservice_engine.py`: 候補群を並列評価する前に
+    `WindService.prefetch`を呼び、後続の候補ごとの`get_wind_profile`呼び出しがキャッシュ
+    ヒットしHTTPを発生させないようにする。
+  - `backend/app/infrastructure/debug_log.py`: `/api/debug/stats`へ失敗理由を推測できる
+    情報（`error_types`内訳、`last_error_type`/`last_error_at`、`last_success_at`、
+    `retried_calls`、`stale_fallback_used`）を追加。`basemap_client.py`・
+    `elevation_client.py`・`overpass_client.py`・`weather_client.py`が新フィールドへ追従。
+  - フロント: `SystemStatusPanel.tsx`の外部呼出サマリへ「最終失敗」列とホバー内訳を追加、
+    `debugStatsApi.ts`が新フィールドを型に反映。
+  - `docs/architecture.md`（天候の行、§4 `/api/debug/stats`のレスポンス例）へ追従済み
+    （コミット本文に含まれていたため現状化自体は漏れていなかった）。統合レビュー側で
+    「候補間リクエスト集約」という挙動変更自体の説明が外部サービスのデータフロー節に
+    無かった点のみ追記した。
+- 完了条件（コミットメッセージ・diffから確認）: `test_debug_log.py`・
+  `test_weather_service.py`・`test_wind_service.py`・`test_openrouteservice_engine.py`・
+  `SystemStatusPanel.test.tsx`・`debugStatsApi.test.ts`に新規テスト追加、17ファイル
+  370行追加・20行削除。個別のテスト総件数はこのセッションでは未計測（次回の全体テスト実行時に
+  確認すること）。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2183,3 +2221,8 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
 | 2026-08-17 | T92 | ユーザー実機フィードバック「指定路線ならほぼすべて赤色。実態にあった形でもう少し評価して」を受け、dev DB実データ（関東本土、指定路線11,102件）で検証。指定路線該当の83.3%が最終値4/4、うち56%は`primary`/`secondary`/`trunk`が一律base=4のため+1補正が実質無意味と判明。また既存タグの中に未活用の差別化要因（`cycleway=shared_lane`15.6%・`lanes=1`319件）があると判明。「信号密度も合成できないか」という追加相談には、交通ストレスへ合成するのは「自動車への近接度」を推定する同一構造の手がかりに限る、信号・交差点密度は質的に別の負担で独立軸のまま残すべき、という基準を整理して回答（`traffic_stress_breakdown`のdocstringへ明文化）。合意のうえ`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の`secondary`/`secondary_link`を4→3、cycleway補正へ`shared_lane`/`share_busway`（-1）、車線数補正へ`lanes<=1`（-1）を追加（`road_graph_repository.py`のSQL CASE式も同期）。試算で指定路線の4/4割合が83.3%→78.3%に低下を確認。凡例（`mapLayers.ts: panelHintDetail`、サイドバー設定画面・地図上▶詳細パネル共通）とポップアップ内訳（T90機能）の説明文をレイアウトごとの粒度で更新。backend 694件（新規11件）・frontend（MapLayersPanel既存35件が更新後の文言でも通過）全green |
 | 2026-08-17 | 統合レビュー（review:all第2回） | ユーザー指示によりリポジトリ全体（前回差分だけでなくlayer境界・DI・重複・スケール成立性・カタログ集約を既存コード全体で再確認）を対象に4種統合実施（[history/2026-08-17_all.md](../.claude/commands/review/history/2026-08-17_all.md)、Phase4は同日実施の[history/2026-08-17_consistency.md](../.claude/commands/review/history/2026-08-17_consistency.md)を統合）。backend 694件・frontend 243件（いずれも単独実行でall green、初回並走実行時のbackend 248件skipはサンドボックス環境のDB初回接続レイテンシによる一過性のものと再実行で確認）。P1指摘（F-1: T92のSQL変更がタイルキャッシュ世代に未反映、T70に続き同型のミス2回目）をT93として起票・即修正、P2指摘2件をT94・T95として起票、T91（MapView.tsx閾値監視）はF-3として再確認（1,378→1,664行まで悪化継続、新閾値案を提示）。レビュー基準自体への示唆（タイル世代対上げ・閾値運用ルールの2パターンともに2回目の再発）を`/review:improve`候補として記録 |
 | 2026-08-17 | T93 | 統合レビューF-1修正。`region_service.py: ROAD_SURFACE_TILE_VERSION`を`"7"`→`"8"`、`regionApi.ts`の対応定数も追従、`export_openapi.py`再実行で`region-tile-config.json`再生成（openapi.json/api.d.tsは内容不変）。`docs/architecture.md`の世代表記・履歴を追従、`regionApi.test.ts`のハードコード期待値を修正。backend 694件・frontend 243件・tsc・eslint全green |
+| 2026-08-17 | T94 | 統合レビューF-2修正。`RegionService.get_traffic_stress_breakdown`を`log_external_call`＋WARNING＋Noneフォールバックへ統一（`get_road_surface_tile`等と同じグレースフルデグレード方針）。フィールド名は`log_external_call`自身の二重WARNING発火を避けるため`"result"`ではなく`"lookup"`にした。`FakeRegionRepository`にエラー注入対応を追加しDB障害時の回帰テストを追加。backend 699件全green |
+| 2026-08-17 | T95 | 統合レビューF-4修正。`docs/architecture.md`§7の`AttributeRepository`対称メソッド列挙へ`get_way_tags_by_osm_way_id`（T90、対に属さない別系統である旨）を1行追記。docsのみ |
+| 2026-08-17 | T96 | ユーザー実利用フィードバック「交差点密度は道路網を見れば分かり可視化の意味が薄い」を受け、地図の独立可視化レイヤーから撤去（フロントのみ、ルーティング材料のintersection_weightは無変更）。`mapLayers.ts`のカタログ・`MapView.tsx`のensure関数/レイヤーID/ポップアップ/データ状態テーブル・`staticAttributeLayers.ts`の色/凡例/半径式・`icons.tsx`・`MapOverlayControls.tsx`・`MapLayersPanel.tsx`・`page.tsx`から関連コードを削除。バックエンドのpoi-tiles MVT配信は停止要因と同一SQL関数内にあり変更コストが非対称に大きいため据え置き、T97として起票。frontend 235件・tsc・eslint全green、Playwright実機確認済み |
+| 2026-08-17 | T98（別セッション作業の遡及記録） | 別セッションが着手・完了・コミット（`2cc7f44`）していたがT番号・記録が漏れていたため遡及起票。周回ルート8候補ぶんのOpen-Meteo呼び出しがほぼ完全並列発火し本番共有IPで429常態化・夜間502の一因になっていた問題を、`WeatherService.prefetch`/`WindService.prefetch`による候補間リクエスト集約で緩和。`/api/debug/stats`へ`error_types`/`last_error_type`等の診断情報を追加し`SystemStatusPanel`に反映。17ファイル370行追加・20行削除、新規テスト複数追加（詳細はT98節参照） |
+| 2026-08-17 | docs整合性の点検・修正 | `improvement-plan.md`を読み直し改善候補を洗い出し。(1) T96でarchitecture.md「静的レイヤー・タイル配信（フロント9レイヤー）」の更新が漏れていた（実際は8レイヤー、交差点密度を撤去済み）ことが判明し修正。(2) T98（上記）を遡及記録し、architecture.mdの天候の行へ候補間リクエスト集約の挙動説明を追記（`/api/debug/stats`拡張自体はコミット時に反映済みだった） |
