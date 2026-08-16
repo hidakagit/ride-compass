@@ -197,6 +197,39 @@ input[type="number"] {
    （640px）はfrontend/src/hooks/useIsMobile.tsが出すMOBILE_BREAKPOINT_PXと一致させること。
    ズレるとCSS上の見た目とJS側の分岐（page.tsxのisMobile）が食い違う
    （frontend/src/hooks/useIsMobile.test.tsで自動検証している）。 */
+/* maplibre-gl.cssの.maplibregl-popup-content既定は背景色#fff固定で文字色を指定しないため、
+   bodyのcolor（var(--foreground)）を継承する。ダークモードではvar(--foreground)が明るい色に
+   反転する一方この背景だけ白固定のままなので「白背景に白文字」（closeボタンの×含む）になる。
+   ここでvar(--color-surface)/var(--foreground)ペアで固定し、tipの矢印も背景色に追従させる。 */
+.maplibregl-popup-content {
+  background: var(--color-surface);
+  color: var(--foreground);
+}
+
+.maplibregl-popup-close-button {
+  color: var(--foreground);
+}
+
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--color-surface);
+}
+
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--color-surface);
+}
+
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--color-surface);
+}
+
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--color-surface);
+}
+
 @media (max-width: 640px) {
   /* サイドバー・BottomSheet・開発者向けフローティングパネル（デバッグログ/システム状況）
      内のボタン/チェックボックス/入力欄は、指でのタップに適した領域（目安44px角）を
