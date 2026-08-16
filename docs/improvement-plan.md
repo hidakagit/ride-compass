@@ -2175,7 +2175,7 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 ランクで上位に挙がった「name/refのMVT焼き込み」（name 8.3%、UI表示用途）は元のブランチと同じく
 今回のスコープから除外し、static-road-attributes-plan.md §3.1の未着手項目として引き続き据え置く。
 
-### - [ ] T99. 自転車歩行者道の取込スコープ拡張〔static-road-attributes-plan.md §2.1/§3.1-1〕規模M（2026-08-17コード実装完了・実データ検証待ち）
+### - [x] T99. 自転車歩行者道の取込スコープ拡張〔static-road-attributes-plan.md §2.1/§3.1-1〕規模M（2026-08-17完了）
 
 - 背景: 現在の取込プロファイルは`highway=path/footway`を取込対象外としており、河川敷等でよく
   見る自転車歩行者共用道（日本のサイクリングロードに多い形態）が地図・評価の対象から漏れている。
@@ -2192,11 +2192,15 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   検証するため、この罠はテストで検知される形になっている。
 - 完了条件（コード側、2026-08-17完了）: `matching_rule`の単体テスト・`osm_way_to_way_spec`の
   `segregated`保持テストを追加。backend 713件全green。
-- **残作業（DBアクセス可能な環境待ち、ユーザー指示によりこのラウンドでは意図的に未実施）**:
-  対象範囲（Tokyo.osm.pbf等）で実際に再取込みし、自転車インフラレイヤーに`shared_pedestrian`
-  区間が表示されることをPlaywrightで実機確認する。既存の関東本土全域データを持つ本番/dev DBへの
-  再取込みは所要時間・DB状態変更を伴う別種の作業のため、コード実装とは別のタイミングで
-  ユーザー判断のもと実行する。
+- **本番再取込み（2026-08-17完了）**: `backend/data/pbf/kanto-latest.osm.pbf`をユーザー承認のうえ
+  本番Oracle Cloud DBへ再取込み（事前にdry-runで`matched_ways=1,329,632`等を確認したうえ実行、
+  非破壊的なCOPY→INSERT ON CONFLICTのUPSERTのため既存データへの影響なし）。
+  run_id=5、ways=1,329,632・nodes=147,291・pois=332,294（67チャンク、db_size_mb=2004、
+  elapsed=904.0s、エラーなし）。本番DBへ直接クエリして反映を確認: `shared_pedestrian_ways`
+  ルールに該当するway（highway=footway/path AND bicycle可）17,584件（T102のカバレッジ実測時の
+  「その他」グループ件数と完全一致）、うち`segregated`タグ保持5,000件（約28.4%、T102実測どおり）。
+  road_nodes/road_edges（ルーティング用派生グラフ）は既存設計どおり該当エリアへの初回アクセス時に
+  遅延構築されるため本タスクの範囲外。
 
 ### - [x] T100. `bicycle=no`のHard Constraint化＋`oneway:bicycle`例外の解釈〔static-road-attributes-plan.md §3.1-2/3〕規模S〜M（2026-08-17完了）
 
@@ -2376,3 +2380,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T100 | `domain/evaluation.py: is_edge_allowed`へ`way_tags`引数を追加し`bicycle=no`のHard Constraint除外を実装（road_graphエンジンは既存配線のみで自動的に有効化、openrouteserviceエンジンは対象外の非対称は既存のまま）。`osm_adapter.py`に`_resolve_direction`を新設し`oneway:bicycle`を`oneway`本体より優先させるcontraflow cycling対応を実装（PBF取込バッチも同じアダプタを経由するため二重実装なし）。本タスクは完了条件が単体テスト・backendテストgreenのみでDB/PBF不要だったため、T99・T102と異なりこのラウンドで完全に完了。backend 725件（新規12件）全green |
 | 2026-08-17 | T102（実測完了） | `backend/data/pbf/kanto-latest.osm.pbf`（対象way 1,329,632件）で実測。lit（全体1.1%・幹線4.8%）・segregated（全体0.6%だがT99の自転車歩行者道内では28.4%）とも既採用tag（smoothness 0.2%）を上回り採用推奨と判断、取込コストゼロのため`lit`も`ALLOWED_WAY_TAGS`へ追加（segregatedはT99で先行済み）。barrier（node、bollard 21,975件等）も採用推奨だが新規node取込ルールが必要なため実装は別タスク。backend 726件全green |
 | 2026-08-17 | T103 | ユーザー報告（表示/非表示を切り替えられない、非表示にしようとすると一瞬ですぐ表示に戻る）を本番サイトで実機調査。「絞り込みを一括クリア」ボタンが条件付きレンダリング（`hasHiddenFilters`）で出現/消失するたび、パネル内の他のレイヤー表示トグルが上下にずれ（Playwrightでbounding box実測、最大25px程度）、直後のクリックが別要素（凡例チェックボックス等）に当たる誤操作を確認・再現。`MapLayersPanel.tsx`のボタンを条件付きレンダリングから常時マウント＋`visibility:hidden`（CSS、高さは常に確保）へ変更し解消。修正後はレイアウト位置が完全に不変であることを実機確認。回帰テスト追加、frontend 236件・tsc・eslint全green |
+| 2026-08-17 | T99本番再取込み | ユーザー承認のうえ`kanto-latest.osm.pbf`を本番Oracle Cloud DBへ再取込み（事前dry-runで`matched_ways=1,329,632`等を確認）。run_id=5、ways=1,329,632・nodes=147,291・pois=332,294（67チャンク、db_size_mb=2004、elapsed=904.0s、エラーなし、UPSERTのため非破壊的）。本番DBへ直接クエリし反映を確認: `shared_pedestrian_ways`該当17,584件（T102実測の「その他」グループ件数と一致）、うち`segregated`保持5,000件（約28.4%、実測どおり）、`lit`保持14,368件。T99を完全完了（`[x]`）へ更新 |
