@@ -2044,25 +2044,30 @@ T51実装（指定路線N10/N12の取込・マッチング・評価・表示）�
   本番デプロイ後は`POST /api/basemap/refresh`相当のキャッシュクリアが別途必要
   （デプロイ手順側の申し送り、コード対応はここまで）。
 
-### - [ ] T94. `RegionService.get_traffic_stress_breakdown`のログ方針統一〔統合レビューF-2〕規模S
+### - [x] T94. `RegionService.get_traffic_stress_breakdown`のログ方針統一〔統合レビューF-2〕規模S（2026-08-17完了）
 
 - 背景: 同クラスの`get_road_surface_tile`/`get_poi_tile`は`log_external_call`＋WARNING＋
   グレースフルデグレードで統一されているが、T90新設の`get_traffic_stress_breakdown`だけ
   素のDB呼び出しで、対応するtry/exceptも無い。DB例外時はミドルウェアがERRORとして捕捉するため
   「エラーは常時出す」大原則には違反しないが、`/api/debug/stats`のカテゴリ別統計に計上されず
   運用調査の精度が落ちる。
-- 対応方針: `log_external_call("region:traffic-stress-breakdown", osm_way_id=...)`で囲み、
-  DB例外時はWARNING＋`None`フォールバック（レスポンス契約`TrafficStressBreakdown | None`と
-  自然に整合）にするか、既存の例外伝播のままログのみ追加するかを実装時に判断する。
-- 完了条件: 新設のログ配線がテストで検証されていること。既存テストgreen。
+- 対応: `log_external_call("region:traffic-stress-breakdown", osm_way_id=...)`で囲み、
+  DB例外はWARNING＋`None`フォールバック（レスポンス契約`TrafficStressBreakdown | None`と
+  自然に整合、`get_road_surface_tile`等と同じグレースフルデグレード方針）へ統一。
+  フィールド名は`"result"`ではなく`"lookup"`にした（`"result"`だと`log_external_call`自身が
+  `fields["result"]=="error"`を見て二重にWARNINGを出してしまうため。`_tile_from_repository`が
+  `"postgis"`という専用キーを使っているのと同じ理由）。
+- 完了条件: `FakeRegionRepository.get_way_tags_by_osm_way_id`にエラー注入対応を追加し、
+  DB障害時にNoneへ安全側に倒れる回帰テストを追加（`test_traffic_stress_breakdown_db_error_returns_none`）。
+  backend 695件（新規1件）全green。
 
-### - [ ] T95. architecture.md §7対称メソッド列挙の追記〔統合レビューF-4〕規模S
+### - [x] T95. architecture.md §7対称メソッド列挙の追記〔統合レビューF-4〕規模S（2026-08-17完了）
 
 - 背景: `docs/architecture.md`§7の`AttributeRepository`対称メソッド一覧に、T90で新設した
   `get_way_tags_by_osm_way_id`（osm_way_id完全一致1行取得、`get_nearest_*`とは別系統）が
   含まれていない。API仕様・タイル世代・目的は既に別箇所で文書化済みのため実害は軽微。
-- 対応: 対称メソッド列挙の後ろへ「`get_way_tags_by_osm_way_id`（T90、osm_way_id完全一致1行
-  取得、区間別内訳API専用）」を1行追記する。
+- 対応: 対称メソッド列挙の直後へ「`get_way_tags_by_osm_way_id`（T90、osm_way_id完全一致の
+  1行取得）はこの対に属さない別系統で、区間別交通ストレス内訳API専用」を追記した。
 - 完了条件: docs追記のみ。
 
 ---

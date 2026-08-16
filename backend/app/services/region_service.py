@@ -278,11 +278,28 @@ class RegionService:
         `repository`未注入（DBなし構成）、または該当way自体が存在しない場合はNone。
         highwayが判定基準に登録されていない場合はTrafficStressBreakdown(base=None,
         level=None, ...)（タイル・区間評価と同じ「不明・他」の扱い）。
+
+        DB例外はNoneへ倒す（改善計画T94・get_road_surface_tile等の`_tile_from_repository`と
+        同じグレースフルデグレード方針。ログ・統計も同様に`log_external_call`＋
+        `/api/debug/stats`計上へ揃える）。
         """
         if self._repository is None:
             return None
-        result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
-        if result is None:
-            return None
-        highway, tags, is_designated = result
-        return traffic_stress_breakdown(highway, tags, is_designated)
+        # フィールド名は"result"ではなく"lookup"にする（"result"にすると
+        # log_external_call自身がfields["result"]=="error"を見て二重にWARNINGを出す。
+        # _tile_from_repositoryが"postgis"という専用キーを使っているのと同じ理由）。
+        with log_external_call("region:traffic-stress-breakdown", osm_way_id=osm_way_id) as fields:
+            try:
+                result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
+                fields["lookup"] = "error"
+                logger.warning(
+                    "交通ストレス内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc
+                )
+                return None
+            if result is None:
+                fields["lookup"] = "not_found"
+                return None
+            fields["lookup"] = "ok"
+            highway, tags, is_designated = result
+            return traffic_stress_breakdown(highway, tags, is_designated)
