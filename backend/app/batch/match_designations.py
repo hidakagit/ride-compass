@@ -75,6 +75,38 @@ VALUES ($1, $2, $3, $4, now())
 """
 
 
+async def _write_matches(
+    conn: asyncpg.Connection,
+    candidates: list[tuple[str, str, float]],
+    matched: list[tuple[str, str, float]],
+    data_version: str,
+) -> float:
+    """DELETE→executemany INSERTを1トランザクションに括り、candidatesが0件のときは
+    DELETEごとスキップする（改善計画T73）。戻り値はinsert所要秒（スキップ時は0.0）。
+
+    route_designationsが空（import未実行・取込失敗後）やバッファ閾値不整合でcandidatesが
+    0件のとき、従来はDELETEだけ実行され既存designation_attributesが0件INSERTで
+    静かに全消しされていた。
+    """
+    if not candidates:
+        logger.warning(
+            "マッチ候補が0件のため更新をスキップします（既存データは保持） candidates=0 matched=0"
+        )
+        return 0.0
+
+    data_version_local = data_version
+    insert_started = time.perf_counter()
+    async with conn.transaction():
+        await conn.execute(_DELETE_SQL, list(_KINDS))
+        # 改善計画T67: 1行ずつconn.executeするとRTT×行数がそのまま実行時間に乗る
+        # （本番はOracle遠隔DBのため特に顕著）。executemanyで1ラウンドトリップにバッチ化する。
+        await conn.executemany(
+            _INSERT_SQL,
+            [(edge_id, kind, ratio, data_version_local) for edge_id, kind, ratio in matched],
+        )
+    return time.perf_counter() - insert_started
+
+
 async def run_match(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
     sqlalchemy_url = database_url or settings.database_url
@@ -98,20 +130,17 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
             return 0
 
         data_version = f"buffer{DESIGNATION_BUFFER_WIDTH_M:.0f}m"
-        insert_started = time.perf_counter()
-        async with conn.transaction():
-            await conn.execute(_DELETE_SQL, list(_KINDS))
-            # 改善計画T67: 1行ずつconn.executeするとRTT×行数がそのまま実行時間に乗る
-            # （本番はOracle遠隔DBのため特に顕著）。executemanyで1ラウンドトリップにバッチ化する。
-            await conn.executemany(
-                _INSERT_SQL, [(edge_id, kind, ratio, data_version) for edge_id, kind, ratio in matched]
-            )
-        insert_elapsed = time.perf_counter() - insert_started
+        insert_elapsed = await _write_matches(conn, candidates, matched, data_version)
 
-        logger.info(
-            "マッチング完了: candidates=%d matched=%d insert_elapsed=%.1fs elapsed=%.1fs",
-            len(candidates), len(matched), insert_elapsed, time.perf_counter() - started,
-        )
+        # 改善計画T73: candidates=0（_write_matches内でWARNING済み）はここでは重複ログしない。
+        # candidatesはあってもmatched=0（全てratio閾値未満）はWARNING（docs/logging.mdの
+        # 「候補0件はWARNING以上・原因内訳を同行に」規約）。
+        if candidates:
+            log = logger.warning if not matched else logger.info
+            log(
+                "マッチング完了: candidates=%d matched=%d insert_elapsed=%.1fs elapsed=%.1fs",
+                len(candidates), len(matched), insert_elapsed, time.perf_counter() - started,
+            )
         return 0
     finally:
         await conn.close()
