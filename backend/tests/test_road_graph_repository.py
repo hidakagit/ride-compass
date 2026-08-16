@@ -1023,19 +1023,20 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     )
     # 不明（タグ無し・未知タグ）はsurface_goodキー自体が省略される（フロントエンドの
     # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）。
-    # surfaceタグ無しも同様にsurfaceキーごと省略される。bicycle_infra/traffic_stressは
-    # highwayさえ分かれば常に決まる（静的道路属性P0、いずれもtags未設定の4件はどちらも
-    # highway=residential/trackで「roadway」「2」になる）。smoothness/tunnel/bridgeは
-    # tags自体が空のためキーが省略される。
+    # surfaceタグ無しも同様にsurfaceキーごと省略される。bicycle_infraはhighwayさえ分かれば
+    # 常に決まる（静的道路属性P0、いずれもtags未設定の4件はどちらもhighway=residential/track
+    # で「roadway」になる）。交通ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/
+    # motor_vehicle_no、改善計画: 交通ストレスレシピ外出し基盤）はcycleway等のタグ自体が
+    # 無いためすべて省略される（最終値はもうSQL側では計算しない、ファイル冒頭コメント参照）。
+    # smoothness/tunnel/bridgeもtags自体が空のためキーが省略される。
     assert properties == [
-        {"osm_way_id": 3, "highway": "residential", "bicycle_infra": "roadway", "traffic_stress": 2},
+        {"osm_way_id": 3, "highway": "residential", "bicycle_infra": "roadway"},
         {
             "osm_way_id": 1,
             "surface_good": True,
             "surface": "asphalt",
             "highway": "residential",
             "bicycle_infra": "roadway",
-            "traffic_stress": 2,
         },
         {
             "osm_way_id": 2,
@@ -1043,14 +1044,12 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
             "surface": "gravel",
             "highway": "track",
             "bicycle_infra": "roadway",
-            "traffic_stress": 2,
         },
         {
             "osm_way_id": 4,
             "surface": "mystery_tag",
             "highway": "residential",
             "bicycle_infra": "roadway",
-            "traffic_stress": 2,
         },
     ]
 
@@ -1109,14 +1108,17 @@ async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_g
     assert "tunnel" not in tunnel_no_way  # tunnel=noはfalseではなくキー自体を省略する
 
 
-async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_domain_traffic(
-    road_graph_repository,
-):
-    """SQLのCASE式がdomain/traffic.py（正準の判定ロジック）と同じ結果になることを、
-    複数のタグ組合せで突き合わせる（改善計画: 判定ロジックの二重実装ドリフト検知）。"""
+async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(road_graph_repository):
+    """SQLのbicycle_infra CASE式がdomain/traffic.py（正準の判定ロジック）と同じ結果になることを、
+    複数のタグ組合せで突き合わせる（改善計画: 判定ロジックの二重実装ドリフト検知）。
+
+    交通ストレスの最終値はもうSQL側で計算しない（改善計画: 交通ストレスレシピ外出し基盤、
+    ファイル冒頭コメント参照）ため、この突き合わせ対象からは外れた。材料タグの検証は
+    test_get_road_surface_tile_mvt_traffic_stress_ingredients参照。
+    """
     import mapbox_vector_tile
 
-    from app.domain.traffic import classify_bicycle_infrastructure, traffic_stress_level
+    from app.domain.traffic import classify_bicycle_infrastructure
 
     # highwayはこのテスト内で識別キーに使う（MVTのfeature順序はSQLのORDER BY省略により
     # 保証されないため、各fixtureが一意なhighway値を持つよう構成する）。
@@ -1128,14 +1130,6 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_
         ("footway", {"bicycle": "designated"}),
         ("path", {}),
         ("residential", {"bicycle": "no"}),
-        ("secondary_link", {"motor_vehicle": "no"}),
-        ("tertiary", {"maxspeed": "60"}),
-        ("trunk", {"maxspeed": "30", "lanes": "2"}),
-        ("trunk_link", {"lanes": "5"}),
-        # 改善計画T92: shared_lane/share_busway（-1）・lanes<=1（-1）の新規補正もSQL⇔Python
-        # の整合性検証対象に含める。
-        ("unclassified", {"lanes": "1"}),
-        ("tertiary_link", {"cycleway": "shared_lane"}),
     ]
     way_specs = [
         WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
@@ -1156,18 +1150,67 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_and_traffic_stress_match_
 
     for highway, tags in fixtures:
         expected_infra = classify_bicycle_infrastructure(tags, highway)
-        expected_stress = traffic_stress_level(highway, tags)
         actual = properties_by_highway[highway]
         assert actual.get("bicycle_infra") == expected_infra, (highway, tags)
-        assert actual.get("traffic_stress") == expected_stress, (highway, tags)
 
 
-async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stress_bonus(
+async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_repository):
+    """交通ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、
+    改善計画: 交通ストレスレシピ外出し基盤）がSQLで正しく抽出・正規化されることを確認する。
+    最終値の計算はもうSQL側の責務ではない（frontend/src/components/Map/
+    trafficStressExpression.ts・domain/traffic.py: traffic_stress_breakdownが担う）ため、
+    ここでは「材料タグがタグから正しく取り出せているか」だけを検証する。
+    """
+    import mapbox_vector_tile
+
+    # highwayはこのテスト内で識別キーに使う（MVTのfeature順序はSQLのORDER BY省略により
+    # 保証されないため、各fixtureが一意なhighway値を持つよう構成する）。
+    fixtures: list[tuple[str, dict[str, str], dict[str, object]]] = [
+        ("cycleway", {}, {}),
+        ("primary", {"cycleway": "track"}, {"cycleway_class": "track"}),
+        ("primary_link", {"cycleway:left": "lane"}, {"cycleway_class": "lane"}),
+        ("secondary", {"cycleway": "share_busway"}, {"cycleway_class": "shared"}),
+        ("tertiary_link", {"cycleway": "shared_lane"}, {"cycleway_class": "shared"}),
+        ("footway", {"bicycle": "designated"}, {}),
+        ("secondary_link", {"motor_vehicle": "no"}, {"motor_vehicle_no": True}),
+        ("tertiary", {"maxspeed": "60"}, {"maxspeed_kmh": 60}),
+        ("trunk", {"maxspeed": "30", "lanes": "2"}, {"maxspeed_kmh": 30, "lanes_count": 2}),
+        ("trunk_link", {"lanes": "5"}, {"lanes_count": 5}),
+        ("unclassified", {"lanes": "1"}, {"lanes_count": 1}),
+        # 改善計画: 交通ストレスレシピ外出し基盤のコードレビューで発覚。maxspeed/lanes="0"は
+        # 数値正規表現には一致するが、Python側のparse_maxspeed/parse_lanesは0以下を無効値
+        # （unknown）として弾く。SQL側も同じ扱いにしないと、フロントのMapLibre expression
+        # （0を「材料タグあり」として補正を発火させてしまう）とPython採点側で最終値が食い違う。
+        ("living_street", {"maxspeed": "0"}, {}),
+        ("track", {"lanes": "0"}, {}),
+    ]
+    way_specs = [
+        WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
+        for i, (highway, tags, _expected) in enumerate(fixtures)
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    assert len(decoded["road_surface"]["features"]) == len(fixtures)
+
+    properties_by_highway = {f["properties"].get("highway"): f["properties"] for f in decoded["road_surface"]["features"]}
+
+    for highway, tags, expected in fixtures:
+        actual = properties_by_highway[highway]
+        for key in ("cycleway_class", "maxspeed_kmh", "lanes_count", "motor_vehicle_no"):
+            assert actual.get(key) == expected.get(key), (highway, tags, key)
+
+
+async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     road_graph_repository, road_graph_session,
 ):
-    """指定路線コンフレーション機構（外部静的データソース T51）: designationプロパティと
-    traffic_stressの+1補正が、domain/traffic.py: traffic_stress_level(is_designated=True)と
-    一致することを突き合わせる（SQL⇔Python二重実装のドリフト検知）。
+    """指定路線コンフレーション機構（外部静的データソース T51）: designationプロパティが
+    domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDSの2kindと一致することを突き合わせる
+    （SQL⇔Python二重実装のドリフト検知）。
 
     改善計画T75: `_ROAD_SURFACE_TILE_MVT_SQL`のdesignation CASE式は
     domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDSの2値をリテラルで直接埋め込む
@@ -1176,11 +1219,13 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
     気づける（kind追加時はSQLの構造自体の見直しが要る）。
 
     改善計画T74: 2kindの両方に該当するwayは3値目"both"として出力される（重複kind欠落対策）。
+    designationへの交通ストレス+1補正は（改善計画: 交通ストレスレシピ外出し基盤により）
+    もうSQL側の責務ではないため、この突き合わせ対象からは外れた
+    （domain/traffic.py: traffic_stress_breakdownのdesignation_adjustment参照）。
     """
     import mapbox_vector_tile
 
     from app.domain.designation import TRAFFIC_STRESS_DESIGNATION_KINDS
-    from app.domain.traffic import traffic_stress_level
 
     assert TRAFFIC_STRESS_DESIGNATION_KINDS == frozenset({"emergency_transport", "critical_logistics"})
 
@@ -1209,19 +1254,15 @@ async def test_get_road_surface_tile_mvt_designation_matches_domain_traffic_stre
 
     ert = properties_by_highway["residential"]
     assert ert.get("designation") == "emergency_transport"
-    assert ert.get("traffic_stress") == traffic_stress_level("residential", {}, is_designated=True) == 3
 
     cl = properties_by_highway["secondary"]
     assert cl.get("designation") == "critical_logistics"
-    assert cl.get("traffic_stress") == traffic_stress_level("secondary", {}, is_designated=True) == 4
 
     plain = properties_by_highway["tertiary"]
     assert "designation" not in plain
-    assert plain.get("traffic_stress") == traffic_stress_level("tertiary", {}) == 3
 
     both = properties_by_highway["unclassified"]
     assert both.get("designation") == "both"
-    assert both.get("traffic_stress") == traffic_stress_level("unclassified", {}, is_designated=True) == 3
 
 
 # --- get_poi_tile_mvt（改善計画T54: 停止要因POI・交差点密度の可視化） ---

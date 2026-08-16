@@ -1,0 +1,192 @@
+[
+  {
+    "properties": {
+      "highway": "cycleway"
+    },
+    "recipe": null,
+    "expected_level": 1
+  },
+  {
+    "properties": {
+      "highway": "residential"
+    },
+    "recipe": null,
+    "expected_level": 2
+  },
+  {
+    "properties": {
+      "highway": "tertiary"
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "secondary"
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "primary"
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "trunk"
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "motorway"
+    },
+    "recipe": null,
+    "expected_level": null
+  },
+  {
+    "properties": {},
+    "recipe": null,
+    "expected_level": null
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "motor_vehicle_no": true
+    },
+    "recipe": null,
+    "expected_level": 1
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "cycleway_class": "track"
+    },
+    "recipe": null,
+    "expected_level": 2
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "cycleway_class": "lane"
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "cycleway_class": "shared"
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "maxspeed_kmh": 30
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "tertiary",
+      "maxspeed_kmh": 60
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "tertiary",
+      "lanes_count": 4
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "lanes_count": 1
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "primary"
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "primary"
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "cycleway",
+      "cycleway_class": "track",
+      "maxspeed_kmh": 20
+    },
+    "recipe": null,
+    "expected_level": 1
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "maxspeed_kmh": 80,
+      "lanes_count": 6
+    },
+    "recipe": null,
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "residential",
+      "designation": "emergency_transport"
+    },
+    "recipe": null,
+    "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "motor_vehicle_no": true,
+      "designation": "emergency_transport"
+    },
+    "recipe": null,
+    "expected_level": 1
+  },
+  {
+    "properties": {
+      "highway": "secondary"
+    },
+    "recipe": {
+      "base_by_highway": {
+        "secondary": 2
+      },
+      "cycleway_track_adjustment": -2,
+      "cycleway_lane_adjustment": -1,
+      "cycleway_shared_adjustment": -1,
+      "maxspeed_low_threshold": 30,
+      "maxspeed_low_adjustment": -1,
+      "maxspeed_high_threshold": 60,
+      "maxspeed_high_adjustment": 1,
+      "lanes_high_threshold": 4,
+      "lanes_high_adjustment": 1,
+      "lanes_low_threshold": 1,
+      "lanes_low_adjustment": -1,
+      "designation_adjustment": 1
+    },
+    "expected_level": 2
+  }
+]

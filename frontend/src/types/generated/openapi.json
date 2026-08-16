@@ -315,21 +315,20 @@
       }
     },
     "/api/region/traffic-stress-breakdown": {
-      "get": {
+      "post": {
         "summary": "Region Traffic Stress Breakdown",
-        "description": "交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、\n路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:\ntraffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、\nhighwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ\n「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は\nRegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。\nタイル取得と同じ歯止め（クリックの連打対策）を流用する。",
-        "operationId": "region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get",
-        "parameters": [
-          {
-            "name": "osm_way_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Osm Way Id"
+        "description": "交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、\n路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:\ntraffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、\nhighwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ\n「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は\nRegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。\nタイル取得と同じ歯止め（クリックの連打対策）を流用する。\n\nGETではなくPOST+JSONボディなのは、`traffic_stress_recipe`（レシピ上書き、改善計画:\n交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが\n不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。",
+        "operationId": "region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrafficStressBreakdownRequest"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -344,7 +343,7 @@
                       "type": "null"
                     }
                   ],
-                  "title": "Response Region Traffic Stress Breakdown Api Region Traffic Stress Breakdown Get"
+                  "title": "Response Region Traffic Stress Breakdown Api Region Traffic Stress Breakdown Post"
                 }
               }
             }
@@ -525,6 +524,9 @@
           "route_preference": {
             "$ref": "#/components/schemas/RoutePreferenceWeights"
           },
+          "traffic_stress_recipe": {
+            "$ref": "#/components/schemas/TrafficStressRecipeOverride"
+          },
           "generated_at": {
             "type": "string",
             "title": "Generated At"
@@ -538,6 +540,7 @@
           "distance_tolerance_km",
           "scoring_weights",
           "route_preference",
+          "traffic_stress_recipe",
           "generated_at"
         ],
         "title": "GenerationConditions",
@@ -804,6 +807,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/RoutePreferenceWeights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "traffic_stress_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrafficStressRecipeOverride"
               },
               {
                 "type": "null"
@@ -1288,6 +1301,106 @@
         ],
         "title": "TrafficStressBreakdown",
         "description": "`traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に\n「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と\n同じ最終値。highwayが判定基準（`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に登録されていない\n場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。"
+      },
+      "TrafficStressBreakdownRequest": {
+        "properties": {
+          "osm_way_id": {
+            "type": "integer",
+            "title": "Osm Way Id"
+          },
+          "traffic_stress_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrafficStressRecipeOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "osm_way_id"
+        ],
+        "title": "TrafficStressBreakdownRequest"
+      },
+      "TrafficStressRecipeOverride": {
+        "properties": {
+          "base_by_highway": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Base By Highway"
+          },
+          "cycleway_track_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Track Adjustment"
+          },
+          "cycleway_lane_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Lane Adjustment"
+          },
+          "cycleway_shared_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Shared Adjustment"
+          },
+          "maxspeed_low_threshold": {
+            "type": "integer",
+            "title": "Maxspeed Low Threshold"
+          },
+          "maxspeed_low_adjustment": {
+            "type": "integer",
+            "title": "Maxspeed Low Adjustment"
+          },
+          "maxspeed_high_threshold": {
+            "type": "integer",
+            "title": "Maxspeed High Threshold"
+          },
+          "maxspeed_high_adjustment": {
+            "type": "integer",
+            "title": "Maxspeed High Adjustment"
+          },
+          "lanes_high_threshold": {
+            "type": "integer",
+            "title": "Lanes High Threshold"
+          },
+          "lanes_high_adjustment": {
+            "type": "integer",
+            "title": "Lanes High Adjustment"
+          },
+          "lanes_low_threshold": {
+            "type": "integer",
+            "title": "Lanes Low Threshold"
+          },
+          "lanes_low_adjustment": {
+            "type": "integer",
+            "title": "Lanes Low Adjustment"
+          },
+          "designation_adjustment": {
+            "type": "integer",
+            "title": "Designation Adjustment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_by_highway",
+          "cycleway_track_adjustment",
+          "cycleway_lane_adjustment",
+          "cycleway_shared_adjustment",
+          "maxspeed_low_threshold",
+          "maxspeed_low_adjustment",
+          "maxspeed_high_threshold",
+          "maxspeed_high_adjustment",
+          "lanes_high_threshold",
+          "lanes_high_adjustment",
+          "lanes_low_threshold",
+          "lanes_low_adjustment",
+          "designation_adjustment"
+        ],
+        "title": "TrafficStressRecipeOverride",
+        "description": "交通ストレス軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。\nキーはdomain/traffic.py: TrafficStressRecipeと同じ。RoutePreferenceWeightsと同じ\n「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。\n\nRoutePreferenceWeights（軸間の重み）とは別階層で、こちらは交通ストレス軸自体の中身\n（highway別基準値・各補正の閾値・補正量）を上書きする。研究モードでのレシピ調整用。"
       },
       "ValidationError": {
         "properties": {

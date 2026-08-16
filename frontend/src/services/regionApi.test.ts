@@ -34,7 +34,7 @@ describe("regionApi", () => {
 
   it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=8`);
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=9`);
   });
 
   // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
@@ -70,7 +70,7 @@ describe("regionApi", () => {
   });
 
   describe("fetchTrafficStressBreakdown", () => {
-    it("osm_way_idをクエリに含めてGETし、JSONをそのまま返す", async () => {
+    it("osm_way_idをJSONボディに含めてPOSTし、JSONをそのまま返す", async () => {
       const breakdown = {
         base: 4,
         cycleway_adjustment: 0,
@@ -90,9 +90,10 @@ describe("regionApi", () => {
 
       const result = await fetchTrafficStressBreakdown(12345);
 
-      const [url] = fetchMock.mock.calls[0];
+      const [url, options] = fetchMock.mock.calls[0];
       expect(String(url)).toContain("/api/region/traffic-stress-breakdown");
-      expect(String(url)).toContain("osm_way_id=12345");
+      expect(options.method).toBe("POST");
+      expect(JSON.parse(options.body as string)).toEqual({ osm_way_id: 12345, traffic_stress_recipe: null });
       expect(result).toEqual(breakdown);
     });
 

@@ -2393,6 +2393,80 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+## 交通ストレスレシピ外出し基盤（2026-08-17・ユーザー要望「研究フェーズでは地図表示の
+パラメータも調整したい、運用でも個人最適化できるようにしたい」）
+
+### - [x] T107. 交通ストレスの判定レシピ（一次情報→二次情報の変換式）をタイル・SQLから切り離し、上書き可能な形へ外出し 規模L（2026-08-17完了・基盤フェーズ）
+
+- 発端: ユーザーから「OSMタグ由来の一次情報と、それを評価して組み合わせた二次情報
+  （交通ストレス等）は仕組み上分けて考えられないか。二次情報側は今後アプリ側で重み調整
+  できるようにしたい」という設計相談を受けた。調査の結果、一次情報（`osm_raw_ways.tags`
+  の生タグ）と二次情報（`domain/traffic.py`の純関数が計算する分類値）は既にコードの層としては
+  分離されていたが、交通ストレスに限っては**判定レシピ（highway別基準値・cycleway/maxspeed/
+  lanes/指定路線の補正の閾値・補正量）自体がPython（ルート採点用）とSQL（地図タイルMVT生成用、
+  `road_graph_repository.py`のCASE式）の2箇所に別実装されており、しかもSQL側はタイルへ
+  **計算済みの最終値**を焼き込んでいた（タイルは全ユーザー共有でキャッシュされる、
+  Cache-Control: max-age=3600＋ディスクキャッシュ）。このため、続く「研究フェーズで地図表示の
+  パラメータも変えて実態を確かめたい」「運用でも各自が調整できる方が個人最適になるのでは」
+  という要望に対しては、レシピを変えるたびに世界中のタイルキャッシュを作り直す必要がある
+  （T92/T93で実際にこの手順を踏んだ）現行設計のままでは対応できないと判明した。
+- 合意した方針: タイルには最終値ではなく「材料タグ」だけを焼き込み、最終値の計算はブラウザ側
+  （MapLibre expression）で行う。これによりレシピ変更が地図表示に関してサーバー・タイル
+  キャッシュに一切触れず完結し、個人ごとにレシピを変えても共有キャッシュを壊さない。
+  ルート採点（サーバー側Python）は既存の`RoutePreference`上書きと同じ形でレシピ自体を
+  リクエスト単位に上書き可能にする。
+- **今回のスコープ（ユーザー承認、基盤フェーズ）**: レシピの外出し（`TrafficStressRecipe`
+  pydanticモデル化・`traffic_stress_recipe.yaml`化・`/api/routes/generate`へのリクエスト
+  上書き配線）／タイルの材料タグ化（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/
+  `motor_vehicle_no`をSQLへ、世代v8→v9）／地図側のクライアント計算式への切替
+  （`trafficStressExpression.ts`、MapLibre expression）／T90の内訳ポップアップの
+  POST化（研究モードでレシピを上書き中はその内容を反映できるよう配線）。
+  **実際に触れる調整UIパネル（研究モードのスライダー等）は次ラウンド**。通常モードでの
+  個人最適化は将来判断（今回は研究モード限定の配線のみ用意）。既定レシピは現行定数と完全に
+  同じ値にし、このラウンドは見た目・挙動を一切変えない（オーバーライドを渡すUIがまだ無い
+  ため）。bicycle_infraは同型の候補だが今回は対象外（traffic_stressのみ）。
+- 対応:
+  - `domain/traffic.py`: `TrafficStressRecipe`（`base_by_highway`＋cycleway/maxspeed/lanes/
+    指定路線の閾値・補正量、既定値は従来のハードコード定数と完全一致）を新設し、
+    `traffic_stress_breakdown`/`traffic_stress_level`へ`recipe`引数を追加（省略時は
+    `DEFAULT_TRAFFIC_STRESS_RECIPE`、後方互換）。`traffic_stress_recipe.yaml`＋
+    `evaluation_service.py: load_traffic_stress_recipe`を追加。
+  - 採点経路（`compute_edge_cost`・`EvaluationService`・両エンジン・
+    `api/dependencies.py: get_route_generation_builder`）へ`traffic_stress_recipe`を配線し、
+    `/api/routes/generate`のリクエスト/レスポンス（`TrafficStressRecipeOverride`、
+    `route_preference`と同じ「全フィールド必須」の別モデル）で上書き・エコーできるようにした。
+  - `/api/region/traffic-stress-breakdown`をGET+クエリからPOST+JSONボディへ変更し、
+    任意の`traffic_stress_recipe`を受け取れるようにした（`RegionService`・リポジトリへ
+    `recipe`引数を追加）。フロント`fetchTrafficStressBreakdown`もPOST化。
+  - `road_graph_repository.py: get_road_surface_tile_mvt`のSQLから`traffic_stress`
+    （計算済み最終値）のCASE式を削除し、代わりに材料タグ`cycleway_class`/`maxspeed_kmh`/
+    `lanes_count`/`motor_vehicle_no`を焼き込むよう変更。**実装中の発見**: `ST_AsMVT`は
+    Postgresの`numeric`型を認識できずtextへフォールバックする実機挙動を、新規DB統合テストの
+    実行中に発見（`maxspeed_kmh`が文字列`'60'`で返り数値比較テストが失敗）。`::integer`への
+    明示キャストで解決（放置していればフロントのMapLibre expressionでも同じ理由で数値比較が
+    壊れていた）。`ROAD_SURFACE_TILE_VERSION`を`"8"`→`"9"`（`regionApi.ts`も追従）。
+  - `frontend/src/components/Map/trafficStressExpression.ts`（新規）:
+    `buildTrafficStressExpression(recipe)`が`traffic_stress_breakdown`と1:1対応する
+    MapLibre expressionを組み立てる。既定レシピは`export_openapi.py`が書き出す
+    `traffic-stress-recipe.json`から読み、Python側とのドリフトをCIで検知する
+    （`region-tile-config.json`と同じ生成パターン、手動同期ペアを作らない設計原則1）。
+    `staticAttributeLayers.ts`の`TRAFFIC_STRESS_COLOR_EXPRESSION`・`TRAFFIC_STRESS_LEGEND`を
+    このexpression経由へ置き換え（既定レシピは現行定数と同値のため見た目は無変更）。
+    地図クリックのポップアップ（`MapView.tsx`）も材料タグから`evaluateTrafficStressLevel`
+    （`@maplibre/maplibre-gl-style-spec`のexpression評価器を使い、paint/filterと同じ
+    expressionを単発評価。判定ロジックを3箇所目に増やさないための共通経路）で計算するよう変更。
+  - テスト: `domain/traffic.py`へカスタムレシピのテスト6件追加。`test_road_graph_repository.py`
+    の旧SQL⇔Python`traffic_stress`整合性テスト2本を、bicycle_infraのみの整合性テストと
+    材料タグ抽出の検証テストへ再構成。`trafficStressExpression.test.ts`新規27ケース
+    （backend/tests/test_traffic.pyの代表ケースを踏襲、既定レシピ・カスタムレシピ両方）。
+    `regionApi.test.ts`・`test_region_routes.py`のPOST化・世代9追従。
+  - `docs/architecture.md`（API仕様・§7静的道路属性・タイル配信バージョン表）を更新。
+- 完了条件: backend 733件・frontend 265件・tsc・eslint全green（すべて確認済み）。実機確認
+  （地図の交通ストレス色分けが変更前と同一であることの確認、T90ポップアップのPOST化後の
+  動作確認）は次のタスクリスト項目で実施する。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2473,3 +2547,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T99本番再取込み | ユーザー承認のうえ`kanto-latest.osm.pbf`を本番Oracle Cloud DBへ再取込み（事前dry-runで`matched_ways=1,329,632`等を確認）。run_id=5、ways=1,329,632・nodes=147,291・pois=332,294（67チャンク、db_size_mb=2004、elapsed=904.0s、エラーなし、UPSERTのため非破壊的）。本番DBへ直接クエリし反映を確認: `shared_pedestrian_ways`該当17,584件（T102実測の「その他」グループ件数と一致）、うち`segregated`保持5,000件（約28.4%、実測どおり）、`lit`保持14,368件。T99を完全完了（`[x]`）へ更新 |
 | 2026-08-17 | T104 | ユーザーがモバイル実機スクショを提示（地図上の指定路線凡例内訳ポップアップで「緊急輸送道路 かつ 重要物流道路（N10・...」が末尾`N12）`ごと見切れ）。`MapOverlayControls.module.css: .detailRowLabel`の`white-space: nowrap`+`text-overflow: ellipsis`が原因と特定し、サイドバー側と同じ折り返し方式へ統一。あわせてユーザー提案（全角括弧→半角）を採用し該当ラベルを`[N10・N12]`へ変更。モバイル390px幅のPlaywright実機確認で2行折り返し・全文表示を確認。frontend 236件・tsc・eslint全green |
 | 2026-08-17 | T106 | ユーザー依頼によりT104を「システムUI全般」へ拡張。UI表示文言（コメント・test title除く）の全角括弧を半角`[]`へ一括置換（mapLayers/staticAttributeLayers/MapView等18ファイル＋services配下エラーメッセージ5ファイル）、指定路線`both`ラベルを`緊急輸送 かつ 重要物流道路[N10＋N12]`（共有語重複割愛）へ変更、設計原則12「地図表示エリア最大化優先」をcomplexity-review-2026-08-16.mdへ追記。副次的に`LocationControl.test.tsx`の`new RegExp(label)`が`[]`を文字クラスと誤解釈する回帰を発見・修正。frontend 238件・tsc・eslint全green、Playwright実機確認（デスクトップ・モバイル）済み |
+| 2026-08-17 | T107（基盤フェーズ） | ユーザー相談（一次情報/二次情報の分離、二次情報側の重みを研究モード・将来は運用でも調整したい）を受け設計。交通ストレスの判定レシピをPython定数から`TrafficStressRecipe`（pydantic）へ外出しし、タイル（全ユーザー共有キャッシュ）には最終値でなく材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）だけを焼き込む方式へ変更（世代v8→v9）。最終値の計算はフロント（`trafficStressExpression.ts`、MapLibre expression、既定レシピは`export_openapi.py`書き出しJSON経由でPython側と同期）とルート採点（`domain/traffic.py`）がそれぞれ担う。`/api/routes/generate`にレシピのリクエスト上書きを追加、T90内訳ポップアップはGET→POST化。実装中にST_AsMVTがPostgres numeric型をtextへフォールバックする挙動をDB統合テストで発見・`::integer`キャストで修正（見逃せばフロントの数値比較も壊れていた）。今回は基盤のみで実際の調整UIパネルは次ラウンド。backend 733件・frontend 265件・tsc・eslint全green |

@@ -6,7 +6,7 @@ import httpx
 
 from app.config import settings
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
-from app.domain.traffic import TrafficStressBreakdown, traffic_stress_breakdown
+from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe, traffic_stress_breakdown
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import log_external_call
@@ -96,6 +96,12 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v9: 交通ストレスレシピ外出し基盤。計算済みの`traffic_stress`最終値プロパティを廃止し、
+# 材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）へ差し替えた
+# 世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
+# v2〜v8と異なりプロパティ削除を伴う非互換変更のため、この世代への切り替えは対応する
+# frontend（regionApi.ts）のデプロイより先に本番へ出さないこと（旧フロントの凡例フィルタが
+# 全地物に一致し交通ストレスレイヤーが一時的に全線「不明・他」表示になる）。
 # v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92でtraffic_stress判定ロジック
 # （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）を変更したが
 # タイル世代の対上げを失念していた（T70に続き同型のミス）。焼き込み済みキャッシュの
@@ -112,7 +118,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "8"
+ROAD_SURFACE_TILE_VERSION = "9"
 
 # 停止要因POI・交差点密度タイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
@@ -265,7 +271,9 @@ class RegionService:
             y=y,
         )
 
-    async def get_traffic_stress_breakdown(self, osm_way_id: int) -> TrafficStressBreakdown | None:
+    async def get_traffic_stress_breakdown(
+        self, osm_way_id: int, recipe: TrafficStressRecipe | None = None
+    ) -> TrafficStressBreakdown | None:
         """クリックされた道路（osm_way_id）の交通ストレス判定内訳を返す（改善計画T90）。
 
         クリック地点の緯度経度から最近傍道路を空間マッチ（`get_nearest_way_tags`）で
@@ -274,6 +282,10 @@ class RegionService:
         ことが実機確認で判明したため採用していない。フィーチャーのプロパティに含まれる
         osm_way_id（`_ROAD_SURFACE_TILE_MVT_SQL`が焼き込み済み）で該当行を曖昧さ無く
         引き直す。
+
+        `recipe`は交通ストレス軸の判定レシピの上書き（省略時はdomain/traffic.py:
+        DEFAULT_TRAFFIC_STRESS_RECIPE）。研究モードでレシピを上書き中は、ポップアップの内訳も
+        上書き中のレシピで計算する（地図の色・ルート採点との整合を保つため）。
 
         `repository`未注入（DBなし構成）、または該当way自体が存在しない場合はNone。
         highwayが判定基準に登録されていない場合はTrafficStressBreakdown(base=None,
@@ -302,4 +314,4 @@ class RegionService:
                 return None
             fields["lookup"] = "ok"
             highway, tags, is_designated = result
-            return traffic_stress_breakdown(highway, tags, is_designated)
+            return traffic_stress_breakdown(highway, tags, is_designated, recipe)

@@ -26,6 +26,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
+import { DEFAULT_TRAFFIC_STRESS_RECIPE, buildTrafficStressExpression } from "./trafficStressExpression";
 
 const COLOR_UNKNOWN = "#9ca3af";
 
@@ -80,29 +81,34 @@ const TRAFFIC_STRESS_COLORS: Record<number, string> = {
   4: "#dc2626",
 };
 
+// 交通ストレスの最終値は（改善計画: 交通ストレスレシピ外出し基盤により）タイルへ計算済みの
+// 値として焼き込まれておらず、材料タグ（highway/cycleway_class/maxspeed_kmh/lanes_count/
+// designation/motor_vehicle_no）からここでMapLibre expressionとして計算する
+// （trafficStressExpression.ts参照）。既定レシピを使う限り見た目は従来と同一。
+const TRAFFIC_STRESS_LEVEL_EXPRESSION = buildTrafficStressExpression(DEFAULT_TRAFFIC_STRESS_RECIPE);
+
 // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解されるという実機
 // フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
 // MapOverlayControls）に区切り線＋弱調表示させる。段階の意味そのものは1〜4のまま変えない。
 export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = [
-  { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", ["get", "traffic_stress"], 1] },
-  { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", ["get", "traffic_stress"], 2] },
-  { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", ["get", "traffic_stress"], 3] },
-  { key: "4", label: "4[ストレス大]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", ["get", "traffic_stress"], 4] },
+  { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 1] },
+  { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 2] },
+  { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 3] },
+  { key: "4", label: "4[ストレス大]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 4] },
   {
     key: "unknown",
     label: "不明・他[判定対象外の道路種別]",
     color: COLOR_UNKNOWN,
-    filter: ["!", ["has", "traffic_stress"]],
+    filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, -1],
     isFallback: true,
   },
 ];
 
-// プロパティ欠落時は-1へ倒し、どのケースにも一致しないようにする（["get",...]がnullのまま
-// matchへ渡すと入力型不一致の評価エラーになりうるため、roadFilterAxes.tsのcoalesceパターンと
-// 同じ考え方）。
+// TRAFFIC_STRESS_LEVEL_EXPRESSIONは判定対象外を-1で返す（trafficStressExpression.ts参照）ため、
+// 従来の`coalesce(get("traffic_stress"), -1)`と同じ形でmatchできる。
 export const TRAFFIC_STRESS_COLOR_EXPRESSION: unknown[] = [
   "match",
-  ["coalesce", ["get", "traffic_stress"], -1],
+  TRAFFIC_STRESS_LEVEL_EXPRESSION,
   1,
   TRAFFIC_STRESS_COLORS[1],
   2,

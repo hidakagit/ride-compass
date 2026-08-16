@@ -161,6 +161,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
          * Region Traffic Stress Breakdown
          * @description 交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
@@ -170,10 +172,12 @@ export interface paths {
          *     「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
          *     RegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
          *     タイル取得と同じ歯止め（クリックの連打対策）を流用する。
+         *
+         *     GETではなくPOST+JSONボディなのは、`traffic_stress_recipe`（レシピ上書き、改善計画:
+         *     交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
+         *     不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
          */
-        get: operations["region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get"];
-        put?: never;
-        post?: never;
+        post: operations["region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -261,6 +265,7 @@ export interface components {
             distance_tolerance_km: number;
             scoring_weights: components["schemas"]["ScoringWeights"];
             route_preference: components["schemas"]["RoutePreferenceWeights"];
+            traffic_stress_recipe: components["schemas"]["TrafficStressRecipeOverride"];
             /** Generated At */
             generated_at: string;
         };
@@ -355,6 +360,7 @@ export interface components {
             route_type: "loop";
             scoring_weights?: components["schemas"]["ScoringWeights"] | null;
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
+            traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {
@@ -530,6 +536,51 @@ export interface components {
             motor_vehicle_no_override: boolean;
             /** Level */
             level: number | null;
+        };
+        /** TrafficStressBreakdownRequest */
+        TrafficStressBreakdownRequest: {
+            /** Osm Way Id */
+            osm_way_id: number;
+            traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
+        };
+        /**
+         * TrafficStressRecipeOverride
+         * @description 交通ストレス軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
+         *     キーはdomain/traffic.py: TrafficStressRecipeと同じ。RoutePreferenceWeightsと同じ
+         *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
+         *
+         *     RoutePreferenceWeights（軸間の重み）とは別階層で、こちらは交通ストレス軸自体の中身
+         *     （highway別基準値・各補正の閾値・補正量）を上書きする。研究モードでのレシピ調整用。
+         */
+        TrafficStressRecipeOverride: {
+            /** Base By Highway */
+            base_by_highway: {
+                [key: string]: number;
+            };
+            /** Cycleway Track Adjustment */
+            cycleway_track_adjustment: number;
+            /** Cycleway Lane Adjustment */
+            cycleway_lane_adjustment: number;
+            /** Cycleway Shared Adjustment */
+            cycleway_shared_adjustment: number;
+            /** Maxspeed Low Threshold */
+            maxspeed_low_threshold: number;
+            /** Maxspeed Low Adjustment */
+            maxspeed_low_adjustment: number;
+            /** Maxspeed High Threshold */
+            maxspeed_high_threshold: number;
+            /** Maxspeed High Adjustment */
+            maxspeed_high_adjustment: number;
+            /** Lanes High Threshold */
+            lanes_high_threshold: number;
+            /** Lanes High Adjustment */
+            lanes_high_adjustment: number;
+            /** Lanes Low Threshold */
+            lanes_low_threshold: number;
+            /** Lanes Low Adjustment */
+            lanes_low_adjustment: number;
+            /** Designation Adjustment */
+            designation_adjustment: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -794,16 +845,18 @@ export interface operations {
             };
         };
     };
-    region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_get: {
+    region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_post: {
         parameters: {
-            query: {
-                osm_way_id: number;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrafficStressBreakdownRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

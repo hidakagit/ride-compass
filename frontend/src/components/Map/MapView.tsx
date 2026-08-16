@@ -26,6 +26,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
+import { evaluateTrafficStressLevel } from "@/components/Map/trafficStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
@@ -1263,7 +1264,13 @@ export default function MapView({
         feature.layer.id !== DETAIL_LAYER_ID &&
         feature.layer.id !== ACCIDENT_LAYER_ID &&
         feature.layer.id !== STOP_POI_LAYER_ID;
-      const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
+      // traffic_stressはタイルに計算済みの値として焼き込まれていない（改善計画: 交通ストレス
+      // レシピ外出し基盤）ため、クリックされたフィーチャーの材料タグからここで計算する
+      // （地図の色分け・凡例フィルタと同じexpressionをtrafficStressExpression.tsで共有する）。
+      const roadSurfaceProperties = {
+        ...(feature.properties as unknown as RoadSurfacePopupProperties),
+        traffic_stress: isRoadSurfaceFeature ? evaluateTrafficStressLevel(feature.properties ?? {}) : null,
+      };
       const html =
         feature.layer.id === DETAIL_LAYER_ID
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)

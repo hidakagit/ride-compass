@@ -15,6 +15,7 @@ from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
+from app.domain.traffic import TrafficStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.route_generator import JST
@@ -82,6 +83,30 @@ class RoutePreferenceWeights(BaseModel):
     accident_weight: float = Field(ge=0)
 
 
+class TrafficStressRecipeOverride(BaseModel):
+    """交通ストレス軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
+    キーはdomain/traffic.py: TrafficStressRecipeと同じ。RoutePreferenceWeightsと同じ
+    「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
+
+    RoutePreferenceWeights（軸間の重み）とは別階層で、こちらは交通ストレス軸自体の中身
+    （highway別基準値・各補正の閾値・補正量）を上書きする。研究モードでのレシピ調整用。
+    """
+
+    base_by_highway: dict[str, int]
+    cycleway_track_adjustment: int
+    cycleway_lane_adjustment: int
+    cycleway_shared_adjustment: int
+    maxspeed_low_threshold: int
+    maxspeed_low_adjustment: int
+    maxspeed_high_threshold: int
+    maxspeed_high_adjustment: int
+    lanes_high_threshold: int
+    lanes_high_adjustment: int
+    lanes_low_threshold: int
+    lanes_low_adjustment: int
+    designation_adjustment: int
+
+
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -96,6 +121,7 @@ class RouteGenerateRequest(BaseModel):
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     scoring_weights: ScoringWeights | None = None
     route_preference: RoutePreferenceWeights | None = None
+    traffic_stress_recipe: TrafficStressRecipeOverride | None = None
 
 
 class GenerationConditions(BaseModel):
@@ -112,6 +138,7 @@ class GenerationConditions(BaseModel):
     distance_tolerance_km: float
     scoring_weights: ScoringWeights
     route_preference: RoutePreferenceWeights
+    traffic_stress_recipe: TrafficStressRecipeOverride
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -149,7 +176,10 @@ async def generate_routes(
         RoutePreference(**request.route_preference.model_dump()) if request.route_preference else None
     )
     scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
-    setup = build_generation(preference_override, scoring_override)
+    traffic_stress_recipe_override = (
+        TrafficStressRecipe(**request.traffic_stress_recipe.model_dump()) if request.traffic_stress_recipe else None
+    )
+    setup = build_generation(preference_override, scoring_override, traffic_stress_recipe_override)
 
     async with _generate_semaphore:
         origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
@@ -168,6 +198,7 @@ async def generate_routes(
             distance_tolerance_km=request.distance_tolerance_km,
             scoring_weights=ScoringWeights(**setup.scoring_weights),
             route_preference=RoutePreferenceWeights(**setup.route_preference.model_dump()),
+            traffic_stress_recipe=TrafficStressRecipeOverride(**setup.traffic_stress_recipe.model_dump()),
             generated_at=datetime.now(JST).isoformat(),
         ),
     )

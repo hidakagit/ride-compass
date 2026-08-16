@@ -67,7 +67,6 @@ from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
-    TRAFFIC_STRESS_BASE_BY_HIGHWAY,
 )
 from app.infrastructure.vector_tile import (
     INTERSECTION_LAYER_NAME,
@@ -187,16 +186,25 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 # - smoothness: 生タグをlower(btrim())で正規化して焼くだけ（surfaceと同じ流儀）
 # - tunnel/bridge: タグ値'yes'のときだけtrueを焼く（それ以外はキー省略＝ST_AsMVTがNULLを
 #   省略する既存の挙動をそのまま使う。「非該当」が大多数のため省略した方がタイルが軽い）
-# - traffic_stress/bicycle_infra: domain/traffic.py（traffic_stress_level/
-#   classify_bicycle_infrastructure）と1:1対応するCASE式。SQLにPythonを呼び出す手段が
-#   無いためやむを得ず判定ロジックを2箇所持つが、test_road_graph_repository.pyの
-#   整合性テストで同じ入力に対し常に同じ出力になることを担保する。
-#   traffic_stressの基本値（highway→1-4）はTRAFFIC_STRESS_BASE_BY_HIGHWAY（正準1箇所）から
-#   導出した配列をバインドし、ハードコードの二重管理を避ける（good_tags/bad_tagsと同じ方式）。
+# - bicycle_infra: domain/traffic.py（classify_bicycle_infrastructure）と1:1対応するCASE式。
+#   SQLにPythonを呼び出す手段が無いためやむを得ず判定ロジックを2箇所持つが、
+#   test_road_graph_repository.pyの整合性テストで同じ入力に対し常に同じ出力になることを
+#   担保する。
+# - traffic_stress（交通ストレス、1-4）は改善計画（交通ストレスレシピ外出し基盤）以降、
+#   ここでは**計算済みの最終値を焼かない**。タイルは全ユーザー共有でキャッシュされる
+#   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
+#   判定レシピ（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに
+#   世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
+#   （cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
+#   流用）だけを焼き込み、最終値の計算はフロントエンド側
+#   （frontend/src/components/Map/trafficStressExpression.ts、MapLibre expression）と
+#   ルート採点（domain/traffic.py: traffic_stress_breakdown）がそれぞれ行う。両者は
+#   domain/traffic.py: TrafficStressRecipeという共通のレシピ定義に対応させ、
+#   trafficStressExpression.test.tsで整合性を検証する（このSQL側の整合性テストは
+#   材料タグの焼き込みが正しいことだけを検証すればよくなった）。
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
-#   弾いてunknown安全にする。改善計画T92: cycleway=shared_lane/share_busway（-1）・
-#   lanes<=1（-1）の2補正を追加。traffic.py: traffic_stress_breakdownと同じ条件分岐。
+#   弾いてunknown安全にする。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
@@ -239,34 +247,30 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN lower(btrim(w.tags->>'bicycle')) = 'no' THEN 'prohibited'
                             WHEN w.highway IS NOT NULL THEN 'roadway'
                         END AS bicycle_infra,
+                        -- 交通ストレスの材料タグ（最終値はフロント/Pythonが計算、上のコメント参照）。
                         CASE
-                            WHEN ts.base IS NULL THEN NULL
-                            WHEN lower(btrim(w.tags->>'motor_vehicle')) = 'no' THEN 1
-                            ELSE GREATEST(1, LEAST(4,
-                                ts.base
-                                + CASE
-                                      WHEN 'track' = ANY(cw.values) THEN -2
-                                      WHEN 'lane' = ANY(cw.values) THEN -1
-                                      WHEN cw.values && ARRAY['shared_lane', 'share_busway'] THEN -1
-                                      ELSE 0
-                                  END
-                                + CASE
-                                      WHEN btrim(w.tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                           AND trunc(btrim(w.tags->>'maxspeed')::numeric) <= 30 THEN -1
-                                      WHEN btrim(w.tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                           AND trunc(btrim(w.tags->>'maxspeed')::numeric) >= 60 THEN 1
-                                      ELSE 0
-                                  END
-                                + CASE
-                                      WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                           AND trunc(btrim(w.tags->>'lanes')::numeric) >= 4 THEN 1
-                                      WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                           AND trunc(btrim(w.tags->>'lanes')::numeric) <= 1 THEN -1
-                                      ELSE 0
-                                  END
-                                + CASE WHEN COALESCE(d.is_ert, false) OR COALESCE(d.is_cl, false) THEN 1 ELSE 0 END
-                            ))
-                        END AS traffic_stress,
+                            WHEN 'track' = ANY(cw.values) THEN 'track'
+                            WHEN 'lane' = ANY(cw.values) THEN 'lane'
+                            WHEN cw.values && ARRAY['shared_lane', 'share_busway'] THEN 'shared'
+                        END AS cycleway_class,
+                        -- ST_AsMVTはnumeric型を認識せずtextへフォールバックする（実機確認で
+                        -- 判明。フロントのMapLibre expressionが数値比較できなくなる）ため、
+                        -- integerへキャストしてから焼き込む。0以下はPythonのparse_maxspeed/
+                        -- parse_lanes（`value if value > 0 else None`）と同じくunknown扱いにし
+                        -- キー自体を省略する（"maxspeed=0"のような無効タグでフロント/採点側の
+                        -- 補正が誤発火しないようにする。改善計画: 交通ストレスレシピ外出し基盤
+                        -- のコードレビューで発覚）。
+                        CASE
+                            WHEN btrim(w.tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                 AND trunc(btrim(w.tags->>'maxspeed')::numeric) > 0
+                                THEN trunc(btrim(w.tags->>'maxspeed')::numeric)::integer
+                        END AS maxspeed_kmh,
+                        CASE
+                            WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                 AND trunc(btrim(w.tags->>'lanes')::numeric) > 0
+                                THEN trunc(btrim(w.tags->>'lanes')::numeric)::integer
+                        END AS lanes_count,
+                        CASE WHEN lower(btrim(w.tags->>'motor_vehicle')) = 'no' THEN true END AS motor_vehicle_no,
                         CASE
                             WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'
                             WHEN d.is_ert THEN 'emergency_transport'
@@ -281,14 +285,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             lower(btrim(w.tags->>'cycleway:both'))
                         ] AS values
                     ) cw
-                    CROSS JOIN LATERAL (
-                        SELECT CASE
-                            WHEN w.highway = ANY(:ts_base1) THEN 1
-                            WHEN w.highway = ANY(:ts_base2) THEN 2
-                            WHEN w.highway = ANY(:ts_base3) THEN 3
-                            WHEN w.highway = ANY(:ts_base4) THEN 4
-                        END AS base
-                    ) ts
                     LEFT JOIN (
                         -- 指定路線コンフレーション機構（外部静的データソース T51）。
                         -- designation_attributesはmatch_designations.pyの事前計算バッチが埋める。
@@ -315,14 +311,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
     .bindparams(
         bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
         bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-        *(
-            bindparam(
-                f"ts_base{level}",
-                value=sorted(hw for hw, lv in TRAFFIC_STRESS_BASE_BY_HIGHWAY.items() if lv == level),
-                type_=ARRAY(Text()),
-            )
-            for level in (1, 2, 3, 4)
-        ),
     )
 )
 

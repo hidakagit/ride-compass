@@ -33,6 +33,7 @@ from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
+    TrafficStressRecipe,
     classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
@@ -119,6 +120,7 @@ class OpenRouteServiceEngine:
         wind_service: WindService,
         route_preference: RoutePreference,
         repository: RoadGraphRepository | None = None,
+        traffic_stress_recipe: TrafficStressRecipe | None = None,
     ):
         self._routing_service = routing_service
         self._elevation_service = elevation_service
@@ -127,6 +129,7 @@ class OpenRouteServiceEngine:
         # 路面評価の空間マッチ用（改善計画T21）。GraphService/ElevationAttributeServiceと同じ
         # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
         self._repository = repository
+        self._traffic_stress_recipe = traffic_stress_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float):
         return _NO_CONTEXT
@@ -323,7 +326,11 @@ class OpenRouteServiceEngine:
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
             highway, tags, is_designated = attr.highway, attr.tags, attr.is_designated
-            traffic_stress = traffic_stress_level(highway, tags, is_designated) if tags is not None else None
+            traffic_stress = (
+                traffic_stress_level(highway, tags, is_designated, self._traffic_stress_recipe)
+                if tags is not None
+                else None
+            )
             bicycle_infra = classify_bicycle_infrastructure(tags, highway) if tags is not None else None
             intersection_count = attr.intersection_count
             intersection_count_per_km = (
