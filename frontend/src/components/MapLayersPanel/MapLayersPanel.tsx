@@ -239,7 +239,7 @@ export default function MapLayersPanel({
   function renderOffHint(layerId: MapLayerId) {
     return (
       !layerVisibility[layerId] && (
-        <p className={styles.mutedHint}>表示はOFFです（絞り込みを操作すると自動でONになります）</p>
+        <p className={styles.mutedHint}>表示はOFFです[絞り込みを操作すると自動でONになります]</p>
       )
     );
   }
@@ -318,7 +318,7 @@ export default function MapLayersPanel({
         return (
           <>
             {!layerVisibility.road && (
-              <p className={styles.mutedHint}>表示はOFFです（絞り込みを操作すると自動でONになります）</p>
+              <p className={styles.mutedHint}>表示はOFFです[絞り込みを操作すると自動でONになります]</p>
             )}
             {layerVisibility.road && regionZoomTooWide && (
               <p className={styles.zoomWarning}>表示範囲が広すぎます。ズームインしてください。</p>

@@ -30,8 +30,8 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
     debugLog("api:route", `失敗 (HTTP ${response.status})`, { path, durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `リクエストに失敗しました（HTTP ${response.status}）`;
-    throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
+    const detail = formatErrorDetail(errorBody?.detail) ?? `リクエストに失敗しました[HTTP ${response.status}]`;
+    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
   }
 
   let data: T;

@@ -110,14 +110,14 @@ export default function WeightPanel({
       {overrideEnabled && (
         <div className={styles.groups}>
           <fieldset className={styles.group}>
-            <legend>おすすめ度の重み（候補一覧内の相対評価）</legend>
+            <legend>おすすめ度の重み[候補一覧内の相対評価]</legend>
             {SCORING_FIELDS.map((field) => (
               <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={onScoringWeightsChange} />
             ))}
           </fieldset>
 
           <fieldset className={styles.group}>
-            <legend>区間難易度の重み（絶対評価）</legend>
+            <legend>区間難易度の重み[絶対評価]</legend>
             {PREFERENCE_FIELDS.map((field) => (
               <WeightInput
                 key={String(field.key)}
@@ -127,7 +127,7 @@ export default function WeightPanel({
               />
             ))}
             {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
-            <p className={styles.note}>※ルート形状への反映は一部エンジン（road_graph）のみ</p>
+            <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
           </fieldset>
 
           <button

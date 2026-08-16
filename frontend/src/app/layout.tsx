@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "RideCompass",
-  description: "ロードバイク向け周回ルート生成アプリ（プロトタイプ）",
+  description: "ロードバイク向け周回ルート生成アプリ[プロトタイプ]",
 };
 
 // viewport meta（width=device-width）が無いと、スマホブラウザは既定の仮想ビューポート

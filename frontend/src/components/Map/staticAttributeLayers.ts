@@ -84,13 +84,13 @@ const TRAFFIC_STRESS_COLORS: Record<number, string> = {
 // フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
 // MapOverlayControls）に区切り線＋弱調表示させる。段階の意味そのものは1〜4のまま変えない。
 export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = [
-  { key: "1", label: "1（快適）", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", ["get", "traffic_stress"], 1] },
-  { key: "2", label: "2（やや快適）", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", ["get", "traffic_stress"], 2] },
-  { key: "3", label: "3（やや注意）", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", ["get", "traffic_stress"], 3] },
-  { key: "4", label: "4（ストレス大）", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", ["get", "traffic_stress"], 4] },
+  { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", ["get", "traffic_stress"], 1] },
+  { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", ["get", "traffic_stress"], 2] },
+  { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", ["get", "traffic_stress"], 3] },
+  { key: "4", label: "4[ストレス大]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", ["get", "traffic_stress"], 4] },
   {
     key: "unknown",
-    label: "不明・他（判定対象外の道路種別）",
+    label: "不明・他[判定対象外の道路種別]",
     color: COLOR_UNKNOWN,
     filter: ["!", ["has", "traffic_stress"]],
     isFallback: true,
@@ -117,7 +117,7 @@ export const TRAFFIC_STRESS_COLOR_EXPRESSION: unknown[] = [
 // backend/app/domain/traffic.py: classify_bicycle_infrastructureの列挙値と1:1対応
 // （separated/lane/shared_busway/shared_pedestrian/roadway/prohibited、算出不能はunknown）。
 //
-// shared_pedestrianのラベル「歩道（自転車通行可）」は、roadFilterAxes.tsの「道路の種類」軸
+// shared_pedestrianのラベル「歩道[自転車通行可]」は、roadFilterAxes.tsの「道路の種類」軸
 // にあるhighway分類グループ「自転車・歩行者道」（highway=cycleway/path/footway/pedestrian/
 // bridleway/steps）とは別概念（前者=自転車の通行条件、後者=道路種別タグ）だが、
 // 中黒の有無だけの表記だと紛らわしいため区別できる書き方にしてある（改善計画T62）。
@@ -129,8 +129,8 @@ const BICYCLE_INFRA_CATEGORIES: CategoryDef[] = [
   { key: "separated", label: "分離自転車道", color: "#16a34a" },
   { key: "lane", label: "自転車レーン", color: "#0d9488" },
   { key: "shared_busway", label: "バス専用道等の共用", color: "#d97706" },
-  { key: "shared_pedestrian", label: "歩道（自転車通行可）", color: "#0284c7" },
-  { key: "roadway", label: "車道（専用施設なし）", color: "#7c3aed" },
+  { key: "shared_pedestrian", label: "歩道[自転車通行可]", color: "#0284c7" },
+  { key: "roadway", label: "車道[専用施設なし]", color: "#7c3aed" },
   { key: "prohibited", label: "自転車通行不可", color: "#dc2626" },
 ];
 
@@ -151,12 +151,15 @@ export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = bicycleInfraDefs.colorE
 // （以前は単一値CASE式でemergency_transport側のみ出力され、凡例で「緊急輸送道路」を
 // 非表示にするとN12でもある区間が地図から完全に消えていた）。
 const DESIGNATION_CATEGORIES: CategoryDef[] = [
-  { key: "emergency_transport", label: "緊急輸送道路（N10）", color: "#b91c1c" },
-  { key: "critical_logistics", label: "重要物流道路（N12）", color: "#1d4ed8" },
-  // 改善計画: 全角括弧（）だと地図上の内訳パネル（幅が狭い）で見切れやすいという
-  // 実機報告（モバイル）を受け、半角[]へ変更（折り返し自体もCSS側で許可済み、
-  // MapOverlayControls.module.css: .detailRowLabel）。
-  { key: "both", label: "緊急輸送道路 かつ 重要物流道路[N10・N12]", color: "#7c3aed" },
+  { key: "emergency_transport", label: "緊急輸送道路[N10]", color: "#b91c1c" },
+  { key: "critical_logistics", label: "重要物流道路[N12]", color: "#1d4ed8" },
+  // 改善計画: 全角括弧（）は表示幅を取り地図表示エリアを圧迫するため半角[]へ統一
+  // （設計原則12、docs/complexity-review-2026-08-16.md）。地図上の内訳パネル（幅が狭い）で
+  // 見切れやすいという実機報告（モバイル）を機にT104で個別対応した後、システムUI全般の
+  // 方針として明文化された。「緊急輸送道路 かつ 重要物流道路」は共有語「道路」の重複表現を
+  // 割愛し「緊急輸送 かつ 重要物流道路」へ短縮（ユーザー指定の表記）。折り返し自体もCSS側で
+  // 許可済み（MapOverlayControls.module.css: .detailRowLabel）。
+  { key: "both", label: "緊急輸送 かつ 重要物流道路[N10＋N12]", color: "#7c3aed" },
 ];
 
 const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CATEGORIES, "対象外");

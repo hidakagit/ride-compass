@@ -85,8 +85,8 @@ export async function fetchTrafficStressBreakdown(osmWayId: number): Promise<Tra
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
     debugLog("api:traffic-stress-breakdown", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `交通ストレスの内訳取得に失敗しました（HTTP ${response.status}）`;
-    throw new Error(requestId ? `${detail}（req: ${requestId}）` : detail);
+    const detail = formatErrorDetail(errorBody?.detail) ?? `交通ストレスの内訳取得に失敗しました[HTTP ${response.status}]`;
+    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
   }
 
   const data: TrafficStressBreakdown | null = await response.json();
@@ -114,7 +114,7 @@ export async function refreshBasemapCache(): Promise<void> {
       response.ok ? "info" : "error",
     );
     if (!response.ok) {
-      throw new Error(`地図キャッシュの更新に失敗しました（HTTP ${response.status}）`);
+      throw new Error(`地図キャッシュの更新に失敗しました[HTTP ${response.status}]`);
     }
   } catch (error) {
     debugLog(

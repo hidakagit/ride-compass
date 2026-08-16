@@ -13,7 +13,7 @@ export default function ResearchPanel() {
   return (
     <label className={styles.label}>
       <input type="checkbox" checked={enabled} onChange={(e) => setResearchEnabled(e.target.checked)} />
-      研究モード（重み調整・実験スロット）
+      研究モード[重み調整・実験スロット]
     </label>
   );
 }

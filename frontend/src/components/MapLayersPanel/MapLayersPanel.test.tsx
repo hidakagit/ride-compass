@@ -127,9 +127,9 @@ describe("MapLayersPanel", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("designation");
 
-    expect(screen.getByText("緊急輸送道路（N10）")).toBeInTheDocument();
-    expect(screen.getByText("重要物流道路（N12）")).toBeInTheDocument();
-    expect(screen.getByText("緊急輸送道路 かつ 重要物流道路[N10・N12]")).toBeInTheDocument();
+    expect(screen.getByText("緊急輸送道路[N10]")).toBeInTheDocument();
+    expect(screen.getByText("重要物流道路[N12]")).toBeInTheDocument();
+    expect(screen.getByText("緊急輸送 かつ 重要物流道路[N10＋N12]")).toBeInTheDocument();
   });
 
   it("事故レイヤーのセクションに凡例（自転車関連/その他）が表示される", () => {
@@ -435,7 +435,7 @@ describe("MapLayersPanel", () => {
   it("交通ストレスの凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("trafficStress");
-    expect(screen.getByText(/4段階（1=快適〜4=ストレス大）/)).toBeInTheDocument();
+    expect(screen.getByText(/4段階\[1=快適〜4=ストレス大\]/)).toBeInTheDocument();
   });
 
   // 改善計画T89: 「ストレス1〜5評価基準が分かりにくい」という実機フィードバック対応。
@@ -454,7 +454,7 @@ describe("MapLayersPanel", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("trafficStress");
     const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
-    const fallbackLabel = within(section).getByText("不明・他（判定対象外の道路種別）");
+    const fallbackLabel = within(section).getByText("不明・他[判定対象外の道路種別]");
     const row = fallbackLabel.closest("label");
     expect(row?.className).toMatch(/legendCheckboxRowFallback/);
   });
@@ -481,7 +481,7 @@ describe("MapLayersPanel", () => {
     // OFF案内の文言は他レイヤーとも共通のため、セクション内に絞って確認する
     const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
     expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "1（快適）" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "1[快適]" })).toBeInTheDocument();
   });
 
   it("事故のセクションは当事者・重大度の2軸が別々の見出しで表示され、死亡事故だけの絞り込みができる", async () => {
