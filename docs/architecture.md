@@ -752,7 +752,9 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
 （`get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`get_way_tags`/`get_nearest_way_tags`、
 `get_intersection_counts`/`get_nearest_intersection_counts`）で提供し、`get_*`＝Edge集合を
 渡してEdge単位（RoadGraphEngine）、`get_nearest_*`＝サンプル点列を渡してKNN空間マッチ
-（OpenRouteServiceEngine）という対で揃えている。地図表示は同じ属性を`road-surface-tiles`
+（OpenRouteServiceEngine）という対で揃えている。`get_way_tags_by_osm_way_id`（T90、
+osm_way_id完全一致の1行取得）はこの対に属さない別系統で、区間別交通ストレス内訳API
+（`GET /api/region/traffic-stress-breakdown`）専用。地図表示は同じ属性を`road-surface-tiles`
 （highway・surface同様プロパティとして焼き込み。交通ストレス・自転車インフラ）と、点データの
 `poi-tiles`（停止要因・交差点密度、後述）で提供する。
 

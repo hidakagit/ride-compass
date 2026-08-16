@@ -32,6 +32,8 @@ class FakeRegionRepository:
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id):
         self.way_tags_by_osm_way_id_calls.append(osm_way_id)
+        if self._error is not None:
+            raise self._error
         return self.way_tags_by_osm_way_id_result
 
     async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
@@ -199,6 +201,15 @@ async def test_traffic_stress_breakdown_no_repository_returns_none():
     # DBなし構成（repository未注入）はNone（他のRegionServiceメソッドの
     # 「repository未注入時は機能自体が使えない」規約と同じ）
     service = RegionService()
+
+    assert await service.get_traffic_stress_breakdown(12345) is None
+
+
+async def test_traffic_stress_breakdown_db_error_returns_none():
+    # 改善計画T94（統合レビューF-2）: DB例外もget_road_surface_tile等と同じグレースフル
+    # デグレード方針（安全側のNone、例外を伝播させない）に揃えたことの回帰テスト。
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
 
     assert await service.get_traffic_stress_breakdown(12345) is None
 
