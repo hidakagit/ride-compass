@@ -13,33 +13,32 @@
   align-items: flex-start;
   /* 地図のドラッグ操作を妨げないよう、余白部分はイベントを透過させる */
   pointer-events: none;
-  /* サマリ行が地図を覆いすぎないよう最大幅を絞る（超過分は省略記号）。max-widthだけでは
+  /* チップ列が地図を覆いすぎないよう最大幅を絞る。max-widthだけでは
      align-items: flex-startの下で.chipRowの実際の幅が定まらず（widthがautoのまま）、
      子のwidth: 100%が正しいパーセンテージ基準を持てない（長い文字列がこの箱自体を
      押し広げてしまう）ため、widthも明示してこの箱の幅を確定させる。 */
   /* 右側3remはMapLibre既定のズームコントロール(top-right、ボタン29px+余白10px)の
-     専有幅ぶんを常に空けておく。ここを空けないと、幅の狭いスマホ画面でサマリ行が
+     専有幅ぶんを常に空けておく。ここを空けないと、幅の狭いスマホ画面でチップ列が
      ズームボタンの下に潜り込んで見た目・タップ判定とも重なる(実機フィードバック)。 */
   width: min(28rem, calc(100% - 2 * var(--space-3) - 3rem));
   max-width: 100%;
 }
 
-/* .wrapperのpointer-events: noneは、ここより下のchipRow/chipRowItemにも継承される
+/* .wrapperのpointer-events: noneは、ここより下のchipRow/iconWithToggleにも継承される
    （pointer-eventsは継承プロパティ）。以前は.wrapper > *（=chipRow）だけに
-   pointer-events: autoを戻していたが、それだとchipRow全体（行間のgap、サマリの無い
-   単独チップの右側の余白など、ボタンが実際には置かれていない領域も含む）がタッチを
+   pointer-events: autoを戻していたが、それだとchipRow全体（行間のgap、チップの無い
+   単独行の右側の余白など、ボタンが実際には置かれていない領域も含む）がタッチを
    捕まえてしまっていた。これらの隙間はtouch-actionが未指定（既定auto）のため、
    2本指ピンチの片方の指がここに乗るとブラウザがページ全体のネイティブズームに
    化ける（実機フィードバック「画面全体を拡大縮小してしまう」の原因）。
-   pointer-events: autoは実際に押せるボタン（.iconChip/.summaryButton）だけに
+   pointer-events: autoは実際に押せるボタン（.iconChip/.expandToggle）だけに
    局所化し、それ以外の隙間は地図キャンバス（touch-action: none）へタッチを
    素通しする。 */
 
 /* アイコンチップの縦並び。画面が低い（モバイル横向き等）場合に地図の下端を超えないよう
    縦スクロールで受ける。widthを明示しない場合、.wrapper側のalign-items: flex-startにより
-   このflexアイテムが内容量に合わせて伸びてしまい、長いサマリ文が.wrapperのmax-widthを
-   突き破って画面外まで見切れる不具合があったため、width: 100%で.wrapperの幅（≦max-width）
-   に固定し、子のsummaryButtonのellipsis（overflow: hidden）が正しく働くようにしている。 */
+   このflexアイテムが内容量に合わせて伸びてしまう不具合があったため、width: 100%で
+   .wrapperの幅（≦max-width）に固定している。 */
 .chipRow {
   display: flex;
   flex-direction: column;
@@ -53,24 +52,31 @@
   overflow-y: auto;
 }
 
-/* チップ1つ分の行。ON中で条件サマリがあるレイヤーは、チップの右にサマリ行を並べる
-   （以前は列の下にまとめて縦積みだったが、複数レイヤーがONのとき対応関係が分かりにくい
-   という実機フィードバックを受け、該当チップの横へ移した）。展開時の内訳パネルはチップより
-   丈が高くなりうるため、align-itemsをflex-startにしてパネルの上端をチップに揃える。 */
-.chipRowItem {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-}
-
-/* アイコンチップと▶トグルのペア。▶はこのチップ自身の開閉スイッチなので、内訳パネルとの
-   間隔（.chipRowItemのgap）より詰めて、見た目の対応関係を分かりやすくする
-   （実機フィードバック「▶をもう少しアイコン側に近づけて」）。 */
+/* アイコンチップと▶トグルのペア。1レイヤーぶんの行そのもの（chipRowの直接の子）。
+   ▶はこのチップ自身の開閉スイッチなので、間隔（gap）は詰めて見た目の対応関係を
+   分かりやすくする（実機フィードバック「▶をもう少しアイコン側に近づけて」）。
+   position: relativeは、内訳パネル（.detailPanel）をこの行を起点にposition: absolute
+   配置するためのアンカー。パネルがフローから外れることで、▶を開いても後続の行が
+   フロー上で押し下げられない（実機フィードバック「▶展開で以降のアイコンまでずれる」
+   への対応）。z-indexはauto（デフォルト0相当）だとDOM順で後の行が上に重なってしまうため、
+   展開中の行だけ.iconWithToggleExpandedでz-indexを上げ、パネルが後続の行の下に
+   隠れないようにする。 */
 .iconWithToggle {
+  position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   gap: var(--space-1);
   flex-shrink: 0;
+  /* .chipRow（縦方向flex）はalign-items既定値のstretchで、直接の子をchipRowの幅
+     いっぱいに広げる。それだと内訳パネルのleft: 100%がこの行の見た目の幅
+     （アイコン+▶ぶんの内容量）ではなく、引き伸ばされた行全体の右端を基準にしてしまい
+     画面外へ飛び出す。align-self: flex-startで内容量ぶんの幅に戻す。 */
+  align-self: flex-start;
+}
+
+.iconWithToggleExpanded {
+  z-index: 1;
 }
 
 /* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
@@ -83,7 +89,7 @@
   justify-content: center;
   gap: 0.15rem;
   /* 幅は固定せず内容に合わせて伸ばす（「自転車インフラ」等の長いラベルが折り返して
-     二段になり読みにくいという実機フィードバックを受け、1行固定に変更。短いラベルの
+     二段になり読みにくいという実機フィードバックを受けて、1行固定に変更。短いラベルの
      ボタンまで一律に広げないようmin-widthのみ揃える）。 */
   min-width: 3.2rem;
   width: max-content;
@@ -102,7 +108,7 @@
      ブラウザがタッチ開始点ごとにtouch-actionを見て地図ジェスチャーとして確定できず、
      ピンチズームが反応しない/ページの既定ズームに化けることがある（実機フィードバック調査）。 */
   touch-action: none;
-  /* 親の.chipRow/.chipRowItemはpointer-events: none（.wrapperから継承）のため、
+  /* 親の.chipRow/.iconWithToggleはpointer-events: none（.wrapperから継承）のため、
      実際に押せるこのボタン自身にだけpointer-events: autoを戻す。 */
   pointer-events: auto;
 }
@@ -124,8 +130,8 @@
   white-space: nowrap;
 }
 
-/* チップ横の▶。既定では条件サマリを隠しておき、押した時だけ.summaryButtonを出す
-   トグル（実機フィードバック「絞り込み条件が常時横に出てくると見にくい」への対応）。
+/* チップ横の▶。既定では凡例を隠しておき、押した時だけ.detailPanelを出すトグル
+   （実機フィードバック「絞り込み条件が常時横に出てくると見にくい」への対応）。
    矢印の向きだけで開閉を示す小さいボタンにし、チップ本体より存在感を抑える。 */
 .expandToggle {
   display: flex;
@@ -160,17 +166,18 @@
   transform: rotate(90deg);
 }
 
-/* ▶を開いたときの内訳パネル本体。地図を覆いすぎないよう不透明な面色ではなく
-   半透明+ぼかしにして「薄く」見せる（実機フィードバック「常時横に出てくると見にくい」
-   「押したときだけ薄く出るように」を受けて、既定非表示に加えて見た目も背景の地図を
-   邪魔しない軽さにした）。1行要約（.summaryButton）と全カテゴリ内訳（.detailBody）を
-   1枚のカードにまとめる。 */
+/* ▶を開いたときの内訳パネル本体。.iconWithToggleを起点にposition: absoluteで右へ
+   張り出す（chipRowの縦のフローから外れるため、開いても後続行の位置に影響しない）。
+   地図を覆いすぎないよう不透明な面色ではなく半透明+ぼかしにして「薄く」見せる
+   （実機フィードバック「常時横に出てくると見にくい」「押したときだけ薄く出るように」）。 */
 .detailPanel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: var(--space-2);
+  /* アイコン列の左端(--space-3)・ギャップ・アイコン幅ぶんを差し引いた残りの横幅に
+     収まる範囲で、読みやすい最大幅までに留める。 */
+  width: min(18rem, calc(100vw - 9rem));
   padding: 0.5rem 0.7rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
@@ -185,102 +192,21 @@
   pointer-events: auto;
 }
 
-/* ONのレイヤーに効いている条件の1行サマリ。タップでサイドバーの該当設定へ移動する。
-   カードの見た目（背景・枠・影）は親の.detailPanel側が持つため、ここは中身のレイアウトのみ。 */
-.summaryButton {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--foreground);
+/* legendDetailsが無いとき（描く凡例が無い）だけの案内文（例:「ズームインすると
+   表示されます」）。legendDetailsがあるときはこちらを使わない（レイヤー名や絞り込みの
+   1行要約は、▶を押した本人には自明な情報の繰り返しになるという実機フィードバックを
+   受けて廃止した）。 */
+.detailNotice {
+  margin: 0;
   font-size: var(--font-size-sm);
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
+  color: var(--foreground);
 }
 
-.summaryLayerLabel {
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-/* 絞り込みの対象カテゴリを表す色ドット/太さバー（summarySwatches）の並び。
-   「文字だけでは何が絞られているか一目で分からない」という実機フィードバックを受けて、
-   地図上の色・太さとすぐ対応が取れるよう要約文の前に添える。 */
-.summarySwatches {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  flex-shrink: 0;
-}
-
-.swatch {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-/* 除外側（「◯◯以外」）のカテゴリは、地図に実際に出ている表示中側の色と見分けられるよう
-   薄く見せる（除外＝地図から消えている、が伝わるように）。 */
-.swatchExcluded {
-  opacity: 0.4;
-}
-
-.swatchDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-/* 太さ・線種（line-width/line-dasharray）で地図に反映するカテゴリ（道路の種類等）の
-   スウォッチ。色スウォッチのままだと「この色が地図に出る」という誤った期待を持たせて
-   しまうため（MapLayersPanel/WidthSwatch.tsxと同じ理由）、太さを表す横バーにする。 */
-.swatchBar {
-  width: 10px;
-  border-radius: 1px;
-  background: var(--color-muted-strong);
-  flex-shrink: 0;
-}
-
-.swatchBarDashed {
-  background-image: repeating-linear-gradient(
-    to right,
-    var(--color-muted-strong) 0,
-    var(--color-muted-strong) 2px,
-    transparent 2px,
-    transparent 4px
-  );
-}
-
-/* 要約文の本体だけを省略記号で切る（スウォッチ・ラベル・矢印は常に全部見せる）。
-   summaryButton側で一括して切っていた頃はflexアイテム構成が変わるたびに挙動が
-   不安定だったため、切りたい対象（この文言だけ）に直接ellipsisを持たせる。 */
-.summaryText {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.summaryArrow {
-  color: var(--color-neutral);
-  flex-shrink: 0;
-}
-
-/* 1行要約だけでは「何が起きているか」が分からないという実機フィードバックを受けて追加した、
-   軸ごとの全カテゴリ内訳（表示中/非表示のいずれも並べる）。1行要約の下にまとめて置く。 */
+/* 軸ごとの全カテゴリ内訳（表示中/非表示のいずれも並べる）。 */
 .detailBody {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  border-top: 1px solid var(--color-border-strong);
-  padding-top: var(--space-2);
 }
 
 .detailAxis {

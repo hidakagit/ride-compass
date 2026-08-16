@@ -52,37 +52,27 @@ export interface LegendFilterSummaryAxis {
   hiddenKeys: readonly string[];
 }
 
-/** 要約文の1軸分。個別カテゴリを名指しできた場合のみswatchesを持つ（3件以上の
- * フォールバック文言や「すべて非表示」では、どのカテゴリの色かを一目で示せないためnull）。 */
-export interface LegendFilterSummaryPart {
-  text: string;
-  /** entriesが「表示中」の一覧ならfalse、「除外」の一覧ならtrue
-   * （地図上のスウォッチ表示で、除外側は薄く見せて区別するために使う）。 */
-  excluded: boolean;
-  entries: readonly LegendEntry[] | null;
-}
-
 // 軸ごとに「表示中カテゴリを列挙」と「除外カテゴリを列挙」の短い方を選び、どちらも
 // 3件以上になる場合は軸名によるフォールバック（「◯◯を絞り込み中」）へ落とす。
 // 詳細な内訳はサイドバー（MapLayersPanel）の凡例・絞り込み編集で確認できるため、
 // ここでは「何かに絞られている」ことが一目で分かる簡潔さを優先する。
 // レイヤー固有の語彙を持たない（LegendEntryだけに依存する）ので、将来の凡例付き
 // レイヤー（交通ストレス等）でもそのまま使える。
-function summarizeLegendFilterParts(axes: readonly LegendFilterSummaryAxis[]): LegendFilterSummaryPart[] {
-  const parts: LegendFilterSummaryPart[] = [];
+function summarizeLegendFilterParts(axes: readonly LegendFilterSummaryAxis[]): string[] {
+  const parts: string[] = [];
   for (const axis of axes) {
     const hidden = axis.legend.filter((entry) => axis.hiddenKeys.includes(entry.key));
     if (hidden.length === 0) continue;
     const visible = axis.legend.filter((entry) => !axis.hiddenKeys.includes(entry.key));
     if (visible.length === 0) {
       // 全カテゴリ非表示は「何も出ない」状態なので、そのことが分かる文言にする
-      parts.push({ text: `${axis.label}をすべて非表示`, excluded: true, entries: null });
+      parts.push(`${axis.label}をすべて非表示`);
     } else if (visible.length <= 2) {
-      parts.push({ text: `${visible.map((entry) => entry.label).join("・")}のみ`, excluded: false, entries: visible });
+      parts.push(`${visible.map((entry) => entry.label).join("・")}のみ`);
     } else if (hidden.length <= 2) {
-      parts.push({ text: `${hidden.map((entry) => entry.label).join("・")}以外`, excluded: true, entries: hidden });
+      parts.push(`${hidden.map((entry) => entry.label).join("・")}以外`);
     } else {
-      parts.push({ text: `${axis.label}を絞り込み中`, excluded: false, entries: null });
+      parts.push(`${axis.label}を絞り込み中`);
     }
   }
   return parts;
@@ -90,16 +80,6 @@ function summarizeLegendFilterParts(axes: readonly LegendFilterSummaryAxis[]): L
 
 // 適用中の絞り込みを地図上に1行で示すための要約文を作る（絞り込み無しならnull）。
 export function summarizeLegendFilters(axes: readonly LegendFilterSummaryAxis[]): string | null {
-  const parts = summarizeLegendFilterParts(axes).map((part) => part.text);
+  const parts = summarizeLegendFilterParts(axes);
   return parts.length > 0 ? parts.join("／") : null;
-}
-
-// summarizeLegendFiltersと同じ絞り込みから、要約文の横に添える色スウォッチ用の内訳を作る
-// （個別カテゴリを名指しできた軸ぶんのみ。フォールバック文言の軸は寄与しない）。
-export function summarizeLegendFilterSwatches(
-  axes: readonly LegendFilterSummaryAxis[]
-): readonly { excluded: boolean; entries: readonly LegendEntry[] }[] {
-  return summarizeLegendFilterParts(axes)
-    .filter((part): part is LegendFilterSummaryPart & { entries: readonly LegendEntry[] } => part.entries !== null)
-    .map(({ excluded, entries }) => ({ excluded, entries }));
 }

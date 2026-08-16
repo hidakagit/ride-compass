@@ -12,17 +12,8 @@ import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverl
 import { LogIcon, StatusIcon } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
-import {
-  MAP_LAYERS,
-  layerSectionDomId,
-  type MapLayerId,
-  type MapLayerVisibility,
-} from "@/components/Map/mapLayers";
-import {
-  summarizeLegendFilters,
-  summarizeLegendFilterSwatches,
-  type LegendFilterSummaryAxis,
-} from "@/components/Map/legendFilter";
+import { MAP_LAYERS, type MapLayerId, type MapLayerVisibility } from "@/components/Map/mapLayers";
+import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
@@ -334,21 +325,6 @@ export default function Home() {
     [roadHiddenKeysByMode],
   );
   const roadSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadFilterSummary;
-  // サマリ文言の先頭に添える色スウォッチ。ズーム不足の案内文には対応するカテゴリが無いため
-  // 常にnull（roadSummaryがそのメッセージのときはこちらも無視される）。
-  const roadSummarySwatches = useMemo(
-    () =>
-      regionZoomTooWide
-        ? []
-        : summarizeLegendFilterSwatches(
-            ROAD_FILTER_AXES.map((axis) => ({
-              label: axis.label,
-              legend: axis.legend,
-              hiddenKeys: roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-            })),
-          ),
-    [regionZoomTooWide, roadHiddenKeysByMode],
-  );
   // ▶を開いたときの内訳パネル（1行要約だけでは何が起きているか分からないという
   // 実機フィードバックへの対応）用に、軸ごとの全カテゴリ（表示中/非表示問わず）を渡す。
   // ズーム不足で絞り込み自体が無意味なときは空にし、案内文（roadSummary）だけを見せる。
@@ -376,15 +352,14 @@ export default function Home() {
   );
 
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
-  // （summarizeLegendFilters/summarizeLegendFilterSwatches）でチップ下に適用中の絞り込みを
-  // 表示する。レイヤーごとに保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
+  // （summarizeLegendFilters）でチップ下に適用中の絞り込みを表示する。レイヤーごとに
+  // 保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
   const staticFilterSummaries = useMemo(() => {
     const result: Partial<
       Record<
         MapLayerId,
         {
           summary: string | null;
-          swatches: ReturnType<typeof summarizeLegendFilterSwatches>;
           legendDetails: LegendFilterSummaryAxis[];
         }
       >
@@ -398,7 +373,6 @@ export default function Home() {
       }));
       result[layerId] = {
         summary: summarizeLegendFilters(axes),
-        swatches: summarizeLegendFilterSwatches(axes),
         legendDetails: axes,
       };
     }
@@ -406,7 +380,7 @@ export default function Home() {
   }, [staticLegendHiddenKeysByAxis]);
 
   // 地図上のチップ行はレイヤーカタログ（MAP_LAYERS）から組み立てる。レイヤーを追加したら
-  // summaryの対応をここへ1行足すだけでよい（チップ・サマリ行の描画は汎用）。
+  // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(
     () =>
       MAP_LAYERS.map((layer) => {
@@ -417,8 +391,6 @@ export default function Home() {
             : layer.id === "route"
               ? routeSummary
               : (staticFilterSummaries[layer.id]?.summary ?? null);
-        const summarySwatches =
-          layer.id === "road" ? roadSummarySwatches : staticFilterSummaries[layer.id]?.swatches;
         const legendDetails =
           layer.id === "road"
             ? roadLegendDetails
@@ -433,7 +405,6 @@ export default function Home() {
           disabled,
           title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}（設定はサイドバー）`,
           summary,
-          summarySwatches,
           legendDetails,
         };
       }),
@@ -442,41 +413,15 @@ export default function Home() {
       layerVisibility,
       roadLegendDetails,
       roadSummary,
-      roadSummarySwatches,
       routeLegendDetails,
       routeSummary,
       staticFilterSummaries,
     ],
   );
 
-  // 地図上の条件サマリのタップで、「地図の見え方」設定（デスクトップはサイドバー、
-  // モバイルは下部シート）を開いて該当レイヤーの設定セクションへ誘導する。閉じていると
-  // 中身が未マウントのため、開いた後の再レンダーを待ってから（次フレームで）
-  // 対象セクションを展開・スクロール・フォーカスする。
-  const handleLayerSummaryClick = useCallback(
-    (id: MapLayerId) => {
-      if (isMobile) {
-        setMobileSheet("map");
-      } else {
-        setSidebarCollapsed(false);
-      }
-      requestAnimationFrame(() => {
-        const sectionId = layerSectionDomId(id);
-        const section = document.getElementById(sectionId);
-        // レイヤーごとの設定は折りたたみ（<details>、モバイル実機フィードバック対応T38）の
-        // ためデフォルト閉。誘導先が閉じたままではスクロールしても中身が見えないため開く。
-        if (section instanceof HTMLDetailsElement) section.open = true;
-        const heading = document.getElementById(`${sectionId}-title`);
-        heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-        heading?.focus?.({ preventScroll: true });
-      });
-    },
-    [isMobile],
-  );
-
   // 「地図の見え方」内のルート未生成案内から「ルートを作る」へ誘導する。デスクトップは
   // 該当ブロックを開き、モバイルは「ルートを作る」シートを開く。開いた後の再レンダーを
-  // 待ってから（次フレームで）スクロール・フォーカスする（handleLayerSummaryClickと同じ手法）。
+  // 待ってから（次フレームで）スクロール・フォーカスする。
   const handleGoToGenerate = useCallback(() => {
     if (isMobile) {
       setMobileSheet("route");
@@ -818,7 +763,7 @@ export default function Home() {
             experimentSlots={researchEnabled ? experimentSlots : []}
           />
 
-          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} onSummaryClick={handleLayerSummaryClick} />
+          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 
           <button
             type="button"

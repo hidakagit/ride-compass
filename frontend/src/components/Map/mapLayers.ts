@@ -116,7 +116,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
-/** サイドバーの各レイヤー設定セクションのDOM id（地図上の条件サマリからのスクロール先） */
+/** サイドバーの各レイヤー設定セクション（<details>）のDOM id */
 export function layerSectionDomId(id: MapLayerId): string {
   return `map-layer-section-${id}`;
 }
