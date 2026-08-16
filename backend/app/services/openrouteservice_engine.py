@@ -208,6 +208,12 @@ class OpenRouteServiceEngine:
         elevations_per_candidate = [profile.pop("elevations") for profile in profiles]
         candidates = [c.model_copy(update=profile) for c, profile in zip(candidates, profiles)]
 
+        # 候補（方位）ごとにget_wind_profileを並列実行すると、各候補が独立にOpen-Meteoへ
+        # 1リクエストずつ投げるため候補数ぶん（最大8本）がほぼ同時に発火してしまう
+        # （本番Renderの共有送信元IPで429が常態化する一因、weather_client.py参照）。
+        # gatherの前に全候補分の点をまとめて1回先読みしキャッシュを温めておくことで、
+        # 後続の候補ごとの呼び出しをキャッシュヒットさせHTTP発生を実質1回に減らす。
+        await self._wind_service.prefetch(points_per_candidate)
         wind_profiles = await asyncio.gather(
             *(self._wind_service.get_wind_profile(points, start_time) for points in points_per_candidate)
         )

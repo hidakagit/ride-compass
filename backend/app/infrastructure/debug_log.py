@@ -16,6 +16,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 logger = logging.getLogger("ridecompass.external")
 
@@ -33,6 +34,20 @@ _stats: dict[str, dict[str, int]] = {}
 _rejections: dict[str, int] = {}
 # category -> [window_start(monotonic), emitted_count, suppressed_count]
 _warn_windows: dict[str, list[float]] = {}
+
+
+def error_type_label(exc: BaseException) -> str:
+    """例外を`/api/debug/stats`へ出しても安全な粗いラベルへ変換する。
+
+    例外メッセージ・URL（クエリパラメータに座標が乗りうる）は含めず、クラス名と
+    （httpxのHTTPStatusErrorなら）HTTPステータスコードのみを使う。呼び出し元は
+    `fields["error"] = repr(exc)`（WARNINGログ用の詳細）と併せて
+    `fields["error_type"] = error_type_label(exc)`（集計用の粗いラベル）を設定する。
+    """
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code is not None:
+        return f"http_{status_code}"
+    return type(exc).__name__
 
 
 def _round_floats(value: object) -> object:
@@ -75,16 +90,48 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
     with _lock:
         stats = _stats.setdefault(
             category,
-            {"calls": 0, "errors": 0, "cache_hits": 0, "cache_misses": 0, "total_ms": 0, "max_ms": 0},
+            {
+                "calls": 0,
+                "errors": 0,
+                "cache_hits": 0,
+                "cache_misses": 0,
+                "total_ms": 0,
+                "max_ms": 0,
+                # 以下は「失敗の主な理由を推測する」ための追加集計（改善計画T92夜間502調査）。
+                "error_types": {},
+                "last_error_type": None,
+                "last_error_at": None,
+                "last_success_at": None,
+                "retried_calls": 0,
+                "retry_attempts_total": 0,
+                "stale_fallback_used": 0,
+            },
         )
         stats["calls"] += 1
+        now_iso = datetime.now(UTC).isoformat()
         if error:
             stats["errors"] += 1
+            error_type = fields.get("error_type") or "unknown"
+            stats["error_types"][error_type] = stats["error_types"].get(error_type, 0) + 1
+            stats["last_error_type"] = error_type
+            stats["last_error_at"] = now_iso
+        else:
+            stats["last_success_at"] = now_iso
         cache = fields.get("cache")
         if cache == "hit":
             stats["cache_hits"] += 1
         elif cache == "miss":
             stats["cache_misses"] += 1
+        # 429/ConnectTimeout等で再試行が発生した回数（最終的に成功した呼び出しも含む）。
+        # 「まだ成功はしているが上流が混み始めている」兆候を502化する前に把握できる。
+        retries = fields.get("retries")
+        if retries:
+            stats["retried_calls"] += 1
+            stats["retry_attempts_total"] += retries
+        # weather_client.pyのSTALE_FALLBACK的な「取得失敗時に古いキャッシュで代用した」回数。
+        fallback = fields.get("fallback")
+        if isinstance(fallback, str) and fallback.startswith("stale_cache"):
+            stats["stale_fallback_used"] += 1
         stats["total_ms"] += elapsed_ms
         stats["max_ms"] = max(stats["max_ms"], elapsed_ms)
 
@@ -117,6 +164,7 @@ def get_stats() -> dict:
         external = {}
         for category, stats in sorted(_stats.items()):
             entry: dict[str, object] = dict(stats)
+            entry["error_types"] = dict(stats["error_types"])
             entry["avg_ms"] = round(stats["total_ms"] / stats["calls"]) if stats["calls"] else 0
             lookups = stats["cache_hits"] + stats["cache_misses"]
             entry["cache_hit_rate"] = round(stats["cache_hits"] / lookups, 3) if lookups else None
@@ -147,6 +195,10 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
         yield fields
     except Exception as exc:
         elapsed_ms = round((time.monotonic() - started) * 1000)
+        # 呼び出し元が自前でfields["error_type"]を設定済み（例外を握りつぶしてNoneを返す
+        # 系のクライアント）ならそれを優先する。ここまで伝播してきた例外（RoutingError等）は
+        # ここで初めて分類する。
+        fields.setdefault("error_type", error_type_label(exc))
         _record(category, elapsed_ms, fields, error=True)
         _throttled_warning(
             category, "[%s] error after %dms %s error=%r", category, elapsed_ms, _round_floats(fields), exc

@@ -27,6 +27,17 @@ class WeatherService:
             return None
         return self._conditions_from_data(data, at)
 
+    async def prefetch(self, points: list[Coordinates]) -> None:
+        """複数地点の予報をまとめて1回のOpen-Meteo呼び出しでキャッシュへ先読みする（結果は使わない）。
+
+        WindServiceが候補（方位）ごとに`get_conditions_many`を並列呼び出しすると、
+        候補数ぶん（最大8本）のOpen-Meteoリクエストがほぼ同時に発火してしまう
+        （本番のOpen-Meteo 429常態化の一因）。呼び出し元が候補間で点を合流させてこれを
+        先に呼んでおけば、`get_forecast_many`のTTLキャッシュが温まり、後続の候補ごとの
+        呼び出しはキャッシュヒットしてHTTPを発生させない。
+        """
+        await self._client.get_forecast_many(self._http_client, points)
+
     async def get_conditions_many(
         self, points: list[Coordinates], times: list[datetime | None]
     ) -> list[WeatherConditions | None]:

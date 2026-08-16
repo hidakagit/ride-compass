@@ -3,7 +3,7 @@ import asyncio
 import httpx
 
 from app.infrastructure import tile_cache
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import error_type_label, log_external_call
 
 UPSTREAM_HOST = "https://tiles.openfreemap.org"
 
@@ -40,6 +40,7 @@ class BasemapClient:
             except httpx.HTTPError as exc:
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
+                fields["error_type"] = error_type_label(exc)
                 return None
 
             fields["result"] = "ok"

@@ -6,11 +6,13 @@ docs/logging.mdの方針のうち「失敗はdebug_modeに関わらずWARNINGで
 
 import logging
 
+import httpx
 import pytest
 
 from app.infrastructure import debug_log
 from app.infrastructure.debug_log import (
     WARN_BURST_PER_WINDOW,
+    error_type_label,
     get_stats,
     log_external_call,
     record_rate_limit_rejection,
@@ -119,6 +121,86 @@ def test_rate_limit_rejection_counted_and_warned(caplog):
     assert get_stats()["rate_limit_rejections"]["generate"] == 2
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("ratelimit:generate" in m and "203.0.113.5" in m for m in warnings)
+
+
+def test_error_type_label_uses_http_status_for_httpx_status_error():
+    request = httpx.Request("GET", "https://api.open-meteo.com/v1/forecast?latitude=35.6812&longitude=139.7671")
+    response = httpx.Response(429, request=request)
+    exc = httpx.HTTPStatusError("Too Many Requests", request=request, response=response)
+
+    label = error_type_label(exc)
+
+    assert label == "http_429"
+    # クエリパラメータ(座標)がラベルに含まれないこと(/api/debug/statsへ露出するため)
+    assert "35.6812" not in label
+    assert "139.7671" not in label
+
+
+def test_error_type_label_uses_class_name_for_non_http_status_errors():
+    assert error_type_label(httpx.ConnectTimeout("timed out")) == "ConnectTimeout"
+    assert error_type_label(ValueError("bad json")) == "ValueError"
+
+
+def test_error_types_are_tallied_with_last_error_type_and_timestamp():
+    with log_external_call("test:api") as fields:
+        fields["result"] = "error"
+        fields["error_type"] = "http_429"
+    with log_external_call("test:api") as fields:
+        fields["result"] = "error"
+        fields["error_type"] = "http_429"
+    with log_external_call("test:api") as fields:
+        fields["result"] = "error"
+        fields["error_type"] = "ConnectTimeout"
+
+    stats = get_stats()["external"]["test:api"]
+    assert stats["error_types"] == {"http_429": 2, "ConnectTimeout": 1}
+    assert stats["last_error_type"] == "ConnectTimeout"
+    assert stats["last_error_at"] is not None
+
+
+def test_error_without_explicit_error_type_falls_back_to_exception_class_name():
+    with pytest.raises(ValueError):
+        with log_external_call("test:api"):
+            raise ValueError("boom")
+
+    stats = get_stats()["external"]["test:api"]
+    assert stats["error_types"] == {"ValueError": 1}
+    assert stats["last_error_type"] == "ValueError"
+
+
+def test_last_success_at_is_set_and_left_alone_by_errors():
+    with log_external_call("test:api") as fields:
+        fields["result"] = "ok"
+
+    stats = get_stats()["external"]["test:api"]
+    assert stats["last_success_at"] is not None
+    assert stats["last_error_at"] is None
+
+
+def test_retried_calls_are_tallied_even_when_call_eventually_succeeds():
+    with log_external_call("test:api") as fields:
+        fields["retries"] = 2
+        fields["result"] = "ok"
+    with log_external_call("test:api") as fields:
+        fields["result"] = "ok"
+
+    stats = get_stats()["external"]["test:api"]
+    assert stats["retried_calls"] == 1
+    assert stats["retry_attempts_total"] == 2
+
+
+def test_stale_fallback_used_is_tallied():
+    with log_external_call("test:api") as fields:
+        fields["result"] = "error"
+        fields["error_type"] = "ConnectTimeout"
+        fields["fallback"] = "stale_cache"
+    with log_external_call("test:api") as fields:
+        fields["result"] = "error"
+        fields["error_type"] = "ConnectTimeout"
+        fields["fallback"] = "stale_cache:3"
+
+    stats = get_stats()["external"]["test:api"]
+    assert stats["stale_fallback_used"] == 2
 
 
 def test_reset_stats():

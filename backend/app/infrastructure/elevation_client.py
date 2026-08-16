@@ -2,7 +2,7 @@ import httpx
 
 from app.domain.route import Coordinates
 from app.infrastructure import cache_db
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import error_type_label, log_external_call
 
 GSI_ELEVATION_URL = "https://cyberjapandata2.gsi.go.jp/general/dem/scripts/getelevation.php"
 
@@ -52,6 +52,7 @@ class ElevationClient:
         except (httpx.HTTPError, ValueError) as exc:
             fields["result"] = "error"
             fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
             return None
 
         elevation = data.get("elevation")

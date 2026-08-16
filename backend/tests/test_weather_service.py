@@ -27,11 +27,13 @@ SAMPLE_DATA = {
 class FakeWeatherClient:
     def __init__(self, data):
         self._data = data
+        self.get_forecast_many_calls: list[list[Coordinates]] = []
 
     async def get_forecast(self, http_client, point):
         return self._data
 
     async def get_forecast_many(self, http_client, points):
+        self.get_forecast_many_calls.append(points)
         return {WeatherClient.cache_key(point): self._data for point in points}
 
     cache_key = staticmethod(WeatherClient.cache_key)
@@ -90,6 +92,15 @@ async def test_get_conditions_many_returns_conditions_per_point():
     assert len(results) == 2
     assert results[0].observed_at == "2026-08-13T21:15"
     assert results[1].observed_at == "2026-08-13T22:00"
+
+
+async def test_prefetch_delegates_to_client_get_forecast_many():
+    client = FakeWeatherClient(SAMPLE_DATA)
+    service = WeatherService(client, http_client=None)
+
+    await service.prefetch([POINT, OTHER_POINT])
+
+    assert client.get_forecast_many_calls == [[POINT, OTHER_POINT]]
 
 
 async def test_get_conditions_many_returns_none_for_points_without_forecast():

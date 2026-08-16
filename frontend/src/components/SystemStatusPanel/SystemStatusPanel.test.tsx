@@ -25,6 +25,13 @@ const BACKEND_STATS: DebugStats = {
       max_ms: 200,
       avg_ms: 50,
       cache_hit_rate: 0.8,
+      error_types: { http_429: 1 },
+      last_error_type: "http_429",
+      last_error_at: "2026-08-16T10:05:00+00:00",
+      last_success_at: "2026-08-16T10:06:00+00:00",
+      retried_calls: 1,
+      retry_attempts_total: 2,
+      stale_fallback_used: 0,
     },
   },
   rate_limit_rejections: { "routes:generate": 2 },
@@ -50,6 +57,18 @@ describe("SystemStatusPanel", () => {
     expect(screen.getByText("def5678")).toBeInTheDocument();
     expect(screen.getByText("weather:open-meteo")).toBeInTheDocument();
     expect(screen.getByText(/429拒否: routes:generate 2件/)).toBeInTheDocument();
+  });
+
+  it("失敗の主な理由（最終失敗の種類・時刻・内訳）を表示する", async () => {
+    mockedGetDebugStats.mockResolvedValue(BACKEND_STATS);
+    mockedGetFrontendVersion.mockResolvedValue(FRONTEND_VERSION);
+
+    render(<SystemStatusPanel open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText(/http_429/)).toBeInTheDocument());
+    const errorCell = screen.getByText("1", { selector: "td" });
+    expect(errorCell).toHaveAttribute("title", expect.stringContaining("http_429:1"));
+    expect(errorCell.getAttribute("title")).toContain("再試行あり 1件(延べ2回)");
   });
 
   it("取得失敗時はエラーメッセージを表示する", async () => {

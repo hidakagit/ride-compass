@@ -20,6 +20,16 @@ class WindService:
     def __init__(self, weather_service: WeatherService):
         self._weather_service = weather_service
 
+    async def prefetch(self, points_per_candidate: list[list[Coordinates]]) -> None:
+        """複数候補（方位）ぶんのサンプル点をまとめ、Open-Meteoへの呼び出しを1回に集約して
+        先読みする。呼び出し元（エンジン）が候補ごとに`get_wind_profile`を`asyncio.gather`で
+        並列実行する前にこれを呼んでおくことで、候補数ぶん（最大8本）同時発火していた
+        リクエストを実質1本にまとめられる（本番のOpen-Meteo 429常態化への対策）。
+        """
+        all_points = [point for points in points_per_candidate for point in points]
+        if all_points:
+            await self._weather_service.prefetch(all_points)
+
     async def get_wind_profile(self, points: list[Coordinates], start_time: datetime) -> dict:
         if len(points) < 2:
             return {"wind_score": None, "segments": []}
