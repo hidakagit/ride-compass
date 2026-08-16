@@ -1280,7 +1280,7 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
 - 完了条件: test_road_graph_repository.pyの整合性テスト（Python実装との同値性）が無変更でgreen。
   MVT出力のdesignationプロパティが書き換え前後で一致。
 
-### - [ ] T66. save_graphのdelete-then-reinsertでdesignation_attributesが黙って消える問題の対策 規模M
+### - [x] T66. save_graphのdelete-then-reinsertでdesignation_attributesが黙って消える問題の対策 規模M（2026-08-16完了）
 
 - `save_graph(way_ids_to_replace=...)`は既存Edge行をDELETE→再INSERTするため、
   `ON DELETE CASCADE`の`designation_attributes`が巻き添えで消える。elevation_attributesは
@@ -1299,6 +1299,16 @@ KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健
 - 完了条件: 「取込済みdesignationを持つEdgeが再splitされても、分割結果が同一なら
   designation_attributes行が残る」ことを検証する統合テストを追加しgreen。
   docs（T51節またはdecisions/）へ「match_designations.pyの再実行が必要になる条件」を明文化。
+- **実装結果（2026-08-16、案aを採用）**: `save_graph`のedge_rows計算をDELETEより前へ移動し、
+  「今回のgraphに同じedge_idで含まれる行」をDELETE対象から`edge_id.not_in(new_edge_ids)`で
+  除外するよう変更（`_bulk_upsert`のON CONFLICT DO UPDATEが効くため、除外した行は
+  INSERT→CASCADE発火ではなくUPDATEで更新され、designation_attributes等のEdge派生属性が残る）。
+  new_edge_idsが空（対象way群がEdgeを1件も生成しなかった）場合は従来どおり全削除。
+  回帰テスト2件を追加: ①同一分割結果（同じedge_id）での再saveでdesignation_attributesが
+  残ることを確認、②実際にsegment構成が変わりedge_idが消える再split（node6の交差点扱いが
+  無くなり2segment→1segmentへ統合）では、CASCADEどおり古いedge_idの行が正しく消えることを確認
+  （新edge_idは`match_designations.py`の再実行が必要という既存の運用のまま）。
+  backend 654件（新規2件）green。docsへの運用条件明文化は本節自体が該当箇所とする
 
 ### - [x] T67. match_designations.pyのINSERTをexecutemany化 規模S（2026-08-16完了）
 

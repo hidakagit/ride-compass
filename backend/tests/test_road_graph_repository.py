@@ -780,6 +780,66 @@ async def _insert_designation_attribute(session, edge_id: str, kind: str, matche
     )
 
 
+async def test_save_graph_preserves_designation_attributes_when_resplit_is_identical(
+    road_graph_repository, road_graph_session
+):
+    """改善計画T66の回帰テスト: way_ids_to_replace指定時のsave_graphは、以前は
+    対象way群のEdgeを無条件に全DELETE→再INSERTしており、分割結果が前回と変わらない
+    （edge_idが同一の）ケースでも`ON DELETE CASCADE`のdesignation_attributesが
+    巻き添えで消えていた。edge_idが変わらない再saveでは属性行が残ることを確認する。
+    """
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+    edge_id = next(iter(graph.edges))
+
+    await _insert_designation_attribute(road_graph_session, edge_id, "emergency_transport")
+    await road_graph_session.commit()
+
+    # 同じWay・同じノード座標で再取得・再split（分割結果は前回と同一＝同じedge_id）。
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
+
+    assert await road_graph_repository.get_designated_edge_ids([edge_id]) == {edge_id}
+
+
+async def test_save_graph_drops_designation_attributes_for_edges_removed_by_resplit(
+    road_graph_repository, road_graph_session
+):
+    """再splitで実際にsegment構成が変わり、あるedge_idが新graphに存在しなくなる
+    ケースでは、CASCADEどおり古いedge_idのdesignation_attributesは消えるのが正しい挙動
+    （新edge_idは新規にmatch_designations.pyの再実行が必要、docs T66節参照）。
+
+    v1: 近傍way300がnode6を共有するためway100はnode6で[1,6]/[6,2]の2segmentに分割される。
+    v2: way300を含めずway100単独で再取得（node6はもう交差点ではない）ため、
+    way100は[1,2]の1segmentへ戻り、旧seg1（[6,2]側）のedge_idは新graphに存在しなくなる。
+    """
+    node6 = (35.7005, 139.7005)
+    node7 = (35.699, 139.699)
+    way100 = WaySpec(osm_way_id=100, node_ids=[1, 6, 2], highway="residential")
+    way300 = WaySpec(osm_way_id=300, node_ids=[6, 7], highway="residential")
+    nodes_v1 = {1: NODE1, 2: NODE2, 6: node6, 7: node7}
+    graph_v1 = build_road_graph([way100, way300], nodes_v1, graph_version="v1")
+    await road_graph_repository.save_graph(graph_v1, way_ids_to_replace={100})
+    way100_edges_v1 = sorted(eid for eid in graph_v1.edges if eid.startswith("way-100-"))
+    assert len(way100_edges_v1) == 4  # [1,6]/[6,2]の2segment、双方向で4Edge（前提確認）
+    seg1_edge_id = next(eid for eid in way100_edges_v1 if "seg1" in eid)
+
+    await _insert_designation_attribute(road_graph_session, seg1_edge_id, "emergency_transport")
+    await road_graph_session.commit()
+
+    # way300を含めずway100単独で再split（node6はもう交差点として扱われない）。
+    way100_alone = WaySpec(osm_way_id=100, node_ids=[1, 6, 2], highway="residential")
+    nodes_v2 = {1: NODE1, 2: NODE2, 6: node6}
+    graph_v2 = build_road_graph([way100_alone], nodes_v2, graph_version="v2")
+    new_edge_ids = list(graph_v2.edges.keys())
+    assert seg1_edge_id not in new_edge_ids  # 前提: 本当にedge_idが変わっている（1segmentへ統合）
+
+    await road_graph_repository.save_graph(graph_v2, way_ids_to_replace={100})
+
+    assert await road_graph_repository.get_designated_edge_ids([seg1_edge_id, *new_edge_ids]) == set()
+
+
 async def test_get_designated_edge_ids_returns_empty_set_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_designated_edge_ids([]) == set()
 
