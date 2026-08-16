@@ -21,6 +21,7 @@ export type MapLayerId =
   | "road"
   | "trafficStress"
   | "bicycleInfra"
+  | "designation"
   | "stopPoi"
   | "intersections"
   | "accidents"
@@ -72,6 +73,15 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     chipLabel: "インフラ",
     kind: "static",
     description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
+  },
+  {
+    id: "designation",
+    // 外部静的データソース T51（国土数値情報 N10/N12）。指定路線コンフレーション機構が
+    // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
+    label: "指定路線（緊急輸送・重要物流）",
+    chipLabel: "指定路線",
+    kind: "static",
+    description: "国土数値情報の緊急輸送道路・重要物流道路（KSJ N10/N12）に該当する区間を色分け表示",
   },
   {
     id: "stopPoi",

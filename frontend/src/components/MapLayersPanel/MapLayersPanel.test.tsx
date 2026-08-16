@@ -11,6 +11,7 @@ function baseProps() {
       road: false,
       trafficStress: false,
       bicycleInfra: false,
+      designation: false,
       stopPoi: false,
       intersections: false,
       accidents: false,
@@ -23,12 +24,19 @@ function baseProps() {
     staticFilterHiddenKeysByAxis: {
       trafficStress: [],
       bicycleInfra: [],
+      designation: [],
       stopPoi: [],
       intersection: [],
       accidentParty: [],
       accidentSeverity: [],
     } as Record<
-      "trafficStress" | "bicycleInfra" | "stopPoi" | "intersection" | "accidentParty" | "accidentSeverity",
+      | "trafficStress"
+      | "bicycleInfra"
+      | "designation"
+      | "stopPoi"
+      | "intersection"
+      | "accidentParty"
+      | "accidentSeverity",
       readonly string[]
     >,
     onStaticFilterLegendToggle: vi.fn(),
@@ -65,10 +73,19 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-trafficStress")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-intersections")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
+  });
+
+  it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路）が表示される(外部静的データソース T51)", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("designation");
+
+    expect(screen.getByText("緊急輸送道路（N10）")).toBeInTheDocument();
+    expect(screen.getByText("重要物流道路（N12）")).toBeInTheDocument();
   });
 
   it("事故レイヤーのセクションに凡例（自転車関連/その他）が表示される", () => {
@@ -90,6 +107,7 @@ describe("MapLayersPanel", () => {
           road: false,
           trafficStress: false,
           bicycleInfra: false,
+          designation: false,
           stopPoi: false,
           intersections: false,
           accidents: false,
@@ -171,6 +189,7 @@ describe("MapLayersPanel", () => {
           road: true,
           trafficStress: false,
           bicycleInfra: false,
+          designation: false,
           stopPoi: false,
           intersections: false,
           accidents: false,
@@ -193,6 +212,7 @@ describe("MapLayersPanel", () => {
           road: true,
           trafficStress: false,
           bicycleInfra: false,
+          designation: false,
           stopPoi: false,
           intersections: false,
           accidents: false,
@@ -215,6 +235,7 @@ describe("MapLayersPanel", () => {
           road: true,
           trafficStress: false,
           bicycleInfra: false,
+          designation: false,
           stopPoi: false,
           intersections: false,
           accidents: false,
@@ -327,6 +348,7 @@ describe("MapLayersPanel", () => {
         staticFilterHiddenKeysByAxis={{
           trafficStress: [],
           bicycleInfra: [],
+          designation: [],
           stopPoi: [],
           intersection: [],
           accidentParty: [],
@@ -378,6 +400,7 @@ describe("MapLayersPanel", () => {
           road: false,
           trafficStress: false,
           bicycleInfra: false,
+          designation: false,
           stopPoi: false,
           intersections: false,
           accidents: false,
@@ -407,6 +430,7 @@ describe("MapLayersPanel", () => {
           road: false,
           trafficStress: false,
           bicycleInfra: false,
+          designation: false,
           stopPoi: false,
           intersections: false,
           accidents: false,

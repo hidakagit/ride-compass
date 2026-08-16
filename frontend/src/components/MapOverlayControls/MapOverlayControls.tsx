@@ -5,6 +5,7 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
+  DesignationIcon,
   ElevationIcon,
   RoadIcon,
   TrafficStressIcon,
@@ -56,6 +57,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   road: RoadIcon,
   trafficStress: TrafficStressIcon,
   bicycleInfra: BicycleInfraIcon,
+  designation: DesignationIcon,
   stopPoi: StopPoiIcon,
   intersections: IntersectionIcon,
   accidents: AccidentIcon,

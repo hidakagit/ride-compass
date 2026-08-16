@@ -141,6 +141,11 @@ class OpenRouteServiceEngine:
                 flat_points, max_distance_m=ACCIDENT_MATCH_MAX_DISTANCE_M
             )
             accident_years_covered = await self._repository.get_accident_years_covered()
+            # 指定路線コンフレーション機構（外部静的データソース T51、trafficStress補正）も
+            # 同じサンプル点集合を使う。
+            flat_designated_flags = await self._repository.get_nearest_designated_flags(
+                flat_points, max_distance_m=SURFACE_MATCH_MAX_DISTANCE_M
+            )
         else:
             flat_surface_tags = [None] * sum(point_counts)
             flat_stop_counts = [None] * sum(point_counts)
@@ -148,11 +153,13 @@ class OpenRouteServiceEngine:
             flat_intersection_counts = [None] * sum(point_counts)
             flat_accident_counts = [None] * sum(point_counts)
             accident_years_covered = 0
+            flat_designated_flags = [False] * sum(point_counts)
         surface_tags_per_candidate: list[list[str | None]] = []
         stop_counts_per_candidate: list[list[int | None]] = []
         way_tags_per_candidate: list[list[tuple[str | None, dict[str, str]] | None]] = []
         intersection_counts_per_candidate: list[list[int | None]] = []
         accident_counts_per_candidate: list[list[int | None]] = []
+        designated_flags_per_candidate: list[list[bool]] = []
         offset = 0
         for count in point_counts:
             surface_tags_per_candidate.append(flat_surface_tags[offset : offset + count])
@@ -160,6 +167,7 @@ class OpenRouteServiceEngine:
             way_tags_per_candidate.append(flat_way_tags[offset : offset + count])
             intersection_counts_per_candidate.append(flat_intersection_counts[offset : offset + count])
             accident_counts_per_candidate.append(flat_accident_counts[offset : offset + count])
+            designated_flags_per_candidate.append(flat_designated_flags[offset : offset + count])
             offset += count
 
         # 距離フィルタで棄却されなかった候補にのみ標高プロファイルを問い合わせる（GSIへの負荷を抑える）
@@ -193,6 +201,7 @@ class OpenRouteServiceEngine:
                 intersection_counts=intersection_counts_per_candidate[i],
                 accident_counts=accident_counts_per_candidate[i],
                 accident_years_covered=accident_years_covered,
+                designated_flags=designated_flags_per_candidate[i],
                 route_geometry=c.geometry,
             )
             road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
@@ -242,6 +251,7 @@ class OpenRouteServiceEngine:
         intersection_counts: list[int | None],
         accident_counts: list[int | None],
         accident_years_covered: int,
+        designated_flags: list[bool],
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
@@ -282,7 +292,8 @@ class OpenRouteServiceEngine:
 
             point_way_tags = way_tags[i] if i < len(way_tags) else None
             highway, tags = point_way_tags if point_way_tags is not None else (None, None)
-            traffic_stress = traffic_stress_level(highway, tags) if tags is not None else None
+            is_designated = designated_flags[i] if i < len(designated_flags) else False
+            traffic_stress = traffic_stress_level(highway, tags, is_designated) if tags is not None else None
             bicycle_infra = classify_bicycle_infrastructure(tags, highway) if tags is not None else None
             intersection_count = intersection_counts[i] if i < len(intersection_counts) else None
             intersection_count_per_km = (

@@ -47,8 +47,10 @@ class EvaluationService:
         intersection_counts: dict[str, int] | None = None,
         accident_counts: dict[str, int] | None = None,
         accident_years_covered: int = 0,
+        designated_edge_ids: set[str] | None = None,
     ) -> dict[str, EdgeCostResult]:
         stop_counts = stop_counts or {}
+        designated_edge_ids = designated_edge_ids or set()
         return {
             edge_id: compute_edge_cost(
                 edge,
@@ -61,6 +63,7 @@ class EvaluationService:
                 intersection_count=intersection_counts.get(edge_id) if intersection_counts is not None else None,
                 accident_count=accident_counts.get(edge_id) if accident_counts is not None else None,
                 accident_years_covered=accident_years_covered,
+                is_designated=edge_id in designated_edge_ids,
             )
             for edge_id, edge in graph.edges.items()
         }

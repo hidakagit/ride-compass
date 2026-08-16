@@ -805,7 +805,7 @@ evaluate_axis_difficulties`を7軸→8軸へ拡張（改善計画T43で1箇所�
 未完了のtsc差分が存在したが、本タスクとは無関係のため関知していない。
 2019〜2021年データの取込（別スキーマの列位置調査が必要）は任意の拡張として引き続き残る
 
-### - [ ] T51. 指定路線コンフレーション機構＋N10/N12・ナショナルサイクルルート表示 規模L
+### - [x] T51. 指定路線コンフレーション機構＋N10/N12表示 規模L（2026-08-16完了、スコープをN10/N12のみへ縮小）
 
 - 詳細設計は外部静的データソースレビュー§4.3参照。「線データをroad_edgesへ対応付ける」
   パターンD初回実装（migration 0007、`route_designations`/`designation_attributes`、
@@ -816,6 +816,81 @@ evaluate_axis_difficulties`を7軸→8軸へ拡張（改善計画T43で1箇所�
 - 特段の外部トリガー待ちは無く着手可能（データ入手に登録手続き不要と確認済み）。
 - 完了条件: 既知路線（国道16号・6号等）の目視確認、matched_ratio分布・バッファ幅比較での
   誤対応（並行側道・歩道の巻き込み）実測、backend/frontend全green。
+
+**2026-08-16訂正（ユーザー指示によるスコープ縮小）**: 「N10、N12対応まででいったんとどめて」
+との指示を受け、ナショナルサイクルルート（太平洋岸自転車道・りんりんロード）は今回のラウンドから
+除外。加えて実装着手時にデータソース調査をやり直したところ、レビュー当初の想定
+「N10もGeoJSON形式での提供を確認済み」が誤りと判明（N10はGML/シェープファイルのみ、
+GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード・展開して中身を確認して発覚）。
+りんりんロードについてもレビュー文書が想定していたGPX配布元（つくば市サイクリングガイド）が
+404で、機械可読な一括ダウンロード元が見つからなかった（NCR除外の判断を後押しする追加根拠）。
+
+**実装結果（バックエンド、2026-08-16）**:
+
+- **取得**: `app/batch/import_designations.py`（新規）。N10はZIP内のJPGIS/GML
+  （`gml:Curve`＋`ksj:UrgentTransportationRoad`、xlinkで参照）を標準ライブラリ
+  `xml.etree.ElementTree`でパース、N12はZIP内の素のGeoJSONを標準ライブラリ`json`で
+  パース（**新規依存ライブラリ追加なし**、pyshp/fiona/geopandasいずれも不要と判明）。
+  都道府県コードだけで組み立てられる公開URL
+  （`https://nlftp.mlit.go.jp/ksj/gml/data/N{10,12}/...`）から関東7都県分を直接取得
+  （実機確認済み、登録不要・PDL1.0相当で非商用利用可）。事故データと違い自然キーが無いため
+  ステージング→MERGEではなく`(kind, pref_code)`単位のDELETE→INSERTで冪等にする。
+  実際にdev DBへ取り込み、5,084件（N10: 2,820件・N12: 2,264件）を関東7都県で確認済み
+- **保持**: migration 0007（`route_designations`/`designation_attributes`/
+  `designation_import_runs`、`designation_models.py`新規。accident_models.pyと同じ
+  「取込元がOSMではないため専用ファイルに分離しつつ同じBaseを共有」方針）。
+  `domain/designation.py`（新規）: `DESIGNATION_BUFFER_WIDTH_M`(20m)・
+  `DESIGNATION_MATCH_MIN_RATIO`(0.5)・`TRAFFIC_STRESS_DESIGNATION_KINDS`（正準1箇所、
+  改善計画T44の「片側import」原則）
+- **マッチング**: `app/batch/match_designations.py`（新規、事前計算バッチ）。
+  road_edges×route_designationsをST_DWithinで絞り込んだ上でST_Union→ST_Intersection→
+  ST_Lengthでバッファ交差率を算出し`designation_attributes`へ書き込む（同一(edge_id,kind)へ
+  複数route_designations行が寄与する場合の二重計上をST_Unionで防止）。**実データ規模
+  （関東7都県5,084件×dev DBのroad_edges 22,164件）でのdry-run実行時間が長い問題を確認・解決
+  （2026-08-16）**: 初回実装（GROUP BYにe.geomを含む・バッファをJOIN内で行ごとに再計算）は
+  1時間近く無応答の末に接続エラーで失敗。GROUP BYをe.edge_id単独へ変更しバッファ計算を
+  `WITH ... AS MATERIALIZED`で1行1回に限定する改善をまず行ったが、それでも30分超無応答
+  だったため`EXPLAIN`でクエリプランを確認したところ根本原因が判明: JOIN条件が
+  `ST_DWithin(e.geom::geography, b.geom::geography, $1)`と`::geography`キャストを
+  挟んでいたため、`idx_road_edges_geom`（geometry型GiST索引）をプランナが認識できず
+  Join Filter（22,164×5,084の全組み合わせを評価、コスト14億）に落ちていた。buffer_geom
+  （既に20mバッファ済みのgeometry）に対する素の`ST_Intersects(e.geom, b.buffer_geom)`
+  （どちらもgeometry型、キャスト無し）へ変更したところGiST索引が使われるようになり
+  （コスト239万、約590倍改善）、実データでdry-run 12.8秒・本実行15.5秒で完走。
+  dev DBへ実際に投入し7,052件（emergency_transport 6,090・critical_logistics 962）を確認済み。
+  正しさ自体はDB統合テスト（test_road_graph_repository.py、小規模フィクスチャ）で確認済み
+- **評価組み込み**: `domain/traffic.py: traffic_stress_level`へ`is_designated`引数を追加
+  （既存のtrack/lane等補正と同じクランプ内+1、新しい評価軸は増やさない）。
+  `AttributeRepository.get_designated_edge_ids`/`get_nearest_designated_flags`を
+  `get_way_tags`系と同型で新規実装しファサードへ対称に委譲、3エンジン呼び出し箇所
+  （road_graph_engine.py/openrouteservice_engine.py/domain/evaluation.py）を更新
+- **MVT表示**: `_ROAD_SURFACE_TILE_MVT_SQL`（road_graph_repository.py）へ`designation`
+  プロパティとtrafficStress+1補正を追加（`cw`/`ts`と同じCROSS JOIN LATERALパターン、
+  road_edges経由でdesignation_attributesと相関）。`ROAD_SURFACE_TILE_VERSION`を
+  `4→5`へ（T19の版上げ手順どおり）。SQL⇔Python二重実装の整合性テストを追加
+- **フロント表示（2026-08-16完了）**: `mapLayers.ts`へ`designation`レイヤーを追加
+  （trafficStress/bicycleInfraと同じ、road_surfaceソースを再利用する独立レイヤー）。
+  `staticAttributeLayers.ts`へ`DESIGNATION_LEGEND`/`DESIGNATION_COLOR_EXPRESSION`/
+  `DESIGNATION_LABELS`を追加（emergency_transport=赤・critical_logistics=青・対象外=灰、
+  T63の絞り込み軸カタログにも追加）。`MapView.tsx`の`STATIC_OVERLAY_LAYERS`
+  （T47 R-6の宣言的ループ）へ`ensureDesignationLayer`を追加、クリックポップアップは
+  `RoadSurfacePopupProperties`へ`designation`を追加する形で（trafficStress/bicycle_infraと
+  同じ）road情報ポップアップに統合。`icons.tsx`へ盾形の新規アイコン、
+  `MapOverlayControls.tsx`のアイコン対応表・`MapLayersPanel.tsx`のセクション本文にも追加。
+  `page.tsx`は`DEFAULT_LAYER_VISIBILITY`への1行追加のみ（絞り込み・保存・要約計算は
+  カタログ駆動のため自動対応）
+- **実機確認（2026-08-16、Playwright）**: dev backendプロセスが2026-08-15起動のまま
+  （uvicorn --reloadなし）で今回のSQL修正・designation列追加を反映していなかったため、
+  `restart-dev.bat`相当の手順でbackend/frontendを再起動してから検証。designation_attributesに
+  実在するedge（emergency_transport該当）の座標を直接DB照会で特定し、その地点へ地図を
+  ナビゲートして確認: (1) 指定路線レイヤーをONにすると該当道路が赤線（緊急輸送道路）で
+  ハイライトされる、(2) サイドバーの凡例（緊急輸送道路(N10)・重要物流道路(N12)・対象外）が
+  正しく表示される、(3) 該当道路をクリックすると「緊急輸送道路（N10）」のポップアップが
+  表示され、交通ストレスが4/4（+1補正込み）と一致することを確認
+- backend: 新規テスト一式（GML/GeoJSONパーサの実データ検証・DB統合テスト・
+  domain単体テスト・MVT整合性テスト）を含め652件、frontend 215件・tsc・eslint全green
+  （T50コミット後に本タスク分のみを再度乗せて確認、T50・T51それぞれの範囲が独立に
+  テスト通過することを確認済み）
 
 ### - [ ] T52. JICE舗装点検DB 調査ゲート実行 規模S（調査のみ）〜L（採用時）— トリガー: JICE返信
 
@@ -1123,6 +1198,137 @@ frontend 180件（他セッションとの並行実行によるvitest workerタ�
 
 ---
 
+## PostGISクエリコストレビュー対応（2026-08-16）
+
+「OSMのみ→個別データソース追加で遅いSQLが散見される」というユーザー依頼を受け、全テーブル・
+全SQL（road_graph_repository.py・accident_repository.py・batch群・migrations 0001〜0007）を
+通読し、dev DB（東京都心南部: road_edges 22,164行・accident_points 303,455行・osm_raw_pois
+46,688行）でEXPLAIN ANALYZE実測して裏付けを取ったレビューの対応タスク。
+
+**根本原因はテーブル設計ではなくクエリ規約の不徹底**: `_INTERSECTION_COUNTS_SQL`のコメントで
+明文化済みの「`geom::geography`のST_DWithinはGiST索引を使わずSeq Scanになるため、必ず`&&`
+（bbox重なり）を前置する」という規約を、後発の停止POI・事故カウント4クエリが踏襲していなかった。
+テーブル設計自体（raw/派生の分離・点テーブルの選別方針・import_runs系・`=ANY(配列)`チャンク・
+KNNの`ORDER BY <-> LIMIT 1`・ST_AsMVTのDB側生成）は一貫しており健全と確認した。
+
+レビューで問題なしと確認した事項（タスク化しない）: `idx_route_designations_geom`未使用は
+将来の表示レイヤー用に許容（240kB）／`_NEAREST_WAY_TAGS_SQL`等のCASE内ST_DWithin二重評価は
+誤差レベル／ANALYZE統計はautovacuumが正常追随。
+
+### - [ ] T64. geographyキャストST_DWithinの索引不使用4クエリへ`&&`前置フィルタ追加 規模S〜M・最優先
+
+- 対象（road_graph_repository.py、いずれもJOIN条件がST_DWithin(geography)単体で
+  GiST索引を使えず全件Join Filterになる）:
+  - `_STOP_POI_COUNTS_SQL`（road_edges×osm_raw_pois）
+  - `_NEAREST_STOP_POI_COUNTS_SQL`（サンプル点×osm_raw_pois）
+  - `_ACCIDENT_COUNTS_SQL`（road_edges×accident_points）
+  - `_NEAREST_ACCIDENT_COUNTS_SQL`（サンプル点×accident_points）
+- dev DB実測: `_STOP_POI_COUNTS_SQL`は**200エッジで134.1秒**（Join Filter除外467万行/ワーカー）、
+  `_NEAREST_ACCIDENT_COUNTS_SQL`は**8点で18.6秒**（240万行評価・Materializeがディスクスピル）。
+  `get_stop_poi_counts`/`get_accident_counts`はルート評価でローカルグラフ全edge（数千〜数万件）を
+  渡すため、現行実装は評価1回で分〜時間オーダーになりうる。本番（関東全域、road_edges 134万行）
+  ではさらに悪化する。
+- 対応方針: `_INTERSECTION_COUNTS_SQL`と同じく、JOIN条件へ
+  `p.geom && ST_Expand(e.geom, :max_distance_deg)`（点版は`ST_Expand(pts.geom, ...)`）を前置。
+  度換算は既存の`_meters_to_bbox_margin_deg`をそのまま使う（マイグレーション不要）。
+  代替案の関数索引`gist((geom::geography))`はSQL無変更で済むが、リポジトリ内で確立済みの
+  `&&`前置パターンへの統一を優先する。
+- 修正版の実測（同条件）: `_STOP_POI_COUNTS_SQL` 134.1秒→**0.44秒（306倍）**、
+  `_NEAREST_ACCIDENT_COUNTS_SQL` 18.6秒→**0.24秒（79倍）**。いずれもGiST索引スキャンに変わる
+  ことをEXPLAIN ANALYZEで確認済み。
+- 再発防止: docs/complexity-review-2026-08-16.md末尾の追加原則（評価軸追加の1本道）へ
+  「空間JOINを含むSQLは`&&`前置（または`ORDER BY <-> LIMIT`のKNN索引）必須。
+  ST_DWithin(geography)単体をJOIN条件にしない」をチェック項目として追記（同一コミット）。
+- 完了条件: 4クエリのEXPLAINでSeq Scan+Join Filterが消えGiST索引が使われること。
+  既存のrepository統合テスト（件数・境界値）が無変更でgreen（結果セットは不変のはず。
+  `&&`は保守的マージンのため取りこぼしが無い）。
+
+### - [ ] T65. 路面MVTタイルの指定路線判定をway行ごとLATERALから事前集約JOINへ 規模S
+
+- `_ROAD_SURFACE_TILE_MVT_SQL`の`d` LATERAL（designation焼き込み、T51で追加）は、タイル内way
+  1本ごとにroad_edges→designation_attributesの索引スキャンを実行する（way1本あたり約0.16ms）。
+  dev DB実測で全way相当39,878本を6.27秒。密集タイル（数千way）では1タイルあたり数百msの上乗せ。
+- 対応方針: designation_attributes全体（本番でも数千〜数万行の小テーブル）を一度だけ
+  `osm_way_id`単位に集約するサブクエリへ書き換え、`LEFT JOIN ... ON d.osm_way_id = w.osm_way_id`
+  のハッシュJOINにする。同条件の実測で6.27秒→**0.36秒（17倍）**。
+  ```sql
+  LEFT JOIN (
+      SELECT e.osm_way_id,
+             bool_or(da.kind = 'emergency_transport') AS is_ert,
+             bool_or(da.kind = 'critical_logistics') AS is_cl
+      FROM designation_attributes da JOIN road_edges e ON e.edge_id = da.edge_id
+      GROUP BY e.osm_way_id
+  ) d ON d.osm_way_id = w.osm_way_id
+  ```
+  （`d.is_ert`/`d.is_cl`の参照側は`COALESCE(..., false)`へ変更）
+- T51の残作業「フロント表示とパフォーマンス実地検証」と同じ箇所のため、T51側の検証前に
+  実施するのが望ましい。
+- 完了条件: test_road_graph_repository.pyの整合性テスト（Python実装との同値性）が無変更でgreen。
+  MVT出力のdesignationプロパティが書き換え前後で一致。
+
+### - [ ] T66. save_graphのdelete-then-reinsertでdesignation_attributesが黙って消える問題の対策 規模M
+
+- `save_graph(way_ids_to_replace=...)`は既存Edge行をDELETE→再INSERTするため、
+  `ON DELETE CASCADE`の`designation_attributes`が巻き添えで消える。elevation_attributesは
+  オンデマンド再計算で復元されるが、designationは`match_designations.py`のバッチ再実行まで
+  該当Edgeの指定路線フラグが欠落し、**評価（trafficStress加点）とMVT表示の両方が静かに
+  間違う**。edge_idは決定論的なので同じedge_idで再INSERTされても属性行は戻らない。
+  OSM再取込後だけでなく、通常のルート生成による再split（is_split_up_to_dateがFalseの経路）でも
+  発生する。
+- 対応方針（いずれかを選択、実装時に判断）:
+  - 案a: save_graphのDELETE対象から「今回も同じedge_idで再挿入される行」を除外する
+    （delete-then-reinsert→UPSERT+差分DELETEへ変更。CASCADEが発火するのは本当に消える
+    edge_idだけになる）。推奨: 分割結果が実際に変わらない大多数のケースで属性が保存される。
+  - 案b: save_graph完了時に該当edge_idだけ`route_designations`と部分再マッチする軽量処理を挟む
+    （バッファ交差の対象が少数edgeに限られるため評価時導出よりは軽いが、リクエスト経路に
+    空間計算が入る）。
+- 完了条件: 「取込済みdesignationを持つEdgeが再splitされても、分割結果が同一なら
+  designation_attributes行が残る」ことを検証する統合テストを追加しgreen。
+  docs（T51節またはdecisions/）へ「match_designations.pyの再実行が必要になる条件」を明文化。
+
+### - [ ] T67. match_designations.pyのINSERTをexecutemany化 規模S
+
+- `_INSERT_SQL`をマッチ件数分（dev実測7,052行、本番は数万行想定）ループで1行ずつ
+  `conn.execute`しており、本番（Oracle遠隔）ではRTT×行数がそのまま実行時間に乗る。
+- 対応方針: `conn.executemany`（asyncpg、1ラウンドトリップにバッチ化される）へ置換。
+  行数がさらに増える場合はCOPY（`copy_records_to_table`）も選択肢だが、
+  現規模ではexecutemanyで十分。
+- 完了条件: dry-run→実行で従来と同一件数が書き込まれること。バッチのログ
+  （docs/logging.md準拠の1行INFOサマリ）へ書き込み所要時間を追加。
+
+### - [ ] T68. is_split_up_to_date用のstale限定部分GiST索引 規模S
+
+- `is_split_up_to_date`はリクエストごとにbbox内の全way（GiST走査＋split_atフィルタ）を
+  スキャンしてstale行を探す。全way freshの定常状態が大多数なのに、bboxが大きいほど
+  （ルート生成は最大60km径ループ＋マージン）走査量が線形に増える。
+- 対応方針: migration 0008として
+  `CREATE INDEX ... ON osm_raw_ways USING gist (geom) WHERE split_at IS NULL OR split_at < updated_at`
+  を追加。クエリのWHERE句が述語と完全一致しているためプランナがそのまま使え、
+  定常状態では索引がほぼ空になりLIMIT 1判定が即時になる。
+  取込直後（全行stale）は通常GiSTと同等まで膨らむが、split進行に伴い縮む
+  （インデックスの肥大が気になる場合はsplit一巡後にREINDEX）。
+- 完了条件: 定常状態のdev DBでEXPLAINが部分索引を選ぶこと。既存テストgreen。
+  import_pbf.pyのGiST後作成分岐（T28(B)）との整合（初回取込時の索引作成順）を確認。
+
+### - [ ] T69. get_way_specs_with_closureの近傍extent爆発の防衛 規模M・要設計判断
+
+- 近傍Wayの探索範囲を「主対象Way全体のST_Extent」で決めているため、bboxをかすめる
+  1本の長大way（河川沿いサイクリングロード・幹線等で数十km）があるとextentがその全長へ
+  広がり、そこに交差する全way＋全node座標をロードする。上限ガードが無く、
+  最悪ケースでメモリ・転送量・build_road_graph計算量が数十倍に膨らむ。
+- 対応方針（候補、実装時にログで実態を見て判断）:
+  - 案a: extentを`ST_Expand(bbox, 上限マージン)`でクランプする（実装最小。クランプ幅を
+    超えて伸びるwayの端の交差点は「そのwayが主対象になる別リクエストで更新される」
+    既存の結果整合性の考え方に載せられる）。
+  - 案b: 主対象wayごとの個別envelope集合（ST_Collect）で近傍検索する（過剰包含が最小に
+    なるが、クエリが複雑化）。
+  - まず現状把握として、extentがbboxの何倍まで広がっているかをdocs/logging.md準拠の
+    1行INFOサマリ（route_generator.py方式）でログし、実データで閾値を決めてから実装してよい。
+- 完了条件: タイル境界交差点分割の回帰テスト（test_graph_service.py）がgreenのまま、
+  極端なextent拡大が発生しないことをログまたはテストで確認。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -1178,4 +1384,5 @@ frontend 180件（他セッションとの並行実行によるvitest workerタ�
 | 2026-08-16 | T50（取得・保持・表示先行） | 警察庁交通事故統計オープンデータの取込・表示を実装。`domain/accident.py`（DMS変換・当事者種別/都道府県コード判定、コード表CSVを実取得して値を確認）、`app/batch/import_accidents.py`（年号からURLを組み立てて直接HTTP取得、関東7都県へ絞り込み）、migration 0006（`accident_points`/`accident_import_runs`）を新規実装。**2019〜2021年は本票CSVが58列構成（2022年以降は68列）と実データで判明し非対応と判断**（列数不一致はその年の取込全体を明示的に失敗させる設計）。2022〜2024年を実際にdev DBへ取込み関東303,455件（自転車関連92,955件・死亡2,032件）を確認。表示は`/api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accident_repository.py`/`accident_service.py`新規、road_surfaceと異なりカバレッジ判定なし）＋フロント新規レイヤー「事故（警察庁統計）」（円マーカー、色=自転車関連/その他、死亡事故は拡大表示）。実装中に`next.config.ts`へのproxy rewrite追加漏れ（新エンドポイントがフロント経由で404になる）をPlaywright実機確認で発見・修正。backend 595件・frontend 153件・eslint・tsc全green、Playwright実機確認（レイヤーON/OFF・地図上のドット表示・サイドバー凡例）で表示を確認。評価組み込み（8軸目化）は残作業として引き続きT50に残す（詳細はT50節参照） |
 | 2026-08-16 | T54（引き継ぎ・完了） | 別セッションが`.claude/worktrees/t54-poi-intersection-viz`で着手・大部分実装した状態（プロセス終了・未コミットのまま中断）を発見し引き継いだ。`/api/region/poi-tiles/{z}/{x}/{y}.pbf`（停止要因POI・交差点密度の2レイヤーを1タイルに焼き込み）とフロント新規2レイヤー「停止要因」「交差点密度」の実装内容を検証（backend 578件・frontend単体40件・tsc・eslint全green、実装自体は完成していたと確認）のうえコミットし、並行して本流へ合流していたT50（警察庁事故データ）・T58（ピンチズーム修正）へrebaseして統合。T50と同じファイル群（mapLayers.ts・MapView.tsx・MapLayersPanel.tsx・MapOverlayControls.tsx・regionApi.ts・staticAttributeLayers.ts・icons.tsx・export_openapi.py・region-tile-config.json）を独立変更していたため14ファイルでコンフリクトが発生したが、すべて「両方の追加を残す」加算的マージで解消（意味的な衝突は無し）。region-tile-config.jsonは両者で異なるスキーマ変更をしていたため`{road_surface, accident, poi}`の3キー構成へ統一。T54側にも`next.config.ts`のproxy rewrite追加漏れ（T50で発見したのと同じ落とし穴）があり追加。統合後の実機確認でdev DBの`osm_raw_pois`が0件（該当データ未取込み）と判明したが、intersectionレイヤーは実データ（次数3以上のnode 8,517件、785 features/タイル）で正常動作を確認。backend 617件・frontend 187件・tsc・eslint全green、Playwright実機確認（停止要因・交差点密度・事故の3レイヤー同時ON、サイドバー凡例、実データでの交差点密度表示）。master a13d1f0→84a2511→52ed0a9でfast-forward |
 | 2026-08-16 | T47 R-6実装（トリガー成立） | T54で静的レイヤーが+2種類（停止要因POI・交差点密度）に達し、T47 R-6に記録済みだったトリガー条件が成立。(a)MapView.tsxの標高・交通ストレス・自転車インフラ・事故・停止要因POI・交差点密度6レイヤーぶんのensure/set関数ペアを`STATIC_OVERLAY_LAYERS`テーブル+ループへ置換、(b)page.tsxに散在していたlocalStorage読み書き（load/save関数＋復元用useIsomorphicLayoutEffect）を`useStoredState`フック（新規、hooks/useStoredState.ts）へ集約、を実施。別セッションが着手・未コミットのまま中断していた状態を引き継ぎ、内容確認（全diff読解）・frontend全200件・tsc・eslint・Playwright e2eスモーク2件green、レイヤーチップ全種の手動トグルでconsoleエラー無しを確認したうえでコミット。あわせて同じワーキングツリーにあった別件2点も検証のうえコミット: ComparisonPanelへtraffic_stress_score/bicycle_infra_score/intersection_density（静的属性P1残りで追加されたがMETRIC_ROWS未対応だった3軸）の行を追加、vitest.config.mtsへ`.claude/worktrees/**`の除外を追加（並行worktree配下の同名test.tsxをvitestが誤って拾い偽陽性を出す実害の対策） |
+| 2026-08-16 | （PostGISクエリコストレビュー） | ユーザー依頼（個別データソース追加で遅いSQLが散見される）を受け全テーブル・全SQLを通読、dev DBでEXPLAIN ANALYZE実測。最重要所見はST_DWithin(geography)単体JOINの索引不使用4クエリ（停止POI 200エッジ134秒→`&&`前置で0.44秒/306倍、事故8点18.6秒→0.24秒/79倍を実測済み）。T64〜T69を起票。テーブル設計自体は健全で、問題は後発クエリの`&&`前置規約不徹底に集約されると結論 |
 | 2026-08-16 | T62 | ユーザー指摘（自転車インフラと道路情報の自転車・歩行者道分類が意味的にかぶっていないか）を受けた属性の重複・包含関係の棚卸しを実施し起票・完了。数値・スコアリング挙動は不変、表示ラベルと根拠コメントのみ変更。`staticAttributeLayers.ts`: `bicycle_infra=shared_pedestrian`のラベルを「自転車歩行者道」→「歩道（自転車通行可）」へ変更し、roadFilterAxes.tsの highway表示分類「自転車・歩行者道」との違い・非対称な包含関係をコメントで明記。`domain/traffic.py`: `classify_bicycle_infrastructure`と`traffic_stress_level`が同じcycleway系タグを別目的で解釈しており2軸（交通ストレス重み・自転車インフラ重み）が完全には直交しない旨を相互参照コメントで明記、`TRAFFIC_STRESS_BASE_BY_HIGHWAY`に登録の無いhighway値（path/footway等）が意図的に評価対象外である旨を追記。backend 621件・frontend 200件・tsc・eslint全green |

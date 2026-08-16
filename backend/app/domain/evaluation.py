@@ -118,6 +118,7 @@ def compute_edge_cost(
     intersection_count: int | None = None,
     accident_count: int | None = None,
     accident_years_covered: int = 0,
+    is_designated: bool = False,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -138,6 +139,8 @@ def compute_edge_cost(
     T50残作業、8軸目）。Noneはデータ無し（未評価、0件と区別する）。`accident_years_covered`は
     事故データの収録年数（`AttributeRepository.get_accident_years_covered`）で、密度を
     件/(km・年)へ正規化するために使う。
+    `is_designated`はこのEdgeがKSJ N10/N12（緊急輸送道路・重要物流道路）に該当するか
+    （外部静的データソース T51）。trafficStressへの補正のみに使い、新しい評価軸は増やさない。
     """
     if not is_edge_allowed(edge):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
@@ -146,7 +149,7 @@ def compute_edge_cost(
     is_good_surface = classify_osm_surface(surface_type)
     wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
-    traffic_stress = traffic_stress_level(edge.highway, way_tags) if way_tags is not None else None
+    traffic_stress = traffic_stress_level(edge.highway, way_tags, is_designated) if way_tags is not None else None
     bicycle_infra = classify_bicycle_infrastructure(way_tags, edge.highway) if way_tags is not None else None
     intersection_count_per_km = (
         intersection_count / (edge.distance_m / 1000) if intersection_count is not None and edge.distance_m > 0 else None

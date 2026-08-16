@@ -60,6 +60,7 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M
+from app.domain.designation import TRAFFIC_STRESS_DESIGNATION_KINDS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
@@ -241,8 +242,13 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                            AND trunc(btrim(w.tags->>'lanes')::numeric) >= 4 THEN 1
                                       ELSE 0
                                   END
+                                + CASE WHEN d.is_ert OR d.is_cl THEN 1 ELSE 0 END
                             ))
-                        END AS traffic_stress
+                        END AS traffic_stress,
+                        CASE
+                            WHEN d.is_ert THEN 'emergency_transport'
+                            WHEN d.is_cl THEN 'critical_logistics'
+                        END AS designation
                     FROM osm_raw_ways w
                     CROSS JOIN LATERAL (
                         SELECT ARRAY[
@@ -260,6 +266,16 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN w.highway = ANY(:ts_base4) THEN 4
                         END AS base
                     ) ts
+                    CROSS JOIN LATERAL (
+                        -- 指定路線コンフレーション機構（外部静的データソース T51）。
+                        -- designation_attributesはmatch_designations.pyの事前計算バッチが埋める。
+                        SELECT
+                            COALESCE(bool_or(da.kind = 'emergency_transport'), false) AS is_ert,
+                            COALESCE(bool_or(da.kind = 'critical_logistics'), false) AS is_cl
+                        FROM road_edges e
+                        JOIN designation_attributes da ON da.edge_id = e.edge_id
+                        WHERE e.osm_way_id = w.osm_way_id
+                    ) d
                     WHERE w.geom IS NOT NULL
                       AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
                 ) mvt
@@ -482,6 +498,48 @@ _NEAREST_ACCIDENT_COUNTS_SQL = text(
     bindparam("lats", type_=ARRAY(Float())),
     bindparam("lons", type_=ARRAY(Float())),
     bindparam("bicycle_only", type_=Boolean()),
+)
+
+# 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
+# match_designations.pyの事前計算バッチが埋める（クエリ時にはバッファ交差計算をしない）。
+# edge_idキー版はDISTINCT一覧、サンプル点版は_NEAREST_SURFACE_SQLと同じ「WHEREをLATERAL外へ
+# 出す」KNNパターン（改善計画T21のコメント参照。ORDER BY <-> LIMIT 1にWHEREを同居させると
+# 範囲内に候補が無い点で全行スキャンに悪化することが実測済みのため）。
+_DESIGNATED_EDGE_IDS_SQL = text(
+    "SELECT DISTINCT edge_id FROM designation_attributes WHERE edge_id = ANY(CAST(:edge_ids AS text[])) "
+    "AND kind = ANY(:kinds)"
+).bindparams(bindparam("kinds", type_=ARRAY(Text())))
+
+_NEAREST_DESIGNATED_FLAGS_SQL = text(
+    """
+    WITH pts AS (
+        SELECT
+            ord,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
+            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
+    )
+    SELECT pts.ord,
+           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m)
+                THEN EXISTS(
+                    SELECT 1 FROM designation_attributes da
+                    WHERE da.edge_id = nearest.edge_id AND da.kind = ANY(:kinds)
+                )
+                ELSE false
+           END AS is_designated
+    FROM pts
+    LEFT JOIN LATERAL (
+        SELECT e.edge_id, e.geom
+        FROM road_edges e
+        ORDER BY e.geom <-> pts.geom
+        LIMIT 1
+    ) nearest ON true
+    ORDER BY pts.ord
+    """
+).bindparams(
+    bindparam("lats", type_=ARRAY(Float())),
+    bindparam("lons", type_=ARRAY(Float())),
+    bindparam("kinds", type_=ARRAY(Text())),
 )
 
 # 事故データの収録年数（accident_import_runsの成功run数、年重複なしのdistinct件数）。
@@ -1398,6 +1456,45 @@ class AttributeRepository(_SessionRepository):
         result = await self._session.execute(_ACCIDENT_YEARS_COVERED_SQL)
         return result.scalar_one()
 
+    async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
+        """指定edge_idのうち、KSJ N10/N12（`domain/designation.py:
+        TRAFFIC_STRESS_DESIGNATION_KINDS`）に該当するものの集合を返す（外部静的データソース
+        T51）。`designation_attributes`はmatch_designations.pyの事前計算バッチが埋める
+        （クエリ時にバッファ交差計算はしない）。
+        """
+        if not edge_ids:
+            return set()
+        result: set[str] = set()
+        for id_chunk in _chunked(edge_ids, 50_000):
+            rows = await self._session.execute(
+                _DESIGNATED_EDGE_IDS_SQL,
+                {"edge_ids": id_chunk, "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS)},
+            )
+            result.update(edge_id for (edge_id,) in rows.all())
+        return result
+
+    async def get_nearest_designated_flags(
+        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
+    ) -> list[bool]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeが
+        KSJ N10/N12に該当するかを返す（入力と同じ順序・同じ長さ、外部静的データソース T51）。
+        get_nearest_surface_tagsと同じ空間マッチ方式（openrouteserviceエンジンがgeometry上の
+        サンプル点をこのメソッドで自前DBへ空間マッチする）。
+        """
+        if not points:
+            return []
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        result = await self._session.execute(
+            _NEAREST_DESIGNATED_FLAGS_SQL,
+            {
+                "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
+                "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS),
+            },
+        )
+        by_ord = {ord_: is_designated for ord_, is_designated in result.all()}
+        return [by_ord.get(i + 1, False) for i in range(len(points))]
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -1521,6 +1618,14 @@ class RoadGraphRepository:
 
     async def get_accident_years_covered(self) -> int:
         return await self.attributes.get_accident_years_covered()
+
+    async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
+        return await self.attributes.get_designated_edge_ids(edge_ids)
+
+    async def get_nearest_designated_flags(
+        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
+    ) -> list[bool]:
+        return await self.attributes.get_nearest_designated_flags(points, max_distance_m=max_distance_m)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

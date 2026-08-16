@@ -228,13 +228,19 @@ def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]
     return round(dedicated / known * 100, 1)
 
 
-def traffic_stress_level(highway: str | None, tags: dict[str, str]) -> int | None:
+def traffic_stress_level(highway: str | None, tags: dict[str, str], is_designated: bool = False) -> int | None:
     """交通ストレス（LTS: Level of Traffic Stress風の1-4段階。「交通量」ではなく
     「推定交通ストレス」、計画書§2.4）。基本値はhighwayのみで決まり、未知のhighwayは
     None（評価しない）。補正はタグが実際にある場合のみ適用する（unknownは補正しない）。
 
     cycleway系タグによる補正は`classify_bicycle_infrastructure`と同じ入力を別目的で
     解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
+
+    `is_designated`はKSJ N10（緊急輸送道路）・N12（重要物流道路）への該当（外部静的
+    データソース T51、`domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDS`）。
+    大型車交通の代理指標として+1する（既存クランプ内、motor_vehicle=noの固定1より後段）。
+    road_graph_repository.pyのMVT生成CASE式と1:1対応させる（test_road_graph_repository.pyの
+    整合性テストで担保）。
     """
     base = TRAFFIC_STRESS_BASE_BY_HIGHWAY.get(highway or "")
     if base is None:
@@ -260,6 +266,9 @@ def traffic_stress_level(highway: str | None, tags: dict[str, str]) -> int | Non
 
     lanes = parse_lanes(tags)
     if lanes is not None and lanes >= 4:
+        level += 1
+
+    if is_designated:
         level += 1
 
     return max(1, min(4, level))

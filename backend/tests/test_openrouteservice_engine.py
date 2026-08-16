@@ -83,6 +83,7 @@ class FakeSurfaceRepository:
         default_intersection_count: int = 0,
         default_accident_count: int = 0,
         accident_years_covered: int = 3,
+        default_designated: bool = False,
     ):
         self._default_tag = default_tag
         self._default_stop_count = default_stop_count
@@ -91,6 +92,7 @@ class FakeSurfaceRepository:
         self._default_intersection_count = default_intersection_count
         self._default_accident_count = default_accident_count
         self._accident_years_covered = accident_years_covered
+        self._default_designated = default_designated
         self.calls: list[list[tuple[float, float]]] = []
         self.stop_count_calls: list[list[tuple[float, float]]] = []
 
@@ -123,6 +125,11 @@ class FakeSurfaceRepository:
 
     async def get_accident_years_covered(self) -> int:
         return self._accident_years_covered
+
+    async def get_nearest_designated_flags(
+        self, points: list[tuple[float, float]], max_distance_m: float = 30.0
+    ) -> list[bool]:
+        return [self._default_designated for _ in points]
 
 
 def make_generator(outcomes: list) -> RouteGenerator:
@@ -292,6 +299,36 @@ async def test_traffic_stress_and_bicycle_infra_reflect_nearest_way_tags_when_re
     assert all(seg.bicycle_infra == "separated" for c in candidates for seg in c.segments)
     assert all(c.traffic_stress_score is not None for c in candidates)
     assert all(c.bicycle_infra_score == 100.0 for c in candidates)
+
+
+async def test_traffic_stress_reflects_designation_bonus_when_repository_injected():
+    # 指定路線コンフレーション機構（外部静的データソース T51）。KSJ N10/N12該当は
+    # trafficStressへ+1する。residential(base=2)で確認（primary等は既にクランプ上限4に
+    # 近く効果が見えないため、上乗せの余地があるhighwayを選ぶ）。
+    repository_designated = FakeSurfaceRepository(
+        default_tag="asphalt", default_highway="residential", default_designated=True
+    )
+    repository_not_designated = FakeSurfaceRepository(
+        default_tag="asphalt", default_highway="residential", default_designated=False
+    )
+
+    async def _traffic_stress_values(repository):
+        engine = OpenRouteServiceEngine(
+            FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+            FakeElevationService(),
+            FakeWindService(),
+            RoutePreference(),
+            repository=repository,
+        )
+        generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+        candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+        return {seg.traffic_stress for c in candidates for seg in c.segments}
+
+    designated_values = await _traffic_stress_values(repository_designated)
+    not_designated_values = await _traffic_stress_values(repository_not_designated)
+
+    assert designated_values == {3}
+    assert not_designated_values == {2}
 
 
 async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():

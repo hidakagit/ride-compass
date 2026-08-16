@@ -114,6 +114,43 @@ export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = [
   COLOR_UNKNOWN,
 ];
 
+// 指定路線コンフレーション機構（外部静的データソース T51、国土数値情報N10/N12）の色分け定義。
+// backend/app/infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLの
+// designationプロパティ（emergency_transport/critical_logistics/未該当はプロパティ欠落）と
+// 対応する。トラフィックストレス・自転車インフラと同じroad_surfaceソースの独立レイヤー。
+interface DesignationCategory {
+  key: string;
+  label: string;
+  color: string;
+}
+
+const DESIGNATION_CATEGORIES: DesignationCategory[] = [
+  { key: "emergency_transport", label: "緊急輸送道路（N10）", color: "#b91c1c" },
+  { key: "critical_logistics", label: "重要物流道路（N12）", color: "#1d4ed8" },
+];
+
+// key→labelの対訳表。MapView.tsxのポップアップ表示が参照する（BICYCLE_INFRA_LABELSと同じ理由）。
+export const DESIGNATION_LABELS: Record<string, string> = Object.fromEntries(
+  DESIGNATION_CATEGORIES.map((c) => [c.key, c.label]),
+);
+
+export const DESIGNATION_LEGEND: LegendEntry[] = [
+  ...DESIGNATION_CATEGORIES.map((c) => ({
+    key: c.key,
+    label: c.label,
+    color: c.color,
+    filter: ["==", ["get", "designation"], c.key],
+  })),
+  { key: "unknown", label: "対象外", color: COLOR_UNKNOWN, filter: ["!", ["has", "designation"]] },
+];
+
+export const DESIGNATION_COLOR_EXPRESSION: unknown[] = [
+  "match",
+  ["coalesce", ["get", "designation"], ""],
+  ...DESIGNATION_CATEGORIES.flatMap((c) => [c.key, c.color]),
+  COLOR_UNKNOWN,
+];
+
 // 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 // backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論
 // （involves_bicycle=自転車が当事者A/Bのいずれかに該当、fatal=死者数>0）。
@@ -253,6 +290,7 @@ export const INTERSECTION_RADIUS_EXPRESSION: unknown[] = [
 export type StaticFilterAxisId =
   | "trafficStress"
   | "bicycleInfra"
+  | "designation"
   | "stopPoi"
   | "intersection"
   | "accidentParty"
@@ -269,6 +307,7 @@ export interface StaticFilterAxis {
 export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   { axisId: "trafficStress", layerId: "trafficStress", legend: TRAFFIC_STRESS_LEGEND },
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
+  { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
   { axisId: "stopPoi", layerId: "stopPoi", legend: STOP_POI_LEGEND },
   { axisId: "intersection", layerId: "intersections", legend: INTERSECTION_LEGEND },
   { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
