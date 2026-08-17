@@ -17,8 +17,10 @@ designation_attributesをosm_way_idでDISTINCT JOINする（1つのWayがN10・N
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\measure_axis_stats.py
+    .venv\\Scripts\\python.exe scripts\\measure_axis_stats.py --database-url <collect_jartic.pyで指定したDB>
 """
 
+import argparse
 import asyncio
 import sys
 from pathlib import Path
@@ -310,12 +312,14 @@ async def fetch_accident_years_covered(session: AsyncSession) -> int:
     return result.scalar_one()
 
 
-async def main() -> int:
+async def main(database_url: str | None = None) -> int:
     # infrastructure/database.py: get_engine()はWebリクエスト用にcommand_timeout=20秒を
     # 設定しており（長時間クエリを打ち切って空タイルへ劣化させる設計、同モジュール参照）、
     # 本スクリプトの集計クエリ（全way対象、dev DBで数万way規模）はこれを超えうるため、
     # app/batch/*.pyのバッチスクリプトと同じくタイムアウト無しの専用エンジンを使う。
-    engine = create_async_engine(settings.database_url)
+    # collect_jartic.py/analyze_jartic_calibration.pyと同じ--database-urlで任意のDB
+    # （較正検証時の本番Oracle等）へ向けられる。
+    engine = create_async_engine(database_url or settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with session_factory() as session:
@@ -394,5 +398,11 @@ async def main() -> int:
     return 0
 
 
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database-url", default=None, help="計測対象DB（省略時はsettings.database_url）")
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(_parse_args().database_url)))
