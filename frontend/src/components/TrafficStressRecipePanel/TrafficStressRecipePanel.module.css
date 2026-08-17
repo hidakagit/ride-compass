@@ -43,17 +43,44 @@
   font-size: var(--font-size-sm);
 }
 
-/* ラベル文言+情報アイコンの並び（改善計画: 研究タブの用語日本語化）。.field/.tableLabelの
-   左側（スカラー欄はlabel、highway欄はtdの直接の子）に入れる。 */
+/* ラベル文言+情報アイコンボタンの並び（改善計画: 研究タブの用語日本語化）。.field/
+   .tableLabelの左側（スカラー欄はlabel、highway欄はtdの直接の子）に入れる。 */
 .fieldLabel {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-.infoIcon {
+/* 情報アイコンの開閉ボタン。title属性のホバー表示はスマホのタップでは開かないため
+   （実機フィードバックで判明）、クリック/タップで確実に開くボタンにしている。 */
+.infoButton {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--color-muted);
-  cursor: help;
+  cursor: pointer;
   flex-shrink: 0;
+}
+
+.infoButton[aria-expanded="true"] {
+  color: var(--color-accent-strong);
+}
+
+/* スカラー項目の説明（.field直後に表示、改行して全幅を使う）。 */
+.infoTooltip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+/* highway別基準値テーブルの説明行（本行の直後に追加されるtr、2列分を1セルで使う）。 */
+.infoTooltipCell {
+  padding: 0 0 0.3rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
 }

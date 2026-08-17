@@ -65,11 +65,10 @@ describe("TrafficStressRecipePanel", () => {
       />,
     );
 
-    // ラベルは日本語訳（改善計画: 研究タブの用語日本語化）だが、情報アイコンのtitleに
-    // 元のOSMタグ値「highway=primary」を残しているため、それを手がかりに行を特定する
-    // （"primary_link"の説明文とは前方一致で区別できるよう"。"まで含めて照合する）。
-    const primaryInfoIcon = screen.getByTitle(/^highway=primary。/);
-    const primaryRow = primaryInfoIcon.closest("tr");
+    // ラベルは日本語訳（改善計画: 研究タブの用語日本語化）。highway=primaryのラベルは
+    // 「国道クラスの幹線道路」（情報アイコンのaria-labelを手がかりに行を特定する）。
+    const primaryInfoButton = screen.getByRole("button", { name: "国道クラスの幹線道路の説明を表示" });
+    const primaryRow = primaryInfoButton.closest("tr");
     if (!primaryRow) throw new Error("primary行が見つかりません");
     const primaryInput = within(primaryRow).getByRole("spinbutton");
     fireEvent.change(primaryInput, { target: { value: "2" } });
@@ -78,6 +77,36 @@ describe("TrafficStressRecipePanel", () => {
       ...DEFAULT_TRAFFIC_STRESS_RECIPE,
       base_by_highway: { ...DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway, primary: 2 },
     });
+  });
+
+  it("情報アイコンをクリックすると説明が表示され、もう一度押すと隠れる", async () => {
+    // title属性のホバー表示はスマホのタップでは開かない（実機フィードバックで判明した
+    // バグ）ため、クリック/タップで確実に開閉するボタンであることを検証する回帰テスト。
+    const user = userEvent.setup();
+    render(
+      <TrafficStressRecipePanel
+        overrideEnabled={true}
+        onOverrideEnabledChange={vi.fn()}
+        recipe={DEFAULT_TRAFFIC_STRESS_RECIPE}
+        onRecipeChange={vi.fn()}
+      />,
+    );
+
+    const infoButton = screen.getByRole("button", { name: "専用レーンの補正の説明を表示" });
+    expect(
+      screen.queryByText("cycleway=track（車道と分離された自転車専用レーン）に該当する道路への補正値"),
+    ).not.toBeInTheDocument();
+
+    await user.click(infoButton);
+    expect(
+      screen.getByText("cycleway=track（車道と分離された自転車専用レーン）に該当する道路への補正値"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "専用レーンの補正の説明を隠す" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "専用レーンの補正の説明を隠す" }));
+    expect(
+      screen.queryByText("cycleway=track（車道と分離された自転車専用レーン）に該当する道路への補正値"),
+    ).not.toBeInTheDocument();
   });
 
   it("既定値に戻すボタンでonRecipeChangeがDEFAULT_TRAFFIC_STRESS_RECIPEで呼ばれる", async () => {
