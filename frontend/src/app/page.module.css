@@ -76,6 +76,17 @@
   padding: var(--space-2);
 }
 
+/* 「研究」内のカテゴリ分け（評価の重み/レシピ、改善計画: 研究タブのカテゴリ分け）。
+   MapLayersPanel.module.cssのカテゴリ見出し（.groupTitle、道路状態/交通・安全等）と
+   同じ見た目に揃えるためcomposesで再利用する。 */
+.researchCategory + .researchCategory {
+  margin-top: var(--space-3);
+}
+
+.researchCategoryHeading {
+  composes: groupTitle from "../components/MapLayersPanel/MapLayersPanel.module.css";
+}
+
 /* デバッグモード・バックエンド疎通確認は開発者向けの補助情報のため、他の情報より
    一段控えめな見た目（小さく・淡く）で1行にまとめる */
 .systemRow {
