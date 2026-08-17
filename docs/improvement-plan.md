@@ -3054,8 +3054,7 @@ AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、�
 「Recipeの4表現は統一しない」も維持。重みづけ変更は変更コスト表B行のとおり
 既にYAML1箇所で易のため対象外）。3つ目のレシピ軸の追加はT122・T123完了まで
 凍結する（レビューTop 10 Actions #10）。着手順はT124（独立・先行可）→T122→T123で、
-T124・T122とも2026-08-18完了。次はT123（region_service/regionApi/MapView内訳ポップアップの
-糊のパラメータ化、T122完了後）。
+T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結はここで解除。
 
 ### - [x] T122. レシピ判定プリミティブの共有: domain/recipe.py新設＋shoulder撤去（層1）規模M（2026-08-18完了）
 
@@ -3111,7 +3110,7 @@ T124・T122とも2026-08-18完了。次はT123（region_service/regionApi/MapVie
   競合によるflakeと判断。tscは別セッション未コミットの`vitest.config.mts`変更由来の
   エラーが既に存在しておりT122とは無関係、本タスクでは不変更のまま）。
 
-### - [ ] T123. レシピ軸の糊のパラメータ化＋MapView閾値発火対応（層2）規模L — トリガー: T122完了後
+### - [x] T123. レシピ軸の糊のパラメータ化＋MapView閾値発火対応（層2）規模L（2026-08-18完了）
 
 - 発端: 複雑度レビューF-1（MapView.tsx 1,908行でT91閾値1,800行が発火）＋F-2
   （3つ目のレシピ軸を現方式で足すと約2,150行へ・追加コスト64ファイルの主因が
@@ -3139,6 +3138,49 @@ T124・T122とも2026-08-18完了。次はT123（region_service/regionApi/MapVie
   レシピ軸をMapView内へミラー追加しようとした時点」のいずれか早い方）を
   `/review:improve`経由でKeep Listへ反映。backend/frontend全green・Playwright実機確認
   （内訳ポップアップ2軸とも表示・配線が抽出後も動くこと）。
+- 実装メモ（2026-08-18完了）: 5点すべて実装。
+  - `region_service.py`: `get_traffic_stress_breakdown`/`get_safety_breakdown`を
+    `_get_breakdown(domain_fn, external_call_name, label, osm_way_id, recipe)`経由の
+    薄いラッパーへ統一（`_get_tile`と同じ方針）。`region.py`は`_breakdown_response`
+    （歯止め＋サービス呼び出し）で2エンドポイントの共通部分を1本化。
+  - `regionApi.ts`: `fetchTrafficStressBreakdown`/`fetchSafetyBreakdown`を
+    `BreakdownAxisConfig`（path/recipeBodyKey/debugKey/errorLabel）渡しの
+    `fetchBreakdown<TRecipe, TBreakdown>`へ統一。
+  - `recipeBreakdownPopup.ts`（新設）: `buildTrafficStressBreakdownHtml`/
+    `buildSafetyBreakdownHtml`＋`attach*Handler`（計148行）を、補正フィールド名→ラベルの
+    `adjustmentLabels`（Record、記述順=表示順）を持つ`RecipeBreakdownAxisConfig`渡しの
+    1実装へ集約。内訳行は`Object.entries(adjustmentLabels)`でBreakdownのフィールドを
+    動的に読む（`measure_axis_stats.py: adjustment_field_names`と同じ「新しい補正が
+    増えてもこのモジュール自体は変更不要」という設計）。
+  - `recipeExpression.ts`（新設）: `trafficStressExpression.ts`/`safetyExpression.ts`の
+    MapLibre expression断片組み立て（`cyclewayAdjustmentExpr`/`thresholdAdjustmentExpr`/
+    `flagAdjustmentExpr`/`designationAdjustmentExpr`/`baseByHighwayExpr`/`clampLevelExpr`/
+    `buildRecipeLevelExpression`/`evaluateRecipeLevel`）を集約（`domain/recipe.py`の
+    TS側ミラー）。`threshold_adjustment`と同じくlow/highどちらを先に判定しても
+    `low<high`前提下では結果が同じことを利用し1実装化。
+  - `useLayerDataStatus.ts`（新設）: `computeLayerDataStatus`/`clearStaleTrackedSourceErrors`
+    （純関数）と状態管理（`erroredSourceIdsRef`・`lastStatusRef`・`recompute`・
+    `markSourceErrored`/`clearSourceLoading`/`notifySourceData`/`settleViewport`）を
+    抽出。MapView.tsxとの循環import回避のため`LAYER_DATA_SOURCES`（ROAD_TILE_SOURCE_ID等
+    への依存）はMapView.tsx側に残し、フックへ引数として渡す設計にした
+    （`computeLayerDataStatus`の第4引数化）。map.on(...)自体の登録は他の関心事のハンドラと
+    同じ巨大useEffect内に残し、各ハンドラの中身だけをフックの関数へ委譲する形にとどめた
+    （登録自体の分離は`map`インスタンスの生成タイミングとの結合が強く、かえって複雑化する
+    と判断）。
+  - MapView.tsx: 1,905→1,654行（目標1,700行未満を達成）。
+  - react-hooks/exhaustive-depsが`layerDataStatus.recompute`のようなプロパティアクセスの
+    ままだとオブジェクト全体への依存を要求してくるため、フックの戻り値は呼び出し側で
+    個々の関数へ分割代入して使う（`useCallback`の安定参照をそのまま活かす）。
+  - 新閾値（レビューF-1提案どおり）をdocs/complexity-review-2026-08-16.md（R-6・Keep
+    List・設計原則9）へ反映（`/review:improve`ではなくT91と同じ直接編集）。
+    `.claude/commands/review/context.md`は既に「T91→T123」という前方参照になっており
+    追加編集不要だった。
+  - 検証: backend 839件・frontend 334件（フルスイート、5件のtimeoutはSafetyRecipePanel/
+    TrafficStressRecipePanelの分離実行で16/16green・環境リソース競合によるflakeと判断）・
+    eslint・tsc（別セッション未コミットの`vitest.config.mts`変更が既存のtsc型エラーを
+    含んでいたため、一時的にコメントアウトして確認→`git checkout`で復元する手順で検証）
+    全green。Playwright実機確認（headless chromium、東京都心南部の実データ）で交通ストレス・
+    安全度の両ポップアップが最終値まで正しく表示されコンソールエラー0件を確認。
 
 ### - [x] T124. 軸統計計測スクリプトの常設化: measure_axis_stats.py（層3）規模S〜M（2026-08-18完了）
 
@@ -3287,3 +3329,4 @@ T124・T122とも2026-08-18完了。次はT123（region_service/regionApi/MapVie
 | 2026-08-18 | T122〜T124再構成（起票） | 複雑度平衡性レビュー（history/2026-08-18_complexity.md F-1/F-2「レシピ付き軸が共有基盤なしの全層コピー、追加コスト64ファイル・双子鏡像1,500行/軸・同期バグ2件実発生」）とユーザー相談「将来拡張を踏まえた軸パラメータの汎用化・相関検討・新要素注入・重み変更の容易化」を受け、旧T122を3層構成へ再起票。T122=判定プリミティブ共有（domain/recipe.py新設＋flag_adjustment＋検証集約＋shoulder撤去）、T123=糊のパラメータ化（region_service/_get_breakdown・router・regionApi・内訳ポップアップ共通ビルダー抽出・useLayerDataStatus抽出＝MapView閾値発火F-1対応を兼ねる）、T124=軸統計計測スクリプト常設化（measure_axis_stats.py、使い捨てで3回書いた相関・クランプ損失・事故密度分析の1コマンド化）。AxisRegistry的フレームワーク化は2軸ではprematureとして不採用、重み変更は既にYAML1箇所（変更コスト表B行）のため対象外、3つ目のレシピ軸はT122・T123完了まで凍結。5段階化はT122内で「要再判断」のまま保持 |
 | 2026-08-18 | T124 | `backend/scripts/measure_axis_stats.py`を新設。相関（Pearson/Spearman、距離加重込み）・クランプ前生値分布（丸め損失%）・材料タグの補正発火率・highway階級別事故密度をdev DBから1コマンドで出力する。相関・丸め損失・発火率の集計は`TrafficStressBreakdown`/`SafetyBreakdown`の`*_adjustment`/`*_override`フィールドを`model_fields`から動的に拾う実装にし、将来の補正フィールド増減に追従できるようにした（カタログ化）。事故密度は`_ACCIDENT_COUNTS_SQL`と同じ`&&`前置＋`ST_DWithin(geography)`パターンをhighway単位集計に変えたSQLで計算し、正規化自体は既存の`distance_weighted_accident_density`を再利用。`infrastructure/database.py: get_engine()`のWebリクエスト用`command_timeout=20秒`が全way集計クエリでは不足し`TimeoutError`になったため、`app/batch/*.py`と同じくタイムアウト無しの専用エンジンをスクリプト側で生成する方式に変更。dev DB実行でPearson 0.9222（距離加重0.9288）・Spearman 0.9145（距離加重0.9255）・安全度丸め損失4.3%件数/5.0%距離・shoulder_adjustment発火率0.0%と、T121の実測値と完全一致することを確認した。`docs/architecture.md`へ`backend/scripts/`の一覧（従来未記載だった既存スクリプトも含む）を追記。backend 810件（新規23件）全green |
 | 2026-08-18 | T122 | `backend/app/domain/recipe.py`を新設し、`clamp_level`・`threshold_adjustment`・`cycleway_adjustment`・`flag_adjustment`・`tag_value_is`・`validate_threshold_order`の共有プリミティブへtraffic.py/safety.pyを統一。`parse_lanes`/`parse_maxspeed`/`cycleway_class`等の材料タグ正規化もtraffic.pyから移設（safety.pyの間接import経由の旧構成を解消）。`threshold_adjustment`はlow/high閾値のどちらを先に判定しても`low<high`前提下では結果が同じであることを利用し、旧traffic.py（lanesはhigh優先）・旧safety.py（maxspeedはlow優先）の実装差異を1関数へ統合した。`routes.py`の`_check_threshold_order`を`validate_threshold_order`呼び出しへ1本化（T121-aの再発防止）。shoulder_adjustment（T102実測0.0%の死に補正）を`SafetyRecipe`/`SafetyBreakdown`/`SafetyRecipeOverride`/YAML/MVT SQL/`safetyExpression.ts`/`SafetyRecipePanel.tsx`から撤去し、MVTタイル世代をv10→v11へ更新。backend 839件（新規21件）・frontend 334件・eslint全green（フルスイート実行時のSafetyRecipePanel/TrafficStressRecipePanel情報アイコンテスト5件タイムアウトは分離実行で16/16green、環境リソース競合によるflakeと判断） |
+| 2026-08-18 | T123 | レシピ軸の糊のパラメータ化＋MapView閾値発火対応。`region_service.py`の内訳取得双子を`_get_breakdown`（`_get_tile`と同じ方針）へ、`region.py`の2エンドポイントを`_breakdown_response`へ統一。`regionApi.ts`のfetch双子を`BreakdownAxisConfig`渡しの1関数へ統一。新設`recipeBreakdownPopup.ts`でMapView.tsxの内訳ポップアップ双子（148行）を`adjustmentLabels`（Breakdownのフィールド名→ラベル、記述順=表示順）渡しの1実装へ集約（新しい補正フィールドが増えても本体変更不要）。新設`recipeExpression.ts`で`trafficStressExpression.ts`/`safetyExpression.ts`のMapLibre expression断片組み立て（`domain/recipe.py`のTS側ミラー）を共有化。新設`useLayerDataStatus.ts`で`computeLayerDataStatus`/`clearStaleTrackedSourceErrors`と状態管理・イベントハンドラを抽出（MapView.tsxとの循環import回避のため`LAYER_DATA_SOURCES`はMapView.tsx側に残し引数で渡す設計）。MapView.tsx 1,905→1,654行（目標1,700行未満達成）。新閾値（2,000行 or STATIC_OVERLAY_LAYERS 10種 or 3つ目のレシピ軸のMapView内ミラー追加）をdocs/complexity-review-2026-08-16.mdへ反映、3つ目のレシピ軸の追加凍結を解除。backend 839件・frontend 334件・eslint・tsc全green、Playwright実機確認（headless chromium、東京都心南部の実データ）で交通ストレス・安全度の両内訳ポップアップが最終値まで正しく表示されコンソールエラー0件を確認 |

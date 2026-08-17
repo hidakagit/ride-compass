@@ -12,17 +12,22 @@ import type {
   TrafficStressRecipeOverride,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
-  fetchSafetyBreakdown,
-  fetchTrafficStressBreakdown,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
+import {
+  SAFETY_BREAKDOWN_BUTTON_ATTR,
+  SAFETY_BREAKDOWN_RESULT_ATTR,
+  TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR,
+  TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR,
+  attachSafetyBreakdownHandler,
+  attachTrafficStressBreakdownHandler,
+} from "@/components/Map/recipeBreakdownPopup";
 import {
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
@@ -58,6 +63,7 @@ import {
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
+import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
@@ -651,93 +657,10 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
 ];
 
-// map.on("error"/"sourcedata"/"sourcedataloading", ...)の対象を絞り込むための集合
-// （ルート系・ハロー等、この機構の対象外のsourceIdは無視する）。
-const TRACKED_DATA_SOURCE_IDS = new Set(LAYER_DATA_SOURCES.map((entry) => entry.sourceId));
-
-// computeLayerDataStatusが必要とするMapインスタンスの最小限の形（構造的部分型のため、
-// 実際のMapLibreMapをそのまま渡せる。テストでは最小限のフェイクだけを用意すればよい）。
-interface DataStatusMapLike {
-  getSource(id: string): unknown;
-  isSourceLoaded(id: string): boolean;
-  querySourceFeatures(id: string, options: { sourceLayer: string }): unknown[];
-}
-
-// 表示ON中のレイヤーだけを対象に、(source, source-layer)ごとの現在状態から
-// loading/empty/errorを判定する純粋関数（MapView.segments.test.tsと同じ考え方でテスト可能に
-// エクスポートしている）。判定順序: エラー中 > 未読込(loading) > 読込済みだが0件(empty)。
-// 正常時（既知件数のデータが描画できている状態）はキー自体を持たない。
-export function computeLayerDataStatus(
-  map: DataStatusMapLike,
-  erroredSourceIds: ReadonlySet<string>,
-  visibility: Partial<Record<MapLayerId, boolean>>
-): LayerDataStatusByLayer {
-  const status: LayerDataStatusByLayer = {};
-  // road/trafficStress/bicycleInfra/designationのように複数レイヤーが同じ(sourceId,
-  // sourceLayer)を共有するため、querySourceFeatures（実タイルのフィーチャーを走査する
-  // 軽くない処理）を同じ引数で繰り返し呼ばないよう、この1回の呼び出し内でだけ結果を
-  // メモ化する（レビュー指摘: road_surfaceは実測6,273件、共有4レイヤー分で素朴には
-  // 4倍呼ばれていた。この関数はsourcedata等の高頻度イベントのたびに呼ばれるため無視できない）。
-  const emptyBySourceLayer = new Map<string, boolean>();
-  for (const { key, sourceId, sourceLayer } of LAYER_DATA_SOURCES) {
-    if (!visibility[key]) continue;
-    if (!map.getSource(sourceId)) continue;
-    if (erroredSourceIds.has(sourceId)) {
-      status[key] = "error";
-      continue;
-    }
-    if (!map.isSourceLoaded(sourceId)) {
-      status[key] = "loading";
-      continue;
-    }
-    if (!sourceLayer) continue;
-    const cacheKey = `${sourceId} ${sourceLayer}`;
-    let isEmpty = emptyBySourceLayer.get(cacheKey);
-    if (isEmpty === undefined) {
-      isEmpty = map.querySourceFeatures(sourceId, { sourceLayer }).length === 0;
-      emptyBySourceLayer.set(cacheKey, isEmpty);
-    }
-    if (isEmpty) status[key] = "empty";
-  }
-  return status;
-}
-
-function layerDataStatusEqual(a: LayerDataStatusByLayer, b: LayerDataStatusByLayer): boolean {
-  const aKeys = Object.keys(a) as MapLayerId[];
-  const bKeys = Object.keys(b) as MapLayerId[];
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => a[key] === b[key]);
-}
-
-// T87実機確認で判明した不具合の対策: erroredSourceIdsは「次の取得サイクル開始
-// （sourcedataloading）まで保持」する設計だが、失敗した地点から一度も再取得が発生しない
-// 別の地点（既にタイルがキャッシュ済みの地点）へ移動した場合、sourcedataloading自体が
-// 発火しないためエラー状態が解除される機会が永久に来ず「取得失敗」が誤って残り続けた
-// （バックエンド停止→別地点でエラー発生→バックエンド復旧→キャッシュ済みの元の地点へ戻っても
-// 「取得失敗」表示のまま、という形で実機確認時に再現）。パン/ズームが収束した時点
-// （moveend/zoomend）でも、保留中の取得が無い（isSourceLoaded=true）sourceは
-// 「このビューポートでは問題が無い」とみなしてエラーを解除する。
-//
-// 重要: 呼び出し元はmoveend/zoomend（ビューポートが実際に変わった時点）に限定し、"idle"から
-// 呼んではいけない。MapLibreのisSourceLoaded()は、タイルが'errored'（取得失敗のまま再試行
-// されていない）状態でも「保留中の要求が無い」という理由でtrueを返す（'errored'を'loaded'と
-// 同列に「settled」とみなすため）。ビューポートが変わっていない"idle"でこれを解除条件に使うと、
-// 今まさに進行中の障害（例: バックエンド停止で該当タイルがずっとerrored状態のまま）を
-// 「もう問題ない」と誤って解除してしまい、"取得失敗"表示が"データなし"に化けてしまう
-// （レビューで発見・修正、handleIdleRecompute参照）。moveend/zoomendは定義上ビューポートが
-// 実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは「新しいビューポートの
-// タイルは問題なく決着した」という意味を持てるが、同じ判定を"idle"だけに基づいて行うことは
-// できない。
-export function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSourceIds: Set<string>): boolean {
-  let changed = false;
-  for (const sourceId of erroredSourceIds) {
-    if (map.isSourceLoaded(sourceId)) {
-      erroredSourceIds.delete(sourceId);
-      changed = true;
-    }
-  }
-  return changed;
-}
+// レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus・
+// clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.ts（改善計画T123）に
+// 集約されている。LAYER_DATA_SOURCES自体はSTATIC_OVERLAY_LAYERS等の他の定数と同じくこの
+// ファイルに残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
@@ -924,14 +847,10 @@ const SMOOTHNESS_LABELS: Record<string, string> = {
   impassable: "通行不能",
 };
 
-// 交通ストレスの区間別判定内訳（改善計画T90）。ポップアップ内のボタン・結果表示先を
-// data属性で識別する（HTML文字列としてMapLibreのPopup#setHTMLへ渡すため、Reactの
+// 交通ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。ポップアップ内の
+// ボタン・結果表示先を識別するdata属性・配線ロジックはrecipeBreakdownPopup.ts（改善計画T123）
+// に集約されている（HTML文字列としてMapLibreのPopup#setHTMLへ渡すため、Reactの
 // イベントハンドラは使えず、addTo後にDOMを直接querySelectorして配線する）。
-const TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR = "data-traffic-stress-breakdown-button";
-const TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR = "data-traffic-stress-breakdown-result";
-// 安全度の区間別判定内訳（改善計画: 安全度レシピ）。交通ストレスと同じdata属性方式。
-const SAFETY_BREAKDOWN_BUTTON_ATTR = "data-safety-breakdown-button";
-const SAFETY_BREAKDOWN_RESULT_ATTR = "data-safety-breakdown-result";
 
 function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
   const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
@@ -967,162 +886,6 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
         </div>`
       : "";
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${trafficStressBreakdownAffordance}${safetyBreakdownAffordance}</div>`;
-}
-
-// 「基準値4＋指定路線+1なのに最終値が5でなく4なのはなぜか」という実機フィードバック
-// （改善計画T90への追加対応）を受け、各補正の合計がクランプ範囲を超えたら丸めることを
-// 明示するため導入。交通ストレス5段階化（改善計画）以降、基準値4+指定路線+1のような
-// 単純な合計は上限5でちょうど収まり丸め不要になったが、複数の悪化要因が重なるケース
-// （例: 基準値4+高速+多車線+指定路線=7）は引き続きクランプされるため説明自体は必要。
-// mapLayers.tsのpanelHint「5段階[1=快適〜5=ストレス大]」と同じ語彙で揃える
-// （複雑度平衡の「UI語彙のカタログ集約」原則）。
-const TRAFFIC_STRESS_SCALE_INTRO = "交通ストレスは5段階[1=快適〜5=ストレス大]の目安です。";
-
-function formatSignedTerm(value: number): string {
-  return value >= 0 ? `+${value}` : `${value}`;
-}
-
-function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): string {
-  if (breakdown.level == null) {
-    return `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">この道路種別は交通ストレスの判定基準に登録されていません。</div>`;
-  }
-  const base = breakdown.base ?? 0;
-  const rows = [`基準値[道路種別]: ${base}`];
-  if (breakdown.motor_vehicle_no_override) {
-    rows.push("車両通行不可[自転車専用]のため、上記に関わらず1に固定");
-  } else {
-    const adjustments: Array<{ label: string; value: number }> = [];
-    if (breakdown.cycleway_adjustment !== 0) {
-      adjustments.push({ label: "自転車インフラ", value: breakdown.cycleway_adjustment });
-    }
-    if (breakdown.maxspeed_adjustment !== 0) {
-      adjustments.push({ label: "制限速度", value: breakdown.maxspeed_adjustment });
-    }
-    if (breakdown.lanes_adjustment !== 0) {
-      adjustments.push({ label: "車線数", value: breakdown.lanes_adjustment });
-    }
-    if (breakdown.designation_adjustment !== 0) {
-      adjustments.push({ label: "指定路線[緊急輸送道路等]", value: breakdown.designation_adjustment });
-    }
-    for (const adjustment of adjustments) {
-      rows.push(`${adjustment.label}: ${formatSignedTerm(adjustment.value)}`);
-    }
-    if (adjustments.length > 0) {
-      const rawTotal = base + adjustments.reduce((sum, adjustment) => sum + adjustment.value, 0);
-      const formula = [`${base}`, ...adjustments.map((adjustment) => formatSignedTerm(adjustment.value))].join(" ");
-      if (rawTotal !== breakdown.level) {
-        const boundLabel = rawTotal > 5 ? "上限の5" : "下限の1";
-        rows.push(`合計 ${formula} = ${rawTotal} → ${boundLabel}に丸め`);
-      } else {
-        rows.push(`合計 ${formula} = ${rawTotal}`);
-      }
-    }
-  }
-  rows.push(`<strong>最終値: ${breakdown.level}/5</strong>`);
-  return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${TRAFFIC_STRESS_SCALE_INTRO}<br/><br/>${rows.join("<br/>")}</div>`;
-}
-
-// buildRoadSurfacePopupHtmlが出す「内訳を見る」ボタンをポップアップ表示後に配線する
-// （オンデマンド取得: 道路クリックのたびに毎回問い合わせると、色分けを見ながら地図を
-// 連続でクリックする通常操作でAPIコール・レート制限を無駄に消費するため）。
-// osmWayIdはクリックされたフィーチャーのプロパティ由来（緯度経度の空間マッチではなく
-// 完全一致で引き直す理由はfetchTrafficStressBreakdownのコメント参照）。
-function attachTrafficStressBreakdownHandler(
-  popupElement: HTMLElement,
-  osmWayId: number,
-  trafficStressRecipe: TrafficStressRecipeOverride | undefined,
-) {
-  const button = popupElement.querySelector<HTMLButtonElement>(`[${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR}]`);
-  const resultEl = popupElement.querySelector<HTMLElement>(`[${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}]`);
-  if (!button || !resultEl) return;
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.textContent = "取得中…";
-    try {
-      const breakdown = await fetchTrafficStressBreakdown(osmWayId, trafficStressRecipe);
-      resultEl.innerHTML = breakdown
-        ? buildTrafficStressBreakdownHtml(breakdown)
-        : `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
-    } catch {
-      resultEl.innerHTML = `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
-    } finally {
-      button.remove();
-    }
-  });
-}
-
-// 安全度は4段階固定・丸めありという同じ仕様（domain/safety.py: safety_breakdown、
-// TRAFFIC_STRESS_SCALE_INTROと同じ理由でここも明示する）。
-const SAFETY_SCALE_INTRO = "安全度は4段階[1=安全〜4=危険]の目安です。";
-
-function buildSafetyBreakdownHtml(breakdown: SafetyBreakdown): string {
-  if (breakdown.level == null) {
-    return `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">この道路種別は安全度の判定基準に登録されていません。</div>`;
-  }
-  const base = breakdown.base ?? 0;
-  const rows = [`基準値[道路種別]: ${base}`];
-  if (breakdown.motor_vehicle_no_override) {
-    rows.push("車両通行不可[自転車専用]のため、上記に関わらず1に固定");
-  } else {
-    const adjustments: Array<{ label: string; value: number }> = [];
-    if (breakdown.cycleway_adjustment !== 0) {
-      adjustments.push({ label: "自転車インフラ", value: breakdown.cycleway_adjustment });
-    }
-    if (breakdown.maxspeed_adjustment !== 0) {
-      adjustments.push({ label: "制限速度", value: breakdown.maxspeed_adjustment });
-    }
-    if (breakdown.lanes_adjustment !== 0) {
-      adjustments.push({ label: "車線数", value: breakdown.lanes_adjustment });
-    }
-    if (breakdown.lit_adjustment !== 0) {
-      adjustments.push({ label: "街灯", value: breakdown.lit_adjustment });
-    }
-    if (breakdown.tunnel_adjustment !== 0) {
-      adjustments.push({ label: "トンネル", value: breakdown.tunnel_adjustment });
-    }
-    if (breakdown.designation_adjustment !== 0) {
-      adjustments.push({ label: "指定路線[緊急輸送道路等]", value: breakdown.designation_adjustment });
-    }
-    for (const adjustment of adjustments) {
-      rows.push(`${adjustment.label}: ${formatSignedTerm(adjustment.value)}`);
-    }
-    if (adjustments.length > 0) {
-      const rawTotal = base + adjustments.reduce((sum, adjustment) => sum + adjustment.value, 0);
-      const formula = [`${base}`, ...adjustments.map((adjustment) => formatSignedTerm(adjustment.value))].join(" ");
-      if (rawTotal !== breakdown.level) {
-        const boundLabel = rawTotal > 4 ? "上限の4" : "下限の1";
-        rows.push(`合計 ${formula} = ${rawTotal} → ${boundLabel}に丸め`);
-      } else {
-        rows.push(`合計 ${formula} = ${rawTotal}`);
-      }
-    }
-  }
-  rows.push(`<strong>最終値: ${breakdown.level}/4</strong>`);
-  return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${SAFETY_SCALE_INTRO}<br/><br/>${rows.join("<br/>")}</div>`;
-}
-
-function attachSafetyBreakdownHandler(
-  popupElement: HTMLElement,
-  osmWayId: number,
-  safetyRecipe: SafetyRecipeOverride | undefined,
-) {
-  const button = popupElement.querySelector<HTMLButtonElement>(`[${SAFETY_BREAKDOWN_BUTTON_ATTR}]`);
-  const resultEl = popupElement.querySelector<HTMLElement>(`[${SAFETY_BREAKDOWN_RESULT_ATTR}]`);
-  if (!button || !resultEl) return;
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.textContent = "取得中…";
-    try {
-      const breakdown = await fetchSafetyBreakdown(osmWayId, safetyRecipe);
-      resultEl.innerHTML = breakdown
-        ? buildSafetyBreakdownHtml(breakdown)
-        : `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
-    } catch {
-      resultEl.innerHTML = `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
-    } finally {
-      button.remove();
-    }
-  });
 }
 
 // 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
@@ -1231,15 +994,6 @@ export default function MapView({
   const [initialTilesLoading, setInitialTilesLoading] = useState(true);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
-  // T87: 'error'イベントでsourceIdが追加される。クリアされるのは(a)そのsourceIdに
-  // 'sourcedataloading'（＝新しい取得サイクルの開始）が届いたとき、または(b)ビューポートが
-  // 実際に変わった（moveend/zoomend）時点でisSourceLoaded()がtrueのとき、のいずれか
-  // （clearStaleTrackedSourceErrors参照）。"idle"だけでは解除しない
-  // （isSourceLoadedがtrueに戻っただけでは、失敗したタイル自体は再試行されず「保留中の要求が
-  // 無い」状態になっているだけの可能性があり、ビューポートが変わっていなければ今まさに
-  // 進行中の障害と区別できないため）。
-  const erroredSourceIdsRef = useRef<Set<string>>(new Set());
-  const lastLayerDataStatusRef = useRef<LayerDataStatusByLayer>({});
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -1381,14 +1135,11 @@ export default function MapView({
     }
   }, []);
 
-  // T87: レイヤーデータ状態（loading/empty/error）の再計算。呼び出し元は複数
-  // （tracked sourceのsourcedata/sourcedataloading/errorイベント、表示ON/OFFが変わる
-  // effect）だが、算出そのものはcomputeLayerDataStatus（純粋関数）に閉じているため
-  // ここでは「今のmap・エラー集合・表示状態を渡して呼ぶ」だけ。値が変わらなければ
-  // コールバックを呼ばない（page.tsx側のuseState更新→再レンダーを無駄に発生させないため）。
-  const recomputeLayerDataStatus = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
+  // T87: レイヤーデータ状態（loading/empty/error）の状態管理・再計算はuseLayerDataStatus
+  // （改善計画T123）に集約されている。ここでは「今の表示ON/OFFフラグをどう読むか」だけを
+  // 安定した関数として渡す（redrawPropsRef自体を渡さないのは、フック側をrefの内部構造に
+  // 依存させないため）。
+  const getLayerVisibility = useCallback(() => {
     const {
       showElevation,
       showRoad,
@@ -1399,7 +1150,7 @@ export default function MapView({
       showAccidents,
       showStopPoi,
     } = redrawPropsRef.current;
-    const status = computeLayerDataStatus(map, erroredSourceIdsRef.current, {
+    return {
       elevation: showElevation,
       road: showRoad,
       trafficStress: showTrafficStress,
@@ -1408,11 +1159,19 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
-    });
-    if (layerDataStatusEqual(status, lastLayerDataStatusRef.current)) return;
-    lastLayerDataStatusRef.current = status;
-    onLayerDataStatusChangeRef.current(status);
+    };
   }, []);
+  // useLayerDataStatusは呼び出しのたびに新しいオブジェクトを返すため、依存配列に安定した
+  // 参照を渡せるよう個々の関数を分割代入する（layerDataStatus.recomputeのようにプロパティ
+  // アクセスのまま依存配列へ書くと、react-hooks/exhaustive-depsがオブジェクト全体への依存を
+  // 要求してしまう）。
+  const { recompute: recomputeLayerDataStatus, markSourceErrored, clearSourceLoading, notifySourceData, settleViewport } =
+    useLayerDataStatus({
+      mapRef,
+      layerDataSources: LAYER_DATA_SOURCES,
+      getVisibility: getLayerVisibility,
+      onChangeRef: onLayerDataStatusChangeRef,
+    });
 
   // 地図初期化
   useEffect(() => {
@@ -1555,7 +1314,7 @@ export default function MapView({
     // 路面はベクタタイルのminzoom未満だと描画されないため、ズームのたびに現在のズームと
     // 閾値を比較して「表示範囲が広すぎます」の案内を更新する（データ取得は発生しない、
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
-    // propsを保持するredrawPropsRef.currentを直接読む（recomputeLayerDataStatusと同じ方式）。
+    // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
       const { showRoad, showTrafficStress, showSafety, showBicycleInfra, showDesignation } = redrawPropsRef.current;
       updateRoadZoomHint(
@@ -1592,10 +1351,7 @@ export default function MapView({
       }
       // T87: レイヤーデータ状態の対象sourceで起きたエラーは「取得失敗」として記録する
       // （エラー解除はhandleTrackedSourceDataLoading側、新しい取得サイクルの開始時のみ）。
-      if (sourceId && TRACKED_DATA_SOURCE_IDS.has(sourceId)) {
-        erroredSourceIdsRef.current.add(sourceId);
-        recomputeLayerDataStatus();
-      }
+      if (sourceId) markSourceErrored(sourceId);
     }
     function handleFirstIdle() {
       if (cancelled) return;
@@ -1605,15 +1361,12 @@ export default function MapView({
     // T87: レイヤーデータ状態の対象sourceのタイル取得イベント。新しい取得サイクルの
     // 開始（sourcedataloading）で直前のエラー状態をクリアし、進行・完了（sourcedata）の
     // たびに再計算する（loading/empty/errorいずれも、実際の変化がなければ
-    // recomputeLayerDataStatus内でコールバックを呼ばない）。
+    // recompute内でコールバックを呼ばない）。
     function handleTrackedSourceDataLoading(e: maplibregl.MapSourceDataEvent) {
-      if (!TRACKED_DATA_SOURCE_IDS.has(e.sourceId)) return;
-      erroredSourceIdsRef.current.delete(e.sourceId);
-      recomputeLayerDataStatus();
+      clearSourceLoading(e.sourceId);
     }
     function handleTrackedSourceData(e: maplibregl.MapSourceDataEvent) {
-      if (!TRACKED_DATA_SOURCE_IDS.has(e.sourceId)) return;
-      recomputeLayerDataStatus();
+      notifySourceData(e.sourceId);
     }
     function handleMoveEnd() {
       const bounds = map.getBounds();
@@ -1623,11 +1376,11 @@ export default function MapView({
           ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].map((n) => Number(n.toFixed(4)))
           : null,
       });
-      if (clearStaleTrackedSourceErrors(map, erroredSourceIdsRef.current)) recomputeLayerDataStatus();
+      settleViewport();
     }
     function handleZoomEnd() {
       debugLog("map:viewport", "zoomend", { zoom: Number(map.getZoom().toFixed(2)) });
-      if (clearStaleTrackedSourceErrors(map, erroredSourceIdsRef.current)) recomputeLayerDataStatus();
+      settleViewport();
     }
     // T87実機確認で判明した不具合の対策その2: isSourceLoaded()がtrueになった直後の一瞬は
     // querySourceFeatures()がまだ実際のフィーチャーを返さないタイミングがあり
@@ -1637,7 +1390,8 @@ export default function MapView({
     // 不具合を実機で確認した（road_surfaceに実際は6,273件あるのに「データなし」のまま）。
     // "idle"（描画が一通り落ち着いた状態、sourcedataより後発で頻度は低い）でも継続的に
     // 再計算することで、この種のズレを取りこぼさず収束させる。
-    // 注意: ここではclearStaleTrackedSourceErrorsを呼ばない（handleMoveEnd/handleZoomEndとの
+    // 注意: ここではsettleViewport（clearStaleTrackedSourceErrors）を呼ばない
+    // （handleMoveEnd/handleZoomEndとの
     // 非対称は意図的）。"idle"はビューポートが変わっていなくても発火する（ポップアップを開く・
     // マーカー移動等）ため、"isSourceLoaded()がtrue"であっても「今まさに進行中の障害で
     // 該当タイルがerrored状態のまま留まっている」場合と区別できない
