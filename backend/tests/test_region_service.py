@@ -4,6 +4,7 @@ import time
 import pytest
 
 from app.infrastructure import tile_cache
+from app.infrastructure.debug_log import get_stats, reset_stats
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import region_service as region_service_module
 from app.services.region_service import RegionService
@@ -212,6 +213,40 @@ async def test_traffic_stress_breakdown_db_error_returns_none():
     service = RegionService(repository=repository)
 
     assert await service.get_traffic_stress_breakdown(12345) is None
+
+
+async def test_traffic_stress_breakdown_db_error_is_counted_in_debug_stats():
+    # レビュー指摘の回帰テスト: DB例外パスがfields["lookup"]="error"のみ設定していたため
+    # log_external_callのerror集計（fields["result"]=="error"判定）に載らず、T92夜間502調査
+    # 用に追加したerror_types/last_error_at統計がこのエンドポイントだけ常に空になっていた。
+    reset_stats()
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    await service.get_traffic_stress_breakdown(12345)
+
+    stats = get_stats()["external"]["region:traffic-stress-breakdown"]
+    assert stats["errors"] == 1
+    assert stats["last_error_at"] is not None
+    assert stats["error_types"] == {"RuntimeError": 1}
+    reset_stats()
+
+
+async def test_safety_breakdown_db_error_is_counted_in_debug_stats():
+    # get_traffic_stress_breakdownの回帰テストと同じ観点（コードレビュー指摘）:
+    # get_safety_breakdownは同じDB例外パスがfields["lookup"]="error"のみ設定していたため
+    # log_external_callのerror集計に載っていなかった。
+    reset_stats()
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    assert await service.get_safety_breakdown(12345) is None
+
+    stats = get_stats()["external"]["region:safety-breakdown"]
+    assert stats["errors"] == 1
+    assert stats["last_error_at"] is not None
+    assert stats["error_types"] == {"RuntimeError": 1}
+    reset_stats()
 
 
 # 改善計画T59: ルート生成した地点でしか道路グラフ（road_nodes/road_edges）が構築されず、

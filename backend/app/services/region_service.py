@@ -10,7 +10,7 @@ from app.domain.safety import SafetyBreakdown, SafetyRecipe, safety_breakdown
 from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe, traffic_stress_breakdown
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
-from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
@@ -304,14 +304,18 @@ class RegionService:
         """
         if self._repository is None:
             return None
-        # フィールド名は"result"ではなく"lookup"にする（"result"にすると
-        # log_external_call自身がfields["result"]=="error"を見て二重にWARNINGを出す。
-        # _tile_from_repositoryが"postgis"という専用キーを使っているのと同じ理由）。
         with log_external_call("region:traffic-stress-breakdown", osm_way_id=osm_way_id) as fields:
             try:
                 result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
-                fields["lookup"] = "error"
+                # result="error"はlog_external_call自身の二重WARNINGを招くため、
+                # 詳細な自前WARNINGを出した上でwarned=Trueを立てて抑制する
+                # （/api/debug/statsのerror集計には正しく計上される。debug_log.py参照）。
+                # error_typeは他の呼び出し元（weather_client.py等）と同じくerror_type_labelで
+                # 設定する（省略するとerror_types集計が常に"unknown"になり原因診断に使えない）。
+                fields["result"] = "error"
+                fields["warned"] = True
+                fields["error_type"] = error_type_label(exc)
                 logger.warning(
                     "交通ストレス内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc
                 )
@@ -336,7 +340,11 @@ class RegionService:
             try:
                 result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
-                fields["lookup"] = "error"
+                # get_traffic_stress_breakdownと同じ理由でresult/warned/error_typeを設定する
+                # （fields["lookup"]="error"だけだとlog_external_callのerror集計に載らない）。
+                fields["result"] = "error"
+                fields["warned"] = True
+                fields["error_type"] = error_type_label(exc)
                 logger.warning(
                     "安全度内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc
                 )

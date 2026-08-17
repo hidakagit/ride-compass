@@ -65,6 +65,21 @@ def test_result_error_field_logs_warning_without_exception(caplog):
     assert get_stats()["external"]["test:api"]["errors"] == 1
 
 
+def test_result_error_with_warned_flag_counts_error_without_duplicate_warning(caplog):
+    # 呼び出し元が例外を自前でcatchし、より詳細な文脈付きの独自WARNINGを既に出している場合
+    # （region_service.py: get_traffic_stress_breakdown等）、fields["warned"]=Trueを立てると
+    # ここでの二重WARNING出力だけ抑制しつつ、/api/debug/statsのerror集計には計上される
+    # （改善計画レビュー指摘: 専用フィールド名でresultを避けて集計自体を諦める旧実装の回帰防止）。
+    caplog.set_level(logging.WARNING, logger="ridecompass.external")
+    with log_external_call("test:api") as fields:
+        fields["result"] = "error"
+        fields["warned"] = True
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 0
+    assert get_stats()["external"]["test:api"]["errors"] == 1
+
+
 def test_cache_hit_rate_aggregation():
     for outcome in ["hit", "hit", "hit", "miss"]:
         with log_external_call("test:cache") as fields:
