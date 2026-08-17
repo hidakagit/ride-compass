@@ -2539,6 +2539,37 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+## 天候取得502の再発（2026-08-17・ユーザー報告）
+
+### - [x] T109. Open-Meteo 429による天候取得502の再発を受け、再試行を強化（回数・バックオフ・全体予算） 規模S（2026-08-17完了）
+
+- 発端: ユーザーがデバッグログとシステム状況サマリを提示。`weather:open-meteo`カテゴリの
+  外部呼び出しが5件中5件とも失敗（最終失敗種別`http_429`、平均1946ms・最大2445ms）、
+  フロントには`/api/weather`の502（`天候情報の取得に失敗しました`）が到達していた。
+  T98で導入済みの単発呼び出し対策（`weather_client.py`: `MAX_RETRIES=2`・固定バックオフ
+  0.3秒刻み・3時間以内のstale cache代用）をすり抜けての再発であり、当該座標の
+  stale cacheも無かった（初回アクセス地点だったとみられる）ため完全な502になっていた。
+- 対応: ユーザー承認のうえ「再試行を強化」の方針で実施。
+  - `MAX_RETRIES`を2→4、バックオフを固定0.3秒刻みから指数（`RETRY_BACKOFF_SECONDS=0.5`を
+    基数に`2**attempt`、`RETRY_BACKOFF_CAP_SECONDS=2.0`で単発上限をクランプ）へ変更。
+    Retry-Afterヘッダを尊重する既存挙動もこの上限でクランプするよう統一。
+  - 新規`RETRY_BUDGET_SECONDS=8.0`（待機合計の壁時計予算）を追加し、フロントの
+    fetchタイムアウト（`weatherApi.ts`: 15秒）に対して十分な余裕を残したまま
+    `MAX_RETRIES`に達する前でも打ち切れるようにした。429だけでなくTransportError
+    （ConnectTimeout等）の再試行も同じ予算を共有するため、応答自体が返らない障害が
+    連続した場合の総待機時間の上限も同時に押さえられる。
+  - 既存の再試行テスト（`test_weather_client_cache.py`）は実時間で`asyncio.sleep`していたため
+    `MAX_RETRIES`増加に伴う実行時間増加を避けるべく`asyncio.sleep`をno-opへ差し替える
+    autouseフィクスチャを追加。新規に予算切れで早期打ち切りを検証するテストを1件追加。
+- 完了条件: backend全735件green（新規テスト含む、実時間の追加待機なし）。
+  `RETRY_BUDGET_SECONDS`により429連続時の総待機が実測上限内（バックオフ合計最大
+  0.5+1.0+2.0+2.0=5.5秒、429応答は通常速いため実際の総所要はこれに近い）に収まることを
+  ロジック上確認。根本原因（Render共有IPに対するOpen-Meteo側のレート制限）自体は
+  クライアント側の再試行では解消できないため、有料/専用キー化の検討は
+  今回のスコープ外としてユーザーとの選択肢提示のみ行った（再発時に再検討）。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2625,3 +2656,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T97 | T96でフロントから交差点密度レイヤーの可視化を撤去した後も残っていたバックエンド配信（poi-tilesのintersectionレイヤー）を削除。`_POI_TILE_MVT_SQL`をstop_poi単独のクエリへ簡素化し、`vector_tile.py`・`export_openapi.py`・`region_service.py`・`region.py`のintersection関連記述を整理。ルーティング材料（`get_intersection_counts`・`INTERSECTION_DEGREE_THRESHOLD`）は無変更。`POI_TILE_VERSION`をv1→v2（backend/frontend対で更新）。intersectionレイヤーのDB統合テストを削除、`regionApi.test.ts`を追従。backend 734件・frontend 265件・tsc・eslint全green |
 | 2026-08-17 | T56 | headed Chromium（自前Playwrightスクリプト、Claude Browserペインではない）でデスクトップ・モバイル幅×距離違いで計8回ルート生成し、候補到着直後1.5秒間を150ms間隔で連続撮影（計88枚）して再現性を確認。全ラウンドでタイルの一過性崩れ・コンソールエラーとも観測されず、2026-08-16のheadless環境限定の症状だった可能性が高いと判断しクローズ |
 | 2026-08-17 | T108 | T107（基盤フェーズ）で用意したレシピ上書き機構を実際に触れるUIパネルとして実装。`staticAttributeLayers.ts`の凡例・色分け式をレシピ引数の関数へ変更（既存定数は無破壊）、`MapView.tsx`へ`trafficStressRecipe` propsとライブ更新（`setPaintProperty`・凡例フィルタの動的差し替え）を配線、`TrafficStressRecipePanel`新規（highway別基準値13種＋補正12項目、`WeightPanel`とは独立トグル）、`page.tsx`にstateを追加し地図・内訳ポップアップ・次回生成リクエスト・dirty判定へ配線。`MapLayersPanel`/`MapOverlayControls`は`LegendEntry.filter`を参照しないため無改修で済んだ。frontend 275件・tsc・eslint全green |
+| 2026-08-17 | T109 | ユーザー報告（デバッグログ・システム状況サマリで`weather:open-meteo`が5件中5件`http_429`失敗、`/api/weather`が502）。T98の初版対策（`MAX_RETRIES=2`・固定0.3秒刻み）をすり抜けての再発と判明し、ユーザー選択（再試行強化）を受け対応。`MAX_RETRIES`を2→4、バックオフを固定刻みから指数（基数0.5秒・上限2.0秒でクランプ、Retry-Afterヘッダにも同じ上限適用）へ変更、新規`RETRY_BUDGET_SECONDS=8.0`（待機合計の壁時計予算、フロントfetchタイムアウト15秒に対して余裕を残す）を429・TransportErrorの両再試行経路で共有。既存テストの実待機を無くすため`asyncio.sleep`のno-op置換フィクスチャを追加、予算切れ早期打ち切りの新規テストを追加。backend 735件全green。根本原因（Render共有IPに対するOpen-Meteo側レート制限）自体はクライアント再試行では解消不可のため、有料/専用キー化はユーザーへ選択肢提示のみでスコープ外 |
