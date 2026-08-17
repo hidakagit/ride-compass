@@ -3053,7 +3053,8 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、レビューKEEP
 「Recipeの4表現は統一しない」も維持。重みづけ変更は変更コスト表B行のとおり
 既にYAML1箇所で易のため対象外）。3つ目のレシピ軸の追加はT122・T123完了まで
-凍結する（レビューTop 10 Actions #10）。着手順はT124（独立・先行可）→T122→T123。
+凍結する（レビューTop 10 Actions #10）。着手順はT124（独立・先行可）→T122→T123で、
+T124は2026-08-18完了。次はT122（domain/recipe.py新設）。
 
 ### - [ ] T122. レシピ判定プリミティブの共有: domain/recipe.py新設＋shoulder撤去（層1）規模M — トリガー: 特になし（着手可）
 
@@ -3118,7 +3119,7 @@ AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、�
   `/review:improve`経由でKeep Listへ反映。backend/frontend全green・Playwright実機確認
   （内訳ポップアップ2軸とも表示・配線が抽出後も動くこと）。
 
-### - [ ] T124. 軸統計計測スクリプトの常設化: measure_axis_stats.py（層3）規模S〜M — トリガー: 特になし（独立・先行可）
+### - [x] T124. 軸統計計測スクリプトの常設化: measure_axis_stats.py（層3）規模S〜M（2026-08-18完了）
 
 - 発端: T121〜T121続きの独立性検証で使った相関測定・クランプ前生値分布・材料タグ
   カバレッジ・highway階級別事故密度の各分析は、すべて使い捨てスクリプトで実施して
@@ -3139,6 +3140,25 @@ AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、�
 - 完了条件: dev DBに対して1コマンドで上記4分析が出力され、T121の実測値
   （相関0.9222・丸め損失4.3%/5.0%等）が再現できること。単体テスト（分布・相関計算の
   純関数部分）つきでbackend全green。docs/architecture.mdのscripts一覧に追記。
+- 実装メモ（2026-08-18完了）: 相関・丸め損失・補正発火率の3つは`Breakdown`モデル
+  （`TrafficStressBreakdown`/`SafetyBreakdown`）のフィールドを動的に拾う実装にした
+  （`raw_pre_clamp_level`はbase+全`*_adjustment`フィールドの単純合計、
+  `AdjustmentFiringCounter`は`*_adjustment`/`*_override`フィールド名一覧を
+  `model_fields`から取得）ため、将来レシピへ補正フィールドが増減してもこのスクリプト側の
+  変更は不要（カタログ化）。事故密度は`_ACCIDENT_COUNTS_SQL`と同じ`&&`前置＋
+  `ST_DWithin(geography)`パターンをhighway単位集計に変えたSQLで計算し、密度の正規化
+  自体は既存の`distance_weighted_accident_density`をそのまま再利用（SQL側で再実装しない）。
+  `infrastructure/database.py: get_engine()`はWebリクエスト用に`command_timeout=20秒`が
+  掛かっており、本スクリプトの全way集計クエリ（dev DBで54,342way）はこれを超えて
+  `TimeoutError`になったため、`app/batch/*.py`と同じくタイムアウト無しの専用エンジンを
+  スクリプト側で生成する方式にした。
+  - dev DBで実行し完了条件を確認: Pearson 0.9222（距離加重0.9288）・Spearman 0.9145
+    （距離加重0.9255）、安全度の丸め損失（raw>4）4.3%件数/5.0%距離と、T121の実測値と
+    完全一致した。shoulder_adjustmentの発火率0.0%（死に補正）も再現し、T122での撤去判断
+    の裏付けが自動計測でも再現できることを確認した。
+  - 完了条件どおりbackend全green（810件、新規23件）。docs/architecture.mdの
+    `backend/scripts/`へ本スクリプトを含む一覧を追記（従来このディレクトリは
+    未記載だったため、既存スクリプトも合わせて追記した）。
 
 ---
 
@@ -3244,3 +3264,4 @@ AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、�
 | 2026-08-18 | T121 | ユーザー指示「T121着手して」を受け実施。`_ACCIDENT_COUNTS_SQL`と同じ空間マッチ（30m・involves_bicycle・死亡事故重み付け）でhighway階級別事故密度を実測し、`SAFETY_BASE_BY_HIGHWAY`のtertiary/tertiary_linkが同居先（residential/unclassified）より明確に高密度（3.6〜3.7 vs 1.9〜2.8）と判明。T92と同じ手法でlanes/maxspeed分布も追加検証しsecondaryに近い構造（lanes付与50%・うち81%が2車線）と確認、2→3へ較正（domain/safety.py・safety_recipe.yaml・生成物・テスト13箇所を同期）。cycleway/living_streetの密度がresidentialよりやや高い点は自転車専用インフラの曝露バイアス（正規化していない生密度は自転車量が多い場所ほど見かけ上高くなる）と判断し据え置き。**較正後の相関を再測定したところ0.91→0.96へ上昇**（tertiary系がsecondary系と同じbase=3に揃ったことでTS=3群の安全度分布が58.5%/38.5%の分裂から96.0%集中へ収束したため）。実データに基づく較正が却って2軸を接近させたという想定外の結果を得て、現状の材料タグ構成（shoulder実測0%・dev DBのlit未取込）では2軸の差別化がlit/shoulder/tunnelというごく薄い補正に依存している実態がより明確になったと結論。T122（dev DB再取込等）の優先度がこの結果で上がったと判断し記録。backend 787件・frontend 335件・tsc・eslint全green |
 | 2026-08-18 | T121（続き） | ユーザー指示「lit有効化後に相関再測定してから確かに判断したい」を受け、dev DB（東京都心南部）を`Tokyo.osm.pbf`から現ロード範囲（ST_Extent実測bbox）で再取込（UPSERT冪等）。way数39,878→57,112（差分17,234件はT99のshared_pedestrian_waysルール分17,584件とほぼ一致、想定内）、`lit`タグが0件→6,681件（11.7%）へ有効化。相関を再測定すると0.9559→**0.9222**（距離加重0.9613→0.9288）へ低下し、lit補正の差別化効果を確認。副次的に安全度4段階の上限丸め損失も8.5%/9.5%→**4.3%/5.0%**へ半減しており、T122で予定していた5段階化の根拠（T117の8.3%/9.3%と同水準、という当初の判断）が崩れたため、T122から5段階化を切り離し「要再判断」として記録し直した |
 | 2026-08-18 | T122〜T124再構成（起票） | 複雑度平衡性レビュー（history/2026-08-18_complexity.md F-1/F-2「レシピ付き軸が共有基盤なしの全層コピー、追加コスト64ファイル・双子鏡像1,500行/軸・同期バグ2件実発生」）とユーザー相談「将来拡張を踏まえた軸パラメータの汎用化・相関検討・新要素注入・重み変更の容易化」を受け、旧T122を3層構成へ再起票。T122=判定プリミティブ共有（domain/recipe.py新設＋flag_adjustment＋検証集約＋shoulder撤去）、T123=糊のパラメータ化（region_service/_get_breakdown・router・regionApi・内訳ポップアップ共通ビルダー抽出・useLayerDataStatus抽出＝MapView閾値発火F-1対応を兼ねる）、T124=軸統計計測スクリプト常設化（measure_axis_stats.py、使い捨てで3回書いた相関・クランプ損失・事故密度分析の1コマンド化）。AxisRegistry的フレームワーク化は2軸ではprematureとして不採用、重み変更は既にYAML1箇所（変更コスト表B行）のため対象外、3つ目のレシピ軸はT122・T123完了まで凍結。5段階化はT122内で「要再判断」のまま保持 |
+| 2026-08-18 | T124 | `backend/scripts/measure_axis_stats.py`を新設。相関（Pearson/Spearman、距離加重込み）・クランプ前生値分布（丸め損失%）・材料タグの補正発火率・highway階級別事故密度をdev DBから1コマンドで出力する。相関・丸め損失・発火率の集計は`TrafficStressBreakdown`/`SafetyBreakdown`の`*_adjustment`/`*_override`フィールドを`model_fields`から動的に拾う実装にし、将来の補正フィールド増減に追従できるようにした（カタログ化）。事故密度は`_ACCIDENT_COUNTS_SQL`と同じ`&&`前置＋`ST_DWithin(geography)`パターンをhighway単位集計に変えたSQLで計算し、正規化自体は既存の`distance_weighted_accident_density`を再利用。`infrastructure/database.py: get_engine()`のWebリクエスト用`command_timeout=20秒`が全way集計クエリでは不足し`TimeoutError`になったため、`app/batch/*.py`と同じくタイムアウト無しの専用エンジンをスクリプト側で生成する方式に変更。dev DB実行でPearson 0.9222（距離加重0.9288）・Spearman 0.9145（距離加重0.9255）・安全度丸め損失4.3%件数/5.0%距離・shoulder_adjustment発火率0.0%と、T121の実測値と完全一致することを確認した。`docs/architecture.md`へ`backend/scripts/`の一覧（従来未記載だった既存スクリプトも含む）を追記。backend 810件（新規23件）全green |
