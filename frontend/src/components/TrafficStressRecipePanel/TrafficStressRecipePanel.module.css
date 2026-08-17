@@ -1,6 +1,6 @@
-/* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.field/.input/
-   .resetButton、.group legendを含む）をcomposesで再利用し、base_by_highway用の
-   テーブル表示（.table/.tableLabel）だけをここに追加する。 */
+/* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/
+   .groupChevron/.groupBody/.field/.input/.resetButton）をcomposesで再利用し、
+   base_by_highway用のテーブル表示（.table/.tableLabel）だけをここに追加する。 */
 
 .panel {
   composes: panel from "../WeightPanel/WeightPanel.module.css";
@@ -20,6 +20,20 @@
 
 .group {
   composes: group from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupHeader {
+  composes: groupHeader from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupChevron {
+  composes: groupChevron from "../WeightPanel/WeightPanel.module.css";
+}
+
+/* 「全体的にもう少しコンパクトな形に」という実機フィードバックを受け、gapを
+   共通クラスより詰める（composesした先＝WeightPanel.module.css自体は無変更）。 */
+.groupBody {
+  composes: groupBody from "../WeightPanel/WeightPanel.module.css";
   gap: 0.3rem;
 }
 

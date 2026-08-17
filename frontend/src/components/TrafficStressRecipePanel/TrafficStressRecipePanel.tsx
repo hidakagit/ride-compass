@@ -427,54 +427,82 @@ export default function TrafficStressRecipePanel({
 
       {overrideEnabled && (
         <div className={styles.groups}>
-          <fieldset className={styles.group}>
-            <legend>道路種別ごとの基準値[低→高]</legend>
-            <table className={styles.table}>
-              <tbody>
-                {HIGHWAY_ORDER.map((highway) => (
-                  <HighwayRow
-                    key={highway}
-                    highway={highway}
-                    value={recipe.base_by_highway[highway]}
-                    onChange={(hw, next) =>
-                      onRecipeChange({
-                        ...recipe,
-                        base_by_highway: { ...recipe.base_by_highway, [hw]: next },
-                      })
-                    }
-                  />
-                ))}
-              </tbody>
-            </table>
-          </fieldset>
+          {/* 各グループは折りたたみ（details、改善計画: 研究の中身も折りたたみ式に統一。
+              MapLayersPanel.tsxのレイヤーごとの折りたたみ、T38と同じ構成・デフォルト
+              全閉）。開閉状態は上書きトグル自体のON/OFFとは独立させている。 */}
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              道路種別ごとの基準値[低→高]
+            </summary>
+            <div className={styles.groupBody}>
+              <table className={styles.table}>
+                <tbody>
+                  {HIGHWAY_ORDER.map((highway) => (
+                    <HighwayRow
+                      key={highway}
+                      highway={highway}
+                      value={recipe.base_by_highway[highway]}
+                      onChange={(hw, next) =>
+                        onRecipeChange({
+                          ...recipe,
+                          base_by_highway: { ...recipe.base_by_highway, [hw]: next },
+                        })
+                      }
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
 
-          <fieldset className={styles.group}>
-            <legend>自転車インフラ補正[cycleway]</legend>
-            {CYCLEWAY_FIELDS.map((field) => (
-              <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
-            ))}
-          </fieldset>
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              自転車インフラ補正[cycleway]
+            </summary>
+            <div className={styles.groupBody}>
+              {CYCLEWAY_FIELDS.map((field) => (
+                <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
+              ))}
+            </div>
+          </details>
 
-          <fieldset className={styles.group}>
-            <legend>制限速度補正[maxspeed]</legend>
-            {MAXSPEED_PAIRS.map((field) => (
-              <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
-            ))}
-          </fieldset>
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              制限速度補正[maxspeed]
+            </summary>
+            <div className={styles.groupBody}>
+              {MAXSPEED_PAIRS.map((field) => (
+                <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
+              ))}
+            </div>
+          </details>
 
-          <fieldset className={styles.group}>
-            <legend>車線数補正[lanes]</legend>
-            {LANES_PAIRS.map((field) => (
-              <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
-            ))}
-          </fieldset>
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              車線数補正[lanes]
+            </summary>
+            <div className={styles.groupBody}>
+              {LANES_PAIRS.map((field) => (
+                <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
+              ))}
+            </div>
+          </details>
 
-          <fieldset className={styles.group}>
-            <legend>指定路線補正</legend>
-            {DESIGNATION_FIELDS.map((field) => (
-              <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
-            ))}
-          </fieldset>
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              指定路線補正
+            </summary>
+            <div className={styles.groupBody}>
+              {DESIGNATION_FIELDS.map((field) => (
+                <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
+              ))}
+            </div>
+          </details>
 
           <button
             type="button"

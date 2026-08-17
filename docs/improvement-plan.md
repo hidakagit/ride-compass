@@ -2715,6 +2715,31 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+### - [x] T115. 「研究」の中身（評価重み・交通ストレスレシピの各グループ）をMapLayersPanelと同じ折りたたみ式へ統一 規模M（2026-08-17完了）
+
+- 発端: ユーザー依頼「地図の見え方の中身と同じように、研究の中身も折りたたむようにして。
+  表示しているときのみ折りたたみ解除まで合わせるべきか、どこまで合わせるかは考えて」。
+- 検討: `MapLayersPanel.tsx`のレイヤー折りたたみ（T38、`<details>`+`<summary>`、デフォルト
+  全閉）を精査したところ、開閉状態はレイヤーの表示ON/OFF（`layerVisibility`）とは
+  完全に独立していると判明（OFF中のレイヤーも設定を開いて確認・編集でき、開閉状態は
+  ON/OFFと無関係に保たれる）。この設計は「今どれを見たいか」という純粋なUI都合であり、
+  有効/無効の状態と連動させる理由が無いための独立設計と判断。よって「研究」側も同じ
+  考え方で、各グループの開閉を評価重み/交通ストレスレシピの上書きON/OFFトグルとは
+  連動させず、独立したUI状態として実装した（合わせたのは「details+summary、デフォルト
+  全閉」という折りたたみの仕組みそのものまでで、開閉のトリガー条件までは合わせていない）。
+- 対応: `WeightPanel.tsx`の2つの`<fieldset><legend>`グループ、`TrafficStressRecipePanel.tsx`
+  の5つの`<fieldset><legend>`グループを、いずれも`<details><summary>`（chevron付き）へ
+  変更。CSS（`.groupHeader`/`.groupChevron`/`.groupBody`）は`WeightPanel.module.css`へ
+  新規追加し、`TrafficStressRecipePanel.module.css`は既存のcomposes方式で再利用（新規の
+  重複CSSを作らない）。
+- 完了条件: frontend 278件・tsc・eslint全green（jsdomは`<details>`の閉状態に伴う
+  UAスタイルシート由来の非表示化を再現しないため、既存テストの一部はsummaryクリックで
+  明示的に開いてから検証するよう更新）。headed Playwrightで、両パネルの各グループが
+  初期状態で非表示（折りたたみ済み）であること、summaryクリックで開くこと、再クリックで
+  閉じることを実機で確認、コンソールエラー0件。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2807,3 +2832,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T112 | ユーザー報告「infoアイコンを押しても説明が出ない」。T111の情報アイコンがtitle属性（ホバー依存）実装だったためスマホのタップでは一切開かない設計ミスと判明（デスクトップのマウスホバーでしか検証していなかった）。クリック/タップで確実に開閉するボタン（`aria-expanded`、`MapOverlayControls`の凡例展開トグルと同じ規約）へ作り直し、highway別基準値テーブルは行ごとの専用`HighwayRow`コンポーネントへ切り出して開閉状態を持たせた。frontend 276件（新規1件）・tsc・eslint全green、iPhone 13デバイスエミュレーション＋`tap()`で実機タップを再現しユーザー報告の再現→解消を確認、コンソールエラー0件 |
 | 2026-08-17 | T113 | ユーザー依頼「基準値は低→高で1-4をプログレスバーで選択（将来5・6にも拡張可能に）、補正値は0中心に変動、変動条件はその横に個別設定」。基準値をレベルピッカー（`StressLevelPicker`、地図と色・段階数を共有するため`staticAttributeLayers.ts`の`TRAFFIC_STRESS_COLORS`を新規export）、補正値を0中心バー（`AdjustmentBar`）へ変更。maxspeed/lanesの閾値+補正値は`ThresholdAdjustmentField`/`ThresholdAdjustmentRow`で1行にまとめ、条件を補正値の横で個別編集できるようにした。バーの表示スケールは実機確認で±4だとほぼ見えないと判明し±2へ調整。frontend 277件（新規1件）・tsc・eslint全green、Playwright実機確認（375px幅で横スクロール無し・レベルピッカー/対フィールドの動作・スクリーンショットでの視認性）でコンソールエラー0件 |
 | 2026-08-17 | T114 | ユーザー報告「補正値、水平バーが出ておらず数字入力。入力しにくいので改善して。全体的にもう少しコンパクトな形にしたい」。T113の0中心バーは実機ではmin-widthの塗りが数px程度で知覚されず、数値入力単体もネイティブのスピナー矢印が小さくタップしづらい問題が残っていたと判明。`AdjustmentBar`を廃止し、-/+ボタンで挟んだ色付き数値入力（`AdjustmentStepper`、背景色は`TRAFFIC_STRESS_COLORS`から算出）へ作り直した。あわせて閾値+補正値の対フィールドを縦2段から横並び1行へ、レベルピッカーのボタンサイズ・グループ間gapを詰めてコンパクト化。実装中にラベルが右側の内容に押し縮められて「低速道路」が2行に割れる回帰を発見・修正（`flex-shrink: 0`/`white-space: nowrap`）。frontend 278件（新規1件）・tsc・eslint全green、Playwright実機確認（-ボタンでの実際の値変化・375px幅で横スクロール無し・ラベル折り返し崩れの解消）でコンソールエラー0件 |
+| 2026-08-17 | T115 | ユーザー依頼「地図の見え方の中身と同じように、研究の中身も折りたたむように。表示しているときのみ折りたたみ解除まで合わせるべきか、どこまで合わせるかは考えて」。`MapLayersPanel.tsx`の折りたたみ（T38）を精査し、開閉状態はレイヤーの表示ON/OFFと完全に独立した純粋なUI状態と判明。「研究」側も同じ考え方で、`WeightPanel.tsx`（2グループ）・`TrafficStressRecipePanel.tsx`（5グループ）の`<fieldset><legend>`をすべて`<details><summary>`（chevron付き、デフォルト全閉）へ変更し、開閉は上書きトグルのON/OFFとは連動させなかった（合わせたのは折りたたみの仕組みまでで、開閉のトリガー条件までは合わせていない、という判断を明記）。CSSは`WeightPanel.module.css`へ新規追加しTrafficStressRecipePanel側はcomposesで再利用。frontend 278件・tsc・eslint全green、Playwright実機確認（両パネルとも初期非表示・クリックで開閉）でコンソールエラー0件 |
