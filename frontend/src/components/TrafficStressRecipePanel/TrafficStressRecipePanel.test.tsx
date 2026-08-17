@@ -101,9 +101,11 @@ describe("TrafficStressRecipePanel", () => {
     );
 
     const lowSpeedInfoButton = screen.getByRole("button", { name: "低速道路の説明を表示" });
-    const lowSpeedRow = lowSpeedInfoButton.closest("label")?.parentElement;
+    // ラベル・ステッパー・条件（閾値）は同じ.field div内に横並びで入っている
+    // （改善計画: レシピ入力フォームの改善、ThresholdAdjustmentRowのJSX参照）。
+    const lowSpeedRow = lowSpeedInfoButton.closest("div");
     if (!lowSpeedRow) throw new Error("低速道路の行が見つかりません");
-    // DOM順は補正値の行（AdjustmentBar+入力欄）が先、条件（閾値）の行が後
+    // DOM順は補正値のステッパー入力欄が先、条件（閾値）の入力欄が後
     // （ThresholdAdjustmentRowのJSX順）。
     const [adjustmentInput, thresholdInput] = within(lowSpeedRow).getAllByRole("spinbutton");
 
@@ -117,6 +119,35 @@ describe("TrafficStressRecipePanel", () => {
     expect(onRecipeChange).toHaveBeenLastCalledWith({
       ...DEFAULT_TRAFFIC_STRESS_RECIPE,
       maxspeed_low_adjustment: -3,
+    });
+  });
+
+  it("補正値のステッパーの-/+ボタンで値が1ずつ増減する", async () => {
+    // 改善計画: レシピ入力フォームの改善で、0中心バー+数値入力から-/+ボタン付きの
+    // ステッパーへ変更した（バーが視認できない・数値入力が入力しにくいという
+    // フィードバックへの対応）。
+    const user = userEvent.setup();
+    const onRecipeChange = vi.fn();
+    render(
+      <TrafficStressRecipePanel
+        overrideEnabled={true}
+        onOverrideEnabledChange={vi.fn()}
+        recipe={DEFAULT_TRAFFIC_STRESS_RECIPE}
+        onRecipeChange={onRecipeChange}
+      />,
+    );
+
+    // 既定のcycleway_track_adjustmentは-2。
+    await user.click(screen.getByRole("button", { name: "専用レーンの補正を1減らす" }));
+    expect(onRecipeChange).toHaveBeenLastCalledWith({
+      ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+      cycleway_track_adjustment: -3,
+    });
+
+    await user.click(screen.getByRole("button", { name: "専用レーンの補正を1増やす" }));
+    expect(onRecipeChange).toHaveBeenLastCalledWith({
+      ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+      cycleway_track_adjustment: -1,
     });
   });
 

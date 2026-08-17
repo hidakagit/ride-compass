@@ -188,27 +188,58 @@ function StressLevelPicker({
   );
 }
 
-// 補正値の0中心バー。負値（ストレス軽減）は最も低い段階の色、正値（ストレス増加）は
-// 最も高い段階の色で塗り、TRAFFIC_STRESS_COLORSと連動させる（改善計画: レシピ入力
-// フォームの改善、「補正値は0を中心に変動」という要望への対応）。表示スケールは固定
-// （±ADJUSTMENT_BAR_SCALE）で見た目だけ視覚的にクランプし、実際の入力値そのものには
-// 制限を設けない。既定レシピの補正値は-2〜+1に収まるため、スケールをそれに合わせて
-// 小さくし（±2）±1程度の変化でも塗りが視認できるようにしている（スケールを大きくしすぎると
-// 典型的な値がバーの端にわずかしか塗られず、見た目上「常にほぼ0」に見えてしまうため）。
-const ADJUSTMENT_BAR_SCALE = 2;
+// 補正値のステッパー。当初は0中心の水平バー＋数値入力だったが、バーが実際の値の範囲
+// （既定-2〜+1）に対して細すぎて「バーが出ていない」ように見え、かつ数値入力単体（ネイティブの
+// 上下スピナー矢印が小さくタップしづらい）が「入力しにくい」という実機フィードバックを受け、
+// -/+ボタン付きのステッパーへ作り直した（改善計画: レシピ入力フォームの改善）。数値入力欄
+// 自体は残しているため直接タイプでの入力も引き続きできる。入力欄の背景色を負値（ストレス
+// 軽減）は最も低い段階の色、正値（ストレス増加）は最も高い段階の色に塗り、TRAFFIC_STRESS_
+// COLORSと連動させることで「0中心に変動する」という感覚を色だけで確実に伝える
+// （バーの塗り幅のような視認性の問題が起きない）。
 const ADJUSTMENT_NEGATIVE_COLOR = TRAFFIC_STRESS_COLORS[TRAFFIC_STRESS_LEVELS[0]];
 const ADJUSTMENT_POSITIVE_COLOR = TRAFFIC_STRESS_COLORS[TRAFFIC_STRESS_LEVELS[TRAFFIC_STRESS_LEVELS.length - 1]];
 
-function AdjustmentBar({ value }: { value: number }) {
-  const clamped = Math.max(-ADJUSTMENT_BAR_SCALE, Math.min(ADJUSTMENT_BAR_SCALE, value));
-  const widthPct = (Math.abs(clamped) / ADJUSTMENT_BAR_SCALE) * 50;
-  const fillClassName = value < 0 ? styles.adjustmentBarFillNegative : styles.adjustmentBarFillPositive;
-  const fillColor = value < 0 ? ADJUSTMENT_NEGATIVE_COLOR : ADJUSTMENT_POSITIVE_COLOR;
+function AdjustmentStepper({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  const color = value < 0 ? ADJUSTMENT_NEGATIVE_COLOR : value > 0 ? ADJUSTMENT_POSITIVE_COLOR : undefined;
   return (
-    <span className={styles.adjustmentBar} aria-hidden="true">
-      <span className={styles.adjustmentBarCenter} />
-      {/* value===0のときは塗りを描画しない（min-widthでゼロでも見えてしまうのを防ぐ）。 */}
-      {value !== 0 && <span className={fillClassName} style={{ width: `${widthPct}%`, background: fillColor }} />}
+    <span className={styles.stepper}>
+      <button
+        type="button"
+        className={styles.stepperButton}
+        aria-label={`${label}を1減らす`}
+        onClick={() => onChange(value - 1)}
+      >
+        −
+      </button>
+      <input
+        type="number"
+        step="1"
+        aria-label={label}
+        value={value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isNaN(next)) return;
+          onChange(next);
+        }}
+        className={styles.stepperInput}
+        style={color ? { background: color, borderColor: color, color: "#ffffff" } : undefined}
+      />
+      <button
+        type="button"
+        className={styles.stepperButton}
+        aria-label={`${label}を1増やす`}
+        onClick={() => onChange(value + 1)}
+      >
+        ＋
+      </button>
     </span>
   );
 }
@@ -244,8 +275,10 @@ function FieldLabel({
   );
 }
 
-// 閾値を持たない補正値フィールド（自転車インフラ・指定路線）。0中心バー+数値入力を
-// 1行にまとめる（改善計画: レシピ入力フォームの改善）。
+// 閾値を持たない補正値フィールド（自転車インフラ・指定路線）。ラベルとステッパーを
+// 1行にまとめる（改善計画: レシピ入力フォームの改善）。複数の操作要素（-/+ボタンと
+// 数値入力）を子に持つため、単一の対象を暗黙に持つ<label>ではなく<div>で包む
+// （個別のアクセシブル名はAdjustmentStepper側のaria-labelで持たせている）。
 function ScalarInput({
   field,
   recipe,
@@ -259,32 +292,20 @@ function ScalarInput({
   const value = recipe[field.key];
   return (
     <>
-      <label className={styles.field}>
+      <div className={styles.field}>
         <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <span className={styles.adjustmentValue}>
-          <AdjustmentBar value={value} />
-          <input
-            type="number"
-            step="1"
-            value={value}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              if (Number.isNaN(next)) return;
-              onChange({ ...recipe, [field.key]: next });
-            }}
-            className={styles.input}
-          />
-        </span>
-      </label>
+        <AdjustmentStepper label={field.label} value={value} onChange={(next) => onChange({ ...recipe, [field.key]: next })} />
+      </div>
       {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
     </>
   );
 }
 
-// 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路）。補正値（0中心バー+数値、
-// ScalarInputと同じ見た目）の横に、変動条件である閾値を個別入力できるようにする
-// （改善計画: レシピ入力フォームの改善、「変動条件はその横に個別設定できるように」という
-// 要望への対応）。
+// 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路）。補正値のステッパーと
+// 変動条件（閾値）の入力を同じ行に横並びで置く（改善計画: レシピ入力フォームの改善、
+// 「変動条件はその横に個別設定できるように」「全体的にもう少しコンパクトな形に」という
+// 要望への対応。以前は補正値行と閾値行が縦2段だった）。幅が足りない場合はflex-wrapで
+// 折り返す。
 function ThresholdAdjustmentRow({
   field,
   recipe,
@@ -298,41 +319,35 @@ function ThresholdAdjustmentRow({
   const thresholdValue = recipe[field.thresholdKey];
   const adjustmentValue = recipe[field.adjustmentKey];
   return (
-    <div className={styles.pairField}>
-      <label className={styles.field}>
+    <>
+      <div className={styles.field}>
         <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <span className={styles.adjustmentValue}>
-          <AdjustmentBar value={adjustmentValue} />
-          <input
-            type="number"
-            step="1"
+        <span className={styles.pairControls}>
+          <AdjustmentStepper
+            label={field.label}
             value={adjustmentValue}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              if (Number.isNaN(next)) return;
-              onChange({ ...recipe, [field.adjustmentKey]: next });
-            }}
-            className={styles.input}
+            onChange={(next) => onChange({ ...recipe, [field.adjustmentKey]: next })}
           />
+          <span className={styles.thresholdInline}>
+            <span className={styles.thresholdCaption}>条件</span>
+            <input
+              type="number"
+              step="1"
+              aria-label={`${field.label}の条件`}
+              value={thresholdValue}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (Number.isNaN(next)) return;
+                onChange({ ...recipe, [field.thresholdKey]: next });
+              }}
+              className={styles.thresholdInput}
+            />
+            <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
+          </span>
         </span>
-      </label>
-      <label className={styles.thresholdRow}>
-        <span className={styles.thresholdCaption}>条件</span>
-        <input
-          type="number"
-          step="1"
-          value={thresholdValue}
-          onChange={(e) => {
-            const next = Number(e.target.value);
-            if (Number.isNaN(next)) return;
-            onChange({ ...recipe, [field.thresholdKey]: next });
-          }}
-          className={styles.thresholdInput}
-        />
-        <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
-      </label>
+      </div>
       {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </div>
+    </>
   );
 }
 
@@ -386,7 +401,8 @@ function HighwayRow({
 
 // 研究モードでの交通ストレスレシピ上書きUI（改善計画: 交通ストレスレシピ調整UIパネル、
 // T107の次ラウンド。入力欄の見た目は改善計画: レシピ入力フォームの改善で刷新——基準値は
-// 低→高のレベルピッカー、補正値は0中心バー、閾値は補正値の横に個別入力）。WeightPanel
+// 低→高のレベルピッカー、補正値は-/+ボタン付きの色付きステッパー、閾値は補正値の横に
+// 個別入力）。WeightPanel
 // （評価重みの上書き）とは独立したトグルにしている（ユーザー承認済み: レシピは有効化すると
 // 地図の色分けへ即座に反映されるが、重みは次回のルート生成まで反映されないという挙動差が
 // あるため）。上書き中は地図の色分け・凡例による絞り込み（MapView.tsx）・区間クリックの
