@@ -54,8 +54,15 @@
   composes: resetButton from "../WeightPanel/WeightPanel.module.css";
 }
 
+/* table-layout: fixedで列幅を内容依存にせず固定する（改善計画: 交通ストレス5段階化）。
+   標準のauto layoutでは列幅が「その列に属する全行中もっとも幅を要求する内容」で
+   決まるため、他の行（例:「高規格の幹線道路(連絡路)」）の長いラベルにテーブル全体が
+   引きずられ、ラベルが短い行（「自転車専用道」等）でもピッカー列が圧迫されて折り返される
+   不具合が起きていた。.tableValueへ固定幅を与えラベル列は残り幅を使う形にすることで、
+   全行のピッカー列幅を安定させる。 */
 .table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
@@ -65,6 +72,16 @@
 
 .tableLabel {
   font-size: var(--font-size-sm);
+}
+
+/* ピッカー列の固定幅。TRAFFIC_STRESS_LEVELS 5段階分（.levelSegment 1.25rem×5＋gap 2px×4）
+   が折り返さず収まる最小限＋若干の余白。段階数が増える場合はここも合わせて広げる必要がある
+   （TRAFFIC_STRESS_COLORSのキー追加だけでは自動追従しない、数少ない箇所の1つ）。 */
+.tableValue {
+  width: 7.5rem;
+  /* 固定幅化で生まれた余白ぶん、ピッカー（inline-flex、幅は内容依存）を右詰めにする
+     （進捗バー風の見た目を維持）。 */
+  text-align: right;
 }
 
 /* ラベル文言+情報アイコンボタンの並び（改善計画: 研究タブの用語日本語化）。.field/
@@ -77,6 +94,17 @@
      途中で折り返される不具合を防ぐ（.field参照）。 */
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* highway別基準値テーブル（.table）内のラベルは、.fieldLabelのnowrap/flex-shrink:0を
+   打ち消して通常の折り返しへ戻す（改善計画: 交通ストレス5段階化でレベルピッカーが
+   1段増え、モバイル幅で「生活道路(歩車共存)」等の行がテーブル自体を右へ押し広げて
+   画面外へ溢れる不具合が発生。テーブルの列幅は内容依存のため、ラベル側が折り返せないと
+   ピッカー側の幅を確保できずに溢れる。scalar欄（.field、flex-wrap:wrapで行ごと折り返す）
+   とはレイアウト機構が異なるため、テーブル欄はラベル自体の折り返しで幅を吸収する）。 */
+.tableLabel .fieldLabel {
+  flex-shrink: 1;
+  white-space: normal;
 }
 
 /* 情報アイコンの開閉ボタン。title属性のホバー表示はスマホのタップでは開かないため
@@ -114,20 +142,24 @@
 }
 
 /* 基準値のレベルピッカー（改善計画: レシピ入力フォームの改善）。TRAFFIC_STRESS_LEVELSの
-   段階数ぶん.levelSegmentが並ぶ。段階数を変えてもこのCSS自体は変更不要（flexで自動的に
-   並ぶため）。「もう少しコンパクトに」というフィードバックを受け1.5rem→1.25remへ縮小。 */
+   段階数ぶん.levelSegmentが並ぶ。「もう少しコンパクトに」というフィードバックを受け
+   1.5rem→1.25remへ縮小。折り返しはさせない（flex-wrapを試したところ、標準のtable auto
+   layoutでは列幅が全行共有のため他行の長いラベルに引きずられてピッカー自体が1行に
+   収まらず折り返され、5ボタンが3+2の不格好な2段組みになる不具合が起きた）。改善計画
+   （交通ストレス5段階化）でこの問題が起きたため、代わりに.tableValueで列幅自体を
+   固定し、ピッカーは常に1行のまま収まるようにした。 */
 .levelPicker {
   display: inline-flex;
   gap: 2px;
 }
 
 .levelSegment {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 0 !important;
   font-size: 0.7rem;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
