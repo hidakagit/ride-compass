@@ -188,6 +188,12 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
     結果情報(cache="hit"/"miss", result="ok"/"error", status等)を追記してから抜けると、
     完了ログと統計にそれも反映される。失敗(例外、またはresult=="error")はWARNINGで
     常時出力し、成功はDEBUG(debug_mode時のみ実質出力)に留める。
+
+    呼び出し元が例外を自前でcatchし、より詳細な文脈（対象ID等）付きの独自WARNINGを
+    既に出している場合は、result="error"に加えてfields["warned"]=Trueを設定すると、
+    ここでの二重WARNING出力だけ抑制しつつ/api/debug/statsのerror集計には正しく計上される
+    （`_tile_from_repository`のように専用フィールド名でresultを避けて集計自体を
+    諦める必要はない）。
     """
     started = time.monotonic()
     logger.debug("[%s] start %s", category, fields)
@@ -209,6 +215,9 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
         error = fields.get("result") == "error"
         _record(category, elapsed_ms, fields, error=error)
         if error:
-            _throttled_warning(category, "[%s] failed after %dms %s", category, elapsed_ms, _round_floats(fields))
+            if not fields.get("warned"):
+                _throttled_warning(
+                    category, "[%s] failed after %dms %s", category, elapsed_ms, _round_floats(fields)
+                )
         else:
             logger.debug("[%s] done in %dms %s", category, elapsed_ms, fields)

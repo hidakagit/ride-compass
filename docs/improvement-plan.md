@@ -2935,6 +2935,32 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+### - [x] T120. T119レビュー指摘の修正: 安全度内訳のDB例外が/api/debug/statsに計上されない不具合ほか 規模S（2026-08-18完了）
+
+- 発端: T119完了後のコードレビューで、`region_service.py: get_traffic_stress_breakdown`の
+  DB例外処理を`fields["lookup"]="error"`から`fields["result"]="error"`＋`fields["warned"]=True`
+  （`log_external_call`側に新設した二重WARNING抑制フラグ）へ修正した際、同じファイル内の
+  双子メソッド`get_safety_breakdown`には同じ修正が反映されておらず、docstringが「完全に
+  同じ構造」と明言しているにもかかわらず旧パターンのまま残っていることが判明。
+- 対応:
+  - `get_safety_breakdown`のDB例外処理を`get_traffic_stress_breakdown`と同じ
+    `result`/`warned`パターンへ修正（回帰テスト`test_safety_breakdown_db_error_is_counted_
+    in_debug_stats`を追加）。
+  - 両メソッドとも`fields["error_type"]`が未設定だったため、他の`log_external_call`呼び出し元
+    （`weather_client.py`等）と同じ規約（`error_type_label(exc)`を設定）に揃え、
+    `/api/debug/stats`の`error_types`集計が常に`"unknown"`一色になる問題も併せて修正。
+  - `docs/logging.md`に`warned`フラグの使い方（`result`+`warned`+`error_type`の3点セット）を
+    追記（CLAUDE.mdが「ログ方針はdocs/logging.mdに従う」と明記しているにもかかわらず未記載
+    だったため）。
+  - コードレビューでも指摘された「`fields`という汎用dictへ制御用フラグ`warned`を混在させる
+    設計」自体の見直し（専用キーワード引数化等）は、既存の`cache`/`status`/`lookup`等も
+    同様にドキュメント上の慣習に過ぎず型レベルでは予約されていないため許容範囲と判断し、
+    今回は見送り。
+- 完了条件: backend 786件全green（新規2件含む）。frontend側は今回の対象外
+  （`debug_log.py`/`region_service.py`はバックエンドのみ、`docs/logging.md`はドキュメント）。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -3032,3 +3058,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T117 | ユーザー相談「交通ストレスは変動要素が多く1-4は粗い、妥当な段階数を検討・提案して」を受け、実装前にdev DB実データ（39,878way・5,737.6km）でクランプ前の生値分布を実測。raw≥5が8.3%（件数）/9.3%（距離）存在しprimary/trunk/指定路線に集中（従来level4に丸め込まれ区別不能）、下端level2（62%/56%）はタグ欠損由来の一極集中で細分化の材料無しと判明。上限4→5拡張（下限1据え置き）を実測で裏付けたうえで実装。`domain/traffic.py`のクランプ・`domain/difficulty.py`の正規化上限・`trafficStressExpression.ts`のMapLibre expressionを同期、`staticAttributeLayers.ts`へ5色目（新規オレンジ#f97316をlevel4、旧赤#dc2626をlevel5へ引き継ぎ）を追加。`TrafficStressRecipePanel`はT108で段階数可変設計済みのため無改修で追従。作業中、同一ディレクトリで別セッションの「安全度」9軸目実装（未コミット・pytest収集エラー17件で非green）と衝突するリスクを検知し、ユーザー承認のうえgit worktree（`traffic-stress-5levels`ブランチ）で完全分離して実装。backend 736件・frontend 279件・tsc・eslint全green、Playwright実機確認（5段階の色・ラベル・panelHint文言）でコンソールエラー0件 |
 | 2026-08-17 | T118 | ユーザーが本番モバイル実機スクショを提示（T117で5段階化した基準値ピッカーが画面右端から溢れる）。原因は標準table auto-layoutの列幅共有（1行でも長いラベルがあると全行のピッカー列が圧迫される）と判明し、ラベルの折り返し許可＋`table-layout: fixed`＋ピッカー列への固定幅（7.5rem）で解消。副次的に、原因不明のCSSカスケード上書き（クラスセレクタがグローバルbutton既定に上書きされ続ける現象、根本原因は未特定）を`!important`の対症療法で解決。作業中、検証用ポート（8000/3010）が別セッションのプロセスに奪われ誤ったビルドを検証してしまっていたことが判明し、ポートも8001/3011へ分離。backend 736件・frontend 279件・tsc・eslint全green、Playwright実機確認（モバイル390px幅、standaloneサーバー、最短/最長ラベル行とも1行5ボタンで横スクロール無し）で確認 |
 | 2026-08-17 | T119 | ユーザー相談「交通ストレスとは別軸で安全度も作れないか（道路種類・灯り・事故密度等を組み合わせて）」を受け設計・実装。交通ストレスレシピ（T107〜T116）と同じ構造で`domain/safety.py: SafetyRecipe`（highway別基準値＋cycleway/maxspeed/lanes/路肩/街灯/トンネル/指定路線の補正、lanes_lowは不採用）を新設し9軸目として`route_preference.yaml`・両エンジン・API（`/api/routes/generate`・`POST /api/region/safety-breakdown`）へ配線。MVTタイルへ`shoulder`/`lit`材料タグ追加でv9→v10（後方互換のプロパティ追加のみ）。ユーザー選択に基づき事故密度は新レシピへ組み込まず既存`accident_weight`軸のまま`bicycle_only`既定値をFalse→True・死亡事故を`ACCIDENT_FATAL_WEIGHT`(3.0)件分と積算するSUMへ変更（既定挙動として反映、実装時にLEFT JOIN不一致行の誤カウントを自己発見・修正）。フロントは`safetyExpression.ts`（trafficStressExpression.tsのミラー）・`SafetyRecipePanel.tsx`を新規実装し、T113で交通ストレス専用だった基準値ピッカー・補正ステッパー等を`recipeControls.tsx`へ汎用化して両パネルで共有。T117/T118（同日、交通ストレス5段階化＋モバイル幅溢れ修正）と2度のT番号衝突・マージ（`docs/improvement-plan.md`・`architecture.md`・`frontend/src/types/generated/openapi.json`・`TrafficStressRecipePanel.module.css`/`.tsx`）が発生し手動解消、T118のモバイル幅修正は同一構造を持つ`SafetyRecipePanel`へも横展開した。backend 781件・frontend 335件・tsc・eslint全green、DB統合テストはdev機ネイティブPostgreSQLで確認済み |
+| 2026-08-18 | T120 | T119完了後のコードレビューで、`get_traffic_stress_breakdown`のDB例外集計修正（`result`/`warned`パターン）が双子メソッド`get_safety_breakdown`へは反映されていなかったバグを検出・修正。両メソッドとも`error_type`未設定だった問題（error_types集計が常に"unknown"）も併せて修正し、`docs/logging.md`へ`warned`フラグの使い方を追記。backend 786件全green |

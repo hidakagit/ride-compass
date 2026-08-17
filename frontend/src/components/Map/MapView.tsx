@@ -942,7 +942,7 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
     rows.push(`自転車インフラ: ${BICYCLE_INFRA_LABELS[properties.bicycle_infra] ?? properties.bicycle_infra}`);
   }
   if (properties.traffic_stress != null) {
-    rows.push(`交通ストレス: ${properties.traffic_stress}/4`);
+    rows.push(`交通ストレス: ${properties.traffic_stress}/5`);
   }
   if (properties.safety != null) {
     rows.push(`安全度: ${properties.safety}/4`);
@@ -1011,14 +1011,14 @@ function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): str
       const rawTotal = base + adjustments.reduce((sum, adjustment) => sum + adjustment.value, 0);
       const formula = [`${base}`, ...adjustments.map((adjustment) => formatSignedTerm(adjustment.value))].join(" ");
       if (rawTotal !== breakdown.level) {
-        const boundLabel = rawTotal > 4 ? "上限の4" : "下限の1";
+        const boundLabel = rawTotal > 5 ? "上限の5" : "下限の1";
         rows.push(`合計 ${formula} = ${rawTotal} → ${boundLabel}に丸め`);
       } else {
         rows.push(`合計 ${formula} = ${rawTotal}`);
       }
     }
   }
-  rows.push(`<strong>最終値: ${breakdown.level}/4</strong>`);
+  rows.push(`<strong>最終値: ${breakdown.level}/5</strong>`);
   return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${TRAFFIC_STRESS_SCALE_INTRO}<br/><br/>${rows.join("<br/>")}</div>`;
 }
 

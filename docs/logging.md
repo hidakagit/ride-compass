@@ -42,6 +42,12 @@ RideCompassのログはRender（本番）のログストリームだけで障害
   `fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。
 - 「取得できないのが正常」なケース（GSIの守備範囲外等）はerror以外のresult値
   （例: `no_elevation`）にして、WARNINGでログを埋めない。
+- 呼び出し元が例外を自前でcatchし、対象ID等より詳細な文脈付きの独自WARNINGを既に
+  出している場合は、`fields["result"]="error"`に加えて`fields["warned"]=True`を設定する。
+  `log_external_call`自身の二重WARNING出力だけ抑制しつつ、`/api/debug/stats`のerror集計には
+  正しく計上される（`fields["lookup"]`等resultを避ける専用フィールド名にして集計自体を
+  諦める必要はない）。あわせて`fields["error_type"] = error_type_label(exc)`も設定し、
+  `error_types`集計が`"unknown"`一色にならないようにする。
 
 ### 429拒否 → `record_rate_limit_rejection`
 
