@@ -11,6 +11,20 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // jsdom環境の構築はテストファイルごとに毎回発生し（vitestのデフォルトはファイル単位で
+    // 環境を再構築する）、DOMを使わない純ロジックのテスト（services/lib/Map内の式・
+    // フィルタ関数群）にまで一律で課すと無駄なオーバーヘッドになる（実測でsetup/environment
+    // 込みのテスト全体の壁時計時間がテスト本体の実行時間よりずっと大きい要因の一つ）。
+    // render/renderHook/window等のDOM APIを使わないファイルだけ軽量なnode環境に倒す。
+    // 新規ファイルは明示的にここへ加えない限りデフォルトのjsdomのままなので、
+    // DOM依存を後から追加してもテストが静かに壊れることはない。
+    environmentMatchGlobs: [
+      ["src/services/regionApi.test.ts", "jsdom"], // window.location.originを直接参照する
+      ["src/services/**", "node"],
+      ["src/lib/apiError.test.ts", "node"],
+      ["src/components/Map/*.test.ts", "node"], // .tsxのコンポーネントテストは対象外（拡張子で区別）
+      ["src/app/api/**", "node"],
+    ],
     setupFiles: ["./vitest.setup.ts"],
     css: true,
     // frontend/e2e/はPlaywright（別ランナー、npm run test:e2e）専用のため、

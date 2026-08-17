@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -86,7 +87,7 @@ def test_db_status_returns_reachable_false_on_db_error(monkeypatch):
     assert "boom" in body["error"]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="module")
 async def db_status_test_engine(road_graph_session):
     # road_graph_session（conftest.py）へテーブル作成・接続不可時のskipを委譲しつつ、
     # db_status()が使うget_engine()だけ別途ridecompass_test向けに差し替える
@@ -96,6 +97,7 @@ async def db_status_test_engine(road_graph_session):
     await engine.dispose()
 
 
+@pytest.mark.asyncio(loop_scope="module")
 async def test_db_status_returns_table_row_counts_and_import_run_status_for_empty_test_db(
     db_status_test_engine, monkeypatch
 ):

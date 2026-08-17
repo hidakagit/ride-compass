@@ -120,8 +120,11 @@ def test_region_road_surface_tile_is_rate_limited_per_client():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        for _ in range(settings.road_tile_rate_limit_per_minute):
-            assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
+        # 上限-1件は実HTTPを経由せずrate_limiter側を直接埋める（実HTTP120回のラウンドトリップは
+        # 境界値の検証には不要で、テスト実行時間だけを押し上げるため）。境界の1回だけ実リクエストで検証する。
+        for _ in range(settings.road_tile_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
+        assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
         response = client.get("/api/region/road-surface-tiles/14/14551/6447.pbf")
     finally:
         app.dependency_overrides.clear()
@@ -164,7 +167,7 @@ def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_l
 
     try:
         for _ in range(settings.road_tile_rate_limit_per_minute):
-            assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
+            rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
         response = client.get("/api/region/poi-tiles/14/14551/6447.pbf")
@@ -227,7 +230,7 @@ def test_region_traffic_stress_breakdown_rate_limit_is_independent_from_road_sur
 
     try:
         for _ in range(settings.road_tile_rate_limit_per_minute):
-            assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 200
+            rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
         response = client.post("/api/region/traffic-stress-breakdown", json={"osm_way_id": 12345})

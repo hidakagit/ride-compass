@@ -180,8 +180,9 @@ def test_generate_routes_is_rate_limited_per_client():
     app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
 
     try:
-        for _ in range(settings.generate_rate_limit_per_minute):
-            assert client.post("/api/routes/generate", json=REQUEST_BODY).status_code == 200
+        for _ in range(settings.generate_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("generate:testclient", settings.generate_rate_limit_per_minute)
+        assert client.post("/api/routes/generate", json=REQUEST_BODY).status_code == 200
         response = client.post("/api/routes/generate", json=REQUEST_BODY)
     finally:
         app.dependency_overrides.clear()
