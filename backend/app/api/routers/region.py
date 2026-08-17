@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -121,6 +123,21 @@ async def region_poi_tile(
     )
 
 
+async def _breakdown_response(
+    http_request: Request,
+    rate_limit_prefix: str,
+    osm_way_id: int,
+    recipe: Any,
+    service_call: Callable[[int, Any], Awaitable[Any]],
+) -> Any:
+    """交通ストレス・安全度の内訳エンドポイントが共有するリクエスト処理（改善計画T123）。
+    歯止め（レート制限）→サービス呼び出しという共通の骨格だけを引数化する（レシピの
+    APIモデル→domainモデル変換はエンドポイントごとに型が異なるため呼び出し元に残す）。
+    """
+    _check_tile_rate_limit(http_request, rate_limit_prefix)
+    return await service_call(osm_way_id, recipe)
+
+
 class TrafficStressBreakdownRequest(BaseModel):
     osm_way_id: int
     # 研究モードでレシピを上書き中の内訳表示用（改善計画: 交通ストレスレシピ外出し基盤）。
@@ -146,9 +163,10 @@ async def region_traffic_stress_breakdown(
     交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
     不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
     """
-    _check_tile_rate_limit(http_request, "traffic-stress-breakdown")
     recipe = TrafficStressRecipe(**body.traffic_stress_recipe.model_dump()) if body.traffic_stress_recipe else None
-    return await region_service.get_traffic_stress_breakdown(body.osm_way_id, recipe)
+    return await _breakdown_response(
+        http_request, "traffic-stress-breakdown", body.osm_way_id, recipe, region_service.get_traffic_stress_breakdown
+    )
 
 
 class SafetyBreakdownRequest(BaseModel):
@@ -168,6 +186,7 @@ async def region_safety_breakdown(
     完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの
     docstring参照）。
     """
-    _check_tile_rate_limit(http_request, "safety-breakdown")
     recipe = SafetyRecipe(**body.safety_recipe.model_dump()) if body.safety_recipe else None
-    return await region_service.get_safety_breakdown(body.osm_way_id, recipe)
+    return await _breakdown_response(
+        http_request, "safety-breakdown", body.osm_way_id, recipe, region_service.get_safety_breakdown
+    )

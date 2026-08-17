@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -283,10 +285,18 @@ class RegionService:
             y=y,
         )
 
-    async def get_traffic_stress_breakdown(
-        self, osm_way_id: int, recipe: TrafficStressRecipe | None = None
-    ) -> TrafficStressBreakdown | None:
-        """クリックされた道路（osm_way_id）の交通ストレス判定内訳を返す（改善計画T90）。
+    async def _get_breakdown(
+        self,
+        *,
+        domain_fn: Callable[[str | None, dict, bool, Any], Any],
+        external_call_name: str,
+        label: str,
+        osm_way_id: int,
+        recipe: Any,
+    ) -> Any | None:
+        """クリックされた道路（osm_way_id）の判定内訳を返す（get_traffic_stress_breakdown/
+        get_safety_breakdownの共通実装、改善計画T123）。`_get_tile`と同じ「軸固有部分
+        （domain_fn・ログ名・ラベル）だけを引数化して1実装に畳む」方針。
 
         クリック地点の緯度経度から最近傍道路を空間マッチ（`get_nearest_way_tags`）で
         引く方式は、交差点付近など複数の道路が近接する場所で、実際にクリックされた
@@ -295,13 +305,13 @@ class RegionService:
         osm_way_id（`_ROAD_SURFACE_TILE_MVT_SQL`が焼き込み済み）で該当行を曖昧さ無く
         引き直す。
 
-        `recipe`は交通ストレス軸の判定レシピの上書き（省略時はdomain/traffic.py:
-        DEFAULT_TRAFFIC_STRESS_RECIPE）。研究モードでレシピを上書き中は、ポップアップの内訳も
-        上書き中のレシピで計算する（地図の色・ルート採点との整合を保つため）。
+        `recipe`は各軸の判定レシピの上書き（省略時は軸ごとの既定レシピ）。研究モードで
+        レシピを上書き中は、ポップアップの内訳も上書き中のレシピで計算する（地図の色・
+        ルート採点との整合を保つため）。
 
         `repository`未注入（DBなし構成）、または該当way自体が存在しない場合はNone。
-        highwayが判定基準に登録されていない場合はTrafficStressBreakdown(base=None,
-        level=None, ...)（タイル・区間評価と同じ「不明・他」の扱い）。
+        highwayが判定基準に登録されていない場合はbase=None, level=None（タイル・区間評価と
+        同じ「不明・他」の扱い）。
 
         DB例外はNoneへ倒す（改善計画T94・get_road_surface_tile等の`_tile_from_repository`と
         同じグレースフルデグレード方針。ログ・統計も同様に`log_external_call`＋
@@ -309,7 +319,7 @@ class RegionService:
         """
         if self._repository is None:
             return None
-        with log_external_call("region:traffic-stress-breakdown", osm_way_id=osm_way_id) as fields:
+        with log_external_call(external_call_name, osm_way_id=osm_way_id) as fields:
             try:
                 result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
@@ -321,42 +331,33 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                logger.warning(
-                    "交通ストレス内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc
-                )
+                logger.warning("%s内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", label, osm_way_id, exc)
                 return None
             if result is None:
                 fields["lookup"] = "not_found"
                 return None
             fields["lookup"] = "ok"
             highway, tags, is_designated = result
-            return traffic_stress_breakdown(highway, tags, is_designated, recipe)
+            return domain_fn(highway, tags, is_designated, recipe)
 
-    async def get_safety_breakdown(
-        self, osm_way_id: int, recipe: SafetyRecipe | None = None
-    ) -> SafetyBreakdown | None:
-        """クリックされた道路（osm_way_id）の安全度判定内訳を返す（改善計画: 安全度レシピ）。
-        get_traffic_stress_breakdownと完全に同じ構造（空間マッチではなくosm_way_id完全一致で
-        引く理由・DB例外の扱い等は同メソッドのdocstring参照）。
-        """
-        if self._repository is None:
-            return None
-        with log_external_call("region:safety-breakdown", osm_way_id=osm_way_id) as fields:
-            try:
-                result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
-                # get_traffic_stress_breakdownと同じ理由でresult/warned/error_typeを設定する
-                # （fields["lookup"]="error"だけだとlog_external_callのerror集計に載らない）。
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                logger.warning(
-                    "安全度内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc
-                )
-                return None
-            if result is None:
-                fields["lookup"] = "not_found"
-                return None
-            fields["lookup"] = "ok"
-            highway, tags, is_designated = result
-            return safety_breakdown(highway, tags, is_designated, recipe)
+    async def get_traffic_stress_breakdown(
+        self, osm_way_id: int, recipe: TrafficStressRecipe | None = None
+    ) -> TrafficStressBreakdown | None:
+        """交通ストレスの判定内訳（改善計画T90）。共通実装・詳細は`_get_breakdown`参照。"""
+        return await self._get_breakdown(
+            domain_fn=traffic_stress_breakdown,
+            external_call_name="region:traffic-stress-breakdown",
+            label="交通ストレス",
+            osm_way_id=osm_way_id,
+            recipe=recipe,
+        )
+
+    async def get_safety_breakdown(self, osm_way_id: int, recipe: SafetyRecipe | None = None) -> SafetyBreakdown | None:
+        """安全度の判定内訳（改善計画: 安全度レシピ）。共通実装・詳細は`_get_breakdown`参照。"""
+        return await self._get_breakdown(
+            domain_fn=safety_breakdown,
+            external_call_name="region:safety-breakdown",
+            label="安全度",
+            osm_way_id=osm_way_id,
+            recipe=recipe,
+        )

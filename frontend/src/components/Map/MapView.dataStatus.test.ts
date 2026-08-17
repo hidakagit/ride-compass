@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  LAYER_DATA_SOURCES,
-  clearStaleTrackedSourceErrors,
-  computeLayerDataStatus,
-  isRoadSurfaceGroupVisible,
-} from "./MapView";
+import { LAYER_DATA_SOURCES, isRoadSurfaceGroupVisible } from "./MapView";
+import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
 
 // computeLayerDataStatus（改善計画T87）が読む3メソッドだけを持つフェイクmap。
 // getSourceは「そのsourceが追加済みか」、isSourceLoadedは「保留中のタイル要求が無いか」、
@@ -36,19 +32,19 @@ function sourceIdFor(key: string): string {
 describe("computeLayerDataStatus", () => {
   it("表示OFFのレイヤーはキー自体を持たない", () => {
     const map = fakeMap({});
-    const status = computeLayerDataStatus(map, new Set(), { trafficStress: false });
+    const status = computeLayerDataStatus(map, new Set(), { trafficStress: false }, LAYER_DATA_SOURCES);
     expect(status).toEqual({});
   });
 
   it("ソース未追加（初期化直後）のレイヤーもキー自体を持たない", () => {
     const map = fakeMap({ addedSourceIds: [] });
-    const status = computeLayerDataStatus(map, new Set(), { trafficStress: true });
+    const status = computeLayerDataStatus(map, new Set(), { trafficStress: true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({});
   });
 
   it("タイル取得中（isSourceLoaded=false）はloading", () => {
     const map = fakeMap({ unloadedSourceIds: [sourceIdFor("accidents")] });
-    const status = computeLayerDataStatus(map, new Set(), { accidents: true });
+    const status = computeLayerDataStatus(map, new Set(), { accidents: true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({ accidents: "loading" });
   });
 
@@ -56,19 +52,19 @@ describe("computeLayerDataStatus", () => {
     const map = fakeMap({
       emptySourceLayers: [{ sourceId: sourceIdFor("stopPoi"), sourceLayer: "stop_poi" }],
     });
-    const status = computeLayerDataStatus(map, new Set(), { stopPoi: true });
+    const status = computeLayerDataStatus(map, new Set(), { stopPoi: true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({ stopPoi: "empty" });
   });
 
   it("erroredSourceIdsに含まれるsourceはisSourceLoaded/querySourceFeaturesの結果に関わらずerror", () => {
     const map = fakeMap({});
-    const status = computeLayerDataStatus(map, new Set([sourceIdFor("accidents")]), { accidents: true });
+    const status = computeLayerDataStatus(map, new Set([sourceIdFor("accidents")]), { accidents: true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({ accidents: "error" });
   });
 
   it("読込済みかつフィーチャーがあれば正常（キー自体を持たない）", () => {
     const map = fakeMap({});
-    const status = computeLayerDataStatus(map, new Set(), { trafficStress: true });
+    const status = computeLayerDataStatus(map, new Set(), { trafficStress: true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({});
   });
 
@@ -76,20 +72,20 @@ describe("computeLayerDataStatus", () => {
     const map = fakeMap({
       emptySourceLayers: [{ sourceId: sourceIdFor("road"), sourceLayer: "road_surface" }],
     });
-    const status = computeLayerDataStatus(map, new Set(), {
-      road: true,
-      trafficStress: true,
-      bicycleInfra: true,
-      designation: true,
-    });
+    const status = computeLayerDataStatus(
+      map,
+      new Set(),
+      { road: true, trafficStress: true, bicycleInfra: true, designation: true },
+      LAYER_DATA_SOURCES,
+    );
     expect(status).toEqual({ road: "empty", trafficStress: "empty", bicycleInfra: "empty", designation: "empty" });
   });
 
   it("elevation（ラスタ、source-layer無し）はエラー時のみerrorになり、emptyにはならない", () => {
     const map = fakeMap({});
-    const ok = computeLayerDataStatus(map, new Set(), { elevation: true });
+    const ok = computeLayerDataStatus(map, new Set(), { elevation: true }, LAYER_DATA_SOURCES);
     expect(ok).toEqual({});
-    const errored = computeLayerDataStatus(map, new Set([sourceIdFor("elevation")]), { elevation: true });
+    const errored = computeLayerDataStatus(map, new Set([sourceIdFor("elevation")]), { elevation: true }, LAYER_DATA_SOURCES);
     expect(errored).toEqual({ elevation: "error" });
   });
 
@@ -101,12 +97,12 @@ describe("computeLayerDataStatus", () => {
   it("同じ(sourceId, sourceLayer)を共有する4レイヤーが同時に見えていても、querySourceFeaturesは1回しか呼ばれない", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({ querySourceFeaturesCalls: calls });
-    computeLayerDataStatus(map, new Set(), {
-      road: true,
-      trafficStress: true,
-      bicycleInfra: true,
-      designation: true,
-    });
+    computeLayerDataStatus(
+      map,
+      new Set(),
+      { road: true, trafficStress: true, bicycleInfra: true, designation: true },
+      LAYER_DATA_SOURCES,
+    );
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ sourceId: sourceIdFor("road"), sourceLayer: "road_surface" });
   });
@@ -114,7 +110,7 @@ describe("computeLayerDataStatus", () => {
   it("別の(sourceId, sourceLayer)を持つレイヤーはそれぞれ個別にquerySourceFeaturesが呼ばれる", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({ querySourceFeaturesCalls: calls });
-    computeLayerDataStatus(map, new Set(), { road: true, stopPoi: true, accidents: true });
+    computeLayerDataStatus(map, new Set(), { road: true, stopPoi: true, accidents: true }, LAYER_DATA_SOURCES);
     expect(calls).toHaveLength(3);
   });
 });

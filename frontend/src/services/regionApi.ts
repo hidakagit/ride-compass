@@ -83,29 +83,41 @@ export function poiTileUrl(): string {
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
 
-// 交通ストレスの区間別判定内訳（改善計画T90）。地図上の道路クリックで得たosm_way_id
-// （路面タイルのMVTプロパティに含まれる識別子）から判定根拠（ベース値・各補正・最終値）を
-// 取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
+// 交通ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。地図上の道路クリックで
+// 得たosm_way_id（路面タイルのMVTプロパティに含まれる識別子）から判定根拠（ベース値・各補正・
+// 最終値）を取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
 // backend/app/services/region_service.py: get_traffic_stress_breakdownのdocstring参照
 // （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
 //
-// GETではなくPOST+JSONボディなのは、`recipe`（交通ストレスレシピの上書き、研究モードで
-// レシピを上書き中はここにも渡して地図・ルート採点と表示を一致させる）という複雑な
-// オブジェクトをクエリパラメータで渡すのが不自然なため（backend/app/api/routers/region.py参照）。
-export async function fetchTrafficStressBreakdown(
+// GETではなくPOST+JSONボディなのは、`recipe`（レシピの上書き、研究モードでレシピを
+// 上書き中はここにも渡して地図・ルート採点と表示を一致させる）という複雑なオブジェクトを
+// クエリパラメータで渡すのが不自然なため（backend/app/api/routers/region.py参照）。
+//
+// 改善計画T123: 交通ストレス・安全度で完全に同じ構造だった2関数を、軸固有部分（パス・
+// レシピのボディキー・ログキー・エラーメッセージのラベル）だけを設定オブジェクトとして
+// 渡す1関数へ畳んだ（backend/app/services/region_service.py: _get_breakdownと同じ方針）。
+interface BreakdownAxisConfig {
+  path: string;
+  recipeBodyKey: string;
+  debugKey: string;
+  errorLabel: string;
+}
+
+async function fetchBreakdown<TRecipe, TBreakdown extends { level: number | null } | null>(
+  config: BreakdownAxisConfig,
   osmWayId: number,
-  recipe?: TrafficStressRecipeOverride,
-): Promise<TrafficStressBreakdown | null> {
-  const url = `${API_BASE_URL}/api/region/traffic-stress-breakdown`;
+  recipe: TRecipe | undefined,
+): Promise<TBreakdown> {
+  const url = `${API_BASE_URL}${config.path}`;
   const startedAt = performance.now();
-  debugLog("api:traffic-stress-breakdown", "リクエスト開始", { url, osmWayId });
+  debugLog(config.debugKey, "リクエスト開始", { url, osmWayId });
 
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ osm_way_id: osmWayId, traffic_stress_recipe: recipe ?? null }),
+    body: JSON.stringify({ osm_way_id: osmWayId, [config.recipeBodyKey]: recipe ?? null }),
     signal: AbortSignal.timeout(15000),
   });
   const durationMs = Math.round(performance.now() - startedAt);
@@ -113,45 +125,39 @@ export async function fetchTrafficStressBreakdown(
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    debugLog("api:traffic-stress-breakdown", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `交通ストレスの内訳取得に失敗しました[HTTP ${response.status}]`;
+    debugLog(config.debugKey, `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
+    const detail = formatErrorDetail(errorBody?.detail) ?? `${config.errorLabel}の内訳取得に失敗しました[HTTP ${response.status}]`;
     throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
   }
 
-  const data: TrafficStressBreakdown | null = await response.json();
-  debugLog("api:traffic-stress-breakdown", "成功", { durationMs, requestId, level: data?.level });
+  const data: TBreakdown = await response.json();
+  debugLog(config.debugKey, "成功", { durationMs, requestId, level: data?.level });
   return data;
 }
 
-// 安全度の区間別判定内訳（改善計画: 安全度レシピ）。fetchTrafficStressBreakdownと完全に
-// 同じ構造・同じ理由（osm_way_id完全一致・POST+JSONボディの理由は同関数のコメント参照）。
-export async function fetchSafetyBreakdown(
+const TRAFFIC_STRESS_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
+  path: "/api/region/traffic-stress-breakdown",
+  recipeBodyKey: "traffic_stress_recipe",
+  debugKey: "api:traffic-stress-breakdown",
+  errorLabel: "交通ストレス",
+};
+
+export function fetchTrafficStressBreakdown(
   osmWayId: number,
-  recipe?: SafetyRecipeOverride,
-): Promise<SafetyBreakdown | null> {
-  const url = `${API_BASE_URL}/api/region/safety-breakdown`;
-  const startedAt = performance.now();
-  debugLog("api:safety-breakdown", "リクエスト開始", { url, osmWayId });
+  recipe?: TrafficStressRecipeOverride,
+): Promise<TrafficStressBreakdown | null> {
+  return fetchBreakdown(TRAFFIC_STRESS_BREAKDOWN_CONFIG, osmWayId, recipe);
+}
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ osm_way_id: osmWayId, safety_recipe: recipe ?? null }),
-    signal: AbortSignal.timeout(15000),
-  });
-  const durationMs = Math.round(performance.now() - startedAt);
-  const requestId = response.headers.get("x-request-id");
+const SAFETY_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
+  path: "/api/region/safety-breakdown",
+  recipeBodyKey: "safety_recipe",
+  debugKey: "api:safety-breakdown",
+  errorLabel: "安全度",
+};
 
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    debugLog("api:safety-breakdown", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `安全度の内訳取得に失敗しました[HTTP ${response.status}]`;
-    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
-  }
-
-  const data: SafetyBreakdown | null = await response.json();
-  debugLog("api:safety-breakdown", "成功", { durationMs, requestId, level: data?.level });
-  return data;
+export function fetchSafetyBreakdown(osmWayId: number, recipe?: SafetyRecipeOverride): Promise<SafetyBreakdown | null> {
+  return fetchBreakdown(SAFETY_BREAKDOWN_CONFIG, osmWayId, recipe);
 }
 
 export async function refreshBasemapCache(): Promise<void> {

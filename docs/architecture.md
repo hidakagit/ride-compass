@@ -357,6 +357,9 @@ RideCompass/
         MapOverlayControls/MapOverlayControls.tsx ✅ 地図上のON/OFFチップ行＋▶で開く凡例内訳パネル（レイヤー固有の知識を持たない汎用描画係。UI再構成 第2段で全面書き換え、旧⚙ボタン・RoadFilterDialogは廃止。凡例パネルは実機フィードバックを受け位置ズレ・展開挙動を反復修正済み）
         Map/staticAttributeLayers.ts ✅ P1/T50/T51の静的レイヤー色分け・凡例・絞り込み軸カタログ（TRAFFIC_STRESS/BICYCLE_INFRA/DESIGNATION/ACCIDENT/STOP_POI/INTERSECTION、STATIC_FILTER_AXES。7章参照）。buildCategoricalLayerDefsで同型3組を共通化（T82）
         Map/icons.tsx              ✅ 地図上チップ用の自作SVGアイコン群（レイヤー数増加に伴う新規）
+        Map/recipeExpression.ts    ✅ 改善計画T123: trafficStressExpression.ts/safetyExpression.tsが共有するMapLibre expression断片の組み立てヘルパー（backend/app/domain/recipe.py・改善計画T122のTS側ミラー）
+        Map/recipeBreakdownPopup.ts ✅ 改善計画T123: 交通ストレス・安全度の区間別判定内訳ポップアップ（改善計画T90・安全度レシピ）のHTML組み立て＋ボタン配線。MapView.tsxの双子関数（約158行）を軸設定オブジェクト渡しの1実装へ集約
+        Map/useLayerDataStatus.ts   ✅ 改善計画T123: レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus/clearStaleTrackedSourceErrors＋状態管理フック）。MapView.tsxから抽出（2026-08-17レビューDEFER(a)の履行）
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
