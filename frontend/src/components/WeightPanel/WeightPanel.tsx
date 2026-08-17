@@ -109,26 +109,47 @@ export default function WeightPanel({
 
       {overrideEnabled && (
         <div className={styles.groups}>
-          <fieldset className={styles.group}>
-            <legend>おすすめ度の重み[候補一覧内の相対評価]</legend>
-            {SCORING_FIELDS.map((field) => (
-              <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={onScoringWeightsChange} />
-            ))}
-          </fieldset>
+          {/* 各グループは折りたたみ（details、改善計画: 研究の中身も折りたたみ式に統一。
+              MapLayersPanel.tsxのレイヤーごとの折りたたみ（T38、デフォルト全閉）と同じ構成。
+              開閉状態はこのトグル自体のON/OFFとは独立させている（MapLayersPanelの各レイヤーが
+              表示ON/OFFと無関係に開閉できるのと同じ設計判断——上書きが有効な間、個々の
+              グループを開くか閉じるかは純粋に「今どれを見たいか」というUI都合であり、
+              有効/無効の状態と連動させる理由が無いため）。 */}
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              おすすめ度の重み[候補一覧内の相対評価]
+            </summary>
+            <div className={styles.groupBody}>
+              {SCORING_FIELDS.map((field) => (
+                <WeightInput
+                  key={String(field.key)}
+                  field={field}
+                  values={scoringWeights}
+                  onChange={onScoringWeightsChange}
+                />
+              ))}
+            </div>
+          </details>
 
-          <fieldset className={styles.group}>
-            <legend>区間難易度の重み[絶対評価]</legend>
-            {PREFERENCE_FIELDS.map((field) => (
-              <WeightInput
-                key={String(field.key)}
-                field={field}
-                values={routePreference}
-                onChange={onRoutePreferenceChange}
-              />
-            ))}
-            {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
-            <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
-          </fieldset>
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              区間難易度の重み[絶対評価]
+            </summary>
+            <div className={styles.groupBody}>
+              {PREFERENCE_FIELDS.map((field) => (
+                <WeightInput
+                  key={String(field.key)}
+                  field={field}
+                  values={routePreference}
+                  onChange={onRoutePreferenceChange}
+                />
+              ))}
+              {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
+              <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
+            </div>
+          </details>
 
           <button
             type="button"

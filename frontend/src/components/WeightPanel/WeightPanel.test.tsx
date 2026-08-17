@@ -19,7 +19,11 @@ describe("WeightPanel", () => {
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
 
-  it("上書き有効時はscoring 4値+preference 8値の入力欄を表示する", () => {
+  it("上書き有効時はscoring 4値+preference 8値の入力欄を表示する", async () => {
+    // 改善計画: 研究の中身も折りたたみ式に統一（MapLayersPanelのレイヤー折りたたみと
+    // 同じ構成）。各グループはdetailsでデフォルト全閉のため、中の入力欄は開くまで
+    // アクセシビリティツリー上に現れない（jsdomもブラウザと同じ挙動）。
+    const user = userEvent.setup();
     render(
       <WeightPanel
         overrideEnabled={true}
@@ -30,6 +34,9 @@ describe("WeightPanel", () => {
         onRoutePreferenceChange={vi.fn()}
       />,
     );
+
+    await user.click(screen.getByText("おすすめ度の重み[候補一覧内の相対評価]"));
+    await user.click(screen.getByText("区間難易度の重み[絶対評価]"));
 
     expect(screen.getAllByRole("spinbutton")).toHaveLength(12);
   });

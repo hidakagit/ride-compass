@@ -17,19 +17,50 @@
   gap: var(--space-3);
 }
 
+/* グループの折りたたみ（details、改善計画: 研究の中身も折りたたみ式に統一）。
+   MapLayersPanel.module.cssの.layerSection/.layerHeader/.chevron/.layerBodyと同じ
+   構成・デフォルト全閉（T38を踏襲）。上書きトグル自体のON/OFFとは独立した状態として
+   個々に開閉できる。 */
 .group {
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-3);
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  min-height: 2rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  list-style: none;
+}
+
+.groupHeader::-webkit-details-marker {
+  display: none;
+}
+
+.groupChevron {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--color-neutral);
+  border-bottom: 2px solid var(--color-neutral);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.group[open] > .groupHeader .groupChevron {
+  transform: rotate(45deg);
+}
+
+.groupBody {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-}
-
-.group legend {
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  padding: 0 0.25rem;
+  padding-bottom: var(--space-2);
 }
 
 .field {
