@@ -981,6 +981,30 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
     正当化するには材料不足のため、既定値は変更しない。
   - backend全green（847件、新規16件）。
 
+**実装結果（続き・本番相当スケールでの再検証、2026-08-18）**: ユーザー指示によりdev DBの
+カバレッジ制約を解消するため本番Oracle DBで再検証。事前に読み取り専用で本番`osm_raw_ways`
+を確認（1,329,632way、関東本土bbox内1,327,099件=99.8%、緯度30度未満の外れ値は315件=0.02%と
+軽微、migration 0001-0009はローカルと完全一致でラグ無し、`EXPLAIN ANALYZE`でLATERAL最近傍
+マッチが133万way規模でも索引利用・9.3ms/クエリと確認）、追加のPBF再取込（最新化）は不要と
+判断（全行`updated_at`が2026-08-16 18:13で統一されておりこの時点で既に最新）。
+`collect_jartic.py --database-url`（新規、collect_jartic.pyには元々存在。
+`analyze_jartic_calibration.py`側にも同じ引数を追加）で同じ4日分（2026-08-14〜17）を
+本番へ再収集し、分析を再実行:
+
+- マッチ観測点数がn=8→**n=68**（8.5倍）に拡大し、level3（1件）・level4（7件）・
+  level5（60件）の3段階を横断（level1-2は依然0件、後述）。level昇順に平均交通量が
+  単調非減少（level3: 16,652台/日 → level4: 23,573台/日 → level5: 29,762台/日、YES）を
+  維持したが、相関は弱まった（Pearson 0.179・Spearman 0.164、n=8時点の0.224/0.378より
+  低下）。level5内の分散が非常に大きい（最小6,773〜最大64,146台/日、約9.5倍）ことが
+  主因と分析: JARTIC road_type=3（一般道）の観測点はそもそも幹線道路への設置に偏っており
+  （観測点の88%=60/68がlevel5に集中）、同じhighway階級内でも都市部幹線と郊外幹線で
+  実交通量が大きく異なるため、観測点の設置場所自体に高LTS側への選択バイアスがある
+  （level1-2に相当する住宅街の道路はJARTICの継続観測対象になりにくい、データソース
+  自体の構造的限界）。方向性（単調性）は維持されており`TRAFFIC_STRESS_BASE_BY_HIGHWAY`
+  の想定と矛盾しないため、既定値は変更しない。分析後、`traffic_stations`/
+  `traffic_hourly`は設計どおり本番から削除済み（`DROP TABLE`、削除確認済み）。
+  backend全green（847件、変更なし。`--database-url`追加は純関数への影響なし）。
+
 ### - [x] T54. 既取込データの可視化漏れ解消（停止要因POI・交差点密度レイヤー）規模S〜M（2026-08-16完了）
 
 - 背景: 2026-08-16の棚卸しで判明。`osm_raw_pois`（信号・横断歩道・一時停止・踏切、
@@ -3449,3 +3473,4 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 | 2026-08-18 | T125 | `frontend/vitest.config.mts`へ`testTimeout: 15000`を追加。vitest既定の5000msがnode_modules未インストール直後等のコールドスタート（Vite変換・jsdom環境セットアップ、実測初回6.4秒）と競合しSafetyRecipePanel/TrafficStressRecipePanel等のテストがタイムアウトで落ちる偽陽性（T121〜T123で繰り返し観測）を解消。作業ディレクトリが並行セッションと共有されておりnode_modules削除は他セッションを巻き込むリスクがあるため、完了条件の検証は`node_modules/.vite`（Vite変換キャッシュ）削除によるコールド状態再現に代えて実施し、334件全green（タイムアウト失敗0件）を確認。副次的に、同ファイルの`environmentMatchGlobs`（別コミットbe9fc95由来）がインストール済みvitest 4.1.10に存在しない設定でCIのtsc gateを壊している疑いを発見、T125のスコープ外のため別タスクとして切り出した |
 | 2026-08-18 | T126 | `vitest.config.mts`の`environmentMatchGlobs`（Vitest 1〜3系のオプション、インストール済み4.1.10では廃止済み）を修正。`npx tsc --noEmit`のInlineConfig型エラーの原因であり、`typeof window`プローブで確認したところランタイムでも無視されておりnode環境への振り分けが機能していなかった。Vitest 4の`test.projects`はファイル探索単位が変わり対象外テストが静かに漏れるリスクがあるため不採用とし、対象15ファイルへ`// @vitest-environment node`docblockを個別付与する方式へ置き換えた。付与作業中に`MapView.overlayFilters.test.ts`が実際は`window.location`参照コード経路（`accidentTileUrl`）を持ちjsdomが必要（旧設定は誤ってnode指定していたが機能しておらず表面化していなかった）と判明し、このファイルのみdocblockを付けず解消。`npx tsc --noEmit`エラー0件・`npx vitest run`334件全green・eslint全green |
 | 2026-08-18 | T53 | `backend/scripts/collect_jartic.py`（JARTIC WFS収集）・`analyze_jartic_calibration.py`（LTS段階×実交通量の突き合わせ）を新設。収集側は実装中に2つの実測起点の落とし穴を解消（`時間帯`ではなく自己完結な`時間コード`からの日時parseへ変更／このGeoServerデプロイが`count`/`startIndex`ページングを完全無視すると確認し時間コード完全一致・1時間1リクエストのループ方式へ設計変更）。分析側もLATERAL内KNNを`geography`キャストすると`osm_raw_ways.geom`のGiST索引を使えず全表スキャン化することを実測で発見し、KNNは`geometry`のまま・距離判定のみ`ST_DWithin(geography)`にして解消。2026-08-14〜17の4日分・関東本土全域を実DBへ収集（106観測点）したが、dev DBの`osm_raw_ways`が東京都心南部のみのカバレッジ（実測extent: lon 139.61-139.87, lat 35.58-35.79）のため30m以内にマッチする観測点はn=8（level4/5のみ）にとどまった。この範囲内ではlevel昇順に平均交通量が単調非減少（20,787→24,897台/日、Pearson 0.224・Spearman 0.378）で`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の想定と矛盾しないが、n=8・2段階のみのため統計的な結論には不十分と判断し、基準値は変更せず分析結果の記録のみで完了とした（より広い較正には本番相当のosm_raw_ways投入が必要、現状スコープ外）。backend 847件（新規16件）全green |
+| 2026-08-18 | T53（本番相当スケールで再検証） | ユーザー指示「本番DBには関東全域なOSMデータがある認識で、確認・最新化した上で較正検証できるか」を受け実施。読み取り専用で本番Oracle DBを事前確認: `osm_raw_ways` 1,329,632件（関東本土bbox内99.8%、外れ値0.02%）、migration 0001-0009ラグ無し、133万way規模でもLATERAL最近傍マッチは索引利用9.3ms（`EXPLAIN ANALYZE`実測）、全行`updated_at`が2026-08-16で統一済みのため追加のPBF再取込（最新化）は不要と判断。`analyze_jartic_calibration.py`へ`collect_jartic.py`と同じ`--database-url`引数を追加し、同じ4日分を本番へ再収集・再分析（ユーザー確認済みの方針どおり分析後に`DROP TABLE`で本番から削除）。マッチ観測点n=8→**68**に拡大しlevel3-5を横断、単調性は維持（16,652→23,573→29,762台/日、YES）したが相関はn=8時点より弱まった（Pearson 0.179・Spearman 0.164）。原因はJARTIC road_type=3観測点が幹線道路設置に偏る選択バイアス（68件中60件=88%がlevel5に集中、level5内の分散が最小6,773〜最大64,146台/日と大きい）と分析。方向性は矛盾しないため既定値は変更せず、より大きな標本でも同じ結論（記録のみで完了）を確認した。backend 847件（変更なし）全green |

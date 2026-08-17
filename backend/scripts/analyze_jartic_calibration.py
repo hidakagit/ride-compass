@@ -26,8 +26,10 @@ sys.path.insert(scripts/)パターンと同じ前提）。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\analyze_jartic_calibration.py
+    .venv\\Scripts\\python.exe scripts\\analyze_jartic_calibration.py --database-url <collect_jartic.pyで指定したDB>
 """
 
+import argparse
 import asyncio
 import statistics
 import sys
@@ -162,10 +164,12 @@ async def fetch_station_volumes(session: AsyncSession) -> dict[int, float]:
     return {row.station_id: float(row.total_volume) / row.days_observed for row in result.all()}
 
 
-async def main() -> int:
+async def main(database_url: str | None = None) -> int:
     # measure_axis_stats.pyと同じ理由（get_engine()の20秒command_timeoutはWebリクエスト用で
     # 本スクリプトの集計クエリには短すぎうる）でタイムアウト無しの専用エンジンを使う。
-    engine = create_async_engine(settings.database_url)
+    # collect_jartic.pyの--database-urlと同じく、既定はsettings.database_url（dev機）だが
+    # 引数で任意のDB（較正検証時の本番Oracle等）へ向けられる。
+    engine = create_async_engine(database_url or settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with session_factory() as session:
@@ -223,5 +227,11 @@ async def main() -> int:
     return 0
 
 
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database-url", default=None, help="分析対象DB（省略時はsettings.database_url）")
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(_parse_args().database_url)))
