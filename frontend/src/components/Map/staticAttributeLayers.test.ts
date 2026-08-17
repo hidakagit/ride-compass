@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import type { LegendEntry } from "./legendFilter";

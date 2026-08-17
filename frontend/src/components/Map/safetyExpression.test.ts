@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import testCases from "@/types/generated/safety-test-cases.json";
 import {

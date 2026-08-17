@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WeatherConditions } from "@/types/weather";
 import { getCurrentWeather } from "./weatherApi";
