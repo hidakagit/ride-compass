@@ -53,6 +53,11 @@ _INTERSECTION_DENSITY_HARD_SCORE = 100.0
 _ACCIDENT_DENSITY_MAX_PER_KM_YEAR = 0.5
 _ACCIDENT_DENSITY_HARD_SCORE = 100.0
 
+# 安全度(1-4、domain/safety.py: safety_level)の目安: 1が最も安全(易しい)で4が最も危険(大変)。
+# 交通ストレスと同じ1-4→0-100の区分線形（改善計画: 安全度レシピ、9軸目）。
+_SAFETY_MIN_LEVEL = 1
+_SAFETY_MAX_LEVEL = 4
+
 
 def _piecewise_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
     if value <= breakpoints[0][0]:
@@ -138,9 +143,21 @@ def accident_difficulty(accident_count_per_km_year: float | None) -> float | Non
     return round(clamped / _ACCIDENT_DENSITY_MAX_PER_KM_YEAR * _ACCIDENT_DENSITY_HARD_SCORE, 1)
 
 
+def safety_difficulty(safety_level_value: int | None) -> float | None:
+    """安全度(1-4、domain/safety.py: safety_level)を難易度へ変換する。
+    レベルが高いほど危険＝走りにくいため単調増加。判定不能（未知のhighway等）はNone。
+    traffic_stress_difficultyと同じ区分線形。"""
+    if safety_level_value is None:
+        return None
+    return round(
+        _piecewise_linear(safety_level_value, [(_SAFETY_MIN_LEVEL, 0.0), (_SAFETY_MAX_LEVEL, 100.0)]),
+        1,
+    )
+
+
 class AxisDifficulties(NamedTuple):
-    """8軸（勾配・向かい風・路面・停止密度・交通ストレス・自転車インフラ・交差点密度・
-    事故密度）の難易度と、重み付き合成値。
+    """9軸（勾配・向かい風・路面・停止密度・交通ストレス・自転車インフラ・交差点密度・
+    事故密度・安全度）の難易度と、重み付き合成値。
 
     「生値セット→軸別difficulty→composite_difficulty」という同一の組み立てが
     OpenRouteServiceEngine._build_segment_details / RoadGraphEngine._build_segment_details /
@@ -157,6 +174,7 @@ class AxisDifficulties(NamedTuple):
     infra: float | None
     intersection: float | None
     accident: float | None
+    safety: float | None
     composite: float | None
 
 
@@ -169,6 +187,7 @@ def evaluate_axis_difficulties(
     bicycle_infra: BicycleInfraClass | None,
     intersection_count_per_km: float | None,
     accident_count_per_km_year: float | None,
+    safety_level_value: int | None,
     elevation_weight: float,
     wind_weight: float,
     road_weight: float,
@@ -177,13 +196,15 @@ def evaluate_axis_difficulties(
     infra_weight: float,
     intersection_weight: float,
     accident_weight: float,
+    safety_weight: float,
 ) -> AxisDifficulties:
-    """8軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
+    """9軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
 
     RoutePreference型（domain/evaluation.py）をここで受け取らないのは、evaluation.pyが
     本モジュールへ依存しているため（循環import回避）。重みは呼び出し元が
     `preference.elevation_weight`等をそのまま渡す。traffic_stress_level_valueの引数名が
-    `traffic_stress_level`（関数名）と衝突するため`_value`サフィックスを付けている。
+    `traffic_stress_level`（関数名）と衝突するため`_value`サフィックスを付けている
+    （safety_level_valueも同様）。
     """
     elevation = gradient_difficulty(gradient_percent)
     wind = wind_difficulty(wind_penalty)
@@ -193,6 +214,7 @@ def evaluate_axis_difficulties(
     infra = bicycle_infra_difficulty(bicycle_infra)
     intersection = intersection_difficulty(intersection_count_per_km)
     accident = accident_difficulty(accident_count_per_km_year)
+    safety = safety_difficulty(safety_level_value)
     composite = composite_difficulty(
         [
             (elevation, elevation_weight),
@@ -203,6 +225,7 @@ def evaluate_axis_difficulties(
             (infra, infra_weight),
             (intersection, intersection_weight),
             (accident, accident_weight),
+            (safety, safety_weight),
         ]
     )
     return AxisDifficulties(
@@ -214,6 +237,7 @@ def evaluate_axis_difficulties(
         infra=infra,
         intersection=intersection,
         accident=accident,
+        safety=safety,
         composite=composite,
     )
 

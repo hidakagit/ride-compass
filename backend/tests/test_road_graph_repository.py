@@ -702,13 +702,15 @@ async def test_get_nearest_intersection_counts_counts_intersections_near_each_po
 # （test_accident_repository.py: _insert_accidentと同じパターン）。
 
 
-async def _insert_accident(session, accident_id: str, kind_year: int, lat: float, lon: float, *, involves_bicycle: bool = False) -> None:
+async def _insert_accident(
+    session, accident_id: str, kind_year: int, lat: float, lon: float, *, involves_bicycle: bool = False, fatal: bool = False
+) -> None:
     await session.execute(
         text(
             "INSERT INTO accident_points (accident_id, occurred_year, fatal, involves_bicycle, attrs, geom, updated_at) "
-            "VALUES (:id, :year, false, :bicycle, '{}'::jsonb, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), now())"
+            "VALUES (:id, :year, :fatal, :bicycle, '{}'::jsonb, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), now())"
         ),
-        {"id": accident_id, "year": kind_year, "bicycle": involves_bicycle, "lat": lat, "lon": lon},
+        {"id": accident_id, "year": kind_year, "fatal": fatal, "bicycle": involves_bicycle, "lat": lat, "lon": lon},
     )
 
 
@@ -737,7 +739,10 @@ async def test_get_accident_counts_counts_nearby_accidents(road_graph_repository
     await _insert_accident(road_graph_session, "2023-2", 2023, *NODE2, involves_bicycle=False)
     await road_graph_session.commit()
 
-    result = await road_graph_repository.get_accident_counts([edge_id], max_distance_m=30.0)
+    # bicycle_only既定値はTrue（改善計画: 事故密度の精度改善）だが、この検証観点は
+    # 距離ベースのカウント自体（bicycle_onlyフィルタは下のtest_..._bicycle_only_...で
+    # 別途検証する）のため、ここではFalseを明示して両方カウントさせる。
+    result = await road_graph_repository.get_accident_counts([edge_id], bicycle_only=False, max_distance_m=30.0)
 
     assert result[edge_id] == 2
 
@@ -756,6 +761,27 @@ async def test_get_accident_counts_bicycle_only_filters_to_bicycle_related(road_
     result = await road_graph_repository.get_accident_counts([edge_id], bicycle_only=True, max_distance_m=30.0)
 
     assert result[edge_id] == 1
+
+
+async def test_get_accident_counts_weights_fatal_accidents(road_graph_repository, road_graph_session):
+    """死亡事故は`ACCIDENT_FATAL_WEIGHT`（3.0）件分として積算される
+    （改善計画: 事故密度の精度改善）。1件の非死亡事故＋1件の死亡事故で1+3.0=4.0になることを
+    確認する。CASE式でLEFT JOIN不一致行（NULL）を誤って1件と数える回帰
+    （実装時に自己発見したバグ）の検知も兼ねる。
+    """
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_accident(road_graph_session, "2023-1", 2023, *NODE1, fatal=False)
+    await _insert_accident(road_graph_session, "2023-2", 2023, *NODE1, fatal=True)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_accident_counts([edge_id], bicycle_only=False, max_distance_m=30.0)
+
+    assert result[edge_id] == 4.0
 
 
 async def test_get_accident_counts_edge_with_no_nearby_accidents_is_zero_not_missing(road_graph_repository):
@@ -794,7 +820,11 @@ async def test_get_nearest_accident_counts_counts_accidents_near_each_point(road
     await _insert_accident(road_graph_session, "2023-2", 2023, *NODE1)
     await road_graph_session.commit()
 
-    result = await road_graph_repository.get_nearest_accident_counts([NODE1, NODE3], max_distance_m=30.0)
+    # bicycle_only既定値はTrue（改善計画: 事故密度の精度改善）。ここでの検証観点は距離ベースの
+    # カウント自体（_insert_accidentは既定でinvolves_bicycle=False）のためFalseを明示する。
+    result = await road_graph_repository.get_nearest_accident_counts(
+        [NODE1, NODE3], bicycle_only=False, max_distance_m=30.0
+    )
 
     assert result == [2, 0]
 
@@ -1155,11 +1185,12 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(ro
 
 
 async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_repository):
-    """交通ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、
-    改善計画: 交通ストレスレシピ外出し基盤）がSQLで正しく抽出・正規化されることを確認する。
-    最終値の計算はもうSQL側の責務ではない（frontend/src/components/Map/
-    trafficStressExpression.ts・domain/traffic.py: traffic_stress_breakdownが担う）ため、
-    ここでは「材料タグがタグから正しく取り出せているか」だけを検証する。
+    """交通ストレス・安全度の材料タグ（cycleway_class/maxspeed_kmh/lanes_count/
+    motor_vehicle_no・shoulder/lit、改善計画: 交通ストレスレシピ外出し基盤/安全度レシピ）が
+    SQLで正しく抽出・正規化されることを確認する。最終値の計算はもうSQL側の責務ではない
+    （frontend/src/components/Map/trafficStressExpression.ts・safetyExpression.ts、
+    domain/traffic.py: traffic_stress_breakdown・domain/safety.py: safety_breakdownが担う）
+    ため、ここでは「材料タグがタグから正しく取り出せているか」だけを検証する。
     """
     import mapbox_vector_tile
 
@@ -1183,6 +1214,11 @@ async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_r
         # （0を「材料タグあり」として補正を発火させてしまう）とPython採点側で最終値が食い違う。
         ("living_street", {"maxspeed": "0"}, {}),
         ("track", {"lanes": "0"}, {}),
+        # 安全度の材料タグ（改善計画: 安全度レシピ）。tunnelは既存プロパティを再利用するため
+        # ここでは新規追加したshoulder/litのみ確認する。
+        ("residential", {"shoulder": "yes"}, {"shoulder": True}),
+        ("service", {"lit": "yes"}, {"lit": True}),
+        ("path", {"shoulder": "no"}, {}),
     ]
     way_specs = [
         WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
@@ -1201,7 +1237,7 @@ async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_r
 
     for highway, tags, expected in fixtures:
         actual = properties_by_highway[highway]
-        for key in ("cycleway_class", "maxspeed_kmh", "lanes_count", "motor_vehicle_no"):
+        for key in ("cycleway_class", "maxspeed_kmh", "lanes_count", "motor_vehicle_no", "shoulder", "lit"):
             assert actual.get(key) == expected.get(key), (highway, tags, key)
 
 

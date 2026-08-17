@@ -60,7 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
-from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M
+from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
 from app.domain.designation import TRAFFIC_STRESS_DESIGNATION_KINDS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
 from app.domain.traffic import (
@@ -204,6 +204,11 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
 #   弾いてunknown安全にする。
+# - safety（安全度、1-4、改善計画: 安全度レシピ）も同じ理由で最終値を焼かず材料タグのみ
+#   焼き込む。cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no/designationは
+#   交通ストレスと共有し、shoulder/litのみ新規追加（tunnelは上のtunnelプロパティを再利用）。
+#   フロント側はsafetyExpression.ts、採点側はdomain/safety.py: safety_breakdownが
+#   domain/safety.py: SafetyRecipeという共通のレシピ定義に対応させて計算する。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
@@ -270,6 +275,11 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                 THEN trunc(btrim(w.tags->>'lanes')::numeric)::integer
                         END AS lanes_count,
                         CASE WHEN lower(btrim(w.tags->>'motor_vehicle')) = 'no' THEN true END AS motor_vehicle_no,
+                        -- 安全度の材料タグ（改善計画: 安全度レシピ）。tunnelは既存プロパティ
+                        -- （上のtunnel、表示用と兼用）をそのまま再利用し、shoulder/litのみ
+                        -- 新規抽出する（motor_vehicle_noと同じCASE式パターン）。
+                        CASE WHEN lower(btrim(w.tags->>'shoulder')) = 'yes' THEN true END AS shoulder,
+                        CASE WHEN lower(btrim(w.tags->>'lit')) = 'yes' THEN true END AS lit,
                         CASE
                             WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'
                             WHEN d.is_ert THEN 'emergency_transport'
@@ -442,9 +452,15 @@ _NEAREST_STOP_POI_COUNTS_SQL = text(
 # 「edge_idそれぞれの距離内件数」パターンだが、対象テーブルがaccident_pointsで
 # bicycle_only（当事者に自転車を含む事故のみに絞るか）の切替を追加している。
 # 改善計画T64: _STOP_POI_COUNTS_SQLと同じ理由で`&&`を前置する。
+# 改善計画（事故密度の精度改善）: 単純COUNTではなく死亡事故を`ACCIDENT_FATAL_WEIGHT`件分と
+# みなすSUMへ変更（domain/accident.py参照）。戻り値がint→floatになる。LEFT JOINで一致が
+# 無いedgeはa.accident_idもa.fatalもNULLになるため、CASE式の先頭でa.accident_id IS NULLを
+# 明示的に0扱いする（無いとNULLはWHEN a.fatal THENの条件が偽になりELSE 1へ落ち、
+# 事故0件のedgeに架空の1件が計上されてしまう）。
 _ACCIDENT_COUNTS_SQL = text(
     """
-    SELECT e.edge_id, COUNT(a.accident_id) AS accident_count
+    SELECT e.edge_id,
+           SUM(CASE WHEN a.accident_id IS NULL THEN 0 WHEN a.fatal THEN :fatal_weight ELSE 1 END) AS accident_count
     FROM road_edges e
     LEFT JOIN accident_points a
         ON a.geom && ST_Expand(e.geom, :max_distance_deg)
@@ -453,7 +469,10 @@ _ACCIDENT_COUNTS_SQL = text(
     WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
     GROUP BY e.edge_id
     """
-).bindparams(bindparam("bicycle_only", type_=Boolean()))
+).bindparams(
+    bindparam("bicycle_only", type_=Boolean()),
+    bindparam("fatal_weight", value=ACCIDENT_FATAL_WEIGHT, type_=Float()),
+)
 
 # ORSエンジン用（サンプル点ごとの近傍件数）。_NEAREST_STOP_POI_COUNTS_SQLと同じ構造。
 _NEAREST_ACCIDENT_COUNTS_SQL = text(
@@ -465,7 +484,8 @@ _NEAREST_ACCIDENT_COUNTS_SQL = text(
             ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
         FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
     )
-    SELECT pts.ord, COUNT(a.accident_id) AS accident_count
+    SELECT pts.ord,
+           SUM(CASE WHEN a.accident_id IS NULL THEN 0 WHEN a.fatal THEN :fatal_weight ELSE 1 END) AS accident_count
     FROM pts
     LEFT JOIN accident_points a
         ON a.geom && ST_Expand(pts.geom, :max_distance_deg)
@@ -478,6 +498,7 @@ _NEAREST_ACCIDENT_COUNTS_SQL = text(
     bindparam("lats", type_=ARRAY(Float())),
     bindparam("lons", type_=ARRAY(Float())),
     bindparam("bicycle_only", type_=Boolean()),
+    bindparam("fatal_weight", value=ACCIDENT_FATAL_WEIGHT, type_=Float()),
 )
 
 # 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
@@ -1492,16 +1513,19 @@ class AttributeRepository(_SessionRepository):
         return _restore_ordinality_order(result.all(), len(points), 0)
 
     async def get_accident_counts(
-        self, edge_ids: list[str], bicycle_only: bool = False, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
-    ) -> dict[str, int]:
+        self, edge_ids: list[str], bicycle_only: bool = True, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, float]:
         """指定edge_idそれぞれについて、`max_distance_m`以内にある事故（accident_points）の
-        合計件数を返す（外部静的データソース T50残作業）。`bicycle_only=True`なら
-        自転車関連事故のみに絞る。get_stop_poi_countsと同じ「edge_idリストを渡して辞書で
-        受け取る」形で、指定edge_idは（該当事故が0件でも）必ず結果に含まれる。
+        合計件数（死亡事故は`ACCIDENT_FATAL_WEIGHT`件分の重み付け、domain/accident.py参照）を
+        返す（外部静的データソース T50残作業、改善計画: 事故密度の精度改善）。
+        `bicycle_only`の既定値は`True`（自転車ルート案内で自動車同士のみの事故まで
+        数えるのは実質バグに近いという判断、ユーザー承認済みの既定挙動変更）。
+        get_stop_poi_countsと同じ「edge_idリストを渡して辞書で受け取る」形で、
+        指定edge_idは（該当事故が0件でも）必ず結果に含まれる。
         """
         if not edge_ids:
             return {}
-        result: dict[str, int] = {}
+        result: dict[str, float] = {}
         max_distance_deg = _meters_to_bbox_margin_deg(max_distance_m)
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
@@ -1512,19 +1536,20 @@ class AttributeRepository(_SessionRepository):
                 },
             )
             for edge_id, accident_count in rows.all():
-                result[edge_id] = accident_count
+                result[edge_id] = float(accident_count)
         return result
 
     async def get_nearest_accident_counts(
         self,
         points: list[tuple[float, float]],
-        bicycle_only: bool = False,
+        bicycle_only: bool = True,
         max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M,
-    ) -> list[int]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある事故の件数を返す
-        （入力と同じ順序・同じ長さ、外部静的データソース T50残作業）。
+    ) -> list[float]:
+        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある事故の件数
+        （死亡事故重み付け）を返す（入力と同じ順序・同じ長さ、外部静的データソース T50残作業）。
         get_nearest_stop_poi_countsと同じ考え方（openrouteserviceエンジンがgeometry上の
-        サンプル点をこのメソッドで自前DBへ空間マッチする）。
+        サンプル点をこのメソッドで自前DBへ空間マッチする）。`bicycle_only`既定値は
+        get_accident_countsと同じ理由でTrue。
         """
         if not points:
             return []
@@ -1537,7 +1562,7 @@ class AttributeRepository(_SessionRepository):
                 "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
             },
         )
-        return _restore_ordinality_order(result.all(), len(points), 0)
+        return _restore_ordinality_order(result.all(), len(points), 0.0)
 
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数（accident_import_runsの成功run、年重複なし）を返す。
@@ -1674,16 +1699,16 @@ class RoadGraphRepository:
         return await self.attributes.get_nearest_intersection_counts(points, max_distance_m=max_distance_m)
 
     async def get_accident_counts(
-        self, edge_ids: list[str], bicycle_only: bool = False, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
-    ) -> dict[str, int]:
+        self, edge_ids: list[str], bicycle_only: bool = True, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, float]:
         return await self.attributes.get_accident_counts(edge_ids, bicycle_only=bicycle_only, max_distance_m=max_distance_m)
 
     async def get_nearest_accident_counts(
         self,
         points: list[tuple[float, float]],
-        bicycle_only: bool = False,
+        bicycle_only: bool = True,
         max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M,
-    ) -> list[int]:
+    ) -> list[float]:
         return await self.attributes.get_nearest_accident_counts(
             points, bicycle_only=bicycle_only, max_distance_m=max_distance_m
         )

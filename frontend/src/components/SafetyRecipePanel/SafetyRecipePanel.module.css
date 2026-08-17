@@ -1,0 +1,128 @@
+/* TrafficStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
+   共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/.groupChevron/.groupBody/
+   .field/.input/.resetButton）を再利用し、base_by_highway用のテーブル表示
+   （.table/.tableLabel）だけをここに追加する（改善計画: 安全度レシピ）。 */
+
+.panel {
+  composes: panel from "../WeightPanel/WeightPanel.module.css";
+}
+
+.toggleLabel {
+  composes: toggleLabel from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groups {
+  composes: groups from "../WeightPanel/WeightPanel.module.css";
+  gap: var(--space-2);
+}
+
+.group {
+  composes: group from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupHeader {
+  composes: groupHeader from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupChevron {
+  composes: groupChevron from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupBody {
+  composes: groupBody from "../WeightPanel/WeightPanel.module.css";
+  gap: 0.3rem;
+}
+
+.field {
+  composes: field from "../WeightPanel/WeightPanel.module.css";
+  /* 右側（ステッパー+条件）が長いThresholdAdjustmentRowで、ラベル側が予期せず
+     押し縮められて途中で折り返される不具合を避ける（TrafficStressRecipePanel.module.css
+     と同じ理由）。 */
+  flex-wrap: wrap;
+}
+
+.input {
+  composes: input from "../WeightPanel/WeightPanel.module.css";
+}
+
+.resetButton {
+  composes: resetButton from "../WeightPanel/WeightPanel.module.css";
+}
+
+/* table-layout: fixedで列幅を内容依存にせず固定する（改善計画T118のモバイル幅溢れ修正を
+   横展開。TrafficStressRecipePanel.module.cssと同じ理由: 標準のauto layoutでは列幅が
+   全行共有のため、他の行（例:「高規格の幹線道路(連絡路)」）の長いラベルにテーブル全体が
+   引きずられ、ラベルが短い行でもピッカー列が圧迫されて折り返される不具合が起きる）。 */
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.table td {
+  padding: 0.1rem 0;
+}
+
+.tableLabel {
+  font-size: var(--font-size-sm);
+}
+
+/* ピッカー列の固定幅（TrafficStressRecipePanel.module.cssの.tableValueと同じ値・同じ理由）。 */
+.tableValue {
+  width: 7.5rem;
+  text-align: right;
+}
+
+/* highway別基準値テーブル内のラベルは、recipeControls.module.cssの.fieldLabel
+   （nowrap/flex-shrink:0）を打ち消して通常の折り返しへ戻す
+   （TrafficStressRecipePanel.module.cssの.tableLabelFieldLabelと同じ理由・同じ値）。 */
+.tableLabelFieldLabel {
+  flex-shrink: 1;
+  white-space: normal;
+}
+
+.infoTooltip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.infoTooltipCell {
+  padding: 0 0 0.3rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+/* 基準値のレベルピッカー・補正値のステッパー・フィールドラベル+情報アイコンは
+   recipeControls.tsx/recipeControls.module.cssを共有する（TrafficStressRecipePanelと同じ）。 */
+
+.pairControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.thresholdInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.thresholdCaption {
+  flex-shrink: 0;
+}
+
+.thresholdInput {
+  composes: input;
+  width: 3rem;
+}
+
+.thresholdSuffix {
+  flex-shrink: 0;
+}

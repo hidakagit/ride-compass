@@ -12,6 +12,7 @@ from fastapi import Depends, Request
 
 from app.config import settings
 from app.domain.evaluation import RoutePreference
+from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.basemap_client import BasemapClient
@@ -25,7 +26,12 @@ from app.infrastructure.weather_client import WeatherClient
 from app.services.accident_service import AccidentService
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.elevation_service import ElevationService
-from app.services.evaluation_service import EvaluationService, load_route_preference, load_traffic_stress_recipe
+from app.services.evaluation_service import (
+    EvaluationService,
+    load_route_preference,
+    load_safety_recipe,
+    load_traffic_stress_recipe,
+)
 from app.services.graph_service import GraphService
 from app.services.openrouteservice_engine import OpenRouteServiceEngine
 from app.services.region_service import RegionService
@@ -84,10 +90,12 @@ class RouteGenerationSetup:
     scoring_weights: dict[str, float]
     route_preference: RoutePreference
     traffic_stress_recipe: TrafficStressRecipe
+    safety_recipe: SafetyRecipe
 
 
 RouteGenerationBuilder = Callable[
-    [RoutePreference | None, dict[str, float] | None, TrafficStressRecipe | None], RouteGenerationSetup
+    [RoutePreference | None, dict[str, float] | None, TrafficStressRecipe | None, SafetyRecipe | None],
+    RouteGenerationSetup,
 ]
 
 
@@ -159,30 +167,35 @@ def get_route_generation_builder(
         preference_override: RoutePreference | None = None,
         scoring_weights_override: dict[str, float] | None = None,
         traffic_stress_recipe_override: TrafficStressRecipe | None = None,
+        safety_recipe_override: SafetyRecipe | None = None,
     ) -> RouteGenerationSetup:
         preference = preference_override or load_route_preference()
         scoring_weights = scoring_weights_override or load_scoring_weights()
         traffic_stress_recipe = traffic_stress_recipe_override or load_traffic_stress_recipe()
+        safety_recipe = safety_recipe_override or load_safety_recipe()
         if settings.routing_engine == "road_graph":
             engine = RoadGraphEngine(
                 graph_service,
                 elevation_attribute_service,
-                EvaluationService(preference, traffic_stress_recipe),
+                EvaluationService(preference, traffic_stress_recipe, safety_recipe),
                 weather_service,
                 preference,
                 traffic_stress_recipe,
+                safety_recipe,
             )
         else:
             engine = OpenRouteServiceEngine(
                 routing_service, elevation_service, wind_service, preference,
                 repository=surface_match_repository,
                 traffic_stress_recipe=traffic_stress_recipe,
+                safety_recipe=safety_recipe,
             )
         return RouteGenerationSetup(
             generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
             scoring_weights=scoring_weights,
             route_preference=preference,
             traffic_stress_recipe=traffic_stress_recipe,
+            safety_recipe=safety_recipe,
         )
 
     return build

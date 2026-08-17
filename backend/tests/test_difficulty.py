@@ -7,6 +7,7 @@ from app.domain.difficulty import (
     gradient_difficulty,
     intersection_difficulty,
     road_difficulty,
+    safety_difficulty,
     stop_difficulty,
     traffic_stress_difficulty,
     wind_difficulty,
@@ -215,11 +216,28 @@ def test_accident_difficulty_negative_is_none():
     assert accident_difficulty(-1.0) is None
 
 
-def test_evaluate_axis_difficulties_returns_all_eight_axes_and_composite():
+def test_safety_difficulty_level_1_is_easiest():
+    assert safety_difficulty(1) == 0.0
+
+
+def test_safety_difficulty_level_4_is_hardest():
+    assert safety_difficulty(4) == 100.0
+
+
+def test_safety_difficulty_is_linear_between_min_and_max():
+    assert safety_difficulty(2.5) == 50.0
+
+
+def test_safety_difficulty_none_passthrough():
+    assert safety_difficulty(None) is None
+
+
+def test_evaluate_axis_difficulties_returns_all_nine_axes_and_composite():
     result = evaluate_axis_difficulties(
-        6.0, 4.0, True, 2.0, 2, "lane", 1.0, 0.25,
+        6.0, 4.0, True, 2.0, 2, "lane", 1.0, 0.25, 3,
         elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
         traffic_weight=1.0, infra_weight=1.0, intersection_weight=1.0, accident_weight=1.0,
+        safety_weight=1.0,
     )
 
     assert result.elevation == gradient_difficulty(6.0)
@@ -230,14 +248,16 @@ def test_evaluate_axis_difficulties_returns_all_eight_axes_and_composite():
     assert result.infra == bicycle_infra_difficulty("lane")
     assert result.intersection == intersection_difficulty(1.0)
     assert result.accident == accident_difficulty(0.25)
+    assert result.safety == safety_difficulty(3)
     assert result.composite is not None
 
 
 def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
     result = evaluate_axis_difficulties(
-        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None, None,
         elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
         traffic_weight=1.0, infra_weight=1.0, intersection_weight=1.0, accident_weight=1.0,
+        safety_weight=1.0,
     )
 
-    assert result == (None, None, None, None, None, None, None, None, None)
+    assert result == (None, None, None, None, None, None, None, None, None, None)

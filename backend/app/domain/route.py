@@ -44,6 +44,8 @@ class RouteSegmentDetail(BaseModel):
     # 生値も保持する（静的道路属性P1残り）。
     traffic_stress: int | None = None
     bicycle_infra: str | None = None
+    # 安全度(1-4、domain/safety.py: safety_level)の生値（改善計画: 安全度レシピ、9軸目）。
+    safety: int | None = None
     elevation_difficulty: float | None = None
     wind_difficulty: float | None = None
     road_difficulty: float | None = None
@@ -53,6 +55,7 @@ class RouteSegmentDetail(BaseModel):
     intersection_difficulty: float | None = None
     # 外部静的データソース T50残作業（事故密度、8軸目）。
     accident_difficulty: float | None = None
+    safety_difficulty: float | None = None
     difficulty: float | None = None
 
 
@@ -94,6 +97,9 @@ class RouteCandidate(BaseModel):
     `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
     domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
     合計distance_km」に収録年数での正規化を加えた集約）。
+
+    `safety_score`: ルート全体の安全度（1-4）の距離加重平均（改善計画: 安全度レシピ、
+    domain/difficulty.py: distance_weighted_difficulty、traffic_stress_scoreと同じ集約方法）。
     """
 
     id: str
@@ -111,6 +117,7 @@ class RouteCandidate(BaseModel):
     bicycle_infra_score: float | None = None
     intersection_density: float | None = None
     accident_density: float | None = None
+    safety_score: float | None = None
     total_score: float | None = None
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None

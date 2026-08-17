@@ -47,6 +47,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       wind_penalty: (i % 7) - 3,
       road_surface_good: i % 2 === 0,
       traffic_stress: (i % 4) + 1,
+      safety: (i % 4) + 1,
       bicycle_infra: i % 2 === 0 ? "separated" : "roadway",
       elevation_difficulty: (i * 7) % 100,
       wind_difficulty: (i * 13) % 100,
@@ -56,6 +57,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       infra_difficulty: (i * 29) % 100,
       intersection_difficulty: (i * 31) % 100,
       accident_difficulty: (i * 37) % 100,
+      safety_difficulty: (i * 41) % 100,
       difficulty: (i * 11) % 100,
     });
   }
@@ -81,6 +83,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       bicycle_infra_score: 45.6,
       intersection_density: 0.5,
       accident_density: 0.1,
+      safety_score: 2.1,
       total_score: 70 + i,
       score_breakdown: null,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),

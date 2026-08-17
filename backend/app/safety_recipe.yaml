@@ -1,0 +1,36 @@
+# 安全度（domain/safety.py: safety_breakdown）の判定レシピの既定値。
+# route_preference.yaml（軸間の重み）とは別階層の設定で、こちらは「安全度軸」の中身
+# （highway別基準値・cycleway/maxspeed/lanes/路肩/街灯/トンネル/指定路線の各補正の閾値・
+# 補正量）を定義する。ここを変えると地図の色分け（frontend/src/components/Map/
+# safetyExpression.tsが同じレシピをMapLibre expressionとして再現）とルート採点の
+# 両方に影響する。交通ストレス（traffic_stress_recipe.yaml）とは別概念（快適性ではなく
+# 客観的な事故・怪我リスク）のため、highway集合は同じでも基準値は独立させてある。
+# 値はdomain/safety.py: SafetyRecipeの既定値と完全に一致させてある。
+safety_recipe:
+  base_by_highway:
+    cycleway: 1
+    living_street: 1
+    residential: 2
+    unclassified: 2
+    track: 2
+    tertiary: 2
+    tertiary_link: 2
+    secondary: 3
+    secondary_link: 3
+    primary: 4
+    primary_link: 4
+    trunk: 4
+    trunk_link: 4
+  cycleway_track_adjustment: -2
+  cycleway_lane_adjustment: -1
+  cycleway_shared_adjustment: -1
+  maxspeed_low_threshold: 30
+  maxspeed_low_adjustment: -1
+  maxspeed_high_threshold: 60
+  maxspeed_high_adjustment: 1
+  lanes_high_threshold: 4
+  lanes_high_adjustment: 1
+  shoulder_adjustment: -1
+  lit_adjustment: -1
+  tunnel_adjustment: 1
+  designation_adjustment: 1

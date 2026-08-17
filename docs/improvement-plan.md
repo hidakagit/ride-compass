@@ -2860,6 +2860,81 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+### - [x] T119. 安全度レシピの新設（9軸目）＋事故密度の精度改善 規模L（2026-08-17完了）
+
+- 発端: ユーザー相談「交通ストレス、今は路面状態や走行のしやすさを評価しているが、
+  別軸で安全度みたいなのも作れない？道路種類、灯りの有無、交通事故密度等、既存の他データも
+  組み合わせて評価ファクターになりそうなものを考えてほしい」。ブレインストーミングで
+  4候補（対自動車安全度/夜間走行安全度/路面・転倒リスク/初心者・ファミリー適性）を提示し、
+  ユーザー選択で対自動車安全度＋夜間走行安全度を「安全度」という1つの意味づけへ統合する
+  方針に合意。事故密度の扱い（新レシピへ組み込むか既存`accident_weight`軸のまま精度改善するか）
+  と、その精度改善を研究モード限定にするか既定挙動にするかの2点はAskUserQuestionで確認し、
+  いずれも「既存軸を精度改善」「既定挙動として反映」を選択。
+- 対応: 交通ストレスレシピ（T107〜T116）と全く同じ構造を「安全度」用に新設。
+  - **バックエンド**: `domain/safety.py`（新規）に`SafetyRecipe`/`safety_breakdown`/
+    `safety_level`/`safety_tile_ingredients`を実装（`domain/traffic.py`の対応関数と1:1対応。
+    highway別基準値は交通ストレスと別の数値セット、cycleway/maxspeed/lanes分類は
+    `cycleway_class`を公開化して共有）。安全度のみが持つ補正: 路肩（`shoulder_adjustment`）・
+    街灯（`lit_adjustment`）・トンネル（`tunnel_adjustment`）。lanes_low（少車線）は
+    採用しない（安全側かは研究上見解が分かれるため）。`safety_recipe.yaml`＋
+    `evaluation_service.py: load_safety_recipe`、`compute_edge_cost`/両エンジン/DIへの配線、
+    `route_preference.yaml`へ`safety_weight: 0.10`追加、`api/routers/routes.py`へ
+    `SafetyRecipeOverride`・`GenerationConditions.safety_recipe`、`api/routers/region.py`へ
+    `POST /api/region/safety-breakdown`を追加。`domain/difficulty.py`へ`safety_difficulty`
+    （交通ストレスと同じ1-4→0-100区分線形、T117の5段階化とは無関係に安全度は1-4のまま）を
+    追加し`AxisDifficulties`を8軸→9軸へ拡張。
+  - **MVTタイル**: `_ROAD_SURFACE_TILE_MVT_SQL`へ`shoulder`/`lit`材料タグを追加
+    （`motor_vehicle_no`と同じCASE式パターン、tunnelは既存プロパティを再利用）、
+    `ROAD_SURFACE_TILE_VERSION`を`"9"`→`"10"`（backend/frontend対、プロパティ追加のみで
+    後方互換のためv9のような特別なデプロイ順序制約は無い）。
+  - **事故密度の精度改善**（既定挙動として反映）: `get_accident_counts`/
+    `get_nearest_accident_counts`の`bicycle_only`既定値を`False`→`True`へ変更（自転車ルート
+    案内で自動車同士のみの事故まで数えていたのを是正）。単純COUNTから死亡事故を
+    `ACCIDENT_FATAL_WEIGHT`（`domain/accident.py`、暫定値3.0）件分として積算するSUMへ変更し
+    戻り値がint→float化。実装中、SQLのCASE式が`LEFT JOIN`不一致行（`a.fatal`がNULL）を
+    誤って1件と数える回帰を自己発見し、`WHEN a.accident_id IS NULL THEN 0`を先頭に追加して
+    修正（新規テストで検知できることを確認）。`GraphService.get_accident_counts`に欠けていた
+    `bicycle_only`引数も追加。
+  - **フロントエンド**: `frontend/src/components/Map/safetyExpression.ts`
+    （`trafficStressExpression.ts`と同型のMapLibre expressionミラー）、
+    `staticAttributeLayers.ts`へ`SAFETY_COLORS`（teal→olive→orange→dark-red、交通ストレスの
+    緑〜赤と色相をずらし混同を防ぐ）・`buildSafetyLegend`/`buildSafetyColorExpression`・
+    `StaticFilterAxisId`の`"safety"`追加、`mapLayers.ts`へ`"safety"`レイヤー（交通・安全
+    カテゴリ、`panelHintDetail`で判定基準を明記）追加。`MapView.tsx`へ`SAFETY_LAYER_ID`・
+    `ensureSafetyLayer`・`applySafetyRecipe`・安全度内訳ポップアップ（`fetchSafetyBreakdown`）
+    を配線。T113で交通ストレス専用に実装した基準値レベルピッカー・補正値ステッパー・
+    情報アイコン開閉ボタンを、2つ目のレシピ登場を機に`frontend/src/components/Map/
+    recipeControls.tsx`（`LevelPicker`/`AdjustmentStepper`/`FieldLabel`、色パレット・
+    段階配列を引数化）へ汎用化し、`TrafficStressRecipePanel.tsx`もそちらを使うよう移行
+    （見た目・挙動は無変更）。新規`SafetyRecipePanel.tsx`（`recipeControls.tsx`を使用、
+    路肩・街灯・トンネル補正グループを追加）を実装し、`page.tsx`の「レシピ」カテゴリ
+    （T116で複数レシピを想定して設計済みの`<div>`）へ`TrafficStressRecipePanel`の直後に追加。
+    `evaluationAxes.ts`へ`safety_weight`、`ComparisonPanel.tsx`へ`safety_score`行を追加。
+    新規`SafetyIcon`（盾のシルエット）を地図チップへ追加。
+- 作業環境・マージ: T117（同日、別セッションが`git worktree`で完全分離実装した交通ストレス
+  5段階化）と並行して同じファイル群（`domain/difficulty.py`・`domain/traffic.py`・
+  `domain/route.py`・`road_graph_repository.py`・`export_openapi.py`・`MapView.tsx`・
+  `mapLayers.ts`・`staticAttributeLayers.ts`(+test)・`evaluationAxes.ts`・生成物等）を
+  変更していたため、pushされたT117を`git pull`（rebase）で取り込んだところ
+  `docs/architecture.md`・`docs/improvement-plan.md`・`frontend/src/types/generated/
+  openapi.json`の3ファイルでコンフリクトが発生（他ファイルはgitが自動マージ）。手動解消の
+  うえT番号の重複（両者ともT117を名乗っていた）をユーザー承認のうえT118へ改番したが、
+  push直前に同じ別セッションがさらに`fix: T117の基準値ピッカーがモバイル幅で溢れる不具合を
+  修正(T118)`をpush（`TrafficStressRecipePanel.module.css`/`.tsx`・`docs/improvement-plan.md`
+  が対象）しており、そちらも独立にT118を名乗っていたため再度T119へ改番。このモバイル幅
+  修正（table-layout: fixed・ピッカー列の固定幅7.5rem・ラベルの折り返し許可）は
+  `SafetyRecipePanel`も交通ストレスと全く同じhighway別基準値テーブル構造を持つため
+  同一の不具合を抱えていると判断し、`SafetyRecipePanel.module.css`/`.tsx`へも同じ修正を
+  横展開した。
+- 完了条件: backend 781件（新規50件超）・frontend 334件（新規約60件、`safetyExpression.test.ts`
+  ・`SafetyRecipePanel.test.tsx`・`recipeControls.test.tsx`・既存4ファイルへの追加を含む）・
+  tsc・eslint全green（マージ後に再実行して確認）。DB統合テスト（shoulder/lit材料タグ抽出・
+  死亡事故重み付けSQL・bicycle_only既定値）はdev機ネイティブPostgreSQLへ実接続して実行・
+  確認済み。headed Playwright実機確認（2レシピパネル並列表示・地図の安全度レイヤー配色・
+  内訳ポップアップ・375px幅レイアウト）はマージ前に実施済み。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2956,3 +3031,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T116 | ユーザー依頼「評価の重みと交通ストレスのレシピは扱いを分けてほしい。別タブは微妙だが同じタブ内でグループ化はしたい。レシピは今後他の二次データ分も増えると思うのでくくり出してほしい」。別タブ化はせず、「研究」タブ内を「評価の重み」「レシピ[一次情報→二次情報の変換式]」の2カテゴリへ見出しで分割（見た目は`MapLayersPanel.tsx`のカテゴリ見出しとcomposesで統一）。「レシピ」カテゴリは現状交通ストレスレシピ1つのみだが、将来の追加パネルはこのカテゴリの`<div>`内に足すだけで済む構成にした（1件しかない現時点で汎用レジストリ機構まで作るのは過剰と判断し見送り）。frontend 278件・tsc・eslint全green、Playwright実機確認（2見出しの表示・順序・375px幅での横スクロール無し）でコンソールエラー0件 |
 | 2026-08-17 | T117 | ユーザー相談「交通ストレスは変動要素が多く1-4は粗い、妥当な段階数を検討・提案して」を受け、実装前にdev DB実データ（39,878way・5,737.6km）でクランプ前の生値分布を実測。raw≥5が8.3%（件数）/9.3%（距離）存在しprimary/trunk/指定路線に集中（従来level4に丸め込まれ区別不能）、下端level2（62%/56%）はタグ欠損由来の一極集中で細分化の材料無しと判明。上限4→5拡張（下限1据え置き）を実測で裏付けたうえで実装。`domain/traffic.py`のクランプ・`domain/difficulty.py`の正規化上限・`trafficStressExpression.ts`のMapLibre expressionを同期、`staticAttributeLayers.ts`へ5色目（新規オレンジ#f97316をlevel4、旧赤#dc2626をlevel5へ引き継ぎ）を追加。`TrafficStressRecipePanel`はT108で段階数可変設計済みのため無改修で追従。作業中、同一ディレクトリで別セッションの「安全度」9軸目実装（未コミット・pytest収集エラー17件で非green）と衝突するリスクを検知し、ユーザー承認のうえgit worktree（`traffic-stress-5levels`ブランチ）で完全分離して実装。backend 736件・frontend 279件・tsc・eslint全green、Playwright実機確認（5段階の色・ラベル・panelHint文言）でコンソールエラー0件 |
 | 2026-08-17 | T118 | ユーザーが本番モバイル実機スクショを提示（T117で5段階化した基準値ピッカーが画面右端から溢れる）。原因は標準table auto-layoutの列幅共有（1行でも長いラベルがあると全行のピッカー列が圧迫される）と判明し、ラベルの折り返し許可＋`table-layout: fixed`＋ピッカー列への固定幅（7.5rem）で解消。副次的に、原因不明のCSSカスケード上書き（クラスセレクタがグローバルbutton既定に上書きされ続ける現象、根本原因は未特定）を`!important`の対症療法で解決。作業中、検証用ポート（8000/3010）が別セッションのプロセスに奪われ誤ったビルドを検証してしまっていたことが判明し、ポートも8001/3011へ分離。backend 736件・frontend 279件・tsc・eslint全green、Playwright実機確認（モバイル390px幅、standaloneサーバー、最短/最長ラベル行とも1行5ボタンで横スクロール無し）で確認 |
+| 2026-08-17 | T119 | ユーザー相談「交通ストレスとは別軸で安全度も作れないか（道路種類・灯り・事故密度等を組み合わせて）」を受け設計・実装。交通ストレスレシピ（T107〜T116）と同じ構造で`domain/safety.py: SafetyRecipe`（highway別基準値＋cycleway/maxspeed/lanes/路肩/街灯/トンネル/指定路線の補正、lanes_lowは不採用）を新設し9軸目として`route_preference.yaml`・両エンジン・API（`/api/routes/generate`・`POST /api/region/safety-breakdown`）へ配線。MVTタイルへ`shoulder`/`lit`材料タグ追加でv9→v10（後方互換のプロパティ追加のみ）。ユーザー選択に基づき事故密度は新レシピへ組み込まず既存`accident_weight`軸のまま`bicycle_only`既定値をFalse→True・死亡事故を`ACCIDENT_FATAL_WEIGHT`(3.0)件分と積算するSUMへ変更（既定挙動として反映、実装時にLEFT JOIN不一致行の誤カウントを自己発見・修正）。フロントは`safetyExpression.ts`（trafficStressExpression.tsのミラー）・`SafetyRecipePanel.tsx`を新規実装し、T113で交通ストレス専用だった基準値ピッカー・補正ステッパー等を`recipeControls.tsx`へ汎用化して両パネルで共有。T117/T118（同日、交通ストレス5段階化＋モバイル幅溢れ修正）と2度のT番号衝突・マージ（`docs/improvement-plan.md`・`architecture.md`・`frontend/src/types/generated/openapi.json`・`TrafficStressRecipePanel.module.css`/`.tsx`）が発生し手動解消、T118のモバイル幅修正は同一構造を持つ`SafetyRecipePanel`へも横展開した。backend 781件・frontend 335件・tsc・eslint全green、DB統合テストはdev機ネイティブPostgreSQLで確認済み |

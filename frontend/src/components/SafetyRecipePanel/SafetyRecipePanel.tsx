@@ -2,53 +2,46 @@
 
 import { useState } from "react";
 import { AdjustmentStepper, FieldLabel, LevelPicker } from "@/components/Map/recipeControls";
-import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
-import { DEFAULT_TRAFFIC_STRESS_RECIPE, type TrafficStressRecipe } from "@/components/Map/trafficStressExpression";
-import styles from "./TrafficStressRecipePanel.module.css";
+import { SAFETY_COLORS } from "@/components/Map/staticAttributeLayers";
+import { DEFAULT_SAFETY_RECIPE, type SafetyRecipe } from "@/components/Map/safetyExpression";
+import styles from "./SafetyRecipePanel.module.css";
 
-interface TrafficStressRecipePanelProps {
+// TrafficStressRecipePanel.tsxと完全に同じ構造（基準値レベルピッカー・補正値ステッパー・
+// 情報アイコン開閉ボタンはrecipeControls.tsxを共有、それ以外の骨格もミラー）。改善計画:
+// 安全度レシピ。フィールド集合だけが異なる: 安全度はlanes_low（少車線）を採用せず
+// （domain/safety.py: SafetyRecipeのdocstring参照）、代わりにshoulder/lit/tunnel
+// （路肩・街灯・トンネル）の3補正を持つ。
+
+interface SafetyRecipePanelProps {
   overrideEnabled: boolean;
   onOverrideEnabledChange: (enabled: boolean) => void;
-  recipe: TrafficStressRecipe;
-  onRecipeChange: (recipe: TrafficStressRecipe) => void;
+  recipe: SafetyRecipe;
+  onRecipeChange: (recipe: SafetyRecipe) => void;
 }
 
-type ScalarKey = Exclude<keyof TrafficStressRecipe, "base_by_highway">;
+type ScalarKey = Exclude<keyof SafetyRecipe, "base_by_highway">;
 
 interface ScalarField {
   key: ScalarKey;
-  /** 表示ラベル（改善計画: 研究タブの用語日本語化。技術的な条件そのものはdescription
-   * （情報アイコンのツールチップ）側へ回し、ここは日本語として読める短い語句にする）。 */
   label: string;
-  /** ラベル横の情報アイコンのツールチップに出す、判定条件の具体的な説明
-   * （対応するOSMタグ・値を含む）。 */
   description: string;
 }
 
-/** 閾値+補正値が対になっているフィールド（低速/高速・多車線/少車線）用。改善計画:
- * レシピ入力フォームの改善で「変動条件（閾値）は補正値の横に個別設定できるように」という
- * 要望を受け、以前は4つの独立したScalarFieldだったmaxspeed/lanes系を対で1行にまとめた。 */
 interface ThresholdAdjustmentField {
   thresholdKey: ScalarKey;
   adjustmentKey: ScalarKey;
   label: string;
   description: string;
-  /** 閾値入力欄の直後に出す単位付き条件文言（例: "km/h以下"）。 */
   thresholdSuffix: string;
 }
 
-// 基準値ピッカーの段階（改善計画: レシピ入力フォームの改善、「1-4をプログレスバーで選択、
-// 4は将来的に5や6に変えられるように」という要望への対応）。地図の色分け
-// （staticAttributeLayers.ts: TRAFFIC_STRESS_COLORS）と単一ソースにし、段階数を増やす
-// 場合もそちらへキーを追加するだけで両方に反映される（このファイルの変更は不要）。
-const TRAFFIC_STRESS_LEVELS = Object.keys(TRAFFIC_STRESS_COLORS)
+// 基準値ピッカーの段階。staticAttributeLayers.ts: SAFETY_COLORSと単一ソースにし、
+// 段階数を増やす場合もそちらへキーを追加するだけで両方に反映される。
+const SAFETY_LEVELS = Object.keys(SAFETY_COLORS)
   .map(Number)
   .sort((a, b) => a - b);
 
-// WeightPanel.tsxのWeightField/WeightInputと同じ発想の一覧駆動だが、
-// TrafficStressRecipeOverrideはevaluationAxes.tsのWeights系ユニオン型に含まれないため
-// （軸間の重みではなく軸の中身のレシピのため）、フィールド一覧はこのファイル内に持つ。
-// backend/app/domain/traffic.py: traffic_stress_breakdownの適用順序に合わせて4グループに束ねる。
+// backend/app/domain/safety.py: safety_breakdownの適用順序に合わせてグループ化する。
 const CYCLEWAY_FIELDS: ScalarField[] = [
   {
     key: "cycleway_track_adjustment",
@@ -73,32 +66,34 @@ const MAXSPEED_PAIRS: ThresholdAdjustmentField[] = [
     adjustmentKey: "maxspeed_low_adjustment",
     label: "低速道路",
     thresholdSuffix: "km/h以下",
-    description: "制限速度がこの値[km/h]以下の道路を「低速道路」とみなし、補正値を交通ストレスへ加える",
+    description: "制限速度がこの値[km/h]以下の道路を「低速道路」とみなし、補正値を安全度へ加える",
   },
   {
     thresholdKey: "maxspeed_high_threshold",
     adjustmentKey: "maxspeed_high_adjustment",
     label: "高速道路",
     thresholdSuffix: "km/h以上",
-    description: "制限速度がこの値[km/h]以上の道路を「高速道路」とみなし、補正値を交通ストレスへ加える",
+    description: "制限速度がこの値[km/h]以上の道路を「高速道路」とみなし、補正値を安全度へ加える",
   },
 ];
 
+// 安全度はlanes_high（多車線＝リスク増）のみ採用する（少車線が安全側かは研究上見解が
+// 分かれるため見送り、domain/safety.py: SafetyRecipeのdocstring参照）。
 const LANES_PAIRS: ThresholdAdjustmentField[] = [
   {
     thresholdKey: "lanes_high_threshold",
     adjustmentKey: "lanes_high_adjustment",
     label: "多車線道路",
     thresholdSuffix: "車線以上",
-    description: "車線数がこの値以上の道路を「多車線道路」とみなし、補正値を交通ストレスへ加える",
+    description: "車線数がこの値以上の道路を「多車線道路」とみなし、補正値を安全度へ加える",
   },
-  {
-    thresholdKey: "lanes_low_threshold",
-    adjustmentKey: "lanes_low_adjustment",
-    label: "少車線道路",
-    thresholdSuffix: "車線以下",
-    description: "車線数がこの値以下の道路を「少車線道路」とみなし、補正値を交通ストレスへ加える",
-  },
+];
+
+// 路肩・街灯・トンネル（安全度のみ採用、交通ストレスには無い補正）。
+const ROAD_ENVIRONMENT_FIELDS: ScalarField[] = [
+  { key: "shoulder_adjustment", label: "路肩ありの補正", description: "shoulder=yes（路肩あり）に該当する道路への補正値" },
+  { key: "lit_adjustment", label: "街灯ありの補正", description: "lit=yes（街灯あり）に該当する道路への補正値" },
+  { key: "tunnel_adjustment", label: "トンネルの補正", description: "tunnel=yes（トンネル区間）に該当する道路への補正値" },
 ];
 
 const DESIGNATION_FIELDS: ScalarField[] = [
@@ -114,16 +109,8 @@ interface HighwayLabel {
   description: string;
 }
 
-// highway別基準値の日本語ラベル+説明（改善計画: 研究タブの用語日本語化。以前はOSMの
-// highway=タグ値をそのまま出していたが「要素名は日本語の論理をラベルに、具体的な属性
-// 説明は情報アイコンで」という方針転換を受け変更）。キー集合自体はHIGHWAY_ORDER
-// （DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highwayの定義順、domain/traffic.py:
-// TRAFFIC_STRESS_BASE_BY_HIGHWAYと単一ソース）に従う。ラベルはroadFilterAxes.ts
-// 「道路の種類」軸の分類語（幹線道路/主要道/生活道路等）と整合させつつ、この表では
-// highway値ごとに基準値を個別編集するためより細かく分けている。説明（情報アイコンの
-// ツールチップ）には元のOSMタグ値を明記し、タグ語彙を知っている利用者はそちらも
-// 参照できるようにする。未知のhighway値（将来backendの既定レシピにキーが追加された場合）は
-// フォールバックとしてタグ値そのものをラベルに使う（HIGHWAY_LABELS未収載でも表示は欠けない）。
+// TrafficStressRecipePanel.tsx: HIGHWAY_LABELSと同じ対訳表（highwayキー集合は交通ストレスと
+// 共有だが、基準値の数値セット自体は別、domain/safety.py: SAFETY_BASE_BY_HIGHWAY参照）。
 const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
   cycleway: { label: "自転車専用道", description: "highway=cycleway。自転車のための専用道路" },
   living_street: {
@@ -155,26 +142,20 @@ const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
   },
 };
 
-const HIGHWAY_ORDER = Object.keys(DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway);
+const HIGHWAY_ORDER = Object.keys(DEFAULT_SAFETY_RECIPE.base_by_highway);
 
-// 補正値ステッパーの色（負値=ストレス軽減は最も低い段階の色、正値=ストレス増加は最も高い
-// 段階の色）。TRAFFIC_STRESS_COLORSと連動させることで「0中心に変動する」という感覚を
-// 色だけで確実に伝える（recipeControls.tsx: AdjustmentStepperへ渡す）。
-const ADJUSTMENT_NEGATIVE_COLOR = TRAFFIC_STRESS_COLORS[TRAFFIC_STRESS_LEVELS[0]];
-const ADJUSTMENT_POSITIVE_COLOR = TRAFFIC_STRESS_COLORS[TRAFFIC_STRESS_LEVELS[TRAFFIC_STRESS_LEVELS.length - 1]];
+// 補正値ステッパーの色（負値=安全側は最も安全な段階の色、正値=危険側は最も危険な段階の色）。
+const ADJUSTMENT_NEGATIVE_COLOR = SAFETY_COLORS[SAFETY_LEVELS[0]];
+const ADJUSTMENT_POSITIVE_COLOR = SAFETY_COLORS[SAFETY_LEVELS[SAFETY_LEVELS.length - 1]];
 
-// 閾値を持たない補正値フィールド（自転車インフラ・指定路線）。ラベルとステッパーを
-// 1行にまとめる（改善計画: レシピ入力フォームの改善）。複数の操作要素（-/+ボタンと
-// 数値入力）を子に持つため、単一の対象を暗黙に持つ<label>ではなく<div>で包む
-// （個別のアクセシブル名はAdjustmentStepper側のaria-labelで持たせている）。
 function ScalarInput({
   field,
   recipe,
   onChange,
 }: {
   field: ScalarField;
-  recipe: TrafficStressRecipe;
-  onChange: (recipe: TrafficStressRecipe) => void;
+  recipe: SafetyRecipe;
+  onChange: (recipe: SafetyRecipe) => void;
 }) {
   const [infoOpen, setInfoOpen] = useState(false);
   const value = recipe[field.key];
@@ -195,19 +176,14 @@ function ScalarInput({
   );
 }
 
-// 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路）。補正値のステッパーと
-// 変動条件（閾値）の入力を同じ行に横並びで置く（改善計画: レシピ入力フォームの改善、
-// 「変動条件はその横に個別設定できるように」「全体的にもう少しコンパクトな形に」という
-// 要望への対応。以前は補正値行と閾値行が縦2段だった）。幅が足りない場合はflex-wrapで
-// 折り返す。
 function ThresholdAdjustmentRow({
   field,
   recipe,
   onChange,
 }: {
   field: ThresholdAdjustmentField;
-  recipe: TrafficStressRecipe;
-  onChange: (recipe: TrafficStressRecipe) => void;
+  recipe: SafetyRecipe;
+  onChange: (recipe: SafetyRecipe) => void;
 }) {
   const [infoOpen, setInfoOpen] = useState(false);
   const thresholdValue = recipe[field.thresholdKey];
@@ -247,10 +223,6 @@ function ThresholdAdjustmentRow({
   );
 }
 
-// highway別基準値テーブルの1行。説明の開閉状態を行ごとに独立して持つため（.mapのコールバック内
-// では使えないuseStateを、行ごとの専用コンポーネントへ切り出すことで満たす）ScalarInputと
-// 同じ構造の別コンポーネントにしている。説明行は<tbody>直下に有効なtr要素として追加する
-// 必要があるため（tdの中にブロック要素を積む案は避けた）、Fragmentで本行の直後に返す。
 function HighwayRow({
   highway,
   value,
@@ -261,11 +233,8 @@ function HighwayRow({
   onChange: (highway: string, next: number) => void;
 }) {
   const [infoOpen, setInfoOpen] = useState(false);
-  // HIGHWAY_LABELS未収載（将来backendの既定レシピにキーが追加された場合）はタグ値
-  // そのものをラベルにフォールバックし、情報アイコンは出さない（フォールバック時点で
-  // ラベル自体がタグ値なので説明の付け足しは不要）。
   const highwayLabel = HIGHWAY_LABELS[highway];
-  const resolvedValue = value ?? TRAFFIC_STRESS_LEVELS[0];
+  const resolvedValue = value ?? SAFETY_LEVELS[0];
   return (
     <>
       <tr>
@@ -283,8 +252,8 @@ function HighwayRow({
         </td>
         <td className={styles.tableValue}>
           <LevelPicker
-            levels={TRAFFIC_STRESS_LEVELS}
-            colors={TRAFFIC_STRESS_COLORS}
+            levels={SAFETY_LEVELS}
+            colors={SAFETY_COLORS}
             value={resolvedValue}
             onChange={(next) => onChange(highway, next)}
             groupLabel={`${highwayLabel?.label ?? highway}の基準値`}
@@ -302,21 +271,15 @@ function HighwayRow({
   );
 }
 
-// 研究モードでの交通ストレスレシピ上書きUI（改善計画: 交通ストレスレシピ調整UIパネル、
-// T107の次ラウンド。入力欄の見た目は改善計画: レシピ入力フォームの改善で刷新——基準値は
-// 低→高のレベルピッカー、補正値は-/+ボタン付きの色付きステッパー、閾値は補正値の横に
-// 個別入力）。WeightPanel
-// （評価重みの上書き）とは独立したトグルにしている（ユーザー承認済み: レシピは有効化すると
-// 地図の色分けへ即座に反映されるが、重みは次回のルート生成まで反映されないという挙動差が
-// あるため）。上書き中は地図の色分け・凡例による絞り込み（MapView.tsx）・区間クリックの
-// 内訳ポップアップ・次回のルート生成（page.tsx経由で/api/routes/generateへ）すべてが
-// このレシピに従う。
-export default function TrafficStressRecipePanel({
+// 研究モードでの安全度レシピ上書きUI（改善計画: 安全度レシピ）。TrafficStressRecipePanel.tsxと
+// 同じ構造・同じ独立トグルの理由（上書き中は地図の色分け即座反映、重みは次回生成まで反映
+// されないという挙動差があるため）。
+export default function SafetyRecipePanel({
   overrideEnabled,
   onOverrideEnabledChange,
   recipe,
   onRecipeChange,
-}: TrafficStressRecipePanelProps) {
+}: SafetyRecipePanelProps) {
   return (
     <div className={styles.panel}>
       <label className={styles.toggleLabel}>
@@ -325,14 +288,11 @@ export default function TrafficStressRecipePanel({
           checked={overrideEnabled}
           onChange={(e) => onOverrideEnabledChange(e.target.checked)}
         />
-        交通ストレスのレシピを上書きする[地図の色分けに即時反映]
+        安全度のレシピを上書きする[地図の色分けに即時反映]
       </label>
 
       {overrideEnabled && (
         <div className={styles.groups}>
-          {/* 各グループは折りたたみ（details、改善計画: 研究の中身も折りたたみ式に統一。
-              MapLayersPanel.tsxのレイヤーごとの折りたたみ、T38と同じ構成・デフォルト
-              全閉）。開閉状態は上書きトグル自体のON/OFFとは独立させている。 */}
           <details className={styles.group}>
             <summary className={styles.groupHeader}>
               <span aria-hidden="true" className={styles.groupChevron} />
@@ -398,6 +358,18 @@ export default function TrafficStressRecipePanel({
           <details className={styles.group}>
             <summary className={styles.groupHeader}>
               <span aria-hidden="true" className={styles.groupChevron} />
+              路肩・街灯・トンネル補正
+            </summary>
+            <div className={styles.groupBody}>
+              {ROAD_ENVIRONMENT_FIELDS.map((field) => (
+                <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
+              ))}
+            </div>
+          </details>
+
+          <details className={styles.group}>
+            <summary className={styles.groupHeader}>
+              <span aria-hidden="true" className={styles.groupChevron} />
               指定路線補正
             </summary>
             <div className={styles.groupBody}>
@@ -410,7 +382,7 @@ export default function TrafficStressRecipePanel({
           <button
             type="button"
             className={styles.resetButton}
-            onClick={() => onRecipeChange(DEFAULT_TRAFFIC_STRESS_RECIPE)}
+            onClick={() => onRecipeChange(DEFAULT_SAFETY_RECIPE)}
           >
             既定値に戻す
           </button>

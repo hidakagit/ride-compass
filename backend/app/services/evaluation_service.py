@@ -5,11 +5,13 @@ import yaml
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
 from app.domain.graph import RoadGraph
+from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
 from app.domain.weather import WeatherConditions
 
 ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
 TRAFFIC_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "traffic_stress_recipe.yaml"
+SAFETY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "safety_recipe.yaml"
 
 
 def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePreference:
@@ -36,6 +38,15 @@ def load_traffic_stress_recipe(path: Path = TRAFFIC_STRESS_RECIPE_CONFIG_PATH) -
     return TrafficStressRecipe(**config["traffic_stress_recipe"])
 
 
+def load_safety_recipe(path: Path = SAFETY_RECIPE_CONFIG_PATH) -> SafetyRecipe:
+    """safety_recipe.yamlから既定の安全度レシピ（軸の中身、domain/safety.py: SafetyRecipe
+    参照）を読み込む。load_traffic_stress_recipeと同じパターン。
+    """
+    with open(path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    return SafetyRecipe(**config["safety_recipe"])
+
+
 class EvaluationService:
     """Evaluation Engineのオーケストレーション層（仕様書26章）。
 
@@ -49,9 +60,11 @@ class EvaluationService:
         self,
         preference: RoutePreference | None = None,
         traffic_stress_recipe: TrafficStressRecipe | None = None,
+        safety_recipe: SafetyRecipe | None = None,
     ):
         self._preference = preference or load_route_preference()
         self._traffic_stress_recipe = traffic_stress_recipe or load_traffic_stress_recipe()
+        self._safety_recipe = safety_recipe or load_safety_recipe()
 
     def evaluate_graph(
         self,
@@ -82,6 +95,7 @@ class EvaluationService:
                 accident_years_covered=accident_years_covered,
                 is_designated=edge_id in designated_edge_ids,
                 traffic_stress_recipe=self._traffic_stress_recipe,
+                safety_recipe=self._safety_recipe,
             )
             for edge_id, edge in graph.edges.items()
         }

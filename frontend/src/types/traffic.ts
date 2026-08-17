@@ -3,3 +3,4 @@
 import type { components } from "./generated/api";
 
 export type TrafficStressBreakdown = components["schemas"]["TrafficStressBreakdown"];
+export type SafetyBreakdown = components["schemas"]["SafetyBreakdown"];

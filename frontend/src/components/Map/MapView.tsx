@@ -4,13 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Coordinates, RouteCandidate, RouteSegmentDetail, TrafficStressRecipeOverride } from "@/types/route";
+import type {
+  Coordinates,
+  RouteCandidate,
+  RouteSegmentDetail,
+  SafetyRecipeOverride,
+  TrafficStressRecipeOverride,
+} from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import type { TrafficStressBreakdown } from "@/types/traffic";
+import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  fetchSafetyBreakdown,
   fetchTrafficStressBreakdown,
   poiTileUrl,
   refreshBasemapCache,
@@ -26,6 +33,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
+import { DEFAULT_SAFETY_RECIPE, buildSafetyExpression, evaluateSafetyLevel } from "@/components/Map/safetyExpression";
 import {
   DEFAULT_TRAFFIC_STRESS_RECIPE,
   buildTrafficStressExpression,
@@ -38,10 +46,13 @@ import {
   BICYCLE_INFRA_LABELS,
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_LABELS,
+  SAFETY_COLOR_EXPRESSION,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
+  buildSafetyColorExpression,
+  buildSafetyLegend,
   buildTrafficStressColorExpression,
   buildTrafficStressLegend,
   type StaticFilterAxisId,
@@ -98,6 +109,7 @@ const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 export const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
+export const SAFETY_LAYER_ID = "region-safety-line";
 export const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 const DESIGNATION_LAYER_ID = "region-designation-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
@@ -458,6 +470,37 @@ function applyTrafficStressRecipe(map: MapLibreMap, recipe: TrafficStressRecipeO
   });
 }
 
+// 安全度（改善計画: 安全度レシピ）。ensureTrafficStressLayer/applyTrafficStressRecipeと
+// 完全に同じ構造（材料タグからの計算、研究モードでのレシピ上書き対応）。
+function ensureSafetyLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(SAFETY_LAYER_ID)) return;
+    map.addLayer({
+      id: SAFETY_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": SAFETY_COLOR_EXPRESSION as any,
+        "line-width": 3,
+        "line-opacity": 0.85,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+function applySafetyRecipe(map: MapLibreMap, recipe: SafetyRecipeOverride, levelExpression?: unknown[]) {
+  runWhenStyleReady(map, () => {
+    if (!map.getLayer(SAFETY_LAYER_ID)) return;
+    const colorExpression = buildSafetyColorExpression(recipe, levelExpression);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setPaintProperty(SAFETY_LAYER_ID, "line-color", colorExpression as any);
+  });
+}
+
 function ensureBicycleInfraLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getLayer(BICYCLE_INFRA_LAYER_ID)) return;
@@ -580,6 +623,7 @@ function ensureStopPoiLayer(map: MapLibreMap) {
 const STATIC_OVERLAY_LAYERS = [
   { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
   { key: "trafficStress", layerId: TRAFFIC_STRESS_LAYER_ID, ensure: ensureTrafficStressLayer },
+  { key: "safety", layerId: SAFETY_LAYER_ID, ensure: ensureSafetyLayer },
   { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
@@ -599,6 +643,7 @@ type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
 export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; sourceLayer?: string }[] = [
   { key: "road", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "trafficStress", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "safety", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
@@ -737,13 +782,16 @@ export function setStaticOverlayFilters(
   map: MapLibreMap,
   hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>,
   trafficStressRecipe: TrafficStressRecipeOverride,
+  safetyRecipe: SafetyRecipeOverride,
 ) {
   runWhenStyleReady(map, () => {
     // buildTrafficStressLegend/buildTrafficStressColorExpressionはどちらも内部でレシピから
     // 同じレベル判定式を組み立てるため、この呼び出し内で1回だけ計算して両方へ渡す
     // （setFilter/setPaintPropertyというMapLibre側の実処理に対し無視できるコストとはいえ、
-    // 同一の式木を毎回2回組み立てる必要はないため）。
+    // 同一の式木を毎回2回組み立てる必要はないため）。安全度（改善計画: 安全度レシピ）も
+    // 同じ理由で1回だけ計算する。
     const trafficStressLevelExpression = buildTrafficStressExpression(trafficStressRecipe);
+    const safetyLevelExpression = buildSafetyExpression(safetyRecipe);
     for (const layer of STATIC_OVERLAY_LAYERS) {
       const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
       if (axes.length === 0) continue;
@@ -753,7 +801,9 @@ export function setStaticOverlayFilters(
           legend:
             axis.axisId === "trafficStress"
               ? buildTrafficStressLegend(trafficStressRecipe, trafficStressLevelExpression)
-              : axis.legend,
+              : axis.axisId === "safety"
+                ? buildSafetyLegend(safetyRecipe, safetyLevelExpression)
+                : axis.legend,
           hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [],
         }))
       );
@@ -761,6 +811,7 @@ export function setStaticOverlayFilters(
       map.setFilter(layer.layerId, filter as any);
     }
     applyTrafficStressRecipe(map, trafficStressRecipe, trafficStressLevelExpression);
+    applySafetyRecipe(map, safetyRecipe, safetyLevelExpression);
   });
 }
 
@@ -854,6 +905,9 @@ interface RoadSurfacePopupProperties {
   tunnel?: boolean | null;
   bridge?: boolean | null;
   traffic_stress?: number | null;
+  /** 安全度（改善計画: 安全度レシピ）。traffic_stressと同じくタイルへ計算済みの値としては
+   * 焼き込まれておらず、材料タグからクリック時にここで計算した値をhandleClickが設定する。 */
+  safety?: number | null;
   bicycle_infra?: string | null;
   /** 指定路線コンフレーション機構（外部静的データソース T51）。未該当はプロパティ欠落。 */
   designation?: string | null;
@@ -875,6 +929,9 @@ const SMOOTHNESS_LABELS: Record<string, string> = {
 // イベントハンドラは使えず、addTo後にDOMを直接querySelectorして配線する）。
 const TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR = "data-traffic-stress-breakdown-button";
 const TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR = "data-traffic-stress-breakdown-result";
+// 安全度の区間別判定内訳（改善計画: 安全度レシピ）。交通ストレスと同じdata属性方式。
+const SAFETY_BREAKDOWN_BUTTON_ATTR = "data-safety-breakdown-button";
+const SAFETY_BREAKDOWN_RESULT_ATTR = "data-safety-breakdown-result";
 
 function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
   const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
@@ -887,19 +944,29 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   if (properties.traffic_stress != null) {
     rows.push(`交通ストレス: ${properties.traffic_stress}/4`);
   }
+  if (properties.safety != null) {
+    rows.push(`安全度: ${properties.safety}/4`);
+  }
   if (properties.designation) {
     rows.push(DESIGNATION_LABELS[properties.designation] ?? properties.designation);
   }
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
-  const breakdownAffordance =
+  const trafficStressBreakdownAffordance =
     properties.traffic_stress != null
       ? `<div style="margin-top:var(--space-1);">
           <button type="button" ${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">交通ストレスの内訳を見る</button>
           <div ${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}></div>
         </div>`
       : "";
-  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${breakdownAffordance}</div>`;
+  const safetyBreakdownAffordance =
+    properties.safety != null
+      ? `<div style="margin-top:var(--space-1);">
+          <button type="button" ${SAFETY_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">安全度の内訳を見る</button>
+          <div ${SAFETY_BREAKDOWN_RESULT_ATTR}></div>
+        </div>`
+      : "";
+  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${trafficStressBreakdownAffordance}${safetyBreakdownAffordance}</div>`;
 }
 
 // 「基準値4＋指定路線+1なのに最終値が5でなく4なのはなぜか」という実機フィードバック
@@ -984,6 +1051,83 @@ function attachTrafficStressBreakdownHandler(
   });
 }
 
+// 安全度は4段階固定・丸めありという同じ仕様（domain/safety.py: safety_breakdown、
+// TRAFFIC_STRESS_SCALE_INTROと同じ理由でここも明示する）。
+const SAFETY_SCALE_INTRO = "安全度は4段階[1=安全〜4=危険]の目安です。";
+
+function buildSafetyBreakdownHtml(breakdown: SafetyBreakdown): string {
+  if (breakdown.level == null) {
+    return `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">この道路種別は安全度の判定基準に登録されていません。</div>`;
+  }
+  const base = breakdown.base ?? 0;
+  const rows = [`基準値[道路種別]: ${base}`];
+  if (breakdown.motor_vehicle_no_override) {
+    rows.push("車両通行不可[自転車専用]のため、上記に関わらず1に固定");
+  } else {
+    const adjustments: Array<{ label: string; value: number }> = [];
+    if (breakdown.cycleway_adjustment !== 0) {
+      adjustments.push({ label: "自転車インフラ", value: breakdown.cycleway_adjustment });
+    }
+    if (breakdown.maxspeed_adjustment !== 0) {
+      adjustments.push({ label: "制限速度", value: breakdown.maxspeed_adjustment });
+    }
+    if (breakdown.lanes_adjustment !== 0) {
+      adjustments.push({ label: "車線数", value: breakdown.lanes_adjustment });
+    }
+    if (breakdown.shoulder_adjustment !== 0) {
+      adjustments.push({ label: "路肩", value: breakdown.shoulder_adjustment });
+    }
+    if (breakdown.lit_adjustment !== 0) {
+      adjustments.push({ label: "街灯", value: breakdown.lit_adjustment });
+    }
+    if (breakdown.tunnel_adjustment !== 0) {
+      adjustments.push({ label: "トンネル", value: breakdown.tunnel_adjustment });
+    }
+    if (breakdown.designation_adjustment !== 0) {
+      adjustments.push({ label: "指定路線[緊急輸送道路等]", value: breakdown.designation_adjustment });
+    }
+    for (const adjustment of adjustments) {
+      rows.push(`${adjustment.label}: ${formatSignedTerm(adjustment.value)}`);
+    }
+    if (adjustments.length > 0) {
+      const rawTotal = base + adjustments.reduce((sum, adjustment) => sum + adjustment.value, 0);
+      const formula = [`${base}`, ...adjustments.map((adjustment) => formatSignedTerm(adjustment.value))].join(" ");
+      if (rawTotal !== breakdown.level) {
+        const boundLabel = rawTotal > 4 ? "上限の4" : "下限の1";
+        rows.push(`合計 ${formula} = ${rawTotal} → ${boundLabel}に丸め`);
+      } else {
+        rows.push(`合計 ${formula} = ${rawTotal}`);
+      }
+    }
+  }
+  rows.push(`<strong>最終値: ${breakdown.level}/4</strong>`);
+  return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">${SAFETY_SCALE_INTRO}<br/><br/>${rows.join("<br/>")}</div>`;
+}
+
+function attachSafetyBreakdownHandler(
+  popupElement: HTMLElement,
+  osmWayId: number,
+  safetyRecipe: SafetyRecipeOverride | undefined,
+) {
+  const button = popupElement.querySelector<HTMLButtonElement>(`[${SAFETY_BREAKDOWN_BUTTON_ATTR}]`);
+  const resultEl = popupElement.querySelector<HTMLElement>(`[${SAFETY_BREAKDOWN_RESULT_ATTR}]`);
+  if (!button || !resultEl) return;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "取得中…";
+    try {
+      const breakdown = await fetchSafetyBreakdown(osmWayId, safetyRecipe);
+      resultEl.innerHTML = breakdown
+        ? buildSafetyBreakdownHtml(breakdown)
+        : `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
+    } catch {
+      resultEl.innerHTML = `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
+    } finally {
+      button.remove();
+    }
+  });
+}
+
 // 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
 interface AccidentPopupProperties {
   fatal?: boolean | null;
@@ -1021,6 +1165,11 @@ interface MapViewProps {
    * undefinedなら既定レシピ（DEFAULT_TRAFFIC_STRESS_RECIPE）を使う。地図の色分け・凡例による
    * 絞り込み・区間クリックの内訳ポップアップすべてがこのレシピに追従する。 */
   trafficStressRecipe?: TrafficStressRecipeOverride;
+  /** 安全度（改善計画: 安全度レシピ）。路面と同じソースを再利用する独立レイヤー。 */
+  showSafety: boolean;
+  /** 安全度レシピの上書き（研究モード）。undefinedなら既定レシピ（DEFAULT_SAFETY_RECIPE）を
+   * 使う。trafficStressRecipeと同じ扱い。 */
+  safetyRecipe?: SafetyRecipeOverride;
   /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。 */
   showDesignation: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
@@ -1055,6 +1204,8 @@ export default function MapView({
   showTrafficStress,
   showBicycleInfra,
   trafficStressRecipe,
+  showSafety,
+  safetyRecipe,
   showDesignation,
   showAccidents,
   showStopPoi,
@@ -1103,6 +1254,8 @@ export default function MapView({
     showTrafficStress,
     showBicycleInfra,
     trafficStressRecipe,
+    showSafety,
+    safetyRecipe,
     showDesignation,
     showAccidents,
     showStopPoi,
@@ -1133,6 +1286,8 @@ export default function MapView({
       showTrafficStress,
       showBicycleInfra,
       trafficStressRecipe,
+      showSafety,
+      safetyRecipe,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1151,6 +1306,8 @@ export default function MapView({
     showTrafficStress,
     showBicycleInfra,
     trafficStressRecipe,
+    showSafety,
+    safetyRecipe,
     showDesignation,
     showAccidents,
     showStopPoi,
@@ -1177,6 +1334,8 @@ export default function MapView({
       showTrafficStress,
       showBicycleInfra,
       trafficStressRecipe,
+      showSafety,
+      safetyRecipe,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1187,16 +1346,28 @@ export default function MapView({
     setStaticOverlayVisibility(map, {
       elevation: showElevation,
       trafficStress: showTrafficStress,
+      safety: showSafety,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
     });
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE);
+    setStaticOverlayFilters(
+      map,
+      staticLegendHiddenKeysByAxis,
+      trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE,
+      safetyRecipe ?? DEFAULT_SAFETY_RECIPE,
+    );
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(
       map,
-      isRoadSurfaceGroupVisible({ road: showRoad, trafficStress: showTrafficStress, bicycleInfra: showBicycleInfra, designation: showDesignation }),
+      isRoadSurfaceGroupVisible({
+        road: showRoad,
+        trafficStress: showTrafficStress,
+        safety: showSafety,
+        bicycleInfra: showBicycleInfra,
+        designation: showDesignation,
+      }),
       onRegionZoomHintChangeRef.current
     );
 
@@ -1226,6 +1397,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      showSafety,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1234,6 +1406,7 @@ export default function MapView({
       elevation: showElevation,
       road: showRoad,
       trafficStress: showTrafficStress,
+      safety: showSafety,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       accidents: showAccidents,
@@ -1335,11 +1508,14 @@ export default function MapView({
       // ため、propsを直接閉じ込めずredrawPropsRef.current経由で最新のレシピ上書き値を読む
       // （redrawAllLayersと同じ理由、上のコメント群参照）。
       const currentTrafficStressRecipe = redrawPropsRef.current.trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE;
+      // 安全度も交通ストレスと同じ理由でクリック時に材料タグから計算する（改善計画: 安全度レシピ）。
+      const currentSafetyRecipe = redrawPropsRef.current.safetyRecipe ?? DEFAULT_SAFETY_RECIPE;
       const roadSurfaceProperties = {
         ...(feature.properties as unknown as RoadSurfacePopupProperties),
         traffic_stress: isRoadSurfaceFeature
           ? evaluateTrafficStressLevel(feature.properties ?? {}, currentTrafficStressRecipe)
           : null,
+        safety: isRoadSurfaceFeature ? evaluateSafetyLevel(feature.properties ?? {}, currentSafetyRecipe) : null,
       };
       const html =
         feature.layer.id === DETAIL_LAYER_ID
@@ -1361,6 +1537,12 @@ export default function MapView({
           attachTrafficStressBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id, currentTrafficStressRecipe);
         }
       }
+      if (isRoadSurfaceFeature && roadSurfaceProperties.safety != null && roadSurfaceProperties.osm_way_id != null) {
+        const popupElement = popupRef.current.getElement();
+        if (popupElement) {
+          attachSafetyBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id, currentSafetyRecipe);
+        }
+      }
     }
 
     function handleMouseMove(e: MapMouseEvent) {
@@ -1378,10 +1560,16 @@ export default function MapView({
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
     // propsを保持するredrawPropsRef.currentを直接読む（recomputeLayerDataStatusと同じ方式）。
     function handleZoom() {
-      const { showRoad, showTrafficStress, showBicycleInfra, showDesignation } = redrawPropsRef.current;
+      const { showRoad, showTrafficStress, showSafety, showBicycleInfra, showDesignation } = redrawPropsRef.current;
       updateRoadZoomHint(
         map,
-        isRoadSurfaceGroupVisible({ road: showRoad, trafficStress: showTrafficStress, bicycleInfra: showBicycleInfra, designation: showDesignation }),
+        isRoadSurfaceGroupVisible({
+          road: showRoad,
+          trafficStress: showTrafficStress,
+          safety: showSafety,
+          bicycleInfra: showBicycleInfra,
+          designation: showDesignation,
+        }),
         onRegionZoomHintChangeRef.current
       );
     }
@@ -1586,6 +1774,7 @@ export default function MapView({
     setStaticOverlayVisibility(map, {
       elevation: showElevation,
       trafficStress: showTrafficStress,
+      safety: showSafety,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       accidents: showAccidents,
@@ -1598,6 +1787,7 @@ export default function MapView({
   }, [
     showElevation,
     showTrafficStress,
+    showSafety,
     showBicycleInfra,
     showDesignation,
     showAccidents,
@@ -1605,21 +1795,26 @@ export default function MapView({
     recomputeLayerDataStatus,
   ]);
 
-  // 交通ストレス・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み
-  // （改善計画T63）。道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで
-  // 反映される。
+  // 交通ストレス・安全度・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の
+  // 絞り込み（改善計画T63、安全度は改善計画: 安全度レシピで追加）。道路情報のフィルタ効果
+  // （下）と同じくvisibility/フィルタ式の差し替えのみで反映される。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE);
-  }, [staticLegendHiddenKeysByAxis, trafficStressRecipe]);
+    setStaticOverlayFilters(
+      map,
+      staticLegendHiddenKeysByAxis,
+      trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE,
+      safetyRecipe ?? DEFAULT_SAFETY_RECIPE,
+    );
+  }, [staticLegendHiddenKeysByAxis, trafficStressRecipe, safetyRecipe]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
   // fetchは不要）。色は常に固定（ROAD_LINE_COLOR_AXIS_ID）のためここでは差し替えない。
   // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するtrafficStress/
-  // bicycleInfra/designationのON/OFFでも変わりうるため、依存配列に含めてこの3フラグが
-  // 変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままtrafficStress等
+  // safety/bicycleInfra/designationのON/OFFでも変わりうるため、依存配列に含めてこれらの
+  // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままtrafficStress等
   // だけONで表示範囲が広すぎる場合に案内が一切出なかった不整合の修正）。
   useEffect(() => {
     const map = mapRef.current;
@@ -1627,13 +1822,20 @@ export default function MapView({
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(
       map,
-      isRoadSurfaceGroupVisible({ road: showRoad, trafficStress: showTrafficStress, bicycleInfra: showBicycleInfra, designation: showDesignation }),
+      isRoadSurfaceGroupVisible({
+        road: showRoad,
+        trafficStress: showTrafficStress,
+        safety: showSafety,
+        bicycleInfra: showBicycleInfra,
+        designation: showDesignation,
+      }),
       onRegionZoomHintChangeRef.current
     );
     recomputeLayerDataStatus();
   }, [
     showRoad,
     showTrafficStress,
+    showSafety,
     showBicycleInfra,
     showDesignation,
     roadHiddenKeysByMode,

@@ -11,6 +11,7 @@ function baseProps() {
       elevation: false,
       road: false,
       trafficStress: false,
+      safety: false,
       bicycleInfra: false,
       designation: false,
       stopPoi: false,
@@ -23,13 +24,14 @@ function baseProps() {
     onRoadAxisSetHidden: vi.fn(),
     staticFilterHiddenKeysByAxis: {
       trafficStress: [],
+      safety: [],
       bicycleInfra: [],
       designation: [],
       stopPoi: [],
       accidentParty: [],
       accidentSeverity: [],
     } as Record<
-      "trafficStress" | "bicycleInfra" | "designation" | "stopPoi" | "accidentParty" | "accidentSeverity",
+      "trafficStress" | "safety" | "bicycleInfra" | "designation" | "stopPoi" | "accidentParty" | "accidentSeverity",
       readonly string[]
     >,
     onStaticFilterLegendToggle: vi.fn(),
@@ -150,6 +152,7 @@ describe("MapLayersPanel", () => {
           elevation: true,
           road: false,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -231,6 +234,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -253,6 +257,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           trafficStress: true,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -274,6 +279,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
@@ -306,6 +312,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -329,6 +336,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           trafficStress: true,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -351,6 +359,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -374,6 +383,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
@@ -396,6 +406,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -418,6 +429,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -443,9 +455,14 @@ describe("MapLayersPanel", () => {
   it("交通ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("trafficStress");
-    expect(screen.getByText(/制限速度30km\/h以下: -1/)).toBeInTheDocument();
-    expect(screen.getByText(/車線数4以上: \+1/)).toBeInTheDocument();
-    expect(screen.getByText(/指定路線.*に該当: \+1/)).toBeInTheDocument();
+    // jsdomは閉じた<details>の中身もクエリ対象から隠さないため、安全度レイヤー（改善計画:
+    // 安全度レシピ）が似た文言のpanelHintDetailを持つようになった今、screen.getByTextの
+    // ページ全体探索だと複数該当してしまう。トグルされたtrafficStressセクションへ
+    // within()で明示的にスコープする（「不明・他」テストと同じ方式）。
+    const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
+    expect(within(section).getByText(/制限速度30km\/h以下: -1/)).toBeInTheDocument();
+    expect(within(section).getByText(/車線数4以上: \+1/)).toBeInTheDocument();
+    expect(within(section).getByText(/指定路線.*に該当: \+1/)).toBeInTheDocument();
   });
 
   // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解される実機フィードバックを
@@ -505,6 +522,7 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         staticFilterHiddenKeysByAxis={{
           trafficStress: [],
+          safety: [],
           bicycleInfra: [],
           designation: [],
           stopPoi: [],
@@ -556,6 +574,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -585,6 +604,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           trafficStress: false,
+          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,

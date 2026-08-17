@@ -30,6 +30,7 @@ from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.safety import SafetyRecipe, safety_level
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
@@ -121,6 +122,7 @@ class OpenRouteServiceEngine:
         route_preference: RoutePreference,
         repository: RoadGraphRepository | None = None,
         traffic_stress_recipe: TrafficStressRecipe | None = None,
+        safety_recipe: SafetyRecipe | None = None,
     ):
         self._routing_service = routing_service
         self._elevation_service = elevation_service
@@ -130,6 +132,7 @@ class OpenRouteServiceEngine:
         # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
         self._repository = repository
         self._traffic_stress_recipe = traffic_stress_recipe
+        self._safety_recipe = safety_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float):
         return _NO_CONTEXT
@@ -259,6 +262,7 @@ class OpenRouteServiceEngine:
                 [(s.distance_km, attributes_per_candidate[i][j].accident_count) for j, s in enumerate(segments)],
                 accident_years_covered,
             )
+            safety_score = distance_weighted_difficulty([(s.safety, s.distance_km) for s in segments])
             results.append(
                 c.model_copy(
                     update={
@@ -269,6 +273,7 @@ class OpenRouteServiceEngine:
                         "bicycle_infra_score": bicycle_infra_score,
                         "intersection_density": intersection_density,
                         "accident_density": accident_density,
+                        "safety_score": safety_score,
                     }
                 )
             )
@@ -342,13 +347,14 @@ class OpenRouteServiceEngine:
                 if accident_count is not None and distance_km > 0 and accident_years_covered > 0
                 else None
             )
+            safety = safety_level(highway, tags, is_designated, self._safety_recipe) if tags is not None else None
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year,
+                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year, safety,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
                 preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
-                preference.accident_weight,
+                preference.accident_weight, preference.safety_weight,
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
@@ -372,6 +378,7 @@ class OpenRouteServiceEngine:
                     road_surface_good=road_surface_good,
                     traffic_stress=traffic_stress,
                     bicycle_infra=bicycle_infra,
+                    safety=safety,
                     elevation_difficulty=axis_difficulties.elevation,
                     wind_difficulty=axis_difficulties.wind,
                     road_difficulty=axis_difficulties.road,
@@ -380,6 +387,7 @@ class OpenRouteServiceEngine:
                     infra_difficulty=axis_difficulties.infra,
                     intersection_difficulty=axis_difficulties.intersection,
                     accident_difficulty=axis_difficulties.accident,
+                    safety_difficulty=axis_difficulties.safety,
                     difficulty=axis_difficulties.composite,
                 )
             )

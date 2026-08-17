@@ -39,6 +39,7 @@ from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.safety import SafetyRecipe, safety_level
 from app.domain.traffic import (
     TrafficStressRecipe,
     classify_bicycle_infrastructure,
@@ -93,6 +94,7 @@ class RoadGraphEngine:
         weather_service: WeatherService,
         route_preference: RoutePreference,
         traffic_stress_recipe: TrafficStressRecipe | None = None,
+        safety_recipe: SafetyRecipe | None = None,
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
@@ -100,6 +102,7 @@ class RoadGraphEngine:
         self._weather_service = weather_service
         self._route_preference = route_preference
         self._traffic_stress_recipe = traffic_stress_recipe
+        self._safety_recipe = safety_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float) -> _RoadGraphContext | None:
         margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
@@ -215,6 +218,9 @@ class RoadGraphEngine:
         bicycle_infra_score = distance_weighted_bicycle_infra_score(
             [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
         )
+        safety_score = distance_weighted_difficulty(
+            [(s.safety, s.distance_km) for s in segments]
+        )
 
         return RouteCandidate(
             **candidate_identity(traced.bearing),
@@ -227,6 +233,7 @@ class RoadGraphEngine:
             bicycle_infra_score=bicycle_infra_score,
             intersection_density=intersection_density,
             accident_density=accident_density,
+            safety_score=safety_score,
             segments=segments,
             **elevation_stats,
         )
@@ -277,13 +284,18 @@ class RoadGraphEngine:
                 if accident_count is not None and distance_km > 0 and context.accident_years_covered > 0
                 else None
             )
+            safety = (
+                safety_level(edge.highway, edge_way_tags, is_designated, self._safety_recipe)
+                if edge_way_tags is not None
+                else None
+            )
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year,
+                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year, safety,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
                 preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
-                preference.accident_weight,
+                preference.accident_weight, preference.safety_weight,
             )
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
@@ -317,6 +329,7 @@ class RoadGraphEngine:
                     road_surface_good=road_surface_good,
                     traffic_stress=traffic_stress,
                     bicycle_infra=bicycle_infra,
+                    safety=safety,
                     elevation_difficulty=axis_difficulties.elevation,
                     wind_difficulty=axis_difficulties.wind,
                     road_difficulty=axis_difficulties.road,
@@ -325,6 +338,7 @@ class RoadGraphEngine:
                     infra_difficulty=axis_difficulties.infra,
                     intersection_difficulty=axis_difficulties.intersection,
                     accident_difficulty=axis_difficulties.accident,
+                    safety_difficulty=axis_difficulties.safety,
                     difficulty=axis_difficulties.composite,
                 )
             )

@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app.api.dependencies import client_id, get_region_service
-from app.api.routers.routes import TrafficStressRecipeOverride
+from app.api.routers.routes import SafetyRecipeOverride, TrafficStressRecipeOverride
 from app.config import settings
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
+from app.domain.safety import SafetyBreakdown, SafetyRecipe
 from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
@@ -148,3 +149,25 @@ async def region_traffic_stress_breakdown(
     _check_tile_rate_limit(http_request, "traffic-stress-breakdown")
     recipe = TrafficStressRecipe(**body.traffic_stress_recipe.model_dump()) if body.traffic_stress_recipe else None
     return await region_service.get_traffic_stress_breakdown(body.osm_way_id, recipe)
+
+
+class SafetyBreakdownRequest(BaseModel):
+    osm_way_id: int
+    # 研究モードでレシピを上書き中の内訳表示用（改善計画: 安全度レシピ）。
+    # 省略時はdomain/safety.py: DEFAULT_SAFETY_RECIPEで計算する。
+    safety_recipe: SafetyRecipeOverride | None = None
+
+
+@router.post("/api/region/safety-breakdown")
+async def region_safety_breakdown(
+    body: SafetyBreakdownRequest,
+    http_request: Request,
+    region_service: RegionService = Depends(get_region_service),
+) -> SafetyBreakdown | None:
+    """安全度の判定内訳（改善計画: 安全度レシピ）。region_traffic_stress_breakdownと
+    完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの
+    docstring参照）。
+    """
+    _check_tile_rate_limit(http_request, "safety-breakdown")
+    recipe = SafetyRecipe(**body.safety_recipe.model_dump()) if body.safety_recipe else None
+    return await region_service.get_safety_breakdown(body.osm_way_id, recipe)

@@ -92,12 +92,14 @@ def _cycleway_values(tags: dict[str, str]) -> list[str]:
     return [tags[k].strip().lower() for k in keys if tags.get(k)]
 
 
-def _cycleway_class(tags: dict[str, str]) -> str | None:
+def cycleway_class(tags: dict[str, str]) -> str | None:
     """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
     _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
     （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
     テストで担保）。traffic_stress_breakdownの補正選択と、export_openapi.pyが書き出す
     交通ストレスの相互検証用フィクスチャ（traffic-stress-test-cases.json）の両方から使う。
+    改善計画（安全度レシピ）でsafety_breakdown（domain/safety.py）からも共有するため
+    先頭アンダースコアを外しpublicにした（同じ判定を2箇所へ複製しないため）。
     """
     cycleway_values = _cycleway_values(tags)
     if "track" in cycleway_values:
@@ -361,12 +363,12 @@ def traffic_stress_breakdown(
             level=1,
         )
 
-    cycleway_class = _cycleway_class(tags)
-    if cycleway_class == "track":
+    cycleway = cycleway_class(tags)
+    if cycleway == "track":
         cycleway_adjustment = recipe.cycleway_track_adjustment
-    elif cycleway_class == "lane":
+    elif cycleway == "lane":
         cycleway_adjustment = recipe.cycleway_lane_adjustment
-    elif cycleway_class == "shared":
+    elif cycleway == "shared":
         # 改善計画T92: 自転車と共有の車道表示（シェアードレーン・バス共用帯）は専用レーンより
         # 弱いがゼロではない緩和要因のため、classify_bicycle_infrastructure（自転車インフラ軸）
         # と同じ判定基準を流用しlaneと同じ既定-1にする。実データ（関東本土の指定路線対象道路）で
@@ -433,9 +435,9 @@ def traffic_stress_tile_ingredients(
     ingredients: dict[str, object] = {}
     if highway is not None:
         ingredients["highway"] = highway
-    cycleway_class = _cycleway_class(tags)
-    if cycleway_class is not None:
-        ingredients["cycleway_class"] = cycleway_class
+    cycleway = cycleway_class(tags)
+    if cycleway is not None:
+        ingredients["cycleway_class"] = cycleway
     maxspeed = parse_maxspeed(tags)
     if maxspeed is not None:
         ingredients["maxspeed_kmh"] = maxspeed

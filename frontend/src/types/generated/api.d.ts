@@ -187,6 +187,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/region/safety-breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Region Safety Breakdown
+         * @description 安全度の判定内訳（改善計画: 安全度レシピ）。region_traffic_stress_breakdownと
+         *     完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの
+         *     docstring参照）。
+         */
+        post: operations["region_safety_breakdown_api_region_safety_breakdown_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -269,6 +291,7 @@ export interface components {
             scoring_weights: components["schemas"]["ScoringWeights"];
             route_preference: components["schemas"]["RoutePreferenceWeights"];
             traffic_stress_recipe: components["schemas"]["TrafficStressRecipeOverride"];
+            safety_recipe: components["schemas"]["SafetyRecipeOverride"];
             /** Generated At */
             generated_at: string;
         };
@@ -289,7 +312,7 @@ export interface components {
          *     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
          *     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
          *
-         *     `traffic_stress_score`: ルート全体の交通ストレス（1-4）の距離加重平均
+         *     `traffic_stress_score`: ルート全体の交通ストレス（1-5）の距離加重平均
          *     （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
          *     `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
          *     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
@@ -299,6 +322,9 @@ export interface components {
          *     `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
          *     domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
          *     合計distance_km」に収録年数での正規化を加えた集約）。
+         *
+         *     `safety_score`: ルート全体の安全度（1-4）の距離加重平均（改善計画: 安全度レシピ、
+         *     domain/difficulty.py: distance_weighted_difficulty、traffic_stress_scoreと同じ集約方法）。
          */
         RouteCandidate: {
             /** Id */
@@ -333,6 +359,8 @@ export interface components {
             intersection_density?: number | null;
             /** Accident Density */
             accident_density?: number | null;
+            /** Safety Score */
+            safety_score?: number | null;
             /** Total Score */
             total_score?: number | null;
             /** Score Breakdown */
@@ -364,6 +392,7 @@ export interface components {
             scoring_weights?: components["schemas"]["ScoringWeights"] | null;
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
             traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
+            safety_recipe?: components["schemas"]["SafetyRecipeOverride"] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {
@@ -399,6 +428,8 @@ export interface components {
             intersection_weight: number;
             /** Accident Weight */
             accident_weight: number;
+            /** Safety Weight */
+            safety_weight: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {
@@ -481,6 +512,8 @@ export interface components {
             traffic_stress?: number | null;
             /** Bicycle Infra */
             bicycle_infra?: string | null;
+            /** Safety */
+            safety?: number | null;
             /** Elevation Difficulty */
             elevation_difficulty?: number | null;
             /** Wind Difficulty */
@@ -497,8 +530,86 @@ export interface components {
             intersection_difficulty?: number | null;
             /** Accident Difficulty */
             accident_difficulty?: number | null;
+            /** Safety Difficulty */
+            safety_difficulty?: number | null;
             /** Difficulty */
             difficulty?: number | null;
+        };
+        /**
+         * SafetyBreakdown
+         * @description `safety_level`の判定内訳（domain/traffic.py: TrafficStressBreakdownと同じ役割・
+         *     同じ形）。地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データ。
+         *     highwayが判定基準（`SAFETY_BASE_BY_HIGHWAY`）に登録されていない場合は`base`/`level`
+         *     ともNoneで、他の補正フィールドは0/False。
+         */
+        SafetyBreakdown: {
+            /** Base */
+            base: number | null;
+            /** Cycleway Adjustment */
+            cycleway_adjustment: number;
+            /** Maxspeed Adjustment */
+            maxspeed_adjustment: number;
+            /** Lanes Adjustment */
+            lanes_adjustment: number;
+            /** Shoulder Adjustment */
+            shoulder_adjustment: number;
+            /** Lit Adjustment */
+            lit_adjustment: number;
+            /** Tunnel Adjustment */
+            tunnel_adjustment: number;
+            /** Designation Adjustment */
+            designation_adjustment: number;
+            /** Motor Vehicle No Override */
+            motor_vehicle_no_override: boolean;
+            /** Level */
+            level: number | null;
+        };
+        /** SafetyBreakdownRequest */
+        SafetyBreakdownRequest: {
+            /** Osm Way Id */
+            osm_way_id: number;
+            safety_recipe?: components["schemas"]["SafetyRecipeOverride"] | null;
+        };
+        /**
+         * SafetyRecipeOverride
+         * @description 安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
+         *     キーはdomain/safety.py: SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ
+         *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
+         *
+         *     交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの
+         *     docstring参照）・shoulder/lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
+         */
+        SafetyRecipeOverride: {
+            /** Base By Highway */
+            base_by_highway: {
+                [key: string]: number;
+            };
+            /** Cycleway Track Adjustment */
+            cycleway_track_adjustment: number;
+            /** Cycleway Lane Adjustment */
+            cycleway_lane_adjustment: number;
+            /** Cycleway Shared Adjustment */
+            cycleway_shared_adjustment: number;
+            /** Maxspeed Low Threshold */
+            maxspeed_low_threshold: number;
+            /** Maxspeed Low Adjustment */
+            maxspeed_low_adjustment: number;
+            /** Maxspeed High Threshold */
+            maxspeed_high_threshold: number;
+            /** Maxspeed High Adjustment */
+            maxspeed_high_adjustment: number;
+            /** Lanes High Threshold */
+            lanes_high_threshold: number;
+            /** Lanes High Adjustment */
+            lanes_high_adjustment: number;
+            /** Shoulder Adjustment */
+            shoulder_adjustment: number;
+            /** Lit Adjustment */
+            lit_adjustment: number;
+            /** Tunnel Adjustment */
+            tunnel_adjustment: number;
+            /** Designation Adjustment */
+            designation_adjustment: number;
         };
         /**
          * ScoringWeights
@@ -868,6 +979,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrafficStressBreakdown"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    region_safety_breakdown_api_region_safety_breakdown_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SafetyBreakdownRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SafetyBreakdown"] | null;
                 };
             };
             /** @description Validation Error */

@@ -49,6 +49,22 @@ export function TrafficStressIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 安全度: 事故・怪我リスクの低さを表す盾のシルエット（改善計画: 安全度レシピ） */
+export function SafetyIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 2 17 4.5v5.2c0 4.5-3 7.4-7 8.3-4-0.9-7-3.8-7-8.3V4.5L10 2Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M6.8 10 9 12.2l4.2-4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** 自転車インフラ: 二輪と車体を表す最小限の自転車シルエット */
 export function BicycleInfraIcon({ size = 16 }: IconProps) {
   return (
