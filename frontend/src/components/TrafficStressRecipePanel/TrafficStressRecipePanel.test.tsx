@@ -24,7 +24,7 @@ describe("TrafficStressRecipePanel", () => {
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
 
-  it("上書き有効時はhighway別基準値+スカラー12項目の入力欄を表示する", () => {
+  it("上書き有効時はスカラー12項目の入力欄+highway別のレベルピッカーを表示する", () => {
     render(
       <TrafficStressRecipePanel
         overrideEnabled={true}
@@ -34,7 +34,12 @@ describe("TrafficStressRecipePanel", () => {
       />,
     );
 
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(HIGHWAY_COUNT + SCALAR_FIELD_COUNT);
+    // 基準値（改善計画: レシピ入力フォームの改善）は数値入力欄ではなくレベルピッカー
+    // （role="group"、押しボタンの並び）になったため、spinbuttonはスカラー項目の
+    // 12件（4対×2＋cycleway3＋designation1）のみになる。role="group"は<fieldset>にも
+    // 暗黙的に付くため、レベルピッカーのaria-label（"○○の基準値"）で絞り込む。
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(SCALAR_FIELD_COUNT);
+    expect(screen.getAllByRole("group", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
   });
 
   it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
@@ -54,7 +59,10 @@ describe("TrafficStressRecipePanel", () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
-  it("highway別基準値の入力を変更するとbase_by_highwayだけが更新されたレシピで呼ばれる", () => {
+  it("highway別基準値のレベルピッカーを押すとbase_by_highwayだけが更新されたレシピで呼ばれる", async () => {
+    // 基準値は改善計画: レシピ入力フォームの改善で数値入力欄からレベルピッカー
+    // （低→高の押しボタン）へ変更された。
+    const user = userEvent.setup();
     const onRecipeChange = vi.fn();
     render(
       <TrafficStressRecipePanel
@@ -70,12 +78,45 @@ describe("TrafficStressRecipePanel", () => {
     const primaryInfoButton = screen.getByRole("button", { name: "国道クラスの幹線道路の説明を表示" });
     const primaryRow = primaryInfoButton.closest("tr");
     if (!primaryRow) throw new Error("primary行が見つかりません");
-    const primaryInput = within(primaryRow).getByRole("spinbutton");
-    fireEvent.change(primaryInput, { target: { value: "2" } });
+    const primaryPicker = within(primaryRow).getByRole("group");
+    await user.click(within(primaryPicker).getByRole("button", { name: "2" }));
 
     expect(onRecipeChange).toHaveBeenCalledWith({
       ...DEFAULT_TRAFFIC_STRESS_RECIPE,
       base_by_highway: { ...DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway, primary: 2 },
+    });
+  });
+
+  it("制限速度補正の閾値と補正値をそれぞれ変更すると対応するキーだけが更新される", () => {
+    // 改善計画: レシピ入力フォームの改善で、閾値+補正値が対で1行にまとまった
+    // （ThresholdAdjustmentRow）。両方の入力欄が独立して正しいキーを更新することを確認する。
+    const onRecipeChange = vi.fn();
+    render(
+      <TrafficStressRecipePanel
+        overrideEnabled={true}
+        onOverrideEnabledChange={vi.fn()}
+        recipe={DEFAULT_TRAFFIC_STRESS_RECIPE}
+        onRecipeChange={onRecipeChange}
+      />,
+    );
+
+    const lowSpeedInfoButton = screen.getByRole("button", { name: "低速道路の説明を表示" });
+    const lowSpeedRow = lowSpeedInfoButton.closest("label")?.parentElement;
+    if (!lowSpeedRow) throw new Error("低速道路の行が見つかりません");
+    // DOM順は補正値の行（AdjustmentBar+入力欄）が先、条件（閾値）の行が後
+    // （ThresholdAdjustmentRowのJSX順）。
+    const [adjustmentInput, thresholdInput] = within(lowSpeedRow).getAllByRole("spinbutton");
+
+    fireEvent.change(thresholdInput, { target: { value: "25" } });
+    expect(onRecipeChange).toHaveBeenLastCalledWith({
+      ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+      maxspeed_low_threshold: 25,
+    });
+
+    fireEvent.change(adjustmentInput, { target: { value: "-3" } });
+    expect(onRecipeChange).toHaveBeenLastCalledWith({
+      ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+      maxspeed_low_adjustment: -3,
     });
   });
 

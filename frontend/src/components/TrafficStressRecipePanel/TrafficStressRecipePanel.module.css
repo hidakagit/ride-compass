@@ -84,3 +84,112 @@
   color: var(--color-muted);
   line-height: 1.4;
 }
+
+/* 基準値のレベルピッカー（改善計画: レシピ入力フォームの改善）。TRAFFIC_STRESS_LEVELSの
+   段階数ぶん.levelSegmentが並ぶ。段階数を変えてもこのCSS自体は変更不要（flexで自動的に
+   並ぶため）。 */
+.levelPicker {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.levelSegment {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+/* 選択値以下の段階を地図と同じ色（JS側でstyleへ渡す--level-color）で塗り、
+   進捗バーのように見せる（未選択より高い段階は塗らない）。 */
+.levelSegment[data-filled="true"] {
+  background: var(--level-color);
+  border-color: var(--level-color);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* 補正値の0中心バー（改善計画: レシピ入力フォームの改善、「補正値は0を中心に変動」への
+   対応）。中央の目盛り線から左（負値）または右（正値）へ塗りが伸びる。色はJS側で
+   TRAFFIC_STRESS_COLORSの最低/最高段階から算出しstyleへ渡す。 */
+.adjustmentValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.adjustmentBar {
+  position: relative;
+  display: inline-block;
+  width: 3rem;
+  height: 0.5rem;
+  background: var(--color-surface-2);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.adjustmentBarCenter {
+  position: absolute;
+  left: 50%;
+  top: -0.15rem;
+  bottom: -0.15rem;
+  width: 1px;
+  background: var(--color-border-strong);
+}
+
+.adjustmentBarFillNegative,
+.adjustmentBarFillPositive {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* パーセント計算上ごく細くなる値（±1等）でも視認できるよう最小幅を確保する
+     （value===0では要素自体を描画しないため、0の場合に見えてしまう心配はない）。 */
+  min-width: 4px;
+  border-radius: 2px;
+}
+
+.adjustmentBarFillNegative {
+  right: 50%;
+}
+
+.adjustmentBarFillPositive {
+  left: 50%;
+}
+
+/* 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路、改善計画: レシピ入力
+   フォームの改善）。補正値行（.field）の下に、変動条件（閾値）の行を続ける。 */
+.pairField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.thresholdRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding-left: 1.2rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.thresholdCaption {
+  flex-shrink: 0;
+}
+
+.thresholdInput {
+  composes: input;
+  width: 3.5rem;
+}
+
+.thresholdSuffix {
+  flex-shrink: 0;
+}
