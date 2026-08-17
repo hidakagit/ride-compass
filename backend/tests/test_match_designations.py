@@ -15,12 +15,17 @@ from app.batch.match_designations import _write_matches
 from app.domain.graph import WaySpec
 from tests.conftest import TEST_DATABASE_URL
 
+# road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
+# ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
+# イベントループスコープをそれに合わせる必要がある。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
+
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
 OSM_WAY_ID = 100
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="module")
 async def designation_conn(road_graph_session):
     # road_graph_sessionはテーブル作成・後始末のためだけに依存する(接続不可時のskipも
     # このフィクスチャ経由で効く)。実際の読み書きはbatch側と同じasyncpg直結で行う。

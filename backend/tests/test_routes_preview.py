@@ -97,8 +97,9 @@ def test_preview_route_is_rate_limited_per_client():
     app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService(segment=segment)
 
     try:
-        for _ in range(settings.preview_rate_limit_per_minute):
-            assert client.post("/api/routes/preview", json=REQUEST_BODY).status_code == 200
+        for _ in range(settings.preview_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("preview:testclient", settings.preview_rate_limit_per_minute)
+        assert client.post("/api/routes/preview", json=REQUEST_BODY).status_code == 200
         response = client.post("/api/routes/preview", json=REQUEST_BODY)
     finally:
         app.dependency_overrides.clear()

@@ -18,3 +18,11 @@ docs/complexity-review-2026-08-16.md 末尾の改訂版が最新。
 - 高コスト処理はステージ別所要時間と中間結果の減り方を1行INFOサマリにする（route_generator.py参照）
 - リクエストIDは request_log.py のミドルウェアが全ログへ自動付与する。個別ログに書かない
 - 常時出るログの座標は小数2桁へ丸める。APIキーはどのレベルでも出さない
+
+## テスト方針（必読）
+
+**新しいテストを追加するときは docs/testing.md のパターンに従うこと。** 要点:
+
+- レート制限の境界値テストは `rate_limiter.check_rate_limit` を直接呼んで上限-1件を埋め、実HTTPは境界の1〜2回に絞る（上限回数分の実HTTPループ厳禁）
+- PostGIS統合テスト（road_graph_session、conftest.py）はファイル単位でエンジン・イベントループを共有する設計。新規ファイルでは `pytestmark = pytest.mark.asyncio(loop_scope="module")` が必要（自前の追加async fixtureにも `loop_scope="module"` を明示）
+- フロントエンドの新規テストがDOM（render/renderHook/window等）を使わない純ロジックなら、vitest.config.mts の environmentMatchGlobs への追加を検討する

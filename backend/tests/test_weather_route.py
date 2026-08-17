@@ -72,9 +72,10 @@ def test_get_weather_is_rate_limited_per_client():
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
 
     try:
-        for _ in range(settings.weather_rate_limit_per_minute):
-            params = {"latitude": 35.7597, "longitude": 139.7387}
-            assert client.get("/api/weather", params=params).status_code == 200
+        for _ in range(settings.weather_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("weather:testclient", settings.weather_rate_limit_per_minute)
+        params = {"latitude": 35.7597, "longitude": 139.7387}
+        assert client.get("/api/weather", params=params).status_code == 200
         response = client.get("/api/weather", params={"latitude": 35.7597, "longitude": 139.7387})
     finally:
         app.dependency_overrides.clear()

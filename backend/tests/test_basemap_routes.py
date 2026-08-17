@@ -52,8 +52,9 @@ def test_basemap_proxy_is_rate_limited_per_client():
     app.dependency_overrides[get_basemap_client] = lambda: FakeBasemapClient((b"x", "application/json"))
 
     try:
-        for _ in range(settings.basemap_rate_limit_per_minute):
-            assert client.get("/api/basemap/styles/liberty").status_code == 200
+        for _ in range(settings.basemap_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("basemap:testclient", settings.basemap_rate_limit_per_minute)
+        assert client.get("/api/basemap/styles/liberty").status_code == 200
         response = client.get("/api/basemap/styles/liberty")
     finally:
         app.dependency_overrides.clear()

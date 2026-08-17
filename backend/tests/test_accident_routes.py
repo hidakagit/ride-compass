@@ -67,8 +67,9 @@ def test_region_accident_tile_is_rate_limited_per_client():
     app.dependency_overrides[get_accident_service] = lambda: FakeAccidentService()
 
     try:
-        for _ in range(settings.accident_tile_rate_limit_per_minute):
-            assert client.get("/api/region/accident-tiles/14/14551/6447.pbf").status_code == 200
+        for _ in range(settings.accident_tile_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("accident-tile:testclient", settings.accident_tile_rate_limit_per_minute)
+        assert client.get("/api/region/accident-tiles/14/14551/6447.pbf").status_code == 200
         response = client.get("/api/region/accident-tiles/14/14551/6447.pbf")
     finally:
         app.dependency_overrides.clear()
@@ -89,7 +90,7 @@ def test_accident_tile_rate_limit_is_independent_from_road_tile_rate_limit():
     app.dependency_overrides[get_accident_service] = lambda: FakeAccidentService()
     try:
         for _ in range(settings.road_tile_rate_limit_per_minute):
-            client.get("/api/region/road-surface-tiles/14/14551/6447.pbf")
+            rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
         response = client.get("/api/region/accident-tiles/14/14551/6447.pbf")
     finally:
         app.dependency_overrides.clear()
