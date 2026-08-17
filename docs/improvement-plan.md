@@ -3225,6 +3225,38 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 
 ---
 
+## テストスイート実行効率化の検討事項（2026-08-18・フロントvitestタイムアウト調査より）
+
+### - [ ] T125. frontend vitestのtestTimeoutをコールドスタート耐性のある値へ引き上げ 規模S — トリガー: 特になし（着手可）
+
+- 発端: ユーザー報告「SafetyRecipePanel.test.tsx/TrafficStressRecipePanel.test.tsxが
+  `npm test`で5000msタイムアウトする」を受けて調査。node_modules未インストールの
+  フレッシュなworktreeで`npm install`後に初回実行したところ、`情報アイコンの説明開閉`
+  実装自体は存在する（T119でTrafficStressRecipePanel専用実装から`recipeControls.tsx:
+  FieldLabel`へ汎用化済み、ボタンのaria-labelも一致）にもかかわらず、3件のテストが
+  5000msちょうどをわずかに超えて（5.0〜6.4秒）タイムアウトした。同じ2ファイルを
+  キャッシュが温まった状態で再実行すると16件全てpassし、原因は実装欠落ではなく
+  Vite変換・jsdom環境セットアップのコールドスタートコスト（初回はenvironment
+  39.56秒・transform 7.16秒、2回目はenvironment 24.61秒・transform 3.87秒）が
+  vitestデフォルトの`testTimeout`5000msと競合したことと判明。T54完了条件確認
+  （2026-08-16、記録参照）で見た「vitest workerタイムアウト1件、並行セッション
+  資源競合による偽陽性」と同じ症状クラスだが、今回は並行セッションが無くても
+  単独のコールドスタートだけで再現した点が新規知見。CI（`.github/workflows/ci.yml`、
+  T1）はnode_modulesをキャッシュ復元する前提のためこれまで顕在化していなかった可能性が
+  あるが、新規worktree作成直後にテストを実行するユーザー・エージェントのワークフローでは
+  再発しうる。
+- 対応方針: `frontend/vitest.config.mts`の`test`設定へ`testTimeout`を明示追加
+  （現状値未設定＝vitest既定5000ms）。コールドスタート実測（初回6.4秒）に対して
+  十分な余裕を持たせた値（例: 15000ms）へ引き上げる。個別テストへ`it(..., { timeout })`を
+  都度指定する方式は取らず、グローバル既定を上げることでこの種の環境起因の偽陽性を
+  一律に防ぐ（該当テスト固有の問題ではなく全テストに共通する環境オーバーヘッドのため）。
+  時間があれば`environment`セットアップ自体が数十秒かかっている点（`vitest.setup.ts`の
+  内容確認）も合わせて調査する価値があるが、必須ではない。
+- 完了条件: `node_modules`を一度削除した状態から`npm install`→`npm test`のコールド
+  実行を再現し、タイムアウトによる失敗が発生しないことを確認。frontend全件green。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
