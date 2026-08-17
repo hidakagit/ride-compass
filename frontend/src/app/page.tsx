@@ -640,33 +640,51 @@ export default function Home() {
       <>
         <ResearchPanel />
 
-        {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。 */}
-        {researchEnabled && (
-          <div className={styles.legendCard}>
-            <WeightPanel
-              overrideEnabled={weightOverrideEnabled}
-              onOverrideEnabledChange={setWeightOverrideEnabled}
-              scoringWeights={scoringWeights}
-              onScoringWeightsChange={setScoringWeights}
-              routePreference={routePreference}
-              onRoutePreferenceChange={setRoutePreference}
-            />
-          </div>
-        )}
+        {/* 評価の重み（WeightPanel）と二次情報のレシピ（TrafficStressRecipePanel等）は
+            扱いが異なる別カテゴリとしてユーザー要望により見出しで分けている（改善計画:
+            研究タブのカテゴリ分け）。重みは既存の評価軸（route_preference/scoring）の
+            相対的な重要度、レシピは一次情報（OSMタグ）から二次情報（交通ストレス等）を
+            作る変換式そのもの（backend/app/domain/traffic.py: TrafficStressRecipe参照）で
+            性質が異なる。見出しの区切り自体はMapLayersPanel.tsxのカテゴリ見出し
+            （道路状態/交通・安全等、STATIC_CATEGORY_HEADINGS）と同じ発想・見た目
+            （styles.researchCategoryHeadingがcomposesで再利用）。 */}
+        <div className={styles.researchCategory}>
+          <h3 className={styles.researchCategoryHeading}>評価の重み</h3>
+          {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。 */}
+          {researchEnabled && (
+            <div className={styles.legendCard}>
+              <WeightPanel
+                overrideEnabled={weightOverrideEnabled}
+                onOverrideEnabledChange={setWeightOverrideEnabled}
+                scoringWeights={scoringWeights}
+                onScoringWeightsChange={setScoringWeights}
+                routePreference={routePreference}
+                onRoutePreferenceChange={setRoutePreference}
+              />
+            </div>
+          )}
+        </div>
 
-        {/* 交通ストレスレシピパネル（改善計画: 交通ストレスレシピ調整UIパネル、T107の次
-            ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
-            重みの上書きと挙動が異なるため）。 */}
-        {researchEnabled && (
-          <div className={styles.legendCard}>
-            <TrafficStressRecipePanel
-              overrideEnabled={trafficStressRecipeOverrideEnabled}
-              onOverrideEnabledChange={setTrafficStressRecipeOverrideEnabled}
-              recipe={trafficStressRecipe}
-              onRecipeChange={setTrafficStressRecipe}
-            />
-          </div>
-        )}
+        {/* 「レシピ」カテゴリ: 一次情報→二次情報の変換式そのものを調整するパネル群。
+            現状は交通ストレスレシピの1つのみだが、他の二次情報（自転車インフラ分類等）にも
+            将来レシピ化が広がりうるため、このカテゴリの下に複数のレシピパネルを並べられる
+            構成にしてある（新設パネルはこの<div>内へ追加するだけでよい）。 */}
+        <div className={styles.researchCategory}>
+          <h3 className={styles.researchCategoryHeading}>レシピ[一次情報→二次情報の変換式]</h3>
+          {/* 交通ストレスレシピパネル（改善計画: 交通ストレスレシピ調整UIパネル、T107の次
+              ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
+              重みの上書きと挙動が異なるため）。 */}
+          {researchEnabled && (
+            <div className={styles.legendCard}>
+              <TrafficStressRecipePanel
+                overrideEnabled={trafficStressRecipeOverrideEnabled}
+                onOverrideEnabledChange={setTrafficStressRecipeOverrideEnabled}
+                recipe={trafficStressRecipe}
+                onRecipeChange={setTrafficStressRecipe}
+              />
+            </div>
+          )}
+        </div>
       </>
     );
   }
