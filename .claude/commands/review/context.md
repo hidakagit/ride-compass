@@ -1,6 +1,6 @@
 # RideCompass プロジェクト固有レビューコンテキスト
 
-最終更新: 2026-08-16
+最終更新: 2026-08-18
 
 レビュー実行時に参照するプロジェクト固有情報。詳細仕様の写しではなく
 「レビューの判断に必要な構造・思想・履歴」のみを置く。
@@ -47,7 +47,11 @@
 4. **評価軸の追加は1本道**: 取込（import_profile.yaml / ALLOWED_WAY_TAGS）→ domain純関数 →
    共通合成 → route_preference.yaml → AttributeRepository＋ファサード対称委譲 →
    フロントはカタログ編集のみ。エンジンファイルに軸固有の知識を書かない。
-   現在8軸（標高・風・路面・停止密度・交差点密度・trafficStress・自転車インフラ・事故密度）。
+   **軸の数・一覧はarchitecture.md §7を正として都度参照する（本ファイルに書かない）。**
+   交通ストレス・安全度は「レシピ付き軸」（判定レシピをYAML/リクエスト上書き可能な形へ
+   外出しし、タイルへは材料タグのみ焼き込み、最終値はフロントのMapLibre expressionが計算）
+   であり、追加経路が通常軸の1本道より大きい（変更コスト表G'参照。共通基盤はT122/T123で
+   整備中）。
 
 ## 正準定義と同期機構（レビュー最重点）
 
@@ -62,6 +66,9 @@
 - フロントの語彙・色・凡例は宣言的カタログ5系統に集約
   （mapLayers / roadFilterAxes / routeStyleModes / staticAttributeLayers / evaluationAxes）。
   コンポーネント内にRecordリテラルの対訳表を作らない。
+- レシピ付き軸のPython⇔MapLibre expression二重実装は、export_openapi.pyが書き出す
+  生成フィクスチャ（traffic-stress/safety-test-cases.json・*-recipe.json）と照合テストで
+  同期を担保する（同期バグはこの照合が無い「糊」でのみ発生した実績: T120・T121-a）。
 
 ## 設計原則（正）
 
@@ -76,8 +83,11 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 - エンジン切替の併存・`LoopRoutingEngine` 3段階ポート契約
 - DI工場が使わない側エンジンの軽量依存も毎回構築（FastAPI制約への単純さ優先）
 - `/api/routes/preview` の残置（Step3疎通確認用）
-- `page.tsx` / `MapView.tsx` の分割見送り（閾値監視つき。当初の閾値は決めておいた2点
-  ともT47で消化済み、T91で新閾値「MapView.tsx 1,800行 or STATIC_OVERLAY_LAYERS 10種」を再設定）
+- `page.tsx` / `MapView.tsx` の分割見送り（肥大化はcomplexity.mdの「規模ウォッチ」で
+  横断監視する。MapView.tsxのみ個別の閾値付きKEEPがあり、現在有効な閾値・発火状況は
+  直近のcomplexityレビュー（history/）とimprovement-plan.mdの該当タスク（T91→T123）を
+  正として参照する。特定ファイル個別の閾値は原則新設せず、規模ウォッチの発火→
+  精査で判断する）
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
 - wind_scoreのエンジン間の意味差（engineフィールドで識別する管理された不整合）
 - PBF取込バッチのasyncpg COPY直行（Repository迂回）

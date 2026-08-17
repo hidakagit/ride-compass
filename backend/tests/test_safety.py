@@ -13,8 +13,10 @@ class TestSafetyLevel:
     def test_residential_base_is_2(self):
         assert safety_level("residential", {}) == 2
 
-    def test_tertiary_base_is_2(self):
-        assert safety_level("tertiary", {}) == 2
+    def test_tertiary_base_is_3(self):
+        # 改善計画T121: 事故密度実測（residential/unclassifiedより明確に高くsecondaryに
+        # 近いlanes/maxspeed分布）を根拠に2から引き上げ。
+        assert safety_level("tertiary", {}) == 3
 
     def test_secondary_base_is_3(self):
         assert safety_level("secondary", {}) == 3
@@ -45,10 +47,10 @@ class TestSafetyLevel:
         assert safety_level("primary", {"maxspeed": "30"}) == 3  # 4-1
 
     def test_high_maxspeed_increases_by_1(self):
-        assert safety_level("tertiary", {"maxspeed": "60"}) == 3  # 2+1
+        assert safety_level("tertiary", {"maxspeed": "60"}) == 4  # 3+1
 
     def test_many_lanes_increases_by_1(self):
-        assert safety_level("tertiary", {"lanes": "4"}) == 3  # 2+1
+        assert safety_level("tertiary", {"lanes": "4"}) == 4  # 3+1
 
     def test_invalid_zero_lanes_and_maxspeed_are_ignored(self):
         # SQL側(_ROAD_SURFACE_TILE_MVT_SQL)・parse_lanes/parse_maxspeedと同じく
@@ -75,7 +77,7 @@ class TestSafetyLevel:
         assert safety_level("primary", {"maxspeed": "80", "lanes": "6", "tunnel": "yes"}) == 4
 
     def test_unset_tags_do_not_apply_corrections(self):
-        assert safety_level("tertiary", {}) == 2
+        assert safety_level("tertiary", {}) == 3
 
     def test_is_designated_increases_by_1(self):
         assert safety_level("residential", {}, is_designated=True) == 3  # 2+1
@@ -130,7 +132,7 @@ class TestSafetyBreakdown:
             {"cycleway": "lane", "maxspeed": "60", "lanes": "4", "shoulder": "yes", "lit": "yes", "tunnel": "yes"},
             is_designated=True,
         )
-        assert breakdown.base == 2
+        assert breakdown.base == 3
         assert breakdown.cycleway_adjustment == -1
         assert breakdown.maxspeed_adjustment == 1
         assert breakdown.lanes_adjustment == 1
@@ -139,8 +141,8 @@ class TestSafetyBreakdown:
         assert breakdown.tunnel_adjustment == 1
         assert breakdown.designation_adjustment == 1
         assert breakdown.motor_vehicle_no_override is False
-        # 2 - 1 + 1 + 1 - 1 - 1 + 1 + 1 = 3
-        assert breakdown.level == 3
+        # 3 - 1 + 1 + 1 - 1 - 1 + 1 + 1 = 4
+        assert breakdown.level == 4
 
     def test_level_matches_safety_level_for_same_inputs(self):
         highway, tags, is_designated = "residential", {"cycleway": "track", "maxspeed": "30", "lit": "yes"}, True
@@ -167,9 +169,9 @@ class TestSafetyRecipeOverride:
 
     def test_maxspeed_threshold_override(self):
         recipe = SafetyRecipe(maxspeed_high_threshold=40)
-        assert safety_level("tertiary", {"maxspeed": "40"}, recipe=recipe) == 3  # 2+1
+        assert safety_level("tertiary", {"maxspeed": "40"}, recipe=recipe) == 4  # 3+1
         # 既定レシピ(閾値60)では40は補正なし
-        assert safety_level("tertiary", {"maxspeed": "40"}) == 2
+        assert safety_level("tertiary", {"maxspeed": "40"}) == 3
 
     def test_shoulder_adjustment_override(self):
         recipe = SafetyRecipe(shoulder_adjustment=-2)
@@ -181,7 +183,7 @@ class TestSafetyRecipeOverride:
 
     def test_tunnel_adjustment_override(self):
         recipe = SafetyRecipe(tunnel_adjustment=2)
-        assert safety_level("tertiary", {"tunnel": "yes"}, recipe=recipe) == 4  # 2+2
+        assert safety_level("tertiary", {"tunnel": "yes"}, recipe=recipe) == 4  # 3+2=5, clamped to 4
 
     def test_designation_adjustment_override(self):
         recipe = SafetyRecipe(designation_adjustment=2)

@@ -37,9 +37,9 @@ describe("evaluateSafetyLevel（レシピ上書き）", () => {
 
   it("閾値を変えるとmaxspeed補正の発火点が変わる", () => {
     const recipe: SafetyRecipe = { ...DEFAULT_SAFETY_RECIPE, maxspeed_high_threshold: 40 };
-    expect(evaluateSafetyLevel({ highway: "tertiary", maxspeed_kmh: 40 }, recipe)).toBe(3);
+    expect(evaluateSafetyLevel({ highway: "tertiary", maxspeed_kmh: 40 }, recipe)).toBe(4);
     // 既定レシピ(閾値60)では40は補正なし
-    expect(evaluateSafetyLevel({ highway: "tertiary", maxspeed_kmh: 40 }, DEFAULT_SAFETY_RECIPE)).toBe(2);
+    expect(evaluateSafetyLevel({ highway: "tertiary", maxspeed_kmh: 40 }, DEFAULT_SAFETY_RECIPE)).toBe(3);
   });
 
   it("shoulder/lit/tunnelの補正が効く", () => {
