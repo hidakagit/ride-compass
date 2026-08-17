@@ -40,16 +40,20 @@
 }
 
 .tableLabel {
-  font-family: monospace;
   font-size: var(--font-size-sm);
 }
 
-.resetButton {
-  align-self: flex-start;
-  font-size: var(--font-size-sm);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  padding: 0.2rem 0.6rem;
-  cursor: pointer;
+/* ラベル文言+情報アイコンの並び（改善計画: 研究タブの用語日本語化）。.field/.tableLabelの
+   左側（スカラー欄はlabel、highway欄はtdの直接の子）に入れる。 */
+.fieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.infoIcon {
+  display: inline-flex;
+  color: var(--color-muted);
+  cursor: help;
+  flex-shrink: 0;
 }

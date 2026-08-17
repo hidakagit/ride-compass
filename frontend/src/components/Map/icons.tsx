@@ -188,3 +188,52 @@ export function StatusIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+/** 補足説明: ラベル横に添える汎用の情報アイコン（円＋i）。StatusIconと同形だが、
+ * 「システム状況ボタン」ではなく「hoverで詳細を出す補足」という別用途のため名前を分ける。 */
+export function InfoIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="10" cy="6.6" r="0.9" fill="currentColor" />
+      <path d="M10 9.4v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 地図の見え方（モバイル下部タブ）: 積み重なったレイヤーを表す菱形+2本の折れ線 */
+export function MapAppearanceIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M10 2.5 17.5 7 10 11.5 2.5 7 10 2.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M2.5 10.8 10 15.3 17.5 10.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 14.3 10 18.8 17.5 14.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** 研究（モバイル下部タブ）: パラメータ調整の実験を表すフラスコ */
+export function ResearchIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M8 2.5h4M8.5 2.5V7L3.5 17h13L11.5 7V2.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M5.5 13h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 開発者（モバイル下部タブ）: コードを表す山カッコ「&lt; &gt;」 */
+export function DeveloperIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M7 5 2 10l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13 5l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import { InfoIcon } from "@/components/Map/icons";
 import { DEFAULT_TRAFFIC_STRESS_RECIPE, type TrafficStressRecipe } from "@/components/Map/trafficStressExpression";
 import styles from "./TrafficStressRecipePanel.module.css";
 
@@ -14,7 +15,12 @@ type ScalarKey = Exclude<keyof TrafficStressRecipe, "base_by_highway">;
 
 interface ScalarField {
   key: ScalarKey;
+  /** 表示ラベル（改善計画: 研究タブの用語日本語化。技術的な条件そのものはdescription
+   * （情報アイコンのツールチップ）側へ回し、ここは日本語として読める短い語句にする）。 */
   label: string;
+  /** ラベル横の情報アイコンのツールチップに出す、判定条件の具体的な説明
+   * （対応するOSMタグ・値を含む）。 */
+  description: string;
 }
 
 // WeightPanel.tsxのWeightField/WeightInputと同じ発想の一覧駆動だが、
@@ -22,31 +28,134 @@ interface ScalarField {
 // （軸間の重みではなく軸の中身のレシピのため）、フィールド一覧はこのファイル内に持つ。
 // backend/app/domain/traffic.py: traffic_stress_breakdownの適用順序に合わせて4グループに束ねる。
 const CYCLEWAY_FIELDS: ScalarField[] = [
-  { key: "cycleway_track_adjustment", label: "track[専用レーン]の補正" },
-  { key: "cycleway_lane_adjustment", label: "lane[レーン]の補正" },
-  { key: "cycleway_shared_adjustment", label: "shared_lane/share_busway[共有]の補正" },
+  {
+    key: "cycleway_track_adjustment",
+    label: "専用レーンの補正",
+    description: "cycleway=track（車道と分離された自転車専用レーン）に該当する道路への補正値",
+  },
+  {
+    key: "cycleway_lane_adjustment",
+    label: "自転車レーンの補正",
+    description: "cycleway=lane（車道内に区画された自転車レーン）に該当する道路への補正値",
+  },
+  {
+    key: "cycleway_shared_adjustment",
+    label: "共有レーンの補正",
+    description: "cycleway=shared_lane / share_busway（自動車・バスと車線を共有する通行帯）に該当する道路への補正値",
+  },
 ];
 const MAXSPEED_FIELDS: ScalarField[] = [
-  { key: "maxspeed_low_threshold", label: "低速の閾値[km/h以下]" },
-  { key: "maxspeed_low_adjustment", label: "低速の補正" },
-  { key: "maxspeed_high_threshold", label: "高速の閾値[km/h以上]" },
-  { key: "maxspeed_high_adjustment", label: "高速の補正" },
+  {
+    key: "maxspeed_low_threshold",
+    label: "低速道路とみなす速度",
+    description: "制限速度がこの値[km/h]以下なら「低速道路」の補正を適用する",
+  },
+  {
+    key: "maxspeed_low_adjustment",
+    label: "低速道路への補正",
+    description: "制限速度が低速道路の基準以下の道路に加える補正値",
+  },
+  {
+    key: "maxspeed_high_threshold",
+    label: "高速道路とみなす速度",
+    description: "制限速度がこの値[km/h]以上なら「高速道路」の補正を適用する",
+  },
+  {
+    key: "maxspeed_high_adjustment",
+    label: "高速道路への補正",
+    description: "制限速度が高速道路の基準以上の道路に加える補正値",
+  },
 ];
 const LANES_FIELDS: ScalarField[] = [
-  { key: "lanes_high_threshold", label: "多車線の閾値[車線以上]" },
-  { key: "lanes_high_adjustment", label: "多車線の補正" },
-  { key: "lanes_low_threshold", label: "少車線の閾値[車線以下]" },
-  { key: "lanes_low_adjustment", label: "少車線の補正" },
+  {
+    key: "lanes_high_threshold",
+    label: "多車線とみなす車線数",
+    description: "車線数がこの値以上なら「多車線」の補正を適用する",
+  },
+  {
+    key: "lanes_high_adjustment",
+    label: "多車線道路への補正",
+    description: "車線数が多車線の基準以上の道路に加える補正値",
+  },
+  {
+    key: "lanes_low_threshold",
+    label: "少車線とみなす車線数",
+    description: "車線数がこの値以下なら「少車線」の補正を適用する",
+  },
+  {
+    key: "lanes_low_adjustment",
+    label: "少車線道路への補正",
+    description: "車線数が少車線の基準以下の道路に加える補正値",
+  },
 ];
 const DESIGNATION_FIELDS: ScalarField[] = [
-  { key: "designation_adjustment", label: "指定路線[N10・N12]該当の補正" },
+  {
+    key: "designation_adjustment",
+    label: "指定路線への補正",
+    description: "緊急輸送道路（N10）・重要物流道路（N12）のいずれかに該当する道路に加える補正値",
+  },
 ];
 
-// highway別基準値の表示順はDEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highwayの定義順
-// （domain/traffic.py: TRAFFIC_STRESS_BASE_BY_HIGHWAYと同じ、単一ソースからの導出）。
-// ラベルはOSMのhighway=タグ値をそのまま出す（この項目を編集する時点で利用者は
-// OSMタグ語彙を前提にしているため、独自の日本語訳を新設しない）。
+interface HighwayLabel {
+  label: string;
+  description: string;
+}
+
+// highway別基準値の日本語ラベル+説明（改善計画: 研究タブの用語日本語化。以前はOSMの
+// highway=タグ値をそのまま出していたが「要素名は日本語の論理をラベルに、具体的な属性
+// 説明は情報アイコンで」という方針転換を受け変更）。キー集合自体はHIGHWAY_ORDER
+// （DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highwayの定義順、domain/traffic.py:
+// TRAFFIC_STRESS_BASE_BY_HIGHWAYと単一ソース）に従う。ラベルはroadFilterAxes.ts
+// 「道路の種類」軸の分類語（幹線道路/主要道/生活道路等）と整合させつつ、この表では
+// highway値ごとに基準値を個別編集するためより細かく分けている。説明（情報アイコンの
+// ツールチップ）には元のOSMタグ値を明記し、タグ語彙を知っている利用者はそちらも
+// 参照できるようにする。未知のhighway値（将来backendの既定レシピにキーが追加された場合）は
+// フォールバックとしてタグ値そのものをラベルに使う（HIGHWAY_LABELS未収載でも表示は欠けない）。
+const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
+  cycleway: { label: "自転車専用道", description: "highway=cycleway。自転車のための専用道路" },
+  living_street: {
+    label: "生活道路(歩車共存)",
+    description: "highway=living_street。歩行者優先で自動車もゆっくり走る道路",
+  },
+  residential: { label: "住宅地の道路", description: "highway=residential。住宅地内の一般道路" },
+  unclassified: {
+    label: "その他の一般道",
+    description: "highway=unclassified。上記のどれにも当てはまらない格付けの低い一般道路",
+  },
+  track: { label: "農道・林道", description: "highway=track。農地・山林内の道（未舗装が多い）" },
+  tertiary: { label: "地区の主要道路", description: "highway=tertiary。市区町村道クラスの主要な道路" },
+  tertiary_link: {
+    label: "地区の主要道路(連絡路)",
+    description: "highway=tertiary_link。上記の合流・分岐路（ランプ）",
+  },
+  secondary: { label: "都道府県道クラスの道路", description: "highway=secondary。主要地方道クラスの道路" },
+  secondary_link: {
+    label: "都道府県道クラスの道路(連絡路)",
+    description: "highway=secondary_link。上記の合流・分岐路（ランプ）",
+  },
+  primary: { label: "国道クラスの幹線道路", description: "highway=primary。国道クラスの幹線道路" },
+  primary_link: { label: "幹線道路(連絡路)", description: "highway=primary_link。上記の合流・分岐路（ランプ）" },
+  trunk: { label: "高規格の幹線道路", description: "highway=trunk。自動車専用道路に準ずる高規格の幹線道路" },
+  trunk_link: {
+    label: "高規格の幹線道路(連絡路)",
+    description: "highway=trunk_link。上記の合流・分岐路（ランプ）",
+  },
+};
+
 const HIGHWAY_ORDER = Object.keys(DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway);
+
+// フィールドラベル+情報アイコン（ホバー/長押しで具体的な属性説明を出す。weatherHeaderの
+// title属性と同じ、既存のツールチップ規約を踏襲）。
+function FieldLabel({ label, description }: { label: string; description: string }) {
+  return (
+    <span className={styles.fieldLabel}>
+      {label}
+      <span className={styles.infoIcon} title={description}>
+        <InfoIcon />
+      </span>
+    </span>
+  );
+}
 
 function ScalarInput({
   field,
@@ -59,7 +168,7 @@ function ScalarInput({
 }) {
   return (
     <label className={styles.field}>
-      {field.label}
+      <FieldLabel label={field.label} description={field.description} />
       <input
         type="number"
         step="1"
@@ -104,29 +213,41 @@ export default function TrafficStressRecipePanel({
             <legend>道路種別ごとの基準値[1-4]</legend>
             <table className={styles.table}>
               <tbody>
-                {HIGHWAY_ORDER.map((highway) => (
-                  <tr key={highway}>
-                    <td className={styles.tableLabel}>{highway}</td>
-                    <td>
-                      <input
-                        type="number"
-                        min="1"
-                        max="4"
-                        step="1"
-                        value={recipe.base_by_highway[highway] ?? ""}
-                        onChange={(e) => {
-                          const next = Number(e.target.value);
-                          if (Number.isNaN(next)) return;
-                          onRecipeChange({
-                            ...recipe,
-                            base_by_highway: { ...recipe.base_by_highway, [highway]: next },
-                          });
-                        }}
-                        className={styles.input}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {HIGHWAY_ORDER.map((highway) => {
+                  // HIGHWAY_LABELS未収載（将来backendの既定レシピにキーが追加された場合）は
+                  // タグ値そのものをラベルにフォールバックし、情報アイコンは出さない
+                  // （フォールバック時点でラベル自体がタグ値なので説明の付け足しは不要）。
+                  const highwayLabel = HIGHWAY_LABELS[highway];
+                  return (
+                    <tr key={highway}>
+                      <td className={styles.tableLabel}>
+                        {highwayLabel ? (
+                          <FieldLabel label={highwayLabel.label} description={highwayLabel.description} />
+                        ) : (
+                          highway
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="1"
+                          max="4"
+                          step="1"
+                          value={recipe.base_by_highway[highway] ?? ""}
+                          onChange={(e) => {
+                            const next = Number(e.target.value);
+                            if (Number.isNaN(next)) return;
+                            onRecipeChange({
+                              ...recipe,
+                              base_by_highway: { ...recipe.base_by_highway, [highway]: next },
+                            });
+                          }}
+                          className={styles.input}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </fieldset>
