@@ -97,6 +97,11 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v11: 改善計画T122。shoulder材料タグ（付与率0.0%の死に補正、T102実測）を撤去した世代
+# （infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。プロパティ
+# 削除を伴うが、shoulderは元々全fetchで実質未使用（safety_breakdownのlit_adjustment/
+# tunnel_adjustmentのように到達可能な補正が無い）だったため、v9のような厳格なデプロイ
+# 順序制約はない。
 # v10: 安全度レシピ。安全度の材料タグ（`shoulder`/`lit`、tunnelは既存プロパティを再利用）を
 # 追加した世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
 # v9と同じくプロパティ追加のみ（削除は伴わない）だが、キャッシュ済み旧タイルには
@@ -123,7 +128,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "10"
+ROAD_SURFACE_TILE_VERSION = "11"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。

@@ -43,7 +43,6 @@ def _safety_breakdown(**overrides) -> SafetyBreakdown:
         cycleway_adjustment=0,
         maxspeed_adjustment=0,
         lanes_adjustment=0,
-        shoulder_adjustment=0,
         lit_adjustment=0,
         tunnel_adjustment=0,
         designation_adjustment=0,
@@ -110,8 +109,8 @@ class TestRawPreClampLevel:
         assert raw_pre_clamp_level(breakdown) is None
 
     def test_works_for_safety_breakdown_too(self):
-        breakdown = _safety_breakdown(base=3, shoulder_adjustment=-1, lit_adjustment=-1, tunnel_adjustment=1)
-        assert raw_pre_clamp_level(breakdown) == 2
+        breakdown = _safety_breakdown(base=3, lit_adjustment=-1, tunnel_adjustment=1)
+        assert raw_pre_clamp_level(breakdown) == 3
 
 
 class TestAdjustmentFieldNames:
@@ -122,9 +121,9 @@ class TestAdjustmentFieldNames:
         assert "base" not in fields
         assert "level" not in fields
 
-    def test_safety_fields_include_shoulder_lit_tunnel(self):
+    def test_safety_fields_include_lit_tunnel(self):
         fields = adjustment_field_names(SafetyBreakdown)
-        assert {"shoulder_adjustment", "lit_adjustment", "tunnel_adjustment"} <= set(fields)
+        assert {"lit_adjustment", "tunnel_adjustment"} <= set(fields)
 
 
 class TestRoundingLossCounter:
@@ -157,13 +156,13 @@ class TestRoundingLossCounter:
 
 class TestAdjustmentFiringCounter:
     def test_counts_nonzero_adjustment_as_fired(self):
-        counter = AdjustmentFiringCounter(["shoulder_adjustment", "lit_adjustment"])
-        counter.add(_safety_breakdown(shoulder_adjustment=-1, lit_adjustment=0), distance_km=10.0)
-        counter.add(_safety_breakdown(shoulder_adjustment=0, lit_adjustment=0), distance_km=10.0)
+        counter = AdjustmentFiringCounter(["tunnel_adjustment", "lit_adjustment"])
+        counter.add(_safety_breakdown(tunnel_adjustment=1, lit_adjustment=0), distance_km=10.0)
+        counter.add(_safety_breakdown(tunnel_adjustment=0, lit_adjustment=0), distance_km=10.0)
 
-        assert counter.fired_count["shoulder_adjustment"] == 1
+        assert counter.fired_count["tunnel_adjustment"] == 1
         assert counter.fired_count["lit_adjustment"] == 0
-        assert counter.fired_distance_km["shoulder_adjustment"] == 10.0
+        assert counter.fired_distance_km["tunnel_adjustment"] == 10.0
 
     def test_counts_true_boolean_override_as_fired(self):
         counter = AdjustmentFiringCounter(["motor_vehicle_no_override"])
@@ -174,11 +173,12 @@ class TestAdjustmentFiringCounter:
 
     def test_report_lines_flag_dead_adjustment(self):
         # 改善計画T124の動機（死に補正の検出）: 一度も発火しないフィールドは0%で報告される
-        counter = AdjustmentFiringCounter(["shoulder_adjustment"])
-        counter.add(_safety_breakdown(shoulder_adjustment=0), distance_km=10.0)
+        # （実例: shoulder_adjustmentは実測0.0%で「死に補正」と判明し、T122で撤去された）
+        counter = AdjustmentFiringCounter(["tunnel_adjustment"])
+        counter.add(_safety_breakdown(tunnel_adjustment=0), distance_km=10.0)
 
         lines = counter.report_lines("安全度")
-        assert any("shoulder_adjustment: 0件（0.0%）" in line for line in lines)
+        assert any("tunnel_adjustment: 0件（0.0%）" in line for line in lines)
 
 
 class TestHighwayAccidentDensity:

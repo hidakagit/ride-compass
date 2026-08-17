@@ -1336,10 +1336,6 @@
             "type": "integer",
             "title": "Lanes Adjustment"
           },
-          "shoulder_adjustment": {
-            "type": "integer",
-            "title": "Shoulder Adjustment"
-          },
           "lit_adjustment": {
             "type": "integer",
             "title": "Lit Adjustment"
@@ -1374,7 +1370,6 @@
           "cycleway_adjustment",
           "maxspeed_adjustment",
           "lanes_adjustment",
-          "shoulder_adjustment",
           "lit_adjustment",
           "tunnel_adjustment",
           "designation_adjustment",
@@ -1452,10 +1447,6 @@
             "type": "integer",
             "title": "Lanes High Adjustment"
           },
-          "shoulder_adjustment": {
-            "type": "integer",
-            "title": "Shoulder Adjustment"
-          },
           "lit_adjustment": {
             "type": "integer",
             "title": "Lit Adjustment"
@@ -1481,13 +1472,12 @@
           "maxspeed_high_adjustment",
           "lanes_high_threshold",
           "lanes_high_adjustment",
-          "shoulder_adjustment",
           "lit_adjustment",
           "tunnel_adjustment",
           "designation_adjustment"
         ],
         "title": "SafetyRecipeOverride",
-        "description": "安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。\nキーはdomain/safety.py: SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ\n「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。\n\n交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの\ndocstring参照）・shoulder/lit/tunnel（安全度のみ採用）で項目が異なる点に注意。"
+        "description": "安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。\nキーはdomain/safety.py: SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ\n「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。\n\n交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの\ndocstring参照）・lit/tunnel（安全度のみ採用）で項目が異なる点に注意。"
       },
       "ScoringWeights": {
         "properties": {

@@ -42,8 +42,7 @@ describe("evaluateSafetyLevel（レシピ上書き）", () => {
     expect(evaluateSafetyLevel({ highway: "tertiary", maxspeed_kmh: 40 }, DEFAULT_SAFETY_RECIPE)).toBe(3);
   });
 
-  it("shoulder/lit/tunnelの補正が効く", () => {
-    expect(evaluateSafetyLevel({ highway: "secondary", shoulder: true }, DEFAULT_SAFETY_RECIPE)).toBe(2);
+  it("lit/tunnelの補正が効く", () => {
     expect(evaluateSafetyLevel({ highway: "secondary", lit: true }, DEFAULT_SAFETY_RECIPE)).toBe(2);
     expect(evaluateSafetyLevel({ highway: "secondary", tunnel: true }, DEFAULT_SAFETY_RECIPE)).toBe(4);
   });
