@@ -928,7 +928,7 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
   得ており、再訪条件とあわせて外部静的データソースレビュー§4.4に記録済み。
 - 完了条件: ゲート0〜2の結果と判定を記録済み（本項目・外部静的データソースレビュー§4.4）。
 
-### - [ ] T53. JARTIC交通量によるtrafficStress較正 規模M（研究IF側の検証作業）— トリガー: 特になし（手が空いたとき）
+### - [x] T53. JARTIC交通量によるtrafficStress較正 規模M（研究IF側の検証作業）（2026-08-18完了）
 
 - 詳細設計は外部静的データソースレビュー§4.5参照。評価パイプラインには入れず、
   1回のスナップショット収集（`collect_jartic.py`新規、dev機PostgreSQLのみ保持）→
@@ -936,6 +936,50 @@ GeoJSONが実在するのはN12のみ。両方とも実際にダウンロード�
   定期収集は較正に不足する場合のみ検討（停止条件を先に決めておく）。
 - 完了条件: LTS段階間で交通量分布が単調に分離しているかの分析結果を記録し、
   分離が悪ければ`TRAFFIC_STRESS_BASE_BY_HIGHWAY`等の見直し材料とする。
+
+**実装結果（2026-08-18完了）**:
+
+- **収集（`backend/scripts/collect_jartic.py`新設）**: JARTIC WFS 2.0.0
+  （`https://api.jartic-open-traffic.org/geoserver`、`t_travospublic_measure_1h`、
+  登録不要・cql_filter必須）。実装中に2つの落とし穴を実測で確認・対処:
+  (1) `観測年月日`＋`時間帯`から日時を再構成すると`時間帯`が1時間値では常に0で
+  ValueErrorになる→自己完結な`時間コード`（YYYYMMDDHHmm）から直接parseへ変更。
+  (2) このGeoServerデプロイは`count`/`startIndex`によるページングを完全に無視し
+  （`startIndex`を変えても同一の全件セットが返り続ける）、範囲cql_filterで複数時間を
+  一括要求すると非収束ループ化する→時間コード完全一致で1時間・1リクエストへ設計変更
+  （`fetch_hour_features`、`collect()`が時間ごとにループ）。関東本土全域・1時間ぶんは
+  単発リクエストで頭打ちなく全件（実測106件、道路種別=3=一般道）返ることを確認済み。
+  収集先`traffic_stations`/`traffic_hourly`はスクリプト自身が`CREATE TABLE IF NOT EXISTS`
+  で自己完結して用意し、`Base.metadata`・本番Oracle migration経路には一切含めない
+  （外部静的データソースレビュー§4の「研究用データを本番に置かない」共通方針）。
+  2026-08-14〜17の4日分・関東本土bboxを実DBへ収集（106観測点、日毎約5,000件の
+  時間別レコード）。
+- **分析（`backend/scripts/analyze_jartic_calibration.py`新設）**: 観測点を最寄りの
+  osm_raw_ways（30m以内、domain/road.py: `SURFACE_MATCH_MAX_DISTANCE_M`と同じ許容量、
+  `&&`前置＋`ST_DWithin(geography)`パターンはmeasure_axis_stats.pyと同じ）へ空間マッチし、
+  `domain/traffic.py: traffic_stress_level`でLTS段階を算出、`traffic_hourly`の1日あたり
+  平均交通量（上り+下り合算、収集日数で正規化）とLTS段階を突き合わせる。相関計算は
+  `measure_axis_stats.py`の`pearson_correlation`/`spearman_correlation`をそのまま
+  再利用（複製しない）。純関数（`group_volumes_by_level`/`summarize_group`/
+  `is_monotonic_by_level`）は`test_analyze_jartic_calibration.py`で単体テスト。
+  - 実装時の落とし穴: LATERAL内のKNN（`ORDER BY ... <->`）を`geography`型へ
+    キャストすると`osm_raw_ways.geom`のGiST索引（geometry型）を使えず観測点ごとに
+    全表スキャンになり実行が発散した→KNNは`geometry`のまま・距離判定のみ
+    `ST_DWithin(geography)`にする（`EXPLAIN ANALYZE`で索引利用を確認、106観測点で
+    217ms）。
+  - **分析結果**: dev機PostgreSQLの`osm_raw_ways`は東京都心南部のみ（実測extent:
+    lon 139.61-139.87, lat 35.58-35.79）にしか投入されておらず、関東本土全域で
+    収集した観測点106件のうち30m以内にマッチするのはわずか8件（level4:2件・
+    level5:6件、level1-3は無し）。8件の範囲では level昇順に平均交通量が単調非減少
+    （level4平均20,787台/日 → level5平均24,897台/日、YES）、Pearson相関0.224・
+    Spearman順位相関0.378と、方向性は`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の想定
+    （highway階級が上がるほど交通量も増える）と矛盾しない。ただしn=8・2段階のみで
+    統計的な結論を出すには不十分（dev DBのosm_raw_waysカバレッジが東京都心南部に
+    限られるための構造的制約であり、より広いLTS段階を横断した較正には本番相当
+    （関東本土全域）のosm_raw_ways投入が必要。今回はスコープ外）。完了条件の
+    「分析結果を記録」は満たしたが、`TRAFFIC_STRESS_BASE_BY_HIGHWAY`等の見直しを
+    正当化するには材料不足のため、既定値は変更しない。
+  - backend全green（847件、新規16件）。
 
 ### - [x] T54. 既取込データの可視化漏れ解消（停止要因POI・交差点密度レイヤー）規模S〜M（2026-08-16完了）
 
@@ -3404,3 +3448,4 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 | 2026-08-18 | T123 | レシピ軸の糊のパラメータ化＋MapView閾値発火対応。`region_service.py`の内訳取得双子を`_get_breakdown`（`_get_tile`と同じ方針）へ、`region.py`の2エンドポイントを`_breakdown_response`へ統一。`regionApi.ts`のfetch双子を`BreakdownAxisConfig`渡しの1関数へ統一。新設`recipeBreakdownPopup.ts`でMapView.tsxの内訳ポップアップ双子（148行）を`adjustmentLabels`（Breakdownのフィールド名→ラベル、記述順=表示順）渡しの1実装へ集約（新しい補正フィールドが増えても本体変更不要）。新設`recipeExpression.ts`で`trafficStressExpression.ts`/`safetyExpression.ts`のMapLibre expression断片組み立て（`domain/recipe.py`のTS側ミラー）を共有化。新設`useLayerDataStatus.ts`で`computeLayerDataStatus`/`clearStaleTrackedSourceErrors`と状態管理・イベントハンドラを抽出（MapView.tsxとの循環import回避のため`LAYER_DATA_SOURCES`はMapView.tsx側に残し引数で渡す設計）。MapView.tsx 1,905→1,654行（目標1,700行未満達成）。新閾値（2,000行 or STATIC_OVERLAY_LAYERS 10種 or 3つ目のレシピ軸のMapView内ミラー追加）をdocs/complexity-review-2026-08-16.mdへ反映、3つ目のレシピ軸の追加凍結を解除。backend 839件・frontend 334件・eslint・tsc全green、Playwright実機確認（headless chromium、東京都心南部の実データ）で交通ストレス・安全度の両内訳ポップアップが最終値まで正しく表示されコンソールエラー0件を確認 |
 | 2026-08-18 | T125 | `frontend/vitest.config.mts`へ`testTimeout: 15000`を追加。vitest既定の5000msがnode_modules未インストール直後等のコールドスタート（Vite変換・jsdom環境セットアップ、実測初回6.4秒）と競合しSafetyRecipePanel/TrafficStressRecipePanel等のテストがタイムアウトで落ちる偽陽性（T121〜T123で繰り返し観測）を解消。作業ディレクトリが並行セッションと共有されておりnode_modules削除は他セッションを巻き込むリスクがあるため、完了条件の検証は`node_modules/.vite`（Vite変換キャッシュ）削除によるコールド状態再現に代えて実施し、334件全green（タイムアウト失敗0件）を確認。副次的に、同ファイルの`environmentMatchGlobs`（別コミットbe9fc95由来）がインストール済みvitest 4.1.10に存在しない設定でCIのtsc gateを壊している疑いを発見、T125のスコープ外のため別タスクとして切り出した |
 | 2026-08-18 | T126 | `vitest.config.mts`の`environmentMatchGlobs`（Vitest 1〜3系のオプション、インストール済み4.1.10では廃止済み）を修正。`npx tsc --noEmit`のInlineConfig型エラーの原因であり、`typeof window`プローブで確認したところランタイムでも無視されておりnode環境への振り分けが機能していなかった。Vitest 4の`test.projects`はファイル探索単位が変わり対象外テストが静かに漏れるリスクがあるため不採用とし、対象15ファイルへ`// @vitest-environment node`docblockを個別付与する方式へ置き換えた。付与作業中に`MapView.overlayFilters.test.ts`が実際は`window.location`参照コード経路（`accidentTileUrl`）を持ちjsdomが必要（旧設定は誤ってnode指定していたが機能しておらず表面化していなかった）と判明し、このファイルのみdocblockを付けず解消。`npx tsc --noEmit`エラー0件・`npx vitest run`334件全green・eslint全green |
+| 2026-08-18 | T53 | `backend/scripts/collect_jartic.py`（JARTIC WFS収集）・`analyze_jartic_calibration.py`（LTS段階×実交通量の突き合わせ）を新設。収集側は実装中に2つの実測起点の落とし穴を解消（`時間帯`ではなく自己完結な`時間コード`からの日時parseへ変更／このGeoServerデプロイが`count`/`startIndex`ページングを完全無視すると確認し時間コード完全一致・1時間1リクエストのループ方式へ設計変更）。分析側もLATERAL内KNNを`geography`キャストすると`osm_raw_ways.geom`のGiST索引を使えず全表スキャン化することを実測で発見し、KNNは`geometry`のまま・距離判定のみ`ST_DWithin(geography)`にして解消。2026-08-14〜17の4日分・関東本土全域を実DBへ収集（106観測点）したが、dev DBの`osm_raw_ways`が東京都心南部のみのカバレッジ（実測extent: lon 139.61-139.87, lat 35.58-35.79）のため30m以内にマッチする観測点はn=8（level4/5のみ）にとどまった。この範囲内ではlevel昇順に平均交通量が単調非減少（20,787→24,897台/日、Pearson 0.224・Spearman 0.378）で`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の想定と矛盾しないが、n=8・2段階のみのため統計的な結論には不十分と判断し、基準値は変更せず分析結果の記録のみで完了とした（より広い較正には本番相当のosm_raw_ways投入が必要、現状スコープ外）。backend 847件（新規16件）全green |
