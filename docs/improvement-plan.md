@@ -2771,6 +2771,56 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+## 交通ストレス5段階化（2026-08-17・ユーザー要望「変動要素が多く1-4はもう少し細かく
+段階評価してもよい」）
+
+### - [x] T117. 交通ストレスのクランプ上限を4→5へ拡張し、primary/trunk/指定路線の悪化要因を独立レベルとして可視化 規模M（2026-08-17完了）
+
+- 発端: ユーザーから「交通ストレスは今1-4評価だが、変動要素が多くもう少し細かく段階評価
+  してもよいと感じる。妥当な段階数を検討、提案して」という相談。「実測から始めて」との
+  指示を受け、実装前にdev DB実データ（39,878way・道路網5,737.6km）でクランプ前の生値分布を
+  実測した。
+- 実測結果:
+  - クランプ前の生値はraw=2が61.9%（件数）/55.9%（距離）を占め圧倒的多数。residential/
+    unclassified等（合計69%）が制限速度・車線数タグをほぼ持たず補正が一切効かないまま
+    基準値2に張り付くためで、タグの裏付けが無い以上これ以上の細分化はできない。
+  - 一方raw≥5（従来level4に丸め込まれ区別不能）は8.3%（件数）/9.3%（距離）存在し、
+    primary（73%該当）・trunk（78%該当）・primary_link/trunk_link（62%該当）に集中。
+    指定路線（N10/N12）だけで見るとraw≥5が39.2%、raw=4と合わせ77.1%が現行level4に
+    押し込まれており、T92記載の実測「78.3%」ともほぼ一致し手法の妥当性を確認。
+  - 結論: 上端（level4→5への分割）は実データで裏付けられるが、下端（level1〜2）を
+    増やす根拠は無し。5段階（下限1据え置き、上限4→5拡張）を採用。
+- 対応:
+  - `domain/traffic.py: traffic_stress_breakdown`のクランプを`min(4, ...)`→`min(5, ...)`へ。
+  - `domain/difficulty.py: _TRAFFIC_STRESS_MAX_LEVEL`を4→5（区間難易度への正規化上限）。
+  - `trafficStressExpression.ts`のMapLibre expression（`["min", 4, ...]`→`["min", 5, ...]`）を
+    Python側と同期。
+  - `staticAttributeLayers.ts: TRAFFIC_STRESS_COLORS`へ5番目の色を追加。旧level4の色（赤
+    `#dc2626`）を新level5（最悪）へ引き継ぎ、新level4には中間色（オレンジ`#f97316`）を
+    割り当てた。凡例ラベルは4「注意」・5「ストレス大」に再配分。`TrafficStressRecipePanel`の
+    基準値ピッカーは`TRAFFIC_STRESS_COLORS`のキーから段階数を動的に導出する設計
+    （T108で「段階数を4→5等へ増やす場合はここへキーを追加するだけ」と設計済み）のため
+    無改修で追従。
+  - `mapLayers.ts`のpanelHint/panelHintDetail、`MapView.tsx`のポップアップ内訳説明文
+    （TRAFFIC_STRESS_SCALE_INTRO）を「5段階[1=快適〜5=ストレス大]」「1〜5の範囲」へ更新。
+  - `export_openapi.py`の相互検証フィクスチャへ`("primary", {}, True, None)`（指定路線
+    primaryでraw=5ちょうど）を追加し、新しい上限境界をPython⇔JS双方でテストする。
+  - バックエンドテスト（`test_traffic.py`・`test_difficulty.py`・`test_region_service.py`）の
+    旧上限4を前提にしたアサーションを新結果へ更新（`test_result_is_clamped_to_1_4_range`→
+    `_1_5_range`、`test_is_designated_clamped_to_4`→`_on_primary_reaches_5`等）。
+- 作業環境: このタスク着手時、`docs/improvement-plan.md`が同時に別セッション（同一
+  ディレクトリ、未コミットの「安全度」9軸目実装が進行中と判明・pytest収集エラー17件で
+  非green状態）と衝突するリスクを検知したため、ユーザー承認のうえ`git worktree`
+  （`.claude/worktrees/traffic-stress-5levels`、ブランチ`traffic-stress-5levels`）で作業を
+  完全に分離した。node_modules/venvは元ディレクトリのものをコピー・npm installで独立確保し、
+  Playwright実機確認・pytest/vitest実行はすべてこのworktree内で完結させた。
+- 完了条件: backend 736件（新規1件含む）・frontend 279件・tsc（環境起因の1件を除き無関係の
+  新規エラー無し）・eslint（変更ファイル）全green。headed Playwright実機確認（1280px幅）で
+  凡例の5段階（1〜5）が正しいラベル・色（`#16a34a`/`#84cc16`/`#f59e0b`/`#f97316`/`#dc2626`）で
+  表示されること、panelHintの「5段階[1=快適〜5=ストレス大]」表示を確認。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2865,3 +2915,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T114 | ユーザー報告「補正値、水平バーが出ておらず数字入力。入力しにくいので改善して。全体的にもう少しコンパクトな形にしたい」。T113の0中心バーは実機ではmin-widthの塗りが数px程度で知覚されず、数値入力単体もネイティブのスピナー矢印が小さくタップしづらい問題が残っていたと判明。`AdjustmentBar`を廃止し、-/+ボタンで挟んだ色付き数値入力（`AdjustmentStepper`、背景色は`TRAFFIC_STRESS_COLORS`から算出）へ作り直した。あわせて閾値+補正値の対フィールドを縦2段から横並び1行へ、レベルピッカーのボタンサイズ・グループ間gapを詰めてコンパクト化。実装中にラベルが右側の内容に押し縮められて「低速道路」が2行に割れる回帰を発見・修正（`flex-shrink: 0`/`white-space: nowrap`）。frontend 278件（新規1件）・tsc・eslint全green、Playwright実機確認（-ボタンでの実際の値変化・375px幅で横スクロール無し・ラベル折り返し崩れの解消）でコンソールエラー0件 |
 | 2026-08-17 | T115 | ユーザー依頼「地図の見え方の中身と同じように、研究の中身も折りたたむように。表示しているときのみ折りたたみ解除まで合わせるべきか、どこまで合わせるかは考えて」。`MapLayersPanel.tsx`の折りたたみ（T38）を精査し、開閉状態はレイヤーの表示ON/OFFと完全に独立した純粋なUI状態と判明。「研究」側も同じ考え方で、`WeightPanel.tsx`（2グループ）・`TrafficStressRecipePanel.tsx`（5グループ）の`<fieldset><legend>`をすべて`<details><summary>`（chevron付き、デフォルト全閉）へ変更し、開閉は上書きトグルのON/OFFとは連動させなかった（合わせたのは折りたたみの仕組みまでで、開閉のトリガー条件までは合わせていない、という判断を明記）。CSSは`WeightPanel.module.css`へ新規追加しTrafficStressRecipePanel側はcomposesで再利用。frontend 278件・tsc・eslint全green、Playwright実機確認（両パネルとも初期非表示・クリックで開閉）でコンソールエラー0件 |
 | 2026-08-17 | T116 | ユーザー依頼「評価の重みと交通ストレスのレシピは扱いを分けてほしい。別タブは微妙だが同じタブ内でグループ化はしたい。レシピは今後他の二次データ分も増えると思うのでくくり出してほしい」。別タブ化はせず、「研究」タブ内を「評価の重み」「レシピ[一次情報→二次情報の変換式]」の2カテゴリへ見出しで分割（見た目は`MapLayersPanel.tsx`のカテゴリ見出しとcomposesで統一）。「レシピ」カテゴリは現状交通ストレスレシピ1つのみだが、将来の追加パネルはこのカテゴリの`<div>`内に足すだけで済む構成にした（1件しかない現時点で汎用レジストリ機構まで作るのは過剰と判断し見送り）。frontend 278件・tsc・eslint全green、Playwright実機確認（2見出しの表示・順序・375px幅での横スクロール無し）でコンソールエラー0件 |
+| 2026-08-17 | T117 | ユーザー相談「交通ストレスは変動要素が多く1-4は粗い、妥当な段階数を検討・提案して」を受け、実装前にdev DB実データ（39,878way・5,737.6km）でクランプ前の生値分布を実測。raw≥5が8.3%（件数）/9.3%（距離）存在しprimary/trunk/指定路線に集中（従来level4に丸め込まれ区別不能）、下端level2（62%/56%）はタグ欠損由来の一極集中で細分化の材料無しと判明。上限4→5拡張（下限1据え置き）を実測で裏付けたうえで実装。`domain/traffic.py`のクランプ・`domain/difficulty.py`の正規化上限・`trafficStressExpression.ts`のMapLibre expressionを同期、`staticAttributeLayers.ts`へ5色目（新規オレンジ#f97316をlevel4、旧赤#dc2626をlevel5へ引き継ぎ）を追加。`TrafficStressRecipePanel`はT108で段階数可変設計済みのため無改修で追従。作業中、同一ディレクトリで別セッションの「安全度」9軸目実装（未コミット・pytest収集エラー17件で非green）と衝突するリスクを検知し、ユーザー承認のうえgit worktree（`traffic-stress-5levels`ブランチ）で完全分離して実装。backend 736件・frontend 279件・tsc・eslint全green、Playwright実機確認（5段階の色・ラベル・panelHint文言）でコンソールエラー0件 |

@@ -23,10 +23,11 @@ _ROAD_HARD_SCORE = 80.0
 _STOP_DENSITY_MAX_PER_KM = 4.0
 _STOP_DENSITY_HARD_SCORE = 100.0
 
-# 交通ストレス(1-4、domain/traffic.py: traffic_stress_level)の目安: 1が最も易しく4が最も大変。
-# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。
+# 交通ストレス(1-5、domain/traffic.py: traffic_stress_level)の目安: 1が最も易しく5が最も大変。
+# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。上限は改善計画（交通ストレス
+# 5段階化）で4→5へ拡張済み。
 _TRAFFIC_STRESS_MIN_LEVEL = 1
-_TRAFFIC_STRESS_MAX_LEVEL = 4
+_TRAFFIC_STRESS_MAX_LEVEL = 5
 
 # 自転車インフラ分類(domain/traffic.py: BicycleInfraClass)の目安: 分離自転車道が最も易しく、
 # 自転車通行禁止が最も大変。unknownは評価しない（None）。静的道路属性P1残り、暫定値。
@@ -98,7 +99,7 @@ def stop_difficulty(stop_count_per_km: float | None) -> float | None:
 
 
 def traffic_stress_difficulty(traffic_stress_level: int | None) -> float | None:
-    """交通ストレス(1-4、domain/traffic.py: traffic_stress_level)を難易度へ変換する。
+    """交通ストレス(1-5、domain/traffic.py: traffic_stress_level)を難易度へ変換する。
     レベルが高いほど走りにくいため単調増加。判定不能（未知のhighway等）はNone。"""
     if traffic_stress_level is None:
         return None

@@ -76,16 +76,21 @@ function buildCategoricalLayerDefs(
   return { labels, legend, colorExpression };
 }
 
-// LTS(Level of Traffic Stress)風の1-4段階。1=快適(緑)〜4=ストレス大(赤)。
-// backend/app/domain/traffic.py: traffic_stress_levelと同じ意味論（1-4の整数、算出不能はNone）。
+// LTS(Level of Traffic Stress)風の1-5段階。1=快適(緑)〜5=ストレス大(赤)。
+// backend/app/domain/traffic.py: traffic_stress_levelと同じ意味論（1-5の整数、算出不能はNone）。
 // exportしているのはTrafficStressRecipePanel（改善計画: レシピ入力フォームの改善）が
 // 基準値の選択UI（低→高のレベルピッカー）の色・段階数をここから導出し、地図の色分けと
-// 常に一致させるため。段階数を4→5等へ増やす場合はここへキーを追加するだけで両方に反映される。
+// 常に一致させるため。段階数をさらに増やす場合もここへキーを追加するだけで両方に反映される。
+// 改善計画（交通ストレス5段階化）: 実データ実測で旧上限4にraw値5〜7が丸め込まれ、
+// primary/trunk/指定路線（N10/N12）の悪化要因が地図上で見分けられなくなっていたため
+// 4→5へ拡張した。旧レベル4の色（赤）は新レベル5（最悪）へ引き継ぎ、新レベル4には
+// 中間色（オレンジ）を割り当てた。
 export const TRAFFIC_STRESS_COLORS: Record<number, string> = {
   1: "#16a34a",
   2: "#84cc16",
   3: "#f59e0b",
-  4: "#dc2626",
+  4: "#f97316",
+  5: "#dc2626",
 };
 
 // 交通ストレスの最終値は（改善計画: 交通ストレスレシピ外出し基盤により）タイルへ計算済みの
@@ -95,9 +100,9 @@ export const TRAFFIC_STRESS_COLORS: Record<number, string> = {
 // 交通ストレスレシピ調整UIパネル）ごとに凡例・色分け式が変わるため関数化してある。
 // 既定レシピ（DEFAULT_TRAFFIC_STRESS_RECIPE）を渡す限り見た目は従来と同一。
 
-// 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解されるという実機
+// 「不明・他」が1〜5と並ぶ6番目の数値段階に見え「1〜6評価」と誤解されるという実機
 // フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
-// MapOverlayControls）に区切り線＋弱調表示させる。段階の意味そのものは1〜4のまま変えない。
+// MapOverlayControls）に区切り線＋弱調表示させる。
 export function buildTrafficStressLegend(
   recipe: TrafficStressRecipe,
   levelExpression: unknown[] = buildTrafficStressExpression(recipe),
@@ -106,7 +111,8 @@ export function buildTrafficStressLegend(
     { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", levelExpression, 1] },
     { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
     { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", levelExpression, 3] },
-    { key: "4", label: "4[ストレス大]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
+    { key: "4", label: "4[注意]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
+    { key: "5", label: "5[ストレス大]", color: TRAFFIC_STRESS_COLORS[5], filter: ["==", levelExpression, 5] },
     {
       key: "unknown",
       label: "不明・他[判定対象外の道路種別]",
@@ -138,6 +144,8 @@ export function buildTrafficStressColorExpression(
     TRAFFIC_STRESS_COLORS[3],
     4,
     TRAFFIC_STRESS_COLORS[4],
+    5,
+    TRAFFIC_STRESS_COLORS[5],
     COLOR_UNKNOWN,
   ];
 }

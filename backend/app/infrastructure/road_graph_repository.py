@@ -189,7 +189,7 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   SQLにPythonを呼び出す手段が無いためやむを得ず判定ロジックを2箇所持つが、
 #   test_road_graph_repository.pyの整合性テストで同じ入力に対し常に同じ出力になることを
 #   担保する。
-# - traffic_stress（交通ストレス、1-4）は改善計画（交通ストレスレシピ外出し基盤）以降、
+# - traffic_stress（交通ストレス、1-5）は改善計画（交通ストレスレシピ外出し基盤）以降、
 #   ここでは**計算済みの最終値を焼かない**。タイルは全ユーザー共有でキャッシュされる
 #   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
 #   判定レシピ（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに

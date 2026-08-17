@@ -134,13 +134,13 @@ def test_traffic_stress_difficulty_level_1_is_easiest():
     assert traffic_stress_difficulty(1) == 0.0
 
 
-def test_traffic_stress_difficulty_level_4_is_hardest():
-    assert traffic_stress_difficulty(4) == 100.0
+def test_traffic_stress_difficulty_level_5_is_hardest():
+    assert traffic_stress_difficulty(5) == 100.0
 
 
 def test_traffic_stress_difficulty_is_linear_between_min_and_max():
-    # (2.5-1)/(4-1)*100 = 50.0
-    assert traffic_stress_difficulty(2.5) == 50.0
+    # (3-1)/(5-1)*100 = 50.0
+    assert traffic_stress_difficulty(3) == 50.0
 
 
 def test_traffic_stress_difficulty_none_passthrough():

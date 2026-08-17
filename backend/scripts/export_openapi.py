@@ -69,8 +69,9 @@ _TRAFFIC_STRESS_TEST_CASES: list[tuple[str | None, dict[str, str], bool, dict[st
     ("primary", {"lanes": "0"}, False, None),
     ("primary", {"maxspeed": "0"}, False, None),
     ("cycleway", {"cycleway": "track", "maxspeed": "20"}, False, None),  # 下限1でクランプ
-    ("primary", {"maxspeed": "80", "lanes": "6"}, False, None),  # 上限4でクランプ
+    ("primary", {"maxspeed": "80", "lanes": "6"}, False, None),  # raw=6、上限5でクランプ
     ("residential", {}, True, None),  # 指定路線+1
+    ("primary", {}, True, None),  # 指定路線+1でraw=5、上限5ちょうど（改善計画: 交通ストレス5段階化）
     ("primary", {"motor_vehicle": "no"}, True, None),  # 指定路線+motor_vehicle=noは1固定
     # レシピ上書き（研究モード相当）でも一致することを確認する。
     (
