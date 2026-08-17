@@ -32,6 +32,8 @@ import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
+import TrafficStressRecipePanel from "@/components/TrafficStressRecipePanel/TrafficStressRecipePanel";
+import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "@/components/Map/trafficStressExpression";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
@@ -41,7 +43,13 @@ import { useLocation } from "@/hooks/useLocation";
 import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather } from "@/services/weatherApi";
-import type { Coordinates, RouteCandidate, RoutePreferenceWeights, ScoringWeights } from "@/types/route";
+import type {
+  Coordinates,
+  RouteCandidate,
+  RoutePreferenceWeights,
+  ScoringWeights,
+  TrafficStressRecipeOverride,
+} from "@/types/route";
 import type { WeatherConditions } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./page.module.css";
@@ -124,6 +132,16 @@ export default function Home() {
   const [weightOverrideEnabled, setWeightOverrideEnabled] = useState(false);
   const [scoringWeights, setScoringWeights] = useState<ScoringWeights>(DEFAULT_SCORING_WEIGHTS);
   const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>(DEFAULT_ROUTE_PREFERENCE);
+
+  // 交通ストレスレシピの上書き（改善計画: 交通ストレスレシピ調整UIパネル、T107の次ラウンド）。
+  // 上のweightOverrideEnabledとは独立したトグル（レシピは有効化すると地図の色分けに即座に
+  // 反映されるが、重みは次回のルート生成まで反映されないという挙動差があるため、
+  // ユーザー承認済みで別トグルにしてある）。無効の間はMapViewへundefinedを渡し
+  // （既定レシピを使う）、生成リクエストからもtraffic_stress_recipeを省略する。
+  const [trafficStressRecipeOverrideEnabled, setTrafficStressRecipeOverrideEnabled] = useState(false);
+  const [trafficStressRecipe, setTrafficStressRecipe] = useState<TrafficStressRecipeOverride>(
+    DEFAULT_TRAFFIC_STRESS_RECIPE,
+  );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
@@ -498,8 +516,12 @@ export default function Home() {
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
 
-  // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）
-  const currentWeightsKey = JSON.stringify(weightOverrideEnabled ? { scoringWeights, routePreference } : null);
+  // 生成条件のうち重み設定・交通ストレスレシピの比較キー（上書き無効時はnull＝
+  // バックエンド既定値を表す）。2つのトグルは独立のため、それぞれ個別に無効時null化する。
+  const currentWeightsKey = JSON.stringify({
+    weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
+    trafficStressRecipe: trafficStressRecipeOverrideEnabled ? trafficStressRecipe : null,
+  });
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
   // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する、T31）
@@ -522,6 +544,7 @@ export default function Home() {
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
+        ...(trafficStressRecipeOverrideEnabled ? { traffic_stress_recipe: trafficStressRecipe } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -583,6 +606,20 @@ export default function Home() {
               onScoringWeightsChange={setScoringWeights}
               routePreference={routePreference}
               onRoutePreferenceChange={setRoutePreference}
+            />
+          </div>
+        )}
+
+        {/* 交通ストレスレシピパネル（改善計画: 交通ストレスレシピ調整UIパネル、T107の次
+            ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
+            重みの上書きと挙動が異なるため）。 */}
+        {researchEnabled && (
+          <div className={styles.legendCard}>
+            <TrafficStressRecipePanel
+              overrideEnabled={trafficStressRecipeOverrideEnabled}
+              onOverrideEnabledChange={setTrafficStressRecipeOverrideEnabled}
+              recipe={trafficStressRecipe}
+              onRecipeChange={setTrafficStressRecipe}
             />
           </div>
         )}
@@ -769,6 +806,7 @@ export default function Home() {
             showRoad={layerVisibility.road}
             showTrafficStress={layerVisibility.trafficStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
+            trafficStressRecipe={trafficStressRecipeOverrideEnabled ? trafficStressRecipe : undefined}
             showDesignation={layerVisibility.designation}
             showStopPoi={layerVisibility.stopPoi}
             showAccidents={layerVisibility.accidents}

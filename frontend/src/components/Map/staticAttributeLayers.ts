@@ -26,7 +26,11 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
-import { DEFAULT_TRAFFIC_STRESS_RECIPE, buildTrafficStressExpression } from "./trafficStressExpression";
+import {
+  DEFAULT_TRAFFIC_STRESS_RECIPE,
+  buildTrafficStressExpression,
+  type TrafficStressRecipe,
+} from "./trafficStressExpression";
 
 const COLOR_UNKNOWN = "#9ca3af";
 
@@ -83,42 +87,54 @@ const TRAFFIC_STRESS_COLORS: Record<number, string> = {
 
 // 交通ストレスの最終値は（改善計画: 交通ストレスレシピ外出し基盤により）タイルへ計算済みの
 // 値として焼き込まれておらず、材料タグ（highway/cycleway_class/maxspeed_kmh/lanes_count/
-// designation/motor_vehicle_no）からここでMapLibre expressionとして計算する
-// （trafficStressExpression.ts参照）。既定レシピを使う限り見た目は従来と同一。
-const TRAFFIC_STRESS_LEVEL_EXPRESSION = buildTrafficStressExpression(DEFAULT_TRAFFIC_STRESS_RECIPE);
+// designation/motor_vehicle_no）からMapLibre expressionとして計算する
+// （trafficStressExpression.ts参照）。レシピ（研究モードで上書き可能、改善計画:
+// 交通ストレスレシピ調整UIパネル）ごとに凡例・色分け式が変わるため関数化してある。
+// 既定レシピ（DEFAULT_TRAFFIC_STRESS_RECIPE）を渡す限り見た目は従来と同一。
 
 // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解されるという実機
 // フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
 // MapOverlayControls）に区切り線＋弱調表示させる。段階の意味そのものは1〜4のまま変えない。
-export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = [
-  { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 1] },
-  { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 2] },
-  { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 3] },
-  { key: "4", label: "4[ストレス大]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, 4] },
-  {
-    key: "unknown",
-    label: "不明・他[判定対象外の道路種別]",
-    color: COLOR_UNKNOWN,
-    filter: ["==", TRAFFIC_STRESS_LEVEL_EXPRESSION, -1],
-    isFallback: true,
-  },
-];
+export function buildTrafficStressLegend(recipe: TrafficStressRecipe): LegendEntry[] {
+  const levelExpression = buildTrafficStressExpression(recipe);
+  return [
+    { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", levelExpression, 1] },
+    { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
+    { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", levelExpression, 3] },
+    { key: "4", label: "4[ストレス大]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
+    {
+      key: "unknown",
+      label: "不明・他[判定対象外の道路種別]",
+      color: COLOR_UNKNOWN,
+      filter: ["==", levelExpression, -1],
+      isFallback: true,
+    },
+  ];
+}
 
-// TRAFFIC_STRESS_LEVEL_EXPRESSIONは判定対象外を-1で返す（trafficStressExpression.ts参照）ため、
+// buildTrafficStressExpressionは判定対象外を-1で返す（trafficStressExpression.ts参照）ため、
 // 従来の`coalesce(get("traffic_stress"), -1)`と同じ形でmatchできる。
-export const TRAFFIC_STRESS_COLOR_EXPRESSION: unknown[] = [
-  "match",
-  TRAFFIC_STRESS_LEVEL_EXPRESSION,
-  1,
-  TRAFFIC_STRESS_COLORS[1],
-  2,
-  TRAFFIC_STRESS_COLORS[2],
-  3,
-  TRAFFIC_STRESS_COLORS[3],
-  4,
-  TRAFFIC_STRESS_COLORS[4],
-  COLOR_UNKNOWN,
-];
+export function buildTrafficStressColorExpression(recipe: TrafficStressRecipe): unknown[] {
+  return [
+    "match",
+    buildTrafficStressExpression(recipe),
+    1,
+    TRAFFIC_STRESS_COLORS[1],
+    2,
+    TRAFFIC_STRESS_COLORS[2],
+    3,
+    TRAFFIC_STRESS_COLORS[3],
+    4,
+    TRAFFIC_STRESS_COLORS[4],
+    COLOR_UNKNOWN,
+  ];
+}
+
+export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = buildTrafficStressLegend(DEFAULT_TRAFFIC_STRESS_RECIPE);
+
+export const TRAFFIC_STRESS_COLOR_EXPRESSION: unknown[] = buildTrafficStressColorExpression(
+  DEFAULT_TRAFFIC_STRESS_RECIPE,
+);
 
 // backend/app/domain/traffic.py: classify_bicycle_infrastructureの列挙値と1:1対応
 // （separated/lane/shared_busway/shared_pedestrian/roadway/prohibited、算出不能はunknown）。

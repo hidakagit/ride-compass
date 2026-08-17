@@ -775,6 +775,16 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
   expressionとして同じレシピを再現）で計算する。最終値を計算済みでタイル（全ユーザー共有
   キャッシュ）へ焼き込む従来方式では、レシピを変えるたびに世界中のタイルキャッシュを
   作り直す必要があった（T92/T93）ため、材料タグとレシピを分離した。
+  **調整UI**（改善計画: 交通ストレスレシピ調整UIパネル、T107の次ラウンド）:
+  `frontend/src/components/TrafficStressRecipePanel/TrafficStressRecipePanel.tsx`が
+  研究モード限定・`WeightPanel`（評価重みの上書き）とは独立したトグルでレシピの全項目
+  （highway別基準値13種＋cycleway/maxspeed/lanes/指定路線の補正12項目）を編集できる
+  （独立トグルにした理由: レシピは上書きすると地図の色分けへ即座に反映されるが、
+  重みは次回のルート生成まで反映されないという挙動差があるため）。上書き中は
+  `MapView.tsx`が交通ストレスレイヤーの`line-color`（`setPaintProperty`）と凡例による
+  絞り込み（`setStaticOverlayFilters`、`buildTrafficStressLegend`で該当軸だけ動的に
+  組み立て直す）の両方をライブ更新し、区間クリックの内訳ポップアップ・次回のルート生成
+  リクエストにも同じレシピを渡す（`page.tsx`が単一のstateを両方へ配線）。
 - **自転車インフラ**: `classify_bicycle_infrastructure`がseparated/lane/shared_busway/
   shared_pedestrian/roadway/prohibited/unknownの7値に分類（優先順位あり）。cyclewayタグを
   交通ストレスと共有入力にしているため両軸は完全独立ではない（意図的、`traffic.py`
