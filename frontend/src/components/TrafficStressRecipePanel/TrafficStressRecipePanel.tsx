@@ -380,7 +380,7 @@ function HighwayRow({
             highway
           )}
         </td>
-        <td>
+        <td className={styles.tableValue}>
           <StressLevelPicker
             value={resolvedValue}
             onChange={(next) => onChange(highway, next)}
