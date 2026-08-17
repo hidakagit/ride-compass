@@ -100,10 +100,12 @@ const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 // モバイルの「地図の見え方」シート見出しのDOM id。
 const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
-// モバイルの「設定」シート見出しのDOM id。
-const SETTINGS_SHEET_TITLE_ID = "settings-sheet-title";
+// モバイルの「研究」シート見出しのDOM id。
+const RESEARCH_SHEET_TITLE_ID = "research-sheet-title";
+// モバイルの「開発者」シート見出しのDOM id。
+const DEVELOPER_SHEET_TITLE_ID = "developer-sheet-title";
 
-type MobileSheet = "route" | "map" | "settings" | null;
+type MobileSheet = "route" | "map" | "research" | "developer" | null;
 
 export default function Home() {
   const { location, locationSource, locating, locateError, handleLocateMe } = useLocation();
@@ -476,7 +478,7 @@ export default function Home() {
   }, [isMobile, setGenerateOpen]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
-  const handleMobileTabClick = useCallback((sheet: "route" | "map" | "settings") => {
+  const handleMobileTabClick = useCallback((sheet: "route" | "map" | "research" | "developer") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
   }, []);
 
@@ -599,9 +601,46 @@ export default function Home() {
       <>
         <LocationControl location={location} source={locationSource} />
 
-        {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。重みは生成条件
-            そのものなので、研究モードON時はこのブロック内へ現れる（§14の分離方針は
-            研究モードのトグル自体を開発者向けブロックに置くことで維持）。 */}
+        <RouteForm
+          distance={distanceInput}
+          onDistanceChange={setDistanceInput}
+          onGenerate={handleGenerate}
+          loading={loading}
+        />
+        {conditionsDirty && (
+          <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
+        )}
+        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
+        {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
+        {routes.length === 0 && !loading && !errorMessage && (
+          <p className={styles.emptyHint}>
+            距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
+          </p>
+        )}
+        <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+        {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
+            2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
+            （評価重み・交通ストレスレシピ、renderResearchSectionBody参照）とは分け、
+            RouteListの並びであるこのブロックに残す。 */}
+        {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
+      </>
+    );
+  }
+
+  // 「研究」ブロックの中身（研究モードのトグルと、それが有効化する調整パネル2つ）。
+  // 元は研究モードトグルを「設定」ブロックへ、パネル自体を「ルートを作る」ブロックへ
+  // 分けて置いていたが、評価重み・交通ストレスレシピは生成時にも地図描画時にも使う
+  // 横断的パラメータでどちらの子でもなく、かつスマホでは2つが別タブに分かれるため
+  // 「設定タブでONにしても効果がどこに出るか分からない」という実機フィードバックを受け、
+  // トグルと効果を同じブロックへ同居させる独立ブロックへ切り出した
+  // （改善計画: 研究パラメータの導線改善）。ComparisonPanel（生成結果の一覧）は
+  // renderRouteSectionBody側に残る（上記コメント参照）。
+  function renderResearchSectionBody() {
+    return (
+      <>
+        <ResearchPanel />
+
+        {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。 */}
         {researchEnabled && (
           <div className={styles.legendCard}>
             <WeightPanel
@@ -628,34 +667,14 @@ export default function Home() {
             />
           </div>
         )}
-
-        <RouteForm
-          distance={distanceInput}
-          onDistanceChange={setDistanceInput}
-          onGenerate={handleGenerate}
-          loading={loading}
-        />
-        {conditionsDirty && (
-          <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
-        )}
-        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-        {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
-        {routes.length === 0 && !loading && !errorMessage && (
-          <p className={styles.emptyHint}>
-            距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
-          </p>
-        )}
-        <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-        {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
-            2件以上たまったときだけ表示する。 */}
-        {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
       </>
     );
   }
 
-  // 「地図の見え方」の中身。開発者向け機能はrenderSettingsSectionBody（独立した
-  // 「設定」ブロック）へ分離済み（一般ユーザーは使わないログ起動を地図上のアイコンから
-  // 追い出した際に、「地図の見え方」内の折りたたみからも独立ブロックへ格上げした、T43）。
+  // 「地図の見え方」の中身。開発者向け機能はrenderDeveloperSectionBody（独立した
+  // 「開発者」ブロック、旧称「設定」）へ分離済み（一般ユーザーは使わないログ起動を地図上の
+  // アイコンから追い出した際に、「地図の見え方」内の折りたたみからも独立ブロックへ
+  // 格上げした、T43）。
   function renderMapSettingsSectionBody() {
     return (
       <div className={styles.legendCard}>
@@ -683,18 +702,22 @@ export default function Home() {
     );
   }
 
-  // 「設定」ブロックの中身: ログ・システム状況・研究モード・疎通確認・キャッシュ更新など、
-  // 一般ユーザーは触らない開発者向け機能をまとめる。デバッグログの起動ボタンは、デバッグ
-  // モード（DebugPanelのチェック）がONのときだけ現れる（以前の地図上trailingButtonと
-  // 同じ条件。ログの記録自体がチェックボックス依存のため）。システム状況（commit・起動
-  // 日時・外部API呼出サマリ）はデバッグログの記録有無と無関係に確認したい情報のため、
-  // 常時表示のボタンにしている。チェックボックスと同じdebugControl内に置いてnowrapに
-  // することで、他のsystemRow項目（研究モード等）と並んで縦積みの「メニュー」に見えない
-  // ようにしている。アイコンのみのボタンにしているのも、隣に文言を並べる冗長さを避けるため。
-  // 起動すると地図に浮かぶ独立したフローティングパネルが開く（T43）。ログ本文（DebugConsole）
-  // とシステム状況（SystemStatusPanel）は情報源・更新頻度が異なるため別パネルに分離した
-  // （2026-08-16、ユーザーFB「中身が混ざって見にくい」）。
-  function renderSettingsSectionBody() {
+  // 「開発者」ブロック（旧称「設定」、改善計画: 研究パラメータの導線改善でユーザー指摘を
+  // 受け改名。「設定」は元々研究モードのトグルも含む何でも入れ場所だった名残の名前で、
+  // トグルを「研究」ブロックへ分離した後は一般ユーザー向けの環境設定が一切無い、純粋な
+  // 開発者/運用ツール集になっていたため実態に合わせた）の中身: ログ・システム状況・
+  // 疎通確認・キャッシュ更新など、一般ユーザーは触らない開発者向け機能をまとめる。
+  // デバッグログの起動ボタンは、デバッグモード（DebugPanelのチェック）がONのときだけ
+  // 現れる（以前の地図上trailingButtonと同じ条件。ログの記録自体がチェックボックス依存の
+  // ため）。システム状況（commit・起動日時・外部API呼出サマリ）はデバッグログの記録有無と
+  // 無関係に確認したい情報のため、常時表示のボタンにしている。チェックボックスと同じ
+  // debugControl内に置いてnowrapにすることで、他のsystemRow項目と並んで縦積みの
+  // 「メニュー」に見えないようにしている。アイコンのみのボタンにしているのも、隣に文言を
+  // 並べる冗長さを避けるため。起動すると地図に浮かぶ独立したフローティングパネルが開く
+  // （T43）。ログ本文（DebugConsole）とシステム状況（SystemStatusPanel）は情報源・
+  // 更新頻度が異なるため別パネルに分離した（2026-08-16、ユーザーFB「中身が混ざって
+  // 見にくい」）。
+  function renderDeveloperSectionBody() {
     return (
       <>
         <div className={styles.systemRow}>
@@ -723,7 +746,6 @@ export default function Home() {
               <StatusIcon size={14} />
             </button>
           </div>
-          <ResearchPanel />
           <BackendStatus />
         </div>
         {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
@@ -761,13 +783,23 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
-                    「B. 地図の見え方（表示系・即時反映）」「C. 設定（開発者向け）」の
-                    3ブロック構成（UI一貫性再編T30、地図上のログアイコン廃止に伴い開発者向けを
-                    Bから独立ブロックへ格上げ、T43）。生成に効く条件（出発地点・距離・重み）が
-                    画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。 */}
+                    「B. 地図の見え方（表示系・即時反映）」「研究（評価重み・交通ストレスレシピの
+                    上書き）」「C. 開発者（運用/デバッグツール、旧称「設定」）」の4ブロック構成
+                    （UI一貫性再編T30、地図上のログアイコン廃止に伴い開発者向けをBから
+                    独立ブロックへ格上げ、T43）。生成に効く条件（出発地点・距離・重み）が
+                    画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。
+                    「研究」ブロックは元々、トグル自体を「設定」ブロックへ・調整パネルをAブロックへ
+                    分けて置いていたが、評価重み・交通ストレスレシピは生成時にも地図描画時にも
+                    使う横断的パラメータでA/Bどちらの子でもなく、スマホでは2つが別タブに
+                    分かれるため「設定タブでONにしても効果がどこに出るか分からない」という
+                    実機フィードバックを受け、トグルと効果を同居させる独立ブロックへ切り出した。
+                    切り出した後の「設定」ブロックには研究モード関連が一切残らず開発者/運用
+                    ツールのみになったため、「設定」から「開発者」へ改名した（いずれも改善計画:
+                    研究パラメータの導線改善）。 */}
 
                 {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
-                    編集は生成ボタンを押すまで地図へ影響しない。 */}
+                    編集は生成ボタンを押すまで地図へ影響しない（評価重み・交通ストレスレシピの
+                    上書きは独立した「研究」ブロックにあり、この契約の対象外）。 */}
                 <details
                   className={styles.blockSection}
                   open={generateOpen}
@@ -788,11 +820,20 @@ export default function Home() {
                   {renderMapSettingsSectionBody()}
                 </section>
 
-                {/* C. 設定: デバッグログ起動・研究モード・疎通確認・キャッシュ更新など、
-                    一般ユーザーは通常触らない機能。デフォルト閉の折りたたみにする（T30・T43）。 */}
+                {/* 研究: 研究モードのトグルと、それが有効化する評価重み・交通ストレスレシピの
+                    調整パネル。一般ユーザーは通常触らないためデフォルト閉の折りたたみにする
+                    （開発者ブロックと同じ扱い）。 */}
                 <details className={styles.blockSection}>
-                  <summary className={styles.blockSummary}>設定</summary>
-                  <div className={styles.blockBody}>{renderSettingsSectionBody()}</div>
+                  <summary className={styles.blockSummary}>研究</summary>
+                  <div className={styles.blockBody}>{renderResearchSectionBody()}</div>
+                </details>
+
+                {/* C. 開発者（旧称「設定」）: デバッグログ起動・疎通確認・キャッシュ更新など、
+                    一般ユーザーは通常触らない運用/デバッグツール。デフォルト閉の折りたたみに
+                    する（T30・T43）。 */}
+                <details className={styles.blockSection}>
+                  <summary className={styles.blockSummary}>開発者</summary>
+                  <div className={styles.blockBody}>{renderDeveloperSectionBody()}</div>
                 </details>
               </>
             )}
@@ -857,19 +898,22 @@ export default function Home() {
 
           {locateError && <p className={styles.locateError}>{locateError}</p>}
 
-          {/* デバッグログ・システム状況の起動は「設定」ブロック内のボタン
-              （renderSettingsSectionBody）から。position: fixedの独立フローティングパネルの
+          {/* デバッグログ・システム状況の起動は「開発者」ブロック内のボタン
+              （renderDeveloperSectionBody）から。position: fixedの独立フローティングパネルの
               ためDOM上の位置は表示に影響しない。 */}
           <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
           <SystemStatusPanel open={systemStatusOpen} onClose={() => setSystemStatusOpen(false)} />
         </div>
       </div>
 
-      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート3枚へ置換
+      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート4枚へ置換
           （モバイル実機フィードバック対応T34、開発者向け機能の独立ブロック化に伴い
-          「設定」タブを追加、T43）。「設定」は一般ユーザーが日常的に使う2タブより
-          控えめな幅にする（tabButtonSmall）。シート表示中も地図の上側が見えたまま
-          パン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
+          「設定」タブを追加、T43。評価重み・交通ストレスレシピのトグルと調整パネルが
+          別タブに分かれていて分かりにくいという実機フィードバックを受け「研究」タブを追加、
+          切り出し後の「設定」タブが開発者/運用ツールのみになったため「開発者」へ改名
+          （いずれも改善計画: 研究パラメータの導線改善）。「研究」「開発者」は一般ユーザーが
+          日常的に使う2タブより控えめな幅にする（tabButtonSmall）。シート表示中も地図の
+          上側が見えたままパン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
       {isMobile && (
         <>
           <nav className={styles.mobileTabBar} aria-label="パネル切り替え">
@@ -891,15 +935,27 @@ export default function Home() {
             </button>
             <button
               type="button"
-              aria-pressed={mobileSheet === "settings"}
-              onClick={() => handleMobileTabClick("settings")}
+              aria-pressed={mobileSheet === "research"}
+              onClick={() => handleMobileTabClick("research")}
               className={
-                mobileSheet === "settings"
+                mobileSheet === "research"
                   ? `${styles.tabButton} ${styles.tabButtonSmall} ${styles.tabButtonActive}`
                   : `${styles.tabButton} ${styles.tabButtonSmall}`
               }
             >
-              設定
+              研究
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileSheet === "developer"}
+              onClick={() => handleMobileTabClick("developer")}
+              className={
+                mobileSheet === "developer"
+                  ? `${styles.tabButton} ${styles.tabButtonSmall} ${styles.tabButtonActive}`
+                  : `${styles.tabButton} ${styles.tabButtonSmall}`
+              }
+            >
+              開発者
             </button>
           </nav>
 
@@ -928,15 +984,27 @@ export default function Home() {
           </BottomSheet>
 
           <BottomSheet
-            open={mobileSheet === "settings"}
+            open={mobileSheet === "research"}
             onClose={() => setMobileSheet(null)}
-            title="設定"
-            titleId={SETTINGS_SHEET_TITLE_ID}
+            title="研究"
+            titleId={RESEARCH_SHEET_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderSettingsSectionBody()}
+            {renderResearchSectionBody()}
+          </BottomSheet>
+
+          <BottomSheet
+            open={mobileSheet === "developer"}
+            onClose={() => setMobileSheet(null)}
+            title="開発者"
+            titleId={DEVELOPER_SHEET_TITLE_ID}
+            heightVh={mobileSheetHeightVh}
+            onHeightChange={handleMobileSheetHeightChange}
+            onHeightCommit={commitMobileSheetHeight}
+          >
+            {renderDeveloperSectionBody()}
           </BottomSheet>
         </>
       )}
