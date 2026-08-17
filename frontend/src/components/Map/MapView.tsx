@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Coordinates, RouteCandidate, RouteSegmentDetail } from "@/types/route";
+import type { Coordinates, RouteCandidate, RouteSegmentDetail, TrafficStressRecipeOverride } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { TrafficStressBreakdown } from "@/types/traffic";
 import {
@@ -26,7 +26,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
-import { evaluateTrafficStressLevel } from "@/components/Map/trafficStressExpression";
+import { DEFAULT_TRAFFIC_STRESS_RECIPE, evaluateTrafficStressLevel } from "@/components/Map/trafficStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
@@ -38,6 +38,8 @@ import {
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
+  buildTrafficStressColorExpression,
+  buildTrafficStressLegend,
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
@@ -91,8 +93,8 @@ const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
-const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
+export const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
+export const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 const DESIGNATION_LAYER_ID = "region-designation-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
@@ -433,6 +435,20 @@ function ensureTrafficStressLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
+// 交通ストレスレシピ（研究モードで上書き可能、改善計画: 交通ストレスレシピ調整UIパネル）を
+// レイヤーへ反映する。ensureTrafficStressLayerは常に既定レシピの色で作成する（STATIC_OVERLAY_
+// LAYERSの他エントリと同じ`(map) => void`の形を保つため）ため、この関数を同じ呼び出し元
+// （setStaticOverlayFiltersの直後）で常にセットで呼び、上書き中なら実際のレシピの色へ
+// 即座に補正する（同一useEffect内の同期呼び出しのため、既定色でのちらつきは発生しない）。
+// レイヤーが未作成（一度も表示ONにされていない）ならensure側に任せ何もしない。
+function applyTrafficStressRecipe(map: MapLibreMap, recipe: TrafficStressRecipeOverride) {
+  runWhenStyleReady(map, () => {
+    if (!map.getLayer(TRAFFIC_STRESS_LAYER_ID)) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setPaintProperty(TRAFFIC_STRESS_LAYER_ID, "line-color", buildTrafficStressColorExpression(recipe) as any);
+  });
+}
+
 function ensureBicycleInfraLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getLayer(BICYCLE_INFRA_LAYER_ID)) return;
@@ -700,18 +716,34 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
 // keyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、他は1軸）を道路情報と同じ
 // buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする
 // （setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
-function setStaticOverlayFilters(map: MapLibreMap, hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>) {
+//
+// trafficStress軸だけは、レシピ上書き中（改善計画: 交通ストレスレシピ調整UIパネル）は
+// STATIC_FILTER_AXESの静的なlegend（既定レシピ由来）ではなく、現在のレシピから
+// buildTrafficStressLegendで都度組み立てたlegendを使う。レベルの意味（どのフィーチャーが
+// 「2」に該当するか）がレシピ次第で変わるため、絞り込みチェックボックスの表示（ラベル・色）は
+// 不変のまま、フィルタの実体だけがレシピに追従する。
+// MapView.overlayFilters.test.tsからフェイクmapで検証できるようexportしている
+// （computeLayerDataStatus等と同じ方針）。
+export function setStaticOverlayFilters(
+  map: MapLibreMap,
+  hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>,
+  trafficStressRecipe: TrafficStressRecipeOverride,
+) {
   runWhenStyleReady(map, () => {
     for (const layer of STATIC_OVERLAY_LAYERS) {
       const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
       if (axes.length === 0) continue;
       layer.ensure(map);
       const filter = buildCombinedLegendFilterExpression(
-        axes.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [] }))
+        axes.map((axis) => ({
+          legend: axis.axisId === "trafficStress" ? buildTrafficStressLegend(trafficStressRecipe) : axis.legend,
+          hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [],
+        }))
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setFilter(layer.layerId, filter as any);
     }
+    applyTrafficStressRecipe(map, trafficStressRecipe);
   });
 }
 
@@ -909,7 +941,11 @@ function buildTrafficStressBreakdownHtml(breakdown: TrafficStressBreakdown): str
 // 連続でクリックする通常操作でAPIコール・レート制限を無駄に消費するため）。
 // osmWayIdはクリックされたフィーチャーのプロパティ由来（緯度経度の空間マッチではなく
 // 完全一致で引き直す理由はfetchTrafficStressBreakdownのコメント参照）。
-function attachTrafficStressBreakdownHandler(popupElement: HTMLElement, osmWayId: number) {
+function attachTrafficStressBreakdownHandler(
+  popupElement: HTMLElement,
+  osmWayId: number,
+  trafficStressRecipe: TrafficStressRecipeOverride | undefined,
+) {
   const button = popupElement.querySelector<HTMLButtonElement>(`[${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR}]`);
   const resultEl = popupElement.querySelector<HTMLElement>(`[${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}]`);
   if (!button || !resultEl) return;
@@ -917,7 +953,7 @@ function attachTrafficStressBreakdownHandler(popupElement: HTMLElement, osmWayId
     button.disabled = true;
     button.textContent = "取得中…";
     try {
-      const breakdown = await fetchTrafficStressBreakdown(osmWayId);
+      const breakdown = await fetchTrafficStressBreakdown(osmWayId, trafficStressRecipe);
       resultEl.innerHTML = breakdown
         ? buildTrafficStressBreakdownHtml(breakdown)
         : `<div style="font-size:var(--font-size-sm); margin-top:var(--space-1);">内訳を取得できませんでした。</div>`;
@@ -962,6 +998,10 @@ interface MapViewProps {
   /** 交通ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
   showTrafficStress: boolean;
   showBicycleInfra: boolean;
+  /** 交通ストレスレシピの上書き（研究モード、改善計画: 交通ストレスレシピ調整UIパネル）。
+   * undefinedなら既定レシピ（DEFAULT_TRAFFIC_STRESS_RECIPE）を使う。地図の色分け・凡例による
+   * 絞り込み・区間クリックの内訳ポップアップすべてがこのレシピに追従する。 */
+  trafficStressRecipe?: TrafficStressRecipeOverride;
   /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。 */
   showDesignation: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
@@ -995,6 +1035,7 @@ export default function MapView({
   showRoad,
   showTrafficStress,
   showBicycleInfra,
+  trafficStressRecipe,
   showDesignation,
   showAccidents,
   showStopPoi,
@@ -1042,6 +1083,7 @@ export default function MapView({
     showRoad,
     showTrafficStress,
     showBicycleInfra,
+    trafficStressRecipe,
     showDesignation,
     showAccidents,
     showStopPoi,
@@ -1071,6 +1113,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      trafficStressRecipe,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1088,6 +1131,7 @@ export default function MapView({
     showRoad,
     showTrafficStress,
     showBicycleInfra,
+    trafficStressRecipe,
     showDesignation,
     showAccidents,
     showStopPoi,
@@ -1113,6 +1157,7 @@ export default function MapView({
       showRoad,
       showTrafficStress,
       showBicycleInfra,
+      trafficStressRecipe,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1128,7 +1173,7 @@ export default function MapView({
       accidents: showAccidents,
       stopPoi: showStopPoi,
     });
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
+    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE);
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(
       map,
@@ -1267,9 +1312,15 @@ export default function MapView({
       // traffic_stressはタイルに計算済みの値として焼き込まれていない（改善計画: 交通ストレス
       // レシピ外出し基盤）ため、クリックされたフィーチャーの材料タグからここで計算する
       // （地図の色分け・凡例フィルタと同じexpressionをtrafficStressExpression.tsで共有する）。
+      // このhandleClickは地図初期化時（マウント時1回）のuseEffectで定義され以降作り直されない
+      // ため、propsを直接閉じ込めずredrawPropsRef.current経由で最新のレシピ上書き値を読む
+      // （redrawAllLayersと同じ理由、上のコメント群参照）。
+      const currentTrafficStressRecipe = redrawPropsRef.current.trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE;
       const roadSurfaceProperties = {
         ...(feature.properties as unknown as RoadSurfacePopupProperties),
-        traffic_stress: isRoadSurfaceFeature ? evaluateTrafficStressLevel(feature.properties ?? {}) : null,
+        traffic_stress: isRoadSurfaceFeature
+          ? evaluateTrafficStressLevel(feature.properties ?? {}, currentTrafficStressRecipe)
+          : null,
       };
       const html =
         feature.layer.id === DETAIL_LAYER_ID
@@ -1287,7 +1338,9 @@ export default function MapView({
       // 判定済みの区間だけに出るため、buildRoadSurfacePopupHtml側の出し分けと対応させる。
       if (isRoadSurfaceFeature && roadSurfaceProperties.traffic_stress != null && roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
-        if (popupElement) attachTrafficStressBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id);
+        if (popupElement) {
+          attachTrafficStressBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id, currentTrafficStressRecipe);
+        }
       }
     }
 
@@ -1539,8 +1592,8 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
-  }, [staticLegendHiddenKeysByAxis]);
+    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE);
+  }, [staticLegendHiddenKeysByAxis, trafficStressRecipe]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な

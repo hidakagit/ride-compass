@@ -2488,6 +2488,57 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+## 交通ストレスレシピ調整UIパネル（2026-08-17・T107の次ラウンド）
+
+### - [x] T108. 交通ストレスレシピを実際に画面上で調整できるUIパネルを実装 規模M（2026-08-17完了）
+
+- 背景: T107（基盤フェーズ）で交通ストレスの判定レシピを`TrafficStressRecipe`へ切り出し、
+  `/api/routes/generate`・`/api/region/traffic-stress-breakdown`（POST）とも上書き可能に
+  したが、実際にレシピを入力するUIが無く基盤が使われていなかった。
+- ユーザー確認済みの方針: (1) レシピ上書きの有効/無効は既存`WeightPanel`の重み上書き
+  トグルとは別トグルにする（レシピは有効化すると地図色が即座に変わるが、重みは次回の
+  ルート生成まで反映されないという挙動差があるため）。(2) 地図上の交通ストレス凡例
+  （1〜4カテゴリの表示/非表示チェックボックス）による絞り込みも、レシピ上書き中は動的に
+  再計算する（凡例のラベル・色自体は不変、内部の`filter`式だけがレシピに追従する）。
+- 調査で判明した重要な事実: `LegendEntry`の`filter`（MapLibre expression）を実際に使うのは
+  `MapView.tsx`の`setStaticOverlayFilters`/`applyRoadLayerState`だけで、
+  `MapLayersPanel.tsx`・`MapOverlayControls.tsx`は`color`/`label`/`key`/`isFallback`しか
+  参照しない。そのため凡例を動的化してもこれら表示コンポーネントは無改修で済んだ
+  （表示は変わらず、絞り込みの実体だけがレシピに追従する）。
+- 対応:
+  - `staticAttributeLayers.ts`: `TRAFFIC_STRESS_LEGEND`/`TRAFFIC_STRESS_COLOR_EXPRESSION`の
+    生成ロジックを`buildTrafficStressLegend(recipe)`/`buildTrafficStressColorExpression(recipe)`
+    として関数化。既存定数はこの関数を既定レシピで呼んだ結果として維持（無破壊）。
+  - `MapView.tsx`: 新規props`trafficStressRecipe?`を追加。`setStaticOverlayFilters`が
+    trafficStress軸だけ動的な凡例（`buildTrafficStressLegend`）へ差し替えつつ
+    `applyTrafficStressRecipe`で`line-color`を`setPaintProperty`ライブ更新。地図初期化時
+    （マウント時1回のuseEffect）に定義される`handleClick`は`redrawPropsRef.current`経由で
+    最新のレシピを読み、区間クリックの内訳ポップアップ（`fetchTrafficStressBreakdown`・
+    `evaluateTrafficStressLevel`）にも反映する（redrawAllLayersと同じstale closure対策）。
+  - `TrafficStressRecipePanel`（新規、`WeightPanel`と同構造）: 独立トグル、highway別基準値
+    13種のテーブル＋cycleway/maxspeed/lanes/指定路線の補正12項目を4つのfieldsetで編集、
+    「既定値に戻す」ボタン（`DEFAULT_TRAFFIC_STRESS_RECIPE`、Python側と自動同期済みの単一
+    ソース）。
+  - `page.tsx`: 新規state（`trafficStressRecipeOverrideEnabled`/`trafficStressRecipe`）を
+    `WeightPanel`と並べて配置し、`MapView`・`TrafficStressRecipePanel`・
+    `/api/routes/generate`リクエスト・dirty判定キー（`currentWeightsKey`）すべてへ配線。
+  - テスト: `staticAttributeLayers.test.ts`にカスタムレシピでの凡例・色分け式の検証3件、
+    `TrafficStressRecipePanel.test.tsx`新規5件、`MapView.overlayFilters.test.ts`新規
+    （フェイクmapで`setStaticOverlayFilters`がtrafficStress軸だけレシピに追従し他軸は
+    不変であることを検証、`@maplibre/maplibre-gl-style-spec`のexpression評価器を実際に
+    使ってfilter式の挙動差を確認）。
+- 完了条件: backend変更なし（T107で完了済み）。frontend 275件・tsc・eslint全green（確認済み）。
+  headed Playwrightでの実機確認も完了。研究モードON→レシピ上書きONの状態でhighway=primaryの
+  基準値を4→2に変更したところ、対象道路の地図上の色が即座に変化（交通ストレス4/4→3/4）。
+  同じ道路をクリックしたT90内訳ポップアップも変更後レシピで3/4を表示し、独立に呼び出した
+  `/api/region/traffic-stress-breakdown`（同じ上書きレシピをbodyへ渡した場合）の結果とも
+  一致（クライアント側`evaluateTrafficStressLevel`とサーバー側`traffic_stress_breakdown`の
+  非同期実装が一致することを実地で確認）。凡例のレベル3チェックボックスを外すと、
+  地図上のレベル3（オレンジ）道路が全域で消えることを確認（動的filter式が効いている証拠）。
+  「既定値に戻す」ボタンで地図色・内訳とも即座に4/4へ復元。検証中コンソールエラーなし。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2573,3 +2624,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T91 | 統合レビューF-3（MapView.tsx閾値監視の空白化）に対応。当初閾値（静的レイヤー+2種 or MapView 1,200行）は決めておいた2点（宣言的レイヤー登録・useStoredState抽出）ともT47で消化済みと確認したうえで、統合レビュー第2回（2026-08-17）が提示した新閾値案「MapView.tsx 1,800行 or STATIC_OVERLAY_LAYERS 10種到達」を正式採用。`docs/complexity-review-2026-08-16.md`（R-6・Keep List・設計原則9）と`.claude/commands/review/context.md`のKEEP記載を更新。コード変更は無し。現在値（MapView.tsx 1,634行・STATIC_OVERLAY_LAYERS 6種）はいずれも未到達 |
 | 2026-08-17 | T97 | T96でフロントから交差点密度レイヤーの可視化を撤去した後も残っていたバックエンド配信（poi-tilesのintersectionレイヤー）を削除。`_POI_TILE_MVT_SQL`をstop_poi単独のクエリへ簡素化し、`vector_tile.py`・`export_openapi.py`・`region_service.py`・`region.py`のintersection関連記述を整理。ルーティング材料（`get_intersection_counts`・`INTERSECTION_DEGREE_THRESHOLD`）は無変更。`POI_TILE_VERSION`をv1→v2（backend/frontend対で更新）。intersectionレイヤーのDB統合テストを削除、`regionApi.test.ts`を追従。backend 734件・frontend 265件・tsc・eslint全green |
 | 2026-08-17 | T56 | headed Chromium（自前Playwrightスクリプト、Claude Browserペインではない）でデスクトップ・モバイル幅×距離違いで計8回ルート生成し、候補到着直後1.5秒間を150ms間隔で連続撮影（計88枚）して再現性を確認。全ラウンドでタイルの一過性崩れ・コンソールエラーとも観測されず、2026-08-16のheadless環境限定の症状だった可能性が高いと判断しクローズ |
+| 2026-08-17 | T108 | T107（基盤フェーズ）で用意したレシピ上書き機構を実際に触れるUIパネルとして実装。`staticAttributeLayers.ts`の凡例・色分け式をレシピ引数の関数へ変更（既存定数は無破壊）、`MapView.tsx`へ`trafficStressRecipe` propsとライブ更新（`setPaintProperty`・凡例フィルタの動的差し替え）を配線、`TrafficStressRecipePanel`新規（highway別基準値13種＋補正12項目、`WeightPanel`とは独立トグル）、`page.tsx`にstateを追加し地図・内訳ポップアップ・次回生成リクエスト・dirty判定へ配線。`MapLayersPanel`/`MapOverlayControls`は`LegendEntry.filter`を参照しないため無改修で済んだ。frontend 275件・tsc・eslint全green |

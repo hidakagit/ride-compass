@@ -1,5 +1,7 @@
+import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import type { LegendEntry } from "./legendFilter";
+import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "./trafficStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_LEGEND,
@@ -13,7 +15,16 @@ import {
   STOP_POI_LEGEND,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
   TRAFFIC_STRESS_LEGEND,
+  buildTrafficStressColorExpression,
+  buildTrafficStressLegend,
 } from "./staticAttributeLayers";
+
+// MapLibre expressionを実評価するヘルパー（trafficStressExpression.test.tsと同じ手法）。
+function evaluateFilter(filter: unknown, properties: Record<string, unknown>): boolean {
+  const parsed = createExpression(filter);
+  if (parsed.result !== "success") throw new Error("filter式の構築に失敗しました");
+  return Boolean(parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties }));
+}
 
 describe("staticAttributeLayers", () => {
   it("交通ストレスの凡例キーは1-4+不明で、重複が無い", () => {
@@ -36,6 +47,40 @@ describe("staticAttributeLayers", () => {
     for (const color of expressionColors) {
       expect(legendColors.has(color)).toBe(true);
     }
+  });
+
+  // 改善計画: 交通ストレスレシピ調整UIパネル。buildTrafficStressLegend/
+  // buildTrafficStressColorExpressionはレシピを引数に取る関数化されており、
+  // TRAFFIC_STRESS_LEGEND/TRAFFIC_STRESS_COLOR_EXPRESSIONはその既定レシピ版（無変更）。
+  describe("buildTrafficStressLegend/buildTrafficStressColorExpression（レシピ引数）", () => {
+    it("既定レシピを渡すと既存のTRAFFIC_STRESS_LEGEND/COLOR_EXPRESSIONと同じ内容になる", () => {
+      expect(buildTrafficStressLegend(DEFAULT_TRAFFIC_STRESS_RECIPE)).toEqual(TRAFFIC_STRESS_LEGEND);
+      expect(buildTrafficStressColorExpression(DEFAULT_TRAFFIC_STRESS_RECIPE)).toEqual(TRAFFIC_STRESS_COLOR_EXPRESSION);
+    });
+
+    it("base_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
+      const customRecipe = {
+        ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+        base_by_highway: { ...DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway, secondary: 1 },
+      };
+      const legend = buildTrafficStressLegend(customRecipe);
+      const properties = { highway: "secondary" };
+
+      // 既定レシピ（secondary=3）では"3"カテゴリに属するが、customRecipe（secondary=1）では
+      // "1"カテゴリに属する。
+      const defaultLegend = buildTrafficStressLegend(DEFAULT_TRAFFIC_STRESS_RECIPE);
+      expect(evaluateFilter(defaultLegend.find((e) => e.key === "3")!.filter, properties)).toBe(true);
+      expect(evaluateFilter(legend.find((e) => e.key === "1")!.filter, properties)).toBe(true);
+      expect(evaluateFilter(legend.find((e) => e.key === "3")!.filter, properties)).toBe(false);
+    });
+
+    it("凡例のラベル・色・key構成自体はレシピに関わらず不変（変わるのはfilterの中身だけ）", () => {
+      const customRecipe = { ...DEFAULT_TRAFFIC_STRESS_RECIPE, designation_adjustment: 3 };
+      const legend = buildTrafficStressLegend(customRecipe);
+      expect(legend.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback }))).toEqual(
+        TRAFFIC_STRESS_LEGEND.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback })),
+      );
+    });
   });
 
   it("自転車インフラの凡例キーはdomain/traffic.pyのBicycleInfraClass列挙値+不明と一致する", () => {
