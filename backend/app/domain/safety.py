@@ -21,15 +21,35 @@ from app.domain.traffic import cycleway_class, parse_lanes, parse_maxspeed
 # 同じhighway集合（他の2軸とカバレッジを揃えない、というdomain/traffic.pyの方針を踏襲し
 # 意図的に同一のキー集合を使う）だが、数値セットは別物（快適性と安全性は異なる概念のため、
 # 値を共有すると「安全度を調整したつもりが交通ストレスも変わる」事故を招く）。
-# 本格チューニングはP2据え置き（暫定値、TRAFFIC_STRESS_BASE_BY_HIGHWAYと同じ方針）。
+#
+# tertiary/tertiary_linkのみresidential/unclassifiedと分離（改善計画T121、2→3）:
+# 安全度と交通ストレスの独立性検証（dev DB、39,878way）で、tertiary/tertiary_linkの
+# 自転車関与事故密度（3.6〜3.7件/km/年）がresidential（1.88）・unclassified（2.77）より
+# 明確に高く、secondary（6.65）とresidential系の中間に位置することが判明。lanes/maxspeed
+# タグの付与状況でも、tertiaryはlanes付与50%（うち81%が2車線）・maxspeed付与34%
+# （40km/h以上が49%）とsecondaryに近い構造を持つ一方、residential/unclassifiedは
+# ほぼ単路・30km/h以下（lanes付与4〜9%のうち76〜82%が1車線、maxspeed付与5〜13%のうち
+# 97%が30km/h以下）で一貫しており、tertiaryをresidential/unclassifiedと同列（2）に
+# 置く根拠が薄いと判断（traffic_stress側は元からtertiary=3、これは別のT92実測での
+# 独立した判断だが結果的に一致した）。
+# cycleway/living_streetの事故密度は本調査では較正の根拠にしない: 自転車専用/準専用の
+# インフラは通行する自転車自体が多いため、正規化（自転車台数あたりの事故率）をしない
+# 生の「件/km/年」密度は残存する車混在道路より見かけ上高く出うる（曝露バイアス）。
+# 実際cycleway密度2.19はresidential(1.88)よりわずかに高いが、これは母集団の自転車量が
+# 違うためと解釈し「安全度1が不適切」の根拠とはしない。residential/unclassified/track
+# 自体は現行のまま据え置き（residential/unclassifiedの密度差1.88 vs 2.77はtertiaryほど
+# 明確でなく、車線・速度分布も両者ともほぼ同じ単路・低速のため、分離するほどの裏付けが無い。
+# trackはway数11・延長0.9kmと標本が小さすぎ判断材料にならない）。
+# 本格チューニング（tertiary以外の値の再検証）はP2据え置き（暫定値、
+# TRAFFIC_STRESS_BASE_BY_HIGHWAYと同じ方針）。
 SAFETY_BASE_BY_HIGHWAY: dict[str, int] = {
     "cycleway": 1,
     "living_street": 1,
     "residential": 2,
     "unclassified": 2,
     "track": 2,
-    "tertiary": 2,
-    "tertiary_link": 2,
+    "tertiary": 3,
+    "tertiary_link": 3,
     "secondary": 3,
     "secondary_link": 3,
     "primary": 4,

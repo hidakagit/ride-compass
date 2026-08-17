@@ -18,7 +18,7 @@
       "highway": "tertiary"
     },
     "recipe": null,
-    "expected_level": 2
+    "expected_level": 3
   },
   {
     "properties": {
@@ -99,7 +99,7 @@
       "maxspeed_kmh": 60
     },
     "recipe": null,
-    "expected_level": 3
+    "expected_level": 4
   },
   {
     "properties": {
@@ -107,7 +107,7 @@
       "lanes_count": 4
     },
     "recipe": null,
-    "expected_level": 3
+    "expected_level": 4
   },
   {
     "properties": {

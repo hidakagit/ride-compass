@@ -14,6 +14,17 @@ TRAFFIC_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "tr
 SAFETY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "safety_recipe.yaml"
 
 
+def _load_yaml_section(path: Path, key: str) -> dict:
+    """`path`のYAMLファイルからトップレベルキー`key`の中身を読み込む（load_route_preference等
+    3関数の共通部分）。リクエストの都度再読込する（dependencies.py:
+    get_route_generation_builder参照。サーバー再起動なしでYAML編集を反映する意図的な挙動のため
+    キャッシュしない）。
+    """
+    with open(path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    return config[key]
+
+
 def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePreference:
     """route_preference.yamlから既定のRoute Preference（重み）を読み込む（仕様書27-28章）。
 
@@ -23,9 +34,7 @@ def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePre
     将来複数プロファイル（快適性重視/トレーニング重視等、仕様書27・45章）を
     別ファイルとして追加した場合もコード変更なしで切り替えられる。
     """
-    with open(path, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    return RoutePreference(**config["route_preference"])
+    return RoutePreference(**_load_yaml_section(path, "route_preference"))
 
 
 def load_traffic_stress_recipe(path: Path = TRAFFIC_STRESS_RECIPE_CONFIG_PATH) -> TrafficStressRecipe:
@@ -33,18 +42,14 @@ def load_traffic_stress_recipe(path: Path = TRAFFIC_STRESS_RECIPE_CONFIG_PATH) -
     domain/traffic.py: TrafficStressRecipe参照）を読み込む。load_route_preferenceと同じ
     パターン（軸間の重みとは別階層の設定のため別ファイル・別関数）。
     """
-    with open(path, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    return TrafficStressRecipe(**config["traffic_stress_recipe"])
+    return TrafficStressRecipe(**_load_yaml_section(path, "traffic_stress_recipe"))
 
 
 def load_safety_recipe(path: Path = SAFETY_RECIPE_CONFIG_PATH) -> SafetyRecipe:
     """safety_recipe.yamlから既定の安全度レシピ（軸の中身、domain/safety.py: SafetyRecipe
     参照）を読み込む。load_traffic_stress_recipeと同じパターン。
     """
-    with open(path, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    return SafetyRecipe(**config["safety_recipe"])
+    return SafetyRecipe(**_load_yaml_section(path, "safety_recipe"))
 
 
 class EvaluationService:

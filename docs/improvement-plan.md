@@ -2961,6 +2961,187 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+### - [x] T121-a. SafetyRecipeOverrideの閾値順序検証漏れを修正 規模S（2026-08-18完了）
+
+- 発端: 安全度と交通ストレスの独立性検証（ユーザー相談「相関していて判断要素も似ているなら
+  まとめて切り出すのはありか」）の過程で、`TrafficStressRecipeOverride`にだけ閾値順序検証
+  （`maxspeed_low_threshold < maxspeed_high_threshold`、前回コードレビュー指摘の修正）を
+  追加し、双子モデル`SafetyRecipeOverride`には同じ検証が反映されていないことが判明
+  （2軸のレシピをコピペで実装している構造そのものが原因、T120と同種の「片方だけ直す」
+  パターンの再発）。
+- 対応: `SafetyRecipeOverride`へ`_check_threshold_order`（`TrafficStressRecipeOverride`と同型、
+  安全度は`lanes_low`が無いため`maxspeed`のみ検証）を追加。回帰テスト
+  （`test_generate_routes_rejects_invalid_request_body`へパラメータ追加）。
+- 完了条件: backend 787件全green。
+
+### - [x] T121. 安全度base値の事故密度較正 規模M（2026-08-18完了）
+
+- 発端: 安全度と交通ストレスの独立性検証（dev DB 39,878way実測、2026-08-18）で、
+  Pearson相関0.91（距離加重も同）・Spearman 0.86と判明。TS=5は100%が安全度4、TS=4も
+  70%が安全度4で、両端では安全度が交通ストレスからほぼ完全に予測できてしまう。
+  原因は`SAFETY_BASE_BY_HIGHWAY`が`TRAFFIC_STRESS_BASE_BY_HIGHWAY`とほぼ同じ考え方
+  （交通ストレス側の判断のコピペに近い暫定値）で決められており、安全度が謳う
+  「事故りやすさ・客観的リスク」を実データで裏付けていないため。既に投入済みの
+  `accident_points`（外部静的データソースT50、fatal/involves_bicycle列・座標あり）を
+  使えば新規データ取得なしで較正できる。
+- 対応: `_ACCIDENT_COUNTS_SQL`（road_graph_repository.py）と同じ空間マッチパターン
+  （30m・`&&`前置・`involves_bicycle`絞込み・死亡事故`ACCIDENT_FATAL_WEIGHT`重み付け）を
+  `osm_raw_ways`全体（highway階級ごと）へ適用し、密度（重み付き件数/km/年、
+  収録3年で正規化）を実測。
+  - **primary/primary_link/trunk/trunk_link**（7.8〜9.0）・**secondary**（6.65、
+    secondary_linkは標本222way・14.7kmで参考値10.4）は現行base（4・3）を裏付ける
+    明確なクラスタを形成しており変更不要。
+  - **tertiary/tertiary_link**（3.6〜3.7）が現行baseの同居先（residential 1.88・
+    unclassified 2.77）より明確に高く、secondaryとresidential系の中間に位置。
+    T92と同じ手法（lanes/maxspeed分布）で追加検証したところ、tertiaryはlanes付与率
+    50%（うち81%が2車線）・maxspeed付与率34%（40km/h以上が49%）とsecondaryに近い
+    構造を持つ一方、residential/unclassifiedはほぼ単路・30km/h以下
+    （lanes付与4〜9%のうち76〜82%が1車線、maxspeed付与5〜13%のうち97%が30km/h以下）
+    で一貫しており、tertiaryを2のまま据え置く根拠が薄いと判断。**tertiary/
+    tertiary_linkのbaseを2→3へ較正**（`domain/safety.py`・`safety_recipe.yaml`・
+    生成物`safety-recipe.json`/`safety-test-cases.json`を同期、テスト13箇所更新）。
+  - **cycleway/living_street**（2.19/2.02）はresidential（1.88）よりわずかに高いが、
+    自転車専用/準専用インフラは通行する自転車自体が多いため、自転車台数で正規化しない
+    生の密度は曝露バイアスで見かけ上高く出うる。「安全度1が不適切」の根拠にはせず
+    据え置き。**residential/unclassified/track**も、密度差（1.88 vs 2.77）が
+    tertiaryほど明確でなくlanes/maxspeed分布も同傾向のため据え置き
+    （trackはway数11・延長0.9kmで標本不足のため判断対象外）。
+  - `accident_weight`軸との二重計上を避けるため、較正結果は`SAFETY_BASE_BY_HIGHWAY`の
+    オフライン設計材料としてのみ使い、`safety_breakdown`の実行時入力（材料タグ）には
+    追加していない（T119合意の継続）。
+- **較正後の相関再測定（想定外の結果）**: Pearson相関は0.91→**0.9559**（距離加重
+  0.9613）、Spearman 0.86→**0.9651**へ**上昇**した。TS=3群（tertiary/tertiary_link/
+  secondary/secondary_link、交通ストレス側は元々T92で3に統一済み）が、較正前は
+  安全度2/3に58.5%/38.5%で分裂していたが、較正後は安全度3に96.0%集中したため。
+  つまり実データに基づく較正がむしろ2軸を接近させた。これは「tertiaryの危険度が
+  客観的に高い」という同じ実態を、交通ストレス（T92、走行のしやすさの観点）と安全度
+  （T121、事故密度の観点）が独立に検出し収束したもので、較正自体の妥当性は補強される
+  一方、**現状の材料タグ構成では2軸の差別化の主因はlit/shoulder/tunnelという
+  「安全度だけが持つ補正」に依存しており、そのうちshoulderは実測0.0%（T102）・
+  litはdev DBが採用前取込のため0件**（T121-a起票時点のメモ参照）という点が、
+  相関上昇によってより明確になった。T122（次タスク）のdev DB再取込（lit有効化）の
+  優先度がこの結果により上がったと判断する。
+- 完了条件: highway階級別事故密度の実測結果を記録（本文参照）、`SAFETY_BASE_BY_HIGHWAY`を
+  較正（tertiary/tertiary_link 2→3）。較正後の相関を再測定し変化を記録（達成、
+  ただし想定と逆に上昇）。backend 787件・frontend 335件・tsc・eslint全green
+  （frontend側は`safetyExpression.test.ts`の閾値越えテスト1件を較正後の値へ更新）。
+  T122の重み再考は、この相関上昇を踏まえて「まず軸を差別化してから重みを判断する」
+  順序が崩れていないため、T122側で改めて判断する。
+- **追記（2026-08-18、dev DB再取込後の再測定）**: ユーザー指示「lit有効化後に相関再測定
+  してから確かに判断したい」を受け、dev DB（東京都心南部、`data/pbf/Tokyo.osm.pbf`）を
+  現在のロード範囲（`ST_Extent(geom)`実測bbox）で`python -m app.batch.import_pbf`
+  再取込（UPSERTのため冪等、既存データは上書き）。way数39,878→57,112（差分17,234件は
+  T99のshared_pedestrian_waysルール追加分17,584件とほぼ一致、想定内）。`lit`タグが
+  0件→6,681件（11.7%）へ有効化された。
+  - 相関を再測定した結果、Pearson 0.9559→**0.9222**（距離加重0.9613→0.9288、
+    Spearman 0.9651→0.9145）へ**低下**。lit補正が実際に差別化に寄与することを確認。
+  - 副次的な発見: 安全度4段階の上限丸め損失も8.5%件数/9.5%距離→**4.3%件数/5.0%距離**
+    へ半減した（lit補正が上限へ張り付く前に値を引き下げるため）。T122で提案していた
+    安全度5段階化は、この数値で見るとT117が交通ストレスを5段階化した根拠
+    （8.3%/9.3%）の半分程度まで下がっており、着手の優先度は当初想定より低いと
+    判断材料が変わった。T122着手時に再判断する。
+
+### レシピ付き軸の共通基盤整備（T122〜T124、2026-08-18再構成）
+
+複雑度平衡性レビュー（`history/2026-08-18_complexity.md` F-1/F-2）の指摘
+「レシピ付き軸が共有基盤なしの全層コピーで2軸分存在し、追加コスト64ファイル・
+双子鏡像約1,500行/軸・同期バグ2件実発生（T120・T121-a）」への対応。
+ユーザー相談「2軸作るのはいいが、将来的な拡張も踏まえて軸パラメータの汎用化や、
+相関検討・新たな要素の注入・重みづけ変更を容易にする対応は検討できるか」を受け、
+**1つの汎用フレームワークではなく性質の違う3層に分けて必要な深さだけ共通化する**
+構成で再起票した（recipeControls.tsxの「2回目で共通化」原則の踏襲。
+AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、レビューKEEP
+「Recipeの4表現は統一しない」も維持。重みづけ変更は変更コスト表B行のとおり
+既にYAML1箇所で易のため対象外）。3つ目のレシピ軸の追加はT122・T123完了まで
+凍結する（レビューTop 10 Actions #10）。着手順はT124（独立・先行可）→T122→T123。
+
+### - [ ] T122. レシピ判定プリミティブの共有: domain/recipe.py新設＋shoulder撤去（層1）規模M — トリガー: 特になし（着手可）
+
+- 発端: `TrafficStressRecipe`/`SafetyRecipe`が「highway別基準値＋タグ由来の加減点＋
+  クランプ」という同一の採点構造をパラメータだけ変えて2回実装しており、T120・T121-aの
+  「片方だけ直し忘れる」バグを構造的に誘発している（複雑度レビューF-2）。フロントの
+  `recipeControls.tsx`（T119、2つ目のレシピ登場を機にユーザー要望で共通化済み）と
+  同じ発想をbackend domain層にも適用する。
+- 対応方針:
+  - `app/domain/recipe.py`（新設）へ共有プリミティブを切り出す:
+    `clamp_level`（クランプ）・`threshold_adjustment`（maxspeed/lanesのlow/high
+    if/elif分岐）・`cycleway_adjustment`（track/lane/shared分岐）・
+    `flag_adjustment`（shoulder/lit/tunnel/designationのような「タグ有無→±N」。
+    レシピ項目追加＝変更コスト表H行12〜15箇所の削減に効く）。
+    閾値順序検証（`_check_threshold_order`系）もここへ集約し、`routes.py`の
+    `*Override`APIモデル2箇所のコピペ検証（T121-aで片方だけ直した箇所）を1本化する。
+  - `domain/traffic.py`/`domain/safety.py`をプリミティブ経由の薄い実装へ統一する。
+    `*Recipe`モデル・`*_breakdown`関数・`*Override`APIモデル自体はフィールド集合が
+    異なる（交通=lanes_low、安全度=shoulder/lit/tunnel）ため軸ごとに残す
+    （無理に共通のPydanticモデルへ寄せない）。
+  - `shoulder_adjustment`をレシピ・YAML・APIモデル・フロントから撤去
+    （T102実測0.0%・dev DB再取込後も0件の「死に補正」。「根拠のない補正を追加しない」
+    という`domain/safety.py`自身の方針との矛盾解消。YAMLコメントへ実測値を残し、
+    地域拡大時の復活判断材料とする。MVTタイルの`shoulder`材料タグ焼き込みも外すため
+    `ROAD_SURFACE_TILE_VERSION`の対上げが必要）。
+  - **安全度の1-5段階化は本タスクから分離済み・要再判断**: 当初根拠（上限丸め損失
+    8.5%/9.5%、T117の8.3%/9.3%と同水準）はlit有効化後の再測定で4.3%/5.0%へ半減し
+    前提が崩れた（T121追記参照）。着手する場合はT117と同じ手順
+    （`domain/safety.py`クランプ・`_SAFETY_MAX_LEVEL`・`safetyExpression.ts`・
+    `SAFETY_COLORS`・内訳ポップアップ・タイル世代の同期）。
+- 完了条件: 両軸のbreakdown/level計算が`recipe.py`経由になり、クランプ・閾値分岐・
+  cycleway/flag補正・検証の双子分岐が1箇所化。生成フィクスチャ照合
+  （traffic-stress/safety-test-cases.json）が引き続き全green（プリミティブ化で
+  計算結果が変わっていないことの回帰保証）。backend/frontend全green。
+
+### - [ ] T123. レシピ軸の糊のパラメータ化＋MapView閾値発火対応（層2）規模L — トリガー: T122完了後
+
+- 発端: 複雑度レビューF-1（MapView.tsx 1,908行でT91閾値1,800行が発火）＋F-2
+  （3つ目のレシピ軸を現方式で足すと約2,150行へ・追加コスト64ファイルの主因が
+  service/router/fetch/popup各層の双子鏡像）。両者の対応作業が重なるため1タスクに束ねる
+  （レビューPhase 3相当）。
+- 対応方針:
+  - `region_service.py`の内訳取得双子（`get_traffic_stress_breakdown`/
+    `get_safety_breakdown`）を、同ファイルの`_get_tile`（road_surface/poiを1実装で
+    捌く既存の成功前例）と同じ形の`_get_breakdown(repository_method, domain_fn,
+    category)`へ畳む。`region.py`の2エンドポイントも薄い宣言だけ残しパラメータ化。
+  - `regionApi.ts`のfetch双子を軸設定オブジェクト渡しの1関数へ。
+  - MapView.tsxの内訳ポップアップ双子（`buildTrafficStressBreakdownHtml`/
+    `buildSafetyBreakdownHtml`＋ハンドラ配線、約158行）を軸別カタログ＋共通ビルダー化し
+    専用モジュール（例: `recipeBreakdownPopup.ts`）へ抽出。
+  - `trafficStressExpression.ts`/`safetyExpression.ts`の補正ブロック生成を共有ヘルパー化
+    （T122のプリミティブのTS鏡像。照合フィクスチャがドリフトを検知する体制は維持）。
+  - `useLayerDataStatus`抽出（`computeLayerDataStatus`・`clearStaleTrackedSourceErrors`・
+    イベント配線、約120行。2026-08-17レビューDEFER(a)の事前合意の履行）。
+- 効果の見込み（レビュー試算）: MapView.tsx 1,908→約1,600行（T91閾値発火の解消）、
+  3つ目のレシピ軸の追加コスト概算64→40ファイル前後・鏡像行数約半減、
+  レシピ項目1個の追加コスト12〜15箇所→7〜9箇所（SQL材料タグ・YAML・パネル・テストの
+  軸固有部分のみ残る）。
+- 完了条件: 上記5点の抽出・パラメータ化が完了しMapView.tsxが1,700行未満。
+  次の閾値（レビューF-1提案: 「2,000行 or STATIC_OVERLAY_LAYERS 10種 or 3つ目の
+  レシピ軸をMapView内へミラー追加しようとした時点」のいずれか早い方）を
+  `/review:improve`経由でKeep Listへ反映。backend/frontend全green・Playwright実機確認
+  （内訳ポップアップ2軸とも表示・配線が抽出後も動くこと）。
+
+### - [ ] T124. 軸統計計測スクリプトの常設化: measure_axis_stats.py（層3）規模S〜M — トリガー: 特になし（独立・先行可）
+
+- 発端: T121〜T121続きの独立性検証で使った相関測定・クランプ前生値分布・材料タグ
+  カバレッジ・highway階級別事故密度の各分析は、すべて使い捨てスクリプトで実施して
+  破棄した。次の較正・3軸目追加・5段階化再判断のたびに書き直すのは無駄で、
+  「実測してから判断する」文化（T92・T117・T121の判断はすべて実測起点）を
+  1コマンドで支える計測基盤が要る。ユーザー相談「今回みたいな相関検討を容易にする
+  対応」への直接回答。
+- 対応方針: `backend/scripts/measure_axis_stats.py`（新設）。`measure_tag_coverage.py`
+  （T102の判断を支えた前例）と同じ「単発実行・結果を標準出力・単体テストつき」の形で:
+  - 軸ペアの同時分布と相関（Pearson/Spearman、距離加重込み）
+  - クランプ前生値分布（段階数判断用。上限/下限丸め損失の件数%・距離%）
+  - 材料タグカバレッジ（死に補正の検出。shoulder=0%のような矛盾を早期に出す）
+  - highway階級別の自転車関与事故密度（base較正用。`_ACCIDENT_COUNTS_SQL`と同じ
+    30m・involves_bicycle・死亡事故重み付けパターン）
+  - 実装メモ: `osm_raw_ways`の`highway`は専用列（tagsに無い）。designationは
+    `designation_attributes`をosm_way_idでDISTINCT JOIN。レシピはdomain関数を
+    直接呼び出して計算する（SQL再実装しない。T121の使い捨て版と同じ方式）。
+- 完了条件: dev DBに対して1コマンドで上記4分析が出力され、T121の実測値
+  （相関0.9222・丸め損失4.3%/5.0%等）が再現できること。単体テスト（分布・相関計算の
+  純関数部分）つきでbackend全green。docs/architecture.mdのscripts一覧に追記。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -3059,3 +3240,7 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T118 | ユーザーが本番モバイル実機スクショを提示（T117で5段階化した基準値ピッカーが画面右端から溢れる）。原因は標準table auto-layoutの列幅共有（1行でも長いラベルがあると全行のピッカー列が圧迫される）と判明し、ラベルの折り返し許可＋`table-layout: fixed`＋ピッカー列への固定幅（7.5rem）で解消。副次的に、原因不明のCSSカスケード上書き（クラスセレクタがグローバルbutton既定に上書きされ続ける現象、根本原因は未特定）を`!important`の対症療法で解決。作業中、検証用ポート（8000/3010）が別セッションのプロセスに奪われ誤ったビルドを検証してしまっていたことが判明し、ポートも8001/3011へ分離。backend 736件・frontend 279件・tsc・eslint全green、Playwright実機確認（モバイル390px幅、standaloneサーバー、最短/最長ラベル行とも1行5ボタンで横スクロール無し）で確認 |
 | 2026-08-17 | T119 | ユーザー相談「交通ストレスとは別軸で安全度も作れないか（道路種類・灯り・事故密度等を組み合わせて）」を受け設計・実装。交通ストレスレシピ（T107〜T116）と同じ構造で`domain/safety.py: SafetyRecipe`（highway別基準値＋cycleway/maxspeed/lanes/路肩/街灯/トンネル/指定路線の補正、lanes_lowは不採用）を新設し9軸目として`route_preference.yaml`・両エンジン・API（`/api/routes/generate`・`POST /api/region/safety-breakdown`）へ配線。MVTタイルへ`shoulder`/`lit`材料タグ追加でv9→v10（後方互換のプロパティ追加のみ）。ユーザー選択に基づき事故密度は新レシピへ組み込まず既存`accident_weight`軸のまま`bicycle_only`既定値をFalse→True・死亡事故を`ACCIDENT_FATAL_WEIGHT`(3.0)件分と積算するSUMへ変更（既定挙動として反映、実装時にLEFT JOIN不一致行の誤カウントを自己発見・修正）。フロントは`safetyExpression.ts`（trafficStressExpression.tsのミラー）・`SafetyRecipePanel.tsx`を新規実装し、T113で交通ストレス専用だった基準値ピッカー・補正ステッパー等を`recipeControls.tsx`へ汎用化して両パネルで共有。T117/T118（同日、交通ストレス5段階化＋モバイル幅溢れ修正）と2度のT番号衝突・マージ（`docs/improvement-plan.md`・`architecture.md`・`frontend/src/types/generated/openapi.json`・`TrafficStressRecipePanel.module.css`/`.tsx`）が発生し手動解消、T118のモバイル幅修正は同一構造を持つ`SafetyRecipePanel`へも横展開した。backend 781件・frontend 335件・tsc・eslint全green、DB統合テストはdev機ネイティブPostgreSQLで確認済み |
 | 2026-08-18 | T120 | T119完了後のコードレビューで、`get_traffic_stress_breakdown`のDB例外集計修正（`result`/`warned`パターン）が双子メソッド`get_safety_breakdown`へは反映されていなかったバグを検出・修正。両メソッドとも`error_type`未設定だった問題（error_types集計が常に"unknown"）も併せて修正し、`docs/logging.md`へ`warned`フラグの使い方を追記。backend 786件全green |
+| 2026-08-18 | T121-a | ユーザー相談「安全度と交通ストレスの独立性、軸の数の妥当性を検証、似ている部分はまとめて切り出すのはありか検討・提案して」を受けdev DB実測（39,878way）を実施。相関0.91（ほぼ冗長）・shoulder_adjustment実測0.0%（死に補正）・安全度4段階の上限丸め損失9.5%距離（T117の交通ストレス5段階化根拠と同水準）と判明。調査の過程で`TrafficStressRecipeOverride`にだけ閾値順序検証（前回コードレビュー指摘）があり双子モデル`SafetyRecipeOverride`には無い非対称（T120と同種の「片方だけ直し忘れる」再発）を発見し即修正。軸統合は見送り（相関は現行base値がコピペに近いことの結果であり概念の同一性の証拠ではないため、事故密度較正（T121）を先に試す）、代わりに`domain/recipe.py`共通化・安全度5段階化・shoulder撤去をT122として起票、事故密度較正をT121として起票。backend 787件全green |
+| 2026-08-18 | T121 | ユーザー指示「T121着手して」を受け実施。`_ACCIDENT_COUNTS_SQL`と同じ空間マッチ（30m・involves_bicycle・死亡事故重み付け）でhighway階級別事故密度を実測し、`SAFETY_BASE_BY_HIGHWAY`のtertiary/tertiary_linkが同居先（residential/unclassified）より明確に高密度（3.6〜3.7 vs 1.9〜2.8）と判明。T92と同じ手法でlanes/maxspeed分布も追加検証しsecondaryに近い構造（lanes付与50%・うち81%が2車線）と確認、2→3へ較正（domain/safety.py・safety_recipe.yaml・生成物・テスト13箇所を同期）。cycleway/living_streetの密度がresidentialよりやや高い点は自転車専用インフラの曝露バイアス（正規化していない生密度は自転車量が多い場所ほど見かけ上高くなる）と判断し据え置き。**較正後の相関を再測定したところ0.91→0.96へ上昇**（tertiary系がsecondary系と同じbase=3に揃ったことでTS=3群の安全度分布が58.5%/38.5%の分裂から96.0%集中へ収束したため）。実データに基づく較正が却って2軸を接近させたという想定外の結果を得て、現状の材料タグ構成（shoulder実測0%・dev DBのlit未取込）では2軸の差別化がlit/shoulder/tunnelというごく薄い補正に依存している実態がより明確になったと結論。T122（dev DB再取込等）の優先度がこの結果で上がったと判断し記録。backend 787件・frontend 335件・tsc・eslint全green |
+| 2026-08-18 | T121（続き） | ユーザー指示「lit有効化後に相関再測定してから確かに判断したい」を受け、dev DB（東京都心南部）を`Tokyo.osm.pbf`から現ロード範囲（ST_Extent実測bbox）で再取込（UPSERT冪等）。way数39,878→57,112（差分17,234件はT99のshared_pedestrian_waysルール分17,584件とほぼ一致、想定内）、`lit`タグが0件→6,681件（11.7%）へ有効化。相関を再測定すると0.9559→**0.9222**（距離加重0.9613→0.9288）へ低下し、lit補正の差別化効果を確認。副次的に安全度4段階の上限丸め損失も8.5%/9.5%→**4.3%/5.0%**へ半減しており、T122で予定していた5段階化の根拠（T117の8.3%/9.3%と同水準、という当初の判断）が崩れたため、T122から5段階化を切り離し「要再判断」として記録し直した |
+| 2026-08-18 | T122〜T124再構成（起票） | 複雑度平衡性レビュー（history/2026-08-18_complexity.md F-1/F-2「レシピ付き軸が共有基盤なしの全層コピー、追加コスト64ファイル・双子鏡像1,500行/軸・同期バグ2件実発生」）とユーザー相談「将来拡張を踏まえた軸パラメータの汎用化・相関検討・新要素注入・重み変更の容易化」を受け、旧T122を3層構成へ再起票。T122=判定プリミティブ共有（domain/recipe.py新設＋flag_adjustment＋検証集約＋shoulder撤去）、T123=糊のパラメータ化（region_service/_get_breakdown・router・regionApi・内訳ポップアップ共通ビルダー抽出・useLayerDataStatus抽出＝MapView閾値発火F-1対応を兼ねる）、T124=軸統計計測スクリプト常設化（measure_axis_stats.py、使い捨てで3回書いた相関・クランプ損失・事故密度分析の1コマンド化）。AxisRegistry的フレームワーク化は2軸ではprematureとして不採用、重み変更は既にYAML1箇所（変更コスト表B行）のため対象外、3つ目のレシピ軸はT122・T123完了まで凍結。5段階化はT122内で「要再判断」のまま保持 |

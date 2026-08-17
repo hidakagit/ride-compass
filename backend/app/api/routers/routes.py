@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.dependencies import (
     RouteGenerationBuilder,
@@ -108,6 +108,17 @@ class TrafficStressRecipeOverride(BaseModel):
     lanes_low_adjustment: int
     designation_adjustment: int
 
+    @model_validator(mode="after")
+    def _check_threshold_order(self) -> "TrafficStressRecipeOverride":
+        # domain/traffic.py: traffic_stress_breakdownはmaxspeed<=low_thresholdを
+        # maxspeed>=high_thresholdより先に判定するため（lanesも同様）、
+        # low>=highだと「高い方の補正」が常にlow側の分岐に隠れて無効化される。
+        if self.maxspeed_low_threshold >= self.maxspeed_high_threshold:
+            raise ValueError("maxspeed_low_threshold must be less than maxspeed_high_threshold")
+        if self.lanes_low_threshold >= self.lanes_high_threshold:
+            raise ValueError("lanes_low_threshold must be less than lanes_high_threshold")
+        return self
+
 
 class SafetyRecipeOverride(BaseModel):
     """安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
@@ -132,6 +143,15 @@ class SafetyRecipeOverride(BaseModel):
     lit_adjustment: int
     tunnel_adjustment: int
     designation_adjustment: int
+
+    @model_validator(mode="after")
+    def _check_threshold_order(self) -> "SafetyRecipeOverride":
+        # TrafficStressRecipeOverride._check_threshold_orderと同じ理由（domain/safety.py:
+        # safety_breakdownもmaxspeed<=low_thresholdをmaxspeed>=high_thresholdより先に判定する）。
+        # lanes_lowは安全度に無いためlanesの順序検証は不要。
+        if self.maxspeed_low_threshold >= self.maxspeed_high_threshold:
+            raise ValueError("maxspeed_low_threshold must be less than maxspeed_high_threshold")
+        return self
 
 
 class RouteGenerateRequest(BaseModel):

@@ -5,7 +5,7 @@
 //
 // roadFilterAxes.tsの軸機構（複数の生タグ値を少数のグループへ束ねる、絞り込み可能・
 // 「路面」レイヤーの色分け軸として共有）とは異なり、これらはバックエンドが既に
-// 1つの分類値（traffic_stress=1-4の整数、bicycle_infra/kind=列挙文字列、
+// 1つの分類値（traffic_stress=1-5の整数、bicycle_infra/kind=列挙文字列、
 // involves_bicycle/fatal=真偽値）へ変換済みのプロパティのため、生値→グループの
 // 対応表は不要で単純なmatch/case式で足りる。
 // 交通ストレス・自転車インフラは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/

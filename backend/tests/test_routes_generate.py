@@ -238,6 +238,33 @@ def _lightweight_generation_builder():
         {"scoring_weights": {"distance_weight": 0.5}},
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
+        # レビュー指摘の回帰テスト: maxspeed_low_threshold >= maxspeed_high_thresholdは
+        # domain/traffic.pyのif/elif判定順序で「高い方の補正」を無効化してしまうため拒否する
+        # （routes.py: TrafficStressRecipeOverride._check_threshold_order）。
+        {
+            "traffic_stress_recipe": {
+                **TrafficStressRecipe().model_dump(),
+                "maxspeed_low_threshold": 60,
+                "maxspeed_high_threshold": 30,
+            }
+        },
+        {
+            "traffic_stress_recipe": {
+                **TrafficStressRecipe().model_dump(),
+                "lanes_low_threshold": 4,
+                "lanes_high_threshold": 1,
+            }
+        },
+        # SafetyRecipeOverrideにも同種の検証漏れがあったため（domain/safety.py:
+        # safety_breakdownも同じif/elif判定順序）、同じ回帰テストを追加
+        # （routes.py: SafetyRecipeOverride._check_threshold_order）。
+        {
+            "safety_recipe": {
+                **SafetyRecipe().model_dump(),
+                "maxspeed_low_threshold": 60,
+                "maxspeed_high_threshold": 30,
+            }
+        },
     ],
 )
 def test_generate_routes_rejects_invalid_request_body(overrides):
