@@ -22,15 +22,18 @@ export default defineConfig({
     // フィルタ関数群）にまで一律で課すと無駄なオーバーヘッドになる（実測でsetup/environment
     // 込みのテスト全体の壁時計時間がテスト本体の実行時間よりずっと大きい要因の一つ）。
     // render/renderHook/window等のDOM APIを使わないファイルだけ軽量なnode環境に倒す。
-    // 新規ファイルは明示的にここへ加えない限りデフォルトのjsdomのままなので、
-    // DOM依存を後から追加してもテストが静かに壊れることはない。
-    environmentMatchGlobs: [
-      ["src/services/regionApi.test.ts", "jsdom"], // window.location.originを直接参照する
-      ["src/services/**", "node"],
-      ["src/lib/apiError.test.ts", "node"],
-      ["src/components/Map/*.test.ts", "node"], // .tsxのコンポーネントテストは対象外（拡張子で区別）
-      ["src/app/api/**", "node"],
-    ],
+    //
+    // 当初この振り分けをtest.environmentMatchGlobsで一括指定していたが、インストール済み
+    // vitest 4.1.10にはこのオプションが存在せず（Vitest 3系までのオプションで4系で廃止）、
+    // `npx tsc --noEmit`がInlineConfig型エラーで落ちるだけでなくランタイムでも黙って
+    // 無視されていた（`typeof window`をプローブして確認、全ファイルがjsdomのまま実行されて
+    // おり最適化が機能していなかった）。Vitest 4での正しい代替はtest.projects（ワークスペース
+    // 機能）だが、ファイル探索の単位自体が変わり対象パターンに含まれないテストファイルが
+    // 静かに実行対象外になるリスクがあるため採用しなかった。代わりに、対象15ファイルそれぞれの
+    // 先頭へ`// @vitest-environment node`docblock（バージョン間で仕様が安定している既存機構）を
+    // 個別に付与する方式にした。新規ファイルは明示的にdocblockを足さない限り既定のjsdomのままな
+    // ので、DOM依存を後から追加してもテストが静かに壊れることはない（環境振り分けの単一情報源が
+    // 各ファイル自身になる）。
     setupFiles: ["./vitest.setup.ts"],
     css: true,
     // frontend/e2e/はPlaywright（別ランナー、npm run test:e2e）専用のため、

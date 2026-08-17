@@ -1,3 +1,6 @@
+// このファイルはMapView.tsxのensure*Layer関数経由でregionApi.ts: accidentTileUrl()等の
+// window.location参照コードを実行する（改善計画: environmentMatchGlobs修正）ため、他の
+// Map/*.test.tsと違いjsdom環境が必要（既定のまま。node環境docblockを付けない）。
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";

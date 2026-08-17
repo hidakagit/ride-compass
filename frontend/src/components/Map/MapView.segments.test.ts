@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { RouteSegmentDetail } from "@/types/route";
 import { segmentsToFeatureCollection } from "./MapView";

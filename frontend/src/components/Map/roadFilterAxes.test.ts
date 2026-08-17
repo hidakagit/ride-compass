@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import surfaceTags from "@/types/generated/surface-tags.json";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "./legendFilter";

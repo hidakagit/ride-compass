@@ -3266,6 +3266,36 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
     おり、ランタイムでも意図通り機能していない懸念があるが、T125のスコープ外のため
     別タスクとして切り出した（spawn_task、2026-08-18）。
 
+### - [x] T126. vitest.config.mtsのenvironmentMatchGlobsをVitest 4対応の方式へ修正 規模S（2026-08-18完了）
+
+- 発端: T125の副次的発見（上記参照）を切り出したタスク。`environmentMatchGlobs`は
+  Vitest 1〜3系にあった設定オプションで、インストール済みvitest 4.1.10
+  （`frontend/package.json: "vitest": "^4.1.10"`）では廃止されており存在しない。
+  `npx tsc --noEmit`が`InlineConfig`型エラーで落ちる（`.github/workflows/ci.yml`の
+  frontendジョブはeslint→tsc→vitestの順で、tscゲートが壊れていた）だけでなく、
+  一時的なプローブテスト（`typeof window`をログ出力）で確認したところランタイムでも
+  黙って無視されており、`src/services/**`等をnode環境へ振り分ける意図が実際には
+  機能していなかった（全ファイルが既定のjsdomのまま実行されていた）。
+- 対応方針:
+  - Vitest 4の後継機能`test.projects`（ワークスペース機能のインライン版）も検討したが、
+    ファイル探索の単位自体がprojectsの`include`に変わり、パターンに含まれないテスト
+    ファイルが静かに実行対象外になるリスクがあるため不採用。
+  - 代わりに、バージョン間で仕様が安定している`// @vitest-environment <env>`
+    docblock（ファイル先頭）を、旧`environmentMatchGlobs`が対象にしていた15ファイルへ
+    個別付与する方式にした（`src/services/**`5件・`src/lib/apiError.test.ts`・
+    `src/components/Map/*.test.ts`9件・`src/app/api/version/route.test.ts`）。
+  - 付与作業中に`MapView.overlayFilters.test.ts`がMapView.tsxのensure*Layer関数経由で
+    `regionApi.ts: accidentTileUrl()`（`window.location`参照）を実際に実行する経路を
+    持つと判明。旧`environmentMatchGlobs`はこのファイルもnode環境に振り分ける設定だったが
+    機能していなかったため表面化していなかった、実際には誤った設定だった。node docblockを
+    付けず既定のjsdomのままにして解消した。
+  - `vitest.config.mts`から`environmentMatchGlobs`ブロックを削除。
+- 完了条件: `npx tsc --noEmit`がvitest.config.mts由来のエラー無しで通る。`npx vitest run`が
+  frontend全件green。
+- 実装メモ（2026-08-18完了）: `npx tsc --noEmit`がエラー0件（プレースホルダのコメントアウト
+  無しで直接確認）。`npx vitest run`334件全green（`MapView.overlayFilters.test.ts`の
+  環境訂正込み）。eslint全green。
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -3373,3 +3403,4 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 | 2026-08-18 | T122 | `backend/app/domain/recipe.py`を新設し、`clamp_level`・`threshold_adjustment`・`cycleway_adjustment`・`flag_adjustment`・`tag_value_is`・`validate_threshold_order`の共有プリミティブへtraffic.py/safety.pyを統一。`parse_lanes`/`parse_maxspeed`/`cycleway_class`等の材料タグ正規化もtraffic.pyから移設（safety.pyの間接import経由の旧構成を解消）。`threshold_adjustment`はlow/high閾値のどちらを先に判定しても`low<high`前提下では結果が同じであることを利用し、旧traffic.py（lanesはhigh優先）・旧safety.py（maxspeedはlow優先）の実装差異を1関数へ統合した。`routes.py`の`_check_threshold_order`を`validate_threshold_order`呼び出しへ1本化（T121-aの再発防止）。shoulder_adjustment（T102実測0.0%の死に補正）を`SafetyRecipe`/`SafetyBreakdown`/`SafetyRecipeOverride`/YAML/MVT SQL/`safetyExpression.ts`/`SafetyRecipePanel.tsx`から撤去し、MVTタイル世代をv10→v11へ更新。backend 839件（新規21件）・frontend 334件・eslint全green（フルスイート実行時のSafetyRecipePanel/TrafficStressRecipePanel情報アイコンテスト5件タイムアウトは分離実行で16/16green、環境リソース競合によるflakeと判断） |
 | 2026-08-18 | T123 | レシピ軸の糊のパラメータ化＋MapView閾値発火対応。`region_service.py`の内訳取得双子を`_get_breakdown`（`_get_tile`と同じ方針）へ、`region.py`の2エンドポイントを`_breakdown_response`へ統一。`regionApi.ts`のfetch双子を`BreakdownAxisConfig`渡しの1関数へ統一。新設`recipeBreakdownPopup.ts`でMapView.tsxの内訳ポップアップ双子（148行）を`adjustmentLabels`（Breakdownのフィールド名→ラベル、記述順=表示順）渡しの1実装へ集約（新しい補正フィールドが増えても本体変更不要）。新設`recipeExpression.ts`で`trafficStressExpression.ts`/`safetyExpression.ts`のMapLibre expression断片組み立て（`domain/recipe.py`のTS側ミラー）を共有化。新設`useLayerDataStatus.ts`で`computeLayerDataStatus`/`clearStaleTrackedSourceErrors`と状態管理・イベントハンドラを抽出（MapView.tsxとの循環import回避のため`LAYER_DATA_SOURCES`はMapView.tsx側に残し引数で渡す設計）。MapView.tsx 1,905→1,654行（目標1,700行未満達成）。新閾値（2,000行 or STATIC_OVERLAY_LAYERS 10種 or 3つ目のレシピ軸のMapView内ミラー追加）をdocs/complexity-review-2026-08-16.mdへ反映、3つ目のレシピ軸の追加凍結を解除。backend 839件・frontend 334件・eslint・tsc全green、Playwright実機確認（headless chromium、東京都心南部の実データ）で交通ストレス・安全度の両内訳ポップアップが最終値まで正しく表示されコンソールエラー0件を確認 |
 | 2026-08-18 | T125 | `frontend/vitest.config.mts`へ`testTimeout: 15000`を追加。vitest既定の5000msがnode_modules未インストール直後等のコールドスタート（Vite変換・jsdom環境セットアップ、実測初回6.4秒）と競合しSafetyRecipePanel/TrafficStressRecipePanel等のテストがタイムアウトで落ちる偽陽性（T121〜T123で繰り返し観測）を解消。作業ディレクトリが並行セッションと共有されておりnode_modules削除は他セッションを巻き込むリスクがあるため、完了条件の検証は`node_modules/.vite`（Vite変換キャッシュ）削除によるコールド状態再現に代えて実施し、334件全green（タイムアウト失敗0件）を確認。副次的に、同ファイルの`environmentMatchGlobs`（別コミットbe9fc95由来）がインストール済みvitest 4.1.10に存在しない設定でCIのtsc gateを壊している疑いを発見、T125のスコープ外のため別タスクとして切り出した |
+| 2026-08-18 | T126 | `vitest.config.mts`の`environmentMatchGlobs`（Vitest 1〜3系のオプション、インストール済み4.1.10では廃止済み）を修正。`npx tsc --noEmit`のInlineConfig型エラーの原因であり、`typeof window`プローブで確認したところランタイムでも無視されておりnode環境への振り分けが機能していなかった。Vitest 4の`test.projects`はファイル探索単位が変わり対象外テストが静かに漏れるリスクがあるため不採用とし、対象15ファイルへ`// @vitest-environment node`docblockを個別付与する方式へ置き換えた。付与作業中に`MapView.overlayFilters.test.ts`が実際は`window.location`参照コード経路（`accidentTileUrl`）を持ちjsdomが必要（旧設定は誤ってnode指定していたが機能しておらず表面化していなかった）と判明し、このファイルのみdocblockを付けず解消。`npx tsc --noEmit`エラー0件・`npx vitest run`334件全green・eslint全green |
