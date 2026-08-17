@@ -95,8 +95,10 @@ const TRAFFIC_STRESS_COLORS: Record<number, string> = {
 // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解されるという実機
 // フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
 // MapOverlayControls）に区切り線＋弱調表示させる。段階の意味そのものは1〜4のまま変えない。
-export function buildTrafficStressLegend(recipe: TrafficStressRecipe): LegendEntry[] {
-  const levelExpression = buildTrafficStressExpression(recipe);
+export function buildTrafficStressLegend(
+  recipe: TrafficStressRecipe,
+  levelExpression: unknown[] = buildTrafficStressExpression(recipe),
+): LegendEntry[] {
   return [
     { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", levelExpression, 1] },
     { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
@@ -114,10 +116,17 @@ export function buildTrafficStressLegend(recipe: TrafficStressRecipe): LegendEnt
 
 // buildTrafficStressExpressionは判定対象外を-1で返す（trafficStressExpression.ts参照）ため、
 // 従来の`coalesce(get("traffic_stress"), -1)`と同じ形でmatchできる。
-export function buildTrafficStressColorExpression(recipe: TrafficStressRecipe): unknown[] {
+// levelExpressionを省略した場合はrecipeから自前で計算する（単体呼び出し・モジュール直下の
+// TRAFFIC_STRESS_COLOR_EXPRESSION定数用）。呼び出し元がbuildTrafficStressLegendと同じ
+// レシピで両方組み立てる場合は、二重計算を避けるため計算済みの式を渡すこと
+// （MapView.tsx: setStaticOverlayFiltersを参照）。
+export function buildTrafficStressColorExpression(
+  recipe: TrafficStressRecipe,
+  levelExpression: unknown[] = buildTrafficStressExpression(recipe),
+): unknown[] {
   return [
     "match",
-    buildTrafficStressExpression(recipe),
+    levelExpression,
     1,
     TRAFFIC_STRESS_COLORS[1],
     2,

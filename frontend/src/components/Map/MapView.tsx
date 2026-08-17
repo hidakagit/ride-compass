@@ -26,7 +26,11 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
-import { DEFAULT_TRAFFIC_STRESS_RECIPE, evaluateTrafficStressLevel } from "@/components/Map/trafficStressExpression";
+import {
+  DEFAULT_TRAFFIC_STRESS_RECIPE,
+  buildTrafficStressExpression,
+  evaluateTrafficStressLevel,
+} from "@/components/Map/trafficStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
@@ -438,14 +442,19 @@ function ensureTrafficStressLayer(map: MapLibreMap) {
 // 交通ストレスレシピ（研究モードで上書き可能、改善計画: 交通ストレスレシピ調整UIパネル）を
 // レイヤーへ反映する。ensureTrafficStressLayerは常に既定レシピの色で作成する（STATIC_OVERLAY_
 // LAYERSの他エントリと同じ`(map) => void`の形を保つため）ため、この関数を同じ呼び出し元
-// （setStaticOverlayFiltersの直後）で常にセットで呼び、上書き中なら実際のレシピの色へ
-// 即座に補正する（同一useEffect内の同期呼び出しのため、既定色でのちらつきは発生しない）。
+// （setStaticOverlayFiltersの直後）で常にセットで呼び、上書き中なら実際のレシピの色へ補正する。
 // レイヤーが未作成（一度も表示ONにされていない）ならensure側に任せ何もしない。
-function applyTrafficStressRecipe(map: MapLibreMap, recipe: TrafficStressRecipeOverride) {
+// 注意: レイヤーの初回作成はこの関数だけでなくsetStaticOverlayVisibility（別useEffect、
+// layer.ensure経由）からも起こりうる。両者は別々のeffectだが、マウント直後は両方とも
+// 初回に一度ずつ実行され、setStaticOverlayFiltersの呼び出し（本関数を含む）がその中で
+// 完了するため、実際に既定色のままレイヤーが可視化される瞬間は生じない
+// （MapView.overlayFilters.test.ts等では検証していない、コード上の実行順序に基づく前提）。
+function applyTrafficStressRecipe(map: MapLibreMap, recipe: TrafficStressRecipeOverride, levelExpression?: unknown[]) {
   runWhenStyleReady(map, () => {
     if (!map.getLayer(TRAFFIC_STRESS_LAYER_ID)) return;
+    const colorExpression = buildTrafficStressColorExpression(recipe, levelExpression);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setPaintProperty(TRAFFIC_STRESS_LAYER_ID, "line-color", buildTrafficStressColorExpression(recipe) as any);
+    map.setPaintProperty(TRAFFIC_STRESS_LAYER_ID, "line-color", colorExpression as any);
   });
 }
 
@@ -730,20 +739,28 @@ export function setStaticOverlayFilters(
   trafficStressRecipe: TrafficStressRecipeOverride,
 ) {
   runWhenStyleReady(map, () => {
+    // buildTrafficStressLegend/buildTrafficStressColorExpressionはどちらも内部でレシピから
+    // 同じレベル判定式を組み立てるため、この呼び出し内で1回だけ計算して両方へ渡す
+    // （setFilter/setPaintPropertyというMapLibre側の実処理に対し無視できるコストとはいえ、
+    // 同一の式木を毎回2回組み立てる必要はないため）。
+    const trafficStressLevelExpression = buildTrafficStressExpression(trafficStressRecipe);
     for (const layer of STATIC_OVERLAY_LAYERS) {
       const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
       if (axes.length === 0) continue;
       layer.ensure(map);
       const filter = buildCombinedLegendFilterExpression(
         axes.map((axis) => ({
-          legend: axis.axisId === "trafficStress" ? buildTrafficStressLegend(trafficStressRecipe) : axis.legend,
+          legend:
+            axis.axisId === "trafficStress"
+              ? buildTrafficStressLegend(trafficStressRecipe, trafficStressLevelExpression)
+              : axis.legend,
           hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [],
         }))
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setFilter(layer.layerId, filter as any);
     }
-    applyTrafficStressRecipe(map, trafficStressRecipe);
+    applyTrafficStressRecipe(map, trafficStressRecipe, trafficStressLevelExpression);
   });
 }
 
