@@ -10,16 +10,26 @@
   composes: toggleLabel from "../WeightPanel/WeightPanel.module.css";
 }
 
+/* 「全体的にもう少しコンパクトな形に」という実機フィードバックを受け、共通クラスの
+   gapを上書きしてこのパネルだけ縦の間隔を詰める（composesした先＝WeightPanel.module.css
+   自体は無変更のため、WeightPanel側の見た目には影響しない）。 */
 .groups {
   composes: groups from "../WeightPanel/WeightPanel.module.css";
+  gap: var(--space-2);
 }
 
 .group {
   composes: group from "../WeightPanel/WeightPanel.module.css";
+  gap: 0.3rem;
 }
 
 .field {
   composes: field from "../WeightPanel/WeightPanel.module.css";
+  /* 右側（ステッパー+条件）が長いThresholdAdjustmentRowで、ラベル側が予期せず
+     押し縮められて途中で折り返される（例:「低速道路」が「低速」「道路」の2行に
+     割れる）不具合を確認したため、行全体は必要なら折り返しつつ（flex-wrap）、
+     ラベル自体は常に1行を維持するよう明示する（.fieldLabelのwhite-space参照）。 */
+  flex-wrap: wrap;
 }
 
 .input {
@@ -36,7 +46,7 @@
 }
 
 .table td {
-  padding: 0.15rem 0;
+  padding: 0.1rem 0;
 }
 
 .tableLabel {
@@ -49,6 +59,10 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  /* 右側の内容（ステッパー・条件入力）が長い行で、ラベル自体が押し縮められて
+     途中で折り返される不具合を防ぐ（.field参照）。 */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* 情報アイコンの開閉ボタン。title属性のホバー表示はスマホのタップでは開かないため
@@ -87,20 +101,20 @@
 
 /* 基準値のレベルピッカー（改善計画: レシピ入力フォームの改善）。TRAFFIC_STRESS_LEVELSの
    段階数ぶん.levelSegmentが並ぶ。段階数を変えてもこのCSS自体は変更不要（flexで自動的に
-   並ぶため）。 */
+   並ぶため）。「もう少しコンパクトに」というフィードバックを受け1.5rem→1.25remへ縮小。 */
 .levelPicker {
   display: inline-flex;
   gap: 2px;
 }
 
 .levelSegment {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.25rem;
+  height: 1.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  font-size: var(--font-size-sm);
+  font-size: 0.7rem;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
@@ -117,66 +131,71 @@
   font-weight: 700;
 }
 
-/* 補正値の0中心バー（改善計画: レシピ入力フォームの改善、「補正値は0を中心に変動」への
-   対応）。中央の目盛り線から左（負値）または右（正値）へ塗りが伸びる。色はJS側で
-   TRAFFIC_STRESS_COLORSの最低/最高段階から算出しstyleへ渡す。 */
-.adjustmentValue {
+/* 補正値のステッパー（改善計画: レシピ入力フォームの改善）。当初の0中心バーが実際の値の
+   範囲では細すぎて視認できず、数値入力単体もネイティブの上下スピナー矢印が小さくタップ
+   しづらい（「入力しにくい」フィードバック）と判明したため、-/+ボタン付きの色付き入力欄へ
+   作り直した。色（JS側でTRAFFIC_STRESS_COLORSの最低/最高段階から算出しstyleへ渡す）が
+   「0中心に変動する」ことを常に確実に伝える。 */
+.stepper {
   display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.adjustmentBar {
-  position: relative;
-  display: inline-block;
-  width: 3rem;
-  height: 0.5rem;
-  background: var(--color-surface-2);
-  border-radius: 2px;
+  align-items: stretch;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
   flex-shrink: 0;
 }
 
-.adjustmentBarCenter {
-  position: absolute;
-  left: 50%;
-  top: -0.15rem;
-  bottom: -0.15rem;
-  width: 1px;
-  background: var(--color-border-strong);
-}
-
-.adjustmentBarFillNegative,
-.adjustmentBarFillPositive {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  /* パーセント計算上ごく細くなる値（±1等）でも視認できるよう最小幅を確保する
-     （value===0では要素自体を描画しないため、0の場合に見えてしまう心配はない）。 */
-  min-width: 4px;
-  border-radius: 2px;
-}
-
-.adjustmentBarFillNegative {
-  right: 50%;
-}
-
-.adjustmentBarFillPositive {
-  left: 50%;
-}
-
-/* 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路、改善計画: レシピ入力
-   フォームの改善）。補正値行（.field）の下に、変動条件（閾値）の行を続ける。 */
-.pairField {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.thresholdRow {
+.stepperButton {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  border: none;
+  background: var(--color-surface-2);
+  color: var(--foreground);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.stepperInput {
+  width: 2.4rem;
+  border: none;
+  border-left: 1px solid var(--color-border-strong);
+  border-right: 1px solid var(--color-border-strong);
+  text-align: center;
+  font-size: var(--font-size-md);
+  background: var(--color-surface);
+  color: inherit;
+  padding: 0.15rem 0;
+  /* ネイティブの上下スピナー矢印は小さくタップしづらいため非表示にする
+     （増減は左右の-/+ボタンで行う）。直接のタイプ入力はできるまま残す。 */
+  -moz-appearance: textfield;
+}
+
+.stepperInput::-webkit-outer-spin-button,
+.stepperInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路）。ステッパーと変動条件
+   （閾値）を同じ行に横並びで置く（改善計画: レシピ入力フォームの改善、「もう少し
+   コンパクトな形に」への対応。以前は補正値行と閾値行が縦2段だった）。幅が足りない
+   場合はflex-wrapで折り返す。 */
+.pairControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.thresholdInline {
+  display: inline-flex;
+  align-items: center;
   gap: 0.3rem;
-  padding-left: 1.2rem;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
@@ -187,7 +206,7 @@
 
 .thresholdInput {
   composes: input;
-  width: 3.5rem;
+  width: 3rem;
 }
 
 .thresholdSuffix {
