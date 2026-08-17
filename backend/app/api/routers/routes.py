@@ -14,6 +14,7 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
+from app.domain.recipe import validate_threshold_order
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
@@ -110,13 +111,12 @@ class TrafficStressRecipeOverride(BaseModel):
 
     @model_validator(mode="after")
     def _check_threshold_order(self) -> "TrafficStressRecipeOverride":
-        # domain/traffic.py: traffic_stress_breakdownはmaxspeed<=low_thresholdを
-        # maxspeed>=high_thresholdより先に判定するため（lanesも同様）、
-        # low>=highだと「高い方の補正」が常にlow側の分岐に隠れて無効化される。
-        if self.maxspeed_low_threshold >= self.maxspeed_high_threshold:
-            raise ValueError("maxspeed_low_threshold must be less than maxspeed_high_threshold")
-        if self.lanes_low_threshold >= self.lanes_high_threshold:
-            raise ValueError("lanes_low_threshold must be less than lanes_high_threshold")
+        # domain/recipe.py: validate_threshold_orderのdocstring参照（low>=highだと
+        # threshold_adjustmentの2条件が排他的でなくなる）。改善計画T122で交通ストレス・
+        # 安全度の両モデルの検証を共通関数へ1本化した（T121-aの「片方だけ直し忘れる」
+        # バグの再発防止）。
+        validate_threshold_order(self.maxspeed_low_threshold, self.maxspeed_high_threshold, "maxspeed")
+        validate_threshold_order(self.lanes_low_threshold, self.lanes_high_threshold, "lanes")
         return self
 
 
@@ -126,7 +126,7 @@ class SafetyRecipeOverride(BaseModel):
     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
 
     交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの
-    docstring参照）・shoulder/lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
+    docstring参照）・lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
     """
 
     base_by_highway: dict[str, int]
@@ -139,18 +139,15 @@ class SafetyRecipeOverride(BaseModel):
     maxspeed_high_adjustment: int
     lanes_high_threshold: int
     lanes_high_adjustment: int
-    shoulder_adjustment: int
     lit_adjustment: int
     tunnel_adjustment: int
     designation_adjustment: int
 
     @model_validator(mode="after")
     def _check_threshold_order(self) -> "SafetyRecipeOverride":
-        # TrafficStressRecipeOverride._check_threshold_orderと同じ理由（domain/safety.py:
-        # safety_breakdownもmaxspeed<=low_thresholdをmaxspeed>=high_thresholdより先に判定する）。
-        # lanes_lowは安全度に無いためlanesの順序検証は不要。
-        if self.maxspeed_low_threshold >= self.maxspeed_high_threshold:
-            raise ValueError("maxspeed_low_threshold must be less than maxspeed_high_threshold")
+        # TrafficStressRecipeOverride._check_threshold_orderと同じ理由。lanes_lowは
+        # 安全度に無いためlanesの順序検証は不要。
+        validate_threshold_order(self.maxspeed_low_threshold, self.maxspeed_high_threshold, "maxspeed")
         return self
 
 

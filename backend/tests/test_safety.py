@@ -58,17 +58,14 @@ class TestSafetyLevel:
         assert safety_level("primary", {"lanes": "0"}) == 4
         assert safety_level("primary", {"maxspeed": "0"}) == 4
 
-    def test_shoulder_reduces_by_1(self):
-        assert safety_level("secondary", {"shoulder": "yes"}) == 2  # 3-1
-
     def test_lit_reduces_by_1(self):
         assert safety_level("secondary", {"lit": "yes"}) == 2  # 3-1
 
     def test_tunnel_increases_by_1(self):
         assert safety_level("secondary", {"tunnel": "yes"}) == 4  # 3+1
 
-    def test_shoulder_lit_tunnel_combine(self):
-        assert safety_level("secondary", {"shoulder": "yes", "lit": "yes", "tunnel": "yes"}) == 2  # 3-1-1+1
+    def test_lit_tunnel_combine(self):
+        assert safety_level("secondary", {"lit": "yes", "tunnel": "yes"}) == 3  # 3-1+1
 
     def test_result_is_clamped_to_1_4_range(self):
         # cycleway基本値1から更に-2しても1未満にはならない
@@ -103,7 +100,6 @@ class TestSafetyBreakdown:
         assert breakdown.cycleway_adjustment == 0
         assert breakdown.maxspeed_adjustment == 0
         assert breakdown.lanes_adjustment == 0
-        assert breakdown.shoulder_adjustment == 0
         assert breakdown.lit_adjustment == 0
         assert breakdown.tunnel_adjustment == 0
         assert breakdown.designation_adjustment == 0
@@ -121,7 +117,6 @@ class TestSafetyBreakdown:
         assert breakdown.cycleway_adjustment == 0
         assert breakdown.maxspeed_adjustment == 0
         assert breakdown.lanes_adjustment == 0
-        assert breakdown.shoulder_adjustment == 0
         assert breakdown.lit_adjustment == 0
         assert breakdown.tunnel_adjustment == 0
         assert breakdown.designation_adjustment == 0
@@ -129,19 +124,18 @@ class TestSafetyBreakdown:
     def test_all_adjustments_reported_individually(self):
         breakdown = safety_breakdown(
             "tertiary",
-            {"cycleway": "lane", "maxspeed": "60", "lanes": "4", "shoulder": "yes", "lit": "yes", "tunnel": "yes"},
+            {"cycleway": "lane", "maxspeed": "60", "lanes": "4", "lit": "yes", "tunnel": "yes"},
             is_designated=True,
         )
         assert breakdown.base == 3
         assert breakdown.cycleway_adjustment == -1
         assert breakdown.maxspeed_adjustment == 1
         assert breakdown.lanes_adjustment == 1
-        assert breakdown.shoulder_adjustment == -1
         assert breakdown.lit_adjustment == -1
         assert breakdown.tunnel_adjustment == 1
         assert breakdown.designation_adjustment == 1
         assert breakdown.motor_vehicle_no_override is False
-        # 3 - 1 + 1 + 1 - 1 - 1 + 1 + 1 = 4
+        # 3 - 1 + 1 + 1 - 1 + 1 + 1 = 5、上限4でクランプ
         assert breakdown.level == 4
 
     def test_level_matches_safety_level_for_same_inputs(self):
@@ -172,10 +166,6 @@ class TestSafetyRecipeOverride:
         assert safety_level("tertiary", {"maxspeed": "40"}, recipe=recipe) == 4  # 3+1
         # 既定レシピ(閾値60)では40は補正なし
         assert safety_level("tertiary", {"maxspeed": "40"}) == 3
-
-    def test_shoulder_adjustment_override(self):
-        recipe = SafetyRecipe(shoulder_adjustment=-2)
-        assert safety_level("secondary", {"shoulder": "yes"}, recipe=recipe) == 1  # 3-2
 
     def test_lit_adjustment_override(self):
         recipe = SafetyRecipe(lit_adjustment=-2)

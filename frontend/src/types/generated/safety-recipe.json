@@ -23,7 +23,6 @@
   "maxspeed_high_adjustment": 1,
   "lanes_high_threshold": 4,
   "lanes_high_adjustment": 1,
-  "shoulder_adjustment": -1,
   "lit_adjustment": -1,
   "tunnel_adjustment": 1,
   "designation_adjustment": 1

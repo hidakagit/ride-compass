@@ -9,8 +9,8 @@ import styles from "./SafetyRecipePanel.module.css";
 // TrafficStressRecipePanel.tsxと完全に同じ構造（基準値レベルピッカー・補正値ステッパー・
 // 情報アイコン開閉ボタンはrecipeControls.tsxを共有、それ以外の骨格もミラー）。改善計画:
 // 安全度レシピ。フィールド集合だけが異なる: 安全度はlanes_low（少車線）を採用せず
-// （domain/safety.py: SafetyRecipeのdocstring参照）、代わりにshoulder/lit/tunnel
-// （路肩・街灯・トンネル）の3補正を持つ。
+// （domain/safety.py: SafetyRecipeのdocstring参照）、代わりにlit/tunnel（街灯・トンネル）
+// の2補正を持つ（shoulder[路肩]は実測0.0%の死に補正だったため改善計画T122で撤去）。
 
 interface SafetyRecipePanelProps {
   overrideEnabled: boolean;
@@ -89,9 +89,8 @@ const LANES_PAIRS: ThresholdAdjustmentField[] = [
   },
 ];
 
-// 路肩・街灯・トンネル（安全度のみ採用、交通ストレスには無い補正）。
+// 街灯・トンネル（安全度のみ採用、交通ストレスには無い補正）。
 const ROAD_ENVIRONMENT_FIELDS: ScalarField[] = [
-  { key: "shoulder_adjustment", label: "路肩ありの補正", description: "shoulder=yes（路肩あり）に該当する道路への補正値" },
   { key: "lit_adjustment", label: "街灯ありの補正", description: "lit=yes（街灯あり）に該当する道路への補正値" },
   { key: "tunnel_adjustment", label: "トンネルの補正", description: "tunnel=yes（トンネル区間）に該当する道路への補正値" },
 ];
@@ -358,7 +357,7 @@ export default function SafetyRecipePanel({
           <details className={styles.group}>
             <summary className={styles.groupHeader}>
               <span aria-hidden="true" className={styles.groupChevron} />
-              路肩・街灯・トンネル補正
+              街灯・トンネル補正
             </summary>
             <div className={styles.groupBody}>
               {ROAD_ENVIRONMENT_FIELDS.map((field) => (

@@ -3,19 +3,35 @@
 交通ストレス（domain/traffic.py: traffic_stress_breakdown）は「走りにくさ・主観的な
 快適性」を表す軸である一方、こちらは「事故りやすさ・客観的なリスク」を表す別概念として
 ユーザーと合意のうえ新設した。material tags（highway/cycleway_class/maxspeed_kmh/
-lanes_count/motor_vehicle_no/designation/shoulder/lit/tunnel）からの変換式という
-構造・実装パターンは交通ストレスと完全に共通（`SafetyRecipe`という「レシピ」で外出しし、
-リクエスト単位で上書き可能、地図表示側は`frontend/src/components/Map/safetyExpression.ts`が
-同じレシピをMapLibre expressionとして再現する）。
+lanes_count/motor_vehicle_no/designation/lit/tunnel）からの変換式という構造・実装
+パターンは交通ストレスと完全に共通で、採点構造そのもの（クランプ・閾値分岐・cycleway/
+flag補正）は`domain/recipe.py`（改善計画T122）の共有プリミティブ経由。`SafetyRecipe`
+という「レシピ」で外出しし、リクエスト単位で上書き可能、地図表示側は
+`frontend/src/components/Map/safetyExpression.ts`が同じレシピをMapLibre expressionとして
+再現する。
 
 事故密度（警察庁統計）は意図的にこのレシピへ組み込まない。事故密度は特定のOSMタグから
 決まる「材料」ではなく空間統計であり、既存の`accident_weight`軸（domain/difficulty.py）が
 既にその役割を持つため、二重計上を避けて別軸のまま独立させる（ユーザー承認済み）。
+
+shoulder（路肩）は当初material tagsに含めていたが、実測（改善計画T102: 街灯・分離歩道・
+バリアタグのカバレッジ実測）で付与率0.0%（関東本土1,329,632way中0件）と判明した
+「死に補正」だったため、T122で撤去した（YAMLのコメントに実測値を残し、地域拡大時の
+復活判断材料とする）。
 """
 
 from pydantic import BaseModel, Field
 
-from app.domain.traffic import cycleway_class, parse_lanes, parse_maxspeed
+from app.domain.recipe import (
+    clamp_level,
+    cycleway_adjustment,
+    cycleway_class,
+    flag_adjustment,
+    parse_lanes,
+    parse_maxspeed,
+    tag_value_is,
+    threshold_adjustment,
+)
 
 # 安全度基準値（highwayのみで決定）。交通ストレスのTRAFFIC_STRESS_BASE_BY_HIGHWAYと
 # 同じhighway集合（他の2軸とカバレッジを揃えない、というdomain/traffic.pyの方針を踏襲し
@@ -80,7 +96,6 @@ class SafetyRecipe(BaseModel):
     maxspeed_high_adjustment: int = 1
     lanes_high_threshold: int = 4
     lanes_high_adjustment: int = 1
-    shoulder_adjustment: int = -1
     lit_adjustment: int = -1
     tunnel_adjustment: int = 1
     designation_adjustment: int = 1
@@ -100,7 +115,6 @@ class SafetyBreakdown(BaseModel):
     cycleway_adjustment: int
     maxspeed_adjustment: int
     lanes_adjustment: int
-    shoulder_adjustment: int
     lit_adjustment: int
     tunnel_adjustment: int
     designation_adjustment: int
@@ -119,7 +133,7 @@ def safety_breakdown(
     未知のhighwayはNone、補正はタグが実際にある場合のみ適用）。
 
     `recipe`省略時は`DEFAULT_SAFETY_RECIPE`を使う。cycleway系タグの分類は
-    `cycleway_class`（domain/traffic.py、交通ストレスと共有）を再利用する。
+    `cycleway_class`（domain/recipe.py、交通ストレスと共有）を再利用する。
 
     `is_designated`はKSJ N10/N12該当（domain/designation.py）で、大型車混入の代理指標
     として交通ストレスと同じ意味・同じ+1既定値で扱う。
@@ -132,7 +146,6 @@ def safety_breakdown(
             cycleway_adjustment=0,
             maxspeed_adjustment=0,
             lanes_adjustment=0,
-            shoulder_adjustment=0,
             lit_adjustment=0,
             tunnel_adjustment=0,
             designation_adjustment=0,
@@ -142,13 +155,12 @@ def safety_breakdown(
 
     # motor_vehicle=no（自転車可）は他の補正に関わらず最も安全な1に固定
     # （traffic_stress_breakdownと同じ扱い。車が入れない道は事故リスクが最小）。
-    if (tags.get("motor_vehicle") or "").strip().lower() == "no":
+    if tag_value_is(tags, "motor_vehicle", "no"):
         return SafetyBreakdown(
             base=base,
             cycleway_adjustment=0,
             maxspeed_adjustment=0,
             lanes_adjustment=0,
-            shoulder_adjustment=0,
             lit_adjustment=0,
             tunnel_adjustment=0,
             designation_adjustment=0,
@@ -156,59 +168,39 @@ def safety_breakdown(
             level=1,
         )
 
-    cycleway = cycleway_class(tags)
-    if cycleway == "track":
-        cycleway_adjustment = recipe.cycleway_track_adjustment
-    elif cycleway == "lane":
-        cycleway_adjustment = recipe.cycleway_lane_adjustment
-    elif cycleway == "shared":
-        cycleway_adjustment = recipe.cycleway_shared_adjustment
-    else:
-        cycleway_adjustment = 0
-
-    maxspeed = parse_maxspeed(tags)
-    if maxspeed is not None and maxspeed <= recipe.maxspeed_low_threshold:
-        maxspeed_adjustment = recipe.maxspeed_low_adjustment
-    elif maxspeed is not None and maxspeed >= recipe.maxspeed_high_threshold:
-        maxspeed_adjustment = recipe.maxspeed_high_adjustment
-    else:
-        maxspeed_adjustment = 0
-
-    lanes = parse_lanes(tags)
-    if lanes is not None and lanes >= recipe.lanes_high_threshold:
-        lanes_adjustment = recipe.lanes_high_adjustment
-    else:
-        lanes_adjustment = 0
-
-    shoulder_adjustment = recipe.shoulder_adjustment if (tags.get("shoulder") or "").strip().lower() == "yes" else 0
-    lit_adjustment = recipe.lit_adjustment if (tags.get("lit") or "").strip().lower() == "yes" else 0
-    tunnel_adjustment = recipe.tunnel_adjustment if (tags.get("tunnel") or "").strip().lower() == "yes" else 0
-    designation_adjustment = recipe.designation_adjustment if is_designated else 0
-
-    level = max(
-        1,
-        min(
-            4,
-            base
-            + cycleway_adjustment
-            + maxspeed_adjustment
-            + lanes_adjustment
-            + shoulder_adjustment
-            + lit_adjustment
-            + tunnel_adjustment
-            + designation_adjustment,
-        ),
+    cycleway_adj = cycleway_adjustment(
+        tags, recipe.cycleway_track_adjustment, recipe.cycleway_lane_adjustment, recipe.cycleway_shared_adjustment
     )
+
+    maxspeed_adj = threshold_adjustment(
+        parse_maxspeed(tags),
+        recipe.maxspeed_low_threshold,
+        recipe.maxspeed_low_adjustment,
+        recipe.maxspeed_high_threshold,
+        recipe.maxspeed_high_adjustment,
+    )
+
+    # 安全度はlanes_high（多車線＝リスク増）のみ採用する（少車線が安全側かは研究上見解が
+    # 分かれるため見送り、SafetyRecipeのdocstring参照）。low_threshold=Noneでlow方向の
+    # 補正を無効化する。
+    lanes_adj = threshold_adjustment(
+        parse_lanes(tags), None, 0, recipe.lanes_high_threshold, recipe.lanes_high_adjustment
+    )
+
+    lit_adj = flag_adjustment(tag_value_is(tags, "lit", "yes"), recipe.lit_adjustment)
+    tunnel_adj = flag_adjustment(tag_value_is(tags, "tunnel", "yes"), recipe.tunnel_adjustment)
+    designation_adj = flag_adjustment(is_designated, recipe.designation_adjustment)
+
+    level = clamp_level(base + cycleway_adj + maxspeed_adj + lanes_adj + lit_adj + tunnel_adj + designation_adj, 1, 4)
 
     return SafetyBreakdown(
         base=base,
-        cycleway_adjustment=cycleway_adjustment,
-        maxspeed_adjustment=maxspeed_adjustment,
-        lanes_adjustment=lanes_adjustment,
-        shoulder_adjustment=shoulder_adjustment,
-        lit_adjustment=lit_adjustment,
-        tunnel_adjustment=tunnel_adjustment,
-        designation_adjustment=designation_adjustment,
+        cycleway_adjustment=cycleway_adj,
+        maxspeed_adjustment=maxspeed_adj,
+        lanes_adjustment=lanes_adj,
+        lit_adjustment=lit_adj,
+        tunnel_adjustment=tunnel_adj,
+        designation_adjustment=designation_adj,
         motor_vehicle_no_override=False,
         level=level,
     )
@@ -232,13 +224,11 @@ def safety_tile_ingredients(highway: str | None, tags: dict[str, str], is_design
     lanes = parse_lanes(tags)
     if lanes is not None:
         ingredients["lanes_count"] = lanes
-    if (tags.get("motor_vehicle") or "").strip().lower() == "no":
+    if tag_value_is(tags, "motor_vehicle", "no"):
         ingredients["motor_vehicle_no"] = True
-    if (tags.get("shoulder") or "").strip().lower() == "yes":
-        ingredients["shoulder"] = True
-    if (tags.get("lit") or "").strip().lower() == "yes":
+    if tag_value_is(tags, "lit", "yes"):
         ingredients["lit"] = True
-    if (tags.get("tunnel") or "").strip().lower() == "yes":
+    if tag_value_is(tags, "tunnel", "yes"):
         ingredients["tunnel"] = True
     if is_designated:
         ingredients["designation"] = "emergency_transport"

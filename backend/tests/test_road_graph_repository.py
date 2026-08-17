@@ -19,6 +19,11 @@ from app.infrastructure import accident_models  # noqa: F401  Base.metadataへac
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*/route_designationsテーブルを登録するためのimport
 from app.infrastructure.road_graph_models import OsmRawPoiRow
 
+# road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
+# ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
+# イベントループスコープをそれに合わせる必要がある。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
+
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
 NODE3 = (35.750, 139.750)
@@ -1186,7 +1191,7 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(ro
 
 async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_repository):
     """交通ストレス・安全度の材料タグ（cycleway_class/maxspeed_kmh/lanes_count/
-    motor_vehicle_no・shoulder/lit、改善計画: 交通ストレスレシピ外出し基盤/安全度レシピ）が
+    motor_vehicle_no・lit、改善計画: 交通ストレスレシピ外出し基盤/安全度レシピ）が
     SQLで正しく抽出・正規化されることを確認する。最終値の計算はもうSQL側の責務ではない
     （frontend/src/components/Map/trafficStressExpression.ts・safetyExpression.ts、
     domain/traffic.py: traffic_stress_breakdown・domain/safety.py: safety_breakdownが担う）
@@ -1215,10 +1220,9 @@ async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_r
         ("living_street", {"maxspeed": "0"}, {}),
         ("track", {"lanes": "0"}, {}),
         # 安全度の材料タグ（改善計画: 安全度レシピ）。tunnelは既存プロパティを再利用するため
-        # ここでは新規追加したshoulder/litのみ確認する。
-        ("residential", {"shoulder": "yes"}, {"shoulder": True}),
+        # ここでは新規追加したlitのみ確認する。
         ("service", {"lit": "yes"}, {"lit": True}),
-        ("path", {"shoulder": "no"}, {}),
+        ("path", {"lit": "no"}, {}),
     ]
     way_specs = [
         WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
@@ -1237,7 +1241,7 @@ async def test_get_road_surface_tile_mvt_traffic_stress_ingredients(road_graph_r
 
     for highway, tags, expected in fixtures:
         actual = properties_by_highway[highway]
-        for key in ("cycleway_class", "maxspeed_kmh", "lanes_count", "motor_vehicle_no", "shoulder", "lit"):
+        for key in ("cycleway_class", "maxspeed_kmh", "lanes_count", "motor_vehicle_no", "lit"):
             assert actual.get(key) == expected.get(key), (highway, tags, key)
 
 

@@ -3054,9 +3054,10 @@ AxisRegistry的なフレームワーク化は2軸の現時点ではpremature、�
 「Recipeの4表現は統一しない」も維持。重みづけ変更は変更コスト表B行のとおり
 既にYAML1箇所で易のため対象外）。3つ目のレシピ軸の追加はT122・T123完了まで
 凍結する（レビューTop 10 Actions #10）。着手順はT124（独立・先行可）→T122→T123で、
-T124は2026-08-18完了。次はT122（domain/recipe.py新設）。
+T124・T122とも2026-08-18完了。次はT123（region_service/regionApi/MapView内訳ポップアップの
+糊のパラメータ化、T122完了後）。
 
-### - [ ] T122. レシピ判定プリミティブの共有: domain/recipe.py新設＋shoulder撤去（層1）規模M — トリガー: 特になし（着手可）
+### - [x] T122. レシピ判定プリミティブの共有: domain/recipe.py新設＋shoulder撤去（層1）規模M（2026-08-18完了）
 
 - 発端: `TrafficStressRecipe`/`SafetyRecipe`が「highway別基準値＋タグ由来の加減点＋
   クランプ」という同一の採点構造をパラメータだけ変えて2回実装しており、T120・T121-aの
@@ -3089,6 +3090,26 @@ T124は2026-08-18完了。次はT122（domain/recipe.py新設）。
   cycleway/flag補正・検証の双子分岐が1箇所化。生成フィクスチャ照合
   （traffic-stress/safety-test-cases.json）が引き続き全green（プリミティブ化で
   計算結果が変わっていないことの回帰保証）。backend/frontend全green。
+- 実装メモ（2026-08-18完了）: `app/domain/recipe.py`を新設し、`clamp_level`・
+  `threshold_adjustment`・`cycleway_adjustment`・`flag_adjustment`・`tag_value_is`・
+  `validate_threshold_order`の6プリミティブに加え、`parse_lanes`/`parse_maxspeed`/
+  `cycleway_values`/`cycleway_class`（旧`_cycleway_values`はpublic化）をtraffic.pyから
+  移設（safety.pyがtraffic.py経由で間接importしていた旧構成を解消、循環import回避）。
+  `threshold_adjustment`はlow/high閾値のどちらを先に判定しても`low<high`が保証されて
+  いれば結果が同じになる（2条件が排他的なため）ことを確認し、旧traffic.py（lanesはhigh
+  優先）・旧safety.py（maxspeedはlow優先）の実装差異を1つの関数へ統合した。
+  `routes.py`の`_check_threshold_order`は`validate_threshold_order`呼び出しへ1本化
+  （T121-aの再発防止）。shoulder撤去は`SafetyRecipe`/`SafetyBreakdown`/
+  `SafetyRecipeOverride`/`safety_recipe.yaml`/MVT SQL（`_ROAD_SURFACE_TILE_MVT_SQL`）/
+  `safetyExpression.ts`/`SafetyRecipePanel.tsx`から実施し、YAMLへT102実測値（0.0%）を
+  コメントで残した。MVTタイル世代をv10→v11（backend `ROAD_SURFACE_TILE_VERSION`・
+  frontend `regionApi.ts`の対）へ更新。`test_traffic.py`のparse_lanes/parse_maxspeed
+  テストは`test_recipe.py`（新設）へ移設し、新規プリミティブの単体テストを追加。
+  backend 839件（新規21件）・frontend 334件・eslint全green（フルスイート実行時に
+  SafetyRecipePanel/TrafficStressRecipePanelの情報アイコン開閉テスト5件がタイムアウトで
+  落ちたが、該当ファイルのみの分離実行では16/16全green。T121で確認済みの環境リソース
+  競合によるflakeと判断。tscは別セッション未コミットの`vitest.config.mts`変更由来の
+  エラーが既に存在しておりT122とは無関係、本タスクでは不変更のまま）。
 
 ### - [ ] T123. レシピ軸の糊のパラメータ化＋MapView閾値発火対応（層2）規模L — トリガー: T122完了後
 
@@ -3265,3 +3286,4 @@ T124は2026-08-18完了。次はT122（domain/recipe.py新設）。
 | 2026-08-18 | T121（続き） | ユーザー指示「lit有効化後に相関再測定してから確かに判断したい」を受け、dev DB（東京都心南部）を`Tokyo.osm.pbf`から現ロード範囲（ST_Extent実測bbox）で再取込（UPSERT冪等）。way数39,878→57,112（差分17,234件はT99のshared_pedestrian_waysルール分17,584件とほぼ一致、想定内）、`lit`タグが0件→6,681件（11.7%）へ有効化。相関を再測定すると0.9559→**0.9222**（距離加重0.9613→0.9288）へ低下し、lit補正の差別化効果を確認。副次的に安全度4段階の上限丸め損失も8.5%/9.5%→**4.3%/5.0%**へ半減しており、T122で予定していた5段階化の根拠（T117の8.3%/9.3%と同水準、という当初の判断）が崩れたため、T122から5段階化を切り離し「要再判断」として記録し直した |
 | 2026-08-18 | T122〜T124再構成（起票） | 複雑度平衡性レビュー（history/2026-08-18_complexity.md F-1/F-2「レシピ付き軸が共有基盤なしの全層コピー、追加コスト64ファイル・双子鏡像1,500行/軸・同期バグ2件実発生」）とユーザー相談「将来拡張を踏まえた軸パラメータの汎用化・相関検討・新要素注入・重み変更の容易化」を受け、旧T122を3層構成へ再起票。T122=判定プリミティブ共有（domain/recipe.py新設＋flag_adjustment＋検証集約＋shoulder撤去）、T123=糊のパラメータ化（region_service/_get_breakdown・router・regionApi・内訳ポップアップ共通ビルダー抽出・useLayerDataStatus抽出＝MapView閾値発火F-1対応を兼ねる）、T124=軸統計計測スクリプト常設化（measure_axis_stats.py、使い捨てで3回書いた相関・クランプ損失・事故密度分析の1コマンド化）。AxisRegistry的フレームワーク化は2軸ではprematureとして不採用、重み変更は既にYAML1箇所（変更コスト表B行）のため対象外、3つ目のレシピ軸はT122・T123完了まで凍結。5段階化はT122内で「要再判断」のまま保持 |
 | 2026-08-18 | T124 | `backend/scripts/measure_axis_stats.py`を新設。相関（Pearson/Spearman、距離加重込み）・クランプ前生値分布（丸め損失%）・材料タグの補正発火率・highway階級別事故密度をdev DBから1コマンドで出力する。相関・丸め損失・発火率の集計は`TrafficStressBreakdown`/`SafetyBreakdown`の`*_adjustment`/`*_override`フィールドを`model_fields`から動的に拾う実装にし、将来の補正フィールド増減に追従できるようにした（カタログ化）。事故密度は`_ACCIDENT_COUNTS_SQL`と同じ`&&`前置＋`ST_DWithin(geography)`パターンをhighway単位集計に変えたSQLで計算し、正規化自体は既存の`distance_weighted_accident_density`を再利用。`infrastructure/database.py: get_engine()`のWebリクエスト用`command_timeout=20秒`が全way集計クエリでは不足し`TimeoutError`になったため、`app/batch/*.py`と同じくタイムアウト無しの専用エンジンをスクリプト側で生成する方式に変更。dev DB実行でPearson 0.9222（距離加重0.9288）・Spearman 0.9145（距離加重0.9255）・安全度丸め損失4.3%件数/5.0%距離・shoulder_adjustment発火率0.0%と、T121の実測値と完全一致することを確認した。`docs/architecture.md`へ`backend/scripts/`の一覧（従来未記載だった既存スクリプトも含む）を追記。backend 810件（新規23件）全green |
+| 2026-08-18 | T122 | `backend/app/domain/recipe.py`を新設し、`clamp_level`・`threshold_adjustment`・`cycleway_adjustment`・`flag_adjustment`・`tag_value_is`・`validate_threshold_order`の共有プリミティブへtraffic.py/safety.pyを統一。`parse_lanes`/`parse_maxspeed`/`cycleway_class`等の材料タグ正規化もtraffic.pyから移設（safety.pyの間接import経由の旧構成を解消）。`threshold_adjustment`はlow/high閾値のどちらを先に判定しても`low<high`前提下では結果が同じであることを利用し、旧traffic.py（lanesはhigh優先）・旧safety.py（maxspeedはlow優先）の実装差異を1関数へ統合した。`routes.py`の`_check_threshold_order`を`validate_threshold_order`呼び出しへ1本化（T121-aの再発防止）。shoulder_adjustment（T102実測0.0%の死に補正）を`SafetyRecipe`/`SafetyBreakdown`/`SafetyRecipeOverride`/YAML/MVT SQL/`safetyExpression.ts`/`SafetyRecipePanel.tsx`から撤去し、MVTタイル世代をv10→v11へ更新。backend 839件（新規21件）・frontend 334件・eslint全green（フルスイート実行時のSafetyRecipePanel/TrafficStressRecipePanel情報アイコンテスト5件タイムアウトは分離実行で16/16green、環境リソース競合によるflakeと判断） |

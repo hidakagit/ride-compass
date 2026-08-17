@@ -1074,9 +1074,6 @@ function buildSafetyBreakdownHtml(breakdown: SafetyBreakdown): string {
     if (breakdown.lanes_adjustment !== 0) {
       adjustments.push({ label: "車線数", value: breakdown.lanes_adjustment });
     }
-    if (breakdown.shoulder_adjustment !== 0) {
-      adjustments.push({ label: "路肩", value: breakdown.shoulder_adjustment });
-    }
     if (breakdown.lit_adjustment !== 0) {
       adjustments.push({ label: "街灯", value: breakdown.lit_adjustment });
     }

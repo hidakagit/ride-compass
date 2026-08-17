@@ -20,6 +20,18 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.domain.recipe import (
+    clamp_level,
+    cycleway_adjustment,
+    cycleway_class,
+    cycleway_values,
+    flag_adjustment,
+    parse_lanes,
+    parse_maxspeed,
+    tag_value_is,
+    threshold_adjustment,
+)
+
 # 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
 # openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数、
 # GraphService.get_stop_poi_countsはこのデフォルトを暗黙使用）の両方がこの定数をimportして
@@ -58,59 +70,6 @@ def smoothness_score(tags: dict[str, str]) -> float | None:
     return _SMOOTHNESS_SCORES.get(value.strip().lower())
 
 
-def parse_lanes(tags: dict[str, str]) -> int | None:
-    """lanesタグを正の整数へ変換する。表記ゆれ（小数点混じり等）は緩く許容し、
-    パース不能・0以下はNone。"""
-    raw = tags.get("lanes")
-    if raw is None:
-        return None
-    try:
-        value = int(float(raw.strip()))
-    except ValueError:
-        return None
-    return value if value > 0 else None
-
-
-def parse_maxspeed(tags: dict[str, str]) -> int | None:
-    """maxspeedタグを正の整数(km/h)へ変換する。日本のOSMはkm/h数値表記が主のため、
-    "50 mph"のような単位付き表記はパース対象外としNoneを返す（unknown安全。
-    誤った単位変換で実際より安全側/危険側の値を作らないため）。"""
-    raw = tags.get("maxspeed")
-    if raw is None:
-        return None
-    cleaned = raw.strip().lower()
-    if not cleaned or not cleaned.replace(".", "", 1).isdigit():
-        return None
-    value = int(float(cleaned))
-    return value if value > 0 else None
-
-
-def _cycleway_values(tags: dict[str, str]) -> list[str]:
-    """cycleway/cycleway:left/cycleway:right/cycleway:bothのうち設定済みの値を集める
-    （left/right統合の正規化。計画書のcycleway*表記に対応）。"""
-    keys = ("cycleway", "cycleway:left", "cycleway:right", "cycleway:both")
-    return [tags[k].strip().lower() for k in keys if tags.get(k)]
-
-
-def cycleway_class(tags: dict[str, str]) -> str | None:
-    """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
-    _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
-    （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
-    テストで担保）。traffic_stress_breakdownの補正選択と、export_openapi.pyが書き出す
-    交通ストレスの相互検証用フィクスチャ（traffic-stress-test-cases.json）の両方から使う。
-    改善計画（安全度レシピ）でsafety_breakdown（domain/safety.py）からも共有するため
-    先頭アンダースコアを外しpublicにした（同じ判定を2箇所へ複製しないため）。
-    """
-    cycleway_values = _cycleway_values(tags)
-    if "track" in cycleway_values:
-        return "track"
-    if "lane" in cycleway_values:
-        return "lane"
-    if any(v in ("shared_lane", "share_busway") for v in cycleway_values):
-        return "shared"
-    return None
-
-
 BicycleInfraClass = Literal[
     "separated", "lane", "shared_busway", "shared_pedestrian", "roadway", "prohibited", "unknown"
 ]
@@ -126,14 +85,14 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
     （交通ストレス）は完全には独立ではなく、専用自転車道が併設された区間では両方が
     同時に「易しい」側へ動く（改善計画T62、意図的な設計でありバグではない）。
     """
-    cycleway_values = _cycleway_values(tags)
+    values = cycleway_values(tags)
     bicycle = (tags.get("bicycle") or "").strip().lower()
 
-    if highway == "cycleway" or "track" in cycleway_values:
+    if highway == "cycleway" or "track" in values:
         return "separated"
-    if "lane" in cycleway_values:
+    if "lane" in values:
         return "lane"
-    if any(v in ("share_busway", "shared_lane") for v in cycleway_values):
+    if any(v in ("share_busway", "shared_lane") for v in values):
         return "shared_busway"
     if highway in ("path", "footway") and bicycle in ("yes", "designated", "permissive"):
         return "shared_pedestrian"
@@ -352,7 +311,7 @@ def traffic_stress_breakdown(
         )
 
     # motor_vehicle=no（自転車可）は他の補正に関わらず1に固定（計画書§2.4）。
-    if (tags.get("motor_vehicle") or "").strip().lower() == "no":
+    if tag_value_is(tags, "motor_vehicle", "no"):
         return TrafficStressBreakdown(
             base=base,
             cycleway_adjustment=0,
@@ -363,40 +322,34 @@ def traffic_stress_breakdown(
             level=1,
         )
 
-    cycleway = cycleway_class(tags)
-    if cycleway == "track":
-        cycleway_adjustment = recipe.cycleway_track_adjustment
-    elif cycleway == "lane":
-        cycleway_adjustment = recipe.cycleway_lane_adjustment
-    elif cycleway == "shared":
-        # 改善計画T92: 自転車と共有の車道表示（シェアードレーン・バス共用帯）は専用レーンより
-        # 弱いがゼロではない緩和要因のため、classify_bicycle_infrastructure（自転車インフラ軸）
-        # と同じ判定基準を流用しlaneと同じ既定-1にする。実データ（関東本土の指定路線対象道路）で
-        # 15.6%（1,239件）に付いているタグだが、従来はここで判定対象外（0扱い）になっており、
-        # 既に収集済みの情報が交通ストレス軸に反映されていなかった。
-        cycleway_adjustment = recipe.cycleway_shared_adjustment
-    else:
-        cycleway_adjustment = 0
+    # 改善計画T92: 自転車と共有の車道表示（シェアードレーン・バス共用帯）は専用レーンより
+    # 弱いがゼロではない緩和要因のため、classify_bicycle_infrastructure（自転車インフラ軸）
+    # と同じ判定基準を流用しlaneと同じ既定-1にする。実データ（関東本土の指定路線対象道路）で
+    # 15.6%（1,239件）に付いているタグだが、従来はここで判定対象外（0扱い）になっており、
+    # 既に収集済みの情報が交通ストレス軸に反映されていなかった。
+    cycleway_adj = cycleway_adjustment(
+        tags, recipe.cycleway_track_adjustment, recipe.cycleway_lane_adjustment, recipe.cycleway_shared_adjustment
+    )
 
-    maxspeed = parse_maxspeed(tags)
-    if maxspeed is not None and maxspeed <= recipe.maxspeed_low_threshold:
-        maxspeed_adjustment = recipe.maxspeed_low_adjustment
-    elif maxspeed is not None and maxspeed >= recipe.maxspeed_high_threshold:
-        maxspeed_adjustment = recipe.maxspeed_high_adjustment
-    else:
-        maxspeed_adjustment = 0
+    maxspeed_adj = threshold_adjustment(
+        parse_maxspeed(tags),
+        recipe.maxspeed_low_threshold,
+        recipe.maxspeed_low_adjustment,
+        recipe.maxspeed_high_threshold,
+        recipe.maxspeed_high_adjustment,
+    )
 
-    lanes = parse_lanes(tags)
-    if lanes is not None and lanes >= recipe.lanes_high_threshold:
-        lanes_adjustment = recipe.lanes_high_adjustment
-    elif lanes is not None and lanes <= recipe.lanes_low_threshold:
-        # 改善計画T92: 対面通行の1車線（センターラインなし等）は車の追い越し・すれ違いの
-        # 圧迫感が少なく、4車線以上の+1と対称に既定-1する。
-        lanes_adjustment = recipe.lanes_low_adjustment
-    else:
-        lanes_adjustment = 0
+    # 改善計画T92: 対面通行の1車線（センターラインなし等）は車の追い越し・すれ違いの
+    # 圧迫感が少なく、4車線以上の+1と対称に既定-1する（lanes_low、安全度は不採用）。
+    lanes_adj = threshold_adjustment(
+        parse_lanes(tags),
+        recipe.lanes_low_threshold,
+        recipe.lanes_low_adjustment,
+        recipe.lanes_high_threshold,
+        recipe.lanes_high_adjustment,
+    )
 
-    designation_adjustment = recipe.designation_adjustment if is_designated else 0
+    designation_adj = flag_adjustment(is_designated, recipe.designation_adjustment)
 
     # 改善計画（交通ストレス5段階化）: 実データ実測（dev DB、39,857way・5,737.6km）で、
     # クランプ前の生値がraw>=5に8.3%（way数）/9.3%（距離）集中しており、primary/trunk/
@@ -404,17 +357,14 @@ def traffic_stress_breakdown(
     # 上限を4→5へ拡張し、この区間を独立したlevel5として可視化する（下限1は変更なし。
     # level2（62%/56%）はタグ欠損由来の一極集中で、追加のタグ収集無しに細分化する材料が
     # 無いため据え置き）。
-    level = max(
-        1,
-        min(5, base + cycleway_adjustment + maxspeed_adjustment + lanes_adjustment + designation_adjustment),
-    )
+    level = clamp_level(base + cycleway_adj + maxspeed_adj + lanes_adj + designation_adj, 1, 5)
 
     return TrafficStressBreakdown(
         base=base,
-        cycleway_adjustment=cycleway_adjustment,
-        maxspeed_adjustment=maxspeed_adjustment,
-        lanes_adjustment=lanes_adjustment,
-        designation_adjustment=designation_adjustment,
+        cycleway_adjustment=cycleway_adj,
+        maxspeed_adjustment=maxspeed_adj,
+        lanes_adjustment=lanes_adj,
+        designation_adjustment=designation_adj,
         motor_vehicle_no_override=False,
         level=level,
     )
@@ -444,7 +394,7 @@ def traffic_stress_tile_ingredients(
     lanes = parse_lanes(tags)
     if lanes is not None:
         ingredients["lanes_count"] = lanes
-    if (tags.get("motor_vehicle") or "").strip().lower() == "no":
+    if tag_value_is(tags, "motor_vehicle", "no"):
         ingredients["motor_vehicle_no"] = True
     if is_designated:
         ingredients["designation"] = "emergency_transport"

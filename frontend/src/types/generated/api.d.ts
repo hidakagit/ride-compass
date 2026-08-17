@@ -551,8 +551,6 @@ export interface components {
             maxspeed_adjustment: number;
             /** Lanes Adjustment */
             lanes_adjustment: number;
-            /** Shoulder Adjustment */
-            shoulder_adjustment: number;
             /** Lit Adjustment */
             lit_adjustment: number;
             /** Tunnel Adjustment */
@@ -577,7 +575,7 @@ export interface components {
          *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
          *
          *     交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの
-         *     docstring参照）・shoulder/lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
+         *     docstring参照）・lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
          */
         SafetyRecipeOverride: {
             /** Base By Highway */
@@ -602,8 +600,6 @@ export interface components {
             lanes_high_threshold: number;
             /** Lanes High Adjustment */
             lanes_high_adjustment: number;
-            /** Shoulder Adjustment */
-            shoulder_adjustment: number;
             /** Lit Adjustment */
             lit_adjustment: number;
             /** Tunnel Adjustment */

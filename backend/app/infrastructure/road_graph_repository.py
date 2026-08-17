@@ -206,9 +206,10 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   弾いてunknown安全にする。
 # - safety（安全度、1-4、改善計画: 安全度レシピ）も同じ理由で最終値を焼かず材料タグのみ
 #   焼き込む。cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no/designationは
-#   交通ストレスと共有し、shoulder/litのみ新規追加（tunnelは上のtunnelプロパティを再利用）。
-#   フロント側はsafetyExpression.ts、採点側はdomain/safety.py: safety_breakdownが
-#   domain/safety.py: SafetyRecipeという共通のレシピ定義に対応させて計算する。
+#   交通ストレスと共有し、litのみ新規追加（tunnelは上のtunnelプロパティを再利用。shoulderは
+#   改善計画T102実測0.0%の死に補正のためT122で撤去した）。フロント側はsafetyExpression.ts、
+#   採点側はdomain/safety.py: safety_breakdownがdomain/safety.py: SafetyRecipeという
+#   共通のレシピ定義に対応させて計算する。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
@@ -276,9 +277,9 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         END AS lanes_count,
                         CASE WHEN lower(btrim(w.tags->>'motor_vehicle')) = 'no' THEN true END AS motor_vehicle_no,
                         -- 安全度の材料タグ（改善計画: 安全度レシピ）。tunnelは既存プロパティ
-                        -- （上のtunnel、表示用と兼用）をそのまま再利用し、shoulder/litのみ
-                        -- 新規抽出する（motor_vehicle_noと同じCASE式パターン）。
-                        CASE WHEN lower(btrim(w.tags->>'shoulder')) = 'yes' THEN true END AS shoulder,
+                        -- （上のtunnel、表示用と兼用）をそのまま再利用し、litのみ新規抽出する
+                        -- （motor_vehicle_noと同じCASE式パターン。shoulderは改善計画T102実測
+                        -- 0.0%の死に補正のためT122で撤去した）。
                         CASE WHEN lower(btrim(w.tags->>'lit')) = 'yes' THEN true END AS lit,
                         CASE
                             WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'

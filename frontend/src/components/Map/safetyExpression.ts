@@ -1,6 +1,6 @@
 // 安全度（1-4、客観的な事故・怪我リスク）をタイルの材料タグ（backend/app/infrastructure/
 // road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLが焼き込むhighway/cycleway_class/
-// maxspeed_kmh/lanes_count/designation/motor_vehicle_no/shoulder/lit/tunnel）から
+// maxspeed_kmh/lanes_count/designation/motor_vehicle_no/lit/tunnel）から
 // ブラウザ側で計算するMapLibre expression。trafficStressExpression.tsと完全に同じ構造・
 // 同じ理由（改善計画: 安全度レシピ。レシピを変えるたびにタイルキャッシュを作り直さずに
 // 済ませるため、最終値の計算はここで行う）。
@@ -72,8 +72,7 @@ export function buildSafetyExpression(recipe: SafetyRecipe): unknown[] {
     0,
   ];
 
-  // shoulder/lit/tunnelは真偽値の材料タグ（無ければキー自体が無い＝coalesceでfalse扱い）。
-  const shoulderAdjustment = ["case", ["==", ["coalesce", ["get", "shoulder"], false], true], recipe.shoulder_adjustment, 0];
+  // lit/tunnelは真偽値の材料タグ（無ければキー自体が無い＝coalesceでfalse扱い）。
   const litAdjustment = ["case", ["==", ["coalesce", ["get", "lit"], false], true], recipe.lit_adjustment, 0];
   const tunnelAdjustment = ["case", ["==", ["coalesce", ["get", "tunnel"], false], true], recipe.tunnel_adjustment, 0];
 
@@ -101,7 +100,6 @@ export function buildSafetyExpression(recipe: SafetyRecipe): unknown[] {
         cyclewayAdjustment,
         maxspeedAdjustment,
         lanesAdjustment,
-        shoulderAdjustment,
         litAdjustment,
         tunnelAdjustment,
         designationAdjustment,

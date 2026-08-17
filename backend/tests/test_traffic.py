@@ -7,8 +7,6 @@ from app.domain.traffic import (
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
-    parse_lanes,
-    parse_maxspeed,
     smoothness_score,
     traffic_stress_breakdown,
     traffic_stress_level,
@@ -30,39 +28,6 @@ class TestSmoothnessScore:
 
     def test_unknown_value_is_none(self):
         assert smoothness_score({"smoothness": "mystery"}) is None
-
-
-class TestParseLanes:
-    def test_parses_integer_string(self):
-        assert parse_lanes({"lanes": "2"}) == 2
-
-    def test_truncates_decimal_values(self):
-        assert parse_lanes({"lanes": "2.5"}) == 2
-
-    def test_missing_tag_is_none(self):
-        assert parse_lanes({}) is None
-
-    def test_non_numeric_is_none(self):
-        assert parse_lanes({"lanes": "many"}) is None
-
-    def test_zero_or_negative_is_none(self):
-        assert parse_lanes({"lanes": "0"}) is None
-        assert parse_lanes({"lanes": "-1"}) is None
-
-
-class TestParseMaxspeed:
-    def test_parses_integer_string(self):
-        assert parse_maxspeed({"maxspeed": "40"}) == 40
-
-    def test_missing_tag_is_none(self):
-        assert parse_maxspeed({}) is None
-
-    def test_unit_suffixed_value_is_none(self):
-        # 日本のOSMはkm/h数値表記が主。"30 mph"のような単位付きはパース対象外(unknown安全)
-        assert parse_maxspeed({"maxspeed": "30 mph"}) is None
-
-    def test_non_numeric_is_none(self):
-        assert parse_maxspeed({"maxspeed": "walk"}) is None
 
 
 class TestClassifyBicycleInfrastructure:

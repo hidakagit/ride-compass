@@ -261,7 +261,6 @@ def test_load_safety_recipe_reads_default_config_file():
     assert recipe.maxspeed_high_adjustment == 1
     assert recipe.lanes_high_threshold == 4
     assert recipe.lanes_high_adjustment == 1
-    assert recipe.shoulder_adjustment == -1
     assert recipe.lit_adjustment == -1
     assert recipe.tunnel_adjustment == 1
     assert recipe.designation_adjustment == 1
@@ -281,7 +280,6 @@ def test_load_safety_recipe_reads_custom_path(tmp_path):
         "  maxspeed_high_adjustment: 1\n"
         "  lanes_high_threshold: 4\n"
         "  lanes_high_adjustment: 1\n"
-        "  shoulder_adjustment: -1\n"
         "  lit_adjustment: -1\n"
         "  tunnel_adjustment: 1\n"
         "  designation_adjustment: 1\n",

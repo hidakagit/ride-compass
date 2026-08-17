@@ -107,7 +107,7 @@ def _traffic_stress_test_cases() -> list[dict[str, object]]:
 
 # 安全度のPython実装（domain/safety.py: safety_level）とフロント実装（safetyExpression.ts）の
 # 相互検証用フィクスチャ（改善計画: 安全度レシピ）。_TRAFFIC_STRESS_TEST_CASESと同じ構成方針
-# だが、材料タグはshoulder/lit/tunnel（交通ストレスには無い）を含み、lanes_lowケースは
+# だが、材料タグはlit/tunnel（交通ストレスには無い）を含み、lanes_lowケースは
 # 安全度レシピが未採用のため含めない。
 _SAFETY_TEST_CASES: list[tuple[str | None, dict[str, str], bool, dict[str, object] | None]] = [
     ("cycleway", {}, False, None),
@@ -127,10 +127,9 @@ _SAFETY_TEST_CASES: list[tuple[str | None, dict[str, str], bool, dict[str, objec
     ("tertiary", {"lanes": "4"}, False, None),
     ("primary", {"lanes": "0"}, False, None),  # 無効値（0以下は無視）
     ("primary", {"maxspeed": "0"}, False, None),  # 無効値（0以下は無視）
-    ("secondary", {"shoulder": "yes"}, False, None),
     ("secondary", {"lit": "yes"}, False, None),
     ("secondary", {"tunnel": "yes"}, False, None),
-    ("secondary", {"shoulder": "yes", "lit": "yes", "tunnel": "yes"}, False, None),
+    ("secondary", {"lit": "yes", "tunnel": "yes"}, False, None),
     ("cycleway", {"cycleway": "track", "maxspeed": "20"}, False, None),  # 下限1でクランプ
     ("primary", {"maxspeed": "80", "lanes": "6", "tunnel": "yes"}, False, None),  # 上限4でクランプ
     ("residential", {}, True, None),  # 指定路線+1

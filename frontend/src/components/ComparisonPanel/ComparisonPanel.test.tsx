@@ -61,7 +61,7 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
         maxspeed_low_threshold: 30, maxspeed_low_adjustment: -1,
         maxspeed_high_threshold: 60, maxspeed_high_adjustment: 1,
         lanes_high_threshold: 4, lanes_high_adjustment: 1,
-        shoulder_adjustment: -1, lit_adjustment: -1, tunnel_adjustment: 1,
+        lit_adjustment: -1, tunnel_adjustment: 1,
         designation_adjustment: 1,
       },
       generated_at: "2026-08-15T12:00:00+09:00",

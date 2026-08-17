@@ -6,11 +6,11 @@ import SafetyRecipePanel from "./SafetyRecipePanel";
 
 // TrafficStressRecipePanel.test.tsxと同じ構成・観点（改善計画: 安全度レシピ）。
 // base_by_highwayのエントリ数（domain/safety.py: SAFETY_BASE_BY_HIGHWAY由来）＋スカラー
-// フィールド13個ぶんの入力欄が出る。安全度はlanes_low（少車線）を持たず代わりに
-// shoulder/lit/tunnelの3補正を持つため、交通ストレス(12)とはスカラー数が異なる
-// （cycleway3＋maxspeed2対×2＋lanes1対×2＋shoulder/lit/tunnel3＋designation1＝13）。
+// フィールド12個ぶんの入力欄が出る。安全度はlanes_low（少車線）を持たず代わりにlit/tunnel
+// の2補正を持つ（shoulderは実測0.0%の死に補正だったため改善計画T122で撤去）
+// （cycleway3＋maxspeed2対×2＋lanes1対×2＋lit/tunnel2＋designation1＝12）。
 const HIGHWAY_COUNT = Object.keys(DEFAULT_SAFETY_RECIPE.base_by_highway).length;
-const SCALAR_FIELD_COUNT = 13;
+const SCALAR_FIELD_COUNT = 12;
 
 describe("SafetyRecipePanel", () => {
   it("上書き無効時は数値入力欄を表示しない", () => {
@@ -26,7 +26,7 @@ describe("SafetyRecipePanel", () => {
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
 
-  it("上書き有効時はスカラー13項目の入力欄+highway別のレベルピッカーを表示する", () => {
+  it("上書き有効時はスカラー12項目の入力欄+highway別のレベルピッカーを表示する", () => {
     render(
       <SafetyRecipePanel
         overrideEnabled={true}
@@ -110,7 +110,7 @@ describe("SafetyRecipePanel", () => {
     });
   });
 
-  it("路肩・街灯・トンネル補正のステッパーの-/+ボタンで値が1ずつ増減する", async () => {
+  it("街灯・トンネル補正のステッパーの-/+ボタンで値が1ずつ増減する", async () => {
     // 安全度のみが持つ補正（交通ストレスには無い、domain/safety.py: SafetyRecipe参照）。
     const user = userEvent.setup();
     const onRecipeChange = vi.fn();
@@ -123,17 +123,17 @@ describe("SafetyRecipePanel", () => {
       />,
     );
 
-    // 既定のshoulder_adjustmentは-1。
-    await user.click(screen.getByRole("button", { name: "路肩ありの補正を1減らす" }));
+    // 既定のlit_adjustmentは-1。
+    await user.click(screen.getByRole("button", { name: "街灯ありの補正を1減らす" }));
     expect(onRecipeChange).toHaveBeenLastCalledWith({
       ...DEFAULT_SAFETY_RECIPE,
-      shoulder_adjustment: -2,
+      lit_adjustment: -2,
     });
 
-    await user.click(screen.getByRole("button", { name: "路肩ありの補正を1増やす" }));
+    await user.click(screen.getByRole("button", { name: "街灯ありの補正を1増やす" }));
     expect(onRecipeChange).toHaveBeenLastCalledWith({
       ...DEFAULT_SAFETY_RECIPE,
-      shoulder_adjustment: 0,
+      lit_adjustment: 0,
     });
   });
 
