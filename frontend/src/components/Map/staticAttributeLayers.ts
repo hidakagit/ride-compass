@@ -78,7 +78,10 @@ function buildCategoricalLayerDefs(
 
 // LTS(Level of Traffic Stress)風の1-4段階。1=快適(緑)〜4=ストレス大(赤)。
 // backend/app/domain/traffic.py: traffic_stress_levelと同じ意味論（1-4の整数、算出不能はNone）。
-const TRAFFIC_STRESS_COLORS: Record<number, string> = {
+// exportしているのはTrafficStressRecipePanel（改善計画: レシピ入力フォームの改善）が
+// 基準値の選択UI（低→高のレベルピッカー）の色・段階数をここから導出し、地図の色分けと
+// 常に一致させるため。段階数を4→5等へ増やす場合はここへキーを追加するだけで両方に反映される。
+export const TRAFFIC_STRESS_COLORS: Record<number, string> = {
   1: "#16a34a",
   2: "#84cc16",
   3: "#f59e0b",
