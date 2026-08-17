@@ -1,55 +1,33 @@
-/* WeightPanel.module.cssと同じ構造（.panel/.group/.field/.input/.resetButton）に、
-   base_by_highway用のテーブル表示（.table/.tableLabel）を追加したもの。 */
+/* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.field/.input/
+   .resetButton、.group legendを含む）をcomposesで再利用し、base_by_highway用の
+   テーブル表示（.table/.tableLabel）だけをここに追加する。 */
 
 .panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  font-size: var(--font-size-md);
+  composes: panel from "../WeightPanel/WeightPanel.module.css";
 }
 
 .toggleLabel {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
+  composes: toggleLabel from "../WeightPanel/WeightPanel.module.css";
 }
 
 .groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  composes: groups from "../WeightPanel/WeightPanel.module.css";
 }
 
 .group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-}
-
-.group legend {
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  padding: 0 0.25rem;
+  composes: group from "../WeightPanel/WeightPanel.module.css";
 }
 
 .field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  composes: field from "../WeightPanel/WeightPanel.module.css";
 }
 
 .input {
-  width: 4.5rem;
-  font-size: var(--font-size-md);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: inherit;
-  padding: 0.15rem 0.4rem;
+  composes: input from "../WeightPanel/WeightPanel.module.css";
+}
+
+.resetButton {
+  composes: resetButton from "../WeightPanel/WeightPanel.module.css";
 }
 
 .table {

@@ -1,4 +1,5 @@
 import asyncio
+import random
 import time
 
 import httpx
@@ -34,6 +35,10 @@ RETRY_BACKOFF_CAP_SECONDS = 2.0
 # （在圏中のリクエスト自体の時間は含まないため実際の余裕はこれより小さいが、
 # 429応答は通常速く返るため実用上は問題にならない）。
 RETRY_BUDGET_SECONDS = 8.0
+# 2026-08-17: 決定論的なバックオフだと、共有の送信元IPから同時に429を受けた複数リクエストが
+# 全く同じ秒数で揃って再試行し、Open-Meteo側の抑制が解ける前に再び束になって突入する
+# （再試行の同期）おそれがある。待機秒数へ小さなランダム幅を掛けて分散させる。
+RETRY_JITTER_RANGE = (0.75, 1.25)
 # 再試行を尽くしても失敗した場合、TTL切れ後もこの秒数以内のキャッシュがあれば代用する
 # （502で天候欄を丸ごと空にするより、多少古い予報を出す方が実用的なため）。予報自体は
 # forecast_days=2分をまとめて保持しているため、number（現在気象）はやや古くなりうるが
@@ -48,7 +53,8 @@ _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """Retry-Afterヘッダ（秒数形式のみ想定、Open-Meteoは日付形式を返さない）を解釈する。"""
+    """Retry-Afterヘッダ（秒数形式のみ想定、Open-Meteoは日付形式を返さない）を解釈する。
+    "0"（即時再試行の指示）も有効な値としてそのまま返す——呼び出し側でNoneと区別すること。"""
     value = response.headers.get("Retry-After")
     if value is None:
         return None
@@ -56,6 +62,19 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def _compute_wait(attempt: int, retry_after: float | None) -> float:
+    """再試行までの待機秒数を求める。Retry-Afterヘッダの値があればそれを優先し
+    （0はPythonのor演算子だと「未指定」と誤判定されるため、is not Noneで明示的に判定する）、
+    無ければ指数バックオフを使う。上限でクランプした上でジッターを掛ける（RETRY_JITTER_RANGE参照）。"""
+    base = retry_after if retry_after is not None else RETRY_BACKOFF_SECONDS * (2**attempt)
+    capped = min(max(base, 0.0), RETRY_BACKOFF_CAP_SECONDS)
+    return capped * random.uniform(*RETRY_JITTER_RANGE)
+
+
+def _can_retry(attempt: int, started: float, wait: float) -> bool:
+    return attempt < MAX_RETRIES and time.monotonic() - started + wait < RETRY_BUDGET_SECONDS
 
 
 class WeatherClient:
@@ -85,15 +104,10 @@ class WeatherClient:
                 fields["status"] = getattr(response, "status_code", None)
                 return response.json()
             except httpx.HTTPStatusError as exc:
-                wait = min(
-                    _retry_after_seconds(exc.response) or RETRY_BACKOFF_SECONDS * (2**attempt),
-                    RETRY_BACKOFF_CAP_SECONDS,
-                )
-                if (
-                    exc.response.status_code == RETRY_STATUS_CODE
-                    and attempt < MAX_RETRIES
-                    and time.monotonic() - started + wait < RETRY_BUDGET_SECONDS
-                ):
+                is_rate_limited = exc.response.status_code == RETRY_STATUS_CODE
+                retry_after = _retry_after_seconds(exc.response) if is_rate_limited else None
+                wait = _compute_wait(attempt, retry_after)
+                if is_rate_limited and _can_retry(attempt, started, wait):
                     attempt += 1
                     fields["retries"] = attempt
                     await asyncio.sleep(wait)
@@ -106,8 +120,8 @@ class WeatherClient:
                 # 接続タイムアウト等、応答自体を受け取れなかった失敗。ConnectTimeoutは
                 # 実測で数並列アクセスだけでも発生しており(原因調査ログ参照)、429と同様に
                 # 短時間で解消することが多いため同じ回数だけ再試行する。
-                wait = min(RETRY_BACKOFF_SECONDS * (2**attempt), RETRY_BACKOFF_CAP_SECONDS)
-                if attempt < MAX_RETRIES and time.monotonic() - started + wait < RETRY_BUDGET_SECONDS:
+                wait = _compute_wait(attempt, retry_after=None)
+                if _can_retry(attempt, started, wait):
                     attempt += 1
                     fields["retries"] = attempt
                     await asyncio.sleep(wait)

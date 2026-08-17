@@ -68,6 +68,33 @@ class AlwaysTooManyRequestsHttpClient:
         return TooManyRequestsResponse()
 
 
+class RetryAfterZeroResponse:
+    """Retry-After: 0（=即時再試行の指示。RFC 9110上有効な値）を返す429応答を模する。"""
+
+    status_code = 429
+    headers = {"Retry-After": "0"}
+
+    def raise_for_status(self):
+        raise httpx.HTTPStatusError("429 Too Many Requests", request=None, response=self)
+
+    def json(self):
+        raise AssertionError("json() should not be called when raise_for_status() raises")
+
+
+class RetryAfterZeroThenSucceedHttpClient:
+    """1回目はRetry-After: 0付きの429、2回目(最終試行)で成功する上流を模する。"""
+
+    def __init__(self, payload):
+        self.call_count = 0
+        self._payload = payload
+
+    async def get(self, url, params=None, timeout=None):
+        self.call_count += 1
+        if self.call_count < 2:
+            return RetryAfterZeroResponse()
+        return FakeResponse(self._payload)
+
+
 class RetryThenSucceedAfterConnectTimeoutHttpClient:
     """1回目はConnectTimeout、2回目(最終試行)で成功する上流を模する。"""
 
@@ -188,6 +215,27 @@ async def test_get_forecast_stops_retrying_once_budget_exhausted(monkeypatch):
 
     assert result is None
     assert http_client.call_count == 1  # 初回のみ。予算0のため再試行が1回も発生しない
+
+
+async def test_get_forecast_honors_retry_after_zero_header(monkeypatch):
+    """Retry-After: 0はPythonのor演算子だと「未指定」に誤判定され指数バックオフへ
+    フォールバックしうるバグの回帰テスト。0は「即時再試行」の明示指示として尊重され、
+    待機秒数が0になる（ジッターを掛けても0×係数=0のまま）ことを確認する。"""
+    waits: list[float] = []
+
+    async def recording_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(weather_client_module.asyncio, "sleep", recording_sleep)
+
+    client = WeatherClient()
+    http_client = RetryAfterZeroThenSucceedHttpClient({"current": {}, "hourly": {}})
+    point = Coordinates(latitude=35.93, longitude=139.94)
+
+    result = await client.get_forecast(http_client, point)
+
+    assert result == {"current": {}, "hourly": {}}
+    assert waits == [0.0]
 
 
 async def test_get_forecast_retries_on_connect_timeout_and_recovers():

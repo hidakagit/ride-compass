@@ -338,6 +338,11 @@ export default function Home() {
     staticLegendHiddenKeysByAxis,
     LEGEND_FILTER_DEBOUNCE_MS,
   );
+  // 交通ストレスレシピの数値入力も同じ理由でデバウンスする（TrafficStressRecipePanel自体は
+  // 即時のtrafficStressRecipeを参照し入力欄の反応は遅らせない。地図の再描画・T90内訳ポップアップ
+  // 用の値だけがこのデバウンス値を使う）。上記2つと同じ猶予を使い、連続入力のたびに地図の
+  // setFilter/setPaintPropertyが走るのを防ぐ。
+  const debouncedTrafficStressRecipe = useDebouncedValue(trafficStressRecipe, LEGEND_FILTER_DEBOUNCE_MS);
 
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
@@ -806,7 +811,7 @@ export default function Home() {
             showRoad={layerVisibility.road}
             showTrafficStress={layerVisibility.trafficStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
-            trafficStressRecipe={trafficStressRecipeOverrideEnabled ? trafficStressRecipe : undefined}
+            trafficStressRecipe={trafficStressRecipeOverrideEnabled ? debouncedTrafficStressRecipe : undefined}
             showDesignation={layerVisibility.designation}
             showStopPoi={layerVisibility.stopPoi}
             showAccidents={layerVisibility.accidents}
