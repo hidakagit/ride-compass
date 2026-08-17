@@ -230,21 +230,36 @@
   box-shadow: 0 -1px 8px rgba(0, 0, 0, 0.15);
 }
 
+/* アイコン+短いラベルを縦に積んだボタン（改善計画: モバイル下部タブのアイコン化。
+   「開発者」が文字だけの4rem幅ボタンでは折り返され読みにくいという実機フィードバックを
+   受け、地図上のiconChip（MapOverlayControls）と同じ「アイコン+1行ラベル」構成へ統一）。 */
 .tabButton {
   flex: 1;
   min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
   border: none;
   background: transparent;
   color: var(--foreground);
-  font-size: var(--font-size-md);
   cursor: pointer;
 }
 
-/* 「設定」タブ用の修飾。一般ユーザーが日常的に使う「ルートを作る」「地図の見え方」の
-   2タブより控えめな幅にする（開発者向け機能への入り口のため目立たせすぎない、T43）。 */
+/* 「研究」「開発者」タブ用の修飾。一般ユーザーが日常的に使う「ルートを作る」
+   「地図の見え方」の2タブより控えめな幅にする（開発者向け機能への入り口のため
+   目立たせすぎない、T43）。アイコン化後もラベルは1行に収まる（.tabLabel参照）ため、
+   この幅のままで折り返しは発生しない。 */
 .tabButtonSmall {
   flex: 0 0 4rem;
-  font-size: var(--font-size-sm);
+}
+
+.tabLabel {
+  font-size: 0.62rem;
+  line-height: 1;
+  /* ラベルは常に1行（折り返さない）。MapOverlayControls.module.cssの.iconLabelと同じ方針。 */
+  white-space: nowrap;
 }
 
 .tabButtonActive {

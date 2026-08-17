@@ -65,7 +65,11 @@ describe("TrafficStressRecipePanel", () => {
       />,
     );
 
-    const primaryRow = screen.getByText("primary", { selector: "td" }).closest("tr");
+    // ラベルは日本語訳（改善計画: 研究タブの用語日本語化）だが、情報アイコンのtitleに
+    // 元のOSMタグ値「highway=primary」を残しているため、それを手がかりに行を特定する
+    // （"primary_link"の説明文とは前方一致で区別できるよう"。"まで含めて照合する）。
+    const primaryInfoIcon = screen.getByTitle(/^highway=primary。/);
+    const primaryRow = primaryInfoIcon.closest("tr");
     if (!primaryRow) throw new Error("primary行が見つかりません");
     const primaryInput = within(primaryRow).getByRole("spinbutton");
     fireEvent.change(primaryInput, { target: { value: "2" } });

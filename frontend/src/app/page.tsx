@@ -9,7 +9,7 @@ import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
-import { LogIcon, StatusIcon } from "@/components/Map/icons";
+import { DeveloperIcon, LogIcon, MapAppearanceIcon, ResearchIcon, RouteIcon, StatusIcon } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
@@ -911,9 +911,12 @@ export default function Home() {
           「設定」タブを追加、T43。評価重み・交通ストレスレシピのトグルと調整パネルが
           別タブに分かれていて分かりにくいという実機フィードバックを受け「研究」タブを追加、
           切り出し後の「設定」タブが開発者/運用ツールのみになったため「開発者」へ改名
-          （いずれも改善計画: 研究パラメータの導線改善）。「研究」「開発者」は一般ユーザーが
-          日常的に使う2タブより控えめな幅にする（tabButtonSmall）。シート表示中も地図の
-          上側が見えたままパン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
+          （いずれも改善計画: 研究パラメータの導線改善）。各タブはアイコン+1行ラベル
+          （地図上のiconChip、MapOverlayControls.module.cssと同じ構成）。文字だけだと
+          「開発者」が4rem幅ボタン内で折り返され読みにくいという実機フィードバックを受けて
+          アイコン化した。「研究」「開発者」は一般ユーザーが日常的に使う2タブより控えめな幅に
+          する（tabButtonSmall）。シート表示中も地図の上側が見えたままパン/ズームできる
+          （暗幕なし、詳細はBottomSheetのコメント参照）。 */}
       {isMobile && (
         <>
           <nav className={styles.mobileTabBar} aria-label="パネル切り替え">
@@ -923,7 +926,8 @@ export default function Home() {
               onClick={() => handleMobileTabClick("route")}
               className={mobileSheet === "route" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
             >
-              ルートを作る
+              <RouteIcon />
+              <span className={styles.tabLabel}>ルートを作る</span>
             </button>
             <button
               type="button"
@@ -931,7 +935,8 @@ export default function Home() {
               onClick={() => handleMobileTabClick("map")}
               className={mobileSheet === "map" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
             >
-              地図の見え方
+              <MapAppearanceIcon />
+              <span className={styles.tabLabel}>地図の見え方</span>
             </button>
             <button
               type="button"
@@ -943,7 +948,8 @@ export default function Home() {
                   : `${styles.tabButton} ${styles.tabButtonSmall}`
               }
             >
-              研究
+              <ResearchIcon />
+              <span className={styles.tabLabel}>研究</span>
             </button>
             <button
               type="button"
@@ -955,7 +961,8 @@ export default function Home() {
                   : `${styles.tabButton} ${styles.tabButtonSmall}`
               }
             >
-              開発者
+              <DeveloperIcon />
+              <span className={styles.tabLabel}>開発者</span>
             </button>
           </nav>
 

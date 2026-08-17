@@ -2613,6 +2613,36 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 
 ---
 
+### - [x] T111. モバイル下部タブのアイコン化、交通ストレスレシピ調整パネルの用語日本語化 規模M（2026-08-17完了）
+
+- 発端: T110のフォローアップとしてユーザーから2件の依頼。(1) モバイル下部タブが文字のみで、
+  特に「開発者」（`tabButtonSmall`=4rem幅）が折り返されて読みにくい。(2) 交通ストレスレシピ
+  調整パネルの要素名（highway別基準値のラベル等）が技術的（OSMタグ語彙そのまま）で
+  分かりにくいので、日本語の論理的なラベル＋具体的な属性説明（情報アイコン）にしてほしい。
+- 対応(1): 地図上のiconChip（`MapOverlayControls.module.css`、アイコン+1行ラベルの縦積み）
+  と同じ構成をモバイル下部タブへ適用。新規アイコン3種（`MapAppearanceIcon`/`ResearchIcon`/
+  `DeveloperIcon`、`icons.tsx`の既存線画スタイルに統一）を追加、「ルートを作る」は既存の
+  `RouteIcon`（地図上のルート絞り込みチップと共有）を流用。`page.module.css`の`.tabButton`を
+  flex column化、`.tabLabel`（0.62rem・`white-space: nowrap`）で1行固定にし、以前の
+  文字だけのボタンで発生していた折り返しを解消。
+- 対応(2): `TrafficStressRecipePanel.tsx`のhighway別基準値13項目・スカラー12項目すべてに
+  日本語の論理的なラベル＋`description`（情報アイコンのツールチップ、対応するOSMタグ・値を
+  明記）を追加。highway別ラベルは`roadFilterAxes.ts`「道路の種類」軸の分類語（幹線道路/
+  主要道/生活道路等）と整合させつつhighway値ごとに個別化。以前の「利用者はOSMタグ語彙を
+  前提にしている」という設計判断（T108時点）をユーザーの実利用フィードバックを受け撤回し、
+  タグ語彙は情報アイコンのツールチップ側へ退避する形へ転換。情報アイコンは新規`InfoIcon`
+  （`StatusIcon`と同形だが用途が異なるため別名で追加）、ツールチップは既存のtitle属性規約
+  （weatherHeader等と同じ、長押し/ホバーで見える補足）を踏襲。`WeightPanel`のラベル
+  （`evaluationAxes.ts`カタログ、既に自然な日本語）は対象外と判断し変更していない。
+  副次的に、`TrafficStressRecipePanel.module.css`に残っていた重複`.resetButton`定義
+  （T110直前のcomposes化フィックス時の消し忘れ）を発見・削除した。
+- 完了条件: frontend 275件・tsc・eslint全green。headed Playwrightでモバイル幅（375px）の
+  4タブがアイコン+1行ラベルで折り返しなく収まること（ラベル高さ実測で1行相当を確認）、
+  `highway=primary`/`highway=primary_link`の情報アイコンが前方一致の罠なく1件ずつ
+  区別されること、コンソールエラー0件を確認。
+
+---
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
@@ -2701,3 +2731,4 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 | 2026-08-17 | T108 | T107（基盤フェーズ）で用意したレシピ上書き機構を実際に触れるUIパネルとして実装。`staticAttributeLayers.ts`の凡例・色分け式をレシピ引数の関数へ変更（既存定数は無破壊）、`MapView.tsx`へ`trafficStressRecipe` propsとライブ更新（`setPaintProperty`・凡例フィルタの動的差し替え）を配線、`TrafficStressRecipePanel`新規（highway別基準値13種＋補正12項目、`WeightPanel`とは独立トグル）、`page.tsx`にstateを追加し地図・内訳ポップアップ・次回生成リクエスト・dirty判定へ配線。`MapLayersPanel`/`MapOverlayControls`は`LegendEntry.filter`を参照しないため無改修で済んだ。frontend 275件・tsc・eslint全green |
 | 2026-08-17 | T109 | ユーザー報告（デバッグログ・システム状況サマリで`weather:open-meteo`が5件中5件`http_429`失敗、`/api/weather`が502）。T98の初版対策（`MAX_RETRIES=2`・固定0.3秒刻み）をすり抜けての再発と判明し、ユーザー選択（再試行強化）を受け対応。`MAX_RETRIES`を2→4、バックオフを固定刻みから指数（基数0.5秒・上限2.0秒でクランプ、Retry-Afterヘッダにも同じ上限適用）へ変更、新規`RETRY_BUDGET_SECONDS=8.0`（待機合計の壁時計予算、フロントfetchタイムアウト15秒に対して余裕を残す）を429・TransportErrorの両再試行経路で共有。既存テストの実待機を無くすため`asyncio.sleep`のno-op置換フィクスチャを追加、予算切れ早期打ち切りの新規テストを追加。backend 735件全green。根本原因（Render共有IPに対するOpen-Meteo側レート制限）自体はクライアント再試行では解消不可のため、有料/専用キー化はユーザーへ選択肢提示のみでスコープ外 |
 | 2026-08-17 | T110 | ユーザー報告（重み付け画面にスマホで辿り着けない）を受け調査。研究モードのON/OFFトグルが「設定」タブ、効果である`WeightPanel`/`TrafficStressRecipePanel`が「ルートを作る」タブと別タブに分かれていたのが原因と判明。ユーザー指摘（生成時・地図表示時どちらでも使うパラメータなので親子関係ではない）を踏まえ、「設定」（運用/デバッグツール）とは混ぜず、A/Bどちらの子でもない独立した4つ目のブロック/タブ「研究」を新設しトグルとパネルを同居。`ComparisonPanel`（結果一覧）は性質が異なるため「ルートを作る」に残した。追加依頼（メニュー名を実態に合わせる）を受け、研究モードトグル分離後は純粋な開発者/運用ツール集になった「設定」を「開発者」へ改名（表示名・内部識別子とも一貫、ユーザー選択のうえ決定）。frontend 275件・tsc・eslint全green、Playwright実機確認（モバイル4タブ収まり・開発者タブから研究トグル消失・研究タブ内でのOFF→ON即時パネル表示、デスクトップ含め）でコンソールエラー0件を確認 |
+| 2026-08-17 | T111 | T110のフォローアップ。(1) モバイル下部タブ「開発者」が文字だけの4rem幅ボタンで折り返され読みにくいとの報告を受け、地図上のiconChipと同じ「アイコン+1行ラベル」構成へ4タブとも統一（新規アイコン3種`MapAppearanceIcon`/`ResearchIcon`/`DeveloperIcon`追加、`RouteIcon`は既存を流用）。(2) 交通ストレスレシピ調整パネルの要素名を「日本語の論理をラベルに、具体的な属性説明は情報アイコンで」という方針へ転換。highway別基準値13項目・スカラー12項目すべてに日本語ラベル＋`description`（情報アイコンのツールチップ、OSMタグ・値を明記）を追加し、T108時点の「タグ語彙をそのまま出す」判断を撤回。新規`InfoIcon`追加、`WeightPanel`（既に自然な日本語ラベル）は対象外。副次的にcomposes化フィックス時の消し忘れ（重複`.resetButton`定義）を発見・削除。frontend 275件・tsc・eslint全green、Playwright実機確認（4タブとも1行ラベルで375px幅に収まる・`highway=primary`/`primary_link`の情報アイコンが前方一致の罠なく区別される）でコンソールエラー0件を確認 |
