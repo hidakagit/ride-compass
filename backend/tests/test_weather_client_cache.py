@@ -98,6 +98,17 @@ def clear_weather_cache():
     weather_client_module._forecast_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def no_real_sleep(monkeypatch):
+    """再試行の待機（RETRY_BACKOFF_SECONDS基準、MAX_RETRIES=4で最大数秒）を実時間で
+    待たずにテストを高速化する。待機時間自体はテスト対象でないため実測不要。"""
+
+    async def instant_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(weather_client_module.asyncio, "sleep", instant_sleep)
+
+
 async def test_get_forecast_reuses_cache_within_ttl():
     client = WeatherClient()
     http_client = FakeHttpClient({"current": {}, "hourly": {}})
@@ -163,6 +174,20 @@ async def test_get_forecast_returns_none_after_exhausting_429_retries():
     assert result is None
     # 初回 + MAX_RETRIES回の再試行 = 呼び出し合計
     assert http_client.call_count == weather_client_module.MAX_RETRIES + 1
+
+
+async def test_get_forecast_stops_retrying_once_budget_exhausted(monkeypatch):
+    """RETRY_BUDGET_SECONDSを使い切ったら、MAX_RETRIESに達していなくても再試行を打ち切る
+    （Open-Meteoが429を出し続ける間、フロントのfetchタイムアウトを超えて待ち続けないため）。"""
+    monkeypatch.setattr(weather_client_module, "RETRY_BUDGET_SECONDS", 0.0)
+    client = WeatherClient()
+    http_client = AlwaysTooManyRequestsHttpClient()
+    point = Coordinates(latitude=35.91, longitude=139.92)
+
+    result = await client.get_forecast(http_client, point)
+
+    assert result is None
+    assert http_client.call_count == 1  # 初回のみ。予算0のため再試行が1回も発生しない
 
 
 async def test_get_forecast_retries_on_connect_timeout_and_recovers():
