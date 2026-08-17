@@ -84,45 +84,20 @@
   text-align: right;
 }
 
-/* ラベル文言+情報アイコンボタンの並び（改善計画: 研究タブの用語日本語化）。.field/
-   .tableLabelの左側（スカラー欄はlabel、highway欄はtdの直接の子）に入れる。 */
-.fieldLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  /* 右側の内容（ステッパー・条件入力）が長い行で、ラベル自体が押し縮められて
-     途中で折り返される不具合を防ぐ（.field参照）。 */
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-/* highway別基準値テーブル（.table）内のラベルは、.fieldLabelのnowrap/flex-shrink:0を
-   打ち消して通常の折り返しへ戻す（改善計画: 交通ストレス5段階化でレベルピッカーが
+/* highway別基準値テーブル（.table）内のラベルは、recipeControls.module.cssの
+   .fieldLabel（nowrap/flex-shrink:0、通常のスカラー欄では折り返させない設計）を
+   打ち消して通常の折り返しへ戻す（改善計画T118: 交通ストレス5段階化でレベルピッカーが
    1段増え、モバイル幅で「生活道路(歩車共存)」等の行がテーブル自体を右へ押し広げて
    画面外へ溢れる不具合が発生。テーブルの列幅は内容依存のため、ラベル側が折り返せないと
    ピッカー側の幅を確保できずに溢れる。scalar欄（.field、flex-wrap:wrapで行ごと折り返す）
-   とはレイアウト機構が異なるため、テーブル欄はラベル自体の折り返しで幅を吸収する）。 */
-.tableLabel .fieldLabel {
+   とはレイアウト機構が異なるため、テーブル欄はラベル自体の折り返しで幅を吸収する）。
+   .fieldLabelは共通化（改善計画: 安全度レシピ）でrecipeControls.module.cssへ移り
+   このファイルからは参照できなくなったため、HighwayRowがFieldLabelへ
+   `className={styles.tableLabelFieldLabel}` として渡す（recipeControls.tsx:
+   FieldLabelのclassNameプロパティ）。 */
+.tableLabelFieldLabel {
   flex-shrink: 1;
   white-space: normal;
-}
-
-/* 情報アイコンの開閉ボタン。title属性のホバー表示はスマホのタップでは開かないため
-   （実機フィードバックで判明）、クリック/タップで確実に開くボタンにしている。 */
-.infoButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.infoButton[aria-expanded="true"] {
-  color: var(--color-accent-strong);
 }
 
 /* スカラー項目の説明（.field直後に表示、改行して全幅を使う）。 */
@@ -139,91 +114,6 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   line-height: 1.4;
-}
-
-/* 基準値のレベルピッカー（改善計画: レシピ入力フォームの改善）。TRAFFIC_STRESS_LEVELSの
-   段階数ぶん.levelSegmentが並ぶ。「もう少しコンパクトに」というフィードバックを受け
-   1.5rem→1.25remへ縮小。折り返しはさせない（flex-wrapを試したところ、標準のtable auto
-   layoutでは列幅が全行共有のため他行の長いラベルに引きずられてピッカー自体が1行に
-   収まらず折り返され、5ボタンが3+2の不格好な2段組みになる不具合が起きた）。改善計画
-   （交通ストレス5段階化）でこの問題が起きたため、代わりに.tableValueで列幅自体を
-   固定し、ピッカーは常に1行のまま収まるようにした。 */
-.levelPicker {
-  display: inline-flex;
-  gap: 2px;
-}
-
-.levelSegment {
-  width: 1.25rem !important;
-  height: 1.25rem !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 !important;
-  font-size: 0.7rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-muted);
-  cursor: pointer;
-}
-
-/* 選択値以下の段階を地図と同じ色（JS側でstyleへ渡す--level-color）で塗り、
-   進捗バーのように見せる（未選択より高い段階は塗らない）。 */
-.levelSegment[data-filled="true"] {
-  background: var(--level-color);
-  border-color: var(--level-color);
-  color: #ffffff;
-  font-weight: 700;
-}
-
-/* 補正値のステッパー（改善計画: レシピ入力フォームの改善）。当初の0中心バーが実際の値の
-   範囲では細すぎて視認できず、数値入力単体もネイティブの上下スピナー矢印が小さくタップ
-   しづらい（「入力しにくい」フィードバック）と判明したため、-/+ボタン付きの色付き入力欄へ
-   作り直した。色（JS側でTRAFFIC_STRESS_COLORSの最低/最高段階から算出しstyleへ渡す）が
-   「0中心に変動する」ことを常に確実に伝える。 */
-.stepper {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.stepperButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4rem;
-  border: none;
-  background: var(--color-surface-2);
-  color: var(--foreground);
-  font-size: var(--font-size-md);
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-}
-
-.stepperInput {
-  width: 2.4rem;
-  border: none;
-  border-left: 1px solid var(--color-border-strong);
-  border-right: 1px solid var(--color-border-strong);
-  text-align: center;
-  font-size: var(--font-size-md);
-  background: var(--color-surface);
-  color: inherit;
-  padding: 0.15rem 0;
-  /* ネイティブの上下スピナー矢印は小さくタップしづらいため非表示にする
-     （増減は左右の-/+ボタンで行う）。直接のタイプ入力はできるまま残す。 */
-  -moz-appearance: textfield;
-}
-
-.stepperInput::-webkit-outer-spin-button,
-.stepperInput::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
 }
 
 /* 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路）。ステッパーと変動条件

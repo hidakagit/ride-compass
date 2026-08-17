@@ -21,6 +21,7 @@ function makeRoute(overrides: Partial<RouteCandidate>): RouteCandidate {
     bicycle_infra_score: null,
     intersection_density: null,
     accident_density: null,
+    safety_score: null,
     total_score: null,
     score_breakdown: null,
     segments: null,

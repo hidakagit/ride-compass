@@ -34,6 +34,8 @@ import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import TrafficStressRecipePanel from "@/components/TrafficStressRecipePanel/TrafficStressRecipePanel";
 import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "@/components/Map/trafficStressExpression";
+import SafetyRecipePanel from "@/components/SafetyRecipePanel/SafetyRecipePanel";
+import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
@@ -47,6 +49,7 @@ import type {
   Coordinates,
   RouteCandidate,
   RoutePreferenceWeights,
+  SafetyRecipeOverride,
   ScoringWeights,
   TrafficStressRecipeOverride,
 } from "@/types/route";
@@ -83,6 +86,7 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   elevation: false,
   road: false,
   trafficStress: false,
+  safety: false,
   bicycleInfra: false,
   designation: false,
   stopPoi: false,
@@ -144,6 +148,11 @@ export default function Home() {
   const [trafficStressRecipe, setTrafficStressRecipe] = useState<TrafficStressRecipeOverride>(
     DEFAULT_TRAFFIC_STRESS_RECIPE,
   );
+
+  // 安全度レシピの上書き（改善計画: 安全度レシピ）。trafficStressRecipeOverrideEnabledと
+  // 同じ理由で独立したトグルにしてある。
+  const [safetyRecipeOverrideEnabled, setSafetyRecipeOverrideEnabled] = useState(false);
+  const [safetyRecipe, setSafetyRecipe] = useState<SafetyRecipeOverride>(DEFAULT_SAFETY_RECIPE);
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
@@ -345,6 +354,8 @@ export default function Home() {
   // 用の値だけがこのデバウンス値を使う）。上記2つと同じ猶予を使い、連続入力のたびに地図の
   // setFilter/setPaintPropertyが走るのを防ぐ。
   const debouncedTrafficStressRecipe = useDebouncedValue(trafficStressRecipe, LEGEND_FILTER_DEBOUNCE_MS);
+  // 安全度レシピも同じ理由でデバウンスする（改善計画: 安全度レシピ）。
+  const debouncedSafetyRecipe = useDebouncedValue(safetyRecipe, LEGEND_FILTER_DEBOUNCE_MS);
 
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
@@ -523,11 +534,12 @@ export default function Home() {
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
 
-  // 生成条件のうち重み設定・交通ストレスレシピの比較キー（上書き無効時はnull＝
-  // バックエンド既定値を表す）。2つのトグルは独立のため、それぞれ個別に無効時null化する。
+  // 生成条件のうち重み設定・交通ストレスレシピ・安全度レシピの比較キー（上書き無効時はnull＝
+  // バックエンド既定値を表す）。3つのトグルは独立のため、それぞれ個別に無効時null化する。
   const currentWeightsKey = JSON.stringify({
     weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
     trafficStressRecipe: trafficStressRecipeOverrideEnabled ? trafficStressRecipe : null,
+    safetyRecipe: safetyRecipeOverrideEnabled ? safetyRecipe : null,
   });
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
@@ -552,6 +564,7 @@ export default function Home() {
         route_type: "loop",
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
         ...(trafficStressRecipeOverrideEnabled ? { traffic_stress_recipe: trafficStressRecipe } : {}),
+        ...(safetyRecipeOverrideEnabled ? { safety_recipe: safetyRecipe } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -681,6 +694,18 @@ export default function Home() {
                 onOverrideEnabledChange={setTrafficStressRecipeOverrideEnabled}
                 recipe={trafficStressRecipe}
                 onRecipeChange={setTrafficStressRecipe}
+              />
+            </div>
+          )}
+          {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上のコメントどおり、この<div>は
+              複数レシピを想定済みのためTrafficStressRecipePanelの直後に追加するだけでよい。 */}
+          {researchEnabled && (
+            <div className={styles.legendCard}>
+              <SafetyRecipePanel
+                overrideEnabled={safetyRecipeOverrideEnabled}
+                onOverrideEnabledChange={setSafetyRecipeOverrideEnabled}
+                recipe={safetyRecipe}
+                onRecipeChange={setSafetyRecipe}
               />
             </div>
           )}
@@ -871,6 +896,8 @@ export default function Home() {
             showTrafficStress={layerVisibility.trafficStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
             trafficStressRecipe={trafficStressRecipeOverrideEnabled ? debouncedTrafficStressRecipe : undefined}
+            showSafety={layerVisibility.safety}
+            safetyRecipe={safetyRecipeOverrideEnabled ? debouncedSafetyRecipe : undefined}
             showDesignation={layerVisibility.designation}
             showStopPoi={layerVisibility.stopPoi}
             showAccidents={layerVisibility.accidents}

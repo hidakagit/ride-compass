@@ -14,6 +14,14 @@
 # 両方がこの定数をimportして参照する（改善計画T44と同じ「片側import」原則）。
 ACCIDENT_MATCH_MAX_DISTANCE_M = 30.0
 
+# 死亡事故の重み（改善計画: 事故密度の精度改善）。件数を単純にCOUNTすると軽傷の物損に近い
+# 事故と死亡事故が同じ1件として扱われ、最も避けたい重大事故のリスクが薄まる。死亡事故は
+# `ACCIDENT_FATAL_WEIGHT`件分として積算する（road_graph_repository.py: _ACCIDENT_COUNTS_SQL/
+# _NEAREST_ACCIDENT_COUNTS_SQLがSUM(CASE WHEN fatal THEN :fatal_weight ELSE 1 END)で適用）。
+# 3.0は「死亡事故は軽傷事故の3件分のリスクとみなす」という暫定値（本格チューニングはP2据え置き、
+# 他の閾値・補正値と同じ方針）。
+ACCIDENT_FATAL_WEIGHT = 3.0
+
 # 関東7都県の都道府県コード（NPA独自の採番。JIS X 0401とは異なる）。
 # import_profile.yamlのPBF取込bboxと同じ関東スコープに揃える。
 KANTO_PREFECTURE_CODES: dict[str, str] = {
@@ -91,7 +99,7 @@ def longitude_from_raw(raw: str) -> float | None:
 
 
 def distance_weighted_accident_density(
-    segments: list[tuple[float, int | None]], years_covered: int
+    segments: list[tuple[float, float | None]], years_covered: int
 ) -> float | None:
     """(区間distance_km, 区間内の事故count)のリストと収録年数から、ルート全体の事故密度
     （件/(km・年)）を求める（外部静的データソース T50残作業）。
@@ -104,6 +112,10 @@ def distance_weighted_accident_density(
     countがNoneの区間は「データ未取得」を表し、0（実測で対象無し）とは区別して集計から
     除外する。除外後に1区間も残らない、距離の合計が0以下、またはyears_coveredが0以下なら
     None。
+
+    countはint（単純件数）ではなくfloat（改善計画: 事故密度の精度改善で死亡事故を
+    `ACCIDENT_FATAL_WEIGHT`倍として積算したSUM、road_graph_repository.py:
+    _ACCIDENT_COUNTS_SQL参照）。
     """
     if years_covered <= 0:
         return None

@@ -1,6 +1,7 @@
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import type { LegendEntry } from "./legendFilter";
+import { DEFAULT_SAFETY_RECIPE } from "./safetyExpression";
 import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "./trafficStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
@@ -9,12 +10,16 @@ import {
   ACCIDENT_SEVERITY_LEGEND,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LEGEND,
+  SAFETY_COLOR_EXPRESSION,
+  SAFETY_LEGEND,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
   STOP_POI_LEGEND,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
   TRAFFIC_STRESS_LEGEND,
+  buildSafetyColorExpression,
+  buildSafetyLegend,
   buildTrafficStressColorExpression,
   buildTrafficStressLegend,
 } from "./staticAttributeLayers";
@@ -83,6 +88,59 @@ describe("staticAttributeLayers", () => {
     });
   });
 
+  it("安全度の凡例キーは1-4+不明で、重複が無い", () => {
+    const keys = SAFETY_LEGEND.map((e) => e.key);
+    expect(new Set(keys)).toEqual(new Set(["1", "2", "3", "4", "unknown"]));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("安全度のmatch式はプロパティ欠落時に凡例のunknown色へ落ちる", () => {
+    expect(SAFETY_COLOR_EXPRESSION[0]).toBe("match");
+    const unknownColor = SAFETY_LEGEND.find((e) => e.key === "unknown")!.color;
+    expect(SAFETY_COLOR_EXPRESSION[SAFETY_COLOR_EXPRESSION.length - 1]).toBe(unknownColor);
+  });
+
+  it("安全度の凡例の色は交通ストレスの凡例の色と重ならない（地図上で混同しない、不明・他の共通灰色を除く）", () => {
+    const trafficStressColors = new Set(
+      TRAFFIC_STRESS_LEGEND.filter((e) => e.key !== "unknown").map((e) => e.color),
+    );
+    const safetyColors = SAFETY_LEGEND.filter((e) => e.key !== "unknown").map((e) => e.color);
+    for (const color of safetyColors) {
+      expect(trafficStressColors.has(color)).toBe(false);
+    }
+  });
+
+  // 改善計画: 安全度レシピ。buildTrafficStressLegend/buildTrafficStressColorExpressionと
+  // 同じ構造（レシピを引数に取る関数化）。
+  describe("buildSafetyLegend/buildSafetyColorExpression（レシピ引数）", () => {
+    it("既定レシピを渡すと既存のSAFETY_LEGEND/COLOR_EXPRESSIONと同じ内容になる", () => {
+      expect(buildSafetyLegend(DEFAULT_SAFETY_RECIPE)).toEqual(SAFETY_LEGEND);
+      expect(buildSafetyColorExpression(DEFAULT_SAFETY_RECIPE)).toEqual(SAFETY_COLOR_EXPRESSION);
+    });
+
+    it("base_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
+      const customRecipe = {
+        ...DEFAULT_SAFETY_RECIPE,
+        base_by_highway: { ...DEFAULT_SAFETY_RECIPE.base_by_highway, secondary: 1 },
+      };
+      const legend = buildSafetyLegend(customRecipe);
+      const properties = { highway: "secondary" };
+
+      const defaultLegend = buildSafetyLegend(DEFAULT_SAFETY_RECIPE);
+      expect(evaluateFilter(defaultLegend.find((e) => e.key === "3")!.filter, properties)).toBe(true);
+      expect(evaluateFilter(legend.find((e) => e.key === "1")!.filter, properties)).toBe(true);
+      expect(evaluateFilter(legend.find((e) => e.key === "3")!.filter, properties)).toBe(false);
+    });
+
+    it("凡例のラベル・色・key構成自体はレシピに関わらず不変（変わるのはfilterの中身だけ）", () => {
+      const customRecipe = { ...DEFAULT_SAFETY_RECIPE, designation_adjustment: 3 };
+      const legend = buildSafetyLegend(customRecipe);
+      expect(legend.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback }))).toEqual(
+        SAFETY_LEGEND.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback })),
+      );
+    });
+  });
+
   it("自転車インフラの凡例キーはdomain/traffic.pyのBicycleInfraClass列挙値+不明と一致する", () => {
     const keys = BICYCLE_INFRA_LEGEND.map((e) => e.key);
     expect(new Set(keys)).toEqual(
@@ -107,8 +165,8 @@ describe("staticAttributeLayers", () => {
     }
   });
 
-  it("両軸とも凡例エントリごとに一意な色を持つ（見分けられる配色）", () => {
-    for (const legend of [TRAFFIC_STRESS_LEGEND, BICYCLE_INFRA_LEGEND]) {
+  it("各軸とも凡例エントリごとに一意な色を持つ（見分けられる配色）", () => {
+    for (const legend of [TRAFFIC_STRESS_LEGEND, SAFETY_LEGEND, BICYCLE_INFRA_LEGEND]) {
       const colors = legend.map((e) => e.color);
       expect(new Set(colors).size).toBe(colors.length);
     }
@@ -194,6 +252,7 @@ describe("staticAttributeLayers", () => {
     const byAxisId = Object.fromEntries(STATIC_FILTER_AXES.map((axis) => [axis.axisId, axis.legend]));
     const expected: Record<string, readonly LegendEntry[]> = {
       trafficStress: TRAFFIC_STRESS_LEGEND,
+      safety: SAFETY_LEGEND,
       bicycleInfra: BICYCLE_INFRA_LEGEND,
       stopPoi: STOP_POI_LEGEND,
       accidentParty: ACCIDENT_LEGEND,

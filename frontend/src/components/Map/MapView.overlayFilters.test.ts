@@ -1,7 +1,8 @@
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "@/components/Map/trafficStressExpression";
-import { BICYCLE_INFRA_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, setStaticOverlayFilters } from "./MapView";
+import { BICYCLE_INFRA_LAYER_ID, SAFETY_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, setStaticOverlayFilters } from "./MapView";
 import type { StaticFilterAxisId } from "./staticAttributeLayers";
 
 // setStaticOverlayFilters（改善計画: 交通ストレスレシピ調整UIパネル）が読む最小限のmap
@@ -48,12 +49,12 @@ describe("setStaticOverlayFilters（交通ストレスレシピの追従）", ()
 
     const mapDefault = fakeMap();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setStaticOverlayFilters(mapDefault as any, withHiddenLevel1, DEFAULT_TRAFFIC_STRESS_RECIPE);
+    setStaticOverlayFilters(mapDefault as any, withHiddenLevel1, DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
     const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === TRAFFIC_STRESS_LAYER_ID)!.filter;
 
     const mapCustom = fakeMap();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setStaticOverlayFilters(mapCustom as any, withHiddenLevel1, customRecipe);
+    setStaticOverlayFilters(mapCustom as any, withHiddenLevel1, customRecipe, DEFAULT_SAFETY_RECIPE);
     const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === TRAFFIC_STRESS_LAYER_ID)!.filter;
 
     // 既定レシピ（secondary=3）で「レベル1を隠す」フィルタは、highway=secondaryを通す
@@ -68,13 +69,57 @@ describe("setStaticOverlayFilters（交通ストレスレシピの追従）", ()
 
     const mapDefault = fakeMap();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setStaticOverlayFilters(mapDefault as any, withHiddenProhibited, DEFAULT_TRAFFIC_STRESS_RECIPE);
+    setStaticOverlayFilters(mapDefault as any, withHiddenProhibited, DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
     const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
 
     const customRecipe = { ...DEFAULT_TRAFFIC_STRESS_RECIPE, designation_adjustment: 3 };
     const mapCustom = fakeMap();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setStaticOverlayFilters(mapCustom as any, withHiddenProhibited, customRecipe);
+    setStaticOverlayFilters(mapCustom as any, withHiddenProhibited, customRecipe, DEFAULT_SAFETY_RECIPE);
+    const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
+
+    expect(customFilter).toEqual(defaultFilter);
+  });
+});
+
+// 安全度も交通ストレスと同じ理由でレシピに追従する（改善計画: 安全度レシピ）。
+describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
+  it("safetyレイヤーのフィルタは渡したレシピに追従する", () => {
+    const customRecipe = {
+      ...DEFAULT_SAFETY_RECIPE,
+      base_by_highway: { ...DEFAULT_SAFETY_RECIPE.base_by_highway, secondary: 1 },
+    };
+    const withHiddenLevel1 = hiddenKeys({ safety: ["1"] });
+
+    const mapDefault = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(mapDefault as any, withHiddenLevel1, DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
+    const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === SAFETY_LAYER_ID)!.filter;
+
+    const mapCustom = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(mapCustom as any, withHiddenLevel1, DEFAULT_TRAFFIC_STRESS_RECIPE, customRecipe);
+    const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === SAFETY_LAYER_ID)!.filter;
+
+    // 既定レシピ（secondary=3）で「レベル1を隠す」フィルタは、highway=secondaryを通す
+    // （secondaryはレベル1ではないため）。customRecipe（secondary=1）では同じ
+    // 「レベル1を隠す」フィルタが、highway=secondaryを弾く（secondaryがレベル1になったため）。
+    expect(evaluateFilter(defaultFilter, { highway: "secondary" })).toBe(true);
+    expect(evaluateFilter(customFilter, { highway: "secondary" })).toBe(false);
+  });
+
+  it("safety以外の軸（bicycleInfra等）は安全度レシピに影響されない", () => {
+    const withHiddenProhibited = hiddenKeys({ bicycleInfra: ["prohibited"] });
+
+    const mapDefault = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(mapDefault as any, withHiddenProhibited, DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
+    const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
+
+    const customRecipe = { ...DEFAULT_SAFETY_RECIPE, designation_adjustment: 3 };
+    const mapCustom = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(mapCustom as any, withHiddenProhibited, DEFAULT_TRAFFIC_STRESS_RECIPE, customRecipe);
     const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
 
     expect(customFilter).toEqual(defaultFilter);

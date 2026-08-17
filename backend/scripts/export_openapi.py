@@ -19,6 +19,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
+from app.domain.safety import (  # noqa: E402
+    DEFAULT_SAFETY_RECIPE,
+    SafetyRecipe,
+    safety_level,
+    safety_tile_ingredients,
+)
 from app.domain.traffic import (  # noqa: E402
     DEFAULT_TRAFFIC_STRESS_RECIPE,
     TrafficStressRecipe,
@@ -40,6 +46,8 @@ SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 TRAFFIC_STRESS_RECIPE_PATH = GENERATED_DIR / "traffic-stress-recipe.json"
 TRAFFIC_STRESS_TEST_CASES_PATH = GENERATED_DIR / "traffic-stress-test-cases.json"
+SAFETY_RECIPE_PATH = GENERATED_DIR / "safety-recipe.json"
+SAFETY_TEST_CASES_PATH = GENERATED_DIR / "safety-test-cases.json"
 
 # 交通ストレスのPython実装（domain/traffic.py: traffic_stress_level）とフロント実装
 # （trafficStressExpression.ts）の相互検証用フィクスチャ（改善計画: 交通ストレスレシピ
@@ -97,6 +105,60 @@ def _traffic_stress_test_cases() -> list[dict[str, object]]:
     return cases
 
 
+# 安全度のPython実装（domain/safety.py: safety_level）とフロント実装（safetyExpression.ts）の
+# 相互検証用フィクスチャ（改善計画: 安全度レシピ）。_TRAFFIC_STRESS_TEST_CASESと同じ構成方針
+# だが、材料タグはshoulder/lit/tunnel（交通ストレスには無い）を含み、lanes_lowケースは
+# 安全度レシピが未採用のため含めない。
+_SAFETY_TEST_CASES: list[tuple[str | None, dict[str, str], bool, dict[str, object] | None]] = [
+    ("cycleway", {}, False, None),
+    ("residential", {}, False, None),
+    ("tertiary", {}, False, None),
+    ("secondary", {}, False, None),
+    ("primary", {}, False, None),
+    ("trunk", {}, False, None),
+    ("motorway", {}, False, None),  # 判定基準に未登録→None
+    (None, {}, False, None),  # highway自体が無い→None
+    ("primary", {"motor_vehicle": "no"}, False, None),  # 固定1（他の補正より優先）
+    ("primary", {"cycleway": "track"}, False, None),
+    ("primary", {"cycleway": "lane"}, False, None),
+    ("primary", {"cycleway": "shared_lane"}, False, None),
+    ("primary", {"maxspeed": "30"}, False, None),
+    ("tertiary", {"maxspeed": "60"}, False, None),
+    ("tertiary", {"lanes": "4"}, False, None),
+    ("primary", {"lanes": "0"}, False, None),  # 無効値（0以下は無視）
+    ("primary", {"maxspeed": "0"}, False, None),  # 無効値（0以下は無視）
+    ("secondary", {"shoulder": "yes"}, False, None),
+    ("secondary", {"lit": "yes"}, False, None),
+    ("secondary", {"tunnel": "yes"}, False, None),
+    ("secondary", {"shoulder": "yes", "lit": "yes", "tunnel": "yes"}, False, None),
+    ("cycleway", {"cycleway": "track", "maxspeed": "20"}, False, None),  # 下限1でクランプ
+    ("primary", {"maxspeed": "80", "lanes": "6", "tunnel": "yes"}, False, None),  # 上限4でクランプ
+    ("residential", {}, True, None),  # 指定路線+1
+    ("primary", {"motor_vehicle": "no"}, True, None),  # 指定路線+motor_vehicle=noは1固定
+    # レシピ上書き（研究モード相当）でも一致することを確認する。
+    (
+        "secondary",
+        {},
+        False,
+        {**DEFAULT_SAFETY_RECIPE.model_dump(), "base_by_highway": {"secondary": 2}},
+    ),
+]
+
+
+def _safety_test_cases() -> list[dict[str, object]]:
+    cases = []
+    for highway, tags, is_designated, recipe_override in _SAFETY_TEST_CASES:
+        recipe = SafetyRecipe(**recipe_override) if recipe_override else None
+        cases.append(
+            {
+                "properties": safety_tile_ingredients(highway, tags, is_designated),
+                "recipe": recipe_override,
+                "expected_level": safety_level(highway, tags, is_designated, recipe),
+            }
+        )
+    return cases
+
+
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
     # indent固定・末尾改行あり: 再生成のdiffが内容の変化だけを反映するようにする。
@@ -144,6 +206,10 @@ def main() -> None:
     # 書き出すため、traffic_stress_breakdownのロジックが変わればこのJSONも追従し、
     # JS側のミラー実装が古いままなら再生成後にテストが落ちる）。
     _write_json(TRAFFIC_STRESS_TEST_CASES_PATH, _traffic_stress_test_cases())
+    # 安全度の既定レシピ・相互検証フィクスチャ（domain/safety.py: SafetyRecipe）。
+    # 交通ストレスと同じ理由・同じ仕組み（safetyExpression.test.tsがドリフト検知）。
+    _write_json(SAFETY_RECIPE_PATH, DEFAULT_SAFETY_RECIPE.model_dump())
+    _write_json(SAFETY_TEST_CASES_PATH, _safety_test_cases())
 
 
 if __name__ == "__main__":

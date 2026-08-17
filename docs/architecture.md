@@ -249,10 +249,11 @@ RideCompass/
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
         traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/traffic_stress_level（highway,tags,is_designated）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）
-        accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, distance_weighted_accident_density（7章参照）
+        accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/TRAFFIC_STRESS_DESIGNATION_KINDS（7章参照）
-        evaluation.py                  ✅ RoutePreference（8軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加
-        difficulty.py                    ✅ AxisDifficulties（8軸）, evaluate_axis_difficulties, accident_difficulty等の軸別difficulty関数（Step9で標高/風/路面のみ導入、P1/T50で8軸へ拡張。7章参照）
+        safety.py                        ✅ 改善計画: 安全度レシピ: SafetyRecipe/DEFAULT_SAFETY_RECIPE, safety_breakdown/safety_level/safety_tile_ingredients（7章参照）
+        evaluation.py                  ✅ RoutePreference（9軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加
+        difficulty.py                    ✅ AxisDifficulties（9軸）, evaluate_axis_difficulties, accident_difficulty/safety_difficulty等の軸別difficulty関数（Step9で標高/風/路面のみ導入、P1/T50/安全度レシピで9軸へ拡張。7章参照）
         routing.py                     ✅ build_networkx_graph, find_nearest_node, shortest_path_node_ids, path_to_edge_ids, concat_node_paths（「完全移行」で新規。Route Engine、NetworkXのDijkstraをラップ）
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
@@ -451,13 +452,15 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
 { ...上記に加えて,
   "scoring_weights": { "distance_weight":0.1, "elevation_weight":0.2, "wind_weight":0.3, "road_weight":0.4 },
   "route_preference": { "elevation_weight":0.5, "road_weight":0.25, "wind_weight":0.25 },
-  "traffic_stress_recipe": { "base_by_highway": {"primary":4, ...}, "cycleway_track_adjustment":-2, ... } }
-  # 省略時はscoring.yaml / route_preference.yaml / traffic_stress_recipe.yamlの既定値。指定する場合は
-  # 全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ、traffic_stress_recipeも同様）。
+  "traffic_stress_recipe": { "base_by_highway": {"primary":4, ...}, "cycleway_track_adjustment":-2, ... },
+  "safety_recipe": { "base_by_highway": {"primary":4, ...}, "shoulder_adjustment":-1, ... } }
+  # 省略時はscoring.yaml / route_preference.yaml / traffic_stress_recipe.yaml / safety_recipe.yamlの
+  # 既定値。指定する場合は全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ、
+  # traffic_stress_recipe/safety_recipeも同様）。
   # 重みは有効指標の重み和で正規化されるため合計1.0でなくてよい。scoring_weightsを全て0にすると
-  # total_score=nullになる（RouteScorer参照）。traffic_stress_recipeは交通ストレス軸の中身
-  # （一次情報→二次情報の変換式、交通ストレスレシピ外出し基盤）の上書きで、route_preferenceの
-  # traffic_weight（軸間の重み）とは別階層（7章参照）
+  # total_score=nullになる（RouteScorer参照）。traffic_stress_recipe/safety_recipeはそれぞれの軸の
+  # 中身（一次情報→二次情報の変換式）の上書きで、route_preferenceのtraffic_weight/safety_weight
+  # （軸間の重み）とは別階層（7章参照）
 Response 200:
 {
   "routes": [
@@ -519,14 +522,17 @@ Response 429（同一クライアントIPから1分あたり60リクエスト（
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
-  highway/surface/smoothness/tunnel/bridge/`bicycle_infra`/`designation`/`osm_way_id`、および交通ストレスの
-  材料タグ`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`
-  （P0/P1/T51/T74/T90/交通ストレスレシピ外出し基盤、現行タイル世代v9。7章参照）プロパティを持つ。
-  交通ストレスの最終値（1-5）はタイルへ焼き込まず、フロントエンド
-  （`trafficStressExpression.ts`、MapLibre expression）とルート採点（`domain/traffic.py:
-  traffic_stress_breakdown`）がそれぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
-  区間クリック時の交通ストレス内訳取得（`POST /api/region/traffic-stress-breakdown`）がクリックされた
-  フィーチャーを曖昧さ無く引き直すための識別子（T90）
+  highway/surface/smoothness/tunnel/bridge/`bicycle_infra`/`designation`/`osm_way_id`、および交通ストレス・
+  安全度が共有する材料タグ`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`と、
+  安全度のみが使う`shoulder`/`lit`
+  （P0/P1/T51/T74/T90/交通ストレスレシピ外出し基盤/安全度レシピ、現行タイル世代v10。7章参照）プロパティを持つ。
+  交通ストレスの最終値（1-5）・安全度の最終値（1-4、段階数は独立）はタイルへ焼き込まず、
+  フロントエンド（`trafficStressExpression.ts`/`safetyExpression.ts`、MapLibre expression）と
+  ルート採点（`domain/traffic.py: traffic_stress_breakdown`/`domain/safety.py:
+  safety_breakdown`）がそれぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
+  区間クリック時の交通ストレス内訳取得（`POST /api/region/traffic-stress-breakdown`）・
+  安全度内訳取得（`POST /api/region/safety-breakdown`）がクリックされたフィーチャーを
+  曖昧さ無く引き直すための識別子（T90、安全度レシピ）
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
 Response 400（x/yがそのズームレベルで存在しうる範囲 `0 <= x,y < 2**z` を外れる場合。直接APIを叩かれた場合の安全弁で、通常はMapLibreが範囲外のタイルを要求しないため到達しない）:
@@ -548,6 +554,13 @@ Request: `{ "osm_way_id": number, "traffic_stress_recipe"?: TrafficStressRecipeO
   GETでなくPOST+JSONボディなのは、レシピ上書きという複雑なオブジェクトをクエリパラメータで
   渡すのが不自然なため（交通ストレスレシピ外出し基盤、`/api/routes/generate`と同じ形に統一）
 Response 200: `TrafficStressBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adjustment`/`lanes_adjustment`/`designation_adjustment`/`motor_vehicle_no_override`/`level`）。該当wayが存在しない・highwayが判定基準に未登録・DBなし構成の場合はnullまたはlevel=null
+Response 422（osm_way_idが整数でない場合）
+Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
+
+POST /api/region/safety-breakdown   # 安全度の区間別判定内訳（改善計画: 安全度レシピ）。region_traffic_stress_breakdownと完全に同じ構造
+Request: `{ "osm_way_id": number, "safety_recipe"?: SafetyRecipeOverride }`。
+  `safety_recipe`省略時は既定レシピ（`domain/safety.py: DEFAULT_SAFETY_RECIPE`）
+Response 200: `SafetyBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adjustment`/`lanes_adjustment`/`shoulder_adjustment`/`lit_adjustment`/`tunnel_adjustment`/`designation_adjustment`/`motor_vehicle_no_override`/`level`）。該当wayが存在しない・highwayが判定基準に未登録・DBなし構成の場合はnullまたはlevel=null
 Response 422（osm_way_idが整数でない場合）
 Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
 
@@ -651,6 +664,7 @@ interface RouteSegmentDetail {
   wind_penalty: number | null;
   road_surface_good: boolean | null;
   traffic_stress: number | null;      // 1-5、P1残り（生値）
+  safety: number | null;              // 1-4、改善計画: 安全度レシピ（生値、9軸目。段階数は交通ストレスと独立）
   bicycle_infra: string | null;       // 分類の生値、P1残り
   elevation_difficulty: number | null;
   wind_difficulty: number | null;
@@ -660,7 +674,8 @@ interface RouteSegmentDetail {
   infra_difficulty: number | null;        // P1残り
   intersection_difficulty: number | null; // P1残り
   accident_difficulty: number | null;     // T50（8軸目）
-  difficulty: number | null;              // 8軸の合成値（絶対基準0-100）
+  safety_difficulty: number | null;       // 改善計画: 安全度レシピ（9軸目）
+  difficulty: number | null;              // 9軸の合成値（絶対基準0-100）
 }
 
 interface RouteScoreComponent {   // total_scoreの軸別内訳（研究IF改善 §10-2）
@@ -686,6 +701,7 @@ interface RouteCandidate {
   bicycle_infra_score: number | null;   // 専用インフラ区間率(%)、P1残り
   intersection_density: number | null;  // 回/km、P1残り
   accident_density: number | null;      // 件/(km・年)、T50（8軸目）
+  safety_score: number | null;          // 距離加重平均(1-4)、改善計画: 安全度レシピ（9軸目）
   total_score: number | null;
   score_breakdown: RouteScoreComponent[] | null;
   segments: RouteSegmentDetail[] | null;
@@ -701,6 +717,7 @@ interface RouteGenerateRequest {
   scoring_weights?: ScoringWeights;          // 評価重みの上書き（研究用・省略可、§10-1）
   route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み）
   traffic_stress_recipe?: TrafficStressRecipeOverride; // 同上（交通ストレス軸の中身、7章参照）
+  safety_recipe?: SafetyRecipeOverride;      // 同上（安全度軸の中身、7章参照）
 }
 
 interface WeatherConditions {
@@ -722,17 +739,18 @@ interface WeatherConditions {
 
 ---
 
-## 7. 静的道路属性と8軸評価モデル（P0/P1、外部静的データソースT50/T51）
+## 7. 静的道路属性と9軸評価モデル（P0/P1、外部静的データソースT50/T51、安全度レシピ）
 
 Step8時点の評価（距離・標高・風・路面の4指標）に加え、OSMタグ・警察庁事故統計・国土数値情報
-（KSJ）を材料とした4指標を追加し、区間難易度（`route_preference.yaml`）・地図の静的レイヤーの
+（KSJ）を材料とした5指標を追加し、区間難易度（`route_preference.yaml`）・地図の静的レイヤーの
 両方に反映した（`static-road-attributes-plan.md` P0/P1、
-[external-data-sources-review-2026-08-16.md](external-data-sources-review-2026-08-16.md)）。
-scoring.yaml（total_score）には含めない（stop_weightと同じスコープ判断、後述）。
+[external-data-sources-review-2026-08-16.md](external-data-sources-review-2026-08-16.md)、
+改善計画: 安全度レシピ）。scoring.yaml（total_score）には含めない（stop_weightと同じ
+スコープ判断、後述）。
 
-### 8軸の一覧と重み
+### 9軸の一覧と重み
 
-`domain/difficulty.py: evaluate_axis_difficulties`が8軸の生値と重みから軸別difficulty・
+`domain/difficulty.py: evaluate_axis_difficulties`が9軸の生値と重みから軸別difficulty・
 合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する。重みは
 [backend/app/route_preference.yaml](../backend/app/route_preference.yaml)：
 
@@ -746,9 +764,10 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
 | 自転車インフラ | `infra_weight` | 0.10 | 分類（6値） | P1（`domain/traffic.py: classify_bicycle_infrastructure`） |
 | 交差点密度 | `intersection_weight` | 0.05 | 回/km | P1（次数3以上のroad_node） |
 | 事故密度 | `accident_weight` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
+| 安全度 | `safety_weight` | 0.10 | 1-4 | 改善計画: 安全度レシピ（`domain/safety.py: safety_level`） |
 
-`scoring.yaml`（total_score・候補集合内相対評価）にはこの8軸のうち距離・標高・風・路面の
-4指標のみ残す（区間難易度と違い、停止密度以降の4指標は候補間の「おすすめ度」の並び順には
+`scoring.yaml`（total_score・候補集合内相対評価）にはこの9軸のうち距離・標高・風・路面の
+4指標のみ残す（区間難易度と違い、停止密度以降の5指標は候補間の「おすすめ度」の並び順には
 効かせない、というユーザー承認済みのスコープ判断。P1着手時に決定）。**軸を追加するときは
 必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
 → domain純関数 → `evaluate_axis_difficulties`への追加 → `route_preference.yaml` →
@@ -802,6 +821,34 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 （highway・surface同様プロパティとして焼き込み。交通ストレス・自転車インフラ）と、点データの
 `poi-tiles`（停止要因・交差点密度、後述）で提供する。
 
+### 安全度（改善計画: 安全度レシピ、9軸目）
+
+交通ストレス（走りにくさ・主観的な快適性）とは別概念として、事故・怪我リスクの客観的な
+目安を表す軸を新設した。`safety_breakdown(highway, tags, is_designated, recipe)`
+（`domain/safety.py`）が交通ストレスと完全に同じ構造（highway基本値＋タグ由来の閾値・
+補正、`recipe`省略時は既定レシピ`DEFAULT_SAFETY_RECIPE`/`safety_recipe.yaml`と同値、
+研究モードで`/api/routes/generate`から上書き可能、地図表示は最終値をタイルへ焼き込まず
+材料タグだけ焼き込んで`frontend/src/components/Map/safetyExpression.ts`が同じレシピを
+MapLibre expressionとして再現）で1-4の整数を返す。cycleway分類・maxspeed・lanes・
+designation該当は交通ストレスと同じ材料タグを共有するが、`base_by_highway`の数値セット自体は
+独立（同じhighway集合でも快適性と安全性は異なる概念のため、値を共有すると「安全度を調整した
+つもりが交通ストレスも変わる」事故を招く）。安全度のみが持つ追加補正: 路肩あり
+（`shoulder_adjustment`）・街灯あり（`lit_adjustment`）・トンネル（`tunnel_adjustment`）。
+安全度はlanes_high（多車線＝リスク増）のみ採用し、交通ストレスにあるlanes_low（少車線）は
+採用しない（少車線が安全側かは研究上見解が分かれるため）。
+
+事故密度（後述、警察庁統計）は意図的にこのレシピへ組み込まない。事故密度は特定のOSMタグから
+決まる「材料」ではなく空間統計であり、既存の`accident_weight`軸が既にその役割を持つため、
+二重計上を避けて別軸のまま独立させている（ユーザー承認済み）。
+
+**調整UI**: `frontend/src/components/SafetyRecipePanel/SafetyRecipePanel.tsx`が
+`TrafficStressRecipePanel.tsx`と同じ構造・同じ独立トグルの理由で全項目を編集できる。
+基準値ピッカー・補正値ステッパー・情報アイコン開閉ボタンは、2つ目のレシピ登場を機に
+`frontend/src/components/Map/recipeControls.tsx`（`LevelPicker`/`AdjustmentStepper`/
+`FieldLabel`、色パレット・段階配列を引数化）へ共通化し、`TrafficStressRecipePanel.tsx`も
+そちらを使うよう移行した。研究タブでは「レシピ」カテゴリの見出し下に交通ストレスレシピの
+直後に並ぶ（改善計画: 研究パラメータの導線改善で設計した、複数レシピを想定した`<div>`）。
+
 ### 事故密度（T50、警察庁交通事故統計オープンデータ）
 
 `app/batch/import_accidents.py`が本票CSV（年度別、`backend/data/accidents/`、ユーザーが
@@ -814,6 +861,14 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 `AttributeRepository.get_accident_years_covered`（`accident_import_runs`のsucceeded run数、
 年重複なし）でハードコードせず動的取得する。地図表示は`GET /api/region/accident-tiles`
 （後述、`AccidentService`/`AccidentTileQuery`）。
+
+改善計画（事故密度の精度改善、既定挙動として反映）: `get_accident_counts`/
+`get_nearest_accident_counts`（`road_graph_repository.py`）の`bicycle_only`既定値を
+`False`→`True`へ変更した（自転車ルート案内アプリで自動車同士のみの事故まで数えていたのは
+実質バグに近いという判断）。あわせて単純COUNTから死亡事故を`ACCIDENT_FATAL_WEIGHT`
+（`domain/accident.py`、暫定値3.0）件分として積算するSUMへ変更し、戻り値がint→floatに
+なった。`GraphService.get_accident_counts`に欠けていた`bicycle_only`引数も追加し、
+road_graph_engine経由のルート生成にも既定値変更が実際に反映されるようにした。
 
 ### 指定路線コンフレーション機構（T51、国土数値情報 N10/N12）
 
@@ -843,11 +898,12 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 `critical_logistics`/両方該当時は`both`/未該当はプロパティ欠落、`designation_attributes`を
 osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。
 
-### 静的レイヤー・タイル配信（フロント8レイヤー）
+### 静的レイヤー・タイル配信（フロント9レイヤー）
 
 [frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の
-`MAP_LAYERS`カタログは標高図・道路情報・交通ストレス・自転車インフラ・指定路線・停止要因・
-事故（警察庁統計）・ルートの8レイヤー。交差点密度（次数3以上のroad_node）はバックエンドの
+`MAP_LAYERS`カタログは標高図・道路情報・交通ストレス・安全度・自転車インフラ・指定路線・
+停止要因・事故（警察庁統計）・ルートの9レイヤー。交差点密度（次数3以上のroad_node）は
+バックエンドの
 `poi-tiles`が引き続き焼き込むが、道路網を見れば概ね自明という判断（改善計画T96）により
 地図上の独立可視化レイヤーとしては提供しない（`intersection_weight`のルーティング材料
 としては引き続き使う）。色分け・凡例・絞り込み軸の定義は
@@ -857,14 +913,17 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 タイル配信は3系統:
 
 1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
-   smoothness・tunnel・bridgeに加え、`bicycle_infra`・`designation`・交通ストレスの材料タグ
-   （`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）をLineString地物へ追加
-   （P1・T51で拡張）。世代v2=surface/highway追加、v3=surface正準拡充、v4=P0静的属性追加、
-   v5=T51 designationプロパティ追加、v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
+   smoothness・tunnel・bridgeに加え、`bicycle_infra`・`designation`・交通ストレス/安全度の
+   材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`/`shoulder`/`lit`）を
+   LineString地物へ追加（P1・T51・安全度レシピで拡張）。世代v2=surface/highway追加、
+   v3=surface正準拡充、v4=P0静的属性追加、v5=T51 designationプロパティ追加、
+   v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
    v7=T90 osm_way_idプロパティ追加（区間クリック時の交通ストレス内訳取得の識別子）、
    v8=T93（統合レビュー2026-08-17 F-1、T92のtraffic_stress判定ロジック変更の世代対上げ漏れ修正）、
-   **v9=交通ストレスレシピ外出し基盤。計算済みの`traffic_stress`最終値プロパティを廃止し、
-   材料タグへ差し替え（最終値の計算はフロントエンドのMapLibre expressionへ移した）**（現行）。
+   v9=交通ストレスレシピ外出し基盤。計算済みの`traffic_stress`最終値プロパティを廃止し、
+   材料タグへ差し替え（最終値の計算はフロントエンドのMapLibre expressionへ移した）、
+   **v10=安全度レシピ。安全度の材料タグ`shoulder`/`lit`を追加（tunnelは既存プロパティを
+   再利用）**（現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
    停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。

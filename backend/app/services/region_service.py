@@ -6,6 +6,7 @@ import httpx
 
 from app.config import settings
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
+from app.domain.safety import SafetyBreakdown, SafetyRecipe, safety_breakdown
 from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe, traffic_stress_breakdown
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
@@ -96,6 +97,10 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
 # （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
 # regionApi.test.tsの照合テストがドリフトを検知する）。
+# v10: 安全度レシピ。安全度の材料タグ（`shoulder`/`lit`、tunnelは既存プロパティを再利用）を
+# 追加した世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
+# v9と同じくプロパティ追加のみ（削除は伴わない）だが、キャッシュ済み旧タイルには
+# shoulder/litキーが無く安全度レイヤーが不完全表示になるため世代を上げる。
 # v9: 交通ストレスレシピ外出し基盤。計算済みの`traffic_stress`最終値プロパティを廃止し、
 # 材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）へ差し替えた
 # 世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
@@ -118,7 +123,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "9"
+ROAD_SURFACE_TILE_VERSION = "10"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
@@ -317,3 +322,28 @@ class RegionService:
             fields["lookup"] = "ok"
             highway, tags, is_designated = result
             return traffic_stress_breakdown(highway, tags, is_designated, recipe)
+
+    async def get_safety_breakdown(
+        self, osm_way_id: int, recipe: SafetyRecipe | None = None
+    ) -> SafetyBreakdown | None:
+        """クリックされた道路（osm_way_id）の安全度判定内訳を返す（改善計画: 安全度レシピ）。
+        get_traffic_stress_breakdownと完全に同じ構造（空間マッチではなくosm_way_id完全一致で
+        引く理由・DB例外の扱い等は同メソッドのdocstring参照）。
+        """
+        if self._repository is None:
+            return None
+        with log_external_call("region:safety-breakdown", osm_way_id=osm_way_id) as fields:
+            try:
+                result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
+                fields["lookup"] = "error"
+                logger.warning(
+                    "安全度内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc
+                )
+                return None
+            if result is None:
+                fields["lookup"] = "not_found"
+                return None
+            fields["lookup"] = "ok"
+            highway, tags, is_designated = result
+            return safety_breakdown(highway, tags, is_designated, recipe)

@@ -361,6 +361,53 @@
         }
       }
     },
+    "/api/region/safety-breakdown": {
+      "post": {
+        "summary": "Region Safety Breakdown",
+        "description": "安全度の判定内訳（改善計画: 安全度レシピ）。region_traffic_stress_breakdownと\n完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの\ndocstring参照）。",
+        "operationId": "region_safety_breakdown_api_region_safety_breakdown_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SafetyBreakdownRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SafetyBreakdown"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Region Safety Breakdown Api Region Safety Breakdown Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Accident Tile",
@@ -527,6 +574,9 @@
           "traffic_stress_recipe": {
             "$ref": "#/components/schemas/TrafficStressRecipeOverride"
           },
+          "safety_recipe": {
+            "$ref": "#/components/schemas/SafetyRecipeOverride"
+          },
           "generated_at": {
             "type": "string",
             "title": "Generated At"
@@ -541,6 +591,7 @@
           "scoring_weights",
           "route_preference",
           "traffic_stress_recipe",
+          "safety_recipe",
           "generated_at"
         ],
         "title": "GenerationConditions",
@@ -699,6 +750,17 @@
             ],
             "title": "Accident Density"
           },
+          "safety_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safety Score"
+          },
           "total_score": {
             "anyOf": [
               {
@@ -758,7 +820,7 @@
           "geometry"
         ],
         "title": "RouteCandidate",
-        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、\n静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷\n合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。\n\n`traffic_stress_score`: ルート全体の交通ストレス（1-5）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。\n`bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)\n（domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。\n`intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。\nいずれも静的道路属性P1残り。\n\n`accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。\ndomain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷\n合計distance_km」に収録年数での正規化を加えた集約）。"
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、\n静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷\n合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。\n\n`traffic_stress_score`: ルート全体の交通ストレス（1-5）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。\n`bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)\n（domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。\n`intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。\nいずれも静的道路属性P1残り。\n\n`accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。\ndomain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷\n合計distance_km」に収録年数での正規化を加えた集約）。\n\n`safety_score`: ルート全体の安全度（1-4）の距離加重平均（改善計画: 安全度レシピ、\ndomain/difficulty.py: distance_weighted_difficulty、traffic_stress_scoreと同じ集約方法）。"
       },
       "RouteGenerateRequest": {
         "properties": {
@@ -817,6 +879,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/TrafficStressRecipeOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "safety_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SafetyRecipeOverride"
               },
               {
                 "type": "null"
@@ -898,6 +970,11 @@
             "type": "number",
             "minimum": 0.0,
             "title": "Accident Weight"
+          },
+          "safety_weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Safety Weight"
           }
         },
         "type": "object",
@@ -909,7 +986,8 @@
           "traffic_weight",
           "infra_weight",
           "intersection_weight",
-          "accident_weight"
+          "accident_weight",
+          "safety_weight"
         ],
         "title": "RoutePreferenceWeights",
         "description": "Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。\nキーはroute_preference.yamlと同じ。\n\ndomain/evaluation.pyのRoutePreferenceと同形だが、API境界では「フィールド省略時に\nクラス既定値が黙って入る」ことを避けるため、全フィールド必須の別モデルにしている\n（上書きするなら全軸を明示する）。"
@@ -1099,6 +1177,17 @@
             ],
             "title": "Bicycle Infra"
           },
+          "safety": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safety"
+          },
           "elevation_difficulty": {
             "anyOf": [
               {
@@ -1187,6 +1276,17 @@
             ],
             "title": "Accident Difficulty"
           },
+          "safety_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safety Difficulty"
+          },
           "difficulty": {
             "anyOf": [
               {
@@ -1210,6 +1310,184 @@
         ],
         "title": "RouteSegmentDetail",
         "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負）。\n両エンジン共通（openrouteservice: 区間標高差から算出 / road_graph:\nElevationAttribute.average_grade）。フロントの勾配色分け（routeStyleModes.ts）は\nこの符号を前提に「下り」カテゴリを持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
+      },
+      "SafetyBreakdown": {
+        "properties": {
+          "base": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base"
+          },
+          "cycleway_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Adjustment"
+          },
+          "maxspeed_adjustment": {
+            "type": "integer",
+            "title": "Maxspeed Adjustment"
+          },
+          "lanes_adjustment": {
+            "type": "integer",
+            "title": "Lanes Adjustment"
+          },
+          "shoulder_adjustment": {
+            "type": "integer",
+            "title": "Shoulder Adjustment"
+          },
+          "lit_adjustment": {
+            "type": "integer",
+            "title": "Lit Adjustment"
+          },
+          "tunnel_adjustment": {
+            "type": "integer",
+            "title": "Tunnel Adjustment"
+          },
+          "designation_adjustment": {
+            "type": "integer",
+            "title": "Designation Adjustment"
+          },
+          "motor_vehicle_no_override": {
+            "type": "boolean",
+            "title": "Motor Vehicle No Override"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base",
+          "cycleway_adjustment",
+          "maxspeed_adjustment",
+          "lanes_adjustment",
+          "shoulder_adjustment",
+          "lit_adjustment",
+          "tunnel_adjustment",
+          "designation_adjustment",
+          "motor_vehicle_no_override",
+          "level"
+        ],
+        "title": "SafetyBreakdown",
+        "description": "`safety_level`の判定内訳（domain/traffic.py: TrafficStressBreakdownと同じ役割・\n同じ形）。地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データ。\nhighwayが判定基準（`SAFETY_BASE_BY_HIGHWAY`）に登録されていない場合は`base`/`level`\nともNoneで、他の補正フィールドは0/False。"
+      },
+      "SafetyBreakdownRequest": {
+        "properties": {
+          "osm_way_id": {
+            "type": "integer",
+            "title": "Osm Way Id"
+          },
+          "safety_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SafetyRecipeOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "osm_way_id"
+        ],
+        "title": "SafetyBreakdownRequest"
+      },
+      "SafetyRecipeOverride": {
+        "properties": {
+          "base_by_highway": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Base By Highway"
+          },
+          "cycleway_track_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Track Adjustment"
+          },
+          "cycleway_lane_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Lane Adjustment"
+          },
+          "cycleway_shared_adjustment": {
+            "type": "integer",
+            "title": "Cycleway Shared Adjustment"
+          },
+          "maxspeed_low_threshold": {
+            "type": "integer",
+            "title": "Maxspeed Low Threshold"
+          },
+          "maxspeed_low_adjustment": {
+            "type": "integer",
+            "title": "Maxspeed Low Adjustment"
+          },
+          "maxspeed_high_threshold": {
+            "type": "integer",
+            "title": "Maxspeed High Threshold"
+          },
+          "maxspeed_high_adjustment": {
+            "type": "integer",
+            "title": "Maxspeed High Adjustment"
+          },
+          "lanes_high_threshold": {
+            "type": "integer",
+            "title": "Lanes High Threshold"
+          },
+          "lanes_high_adjustment": {
+            "type": "integer",
+            "title": "Lanes High Adjustment"
+          },
+          "shoulder_adjustment": {
+            "type": "integer",
+            "title": "Shoulder Adjustment"
+          },
+          "lit_adjustment": {
+            "type": "integer",
+            "title": "Lit Adjustment"
+          },
+          "tunnel_adjustment": {
+            "type": "integer",
+            "title": "Tunnel Adjustment"
+          },
+          "designation_adjustment": {
+            "type": "integer",
+            "title": "Designation Adjustment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_by_highway",
+          "cycleway_track_adjustment",
+          "cycleway_lane_adjustment",
+          "cycleway_shared_adjustment",
+          "maxspeed_low_threshold",
+          "maxspeed_low_adjustment",
+          "maxspeed_high_threshold",
+          "maxspeed_high_adjustment",
+          "lanes_high_threshold",
+          "lanes_high_adjustment",
+          "shoulder_adjustment",
+          "lit_adjustment",
+          "tunnel_adjustment",
+          "designation_adjustment"
+        ],
+        "title": "SafetyRecipeOverride",
+        "description": "安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。\nキーはdomain/safety.py: SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ\n「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。\n\n交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの\ndocstring参照）・shoulder/lit/tunnel（安全度のみ採用）で項目が異なる点に注意。"
       },
       "ScoringWeights": {
         "properties": {

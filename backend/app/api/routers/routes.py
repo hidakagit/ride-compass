@@ -15,6 +15,7 @@ from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
+from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
@@ -81,6 +82,7 @@ class RoutePreferenceWeights(BaseModel):
     infra_weight: float = Field(ge=0)
     intersection_weight: float = Field(ge=0)
     accident_weight: float = Field(ge=0)
+    safety_weight: float = Field(ge=0)
 
 
 class TrafficStressRecipeOverride(BaseModel):
@@ -107,6 +109,31 @@ class TrafficStressRecipeOverride(BaseModel):
     designation_adjustment: int
 
 
+class SafetyRecipeOverride(BaseModel):
+    """安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
+    キーはdomain/safety.py: SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ
+    「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
+
+    交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの
+    docstring参照）・shoulder/lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
+    """
+
+    base_by_highway: dict[str, int]
+    cycleway_track_adjustment: int
+    cycleway_lane_adjustment: int
+    cycleway_shared_adjustment: int
+    maxspeed_low_threshold: int
+    maxspeed_low_adjustment: int
+    maxspeed_high_threshold: int
+    maxspeed_high_adjustment: int
+    lanes_high_threshold: int
+    lanes_high_adjustment: int
+    shoulder_adjustment: int
+    lit_adjustment: int
+    tunnel_adjustment: int
+    designation_adjustment: int
+
+
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -122,6 +149,7 @@ class RouteGenerateRequest(BaseModel):
     scoring_weights: ScoringWeights | None = None
     route_preference: RoutePreferenceWeights | None = None
     traffic_stress_recipe: TrafficStressRecipeOverride | None = None
+    safety_recipe: SafetyRecipeOverride | None = None
 
 
 class GenerationConditions(BaseModel):
@@ -139,6 +167,7 @@ class GenerationConditions(BaseModel):
     scoring_weights: ScoringWeights
     route_preference: RoutePreferenceWeights
     traffic_stress_recipe: TrafficStressRecipeOverride
+    safety_recipe: SafetyRecipeOverride
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -179,7 +208,10 @@ async def generate_routes(
     traffic_stress_recipe_override = (
         TrafficStressRecipe(**request.traffic_stress_recipe.model_dump()) if request.traffic_stress_recipe else None
     )
-    setup = build_generation(preference_override, scoring_override, traffic_stress_recipe_override)
+    safety_recipe_override = (
+        SafetyRecipe(**request.safety_recipe.model_dump()) if request.safety_recipe else None
+    )
+    setup = build_generation(preference_override, scoring_override, traffic_stress_recipe_override, safety_recipe_override)
 
     async with _generate_semaphore:
         origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
@@ -199,6 +231,7 @@ async def generate_routes(
             scoring_weights=ScoringWeights(**setup.scoring_weights),
             route_preference=RoutePreferenceWeights(**setup.route_preference.model_dump()),
             traffic_stress_recipe=TrafficStressRecipeOverride(**setup.traffic_stress_recipe.model_dump()),
+            safety_recipe=SafetyRecipeOverride(**setup.safety_recipe.model_dump()),
             generated_at=datetime.now(JST).isoformat(),
         ),
     )

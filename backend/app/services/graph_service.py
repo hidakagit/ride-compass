@@ -175,13 +175,18 @@ class GraphService:
             return {}
         return await self._repository.get_intersection_counts(edge_ids)
 
-    async def get_accident_counts(self, edge_ids: list[str]) -> dict[str, int]:
+    async def get_accident_counts(self, edge_ids: list[str], bicycle_only: bool = True) -> dict[str, float]:
         """指定edge_idそれぞれの事故密度評価用カウント（外部静的データソース T50残作業、
-        8軸目）を返す。get_stop_poi_countsと同じ「repositoryが無ければ`{}`」パターン。
+        死亡事故重み付け込み、改善計画: 事故密度の精度改善）を返す。get_stop_poi_countsと
+        同じ「repositoryが無ければ`{}`」パターン。`bicycle_only`既定値はrepository層
+        （RoadGraphRepository.get_accident_counts）と同じTrue（自転車ルート案内で
+        自動車同士のみの事故まで数えるのを避ける、既定挙動としてユーザー承認済み）。
+        以前はこの引数自体が欠けており、repository層の既定値変更だけでは
+        road_graph_engine経由のルート生成には反映されない状態だった。
         """
         if self._repository is None:
             return {}
-        return await self._repository.get_accident_counts(edge_ids)
+        return await self._repository.get_accident_counts(edge_ids, bicycle_only=bicycle_only)
 
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数を返す。get_stop_poi_countsと同じ

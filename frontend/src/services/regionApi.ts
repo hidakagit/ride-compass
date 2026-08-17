@@ -1,5 +1,5 @@
-import type { TrafficStressBreakdown } from "@/types/traffic";
-import type { TrafficStressRecipeOverride } from "@/types/route";
+import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
+import type { SafetyRecipeOverride, TrafficStressRecipeOverride } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
@@ -13,6 +13,10 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
 // 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
 // （region_service.pyの_tile_cache_path）と対で更新すること。
+// v10: 安全度レシピ。安全度の材料タグ（shoulder/lit、tunnelは既存プロパティを再利用）を
+// 追加した（最終値の計算はsafetyExpression.tsがMapLibre expressionとして行う）。
+// v9と同じくプロパティ追加のみ（削除は伴わない）だが、キャッシュ済み旧タイルには
+// shoulder/litキーが無く安全度レイヤーが不完全表示になるため世代を上げる。
 // v9: 交通ストレスレシピ外出し基盤。計算済みのtraffic_stress最終値プロパティを廃止し、
 // 材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no）へ差し替えた
 // （最終値の計算はtrafficStressExpression.tsがMapLibre expressionとして行う）。
@@ -34,7 +38,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
 // surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-const ROAD_SURFACE_TILE_VERSION = "9";
+const ROAD_SURFACE_TILE_VERSION = "10";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの
@@ -113,6 +117,37 @@ export async function fetchTrafficStressBreakdown(
 
   const data: TrafficStressBreakdown | null = await response.json();
   debugLog("api:traffic-stress-breakdown", "成功", { durationMs, requestId, level: data?.level });
+  return data;
+}
+
+// 安全度の区間別判定内訳（改善計画: 安全度レシピ）。fetchTrafficStressBreakdownと完全に
+// 同じ構造・同じ理由（osm_way_id完全一致・POST+JSONボディの理由は同関数のコメント参照）。
+export async function fetchSafetyBreakdown(
+  osmWayId: number,
+  recipe?: SafetyRecipeOverride,
+): Promise<SafetyBreakdown | null> {
+  const url = `${API_BASE_URL}/api/region/safety-breakdown`;
+  const startedAt = performance.now();
+  debugLog("api:safety-breakdown", "リクエスト開始", { url, osmWayId });
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ osm_way_id: osmWayId, safety_recipe: recipe ?? null }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const durationMs = Math.round(performance.now() - startedAt);
+  const requestId = response.headers.get("x-request-id");
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    debugLog("api:safety-breakdown", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
+    const detail = formatErrorDetail(errorBody?.detail) ?? `安全度の内訳取得に失敗しました[HTTP ${response.status}]`;
+    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
+  }
+
+  const data: SafetyBreakdown | null = await response.json();
+  debugLog("api:safety-breakdown", "成功", { durationMs, requestId, level: data?.level });
   return data;
 }
 

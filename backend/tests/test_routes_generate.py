@@ -6,6 +6,7 @@ from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import RoutePreference
 from app.domain.route import RouteCandidate
+from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
 from app.infrastructure import rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
@@ -64,17 +65,22 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
     ビルダーへ渡した重み上書き（無ければNone）を記録する。"""
 
     def build(
-        preference_override=None, scoring_weights_override=None, traffic_stress_recipe_override=None
+        preference_override=None,
+        scoring_weights_override=None,
+        traffic_stress_recipe_override=None,
+        safety_recipe_override=None,
     ) -> RouteGenerationSetup:
         if captured is not None:
             captured["preference"] = preference_override
             captured["scoring"] = scoring_weights_override
             captured["traffic_stress_recipe"] = traffic_stress_recipe_override
+            captured["safety_recipe"] = safety_recipe_override
         return RouteGenerationSetup(
             generator=FakeRouteGenerator(candidates),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
             traffic_stress_recipe=traffic_stress_recipe_override or TrafficStressRecipe(),
+            safety_recipe=safety_recipe_override or SafetyRecipe(),
         )
 
     return lambda: build
@@ -149,6 +155,7 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
     route_preference = {
         "elevation_weight": 0.5, "road_weight": 0.25, "wind_weight": 0.2, "stop_weight": 0.05,
         "traffic_weight": 0.0, "infra_weight": 0.0, "intersection_weight": 0.0, "accident_weight": 0.0,
+        "safety_weight": 0.0,
     }
 
     try:
