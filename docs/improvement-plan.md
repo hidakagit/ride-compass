@@ -3227,7 +3227,7 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 
 ## テストスイート実行効率化の検討事項（2026-08-18・フロントvitestタイムアウト調査より）
 
-### - [ ] T125. frontend vitestのtestTimeoutをコールドスタート耐性のある値へ引き上げ 規模S — トリガー: 特になし（着手可）
+### - [x] T125. frontend vitestのtestTimeoutをコールドスタート耐性のある値へ引き上げ 規模S（2026-08-18完了）
 
 - 発端: ユーザー報告「SafetyRecipePanel.test.tsx/TrafficStressRecipePanel.test.tsxが
   `npm test`で5000msタイムアウトする」を受けて調査。node_modules未インストールの
@@ -3254,8 +3254,17 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
   内容確認）も合わせて調査する価値があるが、必須ではない。
 - 完了条件: `node_modules`を一度削除した状態から`npm install`→`npm test`のコールド
   実行を再現し、タイムアウトによる失敗が発生しないことを確認。frontend全件green。
-
----
+- 実装メモ（2026-08-18完了）: `vitest.config.mts`の`test`設定へ`testTimeout: 15000`を追加。
+  完了条件の「`node_modules`削除→`npm install`」は、この作業ディレクトリが複数の並行
+  セッションと共有されており他セッションの依存関係を巻き込むリスクがあるため、実測の
+  コールドスタート要因（Vite変換キャッシュ、`node_modules/.vite`）だけを削除して同等の
+  コールド状態を再現する方式に代えた。この状態で`npx vitest run`を実行し334件全green
+  （タイムアウト失敗0件）を確認。
+  - 副次的な発見: `vitest.config.mts`の`environmentMatchGlobs`（別コミットbe9fc95由来）が
+    インストール済みvitest 4.1.10の型に存在せず`npx tsc --noEmit`がエラーになる
+    （CIのtscゲートを壊している可能性）ことを発見。Vitest 4では同オプションが廃止されて
+    おり、ランタイムでも意図通り機能していない懸念があるが、T125のスコープ外のため
+    別タスクとして切り出した（spawn_task、2026-08-18）。
 
 ## 記録
 
@@ -3363,3 +3372,4 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 | 2026-08-18 | T124再検証 | 「`test_measure_axis_stats.py`の4件が`KeyError: 'shoulder_adjustment'`で失敗する」という報告を受け別worktree（`claude/mystifying-pascal-dc1cc1`、HEAD=T124と同一コミット10d71c3）で再検証。`SafetyBreakdown`（domain/safety.py）には`shoulder_adjustment`フィールドが実在し、当該4件を含む`test_measure_axis_stats.py`23件・backend全810件とも再現なくgreen。重複ファイル・stale `.pyc`も無し。ブランチはmasterと差分ゼロで修正対象コード自体が存在しなかったため、コード変更は行わずT124完了記録（backend 810件全green）が引き続き正しいことのみ確認・記録した |
 | 2026-08-18 | T122 | `backend/app/domain/recipe.py`を新設し、`clamp_level`・`threshold_adjustment`・`cycleway_adjustment`・`flag_adjustment`・`tag_value_is`・`validate_threshold_order`の共有プリミティブへtraffic.py/safety.pyを統一。`parse_lanes`/`parse_maxspeed`/`cycleway_class`等の材料タグ正規化もtraffic.pyから移設（safety.pyの間接import経由の旧構成を解消）。`threshold_adjustment`はlow/high閾値のどちらを先に判定しても`low<high`前提下では結果が同じであることを利用し、旧traffic.py（lanesはhigh優先）・旧safety.py（maxspeedはlow優先）の実装差異を1関数へ統合した。`routes.py`の`_check_threshold_order`を`validate_threshold_order`呼び出しへ1本化（T121-aの再発防止）。shoulder_adjustment（T102実測0.0%の死に補正）を`SafetyRecipe`/`SafetyBreakdown`/`SafetyRecipeOverride`/YAML/MVT SQL/`safetyExpression.ts`/`SafetyRecipePanel.tsx`から撤去し、MVTタイル世代をv10→v11へ更新。backend 839件（新規21件）・frontend 334件・eslint全green（フルスイート実行時のSafetyRecipePanel/TrafficStressRecipePanel情報アイコンテスト5件タイムアウトは分離実行で16/16green、環境リソース競合によるflakeと判断） |
 | 2026-08-18 | T123 | レシピ軸の糊のパラメータ化＋MapView閾値発火対応。`region_service.py`の内訳取得双子を`_get_breakdown`（`_get_tile`と同じ方針）へ、`region.py`の2エンドポイントを`_breakdown_response`へ統一。`regionApi.ts`のfetch双子を`BreakdownAxisConfig`渡しの1関数へ統一。新設`recipeBreakdownPopup.ts`でMapView.tsxの内訳ポップアップ双子（148行）を`adjustmentLabels`（Breakdownのフィールド名→ラベル、記述順=表示順）渡しの1実装へ集約（新しい補正フィールドが増えても本体変更不要）。新設`recipeExpression.ts`で`trafficStressExpression.ts`/`safetyExpression.ts`のMapLibre expression断片組み立て（`domain/recipe.py`のTS側ミラー）を共有化。新設`useLayerDataStatus.ts`で`computeLayerDataStatus`/`clearStaleTrackedSourceErrors`と状態管理・イベントハンドラを抽出（MapView.tsxとの循環import回避のため`LAYER_DATA_SOURCES`はMapView.tsx側に残し引数で渡す設計）。MapView.tsx 1,905→1,654行（目標1,700行未満達成）。新閾値（2,000行 or STATIC_OVERLAY_LAYERS 10種 or 3つ目のレシピ軸のMapView内ミラー追加）をdocs/complexity-review-2026-08-16.mdへ反映、3つ目のレシピ軸の追加凍結を解除。backend 839件・frontend 334件・eslint・tsc全green、Playwright実機確認（headless chromium、東京都心南部の実データ）で交通ストレス・安全度の両内訳ポップアップが最終値まで正しく表示されコンソールエラー0件を確認 |
+| 2026-08-18 | T125 | `frontend/vitest.config.mts`へ`testTimeout: 15000`を追加。vitest既定の5000msがnode_modules未インストール直後等のコールドスタート（Vite変換・jsdom環境セットアップ、実測初回6.4秒）と競合しSafetyRecipePanel/TrafficStressRecipePanel等のテストがタイムアウトで落ちる偽陽性（T121〜T123で繰り返し観測）を解消。作業ディレクトリが並行セッションと共有されておりnode_modules削除は他セッションを巻き込むリスクがあるため、完了条件の検証は`node_modules/.vite`（Vite変換キャッシュ）削除によるコールド状態再現に代えて実施し、334件全green（タイムアウト失敗0件）を確認。副次的に、同ファイルの`environmentMatchGlobs`（別コミットbe9fc95由来）がインストール済みvitest 4.1.10に存在しない設定でCIのtsc gateを壊している疑いを発見、T125のスコープ外のため別タスクとして切り出した |

@@ -10,6 +10,12 @@ export default defineConfig({
     },
   },
   test: {
+    // vitest既定のtestTimeout(5000ms)は、node_modules未インストール直後のコールドスタート
+    // （Vite変換・jsdom環境セットアップに数十秒かかりうる、改善計画T125実測: 初回のenvironment
+    // 39.56秒・transform 7.16秒）と競合し、実装は正しいのにテストがタイムアウトで落ちる偽陽性を
+    // 生む（SafetyRecipePanel.test.tsx/TrafficStressRecipePanel.test.tsxの情報アイコン開閉テスト
+    // 等で複数回再現）。コールドスタート実測（初回6.4秒）に十分な余裕を持たせた値へ引き上げる。
+    testTimeout: 15000,
     environment: "jsdom",
     // jsdom環境の構築はテストファイルごとに毎回発生し（vitestのデフォルトはファイル単位で
     // 環境を再構築する）、DOMを使わない純ロジックのテスト（services/lib/Map内の式・
