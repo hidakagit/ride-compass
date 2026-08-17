@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { InfoIcon } from "@/components/Map/icons";
 import { DEFAULT_TRAFFIC_STRESS_RECIPE, type TrafficStressRecipe } from "@/components/Map/trafficStressExpression";
 import styles from "./TrafficStressRecipePanel.module.css";
@@ -144,15 +145,88 @@ const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
 
 const HIGHWAY_ORDER = Object.keys(DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway);
 
-// フィールドラベル+情報アイコン（ホバー/長押しで具体的な属性説明を出す。weatherHeaderの
-// title属性と同じ、既存のツールチップ規約を踏襲）。
-function FieldLabel({ label, description }: { label: string; description: string }) {
+// highway別基準値テーブルの1行。説明の開閉状態を行ごとに独立して持つため（.mapのコールバック内
+// では使えないuseStateを、行ごとの専用コンポーネントへ切り出すことで満たす）ScalarInputと
+// 同じ構造の別コンポーネントにしている。説明行は<tbody>直下に有効なtr要素として追加する
+// 必要があるため（tdの中にブロック要素を積む案は避けた）、Fragmentで本行の直後に返す。
+function HighwayRow({
+  highway,
+  value,
+  onChange,
+}: {
+  highway: string;
+  value: number | undefined;
+  onChange: (highway: string, next: number) => void;
+}) {
+  const [infoOpen, setInfoOpen] = useState(false);
+  // HIGHWAY_LABELS未収載（将来backendの既定レシピにキーが追加された場合）はタグ値
+  // そのものをラベルにフォールバックし、情報アイコンは出さない（フォールバック時点で
+  // ラベル自体がタグ値なので説明の付け足しは不要）。
+  const highwayLabel = HIGHWAY_LABELS[highway];
+  return (
+    <>
+      <tr>
+        <td className={styles.tableLabel}>
+          {highwayLabel ? (
+            <FieldLabel label={highwayLabel.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
+          ) : (
+            highway
+          )}
+        </td>
+        <td>
+          <input
+            type="number"
+            min="1"
+            max="4"
+            step="1"
+            value={value ?? ""}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (Number.isNaN(next)) return;
+              onChange(highway, next);
+            }}
+            className={styles.input}
+          />
+        </td>
+      </tr>
+      {infoOpen && highwayLabel && (
+        <tr>
+          <td colSpan={2} className={styles.infoTooltipCell}>
+            {highwayLabel.description}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// フィールドラベル+情報アイコン。当初はtitle属性（weatherHeaderと同じ、ホバー/長押しで
+// 出る補足）で説明を出していたが、スマホでtitle属性はタップでは開かない（ホバー状態を
+// 持たない）ため実機で「押しても説明が出ない」と判明。タップでも確実に開くクリック式の
+// 開閉ボタンへ作り直した（MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。
+// 説明本体（infoTooltip）はopen/onToggleを渡す呼び出し側が、DOM上input/tr等の後ろへ
+// 別要素として配置する（このコンポーネント自身はラベル行だけを返す）。
+function FieldLabel({
+  label,
+  open,
+  onToggle,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
     <span className={styles.fieldLabel}>
       {label}
-      <span className={styles.infoIcon} title={description}>
+      <button
+        type="button"
+        className={styles.infoButton}
+        aria-expanded={open}
+        aria-label={`${label}の説明を${open ? "隠す" : "表示"}`}
+        onClick={onToggle}
+      >
         <InfoIcon />
-      </span>
+      </button>
     </span>
   );
 }
@@ -166,21 +240,25 @@ function ScalarInput({
   recipe: TrafficStressRecipe;
   onChange: (recipe: TrafficStressRecipe) => void;
 }) {
+  const [infoOpen, setInfoOpen] = useState(false);
   return (
-    <label className={styles.field}>
-      <FieldLabel label={field.label} description={field.description} />
-      <input
-        type="number"
-        step="1"
-        value={recipe[field.key]}
-        onChange={(e) => {
-          const next = Number(e.target.value);
-          if (Number.isNaN(next)) return;
-          onChange({ ...recipe, [field.key]: next });
-        }}
-        className={styles.input}
-      />
-    </label>
+    <>
+      <label className={styles.field}>
+        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
+        <input
+          type="number"
+          step="1"
+          value={recipe[field.key]}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isNaN(next)) return;
+            onChange({ ...recipe, [field.key]: next });
+          }}
+          className={styles.input}
+        />
+      </label>
+      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
+    </>
   );
 }
 
@@ -213,41 +291,19 @@ export default function TrafficStressRecipePanel({
             <legend>道路種別ごとの基準値[1-4]</legend>
             <table className={styles.table}>
               <tbody>
-                {HIGHWAY_ORDER.map((highway) => {
-                  // HIGHWAY_LABELS未収載（将来backendの既定レシピにキーが追加された場合）は
-                  // タグ値そのものをラベルにフォールバックし、情報アイコンは出さない
-                  // （フォールバック時点でラベル自体がタグ値なので説明の付け足しは不要）。
-                  const highwayLabel = HIGHWAY_LABELS[highway];
-                  return (
-                    <tr key={highway}>
-                      <td className={styles.tableLabel}>
-                        {highwayLabel ? (
-                          <FieldLabel label={highwayLabel.label} description={highwayLabel.description} />
-                        ) : (
-                          highway
-                        )}
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="1"
-                          max="4"
-                          step="1"
-                          value={recipe.base_by_highway[highway] ?? ""}
-                          onChange={(e) => {
-                            const next = Number(e.target.value);
-                            if (Number.isNaN(next)) return;
-                            onRecipeChange({
-                              ...recipe,
-                              base_by_highway: { ...recipe.base_by_highway, [highway]: next },
-                            });
-                          }}
-                          className={styles.input}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
+                {HIGHWAY_ORDER.map((highway) => (
+                  <HighwayRow
+                    key={highway}
+                    highway={highway}
+                    value={recipe.base_by_highway[highway]}
+                    onChange={(hw, next) =>
+                      onRecipeChange({
+                        ...recipe,
+                        base_by_highway: { ...recipe.base_by_highway, [hw]: next },
+                      })
+                    }
+                  />
+                ))}
               </tbody>
             </table>
           </fieldset>
