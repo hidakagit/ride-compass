@@ -1,4 +1,4 @@
-// 交通ストレス（1-4）をタイルの材料タグ（backend/app/infrastructure/road_graph_repository.py:
+// 交通ストレス（1-5）をタイルの材料タグ（backend/app/infrastructure/road_graph_repository.py:
 // _ROAD_SURFACE_TILE_MVT_SQLが焼き込むhighway/cycleway_class/maxspeed_kmh/lanes_count/
 // designation/motor_vehicle_no）からブラウザ側で計算するMapLibre expression。
 //
@@ -14,7 +14,7 @@
 // DEFAULT_TRAFFIC_STRESS_RECIPEから書き出す）から読み、手動同期を避ける
 // （trafficStressExpression.test.tsがPython側との整合を検証する）。
 //
-// 出力は1〜4、または「判定対象外（highway未登録）」を表すセンチネル-1
+// 出力は1〜5、または「判定対象外（highway未登録）」を表すセンチネル-1
 // （既存のTRAFFIC_STRESS_COLOR_EXPRESSIONが`["coalesce", ["get","traffic_stress"], -1]`で
 // 使っていたのと同じ「不明はnullでなく-1」という流儀に合わせる。MapLibreのcase/match式で
 // 数値と `null` を混在させる出力型の扱いが不安定なため）。
@@ -99,7 +99,7 @@ export function buildTrafficStressExpression(recipe: TrafficStressRecipe): unkno
   const formula = [
     "max",
     1,
-    ["min", 4, ["+", base, cyclewayAdjustment, maxspeedAdjustment, lanesAdjustment, designationAdjustment]],
+    ["min", 5, ["+", base, cyclewayAdjustment, maxspeedAdjustment, lanesAdjustment, designationAdjustment]],
   ];
 
   // 適用順序はtraffic_stress_breakdownと同じ: (1)highway未登録→UNKNOWN_LEVEL、

@@ -312,7 +312,7 @@ def traffic_stress_breakdown(
     is_designated: bool = False,
     recipe: TrafficStressRecipe | None = None,
 ) -> TrafficStressBreakdown:
-    """交通ストレス（LTS: Level of Traffic Stress風の1-4段階。「交通量」ではなく
+    """交通ストレス（LTS: Level of Traffic Stress風の1-5段階。「交通量」ではなく
     「推定交通ストレス」、計画書§2.4）を、各補正の適用有無・量が分かる内訳付きで返す。
     基本値はhighwayのみで決まり、未知のhighwayはNone（評価しない）。補正はタグが
     実際にある場合のみ適用する（unknownは補正しない）。
@@ -396,9 +396,15 @@ def traffic_stress_breakdown(
 
     designation_adjustment = recipe.designation_adjustment if is_designated else 0
 
+    # 改善計画（交通ストレス5段階化）: 実データ実測（dev DB、39,857way・5,737.6km）で、
+    # クランプ前の生値がraw>=5に8.3%（way数）/9.3%（距離）集中しており、primary/trunk/
+    # 指定路線（N10/N12）で従来level4に丸め込まれ区別できなくなっていたことを確認した。
+    # 上限を4→5へ拡張し、この区間を独立したlevel5として可視化する（下限1は変更なし。
+    # level2（62%/56%）はタグ欠損由来の一極集中で、追加のタグ収集無しに細分化する材料が
+    # 無いため据え置き）。
     level = max(
         1,
-        min(4, base + cycleway_adjustment + maxspeed_adjustment + lanes_adjustment + designation_adjustment),
+        min(5, base + cycleway_adjustment + maxspeed_adjustment + lanes_adjustment + designation_adjustment),
     )
 
     return TrafficStressBreakdown(
@@ -449,6 +455,6 @@ def traffic_stress_level(
     is_designated: bool = False,
     recipe: TrafficStressRecipe | None = None,
 ) -> int | None:
-    """交通ストレス（1-4段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
+    """交通ストレス（1-5段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
     docstringは`traffic_stress_breakdown`参照。"""
     return traffic_stress_breakdown(highway, tags, is_designated, recipe).level

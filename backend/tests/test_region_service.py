@@ -174,7 +174,7 @@ async def test_traffic_stress_breakdown_delegates_to_domain_function():
     assert breakdown is not None
     assert breakdown.base == 4
     assert breakdown.maxspeed_adjustment == 1
-    assert breakdown.level == 4
+    assert breakdown.level == 5
     assert repository.way_tags_by_osm_way_id_calls == [12345]
 
 

@@ -147,7 +147,7 @@
       "lanes_count": 6
     },
     "recipe": null,
-    "expected_level": 4
+    "expected_level": 5
   },
   {
     "properties": {
@@ -156,6 +156,14 @@
     },
     "recipe": null,
     "expected_level": 3
+  },
+  {
+    "properties": {
+      "highway": "primary",
+      "designation": "emergency_transport"
+    },
+    "recipe": null,
+    "expected_level": 5
   },
   {
     "properties": {

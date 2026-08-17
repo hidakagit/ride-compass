@@ -27,9 +27,9 @@ function evaluateFilter(filter: unknown, properties: Record<string, unknown>): b
 }
 
 describe("staticAttributeLayers", () => {
-  it("交通ストレスの凡例キーは1-4+不明で、重複が無い", () => {
+  it("交通ストレスの凡例キーは1-5+不明で、重複が無い", () => {
     const keys = TRAFFIC_STRESS_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(new Set(["1", "2", "3", "4", "unknown"]));
+    expect(new Set(keys)).toEqual(new Set(["1", "2", "3", "4", "5", "unknown"]));
     expect(new Set(keys).size).toBe(keys.length);
   });
 

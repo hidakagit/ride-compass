@@ -164,11 +164,11 @@ class TestTrafficStressLevel:
         assert traffic_stress_level("primary", {"lanes": "2"}) == 4
         assert traffic_stress_level("primary", {"lanes": "3"}) == 4
 
-    def test_result_is_clamped_to_1_4_range(self):
+    def test_result_is_clamped_to_1_5_range(self):
         # cycleway基本値1から更に-2しても1未満にはならない
         assert traffic_stress_level("cycleway", {"cycleway": "track", "maxspeed": "20"}) == 1
-        # primary基本値4に複数の増加要因が重なっても4を超えない
-        assert traffic_stress_level("primary", {"maxspeed": "80", "lanes": "6"}) == 4
+        # primary基本値4+maxspeed(+1)+lanes(+1)=6だが上限5でクランプ
+        assert traffic_stress_level("primary", {"maxspeed": "80", "lanes": "6"}) == 5
 
     def test_unset_tags_do_not_apply_corrections(self):
         # 補正はタグが実際にある場合のみ適用する（unknownは補正しない）
@@ -181,8 +181,11 @@ class TestTrafficStressLevel:
     def test_is_designated_defaults_to_false(self):
         assert traffic_stress_level("residential", {}) == 2
 
-    def test_is_designated_clamped_to_4(self):
-        assert traffic_stress_level("primary", {}, is_designated=True) == 4
+    def test_is_designated_on_primary_reaches_5(self):
+        # 改善計画（交通ストレス5段階化）以前は上限4でクランプされ、指定路線に該当する
+        # primary/trunkが「素の幹線」と区別できなくなっていた（実データ実測で該当区間の
+        # 39.2%を占めると確認）。4(base)+1(designated)=5はクランプ不要でそのまま5になる。
+        assert traffic_stress_level("primary", {}, is_designated=True) == 5
 
     def test_is_designated_does_not_override_motor_vehicle_no_fixed_1(self):
         assert traffic_stress_level("primary", {"motor_vehicle": "no"}, is_designated=True) == 1
@@ -225,8 +228,8 @@ class TestTrafficStressBreakdown:
         assert breakdown.lanes_adjustment == 1
         assert breakdown.designation_adjustment == 1
         assert breakdown.motor_vehicle_no_override is False
-        # 3 - 1 + 1 + 1 + 1 = 5だがクランプで4
-        assert breakdown.level == 4
+        # 3 - 1 + 1 + 1 + 1 = 5、上限5ちょうどでクランプ不要
+        assert breakdown.level == 5
 
     def test_level_matches_traffic_stress_level_for_same_inputs(self):
         # 薄いラッパー(traffic_stress_level)と実装(traffic_stress_breakdown)が食い違わないこと

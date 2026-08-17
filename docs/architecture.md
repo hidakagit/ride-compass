@@ -522,7 +522,7 @@ Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリ
   highway/surface/smoothness/tunnel/bridge/`bicycle_infra`/`designation`/`osm_way_id`、および交通ストレスの
   材料タグ`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`
   （P0/P1/T51/T74/T90/交通ストレスレシピ外出し基盤、現行タイル世代v9。7章参照）プロパティを持つ。
-  交通ストレスの最終値（1-4）はタイルへ焼き込まず、フロントエンド
+  交通ストレスの最終値（1-5）はタイルへ焼き込まず、フロントエンド
   （`trafficStressExpression.ts`、MapLibre expression）とルート採点（`domain/traffic.py:
   traffic_stress_breakdown`）がそれぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
   区間クリック時の交通ストレス内訳取得（`POST /api/region/traffic-stress-breakdown`）がクリックされた
@@ -650,7 +650,7 @@ interface RouteSegmentDetail {
   gradient_percent: number | null;
   wind_penalty: number | null;
   road_surface_good: boolean | null;
-  traffic_stress: number | null;      // 1-4、P1残り（生値）
+  traffic_stress: number | null;      // 1-5、P1残り（生値）
   bicycle_infra: string | null;       // 分類の生値、P1残り
   elevation_difficulty: number | null;
   wind_difficulty: number | null;
@@ -682,7 +682,7 @@ interface RouteCandidate {
   wind_score: number | null;
   road_score: number | null;
   stop_density: number | null;          // 回/km、P1
-  traffic_stress_score: number | null;  // 距離加重平均(1-4)、P1残り
+  traffic_stress_score: number | null;  // 距離加重平均(1-5)、P1残り
   bicycle_infra_score: number | null;   // 専用インフラ区間率(%)、P1残り
   intersection_density: number | null;  // 回/km、P1残り
   accident_density: number | null;      // 件/(km・年)、T50（8軸目）
@@ -742,7 +742,7 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
 | 路面 | `road_weight` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
 | 風 | `wind_weight` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
 | 停止密度 | `stop_weight` | 0.15 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`） |
-| 交通ストレス | `traffic_weight` | 0.10 | 1-4 | P1（`domain/traffic.py: traffic_stress_level`） |
+| 交通ストレス | `traffic_weight` | 0.10 | 1-5 | P1（`domain/traffic.py: traffic_stress_level`） |
 | 自転車インフラ | `infra_weight` | 0.10 | 分類（6値） | P1（`domain/traffic.py: classify_bicycle_infrastructure`） |
 | 交差点密度 | `intersection_weight` | 0.05 | 回/km | P1（次数3以上のroad_node） |
 | 事故密度 | `accident_weight` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
@@ -764,7 +764,7 @@ scoring.yaml（total_score）には含めない（stop_weightと同じスコー�
   （合計count÷合計distance_km）。
 - **交通ストレス**: `traffic_stress_breakdown(highway, tags, is_designated, recipe)`がhighway
   基本値（既定は`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に自転車専用帯・制限速度・車線数・T51指定
-  路線該当（後述、+1補正）を加味した1-4の整数。未知highwayは評価対象外（None）。
+  路線該当（後述、+1補正）を加味した1-5の整数。未知highwayは評価対象外（None）。
   `traffic_stress_level`は`.level`だけを返す薄いラッパー。判定基準（highway別基準値・各補正の
   閾値・補正量）は`domain/traffic.py: TrafficStressRecipe`という「レシピ」に切り出してあり
   （交通ストレスレシピ外出し基盤）、`recipe`省略時は既定レシピ

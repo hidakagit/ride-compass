@@ -435,7 +435,7 @@ describe("MapLayersPanel", () => {
   it("交通ストレスの凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("trafficStress");
-    expect(screen.getByText(/4段階\[1=快適〜4=ストレス大\]/)).toBeInTheDocument();
+    expect(screen.getByText(/5段階\[1=快適〜5=ストレス大\]/)).toBeInTheDocument();
   });
 
   // 改善計画T89: 「ストレス1〜5評価基準が分かりにくい」という実機フィードバック対応。

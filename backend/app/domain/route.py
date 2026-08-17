@@ -38,7 +38,7 @@ class RouteSegmentDetail(BaseModel):
     gradient_percent: float | None = None
     wind_penalty: float | None = None
     road_surface_good: bool | None = None
-    # 交通ストレス(1-4、domain/traffic.py: traffic_stress_level)・自転車インフラ分類
+    # 交通ストレス(1-5、domain/traffic.py: traffic_stress_level)・自転車インフラ分類
     # （domain/traffic.py: BicycleInfraClass）の生値。road_surface_goodと同じく、難易度
     # （traffic_difficulty/infra_difficulty）とは別に、将来の色分けモード等での利用に備えて
     # 生値も保持する（静的道路属性P1残り）。
@@ -84,7 +84,7 @@ class RouteCandidate(BaseModel):
     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
 
-    `traffic_stress_score`: ルート全体の交通ストレス（1-4）の距離加重平均
+    `traffic_stress_score`: ルート全体の交通ストレス（1-5）の距離加重平均
     （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
     `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
