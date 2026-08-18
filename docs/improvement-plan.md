@@ -2425,6 +2425,20 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
   無関係と判断）。
 - backend全873件（新規26件）・frontend全348件（新規22件）・tsc・eslint全green。
 
+**実装結果（続き・本番バックフィル漏れとチップ幅の修正、2026-08-18）**: ユーザー報告
+「補給・休憩を押してもデータがプロットされない」「アイコンが他横幅と揃っていない」を
+受け対応。前者は本番Oracle DBへの`import_pbf.py`再実行（データバックフィル）を
+dev機のみに対して行い、本番への反映を失念していたのが原因と判明（コードはmasterへ
+push済みのため本番も動作はするが、`osm_raw_pois`に新kind行が1件も無く空振りしていた。
+確認: 修正前の本番は`crossing`/`traffic_signals`/`stop`/`level_crossing`/`give_way`の
+旧5種のみ）。ユーザー確認のうえ`import_pbf.py --database-url <本番>`で
+`kanto-latest.osm.pbf`を再実行（全way・nodeも巻き込むUPSERT、実測1,421.5秒＝約23.7分）。
+バックフィル後の本番`osm_raw_pois`で`vending_machine`17,349件・`convenience`14,182件・
+`toilets`7,310件・`drinking_water`4,710件・`bicycle_parking`2,742件を確認（dev機実測と
+ほぼ一致）。後者はチップの`chipLabel`が「補給・休憩」（読点込み5文字）で他レイヤー
+（4文字以内）よりチップ幅が広がっていたため、読点を省いた「補給休憩」（4文字）へ短縮
+（正式名称の`label`「補給・休憩ポイント」は変更なし）。
+
 ### - [x] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S（2026-08-17完了）
 
 - 背景: `lit=*`（街灯の有無。早朝/夜間走行の安全性判断に有用）・`segregated=yes/no`
@@ -3559,3 +3573,4 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 | 2026-08-18 | T53（本番相当スケールで再検証） | ユーザー指示「本番DBには関東全域なOSMデータがある認識で、確認・最新化した上で較正検証できるか」を受け実施。読み取り専用で本番Oracle DBを事前確認: `osm_raw_ways` 1,329,632件（関東本土bbox内99.8%、外れ値0.02%）、migration 0001-0009ラグ無し、133万way規模でもLATERAL最近傍マッチは索引利用9.3ms（`EXPLAIN ANALYZE`実測）、全行`updated_at`が2026-08-16で統一済みのため追加のPBF再取込（最新化）は不要と判断。`analyze_jartic_calibration.py`へ`collect_jartic.py`と同じ`--database-url`引数を追加し、同じ4日分を本番へ再収集・再分析（ユーザー確認済みの方針どおり分析後に`DROP TABLE`で本番から削除）。マッチ観測点n=8→**68**に拡大しlevel3-5を横断、単調性は維持（16,652→23,573→29,762台/日、YES）したが相関はn=8時点より弱まった（Pearson 0.179・Spearman 0.164）。原因はJARTIC road_type=3観測点が幹線道路設置に偏る選択バイアス（68件中60件=88%がlevel5に集中、level5内の分散が最小6,773〜最大64,146台/日と大きい）と分析。方向性は矛盾しないため既定値は変更せず、より大きな標本でも同じ結論（記録のみで完了）を確認した。backend 847件（変更なし）全green |
 | 2026-08-18 | T53（LV6要否の判断・DEFAULT_BBOXカバレッジ確認） | ユーザー相談「高レベル帯の差別化に使えるか」「LV6細分化のメリットを考察して」「DEFAULT_BBOXは狭くなっているなら優先度を上げたい」を受け深掘り。指定路線(is_designated)の実測交通量差+78%（30,097 vs 16,902台/日、n=62/6）で既存`designation_adjustment=+1`の方向性を裏付け。クランプ前raw値の方が交通量とよく揃う（Pearson 0.179→0.309）ことを確認したが、level5内の42%が天井超過というJARTIC側の数字は幹線道路設置バイアスの影響と判明。`measure_axis_stats.py`へ`--database-url`引数を追加し母集団側のraw>5割合を測定した結果、dev機1.0%/1.1%・本番131万way規模でも0.9%/1.2%とほぼ一致し、T117の拡張根拠（8.3%/9.3%）の1/8程度に収束済みと確認。**LV6細分化は見送り**（母集団側の実測が根拠、JARTICの42%は「既知の少数派道路には天井超えの実差がある」という補足証拠へ位置づけ変更）。`DEFAULT_BBOX`は本番`osm_raw_ways`のbbox外データ（3,957件）を方角別に確認したところ全て南方向（離島、元々除外対象）で北・東（関東本土側）への欠落は0件と確認、西の山梨県混入（無害）のみのため修正は優先度低として見送り。backend 847件（`measure_axis_stats.py`への`--database-url`追加は既存テスト23件に影響なし）全green |
 | 2026-08-18 | T101 | ユーザー懸念「実店舗とどれだけ合っているか」を受け、着手前に`backend/scripts/measure_poi_freshness.py`（新設）でOSM側の最終編集日時を関東全域で実測。コンビニは直近2年以内の編集が62.4%と新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高いと判明したため、5種すべて取込みつつ表示側で鮮度差を伝える方針で実装（ユーザー承認）。`domain/traffic.py: classify_supply_poi`新設、`osm_node_to_poi_spec`は`classify_stop_poi or classify_supply_poi`で1回のnode走査に統合。`_POI_TILE_MVT_SQL`はkindを無条件で焼き込む設計のためSQL無改修で済んだ一方、1つのMVTレイヤー（`stop_poi`）に2種類のkindが混在するため独立2レイヤー化には`legendFilter.ts: buildCombinedLegendFilterExpression`へ`baseFilter`（非表示操作の有無に関わらず常にANDする恒常的な絞り込み）を新設して対応（無いと凡例が「何も隠していない」瞬間に相手方のkindが一時的に見えてしまう不具合になるところだった、実装中に発見・設計で解消）。`mapLayers.ts`は`trafficSafety`へ含めず新設`amenity`（補給・施設）カテゴリへ分離。dev DB再取込でvending_machine 7,434件等を確認。退避ポート（8001/3011）でPlaywright実機確認（チップON切替・`poi-tiles?v=3`の200・地図クリックで「補給・休憩: 給水」の正しいポップアップ）。backend 873件（新規26件）・frontend 348件（新規22件）・tsc・eslint全green |
+| 2026-08-18 | T101（本番バックフィル漏れ・チップ幅修正） | ユーザー報告「補給・休憩を押してもデータがプロットされない」「アイコンが他横幅と揃っていない」を受け対応。前者はdev機のみに`import_pbf.py`を再実行しデータバックフィルしており本番Oracle DBへの反映を失念していたのが原因（コードはmasterへpush済みで動作はするが`osm_raw_pois`に新kindが1件も無く空振り）。ユーザー確認のうえ`import_pbf.py --database-url <本番>`で`kanto-latest.osm.pbf`を再実行（全way・nodeも巻き込むUPSERT、実測1,421.5秒=約23.7分）、本番`osm_raw_pois`で`vending_machine`17,349件・`convenience`14,182件・`toilets`7,310件・`drinking_water`4,710件・`bicycle_parking`2,742件を確認（dev機実測とほぼ一致）。後者は`chipLabel`「補給・休憩」（読点込み5文字）が他レイヤー（4文字以内）よりチップ幅を広げていたため「補給休憩」（4文字）へ短縮（`label`「補給・休憩ポイント」は変更なし） |
