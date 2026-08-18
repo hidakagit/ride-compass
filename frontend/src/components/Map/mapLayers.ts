@@ -187,7 +187,10 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   {
     id: "supplyPoi",
     label: "補給・休憩ポイント",
-    chipLabel: "補給・休憩",
+    // 地図上のチップ幅は文字数に連動する（他レイヤーは4文字以内: 指定路線/インフラ等）ため、
+    // 「補給・休憩」（読点込み5文字）だとこのチップだけ幅が広がってしまう。読点を省いた
+    // 「補給休憩」（4文字）に短縮（正式名称は引き続きlabelの「補給・休憩ポイント」）。
+    chipLabel: "補給休憩",
     kind: "static",
     category: "amenity",
     description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
