@@ -43,16 +43,48 @@ class PrimaryAttributeSpec(BaseModel):
     shared: bool = False
 
 
+class TileInputSpec(BaseModel):
+    """地図表示（ramp）が読むMVTタイルプロパティと線形結合の重み（改善計画T145b）。
+    `display_value = Σ(property × weight)`をフロントのMapLibre expressionが計算する。"""
+
+    property: str
+    weight: float = 1.0
+
+
+class AxisDisplaySpec(BaseModel):
+    """二次軸の地図レイヤー表示宣言（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
+
+    - kind="ramp": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を
+      `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの
+      レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
+    - kind="bespoke": タグの複雑な組み合わせを要しフロント側の手書きexpression
+      （例: carStressExpression.ts）が必要な軸。フロントに対応するexpressionが
+      登録されていない場合レイヤーは生成されない。
+    - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
+      `note`へ理由を書く。
+    """
+
+    kind: Literal["ramp", "bespoke", "none"]
+    label: str
+    category: str = "trafficSafety"
+    tile_inputs: list[TileInputSpec] = Field(default_factory=list)
+    thresholds: list[float] = Field(default_factory=list)
+    unit: str = ""
+    note: str = ""
+
+
 class AxisSpec(BaseModel):
     """二次軸の宣言。`inputs`は参照する一次属性の`attr_id`リスト（`register_axis`が
     登録済みの一次属性であることを検証する）。`transform_fn`は`PrimaryAttributeSpec.ingest_fn`
-    と同じくモジュールパス文字列。"""
+    と同じくモジュールパス文字列。`display`は地図レイヤー表示の宣言（改善計画T145b、
+    未指定は「表示宣言なし」でkind="none"相当）。"""
 
     axis_id: str
     inputs: list[str]
     transform_fn: str
     output_range: tuple[float, float] = (0.0, 1.0)
     description: str
+    display: AxisDisplaySpec | None = None
 
 
 class AxisInputConflictError(ValueError):

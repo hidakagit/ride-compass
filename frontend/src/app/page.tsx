@@ -18,6 +18,7 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
+import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
@@ -101,6 +102,10 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   supplyPoi: false,
   accidents: false,
   route: true,
+  // 二次軸rampレイヤー（改善計画T145b）。backendレジストリ生成物（axis-catalog.json）の
+  // kind="ramp"軸から自動生成されるため、個別の行を手書きせずカタログから導出する
+  // （新しい軸が増えてもこのファイルの編集は不要）。既定はすべてOFF。
+  ...Object.fromEntries(RAMP_AXES.map((axis) => [axisMapLayerId(axis.axisId), false])),
 };
 
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
@@ -208,6 +213,20 @@ export default function Home() {
         return next;
       },
     },
+  );
+  // 二次軸rampレイヤー（改善計画T145b）の表示フラグをMapViewへ渡す形（キー=axisMapLayerId）へ
+  // 絞り込む。layerVisibility全体を渡さないのは、MapView側のエフェクト依存を軸レイヤー分に
+  // 限定するため（deserializeがDEFAULT_LAYER_VISIBILITYのキー走査で復元するため、axis:*の
+  // キーも既知のレイヤーIDとして保存・復元の対象に自動で含まれる）。
+  const axisVisibility = useMemo(
+    () =>
+      Object.fromEntries(
+        RAMP_AXES.map((axis) => {
+          const id = axisMapLayerId(axis.axisId);
+          return [id, layerVisibility[id] ?? false];
+        }),
+      ),
+    [layerVisibility],
   );
   // 色分けモード（ルート）。保存形式はJSON化しない生文字列（他の設定と異なる。
   // isRouteStyleModeIdによる妥当性検証がJSON.parseを兼ねる）。
@@ -984,6 +1003,7 @@ export default function Home() {
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}
+            axisVisibility={axisVisibility}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
             routeLayerOn={layerVisibility.route}

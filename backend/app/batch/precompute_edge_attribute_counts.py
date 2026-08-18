@@ -10,7 +10,9 @@
 migration 0010適用後、本番でも初回実行が必須（`designation_attributes`と同じ運用、
 `match_designations.py`のdocstring参照）。`accident_points`/`osm_raw_pois`/`road_edges`の
 いずれかが変わった場合は再実行が必要（増分更新ではなく全件再計算、`designation_attributes`と
-同じ設計）。
+同じ設計）。**app.batch.precompute_road_node_degrees（改善計画T151）の実行後に行うこと**
+（intersection_countはこのバッチが書く`road_nodes.degree`を参照するため、未実行のままだと
+全edgeでintersection_count=0になる）。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.precompute_edge_attribute_counts
@@ -86,25 +88,16 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
         now = datetime.now(timezone.utc)
 
-        # 改善計画T144実装中に発見した重要な制約: get_intersection_countsの次数計算は
-        # 「渡されたedge_ids集合内だけで完結するローカルな次数」（docstring・
-        # _INTERSECTION_COUNTS_SQLのコメント参照。実際のルート生成では空間的に連続した
-        # 1つのローカルグラフ全体を渡すため正しく機能する設計）。本バッチのように
-        # road_edgesを空間的な連続性を考慮せず任意順にチャンク分割すると、同じNodeに
-        # 接続する道路が別チャンクへ分かれ次数を過小評価する（実測: 5000件チャンクでの
-        # 事前集計値が、500件のランダムサンプルによるライブクエリより一貫して高い値を示し、
-        # 発覚）。intersection_countだけは全edge_idsを1回のクエリに渡し、真のグローバルな
-        # 次数を計算する（accident_count/stop_countはedge単位で独立に計算されチャンク境界の
-        # 影響を受けないため、引き続きチャンク分割する）。
-        intersection_started = time.perf_counter()
-        async with session_factory() as session:
-            repository = RoadGraphRepository(session)
-            global_intersection_counts = await repository.get_intersection_counts(edge_ids)
-        logger.info(
-            "交差点密度（全edge一括、グローバルな次数）完了: elapsed=%.1fs",
-            time.perf_counter() - intersection_started,
-        )
-
+        # 改善計画T151（2026-08-19改訂）: get_intersection_countsは以前「渡されたedge_ids
+        # 集合内だけで完結するローカルな次数」を計算しており、本バッチのようにroad_edgesを
+        # 空間的な連続性を考慮せず任意順にチャンク分割すると次数を過小評価する問題があった
+        # （全edge一括で回避を試みても、内部の50,000件チャンク分割で同じ問題が再発しうる
+        # ことが後日判明）。T151でroad_nodes.degree（DB全体から見た真のグローバル次数、
+        # precompute_road_node_degrees.pyが事前計算）を参照する設計へ変更したため、
+        # get_intersection_countsは呼び出し元の集合に依存しない決定的な値を返すようになり、
+        # accident_count/stop_countと同じチャンク単位の呼び出しで問題なくなった。
+        # **本バッチの実行前にprecompute_road_node_degrees.pyの実行が必須**
+        # （road_nodes.degreeが未計算＝全行0のままだとintersection_countも全件0になる）。
         total_written = 0
         chunks = _chunked(edge_ids, CHUNK_SIZE)
         for chunk_index, chunk in enumerate(chunks):
@@ -113,13 +106,14 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 repository = RoadGraphRepository(session)
                 stop_counts = await repository.get_stop_poi_counts(chunk)
                 accident_counts = await repository.get_accident_counts(chunk)
+                intersection_counts = await repository.get_intersection_counts(chunk)
 
                 rows = [
                     {
                         "edge_id": edge_id,
                         "accident_count": accident_counts.get(edge_id, 0.0),
                         "stop_count": stop_counts.get(edge_id, 0),
-                        "intersection_count": global_intersection_counts.get(edge_id, 0),
+                        "intersection_count": intersection_counts.get(edge_id, 0),
                         "computed_at": now,
                     }
                     for edge_id in chunk

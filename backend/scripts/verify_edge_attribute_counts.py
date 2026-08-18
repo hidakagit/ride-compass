@@ -5,13 +5,13 @@
 `app/batch/precompute_edge_attribute_counts.py`実行後、dev機・本番の両方でこのスクリプトを
 実行し、事前集計値が正しいことを確認してから使う（T144の完了条件）。
 
-**intersection_countの検証はaccident_count/stop_countと異なる方式を取る**（実装中に発見した
-制約）。`get_intersection_countsの次数計算は「渡されたedge_ids集合内だけで完結するローカルな
-次数」（`_INTERSECTION_COUNTS_SQL`のコメント参照）で、小さいランダムサンプルに対して都度
-呼ぶと本来の次数を過小評価する（ノードに接続する道路の一部しかサンプルに含まれないため）。
-事前集計バッチと同じく「全edge_idsを1回のクエリに渡した場合の値」（真のグローバルな次数）を
-基準にする。accident_count/stop_countはedge単位で独立のためこの問題が無く、小サンプルの
-都度クエリと直接比較する。
+**intersection_countの検証も先にapp.batch.precompute_road_node_degreesの実行が必須**
+（改善計画T151でroad_nodes.degree事前集計へ一本化したため。未実行だとdegree=0のまま
+全edgeでintersection_count=0を返し、比較自体は一致するが無意味な検証になる）。T151以前は
+get_intersection_countsが「渡されたedge_ids集合内だけで完結するローカルな次数」を返す設計で
+小サンプルの都度クエリが本来の次数を過小評価したため全edge_idsを1回のクエリに渡す特別扱いが
+必要だったが、road_nodes.degree参照へ変更後は呼び出し元の集合に依存しない決定的な値になり、
+accident_count/stop_countと同じく小サンプルの都度クエリと直接比較できる。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\verify_edge_attribute_counts.py
@@ -29,7 +29,7 @@ from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, RoadEdgeRow  # noqa: E402
+from app.infrastructure.road_graph_models import EdgeAttributeCountsRow  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 
 DEFAULT_SAMPLE_SIZE = 500
@@ -62,25 +62,14 @@ async def main(database_url: str | None = None, sample_size: int = DEFAULT_SAMPL
             repository = RoadGraphRepository(session)
             live_stop_counts = await repository.get_stop_poi_counts(sample_edge_ids)
             live_accident_counts = await repository.get_accident_counts(sample_edge_ids)
-
-            # intersection_countは全edge_idsを1回のクエリに渡した場合の値（真のグローバルな
-            # 次数）を基準にする（モジュールdocstring参照）。事前集計バッチと同じ計算方法。
-            # **road_edges由来のedge_idsを使うこと**（バッチが使うのと同じソース・同じ順序系列）。
-            # 検証実装中に、同一edge_id集合でもSELECT元テーブルが異なると配列の順序が変わり、
-            # get_intersection_countsの結果が一部edgeで変わる非決定性を実際に確認した
-            # （改善計画T151としてフォローアップ起票済み、get_stop_poi_counts/
-            # get_accident_countsには無い問題）。road_edges起点に統一することで、
-            # precompute_edge_attribute_counts.pyの計算時と同じ条件で再現し、この非決定性の
-            # 影響を受けないようにする。
-            all_edge_ids = [row[0] for row in (await session.execute(select(RoadEdgeRow.edge_id))).all()]
-            global_intersection_counts = await repository.get_intersection_counts(all_edge_ids)
+            live_intersection_counts = await repository.get_intersection_counts(sample_edge_ids)
     finally:
         await engine.dispose()
 
     for edge_id in sample_edge_ids:
         precomputed = precomputed_by_id[edge_id]
         live_stop = live_stop_counts.get(edge_id, 0)
-        live_intersection = global_intersection_counts.get(edge_id, 0)
+        live_intersection = live_intersection_counts.get(edge_id, 0)
         live_accident = live_accident_counts.get(edge_id, 0.0)
 
         if precomputed.stop_count != live_stop:

@@ -46,7 +46,9 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
 // surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-const ROAD_SURFACE_TILE_VERSION = "11";
+// v12: 改善計画T145b。二次軸rampレイヤー用の事前集計密度プロパティ
+// （accident_per_km/stop_per_km/intersection_per_km）を追加。
+const ROAD_SURFACE_TILE_VERSION = "12";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

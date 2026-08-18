@@ -1,0 +1,146 @@
+{
+  "axes": [
+    {
+      "axis_id": "gradient",
+      "inputs": [
+        "elevation"
+      ],
+      "output_range": [
+        0.0,
+        100.0
+      ],
+      "display": {
+        "kind": "none",
+        "label": "勾配",
+        "category": "terrain",
+        "tile_inputs": [],
+        "thresholds": [],
+        "unit": "",
+        "note": "標高属性（elevation_attributes）はGSI APIから都度取得でDBへ恒久保存しない設計のため、タイルへ焼き込める事実データが無い。標高図レイヤー（elevation）が地形の把握を代替する"
+      }
+    },
+    {
+      "axis_id": "surface_q",
+      "inputs": [
+        "surface"
+      ],
+      "output_range": [
+        0.0,
+        100.0
+      ],
+      "display": {
+        "kind": "none",
+        "label": "路面",
+        "category": "road",
+        "tile_inputs": [],
+        "thresholds": [],
+        "unit": "",
+        "note": "既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分けモード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない"
+      }
+    },
+    {
+      "axis_id": "stop_density",
+      "inputs": [
+        "stop_poi",
+        "intersection"
+      ],
+      "output_range": [
+        0.0,
+        100.0
+      ],
+      "display": {
+        "kind": "ramp",
+        "label": "停止密度",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "stop_per_km",
+            "weight": 1.0
+          },
+          {
+            "property": "intersection_per_km",
+            "weight": 0.3
+          }
+        ],
+        "thresholds": [
+          1.0,
+          2.0,
+          4.0
+        ],
+        "unit": "回/km",
+        "note": "信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた停止要因の密度。way単位の事前集計（way_attribute_counts）由来"
+      }
+    },
+    {
+      "axis_id": "car_stress",
+      "inputs": [
+        "highway",
+        "lanes",
+        "maxspeed",
+        "cycleway",
+        "designation"
+      ],
+      "output_range": [
+        0.0,
+        100.0
+      ],
+      "display": {
+        "kind": "bespoke",
+        "label": "車の圧迫感",
+        "category": "trafficSafety",
+        "tile_inputs": [],
+        "thresholds": [],
+        "unit": "",
+        "note": "highway×cycleway×maxspeed×lanes×指定路線のレシピ判定が必要なため汎用rampでは表せない。フロントの手書きexpression（carStressExpression.ts、既存carStressレイヤー）が担う"
+      }
+    },
+    {
+      "axis_id": "night",
+      "inputs": [
+        "lit",
+        "tunnel"
+      ],
+      "output_range": [
+        0.0,
+        100.0
+      ],
+      "display": {
+        "kind": "bespoke",
+        "label": "夜間",
+        "category": "trafficSafety",
+        "tile_inputs": [],
+        "thresholds": [],
+        "unit": "",
+        "note": "現OSMデータではlitタグが疎で他軸との差がほぼ見えないため、専用レイヤーは保留（改善計画T145a、データ充実がトリガー）。フロントにexpressionが未登録のためレイヤーは生成されない"
+      }
+    },
+    {
+      "axis_id": "accident",
+      "inputs": [
+        "accident_point"
+      ],
+      "output_range": [
+        0.0,
+        100.0
+      ],
+      "display": {
+        "kind": "ramp",
+        "label": "事故密度",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "accident_per_km",
+            "weight": 1.0
+          }
+        ],
+        "thresholds": [
+          0.4,
+          0.8,
+          1.5
+        ],
+        "unit": "件/km",
+        "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる"
+      }
+    }
+  ]
+}

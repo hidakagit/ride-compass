@@ -526,6 +526,37 @@ async def test_get_stop_poi_counts_ignores_pois_beyond_max_distance_m(road_graph
     assert result[edge_id] == 0
 
 
+async def test_get_stop_poi_counts_excludes_supply_poi_kinds(road_graph_repository, road_graph_session):
+    """改善計画T145b実装中に発見したバグの回帰テスト: T101で補給POI（convenience/
+    vending_machine等）が同じosm_raw_poisテーブルへ入って以降、kindを絞らないCOUNTは
+    停止密度へコンビニ・自販機を誤算入していた。STOP_POI_KINDS該当のみ数えることを確認する。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    await _insert_poi(road_graph_session, 901, "convenience", *NODE1)
+    await _insert_poi(road_graph_session, 902, "vending_machine", *NODE2)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_stop_poi_counts([edge_id], max_distance_m=30.0)
+
+    assert result[edge_id] == 1
+
+
+async def test_get_nearest_stop_poi_counts_excludes_supply_poi_kinds(road_graph_repository, road_graph_session):
+    """get_stop_poi_countsと対称のkindフィルタ回帰テスト（ORSエンジン経路）。"""
+    await _insert_poi(road_graph_session, 900, "stop", *NODE1)
+    await _insert_poi(road_graph_session, 901, "toilets", *NODE1)
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_nearest_stop_poi_counts([NODE1], max_distance_m=30.0)
+
+    assert result == [1]
+
+
 async def test_get_nearest_stop_poi_counts_returns_empty_list_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_nearest_stop_poi_counts([]) == []
 
@@ -642,6 +673,7 @@ async def test_get_intersection_counts_counts_degree_3_node_as_intersection(road
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
     graph = build_road_graph([way_a, way_b, way_c], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
+    await road_graph_repository.recompute_node_degrees()
     edge_ids = list(graph.edges.keys())
 
     result = await road_graph_repository.get_intersection_counts(edge_ids, max_distance_m=30.0)
@@ -657,6 +689,7 @@ async def test_get_intersection_counts_degree_2_pass_through_node_is_not_an_inte
     nodes = {1: NODE1, 2: NODE2, 3: NODE3}
     graph = build_road_graph([way_a, way_b], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
+    await road_graph_repository.recompute_node_degrees()
     edge_ids = list(graph.edges.keys())
 
     result = await road_graph_repository.get_intersection_counts(edge_ids, max_distance_m=30.0)
@@ -673,6 +706,7 @@ async def test_get_intersection_counts_edge_far_from_any_intersection_is_zero(ro
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4, 5: (35.600, 139.600), 6: (35.601, 139.601)}
     graph = build_road_graph([way_a, way_b, way_c, way_isolated], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
+    await road_graph_repository.recompute_node_degrees()
     isolated_edge_ids = [
         edge_id for edge_id, edge in graph.edges.items() if edge.osm_way_id == 200
     ]
@@ -680,6 +714,35 @@ async def test_get_intersection_counts_edge_far_from_any_intersection_is_zero(ro
     result = await road_graph_repository.get_intersection_counts(isolated_edge_ids, max_distance_m=30.0)
 
     assert all(count == 0 for count in result.values())
+
+
+async def test_get_intersection_counts_is_independent_of_edge_id_order_and_subset(road_graph_repository):
+    """改善計画T151の回帰テスト: 修正前はget_intersection_counts内部の50,000件チャンク分割が
+    入力順序でチャンク境界を決め、同一edge_id集合でも順序が異なると境界をまたぐノードの
+    次数が変わりえた。次数をroad_nodes.degree（DB全体の事前集計）へ一本化した後は、
+    (1)同一集合を異なる順序で渡しても結果が一致し、(2)集合の一部だけを渡しても
+    （呼び出し元の集合から独立してグローバルな次数を参照するため）残りの edge の結果が
+    変わらないことを確認する。"""
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    graph = build_road_graph([way_a, way_b, way_c], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    await road_graph_repository.recompute_node_degrees()
+    edge_ids = list(graph.edges.keys())
+
+    forward = await road_graph_repository.get_intersection_counts(edge_ids, max_distance_m=30.0)
+    reversed_result = await road_graph_repository.get_intersection_counts(
+        list(reversed(edge_ids)), max_distance_m=30.0
+    )
+    assert forward == reversed_result
+
+    # NODE2に接続する3本のうち1本だけを渡しても、NODE2自体の次数（＝グローバルな事実）は
+    # 変わらないため、その1本の結果は全件渡したときと同じになるはず。
+    single_edge_id = edge_ids[:1]
+    partial_result = await road_graph_repository.get_intersection_counts(single_edge_id, max_distance_m=30.0)
+    assert partial_result[single_edge_id[0]] == forward[single_edge_id[0]]
 
 
 async def test_get_nearest_intersection_counts_returns_empty_list_for_empty_input(road_graph_repository):
@@ -693,6 +756,7 @@ async def test_get_nearest_intersection_counts_counts_intersections_near_each_po
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
     graph = build_road_graph([way_a, way_b, way_c], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
+    await road_graph_repository.recompute_node_degrees()
 
     result = await road_graph_repository.get_nearest_intersection_counts(
         [NODE2, NODE1], max_distance_m=30.0
@@ -1355,3 +1419,109 @@ async def test_get_poi_tile_mvt_encodes_stop_poi_kind(road_graph_repository, roa
     decoded = mapbox_vector_tile.decode(tile)
     kinds = sorted(f["properties"]["kind"] for f in decoded["stop_poi"]["features"])
     assert kinds == ["level_crossing", "traffic_signals"]
+
+
+# --- way_attribute_counts / raw_intersection_nodes（改善計画T145b「事実はタイルに、解釈は
+# クライアントに」）。地図タイルへ焼き込むway単位の事実カウントの事前集計。 ---
+
+
+async def test_rebuild_raw_intersection_nodes_detects_degree3_from_raw_ways(
+    road_graph_repository, road_graph_session
+):
+    """osm_raw_ways.node_idsの隣接関係から次数3以上の生ノードだけが抽出される
+    （Road Graph＝road_edges非依存。形状点・行き止まりは次数2以下で除外）。"""
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+
+    await road_graph_repository.rebuild_raw_intersection_nodes()
+    await road_graph_session.commit()
+
+    rows = (
+        await road_graph_session.execute(
+            text("SELECT osm_node_id, degree FROM raw_intersection_nodes ORDER BY osm_node_id")
+        )
+    ).all()
+    assert rows == [(2, 3)]
+
+
+async def test_recompute_way_attribute_counts_computes_per_way_facts(
+    road_graph_repository, road_graph_session
+):
+    """way単位のカウント（意味論はedge単位版と同一: 事故=半径30m・involves_bicycleのみ・
+    死亡重み、停止POI=半径15m・STOP_POI_KINDSのみ、交差点=半径30m・次数3以上の生ノード）と
+    way長が計算・UPSERTされることを確認する。"""
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+    await road_graph_repository.rebuild_raw_intersection_nodes()
+
+    # way_a近傍: 停止POI1件（signal）＋補給POI1件（除外されるべき）＋自転車事故1件
+    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    await _insert_poi(road_graph_session, 901, "convenience", *NODE1)
+    await _insert_accident(road_graph_session, "acc-1", 2024, *NODE1, involves_bicycle=True)
+    # 自転車が関与しない事故は数えない（bicycle_only=true相当で固定）
+    await _insert_accident(road_graph_session, "acc-2", 2024, *NODE1, involves_bicycle=False)
+    await road_graph_session.commit()
+
+    await road_graph_repository.recompute_way_attribute_counts(
+        [100, 101, 102], datetime.now(timezone.utc)
+    )
+    await road_graph_session.commit()
+
+    rows = {
+        row[0]: row
+        for row in (
+            await road_graph_session.execute(
+                text(
+                    "SELECT osm_way_id, length_m, accident_count, stop_count, intersection_count "
+                    "FROM way_attribute_counts ORDER BY osm_way_id"
+                )
+            )
+        ).all()
+    }
+    assert set(rows.keys()) == {100, 101, 102}
+    _, length_m, accident_count, stop_count, intersection_count = rows[100]
+    assert length_m > 0
+    assert accident_count == 1.0  # 自転車事故のみ・非死亡は重み1
+    assert stop_count == 1  # convenienceは除外
+    assert intersection_count == 1  # NODE2（次数3）が端点＝半径30m以内
+    # way_b/way_cも共有端点NODE2の交差点を1件ずつ数える
+    assert rows[101][4] == 1
+    assert rows[102][4] == 1
+
+
+async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_repository, road_graph_session):
+    """way_attribute_countsのカウントがkm正規化されてaccident_per_km/stop_per_km/
+    intersection_per_kmプロパティとしてMVTへ焼き込まれる（0はキー省略）。"""
+    import mapbox_vector_tile
+
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+    await road_graph_repository.rebuild_raw_intersection_nodes()
+    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    await road_graph_session.commit()
+    await road_graph_repository.recompute_way_attribute_counts(
+        [100, 101, 102], datetime.now(timezone.utc)
+    )
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    decoded = mapbox_vector_tile.decode(tile)
+    features = {f["properties"]["osm_way_id"]: f["properties"] for f in decoded["road_surface"]["features"]}
+    # way_a（NODE1-NODE2、約147m）: signal 1件 → stop_per_km ≈ 1000/長さm ≈ 6.8
+    way_a_props = features[100]
+    assert way_a_props["stop_per_km"] == pytest.approx(1000.0 / 147.0, rel=0.2)
+    assert way_a_props["intersection_per_km"] > 0
+    # 事故0件のwayはaccident_per_kmキー自体が省略される（NULLIFによるタイル軽量化）
+    assert "accident_per_km" not in way_a_props

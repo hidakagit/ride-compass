@@ -66,6 +66,7 @@ from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     INTERSECTION_MATCH_MAX_DISTANCE_M,
+    STOP_POI_KINDS,
     STOP_POI_MATCH_MAX_DISTANCE_M,
 )
 from app.infrastructure.vector_tile import (
@@ -210,6 +211,18 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   改善計画T102実測0.0%の死に補正のためT122で撤去した）。フロント側はsafetyExpression.ts、
 #   採点側はdomain/safety.py: safety_breakdownがdomain/safety.py: SafetyRecipeという
 #   共通のレシピ定義に対応させて計算する。
+# - accident_per_km/stop_per_km/intersection_per_km（改善計画T145b「事実はタイルに、
+#   解釈はクライアントに」）: way_attribute_counts（way単位の事前集計。edge単位の
+#   edge_attribute_countsはroad_edges＝ルート生成済みエリアしかカバーしないため地図表示の
+#   母集団にできない、dev実測3.6%）をJOINし、km正規化した密度を焼き込む。これらはレシピに
+#   依存しない静的な事実のため、「最終値を焼かない」上記方針と矛盾しない（レシピ変更で
+#   タイルキャッシュが無効化されることはない。無効化が必要になるのはaccident_points/
+#   osm_raw_pois/osm_raw_waysの再取込時のみで、その場合はprecompute_way_attribute_counts
+#   →タイル世代対上げで反映する）。km正規化は評価軸の実入力（stop_difficultyはper-km値）
+#   と意味論を揃えるためで、way長への依存も除ける。0・極短way（length_m<=0）はNULLIFで
+#   キー省略し（大多数のwayが0のためタイルが軽くなる、tunnel/bridgeと同じ流儀）、
+#   フロントは欠損=0として扱う。二次軸スコア（レシピ依存の解釈）は引き続きフロント側で
+#   計算する。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         """
@@ -285,7 +298,19 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'
                             WHEN d.is_ert THEN 'emergency_transport'
                             WHEN d.is_cl THEN 'critical_logistics'
-                        END AS designation
+                        END AS designation,
+                        -- 事前集計カウントのkm正規化密度（改善計画T145b、冒頭コメント参照）。
+                        -- ST_AsMVTはnumeric型をtextへフォールバックするため（maxspeed_kmhの
+                        -- コメント参照）、丸めた後にdouble precisionへキャストして焼き込む。
+                        NULLIF(
+                            round((wc.accident_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 2), 0
+                        )::double precision AS accident_per_km,
+                        NULLIF(
+                            round((wc.stop_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
+                        )::double precision AS stop_per_km,
+                        NULLIF(
+                            round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
+                        )::double precision AS intersection_per_km
                     FROM osm_raw_ways w
                     CROSS JOIN LATERAL (
                         SELECT ARRAY[
@@ -295,6 +320,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             lower(btrim(w.tags->>'cycleway:both'))
                         ] AS values
                     ) cw
+                    LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
                     LEFT JOIN (
                         -- 指定路線コンフレーション機構（外部静的データソース T51）。
                         -- designation_attributesはmatch_designations.pyの事前計算バッチが埋める。
@@ -412,6 +438,10 @@ _NEAREST_SURFACE_SQL = text(
 # （全組み合わせ評価）に落ちる（_INTERSECTION_COUNTS_SQLのコメント・T64実測参照）。
 # `&&`（geometry型のバウンディングボックス演算子）を前置してGiST索引を先に使わせてから
 # ST_DWithinで精密判定する。
+# 改善計画T145b実装中に発見したバグの修正: T101で補給POI（convenience/vending_machine等）が
+# 同じosm_raw_poisへ入って以降、kindを絞らないこのCOUNTは停止密度へコンビニ・自販機を
+# 誤算入していた（dev実測で全POIの約17%が補給kind）。STOP_POI_KINDS（domain/traffic.py）で
+# フィルタする。
 _STOP_POI_COUNTS_SQL = text(
     """
     SELECT e.edge_id, COUNT(p.osm_node_id) AS stop_count
@@ -419,14 +449,16 @@ _STOP_POI_COUNTS_SQL = text(
     LEFT JOIN osm_raw_pois p
         ON p.geom && ST_Expand(e.geom, :max_distance_deg)
        AND ST_DWithin(p.geom::geography, e.geom::geography, :max_distance_m)
+       AND p.kind = ANY(:stop_kinds)
     WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
     GROUP BY e.edge_id
     """
-)
+).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 # ORSエンジン用（サンプル点ごとの近傍件数）。_NEAREST_SURFACE_SQLと同じUNNEST WITH
 # ORDINALITY構造だが、単純な件数JOINのため_NEAREST_SURFACE_SQLの回避策（WHEREを
-# LATERAL外へ出す）は元々不要。
+# LATERAL外へ出す）は元々不要。kindフィルタは_STOP_POI_COUNTS_SQLのコメント参照
+# （T145b実装中に発見したバグの修正、両クエリで対称に適用）。
 _NEAREST_STOP_POI_COUNTS_SQL = text(
     """
     WITH pts AS (
@@ -441,12 +473,14 @@ _NEAREST_STOP_POI_COUNTS_SQL = text(
     LEFT JOIN osm_raw_pois p
         ON p.geom && ST_Expand(pts.geom, :max_distance_deg)
        AND ST_DWithin(p.geom::geography, pts.geog, :max_distance_m)
+       AND p.kind = ANY(:stop_kinds)
     GROUP BY pts.ord
     ORDER BY pts.ord
     """
 ).bindparams(
     bindparam("lats", type_=ARRAY(Float())),
     bindparam("lons", type_=ARRAY(Float())),
+    bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())),
 )
 
 # 外部静的データソース T50残作業（事故密度の評価組み込み）。_STOP_POI_COUNTS_SQLと同じ
@@ -620,12 +654,18 @@ def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
     return max_distance_m / 70_000.0
 
 
-# 静的道路属性P1残り（intersectionDensity）。「次数3以上のNode」を交差点とみなし、
-# road_edgesのfrom/to隣接ノード集合から次数を導出する（road_nodes自体は次数を保持していない。
-# build_road_graphのNode化条件は「Wayの端点、または複数Wayに共有されるNode」であり、
-# 次数2の単純な通過点もNode化されうるため、次数はここで都度計算する必要がある）。
-# edge_idで指定範囲を絞ってから集計するため（road_graphエンジンは既に取得済みの
-# ローカルグラフのedge_id全量を渡す）、DB全体のroad_edgesを走査しない。
+# 静的道路属性P1残り（intersectionDensity）。「次数3以上のNode」を交差点とみなす。
+#
+# 改善計画T151（2026-08-19改訂）: 以前はroad_edgesのfrom/to隣接ノード集合から次数を
+# 呼び出しのたびに計算していたが、「渡されたedge_ids集合内で完結する部分グラフの次数」を
+# 返す設計だったため、(a) 呼び出し元の集合が変わると同じedgeでも結果が変わる、
+# (b) get_intersection_counts内部の50,000件チャンク分割がリスト順序に依存してチャンク
+# 境界を決めるため、同一集合でも順序が異なると境界をまたぐノードの次数が変わる非決定性が
+# あった（T144実装メモ参照）。get_accident_counts/get_stop_poi_countsと同じ「edge単位で
+# 独立な空間近傍カウント」の意味論へ揃えるため、次数を`road_nodes.degree`（DB全体から見た
+# 真のグローバル次数、backend/app/batch/precompute_road_node_degrees.pyが事前計算）へ
+# 一本化した。呼び出し元の集合やチャンク分割から完全に独立するため、順序依存・境界過小評価の
+# どちらも構造的に解消する。
 #
 # road_nodesとのJOINは`ST_DWithin(geom::geography, ...)`だけに頼らず、必ず`&&`
 # （バウンディングボックス重なり、GiST索引を素直に使う）を先に効かせてからST_DWithinで
@@ -636,50 +676,112 @@ def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
 # 既存クエリも`ORDER BY geom <-> geom`のKNN索引か`geom && bbox`のいずれかで索引を使わせており、
 # ST_DWithin(geography)単体には頼っていない）、まずこれで候補を数件程度まで絞ってから
 # ST_DWithinで正確な距離判定をする。
-#
-# `degrees`は独立したJOIN句として1回だけ参照する（`local_edges`側のJOIN ON句の中へ
-# `rn.node_id IN (SELECT ... FROM degrees)`のようにサブクエリとして埋め込まない）。
-# JOIN ONの内側に置くとPostgresがdegrees（内部でlocal_edges全件を再スキャンする集計）を
-# 外側local_edgesの行ごとに再実行するNested Loopを選び、O(件数^2)に劣化することを
-# 実測で確認した（2000件で15秒のstatement_timeoutに到達）。
 _INTERSECTION_COUNTS_SQL = text(
     """
     WITH local_edges AS (
-        SELECT edge_id, from_node_id, to_node_id, geom
+        SELECT edge_id, geom
         FROM road_edges
         WHERE edge_id = ANY(CAST(:edge_ids AS text[]))
-    ),
-    endpoints AS (
-        SELECT from_node_id AS node_id, to_node_id AS neighbor_id FROM local_edges
-        UNION
-        SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM local_edges
-    ),
-    degrees AS (
-        SELECT node_id
-        FROM endpoints
-        GROUP BY node_id
-        HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
     )
-    SELECT le.edge_id, COUNT(d.node_id) AS intersection_count
+    SELECT le.edge_id, COUNT(rn.node_id) AS intersection_count
     FROM local_edges le
     LEFT JOIN road_nodes rn
         ON rn.geom && ST_Expand(le.geom, :max_distance_deg)
         AND ST_DWithin(rn.geom::geography, le.geom::geography, :max_distance_m)
-    LEFT JOIN degrees d ON d.node_id = rn.node_id
+        AND rn.degree >= :degree_threshold
     GROUP BY le.edge_id
     """
 )
 
-# ORSエンジン用（サンプル点ごとの近傍交差点件数）。_INTERSECTION_COUNTS_SQLと違い、edge_idの
-# 一覧が無い（ルートgeometry上の任意サンプル点）ため、まず各点の近傍road_node候補を
-# 同じ`&&`先行フィルタ+ST_DWithinパターンで求め、その少数の候補nodeについてのみ
-# from_node_id/to_node_id（btree索引）で次数を計算する。以前は「サンプル点集合の外接矩形を
-# 広げた範囲のroad_edges全件から次数を先に計算し、その結果へ点をJOINする」実装だったが、
-# (1)8方位ぶんの点をまとめて1回のクエリに渡すため外接矩形がループ全体（最大約60km径）に
-# 及ぶ、(2)次数計算結果へのJOINがST_DWithin(geography)単体では索引を使わない総当たりになる
-# （_INTERSECTION_COUNTS_SQLのコメント参照）、の二重の理由で実データ大規模時に深刻に
-# 遅くなることを実測（EXPLAIN ANALYZEで数秒〜数十秒、本番規模ではさらに悪化する見込み）した
-# ため、点ごとに閉じた候補探索へ変更した。
+# 改善計画T145b: raw_intersection_nodes（次数3以上の生OSMノード）の全再構築SQL。
+# road_nodes.degree（Road Graph依存、ルート生成済みエリアのみ）と異なり、osm_raw_ways.
+# node_idsの隣接関係から全域の次数を導出する。Wayの連続するnode_idペアを双方向に展開し、
+# node単位でDISTINCT隣接node数を数える（同じ判定基準: 次数3以上=交差点。中間の形状点は
+# 前後2ノードのみで次数2となり除外される）。highway無しのway（osm_raw_waysには原則
+# 道路プロファイルのwayのみだが防御的に絞る）は隣接関係に含めない。
+_REBUILD_RAW_INTERSECTION_NODES_SQL = text(
+    """
+    WITH adj AS (
+        SELECT
+            n.node_id,
+            lead(n.node_id) OVER (PARTITION BY w.osm_way_id ORDER BY n.ord) AS neighbor_id
+        FROM osm_raw_ways w
+        CROSS JOIN LATERAL unnest(w.node_ids) WITH ORDINALITY AS n(node_id, ord)
+        WHERE w.highway IS NOT NULL
+    ),
+    pairs AS (
+        SELECT node_id, neighbor_id FROM adj
+        WHERE neighbor_id IS NOT NULL AND neighbor_id <> node_id
+        UNION
+        SELECT neighbor_id AS node_id, node_id AS neighbor_id FROM adj
+        WHERE neighbor_id IS NOT NULL AND neighbor_id <> node_id
+    ),
+    degrees AS (
+        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+        FROM pairs
+        GROUP BY node_id
+        HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
+    )
+    INSERT INTO raw_intersection_nodes (osm_node_id, degree, geom)
+    SELECT d.node_id, d.degree, rn.geom
+    FROM degrees d
+    JOIN osm_raw_nodes rn ON rn.osm_node_id = d.node_id
+    """
+)
+
+# 改善計画T145b: way_attribute_counts（way単位の事実カウント）の再計算SQL。
+# カウントの意味論はedge単位版（_ACCIDENT_COUNTS_SQL/_STOP_POI_COUNTS_SQL/
+# _INTERSECTION_COUNTS_SQL）と同一（半径・kindフィルタ・死亡事故重み・次数しきい値）で、
+# 対象geometryだけがedge→way全体になる。`&&`前置・LATERALの流儀も既存クエリを踏襲。
+# 事故はbicycle_only=true相当（involves_bicycleのみ）で固定する（edge版の実際の呼び出しが
+# 常に既定値trueであるのと同じ判断、EdgeAttributeCountsRowのdocstring参照）。
+_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
+    """
+    INSERT INTO way_attribute_counts
+        (osm_way_id, length_m, accident_count, stop_count, intersection_count, computed_at)
+    SELECT
+        w.osm_way_id,
+        ST_Length(w.geom::geography),
+        COALESCE(acc.cnt, 0),
+        COALESCE(st.cnt, 0),
+        COALESCE(ix.cnt, 0),
+        :computed_at
+    FROM osm_raw_ways w
+    LEFT JOIN LATERAL (
+        SELECT SUM(CASE WHEN a.fatal THEN :fatal_weight ELSE 1 END) AS cnt
+        FROM accident_points a
+        WHERE a.geom && ST_Expand(w.geom, :accident_distance_deg)
+          AND ST_DWithin(a.geom::geography, w.geom::geography, :accident_distance_m)
+          AND a.involves_bicycle
+    ) acc ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS cnt
+        FROM osm_raw_pois p
+        WHERE p.geom && ST_Expand(w.geom, :stop_distance_deg)
+          AND ST_DWithin(p.geom::geography, w.geom::geography, :stop_distance_m)
+          AND p.kind = ANY(:stop_kinds)
+    ) st ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS cnt
+        FROM raw_intersection_nodes i
+        WHERE i.geom && ST_Expand(w.geom, :intersection_distance_deg)
+          AND ST_DWithin(i.geom::geography, w.geom::geography, :intersection_distance_m)
+    ) ix ON true
+    WHERE w.osm_way_id = ANY(CAST(:osm_way_ids AS bigint[]))
+      AND w.geom IS NOT NULL
+      AND w.highway IS NOT NULL
+    ON CONFLICT (osm_way_id) DO UPDATE SET
+        length_m = EXCLUDED.length_m,
+        accident_count = EXCLUDED.accident_count,
+        stop_count = EXCLUDED.stop_count,
+        intersection_count = EXCLUDED.intersection_count,
+        computed_at = EXCLUDED.computed_at
+    """
+).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
+
+# ORSエンジン用（サンプル点ごとの近傍交差点件数）。_INTERSECTION_COUNTS_SQLと同様、T151で
+# `road_nodes.degree`参照へ簡略化した（以前はcandidate_nodesに接続するroad_edgesを
+# 都度集計していたが、事前計算済み列を読むだけで同じ結果になるため不要になった）。
 _NEAREST_INTERSECTION_COUNTS_SQL = text(
     """
     WITH pts AS (
@@ -688,37 +790,15 @@ _NEAREST_INTERSECTION_COUNTS_SQL = text(
             ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
             ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
         FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    ),
-    nearby_nodes AS (
-        SELECT pts.ord, rn.node_id
-        FROM pts
-        JOIN road_nodes rn
-            ON rn.geom && ST_Expand(pts.geom, :max_distance_deg)
-            AND ST_DWithin(rn.geom::geography, pts.geog, :max_distance_m)
-    ),
-    candidate_nodes AS (
-        SELECT DISTINCT node_id FROM nearby_nodes
-    ),
-    endpoints AS (
-        SELECT e.from_node_id AS node_id, e.to_node_id AS neighbor_id
-        FROM road_edges e
-        WHERE e.from_node_id IN (SELECT node_id FROM candidate_nodes)
-        UNION
-        SELECT e.to_node_id AS node_id, e.from_node_id AS neighbor_id
-        FROM road_edges e
-        WHERE e.to_node_id IN (SELECT node_id FROM candidate_nodes)
-    ),
-    degrees AS (
-        SELECT node_id
-        FROM endpoints
-        GROUP BY node_id
-        HAVING COUNT(DISTINCT neighbor_id) >= :degree_threshold
     )
-    SELECT nn.ord, COUNT(*) AS intersection_count
-    FROM nearby_nodes nn
-    JOIN degrees d ON d.node_id = nn.node_id
-    GROUP BY nn.ord
-    ORDER BY nn.ord
+    SELECT pts.ord, COUNT(rn.node_id) AS intersection_count
+    FROM pts
+    JOIN road_nodes rn
+        ON rn.geom && ST_Expand(pts.geom, :max_distance_deg)
+        AND ST_DWithin(rn.geom::geography, pts.geog, :max_distance_m)
+        AND rn.degree >= :degree_threshold
+    GROUP BY pts.ord
+    ORDER BY pts.ord
     """
 ).bindparams(
     bindparam("lats", type_=ARRAY(Float())),
@@ -832,8 +912,57 @@ class _SessionRepository:
         self._session = session
 
 
+# 改善計画T151: road_nodes.degree（DB全体から見た真のグローバル次数）の事前集計SQL。
+# road_edges全件（呼び出し元の集合ではなくDB全体）から次数を計算するため、
+# recompute_node_degrees()の呼び出し元やチャンク分割から独立した決定的な値になる。
+# backend/app/batch/precompute_road_node_degrees.pyが本メソッドを呼び出す
+# （新しいSQLを二重に持たない、既存の各precomputeバッチと同じ規約）。
+_RECOMPUTE_NODE_DEGREES_SQL = text(
+    """
+    WITH endpoints AS (
+        SELECT from_node_id AS node_id, to_node_id AS neighbor_id FROM road_edges
+        UNION
+        SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM road_edges
+    ),
+    degrees AS (
+        SELECT node_id, COUNT(DISTINCT neighbor_id) AS degree
+        FROM endpoints
+        GROUP BY node_id
+    )
+    UPDATE road_nodes rn
+    SET degree = COALESCE(d.degree, 0)
+    FROM degrees d
+    WHERE rn.node_id = d.node_id
+    """
+)
+
+# road_edgesから一切参照されないnode（孤立点、通常は発生しないが防御的に0へ戻す）。
+_RESET_UNREFERENCED_NODE_DEGREES_SQL = text(
+    """
+    UPDATE road_nodes rn
+    SET degree = 0
+    WHERE rn.degree <> 0
+      AND NOT EXISTS (
+          SELECT 1 FROM road_edges e
+          WHERE e.from_node_id = rn.node_id OR e.to_node_id = rn.node_id
+      )
+    """
+)
+
+
 class DerivedGraphRepository(_SessionRepository):
     """派生グラフ（road_nodes/road_edges、交差点分割の結果）の読み書きと鮮度判定。"""
+
+    async def recompute_node_degrees(self) -> None:
+        """road_nodes.degreeをroad_edges全件から再計算する（改善計画T151）。
+
+        呼び出し元の集合に依存しないDB全体集計のため、road_edgesが変わった場合
+        （PBF再取込等）は都度呼び直す必要がある派生データ（`edge_attribute_counts`と同じ
+        「精密テーブル/列、バッチで再計算」パターン）。get_intersection_counts等が
+        参照する`road_nodes.degree`は、本メソッドを呼ぶまでは新規ノードの初期値0のまま。
+        """
+        await self._session.execute(_RECOMPUTE_NODE_DEGREES_SQL)
+        await self._session.execute(_RESET_UNREFERENCED_NODE_DEGREES_SQL)
 
     async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
         envelope = func.ST_MakeEnvelope(
@@ -1467,9 +1596,11 @@ class AttributeRepository(_SessionRepository):
         get_stop_poi_countsと同じ「edge_idリストを渡して辞書で受け取る」形で、指定edge_idは
         （0件でも）必ず結果に含まれる。
 
-        次数はDB全体ではなく指定edge_ids（呼び出し元が既に取得済みのローカルグラフの
-        全edge）に限定して都度計算する（_INTERSECTION_COUNTS_SQL参照。DB全体のroad_edgesを
-        毎回集計すると規模に応じて遅くなるため）。
+        次数は`road_nodes.degree`（DB全体から見た真のグローバル次数、
+        backend/app/batch/precompute_road_node_degrees.pyが事前計算、改善計画T151）を参照する。
+        呼び出し元が渡すedge_ids集合やチャンク分割に依存しないため、同一edge_idを異なる順序・
+        異なる集合で渡しても常に同じ結果を返す（get_accident_counts/get_stop_poi_countsと
+        揃った「edge単位で独立な空間近傍カウント」の意味論）。
         """
         if not edge_ids:
             return {}
@@ -1494,8 +1625,8 @@ class AttributeRepository(_SessionRepository):
         """(lat, lon)点列それぞれについて、`max_distance_m`以内にある交差点（次数
         `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（入力と同じ順序・
         同じ長さ、静的道路属性P1残り）。get_nearest_stop_poi_countsと同じ考え方で、
-        点ごとの近傍road_node候補をGiST索引で求めてから次数を計算する
-        （_NEAREST_INTERSECTION_COUNTS_SQL参照）。
+        点ごとの近傍road_node候補をGiST索引で求め、事前計算済みの`road_nodes.degree`
+        （改善計画T151）と比較する（_NEAREST_INTERSECTION_COUNTS_SQL参照）。
         """
         if not points:
             return []
@@ -1590,6 +1721,43 @@ class AttributeRepository(_SessionRepository):
             result.update(edge_id for (edge_id,) in rows.all())
         return result
 
+    async def rebuild_raw_intersection_nodes(self) -> None:
+        """raw_intersection_nodes（次数3以上の生OSMノード、改善計画T145b）を全再構築する。
+
+        osm_raw_ways.node_idsの隣接関係から導出するRoad Graph非依存の派生データ
+        （_REBUILD_RAW_INTERSECTION_NODES_SQLのコメント参照）。osm_raw_waysが変わった場合
+        （PBF再取込等）はrecompute_way_attribute_countsより先に呼び直す必要がある。
+        """
+        await self._session.execute(text("TRUNCATE raw_intersection_nodes"))
+        await self._session.execute(
+            _REBUILD_RAW_INTERSECTION_NODES_SQL,
+            {"degree_threshold": INTERSECTION_DEGREE_THRESHOLD},
+        )
+
+    async def recompute_way_attribute_counts(
+        self, osm_way_ids: list[int], computed_at: datetime
+    ) -> None:
+        """指定osm_way_idのway_attribute_counts（way単位の事実カウント、改善計画T145b）を
+        再計算しUPSERTする。事前にrebuild_raw_intersection_nodesの実行が必要
+        （intersection_countの参照先。_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQLのコメント参照）。
+        """
+        if not osm_way_ids:
+            return
+        await self._session.execute(
+            _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL,
+            {
+                "osm_way_ids": osm_way_ids,
+                "computed_at": computed_at,
+                "fatal_weight": ACCIDENT_FATAL_WEIGHT,
+                "accident_distance_m": ACCIDENT_MATCH_MAX_DISTANCE_M,
+                "accident_distance_deg": _meters_to_bbox_margin_deg(ACCIDENT_MATCH_MAX_DISTANCE_M),
+                "stop_distance_m": STOP_POI_MATCH_MAX_DISTANCE_M,
+                "stop_distance_deg": _meters_to_bbox_margin_deg(STOP_POI_MATCH_MAX_DISTANCE_M),
+                "intersection_distance_m": INTERSECTION_MATCH_MAX_DISTANCE_M,
+                "intersection_distance_deg": _meters_to_bbox_margin_deg(INTERSECTION_MATCH_MAX_DISTANCE_M),
+            },
+        )
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -1651,6 +1819,9 @@ class RoadGraphRepository:
 
     async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
         await self.graph.save_graph(graph, way_ids_to_replace=way_ids_to_replace)
+
+    async def recompute_node_degrees(self) -> None:
+        await self.graph.recompute_node_degrees()
 
     # --- Road Attribute（AttributeRepository） ---
 
@@ -1719,6 +1890,12 @@ class RoadGraphRepository:
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         return await self.attributes.get_designated_edge_ids(edge_ids)
+
+    async def rebuild_raw_intersection_nodes(self) -> None:
+        await self.attributes.rebuild_raw_intersection_nodes()
+
+    async def recompute_way_attribute_counts(self, osm_way_ids: list[int], computed_at: datetime) -> None:
+        await self.attributes.recompute_way_attribute_counts(osm_way_ids, computed_at)
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

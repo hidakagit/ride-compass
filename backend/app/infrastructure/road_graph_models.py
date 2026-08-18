@@ -123,6 +123,10 @@ class RoadNodeRow(Base):
     osm_node_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 改善計画T151: road_edges全件から見た真のグローバル次数（事前集計、
+    # backend/app/batch/precompute_road_node_degrees.pyで再計算）。DEFAULT 0は
+    # ノード作成時点（PBF取込）の初期値で、バッチ実行までは未計算を意味する。
+    degree: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class RoadEdgeRow(Base):
@@ -173,6 +177,45 @@ class EdgeAttributeCountsRow(Base):
     edge_id: Mapped[str] = mapped_column(
         String, ForeignKey("road_edges.edge_id", ondelete="CASCADE"), primary_key=True
     )
+    accident_count: Mapped[float] = mapped_column(Float, nullable=False)
+    stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class RawIntersectionNodeRow(Base):
+    """次数3以上の生OSMノード（交差点、改善計画T145b）。osm_raw_ways.node_idsの隣接関係
+    から導出したRoad Graph非依存の派生データで、バッチ
+    （`app/batch/precompute_way_attribute_counts.py`）が全再構築する。
+    way_attribute_countsのintersection_count集計だけが参照する。migration 0012で
+    実テーブルは作成済み（ORMモデルはミラー、EdgeAttributeCountsRowの同種コメント参照）。
+    """
+
+    __tablename__ = "raw_intersection_nodes"
+
+    osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    degree: Mapped[int] = mapped_column(Integer, nullable=False)
+    geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=False)
+
+
+class WayAttributeCountsRow(Base):
+    """事故・停止POI・交差点カウントのway単位事前集計（改善計画T145b「事実はタイルに、
+    解釈はクライアントに」）。地図タイル（_ROAD_SURFACE_TILE_MVT_SQL）への焼き込み専用。
+
+    T144のedge_attribute_counts（edge単位、評価用）と並存する: road_edgesはルート生成時に
+    遅延構築されるため地図表示の母集団として不十分（dev実測でタイル内way の約3.6%しか
+    カバーしない）で、地図タイルはosm_raw_ways全域を母集団とする本テーブルを使う。
+    カウントの意味論（半径・kindフィルタ・死亡事故重み）はedge単位版と同一。
+    バッチは`app/batch/precompute_way_attribute_counts.py`。migration 0012で実テーブルは
+    作成済み（ORMモデルはミラー、EdgeAttributeCountsRowの同種コメント参照）。
+    """
+
+    __tablename__ = "way_attribute_counts"
+
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
+    )
+    length_m: Mapped[float] = mapped_column(Float, nullable=False)
     accident_count: Mapped[float] = mapped_column(Float, nullable=False)
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)

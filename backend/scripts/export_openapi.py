@@ -25,6 +25,8 @@ from app.domain.recipe import (  # noqa: E402
     MotorVehicleDensityRecipe,
     RoadSuitabilityRecipe,
 )
+from app.domain.registry import all_axes, reset_registry_for_testing  # noqa: E402
+from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
 from app.domain.safety import (  # noqa: E402
     DEFAULT_SAFETY_RECIPE,
@@ -57,6 +59,7 @@ SAFETY_RECIPE_PATH = GENERATED_DIR / "safety-recipe.json"
 SAFETY_TEST_CASES_PATH = GENERATED_DIR / "safety-test-cases.json"
 ROAD_SUITABILITY_RECIPE_PATH = GENERATED_DIR / "road-suitability-recipe.json"
 MOTOR_VEHICLE_DENSITY_RECIPE_PATH = GENERATED_DIR / "motor-vehicle-density-recipe.json"
+AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
 
 # 車ストレスのPython実装（domain/traffic.py: car_stress_level）とフロント実装
 # （trafficStressExpression.ts）の相互検証用フィクスチャ（改善計画: 交通ストレスレシピ
@@ -299,6 +302,27 @@ def main() -> None:
     # 共有元化）。車ストレス・安全度の両方のMapLibre expressionが読む。
     _write_json(ROAD_SUITABILITY_RECIPE_PATH, DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump())
     _write_json(MOTOR_VEHICLE_DENSITY_RECIPE_PATH, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump())
+    # 二次軸カタログ（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
+    # レジストリ（domain/registry_defaults.py）の全軸と表示宣言（AxisDisplaySpec）を
+    # 書き出し、フロントの汎用レイヤーファクトリ（axisLayers.ts）がkind="ramp"の軸から
+    # レイヤー・凡例を自動生成する。新しい軸はレジストリへの登録（＋タイルへの事実の
+    # 焼き込み）だけで地図レイヤーが現れる。
+    reset_registry_for_testing()
+    register_defaults()
+    _write_json(
+        AXIS_CATALOG_PATH,
+        {
+            "axes": [
+                {
+                    "axis_id": axis.axis_id,
+                    "inputs": axis.inputs,
+                    "output_range": list(axis.output_range),
+                    "display": axis.display.model_dump() if axis.display is not None else None,
+                }
+                for axis in all_axes()
+            ]
+        },
+    )
 
 
 if __name__ == "__main__":
