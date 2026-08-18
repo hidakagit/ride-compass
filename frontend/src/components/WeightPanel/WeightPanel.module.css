@@ -80,6 +80,13 @@
   padding: 0.15rem 0.4rem;
 }
 
+.infoTooltip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
 .note {
   color: var(--color-muted);
   font-size: var(--font-size-sm);
