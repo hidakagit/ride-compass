@@ -1,0 +1,15 @@
+-- 改善計画T151: get_intersection_countsは「渡されたedge_ids集合内で完結する部分グラフの
+-- 次数」を返す設計だったため、(a) 呼び出し元の集合が変わると同じedgeでも結果が変わる、
+-- (b) さらに深刻な問題として、内部の50,000件チャンク分割（road_graph_repository.py:
+-- get_intersection_counts）がリスト順序に依存してチャンク境界を決めるため、同一集合でも
+-- 順序が異なると境界をまたぐノードの次数が変わる非決定性があった（T144実装メモ参照）。
+--
+-- get_accident_counts/get_stop_poi_countsと同じ「edge単位で独立な空間近傍カウント」の
+-- 意味論へ揃えるため、次数を「対象road_nodeの真のグローバル次数（DB全体で見た次数）」として
+-- road_nodesへ事前計算・キャッシュする。呼び出し元の集合やチャンク分割から完全に独立するため、
+-- 順序依存・境界過小評価のどちらも構造的に解消する。
+--
+-- 適用後はbackend/app/batch/precompute_road_node_degrees.pyの実行が必須（適用しただけでは
+-- 全行degree=0のまま、edge_attribute_counts等と同じ運用）。road_edgesが変わるたび
+-- （PBF再取込時等）に再実行が必要な派生データ。
+ALTER TABLE road_nodes ADD COLUMN degree integer NOT NULL DEFAULT 0;

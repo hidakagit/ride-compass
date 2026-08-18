@@ -140,6 +140,13 @@ _HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
     "give_way": "give_way",
 }
 
+# 停止要因POIのkind正準集合（SQL側のkindフィルタ用、改善計画T145b実装中に発見したバグの
+# 修正）。T101で補給POI（convenience/vending_machine等、SupplyPoiKind）が同じ
+# `osm_raw_pois`テーブルへ入ったため、kindを絞らないCOUNTは停止密度へコンビニ・自販機を
+# 誤算入する。停止密度系のSQL（_STOP_POI_COUNTS_SQL等）は必ずこの集合でフィルタする
+# （設計原則2: 片側import。StopPoiKindのLiteral値と乖離しないようテストで照合する）。
+STOP_POI_KINDS = frozenset(_HIGHWAY_STOP_KINDS.values()) | {"level_crossing"}
+
 
 def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
     """信号・横断歩道・一時停止・踏切の分類（静的道路属性P1、計画書§2.2）。node取込の

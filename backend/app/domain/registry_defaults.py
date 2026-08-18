@@ -20,7 +20,15 @@ axis_idは設計プロンプトが示す目標名（`car_stress`等）を使う�
 car_stressへの統一）で追従済み。
 """
 
-from app.domain.registry import AxisSpec, PrimaryAttributeSpec, register_axis, register_primary_attribute
+from app.domain.difficulty import UNSIGNALED_INTERSECTION_WEIGHT
+from app.domain.registry import (
+    AxisDisplaySpec,
+    AxisSpec,
+    PrimaryAttributeSpec,
+    TileInputSpec,
+    register_axis,
+    register_primary_attribute,
+)
 
 
 def register_defaults() -> None:
@@ -222,6 +230,14 @@ def _register_axes() -> None:
             transform_fn="app.domain.difficulty.gradient_difficulty",
             output_range=(0.0, 100.0),
             description="区間の平均勾配から算出する難易度（絶対基準）",
+            display=AxisDisplaySpec(
+                kind="none",
+                label="勾配",
+                category="terrain",
+                note="標高属性（elevation_attributes）はGSI APIから都度取得でDBへ恒久保存"
+                "しない設計のため、タイルへ焼き込める事実データが無い。標高図レイヤー"
+                "（elevation）が地形の把握を代替する",
+            ),
         )
     )
     register_axis(
@@ -234,6 +250,13 @@ def _register_axes() -> None:
             "から算出する走行しやすさ。ルート単位の集約統計（`RouteCandidate.road_score`、"
             "距離加重の舗装率%）は別関数`domain/road.py: distance_weighted_road_score`が担う"
             "（区間単位のこの軸と混同しないこと）",
+            display=AxisDisplaySpec(
+                kind="none",
+                label="路面",
+                category="road",
+                note="既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分け"
+                "モード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない",
+            ),
         )
     )
     register_axis(
@@ -246,6 +269,21 @@ def _register_axes() -> None:
             "難易度。交差点密度(intersection)は単独軸を持たず、タグなし交差点として低い重み"
             "（0.3、signal等のstop_poiを1.0とした相対値）でこの軸へ吸収する"
             "（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）",
+            display=AxisDisplaySpec(
+                kind="ramp",
+                label="停止密度",
+                category="trafficSafety",
+                tile_inputs=[
+                    TileInputSpec(property="stop_per_km", weight=1.0),
+                    TileInputSpec(property="intersection_per_km", weight=UNSIGNALED_INTERSECTION_WEIGHT),
+                ],
+                # domain/difficulty.py: stop_difficultyの正準スケール（0→4.0回/kmで0→100）に
+                # 対応する4段階（〜1/〜2/〜4/4超）。
+                thresholds=[1.0, 2.0, 4.0],
+                unit="回/km",
+                note="信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた"
+                "停止要因の密度。way単位の事前集計（way_attribute_counts）由来",
+            ),
         )
     )
     register_axis(
@@ -262,6 +300,14 @@ def _register_axes() -> None:
             "difficultyへの変換は`domain/difficulty.py: car_stress_difficulty`が別途行う"
             "2段階構成。実際の呼び出しは`domain/evaluation.py: compute_edge_axis_scores`が"
             "この2段階を合成して行っており、まだtransform_fn文字列を動的解決してはいない）",
+            display=AxisDisplaySpec(
+                kind="bespoke",
+                label="車の圧迫感",
+                category="trafficSafety",
+                note="highway×cycleway×maxspeed×lanes×指定路線のレシピ判定が必要なため"
+                "汎用rampでは表せない。フロントの手書きexpression"
+                "（carStressExpression.ts、既存carStressレイヤー）が担う",
+            ),
         )
     )
     register_axis(
@@ -272,6 +318,14 @@ def _register_axes() -> None:
             output_range=(0.0, 100.0),
             description="街灯なし・トンネルから算出する夜間の走りにくさ。改善計画T139で"
             "安全度軸から分離・新設。既定重み0で運用（route_preference.yaml参照）",
+            display=AxisDisplaySpec(
+                kind="bespoke",
+                label="夜間",
+                category="trafficSafety",
+                note="現OSMデータではlitタグが疎で他軸との差がほぼ見えないため、"
+                "専用レイヤーは保留（改善計画T145a、データ充実がトリガー）。"
+                "フロントにexpressionが未登録のためレイヤーは生成されない",
+            ),
         )
     )
     register_axis(
@@ -282,5 +336,19 @@ def _register_axes() -> None:
             output_range=(0.0, 100.0),
             description="事故地点密度（件/(km・年)）から算出する難易度。事故実績のみを入力とし、"
             "他のどの軸とも一次属性を共有しない",
+            display=AxisDisplaySpec(
+                kind="ramp",
+                label="事故密度",
+                category="trafficSafety",
+                tile_inputs=[TileInputSpec(property="accident_per_km", weight=1.0)],
+                # domain/difficulty.py: accident_difficultyの正準スケール（0→0.5件/(km・年)で
+                # 0→100）を、タイルへ焼き込む生値（収録3年分の重み付き件数/km、年正規化前）へ
+                # 換算した4段階（〜0.4/〜0.8/〜1.5/1.5超）。
+                thresholds=[0.4, 0.8, 1.5],
+                unit="件/km",
+                note="警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の"
+                "距離正規化密度。way単位の事前集計（way_attribute_counts）由来。"
+                "正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
+            ),
         )
     )

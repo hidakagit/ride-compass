@@ -28,6 +28,21 @@ export function ElevationIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 二次軸rampレイヤー（改善計画T145b）の共通アイコン: 密度の濃淡を表す棒グラフ。
+ * 軸はレジストリ生成物から自動で増えるため、軸ごとの専用アイコンは持たず全ramp軸で共用する */
+export function AxisRampIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M3.5 16.5v-4M8 16.5v-7M12.5 16.5V6M17 16.5V3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** 道路情報: 消失点へ向かう道路と車線の破線 */
 export function RoadIcon({ size = 16 }: IconProps) {
   return (

@@ -22,6 +22,13 @@
 // - amenity（補給・施設、改善計画T101）: 補給・休憩ポイント。安全・リスクの指標ではなく
 //   trafficSafetyへ含めるのは意味的に不適切なため独立カテゴリにした
 
+import {
+  RAMP_AXES,
+  axisMapLayerId,
+  axisRampLegendEntries,
+  type AxisMapLayerId,
+} from "./axisLayers";
+
 export type MapLayerId =
   | "elevation"
   | "road"
@@ -32,7 +39,11 @@ export type MapLayerId =
   | "stopPoi"
   | "supplyPoi"
   | "accidents"
-  | "route";
+  | "route"
+  // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
+  // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
+  // （axisLayers.ts: axisMapLayerId参照）。
+  | AxisMapLayerId;
 
 export type MapLayerKind = "static" | "dynamic";
 
@@ -217,6 +228,21 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "発生地点です。死亡事故は円を大きく表示します。2019〜2021年は本票のCSV形式が" +
       "異なるため未対応です。",
   },
+  // 二次軸の汎用rampレイヤー（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
+  // backendレジストリ生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。
+  // 新しい軸はbackendのレジストリ登録＋タイルへの事実焼き込みだけでここへ現れる
+  // （このファイルの編集は不要）。凡例の段階（しきい値・単位）もカタログ由来。
+  ...RAMP_AXES.map(
+    (axis): MapLayerDescriptor => ({
+      id: axisMapLayerId(axis.axisId),
+      label: axis.label,
+      kind: "static",
+      category: axis.category as MapLayerCategory,
+      description: `${axis.label}[${axis.unit}]をway単位の事前集計から色分け表示`,
+      panelHint: axis.note,
+      panelHintDetail: axisRampLegendEntries(axis).map((entry) => entry.label),
+    }),
+  ),
   {
     id: "route",
     label: "ルート",
@@ -260,4 +286,6 @@ export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
   "safety",
   "bicycleInfra",
   "designation",
+  // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
+  ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
 ];

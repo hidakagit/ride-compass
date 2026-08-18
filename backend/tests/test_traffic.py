@@ -326,6 +326,15 @@ class TestClassifyStopPoi:
     def test_unrelated_highway_value_is_none(self):
         assert classify_stop_poi({"highway": "residential"}) is None
 
+    def test_stop_poi_kinds_matches_literal_values(self):
+        """STOP_POI_KINDS（SQL側kindフィルタの正準集合、改善計画T145b実装中に発見した
+        補給POI誤算入バグの修正）がStopPoiKindのLiteral値と乖離しないことを確認する。"""
+        from typing import get_args
+
+        from app.domain.traffic import STOP_POI_KINDS, StopPoiKind
+
+        assert STOP_POI_KINDS == frozenset(get_args(StopPoiKind))
+
 
 class TestClassifySupplyPoi:
     def test_convenience_store(self):

@@ -70,6 +70,13 @@ import {
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
+import {
+  RAMP_AXES,
+  axisLineLayerId,
+  axisMapLayerId,
+  buildAxisRampColorExpression,
+  type RampAxis,
+} from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
@@ -662,7 +669,39 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
 // 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
 // （改善計画T47 R-6: 静的レイヤーが+2種類に達した時点でのensure/setペアの宣言的ループ化）。
-const STATIC_OVERLAY_LAYERS = [
+// 二次軸の汎用rampレイヤー（改善計画T145b）。axis-catalog.json（backendレジストリ生成物）の
+// kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
+// カタログ宣言のしきい値で色分けする線レイヤーを自動生成する。ensure関数は既存の
+// ensureCarStressLayer等と同じ「初期化時に一度だけ追加、以降はvisibility切替のみ」パターン。
+function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
+  return (map: MapLibreMap) => {
+    runWhenStyleReady(map, () => {
+      const layerId = axisLineLayerId(axis.axisId);
+      if (map.getLayer(layerId)) return;
+      map.addLayer({
+        id: layerId,
+        type: "line",
+        source: ROAD_TILE_SOURCE_ID,
+        "source-layer": ROAD_TILE_SOURCE_LAYER,
+        paint: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "line-color": buildAxisRampColorExpression(axis) as any,
+          "line-width": 3,
+          "line-opacity": 0.85,
+        },
+        layout: { visibility: "none" },
+      });
+    });
+  };
+}
+
+const AXIS_OVERLAY_LAYERS = RAMP_AXES.map((axis) => ({
+  key: axisMapLayerId(axis.axisId) as string,
+  layerId: axisLineLayerId(axis.axisId),
+  ensure: makeEnsureAxisRampLayer(axis),
+}));
+
+const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[] = [
   { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
   { key: "carStress", layerId: CAR_STRESS_LAYER_ID, ensure: ensureCarStressLayer },
   { key: "safety", layerId: SAFETY_LAYER_ID, ensure: ensureSafetyLayer },
@@ -671,9 +710,10 @@ const STATIC_OVERLAY_LAYERS = [
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
   { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
-] as const satisfies readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[];
+  ...AXIS_OVERLAY_LAYERS,
+];
 
-type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
+type StaticOverlayKey = string;
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
 // road/carStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用しているため
@@ -693,6 +733,13 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
+  // 二次軸rampレイヤー（T145b）はroad_surfaceタイルへ焼き込み済みのプロパティを読む
+  // （carStress等と同じソース共有。ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
+  ...RAMP_AXES.map((axis) => ({
+    key: axisMapLayerId(axis.axisId) as MapLayerId,
+    sourceId: ROAD_TILE_SOURCE_ID,
+    sourceLayer: ROAD_TILE_SOURCE_LAYER,
+  })),
 ];
 
 // レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus・
@@ -707,11 +754,16 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
 // 2箇所に同一の8要素配列を手書きしており、STATIC_OVERLAY_LAYERSと合わせて三重管理
 // だった。レイヤー追加時に片方だけ追記漏れすると「ポップアップは出るがカーソルが
 // 変わらない」等の非対称な劣化が検知されず残る。
+// 二次軸rampレイヤー（T145b）はクリック時の内訳ポップアップ（recipeBreakdownPopup等）に
+// 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する
+// （一次属性→軸スコアを遡る汎用インスペクタは改善計画T146のスコープ）。
 const INTERACTIVE_LAYER_IDS = [
   DETAIL_LAYER_ID,
   ROAD_TILE_LAYER_ID,
-  ...STATIC_OVERLAY_LAYERS.filter((layer) => layer.key !== "elevation").map((layer) => layer.layerId),
-] as const;
+  ...STATIC_OVERLAY_LAYERS.filter(
+    (layer) => layer.key !== "elevation" && !layer.key.startsWith("axis:"),
+  ).map((layer) => layer.layerId),
+];
 
 function ensureAllStaticOverlayLayers(map: MapLibreMap) {
   for (const layer of STATIC_OVERLAY_LAYERS) layer.ensure(map);
@@ -1013,6 +1065,9 @@ interface MapViewProps {
   /** 補給・休憩ポイントPOI（改善計画T101、コンビニ・自販機・トイレ・給水・駐輪場）。
    * 停止要因POIと同じベクタソース（region-poi-tiles）を共有する独立レイヤー。 */
   showSupplyPoi: boolean;
+  /** 二次軸rampレイヤー（改善計画T145b）の表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
+   * mapLayers.tsのMapLayerIdと同じ）。カタログ駆動のため個別のshow*フラグは持たない。 */
+  axisVisibility: Record<string, boolean>;
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
@@ -1049,6 +1104,7 @@ export default function MapView({
   showAccidents,
   showStopPoi,
   showSupplyPoi,
+  axisVisibility,
   roadHiddenKeysByMode,
   staticLegendHiddenKeysByAxis,
   routeLayerOn,
@@ -1093,6 +1149,7 @@ export default function MapView({
     showAccidents,
     showStopPoi,
     showSupplyPoi,
+    axisVisibility,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1128,6 +1185,7 @@ export default function MapView({
       showAccidents,
       showStopPoi,
       showSupplyPoi,
+      axisVisibility,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1151,6 +1209,7 @@ export default function MapView({
     showAccidents,
     showStopPoi,
     showSupplyPoi,
+    axisVisibility,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1182,6 +1241,7 @@ export default function MapView({
       showAccidents,
       showStopPoi,
       showSupplyPoi,
+      axisVisibility,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1195,6 +1255,7 @@ export default function MapView({
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
+      ...axisVisibility,
     });
     setStaticOverlayFilters(
       map,
@@ -1245,6 +1306,7 @@ export default function MapView({
       showAccidents,
       showStopPoi,
       showSupplyPoi,
+      axisVisibility,
     } = redrawPropsRef.current;
     return {
       elevation: showElevation,
@@ -1256,6 +1318,7 @@ export default function MapView({
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
+      ...axisVisibility,
     };
   }, []);
   // useLayerDataStatusは呼び出しのたびに新しいオブジェクトを返すため、依存配列に安定した
@@ -1666,6 +1729,7 @@ export default function MapView({
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
+      ...axisVisibility,
     });
     // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
@@ -1680,6 +1744,7 @@ export default function MapView({
     showAccidents,
     showStopPoi,
     showSupplyPoi,
+    axisVisibility,
     recomputeLayerDataStatus,
   ]);
 

@@ -6,6 +6,7 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
+  AxisRampIcon,
   DesignationIcon,
   ElevationIcon,
   RoadIcon,
@@ -172,7 +173,10 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     <div className={styles.wrapper}>
       <div className={styles.chipRow} ref={chipRowRef} onScroll={handleChipRowScroll}>
         {layers.map((layer) => {
-          const Icon = LAYER_ICONS[layer.id];
+          // 二次軸rampレイヤー（改善計画T145b）はレジストリ生成物から自動で増えるため
+          // レイヤーIDごとの専用アイコンを持たず、共通のAxisRampIconへフォールバックする
+          // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
+          const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
           const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
           const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
           const isExpanded = canExpand && expandedIds.has(layer.id);

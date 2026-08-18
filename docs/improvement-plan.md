@@ -4142,19 +4142,100 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   実際のクエリコストが問題になった時点で判断する）。
 
 ### - [ ] T145. 地図レイヤーパネルをレジストリ駆動にし、三次（合成コスト）を既定表示レイヤーとして
-  新設する 規模L
+  新設する 規模L →（2026-08-19、T145a/T145bへ分割・方針再定義）
 
 - 背景: 設計プロンプトのレイヤー表。現状の`mapLayers.ts`は10レイヤーが個別列挙で、
   「常時表示は合成コストのみ」に対応する三次レイヤー自体が存在しない。一次・二次は
   レジストリ（T137、ただしフロント側は別途TypeScript版が必要）から動的に列挙し、軸を
   増やしてもレイヤーパネル・凡例の改修が不要な構造にする。
-- 対応方針: バックエンドの`export_openapi.py`と同じ「Python定義→フロント生成物」の
-  パターンで、軸レジストリの一覧をフロントが読める形（JSON）で書き出す。`mapLayers.ts`は
-  この生成物を走査して二次レイヤーを動的生成。三次（合成コスト）レイヤーを新設し既定ON、
-  既存の個別軸レイヤー（車の圧迫感・安全度→night等）は既定OFFの検証用レイヤーへ位置づけを
-  統一する。
-- 完了条件: 新しい軸をレジストリに1件追加するとレイヤーパネルに自動で選択肢が現れることを
-  Playwright実機確認。frontend vitest・eslint・tsc全green。
+- 分割の経緯（2026-08-19）: ユーザーと方針を協議し、当初案の「二次レイヤーの動的生成」を
+  具体化する過程で2つの重要な制約を確認した。(1) 現行タイルは全ユーザー共有キャッシュ
+  （Cache-Control: max-age=3600）のため、レシピ依存の軸最終値をサーバー側で焼き込むと
+  研究モードの重み上書き（将来的にはユーザー別レシピ、T141のJSON/DB化が布石）と矛盾する。
+  (2) 逆にaccident/stop_density軸は入力データ（事故点・POI集計）自体がタイルに無いため、
+  クライアント側expressionでは原理的に計算できない。この2つから、アプリ自身の層構造を
+  配信アーキテクチャへ写す「**事実はタイルに、解釈はクライアントに**」方針を採択した:
+  一次属性・事前集計カウント（レシピ非依存の事実）はサーバー焼き込み、二次軸スコア
+  （レシピ依存の解釈）はクライアントexpressionで計算する。三次（合成コスト）レイヤーは
+  本タスクのスコープから外す（係数検証が別途必要なため、実施時期はユーザー判断）。
+
+### - [ ] T145a. night軸の専用レイヤーを追加する 規模S〜M — トリガー: night軸の入力データ
+  （lit/tunnelタグ）の充実
+
+- 背景: 6軸のうちnightだけ対応する地図レイヤーが無い。ただし現OSMデータではlitタグが
+  疎で、レイヤーを作っても他軸との差がほぼ見えないことをユーザーと確認済み（2026-08-19）。
+- 対応方針: T145bの汎用機構へ普通に乗せる（専用実装はしない）。データが充実した時点で
+  レジストリ登録のみで地図に現れるのが理想形。
+- 完了条件: night軸レイヤーが地図上で意味のある差を表示できること。
+
+### - [x] T145b. 「事実はタイルに、解釈はクライアントに」方針でレイヤーシステムを
+  レジストリ駆動化する 規模L（2026-08-19完了、本番反映は未実施）
+
+- 対応方針（2026-08-19確定、ユーザー承認済み）:
+  1. **タイルへの事実の焼き込み**: `_ROAD_SURFACE_TILE_MVT_SQL`へ`edge_attribute_counts`
+     （T144新設・T151で決定性担保済み、現在未配線）をJOINし、accident_count/stop_count/
+     intersection_countをMVTプロパティとして追加する。これらはレシピ非依存の静的な事実
+     のためキャッシュ設計と矛盾しない。`ROAD_SURFACE_TILE_VERSION`を対上げする
+     （過去2回の対上げ漏れパターンに注意、完了条件に含める）。
+  2. **軸カタログの書き出し**: `export_openapi.py`の既存パターンでレジストリ
+     （`registry_defaults.py`）から軸カタログJSON（axis_id・ラベル・入力タイル
+     プロパティ・値域・凡例情報・表示方式）を書き出す。
+  3. **フロントの汎用レイヤーファクトリ**: 単一数値プロパティの単調ランプ_で表せる軸
+     （accident/stop_density等）はカタログからexpressionを自動生成。タグの複雑な組み
+     合わせを要するcar_stressは手書きexpression（`carStressExpression.ts`）を例外として
+     登録する形で残す。パネル・凡例・トグルはカタログ駆動へ。
+  4. 既存タイルにある事実から作れる新軸はレジストリ登録のみで地図に現れる状態を目標と
+     する（新データ源が要る軸は取込＋事前集計＋タイルプロパティ追加＋登録）。
+- 運用注意: `edge_attribute_counts`の鮮度がタイルに乗るため、PBF再取込時のバッチ再実行
+  順序が「precompute_road_node_degrees→precompute_edge_attribute_counts→タイル
+  キャッシュ破棄（世代対上げ）」の3段連鎖になる。ドキュメント化必須。
+- 完了条件: (a) accident/stop_density軸のレイヤーが地図上で実データ表示されること
+  （Playwright実機確認）。(b) タイル世代がバックエンド・フロント生成物・手書き定数の
+  3箇所で一致することをドリフト検知テストで確認。(c) タイル生成コスト増をEXPLAIN
+  ANALYZE等で実測し記録。(d) backend pytest・frontend vitest・eslint・tsc全green。
+- 実装メモ（2026-08-19完了）: 実装中に方針へ影響する発見が2つあった。
+  **(発見1) edge_attribute_counts（T144）は地図表示の母集団にできない**: road_edgesは
+  ルート生成時に遅延構築されるため、タイル内wayのカバレッジがdev実測で約3.6%
+  （748way中27way）しかなく地図がほぼ空になる。ユーザー協議のうえ**way単位の事実テーブル
+  `way_attribute_counts`（母集団=osm_raw_ways全域）を新設**（migration 0012、
+  `raw_intersection_nodes`〔osm_raw_ways.node_idsの隣接関係から導出した次数3以上の
+  生ノード、Road Graph非依存〕含む）。カウントの意味論（半径・kindフィルタ・死亡事故
+  重み・次数しきい値）はedge単位版と同一で、タイルへはkm正規化した密度
+  （accident_per_km/stop_per_km/intersection_per_km、0はNULLIFでキー省略）を焼き込む。
+  way単位集約による点データのぼやけは実測で限定的と確認（way長中央値98.4m＝edge粒度と
+  同等、1km超は0.7%。ルート評価はedge単位のまま無影響、正確な点位置は既存の事故・
+  停止要因レイヤーで確認可能）とユーザー合意済み。
+  **(発見2) 停止密度がT101以降コンビニ・自販機を誤算入するバグ**: `_STOP_POI_COUNTS_SQL`/
+  `_NEAREST_STOP_POI_COUNTS_SQL`にkindフィルタが無く、T101で同じosm_raw_poisへ入った
+  補給POI（dev実測で全POIの約17%）を停止要因として数えていた。`STOP_POI_KINDS`
+  （domain/traffic.py新設、StopPoiKind Literalとの一致を回帰テストで担保）でフィルタする
+  修正を実施（**dev/本番のedge_attribute_counts・way_attribute_countsは修正後SQLでの
+  再計算が必要**。devは実施済み、本番は未実施）。
+  実装: バッチ`precompute_way_attribute_counts.py`（2段階: raw_intersection_nodes全再構築
+  →way単位カウントのチャンクUPSERT。dev実測86,642way・51.2秒）、タイルSQLへ
+  way_attribute_countsのLEFT JOIN＋per-kmプロパティ3種（`ROAD_SURFACE_TILE_VERSION`
+  11→12対上げ、z14タイル生成実測0.109秒）。レジストリへ`AxisDisplaySpec`/`TileInputSpec`
+  を拡張（kind=ramp/bespoke/none、tile_inputsの線形結合重み〔stop_densityの無タグ交差点
+  0.3はdomain/difficulty.py: UNSIGNALED_INTERSECTION_WEIGHTを片側import〕・しきい値・
+  凡例情報を宣言）、`export_openapi.py`が`axis-catalog.json`を書き出し。フロントは
+  `axisLayers.ts`（新規、カタログのramp軸からvalue/color expression・凡例を自動生成）＋
+  `mapLayers.ts`/`MapView.tsx`/`page.tsx`のカタログ駆動化（MapLayerIdへ`axis:${string}`
+  テンプレート型を追加、STATIC_OVERLAY_LAYERS・LAYER_DATA_SOURCES・DEFAULT_LAYER_
+  VISIBILITYへ自動合流）で、**新しいramp軸はレジストリ登録＋タイル焼き込みだけで
+  チップ・パネル・凡例・地図レイヤーが現れる**構造になった。実装中の実バグ1件
+  （チップアイコンがRecord<MapLayerId,Icon>から引けずundefinedコンポーネントで500）は
+  AxisRampIcon（全ramp軸共用）へのフォールバックで解消。night/car_stressはbespoke宣言
+  （car_stressは既存の手書きexpression、nightはT145a保留のままレイヤー未生成）、
+  gradient/surface_qはnone宣言（標高図・道路情報レイヤーが代替）。
+  検証: backend pytest 948件（新規: kindフィルタ回帰2件・raw_intersection_nodes/
+  way_attribute_counts統合3件・STOP_POI_KINDSドリフト1件）・frontend vitest 381件
+  （新規axisLayers.test.ts 8件・regionApi世代更新）・tsc・eslint全green。Playwright
+  headless実機確認（退避ポート8001/3011）: 停止密度・事故密度チップの自動出現・ON切替・
+  `?v=12`タイル取得9/9・パネルの交通・安全グループへの自動出現・地図の密度色分け描画を
+  スクリーンショットで確認（コンソールエラーは退避ポート環境のCORS等のみ、軸レイヤー
+  無関係）。**本番Oracle Cloudへのmigration 0011/0012適用・3バッチ（degrees→edge_counts
+  再計算→way_counts）実行は未実施**（ユーザー確認待ち。実行順序と、タイルキャッシュの
+  世代切替はデプロイと同時でよい〔プロパティ追加のみでv10と同じ運用〕点に注意）。
 
 ### - [ ] T146. 区間インスペクタをレジストリ駆動にし、一次属性まで遡って表示できるようにする 規模M
 
@@ -4252,7 +4333,7 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   （`test_registry_defaults.py`で確認）。docs/architecture.md §7を8軸→7軸表記へ更新。
   backend pytest 915件・frontend vitest 372件・tsc・eslint・`next build`全green。
 
-### - [ ] T151. get_intersection_countsのインターフェースを他の空間集計メソッドと揃える 規模M
+### - [x] T151. get_intersection_countsのインターフェースを他の空間集計メソッドと揃える 規模M（2026-08-19完了）
 
 - 背景: T144実装中に発見（ユーザー指摘）。`get_accident_counts`/`get_stop_poi_counts`は
   edge単位で完全に独立な「半径内の件数」を返すのに対し、`get_intersection_counts`だけは
@@ -4280,6 +4361,37 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   `get_accident_counts`/`get_stop_poi_counts`と揃った意味論（真のグローバル次数）の
   決定的な実装になっていることをテストで確認（同一edge_id集合を異なる順序で2回渡し、
   結果が一致することを確認する回帰テストを含む）。
+- 実装メモ（2026-08-19完了）: 非決定性の原因をコードから確定できた。「PostgreSQLの
+  クエリプラン非決定性の可能性」という当初の推測は誤りで、実際は`get_intersection_counts`
+  内部の`_chunked(edge_ids, 50_000)`（road_graph_repository.py）が原因。チャンク境界は
+  リストの位置で決まるため、入力順序が変わるとチャンク境界がずれ、境界をまたぐノードの
+  近傍が別チャンクに分かれて次数を過小評価する（T144の「全edge一括」対策も、渡した先の
+  `get_intersection_counts`が内部でさらに50,000件ずつ再分割していたため効いていなかった）。
+  対応方針どおり`road_nodes.degree`（DB全体から見た真のグローバル次数）へ一本化。
+  migration 0011（`road_nodes.degree integer NOT NULL DEFAULT 0`）・
+  `DerivedGraphRepository.recompute_node_degrees()`（新設、単一UPDATE...FROMで
+  road_edges全件から再計算、PostGIS空間結合を伴わないためチャンク分割不要）・
+  `app/batch/precompute_road_node_degrees.py`（新設、上記メソッドを呼ぶだけ）を実装。
+  `_INTERSECTION_COUNTS_SQL`/`_NEAREST_INTERSECTION_COUNTS_SQL`は次数計算CTEを削除し
+  `rn.degree >= :degree_threshold`を参照するだけに簡略化（両クエリとも大幅に短くなった）。
+  `precompute_edge_attribute_counts.py`の「intersection_countだけ全edge一括」という
+  特殊分岐が不要になったため削除し、accident_count/stop_countと同じチャンクループへ統合
+  （結果としてバッチが単純化・高速化。dev機実測41.7秒、T144時点の記録より高速）。
+  **運用上の実行順序**: `precompute_road_node_degrees.py`→`precompute_edge_attribute_counts.py`
+  の順で実行すること（後者のintersection_countは前者が書く`degree`列を参照するため）。
+  回帰テスト`test_get_intersection_counts_is_independent_of_edge_id_order_and_subset`
+  （同一集合を逆順で渡す一致確認、部分集合を渡しても結果が変わらないことの確認）を追加。
+  既存3件のintersection関連テストへ`recompute_node_degrees()`呼び出しを追加（degreeが
+  ノード作成時点では既定値0のため）。dev機（road_edges 122,189件）でmigration適用・
+  degreeバックフィル（5.7秒）・edge_attribute_counts再計算（41.7秒、3,000件検証で
+  全件一致）・5,000件規模での順序反転一致（0件不一致）を実機確認。backend pytest 942件
+  green。**本番Oracle Cloudへのmigration適用・両バッチの再実行は未実施**（ユーザー確認
+  待ち、production-db-data-gap系の過去の教訓どおり明示許可を得てから着手する）。
+  副次的な発見: dev機で`road_nodes`の22%（66,892件中14,784件）がroad_edgesから一切
+  参照されないorphanノードと判明（degree=0の大半を占める。次数フィルタで確実に除外され
+  intersection_countの正しさには影響しないため実害なし）。過去のWay再split時にEdgeだけ
+  削除されNodeが残置され続けた蓄積と推測されるが、原因調査・削除はT151のスコープ外の
+  別問題として今回は対応せず記録のみ。
 
 ### - [x] T150. 呼称をtraffic_stress→car_stressへ統一する（バックエンド・フロントエンド全体） 規模L（2026-08-19完了）
 
@@ -4455,3 +4567,5 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 | 2026-08-19 | T144 | ユーザー指示「効率的な順番に進めて。本番マイグレーションは着手してもよい」を受け着手。設計プロンプトの「保存要否はT145実装時に決定する」というヒントに沿い、0-100の最終difficultyではなく入力となる生カウント（accident_count/stop_count/intersection_count）を事前集計する方針に。migration 0010（edge_attribute_counts）・precompute_edge_attribute_counts.py・verify_edge_attribute_counts.pyを新規実装。実装中に2つの発見: (1) get_intersection_countsは渡されたedge_ids集合内で完結するローカルな次数を返す設計のため、バッチの任意順チャンク分割が次数を過小評価（132/500不一致→全edge一括のグローバル計算に変更し解消）、(2) さらに同一集合でも配列順序が異なると結果が変わる非決定性を発見（ユーザー指摘によりget_accident_counts/get_stop_poi_countsとのインターフェース非対称が根本原因と特定、T151として起票、今回は対応せず）。dev機（122,189件、バッチ45秒、3,000件検証で全件一致）・本番Oracle Cloud（207,767件、検証500件で全件一致）の両方へmigration適用・バッチ実行・検証まで完了。既存の読み取り経路（road_graph_engine.py等）は今回変更なし（テーブル作成・データ投入のみ、配線はT145以降で判断）。backend pytest 935件green |
 | 2026-08-19 | T150 | ユーザー指示「150進めて」を受け着手。backend（domain/traffic.py・designation.py・difficulty.pyの主要シンボルは自分で直接改称）→残りbackend約35ファイル・frontend約48ファイルは専用エージェントへ委譲し機械的リネームを実施（合計約90ファイル、ファイル/ディレクトリ名変更2件含む）。API契約変更を挟むため「backend完了→OpenAPI再生成→frontend型再生成→frontend着手」の順序を厳守。対応方針が見込んでいたMVTタイル世代アップは実装調査の結果不要と判明（材料タグのみ焼き込む設計で`traffic_stress`という文字列自体を持たなかったため）。委譲中の実装ミス2件（CRLF混入、PowerShell大文字小文字非区別置換による識別子破損）を自己検出・修正済みで最終成果物には残っていないことを確認。JSON学習用フィクスチャの命名不一致（`traffic-stress-*.json`のまま）は意図的に残置し別タスク送り。最終検証: backend pytest 941件（postgis 6件含む）・frontend vitest 372件・tsc・eslint・`next build`全green、dev DB実データに対する新エンドポイント`/api/region/car-stress-breakdown`疎通確認、Playwright実機確認（研究モード内の評価重みパネル・CarStressRecipePanelが新語彙で正常描画、コンソールエラー・undefined/NaN表示なし）まで完了 |
 | 2026-08-19 | T135 | 別セッションがT150（traffic_stress→car_stress呼称統一）を同一作業ツリーで進行中と確認したため、コード変更を伴わないdocs反映のみで完結するT135を選んで実施（T150との衝突回避）。docs/complexity-review-2026-08-16.mdのKeep List「page.tsx / MapView.tsxの現状維持」節へpage.tsx独自閾値〔useState+useStoredState合計40件 or 1,300行、2026-08-18時点実測38件・1,148行で未到達〕をMapView.tsxの既存閾値と並記し追加、設計原則9へも同内容を追記。変更コストシミュレーション表へG'行（レシピ付き評価軸追加、T119実測64ファイル・+3,677/-394行、次回単軸追加時に再検証する参考値と明記）・G''行（軸の共通材料の外出し・再構成、T130実測70ファイル・+3,938/-2,084行）を新設し区別。運用ルール明文化（規模M以上の着手前タスクエントリ作成）はCLAUDE.md改訂要否含めユーザー判断のため見送り、別途確認が必要。コード変更なし |
+| 2026-08-19 | T145b | T151に続けて着手。当初「edge_attribute_countsをタイルへ焼き込む」案で実装したが、road_edgesの遅延構築によりタイル内カバレッジ3.6%と判明しユーザー協議で方針変更、way単位事実テーブル（way_attribute_counts＋raw_intersection_nodes、migration 0012）を新設して全域カバレッジ（86,642way・51秒）を確保。実装中に停止密度がT101以降コンビニ・自販機を誤算入するバグを発見・修正（STOP_POI_KINDSフィルタ新設）。レジストリへAxisDisplaySpec拡張→axis-catalog.json書き出し→フロントの汎用レイヤーファクトリ（axisLayers.ts）で、新しいramp軸はレジストリ登録＋タイル焼き込みだけで地図に現れる構造を実現。タイル世代v12。backend 948件・frontend 381件・tsc・eslint全green、Playwright実機確認済み。本番migration・バッチ実行は未実施（ユーザー確認待ち）。詳細はT145b実装メモ参照 |
+| 2026-08-19 | T151 | T150完了・commit後に着手（T150進行中は同一ファイル群に触れるため待機）。当初「PostgreSQLのクエリプラン非決定性の可能性」とされていた原因をコード読解のみで確定: `get_intersection_counts`内部の`_chunked(edge_ids, 50_000)`がリスト位置でチャンク境界を決めるため、入力順序が変わるとチャンク境界がずれ境界をまたぐノードの次数が変わる（T144の「全edge一括」対策も、呼び出し先が内部で再度50,000件分割していたため効いていなかったと判明）。対応方針どおりroad_nodes.degree（DB全体から見た真のグローバル次数）へ一本化。migration 0011・`DerivedGraphRepository.recompute_node_degrees()`（新設、単一UPDATE...FROM、チャンク分割不要）・`app/batch/precompute_road_node_degrees.py`（新設）を実装、`_INTERSECTION_COUNTS_SQL`/`_NEAREST_INTERSECTION_COUNTS_SQL`を`rn.degree`参照へ簡略化、`precompute_edge_attribute_counts.py`の特殊分岐を削除しaccident/stopと同じチャンクループへ統合（結果として高速化、dev機41.7秒）。運用上`precompute_road_node_degrees.py`→`precompute_edge_attribute_counts.py`の順で実行が必要になった（docstring・改善計画双方に明記）。順序非依存の回帰テスト追加、dev機で5,000件規模の順序反転一致（0件不一致）を実機確認。副次的にroad_nodesの22%がorphan（road_edges未参照）と判明したが実害なしのため記録のみで対応せず。backend pytest 942件green。**本番Oracle Cloudへのmigration適用・バッチ実行は未実施（ユーザー確認待ち）** |

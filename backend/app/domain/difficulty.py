@@ -33,7 +33,7 @@ _STOP_DENSITY_HARD_SCORE = 100.0
 # 種別ごとの重み付けを実装していない（全種別を等しく1件としてカウント、暫定実装）ため、
 # 交差点もこの水準に合わせた単純な係数掛けで組み込む（種別ごとの重み付けの本格実装は
 # P2据え置き、上記stop_density本体の暫定値と同じ扱い）。
-_UNSIGNALED_INTERSECTION_WEIGHT = 0.3
+UNSIGNALED_INTERSECTION_WEIGHT = 0.3
 
 # 車ストレス(1-5、domain/traffic.py: car_stress_level)の目安: 1が最も易しく5が最も大変。
 # 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。上限は改善計画（車ストレス
@@ -86,7 +86,7 @@ def stop_difficulty(
     stop_count_per_km: float | None, intersection_count_per_km: float | None = None
 ) -> float | None:
     """信号・横断歩道・一時停止・踏切の合計密度(回/km)に、次数3以上のタグなし交差点の
-    密度を低い重み（`_UNSIGNALED_INTERSECTION_WEIGHT`）で加算した値を難易度へ変換する
+    密度を低い重み（`UNSIGNALED_INTERSECTION_WEIGHT`）で加算した値を難易度へ変換する
     （改善計画T149で交差点密度の独立軸を廃止しここへ吸収）。密度が高いほど停止・減速・
     注意力の消費が多く走りにくいため単調増加。
 
@@ -100,7 +100,7 @@ def stop_difficulty(
         return None
     if intersection_count_per_km is not None and intersection_count_per_km < 0:
         return None
-    combined_per_km = stop_count_per_km + (intersection_count_per_km or 0.0) * _UNSIGNALED_INTERSECTION_WEIGHT
+    combined_per_km = stop_count_per_km + (intersection_count_per_km or 0.0) * UNSIGNALED_INTERSECTION_WEIGHT
     clamped = min(combined_per_km, _STOP_DENSITY_MAX_PER_KM)
     return round(clamped / _STOP_DENSITY_MAX_PER_KM * _STOP_DENSITY_HARD_SCORE, 1)
 
