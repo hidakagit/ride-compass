@@ -33,9 +33,15 @@ import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import TrafficStressRecipePanel from "@/components/TrafficStressRecipePanel/TrafficStressRecipePanel";
-import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "@/components/Map/trafficStressExpression";
+import {
+  DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+  DEFAULT_ROAD_SUITABILITY_RECIPE,
+  DEFAULT_TRAFFIC_STRESS_RECIPE,
+} from "@/components/Map/trafficStressExpression";
 import SafetyRecipePanel from "@/components/SafetyRecipePanel/SafetyRecipePanel";
 import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
+import RoadSuitabilityRecipePanel from "@/components/RoadSuitabilityRecipePanel/RoadSuitabilityRecipePanel";
+import MotorVehicleDensityRecipePanel from "@/components/MotorVehicleDensityRecipePanel/MotorVehicleDensityRecipePanel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
@@ -47,6 +53,8 @@ import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather } from "@/services/weatherApi";
 import type {
   Coordinates,
+  MotorVehicleDensityRecipeOverride,
+  RoadSuitabilityRecipeOverride,
   RouteCandidate,
   RoutePreferenceWeights,
   SafetyRecipeOverride,
@@ -154,6 +162,19 @@ export default function Home() {
   // 同じ理由で独立したトグルにしてある。
   const [safetyRecipeOverrideEnabled, setSafetyRecipeOverrideEnabled] = useState(false);
   const [safetyRecipe, setSafetyRecipe] = useState<SafetyRecipeOverride>(DEFAULT_SAFETY_RECIPE);
+
+  // 「道路適正」「自動車密度」レシピの上書き（改善計画: 車との近さ材料の共有元化）。
+  // 交通ストレス・安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、
+  // 上書きすると両軸の地図色・内訳ポップアップ・次回のルート生成すべてへ同時に反映される。
+  // 上記2つと同じ理由で独立したトグルにしてある。
+  const [roadSuitabilityRecipeOverrideEnabled, setRoadSuitabilityRecipeOverrideEnabled] = useState(false);
+  const [roadSuitabilityRecipe, setRoadSuitabilityRecipe] = useState<RoadSuitabilityRecipeOverride>(
+    DEFAULT_ROAD_SUITABILITY_RECIPE,
+  );
+  const [motorVehicleDensityRecipeOverrideEnabled, setMotorVehicleDensityRecipeOverrideEnabled] = useState(false);
+  const [motorVehicleDensityRecipe, setMotorVehicleDensityRecipe] = useState<MotorVehicleDensityRecipeOverride>(
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+  );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
@@ -357,6 +378,12 @@ export default function Home() {
   const debouncedTrafficStressRecipe = useDebouncedValue(trafficStressRecipe, LEGEND_FILTER_DEBOUNCE_MS);
   // 安全度レシピも同じ理由でデバウンスする（改善計画: 安全度レシピ）。
   const debouncedSafetyRecipe = useDebouncedValue(safetyRecipe, LEGEND_FILTER_DEBOUNCE_MS);
+  // 道路適正・自動車密度レシピも同じ理由でデバウンスする（改善計画: 車との近さ材料の共有元化）。
+  const debouncedRoadSuitabilityRecipe = useDebouncedValue(roadSuitabilityRecipe, LEGEND_FILTER_DEBOUNCE_MS);
+  const debouncedMotorVehicleDensityRecipe = useDebouncedValue(
+    motorVehicleDensityRecipe,
+    LEGEND_FILTER_DEBOUNCE_MS,
+  );
 
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
@@ -541,6 +568,8 @@ export default function Home() {
     weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
     trafficStressRecipe: trafficStressRecipeOverrideEnabled ? trafficStressRecipe : null,
     safetyRecipe: safetyRecipeOverrideEnabled ? safetyRecipe : null,
+    roadSuitabilityRecipe: roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : null,
+    motorVehicleDensityRecipe: motorVehicleDensityRecipeOverrideEnabled ? motorVehicleDensityRecipe : null,
   });
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
@@ -566,6 +595,10 @@ export default function Home() {
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
         ...(trafficStressRecipeOverrideEnabled ? { traffic_stress_recipe: trafficStressRecipe } : {}),
         ...(safetyRecipeOverrideEnabled ? { safety_recipe: safetyRecipe } : {}),
+        ...(roadSuitabilityRecipeOverrideEnabled ? { road_suitability_recipe: roadSuitabilityRecipe } : {}),
+        ...(motorVehicleDensityRecipeOverrideEnabled
+          ? { motor_vehicle_density_recipe: motorVehicleDensityRecipe }
+          : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -685,9 +718,35 @@ export default function Home() {
             構成にしてある（新設パネルはこの<div>内へ追加するだけでよい）。 */}
         <div className={styles.researchCategory}>
           <h3 className={styles.researchCategoryHeading}>レシピ[一次情報→二次情報の変換式]</h3>
+          {/* 道路適正・自動車密度パネル（改善計画: 車との近さ材料の共有元化）。交通ストレス・
+              安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、この2枚を
+              「レシピ」カテゴリの先頭に置く。編集内容は下の車の圧迫感・安全度パネルの参照
+              セクションへ即座に反映される。 */}
+          {researchEnabled && (
+            <div className={styles.legendCard}>
+              <RoadSuitabilityRecipePanel
+                overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
+                onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
+                recipe={roadSuitabilityRecipe}
+                onRecipeChange={setRoadSuitabilityRecipe}
+              />
+            </div>
+          )}
+          {researchEnabled && (
+            <div className={styles.legendCard}>
+              <MotorVehicleDensityRecipePanel
+                overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
+                onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
+                recipe={motorVehicleDensityRecipe}
+                onRecipeChange={setMotorVehicleDensityRecipe}
+              />
+            </div>
+          )}
           {/* 交通ストレスレシピパネル（改善計画: 交通ストレスレシピ調整UIパネル、T107の次
               ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
-              重みの上書きと挙動が異なるため）。 */}
+              重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ薄いパネルになり、
+              先頭に道路適正・自動車密度の現在値（上書き中ならその値、無効なら既定値）を
+              読み取り専用で表示する参照セクションを持つ。 */}
           {researchEnabled && (
             <div className={styles.legendCard}>
               <TrafficStressRecipePanel
@@ -695,11 +754,19 @@ export default function Home() {
                 onOverrideEnabledChange={setTrafficStressRecipeOverrideEnabled}
                 recipe={trafficStressRecipe}
                 onRecipeChange={setTrafficStressRecipe}
+                roadSuitabilityRecipe={
+                  roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
+                }
+                motorVehicleDensityRecipe={
+                  motorVehicleDensityRecipeOverrideEnabled
+                    ? motorVehicleDensityRecipe
+                    : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+                }
               />
             </div>
           )}
-          {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上のコメントどおり、この<div>は
-              複数レシピを想定済みのためTrafficStressRecipePanelの直後に追加するだけでよい。 */}
+          {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上記TrafficStressRecipePanelと同じ
+              理由で参照セクションを持つ薄いパネル。 */}
           {researchEnabled && (
             <div className={styles.legendCard}>
               <SafetyRecipePanel
@@ -707,6 +774,14 @@ export default function Home() {
                 onOverrideEnabledChange={setSafetyRecipeOverrideEnabled}
                 recipe={safetyRecipe}
                 onRecipeChange={setSafetyRecipe}
+                roadSuitabilityRecipe={
+                  roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
+                }
+                motorVehicleDensityRecipe={
+                  motorVehicleDensityRecipeOverrideEnabled
+                    ? motorVehicleDensityRecipe
+                    : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+                }
               />
             </div>
           )}
@@ -899,6 +974,12 @@ export default function Home() {
             trafficStressRecipe={trafficStressRecipeOverrideEnabled ? debouncedTrafficStressRecipe : undefined}
             showSafety={layerVisibility.safety}
             safetyRecipe={safetyRecipeOverrideEnabled ? debouncedSafetyRecipe : undefined}
+            roadSuitabilityRecipe={
+              roadSuitabilityRecipeOverrideEnabled ? debouncedRoadSuitabilityRecipe : undefined
+            }
+            motorVehicleDensityRecipe={
+              motorVehicleDensityRecipeOverrideEnabled ? debouncedMotorVehicleDensityRecipe : undefined
+            }
             showDesignation={layerVisibility.designation}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}

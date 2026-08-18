@@ -112,3 +112,64 @@
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* CarClosenessReferenceSection（改善計画: 車との近さ材料の共有元化）。車の圧迫感・安全度
+   パネルの先頭に置く読み取り専用の参照ブロックで、各パネル固有の.group/.groupHeader
+   （WeightPanel.module.css由来のcomposes）とは独立した自己完結スタイルにする
+   （呼び出し元のCSSモジュールに依存しないようrecipeControls.tsx側で完結させるため）。
+   淡い背景色で「編集不可の参照情報」であることを他のグループと区別する。 */
+.referenceSection {
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-3);
+  background: var(--color-surface-2);
+}
+
+.referenceHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  min-height: 2rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  list-style: none;
+}
+
+.referenceHeader::-webkit-details-marker {
+  display: none;
+}
+
+.referenceChevron {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--color-neutral);
+  border-bottom: 2px solid var(--color-neutral);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.referenceSection[open] > .referenceHeader .referenceChevron {
+  transform: rotate(45deg);
+}
+
+.referenceBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.referenceIntro {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.referenceList {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.6;
+}

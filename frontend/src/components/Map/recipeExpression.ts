@@ -46,16 +46,26 @@ export function cyclewayAdjustmentExpr(trackAdjustment: number, laneAdjustment: 
 // のため、low/highどちらを先に判定しても結果は同じ（両条件は排他的）。
 // "has"で先にプロパティの有無を確認してから比較する（caseは短絡評価のため、プロパティが
 // 無い場合に["<=", ["get",...], N]がnullと数値を比較してエラーになるのを防ぐ）。
+//
+// lowSuppressedWhenはlow方向のみを無効化する追加条件（交通ストレスのlanes_low、
+// 分離自転車道区間では該当しないため。domain/traffic.py: traffic_stress_breakdownの
+// `cycleway_class(tags) == "track"`判定と1:1対応）。high方向・他の呼び出し元
+// （maxspeed・安全度のlanes）は影響しない。
 export function thresholdAdjustmentExpr(
   property: string,
   lowThreshold: number | null,
   lowAdjustment: number,
   highThreshold: number | null,
   highAdjustment: number,
+  lowSuppressedWhen?: unknown[],
 ): unknown[] {
   const branches: unknown[] = ["case"];
   if (lowThreshold != null) {
-    branches.push(["all", ["has", property], ["<=", ["get", property], lowThreshold]], lowAdjustment);
+    const lowCondition = ["all", ["has", property], ["<=", ["get", property], lowThreshold]];
+    branches.push(
+      lowSuppressedWhen ? ["all", lowCondition, ["!", lowSuppressedWhen]] : lowCondition,
+      lowAdjustment,
+    );
   }
   if (highThreshold != null) {
     branches.push(["all", ["has", property], [">=", ["get", property], highThreshold]], highAdjustment);
@@ -91,6 +101,67 @@ export function baseByHighwayExpr(baseByHighway: Record<string, number>): { hasB
     hasBase: ["in", ["get", "highway"], ["literal", highwayKeys]],
     base: ["match", ["get", "highway"], ...baseEntries, 0],
   };
+}
+
+// 「道路適正」（highway別基準値＋cycleway分離度）を1組で返す（domain/recipe.py:
+// road_suitability、改善計画: 車との近さ材料の共有元化）。交通ストレス・安全度の両方が
+// 最初に評価する共通部分で、baseByHighwayExpr・cyclewayAdjustmentExprを個別に呼ぶ重複を
+// 1箇所へまとめる。値の出どころ（各軸のrecipe）は呼び出し側が渡すため、ここでは
+// 交通ストレス由来か安全度由来かは区別しない（Python側と同じ考え方）。
+export function roadSuitabilityExpr(
+  baseByHighway: Record<string, number>,
+  trackAdjustment: number,
+  laneAdjustment: number,
+  sharedAdjustment: number,
+): { hasBase: unknown[]; base: unknown[]; cyclewayAdjustment: unknown[] } {
+  const { hasBase, base } = baseByHighwayExpr(baseByHighway);
+  const cyclewayAdjustment = cyclewayAdjustmentExpr(trackAdjustment, laneAdjustment, sharedAdjustment);
+  return { hasBase, base, cyclewayAdjustment };
+}
+
+// 「車との近さ」（N2 = 道路適正＋自動車密度）を1組で返す（domain/recipe.py:
+// car_closeness、改善計画: 車との近さ材料の共有元化）。交通ストレス・安全度の両方が
+// 共通の土台として評価する材料で、軸固有の補正（交通ストレス: 車線数[少ない方]、
+// 安全度: 街灯・トンネル）は呼び出し側がこの結果へ追加する。
+export function carClosenessExpr(
+  roadSuitabilityRecipe: {
+    base_by_highway: Record<string, number>;
+    cycleway_track_adjustment: number;
+    cycleway_lane_adjustment: number;
+    cycleway_shared_adjustment: number;
+  },
+  motorVehicleDensityRecipe: {
+    maxspeed_low_threshold: number;
+    maxspeed_low_adjustment: number;
+    maxspeed_high_threshold: number;
+    maxspeed_high_adjustment: number;
+    lanes_high_threshold: number;
+    lanes_high_adjustment: number;
+    designation_adjustment: number;
+  },
+): { hasBase: unknown[]; base: unknown[]; cyclewayAdjustment: unknown[]; maxspeedAdjustment: unknown[]; lanesHighAdjustment: unknown[]; designationAdjustment: unknown[] } {
+  const { hasBase, base, cyclewayAdjustment } = roadSuitabilityExpr(
+    roadSuitabilityRecipe.base_by_highway,
+    roadSuitabilityRecipe.cycleway_track_adjustment,
+    roadSuitabilityRecipe.cycleway_lane_adjustment,
+    roadSuitabilityRecipe.cycleway_shared_adjustment,
+  );
+  const maxspeedAdjustment = thresholdAdjustmentExpr(
+    "maxspeed_kmh",
+    motorVehicleDensityRecipe.maxspeed_low_threshold,
+    motorVehicleDensityRecipe.maxspeed_low_adjustment,
+    motorVehicleDensityRecipe.maxspeed_high_threshold,
+    motorVehicleDensityRecipe.maxspeed_high_adjustment,
+  );
+  const lanesHighAdjustment = thresholdAdjustmentExpr(
+    "lanes_count",
+    null,
+    0,
+    motorVehicleDensityRecipe.lanes_high_threshold,
+    motorVehicleDensityRecipe.lanes_high_adjustment,
+  );
+  const designationAdjustment = designationAdjustmentExpr(motorVehicleDensityRecipe.designation_adjustment);
+  return { hasBase, base, cyclewayAdjustment, maxspeedAdjustment, lanesHighAdjustment, designationAdjustment };
 }
 
 // base＋各補正の合計をmin〜maxへクランプする（domain/recipe.py: clamp_level）。

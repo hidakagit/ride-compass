@@ -1,0 +1,87 @@
+/* TrafficStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
+   共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/.groupChevron/.groupBody/
+   .field/.input/.resetButton）を再利用し、base_by_highway用のテーブル表示
+   （.table/.tableLabel）だけをここに追加する（改善計画: 車との近さ材料の共有元化）。 */
+
+.panel {
+  composes: panel from "../WeightPanel/WeightPanel.module.css";
+}
+
+.toggleLabel {
+  composes: toggleLabel from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groups {
+  composes: groups from "../WeightPanel/WeightPanel.module.css";
+  gap: var(--space-2);
+}
+
+.group {
+  composes: group from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupHeader {
+  composes: groupHeader from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupChevron {
+  composes: groupChevron from "../WeightPanel/WeightPanel.module.css";
+}
+
+.groupBody {
+  composes: groupBody from "../WeightPanel/WeightPanel.module.css";
+  gap: 0.3rem;
+}
+
+.field {
+  composes: field from "../WeightPanel/WeightPanel.module.css";
+  flex-wrap: wrap;
+}
+
+.input {
+  composes: input from "../WeightPanel/WeightPanel.module.css";
+}
+
+.resetButton {
+  composes: resetButton from "../WeightPanel/WeightPanel.module.css";
+}
+
+/* table-layout: fixedで列幅を内容依存にせず固定する（TrafficStressRecipePanel.module.css
+   と同じ理由）。 */
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.table td {
+  padding: 0.1rem 0;
+}
+
+.tableLabel {
+  font-size: var(--font-size-sm);
+}
+
+.tableValue {
+  width: 7.5rem;
+  text-align: right;
+}
+
+.tableLabelFieldLabel {
+  flex-shrink: 1;
+  white-space: normal;
+}
+
+.infoTooltip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.infoTooltipCell {
+  padding: 0 0 0.3rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}

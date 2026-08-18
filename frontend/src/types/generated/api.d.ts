@@ -292,6 +292,8 @@ export interface components {
             route_preference: components["schemas"]["RoutePreferenceWeights"];
             traffic_stress_recipe: components["schemas"]["TrafficStressRecipeOverride"];
             safety_recipe: components["schemas"]["SafetyRecipeOverride"];
+            road_suitability_recipe: components["schemas"]["RoadSuitabilityRecipeOverride"];
+            motor_vehicle_density_recipe: components["schemas"]["MotorVehicleDensityRecipeOverride"];
             /** Generated At */
             generated_at: string;
         };
@@ -299,6 +301,52 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MotorVehicleDensityRecipeOverride
+         * @description 「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の上書き。キーは
+         *     domain/recipe.py: MotorVehicleDensityRecipeと同じ。RoadSuitabilityRecipeOverrideと
+         *     合わせて「車との近さ」(N2)を構成する、交通ストレス・安全度が共有するもう1つの材料
+         *     （改善計画: 車との近さ材料の共有元化）。
+         */
+        MotorVehicleDensityRecipeOverride: {
+            /** Maxspeed Low Threshold */
+            maxspeed_low_threshold: number;
+            /** Maxspeed Low Adjustment */
+            maxspeed_low_adjustment: number;
+            /** Maxspeed High Threshold */
+            maxspeed_high_threshold: number;
+            /** Maxspeed High Adjustment */
+            maxspeed_high_adjustment: number;
+            /** Lanes High Threshold */
+            lanes_high_threshold: number;
+            /** Lanes High Adjustment */
+            lanes_high_adjustment: number;
+            /** Designation Adjustment */
+            designation_adjustment: number;
+        };
+        /**
+         * RoadSuitabilityRecipeOverride
+         * @description 「道路適正」（highway別基準値＋cycleway補正）の上書き。キーはdomain/recipe.py:
+         *     RoadSuitabilityRecipeと同じ。RoutePreferenceWeightsと同じ「全フィールド必須」の
+         *     別モデル（上書きするなら全項目を明示する）。
+         *
+         *     交通ストレス・安全度の両方が共通して参照する「車との近さ」(N2)の材料の1つ
+         *     （改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ
+         *     反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが
+         *     無いため順序検証は不要。
+         */
+        RoadSuitabilityRecipeOverride: {
+            /** Base By Highway */
+            base_by_highway: {
+                [key: string]: number;
+            };
+            /** Cycleway Track Adjustment */
+            cycleway_track_adjustment: number;
+            /** Cycleway Lane Adjustment */
+            cycleway_lane_adjustment: number;
+            /** Cycleway Shared Adjustment */
+            cycleway_shared_adjustment: number;
         };
         /**
          * RouteCandidate
@@ -393,6 +441,8 @@ export interface components {
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
             traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
             safety_recipe?: components["schemas"]["SafetyRecipeOverride"] | null;
+            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
+            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {
@@ -539,8 +589,8 @@ export interface components {
          * SafetyBreakdown
          * @description `safety_level`の判定内訳（domain/traffic.py: TrafficStressBreakdownと同じ役割・
          *     同じ形）。地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データ。
-         *     highwayが判定基準（`SAFETY_BASE_BY_HIGHWAY`）に登録されていない場合は`base`/`level`
-         *     ともNoneで、他の補正フィールドは0/False。
+         *     highwayが判定基準（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に
+         *     登録されていない場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
          */
         SafetyBreakdown: {
             /** Base */
@@ -567,45 +617,24 @@ export interface components {
             /** Osm Way Id */
             osm_way_id: number;
             safety_recipe?: components["schemas"]["SafetyRecipeOverride"] | null;
+            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
+            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
         };
         /**
          * SafetyRecipeOverride
-         * @description 安全度軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
-         *     キーはdomain/safety.py: SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ
-         *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
+         * @description 安全度軸だけが持つ判定レシピ（街灯・トンネル補正）の上書き。キーはdomain/safety.py:
+         *     SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ「全フィールド必須」の別モデル
+         *     （上書きするなら全項目を明示する）。
          *
-         *     交通ストレスとはlanes_low系（安全度は未採用、domain/safety.py: SafetyRecipeの
-         *     docstring参照）・lit/tunnel（安全度のみ採用）で項目が異なる点に注意。
+         *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
+         *     交通ストレスと共有する（RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride、
+         *     改善計画: 車との近さ材料の共有元化）ため、ここには含まない。
          */
         SafetyRecipeOverride: {
-            /** Base By Highway */
-            base_by_highway: {
-                [key: string]: number;
-            };
-            /** Cycleway Track Adjustment */
-            cycleway_track_adjustment: number;
-            /** Cycleway Lane Adjustment */
-            cycleway_lane_adjustment: number;
-            /** Cycleway Shared Adjustment */
-            cycleway_shared_adjustment: number;
-            /** Maxspeed Low Threshold */
-            maxspeed_low_threshold: number;
-            /** Maxspeed Low Adjustment */
-            maxspeed_low_adjustment: number;
-            /** Maxspeed High Threshold */
-            maxspeed_high_threshold: number;
-            /** Maxspeed High Adjustment */
-            maxspeed_high_adjustment: number;
-            /** Lanes High Threshold */
-            lanes_high_threshold: number;
-            /** Lanes High Adjustment */
-            lanes_high_adjustment: number;
             /** Lit Adjustment */
             lit_adjustment: number;
             /** Tunnel Adjustment */
             tunnel_adjustment: number;
-            /** Designation Adjustment */
-            designation_adjustment: number;
         };
         /**
          * ScoringWeights
@@ -628,8 +657,8 @@ export interface components {
          * TrafficStressBreakdown
          * @description `traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に
          *     「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と
-         *     同じ最終値。highwayが判定基準（`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に登録されていない
-         *     場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
+         *     同じ最終値。highwayが判定基準（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に
+         *     登録されていない場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
          */
         TrafficStressBreakdown: {
             /** Base */
@@ -652,45 +681,26 @@ export interface components {
             /** Osm Way Id */
             osm_way_id: number;
             traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
+            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
+            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
         };
         /**
          * TrafficStressRecipeOverride
-         * @description 交通ストレス軸の判定レシピ（一次情報→二次情報の変換式そのもの）の上書き。
+         * @description 交通ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。
          *     キーはdomain/traffic.py: TrafficStressRecipeと同じ。RoutePreferenceWeightsと同じ
          *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
          *
-         *     RoutePreferenceWeights（軸間の重み）とは別階層で、こちらは交通ストレス軸自体の中身
-         *     （highway別基準値・各補正の閾値・補正量）を上書きする。研究モードでのレシピ調整用。
+         *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
+         *     RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
+         *     （改善計画: 車との近さ材料の共有元化）。少車線側は「車道を自転車と自動車が共有して
+         *     いる」前提の補正のため多車線側と別レシピに分かれていても閾値の大小関係を検証する
+         *     必要が無い（domain/traffic.py: traffic_stress_breakdown参照）。
          */
         TrafficStressRecipeOverride: {
-            /** Base By Highway */
-            base_by_highway: {
-                [key: string]: number;
-            };
-            /** Cycleway Track Adjustment */
-            cycleway_track_adjustment: number;
-            /** Cycleway Lane Adjustment */
-            cycleway_lane_adjustment: number;
-            /** Cycleway Shared Adjustment */
-            cycleway_shared_adjustment: number;
-            /** Maxspeed Low Threshold */
-            maxspeed_low_threshold: number;
-            /** Maxspeed Low Adjustment */
-            maxspeed_low_adjustment: number;
-            /** Maxspeed High Threshold */
-            maxspeed_high_threshold: number;
-            /** Maxspeed High Adjustment */
-            maxspeed_high_adjustment: number;
-            /** Lanes High Threshold */
-            lanes_high_threshold: number;
-            /** Lanes High Adjustment */
-            lanes_high_adjustment: number;
             /** Lanes Low Threshold */
             lanes_low_threshold: number;
             /** Lanes Low Adjustment */
             lanes_low_adjustment: number;
-            /** Designation Adjustment */
-            designation_adjustment: number;
         };
         /** ValidationError */
         ValidationError: {

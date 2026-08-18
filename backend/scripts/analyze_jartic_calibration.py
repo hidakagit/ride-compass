@@ -43,15 +43,17 @@ from sqlalchemy.dialects.postgresql import ARRAY  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 
 from app.config import settings  # noqa: E402
+from app.domain.recipe import ROAD_SUITABILITY_BASE_BY_HIGHWAY  # noqa: E402
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M  # noqa: E402
-from app.domain.traffic import TRAFFIC_STRESS_BASE_BY_HIGHWAY, traffic_stress_level  # noqa: E402
+from app.domain.traffic import traffic_stress_level  # noqa: E402
 from app.services.evaluation_service import load_traffic_stress_recipe  # noqa: E402
 
 from measure_axis_stats import pearson_correlation, spearman_correlation  # noqa: E402
 
 # traffic_stress_levelがNone以外を返すhighwayのみが対象（他はマッチしても評価不能なため
-# 集計対象から自然に除外される）。
-TRAFFIC_STRESS_HIGHWAYS: list[str] = sorted(TRAFFIC_STRESS_BASE_BY_HIGHWAY)
+# 集計対象から自然に除外される。改善計画: 車との近さ材料の共有元化で
+# TRAFFIC_STRESS_BASE_BY_HIGHWAYはROAD_SUITABILITY_BASE_BY_HIGHWAYへ統合済み）。
+TRAFFIC_STRESS_HIGHWAYS: list[str] = sorted(ROAD_SUITABILITY_BASE_BY_HIGHWAY)
 
 # 観測点→道路のマッチ許容距離。domain/road.py: SURFACE_MATCH_MAX_DISTANCE_Mと同じ
 # 「物理的な道路網特徴へのスナップ許容量」を採用する（domain/traffic.py:

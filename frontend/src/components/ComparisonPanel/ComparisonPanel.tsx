@@ -35,7 +35,7 @@ const METRIC_ROWS: MetricRow[] = [
     format: (s) => (s.topCandidate.stop_density != null ? `${s.topCandidate.stop_density.toFixed(2)} 回/km` : "—"),
   },
   {
-    label: "交通ストレス",
+    label: "車の圧迫感",
     format: (s) =>
       s.topCandidate.traffic_stress_score != null ? `${s.topCandidate.traffic_stress_score.toFixed(1)}` : "—",
   },

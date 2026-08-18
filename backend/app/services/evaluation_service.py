@@ -5,6 +5,7 @@ import yaml
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
 from app.domain.graph import RoadGraph
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
 from app.domain.weather import WeatherConditions
@@ -12,6 +13,10 @@ from app.domain.weather import WeatherConditions
 ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
 TRAFFIC_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "traffic_stress_recipe.yaml"
 SAFETY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "safety_recipe.yaml"
+ROAD_SUITABILITY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "road_suitability_recipe.yaml"
+MOTOR_VEHICLE_DENSITY_RECIPE_CONFIG_PATH = (
+    Path(__file__).resolve().parent.parent / "motor_vehicle_density_recipe.yaml"
+)
 
 
 def _load_yaml_section(path: Path, key: str) -> dict:
@@ -52,6 +57,25 @@ def load_safety_recipe(path: Path = SAFETY_RECIPE_CONFIG_PATH) -> SafetyRecipe:
     return SafetyRecipe(**_load_yaml_section(path, "safety_recipe"))
 
 
+def load_road_suitability_recipe(path: Path = ROAD_SUITABILITY_RECIPE_CONFIG_PATH) -> RoadSuitabilityRecipe:
+    """road_suitability_recipe.yamlから既定の道路適正レシピ（domain/recipe.py:
+    RoadSuitabilityRecipe参照）を読み込む。交通ストレス・安全度が共有する「車との近さ」(N2)
+    の材料の1つ（改善計画: 車との近さ材料の共有元化）。load_traffic_stress_recipeと同じ
+    パターン。
+    """
+    return RoadSuitabilityRecipe(**_load_yaml_section(path, "road_suitability_recipe"))
+
+
+def load_motor_vehicle_density_recipe(
+    path: Path = MOTOR_VEHICLE_DENSITY_RECIPE_CONFIG_PATH,
+) -> MotorVehicleDensityRecipe:
+    """motor_vehicle_density_recipe.yamlから既定の自動車密度レシピ（domain/recipe.py:
+    MotorVehicleDensityRecipe参照）を読み込む。load_road_suitability_recipeと同じ役割
+    （改善計画: 車との近さ材料の共有元化）。
+    """
+    return MotorVehicleDensityRecipe(**_load_yaml_section(path, "motor_vehicle_density_recipe"))
+
+
 class EvaluationService:
     """Evaluation Engineのオーケストレーション層（仕様書26章）。
 
@@ -66,10 +90,14 @@ class EvaluationService:
         preference: RoutePreference | None = None,
         traffic_stress_recipe: TrafficStressRecipe | None = None,
         safety_recipe: SafetyRecipe | None = None,
+        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
         self._preference = preference or load_route_preference()
         self._traffic_stress_recipe = traffic_stress_recipe or load_traffic_stress_recipe()
         self._safety_recipe = safety_recipe or load_safety_recipe()
+        self._road_suitability_recipe = road_suitability_recipe or load_road_suitability_recipe()
+        self._motor_vehicle_density_recipe = motor_vehicle_density_recipe or load_motor_vehicle_density_recipe()
 
     def evaluate_graph(
         self,
@@ -101,6 +129,8 @@ class EvaluationService:
                 is_designated=edge_id in designated_edge_ids,
                 traffic_stress_recipe=self._traffic_stress_recipe,
                 safety_recipe=self._safety_recipe,
+                road_suitability_recipe=self._road_suitability_recipe,
+                motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
             )
             for edge_id, edge in graph.edges.items()
         }

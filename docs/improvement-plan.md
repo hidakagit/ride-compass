@@ -3548,6 +3548,72 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
   収まり、交通・安全グループ展開時に生データ/合成データが視覚的に分かれて見えること。
   Playwright実機確認（チップ展開・個別トグル・モバイル幅での折り返し無し）。
 
+## 研究モード実機検証の高速化・安定化（2026-08-18・N1/N2レシピ分離作業の最終検証より）
+
+### - [x] T129. 研究モードのレシピ上書きをPlaywrightで実機確認する検証手順が非常に時間を要し、失敗時にハングする問題を解消する 規模S〜M（2026-08-18完了）
+
+- 発端: 「道路適正」「自動車密度」を独立レシピ軸として切り出す作業
+  （plan: valiant-sleeping-panda、docs/improvement-plan.md該当）の最終検証で、研究モードの
+  UI操作を伴うheadless Playwright検証スクリプトをその場で書いて実行したところ、実行開始から
+  7分以上経過しても完了せず、ユーザーから「テストに非常に時間がかかっている」と指摘を受けた。
+  調査の結果、2つの要因が重なっていたと判明:
+  1. **スクリプト側のバグ（ブラウザプロセスのリーク）**: `main()`内で例外が発生した場合に
+     `browser.close()`を呼ばない実装だった（`try/finally`で囲んでいなかった）ため、
+     `locator.click()`が30秒でタイムアウトしてPromiseがrejectされた後もheadless chromiumの
+     プロセスが残り続け、Node.jsプロセスも終了しないまま「実行中」に見え続けた
+     （実際にはこの時点で既に失敗していた）。
+  2. **UI構造起因の誤ったロケータ**: `RoadSuitabilityRecipePanel`のhighway別基準値テーブルは
+     `<details>`（`open`属性なしの既定閉状態）の中にある。Playwrightはブラウザの実描画に
+     基づいてactionability（要素が視覧可能か）を判定するため、`<summary>`をクリックして
+     `<details>`を展開しないまま中の要素（レベルピッカーの各ボタン）を`click()`しようとすると、
+     要素は存在してもクリック不可と判定され続け、これも30秒タイムアウトの一因になった
+     （testing-library/jsdom基準のフロントエンドユニットテストでは`<details>`が閉じていても
+     子要素をクエリできてしまうため、この種の問題はvitest側では再現しない）。
+  3. さらに、devサーバーの起動に使う`.claude/launch.json`のfrontend設定（port 3010）と、
+     バックエンドの`CORS_ALLOWED_ORIGINS`（`http://localhost:3000`のみ許可）が食い違って
+     おり、そのままではブラウザから直接叩くとCORSエラーで機能しない（Next.jsの`rewrites`
+     プロキシ経由ではなく`NEXT_PUBLIC_API_URL`でバックエンドへ直接fetchする構成のため）。
+     Browser pane（`preview_start`）経由ならプロキシ層が吸収していた可能性があるが、devサーバー
+     自体が原因不明のタイミングで落ちる事象も重なり、原因切り分けに時間を要した。
+- 対応方針: 上記3要因それぞれに対処した。
+  1. `main()`の中身を`run(page)`へ分離し、`browser.close()`を`try/finally`で保証する構成へ
+     書き換えた（エラー時も確実にブラウザ・Node.jsプロセスが終了する）。
+  2. `<details>`は`open`属性で開閉状態が決まるため、対象要素の祖先`<details>`を
+     `el.open = true`で強制的に開いてから操作する`expandAncestorDetails()`ヘルパーを追加した。
+     ただし当初は対象を`getByRole()`（アクセシビリティツリー経由）で探そうとしたため、
+     閉じた`<details>`の中の要素はそもそもa11yツリーから除外されて0件になり、
+     「展開すべき対象が見つからない→展開されない→開かないので見つからない」という循環で
+     デッドロックしていた。対象の発見には`button[aria-label="..."]`
+     `input[type="checkbox"]`等のCSS属性セレクタ（DOMへ直接一致し、開閉状態に左右されない）を
+     使い、開いた後の実際のクリック/検証だけ`getByRole()`を使う方式に直した。
+     また`<details>`をテキスト内容で検索すると、そのテキストを内側に含む外側の`<details>`
+     （例: 「研究」ブロック自体）まで誤ってヒットする問題もあったため、`<summary>`のテキストで
+     `<details>`本体を特定してから親要素を取る方式（`detailsBySummaryText()`）に変更した。
+  3. `.claude/launch.json`のfrontend設定ポート（3010）は変更せず、代わりに`backend/.env`の
+     `CORS_ALLOWED_ORIGINS`へ`http://localhost:3010`を追加（カンマ区切りで複数オリジン対応済み、
+     `backend/app/config.py: cors_allowed_origins_list`）。`.env`はgit管理外のローカル設定
+     （`.gitignore`）のため、次回セッションが同じ問題を踏まないよう本メモに記録する。
+  - 加えて、`.count()`はPlaywrightの自動待機（auto-retry）が効かない即時クエリのため、
+     `page.reload()`直後のReactハイドレーション未完了と競合して0件を返す（実際に踏んだ罠）
+     ことも判明。`expandAncestorDetails()`内で先に対象locatorへ
+     `.first().waitFor({ state: "attached" })`を挟んでからcount()する形に修正した。
+  - 副次的に、生成ボタンの実際のラベルが「ルートを生成」ではなく「ルート生成」だった
+     （`RouteForm.tsx`）ことも発見・修正した。
+- 完了条件: 研究モードのレシピ上書きを実機確認する際に、(a) 数分以内に確実に完了する
+  （devサーバー起動待ちを除く）、(b) 失敗時にブラウザ/Node.jsプロセスが残留しない、
+  の両方を満たすこと。
+- 実装メモ（2026-08-18完了）: 修正後のPlaywright検証スクリプトで(a)道路適正のみ上書き・
+  (b)自動車密度のみ上書き・(c)道路適正+自動車密度+交通ストレス(F)同時上書きの3パターンを
+  実行し、約40秒で完了（devサーバー起動を除く）。「車の圧迫感」パネルの参照セクションが
+  各上書きへ即座に反映されること、`/api/routes/generate`のconditionsエコーが
+  `road_suitability_recipe`/`motor_vehicle_density_recipe`/`traffic_stress_recipe`すべてで
+  リクエストと完全一致することを確認した。この検証スクリプト自体は使い捨てのため
+  リポジトリには残していない（`frontend/test-results/`はgitignore対象）。次回同種の検証を
+  書く際は、本メモの4つの罠（ブラウザプロセスのリーク・`<details>`未展開・
+  `getByRole()`のa11yツリー依存・`.count()`の即時性）を踏まえて書き直すこと。
+  `frontend/e2e/`配下への再利用可能ヘルパー化は今回は行わなかった（頻度が低く、
+  本メモがあれば次回はゼロから躓かずに書けると判断）。
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |

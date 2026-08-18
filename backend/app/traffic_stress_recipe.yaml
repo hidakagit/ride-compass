@@ -1,34 +1,12 @@
 # 交通ストレス（domain/traffic.py: traffic_stress_breakdown）の判定レシピの既定値。
-# route_preference.yaml（軸間の重み）とは別階層の設定で、こちらは「交通ストレス軸」の
-# 中身（highway別基準値・cycleway/maxspeed/lanes/指定路線の各補正の閾値・補正量）を
-# 定義する。ここを変えると地図の色分け（frontend/src/components/Map/
-# trafficStressExpression.tsが同じレシピをMapLibre expressionとして再現）とルート採点の
-# 両方に影響する。値はdomain/traffic.py: TrafficStressRecipeの既定値（従来のハードコード
-# 定数）と完全に一致させてある。
+# route_preference.yaml（軸間の重み）とは別階層の設定で、こちらは「交通ストレス軸」固有の
+# 中身（対面通行の少車線道路への緩和、lanes_low）を定義する。highway別基準値・cycleway/
+# maxspeed/lanes[多い方]/指定路線の各補正は、交通ストレス・安全度が共有する「車との近さ」(N2)
+# の材料として road_suitability_recipe.yaml / motor_vehicle_density_recipe.yaml へ
+# 切り出し済み（改善計画: 車との近さ材料の共有元化）。ここを変えると地図の色分け
+# （frontend/src/components/Map/trafficStressExpression.tsが同じレシピをMapLibre
+# expressionとして再現）とルート採点の両方に影響する。値はdomain/traffic.py:
+# TrafficStressRecipeの既定値と完全に一致させてある。
 traffic_stress_recipe:
-  base_by_highway:
-    cycleway: 1
-    living_street: 2
-    residential: 2
-    unclassified: 2
-    track: 2
-    tertiary: 3
-    tertiary_link: 3
-    secondary: 3
-    secondary_link: 3
-    primary: 4
-    primary_link: 4
-    trunk: 4
-    trunk_link: 4
-  cycleway_track_adjustment: -2
-  cycleway_lane_adjustment: -1
-  cycleway_shared_adjustment: -1
-  maxspeed_low_threshold: 30
-  maxspeed_low_adjustment: -1
-  maxspeed_high_threshold: 60
-  maxspeed_high_adjustment: 1
-  lanes_high_threshold: 4
-  lanes_high_adjustment: 1
   lanes_low_threshold: 1
   lanes_low_adjustment: -1
-  designation_adjustment: 1

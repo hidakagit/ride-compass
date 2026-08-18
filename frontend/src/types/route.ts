@@ -51,6 +51,10 @@ export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 export type TrafficStressRecipeOverride = Schemas["TrafficStressRecipeOverride"];
 export type SafetyRecipeOverride = Schemas["SafetyRecipeOverride"];
+// 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
+// 共有元化）。
+export type RoadSuitabilityRecipeOverride = Schemas["RoadSuitabilityRecipeOverride"];
+export type MotorVehicleDensityRecipeOverride = Schemas["MotorVehicleDensityRecipeOverride"];
 
 // 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
 // 保持・比較表・再現性メモの入力になる。

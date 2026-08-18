@@ -93,7 +93,12 @@ describe("regionApi", () => {
       const [url, options] = fetchMock.mock.calls[0];
       expect(String(url)).toContain("/api/region/traffic-stress-breakdown");
       expect(options.method).toBe("POST");
-      expect(JSON.parse(options.body as string)).toEqual({ osm_way_id: 12345, traffic_stress_recipe: null });
+      expect(JSON.parse(options.body as string)).toEqual({
+        osm_way_id: 12345,
+        traffic_stress_recipe: null,
+        road_suitability_recipe: null,
+        motor_vehicle_density_recipe: null,
+      });
       expect(result).toEqual(breakdown);
     });
 

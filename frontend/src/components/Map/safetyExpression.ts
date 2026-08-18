@@ -12,53 +12,56 @@
 // types/generated/safety-recipe.json（export_openapi.pyがPython側のDEFAULT_SAFETY_RECIPEから
 // 書き出す）から読み、手動同期を避ける（safetyExpression.test.tsがPython側との整合を検証する）。
 //
+// 「道路適正」「自動車密度」（=「車との近さ」N2）は交通ストレスと共有するレシピのため、
+// 既定値はtypes/generated/road-suitability-recipe.json / motor-vehicle-density-recipe.jsonから
+// 読む（改善計画: 車との近さ材料の共有元化）。
+//
 // 出力は1〜4、または「判定対象外（highway未登録）」を表すセンチネル-1（recipeExpression.ts:
 // UNKNOWN_LEVEL参照、trafficStressExpression.tsと同じ流儀）。
-import type { SafetyRecipeOverride } from "@/types/route";
+import type {
+  MotorVehicleDensityRecipeOverride,
+  RoadSuitabilityRecipeOverride,
+  SafetyRecipeOverride,
+} from "@/types/route";
 import defaultRecipeJson from "@/types/generated/safety-recipe.json";
+import defaultRoadSuitabilityRecipeJson from "@/types/generated/road-suitability-recipe.json";
+import defaultMotorVehicleDensityRecipeJson from "@/types/generated/motor-vehicle-density-recipe.json";
 import {
-  baseByHighwayExpr,
+  carClosenessExpr,
   clampLevelExpr,
   buildRecipeLevelExpression,
-  cyclewayAdjustmentExpr,
-  designationAdjustmentExpr,
   evaluateRecipeLevel,
   flagAdjustmentExpr,
-  thresholdAdjustmentExpr,
 } from "@/components/Map/recipeExpression";
 
 export type SafetyRecipe = SafetyRecipeOverride;
+export type RoadSuitabilityRecipe = RoadSuitabilityRecipeOverride;
+export type MotorVehicleDensityRecipe = MotorVehicleDensityRecipeOverride;
 
 export const DEFAULT_SAFETY_RECIPE: SafetyRecipe = defaultRecipeJson;
+export const DEFAULT_ROAD_SUITABILITY_RECIPE: RoadSuitabilityRecipe = defaultRoadSuitabilityRecipeJson;
+export const DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE: MotorVehicleDensityRecipe = defaultMotorVehicleDensityRecipeJson;
 
-export function buildSafetyExpression(recipe: SafetyRecipe): unknown[] {
-  const { hasBase, base } = baseByHighwayExpr(recipe.base_by_highway);
-
-  const cyclewayAdjustment = cyclewayAdjustmentExpr(
-    recipe.cycleway_track_adjustment,
-    recipe.cycleway_lane_adjustment,
-    recipe.cycleway_shared_adjustment,
-  );
-  const maxspeedAdjustment = thresholdAdjustmentExpr(
-    "maxspeed_kmh",
-    recipe.maxspeed_low_threshold,
-    recipe.maxspeed_low_adjustment,
-    recipe.maxspeed_high_threshold,
-    recipe.maxspeed_high_adjustment,
-  );
-  // 安全度はlanes_high（多車線＝リスク増）のみ採用する（domain/safety.py: SafetyRecipeの
-  // docstring参照。少車線が安全側かは研究上見解が分かれるためlanes_lowは見送り）。
-  // lowThreshold=nullでlow方向の補正を無効化する。
-  const lanesAdjustment = thresholdAdjustmentExpr("lanes_count", null, 0, recipe.lanes_high_threshold, recipe.lanes_high_adjustment);
+export function buildSafetyExpression(
+  recipe: SafetyRecipe,
+  roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+): unknown[] {
+  // 「車との近さ」(N2 = 道路適正＋自動車密度、domain/recipe.py: car_closeness)。
+  // 交通ストレスと共有する土台（改善計画: 車との近さ材料の共有元化）。安全度はlanes_high
+  // （多車線＝リスク増）のみ採用する（domain/safety.py: SafetyRecipeのdocstring参照。
+  // 少車線が安全側かは研究上見解が分かれるためlanes_lowは見送り、車との近さのlanes_high側の
+  // みで足りる）。
+  const { hasBase, base, cyclewayAdjustment, maxspeedAdjustment, lanesHighAdjustment, designationAdjustment } =
+    carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe);
   const litAdjustment = flagAdjustmentExpr("lit", recipe.lit_adjustment);
   const tunnelAdjustment = flagAdjustmentExpr("tunnel", recipe.tunnel_adjustment);
-  const designationAdjustment = designationAdjustmentExpr(recipe.designation_adjustment);
 
   const formula = clampLevelExpr(1, 4, [
     base,
     cyclewayAdjustment,
     maxspeedAdjustment,
-    lanesAdjustment,
+    lanesHighAdjustment,
     litAdjustment,
     tunnelAdjustment,
     designationAdjustment,
@@ -69,6 +72,12 @@ export function buildSafetyExpression(recipe: SafetyRecipe): unknown[] {
 export function evaluateSafetyLevel(
   properties: Record<string, unknown>,
   recipe: SafetyRecipe = DEFAULT_SAFETY_RECIPE,
+  roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
 ): number | null {
-  return evaluateRecipeLevel(buildSafetyExpression(recipe), properties, "安全度");
+  return evaluateRecipeLevel(
+    buildSafetyExpression(recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe),
+    properties,
+    "安全度",
+  );
 }

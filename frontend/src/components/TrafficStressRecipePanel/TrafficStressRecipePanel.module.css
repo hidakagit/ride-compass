@@ -1,6 +1,7 @@
 /* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/
-   .groupChevron/.groupBody/.field/.input/.resetButton）をcomposesで再利用し、
-   base_by_highway用のテーブル表示（.table/.tableLabel）だけをここに追加する。 */
+   .groupChevron/.groupBody/.field/.input/.resetButton）をcomposesで再利用する。
+   改善計画: 車との近さ材料の共有元化でhighway別基準値テーブルがRoadSuitabilityRecipePanelへ
+   移ったため、.table系クラスはこのファイルからは撤去した（同クラスはそちらへ移設済み）。 */
 
 .panel {
   composes: panel from "../WeightPanel/WeightPanel.module.css";
@@ -30,8 +31,6 @@
   composes: groupChevron from "../WeightPanel/WeightPanel.module.css";
 }
 
-/* 「全体的にもう少しコンパクトな形に」という実機フィードバックを受け、gapを
-   共通クラスより詰める（composesした先＝WeightPanel.module.css自体は無変更）。 */
 .groupBody {
   composes: groupBody from "../WeightPanel/WeightPanel.module.css";
   gap: 0.3rem;
@@ -40,9 +39,7 @@
 .field {
   composes: field from "../WeightPanel/WeightPanel.module.css";
   /* 右側（ステッパー+条件）が長いThresholdAdjustmentRowで、ラベル側が予期せず
-     押し縮められて途中で折り返される（例:「低速道路」が「低速」「道路」の2行に
-     割れる）不具合を確認したため、行全体は必要なら折り返しつつ（flex-wrap）、
-     ラベル自体は常に1行を維持するよう明示する（.fieldLabelのwhite-space参照）。 */
+     押し縮められて途中で折り返される不具合を防ぐ。 */
   flex-wrap: wrap;
 }
 
@@ -54,52 +51,6 @@
   composes: resetButton from "../WeightPanel/WeightPanel.module.css";
 }
 
-/* table-layout: fixedで列幅を内容依存にせず固定する（改善計画: 交通ストレス5段階化）。
-   標準のauto layoutでは列幅が「その列に属する全行中もっとも幅を要求する内容」で
-   決まるため、他の行（例:「高規格の幹線道路(連絡路)」）の長いラベルにテーブル全体が
-   引きずられ、ラベルが短い行（「自転車専用道」等）でもピッカー列が圧迫されて折り返される
-   不具合が起きていた。.tableValueへ固定幅を与えラベル列は残り幅を使う形にすることで、
-   全行のピッカー列幅を安定させる。 */
-.table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-}
-
-.table td {
-  padding: 0.1rem 0;
-}
-
-.tableLabel {
-  font-size: var(--font-size-sm);
-}
-
-/* ピッカー列の固定幅。TRAFFIC_STRESS_LEVELS 5段階分（.levelSegment 1.25rem×5＋gap 2px×4）
-   が折り返さず収まる最小限＋若干の余白。段階数が増える場合はここも合わせて広げる必要がある
-   （TRAFFIC_STRESS_COLORSのキー追加だけでは自動追従しない、数少ない箇所の1つ）。 */
-.tableValue {
-  width: 7.5rem;
-  /* 固定幅化で生まれた余白ぶん、ピッカー（inline-flex、幅は内容依存）を右詰めにする
-     （進捗バー風の見た目を維持）。 */
-  text-align: right;
-}
-
-/* highway別基準値テーブル（.table）内のラベルは、recipeControls.module.cssの
-   .fieldLabel（nowrap/flex-shrink:0、通常のスカラー欄では折り返させない設計）を
-   打ち消して通常の折り返しへ戻す（改善計画T118: 交通ストレス5段階化でレベルピッカーが
-   1段増え、モバイル幅で「生活道路(歩車共存)」等の行がテーブル自体を右へ押し広げて
-   画面外へ溢れる不具合が発生。テーブルの列幅は内容依存のため、ラベル側が折り返せないと
-   ピッカー側の幅を確保できずに溢れる。scalar欄（.field、flex-wrap:wrapで行ごと折り返す）
-   とはレイアウト機構が異なるため、テーブル欄はラベル自体の折り返しで幅を吸収する）。
-   .fieldLabelは共通化（改善計画: 安全度レシピ）でrecipeControls.module.cssへ移り
-   このファイルからは参照できなくなったため、HighwayRowがFieldLabelへ
-   `className={styles.tableLabelFieldLabel}` として渡す（recipeControls.tsx:
-   FieldLabelのclassNameプロパティ）。 */
-.tableLabelFieldLabel {
-  flex-shrink: 1;
-  white-space: normal;
-}
-
 /* スカラー項目の説明（.field直後に表示、改行して全幅を使う）。 */
 .infoTooltip {
   margin: 0;
@@ -108,18 +59,8 @@
   line-height: 1.4;
 }
 
-/* highway別基準値テーブルの説明行（本行の直後に追加されるtr、2列分を1セルで使う）。 */
-.infoTooltipCell {
-  padding: 0 0 0.3rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
-}
-
-/* 閾値+補正値の対フィールド（低速/高速道路・多車線/少車線道路）。ステッパーと変動条件
-   （閾値）を同じ行に横並びで置く（改善計画: レシピ入力フォームの改善、「もう少し
-   コンパクトな形に」への対応。以前は補正値行と閾値行が縦2段だった）。幅が足りない
-   場合はflex-wrapで折り返す。 */
+/* 閾値+補正値の対フィールド（少車線道路）。ステッパーと変動条件（閾値）を同じ行に
+   横並びで置く。 */
 .pairControls {
   display: inline-flex;
   align-items: center;

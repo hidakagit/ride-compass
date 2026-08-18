@@ -1,8 +1,6 @@
-/* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/
-   .groupChevron/.groupBody/.field/.input/.resetButton）をcomposesで再利用する。
-   改善計画: 車との近さ材料の共有元化でhighway別基準値テーブルがRoadSuitabilityRecipePanelへ
-   移ったため、.table系クラスはこのファイルからは撤去した（同クラスはそちらへ移設済み。
-   TrafficStressRecipePanel.module.cssと同じ整理）。 */
+/* TrafficStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
+   共通クラスを再利用する（改善計画: 車との近さ材料の共有元化）。highway別基準値テーブルを
+   持たないため.table系クラスは無い。 */
 
 .panel {
   composes: panel from "../WeightPanel/WeightPanel.module.css";

@@ -1,0 +1,24 @@
+# 道路適正（domain/recipe.py: RoadSuitabilityRecipe）の判定レシピの既定値。
+# highway別基準値・cyclewayの3補正のみを持つ。交通ストレス・安全度の両方が
+# domain/recipe.py: car_closeness()経由でこの値を参照する「車との近さ」(N2)の材料の1つ
+# （改善計画: 車との近さ材料の共有元化。旧TRAFFIC_STRESS_BASE_BY_HIGHWAY/
+# SAFETY_BASE_BY_HIGHWAYはliving_street基準値の統一で完全に同一の値になったため
+# ここへ統合した）。値はdomain/recipe.py: RoadSuitabilityRecipeの既定値と完全に一致させてある。
+road_suitability_recipe:
+  base_by_highway:
+    cycleway: 1
+    living_street: 1
+    residential: 2
+    unclassified: 2
+    track: 2
+    tertiary: 3
+    tertiary_link: 3
+    secondary: 3
+    secondary_link: 3
+    primary: 4
+    primary_link: 4
+    trunk: 4
+    trunk_link: 4
+  cycleway_track_adjustment: -2
+  cycleway_lane_adjustment: -1
+  cycleway_shared_adjustment: -1

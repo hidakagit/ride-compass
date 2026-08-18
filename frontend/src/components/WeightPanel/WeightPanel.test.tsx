@@ -75,14 +75,14 @@ describe("WeightPanel", () => {
 
     await user.click(screen.getByText("区間難易度の重み[絶対評価]"));
 
-    const infoButton = screen.getByRole("button", { name: "交通ストレスの説明を表示" });
+    const infoButton = screen.getByRole("button", { name: "車の圧迫感の説明を表示" });
     expect(screen.queryByText(/信号や交差点の頻度は含まない/)).not.toBeInTheDocument();
 
     await user.click(infoButton);
     expect(screen.getByText(/信号や交差点の頻度は含まない/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "交通ストレスの説明を隠す" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "車の圧迫感の説明を隠す" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "交通ストレスの説明を隠す" }));
+    await user.click(screen.getByRole("button", { name: "車の圧迫感の説明を隠す" }));
     expect(screen.queryByText(/信号や交差点の頻度は含まない/)).not.toBeInTheDocument();
   });
 

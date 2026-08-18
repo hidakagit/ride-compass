@@ -2,8 +2,12 @@
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import type { LegendEntry } from "./legendFilter";
-import { DEFAULT_SAFETY_RECIPE } from "./safetyExpression";
-import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "./trafficStressExpression";
+import { buildSafetyExpression, DEFAULT_SAFETY_RECIPE } from "./safetyExpression";
+import {
+  DEFAULT_ROAD_SUITABILITY_RECIPE,
+  DEFAULT_TRAFFIC_STRESS_RECIPE,
+  buildTrafficStressExpression,
+} from "./trafficStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_LEGEND,
@@ -69,12 +73,17 @@ describe("staticAttributeLayers", () => {
       expect(buildTrafficStressColorExpression(DEFAULT_TRAFFIC_STRESS_RECIPE)).toEqual(TRAFFIC_STRESS_COLOR_EXPRESSION);
     });
 
-    it("base_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
-      const customRecipe = {
-        ...DEFAULT_TRAFFIC_STRESS_RECIPE,
-        base_by_highway: { ...DEFAULT_TRAFFIC_STRESS_RECIPE.base_by_highway, secondary: 1 },
+    it("道路適正レシピのbase_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
+      // base_by_highwayは道路適正レシピ側（改善計画: 車との近さ材料の共有元化）。
+      // levelExpressionを明示的に組み立てて渡す（buildTrafficStressLegendのdocstring参照）。
+      const customRoadSuitabilityRecipe = {
+        ...DEFAULT_ROAD_SUITABILITY_RECIPE,
+        base_by_highway: { ...DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway, secondary: 1 },
       };
-      const legend = buildTrafficStressLegend(customRecipe);
+      const legend = buildTrafficStressLegend(
+        DEFAULT_TRAFFIC_STRESS_RECIPE,
+        buildTrafficStressExpression(DEFAULT_TRAFFIC_STRESS_RECIPE, customRoadSuitabilityRecipe),
+      );
       const properties = { highway: "secondary" };
 
       // 既定レシピ（secondary=3）では"3"カテゴリに属するが、customRecipe（secondary=1）では
@@ -86,7 +95,7 @@ describe("staticAttributeLayers", () => {
     });
 
     it("凡例のラベル・色・key構成自体はレシピに関わらず不変（変わるのはfilterの中身だけ）", () => {
-      const customRecipe = { ...DEFAULT_TRAFFIC_STRESS_RECIPE, designation_adjustment: 3 };
+      const customRecipe = { ...DEFAULT_TRAFFIC_STRESS_RECIPE, lanes_low_adjustment: -3 };
       const legend = buildTrafficStressLegend(customRecipe);
       expect(legend.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback }))).toEqual(
         TRAFFIC_STRESS_LEGEND.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback })),
@@ -124,12 +133,16 @@ describe("staticAttributeLayers", () => {
       expect(buildSafetyColorExpression(DEFAULT_SAFETY_RECIPE)).toEqual(SAFETY_COLOR_EXPRESSION);
     });
 
-    it("base_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
-      const customRecipe = {
-        ...DEFAULT_SAFETY_RECIPE,
-        base_by_highway: { ...DEFAULT_SAFETY_RECIPE.base_by_highway, secondary: 1 },
+    it("道路適正レシピのbase_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
+      // base_by_highwayは道路適正レシピ側（改善計画: 車との近さ材料の共有元化）。
+      const customRoadSuitabilityRecipe = {
+        ...DEFAULT_ROAD_SUITABILITY_RECIPE,
+        base_by_highway: { ...DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway, secondary: 1 },
       };
-      const legend = buildSafetyLegend(customRecipe);
+      const legend = buildSafetyLegend(
+        DEFAULT_SAFETY_RECIPE,
+        buildSafetyExpression(DEFAULT_SAFETY_RECIPE, customRoadSuitabilityRecipe),
+      );
       const properties = { highway: "secondary" };
 
       const defaultLegend = buildSafetyLegend(DEFAULT_SAFETY_RECIPE);
@@ -139,7 +152,7 @@ describe("staticAttributeLayers", () => {
     });
 
     it("凡例のラベル・色・key構成自体はレシピに関わらず不変（変わるのはfilterの中身だけ）", () => {
-      const customRecipe = { ...DEFAULT_SAFETY_RECIPE, designation_adjustment: 3 };
+      const customRecipe = { ...DEFAULT_SAFETY_RECIPE, lit_adjustment: -3 };
       const legend = buildSafetyLegend(customRecipe);
       expect(legend.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback }))).toEqual(
         SAFETY_LEGEND.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback })),

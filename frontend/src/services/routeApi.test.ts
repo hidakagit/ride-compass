@@ -155,21 +155,19 @@ describe("routeApi", () => {
           safety_weight: 0.1,
         },
         traffic_stress_recipe: {
-          base_by_highway: { residential: 2 },
-          cycleway_track_adjustment: -2, cycleway_lane_adjustment: -1, cycleway_shared_adjustment: -1,
-          maxspeed_low_threshold: 30, maxspeed_low_adjustment: -1,
-          maxspeed_high_threshold: 60, maxspeed_high_adjustment: 1,
-          lanes_high_threshold: 4, lanes_high_adjustment: 1,
           lanes_low_threshold: 1, lanes_low_adjustment: -1,
-          designation_adjustment: 1,
         },
         safety_recipe: {
+          lit_adjustment: -1, tunnel_adjustment: 1,
+        },
+        road_suitability_recipe: {
           base_by_highway: { residential: 2 },
           cycleway_track_adjustment: -2, cycleway_lane_adjustment: -1, cycleway_shared_adjustment: -1,
+        },
+        motor_vehicle_density_recipe: {
           maxspeed_low_threshold: 30, maxspeed_low_adjustment: -1,
           maxspeed_high_threshold: 60, maxspeed_high_adjustment: 1,
           lanes_high_threshold: 4, lanes_high_adjustment: 1,
-          lit_adjustment: -1, tunnel_adjustment: 1,
           designation_adjustment: 1,
         },
         generated_at: "2026-08-15T12:00:00+09:00",

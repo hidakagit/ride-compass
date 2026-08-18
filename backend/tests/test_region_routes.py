@@ -27,6 +27,8 @@ class FakeRegionService:
         self.last_poi_request = None
         self.last_breakdown_request = None
         self.last_breakdown_recipe = None
+        self.last_breakdown_road_suitability_recipe = None
+        self.last_breakdown_motor_vehicle_density_recipe = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
@@ -36,9 +38,13 @@ class FakeRegionService:
         self.last_poi_request = (z, x, y)
         return self._tile_bytes
 
-    async def get_traffic_stress_breakdown(self, osm_way_id, recipe=None):
+    async def get_traffic_stress_breakdown(
+        self, osm_way_id, recipe=None, road_suitability_recipe=None, motor_vehicle_density_recipe=None
+    ):
         self.last_breakdown_request = osm_way_id
         self.last_breakdown_recipe = recipe
+        self.last_breakdown_road_suitability_recipe = road_suitability_recipe
+        self.last_breakdown_motor_vehicle_density_recipe = motor_vehicle_density_recipe
         return self._traffic_stress_breakdown
 
 

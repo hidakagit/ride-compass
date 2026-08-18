@@ -10,7 +10,12 @@
 // 動的に拾う」考え方。新しい補正フィールドが増えても本モジュール自体の変更は不要で、
 // 各軸のconfigへラベルを1行足すだけで済む）。
 import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
-import type { SafetyRecipeOverride, TrafficStressRecipeOverride } from "@/types/route";
+import type {
+  MotorVehicleDensityRecipeOverride,
+  RoadSuitabilityRecipeOverride,
+  SafetyRecipeOverride,
+  TrafficStressRecipeOverride,
+} from "@/types/route";
 import { fetchSafetyBreakdown, fetchTrafficStressBreakdown } from "@/services/regionApi";
 
 // ポップアップ内のボタン・結果表示先を識別するdata属性（HTML文字列としてMapLibreの
@@ -39,7 +44,12 @@ interface RecipeBreakdownAxisConfig<TBreakdown extends RecipeBreakdownLike, TRec
   /** 補正フィールド名（Breakdownのキー）→表示ラベル。オブジェクトの記述順がそのまま
    * 内訳の表示順になる。 */
   adjustmentLabels: Record<string, string>;
-  fetchBreakdown: (osmWayId: number, recipe: TRecipe | undefined) => Promise<TBreakdown | null>;
+  fetchBreakdown: (
+    osmWayId: number,
+    recipe: TRecipe | undefined,
+    roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
+    motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
+  ) => Promise<TBreakdown | null>;
 }
 
 function formatSignedTerm(value: number): string {
@@ -92,6 +102,8 @@ function attachBreakdownHandler<TBreakdown extends RecipeBreakdownLike, TRecipe>
   popupElement: HTMLElement,
   osmWayId: number,
   recipe: TRecipe | undefined,
+  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
   config: RecipeBreakdownAxisConfig<TBreakdown, TRecipe>,
 ) {
   const button = popupElement.querySelector<HTMLButtonElement>(`[${config.buttonAttr}]`);
@@ -101,7 +113,7 @@ function attachBreakdownHandler<TBreakdown extends RecipeBreakdownLike, TRecipe>
     button.disabled = true;
     button.textContent = "取得中…";
     try {
-      const breakdown = await config.fetchBreakdown(osmWayId, recipe);
+      const breakdown = await config.fetchBreakdown(osmWayId, recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
       resultEl.innerHTML = breakdown ? buildBreakdownHtml(breakdown, config) : UNAVAILABLE_HTML;
     } catch {
       resultEl.innerHTML = UNAVAILABLE_HTML;
@@ -113,13 +125,13 @@ function attachBreakdownHandler<TBreakdown extends RecipeBreakdownLike, TRecipe>
 
 // 「基準値4＋指定路線+1なのに最終値が5でなく4なのはなぜか」という実機フィードバック
 // （改善計画T90への追加対応）を受け、各補正の合計がクランプ範囲を超えたら丸めることを
-// 明示する。mapLayers.tsのpanelHint「5段階[1=快適〜5=ストレス大]」と同じ語彙で揃える
+// 明示する。mapLayers.tsのpanelHint「5段階[1=快適〜5=圧迫大]」と同じ語彙で揃える
 // （複雑度平衡の「UI語彙のカタログ集約」原則）。
 const TRAFFIC_STRESS_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<TrafficStressBreakdown, TrafficStressRecipeOverride> = {
   buttonAttr: TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR,
   resultAttr: TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR,
-  registeredLabel: "交通ストレス",
-  scaleIntro: "交通ストレスは5段階[1=快適〜5=ストレス大]の目安です。",
+  registeredLabel: "車の圧迫感",
+  scaleIntro: "車の圧迫感は5段階[1=快適〜5=圧迫大]の目安です。",
   minLevel: 1,
   maxLevel: 5,
   adjustmentLabels: {
@@ -155,10 +167,32 @@ export function attachTrafficStressBreakdownHandler(
   popupElement: HTMLElement,
   osmWayId: number,
   recipe: TrafficStressRecipeOverride | undefined,
+  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
 ) {
-  attachBreakdownHandler(popupElement, osmWayId, recipe, TRAFFIC_STRESS_BREAKDOWN_CONFIG);
+  attachBreakdownHandler(
+    popupElement,
+    osmWayId,
+    recipe,
+    roadSuitabilityRecipe,
+    motorVehicleDensityRecipe,
+    TRAFFIC_STRESS_BREAKDOWN_CONFIG,
+  );
 }
 
-export function attachSafetyBreakdownHandler(popupElement: HTMLElement, osmWayId: number, recipe: SafetyRecipeOverride | undefined) {
-  attachBreakdownHandler(popupElement, osmWayId, recipe, SAFETY_BREAKDOWN_CONFIG);
+export function attachSafetyBreakdownHandler(
+  popupElement: HTMLElement,
+  osmWayId: number,
+  recipe: SafetyRecipeOverride | undefined,
+  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
+) {
+  attachBreakdownHandler(
+    popupElement,
+    osmWayId,
+    recipe,
+    roadSuitabilityRecipe,
+    motorVehicleDensityRecipe,
+    SAFETY_BREAKDOWN_CONFIG,
+  );
 }

@@ -104,6 +104,69 @@ export function AdjustmentStepper({
 // （改善計画T118のモバイル幅溢れ修正: highway別基準値テーブル内では
 // nowrap/flex-shrink:0を打ち消して折り返しを許可する必要があり、呼び出し側の
 // module.cssでその上書きクラスを定義してここへ渡す）。
+function formatSignedTerm(value: number): string {
+  return value >= 0 ? `+${value}` : `${value}`;
+}
+
+// 「車の圧迫感」「安全度」パネルの先頭に置く読み取り専用の参照セクション（改善計画:
+// 車との近さ材料の共有元化）。両軸が共有する「道路適正」「自動車密度」の現在値
+// （研究モードで上書き中ならその値、既定ならDEFAULT_*）を一覧表示し、「この軸がどの
+// 土台の上に成り立っているか」を視覚的に示す。編集はできない（編集は道路適正/自動車密度
+// パネル側で行う）。highway別基準値テーブル自体はここでは繰り返さず、専用パネルへの
+// 導線だけにする（12行の読み取り専用テーブルを3枚目・4枚目にも複製しないため）。
+export function CarClosenessReferenceSection({
+  roadSuitabilityRecipe,
+  motorVehicleDensityRecipe,
+}: {
+  roadSuitabilityRecipe: {
+    cycleway_track_adjustment: number;
+    cycleway_lane_adjustment: number;
+    cycleway_shared_adjustment: number;
+  };
+  motorVehicleDensityRecipe: {
+    maxspeed_low_threshold: number;
+    maxspeed_low_adjustment: number;
+    maxspeed_high_threshold: number;
+    maxspeed_high_adjustment: number;
+    lanes_high_threshold: number;
+    lanes_high_adjustment: number;
+    designation_adjustment: number;
+  };
+}) {
+  return (
+    <details className={styles.referenceSection}>
+      <summary className={styles.referenceHeader}>
+        <span aria-hidden="true" className={styles.referenceChevron} />
+        土台: 道路適正＋自動車密度[車との近さ](読み取り専用)
+      </summary>
+      <div className={styles.referenceBody}>
+        <p className={styles.referenceIntro}>
+          この軸は「道路適正」「自動車密度」レシピの上に成り立っています。編集はそれぞれのパネルで行ってください。
+        </p>
+        <ul className={styles.referenceList}>
+          <li>
+            専用レーン: {formatSignedTerm(roadSuitabilityRecipe.cycleway_track_adjustment)} ／ 自転車レーン:{" "}
+            {formatSignedTerm(roadSuitabilityRecipe.cycleway_lane_adjustment)} ／ 共有レーン:{" "}
+            {formatSignedTerm(roadSuitabilityRecipe.cycleway_shared_adjustment)}
+          </li>
+          <li>
+            制限速度{motorVehicleDensityRecipe.maxspeed_low_threshold}km/h以下:{" "}
+            {formatSignedTerm(motorVehicleDensityRecipe.maxspeed_low_adjustment)} ／ 制限速度
+            {motorVehicleDensityRecipe.maxspeed_high_threshold}km/h以上:{" "}
+            {formatSignedTerm(motorVehicleDensityRecipe.maxspeed_high_adjustment)}
+          </li>
+          <li>
+            車線数{motorVehicleDensityRecipe.lanes_high_threshold}以上:{" "}
+            {formatSignedTerm(motorVehicleDensityRecipe.lanes_high_adjustment)}
+          </li>
+          <li>指定路線: {formatSignedTerm(motorVehicleDensityRecipe.designation_adjustment)}</li>
+        </ul>
+        <p className={styles.referenceIntro}>道路種別ごとの基準値は「道路適正」パネルで確認できます。</p>
+      </div>
+    </details>
+  );
+}
+
 export function FieldLabel({
   label,
   open,

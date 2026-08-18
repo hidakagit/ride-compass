@@ -12,6 +12,7 @@ from fastapi import Depends, Request
 
 from app.config import settings
 from app.domain.evaluation import RoutePreference
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
 from app.infrastructure.accident_repository import AccidentTileQuery
@@ -28,6 +29,8 @@ from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.elevation_service import ElevationService
 from app.services.evaluation_service import (
     EvaluationService,
+    load_motor_vehicle_density_recipe,
+    load_road_suitability_recipe,
     load_route_preference,
     load_safety_recipe,
     load_traffic_stress_recipe,
@@ -91,10 +94,19 @@ class RouteGenerationSetup:
     route_preference: RoutePreference
     traffic_stress_recipe: TrafficStressRecipe
     safety_recipe: SafetyRecipe
+    road_suitability_recipe: RoadSuitabilityRecipe
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipe
 
 
 RouteGenerationBuilder = Callable[
-    [RoutePreference | None, dict[str, float] | None, TrafficStressRecipe | None, SafetyRecipe | None],
+    [
+        RoutePreference | None,
+        dict[str, float] | None,
+        TrafficStressRecipe | None,
+        SafetyRecipe | None,
+        RoadSuitabilityRecipe | None,
+        MotorVehicleDensityRecipe | None,
+    ],
     RouteGenerationSetup,
 ]
 
@@ -168,20 +180,28 @@ def get_route_generation_builder(
         scoring_weights_override: dict[str, float] | None = None,
         traffic_stress_recipe_override: TrafficStressRecipe | None = None,
         safety_recipe_override: SafetyRecipe | None = None,
+        road_suitability_recipe_override: RoadSuitabilityRecipe | None = None,
+        motor_vehicle_density_recipe_override: MotorVehicleDensityRecipe | None = None,
     ) -> RouteGenerationSetup:
         preference = preference_override or load_route_preference()
         scoring_weights = scoring_weights_override or load_scoring_weights()
         traffic_stress_recipe = traffic_stress_recipe_override or load_traffic_stress_recipe()
         safety_recipe = safety_recipe_override or load_safety_recipe()
+        road_suitability_recipe = road_suitability_recipe_override or load_road_suitability_recipe()
+        motor_vehicle_density_recipe = motor_vehicle_density_recipe_override or load_motor_vehicle_density_recipe()
         if settings.routing_engine == "road_graph":
             engine = RoadGraphEngine(
                 graph_service,
                 elevation_attribute_service,
-                EvaluationService(preference, traffic_stress_recipe, safety_recipe),
+                EvaluationService(
+                    preference, traffic_stress_recipe, safety_recipe, road_suitability_recipe, motor_vehicle_density_recipe
+                ),
                 weather_service,
                 preference,
                 traffic_stress_recipe,
                 safety_recipe,
+                road_suitability_recipe,
+                motor_vehicle_density_recipe,
             )
         else:
             engine = OpenRouteServiceEngine(
@@ -189,6 +209,8 @@ def get_route_generation_builder(
                 repository=surface_match_repository,
                 traffic_stress_recipe=traffic_stress_recipe,
                 safety_recipe=safety_recipe,
+                road_suitability_recipe=road_suitability_recipe,
+                motor_vehicle_density_recipe=motor_vehicle_density_recipe,
             )
         return RouteGenerationSetup(
             generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
@@ -196,6 +218,8 @@ def get_route_generation_builder(
             route_preference=preference,
             traffic_stress_recipe=traffic_stress_recipe,
             safety_recipe=safety_recipe,
+            road_suitability_recipe=road_suitability_recipe,
+            motor_vehicle_density_recipe=motor_vehicle_density_recipe,
         )
 
     return build

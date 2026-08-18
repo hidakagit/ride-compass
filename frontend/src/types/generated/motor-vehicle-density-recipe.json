@@ -1,0 +1,9 @@
+{
+  "maxspeed_low_threshold": 30,
+  "maxspeed_low_adjustment": -1,
+  "maxspeed_high_threshold": 60,
+  "maxspeed_high_adjustment": 1,
+  "lanes_high_threshold": 4,
+  "lanes_high_adjustment": 1,
+  "designation_adjustment": 1
+}

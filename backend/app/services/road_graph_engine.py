@@ -36,6 +36,7 @@ from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_di
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference, compute_wind_penalty
 from app.domain.graph import DirectedEdge, RoadGraph
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
@@ -95,6 +96,8 @@ class RoadGraphEngine:
         route_preference: RoutePreference,
         traffic_stress_recipe: TrafficStressRecipe | None = None,
         safety_recipe: SafetyRecipe | None = None,
+        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
@@ -103,6 +106,8 @@ class RoadGraphEngine:
         self._route_preference = route_preference
         self._traffic_stress_recipe = traffic_stress_recipe
         self._safety_recipe = safety_recipe
+        self._road_suitability_recipe = road_suitability_recipe
+        self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float) -> _RoadGraphContext | None:
         margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
@@ -269,7 +274,14 @@ class RoadGraphEngine:
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
             is_designated = edge.edge_id in context.designated_edge_ids
             traffic_stress = (
-                traffic_stress_level(edge.highway, edge_way_tags, is_designated, self._traffic_stress_recipe)
+                traffic_stress_level(
+                    edge.highway,
+                    edge_way_tags,
+                    is_designated,
+                    self._traffic_stress_recipe,
+                    road_suitability_recipe=self._road_suitability_recipe,
+                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+                )
                 if edge_way_tags is not None
                 else None
             )
@@ -285,7 +297,14 @@ class RoadGraphEngine:
                 else None
             )
             safety = (
-                safety_level(edge.highway, edge_way_tags, is_designated, self._safety_recipe)
+                safety_level(
+                    edge.highway,
+                    edge_way_tags,
+                    is_designated,
+                    self._safety_recipe,
+                    road_suitability_recipe=self._road_suitability_recipe,
+                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+                )
                 if edge_way_tags is not None
                 else None
             )

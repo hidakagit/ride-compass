@@ -38,18 +38,18 @@ from app.domain.accident import (  # noqa: E402
     ACCIDENT_MATCH_MAX_DISTANCE_M,
     distance_weighted_accident_density,
 )
-from app.domain.safety import SAFETY_BASE_BY_HIGHWAY, SafetyBreakdown, safety_breakdown  # noqa: E402
+from app.domain.recipe import ROAD_SUITABILITY_BASE_BY_HIGHWAY  # noqa: E402
+from app.domain.safety import SafetyBreakdown, safety_breakdown  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
-    TRAFFIC_STRESS_BASE_BY_HIGHWAY,
     TrafficStressBreakdown,
     traffic_stress_breakdown,
 )
 from app.services.evaluation_service import load_safety_recipe, load_traffic_stress_recipe  # noqa: E402
 
-# レシピが評価対象とするhighway（domain/safety.py: SAFETY_BASE_BY_HIGHWAYのコメントの通り、
-# 両レシピは意図的に同一のhighwayキー集合を使う。将来分岐した場合も両方の対象を漏らさない
-# ようunionで扱う）。
-SCORED_HIGHWAYS: list[str] = sorted(set(TRAFFIC_STRESS_BASE_BY_HIGHWAY) | set(SAFETY_BASE_BY_HIGHWAY))
+# レシピが評価対象とするhighway（改善計画: 車との近さ材料の共有元化で交通ストレス・安全度は
+# 同一のROAD_SUITABILITY_BASE_BY_HIGHWAYを参照するようになったため、unionを取るまでもなく
+# 単一の集合になった）。
+SCORED_HIGHWAYS: list[str] = sorted(ROAD_SUITABILITY_BASE_BY_HIGHWAY)
 
 # クランプ範囲（domain/traffic.py: traffic_stress_breakdown・domain/safety.py:
 # safety_breakdownにハードコードされている上下限のミラー。T122でdomain/recipe.pyへ

@@ -1,5 +1,10 @@
 import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
-import type { SafetyRecipeOverride, TrafficStressRecipeOverride } from "@/types/route";
+import type {
+  MotorVehicleDensityRecipeOverride,
+  RoadSuitabilityRecipeOverride,
+  SafetyRecipeOverride,
+  TrafficStressRecipeOverride,
+} from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
@@ -111,6 +116,8 @@ async function fetchBreakdown<TRecipe, TBreakdown extends { level: number | null
   config: BreakdownAxisConfig,
   osmWayId: number,
   recipe: TRecipe | undefined,
+  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
 ): Promise<TBreakdown> {
   const url = `${API_BASE_URL}${config.path}`;
   const startedAt = performance.now();
@@ -119,7 +126,12 @@ async function fetchBreakdown<TRecipe, TBreakdown extends { level: number | null
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ osm_way_id: osmWayId, [config.recipeBodyKey]: recipe ?? null }),
+    body: JSON.stringify({
+      osm_way_id: osmWayId,
+      [config.recipeBodyKey]: recipe ?? null,
+      road_suitability_recipe: roadSuitabilityRecipe ?? null,
+      motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
+    }),
     signal: AbortSignal.timeout(15000),
   });
   const durationMs = Math.round(performance.now() - startedAt);
@@ -147,8 +159,16 @@ const TRAFFIC_STRESS_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
 export function fetchTrafficStressBreakdown(
   osmWayId: number,
   recipe?: TrafficStressRecipeOverride,
+  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
+  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
 ): Promise<TrafficStressBreakdown | null> {
-  return fetchBreakdown(TRAFFIC_STRESS_BREAKDOWN_CONFIG, osmWayId, recipe);
+  return fetchBreakdown(
+    TRAFFIC_STRESS_BREAKDOWN_CONFIG,
+    osmWayId,
+    recipe,
+    roadSuitabilityRecipe,
+    motorVehicleDensityRecipe,
+  );
 }
 
 const SAFETY_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
@@ -158,8 +178,13 @@ const SAFETY_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
   errorLabel: "安全度",
 };
 
-export function fetchSafetyBreakdown(osmWayId: number, recipe?: SafetyRecipeOverride): Promise<SafetyBreakdown | null> {
-  return fetchBreakdown(SAFETY_BREAKDOWN_CONFIG, osmWayId, recipe);
+export function fetchSafetyBreakdown(
+  osmWayId: number,
+  recipe?: SafetyRecipeOverride,
+  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
+  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
+): Promise<SafetyBreakdown | null> {
+  return fetchBreakdown(SAFETY_BREAKDOWN_CONFIG, osmWayId, recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
 }
 
 export async function refreshBasemapCache(): Promise<void> {

@@ -2,6 +2,8 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.evaluation_service import (
     EvaluationService,
+    load_motor_vehicle_density_recipe,
+    load_road_suitability_recipe,
     load_route_preference,
     load_safety_recipe,
     load_traffic_stress_recipe,
@@ -176,59 +178,21 @@ def test_load_traffic_stress_recipe_reads_default_config_file():
     # 値をハードコード検証して手動同期のドリフトを検知する）。
     recipe = load_traffic_stress_recipe()
 
-    assert recipe.base_by_highway == {
-        "cycleway": 1,
-        "living_street": 2,
-        "residential": 2,
-        "unclassified": 2,
-        "track": 2,
-        "tertiary": 3,
-        "tertiary_link": 3,
-        "secondary": 3,
-        "secondary_link": 3,
-        "primary": 4,
-        "primary_link": 4,
-        "trunk": 4,
-        "trunk_link": 4,
-    }
-    assert recipe.cycleway_track_adjustment == -2
-    assert recipe.cycleway_lane_adjustment == -1
-    assert recipe.cycleway_shared_adjustment == -1
-    assert recipe.maxspeed_low_threshold == 30
-    assert recipe.maxspeed_low_adjustment == -1
-    assert recipe.maxspeed_high_threshold == 60
-    assert recipe.maxspeed_high_adjustment == 1
-    assert recipe.lanes_high_threshold == 4
-    assert recipe.lanes_high_adjustment == 1
     assert recipe.lanes_low_threshold == 1
     assert recipe.lanes_low_adjustment == -1
-    assert recipe.designation_adjustment == 1
 
 
 def test_load_traffic_stress_recipe_reads_custom_path(tmp_path):
     config_path = tmp_path / "custom_traffic_stress_recipe.yaml"
     config_path.write_text(
-        "traffic_stress_recipe:\n"
-        "  base_by_highway: {secondary: 2}\n"
-        "  cycleway_track_adjustment: -3\n"
-        "  cycleway_lane_adjustment: -1\n"
-        "  cycleway_shared_adjustment: -1\n"
-        "  maxspeed_low_threshold: 30\n"
-        "  maxspeed_low_adjustment: -1\n"
-        "  maxspeed_high_threshold: 60\n"
-        "  maxspeed_high_adjustment: 1\n"
-        "  lanes_high_threshold: 4\n"
-        "  lanes_high_adjustment: 1\n"
-        "  lanes_low_threshold: 1\n"
-        "  lanes_low_adjustment: -1\n"
-        "  designation_adjustment: 1\n",
+        "traffic_stress_recipe:\n  lanes_low_threshold: 2\n  lanes_low_adjustment: -3\n",
         encoding="utf-8",
     )
 
     recipe = load_traffic_stress_recipe(config_path)
 
-    assert recipe.base_by_highway == {"secondary": 2}
-    assert recipe.cycleway_track_adjustment == -3
+    assert recipe.lanes_low_threshold == 2
+    assert recipe.lanes_low_adjustment == -3
 
 
 def test_load_safety_recipe_reads_default_config_file():
@@ -236,6 +200,29 @@ def test_load_safety_recipe_reads_default_config_file():
     # SafetyRecipeのクラス既定値とsafety_recipe.yamlの2箇所が値を持つため、値をハードコード
     # 検証して手動同期のドリフトを検知する）。
     recipe = load_safety_recipe()
+
+    assert recipe.lit_adjustment == -1
+    assert recipe.tunnel_adjustment == 1
+
+
+def test_load_safety_recipe_reads_custom_path(tmp_path):
+    config_path = tmp_path / "custom_safety_recipe.yaml"
+    config_path.write_text(
+        "safety_recipe:\n  lit_adjustment: -2\n  tunnel_adjustment: 2\n",
+        encoding="utf-8",
+    )
+
+    recipe = load_safety_recipe(config_path)
+
+    assert recipe.lit_adjustment == -2
+    assert recipe.tunnel_adjustment == 2
+
+
+def test_load_road_suitability_recipe_reads_default_config_file():
+    # load_traffic_stress_recipeと同じ運用（domain/recipe.py: RoadSuitabilityRecipeの
+    # クラス既定値とroad_suitability_recipe.yamlの2箇所が値を持つため、値をハードコード
+    # 検証して手動同期のドリフトを検知する。改善計画: 車との近さ材料の共有元化）。
+    recipe = load_road_suitability_recipe()
 
     assert recipe.base_by_highway == {
         "cycleway": 1,
@@ -255,41 +242,55 @@ def test_load_safety_recipe_reads_default_config_file():
     assert recipe.cycleway_track_adjustment == -2
     assert recipe.cycleway_lane_adjustment == -1
     assert recipe.cycleway_shared_adjustment == -1
+
+
+def test_load_road_suitability_recipe_reads_custom_path(tmp_path):
+    config_path = tmp_path / "custom_road_suitability_recipe.yaml"
+    config_path.write_text(
+        "road_suitability_recipe:\n"
+        "  base_by_highway: {secondary: 2}\n"
+        "  cycleway_track_adjustment: -3\n"
+        "  cycleway_lane_adjustment: -1\n"
+        "  cycleway_shared_adjustment: -1\n",
+        encoding="utf-8",
+    )
+
+    recipe = load_road_suitability_recipe(config_path)
+
+    assert recipe.base_by_highway == {"secondary": 2}
+    assert recipe.cycleway_track_adjustment == -3
+
+
+def test_load_motor_vehicle_density_recipe_reads_default_config_file():
+    recipe = load_motor_vehicle_density_recipe()
+
     assert recipe.maxspeed_low_threshold == 30
     assert recipe.maxspeed_low_adjustment == -1
     assert recipe.maxspeed_high_threshold == 60
     assert recipe.maxspeed_high_adjustment == 1
     assert recipe.lanes_high_threshold == 4
     assert recipe.lanes_high_adjustment == 1
-    assert recipe.lit_adjustment == -1
-    assert recipe.tunnel_adjustment == 1
     assert recipe.designation_adjustment == 1
 
 
-def test_load_safety_recipe_reads_custom_path(tmp_path):
-    config_path = tmp_path / "custom_safety_recipe.yaml"
+def test_load_motor_vehicle_density_recipe_reads_custom_path(tmp_path):
+    config_path = tmp_path / "custom_motor_vehicle_density_recipe.yaml"
     config_path.write_text(
-        "safety_recipe:\n"
-        "  base_by_highway: {secondary: 2}\n"
-        "  cycleway_track_adjustment: -3\n"
-        "  cycleway_lane_adjustment: -1\n"
-        "  cycleway_shared_adjustment: -1\n"
-        "  maxspeed_low_threshold: 30\n"
-        "  maxspeed_low_adjustment: -1\n"
-        "  maxspeed_high_threshold: 60\n"
-        "  maxspeed_high_adjustment: 1\n"
-        "  lanes_high_threshold: 4\n"
-        "  lanes_high_adjustment: 1\n"
-        "  lit_adjustment: -1\n"
-        "  tunnel_adjustment: 1\n"
-        "  designation_adjustment: 1\n",
+        "motor_vehicle_density_recipe:\n"
+        "  maxspeed_low_threshold: 20\n"
+        "  maxspeed_low_adjustment: -2\n"
+        "  maxspeed_high_threshold: 70\n"
+        "  maxspeed_high_adjustment: 2\n"
+        "  lanes_high_threshold: 5\n"
+        "  lanes_high_adjustment: 2\n"
+        "  designation_adjustment: 2\n",
         encoding="utf-8",
     )
 
-    recipe = load_safety_recipe(config_path)
+    recipe = load_motor_vehicle_density_recipe(config_path)
 
-    assert recipe.base_by_highway == {"secondary": 2}
-    assert recipe.cycleway_track_adjustment == -3
+    assert recipe.maxspeed_low_threshold == 20
+    assert recipe.designation_adjustment == 2
 
 
 def test_evaluation_service_without_explicit_preference_uses_config_file_defaults():
