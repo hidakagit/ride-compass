@@ -9,18 +9,18 @@ import {
   type ScalarFieldDescriptor,
   type ThresholdAdjustmentFieldDescriptor,
 } from "@/components/Map/recipeControls";
-import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
+import { CAR_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   type MotorVehicleDensityRecipe,
-} from "@/components/Map/trafficStressExpression";
+} from "@/components/Map/carStressExpression";
 import styles from "./MotorVehicleDensityRecipePanel.module.css";
 
 // 「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の研究モード上書きUI（改善計画:
-// 車との近さ材料の共有元化）。TrafficStressRecipePanel.tsxから該当フィールドを移設した
+// 車との近さ材料の共有元化）。CarStressRecipePanel.tsxから該当フィールドを移設した
 // 独立パネル。RoadSuitabilityRecipePanel.tsxと合わせて「車との近さ」(N2)を構成する、
-// 交通ストレス・安全度が共有するもう1つの材料。このパネル自体は独自の地図レイヤーを
-// 持たないため、配色はTRAFFIC_STRESS_COLORSを流用する（RoadSuitabilityRecipePanel.tsxと
+// 車ストレス・安全度が共有するもう1つの材料。このパネル自体は独自の地図レイヤーを
+// 持たないため、配色はCAR_STRESS_COLORSを流用する（RoadSuitabilityRecipePanel.tsxと
 // 同じ理由）。
 
 interface MotorVehicleDensityRecipePanelProps {
@@ -33,7 +33,7 @@ interface MotorVehicleDensityRecipePanelProps {
 type ScalarKey = keyof MotorVehicleDensityRecipe;
 
 const { negativeColor: ADJUSTMENT_NEGATIVE_COLOR, positiveColor: ADJUSTMENT_POSITIVE_COLOR } = adjustmentEndpointColors(
-  TRAFFIC_STRESS_COLORS,
+  CAR_STRESS_COLORS,
   1,
   5,
 );

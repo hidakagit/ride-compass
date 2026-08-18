@@ -38,24 +38,29 @@ class RouteSegmentDetail(BaseModel):
     gradient_percent: float | None = None
     wind_penalty: float | None = None
     road_surface_good: bool | None = None
-    # 交通ストレス(1-5、domain/traffic.py: traffic_stress_level)・自転車インフラ分類
+    # 車ストレス(1-5、domain/traffic.py: car_stress_level)・自転車インフラ分類
     # （domain/traffic.py: BicycleInfraClass）の生値。road_surface_goodと同じく、難易度
-    # （traffic_difficulty/infra_difficulty）とは別に、将来の色分けモード等での利用に備えて
-    # 生値も保持する（静的道路属性P1残り）。
-    traffic_stress: int | None = None
+    # （car_stress_difficulty）とは別に、将来の色分けモード等での利用に備えて生値も保持する
+    # （静的道路属性P1残り）。bicycle_infraは改善計画T138でcar_stress_difficulty側の独立軸
+    # としては廃止済みだが、一次属性としての生値（表示・デバッグ用）はここに引き続き残す。
+    car_stress: int | None = None
     bicycle_infra: str | None = None
-    # 安全度(1-4、domain/safety.py: safety_level)の生値（改善計画: 安全度レシピ、9軸目）。
+    # 安全度(1-4、domain/safety.py: safety_level)の生値。改善計画T139で難易度合成
+    # （旧safety_difficulty）からは独立に廃止済みだが、一次属性としての生値
+    # （表示・研究モードの内訳確認用、削除はT148）はbicycle_infraと同じ扱いで引き続き残す。
     safety: int | None = None
     elevation_difficulty: float | None = None
     wind_difficulty: float | None = None
     road_difficulty: float | None = None
+    # stop_difficultyは改善計画T149で交差点密度（タグなし交差点、低い重みで加算）を
+    # 吸収済み（旧intersection_difficultyは廃止。ルート単位の交差点密度は
+    # RouteCandidate.intersection_densityとして表示用一次属性のまま独立に維持）。
     stop_difficulty: float | None = None
-    traffic_difficulty: float | None = None
-    infra_difficulty: float | None = None
-    intersection_difficulty: float | None = None
-    # 外部静的データソース T50残作業（事故密度、8軸目）。
+    car_stress_difficulty: float | None = None
+    # 外部静的データソース T50残作業（事故密度）。
     accident_difficulty: float | None = None
-    safety_difficulty: float | None = None
+    # 夜間（街灯なし・トンネル、改善計画T139。domain/night.py: night_difficulty）。
+    night_difficulty: float | None = None
     difficulty: float | None = None
 
 
@@ -87,7 +92,7 @@ class RouteCandidate(BaseModel):
     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
 
-    `traffic_stress_score`: ルート全体の交通ストレス（1-5）の距離加重平均
+    `car_stress_score`: ルート全体の車ストレス（1-5）の距離加重平均
     （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
     `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
@@ -99,7 +104,7 @@ class RouteCandidate(BaseModel):
     合計distance_km」に収録年数での正規化を加えた集約）。
 
     `safety_score`: ルート全体の安全度（1-4）の距離加重平均（改善計画: 安全度レシピ、
-    domain/difficulty.py: distance_weighted_difficulty、traffic_stress_scoreと同じ集約方法）。
+    domain/difficulty.py: distance_weighted_difficulty、car_stress_scoreと同じ集約方法）。
     """
 
     id: str
@@ -113,7 +118,7 @@ class RouteCandidate(BaseModel):
     wind_score: float | None = None
     road_score: float | None = None
     stop_density: float | None = None
-    traffic_stress_score: float | None = None
+    car_stress_score: float | None = None
     bicycle_infra_score: float | None = None
     intersection_density: float | None = None
     accident_density: float | None = None

@@ -1,4 +1,4 @@
-// 交通ストレス・安全度の区間別判定内訳ポップアップ（改善計画T90・安全度レシピ）の
+// 車ストレス・安全度の区間別判定内訳ポップアップ（改善計画T90・安全度レシピ）の
 // HTML組み立て＋ボタン配線。MapView.tsxに双子（ほぼ同一の構造で約158行）として存在して
 // いたものを、軸固有部分（ボタン/結果表示のdata属性・段階数・補正フィールド→ラベル対訳・
 // fetch関数）だけを設定オブジェクトとして渡す1実装へ畳んだ（改善計画T123。
@@ -9,21 +9,21 @@
 // （backend/scripts/measure_axis_stats.pyのadjustment_field_namesと同じ「フィールド名を
 // 動的に拾う」考え方。新しい補正フィールドが増えても本モジュール自体の変更は不要で、
 // 各軸のconfigへラベルを1行足すだけで済む）。
-import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
+import type { SafetyBreakdown, CarStressBreakdown } from "@/types/traffic";
 import type {
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
   SafetyRecipeOverride,
-  TrafficStressRecipeOverride,
+  CarStressRecipeOverride,
 } from "@/types/route";
-import { fetchSafetyBreakdown, fetchTrafficStressBreakdown } from "@/services/regionApi";
+import { fetchSafetyBreakdown, fetchCarStressBreakdown } from "@/services/regionApi";
 
 // ポップアップ内のボタン・結果表示先を識別するdata属性（HTML文字列としてMapLibreの
 // Popup#setHTMLへ渡すため、Reactのイベントハンドラは使えず、addTo後にDOMを直接
 // querySelectorして配線する）。buildRoadSurfacePopupHtml（MapView.tsx）がボタンHTML自体を
 // 組み立てる際にも参照するためexportする。
-export const TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR = "data-traffic-stress-breakdown-button";
-export const TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR = "data-traffic-stress-breakdown-result";
+export const CAR_STRESS_BREAKDOWN_BUTTON_ATTR = "data-car-stress-breakdown-button";
+export const CAR_STRESS_BREAKDOWN_RESULT_ATTR = "data-car-stress-breakdown-result";
 export const SAFETY_BREAKDOWN_BUTTON_ATTR = "data-safety-breakdown-button";
 export const SAFETY_BREAKDOWN_RESULT_ATTR = "data-safety-breakdown-result";
 
@@ -96,7 +96,7 @@ function buildBreakdownHtml<TBreakdown extends RecipeBreakdownLike>(
 // popupElement内のボタンをオンデマンド取得（道路クリックのたびに毎回問い合わせると、
 // 色分けを見ながら地図を連続でクリックする通常操作でAPIコール・レート制限を無駄に
 // 消費するため）で配線する。osmWayIdはクリックされたフィーチャーのプロパティ由来
-// （緯度経度の空間マッチではなく完全一致で引き直す理由はfetchTrafficStressBreakdownの
+// （緯度経度の空間マッチではなく完全一致で引き直す理由はfetchCarStressBreakdownの
 // コメント参照）。
 function attachBreakdownHandler<TBreakdown extends RecipeBreakdownLike, TRecipe>(
   popupElement: HTMLElement,
@@ -127,9 +127,9 @@ function attachBreakdownHandler<TBreakdown extends RecipeBreakdownLike, TRecipe>
 // （改善計画T90への追加対応）を受け、各補正の合計がクランプ範囲を超えたら丸めることを
 // 明示する。mapLayers.tsのpanelHint「5段階[1=快適〜5=圧迫大]」と同じ語彙で揃える
 // （複雑度平衡の「UI語彙のカタログ集約」原則）。
-const TRAFFIC_STRESS_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<TrafficStressBreakdown, TrafficStressRecipeOverride> = {
-  buttonAttr: TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR,
-  resultAttr: TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR,
+const CAR_STRESS_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<CarStressBreakdown, CarStressRecipeOverride> = {
+  buttonAttr: CAR_STRESS_BREAKDOWN_BUTTON_ATTR,
+  resultAttr: CAR_STRESS_BREAKDOWN_RESULT_ATTR,
   registeredLabel: "車の圧迫感",
   scaleIntro: "車の圧迫感は5段階[1=快適〜5=圧迫大]の目安です。",
   minLevel: 1,
@@ -140,11 +140,11 @@ const TRAFFIC_STRESS_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<TrafficStressBr
     lanes_adjustment: "車線数",
     designation_adjustment: "指定路線[緊急輸送道路等]",
   },
-  fetchBreakdown: fetchTrafficStressBreakdown,
+  fetchBreakdown: fetchCarStressBreakdown,
 };
 
 // 安全度は4段階固定・丸めありという同じ仕様（domain/safety.py: safety_breakdown、
-// TRAFFIC_STRESS_BREAKDOWN_CONFIGと同じ理由でここも明示する）。
+// CAR_STRESS_BREAKDOWN_CONFIGと同じ理由でここも明示する）。
 const SAFETY_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<SafetyBreakdown, SafetyRecipeOverride> = {
   buttonAttr: SAFETY_BREAKDOWN_BUTTON_ATTR,
   resultAttr: SAFETY_BREAKDOWN_RESULT_ATTR,
@@ -163,10 +163,10 @@ const SAFETY_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<SafetyBreakdown, Safety
   fetchBreakdown: fetchSafetyBreakdown,
 };
 
-export function attachTrafficStressBreakdownHandler(
+export function attachCarStressBreakdownHandler(
   popupElement: HTMLElement,
   osmWayId: number,
-  recipe: TrafficStressRecipeOverride | undefined,
+  recipe: CarStressRecipeOverride | undefined,
   roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
 ) {
@@ -176,7 +176,7 @@ export function attachTrafficStressBreakdownHandler(
     recipe,
     roadSuitabilityRecipe,
     motorVehicleDensityRecipe,
-    TRAFFIC_STRESS_BREAKDOWN_CONFIG,
+    CAR_STRESS_BREAKDOWN_CONFIG,
   );
 }
 

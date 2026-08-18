@@ -4,21 +4,21 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_TRAFFIC_STRESS_RECIPE,
-} from "@/components/Map/trafficStressExpression";
-import TrafficStressRecipePanel from "./TrafficStressRecipePanel";
+  DEFAULT_CAR_STRESS_RECIPE,
+} from "@/components/Map/carStressExpression";
+import CarStressRecipePanel from "./CarStressRecipePanel";
 
 // 車との近さ材料の共有元化（改善計画）以降、このパネルは少車線道路(F)の1グループのみを
 // 持つ薄いパネルになった。highway別基準値・cycleway・制限速度・車線数(多い方)・指定路線は
 // RoadSuitabilityRecipePanel/MotorVehicleDensityRecipePanelへ移設済みで、このパネルには
 // 読み取り専用の参照セクション（CarClosenessReferenceSection）としてのみ現れる。
 
-function renderPanel(overrides: Partial<React.ComponentProps<typeof TrafficStressRecipePanel>> = {}) {
+function renderPanel(overrides: Partial<React.ComponentProps<typeof CarStressRecipePanel>> = {}) {
   return render(
-    <TrafficStressRecipePanel
+    <CarStressRecipePanel
       overrideEnabled={true}
       onOverrideEnabledChange={vi.fn()}
-      recipe={DEFAULT_TRAFFIC_STRESS_RECIPE}
+      recipe={DEFAULT_CAR_STRESS_RECIPE}
       onRecipeChange={vi.fn()}
       roadSuitabilityRecipe={DEFAULT_ROAD_SUITABILITY_RECIPE}
       motorVehicleDensityRecipe={DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE}
@@ -27,7 +27,7 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof TrafficStres
   );
 }
 
-describe("TrafficStressRecipePanel", () => {
+describe("CarStressRecipePanel", () => {
   it("上書き有効時は少車線道路の閾値+補正値の入力欄を表示する", () => {
     renderPanel();
 
@@ -79,13 +79,13 @@ describe("TrafficStressRecipePanel", () => {
 
     fireEvent.change(thresholdInput, { target: { value: "2" } });
     expect(onRecipeChange).toHaveBeenLastCalledWith({
-      ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+      ...DEFAULT_CAR_STRESS_RECIPE,
       lanes_low_threshold: 2,
     });
 
     fireEvent.change(adjustmentInput, { target: { value: "-2" } });
     expect(onRecipeChange).toHaveBeenLastCalledWith({
-      ...DEFAULT_TRAFFIC_STRESS_RECIPE,
+      ...DEFAULT_CAR_STRESS_RECIPE,
       lanes_low_adjustment: -2,
     });
   });
@@ -109,15 +109,15 @@ describe("TrafficStressRecipePanel", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("既定値に戻すボタンでonRecipeChangeがDEFAULT_TRAFFIC_STRESS_RECIPEで呼ばれる", async () => {
+  it("既定値に戻すボタンでonRecipeChangeがDEFAULT_CAR_STRESS_RECIPEで呼ばれる", async () => {
     const user = userEvent.setup();
     const onRecipeChange = vi.fn();
-    const customRecipe = { ...DEFAULT_TRAFFIC_STRESS_RECIPE, lanes_low_adjustment: -3 };
+    const customRecipe = { ...DEFAULT_CAR_STRESS_RECIPE, lanes_low_adjustment: -3 };
     renderPanel({ recipe: customRecipe, onRecipeChange });
 
     await user.click(screen.getByRole("button", { name: "既定値に戻す" }));
 
-    expect(onRecipeChange).toHaveBeenCalledWith(DEFAULT_TRAFFIC_STRESS_RECIPE);
+    expect(onRecipeChange).toHaveBeenCalledWith(DEFAULT_CAR_STRESS_RECIPE);
   });
 
   it("参照セクションに道路適正・自動車密度の現在値を読み取り専用で表示する", () => {

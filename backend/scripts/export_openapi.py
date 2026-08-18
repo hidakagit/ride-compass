@@ -33,10 +33,10 @@ from app.domain.safety import (  # noqa: E402
     safety_tile_ingredients,
 )
 from app.domain.traffic import (  # noqa: E402
-    DEFAULT_TRAFFIC_STRESS_RECIPE,
-    TrafficStressRecipe,
-    traffic_stress_level,
-    traffic_stress_tile_ingredients,
+    DEFAULT_CAR_STRESS_RECIPE,
+    CarStressRecipe,
+    car_stress_level,
+    car_stress_tile_ingredients,
 )
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
@@ -58,14 +58,14 @@ SAFETY_TEST_CASES_PATH = GENERATED_DIR / "safety-test-cases.json"
 ROAD_SUITABILITY_RECIPE_PATH = GENERATED_DIR / "road-suitability-recipe.json"
 MOTOR_VEHICLE_DENSITY_RECIPE_PATH = GENERATED_DIR / "motor-vehicle-density-recipe.json"
 
-# 交通ストレスのPython実装（domain/traffic.py: traffic_stress_level）とフロント実装
+# 車ストレスのPython実装（domain/traffic.py: car_stress_level）とフロント実装
 # （trafficStressExpression.ts）の相互検証用フィクスチャ（改善計画: 交通ストレスレシピ
 # 外出し基盤・車との近さ材料の共有元化）。backend/tests/test_traffic.pyの代表ケースを
 # 踏襲しつつ、材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no/
 # designation）の観点で全分岐を1回ずつ踏むよう構成する。
 # (highway, tags, is_designated, recipe_override, road_suitability_recipe_override,
 # motor_vehicle_density_recipe_override)の6-tupleで持ち、Noneならそれぞれ既定レシピを使う。
-_TRAFFIC_STRESS_TEST_CASES: list[
+_CAR_STRESS_TEST_CASES: list[
     tuple[str | None, dict[str, str], bool, dict[str, object] | None, dict[str, object] | None, dict[str, object] | None]
 ] = [
     ("cycleway", {}, False, None, None, None),
@@ -85,7 +85,7 @@ _TRAFFIC_STRESS_TEST_CASES: list[
     ("tertiary", {"lanes": "4"}, False, None, None, None),
     ("primary", {"lanes": "1"}, False, None, None, None),
     # lanes_lowは分離自転車道（cycleway=track）区間では該当しない（domain/traffic.py:
-    # traffic_stress_breakdown参照）。track単体の-2のみが効く。
+    # car_stress_breakdown参照）。track単体の-2のみが効く。
     ("primary", {"lanes": "1", "cycleway": "track"}, False, None, None, None),
     # コードレビューで発覚したlanes/maxspeed="0"の無効値ケース（値>0のみ有効、
     # road_graph_repository.pyのSQL側と挙動を合わせた回帰確認）。
@@ -114,14 +114,14 @@ _TRAFFIC_STRESS_TEST_CASES: list[
         "secondary",
         {"lanes": "1"},
         True,
-        {**DEFAULT_TRAFFIC_STRESS_RECIPE.model_dump(), "lanes_low_adjustment": -3},
+        {**DEFAULT_CAR_STRESS_RECIPE.model_dump(), "lanes_low_adjustment": -3},
         {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}},
         {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "designation_adjustment": 2},
     ),
 ]
 
 
-def _traffic_stress_test_cases() -> list[dict[str, object]]:
+def _car_stress_test_cases() -> list[dict[str, object]]:
     cases = []
     for (
         highway,
@@ -130,8 +130,8 @@ def _traffic_stress_test_cases() -> list[dict[str, object]]:
         recipe_override,
         road_suitability_recipe_override,
         motor_vehicle_density_recipe_override,
-    ) in _TRAFFIC_STRESS_TEST_CASES:
-        recipe = TrafficStressRecipe(**recipe_override) if recipe_override else None
+    ) in _CAR_STRESS_TEST_CASES:
+        recipe = CarStressRecipe(**recipe_override) if recipe_override else None
         road_suitability_recipe = (
             RoadSuitabilityRecipe(**road_suitability_recipe_override) if road_suitability_recipe_override else None
         )
@@ -142,11 +142,11 @@ def _traffic_stress_test_cases() -> list[dict[str, object]]:
         )
         cases.append(
             {
-                "properties": traffic_stress_tile_ingredients(highway, tags, is_designated),
+                "properties": car_stress_tile_ingredients(highway, tags, is_designated),
                 "recipe": recipe_override,
                 "road_suitability_recipe": road_suitability_recipe_override,
                 "motor_vehicle_density_recipe": motor_vehicle_density_recipe_override,
-                "expected_level": traffic_stress_level(
+                "expected_level": car_stress_level(
                     highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
                 ),
             }
@@ -156,7 +156,7 @@ def _traffic_stress_test_cases() -> list[dict[str, object]]:
 
 # 安全度のPython実装（domain/safety.py: safety_level）とフロント実装（safetyExpression.ts）の
 # 相互検証用フィクスチャ（改善計画: 安全度レシピ・車との近さ材料の共有元化）。
-# _TRAFFIC_STRESS_TEST_CASESと同じ構成方針だが、材料タグはlit/tunnel（交通ストレスには
+# _CAR_STRESS_TEST_CASESと同じ構成方針だが、材料タグはlit/tunnel（車ストレスには
 # 無い）を含み、lanes_lowケースは安全度レシピが未採用のため含めない。
 _SAFETY_TEST_CASES: list[
     tuple[str | None, dict[str, str], bool, dict[str, object] | None, dict[str, object] | None, dict[str, object] | None]
@@ -278,25 +278,25 @@ def main() -> None:
             },
         },
     )
-    # 交通ストレスの既定レシピ（domain/traffic.py: TrafficStressRecipe）。フロントの
+    # 車ストレスの既定レシピ（domain/traffic.py: CarStressRecipe）。フロントの
     # trafficStressExpression.ts（地図表示用のMapLibre expression）が既定値をこのJSONから
     # 読み、Python側とのドリフトをCI（trafficStressExpression.test.ts）で検知する
     # （手動同期ペアを作らない設計原則1）。
-    _write_json(TRAFFIC_STRESS_RECIPE_PATH, DEFAULT_TRAFFIC_STRESS_RECIPE.model_dump())
-    # traffic_stress_level()を実際に実行して得た(材料タグ, レシピ, 期待値)の組。
+    _write_json(TRAFFIC_STRESS_RECIPE_PATH, DEFAULT_CAR_STRESS_RECIPE.model_dump())
+    # car_stress_level()を実際に実行して得た(材料タグ, レシピ, 期待値)の組。
     # trafficStressExpression.test.tsがこのJSONを読み、同じ入力でJS実装が同じ結果を返すかを
     # 検証する（旧test_road_graph_repository.pyのSQL⇔Python整合性テストに代わる、
     # Python⇔JS間の実ドリフト検知。ハードコードした期待値ではなくPythonの実行結果を都度
-    # 書き出すため、traffic_stress_breakdownのロジックが変わればこのJSONも追従し、
+    # 書き出すため、car_stress_breakdownのロジックが変わればこのJSONも追従し、
     # JS側のミラー実装が古いままなら再生成後にテストが落ちる）。
-    _write_json(TRAFFIC_STRESS_TEST_CASES_PATH, _traffic_stress_test_cases())
+    _write_json(TRAFFIC_STRESS_TEST_CASES_PATH, _car_stress_test_cases())
     # 安全度の既定レシピ・相互検証フィクスチャ（domain/safety.py: SafetyRecipe）。
-    # 交通ストレスと同じ理由・同じ仕組み（safetyExpression.test.tsがドリフト検知）。
+    # 車ストレスと同じ理由・同じ仕組み（safetyExpression.test.tsがドリフト検知）。
     _write_json(SAFETY_RECIPE_PATH, DEFAULT_SAFETY_RECIPE.model_dump())
     _write_json(SAFETY_TEST_CASES_PATH, _safety_test_cases())
     # 「車との近さ」(N2)を構成する共有レシピ2つの既定値（domain/recipe.py:
     # RoadSuitabilityRecipe/MotorVehicleDensityRecipe、改善計画: 車との近さ材料の
-    # 共有元化）。交通ストレス・安全度の両方のMapLibre expressionが読む。
+    # 共有元化）。車ストレス・安全度の両方のMapLibre expressionが読む。
     _write_json(ROAD_SUITABILITY_RECIPE_PATH, DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump())
     _write_json(MOTOR_VEHICLE_DENSITY_RECIPE_PATH, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump())
 

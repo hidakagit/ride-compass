@@ -32,12 +32,12 @@ import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
-import TrafficStressRecipePanel from "@/components/TrafficStressRecipePanel/TrafficStressRecipePanel";
+import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_TRAFFIC_STRESS_RECIPE,
-} from "@/components/Map/trafficStressExpression";
+  DEFAULT_CAR_STRESS_RECIPE,
+} from "@/components/Map/carStressExpression";
 import SafetyRecipePanel from "@/components/SafetyRecipePanel/SafetyRecipePanel";
 import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import RoadSuitabilityRecipePanel from "@/components/RoadSuitabilityRecipePanel/RoadSuitabilityRecipePanel";
@@ -59,7 +59,7 @@ import type {
   RoutePreferenceWeights,
   SafetyRecipeOverride,
   ScoringWeights,
-  TrafficStressRecipeOverride,
+  CarStressRecipeOverride,
 } from "@/types/route";
 import type { WeatherConditions } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
@@ -69,7 +69,7 @@ const DISTANCE_TOLERANCE_KM = 5;
 
 // 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
 // （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
-// 道路情報の2軸に加え、改善計画T63で交通ストレス・自転車インフラ・指定路線・停止要因POI・
+// 道路情報の2軸に加え、改善計画T63で車ストレス・自転車インフラ・指定路線・停止要因POI・
 // 事故（当事者/重大度）の絞り込みにも同じ猶予を適用する。
 const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
@@ -93,7 +93,7 @@ const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   elevation: false,
   road: false,
-  trafficStress: false,
+  carStress: false,
   safety: false,
   bicycleInfra: false,
   designation: false,
@@ -148,23 +148,23 @@ export default function Home() {
   const [scoringWeights, setScoringWeights] = useState<ScoringWeights>(DEFAULT_SCORING_WEIGHTS);
   const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>(DEFAULT_ROUTE_PREFERENCE);
 
-  // 交通ストレスレシピの上書き（改善計画: 交通ストレスレシピ調整UIパネル、T107の次ラウンド）。
+  // 車ストレスレシピの上書き（改善計画: 車ストレスレシピ調整UIパネル、T107の次ラウンド）。
   // 上のweightOverrideEnabledとは独立したトグル（レシピは有効化すると地図の色分けに即座に
   // 反映されるが、重みは次回のルート生成まで反映されないという挙動差があるため、
   // ユーザー承認済みで別トグルにしてある）。無効の間はMapViewへundefinedを渡し
-  // （既定レシピを使う）、生成リクエストからもtraffic_stress_recipeを省略する。
-  const [trafficStressRecipeOverrideEnabled, setTrafficStressRecipeOverrideEnabled] = useState(false);
-  const [trafficStressRecipe, setTrafficStressRecipe] = useState<TrafficStressRecipeOverride>(
-    DEFAULT_TRAFFIC_STRESS_RECIPE,
+  // （既定レシピを使う）、生成リクエストからもcar_stress_recipeを省略する。
+  const [carStressRecipeOverrideEnabled, setCarStressRecipeOverrideEnabled] = useState(false);
+  const [carStressRecipe, setCarStressRecipe] = useState<CarStressRecipeOverride>(
+    DEFAULT_CAR_STRESS_RECIPE,
   );
 
-  // 安全度レシピの上書き（改善計画: 安全度レシピ）。trafficStressRecipeOverrideEnabledと
+  // 安全度レシピの上書き（改善計画: 安全度レシピ）。carStressRecipeOverrideEnabledと
   // 同じ理由で独立したトグルにしてある。
   const [safetyRecipeOverrideEnabled, setSafetyRecipeOverrideEnabled] = useState(false);
   const [safetyRecipe, setSafetyRecipe] = useState<SafetyRecipeOverride>(DEFAULT_SAFETY_RECIPE);
 
   // 「道路適正」「自動車密度」レシピの上書き（改善計画: 車との近さ材料の共有元化）。
-  // 交通ストレス・安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、
+  // 車ストレス・安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、
   // 上書きすると両軸の地図色・内訳ポップアップ・次回のルート生成すべてへ同時に反映される。
   // 上記2つと同じ理由で独立したトグルにしてある。
   const [roadSuitabilityRecipeOverrideEnabled, setRoadSuitabilityRecipeOverrideEnabled] = useState(false);
@@ -311,7 +311,7 @@ export default function Home() {
       ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
     [hiddenLegendKeysByMode],
   );
-  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（交通ストレス・自転車インフラ・指定路線・
+  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・指定路線・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
   const staticLegendHiddenKeysByAxis = useMemo(
@@ -355,7 +355,7 @@ export default function Home() {
     [routeStyleModeId, toggleHiddenLegendKey],
   );
   // 「絞り込みを一括クリア」（ゆる～と等の地図ポータルの「消去」ボタンを参考に追加）。
-  // 軸ごとの「すべて表示」を1つずつ押させず、道路情報・交通ストレス等の全軸＋ルート凡例の
+  // 軸ごとの「すべて表示」を1つずつ押させず、道路情報・車ストレス等の全軸＋ルート凡例の
   // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
   // 状態（どのレイヤーを表示するか）のため、ここでは触らない。
   const hasHiddenFilters = useMemo(
@@ -371,11 +371,11 @@ export default function Home() {
     staticLegendHiddenKeysByAxis,
     LEGEND_FILTER_DEBOUNCE_MS,
   );
-  // 交通ストレスレシピの数値入力も同じ理由でデバウンスする（TrafficStressRecipePanel自体は
-  // 即時のtrafficStressRecipeを参照し入力欄の反応は遅らせない。地図の再描画・T90内訳ポップアップ
+  // 車ストレスレシピの数値入力も同じ理由でデバウンスする（CarStressRecipePanel自体は
+  // 即時のcarStressRecipeを参照し入力欄の反応は遅らせない。地図の再描画・T90内訳ポップアップ
   // 用の値だけがこのデバウンス値を使う）。上記2つと同じ猶予を使い、連続入力のたびに地図の
   // setFilter/setPaintPropertyが走るのを防ぐ。
-  const debouncedTrafficStressRecipe = useDebouncedValue(trafficStressRecipe, LEGEND_FILTER_DEBOUNCE_MS);
+  const debouncedCarStressRecipe = useDebouncedValue(carStressRecipe, LEGEND_FILTER_DEBOUNCE_MS);
   // 安全度レシピも同じ理由でデバウンスする（改善計画: 安全度レシピ）。
   const debouncedSafetyRecipe = useDebouncedValue(safetyRecipe, LEGEND_FILTER_DEBOUNCE_MS);
   // 道路適正・自動車密度レシピも同じ理由でデバウンスする（改善計画: 車との近さ材料の共有元化）。
@@ -562,11 +562,11 @@ export default function Home() {
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
 
-  // 生成条件のうち重み設定・交通ストレスレシピ・安全度レシピの比較キー（上書き無効時はnull＝
+  // 生成条件のうち重み設定・車ストレスレシピ・安全度レシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。3つのトグルは独立のため、それぞれ個別に無効時null化する。
   const currentWeightsKey = JSON.stringify({
     weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
-    trafficStressRecipe: trafficStressRecipeOverrideEnabled ? trafficStressRecipe : null,
+    carStressRecipe: carStressRecipeOverrideEnabled ? carStressRecipe : null,
     safetyRecipe: safetyRecipeOverrideEnabled ? safetyRecipe : null,
     roadSuitabilityRecipe: roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : null,
     motorVehicleDensityRecipe: motorVehicleDensityRecipeOverrideEnabled ? motorVehicleDensityRecipe : null,
@@ -593,7 +593,7 @@ export default function Home() {
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
-        ...(trafficStressRecipeOverrideEnabled ? { traffic_stress_recipe: trafficStressRecipe } : {}),
+        ...(carStressRecipeOverrideEnabled ? { car_stress_recipe: carStressRecipe } : {}),
         ...(safetyRecipeOverrideEnabled ? { safety_recipe: safetyRecipe } : {}),
         ...(roadSuitabilityRecipeOverrideEnabled ? { road_suitability_recipe: roadSuitabilityRecipe } : {}),
         ...(motorVehicleDensityRecipeOverrideEnabled
@@ -667,7 +667,7 @@ export default function Home() {
         <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
         {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
             2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
-            （評価重み・交通ストレスレシピ、renderResearchSectionBody参照）とは分け、
+            （評価重み・車ストレスレシピ、renderResearchSectionBody参照）とは分け、
             RouteListの並びであるこのブロックに残す。 */}
         {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
       </>
@@ -676,7 +676,7 @@ export default function Home() {
 
   // 「研究」ブロックの中身（研究モードのトグルと、それが有効化する調整パネル2つ）。
   // 元は研究モードトグルを「設定」ブロックへ、パネル自体を「ルートを作る」ブロックへ
-  // 分けて置いていたが、評価重み・交通ストレスレシピは生成時にも地図描画時にも使う
+  // 分けて置いていたが、評価重み・車ストレスレシピは生成時にも地図描画時にも使う
   // 横断的パラメータでどちらの子でもなく、かつスマホでは2つが別タブに分かれるため
   // 「設定タブでONにしても効果がどこに出るか分からない」という実機フィードバックを受け、
   // トグルと効果を同じブロックへ同居させる独立ブロックへ切り出した
@@ -687,11 +687,11 @@ export default function Home() {
       <>
         <ResearchPanel />
 
-        {/* 評価の重み（WeightPanel）と二次情報のレシピ（TrafficStressRecipePanel等）は
+        {/* 評価の重み（WeightPanel）と二次情報のレシピ（CarStressRecipePanel等）は
             扱いが異なる別カテゴリとしてユーザー要望により見出しで分けている（改善計画:
             研究タブのカテゴリ分け）。重みは既存の評価軸（route_preference/scoring）の
-            相対的な重要度、レシピは一次情報（OSMタグ）から二次情報（交通ストレス等）を
-            作る変換式そのもの（backend/app/domain/traffic.py: TrafficStressRecipe参照）で
+            相対的な重要度、レシピは一次情報（OSMタグ）から二次情報（車ストレス等）を
+            作る変換式そのもの（backend/app/domain/traffic.py: CarStressRecipe参照）で
             性質が異なる。見出しの区切り自体はMapLayersPanel.tsxのカテゴリ見出し
             （道路状態/交通・安全等、STATIC_CATEGORY_HEADINGS）と同じ発想・見た目
             （styles.researchCategoryHeadingがcomposesで再利用）。 */}
@@ -713,12 +713,12 @@ export default function Home() {
         </div>
 
         {/* 「レシピ」カテゴリ: 一次情報→二次情報の変換式そのものを調整するパネル群。
-            現状は交通ストレスレシピの1つのみだが、他の二次情報（自転車インフラ分類等）にも
+            現状は車ストレスレシピの1つのみだが、他の二次情報（自転車インフラ分類等）にも
             将来レシピ化が広がりうるため、このカテゴリの下に複数のレシピパネルを並べられる
             構成にしてある（新設パネルはこの<div>内へ追加するだけでよい）。 */}
         <div className={styles.researchCategory}>
           <h3 className={styles.researchCategoryHeading}>レシピ[一次情報→二次情報の変換式]</h3>
-          {/* 道路適正・自動車密度パネル（改善計画: 車との近さ材料の共有元化）。交通ストレス・
+          {/* 道路適正・自動車密度パネル（改善計画: 車との近さ材料の共有元化）。車ストレス・
               安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、この2枚を
               「レシピ」カテゴリの先頭に置く。編集内容は下の車の圧迫感・安全度パネルの参照
               セクションへ即座に反映される。 */}
@@ -742,18 +742,18 @@ export default function Home() {
               />
             </div>
           )}
-          {/* 交通ストレスレシピパネル（改善計画: 交通ストレスレシピ調整UIパネル、T107の次
+          {/* 車ストレスレシピパネル（改善計画: 車ストレスレシピ調整UIパネル、T107の次
               ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
               重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ薄いパネルになり、
               先頭に道路適正・自動車密度の現在値（上書き中ならその値、無効なら既定値）を
               読み取り専用で表示する参照セクションを持つ。 */}
           {researchEnabled && (
             <div className={styles.legendCard}>
-              <TrafficStressRecipePanel
-                overrideEnabled={trafficStressRecipeOverrideEnabled}
-                onOverrideEnabledChange={setTrafficStressRecipeOverrideEnabled}
-                recipe={trafficStressRecipe}
-                onRecipeChange={setTrafficStressRecipe}
+              <CarStressRecipePanel
+                overrideEnabled={carStressRecipeOverrideEnabled}
+                onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
+                recipe={carStressRecipe}
+                onRecipeChange={setCarStressRecipe}
                 roadSuitabilityRecipe={
                   roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
                 }
@@ -765,7 +765,7 @@ export default function Home() {
               />
             </div>
           )}
-          {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上記TrafficStressRecipePanelと同じ
+          {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上記CarStressRecipePanelと同じ
               理由で参照セクションを持つ薄いパネル。 */}
           {researchEnabled && (
             <div className={styles.legendCard}>
@@ -902,13 +902,13 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
-                    「B. 地図の見え方（表示系・即時反映）」「研究（評価重み・交通ストレスレシピの
+                    「B. 地図の見え方（表示系・即時反映）」「研究（評価重み・車ストレスレシピの
                     上書き）」「C. 開発者（運用/デバッグツール、旧称「設定」）」の4ブロック構成
                     （UI一貫性再編T30、地図上のログアイコン廃止に伴い開発者向けをBから
                     独立ブロックへ格上げ、T43）。生成に効く条件（出発地点・距離・重み）が
                     画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。
                     「研究」ブロックは元々、トグル自体を「設定」ブロックへ・調整パネルをAブロックへ
-                    分けて置いていたが、評価重み・交通ストレスレシピは生成時にも地図描画時にも
+                    分けて置いていたが、評価重み・車ストレスレシピは生成時にも地図描画時にも
                     使う横断的パラメータでA/Bどちらの子でもなく、スマホでは2つが別タブに
                     分かれるため「設定タブでONにしても効果がどこに出るか分からない」という
                     実機フィードバックを受け、トグルと効果を同居させる独立ブロックへ切り出した。
@@ -917,7 +917,7 @@ export default function Home() {
                     研究パラメータの導線改善）。 */}
 
                 {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
-                    編集は生成ボタンを押すまで地図へ影響しない（評価重み・交通ストレスレシピの
+                    編集は生成ボタンを押すまで地図へ影響しない（評価重み・車ストレスレシピの
                     上書きは独立した「研究」ブロックにあり、この契約の対象外）。 */}
                 <details
                   className={styles.blockSection}
@@ -939,7 +939,7 @@ export default function Home() {
                   {renderMapSettingsSectionBody()}
                 </section>
 
-                {/* 研究: 研究モードのトグルと、それが有効化する評価重み・交通ストレスレシピの
+                {/* 研究: 研究モードのトグルと、それが有効化する評価重み・車ストレスレシピの
                     調整パネル。一般ユーザーは通常触らないためデフォルト閉の折りたたみにする
                     （開発者ブロックと同じ扱い）。 */}
                 <details className={styles.blockSection}>
@@ -969,9 +969,9 @@ export default function Home() {
             location={location}
             showElevation={layerVisibility.elevation}
             showRoad={layerVisibility.road}
-            showTrafficStress={layerVisibility.trafficStress}
+            showCarStress={layerVisibility.carStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
-            trafficStressRecipe={trafficStressRecipeOverrideEnabled ? debouncedTrafficStressRecipe : undefined}
+            carStressRecipe={carStressRecipeOverrideEnabled ? debouncedCarStressRecipe : undefined}
             showSafety={layerVisibility.safety}
             safetyRecipe={safetyRecipeOverrideEnabled ? debouncedSafetyRecipe : undefined}
             roadSuitabilityRecipe={
@@ -1036,7 +1036,7 @@ export default function Home() {
 
       {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート4枚へ置換
           （モバイル実機フィードバック対応T34、開発者向け機能の独立ブロック化に伴い
-          「設定」タブを追加、T43。評価重み・交通ストレスレシピのトグルと調整パネルが
+          「設定」タブを追加、T43。評価重み・車ストレスレシピのトグルと調整パネルが
           別タブに分かれていて分かりにくいという実機フィードバックを受け「研究」タブを追加、
           切り出し後の「設定」タブが開発者/運用ツールのみになったため「開発者」へ改名
           （いずれも改善計画: 研究パラメータの導線改善）。各タブはアイコン+1行ラベル

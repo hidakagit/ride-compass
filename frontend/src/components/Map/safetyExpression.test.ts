@@ -14,7 +14,7 @@ import {
 
 // backend/app/domain/safety.py: safety_level()を実際に実行して得た(材料タグ, レシピ,
 // 道路適正レシピ, 自動車密度レシピ, 期待値)の組（export_openapi.py: _safety_test_cases参照）。
-// trafficStressExpression.test.tsと同じ理由（Python⇔JS間の実ドリフト検知、期待値はPythonの
+// carStressExpression.test.tsと同じ理由（Python⇔JS間の実ドリフト検知、期待値はPythonの
 // 実行結果を都度書き出す）。
 describe("evaluateSafetyLevel（Python実装との相互検証フィクスチャ）", () => {
   it.each(

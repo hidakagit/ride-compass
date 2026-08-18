@@ -7,11 +7,15 @@ from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_
 from app.domain.graph import RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.safety import SafetyRecipe
-from app.domain.traffic import TrafficStressRecipe
+from app.domain.traffic import CarStressRecipe
 from app.domain.weather import WeatherConditions
 
+# SAFETY_RECIPE_CONFIG_PATH/load_safety_recipeは、compute_edge_costの評価対象からは
+# 改善計画T139で外れたが（安全度軸の廃止）、`safety_recipe.yaml`自体・関連APIの表示用途
+# （研究モードの内訳確認等）はT148まで残るため、この読み込み関数はEvaluationServiceの
+# 外（dependencies.py等の表示用途の呼び出し元）から引き続き参照される。
 ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
-TRAFFIC_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "traffic_stress_recipe.yaml"
+CAR_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "car_stress_recipe.yaml"
 SAFETY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "safety_recipe.yaml"
 ROAD_SUITABILITY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "road_suitability_recipe.yaml"
 MOTOR_VEHICLE_DENSITY_RECIPE_CONFIG_PATH = (
@@ -42,25 +46,25 @@ def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePre
     return RoutePreference(**_load_yaml_section(path, "route_preference"))
 
 
-def load_traffic_stress_recipe(path: Path = TRAFFIC_STRESS_RECIPE_CONFIG_PATH) -> TrafficStressRecipe:
-    """traffic_stress_recipe.yamlから既定の交通ストレスレシピ（軸の中身、
-    domain/traffic.py: TrafficStressRecipe参照）を読み込む。load_route_preferenceと同じ
+def load_car_stress_recipe(path: Path = CAR_STRESS_RECIPE_CONFIG_PATH) -> CarStressRecipe:
+    """car_stress_recipe.yamlから既定の車ストレスレシピ（軸の中身、
+    domain/traffic.py: CarStressRecipe参照）を読み込む。load_route_preferenceと同じ
     パターン（軸間の重みとは別階層の設定のため別ファイル・別関数）。
     """
-    return TrafficStressRecipe(**_load_yaml_section(path, "traffic_stress_recipe"))
+    return CarStressRecipe(**_load_yaml_section(path, "car_stress_recipe"))
 
 
 def load_safety_recipe(path: Path = SAFETY_RECIPE_CONFIG_PATH) -> SafetyRecipe:
     """safety_recipe.yamlから既定の安全度レシピ（軸の中身、domain/safety.py: SafetyRecipe
-    参照）を読み込む。load_traffic_stress_recipeと同じパターン。
+    参照）を読み込む。load_car_stress_recipeと同じパターン。
     """
     return SafetyRecipe(**_load_yaml_section(path, "safety_recipe"))
 
 
 def load_road_suitability_recipe(path: Path = ROAD_SUITABILITY_RECIPE_CONFIG_PATH) -> RoadSuitabilityRecipe:
     """road_suitability_recipe.yamlから既定の道路適正レシピ（domain/recipe.py:
-    RoadSuitabilityRecipe参照）を読み込む。交通ストレス・安全度が共有する「車との近さ」(N2)
-    の材料の1つ（改善計画: 車との近さ材料の共有元化）。load_traffic_stress_recipeと同じ
+    RoadSuitabilityRecipe参照）を読み込む。車ストレス・安全度が共有する「車との近さ」(N2)
+    の材料の1つ（改善計画: 車との近さ材料の共有元化）。load_car_stress_recipeと同じ
     パターン。
     """
     return RoadSuitabilityRecipe(**_load_yaml_section(path, "road_suitability_recipe"))
@@ -88,14 +92,12 @@ class EvaluationService:
     def __init__(
         self,
         preference: RoutePreference | None = None,
-        traffic_stress_recipe: TrafficStressRecipe | None = None,
-        safety_recipe: SafetyRecipe | None = None,
+        car_stress_recipe: CarStressRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
         self._preference = preference or load_route_preference()
-        self._traffic_stress_recipe = traffic_stress_recipe or load_traffic_stress_recipe()
-        self._safety_recipe = safety_recipe or load_safety_recipe()
+        self._car_stress_recipe = car_stress_recipe or load_car_stress_recipe()
         self._road_suitability_recipe = road_suitability_recipe or load_road_suitability_recipe()
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe or load_motor_vehicle_density_recipe()
 
@@ -127,8 +129,7 @@ class EvaluationService:
                 accident_count=accident_counts.get(edge_id) if accident_counts is not None else None,
                 accident_years_covered=accident_years_covered,
                 is_designated=edge_id in designated_edge_ids,
-                traffic_stress_recipe=self._traffic_stress_recipe,
-                safety_recipe=self._safety_recipe,
+                car_stress_recipe=self._car_stress_recipe,
                 road_suitability_recipe=self._road_suitability_recipe,
                 motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
             )

@@ -16,7 +16,7 @@
 // （MapLayersPanel）のグループ見出しに使う。staticが8種に達しflatな一覧のまま並ぶと
 // 見つけやすさが悪化するため、kindより一段細かい単位で分ける:
 // - roadCondition（道路状態）: 道路情報・指定路線
-// - trafficSafety（交通・安全）: 交通ストレス・事故・停止要因
+// - trafficSafety（交通・安全）: 車ストレス・事故・停止要因
 // - bicycleInfra（自転車インフラ）: 自転車インフラ
 // - terrain（地形）: 標高図
 // - amenity（補給・施設、改善計画T101）: 補給・休憩ポイント。安全・リスクの指標ではなく
@@ -25,7 +25,7 @@
 export type MapLayerId =
   | "elevation"
   | "road"
-  | "trafficStress"
+  | "carStress"
   | "safety"
   | "bicycleInfra"
   | "designation"
@@ -61,10 +61,10 @@ export interface MapLayerDescriptor {
    * switch文へレイヤーごとハードコードされておりカタログ集約の方針（設計原則8）から
    * 外れていた。未指定のレイヤー（道路情報・ルート等）はパネル側が独自の特殊なJSXを持つ。 */
   panelHint?: string;
-  /** panelHintの下に箇条書きで出す判定根拠の内訳（改善計画T89）。「交通ストレスの判定基準が
+  /** panelHintの下に箇条書きで出す判定根拠の内訳（改善計画T89）。「車ストレスの判定基準が
    * 分かりにくい」という実機フィードバックを受け、1〜2文の要約（panelHint）だけでは
    * 「何がどう加点/減点されるか」まで伝わらなかった箇所を補う。backend/app/domain/traffic.py:
-   * traffic_stress_levelの補正ロジックと1:1対応させ、ロジックが変わったらここも追従する。 */
+   * car_stress_levelの補正ロジックと1:1対応させ、ロジックが変わったらここも追従する。 */
   panelHintDetail?: readonly string[];
 }
 
@@ -89,14 +89,14 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     description: "道路を路面の種類[色]と道路の種類[太さ]で表示",
   },
   {
-    id: "trafficStress",
+    id: "carStress",
     label: "車の圧迫感",
     chipLabel: "圧迫感",
     kind: "static",
     category: "trafficSafety",
     description: "道路種別・車線数・制限速度・自転車インフラから推定した車の圧迫感(1-5)を色分け表示",
     // 判定基準が不明という実機フィードバック（モバイル実機フィードバック対応T39）を受け、
-    // backend/app/domain/traffic.py: traffic_stress_levelの要約を明記する。
+    // backend/app/domain/traffic.py: car_stress_levelの要約を明記する。
     // 改善計画T89: T39の1文要約だけでは「4段階であること」「何が加点/減点されるか」まで
     // 伝わらず「1〜5評価」と誤解される実機フィードバックが再発。panelHintの冒頭で段階数を
     // 明示し、内訳はpanelHintDetail（箇条書き）へ分離した。
@@ -121,11 +121,11 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     kind: "static",
     category: "trafficSafety",
     description: "道路種別・自転車インフラ・街灯・トンネル等から推定した安全度(1-4)を色分け表示",
-    // 交通ストレスと同じ材料（highway/cycleway/maxspeed/lanes/指定路線）に加え、
+    // 車ストレスと同じ材料（highway/cycleway/maxspeed/lanes/指定路線）に加え、
     // 街灯[lit]・トンネル[tunnel]を組み合わせる（改善計画: 安全度レシピ。路肩[shoulder]は
     // 実測0.0%の死に補正だったため改善計画T122で撤去）。
-    // 「走りにくさ（交通ストレス）」ではなく「事故りやすさ（客観的リスク）」という別概念
-    // であることをtrafficStressのpanelHintDetailと対で明記する。
+    // 「走りにくさ（車ストレス）」ではなく「事故りやすさ（客観的リスク）」という別概念
+    // であることをcarStressのpanelHintDetailと対で明記する。
     panelHint: "道路の種別・自転車インフラ・街灯・トンネル等をもとに4段階[1=安全〜4=危険]で判定した目安です。車の圧迫感（走りにくさ）とは別の、事故・怪我のリスクを表す指標です。",
     panelHintDetail: [
       "基準値: 道路の種別[生活道路・県道・国道など]で決まります。国道・幹線道路が最も高く、県道はやや低めです",
@@ -163,12 +163,12 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     category: "roadCondition",
     description: "国土数値情報の緊急輸送道路・重要物流道路[KSJ N10/N12]に該当する区間を色分け表示",
     // バッファマッチ（20m、交差率50%以上）でroad_edgesへ対応付けた区間を色分けする。
-    // 該当区間はtrafficStress軸にも+1の補正として反映される
-    // （road_graph_repository.py: traffic_stress_level参照）。
-    // 改善計画T89: 「交通ストレスと指定路線は何が違うのか」という実機フィードバックを受け、
-    // 指定路線が「行政指定という事実」の表示であり、交通ストレスはそれを含む複数要因
+    // 該当区間はcarStress軸にも+1の補正として反映される
+    // （road_graph_repository.py: car_stress_level参照）。
+    // 改善計画T89: 「車ストレスと指定路線は何が違うのか」という実機フィードバックを受け、
+    // 指定路線が「行政指定という事実」の表示であり、車ストレスはそれを含む複数要因
     // （道路種別・車線数・制限速度・自転車インフラ）を合成した推定指標であるという
-    // 役割の違いを明記する（trafficStressのpanelHintDetailと対で参照）。
+    // 役割の違いを明記する（carStressのpanelHintDetailと対で参照）。
     panelHint:
       "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
       "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
@@ -247,7 +247,7 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
 
-// road/trafficStress/safety/bicycleInfra/designationは同じroad_surfaceベクタタイル
+// road/carStress/safety/bicycleInfra/designationは同じroad_surfaceベクタタイル
 // （MapView.tsx: ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を
 // 共有しているため、そのタイルのminzoom未満（regionZoomTooWide）ではタイル自体が要求されず、
 // 5レイヤーとも同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
@@ -256,7 +256,7 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 // 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
 export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
   "road",
-  "trafficStress",
+  "carStress",
   "safety",
   "bicycleInfra",
   "designation",

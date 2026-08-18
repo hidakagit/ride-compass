@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AdjustmentStepper, FieldLabel, LevelPicker } from "./recipeControls";
 
-// T113でTrafficStressRecipePanel専用に実装した3部品を、2つ目のレシピ（安全度レシピ）
+// T113でCarStressRecipePanel専用に実装した3部品を、2つ目のレシピ（安全度レシピ）
 // 登場を機に汎用化した（改善計画: 安全度レシピ）。切り出し自体で挙動が変わっていないことを
-// ここで単体検証する（TrafficStressRecipePanel.test.tsx/SafetyRecipePanel.test.tsxは
+// ここで単体検証する（CarStressRecipePanel.test.tsx/SafetyRecipePanel.test.tsxは
 // 呼び出し元経由の結合テストのため、部品単体の境界値はここでカバーする）。
 
 describe("LevelPicker", () => {

@@ -10,7 +10,7 @@ from app.config import settings
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.domain.safety import SafetyBreakdown, SafetyRecipe, safety_breakdown
-from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe, traffic_stress_breakdown
+from app.domain.traffic import CarStressBreakdown, CarStressRecipe, car_stress_breakdown
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call
@@ -300,7 +300,7 @@ class RegionService:
         road_suitability_recipe: Any,
         motor_vehicle_density_recipe: Any,
     ) -> Any | None:
-        """クリックされた道路（osm_way_id）の判定内訳を返す（get_traffic_stress_breakdown/
+        """クリックされた道路（osm_way_id）の判定内訳を返す（get_car_stress_breakdown/
         get_safety_breakdownの共通実装、改善計画T123）。`_get_tile`と同じ「軸固有部分
         （domain_fn・ログ名・ラベル）だけを引数化して1実装に畳む」方針。
 
@@ -312,7 +312,7 @@ class RegionService:
         引き直す。
 
         `recipe`は各軸固有の判定レシピの上書き（省略時は軸ごとの既定レシピ）。
-        `road_suitability_recipe`/`motor_vehicle_density_recipe`は交通ストレス・安全度が
+        `road_suitability_recipe`/`motor_vehicle_density_recipe`は車ストレス・安全度が
         共有する「車との近さ」(N2)の材料の上書き（改善計画: 車との近さ材料の共有元化）。
         研究モードでレシピを上書き中は、ポップアップの内訳も上書き中のレシピで計算する
         （地図の色・ルート採点との整合を保つため）。
@@ -348,18 +348,18 @@ class RegionService:
             highway, tags, is_designated = result
             return domain_fn(highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe)
 
-    async def get_traffic_stress_breakdown(
+    async def get_car_stress_breakdown(
         self,
         osm_way_id: int,
-        recipe: TrafficStressRecipe | None = None,
+        recipe: CarStressRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
-    ) -> TrafficStressBreakdown | None:
-        """交通ストレスの判定内訳（改善計画T90）。共通実装・詳細は`_get_breakdown`参照。"""
+    ) -> CarStressBreakdown | None:
+        """車ストレスの判定内訳（改善計画T90）。共通実装・詳細は`_get_breakdown`参照。"""
         return await self._get_breakdown(
-            domain_fn=traffic_stress_breakdown,
-            external_call_name="region:traffic-stress-breakdown",
-            label="交通ストレス",
+            domain_fn=car_stress_breakdown,
+            external_call_name="region:car-stress-breakdown",
+            label="車ストレス",
             osm_way_id=osm_way_id,
             recipe=recipe,
             road_suitability_recipe=road_suitability_recipe,

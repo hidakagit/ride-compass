@@ -17,7 +17,7 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     wind_score: null,
     road_score: null,
     stop_density: null,
-    traffic_stress_score: null,
+    car_stress_score: null,
     bicycle_infra_score: null,
     intersection_density: null,
     accident_density: null,
@@ -42,11 +42,11 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
       distance_tolerance_km: 5,
       scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
       route_preference: {
-        elevation_weight: 0.15, road_weight: 0.19, wind_weight: 0.26, stop_weight: 0.15,
-        traffic_weight: 0.1, infra_weight: 0.1, intersection_weight: 0.05, accident_weight: 0.08,
-        safety_weight: 0.1,
+        elevation_weight: 0.15, road_weight: 0.19, wind_weight: 0.26, stop_weight: 0.2,
+        car_stress_weight: 0.2, accident_weight: 0.08,
+        night_weight: 0.0,
       },
-      traffic_stress_recipe: {
+      car_stress_recipe: {
         lanes_low_threshold: 1, lanes_low_adjustment: -1,
       },
       safety_recipe: {
@@ -110,11 +110,11 @@ describe("ComparisonPanel", () => {
     expect(screen.getByText("1.50 回/km")).toBeInTheDocument();
   });
 
-  it("交通ストレス・自転車インフラ率・交差点密度の行を表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
+  it("車ストレス・自転車インフラ率・交差点密度の行を表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
     const slots = [
       makeSlot({
         id: "a",
-        topCandidate: makeCandidate({ traffic_stress_score: 2.3, bicycle_infra_score: 12.4, intersection_density: 3.1 }),
+        topCandidate: makeCandidate({ car_stress_score: 2.3, bicycle_infra_score: 12.4, intersection_density: 3.1 }),
       }),
       makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
     ];

@@ -22,12 +22,10 @@ export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = {
   elevation_weight: 0.15,
   road_weight: 0.19,
   wind_weight: 0.26,
-  stop_weight: 0.15,
-  traffic_weight: 0.1,
-  infra_weight: 0.1,
-  intersection_weight: 0.05,
+  stop_weight: 0.2,
+  car_stress_weight: 0.2,
   accident_weight: 0.08,
-  safety_weight: 0.1,
+  night_weight: 0.0,
 };
 
 interface WeightPanelProps {
@@ -64,7 +62,7 @@ const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES
 
 // ラベル横の情報アイコン（FieldLabel、Map/recipeControls.tsx）でdescriptionを開閉表示する。
 // evaluationAxesのdescriptionフィールドはこれまでコード上に存在するだけでUIに出ていなかった
-// （「交通ストレス」等のラベルだけでは実際の判定材料が伝わらないという指摘への対応）。
+// （「車ストレス」等のラベルだけでは実際の判定材料が伝わらないという指摘への対応）。
 // レシピパネル（SafetyRecipePanel等）と同じ「タップで開くinfoTooltip」パターンを再利用する。
 function WeightInput<T extends Record<string, number>>({
   field,

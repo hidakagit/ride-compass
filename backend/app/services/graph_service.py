@@ -159,7 +159,7 @@ class GraphService:
 
     async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
         """指定edge_idそれぞれの許可リストタグ（静的道路属性P0）を返す（静的道路属性P1残り、
-        交通ストレス・自転車インフラ評価の入力）。get_stop_poi_countsと同じ
+        車ストレス・自転車インフラ評価の入力）。get_stop_poi_countsと同じ
         「repositoryが無ければ`{}`」パターン。
         """
         if self._repository is None:

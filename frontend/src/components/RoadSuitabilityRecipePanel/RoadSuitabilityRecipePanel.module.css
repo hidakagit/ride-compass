@@ -1,4 +1,4 @@
-/* TrafficStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
+/* CarStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
    共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/.groupChevron/.groupBody/
    .resetButton）を再利用し、base_by_highway用のテーブル表示（.table/.tableLabel）だけを
    ここに追加する（改善計画: 車との近さ材料の共有元化）。ScalarInputが使う.field/.input/
@@ -31,7 +31,7 @@
   composes: resetButton from "../WeightPanel/WeightPanel.module.css";
 }
 
-/* table-layout: fixedで列幅を内容依存にせず固定する（TrafficStressRecipePanel.module.css
+/* table-layout: fixedで列幅を内容依存にせず固定する（CarStressRecipePanel.module.css
    と同じ理由）。 */
 .table {
   width: 100%;

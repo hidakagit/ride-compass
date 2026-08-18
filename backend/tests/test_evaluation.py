@@ -1,8 +1,18 @@
+import inspect
+
 import pytest
 
 from app.domain import evaluation, safety, traffic
 from app.domain.attributes import ElevationAttribute
-from app.domain.evaluation import RoutePreference, compute_edge_cost, compute_wind_penalty, is_edge_allowed
+from app.domain.evaluation import (
+    RoutePreference,
+    compute_cost_from_axis_scores,
+    compute_edge_axis_scores,
+    compute_edge_cost,
+    compute_wind_penalty,
+    is_edge_allowed,
+    preference_to_axis_weights,
+)
 from app.domain.graph import DirectedEdge
 from app.domain.weather import WeatherConditions
 
@@ -28,6 +38,13 @@ def _elevation_attr(average_grade: float | None) -> ElevationAttribute:
 def test_is_edge_allowed_excludes_motorway():
     assert is_edge_allowed(_edge(highway="motorway")) is False
     assert is_edge_allowed(_edge(highway="motorway_link")) is False
+
+
+def test_is_edge_allowed_excludes_trunk():
+    # 改善計画T140: trunk/trunk_linkの除外は既存動作（挙動変更なし）。以前は単体テストが
+    # 無く、motorwayのみ回帰確認されていた抜けを埋める。
+    assert is_edge_allowed(_edge(highway="trunk")) is False
+    assert is_edge_allowed(_edge(highway="trunk_link")) is False
 
 
 def test_is_edge_allowed_allows_residential():
@@ -58,6 +75,23 @@ def test_is_edge_allowed_allows_missing_way_tags():
 
 def test_is_edge_allowed_allows_way_tags_without_bicycle_key():
     assert is_edge_allowed(_edge(highway="residential"), {"lanes": "2"}) is True
+
+
+def test_is_edge_allowed_hard_filters_override_disables_trunk_exclusion():
+    # 改善計画T140: hard_filters引数で名前付きフィルタを個別に無効化できる
+    # （T141でレシピJSON化した際の`hard_filters: list[str]`をそのまま渡す想定）。
+    custom_filters = frozenset({"no_bicycle", "motorway"})
+    assert is_edge_allowed(_edge(highway="trunk"), hard_filters=custom_filters) is True
+    assert is_edge_allowed(_edge(highway="motorway"), hard_filters=custom_filters) is False
+
+
+def test_is_edge_allowed_hard_filters_override_disables_no_bicycle():
+    custom_filters = frozenset({"motorway", "trunk"})
+    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": "no"}, hard_filters=custom_filters) is True
+
+
+def test_is_edge_allowed_empty_hard_filters_allows_everything():
+    assert is_edge_allowed(_edge(highway="motorway"), {"bicycle": "no"}, hard_filters=frozenset()) is True
 
 
 def test_compute_edge_cost_excludes_disallowed_edge():
@@ -102,7 +136,7 @@ def _count_car_closeness_calls(monkeypatch) -> "list[int]":
 
 
 def test_compute_edge_cost_calls_car_closeness_once_per_edge(monkeypatch):
-    # 「車との近さ」(N2)はtraffic_stress_level・safety_levelの両方が内部で参照する共通の
+    # 「車との近さ」(N2)はcar_stress_level・safety_levelの両方が内部で参照する共通の
     # 土台で、以前は同じ材料タグ・同じレシピに対してcar_closeness()が両者から独立に
     # 毎回呼ばれ、1Edgeにつき2回計算していた（ルート生成の全Edge分の無駄）。
     # compute_edge_cost側で1回だけ計算して両方へ渡すようになったことを、実呼び出し回数で
@@ -117,7 +151,7 @@ def test_compute_edge_cost_calls_car_closeness_once_per_edge(monkeypatch):
 
 
 def test_compute_edge_cost_without_way_tags_does_not_call_car_closeness(monkeypatch):
-    # way_tags=Noneの場合はtraffic_stress/safetyとも評価しない（既存仕様）ため、
+    # way_tags=Noneの場合はcar_stress/safetyとも評価しない（既存仕様）ため、
     # car_closeness()自体を呼ぶ必要が無いことも確認する。
     counter = _count_car_closeness_calls(monkeypatch)
 
@@ -256,3 +290,93 @@ def test_compute_edge_cost_respects_custom_weights():
     assert road_focused.difficulty == 0.0
     # 勾配だけを考慮する重みなら、激坂のgradient_difficultyがそのままdifficultyになる
     assert elevation_focused.difficulty > road_focused.difficulty
+
+
+# --- 改善計画T142: 二次(compute_edge_axis_scores)・三次(compute_cost_from_axis_scores)の分離 ---
+
+
+def test_compute_cost_from_axis_scores_signature_has_no_primary_attribute_names():
+    # T142の完了条件そのもの: 三次のコードのシグネチャに一次属性名(highway/lanes等)が
+    # 一切現れないことをコードレビューではなくテストでも機械的に確認する。
+    params = set(inspect.signature(compute_cost_from_axis_scores).parameters)
+    assert params == {"distance_m", "axis_scores", "weights"}
+    primary_attribute_names = {"highway", "lanes", "maxspeed", "cycleway", "surface", "way_tags", "edge"}
+    assert params.isdisjoint(primary_attribute_names)
+
+
+def test_compute_edge_axis_scores_returns_axis_id_keyed_scores():
+    edge = _edge(distance_m=100.0)
+    scores = compute_edge_axis_scores(edge, _elevation_attr(0.0), "asphalt")
+
+    assert scores["gradient"] == 0.0
+    assert scores["surface_q"] == 0.0
+    assert "wind" not in scores  # windを渡していないためキー自体が無い
+
+
+def test_compute_edge_axis_scores_omits_none_axes():
+    edge = _edge(distance_m=100.0)
+    scores = compute_edge_axis_scores(edge, None, None)
+
+    assert scores == {}
+
+
+def test_preference_to_axis_weights_maps_to_target_axis_ids():
+    weights = preference_to_axis_weights(RoutePreference(car_stress_weight=0.4, night_weight=0.1))
+
+    assert weights["car_stress"] == 0.4
+    assert weights["night"] == 0.1
+    assert set(weights) == {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night"}
+
+
+def test_compute_cost_from_axis_scores_matches_composite_difficulty_semantics():
+    cost, difficulty = compute_cost_from_axis_scores(
+        distance_m=100.0,
+        axis_scores={"gradient": 0.0, "surface_q": 100.0},
+        weights={"gradient": 1.0, "surface_q": 1.0},
+    )
+
+    assert difficulty == 50.0
+    assert cost == 150.0  # 100 * (1 + 50/100)
+
+
+def test_compute_cost_from_axis_scores_excludes_axes_missing_from_scores():
+    # weightsにキーがあってもaxis_scoresに無ければ合成対象外(残りの重みで再正規化)。
+    cost, difficulty = compute_cost_from_axis_scores(
+        distance_m=100.0,
+        axis_scores={"gradient": 40.0},
+        weights={"gradient": 1.0, "surface_q": 1.0},
+    )
+
+    assert difficulty == 40.0
+    assert cost == 140.0
+
+
+def test_compute_cost_from_axis_scores_empty_scores_returns_distance_only():
+    cost, difficulty = compute_cost_from_axis_scores(distance_m=100.0, axis_scores={}, weights={"gradient": 1.0})
+
+    assert difficulty is None
+    assert cost == 100.0
+
+
+def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
+    # compute_edge_costは分離後もcompute_edge_axis_scores + compute_cost_from_axis_scoresを
+    # 合成した薄いラッパーであり、結果が完全に一致することを確認する（改善計画T142の
+    # 回帰確認: 分離前後で同じ結果を返す）。
+    edge = _edge(distance_m=250.0, highway="secondary")
+    elevation = _elevation_attr(average_grade=5.0)
+    surface = "gravel"
+    preference = RoutePreference()
+    way_tags = {"maxspeed": "50"}
+
+    direct = compute_edge_cost(
+        edge, elevation, surface, preference, way_tags=way_tags, stop_count=2, is_designated=True
+    )
+
+    axis_scores = compute_edge_axis_scores(
+        edge, elevation, surface, way_tags=way_tags, stop_count=2, is_designated=True
+    )
+    weights = preference_to_axis_weights(preference)
+    composed_cost, composed_difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights)
+
+    assert direct.cost == composed_cost
+    assert direct.difficulty == composed_difficulty

@@ -2,5 +2,5 @@
 // （経緯・更新手順は types/route.ts のコメント参照）。
 import type { components } from "./generated/api";
 
-export type TrafficStressBreakdown = components["schemas"]["TrafficStressBreakdown"];
+export type CarStressBreakdown = components["schemas"]["CarStressBreakdown"];
 export type SafetyBreakdown = components["schemas"]["SafetyBreakdown"];

@@ -1,8 +1,8 @@
 """JARTIC（日本道路交通情報センター）交通量オープンデータの収集（改善計画T53、
 docs/external-data-sources-review-2026-08-16.md §4.5）。
 
-評価パイプラインには組み込まない。trafficStress軸（domain/traffic.py:
-traffic_stress_level）の較正・検証データとして、1回のスナップショット収集→分析で
+評価パイプラインには組み込まない。carStress軸（domain/traffic.py:
+car_stress_level）の較正・検証データとして、1回のスナップショット収集→分析で
 完結させる（定期収集は較正に不足すると分かった場合のみ検討）。
 
 収集先テーブル（traffic_stations/traffic_hourly）は**dev機PostgreSQLのみに保持**し、
@@ -51,7 +51,7 @@ JARTIC_TYPE_NAME = "t_travospublic_measure_1h"
 # BBOX(ジオメトリ, minx, miny, maxx, maxy, 'EPSG:4326')関数が要求するlon/lat順へ変換した値。
 DEFAULT_BBOX = (138.35, 34.85, 140.95, 37.20)
 
-# 道路種別='3'は一般道（高速道路等を除く）。trafficStress軸の対象highwayが自動車専用道路
+# 道路種別='3'は一般道（高速道路等を除く）。carStress軸の対象highwayが自動車専用道路
 # ではない道路（residential〜trunk）であることに合わせる。
 DEFAULT_ROAD_TYPE = "3"
 

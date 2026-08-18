@@ -10,14 +10,14 @@ from app.api.routers.routes import (
     MotorVehicleDensityRecipeOverride,
     RoadSuitabilityRecipeOverride,
     SafetyRecipeOverride,
-    TrafficStressRecipeOverride,
+    CarStressRecipeOverride,
     validate_lanes_threshold_order,
 )
 from app.config import settings
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.domain.safety import SafetyBreakdown, SafetyRecipe
-from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe
+from app.domain.traffic import CarStressBreakdown, CarStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.region_service import RegionService
@@ -139,7 +139,7 @@ async def _breakdown_response(
     motor_vehicle_density_recipe: Any,
     service_call: Callable[[int, Any, Any, Any], Awaitable[Any]],
 ) -> Any:
-    """交通ストレス・安全度の内訳エンドポイントが共有するリクエスト処理（改善計画T123）。
+    """車ストレス・安全度の内訳エンドポイントが共有するリクエスト処理（改善計画T123）。
     歯止め（レート制限）→サービス呼び出しという共通の骨格だけを引数化する（レシピの
     APIモデル→domainモデル変換はエンドポイントごとに型が異なるため呼び出し元に残す）。
     """
@@ -147,42 +147,42 @@ async def _breakdown_response(
     return await service_call(osm_way_id, recipe, road_suitability_recipe, motor_vehicle_density_recipe)
 
 
-class TrafficStressBreakdownRequest(BaseModel):
+class CarStressBreakdownRequest(BaseModel):
     osm_way_id: int
     # 研究モードでレシピを上書き中の内訳表示用（改善計画: 交通ストレスレシピ外出し基盤）。
-    # 省略時はdomain/traffic.py: DEFAULT_TRAFFIC_STRESS_RECIPEで計算する。
-    traffic_stress_recipe: TrafficStressRecipeOverride | None = None
-    # 交通ストレス・安全度が共有する「車との近さ」(N2)の材料の上書き（改善計画: 車との
+    # 省略時はdomain/traffic.py: DEFAULT_CAR_STRESS_RECIPEで計算する。
+    car_stress_recipe: CarStressRecipeOverride | None = None
+    # 車ストレス・安全度が共有する「車との近さ」(N2)の材料の上書き（改善計画: 車との
     # 近さ材料の共有元化）。省略時はそれぞれdomain/recipe.py:
     # DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPEで計算する。
     road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
 
     @model_validator(mode="after")
-    def _check_lanes_threshold_order(self) -> "TrafficStressBreakdownRequest":
-        validate_lanes_threshold_order(self.traffic_stress_recipe, self.motor_vehicle_density_recipe)
+    def _check_lanes_threshold_order(self) -> "CarStressBreakdownRequest":
+        validate_lanes_threshold_order(self.car_stress_recipe, self.motor_vehicle_density_recipe)
         return self
 
 
-@router.post("/api/region/traffic-stress-breakdown")
-async def region_traffic_stress_breakdown(
-    body: TrafficStressBreakdownRequest,
+@router.post("/api/region/car-stress-breakdown")
+async def region_car_stress_breakdown(
+    body: CarStressBreakdownRequest,
     http_request: Request,
     region_service: RegionService = Depends(get_region_service),
-) -> TrafficStressBreakdown | None:
-    """交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
+) -> CarStressBreakdown | None:
+    """車ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
     路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:
-    traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
+    car_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
     highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ
     「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
-    RegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
+    RegionService.get_car_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
     タイル取得と同じ歯止め（クリックの連打対策）を流用する。
 
-    GETではなくPOST+JSONボディなのは、`traffic_stress_recipe`（レシピ上書き、改善計画:
+    GETではなくPOST+JSONボディなのは、`car_stress_recipe`（レシピ上書き、改善計画:
     交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
     不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
     """
-    recipe = TrafficStressRecipe(**body.traffic_stress_recipe.model_dump()) if body.traffic_stress_recipe else None
+    recipe = CarStressRecipe(**body.car_stress_recipe.model_dump()) if body.car_stress_recipe else None
     road_suitability_recipe = (
         RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
     )
@@ -193,12 +193,12 @@ async def region_traffic_stress_breakdown(
     )
     return await _breakdown_response(
         http_request,
-        "traffic-stress-breakdown",
+        "car-stress-breakdown",
         body.osm_way_id,
         recipe,
         road_suitability_recipe,
         motor_vehicle_density_recipe,
-        region_service.get_traffic_stress_breakdown,
+        region_service.get_car_stress_breakdown,
     )
 
 
@@ -207,7 +207,7 @@ class SafetyBreakdownRequest(BaseModel):
     # 研究モードでレシピを上書き中の内訳表示用（改善計画: 安全度レシピ）。
     # 省略時はdomain/safety.py: DEFAULT_SAFETY_RECIPEで計算する。
     safety_recipe: SafetyRecipeOverride | None = None
-    # TrafficStressBreakdownRequestと同じ「車との近さ」(N2)材料の上書き
+    # CarStressBreakdownRequestと同じ「車との近さ」(N2)材料の上書き
     # （改善計画: 車との近さ材料の共有元化）。
     road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
@@ -219,7 +219,7 @@ async def region_safety_breakdown(
     http_request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> SafetyBreakdown | None:
-    """安全度の判定内訳（改善計画: 安全度レシピ）。region_traffic_stress_breakdownと
+    """安全度の判定内訳（改善計画: 安全度レシピ）。region_car_stress_breakdownと
     完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの
     docstring参照）。
     """

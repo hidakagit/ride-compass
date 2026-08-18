@@ -1,23 +1,23 @@
 // 安全度（1-4、客観的な事故・怪我リスク）をタイルの材料タグ（backend/app/infrastructure/
 // road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLが焼き込むhighway/cycleway_class/
 // maxspeed_kmh/lanes_count/designation/motor_vehicle_no/lit/tunnel）から
-// ブラウザ側で計算するMapLibre expression。trafficStressExpression.tsと完全に同じ構造・
+// ブラウザ側で計算するMapLibre expression。carStressExpression.tsと完全に同じ構造・
 // 同じ理由（改善計画: 安全度レシピ。レシピを変えるたびにタイルキャッシュを作り直さずに
 // 済ませるため、最終値の計算はここで行う）。
 //
 // backend/app/domain/safety.py: safety_breakdownと1:1対応させる（判定ロジックの正準は
 // Python側。ここは同じレシピをMapLibre expressionとして再現するミラー）。補正ブロック生成
-// 自体はtrafficStressExpression.tsと共有のrecipeExpression.ts（改善計画T123、
+// 自体はcarStressExpression.tsと共有のrecipeExpression.ts（改善計画T123、
 // domain/recipe.pyのTS側ミラー）に集約されている。既定レシピは
 // types/generated/safety-recipe.json（export_openapi.pyがPython側のDEFAULT_SAFETY_RECIPEから
 // 書き出す）から読み、手動同期を避ける（safetyExpression.test.tsがPython側との整合を検証する）。
 //
-// 「道路適正」「自動車密度」（=「車との近さ」N2）は交通ストレスと共有するレシピのため、
+// 「道路適正」「自動車密度」（=「車との近さ」N2）は車ストレスと共有するレシピのため、
 // 既定値はtypes/generated/road-suitability-recipe.json / motor-vehicle-density-recipe.jsonから
 // 読む（改善計画: 車との近さ材料の共有元化）。
 //
 // 出力は1〜4、または「判定対象外（highway未登録）」を表すセンチネル-1（recipeExpression.ts:
-// UNKNOWN_LEVEL参照、trafficStressExpression.tsと同じ流儀）。
+// UNKNOWN_LEVEL参照、carStressExpression.tsと同じ流儀）。
 import type {
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
@@ -47,8 +47,8 @@ export function buildSafetyExpression(
   recipe: SafetyRecipe,
   roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-  // 交通ストレスと共有する土台（改善計画: 車との近さ材料の共有元化）。同じ
-  // roadSuitabilityRecipe/motorVehicleDensityRecipeに対してbuildTrafficStressExpressionも
+  // 車ストレスと共有する土台（改善計画: 車との近さ材料の共有元化）。同じ
+  // roadSuitabilityRecipe/motorVehicleDensityRecipeに対してbuildCarStressExpressionも
   // 同じ結果を必要とするため、呼び出し側（MapView.tsx）が1回だけ計算した結果を
   // 渡せるようにする（省略時はここで計算する、既存呼び出し元との後方互換）。
   carCloseness: CarClosenessExpr = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe),

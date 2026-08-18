@@ -19,7 +19,7 @@ export interface LegendEntry {
   dashed?: boolean;
   /** trueなら「データ欠損・対象外」の受け皿カテゴリ（不明・他／対象外）であり、他の
    * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（MapLayersPanel・
-   * MapOverlayControls）が区切り線＋弱調表示にする（改善計画T89）。交通ストレスの凡例が
+   * MapOverlayControls）が区切り線＋弱調表示にする（改善計画T89）。車ストレスの凡例が
    * 「1・2・3・4・不明」の5項目に見え「1〜5評価」と誤解されるという実機フィードバックを
    * 受け、数値/順序段階と受け皿カテゴリを視覚的に分離する。 */
   isFallback?: boolean;
@@ -74,7 +74,7 @@ export interface LegendFilterSummaryAxis {
 // 詳細な内訳はサイドバー（MapLayersPanel）の凡例・絞り込み編集で確認できるため、
 // ここでは「何かに絞られている」ことが一目で分かる簡潔さを優先する。
 // レイヤー固有の語彙を持たない（LegendEntryだけに依存する）ので、将来の凡例付き
-// レイヤー（交通ストレス等）でもそのまま使える。
+// レイヤー（車ストレス等）でもそのまま使える。
 function summarizeLegendFilterParts(axes: readonly LegendFilterSummaryAxis[]): string[] {
   const parts: string[] = [];
   for (const axis of axes) {

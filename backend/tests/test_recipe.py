@@ -140,7 +140,7 @@ class TestCyclewayAdjustment:
 
 class TestRoadSuitabilityBaseByHighway:
     # 改善計画: 車との近さ材料の共有元化で旧TRAFFIC_STRESS_BASE_BY_HIGHWAY（living_street=2）
-    # ／SAFETY_BASE_BY_HIGHWAY（living_street=1）を統合した際、交通ストレス側のliving_street
+    # ／SAFETY_BASE_BY_HIGHWAY（living_street=1）を統合した際、車ストレス側のliving_street
     # 基準値が2→1へ変更された（domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY直上の
     # コメント参照）。この値をピン留めし、以後の意図しない再変更を検知する
     # （旧living_street=2の値はどちらのtest_traffic.py/test_safety.pyにも一度もピン留め
@@ -151,8 +151,8 @@ class TestRoadSuitabilityBaseByHighway:
 
 class TestRoadSuitability:
     # 改善計画: 車との近さ材料の共有元化。「highwayからbaseを引いてcyclewayを足す」手順を
-    # 交通ストレス・安全度の両`*_breakdown`が共通で呼ぶ（各軸のrecipe値は呼び出し側が渡すため
-    # ここでは値の出どころが交通ストレス由来か安全度由来かは区別しない）。
+    # 車ストレス・安全度の両`*_breakdown`が共通で呼ぶ（各軸のrecipe値は呼び出し側が渡すため
+    # ここでは値の出どころが車ストレス由来か安全度由来かは区別しない）。
     def test_unregistered_highway_returns_none_base_and_zero_cycleway(self):
         assert road_suitability("motorway", {}, {"primary": 4}, -2, -1, -1) == (None, 0)
 
@@ -168,7 +168,7 @@ class TestRoadSuitability:
 
 class TestCarCloseness:
     # 改善計画: 車との近さ材料の共有元化。「道路適正＋自動車密度」（N2）を1組で返す
-    # car_closeness()を、交通ストレス・安全度の両`*_breakdown`が共通で呼ぶ。
+    # car_closeness()を、車ストレス・安全度の両`*_breakdown`が共通で呼ぶ。
     def test_unregistered_highway_returns_none_and_all_zero(self):
         assert car_closeness(
             "motorway", {}, False, DEFAULT_ROAD_SUITABILITY_RECIPE, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE

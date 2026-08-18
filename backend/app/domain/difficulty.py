@@ -4,7 +4,7 @@
 
 from typing import NamedTuple
 
-from app.domain.traffic import BicycleInfraClass
+from app.domain.night import night_difficulty
 
 # 勾配(%)の目安: 0-3%易しい、3-6%普通、6-9%大変、9%以上激坂
 _GRADIENT_BREAKPOINTS = [(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.0, 100.0)]
@@ -23,28 +23,23 @@ _ROAD_HARD_SCORE = 80.0
 _STOP_DENSITY_MAX_PER_KM = 4.0
 _STOP_DENSITY_HARD_SCORE = 100.0
 
-# 交通ストレス(1-5、domain/traffic.py: traffic_stress_level)の目安: 1が最も易しく5が最も大変。
-# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。上限は改善計画（交通ストレス
+# 改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）: 交差点密度は
+# 単独軸を持たず、タグなし交差点(次数3以上のroad_node、信号等のタグが付いていない
+# もの)として、信号・横断歩道・一時停止・踏切と同じstop_density軸へ低い重みで吸収する。
+# 「立ち止まる／減速する頻度」という同じ性質の指標であり、車ストレス軸（走行中の車との
+# 近接ストレス）とは質的に異なるためstop_density側に寄せる、という設計プロンプトの判断。
+# 重みはsignal等のstop_poi(重み1.0相当)に対する相対値（設計プロンプトのaxis_params例
+# `stop_density.weights.unsignaled_intersection: 0.3`）。現行のstop_poiカウント自体が
+# 種別ごとの重み付けを実装していない（全種別を等しく1件としてカウント、暫定実装）ため、
+# 交差点もこの水準に合わせた単純な係数掛けで組み込む（種別ごとの重み付けの本格実装は
+# P2据え置き、上記stop_density本体の暫定値と同じ扱い）。
+_UNSIGNALED_INTERSECTION_WEIGHT = 0.3
+
+# 車ストレス(1-5、domain/traffic.py: car_stress_level)の目安: 1が最も易しく5が最も大変。
+# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。上限は改善計画（車ストレス
 # 5段階化）で4→5へ拡張済み。
-_TRAFFIC_STRESS_MIN_LEVEL = 1
-_TRAFFIC_STRESS_MAX_LEVEL = 5
-
-# 自転車インフラ分類(domain/traffic.py: BicycleInfraClass)の目安: 分離自転車道が最も易しく、
-# 自転車通行禁止が最も大変。unknownは評価しない（None）。静的道路属性P1残り、暫定値。
-_BICYCLE_INFRA_DIFFICULTY_SCORES: dict[str, float] = {
-    "separated": 0.0,
-    "lane": 20.0,
-    "shared_busway": 40.0,
-    "shared_pedestrian": 50.0,
-    "roadway": 80.0,
-    "prohibited": 100.0,
-}
-
-# 交差点密度(次数3以上のNodeの合計回数/km)の目安: 0回/kmが最も易しく、2回/km(500mに1回)を
-# 最大値とする。停止密度（信号・横断歩道等）よりも出現頻度が低い想定のため上限を低く取る。
-# 静的道路属性P1残り、暫定値（本格チューニングはP2据え置き）。
-_INTERSECTION_DENSITY_MAX_PER_KM = 2.0
-_INTERSECTION_DENSITY_HARD_SCORE = 100.0
+_CAR_STRESS_MIN_LEVEL = 1
+_CAR_STRESS_MAX_LEVEL = 5
 
 # 事故密度(件/(km・年)、domain/accident.py: distance_weighted_accident_density)の目安:
 # 0件/(km・年)が最も易しく、0.5件/(km・年)を最大値とする。関東7都県3年分で303,455件
@@ -52,12 +47,6 @@ _INTERSECTION_DENSITY_HARD_SCORE = 100.0
 # 暫定値（本格チューニングはP2据え置き）。外部静的データソース T50残作業。
 _ACCIDENT_DENSITY_MAX_PER_KM_YEAR = 0.5
 _ACCIDENT_DENSITY_HARD_SCORE = 100.0
-
-# 安全度(1-4、domain/safety.py: safety_level)の目安: 1が最も安全(易しい)で4が最も危険(大変)。
-# 交通ストレスと同じ1-4→0-100の区分線形（改善計画: 安全度レシピ、9軸目）。
-_SAFETY_MIN_LEVEL = 1
-_SAFETY_MAX_LEVEL = 4
-
 
 def _piecewise_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
     if value <= breakpoints[0][0]:
@@ -93,44 +82,40 @@ def road_difficulty(is_good_surface: bool | None) -> float | None:
     return _ROAD_EASY_SCORE if is_good_surface else _ROAD_HARD_SCORE
 
 
-def stop_difficulty(stop_count_per_km: float | None) -> float | None:
-    """信号・横断歩道・一時停止・踏切の合計密度(回/km)を難易度へ変換する。
-    密度が高いほど停止・減速が多く走りにくいため単調増加。データ無し（Noneまたは
-    負値。Edge単位でカウント不能なケースは呼び出し元がNoneを渡す）はNone。"""
+def stop_difficulty(
+    stop_count_per_km: float | None, intersection_count_per_km: float | None = None
+) -> float | None:
+    """信号・横断歩道・一時停止・踏切の合計密度(回/km)に、次数3以上のタグなし交差点の
+    密度を低い重み（`_UNSIGNALED_INTERSECTION_WEIGHT`）で加算した値を難易度へ変換する
+    （改善計画T149で交差点密度の独立軸を廃止しここへ吸収）。密度が高いほど停止・減速・
+    注意力の消費が多く走りにくいため単調増加。
+
+    `stop_count_per_km`がNone・負値ならNone（Edge単位でカウント不能なケースは呼び出し元が
+    Noneを渡す、他のdifficulty関数と同じ方針）。`intersection_count_per_km`は省略可
+    （None＝交差点データ未取得、寄与0として扱う。stop_count_per_km自体はデータありのまま
+    評価する非対称な扱い＝信号等のデータが主、交差点データは補助という位置づけ）。
+    負のintersection_count_per_kmが渡された場合はNone（不正データとして評価しない）。
+    """
     if stop_count_per_km is None or stop_count_per_km < 0:
         return None
-    clamped = min(stop_count_per_km, _STOP_DENSITY_MAX_PER_KM)
+    if intersection_count_per_km is not None and intersection_count_per_km < 0:
+        return None
+    combined_per_km = stop_count_per_km + (intersection_count_per_km or 0.0) * _UNSIGNALED_INTERSECTION_WEIGHT
+    clamped = min(combined_per_km, _STOP_DENSITY_MAX_PER_KM)
     return round(clamped / _STOP_DENSITY_MAX_PER_KM * _STOP_DENSITY_HARD_SCORE, 1)
 
 
-def traffic_stress_difficulty(traffic_stress_level: int | None) -> float | None:
-    """交通ストレス(1-5、domain/traffic.py: traffic_stress_level)を難易度へ変換する。
+def car_stress_difficulty(car_stress_level: int | None) -> float | None:
+    """車ストレス(1-5、domain/traffic.py: car_stress_level)を難易度へ変換する。
     レベルが高いほど走りにくいため単調増加。判定不能（未知のhighway等）はNone。"""
-    if traffic_stress_level is None:
+    if car_stress_level is None:
         return None
     return round(
         _piecewise_linear(
-            traffic_stress_level, [(_TRAFFIC_STRESS_MIN_LEVEL, 0.0), (_TRAFFIC_STRESS_MAX_LEVEL, 100.0)]
+            car_stress_level, [(_CAR_STRESS_MIN_LEVEL, 0.0), (_CAR_STRESS_MAX_LEVEL, 100.0)]
         ),
         1,
     )
-
-
-def bicycle_infra_difficulty(bicycle_infra: BicycleInfraClass | None) -> float | None:
-    """自転車インフラ分類(domain/traffic.py: classify_bicycle_infrastructure)を難易度へ
-    変換する。unknown・未取得はNone（評価しない。road_difficulty等と同じ「不明は無視」方針）。"""
-    if bicycle_infra is None:
-        return None
-    return _BICYCLE_INFRA_DIFFICULTY_SCORES.get(bicycle_infra)
-
-
-def intersection_difficulty(intersection_count_per_km: float | None) -> float | None:
-    """交差点密度(次数3以上のNodeの合計回数/km)を難易度へ変換する。密度が高いほど
-    停止・減速・注意力の消費が増えるため単調増加。データ無し（Noneまたは負値）はNone。"""
-    if intersection_count_per_km is None or intersection_count_per_km < 0:
-        return None
-    clamped = min(intersection_count_per_km, _INTERSECTION_DENSITY_MAX_PER_KM)
-    return round(clamped / _INTERSECTION_DENSITY_MAX_PER_KM * _INTERSECTION_DENSITY_HARD_SCORE, 1)
 
 
 def accident_difficulty(accident_count_per_km_year: float | None) -> float | None:
@@ -143,21 +128,20 @@ def accident_difficulty(accident_count_per_km_year: float | None) -> float | Non
     return round(clamped / _ACCIDENT_DENSITY_MAX_PER_KM_YEAR * _ACCIDENT_DENSITY_HARD_SCORE, 1)
 
 
-def safety_difficulty(safety_level_value: int | None) -> float | None:
-    """安全度(1-4、domain/safety.py: safety_level)を難易度へ変換する。
-    レベルが高いほど危険＝走りにくいため単調増加。判定不能（未知のhighway等）はNone。
-    traffic_stress_difficultyと同じ区分線形。"""
-    if safety_level_value is None:
-        return None
-    return round(
-        _piecewise_linear(safety_level_value, [(_SAFETY_MIN_LEVEL, 0.0), (_SAFETY_MAX_LEVEL, 100.0)]),
-        1,
-    )
-
-
 class AxisDifficulties(NamedTuple):
-    """9軸（勾配・向かい風・路面・停止密度・交通ストレス・自転車インフラ・交差点密度・
-    事故密度・安全度）の難易度と、重み付き合成値。
+    """7軸（勾配・向かい風・路面・停止密度・車ストレス・事故密度・夜間）の難易度と、
+    重み付き合成値。
+
+    改善計画T138（設計プロンプト「評価システムの層構造再設計」）で、自転車インフラ
+    （旧`infra`）を独立軸から廃止し車ストレス（`car_stress`、旧「交通ストレス」）へ統合した
+    （車ストレス側の`car_stress_level`が`car_closeness()`のcycleway補正で既に
+    自転車インフラの情報を反映しているため、独立軸として同じ情報を二重に持たない）。
+    続くT139で、安全度軸（旧`safety`、highway/cycleway等由来の部分はT138でcar_stress側へ
+    吸収済み）を廃止し、街灯・トンネル由来の部分を`night`軸として独立させた（事故実績は
+    既存の`accident`軸のまま変更なし）。続くT149で、交差点密度（旧`intersection`）を
+    独立軸から廃止し停止密度（`stop`、`stop_difficulty`が内部でタグなし交差点を低い重みで
+    加算）へ統合した（8軸→7軸）。フィールド名`traffic`は改善計画T150で`car_stress`へ改称
+    （`domain/traffic.py`の呼称も同タスクで`car_stress`系へ統一済み）。
 
     「生値セット→軸別difficulty→composite_difficulty」という同一の組み立てが
     OpenRouteServiceEngine._build_segment_details / RoadGraphEngine._build_segment_details /
@@ -170,11 +154,9 @@ class AxisDifficulties(NamedTuple):
     wind: float | None
     road: float | None
     stop: float | None
-    traffic: float | None
-    infra: float | None
-    intersection: float | None
+    car_stress: float | None
     accident: float | None
-    safety: float | None
+    night: float | None
     composite: float | None
 
 
@@ -183,49 +165,47 @@ def evaluate_axis_difficulties(
     wind_penalty: float | None,
     road_surface_good: bool | None,
     stop_count_per_km: float | None,
-    traffic_stress_level_value: int | None,
-    bicycle_infra: BicycleInfraClass | None,
+    car_stress_level_value: int | None,
     intersection_count_per_km: float | None,
     accident_count_per_km_year: float | None,
-    safety_level_value: int | None,
+    night_tags: dict[str, str] | None,
     elevation_weight: float,
     wind_weight: float,
     road_weight: float,
     stop_weight: float,
-    traffic_weight: float,
-    infra_weight: float,
-    intersection_weight: float,
+    car_stress_weight: float,
     accident_weight: float,
-    safety_weight: float,
+    night_weight: float,
 ) -> AxisDifficulties:
-    """9軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する。
+    """7軸の生値と重みから、軸別difficultyと合成difficultyをまとめて算出する
+    （改善計画T138で自転車インフラを独立軸から車ストレスへ統合、T139で安全度を廃止し
+    夜間軸へ置き換え、T149で交差点密度を停止密度へ統合、9軸→7軸）。
 
     RoutePreference型（domain/evaluation.py）をここで受け取らないのは、evaluation.pyが
     本モジュールへ依存しているため（循環import回避）。重みは呼び出し元が
-    `preference.elevation_weight`等をそのまま渡す。traffic_stress_level_valueの引数名が
-    `traffic_stress_level`（関数名）と衝突するため`_value`サフィックスを付けている
-    （safety_level_valueも同様）。
+    `preference.elevation_weight`等をそのまま渡す。car_stress_level_valueの引数名が
+    `car_stress_level`（関数名）と衝突するため`_value`サフィックスを付けている。
+    `intersection_count_per_km`は独立軸の重みを持たず`stop_difficulty`へ渡すだけの
+    補助入力（改善計画T149）。`night_tags`は`night_difficulty`（domain/night.py）へ
+    そのまま渡す材料タグ（他軸のように事前解決した数値/bool単体ではなくtagsのまま渡すのは、
+    night_difficulty自体がlit/tunnelの2タグを内部で読むため。way_tags未取得ならNone）。
     """
     elevation = gradient_difficulty(gradient_percent)
     wind = wind_difficulty(wind_penalty)
     road = road_difficulty(road_surface_good)
-    stop = stop_difficulty(stop_count_per_km)
-    traffic = traffic_stress_difficulty(traffic_stress_level_value)
-    infra = bicycle_infra_difficulty(bicycle_infra)
-    intersection = intersection_difficulty(intersection_count_per_km)
+    stop = stop_difficulty(stop_count_per_km, intersection_count_per_km)
+    car_stress = car_stress_difficulty(car_stress_level_value)
     accident = accident_difficulty(accident_count_per_km_year)
-    safety = safety_difficulty(safety_level_value)
+    night = night_difficulty(night_tags)
     composite = composite_difficulty(
         [
             (elevation, elevation_weight),
             (wind, wind_weight),
             (road, road_weight),
             (stop, stop_weight),
-            (traffic, traffic_weight),
-            (infra, infra_weight),
-            (intersection, intersection_weight),
+            (car_stress, car_stress_weight),
             (accident, accident_weight),
-            (safety, safety_weight),
+            (night, night_weight),
         ]
     )
     return AxisDifficulties(
@@ -233,11 +213,9 @@ def evaluate_axis_difficulties(
         wind=wind,
         road=road,
         stop=stop,
-        traffic=traffic,
-        infra=infra,
-        intersection=intersection,
+        car_stress=car_stress,
         accident=accident,
-        safety=safety,
+        night=night,
         composite=composite,
     )
 

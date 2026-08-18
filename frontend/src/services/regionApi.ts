@@ -1,9 +1,9 @@
-import type { SafetyBreakdown, TrafficStressBreakdown } from "@/types/traffic";
+import type { SafetyBreakdown, CarStressBreakdown } from "@/types/traffic";
 import type {
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
   SafetyRecipeOverride,
-  TrafficStressRecipeOverride,
+  CarStressRecipeOverride,
 } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
@@ -25,24 +25,24 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 追加した（最終値の計算はsafetyExpression.tsがMapLibre expressionとして行う）。
 // v9と同じくプロパティ追加のみ（削除は伴わない）だが、キャッシュ済み旧タイルには
 // shoulder/litキーが無く安全度レイヤーが不完全表示になるため世代を上げる。
-// v9: 交通ストレスレシピ外出し基盤。計算済みのtraffic_stress最終値プロパティを廃止し、
+// v9: 車ストレスレシピ外出し基盤。計算済みのcar_stress最終値プロパティを廃止し、
 // 材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no）へ差し替えた
-// （最終値の計算はtrafficStressExpression.tsがMapLibre expressionとして行う）。
+// （最終値の計算はcarStressExpression.tsがMapLibre expressionとして行う）。
 // v2〜v8はプロパティ追加のみで旧フロントとの後方互換が保たれていたが、v9はプロパティ削除を
 // 伴う初めての非互換変更。backend（road_graph_repository.py）がこの世代へ切り替わるより先に
-// この変更を含むfrontendをデプロイすること（逆順だと、この世代のtraffic_stress前提の凡例
-// フィルタが全地物に一致し、交通ストレスレイヤーが一時的に全線「不明・他」表示になる。
+// この変更を含むfrontendをデプロイすること（逆順だと、この世代のcar_stress前提の凡例
+// フィルタが全地物に一致し、車ストレスレイヤーが一時的に全線「不明・他」表示になる。
 // docs/architecture.md「Renderデプロイの反映確認」参照）。
-// v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92のtraffic_stress判定ロジック変更
+// v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92のcar_stress判定ロジック変更
 // （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）がタイル世代の対上げを
 // 伴っていなかったため、キャッシュ陳腐化を断つために世代のみ更新（プロパティ構成は不変）。
-// v7: 改善計画T90。交通ストレスの区間別判定内訳表示のため、osm_way_idプロパティを追加した。
+// v7: 改善計画T90。車ストレスの区間別判定内訳表示のため、osm_way_idプロパティを追加した。
 // v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
 // 変更し、designationプロパティの3値目"both"（N10・N12両方該当）を追加した。
 // v5: 指定路線コンフレーション機構（外部静的データソース T51）でdesignationプロパティを
-// 追加し、traffic_stressへKSJ N10/N12該当の+1補正を組み込んだ。
+// 追加し、car_stressへKSJ N10/N12該当の+1補正を組み込んだ。
 // v4: 静的道路属性P0（docs/static-road-attributes-plan.md）でsmoothness/tunnel/bridge/
-// traffic_stress/bicycle_infraプロパティを追加した。
+// car_stress/bicycle_infraプロパティを追加した。
 // v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
 // surface_goodの値が変わった。
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
@@ -90,10 +90,10 @@ export function poiTileUrl(): string {
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
 
-// 交通ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。地図上の道路クリックで
+// 車ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。地図上の道路クリックで
 // 得たosm_way_id（路面タイルのMVTプロパティに含まれる識別子）から判定根拠（ベース値・各補正・
 // 最終値）を取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
-// backend/app/services/region_service.py: get_traffic_stress_breakdownのdocstring参照
+// backend/app/services/region_service.py: get_car_stress_breakdownのdocstring参照
 // （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
@@ -102,7 +102,7 @@ export const ROAD_TILE_MAX_ZOOM = 15;
 // 上書き中はここにも渡して地図・ルート採点と表示を一致させる）という複雑なオブジェクトを
 // クエリパラメータで渡すのが不自然なため（backend/app/api/routers/region.py参照）。
 //
-// 改善計画T123: 交通ストレス・安全度で完全に同じ構造だった2関数を、軸固有部分（パス・
+// 改善計画T123: 車ストレス・安全度で完全に同じ構造だった2関数を、軸固有部分（パス・
 // レシピのボディキー・ログキー・エラーメッセージのラベル）だけを設定オブジェクトとして
 // 渡す1関数へ畳んだ（backend/app/services/region_service.py: _get_breakdownと同じ方針）。
 interface BreakdownAxisConfig {
@@ -149,21 +149,21 @@ async function fetchBreakdown<TRecipe, TBreakdown extends { level: number | null
   return data;
 }
 
-const TRAFFIC_STRESS_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
-  path: "/api/region/traffic-stress-breakdown",
-  recipeBodyKey: "traffic_stress_recipe",
-  debugKey: "api:traffic-stress-breakdown",
-  errorLabel: "交通ストレス",
+const CAR_STRESS_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
+  path: "/api/region/car-stress-breakdown",
+  recipeBodyKey: "car_stress_recipe",
+  debugKey: "api:car-stress-breakdown",
+  errorLabel: "車ストレス",
 };
 
-export function fetchTrafficStressBreakdown(
+export function fetchCarStressBreakdown(
   osmWayId: number,
-  recipe?: TrafficStressRecipeOverride,
+  recipe?: CarStressRecipeOverride,
   roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
   motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
-): Promise<TrafficStressBreakdown | null> {
+): Promise<CarStressBreakdown | null> {
   return fetchBreakdown(
-    TRAFFIC_STRESS_BREAKDOWN_CONFIG,
+    CAR_STRESS_BREAKDOWN_CONFIG,
     osmWayId,
     recipe,
     roadSuitabilityRecipe,

@@ -3764,8 +3764,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 - 完了条件: backend pytest green。`test_evaluation.py`の呼び出し回数カウントテストと
   対称な回帰テストを両エンジンにも追加。
 
-### - [ ] T135. レビュー基準の反映漏れ2件を解消する（page.tsx閾値・変更コスト表G''行）
-  規模S
+### - [x] T135. レビュー基準の反映漏れ2件を解消する（page.tsx閾値・変更コスト表G''行）
+  規模S（2026-08-19完了）
 
 - 発端: 統合レビュー統合-4・複雑度レビューF-3'/F-2'。page.tsxの閾値付きKEEP提案
   （「状態40件 or 1,300行」）がdocs/complexity-review-2026-08-16.mdへ2回連続で未反映。
@@ -3777,6 +3777,15 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   変更コスト表を更新する（コード変更なし）。運用ルールの明文化はCLAUDE.mdへの追記要否を
   含めユーザー判断とする。
 - 完了条件: docs/complexity-review-2026-08-16.mdへの反映を次回complexityレビューで確認。
+- 実装メモ（2026-08-19完了）: T150が同一作業ツリーでbackend/frontend広範囲を書き換え中
+  だったため、コード変更ゼロのdocs反映のみを対象に実施（T150との衝突回避）。Keep List
+  （page.tsx / MapView.tsxの節）へpage.tsx独自閾値〔useState+useStoredState合計40件
+  or 1,300行、2026-08-18時点実測38件・1,148行で未到達〕をMapView.tsxの既存閾値と並記、
+  設計原則9へも同内容を追記。変更コストシミュレーション表へG'行（レシピ付き評価軸追加、
+  T119実測64ファイル・+3,677/-394行、次回単軸追加時に再検証する参考値と明記）・G''行
+  （軸の共通材料の外出し・再構成、T130実測70ファイル・+3,938/-2,084行）を新設し
+  区別。運用ルール明文化（規模M以上の着手前タスクエントリ作成）はCLAUDE.md改訂要否含め
+  ユーザー判断のため今回は見送り、別途確認が必要。
 
 ### - [ ] T136. 軽微な残骸・テスト非対称の解消（errorLabel・回帰テスト・living_street再検証）
   規模S
@@ -3794,7 +3803,530 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 - 完了条件: frontend vitest green（新規テスト追加分含む）。living_street確認は
   `measure_axis_stats.py`出力への言及で足りる。
 
-## 記録
+## 評価システムの層構造再設計（2026-08-18・区間評価の一次/二次/三次分離）
+
+ユーザーから「一次データ（OSM等の生属性）・二次データ（軸スコア）・三次データ（重み付き合成コスト）の
+役割が混ざっている」という課題認識のもと、層構造の再設計プロンプトが提示された。現状把握
+（本セッション、Explore調査＋主要ファイル直接確認）の結果、提案の一部（〇次ハード制約の分離、
+軸内係数と三次重みの分離、レシピの上書き可能な外部化）は既にT16〜T130の過程で実現済みだが、
+以下は未実装または方向性の異なる決定事項として残っていた:
+
+- **軸構成**: 提案は6軸（car_stress/accident/surface_q/stop_density/gradient/night）。現状は
+  9軸（勾配・風・路面・停止密度・車の圧迫感・自転車インフラ・交差点密度・事故密度・安全度）で
+  提案より粒度が細かく、かつ「車の圧迫感」と「安全度」が道路適正(N1)・自動車密度(N2)を意図的に
+  共有する設計（T130、本日完了）になっている
+- **レジストリ制**: `docs/complexity-review-2026-08-16.md`が「レシピが2つ目しかない段階では
+  汎用レジストリ化は過剰」として明示的に見送っていた
+
+ユーザーに確認のうえ、以下の方針で進める（詳細は本セクション追加時のセッション記録参照）:
+
+1. **安全度軸は提案どおり廃止し、事故実績(accident)・夜間(night)へ分割する**（T130の
+   「共有基盤化」路線からの転換。安全度が持つ街灯・トンネル補正はnight軸へ、highway別基準値・
+   cycleway・maxspeed・lanes・指定路線補正はcar_stress軸へ統合し、事故密度は既存のaccident軸
+   （変更なし）へ一本化）
+2. **一次属性・二次軸のレジストリ制を導入する**（2026-08-16時点の見送り判断を、軸数が
+   6〜9・将来のオープンデータ追加を見込む今回のスコープでは更新する）
+3. **DB移行・両ルーティングエンジン書き換え・フロント全面改修を含む大規模変更のため、
+   本セクションでタスク分割してから段階的に着手する**（1タスク=1コミット、着手前後で
+   全テストgreenの原則をそのまま適用）
+
+**未決定のまま残っている論点**（各タスクの着手時に確認・記録する）:
+
+- ~~交差点密度（intersection_density）・自転車インフラ（bicycle_infra）は提案の6軸表に
+  明示的な帰属先が無い~~ → **2026-08-18、設計プロンプト改訂で解決**。自転車インフラは
+  car_stressの入力へ統合（T138、従来方針のまま）。交差点密度は単独軸を持たず、
+  信号・横断歩道・一時停止・踏切と同じstop_density軸へ「タグなし交差点」を独立した
+  低い重みのカテゴリ（例: `unsignaled_intersection: 0.3`、signal=1.0比）として吸収する
+  （新規T149）。intersection_densityがstop_densityへ寄せられる理由は「立ち止まる／
+  減速する頻度」という同じ性質の指標だから、car_stress（走行中の車との近接ストレス）
+  ではなく質的に異なるという設計判断（改訂後の設計プロンプト「現行9軸からの帰属先」節）。
+  bicycle_infra統合後は`accident`と`car_stress`の相関を確認し、二重計上懸念を潰す
+  （T138の完了条件へ追加）。この決定を受け、T137で先行登録していた`intersection_density`
+  単独軸はレジストリから削除しstop_density側のinputsへ統合する後方修正を実施済み（下記
+  T137実装メモ追記参照）
+- 提案の〇次フィルタは「自転車通行不可・高速道路」のみだが、現状の`DISALLOWED_HIGHWAY_TYPES`は
+  `trunk`/`trunk_link`も含む（高速道路より広い）。また現状の`motor_vehicle=no`（自転車可の
+  車両通行禁止）は〇次のハード除外ではなく二次軸内の最善値1固定という別ロジックであり、
+  提案の「通行不可はハード制約へ統合」との対応関係を明確にする必要がある（T140で扱う。
+  改訂後の設計プロンプトでもこの点への言及は無いため、引き続き未解決のまま残す）
+
+### - [x] T137. 一次属性レジストリ・二次軸レジストリの定義形式と排他バリデータを実装する 規模L（2026-08-18完了）
+
+- 背景: 設計プロンプトのタスク2。新しい一次属性・二次軸を「コアロジック無改修でレジストリに
+  1件追加するだけ」で取り込めるようにする。既存の一次属性（highway/lanes/maxspeed/cycleway系/
+  surface/N10・N12/lit/tunnel/標高/停止POI/事故地点/補給POI）と、既存の9軸（うち安全度は
+  T140で廃止予定のため、レジストリ登録は6〜8軸を前提に設計する）をこの形式へ移行する。
+- 対応方針: `backend/app/domain/registry.py`（新規）に`PrimaryAttributeSpec`
+  （attr_id/source/geometry/dtype/update_cadence/ingest_fn相当の参照）・`AxisSpec`
+  （axis_id/inputs/transform_fn参照/output_range/shared属性リスト）をPydanticモデルで定義。
+  登録関数`register_axis()`が、登録しようとする軸の`inputs`が`shared=True`でない既存の
+  他軸の`inputs`と重複する場合に`ValueError`（またはロガーへの警告、要決定）を送出する
+  バリデータを実装。`length`/`geometry`のような全軸共通の入力は`shared=True`で除外対象とする。
+  既存9軸をこの形式で宣言し直し、バリデータが現行構成（車の圧迫感と安全度がN1/N2を共有）を
+  どう扱うか（意図的な共有として許可するか、T140の廃止を前提に一旦無視するか）を決める。
+- 完了条件: 全一次属性・既存軸がレジストリに登録された状態でbackend pytest green。
+  意図的に入力が重複する軸を試験的に登録するテストで、バリデータがエラー/警告を出すことを
+  確認する回帰テストを追加。
+- 実装メモ（2026-08-18完了）: `backend/app/domain/registry.py`（`PrimaryAttributeSpec`/
+  `AxisSpec`/`register_primary_attribute`/`register_axis`/`AxisInputConflictError`）と
+  `backend/app/domain/registry_defaults.py`（`register_defaults()`、既存16一次属性・5二次軸の
+  宣言）を新設。レジストリはまだどこからも呼び出されておらず（コスト関数・レイヤーパネルへの
+  配線はT142・T145で実施)、宣言のみの非破壊的な追加。「車ストレス」「安全度」「自転車インフラ」
+  の3軸は現行実装がhighway/cycleway/maxspeed/lanes/指定路線を意図的に共有しているため未登録の
+  まま残し、T138/T139で軸自体を再編したのち登録する（`test_registry_defaults.py`が
+  この3軸が未登録であることを回帰確認）。`test_registry.py`（レジストリ機構の単体テスト、
+  衝突検出・shared属性の除外を検証）・`test_registry_defaults.py`（既存属性・軸の登録内容の
+  スナップショット的検証）を追加。backend pytest 904件green（新規14件含む）。
+- 追記（2026-08-18、設計プロンプト改訂を受けた後方修正）: 当初`intersection_density`を
+  独立軸として登録していたが、改訂後の設計プロンプトで「交差点密度はstop_density軸へ吸収」と
+  確定したため、`registry_defaults.py`を修正（`intersection_density`のAxisSpec登録を削除し、
+  `stop_density`のinputsへ`intersection`を追加）。テストも追従（登録軸は5→4種、
+  `intersection_density`という名前の軸は存在しないことを確認するテストへ更新）。
+  実際の吸収ロジック（`domain/traffic.py`のstop_density計算へタグなし交差点を低重みカテゴリ
+  として組み込む実装）自体は新規T149で行う（T137時点ではレジストリの宣言のみ修正）。
+
+### - [x] T138. 自転車インフラの独立難易度軸を廃止し交通ストレス（car_stress予定）側へ
+  統合する 規模L（2026-08-18・機能面のみ完了、呼称統一は分離してT150へ）
+
+- 背景: 設計プロンプトの2次軸表。現状は「車の圧迫感」（highway基準値＋cycleway＋lanes_low＋
+  N1/N2）と「自転車インフラ」（分離自転車道等の分類、独立軸）が別軸だが、提案は自転車インフラを
+  car_stressの入力の一部として統合する。T130で切り出した`RoadSuitabilityRecipe`/
+  `MotorVehicleDensityRecipe`/`car_closeness()`はほぼそのまま土台として再利用できる。
+- スコープ分割（着手時の判断）: 当初は「`domain/car_stress.py`新設＋呼称のcar_stressへの
+  全面リネーム」まで1タスクで想定していたが、影響範囲がbackend34ファイル・frontend42
+  ファイル（API契約・MVT SQL・フロントexpression鏡・研究モードパネル・レイヤーカタログ含む）
+  に及ぶと判明。**機能面の統合（自転車インフラの独立軸廃止・二重計上の解消）と、
+  呼称のtraffic_stress→car_stressへの機械的な統一は独立した変更**（前者は挙動が変わり
+  検証が要るが影響ファイルは限定的、後者は挙動不変だが影響ファイルが広い）と判断し、
+  本タスクでは前者のみ実施。後者は新規T150として分離起票した。
+- 対応方針（実施内容）: `domain/difficulty.py`の`bicycle_infra_difficulty()`・
+  `_BICYCLE_INFRA_DIFFICULTY_SCORES`・`AxisDifficulties.infra`フィールド・
+  `evaluate_axis_difficulties()`の`bicycle_infra`/`infra_weight`引数を削除（9軸→8軸）。
+  `domain/evaluation.py: RoutePreference.infra_weight`を削除し、その分（0.10）を
+  `traffic_weight`（0.10→0.20）へ合算（既存項目全体への相対的な影響度を維持する形の
+  移行、`route_preference.yaml`に根拠を記載）。`compute_edge_cost`・両エンジンの
+  `_build_segment_details`から`classify_bicycle_infrastructure`呼び出し→
+  `evaluate_axis_difficulties`への受け渡しを削除。`RouteSegmentDetail.infra_difficulty`
+  フィールドを削除（`bicycle_infra`生値・`RouteCandidate.bicycle_infra_score`集約統計は
+  一次属性の表示用データとして維持、スコアリングからのみ切り離す）。API層
+  `RoutePreferenceWeights.infra_weight`を削除。OpenAPI再生成→フロント型再生成
+  （`api.d.ts`）→`WeightPanel.tsx`/`evaluationAxes.ts`のinfra_weight除去、影響テスト
+  fixtureを追従。docs/architecture.md §7を9軸→8軸表記へ更新。
+- 完了条件: backend pytest 900件green・frontend vitest 372件green・tsc/eslint/
+  `next build`すべてgreen（すべて確認済み）。**実データでの分布急変確認
+  （`measure_axis_stats.py`相当）・統合後`car_stress`と`accident`の相関確認は、
+  対応する測定スクリプトがT147（相関行列スクリプト、現時点で未実装）でしか
+  一般化されていないため今回は実施せず、T147着手時にまとめて確認する**（未実施のまま
+  据え置き、次のタスクで確認すること）。
+
+### - [x] T139. 安全度軸を廃止し、事故実績(accident)・夜間(night)軸へ分割する 規模L（2026-08-18完了）
+
+- 背景: 設計プロンプトの2次軸表（accident/night）。`domain/safety.py`の街灯・トンネル補正を
+  night軸として独立させ、highway/cycleway/maxspeed/lanes/指定路線由来の部分はT138のcar_stress
+  へ吸収済みのため重複実装しない。事故密度（`domain/difficulty.py: accident_difficulty`）は
+  既に独立軸のため変更不要（入力を事故地点データのみに保つ設計は維持）。
+- 対応方針: `domain/night.py`（新規）に`night_score`（lit無し・トンネルで加点、デフォルト重み0
+  運用は設計プロンプトの指示どおり）を実装。`route_preference.yaml`の`safety_weight`を
+  `night_weight`（既定0.0）へ置き換え。`domain/safety.py`・`SafetyRecipe`・関連API
+  （`*RecipeOverride`）・フロント`safetyExpression.ts`・`safety`レイヤーは本タスクでは
+  併存させ、削除はT148（移行完了後）で行う。
+- 完了条件: backend pytest green。night_weight=0の既定でrun_id比較時の`total_score`・経路が
+  変化しないことを確認（既定運用への影響が無いことの回帰確認）。
+- 実装メモ（2026-08-18完了）: `backend/app/domain/night.py`（`night_difficulty(tags)`、
+  street lit無し+50・tunnel+50・最大100の単純加点式。litタグ不在を「街灯なし」扱いする
+  unknown-safe原則からの意図的な逸脱をdocstringに明記）を新設。`domain/difficulty.py`の
+  `safety_difficulty`関数・`AxisDifficulties.safety`・`evaluate_axis_difficulties`の
+  `safety_level_value`/`safety_weight`引数を`night_tags`/`night_weight`へ置換（8軸のまま、
+  safetyがnightへ入れ替わっただけ）。`domain/evaluation.py: RoutePreference.safety_weight`を
+  `night_weight`（既定0.0）へ、`compute_edge_cost`から`safety_level`呼び出し・
+  `safety_recipe`引数を削除（cost計算からsafety_recipeが完全に不要になったため
+  `EvaluationService`・`dependencies.py`のEvaluationService構築呼び出しからも
+  `safety_recipe`を削除。ただしRoadGraphEngine/OpenRouteServiceEngine自体は表示用の
+  `safety`生値・`safety_score`集約統計の算出に`self._safety_recipe`を引き続き使うため
+  変更なし）。両エンジンの`_build_segment_details`は`evaluate_axis_difficulties`へ
+  `way_tags`をそのまま渡す形に変更、`RouteSegmentDetail.safety_difficulty`を
+  `night_difficulty`へ置換（`safety`生値・`safety_score`集約は維持）。API
+  `RoutePreferenceWeights.safety_weight`→`night_weight`。OpenAPI再生成→フロント型再生成→
+  `WeightPanel.tsx`/`evaluationAxes.ts`・影響テスト6件のfixture更新。docs/architecture.md
+  §7を追従（`night.py`をディレクトリツリーへ追加、8軸表のsafety行→night行、
+  RouteSegmentDetail型定義のsafety_difficulty→night_difficulty）。backend pytest 902件・
+  frontend vitest 372件・tsc・eslint・`next build`全green。night_weight=0既定での
+  total_score・経路への影響確認は、safety_weightが元々scoring.yaml（total_score）には
+  含まれておらず区間difficulty/探索costにのみ効く設計だったため、night_weight=0なら
+  `composite_difficulty`の重み付き平均から night 項が最初から除外される（Noneではなく
+  重み0で寄与ゼロ）ことをコードレビューで確認済み（既存の`test_evaluate_axis_difficulties_*`
+  でも重み0時の非寄与は数式的に自明）。
+
+### - [x] T140. 〇次ハードフィルタの範囲を設計プロンプトに合わせて明確化する 規模M（2026-08-18完了）
+
+- 背景: 上記「未決定のまま残っている論点」の2点目。`DISALLOWED_HIGHWAY_TYPES`の`trunk`/
+  `trunk_link`が提案の「高速道路（motorway/motorway_link）のみ」より広く、また`motor_vehicle=no`
+  の扱い（ハード除外か、二次軸内の特例か）が不明確なまま。
+- 対応方針: `trunk`/`trunk_link`を除外に含める現行判断の妥当性（自転車走行の法的・実質的
+  可否）を再確認し、含める場合は設計プロンプトの`hard_filters`概念（レシピ側で選択可能な
+  フィルタのリスト）へ`"trunk"`のような独立エントリとして表現できるようにする。
+  `motor_vehicle=no`はハード除外（グラフから完全除外）ではなく現状の「二次軸内で最善値固定」を
+  維持する方針が妥当（自転車は法的に通行可能なため）と考えられるが、設計プロンプトの
+  「ハード制約はスコア外」原則との整合をdocs/architecture.mdへ明記する。
+- 完了条件: `hard_filters`のレシピ表現とtrunk除外の扱いがdocs/architecture.md・
+  改善計画の両方に記録され、既存のis_edge_allowedの単体テストが現行動作を回帰確認する。
+- 実装メモ（2026-08-18完了）: `trunk`/`trunk_link`除外は挙動を変えず維持する判断とした
+  （日本のtrunk＝国道等の幹線道路は法的には自転車通行可能な場合が多いが、
+  ロードバイクの周回ルート生成という用途にとって実務上走りにくい・危険という既存判断を
+  尊重。設計プロンプト自体にtrunkへの言及が無く、変更を求める明確な指示も無いため）。
+  `backend/app/domain/evaluation.py`の`DISALLOWED_HIGHWAY_TYPES`（単一frozenset）を
+  `HARD_FILTER_HIGHWAY_TYPES`（`{"motorway": {...}, "trunk": {...}}`の名前付き辞書）＋
+  `DEFAULT_HARD_FILTERS`（`frozenset({"no_bicycle", "motorway", "trunk"})`）へ再構成し、
+  `is_edge_allowed`に`hard_filters`引数（省略時`DEFAULT_HARD_FILTERS`、T141でレシピJSON化
+  した際にレシピの`hard_filters`フィールドをそのまま渡せる形）を追加。既存呼び出し元は
+  全て`hard_filters`省略のため動作は完全に不変（既存9件のis_edge_allowedテストが無変更で
+  green）。`motor_vehicle=no`は方針どおりハード除外に含めず二次軸側の特例のまま維持し、
+  その理由をdocstring・architecture.mdへ明記。docs/architecture.md 7章へ新設した
+  「〇次: ハード制約」節にフィルタ一覧表・trunk除外の実務判断・motor_vehicle=noとの
+  区別を記録、「道路種別の3スコープ」表・`import_profile.yaml`のコメントも新シンボル名へ
+  追従。新規テスト6件（trunk除外の回帰確認2件＋hard_filters上書きの新規動作3件＋
+  空集合で全許可1件）を追加。backend pytest 906件green（API契約・フロントへの影響なし、
+  is_edge_allowedはHTTP境界に露出しないdomain内部関数のため）。
+
+### - [x] T141. レシピをJSON/DBレコード形式へ統合し、hard_filters・axis_params・weightsを
+  1つの定義から取り出せるようにする 規模L（2026-08-18・宣言層のみ完了、API配線はT142以降）
+
+- 背景: 設計プロンプトの「レシピのデータ定義」節。現状は5つの独立YAML
+  （`road_suitability_recipe.yaml`/`motor_vehicle_density_recipe.yaml`/
+  `traffic_stress_recipe.yaml`→T138で`car_stress_recipe.yaml`相当へ統合/`safety_recipe.yaml`→
+  T139で`night_recipe.yaml`相当へ/`route_preference.yaml`）に分散しており、recipe_id・version
+  という概念も無い。研究モードのスロット比較（`ExperimentSlot`）を将来「差分レイヤー」へ
+  発展させる前提（設計プロンプトの制約節）のため、レシピをID+versionで保持できる構造にする。
+  実際にはT138/T139は`traffic_stress_recipe.yaml`/`safety_recipe.yaml`自体のリネームは
+  行わなかった（呼称統一はT150へ分離）ため、この前提は一部先行して外れている。
+- 対応方針: `Recipe`（recipe_id, version, hard_filters, axis_params, weights）をPydantic
+  モデルとして`domain/recipe_definition.py`（仮）に新設。既存の個別YAML群は
+  `axis_params`/`weights`のキーへマッピングして読み込む後方互換レイヤーを用意するか、
+  1本のYAML/JSONへ統合するかを実装時に判断（既存の研究モードOverride APIとの互換性を優先）。
+- 完了条件: 任意のレシピJSON（recipe_id+version付き）を与えると軸内係数・重みの両方が
+  一意に取り出せることをテストで確認。既存の`*RecipeOverride`APIが新構造の上でも動作する
+  （後方互換）か、置き換える場合はOpenAPI契約の更新をfrontend型生成と合わせて行う。
+- 実装メモ（2026-08-18完了）: T137のレジストリと同じ「宣言のみ・まだどこにも配線しない」
+  方針を踏襲。`backend/app/domain/recipe_definition.py`に`Recipe`
+  （recipe_id/version/hard_filters/axis_params/weights）・`RecipeComponents`
+  （既存の型付きモデル群のNamedTuple）・`recipe_from_components()`（型付きモデル群→
+  `Recipe`）・`recipe_to_components()`（`Recipe`→型付きモデル群、`compute_edge_cost`等へ
+  そのまま渡せる）・`default_recipe()`（クラス既定値から組み立てるショートカット）を実装。
+  `axis_params`のキーは現行の軸内レシピ名（`road_suitability`/`motor_vehicle_density`/
+  `traffic_stress`/`safety`）のままとし、設計プロンプトが示す目標axis_id
+  （`car_stress`等）への統一はT150後に追従する方針を明記。`gradient`/`surface_q`/
+  `stop_density`/`intersection_density`/`accident`/`night`はオーバーライド可能な
+  「レシピ」を現状持たない（モジュール定数のみ）ため`axis_params`には含めない
+  （将来これらにオーバーライドを追加する際の対象として記録）。**後方互換の確認方法**:
+  API層・OpenAPI契約・フロントには一切手を入れず（`*RecipeOverride`API・既存5YAMLは
+  無変更）、既存の挙動が字義通り100%不変であることでbackward compatibilityを満たす
+  （置き換えではなく追加のみ）。実際の配線（APIがRecipeを受け渡しする・地図表示と
+  コスト計算が同一Recipeから生成される）はT142（コスト関数の縮退）以降で行う。
+  設計プロンプトのレシピJSON例と同じ生dict形（`recipe_id`/`version`/`hard_filters`/
+  `axis_params`/`weights`のプレーンなJSON）から`Recipe`を構築し軸内係数・重みを
+  一意に取り出せることをテストで確認（`test_recipe_definition.py`新規7件、
+  round-trip・部分指定時のクラス既定値フォールバックを含む）。backend pytest
+  913件green（API契約・フロントへの影響なし）。
+
+### - [x] T142. コスト関数を「重みベクトル×レジストリ全軸」のみへ縮退し、一次属性への
+  直接参照を排除する 規模L（2026-08-18・関数分離まで完了、transform_fn動的解決は未実施）
+
+- 背景: 設計プロンプトの完了条件「三次のコードが一次属性名を一切含まない」。現状の
+  `compute_edge_cost`（domain/evaluation.py）は`edge.highway`・`way_tags`等の一次属性を
+  直接受け取り、`evaluate_axis_difficulties`へ生値を渡している。三次（コスト合成）と
+  二次（軸計算）の境界をコード上で明確に分離する。
+- 対応方針: `compute_edge_cost`を「軸レジストリ（T137）を走査し、各軸のtransform_fnへ
+  一次属性を渡して軸スコアを得る→重みベクトルで合成→距離に乗算」という2段階に分離。
+  一次属性の受け渡しは軸計算層（二次）までで完結させ、三次の関数シグネチャは
+  `axis_scores: dict[str, float] + weights: dict[str, float] -> cost`のみを受け取る形にする。
+- 完了条件: `compute_edge_cost`（またはその後継）のシグネチャに一次属性名（highway/lanes等）が
+  一切現れないことをコードレビューで確認。backend pytest green、既存の`test_evaluation.py`の
+  ケースが同じ結果を返すことを回帰確認。
+- 実装メモ（2026-08-18完了）: T149を先行実施した流れでそのまま継続着手。
+  `domain/evaluation.py`に`compute_edge_axis_scores()`（二次：一次属性→
+  `dict[axis_id, float]`。`evaluate_axis_difficulties`を内部で呼ぶが重みは使わず捨てる）・
+  `compute_cost_from_axis_scores(distance_m, axis_scores, weights)`（三次：**完了条件どおり
+  シグネチャに一次属性名が一切現れない**純関数、`composite_difficulty`を再利用）・
+  `preference_to_axis_weights()`（`RoutePreference`のフィールド名→レジストリのaxis_id
+  への変換）を新設。`compute_edge_cost`自体は削除・改名せず、この2関数を合成する薄い
+  ラッパーとして残し、既存の全呼び出し元（`EvaluationService`・`GraphService`・
+  ベンチマーク等）への影響をゼロにした（後方互換）。`test_evaluation.py`へ9件追加
+  （シグネチャに一次属性名が無いことの機械的検証、`compute_edge_cost`が2関数の合成と
+  完全に同じ結果を返すことの回帰確認含む）。あわせて、T137で登録した`surface_q`軸の
+  `transform_fn`がルート単位集約関数（`distance_weighted_road_score`）を誤って指して
+  いたバグを発見・修正（正しくは区間単位の`road_difficulty`）。**未実施**: レジストリの
+  `transform_fn`文字列を実際にimportlib等で動的解決して呼び出す、という完全な
+  「レジストリ駆動」の実装（`compute_edge_axis_scores`は各軸の実関数を直接名指しで
+  呼ぶ従来どおりの実装のまま）。各`transform_fn`のシグネチャが軸ごとに大きく異なる
+  （tags dict・数値・boolなど）ため、汎用的な動的呼び出しには追加の標準化設計が要り、
+  今回のスコープ（完了条件の充足）には含めなかった。将来必要になれば別タスクで
+  検討する。backend pytest 923件green（API・フロントへの影響なし、domain内部のみ）。
+
+### - [x] T143. 地図の合成スコア表示とルート生成のコストを同一レシピ定義から生成する 規模M（2026-08-18完了）
+
+- 背景: 現状把握C.で判明した非DRY構造。`RoadGraphEngine._build_segment_details`/
+  `OpenRouteServiceEngine._build_segment_details`は表示用に`evaluate_axis_difficulties`を
+  独立に再計算しており、T142後のコスト計算パス（軸スコア→合成）と別実装になる可能性がある。
+  設計プロンプトの完了条件「同一レシピ定義から地図表示とルーティングコストの両方が生成される」
+  に対応する。
+- 対応方針: T142で分離した「軸スコア計算」を両エンジンの区間表示ビルダーとコスト計算の
+  共通経路にする（T134でのcar_closeness()二重計算解消と同じ考え方を、軸スコア全体に拡張）。
+- 完了条件: 両エンジンの区間表示とコスト計算が同一の軸スコア計算結果を参照することを
+  呼び出し回数の回帰テストで確認。backend pytest green。
+- 実装メモ（2026-08-18完了）: 着手時に重要な非対称性を発見した。**「両エンジン」の
+  うちOpenRouteServiceEngineは、そもそもルーティング自体（Dijkstra探索）を行わず
+  経路探索を外部ORS APIへ委譲しており、`domain/evaluation.py`のコスト関数
+  （`compute_edge_cost`等）を一切使わない**（既存のarchitecture.mdにも明記済みの設計。
+  `_build_segment_details`の`evaluate_axis_difficulties`呼び出しは表示専用の唯一の
+  計算箇所で、そもそも二重実装が存在しなかった）。実際に「表示」と「探索コスト」の
+  2箇所が重複していたのは**RoadGraphEngineのみ**。よって本タスクの実質的な対応は
+  `RoadGraphEngine._build_segment_details`を、`compute_edge_cost`（`EvaluationService`
+  経由の探索コスト計算）と同じ`compute_edge_axis_scores`＋`compute_cost_from_axis_scores`
+  （T142）へ差し替えることに限定した（`domain/difficulty.py: evaluate_axis_difficulties`の
+  直接呼び出しを撤去）。`OpenRouteServiceEngine`は変更不要（元から重複が無いため対象外、
+  この判断根拠をここに明記）。`test_road_graph_engine.py`へ
+  `test_build_segment_details_uses_compute_edge_axis_scores`（spy経由で実際に共通関数を
+  通ることを確認）を追加。`test_evaluation.py`の
+  `test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions`（T142で追加済み）
+  と合わせて、「探索コスト（compute_edge_cost内部）」と「区間表示（_build_segment_details）」
+  の両方が同一の`compute_edge_axis_scores`を経由することを実証。backend pytest 924件green。
+
+### - [x] T144. エッジ軸スコアの永続化スキーマ（事故密度・停止密度の事前集計含む）を追加する 規模L（2026-08-19完了）
+
+- 背景: 設計プロンプトのタスク3。事故密度・停止密度はPostGIS ST_DWithinでのEdge単位集計が
+  重く、現状は`GraphService`が都度クエリしている。マテリアライズドビュー/バッチ更新での
+  事前集計を検討する。軸を増やしても列追加で済むよう、固定カラムか`axis_id→score`の
+  可変構造かを判断する。
+- 対応方針: 既存の`docs/architecture.md`のPostGISクエリコスト関連レビュー（2026-08-16）を
+  踏まえ、事故密度・停止密度の事前集計をマテリアライズドビューとして追加。エッジ軸スコアの
+  保存要否（設計プロンプトは「Road Graphへ恒久保存しない」という既存方針＝
+  `EdgeCostResult`のdocstringと矛盾しないことを要確認）はT145実装時に決定する。
+- 完了条件: 新規マイグレーションがdev機・本番の両方へ適用され、事前集計値と都度クエリの
+  結果が一致することを検証スクリプトで確認。
+- 実装メモ（2026-08-19完了）: ユーザーから「本番マイグレーションは着手してもよい」の
+  明示許可を得て実施。設計プロンプトの「エッジ軸スコアの保存要否はT145実装時に決定する」
+  というヒントに沿い、**0-100の最終difficultyスコアではなく、その入力となる生カウント
+  （accident_count/stop_count/intersection_count）を事前集計する**方針にした
+  （最終スコアはユーザーのレシピ上書きに依存し「恒久保存しない」既存方針と衝突するが、
+  生カウントは静的データのみに依存する安定値のため矛盾しない）。migration
+  0010（`edge_attribute_counts`テーブル、`designation_attributes`と同じ「精密テーブル＋
+  バッチ再計算」パターンを踏襲）・`app/batch/precompute_edge_attribute_counts.py`
+  （新規。既存の`RoadGraphRepository.get_accident_counts`/`get_stop_poi_counts`/
+  `get_intersection_counts`を再利用し新しいSQLは書かない）・
+  `scripts/verify_edge_attribute_counts.py`（新規、検証）を実装。
+
+  **実装中に2つの重要な発見があった**:
+  (1) `get_intersection_counts`は「渡されたedge_ids集合内だけで完結するローカルな次数」を
+  返す設計（`_INTERSECTION_COUNTS_SQL`のdocstringに明記済み、実際のルート生成では
+  空間的に連続した1つのローカルグラフ全体を渡すため正しく機能する）。本バッチのように
+  `road_edges`を空間的な連続性を考慮せず任意順にチャンク分割すると、同じNodeに接続する
+  道路が別チャンクへ分かれ次数を過小評価する不整合が生じた（dev機実測: 500件サンプル中
+  132件で不一致）。intersection_countだけ全edge_idsを1回のクエリに渡し真のグローバルな
+  次数を計算する設計へ変更し解消（accident_count/stop_countはedge単位で独立のため
+  チャンク分割のままで問題ない）。
+  (2) さらに、**同一のedge_id集合でも配列の順序が異なるとget_intersection_countsの結果が
+  変わる非決定性**を実際に確認した（`road_edges`由来の順序と`edge_attribute_counts`由来の
+  順序で、同じ122,189件の集合に対し一部edgeの次数が異なった）。原因未特定。ユーザー
+  指摘のとおり、get_accident_counts/get_stop_poi_counts（edge単位で独立な空間近傍カウント）
+  とget_intersection_counts（集合全体に依存する相対的な次数）のインターフェースの
+  非対称性が根本原因。**今回はroad_edges起点の順序へ統一することで実害を回避したのみ**で、
+  根本修正はT151として新規起票（ユーザー指示により今回は対応せず計画のみ）。
+
+  dev機（road_edges 122,189件）: migration適用→バッチ実行（45秒）→検証（3,000件サンプルで
+  全件一致）。本番（Oracle Cloud、207,767件）: migration適用→バッチ実行（実行時間計測は
+  ツールのタイムアウトで打ち切られたが、対象207,767件が過不足なく書き込まれたことを
+  直接カウント確認）→検証（500件サンプルで全件一致）。backend pytest 935件green。
+  **本番の`get_accident_counts`/`get_stop_poi_counts`/`get_intersection_counts`の実クエリ
+  経路（road_graph_engine.py等）は今回変更していない**（`edge_attribute_counts`テーブルは
+  作成・データ投入のみで、まだ読み取り経路には配線していない。配線はT145実装時、または
+  実際のクエリコストが問題になった時点で判断する）。
+
+### - [ ] T145. 地図レイヤーパネルをレジストリ駆動にし、三次（合成コスト）を既定表示レイヤーとして
+  新設する 規模L
+
+- 背景: 設計プロンプトのレイヤー表。現状の`mapLayers.ts`は10レイヤーが個別列挙で、
+  「常時表示は合成コストのみ」に対応する三次レイヤー自体が存在しない。一次・二次は
+  レジストリ（T137、ただしフロント側は別途TypeScript版が必要）から動的に列挙し、軸を
+  増やしてもレイヤーパネル・凡例の改修が不要な構造にする。
+- 対応方針: バックエンドの`export_openapi.py`と同じ「Python定義→フロント生成物」の
+  パターンで、軸レジストリの一覧をフロントが読める形（JSON）で書き出す。`mapLayers.ts`は
+  この生成物を走査して二次レイヤーを動的生成。三次（合成コスト）レイヤーを新設し既定ON、
+  既存の個別軸レイヤー（車の圧迫感・安全度→night等）は既定OFFの検証用レイヤーへ位置づけを
+  統一する。
+- 完了条件: 新しい軸をレジストリに1件追加するとレイヤーパネルに自動で選択肢が現れることを
+  Playwright実機確認。frontend vitest・eslint・tsc全green。
+
+### - [ ] T146. 区間インスペクタをレジストリ駆動にし、一次属性まで遡って表示できるようにする 規模M
+
+- 背景: 設計プロンプトの区間インスペクタ要件。現状の`recipeBreakdownPopup.ts`は
+  車の圧迫感・安全度の内訳（N1/N2込み）を個別に表示する専用実装で、軸を追加するたびに
+  改修が必要。
+- 対応方針: T145のレイヤーレジストリ生成物を再利用し、クリックした区間の一次属性→軸別
+  スコア→合成コストをレジストリ走査で組み立てる汎用ポップアップへ置き換える。
+- 完了条件: 任意の区間で一次属性から合成コストまでの内訳がポップアップに表示されることを
+  Playwright実機確認。
+
+### - [x] T147. 軸間相関行列（ピアソン）を計算するスクリプトを実装する 規模M（2026-08-18完了）
+
+- 背景: 設計プロンプトのタスク8。T137のレジストリ登録時バリデータ（事前チェック）を
+  すり抜ける間接的な相関（例: 異なる一次属性由来でも結果的に相関する）を事後監視する。
+- 対応方針: `backend/scripts/measure_axis_correlation.py`（新規、既存の
+  `measure_axis_stats.py`のデータ取得パターンを再利用）で全区間の軸スコアを取得し、
+  ピアソン相関行列を算出。|r| > 0.7のペアを警告として標準出力・レポートファイルへ出力。
+- 完了条件: dev DBまたは本番DBに対して実行し、6軸（car_stress/accident/surface_q/
+  stop_density/gradient/night）すべてのペアで|r|が算出され、結果がレポートとして記録される
+  （0.7を超えるペアがあれば、対応する軸内係数の見直し課題として別タスク化する）。
+  T138で据え置いた「自転車インフラ統合後の`car_stress`↔`accident`相関確認」・
+  「旧`traffic_weight`+`infra_weight`合成値との分布比較」も、本スクリプトの初回実行と
+  併せてここで実施し、T138の完了条件を事後的に満たす。
+- 実装メモ（2026-08-18完了）: 着手時に標本設計上の制約を発見した。gradient軸の入力
+  （標高average_grade）は`elevation_attributes`テーブルが常時空（dev DB実測でCOUNT(*)=0
+  確認、Road Graphへ恒久保存しない設計のため）で、国土地理院APIから都度取得する以外に
+  取得手段が無い。他5軸はDBのみで大規模に計算できる一方gradientだけ外部API依存という
+  非対称があるため、5軸を全件・gradientだけ小標本、という統計的に歪んだ比較を避け、
+  **6軸すべてを同一のランダムサンプル（road_edgesからN件、既定300）に対して計算する**
+  設計にした。`backend/scripts/measure_axis_correlation.py`（`pearson_correlation`・
+  `correlation_matrix`は純関数、`RoadGraphRepository`の既存メソッド群
+  （get_way_tags/get_surface_attributes/get_stop_poi_counts/get_intersection_counts/
+  get_accident_counts/get_designated_edge_ids）とGSI `ElevationClient`を再利用してDB/外部
+  APIから取得）・`--output`でのレポートファイル書き出しに対応。`test_measure_axis_correlation.py`
+  （純関数8件）を追加。dev DBに対しn=300で実行し、**6軸すべてでr値を取得**（surface_qは
+  有効値154/300、道路が概ね舗装済みで分散がほぼ0のため全ペアでr=N/A＝相関未定義という
+  正しい統計的判定。他5軸の全15ペア中、|r|>0.7の警告は0件）。特に`car_stress`↔`accident`
+  はr=0.308（弱い正の相関、二重計上の懸念なし。T138の据え置き事項を解消）。実行結果は
+  本エントリに記録（レポートファイル自体はスクラッチパッドに保存、リポジトリには
+  コミットしない運用、`measure_axis_stats.py`等の既存計測スクリプトと同じ扱い）。
+  backend pytest 932件green。
+
+### - [ ] T148. 旧・安全度レイヤーと計算コードを削除する 規模M
+
+- 背景: 設計プロンプトのタスク9。T139〜T147の移行が完了し、night/accident/car_stress軸への
+  切替が本番で安定稼働していることを確認したうえで、`domain/safety.py`・
+  `safetyExpression.ts`・`safety`レイヤー・`safety_recipe.yaml`・関連API
+  （`SafetyRecipeOverride`等）を削除する。
+- 対応方針: 削除前に本番での稼働実績（最低1〜2週間、他タスクの完了条件と同様の慣例）を
+  確認してから着手する。削除後はOpenAPI契約・フロント生成型を再生成し、ドリフトが無いことを
+  CIで確認する。
+- 完了条件: `safety`関連のシンボル・エンドポイント・レイヤーがコードベースから消え、
+  backend pytest・frontend vitest・eslint・tsc・OpenAPIドリフト検知すべてgreen。
+
+### - [x] T149. 交差点密度(intersection_density)をstop_density軸へ吸収する 規模M（2026-08-18完了）
+
+- 背景: 設計プロンプト改訂（2026-08-18）「現行9軸からの帰属先（T140対応）」節。
+  intersection_densityは単独軸を持たず、信号・横断歩道・一時停止・踏切と同じstop_density軸へ
+  「タグなし交差点」を独立した低い重みのカテゴリとして吸収する（例:
+  `unsignaled_intersection: 0.3`、signal=1.0比）。理由は「立ち止まる／減速する頻度」という
+  同じ性質の指標であり、car_stress（走行中の車との近接ストレス）とは質的に異なるため。
+  T137で先行登録していた`intersection_density`単独軸のレジストリ宣言は既に修正済み
+  （`stop_density`のinputsへ`intersection`を追加、上記T137実装メモ追記参照）。
+- 対応方針: `domain/traffic.py`の`distance_weighted_stop_density`（またはT141で再編される
+  stop_density軸のtransform_fn相当）が、信号・横断歩道・一時停止・踏切のカウントに加えて
+  次数3以上の無タグ交差点（`GraphService.get_intersection_counts`由来）を
+  `unsignaled_intersection`カテゴリとして低い重みで合算するよう改修。既存の
+  `intersection_weight`（`route_preference.yaml`）は廃止しstop_weight側へ吸収する。
+  `domain/difficulty.py`の`intersection_difficulty`は本タスクで`stop_difficulty`へ統合し
+  廃止（削除はT148と同様、移行完了確認後でよいが、こちらは軸自体が消えるため即時削除で
+  問題ない規模と判断）。
+- 完了条件: backend pytest green。stop_density単軸値が旧`stop_weight`+`intersection_weight`
+  合成値の分布からの急変が無いことを実データで確認。レジストリ上`intersection_density`という
+  axis_idが存在しないことを回帰テストで確認。
+- 実装メモ（2026-08-18完了）: T142（コスト関数のレジストリ駆動化）に着手する前提として、
+  レジストリ（T137）が既に「stop_densityがintersectionを吸収する」という目標構造を宣言
+  していたのに対し、ドメインコード側はまだ`intersection_difficulty`を独立軸として計算
+  していたという不整合を発見し、T142より先に本タスクを実施した。`domain/difficulty.py:
+  stop_difficulty(stop_count_per_km, intersection_count_per_km=None)`へ改修し、
+  `_UNSIGNALED_INTERSECTION_WEIGHT=0.3`（design promptのunsignaled_intersection:0.3、
+  signal:1.0比）でタグなし交差点密度を加算するよう変更（`intersection_count_per_km`が
+  Noneでも寄与0として扱う非対称設計、stop_count_per_km自体がNoneなら評価しない）。
+  `intersection_difficulty`関数・`AxisDifficulties.intersection`フィールド・
+  `evaluate_axis_difficulties`の`intersection_weight`引数を削除（8軸→7軸、
+  `intersection_count_per_km`自体はstop_difficultyへの補助入力として残す）。
+  `domain/evaluation.py: RoutePreference.intersection_weight`廃止・`stop_weight`
+  0.15→0.20（合算）。`domain/route.py: RouteSegmentDetail.intersection_difficulty`削除
+  （route集約統計`RouteCandidate.intersection_density`・地図の`poi-tiles`表示は表示用
+  一次属性として維持）。両エンジン・API`RoutePreferenceWeights`・OpenAPI・フロント型・
+  `WeightPanel.tsx`/`evaluationAxes.ts`を追従。`registry_defaults.py`へ`car_stress`
+  （T138）・`night`（T139）軸も併せて登録（T137時点で保留していた3軸のうち2軸が
+  排他構造へ再編済みのため）、これによりレジストリの登録軸が設計プロンプトの目標6軸
+  （car_stress/accident/surface_q/stop_density/gradient/night）と完全一致した
+  （`test_registry_defaults.py`で確認）。docs/architecture.md §7を8軸→7軸表記へ更新。
+  backend pytest 915件・frontend vitest 372件・tsc・eslint・`next build`全green。
+
+### - [ ] T151. get_intersection_countsのインターフェースを他の空間集計メソッドと揃える 規模M
+
+- 背景: T144実装中に発見（ユーザー指摘）。`get_accident_counts`/`get_stop_poi_counts`は
+  edge単位で完全に独立な「半径内の件数」を返すのに対し、`get_intersection_counts`だけは
+  「渡されたedge_ids集合全体から構成される部分グラフ内での相対的なNode次数」を返す
+  （`_INTERSECTION_COUNTS_SQL`のdocstringに明記された意図的な設計）。この非対称性により
+  (a) 呼び出し元が渡すedge_ids集合が変わると同じedgeでも結果が変わりうる、
+  (b) より重大な発見として、**同一のedge_id集合でも配列の順序が異なると結果が変わりうる**
+  ことをT144の検証中に実際に確認した（road_edges由来の順序とedge_attribute_counts由来の
+  順序で、同じ122,189件の集合に対し一部edge（例: way-1010971919-seg0-fwd）の次数が
+  0または1と異なった。原因未特定、PostgreSQLのクエリプラン非決定性の可能性）。
+- 影響: `road_graph_engine.py`の実際の呼び出し（`get_intersection_counts(list(graph.edges.keys()))`）は
+  Python dict/NetworkXのキー順序に依存するため、理論上は同じedgeが実行のたびに異なる
+  交差点密度を返しうる。実害の大きさは未検証（T144の500〜3,000件サンプルでは0.6%程度の
+  edgeで±1件の差、intersection_countはstop_density軸内で0.3倍の低い重みのため最終
+  difficultyへの影響はさらに小さいと推測されるが、確認はしていない）。
+- 対応方針（未実施、方針のみ。ユーザー指示により今回は計画のみで着手しない）:
+  `get_accident_counts`/`get_stop_poi_counts`と同じ「edge単位で独立な空間近傍カウント」の
+  意味論へ変更する。具体的には、次数を「渡されたedge_ids集合内で完結する部分グラフの
+  次数」ではなく「対象road_nodeの真のグローバル次数（DB全体で見た次数）」に統一する。
+  現在のコメントが警告する「DB全体を毎回集計すると遅い」問題は、T144で新設した
+  `edge_attribute_counts`（本番207,767件で全体集計しても数分規模、既に実測済み）を
+  正準の参照先にする、または`road_nodes`側に次数を事前計算・キャッシュする列を持たせる
+  ことで解消できる可能性がある。
+- 完了条件（未実施）: `get_intersection_counts`が入力集合の順序に依存せず、かつ
+  `get_accident_counts`/`get_stop_poi_counts`と揃った意味論（真のグローバル次数）の
+  決定的な実装になっていることをテストで確認（同一edge_id集合を異なる順序で2回渡し、
+  結果が一致することを確認する回帰テストを含む）。
+
+### - [x] T150. 呼称をtraffic_stress→car_stressへ統一する（バックエンド・フロントエンド全体） 規模L（2026-08-19完了）
+
+- 背景: T138で自転車インフラの独立軸廃止（機能面の統合）は完了したが、設計プロンプトが
+  求める呼称そのものの統一（`domain/car_stress.py`新設、`TrafficStressRecipe`→
+  `CarStressRecipe`、`traffic_stress_level`→`car_stress_level`、API
+  `TrafficStressRecipeOverride`→`CarStressRecipeOverride`、フロント
+  `trafficStressExpression.ts`→`carStressExpression.ts`、`TrafficStressRecipePanel`→
+  `CarStressRecipePanel`、MVTプロパティ`traffic_stress`→`car_stress`、`mapLayers.ts`の
+  レイヤーid・ラベル等）はT138から意図的に分離した（影響がbackend34ファイル・
+  frontend42ファイルに及ぶ純粋な機械的リネームのため、機能変更と混在させると
+  レビュー・切り戻しの単位が大きくなりすぎる）。
+- 対応方針: 挙動を一切変えない前提でシンボル名・ファイル名・MVTプロパティ名・
+  APIフィールド名を機械的に置換する。OpenAPI契約が変わる（`traffic_stress_recipe`→
+  `car_stress_recipe`等）ため、backend変更→OpenAPI再生成→フロント型再生成→フロント
+  参照更新、の順で1コミットにまとめる（契約変更を跨いだ中間状態を残さない）。MVT
+  プロパティ名の変更はタイル世代を上げる必要がある（`ROAD_SURFACE_TILE_VERSION`、
+  `road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）。
+- 完了条件: `grep -ri "traffic_stress\|trafficStress\|TrafficStress"`
+  （純粋な履歴記録・コメント中の「旧」を除く）がbackend/frontendのソースコードから
+  消えること。backend pytest・frontend vitest・eslint・tsc・`next build`・OpenAPI
+  ドリフト検知すべてgreen。Playwright実機確認で研究モードのレシピパネル・地図レイヤー・
+  区間インスペクタの表示が変更前と同一であることを確認。
+- 実装メモ（2026-08-19完了）: backend（39ファイル＋`traffic_stress_recipe.yaml`→
+  `car_stress_recipe.yaml`のファイル名変更、`git mv`で履歴保持）→frontend（48ファイル、
+  `trafficStressExpression.ts`→`carStressExpression.ts`・`TrafficStressRecipePanel/`→
+  `CarStressRecipePanel/`のディレクトリ名変更込み）の順に、それぞれ専用エージェントへ
+  委譲して機械的リネームを実施（合計約90ファイル）。API契約変更（`traffic_weight`→
+  `car_stress_weight`、`traffic_stress_recipe`→`car_stress_recipe`、`traffic_stress_score`→
+  `car_stress_score`、エンドポイント`/api/region/traffic-stress-breakdown`→
+  `/api/region/car-stress-breakdown`）を含むため、backend完了後に`export_openapi.py`→
+  `openapi-typescript`の順で再生成してからfrontend側に着手する依存順を守った。
+  対応方針が見込んでいたMVTタイルプロパティの改称・タイル世代アップは**不要と判明**（実装調査の結果、
+  `_ROAD_SURFACE_TILE_MVT_SQL`は最終値ではなく材料タグ`cycleway_class`/`maxspeed_kmh`等のみを
+  焼き込む設計であり、`traffic_stress`という文字列そのものをプロパティキーとして持っていなかった
+  ため。対応方針の記述はこの点で不正確だった）。JSON学習用フィクスチャ
+  `traffic-stress-recipe.json`/`traffic-stress-test-cases.json`は意図的に旧名のまま維持
+  （`export_openapi.py`側のパス定数を今回は変更せず、frontendの`carStressExpression.ts`側に
+  この命名不一致を明記するコメントを追加。両者を揃えるのは別タスクとして残置）。
+  委譲実行中に2件の実装ミスを発見・自己修正済み: (1) backend側で改行コードがCRLFへ
+  混入する副作用が発生し全ファイルLFへ正規化、(2) frontend側でPowerShellの大文字小文字
+  非区別置換により`CAR_STRESS_recipe`等の破損した識別子が混入し復旧。最終検証は
+  backend pytest 941件（postgisマーカー6件含む）・frontend vitest 372件・tsc・eslint・
+  `next build`すべてgreen、実データ（dev DB）に対する`/api/region/car-stress-breakdown`の
+  疎通確認、Playwright実機確認（研究モードON→評価の重みパネルに「車の圧迫感」ラベル・
+  値0.2が正しく表示、`CarStressRecipePanel`が「車の圧迫感[地図の色分けに即時反映]」として
+  正常描画、コンソールエラー・`undefined`/`NaN`表示なし）まで完了。
 
 | 日付 | 完了タスク | 備考 |
 |---|---|---|
@@ -3909,3 +4441,17 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 | 2026-08-18 | T101（本番バックフィル漏れ・チップ幅修正） | ユーザー報告「補給・休憩を押してもデータがプロットされない」「アイコンが他横幅と揃っていない」を受け対応。前者はdev機のみに`import_pbf.py`を再実行しデータバックフィルしており本番Oracle DBへの反映を失念していたのが原因（コードはmasterへpush済みで動作はするが`osm_raw_pois`に新kindが1件も無く空振り）。ユーザー確認のうえ`import_pbf.py --database-url <本番>`で`kanto-latest.osm.pbf`を再実行（全way・nodeも巻き込むUPSERT、実測1,421.5秒=約23.7分）、本番`osm_raw_pois`で`vending_machine`17,349件・`convenience`14,182件・`toilets`7,310件・`drinking_water`4,710件・`bicycle_parking`2,742件を確認（dev機実測とほぼ一致）。後者は`chipLabel`「補給・休憩」（読点込み5文字）が他レイヤー（4文字以内）よりチップ幅を広げていたため「補給休憩」（4文字）へ短縮（`label`「補給・休憩ポイント」は変更なし） |
 | 2026-08-18 | T127（起票・調査のみ） | ユーザー相談「日本全国のデータ取込をするならどれだけの容量、時間がかかるか、現実的か検証してほしい」を受け調査（実施はせず）。Geofabrikで実測: 関東466MB・全国2,358MB（8地域合計）で倍率約5.06倍。ストレージは本番現況2,050MBから単純比例で全国約10GB、契約150GBに対し約7%で問題なし。所要時間はT101本番バックフィル（同日実施）のchunk単位ログを精査し、**way数94万件超から処理速度が非線形に悪化し続け頭打ちの兆候が無い**（序盤0.28ms/way→終盤1.97ms/way、最悪chunk単体で7.44ms/way）という2026-08-15記録済み・未解決の既知事象を確認。全国規模（約665万way）へ外挿すると楽観3.2時間〜現実的には半日以上という幅の大きい見積もりにしかならず、133万way超を一度も実行したことが無いための不確実性と結論。ローカル開発機のCドライブ空きが16GBのみという制約も確認。段階的検証（中間規模での実投入による減速カーブ実測）を推奨し、全国投入は意思決定待ちとして記録のみで完了 |
 | 2026-08-18 | T128（起票・設計のみ） | ユーザー相談「地図上でアイコンが多くなってきている。グルーピングか表示非表示切替を検討したい。地図の見え方のグルーピング、生データ/合成データかは意識して」を受け設計（実装はせず）。現状static9種+dynamic1種=10チップがフラットに並ぶ状態を、サイドバー（MapLayersPanel）で既に使っているcategory（改善計画T86、道路状態/交通・安全/自転車インフラ/地形/補給・施設の5分類）で束ねる案を検討。9レイヤーを生データ/合成データで分類し直すと「複数タグから計算した推定スコア」は車の圧迫感・安全度の2件のみで、混在は交通・安全カテゴリ1つに閉じていると判明。3案（A: 既存category束ね＋交通・安全内をdataNature[raw/composite]で小分類、B: 常時チップ+オーバーフローメニュー、C: サイドバー一本化）を比較しAを推奨、チップ総数9→5（ルート込み6）への削減と生/合成の視覚区別を両立できる設計とした。実装時の想定変更点（`dataNature`フィールド追加・`MapOverlayControls.tsx`のグルーピングロジック・展開UIのモバイル/デスクトップ差）まで記録し、着手はユーザー判断待ちとしてT128（設計のみ）で起票 |
+| 2026-08-18 | （評価システム再設計・現状把握＋タスク起票） | ユーザーから区間評価の一次/二次/三次層構造への再設計プロンプトを受け、Explore調査＋主要ファイル直接確認（domain/evaluation.py・recipe.py・traffic.py・safety.py・difficulty.py・route_preference.yaml等）で現状把握を実施。現行9軸（うち車の圧迫感・安全度がT130のN1/N2を意図的に共有）と提案6軸のギャップを一覧化し、2つの衝突点（安全度廃止 vs 本日完了のT130共有化路線／レジストリ制 vs 2026-08-16レビューでの見送り判断）をユーザーに確認。回答: (1)提案どおり安全度廃止・accident/night分割を採用 (2)レジストリ制を導入 (3)improvement-plan.mdへタスク分割してから段階着手。T137〜T148としてタスクを起票（車ストレスへのN1/N2/自転車インフラ統合、安全度廃止、〇次フィルタの範囲明確化、レシピのJSON/DB統合、コスト関数の縮退、表示とコストの同一化、DB永続化、レイヤーパネル・区間インスペクタのレジストリ駆動化、相関行列スクリプト、旧安全度削除）。交差点密度・自転車インフラの6軸表への非帰属、`trunk`除外範囲の差異、`motor_vehicle=no`の位置づけは各タスク内の未決定論点として明記 |
+| 2026-08-18 | T137 | `backend/app/domain/registry.py`（`PrimaryAttributeSpec`/`AxisSpec`/`register_primary_attribute`/`register_axis`/`AxisInputConflictError`、shared属性による排他チェック除外込み）・`registry_defaults.py`（`register_defaults()`、既存16一次属性・5二次軸の宣言）を新設。レジストリはまだどこからも呼び出されておらず（配線はT142・T145）、宣言のみの非破壊的な追加。「車ストレス」「安全度」「自転車インフラ」の3軸は現行実装がhighway/cycleway/maxspeed/lanes/指定路線を意図的に共有しているため未登録のまま残し、T138/T139で軸自体を再編したのち登録する方針（`test_registry_defaults.py`が3軸の未登録を回帰確認）。`test_registry.py`（機構の単体テスト、衝突検出・shared属性の除外を検証）を追加。backend pytest 904件green（新規14件含む） |
+| 2026-08-18 | （評価システム再設計・設計プロンプト改訂への追従） | ユーザーが設計プロンプトを改訂し提示。差分は「現行9軸からの帰属先（T140対応）」節の新設: bicycle_infraはcar_stress入力へ統合（従来方針どおり）、intersection_densityは単独軸を持たずstop_density軸へ「タグなし交差点」を低い重み（例`unsignaled_intersection: 0.3`）のカテゴリとして吸収、と確定。T137で先行登録していたintersection_density単独軸のレジストリ宣言（`registry_defaults.py`）が新方針と矛盾していたため後方修正（AxisSpec削除・stop_densityのinputsへintersection追加、テスト追従、backend pytest 903件green）。intersection_density吸収の実装自体は新規T149として起票。T138の完了条件へcar_stress↔accident相関確認を追加、T147の完了条件を「6〜8軸」→「6軸」（intersection_density分の軸数減を反映）へ修正。T140（〇次フィルタ）に影響する記述は改訂版に無く、引き続き未解決のまま |
+| 2026-08-18 | T138 | ユーザーから「本番未リリースのためT138〜T149は破壊的変更も一時的なら許容する」との明示許可を得て着手。影響範囲調査（backend34ファイル・frontend42ファイルがtraffic_stress/infra関連シンボルに言及）の結果、「自転車インフラの独立軸廃止（機能変更）」と「traffic_stress→car_stressの呼称統一（機械的リネーム、影響大）」を分離し本タスクでは前者のみ実施（後者はT150として新規起票）。`domain/difficulty.py`から`bicycle_infra_difficulty`/`AxisDifficulties.infra`/`evaluate_axis_difficulties`のbicycle_infra・infra_weight引数を削除（9軸→8軸）。`domain/evaluation.py: RoutePreference.infra_weight`廃止・`traffic_weight`0.10→0.20（合算）。両エンジンの`_build_segment_details`・`domain/route.py: RouteSegmentDetail.infra_difficulty`・API`RoutePreferenceWeights.infra_weight`を追従（`bicycle_infra`生値・`bicycle_infra_score`集約統計は表示用一次属性として維持）。OpenAPI再生成→`openapi-typescript`でフロント型再生成→`WeightPanel.tsx`/`evaluationAxes.ts`・影響テスト8件のfixture更新。docs/architecture.md §7を9軸→8軸表記へ更新。backend pytest 900件・frontend vitest 372件・tsc・eslint・`next build`全green（`next build`初回はOneDriveのファイルロックで`EPERM`が発生、`.next`削除で解消。ソースコードとは無関係な環境要因と判断）。実データでの分布急変確認・car_stress↔accident相関確認はT147（相関行列スクリプト）の初回実行時にまとめて行う前提で据え置き |
+| 2026-08-18 | T139 | ユーザー指示「t139に進めて」を受け続けて着手。`domain/night.py`（新規、`night_difficulty(tags)`: lit無し+50・tunnel+50・最大100の単純加点式）を新設。`domain/difficulty.py`の`safety_difficulty`関数・`AxisDifficulties.safety`を`night`へ置換、`evaluate_axis_difficulties`のsafety_level_value/safety_weight引数をnight_tags/night_weightへ変更（8軸のままsafety→nightへ入替）。`domain/evaluation.py: RoutePreference.safety_weight`を`night_weight`（既定0.0）へ、`compute_edge_cost`から`safety_level`呼び出し・`safety_recipe`引数を削除（cost計算に不要化）。`EvaluationService`・`dependencies.py`のEvaluationService構築からも`safety_recipe`を削除（両エンジン自体は表示用のsafety生値・safety_score集約に`self._safety_recipe`を引き続き使うため変更なし）。両エンジンの`_build_segment_details`は`way_tags`をそのまま`evaluate_axis_difficulties`へ渡す形に変更、`RouteSegmentDetail.safety_difficulty`→`night_difficulty`（safety生値・safety_scoreは維持）。API`RoutePreferenceWeights.safety_weight`→`night_weight`。OpenAPI再生成→フロント型再生成→`WeightPanel.tsx`/`evaluationAxes.ts`・影響テスト6件のfixture更新。docs/architecture.md §7追従。backend pytest 902件・frontend vitest 372件・tsc・eslint・`next build`全green |
+| 2026-08-18 | T140 | ユーザー指示「140を進めて」を受け着手。`trunk`/`trunk_link`除外は挙動を変えず維持する判断（設計プロンプトに言及が無く変更指示も無いため）。`domain/evaluation.py`の`DISALLOWED_HIGHWAY_TYPES`（単一frozenset）を`HARD_FILTER_HIGHWAY_TYPES`（`{"motorway":{...},"trunk":{...}}`の名前付き辞書）＋`DEFAULT_HARD_FILTERS`（`frozenset({"no_bicycle","motorway","trunk"})`）へ再構成し、`is_edge_allowed`に`hard_filters`引数（省略時`DEFAULT_HARD_FILTERS`、T141のレシピJSON化を見据えた設計）を追加。既存呼び出し元は全て省略のため動作は完全に不変。`motor_vehicle=no`は方針どおりハード除外に含めず二次軸側の特例のまま維持。docs/architecture.md 7章に新設「〇次: ハード制約」節（フィルタ一覧表・trunk除外の実務判断・motor_vehicle=noとの区別）を追加、「道路種別の3スコープ」表・`import_profile.yaml`コメントも新シンボル名へ追従。新規テスト6件（trunk除外の回帰確認・hard_filters上書きの新規動作・空集合で全許可）を追加。backend pytest 906件green（is_edge_allowedはHTTP境界に非露出のdomain内部関数のためAPI契約・フロントへの影響なし） |
+| 2026-08-18 | T141 | ユーザー指示「141も着手して」を受け着手。T137のレジストリと同じ「宣言のみ・未配線」方針で`backend/app/domain/recipe_definition.py`を新設。`Recipe`（recipe_id/version/hard_filters/axis_params/weights）・`RecipeComponents`（既存の型付きモデル群のNamedTuple）・`recipe_from_components()`/`recipe_to_components()`（双方向変換）・`default_recipe()`を実装。axis_paramsのキーは現行の軸内レシピ名（road_suitability/motor_vehicle_density/traffic_stress/safety）のまま、目標axis_idへの統一はT150後に追従する方針を明記。オーバーライド不可の軸（gradient/surface_q/stop_density/intersection_density/accident/night）はaxis_paramsに含めない。API層・OpenAPI契約・フロントは無変更のため後方互換は自明に満たす（実配線はT142以降）。設計プロンプトのレシピJSON例と同じ生dict形からRecipeを構築し軸内係数・重みを一意に取り出せることをtest_recipe_definition.py（新規7件）で確認。backend pytest 913件green |
+| 2026-08-18 | T149 | ユーザー指示「進めて」（T142着手の流れ）を受け、T142より先に本タスクを実施。理由: T142（コスト関数のレジストリ駆動化）に着手する前提としてレジストリ（T137）とドメインコードの整合性を確認したところ、レジストリは既に「stop_densityがintersectionを吸収する」という目標構造を宣言済みなのにドメインコード側は独立軸のままという不整合を発見したため。`domain/difficulty.py: stop_difficulty(stop_count_per_km, intersection_count_per_km=None)`へ改修しタグなし交差点密度を0.3倍の重みで加算（8軸→7軸）。`intersection_difficulty`関数・`AxisDifficulties.intersection`・`RoutePreference.intersection_weight`（stop_weight 0.15→0.20へ合算）・`RouteSegmentDetail.intersection_difficulty`を削除（route集約統計・地図表示は維持）。両エンジン・API・OpenAPI・フロント型・WeightPanel/evaluationAxes.tsを追従。`registry_defaults.py`へ`car_stress`（T138）・`night`（T139）軸も併せて登録し、レジストリが設計プロンプトの目標6軸（car_stress/accident/surface_q/stop_density/gradient/night）と完全一致することを確認。docs/architecture.md §7を7軸表記へ更新。backend pytest 915件・frontend vitest 372件・tsc・eslint・next build全green |
+| 2026-08-18 | T142 | T149に続けて着手。`domain/evaluation.py`へ`compute_edge_axis_scores()`（二次: 一次属性→axis_id別スコア辞書）・`compute_cost_from_axis_scores(distance_m, axis_scores, weights)`（三次: 完了条件どおりシグネチャに一次属性名が一切現れない純関数）・`preference_to_axis_weights()`を新設。`compute_edge_cost`はこの2関数を合成する薄いラッパーとして残し既存呼び出し元への影響ゼロ（後方互換）。test_evaluation.pyへ9件追加（シグネチャの機械的検証・分離前後の結果一致を回帰確認）。副産物としてT137で登録していた`surface_q`軸のtransform_fnがルート単位集約関数を誤って指していたバグを発見・修正。レジストリのtransform_fn文字列を実際に動的解決して呼ぶ完全な「レジストリ駆動」は未実施（各軸のtransform_fnシグネチャが大きく異なり汎用ディスパッチには追加設計が要るため、今回のスコープ外として明記）。backend pytest 923件green（API・フロントへの影響なし） |
+| 2026-08-18 | T143 | ユーザー指示「143から150一連の続行をお願い」を受け着手。調査の結果、OpenRouteServiceEngineはDijkstra探索を行わず経路探索自体を外部ORS APIへ委譲するためdomain/evaluation.pyのコスト関数を一切使わず、区間表示のevaluate_axis_difficulties呼び出しが元から唯一の計算箇所（重複が無い）と判明。実質的な対応はRoadGraphEngineのみに限定し、`_build_segment_details`をcompute_edge_cost（EvaluationService経由の探索コスト）と同じcompute_edge_axis_scores＋compute_cost_from_axis_scores（T142）へ差し替え。test_road_graph_engine.pyへspy経由の回帰テストを追加し、探索コストと区間表示が同一関数を経由することを実証。OpenRouteServiceEngineは対象外と明記（変更なし）。backend pytest 924件green |
+| 2026-08-18 | T147 | T144（本番DBマイグレーションを伴うため後回し）を飛ばし、自己完結するT147へ着手。`elevation_attributes`テーブルが常時空（dev DB実測でCOUNT(*)=0）と判明し、gradient軸だけ他5軸と異なりGSI API都度取得が必要という非対称を発見。統計的に公平な比較のため6軸すべてを同一のランダムサンプル（road_edgesからn=300）で計算する設計とした。`backend/scripts/measure_axis_correlation.py`（新規、RoadGraphRepositoryの既存メソッド群＋ElevationClientを再利用、`--output`でレポートファイル書き出し対応）・`test_measure_axis_correlation.py`（純関数8件）を追加。dev DBに対しn=300で実行し6軸すべてでr値取得（surface_qは分散ほぼ0のため全ペアr=N/A＝正しい判定、他5軸の全15ペアで|r|>0.7の警告0件、car_stress↔accident=0.308でT138の据え置き事項も解消）。backend pytest 932件green |
+| 2026-08-19 | T144 | ユーザー指示「効率的な順番に進めて。本番マイグレーションは着手してもよい」を受け着手。設計プロンプトの「保存要否はT145実装時に決定する」というヒントに沿い、0-100の最終difficultyではなく入力となる生カウント（accident_count/stop_count/intersection_count）を事前集計する方針に。migration 0010（edge_attribute_counts）・precompute_edge_attribute_counts.py・verify_edge_attribute_counts.pyを新規実装。実装中に2つの発見: (1) get_intersection_countsは渡されたedge_ids集合内で完結するローカルな次数を返す設計のため、バッチの任意順チャンク分割が次数を過小評価（132/500不一致→全edge一括のグローバル計算に変更し解消）、(2) さらに同一集合でも配列順序が異なると結果が変わる非決定性を発見（ユーザー指摘によりget_accident_counts/get_stop_poi_countsとのインターフェース非対称が根本原因と特定、T151として起票、今回は対応せず）。dev機（122,189件、バッチ45秒、3,000件検証で全件一致）・本番Oracle Cloud（207,767件、検証500件で全件一致）の両方へmigration適用・バッチ実行・検証まで完了。既存の読み取り経路（road_graph_engine.py等）は今回変更なし（テーブル作成・データ投入のみ、配線はT145以降で判断）。backend pytest 935件green |
+| 2026-08-19 | T150 | ユーザー指示「150進めて」を受け着手。backend（domain/traffic.py・designation.py・difficulty.pyの主要シンボルは自分で直接改称）→残りbackend約35ファイル・frontend約48ファイルは専用エージェントへ委譲し機械的リネームを実施（合計約90ファイル、ファイル/ディレクトリ名変更2件含む）。API契約変更を挟むため「backend完了→OpenAPI再生成→frontend型再生成→frontend着手」の順序を厳守。対応方針が見込んでいたMVTタイル世代アップは実装調査の結果不要と判明（材料タグのみ焼き込む設計で`traffic_stress`という文字列自体を持たなかったため）。委譲中の実装ミス2件（CRLF混入、PowerShell大文字小文字非区別置換による識別子破損）を自己検出・修正済みで最終成果物には残っていないことを確認。JSON学習用フィクスチャの命名不一致（`traffic-stress-*.json`のまま）は意図的に残置し別タスク送り。最終検証: backend pytest 941件（postgis 6件含む）・frontend vitest 372件・tsc・eslint・`next build`全green、dev DB実データに対する新エンドポイント`/api/region/car-stress-breakdown`疎通確認、Playwright実機確認（研究モード内の評価重みパネル・CarStressRecipePanelが新語彙で正常描画、コンソールエラー・undefined/NaN表示なし）まで完了 |
+| 2026-08-19 | T135 | 別セッションがT150（traffic_stress→car_stress呼称統一）を同一作業ツリーで進行中と確認したため、コード変更を伴わないdocs反映のみで完結するT135を選んで実施（T150との衝突回避）。docs/complexity-review-2026-08-16.mdのKeep List「page.tsx / MapView.tsxの現状維持」節へpage.tsx独自閾値〔useState+useStoredState合計40件 or 1,300行、2026-08-18時点実測38件・1,148行で未到達〕をMapView.tsxの既存閾値と並記し追加、設計原則9へも同内容を追記。変更コストシミュレーション表へG'行（レシピ付き評価軸追加、T119実測64ファイル・+3,677/-394行、次回単軸追加時に再検証する参考値と明記）・G''行（軸の共通材料の外出し・再構成、T130実測70ファイル・+3,938/-2,084行）を新設し区別。運用ルール明文化（規模M以上の着手前タスクエントリ作成）はCLAUDE.md改訂要否含めユーザー判断のため見送り、別途確認が必要。コード変更なし |

@@ -32,9 +32,15 @@ from datetime import datetime, timedelta
 import networkx as nx
 
 from app.domain.accident import distance_weighted_accident_density
-from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
+from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
-from app.domain.evaluation import RoutePreference, compute_wind_penalty
+from app.domain.evaluation import (
+    RoutePreference,
+    compute_cost_from_axis_scores,
+    compute_edge_axis_scores,
+    compute_wind_penalty,
+    preference_to_axis_weights,
+)
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
@@ -42,13 +48,13 @@ from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.safety import SafetyRecipe, safety_level
 from app.domain.traffic import (
-    TrafficStressRecipe,
+    CarStressRecipe,
     classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
-    traffic_stress_level,
+    car_stress_level,
 )
 from app.domain.routing import build_networkx_graph, concat_node_paths, find_nearest_node, path_to_edge_ids, shortest_path_node_ids
 from app.domain.weather import WeatherConditions
@@ -94,7 +100,7 @@ class RoadGraphEngine:
         evaluation_service: EvaluationService,
         weather_service: WeatherService,
         route_preference: RoutePreference,
-        traffic_stress_recipe: TrafficStressRecipe | None = None,
+        car_stress_recipe: CarStressRecipe | None = None,
         safety_recipe: SafetyRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
@@ -104,7 +110,7 @@ class RoadGraphEngine:
         self._evaluation_service = evaluation_service
         self._weather_service = weather_service
         self._route_preference = route_preference
-        self._traffic_stress_recipe = traffic_stress_recipe
+        self._car_stress_recipe = car_stress_recipe
         self._safety_recipe = safety_recipe
         self._road_suitability_recipe = road_suitability_recipe
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
@@ -120,7 +126,7 @@ class RoadGraphEngine:
         # 静的道路属性P1（信号・横断歩道・一時停止・踏切）。探索コスト自体にも反映されるよう
         # ここで取得する（surface_attributesと同じくprepareで1回だけ・全方位で共有）。
         stop_counts = await self._graph_service.get_stop_poi_counts(list(graph.edges.keys()))
-        # 静的道路属性P1残り（交通ストレス・自転車インフラ・交差点密度）。同じくprepareで
+        # 静的道路属性P1残り（車ストレス・自転車インフラ・交差点密度）。同じくprepareで
         # 1回だけ取得し全方位で共有する。way_tagsはEdgeのosm_way_id経由のタグ、
         # intersection_countsはこのローカルグラフ内で計算した交差点件数（次数3以上のNode）。
         way_tags = await self._graph_service.get_way_tags(list(graph.edges.keys()))
@@ -217,8 +223,8 @@ class RoadGraphEngine:
             edges_in_path, context.accident_counts, context.accident_years_covered
         )
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
-        traffic_stress_score = distance_weighted_difficulty(
-            [(s.traffic_stress, s.distance_km) for s in segments]
+        car_stress_score = distance_weighted_difficulty(
+            [(s.car_stress, s.distance_km) for s in segments]
         )
         bicycle_infra_score = distance_weighted_bicycle_infra_score(
             [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
@@ -234,7 +240,7 @@ class RoadGraphEngine:
             wind_score=wind_score,
             road_score=road_score,
             stop_density=stop_density,
-            traffic_stress_score=traffic_stress_score,
+            car_stress_score=car_stress_score,
             bicycle_infra_score=bicycle_infra_score,
             intersection_density=intersection_density,
             accident_density=accident_density,
@@ -273,12 +279,12 @@ class RoadGraphEngine:
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
             is_designated = edge.edge_id in context.designated_edge_ids
-            traffic_stress = (
-                traffic_stress_level(
+            car_stress = (
+                car_stress_level(
                     edge.highway,
                     edge_way_tags,
                     is_designated,
-                    self._traffic_stress_recipe,
+                    self._car_stress_recipe,
                     road_suitability_recipe=self._road_suitability_recipe,
                     motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
                 )
@@ -287,14 +293,6 @@ class RoadGraphEngine:
             )
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
-            )
-            intersection_count_per_km = (
-                intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
-            )
-            accident_count_per_km_year = (
-                accident_count / distance_km / context.accident_years_covered
-                if accident_count is not None and distance_km > 0 and context.accident_years_covered > 0
-                else None
             )
             safety = (
                 safety_level(
@@ -309,13 +307,22 @@ class RoadGraphEngine:
                 else None
             )
 
-            axis_difficulties = evaluate_axis_difficulties(
-                gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year, safety,
-                preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
-                preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
-                preference.accident_weight, preference.safety_weight,
+            # 改善計画T143: 区間表示の軸別スコアは、コスト計算（compute_edge_cost、
+            # EvaluationService.evaluate_graph経由）と同じcompute_edge_axis_scores（T142）を
+            # 通す。設計プロンプトの完了条件「地図表示とルーティングコストが同一のレシピ定義
+            # から生成される」に対応し、二次の計算式が表示・探索コストの2箇所に独立実装される
+            # 非DRY構造（現状把握C.で判明）を解消する。
+            axis_scores = compute_edge_axis_scores(
+                edge, elevation_attr, surface_type,
+                wind=context.wind, stop_count=stop_count, way_tags=edge_way_tags,
+                intersection_count=intersection_count, accident_count=accident_count,
+                accident_years_covered=context.accident_years_covered, is_designated=is_designated,
+                car_stress_recipe=self._car_stress_recipe,
+                road_suitability_recipe=self._road_suitability_recipe,
+                motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
             )
+            weights = preference_to_axis_weights(preference)
+            _, composite_difficulty_value = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights)
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
             # 一様適用する簡略化のため、到達時刻そのものはwindのfetchには使わない。
@@ -346,19 +353,17 @@ class RoadGraphEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
                     road_surface_good=road_surface_good,
-                    traffic_stress=traffic_stress,
+                    car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
                     safety=safety,
-                    elevation_difficulty=axis_difficulties.elevation,
-                    wind_difficulty=axis_difficulties.wind,
-                    road_difficulty=axis_difficulties.road,
-                    stop_difficulty=axis_difficulties.stop,
-                    traffic_difficulty=axis_difficulties.traffic,
-                    infra_difficulty=axis_difficulties.infra,
-                    intersection_difficulty=axis_difficulties.intersection,
-                    accident_difficulty=axis_difficulties.accident,
-                    safety_difficulty=axis_difficulties.safety,
-                    difficulty=axis_difficulties.composite,
+                    elevation_difficulty=axis_scores.get("gradient"),
+                    wind_difficulty=axis_scores.get("wind"),
+                    road_difficulty=axis_scores.get("surface_q"),
+                    stop_difficulty=axis_scores.get("stop_density"),
+                    car_stress_difficulty=axis_scores.get("car_stress"),
+                    accident_difficulty=axis_scores.get("accident"),
+                    night_difficulty=axis_scores.get("night"),
+                    difficulty=composite_difficulty_value,
                 )
             )
             cumulative_km += distance_km

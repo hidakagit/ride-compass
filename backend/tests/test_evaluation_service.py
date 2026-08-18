@@ -6,7 +6,7 @@ from app.services.evaluation_service import (
     load_road_suitability_recipe,
     load_route_preference,
     load_safety_recipe,
-    load_traffic_stress_recipe,
+    load_car_stress_recipe,
 )
 
 
@@ -151,12 +151,10 @@ def test_load_route_preference_reads_default_config_file():
     assert preference.elevation_weight == 0.15
     assert preference.road_weight == 0.19
     assert preference.wind_weight == 0.26
-    assert preference.stop_weight == 0.15
-    assert preference.traffic_weight == 0.10
-    assert preference.infra_weight == 0.10
-    assert preference.intersection_weight == 0.05
+    assert preference.stop_weight == 0.20
+    assert preference.car_stress_weight == 0.20
     assert preference.accident_weight == 0.08
-    assert preference.safety_weight == 0.10
+    assert preference.night_weight == 0.0
 
 
 def test_load_route_preference_reads_custom_path(tmp_path):
@@ -172,31 +170,31 @@ def test_load_route_preference_reads_custom_path(tmp_path):
     assert preference.road_weight == 0.2
 
 
-def test_load_traffic_stress_recipe_reads_default_config_file():
+def test_load_car_stress_recipe_reads_default_config_file():
     # load_route_preference/route_preference.yamlと同じ運用（domain/traffic.py:
-    # TrafficStressRecipeのクラス既定値とtraffic_stress_recipe.yamlの2箇所が値を持つため、
+    # CarStressRecipeのクラス既定値とcar_stress_recipe.yamlの2箇所が値を持つため、
     # 値をハードコード検証して手動同期のドリフトを検知する）。
-    recipe = load_traffic_stress_recipe()
+    recipe = load_car_stress_recipe()
 
     assert recipe.lanes_low_threshold == 1
     assert recipe.lanes_low_adjustment == -1
 
 
-def test_load_traffic_stress_recipe_reads_custom_path(tmp_path):
-    config_path = tmp_path / "custom_traffic_stress_recipe.yaml"
+def test_load_car_stress_recipe_reads_custom_path(tmp_path):
+    config_path = tmp_path / "custom_car_stress_recipe.yaml"
     config_path.write_text(
-        "traffic_stress_recipe:\n  lanes_low_threshold: 2\n  lanes_low_adjustment: -3\n",
+        "car_stress_recipe:\n  lanes_low_threshold: 2\n  lanes_low_adjustment: -3\n",
         encoding="utf-8",
     )
 
-    recipe = load_traffic_stress_recipe(config_path)
+    recipe = load_car_stress_recipe(config_path)
 
     assert recipe.lanes_low_threshold == 2
     assert recipe.lanes_low_adjustment == -3
 
 
 def test_load_safety_recipe_reads_default_config_file():
-    # load_traffic_stress_recipe/traffic_stress_recipe.yamlと同じ運用（domain/safety.py:
+    # load_car_stress_recipe/car_stress_recipe.yamlと同じ運用（domain/safety.py:
     # SafetyRecipeのクラス既定値とsafety_recipe.yamlの2箇所が値を持つため、値をハードコード
     # 検証して手動同期のドリフトを検知する）。
     recipe = load_safety_recipe()
@@ -219,7 +217,7 @@ def test_load_safety_recipe_reads_custom_path(tmp_path):
 
 
 def test_load_road_suitability_recipe_reads_default_config_file():
-    # load_traffic_stress_recipeと同じ運用（domain/recipe.py: RoadSuitabilityRecipeの
+    # load_car_stress_recipeと同じ運用（domain/recipe.py: RoadSuitabilityRecipeの
     # クラス既定値とroad_suitability_recipe.yamlの2箇所が値を持つため、値をハードコード
     # 検証して手動同期のドリフトを検知する。改善計画: 車との近さ材料の共有元化）。
     recipe = load_road_suitability_recipe()
@@ -307,8 +305,8 @@ def test_evaluation_service_without_explicit_preference_uses_config_file_default
     default_via_config = EvaluationService().evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
     explicit_matching_weights = EvaluationService(
         RoutePreference(
-            elevation_weight=0.15, road_weight=0.19, wind_weight=0.26, stop_weight=0.15,
-            traffic_weight=0.10, infra_weight=0.10, intersection_weight=0.05,
+            elevation_weight=0.15, road_weight=0.19, wind_weight=0.26, stop_weight=0.20,
+            car_stress_weight=0.20,
         )
     ).evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
 

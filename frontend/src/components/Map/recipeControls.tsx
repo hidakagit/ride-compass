@@ -5,11 +5,11 @@ import { InfoIcon } from "./icons";
 import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
 
-// レシピ入力フォーム（研究タブの各レシピパネル）共通のUI部品。T113でTrafficStressRecipePanel
+// レシピ入力フォーム（研究タブの各レシピパネル）共通のUI部品。T113でCarStressRecipePanel
 // 専用に実装したものを、2つ目のレシピ（安全度レシピ）登場を機に汎用化した（改善計画:
 // 安全度レシピ。「今後ほかの2次データのレシピが増えると思うので、くくり出してほしい」という
 // ユーザー要望への対応）。段階数・色パレットは呼び出し側がpropsで渡すため、レシピごとの
-// 段階数・配色差（例: 交通ストレスの緑〜赤、安全度のteal〜dark-red）はこのファイルの変更
+// 段階数・配色差（例: 車ストレスの緑〜赤、安全度のteal〜dark-red）はこのファイルの変更
 // なしで吸収できる。
 
 // 研究タブ各パネルの最上位の折りたたみ（改善計画: 研究タブのレイアウト改善。ユーザー
@@ -251,12 +251,12 @@ export function CarClosenessReferenceSection({
   );
 }
 
-// TRAFFIC_STRESS_COLORSの最小/最大段階の色を補正値ステッパーの負値/正値表示に使う
+// CAR_STRESS_COLORSの最小/最大段階の色を補正値ステッパーの負値/正値表示に使う
 // （改善計画: 車との近さ材料の共有元化のレビュー指摘。4パネル中3パネルが
-// `TRAFFIC_STRESS_COLORS[1]`/`[5]`を、RoadSuitabilityRecipePanelだけが値域の違い
+// `CAR_STRESS_COLORS[1]`/`[5]`を、RoadSuitabilityRecipePanelだけが値域の違い
 // （道路適正の基準値は1〜4で5段階目を使わない）から`[1]`/`[4]`を、それぞれのファイルへ
 // 個別にハードコードしていた。呼び出し側ごとに使う範囲が異なるため単一の共有定数には
-// できないが、「TRAFFIC_STRESS_COLORSから最小・最大段階の色を引く」という手順自体は
+// できないが、「CAR_STRESS_COLORSから最小・最大段階の色を引く」という手順自体は
 // ここへ1箇所へ集約する）。
 export function adjustmentEndpointColors(
   colors: Record<number, string>,
@@ -325,7 +325,7 @@ export interface ThresholdAdjustmentFieldDescriptor<
 }
 
 // 閾値+補正値の対フィールド（改善計画: 車との近さ材料の共有元化のレビュー指摘。
-// MotorVehicleDensityRecipePanel/TrafficStressRecipePanelの2ファイルへ実質同一の内容が
+// MotorVehicleDensityRecipePanel/CarStressRecipePanelの2ファイルへ実質同一の内容が
 // コピペされていたのをここへ集約）。補正値のステッパーと変動条件（閾値）を同じ行に
 // 横並びで置く。
 export function ThresholdAdjustmentRow<

@@ -37,7 +37,7 @@ const METRIC_ROWS: MetricRow[] = [
   {
     label: "車の圧迫感",
     format: (s) =>
-      s.topCandidate.traffic_stress_score != null ? `${s.topCandidate.traffic_stress_score.toFixed(1)}` : "—",
+      s.topCandidate.car_stress_score != null ? `${s.topCandidate.car_stress_score.toFixed(1)}` : "—",
   },
   {
     label: "自転車インフラ率",

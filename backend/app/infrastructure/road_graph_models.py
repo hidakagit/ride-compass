@@ -156,6 +156,29 @@ class ElevationAttributeRow(Base):
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class EdgeAttributeCountsRow(Base):
+    """事故・停止POI・交差点の事前集計（改善計画T144）。`designation_attributes`と同じ
+    「派生データ、バッチ（`app/batch/precompute_edge_attribute_counts.py`）で再計算」
+    パターン。migration 0010で実テーブルは作成済み（このORMモデルはBase.metadata経由の
+    型定義・create_tables()の`checkfirst`整合のためのミラーで、既存DBへの実際のCREATEは
+    migrationが担う。accident_models.pyの同種コメント参照）。
+
+    accident_countはdouble precision（死亡事故重み付けSUM、domain/accident.py:
+    ACCIDENT_FATAL_WEIGHT）。bicycle_only=trueの結果のみ保持する（road_graph_engine.pyの
+    実際の呼び出しが常に既定値bicycle_only=Trueであるため）。
+    """
+
+    __tablename__ = "edge_attribute_counts"
+
+    edge_id: Mapped[str] = mapped_column(
+        String, ForeignKey("road_edges.edge_id", ondelete="CASCADE"), primary_key=True
+    )
+    accident_count: Mapped[float] = mapped_column(Float, nullable=False)
+    stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OsmImportRunRow(Base):
     """PBF取込バッチ（app/batch/import_pbf.py）の実行記録。
 

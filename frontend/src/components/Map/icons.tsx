@@ -38,8 +38,8 @@ export function RoadIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 交通ストレス: 注意喚起の三角＋感嘆符 */
-export function TrafficStressIcon({ size = 16 }: IconProps) {
+/** 車ストレス: 注意喚起の三角＋感嘆符 */
+export function CarStressIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
       <path d="M10 2 18.5 17H1.5L10 2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />

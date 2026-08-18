@@ -7,19 +7,19 @@ import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_TRAFFIC_STRESS_RECIPE,
-} from "@/components/Map/trafficStressExpression";
+  DEFAULT_CAR_STRESS_RECIPE,
+} from "@/components/Map/carStressExpression";
 import {
   BICYCLE_INFRA_LAYER_ID,
   SAFETY_LAYER_ID,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
-  TRAFFIC_STRESS_LAYER_ID,
+  CAR_STRESS_LAYER_ID,
   setStaticOverlayFilters,
 } from "./MapView";
 import type { StaticFilterAxisId } from "./staticAttributeLayers";
 
-// setStaticOverlayFilters（改善計画: 交通ストレスレシピ調整UIパネル）が読む最小限のmap
+// setStaticOverlayFilters（改善計画: 車ストレスレシピ調整UIパネル）が読む最小限のmap
 // フェイク。__rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
 // （MapView.dataStatus.test.tsのfakeMapと同じ発想）。
 function fakeMap() {
@@ -59,8 +59,8 @@ const DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY = [
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
 ] as const;
 
-describe("setStaticOverlayFilters（交通ストレスレシピの追従）", () => {
-  it("trafficStressレイヤーのフィルタは渡した道路適正レシピに追従する", () => {
+describe("setStaticOverlayFilters（車ストレスレシピの追従）", () => {
+  it("carStressレイヤーのフィルタは渡した道路適正レシピに追従する", () => {
     // base_by_highwayは道路適正レシピ側（改善計画: 車との近さ材料の共有元化）。
     const customRoadSuitabilityRecipe = {
       ...DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -68,30 +68,30 @@ describe("setStaticOverlayFilters（交通ストレスレシピの追従）", ()
     };
     // 「レベル1を隠す」絞り込み中に、highway=secondaryがどちらの側に分類されるかで
     // レシピが実際に効いているかを検証する。
-    const withHiddenLevel1 = hiddenKeys({ trafficStress: ["1"] });
+    const withHiddenLevel1 = hiddenKeys({ carStress: ["1"] });
 
     const mapDefault = fakeMap();
     setStaticOverlayFilters(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapDefault as any,
       withHiddenLevel1,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
-    const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === TRAFFIC_STRESS_LAYER_ID)!.filter;
+    const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === CAR_STRESS_LAYER_ID)!.filter;
 
     const mapCustom = fakeMap();
     setStaticOverlayFilters(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapCustom as any,
       withHiddenLevel1,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       customRoadSuitabilityRecipe,
       DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
-    const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === TRAFFIC_STRESS_LAYER_ID)!.filter;
+    const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === CAR_STRESS_LAYER_ID)!.filter;
 
     // 既定レシピ（secondary=3）で「レベル1を隠す」フィルタは、highway=secondaryを通す
     // （secondaryはレベル1ではないため）。customRecipe（secondary=1）では同じ
@@ -100,7 +100,7 @@ describe("setStaticOverlayFilters（交通ストレスレシピの追従）", ()
     expect(evaluateFilter(customFilter, { highway: "secondary" })).toBe(false);
   });
 
-  it("trafficStress以外の軸（bicycleInfra等）はレシピに影響されない", () => {
+  it("carStress以外の軸（bicycleInfra等）はレシピに影響されない", () => {
     const withHiddenProhibited = hiddenKeys({ bicycleInfra: ["prohibited"] });
 
     const mapDefault = fakeMap();
@@ -108,13 +108,13 @@ describe("setStaticOverlayFilters（交通ストレスレシピの追従）", ()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapDefault as any,
       withHiddenProhibited,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
     const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
 
-    const customRecipe = { ...DEFAULT_TRAFFIC_STRESS_RECIPE, lanes_low_adjustment: -3 };
+    const customRecipe = { ...DEFAULT_CAR_STRESS_RECIPE, lanes_low_adjustment: -3 };
     const mapCustom = fakeMap();
     setStaticOverlayFilters(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,7 +130,7 @@ describe("setStaticOverlayFilters（交通ストレスレシピの追従）", ()
   });
 });
 
-// 安全度も交通ストレスと同じ理由でレシピに追従する（改善計画: 安全度レシピ）。
+// 安全度も車ストレスと同じ理由でレシピに追従する（改善計画: 安全度レシピ）。
 describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
   it("safetyレイヤーのフィルタは渡した道路適正レシピに追従する", () => {
     const customRoadSuitabilityRecipe = {
@@ -144,7 +144,7 @@ describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapDefault as any,
       withHiddenLevel1,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
@@ -155,7 +155,7 @@ describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapCustom as any,
       withHiddenLevel1,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       customRoadSuitabilityRecipe,
       DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
@@ -177,7 +177,7 @@ describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapDefault as any,
       withHiddenProhibited,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
@@ -189,7 +189,7 @@ describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapCustom as any,
       withHiddenProhibited,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       customRecipe,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
@@ -210,7 +210,7 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map as any,
       hiddenKeys({}),
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
@@ -226,7 +226,7 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map as any,
       hiddenKeys({}),
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
@@ -244,7 +244,7 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map as any,
       withHiddenTrafficSignals,
-      DEFAULT_TRAFFIC_STRESS_RECIPE,
+      DEFAULT_CAR_STRESS_RECIPE,
       DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );

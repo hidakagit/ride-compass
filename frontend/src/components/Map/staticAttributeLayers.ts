@@ -1,14 +1,14 @@
 // 静的道路属性 P0（docs/static-road-attributes-plan.md）の新規レイヤー
-// （交通ストレス・自転車インフラ）、T54（既取込データの可視化漏れ解消）の
+// （車ストレス・自転車インフラ）、T54（既取込データの可視化漏れ解消）の
 // 停止要因POIレイヤー（交差点密度は同時に追加したがT96で地図可視化を撤去済み）、
 // 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 //
 // roadFilterAxes.tsの軸機構（複数の生タグ値を少数のグループへ束ねる、絞り込み可能・
 // 「路面」レイヤーの色分け軸として共有）とは異なり、これらはバックエンドが既に
-// 1つの分類値（traffic_stress=1-5の整数、bicycle_infra/kind=列挙文字列、
+// 1つの分類値（car_stress=1-5の整数、bicycle_infra/kind=列挙文字列、
 // involves_bicycle/fatal=真偽値）へ変換済みのプロパティのため、生値→グループの
 // 対応表は不要で単純なmatch/case式で足りる。
-// 交通ストレス・自転車インフラは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/
+// 車ストレス・自転車インフラは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/
 // ROAD_TILE_SOURCE_LAYERを共有）と同じソースの独立レイヤーだが、停止要因POI
 // （region-poi-tiles）・事故（region-accident-tiles）は点データのためそれぞれ別ソース
 // （MapView.tsx参照）になる。交差点密度（次数3以上のroad_node）はバックエンドの
@@ -18,7 +18,7 @@
 // legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
 // buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
 // 機械的展開するのではなく、レイヤーごとにアプリの目的（安全・快適なルート判断）に沿った軸を選ぶ:
-// - 交通ストレス・自転車インフラ・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
+// - 車ストレス・自転車インフラ・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
 //   直接選べるカテゴリ絞り込みがそのまま「車道混在の区間だけ」「踏切だけ」等のニーズに合う。
 // - 事故は当事者（自転車関連/その他）に加え、既に円の拡大で強調している重大度（死亡事故か否か）を
 //   独立した第2軸として持たせ、道路情報の「路面の種類×道路の種類」と同じAND絞り込みで
@@ -28,10 +28,10 @@ import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
 import { DEFAULT_SAFETY_RECIPE, buildSafetyExpression, type SafetyRecipe } from "./safetyExpression";
 import {
-  DEFAULT_TRAFFIC_STRESS_RECIPE,
-  buildTrafficStressExpression,
-  type TrafficStressRecipe,
-} from "./trafficStressExpression";
+  DEFAULT_CAR_STRESS_RECIPE,
+  buildCarStressExpression,
+  type CarStressRecipe,
+} from "./carStressExpression";
 
 const COLOR_UNKNOWN = "#9ca3af";
 
@@ -45,7 +45,7 @@ export interface CategoryDef {
 // （改善計画T82）。BICYCLE_INFRA/DESIGNATION/STOP_POIの3組が同じ骨格
 // （Object.fromEntries変換・["=="]フィルタ＋unknown用["!","has"]フォールバック・
 // ["match", ["coalesce",...]]色分け式）を逐語コピーしていたのを1箇所へ集約する。
-// TRAFFIC_STRESS（数値キー）・ACCIDENT（当事者/重大度の2値をcase式で直接書く方が
+// CAR_STRESS（数値キー）・ACCIDENT（当事者/重大度の2値をcase式で直接書く方が
 // 自然）は同型でないため対象外。
 function buildCategoricalLayerDefs(
   property: string,
@@ -78,15 +78,15 @@ function buildCategoricalLayerDefs(
 }
 
 // LTS(Level of Traffic Stress)風の1-5段階。1=快適(緑)〜5=ストレス大(赤)。
-// backend/app/domain/traffic.py: traffic_stress_levelと同じ意味論（1-5の整数、算出不能はNone）。
-// exportしているのはTrafficStressRecipePanel（改善計画: レシピ入力フォームの改善）が
+// backend/app/domain/traffic.py: car_stress_levelと同じ意味論（1-5の整数、算出不能はNone）。
+// exportしているのはCarStressRecipePanel（改善計画: レシピ入力フォームの改善）が
 // 基準値の選択UI（低→高のレベルピッカー）の色・段階数をここから導出し、地図の色分けと
 // 常に一致させるため。段階数をさらに増やす場合もここへキーを追加するだけで両方に反映される。
-// 改善計画（交通ストレス5段階化）: 実データ実測で旧上限4にraw値5〜7が丸め込まれ、
+// 改善計画（車ストレス5段階化）: 実データ実測で旧上限4にraw値5〜7が丸め込まれ、
 // primary/trunk/指定路線（N10/N12）の悪化要因が地図上で見分けられなくなっていたため
 // 4→5へ拡張した。旧レベル4の色（赤）は新レベル5（最悪）へ引き継ぎ、新レベル4には
 // 中間色（オレンジ）を割り当てた。
-export const TRAFFIC_STRESS_COLORS: Record<number, string> = {
+export const CAR_STRESS_COLORS: Record<number, string> = {
   1: "#16a34a",
   2: "#84cc16",
   3: "#f59e0b",
@@ -94,26 +94,26 @@ export const TRAFFIC_STRESS_COLORS: Record<number, string> = {
   5: "#dc2626",
 };
 
-// 交通ストレスの最終値は（改善計画: 交通ストレスレシピ外出し基盤により）タイルへ計算済みの
+// 車ストレスの最終値は（改善計画: 車ストレスレシピ外出し基盤により）タイルへ計算済みの
 // 値として焼き込まれておらず、材料タグ（highway/cycleway_class/maxspeed_kmh/lanes_count/
 // designation/motor_vehicle_no）からMapLibre expressionとして計算する
-// （trafficStressExpression.ts参照）。レシピ（研究モードで上書き可能、改善計画:
-// 交通ストレスレシピ調整UIパネル）ごとに凡例・色分け式が変わるため関数化してある。
-// 既定レシピ（DEFAULT_TRAFFIC_STRESS_RECIPE）を渡す限り見た目は従来と同一。
+// （carStressExpression.ts参照）。レシピ（研究モードで上書き可能、改善計画:
+// 車ストレスレシピ調整UIパネル）ごとに凡例・色分け式が変わるため関数化してある。
+// 既定レシピ（DEFAULT_CAR_STRESS_RECIPE）を渡す限り見た目は従来と同一。
 
 // 「不明・他」が1〜5と並ぶ6番目の数値段階に見え「1〜6評価」と誤解されるという実機
 // フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
 // MapOverlayControls）に区切り線＋弱調表示させる。
-export function buildTrafficStressLegend(
-  recipe: TrafficStressRecipe,
-  levelExpression: unknown[] = buildTrafficStressExpression(recipe),
+export function buildCarStressLegend(
+  recipe: CarStressRecipe,
+  levelExpression: unknown[] = buildCarStressExpression(recipe),
 ): LegendEntry[] {
   return [
-    { key: "1", label: "1[快適]", color: TRAFFIC_STRESS_COLORS[1], filter: ["==", levelExpression, 1] },
-    { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
-    { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", levelExpression, 3] },
-    { key: "4", label: "4[注意]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
-    { key: "5", label: "5[圧迫大]", color: TRAFFIC_STRESS_COLORS[5], filter: ["==", levelExpression, 5] },
+    { key: "1", label: "1[快適]", color: CAR_STRESS_COLORS[1], filter: ["==", levelExpression, 1] },
+    { key: "2", label: "2[やや快適]", color: CAR_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
+    { key: "3", label: "3[やや注意]", color: CAR_STRESS_COLORS[3], filter: ["==", levelExpression, 3] },
+    { key: "4", label: "4[注意]", color: CAR_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
+    { key: "5", label: "5[圧迫大]", color: CAR_STRESS_COLORS[5], filter: ["==", levelExpression, 5] },
     {
       key: "unknown",
       label: "不明・他[判定対象外の道路種別]",
@@ -124,43 +124,43 @@ export function buildTrafficStressLegend(
   ];
 }
 
-// buildTrafficStressExpressionは判定対象外を-1で返す（trafficStressExpression.ts参照）ため、
-// 従来の`coalesce(get("traffic_stress"), -1)`と同じ形でmatchできる。
+// buildCarStressExpressionは判定対象外を-1で返す（carStressExpression.ts参照）ため、
+// 従来の`coalesce(get("car_stress"), -1)`と同じ形でmatchできる。
 // levelExpressionを省略した場合はrecipeから自前で計算する（単体呼び出し・モジュール直下の
-// TRAFFIC_STRESS_COLOR_EXPRESSION定数用）。呼び出し元がbuildTrafficStressLegendと同じ
+// CAR_STRESS_COLOR_EXPRESSION定数用）。呼び出し元がbuildCarStressLegendと同じ
 // レシピで両方組み立てる場合は、二重計算を避けるため計算済みの式を渡すこと
 // （MapView.tsx: setStaticOverlayFiltersを参照）。
-export function buildTrafficStressColorExpression(
-  recipe: TrafficStressRecipe,
-  levelExpression: unknown[] = buildTrafficStressExpression(recipe),
+export function buildCarStressColorExpression(
+  recipe: CarStressRecipe,
+  levelExpression: unknown[] = buildCarStressExpression(recipe),
 ): unknown[] {
   return [
     "match",
     levelExpression,
     1,
-    TRAFFIC_STRESS_COLORS[1],
+    CAR_STRESS_COLORS[1],
     2,
-    TRAFFIC_STRESS_COLORS[2],
+    CAR_STRESS_COLORS[2],
     3,
-    TRAFFIC_STRESS_COLORS[3],
+    CAR_STRESS_COLORS[3],
     4,
-    TRAFFIC_STRESS_COLORS[4],
+    CAR_STRESS_COLORS[4],
     5,
-    TRAFFIC_STRESS_COLORS[5],
+    CAR_STRESS_COLORS[5],
     COLOR_UNKNOWN,
   ];
 }
 
-export const TRAFFIC_STRESS_LEGEND: LegendEntry[] = buildTrafficStressLegend(DEFAULT_TRAFFIC_STRESS_RECIPE);
+export const CAR_STRESS_LEGEND: LegendEntry[] = buildCarStressLegend(DEFAULT_CAR_STRESS_RECIPE);
 
-export const TRAFFIC_STRESS_COLOR_EXPRESSION: unknown[] = buildTrafficStressColorExpression(
-  DEFAULT_TRAFFIC_STRESS_RECIPE,
+export const CAR_STRESS_COLOR_EXPRESSION: unknown[] = buildCarStressColorExpression(
+  DEFAULT_CAR_STRESS_RECIPE,
 );
 
 // 安全度（1-4、客観的な事故・怪我リスク）の色分け定義（改善計画: 安全度レシピ）。
-// TRAFFIC_STRESS_COLORSと同じ1-4段階の構造だが、快適性（交通ストレス）とは別概念のため
+// CAR_STRESS_COLORSと同じ1-4段階の構造だが、快適性（車ストレス）とは別概念のため
 // 地図上で混同しないよう色相をずらす（緑〜赤ではなくteal→olive→orange→dark-redの配色）。
-// SafetyRecipePanel（交通ストレスのStressLevelPickerと同じ発想）が基準値ピッカーの色・
+// SafetyRecipePanel（車ストレスのStressLevelPickerと同じ発想）が基準値ピッカーの色・
 // 段階数をここから導出し、地図の色分けと常に一致させる。
 export const SAFETY_COLORS: Record<number, string> = {
   1: "#0d9488",
@@ -170,8 +170,8 @@ export const SAFETY_COLORS: Record<number, string> = {
 };
 
 // 安全度の最終値もタイルへ計算済みの値として焼き込まれておらず（改善計画: 安全度レシピ、
-// 交通ストレスと同じ理由）、材料タグからMapLibre expressionとして計算する
-// （safetyExpression.ts参照）。buildTrafficStressLegend/buildTrafficStressColorExpressionと
+// 車ストレスと同じ理由）、材料タグからMapLibre expressionとして計算する
+// （safetyExpression.ts参照）。buildCarStressLegend/buildCarStressColorExpressionと
 // 同じ構造。
 export function buildSafetyLegend(
   recipe: SafetyRecipe,
@@ -329,7 +329,7 @@ const STOP_POI_CATEGORIES: CategoryDef[] = [
 
 // osm_raw_pois.kindは取込時にclassify_stop_poiで5値のいずれかへ分類済みのため実際には
 // unknown（プロパティ欠落）は出現しない想定だが、match式のフォールバック（COLOR_UNKNOWN）
-// と対にして凡例側にも残す（trafficStress/bicycleInfraと同じ「不明・他」の扱い）。
+// と対にして凡例側にも残す（carStress/bicycleInfraと同じ「不明・他」の扱い）。
 const stopPoiDefs = buildCategoricalLayerDefs("kind", STOP_POI_CATEGORIES, "不明・他");
 
 export const STOP_POI_LABELS: Record<string, string> = stopPoiDefs.labels;
@@ -365,7 +365,7 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c)
 // 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
 export type StaticFilterAxisId =
-  | "trafficStress"
+  | "carStress"
   | "safety"
   | "bicycleInfra"
   | "designation"
@@ -388,7 +388,7 @@ export interface StaticFilterAxis {
 }
 
 export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
-  { axisId: "trafficStress", layerId: "trafficStress", legend: TRAFFIC_STRESS_LEGEND },
+  { axisId: "carStress", layerId: "carStress", legend: CAR_STRESS_LEGEND },
   { axisId: "safety", layerId: "safety", legend: SAFETY_LEGEND },
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },

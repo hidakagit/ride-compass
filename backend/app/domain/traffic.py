@@ -10,10 +10,10 @@ MVT生成（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL）はbicycle_in
 無いため、判定ロジック自体はやむを得ず2箇所に存在するが、同じ入力に対し常に同じ出力になる
 ことをテストで担保する）。
 
-交通ストレス（traffic_stress_breakdown/traffic_stress_level）は改善計画（交通ストレスレシピ
-外出し基盤）以降、SQL側では最終値を計算しない（材料タグのみ焼き込み、最終値の計算は
-frontend/src/components/Map/trafficStressExpression.tsとこのモジュールがそれぞれ担う）。
-両者の整合はtrafficStressExpression.test.tsが担保する。
+車ストレス（car_stress_breakdown/car_stress_level、改善計画T150で「交通ストレス」から改称）は
+改善計画（交通ストレスレシピ外出し基盤）以降、SQL側では最終値を計算しない（材料タグのみ
+焼き込み、最終値の計算はfrontend/src/components/Map/carStressExpression.tsとこのモジュールが
+それぞれ担う）。両者の整合はcarStressExpression.test.tsが担保する。
 """
 
 from typing import Literal
@@ -82,10 +82,10 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
     """自転車インフラ分類（優先順位: separated＞lane＞shared_busway等＞shared_pedestrian＞
     roadway/prohibited＞unknown。計画書§2.4）。
 
-    cycleway/cycleway:left/right/bothタグは`traffic_stress_level`（本モジュール）でも
+    cycleway/cycleway:left/right/bothタグは`car_stress_level`（本モジュール）でも
     「専用自転車道の有無」の補正に使われている（trackなら-2、laneなら-1）。同じ入力を
-    別目的で解釈しているため、bicycle_infra_score（本分類ベース）とtraffic_stress_score
-    （交通ストレス）は完全には独立ではなく、専用自転車道が併設された区間では両方が
+    別目的で解釈しているため、bicycle_infra_score（本分類ベース）とcar_stress_score
+    （車ストレス）は完全には独立ではなく、専用自転車道が併設された区間では両方が
     同時に「易しい」側へ動く（改善計画T62、意図的な設計でありバグではない）。
     """
     values = cycleway_values(tags)
@@ -106,20 +106,21 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
     return "unknown"
 
 
-class TrafficStressRecipe(BaseModel):
-    """`traffic_stress_breakdown`の判定基準のうち、交通ストレス軸だけが持つ補正
+class CarStressRecipe(BaseModel):
+    """`car_stress_breakdown`の判定基準のうち、車ストレス軸だけが持つ補正
     （対面通行の少車線道路への緩和）をまとめた「レシピ」。一次情報（OSMタグ）から
-    二次情報（交通ストレス値）を作る変換式の、この軸固有の部分。
+    二次情報（車ストレス値）を作る変換式の、この軸固有の部分（改善計画T150で
+    `TrafficStressRecipe`/「交通ストレス」から改称）。
 
     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
-    「車との近さ」（N2）として交通ストレス・安全度が共有する（`domain/recipe.py:
+    「車との近さ」（N2）として車ストレス・安全度が共有する（`domain/recipe.py:
     RoadSuitabilityRecipe`/`MotorVehicleDensityRecipe`/`car_closeness()`、改善計画:
     車との近さ材料の共有元化）ため、ここには含まない。
 
-    既定値（`DEFAULT_TRAFFIC_STRESS_RECIPE`）は研究フェーズでのレシピ調整・将来の
+    既定値（`DEFAULT_CAR_STRESS_RECIPE`）は研究フェーズでのレシピ調整・将来の
     個人最適化に向けて外側の`RoutePreference`（軸間の重み）とは別に、この「軸の中身」
     自体をリクエスト単位で上書きできるようにするための切り出し（地図表示側は
-    `frontend/src/components/Map/trafficStressExpression.ts`が同じレシピをMapLibre
+    `frontend/src/components/Map/carStressExpression.ts`が同じレシピをMapLibre
     expressionとして再現する）。
     """
 
@@ -127,7 +128,7 @@ class TrafficStressRecipe(BaseModel):
     lanes_low_adjustment: int = -1
 
 
-DEFAULT_TRAFFIC_STRESS_RECIPE = TrafficStressRecipe()
+DEFAULT_CAR_STRESS_RECIPE = CarStressRecipe()
 
 
 StopPoiKind = Literal["traffic_signals", "crossing", "stop", "give_way", "level_crossing"]
@@ -245,11 +246,12 @@ def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]
     return round(dedicated / known * 100, 1)
 
 
-class TrafficStressBreakdown(BaseModel):
-    """`traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に
-    「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と
-    同じ最終値。highwayが判定基準（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に
-    登録されていない場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
+class CarStressBreakdown(BaseModel):
+    """`car_stress_level`の判定内訳（改善計画T90、T150で「交通ストレス」から改称）。
+    地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データで、
+    `level`は`car_stress_level`と同じ最終値。highwayが判定基準
+    （`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に登録されていない場合は
+    `base`/`level`ともNoneで、他の補正フィールドは0/False。
     """
 
     base: int | None
@@ -261,30 +263,30 @@ class TrafficStressBreakdown(BaseModel):
     level: int | None
 
 
-def traffic_stress_breakdown(
+def car_stress_breakdown(
     highway: str | None,
     tags: dict[str, str],
     is_designated: bool = False,
-    recipe: TrafficStressRecipe | None = None,
+    recipe: CarStressRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     *,
     car_closeness_result: tuple[int | None, int, int, int, int] | None = None,
-) -> TrafficStressBreakdown:
-    """交通ストレス（LTS: Level of Traffic Stress風の1-5段階。「交通量」ではなく
-    「推定交通ストレス」、計画書§2.4）を、各補正の適用有無・量が分かる内訳付きで返す。
-    基本値はhighwayのみで決まり、未知のhighwayはNone（評価しない）。補正はタグが
-    実際にある場合のみ適用する（unknownは補正しない）。
+) -> CarStressBreakdown:
+    """車ストレス（旧「交通ストレス」、LTS: Level of Traffic Stress風の1-5段階。
+    「交通量」ではなく「推定される車との近接ストレス」、計画書§2.4）を、各補正の
+    適用有無・量が分かる内訳付きで返す。基本値はhighwayのみで決まり、未知のhighwayは
+    None（評価しない）。補正はタグが実際にある場合のみ適用する（unknownは補正しない）。
 
-    `recipe`省略時は`DEFAULT_TRAFFIC_STRESS_RECIPE`を使う。`road_suitability_recipe`/
+    `recipe`省略時は`DEFAULT_CAR_STRESS_RECIPE`を使う。`road_suitability_recipe`/
     `motor_vehicle_density_recipe`は省略時それぞれ`DEFAULT_ROAD_SUITABILITY_RECIPE`/
     `DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE`（改善計画: 車との近さ材料の共有元化。
     この2つは安全度側と共有する「車との近さ」(N2)の材料で、`recipe`
-    [`TrafficStressRecipe`]はこの軸固有の少車線道路補正のみを持つ）。
+    [`CarStressRecipe`]はこの軸固有の少車線道路補正のみを持つ）。
 
     `car_closeness_result`は`car_closeness()`の呼び出し結果を呼び出し側で事前計算済みの
     場合に渡す（`domain/evaluation.py: compute_edge_cost`参照）。同じ材料タグ・同じ
-    レシピに対してcar_closeness()は`traffic_stress_breakdown`/`safety_breakdown`の両方から
+    レシピに対してcar_closeness()は`car_stress_breakdown`/`safety_breakdown`の両方から
     毎回独立に呼ばれ、ルート生成の全Edgeに対して計算結果が完全に重複していたため
     （1Edgeにつき2回計算していた無駄を解消）、省略時のみ内部で`car_closeness()`を呼ぶ。
 
@@ -292,10 +294,10 @@ def traffic_stress_breakdown(
     解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
 
     `is_designated`はKSJ N10（緊急輸送道路）・N12（重要物流道路）への該当（外部静的
-    データソース T51、`domain/designation.py: TRAFFIC_STRESS_DESIGNATION_KINDS`）。
+    データソース T51、`domain/designation.py: CAR_STRESS_DESIGNATION_KINDS`）。
     大型車交通の代理指標として+1する（既存クランプ内、motor_vehicle=noの固定1より後段）。
     road_graph_repository.pyのMVT生成CASE式と1:1対応させる（test_road_graph_repository.pyの
-    整合性テストで担保。判定ロジックの実装自体はここ1箇所にまとめ、`traffic_stress_level`は
+    整合性テストで担保。判定ロジックの実装自体はここ1箇所にまとめ、`car_stress_level`は
     `level`だけを取り出す薄いラッパーにすることで二重実装を避ける）。
 
     採用している入力は一貫して「この区間で自動車とどれだけ近く・速く・多く接するか」という
@@ -305,7 +307,7 @@ def traffic_stress_breakdown(
     ここへは合成せず別軸（`distance_weighted_stop_density`・`distance_weighted_intersection_density`、
     それぞれ独立した重みでユーザーが調整できる）のまま残している（改善計画T92で明文化）。
     """
-    recipe = recipe or DEFAULT_TRAFFIC_STRESS_RECIPE
+    recipe = recipe or DEFAULT_CAR_STRESS_RECIPE
     road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
     motor_vehicle_density_recipe = motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
 
@@ -317,7 +319,7 @@ def traffic_stress_breakdown(
         highway, tags, is_designated, road_suitability_recipe, motor_vehicle_density_recipe
     )
     if base is None:
-        return TrafficStressBreakdown(
+        return CarStressBreakdown(
             base=None,
             cycleway_adjustment=0,
             maxspeed_adjustment=0,
@@ -329,7 +331,7 @@ def traffic_stress_breakdown(
 
     # motor_vehicle=no（自転車可）は他の補正に関わらず1に固定（計画書§2.4）。
     if tag_value_is(tags, "motor_vehicle", "no"):
-        return TrafficStressBreakdown(
+        return CarStressBreakdown(
             base=base,
             cycleway_adjustment=0,
             maxspeed_adjustment=0,
@@ -341,7 +343,7 @@ def traffic_stress_breakdown(
 
     # 改善計画T92: 対面通行の1車線（センターラインなし等）は車の追い越し・すれ違いの
     # 圧迫感が少なく、4車線以上の+1（lanes_high_adj、car_closeness()由来）と対称に
-    # 既定-1する（lanes_low、交通ストレス軸のみが持つ補正。安全度は不採用）。
+    # 既定-1する（lanes_low、車ストレス軸のみが持つ補正。安全度は不採用）。
     #
     # lanes_lowは「車道を自転車と自動車が共有している」ことを前提にした補正のため、
     # 分離自転車道（cycleway_class=="track"）がある区間では該当しない（自転車は
@@ -359,7 +361,7 @@ def traffic_stress_breakdown(
     lanes_low_adj = threshold_adjustment(parse_lanes(tags), lanes_low_threshold, recipe.lanes_low_adjustment, None, 0)
     lanes_adj = lanes_high_adj + lanes_low_adj
 
-    # 改善計画（交通ストレス5段階化）: 実データ実測（dev DB、39,857way・5,737.6km）で、
+    # 改善計画（車ストレス5段階化）: 実データ実測（dev DB、39,857way・5,737.6km）で、
     # クランプ前の生値がraw>=5に8.3%（way数）/9.3%（距離）集中しており、primary/trunk/
     # 指定路線（N10/N12）で従来level4に丸め込まれ区別できなくなっていたことを確認した。
     # 上限を4→5へ拡張し、この区間を独立したlevel5として可視化する（下限1は変更なし。
@@ -367,7 +369,7 @@ def traffic_stress_breakdown(
     # 無いため据え置き）。
     level = clamp_level(base + cycleway_adj + maxspeed_adj + lanes_adj + designation_adj, 1, 5)
 
-    return TrafficStressBreakdown(
+    return CarStressBreakdown(
         base=base,
         cycleway_adjustment=cycleway_adj,
         maxspeed_adjustment=maxspeed_adj,
@@ -378,16 +380,16 @@ def traffic_stress_breakdown(
     )
 
 
-def traffic_stress_tile_ingredients(
+def car_stress_tile_ingredients(
     highway: str | None, tags: dict[str, str], is_designated: bool = False
 ) -> dict[str, object]:
-    """交通ストレスの材料タグを、road-surface-tilesのMVTが実際に焼き込むプロパティと
+    """車ストレスの材料タグを、road-surface-tilesのMVTが実際に焼き込むプロパティと
     同じ形（キー名・値の有無）で返す。`export_openapi.py`が書き出す相互検証フィクスチャ
-    （traffic-stress-test-cases.json、フロントのtrafficStressExpression.test.tsが読む）専用。
+    （car-stress-test-cases.json、フロントのcarStressExpression.test.tsが読む）専用。
     `_ROAD_SURFACE_TILE_MVT_SQL`同様、値がNoneの項目はキーごと省略する
     （ST_AsMVTがNULLプロパティを省略する挙動に合わせ、`["has", ...]`判定を正しく再現するため）。
     designationは実際は`emergency_transport`/`critical_logistics`/`both`の3値を取るが、
-    交通ストレスへの補正は「該当するか否か」しか見ないため、ここでは代表して
+    車ストレスへの補正は「該当するか否か」しか見ないため、ここでは代表して
     `emergency_transport`のみを使う。
     """
     ingredients: dict[str, object] = {}
@@ -409,19 +411,19 @@ def traffic_stress_tile_ingredients(
     return ingredients
 
 
-def traffic_stress_level(
+def car_stress_level(
     highway: str | None,
     tags: dict[str, str],
     is_designated: bool = False,
-    recipe: TrafficStressRecipe | None = None,
+    recipe: CarStressRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     *,
     car_closeness_result: tuple[int | None, int, int, int, int] | None = None,
 ) -> int | None:
-    """交通ストレス（1-5段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
-    docstringは`traffic_stress_breakdown`参照。"""
-    return traffic_stress_breakdown(
+    """車ストレス（1-5段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
+    docstringは`car_stress_breakdown`参照。"""
+    return car_stress_breakdown(
         highway,
         tags,
         is_designated,

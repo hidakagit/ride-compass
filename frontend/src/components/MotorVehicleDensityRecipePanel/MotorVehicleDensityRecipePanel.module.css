@@ -1,4 +1,4 @@
-/* TrafficStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
+/* CarStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
    共通クラスを再利用する（改善計画: 車との近さ材料の共有元化）。ScalarInput/
    ThresholdAdjustmentRowが使う.field/.input/.infoTooltip/.pairControls/.thresholdInline等は
    recipeControls.tsx/recipeControls.module.cssへ集約したため、このファイルからは撤去した
