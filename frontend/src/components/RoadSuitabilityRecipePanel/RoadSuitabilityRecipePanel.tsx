@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { AdjustmentStepper, FieldLabel, LevelPicker } from "@/components/Map/recipeControls";
+import {
+  ScalarInput,
+  FieldLabel,
+  LevelPicker,
+  adjustmentEndpointColors,
+  type ScalarFieldDescriptor,
+} from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
 import { DEFAULT_ROAD_SUITABILITY_RECIPE, type RoadSuitabilityRecipe } from "@/components/Map/trafficStressExpression";
 import styles from "./RoadSuitabilityRecipePanel.module.css";
@@ -22,19 +28,13 @@ interface RoadSuitabilityRecipePanelProps {
 
 type ScalarKey = Exclude<keyof RoadSuitabilityRecipe, "base_by_highway">;
 
-interface ScalarField {
-  key: ScalarKey;
-  label: string;
-  description: string;
-}
-
 // このパネルは独自の地図レイヤーを持たないため（道路適正は交通ストレス・安全度の材料に
 // とどまる）、配色はTRAFFIC_STRESS_COLORSを流用する（TrafficStressRecipePanel.tsxと
 // 同じ配色にすることで「元は交通ストレスパネルの一部だった」という連続性も保つ）。
 // ROAD_SUITABILITY_BASE_BY_HIGHWAYの値域は1〜4のため、5段階目は使わない。
 const ROAD_SUITABILITY_LEVELS = [1, 2, 3, 4];
 
-const CYCLEWAY_FIELDS: ScalarField[] = [
+const CYCLEWAY_FIELDS: ScalarFieldDescriptor<RoadSuitabilityRecipe, ScalarKey>[] = [
   {
     key: "cycleway_track_adjustment",
     label: "専用レーンの補正",
@@ -94,36 +94,11 @@ const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
 
 const HIGHWAY_ORDER = Object.keys(DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway);
 
-const ADJUSTMENT_NEGATIVE_COLOR = TRAFFIC_STRESS_COLORS[ROAD_SUITABILITY_LEVELS[0]];
-const ADJUSTMENT_POSITIVE_COLOR = TRAFFIC_STRESS_COLORS[ROAD_SUITABILITY_LEVELS[ROAD_SUITABILITY_LEVELS.length - 1]];
-
-function ScalarInput({
-  field,
-  recipe,
-  onChange,
-}: {
-  field: ScalarField;
-  recipe: RoadSuitabilityRecipe;
-  onChange: (recipe: RoadSuitabilityRecipe) => void;
-}) {
-  const [infoOpen, setInfoOpen] = useState(false);
-  const value = recipe[field.key];
-  return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <AdjustmentStepper
-          label={field.label}
-          value={value}
-          onChange={(next) => onChange({ ...recipe, [field.key]: next })}
-          negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-          positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-        />
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
-  );
-}
+const { negativeColor: ADJUSTMENT_NEGATIVE_COLOR, positiveColor: ADJUSTMENT_POSITIVE_COLOR } = adjustmentEndpointColors(
+  TRAFFIC_STRESS_COLORS,
+  ROAD_SUITABILITY_LEVELS[0],
+  ROAD_SUITABILITY_LEVELS[ROAD_SUITABILITY_LEVELS.length - 1],
+);
 
 function HighwayRow({
   highway,
@@ -225,7 +200,14 @@ export default function RoadSuitabilityRecipePanel({
             </summary>
             <div className={styles.groupBody}>
               {CYCLEWAY_FIELDS.map((field) => (
-                <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
+                <ScalarInput
+                  key={field.key}
+                  field={field}
+                  recipe={recipe}
+                  onChange={onRecipeChange}
+                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+                />
               ))}
             </div>
           </details>

@@ -1,7 +1,9 @@
 /* TrafficStressRecipePanel.module.cssと同じcomposes方式でWeightPanel.module.cssの
    共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/.groupChevron/.groupBody/
-   .field/.input/.resetButton）を再利用し、base_by_highway用のテーブル表示
-   （.table/.tableLabel）だけをここに追加する（改善計画: 車との近さ材料の共有元化）。 */
+   .resetButton）を再利用し、base_by_highway用のテーブル表示（.table/.tableLabel）だけを
+   ここに追加する（改善計画: 車との近さ材料の共有元化）。ScalarInputが使う.field/.input/
+   .infoTooltipはrecipeControls.tsx/recipeControls.module.cssへ集約したため、このファイル
+   からは撤去した（レビュー指摘: 4パネルへの重複定義を解消）。 */
 
 .panel {
   composes: panel from "../WeightPanel/WeightPanel.module.css";
@@ -33,15 +35,6 @@
   gap: 0.3rem;
 }
 
-.field {
-  composes: field from "../WeightPanel/WeightPanel.module.css";
-  flex-wrap: wrap;
-}
-
-.input {
-  composes: input from "../WeightPanel/WeightPanel.module.css";
-}
-
 .resetButton {
   composes: resetButton from "../WeightPanel/WeightPanel.module.css";
 }
@@ -70,13 +63,6 @@
 .tableLabelFieldLabel {
   flex-shrink: 1;
   white-space: normal;
-}
-
-.infoTooltip {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
 }
 
 .infoTooltipCell {

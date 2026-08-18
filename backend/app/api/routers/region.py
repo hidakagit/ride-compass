@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.api.dependencies import client_id, get_region_service
 from app.api.routers.routes import (
@@ -11,6 +11,7 @@ from app.api.routers.routes import (
     RoadSuitabilityRecipeOverride,
     SafetyRecipeOverride,
     TrafficStressRecipeOverride,
+    validate_lanes_threshold_order,
 )
 from app.config import settings
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
@@ -156,6 +157,11 @@ class TrafficStressBreakdownRequest(BaseModel):
     # DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPEで計算する。
     road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
+
+    @model_validator(mode="after")
+    def _check_lanes_threshold_order(self) -> "TrafficStressBreakdownRequest":
+        validate_lanes_threshold_order(self.traffic_stress_recipe, self.motor_vehicle_density_recipe)
+        return self
 
 
 @router.post("/api/region/traffic-stress-breakdown")

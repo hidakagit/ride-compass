@@ -46,7 +46,11 @@ from app.config import settings  # noqa: E402
 from app.domain.recipe import ROAD_SUITABILITY_BASE_BY_HIGHWAY  # noqa: E402
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M  # noqa: E402
 from app.domain.traffic import traffic_stress_level  # noqa: E402
-from app.services.evaluation_service import load_traffic_stress_recipe  # noqa: E402
+from app.services.evaluation_service import (  # noqa: E402
+    load_motor_vehicle_density_recipe,
+    load_road_suitability_recipe,
+    load_traffic_stress_recipe,
+)
 
 from measure_axis_stats import pearson_correlation, spearman_correlation  # noqa: E402
 
@@ -186,6 +190,12 @@ async def main(database_url: str | None = None) -> int:
         return 1
 
     recipe = load_traffic_stress_recipe()
+    # 交通ストレスが参照する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の共有元化）。
+    # 省略するとtraffic_stress_levelがハードコードのDEFAULT_*へ静かにフォールバックし、
+    # road_suitability_recipe.yaml/motor_vehicle_density_recipe.yamlを編集した較正実験が
+    # 反映されないため、recipeと同様にYAMLから読む。
+    road_suitability_recipe = load_road_suitability_recipe()
+    motor_vehicle_density_recipe = load_motor_vehicle_density_recipe()
     level_volume_rows: list[tuple[int | None, float]] = []
     unmatched_volume_stations = 0
     for station_id, highway, tags, is_designated in matches:
@@ -193,7 +203,9 @@ async def main(database_url: str | None = None) -> int:
         if volume is None:
             unmatched_volume_stations += 1
             continue
-        level = traffic_stress_level(highway, tags, is_designated, recipe)
+        level = traffic_stress_level(
+            highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
+        )
         level_volume_rows.append((level, volume))
 
     if unmatched_volume_stations:

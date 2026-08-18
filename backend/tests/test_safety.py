@@ -14,6 +14,13 @@ class TestSafetyLevel:
     def test_residential_base_is_2(self):
         assert safety_level("residential", {}) == 2
 
+    def test_living_street_base_is_1(self):
+        # 改善計画: 車との近さ材料の共有元化でROAD_SUITABILITY_BASE_BY_HIGHWAYへ統合された
+        # 際も安全度側のliving_street基準値は旧来どおり1のまま変わっていない（変わったのは
+        # 交通ストレス側の旧2→1、test_traffic.py: test_living_street_base_is_1参照）。
+        # 両軸のend-to-end値を対で明示的にピン留めしておく。
+        assert safety_level("living_street", {}) == 1
+
     def test_tertiary_base_is_3(self):
         # 改善計画T121: 事故密度実測（residential/unclassifiedより明確に高くsecondaryに
         # 近いlanes/maxspeed分布）を根拠に2から引き上げ。

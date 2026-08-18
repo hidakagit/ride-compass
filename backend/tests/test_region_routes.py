@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_region_service
 from app.config import settings
-from app.domain.traffic import TrafficStressBreakdown
+from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe
 from app.infrastructure import rate_limiter
 from app.main import app
 
@@ -225,6 +225,28 @@ def test_region_traffic_stress_breakdown_rejects_non_integer_osm_way_id():
 
     try:
         response = client.post("/api/region/traffic-stress-breakdown", json={"osm_way_id": "not-a-number"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+def test_region_traffic_stress_breakdown_rejects_inverted_lanes_thresholds_across_recipes():
+    # lanes_low_threshold(traffic_stress_recipe)とlanes_high_threshold
+    # (motor_vehicle_density_recipe、省略時は既定値4)は別モデルに分かれているため、
+    # routes.py: validate_lanes_threshold_order（TrafficStressBreakdownRequest.
+    # model_validator経由）が両モデルを跨いで検証することを確認する
+    # （test_routes_generate.pyの同種テストと対の回帰テスト）。
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+
+    try:
+        response = client.post(
+            "/api/region/traffic-stress-breakdown",
+            json={
+                "osm_way_id": 12345,
+                "traffic_stress_recipe": {**TrafficStressRecipe().model_dump(), "lanes_low_threshold": 5},
+            },
+        )
     finally:
         app.dependency_overrides.clear()
 

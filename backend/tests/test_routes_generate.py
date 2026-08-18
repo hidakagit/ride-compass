@@ -293,6 +293,13 @@ def _lightweight_generation_builder():
                 "maxspeed_high_threshold": 30,
             }
         },
+        # レビュー指摘の回帰テスト: lanes_low_threshold(TrafficStressRecipeOverride)と
+        # lanes_high_threshold(MotorVehicleDensityRecipeOverride)は別モデルに分かれて
+        # いるため、単体のmodel_validatorでは検証できない。routes.py:
+        # validate_lanes_threshold_order（RouteGenerateRequest.model_validator経由）が
+        # 両モデルを跨いで検証することを確認する。motor_vehicle_density_recipeは省略し、
+        # 既定値(lanes_high_threshold=4)への暗黙フォールバックも含めて検証する。
+        {"traffic_stress_recipe": {**TrafficStressRecipe().model_dump(), "lanes_low_threshold": 5}},
     ],
 )
 def test_generate_routes_rejects_invalid_request_body(overrides):

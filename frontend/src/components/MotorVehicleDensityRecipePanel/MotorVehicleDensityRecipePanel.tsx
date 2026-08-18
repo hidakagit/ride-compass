@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { AdjustmentStepper, FieldLabel } from "@/components/Map/recipeControls";
+import {
+  ScalarInput,
+  ThresholdAdjustmentRow,
+  adjustmentEndpointColors,
+  type ScalarFieldDescriptor,
+  type ThresholdAdjustmentFieldDescriptor,
+} from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
@@ -25,24 +30,13 @@ interface MotorVehicleDensityRecipePanelProps {
 
 type ScalarKey = keyof MotorVehicleDensityRecipe;
 
-interface ScalarField {
-  key: ScalarKey;
-  label: string;
-  description: string;
-}
+const { negativeColor: ADJUSTMENT_NEGATIVE_COLOR, positiveColor: ADJUSTMENT_POSITIVE_COLOR } = adjustmentEndpointColors(
+  TRAFFIC_STRESS_COLORS,
+  1,
+  5,
+);
 
-interface ThresholdAdjustmentField {
-  thresholdKey: ScalarKey;
-  adjustmentKey: ScalarKey;
-  label: string;
-  description: string;
-  thresholdSuffix: string;
-}
-
-const ADJUSTMENT_NEGATIVE_COLOR = TRAFFIC_STRESS_COLORS[1];
-const ADJUSTMENT_POSITIVE_COLOR = TRAFFIC_STRESS_COLORS[5];
-
-const MAXSPEED_PAIRS: ThresholdAdjustmentField[] = [
+const MAXSPEED_PAIRS: ThresholdAdjustmentFieldDescriptor<MotorVehicleDensityRecipe, ScalarKey, ScalarKey>[] = [
   {
     thresholdKey: "maxspeed_low_threshold",
     adjustmentKey: "maxspeed_low_adjustment",
@@ -59,7 +53,7 @@ const MAXSPEED_PAIRS: ThresholdAdjustmentField[] = [
   },
 ];
 
-const LANES_PAIRS: ThresholdAdjustmentField[] = [
+const LANES_PAIRS: ThresholdAdjustmentFieldDescriptor<MotorVehicleDensityRecipe, ScalarKey, ScalarKey>[] = [
   {
     thresholdKey: "lanes_high_threshold",
     adjustmentKey: "lanes_high_adjustment",
@@ -69,88 +63,13 @@ const LANES_PAIRS: ThresholdAdjustmentField[] = [
   },
 ];
 
-const DESIGNATION_FIELDS: ScalarField[] = [
+const DESIGNATION_FIELDS: ScalarFieldDescriptor<MotorVehicleDensityRecipe, ScalarKey>[] = [
   {
     key: "designation_adjustment",
     label: "指定路線への補正",
     description: "緊急輸送道路（N10）・重要物流道路（N12）のいずれかに該当する道路に加える補正値",
   },
 ];
-
-function ScalarInput({
-  field,
-  recipe,
-  onChange,
-}: {
-  field: ScalarField;
-  recipe: MotorVehicleDensityRecipe;
-  onChange: (recipe: MotorVehicleDensityRecipe) => void;
-}) {
-  const [infoOpen, setInfoOpen] = useState(false);
-  const value = recipe[field.key];
-  return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <AdjustmentStepper
-          label={field.label}
-          value={value}
-          onChange={(next) => onChange({ ...recipe, [field.key]: next })}
-          negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-          positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-        />
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
-  );
-}
-
-function ThresholdAdjustmentRow({
-  field,
-  recipe,
-  onChange,
-}: {
-  field: ThresholdAdjustmentField;
-  recipe: MotorVehicleDensityRecipe;
-  onChange: (recipe: MotorVehicleDensityRecipe) => void;
-}) {
-  const [infoOpen, setInfoOpen] = useState(false);
-  const thresholdValue = recipe[field.thresholdKey];
-  const adjustmentValue = recipe[field.adjustmentKey];
-  return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <span className={styles.pairControls}>
-          <AdjustmentStepper
-            label={field.label}
-            value={adjustmentValue}
-            onChange={(next) => onChange({ ...recipe, [field.adjustmentKey]: next })}
-            negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-            positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-          />
-          <span className={styles.thresholdInline}>
-            <span className={styles.thresholdCaption}>条件</span>
-            <input
-              type="number"
-              step="1"
-              aria-label={`${field.label}の条件`}
-              value={thresholdValue}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (Number.isNaN(next)) return;
-                onChange({ ...recipe, [field.thresholdKey]: next });
-              }}
-              className={styles.thresholdInput}
-            />
-            <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
-          </span>
-        </span>
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
-  );
-}
 
 export default function MotorVehicleDensityRecipePanel({
   overrideEnabled,
@@ -178,7 +97,14 @@ export default function MotorVehicleDensityRecipePanel({
             </summary>
             <div className={styles.groupBody}>
               {MAXSPEED_PAIRS.map((field) => (
-                <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
+                <ThresholdAdjustmentRow
+                  key={field.thresholdKey}
+                  field={field}
+                  recipe={recipe}
+                  onChange={onRecipeChange}
+                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+                />
               ))}
             </div>
           </details>
@@ -190,7 +116,14 @@ export default function MotorVehicleDensityRecipePanel({
             </summary>
             <div className={styles.groupBody}>
               {LANES_PAIRS.map((field) => (
-                <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
+                <ThresholdAdjustmentRow
+                  key={field.thresholdKey}
+                  field={field}
+                  recipe={recipe}
+                  onChange={onRecipeChange}
+                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+                />
               ))}
             </div>
           </details>
@@ -202,7 +135,14 @@ export default function MotorVehicleDensityRecipePanel({
             </summary>
             <div className={styles.groupBody}>
               {DESIGNATION_FIELDS.map((field) => (
-                <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
+                <ScalarInput
+                  key={field.key}
+                  field={field}
+                  recipe={recipe}
+                  onChange={onRecipeChange}
+                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+                />
               ))}
             </div>
           </details>

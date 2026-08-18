@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.domain.recipe import (  # noqa: E402
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     DEFAULT_ROAD_SUITABILITY_RECIPE,
+    ROAD_SUITABILITY_BASE_BY_HIGHWAY,
     MotorVehicleDensityRecipe,
     RoadSuitabilityRecipe,
 )
@@ -97,7 +98,7 @@ _TRAFFIC_STRESS_TEST_CASES: list[
     ("primary", {"motor_vehicle": "no"}, True, None, None, None),  # 指定路線+motor_vehicle=noは1固定
     # 道路適正レシピの上書き（研究モード相当）でも一致することを確認する（改善計画: 車との
     # 近さ材料の共有元化。旧base_by_highway上書きケースをこちらへ移設）。
-    ("secondary", {}, False, None, {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {"secondary": 2}}, None),
+    ("secondary", {}, False, None, {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}}, None),
     # 自動車密度レシピの上書きでも一致することを確認する。
     (
         "tertiary",
@@ -114,7 +115,7 @@ _TRAFFIC_STRESS_TEST_CASES: list[
         {"lanes": "1"},
         True,
         {**DEFAULT_TRAFFIC_STRESS_RECIPE.model_dump(), "lanes_low_adjustment": -3},
-        {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {"secondary": 2}},
+        {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}},
         {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "designation_adjustment": 2},
     ),
 ]
@@ -186,7 +187,7 @@ _SAFETY_TEST_CASES: list[
     ("primary", {"motor_vehicle": "no"}, True, None, None, None),  # 指定路線+motor_vehicle=noは1固定
     # 道路適正レシピの上書き（研究モード相当）でも一致することを確認する（旧base_by_highway
     # 上書きケースをこちらへ移設）。
-    ("secondary", {}, False, None, {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {"secondary": 2}}, None),
+    ("secondary", {}, False, None, {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}}, None),
     # 自動車密度レシピの上書きでも一致することを確認する。
     (
         "tertiary",
@@ -203,7 +204,7 @@ _SAFETY_TEST_CASES: list[
         {"tunnel": "yes"},
         True,
         {**DEFAULT_SAFETY_RECIPE.model_dump(), "tunnel_adjustment": 2},
-        {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {"secondary": 2}},
+        {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}},
         {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "designation_adjustment": 2},
     ),
 ]

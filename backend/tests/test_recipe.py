@@ -3,6 +3,7 @@ import pytest
 from app.domain.recipe import (
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     DEFAULT_ROAD_SUITABILITY_RECIPE,
+    ROAD_SUITABILITY_BASE_BY_HIGHWAY,
     MotorVehicleDensityRecipe,
     RoadSuitabilityRecipe,
     car_closeness,
@@ -135,6 +136,17 @@ class TestCyclewayAdjustment:
 
     def test_no_match_is_zero(self):
         assert cycleway_adjustment({}, -2, -1, -1) == 0
+
+
+class TestRoadSuitabilityBaseByHighway:
+    # 改善計画: 車との近さ材料の共有元化で旧TRAFFIC_STRESS_BASE_BY_HIGHWAY（living_street=2）
+    # ／SAFETY_BASE_BY_HIGHWAY（living_street=1）を統合した際、交通ストレス側のliving_street
+    # 基準値が2→1へ変更された（domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY直上の
+    # コメント参照）。この値をピン留めし、以後の意図しない再変更を検知する
+    # （旧living_street=2の値はどちらのtest_traffic.py/test_safety.pyにも一度もピン留め
+    # されておらず、無テストのまま値が変わっていた）。
+    def test_living_street_base_is_one(self):
+        assert ROAD_SUITABILITY_BASE_BY_HIGHWAY["living_street"] == 1
 
 
 class TestRoadSuitability:

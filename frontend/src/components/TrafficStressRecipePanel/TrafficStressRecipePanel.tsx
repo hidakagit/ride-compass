@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { AdjustmentStepper, CarClosenessReferenceSection, FieldLabel } from "@/components/Map/recipeControls";
+import {
+  CarClosenessReferenceSection,
+  ThresholdAdjustmentRow,
+  adjustmentEndpointColors,
+  type ThresholdAdjustmentFieldDescriptor,
+} from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_TRAFFIC_STRESS_RECIPE,
@@ -32,18 +36,10 @@ interface TrafficStressRecipePanelProps {
 
 type ScalarKey = keyof TrafficStressRecipe;
 
-interface ThresholdAdjustmentField {
-  thresholdKey: ScalarKey;
-  adjustmentKey: ScalarKey;
-  label: string;
-  description: string;
-  thresholdSuffix: string;
-}
-
 // WeightPanel.tsxのWeightField/WeightInputと同じ発想の一覧駆動だが、
 // TrafficStressRecipeOverrideはevaluationAxes.tsのWeights系ユニオン型に含まれないため
 // （軸間の重みではなく軸の中身のレシピのため）、フィールド一覧はこのファイル内に持つ。
-const LANES_PAIRS: ThresholdAdjustmentField[] = [
+const LANES_PAIRS: ThresholdAdjustmentFieldDescriptor<TrafficStressRecipe, ScalarKey, ScalarKey>[] = [
   {
     thresholdKey: "lanes_low_threshold",
     adjustmentKey: "lanes_low_adjustment",
@@ -56,57 +52,11 @@ const LANES_PAIRS: ThresholdAdjustmentField[] = [
 // 補正値ステッパーの色（負値=ストレス軽減は最も低い段階の色、正値=ストレス増加は最も高い
 // 段階の色）。TRAFFIC_STRESS_COLORSと連動させることで「0中心に変動する」という感覚を
 // 色だけで確実に伝える（recipeControls.tsx: AdjustmentStepperへ渡す）。
-const ADJUSTMENT_NEGATIVE_COLOR = TRAFFIC_STRESS_COLORS[1];
-const ADJUSTMENT_POSITIVE_COLOR = TRAFFIC_STRESS_COLORS[5];
-
-// 閾値+補正値の対フィールド（少車線道路）。補正値のステッパーと変動条件（閾値）を
-// 同じ行に横並びで置く。
-function ThresholdAdjustmentRow({
-  field,
-  recipe,
-  onChange,
-}: {
-  field: ThresholdAdjustmentField;
-  recipe: TrafficStressRecipe;
-  onChange: (recipe: TrafficStressRecipe) => void;
-}) {
-  const [infoOpen, setInfoOpen] = useState(false);
-  const thresholdValue = recipe[field.thresholdKey];
-  const adjustmentValue = recipe[field.adjustmentKey];
-  return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <span className={styles.pairControls}>
-          <AdjustmentStepper
-            label={field.label}
-            value={adjustmentValue}
-            onChange={(next) => onChange({ ...recipe, [field.adjustmentKey]: next })}
-            negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-            positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-          />
-          <span className={styles.thresholdInline}>
-            <span className={styles.thresholdCaption}>条件</span>
-            <input
-              type="number"
-              step="1"
-              aria-label={`${field.label}の条件`}
-              value={thresholdValue}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (Number.isNaN(next)) return;
-                onChange({ ...recipe, [field.thresholdKey]: next });
-              }}
-              className={styles.thresholdInput}
-            />
-            <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
-          </span>
-        </span>
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
-  );
-}
+const { negativeColor: ADJUSTMENT_NEGATIVE_COLOR, positiveColor: ADJUSTMENT_POSITIVE_COLOR } = adjustmentEndpointColors(
+  TRAFFIC_STRESS_COLORS,
+  1,
+  5,
+);
 
 // 研究モードでの交通ストレスレシピ上書きUI（改善計画: 交通ストレスレシピ調整UIパネル、
 // T107の次ラウンド。入力欄の見た目は改善計画: レシピ入力フォームの改善で刷新）。
@@ -148,7 +98,14 @@ export default function TrafficStressRecipePanel({
             </summary>
             <div className={styles.groupBody}>
               {LANES_PAIRS.map((field) => (
-                <ThresholdAdjustmentRow key={field.thresholdKey} field={field} recipe={recipe} onChange={onRecipeChange} />
+                <ThresholdAdjustmentRow
+                  key={field.thresholdKey}
+                  field={field}
+                  recipe={recipe}
+                  onChange={onRecipeChange}
+                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+                />
               ))}
             </div>
           </details>
