@@ -1,4 +1,4 @@
-import type { SafetyBreakdown, CarStressBreakdown } from "@/types/traffic";
+import type { AxisInspectorResult, SafetyBreakdown, CarStressBreakdown } from "@/types/traffic";
 import type {
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
@@ -187,6 +187,45 @@ export function fetchSafetyBreakdown(
   motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
 ): Promise<SafetyBreakdown | null> {
   return fetchBreakdown(SAFETY_BREAKDOWN_CONFIG, osmWayId, recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
+}
+
+// 区間インスペクタ（改善計画T146）。fetchBreakdownと同じPOST+JSONボディ・エラー処理の
+// 骨格だが、戻り値がlevelを持たない（AxisInspectorResultは複数軸のリストのため
+// fetchBreakdownの`{ level: number | null }`制約に合わない）ため専用実装にする。
+export async function fetchAxisInspector(
+  osmWayId: number,
+  carStressRecipe?: CarStressRecipeOverride,
+  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
+  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
+): Promise<AxisInspectorResult | null> {
+  const url = `${API_BASE_URL}/api/region/axis-inspector`;
+  const startedAt = performance.now();
+  debugLog("api:axis-inspector", "リクエスト開始", { url, osmWayId });
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      osm_way_id: osmWayId,
+      car_stress_recipe: carStressRecipe ?? null,
+      road_suitability_recipe: roadSuitabilityRecipe ?? null,
+      motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const durationMs = Math.round(performance.now() - startedAt);
+  const requestId = response.headers.get("x-request-id");
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    debugLog("api:axis-inspector", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
+    const detail = formatErrorDetail(errorBody?.detail) ?? `内訳取得に失敗しました[HTTP ${response.status}]`;
+    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
+  }
+
+  const data: AxisInspectorResult | null = await response.json();
+  debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });
+  return data;
 }
 
 export async function refreshBasemapCache(): Promise<void> {

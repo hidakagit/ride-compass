@@ -30,12 +30,27 @@ class FakeRegionRepository:
         self.poi_mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
         self.way_tags_by_osm_way_id_result: tuple[str | None, dict[str, str], bool] | None = None
         self.way_tags_by_osm_way_id_calls: list[int] = []
+        # 区間インスペクタ（改善計画T146）用フェイク応答。
+        self.way_attribute_counts_result: tuple[float, float, int, int] | None = None
+        self.way_attribute_counts_calls: list[int] = []
+        self.accident_years_covered_result: int = 3
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id):
         self.way_tags_by_osm_way_id_calls.append(osm_way_id)
         if self._error is not None:
             raise self._error
         return self.way_tags_by_osm_way_id_result
+
+    async def get_way_attribute_counts(self, osm_way_id):
+        self.way_attribute_counts_calls.append(osm_way_id)
+        if self._error is not None:
+            raise self._error
+        return self.way_attribute_counts_result
+
+    async def get_accident_years_covered(self):
+        if self._error is not None:
+            raise self._error
+        return self.accident_years_covered_result
 
     async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
         if self._error is not None:
@@ -366,3 +381,80 @@ async def test_graph_build_trigger_skips_recently_checked_tile(monkeypatch):
     await asyncio.sleep(0)
 
     assert calls == []
+
+
+# --- 区間インスペクタ（改善計画T146） ---
+
+
+async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts():
+    repository = FakeRegionRepository()
+    repository.way_tags_by_osm_way_id_result = ("residential", {"surface": "asphalt"}, False)
+    repository.way_attribute_counts_result = (1000.0, 2.0, 4, 6)
+    repository.accident_years_covered_result = 2
+    service = RegionService(repository=repository)
+
+    result = await service.get_axis_inspector(12345)
+
+    assert result is not None
+    assert result.highway == "residential"
+    by_id = {axis.axis_id: axis for axis in result.axes}
+    assert by_id["car_stress"].available is True
+    assert by_id["surface_q"].difficulty == 0.0
+    assert by_id["stop_density"].available is True
+    assert by_id["accident"].available is True
+    assert result.composite_difficulty is not None
+    assert repository.way_tags_by_osm_way_id_calls == [12345]
+    assert repository.way_attribute_counts_calls == [12345]
+
+
+async def test_axis_inspector_way_not_found_returns_none():
+    repository = FakeRegionRepository()  # 既定: way_tags_by_osm_way_idがNone
+    service = RegionService(repository=repository)
+
+    assert await service.get_axis_inspector(12345) is None
+    # way自体が見つからない場合はway_attribute_counts/accident_years_coveredを
+    # 引きに行かない（無駄なDB往復をしない）。
+    assert repository.way_attribute_counts_calls == []
+
+
+async def test_axis_inspector_no_repository_returns_none():
+    service = RegionService()
+
+    assert await service.get_axis_inspector(12345) is None
+
+
+async def test_axis_inspector_db_error_returns_none():
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    assert await service.get_axis_inspector(12345) is None
+
+
+async def test_axis_inspector_db_error_is_counted_in_debug_stats():
+    reset_stats()
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    await service.get_axis_inspector(12345)
+
+    stats = get_stats()["external"]["region:axis-inspector"]
+    assert stats["errors"] == 1
+    assert stats["error_types"] == {"RuntimeError": 1}
+    reset_stats()
+
+
+async def test_axis_inspector_missing_way_attribute_counts_still_returns_tag_based_axes():
+    """way_attribute_counts側にまだ行が無い（新規way等）場合でも、タグだけで決まる
+    車ストレス・路面・夜間は算出でき、Noneのままにはならない。"""
+    repository = FakeRegionRepository()
+    repository.way_tags_by_osm_way_id_result = ("residential", {"surface": "asphalt"}, False)
+    repository.way_attribute_counts_result = None
+    service = RegionService(repository=repository)
+
+    result = await service.get_axis_inspector(12345)
+
+    assert result is not None
+    by_id = {axis.axis_id: axis for axis in result.axes}
+    assert by_id["car_stress"].available is True
+    assert by_id["stop_density"].available is False
+    assert by_id["accident"].available is False

@@ -631,6 +631,36 @@ async def test_get_way_tags_by_osm_way_id_returns_none_when_way_not_found(road_g
     assert await road_graph_repository.get_way_tags_by_osm_way_id(999) is None
 
 
+async def test_get_way_attribute_counts_returns_row_when_present(road_graph_repository, road_graph_session):
+    """区間インスペクタ（改善計画T146）。way_attribute_counts（T145b事前集計）に該当行が
+    あれば(length_m, accident_count, stop_count, intersection_count)を返す。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, stop_count, "
+            "intersection_count, computed_at) VALUES (100, 500.0, 1.5, 2, 3, now())"
+        )
+    )
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_way_attribute_counts(100)
+
+    assert result == (500.0, 1.5, 2, 3)
+
+
+async def test_get_way_attribute_counts_returns_none_when_row_missing(road_graph_repository, road_graph_session):
+    """該当wayがosm_raw_waysに存在しても、way_attribute_countsバッチ未実行/対象外
+    （highway無し等）なら行が無くNone（0件と区別、呼び出し元は算出不能として扱う）。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    await road_graph_session.commit()
+
+    assert await road_graph_repository.get_way_attribute_counts(100) is None
+
+
 async def test_get_nearest_way_tags_returns_empty_list_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_nearest_way_tags([]) == []
 
