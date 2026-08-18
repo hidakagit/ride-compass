@@ -1,6 +1,11 @@
 import pytest
 
 from app.domain.recipe import (
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+    DEFAULT_ROAD_SUITABILITY_RECIPE,
+    MotorVehicleDensityRecipe,
+    RoadSuitabilityRecipe,
+    car_closeness,
     clamp_level,
     cycleway_adjustment,
     cycleway_class,
@@ -8,6 +13,7 @@ from app.domain.recipe import (
     flag_adjustment,
     parse_lanes,
     parse_maxspeed,
+    road_suitability,
     tag_value_is,
     threshold_adjustment,
     validate_threshold_order,
@@ -129,6 +135,66 @@ class TestCyclewayAdjustment:
 
     def test_no_match_is_zero(self):
         assert cycleway_adjustment({}, -2, -1, -1) == 0
+
+
+class TestRoadSuitability:
+    # 改善計画: 車との近さ材料の共有元化。「highwayからbaseを引いてcyclewayを足す」手順を
+    # 交通ストレス・安全度の両`*_breakdown`が共通で呼ぶ（各軸のrecipe値は呼び出し側が渡すため
+    # ここでは値の出どころが交通ストレス由来か安全度由来かは区別しない）。
+    def test_unregistered_highway_returns_none_base_and_zero_cycleway(self):
+        assert road_suitability("motorway", {}, {"primary": 4}, -2, -1, -1) == (None, 0)
+
+    def test_registered_highway_without_cycleway_tag(self):
+        assert road_suitability("primary", {}, {"primary": 4}, -2, -1, -1) == (4, 0)
+
+    def test_registered_highway_with_track_cycleway(self):
+        assert road_suitability("primary", {"cycleway": "track"}, {"primary": 4}, -2, -1, -1) == (4, -2)
+
+    def test_highway_none_is_treated_as_unregistered(self):
+        assert road_suitability(None, {}, {"primary": 4}, -2, -1, -1) == (None, 0)
+
+
+class TestCarCloseness:
+    # 改善計画: 車との近さ材料の共有元化。「道路適正＋自動車密度」（N2）を1組で返す
+    # car_closeness()を、交通ストレス・安全度の両`*_breakdown`が共通で呼ぶ。
+    def test_unregistered_highway_returns_none_and_all_zero(self):
+        assert car_closeness(
+            "motorway", {}, False, DEFAULT_ROAD_SUITABILITY_RECIPE, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+        ) == (None, 0, 0, 0, 0)
+
+    def test_registered_highway_with_no_tags_returns_base_only(self):
+        base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness(
+            "primary", {}, False, DEFAULT_ROAD_SUITABILITY_RECIPE, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+        )
+        assert (base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj) == (4, 0, 0, 0, 0)
+
+    def test_combines_road_suitability_and_motor_vehicle_density(self):
+        base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness(
+            "primary",
+            {"cycleway": "track", "maxspeed": "80", "lanes": "6"},
+            True,
+            DEFAULT_ROAD_SUITABILITY_RECIPE,
+            DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+        )
+        assert base == 4
+        assert cycleway_adj == -2
+        assert maxspeed_adj == 1
+        assert lanes_high_adj == 1
+        assert designation_adj == 1
+
+    def test_road_suitability_recipe_override_is_isolated_from_motor_vehicle_density(self):
+        road_suitability_recipe = RoadSuitabilityRecipe(base_by_highway={"primary": 1})
+        base, *_rest = car_closeness(
+            "primary", {}, False, road_suitability_recipe, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+        )
+        assert base == 1
+
+    def test_motor_vehicle_density_recipe_override_is_isolated_from_road_suitability(self):
+        motor_vehicle_density_recipe = MotorVehicleDensityRecipe(designation_adjustment=5)
+        _base, _cycleway_adj, _maxspeed_adj, _lanes_high_adj, designation_adj = car_closeness(
+            "primary", {}, True, DEFAULT_ROAD_SUITABILITY_RECIPE, motor_vehicle_density_recipe
+        )
+        assert designation_adj == 5
 
 
 class TestFlagAdjustment:

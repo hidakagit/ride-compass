@@ -1,3 +1,4 @@
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.safety import (
     DEFAULT_SAFETY_RECIPE,
     SafetyRecipe,
@@ -144,26 +145,33 @@ class TestSafetyBreakdown:
 
 
 class TestSafetyRecipeOverride:
-    """改善計画（安全度レシピ）: recipe引数でbase_by_highway・各補正の閾値・補正量を
-    上書きできることを確認する。recipe省略時（既定レシピ）の挙動はTestSafetyLevel/
+    """改善計画（安全度レシピ・車との近さ材料の共有元化）: recipe引数（安全度軸固有の
+    街灯・トンネル補正）・road_suitability_recipe引数（highway別基準値・cycleway補正）・
+    motor_vehicle_density_recipe引数（制限速度・車線数[多い方]・指定路線補正）で
+    それぞれ上書きできることを確認する。省略時（既定レシピ）の挙動はTestSafetyLevel/
     TestSafetyBreakdownで既に網羅済みのため、ここでは「上書きが実際に効くこと」
     「他の呼び出し・既定レシピ自体に副作用が漏れないこと」に絞る
     （TestTrafficStressRecipeOverrideと同じ観点）。
     """
 
     def test_base_by_highway_override_changes_base(self):
-        recipe = SafetyRecipe(base_by_highway={"secondary": 2})
-        assert safety_level("secondary", {}, recipe=recipe) == 2
-        # 既定レシピでは3のまま(上書きがDEFAULT_SAFETY_RECIPEを書き換えていないこと)
+        road_suitability_recipe = RoadSuitabilityRecipe(base_by_highway={"secondary": 2})
+        assert safety_level("secondary", {}, road_suitability_recipe=road_suitability_recipe) == 2
+        # 既定レシピでは3のまま(上書きがDEFAULT_ROAD_SUITABILITY_RECIPEを書き換えていないこと)
         assert safety_level("secondary", {}) == 3
 
     def test_cycleway_adjustment_override(self):
-        recipe = SafetyRecipe(cycleway_lane_adjustment=-3)
-        assert safety_level("primary", {"cycleway": "lane"}, recipe=recipe) == 1  # 4-3
+        road_suitability_recipe = RoadSuitabilityRecipe(cycleway_lane_adjustment=-3)
+        assert (
+            safety_level("primary", {"cycleway": "lane"}, road_suitability_recipe=road_suitability_recipe) == 1
+        )  # 4-3
 
     def test_maxspeed_threshold_override(self):
-        recipe = SafetyRecipe(maxspeed_high_threshold=40)
-        assert safety_level("tertiary", {"maxspeed": "40"}, recipe=recipe) == 4  # 3+1
+        motor_vehicle_density_recipe = MotorVehicleDensityRecipe(maxspeed_high_threshold=40)
+        assert (
+            safety_level("tertiary", {"maxspeed": "40"}, motor_vehicle_density_recipe=motor_vehicle_density_recipe)
+            == 4
+        )  # 3+1
         # 既定レシピ(閾値60)では40は補正なし
         assert safety_level("tertiary", {"maxspeed": "40"}) == 3
 
@@ -176,13 +184,28 @@ class TestSafetyRecipeOverride:
         assert safety_level("tertiary", {"tunnel": "yes"}, recipe=recipe) == 4  # 3+2=5, clamped to 4
 
     def test_designation_adjustment_override(self):
-        recipe = SafetyRecipe(designation_adjustment=2)
-        assert safety_level("residential", {}, is_designated=True, recipe=recipe) == 4  # 2+2
+        motor_vehicle_density_recipe = MotorVehicleDensityRecipe(designation_adjustment=2)
+        assert (
+            safety_level(
+                "residential", {}, is_designated=True, motor_vehicle_density_recipe=motor_vehicle_density_recipe
+            )
+            == 4
+        )  # 2+2
 
     def test_motor_vehicle_no_override_ignores_recipe(self):
         # motor_vehicle=noは常に1固定で、レシピの補正量に関わらず変わらない
-        recipe = SafetyRecipe(cycleway_lane_adjustment=-3, designation_adjustment=3)
-        assert safety_level("primary", {"motor_vehicle": "no"}, is_designated=True, recipe=recipe) == 1
+        road_suitability_recipe = RoadSuitabilityRecipe(cycleway_lane_adjustment=-3)
+        motor_vehicle_density_recipe = MotorVehicleDensityRecipe(designation_adjustment=3)
+        assert (
+            safety_level(
+                "primary",
+                {"motor_vehicle": "no"},
+                is_designated=True,
+                road_suitability_recipe=road_suitability_recipe,
+                motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+            )
+            == 1
+        )
 
     def test_default_recipe_matches_default_safety_recipe_constant(self):
         assert SafetyRecipe() == DEFAULT_SAFETY_RECIPE

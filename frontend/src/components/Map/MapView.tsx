@@ -6,6 +6,8 @@ import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMa
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   Coordinates,
+  MotorVehicleDensityRecipeOverride,
+  RoadSuitabilityRecipeOverride,
   RouteCandidate,
   RouteSegmentDetail,
   SafetyRecipeOverride,
@@ -40,6 +42,8 @@ import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import { DEFAULT_SAFETY_RECIPE, buildSafetyExpression, evaluateSafetyLevel } from "@/components/Map/safetyExpression";
 import {
+  DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+  DEFAULT_ROAD_SUITABILITY_RECIPE,
   DEFAULT_TRAFFIC_STRESS_RECIPE,
   buildTrafficStressExpression,
   evaluateTrafficStressLevel,
@@ -739,15 +743,23 @@ export function setStaticOverlayFilters(
   hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>,
   trafficStressRecipe: TrafficStressRecipeOverride,
   safetyRecipe: SafetyRecipeOverride,
+  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride,
+  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride,
 ) {
   runWhenStyleReady(map, () => {
     // buildTrafficStressLegend/buildTrafficStressColorExpressionはどちらも内部でレシピから
     // 同じレベル判定式を組み立てるため、この呼び出し内で1回だけ計算して両方へ渡す
     // （setFilter/setPaintPropertyというMapLibre側の実処理に対し無視できるコストとはいえ、
     // 同一の式木を毎回2回組み立てる必要はないため）。安全度（改善計画: 安全度レシピ）も
-    // 同じ理由で1回だけ計算する。
-    const trafficStressLevelExpression = buildTrafficStressExpression(trafficStressRecipe);
-    const safetyLevelExpression = buildSafetyExpression(safetyRecipe);
+    // 同じ理由で1回だけ計算する。roadSuitabilityRecipe/motorVehicleDensityRecipeは
+    // 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
+    // 共有元化）。
+    const trafficStressLevelExpression = buildTrafficStressExpression(
+      trafficStressRecipe,
+      roadSuitabilityRecipe,
+      motorVehicleDensityRecipe,
+    );
+    const safetyLevelExpression = buildSafetyExpression(safetyRecipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
     for (const layer of STATIC_OVERLAY_LAYERS) {
       const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
       if (axes.length === 0) continue;
@@ -895,7 +907,7 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
     rows.push(`自転車インフラ: ${BICYCLE_INFRA_LABELS[properties.bicycle_infra] ?? properties.bicycle_infra}`);
   }
   if (properties.traffic_stress != null) {
-    rows.push(`交通ストレス: ${properties.traffic_stress}/5`);
+    rows.push(`車の圧迫感: ${properties.traffic_stress}/5`);
   }
   if (properties.safety != null) {
     rows.push(`安全度: ${properties.safety}/4`);
@@ -908,7 +920,7 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   const trafficStressBreakdownAffordance =
     properties.traffic_stress != null
       ? `<div style="margin-top:var(--space-1);">
-          <button type="button" ${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">交通ストレスの内訳を見る</button>
+          <button type="button" ${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">車の圧迫感の内訳を見る</button>
           <div ${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}></div>
         </div>`
       : "";
@@ -974,6 +986,14 @@ interface MapViewProps {
   /** 安全度レシピの上書き（研究モード）。undefinedなら既定レシピ（DEFAULT_SAFETY_RECIPE）を
    * 使う。trafficStressRecipeと同じ扱い。 */
   safetyRecipe?: SafetyRecipeOverride;
+  /** 交通ストレス・安全度が共有する「道路適正」の上書き（研究モード、改善計画: 車との近さ
+   * 材料の共有元化）。undefinedなら既定レシピ（DEFAULT_ROAD_SUITABILITY_RECIPE）を使う。
+   * trafficStressRecipeと同じ扱いで、両軸の地図表示・内訳ポップアップへ同時に反映される。 */
+  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride;
+  /** 交通ストレス・安全度が共有する「自動車密度」の上書き（研究モード）。undefinedなら
+   * 既定レシピ（DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE）を使う。roadSuitabilityRecipeと
+   * 同じ扱い。 */
+  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride;
   /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。 */
   showDesignation: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
@@ -1013,6 +1033,8 @@ export default function MapView({
   trafficStressRecipe,
   showSafety,
   safetyRecipe,
+  roadSuitabilityRecipe,
+  motorVehicleDensityRecipe,
   showDesignation,
   showAccidents,
   showStopPoi,
@@ -1055,6 +1077,8 @@ export default function MapView({
     trafficStressRecipe,
     showSafety,
     safetyRecipe,
+    roadSuitabilityRecipe,
+    motorVehicleDensityRecipe,
     showDesignation,
     showAccidents,
     showStopPoi,
@@ -1088,6 +1112,8 @@ export default function MapView({
       trafficStressRecipe,
       showSafety,
       safetyRecipe,
+      roadSuitabilityRecipe,
+      motorVehicleDensityRecipe,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1109,6 +1135,8 @@ export default function MapView({
     trafficStressRecipe,
     showSafety,
     safetyRecipe,
+    roadSuitabilityRecipe,
+    motorVehicleDensityRecipe,
     showDesignation,
     showAccidents,
     showStopPoi,
@@ -1138,6 +1166,8 @@ export default function MapView({
       trafficStressRecipe,
       showSafety,
       safetyRecipe,
+      roadSuitabilityRecipe,
+      motorVehicleDensityRecipe,
       showDesignation,
       showAccidents,
       showStopPoi,
@@ -1161,6 +1191,8 @@ export default function MapView({
       staticLegendHiddenKeysByAxis,
       trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE,
       safetyRecipe ?? DEFAULT_SAFETY_RECIPE,
+      roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE,
+      motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
     applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
     updateRoadZoomHint(
@@ -1322,12 +1354,30 @@ export default function MapView({
       const currentTrafficStressRecipe = redrawPropsRef.current.trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE;
       // 安全度も交通ストレスと同じ理由でクリック時に材料タグから計算する（改善計画: 安全度レシピ）。
       const currentSafetyRecipe = redrawPropsRef.current.safetyRecipe ?? DEFAULT_SAFETY_RECIPE;
+      // 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
+      // 共有元化）。上のcurrentTrafficStressRecipeと同じ理由でredrawPropsRef.current経由。
+      const currentRoadSuitabilityRecipe =
+        redrawPropsRef.current.roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE;
+      const currentMotorVehicleDensityRecipe =
+        redrawPropsRef.current.motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE;
       const roadSurfaceProperties = {
         ...(feature.properties as unknown as RoadSurfacePopupProperties),
         traffic_stress: isRoadSurfaceFeature
-          ? evaluateTrafficStressLevel(feature.properties ?? {}, currentTrafficStressRecipe)
+          ? evaluateTrafficStressLevel(
+              feature.properties ?? {},
+              currentTrafficStressRecipe,
+              currentRoadSuitabilityRecipe,
+              currentMotorVehicleDensityRecipe,
+            )
           : null,
-        safety: isRoadSurfaceFeature ? evaluateSafetyLevel(feature.properties ?? {}, currentSafetyRecipe) : null,
+        safety: isRoadSurfaceFeature
+          ? evaluateSafetyLevel(
+              feature.properties ?? {},
+              currentSafetyRecipe,
+              currentRoadSuitabilityRecipe,
+              currentMotorVehicleDensityRecipe,
+            )
+          : null,
       };
       const html =
         feature.layer.id === DETAIL_LAYER_ID
@@ -1348,13 +1398,25 @@ export default function MapView({
       if (isRoadSurfaceFeature && roadSurfaceProperties.traffic_stress != null && roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
         if (popupElement) {
-          attachTrafficStressBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id, currentTrafficStressRecipe);
+          attachTrafficStressBreakdownHandler(
+            popupElement,
+            roadSurfaceProperties.osm_way_id,
+            currentTrafficStressRecipe,
+            currentRoadSuitabilityRecipe,
+            currentMotorVehicleDensityRecipe,
+          );
         }
       }
       if (isRoadSurfaceFeature && roadSurfaceProperties.safety != null && roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
         if (popupElement) {
-          attachSafetyBreakdownHandler(popupElement, roadSurfaceProperties.osm_way_id, currentSafetyRecipe);
+          attachSafetyBreakdownHandler(
+            popupElement,
+            roadSurfaceProperties.osm_way_id,
+            currentSafetyRecipe,
+            currentRoadSuitabilityRecipe,
+            currentMotorVehicleDensityRecipe,
+          );
         }
       }
     }
@@ -1617,8 +1679,16 @@ export default function MapView({
       staticLegendHiddenKeysByAxis,
       trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE,
       safetyRecipe ?? DEFAULT_SAFETY_RECIPE,
+      roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE,
+      motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
-  }, [staticLegendHiddenKeysByAxis, trafficStressRecipe, safetyRecipe]);
+  }, [
+    staticLegendHiddenKeysByAxis,
+    trafficStressRecipe,
+    safetyRecipe,
+    roadSuitabilityRecipe,
+    motorVehicleDensityRecipe,
+  ]);
 
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な

@@ -1,0 +1,13 @@
+# 自動車密度（domain/recipe.py: MotorVehicleDensityRecipe）の判定レシピの既定値。
+# 制限速度・車線数[多い方]・指定路線該当の補正のみを持つ。road_suitability_recipe.yamlと
+# 合わせて「車との近さ」(N2)を構成する、交通ストレス・安全度が共有するもう1つの材料
+# （改善計画: 車との近さ材料の共有元化）。値はdomain/recipe.py:
+# MotorVehicleDensityRecipeの既定値と完全に一致させてある。
+motor_vehicle_density_recipe:
+  maxspeed_low_threshold: 30
+  maxspeed_low_adjustment: -1
+  maxspeed_high_threshold: 60
+  maxspeed_high_adjustment: 1
+  lanes_high_threshold: 4
+  lanes_high_adjustment: 1
+  designation_adjustment: 1

@@ -5,6 +5,7 @@ from app.api.dependencies import RouteGenerationSetup, get_route_generation_buil
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import RoutePreference
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.route import RouteCandidate
 from app.domain.safety import SafetyRecipe
 from app.domain.traffic import TrafficStressRecipe
@@ -69,18 +70,24 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
         scoring_weights_override=None,
         traffic_stress_recipe_override=None,
         safety_recipe_override=None,
+        road_suitability_recipe_override=None,
+        motor_vehicle_density_recipe_override=None,
     ) -> RouteGenerationSetup:
         if captured is not None:
             captured["preference"] = preference_override
             captured["scoring"] = scoring_weights_override
             captured["traffic_stress_recipe"] = traffic_stress_recipe_override
             captured["safety_recipe"] = safety_recipe_override
+            captured["road_suitability_recipe"] = road_suitability_recipe_override
+            captured["motor_vehicle_density_recipe"] = motor_vehicle_density_recipe_override
         return RouteGenerationSetup(
             generator=FakeRouteGenerator(candidates),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
             traffic_stress_recipe=traffic_stress_recipe_override or TrafficStressRecipe(),
             safety_recipe=safety_recipe_override or SafetyRecipe(),
+            road_suitability_recipe=road_suitability_recipe_override or RoadSuitabilityRecipe(),
+            motor_vehicle_density_recipe=motor_vehicle_density_recipe_override or MotorVehicleDensityRecipe(),
         )
 
     return lambda: build
@@ -174,6 +181,41 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
     assert conditions["route_preference"] == route_preference
 
 
+def test_generate_routes_applies_road_suitability_and_motor_vehicle_density_overrides_independently_of_traffic_stress():
+    # 改善計画: 車との近さ材料の共有元化。道路適正・自動車密度・交通ストレス(軸固有部分)を
+    # 同時に上書きしても、それぞれ独立してビルダーへ渡り、conditionsへエコーされることを
+    # 確認する（3つの独立したトグルが組み合わさる想定）。
+    captured: dict = {}
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
+    road_suitability_recipe = {**RoadSuitabilityRecipe().model_dump(), "cycleway_track_adjustment": -3}
+    motor_vehicle_density_recipe = {**MotorVehicleDensityRecipe().model_dump(), "designation_adjustment": 2}
+    traffic_stress_recipe = {**TrafficStressRecipe().model_dump(), "lanes_low_adjustment": -2}
+
+    try:
+        response = client.post(
+            "/api/routes/generate",
+            json={
+                **REQUEST_BODY,
+                "road_suitability_recipe": road_suitability_recipe,
+                "motor_vehicle_density_recipe": motor_vehicle_density_recipe,
+                "traffic_stress_recipe": traffic_stress_recipe,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert captured["road_suitability_recipe"] == RoadSuitabilityRecipe(**road_suitability_recipe)
+    assert captured["motor_vehicle_density_recipe"] == MotorVehicleDensityRecipe(**motor_vehicle_density_recipe)
+    assert captured["traffic_stress_recipe"] == TrafficStressRecipe(**traffic_stress_recipe)
+    # safety_recipeは上書きしていないため、ビルダーへはNoneのまま渡る（独立性の確認）
+    assert captured["safety_recipe"] is None
+    conditions = response.json()["conditions"]
+    assert conditions["road_suitability_recipe"] == road_suitability_recipe
+    assert conditions["motor_vehicle_density_recipe"] == motor_vehicle_density_recipe
+    assert conditions["traffic_stress_recipe"] == traffic_stress_recipe
+
+
 def test_generate_routes_is_rate_limited_per_client():
     # ルート生成は最も高コストなエンドポイント（外部APIクォータ・数十秒の処理時間）のため、
     # per-IPの上限を超えたリクエストは429で拒否する。
@@ -240,28 +282,13 @@ def _lightweight_generation_builder():
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
         # レビュー指摘の回帰テスト: maxspeed_low_threshold >= maxspeed_high_thresholdは
-        # domain/traffic.pyのif/elif判定順序で「高い方の補正」を無効化してしまうため拒否する
-        # （routes.py: TrafficStressRecipeOverride._check_threshold_order）。
+        # domain/recipe.pyのif/elif判定順序（threshold_adjustment）で「高い方の補正」を
+        # 無効化してしまうため拒否する。改善計画: 車との近さ材料の共有元化でmaxspeed補正は
+        # MotorVehicleDensityRecipeOverrideへ移設済み（routes.py:
+        # MotorVehicleDensityRecipeOverride._check_threshold_order）。
         {
-            "traffic_stress_recipe": {
-                **TrafficStressRecipe().model_dump(),
-                "maxspeed_low_threshold": 60,
-                "maxspeed_high_threshold": 30,
-            }
-        },
-        {
-            "traffic_stress_recipe": {
-                **TrafficStressRecipe().model_dump(),
-                "lanes_low_threshold": 4,
-                "lanes_high_threshold": 1,
-            }
-        },
-        # SafetyRecipeOverrideにも同種の検証漏れがあったため（domain/safety.py:
-        # safety_breakdownも同じif/elif判定順序）、同じ回帰テストを追加
-        # （routes.py: SafetyRecipeOverride._check_threshold_order）。
-        {
-            "safety_recipe": {
-                **SafetyRecipe().model_dump(),
+            "motor_vehicle_density_recipe": {
+                **MotorVehicleDensityRecipe().model_dump(),
                 "maxspeed_low_threshold": 60,
                 "maxspeed_high_threshold": 30,
             }

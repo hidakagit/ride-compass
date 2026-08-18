@@ -6,8 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app.api.dependencies import client_id, get_region_service
-from app.api.routers.routes import SafetyRecipeOverride, TrafficStressRecipeOverride
+from app.api.routers.routes import (
+    MotorVehicleDensityRecipeOverride,
+    RoadSuitabilityRecipeOverride,
+    SafetyRecipeOverride,
+    TrafficStressRecipeOverride,
+)
 from app.config import settings
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.domain.safety import SafetyBreakdown, SafetyRecipe
 from app.domain.traffic import TrafficStressBreakdown, TrafficStressRecipe
@@ -128,14 +134,16 @@ async def _breakdown_response(
     rate_limit_prefix: str,
     osm_way_id: int,
     recipe: Any,
-    service_call: Callable[[int, Any], Awaitable[Any]],
+    road_suitability_recipe: Any,
+    motor_vehicle_density_recipe: Any,
+    service_call: Callable[[int, Any, Any, Any], Awaitable[Any]],
 ) -> Any:
     """交通ストレス・安全度の内訳エンドポイントが共有するリクエスト処理（改善計画T123）。
     歯止め（レート制限）→サービス呼び出しという共通の骨格だけを引数化する（レシピの
     APIモデル→domainモデル変換はエンドポイントごとに型が異なるため呼び出し元に残す）。
     """
     _check_tile_rate_limit(http_request, rate_limit_prefix)
-    return await service_call(osm_way_id, recipe)
+    return await service_call(osm_way_id, recipe, road_suitability_recipe, motor_vehicle_density_recipe)
 
 
 class TrafficStressBreakdownRequest(BaseModel):
@@ -143,6 +151,11 @@ class TrafficStressBreakdownRequest(BaseModel):
     # 研究モードでレシピを上書き中の内訳表示用（改善計画: 交通ストレスレシピ外出し基盤）。
     # 省略時はdomain/traffic.py: DEFAULT_TRAFFIC_STRESS_RECIPEで計算する。
     traffic_stress_recipe: TrafficStressRecipeOverride | None = None
+    # 交通ストレス・安全度が共有する「車との近さ」(N2)の材料の上書き（改善計画: 車との
+    # 近さ材料の共有元化）。省略時はそれぞれdomain/recipe.py:
+    # DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPEで計算する。
+    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
 
 
 @router.post("/api/region/traffic-stress-breakdown")
@@ -164,8 +177,22 @@ async def region_traffic_stress_breakdown(
     不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
     """
     recipe = TrafficStressRecipe(**body.traffic_stress_recipe.model_dump()) if body.traffic_stress_recipe else None
+    road_suitability_recipe = (
+        RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
+    )
+    motor_vehicle_density_recipe = (
+        MotorVehicleDensityRecipe(**body.motor_vehicle_density_recipe.model_dump())
+        if body.motor_vehicle_density_recipe
+        else None
+    )
     return await _breakdown_response(
-        http_request, "traffic-stress-breakdown", body.osm_way_id, recipe, region_service.get_traffic_stress_breakdown
+        http_request,
+        "traffic-stress-breakdown",
+        body.osm_way_id,
+        recipe,
+        road_suitability_recipe,
+        motor_vehicle_density_recipe,
+        region_service.get_traffic_stress_breakdown,
     )
 
 
@@ -174,6 +201,10 @@ class SafetyBreakdownRequest(BaseModel):
     # 研究モードでレシピを上書き中の内訳表示用（改善計画: 安全度レシピ）。
     # 省略時はdomain/safety.py: DEFAULT_SAFETY_RECIPEで計算する。
     safety_recipe: SafetyRecipeOverride | None = None
+    # TrafficStressBreakdownRequestと同じ「車との近さ」(N2)材料の上書き
+    # （改善計画: 車との近さ材料の共有元化）。
+    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
 
 
 @router.post("/api/region/safety-breakdown")
@@ -187,6 +218,20 @@ async def region_safety_breakdown(
     docstring参照）。
     """
     recipe = SafetyRecipe(**body.safety_recipe.model_dump()) if body.safety_recipe else None
+    road_suitability_recipe = (
+        RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
+    )
+    motor_vehicle_density_recipe = (
+        MotorVehicleDensityRecipe(**body.motor_vehicle_density_recipe.model_dump())
+        if body.motor_vehicle_density_recipe
+        else None
+    )
     return await _breakdown_response(
-        http_request, "safety-breakdown", body.osm_way_id, recipe, region_service.get_safety_breakdown
+        http_request,
+        "safety-breakdown",
+        body.osm_way_id,
+        recipe,
+        road_suitability_recipe,
+        motor_vehicle_density_recipe,
+        region_service.get_safety_breakdown,
     )

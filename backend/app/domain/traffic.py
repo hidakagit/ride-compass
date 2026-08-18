@@ -18,14 +18,17 @@ frontend/src/components/Map/trafficStressExpression.tsとこのモジュール�
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.domain.recipe import (
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+    DEFAULT_ROAD_SUITABILITY_RECIPE,
+    MotorVehicleDensityRecipe,
+    RoadSuitabilityRecipe,
+    car_closeness,
     clamp_level,
-    cycleway_adjustment,
     cycleway_class,
     cycleway_values,
-    flag_adjustment,
     parse_lanes,
     parse_maxspeed,
     tag_value_is,
@@ -103,64 +106,25 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
     return "unknown"
 
 
-# 交通ストレス基本値（highwayのみで決定。計画書§2.4）。
-#
-# path/footway/pedestrian/bridleway/steps・motorway/motorway_link・service/roadは意図的に
-# 未登録（`traffic_stress_level`はbase=Noneのため常にNoneを返し、交通ストレス軸では評価
-# 対象外になる）。「登録漏れ」ではなく、他の2軸（roadFilterAxes.tsのhighway表示分類・
-# classify_bicycle_infrastructureの自転車インフラ分類）ではこれらのhighway値が評価対象に
-# なりうるため、3軸のカバレッジは意図的に揃っていない（改善計画T62）。値付けは
-# LTSの目安として根拠が弱く、本格チューニングはP2据え置き（不確かな推測でNone以外を
-# 返さない、という本ファイル冒頭の方針を優先した）。
-#
-# secondaryのみprimary/trunkと分離（改善計画T92、4→3）: 実データ（関東本土、指定路線
-# 11,102件）で検証したところ、指定路線（+1補正）の83.3%が最終値4/4に張り付いており、
-# その56%はprimary/secondary/trunkが揃ってbase=4のため+1の有無に関わらずどのみち4になる
-# 「補正が実質無意味」なケースだった。実車線数・制限速度の分布（同調査）でもsecondaryは
-# 2〜3車線・40〜50km/h帯が主流でprimary/trunkより明確に軽く、一律base=4は実態と
-# 乖離していた。primary/trunk（国道級・幹線）は引き続き最もストレスが高い区間として
-# base=4を維持する（ここは実データ上も裏付けがあり変更しない）。
-TRAFFIC_STRESS_BASE_BY_HIGHWAY: dict[str, int] = {
-    "cycleway": 1,
-    "living_street": 2,
-    "residential": 2,
-    "unclassified": 2,
-    "track": 2,
-    "tertiary": 3,
-    "tertiary_link": 3,
-    "secondary": 3,
-    "secondary_link": 3,
-    "primary": 4,
-    "primary_link": 4,
-    "trunk": 4,
-    "trunk_link": 4,
-}
-
-
 class TrafficStressRecipe(BaseModel):
-    """`traffic_stress_breakdown`の判定基準（highway別基準値＋各補正の閾値・補正量）を
-    まとめた「レシピ」。一次情報（OSMタグ）から二次情報（交通ストレス値）を作る変換式そのもの。
+    """`traffic_stress_breakdown`の判定基準のうち、交通ストレス軸だけが持つ補正
+    （対面通行の少車線道路への緩和）をまとめた「レシピ」。一次情報（OSMタグ）から
+    二次情報（交通ストレス値）を作る変換式の、この軸固有の部分。
 
-    既定値（`DEFAULT_TRAFFIC_STRESS_RECIPE`）は本ファイルの従来のハードコード定数・分岐と
-    完全に一致させてある（後方互換）。研究フェーズでのレシピ調整・将来の個人最適化に向けて
-    外側の`RoutePreference`（軸間の重み）とは別に、この「軸の中身」自体をリクエスト単位で
-    上書きできるようにするための切り出し（地図表示側は`frontend/src/components/Map/
-    trafficStressExpression.ts`が同じレシピをMapLibre expressionとして再現する）。
+    highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
+    「車との近さ」（N2）として交通ストレス・安全度が共有する（`domain/recipe.py:
+    RoadSuitabilityRecipe`/`MotorVehicleDensityRecipe`/`car_closeness()`、改善計画:
+    車との近さ材料の共有元化）ため、ここには含まない。
+
+    既定値（`DEFAULT_TRAFFIC_STRESS_RECIPE`）は研究フェーズでのレシピ調整・将来の
+    個人最適化に向けて外側の`RoutePreference`（軸間の重み）とは別に、この「軸の中身」
+    自体をリクエスト単位で上書きできるようにするための切り出し（地図表示側は
+    `frontend/src/components/Map/trafficStressExpression.ts`が同じレシピをMapLibre
+    expressionとして再現する）。
     """
 
-    base_by_highway: dict[str, int] = Field(default_factory=lambda: dict(TRAFFIC_STRESS_BASE_BY_HIGHWAY))
-    cycleway_track_adjustment: int = -2
-    cycleway_lane_adjustment: int = -1
-    cycleway_shared_adjustment: int = -1
-    maxspeed_low_threshold: int = 30
-    maxspeed_low_adjustment: int = -1
-    maxspeed_high_threshold: int = 60
-    maxspeed_high_adjustment: int = 1
-    lanes_high_threshold: int = 4
-    lanes_high_adjustment: int = 1
     lanes_low_threshold: int = 1
     lanes_low_adjustment: int = -1
-    designation_adjustment: int = 1
 
 
 DEFAULT_TRAFFIC_STRESS_RECIPE = TrafficStressRecipe()
@@ -284,8 +248,8 @@ def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]
 class TrafficStressBreakdown(BaseModel):
     """`traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に
     「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と
-    同じ最終値。highwayが判定基準（`TRAFFIC_STRESS_BASE_BY_HIGHWAY`）に登録されていない
-    場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
+    同じ最終値。highwayが判定基準（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に
+    登録されていない場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
     """
 
     base: int | None
@@ -302,13 +266,19 @@ def traffic_stress_breakdown(
     tags: dict[str, str],
     is_designated: bool = False,
     recipe: TrafficStressRecipe | None = None,
+    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
 ) -> TrafficStressBreakdown:
     """交通ストレス（LTS: Level of Traffic Stress風の1-5段階。「交通量」ではなく
     「推定交通ストレス」、計画書§2.4）を、各補正の適用有無・量が分かる内訳付きで返す。
     基本値はhighwayのみで決まり、未知のhighwayはNone（評価しない）。補正はタグが
     実際にある場合のみ適用する（unknownは補正しない）。
 
-    `recipe`省略時は`DEFAULT_TRAFFIC_STRESS_RECIPE`（従来のハードコード値と同一）を使う。
+    `recipe`省略時は`DEFAULT_TRAFFIC_STRESS_RECIPE`を使う。`road_suitability_recipe`/
+    `motor_vehicle_density_recipe`は省略時それぞれ`DEFAULT_ROAD_SUITABILITY_RECIPE`/
+    `DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE`（改善計画: 車との近さ材料の共有元化。
+    この2つは安全度側と共有する「車との近さ」(N2)の材料で、`recipe`
+    [`TrafficStressRecipe`]はこの軸固有の少車線道路補正のみを持つ）。
 
     cycleway系タグによる補正は`classify_bicycle_infrastructure`と同じ入力を別目的で
     解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
@@ -328,7 +298,15 @@ def traffic_stress_breakdown(
     それぞれ独立した重みでユーザーが調整できる）のまま残している（改善計画T92で明文化）。
     """
     recipe = recipe or DEFAULT_TRAFFIC_STRESS_RECIPE
-    base = recipe.base_by_highway.get(highway or "")
+    road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
+    motor_vehicle_density_recipe = motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+
+    # 改善計画: 車との近さ材料の共有元化。「道路適正＋自動車密度」（N2、安全度側
+    # domain/safety.py: safety_breakdownと共有）はdomain/recipe.py: car_closeness()へ
+    # 切り出し済み。
+    base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness(
+        highway, tags, is_designated, road_suitability_recipe, motor_vehicle_density_recipe
+    )
     if base is None:
         return TrafficStressBreakdown(
             base=None,
@@ -352,34 +330,25 @@ def traffic_stress_breakdown(
             level=1,
         )
 
-    # 改善計画T92: 自転車と共有の車道表示（シェアードレーン・バス共用帯）は専用レーンより
-    # 弱いがゼロではない緩和要因のため、classify_bicycle_infrastructure（自転車インフラ軸）
-    # と同じ判定基準を流用しlaneと同じ既定-1にする。実データ（関東本土の指定路線対象道路）で
-    # 15.6%（1,239件）に付いているタグだが、従来はここで判定対象外（0扱い）になっており、
-    # 既に収集済みの情報が交通ストレス軸に反映されていなかった。
-    cycleway_adj = cycleway_adjustment(
-        tags, recipe.cycleway_track_adjustment, recipe.cycleway_lane_adjustment, recipe.cycleway_shared_adjustment
-    )
-
-    maxspeed_adj = threshold_adjustment(
-        parse_maxspeed(tags),
-        recipe.maxspeed_low_threshold,
-        recipe.maxspeed_low_adjustment,
-        recipe.maxspeed_high_threshold,
-        recipe.maxspeed_high_adjustment,
-    )
-
     # 改善計画T92: 対面通行の1車線（センターラインなし等）は車の追い越し・すれ違いの
-    # 圧迫感が少なく、4車線以上の+1と対称に既定-1する（lanes_low、安全度は不採用）。
-    lanes_adj = threshold_adjustment(
-        parse_lanes(tags),
-        recipe.lanes_low_threshold,
-        recipe.lanes_low_adjustment,
-        recipe.lanes_high_threshold,
-        recipe.lanes_high_adjustment,
-    )
-
-    designation_adj = flag_adjustment(is_designated, recipe.designation_adjustment)
+    # 圧迫感が少なく、4車線以上の+1（lanes_high_adj、car_closeness()由来）と対称に
+    # 既定-1する（lanes_low、交通ストレス軸のみが持つ補正。安全度は不採用）。
+    #
+    # lanes_lowは「車道を自転車と自動車が共有している」ことを前提にした補正のため、
+    # 分離自転車道（cycleway_class=="track"）がある区間では該当しない（自転車は
+    # その車道の車線数と無関係な位置を走る）。分離区間ではlow方向を無効化する
+    # （high方向＝多車線・自動車の量は分離の有無に関わらず意味を持つため据え置き）。
+    # 実データ確認（dev DB, 2026-08-19）ではlanes<=1かつcycleway_class=="track"の
+    # 該当がほぼ皆無（対象highway中1件、最終levelへの影響も無し）で実害は無いに等しいが、
+    # 「専用道があるのにすれ違い圧迫の緩和を追加で与える」という論理的な不整合を解消する。
+    #
+    # lanes_high（自動車密度レシピ由来）とlanes_low（このレシピ由来）は別レシピの値のため、
+    # 1回のthreshold_adjustment呼び出しでは表現できない（low<highの前提が別レシピを
+    # またぐと保証できない）。それぞれ独立に計算して加算する（値が同時に両方非ゼロになる
+    # ことは無い: lanes<=1とlanes>=4は排他的）。
+    lanes_low_threshold = None if cycleway_class(tags) == "track" else recipe.lanes_low_threshold
+    lanes_low_adj = threshold_adjustment(parse_lanes(tags), lanes_low_threshold, recipe.lanes_low_adjustment, None, 0)
+    lanes_adj = lanes_high_adj + lanes_low_adj
 
     # 改善計画（交通ストレス5段階化）: 実データ実測（dev DB、39,857way・5,737.6km）で、
     # クランプ前の生値がraw>=5に8.3%（way数）/9.3%（距離）集中しており、primary/trunk/
@@ -436,7 +405,11 @@ def traffic_stress_level(
     tags: dict[str, str],
     is_designated: bool = False,
     recipe: TrafficStressRecipe | None = None,
+    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
 ) -> int | None:
     """交通ストレス（1-5段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
     docstringは`traffic_stress_breakdown`参照。"""
-    return traffic_stress_breakdown(highway, tags, is_designated, recipe).level
+    return traffic_stress_breakdown(
+        highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
+    ).level

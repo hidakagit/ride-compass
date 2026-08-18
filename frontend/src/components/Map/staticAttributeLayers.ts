@@ -113,7 +113,7 @@ export function buildTrafficStressLegend(
     { key: "2", label: "2[やや快適]", color: TRAFFIC_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
     { key: "3", label: "3[やや注意]", color: TRAFFIC_STRESS_COLORS[3], filter: ["==", levelExpression, 3] },
     { key: "4", label: "4[注意]", color: TRAFFIC_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
-    { key: "5", label: "5[ストレス大]", color: TRAFFIC_STRESS_COLORS[5], filter: ["==", levelExpression, 5] },
+    { key: "5", label: "5[圧迫大]", color: TRAFFIC_STRESS_COLORS[5], filter: ["==", levelExpression, 5] },
     {
       key: "unknown",
       label: "不明・他[判定対象外の道路種別]",

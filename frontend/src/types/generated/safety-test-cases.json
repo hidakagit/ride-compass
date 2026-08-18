@@ -4,6 +4,8 @@
       "highway": "cycleway"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 1
   },
   {
@@ -11,6 +13,8 @@
       "highway": "residential"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 2
   },
   {
@@ -18,6 +22,8 @@
       "highway": "tertiary"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -25,6 +31,8 @@
       "highway": "secondary"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -32,6 +40,8 @@
       "highway": "primary"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -39,6 +49,8 @@
       "highway": "trunk"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -46,11 +58,15 @@
       "highway": "motorway"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": null
   },
   {
     "properties": {},
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": null
   },
   {
@@ -59,6 +75,8 @@
       "motor_vehicle_no": true
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 1
   },
   {
@@ -67,6 +85,8 @@
       "cycleway_class": "track"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 2
   },
   {
@@ -75,6 +95,8 @@
       "cycleway_class": "lane"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -83,6 +105,8 @@
       "cycleway_class": "shared"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -91,6 +115,8 @@
       "maxspeed_kmh": 30
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -99,6 +125,8 @@
       "maxspeed_kmh": 60
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -107,6 +135,8 @@
       "lanes_count": 4
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -114,6 +144,8 @@
       "highway": "primary"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -121,6 +153,8 @@
       "highway": "primary"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -129,6 +163,8 @@
       "lit": true
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 2
   },
   {
@@ -137,6 +173,8 @@
       "tunnel": true
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -146,6 +184,8 @@
       "tunnel": true
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -155,6 +195,8 @@
       "maxspeed_kmh": 20
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 1
   },
   {
@@ -165,6 +207,8 @@
       "tunnel": true
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 4
   },
   {
@@ -173,6 +217,8 @@
       "designation": "emergency_transport"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 3
   },
   {
@@ -182,29 +228,71 @@
       "designation": "emergency_transport"
     },
     "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": null,
     "expected_level": 1
   },
   {
     "properties": {
       "highway": "secondary"
     },
-    "recipe": {
+    "recipe": null,
+    "road_suitability_recipe": {
       "base_by_highway": {
         "secondary": 2
       },
       "cycleway_track_adjustment": -2,
       "cycleway_lane_adjustment": -1,
-      "cycleway_shared_adjustment": -1,
+      "cycleway_shared_adjustment": -1
+    },
+    "motor_vehicle_density_recipe": null,
+    "expected_level": 2
+  },
+  {
+    "properties": {
+      "highway": "tertiary",
+      "maxspeed_kmh": 40
+    },
+    "recipe": null,
+    "road_suitability_recipe": null,
+    "motor_vehicle_density_recipe": {
+      "maxspeed_low_threshold": 30,
+      "maxspeed_low_adjustment": -1,
+      "maxspeed_high_threshold": 40,
+      "maxspeed_high_adjustment": 1,
+      "lanes_high_threshold": 4,
+      "lanes_high_adjustment": 1,
+      "designation_adjustment": 1
+    },
+    "expected_level": 4
+  },
+  {
+    "properties": {
+      "highway": "secondary",
+      "tunnel": true,
+      "designation": "emergency_transport"
+    },
+    "recipe": {
+      "lit_adjustment": -1,
+      "tunnel_adjustment": 2
+    },
+    "road_suitability_recipe": {
+      "base_by_highway": {
+        "secondary": 2
+      },
+      "cycleway_track_adjustment": -2,
+      "cycleway_lane_adjustment": -1,
+      "cycleway_shared_adjustment": -1
+    },
+    "motor_vehicle_density_recipe": {
       "maxspeed_low_threshold": 30,
       "maxspeed_low_adjustment": -1,
       "maxspeed_high_threshold": 60,
       "maxspeed_high_adjustment": 1,
       "lanes_high_threshold": 4,
       "lanes_high_adjustment": 1,
-      "lit_adjustment": -1,
-      "tunnel_adjustment": 1,
-      "designation_adjustment": 1
+      "designation_adjustment": 2
     },
-    "expected_level": 2
+    "expected_level": 4
   }
 ]

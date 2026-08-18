@@ -16,6 +16,7 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.difficulty import evaluate_axis_difficulties
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import classify_osm_surface
 from app.domain.route import Coordinates
 from app.domain.safety import SafetyRecipe, safety_level
@@ -131,6 +132,8 @@ def compute_edge_cost(
     is_designated: bool = False,
     traffic_stress_recipe: TrafficStressRecipe | None = None,
     safety_recipe: SafetyRecipe | None = None,
+    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -158,6 +161,10 @@ def compute_edge_cost(
     自体をリクエスト単位で差し替える）。
     `safety_recipe`は安全度軸の判定レシピの上書き（省略時はdomain/safety.py:
     DEFAULT_SAFETY_RECIPE）。traffic_stress_recipeと同じ扱い。
+    `road_suitability_recipe`/`motor_vehicle_density_recipe`は交通ストレス・安全度が
+    共有する「車との近さ」(N2)の材料の上書き（省略時はそれぞれdomain/recipe.py:
+    DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE、改善計画:
+    車との近さ材料の共有元化）。
     """
     if not is_edge_allowed(edge, way_tags):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
@@ -167,7 +174,14 @@ def compute_edge_cost(
     wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
     traffic_stress = (
-        traffic_stress_level(edge.highway, way_tags, is_designated, traffic_stress_recipe)
+        traffic_stress_level(
+            edge.highway,
+            way_tags,
+            is_designated,
+            traffic_stress_recipe,
+            road_suitability_recipe=road_suitability_recipe,
+            motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+        )
         if way_tags is not None
         else None
     )
@@ -181,7 +195,16 @@ def compute_edge_cost(
         else None
     )
     safety = (
-        safety_level(edge.highway, way_tags, is_designated, safety_recipe) if way_tags is not None else None
+        safety_level(
+            edge.highway,
+            way_tags,
+            is_designated,
+            safety_recipe,
+            road_suitability_recipe=road_suitability_recipe,
+            motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+        )
+        if way_tags is not None
+        else None
     )
 
     difficulty = evaluate_axis_difficulties(

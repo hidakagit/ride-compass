@@ -28,6 +28,7 @@ from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_di
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.safety import SafetyRecipe, safety_level
@@ -123,6 +124,8 @@ class OpenRouteServiceEngine:
         repository: RoadGraphRepository | None = None,
         traffic_stress_recipe: TrafficStressRecipe | None = None,
         safety_recipe: SafetyRecipe | None = None,
+        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
         self._routing_service = routing_service
         self._elevation_service = elevation_service
@@ -133,6 +136,8 @@ class OpenRouteServiceEngine:
         self._repository = repository
         self._traffic_stress_recipe = traffic_stress_recipe
         self._safety_recipe = safety_recipe
+        self._road_suitability_recipe = road_suitability_recipe
+        self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float):
         return _NO_CONTEXT
@@ -332,7 +337,14 @@ class OpenRouteServiceEngine:
 
             highway, tags, is_designated = attr.highway, attr.tags, attr.is_designated
             traffic_stress = (
-                traffic_stress_level(highway, tags, is_designated, self._traffic_stress_recipe)
+                traffic_stress_level(
+                    highway,
+                    tags,
+                    is_designated,
+                    self._traffic_stress_recipe,
+                    road_suitability_recipe=self._road_suitability_recipe,
+                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+                )
                 if tags is not None
                 else None
             )
@@ -347,7 +359,18 @@ class OpenRouteServiceEngine:
                 if accident_count is not None and distance_km > 0 and accident_years_covered > 0
                 else None
             )
-            safety = safety_level(highway, tags, is_designated, self._safety_recipe) if tags is not None else None
+            safety = (
+                safety_level(
+                    highway,
+                    tags,
+                    is_designated,
+                    self._safety_recipe,
+                    road_suitability_recipe=self._road_suitability_recipe,
+                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+                )
+                if tags is not None
+                else None
+            )
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
