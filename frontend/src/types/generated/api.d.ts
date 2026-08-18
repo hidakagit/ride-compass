@@ -209,6 +209,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/region/axis-inspector": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Region Axis Inspector
+         * @description 区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
+         *     一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→
+         *     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
+         *     region_car_stress_breakdownと同じ構造（POST+JSONボディ・osm_way_id完全一致の理由は
+         *     同エンドポイントのdocstring参照）。gradient/wind軸は単独wayでは算出不能なため常に
+         *     available=falseで返る（ルートに含まれる区間の正確な値はルート生成結果自体を見る）。
+         */
+        post: operations["region_axis_inspector_api_region_axis_inspector_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -264,6 +289,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AxisInspectorAxis */
+        AxisInspectorAxis: {
+            /** Axis Id */
+            axis_id: string;
+            /** Difficulty */
+            difficulty: number | null;
+            /** Weight */
+            weight: number;
+            /** Available */
+            available: boolean;
+        };
+        /** AxisInspectorRequest */
+        AxisInspectorRequest: {
+            /** Osm Way Id */
+            osm_way_id: number;
+            car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
+            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
+            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
+        };
+        /** AxisInspectorResult */
+        AxisInspectorResult: {
+            /** Highway */
+            highway: string | null;
+            /** Tags */
+            tags: {
+                [key: string]: string;
+            };
+            /** Is Designated */
+            is_designated: boolean;
+            /** Axes */
+            axes: components["schemas"]["AxisInspectorAxis"][];
+            /** Composite Difficulty */
+            composite_difficulty: number | null;
+            /** Covered Weight Fraction */
+            covered_weight_fraction: number | null;
+        };
         /**
          * CarStressBreakdown
          * @description `car_stress_level`の判定内訳（改善計画T90、T150で「交通ストレス」から改称）。
@@ -1021,6 +1082,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SafetyBreakdown"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    region_axis_inspector_api_region_axis_inspector_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AxisInspectorRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisInspectorResult"] | null;
                 };
             };
             /** @description Validation Error */

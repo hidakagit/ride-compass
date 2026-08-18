@@ -408,6 +408,53 @@
         }
       }
     },
+    "/api/region/axis-inspector": {
+      "post": {
+        "summary": "Region Axis Inspector",
+        "description": "区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nregion_car_stress_breakdownと同じ構造（POST+JSONボディ・osm_way_id完全一致の理由は\n同エンドポイントのdocstring参照）。gradient/wind軸は単独wayでは算出不能なため常に\navailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果自体を見る）。",
+        "operationId": "region_axis_inspector_api_region_axis_inspector_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AxisInspectorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AxisInspectorResult"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Region Axis Inspector Api Region Axis Inspector Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Accident Tile",
@@ -525,6 +572,149 @@
   },
   "components": {
     "schemas": {
+      "AxisInspectorAxis": {
+        "properties": {
+          "axis_id": {
+            "type": "string",
+            "title": "Axis Id"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "axis_id",
+          "difficulty",
+          "weight",
+          "available"
+        ],
+        "title": "AxisInspectorAxis"
+      },
+      "AxisInspectorRequest": {
+        "properties": {
+          "osm_way_id": {
+            "type": "integer",
+            "title": "Osm Way Id"
+          },
+          "car_stress_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CarStressRecipeOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "road_suitability_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoadSuitabilityRecipeOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "motor_vehicle_density_recipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MotorVehicleDensityRecipeOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "osm_way_id"
+        ],
+        "title": "AxisInspectorRequest"
+      },
+      "AxisInspectorResult": {
+        "properties": {
+          "highway": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highway"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Tags"
+          },
+          "is_designated": {
+            "type": "boolean",
+            "title": "Is Designated"
+          },
+          "axes": {
+            "items": {
+              "$ref": "#/components/schemas/AxisInspectorAxis"
+            },
+            "type": "array",
+            "title": "Axes"
+          },
+          "composite_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composite Difficulty"
+          },
+          "covered_weight_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered Weight Fraction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "highway",
+          "tags",
+          "is_designated",
+          "axes",
+          "composite_difficulty",
+          "covered_weight_fraction"
+        ],
+        "title": "AxisInspectorResult"
+      },
       "CarStressBreakdown": {
         "properties": {
           "base": {

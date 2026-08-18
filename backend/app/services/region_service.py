@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.domain.evaluation import AxisInspectorResult, RoutePreference, axis_inspector_breakdown
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.domain.safety import SafetyBreakdown, SafetyRecipe, safety_breakdown
@@ -388,3 +389,52 @@ class RegionService:
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
         )
+
+    async def get_axis_inspector(
+        self,
+        osm_way_id: int,
+        car_stress_recipe: CarStressRecipe | None = None,
+        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+    ) -> AxisInspectorResult | None:
+        """区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
+        一次属性→二次軸スコア→三次合成コスト（取得可能な軸だけの参考値）を返す。
+
+        `_get_breakdown`と同じくosm_way_id完全一致で該当wayを引き直す（同docstring参照）。
+        車ストレス・停止密度・事故密度・道路適正・自動車密度の材料は既存のway_tags/
+        way_attribute_counts/accident_years_coveredをまとめて取得する必要があるため
+        `_get_breakdown`（軸1つぶんの単純な委譲）は再利用せず専用実装にする。
+
+        `repository`未注入、該当way自体が存在しない場合はNone。DB例外もNoneへ倒す
+        （`_get_breakdown`と同じグレースフルデグレード方針）。
+        """
+        if self._repository is None:
+            return None
+        with log_external_call("region:axis-inspector", osm_way_id=osm_way_id) as fields:
+            try:
+                way_tags_result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
+                if way_tags_result is None:
+                    fields["lookup"] = "not_found"
+                    return None
+                way_counts = await self._repository.get_way_attribute_counts(osm_way_id)
+                accident_years_covered = await self._repository.get_accident_years_covered()
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（_get_breakdownと同じ方針）
+                fields["result"] = "error"
+                fields["warned"] = True
+                fields["error_type"] = error_type_label(exc)
+                logger.warning("区間インスペクタのPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc)
+                return None
+            fields["lookup"] = "ok"
+            fields["way_counts_available"] = way_counts is not None
+            highway, tags, is_designated = way_tags_result
+            return axis_inspector_breakdown(
+                highway,
+                tags,
+                is_designated,
+                way_counts,
+                accident_years_covered,
+                RoutePreference(),
+                car_stress_recipe,
+                road_suitability_recipe,
+                motor_vehicle_density_recipe,
+            )

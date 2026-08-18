@@ -14,6 +14,7 @@ from app.api.routers.routes import (
     validate_lanes_threshold_order,
 )
 from app.config import settings
+from app.domain.evaluation import AxisInspectorResult
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.domain.safety import SafetyBreakdown, SafetyRecipe
@@ -240,4 +241,51 @@ async def region_safety_breakdown(
         road_suitability_recipe,
         motor_vehicle_density_recipe,
         region_service.get_safety_breakdown,
+    )
+
+
+class AxisInspectorRequest(BaseModel):
+    osm_way_id: int
+    # CarStressBreakdownRequestと同じ「車との近さ」(N2)材料の上書き（車ストレス軸のスコアに
+    # 反映される。研究モードで重みを上書き中はここも追従させる、改善計画T146）。
+    car_stress_recipe: CarStressRecipeOverride | None = None
+    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
+
+    @model_validator(mode="after")
+    def _check_lanes_threshold_order(self) -> "AxisInspectorRequest":
+        validate_lanes_threshold_order(self.car_stress_recipe, self.motor_vehicle_density_recipe)
+        return self
+
+
+@router.post("/api/region/axis-inspector")
+async def region_axis_inspector(
+    body: AxisInspectorRequest,
+    http_request: Request,
+    region_service: RegionService = Depends(get_region_service),
+) -> AxisInspectorResult | None:
+    """区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
+    一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→
+    合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
+    region_car_stress_breakdownと同じ構造（POST+JSONボディ・osm_way_id完全一致の理由は
+    同エンドポイントのdocstring参照）。gradient/wind軸は単独wayでは算出不能なため常に
+    available=falseで返る（ルートに含まれる区間の正確な値はルート生成結果自体を見る）。
+    """
+    recipe = CarStressRecipe(**body.car_stress_recipe.model_dump()) if body.car_stress_recipe else None
+    road_suitability_recipe = (
+        RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
+    )
+    motor_vehicle_density_recipe = (
+        MotorVehicleDensityRecipe(**body.motor_vehicle_density_recipe.model_dump())
+        if body.motor_vehicle_density_recipe
+        else None
+    )
+    return await _breakdown_response(
+        http_request,
+        "axis-inspector",
+        body.osm_way_id,
+        recipe,
+        road_suitability_recipe,
+        motor_vehicle_density_recipe,
+        region_service.get_axis_inspector,
     )

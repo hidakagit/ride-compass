@@ -4240,7 +4240,7 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   stop_count>0が18.9%（関東本土全域、dev機の東京都心南部限定データより広く分布）。
   raw_intersection_nodes 1,407,164件・road_nodes.degree>0が80,612件。
 
-### - [ ] T146. 区間インスペクタをレジストリ駆動にし、一次属性まで遡って表示できるようにする 規模M
+### - [x] T146. 区間インスペクタをレジストリ駆動にし、一次属性まで遡って表示できるようにする 規模M（2026-08-19完了）
 
 - 背景: 設計プロンプトの区間インスペクタ要件。現状の`recipeBreakdownPopup.ts`は
   車の圧迫感・安全度の内訳（N1/N2込み）を個別に表示する専用実装で、軸を追加するたびに
@@ -4249,6 +4249,33 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   スコア→合成コストをレジストリ走査で組み立てる汎用ポップアップへ置き換える。
 - 完了条件: 任意の区間で一次属性から合成コストまでの内訳がポップアップに表示されることを
   Playwright実機確認。
+- 実装メモ（2026-08-19完了）: 着手前にユーザーと「合成コスト」の扱いを協議した。勾配軸
+  （標高データ）はルート沿いの区間文脈が無いと算出できないため、単独クリックしたwayでは
+  原理的に正確な値を出せない。ユーザー承認のうえ「取得可能な軸だけで部分合計を出し、
+  勾配軸は欠損と明記する」方針を採用した。また、当初検討したクライアント側での難易度式
+  再実装（TSミラー）はPython側とのドリフトリスクがあるため見送り、**既存の車ストレス/
+  安全度内訳ボタンと同じ「クリック時にサーバーへ1回問い合わせて正確な値を返す」パターン**
+  へ統一した（タイル共有キャッシュとは無関係のper-request計算のため、T145bの
+  「サーバー側で最終値を焼かない」制約はそもそも適用されない）。
+  実装: `domain/evaluation.py`へ`axis_inspector_breakdown`（純関数、car_stress/surface_q/
+  stop_density/accident/nightの5軸を`way_attribute_counts`＋タグから算出し
+  `composite_difficulty`と同じ「データ無しは除外・残りの重みで再正規化」方針で部分合成、
+  gradient/windは常にavailable=false）・`AxisInspectorResult`/`AxisInspectorAxis`を新設。
+  `RoadGraphRepository.get_way_attribute_counts`（osm_way_id完全一致1行取得）を新設し
+  `RegionService.get_axis_inspector`から`get_way_tags_by_osm_way_id`・
+  `get_accident_years_covered`と束ねて呼ぶ。新エンドポイント`POST /api/region/
+  axis-inspector`（既存の`_breakdown_response`ヘルパーをそのまま再利用、レート制限・
+  リクエスト形は車ストレス/安全度内訳と同型）。フロントは`axisInspectorPopup.ts`
+  （新規）が`axisLayers.ts: AXIS_LABELS`（axis-catalog.json由来、windのみレジストリ
+  未登録のため補完）でラベルをカタログ駆動表示し、`MapView.tsx`の道路クリックポップアップへ
+  「一次属性・全軸の内訳を見る」ボタンとして配線（osm_way_idが分かる区間なら常時表示、
+  車ストレス/安全度個別ボタンとは独立に併存）。
+  検証: backend pytest 960件（新規: 純関数4件・RegionService統合6件・repository統合2件）・
+  frontend vitest 384件（新規axisInspectorPopup.test.ts 3件）・tsc・eslint全green。
+  OpenAPI再生成・フロント型再生成（`AxisInspectorResult`/`AxisInspectorAxis`）済み。
+  Playwright実機確認（退避ポート8001/3011、CORS許可オリジンへ3011を追加）で実際の区間
+  クリック→ボタン押下→一次属性（highway・タグ）/二次軸スコア5軸/合成コスト58.3（重みの
+  約44%相当の軸のみで算出、勾配・風は欠損と明記）の表示をスクリーンショットで確認。
 
 ### - [x] T147. 軸間相関行列（ピアソン）を計算するスクリプトを実装する 規模M（2026-08-18完了）
 
@@ -4572,4 +4599,5 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 | 2026-08-19 | T150 | ユーザー指示「150進めて」を受け着手。backend（domain/traffic.py・designation.py・difficulty.pyの主要シンボルは自分で直接改称）→残りbackend約35ファイル・frontend約48ファイルは専用エージェントへ委譲し機械的リネームを実施（合計約90ファイル、ファイル/ディレクトリ名変更2件含む）。API契約変更を挟むため「backend完了→OpenAPI再生成→frontend型再生成→frontend着手」の順序を厳守。対応方針が見込んでいたMVTタイル世代アップは実装調査の結果不要と判明（材料タグのみ焼き込む設計で`traffic_stress`という文字列自体を持たなかったため）。委譲中の実装ミス2件（CRLF混入、PowerShell大文字小文字非区別置換による識別子破損）を自己検出・修正済みで最終成果物には残っていないことを確認。JSON学習用フィクスチャの命名不一致（`traffic-stress-*.json`のまま）は意図的に残置し別タスク送り。最終検証: backend pytest 941件（postgis 6件含む）・frontend vitest 372件・tsc・eslint・`next build`全green、dev DB実データに対する新エンドポイント`/api/region/car-stress-breakdown`疎通確認、Playwright実機確認（研究モード内の評価重みパネル・CarStressRecipePanelが新語彙で正常描画、コンソールエラー・undefined/NaN表示なし）まで完了 |
 | 2026-08-19 | T135 | 別セッションがT150（traffic_stress→car_stress呼称統一）を同一作業ツリーで進行中と確認したため、コード変更を伴わないdocs反映のみで完結するT135を選んで実施（T150との衝突回避）。docs/complexity-review-2026-08-16.mdのKeep List「page.tsx / MapView.tsxの現状維持」節へpage.tsx独自閾値〔useState+useStoredState合計40件 or 1,300行、2026-08-18時点実測38件・1,148行で未到達〕をMapView.tsxの既存閾値と並記し追加、設計原則9へも同内容を追記。変更コストシミュレーション表へG'行（レシピ付き評価軸追加、T119実測64ファイル・+3,677/-394行、次回単軸追加時に再検証する参考値と明記）・G''行（軸の共通材料の外出し・再構成、T130実測70ファイル・+3,938/-2,084行）を新設し区別。運用ルール明文化（規模M以上の着手前タスクエントリ作成）はCLAUDE.md改訂要否含めユーザー判断のため見送り、別途確認が必要。コード変更なし |
 | 2026-08-19 | T145b | T151に続けて着手。当初「edge_attribute_countsをタイルへ焼き込む」案で実装したが、road_edgesの遅延構築によりタイル内カバレッジ3.6%と判明しユーザー協議で方針変更、way単位事実テーブル（way_attribute_counts＋raw_intersection_nodes、migration 0012）を新設して全域カバレッジ（86,642way・51秒）を確保。実装中に停止密度がT101以降コンビニ・自販機を誤算入するバグを発見・修正（STOP_POI_KINDSフィルタ新設）。レジストリへAxisDisplaySpec拡張→axis-catalog.json書き出し→フロントの汎用レイヤーファクトリ（axisLayers.ts）で、新しいramp軸はレジストリ登録＋タイル焼き込みだけで地図に現れる構造を実現。タイル世代v12。backend 948件・frontend 381件・tsc・eslint全green、Playwright実機確認済み。ユーザー承認を得て本番Oracle Cloudへも同日反映（migration 0011/0012適用＋3バッチ実行、way_attribute_counts 1,329,632件・96.1%が交差点近傍データを保有）。詳細はT145b実装メモ参照 |
-| 2026-08-19 | T151 | T150完了・commit後に着手（T150進行中は同一ファイル群に触れるため待機）。当初「PostgreSQLのクエリプラン非決定性の可能性」とされていた原因をコード読解のみで確定: `get_intersection_counts`内部の`_chunked(edge_ids, 50_000)`がリスト位置でチャンク境界を決めるため、入力順序が変わるとチャンク境界がずれ境界をまたぐノードの次数が変わる（T144の「全edge一括」対策も、呼び出し先が内部で再度50,000件分割していたため効いていなかったと判明）。対応方針どおりroad_nodes.degree（DB全体から見た真のグローバル次数）へ一本化。migration 0011・`DerivedGraphRepository.recompute_node_degrees()`（新設、単一UPDATE...FROM、チャンク分割不要）・`app/batch/precompute_road_node_degrees.py`（新設）を実装、`_INTERSECTION_COUNTS_SQL`/`_NEAREST_INTERSECTION_COUNTS_SQL`を`rn.degree`参照へ簡略化、`precompute_edge_attribute_counts.py`の特殊分岐を削除しaccident/stopと同じチャンクループへ統合（結果として高速化、dev機41.7秒）。運用上`precompute_road_node_degrees.py`→`precompute_edge_attribute_counts.py`の順で実行が必要になった（docstring・改善計画双方に明記）。順序非依存の回帰テスト追加、dev機で5,000件規模の順序反転一致（0件不一致）を実機確認。副次的にroad_nodesの22%がorphan（road_edges未参照）と判明したが実害なしのため記録のみで対応せず。backend pytest 942件green。**本番Oracle Cloudへのmigration適用・バッチ実行は未実施（ユーザー確認待ち）** |
+| 2026-08-19 | T151 | T150完了・commit後に着手（T150進行中は同一ファイル群に触れるため待機）。当初「PostgreSQLのクエリプラン非決定性の可能性」とされていた原因をコード読解のみで確定: `get_intersection_counts`内部の`_chunked(edge_ids, 50_000)`がリスト位置でチャンク境界を決めるため、入力順序が変わるとチャンク境界がずれ境界をまたぐノードの次数が変わる（T144の「全edge一括」対策も、呼び出し先が内部で再度50,000件分割していたため効いていなかったと判明）。対応方針どおりroad_nodes.degree（DB全体から見た真のグローバル次数）へ一本化。migration 0011・`DerivedGraphRepository.recompute_node_degrees()`（新設、単一UPDATE...FROM、チャンク分割不要）・`app/batch/precompute_road_node_degrees.py`（新設）を実装、`_INTERSECTION_COUNTS_SQL`/`_NEAREST_INTERSECTION_COUNTS_SQL`を`rn.degree`参照へ簡略化、`precompute_edge_attribute_counts.py`の特殊分岐を削除しaccident/stopと同じチャンクループへ統合（結果として高速化、dev機41.7秒）。運用上`precompute_road_node_degrees.py`→`precompute_edge_attribute_counts.py`の順で実行が必要になった（docstring・改善計画双方に明記）。順序非依存の回帰テスト追加、dev機で5,000件規模の順序反転一致（0件不一致）を実機確認。副次的にroad_nodesの22%がorphan（road_edges未参照）と判明したが実害なしのため記録のみで対応せず。backend pytest 942件green。ユーザー承認を得て本番Oracle Cloudへも同日反映（migration適用・degrees/edge_countsバッチ実行完了） |
+| 2026-08-19 | T146 | T145bのレジストリ生成物を再利用し区間インスペクタを実装。着手前にユーザーと合成コストの扱いを協議し、勾配軸（標高データ）は単独クリックしたwayでは算出不能なため「取得可能な軸だけで部分合計・勾配軸は欠損と明記」の方針で合意。クライアント側での難易度式再実装（ドリフトリスクあり）は見送り、既存の車ストレス/安全度内訳ボタンと同じ「クリック時にサーバーへ1回問い合わせ」パターンへ統一。`domain/evaluation.py: axis_inspector_breakdown`（car_stress/surface_q/stop_density/accident/nightの5軸をway_attribute_counts＋タグから算出、composite_difficultyと同じ「データ無しは除外・再正規化」で部分合成）・新エンドポイント`POST /api/region/axis-inspector`・フロント`axisInspectorPopup.ts`（axis-catalog.json由来のラベルで表示、道路クリックポップアップへ「一次属性・全軸の内訳を見る」ボタンとして配線）を実装。backend 960件・frontend 384件・tsc・eslint全green、Playwright実機確認（一次属性/5軸スコア/合成コスト58.3〔重み約44%相当・勾配風は欠損明記〕の表示）済み。詳細はT146実装メモ参照 |

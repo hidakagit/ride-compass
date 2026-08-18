@@ -31,6 +31,10 @@ import {
   attachCarStressBreakdownHandler,
 } from "@/components/Map/recipeBreakdownPopup";
 import {
+  buildAxisInspectorAffordanceHtml,
+  attachAxisInspectorHandler,
+} from "@/components/Map/axisInspectorPopup";
+import {
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
   ROAD_LINE_WIDTH_AXIS_ID,
@@ -993,7 +997,10 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
           <div ${SAFETY_BREAKDOWN_RESULT_ATTR}></div>
         </div>`
       : "";
-  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${carStressBreakdownAffordance}${safetyBreakdownAffordance}</div>`;
+  // 区間インスペクタ（改善計画T146）: 一次属性→全二次軸→合成コスト(参考値)。osm_way_idが
+  // 分かる区間なら常に出す（車ストレス/安全度個別ボタンと違い特定軸の判定可否に依存しない）。
+  const axisInspectorAffordance = properties.osm_way_id != null ? buildAxisInspectorAffordanceHtml() : "";
+  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${carStressBreakdownAffordance}${safetyBreakdownAffordance}${axisInspectorAffordance}</div>`;
 }
 
 // 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
@@ -1492,6 +1499,21 @@ export default function MapView({
             popupElement,
             roadSurfaceProperties.osm_way_id,
             currentSafetyRecipe,
+            currentRoadSuitabilityRecipe,
+            currentMotorVehicleDensityRecipe,
+          );
+        }
+      }
+      // 区間インスペクタ（改善計画T146）はbuildRoadSurfacePopupHtml側でosm_way_idの
+      // 有無だけを見て出しているため、配線側も同じ条件（isRoadSurfaceFeature不要、
+      // 道路以外のフィーチャーにはosm_way_id自体が無い）に揃える。
+      if (roadSurfaceProperties.osm_way_id != null) {
+        const popupElement = popupRef.current.getElement();
+        if (popupElement) {
+          attachAxisInspectorHandler(
+            popupElement,
+            roadSurfaceProperties.osm_way_id,
+            currentCarStressRecipe,
             currentRoadSuitabilityRecipe,
             currentMotorVehicleDensityRecipe,
           );

@@ -13,9 +13,17 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 from pydantic import BaseModel
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.difficulty import composite_difficulty, evaluate_axis_difficulties
+from app.domain.difficulty import (
+    accident_difficulty,
+    car_stress_difficulty,
+    composite_difficulty,
+    evaluate_axis_difficulties,
+    road_difficulty,
+    stop_difficulty,
+)
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
+from app.domain.night import night_difficulty
 from app.domain.recipe import (
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -117,6 +125,103 @@ def preference_to_axis_weights(preference: RoutePreference) -> dict[str, float]:
     `accident`/`night`）をキーとする重み辞書へ変換する（改善計画T142）。"""
     dump = preference.model_dump()
     return {axis_id: dump[field] for field, axis_id in AXIS_WEIGHT_FIELD_TO_AXIS_ID.items()}
+
+
+# 区間インスペクタ（改善計画T146）。「一次属性→二次軸→三次合成コスト」をレジストリの
+# axis-catalog.jsonが持つラベル・単位と対で、単独でクリックされたway（ルート文脈が無い）
+# について算出する。gradient/windはルート沿いの区間context（標高・出発時刻）が必要なため
+# 常にavailable=Falseで返す（データ欠損ではなく、単独wayでは原理的に算出不能という区別。
+# T145bで「事実はタイルに、解釈はクライアントに」方針を採ったが、ここでの合成コストは
+# クリックのたびに1回計算するだけの参照用途で共有キャッシュに乗らないため、サーバー側で
+# 正確に計算してよい＝タイル焼き込みの制約は適用されない）。
+
+
+class AxisInspectorAxis(BaseModel):
+    axis_id: str
+    difficulty: float | None
+    weight: float
+    available: bool
+
+
+class AxisInspectorResult(BaseModel):
+    highway: str | None
+    tags: dict[str, str]
+    is_designated: bool
+    axes: list[AxisInspectorAxis]
+    # 取得可能な軸だけの加重平均（`composite_difficulty`と同じ「データ無しは除外し
+    # 残りの重みで再正規化」方針）。1つも取得できなければNone。
+    composite_difficulty: float | None
+    # 全7軸の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
+    # 「◯%相当の軸のみで算出」という参考値である旨を示すために使う。
+    covered_weight_fraction: float | None
+
+
+def axis_inspector_breakdown(
+    highway: str | None,
+    tags: dict[str, str],
+    is_designated: bool,
+    way_counts: tuple[float, float, int, int] | None,
+    accident_years_covered: int,
+    preference: RoutePreference | None = None,
+    car_stress_recipe: CarStressRecipe | None = None,
+    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+) -> AxisInspectorResult:
+    """区間インスペクタの内訳を算出する純関数。`way_counts`は
+    `RoadGraphRepository.get_way_attribute_counts`の戻り値
+    （length_m, accident_count, stop_count, intersection_count）で、Noneなら
+    事故密度・停止密度は算出不能（available=False）として扱う。
+    """
+    weights = preference_to_axis_weights(preference or RoutePreference())
+
+    level = car_stress_level(
+        highway, tags, is_designated, car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe
+    )
+    surface_good = classify_osm_surface(tags.get("surface"))
+
+    length_km = None
+    accident_count = stop_count = intersection_count = None
+    if way_counts is not None:
+        length_m, accident_count, stop_count, intersection_count = way_counts
+        if length_m and length_m > 0:
+            length_km = length_m / 1000.0
+
+    stop_per_km = stop_count / length_km if length_km and stop_count is not None else None
+    intersection_per_km = intersection_count / length_km if length_km and intersection_count is not None else None
+    accident_per_km_year = None
+    if length_km and accident_count is not None and accident_years_covered > 0:
+        accident_per_km_year = (accident_count / length_km) / accident_years_covered
+
+    # gradient/windは単独wayでは算出不能（ルート文脈が必要）なため、scoresへ含めない
+    # （composite_difficultyの「データ無しは除外」動作をそのまま使う）。
+    scores: dict[str, float | None] = {
+        "car_stress": car_stress_difficulty(level),
+        "surface_q": road_difficulty(surface_good),
+        "stop_density": stop_difficulty(stop_per_km, intersection_per_km),
+        "accident": accident_difficulty(accident_per_km_year),
+        "night": night_difficulty(tags),
+    }
+
+    axes = [
+        AxisInspectorAxis(axis_id=axis_id, difficulty=score, weight=weights.get(axis_id, 0.0), available=score is not None)
+        for axis_id, score in scores.items()
+    ]
+    for axis_id in ("gradient", "wind"):
+        axes.append(AxisInspectorAxis(axis_id=axis_id, difficulty=None, weight=weights.get(axis_id, 0.0), available=False))
+
+    composite = composite_difficulty([(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()])
+    total_weight = sum(weights.values())
+    covered_weight = sum(weights.get(axis_id, 0.0) for axis_id, score in scores.items() if score is not None)
+    covered_fraction = round(covered_weight / total_weight, 3) if total_weight > 0 else None
+
+    return AxisInspectorResult(
+        highway=highway,
+        tags=tags,
+        is_designated=is_designated,
+        axes=axes,
+        composite_difficulty=composite,
+        covered_weight_fraction=covered_fraction,
+    )
 
 
 class EdgeCostResult(BaseModel):

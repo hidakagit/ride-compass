@@ -6,6 +6,7 @@ from app.domain import evaluation, safety, traffic
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import (
     RoutePreference,
+    axis_inspector_breakdown,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
@@ -380,3 +381,88 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
 
     assert direct.cost == composed_cost
     assert direct.difficulty == composed_difficulty
+
+
+# --- axis_inspector_breakdown（区間インスペクタ、改善計画T146） ---
+
+
+def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
+    """way_counts（length_m, accident_count, stop_count, intersection_count）がある場合、
+    car_stress/surface_q/stop_density/accident/nightが算出され、gradient/windは
+    ルート文脈が無いため常にavailable=Falseになる。"""
+    result = axis_inspector_breakdown(
+        highway="residential",
+        tags={"surface": "asphalt", "lit": "yes"},
+        is_designated=False,
+        way_counts=(1000.0, 2.0, 4, 6),  # 1km, 事故2件, 停止4件, 交差点6件
+        accident_years_covered=2,
+    )
+
+    by_id = {axis.axis_id: axis for axis in result.axes}
+    assert by_id["car_stress"].available is True
+    assert by_id["surface_q"].available is True
+    assert by_id["surface_q"].difficulty == 0.0  # asphalt=良い路面
+    assert by_id["stop_density"].available is True
+    assert by_id["accident"].available is True
+    assert by_id["night"].available is True
+    assert by_id["gradient"].available is False
+    assert by_id["gradient"].difficulty is None
+    assert by_id["wind"].available is False
+    assert result.composite_difficulty is not None
+    # 全7軸の重み合計1.08のうちgradient(0.15)+wind(0.26)を除いた0.67ぶんが取得できている
+    assert result.covered_weight_fraction == pytest.approx(0.67 / 1.08, abs=0.001)
+
+
+def test_axis_inspector_breakdown_way_counts_none_marks_count_based_axes_unavailable():
+    """way_attribute_countsに行が無い（way_counts=None）場合、事故密度・停止密度は
+    算出不能（available=False）だが、タグだけで決まる車ストレス・路面・夜間は
+    引き続き算出できる。"""
+    result = axis_inspector_breakdown(
+        highway="residential",
+        tags={"surface": "asphalt"},
+        is_designated=False,
+        way_counts=None,
+        accident_years_covered=3,
+    )
+
+    by_id = {axis.axis_id: axis for axis in result.axes}
+    assert by_id["stop_density"].available is False
+    assert by_id["accident"].available is False
+    assert by_id["car_stress"].available is True
+    assert by_id["surface_q"].available is True
+    assert 0.0 < result.covered_weight_fraction < 1.0
+
+
+def test_axis_inspector_breakdown_unknown_highway_yields_no_usable_composite():
+    """判定基準未登録のhighway・タグ無し・way_counts無しでは、車ストレス・路面・
+    停止密度・事故密度すべてavailable=Falseになる。night_difficultyだけはタグが
+    空辞書でも常に加点式でスコアを返す（lit無し=+50）ため唯一availableになるが、
+    night_weightの既定値は0.0のため合成コストへは効かず、covered_weight_fractionも
+    0のまま（composite_difficultyの「重み合計0ならNone」動作）。"""
+    result = axis_inspector_breakdown(
+        highway="motorway",  # car_stress_levelの判定基準に未登録
+        tags={},
+        is_designated=False,
+        way_counts=None,
+        accident_years_covered=0,
+    )
+
+    by_id = {axis.axis_id: axis for axis in result.axes}
+    assert by_id["car_stress"].available is False
+    assert by_id["surface_q"].available is False
+    assert by_id["stop_density"].available is False
+    assert by_id["accident"].available is False
+    assert by_id["night"].available is True  # weight=0.0のため合成には無影響
+    assert result.composite_difficulty is None
+    assert result.covered_weight_fraction == 0.0
+
+
+def test_axis_inspector_breakdown_weights_match_preference_to_axis_weights():
+    """各軸のweightはpreference_to_axis_weightsと一致する（既定route_preference使用時）。"""
+    result = axis_inspector_breakdown(
+        highway="residential", tags={}, is_designated=False, way_counts=None, accident_years_covered=0,
+    )
+
+    expected_weights = preference_to_axis_weights(RoutePreference())
+    for axis in result.axes:
+        assert axis.weight == expected_weights[axis.axis_id]

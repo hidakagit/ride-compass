@@ -4,3 +4,6 @@ import type { components } from "./generated/api";
 
 export type CarStressBreakdown = components["schemas"]["CarStressBreakdown"];
 export type SafetyBreakdown = components["schemas"]["SafetyBreakdown"];
+// 区間インスペクタ（改善計画T146）。
+export type AxisInspectorAxis = components["schemas"]["AxisInspectorAxis"];
+export type AxisInspectorResult = components["schemas"]["AxisInspectorResult"];

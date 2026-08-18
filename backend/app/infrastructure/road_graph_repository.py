@@ -565,6 +565,16 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
 
+# 区間インスペクタ（改善計画T146）。_WAY_TAGS_BY_OSM_WAY_IDと同じ完全一致1行取得パターン。
+# way_attribute_counts（T145b、事前集計）が該当osm_way_idを持たない場合（highway無し等で
+# バッチのWHERE対象外だったway）は行自体が無くNoneを返す＝呼び出し元は「データ無し」として
+# 扱う（0件と区別する。get_stop_poi_counts等の「edge_id自体は必ず含まれ0埋め」とは異なる
+# 単純な1行SELECTのため区別不要）。
+_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
+    "SELECT length_m, accident_count, stop_count, intersection_count "
+    "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
+)
+
 # 車ストレスの区間別判定内訳表示（改善計画T90）。get_way_tags_by_osm_way_idが使う。
 # _NEAREST_WAY_TAGS_SQLと違い空間マッチをしない完全一致1行取得のため、KNNより単純。
 _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
@@ -1558,6 +1568,21 @@ class AttributeRepository(_SessionRepository):
             return None
         return (row.highway, row.tags or {}, row.is_designated)
 
+    async def get_way_attribute_counts(
+        self, osm_way_id: int
+    ) -> tuple[float, float, int, int] | None:
+        """osm_way_id完全一致で(length_m, accident_count, stop_count, intersection_count)を
+        返す（区間インスペクタ、改善計画T146）。事前集計（way_attribute_counts、T145b）に
+        行が無い場合はNone（データ無し。呼び出し元は該当軸をスコア算出不能として扱う）。
+        """
+        result = await self._session.execute(
+            _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id}
+        )
+        row = result.first()
+        if row is None:
+            return None
+        return (row.length_m, row.accident_count, row.stop_count, row.intersection_count)
+
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
     ) -> list[tuple[str | None, dict[str, str], bool]]:
@@ -1854,6 +1879,9 @@ class RoadGraphRepository:
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
+
+    async def get_way_attribute_counts(self, osm_way_id: int) -> tuple[float, float, int, int] | None:
+        return await self.attributes.get_way_attribute_counts(osm_way_id)
 
     async def get_nearest_way_tags(
         self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
