@@ -47,7 +47,7 @@ describe("regionApi", () => {
   });
 
   it("poiTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=2`);
+    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=3`);
   });
 
   // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度

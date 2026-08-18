@@ -190,6 +190,15 @@ def test_osm_node_to_poi_spec_unrelated_node_returns_none():
     assert osm_node_to_poi_spec({"id": 200, "tags": {}, "lat": 35.7, "lon": 139.7}) is None
 
 
+def test_osm_node_to_poi_spec_classifies_convenience_store():
+    # 改善計画T101: classify_stop_poiで該当なしの場合にclassify_supply_poiへフォールバックする。
+    spec = osm_node_to_poi_spec({"id": 300, "tags": {"shop": "convenience"}, "lat": 35.7, "lon": 139.7})
+
+    assert spec is not None
+    assert spec.osm_node_id == 300
+    assert spec.kind == "convenience"
+
+
 def test_osm_node_to_poi_spec_keeps_only_allowed_tags():
     spec = osm_node_to_poi_spec(
         {"id": 200, "tags": {"highway": "crossing", "crossing": "zebra", "name": "unrelated"}, "lat": 0.0, "lon": 0.0}

@@ -70,9 +70,26 @@ elements:
       railway:
         - level_crossing
     target: osm_raw_pois
-  # --- 将来の拡張例（有効化にはコード側のtarget対応も必要） ---
-  # - name: drinking_water
-  #   element_type: node
-  #   match:
-  #     amenity: ["drinking_water"]
-  #   target: osm_raw_pois
+  # 改善計画T101（補給・休憩ポイントPOIレイヤー）: コンビニ。shopとamenityは別タグキーの
+  # ためOR条件になり1ルールのANDマッチでは表現できず、下のsupply_amenity_nodesと分けている
+  # （stop_inducing_highway_nodes/railway_level_crossingsと同じ理由）。
+  - name: convenience_stores
+    element_type: node
+    match:
+      shop:
+        - convenience
+    target: osm_raw_pois
+  # 改善計画T101: 自販機・トイレ・給水・駐輪場。実店舗との乖離リスクを事前実測
+  # （backend/scripts/measure_poi_freshness.py、2026-08-18）したところ、コンビニより
+  # OSM側の最終編集が明確に古い（5年以上未編集が58〜59%）と判明したため、取込自体は
+  # 5種すべて対象にしつつ、表示側で「鮮度に注意」と案内する方針にした
+  # （domain/traffic.py: classify_supply_poi、frontend mapLayers.ts: supplyPoiのpanelHint）。
+  - name: supply_amenity_nodes
+    element_type: node
+    match:
+      amenity:
+        - vending_machine
+        - toilets
+        - drinking_water
+        - bicycle_parking
+    target: osm_raw_pois

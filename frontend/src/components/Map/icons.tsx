@@ -125,6 +125,21 @@ export function StopPoiIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 補給・休憩ポイント（改善計画T101）: 買い物袋のシルエット */
+export function SupplyPoiIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M5 7h10l-1 10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 7Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M7.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (

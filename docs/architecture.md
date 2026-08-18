@@ -249,7 +249,7 @@ RideCompass/
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
         recipe.py                      ✅ 改善計画T122: レシピ付き軸（traffic.py/safety.py）が共有する判定プリミティブ。clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/tag_value_is/validate_threshold_order、材料タグ正規化（parse_lanes/parse_maxspeed/cycleway_values/cycleway_class、traffic.pyから移設）
-        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/traffic_stress_level（highway,tags,is_designated）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。判定プリミティブはrecipe.pyへ切り出し済み（改善計画T122）
+        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/traffic_stress_level（highway,tags,is_designated）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。判定プリミティブはrecipe.pyへ切り出し済み（改善計画T122）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/TRAFFIC_STRESS_DESIGNATION_KINDS（7章参照）
         safety.py                        ✅ 改善計画: 安全度レシピ: SafetyRecipe/DEFAULT_SAFETY_RECIPE, safety_breakdown/safety_level/safety_tile_ingredients（7章参照）
@@ -930,7 +930,14 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
    **v10=安全度レシピ。安全度の材料タグ`shoulder`/`lit`を追加（tunnelは既存プロパティを
    再利用）**（現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
-   停止要因POI（`kind`）・交差点密度（`degree`）の点データ。road-surface-tilesと同じ
+   `osm_raw_pois`の点データを`kind`プロパティ付きで焼き込む1レイヤー（`stop_poi`）構成。
+   停止要因（信号・横断歩道・一時停止・踏切）に加え、T101で補給・休憩ポイント
+   （コンビニ・自販機・トイレ・給水・駐輪場）のkind値も同じテーブル・同じMVTクエリへ
+   相乗りさせた（SQL自体は無改修、`kind`を無条件で焼き込む設計のため）。フロント側は
+   `kind`値の集合でstopPoi/supplyPoiの2つの独立レイヤーへ絞り込む
+   （`MapView.tsx`のbaseFilter、`legendFilter.ts`参照）。交差点密度（`degree`）は
+   T96でフロント可視化を撤去、T97で配信自体も削除済み（ルーティング材料としては
+   `_INTERSECTION_COUNTS_SQL`が別途独立に計算）。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。
 3. **`GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`**（`ACCIDENT_TILE_VERSION`、T50新規）:
    事故地点の点データ（`involves_bicycle`・`fatal`）。`AccidentService`

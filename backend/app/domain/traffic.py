@@ -190,6 +190,36 @@ def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
     return _HIGHWAY_STOP_KINDS.get(highway)
 
 
+SupplyPoiKind = Literal["convenience", "vending_machine", "toilets", "drinking_water", "bicycle_parking"]
+
+_AMENITY_SUPPLY_KINDS: dict[str, SupplyPoiKind] = {
+    "vending_machine": "vending_machine",
+    "toilets": "toilets",
+    "drinking_water": "drinking_water",
+    "bicycle_parking": "bicycle_parking",
+}
+
+
+def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
+    """補給・休憩ポイント（コンビニ・自販機・トイレ・給水・駐輪場）の分類（改善計画T101、
+    static-road-attributes-plan.md §2.3）。classify_stop_poiと同じくnode取込の対象判定にも
+    使う（osm_adapter.py: osm_node_to_poi_spec）。停止要因POIとタグ名（shop/amenity vs
+    highway/railway）が独立しており衝突しないため、優先順位の考慮は不要。
+
+    実店舗との乖離（閉店・移転にOSM側が追従できていないリスク）はタグ自体からは
+    分からないため、`backend/scripts/measure_poi_freshness.py`（2026-08-18実測）で
+    要素の最終編集日時を代理指標に実測した。コンビニ（shop=convenience）は直近2年以内の
+    編集が関東全域で62.4%と明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が
+    58〜59%と高く、実店舗との乖離リスクが相対的に高い（フロント側mapLayers.ts:
+    supplyPoiのpanelHintで「鮮度に注意」と明記して利用者に伝える。取込・分類自体は
+    5種すべて対象とし、鮮度の扱いは表示側の注意喚起に留める）。
+    """
+    if (tags.get("shop") or "").strip().lower() == "convenience":
+        return "convenience"
+    amenity = (tags.get("amenity") or "").strip().lower()
+    return _AMENITY_SUPPLY_KINDS.get(amenity)
+
+
 def _density_per_km(segments: list[tuple[float, int | None]]) -> float | None:
     """(区間distance_km, 区間内のcount)のリストから「合計count÷合計distance_km」を求める
     （密度は加算的な量の比であり、区間ごとに既に正規化された値の平均ではないため、

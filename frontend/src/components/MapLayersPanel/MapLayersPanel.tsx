@@ -60,13 +60,21 @@ interface MapLayersPanelProps {
 
 // サイドバーのグループ見出し。staticは中分類（mapLayers.ts: category、改善計画T86）ごとに
 // 分け、dynamic（route、今のところ1種のみ）は従来どおり単独の見出しにする。
-// 表示順はmapLayers.tsのコメントに列挙した順（道路状態→交通・安全→自転車インフラ→地形）。
-const STATIC_CATEGORY_ORDER: readonly MapLayerCategory[] = ["roadCondition", "trafficSafety", "bicycleInfra", "terrain"];
+// 表示順はmapLayers.tsのコメントに列挙した順
+// （道路状態→交通・安全→自転車インフラ→地形→補給・施設[T101]）。
+const STATIC_CATEGORY_ORDER: readonly MapLayerCategory[] = [
+  "roadCondition",
+  "trafficSafety",
+  "bicycleInfra",
+  "terrain",
+  "amenity",
+];
 const STATIC_CATEGORY_HEADINGS: Record<MapLayerCategory, string> = {
   roadCondition: "道路状態",
   trafficSafety: "交通・安全",
   bicycleInfra: "自転車インフラ",
   terrain: "地形",
+  amenity: "補給・施設",
 };
 const DYNAMIC_GROUP_HEADING = "生成したルートの色分け";
 
@@ -311,6 +319,7 @@ export default function MapLayersPanel({
       case "bicycleInfra":
       case "designation":
       case "stopPoi":
+      case "supplyPoi":
       case "accidents":
         return renderStandardSectionBody(layer);
       case "road":

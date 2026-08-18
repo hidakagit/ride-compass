@@ -15,8 +15,13 @@ import {
   SAFETY_LEGEND,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
+  STOP_POI_KINDS,
   STOP_POI_LABELS,
   STOP_POI_LEGEND,
+  SUPPLY_POI_COLOR_EXPRESSION,
+  SUPPLY_POI_KINDS,
+  SUPPLY_POI_LABELS,
+  SUPPLY_POI_LEGEND,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
   TRAFFIC_STRESS_LEGEND,
   buildSafetyColorExpression,
@@ -231,6 +236,43 @@ describe("staticAttributeLayers", () => {
     }
   });
 
+  // 改善計画T101: 補給・休憩ポイントPOI。停止要因POIと同じベクタタイル（kindプロパティ）を
+  // 共有するため、STOP_POI_KINDS/SUPPLY_POI_KINDSが重複しないことも合わせて検証する
+  // （重複するとbaseFilterによる2レイヤー分離が壊れ、両方に同じ地物が出てしまう）。
+  it("補給・休憩ポイントの凡例キーはbackend/app/domain/traffic.pyのSupplyPoiKind5値+不明と一致する", () => {
+    const keys = SUPPLY_POI_LEGEND.map((e) => e.key);
+    expect(new Set(keys)).toEqual(
+      new Set(["convenience", "vending_machine", "toilets", "drinking_water", "bicycle_parking", "unknown"]),
+    );
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("補給・休憩ポイントの凡例エントリごとに一意な色を持つ", () => {
+    const colors = SUPPLY_POI_LEGEND.map((e) => e.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("補給・休憩ポイントの凡例の色とmatch式に出てくる色が一致する", () => {
+    const legendColors = new Set(SUPPLY_POI_LEGEND.map((e) => e.color));
+    const expressionColors = SUPPLY_POI_COLOR_EXPRESSION.filter(
+      (item): item is string => typeof item === "string" && item.startsWith("#"),
+    );
+    for (const color of expressionColors) {
+      expect(legendColors.has(color)).toBe(true);
+    }
+  });
+
+  it("SUPPLY_POI_LABELSは凡例のkey→labelと一致する", () => {
+    for (const entry of SUPPLY_POI_LEGEND.filter((e) => e.key !== "unknown")) {
+      expect(SUPPLY_POI_LABELS[entry.key]).toBe(entry.label);
+    }
+  });
+
+  it("STOP_POI_KINDSとSUPPLY_POI_KINDSは重複しない（同じベクタタイルを共有する2レイヤーのbaseFilter分離の前提）", () => {
+    const overlap = STOP_POI_KINDS.filter((k) => (SUPPLY_POI_KINDS as readonly string[]).includes(k));
+    expect(overlap).toEqual([]);
+  });
+
   // 改善計画T63: 事故の「重大度」絞り込み軸（当事者=ACCIDENT_LEGENDとは独立、AND絞り込み）。
   it("事故の重大度の凡例キーは死亡事故/死亡事故以外の2値で重複が無い", () => {
     const keys = ACCIDENT_SEVERITY_LEGEND.map((e) => e.key);
@@ -256,12 +298,22 @@ describe("staticAttributeLayers", () => {
       safety: SAFETY_LEGEND,
       bicycleInfra: BICYCLE_INFRA_LEGEND,
       stopPoi: STOP_POI_LEGEND,
+      supplyPoi: SUPPLY_POI_LEGEND,
       accidentParty: ACCIDENT_LEGEND,
       accidentSeverity: ACCIDENT_SEVERITY_LEGEND,
     };
     for (const [axisId, legend] of Object.entries(expected)) {
       expect(byAxisId[axisId]).toBe(legend);
     }
+  });
+
+  it("stopPoi/supplyPoi軸はそれぞれ自分のkind値集合へ絞るbaseFilterを持つ（改善計画T101）", () => {
+    const stopPoiAxis = STATIC_FILTER_AXES.find((axis) => axis.axisId === "stopPoi");
+    const supplyPoiAxis = STATIC_FILTER_AXES.find((axis) => axis.axisId === "supplyPoi");
+    expect(stopPoiAxis?.baseFilter).toEqual(["in", ["get", "kind"], ["literal", STOP_POI_KINDS]]);
+    expect(supplyPoiAxis?.baseFilter).toEqual(["in", ["get", "kind"], ["literal", SUPPLY_POI_KINDS]]);
+    // 他の軸（例: trafficStress）はkindプロパティを持たない別ソースのためbaseFilter不要。
+    expect(STATIC_FILTER_AXES.find((axis) => axis.axisId === "trafficStress")?.baseFilter).toBeUndefined();
   });
 
   it("事故は当事者・重大度の2軸を持ち、それ以外のレイヤーは1軸のみ", () => {

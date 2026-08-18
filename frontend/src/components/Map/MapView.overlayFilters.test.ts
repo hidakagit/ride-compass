@@ -5,7 +5,14 @@ import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import { DEFAULT_TRAFFIC_STRESS_RECIPE } from "@/components/Map/trafficStressExpression";
-import { BICYCLE_INFRA_LAYER_ID, SAFETY_LAYER_ID, TRAFFIC_STRESS_LAYER_ID, setStaticOverlayFilters } from "./MapView";
+import {
+  BICYCLE_INFRA_LAYER_ID,
+  SAFETY_LAYER_ID,
+  STOP_POI_LAYER_ID,
+  SUPPLY_POI_LAYER_ID,
+  TRAFFIC_STRESS_LAYER_ID,
+  setStaticOverlayFilters,
+} from "./MapView";
 import type { StaticFilterAxisId } from "./staticAttributeLayers";
 
 // setStaticOverlayFilters（改善計画: 交通ストレスレシピ調整UIパネル）が読む最小限のmap
@@ -126,5 +133,43 @@ describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
     const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
 
     expect(customFilter).toEqual(defaultFilter);
+  });
+});
+
+// 改善計画T101: 停止要因POI・補給休憩POIは同じベクタタイル（kindプロパティ）を共有するため、
+// baseFilter（legendFilter.ts参照）でお互いのkind値を除外できているかを検証する。
+// これが効いていないと、例えば「補給・休憩」レイヤーに信号・横断歩道の点が混ざって
+// 表示されてしまう（stopPoiDefs/supplyPoiDefsのCOLOR_UNKNOWNフォールバック色で）。
+describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分離、改善計画T101）", () => {
+  it("stopPoiレイヤーのフィルタはstopPoi側のkindのみ通し、supplyPoi側のkindは弾く", () => {
+    const map = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(map as any, hiddenKeys({}), DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
+    const filter = map.setFilterCalls.find((c) => c.layerId === STOP_POI_LAYER_ID)!.filter;
+
+    expect(evaluateFilter(filter, { kind: "traffic_signals" })).toBe(true);
+    expect(evaluateFilter(filter, { kind: "convenience" })).toBe(false);
+  });
+
+  it("supplyPoiレイヤーのフィルタはsupplyPoi側のkindのみ通し、stopPoi側のkindは弾く", () => {
+    const map = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(map as any, hiddenKeys({}), DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
+    const filter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
+
+    expect(evaluateFilter(filter, { kind: "convenience" })).toBe(true);
+    expect(evaluateFilter(filter, { kind: "traffic_signals" })).toBe(false);
+  });
+
+  it("凡例の非表示操作中でも、相手方レイヤーのkindはbaseFilterにより引き続き除外される", () => {
+    const map = fakeMap();
+    // stopPoiの「信号を隠す」操作中でも、supplyPoiレイヤー自体はstopPoi側のkindを通さない。
+    const withHiddenTrafficSignals = hiddenKeys({ stopPoi: ["traffic_signals"] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStaticOverlayFilters(map as any, withHiddenTrafficSignals, DEFAULT_TRAFFIC_STRESS_RECIPE, DEFAULT_SAFETY_RECIPE);
+    const supplyFilter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
+
+    expect(evaluateFilter(supplyFilter, { kind: "traffic_signals" })).toBe(false);
+    expect(evaluateFilter(supplyFilter, { kind: "convenience" })).toBe(true);
   });
 });

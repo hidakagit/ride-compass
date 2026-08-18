@@ -10,7 +10,7 @@ OSM（Overpass由来のWay/Nodeデータ）の語彙（`tags`辞書、`oneway`�
 from pydantic import BaseModel
 
 from app.domain.graph import WaySpec
-from app.domain.traffic import classify_stop_poi
+from app.domain.traffic import classify_stop_poi, classify_supply_poi
 
 # OSMのoneway値のうち「逆方向への通行不可」を意味するもの。
 ONEWAY_FORWARD_ONLY = {"yes", "true", "1"}
@@ -117,15 +117,16 @@ def osm_ways_to_way_specs(raw_ways: list[dict]) -> list[WaySpec]:
     return [spec for spec in specs if spec is not None]
 
 
-# 信号・横断歩道・一時停止・踏切のnode取込で保持するタグの許可リスト（静的道路属性P1）。
-# highway/railwayはclassify_stop_poiの分類根拠そのものだが、値をそのまま保持しておくと
-# 将来の分類精緻化（例: crossing=uncontrolled/traffic_signalsの区別）を再取込無しに
-# 遡って行える（ALLOWED_WAY_TAGSと同じ「生タグ保持」の考え方）。
-ALLOWED_NODE_TAGS = frozenset({"highway", "railway", "crossing"})
+# 信号・横断歩道・一時停止・踏切・補給休憩ポイント(T101)のnode取込で保持するタグの
+# 許可リスト（静的道路属性P1）。highway/railway/shop/amenityは分類根拠そのものだが、
+# 値をそのまま保持しておくと将来の分類精緻化（例: crossing=uncontrolled/traffic_signalsの
+# 区別）を再取込無しに遡って行える（ALLOWED_WAY_TAGSと同じ「生タグ保持」の考え方）。
+ALLOWED_NODE_TAGS = frozenset({"highway", "railway", "crossing", "shop", "amenity"})
 
 
 class POISpec(BaseModel):
-    """信号・横断歩道・一時停止・踏切等、停止・減速要因になるnodeの取込単位（静的道路属性P1）。
+    """信号・横断歩道・一時停止・踏切・補給休憩ポイント(T101)等、道路脇のnodeの取込単位
+    （静的道路属性P1）。
 
     WaySpecと対称に、データソースに依存しない契約（PBF取込・将来のOverpass双方が
     ここへ変換してから渡す想定）。build_road_graphの入力ではないため、graph.pyではなく
@@ -141,12 +142,14 @@ class POISpec(BaseModel):
 
 def osm_node_to_poi_spec(raw_node: dict) -> POISpec | None:
     """`{"id": int, "tags": dict, "lat": float, "lon": float}`形式のnode要素をPOISpecへ
-    変換する。信号・横断歩道・一時停止・踏切のいずれにも該当しないnode（大多数の
-    形状点）はNoneを返す（osm_raw_poisは分類できたnodeだけを保持する、road_graph_models.py:
-    OsmRawPoiRow参照）。
+    変換する。停止要因（信号・横断歩道・一時停止・踏切）・補給休憩ポイント(T101:
+    コンビニ・自販機・トイレ・給水・駐輪場)のいずれにも該当しないnode（大多数の形状点）は
+    Noneを返す（osm_raw_poisは分類できたnodeだけを保持する、road_graph_models.py:
+    OsmRawPoiRow参照）。2つの分類はタグ名が独立している（highway/railway vs shop/amenity）
+    ため優先順位を考慮せず、いずれか一致した方をそのまま使う。
     """
     tags = raw_node.get("tags", {})
-    kind = classify_stop_poi(tags)
+    kind = classify_stop_poi(tags) or classify_supply_poi(tags)
     if kind is None:
         return None
 

@@ -336,6 +336,31 @@ export const STOP_POI_LABELS: Record<string, string> = stopPoiDefs.labels;
 export const STOP_POI_LEGEND: LegendEntry[] = stopPoiDefs.legend;
 export const STOP_POI_COLOR_EXPRESSION: unknown[] = stopPoiDefs.colorExpression;
 
+// 補給・休憩ポイントPOI（改善計画T101）の色分け定義。停止要因POIと同じ
+// region-poi-tiles（source-layer: stop_poi）を共有する（MapView.tsx: POI_TILE_SOURCE_ID参照。
+// バックエンドのMVT SQLはosm_raw_pois.kindを無条件で焼き込むため、2つの独立レイヤーの分離は
+// フロント側のkind値によるフィルタで行う。STOP_POI_KINDS/SUPPLY_POI_KINDSをMapView.tsxの
+// レイヤーfilterへ渡し、setStaticOverlayFiltersのbaseFilter（legendFilter.ts参照）で
+// 互いの領域を侵さないようにする）。backend/app/domain/traffic.py: SupplyPoiKindの5値
+// （convenience/vending_machine/toilets/drinking_water/bicycle_parking）と1:1対応。
+const SUPPLY_POI_CATEGORIES: CategoryDef[] = [
+  { key: "convenience", label: "コンビニ", color: "#16a34a" },
+  { key: "vending_machine", label: "自販機", color: "#0891b2" },
+  { key: "toilets", label: "トイレ", color: "#2563eb" },
+  { key: "drinking_water", label: "給水", color: "#0d9488" },
+  { key: "bicycle_parking", label: "駐輪場", color: "#d97706" },
+];
+
+const supplyPoiDefs = buildCategoricalLayerDefs("kind", SUPPLY_POI_CATEGORIES, "不明・他");
+
+export const SUPPLY_POI_LABELS: Record<string, string> = supplyPoiDefs.labels;
+export const SUPPLY_POI_LEGEND: LegendEntry[] = supplyPoiDefs.legend;
+export const SUPPLY_POI_COLOR_EXPRESSION: unknown[] = supplyPoiDefs.colorExpression;
+
+// stopPoi/supplyPoiレイヤーのbaseFilter（上記参照）用、kind値の一覧。
+export const STOP_POI_KINDS: readonly string[] = STOP_POI_CATEGORIES.map((c) => c.key);
+export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c) => c.key);
+
 // 改善計画T63: 絞り込みUIの生成に使う、絞り込み可能な各静的レイヤーの軸カタログ。
 // 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
@@ -345,6 +370,7 @@ export type StaticFilterAxisId =
   | "bicycleInfra"
   | "designation"
   | "stopPoi"
+  | "supplyPoi"
   | "accidentParty"
   | "accidentSeverity";
 
@@ -354,6 +380,11 @@ export interface StaticFilterAxis {
   /** 絞り込みパネルの軸見出し。1レイヤー1軸なら省略（レイヤー名で足りるため）。 */
   label?: string;
   legend: readonly LegendEntry[];
+  /** 凡例の非表示操作の有無に関わらず常にANDする恒常的な絞り込み（改善計画T101、
+   * legendFilter.ts: buildCombinedLegendFilterExpressionのbaseFilter参照）。
+   * stopPoi/supplyPoiが同じベクタタイルのkind値集合を分け合うためだけに使う特殊な軸のみ
+   * 指定する（他の軸は不要＝undefinedで挙動不変）。 */
+  baseFilter?: unknown[];
 }
 
 export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
@@ -361,7 +392,18 @@ export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   { axisId: "safety", layerId: "safety", legend: SAFETY_LEGEND },
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
-  { axisId: "stopPoi", layerId: "stopPoi", legend: STOP_POI_LEGEND },
+  {
+    axisId: "stopPoi",
+    layerId: "stopPoi",
+    legend: STOP_POI_LEGEND,
+    baseFilter: ["in", ["get", "kind"], ["literal", STOP_POI_KINDS]],
+  },
+  {
+    axisId: "supplyPoi",
+    layerId: "supplyPoi",
+    legend: SUPPLY_POI_LEGEND,
+    baseFilter: ["in", ["get", "kind"], ["literal", SUPPLY_POI_KINDS]],
+  },
   { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
   { axisId: "accidentSeverity", layerId: "accidents", label: "重大度", legend: ACCIDENT_SEVERITY_LEGEND },
 ];

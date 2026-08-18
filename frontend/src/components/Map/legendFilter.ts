@@ -40,12 +40,23 @@ export function buildLegendFilterExpression(
 // 路面レイヤーは「路面の種類」「道路の種類」等、互いに独立した分類軸を複数同時に
 // 絞り込みたいことがある（例: 路面の種類=アスファルト かつ 道路の種類=自転車・歩行者道、
 // の2条件を同時に満たす区間だけ残す）。各軸のフィルタ式をANDで束ねて1つの式にする。
+//
+// baseFilter（改善計画T101）: 停止要因POI・補給休憩POIは同じベクタタイルの同じ
+// source-layer（stop_poi）を共有しつつ、kind値の集合で2つの独立したMapLibreレイヤーへ
+// 分ける必要がある。凡例の非表示操作が無い（hiddenKeys=[]）ときbuildLegendFilterExpression
+// はnull（フィルタ無し=全件表示）を返すため、baseFilter無しだとその瞬間だけ相手方の
+// kind値も表示されてしまう。baseFilterは「非表示操作の有無に関わらず常にANDする」
+// 恒常的な絞り込みで、この用途にのみ使う（他の軸は指定不要＝挙動不変）。
 export function buildCombinedLegendFilterExpression(
-  axes: readonly { legend: readonly LegendEntry[]; hiddenKeys: readonly string[] }[]
+  axes: readonly { legend: readonly LegendEntry[]; hiddenKeys: readonly string[]; baseFilter?: unknown[] | null }[]
 ): unknown[] | null {
   const clauses = axes
-    .map(({ legend, hiddenKeys }) => buildLegendFilterExpression(legend, hiddenKeys))
-    .filter((expr): expr is unknown[] => expr !== null);
+    .map(({ legend, hiddenKeys, baseFilter }) => {
+      const hideFilter = buildLegendFilterExpression(legend, hiddenKeys);
+      if (baseFilter && hideFilter) return ["all", baseFilter, hideFilter];
+      return baseFilter ?? hideFilter;
+    })
+    .filter((expr): expr is unknown[] => expr !== null && expr !== undefined);
   if (clauses.length === 0) return null;
   if (clauses.length === 1) return clauses[0];
   return ["all", ...clauses];

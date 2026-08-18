@@ -15,6 +15,7 @@ function baseProps() {
       bicycleInfra: false,
       designation: false,
       stopPoi: false,
+      supplyPoi: false,
       accidents: false,
       route: false,
     },
@@ -28,10 +29,18 @@ function baseProps() {
       bicycleInfra: [],
       designation: [],
       stopPoi: [],
+      supplyPoi: [],
       accidentParty: [],
       accidentSeverity: [],
     } as Record<
-      "trafficStress" | "safety" | "bicycleInfra" | "designation" | "stopPoi" | "accidentParty" | "accidentSeverity",
+      | "trafficStress"
+      | "safety"
+      | "bicycleInfra"
+      | "designation"
+      | "stopPoi"
+      | "supplyPoi"
+      | "accidentParty"
+      | "accidentSeverity",
       readonly string[]
     >,
     onStaticFilterLegendToggle: vi.fn(),
@@ -67,7 +76,7 @@ describe("MapLayersPanel", () => {
     // "自転車インフラ"はグループ見出しとレイヤー名（h3）の両方に現れるため、見出し（h2）に
     // 絞って確認する。
     const headings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    expect(headings).toEqual(["道路状態", "交通・安全", "自転車インフラ", "地形", "生成したルートの色分け"]);
+    expect(headings).toEqual(["道路状態", "交通・安全", "自転車インフラ", "地形", "補給・施設", "生成したルートの色分け"]);
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
@@ -75,6 +84,7 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-supplyPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
   });
@@ -93,6 +103,7 @@ describe("MapLayersPanel", () => {
     expect(groupTitleFor("trafficStress")).toBe("交通・安全");
     expect(groupTitleFor("accidents")).toBe("交通・安全");
     expect(groupTitleFor("stopPoi")).toBe("交通・安全");
+    expect(groupTitleFor("supplyPoi")).toBe("補給・施設");
     expect(groupTitleFor("bicycleInfra")).toBe("自転車インフラ");
     expect(groupTitleFor("elevation")).toBe("地形");
     expect(groupTitleFor("route")).toBe("生成したルートの色分け");
@@ -156,6 +167,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -238,6 +250,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -261,6 +274,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -283,6 +297,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -316,6 +331,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -340,6 +356,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -363,6 +380,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -387,6 +405,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -410,6 +429,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -433,6 +453,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -526,6 +547,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: [],
           designation: [],
           stopPoi: [],
+          supplyPoi: [],
           accidentParty: [],
           accidentSeverity: ["nonfatal"],
         }}
@@ -578,6 +600,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: false,
         }}
@@ -608,6 +631,7 @@ describe("MapLayersPanel", () => {
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
+          supplyPoi: false,
           accidents: false,
           route: true,
         }}
