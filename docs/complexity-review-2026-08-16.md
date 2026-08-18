@@ -168,9 +168,10 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
   to_thread・change_detection付きUPSERT。premature optimizationは今回もゼロ）
 - **`/api/routes/preview`の残置・MAX_CONCURRENT系の非共通化**
 - **ログ・観測基盤**（request_id全レコード注入・抑制付きWARNING・/api/debug/stats）
-- **page.tsx / MapView.tsx の現状維持**（R-6の閾値〔MapView.tsx 2,000行 or
-  STATIC_OVERLAY_LAYERS 10種 or 5つ目のレシピ軸のMapView内ミラー追加、T130で再設定〕
-  到達までは分割しない）
+- **page.tsx / MapView.tsx の現状維持**（MapView.tsxはR-6の閾値〔2,000行 or
+  STATIC_OVERLAY_LAYERS 10種 or 5つ目のレシピ軸のMapView内ミラー追加、T130で再設定〕、
+  page.tsxは独立した閾値〔useState+useStoredState合計40件 or 1,300行、2026-08-18新設〕、
+  それぞれ到達までは分割しない）
 
 ---
 
@@ -185,6 +186,8 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
 | E | 地図表示変更 | 易〜中 | カタログ編集のみ。新規レイヤーはMapView本体約40行（R-6の閾値で解消予定） |
 | F | 外部API変更 | 易 | クライアント1ファイル＋DI。ORS固有漏出はT21で解消（前回「中」→「易」） |
 | G | 新しい評価指標追加 | 中 | P1実測: 新データ源込みでbackend実装18ファイル。way由来なら10〜12箇所。T43で3箇所重複→1箇所（前回「難」→「中」） |
+| G' | レシピ付き評価軸追加 | 中〜難 | T119実測（安全度軸新設）: 64ファイル・+3,677/-394行。参考値へ性質変更（次回、真に新規の単軸追加時に再検証） |
+| G'' | 軸の共通材料の外出し・再構成 | 中〜難 | T130実測（道路適正・自動車密度の2軸を同時追加、既存の交通ストレス・安全度の共通材料を`domain/recipe.py`へ外出し）: 70ファイル・+3,938/-2,084行。G'（真っさらな新規軸追加）とは性質が異なるため区別する |
 
 ---
 
@@ -227,7 +230,11 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
    しない）と判断のうえ「5つ目のレシピ軸のMapView内ミラー追加」へ繰り上げ済み
    （詳細はR-6参照）。新閾値「MapView.tsx 2,000行」「STATIC_OVERLAY_LAYERS 10種」
    「5つ目のレシピ軸のMapView内ミラー追加」のいずれかに達したら、そのとき改めて対応
-   （分割要否を含む）を判断する
+   （分割要否を含む）を判断する。**page.tsxにも独立した閾値を新設する**（2026-08-18、
+   複雑度レビューF-3）: 「useState+useStoredState合計40件到達」または「1,300行到達」で、
+   レイヤー可視性系・研究モード系のグルーピング（useReducer化 or レシピ軸単位のカスタム
+   フック化）を判断する。2026-08-18時点の実測は38件・1,148行（前回34件・1,065行から
+   増加中、いずれも未到達）
 10. 「何もしない」を明示的な判断として記録し、DEFERには必ずトリガー（可能なら日付）を付ける。
     トリガー未到達の項目を「ついで」に実装しない（維持。T22の2026-08-29が好例）
 11. **空間JOINを含むSQLは`&&`前置（またはKNNの`ORDER BY <-> LIMIT`）で必ずGiST索引を
