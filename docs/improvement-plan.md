@@ -3709,6 +3709,91 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
   competing writeを検知（git statusで一時的に「未変更」に戻っているのを発見）、内容を
   再構築して復旧した。
 
+## 統合レビュー対応（2026-08-18・review:all第3回の指摘）
+
+overall/complexity/consistency/uiの4レビューを並列実施し相互統合した結果
+（`.claude/commands/review/history/2026-08-18_all.md`）のうち実施すべきものを起票する。
+対象コミット`32e84ed`時点の指摘であり、直後のT131（研究タブレイアウト改善）で
+一部（参照セクションの上書き非依存の可視化）は既に解消済み。各タスクの発端欄に注記する。
+
+### - [ ] T132. docs/architecture.md §7 を「道路適正」「自動車密度」独立レシピ軸(T130)・
+  研究タブレイアウト改善(T131)・補給POIレイヤー(T101)へ追従させる 規模M
+
+- 発端: 統合レビューF-1（overall・consistency共通指摘、統合-1）。architecture.md §7が
+  `base_by_highway`の独立性を誤って記述（実際は`recipe.py`で意図的に共有）、撤去済み
+  `shoulder_adjustment`の記述が残存、`TrafficStressRecipePanel`の守備範囲説明が現状
+  （`lanes_low`のみ）と不一致、APIリクエスト例が現行のOverrideモデルではバリデーション
+  エラーになる、「フロント9レイヤー」見出しがT101のsupplyPoi追加後も10レイヤーへ未更新。
+  過去に2回発生した「architecture.md未追従」パターンの3回目の再発（P1）。
+- 対応方針: §7の交通ストレス・安全度節へ`RoadSuitabilityRecipe`/`MotorVehicleDensityRecipe`/
+  `car_closeness()`の共有構造を追記し、APIリクエスト/レスポンス例を現行モデルに合わせ
+  差し替え、ディレクトリツリーへ新設ファイルを反映。呼称変更（交通ストレス→車の圧迫感）も
+  反映。フロントレイヤー数見出しを10へ更新。T131のRecipePanelSection/withAutoEnable構成
+  への言及も追加。
+- 完了条件: architecture.md中に`car_closeness`/`RoadSuitabilityRecipe`/
+  `MotorVehicleDensityRecipe`等の新設シンボルへの言及があること。記載中のAPI例が
+  現行スキーマでバリデーションを通ること。
+
+### - [ ] T133. page.tsxのレシピ上書き状態管理を共通化し、5パネルの視覚的な階層関係を示す
+  規模M
+
+- 発端: 統合レビュー統合-2（overall F-2＋uiレビューの統合）。page.tsxのレシピ上書き状態
+  （有効フラグ・値・debounce）が交通ストレス・安全度の2軸から道路適正・自動車密度を
+  加えた4軸へ倍増したが共通フックがなくコピペのまま複製されている。UI側は「道路適正・
+  自動車密度が車の圧迫感・安全度の材料である」という関係が5パネルのフラットな並びからは
+  伝わりにくい。**なお参照セクション（`CarClosenessReferenceSection`）が上書きOFF時でも
+  展開すれば見えるようになった点はT131で解消済み（本タスクの対象外）**。
+- 対応方針: page.tsxの`useState`/`useDebouncedValue`を`useRecipeOverride<T>()`的な
+  共通フックへ集約。研究タブの「レシピ」カテゴリ内で道路適正・自動車密度を「共通材料」
+  として視覚的に1段インデントまたはグルーピング枠で囲い、車の圧迫感・安全度との階層関係
+  を示す。
+- 完了条件: page.tsxの`useState`/`useStoredState`件数が純減すること。frontend vitest・
+  tsc・eslintすべてgreen。Playwright実機確認で階層関係が視覚的に区別できることを確認。
+
+### - [ ] T134. 両エンジンの区間表示ビルダーでcar_closeness()の二重計算を解消する 規模S
+
+- 発端: 統合レビュー統合-3（overall F-3）。`compute_edge_cost`（探索の全Edge）では
+  T130のultrareview是正で`car_closeness_result`を1回計算し共有渡しする形へ解消済みだが、
+  最終候補ルートの区間表示を組み立てる`openrouteservice_engine.py`/`road_graph_engine.py`
+  の該当箇所では`car_closeness_result`未指定のまま交通ストレス・安全度それぞれで
+  `car_closeness()`が計算され続けている。T120・T121-aに続く同型パターン（片方だけ直して
+  別の箇所を忘れる）の3件目。
+- 対応方針: `openrouteservice_engine.py:339-373`・`road_graph_engine.py:276-310`の
+  該当2箇所で、`compute_edge_cost`と同じパターンで`car_closeness()`を1回だけ計算し
+  両関数へ渡す。
+- 完了条件: backend pytest green。`test_evaluation.py`の呼び出し回数カウントテストと
+  対称な回帰テストを両エンジンにも追加。
+
+### - [ ] T135. レビュー基準の反映漏れ2件を解消する（page.tsx閾値・変更コスト表G''行）
+  規模S
+
+- 発端: 統合レビュー統合-4・複雑度レビューF-3'/F-2'。page.tsxの閾値付きKEEP提案
+  （「状態40件 or 1,300行」）がdocs/complexity-review-2026-08-16.mdへ2回連続で未反映。
+  変更コスト表にもG''行（軸の共通材料の外出し・再構成、T130実測70ファイル・
+  +3,938/-2,084行）が未追記。あわせて、規模M以上の変更は着手前の最初のコミットで
+  タスクエントリを先に作る運用（T130で一度破られ事後是正された実績あり）の明文化も
+  検討する。
+- 対応方針: `/review:improve`経由でdocs/complexity-review-2026-08-16.mdのKeep Listと
+  変更コスト表を更新する（コード変更なし）。運用ルールの明文化はCLAUDE.mdへの追記要否を
+  含めユーザー判断とする。
+- 完了条件: docs/complexity-review-2026-08-16.mdへの反映を次回complexityレビューで確認。
+
+### - [ ] T136. 軽微な残骸・テスト非対称の解消（errorLabel・回帰テスト・living_street再検証）
+  規模S
+
+- 発端: 統合レビュー統合-6（ui・consistency・overallのP3統合）。`regionApi.ts`の
+  `errorLabel`に旧呼称「交通ストレス」の死んだ文字列が残存（`catch`で握りつぶされ実害は
+  ないが将来リスク）。`carClosenessExpr()`のフロント側に呼び出し回数の回帰テストがない
+  （backendのみ対称）。living_street基準値の統合が実データ根拠でなく構造統合の都合による。
+  なお「車との近さ」/「自動車との近さ」の表記ゆれはT131のCarClosenessReferenceSection
+  文言圧縮で「車との近さ」表記自体が無くなり解消済み（本タスクの対象外）。
+- 対応方針: `regionApi.ts`の`errorLabel`を「車の圧迫感」へ1行修正。
+  `MapView.overlayFilters.test.ts`等へ`vi.spyOn`ベースの`carClosenessExpr`呼び出し
+  回数テストを追加。次回`measure_axis_stats.py`実行時にliving_street区間の分布・件数を
+  確認する。
+- 完了条件: frontend vitest green（新規テスト追加分含む）。living_street確認は
+  `measure_axis_stats.py`出力への言及で足りる。
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |
