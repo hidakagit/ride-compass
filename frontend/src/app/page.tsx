@@ -90,6 +90,7 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   bicycleInfra: false,
   designation: false,
   stopPoi: false,
+  supplyPoi: false,
   accidents: false,
   route: true,
 };
@@ -900,6 +901,7 @@ export default function Home() {
             safetyRecipe={safetyRecipeOverrideEnabled ? debouncedSafetyRecipe : undefined}
             showDesignation={layerVisibility.designation}
             showStopPoi={layerVisibility.stopPoi}
+            showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}

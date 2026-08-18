@@ -19,6 +19,8 @@
 // - trafficSafety（交通・安全）: 交通ストレス・事故・停止要因
 // - bicycleInfra（自転車インフラ）: 自転車インフラ
 // - terrain（地形）: 標高図
+// - amenity（補給・施設、改善計画T101）: 補給・休憩ポイント。安全・リスクの指標ではなく
+//   trafficSafetyへ含めるのは意味的に不適切なため独立カテゴリにした
 
 export type MapLayerId =
   | "elevation"
@@ -28,6 +30,7 @@ export type MapLayerId =
   | "bicycleInfra"
   | "designation"
   | "stopPoi"
+  | "supplyPoi"
   | "accidents"
   | "route";
 
@@ -36,7 +39,7 @@ export type MapLayerKind = "static" | "dynamic";
 // staticレイヤーの中分類（改善計画T86）。staticが8種に達しflatな一覧のまま並んでいたため、
 // サイドバー（MapLayersPanel）の見出しをkind単位からこの単位へ変更する。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
-export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra" | "terrain";
+export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra" | "terrain" | "amenity";
 
 export interface MapLayerDescriptor {
   id: MapLayerId;
@@ -180,6 +183,24 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     panelHint:
       "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
       "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
+  },
+  {
+    id: "supplyPoi",
+    label: "補給・休憩ポイント",
+    chipLabel: "補給・休憩",
+    kind: "static",
+    category: "amenity",
+    description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
+    // ユーザー懸念「実店舗とどれだけ合っているか」への回答として、backend/scripts/
+    // measure_poi_freshness.py（改善計画T101、2026-08-18）でOSM側の最終編集日時を
+    // 実測した。コンビニは関東全域で直近2年以内の編集が62.4%と明確に新しいが、
+    // 自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、閉店・撤去に
+    // データが追いついていないリスクが相対的に高い。取込自体は5種すべて対象にしつつ、
+    // 利用者へは正直にこの差を伝える（コンビニを優先的な目安、他4種は参考程度に）。
+    panelHint:
+      "コンビニ・自販機・トイレ・給水・駐輪場の位置です。コンビニはOSMデータの更新が" +
+      "比較的新しく目安として使いやすい一方、自販機・トイレ・給水・駐輪場は閉店・撤去に" +
+      "データが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
   },
   {
     id: "accidents",

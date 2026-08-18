@@ -2362,7 +2362,7 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 - 備考: 本タスクの完了条件はコード・テストの範囲で完結しており（T99/T102と異なり実データ
   再取込みは完了条件に含まれない）、DBアクセス/PBFファイルなしで完了できた。
 
-### - [ ] T101. 補給・休憩ポイントPOIレイヤー〔static-road-attributes-plan.md §2.3〕規模M
+### - [x] T101. 補給・休憩ポイントPOIレイヤー〔static-road-attributes-plan.md §2.3〕規模M（2026-08-18完了）
 
 - 背景: 停止要因POI（信号・横断歩道等）・交差点密度は`osm_raw_pois`テーブル＋MVT機構で実装済み
   （T54）。同じ機構に、ロードバイクの実用性に直結する補給・休憩系POI（`shop=convenience`,
@@ -2375,6 +2375,55 @@ masterへ統合する（コード変更は無く、元コミットもdocsのみ�
 - 完了条件: `measure_tag_coverage.py`で各タグを事前実測し、極端に低い種別（未確立タグの道の駅・
   サイクルステーション等は元々対象外）を除外した上で、少なくとも1種別（コンビニを推奨）が
   地図上に表示されることをPlaywrightで確認。
+
+**実装結果（2026-08-18完了）**:
+
+- **着手前の実店舗乖離リスク実測**: ユーザー懸念「実店舗とどれだけ合っているか」を受け、
+  `backend/scripts/measure_poi_freshness.py`（新設、`measure_tag_coverage.py`と同じPBF1パス
+  読み・単発実行の形式）でOSM側の最終編集日時（`check_date`/`survey:date`タグの付与率は
+  2〜11%と低いため代理指標として使用）を関東全域で実測。コンビニは直近2年以内の編集が
+  62.4%と明確に新しい一方、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高いと
+  判明。この結果を踏まえ、5種すべて取込対象にしつつ表示側で鮮度の差を利用者へ伝える方針にした
+  （ユーザー承認）。単体テスト13件（`test_measure_poi_freshness.py`）つき。
+- **バックエンド**: `domain/traffic.py`へ`classify_supply_poi`（`SupplyPoiKind`5値）を新設し、
+  `classify_stop_poi`と同じ「node取込の対象判定を兼ねる」設計に揃えた。`osm_adapter.py:
+  osm_node_to_poi_spec`は`classify_stop_poi(tags) or classify_supply_poi(tags)`で両分類を
+  1回のnode走査で試す（タグ名が独立＝highway/railway vs shop/amenityのため優先順位は不要）。
+  `import_profile.yaml`へ`convenience_stores`/`supply_amenity_nodes`の2ルールを追加（旧来の
+  「将来の拡張例」コメントを実装で置き換え）。`ALLOWED_NODE_TAGS`へ`shop`/`amenity`を追加。
+- **MVT配信はSQL無改修**: `_POI_TILE_MVT_SQL`は`osm_raw_pois.kind`を無条件で焼き込む設計
+  だったため、新kind値の追加だけでバックエンド側は`POI_TILE_VERSION`世代上げ（2→3、
+  ブラウザキャッシュのバスト用。フロント`regionApi.ts`と対で更新）のみで済んだ。
+  `stop_poi`という1つのMVTレイヤーに停止要因・補給休憩の両kindが混在するため、フロント側で
+  「独立した2レイヤーとして表示・トグルする」という完了条件を満たすには工夫が要った:
+  `legendFilter.ts: buildCombinedLegendFilterExpression`へ`baseFilter`（凡例の非表示操作の
+  有無に関わらず常にANDする恒常的な絞り込み）を追加し、`STATIC_FILTER_AXES`のstopPoi/
+  supplyPoi軸それぞれに`["in", ["get","kind"], ["literal", STOP_POI_KINDS/SUPPLY_POI_KINDS]]`を
+  設定。これが無いと、凡例で何も隠していない瞬間（`buildLegendFilterExpression`が
+  `null`＝フィルタ無しを返す）に相手方のkindも一時的に見えてしまう不具合になるところだった
+  （実装中に発見・設計で解消。MapView.overlayFilters.test.tsに再発防止テスト3件追加）。
+- **フロント**: `staticAttributeLayers.ts`へ`SUPPLY_POI_CATEGORIES`（5色）・
+  `SUPPLY_POI_LABELS/LEGEND/COLOR_EXPRESSION`・`STOP_POI_KINDS`/`SUPPLY_POI_KINDS`を新設。
+  `mapLayers.ts`へ`supplyPoi`レイヤーを追加（安全・リスクの指標ではないため`trafficSafety`
+  へは含めず、新設の`amenity`（補給・施設）カテゴリへ分離）。panelHintでコンビニと他4種の
+  鮮度差を明記（「コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、
+  自販機・トイレ・給水・駐輪場は閉店・撤去にデータが追いついていないことがあります」）。
+  `MapView.tsx`は`ensureSupplyPoiLayer`（`ensureStopPoiLayer`と同じregion-poi-tilesソースを
+  共有）・`STATIC_OVERLAY_LAYERS`/`LAYER_DATA_SOURCES`への行追加・ポップアップ
+  （`buildSupplyPoiPopupHtml`）まで、既存のT47 R-6宣言的ループ・T63絞り込み軸カタログの
+  おかげでほぼ機械的な追加で済んだ（`INTERACTIVE_LAYER_IDS`はSTATIC_OVERLAY_LAYERSから
+  自動導出、page.tsxのチップ・凡例summaryも生成的で個別コード不要）。アイコンは買い物袋の
+  シルエット（`icons.tsx: SupplyPoiIcon`）を新規。
+- **データ**: dev機（Tokyo.osm.pbf、UPSERT冪等再取込）で`vending_machine`7,434件・
+  `convenience`4,803件・`toilets`2,257件・`drinking_water`1,528件・`bicycle_parking`1,233件を
+  確認（`measure_poi_freshness.py`の実測件数とほぼ一致）。
+- **実機確認**: 開発サーバーを退避ポート（backend:8001・frontend:3011、T118と同じ考え方）で
+  起動しPlaywright（headless chromium）で確認。「補給・休憩」チップのON切替、サイドバー
+  「補給・施設」セクションの表示、`poi-tiles`タイルリクエストが`?v=3`で200を返すこと、
+  地図上の点クリックで「補給・休憩: 給水」の正しいポップアップが出ることを確認
+  （基礎地図タイル自体はこの検証環境のCDN到達性制約で読み込めなかったが、POI機能とは
+  無関係と判断）。
+- backend全873件（新規26件）・frontend全348件（新規22件）・tsc・eslint全green。
 
 ### - [x] T102. 街灯・分離歩道・バリアタグのカバレッジ実測と採用可否判断〔新規候補〕規模S（2026-08-17完了）
 
@@ -3509,3 +3558,4 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
 | 2026-08-18 | T53 | `backend/scripts/collect_jartic.py`（JARTIC WFS収集）・`analyze_jartic_calibration.py`（LTS段階×実交通量の突き合わせ）を新設。収集側は実装中に2つの実測起点の落とし穴を解消（`時間帯`ではなく自己完結な`時間コード`からの日時parseへ変更／このGeoServerデプロイが`count`/`startIndex`ページングを完全無視すると確認し時間コード完全一致・1時間1リクエストのループ方式へ設計変更）。分析側もLATERAL内KNNを`geography`キャストすると`osm_raw_ways.geom`のGiST索引を使えず全表スキャン化することを実測で発見し、KNNは`geometry`のまま・距離判定のみ`ST_DWithin(geography)`にして解消。2026-08-14〜17の4日分・関東本土全域を実DBへ収集（106観測点）したが、dev DBの`osm_raw_ways`が東京都心南部のみのカバレッジ（実測extent: lon 139.61-139.87, lat 35.58-35.79）のため30m以内にマッチする観測点はn=8（level4/5のみ）にとどまった。この範囲内ではlevel昇順に平均交通量が単調非減少（20,787→24,897台/日、Pearson 0.224・Spearman 0.378）で`TRAFFIC_STRESS_BASE_BY_HIGHWAY`の想定と矛盾しないが、n=8・2段階のみのため統計的な結論には不十分と判断し、基準値は変更せず分析結果の記録のみで完了とした（より広い較正には本番相当のosm_raw_ways投入が必要、現状スコープ外）。backend 847件（新規16件）全green |
 | 2026-08-18 | T53（本番相当スケールで再検証） | ユーザー指示「本番DBには関東全域なOSMデータがある認識で、確認・最新化した上で較正検証できるか」を受け実施。読み取り専用で本番Oracle DBを事前確認: `osm_raw_ways` 1,329,632件（関東本土bbox内99.8%、外れ値0.02%）、migration 0001-0009ラグ無し、133万way規模でもLATERAL最近傍マッチは索引利用9.3ms（`EXPLAIN ANALYZE`実測）、全行`updated_at`が2026-08-16で統一済みのため追加のPBF再取込（最新化）は不要と判断。`analyze_jartic_calibration.py`へ`collect_jartic.py`と同じ`--database-url`引数を追加し、同じ4日分を本番へ再収集・再分析（ユーザー確認済みの方針どおり分析後に`DROP TABLE`で本番から削除）。マッチ観測点n=8→**68**に拡大しlevel3-5を横断、単調性は維持（16,652→23,573→29,762台/日、YES）したが相関はn=8時点より弱まった（Pearson 0.179・Spearman 0.164）。原因はJARTIC road_type=3観測点が幹線道路設置に偏る選択バイアス（68件中60件=88%がlevel5に集中、level5内の分散が最小6,773〜最大64,146台/日と大きい）と分析。方向性は矛盾しないため既定値は変更せず、より大きな標本でも同じ結論（記録のみで完了）を確認した。backend 847件（変更なし）全green |
 | 2026-08-18 | T53（LV6要否の判断・DEFAULT_BBOXカバレッジ確認） | ユーザー相談「高レベル帯の差別化に使えるか」「LV6細分化のメリットを考察して」「DEFAULT_BBOXは狭くなっているなら優先度を上げたい」を受け深掘り。指定路線(is_designated)の実測交通量差+78%（30,097 vs 16,902台/日、n=62/6）で既存`designation_adjustment=+1`の方向性を裏付け。クランプ前raw値の方が交通量とよく揃う（Pearson 0.179→0.309）ことを確認したが、level5内の42%が天井超過というJARTIC側の数字は幹線道路設置バイアスの影響と判明。`measure_axis_stats.py`へ`--database-url`引数を追加し母集団側のraw>5割合を測定した結果、dev機1.0%/1.1%・本番131万way規模でも0.9%/1.2%とほぼ一致し、T117の拡張根拠（8.3%/9.3%）の1/8程度に収束済みと確認。**LV6細分化は見送り**（母集団側の実測が根拠、JARTICの42%は「既知の少数派道路には天井超えの実差がある」という補足証拠へ位置づけ変更）。`DEFAULT_BBOX`は本番`osm_raw_ways`のbbox外データ（3,957件）を方角別に確認したところ全て南方向（離島、元々除外対象）で北・東（関東本土側）への欠落は0件と確認、西の山梨県混入（無害）のみのため修正は優先度低として見送り。backend 847件（`measure_axis_stats.py`への`--database-url`追加は既存テスト23件に影響なし）全green |
+| 2026-08-18 | T101 | ユーザー懸念「実店舗とどれだけ合っているか」を受け、着手前に`backend/scripts/measure_poi_freshness.py`（新設）でOSM側の最終編集日時を関東全域で実測。コンビニは直近2年以内の編集が62.4%と新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高いと判明したため、5種すべて取込みつつ表示側で鮮度差を伝える方針で実装（ユーザー承認）。`domain/traffic.py: classify_supply_poi`新設、`osm_node_to_poi_spec`は`classify_stop_poi or classify_supply_poi`で1回のnode走査に統合。`_POI_TILE_MVT_SQL`はkindを無条件で焼き込む設計のためSQL無改修で済んだ一方、1つのMVTレイヤー（`stop_poi`）に2種類のkindが混在するため独立2レイヤー化には`legendFilter.ts: buildCombinedLegendFilterExpression`へ`baseFilter`（非表示操作の有無に関わらず常にANDする恒常的な絞り込み）を新設して対応（無いと凡例が「何も隠していない」瞬間に相手方のkindが一時的に見えてしまう不具合になるところだった、実装中に発見・設計で解消）。`mapLayers.ts`は`trafficSafety`へ含めず新設`amenity`（補給・施設）カテゴリへ分離。dev DB再取込でvending_machine 7,434件等を確認。退避ポート（8001/3011）でPlaywright実機確認（チップON切替・`poi-tiles?v=3`の200・地図クリックで「補給・休憩: 給水」の正しいポップアップ）。backend 873件（新規26件）・frontend 348件（新規22件）・tsc・eslint全green |

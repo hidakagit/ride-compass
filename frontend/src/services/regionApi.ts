@@ -66,10 +66,12 @@ export function accidentTileUrl(): string {
 // 停止要因POIレイヤー（改善計画T54）の世代。バックエンド（region_service.py:
 // POI_TILE_VERSION）と対で上げる。ROAD_SURFACE_TILE_VERSIONと同じ理由（ブラウザHTTP
 // キャッシュのバスト用）。
+// v3: T101（補給・休憩ポイントPOIレイヤー）。osm_raw_pois.kindへコンビニ・自販機・
+// トイレ・給水・駐輪場を追加。
 // v2: T97。地図の独立可視化レイヤーとしては使われなくなっていた（T96）intersectionレイヤーの
 // 配信自体をバックエンドから削除し、stop_poiのみの1レイヤー構成へ変更した世代。
 // v1: 初版（stop_poi・intersectionの2レイヤー）。
-const POI_TILE_VERSION = "2";
+const POI_TILE_VERSION = "3";
 
 // 停止要因POIの地域レイヤー（改善計画T54）のベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で

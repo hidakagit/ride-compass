@@ -134,10 +134,13 @@ ROAD_SURFACE_TILE_VERSION = "11"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
+# v3: T101（補給・休憩ポイントPOIレイヤー）。osm_raw_pois.kindへコンビニ・自販機・
+# トイレ・給水・駐輪場を追加（stop_poi MVTレイヤーはkindを無条件で焼き込むため、SQL自体は
+# 無改修。フロント側がkind値でstopPoi/supplyPoiの2レイヤーへ絞り込む）。
 # v2: T97。地図の独立可視化レイヤーとしては使われなくなっていた（T96）intersectionレイヤーの
 # 配信自体を削除し、stop_poiのみの1レイヤー構成へ変更した世代。
 # v1: 初版（stop_poi・intersectionの2レイヤー）。
-POI_TILE_VERSION = "2"
+POI_TILE_VERSION = "3"
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:

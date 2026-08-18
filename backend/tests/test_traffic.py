@@ -3,6 +3,7 @@ from app.domain.traffic import (
     TrafficStressRecipe,
     classify_bicycle_infrastructure,
     classify_stop_poi,
+    classify_supply_poi,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
@@ -269,6 +270,38 @@ class TestClassifyStopPoi:
 
     def test_unrelated_highway_value_is_none(self):
         assert classify_stop_poi({"highway": "residential"}) is None
+
+
+class TestClassifySupplyPoi:
+    def test_convenience_store(self):
+        assert classify_supply_poi({"shop": "convenience"}) == "convenience"
+
+    def test_vending_machine(self):
+        assert classify_supply_poi({"amenity": "vending_machine"}) == "vending_machine"
+
+    def test_toilets(self):
+        assert classify_supply_poi({"amenity": "toilets"}) == "toilets"
+
+    def test_drinking_water(self):
+        assert classify_supply_poi({"amenity": "drinking_water"}) == "drinking_water"
+
+    def test_bicycle_parking(self):
+        assert classify_supply_poi({"amenity": "bicycle_parking"}) == "bicycle_parking"
+
+    def test_case_and_whitespace_insensitive(self):
+        assert classify_supply_poi({"shop": " Convenience "}) == "convenience"
+
+    def test_missing_tags_is_none(self):
+        assert classify_supply_poi({}) is None
+
+    def test_unrelated_shop_value_is_none(self):
+        assert classify_supply_poi({"shop": "supermarket"}) is None
+
+    def test_unrelated_amenity_value_is_none(self):
+        assert classify_supply_poi({"amenity": "restaurant"}) is None
+
+    def test_does_not_match_stop_poi_tags(self):
+        assert classify_supply_poi({"highway": "traffic_signals"}) is None
 
 
 class TestDistanceWeightedStopDensity:

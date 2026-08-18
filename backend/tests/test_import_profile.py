@@ -132,3 +132,19 @@ class TestDefaultProfile:
     def test_unrelated_node_does_not_match(self):
         profile = load_profile(DEFAULT_PROFILE_PATH)
         assert matching_rule(profile, "node", {"amenity": "bench"}) is None
+
+    def test_convenience_stores_match(self):
+        # 改善計画T101（補給・休憩ポイントPOIレイヤー）。
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        rule = matching_rule(profile, "node", {"shop": "convenience"})
+        assert rule is not None
+        assert rule.target == "osm_raw_pois"
+        assert matching_rule(profile, "node", {"shop": "supermarket"}) is None
+
+    def test_supply_amenity_nodes_match(self):
+        # 改善計画T101: コンビニ以外の4種（自販機・トイレ・給水・駐輪場）。
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        for amenity in ("vending_machine", "toilets", "drinking_water", "bicycle_parking"):
+            rule = matching_rule(profile, "node", {"amenity": amenity})
+            assert rule is not None, f"amenity={amenity} should match"
+            assert rule.target == "osm_raw_pois"

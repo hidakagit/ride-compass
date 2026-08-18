@@ -55,6 +55,8 @@ import {
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
+  SUPPLY_POI_COLOR_EXPRESSION,
+  SUPPLY_POI_LABELS,
   TRAFFIC_STRESS_COLOR_EXPRESSION,
   buildSafetyColorExpression,
   buildSafetyLegend,
@@ -121,7 +123,8 @@ const DESIGNATION_LAYER_ID = "region-designation-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
-const STOP_POI_LAYER_ID = "region-stop-poi-circle";
+export const STOP_POI_LAYER_ID = "region-stop-poi-circle";
+export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
@@ -620,6 +623,34 @@ function ensureStopPoiLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
+// 補給・休憩ポイントPOI（改善計画T101）。停止要因POIと同じregion-poi-tiles
+// （source-layer: stop_poi）を共有する独立レイヤー。バックエンドのMVT SQLはkindを
+// 無条件で焼き込むため、この時点（addLayer）ではfilterを付けない。実際のkind値による
+// 絞り込みはsetStaticOverlayFilters側のbaseFilter（STATIC_FILTER_AXES: supplyPoi）が
+// 常時ANDで適用する（同じ仕組みでstopPoi側もsupplyPoiのkindを除外している）。
+function ensureSupplyPoiLayer(map: MapLibreMap) {
+  const applyData = () => {
+    ensurePoiTileSource(map);
+    if (map.getLayer(SUPPLY_POI_LAYER_ID)) return;
+    map.addLayer({
+      id: SUPPLY_POI_LAYER_ID,
+      type: "circle",
+      source: POI_TILE_SOURCE_ID,
+      "source-layer": STOP_POI_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "circle-color": SUPPLY_POI_COLOR_EXPRESSION as any,
+        "circle-radius": 4,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.9,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
 // 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
 // 6レイヤー（標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI）は、
 // いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
@@ -634,6 +665,7 @@ const STATIC_OVERLAY_LAYERS = [
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
+  { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
 ] as const satisfies readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[];
 
 type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
@@ -654,6 +686,7 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
+  { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
 ];
 
@@ -688,11 +721,11 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
   });
 }
 
-// 改善計画T63: 標高を除く5レイヤー（交通ストレス・自転車インフラ・指定路線・事故・停止要因POI）の
-// 絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSの
-// keyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、他は1軸）を道路情報と同じ
-// buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする
-// （setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
+// 改善計画T63: 標高を除く7レイヤー（交通ストレス・安全度・自転車インフラ・指定路線・事故・
+// 停止要因POI・補給休憩POI[T101]）の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）の
+// layerIdでSTATIC_OVERLAY_LAYERSのkeyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、
+// 他は1軸）を道路情報と同じbuildCombinedLegendFilterExpressionでAND束ねする。軸を持たない
+// 標高はスキップする（setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
 //
 // trafficStress軸だけは、レシピ上書き中（改善計画: 交通ストレスレシピ調整UIパネル）は
 // STATIC_FILTER_AXESの静的なlegend（既定レシピ由来）ではなく、現在のレシピから
@@ -728,6 +761,7 @@ export function setStaticOverlayFilters(
                 ? buildSafetyLegend(safetyRecipe, safetyLevelExpression)
                 : axis.legend,
           hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [],
+          baseFilter: axis.baseFilter,
         }))
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -912,6 +946,16 @@ function buildStopPoiPopupHtml(properties: StopPoiPopupProperties): string {
   return `<div style="${POPUP_BODY_STYLE}">停止要因: ${label}</div>`;
 }
 
+// 改善計画T101: 補給・休憩ポイントPOIのクリックポップアップ用プロパティ（StopPoiPopupPropertiesと同じ形）。
+interface SupplyPoiPopupProperties {
+  kind?: string | null;
+}
+
+function buildSupplyPoiPopupHtml(properties: SupplyPoiPopupProperties): string {
+  const label = properties.kind ? (SUPPLY_POI_LABELS[properties.kind] ?? properties.kind) : "不明";
+  return `<div style="${POPUP_BODY_STYLE}">補給・休憩: ${label}</div>`;
+}
+
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
@@ -936,6 +980,9 @@ interface MapViewProps {
   showAccidents: boolean;
   /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
   showStopPoi: boolean;
+  /** 補給・休憩ポイントPOI（改善計画T101、コンビニ・自販機・トイレ・給水・駐輪場）。
+   * 停止要因POIと同じベクタソース（region-poi-tiles）を共有する独立レイヤー。 */
+  showSupplyPoi: boolean;
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
@@ -969,6 +1016,7 @@ export default function MapView({
   showDesignation,
   showAccidents,
   showStopPoi,
+  showSupplyPoi,
   roadHiddenKeysByMode,
   staticLegendHiddenKeysByAxis,
   routeLayerOn,
@@ -1010,6 +1058,7 @@ export default function MapView({
     showDesignation,
     showAccidents,
     showStopPoi,
+    showSupplyPoi,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1042,6 +1091,7 @@ export default function MapView({
       showDesignation,
       showAccidents,
       showStopPoi,
+      showSupplyPoi,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1062,6 +1112,7 @@ export default function MapView({
     showDesignation,
     showAccidents,
     showStopPoi,
+    showSupplyPoi,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1090,6 +1141,7 @@ export default function MapView({
       showDesignation,
       showAccidents,
       showStopPoi,
+      showSupplyPoi,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1102,6 +1154,7 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
+      supplyPoi: showSupplyPoi,
     });
     setStaticOverlayFilters(
       map,
@@ -1149,6 +1202,7 @@ export default function MapView({
       showDesignation,
       showAccidents,
       showStopPoi,
+      showSupplyPoi,
     } = redrawPropsRef.current;
     return {
       elevation: showElevation,
@@ -1159,6 +1213,7 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
+      supplyPoi: showSupplyPoi,
     };
   }, []);
   // useLayerDataStatusは呼び出しのたびに新しいオブジェクトを返すため、依存配列に安定した
@@ -1256,7 +1311,8 @@ export default function MapView({
       const isRoadSurfaceFeature =
         feature.layer.id !== DETAIL_LAYER_ID &&
         feature.layer.id !== ACCIDENT_LAYER_ID &&
-        feature.layer.id !== STOP_POI_LAYER_ID;
+        feature.layer.id !== STOP_POI_LAYER_ID &&
+        feature.layer.id !== SUPPLY_POI_LAYER_ID;
       // traffic_stressはタイルに計算済みの値として焼き込まれていない（改善計画: 交通ストレス
       // レシピ外出し基盤）ため、クリックされたフィーチャーの材料タグからここで計算する
       // （地図の色分け・凡例フィルタと同じexpressionをtrafficStressExpression.tsで共有する）。
@@ -1280,7 +1336,9 @@ export default function MapView({
             ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
             : feature.layer.id === STOP_POI_LAYER_ID
               ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
-              : buildRoadSurfacePopupHtml(roadSurfaceProperties);
+              : feature.layer.id === SUPPLY_POI_LAYER_ID
+                ? buildSupplyPoiPopupHtml(feature.properties as unknown as SupplyPoiPopupProperties)
+                : buildRoadSurfacePopupHtml(roadSurfaceProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -1514,11 +1572,11 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POIは、いずれも
-  // 「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替えのみ」という
-  // 同型の6レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
+  // 標高・交通ストレス・安全度・自転車インフラ・指定路線・事故・停止要因POI・補給休憩POI
+  // （T101）は、いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
+  // のみ」という同型の8レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
   // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
-  // いずれか1つのフラグが変わったときに他5つを再設定しても表示に影響しない）。
+  // いずれか1つのフラグが変わったときに他を再設定しても表示に影響しない）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1530,6 +1588,7 @@ export default function MapView({
       designation: showDesignation,
       accidents: showAccidents,
       stopPoi: showStopPoi,
+      supplyPoi: showSupplyPoi,
     });
     // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
@@ -1543,12 +1602,13 @@ export default function MapView({
     showDesignation,
     showAccidents,
     showStopPoi,
+    showSupplyPoi,
     recomputeLayerDataStatus,
   ]);
 
-  // 交通ストレス・安全度・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の
-  // 絞り込み（改善計画T63、安全度は改善計画: 安全度レシピで追加）。道路情報のフィルタ効果
-  // （下）と同じくvisibility/フィルタ式の差し替えのみで反映される。
+  // 交通ストレス・安全度・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
+  // 事故（当事者/重大度）の絞り込み（改善計画T63、安全度は改善計画: 安全度レシピで追加）。
+  // 道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで反映される。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;

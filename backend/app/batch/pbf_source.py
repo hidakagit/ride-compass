@@ -79,7 +79,12 @@ class _WayHandler(osmium.SimpleHandler):
         location = n.location
         if not location.valid():
             return
-        self._node_sink({"id": n.id, "tags": tags, "lat": location.lat, "lon": location.lon})
+        # timestampはOSM要素の最終編集日時（tz-aware datetime）。取込パイプライン本体は
+        # 未参照（POISpecへは渡さない）だが、measure_poi_freshness.py（T101検証）が
+        # check_date/survey:dateタグ未設定な要素の鮮度代理指標として使う。
+        self._node_sink(
+            {"id": n.id, "tags": tags, "lat": location.lat, "lon": location.lon, "timestamp": n.timestamp}
+        )
 
 
 def stream_ways(
