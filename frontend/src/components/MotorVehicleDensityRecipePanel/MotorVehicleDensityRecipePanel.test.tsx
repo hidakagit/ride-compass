@@ -20,12 +20,6 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof MotorVehicle
 }
 
 describe("MotorVehicleDensityRecipePanel", () => {
-  it("上書き無効時は入力欄を表示しない", () => {
-    renderPanel({ overrideEnabled: false });
-
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
-  });
-
   it("上書き有効時は制限速度2対+車線数1対+指定路線1項目の入力欄を表示する", () => {
     renderPanel();
 
@@ -33,14 +27,36 @@ describe("MotorVehicleDensityRecipePanel", () => {
     expect(screen.getAllByRole("spinbutton")).toHaveLength(7);
   });
 
-  it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
+  it("上書き無効でも既定値の入力欄を表示する", () => {
+    renderPanel({ overrideEnabled: false });
+
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(7);
+  });
+
+  it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderPanel({ overrideEnabled: false, onOverrideEnabledChange: onChange });
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "自動車密度のレシピを上書き" }));
 
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("上書き無効時に入力欄を変更すると上書きが自動でONになる", () => {
+    const onOverrideEnabledChange = vi.fn();
+    const onRecipeChange = vi.fn();
+    renderPanel({ overrideEnabled: false, onOverrideEnabledChange, onRecipeChange });
+
+    const lowSpeedInfoButton = screen.getByRole("button", { name: "低速道路の説明を表示" });
+    const lowSpeedRow = lowSpeedInfoButton.closest("div");
+    if (!lowSpeedRow) throw new Error("低速道路の行が見つかりません");
+    const [adjustmentInput] = within(lowSpeedRow).getAllByRole("spinbutton");
+
+    fireEvent.change(adjustmentInput, { target: { value: "-3" } });
+
+    expect(onOverrideEnabledChange).toHaveBeenCalledWith(true);
+    expect(onRecipeChange).toHaveBeenCalled();
   });
 
   it("制限速度補正の閾値と補正値をそれぞれ変更すると対応するキーだけが更新される", () => {

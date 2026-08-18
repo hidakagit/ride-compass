@@ -2,8 +2,10 @@
 
 import {
   CarClosenessReferenceSection,
+  RecipePanelSection,
   ThresholdAdjustmentRow,
   adjustmentEndpointColors,
+  withAutoEnable,
   type ThresholdAdjustmentFieldDescriptor,
 } from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
@@ -73,52 +75,48 @@ export default function TrafficStressRecipePanel({
   roadSuitabilityRecipe,
   motorVehicleDensityRecipe,
 }: TrafficStressRecipePanelProps) {
+  const handleRecipeChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRecipeChange);
+
   return (
-    <div className={styles.panel}>
-      <label className={styles.toggleLabel}>
-        <input
-          type="checkbox"
-          checked={overrideEnabled}
-          onChange={(e) => onOverrideEnabledChange(e.target.checked)}
+    <RecipePanelSection
+      title="車の圧迫感[地図の色分けに即時反映]"
+      overrideAriaLabel="車の圧迫感のレシピを上書き"
+      overrideEnabled={overrideEnabled}
+      onOverrideEnabledChange={onOverrideEnabledChange}
+    >
+      <div className={styles.groups}>
+        <CarClosenessReferenceSection
+          roadSuitabilityRecipe={roadSuitabilityRecipe}
+          motorVehicleDensityRecipe={motorVehicleDensityRecipe}
         />
-        車の圧迫感のレシピを上書きする[地図の色分けに即時反映]
-      </label>
 
-      {overrideEnabled && (
-        <div className={styles.groups}>
-          <CarClosenessReferenceSection
-            roadSuitabilityRecipe={roadSuitabilityRecipe}
-            motorVehicleDensityRecipe={motorVehicleDensityRecipe}
-          />
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            車線数補正[lanes]
+          </summary>
+          <div className={styles.groupBody}>
+            {LANES_PAIRS.map((field) => (
+              <ThresholdAdjustmentRow
+                key={field.thresholdKey}
+                field={field}
+                recipe={recipe}
+                onChange={handleRecipeChange}
+                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+              />
+            ))}
+          </div>
+        </details>
 
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              車線数補正[lanes]
-            </summary>
-            <div className={styles.groupBody}>
-              {LANES_PAIRS.map((field) => (
-                <ThresholdAdjustmentRow
-                  key={field.thresholdKey}
-                  field={field}
-                  recipe={recipe}
-                  onChange={onRecipeChange}
-                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-                />
-              ))}
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className={styles.resetButton}
-            onClick={() => onRecipeChange(DEFAULT_TRAFFIC_STRESS_RECIPE)}
-          >
-            既定値に戻す
-          </button>
-        </div>
-      )}
-    </div>
+        <button
+          type="button"
+          className={styles.resetButton}
+          onClick={() => onRecipeChange(DEFAULT_TRAFFIC_STRESS_RECIPE)}
+        >
+          既定値に戻す
+        </button>
+      </div>
+    </RecipePanelSection>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FieldLabel } from "@/components/Map/recipeControls";
+import { FieldLabel, RecipePanelSection, withAutoEnable } from "@/components/Map/recipeControls";
 import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import styles from "./WeightPanel.module.css";
@@ -103,6 +103,16 @@ function WeightInput<T extends Record<string, number>>({
 // 置き、一般ユーザーの操作導線には出さない（§14の分離方針）。scoring 4値（total_score算出、
 // 候補集合内の相対評価）とpreference 3値（Edge Cost・区間difficulty算出、絶対評価）は
 // 対象・意味が異なる別設定のため見出しを分けて表示する。
+//
+// 最上位はRecipePanelSection（改善計画: 研究タブのレイアウト改善）。以前は「評価重みを
+// 上書きして生成する」チェックボックス1つが開閉と有効/無効を兼ねていたが、MapLayersPanelの
+// レイヤー折りたたみと同じ「開閉（details）とON/OFF（チップ）を分ける」構成へ揃えた。
+// 内側の各グループの折りたたみ（details、デフォルト全閉）はこのRecipePanelSectionのON/OFFとも
+// 独立させている（MapLayersPanelの各レイヤーが表示ON/OFFと無関係に開閉できるのと同じ設計判断
+// ——有効な間、個々のグループを開くか閉じるかは純粋に「今どれを見たいか」というUI都合であり、
+// 有効/無効の状態と連動させる理由が無いため）。上書き無効中も入力欄は既定値で操作でき、
+// 値を変更すると上書きが自動でONになる（withAutoEnable、MapLayersPanelの
+// 「絞り込みを操作すると自動でON」と同じパターン）。
 export default function WeightPanel({
   overrideEnabled,
   onOverrideEnabledChange,
@@ -111,73 +121,54 @@ export default function WeightPanel({
   routePreference,
   onRoutePreferenceChange,
 }: WeightPanelProps) {
+  const handleScoringChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onScoringWeightsChange);
+  const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
+
   return (
-    <div className={styles.panel}>
-      <label className={styles.toggleLabel}>
-        <input
-          type="checkbox"
-          checked={overrideEnabled}
-          onChange={(e) => onOverrideEnabledChange(e.target.checked)}
-        />
-        評価重みを上書きして生成する
-      </label>
+    <RecipePanelSection
+      title="評価重み[次回のルート生成に反映]"
+      overrideAriaLabel="評価重みを上書き"
+      overrideEnabled={overrideEnabled}
+      onOverrideEnabledChange={onOverrideEnabledChange}
+    >
+      <div className={styles.groups}>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            おすすめ度の重み[候補一覧内の相対評価]
+          </summary>
+          <div className={styles.groupBody}>
+            {SCORING_FIELDS.map((field) => (
+              <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={handleScoringChange} />
+            ))}
+          </div>
+        </details>
 
-      {overrideEnabled && (
-        <div className={styles.groups}>
-          {/* 各グループは折りたたみ（details、改善計画: 研究の中身も折りたたみ式に統一。
-              MapLayersPanel.tsxのレイヤーごとの折りたたみ（T38、デフォルト全閉）と同じ構成。
-              開閉状態はこのトグル自体のON/OFFとは独立させている（MapLayersPanelの各レイヤーが
-              表示ON/OFFと無関係に開閉できるのと同じ設計判断——上書きが有効な間、個々の
-              グループを開くか閉じるかは純粋に「今どれを見たいか」というUI都合であり、
-              有効/無効の状態と連動させる理由が無いため）。 */}
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              おすすめ度の重み[候補一覧内の相対評価]
-            </summary>
-            <div className={styles.groupBody}>
-              {SCORING_FIELDS.map((field) => (
-                <WeightInput
-                  key={String(field.key)}
-                  field={field}
-                  values={scoringWeights}
-                  onChange={onScoringWeightsChange}
-                />
-              ))}
-            </div>
-          </details>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            区間難易度の重み[絶対評価]
+          </summary>
+          <div className={styles.groupBody}>
+            {PREFERENCE_FIELDS.map((field) => (
+              <WeightInput key={String(field.key)} field={field} values={routePreference} onChange={handlePreferenceChange} />
+            ))}
+            {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
+            <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
+          </div>
+        </details>
 
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              区間難易度の重み[絶対評価]
-            </summary>
-            <div className={styles.groupBody}>
-              {PREFERENCE_FIELDS.map((field) => (
-                <WeightInput
-                  key={String(field.key)}
-                  field={field}
-                  values={routePreference}
-                  onChange={onRoutePreferenceChange}
-                />
-              ))}
-              {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
-              <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className={styles.resetButton}
-            onClick={() => {
-              onScoringWeightsChange(DEFAULT_SCORING_WEIGHTS);
-              onRoutePreferenceChange(DEFAULT_ROUTE_PREFERENCE);
-            }}
-          >
-            既定値に戻す
-          </button>
-        </div>
-      )}
-    </div>
+        <button
+          type="button"
+          className={styles.resetButton}
+          onClick={() => {
+            onScoringWeightsChange(DEFAULT_SCORING_WEIGHTS);
+            onRoutePreferenceChange(DEFAULT_ROUTE_PREFERENCE);
+          }}
+        >
+          既定値に戻す
+        </button>
+      </div>
+    </RecipePanelSection>
   );
 }

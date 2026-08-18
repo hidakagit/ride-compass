@@ -3675,6 +3675,40 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
     パネルへコピペされていた重複を`recipeControls.tsx`/`recipeControls.module.css`へ
     集約。
 
+## 研究タブのレイアウト改善（2026-08-18・T130の続き、ユーザー要望「地図の見え方の
+   ようなデザインに合わせて、折りたたみを工夫したり表示非表示をスマートに。土台部分が
+   冗長」）
+
+### - [x] T131. 研究タブ5パネル（評価重み・道路適正・自動車密度・車の圧迫感・安全度）の
+  開閉とON/OFFを分離してMapLayersPanelと同じ構成へ揃え、`CarClosenessReferenceSection`
+  （「土台」参照ブロック）の冗長な文章を圧縮 規模M（2026-08-18完了）
+
+- 発端: T115で研究タブ内の各グループ（highway別基準値・cycleway補正等）は
+  `MapLayersPanel.tsx`と同じ折りたたみ（details、デフォルト全閉）へ揃えたが、5パネル
+  自体の最上位は「上書きする」チェックボックス1つが開閉と有効/無効を兼ねたままだった
+  （値を確認するだけでも上書きを有効化する＝地図やルート生成へ即座に影響するしかない）。
+  また車の圧迫感・安全度パネル先頭の`CarClosenessReferenceSection`（T130で新設）は
+  前置き文2つ＋「／」区切りの長文箇条書き4行という構成で、同じ説明が2パネルに重複する
+  には冗長だった。
+- 対応: `recipeControls.tsx`に`RecipePanelSection`（`MapLayersPanel.module.css`の
+  `.layerSection`/`.layerHeader`/`.layerTitle`/`.chevron`/`.layerBody`をcomposesで
+  再利用した`<details>`ラッパー、ON/OFFは`LayerChip`共通部品による独立チップ）と
+  `withAutoEnable`（MapLayersPanelの「絞り込みを操作すると自動でON」と同じパターン）を
+  新設し、5パネルすべてを移行。上書き無効中も中身は既定値で表示・編集でき、値を変更す
+  ると上書きが自動でONになる。`CarClosenessReferenceSection`は前置き文2つを見出しの
+  `[編集は各パネルで]`へ集約し、「／」区切りの長文箇条書きを7つの短いタグ（`.referenceTags`）
+  へ置き換え。
+- 完了条件: frontend vitest・`tsc --noEmit`・eslintすべてgreen（39件更新+新規、既存の
+  「上書き無効時は入力欄を表示しない」系テストは新設計に合わせ「上書き無効でも展開すれば
+  既定値で表示・編集でき、変更すると自動でONになる」へ書き換え）。ローカルNext.js dev
+  サーバー（別セッションが起動済みのlocalhost:3000を共用）でアクセシビリティツリーを
+  確認し、5パネルとも新チップ・折りたたみ・参照タグが意図通り描画されることを確認。
+  作業中、別セッションが同一ワーキングツリー上で`WeightPanel.tsx`/`WeightPanel.module.css`
+  /`RoadSuitabilityRecipePanel.tsx`/`MotorVehicleDensityRecipePanel.tsx`/
+  `recipeControls.tsx`/`recipeControls.module.css`の6ファイルを編集前の状態へ巻き戻す
+  competing writeを検知（git statusで一時的に「未変更」に戻っているのを発見）、内容を
+  再構築して復旧した。
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |

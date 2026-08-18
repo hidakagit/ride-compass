@@ -23,13 +23,6 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof RoadSuitabil
 }
 
 describe("RoadSuitabilityRecipePanel", () => {
-  it("上書き無効時は入力欄を表示しない", () => {
-    renderPanel({ overrideEnabled: false });
-
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: /の基準値$/ })).not.toBeInTheDocument();
-  });
-
   it("上書き有効時はcycleway3項目の入力欄+highway別のレベルピッカーを表示する", () => {
     renderPanel();
 
@@ -37,14 +30,39 @@ describe("RoadSuitabilityRecipePanel", () => {
     expect(screen.getAllByRole("group", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
   });
 
-  it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
+  it("上書き無効でも既定値のレベルピッカーを表示する", () => {
+    renderPanel({ overrideEnabled: false });
+
+    expect(screen.getAllByRole("group", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
+  });
+
+  it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderPanel({ overrideEnabled: false, onOverrideEnabledChange: onChange });
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "道路適正のレシピを上書き" }));
 
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("上書き無効時にレベルピッカーを操作すると上書きが自動でONになる", async () => {
+    const user = userEvent.setup();
+    const onOverrideEnabledChange = vi.fn();
+    const onRecipeChange = vi.fn();
+    renderPanel({ overrideEnabled: false, onOverrideEnabledChange, onRecipeChange });
+
+    const primaryInfoButton = screen.getByRole("button", { name: "国道クラスの幹線道路の説明を表示" });
+    const primaryRow = primaryInfoButton.closest("tr");
+    if (!primaryRow) throw new Error("primary行が見つかりません");
+    const primaryPicker = within(primaryRow).getByRole("group");
+    await user.click(within(primaryPicker).getByRole("button", { name: "2" }));
+
+    expect(onOverrideEnabledChange).toHaveBeenCalledWith(true);
+    expect(onRecipeChange).toHaveBeenCalledWith({
+      ...DEFAULT_ROAD_SUITABILITY_RECIPE,
+      base_by_highway: { ...DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway, primary: 2 },
+    });
   });
 
   it("highway別基準値のレベルピッカーを押すとbase_by_highwayだけが更新されたレシピで呼ばれる", async () => {

@@ -2,8 +2,10 @@
 
 import {
   CarClosenessReferenceSection,
+  RecipePanelSection,
   ScalarInput,
   adjustmentEndpointColors,
+  withAutoEnable,
   type ScalarFieldDescriptor,
 } from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
@@ -60,52 +62,48 @@ export default function SafetyRecipePanel({
   roadSuitabilityRecipe,
   motorVehicleDensityRecipe,
 }: SafetyRecipePanelProps) {
+  const handleRecipeChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRecipeChange);
+
   return (
-    <div className={styles.panel}>
-      <label className={styles.toggleLabel}>
-        <input
-          type="checkbox"
-          checked={overrideEnabled}
-          onChange={(e) => onOverrideEnabledChange(e.target.checked)}
+    <RecipePanelSection
+      title="安全度[地図の色分けに即時反映]"
+      overrideAriaLabel="安全度のレシピを上書き"
+      overrideEnabled={overrideEnabled}
+      onOverrideEnabledChange={onOverrideEnabledChange}
+    >
+      <div className={styles.groups}>
+        <CarClosenessReferenceSection
+          roadSuitabilityRecipe={roadSuitabilityRecipe}
+          motorVehicleDensityRecipe={motorVehicleDensityRecipe}
         />
-        安全度のレシピを上書きする[地図の色分けに即時反映]
-      </label>
 
-      {overrideEnabled && (
-        <div className={styles.groups}>
-          <CarClosenessReferenceSection
-            roadSuitabilityRecipe={roadSuitabilityRecipe}
-            motorVehicleDensityRecipe={motorVehicleDensityRecipe}
-          />
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            街灯・トンネル補正
+          </summary>
+          <div className={styles.groupBody}>
+            {ROAD_ENVIRONMENT_FIELDS.map((field) => (
+              <ScalarInput
+                key={field.key}
+                field={field}
+                recipe={recipe}
+                onChange={handleRecipeChange}
+                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+              />
+            ))}
+          </div>
+        </details>
 
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              街灯・トンネル補正
-            </summary>
-            <div className={styles.groupBody}>
-              {ROAD_ENVIRONMENT_FIELDS.map((field) => (
-                <ScalarInput
-                  key={field.key}
-                  field={field}
-                  recipe={recipe}
-                  onChange={onRecipeChange}
-                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-                />
-              ))}
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className={styles.resetButton}
-            onClick={() => onRecipeChange(DEFAULT_SAFETY_RECIPE)}
-          >
-            既定値に戻す
-          </button>
-        </div>
-      )}
-    </div>
+        <button
+          type="button"
+          className={styles.resetButton}
+          onClick={() => onRecipeChange(DEFAULT_SAFETY_RECIPE)}
+        >
+          既定値に戻す
+        </button>
+      </div>
+    </RecipePanelSection>
   );
 }

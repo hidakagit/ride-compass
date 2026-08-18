@@ -3,7 +3,9 @@
 import {
   ScalarInput,
   ThresholdAdjustmentRow,
+  RecipePanelSection,
   adjustmentEndpointColors,
+  withAutoEnable,
   type ScalarFieldDescriptor,
   type ThresholdAdjustmentFieldDescriptor,
 } from "@/components/Map/recipeControls";
@@ -77,85 +79,81 @@ export default function MotorVehicleDensityRecipePanel({
   recipe,
   onRecipeChange,
 }: MotorVehicleDensityRecipePanelProps) {
+  const handleRecipeChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRecipeChange);
+
   return (
-    <div className={styles.panel}>
-      <label className={styles.toggleLabel}>
-        <input
-          type="checkbox"
-          checked={overrideEnabled}
-          onChange={(e) => onOverrideEnabledChange(e.target.checked)}
-        />
-        自動車密度のレシピを上書きする[地図の色分けに即時反映]
-      </label>
+    <RecipePanelSection
+      title="自動車密度[地図の色分けに即時反映]"
+      overrideAriaLabel="自動車密度のレシピを上書き"
+      overrideEnabled={overrideEnabled}
+      onOverrideEnabledChange={onOverrideEnabledChange}
+    >
+      <div className={styles.groups}>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            制限速度補正[maxspeed]
+          </summary>
+          <div className={styles.groupBody}>
+            {MAXSPEED_PAIRS.map((field) => (
+              <ThresholdAdjustmentRow
+                key={field.thresholdKey}
+                field={field}
+                recipe={recipe}
+                onChange={handleRecipeChange}
+                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+              />
+            ))}
+          </div>
+        </details>
 
-      {overrideEnabled && (
-        <div className={styles.groups}>
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              制限速度補正[maxspeed]
-            </summary>
-            <div className={styles.groupBody}>
-              {MAXSPEED_PAIRS.map((field) => (
-                <ThresholdAdjustmentRow
-                  key={field.thresholdKey}
-                  field={field}
-                  recipe={recipe}
-                  onChange={onRecipeChange}
-                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-                />
-              ))}
-            </div>
-          </details>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            車線数補正[lanes]
+          </summary>
+          <div className={styles.groupBody}>
+            {LANES_PAIRS.map((field) => (
+              <ThresholdAdjustmentRow
+                key={field.thresholdKey}
+                field={field}
+                recipe={recipe}
+                onChange={handleRecipeChange}
+                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+              />
+            ))}
+          </div>
+        </details>
 
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              車線数補正[lanes]
-            </summary>
-            <div className={styles.groupBody}>
-              {LANES_PAIRS.map((field) => (
-                <ThresholdAdjustmentRow
-                  key={field.thresholdKey}
-                  field={field}
-                  recipe={recipe}
-                  onChange={onRecipeChange}
-                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-                />
-              ))}
-            </div>
-          </details>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            指定路線補正
+          </summary>
+          <div className={styles.groupBody}>
+            {DESIGNATION_FIELDS.map((field) => (
+              <ScalarInput
+                key={field.key}
+                field={field}
+                recipe={recipe}
+                onChange={handleRecipeChange}
+                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+              />
+            ))}
+          </div>
+        </details>
 
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              指定路線補正
-            </summary>
-            <div className={styles.groupBody}>
-              {DESIGNATION_FIELDS.map((field) => (
-                <ScalarInput
-                  key={field.key}
-                  field={field}
-                  recipe={recipe}
-                  onChange={onRecipeChange}
-                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-                />
-              ))}
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className={styles.resetButton}
-            onClick={() => onRecipeChange(DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE)}
-          >
-            既定値に戻す
-          </button>
-        </div>
-      )}
-    </div>
+        <button
+          type="button"
+          className={styles.resetButton}
+          onClick={() => onRecipeChange(DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE)}
+        >
+          既定値に戻す
+        </button>
+      </div>
+    </RecipePanelSection>
   );
 }

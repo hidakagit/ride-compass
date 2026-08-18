@@ -1,10 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "./WeightPanel";
 
+const TITLE = "評価重み[次回のルート生成に反映]";
+
 describe("WeightPanel", () => {
-  it("上書き無効時は重み入力欄を表示しない", () => {
+  it("上書き無効でも展開すれば既定値の入力欄を表示できる", async () => {
+    const user = userEvent.setup();
     render(
       <WeightPanel
         overrideEnabled={false}
@@ -16,7 +19,10 @@ describe("WeightPanel", () => {
       />,
     );
 
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    await user.click(screen.getByText(TITLE));
+    await user.click(screen.getByText("おすすめ度の重み[候補一覧内の相対評価]"));
+
+    expect(screen.getAllByRole("spinbutton").length).toBeGreaterThan(0);
   });
 
   it("上書き有効時はscoring 4値+preference 9値の入力欄を表示する", async () => {
@@ -35,13 +41,14 @@ describe("WeightPanel", () => {
       />,
     );
 
+    await user.click(screen.getByText(TITLE));
     await user.click(screen.getByText("おすすめ度の重み[候補一覧内の相対評価]"));
     await user.click(screen.getByText("区間難易度の重み[絶対評価]"));
 
     expect(screen.getAllByRole("spinbutton")).toHaveLength(13);
   });
 
-  it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
+  it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -55,9 +62,33 @@ describe("WeightPanel", () => {
       />,
     );
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "評価重みを上書き" }));
 
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("上書き無効時に入力欄を変更すると上書きが自動でONになる", async () => {
+    const user = userEvent.setup();
+    const onOverrideEnabledChange = vi.fn();
+    const onScoringWeightsChange = vi.fn();
+    render(
+      <WeightPanel
+        overrideEnabled={false}
+        onOverrideEnabledChange={onOverrideEnabledChange}
+        scoringWeights={DEFAULT_SCORING_WEIGHTS}
+        onScoringWeightsChange={onScoringWeightsChange}
+        routePreference={DEFAULT_ROUTE_PREFERENCE}
+        onRoutePreferenceChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByText(TITLE));
+    await user.click(screen.getByText("おすすめ度の重み[候補一覧内の相対評価]"));
+    const input = screen.getAllByRole("spinbutton")[0];
+    fireEvent.change(input, { target: { value: "0.5" } });
+
+    expect(onOverrideEnabledChange).toHaveBeenCalledWith(true);
+    expect(onScoringWeightsChange).toHaveBeenCalled();
   });
 
   it("情報アイコンをクリックすると軸の説明が表示され、もう一度押すと隠れる", async () => {
@@ -73,6 +104,7 @@ describe("WeightPanel", () => {
       />,
     );
 
+    await user.click(screen.getByText(TITLE));
     await user.click(screen.getByText("区間難易度の重み[絶対評価]"));
 
     const infoButton = screen.getByRole("button", { name: "車の圧迫感の説明を表示" });
@@ -105,6 +137,7 @@ describe("WeightPanel", () => {
       />,
     );
 
+    await user.click(screen.getByText(TITLE));
     await user.click(screen.getByRole("button", { name: "既定値に戻す" }));
 
     expect(onScoringChange).toHaveBeenCalledWith(DEFAULT_SCORING_WEIGHTS);
