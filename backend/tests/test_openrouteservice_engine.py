@@ -277,8 +277,8 @@ async def test_stop_density_is_zero_without_nearby_pois():
     assert all(c.stop_density == 0.0 for c in candidates)
 
 
-async def test_traffic_stress_and_bicycle_infra_reflect_nearest_way_tags_when_repository_injected():
-    # 静的道路属性P1残り。get_nearest_way_tagsで取得したhighway/tagsから交通ストレス・
+async def test_car_stress_and_bicycle_infra_reflect_nearest_way_tags_when_repository_injected():
+    # 静的道路属性P1残り。get_nearest_way_tagsで取得したhighway/tagsから車ストレス・
     # 自転車インフラを評価する。
     repository = FakeSurfaceRepository(
         default_tag="asphalt", default_highway="primary", default_way_tags={"cycleway": "track"}
@@ -294,15 +294,15 @@ async def test_traffic_stress_and_bicycle_infra_reflect_nearest_way_tags_when_re
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(seg.traffic_stress == 2 for c in candidates for seg in c.segments)  # primary(4) - track(2)
+    assert all(seg.car_stress == 2 for c in candidates for seg in c.segments)  # primary(4) - track(2)
     assert all(seg.bicycle_infra == "separated" for c in candidates for seg in c.segments)
-    assert all(c.traffic_stress_score is not None for c in candidates)
+    assert all(c.car_stress_score is not None for c in candidates)
     assert all(c.bicycle_infra_score == 100.0 for c in candidates)
 
 
-async def test_traffic_stress_reflects_designation_bonus_when_repository_injected():
+async def test_car_stress_reflects_designation_bonus_when_repository_injected():
     # 指定路線コンフレーション機構（外部静的データソース T51）。KSJ N10/N12該当は
-    # trafficStressへ+1する。residential(base=2)で確認（primary等は既にクランプ上限4に
+    # carStressへ+1する。residential(base=2)で確認（primary等は既にクランプ上限4に
     # 近く効果が見えないため、上乗せの余地があるhighwayを選ぶ）。
     repository_designated = FakeSurfaceRepository(
         default_tag="asphalt", default_highway="residential", default_designated=True
@@ -311,7 +311,7 @@ async def test_traffic_stress_reflects_designation_bonus_when_repository_injecte
         default_tag="asphalt", default_highway="residential", default_designated=False
     )
 
-    async def _traffic_stress_values(repository):
+    async def _car_stress_values(repository):
         engine = OpenRouteServiceEngine(
             FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
             FakeElevationService(),
@@ -321,10 +321,10 @@ async def test_traffic_stress_reflects_designation_bonus_when_repository_injecte
         )
         generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
         candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
-        return {seg.traffic_stress for c in candidates for seg in c.segments}
+        return {seg.car_stress for c in candidates for seg in c.segments}
 
-    designated_values = await _traffic_stress_values(repository_designated)
-    not_designated_values = await _traffic_stress_values(repository_not_designated)
+    designated_values = await _car_stress_values(repository_designated)
+    not_designated_values = await _car_stress_values(repository_not_designated)
 
     assert designated_values == {3}
     assert not_designated_values == {2}
@@ -353,7 +353,7 @@ async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():
     assert all(c.bicycle_infra_score is None for c in candidates)
 
 
-async def test_traffic_stress_and_bicycle_infra_are_none_without_repository():
+async def test_car_stress_and_bicycle_infra_are_none_without_repository():
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
         FakeElevationService(),
@@ -364,9 +364,9 @@ async def test_traffic_stress_and_bicycle_infra_are_none_without_repository():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(seg.traffic_stress is None for c in candidates for seg in c.segments)
+    assert all(seg.car_stress is None for c in candidates for seg in c.segments)
     assert all(seg.bicycle_infra is None for c in candidates for seg in c.segments)
-    assert all(c.traffic_stress_score is None and c.bicycle_infra_score is None for c in candidates)
+    assert all(c.car_stress_score is None and c.bicycle_infra_score is None for c in candidates)
 
 
 async def test_intersection_density_reflects_nearest_intersection_counts_when_repository_injected():
@@ -383,8 +383,10 @@ async def test_intersection_density_reflects_nearest_intersection_counts_when_re
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.intersection_density is not None and c.intersection_density > 0.0 for c in candidates)
+    # 改善計画T149: 交差点密度は独立軸を持たずstop_difficulty側へ低い重みで吸収される
+    # （旧intersection_difficultyは廃止）。
     assert all(
-        seg.intersection_difficulty is not None and seg.intersection_difficulty > 0.0
+        seg.stop_difficulty is not None and seg.stop_difficulty > 0.0
         for c in candidates
         for seg in c.segments
     )

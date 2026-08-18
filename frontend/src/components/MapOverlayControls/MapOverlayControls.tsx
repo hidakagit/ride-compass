@@ -9,7 +9,7 @@ import {
   DesignationIcon,
   ElevationIcon,
   RoadIcon,
-  TrafficStressIcon,
+  CarStressIcon,
   SafetyIcon,
   BicycleInfraIcon,
   StopPoiIcon,
@@ -51,7 +51,7 @@ interface MapOverlayControlsProps {
 const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement> = {
   elevation: ElevationIcon,
   road: RoadIcon,
-  trafficStress: TrafficStressIcon,
+  carStress: CarStressIcon,
   safety: SafetyIcon,
   bicycleInfra: BicycleInfraIcon,
   designation: DesignationIcon,

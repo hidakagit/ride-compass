@@ -35,13 +35,13 @@ from app.domain.safety import SafetyRecipe, safety_level
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
-    TrafficStressRecipe,
+    CarStressRecipe,
     classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
-    traffic_stress_level,
+    car_stress_level,
 )
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
@@ -87,7 +87,7 @@ class _PointAttributes:
     （呼び出し側）へ1箇所化する。
 
     デフォルト値は`repository`未注入時（DBなし構成）の値と一致させる。`highway`/`tags`は
-    「repositoryはあるが空間マッチが範囲外」（highway=None・tags={}、traffic_stress等は
+    「repositoryはあるが空間マッチが範囲外」（highway=None・tags={}、car_stress等は
     Noneに評価される）と「repository自体が無い」（tags=None、評価自体をスキップ）を
     区別する必要があるため、tagsのデフォルトは`{}`ではなく`None`にする。
     """
@@ -122,7 +122,7 @@ class OpenRouteServiceEngine:
         wind_service: WindService,
         route_preference: RoutePreference,
         repository: RoadGraphRepository | None = None,
-        traffic_stress_recipe: TrafficStressRecipe | None = None,
+        car_stress_recipe: CarStressRecipe | None = None,
         safety_recipe: SafetyRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
@@ -134,7 +134,7 @@ class OpenRouteServiceEngine:
         # 路面評価の空間マッチ用（改善計画T21）。GraphService/ElevationAttributeServiceと同じ
         # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
         self._repository = repository
-        self._traffic_stress_recipe = traffic_stress_recipe
+        self._car_stress_recipe = car_stress_recipe
         self._safety_recipe = safety_recipe
         self._road_suitability_recipe = road_suitability_recipe
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
@@ -178,9 +178,9 @@ class OpenRouteServiceEngine:
             flat_stop_counts = await self._repository.get_nearest_stop_poi_counts(
                 flat_points, max_distance_m=STOP_POI_MATCH_MAX_DISTANCE_M
             )
-            # 交通ストレス・自転車インフラ・交差点密度評価（静的道路属性P1残り）も同じ
+            # 車ストレス・自転車インフラ・交差点密度評価（静的道路属性P1残り）も同じ
             # サンプル点集合を使い、全候補分をまとめて1回で問い合わせる。指定路線コンフレーション
-            # 機構（外部静的データソース T51、trafficStress補正）のis_designatedも、以前は
+            # 機構（外部静的データソース T51、carStress補正）のis_designatedも、以前は
             # 専用メソッドの3本目の独立KNNだったが、同一サンプル点集合に対するクエリのため
             # get_nearest_way_tagsへ統合済み（改善計画T76）。
             flat_way_tags_full = await self._repository.get_nearest_way_tags(
@@ -254,9 +254,9 @@ class OpenRouteServiceEngine:
             stop_density = distance_weighted_stop_density(
                 [(s.distance_km, attributes_per_candidate[i][j].stop_count) for j, s in enumerate(segments)]
             )
-            # 交通ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）も同じ「サンプル点iの
+            # 車ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）も同じ「サンプル点iの
             # 値を区間iの代表値として使う」近似で集約する。
-            traffic_stress_score = distance_weighted_difficulty([(s.traffic_stress, s.distance_km) for s in segments])
+            car_stress_score = distance_weighted_difficulty([(s.car_stress, s.distance_km) for s in segments])
             bicycle_infra_score = distance_weighted_bicycle_infra_score(
                 [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
             )
@@ -274,7 +274,7 @@ class OpenRouteServiceEngine:
                         "segments": segments,
                         "road_score": road_score,
                         "stop_density": stop_density,
-                        "traffic_stress_score": traffic_stress_score,
+                        "car_stress_score": car_stress_score,
                         "bicycle_infra_score": bicycle_infra_score,
                         "intersection_density": intersection_density,
                         "accident_density": accident_density,
@@ -336,12 +336,12 @@ class OpenRouteServiceEngine:
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
             highway, tags, is_designated = attr.highway, attr.tags, attr.is_designated
-            traffic_stress = (
-                traffic_stress_level(
+            car_stress = (
+                car_stress_level(
                     highway,
                     tags,
                     is_designated,
-                    self._traffic_stress_recipe,
+                    self._car_stress_recipe,
                     road_suitability_recipe=self._road_suitability_recipe,
                     motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
                 )
@@ -374,10 +374,9 @@ class OpenRouteServiceEngine:
 
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                traffic_stress, bicycle_infra, intersection_count_per_km, accident_count_per_km_year, safety,
+                car_stress, intersection_count_per_km, accident_count_per_km_year, tags,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
-                preference.traffic_weight, preference.infra_weight, preference.intersection_weight,
-                preference.accident_weight, preference.safety_weight,
+                preference.car_stress_weight, preference.accident_weight, preference.night_weight,
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
@@ -399,18 +398,16 @@ class OpenRouteServiceEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=wind_penalty,
                     road_surface_good=road_surface_good,
-                    traffic_stress=traffic_stress,
+                    car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
                     safety=safety,
                     elevation_difficulty=axis_difficulties.elevation,
                     wind_difficulty=axis_difficulties.wind,
                     road_difficulty=axis_difficulties.road,
                     stop_difficulty=axis_difficulties.stop,
-                    traffic_difficulty=axis_difficulties.traffic,
-                    infra_difficulty=axis_difficulties.infra,
-                    intersection_difficulty=axis_difficulties.intersection,
+                    car_stress_difficulty=axis_difficulties.car_stress,
                     accident_difficulty=axis_difficulties.accident,
-                    safety_difficulty=axis_difficulties.safety,
+                    night_difficulty=axis_difficulties.night,
                     difficulty=axis_difficulties.composite,
                 )
             )

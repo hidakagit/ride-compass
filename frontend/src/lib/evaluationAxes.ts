@@ -52,17 +52,18 @@ const PREFERENCE_AXIS_META: Record<keyof RoutePreferenceWeights, Omit<Preference
   elevation_weight: { label: "勾配", description: "登り坂の急さが小さいほど易しい" },
   road_weight: { label: "舗装", description: "舗装路であるほど易しい" },
   wind_weight: { label: "風", description: "向かい風が弱いほど易しい" },
-  stop_weight: { label: "信号・踏切等", description: "信号・横断歩道・一時停止・踏切が少ないほど易しい" },
-  traffic_weight: {
-    label: "車の圧迫感",
-    description: "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)",
+  stop_weight: {
+    label: "信号・踏切等",
+    description: "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
   },
-  infra_weight: { label: "自転車インフラ", description: "分離自転車道・自転車レーン等の専用インフラが多いほど易しい" },
-  intersection_weight: { label: "交差点", description: "交差点(次数3以上の分岐点)が少ないほど易しい" },
+  car_stress_weight: {
+    label: "車の圧迫感",
+    description: "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
+  },
   accident_weight: { label: "事故", description: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい" },
-  safety_weight: {
-    label: "安全度",
-    description: "推定安全度(1-4、事故・怪我リスクの目安)が低いほど易しい。車の圧迫感と近い材料に加え街灯・トンネルも加味",
+  night_weight: {
+    label: "夜間",
+    description: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
   },
 };
 

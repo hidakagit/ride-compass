@@ -10,7 +10,7 @@ function baseProps() {
     layerVisibility: {
       elevation: false,
       road: false,
-      trafficStress: false,
+      carStress: false,
       safety: false,
       bicycleInfra: false,
       designation: false,
@@ -24,7 +24,7 @@ function baseProps() {
     onRoadLegendToggle: vi.fn(),
     onRoadAxisSetHidden: vi.fn(),
     staticFilterHiddenKeysByAxis: {
-      trafficStress: [],
+      carStress: [],
       safety: [],
       bicycleInfra: [],
       designation: [],
@@ -33,7 +33,7 @@ function baseProps() {
       accidentParty: [],
       accidentSeverity: [],
     } as Record<
-      | "trafficStress"
+      | "carStress"
       | "safety"
       | "bicycleInfra"
       | "designation"
@@ -80,7 +80,7 @@ describe("MapLayersPanel", () => {
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-trafficStress")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-carStress")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("MapLayersPanel", () => {
 
     expect(groupTitleFor("road")).toBe("道路状態");
     expect(groupTitleFor("designation")).toBe("道路状態");
-    expect(groupTitleFor("trafficStress")).toBe("交通・安全");
+    expect(groupTitleFor("carStress")).toBe("交通・安全");
     expect(groupTitleFor("accidents")).toBe("交通・安全");
     expect(groupTitleFor("stopPoi")).toBe("交通・安全");
     expect(groupTitleFor("supplyPoi")).toBe("補給・施設");
@@ -162,7 +162,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: true,
           road: false,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -245,7 +245,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: true,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -269,7 +269,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: false,
-          trafficStress: true,
+          carStress: true,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -278,10 +278,10 @@ describe("MapLayersPanel", () => {
           accidents: false,
           route: false,
         }}
-        layerDataStatus={{ trafficStress: "error" }}
+        layerDataStatus={{ carStress: "error" }}
       />,
     );
-    openSection("trafficStress");
+    openSection("carStress");
     expect(screen.getByText(/データの取得に失敗しました/)).toBeInTheDocument();
   });
 
@@ -292,7 +292,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: false,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -312,10 +312,10 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerDataStatus={{ trafficStress: "error" }}
+        layerDataStatus={{ carStress: "error" }}
       />,
     );
-    openSection("trafficStress");
+    openSection("carStress");
     expect(screen.queryByText(/データの取得に失敗しました/)).not.toBeInTheDocument();
   });
 
@@ -326,7 +326,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: true,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -344,14 +344,14 @@ describe("MapLayersPanel", () => {
     expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
   });
 
-  it("改善計画T87レビュー指摘: road_surfaceタイルを共有するtrafficStressも、regionZoomTooWide中はデータ状態の案内を出さない", () => {
+  it("改善計画T87レビュー指摘: road_surfaceタイルを共有するcarStressも、regionZoomTooWide中はデータ状態の案内を出さない", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
         layerVisibility={{
           elevation: false,
           road: false,
-          trafficStress: true,
+          carStress: true,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -361,10 +361,10 @@ describe("MapLayersPanel", () => {
           route: false,
         }}
         regionZoomTooWide={true}
-        layerDataStatus={{ trafficStress: "empty" }}
+        layerDataStatus={{ carStress: "empty" }}
       />,
     );
-    openSection("trafficStress");
+    openSection("carStress");
     expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
   });
 
@@ -375,7 +375,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: true,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -400,7 +400,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: false,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -424,7 +424,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: true,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -448,7 +448,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: true,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -465,22 +465,22 @@ describe("MapLayersPanel", () => {
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
   });
 
-  it("交通ストレスの凡例に判定基準の説明が表示される", () => {
+  it("車ストレスの凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    openSection("trafficStress");
+    openSection("carStress");
     expect(screen.getByText(/5段階\[1=快適〜5=圧迫大\]/)).toBeInTheDocument();
   });
 
   // 改善計画T89: 「ストレス1〜5評価基準が分かりにくい」という実機フィードバック対応。
   // 1〜2文の要約だけでは加点/減点の内訳が伝わらなかったため、panelHintDetail（箇条書き）で補う。
-  it("交通ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
+  it("車ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    openSection("trafficStress");
+    openSection("carStress");
     // jsdomは閉じた<details>の中身もクエリ対象から隠さないため、安全度レイヤー（改善計画:
     // 安全度レシピ）が似た文言のpanelHintDetailを持つようになった今、screen.getByTextの
-    // ページ全体探索だと複数該当してしまう。トグルされたtrafficStressセクションへ
+    // ページ全体探索だと複数該当してしまう。トグルされたcarStressセクションへ
     // within()で明示的にスコープする（「不明・他」テストと同じ方式）。
-    const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
+    const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
     expect(within(section).getByText(/制限速度30km\/h以下: -1/)).toBeInTheDocument();
     expect(within(section).getByText(/車線数4以上: \+1/)).toBeInTheDocument();
     expect(within(section).getByText(/指定路線.*に該当: \+1/)).toBeInTheDocument();
@@ -488,10 +488,10 @@ describe("MapLayersPanel", () => {
 
   // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解される実機フィードバックを
   // 受け、区切り線付きの専用クラスで分離する（legendFilter.ts: LegendEntry.isFallback）。
-  it("交通ストレスの凡例で「不明・他」は数値段階と区切って表示される", () => {
+  it("車ストレスの凡例で「不明・他」は数値段階と区切って表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    openSection("trafficStress");
-    const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
+    openSection("carStress");
+    const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
     const fallbackLabel = within(section).getByText("不明・他[判定対象外の道路種別]");
     const row = fallbackLabel.closest("label");
     expect(row?.className).toMatch(/legendCheckboxRowFallback/);
@@ -510,14 +510,14 @@ describe("MapLayersPanel", () => {
     expect(screen.getByText("踏切")).toBeInTheDocument();
   });
 
-  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（交通ストレス・自転車インフラ・停止要因POI・
+  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・停止要因POI・
   // 事故）も、OFF中の案内・凡例チェックボックスの絞り込み操作・自動ONが道路情報と
   // 同じ挙動になったことを検証する。
-  it("交通ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
+  it("車ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    openSection("trafficStress");
+    openSection("carStress");
     // OFF案内の文言は他レイヤーとも共通のため、セクション内に絞って確認する
-    const section = document.getElementById(layerSectionDomId("trafficStress")) as HTMLElement;
+    const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
     expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "1[快適]" })).toBeInTheDocument();
   });
@@ -542,7 +542,7 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         staticFilterHiddenKeysByAxis={{
-          trafficStress: [],
+          carStress: [],
           safety: [],
           bicycleInfra: [],
           designation: [],
@@ -595,7 +595,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: false,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,
@@ -626,7 +626,7 @@ describe("MapLayersPanel", () => {
         layerVisibility={{
           elevation: false,
           road: false,
-          trafficStress: false,
+          carStress: false,
           safety: false,
           bicycleInfra: false,
           designation: false,

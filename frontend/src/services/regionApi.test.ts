@@ -9,7 +9,7 @@ import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
-  fetchTrafficStressBreakdown,
+  fetchCarStressBreakdown,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
@@ -69,7 +69,7 @@ describe("regionApi", () => {
     expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1`);
   });
 
-  describe("fetchTrafficStressBreakdown", () => {
+  describe("fetchCarStressBreakdown", () => {
     it("osm_way_idをJSONボディに含めてPOSTし、JSONをそのまま返す", async () => {
       const breakdown = {
         base: 4,
@@ -88,14 +88,14 @@ describe("regionApi", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchTrafficStressBreakdown(12345);
+      const result = await fetchCarStressBreakdown(12345);
 
       const [url, options] = fetchMock.mock.calls[0];
-      expect(String(url)).toContain("/api/region/traffic-stress-breakdown");
+      expect(String(url)).toContain("/api/region/car-stress-breakdown");
       expect(options.method).toBe("POST");
       expect(JSON.parse(options.body as string)).toEqual({
         osm_way_id: 12345,
-        traffic_stress_recipe: null,
+        car_stress_recipe: null,
         road_suitability_recipe: null,
         motor_vehicle_density_recipe: null,
       });
@@ -108,7 +108,7 @@ describe("regionApi", () => {
         vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers(), json: async () => null }),
       );
 
-      await expect(fetchTrafficStressBreakdown(12345)).resolves.toBeNull();
+      await expect(fetchCarStressBreakdown(12345)).resolves.toBeNull();
     });
 
     it("fetchがok:falseの場合は例外を投げる", async () => {
@@ -122,7 +122,7 @@ describe("regionApi", () => {
         }),
       );
 
-      await expect(fetchTrafficStressBreakdown(12345)).rejects.toThrow(/リクエストが多すぎます/);
+      await expect(fetchCarStressBreakdown(12345)).rejects.toThrow(/リクエストが多すぎます/);
     });
   });
 

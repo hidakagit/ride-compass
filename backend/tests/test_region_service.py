@@ -158,19 +158,19 @@ async def test_poi_tile_no_repository_returns_empty_mvt():
     assert isinstance(tile_bytes, bytes)
 
 
-# 改善計画T90: 交通ストレスの区間別判定内訳表示。get_way_tags_by_osm_way_id（osm_way_id完全一致、
+# 改善計画T90: 車ストレスの区間別判定内訳表示。get_way_tags_by_osm_way_id（osm_way_id完全一致、
 # 交差点付近での空間マッチの取り違えを避けるため実機確認を経てこの方式にした）が返す
-# (highway, tags, is_designated)を`domain/traffic.py: traffic_stress_breakdown`へそのまま
+# (highway, tags, is_designated)を`domain/traffic.py: car_stress_breakdown`へそのまま
 # 渡すだけの薄い委譲のため、判定ロジック自体の網羅的な境界値検証はtest_traffic.py::
-# TestTrafficStressBreakdownに任せる。
+# TestCarStressBreakdownに任せる。
 
 
-async def test_traffic_stress_breakdown_delegates_to_domain_function():
+async def test_car_stress_breakdown_delegates_to_domain_function():
     repository = FakeRegionRepository()
     repository.way_tags_by_osm_way_id_result = ("primary", {"maxspeed": "60"}, False)
     service = RegionService(repository=repository)
 
-    breakdown = await service.get_traffic_stress_breakdown(12345)
+    breakdown = await service.get_car_stress_breakdown(12345)
 
     assert breakdown is not None
     assert breakdown.base == 4
@@ -179,43 +179,43 @@ async def test_traffic_stress_breakdown_delegates_to_domain_function():
     assert repository.way_tags_by_osm_way_id_calls == [12345]
 
 
-async def test_traffic_stress_breakdown_unregistered_highway_returns_none_level():
+async def test_car_stress_breakdown_unregistered_highway_returns_none_level():
     repository = FakeRegionRepository()
     repository.way_tags_by_osm_way_id_result = (None, {}, False)
     service = RegionService(repository=repository)
 
-    breakdown = await service.get_traffic_stress_breakdown(12345)
+    breakdown = await service.get_car_stress_breakdown(12345)
 
     assert breakdown is not None
     assert breakdown.base is None
     assert breakdown.level is None
 
 
-async def test_traffic_stress_breakdown_way_not_found_returns_none():
+async def test_car_stress_breakdown_way_not_found_returns_none():
     repository = FakeRegionRepository()  # 既定: get_way_tags_by_osm_way_idがNone
     service = RegionService(repository=repository)
 
-    assert await service.get_traffic_stress_breakdown(12345) is None
+    assert await service.get_car_stress_breakdown(12345) is None
 
 
-async def test_traffic_stress_breakdown_no_repository_returns_none():
+async def test_car_stress_breakdown_no_repository_returns_none():
     # DBなし構成（repository未注入）はNone（他のRegionServiceメソッドの
     # 「repository未注入時は機能自体が使えない」規約と同じ）
     service = RegionService()
 
-    assert await service.get_traffic_stress_breakdown(12345) is None
+    assert await service.get_car_stress_breakdown(12345) is None
 
 
-async def test_traffic_stress_breakdown_db_error_returns_none():
+async def test_car_stress_breakdown_db_error_returns_none():
     # 改善計画T94（統合レビューF-2）: DB例外もget_road_surface_tile等と同じグレースフル
     # デグレード方針（安全側のNone、例外を伝播させない）に揃えたことの回帰テスト。
     repository = FakeRegionRepository(error=RuntimeError("db down"))
     service = RegionService(repository=repository)
 
-    assert await service.get_traffic_stress_breakdown(12345) is None
+    assert await service.get_car_stress_breakdown(12345) is None
 
 
-async def test_traffic_stress_breakdown_db_error_is_counted_in_debug_stats():
+async def test_car_stress_breakdown_db_error_is_counted_in_debug_stats():
     # レビュー指摘の回帰テスト: DB例外パスがfields["lookup"]="error"のみ設定していたため
     # log_external_callのerror集計（fields["result"]=="error"判定）に載らず、T92夜間502調査
     # 用に追加したerror_types/last_error_at統計がこのエンドポイントだけ常に空になっていた。
@@ -223,9 +223,9 @@ async def test_traffic_stress_breakdown_db_error_is_counted_in_debug_stats():
     repository = FakeRegionRepository(error=RuntimeError("db down"))
     service = RegionService(repository=repository)
 
-    await service.get_traffic_stress_breakdown(12345)
+    await service.get_car_stress_breakdown(12345)
 
-    stats = get_stats()["external"]["region:traffic-stress-breakdown"]
+    stats = get_stats()["external"]["region:car-stress-breakdown"]
     assert stats["errors"] == 1
     assert stats["last_error_at"] is not None
     assert stats["error_types"] == {"RuntimeError": 1}
@@ -233,7 +233,7 @@ async def test_traffic_stress_breakdown_db_error_is_counted_in_debug_stats():
 
 
 async def test_safety_breakdown_db_error_is_counted_in_debug_stats():
-    # get_traffic_stress_breakdownの回帰テストと同じ観点（コードレビュー指摘）:
+    # get_car_stress_breakdownの回帰テストと同じ観点（コードレビュー指摘）:
     # get_safety_breakdownは同じDB例外パスがfields["lookup"]="error"のみ設定していたため
     # log_external_callのerror集計に載っていなかった。
     reset_stats()
@@ -250,7 +250,7 @@ async def test_safety_breakdown_db_error_is_counted_in_debug_stats():
 
 
 # 改善計画T59: ルート生成した地点でしか道路グラフ（road_nodes/road_edges）が構築されず、
-# 地図を眺めるだけの利用（ルート生成を経ない）では道路情報・交通ストレス・自転車インフラ・
+# 地図を眺めるだけの利用（ルート生成を経ない）では道路情報・車ストレス・自転車インフラ・
 # 交差点密度レイヤーが永遠に空のままだった問題への対応。カバレッジ内タイルの応答時、
 # z12祖先タイル単位でバックグラウンド構築を起動する（_maybe_trigger_graph_build）。
 

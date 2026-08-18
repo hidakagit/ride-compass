@@ -10,13 +10,13 @@ import {
   withAutoEnable,
   type ScalarFieldDescriptor,
 } from "@/components/Map/recipeControls";
-import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
-import { DEFAULT_ROAD_SUITABILITY_RECIPE, type RoadSuitabilityRecipe } from "@/components/Map/trafficStressExpression";
+import { CAR_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
+import { DEFAULT_ROAD_SUITABILITY_RECIPE, type RoadSuitabilityRecipe } from "@/components/Map/carStressExpression";
 import styles from "./RoadSuitabilityRecipePanel.module.css";
 
 // 「道路適正」（highway別基準値＋cycleway補正）の研究モード上書きUI（改善計画: 車との近さ
-// 材料の共有元化）。TrafficStressRecipePanel.tsxから該当2セクション（道路種別ごとの基準値・
-// 自転車インフラ補正）をそのまま移設した独立パネル。交通ストレス・安全度の両方が
+// 材料の共有元化）。CarStressRecipePanel.tsxから該当2セクション（道路種別ごとの基準値・
+// 自転車インフラ補正）をそのまま移設した独立パネル。車ストレス・安全度の両方が
 // domain/recipe.py: car_closeness()経由でこのレシピを参照するため、ここを上書きすると
 // 両軸の地図色・区間クリックの内訳ポップアップ・次回のルート生成すべてへ同時に反映される
 // （軸ごとに別の値へ上書きする自由度は無い、意図した設計）。
@@ -30,9 +30,9 @@ interface RoadSuitabilityRecipePanelProps {
 
 type ScalarKey = Exclude<keyof RoadSuitabilityRecipe, "base_by_highway">;
 
-// このパネルは独自の地図レイヤーを持たないため（道路適正は交通ストレス・安全度の材料に
-// とどまる）、配色はTRAFFIC_STRESS_COLORSを流用する（TrafficStressRecipePanel.tsxと
-// 同じ配色にすることで「元は交通ストレスパネルの一部だった」という連続性も保つ）。
+// このパネルは独自の地図レイヤーを持たないため（道路適正は車ストレス・安全度の材料に
+// とどまる）、配色はCAR_STRESS_COLORSを流用する（CarStressRecipePanel.tsxと
+// 同じ配色にすることで「元は車ストレスパネルの一部だった」という連続性も保つ）。
 // ROAD_SUITABILITY_BASE_BY_HIGHWAYの値域は1〜4のため、5段階目は使わない。
 const ROAD_SUITABILITY_LEVELS = [1, 2, 3, 4];
 
@@ -59,9 +59,10 @@ interface HighwayLabel {
   description: string;
 }
 
-// TrafficStressRecipePanel.tsx（改名前）: HIGHWAY_LABELSと同じ対訳表。道路適正は交通ストレス・
+// TrafficStressRecipePanel.tsx（改名前。T150で更にCarStressRecipePanel.tsxへ改称済み）:
+// HIGHWAY_LABELSと同じ対訳表。道路適正は車ストレス・
 // 安全度が共有する唯一の出どころのため、この対訳表もここ1箇所へ集約する
-// （改善計画: 車との近さ材料の共有元化。以前は交通ストレス・安全度パネルの双方に
+// （改善計画: 車との近さ材料の共有元化。以前は車ストレス・安全度パネルの双方に
 // 同じ対訳表が重複していた）。
 const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
   cycleway: { label: "自転車専用道", description: "highway=cycleway。自転車のための専用道路" },
@@ -97,7 +98,7 @@ const HIGHWAY_LABELS: Record<string, HighwayLabel> = {
 const HIGHWAY_ORDER = Object.keys(DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway);
 
 const { negativeColor: ADJUSTMENT_NEGATIVE_COLOR, positiveColor: ADJUSTMENT_POSITIVE_COLOR } = adjustmentEndpointColors(
-  TRAFFIC_STRESS_COLORS,
+  CAR_STRESS_COLORS,
   ROAD_SUITABILITY_LEVELS[0],
   ROAD_SUITABILITY_LEVELS[ROAD_SUITABILITY_LEVELS.length - 1],
 );
@@ -132,7 +133,7 @@ function HighwayRow({
         <td className={styles.tableValue}>
           <LevelPicker
             levels={ROAD_SUITABILITY_LEVELS}
-            colors={TRAFFIC_STRESS_COLORS}
+            colors={CAR_STRESS_COLORS}
             value={resolvedValue}
             onChange={(next) => onChange(highway, next)}
             groupLabel={`${highwayLabel?.label ?? highway}の基準値`}

@@ -61,7 +61,7 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
-from app.domain.designation import TRAFFIC_STRESS_DESIGNATION_KINDS
+from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
@@ -189,7 +189,7 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   SQLにPythonを呼び出す手段が無いためやむを得ず判定ロジックを2箇所持つが、
 #   test_road_graph_repository.pyの整合性テストで同じ入力に対し常に同じ出力になることを
 #   担保する。
-# - traffic_stress（交通ストレス、1-5）は改善計画（交通ストレスレシピ外出し基盤）以降、
+# - car_stress（車ストレス、1-5）は改善計画（交通ストレスレシピ外出し基盤）以降、
 #   ここでは**計算済みの最終値を焼かない**。タイルは全ユーザー共有でキャッシュされる
 #   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
 #   判定レシピ（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに
@@ -197,8 +197,8 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   （cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
 #   流用）だけを焼き込み、最終値の計算はフロントエンド側
 #   （frontend/src/components/Map/trafficStressExpression.ts、MapLibre expression）と
-#   ルート採点（domain/traffic.py: traffic_stress_breakdown）がそれぞれ行う。両者は
-#   domain/traffic.py: TrafficStressRecipeという共通のレシピ定義に対応させ、
+#   ルート採点（domain/traffic.py: car_stress_breakdown）がそれぞれ行う。両者は
+#   domain/traffic.py: CarStressRecipeという共通のレシピ定義に対応させ、
 #   trafficStressExpression.test.tsで整合性を検証する（このSQL側の整合性テストは
 #   材料タグの焼き込みが正しいことだけを検証すればよくなった）。
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
@@ -206,7 +206,7 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   弾いてunknown安全にする。
 # - safety（安全度、1-4、改善計画: 安全度レシピ）も同じ理由で最終値を焼かず材料タグのみ
 #   焼き込む。cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no/designationは
-#   交通ストレスと共有し、litのみ新規追加（tunnelは上のtunnelプロパティを再利用。shoulderは
+#   車ストレスと共有し、litのみ新規追加（tunnelは上のtunnelプロパティを再利用。shoulderは
 #   改善計画T102実測0.0%の死に補正のためT122で撤去した）。フロント側はsafetyExpression.ts、
 #   採点側はdomain/safety.py: safety_breakdownがdomain/safety.py: SafetyRecipeという
 #   共通のレシピ定義に対応させて計算する。
@@ -227,7 +227,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         ST_AsMVTGeom(
                             ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                         ) AS geom,
-                        -- クリック時の交通ストレス内訳表示（改善計画T90）が、ポップアップに
+                        -- クリック時の車ストレス内訳表示（改善計画T90）が、ポップアップに
                         -- 出た値と同じ行を曖昧さ無く引き直すための識別子。get_nearest_way_tags
                         -- の空間マッチ(半径内最近傍)だと交差点付近で別の道路を拾いうる
                         -- （実機確認で判明）ため、フィーチャーが指す行そのものをosm_way_id
@@ -252,7 +252,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN lower(btrim(w.tags->>'bicycle')) = 'no' THEN 'prohibited'
                             WHEN w.highway IS NOT NULL THEN 'roadway'
                         END AS bicycle_infra,
-                        -- 交通ストレスの材料タグ（最終値はフロント/Pythonが計算、上のコメント参照）。
+                        -- 車ストレスの材料タグ（最終値はフロント/Pythonが計算、上のコメント参照）。
                         CASE
                             WHEN 'track' = ANY(cw.values) THEN 'track'
                             WHEN 'lane' = ANY(cw.values) THEN 'lane'
@@ -531,7 +531,7 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
 
-# 交通ストレスの区間別判定内訳表示（改善計画T90）。get_way_tags_by_osm_way_idが使う。
+# 車ストレスの区間別判定内訳表示（改善計画T90）。get_way_tags_by_osm_way_idが使う。
 # _NEAREST_WAY_TAGS_SQLと違い空間マッチをしない完全一致1行取得のため、KNNより単純。
 _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
     """
@@ -547,9 +547,9 @@ _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
     """
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
-# 静的道路属性P1残り（交通ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
+# 静的道路属性P1残り（車ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
 # 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
-# （domain/traffic.py: traffic_stress_level/classify_bicycle_infrastructureの入力）。
+# （domain/traffic.py: car_stress_level/classify_bicycle_infrastructureの入力）。
 # 改善計画T76: is_designated（外部静的データソース T51、KSJ N10/N12該当）もここへ統合する。
 # 以前はget_nearest_designated_flagsが同一サンプル点集合に対して独立のLATERAL KNN
 # （WITH pts〜LEFT JOIN LATERAL road_edgesの骨格ごとコピー）を3本目のラウンドトリップとして
@@ -1387,11 +1387,11 @@ class AttributeRepository(_SessionRepository):
 
     async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
         """指定edge_idそれぞれについて、road_edges.osm_way_id経由のosm_raw_ways.tags
-        （静的道路属性P0の許可リストタグ）を返す（静的道路属性P1残り、交通ストレス・
+        （静的道路属性P0の許可リストタグ）を返す（静的道路属性P1残り、車ストレス・
         自転車インフラ評価の入力）。get_surface_attributesと同じJOINパターン。
 
         該当way自体が無い/tagsが空のEdgeは`{}`（highwayはEdge側に既に保持済みのため、
-        タグが空でも交通ストレスの基本値は評価できる。domain/evaluation.py:
+        タグが空でも車ストレスの基本値は評価できる。domain/evaluation.py:
         compute_edge_cost参照）。「データ未取得（repository未注入）」との区別は
         呼び出し元（本メソッド自体を呼ぶかどうか）で行う。
         """
@@ -1415,14 +1415,14 @@ class AttributeRepository(_SessionRepository):
         `get_nearest_way_tags`の空間マッチ（半径内最近傍）は、交差点付近など複数の道路が
         近接する場所で、実際にクリックされたMVTフィーチャー（`_ROAD_SURFACE_TILE_MVT_SQL`が
         同じosm_way_idをプロパティとして焼き込み済み）とは別の道路を拾いうることが実機確認で
-        判明した（ポップアップの`traffic_stress`表示値と、内訳ボタンで計算した値が食い違う）。
+        判明した（ポップアップの`car_stress`表示値と、内訳ボタンで計算した値が食い違う）。
         フィーチャーが指す行そのものをosm_way_idで引き直すことで、この不整合を構造的に防ぐ。
 
         該当way自体が存在しない（極端な状況、タイル生成後の再取込等）場合はNone。
         """
         result = await self._session.execute(
             _WAY_TAGS_BY_OSM_WAY_ID_SQL,
-            {"osm_way_id": osm_way_id, "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS)},
+            {"osm_way_id": osm_way_id, "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS)},
         )
         row = result.first()
         if row is None:
@@ -1435,8 +1435,8 @@ class AttributeRepository(_SessionRepository):
         """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeが
         参照するosm_raw_waysの(highway, tags, is_designated)を返す（入力と同じ順序・同じ長さ、
         静的道路属性P1残り＋外部静的データソースT51）。get_nearest_surface_tagsと同じ
-        空間マッチ方式で、openrouteserviceエンジンの交通ストレス・自転車インフラ・
-        指定路線該当（trafficStress補正）評価の入力になる。
+        空間マッチ方式で、openrouteserviceエンジンの車ストレス・自転車インフラ・
+        指定路線該当（carStress補正）評価の入力になる。
 
         is_designatedは以前get_nearest_designated_flagsという専用メソッド・専用SQLだったが、
         同一サンプル点集合に対する3本目の独立KNNだったため改善計画T76でここへ統合した
@@ -1450,7 +1450,7 @@ class AttributeRepository(_SessionRepository):
             _NEAREST_WAY_TAGS_SQL,
             {
                 "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
-                "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS),
+                "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
             },
         )
         return _restore_ordinality_order(
@@ -1575,7 +1575,7 @@ class AttributeRepository(_SessionRepository):
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         """指定edge_idのうち、KSJ N10/N12（`domain/designation.py:
-        TRAFFIC_STRESS_DESIGNATION_KINDS`）に該当するものの集合を返す（外部静的データソース
+        CAR_STRESS_DESIGNATION_KINDS`）に該当するものの集合を返す（外部静的データソース
         T51）。`designation_attributes`はmatch_designations.pyの事前計算バッチが埋める
         （クエリ時にバッファ交差計算はしない）。
         """
@@ -1585,7 +1585,7 @@ class AttributeRepository(_SessionRepository):
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
                 _DESIGNATED_EDGE_IDS_SQL,
-                {"edge_ids": id_chunk, "kinds": sorted(TRAFFIC_STRESS_DESIGNATION_KINDS)},
+                {"edge_ids": id_chunk, "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS)},
             )
             result.update(edge_id for (edge_id,) in rows.all())
         return result

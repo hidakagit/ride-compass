@@ -157,7 +157,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/region/traffic-stress-breakdown": {
+    "/api/region/car-stress-breakdown": {
         parameters: {
             query?: never;
             header?: never;
@@ -167,20 +167,20 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Region Traffic Stress Breakdown
-         * @description 交通ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
+         * Region Car Stress Breakdown
+         * @description 車ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
          *     路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:
-         *     traffic_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
+         *     car_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
          *     highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ
          *     「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
-         *     RegionService.get_traffic_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
+         *     RegionService.get_car_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
          *     タイル取得と同じ歯止め（クリックの連打対策）を流用する。
          *
-         *     GETではなくPOST+JSONボディなのは、`traffic_stress_recipe`（レシピ上書き、改善計画:
+         *     GETではなくPOST+JSONボディなのは、`car_stress_recipe`（レシピ上書き、改善計画:
          *     交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
          *     不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
          */
-        post: operations["region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_post"];
+        post: operations["region_car_stress_breakdown_api_region_car_stress_breakdown_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -198,7 +198,7 @@ export interface paths {
         put?: never;
         /**
          * Region Safety Breakdown
-         * @description 安全度の判定内訳（改善計画: 安全度レシピ）。region_traffic_stress_breakdownと
+         * @description 安全度の判定内訳（改善計画: 安全度レシピ）。region_car_stress_breakdownと
          *     完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの
          *     docstring参照）。
          */
@@ -264,6 +264,60 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * CarStressBreakdown
+         * @description `car_stress_level`の判定内訳（改善計画T90、T150で「交通ストレス」から改称）。
+         *     地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データで、
+         *     `level`は`car_stress_level`と同じ最終値。highwayが判定基準
+         *     （`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に登録されていない場合は
+         *     `base`/`level`ともNoneで、他の補正フィールドは0/False。
+         */
+        CarStressBreakdown: {
+            /** Base */
+            base: number | null;
+            /** Cycleway Adjustment */
+            cycleway_adjustment: number;
+            /** Maxspeed Adjustment */
+            maxspeed_adjustment: number;
+            /** Lanes Adjustment */
+            lanes_adjustment: number;
+            /** Designation Adjustment */
+            designation_adjustment: number;
+            /** Motor Vehicle No Override */
+            motor_vehicle_no_override: boolean;
+            /** Level */
+            level: number | null;
+        };
+        /** CarStressBreakdownRequest */
+        CarStressBreakdownRequest: {
+            /** Osm Way Id */
+            osm_way_id: number;
+            car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
+            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
+            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
+        };
+        /**
+         * CarStressRecipeOverride
+         * @description 車ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。
+         *     キーはdomain/traffic.py: CarStressRecipeと同じ。RoutePreferenceWeightsと同じ
+         *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
+         *
+         *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
+         *     RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
+         *     （改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側
+         *     (MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた
+         *     ため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は
+         *     `_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/
+         *     `CarStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:
+         *     car_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で
+         *     なくなり、両方が同時に発火して打ち消し合う）。
+         */
+        CarStressRecipeOverride: {
+            /** Lanes Low Threshold */
+            lanes_low_threshold: number;
+            /** Lanes Low Adjustment */
+            lanes_low_adjustment: number;
+        };
         /** Coordinates */
         Coordinates: {
             /** Latitude */
@@ -290,7 +344,7 @@ export interface components {
             distance_tolerance_km: number;
             scoring_weights: components["schemas"]["ScoringWeights"];
             route_preference: components["schemas"]["RoutePreferenceWeights"];
-            traffic_stress_recipe: components["schemas"]["TrafficStressRecipeOverride"];
+            car_stress_recipe: components["schemas"]["CarStressRecipeOverride"];
             safety_recipe: components["schemas"]["SafetyRecipeOverride"];
             road_suitability_recipe: components["schemas"]["RoadSuitabilityRecipeOverride"];
             motor_vehicle_density_recipe: components["schemas"]["MotorVehicleDensityRecipeOverride"];
@@ -306,7 +360,7 @@ export interface components {
          * MotorVehicleDensityRecipeOverride
          * @description 「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の上書き。キーは
          *     domain/recipe.py: MotorVehicleDensityRecipeと同じ。RoadSuitabilityRecipeOverrideと
-         *     合わせて「車との近さ」(N2)を構成する、交通ストレス・安全度が共有するもう1つの材料
+         *     合わせて「車との近さ」(N2)を構成する、車ストレス・安全度が共有するもう1つの材料
          *     （改善計画: 車との近さ材料の共有元化）。
          */
         MotorVehicleDensityRecipeOverride: {
@@ -331,7 +385,7 @@ export interface components {
          *     RoadSuitabilityRecipeと同じ。RoutePreferenceWeightsと同じ「全フィールド必須」の
          *     別モデル（上書きするなら全項目を明示する）。
          *
-         *     交通ストレス・安全度の両方が共通して参照する「車との近さ」(N2)の材料の1つ
+         *     車ストレス・安全度の両方が共通して参照する「車との近さ」(N2)の材料の1つ
          *     （改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ
          *     反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが
          *     無いため順序検証は不要。
@@ -339,7 +393,7 @@ export interface components {
          *     `base_by_highway`は「全12highwayキーを明示した完全な置き換え」を前提とする
          *     （このモデル自体の「全フィールド必須」方針と同じ考え方）。domain/recipe.py:
          *     road_suitability()はキー欠落を「そのhighwayは評価対象外」(base=None)として
-         *     静かに扱うため、部分的なdictを許すと、そのhighway種別が交通ストレス・安全度の
+         *     静かに扱うため、部分的なdictを許すと、そのhighway種別が車ストレス・安全度の
          *     両方から同時に消える（道路適正の共有化によって影響範囲が2軸分に広がった）。
          */
         RoadSuitabilityRecipeOverride: {
@@ -366,7 +420,7 @@ export interface components {
          *     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
          *     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
          *
-         *     `traffic_stress_score`: ルート全体の交通ストレス（1-5）の距離加重平均
+         *     `car_stress_score`: ルート全体の車ストレス（1-5）の距離加重平均
          *     （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
          *     `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
          *     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
@@ -378,7 +432,7 @@ export interface components {
          *     合計distance_km」に収録年数での正規化を加えた集約）。
          *
          *     `safety_score`: ルート全体の安全度（1-4）の距離加重平均（改善計画: 安全度レシピ、
-         *     domain/difficulty.py: distance_weighted_difficulty、traffic_stress_scoreと同じ集約方法）。
+         *     domain/difficulty.py: distance_weighted_difficulty、car_stress_scoreと同じ集約方法）。
          */
         RouteCandidate: {
             /** Id */
@@ -405,8 +459,8 @@ export interface components {
             road_score?: number | null;
             /** Stop Density */
             stop_density?: number | null;
-            /** Traffic Stress Score */
-            traffic_stress_score?: number | null;
+            /** Car Stress Score */
+            car_stress_score?: number | null;
             /** Bicycle Infra Score */
             bicycle_infra_score?: number | null;
             /** Intersection Density */
@@ -445,7 +499,7 @@ export interface components {
             route_type: "loop";
             scoring_weights?: components["schemas"]["ScoringWeights"] | null;
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
-            traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
+            car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
             safety_recipe?: components["schemas"]["SafetyRecipeOverride"] | null;
             road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
             motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
@@ -476,16 +530,12 @@ export interface components {
             wind_weight: number;
             /** Stop Weight */
             stop_weight: number;
-            /** Traffic Weight */
-            traffic_weight: number;
-            /** Infra Weight */
-            infra_weight: number;
-            /** Intersection Weight */
-            intersection_weight: number;
+            /** Car Stress Weight */
+            car_stress_weight: number;
             /** Accident Weight */
             accident_weight: number;
-            /** Safety Weight */
-            safety_weight: number;
+            /** Night Weight */
+            night_weight: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {
@@ -564,8 +614,8 @@ export interface components {
             wind_penalty?: number | null;
             /** Road Surface Good */
             road_surface_good?: boolean | null;
-            /** Traffic Stress */
-            traffic_stress?: number | null;
+            /** Car Stress */
+            car_stress?: number | null;
             /** Bicycle Infra */
             bicycle_infra?: string | null;
             /** Safety */
@@ -578,22 +628,18 @@ export interface components {
             road_difficulty?: number | null;
             /** Stop Difficulty */
             stop_difficulty?: number | null;
-            /** Traffic Difficulty */
-            traffic_difficulty?: number | null;
-            /** Infra Difficulty */
-            infra_difficulty?: number | null;
-            /** Intersection Difficulty */
-            intersection_difficulty?: number | null;
+            /** Car Stress Difficulty */
+            car_stress_difficulty?: number | null;
             /** Accident Difficulty */
             accident_difficulty?: number | null;
-            /** Safety Difficulty */
-            safety_difficulty?: number | null;
+            /** Night Difficulty */
+            night_difficulty?: number | null;
             /** Difficulty */
             difficulty?: number | null;
         };
         /**
          * SafetyBreakdown
-         * @description `safety_level`の判定内訳（domain/traffic.py: TrafficStressBreakdownと同じ役割・
+         * @description `safety_level`の判定内訳（domain/traffic.py: CarStressBreakdownと同じ役割・
          *     同じ形）。地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データ。
          *     highwayが判定基準（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に
          *     登録されていない場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
@@ -629,11 +675,11 @@ export interface components {
         /**
          * SafetyRecipeOverride
          * @description 安全度軸だけが持つ判定レシピ（街灯・トンネル補正）の上書き。キーはdomain/safety.py:
-         *     SafetyRecipeと同じ。TrafficStressRecipeOverrideと同じ「全フィールド必須」の別モデル
+         *     SafetyRecipeと同じ。CarStressRecipeOverrideと同じ「全フィールド必須」の別モデル
          *     （上書きするなら全項目を明示する）。
          *
          *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
-         *     交通ストレスと共有する（RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride、
+         *     車ストレスと共有する（RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride、
          *     改善計画: 車との近さ材料の共有元化）ため、ここには含まない。
          */
         SafetyRecipeOverride: {
@@ -658,59 +704,6 @@ export interface components {
             wind_weight: number;
             /** Road Weight */
             road_weight: number;
-        };
-        /**
-         * TrafficStressBreakdown
-         * @description `traffic_stress_level`の判定内訳（改善計画T90）。地図上の道路クリック時に
-         *     「なぜこの値になったか」を説明する表示専用データで、`level`は`traffic_stress_level`と
-         *     同じ最終値。highwayが判定基準（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に
-         *     登録されていない場合は`base`/`level`ともNoneで、他の補正フィールドは0/False。
-         */
-        TrafficStressBreakdown: {
-            /** Base */
-            base: number | null;
-            /** Cycleway Adjustment */
-            cycleway_adjustment: number;
-            /** Maxspeed Adjustment */
-            maxspeed_adjustment: number;
-            /** Lanes Adjustment */
-            lanes_adjustment: number;
-            /** Designation Adjustment */
-            designation_adjustment: number;
-            /** Motor Vehicle No Override */
-            motor_vehicle_no_override: boolean;
-            /** Level */
-            level: number | null;
-        };
-        /** TrafficStressBreakdownRequest */
-        TrafficStressBreakdownRequest: {
-            /** Osm Way Id */
-            osm_way_id: number;
-            traffic_stress_recipe?: components["schemas"]["TrafficStressRecipeOverride"] | null;
-            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
-            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
-        };
-        /**
-         * TrafficStressRecipeOverride
-         * @description 交通ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。
-         *     キーはdomain/traffic.py: TrafficStressRecipeと同じ。RoutePreferenceWeightsと同じ
-         *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
-         *
-         *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
-         *     RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
-         *     （改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側
-         *     (MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた
-         *     ため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は
-         *     `_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/
-         *     `TrafficStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:
-         *     traffic_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で
-         *     なくなり、両方が同時に発火して打ち消し合う）。
-         */
-        TrafficStressRecipeOverride: {
-            /** Lanes Low Threshold */
-            lanes_low_threshold: number;
-            /** Lanes Low Adjustment */
-            lanes_low_adjustment: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -975,7 +968,7 @@ export interface operations {
             };
         };
     };
-    region_traffic_stress_breakdown_api_region_traffic_stress_breakdown_post: {
+    region_car_stress_breakdown_api_region_car_stress_breakdown_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -984,7 +977,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TrafficStressBreakdownRequest"];
+                "application/json": components["schemas"]["CarStressBreakdownRequest"];
             };
         };
         responses: {
@@ -994,7 +987,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrafficStressBreakdown"] | null;
+                    "application/json": components["schemas"]["CarStressBreakdown"] | null;
                 };
             };
             /** @description Validation Error */

@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE } from "@/components/Map/trafficStressExpression";
+import { DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE } from "@/components/Map/carStressExpression";
 import MotorVehicleDensityRecipePanel from "./MotorVehicleDensityRecipePanel";
 
-// 旧TrafficStressRecipePanel.test.tsxの制限速度補正・車線数(多い方)補正・指定路線補正に
+// 旧CarStressRecipePanel.test.tsxの制限速度補正・車線数(多い方)補正・指定路線補正に
 // 関するテストをそのまま移設した(改善計画: 車との近さ材料の共有元化)。
 
 function renderPanel(overrides: Partial<React.ComponentProps<typeof MotorVehicleDensityRecipePanel>> = {}) {

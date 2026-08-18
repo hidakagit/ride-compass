@@ -20,10 +20,10 @@ from measure_axis_stats import (  # noqa: E402
 )
 
 from app.domain.safety import SafetyBreakdown  # noqa: E402
-from app.domain.traffic import TrafficStressBreakdown  # noqa: E402
+from app.domain.traffic import CarStressBreakdown  # noqa: E402
 
 
-def _traffic_breakdown(**overrides) -> TrafficStressBreakdown:
+def _car_stress_breakdown(**overrides) -> CarStressBreakdown:
     defaults = dict(
         base=2,
         cycleway_adjustment=0,
@@ -34,7 +34,7 @@ def _traffic_breakdown(**overrides) -> TrafficStressBreakdown:
         level=2,
     )
     defaults.update(overrides)
-    return TrafficStressBreakdown(**defaults)
+    return CarStressBreakdown(**defaults)
 
 
 def _safety_breakdown(**overrides) -> SafetyBreakdown:
@@ -97,15 +97,15 @@ class TestSpearmanCorrelation:
 
 class TestRawPreClampLevel:
     def test_sums_base_and_adjustments(self):
-        breakdown = _traffic_breakdown(base=4, cycleway_adjustment=-2, maxspeed_adjustment=1, lanes_adjustment=1)
+        breakdown = _car_stress_breakdown(base=4, cycleway_adjustment=-2, maxspeed_adjustment=1, lanes_adjustment=1)
         assert raw_pre_clamp_level(breakdown) == 4
 
     def test_unregistered_highway_is_none(self):
-        breakdown = _traffic_breakdown(base=None, level=None)
+        breakdown = _car_stress_breakdown(base=None, level=None)
         assert raw_pre_clamp_level(breakdown) is None
 
     def test_motor_vehicle_override_is_none(self):
-        breakdown = _traffic_breakdown(motor_vehicle_no_override=True, level=1)
+        breakdown = _car_stress_breakdown(motor_vehicle_no_override=True, level=1)
         assert raw_pre_clamp_level(breakdown) is None
 
     def test_works_for_safety_breakdown_too(self):
@@ -114,8 +114,8 @@ class TestRawPreClampLevel:
 
 
 class TestAdjustmentFieldNames:
-    def test_traffic_stress_fields_exclude_base_and_level(self):
-        fields = adjustment_field_names(TrafficStressBreakdown)
+    def test_car_stress_fields_exclude_base_and_level(self):
+        fields = adjustment_field_names(CarStressBreakdown)
         assert "cycleway_adjustment" in fields
         assert "motor_vehicle_no_override" in fields
         assert "base" not in fields
@@ -166,8 +166,8 @@ class TestAdjustmentFiringCounter:
 
     def test_counts_true_boolean_override_as_fired(self):
         counter = AdjustmentFiringCounter(["motor_vehicle_no_override"])
-        counter.add(_traffic_breakdown(motor_vehicle_no_override=True, level=1), distance_km=5.0)
-        counter.add(_traffic_breakdown(motor_vehicle_no_override=False), distance_km=5.0)
+        counter.add(_car_stress_breakdown(motor_vehicle_no_override=True, level=1), distance_km=5.0)
+        counter.add(_car_stress_breakdown(motor_vehicle_no_override=False), distance_km=5.0)
 
         assert counter.fired_count["motor_vehicle_no_override"] == 1
 

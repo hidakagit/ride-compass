@@ -35,7 +35,7 @@ export function computeLayerDataStatus(
   layerDataSources: readonly LayerDataSourceEntry[],
 ): LayerDataStatusByLayer {
   const status: LayerDataStatusByLayer = {};
-  // road/trafficStress/bicycleInfra/designationのように複数レイヤーが同じ(sourceId,
+  // road/carStress/bicycleInfra/designationのように複数レイヤーが同じ(sourceId,
   // sourceLayer)を共有するため、querySourceFeatures（実タイルのフィーチャーを走査する
   // 軽くない処理）を同じ引数で繰り返し呼ばないよう、この1回の呼び出し内でだけ結果を
   // メモ化する（レビュー指摘: road_surfaceは実測6,273件、共有4レイヤー分で素朴には

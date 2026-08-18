@@ -1,0 +1,286 @@
+"""既存の一次属性・二次軸をレジストリ（domain/registry.py）へ登録する既定セット（改善計画T137）。
+
+`register_defaults()`を呼ぶと、以下の一次属性・二次軸がプロセス内のレジストリへ登録される。
+モジュールimport時には自動実行しない（グローバルなレジストリ状態への副作用をimportのタイミングに
+依存させると、テストの実行順序でレジストリが空/一部登録済みのどちらの状態にもなりうり壊れやすい
+ため。実運用での呼び出しは、レジストリを実際に使う側（改善計画T142のコスト関数・T145の
+レイヤーパネル生成等）がアプリ起動時に1回呼ぶ想定）。
+
+T137時点では「車ストレス」「安全度」「自転車インフラ」の3軸が、highway・cycleway・
+maxspeed・lanes・指定路線を車の圧迫感・安全度の両方で共有していた（T130で意図的に共有した
+設計）ため未登録だったが、T138（自転車インフラを独立軸から車ストレスへ統合）・
+T139（安全度を軸ごと廃止し事故実績・夜間へ分割）・T149（交差点密度を停止密度へ統合）を
+経て軸自体が排他的な構造へ再編されたため、`car_stress`・`night`を登録済み（`accident`は
+T137時点から既に排他、`stop_density`はT149でintersectionを吸収済み）。`safety`
+（`domain/safety.py`）自体は難易度合成からは外れたが表示用途として現役（削除はT148）の
+ため、軸としては登録しない（表示用の生値・レシピは一次属性寄りの扱いのまま）。
+
+axis_idは設計プロンプトが示す目標名（`car_stress`等）を使う。対応するPythonのモジュール・
+関数のシンボル名（`domain/traffic.py: car_stress_level`）も改善計画T150（呼称のtraffic→
+car_stressへの統一）で追従済み。
+"""
+
+from app.domain.registry import AxisSpec, PrimaryAttributeSpec, register_axis, register_primary_attribute
+
+
+def register_defaults() -> None:
+    """既存の一次属性・二次軸をレジストリへ登録する。二重呼び出しは`register_primary_attribute`/
+    `register_axis`が`ValueError`（既に登録済み）を送出するため、呼び出し側が
+    プロセス内で1回だけ呼ぶこと（テストでは`reset_registry_for_testing()`と対で使う）。"""
+    _register_primary_attributes()
+    _register_axes()
+
+
+def _register_primary_attributes() -> None:
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="highway",
+            source="osm",
+            geometry="edge",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="OSM highwayタグ（道路種別）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="lanes",
+            source="osm",
+            geometry="edge",
+            dtype="numeric",
+            update_cadence="on_reimport",
+            description="OSM lanesタグ（車線数）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="maxspeed",
+            source="osm",
+            geometry="edge",
+            dtype="numeric",
+            update_cadence="on_reimport",
+            description="OSM maxspeedタグ（制限速度、km/h）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="cycleway",
+            source="osm",
+            geometry="edge",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="OSM cycleway/cycleway:left/right/bothタグ（自転車インフラ種別の材料）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="surface",
+            source="osm",
+            geometry="edge",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="OSM surfaceタグ（路面材質）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="bicycle_access",
+            source="osm",
+            geometry="edge",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="OSM bicycleタグ（自転車の通行可否・分類）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="motor_vehicle_access",
+            source="osm",
+            geometry="edge",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="OSM motor_vehicleタグ（自動車の通行可否）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="lit",
+            source="osm",
+            geometry="edge",
+            dtype="boolean",
+            update_cadence="on_reimport",
+            description="OSM litタグ（街灯の有無）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="tunnel",
+            source="osm",
+            geometry="edge",
+            dtype="boolean",
+            update_cadence="on_reimport",
+            description="OSM tunnelタグ（トンネルの有無）",
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="designation",
+            source="kokudo_suuchi",
+            geometry="edge",
+            dtype="categorical",
+            update_cadence="yearly",
+            description="国土数値情報 N10（緊急輸送道路）・N12（重要物流道路）該当フラグ",
+            ingest_fn="app.batch.match_designations",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="elevation",
+            source="gsi",
+            geometry="edge",
+            dtype="numeric",
+            update_cadence="static",
+            description="国土地理院 標高API由来のEdge単位勾配（average_grade等）",
+            ingest_fn="app.services.elevation_attribute_service",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="stop_poi",
+            source="osm",
+            geometry="point",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="信号・横断歩道・一時停止・踏切のnode（静的道路属性P1）",
+            ingest_fn="app.domain.osm_adapter.osm_node_to_poi_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="supply_poi",
+            source="osm",
+            geometry="point",
+            dtype="categorical",
+            update_cadence="on_reimport",
+            description="補給・休憩POI（コンビニ・自販機・トイレ・給水・駐輪場、T101）。"
+            "スコア化はせず表示レイヤーとしてのみ使う（設計プロンプトの制約）ため、"
+            "本レジストリでは軸から参照されない一次属性として登録するのみ。",
+            ingest_fn="app.domain.osm_adapter.osm_node_to_poi_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="accident_point",
+            source="npa_accident",
+            geometry="point",
+            dtype="categorical",
+            update_cadence="yearly",
+            description="警察庁交通事故統計の事故地点データ",
+            ingest_fn="app.batch.import_accidents",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="intersection",
+            source="osm",
+            geometry="point",
+            dtype="numeric",
+            update_cadence="on_reimport",
+            description="次数3以上のroad_node（交差点、OSMの道路網トポロジーから導出。専用テーブルなし）",
+            ingest_fn=None,
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="geometry",
+            source="osm",
+            geometry="edge",
+            dtype="geometry",
+            update_cadence="on_reimport",
+            description="区間の形状・距離（全軸が参照してよい共通コンテキスト、排他チェック対象外）",
+            ingest_fn=None,
+            shared=True,
+        )
+    )
+
+
+def _register_axes() -> None:
+    """現時点で入力が排他的な軸のみ登録する（詳細はモジュールdocstring参照）。"""
+    register_axis(
+        AxisSpec(
+            axis_id="gradient",
+            inputs=["elevation"],
+            transform_fn="app.domain.difficulty.gradient_difficulty",
+            output_range=(0.0, 100.0),
+            description="区間の平均勾配から算出する難易度（絶対基準）",
+        )
+    )
+    register_axis(
+        AxisSpec(
+            axis_id="surface_q",
+            inputs=["surface"],
+            transform_fn="app.domain.difficulty.road_difficulty",
+            output_range=(0.0, 100.0),
+            description="路面材質（`domain/road.py: classify_osm_surface`で良/不明の3値へ分類済み）"
+            "から算出する走行しやすさ。ルート単位の集約統計（`RouteCandidate.road_score`、"
+            "距離加重の舗装率%）は別関数`domain/road.py: distance_weighted_road_score`が担う"
+            "（区間単位のこの軸と混同しないこと）",
+        )
+    )
+    register_axis(
+        AxisSpec(
+            axis_id="stop_density",
+            inputs=["stop_poi", "intersection"],
+            transform_fn="app.domain.difficulty.stop_difficulty",
+            output_range=(0.0, 100.0),
+            description="信号・横断歩道・一時停止・踏切・無タグ交差点の密度（回/km）から算出する"
+            "難易度。交差点密度(intersection)は単独軸を持たず、タグなし交差点として低い重み"
+            "（0.3、signal等のstop_poiを1.0とした相対値）でこの軸へ吸収する"
+            "（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）",
+        )
+    )
+    register_axis(
+        AxisSpec(
+            axis_id="car_stress",
+            inputs=["highway", "lanes", "maxspeed", "cycleway", "designation"],
+            transform_fn="app.domain.traffic.car_stress_level",
+            output_range=(0.0, 100.0),
+            description="道路種別・車線数・制限速度・N10/N12該当・自転車インフラ（cycleway補正）"
+            "から算出する車ストレス（走行中の車との近接ストレス）。旧「交通ストレス」・"
+            "「圧迫感」。改善計画T138で自転車インフラの独立軸を統合済み。呼称のtraffic→"
+            "car_stressへの統一（Pythonシンボル名）は改善計画T150で実施済み。"
+            "transform_fnは1-5の生レベルを返す`car_stress_level`を指す（0-100の"
+            "difficultyへの変換は`domain/difficulty.py: car_stress_difficulty`が別途行う"
+            "2段階構成。実際の呼び出しは`domain/evaluation.py: compute_edge_axis_scores`が"
+            "この2段階を合成して行っており、まだtransform_fn文字列を動的解決してはいない）",
+        )
+    )
+    register_axis(
+        AxisSpec(
+            axis_id="night",
+            inputs=["lit", "tunnel"],
+            transform_fn="app.domain.night.night_difficulty",
+            output_range=(0.0, 100.0),
+            description="街灯なし・トンネルから算出する夜間の走りにくさ。改善計画T139で"
+            "安全度軸から分離・新設。既定重み0で運用（route_preference.yaml参照）",
+        )
+    )
+    register_axis(
+        AxisSpec(
+            axis_id="accident",
+            inputs=["accident_point"],
+            transform_fn="app.domain.difficulty.accident_difficulty",
+            output_range=(0.0, 100.0),
+            description="事故地点密度（件/(km・年)）から算出する難易度。事故実績のみを入力とし、"
+            "他のどの軸とも一次属性を共有しない",
+        )
+    )

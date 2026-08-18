@@ -13,8 +13,9 @@ elements:
       # 生データ量を概算1/3に圧縮できる（関東圏への拡大に向けた容量対策）。
       #
       # 注意: trunk/trunk_linkは**地図表示（幹線道路の把握）のために取り込む**が、
-      # ルート探索ではHard Constraint（domain/evaluation.py: DISALLOWED_HIGHWAY_TYPES）
-      # により自転車通行不可として除外される。「取込スコープ／ルーティング可否／表示
+      # ルート探索ではHard Constraint（domain/evaluation.py: HARD_FILTER_HIGHWAY_TYPES、
+      # 改善計画T140でDISALLOWED_HIGHWAY_TYPESから改称）により自転車通行不可として
+      # 除外される。「取込スコープ／ルーティング可否／表示
       # グルーピング」の3つは目的が異なる別定義であり、3者の関係はdocs/architecture.mdの
       # 「道路種別（highway）の3つのスコープ」を参照。ここを変更したら同表も更新すること。
       highway:

@@ -17,7 +17,7 @@ class TestSafetyLevel:
     def test_living_street_base_is_1(self):
         # 改善計画: 車との近さ材料の共有元化でROAD_SUITABILITY_BASE_BY_HIGHWAYへ統合された
         # 際も安全度側のliving_street基準値は旧来どおり1のまま変わっていない（変わったのは
-        # 交通ストレス側の旧2→1、test_traffic.py: test_living_street_base_is_1参照）。
+        # 車ストレス側の旧2→1、test_traffic.py: test_living_street_base_is_1参照）。
         # 両軸のend-to-end値を対で明示的にピン留めしておく。
         assert safety_level("living_street", {}) == 1
 
@@ -158,7 +158,7 @@ class TestSafetyRecipeOverride:
     それぞれ上書きできることを確認する。省略時（既定レシピ）の挙動はTestSafetyLevel/
     TestSafetyBreakdownで既に網羅済みのため、ここでは「上書きが実際に効くこと」
     「他の呼び出し・既定レシピ自体に副作用が漏れないこと」に絞る
-    （TestTrafficStressRecipeOverrideと同じ観点）。
+    （TestCarStressRecipeOverrideと同じ観点）。
     """
 
     def test_base_by_highway_override_changes_base(self):

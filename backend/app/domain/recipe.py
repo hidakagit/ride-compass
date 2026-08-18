@@ -1,9 +1,9 @@
-"""レシピ付き軸（`domain/traffic.py: traffic_stress_breakdown`・`domain/safety.py:
+"""レシピ付き軸（`domain/traffic.py: car_stress_breakdown`・`domain/safety.py:
 safety_breakdown`）が共有する判定プリミティブ（改善計画T122）。
 
 両軸は「highway別基準値＋タグ由来の加減点＋クランプ」という同一の採点構造をパラメータだけ
 変えて実装しており、この構造そのものをここへ切り出す。`*Recipe`モデル・`*_breakdown`関数・
-APIの`*Override`モデル自体はフィールド集合が異なる（交通ストレス=lanes_low、安全度=lit/
+APIの`*Override`モデル自体はフィールド集合が異なる（車ストレス=lanes_low、安全度=lit/
 tunnel）ため軸ごとに残し、無理に共通のPydanticモデルへは寄せない（採点構造だけを共通化する）。
 
 タグの値パース（`parse_lanes`/`parse_maxspeed`）・cycleway系タグの分類（`cycleway_class`）は
@@ -11,7 +11,7 @@ tunnel）ため軸ごとに残し、無理に共通のPydanticモデルへは寄
 ここを正準1箇所にした（safety.pyがtraffic.py経由で間接importしていた旧構成を解消）。
 
 `RoadSuitabilityRecipe`（道路適正）・`MotorVehicleDensityRecipe`（自動車密度）は、
-交通ストレス・安全度の両方が共通の土台として参照する「車との近さ」（N2 =
+車ストレス・安全度の両方が共通の土台として参照する「車との近さ」（N2 =
 道路適正＋自動車密度）を構成する2つの独立したレシピ（改善計画: 車との近さ材料の
 共有元化）。値そのものが両軸で一致していたため（living_street基準値の統一で確定）、
 `*Recipe`モデルの一部としてではなく独立したレシピとして切り出し、研究モードでも
@@ -59,7 +59,7 @@ def cycleway_class(tags: dict[str, str]) -> str | None:
     """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
     _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
     （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
-    テストで担保）。traffic_stress_breakdown・safety_breakdownの両方がcycleway_adjustment
+    テストで担保）。car_stress_breakdown・safety_breakdownの両方がcycleway_adjustment
     経由でこの分類を使う。"""
     values = cycleway_values(tags)
     if "track" in values:
@@ -93,7 +93,7 @@ def threshold_adjustment(
     どちらに該当するかで補正値を返す（該当しなければ0）。
 
     low_threshold/high_thresholdはNoneなら「その方向の補正を持たない」ことを表す
-    （安全度のlanesはhigh方向のみ採用し、交通ストレスのlanes_lowに相当する補正を
+    （安全度のlanesはhigh方向のみ採用し、車ストレスのlanes_lowに相当する補正を
     持たない非対称な構造を、呼び出し側の条件分岐を増やさずに吸収するため）。
 
     low<highが常に成り立つ前提（`*Override` APIモデルの`model_validator`が
@@ -132,7 +132,7 @@ def road_suitability(
     shared_adjustment: int,
 ) -> tuple[int | None, int]:
     """「道路適正」（highway別基準値＋cycleway分離度）を1組で返す。車との近さ系の軸
-    （交通ストレス・安全度）が共通して最初に評価する材料で、両軸のbase_by_highway・
+    （車ストレス・安全度）が共通して最初に評価する材料で、両軸のbase_by_highway・
     cycleway系補正量は既定値が一致している（改善計画: 車との近さ材料の共有元化）。
 
     それでも`*Recipe`モデル自体は軸ごとに独立させたまま（研究モードでの上書きは
@@ -151,7 +151,7 @@ def road_suitability(
 
 
 # highway別基準値（12区分）。旧`TRAFFIC_STRESS_BASE_BY_HIGHWAY`/`SAFETY_BASE_BY_HIGHWAY`は
-# living_street基準値の統一（交通ストレス側2→1）により完全に同一の値になったため、
+# living_street基準値の統一（車ストレス側2→1）により完全に同一の値になったため、
 # ここ1箇所へ統合した（改善計画: 車との近さ材料の共有元化）。
 ROAD_SUITABILITY_BASE_BY_HIGHWAY: dict[str, int] = {
     "cycleway": 1,
@@ -171,9 +171,9 @@ ROAD_SUITABILITY_BASE_BY_HIGHWAY: dict[str, int] = {
 
 
 class RoadSuitabilityRecipe(BaseModel):
-    """「道路適正」（N1 = highway別基準値＋cycleway分離度）のレシピ。交通ストレス・
+    """「道路適正」（N1 = highway別基準値＋cycleway分離度）のレシピ。車ストレス・
     安全度の両方が`road_suitability()`経由で参照する共通の土台で、軸固有のレシピ
-    （`TrafficStressRecipe`/`SafetyRecipe`）とは独立して研究モードで上書きできる
+    （`CarStressRecipe`/`SafetyRecipe`）とは独立して研究モードで上書きできる
     （改善計画: 車との近さ材料の共有元化）。
     """
 
@@ -188,7 +188,7 @@ DEFAULT_ROAD_SUITABILITY_RECIPE = RoadSuitabilityRecipe()
 
 class MotorVehicleDensityRecipe(BaseModel):
     """「自動車密度」（制限速度・車線数[多い方]・指定路線該当）のレシピ。`RoadSuitabilityRecipe`
-    と合わせて「車との近さ」（N2）を構成する、交通ストレス・安全度が共通で参照する
+    と合わせて「車との近さ」（N2）を構成する、車ストレス・安全度が共通で参照する
     もう1つの土台（改善計画: 車との近さ材料の共有元化）。
     """
 
@@ -218,8 +218,8 @@ def car_closeness(
     road_suitability_recipe: RoadSuitabilityRecipe,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe,
 ) -> tuple[int | None, int, int, int, int]:
-    """「車との近さ」（N2 = 道路適正＋自動車密度）を1組で返す。交通ストレス・安全度の
-    両方が共通の土台として評価する材料で、軸固有の補正（交通ストレス: 車線数[少ない方]、
+    """「車との近さ」（N2 = 道路適正＋自動車密度）を1組で返す。車ストレス・安全度の
+    両方が共通の土台として評価する材料で、軸固有の補正（車ストレス: 車線数[少ない方]、
     安全度: 街灯・トンネル）はこの結果に呼び出し側が追加する（改善計画: 車との近さ材料の
     共有元化）。
 
@@ -257,7 +257,7 @@ def car_closeness(
 
 def validate_threshold_order(low: int, high: int, label: str) -> None:
     """low<highでなければValueErrorを送出する。`*Override` APIモデルの`model_validator`
-    から呼ぶ共通の閾値順序検証（改善計画T121-a: TrafficStressRecipeOverrideにだけ
+    から呼ぶ共通の閾値順序検証（改善計画T121-a: CarStressRecipeOverrideにだけ
     存在しSafetyRecipeOverrideには無い、という「片方だけ直し忘れる」非対称の再発防止）。
 
     low>=highだと、`threshold_adjustment`の2条件（value<=low・value>=high）が排他的で

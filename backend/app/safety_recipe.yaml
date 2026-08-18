@@ -1,9 +1,9 @@
 # 安全度（domain/safety.py: safety_breakdown）の判定レシピの既定値。
 # route_preference.yaml（軸間の重み）とは別階層の設定で、こちらは「安全度軸」固有の
 # 中身（街灯・トンネルの各補正）を定義する。highway別基準値・cycleway/maxspeed/
-# lanes[多い方]/指定路線の各補正は、交通ストレス・安全度が共有する「車との近さ」(N2)の
+# lanes[多い方]/指定路線の各補正は、車ストレス・安全度が共有する「車との近さ」(N2)の
 # 材料として road_suitability_recipe.yaml / motor_vehicle_density_recipe.yaml へ
-# 切り出し済み（改善計画: 車との近さ材料の共有元化。交通ストレスとは別概念[快適性では
+# 切り出し済み（改善計画: 車との近さ材料の共有元化。車ストレスとは別概念[快適性では
 # なく客観的な事故・怪我リスク]のため、街灯・トンネルという安全度固有の補正だけが
 # ここに残る）。ここを変えると地図の色分け（frontend/src/components/Map/
 # safetyExpression.tsが同じレシピをMapLibre expressionとして再現）とルート採点の

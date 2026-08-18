@@ -2,10 +2,10 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
-import { DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE, DEFAULT_ROAD_SUITABILITY_RECIPE } from "@/components/Map/trafficStressExpression";
+import { DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE, DEFAULT_ROAD_SUITABILITY_RECIPE } from "@/components/Map/carStressExpression";
 import SafetyRecipePanel from "./SafetyRecipePanel";
 
-// TrafficStressRecipePanel.test.tsxと同じ構成・観点(改善計画: 車との近さ材料の共有元化)。
+// CarStressRecipePanel.test.tsxと同じ構成・観点(改善計画: 車との近さ材料の共有元化)。
 // 車との近さ材料の共有元化以降、このパネルは街灯・トンネル補正(G,H)の1グループのみを
 // 持つ薄いパネルになった。highway別基準値・cycleway・制限速度・車線数(多い方)・指定路線は
 // RoadSuitabilityRecipePanel/MotorVehicleDensityRecipePanelへ移設済みで、このパネルには

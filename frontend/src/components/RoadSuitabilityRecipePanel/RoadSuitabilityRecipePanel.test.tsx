@@ -1,10 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_ROAD_SUITABILITY_RECIPE } from "@/components/Map/trafficStressExpression";
+import { DEFAULT_ROAD_SUITABILITY_RECIPE } from "@/components/Map/carStressExpression";
 import RoadSuitabilityRecipePanel from "./RoadSuitabilityRecipePanel";
 
-// 旧TrafficStressRecipePanel.test.tsxのhighway別基準値・cycleway補正に関するテストを
+// 旧CarStressRecipePanel.test.tsxのhighway別基準値・cycleway補正に関するテストを
 // そのまま移設した(改善計画: 車との近さ材料の共有元化)。
 
 const HIGHWAY_COUNT = Object.keys(DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway).length;

@@ -1,8 +1,8 @@
-"""JARTIC実測交通量とtraffic_stress_level（LTS段階）の突き合わせ分析（改善計画T53）。
+"""JARTIC実測交通量とcar_stress_level（LTS段階）の突き合わせ分析（改善計画T53）。
 
 collect_jartic.py（同T53）がdev PostgreSQLへ収集した traffic_stations/traffic_hourly を、
 最寄りのosm_raw_ways（30m以内、domain/road.py: SURFACE_MATCH_MAX_DISTANCE_Mと同じ許容量）へ
-空間マッチし、そのway・タグからdomain/traffic.py: traffic_stress_breakdownでLTS段階を算出、
+空間マッチし、そのway・タグからdomain/traffic.py: car_stress_breakdownでLTS段階を算出、
 観測点の実測平均日交通量（上り+下り合算、収集日数で正規化）とLTS段階の関係を集計する。
 
 このスクリプトが読む2テーブルはcollect_jartic.pyのdocstring通りdev専用（本番Oracle
@@ -45,19 +45,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings  # noqa: E402
 from app.domain.recipe import ROAD_SUITABILITY_BASE_BY_HIGHWAY  # noqa: E402
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M  # noqa: E402
-from app.domain.traffic import traffic_stress_level  # noqa: E402
+from app.domain.traffic import car_stress_level  # noqa: E402
 from app.services.evaluation_service import (  # noqa: E402
     load_motor_vehicle_density_recipe,
     load_road_suitability_recipe,
-    load_traffic_stress_recipe,
+    load_car_stress_recipe,
 )
 
 from measure_axis_stats import pearson_correlation, spearman_correlation  # noqa: E402
 
-# traffic_stress_levelがNone以外を返すhighwayのみが対象（他はマッチしても評価不能なため
+# car_stress_levelがNone以外を返すhighwayのみが対象（他はマッチしても評価不能なため
 # 集計対象から自然に除外される。改善計画: 車との近さ材料の共有元化で
 # TRAFFIC_STRESS_BASE_BY_HIGHWAYはROAD_SUITABILITY_BASE_BY_HIGHWAYへ統合済み）。
-TRAFFIC_STRESS_HIGHWAYS: list[str] = sorted(ROAD_SUITABILITY_BASE_BY_HIGHWAY)
+CAR_STRESS_HIGHWAYS: list[str] = sorted(ROAD_SUITABILITY_BASE_BY_HIGHWAY)
 
 # 観測点→道路のマッチ許容距離。domain/road.py: SURFACE_MATCH_MAX_DISTANCE_Mと同じ
 # 「物理的な道路網特徴へのスナップ許容量」を採用する（domain/traffic.py:
@@ -113,7 +113,7 @@ def _bbox_margin_deg(max_distance_m: float) -> float:
 
 
 def group_volumes_by_level(rows: list[tuple[int | None, float]]) -> dict[int, list[float]]:
-    """(traffic_stress_level, 1日あたり平均交通量)の列を、level別のリストへ束ねる。
+    """(car_stress_level, 1日あたり平均交通量)の列を、level別のリストへ束ねる。
     level=None（highway未登録・マッチ失敗）は集計対象外。"""
     grouped: dict[int, list[float]] = {}
     for level, volume in rows:
@@ -157,7 +157,7 @@ async def fetch_station_way_matches(session: AsyncSession) -> list[Any]:
     result = await session.execute(
         _STATION_WAY_MATCH_SQL,
         {
-            "highways": TRAFFIC_STRESS_HIGHWAYS,
+            "highways": CAR_STRESS_HIGHWAYS,
             "max_distance_m": STATION_WAY_MATCH_MAX_DISTANCE_M,
             "max_distance_deg": _bbox_margin_deg(STATION_WAY_MATCH_MAX_DISTANCE_M),
         },
@@ -189,9 +189,9 @@ async def main(database_url: str | None = None) -> int:
         print(f"半径{STATION_WAY_MATCH_MAX_DISTANCE_M:.0f}m以内に対象highwayが無い可能性）。")
         return 1
 
-    recipe = load_traffic_stress_recipe()
-    # 交通ストレスが参照する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の共有元化）。
-    # 省略するとtraffic_stress_levelがハードコードのDEFAULT_*へ静かにフォールバックし、
+    recipe = load_car_stress_recipe()
+    # 車ストレスが参照する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の共有元化）。
+    # 省略するとcar_stress_levelがハードコードのDEFAULT_*へ静かにフォールバックし、
     # road_suitability_recipe.yaml/motor_vehicle_density_recipe.yamlを編集した較正実験が
     # 反映されないため、recipeと同様にYAMLから読む。
     road_suitability_recipe = load_road_suitability_recipe()
@@ -203,7 +203,7 @@ async def main(database_url: str | None = None) -> int:
         if volume is None:
             unmatched_volume_stations += 1
             continue
-        level = traffic_stress_level(
+        level = car_stress_level(
             highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
         )
         level_volume_rows.append((level, volume))
@@ -215,7 +215,7 @@ async def main(database_url: str | None = None) -> int:
     levels = [float(level) for level, _ in level_volume_rows if level is not None]
     volumes = [volume for level, volume in level_volume_rows if level is not None]
 
-    print("== JARTIC実測交通量 × traffic_stress_level（LTS段階）突き合わせ（改善計画T53） ==")
+    print("== JARTIC実測交通量 × car_stress_level（LTS段階）突き合わせ（改善計画T53） ==")
     print(f"マッチ観測点数: {len(matches)}件（うち交通量データありlevel算出成功: {len(level_volume_rows)}件）")
     print()
 

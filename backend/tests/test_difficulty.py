@@ -1,17 +1,15 @@
 from app.domain.difficulty import (
     accident_difficulty,
-    bicycle_infra_difficulty,
     composite_difficulty,
     distance_weighted_difficulty,
     evaluate_axis_difficulties,
     gradient_difficulty,
-    intersection_difficulty,
     road_difficulty,
-    safety_difficulty,
     stop_difficulty,
-    traffic_stress_difficulty,
+    car_stress_difficulty,
     wind_difficulty,
 )
+from app.domain.night import night_difficulty
 
 
 def test_gradient_difficulty_easy_flat_road():
@@ -87,6 +85,29 @@ def test_stop_difficulty_negative_is_none():
     assert stop_difficulty(-1.0) is None
 
 
+def test_stop_difficulty_intersection_count_defaults_to_no_contribution():
+    assert stop_difficulty(2.0) == stop_difficulty(2.0, None)
+
+
+def test_stop_difficulty_intersection_count_adds_weighted_contribution():
+    # 改善計画T149: タグなし交差点は0.3倍の重みでstop_countへ加算される
+    # (2.0 + 2.0*0.3=2.6)/4.0*100 = 65.0
+    assert stop_difficulty(2.0, 2.0) == 65.0
+
+
+def test_stop_difficulty_intersection_count_alone_without_stop_count_is_none():
+    # stop_count_per_kmがNoneならintersection_count_per_kmの値に関わらず評価しない
+    assert stop_difficulty(None, 5.0) is None
+
+
+def test_stop_difficulty_negative_intersection_count_is_none():
+    assert stop_difficulty(2.0, -1.0) is None
+
+
+def test_stop_difficulty_combined_still_caps_at_100():
+    assert stop_difficulty(4.0, 10.0) == 100.0
+
+
 def test_composite_difficulty_weighted_average():
     result = composite_difficulty([(0.0, 0.5), (100.0, 0.5)])
 
@@ -131,69 +152,21 @@ def test_distance_weighted_difficulty_empty_returns_none():
     assert distance_weighted_difficulty([]) is None
 
 
-def test_traffic_stress_difficulty_level_1_is_easiest():
-    assert traffic_stress_difficulty(1) == 0.0
+def test_car_stress_difficulty_level_1_is_easiest():
+    assert car_stress_difficulty(1) == 0.0
 
 
-def test_traffic_stress_difficulty_level_5_is_hardest():
-    assert traffic_stress_difficulty(5) == 100.0
+def test_car_stress_difficulty_level_5_is_hardest():
+    assert car_stress_difficulty(5) == 100.0
 
 
-def test_traffic_stress_difficulty_is_linear_between_min_and_max():
+def test_car_stress_difficulty_is_linear_between_min_and_max():
     # (3-1)/(5-1)*100 = 50.0
-    assert traffic_stress_difficulty(3) == 50.0
+    assert car_stress_difficulty(3) == 50.0
 
 
-def test_traffic_stress_difficulty_none_passthrough():
-    assert traffic_stress_difficulty(None) is None
-
-
-def test_bicycle_infra_difficulty_separated_is_easiest():
-    assert bicycle_infra_difficulty("separated") == 0.0
-
-
-def test_bicycle_infra_difficulty_prohibited_is_hardest():
-    assert bicycle_infra_difficulty("prohibited") == 100.0
-
-
-def test_bicycle_infra_difficulty_orders_classes_by_dedication():
-    assert (
-        bicycle_infra_difficulty("separated")
-        < bicycle_infra_difficulty("lane")
-        < bicycle_infra_difficulty("shared_busway")
-        < bicycle_infra_difficulty("shared_pedestrian")
-        < bicycle_infra_difficulty("roadway")
-        < bicycle_infra_difficulty("prohibited")
-    )
-
-
-def test_bicycle_infra_difficulty_none_passthrough():
-    assert bicycle_infra_difficulty(None) is None
-
-
-def test_bicycle_infra_difficulty_unknown_class_is_none():
-    # unknown（highway自体が不明）は評価しない
-    assert bicycle_infra_difficulty("unknown") is None
-
-
-def test_intersection_difficulty_zero_density_is_easiest():
-    assert intersection_difficulty(0.0) == 0.0
-
-
-def test_intersection_difficulty_increases_with_density():
-    assert intersection_difficulty(1.0) == 50.0
-
-
-def test_intersection_difficulty_caps_at_100_for_high_density():
-    assert intersection_difficulty(10.0) == 100.0
-
-
-def test_intersection_difficulty_none_passthrough():
-    assert intersection_difficulty(None) is None
-
-
-def test_intersection_difficulty_negative_is_none():
-    assert intersection_difficulty(-1.0) is None
+def test_car_stress_difficulty_none_passthrough():
+    assert car_stress_difficulty(None) is None
 
 
 def test_accident_difficulty_zero_density_is_easiest():
@@ -216,48 +189,30 @@ def test_accident_difficulty_negative_is_none():
     assert accident_difficulty(-1.0) is None
 
 
-def test_safety_difficulty_level_1_is_easiest():
-    assert safety_difficulty(1) == 0.0
-
-
-def test_safety_difficulty_level_4_is_hardest():
-    assert safety_difficulty(4) == 100.0
-
-
-def test_safety_difficulty_is_linear_between_min_and_max():
-    assert safety_difficulty(2.5) == 50.0
-
-
-def test_safety_difficulty_none_passthrough():
-    assert safety_difficulty(None) is None
-
-
-def test_evaluate_axis_difficulties_returns_all_nine_axes_and_composite():
+def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
     result = evaluate_axis_difficulties(
-        6.0, 4.0, True, 2.0, 2, "lane", 1.0, 0.25, 3,
+        6.0, 4.0, True, 2.0, 2, 1.0, 0.25, {"lit": "yes"},
         elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
-        traffic_weight=1.0, infra_weight=1.0, intersection_weight=1.0, accident_weight=1.0,
-        safety_weight=1.0,
+        car_stress_weight=1.0, accident_weight=1.0,
+        night_weight=1.0,
     )
 
     assert result.elevation == gradient_difficulty(6.0)
     assert result.wind == wind_difficulty(4.0)
     assert result.road == road_difficulty(True)
-    assert result.stop == stop_difficulty(2.0)
-    assert result.traffic == traffic_stress_difficulty(2)
-    assert result.infra == bicycle_infra_difficulty("lane")
-    assert result.intersection == intersection_difficulty(1.0)
+    assert result.stop == stop_difficulty(2.0, 1.0)
+    assert result.car_stress == car_stress_difficulty(2)
     assert result.accident == accident_difficulty(0.25)
-    assert result.safety == safety_difficulty(3)
+    assert result.night == night_difficulty({"lit": "yes"})
     assert result.composite is not None
 
 
 def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
     result = evaluate_axis_difficulties(
-        None, None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
         elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
-        traffic_weight=1.0, infra_weight=1.0, intersection_weight=1.0, accident_weight=1.0,
-        safety_weight=1.0,
+        car_stress_weight=1.0, accident_weight=1.0,
+        night_weight=1.0,
     )
 
-    assert result == (None, None, None, None, None, None, None, None, None, None)
+    assert result == (None, None, None, None, None, None, None, None)

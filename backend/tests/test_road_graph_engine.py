@@ -12,6 +12,7 @@ from app.domain.geo import destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
+from app.services import road_graph_engine
 from app.services.evaluation_service import EvaluationService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
@@ -364,9 +365,11 @@ async def test_candidate_stop_density_is_none_when_data_unavailable():
 
 
 async def test_candidate_reflects_bicycle_infra_from_way_tags():
-    # 静的道路属性P1残り。way_tagsが取得できた区間は自転車インフラの生値・難易度・
-    # ルート集約値が反映される（このテストのbuild_loop_graphはEdge.highwayを持たない
-    # ため、highway必須の交通ストレスはNoneのまま。highway非依存のbicycle_infraだけ検証する）。
+    # 静的道路属性P1残り。way_tagsが取得できた区間は自転車インフラの生値・ルート集約値
+    # （bicycle_infra_score、一次属性由来の表示用統計）が反映される（このテストの
+    # build_loop_graphはEdge.highwayを持たないため、highway必須の車ストレスはNoneのまま。
+    # highway非依存のbicycle_infraだけ検証する）。改善計画T138で自転車インフラの
+    # 独立難易度軸（infra_difficulty）は廃止し車ストレス側へ統合済みのため、ここでは検証しない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
     way_tags = {edge_ids[0]: {"cycleway": "track"}}
@@ -377,7 +380,7 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
 
     assert candidate.bicycle_infra_score is not None
     segment_with_track = next(s for s in candidate.segments if s.bicycle_infra == "separated")
-    assert segment_with_track.infra_difficulty == 0.0
+    assert segment_with_track is not None
 
 
 async def test_candidate_aggregates_intersection_density_from_path_edges():
@@ -391,8 +394,10 @@ async def test_candidate_aggregates_intersection_density_from_path_edges():
 
     assert candidate.intersection_density is not None
     assert candidate.intersection_density > 0.0
+    # 改善計画T149: 交差点密度は独立軸を持たずstop_difficulty側へ低い重みで吸収される
+    # （旧intersection_difficultyは廃止）。
     segment_with_intersections = next(
-        s for s in candidate.segments if s.intersection_difficulty is not None and s.intersection_difficulty > 0
+        s for s in candidate.segments if s.stop_difficulty is not None and s.stop_difficulty > 0
     )
     assert segment_with_intersections.difficulty is not None
 
@@ -500,3 +505,28 @@ async def test_engine_name_is_road_graph():
     generator, _, _ = make_generator(graph)
 
     assert generator.engine_name == "road_graph"
+
+
+async def test_build_segment_details_uses_compute_edge_axis_scores(monkeypatch):
+    # 改善計画T143: 区間表示（_build_segment_details）は、探索コスト
+    # （EvaluationService.evaluate_graph経由のcompute_edge_cost）と同じ
+    # compute_edge_axis_scores（T142）を通る。以前はevaluate_axis_difficultiesを
+    # 独立に再計算しており、二次の計算式が表示・探索コストの2箇所に別実装されていた
+    # （非DRY構造）。本物へ委譲しつつ呼び出しを検知するスパイで、_build_segment_details
+    # が実際にこの共通関数を経由することを確認する。
+    calls = []
+    original = road_graph_engine.compute_edge_axis_scores
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(road_graph_engine, "compute_edge_axis_scores", spy)
+
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert len(calls) > 0
+    assert all(len(c.segments) > 0 for c in candidates)

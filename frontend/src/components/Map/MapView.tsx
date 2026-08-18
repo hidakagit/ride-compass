@@ -11,7 +11,7 @@ import type {
   RouteCandidate,
   RouteSegmentDetail,
   SafetyRecipeOverride,
-  TrafficStressRecipeOverride,
+  CarStressRecipeOverride,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import {
@@ -25,10 +25,10 @@ import {
 import {
   SAFETY_BREAKDOWN_BUTTON_ATTR,
   SAFETY_BREAKDOWN_RESULT_ATTR,
-  TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR,
-  TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR,
+  CAR_STRESS_BREAKDOWN_BUTTON_ATTR,
+  CAR_STRESS_BREAKDOWN_RESULT_ATTR,
   attachSafetyBreakdownHandler,
-  attachTrafficStressBreakdownHandler,
+  attachCarStressBreakdownHandler,
 } from "@/components/Map/recipeBreakdownPopup";
 import {
   ROAD_FILTER_AXES,
@@ -45,10 +45,10 @@ import { carClosenessExpr } from "@/components/Map/recipeExpression";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_TRAFFIC_STRESS_RECIPE,
-  buildTrafficStressExpression,
-  evaluateTrafficStressLevel,
-} from "@/components/Map/trafficStressExpression";
+  DEFAULT_CAR_STRESS_RECIPE,
+  buildCarStressExpression,
+  evaluateCarStressLevel,
+} from "@/components/Map/carStressExpression";
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
@@ -62,11 +62,11 @@ import {
   STOP_POI_LABELS,
   SUPPLY_POI_COLOR_EXPRESSION,
   SUPPLY_POI_LABELS,
-  TRAFFIC_STRESS_COLOR_EXPRESSION,
+  CAR_STRESS_COLOR_EXPRESSION,
   buildSafetyColorExpression,
   buildSafetyLegend,
-  buildTrafficStressColorExpression,
-  buildTrafficStressLegend,
+  buildCarStressColorExpression,
+  buildCarStressLegend,
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
@@ -121,7 +121,7 @@ const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-export const TRAFFIC_STRESS_LAYER_ID = "region-traffic-stress-line";
+export const CAR_STRESS_LAYER_ID = "region-car-stress-line";
 export const SAFETY_LAYER_ID = "region-safety-line";
 export const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 const DESIGNATION_LAYER_ID = "region-designation-line";
@@ -440,22 +440,22 @@ function applyRoadLayerState(
   });
 }
 
-// 交通ストレス・自転車インフラ（静的道路属性P0、docs/static-road-attributes-plan.md）は
+// 車ストレス・自転車インフラ（静的道路属性P0、docs/static-road-attributes-plan.md）は
 // 路面と同じベクタソース（タイルに新規プロパティが焼き込まれている）を再利用した
 // 独立レイヤー。色分け軸は路面のように選択式ではなく固定（staticAttributeLayers.ts）で、
 // 絞り込みUIも持たない（P0時点では色分け表示のみ）。ensureRoadSurfaceTileLayerと同じ
 // パターンで初期化時に一度だけ追加し、以降はvisibilityの切替のみで表示・非表示する。
-function ensureTrafficStressLayer(map: MapLibreMap) {
+function ensureCarStressLayer(map: MapLibreMap) {
   const applyData = () => {
-    if (map.getLayer(TRAFFIC_STRESS_LAYER_ID)) return;
+    if (map.getLayer(CAR_STRESS_LAYER_ID)) return;
     map.addLayer({
-      id: TRAFFIC_STRESS_LAYER_ID,
+      id: CAR_STRESS_LAYER_ID,
       type: "line",
       source: ROAD_TILE_SOURCE_ID,
       "source-layer": ROAD_TILE_SOURCE_LAYER,
       paint: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": TRAFFIC_STRESS_COLOR_EXPRESSION as any,
+        "line-color": CAR_STRESS_COLOR_EXPRESSION as any,
         "line-width": 3,
         "line-opacity": 0.85,
       },
@@ -465,8 +465,8 @@ function ensureTrafficStressLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 交通ストレスレシピ（研究モードで上書き可能、改善計画: 交通ストレスレシピ調整UIパネル）を
-// レイヤーへ反映する。ensureTrafficStressLayerは常に既定レシピの色で作成する（STATIC_OVERLAY_
+// 車ストレスレシピ（研究モードで上書き可能、改善計画: 車ストレスレシピ調整UIパネル）を
+// レイヤーへ反映する。ensureCarStressLayerは常に既定レシピの色で作成する（STATIC_OVERLAY_
 // LAYERSの他エントリと同じ`(map) => void`の形を保つため）ため、この関数を同じ呼び出し元
 // （setStaticOverlayFiltersの直後）で常にセットで呼び、上書き中なら実際のレシピの色へ補正する。
 // レイヤーが未作成（一度も表示ONにされていない）ならensure側に任せ何もしない。
@@ -475,16 +475,16 @@ function ensureTrafficStressLayer(map: MapLibreMap) {
 // 初回に一度ずつ実行され、setStaticOverlayFiltersの呼び出し（本関数を含む）がその中で
 // 完了するため、実際に既定色のままレイヤーが可視化される瞬間は生じない
 // （MapView.overlayFilters.test.ts等では検証していない、コード上の実行順序に基づく前提）。
-function applyTrafficStressRecipe(map: MapLibreMap, recipe: TrafficStressRecipeOverride, levelExpression?: unknown[]) {
+function applyCarStressRecipe(map: MapLibreMap, recipe: CarStressRecipeOverride, levelExpression?: unknown[]) {
   runWhenStyleReady(map, () => {
-    if (!map.getLayer(TRAFFIC_STRESS_LAYER_ID)) return;
-    const colorExpression = buildTrafficStressColorExpression(recipe, levelExpression);
+    if (!map.getLayer(CAR_STRESS_LAYER_ID)) return;
+    const colorExpression = buildCarStressColorExpression(recipe, levelExpression);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setPaintProperty(TRAFFIC_STRESS_LAYER_ID, "line-color", colorExpression as any);
+    map.setPaintProperty(CAR_STRESS_LAYER_ID, "line-color", colorExpression as any);
   });
 }
 
-// 安全度（改善計画: 安全度レシピ）。ensureTrafficStressLayer/applyTrafficStressRecipeと
+// 安全度（改善計画: 安全度レシピ）。ensureCarStressLayer/applyCarStressRecipeと
 // 完全に同じ構造（材料タグからの計算、研究モードでのレシピ上書き対応）。
 function ensureSafetyLayer(map: MapLibreMap) {
   const applyData = () => {
@@ -535,7 +535,7 @@ function ensureBicycleInfraLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 指定路線（外部静的データソース T51、KSJ N10/N12）。交通ストレス・自転車インフラと同じく
+// 指定路線（外部静的データソース T51、KSJ N10/N12）。車ストレス・自転車インフラと同じく
 // 路面と同じベクタソースを再利用する独立レイヤー。designationプロパティは該当区間のみ
 // 値を持つ（未該当はプロパティ欠落、DESIGNATION_COLOR_EXPRESSIONのcoalesceで灰色に倒す）。
 function ensureDesignationLayer(map: MapLibreMap) {
@@ -592,7 +592,7 @@ function ensureAccidentTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 停止要因POI・交差点密度（改善計画T54）は点データのため、路面・交通ストレス・自転車
+// 停止要因POI・交差点密度（改善計画T54）は点データのため、路面・車ストレス・自転車
 // インフラとは別の新規ベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
 // （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側もT54で同じ範囲に準拠）。
 function ensurePoiTileSource(map: MapLibreMap) {
@@ -657,14 +657,14 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 }
 
 // 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
-// 6レイヤー（標高・交通ストレス・自転車インフラ・指定路線・事故・停止要因POI）は、
+// 6レイヤー（標高・車ストレス・自転車インフラ・指定路線・事故・停止要因POI）は、
 // いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
 // 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
 // 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
 // （改善計画T47 R-6: 静的レイヤーが+2種類に達した時点でのensure/setペアの宣言的ループ化）。
 const STATIC_OVERLAY_LAYERS = [
   { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
-  { key: "trafficStress", layerId: TRAFFIC_STRESS_LAYER_ID, ensure: ensureTrafficStressLayer },
+  { key: "carStress", layerId: CAR_STRESS_LAYER_ID, ensure: ensureCarStressLayer },
   { key: "safety", layerId: SAFETY_LAYER_ID, ensure: ensureSafetyLayer },
   { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
@@ -676,7 +676,7 @@ const STATIC_OVERLAY_LAYERS = [
 type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
-// road/trafficStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用しているため
+// road/carStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用しているため
 // （T59でroad_edgesが未構築の地点では、この4レイヤーが同時にempty/errorになるのが正しい
 // 挙動）、あえて同じsourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
@@ -685,7 +685,7 @@ type StaticOverlayKey = (typeof STATIC_OVERLAY_LAYERS)[number]["key"];
 // （MapView.dataStatus.test.ts）から個別レイヤーのsourceIdを参照できるようexportしている。
 export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; sourceLayer?: string }[] = [
   { key: "road", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "trafficStress", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "carStress", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "safety", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
@@ -726,15 +726,15 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
   });
 }
 
-// 改善計画T63: 標高を除く7レイヤー（交通ストレス・安全度・自転車インフラ・指定路線・事故・
+// 改善計画T63: 標高を除く7レイヤー（車ストレス・安全度・自転車インフラ・指定路線・事故・
 // 停止要因POI・補給休憩POI[T101]）の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）の
 // layerIdでSTATIC_OVERLAY_LAYERSのkeyと突き合わせ、そのレイヤーが持つ軸ぶん（事故のみ2軸、
 // 他は1軸）を道路情報と同じbuildCombinedLegendFilterExpressionでAND束ねする。軸を持たない
 // 標高はスキップする（setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
 //
-// trafficStress軸だけは、レシピ上書き中（改善計画: 交通ストレスレシピ調整UIパネル）は
+// carStress軸だけは、レシピ上書き中（改善計画: 車ストレスレシピ調整UIパネル）は
 // STATIC_FILTER_AXESの静的なlegend（既定レシピ由来）ではなく、現在のレシピから
-// buildTrafficStressLegendで都度組み立てたlegendを使う。レベルの意味（どのフィーチャーが
+// buildCarStressLegendで都度組み立てたlegendを使う。レベルの意味（どのフィーチャーが
 // 「2」に該当するか）がレシピ次第で変わるため、絞り込みチェックボックスの表示（ラベル・色）は
 // 不変のまま、フィルタの実体だけがレシピに追従する。
 // MapView.overlayFilters.test.tsからフェイクmapで検証できるようexportしている
@@ -742,24 +742,24 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
 export function setStaticOverlayFilters(
   map: MapLibreMap,
   hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>,
-  trafficStressRecipe: TrafficStressRecipeOverride,
+  carStressRecipe: CarStressRecipeOverride,
   safetyRecipe: SafetyRecipeOverride,
   roadSuitabilityRecipe: RoadSuitabilityRecipeOverride,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride,
 ) {
   runWhenStyleReady(map, () => {
-    // buildTrafficStressLegend/buildTrafficStressColorExpressionはどちらも内部でレシピから
+    // buildCarStressLegend/buildCarStressColorExpressionはどちらも内部でレシピから
     // 同じレベル判定式を組み立てるため、この呼び出し内で1回だけ計算して両方へ渡す
     // （setFilter/setPaintPropertyというMapLibre側の実処理に対し無視できるコストとはいえ、
     // 同一の式木を毎回2回組み立てる必要はないため）。安全度（改善計画: 安全度レシピ）も
     // 同じ理由で1回だけ計算する。roadSuitabilityRecipe/motorVehicleDensityRecipeは
-    // 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
-    // 共有元化）で、carClosenessExpr()自体も同じ理由で1回だけ計算しbuildTrafficStress/
+    // 車ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
+    // 共有元化）で、carClosenessExpr()自体も同じ理由で1回だけ計算しbuildCarStress/
     // SafetyExpressionの両方へ渡す（車の圧迫感・安全度で同じroadSuitabilityRecipe/
     // motorVehicleDensityRecipeを渡しているのに式木の組み立てだけ2回走っていた無駄を解消）。
     const carCloseness = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe);
-    const trafficStressLevelExpression = buildTrafficStressExpression(
-      trafficStressRecipe,
+    const carStressLevelExpression = buildCarStressExpression(
+      carStressRecipe,
       roadSuitabilityRecipe,
       motorVehicleDensityRecipe,
       carCloseness,
@@ -777,8 +777,8 @@ export function setStaticOverlayFilters(
       const filter = buildCombinedLegendFilterExpression(
         axes.map((axis) => ({
           legend:
-            axis.axisId === "trafficStress"
-              ? buildTrafficStressLegend(trafficStressRecipe, trafficStressLevelExpression)
+            axis.axisId === "carStress"
+              ? buildCarStressLegend(carStressRecipe, carStressLevelExpression)
               : axis.axisId === "safety"
                 ? buildSafetyLegend(safetyRecipe, safetyLevelExpression)
                 : axis.legend,
@@ -789,7 +789,7 @@ export function setStaticOverlayFilters(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setFilter(layer.layerId, filter as any);
     }
-    applyTrafficStressRecipe(map, trafficStressRecipe, trafficStressLevelExpression);
+    applyCarStressRecipe(map, carStressRecipe, carStressLevelExpression);
     applySafetyRecipe(map, safetyRecipe, safetyLevelExpression);
   });
 }
@@ -799,7 +799,7 @@ export function setStaticOverlayFilters(
 // レイヤーデータ状態表示の抑制）が両方ともこのヘルパー経由でROAD_SURFACE_SHARED_LAYER_IDSを
 // 参照するようにし、「4レイヤーのどれが対象か」を1箇所（mapLayers.ts）だけが知っていれば
 // よい状態にする（改善計画T87レビュー指摘: 以前はroadの表示状態だけを見ていたため、
-// road自体はOFFのままtrafficStress等だけONの場合にズーム範囲外の案内が一切出なかった）。
+// road自体はOFFのままcarStress等だけONの場合にズーム範囲外の案内が一切出なかった）。
 // MapView.segments.test.tsと同じ考え方でテスト可能にexportしている。
 export function isRoadSurfaceGroupVisible(visibility: Partial<Record<MapLayerId, boolean>>): boolean {
   return ROAD_SURFACE_SHARED_LAYER_IDS.some((id) => visibility[id]);
@@ -810,7 +810,7 @@ export function isRoadSurfaceGroupVisible(visibility: Partial<Record<MapLayerId,
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
 // showRoadSurfaceGroupは isRoadSurfaceGroupVisible の結果（road_surfaceタイルを共有する
 // 4レイヤーのいずれかが表示ONか）。以前はroadの表示状態だけを見ていたため、road自体はOFFの
-// ままtrafficStress等だけONで同じソースを見ている場合にこの案内が一切出ない不整合があった
+// ままcarStress等だけONで同じソースを見ている場合にこの案内が一切出ない不整合があった
 // （改善計画T87レビュー指摘）。
 function updateRoadZoomHint(
   map: MapLibreMap,
@@ -877,14 +877,14 @@ function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
 interface RoadSurfacePopupProperties {
-  /** 交通ストレスの区間別判定内訳（改善計画T90）を引き直すための識別子。 */
+  /** 車ストレスの区間別判定内訳（改善計画T90）を引き直すための識別子。 */
   osm_way_id?: number | null;
   surface_good?: boolean | null;
   smoothness?: string | null;
   tunnel?: boolean | null;
   bridge?: boolean | null;
-  traffic_stress?: number | null;
-  /** 安全度（改善計画: 安全度レシピ）。traffic_stressと同じくタイルへ計算済みの値としては
+  car_stress?: number | null;
+  /** 安全度（改善計画: 安全度レシピ）。car_stressと同じくタイルへ計算済みの値としては
    * 焼き込まれておらず、材料タグからクリック時にここで計算した値をhandleClickが設定する。 */
   safety?: number | null;
   bicycle_infra?: string | null;
@@ -903,7 +903,7 @@ const SMOOTHNESS_LABELS: Record<string, string> = {
   impassable: "通行不能",
 };
 
-// 交通ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。ポップアップ内の
+// 車ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。ポップアップ内の
 // ボタン・結果表示先を識別するdata属性・配線ロジックはrecipeBreakdownPopup.ts（改善計画T123）
 // に集約されている（HTML文字列としてMapLibreのPopup#setHTMLへ渡すため、Reactの
 // イベントハンドラは使えず、addTo後にDOMを直接querySelectorして配線する）。
@@ -916,8 +916,8 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   if (properties.bicycle_infra) {
     rows.push(`自転車インフラ: ${BICYCLE_INFRA_LABELS[properties.bicycle_infra] ?? properties.bicycle_infra}`);
   }
-  if (properties.traffic_stress != null) {
-    rows.push(`車の圧迫感: ${properties.traffic_stress}/5`);
+  if (properties.car_stress != null) {
+    rows.push(`車の圧迫感: ${properties.car_stress}/5`);
   }
   if (properties.safety != null) {
     rows.push(`安全度: ${properties.safety}/4`);
@@ -927,11 +927,11 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   }
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
-  const trafficStressBreakdownAffordance =
-    properties.traffic_stress != null
+  const carStressBreakdownAffordance =
+    properties.car_stress != null
       ? `<div style="margin-top:var(--space-1);">
-          <button type="button" ${TRAFFIC_STRESS_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">車の圧迫感の内訳を見る</button>
-          <div ${TRAFFIC_STRESS_BREAKDOWN_RESULT_ATTR}></div>
+          <button type="button" ${CAR_STRESS_BREAKDOWN_BUTTON_ATTR} style="font:inherit; font-size:var(--font-size-sm); padding:2px 8px; cursor:pointer;">車の圧迫感の内訳を見る</button>
+          <div ${CAR_STRESS_BREAKDOWN_RESULT_ATTR}></div>
         </div>`
       : "";
   const safetyBreakdownAffordance =
@@ -941,7 +941,7 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
           <div ${SAFETY_BREAKDOWN_RESULT_ATTR}></div>
         </div>`
       : "";
-  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${trafficStressBreakdownAffordance}${safetyBreakdownAffordance}</div>`;
+  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${carStressBreakdownAffordance}${safetyBreakdownAffordance}</div>`;
 }
 
 // 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
@@ -984,23 +984,23 @@ interface MapViewProps {
   location: Coordinates;
   showElevation: boolean;
   showRoad: boolean;
-  /** 交通ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
-  showTrafficStress: boolean;
+  /** 車ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
+  showCarStress: boolean;
   showBicycleInfra: boolean;
-  /** 交通ストレスレシピの上書き（研究モード、改善計画: 交通ストレスレシピ調整UIパネル）。
-   * undefinedなら既定レシピ（DEFAULT_TRAFFIC_STRESS_RECIPE）を使う。地図の色分け・凡例による
+  /** 車ストレスレシピの上書き（研究モード、改善計画: 車ストレスレシピ調整UIパネル）。
+   * undefinedなら既定レシピ（DEFAULT_CAR_STRESS_RECIPE）を使う。地図の色分け・凡例による
    * 絞り込み・区間クリックの内訳ポップアップすべてがこのレシピに追従する。 */
-  trafficStressRecipe?: TrafficStressRecipeOverride;
+  carStressRecipe?: CarStressRecipeOverride;
   /** 安全度（改善計画: 安全度レシピ）。路面と同じソースを再利用する独立レイヤー。 */
   showSafety: boolean;
   /** 安全度レシピの上書き（研究モード）。undefinedなら既定レシピ（DEFAULT_SAFETY_RECIPE）を
-   * 使う。trafficStressRecipeと同じ扱い。 */
+   * 使う。carStressRecipeと同じ扱い。 */
   safetyRecipe?: SafetyRecipeOverride;
-  /** 交通ストレス・安全度が共有する「道路適正」の上書き（研究モード、改善計画: 車との近さ
+  /** 車ストレス・安全度が共有する「道路適正」の上書き（研究モード、改善計画: 車との近さ
    * 材料の共有元化）。undefinedなら既定レシピ（DEFAULT_ROAD_SUITABILITY_RECIPE）を使う。
-   * trafficStressRecipeと同じ扱いで、両軸の地図表示・内訳ポップアップへ同時に反映される。 */
+   * carStressRecipeと同じ扱いで、両軸の地図表示・内訳ポップアップへ同時に反映される。 */
   roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride;
-  /** 交通ストレス・安全度が共有する「自動車密度」の上書き（研究モード）。undefinedなら
+  /** 車ストレス・安全度が共有する「自動車密度」の上書き（研究モード）。undefinedなら
    * 既定レシピ（DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE）を使う。roadSuitabilityRecipeと
    * 同じ扱い。 */
   motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride;
@@ -1016,7 +1016,7 @@ interface MapViewProps {
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** 交通ストレス・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
+  /** 車ストレス・自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
    * （改善計画T63、STATIC_FILTER_AXES参照）。事故のみ2軸を持ち、他は1軸。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
@@ -1038,9 +1038,9 @@ export default function MapView({
   location,
   showElevation,
   showRoad,
-  showTrafficStress,
+  showCarStress,
   showBicycleInfra,
-  trafficStressRecipe,
+  carStressRecipe,
   showSafety,
   safetyRecipe,
   roadSuitabilityRecipe,
@@ -1082,9 +1082,9 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     showRoad,
-    showTrafficStress,
+    showCarStress,
     showBicycleInfra,
-    trafficStressRecipe,
+    carStressRecipe,
     showSafety,
     safetyRecipe,
     roadSuitabilityRecipe,
@@ -1117,9 +1117,9 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       showRoad,
-      showTrafficStress,
+      showCarStress,
       showBicycleInfra,
-      trafficStressRecipe,
+      carStressRecipe,
       showSafety,
       safetyRecipe,
       roadSuitabilityRecipe,
@@ -1140,9 +1140,9 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     showRoad,
-    showTrafficStress,
+    showCarStress,
     showBicycleInfra,
-    trafficStressRecipe,
+    carStressRecipe,
     showSafety,
     safetyRecipe,
     roadSuitabilityRecipe,
@@ -1171,9 +1171,9 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       showRoad,
-      showTrafficStress,
+      showCarStress,
       showBicycleInfra,
-      trafficStressRecipe,
+      carStressRecipe,
       showSafety,
       safetyRecipe,
       roadSuitabilityRecipe,
@@ -1188,7 +1188,7 @@ export default function MapView({
     } = redrawPropsRef.current;
     setStaticOverlayVisibility(map, {
       elevation: showElevation,
-      trafficStress: showTrafficStress,
+      carStress: showCarStress,
       safety: showSafety,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
@@ -1199,7 +1199,7 @@ export default function MapView({
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
-      trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE,
+      carStressRecipe ?? DEFAULT_CAR_STRESS_RECIPE,
       safetyRecipe ?? DEFAULT_SAFETY_RECIPE,
       roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE,
       motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
@@ -1209,7 +1209,7 @@ export default function MapView({
       map,
       isRoadSurfaceGroupVisible({
         road: showRoad,
-        trafficStress: showTrafficStress,
+        carStress: showCarStress,
         safety: showSafety,
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
@@ -1238,7 +1238,7 @@ export default function MapView({
     const {
       showElevation,
       showRoad,
-      showTrafficStress,
+      showCarStress,
       showBicycleInfra,
       showSafety,
       showDesignation,
@@ -1249,7 +1249,7 @@ export default function MapView({
     return {
       elevation: showElevation,
       road: showRoad,
-      trafficStress: showTrafficStress,
+      carStress: showCarStress,
       safety: showSafety,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
@@ -1327,12 +1327,12 @@ export default function MapView({
     resizeObserver.observe(mapContainerRef.current);
     // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
     // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）。
-    // ensureAllStaticOverlayLayers内のtrafficStress/bicycleInfra/designationはROAD_TILE_SOURCE_ID
+    // ensureAllStaticOverlayLayers内のcarStress/bicycleInfra/designationはROAD_TILE_SOURCE_ID
     // （road_surfaceベクタソース）を再利用する依存関係があるため、そのソースを実際に作る
     // ensureRoadSurfaceTileLayerを先に呼ぶ必要がある。いずれも初回はmap.once("load", ...)への
     // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
     // 以前はensureAllStaticOverlayLayers（elevationも含む）がensureRoadSurfaceTileLayerより
-    // 先だったため、trafficStress等のaddLayerがソース未作成のまま実行され
+    // 先だったため、carStress等のaddLayerがソース未作成のまま実行され
     // 「source "region-road-surface-tiles" not found」エラーが発生していた（実機フィードバックで
     // 発覚）。標高を先に単独ensureしてから路面ソースを作ることで「標高が最背面、その上に路面」
     // の意図を保ったまま直す（ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが
@@ -1355,17 +1355,17 @@ export default function MapView({
         feature.layer.id !== ACCIDENT_LAYER_ID &&
         feature.layer.id !== STOP_POI_LAYER_ID &&
         feature.layer.id !== SUPPLY_POI_LAYER_ID;
-      // traffic_stressはタイルに計算済みの値として焼き込まれていない（改善計画: 交通ストレス
+      // car_stressはタイルに計算済みの値として焼き込まれていない（改善計画: 車ストレス
       // レシピ外出し基盤）ため、クリックされたフィーチャーの材料タグからここで計算する
-      // （地図の色分け・凡例フィルタと同じexpressionをtrafficStressExpression.tsで共有する）。
+      // （地図の色分け・凡例フィルタと同じexpressionをcarStressExpression.tsで共有する）。
       // このhandleClickは地図初期化時（マウント時1回）のuseEffectで定義され以降作り直されない
       // ため、propsを直接閉じ込めずredrawPropsRef.current経由で最新のレシピ上書き値を読む
       // （redrawAllLayersと同じ理由、上のコメント群参照）。
-      const currentTrafficStressRecipe = redrawPropsRef.current.trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE;
-      // 安全度も交通ストレスと同じ理由でクリック時に材料タグから計算する（改善計画: 安全度レシピ）。
+      const currentCarStressRecipe = redrawPropsRef.current.carStressRecipe ?? DEFAULT_CAR_STRESS_RECIPE;
+      // 安全度も車ストレスと同じ理由でクリック時に材料タグから計算する（改善計画: 安全度レシピ）。
       const currentSafetyRecipe = redrawPropsRef.current.safetyRecipe ?? DEFAULT_SAFETY_RECIPE;
-      // 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
-      // 共有元化）。上のcurrentTrafficStressRecipeと同じ理由でredrawPropsRef.current経由。
+      // 車ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
+      // 共有元化）。上のcurrentCarStressRecipeと同じ理由でredrawPropsRef.current経由。
       const currentRoadSuitabilityRecipe =
         redrawPropsRef.current.roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE;
       const currentMotorVehicleDensityRecipe =
@@ -1375,10 +1375,10 @@ export default function MapView({
       const currentCarCloseness = carClosenessExpr(currentRoadSuitabilityRecipe, currentMotorVehicleDensityRecipe);
       const roadSurfaceProperties = {
         ...(feature.properties as unknown as RoadSurfacePopupProperties),
-        traffic_stress: isRoadSurfaceFeature
-          ? evaluateTrafficStressLevel(
+        car_stress: isRoadSurfaceFeature
+          ? evaluateCarStressLevel(
               feature.properties ?? {},
-              currentTrafficStressRecipe,
+              currentCarStressRecipe,
               currentRoadSuitabilityRecipe,
               currentMotorVehicleDensityRecipe,
               currentCarCloseness,
@@ -1408,15 +1408,15 @@ export default function MapView({
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 
-      // 交通ストレスの内訳ボタン（改善計画T90）は道路レイヤーかつtraffic_stressが
+      // 車ストレスの内訳ボタン（改善計画T90）は道路レイヤーかつcar_stressが
       // 判定済みの区間だけに出るため、buildRoadSurfacePopupHtml側の出し分けと対応させる。
-      if (isRoadSurfaceFeature && roadSurfaceProperties.traffic_stress != null && roadSurfaceProperties.osm_way_id != null) {
+      if (isRoadSurfaceFeature && roadSurfaceProperties.car_stress != null && roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
         if (popupElement) {
-          attachTrafficStressBreakdownHandler(
+          attachCarStressBreakdownHandler(
             popupElement,
             roadSurfaceProperties.osm_way_id,
-            currentTrafficStressRecipe,
+            currentCarStressRecipe,
             currentRoadSuitabilityRecipe,
             currentMotorVehicleDensityRecipe,
           );
@@ -1451,12 +1451,12 @@ export default function MapView({
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
     // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
-      const { showRoad, showTrafficStress, showSafety, showBicycleInfra, showDesignation } = redrawPropsRef.current;
+      const { showRoad, showCarStress, showSafety, showBicycleInfra, showDesignation } = redrawPropsRef.current;
       updateRoadZoomHint(
         map,
         isRoadSurfaceGroupVisible({
           road: showRoad,
-          trafficStress: showTrafficStress,
+          carStress: showCarStress,
           safety: showSafety,
           bicycleInfra: showBicycleInfra,
           designation: showDesignation,
@@ -1649,7 +1649,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・交通ストレス・安全度・自転車インフラ・指定路線・事故・停止要因POI・補給休憩POI
+  // 標高・車ストレス・安全度・自転車インフラ・指定路線・事故・停止要因POI・補給休憩POI
   // （T101）は、いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
   // のみ」という同型の8レイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
   // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
@@ -1659,7 +1659,7 @@ export default function MapView({
     if (!map) return;
     setStaticOverlayVisibility(map, {
       elevation: showElevation,
-      trafficStress: showTrafficStress,
+      carStress: showCarStress,
       safety: showSafety,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
@@ -1673,7 +1673,7 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [
     showElevation,
-    showTrafficStress,
+    showCarStress,
     showSafety,
     showBicycleInfra,
     showDesignation,
@@ -1683,7 +1683,7 @@ export default function MapView({
     recomputeLayerDataStatus,
   ]);
 
-  // 交通ストレス・安全度・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
+  // 車ストレス・安全度・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
   // 事故（当事者/重大度）の絞り込み（改善計画T63、安全度は改善計画: 安全度レシピで追加）。
   // 道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで反映される。
   useEffect(() => {
@@ -1692,14 +1692,14 @@ export default function MapView({
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
-      trafficStressRecipe ?? DEFAULT_TRAFFIC_STRESS_RECIPE,
+      carStressRecipe ?? DEFAULT_CAR_STRESS_RECIPE,
       safetyRecipe ?? DEFAULT_SAFETY_RECIPE,
       roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE,
       motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
   }, [
     staticLegendHiddenKeysByAxis,
-    trafficStressRecipe,
+    carStressRecipe,
     safetyRecipe,
     roadSuitabilityRecipe,
     motorVehicleDensityRecipe,
@@ -1708,9 +1708,9 @@ export default function MapView({
   // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
   // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
   // fetchは不要）。色は常に固定（ROAD_LINE_COLOR_AXIS_ID）のためここでは差し替えない。
-  // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するtrafficStress/
+  // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するcarStress/
   // safety/bicycleInfra/designationのON/OFFでも変わりうるため、依存配列に含めてこれらの
-  // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままtrafficStress等
+  // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままcarStress等
   // だけONで表示範囲が広すぎる場合に案内が一切出なかった不整合の修正）。
   useEffect(() => {
     const map = mapRef.current;
@@ -1720,7 +1720,7 @@ export default function MapView({
       map,
       isRoadSurfaceGroupVisible({
         road: showRoad,
-        trafficStress: showTrafficStress,
+        carStress: showCarStress,
         safety: showSafety,
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
@@ -1730,7 +1730,7 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [
     showRoad,
-    showTrafficStress,
+    showCarStress,
     showSafety,
     showBicycleInfra,
     showDesignation,
