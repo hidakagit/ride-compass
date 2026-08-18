@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { FieldLabel } from "@/components/Map/recipeControls";
 import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import styles from "./WeightPanel.module.css";
@@ -40,6 +42,7 @@ interface WeightPanelProps {
 interface WeightField<T> {
   key: keyof T;
   label: string;
+  description: string;
 }
 
 // 軸のラベル・入力欄リストは評価軸カタログ（lib/evaluationAxes.ts）から生成する
@@ -50,13 +53,19 @@ interface WeightField<T> {
 const SCORING_FIELDS: WeightField<ScoringWeights>[] = SCORING_AXES.map((axis) => ({
   key: axis.weightKey,
   label: axis.label,
+  description: axis.description,
 }));
 
 const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES.map((axis) => ({
   key: axis.weightKey,
   label: axis.label,
+  description: axis.description,
 }));
 
+// ラベル横の情報アイコン（FieldLabel、Map/recipeControls.tsx）でdescriptionを開閉表示する。
+// evaluationAxesのdescriptionフィールドはこれまでコード上に存在するだけでUIに出ていなかった
+// （「交通ストレス」等のラベルだけでは実際の判定材料が伝わらないという指摘への対応）。
+// レシピパネル（SafetyRecipePanel等）と同じ「タップで開くinfoTooltip」パターンを再利用する。
 function WeightInput<T extends Record<string, number>>({
   field,
   values,
@@ -66,22 +75,27 @@ function WeightInput<T extends Record<string, number>>({
   values: T;
   onChange: (next: T) => void;
 }) {
+  const [infoOpen, setInfoOpen] = useState(false);
   return (
-    <label className={styles.field}>
-      {field.label}
-      <input
-        type="number"
-        min="0"
-        step="0.05"
-        value={values[field.key]}
-        onChange={(e) => {
-          const next = Number(e.target.value);
-          if (Number.isNaN(next) || next < 0) return;
-          onChange({ ...values, [field.key]: next });
-        }}
-        className={styles.input}
-      />
-    </label>
+    <>
+      <div className={styles.field}>
+        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
+        <input
+          type="number"
+          min="0"
+          step="0.05"
+          aria-label={field.label}
+          value={values[field.key]}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isNaN(next) || next < 0) return;
+            onChange({ ...values, [field.key]: next });
+          }}
+          className={styles.input}
+        />
+      </div>
+      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
+    </>
   );
 }
 
