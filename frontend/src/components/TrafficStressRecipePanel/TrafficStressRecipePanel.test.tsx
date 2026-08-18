@@ -28,13 +28,6 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof TrafficStres
 }
 
 describe("TrafficStressRecipePanel", () => {
-  it("上書き無効時は数値入力欄も参照セクションも表示しない", () => {
-    renderPanel({ overrideEnabled: false });
-
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
-    expect(screen.queryByText(/土台: 道路適正＋自動車密度/)).not.toBeInTheDocument();
-  });
-
   it("上書き有効時は少車線道路の閾値+補正値の入力欄を表示する", () => {
     renderPanel();
 
@@ -42,14 +35,37 @@ describe("TrafficStressRecipePanel", () => {
     expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
   });
 
-  it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
+  it("上書き無効でも既定値の入力欄・参照セクションを表示する", () => {
+    renderPanel({ overrideEnabled: false });
+
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
+    expect(screen.getByText(/土台: 道路適正＋自動車密度/)).toBeInTheDocument();
+  });
+
+  it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderPanel({ overrideEnabled: false, onOverrideEnabledChange: onChange });
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "車の圧迫感のレシピを上書き" }));
 
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("上書き無効時に入力欄を変更すると上書きが自動でONになる", () => {
+    const onOverrideEnabledChange = vi.fn();
+    const onRecipeChange = vi.fn();
+    renderPanel({ overrideEnabled: false, onOverrideEnabledChange, onRecipeChange });
+
+    const infoButton = screen.getByRole("button", { name: "少車線道路の説明を表示" });
+    const row = infoButton.closest("div");
+    if (!row) throw new Error("少車線道路の行が見つかりません");
+    const [adjustmentInput] = within(row).getAllByRole("spinbutton");
+
+    fireEvent.change(adjustmentInput, { target: { value: "-2" } });
+
+    expect(onOverrideEnabledChange).toHaveBeenCalledWith(true);
+    expect(onRecipeChange).toHaveBeenCalled();
   });
 
   it("少車線道路の閾値と補正値をそれぞれ変更すると対応するキーだけが更新される", () => {

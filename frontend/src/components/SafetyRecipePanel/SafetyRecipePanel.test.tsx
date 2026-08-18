@@ -26,27 +26,39 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof SafetyRecipe
 }
 
 describe("SafetyRecipePanel", () => {
-  it("上書き無効時は数値入力欄も参照セクションも表示しない", () => {
-    renderPanel({ overrideEnabled: false });
-
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
-    expect(screen.queryByText(/土台: 道路適正＋自動車密度/)).not.toBeInTheDocument();
-  });
-
   it("上書き有効時は街灯・トンネル補正2項目の入力欄を表示する", () => {
     renderPanel();
 
     expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
   });
 
-  it("トグルをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
+  it("上書き無効でも既定値の入力欄・参照セクションを表示する", () => {
+    renderPanel({ overrideEnabled: false });
+
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
+    expect(screen.getByText(/土台: 道路適正＋自動車密度/)).toBeInTheDocument();
+  });
+
+  it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderPanel({ overrideEnabled: false, onOverrideEnabledChange: onChange });
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "安全度のレシピを上書き" }));
 
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("上書き無効時に入力欄を変更すると上書きが自動でONになる", async () => {
+    const user = userEvent.setup();
+    const onOverrideEnabledChange = vi.fn();
+    const onRecipeChange = vi.fn();
+    renderPanel({ overrideEnabled: false, onOverrideEnabledChange, onRecipeChange });
+
+    await user.click(screen.getByRole("button", { name: "街灯ありの補正を1減らす" }));
+
+    expect(onOverrideEnabledChange).toHaveBeenCalledWith(true);
+    expect(onRecipeChange).toHaveBeenCalled();
   });
 
   it("街灯・トンネル補正のステッパーの-/+ボタンで値が1ずつ増減する", async () => {

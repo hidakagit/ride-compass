@@ -5,7 +5,9 @@ import {
   ScalarInput,
   FieldLabel,
   LevelPicker,
+  RecipePanelSection,
   adjustmentEndpointColors,
+  withAutoEnable,
   type ScalarFieldDescriptor,
 } from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
@@ -154,73 +156,69 @@ export default function RoadSuitabilityRecipePanel({
   recipe,
   onRecipeChange,
 }: RoadSuitabilityRecipePanelProps) {
+  const handleRecipeChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRecipeChange);
+
   return (
-    <div className={styles.panel}>
-      <label className={styles.toggleLabel}>
-        <input
-          type="checkbox"
-          checked={overrideEnabled}
-          onChange={(e) => onOverrideEnabledChange(e.target.checked)}
-        />
-        道路適正のレシピを上書きする[地図の色分けに即時反映]
-      </label>
+    <RecipePanelSection
+      title="道路適正[地図の色分けに即時反映]"
+      overrideAriaLabel="道路適正のレシピを上書き"
+      overrideEnabled={overrideEnabled}
+      onOverrideEnabledChange={onOverrideEnabledChange}
+    >
+      <div className={styles.groups}>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            道路種別ごとの基準値[低→高]
+          </summary>
+          <div className={styles.groupBody}>
+            <table className={styles.table}>
+              <tbody>
+                {HIGHWAY_ORDER.map((highway) => (
+                  <HighwayRow
+                    key={highway}
+                    highway={highway}
+                    value={recipe.base_by_highway[highway]}
+                    onChange={(hw, next) =>
+                      handleRecipeChange({
+                        ...recipe,
+                        base_by_highway: { ...recipe.base_by_highway, [hw]: next },
+                      })
+                    }
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
 
-      {overrideEnabled && (
-        <div className={styles.groups}>
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              道路種別ごとの基準値[低→高]
-            </summary>
-            <div className={styles.groupBody}>
-              <table className={styles.table}>
-                <tbody>
-                  {HIGHWAY_ORDER.map((highway) => (
-                    <HighwayRow
-                      key={highway}
-                      highway={highway}
-                      value={recipe.base_by_highway[highway]}
-                      onChange={(hw, next) =>
-                        onRecipeChange({
-                          ...recipe,
-                          base_by_highway: { ...recipe.base_by_highway, [hw]: next },
-                        })
-                      }
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
+        <details className={styles.group}>
+          <summary className={styles.groupHeader}>
+            <span aria-hidden="true" className={styles.groupChevron} />
+            自転車インフラ補正[cycleway]
+          </summary>
+          <div className={styles.groupBody}>
+            {CYCLEWAY_FIELDS.map((field) => (
+              <ScalarInput
+                key={field.key}
+                field={field}
+                recipe={recipe}
+                onChange={handleRecipeChange}
+                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+              />
+            ))}
+          </div>
+        </details>
 
-          <details className={styles.group}>
-            <summary className={styles.groupHeader}>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              自転車インフラ補正[cycleway]
-            </summary>
-            <div className={styles.groupBody}>
-              {CYCLEWAY_FIELDS.map((field) => (
-                <ScalarInput
-                  key={field.key}
-                  field={field}
-                  recipe={recipe}
-                  onChange={onRecipeChange}
-                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-                />
-              ))}
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className={styles.resetButton}
-            onClick={() => onRecipeChange(DEFAULT_ROAD_SUITABILITY_RECIPE)}
-          >
-            既定値に戻す
-          </button>
-        </div>
-      )}
-    </div>
+        <button
+          type="button"
+          className={styles.resetButton}
+          onClick={() => onRecipeChange(DEFAULT_ROAD_SUITABILITY_RECIPE)}
+        >
+          既定値に戻す
+        </button>
+      </div>
+    </RecipePanelSection>
   );
 }

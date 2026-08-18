@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { InfoIcon } from "./icons";
+import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
 
 // レシピ入力フォーム（研究タブの各レシピパネル）共通のUI部品。T113でTrafficStressRecipePanel
@@ -10,6 +11,77 @@ import styles from "./recipeControls.module.css";
 // ユーザー要望への対応）。段階数・色パレットは呼び出し側がpropsで渡すため、レシピごとの
 // 段階数・配色差（例: 交通ストレスの緑〜赤、安全度のteal〜dark-red）はこのファイルの変更
 // なしで吸収できる。
+
+// 研究タブ各パネルの最上位の折りたたみ（改善計画: 研究タブのレイアウト改善。ユーザー
+// フィードバック「地図の見え方のようなデザインに合わせて、折りたたみを工夫したり表示非表示を
+// スマートにして」への対応）。MapLayersPanel.module.cssの.layerSection/.layerHeader/
+// .layerTitle/.chevron/.layerBodyをcomposesでそのまま再利用し、地図側のレイヤー折りたたみと
+// 同一の見た目・挙動にする。ON/OFFチップも同じLayerChip部品を流用（表示チップの「表示」→
+// このチップは「上書き」）。
+//
+// 以前は「上書きする」チェックボックス1つが開閉と有効/無効を兼ねていたため、値を確認する
+// だけでも上書きを有効化する（＝地図やルート生成に即座に影響する）しかなかった。
+// MapLayersPanelの「OFF中でも絞り込み操作でき、操作すると自動でONになる」設計
+// （handleRoadLegendToggle等）と同じ考え方で、開閉（details）と有効/無効（チップ）を分離する。
+// 上書き無効中も中身は既定値で表示・編集でき、値を変更すると上書きが自動でONになる
+// （呼び出し側はonRecipeChange等をwithAutoEnableで包んで渡す）。
+export function RecipePanelSection({
+  title,
+  overrideAriaLabel,
+  overrideEnabled,
+  onOverrideEnabledChange,
+  children,
+}: {
+  title: string;
+  /** LayerChipのariaLabel（例:「車の圧迫感のレシピを上書き」）。titleは`[...]`の
+   * 補足文言を含むことがあるため、チップのアクセシブル名は別途渡す。 */
+  overrideAriaLabel: string;
+  overrideEnabled: boolean;
+  onOverrideEnabledChange: (enabled: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className={styles.panelSection}>
+      <summary className={styles.panelHeader}>
+        <h3 className={styles.panelTitle}>
+          <span aria-hidden="true" className={styles.panelChevron} />
+          {title}
+        </h3>
+        {/* MapLayersPanel.tsxのhandleRoadLegendToggle等と同じ理由でpreventDefault/
+            stopPropagationする（summary内クリックのdetails開閉デフォルト動作との衝突回避）。 */}
+        <LayerChip
+          label="上書き"
+          ariaLabel={overrideAriaLabel}
+          on={overrideEnabled}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOverrideEnabledChange(!overrideEnabled);
+          }}
+        />
+      </summary>
+      <div className={styles.panelBody}>
+        {!overrideEnabled && (
+          <p className={styles.panelOffHint}>上書きはOFFです[値を変更すると自動でONになります]</p>
+        )}
+        {children}
+      </div>
+    </details>
+  );
+}
+
+// overrideEnabledがfalseの間に値が変更されたら、変更自体は伝えつつ上書きも自動で有効化する
+// ラッパー（MapLayersPanel.tsxのhandleRoadLegendToggle等と同じ「操作したら自動でON」パターン）。
+export function withAutoEnable<T>(
+  overrideEnabled: boolean,
+  onOverrideEnabledChange: (enabled: boolean) => void,
+  setter: (next: T) => void,
+): (next: T) => void {
+  return (next) => {
+    if (!overrideEnabled) onOverrideEnabledChange(true);
+    setter(next);
+  };
+}
 
 // 基準値のレベルピッカー。levelsぶんのボタンを並べ、選択値以下の段階をcolorsの色で塗って
 // 進捗バー風に見せる。
@@ -105,9 +177,6 @@ export function AdjustmentStepper({
 // （改善計画T118のモバイル幅溢れ修正: highway別基準値テーブル内では
 // nowrap/flex-shrink:0を打ち消して折り返しを許可する必要があり、呼び出し側の
 // module.cssでその上書きクラスを定義してここへ渡す）。
-function formatSignedTerm(value: number): string {
-  return value >= 0 ? `+${value}` : `${value}`;
-}
 
 // 「車の圧迫感」「安全度」パネルの先頭に置く読み取り専用の参照セクション（改善計画:
 // 車との近さ材料の共有元化）。両軸が共有する「道路適正」「自動車密度」の現在値
@@ -115,6 +184,16 @@ function formatSignedTerm(value: number): string {
 // 土台の上に成り立っているか」を視覚的に示す。編集はできない（編集は道路適正/自動車密度
 // パネル側で行う）。highway別基準値テーブル自体はここでは繰り返さず、専用パネルへの
 // 導線だけにする（12行の読み取り専用テーブルを3枚目・4枚目にも複製しないため）。
+//
+// 改善計画: 研究タブのレイアウト改善（ユーザーフィードバック「土台部分が冗長」）。
+// 以前は前置き文2つ（「〜の上に成り立っています。編集は〜」「道路種別ごとの基準値は〜」）＋
+// 「／」区切りの長文箇条書き4行という構成で、同じ説明が車の圧迫感・安全度の2パネルに
+// 重複して出るには冗長すぎた。前置きは見出しの`[編集は各パネルで]`へ集約し、値は
+// 現在値そのものが伝わればよいので短いタグの一覧（.referenceTags）に変える。
+function formatSignedTerm(value: number): string {
+  return value >= 0 ? `+${value}` : `${value}`;
+}
+
 export function CarClosenessReferenceSection({
   roadSuitabilityRecipe,
   motorVehicleDensityRecipe,
@@ -138,31 +217,35 @@ export function CarClosenessReferenceSection({
     <details className={styles.referenceSection}>
       <summary className={styles.referenceHeader}>
         <span aria-hidden="true" className={styles.referenceChevron} />
-        土台: 道路適正＋自動車密度[車との近さ](読み取り専用)
+        土台: 道路適正＋自動車密度[編集は各パネルで]
       </summary>
       <div className={styles.referenceBody}>
-        <p className={styles.referenceIntro}>
-          この軸は「道路適正」「自動車密度」レシピの上に成り立っています。編集はそれぞれのパネルで行ってください。
-        </p>
-        <ul className={styles.referenceList}>
-          <li>
-            専用レーン: {formatSignedTerm(roadSuitabilityRecipe.cycleway_track_adjustment)} ／ 自転車レーン:{" "}
-            {formatSignedTerm(roadSuitabilityRecipe.cycleway_lane_adjustment)} ／ 共有レーン:{" "}
-            {formatSignedTerm(roadSuitabilityRecipe.cycleway_shared_adjustment)}
+        <ul className={styles.referenceTags}>
+          <li className={styles.referenceTag}>
+            専用レーン: {formatSignedTerm(roadSuitabilityRecipe.cycleway_track_adjustment)}
           </li>
-          <li>
-            制限速度{motorVehicleDensityRecipe.maxspeed_low_threshold}km/h以下:{" "}
-            {formatSignedTerm(motorVehicleDensityRecipe.maxspeed_low_adjustment)} ／ 制限速度
+          <li className={styles.referenceTag}>
+            自転車レーン: {formatSignedTerm(roadSuitabilityRecipe.cycleway_lane_adjustment)}
+          </li>
+          <li className={styles.referenceTag}>
+            共有レーン: {formatSignedTerm(roadSuitabilityRecipe.cycleway_shared_adjustment)}
+          </li>
+          <li className={styles.referenceTag}>
+            {motorVehicleDensityRecipe.maxspeed_low_threshold}km/h以下:{" "}
+            {formatSignedTerm(motorVehicleDensityRecipe.maxspeed_low_adjustment)}
+          </li>
+          <li className={styles.referenceTag}>
             {motorVehicleDensityRecipe.maxspeed_high_threshold}km/h以上:{" "}
             {formatSignedTerm(motorVehicleDensityRecipe.maxspeed_high_adjustment)}
           </li>
-          <li>
+          <li className={styles.referenceTag}>
             車線数{motorVehicleDensityRecipe.lanes_high_threshold}以上:{" "}
             {formatSignedTerm(motorVehicleDensityRecipe.lanes_high_adjustment)}
           </li>
-          <li>指定路線: {formatSignedTerm(motorVehicleDensityRecipe.designation_adjustment)}</li>
+          <li className={styles.referenceTag}>
+            指定路線: {formatSignedTerm(motorVehicleDensityRecipe.designation_adjustment)}
+          </li>
         </ul>
-        <p className={styles.referenceIntro}>道路種別ごとの基準値は「道路適正」パネルで確認できます。</p>
       </div>
     </details>
   );

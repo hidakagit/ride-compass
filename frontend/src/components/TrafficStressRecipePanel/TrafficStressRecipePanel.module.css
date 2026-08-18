@@ -5,14 +5,6 @@
    .thresholdInline等もrecipeControls.tsx/recipeControls.module.cssへ集約したため、
    このファイルからは撤去した（レビュー指摘: 4パネルへの重複定義を解消）。 */
 
-.panel {
-  composes: panel from "../WeightPanel/WeightPanel.module.css";
-}
-
-.toggleLabel {
-  composes: toggleLabel from "../WeightPanel/WeightPanel.module.css";
-}
-
 /* 「全体的にもう少しコンパクトな形に」という実機フィードバックを受け、共通クラスの
    gapを上書きしてこのパネルだけ縦の間隔を詰める（composesした先＝WeightPanel.module.css
    自体は無変更のため、WeightPanel側の見た目には影響しない）。 */

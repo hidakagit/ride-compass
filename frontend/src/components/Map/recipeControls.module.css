@@ -2,6 +2,37 @@
    専用に実装したものを2つ目のレシピ登場を機に汎用化）のスタイル。段階数・色は呼び出し側が
    propsで渡すため、このCSS自体は段階数に依存しない。 */
 
+/* RecipePanelSection（研究タブ各パネルの最上位の折りたたみ）。MapLayersPanel.module.cssの
+   .layerSection/.layerHeader/.layerTitle/.chevron/.layerBody/.mutedHintをcomposesでそのまま
+   再利用し、地図側のレイヤー折りたたみ（T38）と同一の見た目・挙動にする（改善計画:
+   研究タブのレイアウト改善）。 */
+.panelSection {
+  composes: layerSection from "../MapLayersPanel/MapLayersPanel.module.css";
+}
+
+.panelHeader {
+  composes: layerHeader from "../MapLayersPanel/MapLayersPanel.module.css";
+}
+
+.panelTitle {
+  composes: layerTitle from "../MapLayersPanel/MapLayersPanel.module.css";
+}
+
+.panelChevron {
+  composes: chevron from "../MapLayersPanel/MapLayersPanel.module.css";
+}
+
+.panelBody {
+  composes: layerBody from "../MapLayersPanel/MapLayersPanel.module.css";
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.panelOffHint {
+  composes: mutedHint from "../MapLayersPanel/MapLayersPanel.module.css";
+}
+
 /* ラベル文言+情報アイコンボタンの並び。 */
 .fieldLabel {
   display: inline-flex;
@@ -214,13 +245,23 @@
   color: var(--color-muted);
 }
 
-.referenceIntro {
+/* 現在値のタグ一覧（改善計画: 研究タブのレイアウト改善）。以前は前置き文2つ＋「／」区切りの
+   長文箇条書きだったが、車の圧迫感・安全度の2パネルに同じ説明が重複するには冗長だった。
+   MapLayersPanel.module.cssの.legendCheckboxList/.swatchと同じ「短いラベルを並べる」発想を
+   踏襲し、各値を独立した小さなタグにして一覧性を上げる。 */
+.referenceTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   margin: 0;
-  line-height: 1.4;
+  padding: 0;
+  list-style: none;
 }
 
-.referenceList {
-  margin: 0;
-  padding-left: 1.2rem;
-  line-height: 1.6;
+.referenceTag {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  white-space: nowrap;
 }
