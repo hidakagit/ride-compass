@@ -44,7 +44,12 @@ from app.domain.traffic import (  # noqa: E402
     TrafficStressBreakdown,
     traffic_stress_breakdown,
 )
-from app.services.evaluation_service import load_safety_recipe, load_traffic_stress_recipe  # noqa: E402
+from app.services.evaluation_service import (  # noqa: E402
+    load_motor_vehicle_density_recipe,
+    load_road_suitability_recipe,
+    load_safety_recipe,
+    load_traffic_stress_recipe,
+)
 
 # レシピが評価対象とするhighway（改善計画: 車との近さ材料の共有元化で交通ストレス・安全度は
 # 同一のROAD_SUITABILITY_BASE_BY_HIGHWAYを参照するようになったため、unionを取るまでもなく
@@ -331,6 +336,12 @@ async def main(database_url: str | None = None) -> int:
 
     traffic_recipe = load_traffic_stress_recipe()
     safety_recipe = load_safety_recipe()
+    # 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
+    # 共有元化）。省略するとcar_closeness()がハードコードのDEFAULT_*へ静かにフォールバック
+    # してしまい、road_suitability_recipe.yaml/motor_vehicle_density_recipe.yamlを編集して
+    # 較正実験をしても反映されないため、traffic_recipe/safety_recipeと同様にYAMLから読む。
+    road_suitability_recipe = load_road_suitability_recipe()
+    motor_vehicle_density_recipe = load_motor_vehicle_density_recipe()
 
     traffic_levels: list[float] = []
     safety_levels: list[float] = []
@@ -342,8 +353,12 @@ async def main(database_url: str | None = None) -> int:
 
     for highway, tags, length_km, is_designated in way_rows:
         length_km = float(length_km)
-        traffic = traffic_stress_breakdown(highway, tags, is_designated, traffic_recipe)
-        safety = safety_breakdown(highway, tags, is_designated, safety_recipe)
+        traffic = traffic_stress_breakdown(
+            highway, tags, is_designated, traffic_recipe, road_suitability_recipe, motor_vehicle_density_recipe
+        )
+        safety = safety_breakdown(
+            highway, tags, is_designated, safety_recipe, road_suitability_recipe, motor_vehicle_density_recipe
+        )
 
         if traffic.level is not None:
             traffic_firing.add(traffic, length_km)

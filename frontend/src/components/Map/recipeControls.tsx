@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { InfoIcon } from "./icons";
 import styles from "./recipeControls.module.css";
 
@@ -164,6 +165,138 @@ export function CarClosenessReferenceSection({
         <p className={styles.referenceIntro}>道路種別ごとの基準値は「道路適正」パネルで確認できます。</p>
       </div>
     </details>
+  );
+}
+
+// TRAFFIC_STRESS_COLORSの最小/最大段階の色を補正値ステッパーの負値/正値表示に使う
+// （改善計画: 車との近さ材料の共有元化のレビュー指摘。4パネル中3パネルが
+// `TRAFFIC_STRESS_COLORS[1]`/`[5]`を、RoadSuitabilityRecipePanelだけが値域の違い
+// （道路適正の基準値は1〜4で5段階目を使わない）から`[1]`/`[4]`を、それぞれのファイルへ
+// 個別にハードコードしていた。呼び出し側ごとに使う範囲が異なるため単一の共有定数には
+// できないが、「TRAFFIC_STRESS_COLORSから最小・最大段階の色を引く」という手順自体は
+// ここへ1箇所へ集約する）。
+export function adjustmentEndpointColors(
+  colors: Record<number, string>,
+  minLevel: number,
+  maxLevel: number,
+): { negativeColor: string; positiveColor: string } {
+  return { negativeColor: colors[minLevel], positiveColor: colors[maxLevel] };
+}
+
+// TRecipeの中で値がnumber型のキーだけを抽出する（base_by_highwayのようなobject型の
+// フィールドを持つRoadSuitabilityRecipeでも、ScalarInput/ThresholdAdjustmentRowの対象を
+// 数値フィールドだけに安全に絞り込むため）。
+type NumericKeys<TRecipe> = { [K in keyof TRecipe]: TRecipe[K] extends number ? K : never }[keyof TRecipe];
+
+export interface ScalarFieldDescriptor<TRecipe, TKey extends NumericKeys<TRecipe> = NumericKeys<TRecipe>> {
+  key: TKey;
+  label: string;
+  description: string;
+}
+
+// 単一の補正値フィールド（ラベル+ステッパー+説明）の入力欄（改善計画: 車との近さ材料の
+// 共有元化のレビュー指摘。RoadSuitabilityRecipePanel/MotorVehicleDensityRecipePanel/
+// SafetyRecipePanelの3ファイルへ実質同一の内容がコピペされていたのをここへ集約）。
+export function ScalarInput<TRecipe, TKey extends NumericKeys<TRecipe>>({
+  field,
+  recipe,
+  onChange,
+  negativeColor,
+  positiveColor,
+}: {
+  field: ScalarFieldDescriptor<TRecipe, TKey>;
+  recipe: TRecipe;
+  onChange: (recipe: TRecipe) => void;
+  negativeColor: string;
+  positiveColor: string;
+}) {
+  const [infoOpen, setInfoOpen] = useState(false);
+  const value = recipe[field.key] as number;
+  return (
+    <>
+      <div className={styles.field}>
+        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
+        <AdjustmentStepper
+          label={field.label}
+          value={value}
+          onChange={(next) => onChange({ ...recipe, [field.key]: next } as TRecipe)}
+          negativeColor={negativeColor}
+          positiveColor={positiveColor}
+        />
+      </div>
+      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
+    </>
+  );
+}
+
+export interface ThresholdAdjustmentFieldDescriptor<
+  TRecipe,
+  TThresholdKey extends NumericKeys<TRecipe> = NumericKeys<TRecipe>,
+  TAdjustmentKey extends NumericKeys<TRecipe> = NumericKeys<TRecipe>,
+> {
+  thresholdKey: TThresholdKey;
+  adjustmentKey: TAdjustmentKey;
+  label: string;
+  description: string;
+  thresholdSuffix: string;
+}
+
+// 閾値+補正値の対フィールド（改善計画: 車との近さ材料の共有元化のレビュー指摘。
+// MotorVehicleDensityRecipePanel/TrafficStressRecipePanelの2ファイルへ実質同一の内容が
+// コピペされていたのをここへ集約）。補正値のステッパーと変動条件（閾値）を同じ行に
+// 横並びで置く。
+export function ThresholdAdjustmentRow<
+  TRecipe,
+  TThresholdKey extends NumericKeys<TRecipe>,
+  TAdjustmentKey extends NumericKeys<TRecipe>,
+>({
+  field,
+  recipe,
+  onChange,
+  negativeColor,
+  positiveColor,
+}: {
+  field: ThresholdAdjustmentFieldDescriptor<TRecipe, TThresholdKey, TAdjustmentKey>;
+  recipe: TRecipe;
+  onChange: (recipe: TRecipe) => void;
+  negativeColor: string;
+  positiveColor: string;
+}) {
+  const [infoOpen, setInfoOpen] = useState(false);
+  const thresholdValue = recipe[field.thresholdKey] as number;
+  const adjustmentValue = recipe[field.adjustmentKey] as number;
+  return (
+    <>
+      <div className={styles.field}>
+        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
+        <span className={styles.pairControls}>
+          <AdjustmentStepper
+            label={field.label}
+            value={adjustmentValue}
+            onChange={(next) => onChange({ ...recipe, [field.adjustmentKey]: next } as TRecipe)}
+            negativeColor={negativeColor}
+            positiveColor={positiveColor}
+          />
+          <span className={styles.thresholdInline}>
+            <span className={styles.thresholdCaption}>条件</span>
+            <input
+              type="number"
+              step="1"
+              aria-label={`${field.label}の条件`}
+              value={thresholdValue}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (Number.isNaN(next)) return;
+                onChange({ ...recipe, [field.thresholdKey]: next } as TRecipe);
+              }}
+              className={styles.thresholdInput}
+            />
+            <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
+          </span>
+        </span>
+      </div>
+      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
+    </>
   );
 }
 

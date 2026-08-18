@@ -3614,6 +3614,67 @@ T124・T122・T123とも2026-08-18完了。3つ目のレシピ軸の追加凍結
   `frontend/e2e/`配下への再利用可能ヘルパー化は今回は行わなかった（頻度が低く、
   本メモがあれば次回はゼロから躓かずに書けると判断）。
 
+## 「道路適正」「自動車密度」を独立レシピ軸として切り出すN1/N2構造（2026-08-18・
+   T122〜T124「レシピ付き軸の共通基盤整備」の続き）
+
+### - [x] T130. 車の圧迫感（旧: 交通ストレス）・安全度が共有するhighway基準値＋cycleway補正
+  （道路適正=N1）・制限速度＋車線数＋指定路線補正（自動車密度）を、それぞれ独立した
+  上書き可能なレシピへ切り出す 規模L（2026-08-18完了）
+
+- 発端: T122（レシピ判定プリミティブの共有）・T123（レシピ軸の糊のパラメータ化）で
+  `domain/recipe.py`へ共有プリミティブを切り出した後も、`TrafficStressRecipe`/
+  `SafetyRecipe`は依然としてhighway別基準値・cycleway補正・制限速度補正・車線数[多い方]
+  補正・指定路線補正という値そのものが完全に一致する材料を、それぞれ独立したPydantic
+  モデル・YAML・研究モードパネルとして重複保持していた（living_street基準値だけが
+  交通ストレス側2／安全度側1と食い違っていた）。ユーザーとの設計検討（本セッション）で、
+  この食い違いを解消したうえで「道路適正」(N1={A: highway基準値, B: cycleway})・
+  「自動車密度」(delta={C: maxspeed, D: lanes_high, E: designation})を軸横断の独立レシピへ
+  切り出し、「車との近さ」(N2 = 道路適正＋自動車密度)は専用の保存領域を持たず
+  `car_closeness()`という合成関数としてのみ存在させる設計（選択肢A、3つ目の重複パネルを
+  作らない）で合意した。
+- 対応方針: `backend/app/domain/recipe.py`に`RoadSuitabilityRecipe`/
+  `MotorVehicleDensityRecipe`（各独立YAML・DEFAULT_*・APIオーバーライドモデル付き）と
+  `car_closeness()`を新設。`TrafficStressRecipe`/`SafetyRecipe`は軸固有フィールド
+  （交通ストレス: lanes_low、安全度: lit/tunnel）のみへ縮小。`compute_edge_cost`・
+  `EvaluationService`・両ルーティングエンジン・`routes.py`/`region.py`のAPI層・
+  `export_openapi.py`のPython⇔JS相互検証フィクスチャまで一貫して配線。フロントは
+  `recipeExpression.ts`に`carClosenessExpr()`を新設して`trafficStressExpression.ts`/
+  `safetyExpression.ts`が共有し、新設の`RoadSuitabilityRecipePanel`/
+  `MotorVehicleDensityRecipePanel`パネルと、縮小後の2パネル先頭に置く読み取り専用の
+  参照セクション（`CarClosenessReferenceSection`）で研究モードUIを再構成。ユーザー向け
+  呼称も「交通ストレス」から「車の圧迫感」へ統一。
+- 完了条件: backend pytest・frontend vitest・`tsc --noEmit`・`next build`すべてgreen。
+  研究モードで(a)道路適正のみ上書き・(b)自動車密度のみ上書き・(c)道路適正+自動車密度+
+  交通ストレス(F)同時上書きをPlaywright実機確認し、参照セクションへの反映と
+  `/api/routes/generate`のconditionsエコーの一致を確認する（T129参照）。
+- 実装メモ（2026-08-18完了）: 実装自体は完了時点でbackend pytest 889件・frontend
+  vitest 367件・tsc・`next build`すべてgreen、Playwright実機確認3パターンも成功して
+  いたが、CLAUDE.mdが定める「着手前に該当タスクの有無を確認し、完了したらチェックを
+  更新する」運用に反し、この規模Lの変更自体を追跡するimprovement-plan.mdのタスクが
+  存在しないまま実装が進んでいた（コード中には「改善計画: 車との近さ材料の共有元化」と
+  いう20箇所超の参照コメントがありながら、参照先のタスクが実在しないという状態。
+  ultrareviewでの指摘を受けて本エントリを事後的に追加し、チェック済みで記録する）。
+  加えて同レビューで発見された以下の実装不備も合わせて修正済み:
+  - `lanes_low_threshold`（`TrafficStressRecipeOverride`）と`lanes_high_threshold`
+    （`MotorVehicleDensityRecipeOverride`）が別モデルに分割されたことで失われていた
+    `low<high`の順序検証を、`routes.py: validate_lanes_threshold_order`
+    （`RouteGenerateRequest`/`TrafficStressBreakdownRequest`の`model_validator`から
+    呼ぶ）として復元し、削除されていた回帰テストも復活。
+  - `RoadSuitabilityRecipeOverride.base_by_highway`の部分上書きが両軸を同時に無効化
+    する問題を、全12highwayキーの完備を要求する`model_validator`で解消。
+  - 較正スクリプト（`measure_axis_stats.py`/`analyze_jartic_calibration.py`）が
+    `road_suitability_recipe.yaml`/`motor_vehicle_density_recipe.yaml`を読まず
+    ハードコード既定値へ静かにフォールバックしていた問題を修正。
+  - `living_street`基準値の交通ストレス側2→1の変更にテストが無かった問題を
+    `test_recipe.py`/`test_traffic.py`/`test_safety.py`へ追加してピン留め。
+  - `car_closeness()`/`carClosenessExpr()`が`compute_edge_cost`（バックエンド、
+    ルート生成の全Edge）・`setStaticOverlayFilters`（フロント、地図スタイル再構築）の
+    双方で交通ストレス・安全度から2回ずつ計算されていた無駄を、事前計算結果を両方へ渡す
+    形へ改めて解消（`test_evaluation.py`に呼び出し回数を数える回帰テストを追加）。
+  - `ScalarInput`/`ThresholdAdjustmentRow`/補正値ステッパーの色定数が4つのレシピ
+    パネルへコピペされていた重複を`recipeControls.tsx`/`recipeControls.module.css`へ
+    集約。
+
 ## 記録
 
 | 日付 | 完了タスク | 備考 |

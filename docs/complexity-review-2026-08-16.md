@@ -106,6 +106,27 @@ scoring.yamlは距離/標高/風/路面の4軸のまま、preference側にはsto
 到達」または「3つ目のレシピ軸をMapView内へミラー追加しようとした時点」**
 （2026-08-18時点: 1,654行・7種）。到達時は改めて対応（分割要否を含む）を判断する。
 
+**2026-08-18（T130, N1/N2レシピ分離）再検討**: T124直後に「道路適正」
+（`roadSuitabilityRecipe`）・「自動車密度」（`motorVehicleDensityRecipe`）という3本目・4本目の
+レシピ軸をMapView.tsxへミラー追加した（`setStaticOverlayFilters`のパラメータ・複数の
+`useEffect`依存配列・`redrawPropsRef`・ポップアップ評価ブロックの4箇所へ、既存の
+`trafficStressRecipe`/`safetyRecipe`と同じパターンで追記）。上記閾値のうち「3つ目のレシピ軸を
+MapView内へミラー追加しようとした時点」は行数・レイヤー数とは独立した条件のため、他の2条件が
+未到達でも判断が必要と判断し、この場で実施した。
+- 実測: MapView.tsx 1,804行（閾値2,000行に対し196行の余裕）・STATIC_OVERLAY_LAYERS 8種
+  （閾値10種に対し余裕あり）。
+- 判断: **KEEP（分割しない）**。ミラー箇所は既存4箇所（props・useEffect依存配列・
+  redrawPropsRef・ポップアップ評価）のパターンが3本目・4本目でも機械的に踏襲できており、
+  軸追加のたびに新しい配線経路が生まれる兆候はない。むしろ本レビュー（ultrareview）指摘で
+  `carClosenessExpr()`が`setStaticOverlayFilters`・ポップアップ評価の双方で軸ごとに二重計算
+  されていた無駄を発見し、事前計算結果を共有する形（`buildTrafficStressExpression`/
+  `buildSafetyExpression`の追加引数）へ修正済み——ミラー箇所が増えても「軸間で共有すべき
+  計算を1箇所にまとめる」という既存原則（`setStaticOverlayFilters`冒頭のコメント）を
+  拡張するだけで対応でき、構造的な分割は不要と判断した。
+- 新しい閾値: 「MapView.tsx 2,000行到達」または「STATIC_OVERLAY_LAYERS 10種到達」または
+  **「5つ目のレシピ軸をMapView内へミラー追加しようとした時点」**（3本目→5本目へ繰り上げ。
+  今回2本まとめて追加し「3本目」条件を消化したため）。
+
 ### R-7. BICYCLE_INFRA_LABELSの語彙複製 → T46
 
 `MapView.tsx`のポップアップ用ラベル辞書（6件）が`staticAttributeLayers.ts`の
@@ -148,7 +169,7 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
 - **`/api/routes/preview`の残置・MAX_CONCURRENT系の非共通化**
 - **ログ・観測基盤**（request_id全レコード注入・抑制付きWARNING・/api/debug/stats）
 - **page.tsx / MapView.tsx の現状維持**（R-6の閾値〔MapView.tsx 2,000行 or
-  STATIC_OVERLAY_LAYERS 10種 or 3つ目のレシピ軸のMapView内ミラー追加、T123で再設定〕
+  STATIC_OVERLAY_LAYERS 10種 or 5つ目のレシピ軸のMapView内ミラー追加、T130で再設定〕
   到達までは分割しない）
 
 ---
@@ -201,9 +222,12 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
 9. **page.tsx / MapView.tsxへの追記は閾値監視つきで許可する**: 当初の閾値（静的レイヤー+2種類
    またはMapView 1,200行）は決めておいた2点（宣言的レイヤー登録・useStoredState抽出）ともに
    消化済み（T47）。T91（2026-08-17）で再設定した閾値「MapView.tsx 1,800行」にT123
-   （2026-08-18）で到達・解消し、1,654行へ縮小のうえ新閾値「MapView.tsx 2,000行」
-   「STATIC_OVERLAY_LAYERS 10種」「3つ目のレシピ軸のMapView内ミラー追加」のいずれかに
-   達したら、そのとき改めて対応（分割要否を含む）を判断する
+   （2026-08-18）で到達・解消し、1,654行へ縮小。「3つ目のレシピ軸のMapView内ミラー追加」
+   条件はT130（2026-08-18、道路適正・自動車密度の2軸を同時追加）で到達し、KEEP（分割
+   しない）と判断のうえ「5つ目のレシピ軸のMapView内ミラー追加」へ繰り上げ済み
+   （詳細はR-6参照）。新閾値「MapView.tsx 2,000行」「STATIC_OVERLAY_LAYERS 10種」
+   「5つ目のレシピ軸のMapView内ミラー追加」のいずれかに達したら、そのとき改めて対応
+   （分割要否を含む）を判断する
 10. 「何もしない」を明示的な判断として記録し、DEFERには必ずトリガー（可能なら日付）を付ける。
     トリガー未到達の項目を「ついで」に実装しない（維持。T22の2026-08-29が好例）
 11. **空間JOINを含むSQLは`&&`前置（またはKNNの`ORDER BY <-> LIMIT`）で必ずGiST索引を

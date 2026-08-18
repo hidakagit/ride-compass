@@ -35,6 +35,7 @@ import {
   buildRecipeLevelExpression,
   evaluateRecipeLevel,
   thresholdAdjustmentExpr,
+  type CarClosenessExpr,
 } from "@/components/Map/recipeExpression";
 
 export type TrafficStressRecipe = TrafficStressRecipeOverride;
@@ -49,11 +50,15 @@ export function buildTrafficStressExpression(
   recipe: TrafficStressRecipe,
   roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-): unknown[] {
   // 「車との近さ」(N2 = 道路適正＋自動車密度、domain/recipe.py: car_closeness)。
-  // 交通ストレス・安全度が共有する土台（改善計画: 車との近さ材料の共有元化）。
+  // 交通ストレス・安全度が共有する土台（改善計画: 車との近さ材料の共有元化）。同じ
+  // roadSuitabilityRecipe/motorVehicleDensityRecipeに対してbuildSafetyExpressionも
+  // 同じ結果を必要とするため、呼び出し側（MapView.tsx）が1回だけ計算した結果を
+  // 渡せるようにする（省略時はここで計算する、既存呼び出し元との後方互換）。
+  carCloseness: CarClosenessExpr = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe),
+): unknown[] {
   const { hasBase, base, cyclewayAdjustment, maxspeedAdjustment, lanesHighAdjustment, designationAdjustment } =
-    carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe);
+    carCloseness;
 
   // lanes_low(すれ違いの圧迫度緩和)は分離自転車道(cycleway_class=="track")区間では
   // 該当しない（domain/traffic.py: traffic_stress_breakdownと1:1対応）。lanes_high
@@ -79,9 +84,10 @@ export function evaluateTrafficStressLevel(
   recipe: TrafficStressRecipe = DEFAULT_TRAFFIC_STRESS_RECIPE,
   roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+  carCloseness: CarClosenessExpr = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe),
 ): number | null {
   return evaluateRecipeLevel(
-    buildTrafficStressExpression(recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe),
+    buildTrafficStressExpression(recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe, carCloseness),
     properties,
     "車の圧迫感",
   );

@@ -335,6 +335,12 @@ export interface components {
          *     （改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ
          *     反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが
          *     無いため順序検証は不要。
+         *
+         *     `base_by_highway`は「全12highwayキーを明示した完全な置き換え」を前提とする
+         *     （このモデル自体の「全フィールド必須」方針と同じ考え方）。domain/recipe.py:
+         *     road_suitability()はキー欠落を「そのhighwayは評価対象外」(base=None)として
+         *     静かに扱うため、部分的なdictを許すと、そのhighway種別が交通ストレス・安全度の
+         *     両方から同時に消える（道路適正の共有化によって影響範囲が2軸分に広がった）。
          */
         RoadSuitabilityRecipeOverride: {
             /** Base By Highway */
@@ -692,9 +698,13 @@ export interface components {
          *
          *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
          *     RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
-         *     （改善計画: 車との近さ材料の共有元化）。少車線側は「車道を自転車と自動車が共有して
-         *     いる」前提の補正のため多車線側と別レシピに分かれていても閾値の大小関係を検証する
-         *     必要が無い（domain/traffic.py: traffic_stress_breakdown参照）。
+         *     （改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側
+         *     (MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた
+         *     ため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は
+         *     `_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/
+         *     `TrafficStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:
+         *     traffic_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で
+         *     なくなり、両方が同時に発火して打ち消し合う）。
          */
         TrafficStressRecipeOverride: {
             /** Lanes Low Threshold */

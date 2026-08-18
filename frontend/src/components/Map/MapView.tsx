@@ -41,6 +41,7 @@ import {
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import { DEFAULT_SAFETY_RECIPE, buildSafetyExpression, evaluateSafetyLevel } from "@/components/Map/safetyExpression";
+import { carClosenessExpr } from "@/components/Map/recipeExpression";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -753,13 +754,22 @@ export function setStaticOverlayFilters(
     // 同一の式木を毎回2回組み立てる必要はないため）。安全度（改善計画: 安全度レシピ）も
     // 同じ理由で1回だけ計算する。roadSuitabilityRecipe/motorVehicleDensityRecipeは
     // 交通ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
-    // 共有元化）。
+    // 共有元化）で、carClosenessExpr()自体も同じ理由で1回だけ計算しbuildTrafficStress/
+    // SafetyExpressionの両方へ渡す（車の圧迫感・安全度で同じroadSuitabilityRecipe/
+    // motorVehicleDensityRecipeを渡しているのに式木の組み立てだけ2回走っていた無駄を解消）。
+    const carCloseness = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe);
     const trafficStressLevelExpression = buildTrafficStressExpression(
       trafficStressRecipe,
       roadSuitabilityRecipe,
       motorVehicleDensityRecipe,
+      carCloseness,
     );
-    const safetyLevelExpression = buildSafetyExpression(safetyRecipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
+    const safetyLevelExpression = buildSafetyExpression(
+      safetyRecipe,
+      roadSuitabilityRecipe,
+      motorVehicleDensityRecipe,
+      carCloseness,
+    );
     for (const layer of STATIC_OVERLAY_LAYERS) {
       const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
       if (axes.length === 0) continue;
@@ -1360,6 +1370,9 @@ export default function MapView({
         redrawPropsRef.current.roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE;
       const currentMotorVehicleDensityRecipe =
         redrawPropsRef.current.motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE;
+      // setStaticOverlayFiltersと同じ理由（車の圧迫感・安全度が同じ「車との近さ」(N2)を
+      // 参照する）で1回だけ計算して両方へ渡す。
+      const currentCarCloseness = carClosenessExpr(currentRoadSuitabilityRecipe, currentMotorVehicleDensityRecipe);
       const roadSurfaceProperties = {
         ...(feature.properties as unknown as RoadSurfacePopupProperties),
         traffic_stress: isRoadSurfaceFeature
@@ -1368,6 +1381,7 @@ export default function MapView({
               currentTrafficStressRecipe,
               currentRoadSuitabilityRecipe,
               currentMotorVehicleDensityRecipe,
+              currentCarCloseness,
             )
           : null,
         safety: isRoadSurfaceFeature
@@ -1376,6 +1390,7 @@ export default function MapView({
               currentSafetyRecipe,
               currentRoadSuitabilityRecipe,
               currentMotorVehicleDensityRecipe,
+              currentCarCloseness,
             )
           : null,
       };

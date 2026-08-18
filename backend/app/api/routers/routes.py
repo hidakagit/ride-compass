@@ -14,10 +14,16 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe, validate_threshold_order
+from app.domain.recipe import (
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+    ROAD_SUITABILITY_BASE_BY_HIGHWAY,
+    MotorVehicleDensityRecipe,
+    RoadSuitabilityRecipe,
+    validate_threshold_order,
+)
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.domain.safety import SafetyRecipe
-from app.domain.traffic import TrafficStressRecipe
+from app.domain.traffic import DEFAULT_TRAFFIC_STRESS_RECIPE, TrafficStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.route_generator import JST
@@ -95,12 +101,33 @@ class RoadSuitabilityRecipeOverride(BaseModel):
     （改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ
     反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが
     無いため順序検証は不要。
+
+    `base_by_highway`は「全12highwayキーを明示した完全な置き換え」を前提とする
+    （このモデル自体の「全フィールド必須」方針と同じ考え方）。domain/recipe.py:
+    road_suitability()はキー欠落を「そのhighwayは評価対象外」(base=None)として
+    静かに扱うため、部分的なdictを許すと、そのhighway種別が交通ストレス・安全度の
+    両方から同時に消える（道路適正の共有化によって影響範囲が2軸分に広がった）。
     """
 
     base_by_highway: dict[str, int]
     cycleway_track_adjustment: int
     cycleway_lane_adjustment: int
     cycleway_shared_adjustment: int
+
+    @model_validator(mode="after")
+    def _check_base_by_highway_keys(self) -> "RoadSuitabilityRecipeOverride":
+        expected = ROAD_SUITABILITY_BASE_BY_HIGHWAY.keys()
+        actual = self.base_by_highway.keys()
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            detail_parts = []
+            if missing:
+                detail_parts.append(f"missing={missing}")
+            if extra:
+                detail_parts.append(f"unknown={extra}")
+            raise ValueError(f"base_by_highway must specify exactly the {len(expected)} known highway keys ({', '.join(detail_parts)})")
+        return self
 
 
 class MotorVehicleDensityRecipeOverride(BaseModel):
@@ -133,13 +160,42 @@ class TrafficStressRecipeOverride(BaseModel):
 
     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
     RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
-    （改善計画: 車との近さ材料の共有元化）。少車線側は「車道を自転車と自動車が共有して
-    いる」前提の補正のため多車線側と別レシピに分かれていても閾値の大小関係を検証する
-    必要が無い（domain/traffic.py: traffic_stress_breakdown参照）。
+    （改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側
+    (MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた
+    ため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は
+    `_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/
+    `TrafficStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:
+    traffic_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で
+    なくなり、両方が同時に発火して打ち消し合う）。
     """
 
     lanes_low_threshold: int
     lanes_low_adjustment: int
+
+
+def validate_lanes_threshold_order(
+    traffic_stress_recipe: "TrafficStressRecipeOverride | None",
+    motor_vehicle_density_recipe: "MotorVehicleDensityRecipeOverride | None",
+) -> None:
+    """`lanes_low_threshold`（TrafficStressRecipeOverride）と`lanes_high_threshold`
+    （MotorVehicleDensityRecipeOverride）は別モデルに分かれているため、Pydanticの
+    単一モデル`model_validator`では検証できない。どちらか一方だけが上書きされる
+    ケースもあるため、省略された側は既定値（DEFAULT_TRAFFIC_STRESS_RECIPE/
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE）を補って「実際に適用される値」どうしを
+    比較する。両モデルを併せ持つリクエストボディ（`RouteGenerateRequest`/
+    `TrafficStressBreakdownRequest`）の`model_validator(mode="after")`から呼ぶ。
+    """
+    lanes_low = (
+        traffic_stress_recipe.lanes_low_threshold
+        if traffic_stress_recipe is not None
+        else DEFAULT_TRAFFIC_STRESS_RECIPE.lanes_low_threshold
+    )
+    lanes_high = (
+        motor_vehicle_density_recipe.lanes_high_threshold
+        if motor_vehicle_density_recipe is not None
+        else DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.lanes_high_threshold
+    )
+    validate_threshold_order(lanes_low, lanes_high, "lanes")
 
 
 class SafetyRecipeOverride(BaseModel):
@@ -174,6 +230,11 @@ class RouteGenerateRequest(BaseModel):
     safety_recipe: SafetyRecipeOverride | None = None
     road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
+
+    @model_validator(mode="after")
+    def _check_lanes_threshold_order(self) -> "RouteGenerateRequest":
+        validate_lanes_threshold_order(self.traffic_stress_recipe, self.motor_vehicle_density_recipe)
+        return self
 
 
 class GenerationConditions(BaseModel):

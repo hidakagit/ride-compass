@@ -113,6 +113,57 @@
   margin: 0;
 }
 
+/* ScalarInput/ThresholdAdjustmentRow（改善計画: 車との近さ材料の共有元化のレビュー指摘。
+   各パネル独自の.module.cssへ個別にcomposesされていた同一定義をここへ集約）。
+   CarClosenessReferenceSectionと同じ理由で、呼び出し元のCSSモジュールに依存しない
+   自己完結スタイルにする。 */
+.field {
+  composes: field from "../WeightPanel/WeightPanel.module.css";
+  /* 右側（ステッパー+条件）が長いThresholdAdjustmentRowで、ラベル側が予期せず
+     押し縮められて途中で折り返される不具合を防ぐ。 */
+  flex-wrap: wrap;
+}
+
+.input {
+  composes: input from "../WeightPanel/WeightPanel.module.css";
+}
+
+.infoTooltip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.pairControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.thresholdInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.thresholdCaption {
+  flex-shrink: 0;
+}
+
+.thresholdInput {
+  composes: input;
+  width: 3rem;
+}
+
+.thresholdSuffix {
+  flex-shrink: 0;
+}
+
 /* CarClosenessReferenceSection（改善計画: 車との近さ材料の共有元化）。車の圧迫感・安全度
    パネルの先頭に置く読み取り専用の参照ブロックで、各パネル固有の.group/.groupHeader
    （WeightPanel.module.css由来のcomposes）とは独立した自己完結スタイルにする

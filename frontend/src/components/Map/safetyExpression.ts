@@ -32,6 +32,7 @@ import {
   buildRecipeLevelExpression,
   evaluateRecipeLevel,
   flagAdjustmentExpr,
+  type CarClosenessExpr,
 } from "@/components/Map/recipeExpression";
 
 export type SafetyRecipe = SafetyRecipeOverride;
@@ -46,14 +47,17 @@ export function buildSafetyExpression(
   recipe: SafetyRecipe,
   roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+  // 交通ストレスと共有する土台（改善計画: 車との近さ材料の共有元化）。同じ
+  // roadSuitabilityRecipe/motorVehicleDensityRecipeに対してbuildTrafficStressExpressionも
+  // 同じ結果を必要とするため、呼び出し側（MapView.tsx）が1回だけ計算した結果を
+  // 渡せるようにする（省略時はここで計算する、既存呼び出し元との後方互換）。
+  carCloseness: CarClosenessExpr = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe),
 ): unknown[] {
-  // 「車との近さ」(N2 = 道路適正＋自動車密度、domain/recipe.py: car_closeness)。
-  // 交通ストレスと共有する土台（改善計画: 車との近さ材料の共有元化）。安全度はlanes_high
-  // （多車線＝リスク増）のみ採用する（domain/safety.py: SafetyRecipeのdocstring参照。
-  // 少車線が安全側かは研究上見解が分かれるためlanes_lowは見送り、車との近さのlanes_high側の
-  // みで足りる）。
+  // 安全度はlanes_high（多車線＝リスク増）のみ採用する（domain/safety.py: SafetyRecipeの
+  // docstring参照。少車線が安全側かは研究上見解が分かれるためlanes_lowは見送り、車との近さの
+  // lanes_high側のみで足りる）。
   const { hasBase, base, cyclewayAdjustment, maxspeedAdjustment, lanesHighAdjustment, designationAdjustment } =
-    carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe);
+    carCloseness;
   const litAdjustment = flagAdjustmentExpr("lit", recipe.lit_adjustment);
   const tunnelAdjustment = flagAdjustmentExpr("tunnel", recipe.tunnel_adjustment);
 
@@ -74,9 +78,10 @@ export function evaluateSafetyLevel(
   recipe: SafetyRecipe = DEFAULT_SAFETY_RECIPE,
   roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+  carCloseness: CarClosenessExpr = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe),
 ): number | null {
   return evaluateRecipeLevel(
-    buildSafetyExpression(recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe),
+    buildSafetyExpression(recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe, carCloseness),
     properties,
     "安全度",
   );

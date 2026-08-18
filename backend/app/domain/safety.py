@@ -83,6 +83,8 @@ def safety_breakdown(
     recipe: SafetyRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+    *,
+    car_closeness_result: tuple[int | None, int, int, int, int] | None = None,
 ) -> SafetyBreakdown:
     """安全度（1-4段階、1=安全〜4=危険）を、各補正の適用有無・量が分かる内訳付きで返す。
     構造は`domain/traffic.py: traffic_stress_breakdown`と同一（基本値はhighwayのみで決まり
@@ -97,6 +99,10 @@ def safety_breakdown(
 
     `is_designated`はKSJ N10/N12該当（domain/designation.py）で、大型車混入の代理指標
     として交通ストレスと同じ意味・同じ+1既定値で扱う。
+
+    `car_closeness_result`は`car_closeness()`の呼び出し結果を呼び出し側で事前計算済みの
+    場合に渡す（`domain/evaluation.py: compute_edge_cost`参照。traffic_stress_breakdownの
+    docstringと同じ理由で、同一Edgeに対する二重計算を避ける）。
     """
     recipe = recipe or DEFAULT_SAFETY_RECIPE
     road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
@@ -105,7 +111,7 @@ def safety_breakdown(
     # 改善計画: 車との近さ材料の共有元化。「道路適正＋自動車密度」（N2、交通ストレス側
     # domain/traffic.py: traffic_stress_breakdownと共有）はdomain/recipe.py:
     # car_closeness()へ切り出し済み。
-    base, cycleway_adj, maxspeed_adj, lanes_adj, designation_adj = car_closeness(
+    base, cycleway_adj, maxspeed_adj, lanes_adj, designation_adj = car_closeness_result or car_closeness(
         highway, tags, is_designated, road_suitability_recipe, motor_vehicle_density_recipe
     )
     if base is None:
@@ -192,9 +198,17 @@ def safety_level(
     recipe: SafetyRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+    *,
+    car_closeness_result: tuple[int | None, int, int, int, int] | None = None,
 ) -> int | None:
     """安全度（1-4段階）の最終値のみを返す薄いラッパー。判定ロジック・docstringは
     `safety_breakdown`参照。"""
     return safety_breakdown(
-        highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
+        highway,
+        tags,
+        is_designated,
+        recipe,
+        road_suitability_recipe,
+        motor_vehicle_density_recipe,
+        car_closeness_result=car_closeness_result,
     ).level

@@ -1,7 +1,9 @@
 /* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/
-   .groupChevron/.groupBody/.field/.input/.resetButton）をcomposesで再利用する。
+   .groupChevron/.groupBody/.resetButton）をcomposesで再利用する。
    改善計画: 車との近さ材料の共有元化でhighway別基準値テーブルがRoadSuitabilityRecipePanelへ
-   移ったため、.table系クラスはこのファイルからは撤去した（同クラスはそちらへ移設済み）。 */
+   移り、ThresholdAdjustmentRowが使う.field/.input/.infoTooltip/.pairControls/
+   .thresholdInline等もrecipeControls.tsx/recipeControls.module.cssへ集約したため、
+   このファイルからは撤去した（レビュー指摘: 4パネルへの重複定義を解消）。 */
 
 .panel {
   composes: panel from "../WeightPanel/WeightPanel.module.css";
@@ -36,56 +38,6 @@
   gap: 0.3rem;
 }
 
-.field {
-  composes: field from "../WeightPanel/WeightPanel.module.css";
-  /* 右側（ステッパー+条件）が長いThresholdAdjustmentRowで、ラベル側が予期せず
-     押し縮められて途中で折り返される不具合を防ぐ。 */
-  flex-wrap: wrap;
-}
-
-.input {
-  composes: input from "../WeightPanel/WeightPanel.module.css";
-}
-
 .resetButton {
   composes: resetButton from "../WeightPanel/WeightPanel.module.css";
-}
-
-/* スカラー項目の説明（.field直後に表示、改行して全幅を使う）。 */
-.infoTooltip {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
-}
-
-/* 閾値+補正値の対フィールド（少車線道路）。ステッパーと変動条件（閾値）を同じ行に
-   横並びで置く。 */
-.pairControls {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.thresholdInline {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
-.thresholdCaption {
-  flex-shrink: 0;
-}
-
-.thresholdInput {
-  composes: input;
-  width: 3rem;
-}
-
-.thresholdSuffix {
-  flex-shrink: 0;
 }

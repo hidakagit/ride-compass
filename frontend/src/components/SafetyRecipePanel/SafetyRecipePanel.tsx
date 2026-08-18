@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { AdjustmentStepper, CarClosenessReferenceSection, FieldLabel } from "@/components/Map/recipeControls";
+import {
+  CarClosenessReferenceSection,
+  ScalarInput,
+  adjustmentEndpointColors,
+  type ScalarFieldDescriptor,
+} from "@/components/Map/recipeControls";
 import { TRAFFIC_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
 import {
   type MotorVehicleDensityRecipe,
@@ -30,14 +34,8 @@ interface SafetyRecipePanelProps {
 
 type ScalarKey = keyof SafetyRecipe;
 
-interface ScalarField {
-  key: ScalarKey;
-  label: string;
-  description: string;
-}
-
 // 街灯・トンネル（安全度のみ採用、交通ストレスには無い補正）。
-const ROAD_ENVIRONMENT_FIELDS: ScalarField[] = [
+const ROAD_ENVIRONMENT_FIELDS: ScalarFieldDescriptor<SafetyRecipe, ScalarKey>[] = [
   { key: "lit_adjustment", label: "街灯ありの補正", description: "lit=yes（街灯あり）に該当する道路への補正値" },
   { key: "tunnel_adjustment", label: "トンネルの補正", description: "tunnel=yes（トンネル区間）に該当する道路への補正値" },
 ];
@@ -45,36 +43,11 @@ const ROAD_ENVIRONMENT_FIELDS: ScalarField[] = [
 // 補正値ステッパーの色。このパネル自体は独自の地図レイヤーを持たないため
 // （街灯・トンネル補正だけでは段階を持たない）、TRAFFIC_STRESS_COLORSを流用する
 // （RoadSuitabilityRecipePanel.tsxと同じ理由）。
-const ADJUSTMENT_NEGATIVE_COLOR = TRAFFIC_STRESS_COLORS[1];
-const ADJUSTMENT_POSITIVE_COLOR = TRAFFIC_STRESS_COLORS[5];
-
-function ScalarInput({
-  field,
-  recipe,
-  onChange,
-}: {
-  field: ScalarField;
-  recipe: SafetyRecipe;
-  onChange: (recipe: SafetyRecipe) => void;
-}) {
-  const [infoOpen, setInfoOpen] = useState(false);
-  const value = recipe[field.key];
-  return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <AdjustmentStepper
-          label={field.label}
-          value={value}
-          onChange={(next) => onChange({ ...recipe, [field.key]: next })}
-          negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-          positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-        />
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
-  );
-}
+const { negativeColor: ADJUSTMENT_NEGATIVE_COLOR, positiveColor: ADJUSTMENT_POSITIVE_COLOR } = adjustmentEndpointColors(
+  TRAFFIC_STRESS_COLORS,
+  1,
+  5,
+);
 
 // 研究モードでの安全度レシピ上書きUI（改善計画: 安全度レシピ）。TrafficStressRecipePanel.tsxと
 // 同じ構造・同じ独立トグルの理由（上書き中は地図の色分け即座反映、重みは次回生成まで反映
@@ -112,7 +85,14 @@ export default function SafetyRecipePanel({
             </summary>
             <div className={styles.groupBody}>
               {ROAD_ENVIRONMENT_FIELDS.map((field) => (
-                <ScalarInput key={field.key} field={field} recipe={recipe} onChange={onRecipeChange} />
+                <ScalarInput
+                  key={field.key}
+                  field={field}
+                  recipe={recipe}
+                  onChange={onRecipeChange}
+                  negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+                  positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+                />
               ))}
             </div>
           </details>

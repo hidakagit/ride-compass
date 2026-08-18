@@ -78,6 +78,14 @@ class TestTrafficStressLevel:
     def test_residential_base_is_2(self):
         assert traffic_stress_level("residential", {}) == 2
 
+    def test_living_street_base_is_1(self):
+        # 改善計画: 車との近さ材料の共有元化でROAD_SUITABILITY_BASE_BY_HIGHWAYへ統合した際、
+        # 交通ストレス側のliving_street基準値が旧2→1へ変更された（安全度側の旧値1に合わせて
+        # 統一。domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY直上のコメント参照）。
+        # この軸単位のエンドツーエンド値もピン留めする
+        # （raw定数自体はTestRoadSuitabilityBaseByHighway、test_recipe.py参照）。
+        assert traffic_stress_level("living_street", {}) == 1
+
     def test_tertiary_base_is_3(self):
         assert traffic_stress_level("tertiary", {}) == 3
 

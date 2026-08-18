@@ -119,6 +119,17 @@ export function roadSuitabilityExpr(
   return { hasBase, base, cyclewayAdjustment };
 }
 
+// carClosenessExpr()の戻り値の形（build*Expression側が呼び出し元から事前計算済みの
+// 結果を受け取れるようexportする。MapView.tsx: setStaticOverlayFilters参照）。
+export interface CarClosenessExpr {
+  hasBase: unknown[];
+  base: unknown[];
+  cyclewayAdjustment: unknown[];
+  maxspeedAdjustment: unknown[];
+  lanesHighAdjustment: unknown[];
+  designationAdjustment: unknown[];
+}
+
 // 「車との近さ」（N2 = 道路適正＋自動車密度）を1組で返す（domain/recipe.py:
 // car_closeness、改善計画: 車との近さ材料の共有元化）。交通ストレス・安全度の両方が
 // 共通の土台として評価する材料で、軸固有の補正（交通ストレス: 車線数[少ない方]、
@@ -139,7 +150,7 @@ export function carClosenessExpr(
     lanes_high_adjustment: number;
     designation_adjustment: number;
   },
-): { hasBase: unknown[]; base: unknown[]; cyclewayAdjustment: unknown[]; maxspeedAdjustment: unknown[]; lanesHighAdjustment: unknown[]; designationAdjustment: unknown[] } {
+): CarClosenessExpr {
   const { hasBase, base, cyclewayAdjustment } = roadSuitabilityExpr(
     roadSuitabilityRecipe.base_by_highway,
     roadSuitabilityRecipe.cycleway_track_adjustment,

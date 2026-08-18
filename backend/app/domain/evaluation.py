@@ -16,7 +16,13 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.difficulty import evaluate_axis_difficulties
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
+from app.domain.recipe import (
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+    DEFAULT_ROAD_SUITABILITY_RECIPE,
+    MotorVehicleDensityRecipe,
+    RoadSuitabilityRecipe,
+    car_closeness,
+)
 from app.domain.road import classify_osm_surface
 from app.domain.route import Coordinates
 from app.domain.safety import SafetyRecipe, safety_level
@@ -173,6 +179,20 @@ def compute_edge_cost(
     is_good_surface = classify_osm_surface(surface_type)
     wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
+    # 「車との近さ」(N2、改善計画: 車との近さ材料の共有元化)はtraffic_stress_level・
+    # safety_levelの両方が内部で同じ材料タグ・同じレシピから計算する共通の土台のため、
+    # ここで1回だけ計算して両方へ渡す（全Edgeに対して2回ずつ計算する無駄を避ける）。
+    car_closeness_result = (
+        car_closeness(
+            edge.highway,
+            way_tags,
+            is_designated,
+            road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE,
+            motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+        )
+        if way_tags is not None
+        else None
+    )
     traffic_stress = (
         traffic_stress_level(
             edge.highway,
@@ -181,6 +201,7 @@ def compute_edge_cost(
             traffic_stress_recipe,
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+            car_closeness_result=car_closeness_result,
         )
         if way_tags is not None
         else None
@@ -202,6 +223,7 @@ def compute_edge_cost(
             safety_recipe,
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+            car_closeness_result=car_closeness_result,
         )
         if way_tags is not None
         else None

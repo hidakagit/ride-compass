@@ -1,8 +1,9 @@
 /* WeightPanel.module.cssの共通クラス（.panel/.toggleLabel/.groups/.group/.groupHeader/
-   .groupChevron/.groupBody/.field/.input/.resetButton）をcomposesで再利用する。
+   .groupChevron/.groupBody/.resetButton）をcomposesで再利用する。
    改善計画: 車との近さ材料の共有元化でhighway別基準値テーブルがRoadSuitabilityRecipePanelへ
-   移ったため、.table系クラスはこのファイルからは撤去した（同クラスはそちらへ移設済み。
-   TrafficStressRecipePanel.module.cssと同じ整理）。 */
+   移り、ScalarInputが使う.field/.input/.infoTooltipもrecipeControls.tsx/
+   recipeControls.module.cssへ集約したため、このファイルからは撤去した
+   （レビュー指摘: 4パネルへの重複定義を解消）。 */
 
 .panel {
   composes: panel from "../WeightPanel/WeightPanel.module.css";
@@ -34,51 +35,6 @@
   gap: 0.3rem;
 }
 
-.field {
-  composes: field from "../WeightPanel/WeightPanel.module.css";
-  flex-wrap: wrap;
-}
-
-.input {
-  composes: input from "../WeightPanel/WeightPanel.module.css";
-}
-
 .resetButton {
   composes: resetButton from "../WeightPanel/WeightPanel.module.css";
-}
-
-.infoTooltip {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
-}
-
-.pairControls {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.thresholdInline {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
-.thresholdCaption {
-  flex-shrink: 0;
-}
-
-.thresholdInput {
-  composes: input;
-  width: 3rem;
-}
-
-.thresholdSuffix {
-  flex-shrink: 0;
 }
