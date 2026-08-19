@@ -215,5 +215,23 @@ describe("MapOverlayControls", () => {
       // carStress=ONの推定グループ → 全体としてはON扱い
       expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-pressed", "true");
     });
+
+    // 推定グループの各軸に材料一覧を出す（改善計画T167）。axisMaterials（T164）から導出した
+    // 一次属性を、表示レイヤーの有無で「材料」「地図では未表示の材料」の2行に分ける。
+    it("推定グループの各軸の下に材料一覧が出て、表示レイヤーの有無で分けて表示される", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      await user.click(screen.getByRole("button", { name: "推定" }));
+
+      // 車の圧迫感: 道路種別・インフラ・指定路線はレイヤーあり、車線数・制限速度・車両可否は無し
+      expect(screen.getByText("材料: 道路種別・インフラ・指定路線")).toBeInTheDocument();
+      expect(screen.getByText("地図では未表示の材料: 車線数・制限速度・車両可否")).toBeInTheDocument();
+
+      // 勾配: 材料の標高にはレイヤーがある（未表示材料は無し）
+      expect(screen.getByText("材料: 標高")).toBeInTheDocument();
+
+      // 夜間: 材料（街灯・トンネル）はどちらもレイヤーが無い
+      expect(screen.getByText("地図では未表示の材料: 街灯・トンネル")).toBeInTheDocument();
+    });
   });
 });
