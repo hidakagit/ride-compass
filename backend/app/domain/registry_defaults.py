@@ -52,6 +52,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="highway",
+            label="道路の種類",
             source="osm",
             geometry="edge",
             dtype="categorical",
@@ -63,6 +64,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="lanes",
+            label="車線数",
             source="osm",
             geometry="edge",
             dtype="numeric",
@@ -74,6 +76,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="maxspeed",
+            label="制限速度",
             source="osm",
             geometry="edge",
             dtype="numeric",
@@ -85,6 +88,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="cycleway",
+            label="自転車インフラ",
             source="osm",
             geometry="edge",
             dtype="categorical",
@@ -96,6 +100,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="surface",
+            label="路面の種類",
             source="osm",
             geometry="edge",
             dtype="categorical",
@@ -107,6 +112,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="bicycle_access",
+            label="自転車通行可否",
             source="osm",
             geometry="edge",
             dtype="categorical",
@@ -118,6 +124,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="motor_vehicle_access",
+            label="自動車通行可否",
             source="osm",
             geometry="edge",
             dtype="categorical",
@@ -129,6 +136,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="lit",
+            label="街灯",
             source="osm",
             geometry="edge",
             dtype="boolean",
@@ -140,6 +148,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="tunnel",
+            label="トンネル",
             source="osm",
             geometry="edge",
             dtype="boolean",
@@ -151,6 +160,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="designation",
+            label="指定路線",
             source="kokudo_suuchi",
             geometry="edge",
             dtype="categorical",
@@ -162,6 +172,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="elevation",
+            label="標高",
             source="gsi",
             geometry="edge",
             dtype="numeric",
@@ -173,6 +184,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="stop_poi",
+            label="停止要因",
             source="osm",
             geometry="point",
             dtype="categorical",
@@ -184,6 +196,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="supply_poi",
+            label="補給・休憩ポイント",
             source="osm",
             geometry="point",
             dtype="categorical",
@@ -197,6 +210,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="accident_point",
+            label="事故地点",
             source="npa_accident",
             geometry="point",
             dtype="categorical",
@@ -208,6 +222,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="intersection",
+            label="交差点",
             source="osm",
             geometry="point",
             dtype="numeric",
@@ -219,6 +234,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="geometry",
+            label="区間形状",
             source="osm",
             geometry="edge",
             dtype="geometry",
@@ -261,10 +277,13 @@ def _register_axes() -> None:
             "（区間単位のこの軸と混同しないこと）",
             display=AxisDisplaySpec(
                 kind="none",
-                label="路面",
+                label="舗装質",
                 category="road",
                 note="既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分け"
-                "モード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない",
+                "モード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない。"
+                "ラベルは「路面」から改名（改善計画T163）: 一次属性「路面の種類」（surface）"
+                "との紛らわしさを解消するため。重みラベル「舗装」・レジストリ記述"
+                "「路面材質」と整合させた",
             ),
         )
     )
@@ -298,17 +317,20 @@ def _register_axes() -> None:
     register_axis(
         AxisSpec(
             axis_id="car_stress",
-            inputs=["highway", "lanes", "maxspeed", "cycleway", "designation"],
+            inputs=["highway", "lanes", "maxspeed", "cycleway", "designation", "motor_vehicle_access"],
             transform_fn="app.domain.traffic.car_stress_level",
             output_range=(0.0, 100.0),
-            description="道路種別・車線数・制限速度・N10/N12該当・自転車インフラ（cycleway補正）"
-            "から算出する車ストレス（走行中の車との近接ストレス）。旧「交通ストレス」・"
+            description="道路種別・車線数・制限速度・N10/N12該当・自転車インフラ（cycleway補正）・"
+            "自動車通行可否（motor_vehicle=noなら他の補正に関わらず1固定）から算出する"
+            "車ストレス（走行中の車との近接ストレス）。旧「交通ストレス」・"
             "「圧迫感」。改善計画T138で自転車インフラの独立軸を統合済み。呼称のtraffic→"
             "car_stressへの統一（Pythonシンボル名）は改善計画T150で実施済み。"
             "transform_fnは1-5の生レベルを返す`car_stress_level`を指す（0-100の"
             "difficultyへの変換は`domain/difficulty.py: car_stress_difficulty`が別途行う"
             "2段階構成。実際の呼び出しは`domain/evaluation.py: compute_edge_axis_scores`が"
-            "この2段階を合成して行っており、まだtransform_fn文字列を動的解決してはいない）",
+            "この2段階を合成して行っており、まだtransform_fn文字列を動的解決してはいない）。"
+            "motor_vehicle_accessは地図レイヤー階層の次数反転検討（改善計画T163）で"
+            "inputsからの記載漏れが発覚し追加した（排他違反ではないが不完全だった）",
             display=AxisDisplaySpec(
                 kind="bespoke",
                 label="車の圧迫感",
