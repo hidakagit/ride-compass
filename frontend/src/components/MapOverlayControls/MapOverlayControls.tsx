@@ -19,17 +19,22 @@ import {
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
+  AccidentDensityAxisIcon,
   AxisRampIcon,
   DesignationIcon,
   ElevationIcon,
   EstimatedIndexIcon,
+  GradientAxisIcon,
+  NightAxisIcon,
   ObservedDataIcon,
   RoadIcon,
   RoadSurfaceIcon,
   CarStressIcon,
   BicycleInfraIcon,
+  StopDensityAxisIcon,
   StopPoiIcon,
   SupplyPoiIcon,
+  SurfaceQualityAxisIcon,
   RouteIcon,
 } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
@@ -119,6 +124,21 @@ const DATA_NATURE_ICONS: Record<MapLayerDataNature, (props: { size?: number }) =
   composite: EstimatedIndexIcon,
 };
 
+// 推定グループの軸タイル（改善計画: 実機フィードバック「2次要素はアイコンだけで区別が
+// つくように」への対応）。axisId（secondaryAxes.ts、確定命名表6軸）ごとに専用アイコンを
+// 割り当てる。member.id（MapLayerId）や自動生成のramp軸レイヤーIDにひも付くLAYER_ICONSとは
+// 別物として持つ理由: stop_density・accidentは専用レイヤーIDがLAYER_ICONSの対象外
+// （axisMapLayerId経由の生成物）で、そのままではAxisRampIcon（汎用フォールバック）に
+// 埋もれてしまうため。renderAxisTileはmemberの有無に関わらずこちらで引く。
+const SECONDARY_AXIS_ICONS: Record<string, (props: { size?: number }) => ReactElement> = {
+  gradient: GradientAxisIcon,
+  surface_q: SurfaceQualityAxisIcon,
+  night: NightAxisIcon,
+  stop_density: StopDensityAxisIcon,
+  car_stress: CarStressIcon,
+  accident: AccidentDensityAxisIcon,
+};
+
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
 // JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
 const PANEL_GAP_PX = 8;
@@ -201,6 +221,7 @@ function ChipButton({
   registerRow,
   expandDirection = "right",
   tileVariant,
+  expandViaSelf,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -231,9 +252,18 @@ function ChipButton({
    * 内訳を描画しない。呼び出し元（MapOverlayControls本体）がこのボタンの直後（"flat"）
    * または同じ行の続き（"flatRight"）にメンバーをchipRowの直接の子として差し込む。 */
   expandDirection?: "right" | "down" | "flat" | "flatRight";
+  /** 観測/推定グループ本体だけに立てる印（実機フィードバック「展開三角アイコンをなくし、
+   * 展開状態は推定と観測アイコンの状態で表現して」への対応）。true のときは隣接する
+   * ▶/▼の丸トグルボタン自体を描画せず、本体ボタンのactive見た目（.iconChipActive）と
+   * aria-expandedで開閉状態を表す。本体タップは元々onTapにtoggleExpandedと同じ関数を
+   * 渡しているため、押下対象は変わらない（挙動はそのまま、見た目と意味づけだけを
+   * 変える）。軸タイル・観測メンバー・単独チップ（ON/OFFと凡例展開が別アクション）は
+   * この対象外で、従来どおり独立した丸トグルを持つ。 */
+  expandViaSelf?: boolean;
 }) {
   const arrowGlyph = expandDirection === "right" || expandDirection === "flatRight" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
+  const isActiveVisual = expandViaSelf ? isExpanded : active;
   return (
     <div
       ref={registerRow}
@@ -242,16 +272,17 @@ function ChipButton({
       <div className={styles.iconToggleRow}>
         <button
           type="button"
-          aria-pressed={active}
+          aria-pressed={expandViaSelf ? undefined : active}
+          aria-expanded={expandViaSelf ? isExpanded : undefined}
           disabled={disabled}
           title={title}
           onClick={onTap}
-          className={active ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip}
+          className={isActiveVisual ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip}
         >
           <Icon />
           <span className={styles.iconLabel}>{chipLabel}</span>
         </button>
-        {canExpand && (
+        {canExpand && !expandViaSelf && (
           <button
             type="button"
             onClick={onExpandToggle}
@@ -439,12 +470,13 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     const key = `axis:${axis.axisId}`;
     const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
     const materialsNote = renderMaterialsNote(axis.axisId);
+    const Icon = SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon;
     if (!member) {
       const canExpand = Boolean(axis.proxyHint) || materialsNote !== null;
       return (
         <ChipButton
           key={key}
-          Icon={AxisRampIcon}
+          Icon={Icon}
           label={axis.label}
           chipLabel={axis.label}
           active={false}
@@ -474,7 +506,6 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         />
       );
     }
-    const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
     const showLegend = Boolean(member.on && !member.disabled && hasLegend);
     const canExpand = showLegend || materialsNote !== null;
@@ -535,7 +566,10 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 // ON/OFFは切り替わらない（実機フィードバック「観測/推定はONにならなくて
                 // いい」への対応。以前はメンバーが1件でもONならこの見出し自体も
                 // アクティブ表示にしていたが、材料の連動ON（T167）で意図せず「推定」
-                // 全体が光って見える不具合になっていた）。
+                // 全体が光って見える不具合になっていた）。activeはexpandViaSelf=trueの下では
+                // 無視され、見出しのactive見た目は展開状態(isExpanded)から決まる
+                // （実機フィードバック「展開三角アイコンをなくし、展開状態は推定と観測
+                // アイコンの状態で表現して」への対応）。
                 active={false}
                 title={`${label}[${SECONDARY_AXES.length}件をタップで一覧]`}
                 onTap={() => toggleExpanded(group.key)}
@@ -543,6 +577,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flatRight"
+                expandViaSelf
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
@@ -575,8 +610,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 Icon={RepresentativeIcon}
                 label={label}
                 chipLabel={chipLabel}
-                // group:compositeと同じ理由（上のコメント参照）で見出し自体はアクティブ
-                // 表示にしない。
+                // group:compositeと同じ理由（上のコメント参照）でactiveは無視され、
+                // 見出しのactive見た目は展開状態(isExpanded)から決まる。
                 active={false}
                 title={`${label}[${group.members.length}件をタップで一覧]`}
                 onTap={() => toggleExpanded(group.key)}
@@ -584,6 +619,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flat"
+                expandViaSelf
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {

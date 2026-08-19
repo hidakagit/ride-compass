@@ -293,12 +293,28 @@ describe("MapOverlayControls", () => {
     // （aria-pressed=true）にしていたが、材料の連動ON（T167、推定指標をONにすると
     // 観測データも連動ONする）で「事故密度だけONにしたつもりが推定・観測の見出しまで
     // ONに見える」という実機フィードバックを受け、見出し自体は常にfalseにした。
-    it("メンバーがONでもグループチップ自体はaria-pressed=falseのまま", () => {
+    // その後、展開三角ボタンを廃止し見出し自体のactive見た目で展開状態を表す方式
+    // （expandViaSelf）へ変更したため、ON/OFFの意味を持つaria-pressedはそもそも
+    // 持たず、開閉の意味を持つaria-expandedだけを持つ。
+    it("グループチップ自体はメンバーのON状態を表すaria-pressedを持たず、展開状態のaria-expandedだけを持つ", async () => {
+      const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-      // roadType=OFF・designation=ONの観測グループ
-      expect(screen.getByRole("button", { name: "観測" })).toHaveAttribute("aria-pressed", "false");
-      // carStress=ONの推定グループ
-      expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-pressed", "false");
+      // roadType=OFF・designation=ONの観測グループ、carStress=ONの推定グループ
+      const observedButton = screen.getByRole("button", { name: "観測" });
+      const estimatedButton = screen.getByRole("button", { name: "推定" });
+      expect(observedButton).not.toHaveAttribute("aria-pressed");
+      expect(estimatedButton).not.toHaveAttribute("aria-pressed");
+      expect(observedButton).toHaveAttribute("aria-expanded", "false");
+      expect(estimatedButton).toHaveAttribute("aria-expanded", "false");
+
+      // 展開三角ボタンは廃止済みで別ボタンとしては存在せず、見出し自身のタップ+
+      // aria-expandedで開閉を表す（実機フィードバック「展開三角アイコンをなくし、
+      // 展開状態は推定と観測アイコンの状態で表現して」への対応）。
+      expect(screen.queryByRole("button", { name: /観測の凡例を/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /推定の凡例を/ })).not.toBeInTheDocument();
+
+      await user.click(observedButton);
+      expect(observedButton).toHaveAttribute("aria-expanded", "true");
     });
 
     // 推定グループの各軸タイルに材料一覧を出す（改善計画T167→T169）。axisMaterials（T164）

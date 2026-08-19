@@ -28,8 +28,12 @@ export function ElevationIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 二次軸rampレイヤー（改善計画T145b）の共通アイコン: 密度の濃淡を表す棒グラフ。
- * 軸はレジストリ生成物から自動で増えるため、軸ごとの専用アイコンは持たず全ramp軸で共用する */
+/** 二次軸rampレイヤー（改善計画T145b）の汎用フォールバック: 密度の濃淡を表す棒グラフ。
+ * 確定命名表の6軸（勾配・舗装質・夜間・停止密度・車の圧迫感・事故密度）はSECONDARY_AXIS_ICONS
+ * （MapOverlayControls.tsx）でそれぞれ専用アイコンを持つ（実機フィードバック「2次要素は
+ * アイコンだけで区別がつくように」への対応、旧来はこのアイコンを全軸で共用していた）。
+ * この汎用形はレジストリ生成物から自動で増える、まだ専用アイコンの無いramp軸・単独チップ
+ * 向けのフォールバックとして残す。 */
 export function AxisRampIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -39,6 +43,79 @@ export function AxisRampIcon({ size = 16 }: IconProps) {
         strokeWidth="1.6"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+/** 勾配（推定軸）: 地面から立ち上がる傾斜線+矢頭。標高図（ElevationIcon、山並みの
+ * シルエット）は生の標高そのものを表すのに対し、こちらは傾き（変化率）という別概念を表す
+ * ため意匠を分ける。 */
+export function GradientAxisIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M2.5 16.5h15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3.5 16.5 13.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M9.5 5.5h4v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** 舗装質（推定軸）: 路面の滑らかさ/粗さを表す波線。路面の種類（RoadSurfaceIcon、材質の
+ * テクスチャを表す帯+点）は観測データ（種別の分類）、こちらは推定指標（質のスコア）という
+ * 別概念を表すため意匠を分ける。 */
+export function SurfaceQualityAxisIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M2 14c1.8-3.4 3.6-3.4 5.4 0s3.6 3.4 5.4 0 3.6-3.4 5.4 0"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** 夜間（推定軸）: 三日月のシルエット */
+export function NightAxisIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M17.5 10.66A7.5 7.5 0 1 1 9.34 2.5 5.83 5.83 0 0 0 17.5 10.66Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 停止密度（推定軸）: 縦に積み重なり下ほど大きくなる点で、停止要因の集積を表す。
+ * 停止要因（StopPoiIcon、信号機のシルエット）は観測データ（個々の要因の種類）、こちらは
+ * 推定指標（密度）という別概念を表すため意匠を分ける。 */
+export function StopDensityAxisIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="4.6" r="1.3" fill="currentColor" />
+      <circle cx="10" cy="9.6" r="1.9" fill="currentColor" />
+      <circle cx="10" cy="15.4" r="2.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** 事故密度（推定軸）: 大小不揃いに散らばる点の集まりで、集積（ヒートマップ）を表す。
+ * 事故（AccidentIcon、単一の衝突バースト）は観測データ（個々の事故地点）、こちらは
+ * 推定指標（密度）という別概念を表すため意匠を分ける。停止密度（StopDensityAxisIcon）とは
+ * 縦一列の整列 vs 不規則な散らばりで区別する。 */
+export function AccidentDensityAxisIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="5.5" cy="13.5" r="1.6" fill="currentColor" />
+      <circle cx="11" cy="7" r="2.3" fill="currentColor" />
+      <circle cx="15.5" cy="14.5" r="1.3" fill="currentColor" />
+      <circle cx="8" cy="16.3" r="1" fill="currentColor" />
     </svg>
   );
 }
