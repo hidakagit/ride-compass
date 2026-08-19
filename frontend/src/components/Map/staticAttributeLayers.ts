@@ -36,22 +36,32 @@ import {
 
 const COLOR_UNKNOWN = "#9ca3af";
 
-// 改善計画（1次/2次の地図上表現の統一、竹）: このファイルのカテゴリ色（自転車インフラ・
-// 指定路線・停止要因POI・補給POI・事故当事者）は「観測された事実の種類」を区別する
-// ためのもので、良し悪しの評価ではない。にもかかわらず緑（良い）・赤（悪い）・アンバー
-// （警告）を種類ラベルとして流用しており、2次のramp軸（車の圧迫感・停止密度・事故密度等、
-// axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）や旧CAR_STRESS_COLORSと同系統の
-// 色が「事実」と「評価」の両方で使われ、地図上で混同されるという実機フィードバックを
-// 受けて中立色（藍・灰茶・桃など、評価配色に含まれない色相）へ差し替えた。各カテゴリ群
-// （bicycleInfra/stopPoi/supplyPoi/accident）は互いに独立した凡例・レイヤーのため、
-// 色の使い回しは問題にならない（同じ画面で並べて比較されることが無い）。
-// 唯一の例外はACCIDENT_SEVERITY_COLOR_FATAL（死亡事故）で、これは「事実の種類」ではなく
-// 実際に重大な事実そのものであるため、赤を維持している（下記コメント参照）。
+// 改善計画（1次/2次の地図上表現の統一、竹）: このファイルのカテゴリ色は、対象によって
+// 2種類に分かれる。
+//
+// (A) 純粋な分類（順序を持たない）: 停止要因POIの種別（信号/横断歩道/一時停止/徐行/踏切）・
+// 補給POIの種類・事故の当事者区分（自転車関連/その他）は「観測された事実の種類」を
+// 区別するだけで、どちらが強い/弱いという順序を持たない。かつては緑（良い）・赤（悪い）・
+// アンバー（警告）を種類ラベルとして流用しており、2次のramp軸（車の圧迫感・停止密度・
+// 事故密度等、axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）と紛らわしいだけでなく、
+// 「順序が無いものに順序があるかのような嘘の意味」を作ってしまっていたため、評価配色を
+// 含まない中立色（藍・灰茶・桃など）へ差し替えた。各カテゴリ群は互いに独立した凡例・
+// レイヤーのため、色の使い回しは問題にならない（同じ画面で並べて比較されることが無い）。
+//
+// (B) 車の圧迫感の材料そのもの（順序を持つ）: 自転車インフラ・指定路線は、上のカテゴリ群
+// とは違い、実際に車の圧迫感（2次）の計算材料として使われている（mapLayers.ts:
+// carStressのpanelHintDetail参照。「分離自転車道: -2」「指定路線に該当: +1」等）。つまり
+// これらは「安全寄り→危険寄り」という2次と同じ意味の順序を実際に持っており、中立色に
+// してしまうと「濃ければ強い？」というだけの手がかりの無い色になってしまう（実機
+// フィードバック「1次の軸色の意味合いが読めない」）。この2つだけは2次と同じ緑→赤の
+// 配色言語（AXIS_RAMP_COLORS系）へ揃え、「1次のこの色は2次のこの色と同じ方向を指す」と
+// 直接読めるようにする（下記BICYCLE_INFRA_CATEGORIES/DESIGNATION_CATEGORIES参照）。
+// 「不明・他/対象外」（順序上の位置が不明、または該当なし）はどちらの種類でも中立グレー
+// のままとし、FALLBACK_LINE_OPACITYで薄くする（緑にはしない。「対象外」は「安全と確認
+// 済み」ではなく「材料が無い/該当しない」であり、緑が持つ「良い」という含意とは別物のため）。
 const COLOR_NEUTRAL_INDIGO = "#4f46e5";
 const COLOR_NEUTRAL_STONE = "#78716c";
 const COLOR_NEUTRAL_PINK = "#be185d";
-const COLOR_NEUTRAL_FUCHSIA = "#a21caf";
-const COLOR_NEUTRAL_TEAL_DARK = "#0f766e";
 
 export interface CategoryDef {
   key: string;
@@ -204,13 +214,21 @@ export const CAR_STRESS_COLOR_EXPRESSION: unknown[] = buildCarStressColorExpress
 // 次第でshared_pedestrianになる場合とroadwayに落ちる場合があり、pedestrian/bridleway/
 // stepsはどちらの個別分岐も無くroadwayへ落ちる。cycleway=track併設の幹線道路は
 // highway側では「自転車・歩行者道」に入らないままseparatedになる（非対称）。
+// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料（cycleway補正、mapLayers.ts:
+// carStressのpanelHintDetail「分離自転車道: -2／自転車レーン・共有の車線表示: -1」参照）
+// そのものであり、上から下へ「安全寄り→危険寄り」の実際の順序を持つ。梅で車ストレス
+// 5段階に適用したのと同じ手順（AXIS_RAMP_COLORSの4色をそのまま複数段階へ再利用し、
+// 段階数の差分だけMaterial系の中間色を新規に挿入）で6段階の緑→赤を割り付ける。
+// 1段目(separated)・4〜6段目(shared_pedestrian/roadway/prohibited)はAXIS_RAMP_COLORSの
+// 4色をそのまま再利用し、2〜3段目(lane/shared_busway)にMaterial Light Green 500・
+// Lime 500を新規に挿入して段差をつなぐ。
 const BICYCLE_INFRA_CATEGORIES: CategoryDef[] = [
-  { key: "separated", label: "分離自転車道", color: COLOR_NEUTRAL_INDIGO },
-  { key: "lane", label: "自転車レーン", color: "#0d9488" },
-  { key: "shared_busway", label: "バス専用道等の共用", color: COLOR_NEUTRAL_STONE },
-  { key: "shared_pedestrian", label: "歩道[自転車通行可]", color: "#0284c7" },
-  { key: "roadway", label: "車道[専用施設なし]", color: "#7c3aed" },
-  { key: "prohibited", label: "自転車通行不可", color: COLOR_NEUTRAL_FUCHSIA },
+  { key: "separated", label: "分離自転車道", color: AXIS_RAMP_COLORS[0] },
+  { key: "lane", label: "自転車レーン", color: "#8bc34a" },
+  { key: "shared_busway", label: "バス専用道等の共用", color: "#cddc39" },
+  { key: "shared_pedestrian", label: "歩道[自転車通行可]", color: AXIS_RAMP_COLORS[1] },
+  { key: "roadway", label: "車道[専用施設なし]", color: AXIS_RAMP_COLORS[2] },
+  { key: "prohibited", label: "自転車通行不可", color: AXIS_RAMP_COLORS[3] },
 ];
 
 const bicycleInfraDefs = buildCategoricalLayerDefs("bicycle_infra", BICYCLE_INFRA_CATEGORIES, "不明・他");
@@ -230,16 +248,22 @@ export const BICYCLE_INFRA_OPACITY_EXPRESSION: unknown[] = bicycleInfraDefs.opac
 // 改善計画T74: N10・N12両方に該当するwayは3値目"both"として独立カテゴリ化する
 // （以前は単一値CASE式でemergency_transport側のみ出力され、凡例で「緊急輸送道路」を
 // 非表示にするとN12でもある区間が地図から完全に消えていた）。
+// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料そのもの（mapLayers.ts:
+// carStressのpanelHintDetail「指定路線に該当: +1」参照）で、N10/N12いずれに該当しても
+// 一律+1と扱われ、3カテゴリ間に強弱の差は無い（該当なし=対象外との二値に近い）。
+// AXIS_RAMP_COLORSの上位3色（アンバー・オレンジ・赤、いずれも「危険寄り」の範囲）を
+// そのまま再利用し、「指定路線に色が付く=車の圧迫感が上がる材料」と直接読めるようにする
+// （3値の強弱ではなく、単に見分けが付くよう別々の色を割り当てているだけ）。
 const DESIGNATION_CATEGORIES: CategoryDef[] = [
-  { key: "emergency_transport", label: "緊急輸送道路[N10]", color: COLOR_NEUTRAL_TEAL_DARK },
-  { key: "critical_logistics", label: "重要物流道路[N12]", color: "#1d4ed8" },
+  { key: "emergency_transport", label: "緊急輸送道路[N10]", color: AXIS_RAMP_COLORS[1] },
+  { key: "critical_logistics", label: "重要物流道路[N12]", color: AXIS_RAMP_COLORS[2] },
   // 改善計画: 全角括弧（）は表示幅を取り地図表示エリアを圧迫するため半角[]へ統一
   // （設計原則12、docs/complexity-review-2026-08-16.md）。地図上の内訳パネル（幅が狭い）で
   // 見切れやすいという実機報告（モバイル）を機にT104で個別対応した後、システムUI全般の
   // 方針として明文化された。「緊急輸送道路 かつ 重要物流道路」は共有語「道路」の重複表現を
   // 割愛し「緊急輸送 かつ 重要物流道路」へ短縮（ユーザー指定の表記）。折り返し自体もCSS側で
   // 許可済み（MapOverlayControls.module.css: .detailRowLabel）。
-  { key: "both", label: "緊急輸送 かつ 重要物流道路[N10＋N12]", color: "#7c3aed" },
+  { key: "both", label: "緊急輸送 かつ 重要物流道路[N10＋N12]", color: AXIS_RAMP_COLORS[3] },
 ];
 
 const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CATEGORIES, "対象外");
