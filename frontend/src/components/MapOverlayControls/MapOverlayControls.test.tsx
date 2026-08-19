@@ -140,61 +140,80 @@ describe("MapOverlayControls", () => {
     expect(screen.queryByRole("button", { name: "ルートの凡例を表示" })).not.toBeInTheDocument();
   });
 
-  // カテゴリ束ね（改善計画T128）: 同じcategoryを持つチップが2件以上あるときだけ
-  // 1個のグループチップへ束ねる。categoryを持たない/1件しかないレイヤーは従来どおり単独。
-  describe("カテゴリ束ね（改善計画T128）", () => {
+  // 次数束ね（改善計画T166）: T128のcategory束ねを、観測データ/推定指標（合成）の2トップへ
+  // 反転した。categoryを持つraw（省略含む）チップは「観測」、compositeチップは「推定」へ
+  // 集約され、categoryを持たないレイヤー（route等）は従来どおり単独。
+  describe("次数束ね（改善計画T166）", () => {
     function groupedLayers(): OverlayLayerChip[] {
       return [
         { id: "elevation", label: "標高図", on: false }, // categoryなし→単独のまま
         { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
         { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
         { id: "carStress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
-        { id: "accidents", label: "事故", on: false, category: "trafficSafety" }, // dataNature省略→raw扱い
+        { id: "accidents", label: "事故地点", on: false, category: "trafficSafety" }, // dataNature省略→raw扱い
       ];
     }
 
-    it("同じcategoryが2件以上あるレイヤーは1個のグループチップへ束ねられ、個別ボタンは出ない", () => {
+    it("観測（raw）チップはすべて「観測」へ、推定（composite）チップはすべて「推定」へ束ねられ、個別ボタンは出ない", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
       expect(screen.getByRole("button", { name: "標高図" })).toBeInTheDocument(); // categoryなしは単独のまま
       expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "道路状態" })).toBeInTheDocument(); // カテゴリ見出しの束ねチップ
-      expect(screen.getByRole("button", { name: "交通・安全" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "観測" })).toBeInTheDocument(); // 次数見出しの束ねチップ（略名）
+      expect(screen.getByRole("button", { name: "推定" })).toBeInTheDocument();
     });
 
-    it("グループチップを開くとメンバーごとのON/OFFボタンが並ぶ", async () => {
+    it("観測グループを開くとcategory小見出し（道路状態・交通・安全）ごとにメンバーのON/OFFボタンが並ぶ", async () => {
       const user = userEvent.setup();
       const onToggle = vi.fn();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
 
-      await user.click(screen.getByRole("button", { name: "道路状態" }));
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      expect(screen.getByText("道路状態")).toBeInTheDocument();
+      expect(screen.getByText("交通・安全")).toBeInTheDocument();
       const designationToggle = screen.getByRole("button", { name: "指定路線" });
       expect(designationToggle).toHaveAttribute("aria-pressed", "true");
 
       await user.click(designationToggle);
       expect(onToggle).toHaveBeenCalledWith("designation", false);
+      // compositeのcarStressは観測グループに含まれない
+      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
     });
 
-    it("メンバーのdataNatureが混在するグループだけ「推定指標（合成）」「観測データ」の小見出しが出る", async () => {
+    it("推定グループを開くと確定命名表の6軸すべてが並び、専用レイヤーの無い軸は薄字表示になる", async () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
-      // 道路状態（roadType/designationとも既定dataNature=raw、混在しない）は小見出し無し
-      await user.click(screen.getByRole("button", { name: "道路状態" }));
-      expect(screen.queryByText("推定指標（合成）")).not.toBeInTheDocument();
-      expect(screen.queryByText("観測データ")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "推定" }));
+      // レイヤーを持つ軸（car_stress）はON/OFFトグル付きの行
+      const carStressToggle = screen.getByRole("button", { name: "車の圧迫感" });
+      expect(carStressToggle).toHaveAttribute("aria-pressed", "true");
+      // レイヤーの無い軸（勾配・舗装質・夜間）は正式名だけの薄字表示（トグルボタンなし）
+      expect(screen.getByText("勾配")).toBeInTheDocument();
+      expect(screen.getByText("標高レイヤーで確認できます")).toBeInTheDocument();
+      expect(screen.getByText("舗装質")).toBeInTheDocument();
+      expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
+      expect(screen.getByText("夜間")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "勾配" })).not.toBeInTheDocument();
+      // レイヤーはあるがlayers propに渡されていない軸（停止密度・事故密度）もトグル無しの
+      // 情報行として一覧に含まれる（layersに無いのでLayerChipを引けない）
+      expect(screen.getByText("停止密度")).toBeInTheDocument();
+      expect(screen.getByText("事故密度")).toBeInTheDocument();
+    });
 
-      // 交通・安全（carStress=composite、accidents=raw、混在する）は小見出しが出る
-      await user.click(screen.getByRole("button", { name: "交通・安全" }));
-      expect(screen.getByText("推定指標（合成）")).toBeInTheDocument();
-      expect(screen.getByText("観測データ")).toBeInTheDocument();
+    it("推定グループはcompositeチップが1件も渡されなくても常に表示される（SECONDARY_AXESの薄字項目があるため）", () => {
+      render(<MapOverlayControls {...baseProps()} />); // baseLayers()にcompositeチップなし
+      expect(screen.getByRole("button", { name: "推定" })).toBeInTheDocument();
     });
 
     it("いずれかのメンバーがONならグループチップがaria-pressed=trueになる", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-      // roadType=OFF・designation=ONの道路状態グループ → 全体としてはON扱い
-      expect(screen.getByRole("button", { name: "道路状態" })).toHaveAttribute("aria-pressed", "true");
+      // roadType=OFF・designation=ONの観測グループ → 全体としてはON扱い
+      expect(screen.getByRole("button", { name: "観測" })).toHaveAttribute("aria-pressed", "true");
+      // carStress=ONの推定グループ → 全体としてはON扱い
+      expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-pressed", "true");
     });
   });
 });
