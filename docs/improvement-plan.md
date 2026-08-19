@@ -1117,6 +1117,41 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   境界フィルタが`buildAxisRampValueExpression`と同じ値式を参照し境界が連続することを
   追加検証）。frontend vitest 341件・tsc・eslint全green。
 
+### - [x] T162. 研究タブを「評価の重み」「レシピ」の2カテゴリから2次要素（軸）ごとの整理へ変更する 規模S（2026-08-19完了）
+
+- 発端: T161・T128に続くC段階。ユーザー相談「T128とT145の検討をしたい…研究タブの中を、
+  2次要素ごとに整理して」「A、B、Cの順で実施して」。以前の研究タブは「評価の重み」
+  （`WeightPanel`、区間難易度の重み7軸がフラットな1リスト）と「レシピ[一次情報→
+  二次情報の変換式]」（`RoadSuitabilityRecipePanel`/`MotorVehicleDensityRecipePanel`/
+  `CarStressRecipePanel`）という「操作の種類」で分かれた2カテゴリで、同じ軸（車の圧迫感）の
+  重みとレシピを見比べるのに2箇所を行き来する必要があった。
+- 対応方針: `route_preference.yaml`の区間難易度の重み7軸（`PREFERENCE_FIELDS`）は
+  registry軸（勾配/舗装/風/信号・踏切等/車の圧迫感/事故/夜間、`lib/evaluationAxes.ts`
+  参照）と1:1対応するため、レシピを持つ軸（現状は車の圧迫感のみ）はその軸の重み行の
+  直下へレシピパネルを差し込む構成にし、「レシピ」という独立カテゴリを廃止する。
+- 完了条件: 車の圧迫感の重み入力のすぐ下に、道路適正・自動車密度（共有材料）＋
+  車ストレスレシピパネルが表示されること。他の軸（重みのみでレシピを持たない）は
+  従来どおり入力欄のみで変化しないこと。
+- 実装メモ（2026-08-19完了）: `WeightPanel.tsx`へ`renderPreferenceFieldExtra?:
+  (weightKey) => ReactNode`という汎用の差し込み枠を追加した（WeightPanel自身は
+  車ストレス等の個別知識を持たないまま、page.tsx側がweightKeyごとに何を差し込むか
+  決められる）。`page.tsx`側で`renderCarStressRecipeExtra()`（旧「レシピ」カテゴリの
+  中身そのもの、共有材料グループ＋インデントしたCarStressRecipePanel）を組み立て、
+  `car_stress_weight`のときだけ返す`renderPreferenceFieldExtra`を`WeightPanel`へ渡す形に
+  した。旧「レシピ」カテゴリの`<div className={styles.researchCategory}>`ブロックは削除。
+  **副次的な発見**: この移動で「共有材料[車の圧迫感・安全度が参照]」という見出し文言と
+  周辺コメントが、T139で既に廃止済みの安全度軸を参照したままの**古いまま**だったことに
+  気づき、あわせて修正した（`page.tsx`本文・`page.module.css`のコメント両方）。
+  `page.module.css`の`.researchCategory + .researchCategory`（2カテゴリ間の余白ルール）も
+  `.researchCategory`が1つだけになり不要になったため削除。
+  検証: `WeightPanel.test.tsx`へ新規テスト1件（`renderPreferenceFieldExtra`が対象の
+  weightKeyの行にだけ差し込まれる）追加。frontend vitest 346件・tsc・eslint・
+  `next build`全green。Playwright headless実機確認（退避ポート3011）:
+  研究モードON→評価重みカード展開→区間難易度の重みを展開→車の圧迫感の重み欄の直下に
+  「レシピ[一次情報→二次情報の変換式]・共有材料[車の圧迫感が参照]」ボックス（道路適正・
+  自動車密度）とその下にインデントされた車ストレスレシピパネルが現れることをスクリーン
+  ショットで確認。
+
 ### - [x] T146. 区間インスペクタをレジストリ駆動にし、一次属性まで遡って表示できるようにする 規模M（2026-08-19完了）
 
 - 背景: 設計プロンプトの区間インスペクタ要件。現状の`recipeBreakdownPopup.ts`は

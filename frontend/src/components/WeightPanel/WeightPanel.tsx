@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { FieldLabel, RecipePanelSection, withAutoEnable } from "@/components/Map/recipeControls";
 import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
@@ -35,6 +35,13 @@ interface WeightPanelProps {
   onScoringWeightsChange: (weights: ScoringWeights) => void;
   routePreference: RoutePreferenceWeights;
   onRoutePreferenceChange: (preference: RoutePreferenceWeights) => void;
+  /** 区間難易度の重み（2次要素）を軸ごとに整理する研究タブの改修（改善計画T145関連）用の
+   * 差し込み枠。軸によっては重みだけでなく一次情報→二次情報の変換式そのもの
+   * （車の圧迫感のCarStressRecipePanel等）を持ち、以前は「レシピ」という別カテゴリへ
+   * 分離していたが、同じ軸の重みのすぐ下に置く方が「この軸を調整する」ときに探す場所が
+   * 1箇所で済む。WeightPanel自身は車ストレス等の個別知識を持たず、page.tsx側が
+   * weightKeyごとに何を差し込むか（無ければnull）を決める汎用の枠として提供する。 */
+  renderPreferenceFieldExtra?: (weightKey: keyof RoutePreferenceWeights) => ReactNode;
 }
 
 interface WeightField<T> {
@@ -118,6 +125,7 @@ export default function WeightPanel({
   onScoringWeightsChange,
   routePreference,
   onRoutePreferenceChange,
+  renderPreferenceFieldExtra,
 }: WeightPanelProps) {
   const handleScoringChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onScoringWeightsChange);
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
@@ -149,7 +157,10 @@ export default function WeightPanel({
           </summary>
           <div className={styles.groupBody}>
             {PREFERENCE_FIELDS.map((field) => (
-              <WeightInput key={String(field.key)} field={field} values={routePreference} onChange={handlePreferenceChange} />
+              <div key={String(field.key)} className={styles.fieldGroup}>
+                <WeightInput field={field} values={routePreference} onChange={handlePreferenceChange} />
+                {renderPreferenceFieldExtra?.(field.key)}
+              </div>
             ))}
             {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
             <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
