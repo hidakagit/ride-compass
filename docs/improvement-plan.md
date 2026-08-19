@@ -1417,7 +1417,7 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   `axis-inspector`等の新設シンボルへの言及があり、`base_by_highway`の記述が実装と一致する
   こと。次回consistencyレビューで`git blame`による裏取りを実施し再発が無いことを確認する。
 
-### - [ ] T155. recipe_definition.py（T141）の配線または削除を最終判断する 規模S
+### - [x] T155. recipe_definition.py（T141）の配線または削除を最終判断する 規模S（2026-08-19完了）
 
 - 発端: 統合レビュー統合-3（overall F-3）。T141は「実配線はT142以降」と明記していたが、
   T142は別方式（`compute_edge_axis_scores`＋手書き辞書2種）を採用し`recipe_definition.py`
@@ -1429,6 +1429,14 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   トリガー（例: 「差分レイヤー化に着手する時点」）を付けてDEFERへ格上げする。
 - 完了条件: (a)の場合はファイル・テストの削除とgrepでの参照ゼロ確認。(b)の場合は
   DEFER欄への移動とトリガー条件の明記。
+- 実装メモ（2026-08-19完了）: (a) REMOVEを選択。着手時点で再確認しても
+  `grep -rln "recipe_definition" backend --include="*.py"`は`tests/test_recipe_definition.py`
+  自身のみで、T148（並行セッション）の改修後も状況は変わっていなかった。「いつか
+  ExperimentSlotの差分レイヤー化で使うかもしれない」という(b)の将来用途は具体的な着手時期の
+  見込みが無く、設計原則9（DEFERにはトリガーを付け、トリガー未到達の項目を「ついで」に
+  実装しない）・原則10（将来のための過剰設計を避ける）に照らし採用しない。
+  `backend/app/domain/recipe_definition.py`・`backend/tests/test_recipe_definition.py`を削除。
+  grep再確認で参照ゼロ、backend pytest 814件（821件から7件減、削除したテスト分）green。
 
 ### - [ ] T156. registry_defaults.pyとevaluation.pyの軸ID集合のドリフト検知テストを追加する
   規模S
