@@ -3716,8 +3716,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 対象コミット`32e84ed`時点の指摘であり、直後のT131（研究タブレイアウト改善）で
 一部（参照セクションの上書き非依存の可視化）は既に解消済み。各タスクの発端欄に注記する。
 
-### - [ ] T132. docs/architecture.md §7 を「道路適正」「自動車密度」独立レシピ軸(T130)・
-  研究タブレイアウト改善(T131)・補給POIレイヤー(T101)へ追従させる 規模M
+### - [x] T132. docs/architecture.md §7 を「道路適正」「自動車密度」独立レシピ軸(T130)・
+  研究タブレイアウト改善(T131)・補給POIレイヤー(T101)へ追従させる 規模M（2026-08-19完了）
 
 - 発端: 統合レビューF-1（overall・consistency共通指摘、統合-1）。architecture.md §7が
   `base_by_highway`の独立性を誤って記述（実際は`recipe.py`で意図的に共有）、撤去済み
@@ -3733,9 +3733,32 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 - 完了条件: architecture.md中に`car_closeness`/`RoadSuitabilityRecipe`/
   `MotorVehicleDensityRecipe`等の新設シンボルへの言及があること。記載中のAPI例が
   現行スキーマでバリデーションを通ること。
+- 実装メモ（2026-08-19完了）: 着手時点で`base_by_highway`共有・`shoulder_adjustment`撤去・
+  `CarStressRecipePanel`（旧`TrafficStressRecipePanel`）の守備範囲は、T130〜T150の一連の
+  タスク（本タスクの発端より後に実施）が自身の完了作業の一部として既にarchitecture.md側も
+  更新済みと判明。本タスクは残っていた実際のギャップに絞って対応: (1)
+  `POST /api/routes/generate`のRequest例が`route_preference`3/7フィールドしか埋めておらず
+  現行`RoutePreferenceWeights`（全7フィールド必須）で422になる不整合を修正し、欠落していた
+  `road_suitability_recipe`/`motor_vehicle_density_recipe`（T130で新設のOverrideフィールド）
+  も例に追加。実際に`RouteGenerateRequest.model_validate()`へ通して検証が通ることを確認
+  （backendスクリプトで実行確認済み）。`conditions`エコー・`segments`/`RouteCandidate`
+  レスポンス例も同様に更新（`car_stress`/`bicycle_infra`/`safety`生値、
+  `stop_difficulty`/`car_stress_difficulty`/`accident_difficulty`/`night_difficulty`、
+  `safety_score`の欠落を解消）。(2) 「フロント9レイヤー」見出し・列挙からsupplyPoi
+  （T101）が抜けていた実際の残存ギャップを10レイヤーへ修正。(3) T132着手後に完了した
+  T145b（レジストリ駆動の二次軸ランプレイヤー、`accident_per_km`/`stop_per_km`/
+  `intersection_per_km`のタイル追加・`axisLayers.ts`）がarchitecture.md未反映のまま
+  残っていたため新設の「レジストリ駆動の二次軸ランプレイヤー」節で追記、road-surface-tiles
+  世代表記もv10（stale）→v12（現行）へ修正（v11=T122の`shoulder`撤去も追記漏れだった）。
+  (4) T131のRecipePanelSection/withAutoEnable構成への言及を追加。docs変更のみ、コード変更
+  なし。
+- 注記: T132起票時点（2026-08-18）から本着手（2026-08-19）までの間に「評価システムの層構造
+  再設計」（T137〜T151）が大量に完了し軸構成自体が7〜9軸から再編されているが、それらは
+  各タスクの完了条件でarchitecture.md追従が既に担保されていたため、本タスクは前段の
+  統合レビュー指摘4点＋着手時点で残っていた実ギャップの解消に限定した。
 
-### - [ ] T133. page.tsxのレシピ上書き状態管理を共通化し、5パネルの視覚的な階層関係を示す
-  規模M
+### - [x] T133. page.tsxのレシピ上書き状態管理を共通化し、5パネルの視覚的な階層関係を示す
+  規模M（2026-08-19完了）
 
 - 発端: 統合レビュー統合-2（overall F-2＋uiレビューの統合）。page.tsxのレシピ上書き状態
   （有効フラグ・値・debounce）が交通ストレス・安全度の2軸から道路適正・自動車密度を
@@ -3749,8 +3772,23 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   を示す。
 - 完了条件: page.tsxの`useState`/`useStoredState`件数が純減すること。frontend vitest・
   tsc・eslintすべてgreen。Playwright実機確認で階層関係が視覚的に区別できることを確認。
+- 実装メモ（2026-08-19完了）: `frontend/src/hooks/useRecipeOverride.ts`を新設
+  （`overrideEnabled`/`setOverrideEnabled`/`recipe`/`setRecipe`/`debouncedRecipe`を返す
+  ジェネリックフック、単体テスト3件付き）。page.tsxの車の圧迫感・安全度・道路適正・
+  自動車密度4レシピをこのフックへ集約し分割代入で既存の変数名（`carStressRecipe`等）を
+  維持したまま呼び出し側の広範な参照を無改修で済ませた。page.tsx直下の`useState`呼び出し
+  8件（4レシピ×2）＋`useDebouncedValue`呼び出し4件が、フック呼び出し4件へ純減（フック内部の
+  `useState`/`useDebouncedValue`は集約先のためpage.tsx側のカウントには入らない）。UI側は
+  「レシピ」カテゴリを`.recipeSharedMaterialGroup`（枠線＋「共有材料[車の圧迫感・安全度が
+  参照]」見出し、道路適正・自動車密度の2パネルを内包）と`.recipeDependentAxes`
+  （`margin-left`でインデント、車の圧迫感・安全度の2パネルを内包）へ再構成
+  （page.module.css新設クラス3個）。Playwright実機確認（`next dev`起動、研究モードON）で
+  共有材料グループの1px枠線・インデント差12pxをDOM実測で確認、スクリーンショットでも
+  視覚的な階層を確認。backend側は無関係のため未実施。frontend vitest 388件（新規3件含む）・
+  eslint・tsc（`next typegen`後）・`next build`すべてgreen。
 
-### - [ ] T134. 両エンジンの区間表示ビルダーでcar_closeness()の二重計算を解消する 規模S
+### - [x] T134. 両エンジンの区間表示ビルダーでcar_closeness()の二重計算を解消する 規模S
+  （2026-08-19完了）
 
 - 発端: 統合レビュー統合-3（overall F-3）。`compute_edge_cost`（探索の全Edge）では
   T130のultrareview是正で`car_closeness_result`を1回計算し共有渡しする形へ解消済みだが、
@@ -3763,6 +3801,19 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   両関数へ渡す。
 - 完了条件: backend pytest green。`test_evaluation.py`の呼び出し回数カウントテストと
   対称な回帰テストを両エンジンにも追加。
+- 実装メモ（2026-08-19完了）: 両エンジンとも`car_stress_level`/`safety_level`呼び出し直前で
+  `car_closeness()`を1回だけ計算（`road_suitability_recipe`/`motor_vehicle_density_recipe`は
+  `None`のときdomain/evaluation.pyと同じ`or DEFAULT_*`フォールバックが必要と実装中に判明
+  — 両エンジンとも`self._road_suitability_recipe`等はOptionalでNoneが既定のため、これを
+  怠ると道路適正未上書き時に`car_closeness()`内で`NoneType.base_by_highway`のAttributeError
+  が発生する。実装時に既存テストで検出・修正済み）、結果`car_closeness_result`を両関数へ渡す
+  形へ修正。回帰テストを両エンジンへ追加: `test_road_graph_engine.py:
+  test_build_segment_details_calls_car_closeness_once_per_edge`（`road_graph_engine`モジュール
+  の`car_closeness`をカウンタでラップし、全edge分のway_tagsを与えた全候補合計の呼び出し回数が
+  生成された全segment数と一致することを検証）、`test_openrouteservice_engine.py:
+  test_builds_segment_details_calls_car_closeness_once_per_point`（同様に全候補の
+  総segment数と一致することを検証）。backend pytest 863件（新規2件含む、+99 skipped＝
+  PostGISマーカー、DB未接続のためこのセッションでは未実行）all green。
 
 ### - [x] T135. レビュー基準の反映漏れ2件を解消する（page.tsx閾値・変更コスト表G''行）
   規模S（2026-08-19完了）
@@ -3788,7 +3839,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   ユーザー判断のため今回は見送り、別途確認が必要。
 
 ### - [ ] T136. 軽微な残骸・テスト非対称の解消（errorLabel・回帰テスト・living_street再検証）
-  規模S
+  規模S — errorLabel修正・回帰テストは2026-08-19完了、living_street再検証のみ実DB接続可能な
+  セッションへ持ち越し
 
 - 発端: 統合レビュー統合-6（ui・consistency・overallのP3統合）。`regionApi.ts`の
   `errorLabel`に旧呼称「交通ストレス」の死んだ文字列が残存（`catch`で握りつぶされ実害は
@@ -3802,6 +3854,19 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   確認する。
 - 完了条件: frontend vitest green（新規テスト追加分含む）。living_street確認は
   `measure_axis_stats.py`出力への言及で足りる。
+- 実装メモ（2026-08-19一部完了）: 着手時点で`errorLabel`は既にT150の機械的リネームにより
+  「交通ストレス」→「車ストレス」へ変わっていたが、UI表示上の正準ラベル（`evaluationAxes.ts`・
+  `CarStressRecipePanel`が使う「車の圧迫感」、T150実装メモのPlaywright確認記録参照）とは
+  依然不一致だったため、あらためて「車の圧迫感」へ修正。`MapView.overlayFilters.test.ts`へ
+  `vi.spyOn(recipeExpression, "carClosenessExpr")`ベースの呼び出し回数テストを追加し、
+  `setStaticOverlayFilters`1回の呼び出しにつき`carClosenessExpr`が1回だけ計算され
+  車の圧迫感・安全度の両方の凡例式へ使い回されることを検証（本番実装は既に
+  `MapView.tsx: setStaticOverlayFilters`が1回だけ計算・両関数へ渡す形で対応済みだったが、
+  それを検証する回帰テストが無い状態だった）。frontend vitest 388件（新規1件含む）green。
+  living_street再検証は、このセッションが実DB（PostGIS・関東圏実データ）に接続できない
+  環境だったため未実施のまま残存。対応方針が元々「次回`measure_axis_stats.py`実行時に
+  確認する」という将来のバッチ実行時点の確認として位置づけていた項目のため、実データを
+  伴うセッションでの持ち越しとする。
 
 ## 評価システムの層構造再設計（2026-08-18・区間評価の一次/二次/三次分離）
 
