@@ -80,6 +80,12 @@ export const MAP_LAYER_DATA_NATURE_LABELS: Record<MapLayerDataNature, string> = 
   composite: "推定指標（合成）",
   raw: "観測データ",
 };
+/** 観測/推定の表示順（推定→観測、改善計画: 地図の見え方パネルのグルーピングを地図上
+ * チップと統一）。地図チップ側（MapOverlayControls.tsx: buildChipGroups）は実機
+ * フィードバックにより「推定→観測」の順に確定済みで、この配列はその順序を単一ソース化した
+ * もの。サイドバー（MapLayersPanel）が最上位グルーピングをcategoryからdataNatureへ
+ * 変更する際にここを参照し、チップと食い違わないようにする。 */
+export const MAP_LAYER_DATA_NATURE_ORDER: readonly MapLayerDataNature[] = ["composite", "raw"];
 /** 地図チップ最上位グループの略名（4文字以下、改善計画T166確定命名表）。正式名は上記
  * MAP_LAYER_DATA_NATURE_LABELS。地図チップ=略名／サイドバー・研究タブ=正式名の使い分けは
  * 個別レイヤーのlabel/chipLabelと同じ規則（MapLayerDescriptorのコメント参照）。 */

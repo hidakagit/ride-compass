@@ -19,12 +19,31 @@
   visibility: hidden;
 }
 
+/* 次数（観測/推定）グループ。地図の見え方パネルの唯一のグループ見出し（改善計画:
+   地図の見え方パネルのグルーピングを地図上チップと統一。中分類=categoryごとの見出しは
+   地図上チップ側が実機フィードバックで廃止済みのため、こちらも持たずフラットにする）。 */
+.natureGroup + .natureGroup {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.natureTitle {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--foreground);
+  margin: 0 0 var(--space-1);
+}
+
+/* 中分類（category、改善計画T86）によるグループ見出し。地図の見え方パネル自身はもう
+   使っていない（上記.natureGroup/.natureTitleのコメント参照）が、「生成したルートの
+   色分け」セクション（page.tsx: renderRouteColorSectionBody）が見出し＋本文の見た目として
+   このクラスをそのまま再利用しているため定義は残す。 */
 .group + .group {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-1);
 }
 
-/* データの性質（変わらない/変わる）によるグループ見出し（mapLayers.tsのkind参照） */
 .groupTitle {
   font-size: var(--font-size-sm);
   font-weight: 700;
@@ -99,19 +118,6 @@
 }
 
 /* ON/OFF操作はLayerChip（共通部品）。旧role=switchのチェックボックス用スタイルは廃止（T30） */
-
-/* 「ルートを作る」への誘導リンク（ルート未生成時の案内文内） */
-.inlineLink {
-  background: transparent;
-  border: none;
-  padding: 0;
-  margin-left: 0.3rem;
-  color: var(--color-accent);
-  font-size: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
 
 .mutedHint {
   color: var(--color-neutral);

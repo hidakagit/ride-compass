@@ -2,13 +2,15 @@
 
 import {
   LAYER_DATA_STATUS_LABELS,
-  MAP_LAYER_CATEGORY_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
+  MAP_LAYER_DATA_NATURE_LABELS,
+  MAP_LAYER_DATA_NATURE_ORDER,
   MAP_LAYERS,
   ROAD_SURFACE_SHARED_LAYER_IDS,
   layerSectionDomId,
   type LayerDataStatus,
   type LayerDataStatusByLayer,
+  type MapLayerDataNature,
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
@@ -20,7 +22,6 @@ import {
   type RoadFilterAxis,
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
-import { ROUTE_STYLE_MODES, getRouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import LayerChip from "@/components/Map/LayerChip";
@@ -52,13 +53,6 @@ interface MapLayersPanelProps {
   /** レイヤーごとのデータ取得状態（改善計画T87、loading/empty/error）。MapView.tsxが
    * タイル取得結果から算出する。表示OFF中や正常時はキー自体を持たない。 */
   layerDataStatus: LayerDataStatusByLayer;
-  routeStyleModeId: RouteStyleModeId;
-  onRouteStyleModeChange: (id: RouteStyleModeId) => void;
-  hiddenRouteLegendKeys: readonly string[];
-  onRouteLegendToggle: (key: string) => void;
-  hasDetail: boolean;
-  /** ルート未生成時の案内から「ルートを作る」セクションへ誘導する（page.tsxがスクロール） */
-  onGoToGenerate?: () => void;
   /** いずれかの軸で絞り込み中（非表示カテゴリが1つ以上ある）か。falseの間は一括クリアボタン自体を出さない */
   hasHiddenFilters: boolean;
   /** 全軸の非表示カテゴリを一度に解除する（軸ごとの「すべて表示」を繰り返させない）。
@@ -66,17 +60,26 @@ interface MapLayersPanelProps {
   onClearAllFilters: () => void;
 }
 
-// サイドバーのグループ見出し。staticは中分類（mapLayers.ts: category、改善計画T86）ごとに
-// 分け、dynamic（route、今のところ1種のみ）は従来どおり単独の見出しにする。表示順・見出し
-// 文言はmapLayers.ts（MAP_LAYER_CATEGORY_ORDER/MAP_LAYER_CATEGORY_LABELS）を単一ソースとし、
-// 地図上チップのグルーピング（改善計画T128、MapOverlayControls.tsx）と共有する。
-const DYNAMIC_GROUP_HEADING = "生成したルートの色分け";
-
+// サイドバーのグループ見出し。改善計画（地図の見え方パネルのグルーピングを地図上チップと
+// 統一）: 見出しは次数（推定/観測、mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDER/LABELS）のみの
+// 1階層。以前は中分類（category、改善計画T86、MAP_LAYER_CATEGORY_ORDER/LABELS）ごとの
+// 見出し（h2）も持っていたが、地図上チップ側（MapOverlayControls.tsx）が実機フィードバックを
+// 受けてカテゴリ見出しを廃止しフラット化した経緯（改善計画T169）と揃え、こちらも中分類の
+// 見出しは出さない（「地図の見え方と合わせて、中分類は不要」という実機フィードバック）。
+// categoryはあくまで各次数グループ内のレイヤー並び順（MAP_LAYER_CATEGORY_ORDER）を
+// 揃えるための内部キーとしてのみ使う。「生成したルートの色分け」（dynamic/route）は次数を
+// 持たないレイヤーで観測/推定どちらにも属さないため、地図の見え方パネルからは撤去し
+// 「ルートを作る」パネル側へ移設した（page.tsx: renderRouteSectionBody参照。実機
+// フィードバック「ルートを作るパネルがルートに関する制御、地図の見え方パネルが地図自体の
+// 制御」への対応。そちらは見出し＋本文の見た目としてこのファイルの.group/.groupTitleを
+// 再利用しているため、このファイル自身はもう使っていなくてもクラス定義は残す）。
+// 表示順・見出し文言はmapLayers.tsを単一ソースとし、地図上チップのグルーピング
+// （改善計画T128/T166、MapOverlayControls.tsx）と共有する。
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
 // レイヤーごとに1セクション（見出し＋表示スイッチ＋凡例・絞り込み等の設定）を持ち、
 // セクションの枠組みはMAP_LAYERS（レイヤーカタログ）の列挙で描画する。地図の上
-// （MapOverlayControls）はON/OFFチップと▶で開く凡例の確認までで、絞り込みの変更や
-// 色分けモードの選択などの編集操作はすべてこのパネルの中だけで完結する。
+// （MapOverlayControls）はON/OFFチップと▶で開く凡例の確認までで、絞り込みの変更などの
+// 編集操作はすべてこのパネルの中だけで完結する。
 // 以前のMapLegendPanel（凡例の参照表示のみ）とRoadFilterDialog（地図上の⚙から開く
 // 絞り込みモーダル）を統合したもの。
 export default function MapLayersPanel({
@@ -90,27 +93,15 @@ export default function MapLayersPanel({
   onStaticFilterAxisSetHidden,
   regionZoomTooWide,
   layerDataStatus,
-  routeStyleModeId,
-  onRouteStyleModeChange,
-  hiddenRouteLegendKeys,
-  onRouteLegendToggle,
-  hasDetail,
-  onGoToGenerate,
   hasHiddenFilters,
   onClearAllFilters,
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
-  const routeStyleMode = getRouteStyleMode(routeStyleModeId);
-
-  function handleRouteModeSelect(id: RouteStyleModeId) {
-    onRouteStyleModeChange(id);
-    if (!layerVisibility.route) onLayerToggle("route", true);
-  }
 
   // 路面の種類・道路の種類の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditor
-  // ごと廃止し、ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら、色分け
-  // モード選択と同じくレイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
+  // ごと廃止し、ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら
+  // レイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
   // 改善計画T165: 「道路情報」（road）が路面の種類（surface軸→roadSurfaceレイヤー）・
   // 道路の種類（highway軸→roadTypeレイヤー）へ論理分割されたため、軸ごとに自動ONする
   // レイヤーが異なる（roadFilterAxisLayerId参照）。
@@ -345,42 +336,6 @@ export default function MapLayersPanel({
         return renderRoadAxisSectionBody("roadSurface", roadColorAxis, "色");
       case "roadType":
         return renderRoadAxisSectionBody("roadType", roadWidthAxis, "太さ");
-      case "route":
-        if (!hasDetail) {
-          // 生成前は使えない理由だけでなく、次の一歩（ルートを作るセクション）へ誘導する
-          // （地図上の条件サマリ→設定セクションへの誘導と同じパターンの逆方向、T30）
-          return (
-            <p className={styles.mutedHint}>
-              ルートを生成・選択すると使えます。
-              {onGoToGenerate && (
-                <button type="button" onClick={onGoToGenerate} className={styles.inlineLink}>
-                  「ルートを作る」へ
-                </button>
-              )}
-            </p>
-          );
-        }
-        return (
-          <>
-            <div role="radiogroup" aria-label="ルートの色分け" className={styles.modeGroup}>
-              {ROUTE_STYLE_MODES.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode.id === routeStyleModeId}
-                  onClick={() => handleRouteModeSelect(mode.id)}
-                  className={
-                    mode.id === routeStyleModeId ? `${styles.modeItem} ${styles.modeItemActive}` : styles.modeItem
-                  }
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-            {renderLegendCheckboxes(routeStyleMode.legend, hiddenRouteLegendKeys, onRouteLegendToggle)}
-          </>
-        );
       default:
         // axis:${string}（ramp軸、改善計画T145b: 停止/事故密度の凡例追加）は
         // carStress等と同じ標準構成（panelHint＋OFF案内＋絞り込み軸）で足りるため、
@@ -389,16 +344,13 @@ export default function MapLayersPanel({
     }
   }
 
-  // ルートレイヤーはルート未選択時に使えない（スイッチも非活性）。他レイヤーは常に使える。
-  function isLayerDisabled(id: MapLayerId): boolean {
-    return id === "route" && !hasDetail;
-  }
-
   // レイヤー1件分のセクション（見出し＋ON/OFFチップ＋設定本文）。カテゴリ単位・kind単位
   // どちらのグループ化でも同じ描画になる（改善計画T86でグルーピング単位をkindからcategoryへ
-  // 変更したが、レイヤー単体の描画自体は変えていない）。
+  // 変更したが、レイヤー単体の描画自体は変えていない）。「route」は次数を持たず観測/推定の
+  // どちらにも属さないため、地図の見え方パネル自体の対象外へ移設した（「ルートを作る」
+  // パネル、page.tsx参照）。以前ここにあったdisabled判定（ルート未生成時のみ）はそれに
+  // 伴い不要になった（この関数を通るレイヤーが常に有効なため）。
   function renderLayerSection(layer: MapLayerDescriptor) {
-    const disabled = isLayerDisabled(layer.id);
     const domId = layerSectionDomId(layer.id);
     return (
       // 要素ごとに折りたたむ階層メニュー（モバイル実機フィードバック対応T38。
@@ -419,9 +371,7 @@ export default function MapLayersPanel({
             label="表示"
             ariaLabel={`${layer.label}レイヤーを表示`}
             on={layerVisibility[layer.id]}
-            disabled={disabled}
             dataStatus={visibleDataStatus(layer.id)}
-            title={disabled ? "ルートを生成・選択すると使えます" : undefined}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -455,20 +405,22 @@ export default function MapLayersPanel({
           絞り込みを一括クリア
         </button>
       </div>
-      {MAP_LAYER_CATEGORY_ORDER.map((category) => {
-        const layers = MAP_LAYERS.filter((layer) => layer.kind === "static" && layer.category === category);
+      {MAP_LAYER_DATA_NATURE_ORDER.map((dataNature: MapLayerDataNature) => {
+        // categoryは見出しにはせず、地図上チップと同じ並び順（MAP_LAYER_CATEGORY_ORDER）を
+        // 揃えるためだけに使う内部キー（上記コメント参照）。
+        const layers = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
+          MAP_LAYERS.filter(
+            (layer) => layer.kind === "static" && layer.category === category && (layer.dataNature ?? "raw") === dataNature
+          )
+        );
         if (layers.length === 0) return null;
         return (
-          <div key={category} className={styles.group}>
-            <h2 className={styles.groupTitle}>{MAP_LAYER_CATEGORY_LABELS[category]}</h2>
+          <div key={dataNature} className={styles.natureGroup}>
+            <h2 className={styles.natureTitle}>{MAP_LAYER_DATA_NATURE_LABELS[dataNature]}</h2>
             {layers.map(renderLayerSection)}
           </div>
         );
       })}
-      <div className={styles.group}>
-        <h2 className={styles.groupTitle}>{DYNAMIC_GROUP_HEADING}</h2>
-        {MAP_LAYERS.filter((layer) => layer.kind === "dynamic").map(renderLayerSection)}
-      </div>
     </div>
   );
 }

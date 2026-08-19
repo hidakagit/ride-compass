@@ -45,11 +45,6 @@ function baseProps() {
     onStaticFilterAxisSetHidden: vi.fn(),
     regionZoomTooWide: false,
     layerDataStatus: {} as LayerDataStatusByLayer,
-    routeStyleModeId: "wind" as const,
-    onRouteStyleModeChange: vi.fn(),
-    hiddenRouteLegendKeys: [] as string[],
-    onRouteLegendToggle: vi.fn(),
-    hasDetail: false,
     hasHiddenFilters: false,
     onClearAllFilters: vi.fn(),
   };
@@ -65,16 +60,26 @@ function openSection(id: MapLayerId) {
 }
 
 // パネルの枠組み（レイヤーカタログからのセクション生成・表示チップ・凡例チェックの
-// 出し分け・ルートの色分け選択）を見る。道路情報の絞り込みは即時反映（T31で
-// 旧RoadFilterEditorの下書き→適用を廃止し、ルート凡例と同じチェック方式へ統一）。
+// 出し分け）を見る。道路情報の絞り込みは即時反映（T31で旧RoadFilterEditorの
+// 下書き→適用を廃止し、チェック方式へ統一）。「生成したルートの色分け」（route）は
+// このパネルの対象外へ移設したため、そちらの挙動はpage.tsx側で検証する。
 describe("MapLayersPanel", () => {
-  it("レイヤーカタログの全レイヤーが、中分類ごとのグループ見出しの下にセクションとして並ぶ(改善計画T86)", () => {
+  // 改善計画（地図の見え方パネルのグルーピングを地図上チップと統一）: 見出しは次数
+  // （観測/推定）のみのフラットな1階層。地図上チップ側が実機フィードバックでカテゴリ
+  // 見出しを廃止した経緯（改善計画T169）と揃え、こちらも中分類（category）の見出しは
+  // 出さない（「地図の見え方と合わせて、中分類は不要」という実機フィードバック）。
+  // 「生成したルートの色分け」（route、次数を持たない）はこのパネルの対象外へ移設した
+  // （「ルートを作る」パネル、page.tsx参照）。
+  it("レイヤーカタログの全レイヤーが、次数見出し（観測/推定）のみのフラットな一覧としてセクションで並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
-    // "自転車インフラ"はグループ見出しとレイヤー名（h3）の両方に現れるため、見出し（h2）に
-    // 絞って確認する。
-    const headings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    expect(headings).toEqual(["道路状態", "交通・安全", "自転車インフラ", "地形", "補給・施設", "生成したルートの色分け"]);
+    const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    expect(natureHeadings).toEqual(["推定指標（合成）", "観測データ"]);
+
+    // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
+    // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
+    expect(container.querySelectorAll(`.${styles.groupTitle}`).length).toBe(0);
+
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadType")).toBeInTheDocument();
@@ -85,28 +90,29 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-supplyPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-route")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-route")).not.toBeInTheDocument();
   });
 
-  it("レイヤーが想定した中分類グループの下に属する(改善計画T86)", () => {
+  it("レイヤーが想定した次数グループの下に属する", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
-    function groupTitleFor(layerId: string): string | null {
+    function natureTitleFor(layerId: string): string | null {
       const section = container.querySelector(`#map-layer-section-${layerId}`);
-      const group = section?.closest(`.${styles.group}`);
-      return group?.querySelector(`.${styles.groupTitle}`)?.textContent ?? null;
+      const nature = section?.closest(`.${styles.natureGroup}`);
+      return nature?.querySelector(`.${styles.natureTitle}`)?.textContent ?? null;
     }
 
-    expect(groupTitleFor("roadType")).toBe("道路状態");
-    expect(groupTitleFor("roadSurface")).toBe("道路状態");
-    expect(groupTitleFor("designation")).toBe("道路状態");
-    expect(groupTitleFor("carStress")).toBe("交通・安全");
-    expect(groupTitleFor("accidents")).toBe("交通・安全");
-    expect(groupTitleFor("stopPoi")).toBe("交通・安全");
-    expect(groupTitleFor("supplyPoi")).toBe("補給・施設");
-    expect(groupTitleFor("bicycleInfra")).toBe("自転車インフラ");
-    expect(groupTitleFor("elevation")).toBe("地形");
-    expect(groupTitleFor("route")).toBe("生成したルートの色分け");
+    // carStressのみ推定指標（合成）、他は観測データ（車ストレスは車の圧迫感の材料から
+    // 合成した推定指標、mapLayers.ts参照）
+    expect(natureTitleFor("carStress")).toBe("推定指標（合成）");
+    expect(natureTitleFor("roadType")).toBe("観測データ");
+    expect(natureTitleFor("roadSurface")).toBe("観測データ");
+    expect(natureTitleFor("designation")).toBe("観測データ");
+    expect(natureTitleFor("accidents")).toBe("観測データ");
+    expect(natureTitleFor("stopPoi")).toBe("観測データ");
+    expect(natureTitleFor("supplyPoi")).toBe("観測データ");
+    expect(natureTitleFor("bicycleInfra")).toBe("観測データ");
+    expect(natureTitleFor("elevation")).toBe("観測データ");
   });
 
   it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {
@@ -583,108 +589,4 @@ describe("MapLayersPanel", () => {
     expect(screen.getByRole("checkbox", { name: "死亡事故" })).toBeChecked();
   });
 
-  it("hasDetail=falseのときルート欄は案内のみで、表示チップも非活性", () => {
-    render(<MapLayersPanel {...baseProps()} hasDetail={false} />);
-    openSection("route");
-    expect(screen.getByText(/ルートを生成・選択すると使えます/)).toBeInTheDocument();
-    expect(screen.queryByRole("radiogroup", { name: "ルートの色分け" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ルートレイヤーを表示" })).toBeDisabled();
-  });
-
-  it("hasDetail=falseの案内からonGoToGenerateで「ルートを作る」へ誘導できる", async () => {
-    const user = userEvent.setup();
-    const onGoToGenerate = vi.fn();
-    render(<MapLayersPanel {...baseProps()} hasDetail={false} onGoToGenerate={onGoToGenerate} />);
-    openSection("route");
-
-    await user.click(screen.getByRole("button", { name: "「ルートを作る」へ" }));
-
-    expect(onGoToGenerate).toHaveBeenCalled();
-  });
-
-  it("hasDetail=trueのときルートのモード選択・凡例チェックボックスが表示される", () => {
-    render(<MapLayersPanel {...baseProps()} hasDetail={true} />);
-    openSection("route");
-    expect(screen.getByRole("radio", { name: "風の影響" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("checkbox", { name: /易しい/ })).toBeInTheDocument();
-  });
-
-  it("ルートのモード選択でonRouteStyleModeChangeが呼ばれ、レイヤーOFFなら自動でONにする", async () => {
-    const user = userEvent.setup();
-    const onRouteStyleModeChange = vi.fn();
-    const onLayerToggle = vi.fn();
-    render(
-      <MapLayersPanel
-        {...baseProps()}
-        hasDetail={true}
-        layerVisibility={{
-          elevation: false,
-          roadType: false,
-          roadSurface: false,
-          carStress: false,
-          bicycleInfra: false,
-          designation: false,
-          stopPoi: false,
-          supplyPoi: false,
-          accidents: false,
-          route: false,
-        }}
-        onRouteStyleModeChange={onRouteStyleModeChange}
-        onLayerToggle={onLayerToggle}
-      />,
-    );
-    openSection("route");
-
-    await user.click(screen.getByRole("radio", { name: "勾配" }));
-
-    expect(onRouteStyleModeChange).toHaveBeenCalledWith("gradient");
-    expect(onLayerToggle).toHaveBeenCalledWith("route", true);
-  });
-
-  it("ルートのモード選択時、レイヤーが既にONならonLayerToggleは呼ばれない", async () => {
-    const user = userEvent.setup();
-    const onLayerToggle = vi.fn();
-    render(
-      <MapLayersPanel
-        {...baseProps()}
-        hasDetail={true}
-        layerVisibility={{
-          elevation: false,
-          roadType: false,
-          roadSurface: false,
-          carStress: false,
-          bicycleInfra: false,
-          designation: false,
-          stopPoi: false,
-          supplyPoi: false,
-          accidents: false,
-          route: true,
-        }}
-        onLayerToggle={onLayerToggle}
-      />,
-    );
-    openSection("route");
-
-    await user.click(screen.getByRole("radio", { name: "勾配" }));
-
-    expect(onLayerToggle).not.toHaveBeenCalled();
-  });
-
-  it("ルートの凡例チェックボックス操作でonRouteLegendToggleが呼ばれる", async () => {
-    const user = userEvent.setup();
-    const onRouteLegendToggle = vi.fn();
-    render(
-      <MapLayersPanel
-        {...baseProps()}
-        hasDetail={true}
-        routeStyleModeId="gradient"
-        onRouteLegendToggle={onRouteLegendToggle}
-      />,
-    );
-    openSection("route");
-
-    await user.click(screen.getByRole("checkbox", { name: /下り/ }));
-
-    expect(onRouteLegendToggle).toHaveBeenCalledWith("downhill");
-  });
 });
