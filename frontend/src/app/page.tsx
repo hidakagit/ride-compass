@@ -20,7 +20,13 @@ import {
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
-import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
+import {
+  ROAD_FILTER_AXES,
+  ROAD_LINE_COLOR_AXIS_ID,
+  ROAD_LINE_WIDTH_AXIS_ID,
+  getRoadFilterAxis,
+  type RoadFilterAxisId,
+} from "@/components/Map/roadFilterAxes";
 import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
 import {
@@ -91,7 +97,10 @@ const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 
 const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   elevation: false,
-  road: false,
+  // 改善計画T165: 「道路情報」（road）を論理2レイヤーへ分割。旧保存値（road: boolean）から
+  // 両方へ移行する処理はuseStoredStateのdeserialize（下記）参照。
+  roadType: false,
+  roadSurface: false,
   carStress: false,
   bicycleInfra: false,
   designation: false,
@@ -210,8 +219,20 @@ export default function Home() {
         }
         if (typeof parsed !== "object" || parsed === null) return null;
         const next = { ...DEFAULT_LAYER_VISIBILITY };
+        const parsedRecord = parsed as Record<string, unknown>;
+        // 改善計画T165: 「道路情報」（road）の論理分割（roadType/roadSurface）に伴う旧保存値の
+        // 移行。旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
+        // （新形式で保存済みなら下のループがroadType/roadSurfaceを個別に上書きする）。
+        if (
+          typeof parsedRecord.road === "boolean" &&
+          parsedRecord.roadType === undefined &&
+          parsedRecord.roadSurface === undefined
+        ) {
+          next.roadType = parsedRecord.road;
+          next.roadSurface = parsedRecord.road;
+        }
         for (const id of Object.keys(next) as MapLayerId[]) {
-          const value = (parsed as Record<string, unknown>)[id];
+          const value = parsedRecord[id];
           if (typeof value === "boolean") next[id] = value;
         }
         return next;
@@ -406,33 +427,55 @@ export default function Home() {
     [setLayerVisibility],
   );
 
-  // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
-  // 路面はズーム不足の案内を絞り込みより優先する（ONにしたのに何も出ない状態の説明が先）。
-  const roadFilterSummary = useMemo(
+  // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
+  // 「道路情報」が路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーへ
+  // 分割されたため、軸ごとに個別のサマリ・内訳を持つ（以前は1つのroadSummary/
+  // roadLegendDetailsで2軸をまとめていた）。ズーム不足の案内は絞り込みより優先する
+  // （ONにしたのに何も出ない状態の説明が先）。
+  const roadSurfaceAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
+  const roadSurfaceFilterSummary = useMemo(
     () =>
-      summarizeLegendFilters(
-        ROAD_FILTER_AXES.map((axis) => ({
-          label: axis.label,
-          legend: axis.legend,
-          hiddenKeys: roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-        })),
-      ),
-    [roadHiddenKeysByMode],
+      summarizeLegendFilters([
+        {
+          label: "",
+          legend: roadSurfaceAxis.legend,
+          hiddenKeys: roadHiddenKeysByMode[roadSurfaceAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+        },
+      ]),
+    [roadSurfaceAxis, roadHiddenKeysByMode],
   );
-  const roadSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadFilterSummary;
-  // ▶を開いたときの内訳パネル（1行要約だけでは何が起きているか分からないという
-  // 実機フィードバックへの対応）用に、軸ごとの全カテゴリ（表示中/非表示問わず）を渡す。
-  // ズーム不足で絞り込み自体が無意味なときは空にし、案内文（roadSummary）だけを見せる。
-  const roadLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
+  const roadSurfaceSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadSurfaceFilterSummary;
+  const roadSurfaceLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
       regionZoomTooWide
         ? []
-        : ROAD_FILTER_AXES.map((axis) => ({
-            label: axis.label,
-            legend: axis.legend,
-            hiddenKeys: roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-          })),
-    [regionZoomTooWide, roadHiddenKeysByMode],
+        : [
+            {
+              label: "",
+              legend: roadSurfaceAxis.legend,
+              hiddenKeys: roadHiddenKeysByMode[roadSurfaceAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+            },
+          ],
+    [regionZoomTooWide, roadSurfaceAxis, roadHiddenKeysByMode],
+  );
+
+  const roadTypeAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
+  const roadTypeFilterSummary = useMemo(
+    () =>
+      summarizeLegendFilters([
+        { label: "", legend: roadTypeAxis.legend, hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS },
+      ]),
+    [roadTypeAxis, roadHiddenKeysByMode],
+  );
+  const roadTypeSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadTypeFilterSummary;
+  const roadTypeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
+    () =>
+      regionZoomTooWide
+        ? []
+        : [
+            { label: "", legend: roadTypeAxis.legend, hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS },
+          ],
+    [regionZoomTooWide, roadTypeAxis, roadHiddenKeysByMode],
   );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
@@ -481,17 +524,21 @@ export default function Home() {
       MAP_LAYERS.map((layer) => {
         const disabled = layer.id === "route" && !hasDetail;
         const summary =
-          layer.id === "road"
-            ? roadSummary
-            : layer.id === "route"
-              ? routeSummary
-              : (staticFilterSummaries[layer.id]?.summary ?? null);
+          layer.id === "roadSurface"
+            ? roadSurfaceSummary
+            : layer.id === "roadType"
+              ? roadTypeSummary
+              : layer.id === "route"
+                ? routeSummary
+                : (staticFilterSummaries[layer.id]?.summary ?? null);
         const legendDetails =
-          layer.id === "road"
-            ? roadLegendDetails
-            : layer.id === "route"
-              ? routeLegendDetails
-              : staticFilterSummaries[layer.id]?.legendDetails;
+          layer.id === "roadSurface"
+            ? roadSurfaceLegendDetails
+            : layer.id === "roadType"
+              ? roadTypeLegendDetails
+              : layer.id === "route"
+                ? routeLegendDetails
+                : staticFilterSummaries[layer.id]?.legendDetails;
         return {
           id: layer.id,
           label: layer.label,
@@ -509,8 +556,10 @@ export default function Home() {
     [
       hasDetail,
       layerVisibility,
-      roadLegendDetails,
-      roadSummary,
+      roadSurfaceLegendDetails,
+      roadSurfaceSummary,
+      roadTypeLegendDetails,
+      roadTypeSummary,
       routeLegendDetails,
       routeSummary,
       staticFilterSummaries,
@@ -978,7 +1027,8 @@ export default function Home() {
             selectedRouteId={selectedRouteId}
             location={location}
             showElevation={layerVisibility.elevation}
-            showRoad={layerVisibility.road}
+            showRoadType={layerVisibility.roadType}
+            showRoadSurface={layerVisibility.roadSurface}
             showCarStress={layerVisibility.carStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
             carStressRecipe={carStressRecipeOverrideEnabled ? debouncedCarStressRecipe : undefined}
