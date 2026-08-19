@@ -76,22 +76,22 @@
   padding: var(--space-2);
 }
 
-/* 「研究」内のカテゴリ分け（評価の重み/レシピ、改善計画: 研究タブのカテゴリ分け）。
-   MapLayersPanel.module.cssのカテゴリ見出し（.groupTitle、道路状態/交通・安全等）と
-   同じ見た目に揃えるためcomposesで再利用する。 */
-.researchCategory + .researchCategory {
-  margin-top: var(--space-3);
-}
-
+/* 「研究」内の見出し（評価の重み）。MapLayersPanel.module.cssのカテゴリ見出し
+   （.groupTitle、道路状態/交通・安全等）と同じ見た目に揃えるためcomposesで再利用する。
+   改善計画: 研究タブを2次要素ごとに整理（以前は評価の重み/レシピの2カテゴリで
+   `.researchCategory + .researchCategory`が2つ目以降の余白を付けていたが、
+   レシピは各軸の重み行の直下へ差し込む構成になり.researchCategoryが1つだけになった
+   ため、隣接セレクタは削除した）。 */
 .researchCategoryHeading {
   composes: groupTitle from "../components/MapLayersPanel/MapLayersPanel.module.css";
 }
 
-/* 改善計画T133: 道路適正・自動車密度は車の圧迫感・安全度の両方が参照する共有材料
+/* 改善計画T133: 道路適正・自動車密度は車の圧迫感が参照する共有材料
    （domain/recipe.py: car_closeness()、改善計画: 車との近さ材料の共有元化）であることを、
-   「レシピ」カテゴリ内のフラットな4パネル並びからも視覚的に示す。共有材料の2パネルを
-   枠で囲み見出しを添え、それを参照する車の圧迫感・安全度の2パネルはインデントすることで
-   「材料→材料を使う軸」の一方向の依存関係を表す（相互参照ではない）。 */
+   視覚的に示す。共有材料の2パネルを枠で囲み見出しを添え、それを参照する車の圧迫感の
+   レシピパネルはインデントすることで「材料→材料を使う軸」の一方向の依存関係を表す
+   （相互参照ではない）。かつては車の圧迫感・安全度の2軸が共有していたが、安全度は
+   T139で軸ごと廃止済み（改善計画: 研究タブを2次要素ごとに整理）。 */
 .recipeSharedMaterialGroup {
   display: flex;
   flex-direction: column;
