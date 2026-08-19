@@ -76,7 +76,7 @@ describe("primaryAttributes", () => {
     // car_stressの材料6件のうちレイヤーを持つのはcycleway/designation/highway
     // （lanes/maxspeed/motor_vehicle_accessはレイヤー無し）
     const layerIds = axisMaterialLayerIds("car_stress");
-    expect(new Set(layerIds)).toEqual(new Set(["road", "bicycleInfra", "designation"]));
+    expect(new Set(layerIds)).toEqual(new Set(["roadType", "bicycleInfra", "designation"]));
     expect(layerIds.length).toBe(new Set(layerIds).size); // 重複が無い
   });
 
