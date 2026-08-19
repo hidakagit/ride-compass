@@ -67,8 +67,33 @@ describe("axisInspectorPopup", () => {
     expect(resultEl.innerHTML).toContain("算出不可");
     expect(resultEl.innerHTML).toContain("合成コスト（参考値）: 25.0/100");
     expect(resultEl.innerHTML).toContain("62%");
+    // 改善計画T168: 一次属性のラベルはレジストリのカタログ正式名（PRIMARY_ATTRIBUTE_LABELS）へ
+    // 共通化する。highwayは専用行、tagsのキーはレジストリ登録済みのものだけ正式名に変わる
+    // （生タグのkeyのまま出さない）。
+    expect(resultEl.innerHTML).toContain("道路の種類: residential");
+    expect(resultEl.innerHTML).toContain("路面の種類=asphalt");
+    expect(resultEl.innerHTML).not.toContain("surface=asphalt");
     // 取得後はボタン自体が消える（他のbreakdown系ポップアップと同じ挙動）
     expect(el.querySelector(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)).toBeNull();
+  });
+
+  it("レジストリ未登録の生タグ（name等）はキーのまま表示する（改善計画T168）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({ ...SAMPLE_RESULT, tags: { name: "テスト通り" } }),
+      }),
+    );
+    const el = makePopupElement();
+    attachAxisInspectorHandler(el, 12345, undefined, undefined, undefined);
+    el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const resultEl = el.querySelector<HTMLElement>(`[${AXIS_INSPECTOR_RESULT_ATTR}]`)!;
+    expect(resultEl.innerHTML).toContain("name=テスト通り");
   });
 
   it("fetch失敗時は「取得できませんでした」を表示する", async () => {

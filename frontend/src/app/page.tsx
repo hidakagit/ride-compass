@@ -20,7 +20,8 @@ import {
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
-import { axisMaterialLayerIds } from "@/components/Map/primaryAttributes";
+import { axisMaterialLayerIds, axisMaterials, PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
+import { PREFERENCE_AXES } from "@/lib/evaluationAxes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   ROAD_FILTER_AXES,
@@ -828,8 +829,28 @@ export default function Home() {
     );
   }
 
+  // 改善計画T168: axisMaterials（T164）の逆導出を評価側へ適用する。区間難易度の重み行の
+  // 直下へ、その軸が参照する一次属性の一覧（正式命名、PRIMARY_ATTRIBUTE_LABELS）を出す。
+  // 地図側（T167のPRIMARY_ATTRIBUTE_CHIP_LABELS、地図チップの制約で略名）とは異なり、
+  // 研究タブはサイドバー・研究タブ=正式命名の使い分け規則（改善計画T166確定命名表）に従う。
+  function renderAxisMaterialsExtra(axisId: string) {
+    const materials = axisMaterials(axisId);
+    if (materials.length === 0) return null;
+    return (
+      <p className={styles.recipeSharedMaterialHeading}>
+        材料: {materials.map((attrId) => PRIMARY_ATTRIBUTE_LABELS[attrId]).join("・")}
+      </p>
+    );
+  }
+
   function renderPreferenceFieldExtra(weightKey: keyof RoutePreferenceWeights) {
-    return weightKey === "car_stress_weight" ? renderCarStressRecipeExtra() : null;
+    const axisId = PREFERENCE_AXES.find((axis) => axis.weightKey === weightKey)?.axisId;
+    return (
+      <>
+        {axisId && renderAxisMaterialsExtra(axisId)}
+        {weightKey === "car_stress_weight" && renderCarStressRecipeExtra()}
+      </>
+    );
   }
 
   function renderResearchSectionBody() {

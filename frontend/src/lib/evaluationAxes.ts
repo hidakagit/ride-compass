@@ -44,13 +44,19 @@ export interface PreferenceAxisDef {
   /** 区間の色分け・WeightPanelの入力欄ラベルに共通で使う表示名 */
   label: string;
   description: string;
+  /** axis-catalog.jsonのaxis_id（backendレジストリ、registry_defaults.py参照）。
+   * 改善計画T168: 研究タブの重み行直下に合成材料一覧（axisMaterials逆導出、
+   * primaryAttributes.ts）を出すためのキー。windはレジストリ未登録
+   * （RoutePreferenceの独立項目、axisLayers.tsのAXIS_LABELSコメント参照）のため
+   * 対応するaxis_idを持たない（未指定）。 */
+  axisId?: string;
 }
 
 const PREFERENCE_AXIS_META: Record<keyof RoutePreferenceWeights, Omit<PreferenceAxisDef, "weightKey">> = {
   // ラベルはルート色分けモード（勾配・舗装/未舗装・風の影響）が可視化する区間難易度の
   // 構成要素に対応するため、その語に揃える（elevation_weightの実体は区間勾配由来の難易度）。
-  elevation_weight: { label: "勾配", description: "登り坂の急さが小さいほど易しい" },
-  road_weight: { label: "舗装", description: "舗装路であるほど易しい" },
+  elevation_weight: { label: "勾配", description: "登り坂の急さが小さいほど易しい", axisId: "gradient" },
+  road_weight: { label: "舗装", description: "舗装路であるほど易しい", axisId: "surface_q" },
   wind_weight: { label: "風", description: "向かい風が弱いほど易しい" },
   // ラベルは重み調整UIとして「何を減らしたいか」が伝わる具体名を使う（地図の凡例
   // （axis-catalog.jsonのdisplay.label、`stop_density`軸は「停止密度」）とは文脈が異なる
@@ -60,15 +66,22 @@ const PREFERENCE_AXIS_META: Record<keyof RoutePreferenceWeights, Omit<Preference
   stop_weight: {
     label: "信号・踏切等",
     description: "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
+    axisId: "stop_density",
   },
   car_stress_weight: {
     label: "車の圧迫感",
     description: "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
+    axisId: "car_stress",
   },
-  accident_weight: { label: "事故", description: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい" },
+  accident_weight: {
+    label: "事故",
+    description: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
+    axisId: "accident",
+  },
   night_weight: {
     label: "夜間",
     description: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
+    axisId: "night",
   },
 };
 
