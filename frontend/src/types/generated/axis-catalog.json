@@ -30,12 +30,12 @@
       ],
       "display": {
         "kind": "none",
-        "label": "路面",
+        "label": "舗装質",
         "category": "road",
         "tile_inputs": [],
         "thresholds": [],
         "unit": "",
-        "note": "既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分けモード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない"
+        "note": "既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分けモード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない。ラベルは「路面」から改名（改善計画T163）: 一次属性「路面の種類」（surface）との紛らわしさを解消するため。重みラベル「舗装」・レジストリ記述「路面材質」と整合させた"
       }
     },
     {
@@ -78,7 +78,8 @@
         "lanes",
         "maxspeed",
         "cycleway",
-        "designation"
+        "designation",
+        "motor_vehicle_access"
       ],
       "output_range": [
         0.0,
@@ -141,6 +142,88 @@
         "unit": "件/km",
         "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる"
       }
+    }
+  ],
+  "primary_attributes": [
+    {
+      "attr_id": "highway",
+      "label": "道路の種類",
+      "shared": false
+    },
+    {
+      "attr_id": "lanes",
+      "label": "車線数",
+      "shared": false
+    },
+    {
+      "attr_id": "maxspeed",
+      "label": "制限速度",
+      "shared": false
+    },
+    {
+      "attr_id": "cycleway",
+      "label": "自転車インフラ",
+      "shared": false
+    },
+    {
+      "attr_id": "surface",
+      "label": "路面の種類",
+      "shared": false
+    },
+    {
+      "attr_id": "bicycle_access",
+      "label": "自転車通行可否",
+      "shared": false
+    },
+    {
+      "attr_id": "motor_vehicle_access",
+      "label": "自動車通行可否",
+      "shared": false
+    },
+    {
+      "attr_id": "lit",
+      "label": "街灯",
+      "shared": false
+    },
+    {
+      "attr_id": "tunnel",
+      "label": "トンネル",
+      "shared": false
+    },
+    {
+      "attr_id": "designation",
+      "label": "指定路線",
+      "shared": false
+    },
+    {
+      "attr_id": "elevation",
+      "label": "標高",
+      "shared": false
+    },
+    {
+      "attr_id": "stop_poi",
+      "label": "停止要因",
+      "shared": false
+    },
+    {
+      "attr_id": "supply_poi",
+      "label": "補給・休憩ポイント",
+      "shared": false
+    },
+    {
+      "attr_id": "accident_point",
+      "label": "事故地点",
+      "shared": false
+    },
+    {
+      "attr_id": "intersection",
+      "label": "交差点",
+      "shared": false
+    },
+    {
+      "attr_id": "geometry",
+      "label": "区間形状",
+      "shared": true
     }
   ]
 }
