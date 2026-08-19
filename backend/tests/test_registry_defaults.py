@@ -113,6 +113,26 @@ def test_registry_axis_ids_match_evaluation_axis_weight_mapping():
     assert weight_mapping_axis_ids - {"wind"} == registry_axis_ids
 
 
+def test_car_stress_axis_includes_motor_vehicle_access():
+    """car_stress_level（domain/traffic.py）はmotor_vehicle=noを他の補正に関わらず1固定に
+    する分岐でmotor_vehicle_accessを実際に消費しているが、登録軸のinputsには記載が
+    無かった（排他違反ではないが不完全）。地図レイヤー階層の次数反転検討（改善計画T163）で
+    発覚し追加した。"""
+    car_stress_axis = registry.get_axis("car_stress")
+    assert "motor_vehicle_access" in car_stress_axis.inputs
+    for axis in registry.all_axes():
+        if axis.axis_id != "car_stress":
+            assert "motor_vehicle_access" not in axis.inputs
+
+
+def test_all_primary_attributes_have_non_empty_labels():
+    """一次属性の正式名（label、改善計画T163）は地図チップ・サイドバー・研究タブが表示する
+    「観測データ」側の名称の単一ソース。pydanticのrequired制約は空文字を通すため、
+    ここで機械的に空でないことを確認する。"""
+    for attr in registry.all_primary_attributes():
+        assert attr.label.strip() != "", f"{attr.attr_id} has empty label"
+
+
 def test_registry_axis_ids_match_evaluation_axis_difficulty_mapping():
     """registry_defaults.pyの登録軸集合と、evaluation.pyの
     _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID（compute_edge_axis_scoresが使う手書き辞書）の

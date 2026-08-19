@@ -25,7 +25,7 @@ from app.domain.recipe import (  # noqa: E402
     MotorVehicleDensityRecipe,
     RoadSuitabilityRecipe,
 )
-from app.domain.registry import all_axes, reset_registry_for_testing  # noqa: E402
+from app.domain.registry import all_axes, all_primary_attributes, reset_registry_for_testing  # noqa: E402
 from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
@@ -206,6 +206,10 @@ def main() -> None:
     # 書き出し、フロントの汎用レイヤーファクトリ（axisLayers.ts）がkind="ramp"の軸から
     # レイヤー・凡例を自動生成する。新しい軸はレジストリへの登録（＋タイルへの事実の
     # 焼き込み）だけで地図レイヤーが現れる。
+    # 一次属性カタログ（改善計画T163、地図レイヤー階層の次数反転）も同じレジストリから
+    # 書き出す。各軸のinputsは既にattr_idのリストとして含まれているため、
+    # フロントはこのprimary_attributesのlabel（正式名）とinputsの組み合わせだけで
+    # 2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
     reset_registry_for_testing()
     register_defaults()
     _write_json(
@@ -219,7 +223,15 @@ def main() -> None:
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }
                 for axis in all_axes()
-            ]
+            ],
+            "primary_attributes": [
+                {
+                    "attr_id": attr.attr_id,
+                    "label": attr.label,
+                    "shared": attr.shared,
+                }
+                for attr in all_primary_attributes()
+            ],
         },
     )
 

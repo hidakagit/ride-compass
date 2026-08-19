@@ -26,6 +26,7 @@ def _isolated_registry():
 def _attr(attr_id: str, shared: bool = False) -> PrimaryAttributeSpec:
     return PrimaryAttributeSpec(
         attr_id=attr_id,
+        label=f"test label {attr_id}",
         source="osm",
         geometry="edge",
         dtype="categorical",
