@@ -50,6 +50,34 @@ export type MapLayerKind = "static" | "dynamic";
 // 今のところ1種のみのため中分類を持たない（category未指定）。
 export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra" | "terrain" | "amenity";
 
+// カテゴリの表示順・見出し文言の単一ソース（改善計画T86→T128）。以前はMapLayersPanel.tsx
+// だけが持っていたが、T128（地図上チップのカテゴリ束ね）でMapOverlayControls.tsxも
+// 同じ対応表を要するようになったため、両者が参照するここへ集約する
+// （設計原則8: UI語彙のカタログ集約、片側importで揃える）。
+export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
+  "roadCondition",
+  "trafficSafety",
+  "bicycleInfra",
+  "terrain",
+  "amenity",
+];
+export const MAP_LAYER_CATEGORY_LABELS: Record<MapLayerCategory, string> = {
+  roadCondition: "道路状態",
+  trafficSafety: "交通・安全",
+  bicycleInfra: "自転車インフラ",
+  terrain: "地形",
+  amenity: "補給・施設",
+};
+
+/** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
+ * 推定指標（合成）か（改善計画T128）。地図上チップの交通・安全グループを展開したとき、
+ * 「推定指標（合成）」「観測データ」の2小見出しへ分けるために使う。 */
+export type MapLayerDataNature = "raw" | "composite";
+export const MAP_LAYER_DATA_NATURE_LABELS: Record<MapLayerDataNature, string> = {
+  composite: "推定指標（合成）",
+  raw: "観測データ",
+};
+
 export interface MapLayerDescriptor {
   id: MapLayerId;
   /** サイドバーのセクション見出し・条件サマリ・チップのtitleで使う正式名称 */
@@ -60,9 +88,14 @@ export interface MapLayerDescriptor {
    * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
   chipLabel?: string;
   kind: MapLayerKind;
-  /** サイドバー（MapLayersPanel）のグループ見出しに使う中分類（改善計画T86）。
-   * kind:"static"のレイヤーのみ持つ（dynamicは今のところroute1種のみのため不要）。 */
+  /** サイドバー（MapLayersPanel）のグループ見出し・地図上チップのグルーピング
+   * （改善計画T86→T128）に使う中分類。kind:"static"のレイヤーのみ持つ
+   * （dynamicは今のところroute1種のみのため不要）。 */
   category?: MapLayerCategory;
+  /** 生データか推定指標（合成）か（改善計画T128、MAP_LAYER_DATA_NATURE_LABELS参照）。
+   * 省略時は"raw"扱い（大半のレイヤーは生タグ・生座標の分類表示のため、明示するのは
+   * 合成側のみで足りる）。 */
+  dataNature?: MapLayerDataNature;
   /** ONにすると何が表示されるかの短い説明（チップのtitleに使う） */
   description: string;
   /** サイドバー設定パネル（MapLayersPanel）のセクション本文に出す説明文（改善計画T84）。
@@ -103,6 +136,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     chipLabel: "圧迫感",
     kind: "static",
     category: "trafficSafety",
+    dataNature: "composite",
     description: "道路種別・車線数・制限速度・自転車インフラから推定した車の圧迫感(1-5)を色分け表示",
     // 判定基準が不明という実機フィードバック（モバイル実機フィードバック対応T39）を受け、
     // backend/app/domain/traffic.py: car_stress_levelの要約を明記する。
@@ -215,6 +249,9 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       label: axis.label,
       kind: "static",
       category: axis.category as MapLayerCategory,
+      // ramp軸は定義上「一次属性（tile_inputs）を重み付けで合成した二次軸スコア」
+      // （axisLayers.ts冒頭コメント参照）のため、常にcomposite（生データではない）。
+      dataNature: "composite",
       description: `${axis.label}[${axis.unit}]をway単位の事前集計から色分け表示`,
       panelHint: axis.note,
     }),
