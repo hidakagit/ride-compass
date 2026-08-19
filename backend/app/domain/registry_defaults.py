@@ -12,8 +12,8 @@ maxspeed・lanes・指定路線を車の圧迫感・安全度の両方で共有�
 T139（安全度を軸ごと廃止し事故実績・夜間へ分割）・T149（交差点密度を停止密度へ統合）を
 経て軸自体が排他的な構造へ再編されたため、`car_stress`・`night`を登録済み（`accident`は
 T137時点から既に排他、`stop_density`はT149でintersectionを吸収済み）。`safety`
-（`domain/safety.py`）自体は難易度合成からは外れたが表示用途として現役（削除はT148）の
-ため、軸としては登録しない（表示用の生値・レシピは一次属性寄りの扱いのまま）。
+（旧`domain/safety.py`）は難易度合成からはT139で外れており、そもそも軸として登録した
+ことがない（表示専用の派生値だったため）。`domain/safety.py`自体はT148で削除済み。
 
 axis_idは設計プロンプトが示す目標名（`car_stress`等）を使う。対応するPythonのモジュール・
 関数のシンボル名（`domain/traffic.py: car_stress_level`）も改善計画T150（呼称のtraffic→

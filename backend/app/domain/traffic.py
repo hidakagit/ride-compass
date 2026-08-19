@@ -277,8 +277,6 @@ def car_stress_breakdown(
     recipe: CarStressRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
-    *,
-    car_closeness_result: tuple[int | None, int, int, int, int] | None = None,
 ) -> CarStressBreakdown:
     """車ストレス（旧「交通ストレス」、LTS: Level of Traffic Stress風の1-5段階。
     「交通量」ではなく「推定される車との近接ストレス」、計画書§2.4）を、各補正の
@@ -287,15 +285,13 @@ def car_stress_breakdown(
 
     `recipe`省略時は`DEFAULT_CAR_STRESS_RECIPE`を使う。`road_suitability_recipe`/
     `motor_vehicle_density_recipe`は省略時それぞれ`DEFAULT_ROAD_SUITABILITY_RECIPE`/
-    `DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE`（改善計画: 車との近さ材料の共有元化。
-    この2つは安全度側と共有する「車との近さ」(N2)の材料で、`recipe`
+    `DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE`（改善計画: 車との近さ材料の共有元化。`recipe`
     [`CarStressRecipe`]はこの軸固有の少車線道路補正のみを持つ）。
 
-    `car_closeness_result`は`car_closeness()`の呼び出し結果を呼び出し側で事前計算済みの
-    場合に渡す（`domain/evaluation.py: compute_edge_cost`参照）。同じ材料タグ・同じ
-    レシピに対してcar_closeness()は`car_stress_breakdown`/`safety_breakdown`の両方から
-    毎回独立に呼ばれ、ルート生成の全Edgeに対して計算結果が完全に重複していたため
-    （1Edgeにつき2回計算していた無駄を解消）、省略時のみ内部で`car_closeness()`を呼ぶ。
+    かつては同じ材料タグ・同じレシピに対して`car_closeness()`を`safety_breakdown`
+    （T148で削除済み）とも独立に呼んでいたため、呼び出し側で1回だけ計算した結果を
+    `car_closeness_result`引数で受け取るdedupを行っていたが、参照元が本関数1箇所だけに
+    なったため撤去し、内部で`car_closeness()`を直接呼ぶ形に戻した。
 
     cycleway系タグによる補正は`classify_bicycle_infrastructure`と同じ入力を別目的で
     解釈しているため、両者は完全には独立ではない（同関数のdocstring参照、改善計画T62）。
@@ -318,11 +314,9 @@ def car_stress_breakdown(
     road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
     motor_vehicle_density_recipe = motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
 
-    # 改善計画: 車との近さ材料の共有元化。「道路適正＋自動車密度」（N2、安全度側
-    # domain/safety.py: safety_breakdownと共有）はdomain/recipe.py: car_closeness()へ
-    # 切り出し済み。呼び出し側（compute_edge_cost）が既に計算済みならそれを使い、
-    # 同一Edgeに対する二重計算を避ける。
-    base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness_result or car_closeness(
+    # 改善計画: 車との近さ材料の共有元化。「道路適正＋自動車密度」（N2）は
+    # domain/recipe.py: car_closeness()へ切り出し済み。
+    base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness(
         highway, tags, is_designated, road_suitability_recipe, motor_vehicle_density_recipe
     )
     if base is None:
@@ -425,8 +419,6 @@ def car_stress_level(
     recipe: CarStressRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
-    *,
-    car_closeness_result: tuple[int | None, int, int, int, int] | None = None,
 ) -> int | None:
     """車ストレス（1-5段階）の最終値のみを返す薄いラッパー。判定ロジックの実装・
     docstringは`car_stress_breakdown`参照。"""
@@ -437,5 +429,4 @@ def car_stress_level(
         recipe,
         road_suitability_recipe,
         motor_vehicle_density_recipe,
-        car_closeness_result=car_closeness_result,
     ).level

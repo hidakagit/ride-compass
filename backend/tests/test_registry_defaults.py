@@ -54,9 +54,9 @@ def test_intersection_density_is_not_a_standalone_axis():
 
 
 def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
-    """`domain/safety.py`は難易度合成から外れたが表示用途として現役（削除はT148）のため
-    軸としては登録しない。自転車インフラはT138でcar_stressへ統合済みのため独立軸を持たない
-    （モジュールdocstring参照）。"""
+    """安全度（旧`domain/safety.py`）は難易度合成からT139で外れ、そもそも軸として登録した
+    ことがなく、T148で`domain/safety.py`自体も削除済み。自転車インフラはT138でcar_stressへ
+    統合済みのため独立軸を持たない（モジュールdocstring参照）。"""
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert axis_ids.isdisjoint({"traffic_stress", "safety", "bicycle_infra"})
 

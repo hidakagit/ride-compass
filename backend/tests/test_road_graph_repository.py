@@ -1284,12 +1284,13 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(ro
 
 
 async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repository):
-    """車ストレス・安全度の材料タグ（cycleway_class/maxspeed_kmh/lanes_count/
-    motor_vehicle_no・lit、改善計画: 交通ストレスレシピ外出し基盤/安全度レシピ）が
-    SQLで正しく抽出・正規化されることを確認する。最終値の計算はもうSQL側の責務ではない
-    （frontend/src/components/Map/trafficStressExpression.ts・safetyExpression.ts、
-    domain/traffic.py: car_stress_breakdown・domain/safety.py: safety_breakdownが担う）
-    ため、ここでは「材料タグがタグから正しく取り出せているか」だけを検証する。
+    """車ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、
+    改善計画: 交通ストレスレシピ外出し基盤）と、night軸の材料タグ（lit、
+    domain/registry_defaults.py: inputs=["lit","tunnel"]。かつては安全度軸の材料でも
+    あったが、安全度軸自体はT148で削除済み）が、SQLで正しく抽出・正規化されることを
+    確認する。最終値の計算はもうSQL側の責務ではない（frontend/src/components/Map/
+    trafficStressExpression.ts、domain/traffic.py: car_stress_breakdownが担う）ため、
+    ここでは「材料タグがタグから正しく取り出せているか」だけを検証する。
     """
     import mapbox_vector_tile
 
