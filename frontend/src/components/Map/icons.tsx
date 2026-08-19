@@ -153,6 +153,27 @@ export function SupplyPoiIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 観測データ（改善計画T166、地図チップ最上位グループ）: 生データをそのまま見る目=虫眼鏡 */
+export function ObservedDataIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12.5 12.5 17.5 17.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 推定指標（合成）（改善計画T166、地図チップ最上位グループ）: 複数要因を合成した値=メーター */
+export function EstimatedIndexIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M2.5 14.5a7.5 7.5 0 0 1 15 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M10 14.5 13.8 8.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="10" cy="14.5" r="1.1" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (

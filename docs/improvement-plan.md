@@ -1833,7 +1833,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   独立3項目として表示、roadType/roadSurfaceを個別にON/OFFしてサイドバーの対応セクション
   ・凡例（太さ軸/色軸それぞれ）が独立して切り替わることを確認。
 
-### - [ ] T166. 地図チップ最上位を次数（観測/推定）へ反転し確定命名を適用する 規模M
+### - [x] T166. 地図チップ最上位を次数（観測/推定）へ反転し確定命名を適用する 規模M（2026-08-19完了）
 
 - 発端: 上記の次数反転検討の本体。
 - 対応方針: チップの最上位グループをT128のcategory束ねから観測データ/推定指標の2トップへ
@@ -1845,6 +1845,32 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 完了条件: チップが観測/推定の2トップ＋単独（ルート）になり、全名称が確定命名表と
   一致すること。Playwright実機確認。frontend全green。
 - 依存: T164・T165。
+- 実装メモ（2026-08-19完了）: `MapOverlayControls.tsx`の`buildChipGroups`を、category単位
+  （T128）からdataNature単位（観測=`"group:raw"`・推定=`"group:composite"`、改善計画T166）へ
+  差し替え。推定グループはcompositeなOverlayLayerChipが0件でも常に出す
+  （後述のSECONDARY_AXES薄字項目があるため）。観測グループの▶内容
+  （`renderObservedGroupPanel`）はcategoryをそのまま小見出しに転用し、MAP_LAYER_CATEGORY_ORDER
+  順に並べる（T128の`groupByDataNature`は用途が無くなったため削除）。推定グループの▶内容
+  （`renderEstimatedGroupPanel`）は新設`secondaryAxes.ts`の`SECONDARY_AXES`
+  （axis-catalog.jsonの6軸を確定命名表の順で列挙、attr_id→略名・対応MapLayerId・
+  レイヤー無し軸の代役案内文のUI固有対応、primaryAttributes.tsと同じ片側import設計）を
+  常にすべて列挙し、対応レイヤーを持つ軸（車の圧迫感・停止密度・事故密度）は
+  `layers`propから対応するOverlayLayerChipを引いてON/OFFトグル付き行に、専用レイヤーの
+  無い軸（勾配・舗装質・夜間）はトグル無しの薄字行（既存の`.detailRowHidden`流用）+
+  代役ポインタ文にする。次数グループの正式名/略名は`mapLayers.ts`に追加した
+  `MAP_LAYER_DATA_NATURE_CHIP_LABELS`（観測/推定、確定命名表どおり）。代表アイコンは
+  新設`ObservedDataIcon`（虫眼鏡）・`EstimatedIndexIcon`（メーター、icons.tsx）。
+  `mapLayers.ts`の`category`/`dataNature`フィールドのdocコメントも役割変更
+  （category=観測内の小見出しのみ、dataNature=最上位グルーピング）に合わせて更新。
+  検証: `MapOverlayControls.test.tsx`の「カテゴリ束ね（T128）」describeブロックを
+  「次数束ね（T166）」へ全面書き換え（観測/推定への束ね・観測グループのcategory小見出し・
+  推定グループの6軸列挙＋薄字表示・compositeチップ0件でも推定グループが出ることの5テスト）。
+  Playwright実機確認: 地図チップ最上位が観測/推定/ルートの3つのみであることを確認、
+  観測グループ展開で「道路状態」「交通・安全」等のcategory小見出しが出ることを確認、
+  推定グループ展開で6軸（勾配・舗装質・停止密度・車の圧迫感・夜間・事故密度）すべてが
+  一覧に出て、レイヤー無し3軸には代役ポインタ文（標高レイヤーで確認できます等）が出ることを
+  確認、車の圧迫感トグルのON/OFFが実際に動作することを確認。
+  frontend vitest 357件・tsc・eslint全green、`next build`成功。
 
 ### - [ ] T167. 2次レイヤーONで材料の1次レイヤーを連動ONする 規模S
 

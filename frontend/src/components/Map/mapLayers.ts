@@ -71,12 +71,21 @@ export const MAP_LAYER_CATEGORY_LABELS: Record<MapLayerCategory, string> = {
 };
 
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
- * 推定指標（合成）か（改善計画T128）。地図上チップの交通・安全グループを展開したとき、
- * 「推定指標（合成）」「観測データ」の2小見出しへ分けるために使う。 */
+ * 推定指標（合成）か。地図上チップの最上位グルーピングに使う（改善計画T166、次数反転）。
+ * T128時点ではtrafficSafetyカテゴリを展開したときの小見出しとしてのみ使っていたが、
+ * T166でチップ最上位の分類そのものへ昇格した（categoryは観測グループ内の小見出しへ
+ * 役割を移した、下記MapLayerDescriptor.categoryのコメント参照）。 */
 export type MapLayerDataNature = "raw" | "composite";
 export const MAP_LAYER_DATA_NATURE_LABELS: Record<MapLayerDataNature, string> = {
   composite: "推定指標（合成）",
   raw: "観測データ",
+};
+/** 地図チップ最上位グループの略名（4文字以下、改善計画T166確定命名表）。正式名は上記
+ * MAP_LAYER_DATA_NATURE_LABELS。地図チップ=略名／サイドバー・研究タブ=正式名の使い分けは
+ * 個別レイヤーのlabel/chipLabelと同じ規則（MapLayerDescriptorのコメント参照）。 */
+export const MAP_LAYER_DATA_NATURE_CHIP_LABELS: Record<MapLayerDataNature, string> = {
+  composite: "推定",
+  raw: "観測",
 };
 
 export interface MapLayerDescriptor {
@@ -89,13 +98,16 @@ export interface MapLayerDescriptor {
    * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
   chipLabel?: string;
   kind: MapLayerKind;
-  /** サイドバー（MapLayersPanel）のグループ見出し・地図上チップのグルーピング
-   * （改善計画T86→T128）に使う中分類。kind:"static"のレイヤーのみ持つ
+  /** サイドバー（MapLayersPanel）のグループ見出しに使う中分類（改善計画T86）。地図上チップ
+   * では、T128時点ではこれ自体が最上位のグルーピング単位だったが、T166で最上位は
+   * dataNature（観測/推定）へ役割を譲り、categoryは観測グループを展開したときの
+   * 小見出し（トピック別）としてのみ使う（推定グループの中はcategoryを使わず6軸を
+   * フラットに列挙する、MapOverlayControls.tsx参照）。kind:"static"のレイヤーのみ持つ
    * （dynamicは今のところroute1種のみのため不要）。 */
   category?: MapLayerCategory;
-  /** 生データか推定指標（合成）か（改善計画T128、MAP_LAYER_DATA_NATURE_LABELS参照）。
-   * 省略時は"raw"扱い（大半のレイヤーは生タグ・生座標の分類表示のため、明示するのは
-   * 合成側のみで足りる）。 */
+  /** 生データか推定指標（合成）か（MAP_LAYER_DATA_NATURE_LABELS参照）。地図上チップの
+   * 最上位グルーピング単位（改善計画T166）。省略時は"raw"扱い（大半のレイヤーは
+   * 生タグ・生座標の分類表示のため、明示するのは合成側のみで足りる）。 */
   dataNature?: MapLayerDataNature;
   /** ONにすると何が表示されるかの短い説明（チップのtitleに使う） */
   description: string;
