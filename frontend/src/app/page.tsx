@@ -697,18 +697,87 @@ export default function Home() {
   // トグルと効果を同じブロックへ同居させる独立ブロックへ切り出した
   // （改善計画: 研究パラメータの導線改善）。ComparisonPanel（生成結果の一覧）は
   // renderRouteSectionBody側に残る（上記コメント参照）。
+  // 区間難易度の重み（2次要素）のうち、一次情報→二次情報の変換式（レシピ）を個別に持つ軸の
+  // 差し込み内容。現状は車の圧迫感のみ（自転車インフラ等、将来レシピ化が広がる軸が増えたら
+  // ここへケースを足す）。WeightPanel.renderPreferenceFieldExtra経由で車の圧迫感の重み行の
+  // すぐ下に差し込まれる（改善計画: 研究タブを2次要素ごとに整理。以前は「評価の重み」
+  // 「レシピ」という別カテゴリに分かれ、同じ軸の重みとレシピを見比べるのに2箇所を
+  // 行き来する必要があった）。
+  function renderCarStressRecipeExtra() {
+    if (!researchEnabled) return null;
+    return (
+      <>
+        {/* 道路適正・自動車密度は車の圧迫感が参照する材料（domain/recipe.py:
+            car_closeness()、改善計画: 車との近さ材料の共有元化。かつては安全度軸とも
+            共有していたが、安全度はT139で軸ごと廃止済み）。フラットな3パネル並びからは
+            「材料→材料を使う軸」の関係が伝わりにくいという統合レビュー指摘（改善計画T133）を
+            受け、この2枚を枠付きの「共有材料」グループへまとめ、それを参照する車の圧迫感の
+            レシピパネルはインデントして下に続ける。編集内容は参照する側のパネルの
+            参照セクションへ即座に反映される。 */}
+        <div className={styles.recipeSharedMaterialGroup}>
+          <p className={styles.recipeSharedMaterialHeading}>
+            レシピ[一次情報→二次情報の変換式]・共有材料[車の圧迫感が参照]
+          </p>
+          <div className={styles.legendCard}>
+            <RoadSuitabilityRecipePanel
+              overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
+              onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
+              recipe={roadSuitabilityRecipe}
+              onRecipeChange={setRoadSuitabilityRecipe}
+            />
+          </div>
+          <div className={styles.legendCard}>
+            <MotorVehicleDensityRecipePanel
+              overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
+              onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
+              recipe={motorVehicleDensityRecipe}
+              onRecipeChange={setMotorVehicleDensityRecipe}
+            />
+          </div>
+        </div>
+        <div className={styles.recipeDependentAxes}>
+          {/* 車ストレスレシピパネル（改善計画: 車ストレスレシピ調整UIパネル、T107の次
+              ラウンド）。上のWeightInput（重み）とは独立したトグル（地図の色分けへ
+              即時反映される点が重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ
+              薄いパネルになり、先頭に道路適正・自動車密度の現在値（上書き中ならその値、
+              無効なら既定値）を読み取り専用で表示する参照セクションを持つ。 */}
+          <div className={styles.legendCard}>
+            <CarStressRecipePanel
+              overrideEnabled={carStressRecipeOverrideEnabled}
+              onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
+              recipe={carStressRecipe}
+              onRecipeChange={setCarStressRecipe}
+              roadSuitabilityRecipe={
+                roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
+              }
+              motorVehicleDensityRecipe={
+                motorVehicleDensityRecipeOverrideEnabled
+                  ? motorVehicleDensityRecipe
+                  : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+              }
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  function renderPreferenceFieldExtra(weightKey: keyof RoutePreferenceWeights) {
+    return weightKey === "car_stress_weight" ? renderCarStressRecipeExtra() : null;
+  }
+
   function renderResearchSectionBody() {
     return (
       <>
         <ResearchPanel />
 
-        {/* 評価の重み（WeightPanel）と二次情報のレシピ（CarStressRecipePanel等）は
-            扱いが異なる別カテゴリとしてユーザー要望により見出しで分けている（改善計画:
-            研究タブのカテゴリ分け）。重みは既存の評価軸（route_preference/scoring）の
-            相対的な重要度、レシピは一次情報（OSMタグ）から二次情報（車ストレス等）を
-            作る変換式そのもの（backend/app/domain/traffic.py: CarStressRecipe参照）で
-            性質が異なる。見出しの区切り自体はMapLayersPanel.tsxのカテゴリ見出し
-            （道路状態/交通・安全等、STATIC_CATEGORY_HEADINGS）と同じ発想・見た目
+        {/* 「評価の重み」1カテゴリのみ（改善計画: 研究タブを2次要素ごとに整理。以前は
+            重み[WeightPanel]とレシピ[CarStressRecipePanel等]を別カテゴリの見出しで分けて
+            いたが、同じ軸を調整するのに2箇所を行き来させる構成だった。区間難易度の重み
+            [PREFERENCE_FIELDS]は route_preference.yaml の各軸[2次要素]と1:1対応するため、
+            レシピを持つ軸[現状は車の圧迫感のみ]はその軸の重み行の直下へ差し込む
+            [WeightPanel.renderPreferenceFieldExtra]構成にした）。見出しの見た目は
+            MapLayersPanel.tsxのカテゴリ見出し（道路状態/交通・安全等）と同じ発想
             （styles.researchCategoryHeadingがcomposesで再利用）。 */}
         <div className={styles.researchCategory}>
           <h3 className={styles.researchCategoryHeading}>評価の重み</h3>
@@ -722,67 +791,8 @@ export default function Home() {
                 onScoringWeightsChange={setScoringWeights}
                 routePreference={routePreference}
                 onRoutePreferenceChange={setRoutePreference}
+                renderPreferenceFieldExtra={renderPreferenceFieldExtra}
               />
-            </div>
-          )}
-        </div>
-
-        {/* 「レシピ」カテゴリ: 一次情報→二次情報の変換式そのものを調整するパネル群。
-            現状は車ストレスレシピの1つのみだが、他の二次情報（自転車インフラ分類等）にも
-            将来レシピ化が広がりうるため、このカテゴリの下に複数のレシピパネルを並べられる
-            構成にしてある（新設パネルはこの<div>内へ追加するだけでよい）。 */}
-        <div className={styles.researchCategory}>
-          <h3 className={styles.researchCategoryHeading}>レシピ[一次情報→二次情報の変換式]</h3>
-          {/* 道路適正・自動車密度は車ストレス・安全度の両方が共有する材料
-              （domain/recipe.py: car_closeness()、改善計画: 車との近さ材料の共有元化）。
-              フラットな4パネル並びからは「材料→材料を使う軸」の関係が伝わりにくいという
-              統合レビュー指摘（改善計画T133）を受け、この2枚を枠付きの「共有材料」グループへ
-              まとめ、それを参照する車の圧迫感・安全度の2枚はインデントして下に続ける。
-              編集内容は参照する側のパネルの参照セクションへ即座に反映される。 */}
-          {researchEnabled && (
-            <div className={styles.recipeSharedMaterialGroup}>
-              <p className={styles.recipeSharedMaterialHeading}>共有材料[車の圧迫感・安全度が参照]</p>
-              <div className={styles.legendCard}>
-                <RoadSuitabilityRecipePanel
-                  overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
-                  onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
-                  recipe={roadSuitabilityRecipe}
-                  onRecipeChange={setRoadSuitabilityRecipe}
-                />
-              </div>
-              <div className={styles.legendCard}>
-                <MotorVehicleDensityRecipePanel
-                  overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
-                  onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
-                  recipe={motorVehicleDensityRecipe}
-                  onRecipeChange={setMotorVehicleDensityRecipe}
-                />
-              </div>
-            </div>
-          )}
-          {researchEnabled && (
-            <div className={styles.recipeDependentAxes}>
-              {/* 車ストレスレシピパネル（改善計画: 車ストレスレシピ調整UIパネル、T107の次
-                  ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
-                  重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ薄いパネルになり、
-                  先頭に道路適正・自動車密度の現在値（上書き中ならその値、無効なら既定値）を
-                  読み取り専用で表示する参照セクションを持つ。 */}
-              <div className={styles.legendCard}>
-                <CarStressRecipePanel
-                  overrideEnabled={carStressRecipeOverrideEnabled}
-                  onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
-                  recipe={carStressRecipe}
-                  onRecipeChange={setCarStressRecipe}
-                  roadSuitabilityRecipe={
-                    roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
-                  }
-                  motorVehicleDensityRecipe={
-                    motorVehicleDensityRecipeOverrideEnabled
-                      ? motorVehicleDensityRecipe
-                      : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
-                  }
-                />
-              </div>
             </div>
           )}
         </div>

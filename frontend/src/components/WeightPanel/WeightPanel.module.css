@@ -50,6 +50,16 @@
   padding-bottom: var(--space-2);
 }
 
+/* 区間難易度の重み1軸ぶん（改善計画T128・T145関連、研究タブの軸ごと整理）。重み入力
+   （.field）と、その軸固有の差し込み内容（renderPreferenceFieldExtra、例:
+   車の圧迫感のレシピ調整パネル）を縦に積む。差し込みが無い軸（大半）は.fieldのみで
+   親の.groupBody（gap: --space-2）と見た目が変わらない。 */
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .field {
   display: flex;
   align-items: center;
