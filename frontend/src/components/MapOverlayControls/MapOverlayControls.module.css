@@ -86,6 +86,32 @@
   align-self: flex-start;
 }
 
+/* 観測/推定グループ見出しが折りたたまれている間だけ、見出しチップの右に「アイコンの意味」
+   凡例トグル（renderGroupLegendToggle、InfoIcon）を並べる横並びの小さな行（実機
+   フィードバック「折りたたみ時だけ見える独立した凡例入口にしたい」への対応）。見出し
+   （header）を包むラッパーdiv自体は折りたたみ/展開の間で同じキー（MapOverlayControls.tsx:
+   `${group.key}:row`）を保ち、このクラス（折りたたみ時）と.estimatedFlatRow/
+   .observedExpandedColumn（展開時）を出し分けるだけにしている。ラッパーdivを別物に
+   差し替えるとheader（ChipButton）がその瞬間にアンマウント/再マウントされ、フォーカスや
+   aria状態が失われるため。align-selfは.chipRowItemと同じ理由でflex-startに戻す。 */
+.headerLegendRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  align-self: flex-start;
+}
+
+/* 観測グループ展開時、見出しとメンバータイルを縦に積むラッパー（上の.headerLegendRowと
+   同じdivのexpanded版、見出しのDOM識別子を保つための固定key設計）。以前はheader・
+   メンバー各タイルをラップせず.chipRow（列flex、gap: --space-2）の直接の子として並べて
+   いたが、ラッパー導入後も同じ見た目になるよう同じcolumn flex+gapをここで再現する。 */
+.observedExpandedColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: flex-start;
+}
+
 /* アイコンチップと▶/▼トグルのペア。展開トグルはこのチップ自身の開閉スイッチなので、
    間隔（gap）は詰めて見た目の対応関係を分かりやすくする（実機フィードバック
    「▶をもう少しアイコン側に近づけて」）。内訳パネル（.detailPanel、▶方向は行の右へ・
