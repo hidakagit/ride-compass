@@ -12,6 +12,11 @@ import {
   type MapLayerId,
 } from "@/components/Map/mapLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
+import {
+  PRIMARY_ATTRIBUTE_CHIP_LABELS,
+  PRIMARY_ATTRIBUTE_LAYER_IDS,
+  axisMaterials,
+} from "@/components/Map/primaryAttributes";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
@@ -313,7 +318,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // （MapLayersPanel）の「表示」チップと同じLayerChip部品を再利用し、ONのメンバーに
   // 凡例があれば単独チップと同じrenderLegendDetailsをその場に続けて出す（もう1段階の
   // ▶展開は設けず、グループを開いた時点で内訳まで見える方が操作が少なく分かりやすい）。
-  function renderMemberRow(member: OverlayLayerChip) {
+  // extraは推定グループ（改善計画T167）の材料一覧を行の末尾へ追加するためのフック。
+  function renderMemberRow(member: OverlayLayerChip, extra?: ReactElement | null) {
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
     return (
@@ -331,7 +337,35 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         {member.on && !member.disabled && hasLegend && (
           <div className={styles.memberLegend}>{renderLegendDetails(member.legendDetails!)}</div>
         )}
+        {extra}
       </li>
+    );
+  }
+
+  // 推定グループの各軸の下に出す材料一覧（改善計画T167）。axisMaterials（T164）から
+  // 導出した一次属性を、表示レイヤーの有無で2行に分ける。レイヤーを持つ材料は
+  // 「効いているものを探す」ときにそのまま地図上で確認できる旨、レイヤーを持たない材料
+  // （車線数・制限速度・交差点・街灯・トンネル・自動車通行可否）は地図では見えない材料
+  // として薄字で正直に見せる（略名はPRIMARY_ATTRIBUTE_CHIP_LABELS、primaryAttributes.ts
+  // のコメントどおりT167用に4文字以下で全属性ぶん揃えてある）。
+  function renderMaterialsNote(axisId: string) {
+    const materials = axisMaterials(axisId);
+    const withLayer = materials.filter((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId] !== undefined);
+    const withoutLayer = materials.filter((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId] === undefined);
+    if (withLayer.length === 0 && withoutLayer.length === 0) return null;
+    return (
+      <div className={styles.memberLegend}>
+        {withLayer.length > 0 && (
+          <p className={styles.detailNotice}>
+            材料: {withLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId]).join("・")}
+          </p>
+        )}
+        {withoutLayer.length > 0 && (
+          <p className={`${styles.detailNotice} ${styles.detailRowHidden}`}>
+            地図では未表示の材料: {withoutLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId]).join("・")}
+          </p>
+        )}
+      </div>
     );
   }
 
@@ -358,14 +392,18 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // 常にすべて列挙する。専用の表示レイヤーを持つ軸（車の圧迫感・停止密度・事故密度）は
   // layersから対応するチップを引いてON/OFFトグル付きの行にし、専用レイヤーの無い軸
   // （勾配・舗装質・夜間）は薄字＋代役へのポインタだけの行にする（トグルは出さない、
-  // secondaryAxes.ts参照）。
+  // secondaryAxes.ts参照）。各軸の下にrenderMaterialsNoteで材料一覧を出す（改善計画T167）。
+  // ONにする操作自体は個別レイヤーのトグル（onToggle経由）に任せ、材料の連動ONは
+  // page.tsx側（handleLayerToggle）が行う（このコンポーネントはレイヤー固有の知識を
+  // 持たない汎用描画係のまま、というファイル冒頭のコメント方針を維持する）。
   function renderEstimatedGroupPanel(members: readonly OverlayLayerChip[]) {
     return (
       <div className={styles.detailBody}>
         <ul className={styles.detailList}>
           {SECONDARY_AXES.map((axis) => {
             const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
-            if (member) return renderMemberRow(member);
+            const materialsNote = renderMaterialsNote(axis.axisId);
+            if (member) return renderMemberRow(member, materialsNote);
             return (
               <li key={axis.axisId} className={`${styles.memberRow} ${styles.detailRowHidden}`}>
                 <div className={styles.detailRow}>
@@ -373,6 +411,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                   <span className={styles.detailRowLabel}>{axis.label}</span>
                 </div>
                 {axis.proxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
+                {materialsNote}
               </li>
             );
           })}

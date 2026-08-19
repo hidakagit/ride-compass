@@ -1872,7 +1872,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   確認、車の圧迫感トグルのON/OFFが実際に動作することを確認。
   frontend vitest 357件・tsc・eslint全green、`next build`成功。
 
-### - [ ] T167. 2次レイヤーONで材料の1次レイヤーを連動ONする 規模S
+### - [x] T167. 2次レイヤーONで材料の1次レイヤーを連動ONする 規模S（2026-08-19完了）
 
 - 発端: ユーザー要望「2次のレイヤを表示オンにすると、材料になっている1次のレイヤも
   同時にオンになるのはできない？」。
@@ -1884,6 +1884,23 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 完了条件: 圧迫感ONで道路の種類・インフラ・指定路線が連動ONすることをPlaywright実機
   確認。frontend全green。
 - 依存: T166。
+- 実装メモ（2026-08-19完了）: 連動ON自体は`page.tsx`の`handleLayerToggle`に集約
+  （`SECONDARY_AXES.find(a => a.layerId === id)`で対象レイヤーIDが推定指標軸かを判定し、
+  `axisMaterialLayerIds(axisId)`が返す材料レイヤーを`setLayerVisibility`内で追加でtrueに
+  するだけの片方向処理。OFF時は何もしない）。`MapOverlayControls.tsx`はレイヤー固有の
+  知識を持たない汎用描画係のままにする方針（ファイル冒頭コメント）を維持し、連動ONの
+  判断ロジックはpage.tsx側だけに置いた。材料一覧の表示は`renderMaterialsNote(axisId)`を
+  新設し、`axisMaterials`の結果を`PRIMARY_ATTRIBUTE_LAYER_IDS`の有無で「材料:
+  （略名を「・」区切り）」「地図では未表示の材料: （略名を「・」区切り）」の2行に分けて
+  推定グループの各軸行の下へ出す（`renderMemberRow`にextra引数を追加してレイヤー有り軸へ、
+  レイヤー無し軸のダミー行にも直接追加）。
+  検証: `MapOverlayControls.test.tsx`へ新規1件（車の圧迫感の材料一覧が
+  「材料: 道路種別・インフラ・指定路線」「地図では未表示の材料: 車線数・制限速度・車両可否」に
+  分かれること、勾配・夜間でも同様に分かれることを確認）。frontend vitest 358件・tsc・
+  eslint全green、`next build`成功。Playwright実機確認: 車の圧迫感ONで道路の種類・
+  自転車インフラ・指定路線（いずれもaxisMaterialLayerIds("car_stress")の3レイヤー）が
+  連動ONすることを確認、無関係な路面の種類はOFFのままであることを確認、車の圧迫感を
+  その後OFFにしても連動先（道路の種類）はONのまま残ること（片方向）を確認。
 
 ### - [ ] T168. 評価側へ逆導出を適用する（研究タブの材料一覧・インスペクタのラベル共通化） 規模S〜M
 
