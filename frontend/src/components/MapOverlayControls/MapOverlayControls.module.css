@@ -370,43 +370,49 @@
   align-self: flex-start;
 }
 
-/* 推定グループの軸タイル（改善計画: 実機フィードバック「推定の横並びが複数行に折り返されて
-   見にくい」「▼トグルを各メンバの下部に出せないか」への対応）。ChipButtonのtileVariant="axis"
-   を付けたタイルだけに付く.chipRowItemAxis（MapOverlayControls.tsx参照）を対象に、
-   アイコン+略名の正方形タイルをアイコンのみへ縮小し、▼トグルも合わせて小さくする。
-   当初はモバイル幅のみの対応だったが、「スマホじゃなくても」という指摘を受け画面幅を問わず
-   常時適用する形へ変更した（6軸が専用アイコン(SECONDARY_AXIS_ICONS)で見分けられるように
-   なったため、略名を隠しても区別できる）。略名テキスト自体は削除せず.iconLabel側で
-   visually-hidden化する（アクセシビリティ上の名前はボタンのテキストノードから引き続き
-   取れる。aria-labelを別途足す方式より変更点が少なく、accnameの計算方法を変えないため
-   既存のtitle/aria-pressed運用と衝突しない）。隠した略名はrenderAxisTileが▼展開パネルの
-   先頭に.detailAxisLabelとして出す。▼トグル自体もアイコンチップの右ではなく下へ積む
-   （.iconToggleRowをflex-direction: columnへ変更）。タイル1個の横幅がアイコンチップの幅
-   （▼トグルの幅より広い）だけで決まるようになり、横並びで6軸ぶん並べたときの合計幅が
-   右並び版より縮む。 */
-.chipRowItemAxis .iconChip {
-  min-width: 2.2rem;
-  padding: 0.3rem 0.2rem;
-}
-
-.chipRowItemAxis .iconLabel {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
+/* 推定グループの軸タイル（改善計画: 実機フィードバック「▼トグルを各メンバの下部に
+   出せないか」への対応）。ChipButtonのtileVariant="axis"を付けたタイルだけに付く
+   .chipRowItemAxis（MapOverlayControls.tsx参照）を対象に、▼トグルをアイコンチップの
+   右ではなく下へ積む（.iconToggleRowをflex-direction: columnへ変更）。この並び替え自体は
+   画面幅を問わず常時適用する（「スマホじゃなくても」という指摘への対応）。 */
 .chipRowItemAxis .iconToggleRow {
   flex-direction: column;
   gap: 0.15rem;
 }
 
-.chipRowItemAxis .expandToggle {
-  width: 1.3rem;
-  height: 1.3rem;
+/* 軸タイルのアイコンのみへの縮小・略名の非表示は、モバイル幅のみに限定する
+   （実機フィードバック「推定の横並びが複数行に折り返されて見にくい」への対応）。
+   一度スマホ以外にも縮小を広げたが、「スマホ以外でも2次要素メンバーのアイコンが
+   小さくなってしまっている。フルブラウザの場合は一次メンバと同じサイズのアイコン、
+   軸略名入りのものを出せ」という指摘を受け、フルブラウザでは観測グループのメンバー
+   （一次要素、.iconChipの既定サイズ・略名表示）と同じ見た目に戻した。専用アイコン
+   (SECONDARY_AXIS_ICONS)だけでは軸名までは読み取れず、画面に余裕のあるフルブラウザで
+   略名まで隠す理由が無い。略名テキスト自体は削除せず.iconLabel側でvisually-hidden化する
+   （アクセシビリティ上の名前はボタンのテキストノードから引き続き取れる。aria-labelを
+   別途足す方式より変更点が少なく、accnameの計算方法を変えないため既存のtitle/
+   aria-pressed運用と衝突しない）。隠した略名はrenderAxisTileが▼展開パネルの先頭に
+   .detailAxisLabelとして出す（フルブラウザではタイル本体にも同じ文字が出ているだけで
+   害はないため、パネル側の表示はモバイル/デスクトップで条件分けしない）。 */
+@media (max-width: 640px) {
+  .chipRowItemAxis .iconChip {
+    min-width: 2.2rem;
+    padding: 0.3rem 0.2rem;
+  }
+
+  .chipRowItemAxis .iconLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .chipRowItemAxis .expandToggle {
+    width: 1.3rem;
+    height: 1.3rem;
+  }
 }
