@@ -2,6 +2,11 @@
 
 DB接続自体はasyncpg依存かつ実DBが要るため、ここでは対象外（test_measure_tag_coverage.pyの
 PBF切り分け方針・test_import_pbf.pyと同じ考え方）。
+
+軸ペア相関（pearson_correlation/spearman_correlation）は当初車ストレス×安全度の測定用
+だったが、安全度軸の削除（T148）に伴いmeasure_axis_stats.py本体でのレポート出力は撤去した。
+関数自体はanalyze_jartic_calibration.py（車ストレスlevel×JARTIC実測交通量の相関）が
+引き続き再利用するため残しており、以下のテストクラスもそれに対応して維持する。
 """
 
 import sys
@@ -19,7 +24,6 @@ from measure_axis_stats import (  # noqa: E402
     spearman_correlation,
 )
 
-from app.domain.safety import SafetyBreakdown  # noqa: E402
 from app.domain.traffic import CarStressBreakdown  # noqa: E402
 
 
@@ -35,22 +39,6 @@ def _car_stress_breakdown(**overrides) -> CarStressBreakdown:
     )
     defaults.update(overrides)
     return CarStressBreakdown(**defaults)
-
-
-def _safety_breakdown(**overrides) -> SafetyBreakdown:
-    defaults = dict(
-        base=2,
-        cycleway_adjustment=0,
-        maxspeed_adjustment=0,
-        lanes_adjustment=0,
-        lit_adjustment=0,
-        tunnel_adjustment=0,
-        designation_adjustment=0,
-        motor_vehicle_no_override=False,
-        level=2,
-    )
-    defaults.update(overrides)
-    return SafetyBreakdown(**defaults)
 
 
 class TestPearsonCorrelation:
@@ -108,10 +96,6 @@ class TestRawPreClampLevel:
         breakdown = _car_stress_breakdown(motor_vehicle_no_override=True, level=1)
         assert raw_pre_clamp_level(breakdown) is None
 
-    def test_works_for_safety_breakdown_too(self):
-        breakdown = _safety_breakdown(base=3, lit_adjustment=-1, tunnel_adjustment=1)
-        assert raw_pre_clamp_level(breakdown) == 3
-
 
 class TestAdjustmentFieldNames:
     def test_car_stress_fields_exclude_base_and_level(self):
@@ -121,9 +105,9 @@ class TestAdjustmentFieldNames:
         assert "base" not in fields
         assert "level" not in fields
 
-    def test_safety_fields_include_lit_tunnel(self):
-        fields = adjustment_field_names(SafetyBreakdown)
-        assert {"lit_adjustment", "tunnel_adjustment"} <= set(fields)
+    def test_car_stress_fields_include_designation(self):
+        fields = adjustment_field_names(CarStressBreakdown)
+        assert "designation_adjustment" in fields
 
 
 class TestRoundingLossCounter:
@@ -156,13 +140,13 @@ class TestRoundingLossCounter:
 
 class TestAdjustmentFiringCounter:
     def test_counts_nonzero_adjustment_as_fired(self):
-        counter = AdjustmentFiringCounter(["tunnel_adjustment", "lit_adjustment"])
-        counter.add(_safety_breakdown(tunnel_adjustment=1, lit_adjustment=0), distance_km=10.0)
-        counter.add(_safety_breakdown(tunnel_adjustment=0, lit_adjustment=0), distance_km=10.0)
+        counter = AdjustmentFiringCounter(["cycleway_adjustment", "maxspeed_adjustment"])
+        counter.add(_car_stress_breakdown(cycleway_adjustment=-2, maxspeed_adjustment=0), distance_km=10.0)
+        counter.add(_car_stress_breakdown(cycleway_adjustment=0, maxspeed_adjustment=0), distance_km=10.0)
 
-        assert counter.fired_count["tunnel_adjustment"] == 1
-        assert counter.fired_count["lit_adjustment"] == 0
-        assert counter.fired_distance_km["tunnel_adjustment"] == 10.0
+        assert counter.fired_count["cycleway_adjustment"] == 1
+        assert counter.fired_count["maxspeed_adjustment"] == 0
+        assert counter.fired_distance_km["cycleway_adjustment"] == 10.0
 
     def test_counts_true_boolean_override_as_fired(self):
         counter = AdjustmentFiringCounter(["motor_vehicle_no_override"])
@@ -174,11 +158,11 @@ class TestAdjustmentFiringCounter:
     def test_report_lines_flag_dead_adjustment(self):
         # 改善計画T124の動機（死に補正の検出）: 一度も発火しないフィールドは0%で報告される
         # （実例: shoulder_adjustmentは実測0.0%で「死に補正」と判明し、T122で撤去された）
-        counter = AdjustmentFiringCounter(["tunnel_adjustment"])
-        counter.add(_safety_breakdown(tunnel_adjustment=0), distance_km=10.0)
+        counter = AdjustmentFiringCounter(["cycleway_adjustment"])
+        counter.add(_car_stress_breakdown(cycleway_adjustment=0), distance_km=10.0)
 
-        lines = counter.report_lines("安全度")
-        assert any("tunnel_adjustment: 0件（0.0%）" in line for line in lines)
+        lines = counter.report_lines("車ストレス")
+        assert any("cycleway_adjustment: 0件（0.0%）" in line for line in lines)
 
 
 class TestHighwayAccidentDensity:

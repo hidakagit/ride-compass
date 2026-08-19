@@ -9,7 +9,6 @@ from app.api.dependencies import client_id, get_region_service
 from app.api.routers.routes import (
     MotorVehicleDensityRecipeOverride,
     RoadSuitabilityRecipeOverride,
-    SafetyRecipeOverride,
     CarStressRecipeOverride,
     validate_lanes_threshold_order,
 )
@@ -17,7 +16,6 @@ from app.config import settings
 from app.domain.evaluation import AxisInspectorResult
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
-from app.domain.safety import SafetyBreakdown, SafetyRecipe
 from app.domain.traffic import CarStressBreakdown, CarStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
@@ -200,47 +198,6 @@ async def region_car_stress_breakdown(
         road_suitability_recipe,
         motor_vehicle_density_recipe,
         region_service.get_car_stress_breakdown,
-    )
-
-
-class SafetyBreakdownRequest(BaseModel):
-    osm_way_id: int
-    # 研究モードでレシピを上書き中の内訳表示用（改善計画: 安全度レシピ）。
-    # 省略時はdomain/safety.py: DEFAULT_SAFETY_RECIPEで計算する。
-    safety_recipe: SafetyRecipeOverride | None = None
-    # CarStressBreakdownRequestと同じ「車との近さ」(N2)材料の上書き
-    # （改善計画: 車との近さ材料の共有元化）。
-    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
-
-
-@router.post("/api/region/safety-breakdown")
-async def region_safety_breakdown(
-    body: SafetyBreakdownRequest,
-    http_request: Request,
-    region_service: RegionService = Depends(get_region_service),
-) -> SafetyBreakdown | None:
-    """安全度の判定内訳（改善計画: 安全度レシピ）。region_car_stress_breakdownと
-    完全に同じ構造（POST+JSONボディの理由・osm_way_id完全一致の理由は同エンドポイントの
-    docstring参照）。
-    """
-    recipe = SafetyRecipe(**body.safety_recipe.model_dump()) if body.safety_recipe else None
-    road_suitability_recipe = (
-        RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
-    )
-    motor_vehicle_density_recipe = (
-        MotorVehicleDensityRecipe(**body.motor_vehicle_density_recipe.model_dump())
-        if body.motor_vehicle_density_recipe
-        else None
-    )
-    return await _breakdown_response(
-        http_request,
-        "safety-breakdown",
-        body.osm_way_id,
-        recipe,
-        road_suitability_recipe,
-        motor_vehicle_density_recipe,
-        region_service.get_safety_breakdown,
     )
 
 

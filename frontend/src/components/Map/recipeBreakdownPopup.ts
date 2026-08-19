@@ -1,22 +1,20 @@
-// 車ストレス・安全度の区間別判定内訳ポップアップ（改善計画T90・安全度レシピ）の
-// HTML組み立て＋ボタン配線。MapView.tsxに双子（ほぼ同一の構造で約158行）として存在して
-// いたものを、軸固有部分（ボタン/結果表示のdata属性・段階数・補正フィールド→ラベル対訳・
-// fetch関数）だけを設定オブジェクトとして渡す1実装へ畳んだ（改善計画T123。
+// 車ストレスの区間別判定内訳ポップアップ（改善計画T90）のHTML組み立て＋ボタン配線。
+// 当初はMapView.tsxに双子（ほぼ同一の構造で約158行）として存在していた安全度の内訳
+// ポップアップも同じ設定オブジェクト（軸固有部分だけを引数化する方式、改善計画T123。
 // backend/app/domain/recipe.py・backend/app/services/region_service.py: _get_breakdownと
-// 同じ「軸固有部分だけ引数化する」方針のTS側ミラー）。
+// 同じ方針のTS側ミラー）を共有していたが、安全度軸自体はT148で削除された。
 //
 // 補正の内訳行は`adjustmentLabels`のキー（Breakdownのフィールド名）を順番に読んで組み立てる
 // （backend/scripts/measure_axis_stats.pyのadjustment_field_namesと同じ「フィールド名を
 // 動的に拾う」考え方。新しい補正フィールドが増えても本モジュール自体の変更は不要で、
 // 各軸のconfigへラベルを1行足すだけで済む）。
-import type { SafetyBreakdown, CarStressBreakdown } from "@/types/traffic";
+import type { CarStressBreakdown } from "@/types/traffic";
 import type {
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
-  SafetyRecipeOverride,
   CarStressRecipeOverride,
 } from "@/types/route";
-import { fetchSafetyBreakdown, fetchCarStressBreakdown } from "@/services/regionApi";
+import { fetchCarStressBreakdown } from "@/services/regionApi";
 
 // ポップアップ内のボタン・結果表示先を識別するdata属性（HTML文字列としてMapLibreの
 // Popup#setHTMLへ渡すため、Reactのイベントハンドラは使えず、addTo後にDOMを直接
@@ -24,8 +22,6 @@ import { fetchSafetyBreakdown, fetchCarStressBreakdown } from "@/services/region
 // 組み立てる際にも参照するためexportする。
 export const CAR_STRESS_BREAKDOWN_BUTTON_ATTR = "data-car-stress-breakdown-button";
 export const CAR_STRESS_BREAKDOWN_RESULT_ATTR = "data-car-stress-breakdown-result";
-export const SAFETY_BREAKDOWN_BUTTON_ATTR = "data-safety-breakdown-button";
-export const SAFETY_BREAKDOWN_RESULT_ATTR = "data-safety-breakdown-result";
 
 interface RecipeBreakdownLike {
   base: number | null;
@@ -143,26 +139,6 @@ const CAR_STRESS_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<CarStressBreakdown,
   fetchBreakdown: fetchCarStressBreakdown,
 };
 
-// 安全度は4段階固定・丸めありという同じ仕様（domain/safety.py: safety_breakdown、
-// CAR_STRESS_BREAKDOWN_CONFIGと同じ理由でここも明示する）。
-const SAFETY_BREAKDOWN_CONFIG: RecipeBreakdownAxisConfig<SafetyBreakdown, SafetyRecipeOverride> = {
-  buttonAttr: SAFETY_BREAKDOWN_BUTTON_ATTR,
-  resultAttr: SAFETY_BREAKDOWN_RESULT_ATTR,
-  registeredLabel: "安全度",
-  scaleIntro: "安全度は4段階[1=安全〜4=危険]の目安です。",
-  minLevel: 1,
-  maxLevel: 4,
-  adjustmentLabels: {
-    cycleway_adjustment: "自転車インフラ",
-    maxspeed_adjustment: "制限速度",
-    lanes_adjustment: "車線数",
-    lit_adjustment: "街灯",
-    tunnel_adjustment: "トンネル",
-    designation_adjustment: "指定路線[緊急輸送道路等]",
-  },
-  fetchBreakdown: fetchSafetyBreakdown,
-};
-
 export function attachCarStressBreakdownHandler(
   popupElement: HTMLElement,
   osmWayId: number,
@@ -177,22 +153,5 @@ export function attachCarStressBreakdownHandler(
     roadSuitabilityRecipe,
     motorVehicleDensityRecipe,
     CAR_STRESS_BREAKDOWN_CONFIG,
-  );
-}
-
-export function attachSafetyBreakdownHandler(
-  popupElement: HTMLElement,
-  osmWayId: number,
-  recipe: SafetyRecipeOverride | undefined,
-  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
-  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
-) {
-  attachBreakdownHandler(
-    popupElement,
-    osmWayId,
-    recipe,
-    roadSuitabilityRecipe,
-    motorVehicleDensityRecipe,
-    SAFETY_BREAKDOWN_CONFIG,
   );
 }

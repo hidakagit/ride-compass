@@ -50,9 +50,7 @@ export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse
 export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 export type CarStressRecipeOverride = Schemas["CarStressRecipeOverride"];
-export type SafetyRecipeOverride = Schemas["SafetyRecipeOverride"];
-// 車ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
-// 共有元化）。
+// 車ストレスが参照する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の共有元化）。
 export type RoadSuitabilityRecipeOverride = Schemas["RoadSuitabilityRecipeOverride"];
 export type MotorVehicleDensityRecipeOverride = Schemas["MotorVehicleDensityRecipeOverride"];
 

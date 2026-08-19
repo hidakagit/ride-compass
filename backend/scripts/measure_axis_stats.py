@@ -1,19 +1,24 @@
-"""軸ペア（車ストレス×安全度）の相関・クランプ前生値分布・材料タグの補正発火率・
-highway階級別事故密度を、dev DBに対して1コマンドで計測する（改善計画T124）。
+"""車ストレスのクランプ前生値分布・材料タグの補正発火率・highway階級別事故密度を、
+dev DBに対して1コマンドで計測する（改善計画T124）。
 
 measure_tag_coverage.py（T102の前例）と同じ「単発実行・結果を標準出力・単体テストつき」の
-形式。相関測定・丸め損失・材料タグカバレッジの3分析は、T121（安全度と車ストレスの独立性
-検証）で使い捨てスクリプトとして実施したものを常設化したもの。DB I/Oから独立した純関数
-（pearson_correlation/spearman_correlation/RoundingLossCounter/AdjustmentFiringCounter/
-highway_accident_density）はtest_measure_axis_stats.pyで単体テストする。scipy/numpyは
-未導入のため相関計算は素朴なPython実装。
+形式。丸め損失・材料タグカバレッジの2分析は、T121（安全度と車ストレスの独立性検証）で
+使い捨てスクリプトとして実施したものを常設化したもの。DB I/Oから独立した純関数
+（RoundingLossCounter/AdjustmentFiringCounter/highway_accident_density）は
+test_measure_axis_stats.pyで単体テストする。
+
+当初（T124時点）は車ストレス×安全度の軸ペア相関も計測していたが、安全度軸はT148で
+削除され相関を取る相手軸が無くなったため、本スクリプト自身での相関測定（レポート出力）は
+撤去した。ただし`pearson_correlation`/`spearman_correlation`自体はanalyze_jartic_calibration.py
+（改善計画T53、車ストレスlevel×JARTIC実測交通量の相関検証）が引き続きここからimportして
+再利用するため、純関数としては残している。
 
 事故密度は`highway`列を持つosm_raw_ways全体を対象にし、road_graph_repository.py:
 _ACCIDENT_COUNTS_SQLと同じ30m・involves_bicycle・死亡事故重み付けパターンをhighway単位の
 集計へ変えたSQLで計算する（GiST索引を使う`&&`前置フィルタも同じ）。designation該当は
 designation_attributesをosm_way_idでDISTINCT JOINする（1つのWayがN10・N12両方に該当し
-うるため）。レシピの判定ロジック自体はSQLで再実装せず、domain/traffic.py・domain/safety.py
-の関数をway単位で直接呼び出す。
+うるため）。レシピの判定ロジック自体はSQLで再実装せず、domain/traffic.pyの関数をway単位で
+直接呼び出す。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\measure_axis_stats.py
@@ -39,7 +44,6 @@ from app.domain.accident import (  # noqa: E402
     distance_weighted_accident_density,
 )
 from app.domain.recipe import ROAD_SUITABILITY_BASE_BY_HIGHWAY  # noqa: E402
-from app.domain.safety import SafetyBreakdown, safety_breakdown  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
     CarStressBreakdown,
     car_stress_breakdown,
@@ -47,20 +51,16 @@ from app.domain.traffic import (  # noqa: E402
 from app.services.evaluation_service import (  # noqa: E402
     load_motor_vehicle_density_recipe,
     load_road_suitability_recipe,
-    load_safety_recipe,
     load_car_stress_recipe,
 )
 
-# レシピが評価対象とするhighway（改善計画: 車との近さ材料の共有元化で車ストレス・安全度は
-# 同一のROAD_SUITABILITY_BASE_BY_HIGHWAYを参照するようになったため、unionを取るまでもなく
-# 単一の集合になった）。
+# レシピが評価対象とするhighway（domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY）。
 SCORED_HIGHWAYS: list[str] = sorted(ROAD_SUITABILITY_BASE_BY_HIGHWAY)
 
-# クランプ範囲（domain/traffic.py: car_stress_breakdown・domain/safety.py:
-# safety_breakdownにハードコードされている上下限のミラー。T122でdomain/recipe.pyへ
-# clamp_levelプリミティブが共有化されたら、そちらから輸入する形へ置き換える）。
+# クランプ範囲（domain/traffic.py: car_stress_breakdownにハードコードされている上下限の
+# ミラー。T122でdomain/recipe.pyへclamp_levelプリミティブが共有化されたら、そちらから
+# 輸入する形へ置き換える）。
 CAR_STRESS_CLAMP = (1, 5)
-SAFETY_CLAMP = (1, 4)
 
 # road_graph_repository.py: _ACCIDENT_YEARS_COVERED_SQLと同一（private定数のモジュール
 # 跨ぎimportを避けるための複製。SQL自体は1行で保守コストが小さい）。
@@ -126,7 +126,8 @@ def _bbox_margin_deg(max_distance_m: float) -> float:
 def pearson_correlation(xs: list[float], ys: list[float], weights: list[float] | None = None) -> float | None:
     """Pearson相関係数。weights指定時は距離加重版（加重平均・加重分散・加重共分散を使う）。
     scipy/numpy未導入のため素朴な実装。標本2件未満、分散0（全て同値）のときは相関が定義
-    できないためNone。"""
+    できないためNone。本スクリプト自身はもう相関測定に使わないが、
+    analyze_jartic_calibration.py（車ストレスlevel×JARTIC実測交通量の相関）が再利用する。"""
     if len(xs) != len(ys) or len(xs) < 2:
         return None
     if weights is None:
@@ -168,7 +169,7 @@ def spearman_correlation(xs: list[float], ys: list[float], weights: list[float] 
     return pearson_correlation(_average_ranks(xs), _average_ranks(ys), weights)
 
 
-def raw_pre_clamp_level(breakdown: CarStressBreakdown | SafetyBreakdown) -> int | None:
+def raw_pre_clamp_level(breakdown: CarStressBreakdown) -> int | None:
     """クランプ前の生値（base＋全`*_adjustment`フィールドの単純合計）。breakdownモデルの
     型を問わず動的にフィールドを拾うため、将来の補正追加でこの関数の変更は不要。
     motor_vehicle=no（motor_vehicle_no_override）はクランプの概念が無く常にlevel固定のため
@@ -248,7 +249,7 @@ class AdjustmentFiringCounter:
         self.fired_count: dict[str, int] = dict.fromkeys(field_names, 0)
         self.fired_distance_km: dict[str, float] = dict.fromkeys(field_names, 0.0)
 
-    def add(self, breakdown: CarStressBreakdown | SafetyBreakdown, distance_km: float) -> None:
+    def add(self, breakdown: CarStressBreakdown, distance_km: float) -> None:
         self.total_count += 1
         self.total_distance_km += distance_km
         dumped = breakdown.model_dump()
@@ -335,29 +336,19 @@ async def main(database_url: str | None = None) -> int:
         await engine.dispose()
 
     car_stress_recipe = load_car_stress_recipe()
-    safety_recipe = load_safety_recipe()
-    # 車ストレス・安全度が共有する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の
-    # 共有元化）。省略するとcar_closeness()がハードコードのDEFAULT_*へ静かにフォールバック
-    # してしまい、road_suitability_recipe.yaml/motor_vehicle_density_recipe.yamlを編集して
-    # 較正実験をしても反映されないため、car_stress_recipe/safety_recipeと同様にYAMLから読む。
+    # 省略するとcar_closeness()がハードコードのDEFAULT_*へ静かにフォールバックしてしまい、
+    # road_suitability_recipe.yaml/motor_vehicle_density_recipe.yamlを編集して較正実験をしても
+    # 反映されないため、car_stress_recipeと同様にYAMLから読む。
     road_suitability_recipe = load_road_suitability_recipe()
     motor_vehicle_density_recipe = load_motor_vehicle_density_recipe()
 
-    car_stress_levels: list[float] = []
-    safety_levels: list[float] = []
-    pair_distances: list[float] = []
     car_stress_rounding = RoundingLossCounter(*CAR_STRESS_CLAMP)
-    safety_rounding = RoundingLossCounter(*SAFETY_CLAMP)
     car_stress_firing = AdjustmentFiringCounter(adjustment_field_names(CarStressBreakdown))
-    safety_firing = AdjustmentFiringCounter(adjustment_field_names(SafetyBreakdown))
 
     for highway, tags, length_km, is_designated in way_rows:
         length_km = float(length_km)
         car_stress = car_stress_breakdown(
             highway, tags, is_designated, car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe
-        )
-        safety = safety_breakdown(
-            highway, tags, is_designated, safety_recipe, road_suitability_recipe, motor_vehicle_density_recipe
         )
 
         if car_stress.level is not None:
@@ -365,44 +356,19 @@ async def main(database_url: str | None = None) -> int:
             raw = raw_pre_clamp_level(car_stress)
             if raw is not None:
                 car_stress_rounding.add(raw, length_km)
-        if safety.level is not None:
-            safety_firing.add(safety, length_km)
-            raw = raw_pre_clamp_level(safety)
-            if raw is not None:
-                safety_rounding.add(raw, length_km)
-        if car_stress.level is not None and safety.level is not None:
-            car_stress_levels.append(float(car_stress.level))
-            safety_levels.append(float(safety.level))
-            pair_distances.append(length_km)
 
     density_by_highway = highway_accident_density(
         [(highway, float(length_km), float(weighted_count)) for highway, length_km, weighted_count in density_rows],
         years_covered,
     )
 
-    print("== 軸ペア相関（車ストレス × 安全度） ==")
-    print(f"対象way数: {len(car_stress_levels)}件・{sum(pair_distances):.1f}km")
-    print(
-        f"Pearson: {_fmt(pearson_correlation(car_stress_levels, safety_levels))}"
-        f"（距離加重: {_fmt(pearson_correlation(car_stress_levels, safety_levels, pair_distances))}）"
-    )
-    print(
-        f"Spearman: {_fmt(spearman_correlation(car_stress_levels, safety_levels))}"
-        f"（距離加重: {_fmt(spearman_correlation(car_stress_levels, safety_levels, pair_distances))}）"
-    )
-    print()
-
     print("== クランプ前生値分布（丸め損失） ==")
     for line in car_stress_rounding.report_lines("車ストレス"):
-        print(line)
-    for line in safety_rounding.report_lines("安全度"):
         print(line)
     print()
 
     print("== 材料タグの補正発火率（死に補正の検出） ==")
     for line in car_stress_firing.report_lines("車ストレス"):
-        print(line)
-    for line in safety_firing.report_lines("安全度"):
         print(line)
     print()
 

@@ -1,8 +1,7 @@
-import type { AxisInspectorResult, SafetyBreakdown, CarStressBreakdown } from "@/types/traffic";
+import type { AxisInspectorResult, CarStressBreakdown } from "@/types/traffic";
 import type {
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
-  SafetyRecipeOverride,
   CarStressRecipeOverride,
 } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
@@ -21,10 +20,8 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v11: 改善計画T122。shoulder材料タグ（付与率0.0%の死に補正、T102実測）を撤去した。
 // プロパティ削除を伴うが、shoulderは元々全fetchで実質未使用だったため、v9のような
 // 厳格なデプロイ順序制約はない。
-// v10: 安全度レシピ。安全度の材料タグ（shoulder/lit、tunnelは既存プロパティを再利用）を
-// 追加した（最終値の計算はsafetyExpression.tsがMapLibre expressionとして行う）。
-// v9と同じくプロパティ追加のみ（削除は伴わない）だが、キャッシュ済み旧タイルには
-// shoulder/litキーが無く安全度レイヤーが不完全表示になるため世代を上げる。
+// v10: 安全度レシピ（T148で削除済み）。当時の材料タグ（shoulder/lit、tunnelは既存
+// プロパティを再利用）追加のため世代を上げた。lit自体はT139でnight軸へ転用され現在も使用中。
 // v9: 車ストレスレシピ外出し基盤。計算済みのcar_stress最終値プロパティを廃止し、
 // 材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no）へ差し替えた
 // （最終値の計算はcarStressExpression.tsがMapLibre expressionとして行う）。
@@ -92,7 +89,7 @@ export function poiTileUrl(): string {
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
 
-// 車ストレス・安全度の区間別判定内訳（改善計画T90・安全度レシピ）。地図上の道路クリックで
+// 車ストレスの区間別判定内訳（改善計画T90）。地図上の道路クリックで
 // 得たosm_way_id（路面タイルのMVTプロパティに含まれる識別子）から判定根拠（ベース値・各補正・
 // 最終値）を取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
 // backend/app/services/region_service.py: get_car_stress_breakdownのdocstring参照
@@ -104,7 +101,7 @@ export const ROAD_TILE_MAX_ZOOM = 15;
 // 上書き中はここにも渡して地図・ルート採点と表示を一致させる）という複雑なオブジェクトを
 // クエリパラメータで渡すのが不自然なため（backend/app/api/routers/region.py参照）。
 //
-// 改善計画T123: 車ストレス・安全度で完全に同じ構造だった2関数を、軸固有部分（パス・
+// 改善計画T123: 車ストレス・安全度（T148で削除）で完全に同じ構造だった2関数を、軸固有部分（パス・
 // レシピのボディキー・ログキー・エラーメッセージのラベル）だけを設定オブジェクトとして
 // 渡す1関数へ畳んだ（backend/app/services/region_service.py: _get_breakdownと同じ方針）。
 interface BreakdownAxisConfig {
@@ -171,22 +168,6 @@ export function fetchCarStressBreakdown(
     roadSuitabilityRecipe,
     motorVehicleDensityRecipe,
   );
-}
-
-const SAFETY_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
-  path: "/api/region/safety-breakdown",
-  recipeBodyKey: "safety_recipe",
-  debugKey: "api:safety-breakdown",
-  errorLabel: "安全度",
-};
-
-export function fetchSafetyBreakdown(
-  osmWayId: number,
-  recipe?: SafetyRecipeOverride,
-  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
-  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
-): Promise<SafetyBreakdown | null> {
-  return fetchBreakdown(SAFETY_BREAKDOWN_CONFIG, osmWayId, recipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
 }
 
 // 区間インスペクタ（改善計画T146）。fetchBreakdownと同じPOST+JSONボディ・エラー処理の

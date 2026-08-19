@@ -2,7 +2,6 @@ import inspect
 
 import pytest
 
-from app.domain import evaluation, safety, traffic
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import (
     RoutePreference,
@@ -114,52 +113,6 @@ def test_compute_edge_cost_excludes_bicycle_no_edge():
     assert result.difficulty is None
     assert result.difficulty is None
     assert result.edge_id == "edge-1"
-
-
-def _count_car_closeness_calls(monkeypatch) -> "list[int]":
-    # car_closeness()はapp.domain.evaluation/traffic/safetyそれぞれが`from ... import
-    # car_closeness`で個別に束縛しているため、3箇所すべてにパッチしないと見落としが
-    # 起こりうる（precompute側が正しく配線されず各軸内部でフォールバック呼び出しされても、
-    # evaluation.py側の1箇所だけを数えていては検出できない）。共有カウンタで合算する。
-    counter = [0]
-
-    def make_counting(original):
-        def counting(*args, **kwargs):
-            counter[0] += 1
-            return original(*args, **kwargs)
-
-        return counting
-
-    monkeypatch.setattr(evaluation, "car_closeness", make_counting(evaluation.car_closeness))
-    monkeypatch.setattr(traffic, "car_closeness", make_counting(traffic.car_closeness))
-    monkeypatch.setattr(safety, "car_closeness", make_counting(safety.car_closeness))
-    return counter
-
-
-def test_compute_edge_cost_calls_car_closeness_once_per_edge(monkeypatch):
-    # 「車との近さ」(N2)はcar_stress_level・safety_levelの両方が内部で参照する共通の
-    # 土台で、以前は同じ材料タグ・同じレシピに対してcar_closeness()が両者から独立に
-    # 毎回呼ばれ、1Edgeにつき2回計算していた（ルート生成の全Edge分の無駄）。
-    # compute_edge_cost側で1回だけ計算して両方へ渡すようになったことを、実呼び出し回数で
-    # 直接確認する（本物のcar_closeness()へ委譲しつつ呼び出し回数だけ数える）。
-    counter = _count_car_closeness_calls(monkeypatch)
-
-    edge = _edge(highway="primary")
-    result = compute_edge_cost(edge, None, None, RoutePreference(), way_tags={"lanes": "2"})
-
-    assert result.allowed is True
-    assert counter[0] == 1
-
-
-def test_compute_edge_cost_without_way_tags_does_not_call_car_closeness(monkeypatch):
-    # way_tags=Noneの場合はcar_stress/safetyとも評価しない（既存仕様）ため、
-    # car_closeness()自体を呼ぶ必要が無いことも確認する。
-    counter = _count_car_closeness_calls(monkeypatch)
-
-    edge = _edge(highway="primary")
-    compute_edge_cost(edge, None, None, RoutePreference())
-
-    assert counter[0] == 0
 
 
 def test_compute_edge_cost_flat_and_paved_has_low_difficulty_and_cost_near_distance():

@@ -28,16 +28,9 @@ from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_di
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
-from app.domain.recipe import (
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    MotorVehicleDensityRecipe,
-    RoadSuitabilityRecipe,
-    car_closeness,
-)
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.safety import SafetyRecipe, safety_level
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
@@ -129,7 +122,6 @@ class OpenRouteServiceEngine:
         route_preference: RoutePreference,
         repository: RoadGraphRepository | None = None,
         car_stress_recipe: CarStressRecipe | None = None,
-        safety_recipe: SafetyRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
@@ -141,7 +133,6 @@ class OpenRouteServiceEngine:
         # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
         self._repository = repository
         self._car_stress_recipe = car_stress_recipe
-        self._safety_recipe = safety_recipe
         self._road_suitability_recipe = road_suitability_recipe
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
 
@@ -273,7 +264,6 @@ class OpenRouteServiceEngine:
                 [(s.distance_km, attributes_per_candidate[i][j].accident_count) for j, s in enumerate(segments)],
                 accident_years_covered,
             )
-            safety_score = distance_weighted_difficulty([(s.safety, s.distance_km) for s in segments])
             results.append(
                 c.model_copy(
                     update={
@@ -284,7 +274,6 @@ class OpenRouteServiceEngine:
                         "bicycle_infra_score": bicycle_infra_score,
                         "intersection_density": intersection_density,
                         "accident_density": accident_density,
-                        "safety_score": safety_score,
                     }
                 )
             )
@@ -342,20 +331,6 @@ class OpenRouteServiceEngine:
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
             highway, tags, is_designated = attr.highway, attr.tags, attr.is_designated
-            # 改善計画T134: 「車との近さ」(N2)はcar_stress_level・safety_levelの両方が内部で
-            # 参照する共通の土台のため、ここで1回だけ計算して両方へ渡す（compute_edge_cost
-            # 側と同じパターン、domain/evaluation.py: compute_edge_axis_scores参照）。
-            car_closeness_result = (
-                car_closeness(
-                    highway,
-                    tags,
-                    is_designated,
-                    self._road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE,
-                    self._motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-                )
-                if tags is not None
-                else None
-            )
             car_stress = (
                 car_stress_level(
                     highway,
@@ -364,7 +339,6 @@ class OpenRouteServiceEngine:
                     self._car_stress_recipe,
                     road_suitability_recipe=self._road_suitability_recipe,
                     motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                    car_closeness_result=car_closeness_result,
                 )
                 if tags is not None
                 else None
@@ -378,19 +352,6 @@ class OpenRouteServiceEngine:
             accident_count_per_km_year = (
                 accident_count / distance_km / accident_years_covered
                 if accident_count is not None and distance_km > 0 and accident_years_covered > 0
-                else None
-            )
-            safety = (
-                safety_level(
-                    highway,
-                    tags,
-                    is_designated,
-                    self._safety_recipe,
-                    road_suitability_recipe=self._road_suitability_recipe,
-                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                    car_closeness_result=car_closeness_result,
-                )
-                if tags is not None
                 else None
             )
 
@@ -422,7 +383,6 @@ class OpenRouteServiceEngine:
                     road_surface_good=road_surface_good,
                     car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
-                    safety=safety,
                     elevation_difficulty=axis_difficulties.elevation,
                     wind_difficulty=axis_difficulties.wind,
                     road_difficulty=axis_difficulties.road,

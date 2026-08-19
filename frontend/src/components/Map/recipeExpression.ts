@@ -1,11 +1,10 @@
-// 車ストレス・安全度（carStressExpression.ts/safetyExpression.ts）が共有する
-// MapLibre expression断片の組み立てヘルパー（改善計画T123）。
+// 車ストレス（carStressExpression.ts、かつては安全度safetyExpression.tsとも共有していたが
+// 安全度軸はT148で削除済み）が使うMapLibre expression断片の組み立てヘルパー（改善計画T123）。
 // backend/app/domain/recipe.pyの5プリミティブ（clamp_level/threshold_adjustment/
 // cycleway_adjustment/flag_adjustment/tag_value_is相当）のTS側ミラー。判定ロジックの
 // 正準はPython側で、ここはMapLibre expression（宣言的な式木）として同じ判定を再現するための
-// 断片生成にとどめる。両軸の既定値・生成フィクスチャとの整合はcarStressExpression.test.ts/
-// safetyExpression.test.tsが検証する（T121・T122で確認したPython⇔JS実ドリフト検知の体制は
-// このヘルパー化でも変えない）。
+// 断片生成にとどめる。既定値・生成フィクスチャとの整合はcarStressExpression.test.tsが検証する
+// （T121・T122で確認したPython⇔JS実ドリフト検知の体制はこのヘルパー化でも変えない）。
 //
 // maplibre-gl本体（paint/filter評価に使う内部実装）は@maplibre/maplibre-gl-style-specを
 // ビルド時に自身のdistへ静的に取り込み済みで、node_modulesの本パッケージとは実行時に
@@ -41,7 +40,7 @@ export function cyclewayAdjustmentExpr(trackAdjustment: number, laneAdjustment: 
 
 // 数値材料タグ（maxspeed_kmh/lanes_count）が低い方/高い方の閾値に該当する場合の補正
 // （domain/recipe.py: threshold_adjustment）。lowThreshold/highThresholdはnullなら
-// 「その方向の補正を持たない」ことを表す（安全度のlanesはhigh方向のみ採用）。
+// 「その方向の補正を持たない」ことを表す（lanesはhigh方向のみ採用）。
 // low<highが常に成り立つ前提（*Override APIモデルのvalidate_threshold_orderで検証済み）
 // のため、low/highどちらを先に判定しても結果は同じ（両条件は排他的）。
 // "has"で先にプロパティの有無を確認してから比較する（caseは短絡評価のため、プロパティが
@@ -50,7 +49,7 @@ export function cyclewayAdjustmentExpr(trackAdjustment: number, laneAdjustment: 
 // lowSuppressedWhenはlow方向のみを無効化する追加条件（車ストレスのlanes_low、
 // 分離自転車道区間では該当しないため。domain/traffic.py: car_stress_breakdownの
 // `cycleway_class(tags) == "track"`判定と1:1対応）。high方向・他の呼び出し元
-// （maxspeed・安全度のlanes）は影響しない。
+// （maxspeedのlanes）は影響しない。
 export function thresholdAdjustmentExpr(
   property: string,
   lowThreshold: number | null,
@@ -81,8 +80,8 @@ export function flagAdjustmentExpr(property: string, adjustment: number): unknow
 }
 
 // designationは'emergency_transport'|'critical_logistics'|'both'|(キー無し)。値の種類を
-// 問わず「該当するかどうか」だけが補正条件（domain/*.py: *_breakdownのis_designated引数と
-// 同じ、車ストレス・安全度で共有の材料タグ）。
+// 問わず「該当するかどうか」だけが補正条件（domain/traffic.py: car_stress_breakdownの
+// is_designated引数と同じ材料タグ）。
 export function designationAdjustmentExpr(adjustment: number): unknown[] {
   return ["case", ["!=", ["coalesce", ["get", "designation"], ""], ""], adjustment, 0];
 }
@@ -104,10 +103,8 @@ export function baseByHighwayExpr(baseByHighway: Record<string, number>): { hasB
 }
 
 // 「道路適正」（highway別基準値＋cycleway分離度）を1組で返す（domain/recipe.py:
-// road_suitability、改善計画: 車との近さ材料の共有元化）。車ストレス・安全度の両方が
-// 最初に評価する共通部分で、baseByHighwayExpr・cyclewayAdjustmentExprを個別に呼ぶ重複を
-// 1箇所へまとめる。値の出どころ（各軸のrecipe）は呼び出し側が渡すため、ここでは
-// 車ストレス由来か安全度由来かは区別しない（Python側と同じ考え方）。
+// road_suitability、改善計画: 車との近さ材料の共有元化）。車ストレスが最初に評価する
+// 共通部分で、baseByHighwayExpr・cyclewayAdjustmentExprを個別に呼ぶ重複を1箇所へまとめる。
 export function roadSuitabilityExpr(
   baseByHighway: Record<string, number>,
   trackAdjustment: number,
@@ -131,9 +128,8 @@ export interface CarClosenessExpr {
 }
 
 // 「車との近さ」（N2 = 道路適正＋自動車密度）を1組で返す（domain/recipe.py:
-// car_closeness、改善計画: 車との近さ材料の共有元化）。車ストレス・安全度の両方が
-// 共通の土台として評価する材料で、軸固有の補正（車ストレス: 車線数[少ない方]、
-// 安全度: 街灯・トンネル）は呼び出し側がこの結果へ追加する。
+// car_closeness、改善計画: 車との近さ材料の共有元化）。車ストレスが共通の土台として
+// 評価する材料で、軸固有の補正（車線数[少ない方]）は呼び出し側がこの結果へ追加する。
 export function carClosenessExpr(
   roadSuitabilityRecipe: {
     base_by_highway: Record<string, number>;
