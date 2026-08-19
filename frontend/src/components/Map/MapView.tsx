@@ -51,8 +51,10 @@ import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
   BICYCLE_INFRA_COLOR_EXPRESSION,
+  BICYCLE_INFRA_OPACITY_EXPRESSION,
   BICYCLE_INFRA_LABELS,
   DESIGNATION_COLOR_EXPRESSION,
+  DESIGNATION_OPACITY_EXPRESSION,
   DESIGNATION_LABELS,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
@@ -137,6 +139,11 @@ export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // フォールバック（均一な太さ・実線）に使う。
 const DEFAULT_ROAD_LINE_WIDTH = 3;
 const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
+// 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの不透明度（改善計画:
+// 対象外区間の低不透明度化）。その状態では色は中立（ROAD_LINE_NEUTRAL_COLOR）で
+// カテゴリを表さないため、roadFilterAxes.tsのopacityExpression（分類済み/不明で
+// 不透明度を出し分ける式）は使わず、一律のこの値のままにする。
+const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // 改善計画（1次/2次の地図上表現の統一、松）: car_stress・ramp軸（停止密度・事故密度等、
 // axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
 // 独立レイヤーとして重ねて描画される。以前は1次（bicycleInfra/designation）と同じ
@@ -422,7 +429,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
         "line-width": DEFAULT_ROAD_LINE_WIDTH,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-dasharray": DEFAULT_ROAD_LINE_DASHARRAY as any,
-        "line-opacity": 0.8,
+        "line-opacity": DEFAULT_ROAD_LINE_OPACITY,
         // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
         "line-offset": 0,
       },
@@ -462,12 +469,17 @@ function applyRoadLayerState(
       const dashArrayExpression = showRoadType
         ? (getRoadFilterAxis(ROAD_LINE_DASH_AXIS_ID).dashArrayExpression ?? DEFAULT_ROAD_LINE_DASHARRAY)
         : DEFAULT_ROAD_LINE_DASHARRAY;
+      const opacityExpression = showRoadSurface
+        ? (getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY)
+        : DEFAULT_ROAD_LINE_OPACITY;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-color", colorExpression as any);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-width", widthExpression as any);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-dasharray", dashArrayExpression as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-opacity", opacityExpression as any);
     }
     const activeAxes = ROAD_FILTER_AXES.filter((axis) =>
       axis.id === ROAD_LINE_COLOR_AXIS_ID ? showRoadSurface : showRoadType
@@ -574,7 +586,8 @@ function ensureBicycleInfraLayer(map: MapLibreMap) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-color": BICYCLE_INFRA_COLOR_EXPRESSION as any,
         "line-width": 3,
-        "line-opacity": 0.85,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-opacity": BICYCLE_INFRA_OPACITY_EXPRESSION as any,
         // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
         "line-offset": 0,
       },
@@ -599,7 +612,8 @@ function ensureDesignationLayer(map: MapLibreMap) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-color": DESIGNATION_COLOR_EXPRESSION as any,
         "line-width": 3,
-        "line-opacity": 0.85,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-opacity": DESIGNATION_OPACITY_EXPRESSION as any,
         // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
         "line-offset": 0,
       },
