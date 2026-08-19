@@ -182,28 +182,37 @@ describe("MapOverlayControls", () => {
       expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
     });
 
-    it("推定グループを開くと確定命名表の6軸すべてが並び、専用レイヤーの無い軸は薄字表示になる", async () => {
+    // マトリックス化（改善計画T169）: 推定グループの内訳は、観測グループのメンバーと同じ
+    // 「アイコン+略名の四角タイル」（ChipButton）を横並びで並べる。専用レイヤーの無い軸は
+    // タップ不能（disabled）の情報タイルとして同じ見た目で並ぶ（薄字の行ではなくなった）。
+    it("推定グループを開くと確定命名表の6軸すべてがタイルとして並び、専用レイヤーの無い軸は押せない情報タイルになる", async () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "推定" }));
-      // レイヤーを持つ軸（car_stress）はON/OFFトグル付きの行
+      // レイヤーを持つ軸（car_stress）はON/OFFタイル
       const carStressToggle = screen.getByRole("button", { name: "車の圧迫感" });
       expect(carStressToggle).toHaveAttribute("aria-pressed", "true");
-      // レイヤーの無い軸（勾配・舗装質・夜間）は正式名だけの薄字表示（トグルボタンなし）
-      expect(screen.getByText("勾配")).toBeInTheDocument();
+      expect(carStressToggle).not.toBeDisabled();
+      // レイヤーの無い軸（勾配・舗装質・夜間）は正式名のタイルだが押せない（disabled）
+      const gradientTile = screen.getByRole("button", { name: "勾配" });
+      expect(gradientTile).toBeDisabled();
+      const surfaceQTile = screen.getByRole("button", { name: "舗装質" });
+      expect(surfaceQTile).toBeDisabled();
+      expect(screen.getByRole("button", { name: "夜間" })).toBeDisabled();
+      // レイヤーはあるがlayers propに渡されていない軸（停止密度・事故密度）も同様に
+      // disabledのタイルとして並ぶ（layersに無いので対応するチップを引けない）
+      expect(screen.getByRole("button", { name: "停止密度" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "事故密度" })).toBeDisabled();
+
+      // 専用レイヤーの無い軸にも個々に▼展開ボタンが付き、代役案内文（proxyHint）が見える
+      await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
       expect(screen.getByText("標高レイヤーで確認できます")).toBeInTheDocument();
-      expect(screen.getByText("舗装質")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "舗装質の凡例を表示" }));
       expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
-      expect(screen.getByText("夜間")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "勾配" })).not.toBeInTheDocument();
-      // レイヤーはあるがlayers propに渡されていない軸（停止密度・事故密度）もトグル無しの
-      // 情報行として一覧に含まれる（layersに無いのでLayerChipを引けない）
-      expect(screen.getByText("停止密度")).toBeInTheDocument();
-      expect(screen.getByText("事故密度")).toBeInTheDocument();
     });
 
-    it("推定グループはcompositeチップが1件も渡されなくても常に表示される（SECONDARY_AXESの薄字項目があるため）", () => {
+    it("推定グループはcompositeチップが1件も渡されなくても常に表示される（SECONDARY_AXESの情報タイルがあるため）", () => {
       render(<MapOverlayControls {...baseProps()} />); // baseLayers()にcompositeチップなし
       expect(screen.getByRole("button", { name: "推定" })).toBeInTheDocument();
     });
@@ -216,22 +225,52 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-pressed", "true");
     });
 
-    // 推定グループの各軸に材料一覧を出す（改善計画T167）。axisMaterials（T164）から導出した
-    // 一次属性を、表示レイヤーの有無で「材料」「地図では未表示の材料」の2行に分ける。
-    it("推定グループの各軸の下に材料一覧が出て、表示レイヤーの有無で分けて表示される", async () => {
+    // 推定グループの各軸タイルに材料一覧を出す（改善計画T167→T169）。axisMaterials（T164）
+    // から導出した一次属性を、表示レイヤーの有無で「材料」「地図では未表示の材料」の2行に
+    // 分ける。マトリックス化後は各軸タイル自身の▼展開を押してはじめて見える。
+    it("推定グループの各軸タイルの▼を開くと材料一覧が出て、表示レイヤーの有無で分けて表示される", async () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
       await user.click(screen.getByRole("button", { name: "推定" }));
 
       // 車の圧迫感: 道路種別・インフラ・指定路線はレイヤーあり、車線数・制限速度・車両可否は無し
+      await user.click(screen.getByRole("button", { name: "車の圧迫感の凡例を表示" }));
       expect(screen.getByText("材料: 道路種別・インフラ・指定路線")).toBeInTheDocument();
       expect(screen.getByText("地図では未表示の材料: 車線数・制限速度・車両可否")).toBeInTheDocument();
 
       // 勾配: 材料の標高にはレイヤーがある（未表示材料は無し）
+      await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
       expect(screen.getByText("材料: 標高")).toBeInTheDocument();
 
       // 夜間: 材料（街灯・トンネル）はどちらもレイヤーが無い
+      await user.click(screen.getByRole("button", { name: "夜間の凡例を表示" }));
       expect(screen.getByText("地図では未表示の材料: 街灯・トンネル")).toBeInTheDocument();
+    });
+
+    // タイルの見た目統一（改善計画T169、ユーザー指摘「1次要素、2次要素すべて推定と同様の
+    // 四角タイルアイコンにして」）: 観測グループのメンバーは推定グループの軸タイルと同じ
+    // ChipButtonを再利用しており、個々に凡例展開ボタンが付く。観測グループ自体が▼縦積みの
+    // ため、メンバー個々の展開はそれと直交する▶（右）になる。
+    it("観測グループのメンバータイルは凡例を持てば個別に▶展開ボタンが付き、開くと右へ凡例が出る", async () => {
+      const user = userEvent.setup();
+      const layers = groupedLayers();
+      const roadType = layers.find((l) => l.id === "roadType")!;
+      roadType.on = true;
+      roadType.legendDetails = [
+        {
+          label: "道路の種類",
+          legend: [{ key: "primary", label: "幹線道路", color: "#111827", filter: ["literal", true] }],
+          hiddenKeys: [],
+        },
+      ];
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      const expandToggle = screen.getByRole("button", { name: "道路の種類の凡例を表示" });
+      expect(screen.queryByText("幹線道路")).not.toBeInTheDocument();
+
+      await user.click(expandToggle);
+      expect(screen.getByText("幹線道路")).toBeInTheDocument();
     });
   });
 });

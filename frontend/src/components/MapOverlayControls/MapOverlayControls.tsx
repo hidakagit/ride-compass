@@ -33,7 +33,6 @@ import {
   SupplyPoiIcon,
   RouteIcon,
 } from "@/components/Map/icons";
-import LayerChip from "@/components/Map/LayerChip";
 import styles from "./MapOverlayControls.module.css";
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
@@ -325,29 +324,37 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     if (expandedIds.size > 0) setExpandedIds(new Set());
   };
 
-  // 観測グループ（改善計画T166）共通の1メンバー行（アイコン+ON/OFF）。サイドバー
-  // （MapLayersPanel）の「表示」チップと同じLayerChip部品を再利用し、ONのメンバーに
-  // 凡例があれば単独チップと同じrenderLegendDetailsをその場に続けて出す（もう1段階の
-  // ▶展開は設けず、グループを開いた時点で内訳まで見える方が操作が少なく分かりやすい）。
-  function renderMemberRow(member: OverlayLayerChip) {
+  // 観測グループの1メンバー（改善計画T166→T169でタイル化）。推定グループの軸タイルと
+  // 同じ「アイコン+略名の四角タイル+隣に付随する凡例展開ボタン」をChipButtonの再利用で
+  // 表す（見た目を全要素で統一するというユーザー指摘への対応）。観測グループ自体は
+  // ▼縦積み（ChipButtonのexpandDirection="down"）のため、メンバー個々の凡例は▶で
+  // 右へ展開する（縦に並んだ他のメンバーと重ならないよう、グループ本体と直交する
+  // 向きにする）。ONかつ凡例を持つメンバーのみ▶が付く。
+  function renderRawMemberTile(member: OverlayLayerChip) {
+    const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
+    const canExpand = Boolean(member.on && !member.disabled && hasLegend);
     return (
-      <li key={member.id} className={styles.memberRow}>
-        <div className={styles.detailRow}>
-          <Icon size={14} />
-          <LayerChip
-            label={member.chipLabel ?? member.label}
-            on={member.on}
-            disabled={member.disabled}
-            title={member.title}
-            onClick={() => onToggle(member.id, !member.on)}
-          />
-        </div>
-        {member.on && !member.disabled && hasLegend && (
-          <div className={styles.memberLegend}>{renderLegendDetails(member.legendDetails!)}</div>
-        )}
-      </li>
+      <ChipButton
+        key={key}
+        Icon={Icon}
+        label={member.label}
+        chipLabel={member.chipLabel ?? member.label}
+        active={Boolean(member.on && !member.disabled)}
+        disabled={member.disabled}
+        title={member.title}
+        onTap={() => onToggle(member.id, !member.on)}
+        canExpand={canExpand}
+        isExpanded={canExpand && expandedIds.has(key)}
+        onExpandToggle={() => toggleExpanded(key)}
+        expandDirection="right"
+        panelContent={canExpand ? renderLegendDetails(member.legendDetails!) : <></>}
+        panelRect={panelRects[key]}
+        registerRow={(el) => {
+          rowRefs.current[key] = el;
+        }}
+      />
     );
   }
 
@@ -363,7 +370,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     const withoutLayer = materials.filter((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId] === undefined);
     if (withLayer.length === 0 && withoutLayer.length === 0) return null;
     return (
-      <div className={styles.memberLegend}>
+      <>
         {withLayer.length > 0 && (
           <p className={styles.detailNotice}>
             材料: {withLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId]).join("・")}
@@ -374,12 +381,13 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
             地図では未表示の材料: {withoutLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId]).join("・")}
           </p>
         )}
-      </div>
+      </>
     );
   }
 
-  // 「観測データ」グループ（改善計画T166）の▶内容: T128のカテゴリ束ねをそのまま小見出しへ
-  // 転用し、MAP_LAYER_CATEGORY_ORDER順にメンバーを並べる。
+  // 「観測データ」グループ（改善計画T166）の▼内容: T128のカテゴリ束ねをそのまま小見出しへ
+  // 転用し、MAP_LAYER_CATEGORY_ORDER順にメンバーを縦積みのタイル列（.memberColumn）として
+  // 並べる。
   function renderObservedGroupPanel(members: readonly OverlayLayerChip[]) {
     const sections = MAP_LAYER_CATEGORY_ORDER.map((category) => ({
       label: MAP_LAYER_CATEGORY_LABELS[category],
@@ -390,78 +398,92 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         {sections.map((section) => (
           <div key={section.label} className={styles.detailAxis}>
             <div className={styles.detailAxisLabel}>{section.label}</div>
-            <ul className={styles.detailList}>{section.members.map((member) => renderMemberRow(member))}</ul>
+            <div className={styles.memberColumn}>{section.members.map((member) => renderRawMemberTile(member))}</div>
           </div>
         ))}
       </div>
     );
   }
 
-  // 「推定指標（合成）」グループ（改善計画T166→T169でマトリックス化）の▶内容:
-  // 上段にSECONDARY_AXES（確定命名表の6軸）をアイコン+略名の横並び（マトリックス行）で
-  // 常にすべて列挙し、一目で6軸の並びを見渡せるようにする。専用の表示レイヤーを持つ軸
-  // （車の圧迫感・停止密度・事故密度）はlayersから対応するチップを引いてON/OFFボタンに、
-  // 専用レイヤーの無い軸（勾配・舗装質・夜間）はタップできない情報セルにする（トグルは
-  // 出さない、secondaryAxes.ts参照）。下段はその6軸と同じ並び順で、凡例（ONの軸のみ）と
-  // renderMaterialsNoteの材料一覧（改善計画T167）を出す縦積みの内訳。軸ラベルは上段の
-  // マトリックス行に出ているため下段では繰り返さない（同じ文字列を2箇所に出すと、
-  // どちらが最初に見つかったか実装依存になり紛らわしいため）。ONにする操作自体は個別
-  // レイヤーのトグル（onToggle経由）に任せ、材料の連動ONはpage.tsx側（handleLayerToggle）が
-  // 行う（このコンポーネントはレイヤー固有の知識を持たない汎用描画係のまま、という
-  // ファイル冒頭のコメント方針を維持する）。
-  function renderEstimatedMatrixCell(axis: SecondaryAxisSummary, members: readonly OverlayLayerChip[]) {
+  // 推定グループの1軸タイル（改善計画T166→T169でタイル化）。観測グループのメンバータイルと
+  // 同じChipButtonを使い、見た目を統一する。専用の表示レイヤーを持つ軸（車の圧迫感・
+  // 停止密度・事故密度）はlayersから対応するチップを引いてON/OFFタイルに、専用レイヤーの
+  // 無い軸（勾配・舗装質・夜間）はdisabled＝タップ不能の情報タイルにする（secondaryAxes.ts
+  // 参照）。推定グループ自体は▶横並び（ChipButtonのexpandDirection="right"）のため、
+  // 軸タイル個々の凡例・材料一覧（改善計画T167）は▼で下へ展開する（横に並んだ他の軸と
+  // 重ならないよう、グループ本体と直交する向きにする）。材料一覧はON/OFFに関わらず
+  // 「材料になっている一次属性が何か」を確認できるようcanExpandへ含めるが、色の凡例は
+  // 実際に地図へ描画されているときだけ意味を持つためON時のみ含める。ONにする操作自体は
+  // 個別レイヤーのトグル（onToggle経由）に任せ、材料の連動ONはpage.tsx側
+  // （handleLayerToggle）が行う（このコンポーネントはレイヤー固有の知識を持たない汎用
+  // 描画係のまま、というファイル冒頭のコメント方針を維持する）。
+  function renderAxisTile(axis: SecondaryAxisSummary, members: readonly OverlayLayerChip[]) {
+    const key = `axis:${axis.axisId}`;
     const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
+    const materialsNote = renderMaterialsNote(axis.axisId);
     if (!member) {
+      const canExpand = Boolean(axis.proxyHint) || materialsNote !== null;
       return (
-        <div key={axis.axisId} className={`${styles.matrixCell} ${styles.matrixCellInfo}`} title={axis.proxyHint}>
-          <AxisRampIcon size={16} />
-          <span className={styles.iconLabel}>{axis.label}</span>
-        </div>
+        <ChipButton
+          key={key}
+          Icon={AxisRampIcon}
+          label={axis.label}
+          chipLabel={axis.label}
+          active={false}
+          disabled
+          title={axis.proxyHint}
+          onTap={() => {}}
+          canExpand={canExpand}
+          isExpanded={canExpand && expandedIds.has(key)}
+          onExpandToggle={() => toggleExpanded(key)}
+          expandDirection="down"
+          panelContent={
+            <div className={styles.detailBody}>
+              {axis.proxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
+              {materialsNote}
+            </div>
+          }
+          panelRect={panelRects[key]}
+          registerRow={(el) => {
+            rowRefs.current[key] = el;
+          }}
+        />
       );
     }
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
-    const active = member.on && !member.disabled;
+    const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
+    const showLegend = Boolean(member.on && !member.disabled && hasLegend);
+    const canExpand = showLegend || materialsNote !== null;
     return (
-      <button
-        key={axis.axisId}
-        type="button"
-        aria-pressed={active}
+      <ChipButton
+        key={key}
+        Icon={Icon}
+        label={member.label}
+        chipLabel={member.chipLabel ?? member.label}
+        active={Boolean(member.on && !member.disabled)}
         disabled={member.disabled}
         title={member.title}
-        onClick={() => onToggle(member.id, !member.on)}
-        className={active ? `${styles.matrixCell} ${styles.matrixCellActive}` : styles.matrixCell}
-      >
-        <Icon size={16} />
-        <span className={styles.iconLabel}>{member.chipLabel ?? member.label}</span>
-      </button>
-    );
-  }
-
-  function renderEstimatedDetailRow(axis: SecondaryAxisSummary, members: readonly OverlayLayerChip[]) {
-    const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
-    const materialsNote = renderMaterialsNote(axis.axisId);
-    const hasLegend = Boolean(member?.legendDetails && member.legendDetails.length > 0);
-    const showProxyHint = !member && axis.proxyHint;
-    const showLegend = member && member.on && !member.disabled && hasLegend;
-    if (!showProxyHint && !showLegend && !materialsNote) return null;
-    return (
-      <li key={axis.axisId} className={styles.memberRow}>
-        {showProxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
-        {showLegend && <div className={styles.memberLegend}>{renderLegendDetails(member!.legendDetails!)}</div>}
-        {materialsNote}
-      </li>
+        onTap={() => onToggle(member.id, !member.on)}
+        canExpand={canExpand}
+        isExpanded={canExpand && expandedIds.has(key)}
+        onExpandToggle={() => toggleExpanded(key)}
+        expandDirection="down"
+        panelContent={
+          <div className={styles.detailBody}>
+            {showLegend && renderLegendDetails(member.legendDetails!)}
+            {materialsNote}
+          </div>
+        }
+        panelRect={panelRects[key]}
+        registerRow={(el) => {
+          rowRefs.current[key] = el;
+        }}
+      />
     );
   }
 
   function renderEstimatedGroupPanel(members: readonly OverlayLayerChip[]) {
-    return (
-      <div className={styles.detailBody}>
-        <div className={styles.matrixRow}>
-          {SECONDARY_AXES.map((axis) => renderEstimatedMatrixCell(axis, members))}
-        </div>
-        <ul className={styles.detailList}>{SECONDARY_AXES.map((axis) => renderEstimatedDetailRow(axis, members))}</ul>
-      </div>
-    );
+    return <div className={styles.matrixRow}>{SECONDARY_AXES.map((axis) => renderAxisTile(axis, members))}</div>;
   }
 
   const chipGroups = buildChipGroups(layers);

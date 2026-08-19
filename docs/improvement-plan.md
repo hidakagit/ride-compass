@@ -1938,50 +1938,67 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   こと。frontend全green。
 - 依存: T164（T165・T166と独立に着手可）。
 
-### - [x] T169. 地図チップ観測/推定グループの展開方向をマトリックス化する 規模S（2026-08-19完了）
+### - [x] T169. 地図チップ観測/推定グループのタイル化・マトリックス化 規模M（2026-08-19完了）
 
 - 発端: ユーザー指摘「観測・推定の2つにまとまったのは良いが、展開した時にみにくい。
   マトリックスイメージにできない？観測アイコンは▼で下展開すると道路種別・路面・指定路線等が
   縦に並ぶ、推定アイコンは▶で右展開すると勾配・舗装質・停止密度等が横に並ぶようにしたい」。
-- 対応方針: T166の観測/推定2トップ構成はそのまま、展開方向と内訳の並びを中身の性質に
-  揃える。観測グループ（category小見出し＋メンバーの縦積み、元から縦並び）は▼へ変更し、
-  document.bodyへのポータルをやめて`.chipRowItem`内の通常のフローへ内訳を積む（行の直下へ
-  展開）。推定グループ（SECONDARY_AXES6軸）は▶のまま、内訳の上段をアイコン+略名の横並び
-  マトリックス行に変更し、下段に凡例・材料一覧（T167）を積む。
-- 完了条件: 観測グループが▼・行の下へ展開、推定グループが▶・アイコン横並びで展開される
-  ことをPlaywright実機確認。frontend全green。
+  1回目の対応（グループ単位の展開方向を▼/▶に分けるだけ）を実装したところ、ユーザーから
+  再指摘「イメージと違う。1次要素、2次要素すべて『推定』アイコンと同様の四角タイルアイコンに
+  して。その上で、推定▶ 勾配 舗装質 停止密度／観測▼ 道路種別 路面 指定路線 のように配置。
+  勾配や舗装質等には▼が付随していてクリックすると凡例を下に展開、道路種別や路面には▶が
+  付随していてクリックすると凡例を右に展開」という、より具体的な配置指定を受け、設計を
+  作り直した（本エントリは最終形のみを記録する）。
+- 対応方針: T166の観測/推定2トップ構成・グループ単位の展開方向（観測=▼縦積み、推定=▶横並び）
+  はそのまま、内訳をさらに一段タイル化する。観測・推定のメンバー（一次属性の個別レイヤー、
+  二次軸）を全て「アイコン+略名の四角タイル」（地図チップ本体・旧`推定`セルと同じ見た目）に
+  統一し、タイルごとに独立した凡例展開ボタンを持たせる。展開方向はグループ本体の並び方向と
+  直交させる（観測は▼縦積みなのでメンバーは▶で右展開、推定は▶横並びなので軸は▼で下展開）。
+  地図チップ本体・グループ・メンバーの3階層すべてで同じ「タイル+隣接する展開トグル+
+  展開パネル」という1つの部品（`ChipButton`）を再帰的に使い回す。
+- 完了条件: 観測・推定のメンバー/軸すべてが同じ四角タイルの見た目になり、観測メンバーは▶・
+  推定軸は▼で個別に凡例を展開できることをPlaywright実機確認。frontend全green。
 - 依存: T166・T167。
-- 実装メモ（2026-08-19完了）: `ChipButton`（`MapOverlayControls.tsx`）へ`expandDirection:
-  "right" | "down"`を追加（既定"right"、単独チップ・推定グループは変更無し）。"down"は
-  `.detailPanelInline`（`.chipRowItem`内の通常フロー、ポータル無し）、"right"は従来どおり
-  `.detailPanel`（document.bodyへポータル、position: fixed）。両者は`.detailPanelBase`
-  （背景・枠・ぼかし）を`composes`で共有し位置決めだけを分ける。矢印は方向ごとに別クラス
-  （▶方向は開くと90度回転、▼方向は`.expandArrowDownOpen`で180度回転して▲になる。▼を
-  90度回転させると横向きになり「閉じる」合図として読めないため別クラスにした）。
-  推定グループの内訳（`renderEstimatedGroupPanel`）は`renderEstimatedMatrixCell`
-  （上段、アイコン+略名のボタン/情報div横並び`.matrixRow`）と`renderEstimatedDetailRow`
-  （下段、凡例・材料一覧の縦積み、`.detailList`）へ分割。軸ラベルは上段だけに出し下段では
-  繰り返さない（同じ文字列を2箇所に出すと紛らわしいため）。`.matrixCell`/`.matrixCellActive`
-  は既存の`.iconChip`/`.iconChipActive`を`composes`で再利用し、地図チップ本体と同じ
-  「ON/OFFボタン」の見た目に揃えた。観測グループの▼展開はcategory数×メンバー数が多いと
-  縦に長くなり、chipRow（縦スクロールのアイコン列）のscrollHeightがclientHeightを超えて
-  下の推定/ルートチップがスクロール外へ押し出される不具合をPlaywright実機確認で発見、
-  `.detailPanelInline`へ`max-height: min(45vh, 16rem); overflow-y: auto;`を追加し内訳自体を
-  内部スクロールにして解消した（scrollHeight===clientHeightをJSで確認）。
-  `renderMemberRow`の未使用になった`extra`引数（旧・推定グループの材料一覧差し込み用、
-  マトリックス化で呼び出し側が無くなった）を削除。
-  検証: 既存の`MapOverlayControls.test.tsx`（次数束ね（T166）describe含む13件）は無改修で
-  全green（観測/推定チップのaria名・aria-pressed・凡例内訳のテキスト内容が変更前後で
-  同一のため）。frontend vitest 362件・tsc（既存の`layout.tsx`のLayoutProps型エラーは
+- 実装メモ（2026-08-19完了）: 1回目の実装で`ChipButton`へ追加した`expandDirection: "right" |
+  "down"`（既定"right"、"down"は`.chipRowItem`内の通常フローへインライン展開、"right"は
+  document.bodyへポータルしてposition: fixedで右に浮かせる）はそのまま活用し、これを
+  グループ単位だけでなくメンバー/軸単位にも適用する形へ発展させた。
+  観測グループの内訳（`renderObservedGroupPanel`）は、category小見出しの下へ
+  `renderRawMemberTile`が返す`ChipButton`（`expandDirection="right"`、ONかつ凡例を持つ
+  メンバーのみ展開ボタンが付く）を`.memberColumn`（縦積みのflexコンテナ）で並べる。
+  推定グループの内訳（`renderEstimatedGroupPanel`）は、`renderAxisTile`が返す`ChipButton`
+  （`expandDirection="down"`）を`.matrixRow`（横並び・折り返しのflexコンテナ）で並べる。
+  専用レイヤーを持つ軸はON/OFFタイル、持たない軸（勾配・舗装質・夜間）は`disabled`＋
+  proxyHint/材料一覧のみ展開可能な情報タイルにする（`ChipButton`の`disabled`はタップ用の
+  本体ボタンだけを無効化し、展開トグル自体は`canExpand`で独立制御できるため、既存部品の
+  組み合わせだけで実現できた）。材料一覧（T167）はON/OFFに関わらず確認したい情報のため
+  `canExpand`へ含め、色の凡例は実際に地図へ描画されているときだけ（ON時）含めた。
+  旧`.matrixCell`/`.matrixCellActive`/`.matrixCellInfo`（生の`<button>`/`<div>`で組んだ
+  簡易タイル）と旧`renderMemberRow`（`LayerChip`ベースの丸ピル表示）は`ChipButton`の再利用に
+  置き換えたため削除、`LayerChip`のimportも不要になったため削除。`.memberRow`/
+  `.memberLegend`（旧ピル行専用）を削除し`.memberColumn`（新設、縦積みコンテナ）を追加、
+  `.matrixRow`は並び方向の定義だけを残し中身のタイルの見た目は`ChipButton`側の
+  `.iconChip`/`.iconChipActive`に委ねる形へ整理した。`renderMaterialsNote`の戻り値は
+  タイルの展開パネル内に直接差し込む前提になったため、専用の`.memberLegend`ラッパーdivを
+  やめてFragmentを返すよう変更。副次的に、メンバー/軸タイルの`isExpanded`をグループ単位の
+  単独チップ（route等）と同じく`canExpand && expandedIds.has(key)`でガードする修正も
+  行った（凡例を開いた状態のレイヤーをOFFにするとcanExpandがfalseになり展開トグル自体が
+  消えるため、ガードが無いと空のパネルが開いたまま二度と閉じられなくなる不具合があった。
+  実装中に自己点検で発見し、単独チップと同じ既存パターンへ揃えて解消）。
+  検証: `MapOverlayControls.test.tsx`の「次数束ね（改善計画T166）」describeを新設計に
+  合わせて更新（推定グループの6軸がすべてタイルとして並び専用レイヤーの無い軸はdisabledに
+  なること、タイル個別の▼/▶展開ボタンを押して初めて凡例・代役案内・材料一覧が見えること、
+  観測グループのメンバータイルにも同様に▶展開ボタンが付くことを新規1件で確認、既存の
+  「観測グループを開くと…」「いずれかのメンバーがON…」等は無改修のまま全green）。
+  frontend vitest 363件（1件純増）・tsc（既存の`layout.tsx`のLayoutProps型エラーは
   `next build`前のみに出る無関係な既知事象、変更前から発生することを`git stash`で確認済み）・
-  eslint全green、`next build`成功。Playwright実機確認（一時プレビューページ経由、
-  確認後削除）: 観測チップの矢印が▼・推定チップの矢印が▶であること、観測を開くと
-  行の直下へcategory見出しごとの縦積み内訳が展開されること、推定を開くと6軸のアイコンが
-  横並びのマトリックス行になり車の圧迫感（ON）が青くハイライトされることを確認。
-  観測グループを（道路種別・路面・指定路線・停止要因・事故等）多メンバーで展開すると、
-  修正前はchipRowのscrollHeight(580px)がclientHeight(480px)を超え推定/ルートチップが
-  見えなくなること、修正後は内訳パネル自身が内部スクロールしscrollHeightとclientHeightが
-  一致（400px=400px）し推定/ルートチップが常に見えることを確認。
+  eslint全green、`next build`成功。Playwright実機確認（一時プレビューページ経由、確認後
+  削除）: 観測グループを開くと道路種別・路面・指定路線等が四角タイルとして縦に並び、
+  路面タイル横の▶を押すと右へ凡例（アスファルト・砂利の色スウォッチ）が展開されること、
+  推定グループを開くと勾配・舗装質・停止密度・圧迫感・夜間・事故密度が同じ四角タイルとして
+  横に並び（車の圧迫感等ONのタイルは青くハイライト、専用レイヤーの無い軸は薄いグレーで
+  タップ不能）、勾配タイル下の▼を押すと下へ「標高レイヤーで確認できます」「材料: 標高」が
+  展開されることを確認。
 
 ---
 
