@@ -147,6 +147,18 @@
   color: #ffffff;
 }
 
+/* 観測/推定グループ見出しの展開中ハイライト（ChipButtonのexpandViaSelf専用、実機
+   フィードバック「グループ見出しのハイライトを他メンバーと区別が付くように。青色は
+   マップに反映を示したい。展開はもっと地味な色でいい」への対応）。.iconChipActive
+   （青、ON/OFFチップが「地図に反映されている」ことを示す色）とは別の、背景色を変えず
+   枠線と文字色だけで示す地味な強調にする。見出し自体はメンバーのON/OFFを表さないため、
+   青を使うと「このグループの内容が地図に出ている」と誤読される。 */
+.iconChipExpanded {
+  background: var(--color-surface-2);
+  border-color: var(--color-neutral);
+  color: var(--foreground);
+}
+
 .iconLabel {
   font-size: 0.58rem;
   /* ラベルは常に1行（折り返さない）。幅は.iconChip側がmax-contentで内容に合わせる。 */
