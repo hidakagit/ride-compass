@@ -236,11 +236,14 @@ function ChipButton({
   panelContent: ReactElement;
   panelRect: PanelRect | undefined;
   registerRow: (el: HTMLDivElement | null) => void;
-  /** 推定グループの軸タイル（改善計画: モバイルで推定の横並びが複数行に折り返される
-   * という実機フィードバックへの対応）だけに付ける印。CSS側（.chipRowItemAxis、
-   * モバイル幅のみ）でタイルをアイコンのみへ縮小し、略名テキスト（.iconLabel）は
-   * 視覚的に隠す（アクセシビリティ上の名前は保つvisually-hidden、消すのではない）。
-   * 隠した略名は▼展開パネル側にrenderAxisTileが.detailAxisLabelとして出す。 */
+  /** 推定グループの軸タイルだけに付ける印。CSS側（.chipRowItemAxis）で2つのことをする:
+   * (1) ▼トグルをアイコンの右ではなく下へ積む（画面幅を問わず常時）。
+   * (2) モバイル幅のみ、アイコン+略名の正方形タイルをアイコンのみへ縮小し、略名テキスト
+   * （.iconLabel）を視覚的に隠す（アクセシビリティ上の名前は保つvisually-hidden、
+   * 消すのではない。隠した略名は▼展開パネル側にrenderAxisTileが.detailAxisLabelとして
+   * 出す）。フルブラウザでは観測グループのメンバー（一次要素）と同じサイズ・略名表示の
+   * まま変えない（実機フィードバック「フルブラウザの場合は一次メンバと同じサイズの
+   * アイコン、軸略名入りのものを出して」への対応）。 */
   tileVariant?: "axis";
   /** 展開方向（改善計画T169、地図UIのマトリックス化）。
    * "down"（▼→▲、行の直下へ通常のドキュメントフローで展開）と"right"（▶→▽回転、
