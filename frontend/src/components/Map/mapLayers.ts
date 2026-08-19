@@ -25,7 +25,6 @@
 import {
   RAMP_AXES,
   axisMapLayerId,
-  axisRampLegendEntries,
   type AxisMapLayerId,
 } from "./axisLayers";
 
@@ -206,7 +205,10 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   // 二次軸の汎用rampレイヤー（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
   // backendレジストリ生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。
   // 新しい軸はbackendのレジストリ登録＋タイルへの事実焼き込みだけでここへ現れる
-  // （このファイルの編集は不要）。凡例の段階（しきい値・単位）もカタログ由来。
+  // （このファイルの編集は不要）。凡例（段階・色・絞り込み）はSTATIC_FILTER_AXES
+  // （staticAttributeLayers.ts、axisLayers.ts: buildAxisRampLegend由来）が
+  // 他の静的レイヤーと同じ仕組みで提供するため、panelHintDetail（文字のみの内訳）は持たない
+  // （改善計画: 停止密度・事故密度の凡例追加）。
   ...RAMP_AXES.map(
     (axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
@@ -215,7 +217,6 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       category: axis.category as MapLayerCategory,
       description: `${axis.label}[${axis.unit}]をway単位の事前集計から色分け表示`,
       panelHint: axis.note,
-      panelHintDetail: axisRampLegendEntries(axis).map((entry) => entry.label),
     }),
   ),
   {
