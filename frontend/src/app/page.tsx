@@ -45,6 +45,7 @@ import RoadSuitabilityRecipePanel from "@/components/RoadSuitabilityRecipePanel/
 import MotorVehicleDensityRecipePanel from "@/components/MotorVehicleDensityRecipePanel/MotorVehicleDensityRecipePanel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useRecipeOverride } from "@/hooks/useRecipeOverride";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -153,32 +154,47 @@ export default function Home() {
   const [scoringWeights, setScoringWeights] = useState<ScoringWeights>(DEFAULT_SCORING_WEIGHTS);
   const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>(DEFAULT_ROUTE_PREFERENCE);
 
-  // 車ストレスレシピの上書き（改善計画: 車ストレスレシピ調整UIパネル、T107の次ラウンド）。
-  // 上のweightOverrideEnabledとは独立したトグル（レシピは有効化すると地図の色分けに即座に
-  // 反映されるが、重みは次回のルート生成まで反映されないという挙動差があるため、
-  // ユーザー承認済みで別トグルにしてある）。無効の間はMapViewへundefinedを渡し
-  // （既定レシピを使う）、生成リクエストからもcar_stress_recipeを省略する。
-  const [carStressRecipeOverrideEnabled, setCarStressRecipeOverrideEnabled] = useState(false);
-  const [carStressRecipe, setCarStressRecipe] = useState<CarStressRecipeOverride>(
-    DEFAULT_CAR_STRESS_RECIPE,
-  );
+  // 車の圧迫感・安全度・道路適正・自動車密度の4レシピの上書き状態（有効フラグ・値・地図反映用の
+  // デバウンス値）はuseRecipeOverride（改善計画T133）へ集約。各レシピは互いに独立したトグル
+  // （レシピは有効化すると地図の色分けに即座に反映されるが、重みは次回のルート生成まで
+  // 反映されないという挙動差があるため、ユーザー承認済みで別トグルにしてある。「道路適正」
+  // 「自動車密度」は改善計画: 車との近さ材料の共有元化により車の圧迫感・安全度の両方が
+  // 共有する材料[domain/recipe.py: car_closeness()]で、上書きすると両軸の地図色・内訳
+  // ポップアップ・次回のルート生成すべてへ同時に反映される）。無効の間はMapViewへ
+  // undefinedを渡し（既定レシピを使う）、生成リクエストからも対応するrecipeキーを省略する。
+  const {
+    overrideEnabled: carStressRecipeOverrideEnabled,
+    setOverrideEnabled: setCarStressRecipeOverrideEnabled,
+    recipe: carStressRecipe,
+    setRecipe: setCarStressRecipe,
+    debouncedRecipe: debouncedCarStressRecipe,
+  } = useRecipeOverride<CarStressRecipeOverride>(DEFAULT_CAR_STRESS_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
 
-  // 安全度レシピの上書き（改善計画: 安全度レシピ）。carStressRecipeOverrideEnabledと
-  // 同じ理由で独立したトグルにしてある。
-  const [safetyRecipeOverrideEnabled, setSafetyRecipeOverrideEnabled] = useState(false);
-  const [safetyRecipe, setSafetyRecipe] = useState<SafetyRecipeOverride>(DEFAULT_SAFETY_RECIPE);
+  const {
+    overrideEnabled: safetyRecipeOverrideEnabled,
+    setOverrideEnabled: setSafetyRecipeOverrideEnabled,
+    recipe: safetyRecipe,
+    setRecipe: setSafetyRecipe,
+    debouncedRecipe: debouncedSafetyRecipe,
+  } = useRecipeOverride<SafetyRecipeOverride>(DEFAULT_SAFETY_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
 
-  // 「道路適正」「自動車密度」レシピの上書き（改善計画: 車との近さ材料の共有元化）。
-  // 車ストレス・安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、
-  // 上書きすると両軸の地図色・内訳ポップアップ・次回のルート生成すべてへ同時に反映される。
-  // 上記2つと同じ理由で独立したトグルにしてある。
-  const [roadSuitabilityRecipeOverrideEnabled, setRoadSuitabilityRecipeOverrideEnabled] = useState(false);
-  const [roadSuitabilityRecipe, setRoadSuitabilityRecipe] = useState<RoadSuitabilityRecipeOverride>(
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-  );
-  const [motorVehicleDensityRecipeOverrideEnabled, setMotorVehicleDensityRecipeOverrideEnabled] = useState(false);
-  const [motorVehicleDensityRecipe, setMotorVehicleDensityRecipe] = useState<MotorVehicleDensityRecipeOverride>(
+  const {
+    overrideEnabled: roadSuitabilityRecipeOverrideEnabled,
+    setOverrideEnabled: setRoadSuitabilityRecipeOverrideEnabled,
+    recipe: roadSuitabilityRecipe,
+    setRecipe: setRoadSuitabilityRecipe,
+    debouncedRecipe: debouncedRoadSuitabilityRecipe,
+  } = useRecipeOverride<RoadSuitabilityRecipeOverride>(DEFAULT_ROAD_SUITABILITY_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
+
+  const {
+    overrideEnabled: motorVehicleDensityRecipeOverrideEnabled,
+    setOverrideEnabled: setMotorVehicleDensityRecipeOverrideEnabled,
+    recipe: motorVehicleDensityRecipe,
+    setRecipe: setMotorVehicleDensityRecipe,
+    debouncedRecipe: debouncedMotorVehicleDensityRecipe,
+  } = useRecipeOverride<MotorVehicleDensityRecipeOverride>(
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+    LEGEND_FILTER_DEBOUNCE_MS,
   );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
@@ -390,19 +406,10 @@ export default function Home() {
     staticLegendHiddenKeysByAxis,
     LEGEND_FILTER_DEBOUNCE_MS,
   );
-  // 車ストレスレシピの数値入力も同じ理由でデバウンスする（CarStressRecipePanel自体は
-  // 即時のcarStressRecipeを参照し入力欄の反応は遅らせない。地図の再描画・T90内訳ポップアップ
-  // 用の値だけがこのデバウンス値を使う）。上記2つと同じ猶予を使い、連続入力のたびに地図の
-  // setFilter/setPaintPropertyが走るのを防ぐ。
-  const debouncedCarStressRecipe = useDebouncedValue(carStressRecipe, LEGEND_FILTER_DEBOUNCE_MS);
-  // 安全度レシピも同じ理由でデバウンスする（改善計画: 安全度レシピ）。
-  const debouncedSafetyRecipe = useDebouncedValue(safetyRecipe, LEGEND_FILTER_DEBOUNCE_MS);
-  // 道路適正・自動車密度レシピも同じ理由でデバウンスする（改善計画: 車との近さ材料の共有元化）。
-  const debouncedRoadSuitabilityRecipe = useDebouncedValue(roadSuitabilityRecipe, LEGEND_FILTER_DEBOUNCE_MS);
-  const debouncedMotorVehicleDensityRecipe = useDebouncedValue(
-    motorVehicleDensityRecipe,
-    LEGEND_FILTER_DEBOUNCE_MS,
-  );
+  // 車の圧迫感・安全度・道路適正・自動車密度レシピの数値入力欄も、地図への反映だけを
+  // 同じ猶予でデバウンスする（各パネル自体は即時のrecipeを参照し入力欄の反応は遅らせない。
+  // 地図の再描画・T90内訳ポップアップ用のdebouncedRecipeだけが遅延する）。デバウンス自体は
+  // useRecipeOverride（改善計画T133）へ集約済み。
 
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
@@ -737,71 +744,74 @@ export default function Home() {
             構成にしてある（新設パネルはこの<div>内へ追加するだけでよい）。 */}
         <div className={styles.researchCategory}>
           <h3 className={styles.researchCategoryHeading}>レシピ[一次情報→二次情報の変換式]</h3>
-          {/* 道路適正・自動車密度パネル（改善計画: 車との近さ材料の共有元化）。車ストレス・
-              安全度の両方が共有する材料（domain/recipe.py: car_closeness()）のため、この2枚を
-              「レシピ」カテゴリの先頭に置く。編集内容は下の車の圧迫感・安全度パネルの参照
-              セクションへ即座に反映される。 */}
+          {/* 道路適正・自動車密度は車ストレス・安全度の両方が共有する材料
+              （domain/recipe.py: car_closeness()、改善計画: 車との近さ材料の共有元化）。
+              フラットな4パネル並びからは「材料→材料を使う軸」の関係が伝わりにくいという
+              統合レビュー指摘（改善計画T133）を受け、この2枚を枠付きの「共有材料」グループへ
+              まとめ、それを参照する車の圧迫感・安全度の2枚はインデントして下に続ける。
+              編集内容は参照する側のパネルの参照セクションへ即座に反映される。 */}
           {researchEnabled && (
-            <div className={styles.legendCard}>
-              <RoadSuitabilityRecipePanel
-                overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
-                onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
-                recipe={roadSuitabilityRecipe}
-                onRecipeChange={setRoadSuitabilityRecipe}
-              />
+            <div className={styles.recipeSharedMaterialGroup}>
+              <p className={styles.recipeSharedMaterialHeading}>共有材料[車の圧迫感・安全度が参照]</p>
+              <div className={styles.legendCard}>
+                <RoadSuitabilityRecipePanel
+                  overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
+                  onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
+                  recipe={roadSuitabilityRecipe}
+                  onRecipeChange={setRoadSuitabilityRecipe}
+                />
+              </div>
+              <div className={styles.legendCard}>
+                <MotorVehicleDensityRecipePanel
+                  overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
+                  onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
+                  recipe={motorVehicleDensityRecipe}
+                  onRecipeChange={setMotorVehicleDensityRecipe}
+                />
+              </div>
             </div>
           )}
           {researchEnabled && (
-            <div className={styles.legendCard}>
-              <MotorVehicleDensityRecipePanel
-                overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
-                onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
-                recipe={motorVehicleDensityRecipe}
-                onRecipeChange={setMotorVehicleDensityRecipe}
-              />
-            </div>
-          )}
-          {/* 車ストレスレシピパネル（改善計画: 車ストレスレシピ調整UIパネル、T107の次
-              ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
-              重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ薄いパネルになり、
-              先頭に道路適正・自動車密度の現在値（上書き中ならその値、無効なら既定値）を
-              読み取り専用で表示する参照セクションを持つ。 */}
-          {researchEnabled && (
-            <div className={styles.legendCard}>
-              <CarStressRecipePanel
-                overrideEnabled={carStressRecipeOverrideEnabled}
-                onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
-                recipe={carStressRecipe}
-                onRecipeChange={setCarStressRecipe}
-                roadSuitabilityRecipe={
-                  roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
-                }
-                motorVehicleDensityRecipe={
-                  motorVehicleDensityRecipeOverrideEnabled
-                    ? motorVehicleDensityRecipe
-                    : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
-                }
-              />
-            </div>
-          )}
-          {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上記CarStressRecipePanelと同じ
-              理由で参照セクションを持つ薄いパネル。 */}
-          {researchEnabled && (
-            <div className={styles.legendCard}>
-              <SafetyRecipePanel
-                overrideEnabled={safetyRecipeOverrideEnabled}
-                onOverrideEnabledChange={setSafetyRecipeOverrideEnabled}
-                recipe={safetyRecipe}
-                onRecipeChange={setSafetyRecipe}
-                roadSuitabilityRecipe={
-                  roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
-                }
-                motorVehicleDensityRecipe={
-                  motorVehicleDensityRecipeOverrideEnabled
-                    ? motorVehicleDensityRecipe
-                    : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
-                }
-              />
+            <div className={styles.recipeDependentAxes}>
+              {/* 車ストレスレシピパネル（改善計画: 車ストレスレシピ調整UIパネル、T107の次
+                  ラウンド）。WeightPanelとは独立したトグル（地図の色分けへ即時反映される点が
+                  重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ薄いパネルになり、
+                  先頭に道路適正・自動車密度の現在値（上書き中ならその値、無効なら既定値）を
+                  読み取り専用で表示する参照セクションを持つ。 */}
+              <div className={styles.legendCard}>
+                <CarStressRecipePanel
+                  overrideEnabled={carStressRecipeOverrideEnabled}
+                  onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
+                  recipe={carStressRecipe}
+                  onRecipeChange={setCarStressRecipe}
+                  roadSuitabilityRecipe={
+                    roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
+                  }
+                  motorVehicleDensityRecipe={
+                    motorVehicleDensityRecipeOverrideEnabled
+                      ? motorVehicleDensityRecipe
+                      : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+                  }
+                />
+              </div>
+              {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上記CarStressRecipePanelと同じ
+                  理由で参照セクションを持つ薄いパネル。 */}
+              <div className={styles.legendCard}>
+                <SafetyRecipePanel
+                  overrideEnabled={safetyRecipeOverrideEnabled}
+                  onOverrideEnabledChange={setSafetyRecipeOverrideEnabled}
+                  recipe={safetyRecipe}
+                  onRecipeChange={setSafetyRecipe}
+                  roadSuitabilityRecipe={
+                    roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
+                  }
+                  motorVehicleDensityRecipe={
+                    motorVehicleDensityRecipeOverrideEnabled
+                      ? motorVehicleDensityRecipe
+                      : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+                  }
+                />
+              </div>
             </div>
           )}
         </div>
