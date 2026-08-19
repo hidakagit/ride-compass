@@ -1480,8 +1480,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   一時的に`"night_typo"`へ書き換えて当該テストが実際にfailすることを確認してから
   元に戻した（テスト自体の有効性の検証）。backend pytest 815件（新規1件）green。
 
-### - [ ] T157. MapView.tsxの閾値付きKEEPをレジストリ駆動レイヤーの実態に合わせて
-  再定義する 規模S（基準整備のみ、コード変更なし）
+### - [x] T157. MapView.tsxの閾値付きKEEPをレジストリ駆動レイヤーの実態に合わせて
+  再定義する 規模S（基準整備のみ、コード変更なし）（2026-08-19完了）
 
 - 発端: 統合レビュー統合-5（complexity F-1）。Keep List閾値「STATIC_OVERLAY_LAYERS
   10種」に到達したが、内訳は手書き8件＋レジストリ自動生成2件（ramp軸、
@@ -1494,6 +1494,16 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   （「40件 or 1,300行」、T135で反映済み）と同様に「何を測っているか」を明示的に
   書き添える。
 - 完了条件: docs/complexity-review-2026-08-16.mdへの反映を次回complexityレビューで確認。
+- 実装メモ（2026-08-19完了）: `docs/complexity-review-2026-08-16.md`のR-6節へ2026-08-19の
+  再定義を追記（過去の判断は書き換えず、新しい追記として残す方針）。閾値を
+  「手書きSTATIC_OVERLAY_LAYERS（ramp軸を除く）10件到達」「bespoke種の軸が3件目に増加」
+  「MapView.tsx 2,000行到達」「5つ目のレシピ軸のMapView内ミラー追加」の4条件へ再定義し、
+  ramp軸自体の増加は意図的にノーカウントとする理由を明記。Keep Listの該当項目・設計原則9も
+  新しい閾値表現へ更新。実測値も記録: MapView.tsx 1,766行（T148の安全度レイヤー削除で
+  1,891→1,766行に減少）・手書きSTATIC_OVERLAY_LAYERS 7件（T148でsafetyが抜け8→7、
+  `frontend/src/components/Map/MapView.tsx:667-676`で確認）・ramp種2件
+  （`axis-catalog.json`のkind="ramp"がstop_density/accidentの2件）・bespoke種2件
+  （car_stress/night）。コード変更なし。
 
 ### - [x] T158. 「安全度」レシピパネルへルート生成の重みに使われなくなったことを示す注記を
   追加する 規模S（2026-08-19・対象消滅により対応不要と判断）
