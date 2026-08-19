@@ -137,6 +137,17 @@ export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // フォールバック（均一な太さ・実線）に使う。
 const DEFAULT_ROAD_LINE_WIDTH = 3;
 const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
+// 改善計画（1次/2次の地図上表現の統一、松）: car_stress・ramp軸（停止密度・事故密度等、
+// axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
+// 独立レイヤーとして重ねて描画される。以前は1次（bicycleInfra/designation）と同じ
+// 太さ・不透明度（3px・0.85）で塗っていたため、同時にONにすると後から追加された
+// レイヤーが前のレイヤーを完全に覆い隠すだけで、材料（T167で連動ONする観測データ）と
+// 推定の両方を同時に読み取れなかった（実機フィードバック「1次と2次の地図上表現を
+// 一致させたい」）。2次は太く半透明な「下敷き」、1次は細くくっきりした「上書き」として
+// 重ねることで、下に赤い区間があってもその上に事故地点の点や道路種別の線が乗って見える
+// ようにする（描画順序はSTATIC_OVERLAY_LAYERS参照。1次より下・road_surfaceより上に置く）。
+const SECONDARY_AXIS_CASING_WIDTH = 9;
+const SECONDARY_AXIS_CASING_OPACITY = 0.45;
 // 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの中立色（改善計画T165）。
 // roadFilterAxes.tsのCOLOR_UNKNOWNと同じ「不明・他」グレーを流用し、色分けそのものは
 // 行わずに太さ・線種だけが情報を持っている状態であることを見た目でも示す。
@@ -483,8 +494,8 @@ function ensureCarStressLayer(map: MapLibreMap) {
       paint: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-color": CAR_STRESS_COLOR_EXPRESSION as any,
-        "line-width": 3,
-        "line-opacity": 0.85,
+        "line-width": SECONDARY_AXIS_CASING_WIDTH,
+        "line-opacity": SECONDARY_AXIS_CASING_OPACITY,
       },
       layout: { visibility: "none" },
     });
@@ -675,8 +686,8 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
         paint: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           "line-color": buildAxisRampColorExpression(axis) as any,
-          "line-width": 3,
-          "line-opacity": 0.85,
+          "line-width": SECONDARY_AXIS_CASING_WIDTH,
+          "line-opacity": SECONDARY_AXIS_CASING_OPACITY,
         },
         layout: { visibility: "none" },
       });
@@ -690,15 +701,23 @@ const AXIS_OVERLAY_LAYERS = RAMP_AXES.map((axis) => ({
   ensure: makeEnsureAxisRampLayer(axis),
 }));
 
+// 改善計画（1次/2次の地図上表現の統一、松）: map.addLayer()はbeforeId省略時にレイヤー
+// スタックの最上位へ積み上げるため、この配列の並び順がそのままensureAllStaticOverlayLayers
+// （下記）でのensure()呼び出し順＝実際の描画の重なり順（先＝背面、後＝前面）になる。
+// carStress・ramp軸（推定/composite、SECONDARY_AXIS_CASING_WIDTH/OPACITYの太く半透明な
+// 下敷き）をroad_surface本体の直上へまとめ、bicycleInfra・designation・accidents・
+// stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした上書き）をその上に置く。
+// 以前はramp軸が配列末尾（最前面）だったため、材料の連動ON（T167）で観測データと推定を
+// 同時に表示しても、後から追加された推定側が観測データを塗り潰して見えなくなっていた。
 const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[] = [
   { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
   { key: "carStress", layerId: CAR_STRESS_LAYER_ID, ensure: ensureCarStressLayer },
+  ...AXIS_OVERLAY_LAYERS,
   { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
   { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
-  ...AXIS_OVERLAY_LAYERS,
 ];
 
 type StaticOverlayKey = string;
