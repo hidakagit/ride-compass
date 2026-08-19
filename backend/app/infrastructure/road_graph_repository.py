@@ -205,12 +205,12 @@ def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
 #   弾いてunknown安全にする。
-# - safety（安全度、1-4、改善計画: 安全度レシピ）も同じ理由で最終値を焼かず材料タグのみ
-#   焼き込む。cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no/designationは
-#   車ストレスと共有し、litのみ新規追加（tunnelは上のtunnelプロパティを再利用。shoulderは
-#   改善計画T102実測0.0%の死に補正のためT122で撤去した）。フロント側はsafetyExpression.ts、
-#   採点側はdomain/safety.py: safety_breakdownがdomain/safety.py: SafetyRecipeという
-#   共通のレシピ定義に対応させて計算する。
+# - lit（街灯タグの有無）はT148で削除された安全度軸（安全度レシピ）が最終値を焼かず材料
+#   タグとして参照していた名残だが、night軸（domain/night.py: night_difficulty、
+#   domain/registry_defaults.py: inputs=["lit","tunnel"]）の入力としても登録済みのため、
+#   安全度削除後も引き続き焼き込む（tunnelは上のtunnelプロパティを再利用。shoulderは
+#   改善計画T102実測0.0%の死に補正のためT122で撤去済み）。night軸自体はT145a（lit
+#   タグの充実待ち）まで専用の地図レイヤーを持たない。
 # - accident_per_km/stop_per_km/intersection_per_km（改善計画T145b「事実はタイルに、
 #   解釈はクライアントに」）: way_attribute_counts（way単位の事前集計。edge単位の
 #   edge_attribute_countsはroad_edges＝ルート生成済みエリアしかカバーしないため地図表示の

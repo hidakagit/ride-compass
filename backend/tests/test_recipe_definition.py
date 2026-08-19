@@ -6,7 +6,6 @@ from app.domain.recipe_definition import (
     recipe_from_components,
     recipe_to_components,
 )
-from app.domain.safety import SafetyRecipe
 from app.domain.traffic import CarStressRecipe
 
 
@@ -29,7 +28,6 @@ class TestDefaultRecipe:
         components = recipe_to_components(default_recipe())
         assert components.preference == RoutePreference()
         assert components.car_stress_recipe == CarStressRecipe()
-        assert components.safety_recipe == SafetyRecipe()
         assert components.road_suitability_recipe == RoadSuitabilityRecipe()
         assert components.motor_vehicle_density_recipe == MotorVehicleDensityRecipe()
         assert components.hard_filters == frozenset({"no_bicycle", "motorway", "trunk"})
@@ -39,7 +37,6 @@ class TestRecipeRoundTrip:
     def test_custom_components_round_trip_preserves_values(self):
         preference = RoutePreference(night_weight=0.3, car_stress_weight=0.1)
         car_stress_recipe = CarStressRecipe(lanes_low_threshold=2, lanes_low_adjustment=-2)
-        safety_recipe = SafetyRecipe(lit_adjustment=-2, tunnel_adjustment=2)
         road_suitability_recipe = RoadSuitabilityRecipe(cycleway_track_adjustment=-3)
         motor_vehicle_density_recipe = MotorVehicleDensityRecipe(maxspeed_high_adjustment=2)
 
@@ -48,7 +45,6 @@ class TestRecipeRoundTrip:
             2,
             preference,
             car_stress_recipe,
-            safety_recipe,
             road_suitability_recipe,
             motor_vehicle_density_recipe,
             hard_filters=frozenset({"motorway"}),
@@ -57,7 +53,6 @@ class TestRecipeRoundTrip:
 
         assert components.preference == preference
         assert components.car_stress_recipe == car_stress_recipe
-        assert components.safety_recipe == safety_recipe
         assert components.road_suitability_recipe == road_suitability_recipe
         assert components.motor_vehicle_density_recipe == motor_vehicle_density_recipe
         assert components.hard_filters == frozenset({"motorway"})
@@ -93,8 +88,7 @@ class TestArbitraryRecipeJson:
         assert components.car_stress_recipe.lanes_low_threshold == 2
         assert components.preference.car_stress_weight == 0.4
         assert components.hard_filters == frozenset({"no_bicycle", "motorway"})
-        # axis_paramsで省略した軸(safety/motor_vehicle_density)はクラス既定値へフォールバック
-        assert components.safety_recipe == SafetyRecipe()
+        # axis_paramsで省略した軸(motor_vehicle_density)はクラス既定値へフォールバック
         assert components.motor_vehicle_density_recipe == MotorVehicleDensityRecipe()
 
     def test_recipe_omitting_axis_params_falls_back_to_defaults_for_all_axes(self):
@@ -109,6 +103,5 @@ class TestArbitraryRecipeJson:
         components = recipe_to_components(Recipe(**raw))
 
         assert components.car_stress_recipe == CarStressRecipe()
-        assert components.safety_recipe == SafetyRecipe()
         assert components.road_suitability_recipe == RoadSuitabilityRecipe()
         assert components.motor_vehicle_density_recipe == MotorVehicleDensityRecipe()

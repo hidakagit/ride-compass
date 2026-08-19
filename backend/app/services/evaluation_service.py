@@ -6,17 +6,11 @@ from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
 from app.domain.graph import RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
-from app.domain.safety import SafetyRecipe
 from app.domain.traffic import CarStressRecipe
 from app.domain.weather import WeatherConditions
 
-# SAFETY_RECIPE_CONFIG_PATH/load_safety_recipeは、compute_edge_costの評価対象からは
-# 改善計画T139で外れたが（安全度軸の廃止）、`safety_recipe.yaml`自体・関連APIの表示用途
-# （研究モードの内訳確認等）はT148まで残るため、この読み込み関数はEvaluationServiceの
-# 外（dependencies.py等の表示用途の呼び出し元）から引き続き参照される。
 ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
 CAR_STRESS_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "car_stress_recipe.yaml"
-SAFETY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "safety_recipe.yaml"
 ROAD_SUITABILITY_RECIPE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "road_suitability_recipe.yaml"
 MOTOR_VEHICLE_DENSITY_RECIPE_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "motor_vehicle_density_recipe.yaml"
@@ -52,13 +46,6 @@ def load_car_stress_recipe(path: Path = CAR_STRESS_RECIPE_CONFIG_PATH) -> CarStr
     パターン（軸間の重みとは別階層の設定のため別ファイル・別関数）。
     """
     return CarStressRecipe(**_load_yaml_section(path, "car_stress_recipe"))
-
-
-def load_safety_recipe(path: Path = SAFETY_RECIPE_CONFIG_PATH) -> SafetyRecipe:
-    """safety_recipe.yamlから既定の安全度レシピ（軸の中身、domain/safety.py: SafetyRecipe
-    参照）を読み込む。load_car_stress_recipeと同じパターン。
-    """
-    return SafetyRecipe(**_load_yaml_section(path, "safety_recipe"))
 
 
 def load_road_suitability_recipe(path: Path = ROAD_SUITABILITY_RECIPE_CONFIG_PATH) -> RoadSuitabilityRecipe:
