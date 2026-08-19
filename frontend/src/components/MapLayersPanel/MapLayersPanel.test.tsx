@@ -74,7 +74,10 @@ describe("MapLayersPanel", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
     const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    expect(natureHeadings).toEqual(["推定指標（合成）", "観測データ"]);
+    // パネル内は観測を推定より上にする（実機フィードバック「推定指標よりも観測指標を
+    // 上にして」への対応。地図チップ側の「推定→観測」順とはあえて独立させている、
+    // mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDERのコメント参照）。
+    expect(natureHeadings).toEqual(["観測データ", "推定指標（合成）"]);
 
     // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
     // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
@@ -113,6 +116,39 @@ describe("MapLayersPanel", () => {
     expect(natureTitleFor("supplyPoi")).toBe("観測データ");
     expect(natureTitleFor("bicycleInfra")).toBe("観測データ");
     expect(natureTitleFor("elevation")).toBe("観測データ");
+  });
+
+  // 実機フィードバック「推定指標の上から数えた順番を地図上の左から数えた順番と一致させて」
+  // への対応。地図チップの推定グループは軸カタログ順（SECONDARY_AXES＝axis-catalog.json由来、
+  // 勾配・舗装質・停止密度・車の圧迫感・夜間・事故密度）で横並びに展開されるため、
+  // パネル側もこの順を再現する（以前はcategory順で、地図チップの並びと食い違っていた）。
+  it("推定グループの並び順が地図チップの並び（勾配・舗装質・停止密度・車の圧迫感・夜間・事故密度）と一致する", () => {
+    const { container } = render(<MapLayersPanel {...baseProps()} />);
+    const compositeHeading = Array.from(container.querySelectorAll("h2")).find(
+      (h) => h.textContent === "推定指標（合成）",
+    );
+    const compositeGroup = compositeHeading?.closest(`.${styles.natureGroup}`);
+    expect(compositeGroup).toBeTruthy();
+    const titles = Array.from(compositeGroup!.querySelectorAll("h3")).map((h) => h.textContent);
+    expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "夜間", "事故密度"]);
+  });
+
+  // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
+  // 専用の表示レイヤーを持たない3軸（勾配・舗装質・夜間）は、地図チップではタップ不能の
+  // 灰色タイルとして存在する一方、以前のパネルはMapLayerId自体を持たないため一覧から
+  // 完全に抜け落ちていた。設定項目もON/OFFも無いため、他レイヤーのような開閉式
+  // <details>ではなく常時見える案内行として存在させる。
+  it("専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）は開閉式にせず、常時見える案内文とともに存在する", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+
+    expect(screen.getByText("勾配").closest("details")).toBeNull();
+    expect(screen.getByText("標高レイヤーで確認できます")).toBeInTheDocument();
+
+    expect(screen.getByText("舗装質").closest("details")).toBeNull();
+    expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
+
+    expect(screen.getByText("夜間").closest("details")).toBeNull();
+    expect(screen.getByText("専用レイヤーは今後追加予定です")).toBeInTheDocument();
   });
 
   it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {

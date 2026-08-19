@@ -264,6 +264,21 @@ export default function Home() {
       ),
     [layerVisibility],
   );
+  // 改善計画（2次の下敷きの副作用対応）: 2次（車の圧迫感・ramp軸）を太く半透明な下敷きに
+  // するのは、その材料（1次、axisMaterialLayerIds）が1つでも同時に表示されているときだけに
+  // する。材料が1つも表示されていなければ、下に隠すものが無いため通常の太さ・不透明度で
+  // 表示する（以前は2次をONにした瞬間から常に太く半透明にしていたため、道路網が密な都市部で
+  // 下敷きの重なりだけで地図全体がぼやけて見える不具合があった、実機フィードバック）。
+  // T167の材料連動ONカスケード（handleLayerToggle）と同じaxisMaterialLayerIdsを使い、
+  // 「材料として使われている」の定義を1箇所（primaryAttributes.ts）に保つ。
+  const secondaryAxisCasingLayerIds = useMemo(
+    () =>
+      SECONDARY_AXES.filter((axis) => {
+        if (!axis.layerId) return false;
+        return axisMaterialLayerIds(axis.axisId).some((materialId) => layerVisibility[materialId]);
+      }).map((axis) => axis.layerId as MapLayerId),
+    [layerVisibility],
+  );
   // 色分けモード（ルート）。保存形式はJSON化しない生文字列（他の設定と異なる。
   // isRouteStyleModeIdによる妥当性検証がJSON.parseを兼ねる）。
   const [routeStyleModeId, setRouteStyleModeId] = useStoredState<RouteStyleModeId>(
@@ -1137,6 +1152,7 @@ export default function Home() {
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}
             axisVisibility={axisVisibility}
+            secondaryAxisCasingLayerIds={secondaryAxisCasingLayerIds}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
             routeLayerOn={layerVisibility.route}
