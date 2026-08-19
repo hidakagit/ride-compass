@@ -4563,6 +4563,147 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   新規起票されていること。現状維持(a)と判断した場合も、その根拠（実測倍率・乖離の規模）を
   記録した上でチェック完了とする。
 
+## 統合レビュー対応（2026-08-19・review:all第4回の指摘）
+
+overall/complexity/consistency/uiの4レビューを並列実施し相互統合した結果
+（`.claude/commands/review/history/2026-08-19_all.md`）のうち実施すべきものを起票する。
+対象コミット`e90d920`時点（`32e84ed..e90d920`、T131・T132〜T136・T137〜T151の11コミット）の
+指摘。P0は無し。
+
+### - [ ] T153. RoadGraphEngineのcar_closeness()/car_stress_level()二重計算を解消し、
+  回帰テストのモジュール境界の死角を修正する 規模S
+
+- 発端: 統合レビュー統合-1（overall F-1）。T134（車ストレス・安全度表示の二重計算解消）は
+  `_build_segment_details`内の直接呼び出し2箇所（`car_stress_level`・`safety_level`）を
+  対象に完了したが、同一差分内で先に適用されたT143が追加した別経路
+  （`compute_edge_axis_scores`呼び出し、`road_graph_engine.py:337-345`）が
+  `evaluation.py`内部で`car_closeness()`/`car_stress_level()`を独立に再計算しており、
+  T134の対応範囲外だった。T134の回帰テスト（`test_road_graph_engine.py:534-558`）は
+  `road_graph_engine`モジュールの束縛のみをmonkeypatchするため、`evaluation.py`側で
+  解決される呼び出しをカウントできずgreenのまま通過している。T120・T121-a・前回overall F-3
+  （T134自身が対応した指摘）に続く**4件目の同型パターン**（片方だけ直して別の箇所を忘れる）。
+- 対応方針: `compute_edge_axis_scores`（`evaluation.py`）に`car_closeness_result: ... | None
+  = None`引数を追加し、`_build_segment_details`が計算済みの結果を渡す形へ変更する
+  （`car_stress_level`/`safety_level`と対称のパターン）。回帰テストは、
+  `compute_edge_axis_scores`が受け取った結果をそのまま使い再計算しないことを直接検証する
+  形（呼び出し引数のspy、または`car_closeness_result`が指定されたときは内部で
+  `car_closeness()`を呼ばないことの検証）へ修正する。
+- 完了条件: backend pytestが二重計算の不在を検証する形で追加・green。既存の
+  `test_build_segment_details_calls_car_closeness_once_per_edge`が実際に
+  `evaluation.py`経由の呼び出しも捕捉できることを確認する。
+
+### - [ ] T154. docs/architecture.md §7をT130〜T151全体（レジストリ制導入・区間インスペクタ・
+  base_by_highway共有）へ包括的に追従させる 規模M
+
+- 発端: 統合レビュー統合-2（overall F-2 ＋ consistency F-1・F-2・F-3の統合）。
+  T132（前回起票、2026-08-19完了）は「T137〜T151の各タスクの完了条件でarchitecture.md
+  追従が担保されている」という前提で実施したが、これが誤りだったことが今回判明した。
+  具体的には: (a) `architecture.md:927-930`「`base_by_highway`の数値セット自体は独立」が
+  実装（T130で意図的に共有）と正反対のまま——`git blame`で本レビュー対象コミット
+  （`c61ede8`）が当該行を実際に編集しながら誤りを直していないことを確認した
+  （「触れていないから見逃した」ではなく「触れたのに直せなかった」新しい失敗モード。
+  architecture.md未追従パターンの**4回目の再発**）。(b) T146（区間インスペクタ、新設API
+  `POST /api/region/axis-inspector`・`AxisInspectorResult`等）が一切未反映。(c)
+  レジストリ機構（`domain/registry.py`/`domain/recipe_definition.py`）自体の説明が無く、
+  既存の「評価軸追加の1本道」記述もレジストリ登録（表示のため）と計算経路（依然手動配線）が
+  分岐している現状を反映していない。
+- 対応方針: §7を包括更新する。(a)の段落を`RoadSuitabilityRecipe`共有の実装に合わせて
+  書き換え、(b)区間インスペクタの小節（新設エンドポイント・`covered_weight_fraction`の
+  意味・勾配/風が常時欠損である設計判断）を追加、(c)「一次属性レジストリ・二次軸レジストリ」
+  の専用小節を新設しレジストリ登録ステップと計算経路の手動配線制約を明記する。あわせて、
+  「規模M以上でAPI/ドメイン概念を新設するタスクは完了条件へarchitecture.md追従を既定で
+  含める」運用と、「完了マーク済みのdocs追従タスクは実際に`git blame`で該当パラグラフを
+  裏取りする」手順の明文化を検討する（CLAUDE.md改訂の要否も含めユーザー判断）。
+- 完了条件: architecture.md中に`car_closeness`/`RoadSuitabilityRecipe`/`registry.py`/
+  `axis-inspector`等の新設シンボルへの言及があり、`base_by_highway`の記述が実装と一致する
+  こと。次回consistencyレビューで`git blame`による裏取りを実施し再発が無いことを確認する。
+
+### - [ ] T155. recipe_definition.py（T141）の配線または削除を最終判断する 規模S
+
+- 発端: 統合レビュー統合-3（overall F-3）。T141は「実配線はT142以降」と明記していたが、
+  T142は別方式（`compute_edge_axis_scores`＋手書き辞書2種）を採用し`recipe_definition.py`
+  （`Recipe`/`RecipeComponents`/`recipe_from_components`/`recipe_to_components`/
+  `default_recipe`、136行）を一切参照していない。自身のテスト以外どこからも呼ばれない
+  孤立状態のまま残存している。
+- 対応方針: 以下のいずれかをユーザー判断で選択する: (a) REMOVE（現在何も提供していない
+  ため）、(b) 将来用途（例: `ExperimentSlot`の差分レイヤー化）で本当に必要なら、明示的な
+  トリガー（例: 「差分レイヤー化に着手する時点」）を付けてDEFERへ格上げする。
+- 完了条件: (a)の場合はファイル・テストの削除とgrepでの参照ゼロ確認。(b)の場合は
+  DEFER欄への移動とトリガー条件の明記。
+
+### - [ ] T156. registry_defaults.pyとevaluation.pyの軸ID集合のドリフト検知テストを追加する
+  規模S
+
+- 発端: 統合レビュー統合-4（complexity F-2）。`registry_defaults.py`の軸ID集合（6軸）と
+  `evaluation.py`の`AXIS_WEIGHT_FIELD_TO_AXIS_ID`（7キー=6軸+wind）・
+  `_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`は独立した手書き辞書で、一致を検証するテストが無い
+  （T154(c)と根本原因は同じ、T142がtransform_fnの動的解決を意図的に見送った帰結）。
+  将来8軸目を追加する際、片方だけ更新してももう片方のテストは気づかない。
+- 対応方針: `test_registry_defaults.py`または`test_evaluation.py`へ
+  `set(AXIS_WEIGHT_FIELD_TO_AXIS_ID.values()) == {a.axis_id for a in all_axes()} |
+  {"wind"}`相当の1行アサーションを追加する（`register_defaults()`呼び出し込み）。
+- 完了条件: backend pytest green。意図的に片方の辞書だけをズラして当該テストが
+  failすることを実装時に手元で確認する。
+
+### - [ ] T157. MapView.tsxの閾値付きKEEPをレジストリ駆動レイヤーの実態に合わせて
+  再定義する 規模S（基準整備のみ、コード変更なし）
+
+- 発端: 統合レビュー統合-5（complexity F-1）。Keep List閾値「STATIC_OVERLAY_LAYERS
+  10種」に到達したが、内訳は手書き8件＋レジストリ自動生成2件（ramp軸、
+  `makeEnsureAxisRampLayer`により軸追加時のMapView側追記が実測ゼロ）であり、
+  閾値設定当時の前提（「1軸=1手書きミラー」）と食い違っている。カウント方式を変えず
+  次の閾値を置くと誤発火・誤不発火する。
+- 対応方針: `/review:improve`経由でdocs/complexity-review-2026-08-16.mdのKeep Listを
+  「手書きSTATIC_OVERLAY_LAYERS（ramp軸を除く）10件到達 or bespoke種の軸が3件目に
+  増加 or MapView.tsx 2,000行到達」へ再定義する。あわせてpage.tsxの閾値付きKEEP
+  （「40件 or 1,300行」、T135で反映済み）と同様に「何を測っているか」を明示的に
+  書き添える。
+- 完了条件: docs/complexity-review-2026-08-16.mdへの反映を次回complexityレビューで確認。
+
+### - [ ] T158. 「安全度」レシピパネルへルート生成の重みに使われなくなったことを示す注記を
+  追加する 規模S
+
+- 発端: 統合レビュー統合-6（uiレビュー）。T139で「安全度」軸はルート生成の重み付け
+  （`RoutePreferenceWeights`）から除外され、事故密度・夜間という別軸へ分割されたが、
+  研究タブでは、もはやルートの重みに影響しない「安全度」パネルが、実際に影響する
+  「車の圧迫感」パネルと全く同じ見た目で並び続けている。研究者が値を調整しても実験結果に
+  反映されないことに気づかないリスク、一般ユーザー視点でも「安全度」「事故密度」の違いが
+  伝わらない。
+- 対応方針: 「安全度」パネルの見出しまたはpanelHint（`mapLayers.ts`）へ
+  「現在ルート生成の重みには使われていません（参考表示のみ、事故密度・夜間軸へ移行済み）」
+  の一言を追記する。T148（旧安全度削除）着手前に有効な暫定対応であり、T148完了時に
+  パネル自体が削除されればこの注記も一緒に消える。
+- 完了条件: frontend vitest・eslint・tsc green。Playwright実機確認で注記が表示される
+  ことを確認。
+
+### - [ ] T159. T148（旧安全度削除）の完了条件へ具体的な暦日を明記する 規模S
+  （改善計画の記述整備のみ、コード変更なし）
+
+- 発端: 統合レビュー統合-7（complexity F-3）。T148の完了条件「本番稼働1〜2週間の確認後」に
+  具体的な日付が無い。T145b/T151の本番Oracle Cloudへの反映は2026-08-19（本レビュー当日）に
+  完了済みのため、起算日が定まる。
+- 対応方針: T148の完了条件へ暦日（例: 2026-09-02＝本番反映から2週間）を追記する。
+- 完了条件: T148の本文に暦日が明記されていること。
+
+### - [ ] T160. 軽微な残骸・記述陳腐化・表記ゆれ4件を解消する 規模S（各項目S）
+
+- 発端: 統合レビュー統合-8（overall F-4・complexity F-4・consistency F-4・ui P3の統合）。
+  (1) 評価軸ラベルが3系統（`axis-catalog.json`/`evaluationAxes.ts`）で不一致
+  （例: `stop_density`が「停止密度」/「信号・踏切等」）。意図的な言い換えか同期漏れかは
+  コードから判別不能。(2) `registry_defaults.py`のdocstringが、T142が見送った
+  transform_fnの動的解決をあたかも実装済みであるかのように記述している。
+  (3) `architecture.md:104`の`RouteSegmentDetail`説明が`stop_difficulty`等の現行
+  フィールドを欠いたまま（本レビュー対象範囲より前の既存乖離、T154着手のついでに
+  修正可）。(4) 研究タブ「共有材料」グループの視覚的インデントが実測3px
+  （意図した12pxとの乖離、枠線・見出しテキストで階層は十分伝わるため実害は軽微）。
+- 対応方針: (1)は意図的な言い換えであることをコメントで明記するか統一するかを
+  ユーザー判断とする。(2)はdocstringを現状（表示カタログ生成専用、コスト関数は
+  引き続き手書き）に合わせて修正。(3)はT154の一部として現行フィールドへ更新。
+  (4)は修正必須ではないため、気になる場合のみ`margin-left`を増やすかコメントを実態に
+  合わせて修正。
+- 完了条件: (2)(3)はdocs修正の反映確認。(4)は対応する場合のみPlaywright実機確認。
+  (1)はユーザー判断の記録。
+
 | 日付 | 完了タスク | 備考 |
 |---|---|---|
 | 2026-08-15 | （計画作成） | レビュー実施・本計画策定 |
