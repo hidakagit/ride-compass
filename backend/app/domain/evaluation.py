@@ -294,6 +294,9 @@ def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> 
     return WindCalculator.wind_penalty(wind.wind_speed_ms, wind.wind_direction_deg, bearing)
 
 
+_CAR_STRESS_LEVEL_NOT_PROVIDED = object()
+
+
 def compute_edge_axis_scores(
     edge: DirectedEdge,
     elevation_attribute: ElevationAttribute | None,
@@ -308,6 +311,7 @@ def compute_edge_axis_scores(
     car_stress_recipe: CarStressRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+    car_stress_level_value: int | None = _CAR_STRESS_LEVEL_NOT_PROVIDED,  # type: ignore[assignment]
 ) -> dict[str, float]:
     """二次: 一次属性から軸別スコア（axis_id→0-100のdifficulty）を算出する
     （改善計画T142、設計プロンプト「評価システムの層構造再設計」の二次そのもの）。
@@ -340,6 +344,12 @@ def compute_edge_axis_scores(
     「車との近さ」(N2)の材料の上書き（省略時はそれぞれdomain/recipe.py:
     DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE、改善計画:
     車との近さ材料の共有元化）。
+    `car_stress_level_value`は呼び出し元が既に`car_stress_level()`を計算済みの場合、その
+    結果（1-5、またはway_tags未取得ならNone）を渡すことで内部での再計算を省略できる
+    （改善計画T153。省略時は`way_tags`等から本関数がその場で計算する。呼び出し元は
+    `car_stress_level_value`に使ったのと同じ`car_stress_recipe`/`road_suitability_recipe`/
+    `motor_vehicle_density_recipe`をこの関数へも渡すこと——異なるレシピを渡すと
+    car_stress_level_valueとaxis_scores["car_stress"]が別レシピの値になり不整合になる）。
     """
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_type)
@@ -347,21 +357,27 @@ def compute_edge_axis_scores(
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
     # 「車との近さ」(N2)はcar_stress_levelがこの1箇所でのみ参照する（T148で安全度軸を
     # 削除するまではsafety_levelとも共有する共通の土台だったため、呼び出し元で1回だけ
-    # 計算して両方へ渡すdedupをしていたが、参照元が1箇所になったため
-    # car_stress_level内部の計算へ戻した。road_graph_engine.py/openrouteservice_engine.pyの
-    # 区間表示ビルダーは引き続き2箇所[car_stress_level・旧safety_level]から参照していたが、
-    # 同じくT148でsafety_level側を削除したため、そちらも同様に単純化済み）。
+    # 計算して両方へ渡すdedupをしていたが、参照元が1箇所になったためcar_stress_level内部の
+    # 計算へ戻した）。ただしroad_graph_engine.pyの区間表示ビルダーは、この関数とは別に
+    # 表示用の生値car_stressを自分でも必要とするため、依然としてcar_stress_level()を
+    # 呼び出し元・本関数の両方で計算する二重計算が残っていた（統合レビュー2026-08-19、
+    # overall F-1／改善計画T153）。car_stress_level_valueが明示的に渡された場合は
+    # ここでの再計算をスキップしてそれを使う。
     car_stress = (
-        car_stress_level(
-            edge.highway,
-            way_tags,
-            is_designated,
-            car_stress_recipe,
-            road_suitability_recipe=road_suitability_recipe,
-            motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+        (
+            car_stress_level(
+                edge.highway,
+                way_tags,
+                is_designated,
+                car_stress_recipe,
+                road_suitability_recipe=road_suitability_recipe,
+                motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+            )
+            if way_tags is not None
+            else None
         )
-        if way_tags is not None
-        else None
+        if car_stress_level_value is _CAR_STRESS_LEVEL_NOT_PROVIDED
+        else car_stress_level_value
     )
     intersection_count_per_km = (
         intersection_count / (edge.distance_m / 1000) if intersection_count is not None and edge.distance_m > 0 else None

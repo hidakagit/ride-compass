@@ -292,7 +292,9 @@ class RoadGraphEngine:
             # EvaluationService.evaluate_graph経由）と同じcompute_edge_axis_scores（T142）を
             # 通す。設計プロンプトの完了条件「地図表示とルーティングコストが同一のレシピ定義
             # から生成される」に対応し、二次の計算式が表示・探索コストの2箇所に独立実装される
-            # 非DRY構造（現状把握C.で判明）を解消する。
+            # 非DRY構造（現状把握C.で判明）を解消する。car_stress_level_valueには上で表示用に
+            # 計算済みのcar_stressをそのまま渡し、compute_edge_axis_scores内部での
+            # car_stress_level()再計算を避ける（改善計画T153、二重計算の解消）。
             axis_scores = compute_edge_axis_scores(
                 edge, elevation_attr, surface_type,
                 wind=context.wind, stop_count=stop_count, way_tags=edge_way_tags,
@@ -301,6 +303,7 @@ class RoadGraphEngine:
                 car_stress_recipe=self._car_stress_recipe,
                 road_suitability_recipe=self._road_suitability_recipe,
                 motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+                car_stress_level_value=car_stress,
             )
             weights = preference_to_axis_weights(preference)
             _, composite_difficulty_value = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights)
