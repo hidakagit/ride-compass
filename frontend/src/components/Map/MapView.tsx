@@ -145,6 +145,17 @@ const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
 // カテゴリを表さないため、roadFilterAxes.tsのopacityExpression（分類済み/不明で
 // 不透明度を出し分ける式）は使わず、一律のこの値のままにする。
 const DEFAULT_ROAD_LINE_OPACITY = 0.8;
+// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
+// インフラ・指定路線）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
+// ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠していた。実機
+// フィードバック「1次要素をどれかOFFにして何が支配的なのか見たい」を受け、line-offsetで
+// 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
+// トラック間隔は当初line-width（3px）と揃え隙間なく境界を接する値にしていたが、全部ON時に
+// 全体の帯が「地図の線が太すぎる」という実機フィードバックを受け、隣接トラックが
+// line-widthの半分弱ずつ重なる値へ縮めた（重なりは色の切り替わりとして視認できる範囲に
+// 収まり、完全な塗り潰しにはならない）。
+const MATERIAL_TRACK_OFFSET_STEP = 2;
+const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_ID, DESIGNATION_LAYER_ID] as const;
 // 改善計画（1次/2次の地図上表現の統一、松）: car_stress・ramp軸（停止密度・事故密度等、
 // axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
 // 独立レイヤーとして重ねて描画される。以前は1次（bicycleInfra/designation）と同じ
@@ -154,12 +165,16 @@ const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // 一致させたい」）。2次は太く半透明な「下敷き」、1次は細くくっきりした「上書き」として
 // 重ねることで、下に赤い区間があってもその上に事故地点の点や道路種別の線が乗って見える
 // ようにする（描画順序はSTATIC_OVERLAY_LAYERS参照。1次より下・road_surfaceより上に置く）。
-// 幅は1次「素材」線3本のオフセット帯（MATERIAL_TRACK_OFFSET_STEP参照、3本ON時に中心から
-// ±3.5px＝7px幅）とちょうど一致させる。当初は9pxだったが、材料オフセットの間隔を
-// 3px→2pxへ詰めた際（実機フィードバック「地図の線が太すぎる」）に下敷きだけ幅が
-// 変わらず7px幅の素材の外側にはみ出た半透明の縁（1px分）が「ぼやけている」という
-// 実機フィードバックにつながったため、この幅も7pxへ合わせて縁を無くした。
-const SECONDARY_AXIS_CASING_WIDTH = 7;
+// 幅は1次「素材」線が全部ONになったときの最大帯幅（トラック数×オフセット間隔＋自身の
+// 太さ）から計算する。以前はこの値を手計算した結果（「3本・オフセット2px・幅3pxなら
+// 7px」）を別のマジックナンバーとしてここへ直書きしており、オフセット間隔や素材の本数
+// （ROAD_MATERIAL_TRACK_LAYER_IDSの要素数）を変えるとここだけ追従せず、下敷きが帯の外側に
+// はみ出す／内側に収まらないというズレを黙って再発させていた（実機フィードバック「オフセット、
+// カーシングの幅は重ねる線が3本から変わっても揃うようにして」「なるべくベタで書かず、揃える
+// 制約があるものは連動させて欲しい」への対応）。この式にすることで、以後は上記2定数の変更に
+// 自動で追従する。
+const SECONDARY_AXIS_CASING_WIDTH =
+  (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
 const SECONDARY_AXIS_CASING_OPACITY = 0.45;
 // 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの中立色（改善計画T165）。
 // roadFilterAxes.tsのCOLOR_UNKNOWNと同じ「不明・他」グレーを流用し、色分けそのものは
@@ -498,24 +513,10 @@ function applyRoadLayerState(
   });
 }
 
-// road_surfaceの1次「素材」線レイヤー3本（道路種別/路面の合成ROAD_TILE_LAYER_ID・
-// 自転車インフラ・指定路線）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を
-// 同時にONにすると、松（1次/2次の地図上表現の統一）で2次との重なりは解決したものの、
-// 1次同士は相変わらず後から描画されたレイヤーが前のレイヤーを完全に覆い隠していた。
-// 実機フィードバック「1次要素をどれかOFFにして何が支配的なのか見たい」（全部ONのまま
-// どれが効いているか地図全体で見比べたい、という趣旨）を受け、line-offsetで道路と平行な
-// 複数トラックへ横並びに分離し、同時にONにした素材をすべて見えるようにする。
-// トラック間隔は当初line-width（3px）と揃え隙間なく境界を接する値にしていたが、3本ON時に
-// 全体の帯（オフセット±3px＋自身の太さ3pxで外縁±4.5px＝9px幅）が「地図の線が太すぎる」という
-// 実機フィードバックを受けた。隣接トラックがline-widthの半分弱ずつ重なる2pxへ縮め、3本ON時の
-// 全体の帯を±3.5px（7px幅）まで狭める。松の下敷き線幅（SECONDARY_AXIS_CASING_WIDTH）も
-// 元は9pxだったが、この帯の縮小に合わせて7pxへ揃え直した（幅がずれていた間は下敷きだけ
-// 帯の外側にはみ出た半透明の縁が「ぼやけている」という実機フィードバックにつながった）ため、
-// 現在は帯の外縁ちょうど±3.5pxに下敷きの外縁も一致し、はみ出しは無い。隣接トラック同士の
-// 重なりは1px程度に収まり、色の切り替わりとして視認できる範囲（完全な塗り潰しにはならない）。
-const MATERIAL_TRACK_OFFSET_STEP = 2;
-const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_ID, DESIGNATION_LAYER_ID] as const;
-
+// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
+// インフラ・指定路線）を並列トラックへ分離するオフセット計算。定数
+// （MATERIAL_TRACK_OFFSET_STEP/ROAD_MATERIAL_TRACK_LAYER_IDS）・下敷き幅との連動理由は
+// 上部のDEFAULT_ROAD_LINE_WIDTH直後のコメント参照。
 // 現在ONの素材レイヤー集合から各レイヤーのline-offsetを計算して適用する。ON中のものだけを
 // 対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
 // 自動で中央（実際の道路の位置）へ寄り直す。OFF中のレイヤーもoffsetを0へ戻しておき、
