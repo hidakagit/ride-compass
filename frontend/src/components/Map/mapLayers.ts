@@ -33,7 +33,6 @@ export type MapLayerId =
   | "elevation"
   | "road"
   | "carStress"
-  | "safety"
   | "bicycleInfra"
   | "designation"
   | "stopPoi"
@@ -123,30 +122,6 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "指定路線[緊急輸送道路・重要物流道路、下の「指定路線」レイヤーで個別に確認できます]に該当: +1",
       "車両通行不可[自転車専用]の区間は上記の補正に関わらず1に固定",
       "上記の合計が1〜5の範囲を超える場合は範囲内に収まるよう丸めます[信号・一時停止の多さは、別の「停止要因」レイヤーで確認できます]",
-      "「不明・他」はpath/footway・高速道路等、判定基準に登録の無い道路種別です",
-    ],
-  },
-  {
-    id: "safety",
-    label: "安全度",
-    kind: "static",
-    category: "trafficSafety",
-    description: "道路種別・自転車インフラ・街灯・トンネル等から推定した安全度(1-4)を色分け表示",
-    // 車ストレスと同じ材料（highway/cycleway/maxspeed/lanes/指定路線）に加え、
-    // 街灯[lit]・トンネル[tunnel]を組み合わせる（改善計画: 安全度レシピ。路肩[shoulder]は
-    // 実測0.0%の死に補正だったため改善計画T122で撤去）。
-    // 「走りにくさ（車ストレス）」ではなく「事故りやすさ（客観的リスク）」という別概念
-    // であることをcarStressのpanelHintDetailと対で明記する。
-    panelHint: "道路の種別・自転車インフラ・街灯・トンネル等をもとに4段階[1=安全〜4=危険]で判定した目安です。車の圧迫感（走りにくさ）とは別の、事故・怪我のリスクを表す指標です。",
-    panelHintDetail: [
-      "基準値: 道路の種別[生活道路・県道・国道など]で決まります。国道・幹線道路が最も高く、県道はやや低めです",
-      "分離された自転車道が併設: -2 ／ 自転車レーンが併設・自転車と共有の車線表示: -1",
-      "制限速度30km/h以下: -1 ／ 60km/h以上: +1",
-      "車線数4以上: +1",
-      "街灯あり: -1 ／ トンネル: +1",
-      "指定路線[緊急輸送道路・重要物流道路、下の「指定路線」レイヤーで個別に確認できます]に該当: +1",
-      "車両通行不可[自転車専用]の区間は上記の補正に関わらず1に固定",
-      "上記の合計が1〜4の範囲を超える場合は範囲内に収まるよう丸めます",
       "「不明・他」はpath/footway・高速道路等、判定基準に登録の無い道路種別です",
     ],
   },
@@ -273,17 +248,16 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
 
-// road/carStress/safety/bicycleInfra/designationは同じroad_surfaceベクタタイル
+// road/carStress/bicycleInfra/designationは同じroad_surfaceベクタタイル
 // （MapView.tsx: ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を
 // 共有しているため、そのタイルのminzoom未満（regionZoomTooWide）ではタイル自体が要求されず、
-// 5レイヤーとも同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
+// 4レイヤーとも同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
 // 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
 export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
   "road",
   "carStress",
-  "safety",
   "bicycleInfra",
   "designation",
   // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む

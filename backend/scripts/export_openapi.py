@@ -28,12 +28,6 @@ from app.domain.recipe import (  # noqa: E402
 from app.domain.registry import all_axes, reset_registry_for_testing  # noqa: E402
 from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
-from app.domain.safety import (  # noqa: E402
-    DEFAULT_SAFETY_RECIPE,
-    SafetyRecipe,
-    safety_level,
-    safety_tile_ingredients,
-)
 from app.domain.traffic import (  # noqa: E402
     DEFAULT_CAR_STRESS_RECIPE,
     CarStressRecipe,
@@ -55,8 +49,6 @@ SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 TRAFFIC_STRESS_RECIPE_PATH = GENERATED_DIR / "traffic-stress-recipe.json"
 TRAFFIC_STRESS_TEST_CASES_PATH = GENERATED_DIR / "traffic-stress-test-cases.json"
-SAFETY_RECIPE_PATH = GENERATED_DIR / "safety-recipe.json"
-SAFETY_TEST_CASES_PATH = GENERATED_DIR / "safety-test-cases.json"
 ROAD_SUITABILITY_RECIPE_PATH = GENERATED_DIR / "road-suitability-recipe.json"
 MOTOR_VEHICLE_DENSITY_RECIPE_PATH = GENERATED_DIR / "motor-vehicle-density-recipe.json"
 AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
@@ -157,95 +149,6 @@ def _car_stress_test_cases() -> list[dict[str, object]]:
     return cases
 
 
-# 安全度のPython実装（domain/safety.py: safety_level）とフロント実装（safetyExpression.ts）の
-# 相互検証用フィクスチャ（改善計画: 安全度レシピ・車との近さ材料の共有元化）。
-# _CAR_STRESS_TEST_CASESと同じ構成方針だが、材料タグはlit/tunnel（車ストレスには
-# 無い）を含み、lanes_lowケースは安全度レシピが未採用のため含めない。
-_SAFETY_TEST_CASES: list[
-    tuple[str | None, dict[str, str], bool, dict[str, object] | None, dict[str, object] | None, dict[str, object] | None]
-] = [
-    ("cycleway", {}, False, None, None, None),
-    ("residential", {}, False, None, None, None),
-    ("tertiary", {}, False, None, None, None),
-    ("secondary", {}, False, None, None, None),
-    ("primary", {}, False, None, None, None),
-    ("trunk", {}, False, None, None, None),
-    ("motorway", {}, False, None, None, None),  # 判定基準に未登録→None
-    (None, {}, False, None, None, None),  # highway自体が無い→None
-    ("primary", {"motor_vehicle": "no"}, False, None, None, None),  # 固定1（他の補正より優先）
-    ("primary", {"cycleway": "track"}, False, None, None, None),
-    ("primary", {"cycleway": "lane"}, False, None, None, None),
-    ("primary", {"cycleway": "shared_lane"}, False, None, None, None),
-    ("primary", {"maxspeed": "30"}, False, None, None, None),
-    ("tertiary", {"maxspeed": "60"}, False, None, None, None),
-    ("tertiary", {"lanes": "4"}, False, None, None, None),
-    ("primary", {"lanes": "0"}, False, None, None, None),  # 無効値（0以下は無視）
-    ("primary", {"maxspeed": "0"}, False, None, None, None),  # 無効値（0以下は無視）
-    ("secondary", {"lit": "yes"}, False, None, None, None),
-    ("secondary", {"tunnel": "yes"}, False, None, None, None),
-    ("secondary", {"lit": "yes", "tunnel": "yes"}, False, None, None, None),
-    ("cycleway", {"cycleway": "track", "maxspeed": "20"}, False, None, None, None),  # 下限1でクランプ
-    ("primary", {"maxspeed": "80", "lanes": "6", "tunnel": "yes"}, False, None, None, None),  # 上限4でクランプ
-    ("residential", {}, True, None, None, None),  # 指定路線+1
-    ("primary", {"motor_vehicle": "no"}, True, None, None, None),  # 指定路線+motor_vehicle=noは1固定
-    # 道路適正レシピの上書き（研究モード相当）でも一致することを確認する（旧base_by_highway
-    # 上書きケースをこちらへ移設）。
-    ("secondary", {}, False, None, {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}}, None),
-    # 自動車密度レシピの上書きでも一致することを確認する。
-    (
-        "tertiary",
-        {"maxspeed": "40"},
-        False,
-        None,
-        None,
-        {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "maxspeed_high_threshold": 40},
-    ),
-    # 3レシピを同時に上書きしても正しく合成されることを確認する（改善計画: 車との近さ
-    # 材料の共有元化）。
-    (
-        "secondary",
-        {"tunnel": "yes"},
-        True,
-        {**DEFAULT_SAFETY_RECIPE.model_dump(), "tunnel_adjustment": 2},
-        {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}},
-        {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "designation_adjustment": 2},
-    ),
-]
-
-
-def _safety_test_cases() -> list[dict[str, object]]:
-    cases = []
-    for (
-        highway,
-        tags,
-        is_designated,
-        recipe_override,
-        road_suitability_recipe_override,
-        motor_vehicle_density_recipe_override,
-    ) in _SAFETY_TEST_CASES:
-        recipe = SafetyRecipe(**recipe_override) if recipe_override else None
-        road_suitability_recipe = (
-            RoadSuitabilityRecipe(**road_suitability_recipe_override) if road_suitability_recipe_override else None
-        )
-        motor_vehicle_density_recipe = (
-            MotorVehicleDensityRecipe(**motor_vehicle_density_recipe_override)
-            if motor_vehicle_density_recipe_override
-            else None
-        )
-        cases.append(
-            {
-                "properties": safety_tile_ingredients(highway, tags, is_designated),
-                "recipe": recipe_override,
-                "road_suitability_recipe": road_suitability_recipe_override,
-                "motor_vehicle_density_recipe": motor_vehicle_density_recipe_override,
-                "expected_level": safety_level(
-                    highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
-                ),
-            }
-        )
-    return cases
-
-
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
     # indent固定・末尾改行あり: 再生成のdiffが内容の変化だけを反映するようにする。
@@ -293,13 +196,9 @@ def main() -> None:
     # 書き出すため、car_stress_breakdownのロジックが変わればこのJSONも追従し、
     # JS側のミラー実装が古いままなら再生成後にテストが落ちる）。
     _write_json(TRAFFIC_STRESS_TEST_CASES_PATH, _car_stress_test_cases())
-    # 安全度の既定レシピ・相互検証フィクスチャ（domain/safety.py: SafetyRecipe）。
-    # 車ストレスと同じ理由・同じ仕組み（safetyExpression.test.tsがドリフト検知）。
-    _write_json(SAFETY_RECIPE_PATH, DEFAULT_SAFETY_RECIPE.model_dump())
-    _write_json(SAFETY_TEST_CASES_PATH, _safety_test_cases())
     # 「車との近さ」(N2)を構成する共有レシピ2つの既定値（domain/recipe.py:
     # RoadSuitabilityRecipe/MotorVehicleDensityRecipe、改善計画: 車との近さ材料の
-    # 共有元化）。車ストレス・安全度の両方のMapLibre expressionが読む。
+    # 共有元化）。車ストレスのMapLibre expressionが読む。
     _write_json(ROAD_SUITABILITY_RECIPE_PATH, DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump())
     _write_json(MOTOR_VEHICLE_DENSITY_RECIPE_PATH, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump())
     # 二次軸カタログ（改善計画T145b「事実はタイルに、解釈はクライアントに」）。

@@ -17,7 +17,6 @@ function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail
     wind_penalty: 0.5,
     road_surface_good: true,
     car_stress: null,
-    safety: null,
     bicycle_infra: null,
     elevation_difficulty: 10,
     wind_difficulty: 20,

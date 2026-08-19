@@ -7,7 +7,6 @@ from app.config import settings
 from app.domain.evaluation import RoutePreference
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.route import RouteCandidate
-from app.domain.safety import SafetyRecipe
 from app.domain.traffic import CarStressRecipe
 from app.infrastructure import rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
@@ -69,7 +68,6 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
         preference_override=None,
         scoring_weights_override=None,
         car_stress_recipe_override=None,
-        safety_recipe_override=None,
         road_suitability_recipe_override=None,
         motor_vehicle_density_recipe_override=None,
     ) -> RouteGenerationSetup:
@@ -77,7 +75,6 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             captured["preference"] = preference_override
             captured["scoring"] = scoring_weights_override
             captured["car_stress_recipe"] = car_stress_recipe_override
-            captured["safety_recipe"] = safety_recipe_override
             captured["road_suitability_recipe"] = road_suitability_recipe_override
             captured["motor_vehicle_density_recipe"] = motor_vehicle_density_recipe_override
         return RouteGenerationSetup(
@@ -85,7 +82,6 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
             car_stress_recipe=car_stress_recipe_override or CarStressRecipe(),
-            safety_recipe=safety_recipe_override or SafetyRecipe(),
             road_suitability_recipe=road_suitability_recipe_override or RoadSuitabilityRecipe(),
             motor_vehicle_density_recipe=motor_vehicle_density_recipe_override or MotorVehicleDensityRecipe(),
         )
@@ -208,8 +204,6 @@ def test_generate_routes_applies_road_suitability_and_motor_vehicle_density_over
     assert captured["road_suitability_recipe"] == RoadSuitabilityRecipe(**road_suitability_recipe)
     assert captured["motor_vehicle_density_recipe"] == MotorVehicleDensityRecipe(**motor_vehicle_density_recipe)
     assert captured["car_stress_recipe"] == CarStressRecipe(**car_stress_recipe)
-    # safety_recipeは上書きしていないため、ビルダーへはNoneのまま渡る（独立性の確認）
-    assert captured["safety_recipe"] is None
     conditions = response.json()["conditions"]
     assert conditions["road_suitability_recipe"] == road_suitability_recipe
     assert conditions["motor_vehicle_density_recipe"] == motor_vehicle_density_recipe

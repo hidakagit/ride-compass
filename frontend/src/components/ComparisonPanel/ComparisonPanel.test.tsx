@@ -21,7 +21,6 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     bicycle_infra_score: null,
     intersection_density: null,
     accident_density: null,
-    safety_score: null,
     total_score: 88,
     score_breakdown: null,
     segments: null,
@@ -48,9 +47,6 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
       },
       car_stress_recipe: {
         lanes_low_threshold: 1, lanes_low_adjustment: -1,
-      },
-      safety_recipe: {
-        lit_adjustment: -1, tunnel_adjustment: 1,
       },
       road_suitability_recipe: {
         base_by_highway: { residential: 2 },

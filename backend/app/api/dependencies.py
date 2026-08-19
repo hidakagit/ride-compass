@@ -13,7 +13,6 @@ from fastapi import Depends, Request
 from app.config import settings
 from app.domain.evaluation import RoutePreference
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
-from app.domain.safety import SafetyRecipe
 from app.domain.traffic import CarStressRecipe
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.basemap_client import BasemapClient
@@ -32,7 +31,6 @@ from app.services.evaluation_service import (
     load_motor_vehicle_density_recipe,
     load_road_suitability_recipe,
     load_route_preference,
-    load_safety_recipe,
     load_car_stress_recipe,
 )
 from app.services.graph_service import GraphService
@@ -93,7 +91,6 @@ class RouteGenerationSetup:
     scoring_weights: dict[str, float]
     route_preference: RoutePreference
     car_stress_recipe: CarStressRecipe
-    safety_recipe: SafetyRecipe
     road_suitability_recipe: RoadSuitabilityRecipe
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe
 
@@ -103,7 +100,6 @@ RouteGenerationBuilder = Callable[
         RoutePreference | None,
         dict[str, float] | None,
         CarStressRecipe | None,
-        SafetyRecipe | None,
         RoadSuitabilityRecipe | None,
         MotorVehicleDensityRecipe | None,
     ],
@@ -179,14 +175,12 @@ def get_route_generation_builder(
         preference_override: RoutePreference | None = None,
         scoring_weights_override: dict[str, float] | None = None,
         car_stress_recipe_override: CarStressRecipe | None = None,
-        safety_recipe_override: SafetyRecipe | None = None,
         road_suitability_recipe_override: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe_override: MotorVehicleDensityRecipe | None = None,
     ) -> RouteGenerationSetup:
         preference = preference_override or load_route_preference()
         scoring_weights = scoring_weights_override or load_scoring_weights()
         car_stress_recipe = car_stress_recipe_override or load_car_stress_recipe()
-        safety_recipe = safety_recipe_override or load_safety_recipe()
         road_suitability_recipe = road_suitability_recipe_override or load_road_suitability_recipe()
         motor_vehicle_density_recipe = motor_vehicle_density_recipe_override or load_motor_vehicle_density_recipe()
         if settings.routing_engine == "road_graph":
@@ -199,7 +193,6 @@ def get_route_generation_builder(
                 weather_service,
                 preference,
                 car_stress_recipe,
-                safety_recipe,
                 road_suitability_recipe,
                 motor_vehicle_density_recipe,
             )
@@ -208,7 +201,6 @@ def get_route_generation_builder(
                 routing_service, elevation_service, wind_service, preference,
                 repository=surface_match_repository,
                 car_stress_recipe=car_stress_recipe,
-                safety_recipe=safety_recipe,
                 road_suitability_recipe=road_suitability_recipe,
                 motor_vehicle_density_recipe=motor_vehicle_density_recipe,
             )
@@ -217,7 +209,6 @@ def get_route_generation_builder(
             scoring_weights=scoring_weights,
             route_preference=preference,
             car_stress_recipe=car_stress_recipe,
-            safety_recipe=safety_recipe,
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
         )

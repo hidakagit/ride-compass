@@ -5,9 +5,10 @@ recipe_id + versionで識別できる、宣言的なレシピ（〇次フィル�
 将来「差分レイヤー」へ発展させる前提のため、レシピをID+versionで保持できる構造にする。
 
 **現時点ではAPI層・OpenAPI契約・フロントへは配線しない**（`domain/registry.py`（T137）と
-同じ「宣言のみ」の非破壊的な追加）。既存の5YAML＋Pydanticモデル（`RoutePreference`/
-`CarStressRecipe`/`SafetyRecipe`/`RoadSuitabilityRecipe`/`MotorVehicleDensityRecipe`、
-それぞれ`compute_edge_cost`等の実処理から直接読まれる「唯一の実体」）は変更せず残し、
+同じ「宣言のみ」の非破壊的な追加）。既存の4YAML＋Pydanticモデル（`RoutePreference`/
+`CarStressRecipe`/`RoadSuitabilityRecipe`/`MotorVehicleDensityRecipe`、それぞれ
+`compute_edge_cost`等の実処理から直接読まれる「唯一の実体」。当初は`SafetyRecipe`も
+含む5つだったが、安全度軸はT148で削除済み）は変更せず残し、
 本モジュールは2方向の変換層として機能する（設計プロンプトが許容する「既存YAML群を
 axis_params/weightsのキーへマッピングして読み込む後方互換レイヤー」の実装）:
 
@@ -18,10 +19,10 @@ axis_params/weightsのキーへマッピングして読み込む後方互換レ�
 T142（コスト関数の縮退）以降で行う。
 
 `axis_params`のキーは軸内レシピ名（`road_suitability`/`motor_vehicle_density`/
-`car_stress`/`safety`）。設計プロンプトが示す目標のaxis_id（`car_stress`等）へは
+`car_stress`）。設計プロンプトが示す目標のaxis_id（`car_stress`等）へは
 改善計画T150（呼称統一）で追従済み（旧`traffic_stress`から改称）。`safety`は
-T139で難易度合成からは外れたが、`domain/safety.py`自体が現役（削除はT148）である間は
-表示用レシピとして`axis_params`に含める。`gradient`/`surface_q`/`stop_density`
+T139で難易度合成からは外れ、T148で`domain/safety.py`自体も削除されたため
+`axis_params`から除いた。`gradient`/`surface_q`/`stop_density`
 （改善計画T149で交差点密度を吸収済み）/`accident`/`night`は現状オーバーライド可能な
 「レシピ」を持たない（`domain/difficulty.py`/`domain/night.py`のモジュール定数のみ、
 研究モードでの上書き対象外）ため`axis_params`には含めない。
@@ -38,14 +39,12 @@ from app.domain.recipe import (
     MotorVehicleDensityRecipe,
     RoadSuitabilityRecipe,
 )
-from app.domain.safety import DEFAULT_SAFETY_RECIPE, SafetyRecipe
 from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE, CarStressRecipe
 
 # axis_paramsのキー名（軸内レシピ名。car_stressはT150でtraffic_stressから改称済み）。
 AXIS_PARAM_ROAD_SUITABILITY = "road_suitability"
 AXIS_PARAM_MOTOR_VEHICLE_DENSITY = "motor_vehicle_density"
 AXIS_PARAM_CAR_STRESS = "car_stress"
-AXIS_PARAM_SAFETY = "safety"
 
 
 class Recipe(BaseModel):
@@ -70,7 +69,6 @@ class RecipeComponents(NamedTuple):
 
     preference: RoutePreference
     car_stress_recipe: CarStressRecipe
-    safety_recipe: SafetyRecipe
     road_suitability_recipe: RoadSuitabilityRecipe
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe
     hard_filters: frozenset[str]
@@ -81,7 +79,6 @@ def recipe_from_components(
     version: int,
     preference: RoutePreference,
     car_stress_recipe: CarStressRecipe,
-    safety_recipe: SafetyRecipe,
     road_suitability_recipe: RoadSuitabilityRecipe,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe,
     hard_filters: frozenset[str] = DEFAULT_HARD_FILTERS,
@@ -95,7 +92,6 @@ def recipe_from_components(
             AXIS_PARAM_ROAD_SUITABILITY: road_suitability_recipe.model_dump(),
             AXIS_PARAM_MOTOR_VEHICLE_DENSITY: motor_vehicle_density_recipe.model_dump(),
             AXIS_PARAM_CAR_STRESS: car_stress_recipe.model_dump(),
-            AXIS_PARAM_SAFETY: safety_recipe.model_dump(),
         },
         weights=preference.model_dump(),
     )
@@ -110,7 +106,6 @@ def recipe_to_components(recipe: Recipe) -> RecipeComponents:
     return RecipeComponents(
         preference=RoutePreference(**recipe.weights),
         car_stress_recipe=CarStressRecipe(**axis_params.get(AXIS_PARAM_CAR_STRESS, {})),
-        safety_recipe=SafetyRecipe(**axis_params.get(AXIS_PARAM_SAFETY, {})),
         road_suitability_recipe=RoadSuitabilityRecipe(**axis_params.get(AXIS_PARAM_ROAD_SUITABILITY, {})),
         motor_vehicle_density_recipe=MotorVehicleDensityRecipe(
             **axis_params.get(AXIS_PARAM_MOTOR_VEHICLE_DENSITY, {})
@@ -130,7 +125,6 @@ def default_recipe(recipe_id: str = "default", version: int = 1) -> Recipe:
         version,
         RoutePreference(),
         DEFAULT_CAR_STRESS_RECIPE,
-        DEFAULT_SAFETY_RECIPE,
         DEFAULT_ROAD_SUITABILITY_RECIPE,
         DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     )

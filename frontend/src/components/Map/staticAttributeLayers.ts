@@ -26,7 +26,6 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
-import { DEFAULT_SAFETY_RECIPE, buildSafetyExpression, type SafetyRecipe } from "./safetyExpression";
 import {
   DEFAULT_CAR_STRESS_RECIPE,
   buildCarStressExpression,
@@ -156,64 +155,6 @@ export const CAR_STRESS_LEGEND: LegendEntry[] = buildCarStressLegend(DEFAULT_CAR
 export const CAR_STRESS_COLOR_EXPRESSION: unknown[] = buildCarStressColorExpression(
   DEFAULT_CAR_STRESS_RECIPE,
 );
-
-// 安全度（1-4、客観的な事故・怪我リスク）の色分け定義（改善計画: 安全度レシピ）。
-// CAR_STRESS_COLORSと同じ1-4段階の構造だが、快適性（車ストレス）とは別概念のため
-// 地図上で混同しないよう色相をずらす（緑〜赤ではなくteal→olive→orange→dark-redの配色）。
-// SafetyRecipePanel（車ストレスのStressLevelPickerと同じ発想）が基準値ピッカーの色・
-// 段階数をここから導出し、地図の色分けと常に一致させる。
-export const SAFETY_COLORS: Record<number, string> = {
-  1: "#0d9488",
-  2: "#65a30d",
-  3: "#ea580c",
-  4: "#991b1b",
-};
-
-// 安全度の最終値もタイルへ計算済みの値として焼き込まれておらず（改善計画: 安全度レシピ、
-// 車ストレスと同じ理由）、材料タグからMapLibre expressionとして計算する
-// （safetyExpression.ts参照）。buildCarStressLegend/buildCarStressColorExpressionと
-// 同じ構造。
-export function buildSafetyLegend(
-  recipe: SafetyRecipe,
-  levelExpression: unknown[] = buildSafetyExpression(recipe),
-): LegendEntry[] {
-  return [
-    { key: "1", label: "1[安全]", color: SAFETY_COLORS[1], filter: ["==", levelExpression, 1] },
-    { key: "2", label: "2[やや安全]", color: SAFETY_COLORS[2], filter: ["==", levelExpression, 2] },
-    { key: "3", label: "3[やや危険]", color: SAFETY_COLORS[3], filter: ["==", levelExpression, 3] },
-    { key: "4", label: "4[危険]", color: SAFETY_COLORS[4], filter: ["==", levelExpression, 4] },
-    {
-      key: "unknown",
-      label: "不明・他[判定対象外の道路種別]",
-      color: COLOR_UNKNOWN,
-      filter: ["==", levelExpression, -1],
-      isFallback: true,
-    },
-  ];
-}
-
-export function buildSafetyColorExpression(
-  recipe: SafetyRecipe,
-  levelExpression: unknown[] = buildSafetyExpression(recipe),
-): unknown[] {
-  return [
-    "match",
-    levelExpression,
-    1,
-    SAFETY_COLORS[1],
-    2,
-    SAFETY_COLORS[2],
-    3,
-    SAFETY_COLORS[3],
-    4,
-    SAFETY_COLORS[4],
-    COLOR_UNKNOWN,
-  ];
-}
-
-export const SAFETY_LEGEND: LegendEntry[] = buildSafetyLegend(DEFAULT_SAFETY_RECIPE);
-
-export const SAFETY_COLOR_EXPRESSION: unknown[] = buildSafetyColorExpression(DEFAULT_SAFETY_RECIPE);
 
 // backend/app/domain/traffic.py: classify_bicycle_infrastructureの列挙値と1:1対応
 // （separated/lane/shared_busway/shared_pedestrian/roadway/prohibited、算出不能はunknown）。
@@ -366,7 +307,6 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c)
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
 export type StaticFilterAxisId =
   | "carStress"
-  | "safety"
   | "bicycleInfra"
   | "designation"
   | "stopPoi"
@@ -389,7 +329,6 @@ export interface StaticFilterAxis {
 
 export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   { axisId: "carStress", layerId: "carStress", legend: CAR_STRESS_LEGEND },
-  { axisId: "safety", layerId: "safety", legend: SAFETY_LEGEND },
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
   {
