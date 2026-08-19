@@ -15,6 +15,7 @@ import type {
 } from "@/types/route";
 import { fetchAxisInspector } from "@/services/regionApi";
 import { AXIS_LABELS } from "./axisLayers";
+import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
 
 export const AXIS_INSPECTOR_BUTTON_ATTR = "data-axis-inspector-button";
 export const AXIS_INSPECTOR_RESULT_ATTR = "data-axis-inspector-result";
@@ -25,9 +26,13 @@ function formatDifficulty(value: number | null): string {
   return value == null ? "算出不可" : `${value.toFixed(1)}/100`;
 }
 
+// 改善計画T168: result.tagsは生のOSMタグ（way単位、レジストリ外のキーも含みうる）だが、
+// キーがレジストリ登録済みの一次属性（PRIMARY_ATTRIBUTE_LABELS、T163のカタログ正式名）と
+// 一致する場合はその正式名を表示する（1次→2次の逆導出と対で「同じ属性は同じ名前で呼ぶ」
+// 統一ルールT30に揃える）。一致しないキー（name/ref等、登録外の生タグ）は従来どおりraw keyのまま。
 function buildAxisInspectorHtml(result: AxisInspectorResult): string {
   const primaryRows = Object.entries(result.tags)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(([key, value]) => `${PRIMARY_ATTRIBUTE_LABELS[key] ?? key}=${value}`)
     .join(", ");
   const axisRows = result.axes
     .map((axis) => {
@@ -47,7 +52,7 @@ function buildAxisInspectorHtml(result: AxisInspectorResult): string {
 
   return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">
     <strong>一次属性</strong><br/>
-    highway: ${result.highway ?? "不明"}${result.is_designated ? "（指定路線）" : ""}<br/>
+    ${PRIMARY_ATTRIBUTE_LABELS.highway}: ${result.highway ?? "不明"}${result.is_designated ? "（指定路線）" : ""}<br/>
     ${primaryRows || "（登録タグなし）"}
     <br/><br/><strong>二次軸スコア（0=易しい〜100=大変）</strong><br/>
     ${axisRows}
