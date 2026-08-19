@@ -26,7 +26,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
-import { RAMP_AXES, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
+import { AXIS_RAMP_COLORS, RAMP_AXES, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
 import {
   DEFAULT_CAR_STRESS_RECIPE,
   buildCarStressExpression,
@@ -34,6 +34,23 @@ import {
 } from "./carStressExpression";
 
 const COLOR_UNKNOWN = "#9ca3af";
+
+// 改善計画（1次/2次の地図上表現の統一、竹）: このファイルのカテゴリ色（自転車インフラ・
+// 指定路線・停止要因POI・補給POI・事故当事者）は「観測された事実の種類」を区別する
+// ためのもので、良し悪しの評価ではない。にもかかわらず緑（良い）・赤（悪い）・アンバー
+// （警告）を種類ラベルとして流用しており、2次のramp軸（車の圧迫感・停止密度・事故密度等、
+// axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）や旧CAR_STRESS_COLORSと同系統の
+// 色が「事実」と「評価」の両方で使われ、地図上で混同されるという実機フィードバックを
+// 受けて中立色（藍・灰茶・桃など、評価配色に含まれない色相）へ差し替えた。各カテゴリ群
+// （bicycleInfra/stopPoi/supplyPoi/accident）は互いに独立した凡例・レイヤーのため、
+// 色の使い回しは問題にならない（同じ画面で並べて比較されることが無い）。
+// 唯一の例外はACCIDENT_SEVERITY_COLOR_FATAL（死亡事故）で、これは「事実の種類」ではなく
+// 実際に重大な事実そのものであるため、赤を維持している（下記コメント参照）。
+const COLOR_NEUTRAL_INDIGO = "#4f46e5";
+const COLOR_NEUTRAL_STONE = "#78716c";
+const COLOR_NEUTRAL_PINK = "#be185d";
+const COLOR_NEUTRAL_FUCHSIA = "#a21caf";
+const COLOR_NEUTRAL_TEAL_DARK = "#0f766e";
 
 export interface CategoryDef {
   key: string;
@@ -84,14 +101,23 @@ function buildCategoricalLayerDefs(
 // 常に一致させるため。段階数をさらに増やす場合もここへキーを追加するだけで両方に反映される。
 // 改善計画（車ストレス5段階化）: 実データ実測で旧上限4にraw値5〜7が丸め込まれ、
 // primary/trunk/指定路線（N10/N12）の悪化要因が地図上で見分けられなくなっていたため
-// 4→5へ拡張した。旧レベル4の色（赤）は新レベル5（最悪）へ引き継ぎ、新レベル4には
-// 中間色（オレンジ）を割り当てた。
+// 4→5へ拡張した。
+//
+// 改善計画（1次/2次の地図上表現の統一、梅）: 以前は車ストレス単独のTailwind系配色
+// （緑#16a34a〜赤#dc2626）を持っていたが、停止密度・事故密度等のramp軸（axisLayers.ts:
+// AXIS_RAMP_COLORS、緑→橙→赤のMaterial系4色）と色相ファミリーが異なり、「推定グループの
+// どの軸を開いても同じ読み方」になっていなかった（実機フィードバック「1次と2次の地図上
+// 表現を一致させたい」）。1・3・4・5段階目はAXIS_RAMP_COLORSをそのまま再利用して色を
+// 統一する。ただしAXIS_RAMP_COLORSは4色・車ストレスは5段階のため単純に4色へ圧縮すると
+// 4と5が同色になり、5段階化した理由（上記コメント）そのものが再発してしまう。そのため
+// 2段階目だけAXIS_RAMP_COLORS[0]→[1]の間を橋渡しする遷移色（Material Light Green 500）を
+// 新規に挿入し、5段階の判別性を保ったまま同じ色系統でつなぐ。
 export const CAR_STRESS_COLORS: Record<number, string> = {
-  1: "#16a34a",
-  2: "#84cc16",
-  3: "#f59e0b",
-  4: "#f97316",
-  5: "#dc2626",
+  1: AXIS_RAMP_COLORS[0],
+  2: "#8bc34a",
+  3: AXIS_RAMP_COLORS[1],
+  4: AXIS_RAMP_COLORS[2],
+  5: AXIS_RAMP_COLORS[3],
 };
 
 // 車ストレスの最終値は（改善計画: 車ストレスレシピ外出し基盤により）タイルへ計算済みの
@@ -169,12 +195,12 @@ export const CAR_STRESS_COLOR_EXPRESSION: unknown[] = buildCarStressColorExpress
 // stepsはどちらの個別分岐も無くroadwayへ落ちる。cycleway=track併設の幹線道路は
 // highway側では「自転車・歩行者道」に入らないままseparatedになる（非対称）。
 const BICYCLE_INFRA_CATEGORIES: CategoryDef[] = [
-  { key: "separated", label: "分離自転車道", color: "#16a34a" },
+  { key: "separated", label: "分離自転車道", color: COLOR_NEUTRAL_INDIGO },
   { key: "lane", label: "自転車レーン", color: "#0d9488" },
-  { key: "shared_busway", label: "バス専用道等の共用", color: "#d97706" },
+  { key: "shared_busway", label: "バス専用道等の共用", color: COLOR_NEUTRAL_STONE },
   { key: "shared_pedestrian", label: "歩道[自転車通行可]", color: "#0284c7" },
   { key: "roadway", label: "車道[専用施設なし]", color: "#7c3aed" },
-  { key: "prohibited", label: "自転車通行不可", color: "#dc2626" },
+  { key: "prohibited", label: "自転車通行不可", color: COLOR_NEUTRAL_FUCHSIA },
 ];
 
 const bicycleInfraDefs = buildCategoricalLayerDefs("bicycle_infra", BICYCLE_INFRA_CATEGORIES, "不明・他");
@@ -194,7 +220,7 @@ export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = bicycleInfraDefs.colorE
 // （以前は単一値CASE式でemergency_transport側のみ出力され、凡例で「緊急輸送道路」を
 // 非表示にするとN12でもある区間が地図から完全に消えていた）。
 const DESIGNATION_CATEGORIES: CategoryDef[] = [
-  { key: "emergency_transport", label: "緊急輸送道路[N10]", color: "#b91c1c" },
+  { key: "emergency_transport", label: "緊急輸送道路[N10]", color: COLOR_NEUTRAL_TEAL_DARK },
   { key: "critical_logistics", label: "重要物流道路[N12]", color: "#1d4ed8" },
   // 改善計画: 全角括弧（）は表示幅を取り地図表示エリアを圧迫するため半角[]へ統一
   // （設計原則12、docs/complexity-review-2026-08-16.md）。地図上の内訳パネル（幅が狭い）で
@@ -215,7 +241,10 @@ export const DESIGNATION_COLOR_EXPRESSION: unknown[] = designationDefs.colorExpr
 // 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 // backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論
 // （involves_bicycle=自転車が当事者A/Bのいずれかに該当、fatal=死者数>0）。
-const ACCIDENT_COLOR_BICYCLE = "#dc2626";
+// 当事者（自転車関連/その他）は「事実の種類」の区別であり重大度ではないため、竹で
+// 評価色の赤から中立色へ差し替えた。重大度（死亡事故か否か）は下のACCIDENT_SEVERITY_*
+// を参照（そちらは赤を維持している）。
+const ACCIDENT_COLOR_BICYCLE = COLOR_NEUTRAL_INDIGO;
 const ACCIDENT_COLOR_OTHER = "#6b7280";
 
 export const ACCIDENT_LEGEND: LegendEntry[] = [
@@ -244,6 +273,10 @@ export const ACCIDENT_RADIUS_EXPRESSION: unknown[] = ["case", ["==", ["get", "fa
 // （ACCIDENT_RADIUS_EXPRESSION）で強調表示しているが、「死亡事故だけ確認したい」という安全確認の
 // 目的に直接応えるため絞り込み単体としても選べるようにする。fatalはmigration 0006でNOT NULL
 // （accident.py: is_fatalが常にbool値を返す）のため、ACCIDENT_LEGENDと異なり不明・他は無い。
+// 竹（1次/2次の地図上表現の統一）でも赤を維持する唯一の例外。他のカテゴリ色（当事者・
+// 停止要因種別等）は「事実の種類」を区別するラベルにすぎないが、死亡事故か否かは
+// それ自体が重大な事実であり、赤＝危険という慣習的な読みが安全確認という目的に
+// 直接寄与する（円の拡大ACCIDENT_RADIUS_EXPRESSIONと合わせて二重に強調する設計）。
 const ACCIDENT_SEVERITY_COLOR_FATAL = "#dc2626";
 const ACCIDENT_SEVERITY_COLOR_OTHER = "#9ca3af";
 
@@ -262,10 +295,10 @@ export const ACCIDENT_SEVERITY_LEGEND: LegendEntry[] = [
 // 無かったため、新規に色分け表示する。backend/app/domain/traffic.py: StopPoiKindの
 // 5値（traffic_signals/crossing/stop/give_way/level_crossing）と1:1対応。
 const STOP_POI_CATEGORIES: CategoryDef[] = [
-  { key: "traffic_signals", label: "信号", color: "#dc2626" },
+  { key: "traffic_signals", label: "信号", color: COLOR_NEUTRAL_INDIGO },
   { key: "crossing", label: "横断歩道", color: "#2563eb" },
-  { key: "stop", label: "一時停止", color: "#d97706" },
-  { key: "give_way", label: "徐行", color: "#ca8a04" },
+  { key: "stop", label: "一時停止", color: COLOR_NEUTRAL_STONE },
+  { key: "give_way", label: "徐行", color: COLOR_NEUTRAL_PINK },
   { key: "level_crossing", label: "踏切", color: "#7c3aed" },
 ];
 
@@ -286,11 +319,11 @@ export const STOP_POI_COLOR_EXPRESSION: unknown[] = stopPoiDefs.colorExpression;
 // 互いの領域を侵さないようにする）。backend/app/domain/traffic.py: SupplyPoiKindの5値
 // （convenience/vending_machine/toilets/drinking_water/bicycle_parking）と1:1対応。
 const SUPPLY_POI_CATEGORIES: CategoryDef[] = [
-  { key: "convenience", label: "コンビニ", color: "#16a34a" },
+  { key: "convenience", label: "コンビニ", color: COLOR_NEUTRAL_INDIGO },
   { key: "vending_machine", label: "自販機", color: "#0891b2" },
   { key: "toilets", label: "トイレ", color: "#2563eb" },
   { key: "drinking_water", label: "給水", color: "#0d9488" },
-  { key: "bicycle_parking", label: "駐輪場", color: "#d97706" },
+  { key: "bicycle_parking", label: "駐輪場", color: COLOR_NEUTRAL_STONE },
 ];
 
 const supplyPoiDefs = buildCategoricalLayerDefs("kind", SUPPLY_POI_CATEGORIES, "不明・他");

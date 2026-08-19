@@ -51,17 +51,34 @@ export interface RoadFilterAxis {
   dashArrayExpression?: unknown[];
 }
 
-// 既存の配色（良い=緑・悪い=赤・不明=グレー、風の普通=アンバー）と整合させたパレット。
 // ルート候補線（選択=青#2563eb・未選択=アンバー#f59e0b）と紛れにくいよう、青は使わず
 // 生活道路には空色を当てる。
-const COLOR_GOOD = "#16a34a";
-const COLOR_BAD = "#dc2626";
+//
+// 改善計画（1次/2次の地図上表現の統一、竹）: 「路面の種類」（SURFACE_GROUPS）は
+// ROAD_LINE_COLOR_AXIS_IDとして地図のline-colorへ直接反映される唯一の軸で、legend側も
+// color値をそのまま丸ドットで表示する（widthを持たないため、下記renderLegendSwatch相当の
+// 判定で色ドット表示になる）。以前はアスファルト=緑・砂利=アンバーという「良し悪し」を
+// 連想させる配色だったが、2次のramp軸（車の圧迫感・停止密度・事故密度等、axisLayers.ts:
+// AXIS_RAMP_COLORSの緑〜赤の評価配色）と色相が重なり、1次（観測された事実）と2次
+// （推定された評価）が地図上で混同されるという実機フィードバックを受け、評価色（緑・
+// アンバー・オレンジ・赤の系統）を避けた中立色へ差し替えた（COLOR_SLATE/COLOR_KHAKI）。
 const COLOR_UNKNOWN = "#9ca3af";
 const COLOR_TEAL = "#0d9488";
 const COLOR_VIOLET = "#7c3aed";
-const COLOR_AMBER = "#d97706";
 const COLOR_BROWN = "#92400e";
 const COLOR_SKY = "#0284c7";
+const COLOR_SLATE = "#64748b";
+const COLOR_KHAKI = "#a3915f";
+
+// HIGHWAY_GROUPS（道路の種類）専用の色。道路の種類は色ではなく太さ・線種で地図に反映する
+// 軸のため（widthExpression/dashArrayExpression、下記コメント参照）、ここのcolorは
+// 地図のline-colorには使われず、凡例でも各カテゴリがwidthを持つためrenderLegendSwatch
+// （MapOverlayControls.tsx）が色ドットでなく太さバーを表示する＝画面上は不可視。
+// 竹（1次/2次の地図上表現の統一）で問題になっているのは「実際に見える色」の混同なので、
+// 不可視のこれらは対象外としてそのまま残す（不要な変更で差分を膨らませない）。
+const COLOR_GOOD = "#16a34a";
+const COLOR_BAD = "#dc2626";
+const COLOR_AMBER = "#d97706";
 
 export interface CategoryGroup {
   key: string;
@@ -84,7 +101,7 @@ export interface CategoryGroup {
 // 「石畳・敷石」だけはgood（paving_stones/bricks）とbad（sett/cobblestone等）が混在する
 // 意図的な中立グループ（材質としては同類のため。色も良し悪しを示さない紫にしてある）。
 export const SURFACE_GROUPS: CategoryGroup[] = [
-  { key: "asphalt", label: "アスファルト", color: COLOR_GOOD, values: ["asphalt", "paved", "chipseal"] },
+  { key: "asphalt", label: "アスファルト", color: COLOR_SLATE, values: ["asphalt", "paved", "chipseal"] },
   {
     key: "concrete",
     label: "コンクリート",
@@ -100,7 +117,7 @@ export const SURFACE_GROUPS: CategoryGroup[] = [
   {
     key: "gravel",
     label: "砂利・締固め",
-    color: COLOR_AMBER,
+    color: COLOR_KHAKI,
     values: ["gravel", "fine_gravel", "compacted", "pebblestone", "rock"],
   },
   {
