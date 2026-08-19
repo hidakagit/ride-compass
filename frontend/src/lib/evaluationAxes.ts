@@ -52,6 +52,11 @@ const PREFERENCE_AXIS_META: Record<keyof RoutePreferenceWeights, Omit<Preference
   elevation_weight: { label: "勾配", description: "登り坂の急さが小さいほど易しい" },
   road_weight: { label: "舗装", description: "舗装路であるほど易しい" },
   wind_weight: { label: "風", description: "向かい風が弱いほど易しい" },
+  // ラベルは重み調整UIとして「何を減らしたいか」が伝わる具体名を使う（地図の凡例
+  // （axis-catalog.jsonのdisplay.label、`stop_density`軸は「停止密度」）とは文脈が異なる
+  // 意図的な言い換え。前者は密度という量、後者は要因の実体を説明する。統合レビュー
+  // 2026-08-19 overall F-4・改善計画T160(1)で表記ゆれか同期漏れか不明と指摘されたため
+  // 明記した）。
   stop_weight: {
     label: "信号・踏切等",
     description: "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
