@@ -501,6 +501,9 @@ export default function Home() {
           title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}[設定はサイドバー]`,
           summary,
           legendDetails,
+          // 地図上チップのカテゴリ束ね（改善計画T128、MapOverlayControls.tsx）用。
+          category: layer.category,
+          dataNature: layer.dataNature,
         };
       }),
     [

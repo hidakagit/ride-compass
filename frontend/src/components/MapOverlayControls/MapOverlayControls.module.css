@@ -279,6 +279,21 @@
   flex-shrink: 0;
 }
 
+/* グループチップ（改善計画T128）を展開したときのメンバー1件ぶん。ヘッダ行（アイコン+
+   ON/OFF、.detailRowを流用）の下に、ONかつ凡例を持つメンバーだけ.memberLegendを続ける
+   縦積みのため、横並びの.detailRowとは別クラスにする。 */
+.memberRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* メンバーの凡例内訳はどのレイヤーのものか一目で分かるよう、アイコン幅ぶん右へ
+   インデントする（.detailSwatchDotの直径9px+.detailRowのgap 0.4rem+アイコン14pxの目安）。 */
+.memberLegend {
+  margin-left: 1.3rem;
+}
+
 .detailSwatchBarDashed {
   background-image: repeating-linear-gradient(
     to right,
