@@ -1938,6 +1938,51 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   こと。frontend全green。
 - 依存: T164（T165・T166と独立に着手可）。
 
+### - [x] T169. 地図チップ観測/推定グループの展開方向をマトリックス化する 規模S（2026-08-19完了）
+
+- 発端: ユーザー指摘「観測・推定の2つにまとまったのは良いが、展開した時にみにくい。
+  マトリックスイメージにできない？観測アイコンは▼で下展開すると道路種別・路面・指定路線等が
+  縦に並ぶ、推定アイコンは▶で右展開すると勾配・舗装質・停止密度等が横に並ぶようにしたい」。
+- 対応方針: T166の観測/推定2トップ構成はそのまま、展開方向と内訳の並びを中身の性質に
+  揃える。観測グループ（category小見出し＋メンバーの縦積み、元から縦並び）は▼へ変更し、
+  document.bodyへのポータルをやめて`.chipRowItem`内の通常のフローへ内訳を積む（行の直下へ
+  展開）。推定グループ（SECONDARY_AXES6軸）は▶のまま、内訳の上段をアイコン+略名の横並び
+  マトリックス行に変更し、下段に凡例・材料一覧（T167）を積む。
+- 完了条件: 観測グループが▼・行の下へ展開、推定グループが▶・アイコン横並びで展開される
+  ことをPlaywright実機確認。frontend全green。
+- 依存: T166・T167。
+- 実装メモ（2026-08-19完了）: `ChipButton`（`MapOverlayControls.tsx`）へ`expandDirection:
+  "right" | "down"`を追加（既定"right"、単独チップ・推定グループは変更無し）。"down"は
+  `.detailPanelInline`（`.chipRowItem`内の通常フロー、ポータル無し）、"right"は従来どおり
+  `.detailPanel`（document.bodyへポータル、position: fixed）。両者は`.detailPanelBase`
+  （背景・枠・ぼかし）を`composes`で共有し位置決めだけを分ける。矢印は方向ごとに別クラス
+  （▶方向は開くと90度回転、▼方向は`.expandArrowDownOpen`で180度回転して▲になる。▼を
+  90度回転させると横向きになり「閉じる」合図として読めないため別クラスにした）。
+  推定グループの内訳（`renderEstimatedGroupPanel`）は`renderEstimatedMatrixCell`
+  （上段、アイコン+略名のボタン/情報div横並び`.matrixRow`）と`renderEstimatedDetailRow`
+  （下段、凡例・材料一覧の縦積み、`.detailList`）へ分割。軸ラベルは上段だけに出し下段では
+  繰り返さない（同じ文字列を2箇所に出すと紛らわしいため）。`.matrixCell`/`.matrixCellActive`
+  は既存の`.iconChip`/`.iconChipActive`を`composes`で再利用し、地図チップ本体と同じ
+  「ON/OFFボタン」の見た目に揃えた。観測グループの▼展開はcategory数×メンバー数が多いと
+  縦に長くなり、chipRow（縦スクロールのアイコン列）のscrollHeightがclientHeightを超えて
+  下の推定/ルートチップがスクロール外へ押し出される不具合をPlaywright実機確認で発見、
+  `.detailPanelInline`へ`max-height: min(45vh, 16rem); overflow-y: auto;`を追加し内訳自体を
+  内部スクロールにして解消した（scrollHeight===clientHeightをJSで確認）。
+  `renderMemberRow`の未使用になった`extra`引数（旧・推定グループの材料一覧差し込み用、
+  マトリックス化で呼び出し側が無くなった）を削除。
+  検証: 既存の`MapOverlayControls.test.tsx`（次数束ね（T166）describe含む13件）は無改修で
+  全green（観測/推定チップのaria名・aria-pressed・凡例内訳のテキスト内容が変更前後で
+  同一のため）。frontend vitest 362件・tsc（既存の`layout.tsx`のLayoutProps型エラーは
+  `next build`前のみに出る無関係な既知事象、変更前から発生することを`git stash`で確認済み）・
+  eslint全green、`next build`成功。Playwright実機確認（一時プレビューページ経由、
+  確認後削除）: 観測チップの矢印が▼・推定チップの矢印が▶であること、観測を開くと
+  行の直下へcategory見出しごとの縦積み内訳が展開されること、推定を開くと6軸のアイコンが
+  横並びのマトリックス行になり車の圧迫感（ON）が青くハイライトされることを確認。
+  観測グループを（道路種別・路面・指定路線・停止要因・事故等）多メンバーで展開すると、
+  修正前はchipRowのscrollHeight(580px)がclientHeight(480px)を超え推定/ルートチップが
+  見えなくなること、修正後は内訳パネル自身が内部スクロールしscrollHeightとclientHeightが
+  一致（400px=400px）し推定/ルートチップが常に見えることを確認。
+
 ---
 
 完了タスクの日付別一覧は[docs/improvement-plan-archive/README.md](improvement-plan-archive/README.md)を参照
