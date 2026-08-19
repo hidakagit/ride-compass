@@ -317,6 +317,57 @@ describe("MapOverlayControls", () => {
       expect(observedButton).toHaveAttribute("aria-expanded", "true");
     });
 
+    // 実機フィードバック「スマホモードでの小さい軸アイコンでも、アイコンに物理的に表示
+    // せずとも軸略名を表現する方法はないか」への提案の結果、ユーザーが選んだ方針B（折りたたみ
+    // 時だけ見える独立した凡例入口）を検証する。展開後は軸タイル自体のアイコンが並ぶため、
+    // 凡例入口ボタンごと消える（同じ内容を二重に見せない）。
+    it("折りたたみ中だけ見出しの脇に「アイコンの意味」凡例ボタンが出て、展開すると消える", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      // 折りたたみ中: 凡例ボタンが見える（aria-labelは見出しの正式名を使う。他の凡例
+      // トグル（例:「車の圧迫感の凡例を表示」）と同じく略名ではなく正式名を使う既存の
+      // 命名規則に揃えている）
+      const estimatedLegendToggle = screen.getByRole("button", { name: "推定指標（合成）のアイコンの意味を表示" });
+      expect(estimatedLegendToggle).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "観測データのアイコンの意味を表示" })).toBeInTheDocument();
+
+      // 押すとグループを展開せず（軸タイルは出ない）、アイコン+略名の一覧だけが出る
+      await user.click(estimatedLegendToggle);
+      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-expanded", "false");
+      // SECONDARY_AXES6軸ぶんの略名がすべて一覧に出る
+      for (const chipLabel of ["勾配", "舗装", "夜間", "停止密度", "圧迫感", "事故密度"]) {
+        expect(screen.getByText(chipLabel)).toBeInTheDocument();
+      }
+
+      // 展開すると凡例ボタンごと消える（軸タイル自体のアイコンと二重に見せないため）
+      await user.click(screen.getByRole("button", { name: "推定" }));
+      expect(screen.getByRole("button", { name: "車の圧迫感" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "推定指標（合成）のアイコンの意味を表示" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "推定指標（合成）のアイコンの意味を隠す" })).not.toBeInTheDocument();
+    });
+
+    // 展開/折りたたみの切り替えの瞬間、見出し（ChipButton）のDOMノード自体が
+    // アンマウント/再マウントされないことを確認する回帰テスト。ラッパーdivのkeyを
+    // 状態で出し分けていた実装では、展開した直後に別のDOMノードへ差し替わってしまい、
+    // aria-expanded等が反映されない不具合があった（MapOverlayControls.module.cssの
+    // .headerLegendRowコメント参照）。
+    it("見出しのDOMノードは折りたたみ↔展開の切り替えでも同一のまま保たれる", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      const observedButton = screen.getByRole("button", { name: "観測" });
+      await user.click(observedButton);
+      // クリックしたのと同じ参照のまま、展開後の状態が反映されていること
+      // （別ノードに差し替わっていれば、この参照は展開前の古い状態に取り残される）
+      expect(observedButton).toHaveAttribute("aria-expanded", "true");
+      expect(observedButton).toBe(screen.getByRole("button", { name: "観測" }));
+
+      await user.click(observedButton);
+      expect(observedButton).toHaveAttribute("aria-expanded", "false");
+    });
+
     // 推定グループの各軸タイルに材料一覧を出す（改善計画T167→T169）。axisMaterials（T164）
     // から導出した一次属性を、表示レイヤーの有無で「材料」「地図では未表示の材料」の2行に
     // 分ける。マトリックス化後は各軸タイル自身の▼展開を押してはじめて見える。
