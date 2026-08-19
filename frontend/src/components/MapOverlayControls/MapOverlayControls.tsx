@@ -11,7 +11,7 @@ import {
   type MapLayerDataNature,
   type MapLayerId,
 } from "@/components/Map/mapLayers";
-import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
+import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import {
   PRIMARY_ATTRIBUTE_CHIP_LABELS,
   PRIMARY_ATTRIBUTE_LAYER_IDS,
@@ -177,11 +177,11 @@ function renderLegendDetails(axes: readonly LegendFilterSummaryAxis[]) {
 
 // チップ本体の共通コンポーネント。単独チップ（グループ化されないレイヤー）とグループ
 // チップ（改善計画T128、複数レイヤーを1つのカテゴリへ束ねたもの）の両方で同じ
-// 「本体ボタン+隣の▶ボタン」の2ボタン構成を使う（アイコン＋▼という見た目の一貫性を
-// 優先）。単独チップは本体タップ=ON/OFF・▶=凡例展開の別アクションだが、グループ
-// チップは束ねた個々のレイヤーのON/OFFが一意に決まらず一括ON/OFFは設けない
-// （誤操作リスク、改善計画T128の実装メモ参照）ため、本体タップも▶と同じ展開/収納に
-// する（呼び出し側でonTapにonExpandToggleと同じ関数を渡す）。
+// 「本体ボタン+隣の▶/▼ボタン」の2ボタン構成を使う。単独チップは本体タップ=ON/OFF・
+// ▶/▼=凡例展開の別アクションだが、グループチップは束ねた個々のレイヤーのON/OFFが
+// 一意に決まらず一括ON/OFFは設けない（誤操作リスク、改善計画T128の実装メモ参照）ため、
+// 本体タップも展開トグルと同じ展開/収納にする（呼び出し側でonTapにonExpandToggleと
+// 同じ関数を渡す）。
 // MapOverlayControlsの内側に定義するとレンダーのたびに新しい関数（＝別のコンポーネント型）
 // になり、Reactが毎回アンマウント/再マウントしてDOMノードの同一性が失われる（展開直後に
 // 別要素へ差し替わり、テストや実機のフォーカス・aria状態が壊れる）ため、モジュール直下の
@@ -200,6 +200,7 @@ function ChipButton({
   panelContent,
   panelRect,
   registerRow,
+  expandDirection = "right",
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -214,38 +215,48 @@ function ChipButton({
   panelContent: ReactElement;
   panelRect: PanelRect | undefined;
   registerRow: (el: HTMLDivElement | null) => void;
+  /** 展開方向（改善計画T169、地図UIのマトリックス化）。中身が縦並びの観測グループは
+   * "down"（▼、行の直下へ通常のドキュメントフローで展開し、内容の向きと矢印の向きを揃える）。
+   * 中身が横並びの推定グループ・単独チップ（ルート等）は既定の"right"（▶、document.bodyへ
+   * ポータルしてposition: fixedで行の右に浮かせる。chipRowのoverflow-y: autoの下でoverflow-xも
+   * 暗黙にauto化しクリップされる問題を避けるため。"down"はパネルが行の通常の子要素として
+   * chipRowの縦スクロールにそのまま乗るためポータルが不要）。 */
+  expandDirection?: "right" | "down";
 }) {
+  const arrowGlyph = expandDirection === "down" ? "▼" : "▶";
+  const arrowOpenClass = expandDirection === "down" ? styles.expandArrowDownOpen : styles.expandArrowOpen;
   return (
-    <div ref={registerRow} className={styles.iconWithToggle}>
-      <button
-        type="button"
-        aria-pressed={active}
-        disabled={disabled}
-        title={title}
-        onClick={onTap}
-        className={active ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip}
-      >
-        <Icon />
-        <span className={styles.iconLabel}>{chipLabel}</span>
-      </button>
-      {canExpand && (
+    <div ref={registerRow} className={styles.chipRowItem}>
+      <div className={styles.iconToggleRow}>
         <button
           type="button"
-          onClick={onExpandToggle}
-          aria-expanded={isExpanded}
-          aria-label={`${label}の凡例を${isExpanded ? "隠す" : "表示"}`}
-          title="凡例を表示"
-          className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
+          aria-pressed={active}
+          disabled={disabled}
+          title={title}
+          onClick={onTap}
+          className={active ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip}
         >
-          <span
-            aria-hidden="true"
-            className={isExpanded ? `${styles.expandArrow} ${styles.expandArrowOpen}` : styles.expandArrow}
-          >
-            ▶
-          </span>
+          <Icon />
+          <span className={styles.iconLabel}>{chipLabel}</span>
         </button>
-      )}
+        {canExpand && (
+          <button
+            type="button"
+            onClick={onExpandToggle}
+            aria-expanded={isExpanded}
+            aria-label={`${label}の凡例を${isExpanded ? "隠す" : "表示"}`}
+            title="凡例を表示"
+            className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
+          >
+            <span aria-hidden="true" className={isExpanded ? `${styles.expandArrow} ${arrowOpenClass}` : styles.expandArrow}>
+              {arrowGlyph}
+            </span>
+          </button>
+        )}
+      </div>
+      {isExpanded && expandDirection === "down" && <div className={styles.detailPanelInline}>{panelContent}</div>}
       {isExpanded &&
+        expandDirection === "right" &&
         panelRect &&
         createPortal(
           <div
@@ -314,12 +325,11 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     if (expandedIds.size > 0) setExpandedIds(new Set());
   };
 
-  // 次数グループ（改善計画T166）共通の1メンバー行（アイコン+ON/OFF）。サイドバー
+  // 観測グループ（改善計画T166）共通の1メンバー行（アイコン+ON/OFF）。サイドバー
   // （MapLayersPanel）の「表示」チップと同じLayerChip部品を再利用し、ONのメンバーに
   // 凡例があれば単独チップと同じrenderLegendDetailsをその場に続けて出す（もう1段階の
   // ▶展開は設けず、グループを開いた時点で内訳まで見える方が操作が少なく分かりやすい）。
-  // extraは推定グループ（改善計画T167）の材料一覧を行の末尾へ追加するためのフック。
-  function renderMemberRow(member: OverlayLayerChip, extra?: ReactElement | null) {
+  function renderMemberRow(member: OverlayLayerChip) {
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
     return (
@@ -337,7 +347,6 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         {member.on && !member.disabled && hasLegend && (
           <div className={styles.memberLegend}>{renderLegendDetails(member.legendDetails!)}</div>
         )}
-        {extra}
       </li>
     );
   }
@@ -388,34 +397,69 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     );
   }
 
-  // 「推定指標（合成）」グループ（改善計画T166）の▶内容: SECONDARY_AXES（確定命名表の6軸）を
-  // 常にすべて列挙する。専用の表示レイヤーを持つ軸（車の圧迫感・停止密度・事故密度）は
-  // layersから対応するチップを引いてON/OFFトグル付きの行にし、専用レイヤーの無い軸
-  // （勾配・舗装質・夜間）は薄字＋代役へのポインタだけの行にする（トグルは出さない、
-  // secondaryAxes.ts参照）。各軸の下にrenderMaterialsNoteで材料一覧を出す（改善計画T167）。
-  // ONにする操作自体は個別レイヤーのトグル（onToggle経由）に任せ、材料の連動ONは
-  // page.tsx側（handleLayerToggle）が行う（このコンポーネントはレイヤー固有の知識を
-  // 持たない汎用描画係のまま、というファイル冒頭のコメント方針を維持する）。
+  // 「推定指標（合成）」グループ（改善計画T166→T169でマトリックス化）の▶内容:
+  // 上段にSECONDARY_AXES（確定命名表の6軸）をアイコン+略名の横並び（マトリックス行）で
+  // 常にすべて列挙し、一目で6軸の並びを見渡せるようにする。専用の表示レイヤーを持つ軸
+  // （車の圧迫感・停止密度・事故密度）はlayersから対応するチップを引いてON/OFFボタンに、
+  // 専用レイヤーの無い軸（勾配・舗装質・夜間）はタップできない情報セルにする（トグルは
+  // 出さない、secondaryAxes.ts参照）。下段はその6軸と同じ並び順で、凡例（ONの軸のみ）と
+  // renderMaterialsNoteの材料一覧（改善計画T167）を出す縦積みの内訳。軸ラベルは上段の
+  // マトリックス行に出ているため下段では繰り返さない（同じ文字列を2箇所に出すと、
+  // どちらが最初に見つかったか実装依存になり紛らわしいため）。ONにする操作自体は個別
+  // レイヤーのトグル（onToggle経由）に任せ、材料の連動ONはpage.tsx側（handleLayerToggle）が
+  // 行う（このコンポーネントはレイヤー固有の知識を持たない汎用描画係のまま、という
+  // ファイル冒頭のコメント方針を維持する）。
+  function renderEstimatedMatrixCell(axis: SecondaryAxisSummary, members: readonly OverlayLayerChip[]) {
+    const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
+    if (!member) {
+      return (
+        <div key={axis.axisId} className={`${styles.matrixCell} ${styles.matrixCellInfo}`} title={axis.proxyHint}>
+          <AxisRampIcon size={16} />
+          <span className={styles.iconLabel}>{axis.label}</span>
+        </div>
+      );
+    }
+    const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
+    const active = member.on && !member.disabled;
+    return (
+      <button
+        key={axis.axisId}
+        type="button"
+        aria-pressed={active}
+        disabled={member.disabled}
+        title={member.title}
+        onClick={() => onToggle(member.id, !member.on)}
+        className={active ? `${styles.matrixCell} ${styles.matrixCellActive}` : styles.matrixCell}
+      >
+        <Icon size={16} />
+        <span className={styles.iconLabel}>{member.chipLabel ?? member.label}</span>
+      </button>
+    );
+  }
+
+  function renderEstimatedDetailRow(axis: SecondaryAxisSummary, members: readonly OverlayLayerChip[]) {
+    const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
+    const materialsNote = renderMaterialsNote(axis.axisId);
+    const hasLegend = Boolean(member?.legendDetails && member.legendDetails.length > 0);
+    const showProxyHint = !member && axis.proxyHint;
+    const showLegend = member && member.on && !member.disabled && hasLegend;
+    if (!showProxyHint && !showLegend && !materialsNote) return null;
+    return (
+      <li key={axis.axisId} className={styles.memberRow}>
+        {showProxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
+        {showLegend && <div className={styles.memberLegend}>{renderLegendDetails(member!.legendDetails!)}</div>}
+        {materialsNote}
+      </li>
+    );
+  }
+
   function renderEstimatedGroupPanel(members: readonly OverlayLayerChip[]) {
     return (
       <div className={styles.detailBody}>
-        <ul className={styles.detailList}>
-          {SECONDARY_AXES.map((axis) => {
-            const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
-            const materialsNote = renderMaterialsNote(axis.axisId);
-            if (member) return renderMemberRow(member, materialsNote);
-            return (
-              <li key={axis.axisId} className={`${styles.memberRow} ${styles.detailRowHidden}`}>
-                <div className={styles.detailRow}>
-                  <AxisRampIcon size={14} />
-                  <span className={styles.detailRowLabel}>{axis.label}</span>
-                </div>
-                {axis.proxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
-                {materialsNote}
-              </li>
-            );
-          })}
-        </ul>
+        <div className={styles.matrixRow}>
+          {SECONDARY_AXES.map((axis) => renderEstimatedMatrixCell(axis, members))}
+        </div>
+        <ul className={styles.detailList}>{SECONDARY_AXES.map((axis) => renderEstimatedDetailRow(axis, members))}</ul>
       </div>
     );
   }
@@ -426,9 +470,12 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     <div className={styles.wrapper}>
       <div className={styles.chipRow} ref={chipRowRef} onScroll={handleChipRowScroll}>
         {chipGroups.map((group) => {
-          // 次数グループチップ（改善計画T166）。観測/推定のいずれもタップは展開/収納のみ
-          // （一括ON/OFFは設けない）。推定グループはSECONDARY_AXESの薄字項目があるため
-          // membersが0件でも常にチップを出す（buildChipGroups参照）。
+          // 次数グループチップ（改善計画T166→T169でマトリックス化）。観測/推定のいずれも
+          // タップは展開/収納のみ（一括ON/OFFは設けない）。推定グループはSECONDARY_AXESの
+          // 情報セルがあるためmembersが0件でも常にチップを出す（buildChipGroups参照）。
+          // 展開方向は中身の並びと揃える: 観測グループの内訳（category小見出し＋メンバーの
+          // 縦積み）は▼で行の下へ、推定グループの内訳（6軸のアイコン横並び=マトリックス行）は
+          // ▶で行の右へ（ChipButtonのexpandDirection参照）。
           if (group.key === "group:raw" || group.key === "group:composite") {
             const nature: MapLayerDataNature = group.key === "group:raw" ? "raw" : "composite";
             const RepresentativeIcon = DATA_NATURE_ICONS[nature];
@@ -449,6 +496,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 canExpand
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(group.key)}
+                expandDirection={nature === "raw" ? "down" : "right"}
                 panelContent={
                   nature === "raw" ? renderObservedGroupPanel(group.members) : renderEstimatedGroupPanel(group.members)
                 }
