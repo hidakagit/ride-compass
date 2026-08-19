@@ -101,7 +101,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 - **サンプル点の共有化**: `ElevationService.get_profile`と`WindService.get_wind_score`はそれぞれ独立に`sample_line_coordinates`を呼んでいたが、区間ごとの標高・風・路面を1つの配列としてインデックス整合させるため、`route_generator.py`が`sample_line_points(geometry, SAMPLE_COUNT)`（新規、`domain/geo.py`。座標だけでなく元geometry内でのインデックスも返す）で一度だけ点を取得し、両サービスに共有するようリファクタした。シグネチャも`get_profile(points)` / `get_wind_profile(points, start_time)`に変更（`geometry`ではなく点列を直接受け取る）。
 - **路面の位置対応（2026-08-15、改善計画T21で撤去・置換）**: 当初はopenrouteserviceの`extras.surface.values`（`[[start_idx, end_idx, surface_id], ...]`）を`RouteSegment.surface_values`として保持し`surface_id_at_index`で求めていたが、現在はサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチして`classify_osm_surface`で判定する方式に統一済み（後述「ルーティングエンジンの切り替え対応」）。
 - **難易度の算出（絶対基準）**: `domain/difficulty.py`が、Step8の相対正規化とは異なり**絶対基準**（一般的なロードバイク走行の目安）で0-100点化する。`gradient_difficulty`（0-3%易しい〜9%以上激坂の区分的線形）、`wind_difficulty`（向かい風0-8m/sで0→100、追い風・無風は0）、`road_difficulty`（舗装路0・非舗装80、`domain/road.py`の`GOOD_SURFACE_IDS`と基準を統一）、`composite_difficulty`（重み付き平均、`None`の指標は除外して残りの重みで再正規化、`RouteScorer`と同じ考え方）。重みはStep8の`scoring.yaml`から`distance_weight`を除いた`elevation_weight`/`wind_weight`/`road_weight`をそのまま流用し、スコアリングの優先度と可視化の強調点を一致させている。地図の色分けは「候補間の相対比較」ではなく「客観的にどこが大変か」を示す目的のため、Step8のような候補集合内正規化ではなく絶対基準を採用した。
-- **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（`gradient_percent`, `wind_penalty`, `road_surface_good`）と正規化済みの`*_difficulty`（`elevation_difficulty`, `wind_difficulty`, `road_difficulty`, 総合の`difficulty`）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
+- **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（`gradient_percent`, `wind_penalty`, `road_surface_good`, `car_stress`, `bicycle_infra`）と正規化済みの`*_difficulty`（`elevation_difficulty`, `wind_difficulty`, `road_difficulty`, `stop_difficulty`, `car_stress_difficulty`, `accident_difficulty`, `night_difficulty`、総合の`difficulty`。7軸評価モデルの導入で当初のStep9時点の4指標から拡張、正準定義は下記「6. データモデル」の`RouteSegmentDetail`インターフェース参照）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
 - **フロントエンド**（当初実装）: 選択中候補に`segments`があれば区間ごとの色分けレイヤーを追加し、モード切替ボタン（総合難易度/標高/風/路面）で`line-color`を切り替える形にした。この設計は後述のUI再構成でレイヤー構成ごと見直している。
 
 既知の制約と改善（区間表示の粒度・形状）: 当初はサンプリング密度が12点固定（＝11区間、Step5-7と同じ）で、30kmルートでは1区間約2.7kmと粗く、さらに区間の線は始点・終点を直線で結んでいたためカーブ区間で色分け線が道路から外れていた。「区間が荒すぎて実態が分からない」というフィードバックを受け、次の2点を改善した（2026-08-15）: ①**区間の道なり形状**: `RouteSegmentDetail.geometry`にルートgeometryの部分列（サンプル点インデックスで切り出し。road_graphエンジンはEdge形状点列）を持たせ、フロントはそれをそのまま描画する（追加APIコール無し。geometryがnullの場合のみ従来の直線代替）。②**距離連動サンプリング**: `sample_count_for_distance`（openrouteservice_engine.py）が約1km間隔になるよう点数を決める（下限12点=従来密度、上限32点=外部API問い合わせの安全弁。最悪でも8候補×32点=256 GSIリクエスト/生成。風はTTL＋座標丸めキャッシュにより点数増の影響がほぼ無い）。密度をさらに上げる場合はGSI問い合わせ数とのトレードオフになる（DEMタイル化T10が根本対策）。
@@ -589,6 +589,12 @@ Response 200: `CarStressBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adju
 Response 422（osm_way_idが整数でない場合）
 Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
 
+POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコアだけの内訳→参考合成コストを返す
+Request: `{ "osm_way_id": number, "car_stress_recipe"?, "road_suitability_recipe"?, "motor_vehicle_density_recipe"? }`（car-stress-breakdownと同じ「車との近さ」(N2)材料の上書き）
+Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
+  gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）
+Response 422/429: car-stress-breakdownと同じ規約
+
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送
 Response 502（上流取得失敗時）:
@@ -815,7 +821,35 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 → domain純関数 → `evaluate_axis_difficulties`への追加 → `route_preference.yaml` →
 `AttributeRepository`＋ファサード対称委譲 → 両エンジン（`OpenRouteServiceEngine`/
 `RoadGraphEngine`）→ フロント`evaluationAxes.ts`のカタログ1行。エンジンファイルに軸固有の
-知識（SQL・タグ解釈）を書き足さない。
+知識（SQL・タグ解釈）を書き足さない。**この1本道はコスト計算（ルーティング・研究モードの
+重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例・区間インスペクタ）への
+反映は別経路（下記「一次属性レジストリ・二次軸レジストリ」参照）** — 両者は現状レジストリ
+登録`register_axis()`を挟んで独立しており、軸を追加する際は両方を行う必要がある
+（改善計画T154、統合レビュー2026-08-19 overall F-2・consistency F-3）。
+
+### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
+
+`domain/registry.py`が一次属性（`PrimaryAttributeSpec`）・二次軸（`AxisSpec`）の宣言的な
+登録簿を提供する。`register_axis()`は、登録しようとする軸の`inputs`（参照する一次属性の
+`attr_id`一覧）のうち`shared=False`のものが既存の別軸と重複していれば
+`AxisInputConflictError`を送出する「排他制約の機械的チェック」が設計の核（T142実装中に
+`surface_q`軸の`transform_fn`誤参照を実際に検出した実績がある）。`domain/registry_defaults.py`
+が正準の登録内容（`register_defaults()`、7軸中`gradient`/`surface_q`/`stop_density`/
+`car_stress`/`accident`/`night`の6軸を登録。`wind`はレジストリ未登録＝独立項目のまま、
+`frontend/src/components/Map/axisLayers.ts`のコメント参照）。
+
+**レジストリが実際に駆動するのは表示メタデータのみ**で、コスト計算（`evaluate_axis_difficulties`
+の引数・`AXIS_WEIGHT_FIELD_TO_AXIS_ID`等）には接続されていない。T142実装時、各軸の
+`transform_fn`のシグネチャが軸ごとに大きく異なる（tags dict/数値/bool等）ため、動的解決
+（レジストリに登録するだけでコスト計算まで自動配線される完全な「レジストリ駆動」）は
+標準化コストが高いとして意図的に見送られた。このため軸を追加するときは、上記「7軸の一覧と
+重み」の1本道（コスト計算側）と、本レジストリへの`register_axis()`登録（表示側、下記
+「レジストリ駆動の二次軸ランプレイヤー」参照）の**両方**が必要になる。
+
+`domain/recipe_definition.py`（T141、`Recipe`/`RecipeComponents`等でレシピをJSON/DB
+レコード形式へ統合する宣言的インフラとして新設）は、T142が別方式
+（`compute_edge_axis_scores`）を採用したため一度も配線されず孤立していたため、
+改善計画T155で削除済み。
 
 ### 〇次: ハード制約（改善計画T140）
 
@@ -1042,6 +1076,22 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 複雑な組み合わせが必要）は`kind=bespoke`として手書きexpression（`carStressExpression.ts`）を
 例外的に維持し、gradient/surface_qは`kind=none`（既存の標高図・道路情報レイヤーが代替）。
 night軸はT145a（データ充実待ちで保留）まで未生成。
+
+### 区間インスペクタ（改善計画T146）
+
+道路をクリックした際に「一次属性→取得可能な軸のみのスコア→参考合成コスト」を表示する
+機能。`POST /api/region/axis-inspector`（§4参照）→`RegionService.get_axis_inspector`
+→`domain/evaluation.py: axis_inspector_breakdown`（純関数）という、既存の車ストレス内訳
+ボタン（`POST /api/region/car-stress-breakdown`）と同型の「クリック時にサーバーへ1回
+問い合わせ」パターンを踏襲する（クライアント側での難易度式再実装はドリフトリスクがある
+ため見送り）。
+
+`way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
+その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・
+stop_density・accident・nightの5軸（`registry_defaults.py`の登録軸のうちgradient/windを
+除く）を算出する。gradient・windは単独wayでは算出できない（ルート文脈が必要）ため
+`AxisInspectorAxis.available=false`で常に返し、`composite_difficulty`は取得できた軸だけの
+加重平均（`covered_weight_fraction`が全7軸重みに対する充足率を示す参考値）。
 
 ### 地図タイル閲覧起点の道路グラフ構築（T59）
 
