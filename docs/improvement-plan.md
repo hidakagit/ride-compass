@@ -1391,8 +1391,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   `4 == 2`で実際に失敗することを確認済み（テスト自体の有効性の検証）。
   backend pytest 821件（新規1件）green、既存820件に regression なし。
 
-### - [ ] T154. docs/architecture.md §7をT130〜T151全体（レジストリ制導入・区間インスペクタ・
-  base_by_highway共有）へ包括的に追従させる 規模M
+### - [x] T154. docs/architecture.md §7をT130〜T151全体（レジストリ制導入・区間インスペクタ・
+  base_by_highway共有）へ包括的に追従させる 規模M（2026-08-19完了）
 
 - 発端: 統合レビュー統合-2（overall F-2 ＋ consistency F-1・F-2・F-3の統合）。
   T132（前回起票、2026-08-19完了）は「T137〜T151の各タスクの完了条件でarchitecture.md
@@ -1416,6 +1416,25 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 - 完了条件: architecture.md中に`car_closeness`/`RoadSuitabilityRecipe`/`registry.py`/
   `axis-inspector`等の新設シンボルへの言及があり、`base_by_highway`の記述が実装と一致する
   こと。次回consistencyレビューで`git blame`による裏取りを実施し再発が無いことを確認する。
+- 実装メモ（2026-08-19完了）: 着手時点で(a)は並行セッションのT148（旧安全度削除）が
+  §7を大幅改稿した副産物として既に解消済みだったことをコードで確認（`highway`基本値が
+  `RoadSuitabilityRecipe`共有である旨が正しく記載されている）。残っていた(b)(c)を対応。
+  (b) §4のAPI一覧へ`POST /api/region/axis-inspector`のRequest/Response仕様を追加、
+  §7へ「区間インスペクタ（改善計画T146）」小節を新設（`way_attribute_counts`からの5軸算出・
+  gradient/wind常時欠損・`covered_weight_fraction`の意味を説明）。(c) §7へ「一次属性
+  レジストリ・二次軸レジストリ（改善計画T137）」小節を新設し、`registry.py`の排他制約
+  チェック機構・`register_defaults()`の正準登録内容（6軸＋windは対象外）を説明したうえで、
+  「レジストリは表示メタデータのみを駆動し、コスト計算への配線はT142で意図的に見送られた
+  ままの手動管理」という制約を明記。既存の「評価軸追加の1本道」段落へも、この1本道が
+  コスト計算側の経路であり地図表示側は別経路である旨の注記を追加。`recipe_definition.py`
+  への言及は、着手中にT155（本セッションで先行実施）によりファイル自体が削除されたため、
+  「新設されたが配線されず孤立していたためT155で削除済み」という歴史的経緯の記述に留めた
+  （現存しないモジュールを現在形で説明しない）。T160(3)で指摘されていた
+  `architecture.md:104`のRouteSegmentDetail旧フィールド列挙（Step9時点の4指標のまま）も
+  本タスクの一部として現行7指標へ更新（ついで実施）。
+  運用ルール明文化（規模M以上のarchitecture.md追従の既定化・git blameでの裏取り手順）は
+  CLAUDE.md改訂を伴うためユーザー判断のまま見送り。次回consistencyレビューでの裏取り確認は
+  引き続き完了条件として有効。
 
 ### - [x] T155. recipe_definition.py（T141）の配線または削除を最終判断する 規模S（2026-08-19完了）
 
