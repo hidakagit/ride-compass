@@ -143,4 +143,29 @@ describe("WeightPanel", () => {
     expect(onScoringChange).toHaveBeenCalledWith(DEFAULT_SCORING_WEIGHTS);
     expect(onPreferenceChange).toHaveBeenCalledWith(DEFAULT_ROUTE_PREFERENCE);
   });
+
+  // 改善計画: 研究タブを2次要素ごとに整理。区間難易度の重み（PREFERENCE_FIELDS）の
+  // 各行の直下へ、その軸固有の内容（page.tsx側が組み立てるレシピパネル等）を
+  // 差し込める汎用の枠（renderPreferenceFieldExtra）を検証する。
+  it("renderPreferenceFieldExtraは対象のweightKeyの行にだけ差し込まれる", async () => {
+    const user = userEvent.setup();
+    render(
+      <WeightPanel
+        overrideEnabled={true}
+        onOverrideEnabledChange={vi.fn()}
+        scoringWeights={DEFAULT_SCORING_WEIGHTS}
+        onScoringWeightsChange={vi.fn()}
+        routePreference={DEFAULT_ROUTE_PREFERENCE}
+        onRoutePreferenceChange={vi.fn()}
+        renderPreferenceFieldExtra={(weightKey) =>
+          weightKey === "car_stress_weight" ? <p>車ストレスのレシピをここに差し込む</p> : null
+        }
+      />,
+    );
+
+    await user.click(screen.getByText(TITLE));
+    await user.click(screen.getByText("区間難易度の重み[絶対評価]"));
+
+    expect(screen.getByText("車ストレスのレシピをここに差し込む")).toBeInTheDocument();
+  });
 });
