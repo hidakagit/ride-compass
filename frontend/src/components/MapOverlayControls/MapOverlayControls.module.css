@@ -357,3 +357,49 @@
   align-items: flex-start;
   align-self: flex-start;
 }
+
+/* 推定グループの軸タイル（改善計画: 実機フィードバック「推定の横並びが複数行に折り返されて
+   見にくい」への対応、モバイル幅のみ）。ChipButtonのtileVariant="axis"を付けたタイルだけに
+   付く.chipRowItemAxis（MapOverlayControls.tsx参照）を対象に、アイコン+略名の正方形タイルを
+   アイコンのみへ縮小し、▼トグルも合わせて小さくする。デスクトップ・タブレット幅
+   （640px超）は既存どおりアイコン+略名+通常サイズの▼のまま変えない（横に余裕があるため）。
+   略名テキスト自体は削除せず.iconLabel側でvisually-hidden化する（アクセシビリティ上の
+   名前はボタンのテキストノードから引き続き取れる。aria-labelを別途足す方式より変更点が
+   少なく、accnameの計算方法を変えないため既存のtitle/aria-pressed運用と衝突しない）。
+   隠した略名はrenderAxisTileが▼展開パネルの先頭に.detailAxisLabelとして出す。
+   ▼トグル自体もアイコンチップの右ではなく下へ積む（.iconToggleRowをflex-direction: column
+   へ変更、ユーザー指摘「▼トグルを各メンバの下部に出せないか」への対応）。タイル1個の横幅が
+   アイコンチップの幅（▼トグルの幅より広い）だけで決まるようになり、横並びで6軸ぶん
+   並べたときの合計幅が右並び版より縮む。なお、この程度の縮小でも幅360px前後の
+   最も狭いスマホでは1行に収まりきらず折り返ることがありうる（アイコン単体でもタップ領域
+   確保のため一定以下には縮められないため）。その場合でも折り返す行数は従来より減るため
+   単体で改善になる。さらに1行への収容を徹底するなら.estimatedFlatRow自体を
+   flex-wrap: nowrap + overflow-x: autoの横スクロールへ変更する別対応が必要（今回は見送り）。 */
+@media (max-width: 640px) {
+  .chipRowItemAxis .iconChip {
+    min-width: 2.2rem;
+    padding: 0.3rem 0.2rem;
+  }
+
+  .chipRowItemAxis .iconLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .chipRowItemAxis .iconToggleRow {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .chipRowItemAxis .expandToggle {
+    width: 1.3rem;
+    height: 1.3rem;
+  }
+}
