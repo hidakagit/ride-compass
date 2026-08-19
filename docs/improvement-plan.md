@@ -1538,7 +1538,7 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   ため「完了条件への暦日追記」という前提（T148がまだ未着手でgate待ちであること）自体が
   成立しなくなった。対応不要と判断しチェック完了とする。コード変更なし。
 
-### - [ ] T160. 軽微な残骸・記述陳腐化・表記ゆれ4件を解消する 規模S（各項目S）
+### - [x] T160. 軽微な残骸・記述陳腐化・表記ゆれ4件を解消する 規模S（各項目S）（2026-08-19完了）
 
 - 発端: 統合レビュー統合-8（overall F-4・complexity F-4・consistency F-4・ui P3の統合）。
   (1) 評価軸ラベルが3系統（`axis-catalog.json`/`evaluationAxes.ts`）で不一致
@@ -1555,6 +1555,18 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   (4)は修正必須ではないため、気になる場合のみ`margin-left`を増やすかコメントを実態に
   合わせて修正。
 - 完了条件: (2)(3)はdocs修正の反映確認。(4)は対応する場合のみPlaywright実機確認。
+- 実装メモ（2026-08-19完了）: (1) `evaluationAxes.ts`のPREFERENCE_AXES（stop_weight）が
+  実際に使われるのはWeightPanel/ComparisonPanel（研究モードの重み調整UI）のみで、
+  axis-catalog.jsonのdisplay.label（地図凡例）は別コンポーネント（axisLayers.ts経由）が
+  使うことをgrepで確認（重複用途はなし）。文脈が異なる意図的な言い換えと判断し、統一はせず
+  `evaluationAxes.ts`のstop_weight定義へその旨のコメントを追加した（(2)着手方針どおり）。
+  (2) `registry_defaults.py`のdocstringを、実際の呼び出し元（`export_openapi.py`と
+  テストのみ、アプリ本体は起動時に呼ばない）に合わせて訂正。(3) T154で対応済み
+  （改めての作業は無し）。(4) `page.module.css`の`.recipeDependentAxes`の`margin-left`を
+  `var(--space-3)`→`var(--space-4)`へ増やし、`.recipeSharedMaterialGroup`のborder+padding
+  （実測約9px）を差し引いても視覚的な差が確保されるようにした。dev環境（実データ・DB無し）
+  のため実機Playwright確認は行わず、CSS変数値の計算で確認するに留めた。
+  backend pytest 815件・frontend vitest 340件・eslint・tsc全green。
   (1)はユーザー判断の記録。
 
 

@@ -111,7 +111,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-left: var(--space-3);
+  /* recipeSharedMaterialGroupのborder(1px)+padding(--space-2)が既に内容を約9px
+     内側へ寄せているため、--space-3のままでは見た目の差が実測3pxしか出ない
+     （統合レビュー2026-08-19 ui P3・改善計画T160(4)）。--space-4へ増やし
+     視覚的な階層差を確保する。 */
+  margin-left: var(--space-4);
 }
 
 /* デバッグモード・バックエンド疎通確認は開発者向けの補助情報のため、他の情報より
