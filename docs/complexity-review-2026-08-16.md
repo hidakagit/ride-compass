@@ -127,6 +127,27 @@ MapView内へミラー追加しようとした時点」は行数・レイヤー�
   **「5つ目のレシピ軸をMapView内へミラー追加しようとした時点」**（3本目→5本目へ繰り上げ。
   今回2本まとめて追加し「3本目」条件を消化したため）。
 
+**2026-08-19（T145b、レジストリ駆動のramp軸自動生成）以降の閾値再定義**: T145bが
+「事実はタイルに、解釈はクライアントに」方針を導入し、`STATIC_OVERLAY_LAYERS`は手書き
+エントリ＋`RAMP_AXES`（レジストリのkind="ramp"軸から`makeEnsureAxisRampLayer`で自動生成、
+現状stop_density・accidentの2種）の合成になった。ramp軸はレジストリ登録＋タイル焼き込み
+だけでMapView.tsx側の追記が実測ゼロのまま増える構造のため、「STATIC_OVERLAY_LAYERS 10種
+到達」という閾値が測ろうとしていたリスク（軸追加のたびにMapView.tsxへ手書きコストが
+増える）を、ramp軸の増加はもはや捕捉しない。統合レビュー2026-08-19（complexity F-1）で
+種類数条件が「10種」に到達したことが判明したが、内訳は手書き7件（T148の安全度削除で
+8→7）＋ramp2件＝9件であり、閾値の前提（1軸=1手書きミラー）自体が既に崩れていたと判断し、
+改善計画T157でカウント方式を以下へ再定義する（コード変更なし、基準整備のみ）。
+- 新しい閾値: **「手書きSTATIC_OVERLAY_LAYERS（ramp軸を除く）10件到達」**または
+  **「bespoke種の軸（現状car_stress・night、タグの複雑な組み合わせが必要でramp化できない軸）
+  が3件目に増加」**または「MapView.tsx 2,000行到達」または「5つ目のレシピ軸をMapView内へ
+  ミラー追加しようとした時点」（既存2条件は維持）。
+- 実測（2026-08-19時点）: MapView.tsx 1,766行（閾値2,000行に対し234行の余裕）・
+  手書きSTATIC_OVERLAY_LAYERS 7件（閾値10件に対し余裕あり、T148の安全度削除で8→7）・
+  bespoke種2件（car_stress・night、閾値3件目に対し余裕あり）。
+- ramp種の軸自体が増える分には、この閾値は意図的にノーカウントとする（MapView.tsx側の
+  実コストがO(1)のため）。次に手書きレイヤー・bespoke種の軸が増えるタイミングで
+  この閾値を再確認する。
+
 ### R-7. BICYCLE_INFRA_LABELSの語彙複製 → T46
 
 `MapView.tsx`のポップアップ用ラベル辞書（6件）が`staticAttributeLayers.ts`の
@@ -168,8 +189,9 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
   to_thread・change_detection付きUPSERT。premature optimizationは今回もゼロ）
 - **`/api/routes/preview`の残置・MAX_CONCURRENT系の非共通化**
 - **ログ・観測基盤**（request_id全レコード注入・抑制付きWARNING・/api/debug/stats）
-- **page.tsx / MapView.tsx の現状維持**（MapView.tsxはR-6の閾値〔2,000行 or
-  STATIC_OVERLAY_LAYERS 10種 or 5つ目のレシピ軸のMapView内ミラー追加、T130で再設定〕、
+- **page.tsx / MapView.tsx の現状維持**（MapView.tsxはR-6の閾値〔2,000行 or 手書き
+  STATIC_OVERLAY_LAYERS（ramp軸除く）10件 or bespoke種の軸3件目 or 5つ目のレシピ軸の
+  MapView内ミラー追加、T157（2026-08-19）でramp軸自動生成の実態に合わせ再定義〕、
   page.tsxは独立した閾値〔useState+useStoredState合計40件 or 1,300行、2026-08-18新設〕、
   それぞれ到達までは分割しない）
 
@@ -228,9 +250,14 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
    （2026-08-18）で到達・解消し、1,654行へ縮小。「3つ目のレシピ軸のMapView内ミラー追加」
    条件はT130（2026-08-18、道路適正・自動車密度の2軸を同時追加）で到達し、KEEP（分割
    しない）と判断のうえ「5つ目のレシピ軸のMapView内ミラー追加」へ繰り上げ済み
-   （詳細はR-6参照）。新閾値「MapView.tsx 2,000行」「STATIC_OVERLAY_LAYERS 10種」
-   「5つ目のレシピ軸のMapView内ミラー追加」のいずれかに達したら、そのとき改めて対応
-   （分割要否を含む）を判断する。**page.tsxにも独立した閾値を新設する**（2026-08-18、
+   （詳細はR-6参照）。「STATIC_OVERLAY_LAYERS 10種」条件はT145b（2026-08-19、レジストリ
+   駆動のramp軸自動生成）後に到達したが、内訳がramp軸の自動合流によるものでMapView.tsx側の
+   手書きコスト増加を伴わなかったため、T157（2026-08-19）でカウント方式を
+   「手書きSTATIC_OVERLAY_LAYERS（ramp軸を除く）10件」「bespoke種の軸3件目」へ再定義した
+   （詳細はR-6参照）。新閾値「MapView.tsx 2,000行」「手書きSTATIC_OVERLAY_LAYERS
+   （ramp軸除く）10件」「bespoke種の軸3件目」「5つ目のレシピ軸のMapView内ミラー追加」の
+   いずれかに達したら、そのとき改めて対応（分割要否を含む）を判断する。
+   **page.tsxにも独立した閾値を新設する**（2026-08-18、
    複雑度レビューF-3）: 「useState+useStoredState合計40件到達」または「1,300行到達」で、
    レイヤー可視性系・研究モード系のグルーピング（useReducer化 or レシピ軸単位のカスタム
    フック化）を判断する。2026-08-18時点の実測は38件・1,148行（前回34件・1,065行から
