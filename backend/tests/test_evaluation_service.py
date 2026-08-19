@@ -5,7 +5,6 @@ from app.services.evaluation_service import (
     load_motor_vehicle_density_recipe,
     load_road_suitability_recipe,
     load_route_preference,
-    load_safety_recipe,
     load_car_stress_recipe,
 )
 
@@ -191,29 +190,6 @@ def test_load_car_stress_recipe_reads_custom_path(tmp_path):
 
     assert recipe.lanes_low_threshold == 2
     assert recipe.lanes_low_adjustment == -3
-
-
-def test_load_safety_recipe_reads_default_config_file():
-    # load_car_stress_recipe/car_stress_recipe.yamlと同じ運用（domain/safety.py:
-    # SafetyRecipeのクラス既定値とsafety_recipe.yamlの2箇所が値を持つため、値をハードコード
-    # 検証して手動同期のドリフトを検知する）。
-    recipe = load_safety_recipe()
-
-    assert recipe.lit_adjustment == -1
-    assert recipe.tunnel_adjustment == 1
-
-
-def test_load_safety_recipe_reads_custom_path(tmp_path):
-    config_path = tmp_path / "custom_safety_recipe.yaml"
-    config_path.write_text(
-        "safety_recipe:\n  lit_adjustment: -2\n  tunnel_adjustment: 2\n",
-        encoding="utf-8",
-    )
-
-    recipe = load_safety_recipe(config_path)
-
-    assert recipe.lit_adjustment == -2
-    assert recipe.tunnel_adjustment == 2
 
 
 def test_load_road_suitability_recipe_reads_default_config_file():

@@ -11,7 +11,6 @@ function baseProps() {
       elevation: false,
       road: false,
       carStress: false,
-      safety: false,
       bicycleInfra: false,
       designation: false,
       stopPoi: false,
@@ -25,7 +24,6 @@ function baseProps() {
     onRoadAxisSetHidden: vi.fn(),
     staticFilterHiddenKeysByAxis: {
       carStress: [],
-      safety: [],
       bicycleInfra: [],
       designation: [],
       stopPoi: [],
@@ -34,7 +32,6 @@ function baseProps() {
       accidentSeverity: [],
     } as Record<
       | "carStress"
-      | "safety"
       | "bicycleInfra"
       | "designation"
       | "stopPoi"
@@ -163,7 +160,6 @@ describe("MapLayersPanel", () => {
           elevation: true,
           road: false,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -246,7 +242,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -270,7 +265,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           carStress: true,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -293,7 +287,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
@@ -327,7 +320,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -352,7 +344,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           carStress: true,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -376,7 +367,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -401,7 +391,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: true,
@@ -425,7 +414,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -449,7 +437,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: true,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -543,7 +530,6 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         staticFilterHiddenKeysByAxis={{
           carStress: [],
-          safety: [],
           bicycleInfra: [],
           designation: [],
           stopPoi: [],
@@ -596,7 +582,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,
@@ -627,7 +612,6 @@ describe("MapLayersPanel", () => {
           elevation: false,
           road: false,
           carStress: false,
-          safety: false,
           bicycleInfra: false,
           designation: false,
           stopPoi: false,

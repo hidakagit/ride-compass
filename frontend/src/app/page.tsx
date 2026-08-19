@@ -39,8 +39,6 @@ import {
   DEFAULT_ROAD_SUITABILITY_RECIPE,
   DEFAULT_CAR_STRESS_RECIPE,
 } from "@/components/Map/carStressExpression";
-import SafetyRecipePanel from "@/components/SafetyRecipePanel/SafetyRecipePanel";
-import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import RoadSuitabilityRecipePanel from "@/components/RoadSuitabilityRecipePanel/RoadSuitabilityRecipePanel";
 import MotorVehicleDensityRecipePanel from "@/components/MotorVehicleDensityRecipePanel/MotorVehicleDensityRecipePanel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
@@ -59,7 +57,6 @@ import type {
   RoadSuitabilityRecipeOverride,
   RouteCandidate,
   RoutePreferenceWeights,
-  SafetyRecipeOverride,
   ScoringWeights,
   CarStressRecipeOverride,
 } from "@/types/route";
@@ -96,7 +93,6 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   elevation: false,
   road: false,
   carStress: false,
-  safety: false,
   bicycleInfra: false,
   designation: false,
   stopPoi: false,
@@ -169,14 +165,6 @@ export default function Home() {
     setRecipe: setCarStressRecipe,
     debouncedRecipe: debouncedCarStressRecipe,
   } = useRecipeOverride<CarStressRecipeOverride>(DEFAULT_CAR_STRESS_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
-
-  const {
-    overrideEnabled: safetyRecipeOverrideEnabled,
-    setOverrideEnabled: setSafetyRecipeOverrideEnabled,
-    recipe: safetyRecipe,
-    setRecipe: setSafetyRecipe,
-    debouncedRecipe: debouncedSafetyRecipe,
-  } = useRecipeOverride<SafetyRecipeOverride>(DEFAULT_SAFETY_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
 
   const {
     overrideEnabled: roadSuitabilityRecipeOverrideEnabled,
@@ -588,12 +576,11 @@ export default function Home() {
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
 
-  // 生成条件のうち重み設定・車ストレスレシピ・安全度レシピの比較キー（上書き無効時はnull＝
-  // バックエンド既定値を表す）。3つのトグルは独立のため、それぞれ個別に無効時null化する。
+  // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
+  // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
   const currentWeightsKey = JSON.stringify({
     weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
     carStressRecipe: carStressRecipeOverrideEnabled ? carStressRecipe : null,
-    safetyRecipe: safetyRecipeOverrideEnabled ? safetyRecipe : null,
     roadSuitabilityRecipe: roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : null,
     motorVehicleDensityRecipe: motorVehicleDensityRecipeOverrideEnabled ? motorVehicleDensityRecipe : null,
   });
@@ -620,7 +607,6 @@ export default function Home() {
         route_type: "loop",
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
         ...(carStressRecipeOverrideEnabled ? { car_stress_recipe: carStressRecipe } : {}),
-        ...(safetyRecipeOverrideEnabled ? { safety_recipe: safetyRecipe } : {}),
         ...(roadSuitabilityRecipeOverrideEnabled ? { road_suitability_recipe: roadSuitabilityRecipe } : {}),
         ...(motorVehicleDensityRecipeOverrideEnabled
           ? { motor_vehicle_density_recipe: motorVehicleDensityRecipe }
@@ -784,24 +770,6 @@ export default function Home() {
                   onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
                   recipe={carStressRecipe}
                   onRecipeChange={setCarStressRecipe}
-                  roadSuitabilityRecipe={
-                    roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
-                  }
-                  motorVehicleDensityRecipe={
-                    motorVehicleDensityRecipeOverrideEnabled
-                      ? motorVehicleDensityRecipe
-                      : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
-                  }
-                />
-              </div>
-              {/* 安全度レシピパネル（改善計画: 安全度レシピ）。上記CarStressRecipePanelと同じ
-                  理由で参照セクションを持つ薄いパネル。 */}
-              <div className={styles.legendCard}>
-                <SafetyRecipePanel
-                  overrideEnabled={safetyRecipeOverrideEnabled}
-                  onOverrideEnabledChange={setSafetyRecipeOverrideEnabled}
-                  recipe={safetyRecipe}
-                  onRecipeChange={setSafetyRecipe}
                   roadSuitabilityRecipe={
                     roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
                   }
@@ -1001,8 +969,6 @@ export default function Home() {
             showCarStress={layerVisibility.carStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
             carStressRecipe={carStressRecipeOverrideEnabled ? debouncedCarStressRecipe : undefined}
-            showSafety={layerVisibility.safety}
-            safetyRecipe={safetyRecipeOverrideEnabled ? debouncedSafetyRecipe : undefined}
             roadSuitabilityRecipe={
               roadSuitabilityRecipeOverrideEnabled ? debouncedRoadSuitabilityRecipe : undefined
             }

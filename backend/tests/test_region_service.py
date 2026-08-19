@@ -247,23 +247,6 @@ async def test_car_stress_breakdown_db_error_is_counted_in_debug_stats():
     reset_stats()
 
 
-async def test_safety_breakdown_db_error_is_counted_in_debug_stats():
-    # get_car_stress_breakdownの回帰テストと同じ観点（コードレビュー指摘）:
-    # get_safety_breakdownは同じDB例外パスがfields["lookup"]="error"のみ設定していたため
-    # log_external_callのerror集計に載っていなかった。
-    reset_stats()
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    assert await service.get_safety_breakdown(12345) is None
-
-    stats = get_stats()["external"]["region:safety-breakdown"]
-    assert stats["errors"] == 1
-    assert stats["last_error_at"] is not None
-    assert stats["error_types"] == {"RuntimeError": 1}
-    reset_stats()
-
-
 # 改善計画T59: ルート生成した地点でしか道路グラフ（road_nodes/road_edges）が構築されず、
 # 地図を眺めるだけの利用（ルート生成を経ない）では道路情報・車ストレス・自転車インフラ・
 # 交差点密度レイヤーが永遠に空のままだった問題への対応。カバレッジ内タイルの応答時、

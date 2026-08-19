@@ -42,17 +42,10 @@ from app.domain.evaluation import (
     preference_to_axis_weights,
 )
 from app.domain.graph import DirectedEdge, RoadGraph
-from app.domain.recipe import (
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    MotorVehicleDensityRecipe,
-    RoadSuitabilityRecipe,
-    car_closeness,
-)
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.safety import SafetyRecipe, safety_level
 from app.domain.traffic import (
     CarStressRecipe,
     classify_bicycle_infrastructure,
@@ -107,7 +100,6 @@ class RoadGraphEngine:
         weather_service: WeatherService,
         route_preference: RoutePreference,
         car_stress_recipe: CarStressRecipe | None = None,
-        safety_recipe: SafetyRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
@@ -117,7 +109,6 @@ class RoadGraphEngine:
         self._weather_service = weather_service
         self._route_preference = route_preference
         self._car_stress_recipe = car_stress_recipe
-        self._safety_recipe = safety_recipe
         self._road_suitability_recipe = road_suitability_recipe
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
 
@@ -235,9 +226,6 @@ class RoadGraphEngine:
         bicycle_infra_score = distance_weighted_bicycle_infra_score(
             [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
         )
-        safety_score = distance_weighted_difficulty(
-            [(s.safety, s.distance_km) for s in segments]
-        )
 
         return RouteCandidate(
             **candidate_identity(traced.bearing),
@@ -250,7 +238,6 @@ class RoadGraphEngine:
             bicycle_infra_score=bicycle_infra_score,
             intersection_density=intersection_density,
             accident_density=accident_density,
-            safety_score=safety_score,
             segments=segments,
             **elevation_stats,
         )
@@ -285,20 +272,6 @@ class RoadGraphEngine:
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
             is_designated = edge.edge_id in context.designated_edge_ids
-            # 改善計画T134: 「車との近さ」(N2)はcar_stress_level・safety_levelの両方が内部で
-            # 参照する共通の土台のため、ここで1回だけ計算して両方へ渡す（compute_edge_cost
-            # 側と同じパターン、domain/evaluation.py: compute_edge_axis_scores参照）。
-            car_closeness_result = (
-                car_closeness(
-                    edge.highway,
-                    edge_way_tags,
-                    is_designated,
-                    self._road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE,
-                    self._motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-                )
-                if edge_way_tags is not None
-                else None
-            )
             car_stress = (
                 car_stress_level(
                     edge.highway,
@@ -307,26 +280,12 @@ class RoadGraphEngine:
                     self._car_stress_recipe,
                     road_suitability_recipe=self._road_suitability_recipe,
                     motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                    car_closeness_result=car_closeness_result,
                 )
                 if edge_way_tags is not None
                 else None
             )
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
-            )
-            safety = (
-                safety_level(
-                    edge.highway,
-                    edge_way_tags,
-                    is_designated,
-                    self._safety_recipe,
-                    road_suitability_recipe=self._road_suitability_recipe,
-                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                    car_closeness_result=car_closeness_result,
-                )
-                if edge_way_tags is not None
-                else None
             )
 
             # 改善計画T143: 区間表示の軸別スコアは、コスト計算（compute_edge_cost、
@@ -377,7 +336,6 @@ class RoadGraphEngine:
                     road_surface_good=road_surface_good,
                     car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
-                    safety=safety,
                     elevation_difficulty=axis_scores.get("gradient"),
                     wind_difficulty=axis_scores.get("wind"),
                     road_difficulty=axis_scores.get("surface_q"),

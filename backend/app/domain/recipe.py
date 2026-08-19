@@ -1,21 +1,19 @@
-"""レシピ付き軸（`domain/traffic.py: car_stress_breakdown`・`domain/safety.py:
-safety_breakdown`）が共有する判定プリミティブ（改善計画T122）。
+"""レシピ付き軸（`domain/traffic.py: car_stress_breakdown`）が使う判定プリミティブ
+（改善計画T122）。
 
-両軸は「highway別基準値＋タグ由来の加減点＋クランプ」という同一の採点構造をパラメータだけ
-変えて実装しており、この構造そのものをここへ切り出す。`*Recipe`モデル・`*_breakdown`関数・
-APIの`*Override`モデル自体はフィールド集合が異なる（車ストレス=lanes_low、安全度=lit/
-tunnel）ため軸ごとに残し、無理に共通のPydanticモデルへは寄せない（採点構造だけを共通化する）。
+「highway別基準値＋タグ由来の加減点＋クランプ」という採点構造をここへ切り出している。
+`*Recipe`モデル・`*_breakdown`関数・APIの`*Override`モデル自体は軸固有のフィールド集合
+（車ストレス=lanes_low）を持つため`domain/traffic.py`側に残し、無理に共通のPydanticモデル
+へは寄せない（採点構造だけを共通化する）。
 
 タグの値パース（`parse_lanes`/`parse_maxspeed`）・cycleway系タグの分類（`cycleway_class`）は
-どちらの軸からも同じ意味で参照される「材料タグの正規化」のため、traffic.pyから移設して
-ここを正準1箇所にした（safety.pyがtraffic.py経由で間接importしていた旧構成を解消）。
+「材料タグの正規化」としてここを正準1箇所にしている。
 
-`RoadSuitabilityRecipe`（道路適正）・`MotorVehicleDensityRecipe`（自動車密度）は、
-車ストレス・安全度の両方が共通の土台として参照する「車との近さ」（N2 =
-道路適正＋自動車密度）を構成する2つの独立したレシピ（改善計画: 車との近さ材料の
-共有元化）。値そのものが両軸で一致していたため（living_street基準値の統一で確定）、
-`*Recipe`モデルの一部としてではなく独立したレシピとして切り出し、研究モードでも
-1箇所の上書きが両軸へ反映されるようにした。`car_closeness()`がこの2つを合成する。
+`RoadSuitabilityRecipe`（道路適正）・`MotorVehicleDensityRecipe`（自動車密度）は、車ストレス
+（かつては安全度軸とも共通の土台として参照していたが、安全度軸はT148で削除済み）が参照する
+「車との近さ」（N2 = 道路適正＋自動車密度）を構成する2つの独立したレシピ（改善計画: 車との
+近さ材料の共有元化）。`*Recipe`モデルの一部としてではなく独立したレシピとして切り出して
+あり、研究モードでも1箇所の上書きが即座に反映される。`car_closeness()`がこの2つを合成する。
 """
 
 from pydantic import BaseModel, Field
@@ -59,8 +57,7 @@ def cycleway_class(tags: dict[str, str]) -> str | None:
     """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
     _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
     （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
-    テストで担保）。car_stress_breakdown・safety_breakdownの両方がcycleway_adjustment
-    経由でこの分類を使う。"""
+    テストで担保）。car_stress_breakdownがcycleway_adjustment経由でこの分類を使う。"""
     values = cycleway_values(tags)
     if "track" in values:
         return "track"
@@ -171,10 +168,9 @@ ROAD_SUITABILITY_BASE_BY_HIGHWAY: dict[str, int] = {
 
 
 class RoadSuitabilityRecipe(BaseModel):
-    """「道路適正」（N1 = highway別基準値＋cycleway分離度）のレシピ。車ストレス・
-    安全度の両方が`road_suitability()`経由で参照する共通の土台で、軸固有のレシピ
-    （`CarStressRecipe`/`SafetyRecipe`）とは独立して研究モードで上書きできる
-    （改善計画: 車との近さ材料の共有元化）。
+    """「道路適正」（N1 = highway別基準値＋cycleway分離度）のレシピ。車ストレスが
+    `road_suitability()`経由で参照する土台で、軸固有のレシピ（`CarStressRecipe`）とは
+    独立して研究モードで上書きできる（改善計画: 車との近さ材料の共有元化）。
     """
 
     base_by_highway: dict[str, int] = Field(default_factory=lambda: dict(ROAD_SUITABILITY_BASE_BY_HIGHWAY))

@@ -24,13 +24,7 @@ from app.domain.difficulty import (
 from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
 from app.domain.night import night_difficulty
-from app.domain.recipe import (
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    MotorVehicleDensityRecipe,
-    RoadSuitabilityRecipe,
-    car_closeness,
-)
+from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import classify_osm_surface
 from app.domain.route import Coordinates
 from app.domain.traffic import CarStressRecipe, car_stress_level
@@ -74,9 +68,9 @@ class RoutePreference(BaseModel):
     安全度（旧`safety_weight`）は改善計画T139で軸ごと廃止し、highway等由来の部分は
     T138で車ストレスへ、街灯・トンネル由来の部分はここで`night_weight`へ置き換えた
     （事故実績は既存の`accident_weight`のまま変更なし）。`domain/safety.py`自体・
-    `safety_recipe.yaml`・関連APIは表示用（研究モードの内訳確認等）として残置し、
-    削除はT148（移行完了後）で行う。`night_weight`は既定0.0で運用する（設計プロンプトの
-    指示どおり、街灯・トンネルを気にするユーザーが個別に重みを上げる想定）。
+    `safety_recipe.yaml`・関連API（`SafetyRecipeOverride`等）はT148で削除済み。
+    `night_weight`は既定0.0で運用する（設計プロンプトの指示どおり、街灯・トンネルを
+    気にするユーザーが個別に重みを上げる想定）。
     交差点密度（旧`intersection_weight`）は改善計画T149で独立軸を廃止し停止密度側へ
     統合済み（`stop_difficulty`がタグなし交差点を低い重みで加算するため独立に持たない）。
 
@@ -351,20 +345,12 @@ def compute_edge_axis_scores(
     is_good_surface = classify_osm_surface(surface_type)
     wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
-    # 「車との近さ」(N2、改善計画: 車との近さ材料の共有元化)はcar_stress_level・
-    # safety_levelの両方が内部で同じ材料タグ・同じレシピから計算する共通の土台のため、
-    # ここで1回だけ計算して両方へ渡す（全Edgeに対して2回ずつ計算する無駄を避ける）。
-    car_closeness_result = (
-        car_closeness(
-            edge.highway,
-            way_tags,
-            is_designated,
-            road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE,
-            motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-        )
-        if way_tags is not None
-        else None
-    )
+    # 「車との近さ」(N2)はcar_stress_levelがこの1箇所でのみ参照する（T148で安全度軸を
+    # 削除するまではsafety_levelとも共有する共通の土台だったため、呼び出し元で1回だけ
+    # 計算して両方へ渡すdedupをしていたが、参照元が1箇所になったため
+    # car_stress_level内部の計算へ戻した。road_graph_engine.py/openrouteservice_engine.pyの
+    # 区間表示ビルダーは引き続き2箇所[car_stress_level・旧safety_level]から参照していたが、
+    # 同じくT148でsafety_level側を削除したため、そちらも同様に単純化済み）。
     car_stress = (
         car_stress_level(
             edge.highway,
@@ -373,7 +359,6 @@ def compute_edge_axis_scores(
             car_stress_recipe,
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
-            car_closeness_result=car_closeness_result,
         )
         if way_tags is not None
         else None
