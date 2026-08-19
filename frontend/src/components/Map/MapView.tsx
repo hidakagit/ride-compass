@@ -133,9 +133,14 @@ export const STOP_POI_LAYER_ID = "region-stop-poi-circle";
 export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
-// 必ず設定されている。実行時に万一欠けていた場合のフォールバック。
+// 必ず設定されている。実行時に万一欠けていた場合、および「道路の種類」レイヤーがOFFの間の
+// フォールバック（均一な太さ・実線）に使う。
 const DEFAULT_ROAD_LINE_WIDTH = 3;
 const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
+// 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの中立色（改善計画T165）。
+// roadFilterAxes.tsのCOLOR_UNKNOWNと同じ「不明・他」グレーを流用し、色分けそのものは
+// 行わずに太さ・線種だけが情報を持っている状態であることを見た目でも示す。
+const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
 
 // routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBoundsはexportして
 // MapView.bench.ts（vitestのbench API）からGeoJSON構築のコストを直接計測できるようにしてある
@@ -383,8 +388,10 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
 }
 
 // 路面もGSI標高ラスタと同じ考え方で、地図初期化時に一度だけベクタタイルのソース/レイヤーを
-// 追加し、以降はvisibilityの切替のみで表示・非表示する。標高ラスタの直後に追加することで、
-// 標高の上・ルート系レイヤーの下に描画される。
+// 追加し、以降はvisibilityの切替・setPaintProperty/setFilterのみで表示・非表示・見た目を
+// 変える。標高ラスタの直後に追加することで、標高の上・ルート系レイヤーの下に描画される。
+// paintの初期値は仮の中立値（applyRoadLayerStateが呼び出し直後に必ず実際の値へ上書きする、
+// 改善計画T165参照）。
 function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getSource(ROAD_TILE_SOURCE_ID)) return;
@@ -400,13 +407,10 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       source: ROAD_TILE_SOURCE_ID,
       "source-layer": ROAD_TILE_SOURCE_LAYER,
       paint: {
+        "line-color": ROAD_LINE_NEUTRAL_COLOR,
+        "line-width": DEFAULT_ROAD_LINE_WIDTH,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).colorExpression as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-width": (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).widthExpression ?? DEFAULT_ROAD_LINE_WIDTH) as any,
-        "line-dasharray":
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (getRoadFilterAxis(ROAD_LINE_DASH_AXIS_ID).dashArrayExpression ?? DEFAULT_ROAD_LINE_DASHARRAY) as any,
+        "line-dasharray": DEFAULT_ROAD_LINE_DASHARRAY as any,
         "line-opacity": 0.8,
       },
       layout: { visibility: "none" },
@@ -415,26 +419,48 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 路面レイヤーの表示状態を一括反映する。色（line-color）は常に「路面の種類」軸
-// （ROAD_LINE_COLOR_AXIS_ID）の配色で固定し、ユーザーが選ぶ余地は持たない
-// （自転車走行の実用上最も情報量が多い軸のため。絞り込みで1カテゴリまで狭めた別の軸を
-// 色分けに選べてしまうと単色になり情報量が無くなる、という混乱があった）。
-// 「道路の種類」は色を掛け合わせず、太さ（line-width、ROAD_LINE_WIDTH_AXIS_ID）と
-// 線種（line-dasharray、ROAD_LINE_DASH_AXIS_ID。不明・他だけ破線）で別途常時反映する
-// （roadFilterAxes.ts参照）。色・太さ・線種ともensureRoadSurfaceTileLayerでレイヤー作成時に
-// 一度だけ設定し、以降は変わらないためここでは触らない。
-// フィルタは「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」の
-// ように独立した軸を同時に絞り込みたいため、全軸のhiddenKeysをANDで束ねる。
+// 路面レイヤーの表示状態を一括反映する（改善計画T165: 「道路情報」を「路面の種類」
+// （roadSurface、色）・「道路の種類」（roadType、太さ・線種）の論理2レイヤーへ分割。
+// 物理的には同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
+// 多重表現が壊れるため、1本のMapLibre線レイヤー（ROAD_TILE_LAYER_ID）へ動的に合成する）。
+// - 両方ON: 色=路面の種類の配色、太さ・線種=道路の種類（従来どおりの見た目）
+// - 路面の種類のみON: 色=路面の種類の配色、太さ・線種は中立（均一・実線）
+// - 道路の種類のみON: 色は中立（ROAD_LINE_NEUTRAL_COLOR）、太さ・線種=道路の種類
+// - 両方OFF: レイヤー自体を隠す
+// フィルタも表示中の軸だけを反映する（OFF中の軸のhiddenKeysで絞り込むと、その軸を
+// OFFにしているのに地物が消える、という矛盾が起きるため）。
 function applyRoadLayerState(
   map: MapLibreMap,
-  showRoad: boolean,
+  showRoadSurface: boolean,
+  showRoadType: boolean,
   hiddenKeysByAxis: Record<RoadFilterAxisId, readonly string[]>
 ) {
   runWhenStyleReady(map, () => {
     ensureRoadSurfaceTileLayer(map);
-    setLayerVisibility(map, ROAD_TILE_LAYER_ID, showRoad);
+    const showAny = showRoadSurface || showRoadType;
+    setLayerVisibility(map, ROAD_TILE_LAYER_ID, showAny);
+    if (showAny) {
+      const colorExpression = showRoadSurface
+        ? getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).colorExpression
+        : ROAD_LINE_NEUTRAL_COLOR;
+      const widthExpression = showRoadType
+        ? (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).widthExpression ?? DEFAULT_ROAD_LINE_WIDTH)
+        : DEFAULT_ROAD_LINE_WIDTH;
+      const dashArrayExpression = showRoadType
+        ? (getRoadFilterAxis(ROAD_LINE_DASH_AXIS_ID).dashArrayExpression ?? DEFAULT_ROAD_LINE_DASHARRAY)
+        : DEFAULT_ROAD_LINE_DASHARRAY;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-color", colorExpression as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-width", widthExpression as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-dasharray", dashArrayExpression as any);
+    }
+    const activeAxes = ROAD_FILTER_AXES.filter((axis) =>
+      axis.id === ROAD_LINE_COLOR_AXIS_ID ? showRoadSurface : showRoadType
+    );
     const combinedFilter = buildCombinedLegendFilterExpression(
-      ROAD_FILTER_AXES.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] }))
+      activeAxes.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] }))
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setFilter(ROAD_TILE_LAYER_ID, combinedFilter as any);
@@ -678,15 +704,17 @@ const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (m
 type StaticOverlayKey = string;
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
-// road/carStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用しているため
-// （T59でroad_edgesが未構築の地点では、この4レイヤーが同時にempty/errorになるのが正しい
-// 挙動）、あえて同じsourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
+// roadType/roadSurface（T165で「道路情報」から論理分割）/carStress/bicycleInfra/
+// designationは同じroad_surfaceタイルを再利用しているため（T59でroad_edgesが未構築の
+// 地点では、この5レイヤーが同時にempty/errorになるのが正しい挙動）、あえて同じ
+// sourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
 // （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
 // MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
 // （MapView.dataStatus.test.ts）から個別レイヤーのsourceIdを参照できるようexportしている。
 export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; sourceLayer?: string }[] = [
-  { key: "road", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "carStress", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
@@ -971,7 +999,12 @@ interface MapViewProps {
   selectedRouteId: string | null;
   location: Coordinates;
   showElevation: boolean;
-  showRoad: boolean;
+  /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
+   * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
+   * applyRoadLayerState参照）。 */
+  showRoadType: boolean;
+  /** 路面の種類（改善計画T165で「道路情報」から論理分割）。色で反映する。 */
+  showRoadSurface: boolean;
   /** 車ストレス・自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。 */
   showCarStress: boolean;
   showBicycleInfra: boolean;
@@ -1023,7 +1056,8 @@ export default function MapView({
   selectedRouteId,
   location,
   showElevation,
-  showRoad,
+  showRoadType,
+  showRoadSurface,
   showCarStress,
   showBicycleInfra,
   carStressRecipe,
@@ -1066,7 +1100,8 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
-    showRoad,
+    showRoadType,
+    showRoadSurface,
     showCarStress,
     showBicycleInfra,
     carStressRecipe,
@@ -1100,7 +1135,8 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
-      showRoad,
+      showRoadType,
+      showRoadSurface,
       showCarStress,
       showBicycleInfra,
       carStressRecipe,
@@ -1122,7 +1158,8 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
-    showRoad,
+    showRoadType,
+    showRoadSurface,
     showCarStress,
     showBicycleInfra,
     carStressRecipe,
@@ -1152,7 +1189,8 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
-      showRoad,
+      showRoadType,
+      showRoadSurface,
       showCarStress,
       showBicycleInfra,
       carStressRecipe,
@@ -1184,11 +1222,12 @@ export default function MapView({
       roadSuitabilityRecipe ?? DEFAULT_ROAD_SUITABILITY_RECIPE,
       motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
-    applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
+    applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     updateRoadZoomHint(
       map,
       isRoadSurfaceGroupVisible({
-        road: showRoad,
+        roadType: showRoadType,
+        roadSurface: showRoadSurface,
         carStress: showCarStress,
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
@@ -1216,7 +1255,8 @@ export default function MapView({
   const getLayerVisibility = useCallback(() => {
     const {
       showElevation,
-      showRoad,
+      showRoadType,
+      showRoadSurface,
       showCarStress,
       showBicycleInfra,
       showDesignation,
@@ -1227,7 +1267,8 @@ export default function MapView({
     } = redrawPropsRef.current;
     return {
       elevation: showElevation,
-      road: showRoad,
+      roadType: showRoadType,
+      roadSurface: showRoadSurface,
       carStress: showCarStress,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
@@ -1418,11 +1459,13 @@ export default function MapView({
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
     // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
-      const { showRoad, showCarStress, showBicycleInfra, showDesignation } = redrawPropsRef.current;
+      const { showRoadType, showRoadSurface, showCarStress, showBicycleInfra, showDesignation } =
+        redrawPropsRef.current;
       updateRoadZoomHint(
         map,
         isRoadSurfaceGroupVisible({
-          road: showRoad,
+          roadType: showRoadType,
+          roadSurface: showRoadSurface,
           carStress: showCarStress,
           bicycleInfra: showBicycleInfra,
           designation: showDesignation,
@@ -1669,9 +1712,11 @@ export default function MapView({
     motorVehicleDensityRecipe,
   ]);
 
-  // 路面ON/OFF・凡例フィルタの切替は、いずれもvisibility/フィルタ式の差し替えのみで
-  // 反映される（データ取得はMapLibreがパン/ズームに応じて自動で行うため、明示的な
-  // fetchは不要）。色は常に固定（ROAD_LINE_COLOR_AXIS_ID）のためここでは差し替えない。
+  // 路面（道路の種類/路面の種類、改善計画T165）ON/OFF・凡例フィルタの切替は、いずれも
+  // visibility/paint/フィルタ式の差し替えのみで反映される（データ取得はMapLibreがパン/
+  // ズームに応じて自動で行うため、明示的なfetchは不要）。色・太さ・線種は
+  // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
+  // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
   // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するcarStress/
   // bicycleInfra/designationのON/OFFでも変わりうるため、依存配列に含めてこれらの
   // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままcarStress等
@@ -1679,11 +1724,12 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyRoadLayerState(map, showRoad, roadHiddenKeysByMode);
+    applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     updateRoadZoomHint(
       map,
       isRoadSurfaceGroupVisible({
-        road: showRoad,
+        roadType: showRoadType,
+        roadSurface: showRoadSurface,
         carStress: showCarStress,
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
@@ -1692,7 +1738,8 @@ export default function MapView({
     );
     recomputeLayerDataStatus();
   }, [
-    showRoad,
+    showRoadType,
+    showRoadSurface,
     showCarStress,
     showBicycleInfra,
     showDesignation,

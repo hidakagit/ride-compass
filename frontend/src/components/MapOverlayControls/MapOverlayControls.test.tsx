@@ -6,7 +6,7 @@ import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls"
 function baseLayers(): OverlayLayerChip[] {
   return [
     { id: "elevation", label: "標高図", on: false },
-    { id: "road", label: "路面", on: false },
+    { id: "roadSurface", label: "路面", on: false },
     { id: "route", label: "ルート", on: false },
   ];
 }
@@ -43,7 +43,7 @@ describe("MapOverlayControls", () => {
     expect(onToggle).toHaveBeenCalledWith("elevation", true);
 
     await user.click(screen.getByRole("button", { name: "路面" }));
-    expect(onToggle).toHaveBeenCalledWith("road", false);
+    expect(onToggle).toHaveBeenCalledWith("roadSurface", false);
   });
 
   it("disabledのチップは押せず、on=trueでもaria-pressedはfalseのまま", () => {
@@ -130,7 +130,7 @@ describe("MapOverlayControls", () => {
   it("OFF・disabled・凡例無しのレイヤーには▶が出ない", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", label: "標高図", on: true, summary: null, legendDetails: [] }, // 凡例無し
-      { id: "road", label: "路面", on: false, summary: null, legendDetails: [{ label: "路面の種類", legend: [], hiddenKeys: [] }] }, // OFF
+      { id: "roadSurface", label: "路面", on: false, summary: null, legendDetails: [{ label: "路面の種類", legend: [], hiddenKeys: [] }] }, // OFF
       { id: "route", label: "ルート", on: true, disabled: true, summary: "色分け: 風の影響" }, // disabled
     ];
     render(<MapOverlayControls {...baseProps()} layers={layers} />);
@@ -146,7 +146,7 @@ describe("MapOverlayControls", () => {
     function groupedLayers(): OverlayLayerChip[] {
       return [
         { id: "elevation", label: "標高図", on: false }, // categoryなし→単独のまま
-        { id: "road", label: "道路情報", on: false, category: "roadCondition" },
+        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
         { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
         { id: "carStress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
         { id: "accidents", label: "事故", on: false, category: "trafficSafety" }, // dataNature省略→raw扱い
@@ -157,7 +157,7 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
       expect(screen.getByRole("button", { name: "標高図" })).toBeInTheDocument(); // categoryなしは単独のまま
-      expect(screen.queryByRole("button", { name: "道路情報" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "道路状態" })).toBeInTheDocument(); // カテゴリ見出しの束ねチップ
       expect(screen.getByRole("button", { name: "交通・安全" })).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe("MapOverlayControls", () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
-      // 道路状態（road/designationとも既定dataNature=raw、混在しない）は小見出し無し
+      // 道路状態（roadType/designationとも既定dataNature=raw、混在しない）は小見出し無し
       await user.click(screen.getByRole("button", { name: "道路状態" }));
       expect(screen.queryByText("推定指標（合成）")).not.toBeInTheDocument();
       expect(screen.queryByText("観測データ")).not.toBeInTheDocument();
@@ -193,7 +193,7 @@ describe("MapOverlayControls", () => {
 
     it("いずれかのメンバーがONならグループチップがaria-pressed=trueになる", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-      // road=OFF・designation=ONの道路状態グループ → 全体としてはON扱い
+      // roadType=OFF・designation=ONの道路状態グループ → 全体としてはON扱い
       expect(screen.getByRole("button", { name: "道路状態" })).toHaveAttribute("aria-pressed", "true");
     });
   });

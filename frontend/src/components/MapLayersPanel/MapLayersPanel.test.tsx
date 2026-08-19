@@ -9,7 +9,8 @@ function baseProps() {
   return {
     layerVisibility: {
       elevation: false,
-      road: false,
+      roadType: false,
+      roadSurface: false,
       carStress: false,
       bicycleInfra: false,
       designation: false,
@@ -76,7 +77,8 @@ describe("MapLayersPanel", () => {
     expect(headings).toEqual(["道路状態", "交通・安全", "自転車インフラ", "地形", "補給・施設", "生成したルートの色分け"]);
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-road")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-roadType")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-roadSurface")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-carStress")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
@@ -95,7 +97,8 @@ describe("MapLayersPanel", () => {
       return group?.querySelector(`.${styles.groupTitle}`)?.textContent ?? null;
     }
 
-    expect(groupTitleFor("road")).toBe("道路状態");
+    expect(groupTitleFor("roadType")).toBe("道路状態");
+    expect(groupTitleFor("roadSurface")).toBe("道路状態");
     expect(groupTitleFor("designation")).toBe("道路状態");
     expect(groupTitleFor("carStress")).toBe("交通・安全");
     expect(groupTitleFor("accidents")).toBe("交通・安全");
@@ -158,7 +161,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: true,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -172,10 +176,10 @@ describe("MapLayersPanel", () => {
     );
 
     expect(screen.getByRole("button", { name: "標高図レイヤーを表示" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "道路情報レイヤーを表示" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "路面の種類レイヤーを表示" })).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(screen.getByRole("button", { name: "道路情報レイヤーを表示" }));
-    expect(onLayerToggle).toHaveBeenCalledWith("road", true);
+    await user.click(screen.getByRole("button", { name: "路面の種類レイヤーを表示" }));
+    expect(onLayerToggle).toHaveBeenCalledWith("roadSurface", true);
 
     await user.click(screen.getByRole("button", { name: "標高図レイヤーを表示" }));
     expect(onLayerToggle).toHaveBeenCalledWith("elevation", false);
@@ -193,11 +197,11 @@ describe("MapLayersPanel", () => {
     expect(details.open).toBe(false);
   });
 
-  it("道路情報OFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
+  it("路面の種類OFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    openSection("road");
+    openSection("roadSurface");
     // OFF案内の文言はT63で他レイヤーにも共通化されたため、セクション内に絞って確認する
-    const section = document.getElementById(layerSectionDomId("road")) as HTMLElement;
+    const section = document.getElementById(layerSectionDomId("roadSurface")) as HTMLElement;
     expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
@@ -207,22 +211,24 @@ describe("MapLayersPanel", () => {
     const onRoadLegendToggle = vi.fn();
     const onLayerToggle = vi.fn();
     render(<MapLayersPanel {...baseProps()} onRoadLegendToggle={onRoadLegendToggle} onLayerToggle={onLayerToggle} />);
-    openSection("road");
+    openSection("roadSurface");
 
     await user.click(screen.getByRole("checkbox", { name: /アスファルト/ }));
 
     expect(onRoadLegendToggle).toHaveBeenCalledWith("surface", "asphalt");
-    expect(onLayerToggle).toHaveBeenCalledWith("road", true);
+    expect(onLayerToggle).toHaveBeenCalledWith("roadSurface", true);
   });
 
   it("「すべて隠す」で軸の全カテゴリキーがonRoadAxisSetHiddenへ渡る", async () => {
     const user = userEvent.setup();
     const onRoadAxisSetHidden = vi.fn();
     render(<MapLayersPanel {...baseProps()} onRoadAxisSetHidden={onRoadAxisSetHidden} />);
-    openSection("road");
+    openSection("roadSurface");
 
-    // 一括ボタンは軸ごとにあるため、1つ目（色＝路面の種類の軸）を操作する
-    await user.click(screen.getAllByRole("button", { name: "すべて隠す" })[0]);
+    // 改善計画T165で路面の種類・道路の種類は別セクションへ分かれたため、
+    // 「路面の種類」セクション内の「すべて隠す」ボタンへスコープする。
+    const section = document.getElementById(layerSectionDomId("roadSurface")) as HTMLElement;
+    await user.click(within(section).getByRole("button", { name: "すべて隠す" }));
 
     expect(onRoadAxisSetHidden).toHaveBeenCalledWith("surface", [
       "asphalt",
@@ -234,13 +240,14 @@ describe("MapLayersPanel", () => {
     ]);
   });
 
-  it("道路情報ON && regionZoomTooWide=trueのときズーム警告が表示される（絞り込みは操作可能なまま）", () => {
+  it("路面の種類ON && regionZoomTooWide=trueのときズーム警告が表示される（絞り込みは操作可能なまま）", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: true,
+          roadType: false,
+          roadSurface: true,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -252,7 +259,7 @@ describe("MapLayersPanel", () => {
         regionZoomTooWide={true}
       />,
     );
-    openSection("road");
+    openSection("roadSurface");
     expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeInTheDocument();
   });
@@ -263,7 +270,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: true,
           bicycleInfra: false,
           designation: false,
@@ -285,7 +293,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -312,13 +321,14 @@ describe("MapLayersPanel", () => {
     expect(screen.queryByText(/データの取得に失敗しました/)).not.toBeInTheDocument();
   });
 
-  it("改善計画T87: 道路情報でregionZoomTooWide中はデータ状態の案内を出さない（ズーム警告と二重表示しない）", () => {
+  it("改善計画T87: 路面の種類でregionZoomTooWide中はデータ状態の案内を出さない（ズーム警告と二重表示しない）", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: true,
+          roadType: false,
+          roadSurface: true,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -328,10 +338,10 @@ describe("MapLayersPanel", () => {
           route: false,
         }}
         regionZoomTooWide={true}
-        layerDataStatus={{ road: "empty" }}
+        layerDataStatus={{ roadSurface: "empty" }}
       />,
     );
-    openSection("road");
+    openSection("roadSurface");
     expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
     expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
   });
@@ -342,7 +352,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: true,
           bicycleInfra: false,
           designation: false,
@@ -365,7 +376,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: true,
+          roadType: true,
+          roadSurface: true,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -375,10 +387,10 @@ describe("MapLayersPanel", () => {
           route: false,
         }}
         regionZoomTooWide={true}
-        layerDataStatus={{ road: "empty" }}
+        layerDataStatus={{ roadSurface: "empty" }}
       />,
     );
-    const roadChip = screen.getByRole("button", { name: "道路情報レイヤーを表示" });
+    const roadChip = screen.getByRole("button", { name: "路面の種類レイヤーを表示" });
     expect(roadChip.title).not.toContain("この範囲に表示できるデータがありません");
     expect(roadChip.querySelector("span[aria-hidden]")).not.toBeInTheDocument();
   });
@@ -389,7 +401,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -406,13 +419,16 @@ describe("MapLayersPanel", () => {
     expect(screen.getByText("この範囲に表示できるデータがありません")).toBeInTheDocument();
   });
 
-  it("道路情報ONのとき色・太さ両方の軸見出しが表示される", () => {
+  // 改善計画T165: 「道路情報」が路面の種類・道路の種類の別セクションへ分かれたため、
+  // それぞれの軸見出しは自分のセクションにだけ表示されることを別テストで確認する。
+  it("路面の種類ONのとき色の軸見出しが表示される", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: true,
+          roadType: false,
+          roadSurface: true,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -423,8 +439,30 @@ describe("MapLayersPanel", () => {
         }}
       />,
     );
-    openSection("road");
+    openSection("roadSurface");
     expect(screen.getByText(/色：路面の種類/)).toBeInTheDocument();
+    expect(screen.queryByText("表示範囲が広すぎます。ズームインしてください。")).not.toBeInTheDocument();
+  });
+
+  it("道路の種類ONのとき太さの軸見出しが表示される", () => {
+    render(
+      <MapLayersPanel
+        {...baseProps()}
+        layerVisibility={{
+          elevation: false,
+          roadType: true,
+          roadSurface: false,
+          carStress: false,
+          bicycleInfra: false,
+          designation: false,
+          stopPoi: false,
+          supplyPoi: false,
+          accidents: false,
+          route: false,
+        }}
+      />,
+    );
+    openSection("roadType");
     expect(screen.getByText(/太さ：道路の種類/)).toBeInTheDocument();
     expect(screen.queryByText("表示範囲が広すぎます。ズームインしてください。")).not.toBeInTheDocument();
   });
@@ -435,7 +473,8 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         layerVisibility={{
           elevation: false,
-          road: true,
+          roadType: true,
+          roadSurface: true,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -447,7 +486,7 @@ describe("MapLayersPanel", () => {
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,
     );
-    openSection("road");
+    openSection("roadSurface");
     expect(screen.getByRole("checkbox", { name: /砂利・締固め/ })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
   });
@@ -487,7 +526,7 @@ describe("MapLayersPanel", () => {
   it("自転車インフラの凡例に道路情報（路面）との違いの説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("bicycleInfra");
-    expect(screen.getByText(/道路情報レイヤーの/)).toBeInTheDocument();
+    expect(screen.getByText(/「路面の種類」レイヤーの/)).toBeInTheDocument();
   });
 
   it("停止要因POIの凡例（種別ごとの色分け）が表示される", () => {
@@ -580,7 +619,8 @@ describe("MapLayersPanel", () => {
         hasDetail={true}
         layerVisibility={{
           elevation: false,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: false,
           bicycleInfra: false,
           designation: false,
@@ -610,7 +650,8 @@ describe("MapLayersPanel", () => {
         hasDetail={true}
         layerVisibility={{
           elevation: false,
-          road: false,
+          roadType: false,
+          roadSurface: false,
           carStress: false,
           bicycleInfra: false,
           designation: false,

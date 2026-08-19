@@ -69,17 +69,23 @@ describe("computeLayerDataStatus", () => {
     expect(status).toEqual({});
   });
 
-  it("road/carStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
+  it("roadType/roadSurface/carStress/bicycleInfra/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
     const map = fakeMap({
-      emptySourceLayers: [{ sourceId: sourceIdFor("road"), sourceLayer: "road_surface" }],
+      emptySourceLayers: [{ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" }],
     });
     const status = computeLayerDataStatus(
       map,
       new Set(),
-      { road: true, carStress: true, bicycleInfra: true, designation: true },
+      { roadType: true, roadSurface: true, carStress: true, bicycleInfra: true, designation: true },
       LAYER_DATA_SOURCES,
     );
-    expect(status).toEqual({ road: "empty", carStress: "empty", bicycleInfra: "empty", designation: "empty" });
+    expect(status).toEqual({
+      roadType: "empty",
+      roadSurface: "empty",
+      carStress: "empty",
+      bicycleInfra: "empty",
+      designation: "empty",
+    });
   });
 
   it("elevation（ラスタ、source-layer無し）はエラー時のみerrorになり、emptyにはならない", () => {
@@ -90,28 +96,28 @@ describe("computeLayerDataStatus", () => {
     expect(errored).toEqual({ elevation: "error" });
   });
 
-  // レビュー指摘: road/carStress/bicycleInfra/designationが同じ(sourceId, sourceLayer)を
-  // 共有するため、素朴に実装するとquerySourceFeaturesが同じ引数で4回呼ばれていた
-  // （road_surfaceは実測6,273件、sourcedata等の高頻度イベントのたびに呼ばれるため無視できない
-  // コスト）。1回のcomputeLayerDataStatus呼び出し内では(sourceId, sourceLayer)ペアごとに
-  // 1回だけ呼ぶことを確認する。
-  it("同じ(sourceId, sourceLayer)を共有する4レイヤーが同時に見えていても、querySourceFeaturesは1回しか呼ばれない", () => {
+  // レビュー指摘: roadType/roadSurface/carStress/bicycleInfra/designationが同じ
+  // (sourceId, sourceLayer)を共有するため、素朴に実装するとquerySourceFeaturesが同じ引数で
+  // 5回呼ばれていた（road_surfaceは実測6,273件、sourcedata等の高頻度イベントのたびに
+  // 呼ばれるため無視できないコスト）。1回のcomputeLayerDataStatus呼び出し内では
+  // (sourceId, sourceLayer)ペアごとに1回だけ呼ぶことを確認する。
+  it("同じ(sourceId, sourceLayer)を共有する5レイヤーが同時に見えていても、querySourceFeaturesは1回しか呼ばれない", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({ querySourceFeaturesCalls: calls });
     computeLayerDataStatus(
       map,
       new Set(),
-      { road: true, carStress: true, bicycleInfra: true, designation: true },
+      { roadType: true, roadSurface: true, carStress: true, bicycleInfra: true, designation: true },
       LAYER_DATA_SOURCES,
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({ sourceId: sourceIdFor("road"), sourceLayer: "road_surface" });
+    expect(calls[0]).toEqual({ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" });
   });
 
   it("別の(sourceId, sourceLayer)を持つレイヤーはそれぞれ個別にquerySourceFeaturesが呼ばれる", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({ querySourceFeaturesCalls: calls });
-    computeLayerDataStatus(map, new Set(), { road: true, stopPoi: true, accidents: true }, LAYER_DATA_SOURCES);
+    computeLayerDataStatus(map, new Set(), { roadType: true, stopPoi: true, accidents: true }, LAYER_DATA_SOURCES);
     expect(calls).toHaveLength(3);
   });
 });
@@ -147,22 +153,29 @@ describe("clearStaleTrackedSourceErrors", () => {
 });
 
 describe("isRoadSurfaceGroupVisible", () => {
-  // レビュー指摘: 以前はregionZoomTooWideがroadのvisibilityだけを見ていたため、
-  // road自体はOFFのままcarStress等だけONで表示範囲が広すぎる場合に、
+  // レビュー指摘: 以前はregionZoomTooWideがroad（現roadType/roadSurface）のvisibilityだけを
+  // 見ていたため、road自体はOFFのままcarStress等だけONで表示範囲が広すぎる場合に、
   // ズーム範囲外の案内が一切出ない不整合があった。road_surfaceタイルを共有する
-  // 4レイヤー（road/carStress/bicycleInfra/designation）のいずれか1つでもONなら
-  // trueを返すことを確認する。
-  it("road/carStress/bicycleInfra/designationのいずれか1つでもONならtrue", () => {
-    expect(isRoadSurfaceGroupVisible({ road: true })).toBe(true);
+  // 5レイヤー（roadType/roadSurface/carStress/bicycleInfra/designation、改善計画T165で
+  // roadが論理2レイヤーへ分割）のいずれか1つでもONならtrueを返すことを確認する。
+  it("roadType/roadSurface/carStress/bicycleInfra/designationのいずれか1つでもONならtrue", () => {
+    expect(isRoadSurfaceGroupVisible({ roadType: true })).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ roadSurface: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ carStress: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ bicycleInfra: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ designation: true })).toBe(true);
   });
 
-  it("4レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
-    expect(isRoadSurfaceGroupVisible({ road: false, carStress: false, stopPoi: true, accidents: true })).toBe(
-      false,
-    );
+  it("5レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
+    expect(
+      isRoadSurfaceGroupVisible({
+        roadType: false,
+        roadSurface: false,
+        carStress: false,
+        stopPoi: true,
+        accidents: true,
+      }),
+    ).toBe(false);
   });
 
   it("空のvisibilityオブジェクトはfalse", () => {
