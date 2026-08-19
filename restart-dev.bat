@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-rem backend/frontendã‚’ãƒãƒ¼ãƒˆä¸Šã®æ—¢å­˜ãƒ—ãƒ­ã‚»ã‚¹ã‚’killã—ã¦ã‹ã‚‰ãƒãƒƒã‚¯ã‚°ãƒ©ã‚¦ãƒ³ãƒ‰ã§å†èµ·å‹•ã™ã‚‹ã€‚
-rem docs/architecture.mdã€Œãƒãƒƒã‚¯ã‚¨ãƒ³ãƒ‰é‹ç”¨ä¸Šã®æ³¨æ„ï¼ˆWindows: uvicorn --reload ã®å¤šé‡ãƒ—ãƒ­ã‚»ã‚¹ï¼‰ã€
-rem ãŒèª¬æ˜ã™ã‚‹ã€Œnetstat -ano | findstr :8000 ã§å…¨PIDã‚’ç¢ºèªã—taskkillã§çµ‚äº†ã—ã¦ã‹ã‚‰å†èµ·å‹•ã€
-rem ã¨ã„ã†æ‰‹å‹•æ‰‹é †ã‚’1ã‚³ãƒãƒ³ãƒ‰åŒ–ã—ãŸã‚‚ã®ï¼ˆæ”¹å–„è¨ˆç”»T47ãƒ»è¤‡é›‘åº¦å¹³è¡¡ãƒ¬ãƒ“ãƒ¥ãƒ¼ç¬¬4å›R-10ã§æ•´ç†ï¼‰ã€‚
-rem åœæ­¢ã®ã¿è¡Œã„ãŸã„å ´åˆã¯stop-dev.batã‚’ä½¿ã†ã€‚ãƒ­ã‚°ã¯.\logs\ï¼ˆ.gitignoreå¯¾è±¡ï¼‰ã¸å‡ºåŠ›ã•ã‚Œã‚‹ã€‚
+rem backend/frontend‚ğƒ|[ƒgã‚ÌŠù‘¶ƒvƒƒZƒX‚ğkill‚µ‚Ä‚©‚çƒoƒbƒNƒOƒ‰ƒEƒ“ƒh‚ÅÄ‹N“®‚·‚éB
+rem docs/architecture.mduƒoƒbƒNƒGƒ“ƒh‰^—pã‚Ì’ˆÓiWindows: uvicorn --reload ‚Ì‘½dƒvƒƒZƒXjv
+rem ‚ªà–¾‚·‚éunetstat -ano | findstr :8000 ‚Å‘SPID‚ğŠm”F‚µtaskkill‚ÅI—¹‚µ‚Ä‚©‚çÄ‹N“®v
+rem ‚Æ‚¢‚¤è“®è‡‚ğ1ƒRƒ}ƒ“ƒh‰»‚µ‚½‚à‚Ìi‰ü‘PŒv‰æT47E•¡G“x•½tƒŒƒrƒ…[‘æ4‰ñR-10‚Å®—jB
+rem ’â~‚Ì‚İs‚¢‚½‚¢ê‡‚Ístop-dev.bat‚ğg‚¤BƒƒO‚Í.\logs\i.gitignore‘ÎÛj‚Öo—Í‚³‚ê‚éB
 
 set "ROOT=%~dp0"
 set "BACKEND_PORT=8000"

@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
-rem restart-dev.batãŒä½¿ã†kill_portãƒ­ã‚¸ãƒƒã‚¯ã ã‘ã‚’å˜ç‹¬å®Ÿè¡Œã™ã‚‹ï¼ˆå†èµ·å‹•ã¯ã›ãšåœæ­¢ã®ã¿ï¼‰ã€‚
-rem ç”¨é€”ã¯restart-dev.batã®å†’é ­ã‚³ãƒ¡ãƒ³ãƒˆå‚ç…§ã€‚
+rem restart-dev.bat‚ªg‚¤kill_portƒƒWƒbƒN‚¾‚¯‚ğ’P“ÆÀs‚·‚éiÄ‹N“®‚Í‚¹‚¸’â~‚Ì‚İjB
+rem —p“r‚Írestart-dev.bat‚Ì–`“ªƒRƒƒ“ƒgQÆB
 
 set "BACKEND_PORT=8000"
 set "FRONTEND_PORT=3000"
