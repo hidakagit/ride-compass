@@ -31,12 +31,20 @@ import {
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
 import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
-import { getRouteStyleMode } from "@/components/Map/routeStyleModes";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
+  ROUTE_STYLE_MODES,
+  getRouteStyleMode,
   isRouteStyleModeId,
   type RouteStyleModeId,
 } from "@/components/Map/routeStyleModes";
+import LayerChip from "@/components/Map/LayerChip";
+// 「生成したルートの色分け」セクション（改善計画: 地図の見え方パネルのグルーピングを
+// 地図上チップと統一）で使うモード選択・凡例チェックボックスの見た目は、MapLayersPanel側の
+// 既存スタイルをそのまま再利用する（CSS Modulesはクラス名の対訳表を返すだけのため、
+// 別コンポーネントからのimportでも問題なく使える。同じ見た目のUIをここだけのために
+// 複製しない）。
+import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
@@ -584,22 +592,6 @@ export default function Home() {
     ],
   );
 
-  // 「地図の見え方」内のルート未生成案内から「ルートを作る」へ誘導する。デスクトップは
-  // 該当ブロックを開き、モバイルは「ルートを作る」シートを開く。開いた後の再レンダーを
-  // 待ってから（次フレームで）スクロール・フォーカスする。
-  const handleGoToGenerate = useCallback(() => {
-    if (isMobile) {
-      setMobileSheet("route");
-    } else {
-      setGenerateOpen(true);
-    }
-    requestAnimationFrame(() => {
-      const heading = document.getElementById(GENERATE_SECTION_TITLE_ID);
-      heading?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-      heading?.focus?.({ preventScroll: true });
-    });
-  }, [isMobile, setGenerateOpen]);
-
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback((sheet: "route" | "map" | "research" | "developer") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
@@ -752,7 +744,77 @@ export default function Home() {
             （評価重み・車ストレスレシピ、renderResearchSectionBody参照）とは分け、
             RouteListの並びであるこのブロックに残す。 */}
         {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
+        {renderRouteColorSectionBody()}
       </>
+    );
+  }
+
+  // 「生成したルートの色分け」セクション（改善計画: 地図の見え方パネルのグルーピングを
+  // 地図上チップと統一）。以前はMapLayersPanel（地図の見え方）内の独立見出しだったが、
+  // 「ルートを作る＝ルートに関する制御、地図の見え方＝地図自体の制御」という役割分担
+  // （実機フィードバック）に沿って、選択中ルート自体の色分け設定はこちらへ移設した。
+  // 見た目はMapLayersPanel.module.cssのクラスをそのまま再利用する（上記import参照）。
+  // ルート未生成時の案内は、以前は「地図の見え方」から「ルートを作る」への誘導リンクを
+  // 持っていたが、この移設によりリンク自体が不要になった（既にこのパネルの中にいるため）。
+  function renderRouteColorSectionBody() {
+    const routeStyleMode = getRouteStyleMode(routeStyleModeId);
+    function handleRouteModeSelect(id: RouteStyleModeId) {
+      setRouteStyleModeId(id);
+      if (!layerVisibility.route) handleLayerToggle("route", true);
+    }
+    return (
+      <div className={layerPanelStyles.group}>
+        <h2 className={layerPanelStyles.groupTitle}>生成したルートの色分け</h2>
+        {!hasDetail ? (
+          <p className={layerPanelStyles.mutedHint}>ルートを生成・選択すると使えます。</p>
+        ) : (
+          <>
+            <LayerChip
+              label="表示"
+              ariaLabel="ルートレイヤーを表示"
+              on={layerVisibility.route}
+              onClick={() => handleLayerToggle("route", !layerVisibility.route)}
+            />
+            <div role="radiogroup" aria-label="ルートの色分け" className={layerPanelStyles.modeGroup}>
+              {ROUTE_STYLE_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode.id === routeStyleModeId}
+                  onClick={() => handleRouteModeSelect(mode.id)}
+                  className={
+                    mode.id === routeStyleModeId
+                      ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
+                      : layerPanelStyles.modeItem
+                  }
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <div className={layerPanelStyles.legendCheckboxList}>
+              {routeStyleMode.legend.map((entry) => {
+                const visible = !hiddenRouteLegendKeys.includes(entry.key);
+                const rowClassName = entry.isFallback
+                  ? `${layerPanelStyles.legendCheckboxRow} ${layerPanelStyles.legendCheckboxRowFallback}`
+                  : layerPanelStyles.legendCheckboxRow;
+                return (
+                  <label key={entry.key} className={rowClassName}>
+                    <input
+                      type="checkbox"
+                      checked={visible}
+                      onChange={() => handleRouteLegendToggle(entry.key)}
+                    />
+                    <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
+                    {entry.label}
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
     );
   }
 
@@ -905,12 +967,6 @@ export default function Home() {
           onStaticFilterAxisSetHidden={handleStaticFilterAxisSetHidden}
           regionZoomTooWide={regionZoomTooWide}
           layerDataStatus={layerDataStatus}
-          routeStyleModeId={routeStyleModeId}
-          onRouteStyleModeChange={setRouteStyleModeId}
-          hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-          onRouteLegendToggle={handleRouteLegendToggle}
-          hasDetail={hasDetail}
-          onGoToGenerate={handleGoToGenerate}
           hasHiddenFilters={hasHiddenFilters}
           onClearAllFilters={handleClearAllFilters}
         />
