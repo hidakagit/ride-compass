@@ -31,9 +31,16 @@ class PrimaryAttributeSpec(BaseModel):
     """一次属性の宣言。`ingest_fn`はモジュールパス文字列（`"app.domain.osm_adapter.osm_way_to_way_spec"`
     のような参照）で持ち、実体をimportしない（レジストリ自体は取込パイプラインへ依存しない、
     宣言のみのモジュールにするため）。
+
+    `label`は一次属性のユーザー向け正式名称（改善計画: 地図レイヤー階層の次数反転）。
+    地図チップ・サイドバー・研究タブが表示する「観測データ」側の名称の単一ソースで、
+    `export_openapi.py`がaxis-catalog.jsonの`primary_attributes[]`へ書き出し、フロントは
+    ここから略名（4文字以下、地図チップ用）への対応表だけを別途持つ（片側import、
+    設計原則2）。
     """
 
     attr_id: str
+    label: str
     source: str
     geometry: Geometry
     dtype: DType

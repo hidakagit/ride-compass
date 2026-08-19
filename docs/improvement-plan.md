@@ -1734,7 +1734,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 | 1次 | 補給・休憩ポイント | 補給休憩 | なし（軸外・評価に不使用） |
 | 1次 | 自動車通行可否 | 車両可否 | 新規（レイヤーなし・T163のドリフト修正で材料に昇格） |
 
-### - [ ] T163. レジストリを1次/2次の命名・材料の単一ソースへ完全化する 規模S〜M
+### - [x] T163. レジストリを1次/2次の命名・材料の単一ソースへ完全化する 規模S〜M（2026-08-19完了）
 
 - 発端: 上記の次数反転検討。導出の正しさはレジストリの`inputs`の完全性に依存するが、
   検討中に**car_stressの実装（carStressExpression.ts・backend traffic.py共、
@@ -1750,6 +1750,23 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   source等）を書き出す。
 - 完了条件: axis-catalog.jsonに全1次属性の正式名が含まれ、car_stressのinputsが実装の
   消費材料と一致すること。backend pytest・エクスポート整合テストgreen。
+- 実装メモ（2026-08-19完了）: `registry.py`の`PrimaryAttributeSpec`へ`label: str`
+  （必須フィールド）を追加し、`registry_defaults.py`の全16一次属性へ確定命名表どおりの
+  正式名を設定。car_stress軸の`inputs`へ`motor_vehicle_access`を追加し、
+  description・上記の起票メモへ経緯を追記。surface_q軸の`display.label`を
+  「路面」→「舗装質」へ改名（axis_id自体・重みラベル「舗装」は変更なし）。
+  `export_openapi.py`が`axis-catalog.json`へ`primary_attributes[]`
+  （attr_id/label/shared）を書き出すよう拡張。
+  検証: 新規回帰テスト2件（`test_car_stress_axis_includes_motor_vehicle_access`・
+  `test_all_primary_attributes_have_non_empty_labels`）を`test_registry_defaults.py`へ
+  追加。前者は「break→verify→restore」で実際に検知することを確認（`inputs`から
+  motor_vehicle_accessを一時的に外して赤化→復元して緑化）。`test_registry.py`の
+  テスト用ファクトリ`_attr()`にも`label`を追加（pydantic必須フィールド化に伴う修正）。
+  backend pytest 818件（新規2件）・axis-catalog.json再生成後の再実行で差分ゼロ
+  （生成の冪等性を確認）。frontend側はAXIS_LABELSがカタログの`display.label`を
+  そのまま参照する既存実装のため無改修で「舗装質」へ追従、frontend vitest 346件・
+  tsc・eslint全green（既存の「路面」文字列を使うテストはlayer id「road」の
+  独立したテスト用ラベルで、軸カタログとは無関係のため影響なし）。
 
 ### - [ ] T164. フロント一次属性カタログと双方向導出ヘルパーを新設する 規模S
 
