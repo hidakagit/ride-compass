@@ -1457,8 +1457,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   `backend/app/domain/recipe_definition.py`・`backend/tests/test_recipe_definition.py`を削除。
   grep再確認で参照ゼロ、backend pytest 814件（821件から7件減、削除したテスト分）green。
 
-### - [ ] T156. registry_defaults.pyとevaluation.pyの軸ID集合のドリフト検知テストを追加する
-  規模S
+### - [x] T156. registry_defaults.pyとevaluation.pyの軸ID集合のドリフト検知テストを追加する
+  規模S（2026-08-19完了）
 
 - 発端: 統合レビュー統合-4（complexity F-2）。`registry_defaults.py`の軸ID集合（6軸）と
   `evaluation.py`の`AXIS_WEIGHT_FIELD_TO_AXIS_ID`（7キー=6軸+wind）・
@@ -1470,6 +1470,15 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   {"wind"}`相当の1行アサーションを追加する（`register_defaults()`呼び出し込み）。
 - 完了条件: backend pytest green。意図的に片方の辞書だけをズラして当該テストが
   failすることを実装時に手元で確認する。
+- 実装メモ（2026-08-19完了）: `test_registry_defaults.py`へ
+  `test_registry_axis_ids_match_evaluation_axis_weight_mapping`を追加
+  （`AXIS_WEIGHT_FIELD_TO_AXIS_ID`の値集合からwindを除いたものと、
+  `registry.all_axes()`の軸ID集合の一致を検証。`_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`は
+  `AXIS_WEIGHT_FIELD_TO_AXIS_ID`とキーの集合が常に同じ形で保守されており
+  （両方とも7軸固定の辞書リテラル、evaluation.py内で並んで定義）、片方を検証すれば
+  実用上十分なため後者のみ対象とした）。`evaluation.py`の`night_weight`マッピング先を
+  一時的に`"night_typo"`へ書き換えて当該テストが実際にfailすることを確認してから
+  元に戻した（テスト自体の有効性の検証）。backend pytest 815件（新規1件）green。
 
 ### - [ ] T157. MapView.tsxの閾値付きKEEPをレジストリ駆動レイヤーの実態に合わせて
   再定義する 規模S（基準整備のみ、コード変更なし）
