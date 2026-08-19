@@ -5,6 +5,7 @@
 import pytest
 
 from app.domain import registry
+from app.domain.evaluation import AXIS_WEIGHT_FIELD_TO_AXIS_ID
 from app.domain.registry_defaults import register_defaults
 
 
@@ -90,3 +91,23 @@ def test_register_defaults_is_idempotent_guarded():
     （二重登録によるレジストリ不整合を防ぐ、モジュールdocstring参照）。"""
     with pytest.raises(ValueError, match="already registered"):
         register_defaults()
+
+
+def test_registry_axis_ids_match_evaluation_axis_weight_mapping():
+    """registry_defaults.pyの登録軸集合と、evaluation.pyの
+    AXIS_WEIGHT_FIELD_TO_AXIS_ID（手書き辞書）の軸ID集合が一致することを検証する
+    （改善計画T156、統合レビュー2026-08-19 complexity F-2）。
+
+    レジストリはコスト計算（AXIS_WEIGHT_FIELD_TO_AXIS_ID・evaluate_axis_difficulties等）へは
+    接続されておらず（T142がtransform_fnの動的解決を意図的に見送ったため、改善計画T154・
+    docs/architecture.md「一次属性レジストリ・二次軸レジストリ」節参照）、両者は独立した
+    手書き管理のまま残っている。将来軸を追加・削除する際、片方だけ更新してももう片方の
+    既存テストは気づかない死角があったため、本テストで機械的に突き合わせる。
+
+    windはAXIS_WEIGHT_FIELD_TO_AXIS_IDにのみ存在し、レジストリには意図的に未登録
+    （`frontend/src/components/Map/axisLayers.ts`のコメント・`test_default_axes_are_registered_
+    without_conflict`参照）。
+    """
+    registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
+    weight_mapping_axis_ids = set(AXIS_WEIGHT_FIELD_TO_AXIS_ID.values())
+    assert weight_mapping_axis_ids - {"wind"} == registry_axis_ids
