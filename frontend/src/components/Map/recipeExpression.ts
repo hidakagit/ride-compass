@@ -17,9 +17,10 @@
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 
 // 判定対象外（highway未登録、*_breakdownのbase=Noneに対応）を表す出力センチネル。
-// 既存のCAR_STRESS_COLOR_EXPRESSION/SAFETY_COLOR_EXPRESSIONが`coalesce(*, -1)`で
-// 使っていたのと同じ値・同じ意味に揃える（MapLibreのcase/match式で数値と`null`を混在させる
-// 出力型の扱いが不安定なため、不明は-1という流儀にしてある）。
+// 既存のCAR_STRESS_COLOR_EXPRESSIONが`coalesce(*, -1)`で使っていたのと同じ値・同じ意味に
+// 揃える（旧SAFETY_COLOR_EXPRESSIONも同じ規約だったが、対応するsafetyExpression.tsごと
+// T148で削除済み。MapLibreのcase/match式で数値と`null`を混在させる出力型の扱いが不安定な
+// ため、不明は-1という流儀にしてある）。
 export const UNKNOWN_LEVEL = -1;
 
 // cycleway系タグの分類（domain/recipe.py: cycleway_adjustment）。cycleway_classは
