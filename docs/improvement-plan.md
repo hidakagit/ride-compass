@@ -1768,7 +1768,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   tsc・eslint全green（既存の「路面」文字列を使うテストはlayer id「road」の
   独立したテスト用ラベルで、軸カタログとは無関係のため影響なし）。
 
-### - [ ] T164. フロント一次属性カタログと双方向導出ヘルパーを新設する 規模S
+### - [x] T164. フロント一次属性カタログと双方向導出ヘルパーを新設する 規模S（2026-08-19完了）
 
 - 発端: 同上。2次→1次（地図）と1次→2次（評価側）の両方が同じ単一ソースから導出できる
   ことが全体最適の要。
@@ -1779,6 +1779,20 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 完了条件: 「カタログの全inputs属性が対応表に存在する（またはレイヤーなしと明示）」の
   ドリフト検知テストがgreen。frontend vitest・tsc・eslint green。
 - 依存: T163。
+- 実装メモ（2026-08-19完了）: `frontend/src/components/Map/primaryAttributes.ts`
+  （新設）に、`PRIMARY_ATTRIBUTES`（axis-catalog.json: primary_attributes[]をそのまま
+  反映）・`PRIMARY_ATTRIBUTE_LABELS`（正式名辞書）・`PRIMARY_ATTRIBUTE_CHIP_LABELS`
+  （UI固有の略名、確定命名表どおり全16属性ぶん）・`PRIMARY_ATTRIBUTE_LAYER_IDS`
+  （UI固有の表示レイヤー対応、Partial）・`PRIMARY_ATTRIBUTES_WITHOUT_LAYER`
+  （レイヤー無しの明示allowlist、8件）を実装。導出関数`axisMaterials(axisId)`・
+  `attrConsumers(attrId)`（逆導出）・`axisMaterialLayerIds(axisId)`（材料のうち
+  表示レイヤーを持つものだけを重複無しで返す、T167用）を提供。
+  highway/surfaceは現状「道路情報」レイヤー（road、1レイヤーに2属性同居）を暫定的に
+  指す設計にした（T165で論理2レイヤーへ分割後にこの2行だけ更新する前提）。
+  検証: `primaryAttributes.test.ts`（新規9件）。ドリフト検知2件
+  （略名網羅性・4文字以内／表示レイヤー対応表の網羅性〔レイヤー有り・明示的レイヤー無し
+  のどちらか片方に必ず属し両方に属さない〕）はbreak→verify→restoreで実際に検知することを
+  確認（略名を1件削除→赤化→復元→緑化）。frontend vitest 355件・tsc・eslint全green。
 
 ### - [ ] T165. 道路情報レイヤーを「道路の種類」「路面の種類」へ論理分割する 規模M
 
