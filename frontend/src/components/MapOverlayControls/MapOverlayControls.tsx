@@ -200,6 +200,7 @@ function ChipButton({
   panelRect,
   registerRow,
   expandDirection = "right",
+  tileVariant,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -214,6 +215,12 @@ function ChipButton({
   panelContent: ReactElement;
   panelRect: PanelRect | undefined;
   registerRow: (el: HTMLDivElement | null) => void;
+  /** 推定グループの軸タイル（改善計画: モバイルで推定の横並びが複数行に折り返される
+   * という実機フィードバックへの対応）だけに付ける印。CSS側（.chipRowItemAxis、
+   * モバイル幅のみ）でタイルをアイコンのみへ縮小し、略名テキスト（.iconLabel）は
+   * 視覚的に隠す（アクセシビリティ上の名前は保つvisually-hidden、消すのではない）。
+   * 隠した略名は▼展開パネル側にrenderAxisTileが.detailAxisLabelとして出す。 */
+  tileVariant?: "axis";
   /** 展開方向（改善計画T169、地図UIのマトリックス化）。
    * "down"（▼→▲、行の直下へ通常のドキュメントフローで展開）と"right"（▶→▽回転、
    * document.bodyへポータルしてposition: fixedで行の右に浮かせる。個々のメンバータイル・
@@ -228,7 +235,10 @@ function ChipButton({
   const arrowGlyph = expandDirection === "right" || expandDirection === "flatRight" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
   return (
-    <div ref={registerRow} className={styles.chipRowItem}>
+    <div
+      ref={registerRow}
+      className={tileVariant === "axis" ? `${styles.chipRowItem} ${styles.chipRowItemAxis}` : styles.chipRowItem}
+    >
       <div className={styles.iconToggleRow}>
         <button
           type="button"
@@ -445,8 +455,14 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
           isExpanded={canExpand && expandedIds.has(key)}
           onExpandToggle={() => toggleExpanded(key, "down")}
           expandDirection="down"
+          tileVariant="axis"
           panelContent={
             <div className={styles.detailBody}>
+              {/* モバイルではタイル本体の略名を.chipRowItemAxisで視覚的に隠す（横並びを
+                  1行に近づけるための縮小、ChipButtonのtileVariantコメント参照）ため、
+                  隠した分をここで見出しとして出す。デスクトップでは冗長になるが、
+                  タイル本体にも同じ文字が出ているだけで害はない。 */}
+              <div className={styles.detailAxisLabel}>{axis.chipLabel}</div>
               {axis.proxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
               {materialsNote}
             </div>
@@ -476,8 +492,10 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         isExpanded={canExpand && expandedIds.has(key)}
         onExpandToggle={() => toggleExpanded(key, "down")}
         expandDirection="down"
+        tileVariant="axis"
         panelContent={
           <div className={styles.detailBody}>
+            <div className={styles.detailAxisLabel}>{axis.chipLabel}</div>
             {showLegend && renderLegendDetails(member.legendDetails!)}
             {materialsNote}
           </div>
