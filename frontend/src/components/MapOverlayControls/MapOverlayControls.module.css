@@ -319,19 +319,12 @@
   flex-shrink: 0;
 }
 
-/* グループチップ（改善計画T128）を展開したときのメンバー1件ぶん。ヘッダ行（アイコン+
-   ON/OFF、.detailRowを流用）の下に、ONかつ凡例を持つメンバーだけ.memberLegendを続ける
-   縦積みのため、横並びの.detailRowとは別クラスにする。 */
-.memberRow {
+/* 観測グループの▼内訳（改善計画T169）: category小見出しの下に並ぶメンバータイル
+   （ChipButton、推定グループの軸タイルと同じ四角タイル）の縦積み。 */
+.memberColumn {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-}
-
-/* メンバーの凡例内訳はどのレイヤーのものか一目で分かるよう、アイコン幅ぶん右へ
-   インデントする（.detailSwatchDotの直径9px+.detailRowのgap 0.4rem+アイコン14pxの目安）。 */
-.memberLegend {
-  margin-left: 1.3rem;
+  gap: var(--space-1);
 }
 
 .detailSwatchBarDashed {
@@ -344,29 +337,15 @@
   );
 }
 
-/* 推定グループの▶内訳（改善計画T169）の上段: SECONDARY_AXES6軸をアイコン+略名の
-   マトリックス行として横並びに見渡せるようにする。パネル幅（18rem）に収まらない分は
-   折り返す（横スクロールにはしない。指では扱いにくく、6軸なら2行でも一覧性は保てるため）。 */
+/* 推定グループの▶内訳（改善計画T169）: SECONDARY_AXES6軸のタイル（ChipButton）を
+   アイコン+略名の四角タイルとして横並びに見渡せるようにする。パネル幅（18rem）に
+   収まらない分は折り返す（横スクロールにはしない。指では扱いにくく、6軸なら2行でも
+   一覧性は保てるため）。タイル自体の見た目（四角アイコン+略名、ON/OFF）は地図チップ
+   本体・観測グループのメンバータイルと同じChipButton（.iconChip/.iconChipActive）を
+   再利用するため、ここでは並び方向だけを定義する。 */
 .matrixRow {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-}
-
-/* マトリックス行の1セル。地図チップ本体の.iconChip/.iconChipActiveと同じ見た目に揃え、
-   「これも同じ仲間のON/OFFボタン」であることを一目で分かるようにする。 */
-.matrixCell {
-  composes: iconChip;
-}
-
-.matrixCellActive {
-  composes: iconChipActive;
-}
-
-/* 専用の表示レイヤーを持たない軸（勾配・舗装質・夜間）向け、タップできない情報セル
-   （<button>ではなく<div>、secondaryAxes.tsのproxyHintをtitleで添える）。押せないことが
-   一目で分かるよう.iconChipより薄く見せる。 */
-.matrixCellInfo {
-  opacity: 0.55;
-  cursor: default;
+  align-items: flex-start;
 }
