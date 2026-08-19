@@ -56,23 +56,34 @@
   pointer-events: auto;
 }
 
-/* アイコンチップと▶トグルのペア。1レイヤーぶんの行そのもの（chipRowの直接の子）。
-   ▶はこのチップ自身の開閉スイッチなので、間隔（gap）は詰めて見た目の対応関係を
-   分かりやすくする（実機フィードバック「▶をもう少しアイコン側に近づけて」）。
-   内訳パネル（.detailPanel）はこの行の子ではなくdocument.bodyへポータルしてposition:
-   fixedで浮かせる（MapOverlayControls.tsx参照。chipRowのoverflow-y: autoの下で
-   position: absoluteのまま行の右にはみ出させると、CSSの仕様上暗黙にoverflow-xも
-   autoになりパネルがクリップされて見えなくなるため）。そのためこの行自体は
-   position: relativeを持たない、ただのflex行。 */
-.iconWithToggle {
+/* アイコンチップ+展開トグルの行と、展開時の内訳パネルを縦に積む外枠（chipRowの直接の子、
+   改善計画T169でマトリックス化する前は「アイコンチップと▶トグルのペア」だけのflex行
+   だったが、観測グループの▼展開（内訳を行の直下へ通常のフローで積む）を追加するため
+   縦積みのラッパーへ変更した）。 */
+.chipRowItem {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-1);
   flex-shrink: 0;
   /* .chipRow（縦方向flex）はalign-items既定値のstretchで、直接の子をchipRowの幅
      いっぱいに広げる。align-self: flex-startで内容量ぶんの幅に戻し、チップの右側に
      余分な当たり判定の空白ができないようにする。 */
   align-self: flex-start;
+}
+
+/* アイコンチップと▶/▼トグルのペア。展開トグルはこのチップ自身の開閉スイッチなので、
+   間隔（gap）は詰めて見た目の対応関係を分かりやすくする（実機フィードバック
+   「▶をもう少しアイコン側に近づけて」）。▶方向（推定グループ・単独チップ）の内訳パネル
+   （.detailPanel）はこの行の子ではなくdocument.bodyへポータルしてposition: fixedで浮かせる
+   （MapOverlayControls.tsx参照。chipRowのoverflow-y: autoの下でposition: absoluteのまま
+   行の右にはみ出させると、CSSの仕様上暗黙にoverflow-xもautoになりパネルがクリップされて
+   見えなくなるため）。▼方向（観測グループ）の内訳パネル（.detailPanelInline）は.chipRowItem
+   側に通常のフローで積むためポータル不要、この行自体はposition: relativeを持たない
+   ただのflex行のまま。 */
+.iconToggleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 /* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
@@ -158,21 +169,26 @@
   transition: transform 0.15s ease;
 }
 
+/* ▶方向（推定グループ・単独チップ）: 開くと右向き三角が下向きへ回転し、
+   「内訳が出た」ことを示す。 */
 .expandArrowOpen {
   transform: rotate(90deg);
 }
 
-/* ▶を開いたときの内訳パネル本体。document.bodyへポータルし、position: fixedで
-   MapOverlayControls.tsxがJSで測った行の右隣（top/left/maxWidthはインラインstyle）に
-   浮かせる。chipRowの子として素直にposition: absoluteで右へ張り出す方式だと、chipRowの
-   overflow-y: autoの下でoverflow-xも暗黙にauto化しパネルがクリップされて見えなくなる
-   不具合があったため、chipRowの外（document.body直下）へ出している。
-   地図を覆いすぎないよう不透明な面色ではなく半透明+ぼかしにして「薄く」見せる
-   （実機フィードバック「常時横に出てくると見にくい」「押したときだけ薄く出るように」）。 */
-.detailPanel {
-  position: fixed;
-  z-index: 30;
+/* ▼方向（観測グループ、改善計画T169）: 開くと下向き三角が上向き（▲、閉じれば戻る）へ
+   180度回転する。▶方向の90度回転とは向きの意味が異なる（▼は元から下を向いているため、
+   90度回転では横向きになってしまい「閉じる」合図として読めない）ため別クラスにする。 */
+.expandArrowDownOpen {
+  transform: rotate(180deg);
+}
+
+/* ▶/▼を開いたときの内訳パネルの共通の見た目（背景・枠・ぼかし）。地図を覆いすぎないよう
+   不透明な面色ではなく半透明+ぼかしにして「薄く」見せる（実機フィードバック「常時横に
+   出てくると見にくい」「押したときだけ薄く出るように」）。位置決めは.detailPanel
+   （▶方向、position: fixed）と.detailPanelInline（▼方向、通常のフロー）で分ける。 */
+.detailPanelBase {
   width: 18rem;
+  max-width: calc(100vw - 2 * var(--space-3));
   padding: 0.5rem 0.7rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
@@ -183,9 +199,33 @@
   /* .iconChipと同じ理由（ピンチの片方の指がここに乗ると地図のジェスチャーとして
      確定しないことがあるため） */
   touch-action: none;
-  /* document.body直下（.wrapperの外）にポータルしているためpointer-events: none
-     は継承しない。明示しなくても既定でautoだが、他の要素と同様に明記しておく。 */
   pointer-events: auto;
+}
+
+/* ▶方向の内訳パネル本体。document.bodyへポータルし、position: fixedで
+   MapOverlayControls.tsxがJSで測った行の右隣（top/left/maxWidthはインラインstyle）に
+   浮かせる。chipRowの子として素直にposition: absoluteで右へ張り出す方式だと、chipRowの
+   overflow-y: autoの下でoverflow-xも暗黙にauto化しパネルがクリップされて見えなくなる
+   不具合があったため、chipRowの外（document.body直下）へ出している。
+   document.body直下（.wrapperの外）にポータルしているためpointer-events: noneは継承しない。 */
+.detailPanel {
+  composes: detailPanelBase;
+  position: fixed;
+  z-index: 30;
+}
+
+/* ▼方向の内訳パネル本体（改善計画T169）。.chipRowItem内の通常のフローに積むだけで、
+   chipRowの縦スクロールにそのまま乗る（chipRowの外へポータルする必要が無い。▼展開は
+   行の直下へ広がるだけなので、▶方向のoverflow-x暗黙auto化問題が最初から起きないため）。
+   observed（category数×メンバー数が多いと長くなる）が下の推定/ルートチップをchipRowの
+   スクロール領域外へ押し出してしまわないよう、自身にmax-height+overflow-yを持たせて
+   内部スクロールにする（実機確認: 観測グループを全展開するとchipRowのscrollHeightが
+   clientHeightを超え、推定/ルートチップが見えなくなる不具合を確認したための対応）。 */
+.detailPanelInline {
+  composes: detailPanelBase;
+  margin-top: 0.1rem;
+  max-height: min(45vh, 16rem);
+  overflow-y: auto;
 }
 
 /* legendDetailsが無いとき（描く凡例が無い）だけの案内文（例:「ズームインすると
@@ -279,19 +319,12 @@
   flex-shrink: 0;
 }
 
-/* グループチップ（改善計画T128）を展開したときのメンバー1件ぶん。ヘッダ行（アイコン+
-   ON/OFF、.detailRowを流用）の下に、ONかつ凡例を持つメンバーだけ.memberLegendを続ける
-   縦積みのため、横並びの.detailRowとは別クラスにする。 */
-.memberRow {
+/* 観測グループの▼内訳（改善計画T169）: category小見出しの下に並ぶメンバータイル
+   （ChipButton、推定グループの軸タイルと同じ四角タイル）の縦積み。 */
+.memberColumn {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-}
-
-/* メンバーの凡例内訳はどのレイヤーのものか一目で分かるよう、アイコン幅ぶん右へ
-   インデントする（.detailSwatchDotの直径9px+.detailRowのgap 0.4rem+アイコン14pxの目安）。 */
-.memberLegend {
-  margin-left: 1.3rem;
+  gap: var(--space-1);
 }
 
 .detailSwatchBarDashed {
@@ -302,4 +335,17 @@
     transparent 2px,
     transparent 4px
   );
+}
+
+/* 推定グループの▶内訳（改善計画T169）: SECONDARY_AXES6軸のタイル（ChipButton）を
+   アイコン+略名の四角タイルとして横並びに見渡せるようにする。パネル幅（18rem）に
+   収まらない分は折り返す（横スクロールにはしない。指では扱いにくく、6軸なら2行でも
+   一覧性は保てるため）。タイル自体の見た目（四角アイコン+略名、ON/OFF）は地図チップ
+   本体・観測グループのメンバータイルと同じChipButton（.iconChip/.iconChipActive）を
+   再利用するため、ここでは並び方向だけを定義する。 */
+.matrixRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: flex-start;
 }
