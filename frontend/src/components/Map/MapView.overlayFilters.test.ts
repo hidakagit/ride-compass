@@ -2,7 +2,8 @@
 // window.location参照コードを実行する（改善計画: environmentMatchGlobs修正）ため、他の
 // Map/*.test.tsと違いjsdom環境が必要（既定のまま。node環境docblockを付けない）。
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as recipeExpression from "@/components/Map/recipeExpression";
 import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
@@ -252,5 +253,29 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
 
     expect(evaluateFilter(supplyFilter, { kind: "traffic_signals" })).toBe(false);
     expect(evaluateFilter(supplyFilter, { kind: "convenience" })).toBe(true);
+  });
+});
+
+// 改善計画T136: 「車との近さ」(N2)は車ストレス・安全度の両方が内部で参照する共通の土台の
+// ため、setStaticOverlayFilters内ではcarClosenessExpr()を1回だけ計算し両方（
+// buildCarStressExpression/buildSafetyExpression）へ渡す設計（MapView.tsx参照）。backend側の
+// test_evaluation.py: test_compute_edge_cost_calls_car_closeness_once_per_edgeと対称な
+// 回帰テストで、以前は無かった呼び出し回数の直接検証を追加する。
+describe("setStaticOverlayFilters（carClosenessExprの呼び出し回数）", () => {
+  it("1回の呼び出しにつきcarClosenessExprを1回だけ計算する", () => {
+    const spy = vi.spyOn(recipeExpression, "carClosenessExpr");
+    const map = fakeMap();
+
+    setStaticOverlayFilters(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map as any,
+      hiddenKeys({}),
+      DEFAULT_CAR_STRESS_RECIPE,
+      DEFAULT_SAFETY_RECIPE,
+      ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });
