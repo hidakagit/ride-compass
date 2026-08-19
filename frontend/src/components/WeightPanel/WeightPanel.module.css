@@ -43,6 +43,19 @@
   transform: rotate(45deg);
 }
 
+/* 次数タグ（改善計画: 研究パネルも次数でグループ化。WeightPanel.tsxのコメント参照）。
+   地図の見え方パネルの次数見出し（MapLayersPanel.module.css: .natureTitle）と同じ
+   色トークンを使い、次数という概念自体は同一の視覚言語で表す。 */
+.tierBadge {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-muted-strong);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 0.3rem;
+}
+
 .groupBody {
   display: flex;
   flex-direction: column;

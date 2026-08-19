@@ -500,10 +500,13 @@ function applyRoadLayerState(
 // 実機フィードバック「1次要素をどれかOFFにして何が支配的なのか見たい」（全部ONのまま
 // どれが効いているか地図全体で見比べたい、という趣旨）を受け、line-offsetで道路と平行な
 // 複数トラックへ横並びに分離し、同時にONにした素材をすべて見えるようにする。
-// トラック間隔はline-width（3px）と揃え、隣接トラックが隙間なく境界を接するようにする
-// （松の下敷き線幅9px＝中心から±4.5pxの範囲に、3本ONの最外トラック（オフセット±3px、
-// 自身の太さ3pxで±1.5px）の外縁ちょうど±4.5pxが収まり、下敷きからはみ出さない）。
-const MATERIAL_TRACK_OFFSET_STEP = 3;
+// トラック間隔は当初line-width（3px）と揃え隙間なく境界を接する値にしていたが、3本ON時に
+// 全体の帯（オフセット±3px＋自身の太さ3pxで外縁±4.5px＝9px幅）が「地図の線が太すぎる」という
+// 実機フィードバックを受けた。隣接トラックがline-widthの半分弱ずつ重なる2pxへ縮め、3本ON時の
+// 全体の帯を±3.5px（7px幅）まで狭める（松の下敷き線幅9px＝中心から±4.5pxの範囲には
+// 引き続き収まり、下敷きからはみ出さない）。隣接トラック同士の重なりは1px程度に収まり、
+// 色の切り替わりとして視認できる範囲（完全な塗り潰しにはならない）。
+const MATERIAL_TRACK_OFFSET_STEP = 2;
 const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_ID, DESIGNATION_LAYER_ID] as const;
 
 // 現在ONの素材レイヤー集合から各レイヤーのline-offsetを計算して適用する。ON中のものだけを

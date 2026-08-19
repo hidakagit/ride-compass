@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   LAYER_DATA_STATUS_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
@@ -25,6 +26,7 @@ import {
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+import { InfoIcon } from "@/components/Map/icons";
 import LayerChip from "@/components/Map/LayerChip";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -111,6 +113,69 @@ export default function MapLayersPanel({
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
+
+  // 各メンバーの説明（panelHint/panelHintDetail/proxyHint）の開閉状態。実機フィードバック
+  // 「各メンバーの説明は、情報アイコン（！）を押したら見えるようにして」への対応。以前は
+  // セクションを開く（<details>）だけで説明文が常に見えており、車ストレスの8行に及ぶ
+  // 判定内訳などが常時表示されて読みにくいという指摘につながっていた。研究タブの
+  // FieldLabel（recipeControls.tsx、評価重み入力の説明トグルと同じ部品）をそのまま再利用し、
+  // 「見出し（ON/OFFの下）に説明トグルを置き、押すまで説明文自体は非表示」という統一挙動に
+  // する。キーはlayer.idまたは`axis-proxy-${axisId}`（専用レイヤーを持たない推定軸）。
+  const [openHintKeys, setOpenHintKeys] = useState<ReadonlySet<string>>(new Set());
+  function toggleHintOpen(key: string) {
+    setOpenHintKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+  // panelHint（＋panelHintDetailがあれば内訳の箇条書き）を、情報アイコンのトグルの下へ
+  // まとめて出す共通描画。renderStandardSectionBody・elevationケース・
+  // renderProxyAxisSectionの3箇所が共有する（以前はmutedHintの<p>を直接埋め込むだけの
+  // 3箇所バラバラの実装だった）。研究タブのFieldLabel（recipeControls.tsx）と同趣向だが、
+  // あちらは「フィールド名＋アイコン」がラベル代わりを兼ねる構成（フィールド名自体が
+  // 他に表示されていない）のに対し、こちらはレイヤー名が既に見出し（<summary><h3>）に
+  // 出ているため、ボタンの可視テキストは汎用の「説明」に留め、アクセシブル名
+  // （aria-label）の方にレイヤー固有の名前（subjectLabel）を使い分ける。
+  function renderHintToggle(
+    key: string,
+    subjectLabel: string,
+    hint: string | undefined,
+    detail?: readonly string[],
+  ) {
+    if (!hint) return null;
+    const open = openHintKeys.has(key);
+    return (
+      <>
+        <button
+          type="button"
+          className={styles.hintToggle}
+          aria-expanded={open}
+          aria-label={`${subjectLabel}の説明を${open ? "隠す" : "表示"}`}
+          onClick={() => toggleHintOpen(key)}
+        >
+          <InfoIcon size={13} />
+          <span aria-hidden="true">説明</span>
+        </button>
+        {open && (
+          <>
+            <p className={styles.mutedHint}>{hint}</p>
+            {detail && detail.length > 0 && (
+              <ul className={styles.hintList}>
+                {detail.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </>
+    );
+  }
 
   // 路面の種類・道路の種類の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditor
   // ごと廃止し、ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら
@@ -291,14 +356,7 @@ export default function MapLayersPanel({
   function renderStandardSectionBody(layer: MapLayerDescriptor) {
     return (
       <>
-        {layer.panelHint && <p className={styles.mutedHint}>{layer.panelHint}</p>}
-        {layer.panelHintDetail && layer.panelHintDetail.length > 0 && (
-          <ul className={styles.hintList}>
-            {layer.panelHintDetail.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        )}
+        {renderHintToggle(layer.id, layer.label, layer.panelHint, layer.panelHintDetail)}
         {renderDataStatusHint(layer.id)}
         {renderOffHint(layer.id)}
         {staticFilterAxesFor(layer.id).map(renderStaticFilterAxis)}
@@ -334,7 +392,7 @@ export default function MapLayersPanel({
         // ラスタタイルのためデータ取得状態は取得失敗のみ検知対象（MapView.tsx参照）。
         return (
           <>
-            <p className={styles.mutedHint}>{layer.panelHint}</p>
+            {renderHintToggle(layer.id, layer.label, layer.panelHint)}
             {renderDataStatusHint(layer.id)}
           </>
         );
@@ -422,7 +480,7 @@ export default function MapLayersPanel({
       <div key={`axis-proxy-${axis.axisId}`} className={styles.proxyAxisSection}>
         <h3 className={styles.proxyAxisTitle}>{axis.label}</h3>
         <div className={styles.proxyAxisBody}>
-          {axis.proxyHint && <p className={styles.mutedHint}>{axis.proxyHint}</p>}
+          {renderHintToggle(`axis-proxy-${axis.axisId}`, axis.label, axis.proxyHint)}
         </div>
       </div>
     );

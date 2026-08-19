@@ -138,9 +138,19 @@ export default function WeightPanel({
       onOverrideEnabledChange={onOverrideEnabledChange}
     >
       <div className={styles.groups}>
+        {/* 次数タグ（改善計画: 研究パネルも次数でグループ化してほしいという実機
+            フィードバックへの対応。地図の見え方パネルの「観測データ/推定指標（合成）」
+            グループ見出しと同じ「次数で束ねる」考え方を研究タブにも適用するが、研究タブは
+            開発者・研究者向けの画面のため地図側のような言い換え（観測/推定）はせず、
+            docs/improvement-plan.md「評価システムの層構造再設計」の呼称（0次/1次/2次/3次）を
+            そのまま使う。おすすめ度の重みは候補ルート間の重み付き合成
+            （route_scorer.py: RouteScorer.score、3次相当）、区間難易度の重みは
+            route_preference.yamlの各軸[2次要素]と1:1対応する重み（下記コメント参照）で
+            2次相当。表示順「3次→2次」は元々この並びだったため変更していない。 */}
         <details className={styles.group}>
           <summary className={styles.groupHeader}>
             <span aria-hidden="true" className={styles.groupChevron} />
+            <span className={styles.tierBadge}>3次</span>
             おすすめ度の重み[候補一覧内の相対評価]
           </summary>
           <div className={styles.groupBody}>
@@ -153,6 +163,7 @@ export default function WeightPanel({
         <details className={styles.group}>
           <summary className={styles.groupHeader}>
             <span aria-hidden="true" className={styles.groupChevron} />
+            <span className={styles.tierBadge}>2次</span>
             区間難易度の重み[絶対評価]
           </summary>
           <div className={styles.groupBody}>

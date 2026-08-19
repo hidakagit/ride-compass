@@ -130,6 +130,16 @@ export interface MapLayerDescriptor {
   panelHintDetail?: readonly string[];
 }
 
+// ramp軸（RAMP_AXES、現状stop_density/accident）のpanelHint（改善計画: 地図の見え方
+// パネルの推定指標説明を簡略化）。axis.note（backendレジストリの実装メモ、開発者向け）を
+// そのまま出すと読みにくいという実機フィードバックを受け、エンドユーザー向けの言い換えを
+// ここに持つ（下記MAP_LAYERSのRAMP_AXES.map参照）。未登録の軸（将来ramp軸が増えた場合）は
+// axis.noteへフォールバックする。
+const RAMP_AXIS_PANEL_HINTS: Record<string, string> = {
+  stop_density: "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
+  accident: "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
+};
+
 export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   {
     id: "elevation",
@@ -287,7 +297,14 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       // （axisLayers.ts冒頭コメント参照）のため、常にcomposite（生データではない）。
       dataNature: "composite",
       description: `${axis.label}[${axis.unit}]をway単位の事前集計から色分け表示`,
-      panelHint: axis.note,
+      // axis.note（backendレジストリの実装メモ、registry_defaults.py）は開発者向けに
+      // 書かれており「way単位の事前集計（way_attribute_counts）由来」等の実装用語を
+      // 含むため、そのままpanelHintへ出すと読みにくいという実機フィードバックを受けた。
+      // 「何を集計した目安か＋実地点はどこで確認できるか」という他の静的レイヤーの
+      // 説明文と同じ型で言い換えたものをRAMP_AXIS_PANEL_HINTSに持ち、優先して使う
+      // （未登録の軸はaxis.noteへフォールバック。片側importの例外として、この言い換えは
+      // エンドユーザー向け文言でありレジストリ側に置く性質のものではないためフロント固有）。
+      panelHint: RAMP_AXIS_PANEL_HINTS[axis.axisId] ?? axis.note,
     }),
   ),
   {

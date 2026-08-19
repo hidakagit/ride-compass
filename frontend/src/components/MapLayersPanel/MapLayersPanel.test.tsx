@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { layerSectionDomId, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
@@ -57,6 +57,14 @@ function baseProps() {
 function openSection(id: MapLayerId) {
   const details = document.getElementById(layerSectionDomId(id));
   if (details instanceof HTMLDetailsElement) details.open = true;
+}
+
+// 各メンバーの説明（panelHint、改善計画: 実機フィードバック「各メンバーの説明は、情報
+// アイコン（！）を押したら見えるようにして」への対応）は情報アイコンを押すまで本文が
+// DOMに出ない。openSectionでセクション自体を開いたうえで、このヘルパーで「{label}の説明を
+// 表示」ボタンを押してから説明文を検証する。
+function openHint(subjectLabel: string) {
+  fireEvent.click(screen.getByRole("button", { name: `${subjectLabel}の説明を表示` }));
 }
 
 // パネルの枠組み（レイヤーカタログからのセクション生成・表示チップ・凡例チェックの
@@ -133,21 +141,41 @@ describe("MapLayersPanel", () => {
     expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "夜間", "事故密度"]);
   });
 
+  // 実機フィードバック「各メンバーの説明は、情報アイコン（！）を押したら見えるようにして」
+  // への対応。以前はセクションを開く（<details>）だけで説明文（panelHint）が常に見えており、
+  // 車ストレスの8行に及ぶ判定内訳などが常時表示されて読みにくいという指摘につながっていた。
+  it("レイヤーの説明はセクションを開いただけでは見えず、情報アイコンを押すと表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("elevation");
+    expect(screen.queryByText("国土地理院の色別標高図を重ねる")).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "標高図の説明を表示" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("国土地理院の色別標高図を重ねる")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "標高図の説明を隠す" })).toHaveAttribute("aria-expanded", "true");
+  });
+
   // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
   // 専用の表示レイヤーを持たない3軸（勾配・舗装質・夜間）は、地図チップではタップ不能の
   // 灰色タイルとして存在する一方、以前のパネルはMapLayerId自体を持たないため一覧から
   // 完全に抜け落ちていた。設定項目もON/OFFも無いため、他レイヤーのような開閉式
   // <details>ではなく常時見える案内行として存在させる。
-  it("専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）は開閉式にせず、常時見える案内文とともに存在する", () => {
+  it("専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
     render(<MapLayersPanel {...baseProps()} />);
 
     expect(screen.getByText("勾配").closest("details")).toBeNull();
+    expect(screen.queryByText("標高レイヤーで確認できます")).not.toBeInTheDocument();
+    openHint("勾配");
     expect(screen.getByText("標高レイヤーで確認できます")).toBeInTheDocument();
 
     expect(screen.getByText("舗装質").closest("details")).toBeNull();
+    openHint("舗装質");
     expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
 
     expect(screen.getByText("夜間").closest("details")).toBeNull();
+    openHint("夜間");
     expect(screen.getByText("専用レイヤーは今後追加予定です")).toBeInTheDocument();
   });
 
@@ -536,6 +564,7 @@ describe("MapLayersPanel", () => {
   it("車ストレスの凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("carStress");
+    openHint("車の圧迫感");
     expect(screen.getByText(/5段階\[1=快適〜5=圧迫大\]/)).toBeInTheDocument();
   });
 
@@ -544,6 +573,7 @@ describe("MapLayersPanel", () => {
   it("車ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("carStress");
+    openHint("車の圧迫感");
     // jsdomは閉じた<details>の中身もクエリ対象から隠さないため、安全度レイヤー（改善計画:
     // 安全度レシピ）が似た文言のpanelHintDetailを持つようになった今、screen.getByTextの
     // ページ全体探索だと複数該当してしまう。トグルされたcarStressセクションへ
@@ -568,6 +598,7 @@ describe("MapLayersPanel", () => {
   it("自転車インフラの凡例に道路情報（路面）との違いの説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openSection("bicycleInfra");
+    openHint("自転車インフラ");
     expect(screen.getByText(/「路面の種類」レイヤーの/)).toBeInTheDocument();
   });
 

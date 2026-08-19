@@ -146,6 +146,27 @@
 
 /* ON/OFF操作はLayerChip（共通部品）。旧role=switchのチェックボックス用スタイルは廃止（T30） */
 
+/* 各メンバーの説明（panelHint等）を開くトグル（改善計画: 実機フィードバック「各メンバーの
+   説明は、情報アイコン（！）を押したら見えるようにして」への対応）。見出し（<summary><h3>）に
+   レイヤー名が既に出ているため、可視テキストは汎用の「説明」に留める（アクセシブル名の方に
+   レイヤー固有の名前を使う、MapLayersPanel.tsx: renderHintToggle参照）。 */
+.hintToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 0.3rem;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.hintToggle[aria-expanded="true"] {
+  color: var(--color-accent-strong);
+}
+
 .mutedHint {
   color: var(--color-neutral);
   font-size: var(--font-size-sm);
