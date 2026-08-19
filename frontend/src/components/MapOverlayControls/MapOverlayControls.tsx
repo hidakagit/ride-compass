@@ -236,11 +236,14 @@ function ChipButton({
   panelContent: ReactElement;
   panelRect: PanelRect | undefined;
   registerRow: (el: HTMLDivElement | null) => void;
-  /** 推定グループの軸タイル（改善計画: モバイルで推定の横並びが複数行に折り返される
-   * という実機フィードバックへの対応）だけに付ける印。CSS側（.chipRowItemAxis、
-   * モバイル幅のみ）でタイルをアイコンのみへ縮小し、略名テキスト（.iconLabel）は
-   * 視覚的に隠す（アクセシビリティ上の名前は保つvisually-hidden、消すのではない）。
-   * 隠した略名は▼展開パネル側にrenderAxisTileが.detailAxisLabelとして出す。 */
+  /** 推定グループの軸タイルだけに付ける印。CSS側（.chipRowItemAxis）で2つのことをする:
+   * (1) ▼トグルをアイコンの右ではなく下へ積む（画面幅を問わず常時）。
+   * (2) モバイル幅のみ、アイコン+略名の正方形タイルをアイコンのみへ縮小し、略名テキスト
+   * （.iconLabel）を視覚的に隠す（アクセシビリティ上の名前は保つvisually-hidden、
+   * 消すのではない。隠した略名は▼展開パネル側にrenderAxisTileが.detailAxisLabelとして
+   * 出す）。フルブラウザでは観測グループのメンバー（一次要素）と同じサイズ・略名表示の
+   * まま変えない（実機フィードバック「フルブラウザの場合は一次メンバと同じサイズの
+   * アイコン、軸略名入りのものを出して」への対応）。 */
   tileVariant?: "axis";
   /** 展開方向（改善計画T169、地図UIのマトリックス化）。
    * "down"（▼→▲、行の直下へ通常のドキュメントフローで展開）と"right"（▶→▽回転、
@@ -254,11 +257,16 @@ function ChipButton({
   expandDirection?: "right" | "down" | "flat" | "flatRight";
   /** 観測/推定グループ本体だけに立てる印（実機フィードバック「展開三角アイコンをなくし、
    * 展開状態は推定と観測アイコンの状態で表現して」への対応）。true のときは隣接する
-   * ▶/▼の丸トグルボタン自体を描画せず、本体ボタンのactive見た目（.iconChipActive）と
-   * aria-expandedで開閉状態を表す。本体タップは元々onTapにtoggleExpandedと同じ関数を
-   * 渡しているため、押下対象は変わらない（挙動はそのまま、見た目と意味づけだけを
-   * 変える）。軸タイル・観測メンバー・単独チップ（ON/OFFと凡例展開が別アクション）は
-   * この対象外で、従来どおり独立した丸トグルを持つ。 */
+   * ▶/▼の丸トグルボタン自体を描画せず、本体ボタンのactive見た目とaria-expandedで
+   * 開閉状態を表す。本体タップは元々onTapにtoggleExpandedと同じ関数を渡しているため、
+   * 押下対象は変わらない（挙動はそのまま、見た目と意味づけだけを変える）。軸タイル・
+   * 観測メンバー・単独チップ（ON/OFFと凡例展開が別アクション）はこの対象外で、
+   * 従来どおり独立した丸トグルを持つ。
+   * active見た目には.iconChipActive（青、ON/OFFチップと同じ＝「地図に反映されている」の
+   * 意味）ではなく.iconChipExpanded（地味な色）を使う（実機フィードバック「推定/観測
+   * グループ見出しのハイライトを他メンバーと区別が付くように。青色はマップに反映を示し
+   * たい。展開はもっと地味な色でいい」への対応。見出し自体はメンバーのON/OFFを表さない
+   * ため、青を使うと「このグループの内容が地図に出ている」と誤読されてしまう）。 */
   expandViaSelf?: boolean;
 }) {
   const arrowGlyph = expandDirection === "right" || expandDirection === "flatRight" ? "▶" : "▼";
@@ -277,7 +285,11 @@ function ChipButton({
           disabled={disabled}
           title={title}
           onClick={onTap}
-          className={isActiveVisual ? `${styles.iconChip} ${styles.iconChipActive}` : styles.iconChip}
+          className={
+            isActiveVisual
+              ? `${styles.iconChip} ${expandViaSelf ? styles.iconChipExpanded : styles.iconChipActive}`
+              : styles.iconChip
+          }
         >
           <Icon />
           <span className={styles.iconLabel}>{chipLabel}</span>
