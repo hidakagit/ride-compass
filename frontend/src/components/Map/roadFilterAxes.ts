@@ -43,6 +43,10 @@ export interface RoadFilterAxis {
   legend: LegendEntry[];
   /** MapLibreのline-colorに渡すスタイル式。地図には「路面の種類」軸の式のみを使う。 */
   colorExpression: unknown[];
+  /** MapLibreのline-opacityに渡すスタイル式。「不明・他」（対象外）を目立たなくし、
+   * 分類情報を持つ区間だけを浮き上がらせる（下記FALLBACK_LINE_OPACITY参照）。
+   * 地図の色を実際に使う軸（路面の種類）だけが持つ。 */
+  opacityExpression?: unknown[];
   /** MapLibreのline-widthに渡すスタイル式。色と衝突しないよう、この式を持つ軸（道路の種類）
    * だけが太さで地図に反映される。色軸（路面の種類）は持たない（undefined）。 */
   widthExpression?: unknown[];
@@ -63,6 +67,18 @@ export interface RoadFilterAxis {
 // （推定された評価）が地図上で混同されるという実機フィードバックを受け、評価色（緑・
 // アンバー・オレンジ・赤の系統）を避けた中立色へ差し替えた（COLOR_SLATE/COLOR_KHAKI）。
 const COLOR_UNKNOWN = "#9ca3af";
+
+// 改善計画（1次要素の複数同時表示、対象外区間の低不透明度化）: 1次の複数レイヤーを
+// 同時にONにしても、視覚的な重なりが何を意味するか読み取れないという実機フィードバックを
+// 受けた対応。以前は「不明・他」（そのタグ値が無い/未分類の区間、路面では2〜3割・
+// 自転車インフラや指定路線ではほぼ大半を占める）も分類済みの区間と同じ不透明度で
+// 塗っていたため、意味の薄いグレーが画面を埋め尽くし、本当に伝えたいカテゴリ色が
+// 埋もれていた。「不明・他」だけ大きく透明度を下げ、分類情報を持つ区間だけが浮かび
+// 上がるようにする。staticAttributeLayers.ts（自転車インフラ・指定路線）とも共有し、
+// 地図全体で「薄い＝対象外、濃い＝分類あり」という読み方を統一する。
+export const FALLBACK_LINE_OPACITY = 0.15;
+export const KNOWN_LINE_OPACITY = 0.8;
+
 const COLOR_TEAL = "#0d9488";
 const COLOR_VIOLET = "#7c3aed";
 const COLOR_BROWN = "#92400e";
@@ -200,6 +216,14 @@ function buildMatchExpression(field: string, groups: CategoryGroup[]): unknown[]
   return expression;
 }
 
+// buildMatchExpressionの不透明度版。カテゴリの色に関わらず、分類済み（既知タグ）は
+// KNOWN_LINE_OPACITY、「不明・他」はFALLBACK_LINE_OPACITYの一律2値にする（カテゴリごとの
+// 濃淡は付けない。「分類できているか否か」だけを不透明度で示す）。
+function buildOpacityMatchExpression(field: string, groups: CategoryGroup[]): unknown[] {
+  const allValues = groups.flatMap((group) => group.values);
+  return ["match", matchInput(field), allValues, KNOWN_LINE_OPACITY, FALLBACK_LINE_OPACITY];
+}
+
 // buildMatchExpressionの太さ版。fallbackWidthは未知タグ時（プロパティ欠落・カテゴリ外）の太さ。
 function buildWidthMatchExpression(field: string, groups: CategoryGroup[], fallbackWidth: number): unknown[] {
   const expression: unknown[] = ["match", matchInput(field)];
@@ -263,6 +287,7 @@ export const ROAD_FILTER_AXES: RoadFilterAxis[] = [
     label: "路面の種類",
     legend: buildGroupLegend("surface", SURFACE_GROUPS),
     colorExpression: buildMatchExpression("surface", SURFACE_GROUPS),
+    opacityExpression: buildOpacityMatchExpression("surface", SURFACE_GROUPS),
   },
   {
     id: "highway",

@@ -27,6 +27,7 @@
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
 import { AXIS_RAMP_COLORS, RAMP_AXES, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
+import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 import {
   DEFAULT_CAR_STRESS_RECIPE,
   buildCarStressExpression,
@@ -68,7 +69,7 @@ function buildCategoricalLayerDefs(
   property: string,
   categories: readonly CategoryDef[],
   unknownLabel: string,
-): { labels: Record<string, string>; legend: LegendEntry[]; colorExpression: unknown[] } {
+): { labels: Record<string, string>; legend: LegendEntry[]; colorExpression: unknown[]; opacityExpression: unknown[] } {
   const labels = Object.fromEntries(categories.map((c) => [c.key, c.label]));
   const legend: LegendEntry[] = [
     ...categories.map((c) => ({
@@ -91,7 +92,16 @@ function buildCategoricalLayerDefs(
     ...categories.flatMap((c) => [c.key, c.color]),
     COLOR_UNKNOWN,
   ];
-  return { labels, legend, colorExpression };
+  // 「不明・他」（該当タグ無し）を目立たなくし、分類情報を持つ区間だけを浮き上がらせる
+  // （改善計画: 1次要素の複数同時表示、対象外区間の低不透明度化。roadFilterAxes.tsの
+  // FALLBACK_LINE_OPACITY/KNOWN_LINE_OPACITYと共有し、地図全体で読み方を統一する）。
+  const opacityExpression: unknown[] = [
+    "match",
+    ["coalesce", ["get", property], ""],
+    ...categories.flatMap((c) => [c.key, KNOWN_LINE_OPACITY]),
+    FALLBACK_LINE_OPACITY,
+  ];
+  return { labels, legend, colorExpression, opacityExpression };
 }
 
 // LTS(Level of Traffic Stress)風の1-5段階。1=快適(緑)〜5=ストレス大(赤)。
@@ -211,6 +221,7 @@ const bicycleInfraDefs = buildCategoricalLayerDefs("bicycle_infra", BICYCLE_INFR
 export const BICYCLE_INFRA_LABELS: Record<string, string> = bicycleInfraDefs.labels;
 export const BICYCLE_INFRA_LEGEND: LegendEntry[] = bicycleInfraDefs.legend;
 export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = bicycleInfraDefs.colorExpression;
+export const BICYCLE_INFRA_OPACITY_EXPRESSION: unknown[] = bicycleInfraDefs.opacityExpression;
 
 // 指定路線コンフレーション機構（外部静的データソース T51、国土数値情報N10/N12）の色分け定義。
 // backend/app/infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLの
@@ -237,6 +248,7 @@ const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CAT
 export const DESIGNATION_LABELS: Record<string, string> = designationDefs.labels;
 export const DESIGNATION_LEGEND: LegendEntry[] = designationDefs.legend;
 export const DESIGNATION_COLOR_EXPRESSION: unknown[] = designationDefs.colorExpression;
+export const DESIGNATION_OPACITY_EXPRESSION: unknown[] = designationDefs.opacityExpression;
 
 // 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 // backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論
