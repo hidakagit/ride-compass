@@ -19,6 +19,8 @@ import {
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
+import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
+import { axisMaterialLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   ROAD_FILTER_AXES,
@@ -420,9 +422,24 @@ export default function Home() {
   // 地図の再描画・T90内訳ポップアップ用のdebouncedRecipeだけが遅延する）。デバウンス自体は
   // useRecipeOverride（改善計画T133）へ集約済み。
 
+  // 改善計画T167: 推定指標レイヤー（車の圧迫感・停止密度・事故密度）をONにしたら、
+  // axisMaterials（T164）から導出した材料の観測データレイヤーも連動ONする。MapLayersPanelの
+  // 「絞り込みを操作すると自動でON」と同じ片方向パターン（OFFへは連動させない、ユーザーが
+  // 個別に隠した観測データレイヤーを推定指標のOFF操作で勝手に消さない）。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
-      setLayerVisibility((prev) => ({ ...prev, [id]: on }));
+      setLayerVisibility((prev) => {
+        const next: MapLayerVisibility = { ...prev, [id]: on };
+        if (on) {
+          const axis = SECONDARY_AXES.find((a) => a.layerId === id);
+          if (axis) {
+            for (const materialLayerId of axisMaterialLayerIds(axis.axisId)) {
+              next[materialLayerId] = true;
+            }
+          }
+        }
+        return next;
+      });
     },
     [setLayerVisibility],
   );
