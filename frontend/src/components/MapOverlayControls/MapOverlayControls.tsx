@@ -3,7 +3,6 @@
 import { useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import {
-  MAP_LAYER_CATEGORY_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
   MAP_LAYER_DATA_NATURE_CHIP_LABELS,
   MAP_LAYER_DATA_NATURE_LABELS,
@@ -88,10 +87,11 @@ interface ChipGroup {
 // raw（dataNature省略含む）チップが1件以上あるときだけ出す。
 function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   const groups: ChipGroup[] = [];
-  const observedMembers = layers.filter((layer) => layer.category && (layer.dataNature ?? "raw") === "raw");
-  if (observedMembers.length > 0) groups.push({ key: "group:raw", members: observedMembers });
+  // 表示順は推定→観測（実機フィードバックにより入替え。以前は観測→推定だった）。
   const estimatedMembers = layers.filter((layer) => layer.category && layer.dataNature === "composite");
   groups.push({ key: "group:composite", members: estimatedMembers });
+  const observedMembers = layers.filter((layer) => layer.category && (layer.dataNature ?? "raw") === "raw");
+  if (observedMembers.length > 0) groups.push({ key: "group:raw", members: observedMembers });
   for (const layer of layers) {
     if (!layer.category) groups.push({ key: layer.id, members: [layer] });
   }
@@ -214,16 +214,19 @@ function ChipButton({
   panelContent: ReactElement;
   panelRect: PanelRect | undefined;
   registerRow: (el: HTMLDivElement | null) => void;
-  /** 展開方向（改善計画T169、地図UIのマトリックス化）。中身が縦並びの観測グループは
-   * "down"（▼、行の直下へ通常のドキュメントフローで展開し、内容の向きと矢印の向きを揃える）。
-   * 中身が横並びの推定グループ・単独チップ（ルート等）は既定の"right"（▶、document.bodyへ
-   * ポータルしてposition: fixedで行の右に浮かせる。chipRowのoverflow-y: autoの下でoverflow-xも
-   * 暗黙にauto化しクリップされる問題を避けるため。"down"はパネルが行の通常の子要素として
-   * chipRowの縦スクロールにそのまま乗るためポータルが不要）。 */
-  expandDirection?: "right" | "down";
+  /** 展開方向（改善計画T169、地図UIのマトリックス化）。
+   * "down"（▼→▲、行の直下へ通常のドキュメントフローで展開）と"right"（▶→▽回転、
+   * document.bodyへポータルしてposition: fixedで行の右に浮かせる。個々のメンバータイル・
+   * 単独チップ（ルート等）の凡例展開はこちら）は従来どおり自身がpanelContentを描画する。
+   * "flat"（観測グループ本体、▼→▲）と"flatRight"（推定グループ本体、▶→◀）は、独立カード
+   * （サブフレーム）に閉じ込めず、地図のチップ列と地続きに展開してほしいという実機
+   * フィードバックへの対応。矢印の見た目はそれぞれ"down"/"right"と同じだが、自身は
+   * 内訳を描画しない。呼び出し元（MapOverlayControls本体）がこのボタンの直後（"flat"）
+   * または同じ行の続き（"flatRight"）にメンバーをchipRowの直接の子として差し込む。 */
+  expandDirection?: "right" | "down" | "flat" | "flatRight";
 }) {
-  const arrowGlyph = expandDirection === "down" ? "▼" : "▶";
-  const arrowOpenClass = expandDirection === "down" ? styles.expandArrowDownOpen : styles.expandArrowOpen;
+  const arrowGlyph = expandDirection === "right" || expandDirection === "flatRight" ? "▶" : "▼";
+  const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
   return (
     <div ref={registerRow} className={styles.chipRowItem}>
       <div className={styles.iconToggleRow}>
@@ -253,9 +256,8 @@ function ChipButton({
           </button>
         )}
       </div>
-      {isExpanded && expandDirection === "down" && <div className={styles.detailPanelInline}>{panelContent}</div>}
       {isExpanded &&
-        expandDirection === "right" &&
+        (expandDirection === "right" || expandDirection === "down") &&
         panelRect &&
         createPortal(
           <div
@@ -293,16 +295,24 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   const rowRefs = useRef<Partial<Record<string, HTMLDivElement | null>>>({});
   const chipRowRef = useRef<HTMLDivElement>(null);
 
-  const toggleExpanded = (id: string) => {
+  // anchor="right"（従来どおり行の右へ）/"down"（行の直下へ）。いずれもdocument.bodyへ
+  // ポータルしてposition: fixedで浮かせる（下記ChipButton参照）。▼方向（推定グループの
+  // 軸タイル）を最初はchipRowItem内の通常のフロー+position: absoluteで実装したが、
+  // chipRowのoverflow-y: auto（＝暗黙にoverflow-xもauto）の内側にある限りabsolute配置でも
+  // chipRowのスクロール可能領域に算入されてしまい、パネル1個ぶん右にはみ出ただけで
+  // chipRowに横スクロールバーが出てしまう不具合が実機で見つかった（▶方向で以前解決した
+  // のと同じ種類の問題）。▶方向と同じくポータルで完全にchipRowの外へ出すことで解消する。
+  const toggleExpanded = (id: string, anchor: "right" | "down" = "right") => {
     const isOpening = !expandedIds.has(id);
     if (isOpening) {
       const row = rowRefs.current[id];
       if (row) {
         const rect = row.getBoundingClientRect();
-        const left = rect.right + PANEL_GAP_PX;
+        const top = anchor === "down" ? rect.bottom + PANEL_GAP_PX : rect.top;
+        const left = anchor === "down" ? rect.left : rect.right + PANEL_GAP_PX;
         setPanelRects((prev) => ({
           ...prev,
-          [id]: { top: rect.top, left, maxWidth: Math.max(160, window.innerWidth - left - PANEL_GAP_PX) },
+          [id]: { top, left, maxWidth: Math.max(160, window.innerWidth - left - PANEL_GAP_PX) },
         }));
       }
     }
@@ -329,12 +339,16 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // 表す（見た目を全要素で統一するというユーザー指摘への対応）。観測グループ自体は
   // ▼縦積み（ChipButtonのexpandDirection="down"）のため、メンバー個々の凡例は▶で
   // 右へ展開する（縦に並んだ他のメンバーと重ならないよう、グループ本体と直交する
-  // 向きにする）。ONかつ凡例を持つメンバーのみ▶が付く。
+  // 向きにする）。凡例を持つメンバーは常に▶が付く（実機フィードバック「道路種別や路面等に
+  // ▶を付けて」への対応。以前はON時のみ▶を出していたが、推定グループの軸タイルが
+  // ON/OFFに関わらず▼を出すのと不揃いだったため、ONに依存しない判定へ揃えた。
+  // legendDetailsはレイヤー定義由来の固定内容でありON/OFFで内容が変わらないため、
+  // OFF中に「オンにすると何が出るか」を先に確認できる利点もある）。
   function renderRawMemberTile(member: OverlayLayerChip) {
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
-    const canExpand = Boolean(member.on && !member.disabled && hasLegend);
+    const canExpand = Boolean(!member.disabled && hasLegend);
     return (
       <ChipButton
         key={key}
@@ -385,24 +399,18 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     );
   }
 
-  // 「観測データ」グループ（改善計画T166）の▼内容: T128のカテゴリ束ねをそのまま小見出しへ
-  // 転用し、MAP_LAYER_CATEGORY_ORDER順にメンバーを縦積みのタイル列（.memberColumn）として
-  // 並べる。
-  function renderObservedGroupPanel(members: readonly OverlayLayerChip[]) {
-    const sections = MAP_LAYER_CATEGORY_ORDER.map((category) => ({
-      label: MAP_LAYER_CATEGORY_LABELS[category],
-      members: members.filter((m) => m.category === category),
-    })).filter((section) => section.members.length > 0);
-    return (
-      <div className={styles.detailBody}>
-        {sections.map((section) => (
-          <div key={section.label} className={styles.detailAxis}>
-            <div className={styles.detailAxisLabel}>{section.label}</div>
-            <div className={styles.memberColumn}>{section.members.map((member) => renderRawMemberTile(member))}</div>
-          </div>
-        ))}
-      </div>
-    );
+  // 「観測データ」グループの▼内容: 独立したカード（サブフレーム）に閉じ込めず、
+  // chipRowの直接の子として観測チップの直後に地続きで差し込む（実機フィードバック
+  // 「サブフレームの中で縦並びになるのではなく、観測チップと同列に縦並びで展開してほしい」
+  // への対応、以前のrenderObservedGroupPanel＝カード化を廃止）。category小見出し
+  // （道路状態・交通・安全）は表示せず、MAP_LAYER_CATEGORY_ORDER順のフラットな一覧に
+  // する（実機フィードバック「道路状態や交通・安全等のグルーピングを消して」への対応。
+  // 順序自体はcategory順を保つが、見出しテキストは出さない）。メンバー本体
+  // （renderRawMemberTile）はChipButtonが自前でchipRowItemを返すため、ここでは
+  // 追加のラッパーを挟まずそのままchipRowの子として返す。
+  function renderObservedMemberRows(members: readonly OverlayLayerChip[]): ReactElement[] {
+    const ordered = MAP_LAYER_CATEGORY_ORDER.flatMap((category) => members.filter((m) => m.category === category));
+    return ordered.map((member) => renderRawMemberTile(member));
   }
 
   // 推定グループの1軸タイル（改善計画T166→T169でタイル化）。観測グループのメンバータイルと
@@ -435,7 +443,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
           onTap={() => {}}
           canExpand={canExpand}
           isExpanded={canExpand && expandedIds.has(key)}
-          onExpandToggle={() => toggleExpanded(key)}
+          onExpandToggle={() => toggleExpanded(key, "down")}
           expandDirection="down"
           panelContent={
             <div className={styles.detailBody}>
@@ -466,7 +474,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         onTap={() => onToggle(member.id, !member.on)}
         canExpand={canExpand}
         isExpanded={canExpand && expandedIds.has(key)}
-        onExpandToggle={() => toggleExpanded(key)}
+        onExpandToggle={() => toggleExpanded(key, "down")}
         expandDirection="down"
         panelContent={
           <div className={styles.detailBody}>
@@ -482,52 +490,90 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     );
   }
 
-  function renderEstimatedGroupPanel(members: readonly OverlayLayerChip[]) {
-    return <div className={styles.matrixRow}>{SECONDARY_AXES.map((axis) => renderAxisTile(axis, members))}</div>;
-  }
-
   const chipGroups = buildChipGroups(layers);
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.chipRow} ref={chipRowRef} onScroll={handleChipRowScroll}>
-        {chipGroups.map((group) => {
-          // 次数グループチップ（改善計画T166→T169でマトリックス化）。観測/推定のいずれも
-          // タップは展開/収納のみ（一括ON/OFFは設けない）。推定グループはSECONDARY_AXESの
-          // 情報セルがあるためmembersが0件でも常にチップを出す（buildChipGroups参照）。
-          // 展開方向は中身の並びと揃える: 観測グループの内訳（category小見出し＋メンバーの
-          // 縦積み）は▼で行の下へ、推定グループの内訳（6軸のアイコン横並び=マトリックス行）は
-          // ▶で行の右へ（ChipButtonのexpandDirection参照）。
-          if (group.key === "group:raw" || group.key === "group:composite") {
-            const nature: MapLayerDataNature = group.key === "group:raw" ? "raw" : "composite";
-            const RepresentativeIcon = DATA_NATURE_ICONS[nature];
-            const anyOn = group.members.some((m) => m.on && !m.disabled);
+        {chipGroups.flatMap((group) => {
+          // 推定グループ。▶を開くと、独立したカードに閉じ込めず、6軸のタイルを推定チップと
+          // 同じ上端・同じ間隔の横並びとして地続きに展開する（観測グループの▼縦並び地続き化
+          // と対になる実機フィードバック「推定も▶で同じ上端・同じ列間で横並び展開してほしい」
+          // への対応）。ChipButton自身はexpandDirection="flatRight"で▶→◀（180度回転）の
+          // 見た目だけを持ち、内訳は描画しない。header自体も横並びの先頭要素として
+          // .estimatedFlatRowに含める（アイコン+トグルと軸タイルの上端を揃えるため）。
+          if (group.key === "group:composite") {
+            const RepresentativeIcon = DATA_NATURE_ICONS.composite;
             const isExpanded = expandedIds.has(group.key);
-            const label = MAP_LAYER_DATA_NATURE_LABELS[nature];
-            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS[nature];
-            const itemCount = nature === "composite" ? SECONDARY_AXES.length : group.members.length;
-            return (
+            const label = MAP_LAYER_DATA_NATURE_LABELS.composite;
+            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS.composite;
+            const header = (
               <ChipButton
                 key={group.key}
                 Icon={RepresentativeIcon}
                 label={label}
                 chipLabel={chipLabel}
-                active={anyOn}
-                title={`${label}[${itemCount}件をタップで一覧]`}
+                // 次数グループ本体は展開/収納の見出しであり、タップしてもレイヤーの
+                // ON/OFFは切り替わらない（実機フィードバック「観測/推定はONにならなくて
+                // いい」への対応。以前はメンバーが1件でもONならこの見出し自体も
+                // アクティブ表示にしていたが、材料の連動ON（T167）で意図せず「推定」
+                // 全体が光って見える不具合になっていた）。
+                active={false}
+                title={`${label}[${SECONDARY_AXES.length}件をタップで一覧]`}
                 onTap={() => toggleExpanded(group.key)}
                 canExpand
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(group.key)}
-                expandDirection={nature === "raw" ? "down" : "right"}
-                panelContent={
-                  nature === "raw" ? renderObservedGroupPanel(group.members) : renderEstimatedGroupPanel(group.members)
-                }
+                expandDirection="flatRight"
+                panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
                   rowRefs.current[group.key] = el;
                 }}
               />
             );
+            if (!isExpanded) return [header];
+            return [
+              <div key={`${group.key}:row`} className={styles.estimatedFlatRow}>
+                {header}
+                {SECONDARY_AXES.map((axis) => renderAxisTile(axis, group.members))}
+              </div>,
+            ];
+          }
+
+          // 観測グループ。▼を開くと、独立したカードに閉じ込めず、道路種別・路面などの
+          // メンバーをchipRowの直接の子として観測チップの直後に地続きで差し込む（実機
+          // フィードバック「サブフレームの中でなく、観測チップと同列に縦並びで展開してほしい」
+          // への対応）。ChipButton自身はexpandDirection="flat"で▼矢印の見た目だけを持ち、
+          // 内訳は描画しない（renderObservedMemberRowsを別途sibling要素として返す）。
+          if (group.key === "group:raw") {
+            const RepresentativeIcon = DATA_NATURE_ICONS.raw;
+            const isExpanded = expandedIds.has(group.key);
+            const label = MAP_LAYER_DATA_NATURE_LABELS.raw;
+            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS.raw;
+            const header = (
+              <ChipButton
+                key={group.key}
+                Icon={RepresentativeIcon}
+                label={label}
+                chipLabel={chipLabel}
+                // group:compositeと同じ理由（上のコメント参照）で見出し自体はアクティブ
+                // 表示にしない。
+                active={false}
+                title={`${label}[${group.members.length}件をタップで一覧]`}
+                onTap={() => toggleExpanded(group.key)}
+                canExpand
+                isExpanded={isExpanded}
+                onExpandToggle={() => toggleExpanded(group.key)}
+                expandDirection="flat"
+                panelContent={<></>}
+                panelRect={panelRects[group.key]}
+                registerRow={(el) => {
+                  rowRefs.current[group.key] = el;
+                }}
+              />
+            );
+            return isExpanded ? [header, ...renderObservedMemberRows(group.members)] : [header];
           }
 
           // categoryを持たない単独チップ（route等のdynamicレイヤー）。

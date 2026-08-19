@@ -165,14 +165,41 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "推定" })).toBeInTheDocument();
     });
 
-    it("観測グループを開くとcategory小見出し（道路状態・交通・安全）ごとにメンバーのON/OFFボタンが並ぶ", async () => {
+    // 表示順・展開方式の見直し（実機フィードバック: 「推定→観測」の順に入替え、観測の▼展開は
+    // 独立したサブフレームではなくチップ列と地続きの縦並びにする）。
+    it("チップ列は推定→観測→ルートの順で並ぶ", () => {
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      const names = screen.getAllByRole("button", { name: /^(推定|観測|標高図)$/ }).map((el) => el.textContent);
+      expect(names.indexOf("推定")).toBeLessThan(names.indexOf("観測"));
+    });
+
+    it("観測グループを開いても内訳を囲むカード（サブフレーム）は出ず、メンバーはチップ列と同じ階層の兄弟要素として並ぶ", async () => {
+      const user = userEvent.setup();
+      const { container } = render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      // 以前は背景・枠・影付きのカードに閉じ込めていた。地続き化した今は出ない。
+      expect(container.querySelector('[class*="detailPanelBase"]')).not.toBeInTheDocument();
+
+      const observedButton = screen.getByRole("button", { name: "観測" });
+      const designationButton = screen.getByRole("button", { name: "指定路線" });
+      // ChipButtonは自身をchipRowItemとして返すため、観測チップの行とメンバーの行は
+      // 同じ親（chipRow）を共有する兄弟要素になる。
+      expect(observedButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
+        designationButton.closest('[class*="chipRowItem"]')?.parentElement
+      );
+    });
+
+    // category小見出し（道路状態・交通・安全）は表示しない（実機フィードバック
+    // 「道路状態や交通・安全等のグルーピングを消して」への対応）。フラットな一覧になる。
+    it("観測グループを開くとcategory小見出しを出さずメンバーのON/OFFボタンがフラットに並ぶ", async () => {
       const user = userEvent.setup();
       const onToggle = vi.fn();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
 
       await user.click(screen.getByRole("button", { name: "観測" }));
-      expect(screen.getByText("道路状態")).toBeInTheDocument();
-      expect(screen.getByText("交通・安全")).toBeInTheDocument();
+      expect(screen.queryByText("道路状態")).not.toBeInTheDocument();
+      expect(screen.queryByText("交通・安全")).not.toBeInTheDocument();
       const designationToggle = screen.getByRole("button", { name: "指定路線" });
       expect(designationToggle).toHaveAttribute("aria-pressed", "true");
 
@@ -180,6 +207,28 @@ describe("MapOverlayControls", () => {
       expect(onToggle).toHaveBeenCalledWith("designation", false);
       // compositeのcarStressは観測グループに含まれない
       expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+    });
+
+    // 展開方式の見直し（実機フィードバック: 観測の▼縦並び地続き化と対になる横並び版。
+    // 推定も▶を開くと、独立したカード（サブフレーム、position: fixedのポータル）ではなく、
+    // 推定チップ本体と同じ上端・同じ間隔の横並びとして地続きに展開する）。
+    it("推定グループを開いても内訳を囲むカード（サブフレーム）は出ず、推定チップ本体と軸タイルは同じ上端の横並びの兄弟要素になる", async () => {
+      const user = userEvent.setup();
+      const { container } = render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      await user.click(screen.getByRole("button", { name: "推定" }));
+      // 以前はdocument.bodyへポータルしたposition: fixedのカード（.detailPanel）に
+      // 閉じ込めていた。地続き化した今は出ない（.detailPanelはdocument.bodyへポータル
+      // されるためcontainerの外に出る。document.body全体を見て確認する）。
+      expect(document.body.querySelector('[class*="detailPanel"]')).not.toBeInTheDocument();
+
+      const estimatedButton = screen.getByRole("button", { name: "推定" });
+      const carStressButton = screen.getByRole("button", { name: "車の圧迫感" });
+      // ChipButtonは自身をchipRowItemとして返すため、推定チップの行と軸タイルの行は
+      // 同じ親（横並びのestimatedFlatRow）を共有する兄弟要素になる。
+      expect(estimatedButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
+        carStressButton.closest('[class*="chipRowItem"]')?.parentElement
+      );
     });
 
     // マトリックス化（改善計画T169）: 推定グループの内訳は、観測グループのメンバーと同じ
@@ -217,12 +266,17 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "推定" })).toBeInTheDocument();
     });
 
-    it("いずれかのメンバーがONならグループチップがaria-pressed=trueになる", () => {
+    // 次数グループ本体（観測/推定）は展開/収納の見出しであり、タップしてもレイヤーの
+    // ON/OFFは切り替わらない。以前はメンバーが1件でもONならこの見出し自体もON扱い
+    // （aria-pressed=true）にしていたが、材料の連動ON（T167、推定指標をONにすると
+    // 観測データも連動ONする）で「事故密度だけONにしたつもりが推定・観測の見出しまで
+    // ONに見える」という実機フィードバックを受け、見出し自体は常にfalseにした。
+    it("メンバーがONでもグループチップ自体はaria-pressed=falseのまま", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-      // roadType=OFF・designation=ONの観測グループ → 全体としてはON扱い
-      expect(screen.getByRole("button", { name: "観測" })).toHaveAttribute("aria-pressed", "true");
-      // carStress=ONの推定グループ → 全体としてはON扱い
-      expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-pressed", "true");
+      // roadType=OFF・designation=ONの観測グループ
+      expect(screen.getByRole("button", { name: "観測" })).toHaveAttribute("aria-pressed", "false");
+      // carStress=ONの推定グループ
+      expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-pressed", "false");
     });
 
     // 推定グループの各軸タイルに材料一覧を出す（改善計画T167→T169）。axisMaterials（T164）
@@ -271,6 +325,27 @@ describe("MapOverlayControls", () => {
 
       await user.click(expandToggle);
       expect(screen.getByText("幹線道路")).toBeInTheDocument();
+    });
+
+    // 実機フィードバック「道路種別や路面等に▶を付けて、凡例を横展開できるようにして」
+    // への対応: 以前はON時のみ▶を出していたが、推定グループの軸タイルが常に▼を出すのと
+    // 揃え、OFFのままでも凡例があれば▶が出るようにした。
+    it("観測グループのメンバータイルはOFFのままでも凡例があれば▶展開ボタンが付く", async () => {
+      const user = userEvent.setup();
+      const layers = groupedLayers();
+      const roadType = layers.find((l) => l.id === "roadType")!;
+      roadType.on = false;
+      roadType.legendDetails = [
+        {
+          label: "道路の種類",
+          legend: [{ key: "primary", label: "幹線道路", color: "#111827", filter: ["literal", true] }],
+          hiddenKeys: [],
+        },
+      ];
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      expect(screen.getByRole("button", { name: "道路の種類の凡例を表示" })).toBeInTheDocument();
     });
   });
 });

@@ -46,7 +46,22 @@
   flex-direction: column;
   gap: var(--space-2);
   width: max-content;
-  max-height: min(70vh, 30rem);
+  /* width: max-contentは「折り返しなしの最大幅」で計算されるため、推定グループを
+     横並び地続き展開（.estimatedFlatRow、flex-wrap: wrap）したときにこの値だけだと
+     親.wrapperのmax-width（ズームコントロール分を除いた画面幅）を無視して画面外まで
+     はみ出してしまう（実機確認で発見。以前は推定の内訳を独立カードに閉じ込めており、
+     カード自身がmax-widthを持っていたため顕在化しなかった）。max-width: 100%を足すと、
+     幅が余っているとき（通常の縦一列）はwidth: max-contentどおり内容量に縮み、幅が
+     足りないとき（横並び展開）だけ親の実際の幅で頭打ちになり、その頭打ち幅を基準に
+     .estimatedFlatRowのflex-wrapが正しく折り返す。 */
+  max-width: 100%;
+  /* 30remは、推定グループの内訳をdocument.bodyへポータルしていた頃（chipRowの高さに
+     算入されない）を基準にした値。地続き化（改善計画）で推定・観測の両方の内訳が
+     chipRow自身の高さに積み上がるようになったため、両方同時に開くと30remでは
+     足りずスクロールバーが出てしまう（実機フィードバック「スクロールバーを消して」
+     への対応）。デスクトップの縦幅には余裕があることが多いのでrem側の上限を上げ、
+     モバイル横向き等の低い画面でも地図の下端を超えないようvh側の上限は維持する。 */
+  max-height: min(80vh, 42rem);
   overflow-y: auto;
   /* .wrapperのpointer-events: noneを継承すると、チップとチップの間の隙間（gap）が
      タッチを拾えずスクロールできない。この箱は内容量ぶんに縮めた（横幅が狭い）ため、
@@ -73,13 +88,14 @@
 
 /* アイコンチップと▶/▼トグルのペア。展開トグルはこのチップ自身の開閉スイッチなので、
    間隔（gap）は詰めて見た目の対応関係を分かりやすくする（実機フィードバック
-   「▶をもう少しアイコン側に近づけて」）。▶方向（推定グループ・単独チップ）の内訳パネル
-   （.detailPanel）はこの行の子ではなくdocument.bodyへポータルしてposition: fixedで浮かせる
-   （MapOverlayControls.tsx参照。chipRowのoverflow-y: autoの下でposition: absoluteのまま
-   行の右にはみ出させると、CSSの仕様上暗黙にoverflow-xもautoになりパネルがクリップされて
-   見えなくなるため）。▼方向（観測グループ）の内訳パネル（.detailPanelInline）は.chipRowItem
-   側に通常のフローで積むためポータル不要、この行自体はposition: relativeを持たない
-   ただのflex行のまま。 */
+   「▶をもう少しアイコン側に近づけて」）。内訳パネル（.detailPanel、▶方向は行の右へ・
+   ▼方向は行の直下へ）はどちらもこの行の子ではなくdocument.bodyへポータルして
+   position: fixedで浮かせる（MapOverlayControls.tsx参照）。chipRowはoverflow-y: auto
+   （＝暗黙にoverflow-xもauto）を持つため、パネルを通常のフロー/position: absoluteのまま
+   chipRowの中に置くと、パネル自身の大きさがchipRowのスクロール可能領域に算入されて
+   しまい、開いただけでchipRowに横スクロールバーが出てしまう不具合が▶・▼の両方向で
+   実機で見つかった。ポータルでchipRowの外（document.body直下）へ完全に出すことで
+   どちらも解消する。 */
 .iconToggleRow {
   display: flex;
   align-items: center;
@@ -169,26 +185,33 @@
   transition: transform 0.15s ease;
 }
 
-/* ▶方向（推定グループ・単独チップ）: 開くと右向き三角が下向きへ回転し、
-   「内訳が出た」ことを示す。 */
+/* ▶方向（メンバータイル個々の凡例・単独チップの凡例、document.bodyへポータルする
+   ものだけ）: 開くと右向き三角が下向きへ回転し、「内訳が出た」ことを示す。 */
 .expandArrowOpen {
   transform: rotate(90deg);
 }
 
-/* ▼方向（観測グループ、改善計画T169）: 開くと下向き三角が上向き（▲、閉じれば戻る）へ
-   180度回転する。▶方向の90度回転とは向きの意味が異なる（▼は元から下を向いているため、
-   90度回転では横向きになってしまい「閉じる」合図として読めない）ため別クラスにする。 */
+/* 180度回転（開くと矢印が逆向きになり、同じ矢印を押せば閉じることが分かる）。
+   ▼方向（観測グループの"flat"、各軸タイルの"down"）は▼が▲へ、▶方向（推定グループの
+   "flatRight"）は▶が◀へ、それぞれ見た目が反転する。▶方向の90度回転（.expandArrowOpen、
+   ポータル系）とは向きの意味が異なる（▼は元から下・▶は元から右を向いているため、
+   90度回転では「閉じる」合図として読めない）ため別クラスにする。 */
 .expandArrowDownOpen {
   transform: rotate(180deg);
 }
 
 /* ▶/▼を開いたときの内訳パネルの共通の見た目（背景・枠・ぼかし）。地図を覆いすぎないよう
    不透明な面色ではなく半透明+ぼかしにして「薄く」見せる（実機フィードバック「常時横に
-   出てくると見にくい」「押したときだけ薄く出るように」）。位置決めは.detailPanel
-   （▶方向、position: fixed）と.detailPanelInline（▼方向、通常のフロー）で分ける。 */
+   出てくると見にくい」「押したときだけ薄く出るように」）。長い内訳（観測メンバーの
+   カテゴリ一覧等）でも地図からはみ出さないようmax-height+overflow-yで内部スクロールに
+   する。位置決め（▶方向=行の右／▼方向=行の直下、いずれもposition: fixed）は
+   .detailPanel側でtop/left/maxWidthのインラインstyleとして与える（MapOverlayControls.tsx
+   のtoggleExpanded参照）。 */
 .detailPanelBase {
   width: 18rem;
   max-width: calc(100vw - 2 * var(--space-3));
+  max-height: min(45vh, 16rem);
+  overflow-y: auto;
   padding: 0.5rem 0.7rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
@@ -202,30 +225,20 @@
   pointer-events: auto;
 }
 
-/* ▶方向の内訳パネル本体。document.bodyへポータルし、position: fixedで
-   MapOverlayControls.tsxがJSで測った行の右隣（top/left/maxWidthはインラインstyle）に
-   浮かせる。chipRowの子として素直にposition: absoluteで右へ張り出す方式だと、chipRowの
-   overflow-y: autoの下でoverflow-xも暗黙にauto化しパネルがクリップされて見えなくなる
-   不具合があったため、chipRowの外（document.body直下）へ出している。
-   document.body直下（.wrapperの外）にポータルしているためpointer-events: noneは継承しない。 */
+/* 内訳パネル本体。▶方向（推定グループ・単独チップ・観測メンバー個々の凡例）・▼方向
+   （推定グループの軸タイル個々の凡例・材料一覧）のどちらも、document.bodyへポータルし
+   position: fixedで浮かせる（MapOverlayControls.tsxがJSで測った行の右隣/直下へ、
+   top/left/maxWidthはインラインstyle）。chipRowの子として素直にposition: absoluteで
+   浮かせる方式だと、chipRowのoverflow-y: autoの下でoverflow-xも暗黙にauto化して
+   パネル自身の大きさがchipRowのスクロール可能領域に算入されてしまい、パネルを開いた
+   だけでchipRowに横スクロールバーが出てしまう不具合が▶・▼の両方向で実機で見つかった
+   （▼方向は当初.chipRowItem内のposition: absoluteで実装したが、それでも同じ問題が
+   起きたためポータル方式へ揃えた）。document.body直下（.wrapperの外）にポータルして
+   いるためpointer-events: noneは継承しない。 */
 .detailPanel {
   composes: detailPanelBase;
   position: fixed;
   z-index: 30;
-}
-
-/* ▼方向の内訳パネル本体（改善計画T169）。.chipRowItem内の通常のフローに積むだけで、
-   chipRowの縦スクロールにそのまま乗る（chipRowの外へポータルする必要が無い。▼展開は
-   行の直下へ広がるだけなので、▶方向のoverflow-x暗黙auto化問題が最初から起きないため）。
-   observed（category数×メンバー数が多いと長くなる）が下の推定/ルートチップをchipRowの
-   スクロール領域外へ押し出してしまわないよう、自身にmax-height+overflow-yを持たせて
-   内部スクロールにする（実機確認: 観測グループを全展開するとchipRowのscrollHeightが
-   clientHeightを超え、推定/ルートチップが見えなくなる不具合を確認したための対応）。 */
-.detailPanelInline {
-  composes: detailPanelBase;
-  margin-top: 0.1rem;
-  max-height: min(45vh, 16rem);
-  overflow-y: auto;
 }
 
 /* legendDetailsが無いとき（描く凡例が無い）だけの案内文（例:「ズームインすると
@@ -319,14 +332,6 @@
   flex-shrink: 0;
 }
 
-/* 観測グループの▼内訳（改善計画T169）: category小見出しの下に並ぶメンバータイル
-   （ChipButton、推定グループの軸タイルと同じ四角タイル）の縦積み。 */
-.memberColumn {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
 .detailSwatchBarDashed {
   background-image: repeating-linear-gradient(
     to right,
@@ -337,15 +342,18 @@
   );
 }
 
-/* 推定グループの▶内訳（改善計画T169）: SECONDARY_AXES6軸のタイル（ChipButton）を
-   アイコン+略名の四角タイルとして横並びに見渡せるようにする。パネル幅（18rem）に
-   収まらない分は折り返す（横スクロールにはしない。指では扱いにくく、6軸なら2行でも
-   一覧性は保てるため）。タイル自体の見た目（四角アイコン+略名、ON/OFF）は地図チップ
-   本体・観測グループのメンバータイルと同じChipButton（.iconChip/.iconChipActive）を
-   再利用するため、ここでは並び方向だけを定義する。 */
-.matrixRow {
+/* 推定グループの▶内訳（改善計画: サブフレーム廃止、chipRowと地続き化）: 独立したカードに
+   閉じ込めず、推定チップ本体（header）とSECONDARY_AXES6軸のタイルを同じ上端・同じ間隔で
+   横並びにする（実機フィードバック「推定も▶で同じ上端・同じ列間で横並び展開してほしい」
+   への対応。観測グループの縦並び地続き化と対になる横並び版）。chipRowの子として並ぶため
+   align-selfでstretchを打ち消す。地図の幅に収まらない分は折り返す（横スクロールには
+   しない。指では扱いにくいため）。タイル自体の見た目（四角アイコン+略名、ON/OFF）は
+   地図チップ本体・観測グループのメンバータイルと同じChipButton（.iconChip/
+   .iconChipActive）を再利用するため、ここでは並び方向だけを定義する。 */
+.estimatedFlatRow {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: var(--space-2);
   align-items: flex-start;
+  align-self: flex-start;
 }
