@@ -25,6 +25,7 @@ import {
   ElevationIcon,
   EstimatedIndexIcon,
   GradientAxisIcon,
+  InfoIcon,
   NightAxisIcon,
   ObservedDataIcon,
   RoadIcon,
@@ -461,9 +462,86 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // 順序自体はcategory順を保つが、見出しテキストは出さない）。メンバー本体
   // （renderRawMemberTile）はChipButtonが自前でchipRowItemを返すため、ここでは
   // 追加のラッパーを挟まずそのままchipRowの子として返す。
+  function orderObservedMembers(members: readonly OverlayLayerChip[]): readonly OverlayLayerChip[] {
+    return MAP_LAYER_CATEGORY_ORDER.flatMap((category) => members.filter((m) => m.category === category));
+  }
+
   function renderObservedMemberRows(members: readonly OverlayLayerChip[]): ReactElement[] {
-    const ordered = MAP_LAYER_CATEGORY_ORDER.flatMap((category) => members.filter((m) => m.category === category));
-    return ordered.map((member) => renderRawMemberTile(member));
+    return orderObservedMembers(members).map((member) => renderRawMemberTile(member));
+  }
+
+  // 観測/推定グループ見出しの「アイコンの意味」凡例トグル。実機フィードバック「スマホモード
+  // の小さい軸アイコンでも略名を表現する方法はないか」への提案からユーザーが選んだ方針:
+  // 折りたたみ時だけ見出しの脇に出す独立した入口にする（展開後は軸タイル/観測メンバー自体の
+  // アイコンが並ぶため、その場に同じアイコン+略名の一覧をもう一度出すと二重表示になって
+  // かえって読みにくいという指摘を受け、展開時はこのボタンごと消す設計にした）。呼び出し側
+  // （chipGroups.flatMapの中）が `!isExpanded` のときだけこの関数を呼ぶことで担保する。
+  // ChipButtonは使わず、同じ「小さい丸ボタン+document.bodyへポータルする内訳パネル」の
+  // 仕組み（toggleExpanded/panelRects/rowRefs）を直接流用する軽量な専用実装にする
+  // （ON/OFF・展開三角の意味を持たない単純な開閉トグルのためChipButtonの汎用APIへ新たな
+  // 概念を足すよりこちらが素直）。キーは`${groupKey}:legend`でexpandedIds等の既存Setに
+  // そのまま同居できる。 */
+  function renderGroupLegendToggle(
+    groupKey: string,
+    groupLabel: string,
+    items: readonly { key: string; Icon: (props: { size?: number }) => ReactElement; label: string }[]
+  ) {
+    const legendKey = `${groupKey}:legend`;
+    const isOpen = expandedIds.has(legendKey);
+    const rect = panelRects[legendKey];
+    return (
+      <div
+        key={legendKey}
+        ref={(el) => {
+          rowRefs.current[legendKey] = el;
+        }}
+        className={styles.chipRowItem}
+      >
+        <div className={styles.iconToggleRow}>
+          <button
+            type="button"
+            onClick={() => toggleExpanded(legendKey, "down")}
+            aria-expanded={isOpen}
+            aria-label={`${groupLabel}のアイコンの意味を${isOpen ? "隠す" : "表示"}`}
+            title="アイコンの意味を表示"
+            className={isOpen ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
+          >
+            <InfoIcon size={12} />
+          </button>
+        </div>
+        {isOpen &&
+          rect &&
+          createPortal(
+            <div className={styles.detailPanel} style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth }}>
+              <ul className={styles.detailList}>
+                {items.map((item) => (
+                  <li key={item.key} className={styles.detailRow}>
+                    <item.Icon size={16} />
+                    <span className={styles.detailRowLabel}>{item.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>,
+            document.body
+          )}
+      </div>
+    );
+  }
+
+  // グループ見出しをタップしたとき（展開↔折りたたみのどちらの向きでも）、開いたままの
+  // 凡例（上のrenderGroupLegendToggle）があれば閉じる。展開後は凡例ボタン自体を描画しない
+  // ため見た目には現れないが、開いたままのbooleanを放置すると、後で見出しを再度タップして
+  // 折りたたみに戻したときに、ユーザーがⓘを押していないのに凡例が開いたまま再出現して
+  // しまう（stateがexpandedIdsに残り続けるため）。見出しタップのたびに明示的に閉じることで
+  // 「凡例は自分でⓘを押したときだけ開く」という状態を保つ。
+  function closeGroupLegend(groupKey: string) {
+    const legendKey = `${groupKey}:legend`;
+    setExpandedIds((prev) => {
+      if (!prev.has(legendKey)) return prev;
+      const next = new Set(prev);
+      next.delete(legendKey);
+      return next;
+    });
   }
 
   // 推定グループの1軸タイル（改善計画T166→T169でタイル化）。観測グループのメンバータイルと
@@ -584,7 +662,10 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 // アイコンの状態で表現して」への対応）。
                 active={false}
                 title={`${label}[${SECONDARY_AXES.length}件をタップで一覧]`}
-                onTap={() => toggleExpanded(group.key)}
+                onTap={() => {
+                  toggleExpanded(group.key);
+                  closeGroupLegend(group.key);
+                }}
                 canExpand
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(group.key)}
@@ -597,11 +678,32 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 }}
               />
             );
-            if (!isExpanded) return [header];
+            // 折りたたみ中だけ、見出しの脇に「アイコンの意味」凡例の入口を出す（実機
+            // フィードバック「アイコンだけで区別が付くように」への提案からユーザーが選んだ
+            // 方針。展開後は軸タイル自体のアイコンが並ぶため、この入口は消す）。ラッパーdivの
+            // key（`${group.key}:row`）は折りたたみ/展開のどちらでも同じ値に固定する。
+            // classNameと中身（凡例トグル/軸タイル）だけを状態で出し分け、divそのものは
+            // 同一のDOMノードとして保つことで、直接の子であるheader（ChipButton）が
+            // 展開の瞬間にアンマウント/再マウントされてfocus・aria状態が失われるのを防ぐ
+            // （以前divのkeyを折りたたみ/展開で別の値にしていたところ、実機ではなくテストで
+            // 展開直後にaria-expandedの取得元DOMノードが差し替わっている不具合が発覚した）。
             return [
-              <div key={`${group.key}:row`} className={styles.estimatedFlatRow}>
+              <div
+                key={`${group.key}:row`}
+                className={isExpanded ? styles.estimatedFlatRow : styles.headerLegendRow}
+              >
                 {header}
-                {SECONDARY_AXES.map((axis) => renderAxisTile(axis, group.members))}
+                {isExpanded
+                  ? SECONDARY_AXES.map((axis) => renderAxisTile(axis, group.members))
+                  : renderGroupLegendToggle(
+                      group.key,
+                      label,
+                      SECONDARY_AXES.map((axis) => ({
+                        key: axis.axisId,
+                        Icon: SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon,
+                        label: axis.chipLabel,
+                      }))
+                    )}
               </div>,
             ];
           }
@@ -626,7 +728,10 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 // 見出しのactive見た目は展開状態(isExpanded)から決まる。
                 active={false}
                 title={`${label}[${group.members.length}件をタップで一覧]`}
-                onTap={() => toggleExpanded(group.key)}
+                onTap={() => {
+                  toggleExpanded(group.key);
+                  closeGroupLegend(group.key);
+                }}
                 canExpand
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(group.key)}
@@ -639,7 +744,31 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 }}
               />
             );
-            return isExpanded ? [header, ...renderObservedMemberRows(group.members)] : [header];
+            // group:compositeと同じ理由（上のコメント参照）で、折りたたみ中だけ見出しの脇に
+            // 「アイコンの意味」凡例の入口を出し、展開後は消す。ラッパーdivのkeyは折りたたみ/
+            // 展開のどちらでも同じ値に固定し、headerのDOMノードを保つ（group:compositeと
+            // 同じ理由）。展開時は元どおりメンバーを縦積みするため.observedExpandedColumn
+            // （chipRowと同じcolumn flex）、折りたたみ時は見出し+凡例トグルの横並びのため
+            // .headerLegendRowを使う。
+            return [
+              <div
+                key={`${group.key}:row`}
+                className={isExpanded ? styles.observedExpandedColumn : styles.headerLegendRow}
+              >
+                {header}
+                {isExpanded
+                  ? renderObservedMemberRows(group.members)
+                  : renderGroupLegendToggle(
+                      group.key,
+                      label,
+                      orderObservedMembers(group.members).map((member) => ({
+                        key: member.id,
+                        Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
+                        label: member.chipLabel ?? member.label,
+                      }))
+                    )}
+              </div>,
+            ];
           }
 
           // categoryを持たない単独チップ（route等のdynamicレイヤー）。
