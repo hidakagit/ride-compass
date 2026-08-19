@@ -214,7 +214,7 @@ describe("MapOverlayControls", () => {
     // 推定チップ本体と同じ上端・同じ間隔の横並びとして地続きに展開する）。
     it("推定グループを開いても内訳を囲むカード（サブフレーム）は出ず、推定チップ本体と軸タイルは同じ上端の横並びの兄弟要素になる", async () => {
       const user = userEvent.setup();
-      const { container } = render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "推定" }));
       // 以前はdocument.bodyへポータルしたposition: fixedのカード（.detailPanel）に
