@@ -2,12 +2,13 @@
 
 import {
   LAYER_DATA_STATUS_LABELS,
+  MAP_LAYER_CATEGORY_LABELS,
+  MAP_LAYER_CATEGORY_ORDER,
   MAP_LAYERS,
   ROAD_SURFACE_SHARED_LAYER_IDS,
   layerSectionDomId,
   type LayerDataStatus,
   type LayerDataStatusByLayer,
-  type MapLayerCategory,
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
@@ -59,23 +60,9 @@ interface MapLayersPanelProps {
 }
 
 // サイドバーのグループ見出し。staticは中分類（mapLayers.ts: category、改善計画T86）ごとに
-// 分け、dynamic（route、今のところ1種のみ）は従来どおり単独の見出しにする。
-// 表示順はmapLayers.tsのコメントに列挙した順
-// （道路状態→交通・安全→自転車インフラ→地形→補給・施設[T101]）。
-const STATIC_CATEGORY_ORDER: readonly MapLayerCategory[] = [
-  "roadCondition",
-  "trafficSafety",
-  "bicycleInfra",
-  "terrain",
-  "amenity",
-];
-const STATIC_CATEGORY_HEADINGS: Record<MapLayerCategory, string> = {
-  roadCondition: "道路状態",
-  trafficSafety: "交通・安全",
-  bicycleInfra: "自転車インフラ",
-  terrain: "地形",
-  amenity: "補給・施設",
-};
+// 分け、dynamic（route、今のところ1種のみ）は従来どおり単独の見出しにする。表示順・見出し
+// 文言はmapLayers.ts（MAP_LAYER_CATEGORY_ORDER/MAP_LAYER_CATEGORY_LABELS）を単一ソースとし、
+// 地図上チップのグルーピング（改善計画T128、MapOverlayControls.tsx）と共有する。
 const DYNAMIC_GROUP_HEADING = "生成したルートの色分け";
 
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
@@ -449,12 +436,12 @@ export default function MapLayersPanel({
           絞り込みを一括クリア
         </button>
       </div>
-      {STATIC_CATEGORY_ORDER.map((category) => {
+      {MAP_LAYER_CATEGORY_ORDER.map((category) => {
         const layers = MAP_LAYERS.filter((layer) => layer.kind === "static" && layer.category === category);
         if (layers.length === 0) return null;
         return (
           <div key={category} className={styles.group}>
-            <h2 className={styles.groupTitle}>{STATIC_CATEGORY_HEADINGS[category]}</h2>
+            <h2 className={styles.groupTitle}>{MAP_LAYER_CATEGORY_LABELS[category]}</h2>
             {layers.map(renderLayerSection)}
           </div>
         );
