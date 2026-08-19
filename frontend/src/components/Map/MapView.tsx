@@ -423,6 +423,8 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-dasharray": DEFAULT_ROAD_LINE_DASHARRAY as any,
         "line-opacity": 0.8,
+        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+        "line-offset": 0,
       },
       layout: { visibility: "none" },
     });
@@ -475,6 +477,44 @@ function applyRoadLayerState(
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setFilter(ROAD_TILE_LAYER_ID, combinedFilter as any);
+  });
+}
+
+// road_surfaceの1次「素材」線レイヤー3本（道路種別/路面の合成ROAD_TILE_LAYER_ID・
+// 自転車インフラ・指定路線）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を
+// 同時にONにすると、松（1次/2次の地図上表現の統一）で2次との重なりは解決したものの、
+// 1次同士は相変わらず後から描画されたレイヤーが前のレイヤーを完全に覆い隠していた。
+// 実機フィードバック「1次要素をどれかOFFにして何が支配的なのか見たい」（全部ONのまま
+// どれが効いているか地図全体で見比べたい、という趣旨）を受け、line-offsetで道路と平行な
+// 複数トラックへ横並びに分離し、同時にONにした素材をすべて見えるようにする。
+// トラック間隔はline-width（3px）と揃え、隣接トラックが隙間なく境界を接するようにする
+// （松の下敷き線幅9px＝中心から±4.5pxの範囲に、3本ONの最外トラック（オフセット±3px、
+// 自身の太さ3pxで±1.5px）の外縁ちょうど±4.5pxが収まり、下敷きからはみ出さない）。
+const MATERIAL_TRACK_OFFSET_STEP = 3;
+const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_ID, DESIGNATION_LAYER_ID] as const;
+
+// 現在ONの素材レイヤー集合から各レイヤーのline-offsetを計算して適用する。ON中のものだけを
+// 対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
+// 自動で中央（実際の道路の位置）へ寄り直す。OFF中のレイヤーもoffsetを0へ戻しておき、
+// 次にONにしたときに古いオフセット値が一瞬残らないようにする。
+function applyRoadMaterialTrackOffsets(
+  map: MapLibreMap,
+  visible: { road: boolean; bicycleInfra: boolean; designation: boolean }
+) {
+  runWhenStyleReady(map, () => {
+    const visibleByLayerId: Record<string, boolean> = {
+      [ROAD_TILE_LAYER_ID]: visible.road,
+      [BICYCLE_INFRA_LAYER_ID]: visible.bicycleInfra,
+      [DESIGNATION_LAYER_ID]: visible.designation,
+    };
+    const onLayerIds = ROAD_MATERIAL_TRACK_LAYER_IDS.filter((layerId) => visibleByLayerId[layerId]);
+    const center = (onLayerIds.length - 1) / 2;
+    for (const layerId of ROAD_MATERIAL_TRACK_LAYER_IDS) {
+      if (!map.getLayer(layerId)) continue;
+      const onIndex = onLayerIds.indexOf(layerId);
+      const offset = onIndex === -1 ? 0 : (onIndex - center) * MATERIAL_TRACK_OFFSET_STEP;
+      map.setPaintProperty(layerId, "line-offset", offset);
+    }
   });
 }
 
@@ -535,6 +575,8 @@ function ensureBicycleInfraLayer(map: MapLibreMap) {
         "line-color": BICYCLE_INFRA_COLOR_EXPRESSION as any,
         "line-width": 3,
         "line-opacity": 0.85,
+        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+        "line-offset": 0,
       },
       layout: { visibility: "none" },
     });
@@ -558,6 +600,8 @@ function ensureDesignationLayer(map: MapLibreMap) {
         "line-color": DESIGNATION_COLOR_EXPRESSION as any,
         "line-width": 3,
         "line-opacity": 0.85,
+        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+        "line-offset": 0,
       },
       layout: { visibility: "none" },
     });
@@ -1242,6 +1286,11 @@ export default function MapView({
       motorVehicleDensityRecipe ?? DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
+    applyRoadMaterialTrackOffsets(map, {
+      road: showRoadSurface || showRoadType,
+      bicycleInfra: showBicycleInfra,
+      designation: showDesignation,
+    });
     updateRoadZoomHint(
       map,
       isRoadSurfaceGroupVisible({
@@ -1744,6 +1793,11 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
+    applyRoadMaterialTrackOffsets(map, {
+      road: showRoadSurface || showRoadType,
+      bicycleInfra: showBicycleInfra,
+      designation: showDesignation,
+    });
     updateRoadZoomHint(
       map,
       isRoadSurfaceGroupVisible({
