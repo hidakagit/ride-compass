@@ -146,7 +146,10 @@ describe("ComparisonPanel", () => {
     expect(headers).toHaveLength(2);
     for (const header of headers) {
       const title = header.getAttribute("title") ?? "";
-      expect(title).toContain("信号・踏切等");
+      // ラベルは地図の見え方パネルと同じ軸カタログ由来の正式名称（改善計画: 研究タブを
+      // 地図表示・地図の見え方パネルと考え方を併せて再設計）。以前は独自の言い換え
+      // 「信号・踏切等」だったが、地図の「停止密度」へ統一した。
+      expect(title).toContain("停止密度");
       expect(title).toContain("score");
       expect(title).toContain("pref");
     }

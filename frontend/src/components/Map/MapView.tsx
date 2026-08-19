@@ -154,7 +154,12 @@ const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // 一致させたい」）。2次は太く半透明な「下敷き」、1次は細くくっきりした「上書き」として
 // 重ねることで、下に赤い区間があってもその上に事故地点の点や道路種別の線が乗って見える
 // ようにする（描画順序はSTATIC_OVERLAY_LAYERS参照。1次より下・road_surfaceより上に置く）。
-const SECONDARY_AXIS_CASING_WIDTH = 9;
+// 幅は1次「素材」線3本のオフセット帯（MATERIAL_TRACK_OFFSET_STEP参照、3本ON時に中心から
+// ±3.5px＝7px幅）とちょうど一致させる。当初は9pxだったが、材料オフセットの間隔を
+// 3px→2pxへ詰めた際（実機フィードバック「地図の線が太すぎる」）に下敷きだけ幅が
+// 変わらず7px幅の素材の外側にはみ出た半透明の縁（1px分）が「ぼやけている」という
+// 実機フィードバックにつながったため、この幅も7pxへ合わせて縁を無くした。
+const SECONDARY_AXIS_CASING_WIDTH = 7;
 const SECONDARY_AXIS_CASING_OPACITY = 0.45;
 // 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの中立色（改善計画T165）。
 // roadFilterAxes.tsのCOLOR_UNKNOWNと同じ「不明・他」グレーを流用し、色分けそのものは
@@ -503,9 +508,11 @@ function applyRoadLayerState(
 // トラック間隔は当初line-width（3px）と揃え隙間なく境界を接する値にしていたが、3本ON時に
 // 全体の帯（オフセット±3px＋自身の太さ3pxで外縁±4.5px＝9px幅）が「地図の線が太すぎる」という
 // 実機フィードバックを受けた。隣接トラックがline-widthの半分弱ずつ重なる2pxへ縮め、3本ON時の
-// 全体の帯を±3.5px（7px幅）まで狭める（松の下敷き線幅9px＝中心から±4.5pxの範囲には
-// 引き続き収まり、下敷きからはみ出さない）。隣接トラック同士の重なりは1px程度に収まり、
-// 色の切り替わりとして視認できる範囲（完全な塗り潰しにはならない）。
+// 全体の帯を±3.5px（7px幅）まで狭める。松の下敷き線幅（SECONDARY_AXIS_CASING_WIDTH）も
+// 元は9pxだったが、この帯の縮小に合わせて7pxへ揃え直した（幅がずれていた間は下敷きだけ
+// 帯の外側にはみ出た半透明の縁が「ぼやけている」という実機フィードバックにつながった）ため、
+// 現在は帯の外縁ちょうど±3.5pxに下敷きの外縁も一致し、はみ出しは無い。隣接トラック同士の
+// 重なりは1px程度に収まり、色の切り替わりとして視認できる範囲（完全な塗り潰しにはならない）。
 const MATERIAL_TRACK_OFFSET_STEP = 2;
 const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_ID, DESIGNATION_LAYER_ID] as const;
 
