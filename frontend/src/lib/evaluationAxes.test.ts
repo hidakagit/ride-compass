@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { PREFERENCE_AXES } from "./evaluationAxes";
 import { axisMaterials } from "@/components/Map/primaryAttributes";
+import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 
 describe("evaluationAxes", () => {
   // ドリフト検知: axisIdを持つ軸は、必ずaxis-catalog.json（axisMaterials経由）に実在する
@@ -33,5 +34,25 @@ describe("evaluationAxes", () => {
   it("wind以外の全軸がaxisIdを持つ", () => {
     const withoutAxisId = PREFERENCE_AXES.filter((axis) => !axis.axisId).map((axis) => axis.weightKey);
     expect(withoutAxisId).toEqual(["wind_weight"]);
+  });
+
+  // 実機フィードバック「研究タブ、2次要素の調整の仕方が全然わからない。地図表示、地図の
+  // 見え方パネルと考え方を併せて再設計して」への対応。以前はラベル（例:
+  // stop_weight="信号・踏切等"、地図は「停止密度」）・並び順が独自でズレており、研究タブの
+  // 重みが地図のどの軸に対応するか名前だけでは分からなかった。SECONDARY_AXES（地図チップ・
+  // 地図の見え方パネルの推定グループが共有する単一ソース）の並び・ラベルをそのまま
+  // なぞっていることを回帰確認する。
+  it("axisIdを持つ軸は、地図（SECONDARY_AXES）と同じ並び順・同じラベルで並ぶ", () => {
+    const withAxisId = PREFERENCE_AXES.filter((axis) => axis.axisId);
+    const expected = SECONDARY_AXES.filter((axis) =>
+      withAxisId.some((p) => p.axisId === axis.axisId),
+    );
+    expect(withAxisId.map((axis) => axis.axisId)).toEqual(expected.map((axis) => axis.axisId));
+    expect(withAxisId.map((axis) => axis.label)).toEqual(expected.map((axis) => axis.label));
+  });
+
+  // windはSECONDARY_AXESに対応軸を持たないため、末尾に追加される。
+  it("wind_weightは末尾に位置する", () => {
+    expect(PREFERENCE_AXES[PREFERENCE_AXES.length - 1].weightKey).toBe("wind_weight");
   });
 });

@@ -11,6 +11,7 @@
 // 強制する（キーの過不足はコンパイルエラーになる。T4の型生成インフラをそのまま
 // ドリフト検知に使うため、追加の生成物・テストは持たない）。
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
+import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 
 export interface ScoringAxisDef {
   /** RouteScoreComponent.axis（backend/app/services/route_scorer.py）と一致する値。
@@ -52,39 +53,52 @@ export interface PreferenceAxisDef {
   axisId?: string;
 }
 
-const PREFERENCE_AXIS_META: Record<keyof RoutePreferenceWeights, Omit<PreferenceAxisDef, "weightKey">> = {
-  // ラベルはルート色分けモード（勾配・舗装/未舗装・風の影響）が可視化する区間難易度の
-  // 構成要素に対応するため、その語に揃える（elevation_weightの実体は区間勾配由来の難易度）。
-  elevation_weight: { label: "勾配", description: "登り坂の急さが小さいほど易しい", axisId: "gradient" },
-  road_weight: { label: "舗装", description: "舗装路であるほど易しい", axisId: "surface_q" },
-  wind_weight: { label: "風", description: "向かい風が弱いほど易しい" },
-  // ラベルは重み調整UIとして「何を減らしたいか」が伝わる具体名を使う（地図の凡例
-  // （axis-catalog.jsonのdisplay.label、`stop_density`軸は「停止密度」）とは文脈が異なる
-  // 意図的な言い換え。前者は密度という量、後者は要因の実体を説明する。統合レビュー
-  // 2026-08-19 overall F-4・改善計画T160(1)で表記ゆれか同期漏れか不明と指摘されたため
-  // 明記した）。
-  stop_weight: {
-    label: "信号・踏切等",
-    description: "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
-    axisId: "stop_density",
-  },
-  car_stress_weight: {
-    label: "車の圧迫感",
-    description: "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
-    axisId: "car_stress",
-  },
-  accident_weight: {
-    label: "事故",
-    description: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
-    axisId: "accident",
-  },
-  night_weight: {
-    label: "夜間",
-    description: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
-    axisId: "night",
-  },
+// weightKeyごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが
+// SECONDARY_AXES（地図と共有する軸カタログ）から導出するため、ここには持たない。
+const PREFERENCE_AXIS_DESCRIPTIONS: Record<keyof RoutePreferenceWeights, string> = {
+  elevation_weight: "登り坂の急さが小さいほど易しい",
+  road_weight: "舗装路であるほど易しい",
+  wind_weight: "向かい風が弱いほど易しい",
+  stop_weight: "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
+  car_stress_weight:
+    "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
+  accident_weight: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
+  night_weight: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
 };
 
-export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = (
-  Object.keys(PREFERENCE_AXIS_META) as (keyof RoutePreferenceWeights)[]
-).map((weightKey) => ({ weightKey, ...PREFERENCE_AXIS_META[weightKey] }));
+// axis-catalog.jsonのaxis_id→対応する区間難易度の重みキー（6軸、windを除く）。
+const PREFERENCE_WEIGHT_KEY_BY_AXIS_ID: Partial<Record<string, keyof RoutePreferenceWeights>> = {
+  gradient: "elevation_weight",
+  surface_q: "road_weight",
+  stop_density: "stop_weight",
+  car_stress: "car_stress_weight",
+  night: "night_weight",
+  accident: "accident_weight",
+};
+
+// 区間難易度の重み（2次要素）7軸。改善計画: 「研究タブの2次要素の調整の仕方がわからない、
+// 地図表示・地図の見え方パネルと考え方を併せて再設計して」という実機フィードバックへの
+// 対応。以前はラベル・並び順をこのファイル独自に持っており（例: stop_weightのラベルは
+// 地図の「停止密度」とは別に「信号・踏切等」という言い換え、並び順もelevation→road→wind→
+// stop→car_stress→accident→nightという独自順）、地図の見え方パネル（勾配・舗装質・
+// 停止密度・車の圧迫感・夜間・事故密度）と見比べても対応が取れなかった。
+// SECONDARY_AXES（secondaryAxes.ts、地図チップ・地図の見え方パネルの推定グループが
+// 共有する単一ソース）をそのままなぞって並び順・ラベルを導出することで、「研究タブの
+// この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import、
+// 新しい軸が増えてもこのファイルの変更は不要）。windは対応する軸がSECONDARY_AXESに
+// 無いため（レジストリ未登録、距離指標寄り）末尾へ別途追加する。
+export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
+  ...SECONDARY_AXES.flatMap((axis): PreferenceAxisDef[] => {
+    const weightKey = PREFERENCE_WEIGHT_KEY_BY_AXIS_ID[axis.axisId];
+    if (!weightKey) return [];
+    return [
+      {
+        weightKey,
+        label: axis.label,
+        description: PREFERENCE_AXIS_DESCRIPTIONS[weightKey],
+        axisId: axis.axisId,
+      },
+    ];
+  }),
+  { weightKey: "wind_weight", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind_weight },
+];
