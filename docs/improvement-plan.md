@@ -1902,7 +1902,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   連動ONすることを確認、無関係な路面の種類はOFFのままであることを確認、車の圧迫感を
   その後OFFにしても連動先（道路の種類）はONのまま残ること（片方向）を確認。
 
-### - [ ] T168. 評価側へ逆導出を適用する（研究タブの材料一覧・インスペクタのラベル共通化） 規模S〜M
+### - [x] T168. 評価側へ逆導出を適用する（研究タブの材料一覧・インスペクタのラベル共通化） 規模S〜M（2026-08-19完了）
 
 - 発端: ユーザー指摘「この命名、導出ルールは逆導出すると評価側の組み合わせ要素導出にも
   使えるはず。全体最適になるよう設計して」。
@@ -1910,6 +1910,30 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   合成材料一覧（正式命名）を自動表示する（T162で新設した
   `WeightPanel.renderPreferenceFieldExtra`の枠にそのまま乗る）。区間インスペクタ（T146）の
   1次属性ラベルもT163のカタログ正式名へ共通化する。
+- 実装メモ（2026-08-19完了）: `lib/evaluationAxes.ts`の`PreferenceAxisDef`へ`axisId?: string`
+  （axis-catalog.jsonのaxis_id、windのみレジストリ未登録のため未指定）を追加し、
+  区間難易度の重み7軸（elevation/road/wind/stop/car_stress/accident/night）とregistry軸id
+  （gradient/surface_q/-/stop_density/car_stress/accident/night）を対応付けた。
+  `page.tsx`に`renderAxisMaterialsExtra(axisId)`を新設し、`axisMaterials(axisId)`の結果を
+  `PRIMARY_ATTRIBUTE_LABELS`（正式命名、T163カタログ）で「材料: ...」の1行として
+  `renderPreferenceFieldExtra`経由でWeightPanelの各重み行へ差し込む（既存の
+  car_stress_weight専用レシピ差し込み`renderCarStressRecipeExtra`と併存、他5軸は材料一覧
+  のみ）。区間インスペクタ（`axisInspectorPopup.ts`）は、highway専用行と生タグ`tags`
+  ループの両方のラベルを`PRIMARY_ATTRIBUTE_LABELS[key] ?? key`へ変更し、レジストリ登録
+  済みキー（surface/cycleway/lanes等）は正式名、登録外の生タグ（name/ref等）はそれまで
+  どおりraw keyのまま表示するフォールバック設計にした。
+  検証: `lib/evaluationAxes.test.ts`（新規、node環境）に軸id対応のドリフト検知2件
+  （axisIdを持つ軸は必ずaxis-catalog.jsonに材料を持つこと・wind以外の全軸がaxisIdを持つ
+  こと）を追加。前者はbreak→verify→restoreで実際に検知することを確認（elevation_weightの
+  axisIdを存在しない軸idへ一時的に書き換え→赤化→復元→緑化）。`axisInspectorPopup.test.ts`
+  へ2件追加（highway/surfaceの正式名反映を確認する行、および登録外の生タグ`name`は
+  raw keyのまま出ることを確認する新規テスト）。frontend vitest 362件・tsc・eslint全green、
+  `next build`成功。Playwright実機確認（研究モードON+全`<details>`強制展開）:
+  区間難易度の重み6軸すべて（勾配・舗装・信号踏切等・車の圧迫感・事故・夜間）の直下に
+  対応する材料一覧（例: 車の圧迫感→「材料: 道路の種類・車線数・制限速度・自転車インフラ・
+  指定路線・自動車通行可否」、風は対応するaxisIdが無いため材料行なし）が正しく表示される
+  ことを確認。区間インスペクタ自体はバックエンド無しの環境のため実機確認できず、
+  unitテスト（上記2件）でカバー。
 - 完了条件: 軸のinputs変更がレジストリ登録のみで研究タブ・インスペクタへ自動反映される
   こと。frontend全green。
 - 依存: T164（T165・T166と独立に着手可）。
