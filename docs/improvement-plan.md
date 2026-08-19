@@ -1347,8 +1347,8 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 対象コミット`e90d920`時点（`32e84ed..e90d920`、T131・T132〜T136・T137〜T151の11コミット）の
 指摘。P0は無し。
 
-### - [ ] T153. RoadGraphEngineのcar_closeness()/car_stress_level()二重計算を解消し、
-  回帰テストのモジュール境界の死角を修正する 規模S
+### - [x] T153. RoadGraphEngineのcar_closeness()/car_stress_level()二重計算を解消し、
+  回帰テストのモジュール境界の死角を修正する 規模S（2026-08-19完了）
 
 - 発端: 統合レビュー統合-1（overall F-1）。T134（車ストレス・安全度表示の二重計算解消）は
   `_build_segment_details`内の直接呼び出し2箇所（`car_stress_level`・`safety_level`）を
@@ -1368,6 +1368,28 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
 - 完了条件: backend pytestが二重計算の不在を検証する形で追加・green。既存の
   `test_build_segment_details_calls_car_closeness_once_per_edge`が実際に
   `evaluation.py`経由の呼び出しも捕捉できることを確認する。
+- 実装メモ（2026-08-19完了）: 着手時点でT148（並行セッションが完了）がsafety_level経由の
+  旧dedup機構を撤去済みだったが、`road_graph_engine.py: _build_segment_details`の
+  `car_stress_level()`直接呼び出し（表示用生値`car_stress`）と、続く
+  `compute_edge_axis_scores`（T143）呼び出し内部での`car_stress_level()`再計算という
+  **新しい経路**の二重計算は未解消のまま残っていることをコードで確認し、これを解消した
+  （openrouteservice_engine.pyは`compute_edge_axis_scores`を経由せず
+  `evaluate_axis_difficulties`を直接呼ぶ設計のため、この二重計算は元から発生しない）。
+  `domain/evaluation.py: compute_edge_axis_scores`へ`car_stress_level_value`引数
+  （未指定時のセンチネル`_CAR_STRESS_LEVEL_NOT_PROVIDED`で判定、Noneは「way_tags無しで
+  計算不能」という既存の意味と衝突させないため）を追加し、`road_graph_engine.py`側で
+  計算済みの`car_stress`をそのまま渡す形へ変更。誤りが含まれていたコメント
+  （T148実装メモが「road_graph_engine.pyの区間表示ビルダーも単純化済み」と記載していたが
+  実際には未解消だった）も実態に合わせて修正。
+  回帰テスト`test_build_segment_details_calls_car_stress_level_once_per_edge`を新設
+  （`test_road_graph_engine.py`）。旧回帰テストと同じmonkeypatchの死角
+  （`road_graph_engine`と`evaluation`は`car_stress_level`をそれぞれ別々の名前へ束縛する
+  ため片方だけ差し替えても検知できない）を踏まえ、両方の束縛へ同一spyを設定。
+  `generate_loops`経由だと`RoadGraphEngine.prepare`がグラフ全Edge分の探索コスト計算でも
+  `car_stress_level`を呼ぶため区間数との単純比較ができず、`_build_segment_details`を
+  直接呼び出す形でテストした。フィックス適用前に一時的に戻して同テストが
+  `4 == 2`で実際に失敗することを確認済み（テスト自体の有効性の検証）。
+  backend pytest 821件（新規1件）green、既存820件に regression なし。
 
 ### - [ ] T154. docs/architecture.md §7をT130〜T151全体（レジストリ制導入・区間インスペクタ・
   base_by_highway共有）へ包括的に追従させる 規模M
