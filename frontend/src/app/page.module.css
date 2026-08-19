@@ -87,6 +87,33 @@
   composes: groupTitle from "../components/MapLayersPanel/MapLayersPanel.module.css";
 }
 
+/* 改善計画T133: 道路適正・自動車密度は車の圧迫感・安全度の両方が参照する共有材料
+   （domain/recipe.py: car_closeness()、改善計画: 車との近さ材料の共有元化）であることを、
+   「レシピ」カテゴリ内のフラットな4パネル並びからも視覚的に示す。共有材料の2パネルを
+   枠で囲み見出しを添え、それを参照する車の圧迫感・安全度の2パネルはインデントすることで
+   「材料→材料を使う軸」の一方向の依存関係を表す（相互参照ではない）。 */
+.recipeSharedMaterialGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}
+
+.recipeSharedMaterialHeading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.recipeDependentAxes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+}
+
 /* デバッグモード・バックエンド疎通確認は開発者向けの補助情報のため、他の情報より
    一段控えめな見た目（小さく・淡く）で1行にまとめる */
 .systemRow {

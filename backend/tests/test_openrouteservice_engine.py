@@ -9,6 +9,7 @@ from app.domain.difficulty import gradient_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
+from app.services import openrouteservice_engine
 from app.services.openrouteservice_engine import (
     MAX_SAMPLE_COUNT,
     MIN_SAMPLE_COUNT,
@@ -367,6 +368,40 @@ async def test_car_stress_and_bicycle_infra_are_none_without_repository():
     assert all(seg.car_stress is None for c in candidates for seg in c.segments)
     assert all(seg.bicycle_infra is None for c in candidates for seg in c.segments)
     assert all(c.car_stress_score is None and c.bicycle_infra_score is None for c in candidates)
+
+
+async def test_builds_segment_details_calls_car_closeness_once_per_point(monkeypatch):
+    # 改善計画T134: 区間表示ビルダーはcar_stress_level・safety_levelの両方が内部で参照する
+    # 「車との近さ」(N2)を1回だけ計算して両方へ渡す（以前は両者がそれぞれ独立に
+    # car_closeness()を呼び、サンプル点1つにつき2回計算していた）。
+    # test_road_graph_engine.py: test_build_segment_details_calls_car_closeness_once_per_edge
+    # と対称な回帰テスト。
+    counter = [0]
+    original = openrouteservice_engine.car_closeness
+
+    def counting(*args, **kwargs):
+        counter[0] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(openrouteservice_engine, "car_closeness", counting)
+
+    repository = FakeSurfaceRepository(
+        default_tag="asphalt", default_highway="primary", default_way_tags={"cycleway": "track"}
+    )
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
+        FakeElevationService(),
+        FakeWindService(),
+        RoutePreference(),
+        repository=repository,
+    )
+    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    total_segments = sum(len(c.segments) for c in candidates)
+    assert total_segments > 0
+    assert counter[0] == total_segments
 
 
 async def test_intersection_density_reflects_nearest_intersection_counts_when_repository_injected():

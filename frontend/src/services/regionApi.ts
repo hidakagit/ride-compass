@@ -155,7 +155,7 @@ const CAR_STRESS_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
   path: "/api/region/car-stress-breakdown",
   recipeBodyKey: "car_stress_recipe",
   debugKey: "api:car-stress-breakdown",
-  errorLabel: "車ストレス",
+  errorLabel: "車の圧迫感",
 };
 
 export function fetchCarStressBreakdown(
