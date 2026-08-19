@@ -261,6 +261,28 @@ describe("MapOverlayControls", () => {
       expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
     });
 
+    // モバイル限定の小型化（実機フィードバック「推定の横並びが複数行に折り返されて見にくい」
+    // への対応）: 軸タイルにだけCSSフック用のクラス（.chipRowItemAxis）が付き、タイル本体で
+    // 視覚的に隠す略名は▼展開パネル側にも見出しとして出る（アクセシビリティ上の名前は
+    // タイル本体のテキストノードのままなので変わらない）。観測メンバーはこの対象外。
+    it("推定グループの軸タイルにはモバイル小型化用クラスが付き、▼展開パネルに略名見出しが出る", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      await user.click(screen.getByRole("button", { name: "推定" }));
+      const carStressToggle = screen.getByRole("button", { name: "車の圧迫感" });
+      expect(carStressToggle.closest('[class*="chipRowItem"]')?.className).toMatch(/chipRowItemAxis/);
+
+      await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
+      // タイル本体の略名（ボタン名）とパネル内見出しの2箇所に同じテキストが出る
+      expect(screen.getAllByText("勾配")).toHaveLength(2);
+
+      // 観測メンバー（例: 道路の種類）はこの小型化の対象外
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      const roadTypeButton = screen.getByRole("button", { name: "道路の種類" });
+      expect(roadTypeButton.closest('[class*="chipRowItem"]')?.className).not.toMatch(/chipRowItemAxis/);
+    });
+
     it("推定グループはcompositeチップが1件も渡されなくても常に表示される（SECONDARY_AXESの情報タイルがあるため）", () => {
       render(<MapOverlayControls {...baseProps()} />); // baseLayers()にcompositeチップなし
       expect(screen.getByRole("button", { name: "推定" })).toBeInTheDocument();
