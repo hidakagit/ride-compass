@@ -24,6 +24,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
+import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import LayerChip from "@/components/Map/LayerChip";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
@@ -66,15 +67,27 @@ interface MapLayersPanelProps {
 // 見出し（h2）も持っていたが、地図上チップ側（MapOverlayControls.tsx）が実機フィードバックを
 // 受けてカテゴリ見出しを廃止しフラット化した経緯（改善計画T169）と揃え、こちらも中分類の
 // 見出しは出さない（「地図の見え方と合わせて、中分類は不要」という実機フィードバック）。
-// categoryはあくまで各次数グループ内のレイヤー並び順（MAP_LAYER_CATEGORY_ORDER）を
+// categoryはあくまで観測グループ内のレイヤー並び順（MAP_LAYER_CATEGORY_ORDER）を
 // 揃えるための内部キーとしてのみ使う。「生成したルートの色分け」（dynamic/route）は次数を
 // 持たないレイヤーで観測/推定どちらにも属さないため、地図の見え方パネルからは撤去し
 // 「ルートを作る」パネル側へ移設した（page.tsx: renderRouteSectionBody参照。実機
 // フィードバック「ルートを作るパネルがルートに関する制御、地図の見え方パネルが地図自体の
 // 制御」への対応。そちらは見出し＋本文の見た目としてこのファイルの.group/.groupTitleを
 // 再利用しているため、このファイル自身はもう使っていなくてもクラス定義は残す）。
-// 表示順・見出し文言はmapLayers.tsを単一ソースとし、地図上チップのグルーピング
-// （改善計画T128/T166、MapOverlayControls.tsx）と共有する。
+// 見出し文言はmapLayers.tsを単一ソースとし、地図上チップのグルーピング
+// （改善計画T128/T166、MapOverlayControls.tsx）と共有するが、次数グループの表示順
+// （MAP_LAYER_DATA_NATURE_ORDER）自体はパネル専用に「観測→推定」へ反転済み（実機
+// フィードバック「推定指標よりも観測指標を上に」への対応。mapLayers.tsのコメント参照）。
+// 推定グループ内のレイヤー並び順は、地図チップの推定グループが横並びで見せている軸の順序
+// （SECONDARY_AXES、axis-catalog.json由来）と一致させる（実機フィードバック「推定指標の
+// 上から数えた順番を地図上の左から数えた順番と一致させて」への対応。以前はcategory順
+// だったため、地図チップの並び[勾配・舗装質・停止密度・車の圧迫感・夜間・事故密度]と
+// 食い違っていた）。専用の表示レイヤーを持たない軸（勾配・舗装質・夜間、地図チップでは
+// 灰色のタップ不能タイル）も、地図チップと同じくパネルにも存在させる（実機フィードバック
+// 「地図上でグレー表示のものも展開だけさせず存在させて」への対応。以前はMapLayerId自体を
+// 持たないためパネルから完全に抜け落ちていた）。ただし設定できる項目が無いため、他レイヤーの
+// ような開閉式の<details>にはせず、常時見える案内行（renderProxyAxisSection）として出す
+// （「展開だけさせず」＝折りたたみ式にすると開かない限り存在に気づけないため）。
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
 // レイヤーごとに1セクション（見出し＋表示スイッチ＋凡例・絞り込み等の設定）を持ち、
 // セクションの枠組みはMAP_LAYERS（レイヤーカタログ）の列挙で描画する。地図の上
@@ -384,6 +397,37 @@ export default function MapLayersPanel({
     );
   }
 
+  // 推定グループの1件（SECONDARY_AXES由来）。専用の表示レイヤーを持つ軸はMAP_LAYERSの
+  // 対応するレイヤーを、持たない軸（proxy）はaxis自体を返す（上記コメント参照）。
+  type CompositeEntry =
+    | { kind: "layer"; layer: MapLayerDescriptor }
+    | { kind: "proxy"; axis: SecondaryAxisSummary };
+
+  // SECONDARY_AXES（axis-catalog.json由来、地図チップの左からの並びと同じ順序）をそのまま
+  // なぞって推定グループの並び順を作る。地図チップ側と単一ソースを共有することで、
+  // 軸の追加・並び替えがあってもここを個別に追従させる必要がない。
+  function orderedCompositeEntries(): readonly CompositeEntry[] {
+    return SECONDARY_AXES.map((axis): CompositeEntry => {
+      const layer = axis.layerId ? MAP_LAYERS.find((l) => l.id === axis.layerId) : undefined;
+      return layer ? { kind: "layer", layer } : { kind: "proxy", axis };
+    });
+  }
+
+  // 専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）の1件分。地図チップでは
+  // タップ不能の灰色タイルとして存在するのと同じ理由で、開閉式の<details>にはせず
+  // 常時見える案内行にする（上記コメント参照）。設定項目もON/OFFも無いため、
+  // 他レイヤーのセクション（renderLayerSection）とは別の軽量な描画にする。
+  function renderProxyAxisSection(axis: SecondaryAxisSummary) {
+    return (
+      <div key={`axis-proxy-${axis.axisId}`} className={styles.proxyAxisSection}>
+        <h3 className={styles.proxyAxisTitle}>{axis.label}</h3>
+        <div className={styles.proxyAxisBody}>
+          {axis.proxyHint && <p className={styles.mutedHint}>{axis.proxyHint}</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.panel}>
       {/* 各軸に「すべて表示」はあるが、複数レイヤーにまたがって絞り込んだ後に全部を
@@ -406,8 +450,21 @@ export default function MapLayersPanel({
         </button>
       </div>
       {MAP_LAYER_DATA_NATURE_ORDER.map((dataNature: MapLayerDataNature) => {
-        // categoryは見出しにはせず、地図上チップと同じ並び順（MAP_LAYER_CATEGORY_ORDER）を
-        // 揃えるためだけに使う内部キー（上記コメント参照）。
+        if (dataNature === "composite") {
+          // 推定グループだけは地図チップの並び（SECONDARY_AXES）を使う（上記コメント参照）。
+          const entries = orderedCompositeEntries();
+          if (entries.length === 0) return null;
+          return (
+            <div key={dataNature} className={styles.natureGroup}>
+              <h2 className={styles.natureTitle}>{MAP_LAYER_DATA_NATURE_LABELS[dataNature]}</h2>
+              {entries.map((entry) =>
+                entry.kind === "layer" ? renderLayerSection(entry.layer) : renderProxyAxisSection(entry.axis)
+              )}
+            </div>
+          );
+        }
+        // categoryは見出しにはせず、地図上チップの観測グループと同じ並び順
+        // （MAP_LAYER_CATEGORY_ORDER）を揃えるためだけに使う内部キー（上記コメント参照）。
         const layers = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
           MAP_LAYERS.filter(
             (layer) => layer.kind === "static" && layer.category === category && (layer.dataNature ?? "raw") === dataNature

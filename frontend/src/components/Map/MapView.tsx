@@ -31,6 +31,7 @@ import {
   attachAxisInspectorHandler,
 } from "@/components/Map/axisInspectorPopup";
 import {
+  KNOWN_LINE_OPACITY,
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
   ROAD_LINE_WIDTH_AXIS_ID,
@@ -778,6 +779,36 @@ const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (m
   { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
 ];
 
+// 2次（carStress・ramp軸）のうち、下敷き（SECONDARY_AXIS_CASING_WIDTH/OPACITY）の対象。
+// STATIC_OVERLAY_LAYERSと同じ並び（carStress→ramp軸）から取り出すだけの薄いラッパー。
+const SECONDARY_AXIS_CASING_TARGETS: readonly { key: string; layerId: string }[] = [
+  { key: "carStress", layerId: CAR_STRESS_LAYER_ID },
+  ...AXIS_OVERLAY_LAYERS,
+];
+
+// 改善計画（2次の下敷きの副作用対応）: 2次（carStress・ramp軸）を太く半透明な下敷きに
+// するのは、その材料（1次）が同時に表示されているときだけにする。材料が1つも表示されて
+// いなければ下に隠すものが無いため、通常の太さ・不透明度（1次と同じ、DEFAULT_ROAD_LINE_
+// WIDTH/KNOWN_LINE_OPACITY）に戻す。以前はcarStress・ramp軸をONにした瞬間から常に
+// 太く半透明にしていたため、道路網が密な都市部では下敷きの重なりだけで地図全体が
+// ぼやけて見えてしまっていた（実機フィードバック）。casingLayerKeysは、どの2次レイヤーの
+// 材料が現在表示中かをpage.tsx側（axisMaterialLayerIds）が判定して渡す（このファイルは
+// レイヤー固有の材料関係を知らない汎用描画係のまま、という方針を保つ）。
+function applySecondaryAxisCasingStyles(map: MapLibreMap, casingLayerKeys: ReadonlySet<string>) {
+  runWhenStyleReady(map, () => {
+    for (const target of SECONDARY_AXIS_CASING_TARGETS) {
+      if (!map.getLayer(target.layerId)) continue;
+      const useCasing = casingLayerKeys.has(target.key);
+      map.setPaintProperty(target.layerId, "line-width", useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH);
+      map.setPaintProperty(
+        target.layerId,
+        "line-opacity",
+        useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY
+      );
+    }
+  });
+}
+
 type StaticOverlayKey = string;
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
@@ -1109,6 +1140,11 @@ interface MapViewProps {
   /** 二次軸rampレイヤー（改善計画T145b）の表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
    * mapLayers.tsのMapLayerIdと同じ）。カタログ駆動のため個別のshow*フラグは持たない。 */
   axisVisibility: Record<string, boolean>;
+  /** 2次（carStress・ramp軸）のうち、材料（1次）が同時に表示されているためcasing
+   * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"carStress"/"axis:accident_density"等、
+   * STATIC_OVERLAY_LAYERSのkeyと同じ）。page.tsx側がaxisMaterialLayerIdsとlayerVisibility
+   * から算出する（改善計画: 2次の下敷きの副作用対応、applySecondaryAxisCasingStyles参照）。 */
+  secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
@@ -1145,6 +1181,7 @@ export default function MapView({
   showStopPoi,
   showSupplyPoi,
   axisVisibility,
+  secondaryAxisCasingLayerIds,
   roadHiddenKeysByMode,
   staticLegendHiddenKeysByAxis,
   routeLayerOn,
@@ -1189,6 +1226,7 @@ export default function MapView({
     showStopPoi,
     showSupplyPoi,
     axisVisibility,
+    secondaryAxisCasingLayerIds,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1224,6 +1262,7 @@ export default function MapView({
       showStopPoi,
       showSupplyPoi,
       axisVisibility,
+      secondaryAxisCasingLayerIds,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1247,6 +1286,7 @@ export default function MapView({
     showStopPoi,
     showSupplyPoi,
     axisVisibility,
+    secondaryAxisCasingLayerIds,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
@@ -1278,6 +1318,7 @@ export default function MapView({
       showStopPoi,
       showSupplyPoi,
       axisVisibility,
+      secondaryAxisCasingLayerIds,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
@@ -1292,6 +1333,7 @@ export default function MapView({
       supplyPoi: showSupplyPoi,
       ...axisVisibility,
     });
+    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
@@ -1758,6 +1800,7 @@ export default function MapView({
       supplyPoi: showSupplyPoi,
       ...axisVisibility,
     });
+    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
     // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
     // 状態が更新されるようにするため）。
@@ -1771,6 +1814,7 @@ export default function MapView({
     showStopPoi,
     showSupplyPoi,
     axisVisibility,
+    secondaryAxisCasingLayerIds,
     recomputeLayerDataStatus,
   ]);
 
