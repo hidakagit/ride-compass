@@ -139,4 +139,62 @@ describe("MapOverlayControls", () => {
     expect(screen.queryByRole("button", { name: "路面の凡例を表示" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "ルートの凡例を表示" })).not.toBeInTheDocument();
   });
+
+  // カテゴリ束ね（改善計画T128）: 同じcategoryを持つチップが2件以上あるときだけ
+  // 1個のグループチップへ束ねる。categoryを持たない/1件しかないレイヤーは従来どおり単独。
+  describe("カテゴリ束ね（改善計画T128）", () => {
+    function groupedLayers(): OverlayLayerChip[] {
+      return [
+        { id: "elevation", label: "標高図", on: false }, // categoryなし→単独のまま
+        { id: "road", label: "道路情報", on: false, category: "roadCondition" },
+        { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
+        { id: "carStress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
+        { id: "accidents", label: "事故", on: false, category: "trafficSafety" }, // dataNature省略→raw扱い
+      ];
+    }
+
+    it("同じcategoryが2件以上あるレイヤーは1個のグループチップへ束ねられ、個別ボタンは出ない", () => {
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      expect(screen.getByRole("button", { name: "標高図" })).toBeInTheDocument(); // categoryなしは単独のまま
+      expect(screen.queryByRole("button", { name: "道路情報" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "道路状態" })).toBeInTheDocument(); // カテゴリ見出しの束ねチップ
+      expect(screen.getByRole("button", { name: "交通・安全" })).toBeInTheDocument();
+    });
+
+    it("グループチップを開くとメンバーごとのON/OFFボタンが並ぶ", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
+
+      await user.click(screen.getByRole("button", { name: "道路状態" }));
+      const designationToggle = screen.getByRole("button", { name: "指定路線" });
+      expect(designationToggle).toHaveAttribute("aria-pressed", "true");
+
+      await user.click(designationToggle);
+      expect(onToggle).toHaveBeenCalledWith("designation", false);
+    });
+
+    it("メンバーのdataNatureが混在するグループだけ「推定指標（合成）」「観測データ」の小見出しが出る", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      // 道路状態（road/designationとも既定dataNature=raw、混在しない）は小見出し無し
+      await user.click(screen.getByRole("button", { name: "道路状態" }));
+      expect(screen.queryByText("推定指標（合成）")).not.toBeInTheDocument();
+      expect(screen.queryByText("観測データ")).not.toBeInTheDocument();
+
+      // 交通・安全（carStress=composite、accidents=raw、混在する）は小見出しが出る
+      await user.click(screen.getByRole("button", { name: "交通・安全" }));
+      expect(screen.getByText("推定指標（合成）")).toBeInTheDocument();
+      expect(screen.getByText("観測データ")).toBeInTheDocument();
+    });
+
+    it("いずれかのメンバーがONならグループチップがaria-pressed=trueになる", () => {
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      // road=OFF・designation=ONの道路状態グループ → 全体としてはON扱い
+      expect(screen.getByRole("button", { name: "道路状態" })).toHaveAttribute("aria-pressed", "true");
+    });
+  });
 });
