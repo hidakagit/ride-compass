@@ -1040,6 +1040,44 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   stop_count>0が18.9%（関東本土全域、dev機の東京都心南部限定データより広く分布）。
   raw_intersection_nodes 1,407,164件・road_nodes.degree>0が80,612件。
 
+### - [x] T161. 停止密度・事故密度ramp軸に色スウォッチ付き凡例を追加する 規模S（2026-08-19完了）
+
+- 発端: ユーザー相談「T128とT145の検討をしたい。1次要素、2次要素で地図上アイコンを
+  スマートにグループ化したい…停止、事故密度の凡例を付けて」。T145bはramp軸の凡例情報
+  （`axisRampLegendEntries`）を生成していたが、実際にはラベル文字列のみを
+  `panelHintDetail`（文字列の`<ul>`）として出しており、他レイヤー（車ストレス・
+  自転車インフラ等）が持つ色スウォッチ＋チェックボックスの凡例（`LegendEntry`/
+  `STATIC_FILTER_AXES`）と体裁が異なっていた。ユーザーからも「展開後の表示は文字でなく、
+  今のアイコン＋▼で凡例展開の見た目を踏襲したい」と明示指定。3段階（A凡例→Bチップ
+  グルーピング→C研究タブ整理）のうちA。
+- 対応方針: `axisLayers.ts`の`axisRampLegendEntries`（ラベルのみ返す簡易版）を廃止し、
+  他レイヤーと同じ`LegendEntry[]`（key/label/color/filter）を返す`buildAxisRampLegend`へ
+  置き換える。`staticAttributeLayers.ts`の`STATIC_FILTER_AXES`（絞り込み軸カタログ、
+  サイドバー凡例チェックボックス・地図チップの▶展開凡例・実際の絞り込みを1箇所から
+  駆動する既存の汎用機構）へ`RAMP_AXES`を機械的に追記するだけで、他レイヤーと全く同じ
+  仕組み（新規UIコンポーネント不要）で凡例が両方の場所に現れる設計にした。
+- 完了条件: 停止密度・事故密度レイヤーのサイドバーパネル・地図チップの両方に、色分けと
+  対応した凡例（境界値ラベル・単位付き）が既存レイヤーと同じ見た目で表示されること。
+- 実装メモ（2026-08-19完了）: 実装中に、`MapLayersPanel.tsx`の`renderSectionBody`の
+  `switch (layer.id)`に`axis:${string}`（ramp軸レイヤーid）へのcase/defaultが元から
+  無く、ramp軸のサイドバーパネル本文が常に空だったという既存バグ（T145b実装時の
+  見落とし、T145bの完了条件チェックはPlaywrightで「チップの自動出現・ON切替」までしか
+  確認しておらずパネル本文の中身までは見ていなかった）を発見し合わせて修正した
+  （`default:`ケースで`renderStandardSectionBody`へフォールバックさせる、他の標準レイヤー
+  と同型）。
+  変更ファイル: `axisLayers.ts`（`axisRampLegendEntries`→`axisRampBand`/
+  `axisRampBandLabel`/`buildAxisRampLegend`、後者は既存の`buildAxisRampValueExpression`
+  への範囲比較filterを持つため地図の色分けと凡例の境界が一致することを構造的に保証）、
+  `mapLayers.ts`（`panelHintDetail`の生成を削除、凡例は`STATIC_FILTER_AXES`側の責務に
+  一本化）、`staticAttributeLayers.ts`（`StaticFilterAxisId`を`RampAxis["axisId"]`
+  〔動的なaxis-catalog.json由来のためリテラル列挙不可〕で拡張し`STATIC_FILTER_AXES`へ
+  `RAMP_AXES`を追記）、`MapLayersPanel.tsx`（前述のバグ修正）。`page.tsx`・
+  `MapView.tsx`・`MapOverlayControls.tsx`は`STATIC_FILTER_AXES`を汎用的に走査する
+  既存実装のため無改修で凡例・絞り込みの両方に反映された。
+  検証: `axisLayers.test.ts`を`buildAxisRampLegend`向けに書き換え（キー重複無し・
+  境界フィルタが`buildAxisRampValueExpression`と同じ値式を参照し境界が連続することを
+  追加検証）。frontend vitest 341件・tsc・eslint全green。
+
 ### - [x] T146. 区間インスペクタをレジストリ駆動にし、一次属性まで遡って表示できるようにする 規模M（2026-08-19完了）
 
 - 背景: 設計プロンプトの区間インスペクタ要件。現状の`recipeBreakdownPopup.ts`は

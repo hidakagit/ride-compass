@@ -375,6 +375,11 @@ export default function MapLayersPanel({
             {renderLegendCheckboxes(routeStyleMode.legend, hiddenRouteLegendKeys, onRouteLegendToggle)}
           </>
         );
+      default:
+        // axis:${string}（ramp軸、改善計画T145b: 停止/事故密度の凡例追加）は
+        // carStress等と同じ標準構成（panelHint＋OFF案内＋絞り込み軸）で足りるため、
+        // 個別caseを持たずデフォルトで拾う。
+        return renderStandardSectionBody(layer);
     }
   }
 
