@@ -5,7 +5,7 @@
 import pytest
 
 from app.domain import registry
-from app.domain.evaluation import AXIS_WEIGHT_FIELD_TO_AXIS_ID
+from app.domain.evaluation import _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID, AXIS_WEIGHT_FIELD_TO_AXIS_ID
 from app.domain.registry_defaults import register_defaults
 
 
@@ -111,3 +111,17 @@ def test_registry_axis_ids_match_evaluation_axis_weight_mapping():
     registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
     weight_mapping_axis_ids = set(AXIS_WEIGHT_FIELD_TO_AXIS_ID.values())
     assert weight_mapping_axis_ids - {"wind"} == registry_axis_ids
+
+
+def test_registry_axis_ids_match_evaluation_axis_difficulty_mapping():
+    """registry_defaults.pyの登録軸集合と、evaluation.pyの
+    _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID（compute_edge_axis_scoresが使う手書き辞書）の
+    軸ID集合が一致することを検証する（統合レビュー2026-08-19consistency F-2、
+    T156完了時点ではAXIS_WEIGHT_FIELD_TO_AXIS_IDのみが対象で、evaluation.py内で隣接
+    定義されているこちらの辞書は対象外のまま残っていた）。
+
+    windはこちらの辞書にも存在し、レジストリには意図的に未登録（前テストのdocstring参照）。
+    """
+    registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
+    difficulty_mapping_axis_ids = set(_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID.values())
+    assert difficulty_mapping_axis_ids - {"wind"} == registry_axis_ids
