@@ -4,7 +4,6 @@
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it, vi } from "vitest";
 import * as recipeExpression from "@/components/Map/recipeExpression";
-import { DEFAULT_SAFETY_RECIPE } from "@/components/Map/safetyExpression";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -12,7 +11,6 @@ import {
 } from "@/components/Map/carStressExpression";
 import {
   BICYCLE_INFRA_LAYER_ID,
-  SAFETY_LAYER_ID,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
   CAR_STRESS_LAYER_ID,
@@ -52,8 +50,8 @@ function hiddenKeys(partial: Partial<Record<StaticFilterAxisId, readonly string[
   return partial as Record<StaticFilterAxisId, readonly string[]>;
 }
 
-// 呼び出し側の引数を短くするための既定4引数目以降のショートハンド（改善計画: 車との近さ
-// 材料の共有元化で6引数になったが、道路適正・自動車密度は個別に上書きしないテストが
+// 呼び出し側の引数を短くするための既定引数のショートハンド（改善計画: 車との近さ
+// 材料の共有元化で5引数になったが、道路適正・自動車密度は個別に上書きしないテストが
 // 大半のため既定値を使い回す）。
 const DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY = [
   DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -77,7 +75,6 @@ describe("setStaticOverlayFilters（車ストレスレシピの追従）", () =>
       mapDefault as any,
       withHiddenLevel1,
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
     const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === CAR_STRESS_LAYER_ID)!.filter;
@@ -88,7 +85,6 @@ describe("setStaticOverlayFilters（車ストレスレシピの追従）", () =>
       mapCustom as any,
       withHiddenLevel1,
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       customRoadSuitabilityRecipe,
       DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     );
@@ -110,7 +106,6 @@ describe("setStaticOverlayFilters（車ストレスレシピの追従）", () =>
       mapDefault as any,
       withHiddenProhibited,
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
     const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
@@ -121,76 +116,6 @@ describe("setStaticOverlayFilters（車ストレスレシピの追従）", () =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mapCustom as any,
       withHiddenProhibited,
-      customRecipe,
-      DEFAULT_SAFETY_RECIPE,
-      ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
-    );
-    const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
-
-    expect(customFilter).toEqual(defaultFilter);
-  });
-});
-
-// 安全度も車ストレスと同じ理由でレシピに追従する（改善計画: 安全度レシピ）。
-describe("setStaticOverlayFilters（安全度レシピの追従）", () => {
-  it("safetyレイヤーのフィルタは渡した道路適正レシピに追従する", () => {
-    const customRoadSuitabilityRecipe = {
-      ...DEFAULT_ROAD_SUITABILITY_RECIPE,
-      base_by_highway: { ...DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway, secondary: 1 },
-    };
-    const withHiddenLevel1 = hiddenKeys({ safety: ["1"] });
-
-    const mapDefault = fakeMap();
-    setStaticOverlayFilters(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mapDefault as any,
-      withHiddenLevel1,
-      DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
-      ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
-    );
-    const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === SAFETY_LAYER_ID)!.filter;
-
-    const mapCustom = fakeMap();
-    setStaticOverlayFilters(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mapCustom as any,
-      withHiddenLevel1,
-      DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
-      customRoadSuitabilityRecipe,
-      DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    );
-    const customFilter = mapCustom.setFilterCalls.find((c) => c.layerId === SAFETY_LAYER_ID)!.filter;
-
-    // 既定レシピ（secondary=3）で「レベル1を隠す」フィルタは、highway=secondaryを通す
-    // （secondaryはレベル1ではないため）。customRecipe（secondary=1）では同じ
-    // 「レベル1を隠す」フィルタが、highway=secondaryを弾く（secondaryがレベル1になったため）。
-    expect(evaluateFilter(defaultFilter, { highway: "secondary" })).toBe(true);
-    expect(evaluateFilter(customFilter, { highway: "secondary" })).toBe(false);
-  });
-
-  it("safety以外の軸（bicycleInfra等）は安全度レシピに影響されない", () => {
-    const withHiddenProhibited = hiddenKeys({ bicycleInfra: ["prohibited"] });
-
-    const mapDefault = fakeMap();
-    setStaticOverlayFilters(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mapDefault as any,
-      withHiddenProhibited,
-      DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
-      ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
-    );
-    const defaultFilter = mapDefault.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
-
-    const customRecipe = { ...DEFAULT_SAFETY_RECIPE, lit_adjustment: -3 };
-    const mapCustom = fakeMap();
-    setStaticOverlayFilters(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mapCustom as any,
-      withHiddenProhibited,
-      DEFAULT_CAR_STRESS_RECIPE,
       customRecipe,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
@@ -212,7 +137,6 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
       map as any,
       hiddenKeys({}),
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
     const filter = map.setFilterCalls.find((c) => c.layerId === STOP_POI_LAYER_ID)!.filter;
@@ -228,7 +152,6 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
       map as any,
       hiddenKeys({}),
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
     const filter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
@@ -246,7 +169,6 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
       map as any,
       withHiddenTrafficSignals,
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
     const supplyFilter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
@@ -256,11 +178,9 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
   });
 });
 
-// 改善計画T136: 「車との近さ」(N2)は車ストレス・安全度の両方が内部で参照する共通の土台の
-// ため、setStaticOverlayFilters内ではcarClosenessExpr()を1回だけ計算し両方（
-// buildCarStressExpression/buildSafetyExpression）へ渡す設計（MapView.tsx参照）。backend側の
-// test_evaluation.py: test_compute_edge_cost_calls_car_closeness_once_per_edgeと対称な
-// 回帰テストで、以前は無かった呼び出し回数の直接検証を追加する。
+// 改善計画T136: 「車との近さ」(N2)はbuildCarStressExpressionが内部で参照する土台のため、
+// carCloseness引数省略時のデフォルト引数評価により1回だけ計算される（MapView.tsx参照。
+// 安全度軸はT148で削除され、現在はbuildCarStressExpressionが唯一の呼び出し元）。
 describe("setStaticOverlayFilters（carClosenessExprの呼び出し回数）", () => {
   it("1回の呼び出しにつきcarClosenessExprを1回だけ計算する", () => {
     const spy = vi.spyOn(recipeExpression, "carClosenessExpr");
@@ -271,7 +191,6 @@ describe("setStaticOverlayFilters（carClosenessExprの呼び出し回数）", (
       map as any,
       hiddenKeys({}),
       DEFAULT_CAR_STRESS_RECIPE,
-      DEFAULT_SAFETY_RECIPE,
       ...DEFAULT_ROAD_SUITABILITY_AND_MOTOR_VEHICLE_DENSITY,
     );
 

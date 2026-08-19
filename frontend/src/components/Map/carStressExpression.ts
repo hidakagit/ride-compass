@@ -10,7 +10,7 @@
 //
 // backend/app/domain/traffic.py: car_stress_breakdownと1:1対応させる（判定ロジックの
 // 正準はPython側。ここは同じレシピをMapLibre expressionとして再現するミラー）。補正ブロック
-// 生成自体はsafetyExpression.tsと共有のrecipeExpression.ts（改善計画T123、domain/recipe.pyの
+// 生成自体はrecipeExpression.ts（改善計画T123、domain/recipe.pyの
 // TS側ミラー）に集約されている。既定レシピはtypes/generated/traffic-stress-recipe.json
 // （export_openapi.pyがPython側のDEFAULT_CAR_STRESS_RECIPEから書き出す）から読み、
 // 手動同期を避ける（carStressExpression.test.tsがPython側との整合を検証する）。
@@ -20,7 +20,7 @@
 // car-stress-recipe.jsonへ変えると実ファイルと一致せずビルドが壊れるため、exportスクリプト側の
 // 改称・再生成（本タスクの範囲外）まではあえて旧ファイル名のまま参照する。
 //
-// 「道路適正」「自動車密度」（=「車との近さ」N2）は安全度と共有するレシピのため、既定値は
+// 「道路適正」「自動車密度」（=「車との近さ」N2）の既定値は
 // types/generated/road-suitability-recipe.json / motor-vehicle-density-recipe.jsonから読む
 // （改善計画: 車との近さ材料の共有元化）。
 //
@@ -56,10 +56,8 @@ export function buildCarStressExpression(
   roadSuitabilityRecipe: RoadSuitabilityRecipe = DEFAULT_ROAD_SUITABILITY_RECIPE,
   motorVehicleDensityRecipe: MotorVehicleDensityRecipe = DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   // 「車との近さ」(N2 = 道路適正＋自動車密度、domain/recipe.py: car_closeness)。
-  // 車ストレス・安全度が共有する土台（改善計画: 車との近さ材料の共有元化）。同じ
-  // roadSuitabilityRecipe/motorVehicleDensityRecipeに対してbuildSafetyExpressionも
-  // 同じ結果を必要とするため、呼び出し側（MapView.tsx）が1回だけ計算した結果を
-  // 渡せるようにする（省略時はここで計算する、既存呼び出し元との後方互換）。
+  // デフォルト引数にすることで、省略時はここで一度だけ計算される（改善計画: 車との近さ
+  // 材料の共有元化）。
   carCloseness: CarClosenessExpr = carClosenessExpr(roadSuitabilityRecipe, motorVehicleDensityRecipe),
 ): unknown[] {
   const { hasBase, base, cyclewayAdjustment, maxspeedAdjustment, lanesHighAdjustment, designationAdjustment } =

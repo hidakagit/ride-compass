@@ -315,7 +315,6 @@ export default function MapLayersPanel({
           </>
         );
       case "carStress":
-      case "safety":
       case "bicycleInfra":
       case "designation":
       case "stopPoi":

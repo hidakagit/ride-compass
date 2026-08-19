@@ -115,7 +115,7 @@ class TestThresholdAdjustment:
         assert threshold_adjustment(45, 30, -1, 60, 1) == 0
 
     def test_low_threshold_none_disables_low_direction(self):
-        # domain/safety.py: safety_breakdownのlanes（high方向のみ採用、少車線側は見送り）と
+        # domain/traffic.py: car_stress_breakdownのlanes_high（high方向のみ採用）と
         # 同じ使い方。低い値でも0のまま。
         assert threshold_adjustment(1, None, -1, 4, 1) == 0
         assert threshold_adjustment(4, None, -1, 4, 1) == 1
@@ -140,19 +140,19 @@ class TestCyclewayAdjustment:
 
 class TestRoadSuitabilityBaseByHighway:
     # 改善計画: 車との近さ材料の共有元化で旧TRAFFIC_STRESS_BASE_BY_HIGHWAY（living_street=2）
-    # ／SAFETY_BASE_BY_HIGHWAY（living_street=1）を統合した際、車ストレス側のliving_street
-    # 基準値が2→1へ変更された（domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY直上の
-    # コメント参照）。この値をピン留めし、以後の意図しない再変更を検知する
-    # （旧living_street=2の値はどちらのtest_traffic.py/test_safety.pyにも一度もピン留め
-    # されておらず、無テストのまま値が変わっていた）。
+    # ／SAFETY_BASE_BY_HIGHWAY（living_street=1、当時の安全度軸。T148で削除済み）を統合した際、
+    # 車ストレス側のliving_street基準値が2→1へ変更された（domain/recipe.py:
+    # ROAD_SUITABILITY_BASE_BY_HIGHWAY直上のコメント参照）。この値をピン留めし、以後の
+    # 意図しない再変更を検知する（旧living_street=2の値はどちらのテストにも一度も
+    # ピン留めされておらず、無テストのまま値が変わっていた）。
     def test_living_street_base_is_one(self):
         assert ROAD_SUITABILITY_BASE_BY_HIGHWAY["living_street"] == 1
 
 
 class TestRoadSuitability:
     # 改善計画: 車との近さ材料の共有元化。「highwayからbaseを引いてcyclewayを足す」手順を
-    # 車ストレス・安全度の両`*_breakdown`が共通で呼ぶ（各軸のrecipe値は呼び出し側が渡すため
-    # ここでは値の出どころが車ストレス由来か安全度由来かは区別しない）。
+    # car_stress_breakdownが呼ぶ（かつては安全度の`*_breakdown`とも共通で呼んでいたが、
+    # 安全度軸はT148で削除済み）。
     def test_unregistered_highway_returns_none_base_and_zero_cycleway(self):
         assert road_suitability("motorway", {}, {"primary": 4}, -2, -1, -1) == (None, 0)
 

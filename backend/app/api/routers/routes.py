@@ -22,7 +22,6 @@ from app.domain.recipe import (
     validate_threshold_order,
 )
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
-from app.domain.safety import SafetyRecipe
 from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE, CarStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
@@ -196,20 +195,6 @@ def validate_lanes_threshold_order(
     validate_threshold_order(lanes_low, lanes_high, "lanes")
 
 
-class SafetyRecipeOverride(BaseModel):
-    """安全度軸だけが持つ判定レシピ（街灯・トンネル補正）の上書き。キーはdomain/safety.py:
-    SafetyRecipeと同じ。CarStressRecipeOverrideと同じ「全フィールド必須」の別モデル
-    （上書きするなら全項目を明示する）。
-
-    highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
-    車ストレスと共有する（RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride、
-    改善計画: 車との近さ材料の共有元化）ため、ここには含まない。
-    """
-
-    lit_adjustment: int
-    tunnel_adjustment: int
-
-
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -225,7 +210,6 @@ class RouteGenerateRequest(BaseModel):
     scoring_weights: ScoringWeights | None = None
     route_preference: RoutePreferenceWeights | None = None
     car_stress_recipe: CarStressRecipeOverride | None = None
-    safety_recipe: SafetyRecipeOverride | None = None
     road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
 
@@ -250,7 +234,6 @@ class GenerationConditions(BaseModel):
     scoring_weights: ScoringWeights
     route_preference: RoutePreferenceWeights
     car_stress_recipe: CarStressRecipeOverride
-    safety_recipe: SafetyRecipeOverride
     road_suitability_recipe: RoadSuitabilityRecipeOverride
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
@@ -293,9 +276,6 @@ async def generate_routes(
     car_stress_recipe_override = (
         CarStressRecipe(**request.car_stress_recipe.model_dump()) if request.car_stress_recipe else None
     )
-    safety_recipe_override = (
-        SafetyRecipe(**request.safety_recipe.model_dump()) if request.safety_recipe else None
-    )
     road_suitability_recipe_override = (
         RoadSuitabilityRecipe(**request.road_suitability_recipe.model_dump())
         if request.road_suitability_recipe
@@ -310,7 +290,6 @@ async def generate_routes(
         preference_override,
         scoring_override,
         car_stress_recipe_override,
-        safety_recipe_override,
         road_suitability_recipe_override,
         motor_vehicle_density_recipe_override,
     )
@@ -333,7 +312,6 @@ async def generate_routes(
             scoring_weights=ScoringWeights(**setup.scoring_weights),
             route_preference=RoutePreferenceWeights(**setup.route_preference.model_dump()),
             car_stress_recipe=CarStressRecipeOverride(**setup.car_stress_recipe.model_dump()),
-            safety_recipe=SafetyRecipeOverride(**setup.safety_recipe.model_dump()),
             road_suitability_recipe=RoadSuitabilityRecipeOverride(**setup.road_suitability_recipe.model_dump()),
             motor_vehicle_density_recipe=MotorVehicleDensityRecipeOverride(
                 **setup.motor_vehicle_density_recipe.model_dump()

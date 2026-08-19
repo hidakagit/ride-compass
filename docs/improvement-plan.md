@@ -1109,7 +1109,7 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   コミットしない運用、`measure_axis_stats.py`等の既存計測スクリプトと同じ扱い）。
   backend pytest 932件green。
 
-### - [ ] T148. 旧・安全度レイヤーと計算コードを削除する 規模M
+### - [x] T148. 旧・安全度レイヤーと計算コードを削除する 規模M（2026-08-19完了）
 
 - 背景: 設計プロンプトのタスク9。T139〜T147の移行が完了し、night/accident/car_stress軸への
   切替が本番で安定稼働していることを確認したうえで、`domain/safety.py`・
@@ -1120,6 +1120,48 @@ overall/complexity/consistency/uiの4レビューを並列実施し相互統合�
   CIで確認する。
 - 完了条件: `safety`関連のシンボル・エンドポイント・レイヤーがコードベースから消え、
   backend pytest・frontend vitest・eslint・tsc・OpenAPIドリフト検知すべてgreen。
+- 実装メモ（2026-08-19完了）: 本番はまだ稼働開始前（ユーザー確認済み）のため、「1〜2週間の
+  安定稼働実績」というgate条件は適用対象外と判断し、T139完了直後に着手した（安全度軸は
+  T139時点で既に難易度合成から外れた表示専用値であり、本番未稼働の状態で追加の移行リスクは
+  発生しない）。
+  backend: `domain/safety.py`・`app/safety_recipe.yaml`・`tests/test_safety.py`を削除。
+  `domain/route.py`の`RouteSegmentDetail.safety`/`RouteCandidate.safety_score`フィールド、
+  `domain/recipe_definition.py`の`AXIS_PARAM_SAFETY`定数・`RecipeComponents.safety_recipe`、
+  `services/evaluation_service.py`の`load_safety_recipe()`、
+  `services/region_service.py`の`get_safety_breakdown()`、
+  `api/dependencies.py`の`RouteGenerationSetup.safety_recipe`、
+  `api/routers/routes.py`の`SafetyRecipeOverride`クラス・`GenerationConditions.safety_recipe`、
+  `api/routers/region.py`の`POST /api/region/safety-breakdown`エンドポイントを削除。
+  `domain/evaluation.py`/`services/road_graph_engine.py`/`services/openrouteservice_engine.py`は
+  `car_stress_level`と`safety_level`の両方が「車との近さ」(N2=road_suitability+
+  motor_vehicle_density)を必要としていたために存在した`car_closeness_result`の
+  重複計算防止パス（T134で追加）を、呼び出し元が`car_stress_level`単独になったため撤去し、
+  `carStressExpression.ts`の`carCloseness`引数のデフォルト値評価（省略時に1回だけ計算される
+  既存パターン）に委ねた。`scripts/export_openapi.py`の安全度関連書き出しを削除。
+  `scripts/measure_axis_stats.py`は安全度関連のレポート生成コードを削除する過程で
+  `pearson_correlation`/`spearman_correlation`/`_average_ranks`まで一度削除してしまい、
+  同関数群を再利用している`scripts/analyze_jartic_calibration.py`（T53、車ストレス×交通量の
+  相関分析、安全度とは無関係）のインポートを壊す事故を起こしたため、3関数を復元
+  （docstringに「measure_axis_stats.py自体はもう使わないがanalyze_jartic_calibration.pyが
+  再利用するため残す」旨を明記）。
+  frontend: `components/SafetyRecipePanel/`ディレクトリ・`components/Map/safetyExpression.ts`
+  （テスト含む）を削除。`types/route.ts`の`SafetyRecipeOverride`・`types/traffic.ts`の
+  `SafetyBreakdown`型エイリアスを削除。`mapLayers.ts`の`safety`レイヤー定義・
+  `staticAttributeLayers.ts`の安全度色分け/凡例・`MapView.tsx`の`ensureSafetyLayer`/
+  `applySafetyRecipe`・`SAFETY_LAYER_ID`・`setStaticOverlayFilters`の`safety`関連引数
+  （6引数→5引数）を削除。`recipeBreakdownPopup.ts`の`attachSafetyBreakdownHandler`/
+  `SAFETY_BREAKDOWN_CONFIG`、`regionApi.ts`の`fetchSafetyBreakdown`、`icons.tsx`の
+  `SafetyIcon`を削除。`page.tsx`から`SafetyRecipePanel`の配線・`safetyRecipe`の
+  `useRecipeOverride`・`showSafety`レイヤートグルを削除。`mapLayers.ts`の
+  `MapLayerCategory = "trafficSafety"`（UIカテゴリ名。車ストレス・事故・停止要因の
+  カテゴリ見出しとして今も使用中）は安全度レイヤーとは別概念のため意図的に維持。
+  `carStressExpression.ts`/`recipe.py`の「車との近さ」(N2)共有材料コメントから安全度への
+  言及を除去。OpenAPI契約は`export_openapi.py`＋`npm run generate:api`＋`next typegen`で
+  再生成し、生成物（`openapi.json`/`api.d.ts`/`axis-catalog.json`等、`safety-recipe.json`・
+  `safety-test-cases.json`は書き出し対象から外れたため削除）にドリフトが無いことを確認。
+  地図レイヤーは10→9レイヤーへ変更、docs/architecture.mdの該当箇所（§7「安全度」節・
+  タイル世代表・APIリファレンス・TypeScriptインターフェース定義）を追従更新。
+  backend pytest 818件・frontend vitest 340件・eslint・tsc・`next build`全green。
 
 ### - [x] T149. 交差点密度(intersection_density)をstop_density軸へ吸収する 規模M（2026-08-18完了）
 

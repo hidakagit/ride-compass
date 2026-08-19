@@ -195,7 +195,7 @@
   flex-shrink: 0;
 }
 
-/* CarClosenessReferenceSection（改善計画: 車との近さ材料の共有元化）。車の圧迫感・安全度
+/* CarClosenessReferenceSection（改善計画: 車との近さ材料の共有元化）。車の圧迫感
    パネルの先頭に置く読み取り専用の参照ブロックで、各パネル固有の.group/.groupHeader
    （WeightPanel.module.css由来のcomposes）とは独立した自己完結スタイルにする
    （呼び出し元のCSSモジュールに依存しないようrecipeControls.tsx側で完結させるため）。
@@ -246,7 +246,7 @@
 }
 
 /* 現在値のタグ一覧（改善計画: 研究タブのレイアウト改善）。以前は前置き文2つ＋「／」区切りの
-   長文箇条書きだったが、車の圧迫感・安全度の2パネルに同じ説明が重複するには冗長だった。
+   長文箇条書きだったが冗長だった。
    MapLayersPanel.module.cssの.legendCheckboxList/.swatchと同じ「短いラベルを並べる」発想を
    踏襲し、各値を独立した小さなタグにして一覧性を上げる。 */
 .referenceTags {

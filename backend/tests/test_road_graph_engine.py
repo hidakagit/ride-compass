@@ -531,28 +531,3 @@ async def test_build_segment_details_uses_compute_edge_axis_scores(monkeypatch):
     assert len(calls) > 0
 
 
-async def test_build_segment_details_calls_car_closeness_once_per_edge(monkeypatch):
-    # 改善計画T134: 区間表示ビルダー（_build_segment_details）はcar_stress_level・
-    # safety_levelの両方が内部で参照する「車との近さ」(N2)を1回だけ計算して両方へ渡す
-    # （以前は両者がそれぞれ独立にcar_closeness()を呼び、1Edgeにつき2回計算していた）。
-    # domain/evaluation.py: test_compute_edge_cost_calls_car_closeness_once_per_edgeと
-    # 対称な回帰テスト。
-    counter = [0]
-    original = road_graph_engine.car_closeness
-
-    def counting(*args, **kwargs):
-        counter[0] += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(road_graph_engine, "car_closeness", counting)
-
-    graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    way_tags = {edge_id: {"lanes": "2"} for edge_id in graph.edges}
-    generator, _, _ = make_generator(graph, way_tags=way_tags)
-
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-
-    total_segments = sum(len(c.segments) for c in candidates)
-    assert total_segments > 0
-    assert counter[0] == total_segments
-    assert all(len(c.segments) > 0 for c in candidates)

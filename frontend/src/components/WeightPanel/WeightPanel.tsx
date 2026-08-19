@@ -63,7 +63,7 @@ const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES
 // ラベル横の情報アイコン（FieldLabel、Map/recipeControls.tsx）でdescriptionを開閉表示する。
 // evaluationAxesのdescriptionフィールドはこれまでコード上に存在するだけでUIに出ていなかった
 // （「車ストレス」等のラベルだけでは実際の判定材料が伝わらないという指摘への対応）。
-// レシピパネル（SafetyRecipePanel等）と同じ「タップで開くinfoTooltip」パターンを再利用する。
+// レシピパネル（CarStressRecipePanel等）と同じ「タップで開くinfoTooltip」パターンを再利用する。
 function WeightInput<T extends Record<string, number>>({
   field,
   values,
