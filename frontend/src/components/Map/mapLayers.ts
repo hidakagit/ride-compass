@@ -15,7 +15,7 @@
 // category（改善計画T86）は kind:"static" レイヤーのみが持つ中分類で、サイドバー
 // （MapLayersPanel）のグループ見出しに使う。staticが8種に達しflatな一覧のまま並ぶと
 // 見つけやすさが悪化するため、kindより一段細かい単位で分ける:
-// - roadCondition（道路状態）: 道路情報・指定路線
+// - roadCondition（道路状態）: 道路の種類・路面の種類（T165で「道路情報」から分割）・指定路線
 // - trafficSafety（交通・安全）: 車ストレス・事故・停止要因
 // - bicycleInfra（自転車インフラ）: 自転車インフラ
 // - terrain（地形）: 標高図
@@ -30,7 +30,8 @@ import {
 
 export type MapLayerId =
   | "elevation"
-  | "road"
+  | "roadType"
+  | "roadSurface"
   | "carStress"
   | "bicycleInfra"
   | "designation"
@@ -121,14 +122,27 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     panelHint: "国土地理院の色別標高図を重ねる",
   },
   {
-    id: "road",
-    // 実体は「路面の種類（色）×道路の種類（太さ）」の複合レイヤーのため、「路面」では
-    // 半分しか表せない。ルート色分けモードの「舗装/未舗装」・評価重みの「舗装率」との
-    // 用語衝突（同じ「路面」が3つの別物を指す）を避ける改名（T30）。
-    label: "道路情報",
+    // 改善計画T165（地図レイヤー階層の次数反転）: 旧「道路情報」（road、1レイヤーに
+    // 路面の種類・道路の種類の2属性が同居する複合レイヤー、T30で用語衝突を避けるため
+    // 妥協的に付けた名前）を、一次属性1つ=1レイヤーの原則に合わせ論理2レイヤーへ分割した。
+    // MapView.tsx側の物理描画は引き続き1本のMapLibre線レイヤー（region-road-surface-
+    // tiles-line）に合成する（同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を
+    // 塗り潰し「色×太さ」の多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は
+    // 他のレイヤーと同じ汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
+    id: "roadType",
+    label: "道路の種類",
+    chipLabel: "道路種別",
     kind: "static",
     category: "roadCondition",
-    description: "道路を路面の種類[色]と道路の種類[太さ]で表示",
+    description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
+  },
+  {
+    id: "roadSurface",
+    label: "路面の種類",
+    chipLabel: "路面",
+    kind: "static",
+    category: "roadCondition",
+    description: "路面の材質を色で表示[アスファルト・砂利・土など]",
   },
   {
     id: "carStress",
@@ -166,9 +180,10 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     category: "bicycleInfra",
     description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
     // 「道路情報（路面）」との違いが分からないという実機フィードバック（同T40）を受け、
-    // 両者が独立した軸であることを明記する。
+    // 両者が独立した軸であることを明記する（T165で「道路情報」は「路面の種類」レイヤーへ
+    // 論理分割されたため、参照先の名称もそちらへ更新した）。
     panelHint:
-      "自転車が走る帯の構造[専用道・レーン・車道混在など]を表します。道路情報レイヤーの" +
+      "自転車が走る帯の構造[専用道・レーン・車道混在など]を表します。「路面の種類」レイヤーの" +
       "路面の種類[アスファルト/砂利など、舗装の物理的な状態]とは別の軸で、" +
       "組み合わせて確認できます。",
   },
@@ -286,15 +301,17 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
 
-// road/carStress/bicycleInfra/designationは同じroad_surfaceベクタタイル
-// （MapView.tsx: ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を
-// 共有しているため、そのタイルのminzoom未満（regionZoomTooWide）ではタイル自体が要求されず、
-// 4レイヤーとも同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
+// roadType/roadSurface（T165で「道路情報」から論理分割）/carStress/bicycleInfra/
+// designationは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/
+// ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を共有しているため、そのタイルの
+// minzoom未満（regionZoomTooWide）ではタイル自体が要求されず、5レイヤーとも同時に
+// loading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
 // 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
 export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
-  "road",
+  "roadType",
+  "roadSurface",
   "carStress",
   "bicycleInfra",
   "designation",

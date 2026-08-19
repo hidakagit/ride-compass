@@ -69,12 +69,11 @@ export const PRIMARY_ATTRIBUTE_CHIP_LABELS: Record<string, string> = {
 };
 
 // 一次属性→表示レイヤーIDの対応（Partial: キーが無い＝表示レイヤー無し）。改善計画T163の
-// 確定命名表どおり。highway/surfaceは現状「道路情報」レイヤー（road、1レイヤーに2属性が
-// 同居）を指すが、T165で「道路の種類」「路面の種類」の論理2レイヤーへ分割される予定
-// （分割後にこの2行を更新する）。
+// 確定命名表どおり。highway/surfaceはT165で「道路情報」（road）から分割された論理2レイヤー
+// （roadType/roadSurface、物理描画は1本の線レイヤーへ合成、mapLayers.ts参照）を指す。
 export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = {
-  highway: "road",
-  surface: "road",
+  highway: "roadType",
+  surface: "roadSurface",
   cycleway: "bicycleInfra",
   designation: "designation",
   elevation: "elevation",
@@ -114,8 +113,8 @@ export function attrConsumers(attrId: string): readonly string[] {
 }
 
 /** 2次軸の材料のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す
- * （T167: 推定指標レイヤーON時の観測データレイヤー連動ON用）。highway/surfaceが
- * どちらも"road"を指す等、複数属性が同じレイヤーに集約される場合は1件にまとめる。 */
+ * （T167: 推定指標レイヤーON時の観測データレイヤー連動ON用）。複数の一次属性が同じ
+ * 表示レイヤーへ集約される場合（1レイヤーが複数属性を表す場合）は1件にまとめる。 */
 export function axisMaterialLayerIds(axisId: string): readonly MapLayerId[] {
   const layerIds = axisMaterials(axisId)
     .map((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId])

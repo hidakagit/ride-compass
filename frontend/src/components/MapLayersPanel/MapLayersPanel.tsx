@@ -27,6 +27,13 @@ import LayerChip from "@/components/Map/LayerChip";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
 
+// 路面の絞り込み軸→対応するレイヤーID（改善計画T165: 「道路情報」の論理分割）。
+// surface（路面の種類）はroadSurfaceレイヤー、highway（道路の種類）はroadTypeレイヤーを
+// それぞれ自動ON対象とする（handleRoadLegendToggle/handleRoadAxisSetHidden参照）。
+function roadFilterAxisLayerId(axisId: RoadFilterAxisId): MapLayerId {
+  return axisId === "surface" ? "roadSurface" : "roadType";
+}
+
 interface MapLayersPanelProps {
   layerVisibility: MapLayerVisibility;
   onLayerToggle: (id: MapLayerId, on: boolean) => void;
@@ -101,17 +108,22 @@ export default function MapLayersPanel({
     if (!layerVisibility.route) onLayerToggle("route", true);
   }
 
-  // 道路情報の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditorごと廃止し、
-  // ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら、色分けモード選択と
-  // 同じくレイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
+  // 路面の種類・道路の種類の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditor
+  // ごと廃止し、ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら、色分け
+  // モード選択と同じくレイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
+  // 改善計画T165: 「道路情報」（road）が路面の種類（surface軸→roadSurfaceレイヤー）・
+  // 道路の種類（highway軸→roadTypeレイヤー）へ論理分割されたため、軸ごとに自動ONする
+  // レイヤーが異なる（roadFilterAxisLayerId参照）。
   function handleRoadLegendToggle(axisId: RoadFilterAxisId, key: string) {
     onRoadLegendToggle(axisId, key);
-    if (!layerVisibility.road) onLayerToggle("road", true);
+    const layerId = roadFilterAxisLayerId(axisId);
+    if (!layerVisibility[layerId]) onLayerToggle(layerId, true);
   }
 
   function handleRoadAxisSetHidden(axisId: RoadFilterAxisId, hiddenKeys: string[]) {
     onRoadAxisSetHidden(axisId, hiddenKeys);
-    if (!layerVisibility.road) onLayerToggle("road", true);
+    const layerId = roadFilterAxisLayerId(axisId);
+    if (!layerVisibility[layerId]) onLayerToggle(layerId, true);
   }
 
   // 改善計画T63: 道路情報以外の4レイヤー（車ストレス・自転車インフラ・停止要因POI・
@@ -290,6 +302,27 @@ export default function MapLayersPanel({
     );
   }
 
+  // 路面の種類・道路の種類（改善計画T165で「道路情報」から論理分割）1レイヤーぶんの本文。
+  // 凡例チェックボックス＝絞り込み操作（参照表示と操作を1つのリストで兼ねる、ルート凡例と
+  // 同じ方式）。OFF中でも操作でき、操作すると自動でONになる。2レイヤーとも同じ形（OFF案内・
+  // ズーム警告・データ状態・凡例）のため共通化し、visual（"色"/"太さ"）・axisだけ呼び出し側で渡す。
+  function renderRoadAxisSectionBody(layerId: MapLayerId, axis: RoadFilterAxis, visual: string) {
+    return (
+      <>
+        {!layerVisibility[layerId] && (
+          <p className={styles.mutedHint}>表示はOFFです[絞り込みを操作すると自動でONになります]</p>
+        )}
+        {layerVisibility[layerId] && regionZoomTooWide && (
+          <p className={styles.zoomWarning}>表示範囲が広すぎます。ズームインしてください。</p>
+        )}
+        {/* regionZoomTooWide中の抑制はrenderDataStatusHint内で一律に判定する
+            （ROAD_SURFACE_SHARED_LAYER_IDS参照）。 */}
+        {renderDataStatusHint(layerId)}
+        {renderRoadAxis(axis, visual)}
+      </>
+    );
+  }
+
   function renderSectionBody(layer: MapLayerDescriptor) {
     switch (layer.id) {
       case "elevation":
@@ -308,24 +341,10 @@ export default function MapLayersPanel({
       case "supplyPoi":
       case "accidents":
         return renderStandardSectionBody(layer);
-      case "road":
-        // 2軸とも凡例チェックボックス＝絞り込み操作（参照表示と操作を1つのリストで兼ねる、
-        // ルート凡例と同じ方式）。OFF中でも操作でき、操作すると自動でONになる。
-        return (
-          <>
-            {!layerVisibility.road && (
-              <p className={styles.mutedHint}>表示はOFFです[絞り込みを操作すると自動でONになります]</p>
-            )}
-            {layerVisibility.road && regionZoomTooWide && (
-              <p className={styles.zoomWarning}>表示範囲が広すぎます。ズームインしてください。</p>
-            )}
-            {/* regionZoomTooWide中の抑制はrenderDataStatusHint内で一律に判定する
-                （ROAD_SURFACE_SHARED_LAYER_IDS参照）。 */}
-            {renderDataStatusHint("road")}
-            {renderRoadAxis(roadColorAxis, "色")}
-            {renderRoadAxis(roadWidthAxis, "太さ")}
-          </>
-        );
+      case "roadSurface":
+        return renderRoadAxisSectionBody("roadSurface", roadColorAxis, "色");
+      case "roadType":
+        return renderRoadAxisSectionBody("roadType", roadWidthAxis, "太さ");
       case "route":
         if (!hasDetail) {
           // 生成前は使えない理由だけでなく、次の一歩（ルートを作るセクション）へ誘導する

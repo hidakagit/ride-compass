@@ -43,12 +43,26 @@ export function AxisRampIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 道路情報: 消失点へ向かう道路と車線の破線 */
+/** 道路の種類（改善計画T165で「道路情報」から論理分割）: 消失点へ向かう道路と車線の破線 */
 export function RoadIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
       <path d="M7 2 3 18M13 2l4 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <path d="M10 5v2M10 9.3v2M10 13.6v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 路面の種類（改善計画T165で「道路情報」から論理分割）: 材質のテクスチャを表す帯+点の並び */
+export function RoadSurfaceIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <rect x="2.5" y="6" width="15" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="6" cy="8.6" r="0.9" fill="currentColor" />
+      <circle cx="10" cy="11.4" r="0.9" fill="currentColor" />
+      <circle cx="14" cy="8.6" r="0.9" fill="currentColor" />
+      <circle cx="6.5" cy="11.6" r="0.7" fill="currentColor" />
+      <circle cx="14" cy="11.6" r="0.7" fill="currentColor" />
     </svg>
   );
 }

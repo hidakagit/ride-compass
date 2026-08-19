@@ -1787,14 +1787,15 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   （レイヤー無しの明示allowlist、8件）を実装。導出関数`axisMaterials(axisId)`・
   `attrConsumers(attrId)`（逆導出）・`axisMaterialLayerIds(axisId)`（材料のうち
   表示レイヤーを持つものだけを重複無しで返す、T167用）を提供。
-  highway/surfaceは現状「道路情報」レイヤー（road、1レイヤーに2属性同居）を暫定的に
-  指す設計にした（T165で論理2レイヤーへ分割後にこの2行だけ更新する前提）。
+  highway/surfaceは初期実装時点では「道路情報」レイヤー（road、1レイヤーに2属性同居）を
+  暫定的に指す設計にしたが、T165での論理2レイヤー分割（roadType/roadSurface）に合わせて
+  この2行を更新済み。
   検証: `primaryAttributes.test.ts`（新規9件）。ドリフト検知2件
   （略名網羅性・4文字以内／表示レイヤー対応表の網羅性〔レイヤー有り・明示的レイヤー無し
   のどちらか片方に必ず属し両方に属さない〕）はbreak→verify→restoreで実際に検知することを
   確認（略名を1件削除→赤化→復元→緑化）。frontend vitest 355件・tsc・eslint全green。
 
-### - [ ] T165. 道路情報レイヤーを「道路の種類」「路面の種類」へ論理分割する 規模M
+### - [x] T165. 道路情報レイヤーを「道路の種類」「路面の種類」へ論理分割する 規模M（2026-08-19完了）
 
 - 発端: 上記の設計判断（1物理レイヤー2属性の同居は次数反転方針にとって即負債）。
 - 対応方針: MapLayerIdを2つ（道路の種類・路面の種類）へ分割し、ON/OFF・凡例・絞り込み
@@ -1806,6 +1807,31 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 完了条件: 3状態（両方/片方ずつ）の描画がPlaywright実機確認で意図どおりであること。
   旧設定からの移行で表示状態が失われないこと。frontend全green。
 - 依存: なし（T164と並行可）。
+- 実装メモ（2026-08-19完了）: `MapLayerId`を`"road"`→`"roadType" | "roadSurface"`へ分割
+  （mapLayers.ts）。物理描画は従来どおり1本のMapLibre線レイヤー（`ensureRoadSurfaceTileLayer`）
+  のまま、`applyRoadLayerState(map, showRoadSurface, showRoadType, hiddenKeysByAxis)`が
+  ON/OFFの組み合わせに応じて`setPaintProperty`で色・太さ・破線を動的に再計算
+  （両方OFF=非表示、片方だけON=中立色`#9ca3af`+均一太さ or 色分け+均一太さ、両方ON=
+  従来の色×太さ）。roadFilterAxes.tsの色軸/太さ軸は元々独立設計だったため、フィルタ・
+  凡例側は「軸ごとに対応するMapLayerIdへ配線し直す」だけで済んだ（`roadFilterAxisLayerId`
+  helperをMapLayersPanel.tsxに追加）。`LAYER_DATA_SOURCES`・`ROAD_SURFACE_SHARED_LAYER_IDS`・
+  `isRoadSurfaceGroupVisible`は5レイヤー（roadType/roadSurface/carStress/bicycleInfra/
+  designation）がすべて同じroad_surfaceタイルを共有する設計を維持しつつ2キー化。地図チップ
+  用に`RoadSurfaceIcon`を新設（icons.tsx）、`LAYER_ICONS`をroadType/roadSurfaceの2エントリへ。
+  localStorage移行: `useStoredState`のdeserializeで旧`road: boolean`キーを検出したら
+  `roadType`/`roadSurface`双方へ複製（page.tsx）。ポップアップ（`buildRoadSurfacePopupHtml`）は
+  物理レイヤー（feature.layer.id）ベースで判定しており論理MapLayerIdを直接参照していないため
+  変更不要と確認（コード変更なしで完了条件を満たす）。
+  発見したテストの問題（2件、いずれも論理分割の正しい副作用）: MapLayersPanel.test.tsxの
+  ズーム警告2テストが`roadType`/`roadSurface`両方をtrueにしていたため、各セクションが
+  独立に警告を出すようになった結果`getByText`が2件ヒットして失敗。テストの意図（路面軸の
+  警告確認）に合わせ`roadSurface: true, roadType: false`の片方だけONへ修正。
+  検証: `primaryAttributes.ts`のPRIMARY_ATTRIBUTE_LAYER_IDSをplaceholder値（`"road"`）から
+  最終値（`"roadType"`/`"roadSurface"`）へ更新、対応テストも追随。frontend vitest 356件・
+  tsc・eslint全green、`next build`成功。Playwright実機確認（バックエンド無しのためタイルは
+  読み込めないがUI状態は完全検証可能）: チップ「道路状態」展開で道路種別/路面/指定路線が
+  独立3項目として表示、roadType/roadSurfaceを個別にON/OFFしてサイドバーの対応セクション
+  ・凡例（太さ軸/色軸それぞれ）が独立して切り替わることを確認。
 
 ### - [ ] T166. 地図チップ最上位を次数（観測/推定）へ反転し確定命名を適用する 規模M
 

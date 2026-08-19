@@ -17,6 +17,7 @@ import {
   DesignationIcon,
   ElevationIcon,
   RoadIcon,
+  RoadSurfaceIcon,
   CarStressIcon,
   BicycleInfraIcon,
   StopPoiIcon,
@@ -106,7 +107,8 @@ function groupByDataNature(
 // 圧迫するという実機フィードバックを受け、小さいアイコン+短いラベルの縦並びへ変更した。
 const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement> = {
   elevation: ElevationIcon,
-  road: RoadIcon,
+  roadType: RoadIcon,
+  roadSurface: RoadSurfaceIcon,
   carStress: CarStressIcon,
   bicycleInfra: BicycleInfraIcon,
   designation: DesignationIcon,
