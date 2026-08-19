@@ -5,17 +5,21 @@ import { createPortal } from "react-dom";
 import {
   MAP_LAYER_CATEGORY_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
+  MAP_LAYER_DATA_NATURE_CHIP_LABELS,
   MAP_LAYER_DATA_NATURE_LABELS,
   type MapLayerCategory,
   type MapLayerDataNature,
   type MapLayerId,
 } from "@/components/Map/mapLayers";
+import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   AccidentIcon,
   AxisRampIcon,
   DesignationIcon,
   ElevationIcon,
+  EstimatedIndexIcon,
+  ObservedDataIcon,
   RoadIcon,
   RoadSurfaceIcon,
   CarStressIcon,
@@ -48,13 +52,13 @@ export interface OverlayLayerChip {
    * （以前は絞り込み中のレイヤーしか▶が出なかったが、無条件のレイヤーでも凡例を
    * 確認したいという実機フィードバックを受け、legendDetailsの有無だけで判定するよう変更）。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
-  /** カテゴリ束ね（改善計画T128）用。mapLayers.ts: MapLayerDescriptor.categoryをそのまま渡す。
-   * 同じcategoryを持つチップが2件以上あるときだけグループ化される（1件だけのカテゴリは
-   * 従来どおり単独チップのまま。未指定＝route等のdynamicレイヤーも単独チップ）。 */
+  /** 観測グループ内の小見出し分け（改善計画T86→T166）用。mapLayers.ts:
+   * MapLayerDescriptor.categoryをそのまま渡す。未指定＝route等のdynamicレイヤーは
+   * 次数グループに属さず単独チップのまま。 */
   category?: MapLayerCategory;
-  /** グループを展開したときの小見出し分け（改善計画T128、交通・安全グループの
-   * 「推定指標（合成）」「観測データ」）に使う。mapLayers.ts: MapLayerDescriptor.dataNature
-   * をそのまま渡す。未指定は"raw"扱い。 */
+  /** 地図チップ最上位のグルーピング単位（改善計画T166、次数反転）。mapLayers.ts:
+   * MapLayerDescriptor.dataNatureをそのまま渡す。categoryを持つチップは必ずこれで
+   * 観測/推定のどちらかへ束ねられる（未指定は"raw"扱い）。 */
   dataNature?: MapLayerDataNature;
 }
 
@@ -63,44 +67,31 @@ interface MapOverlayControlsProps {
   onToggle: (id: MapLayerId, on: boolean) => void;
 }
 
-// カテゴリ単位でグルーピングされたチップの中身。1件しかないカテゴリ・categoryを持たない
-// レイヤー（route等）は単独チップ（members.length === 1）としてまとめて表現し、単独/グループの
-// 分岐をレンダリング側で1本化する（実装時の想定どおり「1件だけのグループ」として同じ
-// コンポーネントで扱う。改善計画T128の実装メモ参照）。
+// 次数（観測/推定）単位でグルーピングされたチップの中身。categoryを持たないレイヤー
+// （route等）は単独チップ（members.length === 1）としてまとめて表現し、単独/グループの
+// 分岐をレンダリング側で1本化する（T128から続く設計、実装時の想定どおり「1件だけの
+// グループ」として同じコンポーネントで扱う）。"group:raw"/"group:composite"は
+// members.length===0でも（推定側はSECONDARY_AXESの薄字項目があるため）チップ自体を出す。
 interface ChipGroup {
   key: string;
   members: readonly OverlayLayerChip[];
 }
 
-// category単位でMAP_LAYER_CATEGORY_ORDER順にグルーピングし、categoryを持たないレイヤー
-// （route等のdynamic）は元の並び順のまま末尾へ単独チップとして追加する。
+// categoryを持つレイヤーをdataNature（観測/推定、改善計画T166）で2グループへ束ね、
+// categoryを持たないレイヤー（route等のdynamic）は元の並び順のまま末尾へ単独チップとして
+// 追加する。推定グループは、対応する表示レイヤーを持つチップが1件も無くてもSECONDARY_AXESの
+// 薄字項目（勾配・舗装質・夜間）を見せるため常に出す。観測グループはcategoryを持つ
+// raw（dataNature省略含む）チップが1件以上あるときだけ出す。
 function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   const groups: ChipGroup[] = [];
-  for (const category of MAP_LAYER_CATEGORY_ORDER) {
-    const members = layers.filter((layer) => layer.category === category);
-    if (members.length > 0) groups.push({ key: category, members });
-  }
+  const observedMembers = layers.filter((layer) => layer.category && (layer.dataNature ?? "raw") === "raw");
+  if (observedMembers.length > 0) groups.push({ key: "group:raw", members: observedMembers });
+  const estimatedMembers = layers.filter((layer) => layer.category && layer.dataNature === "composite");
+  groups.push({ key: "group:composite", members: estimatedMembers });
   for (const layer of layers) {
     if (!layer.category) groups.push({ key: layer.id, members: [layer] });
   }
   return groups;
-}
-
-// カテゴリ内訳を「推定指標（合成）」「観測データ」の小見出しへ分ける（改善計画T128）。
-// 全メンバーが同じdataNatureならグループ内で分ける意味が無いため、複数のnatureが混在する
-// ときだけ小見出しを出す（現状これに該当するのはtrafficSafetyのみ）。
-function groupByDataNature(
-  members: readonly OverlayLayerChip[],
-): { label: string | null; members: readonly OverlayLayerChip[] }[] {
-  const natures = new Set(members.map((m) => m.dataNature ?? "raw"));
-  if (natures.size <= 1) return [{ label: null, members }];
-  const order: MapLayerDataNature[] = ["composite", "raw"];
-  return order
-    .map((nature) => ({
-      label: MAP_LAYER_DATA_NATURE_LABELS[nature],
-      members: members.filter((m) => (m.dataNature ?? "raw") === nature),
-    }))
-    .filter((section) => section.members.length > 0);
 }
 
 // レイヤーIDごとの自作アイコン（icons.tsx）。地図上は文字だけのチップだとスペースを
@@ -118,13 +109,10 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   route: RouteIcon,
 };
 
-// グループチップ（改善計画T128）を代表するアイコン。1件しかないカテゴリは常に単独チップの
-// ままでグループ化されない（buildChipGroups参照）ため、実際に使われるのは現状
-// roadCondition・trafficSafetyのみ。それ以外のカテゴリが将来複数件になったときは
-// 先頭メンバーのアイコンへフォールバックする（renderChipButton呼び出し側参照）。
-const CATEGORY_ICONS: Partial<Record<MapLayerCategory, (props: { size?: number }) => ReactElement>> = {
-  roadCondition: RoadIcon,
-  trafficSafety: CarStressIcon,
+// 次数グループチップ（改善計画T166）を代表するアイコン。観測/推定の2種類のみ。
+const DATA_NATURE_ICONS: Record<MapLayerDataNature, (props: { size?: number }) => ReactElement> = {
+  raw: ObservedDataIcon,
+  composite: EstimatedIndexIcon,
 };
 
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
@@ -321,44 +309,74 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     if (expandedIds.size > 0) setExpandedIds(new Set());
   };
 
-  // グループチップ（改善計画T128）の▶内容: メンバーレイヤーごとの行（アイコン+ON/OFF）を
-  // 「推定指標（合成）」「観測データ」の小見出しへ分けて並べる（groupByDataNature参照。
-  // 全メンバーが同じ性質なら見出し無しのフラットな1本のリストになる）。各行はサイドバー
+  // 次数グループ（改善計画T166）共通の1メンバー行（アイコン+ON/OFF）。サイドバー
   // （MapLayersPanel）の「表示」チップと同じLayerChip部品を再利用し、ONのメンバーに
   // 凡例があれば単独チップと同じrenderLegendDetailsをその場に続けて出す（もう1段階の
   // ▶展開は設けず、グループを開いた時点で内訳まで見える方が操作が少なく分かりやすい）。
-  function renderGroupMembers(members: readonly OverlayLayerChip[]) {
-    const sections = groupByDataNature(members);
+  function renderMemberRow(member: OverlayLayerChip) {
+    const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
+    const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
+    return (
+      <li key={member.id} className={styles.memberRow}>
+        <div className={styles.detailRow}>
+          <Icon size={14} />
+          <LayerChip
+            label={member.chipLabel ?? member.label}
+            on={member.on}
+            disabled={member.disabled}
+            title={member.title}
+            onClick={() => onToggle(member.id, !member.on)}
+          />
+        </div>
+        {member.on && !member.disabled && hasLegend && (
+          <div className={styles.memberLegend}>{renderLegendDetails(member.legendDetails!)}</div>
+        )}
+      </li>
+    );
+  }
+
+  // 「観測データ」グループ（改善計画T166）の▶内容: T128のカテゴリ束ねをそのまま小見出しへ
+  // 転用し、MAP_LAYER_CATEGORY_ORDER順にメンバーを並べる。
+  function renderObservedGroupPanel(members: readonly OverlayLayerChip[]) {
+    const sections = MAP_LAYER_CATEGORY_ORDER.map((category) => ({
+      label: MAP_LAYER_CATEGORY_LABELS[category],
+      members: members.filter((m) => m.category === category),
+    })).filter((section) => section.members.length > 0);
     return (
       <div className={styles.detailBody}>
-        {sections.map((section, sectionIndex) => (
-          <div key={section.label ?? sectionIndex} className={styles.detailAxis}>
-            {section.label && <div className={styles.detailAxisLabel}>{section.label}</div>}
-            <ul className={styles.detailList}>
-              {section.members.map((member) => {
-                const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
-                const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
-                return (
-                  <li key={member.id} className={styles.memberRow}>
-                    <div className={styles.detailRow}>
-                      <Icon size={14} />
-                      <LayerChip
-                        label={member.chipLabel ?? member.label}
-                        on={member.on}
-                        disabled={member.disabled}
-                        title={member.title}
-                        onClick={() => onToggle(member.id, !member.on)}
-                      />
-                    </div>
-                    {member.on && !member.disabled && hasLegend && (
-                      <div className={styles.memberLegend}>{renderLegendDetails(member.legendDetails!)}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+        {sections.map((section) => (
+          <div key={section.label} className={styles.detailAxis}>
+            <div className={styles.detailAxisLabel}>{section.label}</div>
+            <ul className={styles.detailList}>{section.members.map((member) => renderMemberRow(member))}</ul>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  // 「推定指標（合成）」グループ（改善計画T166）の▶内容: SECONDARY_AXES（確定命名表の6軸）を
+  // 常にすべて列挙する。専用の表示レイヤーを持つ軸（車の圧迫感・停止密度・事故密度）は
+  // layersから対応するチップを引いてON/OFFトグル付きの行にし、専用レイヤーの無い軸
+  // （勾配・舗装質・夜間）は薄字＋代役へのポインタだけの行にする（トグルは出さない、
+  // secondaryAxes.ts参照）。
+  function renderEstimatedGroupPanel(members: readonly OverlayLayerChip[]) {
+    return (
+      <div className={styles.detailBody}>
+        <ul className={styles.detailList}>
+          {SECONDARY_AXES.map((axis) => {
+            const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
+            if (member) return renderMemberRow(member);
+            return (
+              <li key={axis.axisId} className={`${styles.memberRow} ${styles.detailRowHidden}`}>
+                <div className={styles.detailRow}>
+                  <AxisRampIcon size={14} />
+                  <span className={styles.detailRowLabel}>{axis.label}</span>
+                </div>
+                {axis.proxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
+              </li>
+            );
+          })}
+        </ul>
       </div>
     );
   }
@@ -369,68 +387,72 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     <div className={styles.wrapper}>
       <div className={styles.chipRow} ref={chipRowRef} onScroll={handleChipRowScroll}>
         {chipGroups.map((group) => {
-          if (group.members.length === 1) {
-            const layer = group.members[0];
-            // 二次軸rampレイヤー（改善計画T145b）はレジストリ生成物から自動で増えるため
-            // レイヤーIDごとの専用アイコンを持たず、共通のAxisRampIconへフォールバックする
-            // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
-            const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
-            const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
-            const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
-            const isExpanded = canExpand && expandedIds.has(layer.id);
-            const panelContent =
-              layer.legendDetails && layer.legendDetails.length > 0 ? (
-                renderLegendDetails(layer.legendDetails)
-              ) : (
-                <p className={styles.detailNotice}>{layer.summary}</p>
-              );
+          // 次数グループチップ（改善計画T166）。観測/推定のいずれもタップは展開/収納のみ
+          // （一括ON/OFFは設けない）。推定グループはSECONDARY_AXESの薄字項目があるため
+          // membersが0件でも常にチップを出す（buildChipGroups参照）。
+          if (group.key === "group:raw" || group.key === "group:composite") {
+            const nature: MapLayerDataNature = group.key === "group:raw" ? "raw" : "composite";
+            const RepresentativeIcon = DATA_NATURE_ICONS[nature];
+            const anyOn = group.members.some((m) => m.on && !m.disabled);
+            const isExpanded = expandedIds.has(group.key);
+            const label = MAP_LAYER_DATA_NATURE_LABELS[nature];
+            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS[nature];
+            const itemCount = nature === "composite" ? SECONDARY_AXES.length : group.members.length;
             return (
               <ChipButton
-                key={layer.id}
-                Icon={Icon}
-                label={layer.label}
-                chipLabel={layer.chipLabel ?? layer.label}
-                active={layer.on && !layer.disabled}
-                disabled={layer.disabled}
-                title={layer.title}
-                onTap={() => onToggle(layer.id, !layer.on)}
-                canExpand={canExpand}
+                key={group.key}
+                Icon={RepresentativeIcon}
+                label={label}
+                chipLabel={chipLabel}
+                active={anyOn}
+                title={`${label}[${itemCount}件をタップで一覧]`}
+                onTap={() => toggleExpanded(group.key)}
+                canExpand
                 isExpanded={isExpanded}
-                onExpandToggle={() => toggleExpanded(layer.id)}
-                panelContent={panelContent}
-                panelRect={panelRects[layer.id]}
+                onExpandToggle={() => toggleExpanded(group.key)}
+                panelContent={
+                  nature === "raw" ? renderObservedGroupPanel(group.members) : renderEstimatedGroupPanel(group.members)
+                }
+                panelRect={panelRects[group.key]}
                 registerRow={(el) => {
-                  rowRefs.current[layer.id] = el;
+                  rowRefs.current[group.key] = el;
                 }}
               />
             );
           }
 
-          // カテゴリ束ねチップ（改善計画T128）。複数レイヤーをまとめて代表する1個のチップで、
-          // タップは展開/収納のみ（一括ON/OFFは設けない）。いずれかのメンバーがONなら
-          // アクティブ色にして「このグループの中で何か表示中」を示す。
-          const category = group.key as MapLayerCategory;
-          const RepresentativeIcon = CATEGORY_ICONS[category] ?? LAYER_ICONS[group.members[0].id] ?? AxisRampIcon;
-          const groupKey = `group:${category}`;
-          const anyOn = group.members.some((m) => m.on && !m.disabled);
-          const isExpanded = expandedIds.has(groupKey);
-          const label = MAP_LAYER_CATEGORY_LABELS[category];
+          // categoryを持たない単独チップ（route等のdynamicレイヤー）。
+          const layer = group.members[0];
+          // 二次軸rampレイヤー（改善計画T145b）はレジストリ生成物から自動で増えるため
+          // レイヤーIDごとの専用アイコンを持たず、共通のAxisRampIconへフォールバックする
+          // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
+          const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
+          const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
+          const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
+          const isExpanded = canExpand && expandedIds.has(layer.id);
+          const panelContent =
+            layer.legendDetails && layer.legendDetails.length > 0 ? (
+              renderLegendDetails(layer.legendDetails)
+            ) : (
+              <p className={styles.detailNotice}>{layer.summary}</p>
+            );
           return (
             <ChipButton
-              key={groupKey}
-              Icon={RepresentativeIcon}
-              label={label}
-              chipLabel={label}
-              active={anyOn}
-              title={`${label}[${group.members.length}件をタップで一覧]`}
-              onTap={() => toggleExpanded(groupKey)}
-              canExpand
+              key={layer.id}
+              Icon={Icon}
+              label={layer.label}
+              chipLabel={layer.chipLabel ?? layer.label}
+              active={layer.on && !layer.disabled}
+              disabled={layer.disabled}
+              title={layer.title}
+              onTap={() => onToggle(layer.id, !layer.on)}
+              canExpand={canExpand}
               isExpanded={isExpanded}
-              onExpandToggle={() => toggleExpanded(groupKey)}
-              panelContent={renderGroupMembers(group.members)}
-              panelRect={panelRects[groupKey]}
+              onExpandToggle={() => toggleExpanded(layer.id)}
+              panelContent={panelContent}
+              panelRect={panelRects[layer.id]}
               registerRow={(el) => {
-                rowRefs.current[groupKey] = el;
+                rowRefs.current[layer.id] = el;
               }}
             />
           );
