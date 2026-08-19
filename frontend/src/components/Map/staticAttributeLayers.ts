@@ -26,6 +26,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
+import { RAMP_AXES, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
 import {
   DEFAULT_CAR_STRESS_RECIPE,
   buildCarStressExpression,
@@ -305,6 +306,9 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c)
 // 改善計画T63: 絞り込みUIの生成に使う、絞り込み可能な各静的レイヤーの軸カタログ。
 // 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
+// ramp軸（stop_density/accident等、axisLayers.ts参照）はaxis-catalog.json由来の動的なIDのため
+// リテラル列挙できず、RampAxis["axisId"]（string）を足しあわせる（改善計画T145b: 停止/事故密度の
+// 凡例追加。ここに追加のコード変更なしにSTATIC_FILTER_AXESへ含められる）。
 export type StaticFilterAxisId =
   | "carStress"
   | "bicycleInfra"
@@ -312,7 +316,8 @@ export type StaticFilterAxisId =
   | "stopPoi"
   | "supplyPoi"
   | "accidentParty"
-  | "accidentSeverity";
+  | "accidentSeverity"
+  | RampAxis["axisId"];
 
 export interface StaticFilterAxis {
   axisId: StaticFilterAxisId;
@@ -345,4 +350,11 @@ export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   },
   { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
   { axisId: "accidentSeverity", layerId: "accidents", label: "重大度", legend: ACCIDENT_SEVERITY_LEGEND },
+  // ramp軸（停止密度・事故密度等）の凡例。凡例の内訳はカタログのthresholds/tile_inputsから
+  // 自動生成される（axisLayers.ts: buildAxisRampLegend）ため、軸追加時にここへの変更は不要。
+  ...RAMP_AXES.map((axis) => ({
+    axisId: axis.axisId,
+    layerId: axisMapLayerId(axis.axisId),
+    legend: buildAxisRampLegend(axis),
+  })),
 ];

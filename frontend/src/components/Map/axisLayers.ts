@@ -14,6 +14,7 @@
 // プロパティ欠損はタイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
 // （_ROAD_SURFACE_TILE_MVT_SQLのコメント参照）。
 
+import type { LegendEntry } from "./legendFilter";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 export interface AxisTileInput {
@@ -102,18 +103,45 @@ export function buildAxisRampColorExpression(axis: RampAxis): unknown[] {
   return expression;
 }
 
-/** パネル・凡例用の段階ラベル（例: 「〜1回/km」「1〜2回/km」「4回/km超」） */
-export function axisRampLegendEntries(axis: RampAxis): { label: string; color: string }[] {
-  const t = axis.thresholds;
-  return [
-    { label: `${t[0]}${axis.unit}未満`, color: AXIS_RAMP_COLORS[0] },
-    ...t.slice(1).map((threshold, index) => ({
-      label: `${t[index]}〜${threshold}${axis.unit}`,
-      color: AXIS_RAMP_COLORS[Math.min(index + 1, AXIS_RAMP_COLORS.length - 1)],
-    })),
-    {
-      label: `${t[t.length - 1]}${axis.unit}以上`,
-      color: AXIS_RAMP_COLORS[Math.min(t.length, AXIS_RAMP_COLORS.length - 1)],
-    },
-  ];
+/** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。
+ * buildAxisRampLegendとMapLayersPanel等の凡例UI・setStaticOverlayFiltersの絞り込みが
+ * 同じ境界定義を共有する（片側importで揃える、設計原則2）。 */
+function axisRampBand(thresholds: readonly number[], index: number): { lower: number | null; upper: number | null } {
+  return {
+    lower: index === 0 ? null : thresholds[index - 1],
+    upper: index === thresholds.length ? null : thresholds[index],
+  };
+}
+
+/** 段階ラベル（例: 「1回/km未満」「1〜2回/km」「4回/km以上」）。thresholds.length+1件。 */
+function axisRampBandLabel(axis: RampAxis, lower: number | null, upper: number | null): string {
+  if (lower === null) return `${upper}${axis.unit}未満`;
+  if (upper === null) return `${lower}${axis.unit}以上`;
+  return `${lower}〜${upper}${axis.unit}`;
+}
+
+/** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
+ * 凡例追加）。既存レイヤー（車ストレス・自転車インフラ等、staticAttributeLayers.ts参照）と
+ * 同じLegendEntry型で返すことで、色スウォッチ付きの凡例チェックボックス
+ * （MapLayersPanel.tsx: renderLegendCheckboxes）・地図チップの▶展開凡例
+ * （MapOverlayControls.tsx: legendDetails）・実際の絞り込み
+ * （MapView.tsx: setStaticOverlayFilters、buildCombinedLegendFilterExpression）を
+ * 他レイヤーと同じ仕組みでそのまま共有できる（新規UIコンポーネント不要）。
+ * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
+ * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。 */
+export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
+  const valueExpression = buildAxisRampValueExpression(axis);
+  const bandCount = axis.thresholds.length + 1;
+  return Array.from({ length: bandCount }, (_, index) => {
+    const { lower, upper } = axisRampBand(axis.thresholds, index);
+    const filterParts: unknown[] = ["all"];
+    if (lower !== null) filterParts.push([">=", valueExpression, lower]);
+    if (upper !== null) filterParts.push(["<", valueExpression, upper]);
+    return {
+      key: `${axis.axisId}-${index}`,
+      label: axisRampBandLabel(axis, lower, upper),
+      color: AXIS_RAMP_COLORS[Math.min(index, AXIS_RAMP_COLORS.length - 1)],
+      filter: filterParts,
+    };
+  });
 }

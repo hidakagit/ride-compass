@@ -9,8 +9,8 @@ import {
   RAMP_AXES,
   axisLineLayerId,
   axisMapLayerId,
-  axisRampLegendEntries,
   buildAxisRampColorExpression,
+  buildAxisRampLegend,
   buildAxisRampValueExpression,
 } from "./axisLayers";
 import { MAP_LAYERS, ROAD_SURFACE_SHARED_LAYER_IDS } from "./mapLayers";
@@ -57,12 +57,34 @@ describe("axisLayers", () => {
     }
   });
 
-  it("凡例エントリはしきい値の数+1段階でラベルへ単位を含む", () => {
+  it("凡例エントリはしきい値の数+1段階でラベルへ単位を含み、キー・色が重複しない", () => {
     for (const axis of RAMP_AXES) {
-      const entries = axisRampLegendEntries(axis);
+      const entries = buildAxisRampLegend(axis);
       expect(entries.length).toBe(axis.thresholds.length + 1);
+      const keys = entries.map((entry) => entry.key);
+      expect(new Set(keys).size).toBe(keys.length);
       for (const entry of entries) {
         expect(entry.label).toContain(axis.unit);
+        expect(entry.color).toBeTruthy();
+      }
+    }
+  });
+
+  it("凡例の範囲フィルタは境界が連続し、地図の色分けと同じ値expressionを参照する", () => {
+    for (const axis of RAMP_AXES) {
+      const entries = buildAxisRampLegend(axis);
+      const valueExpression = buildAxisRampValueExpression(axis);
+      // 最初の段階は下限なし（["all", ["<", value, t1]]）、最後は上限なし
+      // （["all", [">=", value, tN]]）、中間は["all", [">=",...], ["<",...]]。
+      expect(entries[0].filter).toEqual(["all", ["<", valueExpression, axis.thresholds[0]]]);
+      const last = entries[entries.length - 1];
+      expect(last.filter).toEqual(["all", [">=", valueExpression, axis.thresholds[axis.thresholds.length - 1]]]);
+      for (let i = 1; i < entries.length - 1; i++) {
+        expect(entries[i].filter).toEqual([
+          "all",
+          [">=", valueExpression, axis.thresholds[i - 1]],
+          ["<", valueExpression, axis.thresholds[i]],
+        ]);
       }
     }
   });
