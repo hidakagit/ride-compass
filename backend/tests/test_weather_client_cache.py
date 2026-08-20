@@ -28,9 +28,19 @@ class FakeHttpClient:
         self.last_params = params
         return FakeResponse(self._payload)
 
+    async def post(self, url, data=None, timeout=None):
+        # get_forecast_many（改善計画T178フォローアップでPOSTへ変更）用。GETのparamsと
+        # 同じ辞書がdataとして渡ってくるため、last_paramsへの記録先は共通化する。
+        self.call_count += 1
+        self.last_params = data
+        return FakeResponse(self._payload)
+
 
 class FailingHttpClient:
     async def get(self, url, params=None, timeout=None):
+        raise httpx.RequestError("boom")
+
+    async def post(self, url, data=None, timeout=None):
         raise httpx.RequestError("boom")
 
 
@@ -114,6 +124,10 @@ class AlwaysConnectTimeoutHttpClient:
         self.call_count = 0
 
     async def get(self, url, params=None, timeout=None):
+        self.call_count += 1
+        raise httpx.ConnectTimeout("timed out")
+
+    async def post(self, url, data=None, timeout=None):
         self.call_count += 1
         raise httpx.ConnectTimeout("timed out")
 

@@ -4,7 +4,7 @@
 - health.py: /health, /api/debug/stats（デプロイ確認・運用統計）、
   /api/debug/db-status（本番DB置き去り対策A: migration適用状況・データ投入バッチ実行状況、改善計画T74）
 - routes.py: /api/routes/preview, /api/routes/generate（ルート生成）
-- weather.py: /api/weather
+- weather.py: /api/weather, /api/weather/wind-grid（風の格子点マップ、改善計画T178フォローアップ）
 - region.py: /api/region/road-surface-tiles/{z}/{x}/{y}.pbf（地域路面レイヤー）
 - accidents.py: /api/region/accident-tiles/{z}/{x}/{y}.pbf（外部静的データソース T50。
   警察庁交通事故統計レイヤー）

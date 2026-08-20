@@ -91,14 +91,27 @@ class WeatherClient:
     def cache_key(point: Coordinates) -> tuple[float, float]:
         return (round(point.latitude, CACHE_PRECISION), round(point.longitude, CACHE_PRECISION))
 
-    async def _fetch_json(self, client: httpx.AsyncClient, params: dict, fields: dict) -> object | None:
+    async def _fetch_json(
+        self, client: httpx.AsyncClient, params: dict, fields: dict, method: str = "GET"
+    ) -> object | None:
         """再試行込みでOpen-Meteoを叩き、成功したらJSON本体を返す。失敗時はfieldsへ記録しNoneを返す
-        （呼び出し元は単一地点・複数地点どちらの形状（object/array）で解釈するかを判断する）。"""
+        （呼び出し元は単一地点・複数地点どちらの形状（object/array）で解釈するかを判断する）。
+
+        method="POST"（改善計画T178フォローアップ、風の格子点マップ用にget_forecast_manyが使う）は
+        地点数が多い（数百件）とrequest-URIがnginxの既定上限を超え414 Request-URI Too Largeに
+        なることが実機で判明したため（GETはクエリ文字列にlatitude/longitudeのカンマ区切りを
+        載せる）。POSTはフォームボディへ同じパラメータを載せるためURI長の制約を受けない
+        （実機確認: 624地点でPOST成功、同数のGETは414）。単一地点（get_forecast）はパラメータが
+        少なくURI長の心配が無いためGETのまま変更しない。
+        """
         attempt = 0
         started = time.monotonic()
         while True:
             try:
-                response = await client.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
+                if method == "POST":
+                    response = await client.post(OPEN_METEO_URL, data=params, timeout=REQUEST_TIMEOUT)
+                else:
+                    response = await client.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
                 fields["result"] = "ok"
                 fields["status"] = getattr(response, "status_code", None)
@@ -181,6 +194,11 @@ class WeatherClient:
         予報配列を1リクエストで返せるため、これを使ってリクエスト数自体を減らす。
         地点はcache_key（丸め精度CACHE_PRECISION）単位で重複排除し、キャッシュ済みの地点は
         リクエストに含めない。
+
+        改善計画T178フォローアップ（風の格子点マップ）で数百地点をまとめて渡すようになった
+        結果、GET（クエリ文字列）だと地点数によってはrequest-URIがnginxの既定上限を超え
+        414 Request-URI Too Largeになることが実機で判明した（624地点で再現、288地点では
+        未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
         """
         keys: list[tuple[float, float]] = []
         seen: set[tuple[float, float]] = set()
@@ -217,7 +235,7 @@ class WeatherClient:
                     "wind_speed_unit": "ms",
                 }
 
-                data = await self._fetch_json(client, params, fields)
+                data = await self._fetch_json(client, params, fields, method="POST")
                 # 1地点のみのリクエストはOpen-Meteoが配列ではなく単一objectを返すため、
                 # 常に地点数ぶんの配列として扱えるようここで揃える。
                 entries = data if isinstance(data, list) else ([data] if data is not None else [])

@@ -132,6 +132,13 @@ class CountingHttpClient:
         body = self._payload if location_count == 1 else [self._payload] * location_count
         return _FakeResponse(body)
 
+    async def post(self, url, data=None, timeout=None):
+        # get_forecast_many（改善計画T178フォローアップでPOSTへ変更）用。getと同じロジック。
+        self.call_count += 1
+        location_count = len(str(data["latitude"]).split(","))
+        body = self._payload if location_count == 1 else [self._payload] * location_count
+        return _FakeResponse(body)
+
 
 class _FakeResponse:
     def __init__(self, payload):

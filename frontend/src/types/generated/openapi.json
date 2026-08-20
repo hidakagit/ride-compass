@@ -203,6 +203,29 @@
         }
       }
     },
+    "/api/weather/wind-grid": {
+      "get": {
+        "summary": "Get Wind Grid",
+        "description": "風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点\n（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）ぶんの時間別風向・風速を\nまとめて返す。取得に失敗した地点はレスポンスから除外する（他の外部API連携と同じ\n「取得失敗は握りつぶす」方針、1地点の失敗で全体を502にしない）。",
+        "operationId": "get_wind_grid_api_weather_wind_grid_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WindGridPoint"
+                  },
+                  "type": "array",
+                  "title": "Response Get Wind Grid Api Weather Wind Grid Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Road Surface Tile",
@@ -1766,6 +1789,49 @@
           "observed_at"
         ],
         "title": "WeatherConditions"
+      },
+      "WindGridPoint": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "times": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Times"
+          },
+          "wind_speed_ms": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Wind Speed Ms"
+          },
+          "wind_direction_deg": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Wind Direction Deg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude",
+          "times",
+          "wind_speed_ms",
+          "wind_direction_deg"
+        ],
+        "title": "WindGridPoint",
+        "description": "格子点1つぶんの時間別風向・風速。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、\nforecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。"
       }
     }
   }
