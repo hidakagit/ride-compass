@@ -133,6 +133,10 @@ const PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URL =
   "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png";
 const WIND_VECTOR_SOURCE_ID = "region-wind-vector";
 const WIND_VECTOR_LAYER_ID = "region-wind-vector-arrows";
+// 矢印の縁取り用レイヤー（実機フィードバック「矢印見にくい」対応）。同じアイコン画像を
+// 少し大きく・濃色単色で下に敷くことでハロー（縁取り）を作る。symbolレイヤーのicon-*には
+// text-halo-colorに相当するプロパティが無いため、この「同じ形を重ねる」方式が定番の代替策。
+const WIND_VECTOR_HALO_LAYER_ID = "region-wind-vector-arrows-halo";
 const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -499,6 +503,25 @@ function applyPrecipitationNowcastState(map: MapLibreMap, visible: boolean, tile
 // フィードバック「ほぼ無風でも矢印が出るのが違和感」を受け、閾値未満はfilterで非表示にする。
 const WIND_ARROW_SIZE_PX = 32;
 const WIND_CALM_THRESHOLD_MS = 1;
+// アイコンサイズ（風速→スケール倍率）。実機フィードバック「矢印見にくい」を受け、
+// 最低スケールを引き上げた（旧0.4→0.7）。関東は元々弱風日が多く（改善計画T178実装メモ参照）、
+// 無風閾値ぎりぎりの矢印がほぼ最小サイズのままだと目立たなかったため。
+const WIND_ICON_MIN_SCALE = 0.7;
+const WIND_ICON_MAX_SCALE = 1.9;
+// ハロー（縁取り）層は主層より一回り大きい濃色シルエットを下に敷く倍率。
+const WIND_ICON_HALO_SCALE_MULTIPLIER = 1.35;
+
+function windIconSizeExpression(scaleMultiplier: number) {
+  return [
+    "interpolate",
+    ["linear"],
+    ["to-number", ["get", "speed"]],
+    0,
+    WIND_ICON_MIN_SCALE * scaleMultiplier,
+    15,
+    WIND_ICON_MAX_SCALE * scaleMultiplier,
+  ] as unknown as maplibregl.ExpressionSpecification;
+}
 
 function createWindArrowIcon(): ImageData {
   const canvas = document.createElement("canvas");
@@ -540,6 +563,30 @@ function ensureWindVectorLayer(map: MapLibreMap) {
       data: EMPTY_FEATURE_COLLECTION,
       attribution: "Open-Meteo",
     });
+    // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
+    // 関わらず矢印の輪郭が視認できるようにする（実機フィードバック「矢印見にくい」対応）。
+    // 主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。無風に近い地点は
+    // 矢印自体を出さない（ユーザーフィードバック「ほぼ無風でも矢印が出るのが違和感」）
+    // フィルタをハロー層・主層の両方に掛ける。
+    map.addLayer({
+      id: WIND_VECTOR_HALO_LAYER_ID,
+      type: "symbol",
+      source: WIND_VECTOR_SOURCE_ID,
+      layout: {
+        "icon-image": WIND_VECTOR_ICON_ID,
+        "icon-rotate": ["to-number", ["get", "bearing"]],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": false,
+        "icon-ignore-placement": false,
+        "icon-size": windIconSizeExpression(WIND_ICON_HALO_SCALE_MULTIPLIER),
+        visibility: "none",
+      },
+      paint: {
+        "icon-color": "#1f2937",
+        "icon-opacity": 0.85,
+      },
+      filter: [">", ["to-number", ["get", "speed"]], WIND_CALM_THRESHOLD_MS],
+    });
     map.addLayer({
       id: WIND_VECTOR_LAYER_ID,
       type: "symbol",
@@ -552,7 +599,7 @@ function ensureWindVectorLayer(map: MapLibreMap) {
         "icon-ignore-placement": false,
         // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
         // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
-        "icon-size": ["interpolate", ["linear"], ["to-number", ["get", "speed"]], 0, 0.4, 15, 1.6],
+        "icon-size": windIconSizeExpression(1),
         visibility: "none",
       },
       paint: {
@@ -566,10 +613,8 @@ function ensureWindVectorLayer(map: MapLibreMap) {
           7, "#f59e0b",
           15, "#dc2626",
         ],
-        "icon-opacity": 0.9,
+        "icon-opacity": 1,
       },
-      // 無風に近い地点は矢印自体を出さない（ユーザーフィードバック「ほぼ無風でも
-      // 矢印が出るのが違和感」）。
       filter: [">", ["to-number", ["get", "speed"]], WIND_CALM_THRESHOLD_MS],
     });
   };
@@ -591,7 +636,9 @@ function applyWindVectorState(
       const source = map.getSource(WIND_VECTOR_SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(windVectorGeoJson);
     }
-    setLayerVisibility(map, WIND_VECTOR_LAYER_ID, visible && windVectorGeoJson != null);
+    const shouldShow = visible && windVectorGeoJson != null;
+    setLayerVisibility(map, WIND_VECTOR_HALO_LAYER_ID, shouldShow);
+    setLayerVisibility(map, WIND_VECTOR_LAYER_ID, shouldShow);
   });
 }
 
