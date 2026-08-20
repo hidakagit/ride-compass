@@ -6,6 +6,16 @@
      コントラストがWCAG 3:1を割る。--foregroundはダークモードでもペアで反転するため
      こちらに合わせる（globals.css冒頭のコメント方針と同じ理由） */
   color: var(--foreground);
+  /* CJKテキストは単語区切りが無いため、幅が足りないと1文字ずつ縦に折り返ってしまう
+     （スマホ実機フィードバック、上部バー最適化）。項目自体をアイコン+数値の最小限へ
+     絞った上で、万一入り切らない場合は折り返さず横スクロールへ逃がす。 */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.row::-webkit-scrollbar {
+  display: none;
 }
 
 .row svg {
@@ -21,6 +31,15 @@
   gap: 0.3rem;
   font-size: 0.95rem;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 風向矢印。wind_direction_deg（気象学の慣習で「風が吹いてくる方向」）+180度回転させて、
+   矢印そのものが「風が吹いていく方向」を指すようにする（回転はJSXのinline styleで動的付与）。 */
+.windArrow {
+  display: inline-flex;
+  transition: transform 0.2s ease;
 }
 
 /* 項目間の区切り線。以前の"/"の代わり（アイコンで項目の種類を、区切り線で境界を示す）。 */

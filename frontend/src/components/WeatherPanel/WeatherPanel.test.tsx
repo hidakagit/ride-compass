@@ -57,33 +57,45 @@ describe("WeatherPanel", () => {
   });
 
   // 改善計画T172: 突風・降水量・UV指数・体感温度を追加。既存の3項目（気温・風・降水確率）を
-  // 壊さず、値がある場合だけ括弧書き/新規チップで併記する。
-  it("apparent_temperature_cがある場合は気温に体感温度を括弧書きで併記する", () => {
+  // 壊さず、値がある場合だけ併記する。上部バー最適化（スマホ実機フィードバック）で
+  // 体感温度・突風・降水量は常時表示の括弧書きからtitle属性（長押し/ホバー）へ格下げした
+  // （狭い幅でのCJKテキスト折り返し対策、1行化優先）ため、textContentではなくtitle属性を見る。
+  it("apparent_temperature_cがある場合は気温チップのtitleに体感温度を併記する", () => {
     const weather = makeWeather({ apparent_temperature_c: 27.1 });
     const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
 
-    expect(container.textContent).toMatch(/体感27\.1/);
+    expect(container.querySelector('[title*="体感 27.1"]')).toBeInTheDocument();
   });
 
-  it("wind_gusts_msがある場合は風速に突風を括弧書きで併記する", () => {
+  it("wind_gusts_msがある場合は風チップのtitleに突風を併記する", () => {
     const weather = makeWeather({ wind_gusts_ms: 8.24 });
     const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
 
-    expect(container.textContent).toMatch(/突風8\.2/);
+    expect(container.querySelector('[title*="突風 8.2"]')).toBeInTheDocument();
   });
 
-  it("precipitation_mmがある場合は降水量をmm\\/hで併記する(確率が無くても単独で表示される)", () => {
+  it("precipitation_mmがある場合は降水量チップのtitleにmm\\/hを併記する(確率が無くても単独で表示される)", () => {
     const weather = makeWeather({ precipitation_probability_percent: null, precipitation_mm: 1.25 });
     const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
 
-    expect(container.textContent).toMatch(/1\.3mm\/h/);
+    expect(container.querySelector('[title*="1.3mm/h"]')).toBeInTheDocument();
   });
 
-  it("uv_indexがある場合はUV指数の専用チップを表示する", () => {
+  it("uv_indexがある場合はUV指数の専用チップを数値のみ(文字ラベル無し)で表示する", () => {
     const weather = makeWeather({ uv_index: 7.4 });
     const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
 
-    expect(container.textContent).toMatch(/UV\s*7\.4/);
+    expect(container.querySelector('[title="UV指数"]')).toBeInTheDocument();
+    expect(container.textContent).toMatch(/7\.4/);
+  });
+
+  it("wind_direction_degぶん矢印を回転させる(+180度、吹いてくる方向ではなく吹いていく方向を指す)", () => {
+    const weather = makeWeather({ wind_direction_deg: 90 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    const arrow = container.querySelector('[style*="rotate"]');
+    expect(arrow).toBeInTheDocument();
+    expect(arrow?.getAttribute("style")).toMatch(/rotate\(270deg\)/);
   });
 
   it("項目ごとにアイコン(気温・風・降水確率)を表示し、区切りは項目間のみに出す", () => {

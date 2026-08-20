@@ -299,6 +299,16 @@ export function WindIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 風向（天候ヘッダのスマホ1行化）: まっすぐな矢印。呼び出し側がwind_direction_degぶん
+ * 回転させて使う（回転前提のため、渦を巻くWindIconと違い上向き固定の単純な矢印にしてある）。 */
+export function WindDirectionArrowIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M10 2v14M10 2 5 8M10 2l5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** 気温（天候ヘッダ T61）: 温度計 */
 export function ThermometerIcon({ size = 16 }: IconProps) {
   return (
