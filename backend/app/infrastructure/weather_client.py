@@ -19,6 +19,13 @@ CACHE_PRECISION = 2
 # 標高と異なり天候は時間で変化するため、恒久キャッシュではなくTTLを設ける。
 CACHE_TTL_SECONDS = 30 * 60
 
+# get_forecast（単一地点、/api/weatherの現在地パネル用）はcurrent/hourly全変数を表示に使うが、
+# get_forecast_many（WindServiceの区間風評価・風の格子点マップ）は消費側を辿るとhourlyの
+# wind_speed_10m/wind_direction_10mしか使っていない（他5変数は取得しているだけで捨てられる）。
+# 後者は1回のリクエストが数百地点規模になり得るため、変数を絞ることでOpen-Meteo側のクォータ
+# 消費（変数数・期間に応じた按分カウント）とレスポンスサイズの両方を大きく削減できる。
+WIND_ONLY_VARIABLES = "wind_speed_10m,wind_direction_10m"
+
 # 本番（Render、共有の送信元IP）では、単発の/api/weather呼び出し（現在地表示）だけでも
 # Open-Meteo側の429 Too Many RequestsやConnectTimeout（TLSハンドシェイクの混雑による
 # ものとみられる接続タイムアウト）が発生し502になることが実測で確認された（原因調査ログ参照）。
@@ -55,6 +62,12 @@ STALE_FALLBACK_MAX_AGE_SECONDS = 3 * 60 * 60
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
 _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
+# get_forecast_many専用のキャッシュ（上のWIND_ONLY_VARIABLES参照）。_forecast_cacheと分けて
+# いるのは、キーを共有すると「get_forecast_manyが先に書いた風のみの応答」を後から
+# get_forecastがキャッシュヒットとして読んでしまい、/api/weatherパネルの気温等が
+# 欠落したまま返る（黙って空欄になる）事故になり得るため。両者は変数セットが異なる
+# 別物として扱う。
+_wind_forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
@@ -215,6 +228,14 @@ class WeatherClient:
         結果、GET（クエリ文字列）だと地点数によってはrequest-URIがnginxの既定上限を超え
         414 Request-URI Too Largeになることが実機で判明した（624地点で再現、288地点では
         未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
+
+        呼び出し元（WeatherService.get_conditions_many→WindService、get_wind_grid）が
+        実際に使うのはhourlyのwind_speed_10m/wind_direction_10mのみのため、get_forecast
+        （単一地点、全変数）とは別にWIND_ONLY_VARIABLESへ絞る。数百地点規模になるこの経路の
+        変数を絞ることが、Open-Meteo側クォータ消費削減の効果が最も大きい（get_forecastは
+        単発呼び出しのため変数を絞っても効果が小さく、/api/weatherパネルの表示項目を
+        削ることになるためそのまま全変数を維持する）。キャッシュも_forecast_cacheとは
+        分離した_wind_forecast_cacheを使う（理由はモジュール冒頭のコメント参照）。
         """
         keys: list[tuple[float, float]] = []
         seen: set[tuple[float, float]] = set()
@@ -228,7 +249,7 @@ class WeatherClient:
         now = time.time()
         to_fetch: list[tuple[float, float]] = []
         for key in keys:
-            cached = _forecast_cache.get(key)
+            cached = _wind_forecast_cache.get(key)
             if cached is not None and now - cached[0] < CACHE_TTL_SECONDS:
                 results[key] = cached[1]
             else:
@@ -242,10 +263,8 @@ class WeatherClient:
                 params = {
                     "latitude": ",".join(str(lat) for lat, _lon in to_fetch),
                     "longitude": ",".join(str(lon) for _lat, lon in to_fetch),
-                    "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
-                    "precipitation,apparent_temperature,uv_index",
-                    "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
-                    "wind_gusts_10m,precipitation,uv_index,apparent_temperature",
+                    "current": WIND_ONLY_VARIABLES,
+                    "hourly": WIND_ONLY_VARIABLES,
                     "forecast_days": 2,
                     "timezone": "Asia/Tokyo",
                     "wind_speed_unit": "ms",
@@ -259,7 +278,7 @@ class WeatherClient:
                     # 失敗時（entry is None）は既存キャッシュを消さない。下のフォールバック
                     # ループがそれを使えるようにするため（成功時のみ上書き）。
                     if entry is not None:
-                        _forecast_cache[key] = (now, entry)
+                        _wind_forecast_cache[key] = (now, entry)
                     results[key] = entry
                 # 上流の応答件数がリクエストと食い違う異常時は、対応しきれない残りをNone扱いにする。
                 for key in to_fetch[len(entries) :]:
@@ -271,7 +290,7 @@ class WeatherClient:
                 for key in to_fetch:
                     if results.get(key) is not None:
                         continue
-                    cached = _forecast_cache.get(key)
+                    cached = _wind_forecast_cache.get(key)
                     if cached is not None and now - cached[0] < STALE_FALLBACK_MAX_AGE_SECONDS:
                         results[key] = cached[1]
                         stale_fallback_count += 1

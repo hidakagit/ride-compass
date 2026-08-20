@@ -135,8 +135,10 @@ class AlwaysConnectTimeoutHttpClient:
 @pytest.fixture(autouse=True)
 def clear_weather_cache():
     weather_client_module._forecast_cache.clear()
+    weather_client_module._wind_forecast_cache.clear()
     yield
     weather_client_module._forecast_cache.clear()
+    weather_client_module._wind_forecast_cache.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -308,11 +310,14 @@ async def test_get_forecast_returns_none_when_stale_cache_exceeds_fallback_windo
 async def test_get_forecast_many_uses_stale_cache_for_point_that_fails_refetch():
     client = WeatherClient()
     point = Coordinates(latitude=35.48, longitude=139.59)
-    await client.get_forecast(FakeHttpClient({"current": {}, "hourly": {}, "tag": "stale"}), point)
+    await client.get_forecast_many(FakeHttpClient([{"current": {}, "hourly": {}, "tag": "stale"}]), [point])
 
     key = WeatherClient.cache_key(point)
-    fetched_at, data = weather_client_module._forecast_cache[key]
-    weather_client_module._forecast_cache[key] = (fetched_at - weather_client_module.CACHE_TTL_SECONDS - 1, data)
+    fetched_at, data = weather_client_module._wind_forecast_cache[key]
+    weather_client_module._wind_forecast_cache[key] = (
+        fetched_at - weather_client_module.CACHE_TTL_SECONDS - 1,
+        data,
+    )
 
     results = await client.get_forecast_many(AlwaysConnectTimeoutHttpClient(), [point])
 
@@ -350,7 +355,9 @@ async def test_get_forecast_many_dedupes_points_rounding_to_same_cache_key():
 async def test_get_forecast_many_skips_already_cached_points():
     client = WeatherClient()
     cached_point = Coordinates(latitude=35.30, longitude=139.30)
-    await client.get_forecast(FakeHttpClient({"current": {}, "hourly": {}, "tag": "cached"}), cached_point)
+    await client.get_forecast_many(
+        FakeHttpClient([{"current": {}, "hourly": {}, "tag": "cached"}]), [cached_point]
+    )
 
     fresh_point = Coordinates(latitude=35.40, longitude=139.40)
     http_client = FakeHttpClient([{"current": {}, "hourly": {}, "tag": "fresh"}])
@@ -361,6 +368,21 @@ async def test_get_forecast_many_skips_already_cached_points():
     assert http_client.last_params["latitude"] == "35.4"
     assert results[WeatherClient.cache_key(cached_point)]["tag"] == "cached"
     assert results[WeatherClient.cache_key(fresh_point)]["tag"] == "fresh"
+
+
+async def test_get_forecast_and_get_forecast_many_do_not_share_cache():
+    """get_forecast（単一地点、全変数）とget_forecast_many（複数地点、風のみ）は
+    キャッシュを分離している（weather_client.py _wind_forecast_cache参照）。
+    片方の応答（変数セットが異なる）がもう片方のキャッシュヒットとして誤って
+    読まれないことの回帰テスト。"""
+    client = WeatherClient()
+    point = Coordinates(latitude=35.31, longitude=139.31)
+    await client.get_forecast(FakeHttpClient({"current": {}, "hourly": {}, "tag": "full"}), point)
+
+    http_client = FakeHttpClient([{"current": {}, "hourly": {}, "tag": "wind-only"}])
+    await client.get_forecast_many(http_client, [point])
+
+    assert http_client.call_count == 1  # get_forecastのキャッシュはヒットせず再取得された
 
 
 async def test_get_forecast_many_returns_none_for_all_on_failure():
