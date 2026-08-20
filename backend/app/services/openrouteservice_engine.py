@@ -11,6 +11,11 @@
   使う（時間変化あり）。RoadGraphEngineは出発時点の風を全区間へ一様適用する
   （探索中は到達時刻が未確定という制約による簡略化）。長距離ほど乖離しうるため、
   レスポンスの`engine`フィールドでどちらの値かを識別できるようにしてある
+- `night_difficulty`の重み（改善計画T173）も同じ非対称性を持つ: 本エンジンは
+  区間ごとの推定到達時刻がその地点の市民薄明の外（`domain/twilight.is_night`）なら
+  night_weightをそのまま、日中なら0倍にして合成する（wind_penaltyと同じ
+  `wind_segment["arrival_time"]`を流用、追加の到達時刻計算は行わない）。RoadGraphEngineは
+  出発時刻1点のみで昼夜を判定しルート全体へ一様適用する（同じ到達時刻未確定の制約）
 - `road_score`・`segments[].road_surface_good`・区間難易度の重み（route_preference.yaml）は
   両エンジンで定義を統一済み（不明路面は分母から除外・難易度なし扱い。domain/road.py参照）。
   路面判定そのものも、本エンジンのサンプル点を自前DBのEdgeへ空間マッチ（`RoadGraphRepository.
@@ -31,6 +36,7 @@ from app.domain.geo import haversine_distance_km, sample_line_points
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.twilight import is_night
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
@@ -355,11 +361,23 @@ class OpenRouteServiceEngine:
                 else None
             )
 
+            # 改善計画T173: night軸の動的化。区間の推定到達時刻（wind_penaltyと同じ
+            # arrival_time、追加の計算は行わない）がその地点の市民薄明の外なら
+            # night_weightをそのまま、日中なら0倍にして合成する（night_difficulty自体の
+            # 算出はlit/tunnelタグのみに基づき不変、重みの掛け替えだけで動的化する設計）。
+            # arrival_time不明（風データ取得失敗等）のときは従来どおりnight_weightを
+            # そのまま適用する（安全側、night.pyのlitタグ欠落時の判断と同じ考え方）。
+            night_weight = (
+                preference.night_weight
+                if arrival_time is None or is_night(points[i], arrival_time)
+                else 0.0
+            )
+
             axis_difficulties = evaluate_axis_difficulties(
                 gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
                 car_stress, intersection_count_per_km, accident_count_per_km_year, tags,
                 preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
-                preference.car_stress_weight, preference.accident_weight, preference.night_weight,
+                preference.car_stress_weight, preference.accident_weight, night_weight,
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]

@@ -528,7 +528,20 @@ function ensureWindVectorLayer(map: MapLibreMap) {
           "rgba(30, 64, 175, 0.55)",
           "rgba(30, 64, 175, 0.4)",
         ],
-        "line-width": 2,
+        // 矢印の長さはライブラリ側のベクトルタイル形状に焼き込まれておりズームレベルの
+        // グリッド間隔で決まる（実機確認: 風速0.27〜7.0 m/sの範囲でも長さはほぼ一定だった）。
+        // 太さ（paint、こちら側で自由に設定できる）で強さを表現する。0-15 m/s（穏やか〜
+        // 強風、ロードバイクで支障が出始める目安）を線形補間し、範囲外は両端の値でクランプ
+        // される（MapLibre interpolateの既定動作）。
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["to-number", ["get", "value"]],
+          0, 1.5,
+          5, 2.5,
+          10, 4,
+          15, 5.5,
+        ],
       },
       layout: { "line-cap": "round", visibility: "none" },
     });

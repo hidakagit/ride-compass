@@ -100,7 +100,14 @@ class EvaluationService:
         accident_counts: dict[str, int] | None = None,
         accident_years_covered: int = 0,
         designated_edge_ids: set[str] | None = None,
+        preference: RoutePreference | None = None,
     ) -> dict[str, EdgeCostResult]:
+        # preference省略時はself._preference（コンストラクタ注入・全リクエスト共有）を使う。
+        # 改善計画T173: RoadGraphEngineが出発時刻に応じてnight_weightだけを差し替えた
+        # RoutePreferenceを渡せるよう、呼び出し側でオーバーライドできる引数として追加した
+        # （self._preferenceを直接書き換えるとリクエスト間で共有される状態を汚染するため、
+        # 呼び出し元がmodel_copyしたコピーをこちらへ渡す設計）。
+        preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
         return {
@@ -108,7 +115,7 @@ class EvaluationService:
                 edge,
                 elevation_attributes.get(edge_id),
                 surface_attributes.get(edge_id),
-                self._preference,
+                preference,
                 wind=wind,
                 stop_count=stop_counts.get(edge_id),
                 way_tags=way_tags.get(edge_id) if way_tags is not None else None,
