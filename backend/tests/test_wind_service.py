@@ -26,10 +26,14 @@ def headwind_conditions(speed_ms: float = 5.0) -> WeatherConditions:
     # 北から吹く風＝北向き走行にとっての正面からの向かい風
     return WeatherConditions(
         temperature_c=20.0,
+        apparent_temperature_c=None,
         wind_speed_ms=speed_ms,
         wind_direction_deg=0.0,
         wind_direction_label="北",
+        wind_gusts_ms=None,
         precipitation_probability_percent=0.0,
+        precipitation_mm=None,
+        uv_index=None,
         observed_at="2026-08-13T12:00",
     )
 

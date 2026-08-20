@@ -18,6 +18,7 @@ function baseProps() {
       supplyPoi: false,
       accidents: false,
       route: false,
+      precipitationNowcast: false,
     },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
@@ -72,20 +73,20 @@ function openHint(subjectLabel: string) {
 // 下書き→適用を廃止し、チェック方式へ統一）。「生成したルートの色分け」（route）は
 // このパネルの対象外へ移設したため、そちらの挙動はpage.tsx側で検証する。
 describe("MapLayersPanel", () => {
-  // 改善計画（地図の見え方パネルのグルーピングを地図上チップと統一）: 見出しは次数
-  // （観測/推定）のみのフラットな1階層。地図上チップ側が実機フィードバックでカテゴリ
-  // 見出しを廃止した経緯（改善計画T169）と揃え、こちらも中分類（category）の見出しは
-  // 出さない（「地図の見え方と合わせて、中分類は不要」という実機フィードバック）。
-  // 「生成したルートの色分け」（route、次数を持たない）はこのパネルの対象外へ移設した
-  // （「ルートを作る」パネル、page.tsx参照）。
-  it("レイヤーカタログの全レイヤーが、次数見出し（観測/推定）のみのフラットな一覧としてセクションで並ぶ", () => {
+  // 改善計画（地図の見え方パネルのグルーピングを地図上チップと統一。T171で3値目
+  // 「動的」を追加）: 見出しは次数（観測/推定/動的）のみのフラットな1階層。地図上チップ側が
+  // 実機フィードバックでカテゴリ見出しを廃止した経緯（改善計画T169）と揃え、こちらも
+  // 中分類（category）の見出しは出さない（「地図の見え方と合わせて、中分類は不要」という
+  // 実機フィードバック）。「生成したルートの色分け」（route、次数を持たない）はこのパネルの
+  // 対象外へ移設した（「ルートを作る」パネル、page.tsx参照）。
+  it("レイヤーカタログの全レイヤーが、次数見出し（観測/推定/動的）のみのフラットな一覧としてセクションで並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
     const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
     // パネル内は観測を推定より上にする（実機フィードバック「推定指標よりも観測指標を
     // 上にして」への対応。地図チップ側の「推定→観測」順とはあえて独立させている、
-    // mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDERのコメント参照）。
-    expect(natureHeadings).toEqual(["観測データ", "推定指標（合成）"]);
+    // mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDERのコメント参照）。動的は末尾。
+    expect(natureHeadings).toEqual(["観測データ", "推定指標（合成）", "動的データ"]);
 
     // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
     // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
@@ -101,6 +102,7 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-supplyPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-precipitationNowcast")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).not.toBeInTheDocument();
   });
 
@@ -124,6 +126,8 @@ describe("MapLayersPanel", () => {
     expect(natureTitleFor("supplyPoi")).toBe("観測データ");
     expect(natureTitleFor("bicycleInfra")).toBe("観測データ");
     expect(natureTitleFor("elevation")).toBe("観測データ");
+    // 改善計画T171: 降水ナウキャストは3値目「動的」に属する。
+    expect(natureTitleFor("precipitationNowcast")).toBe("動的データ");
   });
 
   // 実機フィードバック「推定指標の上から数えた順番を地図上の左から数えた順番と一致させて」
@@ -155,6 +159,19 @@ describe("MapLayersPanel", () => {
 
     expect(screen.getByText("国土地理院の色別標高図を重ねる")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "標高図の説明を隠す" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  // 改善計画T171: 降水ナウキャストは絞り込みUIを持たないため、elevationと同じ専用case
+  // （説明の情報アイコンのみ、「絞り込みを操作すると自動でON」案内は出さない）で表示される。
+  // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
+  it("降水ナウキャストのセクションが表示され、説明が出るがOFF案内（絞り込み用）は出ない", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openSection("precipitationNowcast");
+    openHint("降水ナウキャスト");
+
+    expect(screen.getByText(/気象庁の高解像度降水ナウキャストです/)).toBeInTheDocument();
+    const section = document.getElementById(layerSectionDomId("precipitationNowcast")) as HTMLElement;
+    expect(within(section).queryByText(/絞り込みを操作すると自動でONになります/)).not.toBeInTheDocument();
   });
 
   // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
@@ -240,6 +257,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         onLayerToggle={onLayerToggle}
       />,
@@ -325,6 +343,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         regionZoomTooWide={true}
       />,
@@ -349,6 +368,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         layerDataStatus={{ carStress: "error" }}
       />,
@@ -372,6 +392,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         layerDataStatus={{ stopPoi: "empty" }}
       />,
@@ -406,6 +427,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -431,6 +453,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ carStress: "empty" }}
@@ -455,6 +478,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -480,6 +504,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ stopPoi: "empty" }}
@@ -506,6 +531,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
       />,
     );
@@ -529,6 +555,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
       />,
     );
@@ -552,6 +579,7 @@ describe("MapLayersPanel", () => {
           supplyPoi: false,
           accidents: false,
           route: false,
+          precipitationNowcast: false,
         }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,

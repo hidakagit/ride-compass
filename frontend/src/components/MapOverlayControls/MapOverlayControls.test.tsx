@@ -437,4 +437,53 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "道路の種類の凡例を表示" })).toBeInTheDocument();
     });
   });
+
+  // 動的グループ（改善計画T171、新設）。観測グループ（group:raw）と全く同じ「▼縦積み・
+  // 地続き展開」の構成を使う。dataNature="dynamic"のcategory持ちチップだけが束ねられる。
+  describe("動的グループ（改善計画T171）", () => {
+    function layersWithDynamic(): OverlayLayerChip[] {
+      return [
+        { id: "elevation", label: "標高図", on: false }, // categoryなし→単独のまま
+        {
+          id: "precipitationNowcast",
+          label: "降水ナウキャスト",
+          chipLabel: "降水",
+          on: false,
+          category: "weather",
+          dataNature: "dynamic",
+        },
+      ];
+    }
+
+    it("dataNature=dynamicのチップは「動的」へ束ねられ、個別ボタンは出ない", () => {
+      render(<MapOverlayControls {...baseProps()} layers={layersWithDynamic()} />);
+
+      expect(screen.queryByRole("button", { name: "降水" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "動的" })).toBeInTheDocument();
+    });
+
+    it("動的グループを開くと、独立したカードに閉じ込めずメンバーが兄弟要素として並ぶ", async () => {
+      const user = userEvent.setup();
+      const { container } = render(<MapOverlayControls {...baseProps()} layers={layersWithDynamic()} />);
+
+      await user.click(screen.getByRole("button", { name: "動的" }));
+      expect(container.querySelector('[class*="detailPanelBase"]')).not.toBeInTheDocument();
+
+      const dynamicButton = screen.getByRole("button", { name: "動的" });
+      const memberButton = screen.getByRole("button", { name: "降水" });
+      expect(dynamicButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
+        memberButton.closest('[class*="chipRowItem"]')?.parentElement
+      );
+    });
+
+    it("動的グループのメンバーをタップするとonToggleがレイヤーIDと反転値で呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      render(<MapOverlayControls {...baseProps()} layers={layersWithDynamic()} onToggle={onToggle} />);
+
+      await user.click(screen.getByRole("button", { name: "動的" }));
+      await user.click(screen.getByRole("button", { name: "降水" }));
+      expect(onToggle).toHaveBeenCalledWith("precipitationNowcast", true);
+    });
+  });
 });

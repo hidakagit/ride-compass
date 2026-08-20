@@ -398,6 +398,16 @@ export default function MapLayersPanel({
             {renderDataStatusHint(layer.id)}
           </>
         );
+      case "precipitationNowcast":
+        // elevationと同じ理由（絞り込みUIを持たないレイヤー）でOFF案内
+        // （renderOffHint、「絞り込みを操作すると自動でONになります」）を出さない。
+        // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
+        return (
+          <>
+            {renderHintToggle(layer.id, layer.label, layer.panelHint)}
+            {renderDataStatusHint(layer.id)}
+          </>
+        );
       case "carStress":
       case "bicycleInfra":
       case "designation":

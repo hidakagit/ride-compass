@@ -1,4 +1,4 @@
-import { RaindropIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
+import { RaindropIcon, SunIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
 import type { WeatherConditions } from "@/types/weather";
 import styles from "./WeatherPanel.module.css";
 
@@ -24,6 +24,13 @@ export default function WeatherPanel({ weather, loading, error }: WeatherPanelPr
         <span className={styles.srOnly}>気温: </span>
         {weather.temperature_c.toFixed(1)}
         <span className={styles.unit}>℃</span>
+        {/* 体感温度（改善計画T172）: 気温より運動強度・服装判断に直結するため括弧で併記する。
+            単位を持たない補足情報のため.unitと同じ弱調表示にする。 */}
+        {weather.apparent_temperature_c != null && (
+          <span className={styles.unit}>
+            <span className={styles.srOnly}>体感: </span>(体感{weather.apparent_temperature_c.toFixed(1)})
+          </span>
+        )}
       </span>
 
       <span className={styles.divider} aria-hidden="true" />
@@ -34,16 +41,43 @@ export default function WeatherPanel({ weather, loading, error }: WeatherPanelPr
         <span className={styles.srOnly}>風: </span>
         {weather.wind_direction_label}の風 {weather.wind_speed_ms.toFixed(1)}{" "}
         <span className={styles.unit}>m/s</span>
+        {/* 突風（改善計画T172）: 橋上・河川敷等の横風リスクは平均風速より突風が効くため併記する。 */}
+        {weather.wind_gusts_ms != null && (
+          <span className={styles.unit}>
+            <span className={styles.srOnly}>突風: </span>(突風{weather.wind_gusts_ms.toFixed(1)})
+          </span>
+        )}
       </span>
 
-      {weather.precipitation_probability_percent != null && (
+      {(weather.precipitation_probability_percent != null || weather.precipitation_mm != null) && (
         <>
           <span className={styles.divider} aria-hidden="true" />
           <span className={styles.stat}>
             <RaindropIcon size={16} />
             <span className={styles.srOnly}>降水確率: </span>
-            {Math.round(weather.precipitation_probability_percent)}
-            <span className={styles.unit}>%</span>
+            {weather.precipitation_probability_percent != null && (
+              <>
+                {Math.round(weather.precipitation_probability_percent)}
+                <span className={styles.unit}>%</span>
+              </>
+            )}
+            {/* 降水量mm/h（改善計画T172）: 確率だけでは小雨か土砂降りか分からないため併記する。 */}
+            {weather.precipitation_mm != null && (
+              <span className={styles.unit}>
+                <span className={styles.srOnly}>降水量: </span>({weather.precipitation_mm.toFixed(1)}mm/h)
+              </span>
+            )}
+          </span>
+        </>
+      )}
+
+      {weather.uv_index != null && (
+        <>
+          <span className={styles.divider} aria-hidden="true" />
+          <span className={styles.stat}>
+            <SunIcon size={16} />
+            <span className={styles.srOnly}>UV指数: </span>
+            UV {weather.uv_index.toFixed(1)}
           </span>
         </>
       )}

@@ -49,6 +49,13 @@ import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
+import NowcastTimeSlider from "@/components/NowcastTimeSlider/NowcastTimeSlider";
+import {
+  fetchNowcastFrames,
+  latestObservedFrameIndex,
+  nowcastTileUrlTemplate,
+  type NowcastFrame,
+} from "@/components/Map/precipitationNowcast";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
 import {
@@ -118,6 +125,9 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   stopPoi: false,
   supplyPoi: false,
   accidents: false,
+  // 改善計画T171: 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF
+  // （設計原則12、他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
+  precipitationNowcast: false,
   route: true,
   // 二次軸rampレイヤー（改善計画T145b）。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるため、個別の行を手書きせずカタログから導出する
@@ -211,6 +221,13 @@ export default function Home() {
   const [weather, setWeather] = useState<WeatherConditions | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  // 降水ナウキャストの時刻一覧・スライダー位置（改善計画T170/T171）。フェッチ・更新間隔は
+  // layerVisibility.precipitationNowcastがONの間だけ動かすeffect（下記）が管理する。
+  const [nowcastFrames, setNowcastFrames] = useState<NowcastFrame[]>([]);
+  const [nowcastFrameIndex, setNowcastFrameIndex] = useState(0);
+  const [nowcastLoading, setNowcastLoading] = useState(false);
+  const [nowcastError, setNowcastError] = useState<string | null>(null);
 
   // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
   // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState（改善計画T47 R-6）参照。
@@ -652,6 +669,48 @@ export default function Home() {
     // マイクロタスク経由で実行する（react-hooks/set-state-in-effect対策）
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [location, fetchWeatherFor]);
+
+  // 降水ナウキャストの時刻一覧（改善計画T170/T171）。レイヤーがONの間だけ取得し、
+  // 実況が5分毎に更新されるのに合わせて定期的に再取得する（OFFの間はfetch自体しない、
+  // 他の外部APIと同じ「表示中のものだけ叩く」方針）。取得失敗時は例外を投げず
+  // nowcastErrorへ記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ
+  // 例外、片方だけの失敗は部分的な結果を返すため、ここへ来るのは両方失敗した場合のみ）。
+  const NOWCAST_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+  const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
+  useEffect(() => {
+    if (!showPrecipitationNowcast) return;
+    let cancelled = false;
+    const load = async (isFirstLoad: boolean) => {
+      if (isFirstLoad) setNowcastLoading(true);
+      try {
+        const frames = await fetchNowcastFrames();
+        if (cancelled) return;
+        setNowcastFrames(frames);
+        setNowcastError(null);
+        // 初回取得時、またはスライダー位置が新しいframes配列の範囲外になったときだけ
+        // 「最新の実況」へ合わせる（定期再取得のたびに、予測側を見ているユーザーの
+        // スライダー位置を勝手に実況へ戻さないため）。
+        setNowcastFrameIndex((prev) => (isFirstLoad || prev >= frames.length ? latestObservedFrameIndex(frames) : prev));
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setNowcastError(error instanceof Error ? error.message : "降水ナウキャストの取得に失敗しました");
+      } finally {
+        if (!cancelled && isFirstLoad) setNowcastLoading(false);
+      }
+    };
+    Promise.resolve().then(() => load(true));
+    const intervalId = window.setInterval(() => load(false), NOWCAST_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPrecipitationNowcast]);
+
+  const precipitationNowcastTileUrl = useMemo(() => {
+    const frame = nowcastFrames[nowcastFrameIndex];
+    return frame ? nowcastTileUrlTemplate(frame) : undefined;
+  }, [nowcastFrames, nowcastFrameIndex]);
 
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
@@ -1136,6 +1195,8 @@ export default function Home() {
             selectedRouteId={selectedRouteId}
             location={location}
             showElevation={layerVisibility.elevation}
+            showPrecipitationNowcast={showPrecipitationNowcast}
+            precipitationNowcastTileUrl={precipitationNowcastTileUrl}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
             showCarStress={layerVisibility.carStress}
@@ -1165,6 +1226,18 @@ export default function Home() {
           />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
+
+          {/* 時刻依存レイヤーが1つ以上ONのときだけ地図上へ出す（改善計画T170、設計原則12:
+              地図の視界を圧迫しない）。降水ナウキャストが唯一のメンバーの間はこれ1本のみ。 */}
+          {showPrecipitationNowcast && (
+            <NowcastTimeSlider
+              frames={nowcastFrames}
+              index={nowcastFrameIndex}
+              onIndexChange={setNowcastFrameIndex}
+              loading={nowcastLoading}
+              error={nowcastError}
+            />
+          )}
 
           <button
             type="button"

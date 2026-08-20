@@ -39,17 +39,28 @@ export type MapLayerId =
   | "supplyPoi"
   | "accidents"
   | "route"
+  // 気象庁 降水ナウキャスト（改善計画T171）。route以外で初のkind="dynamic"レイヤーだが、
+  // route（選択中候補にひもづく）とは異なり地域全体への重ね描き（elevation等と同じ
+  // 「選択候補に関係なく常設」の性質）のため、kind自体はstaticのまま、dataNature="dynamic"
+  // （下記）だけで区別する。詳細はkind/MapLayerDataNatureのコメント参照。
+  | "precipitationNowcast"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
   // （axisLayers.ts: axisMapLayerId参照）。
   | AxisMapLayerId;
 
+// kindは「選択中ルートにひもづくデータか、地域に固定で選択候補に関係なく重ね描きする
+// データか」を表す（dynamic=route、選択中候補が変わるたびに描き直す。static=それ以外、
+// 一度追加したらvisibilityの切替だけで表示・非表示する）。「値が時間で変わるかどうか」は
+// 別軸（dataNature、下記）で表す。降水ナウキャスト（precipitationNowcast）は値こそ
+// 時々刻々変わるが、route選択とは無関係にstaticレイヤーと同じ「常設・visibility切替のみ」の
+// 描画方式のためkind="static"のまま、dataNature="dynamic"で区別する。
 export type MapLayerKind = "static" | "dynamic";
 
 // staticレイヤーの中分類（改善計画T86）。staticが8種に達しflatな一覧のまま並んでいたため、
 // サイドバー（MapLayersPanel）の見出しをkind単位からこの単位へ変更する。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
-export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra" | "terrain" | "amenity";
+export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra" | "terrain" | "amenity" | "weather";
 
 // カテゴリの表示順・見出し文言の単一ソース（改善計画T86→T128）。以前はMapLayersPanel.tsx
 // だけが持っていたが、T128（地図上チップのカテゴリ束ね）でMapOverlayControls.tsxも
@@ -61,6 +72,7 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
   "bicycleInfra",
   "terrain",
   "amenity",
+  "weather",
 ];
 export const MAP_LAYER_CATEGORY_LABELS: Record<MapLayerCategory, string> = {
   roadCondition: "道路状態",
@@ -68,31 +80,38 @@ export const MAP_LAYER_CATEGORY_LABELS: Record<MapLayerCategory, string> = {
   bicycleInfra: "自転車インフラ",
   terrain: "地形",
   amenity: "補給・施設",
+  // 改善計画T171: 降水ナウキャスト（動的グループ唯一のメンバー、今後雷等が増える見込み）用。
+  weather: "気象",
 };
 
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
- * 推定指標（合成）か。地図上チップの最上位グルーピングに使う（改善計画T166、次数反転）。
+ * 推定指標（合成）か、時刻で内容が変わる動的データか。地図上チップの最上位グルーピングに
+ * 使う（改善計画T166、次数反転。T171で3値目「dynamic」を追加）。
  * T128時点ではtrafficSafetyカテゴリを展開したときの小見出しとしてのみ使っていたが、
  * T166でチップ最上位の分類そのものへ昇格した（categoryは観測グループ内の小見出しへ
  * 役割を移した、下記MapLayerDescriptor.categoryのコメント参照）。 */
-export type MapLayerDataNature = "raw" | "composite";
+export type MapLayerDataNature = "raw" | "composite" | "dynamic";
 export const MAP_LAYER_DATA_NATURE_LABELS: Record<MapLayerDataNature, string> = {
   composite: "推定指標（合成）",
   raw: "観測データ",
+  // 改善計画T171: 降水ナウキャスト等、時刻を指定すると内容が変わるレイヤーの最上位グループ。
+  dynamic: "動的データ",
 };
-/** 観測/推定の表示順。地図の見え方パネル（サイドバー、MapLayersPanel）専用の順序。
+/** 観測/推定/動的の表示順。地図の見え方パネル（サイドバー、MapLayersPanel）専用の順序。
  * 以前は地図チップ側（MapOverlayControls.tsx: buildChipGroups、「推定→観測」に確定済み
  * [T166]）と同じ配列をここから参照する単一ソースだったが、「パネル内は推定より観測を
  * 上にしてほしい」という実機フィードバックを受け、パネルだけ「観測→推定」へ反転した
  * （チップ側のbuildChipGroupsは変更していないため両者は独立して食い違う。意図的な
- * 差異であり、統一し直す指摘があれば再度揃える）。 */
-export const MAP_LAYER_DATA_NATURE_ORDER: readonly MapLayerDataNature[] = ["raw", "composite"];
+ * 差異であり、統一し直す指摘があれば再度揃える）。動的グループはT171で新設したばかりで
+ * 既存2グループより関心の的が絞られるため末尾に置く。 */
+export const MAP_LAYER_DATA_NATURE_ORDER: readonly MapLayerDataNature[] = ["raw", "composite", "dynamic"];
 /** 地図チップ最上位グループの略名（4文字以下、改善計画T166確定命名表）。正式名は上記
  * MAP_LAYER_DATA_NATURE_LABELS。地図チップ=略名／サイドバー・研究タブ=正式名の使い分けは
  * 個別レイヤーのlabel/chipLabelと同じ規則（MapLayerDescriptorのコメント参照）。 */
 export const MAP_LAYER_DATA_NATURE_CHIP_LABELS: Record<MapLayerDataNature, string> = {
   composite: "推定",
   raw: "観測",
+  dynamic: "動的",
 };
 
 export interface MapLayerDescriptor {
@@ -314,6 +333,23 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       panelHint: RAMP_AXIS_PANEL_HINTS[axis.axisId] ?? axis.note,
     }),
   ),
+  {
+    // 気象庁 降水ナウキャスト（改善計画T170/T171）。実況（過去〜現在、5分毎）と60分先までの
+    // 短時間予測をラスタタイルで重ね描きする。他の静的レイヤーと異なり、表示中の時刻を
+    // 地図上の時刻スライダー（layerVisibility.precipitationNowcastがONの間だけ表示、
+    // page.tsx参照）で切り替えられる。
+    id: "precipitationNowcast",
+    label: "降水ナウキャスト",
+    chipLabel: "降水",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の降水ナウキャストを重ねて表示[実況〜60分先、5分刻み]",
+    panelHint:
+      "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、" +
+      "実況（直近）から60分先までの雨雲の分布を切り替えて確認できます。非公式の内部APIを" +
+      "利用しているため、取得に失敗することがあります。",
+  },
   {
     id: "route",
     label: "ルート",

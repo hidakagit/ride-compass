@@ -6,10 +6,14 @@ import WeatherPanel from "./WeatherPanel";
 function makeWeather(overrides: Partial<WeatherConditions>): WeatherConditions {
   return {
     temperature_c: 20,
+    apparent_temperature_c: null,
     wind_speed_ms: 3,
     wind_direction_deg: 90,
     wind_direction_label: "東",
+    wind_gusts_ms: null,
     precipitation_probability_percent: null,
+    precipitation_mm: null,
+    uv_index: null,
     observed_at: "2026-08-14T00:00:00Z",
     ...overrides,
   };
@@ -50,6 +54,36 @@ describe("WeatherPanel", () => {
     const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
 
     expect(container.textContent).toMatch(/降水確率.*43%/);
+  });
+
+  // 改善計画T172: 突風・降水量・UV指数・体感温度を追加。既存の3項目（気温・風・降水確率）を
+  // 壊さず、値がある場合だけ括弧書き/新規チップで併記する。
+  it("apparent_temperature_cがある場合は気温に体感温度を括弧書きで併記する", () => {
+    const weather = makeWeather({ apparent_temperature_c: 27.1 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.textContent).toMatch(/体感27\.1/);
+  });
+
+  it("wind_gusts_msがある場合は風速に突風を括弧書きで併記する", () => {
+    const weather = makeWeather({ wind_gusts_ms: 8.24 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.textContent).toMatch(/突風8\.2/);
+  });
+
+  it("precipitation_mmがある場合は降水量をmm\\/hで併記する(確率が無くても単独で表示される)", () => {
+    const weather = makeWeather({ precipitation_probability_percent: null, precipitation_mm: 1.25 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.textContent).toMatch(/1\.3mm\/h/);
+  });
+
+  it("uv_indexがある場合はUV指数の専用チップを表示する", () => {
+    const weather = makeWeather({ uv_index: 7.4 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.textContent).toMatch(/UV\s*7\.4/);
   });
 
   it("項目ごとにアイコン(気温・風・降水確率)を表示し、区切りは項目間のみに出す", () => {

@@ -2048,22 +2048,28 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
     「気象庁の予測に基づく（Open-Meteo経由）」のように両方明記する）
   - **他省庁のデータは気象庁・Open-Meteoどちらでもない別系統**として扱う（T174の環境省
     WBGT、T176/T177の国交省河川水位・交通量）
-  - **推奨アクション（要検討）**: 既存の地点ベース評価（`weather_client.py`）は現状
-    Open-Meteoのデフォルトモデル（`best_match`、地点ごとの自動ブレンドで、日本域でも
-    必ずしも純粋なJMAとは限らない）を使っている。T178の可視化はJMA MSMを明示指定する
-    ため、両者が異なるモデル由来だと「地図に描いている風」と「ルート評価に使っている風」の
-    数値が食い違いうる。`models=jma_seamless`パラメータの指定に対応していることを実機で
-    確認済み（`api.open-meteo.com/v1/forecast?...&models=jma_seamless`で200応答）のため、
-    T172着手時に評価側もこのパラメータを明示指定し、モデルを揃えることを検討する。
+  - **`models=jma_seamless`指定は不採用（2026-08-20実測で判明、T172着手時に検証）**:
+    「地図に描いている風」と「ルート評価に使っている風」のモデルを揃える目的で
+    `models=jma_seamless`を評価側にも指定することを一度検討したが、実機検証の結果
+    **JMAモデルは`wind_gusts_10m`・`precipitation_probability`・`uv_index`を提供せず、
+    指定するとこれらが全時刻nullになる**ことを確認した（`apparent_temperature`・
+    `precipitation`は提供される）。`precipitation_probability`は既存のwind評価が
+    既に使っているフィールドで、これがnull化するとT172で追加する突風・UV指数も
+    含め軒並み欠測になり本末転倒のため、**地点ベース評価はデフォルトモデル
+    （`best_match`、変数ごとに提供元がある最良のモデルを自動選択）のまま変更しない**。
+    「地図（T178、JMA MSM由来）と評価（Open-Meteo REST、best_match由来）でモデルが
+    異なる」こと自体は残るが、両者は目的が異なる（地図は面的な風の分布を見る、評価は
+    ルート選定の材料にする）ため実害は小さいと判断し、モデル統一は見送る。
 
 **実施順序（優先順位、2026-08-20整理。ユーザー要望「改善計画の中で優先順位付けをし、
 整理して」を受け明文化）**: T170〜T178は互いに独立ではなく、依存関係・ユーザーの
 関心の強さ・コストの3軸で優先度に差がある。番号順ではなく以下のPhase順で着手する。
+**2026-08-20時点、Phase 1はT172→T170→T171の順で完了済み。残るはT178のみ。**
 
 - **Phase 1（風・雨・雷、ユーザーが繰り返し名指しした最優先領域）**: T172 → T170 →
   T171 → T178 の順。T172は依存が無くいつでも着手できる最小コスト（規模S）のため最初に
-  済ませ、`models=jma_seamless`を先に指定しておく（T178が可視化でJMA MSMを使う前に
-  評価側のモデルも揃えておいた方が、後から食い違いに気づいて手戻りするより安全）。
+  済ませる（`models=jma_seamless`の指定は実機検証の結果不採用と確定済み、上記
+  「設計判断」参照。地点評価は既定モデルのままでよい）。
   T170（時刻指定描画基盤）はT171・T178が共通して必要とする土台のため必ず先に完成させる。
   T171（雨雷ナウキャスト）はタイルURL構造を実機確認済みで設計の不確実性が低く、
   T178（風のベクトル場）はライブラリ選定は完了したがGPLv2の扱い・プレ1.0のAPI変更
@@ -2080,7 +2086,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   （T50〜T54のJICE見送りが前例）であり、Phase 1〜3の実装が固まってから着手する
   （調査だけ先行させても、Phase 1〜3の設計変更で調査結果の前提が崩れるリスクがある）
 
-### - [ ] T170. 時刻指定の動的レイヤー描画基盤（時刻セレクタ＋時刻パラメータ付きレイヤー） 規模M
+### - [x] T170. 時刻指定の動的レイヤー描画基盤（時刻セレクタ＋時刻パラメータ付きレイヤー） 規模M（2026-08-20完了）
 
 - 発端: ユーザー要望「動的な要素を、時刻指定してマップに描画することはできないか検討して」。
   検討結果: **可能**。動的レイヤーの多くは「基準時刻＋対象時刻」でURL・クエリが決まる
@@ -2101,8 +2107,31 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   ナウキャスト想定）がスライダー操作で表示時刻を切り替えられること。時刻依存レイヤーが
   全てOFFのときセレクタが出ないこと。Playwright実機確認・frontend全green。
 - 依存: なし（ただし単体では見た目の変化が無いため、T171と同時着手が現実的）。
+- 実装メモ（2026-08-20完了、T171と同時実装）: 動的レイヤーのグルーピングは、ユーザーへ
+  確認のうえ**新しい第3グループ「動的」を新設**（観測/推定の2トップに並列。理由:
+  観測/推定はどちらも「今この瞬間の事実・推定値」だが、動的レイヤーは「時刻を選ぶと
+  内容が変わる」という質的に異なる性質を持つため）。`mapLayers.ts`の
+  `MapLayerDataNature`へ`"dynamic"`を追加（`raw`/`composite`に続く3値目、
+  `MAP_LAYER_DATA_NATURE_ORDER`は末尾に配置）。`MapOverlayControls.tsx`の
+  `buildChipGroups`へ`group:dynamic`分岐を追加（`group:raw`と全く同じ「▼縦積み・
+  地続き展開」の構成、`renderObservedMemberRows`等の既存汎用関数をそのまま再利用）。
+  `MapLayersPanel.tsx`は`MAP_LAYER_DATA_NATURE_ORDER`をループする既存の汎用分岐が
+  そのまま拾うため個別対応不要（新設カテゴリ`weather`を`MapLayerCategory`へ追加した
+  だけで「動的データ」見出しの中に降水ナウキャストのセクションが現れる）。
+  時刻対象時刻の状態自体は`page.tsx`が`nowcastFrameIndex`として保持し（framesの配列
+  index方式。任意の連続時刻ではなく「実際に存在するフレームのどれか」を指す方が
+  ズレなく正確なため、値を分単位オフセットではなくindexにした点が対応方針からの変更）、
+  `MapView.tsx`へは計算済みの`precipitationNowcastTileUrl`（string | undefined）と
+  `showPrecipitationNowcast`（boolean）だけをpropsで渡す（`redrawPropsRef`の6箇所
+  すべてに追従済み）。時刻スライダーUI（`NowcastTimeSlider`コンポーネント、新設）は
+  地図下部中央に浮かせ、`showPrecipitationNowcast`がtrueの間だけ`page.tsx`が
+  マウントする。frontend vitest 392件（新規17件）・tsc全green。Playwright実機確認:
+  「動的」チップ→「降水」チップの順にONにすると地図下部にスライダーが現れ
+  （初期表示は最新の実況フレーム）、スライダー操作で`map.getSource(...).tiles`が
+  実際に別のbasetime/validtimeへ切り替わり新しいタイルへの実ネットワークリクエストが
+  発生することを確認。
 
-### - [ ] T171. 気象庁降水ナウキャストのラスタタイルレイヤーを追加する 規模M
+### - [x] T171. 気象庁降水ナウキャストのラスタタイルレイヤーを追加する 規模M（2026-08-20完了）
 
 - 背景: 現状の降水情報は「降水確率」（Open-Meteo、地点値）のみで、雨雲の空間分布が
   見えない。「出発直前に雨雲の位置と動きを見て回避する」はサイクリストの実用価値が
@@ -2114,12 +2143,17 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
     5分毎更新・basetime=validtime）／`targetTimes_N2.json`（60分先予測、同一basetimeに
     対し5分刻みでvalidtimeが並ぶ）。「現在時刻から先読みで時刻を計算せず、必ずこの
     一覧を参照する」ことが気象庁側の注記としてある（先読み計算だとズレる）
-  - タイルURL: `https://www.jma.go.jp/bosai/himawari/data/nowc/{basetime}/none/
-    {validtime}/surf/hrpns/{z}/{x}/{y}.png`（ズーム4〜10、無降水域は透明PNG）
+  - タイルURL: `https://www.jma.go.jp/bosai/jmatile/data/nowc/{basetime}/none/
+    {validtime}/surf/hrpns/{z}/{x}/{y}.png`（ズーム4〜10、無降水域は透明PNG）。**訂正
+    （2026-08-20実装時）**: 検討時点では`bosai/himawari/data/nowc/...`という誤ったパスを
+    把握していた（実在するAPIの通信を直接見ずAI要約経由で調べたための誤り）。実装着手時に
+    Playwrightで`https://www.jma.go.jp/bosai/nowc/`の実際のネットワーク要求を観測し、
+    正しくは`bosai/jmatile/data/nowc/...`であることを確認・修正した（curlで200 image/png
+    を確認済み）
   - `{basetime}`/`{validtime}`は`YYYYMMDDHHmmss`（UTC）
   - 雷ナウキャスト（活動度1〜4、10分毎更新）も同じ`bosai/nowc`のタイル配信系にあるが、
-    プロダクトコード（`hrpns`に相当する部分）は本調査では確証を取れておらず、着手時に
-    ブラウザの開発者ツール等で実際の通信を確認する
+    プロダクトコード（`hrpns`に相当する部分）は本タスクでは未着手のまま。降水のみ実装した
+    （T171完了条件は降水ナウキャストのみを対象とし、雷は別レイヤー・別調査として残す）
 - 対応方針: 基準時刻一覧（targetTimes JSON）を取得→スライダーの対象時刻に最も近い
   validtimeのタイルURLを組み立て→raster sourceを差し替える（MapLibreのsetTiles）。
   kind="dynamic"レイヤーとして`mapLayers.ts`へ追加。不透明度は標高図と同様に半透明固定。
@@ -2131,8 +2165,34 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   実況〜予測を時刻切り替えできること。タイル取得失敗時にT87のエラー案内が出ること。
   Playwright実機確認・frontend全green。
 - 依存: T170。
+- 実装メモ（2026-08-20完了、T170と同時実装）: `precipitationNowcast.ts`（新設）を
+  データ層として切り出し、DOM/MapLibreを一切知らない純粋関数だけを持たせた
+  （`fetchNowcastFrames`: N1/N2を1つのvalidtime昇順の時系列へ束ねる。片方だけ失敗しても
+  部分的な結果を返す〔`Promise.allSettled`〕、両方失敗のときだけ例外。
+  `latestObservedFrameIndex`: スライダーの初期位置＝直近の実況フレーム。
+  `nowcastTileUrlTemplate`: basetime/validtimeを埋め込みつつ`{z}/{x}/{y}`はMapLibreの
+  プレースホルダとして残す）。`MapView.tsx`は`ensurePrecipitationNowcastLayer`
+  （GSI標高ラスタと同型、初期化時に一度だけraster source/layer追加）と
+  `applyPrecipitationNowcastState`（visible/tileUrlの両方が揃って初めて表示、
+  片方でも欠けていれば非表示のまま＝フェッチ未完了中に古いタイルが一瞬見えるのを防ぐ）の
+  2関数で完結させ、`STATIC_OVERLAY_LAYERS`の汎用ループには含めなかった（tileUrlという
+  可変引数を持つ点が他の静的レイヤーと異なるため、`applyRoadLayerState`等と同じ
+  「専用のapply関数」パターンにした）。T87（レイヤーデータ状態）は`LAYER_DATA_SOURCES`へ
+  elevationと同型（sourceLayer無し、ラスタのため取得失敗のみ検知）で登録するだけで
+  自動的に効いた。`page.tsx`はframes配列を`layerVisibility.precipitationNowcast`が
+  trueの間だけ5分毎（実況の更新間隔）に再取得し、スライダー位置（`nowcastFrameIndex`、
+  配列index方式）はユーザーが予測側を見ている間に定期再取得で実況へ引き戻されないよう
+  「初回取得時、またはindexが新しいframes配列の範囲外になったときだけ」最新実況へ
+  合わせる。CORSは事前にPlaywrightで検証済み（targetTimes JSONのfetch・PNGタイルの
+  MapLibre raster source読み込みともにCORSヘッダ無しで問題なく動作、`Access-Control-
+  Allow-Origin`は不要と判明）。出典表示は`addSource`の`attribution: "気象庁"`で対応。
+  frontend vitest 392件（T170の実装メモの数値と同一、両タスクを同時実装したため）・
+  tsc全green。Playwright実機確認: 降水ナウキャストON→地図下部にスライダー表示、
+  `map.getSource("region-precipitation-nowcast").tiles`がスライダー操作で実際に別の
+  basetime/validtimeへ切り替わり、新しいタイルへの実ネットワークリクエスト（7件、
+  `hrpns`を含むURL）が発生することを確認。
 
-### - [ ] T172. Open-Meteo取得パラメータの拡張（突風・降水量・UV・体感温度） 規模S
+### - [x] T172. Open-Meteo取得パラメータの拡張（突風・降水量・UV・体感温度） 規模S（2026-08-20完了）
 
 - 背景: 既存の`weather_client.py`はcurrent/hourlyとも`temperature_2m,wind_speed_10m,
   wind_direction_10m(,precipitation_probability)`のみ。ロードバイク走行では平均風速より
@@ -2142,14 +2202,27 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   追加し、`WeatherConditions`（domain/weather.py）と天候表示UIへ露出する。評価への
   組み込みは本タスクではしない（風軸の突風考慮・降水の評価軸化はデータが取れてから
   別タスクで判断する、1タスク=1関心事）。既存のキャッシュキー・TTL・429対策は変更しない。
-  あわせて`models=jma_seamless`を明示指定する（気象庁とOpen-Meteoの使い分け整理、
-  上記「設計判断」参照。現状はデフォルトの自動ブレンドモデルのため、T178が可視化に使う
-  JMA MSMと評価計算のモデルが食い違いうる。実機で`models=jma_seamless`パラメータへの
-  対応を確認済み）。地点値がJMA MSM由来へ変わることで既存の`_forecast_cache`の値も
-  変化するため、既存のroute_generator系テストのゴールデン値がある場合は要確認。
-- 完了条件: 天候表示に突風・降水量・UV・体感温度が出ること。取得パラメータに
-  `models=jma_seamless`が指定されていること。backend/frontend全green。
+  `models=jma_seamless`は指定しない（上記「設計判断」参照。実機検証の結果、JMAモデルが
+  `wind_gusts_10m`・`precipitation_probability`・`uv_index`を提供せず、指定すると本タスクで
+  追加する値も既存の降水確率も軒並みnull化することが判明したため不採用と確定済み）。
+  既定モデル（`best_match`）のまま追加パラメータのみ増やす。
+- 完了条件: 天候表示に突風・降水量・UV・体感温度が出ること。backend/frontend全green。
 - 依存: なし。
+- 実装メモ（2026-08-20完了）: `weather_client.py`のcurrent/hourly両方（`get_forecast`・
+  `get_forecast_many`の2箇所）へ`wind_gusts_10m,precipitation,apparent_temperature,
+  uv_index`を追加。`WeatherConditions`（domain/weather.py）へ`apparent_temperature_c`・
+  `wind_gusts_ms`・`precipitation_mm`・`uv_index`（いずれも`float | None`）を追加し、
+  `weather_service.py`の`_conditions_from_data`で`current`直下（atがNoneの現在天候）と
+  `hourly`のindex参照（atが未来時刻の予報）の両方から埋める新ヘルパー
+  `_hourly_index_value`を追加（既存の`_hourly_value_near`は最近傍時刻探索用で今回は
+  index確定済みのため別ヘルパーにした）。フィールド欠落時（新パラメータ追加前のstale
+  cache等）はNoneへ倒す既存方針を踏襲し、専用テストで確認。OpenAPIスキーマ・
+  frontend api.d.tsを再生成。`WeatherPanel.tsx`へ体感温度（気温に括弧書き併記）・
+  突風（風速に括弧書き併記）・降水量mm/h（確率と併記、確率が無くても単独表示可）・
+  UV指数（新規チップ、`SunIcon`追加）を表示。backend pytest 918件・frontend
+  vitest 375件（新規11件）・tsc全green。実機（Playwright）で天候表示に
+  「30.2℃(体感35.4)｜南東の風0.9 m/s(突風6.9)｜0%(0.0mm/h)｜UV 7.3」が
+  表示されることを確認。
 
 ### - [ ] T173. 日没×night軸の動的化（到達時刻が日没後の区間だけ夜間軸を効かせる） 規模S〜M
 

@@ -21,10 +21,14 @@ describe("getCurrentWeather", () => {
   it("成功時はlatitude/longitudeをクエリに含むURLでfetchし、JSONをそのまま返す", async () => {
     const weather: WeatherConditions = {
       temperature_c: 20.5,
+      apparent_temperature_c: 21.2,
       wind_speed_ms: 3.2,
       wind_direction_deg: 90,
       wind_direction_label: "東",
+      wind_gusts_ms: 5.1,
       precipitation_probability_percent: 10,
+      precipitation_mm: 0.1,
+      uv_index: 3.5,
       observed_at: "2026-08-14T00:00:00Z",
     };
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => weather }));

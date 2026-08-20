@@ -124,6 +124,13 @@ const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
+const PRECIPITATION_NOWCAST_SOURCE_ID = "region-precipitation-nowcast";
+const PRECIPITATION_NOWCAST_LAYER_ID = "region-precipitation-nowcast-raster";
+// 初期化時のsourceプレースホルダ（visibility:noneの間はMapLibreがタイルを要求しないため
+// 実際にリクエストされることはない。applyPrecipitationNowcastStateが本物のURLへ
+// setTilesで差し替える、ensureRoadSurfaceTileLayer等と同じ「仮の初期値」パターン）。
+const PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URL =
+  "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png";
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 export const CAR_STRESS_LAYER_ID = "region-car-stress-line";
@@ -430,6 +437,47 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
     });
   };
   runWhenStyleReady(map, applyData);
+}
+
+// 気象庁 降水ナウキャスト（改善計画T170/T171）。GSI標高ラスタと同じ「初期化時に一度だけ
+// ソース/レイヤーを追加し、以降はvisibility/タイルURLの差し替えのみ」のパターンだが、
+// タイルURL自体が対象時刻（地図上の時刻スライダー）によって変わる点がGSI標高と異なる
+// （GSIは常に同じURLテンプレート）。地図の最前面（他の全レイヤーより後に追加）に置き、
+// 雨雲が道路網の上に重なって見えるようにする。
+function ensurePrecipitationNowcastLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getSource(PRECIPITATION_NOWCAST_SOURCE_ID)) return;
+    map.addSource(PRECIPITATION_NOWCAST_SOURCE_ID, {
+      type: "raster",
+      tiles: [PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URL],
+      tileSize: 256,
+      minzoom: 4,
+      maxzoom: 10,
+      attribution: "気象庁",
+    });
+    map.addLayer({
+      id: PRECIPITATION_NOWCAST_LAYER_ID,
+      type: "raster",
+      source: PRECIPITATION_NOWCAST_SOURCE_ID,
+      paint: { "raster-opacity": 0.65 },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// タイルURL（page.tsx側でprecipitationNowcast.tsのnowcastTileUrlTemplateから計算した値）を
+// 反映する。visible/tileUrlのどちらか一方でも欠けていれば非表示のまま
+// （フェッチ未完了・取得失敗時に古いURLのタイルが一瞬見えるのを防ぐ）。
+function applyPrecipitationNowcastState(map: MapLibreMap, visible: boolean, tileUrl: string | undefined) {
+  runWhenStyleReady(map, () => {
+    ensurePrecipitationNowcastLayer(map);
+    if (tileUrl) {
+      const source = map.getSource(PRECIPITATION_NOWCAST_SOURCE_ID) as maplibregl.RasterTileSource | undefined;
+      source?.setTiles([tileUrl]);
+    }
+    setLayerVisibility(map, PRECIPITATION_NOWCAST_LAYER_ID, visible && tileUrl != null);
+  });
 }
 
 // 路面もGSI標高ラスタと同じ考え方で、地図初期化時に一度だけベクタタイルのソース/レイヤーを
@@ -852,6 +900,9 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
+  // 降水ナウキャスト（T171）。ラスタタイルのためelevationと同じくsourceLayer無し
+  // （取得失敗のみ検知対象、0件相当の「empty」判定はしない）。
+  { key: "precipitationNowcast", sourceId: PRECIPITATION_NOWCAST_SOURCE_ID },
   // 二次軸rampレイヤー（T145b）はroad_surfaceタイルへ焼き込み済みのプロパティを読む
   // （carStress等と同じソース共有。ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
   ...RAMP_AXES.map((axis) => ({
@@ -1129,6 +1180,11 @@ interface MapViewProps {
   selectedRouteId: string | null;
   location: Coordinates;
   showElevation: boolean;
+  /** 降水ナウキャスト（改善計画T170/T171）。ONの間、precipitationNowcastTileUrl
+   * （page.tsx側でprecipitationNowcast.tsから計算した現在時刻スライダー位置のタイルURL）を
+   * 反映する。tileUrlが未定（フェッチ未完了・取得失敗）の間はONでも非表示のまま。 */
+  showPrecipitationNowcast: boolean;
+  precipitationNowcastTileUrl: string | undefined;
   /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
    * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
    * applyRoadLayerState参照）。 */
@@ -1191,6 +1247,8 @@ export default function MapView({
   selectedRouteId,
   location,
   showElevation,
+  showPrecipitationNowcast,
+  precipitationNowcastTileUrl,
   showRoadType,
   showRoadSurface,
   showCarStress,
@@ -1236,6 +1294,8 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
+    showPrecipitationNowcast,
+    precipitationNowcastTileUrl,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1272,6 +1332,8 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
+      showPrecipitationNowcast,
+      precipitationNowcastTileUrl,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1296,6 +1358,8 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
+    showPrecipitationNowcast,
+    precipitationNowcastTileUrl,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1328,6 +1392,8 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
+      showPrecipitationNowcast,
+      precipitationNowcastTileUrl,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1356,6 +1422,7 @@ export default function MapView({
       ...axisVisibility,
     });
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
+    applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
@@ -1839,6 +1906,16 @@ export default function MapView({
     secondaryAxisCasingLayerIds,
     recomputeLayerDataStatus,
   ]);
+
+  // 降水ナウキャスト（改善計画T170/T171）。tileUrlは地図上の時刻スライダー操作のたびに
+  // 変わるため、上のSTATIC_OVERLAY_LAYERS一括effect（依存が多く再実行コストの大きい
+  // showX系フラグ群）とは分けた専用effectにする。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
+    recomputeLayerDataStatus();
+  }, [showPrecipitationNowcast, precipitationNowcastTileUrl, recomputeLayerDataStatus]);
 
   // 車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
   // 事故（当事者/重大度）の絞り込み（改善計画T63）。
