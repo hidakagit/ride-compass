@@ -2689,6 +2689,24 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   回転/着色/ハロー適用後の見え方・ダークモード）で、道路標識的な硬さが無くなり気流線と
   して読み取れることを確認した。frontend vitest 418件全green（アイコンの見た目のみの
   変更のためテスト件数の変化なし）・tsc/eslintクリーン。
+  追記2（2026-08-20、ユーザーフィードバック「地図のうえでどの範囲の風向き、風速を示して
+  いるか分かりにくい。対応する格子内を薄く矢印と対応する色で着色できない？」）: heatmap
+  レイヤー（ぼかしたKDEの密度分布）は「周辺一帯のなめらかな強弱」を見せる一方、「どの
+  矢印がどの範囲の値を代表しているか」というセル境界を逆に曖昧にしてしまう性質があった
+  ため、矢印を中心とする1辺spacingDeg（粗い格子0.1度・詳細格子0.02度）の正方形セルを
+  矢印と全く同じ色スケールで薄く塗る方式へ置き換えた（heatmapレイヤーは撤去）。
+  `windLayer.ts`に`windGridToCellFeatureCollection`（各点を中心とする正方形ポリゴンを
+  生成、値欠損点はスキップ）・`WIND_GRID_SPACING_DEG`/`WIND_GRID_DETAIL_SPACING_DEG`
+  （backend/app/domain/wind_grid.pyの同名定数と値を合わせる必要があるとコメントで明記。
+  APIレスポンス自体には間隔情報が含まれないため）を追加。矢印のicon-colorとセルの
+  fill-colorが同じ配色定義からずれないよう、`MapView.tsx`に`WIND_COLOR_SCALE_EXPRESSION`
+  を新設し両方から参照する形にした（2箇所に同じ配色を書くと片方だけ直して食い違う事故を
+  防ぐため）。fill-opacityは0.22（設計原則12を踏まえ道路・ラベルが読める程度）。
+  page.tsx側は矢印用のwindVectorGeoJsonと同じeffectiveWindGrid・frameIndexから
+  windCellGeoJsonを算出し、粗い格子/詳細格子どちらが使われているかに応じて間隔も
+  切り替える。Playwright実機確認（レスポンスモックで色の変化を含めた見た目を確認）:
+  地図上に矢印と同色のセルが敷き詰められ、どの矢印がどの範囲を代表しているか一目で
+  分かることを確認した。frontend vitest 425件（新規7件）全green、tsc/eslintクリーン。
 
 ---
 
