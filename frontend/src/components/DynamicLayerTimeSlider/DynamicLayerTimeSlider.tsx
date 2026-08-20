@@ -15,6 +15,10 @@ interface DynamicLayerTimeSliderProps {
   /** framesのindex。framesが空、またはまだ範囲外なら効果なし（呼び出し側でclamp済み前提）。 */
   index: number;
   onIndexChange: (index: number) => void;
+  /** 「現在」に相当するframesのindex（precipitationNowcast.ts: latestObservedFrameIndex・
+   * windLayer.ts: nearestFrameIndexToNowを呼び出し側が計算した値）。「現在」ボタンの
+   * ジャンプ先、かつindexと一致する間はボタンを無効化する判定にも使う。 */
+  currentIndex: number;
   /** フレーム一覧の取得中（初回フェッチがまだ終わっていない）。 */
   loading: boolean;
   /** loading中に表示するメッセージ（レイヤーごとに文言が異なるため呼び出し側から渡す）。 */
@@ -35,6 +39,7 @@ export default function DynamicLayerTimeSlider({
   frames,
   index,
   onIndexChange,
+  currentIndex,
   loading,
   loadingLabel,
   error,
@@ -74,6 +79,21 @@ export default function DynamicLayerTimeSlider({
           aria-label={ariaLabel}
           onChange={(e) => onIndexChange(Number(e.target.value))}
         />
+        {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
+            未来側を見ていたスライダー位置を、ワンタップで「現在」（precipitationNowcast.ts:
+            latestObservedFrameIndex・windLayer.ts: nearestFrameIndexToNow）へ戻す。
+            既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの
+            全レイヤー一括OFFボタンと同じ、押しても何も起きない状態を無効表示にする方針）。 */}
+        <button
+          type="button"
+          className={styles.nowButton}
+          onClick={() => onIndexChange(currentIndex)}
+          disabled={index === currentIndex}
+          aria-label={`${ariaLabel}を現在に戻す`}
+          title="現在に戻す"
+        >
+          現在
+        </button>
       </div>
     </div>
   );
