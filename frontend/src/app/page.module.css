@@ -161,6 +161,24 @@
   position: relative;
 }
 
+/* 時刻依存レイヤー（降水ナウキャストT171・風T178等）の時刻スライダーを地図下部中央へ
+   浮かべる親コンテナ（改善計画T170/T178）。DynamicLayerTimeSlider自体は位置指定を
+   持たないため、複数の時刻依存レイヤーが同時にONのときはここでgapを挟んで縦積みにする
+   （地図の視界を圧迫しないよう1本の帯にまとめる、設計原則12）。NowcastTimeSliderの
+   .wrapperが単体で持っていたposition/z-indexをここへ集約した。 */
+.dynamicLayerSliders {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
 /* MapLibreの帰属表示（.maplibregl-ctrl-bottom-left/right、ライセンス上必須）は地図
    コンテナ自身の右下・左下に絶対配置されるため、固定表示の.mobileTabBarが乗ると
    その下に隠れてしまう（Playwright実機確認で発覚）。z-indexで競合させるのではなく、

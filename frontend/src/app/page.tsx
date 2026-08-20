@@ -49,13 +49,23 @@ import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
-import NowcastTimeSlider from "@/components/NowcastTimeSlider/NowcastTimeSlider";
+import DynamicLayerTimeSlider, {
+  type DynamicLayerTimeSliderFrame,
+} from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import {
   fetchNowcastFrames,
+  formatNowcastFrameTime,
   latestObservedFrameIndex,
   nowcastTileUrlTemplate,
   type NowcastFrame,
 } from "@/components/Map/precipitationNowcast";
+import {
+  fetchWindFrames,
+  formatWindFrameTime,
+  nearestFrameIndexToNow,
+  windVectorSourceUrl,
+  type WindFrame,
+} from "@/components/Map/windLayer";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
 import {
@@ -128,6 +138,8 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   // 改善計画T171: 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF
   // （設計原則12、他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
   precipitationNowcast: false,
+  // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
+  windVector: false,
   route: true,
   // 二次軸rampレイヤー（改善計画T145b）。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるため、個別の行を手書きせずカタログから導出する
@@ -228,6 +240,14 @@ export default function Home() {
   const [nowcastFrameIndex, setNowcastFrameIndex] = useState(0);
   const [nowcastLoading, setNowcastLoading] = useState(false);
   const [nowcastError, setNowcastError] = useState<string | null>(null);
+
+  // 風（JMA MSM由来、Open-Meteo配信）の時刻一覧・スライダー位置（改善計画T178）。
+  // 上のnowcastFrames一式と同じ構造・同じ理由（layerVisibility.windVectorがONの間だけ
+  // 動かすeffectで管理）。
+  const [windFrames, setWindFrames] = useState<WindFrame[]>([]);
+  const [windFrameIndex, setWindFrameIndex] = useState(0);
+  const [windLoading, setWindLoading] = useState(false);
+  const [windError, setWindError] = useState<string | null>(null);
 
   // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
   // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState（改善計画T47 R-6）参照。
@@ -711,6 +731,59 @@ export default function Home() {
     const frame = nowcastFrames[nowcastFrameIndex];
     return frame ? nowcastTileUrlTemplate(frame) : undefined;
   }, [nowcastFrames, nowcastFrameIndex]);
+
+  // 風（改善計画T178）の時刻一覧。jma_msmのreference_timeが3時間毎更新のため、降水
+  // ナウキャスト（5分毎更新、上記）より緩い間隔（30分毎）で十分（更新を数分逃しても
+  // 予測初期時刻のずれとしては軽微）。
+  const WIND_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+  const showWindVector = layerVisibility.windVector;
+  useEffect(() => {
+    if (!showWindVector) return;
+    let cancelled = false;
+    const load = async (isFirstLoad: boolean) => {
+      if (isFirstLoad) setWindLoading(true);
+      try {
+        const frames = await fetchWindFrames();
+        if (cancelled) return;
+        setWindFrames(frames);
+        setWindError(null);
+        // 初回取得時、またはスライダー位置が新しいframes配列の範囲外になったときだけ
+        // 「現在時刻に最も近いフレーム」へ合わせる（nowcastと同じ、定期再取得のたびに
+        // 未来側を見ているユーザーのスライダー位置を勝手に戻さないため）。
+        setWindFrameIndex((prev) => (isFirstLoad || prev >= frames.length ? nearestFrameIndexToNow(frames) : prev));
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setWindError(error instanceof Error ? error.message : "風データの取得に失敗しました");
+      } finally {
+        if (!cancelled && isFirstLoad) setWindLoading(false);
+      }
+    };
+    Promise.resolve().then(() => load(true));
+    const intervalId = window.setInterval(() => load(false), WIND_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWindVector]);
+
+  const windVectorTileUrl = useMemo(() => {
+    const frame = windFrames[windFrameIndex];
+    return frame ? windVectorSourceUrl(frame) : undefined;
+  }, [windFrames, windFrameIndex]);
+
+  // 地図下部の時刻スライダー（DynamicLayerTimeSlider）へ渡す表示用フレーム列。時刻の
+  // 整形・実況/予測ラベルはレイヤー固有のデータ層（precipitationNowcast.ts/windLayer.ts）に
+  // 閉じているため、ここで{label, badge}へ変換してからUIコンポーネントへ渡す
+  // （DynamicLayerTimeSlider自体はレイヤー固有の時刻形式を知らない汎用コンポーネント）。
+  const nowcastSliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
+    () => nowcastFrames.map((frame) => ({ label: formatNowcastFrameTime(frame.validtime), badge: frame.isForecast ? "予測" : "実況" })),
+    [nowcastFrames]
+  );
+  const windSliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
+    () => windFrames.map((frame) => ({ label: formatWindFrameTime(frame.validTime) })),
+    [windFrames]
+  );
 
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
@@ -1197,6 +1270,8 @@ export default function Home() {
             showElevation={layerVisibility.elevation}
             showPrecipitationNowcast={showPrecipitationNowcast}
             precipitationNowcastTileUrl={precipitationNowcastTileUrl}
+            showWindVector={showWindVector}
+            windVectorTileUrl={windVectorTileUrl}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
             showCarStress={layerVisibility.carStress}
@@ -1228,15 +1303,33 @@ export default function Home() {
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 
           {/* 時刻依存レイヤーが1つ以上ONのときだけ地図上へ出す（改善計画T170、設計原則12:
-              地図の視界を圧迫しない）。降水ナウキャストが唯一のメンバーの間はこれ1本のみ。 */}
-          {showPrecipitationNowcast && (
-            <NowcastTimeSlider
-              frames={nowcastFrames}
-              index={nowcastFrameIndex}
-              onIndexChange={setNowcastFrameIndex}
-              loading={nowcastLoading}
-              error={nowcastError}
-            />
+              地図の視界を圧迫しない）。複数同時ONのときはdynamicLayerSlidersコンテナ
+              （page.module.css）が縦積みにする。 */}
+          {(showPrecipitationNowcast || showWindVector) && (
+            <div className={styles.dynamicLayerSliders}>
+              {showPrecipitationNowcast && (
+                <DynamicLayerTimeSlider
+                  frames={nowcastSliderFrames}
+                  index={nowcastFrameIndex}
+                  onIndexChange={setNowcastFrameIndex}
+                  loading={nowcastLoading}
+                  loadingLabel="降水ナウキャストの時刻を取得中..."
+                  error={nowcastError}
+                  ariaLabel="降水ナウキャストの表示時刻"
+                />
+              )}
+              {showWindVector && (
+                <DynamicLayerTimeSlider
+                  frames={windSliderFrames}
+                  index={windFrameIndex}
+                  onIndexChange={setWindFrameIndex}
+                  loading={windLoading}
+                  loadingLabel="風データの時刻を取得中..."
+                  error={windError}
+                  ariaLabel="風の表示時刻"
+                />
+              )}
+            </div>
           )}
 
           <button

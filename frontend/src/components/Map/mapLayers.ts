@@ -44,6 +44,10 @@ export type MapLayerId =
   // 「選択候補に関係なく常設」の性質）のため、kind自体はstaticのまま、dataNature="dynamic"
   // （下記）だけで区別する。詳細はkind/MapLayerDataNatureのコメント参照。
   | "precipitationNowcast"
+  // 風の矢印（改善計画T178）。JMA MSM由来・Open-Meteo配信（`@openmeteo/weather-map-layer`の
+  // om://プロトコル、vector source）。precipitationNowcastと同じ理由でkind="static"・
+  // dataNature="dynamic"。
+  | "windVector"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
   // （axisLayers.ts: axisMapLayerId参照）。
@@ -80,7 +84,7 @@ export const MAP_LAYER_CATEGORY_LABELS: Record<MapLayerCategory, string> = {
   bicycleInfra: "自転車インフラ",
   terrain: "地形",
   amenity: "補給・施設",
-  // 改善計画T171: 降水ナウキャスト（動的グループ唯一のメンバー、今後雷等が増える見込み）用。
+  // 改善計画T171/T178: 降水ナウキャスト・風（矢印）等、動的グループのメンバー用。
   weather: "気象",
 };
 
@@ -349,6 +353,22 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、" +
       "実況（直近）から60分先までの雨雲の分布を切り替えて確認できます。非公式の内部APIを" +
       "利用しているため、取得に失敗することがあります。",
+  },
+  {
+    // 風の矢印（改善計画T178）。データの出所は気象庁（JMA MSM）だが配信経路はOpen-Meteoの
+    // ため、出典表記は両方明記する（改善計画docs「気象庁とOpen-Meteoの使い分け」参照）。
+    id: "windVector",
+    label: "風（矢印）",
+    chipLabel: "風",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の予測に基づく風向・風速を矢印で表示[Open-Meteo経由、約39時間先まで]",
+    panelHint:
+      "気象庁の数値予報モデル（JMA MSM）による風向・風速をOpen-Meteo経由で矢印表示します。" +
+      "ONにすると地図上に時刻スライダーが現れ、3時間毎に更新される予測初期時刻から" +
+      "1時間刻みで約39時間先まで切り替えて確認できます。ライブラリが開発段階（pre-1.0）のため、" +
+      "取得に失敗することがあります。",
   },
   {
     id: "route",

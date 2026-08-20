@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@maplibre/maplibre-gl-style-spec": "24.10.0",
+    "@openmeteo/weather-map-layer": "0.0.20",
     "maplibre-gl": "^5.24.0",
     "next": "16.3.0",
     "react": "19.2.8",

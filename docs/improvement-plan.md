@@ -2064,7 +2064,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 **実施順序（優先順位、2026-08-20整理。ユーザー要望「改善計画の中で優先順位付けをし、
 整理して」を受け明文化）**: T170〜T178は互いに独立ではなく、依存関係・ユーザーの
 関心の強さ・コストの3軸で優先度に差がある。番号順ではなく以下のPhase順で着手する。
-**2026-08-20時点、Phase 1はT172→T170→T171の順で完了済み。残るはT178のみ。**
+**2026-08-20時点、Phase 1（T172→T170→T171→T178）は全て完了済み。次に着手するならPhase 2（T173）。**
 
 - **Phase 1（風・雨・雷、ユーザーが繰り返し名指しした最優先領域）**: T172 → T170 →
   T171 → T178 の順。T172は依存が無くいつでも着手できる最小コスト（規模S）のため最初に
@@ -2299,7 +2299,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 完了条件: 時間帯係数の妥当性判断と、実装する場合の設計方針が本エントリに記録されること。
 - 依存: T173（軸内の時刻係数機構を先に作る場合）。
 
-### - [ ] T178. 風をweather-map-layer（Open-Meteo公式）で時刻指定描画する 規模M〜L
+### - [x] T178. 風をweather-map-layer（Open-Meteo公式）で時刻指定描画する 規模M〜L（2026-08-20完了）
 
 - 発端: ユーザー確認「時刻指定で描画できる対象を明確にして。今特に気にしているのは
   風、雨、雷」。調査の結果、**雨・雷（T171）と風は技術的な位置づけが異なる**ことが
@@ -2354,6 +2354,55 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   切り替えられること。ライブラリ取得失敗時に地図全体がクラッシュしないこと。
   Playwright実機確認・frontend全green。
 - 依存: T170（時刻指定描画基盤）。
+- 実装メモ（2026-08-20完了）: 着手前にGitHub上のREADME・examples/vector/wind-arrows.html
+  （公式サンプル、curlでraw.githubusercontent.comから直接取得し実コードを確認）・npm
+  registryを実機調査し直した結果、対応方針から2点変更した。(1) ラスタ（背景色分け）は
+  「対応方針上は任意」だった点を活かし、矢印（vector、`arrows=true`）のみを実装（地図の
+  視界を圧迫しない、設計原則12。ラスタ色分けは見送り）。(2) T170の時刻スライダーは実装時点
+  では降水ナウキャストのフレーム配列に密結合していたため、風にもそのまま使うことができ
+  なかった。`NowcastTimeSlider`を`DynamicLayerTimeSlider`へ一般化（`{label, badge}`という
+  レイヤー非依存のframe型を受け取るだけの汎用UIへ変更、時刻の整形・実況/予測ラベルの
+  計算は呼び出し側＝各レイヤーのデータ層へ移した）し、降水・風の両方がONのときは
+  page.tsx側の新設コンテナ（`dynamicLayerSliders`、page.module.css）が縦に積んで両方
+  同時表示する（1本のスライダーへ無理に統合しなかった理由: 降水は5分刻み・±60分、
+  風は1時間刻み・約39時間先までと粒度・レンジが大きく異なり、共有タイムラインにすると
+  どちらかの操作性が犠牲になるため）。
+  データ層は`windLayer.ts`（新設、precipitationNowcast.tsと同型の純粋関数のみ）:
+  `fetchWindFrames`（`jma_msm/latest.json`のvalid_times配列をindex付きフレームへ変換）・
+  `nearestFrameIndexToNow`（reference_timeが3時間毎更新のため配列先頭が「今」とは限らず、
+  実際の時刻差で最寄りフレームを探す。降水の`latestObservedFrameIndex`とは選び方が異なる
+  ため別関数にした）・`windVectorSourceUrl`（om://ソースURL組み立て、`time_step=
+  valid_times_{index}&variable=wind_u_component_10m&arrows=true`）・`formatWindFrameTime`
+  （風は約39時間先まで日付をまたぐため、降水の"HH:mm"と異なり"M/D HH:mm"で日付も含める）。
+  `MapView.tsx`は`maplibregl.addProtocol("om", omProtocol)`をモジュールスコープで一度だけ
+  登録し、`ensureWindVectorLayer`（vector source・line layer、source-layer名は公式サンプルと
+  同じ`"wind-arrows"`、風速に応じた濃淡は`case`式で簡略化）と`applyWindVectorState`
+  （vector sourceは`tiles`配列ではなく`url`1本で時刻を表すため、`setTiles`ではなく
+  `setUrl`で時刻を差し替える点が降水ラスタと異なる）の2関数で完結させ、降水と同じ
+  専用の時刻依存effect（1本にまとめ、依存配列へshowWindVector/windVectorTileUrlを追加）
+  から呼ぶ。T87データ状態は降水と同じくsourceLayer無し登録（風は連続場のため「0件」判定に
+  意味が無い、取得失敗のみ検知）。
+  GPLv2の扱い: 対応方針の条件付き記録のとおり採用した（本リポジトリはLICENSEファイルを
+  持たない私的リポジトリのため実務上のリスクは小さいと判断。npm依存は`--save-exact`で
+  完全一致指定、`@openmeteo/weather-map-layer@0.0.20`固定）。
+  実機調査で新たに判明した点: `@openmeteo/weather-map-layer`は内部で`@openmeteo/file-reader`
+  （omファイル形式のWASMデコーダ、`@openmeteo/file-format-wasm`）とWeb Workerを使うが、
+  package.jsonの`exports`が`import.browser`条件でブラウザ向けビルド（`node:fs`非依存）を
+  分離しているため、Next.js（Turbopack、追加設定なし）が自動的にブラウザ向けチャンクを
+  解決しWASM・Workerとも問題なくバンドルされることをPlaywright実機確認で確認した
+  （懸念していたバンドラ対応リスクは実害無しと判明）。`maplibre-gl`はweather-map-layer側の
+  `dependencies`（`^5.20.1`、peerDependenciesではない）だが、本リポジトリの`^5.24.0`が
+  範囲を満たすためnpm installで単一コピーへdedupeされることも確認済み（node_modules内に
+  重複コピーは作られない）。
+  Playwright実機確認: 「動的」→「風」の順にONにすると地図全面に矢印が表示され
+  （`queryRenderedFeatures`で494件のwind-arrows地物を確認、CDNから実際の`.om`データ
+  ファイル取得も確認）、地図下部に時刻スライダーが出現（初期位置は現在時刻に最も近い
+  フレーム）。スライダー操作で`map.getSource("region-wind-vector")`のURLが実際に別の
+  `time_step`へ切り替わることを確認。降水ナウキャストと風を同時にONにすると2本の
+  スライダーが縦に積んで表示され、片方だけOFFにしてももう片方は影響を受けないことを確認。
+  コンソールエラー無し。frontend vitest 401件（新規9件、windLayer.test.ts）・tsc全green。
+  DynamicLayerTimeSliderへの一般化に伴い、降水ナウキャスト側の呼び出し（page.tsx）・
+  テスト（旧NowcastTimeSlider.test.tsx→DynamicLayerTimeSlider.test.tsx）も追従済み。
 
 ---
 
