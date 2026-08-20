@@ -1,8 +1,14 @@
+# tenacityが再試行の待機にasyncio.sleep()を内部で使う（tenacity/asyncio/__init__.py）ため、
+# ここでモジュールとしてimportしておく必要がある。標準ライブラリのasyncioはプロセス内で
+# 単一のモジュールオブジェクトを共有するため、test_weather_client_cache.pyの
+# no_real_sleepフィクスチャがweather_client_module.asyncio.sleepへ差し込むパッチが、
+# このファイル自身が直接呼ばなくなった後もtenacity内部の待機を透過的に速攻化できる。
 import asyncio
 import random
 import time
 
 import httpx
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, stop_after_delay
 
 from app.config import settings
 from app.domain.route import Coordinates
@@ -63,17 +69,28 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
         return None
 
 
-def _compute_wait(attempt: int, retry_after: float | None) -> float:
-    """再試行までの待機秒数を求める。Retry-Afterヘッダの値があればそれを優先し
+def _is_retryable(exc: BaseException) -> bool:
+    """再試行すべき失敗か（改善計画、実機フィードバック「より一般的なpythonライブラリ等の
+    手法を踏襲できないか」を受けtenacityへ置き換え）。429（レート制限）とTransportError
+    （接続タイムアウト等、応答自体を受け取れなかった失敗）だけを対象とする。それ以外の
+    HTTPエラー（4xx/5xx）やJSON解析エラーは再試行しても直らないため対象外のまま。"""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == RETRY_STATUS_CODE
+    return isinstance(exc, httpx.TransportError)
+
+
+def _compute_wait(retry_state) -> float:
+    """再試行までの待機秒数を求める。429のRetry-Afterヘッダの値があればそれを優先し
     （0はPythonのor演算子だと「未指定」と誤判定されるため、is not Noneで明示的に判定する）、
-    無ければ指数バックオフを使う。上限でクランプした上でジッターを掛ける（RETRY_JITTER_RANGE参照）。"""
-    base = retry_after if retry_after is not None else RETRY_BACKOFF_SECONDS * (2**attempt)
+    無ければ指数バックオフを使う。上限でクランプした上でジッターを掛ける（RETRY_JITTER_RANGE参照）。
+    tenacity.wait基底クラスを継承せず素のcallableのまま渡しているのは、Retry-Afterの尊重が
+    tenacity標準のwait戦略に無く、どのみち自前のロジックが要るため（tenacity.asyncio.
+    AsyncRetryingはwaitへ単純なcallable(retry_state) -> floatも受け付ける）。"""
+    exc = retry_state.outcome.exception()
+    retry_after = _retry_after_seconds(exc.response) if isinstance(exc, httpx.HTTPStatusError) else None
+    base = retry_after if retry_after is not None else RETRY_BACKOFF_SECONDS * (2 ** (retry_state.attempt_number - 1))
     capped = min(max(base, 0.0), RETRY_BACKOFF_CAP_SECONDS)
     return capped * random.uniform(*RETRY_JITTER_RANGE)
-
-
-def _can_retry(attempt: int, started: float, wait: float) -> bool:
-    return attempt < MAX_RETRIES and time.monotonic() - started + wait < RETRY_BUDGET_SECONDS
 
 
 class WeatherClient:
@@ -102,51 +119,51 @@ class WeatherClient:
         載せる）。POSTはフォームボディへ同じパラメータを載せるためURI長の制約を受けない
         （実機確認: 624地点でPOST成功、同数のGETは414）。単一地点（get_forecast）はパラメータが
         少なくURI長の心配が無いためGETのまま変更しない。
+
+        再試行はtenacity（改善計画、実機フィードバック「より一般的なpythonライブラリ等の手法を
+        踏襲できないか」）に委譲している。stop_after_attempt（MAX_RETRIES回まで）と
+        stop_after_delay（RETRY_BUDGET_SECONDS秒を過ぎたら打ち切り）をORで組み合わせ、
+        どちらか早く達した方で止める。以前の自前ループは「次の待機を足すと予算を超える場合は
+        待機せず即座に諦める」という先読みをしていたが、tenacity.stop_after_delayは待機前の
+        経過時間だけを見るため、最悪1回ぶん（RETRY_BACKOFF_CAP_SECONDS秒）だけ予算を超えうる
+        ——フロントのfetchタイムアウト（15秒）に対しては十分な余裕があるため許容する。
         """
-        attempt = 0
-        started = time.monotonic()
-        while True:
-            try:
-                if method == "POST":
-                    response = await client.post(settings.open_meteo_base_url, data=params, timeout=REQUEST_TIMEOUT)
-                else:
-                    response = await client.get(settings.open_meteo_base_url, params=params, timeout=REQUEST_TIMEOUT)
-                response.raise_for_status()
-                fields["result"] = "ok"
-                fields["status"] = getattr(response, "status_code", None)
-                return response.json()
-            except httpx.HTTPStatusError as exc:
-                is_rate_limited = exc.response.status_code == RETRY_STATUS_CODE
-                retry_after = _retry_after_seconds(exc.response) if is_rate_limited else None
-                wait = _compute_wait(attempt, retry_after)
-                if is_rate_limited and _can_retry(attempt, started, wait):
-                    attempt += 1
-                    fields["retries"] = attempt
-                    await asyncio.sleep(wait)
-                    continue
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                fields["error_type"] = error_type_label(exc)
-                return None
-            except httpx.TransportError as exc:
-                # 接続タイムアウト等、応答自体を受け取れなかった失敗。ConnectTimeoutは
-                # 実測で数並列アクセスだけでも発生しており(原因調査ログ参照)、429と同様に
-                # 短時間で解消することが多いため同じ回数だけ再試行する。
-                wait = _compute_wait(attempt, retry_after=None)
-                if _can_retry(attempt, started, wait):
-                    attempt += 1
-                    fields["retries"] = attempt
-                    await asyncio.sleep(wait)
-                    continue
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                fields["error_type"] = error_type_label(exc)
-                return None
-            except (httpx.HTTPError, ValueError) as exc:
-                fields["result"] = "error"
-                fields["error"] = repr(exc)
-                fields["error_type"] = error_type_label(exc)
-                return None
+
+        async def do_request() -> httpx.Response:
+            if method == "POST":
+                response = await client.post(settings.open_meteo_base_url, data=params, timeout=REQUEST_TIMEOUT)
+            else:
+                response = await client.get(settings.open_meteo_base_url, params=params, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return response
+
+        def record_retry(retry_state) -> None:
+            fields["retries"] = retry_state.attempt_number
+
+        retryer = AsyncRetrying(
+            retry=retry_if_exception(_is_retryable),
+            wait=_compute_wait,
+            stop=stop_after_attempt(MAX_RETRIES + 1) | stop_after_delay(RETRY_BUDGET_SECONDS),
+            before_sleep=record_retry,
+            reraise=True,
+        )
+        try:
+            response = await retryer(do_request)
+        except (httpx.HTTPError, ValueError) as exc:
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return None
+
+        fields["result"] = "ok"
+        fields["status"] = getattr(response, "status_code", None)
+        try:
+            return response.json()
+        except ValueError as exc:
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return None
 
     async def get_forecast(self, client: httpx.AsyncClient, point: Coordinates) -> dict | None:
         key = self.cache_key(point)
