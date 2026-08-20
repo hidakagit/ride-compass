@@ -85,17 +85,31 @@ export function formatWindFrameTime(time: string): string {
   return `${datePart} ${timePart}`;
 }
 
-// 風速→色の対応（弱い風=青→中程度=オレンジ→強い風=赤の連続グラデーション）。矢印の
-// icon-color・セルのfill-color（MapView.tsx）・地図チップの凡例（page.tsx、実機
-// フィードバック「風と雨の凡例も欲しい」）の3箇所で同じ配色を使うための単一の情報源
-// （2箇所以上に同じ配色を書くと片方だけ直して食い違う事故が起きうるため1箇所へ集約）。
-// MapLibre非依存の生データとして持ち、MapLibre補間式への組み立ては呼び出し側
-// （MapView.tsx）が行う（このファイル自体はDOM/MapLibreを知らない、ファイル冒頭の
-// コメント参照）。
+// 風速→色の対応。矢印のicon-color・セルのfill-color（MapView.tsx）・地図チップの凡例
+// （page.tsx、実機フィードバック「風と雨の凡例も欲しい」）の3箇所で同じ配色を使うための
+// 単一の情報源（2箇所以上に同じ配色を書くと片方だけ直して食い違う事故が起きうるため
+// 1箇所へ集約）。MapLibre非依存の生データとして持ち、MapLibre補間式への組み立ては
+// 呼び出し側（MapView.tsx）が行う（このファイル自体はDOM/MapLibreを知らない、ファイル
+// 冒頭のコメント参照）。
+//
+// 実機フィードバック「風の色分けをもっと細かくして。ロードバイクで走れない強風域は
+// 粒度粗く。微風からそこまでは粒度を細かくして」を受け、気象庁も使う国際的なビューフォート
+// 風力階級（0.3m/s刻みではなくBf1〜6の実際の境界値）を刻み幅に採用した: 0（無風、後述の
+// WIND_CALM_THRESHOLD_MS未満は非表示）〜Bf6上限13.8m/s（「傘をさすのが困難」）までは
+// Bf階級ごとに色を変え、この帯（ロードバイクで通常走行できる範囲）を細かく塗り分ける。
+// Bf7開始13.9m/s（「風に向かって歩くのが困難」、ロードバイクでの走行が現実的でなくなる
+// 目安）以降は帯を大きく空けた2段階（Bf7上限17.1m/s・Bf9上限24.4m/s）だけにとどめ、
+// 「走れないほど強い」こと自体が伝わればよく細かい差は重要でないという判断を反映する。
 export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string }[] = [
-  { speedMs: 0, color: "#60a5fa" },
-  { speedMs: 7, color: "#f59e0b" },
-  { speedMs: 15, color: "#dc2626" },
+  { speedMs: 0, color: "#7dd3fc" }, // 無風に近い
+  { speedMs: 1.5, color: "#38bdf8" }, // Bf1上限
+  { speedMs: 3.3, color: "#22d3ee" }, // Bf2上限
+  { speedMs: 5.4, color: "#34d399" }, // Bf3上限
+  { speedMs: 7.9, color: "#a3e635" }, // Bf4上限
+  { speedMs: 10.7, color: "#facc15" }, // Bf5上限
+  { speedMs: 13.8, color: "#f97316" }, // Bf6上限（ロードバイクで走行できる目安の上限）
+  { speedMs: 17.1, color: "#dc2626" }, // Bf7上限（走行困難域、ここから粒度は粗くする）
+  { speedMs: 24.4, color: "#7f1d1d" }, // Bf9上限（暴風、これ以上は同じ色のまま）
 ];
 
 // この風速未満は「無風」として矢印・セルを描画しない（MapView.tsx参照）。実機確認
@@ -105,12 +119,23 @@ export const WIND_CALM_THRESHOLD_MS = 0.3;
 
 // 地図チップの凡例（page.tsx）用に、上記の生データへラベルを付けたもの。数値は
 // WIND_SPEED_COLOR_STOPS/WIND_CALM_THRESHOLD_MSからそのまま持ってくるため、閾値・色を
-// 変えてもここは自動で追従する（片側importで単一の情報源を保つ）。
+// 変えてもここは自動で追従する（片側importで単一の情報源を保つ）。地図の色分け自体は
+// WIND_SPEED_COLOR_STOPSの9段階そのままだが、凡例は「ロードバイクで走行が難しい強風域」の
+// 中の細かい差（Bf7/Bf9境界）まで1行ずつ並べても実用上の情報量が薄いため、その帯は
+// 1行へまとめている（凡例上の粒度も「そこから先は粗い」という体験に合わせる）。
 export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
   { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: "#9ca3af" },
-  { key: "light", label: "弱い風", color: WIND_SPEED_COLOR_STOPS[0].color },
-  { key: "moderate", label: `中程度（${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s前後）`, color: WIND_SPEED_COLOR_STOPS[1].color },
-  { key: "strong", label: `強い風（${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s以上）`, color: WIND_SPEED_COLOR_STOPS[2].color },
+  { key: "bf1", label: "微風", color: WIND_SPEED_COLOR_STOPS[0].color },
+  { key: "bf2", label: `そよ風（〜${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[1].color },
+  { key: "bf3", label: `心地よい風（〜${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[2].color },
+  { key: "bf4", label: `やや強い風（〜${WIND_SPEED_COLOR_STOPS[3].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[3].color },
+  { key: "bf5", label: `強い風・向かい風がこたえ始める（〜${WIND_SPEED_COLOR_STOPS[4].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[4].color },
+  { key: "bf6", label: `かなり強い風（〜${WIND_SPEED_COLOR_STOPS[5].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[5].color },
+  {
+    key: "unrideable",
+    label: `ロードバイクでの走行が難しい強風域（${WIND_SPEED_COLOR_STOPS[6].speedMs}m/s以上）`,
+    color: WIND_SPEED_COLOR_STOPS[6].color,
+  },
 ];
 
 export interface WindPointFeatureProperties {
