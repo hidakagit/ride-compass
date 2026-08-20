@@ -20,6 +20,15 @@
   --color-surface-2: #f3f4f2;
   --color-accent-strong: #1d4ed8;
 
+  /* 地図チップの次数グループ（推定/観測/動的、MapOverlayControls.tsx）を一目で見分けられる
+   * ようにする控えめな色分け（実機フィードバック「それぞれのタイル及びそのグループ配下を
+   * 少しずつ色を変えてグルーピングして」）。ON状態の青（--color-accent）・展開見出しの地味色
+   * （--color-neutral、既存の意味）とは別チャンネルとして使うため、それらと被らない3色
+   * （緑系=観測・紫系=推定・琥珀系=動的）を選んでいる。 */
+  --color-group-raw: #0d9488;
+  --color-group-composite: #7c3aed;
+  --color-group-dynamic: #b45309;
+
   --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
 
   --space-1: 0.25rem;
@@ -63,6 +72,9 @@
     --color-border-strong: #505054;
     --color-border-muted: #38383b;
     --color-neutral: #8e8e93;
+    --color-group-raw: #2dd4bf;
+    --color-group-composite: #a78bfa;
+    --color-group-dynamic: #fbbf24;
   }
 }
 

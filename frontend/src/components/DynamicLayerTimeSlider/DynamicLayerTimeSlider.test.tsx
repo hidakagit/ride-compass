@@ -17,6 +17,7 @@ describe("DynamicLayerTimeSlider", () => {
         index={0}
         onIndexChange={vi.fn()}
         currentIndex={0}
+        onNow={vi.fn()}
         loading={true}
         loadingLabel="取得中..."
         error={null}
@@ -34,6 +35,7 @@ describe("DynamicLayerTimeSlider", () => {
         index={0}
         onIndexChange={vi.fn()}
         currentIndex={0}
+        onNow={vi.fn()}
         loading={false}
         loadingLabel="取得中..."
         error="取得に失敗しました"
@@ -51,6 +53,7 @@ describe("DynamicLayerTimeSlider", () => {
         index={0}
         onIndexChange={vi.fn()}
         currentIndex={0}
+        onNow={vi.fn()}
         loading={false}
         loadingLabel="取得中..."
         error={null}
@@ -70,6 +73,7 @@ describe("DynamicLayerTimeSlider", () => {
         index={0}
         onIndexChange={vi.fn()}
         currentIndex={0}
+        onNow={vi.fn()}
         loading={false}
         loadingLabel="取得中..."
         error={null}
@@ -87,6 +91,7 @@ describe("DynamicLayerTimeSlider", () => {
         index={0}
         onIndexChange={vi.fn()}
         currentIndex={0}
+        onNow={vi.fn()}
         loading={false}
         loadingLabel="取得中..."
         error={null}
@@ -104,6 +109,7 @@ describe("DynamicLayerTimeSlider", () => {
         index={0}
         onIndexChange={onIndexChange}
         currentIndex={0}
+        onNow={vi.fn()}
         loading={false}
         loadingLabel="取得中..."
         error={null}
@@ -118,7 +124,7 @@ describe("DynamicLayerTimeSlider", () => {
     expect(onIndexChange).toHaveBeenCalledWith(2);
   });
 
-  describe("「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）", () => {
+  describe("「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」「現在リセットすると23:00になって上バーが消えた」）", () => {
     it("index===currentIndexのときは無効化される", () => {
       render(
         <DynamicLayerTimeSlider
@@ -126,6 +132,7 @@ describe("DynamicLayerTimeSlider", () => {
           index={1}
           onIndexChange={vi.fn()}
           currentIndex={1}
+          onNow={vi.fn()}
           loading={false}
           loadingLabel="取得中..."
           error={null}
@@ -135,15 +142,17 @@ describe("DynamicLayerTimeSlider", () => {
       expect(screen.getByRole("button", { name: "降水ナウキャストの表示時刻を現在に戻す" })).toBeDisabled();
     });
 
-    it("未来側を見ているときは有効化され、押すとcurrentIndexへonIndexChangeが呼ばれる", async () => {
+    it("未来側を見ているときは有効化され、押すとonNowが呼ばれる（onIndexChangeではない。風のcurrentIndexは実時刻より最大59分過去の正時に丸まるため、そこへ合わせると降水側が範囲外になる不具合があった）", async () => {
       const user = userEvent.setup();
       const onIndexChange = vi.fn();
+      const onNow = vi.fn();
       render(
         <DynamicLayerTimeSlider
           frames={FRAMES}
           index={2}
           onIndexChange={onIndexChange}
           currentIndex={1}
+          onNow={onNow}
           loading={false}
           loadingLabel="取得中..."
           error={null}
@@ -154,7 +163,8 @@ describe("DynamicLayerTimeSlider", () => {
       const nowButton = screen.getByRole("button", { name: "降水ナウキャストの表示時刻を現在に戻す" });
       expect(nowButton).not.toBeDisabled();
       await user.click(nowButton);
-      expect(onIndexChange).toHaveBeenCalledWith(1);
+      expect(onNow).toHaveBeenCalledTimes(1);
+      expect(onIndexChange).not.toHaveBeenCalled();
     });
   });
 });

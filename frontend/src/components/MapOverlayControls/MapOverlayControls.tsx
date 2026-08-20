@@ -244,6 +244,7 @@ function ChipButton({
   expandDirection = "right",
   tileVariant,
   expandViaSelf,
+  groupTint,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -290,10 +291,15 @@ function ChipButton({
    * たい。展開はもっと地味な色でいい」への対応。見出し自体はメンバーのON/OFFを表さない
    * ため、青を使うと「このグループの内容が地図に出ている」と誤読されてしまう）。 */
   expandViaSelf?: boolean;
+  /** 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
+   * グループ配下を少しずつ色を変えてグルーピングして」）。未指定＝category/dataNatureを
+   * 持たない単独チップ（ルート等）は無色のまま。 */
+  groupTint?: "raw" | "composite" | "dynamic";
 }) {
   const arrowGlyph = expandDirection === "right" || expandDirection === "flatRight" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
   const isActiveVisual = expandViaSelf ? isExpanded : active;
+  const groupTintClass = groupTint === "raw" ? styles.iconChipGroupRaw : groupTint === "composite" ? styles.iconChipGroupComposite : groupTint === "dynamic" ? styles.iconChipGroupDynamic : "";
   return (
     <div
       ref={registerRow}
@@ -309,8 +315,8 @@ function ChipButton({
           onClick={onTap}
           className={
             isActiveVisual
-              ? `${styles.iconChip} ${expandViaSelf ? styles.iconChipExpanded : styles.iconChipActive}`
-              : styles.iconChip
+              ? `${styles.iconChip} ${groupTintClass} ${expandViaSelf ? styles.iconChipExpanded : styles.iconChipActive}`
+              : `${styles.iconChip} ${groupTintClass}`
           }
         >
           <Icon />
@@ -419,7 +425,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // ON/OFFに関わらず▼を出すのと不揃いだったため、ONに依存しない判定へ揃えた。
   // legendDetailsはレイヤー定義由来の固定内容でありON/OFFで内容が変わらないため、
   // OFF中に「オンにすると何が出るか」を先に確認できる利点もある）。
-  function renderRawMemberTile(member: OverlayLayerChip) {
+  function renderRawMemberTile(member: OverlayLayerChip, groupTint: "raw" | "dynamic") {
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
@@ -438,6 +444,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         isExpanded={canExpand && expandedIds.has(key)}
         onExpandToggle={() => toggleExpanded(key)}
         expandDirection="right"
+        groupTint={groupTint}
         panelContent={canExpand ? renderLegendDetails(member.legendDetails!) : <></>}
         panelRect={panelRects[key]}
         registerRow={(el) => {
@@ -487,8 +494,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     return MAP_LAYER_CATEGORY_ORDER.flatMap((category) => members.filter((m) => m.category === category));
   }
 
-  function renderObservedMemberRows(members: readonly OverlayLayerChip[]): ReactElement[] {
-    return orderObservedMembers(members).map((member) => renderRawMemberTile(member));
+  function renderObservedMemberRows(members: readonly OverlayLayerChip[], groupTint: "raw" | "dynamic"): ReactElement[] {
+    return orderObservedMembers(members).map((member) => renderRawMemberTile(member, groupTint));
   }
 
   // 観測/推定グループ見出しの「アイコンの意味」凡例トグル。実機フィードバック「スマホモード
@@ -599,6 +606,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
           onExpandToggle={() => toggleExpanded(key, "down")}
           expandDirection="down"
           tileVariant="axis"
+          groupTint="composite"
           panelContent={
             <div className={styles.detailBody}>
               {/* モバイルではタイル本体の略名を.chipRowItemAxisで視覚的に隠す（横並びを
@@ -635,6 +643,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         onExpandToggle={() => toggleExpanded(key, "down")}
         expandDirection="down"
         tileVariant="axis"
+        groupTint="composite"
         panelContent={
           <div className={styles.detailBody}>
             <div className={styles.detailAxisLabel}>{axis.chipLabel}</div>
@@ -714,6 +723,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flatRight"
                 expandViaSelf
+                groupTint="composite"
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
@@ -780,6 +790,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flat"
                 expandViaSelf
+                groupTint="raw"
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
@@ -800,7 +811,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               >
                 {header}
                 {isExpanded
-                  ? renderObservedMemberRows(group.members)
+                  ? renderObservedMemberRows(group.members, "raw")
                   : renderGroupLegendToggle(
                       group.key,
                       label,
@@ -839,6 +850,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flat"
                 expandViaSelf
+                groupTint="dynamic"
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
@@ -853,7 +865,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               >
                 {header}
                 {isExpanded
-                  ? renderObservedMemberRows(group.members)
+                  ? renderObservedMemberRows(group.members, "dynamic")
                   : renderGroupLegendToggle(
                       group.key,
                       label,

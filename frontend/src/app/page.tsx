@@ -970,6 +970,13 @@ export default function Home() {
     [windGrid]
   );
 
+  // 「現在」ボタン（両バー共通、DynamicLayerTimeSlider: onNow参照）。実時刻そのものへ
+  // 共有時刻を戻す。以前は押したバー自身の「現在」frameの時刻へ合わせていたが、風の
+  // currentIndexは1時間刻みで実時刻より最大59分過去の正時に丸まるため、風側の「現在」を
+  // 押すと降水ナウキャスト（「現在」より前のフレームを持たない）が範囲外になり消えてしまう
+  // 不具合があった（実機フィードバック「現在リセットすると23:00になって上バーが消えた」）。
+  const handleDynamicLayerNow = useCallback(() => setDynamicLayerTargetTime(new Date()), []);
+
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
   const currentWeightsKey = JSON.stringify({
@@ -1500,6 +1507,7 @@ export default function Home() {
                   index={nowcastFrameIndex}
                   onIndexChange={handleNowcastIndexChange}
                   currentIndex={nowcastCurrentIndex}
+                  onNow={handleDynamicLayerNow}
                   loading={nowcastLoading}
                   loadingLabel="降水ナウキャストの時刻を取得中..."
                   error={nowcastError}
@@ -1514,6 +1522,7 @@ export default function Home() {
                   index={windFrameIndex}
                   onIndexChange={handleWindIndexChange}
                   currentIndex={windCurrentIndex}
+                  onNow={handleDynamicLayerNow}
                   loading={windLoading}
                   loadingLabel="風データの時刻を取得中..."
                   error={windError}
