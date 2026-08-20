@@ -4,10 +4,9 @@ import time
 
 import httpx
 
+from app.config import settings
 from app.domain.route import Coordinates
 from app.infrastructure.debug_log import error_type_label, log_external_call
-
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 # 天候は数km単位でしか変わらないため、標高キャッシュ（4桁）より粗い精度で丸める。
 CACHE_PRECISION = 2
@@ -109,9 +108,9 @@ class WeatherClient:
         while True:
             try:
                 if method == "POST":
-                    response = await client.post(OPEN_METEO_URL, data=params, timeout=REQUEST_TIMEOUT)
+                    response = await client.post(settings.open_meteo_base_url, data=params, timeout=REQUEST_TIMEOUT)
                 else:
-                    response = await client.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
+                    response = await client.get(settings.open_meteo_base_url, params=params, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
                 fields["result"] = "ok"
                 fields["status"] = getattr(response, "status_code", None)
