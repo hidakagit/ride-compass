@@ -240,6 +240,24 @@ describe("MapOverlayControls", () => {
       expect(designationButton.className).toMatch(/iconChipActive/);
     });
 
+    // 実機フィードバック「グループ親のアイコン（推定、観測、動的）は、展開中は薄色でON、
+    // 展開解除は灰色でOFFを示して」。見出しチップだけに付く.groupHeaderChipマーカーと
+    // groupTintの組み合わせで、折りたたみ=灰色系（iconChipExpandedを持たない）・
+    // 展開=そのグループの薄色塗り（iconChipExpandedを持つ）を出し分ける設計になっている。
+    it("観測見出しは折りたたみ時iconChipExpandedを持たず、展開するとgroupHeaderChip+iconChipGroupRaw+iconChipExpandedの組み合わせになる", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      const observedButton = screen.getByRole("button", { name: "観測" });
+      expect(observedButton.className).toMatch(/groupHeaderChip/);
+      expect(observedButton.className).toMatch(/iconChipGroupRaw/);
+      expect(observedButton.className).not.toMatch(/iconChipExpanded/);
+
+      await user.click(observedButton);
+      expect(observedButton.className).toMatch(/groupHeaderChip/);
+      expect(observedButton.className).toMatch(/iconChipGroupRaw/);
+      expect(observedButton.className).toMatch(/iconChipExpanded/);
+    });
+
     // category小見出し（道路状態・交通・安全）は表示しない（実機フィードバック
     // 「道路状態や交通・安全等のグルーピングを消して」への対応）。フラットな一覧になる。
     it("観測グループを開くとcategory小見出しを出さずメンバーのON/OFFボタンがフラットに並ぶ", async () => {
