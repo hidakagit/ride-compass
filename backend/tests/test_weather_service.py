@@ -165,3 +165,46 @@ async def test_get_conditions_many_returns_none_for_points_without_forecast():
 
     assert results[0] is None
     assert results[1] is not None
+
+
+async def test_get_wind_grid_returns_hourly_arrays_per_point():
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
+
+    results = await service.get_wind_grid([POINT, OTHER_POINT])
+
+    assert len(results) == 2
+    assert results[0].latitude == POINT.latitude
+    assert results[0].longitude == POINT.longitude
+    assert results[0].times == SAMPLE_DATA["hourly"]["time"]
+    assert results[0].wind_speed_ms == SAMPLE_DATA["hourly"]["wind_speed_10m"]
+    assert results[0].wind_direction_deg == SAMPLE_DATA["hourly"]["wind_direction_10m"]
+
+
+async def test_get_wind_grid_returns_none_for_points_without_forecast():
+    class MissingSomeForecastsClient(FakeWeatherClient):
+        async def get_forecast_many(self, http_client, points):
+            return {WeatherClient.cache_key(points[0]): None, WeatherClient.cache_key(points[1]): SAMPLE_DATA}
+
+    service = WeatherService(MissingSomeForecastsClient(SAMPLE_DATA), http_client=None)
+
+    results = await service.get_wind_grid([POINT, OTHER_POINT])
+
+    assert results[0] is None
+    assert results[1] is not None
+
+
+async def test_get_wind_grid_returns_none_when_hourly_missing():
+    service = WeatherService(FakeWeatherClient({"current": SAMPLE_DATA["current"]}), http_client=None)
+
+    results = await service.get_wind_grid([POINT])
+
+    assert results[0] is None
+
+
+async def test_get_wind_grid_returns_none_when_wind_fields_missing():
+    stale_data = {"hourly": {"time": ["2026-08-13T20:00"], "temperature_2m": [25.0]}}
+    service = WeatherService(FakeWeatherClient(stale_data), http_client=None)
+
+    results = await service.get_wind_grid([POINT])
+
+    assert results[0] is None

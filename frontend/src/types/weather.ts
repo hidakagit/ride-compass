@@ -3,3 +3,4 @@
 import type { components } from "./generated/api";
 
 export type WeatherConditions = components["schemas"]["WeatherConditions"];
+export type WindGridPoint = components["schemas"]["WindGridPoint"];

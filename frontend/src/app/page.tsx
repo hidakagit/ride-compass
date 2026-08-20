@@ -59,13 +59,8 @@ import {
   nowcastTileUrlTemplate,
   type NowcastFrame,
 } from "@/components/Map/precipitationNowcast";
-import {
-  fetchWindFrames,
-  formatWindFrameTime,
-  nearestFrameIndexToNow,
-  windVectorSourceUrl,
-  type WindFrame,
-} from "@/components/Map/windLayer";
+import { formatWindFrameTime, nearestFrameIndexToNow, windGridToFeatureCollection } from "@/components/Map/windLayer";
+import type { WindGridPoint } from "@/types/weather";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
 import {
@@ -84,7 +79,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather } from "@/services/weatherApi";
+import { getCurrentWeather, getWindGrid } from "@/services/weatherApi";
 import type {
   Coordinates,
   MotorVehicleDensityRecipeOverride,
@@ -241,10 +236,10 @@ export default function Home() {
   const [nowcastLoading, setNowcastLoading] = useState(false);
   const [nowcastError, setNowcastError] = useState<string | null>(null);
 
-  // 風（JMA MSM由来、Open-Meteo配信）の時刻一覧・スライダー位置（改善計画T178）。
+  // 風の格子点マップ（改善計画T178フォローアップ、自前実装）の取得結果・スライダー位置。
   // 上のnowcastFrames一式と同じ構造・同じ理由（layerVisibility.windVectorがONの間だけ
   // 動かすeffectで管理）。
-  const [windFrames, setWindFrames] = useState<WindFrame[]>([]);
+  const [windGrid, setWindGrid] = useState<WindGridPoint[]>([]);
   const [windFrameIndex, setWindFrameIndex] = useState(0);
   const [windLoading, setWindLoading] = useState(false);
   const [windError, setWindError] = useState<string | null>(null);
@@ -732,9 +727,9 @@ export default function Home() {
     return frame ? nowcastTileUrlTemplate(frame) : undefined;
   }, [nowcastFrames, nowcastFrameIndex]);
 
-  // 風（改善計画T178）の時刻一覧。jma_msmのreference_timeが3時間毎更新のため、降水
-  // ナウキャスト（5分毎更新、上記）より緩い間隔（30分毎）で十分（更新を数分逃しても
-  // 予測初期時刻のずれとしては軽微）。
+  // 風の格子点マップ（改善計画T178フォローアップ、自前実装）。バックエンド側が30分TTL
+  // キャッシュ（weather_client.py）を持つため、それより短い間隔で再取得してもキャッシュ
+  // ヒットするだけで新しいデータは得られない。TTLに合わせた間隔で再取得する。
   const WIND_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
   const showWindVector = layerVisibility.windVector;
   useEffect(() => {
@@ -743,14 +738,15 @@ export default function Home() {
     const load = async (isFirstLoad: boolean) => {
       if (isFirstLoad) setWindLoading(true);
       try {
-        const frames = await fetchWindFrames();
+        const grid = await getWindGrid();
         if (cancelled) return;
-        setWindFrames(frames);
+        setWindGrid(grid);
         setWindError(null);
-        // 初回取得時、またはスライダー位置が新しいframes配列の範囲外になったときだけ
+        const times = grid[0]?.times ?? [];
+        // 初回取得時、またはスライダー位置が新しい時刻配列の範囲外になったときだけ
         // 「現在時刻に最も近いフレーム」へ合わせる（nowcastと同じ、定期再取得のたびに
         // 未来側を見ているユーザーのスライダー位置を勝手に戻さないため）。
-        setWindFrameIndex((prev) => (isFirstLoad || prev >= frames.length ? nearestFrameIndexToNow(frames) : prev));
+        setWindFrameIndex((prev) => (isFirstLoad || prev >= times.length ? nearestFrameIndexToNow(times) : prev));
       } catch (error: unknown) {
         if (cancelled) return;
         setWindError(error instanceof Error ? error.message : "風データの取得に失敗しました");
@@ -767,10 +763,13 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showWindVector]);
 
-  const windVectorTileUrl = useMemo(() => {
-    const frame = windFrames[windFrameIndex];
-    return frame ? windVectorSourceUrl(frame) : undefined;
-  }, [windFrames, windFrameIndex]);
+  // 格子点が1件も無い（未取得・全地点取得失敗）間はundefined（MapView側は
+  // visible && geoJson != nullで表示するため、フェッチ未完了中に古いフレームが
+  // 一瞬見えるのを防ぐ、precipitationNowcastTileUrlと同じ扱い）。
+  const windVectorGeoJson = useMemo(
+    () => (windGrid.length > 0 ? windGridToFeatureCollection(windGrid, windFrameIndex) : undefined),
+    [windGrid, windFrameIndex]
+  );
 
   // 地図下部の時刻スライダー（DynamicLayerTimeSlider）へ渡す表示用フレーム列。時刻の
   // 整形・実況/予測ラベルはレイヤー固有のデータ層（precipitationNowcast.ts/windLayer.ts）に
@@ -780,9 +779,11 @@ export default function Home() {
     () => nowcastFrames.map((frame) => ({ label: formatNowcastFrameTime(frame.validtime), badge: frame.isForecast ? "予測" : "実況" })),
     [nowcastFrames]
   );
+  // 全格子点で共通のはず（同じforecast_days・timezoneで一括取得しているため）の時刻配列を
+  // 先頭の格子点から取る（windLayer.ts: nearestFrameIndexToNowの利用箇所と同じ前提）。
   const windSliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () => windFrames.map((frame) => ({ label: formatWindFrameTime(frame.validTime) })),
-    [windFrames]
+    () => (windGrid[0]?.times ?? []).map((time) => ({ label: formatWindFrameTime(time) })),
+    [windGrid]
   );
 
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
@@ -1271,7 +1272,7 @@ export default function Home() {
             showPrecipitationNowcast={showPrecipitationNowcast}
             precipitationNowcastTileUrl={precipitationNowcastTileUrl}
             showWindVector={showWindVector}
-            windVectorTileUrl={windVectorTileUrl}
+            windVectorGeoJson={windVectorGeoJson}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
             showCarStress={layerVisibility.carStress}

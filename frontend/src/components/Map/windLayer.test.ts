@@ -1,64 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchWindFrames, formatWindFrameTime, nearestFrameIndexToNow, windVectorSourceUrl } from "./windLayer";
+import { describe, expect, it } from "vitest";
+import { formatWindFrameTime, nearestFrameIndexToNow, windGridToFeatureCollection } from "./windLayer";
+import type { WindGridPoint } from "@/types/weather";
 
 describe("windLayer", () => {
-  const originalFetch = global.fetch;
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    vi.restoreAllMocks();
-  });
-
-  describe("fetchWindFrames", () => {
-    it("valid_timesをindex付きのフレーム配列へ変換する", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          reference_time: "2026-08-20T00:00:00Z",
-          valid_times: ["2026-08-20T00:00Z", "2026-08-20T01:00Z", "2026-08-20T02:00Z"],
-        }),
-      }) as unknown as typeof fetch;
-
-      const frames = await fetchWindFrames();
-      expect(frames).toEqual([
-        { validTime: "2026-08-20T00:00Z", index: 0 },
-        { validTime: "2026-08-20T01:00Z", index: 1 },
-        { validTime: "2026-08-20T02:00Z", index: 2 },
-      ]);
-    });
-
-    it("HTTPエラー時は例外を投げる", async () => {
-      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 }) as unknown as typeof fetch;
-      await expect(fetchWindFrames()).rejects.toThrow("503");
-    });
-
-    it("valid_timesが空配列の応答は例外を投げる", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ reference_time: "2026-08-20T00:00:00Z", valid_times: [] }),
-      }) as unknown as typeof fetch;
-      await expect(fetchWindFrames()).rejects.toThrow();
-    });
-
-    it("valid_timesが無い想定外の形式は例外を投げる", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ reference_time: "2026-08-20T00:00:00Z" }),
-      }) as unknown as typeof fetch;
-      await expect(fetchWindFrames()).rejects.toThrow();
-    });
-  });
-
   describe("nearestFrameIndexToNow", () => {
-    const frames = [
-      { validTime: "2026-08-20T00:00Z", index: 0 },
-      { validTime: "2026-08-20T03:00Z", index: 1 },
-      { validTime: "2026-08-20T06:00Z", index: 2 },
-    ];
+    const times = ["2026-08-20T00:00", "2026-08-20T03:00", "2026-08-20T06:00"];
 
-    it("現在時刻に最も近いフレームのindexを返す", () => {
-      expect(nearestFrameIndexToNow(frames, new Date("2026-08-20T04:40:00Z"))).toBe(2);
-      expect(nearestFrameIndexToNow(frames, new Date("2026-08-20T01:00:00Z"))).toBe(0);
+    it("現在時刻(JST)に最も近いフレームのindexを返す", () => {
+      // 2026-08-20T04:40 JST = 04:40+09:00 は 03:00寄り(index1)より06:00寄り(index2)
+      expect(nearestFrameIndexToNow(times, new Date("2026-08-20T04:40:00+09:00"))).toBe(2);
+      expect(nearestFrameIndexToNow(times, new Date("2026-08-20T01:00:00+09:00"))).toBe(0);
     });
 
     it("空配列なら0を返す", () => {
@@ -66,24 +17,54 @@ describe("windLayer", () => {
     });
   });
 
-  describe("windVectorSourceUrl", () => {
-    it("om://プロトコル・time_step・variable・arrows=trueを含むURLを組み立てる", () => {
-      const url = windVectorSourceUrl({ validTime: "2026-08-20T03:00Z", index: 7 });
-      expect(url).toBe(
-        "om://https://openmeteo-data-spatial.b-cdn.net/jma_msm/latest.json?time_step=valid_times_7&variable=wind_u_component_10m&arrows=true"
-      );
-    });
-  });
-
   describe("formatWindFrameTime", () => {
-    it("UTC時刻をJSTの日付・時刻表示へ変換する", () => {
-      // 2026-08-20T03:00Z = JST 12:00
-      expect(formatWindFrameTime("2026-08-20T03:00Z")).toBe("8/20 12:00");
+    it("JST時刻文字列を日付・時刻表示へ変換する", () => {
+      expect(formatWindFrameTime("2026-08-20T12:00")).toBe("8/20 12:00");
     });
 
     it("日付をまたぐ時刻も正しく変換する", () => {
-      // 2026-08-20T21:00Z = JST 8/21 06:00
-      expect(formatWindFrameTime("2026-08-20T21:00Z")).toBe("8/21 06:00");
+      expect(formatWindFrameTime("2026-08-21T06:00")).toBe("8/21 06:00");
+    });
+
+    it("オフセット無し表記をJSTとして解釈する(ブラウザのローカルタイムゾーンに依存しない)", () => {
+      // +09:00を明示せずDateへ渡すとブラウザのローカルタイムゾーンとして解釈されてしまうため、
+      // parseJstTime内部で明示的に付与していることを確認する回帰テスト。
+      const result = formatWindFrameTime("2026-08-20T00:00");
+      expect(result).toBe("8/20 00:00");
+    });
+  });
+
+  describe("windGridToFeatureCollection", () => {
+    const grid: WindGridPoint[] = [
+      { latitude: 35.68, longitude: 139.77, times: ["t0", "t1"], wind_speed_ms: [2.5, 3.1], wind_direction_deg: [90, 180] },
+      { latitude: 36.0, longitude: 140.0, times: ["t0", "t1"], wind_speed_ms: [1.0, 4.2], wind_direction_deg: [0, 270] },
+    ];
+
+    it("指定フレームの値でGeoJSON FeatureCollectionを構築する", () => {
+      const fc = windGridToFeatureCollection(grid, 0);
+      expect(fc.type).toBe("FeatureCollection");
+      expect(fc.features).toHaveLength(2);
+      expect(fc.features[0].geometry.coordinates).toEqual([139.77, 35.68]);
+      expect(fc.features[0].properties.speed).toBe(2.5);
+      // bearing = (direction + 180) % 360（風が吹いていく方向）
+      expect(fc.features[0].properties.bearing).toBe(270);
+      expect(fc.features[1].properties.bearing).toBe(180);
+    });
+
+    it("フレームが変わると値も追従する", () => {
+      const fc = windGridToFeatureCollection(grid, 1);
+      expect(fc.features[0].properties.speed).toBe(3.1);
+      expect(fc.features[1].properties.speed).toBe(4.2);
+    });
+
+    it("frameIndexが範囲外の格子点はスキップする(欠損に頑健)", () => {
+      const fc = windGridToFeatureCollection(grid, 5);
+      expect(fc.features).toHaveLength(0);
+    });
+
+    it("空配列を渡すと空のFeatureCollectionを返す", () => {
+      const fc = windGridToFeatureCollection([], 0);
+      expect(fc.features).toHaveLength(0);
     });
   });
 });

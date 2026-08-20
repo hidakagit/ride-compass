@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # 消費する（openrouteservice: 日次2000リクエストをgenerateと共有 / Open-Meteo）。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
+    # 風の格子点マップ（改善計画T178フォローアップ）は1回で関東本土全域（約56地点）を
+    # まとめて取得する重いエンドポイントのため、/weather（1地点）より低めに絞る。
+    # 30分TTLキャッシュ（weather_client.py）が効くため、同一クライアントの短時間の
+    # 再取得（時刻スライダー操作等）はキャッシュヒットしOpen-Meteoへは行かない。
+    wind_grid_rate_limit_per_minute: int = 20
     # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
     # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
     # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。

@@ -4,14 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { omProtocol } from "@openmeteo/weather-map-layer";
-
-// 風の矢印（改善計画T178）。om://プロトコルはMapLibreのプロトコル一覧という
-// モジュールスコープの状態に登録するため、Reactのレンダーサイクルとは無関係に
-// importされた時点で一度だけ登録すれば足りる（addProtocolは同名の再登録を
-// 上書きするだけで副作用は無いため、Fast Refresh等でこのモジュールが再評価されても
-// 実害は無い）。公式サンプル（examples/vector/wind-arrows.html）と同じ呼び方。
-maplibregl.addProtocol("om", omProtocol);
 import type {
   Coordinates,
   MotorVehicleDensityRecipeOverride,
@@ -141,12 +133,9 @@ const PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URL =
   "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png";
 const WIND_VECTOR_SOURCE_ID = "region-wind-vector";
 const WIND_VECTOR_LAYER_ID = "region-wind-vector-arrows";
-// 初期化時のsourceプレースホルダ（visibility:noneの間は矢印の実データを読みに行かない
-// ため実際にはリクエストされない）。PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URLと同じ
-// 「仮の初期値」パターン。time_step=valid_times_0固定でよい（applyWindVectorStateが
-// 呼び出し直後に必ずsetUrlで実際のフレームへ差し替える）。
-const WIND_VECTOR_PLACEHOLDER_SOURCE_URL =
-  "om://https://openmeteo-data-spatial.b-cdn.net/jma_msm/latest.json?time_step=valid_times_0&variable=wind_u_component_10m&arrows=true";
+const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
+// 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
+const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 export const CAR_STRESS_LAYER_ID = "region-car-stress-line";
@@ -496,70 +485,113 @@ function applyPrecipitationNowcastState(map: MapLibreMap, visible: boolean, tile
   });
 }
 
-// 風の矢印（改善計画T178）。JMA MSM由来・Open-Meteo配信（`@openmeteo/weather-map-layer`の
-// om://プロトコル）。降水ナウキャストと同じ「初期化時に一度だけソース/レイヤーを追加し、
-// 以降はvisibility/URLの差し替えのみ」のパターンだが、om://ソースはtiles配列ではなく
-// url1本（time_step等のクエリを丸ごと含む）で時刻を表すため、タイル差し替えは
-// setTiles(タイルURLテンプレート)ではなくsetUrl(ソースURL全体)を使う点が異なる。ライブラリの
-// vector source仕様（対応方針参照、公式サンプルexamples/vector/wind-arrows.html）では
-// ラスタ（背景色分け）も併用できるが本タスクでは矢印のみを描画する（地図の視界を圧迫しない、
-// 設計原則12。ラスタは対応方針上「任意」）。降水ナウキャストの直後（最前面寄り）に追加し、
-// 雨雲の上に矢印が重なって見えるようにする。
+// 風の矢印（改善計画T178→フォローアップで自前実装へ移行）。当初`@openmeteo/
+// weather-map-layer`（GPLv2、内部の.omデコーダも同じくGPL-2.0-only）のom://プロトコルで
+// 描画していたが、(1) GPLv2依存が避けられない、(2) 矢印の長さがライブラリ側でズーム
+// レベル依存に固定され自由に表現できない、という2つの制約に実機で行き当たった。
+// ユーザー判断（2026-08-20「自前実装案で進めて」）により、バックエンドの格子点マップAPI
+// （GET /api/weather/wind-grid、既存のOpen-Meteo REST地点評価と同じ仕組み・GPL無関係）が
+// 返す風向・風速をMapLibre標準のGeoJSON source + symbolレイヤーで描画する方式にした。
+// 矢印アイコンは独自定義（createWindArrowIcon、白いシルエットをsdf:trueで登録し
+// icon-colorで着色）で、向き（icon-rotate）・長さ+太さ（icon-size、アイコン全体を
+// 一様スケールするため両方同時に変わる）・色（icon-color、連続グラデーション）の
+// すべてを風速から自由に設定できる（ライブラリ由来の制約が無くなった）。ユーザー
+// フィードバック「ほぼ無風でも矢印が出るのが違和感」を受け、閾値未満はfilterで非表示にする。
+const WIND_ARROW_SIZE_PX = 32;
+const WIND_CALM_THRESHOLD_MS = 1;
+
+function createWindArrowIcon(): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = WIND_ARROW_SIZE_PX;
+  canvas.height = WIND_ARROW_SIZE_PX;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new ImageData(WIND_ARROW_SIZE_PX, WIND_ARROW_SIZE_PX);
+  ctx.fillStyle = "#ffffff";
+  // 軸（矢印の下半分）。北（画像上方向）を向くアイコンとして描き、実際の向きは
+  // icon-rotate（風向から計算したbearing、windLayer.ts参照）で回転させる。
+  ctx.beginPath();
+  ctx.moveTo(14, 30);
+  ctx.lineTo(18, 30);
+  ctx.lineTo(18, 13);
+  ctx.lineTo(14, 13);
+  ctx.closePath();
+  ctx.fill();
+  // 矢じり（三角形）
+  ctx.beginPath();
+  ctx.moveTo(16, 2);
+  ctx.lineTo(24, 16);
+  ctx.lineTo(8, 16);
+  ctx.closePath();
+  ctx.fill();
+  return ctx.getImageData(0, 0, WIND_ARROW_SIZE_PX, WIND_ARROW_SIZE_PX);
+}
+
 function ensureWindVectorLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getSource(WIND_VECTOR_SOURCE_ID)) return;
+    if (!map.hasImage(WIND_VECTOR_ICON_ID)) {
+      // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
+      // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
+      // 範囲では実用上問題ない簡易的な使い方）。
+      map.addImage(WIND_VECTOR_ICON_ID, createWindArrowIcon(), { sdf: true });
+    }
     map.addSource(WIND_VECTOR_SOURCE_ID, {
-      type: "vector",
-      url: WIND_VECTOR_PLACEHOLDER_SOURCE_URL,
-      attribution: "気象庁の予測に基づく（Open-Meteo経由）",
+      type: "geojson",
+      data: EMPTY_FEATURE_COLLECTION,
+      attribution: "Open-Meteo",
     });
     map.addLayer({
       id: WIND_VECTOR_LAYER_ID,
-      type: "line",
+      type: "symbol",
       source: WIND_VECTOR_SOURCE_ID,
-      "source-layer": "wind-arrows",
+      layout: {
+        "icon-image": WIND_VECTOR_ICON_ID,
+        "icon-rotate": ["to-number", ["get", "bearing"]],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": false,
+        "icon-ignore-placement": false,
+        // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
+        // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
+        "icon-size": ["interpolate", ["linear"], ["to-number", ["get", "speed"]], 0, 0.4, 15, 1.6],
+        visibility: "none",
+      },
       paint: {
-        // 風速値（valueプロパティ）が強いほど濃く表示する（公式サンプルと同じ段階分け）。
-        "line-color": [
-          "case",
-          ["boolean", [">", ["to-number", ["get", "value"]], 5], false],
-          "rgba(30, 64, 175, 0.7)",
-          ["boolean", [">", ["to-number", ["get", "value"]], 3], false],
-          "rgba(30, 64, 175, 0.55)",
-          "rgba(30, 64, 175, 0.4)",
-        ],
-        // 矢印の長さはライブラリ側のベクトルタイル形状に焼き込まれておりズームレベルの
-        // グリッド間隔で決まる（実機確認: 風速0.27〜7.0 m/sの範囲でも長さはほぼ一定だった）。
-        // 太さ（paint、こちら側で自由に設定できる）で強さを表現する。ユーザー要望「1m/s単位で
-        // 把握したい」を受け、0-15 m/s（穏やか〜強風、ロードバイクで支障が出始める目安）を
-        // 傾き0.5px/(m/s)固定の直線で補間する2点指定にした（中間点を挟むと区間ごとに傾きが
-        // 変わり「1m/s＝何px」が一定でなくなるため、2点のみのシンプルな直線にする）。
-        // 15 m/s超は9pxで頭打ち（MapLibre interpolateは範囲外を両端の値でクランプする）。
-        "line-width": [
+        // 弱い風=青→中程度=オレンジ→強い風=赤の連続グラデーション（ヒートマップ的な
+        // 配色をicon-color 1本で表現、太さ・長さと合わせて三重の表現にする）。
+        "icon-color": [
           "interpolate",
           ["linear"],
-          ["to-number", ["get", "value"]],
-          0, 1.5,
-          15, 9,
+          ["to-number", ["get", "speed"]],
+          0, "#60a5fa",
+          7, "#f59e0b",
+          15, "#dc2626",
         ],
+        "icon-opacity": 0.9,
       },
-      layout: { "line-cap": "round", visibility: "none" },
+      // 無風に近い地点は矢印自体を出さない（ユーザーフィードバック「ほぼ無風でも
+      // 矢印が出るのが違和感」）。
+      filter: [">", ["to-number", ["get", "speed"]], WIND_CALM_THRESHOLD_MS],
     });
   };
   runWhenStyleReady(map, applyData);
 }
 
-// sourceUrl（page.tsx側でwindLayer.tsのwindVectorSourceUrlから計算した値）を反映する。
-// visible/sourceUrlのどちらか一方でも欠けていれば非表示のまま（applyPrecipitationNowcastState
-// と同じ、フェッチ未完了・取得失敗時に古いフレームの矢印が一瞬見えるのを防ぐ）。
-function applyWindVectorState(map: MapLibreMap, visible: boolean, sourceUrl: string | undefined) {
+// windVectorGeoJson（page.tsx側でwindLayer.tsのwindGridToFeatureCollectionから計算した値）を
+// 反映する。visible/windVectorGeoJsonのどちらか一方でも欠けていれば非表示のまま
+// （applyPrecipitationNowcastStateと同じ、フェッチ未完了・取得失敗時に古いフレームの
+// 矢印が一瞬見えるのを防ぐ）。
+function applyWindVectorState(
+  map: MapLibreMap,
+  visible: boolean,
+  windVectorGeoJson: GeoJSON.FeatureCollection | undefined
+) {
   runWhenStyleReady(map, () => {
     ensureWindVectorLayer(map);
-    if (sourceUrl) {
-      const source = map.getSource(WIND_VECTOR_SOURCE_ID) as maplibregl.VectorTileSource | undefined;
-      source?.setUrl(sourceUrl);
+    if (windVectorGeoJson) {
+      const source = map.getSource(WIND_VECTOR_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData(windVectorGeoJson);
     }
-    setLayerVisibility(map, WIND_VECTOR_LAYER_ID, visible && sourceUrl != null);
+    setLayerVisibility(map, WIND_VECTOR_LAYER_ID, visible && windVectorGeoJson != null);
   });
 }
 
@@ -986,10 +1018,10 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   // 降水ナウキャスト（T171）。ラスタタイルのためelevationと同じくsourceLayer無し
   // （取得失敗のみ検知対象、0件相当の「empty」判定はしない）。
   { key: "precipitationNowcast", sourceId: PRECIPITATION_NOWCAST_SOURCE_ID },
-  // 風の矢印（T178）。vector sourceだがsource-layerを指定するとquerySourceFeaturesの
-  // 0件判定（empty）が働いてしまう。風は連続場（地球上のどの地点にも値がある）のため
-  // 「0件」という状態自体が意味を持たず、precipitationNowcastと同じく取得失敗のみを
-  // 検知対象とする（あえてsourceLayerを指定しない）。
+  // 風の矢印（T178フォローアップ、自前実装）。GeoJSON sourceのためsourceLayerの概念自体が
+  // 無く、querySourceFeaturesによる0件判定（empty）は元から対象外（sourceLayer未指定の
+  // レイヤーはempty判定をスキップする、上のprecipitationNowcastと同じ扱い）。取得失敗のみ
+  // 検知対象とする。
   { key: "windVector", sourceId: WIND_VECTOR_SOURCE_ID },
   // 二次軸rampレイヤー（T145b）はroad_surfaceタイルへ焼き込み済みのプロパティを読む
   // （carStress等と同じソース共有。ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
@@ -1273,11 +1305,12 @@ interface MapViewProps {
    * 反映する。tileUrlが未定（フェッチ未完了・取得失敗）の間はONでも非表示のまま。 */
   showPrecipitationNowcast: boolean;
   precipitationNowcastTileUrl: string | undefined;
-  /** 風の矢印（改善計画T178）。ONの間、windVectorTileUrl（page.tsx側でwindLayer.tsの
-   * windVectorSourceUrlから計算した現在時刻スライダー位置のom://ソースURL）を反映する。
+  /** 風の矢印（改善計画T178フォローアップ、自前実装）。ONの間、windVectorGeoJson
+   * （page.tsx側でwindLayer.tsのwindGridToFeatureCollectionから計算した現在時刻
+   * スライダー位置のGeoJSON FeatureCollection）を反映する。
    * showPrecipitationNowcast/precipitationNowcastTileUrlと同じ扱い。 */
   showWindVector: boolean;
-  windVectorTileUrl: string | undefined;
+  windVectorGeoJson: GeoJSON.FeatureCollection | undefined;
   /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
    * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
    * applyRoadLayerState参照）。 */
@@ -1343,7 +1376,7 @@ export default function MapView({
   showPrecipitationNowcast,
   precipitationNowcastTileUrl,
   showWindVector,
-  windVectorTileUrl,
+  windVectorGeoJson,
   showRoadType,
   showRoadSurface,
   showCarStress,
@@ -1392,7 +1425,7 @@ export default function MapView({
     showPrecipitationNowcast,
     precipitationNowcastTileUrl,
     showWindVector,
-    windVectorTileUrl,
+    windVectorGeoJson,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1432,7 +1465,7 @@ export default function MapView({
       showPrecipitationNowcast,
       precipitationNowcastTileUrl,
       showWindVector,
-      windVectorTileUrl,
+      windVectorGeoJson,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1460,7 +1493,7 @@ export default function MapView({
     showPrecipitationNowcast,
     precipitationNowcastTileUrl,
     showWindVector,
-    windVectorTileUrl,
+    windVectorGeoJson,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1496,7 +1529,7 @@ export default function MapView({
       showPrecipitationNowcast,
       precipitationNowcastTileUrl,
       showWindVector,
-      windVectorTileUrl,
+      windVectorGeoJson,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1526,7 +1559,7 @@ export default function MapView({
     });
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
     applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyWindVectorState(map, showWindVector, windVectorTileUrl);
+    applyWindVectorState(map, showWindVector, windVectorGeoJson);
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
@@ -2019,9 +2052,9 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyWindVectorState(map, showWindVector, windVectorTileUrl);
+    applyWindVectorState(map, showWindVector, windVectorGeoJson);
     recomputeLayerDataStatus();
-  }, [showPrecipitationNowcast, precipitationNowcastTileUrl, showWindVector, windVectorTileUrl, recomputeLayerDataStatus]);
+  }, [showPrecipitationNowcast, precipitationNowcastTileUrl, showWindVector, windVectorGeoJson, recomputeLayerDataStatus]);
 
   // 車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
   // 事故（当事者/重大度）の絞り込み（改善計画T63）。

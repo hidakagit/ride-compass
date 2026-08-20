@@ -5,6 +5,7 @@ import httpx
 from app.domain.geo import compass_label
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
+from app.domain.wind_grid import WindGridPoint
 from app.infrastructure.weather_client import WeatherClient
 
 
@@ -53,6 +54,36 @@ class WeatherService:
             data = forecasts.get(self._client.cache_key(point))
             results.append(None if data is None else self._conditions_from_data(data, at))
         return results
+
+    async def get_wind_grid(self, points: list[Coordinates]) -> list[WindGridPoint | None]:
+        """複数地点の時間別風向・風速をまとめて取得する（改善計画T178フォローアップ、
+        風の格子点マップ用）。get_conditions_manyと違い特定時刻1点へ収束させず、
+        hourly配列全体（forecast_days=2分）をそのまま返す（domain/wind_grid.py:
+        WindGridPointのdocstring参照）。"""
+        forecasts = await self._client.get_forecast_many(self._http_client, points)
+        results = []
+        for point in points:
+            data = forecasts.get(self._client.cache_key(point))
+            results.append(None if data is None else self._wind_grid_point_from_data(point, data))
+        return results
+
+    @staticmethod
+    def _wind_grid_point_from_data(point: Coordinates, data: dict) -> WindGridPoint | None:
+        hourly = data.get("hourly")
+        if not hourly or not hourly.get("time"):
+            return None
+        times = hourly.get("time")
+        speeds = hourly.get("wind_speed_10m")
+        directions = hourly.get("wind_direction_10m")
+        if not speeds or not directions or len(speeds) != len(times) or len(directions) != len(times):
+            return None
+        return WindGridPoint(
+            latitude=point.latitude,
+            longitude=point.longitude,
+            times=times,
+            wind_speed_ms=speeds,
+            wind_direction_deg=directions,
+        )
 
     def _conditions_from_data(self, data: dict, at: datetime | None) -> WeatherConditions | None:
         hourly = data.get("hourly")

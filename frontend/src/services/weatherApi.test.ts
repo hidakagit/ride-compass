@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WeatherConditions } from "@/types/weather";
-import { getCurrentWeather } from "./weatherApi";
+import type { WeatherConditions, WindGridPoint } from "@/types/weather";
+import { getCurrentWeather, getWindGrid } from "./weatherApi";
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
   return {
@@ -79,5 +79,37 @@ describe("getCurrentWeather", () => {
     await expect(getCurrentWeather({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
       "天候の取得に失敗しました[HTTP 503]",
     );
+  });
+});
+
+describe("getWindGrid", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("成功時は/api/weather/wind-gridをfetchし、格子点配列をそのまま返す", async () => {
+    const grid: WindGridPoint[] = [
+      { latitude: 35.68, longitude: 139.77, times: ["2026-08-20T12:00"], wind_speed_ms: [2.5], wind_direction_deg: [90] },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getWindGrid();
+
+    expect(result).toEqual(grid);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/weather/wind-grid");
+  });
+
+  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
+    const headers = new Headers({ "x-request-id": "req-789" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
+      ),
+    );
+
+    await expect(getWindGrid()).rejects.toThrow("リクエストが多すぎます[req: req-789]");
   });
 });

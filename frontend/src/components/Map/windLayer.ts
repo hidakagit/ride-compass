@@ -1,54 +1,34 @@
-// Open-Meteo経由のJMA MSM風データ（気象庁モデル由来、Open-Meteo配信、改善計画T178）の
-// 時刻一覧・矢印レイヤーURLクライアント。precipitationNowcast.tsと同じく、DOM/MapLibreを
-// 一切知らない純粋なデータ層のみを持つ（実際のフェッチ・地図への反映はpage.tsx/MapView.tsxが
-// 行う）。
+// 風の格子点マップ（改善計画T178フォローアップ）のデータ層。DOM/MapLibreを一切知らない
+// 純粋関数のみを持つ（precipitationNowcast.tsと同型）。実際のフェッチ・地図への反映は
+// page.tsx/MapView.tsxが行う。
 //
-// データソース: `https://openmeteo-data-spatial.b-cdn.net/jma_msm/latest.json`
-// （2026-08-20実機確認: 200・日本域BBOX・wind_u/v_component_10m含む・reference_timeは
-// 3時間毎更新、valid_timesはそこから1時間刻みで約39時間先まで）。矢印の実際の描画は
-// `@openmeteo/weather-map-layer`のom://プロトコル（vector source、`arrows=true`、
-// source-layer名`wind-arrows`）に委ねる（MapView.tsx側）。
+// 当初は`@openmeteo/weather-map-layer`（気象庁MSM由来、Open-Meteo配信のom://プロトコル）で
+// 矢印を描画していたが、(1) ライブラリ本体・内部の.omファイルデコーダともGPL-2.0-onlyで
+// GPLv2依存が避けられない、(2) 矢印の長さがライブラリ側でズームレベル依存に固定され自由に
+// 表現できない、という2つの制約に実機で行き当たった。ユーザー判断（2026-08-20「自前実装案で
+// 進めて」）により、既存のOpen-Meteo REST API経由の地点評価（weather_client.py:
+// get_forecast_many、CC-BY-4.0・GPL無関係）と同じ仕組みでバックエンドが関東本土の固定格子点を
+// サンプリングするAPI（GET /api/weather/wind-grid）を新設し、フロントはその結果を
+// MapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色すべて自由に設定可能）で
+// 描画する方式へ切り替えた。
 
-export interface WindFrame {
-  /** ISO8601（UTC）、例: "2026-08-20T03:00Z" */
-  validTime: string;
-  /** jma_msm/latest.jsonのvalid_times配列中のindex（om://URLのtime_step=valid_times_{index}に使う） */
-  index: number;
-}
+import type { WindGridPoint } from "@/types/weather";
 
-const JMA_MSM_LATEST_URL = "https://openmeteo-data-spatial.b-cdn.net/jma_msm/latest.json";
-// om://プロトコルへ渡す実URLのベース（風のu成分を指定するとweather-map-layerが対になる
-// v成分も内部で解決する、公式サンプルexamples/vector/wind-arrows.htmlと同じ指定）。
-const WIND_OM_VARIABLE = "wind_u_component_10m";
+/** grid[i].times[frameIndex]に対応する表示用フレーム。timesは全格子点で共通のはず
+ * （同じforecast_days・timezoneで一括取得しているため）だが、念のため呼び出し元は
+ * grid[0]?.timesを正としてスライダーへ渡す想定。 */
 
-interface JmaMsmLatestResponse {
-  reference_time?: unknown;
-  valid_times?: unknown;
-}
-
-/** jma_msm/latest.jsonからvalid_times一覧を取得する。取得失敗・想定と異なる形式は例外。 */
-export async function fetchWindFrames(): Promise<WindFrame[]> {
-  const response = await fetch(JMA_MSM_LATEST_URL);
-  if (!response.ok) {
-    throw new Error(`風データの時刻一覧取得に失敗しました[${response.status}]`);
-  }
-  const data = (await response.json()) as JmaMsmLatestResponse;
-  if (!Array.isArray(data.valid_times) || data.valid_times.length === 0) {
-    throw new Error("風データの時刻一覧の形式が想定と異なります");
-  }
-  return data.valid_times.map((validTime, index) => ({ validTime: String(validTime), index }));
-}
-
-/** 現在時刻に最も近いフレームのindex。reference_timeが3時間毎更新のため配列の先頭が
- * 必ずしも「今」に近いとは限らず、降水ナウキャスト（latestObservedFrameIndex）と違い
- * 単純な末尾/先頭ではなく実際の時刻差で探す。空配列なら0。 */
-export function nearestFrameIndexToNow(frames: readonly WindFrame[], now: Date = new Date()): number {
-  if (frames.length === 0) return 0;
+/** 現在時刻に最も近いフレームのindex。Open-Meteoのhourly.timeは午前0時始まりの配列
+ * （実際の取得時刻が真夜中とは限らない）のため、降水ナウキャストのような単純な末尾/先頭
+ * ではなく実際の時刻差で探す。空配列なら0。timesは"YYYY-MM-DDTHH:MM"形式のJST時刻文字列
+ * （タイムゾーン情報を持たないため、パース時にJSTを明示する。parseJstTime参照）。 */
+export function nearestFrameIndexToNow(times: readonly string[], now: Date = new Date()): number {
+  if (times.length === 0) return 0;
   const nowMs = now.getTime();
   let bestIndex = 0;
   let bestDiffMs = Infinity;
-  for (let i = 0; i < frames.length; i++) {
-    const diffMs = Math.abs(new Date(frames[i].validTime).getTime() - nowMs);
+  for (let i = 0; i < times.length; i++) {
+    const diffMs = Math.abs(parseJstTime(times[i]).getTime() - nowMs);
     if (diffMs < bestDiffMs) {
       bestDiffMs = diffMs;
       bestIndex = i;
@@ -57,17 +37,49 @@ export function nearestFrameIndexToNow(frames: readonly WindFrame[], now: Date =
   return bestIndex;
 }
 
-/** 矢印（vector source）用のom://ソースURL。ラスタ色分けは対応方針上「任意」のため
- * 本タスクでは実装せず矢印のみとする（地図の視界を圧迫しない、設計原則12）。 */
-export function windVectorSourceUrl(frame: WindFrame): string {
-  return `om://${JMA_MSM_LATEST_URL}?time_step=valid_times_${frame.index}&variable=${WIND_OM_VARIABLE}&arrows=true`;
+/** "YYYY-MM-DDTHH:MM"（Open-Meteoのtimezone=Asia/Tokyo指定によるJST・オフセット無し表記）を
+ * JSTとして解釈するDateへ変換する。オフセット無しのままDateへ渡すとブラウザのローカル
+ * タイムゾーンとして解釈されてしまう（日本国外の閲覧環境で時刻がずれる）ため、明示的に
+ * +09:00を付与する。 */
+function parseJstTime(time: string): Date {
+  return new Date(`${time}+09:00`);
 }
 
-/** ISO8601（UTC）のvalidTime → 表示用のJST時刻文字列。降水ナウキャスト（±60分、日付を
- * またがない）と異なり風は約39時間先まで日付をまたぐため、"M/D HH:mm"で日付も含める。 */
-export function formatWindFrameTime(validTime: string): string {
-  const date = new Date(validTime);
+/** ISO風の"YYYY-MM-DDTHH:MM"（JST）→ 表示用のJST時刻文字列。約48時間先まで日付をまたぐため
+ * "M/D HH:mm"で日付も含める（precipitationNowcast.tsのformatNowcastFrameTimeは±60分で
+ * 日付をまたがないため時刻のみ、こちらは異なる）。 */
+export function formatWindFrameTime(time: string): string {
+  const date = parseJstTime(time);
   const datePart = date.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
   const timePart = date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
   return `${datePart} ${timePart}`;
+}
+
+export interface WindPointFeatureProperties {
+  /** 風速（m/s） */
+  speed: number;
+  /** 矢印の向き（度、MapLibreのicon-rotate用に「風が吹いていく方向」＝気象学的な風向
+   * （吹いてくる方向）+180した値。北=0、時計回り）。 */
+  bearing: number;
+}
+
+/** grid（バックエンドから取得した格子点一覧）のframeIndex番目の時刻ぶんを、MapLibreの
+ * GeoJSON sourceへそのまま渡せるFeatureCollectionへ変換する。frameIndexが範囲外、または
+ * 値が欠損している格子点はスキップする（1点の欠損で全体を落とさない）。 */
+export function windGridToFeatureCollection(
+  grid: readonly WindGridPoint[],
+  frameIndex: number
+): GeoJSON.FeatureCollection<GeoJSON.Point, WindPointFeatureProperties> {
+  const features: GeoJSON.Feature<GeoJSON.Point, WindPointFeatureProperties>[] = [];
+  for (const point of grid) {
+    const speed = point.wind_speed_ms[frameIndex];
+    const direction = point.wind_direction_deg[frameIndex];
+    if (speed == null || direction == null) continue;
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
+      properties: { speed, bearing: (direction + 180) % 360 },
+    });
+  }
+  return { type: "FeatureCollection", features };
 }

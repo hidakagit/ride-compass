@@ -115,6 +115,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/weather/wind-grid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wind Grid
+         * @description 風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点
+         *     （domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）ぶんの時間別風向・風速を
+         *     まとめて返す。取得に失敗した地点はレスポンスから除外する（他の外部API連携と同じ
+         *     「取得失敗は握りつぶす」方針、1地点の失敗で全体を502にしない）。
+         */
+        get: operations["get_wind_grid_api_weather_wind_grid_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -716,6 +739,25 @@ export interface components {
             /** Observed At */
             observed_at: string;
         };
+        /**
+         * WindGridPoint
+         * @description 格子点1つぶんの時間別風向・風速。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
+         *     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
+         *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
+         *     切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。
+         */
+        WindGridPoint: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Times */
+            times: string[];
+            /** Wind Speed Ms */
+            wind_speed_ms: number[];
+            /** Wind Direction Deg */
+            wind_direction_deg: number[];
+        };
     };
     responses: never;
     parameters: never;
@@ -885,6 +927,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_wind_grid_api_weather_wind_grid_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WindGridPoint"][];
                 };
             };
         };

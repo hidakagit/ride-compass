@@ -44,9 +44,9 @@ export type MapLayerId =
   // 「選択候補に関係なく常設」の性質）のため、kind自体はstaticのまま、dataNature="dynamic"
   // （下記）だけで区別する。詳細はkind/MapLayerDataNatureのコメント参照。
   | "precipitationNowcast"
-  // 風の矢印（改善計画T178）。JMA MSM由来・Open-Meteo配信（`@openmeteo/weather-map-layer`の
-  // om://プロトコル、vector source）。precipitationNowcastと同じ理由でkind="static"・
-  // dataNature="dynamic"。
+  // 風の矢印（改善計画T178、フォローアップで自前実装へ移行）。Open-Meteo REST API経由の
+  // 格子点サンプリング（バックエンド新設、GeoJSON source + symbolレイヤー）。
+  // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
@@ -355,21 +355,21 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "利用しているため、取得に失敗することがあります。",
   },
   {
-    // 風の矢印（改善計画T178）。データの出所は気象庁（JMA MSM）だが配信経路はOpen-Meteoの
-    // ため、出典表記は両方明記する（改善計画docs「気象庁とOpen-Meteoの使い分け」参照）。
+    // 風の矢印（改善計画T178、フォローアップで自前実装へ移行）。関東本土全域の固定格子点
+    // （バックエンド/api/weather/wind-grid）をOpen-Meteo REST API経由でサンプリングする
+    // 自前実装のため、GPLv2ライブラリ・気象庁の非公式配信のどちらにも依存しない。
     id: "windVector",
     label: "風（矢印）",
     chipLabel: "風",
     kind: "static",
     category: "weather",
     dataNature: "dynamic",
-    description: "気象庁の予測に基づく風向・風速を矢印で表示[Open-Meteo経由、約39時間先まで]",
+    description: "Open-Meteoの風向・風速予報を矢印で表示[関東本土の格子点、約48時間先まで]",
     panelHint:
-      "気象庁の数値予報モデル（JMA MSM）による風向・風速をOpen-Meteo経由で矢印表示します。" +
-      "矢印の向きが風向、色の濃さ・太さが風速の強さを表します。ONにすると地図上に時刻" +
-      "スライダーが現れ、3時間毎に更新される予測初期時刻から1時間刻みで約39時間先まで" +
-      "切り替えて確認できます。ライブラリが開発段階（pre-1.0）のため、取得に失敗することが" +
-      "あります。",
+      "Open-Meteoの数値予報モデルによる風向・風速を関東本土全域の格子点で矢印表示します。" +
+      "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
+      "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで約48時間先" +
+      "まで切り替えて確認できます。",
   },
   {
     id: "route",

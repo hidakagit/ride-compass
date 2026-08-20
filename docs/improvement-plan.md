@@ -2449,6 +2449,81 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   常に0.5px差になり、体感の一定性を保つ。15 m/s超は9pxで頭打ち）。Playwright実機確認:
   ズームアウトして日本近海の風速分布を見た画面で、洋上の強風域の矢印が内陸の弱風域より
   明らかに太く表示されることを確認。frontend vitest 402件全green・tsc全green。
+  追記2（2026-08-20、ユーザーフィードバック「やっぱり見にくい。風がほぼない場合も常に
+  矢印が出ているのが違和感」「ライブラリから変えることは検討できる？ライセンス制約も
+  あるといえばあるし」を受け、`@openmeteo/weather-map-layer`依存を撤去し自前実装へ
+  全面移行）: 検討の過程で次の3点が判明・決着した。
+  (1) ヒートマップ（ラスタ色分け）案は技術的に不可能と判明: 気象データの生の格子
+  ファイル（.om）には風向・風速の成分（u/v）のみが保存され、「風速そのもの」という
+  合成値（`wind_speed_10m`）はどのモデル・どのドメインでも事前計算されていない
+  （実機で`variable=wind_speed_10m`をjma_msm・dwd_icon両方に対し試し「見つからない」
+  エラーを確認）。矢印（vector、arrows=true）側だけがu/v→速さ・向きの変換を内部で
+  行う特別な経路で、ラスタ側にはその経路が無い。
+  (2) GPLv2は`@openmeteo/weather-map-layer`本体だけでなく、内部で使う`.om`ファイル
+  デコーダ（`@openmeteo/file-reader`・`@openmeteo/file-format-wasm`）も同じ
+  GPL-2.0-onlyと判明（package.json確認）。どのライブラリ経由でも.omを使う限り
+  GPLv2から逃れられない。
+  (3) 自前実装（Open-Meteo REST API、既存の`weather_client.py`の仕組みを再利用）は
+  ライセンス面では有利だが、Open-Meteo本APIのレート制限に弱いという新たなトレードオフが
+  判明した（`weather_service.py`のdocstringに記録済みの「ルート1本の生成だけで429が
+  常態化した」実績を踏まえた判断材料として提示、ユーザーが把握した上で「自前実装案で
+  進めて」と決定）。
+
+  **実装内容**: バックエンドに`GET /api/weather/wind-grid`を新設
+  （`app/domain/wind_grid.py`: 関東本土bbox上の固定格子点を生成する純粋関数
+  `generate_wind_grid_points`＋`WindGridPoint`モデル、`app/services/weather_service.py`:
+  `get_wind_grid`が既存の`WeatherClient.get_forecast_many`（多地点一括・30分TTL
+  キャッシュ・429リトライ）をそのまま再利用、`app/api/routers/weather.py`:
+  レート制限20/分・取得失敗地点は結果から除外）。格子間隔は当初0.35°（約39km、56点）で
+  実装したが、実機確認で「ルート計画時の通常のズーム（13、表示範囲約15km四方）では
+  格子点が視界に1つも入らないことがある」と判明したため0.2°（約22km、156点）へ密度を
+  上げた（1ユーザーあたりのOpen-Meteoリクエスト回数は変わらず常に1回にまとまる設計の
+  ため、密度を上げても429リスクは増えない。実測で156点でも約2.8秒、56点時とほぼ変わらず）。
+  **ただし0.2°でも、格子点の配置と閲覧地点の位置関係次第ではズーム13で矢印が0件になる
+  ケースが実機で再現した**（東京都北区付近で最寄り格子点まで10.1km、ズーム13の表示半径
+  約7.5kmを上回る）。これは「全ユーザーで同じ格子点を使い回すキャッシュ効率」と
+  「任意の閲覧地点での密な表示」が本質的にトレードオフの関係にあるため（閲覧地点中心の
+  可変格子にすればキャッシュ再利用率が下がり429リスクが戻る）、本ラウンドでは対応せず
+  記録に留める。ズーム7〜10程度（関東〜東京都心スケール）では格子点が適度に分布し
+  実用的に見える（Playwright実機確認済み）ため、現状は「広域の風況把握」用途として
+  位置づけ、閲覧地点直近の密な表示が必要になった場合は別途検討する。
+
+  フロント側は`windLayer.ts`を全面書き換え（`fetchWindFrames`/`windVectorSourceUrl`等の
+  om://依存関数を削除、`windGridToFeatureCollection`が格子点＋選択中フレームindexから
+  GeoJSON FeatureCollectionを組み立てる純粋関数として新設）。`MapView.tsx`は
+  `maplibregl.addProtocol("om", ...)`registrationとvector source/lineレイヤーを削除し、
+  GeoJSON source + symbolレイヤー（矢印アイコンは`createWindArrowIcon`でCanvas描画し
+  `sdf:true`で登録、`icon-color`で連続グラデーション着色）に置き換えた。これにより
+  ライブラリの制約が無くなり、ユーザー要望「矢印の長さと色の連続グラデーションの
+  組み合わせ」を`icon-size`（長さ+太さを一様スケール）・`icon-color`（青→オレンジ→赤の
+  連続グラデーション）で実現。ユーザーフィードバック「ほぼ無風でも矢印が出るのが違和感」
+  に対応し、風速1 m/s以下の地点は`filter`で非表示にした。`@openmeteo/weather-map-layer`は
+  `npm uninstall`済み（GPLv2依存を完全に解消）。OpenAPIスキーマ再生成
+  （`export_openapi.py`→`generate:api`）で`WindGridPoint`型を`frontend/src/types/weather.ts`
+  へ追加。backend pytest 940件（新規12件: test_wind_grid.py 5件・test_weather_service.py
+  4件・test_weather_route.py 3件）・frontend vitest 404件全green、tsc/eslintクリーン。
+  Playwright実機確認: バックエンドの実APIから156点の実データ取得・GeoJSON構築・
+  symbolレイヤー描画・時刻スライダーでのフレーム切り替えを確認。
+  追記3（2026-08-20、ユーザー要望「広域ではなく通常ズームでもある程度使えるように設計して」）:
+  格子間隔0.2°（156点）でも「特定の閲覧地点では最寄り格子点までズーム13の表示半径を
+  超える」ケースが実機で再現したため、格子間隔を0.1°（緯度約11km・経度約9km、624点）へ
+  さらに密にした。0.1°は正方格子の理論上の最悪ケース（どの地点でも最寄り格子点までの
+  距離が対角線の半分以内）がズーム13の表示半径（約7.5km）にほぼ収まる値として選び、
+  関東本土bbox内2000点のランダムサンプルで実際に**100%がズーム13の表示半径7.5km以内に
+  格子点を持つ**ことを検証済み（`generate_wind_grid_points`に対する検証スクリプト、
+  最悪ケース7.04km・中央値4.03km）。
+  地点数を増やした結果、GET（クエリ文字列でlatitude/longitudeのカンマ区切りを渡す方式）
+  ではrequest-URIがnginxの既定上限を超え414 Request-URI Too Largeになることが実機で
+  判明した（624地点で再現、288地点では未発生）。そのため`weather_client.py`の
+  `get_forecast_many`をPOST（フォームボディ）へ変更した（`_fetch_json`に`method`引数を
+  追加、単一地点の`get_forecast`はGETのまま維持）。POSTなら624地点でも実機で200 OK・
+  約3.3秒で成功することを確認済み。既存テスト（`test_weather_client_cache.py`の
+  `FakeHttpClient`等、`test_wind_service.py`の`CountingHttpClient`）へ`post`メソッドを
+  追加して追従。backend pytest 940件・frontend vitest 404件全green、tsc/eslintクリーン。
+  Playwright実機確認: 元々0件だった東京都北区の初期表示（ズーム13）で1件描画されることを
+  確認（この日は関東全域が非常に穏やか〔1m/s前後〕だったため、多くの格子点が無風閾値
+  フィルタ〔1 m/s以下は非表示〕の近傍に留まり、統計上のカバレッジ改善ほど視覚的な
+  密集感は無いが、これはデータ側の実際の穏やかさを正しく反映した結果であり不具合ではない）。
 
 ---
 
