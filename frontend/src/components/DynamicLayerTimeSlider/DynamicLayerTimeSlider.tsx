@@ -25,6 +25,15 @@ interface DynamicLayerTimeSliderProps {
   loadingLabel: string;
   /** 取得に失敗したときのメッセージ。非nullのときスライダー自体は出さない。 */
   error: string | null;
+  /** 他レイヤー（複数の時刻依存レイヤーが同時ONのとき）に引っ張られて、このレイヤー自身の
+   * データ範囲外の時刻を指しているときtrue（例: 風バーを風だけが持つ48時間先まで動かすと、
+   * ±1時間程度しかデータの無い降水ナウキャスト側がこの状態になる。改善計画、実機
+   * フィードバック「対応データなしと明示する」）。true の間はスライダーを出さずグレーアウトの
+   * メッセージへ差し替える（loading/errorと同じ扱い）。このコンポーネント自体は「範囲外」の
+   * 判定方法を知らない汎用UIのため、判定は呼び出し側（各レイヤーのデータ層）が行う。 */
+  unavailable?: boolean;
+  /** unavailable=true のときに表示するメッセージ。 */
+  unavailableLabel?: string;
   /** スライダー本体（input[type=range]）のaria-label。 */
   ariaLabel: string;
 }
@@ -43,6 +52,8 @@ export default function DynamicLayerTimeSlider({
   loading,
   loadingLabel,
   error,
+  unavailable,
+  unavailableLabel,
   ariaLabel,
 }: DynamicLayerTimeSliderProps) {
   if (error) {
@@ -56,6 +67,13 @@ export default function DynamicLayerTimeSlider({
     return (
       <div className={styles.wrapper}>
         <p className={styles.loading}>{loadingLabel}</p>
+      </div>
+    );
+  }
+  if (unavailable) {
+    return (
+      <div className={styles.wrapper}>
+        <p className={styles.unavailable}>{unavailableLabel}</p>
       </div>
     );
   }

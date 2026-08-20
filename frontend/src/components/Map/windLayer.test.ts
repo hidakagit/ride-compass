@@ -3,6 +3,7 @@ import {
   clampWindDetailBbox,
   formatWindFrameTime,
   nearestFrameIndexToNow,
+  trimWindGridToCurrentAndFuture,
   windGridToCellFeatureCollection,
   windGridToFeatureCollection,
 } from "./windLayer";
@@ -110,6 +111,32 @@ describe("windLayer", () => {
     it("空配列を渡すと空のFeatureCollectionを返す", () => {
       const fc = windGridToCellFeatureCollection([], 0, 0.1);
       expect(fc.features).toHaveLength(0);
+    });
+  });
+
+  describe("trimWindGridToCurrentAndFuture（実機フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を左端に」）", () => {
+    const times = ["2026-08-20T00:00", "2026-08-20T01:00", "2026-08-20T02:00", "2026-08-20T03:00"];
+    const grid: WindGridPoint[] = [
+      { latitude: 35.68, longitude: 139.77, times, wind_speed_ms: [1, 2, 3, 4], wind_direction_deg: [10, 20, 30, 40] },
+      { latitude: 36.0, longitude: 140.0, times, wind_speed_ms: [5, 6, 7, 8], wind_direction_deg: [50, 60, 70, 80] },
+    ];
+
+    it("「現在時刻以下で最も新しい」時刻より前を全格子点・全配列から切り捨てる", () => {
+      // 02:30 JSTは02:00(index2)が属する時間帯 -> index2から末尾まで残す
+      const result = trimWindGridToCurrentAndFuture(grid, new Date("2026-08-20T02:30:00+09:00"));
+      expect(result[0].times).toEqual(["2026-08-20T02:00", "2026-08-20T03:00"]);
+      expect(result[0].wind_speed_ms).toEqual([3, 4]);
+      expect(result[0].wind_direction_deg).toEqual([30, 40]);
+      expect(result[1].wind_speed_ms).toEqual([7, 8]);
+    });
+
+    it("正時ちょうどならその時刻から残す（切り上げず現在の時間帯を含める）", () => {
+      const result = trimWindGridToCurrentAndFuture(grid, new Date("2026-08-20T02:00:00+09:00"));
+      expect(result[0].times).toEqual(["2026-08-20T02:00", "2026-08-20T03:00"]);
+    });
+
+    it("空配列を渡すと空配列を返す", () => {
+      expect(trimWindGridToCurrentAndFuture([], new Date())).toEqual([]);
     });
   });
 

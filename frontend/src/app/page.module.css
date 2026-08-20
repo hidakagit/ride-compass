@@ -163,9 +163,13 @@
 
 /* 時刻依存レイヤー（降水ナウキャストT171・風T178等）の時刻スライダーを地図下部中央へ
    浮かべる親コンテナ（改善計画T170/T178）。DynamicLayerTimeSlider自体は位置指定を
-   持たないため、複数の時刻依存レイヤーが同時にONのときはここでgapを挟んで縦積みにする
-   （地図の視界を圧迫しないよう1本の帯にまとめる、設計原則12）。NowcastTimeSliderの
-   .wrapperが単体で持っていたposition/z-indexをここへ集約した。 */
+   持たないため、複数の時刻依存レイヤーが同時にONのときはここでgapを挟んで並べる。
+   NowcastTimeSliderの.wrapperが単体で持っていたposition/z-indexをここへ集約した。
+   実機フィードバック「地図が見えるエリアを広げたい」を受け、横並び（flex-direction: row）
+   へ変更（以前は縦積みで、2本ONのとき地図下部の視界を余分に圧迫していた）。デスクトップは
+   横に並び、画面が狭くて2本ぶんの幅が収まらないときはflex-wrapで自然に折り返す
+   （幅を無理に縮めてスライダー本体を操作しづらくするより、モバイルは従来どおりの
+   縦積みへ戻る方が実用的なため）。 */
 .dynamicLayerSliders {
   position: absolute;
   bottom: var(--space-3);
@@ -173,9 +177,12 @@
   transform: translateX(-50%);
   z-index: 20;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
   gap: var(--space-2);
+  max-width: 100vw;
   pointer-events: none;
 }
 

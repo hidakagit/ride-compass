@@ -53,13 +53,14 @@ import DynamicLayerTimeSlider, {
   type DynamicLayerTimeSliderFrame,
 } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import {
-  centerFramesAroundLatestObserved,
   fetchNowcastFrames,
   formatNowcastFrameTime,
   latestObservedFrameIndex,
   nearestFrameIndexByTime,
   nowcastTileUrlTemplate,
   parseValidtime,
+  trimToCurrentAndFuture,
+  PRECIPITATION_INTENSITY_LEVELS,
   type NowcastFrame,
 } from "@/components/Map/precipitationNowcast";
 import {
@@ -67,11 +68,13 @@ import {
   formatWindFrameTime,
   nearestFrameIndexToNow,
   parseJstTime,
+  trimWindGridToCurrentAndFuture,
   windGridToCellFeatureCollection,
   windGridToFeatureCollection,
   WIND_DETAIL_MIN_ZOOM,
   WIND_GRID_DETAIL_SPACING_DEG,
   WIND_GRID_SPACING_DEG,
+  WIND_SPEED_LEGEND_LEVELS,
   type MapViewport,
 } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
@@ -159,6 +162,28 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
 const NO_HIDDEN_LEGEND_KEYS: string[] = [];
+
+// 降水ナウキャスト・風の凡例（実機フィードバック「風と雨の凡例も欲しい」）。地図チップの
+// ▶パネル（MapOverlayControls: renderLegendDetails）は表示専用でLegendEntry.filterを
+// 実際には適用しない（道路種別等のようなカテゴリ絞り込みができるレイヤーではないため）ため、
+// filterは一致することのないダミー値にしている。色・階級の実データはprecipitationNowcast.ts/
+// windLayer.ts側（実際の描画・凡例双方の単一の情報源）から持ってくる。他レイヤーと違い
+// 絞り込み状態を持たないため、useMemoではなくモジュール直下の固定値でよい。
+const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
+const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: PRECIPITATION_INTENSITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
+const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: WIND_SPEED_LEGEND_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
 
 // 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>とモバイルのBottomSheetの
 // 見出しの両方で使う（両者は排他表示のためid重複しない）。地図の見え方セクション
@@ -642,7 +667,11 @@ export default function Home() {
               ? roadTypeLegendDetails
               : layer.id === "route"
                 ? routeLegendDetails
-                : staticFilterSummaries[layer.id]?.legendDetails;
+                : layer.id === "precipitationNowcast"
+                  ? PRECIPITATION_LEGEND_DETAILS
+                  : layer.id === "windVector"
+                    ? WIND_LEGEND_DETAILS
+                    : staticFilterSummaries[layer.id]?.legendDetails;
         return {
           id: layer.id,
           label: layer.label,
@@ -734,12 +763,12 @@ export default function Home() {
     const load = async (isFirstLoad: boolean) => {
       if (isFirstLoad) setNowcastLoading(true);
       try {
-        // 実況（targetTimes_N1）は予測（targetTimes_N2）よりずっと件数が多い（実機確認:
-        // 2026-08-20時点で実況37件・約3時間分に対し予測12件・60分分）ため、そのまま
-        // スライダーへ渡すと「現在」がトラック上でかなり右寄りになる（実機フィードバック
-        // 「時間バーの現況を中央初期表示して」）。centerFramesAroundLatestObservedで
-        // 実況側を予測側と同じ件数まで切り詰め、「現在」が常にトラックの中央に来るようにする。
-        const frames = centerFramesAroundLatestObserved(await fetchNowcastFrames());
+        // 実況（targetTimes_N1）は現在時刻より前ぶんを多く含む（実機確認: 2026-08-20時点で
+        // 約3時間分）。過去の降水を振り返る用途はアプリの性質上無いため（実機フィードバック
+        // 「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を左端に」）、
+        // trimToCurrentAndFutureで「現在」より前を切り捨て、スライダーの左端（index 0）が
+        // 常に「現在」になるようにする。
+        const frames = trimToCurrentAndFuture(await fetchNowcastFrames());
         if (cancelled) return;
         setNowcastFrames(frames);
         setNowcastError(null);
@@ -761,14 +790,27 @@ export default function Home() {
 
   // 共有の対象時刻（dynamicLayerTargetTime）に最も近い実況/予測フレームのindex。下部バー
   // 2本の時刻連動（改善計画、実機フィードバック「同じ日時を示した状態で連動させ」）の要。
-  // 降水ナウキャストのフレーム間隔は約5分ぶんしかなく（centerFramesAroundLatestObserved
-  // 参照）、対象時刻が範囲外（風バー側を遠い未来へ動かした等）になったときは配列の端へ
+  // 降水ナウキャストのフレーム間隔は約5分ぶんしかなく（trimToCurrentAndFuture参照）、
+  // 対象時刻が範囲外（風バー側を遠い未来へ動かした等）になったときは配列の端へ
   // 自然にクランプされる（このフレーム自体にJMAの実データが無い以上、これ以上は追従
   // できない・する意味も無い）。
   const nowcastFrameIndex = useMemo(
     () => nearestFrameIndexByTime(nowcastFrames, dynamicLayerTargetTime),
     [nowcastFrames, dynamicLayerTargetTime]
   );
+
+  // 共有の対象時刻がnowcastFrames自体の実データ範囲外か（実機フィードバック「対応データ
+  // なしと明示する」）。風バー（最大48時間先まで持つ）に引っ張られて降水ナウキャストの
+  // データ範囲（±1時間程度）を超えたときtrueになり、スライダーを「対応データなし」表示へ
+  // 差し替える（DynamicLayerTimeSlider: unavailable参照）。範囲内ならnearestFrameIndexByTime
+  // が既に最寄りフレームを指しているので、この判定自体はUIの出し分けにしか使わない。
+  const nowcastTargetTimeUnavailable = useMemo(() => {
+    if (nowcastFrames.length === 0) return false;
+    const targetMs = dynamicLayerTargetTime.getTime();
+    const firstMs = parseValidtime(nowcastFrames[0].validtime).getTime();
+    const lastMs = parseValidtime(nowcastFrames[nowcastFrames.length - 1].validtime).getTime();
+    return targetMs < firstMs || targetMs > lastMs;
+  }, [nowcastFrames, dynamicLayerTargetTime]);
 
   const precipitationNowcastTileUrl = useMemo(() => {
     const frame = nowcastFrames[nowcastFrameIndex];
@@ -786,7 +828,12 @@ export default function Home() {
     const load = async (isFirstLoad: boolean) => {
       if (isFirstLoad) setWindLoading(true);
       try {
-        const grid = await getWindGrid();
+        // Open-Meteoのhourly.timeはその日の00:00始まりのため、そのままだと配列の前半に
+        // 過去の時刻が並ぶ。過去の風を振り返る用途はアプリの性質上無いため（実機
+        // フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を
+        // 左端に」）、trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる
+        // （nowcast側のtrimToCurrentAndFutureと同じ理由）。
+        const grid = trimWindGridToCurrentAndFuture(await getWindGrid());
         if (cancelled) return;
         setWindGrid(grid);
         setWindError(null);
@@ -826,7 +873,14 @@ export default function Home() {
         return;
       }
       try {
-        const grid = await getWindGridDetail(clampWindDetailBbox(debouncedMapViewport));
+        // windGridと同じ切り詰め（trimWindGridToCurrentAndFuture）を適用しないと、
+        // windFrameIndex（windGrid[0]?.timesを正に導出、下記windFrameIndex参照）が
+        // effectiveWindGridへ切り替わったときにindexの意味がずれてしまう（windGridは
+        // 「現在」開始、windDetailGridがその日の00:00開始のままだと同じindexが指す時刻が
+        // 食い違う）。windGrid・windDetailGridは別々のタイミングでフェッチされるため、
+        // 正時をまたいだ瞬間だけ切り詰め開始時刻が1時間ずれる可能性はあるが、次の再取得
+        // （30分TTL・ビューポート変更時）で自然に揃うため許容する。
+        const grid = trimWindGridToCurrentAndFuture(await getWindGridDetail(clampWindDetailBbox(debouncedMapViewport)));
         if (cancelled) return;
         setWindDetailGrid(grid);
       } catch {
@@ -1449,6 +1503,8 @@ export default function Home() {
                   loading={nowcastLoading}
                   loadingLabel="降水ナウキャストの時刻を取得中..."
                   error={nowcastError}
+                  unavailable={nowcastTargetTimeUnavailable}
+                  unavailableLabel="この時刻の降水ナウキャストはありません（実況〜60分先までのみ）"
                   ariaLabel="降水ナウキャストの表示時刻"
                 />
               )}
