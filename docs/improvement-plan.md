@@ -2064,7 +2064,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 **実施順序（優先順位、2026-08-20整理。ユーザー要望「改善計画の中で優先順位付けをし、
 整理して」を受け明文化）**: T170〜T178は互いに独立ではなく、依存関係・ユーザーの
 関心の強さ・コストの3軸で優先度に差がある。番号順ではなく以下のPhase順で着手する。
-**2026-08-20時点、Phase 1（T172→T170→T171→T178）は全て完了済み。次に着手するならPhase 2（T173）。**
+**2026-08-20時点、Phase 1（T172→T170→T171→T178）・Phase 2（T173）は全て完了済み。次に着手するならPhase 3（T174）。**
 
 - **Phase 1（風・雨・雷、ユーザーが繰り返し名指しした最優先領域）**: T172 → T170 →
   T171 → T178 の順。T172は依存が無くいつでも着手できる最小コスト（規模S）のため最初に
@@ -2224,7 +2224,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   「30.2℃(体感35.4)｜南東の風0.9 m/s(突風6.9)｜0%(0.0mm/h)｜UV 7.3」が
   表示されることを確認。
 
-### - [ ] T173. 日没×night軸の動的化（到達時刻が日没後の区間だけ夜間軸を効かせる） 規模S〜M
+### - [x] T173. 日没×night軸の動的化（到達時刻が日没後の区間だけ夜間軸を効かせる） 規模S〜M（2026-08-20完了）
 
 - 背景: night軸（街灯・トンネル、T139）は静的な「暗いときに危ない場所」の評価で、
   既定重み0（夜間ライド時に手動で上げる想定）。一方、区間ごとの推定到達時刻は
@@ -2243,6 +2243,42 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   日没計算の妥当性を既知の暦（国立天文台の公表値数点）と突き合わせるテストを持つ。
   backend全green。
 - 依存: なし（T170とは独立。ルート評価側の話のため）。
+- 実装メモ（2026-08-20完了）: 着手前の調査で、対応方針の前提が実装と2点食い違っていることが
+  判明し、方針を修正した。(1) 「レジストリの軸内パラメータとして宣言する」は不採用。
+  `registry_defaults.py`のAxisSpecはコスト計算（`compute_edge_axis_scores`/
+  `evaluate_axis_difficulties`）から一切参照されない表示専用のレジストリ（設計判断は
+  registry_defaults.pyのモジュールdocstring参照）と判明したため、night_weightそのものを
+  呼び出し側で0/そのままに掛け替える方式にした（`night_difficulty`自体はlit/tunnelタグ
+  のみに基づく時刻非依存の値のまま据え置き、domain/night.py・difficulty.pyの変更は
+  不要だった）。(2) 「`wind_service.py`の到達時刻計算がnight軸でも再利用できる」は
+  エンジンによって事情が異なると判明: 既定エンジン（`OpenRouteServiceEngine`、
+  routing_engine="openrouteservice"）は経路確定後にopenrouteservice APIの結果を評価する
+  設計のため、区間ごとの推定到達時刻（`wind_penalty`と同じ`arrival_time`）がそのまま
+  使え、対応方針どおりの区間単位の動的化を実装できた。一方`RoadGraphEngine`（試験実装、
+  既定ではない）はDijkstra探索用のEdge Costを`prepare()`内で経路確定前に一括構築するため
+  （モジュールdocstring「風は出発時点の起点付近の風をルート全体に一様適用する」と同じ
+  制約）、night軸も同じ簡略化（起点1点の時刻でルート全体に一様適用）にせざるを得なかった
+  （プレ既存の`prepare(origin, radius_km)`にwindと同じ非依存の`get_conditions(origin)`
+  パターンを踏襲）。またこのアプリには「出発時刻」というユーザー入力自体が現状無く
+  （`route_generator.py`は常に`datetime.now(JST)`を使う）、動的化の効果は将来ユーザーが
+  出発時刻を選べるようになったときに活きる（現状はテストでしか出発時刻を差し替えられない）。
+  天文計算は`astral`（MIT、requirements.txtへ`astral==3.2`追加）に委譲する
+  `domain/twilight.py`（新設）の`is_night(coordinates, at)`のみを追加。実装中に
+  「`astral.sun(date=D)`は経度が東側だと同じdate引数のdawn/duskが別々の現地日を指し
+  時刻順が入れ替わって返る」という罠を実機（Python REPL）で発見し、`at`前後数日分の
+  dawn/duskイベントを単純にUTC時刻でソートし直前のイベント種別で判定する頑健な実装にした
+  （日付境界を経度に応じて個別処理しない、地域非依存の解法）。妥当性はNAOJ（国立天文台）
+  サイトが接続不可（TLSハンドシェイクでリセット）だったため、代わりにsunrise-sunset.org
+  （NOAA準拠の公開API、無料・キー不要）の実測値と突き合わせた（東京の夏至・冬至・秋分、
+  `test_twilight.py`）。`OpenRouteServiceEngine`は`evaluate_loops`内の区間ループで
+  `is_night(points[i], arrival_time)`により`night_weight`を掛け替え、`RoadGraphEngine`は
+  `prepare()`に`now`引数（省略時は実際の現在時刻、テストが注入できるよう追加）を足し
+  `is_night(origin, now)`の結果を`RoutePreference.model_copy(update={"night_weight": 0.0})`
+  で探索用・表示用（`_build_segment_details`）の両方へ反映した（`EvaluationService.
+  evaluate_graph`に`preference`オーバーライド引数を追加、`self._preference`を直接
+  書き換えるとリクエスト間で共有される状態を汚染するため）。backend pytest 928件
+  （新規10件: test_twilight.py 7件・test_road_graph_engine.py 2件・
+  test_openrouteservice_engine.py 1件）全green。
 
 ### - [ ] T174. 夏季の暑さ指数（WBGT）警告表示 規模S〜M
 
@@ -2403,6 +2439,14 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   コンソールエラー無し。frontend vitest 401件（新規9件、windLayer.test.ts）・tsc全green。
   DynamicLayerTimeSliderへの一般化に伴い、降水ナウキャスト側の呼び出し（page.tsx）・
   テスト（旧NowcastTimeSlider.test.tsx→DynamicLayerTimeSlider.test.tsx）も追従済み。
+  追記（2026-08-20、ユーザー確認「風の強さを矢印の大きさで表現できる？」）: 実機調査の
+  結果、矢印の長さ（ジオメトリ自体）はライブラリ側がズームレベルのグリッド間隔で決めており
+  風速0.27〜7.0 m/sの範囲で測定してもほぼ一定、風速には連動しないと判明（自由に変更できない
+  部分）。一方`line-width`はこちら側のpaint設定のため、風速`value`（0〜15 m/s）を線形補間する
+  `interpolate`式を追加し、太さでも強さを表現するようにした（色の濃淡と合わせた二重の
+  表現）。Playwright実機確認: ズームアウトして日本近海の風速分布を見た画面で、洋上の
+  強風域の矢印が内陸の弱風域より明らかに太く表示されることを確認。frontend vitest 402件
+  全green・tsc全green。
 
 ---
 

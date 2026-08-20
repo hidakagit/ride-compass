@@ -5,6 +5,8 @@ RouteGenerator（戦略層）を通したエンドツーエンドで、エンジ
 戦略側の責務（距離フィルタ・失敗スキップ等）はtest_route_generator.pyで検証済み。
 """
 
+from datetime import datetime, timezone
+
 from app.domain.difficulty import gradient_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
@@ -542,3 +544,35 @@ async def test_segments_carry_route_geometry_slices():
         # 隣接区間の境界点（前区間の終端＝次区間の始端）を除いて連結すると元のgeometryに戻る
         reconstructed.extend(coordinates if not reconstructed else coordinates[1:])
     assert reconstructed == geometry["coordinates"]
+
+
+# 改善計画T173: night軸の動的化。区間ごとの推定到達時刻（wind_penaltyと同じarrival_time）が
+# その地点の市民薄明の外（夜間）ならnight_weightをそのまま、日中なら0倍にして合成する。
+async def test_night_weight_zeroed_during_daytime_and_applied_at_night():
+    repository = FakeSurfaceRepository()  # default_way_tags={}（litタグ無し）はnight_difficulty=50.0
+    preference = RoutePreference(
+        elevation_weight=0.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
+        car_stress_weight=0.0, accident_weight=0.0, night_weight=1.0,
+    )
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0)]),
+        FakeElevationService(),
+        FakeWindService(),
+        preference,
+        repository=repository,
+    )
+    context = await engine.prepare(ORIGIN, radius_km=10.0)
+    traced = await engine.trace_loop(context, [ORIGIN, ORIGIN, ORIGIN], bearing=0)
+
+    # 東京、2024-06-21 12:00 JST（明らかに昼）= UTC 03:00
+    daytime = datetime(2024, 6, 21, 3, 0, tzinfo=timezone.utc)
+    # 東京、2024-06-21 02:00 JST（明らかに夜）= UTC 2024-06-20 17:00
+    nighttime = datetime(2024, 6, 20, 17, 0, tzinfo=timezone.utc)
+
+    day_candidates = await engine.evaluate_loops(context, [traced], daytime)
+    night_candidates = await engine.evaluate_loops(context, [traced], nighttime)
+
+    # night_weight=1.0のみ有効な本ケースでは、日中はcompositeを合成できる重みが1つも
+    # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。
+    assert day_candidates[0].segments[0].difficulty is None
+    assert night_candidates[0].segments[0].difficulty == 50.0

@@ -8,6 +8,8 @@ test_route_generator.pyで検証済み。
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.domain import evaluation
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import RoutePreference
@@ -585,6 +587,7 @@ async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkey
         designated_edge_ids=set(),
         wind=None,
         origin_node="a",
+        night_active=False,
     )
 
     segments = engine._build_segment_details(edges, {}, context, datetime.now(timezone.utc))
@@ -593,3 +596,71 @@ async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkey
     assert len(calls) == len(edges)
 
 
+
+
+# 改善計画T173: night軸の動的化（prepare実行時点の起点が市民薄明の外かどうかで、
+# 探索コスト全体へ適用するnight_weightを0/そのままに切り替える）。RoadGraphEngineは
+# wind同様、探索中は到達時刻が未確定のためprepare実行時点を出発時刻の近似とする簡略化。
+async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_darkness():
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    # way_tags={}（litタグ無し）はnight_difficulty=50.0（test_night.py参照）。他の軸の重みを
+    # 0にし、night_weightだけが探索コストへ効くようにする（差分をnight軸だけに起因させる）。
+    preference = RoutePreference(
+        elevation_weight=0.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
+        car_stress_weight=0.0, accident_weight=0.0, night_weight=1.0,
+    )
+    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    engine = generator._engine
+
+    # 東京、2024-06-21 12:00 JST（明らかに昼）= UTC 03:00
+    daytime = datetime(2024, 6, 21, 3, 0, tzinfo=timezone.utc)
+    # 東京、2024-06-21 02:00 JST（明らかに夜）= UTC 2024-06-20 17:00
+    nighttime = datetime(2024, 6, 20, 17, 0, tzinfo=timezone.utc)
+
+    day_context = await engine.prepare(ORIGIN, radius_km=1.0, now=daytime)
+    night_context = await engine.prepare(ORIGIN, radius_km=1.0, now=nighttime)
+
+    assert day_context.night_active is False
+    assert night_context.night_active is True
+
+    day_cost = day_context.nx_graph["a"]["b"]["weight"]
+    night_cost = night_context.nx_graph["a"]["b"]["weight"]
+    # 日中はnight_weightが0倍されるため、他の軸の重みも全て0の本ケースではdistance_mそのもの
+    # （難易度による割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
+    assert night_cost > day_cost
+    assert day_cost == pytest.approx(edge.distance_m, abs=0.1)
+
+
+async def test_build_segment_details_night_difficulty_follows_context_night_active():
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    way_tags = {"e1": {}}
+    preference = RoutePreference(
+        elevation_weight=0.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
+        car_stress_weight=0.0, accident_weight=0.0, night_weight=1.0,
+    )
+    generator, _, _ = make_generator(None, way_tags=way_tags, route_preference=preference)
+    engine = generator._engine
+
+    base_kwargs = dict(
+        graph=RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge}),
+        nx_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
+        intersection_counts={}, accident_counts={}, accident_years_covered=0,
+        designated_edge_ids=set(), wind=None, origin_node="a",
+    )
+    day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
+    night_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=True)
+
+    day_segments = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
+    night_segments = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
+
+    # night_weight=1.0のみ有効な本ケースでは、日中はcompositeを合成できる重みが1つも
+    # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。
+    assert day_segments[0].difficulty is None
+    assert night_segments[0].difficulty == 50.0

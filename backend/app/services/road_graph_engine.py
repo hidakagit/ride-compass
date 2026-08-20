@@ -27,7 +27,7 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
 import asyncio
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import networkx as nx
 
@@ -46,6 +46,7 @@ from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.twilight import is_night
 from app.domain.traffic import (
     CarStressRecipe,
     classify_bicycle_infrastructure,
@@ -87,6 +88,10 @@ class _RoadGraphContext:
     designated_edge_ids: set[str]
     wind: WeatherConditions | None
     origin_node: str
+    # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
+    # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
+    # 表示を一致させる（詳細はprepare()参照）。
+    night_active: bool
 
 
 class RoadGraphEngine:
@@ -112,7 +117,13 @@ class RoadGraphEngine:
         self._road_suitability_recipe = road_suitability_recipe
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
 
-    async def prepare(self, origin: Coordinates, radius_km: float) -> _RoadGraphContext | None:
+    async def prepare(
+        self, origin: Coordinates, radius_km: float, now: datetime | None = None
+    ) -> _RoadGraphContext | None:
+        # nowは改善計画T173のnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
+        # 注入できるよう引数化した（wind同様、探索中は到達時刻が未確定のためprepare実行時点を
+        # 出発時刻の近似として使う簡略化、詳細は下記night_active算出箇所のコメント参照）。
+        now = now or datetime.now(timezone.utc)
         margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
         bbox = _bbox_around_point(origin, radius_km + margin_km)
 
@@ -141,12 +152,23 @@ class RoadGraphEngine:
             return None
 
         wind = await self._weather_service.get_conditions(origin)
+        # 改善計画T173: night軸の動的化。区間ごとの到達時刻は探索中は未確定のため（風と
+        # 同じモジュールdocstringの制約）、prepare実行時点を出発時刻の近似として採用し、
+        # 起点が市民薄明の外（夜間）ならnight_weightをそのまま、日中なら0倍にした
+        # RoutePreferenceのコピーを探索コストへ渡す（self._route_preference自体は
+        # 書き換えない、リクエスト間で共有される状態のため）。
+        night_active = is_night(origin, now)
+        search_preference = (
+            self._route_preference
+            if night_active
+            else self._route_preference.model_copy(update={"night_weight": 0.0})
+        )
         # 探索用Costは標高を含めない（理由はモジュールdocstring参照）。
         search_edge_costs = self._evaluation_service.evaluate_graph(
             graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts,
             way_tags=way_tags, intersection_counts=intersection_counts,
             accident_counts=accident_counts, accident_years_covered=accident_years_covered,
-            designated_edge_ids=designated_edge_ids,
+            designated_edge_ids=designated_edge_ids, preference=search_preference,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 
@@ -162,6 +184,7 @@ class RoadGraphEngine:
             designated_edge_ids=designated_edge_ids,
             wind=wind,
             origin_node=origin_node,
+            night_active=night_active,
         )
 
     async def trace_loop(
@@ -254,7 +277,13 @@ class RoadGraphEngine:
         # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
         # （edges=方位ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
         # 引数）のため、これらだけを個別引数として残しcontextを1引数で渡す。
-        preference = self._route_preference
+        # 改善計画T173: night_weightはcontext.night_active（prepare時点の判定、探索コストで
+        # 使ったものと同一）で0倍にする。表示（本関数）と探索コストが食い違わないようにする。
+        preference = (
+            self._route_preference
+            if context.night_active
+            else self._route_preference.model_copy(update={"night_weight": 0.0})
+        )
         segments = []
         cumulative_km = 0.0
 
