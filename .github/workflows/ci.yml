@@ -15,8 +15,24 @@ name: CI
 on:
   push:
     branches: [master]
+    # docs/*.mdだけの変更ではコードが動かないため、CIを丸ごとスキップする
+    # （GitHub Actions無償枠2000分/月の消費対策。改善計画のdocsのみのコミットが
+    # 頻発する運用のため効果が大きい）。
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   workflow_dispatch:
+
+# 同じブランチ/PRへの新しいpushが来たら、まだ走っている古いコミットのCIを打ち切る
+# （無償枠消費対策）。イテレーティブに短い間隔で複数回pushする運用だと、打ち切らない
+# 場合は古い実行がそのまま最後まで走り続け、実質使われない分の分数を消費してしまう。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # API契約のドリフト検知（docs/improvement-plan.md T4）。
@@ -101,7 +117,21 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # 無償枠消費対策: chromium本体をキャッシュし、変わらないバージョンでの再ダウンロードを
+      # 省く（--with-depsのOS依存パッケージ部分は毎回軽量に入れ直す必要があるためキャッシュ
+      # 対象外、こちらはapt経由で数秒〜十数秒程度に収まる）。package-lock.jsonの
+      # @playwright/testバージョンが変わったらキャッシュキーも変わり自動的に再取得する。
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install Playwright Chromium (with OS deps)
+        run: npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+      - name: Install Playwright OS deps only (browser already cached)
+        run: npx playwright install-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
