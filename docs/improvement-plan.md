@@ -2563,6 +2563,51 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   フィルタ〔1 m/s以下は非表示〕の近傍に留まり、統計上のカバレッジ改善ほど視覚的な
   密集感は無いが、これはデータ側の実際の穏やかさを正しく反映した結果であり不具合ではない）。
 
+### - [x] T179. Open-Meteo 429再発を受け、自前ホストVM経由のリレープロキシで送信元IPを分離 規模S（2026-08-20完了）
+
+- 発端: ユーザー報告「openmeteoで429．renderだと頻発」。T109（2026-08-17）で根本原因は
+  特定済みだった（Open-MeteoはRenderの共有送信元IP単位でレート制限しており、他テナントの
+  分も巻き添えで429になる。クライアント側の再試行では解消できず、当時は「有料/専用キー化の
+  検討はスコープ外、再発時に再検討」としていた）。今回がその再発。
+- 検討: (1) Open-Meteo有料プラン（APIキー化、IP単位→キー単位のレート制限に変わる根本解決）、
+  (2) RenderのStatic Outbound IPアドオン（専用送信元IPを購入）、(3) 一般的な有料プロキシ
+  サービス経由（そのプロキシ自体のIPが既に他顧客と共有・データセンター系IPとしてOpen-Meteo側で
+  制限対象になっている可能性があり、費用を払っても解決しないリスクがある）、(4) 既存の
+  Oracle Cloud VM（`ridecompass-postgis`、[[oracle-cloud-postgis-migration]]、PostGIS本番DBが
+  Always Free枠で稼働中・専用固定IP）を中継プロキシとして流用、を比較した。(4)は追加費用ほぼ0円
+  （既存Always Free枠の延長）・新規外部ベンダー依存が発生しない・実装パターンも流用できる
+  （port 5432で既に運用実績のある「OCIセキュリティリスト+iptablesの両方でRenderのアウトバウンド
+  範囲のみ許可」という多層防御方式をそのままport 8080へ複製できる）という理由でユーザーが選択。
+  (1)(2)は根本解決だが費用が絡む意思決定のため、再発が続く場合の次の選択肢として温存する。
+- 対応: `ridecompass-postgis`VMへnginxをインストールし、`/v1/forecast`のみを
+  `https://api.open-meteo.com/v1/forecast`へ中継するリバースプロキシを追加（他パスは404、
+  オープンリレー化を防ぐ）。ポート8080はOCIセキュリティリスト・VM内iptablesの両方で
+  管理者IP＋Renderのアウトバウンド範囲（`74.220.48.0/24`・`74.220.56.0/24`）のみへ制限
+  （port 5432と同じ多層防御パターン）。`backend/app/config.py`に`open_meteo_base_url`
+  （既定はOpen-Meteo直叩き、ローカル開発はこのままでよい）を追加し、
+  `weather_client.py`のハードコードされた`OPEN_METEO_URL`定数を置き換えた
+  （GET/POSTどちらの呼び出しも同じ設定値を参照）。本番（Render）は環境変数
+  `OPEN_METEO_BASE_URL`をこのVMのプロキシURLへ向けることで切り替える
+  （`.env.example`にプレースホルダを記載、実IPはVM再作成で変わりうるため
+  リポジトリへは書かず環境変数側でのみ設定する）。
+- 完了条件: プロキシ経由でOpen-MeteoのGET/POST（多地点一括、風グリッド用）両方が
+  200を返すこと、許可パス以外が404で拒否されること、backend pytest全green、
+  設定値がRenderの実運用でのみ有効化されローカル開発の挙動を変えないこと。
+- 実装メモ（2026-08-20完了）: nginx 1.24.0（Ubuntu標準リポジトリ）を使用。
+  `proxy_ssl_server_name on`でSNIを維持し上流のTLS証明書検証を通す。実機確認:
+  GET `/v1/forecast?latitude=...&longitude=...`・POST（複数地点まとめて、`get_forecast_many`が
+  使う形式）とも200 OKで実データを取得、`/`・`/etc/passwd`等の他パスは404を確認。
+  iptablesルールは`netfilter-persistent save`で永続化。OCIセキュリティリストは既存の
+  5432番ルールを変更せず8080番の3ルール（管理者IP・Render 2範囲）のみ追加。
+  backend pytest 940件全green（`OPEN_METEO_URL`定数を参照していた箇所は無く、
+  置き換えによる既存テストへの影響なし）。並行してVM上で`apt-get upgrade`によりカーネル
+  更新の再起動待ち通知が出たが、本番DBサーバーの再起動は影響が大きいためこのタスクの
+  スコープ外とし着手していない（別途ユーザー判断が必要、記録のみ）。
+  **残作業（本エントリの完了条件には含めないが必須）**: Render側の環境変数
+  `OPEN_METEO_BASE_URL`をこのVMのプロキシURLへ設定するのはユーザー操作
+  （Renderダッシュボードへのアクセス権がこのセッションに無いため）。設定するまでは
+  本番は従来どおりOpen-Meteo直叩きのまま（コード変更のみでは429対策は効かない点に注意）。
+
 ---
 
 完了タスクの日付別一覧は[docs/improvement-plan-archive/README.md](improvement-plan-archive/README.md)を参照

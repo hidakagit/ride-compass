@@ -90,6 +90,15 @@ class Settings(BaseSettings):
     # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
     # Overpass/OpenFreeMapへの実問い合わせが毎回発生し続けてしまう）。
     basemap_refresh_rate_limit_per_minute: int = 6
+    # Open-Meteo Forecast APIの呼び出し先。既定は本家直叩き（ローカル開発用）。
+    # 本番（Render）はOpen-Meteo側が送信元IP単位でレート制限しており、Renderの共有
+    # アウトバウンドIPだと他テナントの分も巻き添えで429が常態化する不具合が確認された
+    # （weather_client.pyのdocstring参照）。対策として自前ホストのOracle Cloud VM
+    # （`ridecompass-postgis`、固定IP・専用、docs/osm-pbf-import.md参照）上にnginxで
+    # /v1/forecastのみを中継するリレープロキシを立て、Render側はこの環境変数で
+    # プロキシ経由に切り替える（アクセスはOCIセキュリティリスト+iptablesの両方で
+    # Renderのアウトバウンド範囲のみに制限済み）。
+    open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:
