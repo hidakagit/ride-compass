@@ -440,8 +440,9 @@ async def test_candidate_accident_density_is_none_when_years_covered_is_zero():
 async def test_candidate_aggregates_wind_score_when_weather_available():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     wind = WeatherConditions(
-        temperature_c=20.0, wind_speed_ms=5.0, wind_direction_deg=0.0, wind_direction_label="北",
-        precipitation_probability_percent=None, observed_at="t",
+        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=0.0,
+        wind_direction_label="北", wind_gusts_ms=None, precipitation_probability_percent=None,
+        precipitation_mm=None, uv_index=None, observed_at="t",
     )
     generator, _, _ = make_generator(graph, wind=wind)
 

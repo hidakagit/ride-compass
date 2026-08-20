@@ -151,8 +151,10 @@ class WeatherClient:
             params = {
                 "latitude": point.latitude,
                 "longitude": point.longitude,
-                "current": "temperature_2m,wind_speed_10m,wind_direction_10m",
-                "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability",
+                "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
+                "precipitation,apparent_temperature,uv_index",
+                "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
+                "wind_gusts_10m,precipitation,uv_index,apparent_temperature",
                 "forecast_days": 2,
                 "timezone": "Asia/Tokyo",
                 "wind_speed_unit": "ms",
@@ -206,8 +208,10 @@ class WeatherClient:
                 params = {
                     "latitude": ",".join(str(lat) for lat, _lon in to_fetch),
                     "longitude": ",".join(str(lon) for _lat, lon in to_fetch),
-                    "current": "temperature_2m,wind_speed_10m,wind_direction_10m",
-                    "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability",
+                    "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
+                    "precipitation,apparent_temperature,uv_index",
+                    "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
+                    "wind_gusts_10m,precipitation,uv_index,apparent_temperature",
                     "forecast_days": 2,
                     "timezone": "Asia/Tokyo",
                     "wind_speed_unit": "ms",

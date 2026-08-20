@@ -1,0 +1,63 @@
+/* 地図下部中央に浮かべる時刻スライダー（改善計画T170）。地図のドラッグ・ズーム操作を
+   妨げないよう、余白部分はpointer-eventsを透過させ、実際に操作するコントロール自身だけ
+   autoへ戻す（MapOverlayControls.module.cssの.wrapperと同じ方式）。 */
+.wrapper {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem var(--space-2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+  min-width: 260px;
+}
+
+.time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--foreground);
+  flex-shrink: 0;
+  /* 数字の桁で幅が動いて隣のスライダーがガタつかないよう固定幅にする */
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--color-muted-strong);
+}
+
+.slider {
+  flex: 1;
+  min-width: 120px;
+}
+
+.loading,
+.error {
+  margin: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  pointer-events: auto;
+}
+
+.error {
+  color: var(--color-danger);
+}

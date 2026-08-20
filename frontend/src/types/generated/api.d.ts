@@ -697,14 +697,22 @@ export interface components {
         WeatherConditions: {
             /** Temperature C */
             temperature_c: number;
+            /** Apparent Temperature C */
+            apparent_temperature_c: number | null;
             /** Wind Speed Ms */
             wind_speed_ms: number;
             /** Wind Direction Deg */
             wind_direction_deg: number;
             /** Wind Direction Label */
             wind_direction_label: string;
+            /** Wind Gusts Ms */
+            wind_gusts_ms: number | null;
             /** Precipitation Probability Percent */
             precipitation_probability_percent: number | null;
+            /** Precipitation Mm */
+            precipitation_mm: number | null;
+            /** Uv Index */
+            uv_index: number | null;
             /** Observed At */
             observed_at: string;
         };

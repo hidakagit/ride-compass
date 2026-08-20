@@ -73,6 +73,13 @@ class WeatherService:
                 temperature = current["temperature_2m"]
                 wind_speed = current["wind_speed_10m"]
                 wind_direction = current["wind_direction_10m"]
+                # 突風・体感温度・UV指数・降水量は「current」自体に含めて取得済み（改善計画T172、
+                # weather_client.py参照）のため、precipitation_probabilityと違いhourlyへの
+                # 近傍探索は不要。current側に無い場合（プロパティ欠落）はNoneへ倒す。
+                apparent_temperature = current.get("apparent_temperature")
+                wind_gusts = current.get("wind_gusts_10m")
+                precipitation = current.get("precipitation")
+                uv_index = current.get("uv_index")
                 precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
             else:
                 target = at.strftime("%Y-%m-%dT%H:%M")
@@ -89,15 +96,23 @@ class WeatherService:
                 wind_speed = hourly["wind_speed_10m"][index]
                 wind_direction = hourly["wind_direction_10m"][index]
                 precipitation_probability = hourly["precipitation_probability"][index]
+                apparent_temperature = self._hourly_index_value(hourly, "apparent_temperature", index)
+                wind_gusts = self._hourly_index_value(hourly, "wind_gusts_10m", index)
+                precipitation = self._hourly_index_value(hourly, "precipitation", index)
+                uv_index = self._hourly_index_value(hourly, "uv_index", index)
         except (KeyError, IndexError, TypeError):
             return None
 
         return WeatherConditions(
             temperature_c=temperature,
+            apparent_temperature_c=apparent_temperature,
             wind_speed_ms=wind_speed,
             wind_direction_deg=wind_direction,
             wind_direction_label=compass_label(wind_direction),
+            wind_gusts_ms=wind_gusts,
             precipitation_probability_percent=precipitation_probability,
+            precipitation_mm=precipitation,
+            uv_index=uv_index,
             observed_at=observed_at,
         )
 
@@ -122,5 +137,17 @@ class WeatherService:
         index = cls._nearest_hourly_index(hourly.get("time", []), target_time)
         values = hourly.get(field)
         if index is None or not values or index >= len(values):
+            return None
+        return values[index]
+
+    @staticmethod
+    def _hourly_index_value(hourly: dict, field: str, index: int):
+        """hourly配列から既知のindexで値を引く（改善計画T172）。突風・体感温度・UV指数・
+        降水量はatが指す時刻のindexが既にprecipitation_probabilityの取得で確定しているため、
+        _hourly_value_nearのように改めて最近傍時刻を探し直す必要がない。フィールド自体が
+        存在しない/配列が短い場合はNoneへ倒す（新規追加パラメータのため既存キャッシュ済み
+        レスポンスに含まれないケースを想定）。"""
+        values = hourly.get(field)
+        if not values or index >= len(values):
             return None
         return values[index]

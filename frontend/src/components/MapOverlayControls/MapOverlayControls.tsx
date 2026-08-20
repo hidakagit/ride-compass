@@ -22,12 +22,14 @@ import {
   AccidentDensityAxisIcon,
   AxisRampIcon,
   DesignationIcon,
+  DynamicDataIcon,
   ElevationIcon,
   EstimatedIndexIcon,
   GradientAxisIcon,
   InfoIcon,
   NightAxisIcon,
   ObservedDataIcon,
+  RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
   CarStressIcon,
@@ -86,18 +88,22 @@ interface ChipGroup {
   members: readonly OverlayLayerChip[];
 }
 
-// categoryを持つレイヤーをdataNature（観測/推定、改善計画T166）で2グループへ束ね、
-// categoryを持たないレイヤー（route等のdynamic）は元の並び順のまま末尾へ単独チップとして
-// 追加する。推定グループは、対応する表示レイヤーを持つチップが1件も無くてもSECONDARY_AXESの
-// 薄字項目（勾配・舗装質・夜間）を見せるため常に出す。観測グループはcategoryを持つ
-// raw（dataNature省略含む）チップが1件以上あるときだけ出す。
+// categoryを持つレイヤーをdataNature（観測/推定/動的、改善計画T166→T171で3値目追加）で
+// 3グループへ束ね、categoryを持たないレイヤー（route等のkind="dynamic"。動的データ
+// グループとは別物なので混同しないこと）は元の並び順のまま末尾へ単独チップとして追加する。
+// 推定グループは、対応する表示レイヤーを持つチップが1件も無くてもSECONDARY_AXESの
+// 薄字項目（勾配・舗装質・夜間）を見せるため常に出す。観測・動的グループはcategoryを持つ
+// メンバーが1件以上あるときだけ出す。
 function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   const groups: ChipGroup[] = [];
-  // 表示順は推定→観測（実機フィードバックにより入替え。以前は観測→推定だった）。
+  // 表示順は推定→観測（実機フィードバックにより入替え。以前は観測→推定だった）→動的
+  // （改善計画T171で新設したばかりで既存2グループより関心の的が絞られるため末尾）。
   const estimatedMembers = layers.filter((layer) => layer.category && layer.dataNature === "composite");
   groups.push({ key: "group:composite", members: estimatedMembers });
   const observedMembers = layers.filter((layer) => layer.category && (layer.dataNature ?? "raw") === "raw");
   if (observedMembers.length > 0) groups.push({ key: "group:raw", members: observedMembers });
+  const dynamicMembers = layers.filter((layer) => layer.category && layer.dataNature === "dynamic");
+  if (dynamicMembers.length > 0) groups.push({ key: "group:dynamic", members: dynamicMembers });
   for (const layer of layers) {
     if (!layer.category) groups.push({ key: layer.id, members: [layer] });
   }
@@ -116,13 +122,15 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   stopPoi: StopPoiIcon,
   supplyPoi: SupplyPoiIcon,
   accidents: AccidentIcon,
+  precipitationNowcast: RaindropIcon,
   route: RouteIcon,
 };
 
-// 次数グループチップ（改善計画T166）を代表するアイコン。観測/推定の2種類のみ。
+// 次数グループチップ（改善計画T166、T171で3種目「動的」を追加）を代表するアイコン。
 const DATA_NATURE_ICONS: Record<MapLayerDataNature, (props: { size?: number }) => ReactElement> = {
   raw: ObservedDataIcon,
   composite: EstimatedIndexIcon,
+  dynamic: DynamicDataIcon,
 };
 
 // 推定グループの軸タイル（改善計画: 実機フィードバック「2次要素はアイコンだけで区別が
@@ -760,6 +768,59 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
             // 同じ理由）。展開時は元どおりメンバーを縦積みするため.observedExpandedColumn
             // （chipRowと同じcolumn flex）、折りたたみ時は見出し+凡例トグルの横並びのため
             // .headerLegendRowを使う。
+            return [
+              <div
+                key={`${group.key}:row`}
+                className={isExpanded ? styles.observedExpandedColumn : styles.headerLegendRow}
+              >
+                {header}
+                {isExpanded
+                  ? renderObservedMemberRows(group.members)
+                  : renderGroupLegendToggle(
+                      group.key,
+                      label,
+                      orderObservedMembers(group.members).map((member) => ({
+                        key: member.id,
+                        Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
+                        label: member.chipLabel ?? member.label,
+                      }))
+                    )}
+              </div>,
+            ];
+          }
+
+          // 動的グループ（改善計画T171、新設）。観測グループ（group:raw、直上）と全く同じ
+          // 「▼縦積み・地続き展開」の構成を使う（renderObservedMemberRows/orderObservedMembers
+          // は名称に反しobserved固有の処理を持たない汎用関数のため、そのまま再利用する）。
+          if (group.key === "group:dynamic") {
+            const RepresentativeIcon = DATA_NATURE_ICONS.dynamic;
+            const isExpanded = expandedIds.has(group.key);
+            const label = MAP_LAYER_DATA_NATURE_LABELS.dynamic;
+            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS.dynamic;
+            const header = (
+              <ChipButton
+                key={group.key}
+                Icon={RepresentativeIcon}
+                label={label}
+                chipLabel={chipLabel}
+                active={false}
+                title={`${label}[${group.members.length}件をタップで一覧]`}
+                onTap={() => {
+                  toggleExpanded(group.key);
+                  closeGroupLegend(group.key);
+                }}
+                canExpand
+                isExpanded={isExpanded}
+                onExpandToggle={() => toggleExpanded(group.key)}
+                expandDirection="flat"
+                expandViaSelf
+                panelContent={<></>}
+                panelRect={panelRects[group.key]}
+                registerRow={(el) => {
+                  rowRefs.current[group.key] = el;
+                }}
+              />
+            );
             return [
               <div
                 key={`${group.key}:row`}

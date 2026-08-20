@@ -251,6 +251,16 @@ export function EstimatedIndexIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 動的データ（改善計画T170、地図チップ最上位グループ）: 時刻で変わることを表す時計 */
+export function DynamicDataIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="7.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M10 5.6V10l3.2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (
@@ -314,6 +324,21 @@ export function RaindropIcon({ size = 16 }: IconProps) {
         stroke="currentColor"
         strokeWidth="1.6"
         strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** UV指数（天候ヘッダ、改善計画T172）: 太陽 */
+export function SunIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M10 2.5v2.2M10 15.3v2.2M17.5 10h-2.2M4.7 10H2.5M15.3 4.7l-1.6 1.6M6.3 13.7l-1.6 1.6M15.3 15.3l-1.6-1.6M6.3 6.3 4.7 4.7"
+        stroke="currentColor"
+        strokeWidth="1.6"
         strokeLinecap="round"
       />
     </svg>

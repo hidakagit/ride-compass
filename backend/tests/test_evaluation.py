@@ -151,10 +151,14 @@ def test_compute_edge_cost_missing_attributes_falls_back_to_distance_only():
 def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
     return WeatherConditions(
         temperature_c=20.0,
+        apparent_temperature_c=None,
         wind_speed_ms=wind_speed_ms,
         wind_direction_deg=wind_direction_deg,
         wind_direction_label="北",
+        wind_gusts_ms=None,
         precipitation_probability_percent=None,
+        precipitation_mm=None,
+        uv_index=None,
         observed_at="2026-01-01T00:00",
     )
 

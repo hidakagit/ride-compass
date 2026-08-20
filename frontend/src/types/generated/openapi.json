@@ -1680,6 +1680,17 @@
             "type": "number",
             "title": "Temperature C"
           },
+          "apparent_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apparent Temperature C"
+          },
           "wind_speed_ms": {
             "type": "number",
             "title": "Wind Speed Ms"
@@ -1692,6 +1703,17 @@
             "type": "string",
             "title": "Wind Direction Label"
           },
+          "wind_gusts_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Gusts Ms"
+          },
           "precipitation_probability_percent": {
             "anyOf": [
               {
@@ -1703,6 +1725,28 @@
             ],
             "title": "Precipitation Probability Percent"
           },
+          "precipitation_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Mm"
+          },
+          "uv_index": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uv Index"
+          },
           "observed_at": {
             "type": "string",
             "title": "Observed At"
@@ -1711,10 +1755,14 @@
         "type": "object",
         "required": [
           "temperature_c",
+          "apparent_temperature_c",
           "wind_speed_ms",
           "wind_direction_deg",
           "wind_direction_label",
+          "wind_gusts_ms",
           "precipitation_probability_percent",
+          "precipitation_mm",
+          "uv_index",
           "observed_at"
         ],
         "title": "WeatherConditions"
