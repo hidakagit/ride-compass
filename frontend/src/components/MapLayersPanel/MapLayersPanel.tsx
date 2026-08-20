@@ -229,7 +229,7 @@ export default function MapLayersPanel({
             <label key={entry.key} className={rowClassName}>
               <input type="checkbox" checked={visible} onChange={() => onToggle(entry.key)} />
               {entry.width !== undefined ? (
-                <WidthSwatch width={entry.width} dashed={entry.dashed} />
+                <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />
               ) : (
                 <span className={styles.swatch} style={{ background: entry.color }} />
               )}
@@ -368,9 +368,11 @@ export default function MapLayersPanel({
   // 凡例チェックボックス＝絞り込み操作（参照表示と操作を1つのリストで兼ねる、ルート凡例と
   // 同じ方式）。OFF中でも操作でき、操作すると自動でONになる。2レイヤーとも同じ形（OFF案内・
   // ズーム警告・データ状態・凡例）のため共通化し、visual（"色"/"太さ"）・axisだけ呼び出し側で渡す。
-  function renderRoadAxisSectionBody(layerId: MapLayerId, axis: RoadFilterAxis, visual: string) {
+  function renderRoadAxisSectionBody(layer: MapLayerDescriptor, axis: RoadFilterAxis, visual: string) {
+    const layerId = layer.id;
     return (
       <>
+        {renderHintToggle(layer.id, layer.label, layer.panelHint)}
         {!layerVisibility[layerId] && (
           <p className={styles.mutedHint}>表示はOFFです[絞り込みを操作すると自動でONになります]</p>
         )}
@@ -404,9 +406,9 @@ export default function MapLayersPanel({
       case "accidents":
         return renderStandardSectionBody(layer);
       case "roadSurface":
-        return renderRoadAxisSectionBody("roadSurface", roadColorAxis, "色");
+        return renderRoadAxisSectionBody(layer, roadColorAxis, "色");
       case "roadType":
-        return renderRoadAxisSectionBody("roadType", roadWidthAxis, "太さ");
+        return renderRoadAxisSectionBody(layer, roadWidthAxis, "太さ");
       default:
         // axis:${string}（ramp軸、改善計画T145b: 停止/事故密度の凡例追加）は
         // carStress等と同じ標準構成（panelHint＋OFF案内＋絞り込み軸）で足りるため、

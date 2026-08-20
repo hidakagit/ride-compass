@@ -15,17 +15,21 @@
 // 意味がある。舗装路だけ見たい場合は「路面の種類」で砂利・土のカテゴリを外せば同じ結果に
 // なるため、機能的な欠落は無い。
 //
-// 地図の色分け（line-color）は常に「路面の種類」の配色で固定する（自転車走行の実用上、
-// 最も情報量が多い軸のため）。ユーザーが色分け軸を選ぶUIは持たない（絞り込みと色の選択を
-// 同じ画面に同居させると、絞り込んだ結果1色しか出ない軸を選べてしまい情報量ゼロになる、
-// という混乱があったため）。
+// 地図の色分け（line-color）は「路面の種類」がONの間は常にその配色で固定する（自転車走行の
+// 実用上、最も情報量が多い軸のため。路面の種類の色が道路の種類の色を上書きする形で、
+// 両方ONでも色の奪い合いは起きない）。ユーザーが色分け軸を選ぶUIは持たない（絞り込みと
+// 色の選択を同じ画面に同居させると、絞り込んだ結果1色しか出ない軸を選べてしまい
+// 情報量ゼロになる、という混乱があったため）。
 //
-// 「道路の種類」は色ではなく線の太さ（line-width）で地図に反映する。色を2軸分掛け合わせる
-// （最大30通り）と細い線では判別できず凡例も破綻するため、道路の種類には別の視覚チャンネル
-// （太さ）を割り当てている。太さは実際の道幅の感覚と一致させ、幹線道路ほど太く・
-// 自転車専用道路ほど細くしてある（HIGHWAY_GROUPSのwidth参照）。不明・他はタグが無い/
-// 未分類なだけで実際の道幅とは無関係なため、太さでは目立たせず線種（破線、line-dasharray）
-// で区別する。
+// 「道路の種類」は主に線の太さ（line-width）・線種（line-dasharray）で地図に反映する。
+// 色を2軸分掛け合わせる（最大30通り）と細い線では判別できず凡例も破綻するため、道路の
+// 種類には別の視覚チャンネル（太さ）を割り当てている。太さは実際の道幅の感覚と一致させ、
+// 幹線道路ほど太く・自転車専用道路ほど細くしてある（HIGHWAY_GROUPSのwidth参照）。
+// 不明・他はタグが無い/未分類なだけで実際の道幅とは無関係なため、太さでは目立たせず
+// 線種（破線）で区別する。ただし「路面の種類」がOFFの間は色チャンネルが空くため、
+// 太さと同じ序列を色相を持たない濃淡でも重ねて表す（COLOR_HIGHWAY_*、実機フィードバック
+// 「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応。詳細はHIGHWAY_GROUPS
+// 直前のコメント、実際の出し分けはMapView.tsx: applyRoadLayerState参照）。
 //
 // 軸を増やすときは、タイルへプロパティを1つ足し、ROAD_FILTER_AXESへ軸定義を1つ足すだけで
 // よい（RoadFilterDialogは軸のリストを汎用的にループして描画するため、UI側の変更は不要）。
@@ -41,11 +45,13 @@ export interface RoadFilterAxis {
   /** 絞り込みパネルの見出しに出す名前（例:「路面の種類で絞り込み」） */
   label: string;
   legend: LegendEntry[];
-  /** MapLibreのline-colorに渡すスタイル式。地図には「路面の種類」軸の式のみを使う。 */
+  /** MapLibreのline-colorに渡すスタイル式。「路面の種類」がONの間は常にそちらの式を使い、
+   * OFFの間だけ「道路の種類」の式（濃淡パレット、COLOR_HIGHWAY_*）を使う
+   * （MapView.tsx: applyRoadLayerState参照）。 */
   colorExpression: unknown[];
   /** MapLibreのline-opacityに渡すスタイル式。「不明・他」（対象外）を目立たなくし、
    * 分類情報を持つ区間だけを浮き上がらせる（下記FALLBACK_LINE_OPACITY参照）。
-   * 地図の色を実際に使う軸（路面の種類）だけが持つ。 */
+   * colorExpressionと同じ「路面の種類ON時はそちら、OFF時は道路の種類側」の出し分けで使う。 */
   opacityExpression?: unknown[];
   /** MapLibreのline-widthに渡すスタイル式。色と衝突しないよう、この式を持つ軸（道路の種類）
    * だけが太さで地図に反映される。色軸（路面の種類）は持たない（undefined）。 */
@@ -82,19 +88,30 @@ export const KNOWN_LINE_OPACITY = 0.8;
 const COLOR_TEAL = "#0d9488";
 const COLOR_VIOLET = "#7c3aed";
 const COLOR_BROWN = "#92400e";
-const COLOR_SKY = "#0284c7";
 const COLOR_SLATE = "#64748b";
 const COLOR_KHAKI = "#a3915f";
 
-// HIGHWAY_GROUPS（道路の種類）専用の色。道路の種類は色ではなく太さ・線種で地図に反映する
-// 軸のため（widthExpression/dashArrayExpression、下記コメント参照）、ここのcolorは
-// 地図のline-colorには使われず、凡例でも各カテゴリがwidthを持つためrenderLegendSwatch
-// （MapOverlayControls.tsx）が色ドットでなく太さバーを表示する＝画面上は不可視。
-// 竹（1次/2次の地図上表現の統一）で問題になっているのは「実際に見える色」の混同なので、
-// 不可視のこれらは対象外としてそのまま残す（不要な変更で差分を膨らませない）。
-const COLOR_GOOD = "#16a34a";
-const COLOR_BAD = "#dc2626";
-const COLOR_AMBER = "#d97706";
+// HIGHWAY_GROUPS（道路の種類）専用の濃淡パレット（改善計画: 実機フィードバック「道路種別が
+// 支配的な場合、色がすべて灰色で違和感がある」への対応）。道路の種類は太さ・線種で地図に
+// 反映する軸のため（widthExpression/dashArrayExpression、下記コメント参照）、以前はここの
+// colorを地図のline-colorに一切使わず（路面の種類がOFFの間は全区間が同じ中立グレー
+// ROAD_LINE_NEUTRAL_COLORの塗り潰しだった）、凡例でも各カテゴリがwidthを持つため
+// renderLegendSwatch（MapOverlayControls.tsx）・WidthSwatch（MapLayersPanel.tsx）が
+// 色ドットでなく太さバーを表示する＝画面上は不可視、という設計だった。
+// 路面の種類の色分けと同時に使われることは無い（路面の種類ONの間は常に路面側の色が
+// line-colorを占有し、この配色は使われない。MapView.tsx: applyRoadLayerState参照）ため、
+// 「路面の種類OFF・道路の種類ONのときだけ」太さと同じ「幹線道路ほど強く目立つ」序列を、
+// 色相を持たない濃淡（青みがかった中立トーン）でも重ねて表現する。太さと同じ情報を
+// なぞる補助的な表現のため、色相ベースの評価配色（axisLayers.ts: AXIS_RAMP_COLORSの
+// 緑〜赤）とは体系的に別の視覚言語にしてあり、2次のcar_stress等の評価色と混同しない
+// （竹でSURFACE_GROUPSから評価色を排したのと同じ理由）。COLOR_SLATE（路面の種類=
+// アスファルトが使用中）やCOLOR_UNKNOWN（不明・他）とも別の色値にし、それぞれの文脈で
+// 意味が食い違わないようにする。太さバー（WidthSwatch）自体もこの色で塗り、地図と凡例の
+// 見た目を一致させる（entry.colorをそのまま渡す、下記buildGroupLegend/呼び出し側参照）。
+const COLOR_HIGHWAY_ARTERIAL = "#334155";
+const COLOR_HIGHWAY_SECONDARY = "#475569";
+const COLOR_HIGHWAY_LOCAL = "#94a3b8";
+const COLOR_HIGHWAY_MINOR = "#cbd5e1";
 
 export interface CategoryGroup {
   key: string;
@@ -166,34 +183,38 @@ const HIGHWAY_GROUPS: CategoryGroup[] = [
   {
     key: "arterial",
     label: "幹線道路",
-    color: COLOR_BAD,
+    color: COLOR_HIGHWAY_ARTERIAL,
     width: HIGHWAY_LINE_WIDTH_ARTERIAL,
     values: ["motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"],
   },
   {
     key: "secondary",
     label: "主要道",
-    color: COLOR_AMBER,
+    color: COLOR_HIGHWAY_SECONDARY,
     width: HIGHWAY_LINE_WIDTH_SECONDARY,
     values: ["secondary", "secondary_link", "tertiary", "tertiary_link"],
   },
   {
     key: "local",
     label: "生活道路",
-    color: COLOR_SKY,
+    color: COLOR_HIGHWAY_LOCAL,
     width: HIGHWAY_LINE_WIDTH_LOCAL,
     values: ["residential", "unclassified", "living_street", "service", "road"],
   },
   {
     key: "cycleway",
     label: "自転車・歩行者道",
-    color: COLOR_GOOD,
+    color: COLOR_HIGHWAY_MINOR,
     width: HIGHWAY_LINE_WIDTH_CYCLEWAY,
     values: ["cycleway", "path", "footway", "pedestrian", "bridleway", "steps"],
   },
   {
     key: "track",
     label: "農道・林道",
+    // 自転車・歩行者道と太さ（HIGHWAY_LINE_WIDTH_TRACK=CYCLEWAY）が同じため、濃淡だけでは
+    // 見分けが付かない。COLOR_HIGHWAY_MINORをそのまま使わず、SURFACE_GROUPSの「土・草・砂」
+    // （dirt）と同じCOLOR_BROWNを流用する（両者は「路面の種類」ONの間はこの軸の色自体が
+    // 使われないため画面上で同時に競合しない、テーマ的にも未舗装路のイメージが重なり自然）。
     color: COLOR_BROWN,
     width: HIGHWAY_LINE_WIDTH_TRACK,
     values: ["track"],
@@ -293,7 +314,10 @@ export const ROAD_FILTER_AXES: RoadFilterAxis[] = [
     id: "highway",
     label: "道路の種類",
     legend: buildGroupLegend("highway", HIGHWAY_GROUPS, HIGHWAY_LINE_WIDTH_UNKNOWN, true),
+    // colorExpression/opacityExpressionは「路面の種類」がOFFのときだけMapView.tsx側が使う
+    // （applyRoadLayerState参照）。路面の種類がONの間はsurface軸の式が優先されるため未使用。
     colorExpression: buildMatchExpression("highway", HIGHWAY_GROUPS),
+    opacityExpression: buildOpacityMatchExpression("highway", HIGHWAY_GROUPS),
     widthExpression: buildWidthMatchExpression("highway", HIGHWAY_GROUPS, HIGHWAY_LINE_WIDTH_UNKNOWN),
     dashArrayExpression: buildDashArrayExpression("highway", HIGHWAY_GROUPS),
   },

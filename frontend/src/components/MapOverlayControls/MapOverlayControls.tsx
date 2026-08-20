@@ -151,17 +151,27 @@ interface PanelRect {
 }
 
 // 凡例1カテゴリぶんのスウォッチ。太さ・線種で地図に反映するカテゴリ（entry.widthを持つ、
-// 例:「道路の種類」）は色スウォッチのままだと「この色が地図に出る」という誤った期待を
-// 持たせてしまう（WidthSwatch.tsxと同じ理由）ため、太さバーで示す。
+// 例:「道路の種類」）は、実寸の太さバーで示す（WidthSwatch.tsxと同じ理由）。バー自体も
+// entry.colorで塗る（改善計画: 「道路種別が支配的な場合、色がすべて灰色で違和感がある」
+// への対応で道路の種類も濃淡パレット（COLOR_HIGHWAY_*）を持つようになったため、凡例と
+// 地図の見た目を一致させる。路面の種類等widthを持たないカテゴリは従来どおり色ドット）。
 function renderLegendSwatch(entry: LegendEntry) {
-  return entry.width !== undefined ? (
-    <span
-      className={entry.dashed ? `${styles.detailSwatchBar} ${styles.detailSwatchBarDashed}` : styles.detailSwatchBar}
-      style={{ height: `${Math.max(2, entry.width)}px` }}
-    />
-  ) : (
-    <span className={styles.detailSwatchDot} style={{ background: entry.color }} />
-  );
+  if (entry.width === undefined) {
+    return <span className={styles.detailSwatchDot} style={{ background: entry.color }} />;
+  }
+  const height = `${Math.max(2, entry.width)}px`;
+  if (entry.dashed) {
+    return (
+      <span
+        className={`${styles.detailSwatchBar} ${styles.detailSwatchBarDashed}`}
+        style={{
+          height,
+          backgroundImage: `repeating-linear-gradient(to right, ${entry.color} 0, ${entry.color} 2px, transparent 2px, transparent 4px)`,
+        }}
+      />
+    );
+  }
+  return <span className={styles.detailSwatchBar} style={{ height, background: entry.color }} />;
 }
 
 // ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べ、
