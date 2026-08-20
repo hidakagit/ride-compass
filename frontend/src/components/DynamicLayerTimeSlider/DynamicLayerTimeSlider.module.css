@@ -1,12 +1,10 @@
-/* 地図下部中央に浮かべる時刻スライダー（改善計画T170）。地図のドラッグ・ズーム操作を
-   妨げないよう、余白部分はpointer-eventsを透過させ、実際に操作するコントロール自身だけ
-   autoへ戻す（MapOverlayControls.module.cssの.wrapperと同じ方式）。 */
+/* 時刻スライダー1本分。地図下部中央への配置（position/z-index）・複数本の縦積みは
+   page.tsx側の親コンテナ（DynamicLayerTimeSliderStack、page.module.css）が担う
+   （このコンポーネント自体は単体でも複数同時マウントでも同じ見た目になるよう、自身は
+   位置指定を持たない）。地図のドラッグ・ズーム操作を妨げないよう、余白部分は
+   pointer-eventsを透過させ、実際に操作するコントロール自身だけautoへ戻す
+   （MapOverlayControls.module.cssの.wrapperと同じ方式）。 */
 .wrapper {
-  position: absolute;
-  bottom: var(--space-3);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
   pointer-events: none;
 }
 

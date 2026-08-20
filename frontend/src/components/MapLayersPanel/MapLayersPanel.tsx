@@ -399,6 +399,7 @@ export default function MapLayersPanel({
           </>
         );
       case "precipitationNowcast":
+      case "windVector":
         // elevationと同じ理由（絞り込みUIを持たないレイヤー）でOFF案内
         // （renderOffHint、「絞り込みを操作すると自動でONになります」）を出さない。
         // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
