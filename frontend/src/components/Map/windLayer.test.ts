@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampWindDetailBbox,
   formatWindFrameTime,
+  mergeWindGridKeepingStale,
   nearestFrameIndexToNow,
   trimWindGridToCurrentAndFuture,
   windGridToCellFeatureCollection,
@@ -174,6 +175,38 @@ describe("windLayer", () => {
     it("数値はWIND_SPEED_COLOR_STOPSと食い違わない（単一の情報源）", () => {
       expect(WIND_SPEED_LEGEND_LEVELS[1].color).toBe(WIND_SPEED_COLOR_STOPS[0].color);
       expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.color).toBe(WIND_SPEED_COLOR_STOPS[6].color);
+    });
+  });
+
+  describe("mergeWindGridKeepingStale（実機フィードバック「画面端が塗られないことがある」）", () => {
+    function point(lat: number, lon: number, speed: number): WindGridPoint {
+      return { latitude: lat, longitude: lon, times: ["t0"], wind_speed_ms: [speed], wind_direction_deg: [0] };
+    }
+
+    it("nextに存在する地点はnextの値を優先する（更新される）", () => {
+      const previous = [point(35, 139, 1)];
+      const next = [point(35, 139, 9)];
+      const result = mergeWindGridKeepingStale(previous, next);
+      expect(result).toHaveLength(1);
+      expect(result[0].wind_speed_ms).toEqual([9]);
+    });
+
+    it("nextに無い地点はpreviousの値のまま残す（一時的な取得失敗で穴を開けない）", () => {
+      const previous = [point(35, 139, 1), point(36, 140, 2)];
+      const next = [point(35, 139, 9)]; // (36,140)がOpen-Meteo側の失敗で欠落した想定
+      const result = mergeWindGridKeepingStale(previous, next);
+      expect(result).toHaveLength(2);
+      expect(result.find((p) => p.latitude === 36)?.wind_speed_ms).toEqual([2]);
+    });
+
+    it("previousが空でもnextだけの結果を返す", () => {
+      const next = [point(35, 139, 9)];
+      expect(mergeWindGridKeepingStale([], next)).toEqual(next);
+    });
+
+    it("nextが空ならpreviousを丸ごと残す", () => {
+      const previous = [point(35, 139, 1)];
+      expect(mergeWindGridKeepingStale(previous, [])).toEqual(previous);
     });
   });
 
