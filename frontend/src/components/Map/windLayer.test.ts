@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { clampWindDetailBbox, formatWindFrameTime, nearestFrameIndexToNow, windGridToFeatureCollection } from "./windLayer";
+import {
+  clampWindDetailBbox,
+  formatWindFrameTime,
+  nearestFrameIndexToNow,
+  windGridToCellFeatureCollection,
+  windGridToFeatureCollection,
+} from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 describe("windLayer", () => {
@@ -64,6 +70,45 @@ describe("windLayer", () => {
 
     it("空配列を渡すと空のFeatureCollectionを返す", () => {
       const fc = windGridToFeatureCollection([], 0);
+      expect(fc.features).toHaveLength(0);
+    });
+  });
+
+  describe("windGridToCellFeatureCollection", () => {
+    const grid: WindGridPoint[] = [
+      { latitude: 35.68, longitude: 139.77, times: ["t0", "t1"], wind_speed_ms: [2.5, 3.1], wind_direction_deg: [90, 180] },
+      { latitude: 36.0, longitude: 140.0, times: ["t0", "t1"], wind_speed_ms: [1.0, 4.2], wind_direction_deg: [0, 270] },
+    ];
+
+    it("各点を中心とする1辺spacingDegの正方形ポリゴンを作る", () => {
+      const fc = windGridToCellFeatureCollection(grid, 0, 0.1);
+      expect(fc.features).toHaveLength(2);
+      const [ring] = fc.features[0].geometry.coordinates;
+      // 中心(139.77, 35.68)を囲む1辺0.1度の正方形(閉じたリングで5点)
+      expect(ring).toHaveLength(5);
+      expect(ring[0][0]).toBeCloseTo(139.72);
+      expect(ring[0][1]).toBeCloseTo(35.63);
+      expect(ring[2][0]).toBeCloseTo(139.82);
+      expect(ring[2][1]).toBeCloseTo(35.73);
+      expect(fc.features[0].properties.speed).toBe(2.5);
+    });
+
+    it("frameIndexが変わると値も追従する", () => {
+      const fc = windGridToCellFeatureCollection(grid, 1, 0.1);
+      expect(fc.features[0].properties.speed).toBe(3.1);
+      expect(fc.features[1].properties.speed).toBe(4.2);
+    });
+
+    it("速度が欠損している格子点はスキップする", () => {
+      const sparse: WindGridPoint[] = [
+        { latitude: 35.68, longitude: 139.77, times: ["t0"], wind_speed_ms: [null as unknown as number], wind_direction_deg: [90] },
+      ];
+      const fc = windGridToCellFeatureCollection(sparse, 0, 0.1);
+      expect(fc.features).toHaveLength(0);
+    });
+
+    it("空配列を渡すと空のFeatureCollectionを返す", () => {
+      const fc = windGridToCellFeatureCollection([], 0, 0.1);
       expect(fc.features).toHaveLength(0);
     });
   });

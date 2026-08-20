@@ -137,11 +137,15 @@ const WIND_VECTOR_LAYER_ID = "region-wind-vector-arrows";
 // 少し大きく・濃色単色で下に敷くことでハロー（縁取り）を作る。symbolレイヤーのicon-*には
 // text-halo-colorに相当するプロパティが無いため、この「同じ形を重ねる」方式が定番の代替策。
 const WIND_VECTOR_HALO_LAYER_ID = "region-wind-vector-arrows-halo";
-// 面（ヒートマップ）層（改善計画T180、ユーザー要望「周辺エリア全体の風の強さが分かりにくい」
-// 対応）。矢印と同じsourceの点データをMapLibre標準のheatmap型で塗り、局所的な強弱を
-// 面として見せる。矢印（向き・正確な値）とヒートマップ（周辺一帯の強さの雰囲気）は
-// 役割が異なるため両方を重ねる。
-const WIND_VECTOR_HEATMAP_LAYER_ID = "region-wind-vector-heatmap";
+// 格子セル（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応）。
+// 矢印は1点の値を示す記号だが、格子点は実際には周辺の面（隣の格子点までの範囲）を
+// 代表しているため、そのセルを矢印と同じ色スケールで薄く塗って対応関係を明示する
+// （windLayer.ts: windGridToCellFeatureCollection参照）。T180で追加したheatmapレイヤーは
+// 「なめらかな密度分布」を見せる一方、どの矢印がどの範囲の値かというセル境界を
+// 逆に曖昧にしてしまうため、こちらへ置き換えた（矢印とは別のGeoJSON source、
+// polygonジオメトリを持つ）。
+const WIND_VECTOR_CELLS_SOURCE_ID = "region-wind-vector-cells";
+const WIND_VECTOR_CELLS_LAYER_ID = "region-wind-vector-cells-fill";
 const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -515,6 +519,21 @@ const WIND_ICON_MIN_SCALE = 0.7;
 const WIND_ICON_MAX_SCALE = 1.9;
 // ハロー（縁取り）層は主層より一回り大きい濃色シルエットを下に敷く倍率。
 const WIND_ICON_HALO_SCALE_MULTIPLIER = 1.35;
+// 弱い風=青→中程度=オレンジ→強い風=赤の連続グラデーション。矢印のicon-colorとセルの
+// fill-color（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応）
+// の両方でこの同じ定数を使うことで、「この矢印の色＝このセルの色」という対応を保証する
+// （2箇所に同じ配色を書くと片方だけ直して食い違う事故が起きうるため1箇所へ集約）。
+const WIND_COLOR_SCALE_EXPRESSION = [
+  "interpolate",
+  ["linear"],
+  ["to-number", ["get", "speed"]],
+  0,
+  "#60a5fa",
+  7,
+  "#f59e0b",
+  15,
+  "#dc2626",
+] as unknown as maplibregl.ExpressionSpecification;
 
 function windIconSizeExpression(scaleMultiplier: number) {
   return [
@@ -636,44 +655,27 @@ function ensureWindVectorLayer(map: MapLibreMap) {
       data: EMPTY_FEATURE_COLLECTION,
       attribution: "Open-Meteo",
     });
-    // 面（ヒートマップ）層。矢印より下に敷く（矢印を隠さないため）。無風に近い地点も
-    // 含め全点を使う（矢印と違い、面表現では「このあたりは穏やか」という情報も
-    // 薄い色として意味があるため、calmFilterは掛けない）。地図の視界を圧迫しないよう
-    // （設計原則12）不透明度は控えめに抑える。
+    // 格子セル層。矢印より下に敷く（矢印を隠さないため）。無風に近い地点も含め全点を
+    // 使う（矢印と違い、面表現では「このあたりは穏やか」という情報も薄い色として意味が
+    // あるため、calmFilterは掛けない）。矢印と全く同じ色スケール（WIND_COLOR_SCALE_
+    // EXPRESSION）で塗ることで、矢印↔セルの対応が一目で分かるようにする。地図の視界を
+    // 圧迫しないよう（設計原則12）不透明度は薄めに抑える。
+    if (!map.getSource(WIND_VECTOR_CELLS_SOURCE_ID)) {
+      map.addSource(WIND_VECTOR_CELLS_SOURCE_ID, {
+        type: "geojson",
+        data: EMPTY_FEATURE_COLLECTION,
+      });
+    }
     map.addLayer({
-      id: WIND_VECTOR_HEATMAP_LAYER_ID,
-      type: "heatmap",
-      source: WIND_VECTOR_SOURCE_ID,
+      id: WIND_VECTOR_CELLS_LAYER_ID,
+      type: "fill",
+      source: WIND_VECTOR_CELLS_SOURCE_ID,
       layout: {
         visibility: "none",
       },
       paint: {
-        // 重みの基準値は矢印（0〜15m/s）よりずっと低い0〜8m/sにしている。実機確認（2026-08-20、
-        // 関東全域が終日1〜2m/s程度の穏やかな日）で15m/s基準だと重みが0.1前後に潰れ、
-        // ヒートマップがほぼ透明で見えなかったため、日常的に観測される範囲（そよ風〜
-        // やや強い風）で色が付くよう基準を下げた。8m/s以上は一様に強風として飽和させる。
-        "heatmap-weight": ["interpolate", ["linear"], ["to-number", ["get", "speed"]], 0, 0, 8, 1],
-        // ズームが進むほど点間の間隔が画面上で広がるため、半径・強度ともズームに応じて
-        // 大きくし、格子点同士が滑らかに繋がって見えるようにする（低ズームで半径固定だと
-        // 点がバラバラに見え、高ズームで固定だと1点に潰れて見える）。
-        // 格子点の間隔（詳細格子は固定0.02度）は画面上のピクセル間隔がズームのたびに倍々で
-        // 広がるため、半径もそれに追従させないと点同士が繋がらず「面」ではなく「点の集まり」に
-        // 見えてしまう（実機確認で判明。ズーム13で0.02度≈143px間隔に対し半径79pxだと
-        // ほぼ繋がらず、ヒートマップがほとんど見えなかった）。半径をズームに応じて大きく
-        // 伸ばす代わりに、半径が伸びるほど1点あたりの寄与も大きくなり全体が飽和しやすくなる
-        // ため、intensityは逆にズームが進むほど下げてバランスを取る。
-        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 6, 20, 10, 40, 12, 90, 14, 200, 16, 380],
-        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 10, 0.8, 14, 0.55, 16, 0.4],
-        "heatmap-color": [
-          "interpolate",
-          ["linear"],
-          ["heatmap-density"],
-          0, "rgba(96,165,250,0)",
-          0.15, "rgba(96,165,250,0.4)",
-          0.5, "rgba(245,158,11,0.5)",
-          1, "rgba(220,38,38,0.6)",
-        ],
-        "heatmap-opacity": 0.65,
+        "fill-color": WIND_COLOR_SCALE_EXPRESSION,
+        "fill-opacity": 0.22,
       },
     });
     // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
@@ -716,16 +718,9 @@ function ensureWindVectorLayer(map: MapLibreMap) {
         visibility: "none",
       },
       paint: {
-        // 弱い風=青→中程度=オレンジ→強い風=赤の連続グラデーション（ヒートマップ的な
-        // 配色をicon-color 1本で表現、太さ・長さと合わせて三重の表現にする）。
-        "icon-color": [
-          "interpolate",
-          ["linear"],
-          ["to-number", ["get", "speed"]],
-          0, "#60a5fa",
-          7, "#f59e0b",
-          15, "#dc2626",
-        ],
+        // WIND_COLOR_SCALE_EXPRESSION（弱い風=青→中程度=オレンジ→強い風=赤）を格子セルの
+        // fill-colorと共有し、太さ・長さと合わせて三重の表現にする。
+        "icon-color": WIND_COLOR_SCALE_EXPRESSION,
         "icon-opacity": 1,
       },
       filter: [">", ["to-number", ["get", "speed"]], WIND_CALM_THRESHOLD_MS],
@@ -734,14 +729,15 @@ function ensureWindVectorLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// windVectorGeoJson（page.tsx側でwindLayer.tsのwindGridToFeatureCollectionから計算した値）を
-// 反映する。visible/windVectorGeoJsonのどちらか一方でも欠けていれば非表示のまま
-// （applyPrecipitationNowcastStateと同じ、フェッチ未完了・取得失敗時に古いフレームの
-// 矢印が一瞬見えるのを防ぐ）。
+// windVectorGeoJson/windCellGeoJson（page.tsx側でwindLayer.tsのwindGridToFeatureCollection/
+// windGridToCellFeatureCollectionから計算した値）を反映する。visible/windVectorGeoJsonの
+// どちらか一方でも欠けていれば非表示のまま（applyPrecipitationNowcastStateと同じ、
+// フェッチ未完了・取得失敗時に古いフレームの矢印が一瞬見えるのを防ぐ）。
 function applyWindVectorState(
   map: MapLibreMap,
   visible: boolean,
-  windVectorGeoJson: GeoJSON.FeatureCollection | undefined
+  windVectorGeoJson: GeoJSON.FeatureCollection | undefined,
+  windCellGeoJson: GeoJSON.FeatureCollection | undefined
 ) {
   runWhenStyleReady(map, () => {
     ensureWindVectorLayer(map);
@@ -749,8 +745,12 @@ function applyWindVectorState(
       const source = map.getSource(WIND_VECTOR_SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(windVectorGeoJson);
     }
+    if (windCellGeoJson) {
+      const cellsSource = map.getSource(WIND_VECTOR_CELLS_SOURCE_ID) as GeoJSONSource | undefined;
+      cellsSource?.setData(windCellGeoJson);
+    }
     const shouldShow = visible && windVectorGeoJson != null;
-    setLayerVisibility(map, WIND_VECTOR_HEATMAP_LAYER_ID, shouldShow);
+    setLayerVisibility(map, WIND_VECTOR_CELLS_LAYER_ID, shouldShow);
     setLayerVisibility(map, WIND_VECTOR_HALO_LAYER_ID, shouldShow);
     setLayerVisibility(map, WIND_VECTOR_LAYER_ID, shouldShow);
   });
@@ -1472,6 +1472,10 @@ interface MapViewProps {
    * showPrecipitationNowcast/precipitationNowcastTileUrlと同じ扱い。 */
   showWindVector: boolean;
   windVectorGeoJson: GeoJSON.FeatureCollection | undefined;
+  /** 風の格子セル（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」
+   * 対応）。page.tsx側でwindLayer.tsのwindGridToCellFeatureCollectionから計算した、
+   * windVectorGeoJsonと同じ格子・同じ時刻フレームぶんのポリゴンFeatureCollection。 */
+  windCellGeoJson: GeoJSON.FeatureCollection | undefined;
   /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
    * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
    * applyRoadLayerState参照）。 */
@@ -1545,6 +1549,7 @@ export default function MapView({
   precipitationNowcastTileUrl,
   showWindVector,
   windVectorGeoJson,
+  windCellGeoJson,
   showRoadType,
   showRoadSurface,
   showCarStress,
@@ -1596,6 +1601,7 @@ export default function MapView({
     precipitationNowcastTileUrl,
     showWindVector,
     windVectorGeoJson,
+    windCellGeoJson,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1640,6 +1646,7 @@ export default function MapView({
       precipitationNowcastTileUrl,
       showWindVector,
       windVectorGeoJson,
+      windCellGeoJson,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1668,6 +1675,7 @@ export default function MapView({
     precipitationNowcastTileUrl,
     showWindVector,
     windVectorGeoJson,
+    windCellGeoJson,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1704,6 +1712,7 @@ export default function MapView({
       precipitationNowcastTileUrl,
       showWindVector,
       windVectorGeoJson,
+      windCellGeoJson,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1733,7 +1742,7 @@ export default function MapView({
     });
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
     applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyWindVectorState(map, showWindVector, windVectorGeoJson);
+    applyWindVectorState(map, showWindVector, windVectorGeoJson, windCellGeoJson);
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
@@ -2245,9 +2254,16 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyWindVectorState(map, showWindVector, windVectorGeoJson);
+    applyWindVectorState(map, showWindVector, windVectorGeoJson, windCellGeoJson);
     recomputeLayerDataStatus();
-  }, [showPrecipitationNowcast, precipitationNowcastTileUrl, showWindVector, windVectorGeoJson, recomputeLayerDataStatus]);
+  }, [
+    showPrecipitationNowcast,
+    precipitationNowcastTileUrl,
+    showWindVector,
+    windVectorGeoJson,
+    windCellGeoJson,
+    recomputeLayerDataStatus,
+  ]);
 
   // 車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
   // 事故（当事者/重大度）の絞り込み（改善計画T63）。
