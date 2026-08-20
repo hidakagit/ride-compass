@@ -75,6 +75,28 @@ export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], n
   }));
 }
 
+/** 新しく取得した格子（next）に、前回の格子（previous）のうちnextに無い地点だけを
+ * 補って返す（実機フィードバック「画面端が塗られないことがある」）。バックエンド
+ * （GET /api/weather/wind-grid・wind-grid-detail）はOpen-Meteo側の失敗（429等、この
+ * セッション中にも実際に発生）で個別地点の取得に失敗すると、その地点をレスポンスから
+ * 丸ごと除外する「取得失敗は握りつぶす」方針（api/routers/weather.py参照）のため、
+ * 再取得のたびにどの地点が欠けるかが変わりうる。前回成功していた地点をそのまま
+ * 残すことで、1地点の一時的な失敗が地図上の「その場所だけ塗られていない」穴として
+ * 見えてしまうのを防ぐ（背景の色分けは正確な最新値である必要は薄く、多少古い値が
+ * 残る方が穴が開くより実用上マシという判断。バックエンド側のstale fallback
+ * ＝weather_client.pyのSTALE_FALLBACK_MAX_AGE_SECONDSと同じ考え方をフロント側にも
+ * 及ぼす）。地点の同一性は緯度経度（固定ラティス由来でどちらも同じ丸め精度）で判定する。
+ * 呼び出し側は生（trim前）の格子を渡すこと（trim後は「現在」の位置が取得のたびにずれ、
+ * 古い地点だけindexの意味が食い違ってしまうため）。 */
+export function mergeWindGridKeepingStale(
+  previous: readonly WindGridPoint[],
+  next: readonly WindGridPoint[]
+): WindGridPoint[] {
+  const nextKeys = new Set(next.map((point) => `${point.latitude},${point.longitude}`));
+  const staleCarryOver = previous.filter((point) => !nextKeys.has(`${point.latitude},${point.longitude}`));
+  return [...next, ...staleCarryOver];
+}
+
 /** ISO風の"YYYY-MM-DDTHH:MM"（JST）→ 表示用のJST時刻文字列。約48時間先まで日付をまたぐため
  * "M/D HH:mm"で日付も含める（precipitationNowcast.tsのformatNowcastFrameTimeは±60分で
  * 日付をまたがないため時刻のみ、こちらは異なる）。 */

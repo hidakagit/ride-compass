@@ -157,6 +157,10 @@ const WIND_VECTOR_BASE_CELLS_SOURCE_ID = "region-wind-vector-base-cells";
 const WIND_VECTOR_BASE_CELLS_LAYER_ID = "region-wind-vector-base-cells-fill";
 const WIND_VECTOR_DETAIL_CELLS_SOURCE_ID = "region-wind-vector-detail-cells";
 const WIND_VECTOR_DETAIL_CELLS_LAYER_ID = "region-wind-vector-detail-cells-fill";
+// セルの不透明度。base層が可視範囲全体を常時覆うようになった（上記2層構成コメント参照）
+// ことで、以前（detailのみが画面の一部だけを覆っていた頃）の0.22だと色が強すぎるという
+// 実機フィードバック「タイル色の透過度を調整して。やや色がつよい」を受け、下げた。
+const WIND_CELL_FILL_OPACITY = 0.14;
 const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -708,7 +712,7 @@ function ensureWindVectorLayer(map: MapLibreMap) {
       },
       paint: {
         "fill-color": WIND_COLOR_SCALE_EXPRESSION,
-        "fill-opacity": 0.22,
+        "fill-opacity": WIND_CELL_FILL_OPACITY,
       },
     });
     // detail層はbaseの真上（baseより後にaddLayerする＝スタック上で上）に敷く。
@@ -727,7 +731,7 @@ function ensureWindVectorLayer(map: MapLibreMap) {
       },
       paint: {
         "fill-color": WIND_COLOR_SCALE_EXPRESSION,
-        "fill-opacity": 0.22,
+        "fill-opacity": WIND_CELL_FILL_OPACITY,
       },
     });
     // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に

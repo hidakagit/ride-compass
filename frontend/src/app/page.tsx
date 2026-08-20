@@ -66,6 +66,7 @@ import {
 import {
   clampWindDetailBbox,
   formatWindFrameTime,
+  mergeWindGridKeepingStale,
   nearestFrameIndexToNow,
   parseJstTime,
   trimWindGridToCurrentAndFuture,
@@ -822,18 +823,27 @@ export default function Home() {
   // ヒットするだけで新しいデータは得られない。TTLに合わせた間隔で再取得する。
   const WIND_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
   const showWindVector = layerVisibility.windVector;
+  // 直近成功した生（trim前）の格子。再取得のたびにOpen-Meteo側の一時的な失敗
+  // （429等、このセッション中にも実際に発生）で一部地点だけ抜け落ちることがあり、
+  // そのまま置き換えると地図の背景色に「その地点だけ塗られていない」穴ができる
+  // （実機フィードバック「画面端が塗られないことがある」）。前回成功していた地点を
+  // 補って残すmergeWindGridKeepingStale（windLayer.ts）のため、trim前の生の状態を
+  // refで持ち続ける（windGrid自体はtrim後の表示用state、こちらはマージ専用の内部状態）。
+  const rawWindGridRef = useRef<WindGridPoint[]>([]);
   useEffect(() => {
     if (!showWindVector) return;
     let cancelled = false;
     const load = async (isFirstLoad: boolean) => {
       if (isFirstLoad) setWindLoading(true);
       try {
+        const rawGrid = mergeWindGridKeepingStale(rawWindGridRef.current, await getWindGrid());
+        rawWindGridRef.current = rawGrid;
         // Open-Meteoのhourly.timeはその日の00:00始まりのため、そのままだと配列の前半に
         // 過去の時刻が並ぶ。過去の風を振り返る用途はアプリの性質上無いため（実機
         // フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を
         // 左端に」）、trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる
         // （nowcast側のtrimToCurrentAndFutureと同じ理由）。
-        const grid = trimWindGridToCurrentAndFuture(await getWindGrid());
+        const grid = trimWindGridToCurrentAndFuture(rawGrid);
         if (cancelled) return;
         setWindGrid(grid);
         setWindError(null);
@@ -860,6 +870,11 @@ export default function Home() {
   // 地図フィルタの再適用と違いネットワーク往復を伴うため、より鷹揚な間隔にしている）。
   const WIND_DETAIL_VIEWPORT_DEBOUNCE_MS = 500;
   const debouncedMapViewport = useDebouncedValue(mapViewport, WIND_DETAIL_VIEWPORT_DEBOUNCE_MS);
+  // rawWindGridRefと同じ理由（穴あき対策のマージ用、trim前の生の状態）。ただしこちらは
+  // ビューポートに応じてbboxが動くため、無限に古い地点を溜め込まないよう、マージ前に
+  // 「現在のbboxに含まれる地点だけ」へ絞り込んでから使う（bbox外の地点は既に画面外なので
+  // 補う意味が無く、絞り込まないと遠く離れたパン履歴がずっとメモリに残り続けてしまう）。
+  const rawWindDetailGridRef = useRef<WindGridPoint[]>([]);
   useEffect(() => {
     let cancelled = false;
     // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
@@ -869,10 +884,23 @@ export default function Home() {
       if (!showWindVector || !debouncedMapViewport || debouncedMapViewport.zoom < WIND_DETAIL_MIN_ZOOM) {
         // ズームアウトした・風レイヤーOFFにした場合は詳細格子を捨てて粗い格子へ戻す
         // （古いズームイン時点の詳細格子が、ズームアウト後もそのまま使われ続けるのを防ぐ）。
+        rawWindDetailGridRef.current = [];
         setWindDetailGrid([]);
         return;
       }
+      const bbox = clampWindDetailBbox(debouncedMapViewport);
       try {
+        const freshGrid = await getWindGridDetail(bbox);
+        if (cancelled) return;
+        const relevantPrevious = rawWindDetailGridRef.current.filter(
+          (point) =>
+            point.longitude >= bbox.minLon &&
+            point.longitude <= bbox.maxLon &&
+            point.latitude >= bbox.minLat &&
+            point.latitude <= bbox.maxLat
+        );
+        const rawGrid = mergeWindGridKeepingStale(relevantPrevious, freshGrid);
+        rawWindDetailGridRef.current = rawGrid;
         // windGridと同じ切り詰め（trimWindGridToCurrentAndFuture）を適用しないと、
         // windFrameIndex（windGrid[0]?.timesを正に導出、下記windFrameIndex参照）が
         // effectiveWindGridへ切り替わったときにindexの意味がずれてしまう（windGridは
@@ -880,13 +908,13 @@ export default function Home() {
         // 食い違う）。windGrid・windDetailGridは別々のタイミングでフェッチされるため、
         // 正時をまたいだ瞬間だけ切り詰め開始時刻が1時間ずれる可能性はあるが、次の再取得
         // （30分TTL・ビューポート変更時）で自然に揃うため許容する。
-        const grid = trimWindGridToCurrentAndFuture(await getWindGridDetail(clampWindDetailBbox(debouncedMapViewport)));
-        if (cancelled) return;
+        const grid = trimWindGridToCurrentAndFuture(rawGrid);
         setWindDetailGrid(grid);
       } catch {
         // 補助的な機能のため、失敗時はエラー表示をせず静かに粗い格子（windGrid）へ
         // フォールバックする（リクエスト自体のログはweatherApi.ts側で既に記録済み）。
         if (cancelled) return;
+        rawWindDetailGridRef.current = [];
         setWindDetailGrid([]);
       }
     });
