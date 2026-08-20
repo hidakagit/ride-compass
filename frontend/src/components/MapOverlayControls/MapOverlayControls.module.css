@@ -167,6 +167,22 @@
   cursor: default;
 }
 
+/* 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
+   グループ配下を少しずつ色を変えてグルーピングして」）。見出しチップ・メンバータイルの
+   両方に同じグループの色を適用し、縦一列に並んだチップがどのグループの一員か一目で
+   分かるようにする。border-colorだけを変える控えめな差にとどめ、ON（.iconChipActive、
+   青）・展開見出し（.iconChipExpanded、地味色）という既存の2つの意味は保つ
+   （このルールより後に書かれているそれらのクラスが同時に付いたときはそちらが勝つ）。 */
+.iconChipGroupRaw {
+  border-color: var(--color-group-raw);
+}
+.iconChipGroupComposite {
+  border-color: var(--color-group-composite);
+}
+.iconChipGroupDynamic {
+  border-color: var(--color-group-dynamic);
+}
+
 .iconChipActive {
   background: var(--color-accent);
   border-color: var(--color-accent);

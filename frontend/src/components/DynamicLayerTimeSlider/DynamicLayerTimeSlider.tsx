@@ -16,9 +16,20 @@ interface DynamicLayerTimeSliderProps {
   index: number;
   onIndexChange: (index: number) => void;
   /** 「現在」に相当するframesのindex（precipitationNowcast.ts: latestObservedFrameIndex・
-   * windLayer.ts: nearestFrameIndexToNowを呼び出し側が計算した値）。「現在」ボタンの
-   * ジャンプ先、かつindexと一致する間はボタンを無効化する判定にも使う。 */
+   * windLayer.ts: nearestFrameIndexToNowを呼び出し側が計算した値）。「現在」ボタンを
+   * 無効化する判定（index===currentIndexの間はno-op）にのみ使う。ジャンプ先の決定は
+   * onNowが担う（このindexそのものへは飛ばない、下記onNowのコメント参照）。 */
   currentIndex: number;
+  /** 「現在」ボタンを押したときの処理。呼び出し側（page.tsx）が実時刻(new Date())へ
+   * 共有の対象時刻を戻す想定（改善計画、実機フィードバック「現在リセットすると23:00になって
+   * 上バーが消えた」）。以前はonIndexChange(currentIndex)、つまり「このレイヤー自身の
+   * "現在"フレームの時刻」へ共有時刻を合わせていたが、風は1時間刻みでcurrentIndexが
+   * 実時刻より最大59分過去の正時に丸まる（例: 23:25の実時刻でcurrentIndex=23:00）。
+   * 降水ナウキャストは「現在」より前のフレームを持たない（trimToCurrentAndFuture参照）ため、
+   * 風側の「現在」ボタンでこの過去寄りの時刻へ共有時刻を合わせると、降水側が範囲外
+   * （unavailable）になってしまう不具合があった。実時刻そのものへ戻せば両レイヤーとも
+   * 自分の最寄りフレームへ素直に追従し、この食い違いが起きない。 */
+  onNow: () => void;
   /** フレーム一覧の取得中（初回フェッチがまだ終わっていない）。 */
   loading: boolean;
   /** loading中に表示するメッセージ（レイヤーごとに文言が異なるため呼び出し側から渡す）。 */
@@ -49,6 +60,7 @@ export default function DynamicLayerTimeSlider({
   index,
   onIndexChange,
   currentIndex,
+  onNow,
   loading,
   loadingLabel,
   error,
@@ -98,14 +110,13 @@ export default function DynamicLayerTimeSlider({
           onChange={(e) => onIndexChange(Number(e.target.value))}
         />
         {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
-            未来側を見ていたスライダー位置を、ワンタップで「現在」（precipitationNowcast.ts:
-            latestObservedFrameIndex・windLayer.ts: nearestFrameIndexToNow）へ戻す。
-            既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの
+            未来・過去側を見ていたスライダー位置を、ワンタップで実時刻へ戻す（onNowコメント
+            参照）。既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの
             全レイヤー一括OFFボタンと同じ、押しても何も起きない状態を無効表示にする方針）。 */}
         <button
           type="button"
           className={styles.nowButton}
-          onClick={() => onIndexChange(currentIndex)}
+          onClick={onNow}
           disabled={index === currentIndex}
           aria-label={`${ariaLabel}を現在に戻す`}
           title="現在に戻す"
