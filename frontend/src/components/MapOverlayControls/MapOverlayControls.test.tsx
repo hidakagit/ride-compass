@@ -225,6 +225,21 @@ describe("MapOverlayControls", () => {
       );
     });
 
+    // 実機フィードバック「地図上の各アイコンの縁取りが見にくい。一度選択して解除すると、
+    // 縁取りが全て青色になってしまう」への対応。ON状態（iconChipActive、背景が青）でも
+    // グループ色分け用のクラス（iconChipGroupRaw等）自体は外れずに残ることを確認する
+    // （CSS側でコンパウンドセレクタにより枠線だけグループ色を守り返す設計、
+    // MapOverlayControls.module.css参照）。色の実値はjsdomでは信頼できないため、
+    // クラスの併存という構造面だけを検証する。
+    it("ONのメンバーもグループ色分けクラス(iconChipGroupRaw)を保持したままiconChipActiveが付く", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      const designationButton = screen.getByRole("button", { name: "指定路線" });
+      expect(designationButton.className).toMatch(/iconChipGroupRaw/);
+      expect(designationButton.className).toMatch(/iconChipActive/);
+    });
+
     // category小見出し（道路状態・交通・安全）は表示しない（実機フィードバック
     // 「道路状態や交通・安全等のグルーピングを消して」への対応）。フラットな一覧になる。
     it("観測グループを開くとcategory小見出しを出さずメンバーのON/OFFボタンがフラットに並ぶ", async () => {

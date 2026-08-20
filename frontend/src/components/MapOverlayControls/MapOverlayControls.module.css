@@ -145,7 +145,10 @@
   flex-shrink: 0;
   padding: 0.3rem 0.3rem;
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-strong);
+  /* 実機フィードバック「地図上の各アイコンの縁取りが見にくい」を受け、以前の1pxから
+     太くした（グループ色分け・ON/展開状態のどれも枠線だけで示しているため、太さ自体が
+     視認性に直結する）。 */
+  border: 2px solid var(--color-border-strong);
   background: var(--color-surface);
   color: var(--foreground);
   box-shadow: var(--shadow-float);
@@ -170,9 +173,11 @@
 /* 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
    グループ配下を少しずつ色を変えてグルーピングして」）。見出しチップ・メンバータイルの
    両方に同じグループの色を適用し、縦一列に並んだチップがどのグループの一員か一目で
-   分かるようにする。border-colorだけを変える控えめな差にとどめ、ON（.iconChipActive、
-   青）・展開見出し（.iconChipExpanded、地味色）という既存の2つの意味は保つ
-   （このルールより後に書かれているそれらのクラスが同時に付いたときはそちらが勝つ）。 */
+   分かるようにする。border-colorだけを変える控えめな差にとどめ、展開見出し
+   （.iconChipExpanded、地味色）の意味は保つ（このルールより後に書かれているそちらが
+   勝つ）。ON（.iconChipActive、青）は背景・文字色は譲るが、枠線のグループ色は
+   コンパウンドセレクタで守り返す（下記.iconChipGroupRaw.iconChipActive等参照、実機
+   フィードバック「一度選択して解除すると、縁取りが全て青色になってしまう」）。 */
 .iconChipGroupRaw {
   border-color: var(--color-group-raw);
 }
@@ -187,6 +192,24 @@
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: #ffffff;
+}
+
+/* ONにしたメンバーがグループ色分けを持つ場合、枠線だけは青に譲らずグループ色のままにする
+   （実機フィードバック「一度選択して解除すると、縁取りが全て青色になってしまう」）。
+   材料連動ON（改善計画T167、handleLayerToggle）で1回の操作から複数の観測メンバーが
+   連鎖的にONになることがあり、その全部の枠線が一律に青へ変わってしまうと「どのグループの
+   メンバーか」という色分け自体の意味が失われる。ONであること自体は背景色（青）で
+   十分に伝わるため、枠線はグループ識別を優先する。コンパウンドセレクタ（2クラス）で
+   .iconChipActive単体（ルート等、グループを持たない単独チップ）より詳細度を上げ、
+   この場合だけ枠線を上書きし直す。 */
+.iconChipGroupRaw.iconChipActive {
+  border-color: var(--color-group-raw);
+}
+.iconChipGroupComposite.iconChipActive {
+  border-color: var(--color-group-composite);
+}
+.iconChipGroupDynamic.iconChipActive {
+  border-color: var(--color-group-dynamic);
 }
 
 /* 観測/推定グループ見出しの展開中ハイライト（ChipButtonのexpandViaSelf専用、実機

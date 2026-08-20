@@ -6,6 +6,8 @@ import {
   trimWindGridToCurrentAndFuture,
   windGridToCellFeatureCollection,
   windGridToFeatureCollection,
+  WIND_SPEED_COLOR_STOPS,
+  WIND_SPEED_LEGEND_LEVELS,
 } from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
@@ -137,6 +139,41 @@ describe("windLayer", () => {
 
     it("空配列を渡すと空配列を返す", () => {
       expect(trimWindGridToCurrentAndFuture([], new Date())).toEqual([]);
+    });
+  });
+
+  describe("WIND_SPEED_COLOR_STOPS（実機フィードバック「風の色分けをもっと細かくして。ロードバイクで走れない強風域は粒度粗く。微風からそこまでは粒度を細かくして」）", () => {
+    // ロードバイクで通常走行できる目安の上限（ビューフォート風力階級6の上限、windLayer.ts
+    // のコメント参照）。以降は粒度を粗くする境界。
+    const UNRIDEABLE_THRESHOLD_MS = 13.8;
+
+    it("風速は単調増加する", () => {
+      for (let i = 1; i < WIND_SPEED_COLOR_STOPS.length; i++) {
+        expect(WIND_SPEED_COLOR_STOPS[i].speedMs).toBeGreaterThan(WIND_SPEED_COLOR_STOPS[i - 1].speedMs);
+      }
+    });
+
+    it("走行可能域（0〜走行困難の境界）は、それ以降の強風域より段の間隔が細かい", () => {
+      const rideable = WIND_SPEED_COLOR_STOPS.filter((s) => s.speedMs <= UNRIDEABLE_THRESHOLD_MS);
+      const unrideable = WIND_SPEED_COLOR_STOPS.filter((s) => s.speedMs >= UNRIDEABLE_THRESHOLD_MS);
+      // 走行可能域には少なくとも5段以上の刻みがある(細かい)
+      expect(rideable.length).toBeGreaterThanOrEqual(6);
+      const rideableIntervals = rideable.slice(1).map((s, i) => s.speedMs - rideable[i].speedMs);
+      const unrideableIntervals = unrideable.slice(1).map((s, i) => s.speedMs - unrideable[i].speedMs);
+      const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+      expect(avg(rideableIntervals)).toBeLessThan(avg(unrideableIntervals));
+    });
+  });
+
+  describe("WIND_SPEED_LEGEND_LEVELS", () => {
+    it("走行が難しい強風域は1行にまとめ、走行可能域より粗く見せる", () => {
+      const labels = WIND_SPEED_LEGEND_LEVELS.map((l) => l.label);
+      expect(labels.some((l) => l.includes("走行が難しい強風域"))).toBe(true);
+    });
+
+    it("数値はWIND_SPEED_COLOR_STOPSと食い違わない（単一の情報源）", () => {
+      expect(WIND_SPEED_LEGEND_LEVELS[1].color).toBe(WIND_SPEED_COLOR_STOPS[0].color);
+      expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.color).toBe(WIND_SPEED_COLOR_STOPS[6].color);
     });
   });
 

@@ -914,17 +914,25 @@ export default function Home() {
     [effectiveWindGrid, windFrameIndex]
   );
 
-  // 実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応。
-  // effectiveWindGridが詳細格子か粗い格子かで間隔（セルの1辺の長さ）が変わるため、
-  // 同じ切り替えロジックで間隔も選ぶ（windDetailGridが使われているならDETAIL、
-  // そうでなければ粗い格子のWIND_GRID_SPACING_DEG）。
-  const effectiveWindSpacingDeg = windDetailGrid.length > 0 ? WIND_GRID_DETAIL_SPACING_DEG : WIND_GRID_SPACING_DEG;
-  const windCellGeoJson = useMemo(
+  // 実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応、
+  // および追記（実機フィードバック「風の背景色が途中で見切れる。マップ描画域に隣接する
+  // タイルも色付けして」）。以前はeffectiveWindGrid（詳細格子があれば丸ごと差し替え）
+  // からセルを作っていたが、詳細格子はビューポート中心を基準に最大0.5度四方へ
+  // クリップ済み（clampWindDetailBbox）のため、低ズーム（ビューポートが0.5度四方より
+  // 広い）では詳細格子が実際の可視範囲の一部しかカバーせず、その外側は色付けされない
+  // ハードエッジになっていた。粗い格子（windGrid、関東本土全域を常時カバー）を
+  // 常にベース層として敷き、詳細格子が取れているときだけその上に細かい格子を重ねる
+  // 2層構成へ変更し、可視範囲のどこにも「色が付いていない」隙間ができないようにする。
+  const windBaseCellGeoJson = useMemo(
+    () => (windGrid.length > 0 ? windGridToCellFeatureCollection(windGrid, windFrameIndex, WIND_GRID_SPACING_DEG) : undefined),
+    [windGrid, windFrameIndex]
+  );
+  const windDetailCellGeoJson = useMemo(
     () =>
-      effectiveWindGrid.length > 0
-        ? windGridToCellFeatureCollection(effectiveWindGrid, windFrameIndex, effectiveWindSpacingDeg)
+      windDetailGrid.length > 0
+        ? windGridToCellFeatureCollection(windDetailGrid, windFrameIndex, WIND_GRID_DETAIL_SPACING_DEG)
         : undefined,
-    [effectiveWindGrid, windFrameIndex, effectiveWindSpacingDeg]
+    [windDetailGrid, windFrameIndex]
   );
 
   // 地図下部の時刻スライダー（DynamicLayerTimeSlider）へ渡す表示用フレーム列。時刻の
@@ -1464,7 +1472,8 @@ export default function Home() {
             precipitationNowcastTileUrl={precipitationNowcastTileUrl}
             showWindVector={showWindVector}
             windVectorGeoJson={windVectorGeoJson}
-            windCellGeoJson={windCellGeoJson}
+            windBaseCellGeoJson={windBaseCellGeoJson}
+            windDetailCellGeoJson={windDetailCellGeoJson}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
             showCarStress={layerVisibility.carStress}
