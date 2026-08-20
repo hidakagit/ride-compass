@@ -368,6 +368,16 @@ export function StatusIcon({ size = 16 }: IconProps) {
 
 /** 補足説明: ラベル横に添える汎用の情報アイコン（円＋i）。StatusIconと同形だが、
  * 「システム状況ボタン」ではなく「hoverで詳細を出す補足」という別用途のため名前を分ける。 */
+/** 全レイヤー一括OFF: 丸で囲んだバツ印（「クリア」の意味、地図上のチップ一括OFF用） */
+export function ClearAllLayersIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M7.3 7.3 12.7 12.7M12.7 7.3 7.3 12.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function InfoIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
