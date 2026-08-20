@@ -745,10 +745,20 @@ export default function Home() {
       });
   }, []);
 
+  // マウント直後はDEFAULT_LOCATION、その直後にGeolocationが成功すると実際の現在地で
+  // locationが変わり、以前はどちらのタイミングでもfetchWeatherForを即座に呼んでいたため
+  // 通常のページ読み込みだけでOpen-Meteoへの呼び出しが2回（デフォルト地点ぶん＋実地点ぶん）
+  // 発生していた（実機フィードバック「api呼び出しを節約できないか」）。デフォルト地点ぶんは
+  // Geolocationが成功した瞬間に表示上は上書きされる使い捨ての結果のため、locationの変化を
+  // 少し待ってから最後の値だけでfetchWeatherForする（短い間隔で連続タップする道路情報の
+  // 絞り込み等と同じ「間引き」の考え方、useDebouncedValueは初回値を遅延させない設計のため
+  // ここでは同じ仕組みを直接書く）。Geolocationが遅い/失敗する端末では、この待機ぶんだけ
+  // 初回の天候表示が遅れるが、8秒のGeolocationタイムアウト（useLocation.ts）よりは
+  // 十分短いWEATHER_FETCH_DEBOUNCE_MSに留めている。
+  const WEATHER_FETCH_DEBOUNCE_MS = 1500;
   useEffect(() => {
-    // fetchWeatherForはsetState呼び出しを含むため、effect本体からの直接同期呼び出しを避けて
-    // マイクロタスク経由で実行する（react-hooks/set-state-in-effect対策）
-    Promise.resolve().then(() => fetchWeatherFor(location));
+    const timer = window.setTimeout(() => fetchWeatherFor(location), WEATHER_FETCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
   }, [location, fetchWeatherFor]);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。レイヤーがONの間だけ取得し、
