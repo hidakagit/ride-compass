@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WeatherConditions, WindGridPoint } from "@/types/weather";
-import { getCurrentWeather, getWindGrid } from "./weatherApi";
+import { getCurrentWeather, getWindGrid, getWindGridDetail } from "./weatherApi";
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
   return {
@@ -111,5 +111,41 @@ describe("getWindGrid", () => {
     );
 
     await expect(getWindGrid()).rejects.toThrow("リクエストが多すぎます[req: req-789]");
+  });
+});
+
+describe("getWindGridDetail", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const bbox = { minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 };
+
+  it("成功時は/api/weather/wind-grid-detailをbboxクエリ付きでfetchし、格子点配列をそのまま返す", async () => {
+    const grid: WindGridPoint[] = [
+      { latitude: 35.68, longitude: 139.77, times: ["2026-08-20T12:00"], wind_speed_ms: [2.5], wind_direction_deg: [90] },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getWindGridDetail(bbox);
+
+    expect(result).toEqual(grid);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/weather/wind-grid-detail");
+    expect(String(url)).toContain("min_lon=139.7");
+    expect(String(url)).toContain("max_lat=35.7");
+  });
+
+  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
+    const headers = new Headers({ "x-request-id": "req-999" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeResponse({ ok: false, status: 400, json: async () => ({ detail: "表示範囲が広すぎます。ズームインしてください。" }), headers }),
+      ),
+    );
+
+    await expect(getWindGridDetail(bbox)).rejects.toThrow("表示範囲が広すぎます。ズームインしてください。[req: req-999]");
   });
 });

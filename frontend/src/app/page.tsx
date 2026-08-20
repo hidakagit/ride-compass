@@ -672,6 +672,11 @@ export default function Home() {
     [setMobileSheetHeightVh],
   );
 
+  // MapViewからのビューポート通知（改善計画T180、MapView.tsx: onViewportChange参照）。
+  const handleViewportChange = useCallback((viewport: MapViewport) => {
+    setMapViewport(viewport);
+  }, []);
+
   // 現在地が変わったらその地点の天候を取得(ルート生成時の風評価の起点にもなる)。
   // マウント直後はDEFAULT_LOCATIONで取得が走り、その直後にGeolocationが成功すると
   // 実際の現在地でも取得が走る。ネットワーク遅延次第で先に投げた方が後に返ってくることが
@@ -786,12 +791,50 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showWindVector]);
 
+  // 風の詳細格子（改善計画T180）。ズームインして狭い範囲を見ているときだけ、現在の
+  // ビューポートに交差する密な格子を取得する。パン・ズームのたびに素の値が来る
+  // mapViewportをそのまま使うと1操作で何度もリクエストが飛ぶため、デバウンスしてから使う
+  // （道路情報の絞り込み等と同じuseDebouncedValue、LEGEND_FILTER_DEBOUNCE_MSより長め。
+  // 地図フィルタの再適用と違いネットワーク往復を伴うため、より鷹揚な間隔にしている）。
+  const WIND_DETAIL_VIEWPORT_DEBOUNCE_MS = 500;
+  const debouncedMapViewport = useDebouncedValue(mapViewport, WIND_DETAIL_VIEWPORT_DEBOUNCE_MS);
+  useEffect(() => {
+    let cancelled = false;
+    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
+    // 経由で実行する（react-hooks/set-state-in-effect対策、fetchWeatherForと同じ理由）。
+    Promise.resolve().then(async () => {
+      if (cancelled) return;
+      if (!showWindVector || !debouncedMapViewport || debouncedMapViewport.zoom < WIND_DETAIL_MIN_ZOOM) {
+        // ズームアウトした・風レイヤーOFFにした場合は詳細格子を捨てて粗い格子へ戻す
+        // （古いズームイン時点の詳細格子が、ズームアウト後もそのまま使われ続けるのを防ぐ）。
+        setWindDetailGrid([]);
+        return;
+      }
+      try {
+        const grid = await getWindGridDetail(clampWindDetailBbox(debouncedMapViewport));
+        if (cancelled) return;
+        setWindDetailGrid(grid);
+      } catch {
+        // 補助的な機能のため、失敗時はエラー表示をせず静かに粗い格子（windGrid）へ
+        // フォールバックする（リクエスト自体のログはweatherApi.ts側で既に記録済み）。
+        if (cancelled) return;
+        setWindDetailGrid([]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showWindVector, debouncedMapViewport]);
+
+  // 詳細格子が取得できていればそちらを優先し、無ければ粗い格子（windGrid）を使う。
+  const effectiveWindGrid = windDetailGrid.length > 0 ? windDetailGrid : windGrid;
+
   // 格子点が1件も無い（未取得・全地点取得失敗）間はundefined（MapView側は
   // visible && geoJson != nullで表示するため、フェッチ未完了中に古いフレームが
   // 一瞬見えるのを防ぐ、precipitationNowcastTileUrlと同じ扱い）。
   const windVectorGeoJson = useMemo(
-    () => (windGrid.length > 0 ? windGridToFeatureCollection(windGrid, windFrameIndex) : undefined),
-    [windGrid, windFrameIndex]
+    () => (effectiveWindGrid.length > 0 ? windGridToFeatureCollection(effectiveWindGrid, windFrameIndex) : undefined),
+    [effectiveWindGrid, windFrameIndex]
   );
 
   // 地図下部の時刻スライダー（DynamicLayerTimeSlider）へ渡す表示用フレーム列。時刻の
@@ -1327,6 +1370,7 @@ export default function Home() {
             routeStyleModeId={routeStyleModeId}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
             onRegionZoomHintChange={setRegionZoomTooWide}
+            onViewportChange={handleViewportChange}
             onLayerDataStatusChange={setLayerDataStatus}
             refreshToken={refreshToken}
             experimentSlots={researchEnabled ? experimentSlots : []}

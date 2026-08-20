@@ -13,6 +13,8 @@ GPL無関係・TTLキャッシュ/429リトライ込み）と同じ仕組みで�
 services/weather_service.pyのget_wind_grid、APIエンドポイントはapi/routers/weather.py）。
 """
 
+import math
+
 from pydantic import BaseModel
 
 from app.domain.route import Coordinates
@@ -55,6 +57,61 @@ def generate_wind_grid_points(
         lat = round(min_lat + i * spacing_deg, 4)
         for j in range(lon_steps):
             lon = round(min_lon + j * spacing_deg, 4)
+            points.append(Coordinates(latitude=lat, longitude=lon))
+    return points
+
+
+# 改善計画T180: 「風の強さを面（ヒートマップ）で見たい」というユーザー要望を受け、
+# 通常ズーム（13前後）でも密な表示ができる詳細格子を追加した。全域を常時この密度で
+# 取得すると624点（0.1°間隔）より遥かに多くなりOpen-Meteo・自バックエンドとも負荷が増すため、
+# 「表示中の範囲だけ」を対象にする。
+#
+# ここで最も重要な設計判断は、詳細格子の座標を「問い合わせbboxの角」からではなく
+# WIND_GRID_BBOXの原点（固定）からのオフセットで計算すること。ユーザーの閲覧地点を
+# そのまま格子の起点にすると、閲覧位置が1pxずれるだけで格子点の絶対座標も全部ずれてしまい、
+# 近い場所を見ている別ユーザーとのキャッシュ共有（weather_client.pyのcache_key、
+# 緯度経度を丸めた値がキー）が効かなくなる（＝429リスクが戻る、T178実装メモの
+# 「閲覧地点中心の可変格子」問題そのもの）。原点を固定し「常に同じ絶対座標の格子点」を
+# 生成することで、bboxが多少ずれていても重なる範囲では同じ座標がヒットし、
+# 既存のTTLキャッシュがユーザー間で共有される。
+WIND_GRID_DETAIL_SPACING_DEG = 0.02
+# 1リクエストで許容する最大点数（乱用・広すぎるbboxでの過大な同時フェッチを防ぐ）。
+# 0.02°間隔で1辺0.6°四方（約60km四方、ズーム10以下では通常発生しない広さ）を敷き詰めると
+# 31×31=961点相当のため、余裕を持たせた上限として900点とする。
+WIND_GRID_DETAIL_MAX_POINTS = 900
+
+
+def generate_wind_grid_detail_points(
+    bbox: tuple[float, float, float, float],
+    spacing_deg: float = WIND_GRID_DETAIL_SPACING_DEG,
+) -> list[Coordinates]:
+    """bboxをWIND_GRID_BBOXへクリップした上で、WIND_GRID_BBOXの原点に固定されたラティス
+    （spacing_deg間隔の絶対座標グリッド）からbboxに交差する点だけを返す。原点を固定する
+    理由は上のコメント（キャッシュ共有）を参照。呼び出し元（api/routers/weather.py）が
+    点数の上限チェック（WIND_GRID_DETAIL_MAX_POINTS）を行う想定で、ここでは行わない
+    （この関数自体は「bboxに対応する格子点を求める」ことだけに責務を絞る）。"""
+    origin_lon, origin_lat, bbox_max_lon, bbox_max_lat = WIND_GRID_BBOX
+    min_lon = max(bbox[0], origin_lon)
+    min_lat = max(bbox[1], origin_lat)
+    max_lon = min(bbox[2], bbox_max_lon)
+    max_lat = min(bbox[3], bbox_max_lat)
+    if min_lon >= max_lon or min_lat >= max_lat:
+        return []
+
+    i_start = math.floor((min_lat - origin_lat) / spacing_deg)
+    i_end = math.floor((max_lat - origin_lat) / spacing_deg)
+    j_start = math.floor((min_lon - origin_lon) / spacing_deg)
+    j_end = math.floor((max_lon - origin_lon) / spacing_deg)
+
+    points = []
+    for i in range(i_start, i_end + 1):
+        lat = round(origin_lat + i * spacing_deg, 4)
+        if lat < origin_lat or lat > bbox_max_lat:
+            continue
+        for j in range(j_start, j_end + 1):
+            lon = round(origin_lon + j * spacing_deg, 4)
+            if lon < origin_lon or lon > bbox_max_lon:
+                continue
             points.append(Coordinates(latitude=lat, longitude=lon))
     return points
 

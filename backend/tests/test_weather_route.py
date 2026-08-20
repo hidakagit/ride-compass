@@ -153,3 +153,104 @@ def test_get_wind_grid_is_rate_limited_per_client():
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
+
+
+# 改善計画T180: 詳細格子（wind-grid-detail、ヒートマップ等の面表現用）。
+
+
+def test_get_wind_grid_detail_returns_points_on_success():
+    from app.domain.wind_grid import WindGridPoint
+
+    grid = [
+        WindGridPoint(
+            latitude=35.68,
+            longitude=139.77,
+            times=["2026-08-20T12:00"],
+            wind_speed_ms=[2.5],
+            wind_direction_deg=[90.0],
+        )
+    ]
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["latitude"] == 35.68
+
+
+def test_get_wind_grid_detail_omits_none_points():
+    from app.domain.wind_grid import WindGridPoint
+
+    grid = [
+        WindGridPoint(
+            latitude=35.68, longitude=139.77, times=["2026-08-20T12:00"], wind_speed_ms=[2.5], wind_direction_deg=[90.0]
+        ),
+        None,
+    ]
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_get_wind_grid_detail_rejects_inverted_bbox():
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": 140.0, "min_lat": 35.80, "max_lon": 139.70, "max_lat": 35.60},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+def test_get_wind_grid_detail_rejects_bbox_too_large():
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+
+    try:
+        # WIND_GRID_BBOX全域を渡すと詳細間隔（0.02度）ではWIND_GRID_DETAIL_MAX_POINTSを
+        # 大幅に超える点数になるはず。
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": 138.35, "min_lat": 34.85, "max_lon": 140.95, "max_lat": 37.20},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+def test_get_wind_grid_detail_is_rate_limited_per_client():
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+    params = {"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80}
+
+    try:
+        for _ in range(settings.wind_grid_detail_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit(
+                "wind-grid-detail:testclient", settings.wind_grid_detail_rate_limit_per_minute
+            )
+        assert client.get("/api/weather/wind-grid-detail", params=params).status_code == 200
+        response = client.get("/api/weather/wind-grid-detail", params=params)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429

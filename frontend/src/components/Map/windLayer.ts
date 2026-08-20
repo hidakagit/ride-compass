@@ -83,3 +83,42 @@ export function windGridToFeatureCollection(
   }
   return { type: "FeatureCollection", features };
 }
+
+export interface MapViewport {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+  zoom: number;
+}
+
+export interface Bbox {
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+}
+
+// 詳細格子（改善計画T180）を出す最低ズーム。これ未満は広域の粗い格子（既存のgetWindGrid）
+// だけで足りると判断（狭い範囲を詳細に見るための機能のため）。
+export const WIND_DETAIL_MIN_ZOOM = 10;
+// 1回のリクエストで要求するbboxの最大幅・高さ（度）。ズーム10でも横長デスクトップの
+// ビューポートは経度方向に2°を超えることがあり、そのままバックエンドへ渡すとdetail間隔
+// （0.02度）ではWIND_GRID_DETAIL_MAX_POINTS（900、backend/app/domain/wind_grid.py）を
+// 超えて400になる。ビューポート中心を基準にこの幅へクリップしてから要求する
+// （0.5度四方なら0.02度間隔で最大26×26=676点、安全に収まる）。
+const WIND_DETAIL_MAX_BBOX_SPAN_DEG = 0.5;
+
+/** 現在のビューポートから、詳細格子APIへ渡すbboxを求める。ビューポートがクリップ幅より
+ * 狭ければビューポートそのまま、広ければ中心を基準に最大幅へクリップする（上記コメント参照）。 */
+export function clampWindDetailBbox(viewport: MapViewport): Bbox {
+  const halfSpan = WIND_DETAIL_MAX_BBOX_SPAN_DEG / 2;
+  const centerLon = (viewport.west + viewport.east) / 2;
+  const centerLat = (viewport.south + viewport.north) / 2;
+  return {
+    minLon: Math.max(viewport.west, centerLon - halfSpan),
+    minLat: Math.max(viewport.south, centerLat - halfSpan),
+    maxLon: Math.min(viewport.east, centerLon + halfSpan),
+    maxLat: Math.min(viewport.north, centerLat + halfSpan),
+  };
+}

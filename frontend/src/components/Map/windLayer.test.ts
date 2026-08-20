@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatWindFrameTime, nearestFrameIndexToNow, windGridToFeatureCollection } from "./windLayer";
+import { clampWindDetailBbox, formatWindFrameTime, nearestFrameIndexToNow, windGridToFeatureCollection } from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 describe("windLayer", () => {
@@ -65,6 +65,31 @@ describe("windLayer", () => {
     it("空配列を渡すと空のFeatureCollectionを返す", () => {
       const fc = windGridToFeatureCollection([], 0);
       expect(fc.features).toHaveLength(0);
+    });
+  });
+
+  describe("clampWindDetailBbox", () => {
+    it("クリップ幅より狭いビューポートはそのまま返す", () => {
+      const bbox = clampWindDetailBbox({ west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 });
+      expect(bbox).toEqual({ minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 });
+    });
+
+    it("クリップ幅より広いビューポートは中心を基準に0.5度四方へクリップする", () => {
+      // 経度方向に3度と広いビューポート(横長デスクトップ・低ズーム相当)
+      const bbox = clampWindDetailBbox({ west: 138.0, south: 35.5, east: 141.0, north: 35.7, zoom: 10 });
+      const centerLon = (138.0 + 141.0) / 2;
+      expect(bbox.minLon).toBeCloseTo(centerLon - 0.25);
+      expect(bbox.maxLon).toBeCloseTo(centerLon + 0.25);
+      expect(bbox.maxLon - bbox.minLon).toBeCloseTo(0.5);
+    });
+
+    it("クリップ後もビューポートの範囲内に収まる(ビューポートより外側へはみ出さない)", () => {
+      const viewport = { west: 139.0, south: 35.0, east: 140.0, north: 36.0, zoom: 8 };
+      const bbox = clampWindDetailBbox(viewport);
+      expect(bbox.minLon).toBeGreaterThanOrEqual(viewport.west);
+      expect(bbox.maxLon).toBeLessThanOrEqual(viewport.east);
+      expect(bbox.minLat).toBeGreaterThanOrEqual(viewport.south);
+      expect(bbox.maxLat).toBeLessThanOrEqual(viewport.north);
     });
   });
 });
