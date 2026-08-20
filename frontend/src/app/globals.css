@@ -38,6 +38,13 @@
   --color-group-raw-on: #0d9488;
   --color-group-composite-on: #7c3aed;
   --color-group-dynamic-on: #b45309;
+  /* グループ親チップ（推定/観測/動的の見出し）の展開中（ON）に使う薄い塗り背景（実機
+   * フィードバック「展開中は薄色でON、展開解除は灰色でOFFを示して」）。文字・枠線は
+   * 同じグループの--color-group-X（本トークンより濃い）を乗せる前提のため、上の-onトークン
+   * と違いここはライト/ダークモードで変える（--color-accent-bgと同じ考え方）。 */
+  --color-group-raw-bg: #ccfbf1;
+  --color-group-composite-bg: #ede9fe;
+  --color-group-dynamic-bg: #fef3c7;
 
   --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
 
@@ -85,6 +92,9 @@
     --color-group-raw: #2dd4bf;
     --color-group-composite: #a78bfa;
     --color-group-dynamic: #fbbf24;
+    --color-group-raw-bg: #0f2e2b;
+    --color-group-composite-bg: #241a3d;
+    --color-group-dynamic-bg: #3a2a0f;
   }
 }
 

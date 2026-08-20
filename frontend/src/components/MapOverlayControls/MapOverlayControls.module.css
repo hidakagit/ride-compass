@@ -223,16 +223,44 @@
   color: #ffffff;
 }
 
-/* 観測/推定グループ見出しの展開中ハイライト（ChipButtonのexpandViaSelf専用、実機
-   フィードバック「グループ見出しのハイライトを他メンバーと区別が付くように。青色は
-   マップに反映を示したい。展開はもっと地味な色でいい」への対応）。.iconChipActive
-   （青、ON/OFFチップが「地図に反映されている」ことを示す色）とは別の、背景色を変えず
-   枠線と文字色だけで示す地味な強調にする。見出し自体はメンバーのON/OFFを表さないため、
-   青を使うと「このグループの内容が地図に出ている」と誤読される。 */
-.iconChipExpanded {
+/* グループ見出し（推定/観測/動的、ChipButtonのexpandViaSelf=trueだけに付く
+   .groupHeaderChipマーカー）の折りたたみ/展開（実機フィードバック「展開中は薄色でON、
+   展開解除は灰色でOFFを示して」）。メンバータイル（.iconChipGroupRaw等）は対象外で
+   常に枠線だけグループ色のまま変わらない（.groupHeaderChipと組み合わさったときだけ
+   ここが上書きする）。既存の3グループ（raw/composite/dynamic）はすべて見出しに
+   groupTintを渡しているため、groupTintを持たない見出しは現状存在しない。 */
+
+/* 折りたたみ時（OFF）＝灰色。以前の.iconChipExpanded（実機フィードバック「見出しの
+   ハイライトをメンバーと区別が付くように。展開はもっと地味な色でいい」）と同じ配色。 */
+.groupHeaderChip.iconChipGroupRaw,
+.groupHeaderChip.iconChipGroupComposite,
+.groupHeaderChip.iconChipGroupDynamic {
   background: var(--color-surface-2);
   border-color: var(--color-neutral);
   color: var(--foreground);
+}
+
+/* 展開時（ON）＝そのグループの薄色塗り（背景は淡いトーン、枠線・文字はグループの
+   通常濃度の色。メンバーのON＝濃い塗りつぶし+白文字とは意図的に差を付け、見出し自体は
+   「メンバーのON/OFFを表す青ではない」という既存の考え方を保ちつつ、どのグループを
+   開いているかが色でも分かるようにする）。コンパウンドセレクタ（3クラス、詳細度0,3,0）で
+   .iconChipGroupRaw.iconChipActive（0,2,0）等より優先させる必要は無い
+   （見出しはisActiveVisual=trueのときiconChipExpandedを使いiconChipActiveは使わない
+   ため、両者が同時に付くことはない）。 */
+.groupHeaderChip.iconChipGroupRaw.iconChipExpanded {
+  background: var(--color-group-raw-bg);
+  border-color: var(--color-group-raw);
+  color: var(--color-group-raw);
+}
+.groupHeaderChip.iconChipGroupComposite.iconChipExpanded {
+  background: var(--color-group-composite-bg);
+  border-color: var(--color-group-composite);
+  color: var(--color-group-composite);
+}
+.groupHeaderChip.iconChipGroupDynamic.iconChipExpanded {
+  background: var(--color-group-dynamic-bg);
+  border-color: var(--color-group-dynamic);
+  color: var(--color-group-dynamic);
 }
 
 .iconLabel {

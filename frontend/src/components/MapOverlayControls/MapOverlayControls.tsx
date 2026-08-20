@@ -286,10 +286,11 @@ function ChipButton({
    * 観測メンバー・単独チップ（ON/OFFと凡例展開が別アクション）はこの対象外で、
    * 従来どおり独立した丸トグルを持つ。
    * active見た目には.iconChipActive（青、ON/OFFチップと同じ＝「地図に反映されている」の
-   * 意味）ではなく.iconChipExpanded（地味な色）を使う（実機フィードバック「推定/観測
-   * グループ見出しのハイライトを他メンバーと区別が付くように。青色はマップに反映を示し
-   * たい。展開はもっと地味な色でいい」への対応。見出し自体はメンバーのON/OFFを表さない
-   * ため、青を使うと「このグループの内容が地図に出ている」と誤読されてしまう）。 */
+   * 意味）ではなく.iconChipExpanded（実機フィードバック「展開中は薄色でON、展開解除は
+   * 灰色でOFFを示して」、CSS側は.groupHeaderChipマーカーとgroupTintの組み合わせで
+   * 折りたたみ=灰色・展開=そのグループの薄色塗りを出す）を使う。見出し自体はメンバーの
+   * ON/OFFを表さないため、青（.iconChipActive）を使うと「このグループの内容が地図に
+   * 出ている」と誤読されてしまう。 */
   expandViaSelf?: boolean;
   /** 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
    * グループ配下を少しずつ色を変えてグルーピングして」）。未指定＝category/dataNatureを
@@ -300,6 +301,11 @@ function ChipButton({
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
   const isActiveVisual = expandViaSelf ? isExpanded : active;
   const groupTintClass = groupTint === "raw" ? styles.iconChipGroupRaw : groupTint === "composite" ? styles.iconChipGroupComposite : groupTint === "dynamic" ? styles.iconChipGroupDynamic : "";
+  // グループ見出し（推定/観測/動的、expandViaSelf=true）だけに付く印（実機フィードバック
+  // 「展開中は薄色でON、展開解除は灰色でOFFを示して」）。メンバータイルは常に枠線だけ
+  // グループ色のままにしたいため、見出しだけを区別するマーカークラスをCSS側の
+  // コンパウンドセレクタ（.groupHeaderChip.iconChipGroupRaw等）で使う。
+  const headerMarkerClass = expandViaSelf ? styles.groupHeaderChip : "";
   return (
     <div
       ref={registerRow}
@@ -315,8 +321,8 @@ function ChipButton({
           onClick={onTap}
           className={
             isActiveVisual
-              ? `${styles.iconChip} ${groupTintClass} ${expandViaSelf ? styles.iconChipExpanded : styles.iconChipActive}`
-              : `${styles.iconChip} ${groupTintClass}`
+              ? `${styles.iconChip} ${groupTintClass} ${headerMarkerClass} ${expandViaSelf ? styles.iconChipExpanded : styles.iconChipActive}`
+              : `${styles.iconChip} ${groupTintClass} ${headerMarkerClass}`
           }
         >
           <Icon />
