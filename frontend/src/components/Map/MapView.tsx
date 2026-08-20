@@ -137,6 +137,11 @@ const WIND_VECTOR_LAYER_ID = "region-wind-vector-arrows";
 // 少し大きく・濃色単色で下に敷くことでハロー（縁取り）を作る。symbolレイヤーのicon-*には
 // text-halo-colorに相当するプロパティが無いため、この「同じ形を重ねる」方式が定番の代替策。
 const WIND_VECTOR_HALO_LAYER_ID = "region-wind-vector-arrows-halo";
+// 面（ヒートマップ）層（改善計画T180、ユーザー要望「周辺エリア全体の風の強さが分かりにくい」
+// 対応）。矢印と同じsourceの点データをMapLibre標準のheatmap型で塗り、局所的な強弱を
+// 面として見せる。矢印（向き・正確な値）とヒートマップ（周辺一帯の強さの雰囲気）は
+// 役割が異なるため両方を重ねる。
+const WIND_VECTOR_HEATMAP_LAYER_ID = "region-wind-vector-heatmap";
 const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -563,6 +568,46 @@ function ensureWindVectorLayer(map: MapLibreMap) {
       data: EMPTY_FEATURE_COLLECTION,
       attribution: "Open-Meteo",
     });
+    // 面（ヒートマップ）層。矢印より下に敷く（矢印を隠さないため）。無風に近い地点も
+    // 含め全点を使う（矢印と違い、面表現では「このあたりは穏やか」という情報も
+    // 薄い色として意味があるため、calmFilterは掛けない）。地図の視界を圧迫しないよう
+    // （設計原則12）不透明度は控えめに抑える。
+    map.addLayer({
+      id: WIND_VECTOR_HEATMAP_LAYER_ID,
+      type: "heatmap",
+      source: WIND_VECTOR_SOURCE_ID,
+      layout: {
+        visibility: "none",
+      },
+      paint: {
+        // 重みの基準値は矢印（0〜15m/s）よりずっと低い0〜8m/sにしている。実機確認（2026-08-20、
+        // 関東全域が終日1〜2m/s程度の穏やかな日）で15m/s基準だと重みが0.1前後に潰れ、
+        // ヒートマップがほぼ透明で見えなかったため、日常的に観測される範囲（そよ風〜
+        // やや強い風）で色が付くよう基準を下げた。8m/s以上は一様に強風として飽和させる。
+        "heatmap-weight": ["interpolate", ["linear"], ["to-number", ["get", "speed"]], 0, 0, 8, 1],
+        // ズームが進むほど点間の間隔が画面上で広がるため、半径・強度ともズームに応じて
+        // 大きくし、格子点同士が滑らかに繋がって見えるようにする（低ズームで半径固定だと
+        // 点がバラバラに見え、高ズームで固定だと1点に潰れて見える）。
+        // 格子点の間隔（詳細格子は固定0.02度）は画面上のピクセル間隔がズームのたびに倍々で
+        // 広がるため、半径もそれに追従させないと点同士が繋がらず「面」ではなく「点の集まり」に
+        // 見えてしまう（実機確認で判明。ズーム13で0.02度≈143px間隔に対し半径79pxだと
+        // ほぼ繋がらず、ヒートマップがほとんど見えなかった）。半径をズームに応じて大きく
+        // 伸ばす代わりに、半径が伸びるほど1点あたりの寄与も大きくなり全体が飽和しやすくなる
+        // ため、intensityは逆にズームが進むほど下げてバランスを取る。
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 6, 20, 10, 40, 12, 90, 14, 200, 16, 380],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 10, 0.8, 14, 0.55, 16, 0.4],
+        "heatmap-color": [
+          "interpolate",
+          ["linear"],
+          ["heatmap-density"],
+          0, "rgba(96,165,250,0)",
+          0.15, "rgba(96,165,250,0.4)",
+          0.5, "rgba(245,158,11,0.5)",
+          1, "rgba(220,38,38,0.6)",
+        ],
+        "heatmap-opacity": 0.65,
+      },
+    });
     // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
     // 関わらず矢印の輪郭が視認できるようにする（実機フィードバック「矢印見にくい」対応）。
     // 主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。無風に近い地点は
@@ -637,6 +682,7 @@ function applyWindVectorState(
       source?.setData(windVectorGeoJson);
     }
     const shouldShow = visible && windVectorGeoJson != null;
+    setLayerVisibility(map, WIND_VECTOR_HEATMAP_LAYER_ID, shouldShow);
     setLayerVisibility(map, WIND_VECTOR_HALO_LAYER_ID, shouldShow);
     setLayerVisibility(map, WIND_VECTOR_LAYER_ID, shouldShow);
   });
@@ -1406,6 +1452,13 @@ interface MapViewProps {
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
   onRegionZoomHintChange: (tooWide: boolean) => void;
+  /** 改善計画T180: パン・ズーム確定（moveend/zoomend）のたびに現在のビューポート（bbox・
+   * ズーム）を呼び出し側へ伝える。風の詳細格子（ヒートマップ用）のように「今見えている
+   * 範囲だけ」を対象にフェッチしたいレイヤーが、page.tsx側でデバウンス・ズーム閾値判定
+   * したうえで使う想定。onRegionZoomHintChangeと違い道路タイル固有の判定を持たない、
+   * 汎用のビューポート通知（今後同種の「見えている範囲だけ取得」レイヤーが増えたら
+   * 相乗りできる）。 */
+  onViewportChange: (viewport: { west: number; south: number; east: number; north: number; zoom: number }) => void;
   /** レイヤーごとのデータ取得状態（改善計画T87、loading/empty/error）。表示ONのレイヤーが
    * 変わるたび・タイル取得の進行に応じて呼ばれる（値が変わらない限り呼ばない）。 */
   onLayerDataStatusChange: (status: LayerDataStatusByLayer) => void;
@@ -1443,6 +1496,7 @@ export default function MapView({
   routeStyleModeId,
   hiddenRouteLegendKeys,
   onRegionZoomHintChange,
+  onViewportChange,
   onLayerDataStatusChange,
   refreshToken,
   experimentSlots,
@@ -1461,6 +1515,7 @@ export default function MapView({
   // （表示中のタイル取得が一通り落ち着いたタイミング）までスケルトンを重ねて示す。
   const [initialTilesLoading, setInitialTilesLoading] = useState(true);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
+  const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   const redrawPropsRef = useRef({
     routes,
@@ -1496,6 +1551,10 @@ export default function MapView({
   useEffect(() => {
     onRegionZoomHintChangeRef.current = onRegionZoomHintChange;
   }, [onRegionZoomHintChange]);
+
+  useEffect(() => {
+    onViewportChangeRef.current = onViewportChange;
+  }, [onViewportChange]);
 
   useEffect(() => {
     onLayerDataStatusChangeRef.current = onLayerDataStatusChange;
@@ -1898,6 +1957,9 @@ export default function MapView({
       if (cancelled) return;
       setInitialTilesLoading(false);
       recomputeLayerDataStatus();
+      // 初回表示時点のビューポートも伝える（ユーザーが一度もパン/ズームしなくても
+      // 風の詳細格子等が初期位置に対して取得できるようにするため）。
+      reportViewport();
     }
     // T87: レイヤーデータ状態の対象sourceのタイル取得イベント。新しい取得サイクルの
     // 開始（sourcedataloading）で直前のエラー状態をクリアし、進行・完了（sourcedata）の
@@ -1909,6 +1971,20 @@ export default function MapView({
     function handleTrackedSourceData(e: maplibregl.MapSourceDataEvent) {
       notifySourceData(e.sourceId);
     }
+    // 改善計画T180: 風の詳細格子（ヒートマップ用）等、「今見えている範囲だけ」を対象に
+    // フェッチしたいレイヤーへビューポートを伝える。デバウンス・ズーム閾値判定は
+    // 呼び出し側（page.tsx）の責務とし、ここでは素直に現在値を都度渡すだけにする。
+    function reportViewport() {
+      const bounds = map.getBounds();
+      if (!bounds) return;
+      onViewportChangeRef.current({
+        west: bounds.getWest(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        north: bounds.getNorth(),
+        zoom: map.getZoom(),
+      });
+    }
     function handleMoveEnd() {
       const bounds = map.getBounds();
       debugLog("map:viewport", "moveend", {
@@ -1918,10 +1994,12 @@ export default function MapView({
           : null,
       });
       settleViewport();
+      reportViewport();
     }
     function handleZoomEnd() {
       debugLog("map:viewport", "zoomend", { zoom: Number(map.getZoom().toFixed(2)) });
       settleViewport();
+      reportViewport();
     }
     // T87実機確認で判明した不具合の対策その2: isSourceLoaded()がtrueになった直後の一瞬は
     // querySourceFeatures()がまだ実際のフィーチャーを返さないタイミングがあり

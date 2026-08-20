@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # 30分TTLキャッシュ（weather_client.py）が効くため、同一クライアントの短時間の
     # 再取得（時刻スライダー操作等）はキャッシュヒットしOpen-Meteoへは行かない。
     wind_grid_rate_limit_per_minute: int = 20
+    # 詳細格子（改善計画T180、ズームイン時の面表現用）。パン・ズームのたびに（デバウンス済み
+    # とはいえ）呼ばれうるためwind_gridより高めにするが、固定ラティス由来のキャッシュ共有
+    # （domain/wind_grid.py: generate_wind_grid_detail_points参照）により大半はOpen-Meteoへの
+    # 新規リクエストを伴わない軽い呼び出しになる想定。
+    wind_grid_detail_rate_limit_per_minute: int = 30
     # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
     # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
     # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。
