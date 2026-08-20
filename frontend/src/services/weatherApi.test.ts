@@ -77,7 +77,7 @@ describe("getCurrentWeather", () => {
     );
 
     await expect(getCurrentWeather({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
-      "天候の取得に失敗しました[HTTP 503]",
+      "天候情報の取得に失敗しました[HTTP 503]",
     );
   });
 });
