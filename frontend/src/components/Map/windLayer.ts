@@ -47,6 +47,34 @@ export function parseJstTime(time: string): Date {
   return new Date(`${time}+09:00`);
 }
 
+/** Open-Meteoのhourly.timeは常にその日の00:00始まりのため、フェッチ時刻によっては
+ * 半日近く過去の時刻が配列の前半を占める。gridを「現在時刻の属する時間帯」以降だけへ
+ * 切り詰め、スライダーの左端（index 0）が常に「現在」になるようにする（実機フィードバック
+ * 「過去の風を気にすることはアプリの性質上ない、デフォルト位置を左端に」）。「現在」の
+ * 定義はnearestFrameIndexToNow（最も近い時刻）ではなく「現在時刻以下で最も新しい時刻」
+ * （＝現在が属する1時間、precipitationNowcast.tsのlatestObservedFrameIndexと同じ考え方）
+ * とする。nearestFrameIndexToNowだと現在時刻が正時をわずかに過ぎただけで次の1時間へ
+ * 丸められ、本来の現在時間帯を消してしまうため。全格子点で時刻配列が共通という前提
+ * （nearestFrameIndexToNowの利用箇所と同じ）のもと、grid[0]の時刻で1回だけindexを求め、
+ * 全格子点の3つの並行配列（times/wind_speed_ms/wind_direction_deg）へ同じindexを適用する。
+ * 空配列・全フレームが未来（＝ぴったり境界）ならそのまま返す。 */
+export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], now: Date = new Date()): WindGridPoint[] {
+  if (grid.length === 0) return [];
+  const times = grid[0].times;
+  const nowMs = now.getTime();
+  let startIndex = 0;
+  for (let i = 0; i < times.length; i++) {
+    if (parseJstTime(times[i]).getTime() <= nowMs) startIndex = i;
+  }
+  if (startIndex === 0) return grid.slice();
+  return grid.map((point) => ({
+    ...point,
+    times: point.times.slice(startIndex),
+    wind_speed_ms: point.wind_speed_ms.slice(startIndex),
+    wind_direction_deg: point.wind_direction_deg.slice(startIndex),
+  }));
+}
+
 /** ISO風の"YYYY-MM-DDTHH:MM"（JST）→ 表示用のJST時刻文字列。約48時間先まで日付をまたぐため
  * "M/D HH:mm"で日付も含める（precipitationNowcast.tsのformatNowcastFrameTimeは±60分で
  * 日付をまたがないため時刻のみ、こちらは異なる）。 */
@@ -56,6 +84,34 @@ export function formatWindFrameTime(time: string): string {
   const timePart = date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
   return `${datePart} ${timePart}`;
 }
+
+// 風速→色の対応（弱い風=青→中程度=オレンジ→強い風=赤の連続グラデーション）。矢印の
+// icon-color・セルのfill-color（MapView.tsx）・地図チップの凡例（page.tsx、実機
+// フィードバック「風と雨の凡例も欲しい」）の3箇所で同じ配色を使うための単一の情報源
+// （2箇所以上に同じ配色を書くと片方だけ直して食い違う事故が起きうるため1箇所へ集約）。
+// MapLibre非依存の生データとして持ち、MapLibre補間式への組み立ては呼び出し側
+// （MapView.tsx）が行う（このファイル自体はDOM/MapLibreを知らない、ファイル冒頭の
+// コメント参照）。
+export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string }[] = [
+  { speedMs: 0, color: "#60a5fa" },
+  { speedMs: 7, color: "#f59e0b" },
+  { speedMs: 15, color: "#dc2626" },
+];
+
+// この風速未満は「無風」として矢印・セルを描画しない（MapView.tsx参照）。実機確認
+// （2026-08-20、王子周辺で実測0.70〜0.81m/s）で当初の1.0m/sだと関東でごく普通に起きる
+// 弱風でも矢印が全滅したため、この値まで引き下げた経緯がある。
+export const WIND_CALM_THRESHOLD_MS = 0.3;
+
+// 地図チップの凡例（page.tsx）用に、上記の生データへラベルを付けたもの。数値は
+// WIND_SPEED_COLOR_STOPS/WIND_CALM_THRESHOLD_MSからそのまま持ってくるため、閾値・色を
+// 変えてもここは自動で追従する（片側importで単一の情報源を保つ）。
+export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
+  { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: "#9ca3af" },
+  { key: "light", label: "弱い風", color: WIND_SPEED_COLOR_STOPS[0].color },
+  { key: "moderate", label: `中程度（${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s前後）`, color: WIND_SPEED_COLOR_STOPS[1].color },
+  { key: "strong", label: `強い風（${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s以上）`, color: WIND_SPEED_COLOR_STOPS[2].color },
+];
 
 export interface WindPointFeatureProperties {
   /** 風速（m/s） */

@@ -68,6 +68,7 @@ import {
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
+import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import {
   RAMP_AXES,
   axisLineLayerId,
@@ -515,7 +516,6 @@ function applyPrecipitationNowcastState(map: MapLibreMap, visible: boolean, tile
 // 範囲を示す機能そのもの）と組み合わせても「何も描画されない」ように見える不具合が
 // 判明したため、「無風」と呼べる範囲まで閾値を引き下げた。
 const WIND_ARROW_SIZE_PX = 32;
-const WIND_CALM_THRESHOLD_MS = 0.3;
 // アイコンサイズ（風速→スケール倍率）。実機フィードバック「矢印見にくい」を受け、
 // 最低スケールを引き上げた（旧0.4→0.7）。関東は元々弱風日が多く（改善計画T178実装メモ参照）、
 // 無風閾値ぎりぎりの矢印がほぼ最小サイズのままだと目立たなかったため。
@@ -524,19 +524,14 @@ const WIND_ICON_MAX_SCALE = 1.9;
 // ハロー（縁取り）層は主層より一回り大きい濃色シルエットを下に敷く倍率。
 const WIND_ICON_HALO_SCALE_MULTIPLIER = 1.35;
 // 弱い風=青→中程度=オレンジ→強い風=赤の連続グラデーション。矢印のicon-colorとセルの
-// fill-color（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応）
-// の両方でこの同じ定数を使うことで、「この矢印の色＝このセルの色」という対応を保証する
-// （2箇所に同じ配色を書くと片方だけ直して食い違う事故が起きうるため1箇所へ集約）。
+// fill-color、地図チップの凡例（page.tsx）の3箇所で同じ配色を使うため、生データ
+// （WIND_SPEED_COLOR_STOPS）はwindLayer.tsを単一の情報源として持ち、MapLibre補間式への
+// 組み立てだけここで行う（windLayer.ts側のコメント参照）。
 const WIND_COLOR_SCALE_EXPRESSION = [
   "interpolate",
   ["linear"],
   ["to-number", ["get", "speed"]],
-  0,
-  "#60a5fa",
-  7,
-  "#f59e0b",
-  15,
-  "#dc2626",
+  ...WIND_SPEED_COLOR_STOPS.flatMap((stop) => [stop.speedMs, stop.color]),
 ] as unknown as maplibregl.ExpressionSpecification;
 
 function windIconSizeExpression(scaleMultiplier: number) {

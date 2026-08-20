@@ -44,6 +44,25 @@ describe("DynamicLayerTimeSlider", () => {
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
   });
 
+  it("unavailable=trueのときはunavailableLabelを表示し、スライダーは出さない（下部バー2本の時刻連動、実機フィードバック「対応データなしと明示する」）", () => {
+    render(
+      <DynamicLayerTimeSlider
+        frames={FRAMES}
+        index={0}
+        onIndexChange={vi.fn()}
+        currentIndex={0}
+        loading={false}
+        loadingLabel="取得中..."
+        error={null}
+        unavailable={true}
+        unavailableLabel="この時刻のデータはありません"
+        ariaLabel="表示時刻"
+      />
+    );
+    expect(screen.getByText("この時刻のデータはありません")).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+  });
+
   it("framesがあれば選択中フレームのlabel・badgeを表示する", () => {
     render(
       <DynamicLayerTimeSlider
