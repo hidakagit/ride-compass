@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  centerFramesAroundLatestObserved,
   fetchNowcastFrames,
   formatNowcastFrameTime,
   latestObservedFrameIndex,
@@ -88,6 +89,54 @@ describe("precipitationNowcast", () => {
   it("formatNowcastFrameTimeはUTCのvalidtimeをJSTのHH:mmへ変換する", () => {
     // 20260820030000 (UTC) = JST 12:00
     expect(formatNowcastFrameTime("20260820030000")).toBe("12:00");
+  });
+
+  describe("centerFramesAroundLatestObserved（実機フィードバック「時間バーの現況を中央初期表示して」）", () => {
+    function frame(validtime: string, isForecast: boolean) {
+      return { basetime: "a", validtime, isForecast };
+    }
+
+    it("実況が予測よりずっと多いとき、実況側を予測側と同じ件数まで切り詰め「現在」が中央に来るようにする", () => {
+      // 実況5件・予測2件 -> 実況を直近2件だけへ切り詰め、5件（実況2+現在1+予測2）で中央=index2
+      const frames = [
+        frame("1", false),
+        frame("2", false),
+        frame("3", false),
+        frame("4", false),
+        frame("5", false),
+        frame("6", true),
+        frame("7", true),
+      ];
+      const result = centerFramesAroundLatestObserved(frames);
+      expect(result.map((f) => f.validtime)).toEqual(["3", "4", "5", "6", "7"]);
+      expect(latestObservedFrameIndex(result)).toBe(2);
+      expect(result.length % 2).toBe(1); // 奇数件数なら必ず中央index が存在する
+    });
+
+    it("「現在」の前後が既に同数（対称）なら何も切り詰めない", () => {
+      // 実況3件（「現在」含む）・予測2件、「現在」の前後は2件ずつで既に対称
+      const frames = [frame("1", false), frame("2", false), frame("3", false), frame("4", true), frame("5", true)];
+      const result = centerFramesAroundLatestObserved(frames);
+      expect(result).toEqual(frames);
+    });
+
+    it("予測が実況より多い場合も対称に切り詰める", () => {
+      // 実況2件（「現在」含む、前に1件）・予測4件 -> 予測を前と同じ1件へ切り詰め
+      const frames = [
+        frame("1", false),
+        frame("2", false),
+        frame("3", true),
+        frame("4", true),
+        frame("5", true),
+        frame("6", true),
+      ];
+      const result = centerFramesAroundLatestObserved(frames);
+      expect(result.map((f) => f.validtime)).toEqual(["1", "2", "3"]);
+    });
+
+    it("空配列を渡すと空配列を返す", () => {
+      expect(centerFramesAroundLatestObserved([])).toEqual([]);
+    });
   });
 
   it("nowcastTileUrlTemplateはbasetime/validtimeを埋め込み{z}/{x}/{y}はプレースホルダのまま残す", () => {

@@ -53,13 +53,21 @@ import DynamicLayerTimeSlider, {
   type DynamicLayerTimeSliderFrame,
 } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import {
+  centerFramesAroundLatestObserved,
   fetchNowcastFrames,
   formatNowcastFrameTime,
   latestObservedFrameIndex,
   nowcastTileUrlTemplate,
   type NowcastFrame,
 } from "@/components/Map/precipitationNowcast";
-import { formatWindFrameTime, nearestFrameIndexToNow, windGridToFeatureCollection } from "@/components/Map/windLayer";
+import {
+  clampWindDetailBbox,
+  formatWindFrameTime,
+  nearestFrameIndexToNow,
+  windGridToFeatureCollection,
+  WIND_DETAIL_MIN_ZOOM,
+  type MapViewport,
+} from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
@@ -79,7 +87,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather, getWindGrid } from "@/services/weatherApi";
+import { getCurrentWeather, getWindGrid, getWindGridDetail } from "@/services/weatherApi";
 import type {
   Coordinates,
   MotorVehicleDensityRecipeOverride,
@@ -243,6 +251,16 @@ export default function Home() {
   const [windFrameIndex, setWindFrameIndex] = useState(0);
   const [windLoading, setWindLoading] = useState(false);
   const [windError, setWindError] = useState<string | null>(null);
+  // 風の詳細格子（改善計画T180、ヒートマップ等の面表現用）。ズームインして狭い範囲を
+  // 見ているときだけ、上のwindGrid（関東全域・粗い間隔）を密な間隔の格子で補う。
+  // 取得に失敗した場合やまだ無い場合は空配列のままにし、effectiveWindGrid側で
+  // windGridへ自動フォールバックする（ユーザーへエラー表示はしない、既にwindGridが
+  // ある前提の補助的な機能のため）。
+  const [windDetailGrid, setWindDetailGrid] = useState<WindGridPoint[]>([]);
+  // MapViewから伝わる現在のビューポート（改善計画T180、MapView.tsx: onViewportChange参照）。
+  // moveend/zoomendのたびに素の値が来るため、フェッチ用にはデバウンスして使う
+  // （下のwindDetailフェッチeffect参照）。
+  const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
 
   // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
   // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState（改善計画T47 R-6）参照。
@@ -698,7 +716,12 @@ export default function Home() {
     const load = async (isFirstLoad: boolean) => {
       if (isFirstLoad) setNowcastLoading(true);
       try {
-        const frames = await fetchNowcastFrames();
+        // 実況（targetTimes_N1）は予測（targetTimes_N2）よりずっと件数が多い（実機確認:
+        // 2026-08-20時点で実況37件・約3時間分に対し予測12件・60分分）ため、そのまま
+        // スライダーへ渡すと「現在」がトラック上でかなり右寄りになる（実機フィードバック
+        // 「時間バーの現況を中央初期表示して」）。centerFramesAroundLatestObservedで
+        // 実況側を予測側と同じ件数まで切り詰め、「現在」が常にトラックの中央に来るようにする。
+        const frames = centerFramesAroundLatestObserved(await fetchNowcastFrames());
         if (cancelled) return;
         setNowcastFrames(frames);
         setNowcastError(null);
@@ -785,6 +808,14 @@ export default function Home() {
     () => (windGrid[0]?.times ?? []).map((time) => ({ label: formatWindFrameTime(time) })),
     [windGrid]
   );
+
+  // 「現在」に戻るボタン（改善計画、実機フィードバック「現況に戻すボタンも横に追加して」）の
+  // ジャンプ先index。初回フェッチ時にスライダー位置の初期値として使う値
+  // （latestObservedFrameIndex/nearestFrameIndexToNow）と同じ計算だが、ボタンは
+  // フェッチのたびではなく毎回押された時点の「現在」に戻したいため、frames自体から
+  // 都度計算する派生値として持つ（nowcastFrameIndex/windFrameIndexとは独立）。
+  const nowcastCurrentIndex = useMemo(() => latestObservedFrameIndex(nowcastFrames), [nowcastFrames]);
+  const windCurrentIndex = useMemo(() => nearestFrameIndexToNow(windGrid[0]?.times ?? []), [windGrid]);
 
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
@@ -1313,6 +1344,7 @@ export default function Home() {
                   frames={nowcastSliderFrames}
                   index={nowcastFrameIndex}
                   onIndexChange={setNowcastFrameIndex}
+                  currentIndex={nowcastCurrentIndex}
                   loading={nowcastLoading}
                   loadingLabel="降水ナウキャストの時刻を取得中..."
                   error={nowcastError}
@@ -1324,6 +1356,7 @@ export default function Home() {
                   frames={windSliderFrames}
                   index={windFrameIndex}
                   onIndexChange={setWindFrameIndex}
+                  currentIndex={windCurrentIndex}
                   loading={windLoading}
                   loadingLabel="風データの時刻を取得中..."
                   error={windError}

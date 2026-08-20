@@ -18,7 +18,11 @@
   padding: 0.4rem var(--space-2);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   pointer-events: auto;
-  min-width: 260px;
+  /* 実機フィードバック「バー自体をもう少し長くして」を受け260px固定から拡大。
+     モバイルの狭い画面では90vw（左右の余白を確保しつつほぼ画面幅）、それ以上の
+     画面ではmax-widthで頭打ちにする（際限なく伸びて他の地図UIと衝突しないよう）。 */
+  width: min(90vw, 26rem);
+  max-width: 26rem;
 }
 
 .time {
@@ -42,6 +46,28 @@
 .slider {
   flex: 1;
   min-width: 120px;
+}
+
+/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
+   .badgeと同じ「小さい補助情報」の存在感に揃えた、枠線だけの控えめなボタン。 */
+.nowButton {
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.nowButton:disabled {
+  /* 既に「現在」を見ているときはno-op（MapOverlayControls.module.cssの
+     .clearAllButton:disabledと同じ、押しても何も起きない状態を無効表示にする方針）。 */
+  color: var(--color-muted);
+  border-color: var(--color-border-strong);
+  cursor: default;
 }
 
 .loading,

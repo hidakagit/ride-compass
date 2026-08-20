@@ -62,6 +62,23 @@ export function latestObservedFrameIndex(frames: readonly NowcastFrame[]): numbe
   return Math.max(0, frames.length - 1);
 }
 
+/** 実況フレーム（targetTimes_N1）が予測フレーム（targetTimes_N2）よりずっと多い
+ * （実機確認: 2026-08-20時点でN1=37件・約3時間分に対しN2=12件・60分分と3倍以上の差がある）
+ * ため、latestObservedFrameIndex（＝「現在」）を初期位置にそのまま使うとスライダーの
+ * トラック上でかなり右寄り（実況側に偏った位置）になってしまう（実機フィードバック
+ * 「時間バーの現況を中央初期表示して」）。「現在」がトラックの中央に来るよう、実況側を
+ * 予測側と同じ件数まで切り詰める（直近1時間分より古い実況は、ナウキャストの主目的
+ * 「直近〜近い将来の雨雲の動きを見る」では価値が低いため、削っても実害が小さいと判断）。
+ * 予測側が実況側より多いという逆転（現状のデータでは起きないが将来のAPI仕様変更に
+ * 備えて）が起きた場合も同じロジックで対称に切り詰める。 */
+export function centerFramesAroundLatestObserved(frames: readonly NowcastFrame[]): NowcastFrame[] {
+  if (frames.length === 0) return [];
+  const latestIndex = latestObservedFrameIndex(frames);
+  const forecastCount = frames.length - 1 - latestIndex;
+  const halfWindow = Math.min(latestIndex, forecastCount);
+  return frames.slice(latestIndex - halfWindow, latestIndex + halfWindow + 1);
+}
+
 /** "YYYYMMDDHHmmss"（UTC）形式のvalidtime → 表示用のJST時刻文字列（HH:mm）。 */
 export function formatNowcastFrameTime(validtime: string): string {
   const y = validtime.slice(0, 4);

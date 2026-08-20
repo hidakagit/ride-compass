@@ -179,6 +179,16 @@
   pointer-events: none;
 }
 
+/* スマホ幅では画面下部に固定の.mobileTabBar（--mobile-tabbar-height、z-index:45）が乗り、
+   その下に隠れてしまう（実機フィードバック「下部パネルメニューとスライダーバーが被って
+   隠れてしまう」）。.locateButton/.locateErrorと同じ底上げパターンで、タブバーの高さぶん
+   持ち上げる。 */
+@media (max-width: 640px) {
+  .dynamicLayerSliders {
+    bottom: calc(var(--space-3) + var(--mobile-tabbar-height));
+  }
+}
+
 /* MapLibreの帰属表示（.maplibregl-ctrl-bottom-left/right、ライセンス上必須）は地図
    コンテナ自身の右下・左下に絶対配置されるため、固定表示の.mobileTabBarが乗ると
    その下に隠れてしまう（Playwright実機確認で発覚）。z-indexで競合させるのではなく、
