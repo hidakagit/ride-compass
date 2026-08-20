@@ -1,8 +1,12 @@
-/* 地図の線を模した横長のバー。高さで太さの違いを表現する（widthはWidthSwatch.tsxが指定） */
+/* 地図の線を模した横長のバー。高さで太さの違いを表現する（widthはWidthSwatch.tsxが指定）。
+   塗り色は--width-swatch-color（呼び出し側のcolor props、未指定ならCSS既定の中立色）。
+   改善計画: 「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応で道路の種類が
+   専用の濃淡パレット（COLOR_HIGHWAY_*）を持つようになり、凡例のバーも地図と同じ色で
+   塗って対応関係を示すため変数化した。 */
 .bar {
   display: inline-block;
   border-radius: 2px;
-  background: var(--color-muted-strong);
+  background: var(--width-swatch-color, var(--color-muted-strong));
   flex-shrink: 0;
 }
 
@@ -11,8 +15,8 @@
 .barDashed {
   background-image: repeating-linear-gradient(
     to right,
-    var(--color-muted-strong) 0,
-    var(--color-muted-strong) 3px,
+    var(--width-swatch-color, var(--color-muted-strong)) 0,
+    var(--width-swatch-color, var(--color-muted-strong)) 3px,
     transparent 3px,
     transparent 6px
   );

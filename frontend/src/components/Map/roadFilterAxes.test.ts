@@ -87,6 +87,28 @@ describe("roadFilterAxes", () => {
     expect(getRoadFilterAxis("unknown")).toBe(ROAD_FILTER_AXES[0]);
   });
 
+  // 実機フィードバック「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応
+  // （「路面の種類」OFF・「道路の種類」ONのときは道路の種類側の濃淡パレット、
+  // COLOR_HIGHWAY_*を使う）。太さ軸（道路の種類）も色軸（路面の種類）と同じく
+  // opacityExpressionを持つようになったことを確認する。
+  it("太さ軸（道路の種類）もopacityExpressionを持つ（「路面の種類」OFF時に地図の色分けへ使う）", () => {
+    expect(getRoadFilterAxis("highway").opacityExpression).toBeDefined();
+  });
+
+  // 竹（1次/2次の地図上表現の統一）でSURFACE_GROUPSから評価色（緑〜赤）を排した理由と
+  // 同じ懸念が、道路の種類の濃淡パレットにも当てはまる。両軸を同時にONにすることは無い
+  // （路面の種類がONの間は道路の種類側の色は使われない、MapView.tsx: applyRoadLayerState）が、
+  // 2次のramp軸（car_stress等、axisLayers.ts: AXIS_RAMP_COLORS）とは同時に表示されうるため、
+  // 評価色の緑〜赤を道路の種類の配色として使わないことを回帰確認する。
+  it("道路の種類の配色は2次のramp軸の評価色（AXIS_RAMP_COLORS）と重複しない", async () => {
+    const { AXIS_RAMP_COLORS } = await import("./axisLayers");
+    const highwayColors = getRoadFilterAxis("highway").legend.map((entry) => entry.color.toLowerCase());
+    const rampColors = new Set(AXIS_RAMP_COLORS.map((c) => c.toLowerCase()));
+    for (const color of highwayColors) {
+      expect(rampColors.has(color), `${color} はAXIS_RAMP_COLORSと重複している`).toBe(false);
+    }
+  });
+
   // 色を2軸掛け合わせず、道路の種類は太さ（line-width）で別チャンネルとして地図に反映する
   // （色を掛け合わせると最大30通りになり細い線では判別できないため）。
   describe("道路の種類の太さ（widthExpression）", () => {

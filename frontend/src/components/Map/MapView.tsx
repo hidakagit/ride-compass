@@ -140,10 +140,13 @@ export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // フォールバック（均一な太さ・実線）に使う。
 const DEFAULT_ROAD_LINE_WIDTH = 3;
 const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
-// 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの不透明度（改善計画:
-// 対象外区間の低不透明度化）。その状態では色は中立（ROAD_LINE_NEUTRAL_COLOR）で
-// カテゴリを表さないため、roadFilterAxes.tsのopacityExpression（分類済み/不明で
-// 不透明度を出し分ける式）は使わず、一律のこの値のままにする。
+// ROAD_TILE_LAYER_IDの初期化直後の仮の不透明度、および路面の種類・道路の種類のどちらも
+// opacityExpressionを持たない万一のフォールバック（実運用では両軸とも持つため通らない、
+// applyRoadLayerState参照）。「路面の種類」がOFFで「道路の種類」だけONのときは、以前は
+// 色が中立（ROAD_LINE_NEUTRAL_COLOR）でカテゴリを表さなかったためこの値に固定していたが、
+// 道路の種類も専用の濃淡パレット・opacityExpressionを持つようになった（実機フィードバック
+// 「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応）ため、現在は通常
+// そちらが使われる。
 const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
 // インフラ・指定路線）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
@@ -176,9 +179,12 @@ const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_I
 const SECONDARY_AXIS_CASING_WIDTH =
   (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
 const SECONDARY_AXIS_CASING_OPACITY = 0.45;
-// 「路面の種類」レイヤーがOFFで「道路の種類」レイヤーだけONのときの中立色（改善計画T165）。
-// roadFilterAxes.tsのCOLOR_UNKNOWNと同じ「不明・他」グレーを流用し、色分けそのものは
-// 行わずに太さ・線種だけが情報を持っている状態であることを見た目でも示す。
+// ROAD_TILE_LAYER_IDの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず実際の
+// 値へ上書きする、placeholder的な役割のみ）。実際に「路面の種類OFF・道路の種類ON」時の
+// 色分けはroadFilterAxes.tsのHIGHWAY_GROUPS（濃淡パレット、COLOR_HIGHWAY_*）を使う
+// （以前はここへ固定した中立グレーを使っていたが、「不明・他」と同じ色を全区間に塗って
+// しまい「道路種別が支配的な場合、色がすべて灰色で違和感がある」という実機フィードバックを
+// 受けて廃止した。applyRoadLayerState参照）。
 const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
 
 // routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBoundsはexportして
@@ -466,7 +472,9 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // 多重表現が壊れるため、1本のMapLibre線レイヤー（ROAD_TILE_LAYER_ID）へ動的に合成する）。
 // - 両方ON: 色=路面の種類の配色、太さ・線種=道路の種類（従来どおりの見た目）
 // - 路面の種類のみON: 色=路面の種類の配色、太さ・線種は中立（均一・実線）
-// - 道路の種類のみON: 色は中立（ROAD_LINE_NEUTRAL_COLOR）、太さ・線種=道路の種類
+// - 道路の種類のみON: 色=道路の種類の濃淡パレット（COLOR_HIGHWAY_*、太さと同じ序列）、
+//   太さ・線種=道路の種類（改善計画: 実機フィードバック「道路種別が支配的な場合、色が
+//   すべて灰色で違和感がある」への対応。以前は色を一律ROAD_LINE_NEUTRAL_COLORにしていた）
 // - 両方OFF: レイヤー自体を隠す
 // フィルタも表示中の軸だけを反映する（OFF中の軸のhiddenKeysで絞り込むと、その軸を
 // OFFにしているのに地物が消える、という矛盾が起きるため）。
@@ -481,9 +489,12 @@ function applyRoadLayerState(
     const showAny = showRoadSurface || showRoadType;
     setLayerVisibility(map, ROAD_TILE_LAYER_ID, showAny);
     if (showAny) {
+      // 色・不透明度は「路面の種類」がONなら常にそちらの式を優先し（太さ・線種と違い、
+      // 色チャンネルは1つしか持てないため両方ONでも路面側が勝つ）、OFFの間だけ道路の種類
+      // 側の濃淡パレット（roadFilterAxes.ts: COLOR_HIGHWAY_*）を使う。
       const colorExpression = showRoadSurface
         ? getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).colorExpression
-        : ROAD_LINE_NEUTRAL_COLOR;
+        : getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).colorExpression;
       const widthExpression = showRoadType
         ? (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).widthExpression ?? DEFAULT_ROAD_LINE_WIDTH)
         : DEFAULT_ROAD_LINE_WIDTH;
@@ -492,7 +503,7 @@ function applyRoadLayerState(
         : DEFAULT_ROAD_LINE_DASHARRAY;
       const opacityExpression = showRoadSurface
         ? (getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY)
-        : DEFAULT_ROAD_LINE_OPACITY;
+        : (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-color", colorExpression as any);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -164,6 +164,13 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     kind: "static",
     category: "roadCondition",
     description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
+    // 実機フィードバック「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応
+    // （roadFilterAxes.ts: HIGHWAY_GROUPS、COLOR_HIGHWAY_*参照）。「路面の種類」がONの間は
+    // そちらの色分けが優先されるため、この濃淡は「路面の種類」がOFFのときだけ見える。
+    panelHint:
+      "太さに加え、「路面の種類」レイヤーがOFFの間は種別ごとの濃淡[幹線道路ほど濃く・" +
+      "自転車専用道路ほど薄く]でも表示します。「路面の種類」がONのときは、色はそちらの" +
+      "配色を優先します。",
   },
   {
     id: "roadSurface",
