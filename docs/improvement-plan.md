@@ -2718,6 +2718,42 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   矢印9件が描画されることを実機確認した（修正前0件）。frontend vitest 426件全green、
   tsc/eslintクリーン。
 
+### - [x] T182. get_forecast_many（複数地点）のOpen-Meteo取得変数を風のみへ絞る 規模S（2026-08-21完了）
+
+- 発端: ユーザー報告「openmeteo の上限を超えてしまっているのか」。本番`/api/debug/stats`で
+  直近デプロイ直後から`weather:open-meteo`が6/6件`http_429`、Open-Meteoへの直接curlで
+  `"Daily API request limit exceeded. Please try again tomorrow."`を確認、日次クォータ
+  枯渇と特定（T179で対策したRenderの共有送信元IP起因の429とは別種）。公式pricingページに
+  よると無料プランは1地点あたり10変数超・2週間超で按分カウントが増える仕組み。
+- 調査: T172（2026-08-20完了）で`get_forecast`（単一地点、`/api/weather`現在地パネル用）と
+  `get_forecast_many`（複数地点、WindServiceの区間風評価・`get_wind_grid`の風格子点マップ用）
+  の両方へcurrent 7変数・hourly 8変数を追加していたが、`get_forecast_many`の消費側
+  （`wind_service.py`・`weather_service.py:_wind_grid_point_from_data`）を辿ると実際に
+  使っているのはhourlyの`wind_speed_10m`/`wind_direction_10m`のみで、残り6変数
+  （temperature・apparent_temperature・wind_gusts・precipitation・uv_index・
+  precipitation_probability）は取得しているだけで捨てられていた。`get_forecast_many`は
+  風の格子点マップで最大600〜900地点をまとめて1リクエストに乗せる、事実上ここが
+  クォータ消費の主要因。
+- 対応: `weather_client.py`へ`WIND_ONLY_VARIABLES`定数（`wind_speed_10m,wind_direction_10m`）
+  を追加し`get_forecast_many`のcurrent/hourly両方をこれへ絞った。`get_forecast`
+  （単一地点、`/api/weather`パネルは全8変数を実際に表示している）はT172のまま変更なし。
+  キャッシュは`_forecast_cache`（get_forecast用）と`_wind_forecast_cache`
+  （get_forecast_many用）へ分離——単一のキャッシュキーを共有すると、
+  `get_forecast_many`が先に書き込んだ風のみの応答を`get_forecast`が後からキャッシュヒット
+  として読んでしまい、`/api/weather`パネルの気温等が黙って空欄になる事故になり得るため
+  （既存テスト`test_get_forecast_many_skips_already_cached_points`・
+  `test_get_forecast_many_uses_stale_cache_for_point_that_fails_refetch`が
+  この2メソッド間のキャッシュ共有を前提にしていたため、両方をget_forecast_many起点の
+  ウォームアップへ書き換え、キャッシュ非共有の回帰テストを追加）。
+- 完了条件: backend pytest全green。`get_forecast_many`のリクエスト変数数が
+  15→2（現用4）へ削減され、`get_forecast`側の表示機能に影響がないこと。
+- 実装メモ（2026-08-21完了）: backend pytest 951件全green（新規1件含む）。
+  スコープ外の関連事実（記録のみ、本タスクでは対応しない）: T179で構築したOracle Cloud VM
+  経由リレープロキシは、Render環境変数`OPEN_METEO_BASE_URL`が未設定のままのため本番では
+  実際には未使用（[[oracle-cloud-postgis-migration]]）。今回の日次クォータ枯渇は送信元IPに
+  依存しない現象と直接curlで確認済みのため、仮にT179を有効化しても解決しない可能性が高い
+  （Open-Meteoの日次カウント方式がIP単位かどうか自体が未確認・要調査）。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて
