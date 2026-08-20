@@ -180,11 +180,7 @@
 /* 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
    グループ配下を少しずつ色を変えてグルーピングして」）。見出しチップ・メンバータイルの
    両方に同じグループの色を適用し、縦一列に並んだチップがどのグループの一員か一目で
-   分かるようにする。border-colorだけを変える控えめな差にとどめ、展開見出し
-   （.iconChipExpanded、地味色）の意味は保つ（このルールより後に書かれているそちらが
-   勝つ）。ON（.iconChipActive、青）は背景・文字色は譲るが、枠線のグループ色は
-   コンパウンドセレクタで守り返す（下記.iconChipGroupRaw.iconChipActive等参照、実機
-   フィードバック「一度選択して解除すると、縁取りが全て青色になってしまう」）。 */
+   分かるようにする。OFF（未選択）時は枠線だけをグループ色にする（背景は素のまま）。 */
 .iconChipGroupRaw {
   border-color: var(--color-group-raw);
 }
@@ -195,28 +191,36 @@
   border-color: var(--color-group-dynamic);
 }
 
+/* グループを持たない単独チップ（ルート等）のON色。青一色。 */
 .iconChipActive {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: #ffffff;
 }
 
-/* ONにしたメンバーがグループ色分けを持つ場合、枠線だけは青に譲らずグループ色のままにする
-   （実機フィードバック「一度選択して解除すると、縁取りが全て青色になってしまう」）。
-   材料連動ON（改善計画T167、handleLayerToggle）で1回の操作から複数の観測メンバーが
-   連鎖的にONになることがあり、その全部の枠線が一律に青へ変わってしまうと「どのグループの
-   メンバーか」という色分け自体の意味が失われる。ONであること自体は背景色（青）で
-   十分に伝わるため、枠線はグループ識別を優先する。コンパウンドセレクタ（2クラス）で
-   .iconChipActive単体（ルート等、グループを持たない単独チップ）より詳細度を上げ、
-   この場合だけ枠線を上書きし直す。 */
+/* グループを持つチップのON色は、青ではなくそのグループ自身の色を塗りつぶす（実機
+   フィードバック「いっそシンプルに、グループごとに選択時の色、選択解除時の色を決めて
+   それに揃えて」）。以前は枠線だけ元の色を守り返す方式だったが、コンパウンドセレクタの
+   詳細度だけに頼っていたため他の状態クラスとの組み合わせで意図しない見た目になることが
+   あった（実機フィードバック「縁取りの動作がおかしいことがある」）。ここでは
+   背景・枠線・文字色をこの3ルールだけで完結させ、「OFF＝枠線だけそのグループ色、
+   ON＝そのグループ色で塗りつぶし」という単純な二値に統一する（青が出てくるのは
+   グループを持たない単独チップだけ）。コンパウンドセレクタ（2クラス、詳細度0,2,0）で
+   .iconChipActive単体（0,1,0）より優先させる。 */
 .iconChipGroupRaw.iconChipActive {
-  border-color: var(--color-group-raw);
+  background: var(--color-group-raw-on);
+  border-color: var(--color-group-raw-on);
+  color: #ffffff;
 }
 .iconChipGroupComposite.iconChipActive {
-  border-color: var(--color-group-composite);
+  background: var(--color-group-composite-on);
+  border-color: var(--color-group-composite-on);
+  color: #ffffff;
 }
 .iconChipGroupDynamic.iconChipActive {
-  border-color: var(--color-group-dynamic);
+  background: var(--color-group-dynamic-on);
+  border-color: var(--color-group-dynamic-on);
+  color: #ffffff;
 }
 
 /* 観測/推定グループ見出しの展開中ハイライト（ChipButtonのexpandViaSelf専用、実機
