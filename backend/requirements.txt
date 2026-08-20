@@ -12,3 +12,4 @@ geoalchemy2==0.16.0
 shapely==2.0.6
 networkx==3.4.2
 astral==3.2
+tenacity==9.1.4
