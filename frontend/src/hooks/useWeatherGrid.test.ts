@@ -2,6 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useWeatherGrid } from "./useWeatherGrid";
 import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
+import { WIND_GRID_SPACING_DEG } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 vi.mock("@/services/weatherApi", () => ({
@@ -64,6 +65,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
     await waitFor(() => expect(result.current.grid).toHaveLength(1));
     expect(getWindGridDetail).not.toHaveBeenCalled();
     expect(result.current.detailGrid).toEqual([]);
+    expect(result.current.effectiveGridSpacingDeg).toBe(WIND_GRID_SPACING_DEG);
   });
 
   it("ズームがWIND_DETAIL_MIN_ZOOM以上なら詳細格子を取得し、effectiveGridはdetailGridを優先する", async () => {
@@ -78,5 +80,33 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
     await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
     expect(result.current.effectiveGrid).toEqual(result.current.detailGrid);
     expect(result.current.effectiveGrid[0].precipitation_mm).toEqual([9.9]);
+  });
+
+  describe("ズーム依存のdetail格子間隔（T185、実機フィードバック「拡大率が大きいとgridFillの格子がゴワゴワして気になる」）", () => {
+    it("ズーム13ではspacingDeg=0.01でリクエストし、effectiveGridSpacingDegへ反映する", async () => {
+      vi.mocked(getWindGrid).mockResolvedValue([point({ latitude: 35.0, longitude: 139.0 })]);
+      vi.mocked(getWindGridDetail).mockResolvedValue([point()]);
+
+      const { result } = renderHook(() =>
+        useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 })
+      );
+
+      await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
+      expect(getWindGridDetail).toHaveBeenCalledWith(expect.anything(), 0.01);
+      expect(result.current.effectiveGridSpacingDeg).toBe(0.01);
+    });
+
+    it("ズーム19ではspacingDeg=0.0025でリクエストする（さらに細かい段階）", async () => {
+      vi.mocked(getWindGrid).mockResolvedValue([point({ latitude: 35.0, longitude: 139.0 })]);
+      vi.mocked(getWindGridDetail).mockResolvedValue([point()]);
+
+      const { result } = renderHook(() =>
+        useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 19 })
+      );
+
+      await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
+      expect(getWindGridDetail).toHaveBeenCalledWith(expect.anything(), 0.0025);
+      expect(result.current.effectiveGridSpacingDeg).toBe(0.0025);
+    });
   });
 });

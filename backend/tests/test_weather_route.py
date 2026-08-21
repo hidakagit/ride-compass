@@ -252,6 +252,81 @@ def test_get_wind_grid_detail_rejects_bbox_too_large():
     assert response.status_code == 400
 
 
+# T185: ズーム依存でspacing_degを細かくする拡張（実機フィードバック「拡大率が大きいと
+# gridFillの格子がゴワゴワして気になる」）。
+
+
+def test_get_wind_grid_detail_spacing_deg_defaults_to_02_when_omitted():
+    # spacing_degを省略したとき（既存クライアント・後方互換）と、明示的にWIND_GRID_DETAIL_
+    # SPACING_DEG(0.02)を渡したときとで、生成される格子点数が一致することを確認する。
+    captured_points = {}
+
+    class RecordingFakeWeatherService(FakeWeatherService):
+        async def get_wind_grid(self, points):
+            captured_points["count"] = len(points)
+            return []
+
+    app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
+    params = {"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.80, "max_lat": 35.80}
+
+    try:
+        omitted = client.get("/api/weather/wind-grid-detail", params=params)
+        omitted_count = captured_points["count"]
+        explicit = client.get("/api/weather/wind-grid-detail", params={**params, "spacing_deg": 0.02})
+        explicit_count = captured_points["count"]
+    finally:
+        app.dependency_overrides.clear()
+
+    assert omitted.status_code == 200
+    assert explicit.status_code == 200
+    assert omitted_count == explicit_count
+    assert omitted_count > 0
+
+
+def test_get_wind_grid_detail_accepts_finer_allowed_spacing_deg():
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.72, "max_lat": 35.72, "spacing_deg": 0.005},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+def test_get_wind_grid_detail_rejects_spacing_deg_outside_allowed_set():
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.72, "max_lat": 35.72, "spacing_deg": 0.03},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+def test_get_wind_grid_detail_rejects_bbox_too_large_for_finer_spacing_deg_even_when_ok_at_default():
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+    # 0.02°間隔なら十分小さい(0.4°四方=21x21=441点)bboxでも、0.0025°間隔だと
+    # 161x161=25921点相当になりWIND_GRID_DETAIL_MAX_POINTSを大幅に超える。
+    params = {"min_lon": 139.70, "min_lat": 35.70, "max_lon": 140.10, "max_lat": 36.10}
+
+    try:
+        ok = client.get("/api/weather/wind-grid-detail", params={**params, "spacing_deg": 0.02})
+        too_fine = client.get("/api/weather/wind-grid-detail", params={**params, "spacing_deg": 0.0025})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert ok.status_code == 200
+    assert too_fine.status_code == 400
+
+
 def test_get_wind_grid_detail_is_rate_limited_per_client():
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
     params = {"min_lon": 139.70, "min_lat": 35.60, "max_lon": 139.90, "max_lat": 35.80}

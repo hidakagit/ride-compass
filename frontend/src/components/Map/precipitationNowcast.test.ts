@@ -4,13 +4,12 @@ import {
   fetchNowcastFrames,
   parseValidtime,
   precipitationFrames,
-  precipitationGridSpacingDeg,
   precipitationRenderPayload,
   trimToCurrentAndFuture,
   PRECIPITATION_COLOR_STOPS,
   PRECIPITATION_INTENSITY_LEVELS,
 } from "./precipitationNowcast";
-import { parseJstTime, WIND_GRID_DETAIL_SPACING_DEG, WIND_GRID_SPACING_DEG } from "./windLayer";
+import { parseJstTime, WIND_GRID_SPACING_DEG } from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 const N1 = [
@@ -236,16 +235,6 @@ describe("precipitationNowcast", () => {
       expect(payload?.kind).toBe("gridFill");
       if (payload?.kind !== "gridFill") throw new Error("unreachable");
       expect(payload.geojson.features).toHaveLength(0);
-    });
-  });
-
-  describe("precipitationGridSpacingDeg", () => {
-    it("isDetail=falseならWIND_GRID_SPACING_DEG（粗い格子）を返す", () => {
-      expect(precipitationGridSpacingDeg(false)).toBe(WIND_GRID_SPACING_DEG);
-    });
-
-    it("isDetail=trueならWIND_GRID_DETAIL_SPACING_DEG（詳細格子）を返す", () => {
-      expect(precipitationGridSpacingDeg(true)).toBe(WIND_GRID_DETAIL_SPACING_DEG);
     });
   });
 });

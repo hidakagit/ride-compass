@@ -4,6 +4,7 @@ import {
   mergeWindGridKeepingStale,
   trimWindGridToCurrentAndFuture,
   windFrames,
+  windGridDetailSpacingDegForZoom,
   windRenderPayload,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
@@ -193,24 +194,56 @@ describe("windLayer", () => {
     });
   });
 
+  describe("windGridDetailSpacingDegForZoom（T185、実機フィードバック「拡大率が大きいとgridFillの格子がゴワゴワして気になる」）", () => {
+    it("段階の境界未満のズームでは、直前の段階（より粗い間隔）を返す", () => {
+      expect(windGridDetailSpacingDegForZoom(12.9)).toBe(0.02);
+      expect(windGridDetailSpacingDegForZoom(15.9)).toBe(0.01);
+      expect(windGridDetailSpacingDegForZoom(18.9)).toBe(0.005);
+    });
+
+    it("段階の境界ちょうど・それ以上では、その段階の間隔を返す", () => {
+      expect(windGridDetailSpacingDegForZoom(13)).toBe(0.01);
+      expect(windGridDetailSpacingDegForZoom(16)).toBe(0.005);
+      expect(windGridDetailSpacingDegForZoom(19)).toBe(0.0025);
+      expect(windGridDetailSpacingDegForZoom(22)).toBe(0.0025);
+    });
+
+    it("ズームが上がるほど間隔は単調に細かくなる（矛盾する段階を足さない回帰テスト）", () => {
+      const zooms = [10, 11, 13, 14, 16, 17, 19, 20];
+      const spacings = zooms.map(windGridDetailSpacingDegForZoom);
+      for (let i = 1; i < spacings.length; i++) {
+        expect(spacings[i]).toBeLessThanOrEqual(spacings[i - 1]);
+      }
+    });
+  });
+
   describe("clampWindDetailBbox", () => {
     it("クリップ幅より狭いビューポートはそのまま返す", () => {
-      const bbox = clampWindDetailBbox({ west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 });
+      const bbox = clampWindDetailBbox({ west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 }, 0.01);
       expect(bbox).toEqual({ minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 });
     });
 
-    it("クリップ幅より広いビューポートは中心を基準に0.5度四方へクリップする", () => {
+    it("クリップ幅より広いビューポートは中心を基準に間隔なりの広さへクリップする(spacingDeg=0.02のとき0.5度四方)", () => {
       // 経度方向に3度と広いビューポート(横長デスクトップ・低ズーム相当)
-      const bbox = clampWindDetailBbox({ west: 138.0, south: 35.5, east: 141.0, north: 35.7, zoom: 10 });
+      const bbox = clampWindDetailBbox({ west: 138.0, south: 35.5, east: 141.0, north: 35.7, zoom: 10 }, 0.02);
       const centerLon = (138.0 + 141.0) / 2;
       expect(bbox.minLon).toBeCloseTo(centerLon - 0.25);
       expect(bbox.maxLon).toBeCloseTo(centerLon + 0.25);
       expect(bbox.maxLon - bbox.minLon).toBeCloseTo(0.5);
     });
 
+    it("spacingDegが細かいほどクリップ幅も比例して狭くなる", () => {
+      const viewport = { west: 138.0, south: 35.5, east: 141.0, north: 35.7, zoom: 16 };
+      const coarse = clampWindDetailBbox(viewport, 0.02);
+      const fine = clampWindDetailBbox(viewport, 0.005);
+      const coarseSpan = coarse.maxLon - coarse.minLon;
+      const fineSpan = fine.maxLon - fine.minLon;
+      expect(fineSpan).toBeCloseTo(coarseSpan / 4);
+    });
+
     it("クリップ後もビューポートの範囲内に収まる(ビューポートより外側へはみ出さない)", () => {
       const viewport = { west: 139.0, south: 35.0, east: 140.0, north: 36.0, zoom: 8 };
-      const bbox = clampWindDetailBbox(viewport);
+      const bbox = clampWindDetailBbox(viewport, 0.02);
       expect(bbox.minLon).toBeGreaterThanOrEqual(viewport.west);
       expect(bbox.maxLon).toBeLessThanOrEqual(viewport.east);
       expect(bbox.minLat).toBeGreaterThanOrEqual(viewport.south);

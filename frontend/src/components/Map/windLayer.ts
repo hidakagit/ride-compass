@@ -201,17 +201,50 @@ export interface Bbox {
 // 詳細格子（改善計画T180）を出す最低ズーム。これ未満は広域の粗い格子（既存のgetWindGrid）
 // だけで足りると判断（狭い範囲を詳細に見るための機能のため）。
 export const WIND_DETAIL_MIN_ZOOM = 10;
-// 1回のリクエストで要求するbboxの最大幅・高さ（度）。ズーム10でも横長デスクトップの
-// ビューポートは経度方向に2°を超えることがあり、そのままバックエンドへ渡すとdetail間隔
-// （0.02度）ではWIND_GRID_DETAIL_MAX_POINTS（900、backend/app/domain/wind_grid.py）を
-// 超えて400になる。ビューポート中心を基準にこの幅へクリップしてから要求する
-// （0.5度四方なら0.02度間隔で最大26×26=676点、安全に収まる）。
-const WIND_DETAIL_MAX_BBOX_SPAN_DEG = 0.5;
+
+// ズーム依存の詳細格子間隔（T185、実機フィードバック「拡大率が大きいとgridFillの格子が
+// ゴワゴワして気になる。拡大率によって格子サイズも大きく（風の矢印と同じ）補正する汎用的な
+// 拡張はできない？」）。風の矢印のicon-size（ズームに応じて表示サイズを拡大、MapView.tsx:
+// zoomAndPropertyIconSizeExpression）はピクセル単位の記号なのでこの補正で足りるが、
+// gridFillのセルは「1格子点が担当する実面積」を表す図形のため、表示サイズだけを縮めても
+// 隙間ができるだけで解決しない。根本原因は「同じ間隔の格子が、ズームインするほど画面上の
+// 面積を大きく占めて色の段差（ゴワゴワ）が目立つ」ことなので、ズームが進むほど格子間隔
+// 自体を細かくする。段階は離散値のみ（連続値にすると閲覧者ごとにラティスの絶対座標が
+// わずかにずれ、generate_wind_grid_detail_pointsのキャッシュ共有が効かなくなるため）。
+// backend/app/domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGと同じ値を維持する
+// こと（zoom境界はICON_ZOOM_SCALE_STOPS、MapView.tsxと同じ10/13/16/19の刻みに揃えた）。
+export const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] = [
+  { zoom: WIND_DETAIL_MIN_ZOOM, spacingDeg: WIND_GRID_DETAIL_SPACING_DEG },
+  { zoom: 13, spacingDeg: 0.01 },
+  { zoom: 16, spacingDeg: 0.005 },
+  { zoom: 19, spacingDeg: 0.0025 },
+];
+
+/** 現在のズームから、詳細格子を要求するときの格子間隔（度）を求める。WIND_GRID_DETAIL_
+ * SPACING_STOPSのうちzoom以下の段階で最も細かい（配列は昇順前提）ものを返す。zoomが
+ * 最初の段階未満のときはWIND_GRID_DETAIL_SPACING_DEG（最も粗い段階）を返す（呼び出し側は
+ * WIND_DETAIL_MIN_ZOOM以上でしか使わない想定だが、単体では境界を知らない関数として
+ * フォールバックを持たせておく）。 */
+export function windGridDetailSpacingDegForZoom(zoom: number): number {
+  let spacingDeg = WIND_GRID_DETAIL_SPACING_DEG;
+  for (const stop of WIND_GRID_DETAIL_SPACING_STOPS) {
+    if (zoom >= stop.zoom) spacingDeg = stop.spacingDeg;
+  }
+  return spacingDeg;
+}
+
+// 1回のリクエストで許容するbboxの最大幅・高さ（度）を、格子間隔から逆算する係数。
+// WIND_GRID_DETAIL_MAX_POINTS（900、backend/app/domain/wind_grid.py）に対し、1辺25間隔
+// （26×26=676点）で余裕を持たせる（以前の固定値0.5度＝0.02度間隔×25と同じ安全率を、
+// 間隔が変わっても保つ）。
+const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = 25;
 
 /** 現在のビューポートから、詳細格子APIへ渡すbboxを求める。ビューポートがクリップ幅より
- * 狭ければビューポートそのまま、広ければ中心を基準に最大幅へクリップする（上記コメント参照）。 */
-export function clampWindDetailBbox(viewport: MapViewport): Bbox {
-  const halfSpan = WIND_DETAIL_MAX_BBOX_SPAN_DEG / 2;
+ * 狭ければビューポートそのまま、広ければ中心を基準に最大幅へクリップする（上記コメント参照）。
+ * spacingDegが細かいほどクリップ幅も比例して狭くなる（windGridDetailSpacingDegForZoom参照、
+ * 同じ点数上限に対して間隔なりの面積で収める）。 */
+export function clampWindDetailBbox(viewport: MapViewport, spacingDeg: number): Bbox {
+  const halfSpan = (spacingDeg * WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS) / 2;
   const centerLon = (viewport.west + viewport.east) / 2;
   const centerLat = (viewport.south + viewport.north) / 2;
   return {
