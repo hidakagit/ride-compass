@@ -2717,6 +2717,25 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   「何も描画されていない」ように見えていた）。閾値を0.3m/sへ引き下げ、同じ実データで
   矢印9件が描画されることを実機確認した（修正前0件）。frontend vitest 426件全green、
   tsc/eslintクリーン。
+  追記4（2026-08-21、ユーザー報告「風の表現、背景色が変わりきっていない（地図上部の
+  一部が未反映）。背景色を付けると他要素と重ね合わせた時に分かりにくいのはある。背景色
+  以外で、その範囲での風の強さ、を表す分かりやすい表現を提案して」→「背景色は消して。
+  矢印をもう少し大きくして、風の強さについても長さと色でより目立つように」）: 上記
+  追記2で追加したセル塗り（`WIND_VECTOR_BASE_CELLS_*`/`WIND_VECTOR_DETAIL_CELLS_*`
+  レイヤー、`windGridToCellFeatureCollection`）を全撤去し、「矢印↔範囲の対応」という
+  役割ごと矢印自体（大きさ・色のグラデーション）へ一本化した。セル塗りは道路・ルート等の
+  他レイヤーと重なると見分けにくいという指摘に加え、base/detail 2層の境界（低ズームで
+  detailが可視範囲の一部しかカバーしない領域）でbaseの薄い塗りとdetailの塗りが混在し
+  「途中で塗り分けが変わって見える」不具合の温床にもなっていたため、面表現自体をやめる
+  判断とした。矢印側は`WIND_ICON_MIN_SCALE`（0.7→0.9）・`WIND_ICON_MAX_SCALE`
+  （1.9→2.6）を引き上げ、全体を一回り大きくしつつ弱風〜強風のスケール差（=矢印の長さの
+  差）を拡大した（icon-sizeはMapLibreのsymbolレイヤー仕様上アイコン全体を一様スケール
+  するため、太さも連動して変わる。色のグラデーション自体（`WIND_COLOR_SCALE_
+  EXPRESSION`）は変更していない）。あわせて`windLayer.ts`の`windGridToCellFeatureCollection`・
+  `WindCellFeatureProperties`・`WIND_GRID_SPACING_DEG`/`WIND_GRID_DETAIL_SPACING_DEG`
+  （セル生成専用だった定数、他に利用箇所なし）を削除し、`page.tsx`/`MapView.tsx`から
+  `windBaseCellGeoJson`/`windDetailCellGeoJson`の算出・受け渡し・依存配列を除去した。
+  frontend vitest 441件全green（セル関連4件削除）、tsc/eslintクリーン。
 
 ### - [x] T182. get_forecast_many（複数地点）のOpen-Meteo取得変数を風のみへ絞る 規模S（2026-08-21完了）
 
