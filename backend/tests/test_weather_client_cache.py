@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from app.domain.route import Coordinates
+from app.infrastructure import cache_db
 from app.infrastructure import weather_client as weather_client_module
 from app.infrastructure.weather_client import WeatherClient
 
@@ -139,6 +140,15 @@ def clear_weather_cache():
     yield
     weather_client_module._forecast_cache.clear()
     weather_client_module._wind_forecast_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def use_temp_cache_db(tmp_path, monkeypatch):
+    """get_forecast_manyがcache_db（wind_forecast_cacheテーブル、DB永続化のL2）を叩くように
+    なったため、test_cache_db.pyのuse_temp_dbと同じ方針でテスト専用の一時DBへ差し替える
+    （実ファイルdata/ridecompass_cache.dbを汚さない・テスト間で状態が漏れないため）。"""
+    monkeypatch.setattr(cache_db, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(cache_db, "DB_PATH", tmp_path / "test_cache.db")
 
 
 @pytest.fixture(autouse=True)
@@ -315,7 +325,7 @@ async def test_get_forecast_many_uses_stale_cache_for_point_that_fails_refetch()
     key = WeatherClient.cache_key(point)
     fetched_at, data = weather_client_module._wind_forecast_cache[key]
     weather_client_module._wind_forecast_cache[key] = (
-        fetched_at - weather_client_module.CACHE_TTL_SECONDS - 1,
+        fetched_at - weather_client_module.WIND_GRID_CACHE_TTL_SECONDS - 1,
         data,
     )
 
@@ -404,3 +414,74 @@ async def test_get_forecast_many_single_uncached_point_handles_object_response()
     results = await client.get_forecast_many(http_client, [point])
 
     assert results[WeatherClient.cache_key(point)] == {"current": {}, "hourly": {}}
+
+
+class NeverCalledHttpClient:
+    """呼ばれたら即失敗させ、「DB永続化キャッシュがヒットしたのでHTTP呼び出し自体が
+    発生しなかった」ことを検証するためのダブル。"""
+
+    async def get(self, url, params=None, timeout=None):
+        raise AssertionError("HTTPが呼ばれた（DBキャッシュがヒットしなかった）")
+
+    async def post(self, url, data=None, timeout=None):
+        raise AssertionError("HTTPが呼ばれた（DBキャッシュがヒットしなかった）")
+
+
+async def test_get_forecast_many_persists_successful_fetch_to_db(
+    monkeypatch,
+):
+    """改善計画「Open-Meteo 429根本対策」④の回帰テスト: 新規取得分がDB（L2、cache_db.py）へ
+    書き戻されることを確認する。メモリキャッシュ（L1）をクリアしただけの状態＝プロセス
+    再起動直後を模して、DB側だけを直接読み、期待した値が入っていることを見る。"""
+    client = WeatherClient()
+    point = Coordinates(latitude=35.62, longitude=139.63)
+    http_client = FakeHttpClient([{"current": {}, "hourly": {}, "tag": "persisted"}])
+
+    await client.get_forecast_many(http_client, [point])
+
+    key = WeatherClient.cache_key(point)
+    db_hits = await cache_db.get_wind_forecast_many([key])
+    assert db_hits[key][1]["tag"] == "persisted"
+
+
+async def test_get_forecast_many_reuses_db_cache_after_memory_cache_cleared():
+    """プロセス再起動を模す: メモリキャッシュ（L1）だけをクリアしDB（L2）は残した状態で
+    再度呼ぶと、DBの値がL1へ復元されOpen-Meteoへの再取得（HTTP呼び出し）が発生しない
+    ことを確認する（改善計画「Open-Meteo 429根本対策」④の主眼＝再起動のたびに無駄な
+    フェッチが走らないこと）。"""
+    client = WeatherClient()
+    point = Coordinates(latitude=35.64, longitude=139.65)
+    await client.get_forecast_many(
+        FakeHttpClient([{"current": {}, "hourly": {}, "tag": "from-db"}]), [point]
+    )
+
+    # メモリキャッシュ（L1）だけをクリアする。DB（L2）はcache_dbモジュール側の永続化なので
+    # そのまま残る。
+    weather_client_module._wind_forecast_cache.clear()
+
+    results = await client.get_forecast_many(NeverCalledHttpClient(), [point])
+
+    assert results[WeatherClient.cache_key(point)]["tag"] == "from-db"
+
+
+async def test_get_forecast_many_refetches_when_db_cache_exceeds_ttl():
+    """DB（L2）にヒットしても、WIND_GRID_CACHE_TTL_SECONDSを超えていれば陳腐化とみなし
+    再取得する（DB永続化がTTL判定自体を骨抜きにしないことの回帰テスト）。"""
+    client = WeatherClient()
+    point = Coordinates(latitude=35.66, longitude=139.67)
+    await client.get_forecast_many(
+        FakeHttpClient([{"current": {}, "hourly": {}, "tag": "old"}]), [point]
+    )
+    key = WeatherClient.cache_key(point)
+
+    # DB上のfetched_atを直接書き換えてTTL切れを模す（L1はこの後クリアするため、
+    # L2側だけが唯一の判定材料になる）。
+    fetched_at, data = weather_client_module._wind_forecast_cache[key]
+    await cache_db.set_wind_forecast_many({key: (fetched_at - weather_client_module.WIND_GRID_CACHE_TTL_SECONDS - 1, data)})
+    weather_client_module._wind_forecast_cache.clear()
+
+    http_client = FakeHttpClient([{"current": {}, "hourly": {}, "tag": "refetched"}])
+    results = await client.get_forecast_many(http_client, [point])
+
+    assert http_client.call_count == 1
+    assert results[key]["tag"] == "refetched"
