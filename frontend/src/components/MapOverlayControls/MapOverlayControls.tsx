@@ -21,7 +21,6 @@ import {
   AccidentIcon,
   AccidentDensityAxisIcon,
   AxisRampIcon,
-  ClearAllLayersIcon,
   DesignationIcon,
   DynamicDataIcon,
   ElevationIcon,
@@ -682,31 +681,9 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   }
 
   const chipGroups = buildChipGroups(layers);
-  // 全レイヤー一括OFF（ユーザー要望「一次・二次・動的まとめて1ボタンでクリアしたい」「ルート等も
-  // 含めて全チップをOffにするのがシンプル」）。一次/二次/動的の次数を持たないルート等の
-  // 独立チップも対象に含め、「今ONのものを全部OFFにする」という一様な挙動にする
-  // （次数の有無で対象を分ける特殊ケースを作らない）。何もONでないときはno-opのため無効化する
-  // （ChipButton見出しの一括ON/OFF非搭載の理由=誤操作リスク、上記コメント参照。押しても
-  // 何も起きない状態を無効表示にすることで誤操作の起点自体を減らす）。
-  const hasAnyLayerOn = layers.some((layer) => layer.on);
-  const handleClearAll = () => {
-    for (const layer of layers) {
-      if (layer.on) onToggle(layer.id, false);
-    }
-  };
 
   return (
     <div className={styles.wrapper}>
-      <button
-        type="button"
-        onClick={handleClearAll}
-        disabled={!hasAnyLayerOn}
-        aria-label="表示中のレイヤーをすべて非表示にする"
-        title="表示中のレイヤーをすべて非表示にする"
-        className={styles.clearAllButton}
-      >
-        <ClearAllLayersIcon size={14} />
-      </button>
       <div className={styles.chipRow} ref={chipRowRef} onScroll={handleChipRowScroll}>
         {chipGroups.flatMap((group) => {
           // 推定グループ。▶を開くと、独立したカードに閉じ込めず、6軸のタイルを推定チップと

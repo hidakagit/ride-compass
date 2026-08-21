@@ -289,33 +289,9 @@
   pointer-events: auto;
 }
 
-/* 全レイヤー一括OFF（改善計画、ユーザー要望「一次・二次・動的まとめて1ボタンでクリア」）。
-   .expandToggleと同じ小さい丸ボタンの見た目・pointer-events/touch-action方針を踏襲する
-   （.wrapperのpointer-events: none継承下で、実際に押せるボタンだけ個別にautoへ戻す設計、
-   .wrapperのコメント参照）。chipRowの外・.wrapperの先頭に置くため、スクロールしても
-   常に押せる位置に残る。 */
-.clearAllButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  flex-shrink: 0;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-neutral);
-  cursor: pointer;
-  touch-action: none;
-  pointer-events: auto;
-}
-
-.clearAllButton:disabled {
-  /* 何もONでないときはno-opのため無効化する（誤操作の起点自体を減らす、上記コメント参照）。 */
-  opacity: 0.4;
-  cursor: default;
-}
+/* 全レイヤー一括OFFボタン（.clearAllButton）は地図下部中央の時刻スライダー隣へ移設した
+   （実機フィードバック「左上の全クリアアイコンをスライドバーの左側に移動して」、
+   page.module.css参照）。 */
 
 .expandToggleActive {
   color: var(--foreground);
