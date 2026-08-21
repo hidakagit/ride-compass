@@ -70,13 +70,16 @@
   height: 2rem;
   overflow-x: auto;
   overflow-y: hidden;
-  scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  /* .timeHeaderコメント参照。ここは横スクロールそのものが操作のため、地図の2本指ピンチと
-     衝突しうる縦方向のパン・ピンチズームだけを打ち消し、横方向のパンはブラウザの
-     ネイティブスクロールに任せる。 */
-  touch-action: pan-x;
+  /* 実機フィードバック「スマホで変わらず横スクロールでバーを動かせない」を受け、
+   * ブラウザのネイティブスクロール（旧: touch-action: pan-x）には頼らず、タッチ/マウス/
+   * ペンいずれもポインタイベントで自前ドラッグする設計へ変更した
+   * （DynamicLayerTimeSlider.tsx: handlePointerDown等）。noneにすることでブラウザ自身の
+   * ジェスチャー処理と自前のドラッグ処理が競合しないようにする（他の地図上コントロール
+   * ＝MapOverlayControls.module.cssの.iconChip等と同じ「touch-action: none+実際の
+   * ジェスチャーはJSで処理」という既存方針にも揃う）。 */
+  touch-action: none;
   pointer-events: auto;
   /* マウスで掴んでドラッグできることを示す（DynamicLayerTimeSlider.tsx:
      handlePointerDown等、実機フィードバック「ルーラースクロールできない」）。 */
@@ -109,7 +112,6 @@
   align-items: center;
   justify-content: flex-start;
   padding-top: 0.55rem;
-  scroll-snap-align: center;
 }
 
 .tickMark {
