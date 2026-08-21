@@ -1,13 +1,22 @@
 "use client";
 
+import { useId } from "react";
 import styles from "./DynamicLayerTimeSlider.module.css";
 
 /** スライダーの1フレーム分の表示内容。T183再設計でONの全レイヤーのフレーム時刻を統合した
  * 1本の共有タイムラインを表すようになったため、時刻ラベルのみを持つ（旧badgeフィールドは
  * 「レイヤー固有の実況/予測ラベル」用だったが、1つの目盛りに複数レイヤーが同時に対応しうる
- * 設計では意味を持たなくなったため撤去、dynamicWeather.ts: formatDynamicFrameTime参照）。 */
+ * 設計では意味を持たなくなったため撤去、dynamicWeather.ts: formatDynamicFrameTime参照）。
+ * hourMarkは実機フィードバック「メモリを簡潔に出して」への対応（呼び出し側=page.tsxが
+ * 「正時（分=0）のフレームか」を判定して渡す）。降水ナウキャスト（5分刻み、〜60分先）の
+ * 区間では正時フレームがまばらにしか無く目盛りもまばらに、延長予報（1時間刻み、〜48時間先）
+ * の区間では全フレームが正時のため毎コマに目盛りが付く。スライダー自体はインデックス位置
+ * （どのコマも等間隔）でつまみを動かす設計のままのため、目盛りをフレームごとの正時判定で
+ * 間引くだけで「近い将来は目盛りがまばら＝連続的に細かく動かせる、遠い将来は毎コマに目盛り＝
+ * 1時間刻みで止まる」という実際の間隔設計がひと目で伝わる（間隔設計自体は変更しない）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
+  hourMark?: boolean;
 }
 
 interface DynamicLayerTimeSliderProps {
@@ -57,6 +66,10 @@ export default function DynamicLayerTimeSlider({
   error,
   ariaLabel,
 }: DynamicLayerTimeSliderProps) {
+  // input[type=range]のlist属性から参照するdatalistのid。複数の時刻依存レイヤーが同時に
+  // ONのときはこのコンポーネントが縦に複数マウントされる（ファイル冒頭コメント参照）ため、
+  // 固定文字列だとid衝突する。useIdでインスタンスごとに一意にする。
+  const tickListIdBase = useId();
   if (error) {
     return (
       <div className={styles.wrapper}>
@@ -73,6 +86,7 @@ export default function DynamicLayerTimeSlider({
   }
 
   const frame = frames[Math.min(index, frames.length - 1)];
+  const tickListId = `${tickListIdBase}-ticks`;
 
   return (
     <div className={styles.wrapper}>
@@ -85,9 +99,13 @@ export default function DynamicLayerTimeSlider({
           max={frames.length - 1}
           step={1}
           value={index}
+          list={tickListId}
           aria-label={ariaLabel}
           onChange={(e) => onIndexChange(Number(e.target.value))}
         />
+        <datalist id={tickListId}>
+          {frames.map((f, i) => (f.hourMark ? <option key={i} value={i} /> : null))}
+        </datalist>
         {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
             未来・過去側を見ていたスライダー位置を、ワンタップで実時刻へ戻す（onNowコメント
             参照）。既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの
