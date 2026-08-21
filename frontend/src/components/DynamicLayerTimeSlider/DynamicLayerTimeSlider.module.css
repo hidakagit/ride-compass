@@ -18,13 +18,6 @@
   padding: 0.4rem var(--space-2);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   pointer-events: auto;
-  /* 地図キャンバス（touch-action: none）の上に重なる箱のため、同じくnoneを与える
-   * （MapOverlayControls.module.cssの.iconChip等・page.module.cssの.locateButtonと
-   * 同じ理由）。無指定（既定auto）のままだと、スマホでのピンチズームの片方の指がこの
-   * スライダー（地図下部中央に浮く）に乗ったときブラウザがタッチ開始点ごとに
-   * touch-actionを見て地図ジェスチャーとして確定できず、ピンチが反応しないことがある
-   * （実機フィードバック「スマホで地図上ピンチアウト、ピンチインが効かないことがある」）。 */
-  touch-action: none;
   /* 実機フィードバック「バー自体をもう少し長くして」を受け260px固定から拡大。
      モバイルの狭い画面では90vw（左右の余白を確保しつつほぼ画面幅）、それ以上の
      画面ではmax-widthで頭打ちにする（際限なく伸びて他の地図UIと衝突しないよう）。 */
@@ -42,11 +35,106 @@
   flex-shrink: 0;
   /* 数字の桁で幅が動いて隣のスライダーがガタつかないよう固定幅にする */
   font-variant-numeric: tabular-nums;
+  /* 地図キャンバス（touch-action: none）の上に重なるテキストのため、同じくnoneを与える
+   * （MapOverlayControls.module.cssの.iconChip等・page.module.cssの.locateButtonと
+   * 同じ理由）。以前は.row全体へ一括指定していたが、.rulerViewport（下記）だけは
+   * 横スクロール自体が本来の操作のためpan-xを許す必要があり、祖先のnoneはpan-xも
+   * 道連れに打ち消してしまう（touch-actionは祖先との積集合で決まる仕様）。そのため
+   * .row自体からは外し、実際にタップするだけの要素（.time・.nowButton）へ個別に
+   * 明示する方針（MapOverlayControls.module.cssの.iconChip等と同じ「実際に押せる
+   * 要素へも明示する」方針）へ揃えた。 */
+  touch-action: none;
 }
 
-.slider {
+/* 実機フィードバック「見た目は現状のままで良くて、横スクロールでメモリの方が移動する
+   ようにしたい」。ネイティブのinput[type=range]をやめ、横スクロールで目盛り自体を
+   動かすルーラーに置き換えた（DynamicLayerTimeSlider.tsx参照）。中央固定の目印
+   （.centerIndicator）へ目盛りを合わせる操作感のため、position: relativeにし
+   目印をposition: absoluteの兄弟として重ねる。 */
+.rulerViewport {
+  position: relative;
   flex: 1;
   min-width: 120px;
+  /* 目盛り本体（.tickMark、上段）+ 正時ラベル（.tickLabel、下段、常に領域を確保して
+     コマによって高さがガタつかないようにする）ぶんの高さ。ラベルはこの箱の内側に
+     収まる（overflow-y: hiddenでクリップされない）。 */
+  height: 2rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* .timeコメント参照。ここは横スクロールそのものが操作のため、地図の2本指ピンチと
+     衝突しうる縦方向のパン・ピンチズームだけを打ち消し、横方向のパンはブラウザの
+     ネイティブスクロールに任せる。 */
+  touch-action: pan-x;
+  pointer-events: auto;
+}
+.rulerViewport::-webkit-scrollbar {
+  display: none;
+}
+.rulerViewport:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.rulerTrack {
+  display: flex;
+  height: 100%;
+}
+
+/* 目盛り1コマぶん。上段(.tickMark)+下段(.tickLabel)の2段固定にし、ラベルの有無で
+   隣のコマと縦位置がずれないようにする（.tickLabelは中身が空文字でも高さ・行送りを
+   常に確保する、下記参照）。 */
+.tickMinor,
+.tickHour {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 0.55rem;
+  scroll-snap-align: center;
+}
+
+.tickMark {
+  width: 1px;
+  height: 0.5rem;
+  background: var(--color-border-strong);
+}
+.tickHour .tickMark {
+  width: 2px;
+  height: 0.9rem;
+  background: var(--color-muted-strong);
+}
+
+.tickLabel {
+  display: block;
+  margin-top: 0.2rem;
+  height: 0.7rem;
+  line-height: 0.7rem;
+  font-size: 0.55rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  max-width: 3.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 常に画面中央に固定表示する選択位置の目印。.rulerViewport自身の子だが
+   position: absoluteのためスクロールする.rulerTrackとは独立し、スクロールしても
+   横位置が動かない（選ばれているコマの方をこの目印へ合わせにいく操作感）。 */
+.centerIndicator {
+  position: absolute;
+  left: 50%;
+  top: 0.15rem;
+  height: 1.45rem;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--color-accent);
+  border-radius: 999px;
+  pointer-events: none;
 }
 
 /* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
@@ -61,6 +149,8 @@
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  /* .timeと同じ理由（このファイル冒頭寄りのコメント参照）。 */
+  touch-action: none;
 }
 
 .nowButton:disabled {

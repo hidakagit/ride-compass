@@ -831,11 +831,21 @@ export default function Home() {
   // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
   // 表示用ラベル列。
   const sliderIndex = useMemo(() => nearestTimeIndex(timeline, dynamicLayerTargetTime), [timeline, dynamicLayerTargetTime]);
-  // hourMarkは実機フィードバック「メモリを簡潔に出して」への対応（DynamicLayerTimeSlider.tsx
-  // 冒頭コメント参照）。正時判定はgetUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが
-  // 無いため、実行環境のローカルタイムゾーンに左右されずJSTの正時と一致する）。
+  // hourMark/tickLabelは実機フィードバック「メモリを簡潔に出して」「横スクロールでメモリの
+  // 方が移動するように」への対応（DynamicLayerTimeSlider.tsx冒頭コメント参照）。正時判定は
+  // getUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが無いため、実行環境のローカル
+  // タイムゾーンに左右されずJSTの正時と一致する）。延長予報（60分以降）は全フレームが正時
+  // のため、hourMark（目盛りの線を太くするだけ）は毎コマ付けても密度の問題は無いが、
+  // tickLabel（時刻の文字を出す）を毎時間ぶん全部出すと目盛り間隔（TICK_SPACING_PX）に対して
+  // 文字が重なってしまう（実機Playwright確認で発覚）。3時間おきに間引くことで文字同士の
+  // 重なりを避けつつ、大まかな時間経過は目で追える程度の密度を残す。 */
   const sliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () => timeline.map((time) => ({ label: formatDynamicFrameTime(time), hourMark: time.getUTCMinutes() === 0 })),
+    () =>
+      timeline.map((time) => ({
+        label: formatDynamicFrameTime(time),
+        hourMark: time.getUTCMinutes() === 0,
+        tickLabel: time.getUTCMinutes() === 0 && time.getUTCHours() % 3 === 0,
+      })),
     [timeline]
   );
   // 「現在」に戻るボタン（改善計画、実機フィードバック「現況に戻すボタンも横に追加して」）の
