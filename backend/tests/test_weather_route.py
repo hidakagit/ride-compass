@@ -105,6 +105,7 @@ def test_get_wind_grid_returns_points_on_success():
             times=["2026-08-20T12:00", "2026-08-20T13:00"],
             wind_speed_ms=[2.5, 3.1],
             wind_direction_deg=[90.0, 95.0],
+            precipitation_mm=[0.0, 0.5],
         )
     ]
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
@@ -119,6 +120,7 @@ def test_get_wind_grid_returns_points_on_success():
     assert len(body) == 1
     assert body[0]["latitude"] == 35.68
     assert body[0]["wind_speed_ms"] == [2.5, 3.1]
+    assert body[0]["precipitation_mm"] == [0.0, 0.5]
 
 
 def test_get_wind_grid_omits_none_points():
@@ -126,7 +128,12 @@ def test_get_wind_grid_omits_none_points():
 
     grid = [
         WindGridPoint(
-            latitude=35.68, longitude=139.77, times=["2026-08-20T12:00"], wind_speed_ms=[2.5], wind_direction_deg=[90.0]
+            latitude=35.68,
+            longitude=139.77,
+            times=["2026-08-20T12:00"],
+            wind_speed_ms=[2.5],
+            wind_direction_deg=[90.0],
+            precipitation_mm=[0.0],
         ),
         None,
     ]
@@ -168,6 +175,7 @@ def test_get_wind_grid_detail_returns_points_on_success():
             times=["2026-08-20T12:00"],
             wind_speed_ms=[2.5],
             wind_direction_deg=[90.0],
+            precipitation_mm=[0.0],
         )
     ]
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
@@ -191,7 +199,12 @@ def test_get_wind_grid_detail_omits_none_points():
 
     grid = [
         WindGridPoint(
-            latitude=35.68, longitude=139.77, times=["2026-08-20T12:00"], wind_speed_ms=[2.5], wind_direction_deg=[90.0]
+            latitude=35.68,
+            longitude=139.77,
+            times=["2026-08-20T12:00"],
+            wind_speed_ms=[2.5],
+            wind_direction_deg=[90.0],
+            precipitation_mm=[0.0],
         ),
         None,
     ]

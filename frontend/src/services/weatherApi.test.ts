@@ -89,7 +89,14 @@ describe("getWindGrid", () => {
 
   it("成功時は/api/weather/wind-gridをfetchし、格子点配列をそのまま返す", async () => {
     const grid: WindGridPoint[] = [
-      { latitude: 35.68, longitude: 139.77, times: ["2026-08-20T12:00"], wind_speed_ms: [2.5], wind_direction_deg: [90] },
+      {
+        latitude: 35.68,
+        longitude: 139.77,
+        times: ["2026-08-20T12:00"],
+        wind_speed_ms: [2.5],
+        wind_direction_deg: [90],
+        precipitation_mm: [0.5],
+      },
     ];
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
     vi.stubGlobal("fetch", fetchMock);
@@ -123,7 +130,14 @@ describe("getWindGridDetail", () => {
 
   it("成功時は/api/weather/wind-grid-detailをbboxクエリ付きでfetchし、格子点配列をそのまま返す", async () => {
     const grid: WindGridPoint[] = [
-      { latitude: 35.68, longitude: 139.77, times: ["2026-08-20T12:00"], wind_speed_ms: [2.5], wind_direction_deg: [90] },
+      {
+        latitude: 35.68,
+        longitude: 139.77,
+        times: ["2026-08-20T12:00"],
+        wind_speed_ms: [2.5],
+        wind_direction_deg: [90],
+        precipitation_mm: [0.5],
+      },
     ];
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
     vi.stubGlobal("fetch", fetchMock);

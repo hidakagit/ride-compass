@@ -45,8 +45,22 @@ describe("windLayer", () => {
 
   describe("windGridToFeatureCollection", () => {
     const grid: WindGridPoint[] = [
-      { latitude: 35.68, longitude: 139.77, times: ["t0", "t1"], wind_speed_ms: [2.5, 3.1], wind_direction_deg: [90, 180] },
-      { latitude: 36.0, longitude: 140.0, times: ["t0", "t1"], wind_speed_ms: [1.0, 4.2], wind_direction_deg: [0, 270] },
+      {
+        latitude: 35.68,
+        longitude: 139.77,
+        times: ["t0", "t1"],
+        wind_speed_ms: [2.5, 3.1],
+        wind_direction_deg: [90, 180],
+        precipitation_mm: [0, 0],
+      },
+      {
+        latitude: 36.0,
+        longitude: 140.0,
+        times: ["t0", "t1"],
+        wind_speed_ms: [1.0, 4.2],
+        wind_direction_deg: [0, 270],
+        precipitation_mm: [0, 0],
+      },
     ];
 
     it("指定フレームの値でGeoJSON FeatureCollectionを構築する", () => {
@@ -80,8 +94,22 @@ describe("windLayer", () => {
   describe("trimWindGridToCurrentAndFuture（実機フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を左端に」）", () => {
     const times = ["2026-08-20T00:00", "2026-08-20T01:00", "2026-08-20T02:00", "2026-08-20T03:00"];
     const grid: WindGridPoint[] = [
-      { latitude: 35.68, longitude: 139.77, times, wind_speed_ms: [1, 2, 3, 4], wind_direction_deg: [10, 20, 30, 40] },
-      { latitude: 36.0, longitude: 140.0, times, wind_speed_ms: [5, 6, 7, 8], wind_direction_deg: [50, 60, 70, 80] },
+      {
+        latitude: 35.68,
+        longitude: 139.77,
+        times,
+        wind_speed_ms: [1, 2, 3, 4],
+        wind_direction_deg: [10, 20, 30, 40],
+        precipitation_mm: [0, 0, 0, 0],
+      },
+      {
+        latitude: 36.0,
+        longitude: 140.0,
+        times,
+        wind_speed_ms: [5, 6, 7, 8],
+        wind_direction_deg: [50, 60, 70, 80],
+        precipitation_mm: [0, 0, 0, 0],
+      },
     ];
 
     it("「現在時刻以下で最も新しい」時刻より前を全格子点・全配列から切り捨てる", () => {
@@ -140,7 +168,7 @@ describe("windLayer", () => {
 
   describe("mergeWindGridKeepingStale（実機フィードバック「画面端が塗られないことがある」）", () => {
     function point(lat: number, lon: number, speed: number): WindGridPoint {
-      return { latitude: lat, longitude: lon, times: ["t0"], wind_speed_ms: [speed], wind_direction_deg: [0] };
+      return { latitude: lat, longitude: lon, times: ["t0"], wind_speed_ms: [speed], wind_direction_deg: [0], precipitation_mm: [0] };
     }
 
     it("nextに存在する地点はnextの値を優先する（更新される）", () => {

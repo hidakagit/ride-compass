@@ -43,10 +43,11 @@ async def get_wind_grid(
     http_request: Request,
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> list[WindGridPoint]:
-    """風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点
-    （domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）ぶんの時間別風向・風速を
-    まとめて返す。取得に失敗した地点はレスポンスから除外する（他の外部API連携と同じ
-    「取得失敗は握りつぶす」方針、1地点の失敗で全体を502にしない）。"""
+    """風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水を追加）。
+    関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
+    ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
+    除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
+    502にしない）。"""
     if not check_rate_limit(f"wind-grid:{client_id(http_request)}", settings.wind_grid_rate_limit_per_minute):
         record_rate_limit_rejection(
             "wind-grid", client_id(http_request), f"{settings.wind_grid_rate_limit_per_minute}/min"
@@ -65,11 +66,11 @@ async def get_wind_grid_detail(
     max_lat: float = Query(ge=-90, le=90),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> list[WindGridPoint]:
-    """風の詳細格子（改善計画T180、ヒートマップ等の面表現用）。呼び出し元（フロント）が
-    渡した表示範囲（bbox）に交差する密格子点（domain/wind_grid.py:
+    """風・降水延長予報の詳細格子（改善計画T180、ヒートマップ等の面表現用）。呼び出し元
+    （フロント）が渡した表示範囲（bbox）に交差する密格子点（domain/wind_grid.py:
     generate_wind_grid_detail_points、固定ラティス上の座標のため近い範囲を見る別ユーザーと
-    キャッシュを共有できる）ぶんの時間別風向・風速を返す。get_wind_gridと同じく取得失敗地点は
-    結果から除外する。"""
+    キャッシュを共有できる）ぶんの時間別風向・風速・降水量を返す。get_wind_gridと同じく
+    取得失敗地点は結果から除外する。"""
     if not check_rate_limit(
         f"wind-grid-detail:{client_id(http_request)}", settings.wind_grid_detail_rate_limit_per_minute
     ):

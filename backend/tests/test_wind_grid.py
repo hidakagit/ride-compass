@@ -98,5 +98,7 @@ def test_wind_grid_point_model_round_trip():
         times=["2026-08-20T12:00"],
         wind_speed_ms=[2.5],
         wind_direction_deg=[90.0],
+        precipitation_mm=[0.5],
     )
     assert point.model_dump()["latitude"] == 35.68
+    assert point.model_dump()["precipitation_mm"] == [0.5]

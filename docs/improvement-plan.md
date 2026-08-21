@@ -2773,6 +2773,52 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   依存しない現象と直接curlで確認済みのため、仮にT179を有効化しても解決しない可能性が高い
   （Open-Meteoの日次カウント方式がIP単位かどうか自体が未確認・要調査）。
 
+### - [x] T183. 降水ナウキャストを60分より先も延長し、風と汎用化した自前実装で表示する 規模M（2026-08-21完了）
+
+- 発端: ユーザー要望「雨情報を拡張できない？1時間より先も、短時間雨予報を出してほしい」。
+  調査の結果、気象庁の降水ナウキャストAPI（`targetTimes_N2`）自体が+60分を上限とする
+  仕様（JMA側の制約、回避不可）と判明。一方でOpen-Meteo経由のモデル予報（風の格子点
+  マップが既に取得している`precipitation`変数）は約48時間先まで持つため、これを
+  60分以降の延長予報として使う方針を提示したところ、ユーザーから「1時間より先は自前実装に
+  切り替えて、風と同じ考え方で、風と汎用化して実装してほしい。アイコンは1つ。ただし
+  内部は時間によって使い分けて。スライドバーも、1時間までは細いメモリ、1時間から先は
+  1時間毎の粗いメモリに統合できる？」という具体的な実装方針の指示を受けた。
+- 対応方針: 「降水」の地図チップ・時刻スライダーは1つのまま（新規チップは追加しない）とし、
+  内部でデータ源を60分境界で切り替える。60分以内は既存の気象庁ナウキャストラスタタイル、
+  60分以降は風の格子点マップ（`GET /api/weather/wind-grid`）が返す`precipitation_mm`を
+  MapLibre symbolレイヤー（しずくアイコン、大きさ・色で強さを表現）として描画する。
+  風とインフラを共有することで、Open-Meteoへのリクエスト自体を増やさない（T182で
+  日次クォータ枯渇の対策をしたばかりのため、新規の外部リクエスト経路を増やさないことを
+  優先した）。
+- 実装メモ（2026-08-21完了）:
+  **バックエンド**: `WindGridPoint`（`domain/wind_grid.py`）へ`precipitation_mm: list[float]`
+  を追加。`weather_client.py`の`WIND_ONLY_VARIABLES`（`wind_speed_10m,wind_direction_10m`）を
+  `WIND_GRID_VARIABLES`へ改名し`precipitation`を追加（3変数、無料プランのクォータ按分閾値
+  「10変数超」を十分下回るためT182の対策効果は保たれる）。`weather_service.py:
+  _wind_grid_point_from_data`は他の2フィールドと同じ厳格な検証（欠損・長さ不一致なら
+  格子点ごとNone）をprecipitationにも適用。OpenAPIスキーマ・フロント型（`api.d.ts`）を
+  再生成。backend pytest 853件（新規1件）全green。
+  **フロントエンド（汎用化）**: 風の格子点フェッチ（元はpage.tsx直書き、約100行）を
+  `hooks/useWeatherGrid.ts`へ抽出し、`enabled`引数で汎用化。降水延長予報も同じフックの
+  同じ結果（`effectiveGrid`）を共有するため、`showWindVector || showPrecipitationNowcast`の
+  どちらか一方でもONならフェッチが走る（1回のOpen-Meteo呼び出しで両機能ぶんを賄う）。
+  `precipitationNowcast.ts`に`PRECIPITATION_COLOR_STOPS`（windLayer.tsのWIND_SPEED_COLOR_STOPSと
+  同じ片側import設計）・`precipitationGridToFeatureCollection`・`buildCombinedPrecipitationFrames`
+  （ナウキャスト0〜60分・5分刻みと延長予報60分以降・1時間刻みを1つの時系列へ束ねる。
+  DynamicLayerTimeSliderがframes配列のindexをそのままスライダー刻みに使う設計のため、
+  この間隔差がそのまま「1時間まで細かく、それ以降は粗い」目盛りになる。特別なUIロジックは
+  不要）・`nearestCombinedPrecipitationFrameIndex`を追加。`MapView.tsx`は風の矢印と同じ
+  symbolレイヤー構成（`createPrecipitationDropIcon`＝しずく形、sdf:true・ハロー層・
+  無降水フィルタ）で延長予報アイコンを描画。アイコンサイズ式（風専用だった
+  `windIconSizeExpression`）を`zoomAndPropertyIconSizeExpression`へ一般化し両方で共有。
+  `mapLayers.ts`の説明文を更新。frontend vitest 457件（新規16件）全green、tsc/eslintクリーン。
+  Playwright実機確認（devサーバー＋APIモック、`wind-grid`にprecipitation_mmを含めた
+  レスポンスを返す）: 「降水」チップON→スライダーが「実況」から始まり、60分以内は
+  ラスタタイル表示（アイコン無し）、スライダーを60分より先へ動かすとバッジが「広域予報」に
+  変わり同時にしずくアイコンが出現、降水量に応じて色（弱い=水色〜猛烈=紫）・大きさが
+  変わることを確認。60分以内でアイコンが出ないこと・60分超でタイルが出ないこと（相互排他）も
+  確認した。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて

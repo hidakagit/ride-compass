@@ -20,11 +20,14 @@ CACHE_PRECISION = 2
 CACHE_TTL_SECONDS = 30 * 60
 
 # get_forecast（単一地点、/api/weatherの現在地パネル用）はcurrent/hourly全変数を表示に使うが、
-# get_forecast_many（WindServiceの区間風評価・風の格子点マップ）は消費側を辿るとhourlyの
-# wind_speed_10m/wind_direction_10mしか使っていない（他5変数は取得しているだけで捨てられる）。
-# 後者は1回のリクエストが数百地点規模になり得るため、変数を絞ることでOpen-Meteo側のクォータ
-# 消費（変数数・期間に応じた按分カウント）とレスポンスサイズの両方を大きく削減できる。
-WIND_ONLY_VARIABLES = "wind_speed_10m,wind_direction_10m"
+# get_forecast_many（WindServiceの区間風評価・風/降水延長予報の格子点マップ）は消費側を
+# 辿ると実際に使っているのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみ
+# （T182で他5変数は取得しているだけで捨てられていると判明し除外済み。T183でprecipitationを
+# 追加したが、無料プランのクォータ按分は1地点あたり10変数超で増える仕組み・現状3変数のため
+# T182の対策効果は保たれる）。1回のリクエストが数百地点規模になり得るため、変数を絞ることで
+# Open-Meteo側のクォータ消費（変数数・期間に応じた按分カウント）とレスポンスサイズの両方を
+# 大きく削減できる。
+WIND_GRID_VARIABLES = "wind_speed_10m,wind_direction_10m,precipitation"
 
 # 本番（Render、共有の送信元IP）では、単発の/api/weather呼び出し（現在地表示）だけでも
 # Open-Meteo側の429 Too Many RequestsやConnectTimeout（TLSハンドシェイクの混雑による
@@ -62,8 +65,8 @@ STALE_FALLBACK_MAX_AGE_SECONDS = 3 * 60 * 60
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
 _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
-# get_forecast_many専用のキャッシュ（上のWIND_ONLY_VARIABLES参照）。_forecast_cacheと分けて
-# いるのは、キーを共有すると「get_forecast_manyが先に書いた風のみの応答」を後から
+# get_forecast_many専用のキャッシュ（上のWIND_GRID_VARIABLES参照）。_forecast_cacheと分けて
+# いるのは、キーを共有すると「get_forecast_manyが先に書いた風・降水のみの応答」を後から
 # get_forecastがキャッシュヒットとして読んでしまい、/api/weatherパネルの気温等が
 # 欠落したまま返る（黙って空欄になる）事故になり得るため。両者は変数セットが異なる
 # 別物として扱う。
@@ -230,11 +233,11 @@ class WeatherClient:
         未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
 
         呼び出し元（WeatherService.get_conditions_many→WindService、get_wind_grid）が
-        実際に使うのはhourlyのwind_speed_10m/wind_direction_10mのみのため、get_forecast
-        （単一地点、全変数）とは別にWIND_ONLY_VARIABLESへ絞る。数百地点規模になるこの経路の
-        変数を絞ることが、Open-Meteo側クォータ消費削減の効果が最も大きい（get_forecastは
-        単発呼び出しのため変数を絞っても効果が小さく、/api/weatherパネルの表示項目を
-        削ることになるためそのまま全変数を維持する）。キャッシュも_forecast_cacheとは
+        実際に使うのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみのため、
+        get_forecast（単一地点、全変数）とは別にWIND_GRID_VARIABLESへ絞る。数百地点規模に
+        なるこの経路の変数を絞ることが、Open-Meteo側クォータ消費削減の効果が最も大きい
+        （get_forecastは単発呼び出しのため変数を絞っても効果が小さく、/api/weatherパネルの
+        表示項目を削ることになるためそのまま全変数を維持する）。キャッシュも_forecast_cacheとは
         分離した_wind_forecast_cacheを使う（理由はモジュール冒頭のコメント参照）。
         """
         keys: list[tuple[float, float]] = []
@@ -263,8 +266,8 @@ class WeatherClient:
                 params = {
                     "latitude": ",".join(str(lat) for lat, _lon in to_fetch),
                     "longitude": ",".join(str(lon) for _lat, lon in to_fetch),
-                    "current": WIND_ONLY_VARIABLES,
-                    "hourly": WIND_ONLY_VARIABLES,
+                    "current": WIND_GRID_VARIABLES,
+                    "hourly": WIND_GRID_VARIABLES,
                     "forecast_days": 2,
                     "timezone": "Asia/Tokyo",
                     "wind_speed_unit": "ms",
