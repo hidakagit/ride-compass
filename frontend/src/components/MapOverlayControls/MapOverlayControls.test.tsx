@@ -46,40 +46,10 @@ describe("MapOverlayControls", () => {
     expect(onToggle).toHaveBeenCalledWith("roadSurface", false);
   });
 
-  describe("全レイヤー一括OFF（ユーザー要望「一次・二次・動的まとめて1ボタンでクリア」）", () => {
-    it("何もONでないときは無効化される", () => {
-      render(<MapOverlayControls {...baseProps()} layers={baseLayers()} />);
-
-      expect(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" })).toBeDisabled();
-    });
-
-    it("押すと、次数の有無に関わらず現在ONの全レイヤーがonToggle(id, false)で呼ばれる", async () => {
-      const user = userEvent.setup();
-      const onToggle = vi.fn();
-      const layers = baseLayers().map((layer) => ({ ...layer, on: true })); // ルート（次数なし）含め全てON
-      render(<MapOverlayControls {...baseProps()} layers={layers} onToggle={onToggle} />);
-
-      await user.click(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" }));
-
-      expect(onToggle).toHaveBeenCalledWith("elevation", false);
-      expect(onToggle).toHaveBeenCalledWith("roadSurface", false);
-      expect(onToggle).toHaveBeenCalledWith("route", false);
-      expect(onToggle).toHaveBeenCalledTimes(3);
-    });
-
-    it("OFFのレイヤーは呼ばない", async () => {
-      const user = userEvent.setup();
-      const onToggle = vi.fn();
-      const layers = baseLayers();
-      layers[1].on = true; // 路面だけON
-      render(<MapOverlayControls {...baseProps()} layers={layers} onToggle={onToggle} />);
-
-      await user.click(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" }));
-
-      expect(onToggle).toHaveBeenCalledTimes(1);
-      expect(onToggle).toHaveBeenCalledWith("roadSurface", false);
-    });
-  });
+  // 全レイヤー一括OFFボタンは地図下部中央の時刻スライダー隣へ移設し、page.tsx
+  // （handleClearAllLayers）が持つようになったため、このコンポーネント自体はもう
+  // 描画しない（実機フィードバック「左上の全クリアアイコンをスライドバーの左側に
+  // 移動して」、MapOverlayControls.module.css参照）。
 
   it("disabledのチップは押せず、on=trueでもaria-pressedはfalseのまま", () => {
     const layers = baseLayers();

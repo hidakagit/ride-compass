@@ -9,7 +9,15 @@ import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
-import { DeveloperIcon, LogIcon, MapAppearanceIcon, ResearchIcon, RouteIcon, StatusIcon } from "@/components/Map/icons";
+import {
+  ClearAllLayersIcon,
+  DeveloperIcon,
+  LogIcon,
+  MapAppearanceIcon,
+  ResearchIcon,
+  RouteIcon,
+  StatusIcon,
+} from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
@@ -674,6 +682,19 @@ export default function Home() {
     ],
   );
 
+  // 全レイヤー一括OFF（ユーザー要望「一次・二次・動的まとめて1ボタンでクリアしたい」「ルート等も
+  // 含めて全チップをOffにするのがシンプル」）。以前はMapOverlayControls.tsxが自前で
+  // 持っていたが、地図下部中央の時刻スライダー隣へボタンを移設した（実機フィードバック
+  // 「左上の全クリアアイコンをスライドバーの左側に移動して」）ため、layers/onToggleを
+  // 既に持つこちらへ持ってきた。何もONでないときはno-opのため無効化する（誤操作の
+  // 起点自体を減らす）。
+  const hasAnyLayerOn = overlayLayers.some((layer) => layer.on);
+  const handleClearAllLayers = useCallback(() => {
+    for (const layer of overlayLayers) {
+      if (layer.on) handleLayerToggle(layer.id, false);
+    }
+  }, [overlayLayers, handleLayerToggle]);
+
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback((sheet: "route" | "map" | "research" | "developer") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
@@ -810,8 +831,11 @@ export default function Home() {
   // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
   // 表示用ラベル列。
   const sliderIndex = useMemo(() => nearestTimeIndex(timeline, dynamicLayerTargetTime), [timeline, dynamicLayerTargetTime]);
+  // hourMarkは実機フィードバック「メモリを簡潔に出して」への対応（DynamicLayerTimeSlider.tsx
+  // 冒頭コメント参照）。正時判定はgetUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが
+  // 無いため、実行環境のローカルタイムゾーンに左右されずJSTの正時と一致する）。
   const sliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () => timeline.map((time) => ({ label: formatDynamicFrameTime(time) })),
+    () => timeline.map((time) => ({ label: formatDynamicFrameTime(time), hourMark: time.getUTCMinutes() === 0 })),
     [timeline]
   );
   // 「現在」に戻るボタン（改善計画、実機フィードバック「現況に戻すボタンも横に追加して」）の
@@ -1380,25 +1404,38 @@ export default function Home() {
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 
-          {/* 時刻依存レイヤーが1つ以上ONのときだけ地図上へ出す（改善計画T170、設計原則12:
-              地図の視界を圧迫しない）。T183再設計で、ONの全レイヤーのフレーム時刻を統合した
-              1本のスライダー（timeline）へ統合した（旧: レイヤーごとに別々のスライダーを
-              縦積み）。 */}
-          {(showPrecipitationNowcast || showWindVector) && (
-            <div className={styles.dynamicLayerSliders}>
-              <DynamicLayerTimeSlider
-                frames={sliderFrames}
-                index={sliderIndex}
-                onIndexChange={handleSliderIndexChange}
-                currentIndex={sliderCurrentIndex}
-                onNow={handleDynamicLayerNow}
-                loading={dynamicLayerLoading}
-                loadingLabel="気象データの時刻を取得中..."
-                error={dynamicLayerError}
-                ariaLabel="気象レイヤーの表示時刻"
-              />
-            </div>
-          )}
+          {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
+              アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+
+              時刻依存レイヤーの時刻スライダーを横並びで置く。ボタンはレイヤーの種類を問わず
+              常時押せる必要があるため無条件で出し、スライダーは時刻依存レイヤーが1つ以上ON
+              のときだけ隣に出す（改善計画T170、設計原則12: 地図の視界を圧迫しない）。 */}
+          <div className={styles.bottomControlRow}>
+            <button
+              type="button"
+              onClick={handleClearAllLayers}
+              disabled={!hasAnyLayerOn}
+              aria-label="表示中のレイヤーをすべて非表示にする"
+              title="表示中のレイヤーをすべて非表示にする"
+              className={styles.clearAllButton}
+            >
+              <ClearAllLayersIcon size={14} />
+            </button>
+            {(showPrecipitationNowcast || showWindVector) && (
+              <div className={styles.dynamicLayerSliders}>
+                <DynamicLayerTimeSlider
+                  frames={sliderFrames}
+                  index={sliderIndex}
+                  onIndexChange={handleSliderIndexChange}
+                  currentIndex={sliderCurrentIndex}
+                  onNow={handleDynamicLayerNow}
+                  loading={dynamicLayerLoading}
+                  loadingLabel="気象データの時刻を取得中..."
+                  error={dynamicLayerError}
+                  ariaLabel="気象レイヤーの表示時刻"
+                />
+              </div>
+            )}
+          </div>
 
           <button
             type="button"

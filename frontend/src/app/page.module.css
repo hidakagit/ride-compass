@@ -161,16 +161,12 @@
   position: relative;
 }
 
-/* 時刻依存レイヤー（降水ナウキャストT171・風T178等）の時刻スライダーを地図下部中央へ
-   浮かべる親コンテナ（改善計画T170/T178）。DynamicLayerTimeSlider自体は位置指定を
-   持たないため、複数の時刻依存レイヤーが同時にONのときはここでgapを挟んで並べる。
-   NowcastTimeSliderの.wrapperが単体で持っていたposition/z-indexをここへ集約した。
-   実機フィードバック「地図が見えるエリアを広げたい」を受け、横並び（flex-direction: row）
-   へ変更（以前は縦積みで、2本ONのとき地図下部の視界を余分に圧迫していた）。デスクトップは
-   横に並び、画面が狭くて2本ぶんの幅が収まらないときはflex-wrapで自然に折り返す
-   （幅を無理に縮めてスライダー本体を操作しづらくするより、モバイルは従来どおりの
-   縦積みへ戻る方が実用的なため）。 */
-.dynamicLayerSliders {
+/* 地図下部中央へ浮かべる親コンテナ（改善計画T170/T178、実機フィードバック「左上の全クリア
+   アイコンをスライドバーの左側に移動して」）。全レイヤー一括OFFボタン（.clearAllButton）+
+   時刻依存レイヤーの時刻スライダー（.dynamicLayerSliders、降水ナウキャストT171・風T178等）
+   を横並びで置く。NowcastTimeSliderの.wrapperが単体で持っていたposition/z-indexをここへ
+   集約した。 */
+.bottomControlRow {
   position: absolute;
   bottom: var(--space-3);
   left: 50%;
@@ -178,9 +174,7 @@
   z-index: 20;
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2);
   max-width: 100vw;
   pointer-events: none;
@@ -191,9 +185,54 @@
    隠れてしまう」）。.locateButton/.locateErrorと同じ底上げパターンで、タブバーの高さぶん
    持ち上げる。 */
 @media (max-width: 640px) {
-  .dynamicLayerSliders {
+  .bottomControlRow {
     bottom: calc(var(--space-3) + var(--mobile-tabbar-height));
   }
+}
+
+/* 時刻依存レイヤーのスライダー列。DynamicLayerTimeSlider自体は位置指定を持たないため、
+   複数の時刻依存レイヤーが同時にONのときはここでgapを挟んで並べる。実機フィードバック
+   「地図が見えるエリアを広げたい」を受け、横並び（flex-direction: row）にしている
+   （以前は縦積みで、2本ONのとき地図下部の視界を余分に圧迫していた）。デスクトップは
+   横に並び、画面が狭くて2本ぶんの幅が収まらないときはflex-wrapで自然に折り返す
+   （幅を無理に縮めてスライダー本体を操作しづらくするより、モバイルは従来どおりの
+   縦積みへ戻る方が実用的なため）。位置はbottomControlRowが担うため、ここは並び方向だけ
+   持つ。 */
+.dynamicLayerSliders {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* 全レイヤー一括OFF（改善計画、ユーザー要望「一次・二次・動的まとめて1ボタンでクリア」、
+   実機フィードバック「左上の全クリアアイコンをスライドバーの左側に移動して」で
+   旧MapOverlayControls.module.cssの.wrapper左上から移設）。.expandToggleと同じ小さい丸
+   ボタンの見た目・pointer-events/touch-action方針を踏襲する（親.bottomControlRowの
+   pointer-events: none継承下で、実際に押せるボタン自身だけautoへ戻す設計）。 */
+.clearAllButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-neutral);
+  cursor: pointer;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+.clearAllButton:disabled {
+  /* 何もONでないときはno-opのため無効化する（誤操作の起点自体を減らす、上記コメント参照）。 */
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* MapLibreの帰属表示（.maplibregl-ctrl-bottom-left/right、ライセンス上必須）は地図
