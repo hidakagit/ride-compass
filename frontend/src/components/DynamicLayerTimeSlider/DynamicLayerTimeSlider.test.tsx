@@ -3,11 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DynamicLayerTimeSlider from "./DynamicLayerTimeSlider";
 
-const FRAMES = [
-  { label: "12:00", badge: "実況" },
-  { label: "12:05", badge: "実況" },
-  { label: "12:10", badge: "予測" },
-];
+const FRAMES = [{ label: "12:00" }, { label: "12:05" }, { label: "12:10" }];
 
 describe("DynamicLayerTimeSlider", () => {
   it("loading=trueの間はloadingLabelを表示し、スライダーは出さない", () => {
@@ -46,27 +42,7 @@ describe("DynamicLayerTimeSlider", () => {
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
   });
 
-  it("unavailable=trueのときはunavailableLabelを表示し、スライダーは出さない（下部バー2本の時刻連動、実機フィードバック「対応データなしと明示する」）", () => {
-    render(
-      <DynamicLayerTimeSlider
-        frames={FRAMES}
-        index={0}
-        onIndexChange={vi.fn()}
-        currentIndex={0}
-        onNow={vi.fn()}
-        loading={false}
-        loadingLabel="取得中..."
-        error={null}
-        unavailable={true}
-        unavailableLabel="この時刻のデータはありません"
-        ariaLabel="表示時刻"
-      />
-    );
-    expect(screen.getByText("この時刻のデータはありません")).toBeInTheDocument();
-    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
-  });
-
-  it("framesがあれば選択中フレームのlabel・badgeを表示する", () => {
+  it("framesがあれば選択中フレームのlabelを表示する（T183: 統合タイムラインの共有ラベルのみ、レイヤー固有のbadgeは廃止）", () => {
     render(
       <DynamicLayerTimeSlider
         frames={FRAMES}
@@ -81,24 +57,6 @@ describe("DynamicLayerTimeSlider", () => {
       />
     );
     expect(screen.getByText("12:00")).toBeInTheDocument();
-    expect(screen.getByText("実況")).toBeInTheDocument();
-  });
-
-  it("badgeが無いフレームはバッジ無しで表示する", () => {
-    render(
-      <DynamicLayerTimeSlider
-        frames={[{ label: "8/21 09:00" }]}
-        index={0}
-        onIndexChange={vi.fn()}
-        currentIndex={0}
-        onNow={vi.fn()}
-        loading={false}
-        loadingLabel="取得中..."
-        error={null}
-        ariaLabel="表示時刻"
-      />
-    );
-    expect(screen.getByText("8/21 09:00")).toBeInTheDocument();
   });
 
   it("スライダー操作でonIndexChangeが新しいindexで呼ばれる", () => {
@@ -113,11 +71,11 @@ describe("DynamicLayerTimeSlider", () => {
         loading={false}
         loadingLabel="取得中..."
         error={null}
-        ariaLabel="降水ナウキャストの表示時刻"
+        ariaLabel="気象レイヤーの表示時刻"
       />
     );
 
-    const slider = screen.getByRole("slider", { name: "降水ナウキャストの表示時刻" });
+    const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
     expect(slider).toHaveAttribute("min", "0");
     expect(slider).toHaveAttribute("max", "2");
     fireEvent.change(slider, { target: { value: "2" } });
@@ -136,10 +94,10 @@ describe("DynamicLayerTimeSlider", () => {
           loading={false}
           loadingLabel="取得中..."
           error={null}
-          ariaLabel="降水ナウキャストの表示時刻"
+          ariaLabel="気象レイヤーの表示時刻"
         />
       );
-      expect(screen.getByRole("button", { name: "降水ナウキャストの表示時刻を現在に戻す" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を現在に戻す" })).toBeDisabled();
     });
 
     it("未来側を見ているときは有効化され、押すとonNowが呼ばれる（onIndexChangeではない。風のcurrentIndexは実時刻より最大59分過去の正時に丸まるため、そこへ合わせると降水側が範囲外になる不具合があった）", async () => {
@@ -156,11 +114,11 @@ describe("DynamicLayerTimeSlider", () => {
           loading={false}
           loadingLabel="取得中..."
           error={null}
-          ariaLabel="降水ナウキャストの表示時刻"
+          ariaLabel="気象レイヤーの表示時刻"
         />
       );
 
-      const nowButton = screen.getByRole("button", { name: "降水ナウキャストの表示時刻を現在に戻す" });
+      const nowButton = screen.getByRole("button", { name: "気象レイヤーの表示時刻を現在に戻す" });
       expect(nowButton).not.toBeDisabled();
       await user.click(nowButton);
       expect(onNow).toHaveBeenCalledTimes(1);

@@ -2,12 +2,12 @@
 
 import styles from "./DynamicLayerTimeSlider.module.css";
 
-/** スライダーの1フレーム分の表示内容。時刻の計算・整形は呼び出し側
- * （precipitationNowcast.ts/windLayer.ts）が済ませた結果だけを渡す
- * （このコンポーネント自体はレイヤー固有の時刻形式を一切知らない）。 */
+/** スライダーの1フレーム分の表示内容。T183再設計でONの全レイヤーのフレーム時刻を統合した
+ * 1本の共有タイムラインを表すようになったため、時刻ラベルのみを持つ（旧badgeフィールドは
+ * 「レイヤー固有の実況/予測ラベル」用だったが、1つの目盛りに複数レイヤーが同時に対応しうる
+ * 設計では意味を持たなくなったため撤去、dynamicWeather.ts: formatDynamicFrameTime参照）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
-  badge?: string;
 }
 
 interface DynamicLayerTimeSliderProps {
@@ -36,15 +36,6 @@ interface DynamicLayerTimeSliderProps {
   loadingLabel: string;
   /** 取得に失敗したときのメッセージ。非nullのときスライダー自体は出さない。 */
   error: string | null;
-  /** 他レイヤー（複数の時刻依存レイヤーが同時ONのとき）に引っ張られて、このレイヤー自身の
-   * データ範囲外の時刻を指しているときtrue（例: 風バーを風だけが持つ48時間先まで動かすと、
-   * ±1時間程度しかデータの無い降水ナウキャスト側がこの状態になる。改善計画、実機
-   * フィードバック「対応データなしと明示する」）。true の間はスライダーを出さずグレーアウトの
-   * メッセージへ差し替える（loading/errorと同じ扱い）。このコンポーネント自体は「範囲外」の
-   * 判定方法を知らない汎用UIのため、判定は呼び出し側（各レイヤーのデータ層）が行う。 */
-  unavailable?: boolean;
-  /** unavailable=true のときに表示するメッセージ。 */
-  unavailableLabel?: string;
   /** スライダー本体（input[type=range]）のaria-label。 */
   ariaLabel: string;
 }
@@ -64,8 +55,6 @@ export default function DynamicLayerTimeSlider({
   loading,
   loadingLabel,
   error,
-  unavailable,
-  unavailableLabel,
   ariaLabel,
 }: DynamicLayerTimeSliderProps) {
   if (error) {
@@ -82,23 +71,13 @@ export default function DynamicLayerTimeSlider({
       </div>
     );
   }
-  if (unavailable) {
-    return (
-      <div className={styles.wrapper}>
-        <p className={styles.unavailable}>{unavailableLabel}</p>
-      </div>
-    );
-  }
 
   const frame = frames[Math.min(index, frames.length - 1)];
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.row}>
-        <span className={styles.time}>
-          {frame.label}
-          {frame.badge && <span className={styles.badge}>{frame.badge}</span>}
-        </span>
+        <span className={styles.time}>{frame.label}</span>
         <input
           type="range"
           className={styles.slider}

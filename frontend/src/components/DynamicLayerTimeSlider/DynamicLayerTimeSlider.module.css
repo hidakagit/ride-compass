@@ -37,19 +37,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.badge {
-  font-size: var(--font-size-sm);
-  font-weight: 400;
-  color: var(--color-muted-strong);
-}
-
 .slider {
   flex: 1;
   min-width: 120px;
 }
 
 /* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
-   .badgeと同じ「小さい補助情報」の存在感に揃えた、枠線だけの控えめなボタン。 */
+   .timeより控えめな、枠線だけの補助ボタン。 */
 .nowButton {
   flex-shrink: 0;
   padding: 0.2rem 0.5rem;
@@ -71,8 +65,7 @@
 }
 
 .loading,
-.error,
-.unavailable {
+.error {
   margin: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);

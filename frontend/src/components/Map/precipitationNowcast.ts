@@ -2,26 +2,24 @@
 //
 // 実況（targetTimes_N1、basetime=validtime、5分毎更新）と60分先までの予測
 // （targetTimes_N2、basetimeは最新実行時刻で固定・validtimeが5分刻みで先へ進む）を
-// 1つの時系列へ束ね、「対象時刻に最も近いフレーム」を選ぶ・タイルURLを組み立てる、
-// という2つの操作だけを提供する（このファイル自体はDOM/MapLibreを知らない純粋な
-// データ層。実際のフェッチ・地図への反映はpage.tsx/MapView.tsxが行う）。
-//
-// タイルURLの構造はbosai系（気象庁の非公式API、公式サポート無し。政府標準利用規約
-// 準拠・出典明記で利用可）の実際の通信を確認して得た（2026-08-20、Playwrightで
-// https://www.jma.go.jp/bosai/nowc/ のネットワークリクエストを観測）。CORS設定が
-// 無いためcanvas経由のピクセル読み取りはできないが、MapLibreのラスタタイルとして
+// 1つの時系列へ束ねる。タイルURLの構造はbosai系（気象庁の非公式API、公式サポート無し。
+// 政府標準利用規約準拠・出典明記で利用可）の実際の通信を確認して得た（2026-08-20、
+// Playwrightでhttps://www.jma.go.jp/bosai/nowc/ のネットワークリクエストを観測）。
+// CORS設定が無いためcanvas経由のピクセル読み取りはできないが、MapLibreのラスタタイルとして
 // 表示するだけなら問題なく読み込める（同じくPlaywrightで実機確認済み）。
 //
-// T183（ユーザー要望「1時間より先も、短時間雨予報を出してほしい」）で、気象庁ナウキャスト
-// （+60分が上限、JMA提供APIの仕様上の制約で回避不可）より先の時間帯を、風の格子点マップ
-// （windLayer.ts、自前実装・Open-Meteo REST API経由・約48時間先まで）が相乗りで返す
-// precipitation_mmを使って延長した。「降水」の地図チップ・時刻スライダーは1つのまま
-// （ユーザー要望「アイコンは1つ。ただし内部は時間によって使い分けて」）とし、+60分を境に
-// 内部でデータ源を切り替える（buildCombinedPrecipitationFrames参照）。延長側の時刻・
-// 整形ロジックはwindLayer.ts（風と共通の格子点マップ由来のため時刻形式も共通）から再利用し、
-// このファイルで独自実装しない。
+// T183（動的気象レイヤーの再設計）で、気象庁ナウキャスト（+60分が上限、JMA提供APIの
+// 仕様上の制約で回避不可）より先の時間帯を、風と共通の格子点マップ（windLayer.ts、
+// 自前実装・Open-Meteo REST API経由・約48時間先まで）が相乗りで返すprecipitation_mmを
+// 使って延長した。「降水」の地図チップ・時刻スライダーは1つのまま（ユーザー要望「アイコンは
+// 1つ。ただし内部は時間によって使い分けて」「1要素でもデータの取り方が複数あり得る。
+// これはデータ取得層Nだが、差異はデータ取得層で吸収。画面表示時にはそれは意識しない
+// ようにしたい」）とし、2ソースの統合をこのファイル（precipitationFrames）が担い、
+// 表示層（page.tsx/MapView.tsx）へはdynamicWeather.tsの共通契約（DynamicWeatherFrame/
+// DynamicWeatherRenderPayload）だけを渡す。
 
-import { formatWindFrameTime, parseJstTime } from "@/components/Map/windLayer";
+import { gridCellRing, type DynamicWeatherFrame, type DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
+import { parseJstTime, WIND_GRID_DETAIL_SPACING_DEG, WIND_GRID_SPACING_DEG } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 export interface NowcastFrame {
@@ -65,9 +63,8 @@ export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
   return frames;
 }
 
-/** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。無ければ末尾（最新フレーム）。
- * スライダーの初期位置に使う。 */
-export function latestObservedFrameIndex(frames: readonly NowcastFrame[]): number {
+/** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。無ければ末尾（最新フレーム）。 */
+function latestObservedFrameIndex(frames: readonly NowcastFrame[]): number {
   for (let i = frames.length - 1; i >= 0; i--) {
     if (!frames[i].isForecast) return i;
   }
@@ -78,17 +75,13 @@ export function latestObservedFrameIndex(frames: readonly NowcastFrame[]): numbe
  * （実機確認: 2026-08-20時点でN1=37件・約3時間分）。サイクリング向けアプリの性質上
  * 過去の降水を振り返る用途は無い（実機フィードバック「過去の風、雨を気にすることは
  * アプリの性質上ない、デフォルト位置を左端に」）ため、「現在」より前のフレームを
- * すべて切り捨て、スライダーの左端（index 0）が常に「現在」になるようにする。
- * 以前は実況側を予測側と同じ件数まで切り詰めて「現在」をトラック中央に置く方式
- * （centerFramesAroundLatestObserved）だったが、過去を見る用途が無い以上、過去分自体を
- * 残す理由が無いため置き換えた。 */
+ * すべて切り捨て、スライダーの左端が常に「現在」になるようにする。 */
 export function trimToCurrentAndFuture(frames: readonly NowcastFrame[]): NowcastFrame[] {
   if (frames.length === 0) return [];
   return frames.slice(latestObservedFrameIndex(frames));
 }
 
-/** "YYYYMMDDHHmmss"（UTC）形式のvalidtime → Date。formatNowcastFrameTime・
- * nearestFrameIndexByTimeの両方から使う共通パース処理。 */
+/** "YYYYMMDDHHmmss"（UTC）形式のvalidtime → Date。 */
 export function parseValidtime(validtime: string): Date {
   const y = validtime.slice(0, 4);
   const mo = validtime.slice(4, 6);
@@ -99,37 +92,13 @@ export function parseValidtime(validtime: string): Date {
   return new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
 }
 
-/** "YYYYMMDDHHmmss"（UTC）形式のvalidtime → 表示用のJST時刻文字列（HH:mm）。 */
-export function formatNowcastFrameTime(validtime: string): string {
-  return parseValidtime(validtime).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
-}
-
-/** 指定時刻に最も近いフレームのindex（windLayer.tsのnearestFrameIndexToNowと同型、
- * 「現在時刻」ではなく任意の対象時刻で探せる版）。下部バー2本の時刻連動（改善計画、
- * 実機フィードバック「同じ日時を示した状態で連動させ」）で、風スライダー側の対象時刻を
- * こちら側のフレーム列に写像するために使う。空配列なら0。 */
-export function nearestFrameIndexByTime(frames: readonly NowcastFrame[], targetTime: Date): number {
-  if (frames.length === 0) return 0;
-  const targetMs = targetTime.getTime();
-  let bestIndex = 0;
-  let bestDiffMs = Infinity;
-  for (let i = 0; i < frames.length; i++) {
-    const diffMs = Math.abs(parseValidtime(frames[i].validtime).getTime() - targetMs);
-    if (diffMs < bestDiffMs) {
-      bestDiffMs = diffMs;
-      bestIndex = i;
-    }
-  }
-  return bestIndex;
-}
-
 // 降水強度→色の対応。階級の境界値（mm/h）は気象庁公式の「雨の強さと降り方」の分類
 // （https://www.jma.go.jp/jma/kishou/know/yougo_hp/amehyo.html、2026-08-20確認）と同じ
 // （10mm/h未満は同ページに公式区分が無いため「弱い雨」とだけ表現）。一方で色そのものは
 // 気象庁がタイル配色のカラーコードを公開していないため、同庁のナウキャスト・レーダー系
 // 地図で一般的な「弱い＝青→強い＝紫」の配色慣習に沿った近似値であり、実際のタイル画像の
 // 色と厳密には一致しない（凡例としての目安）。地図チップの凡例（PRECIPITATION_INTENSITY_
-// LEVELS）とT183の延長予報アイコン（MapView.tsx側のicon-color）の両方がこの配列を単一の
+// LEVELS）とT183の延長予報の塗り（MapView.tsx側のfill-color）の両方がこの配列を単一の
 // 情報源として使う（windLayer.tsのWIND_SPEED_COLOR_STOPSと同じ「片側import」の考え方）。
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] = [
   { mmPerHour: 0, color: "#7dd3fc" },
@@ -140,9 +109,9 @@ export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: str
   { mmPerHour: 80, color: "#9333ea" },
 ];
 
-// 延長予報アイコン（T183）でこの値未満は「ほぼ降水なし」として非表示にする（windLayer.tsの
+// 延長予報の塗り（gridFill）でこの値未満は「ほぼ降水なし」として非表示にする（windLayer.tsの
 // WIND_CALM_THRESHOLD_MSと同じ考え方）。0（完全な無降水）まで含めると格子点624点ぶんの
-// アイコンが常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
+// セルが常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
 export const PRECIPITATION_NONE_THRESHOLD_MM = 0.1;
 
 // 降水強度の凡例（地図チップ、page.tsx、実機フィードバック「風と雨の凡例も欲しい」）。
@@ -175,109 +144,94 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: stri
 
 /** 降水ナウキャストのラスタタイルURLテンプレート（{z}/{x}/{y}はMapLibreが実際の値へ
  * 展開するプレースホルダ、置換せずそのまま埋め込む）。 */
-export function nowcastTileUrlTemplate(frame: NowcastFrame): string {
+function nowcastTileUrlTemplate(frame: NowcastFrame): string {
   return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/{z}/{x}/{y}.png`;
 }
 
-export interface PrecipitationGridFeatureProperties {
+export interface PrecipitationGridCellProperties {
   /** 降水量（mm/h相当）。 */
   mmPerHour: number;
 }
 
 /** grid（風と共通の格子点マップ、windLayer.ts参照）のframeIndex番目の時刻ぶんの降水量を、
- * MapLibreのGeoJSON sourceへそのまま渡せるFeatureCollectionへ変換する（windLayer.tsの
- * windGridToFeatureCollectionと同型）。frameIndexが範囲外、または値が欠損している格子点は
- * スキップする（1点の欠損で全体を落とさない）。「ほぼ降水なし」の間引き（
- * PRECIPITATION_NONE_THRESHOLD_MM）はここでは行わない（風の矢印と同じくMapLibre側のfilter
- * に任せる、windGridToFeatureCollection/WIND_CALM_THRESHOLD_MSの利用箇所と同じ設計）。 */
-export function precipitationGridToFeatureCollection(
+ * 各格子点を中心とする1辺spacingDegの正方形セル（gridCellRing、dynamicWeather.ts参照）の
+ * FeatureCollectionへ変換する。frameIndexが範囲外、または値が欠損している格子点はスキップ
+ * する（1点の欠損で全体を落とさない）。「ほぼ降水なし」の間引き（PRECIPITATION_NONE_
+ * THRESHOLD_MM）はここでは行わない（風の矢印と同じくMapLibre側のfilterに任せる）。 */
+function precipitationGridToCellFeatureCollection(
   grid: readonly WindGridPoint[],
-  frameIndex: number
-): GeoJSON.FeatureCollection<GeoJSON.Point, PrecipitationGridFeatureProperties> {
-  const features: GeoJSON.Feature<GeoJSON.Point, PrecipitationGridFeatureProperties>[] = [];
+  frameIndex: number,
+  spacingDeg: number
+): GeoJSON.FeatureCollection<GeoJSON.Polygon, PrecipitationGridCellProperties> {
+  const features: GeoJSON.Feature<GeoJSON.Polygon, PrecipitationGridCellProperties>[] = [];
   for (const point of grid) {
     const mmPerHour = point.precipitation_mm[frameIndex];
     if (mmPerHour == null) continue;
     features.push({
       type: "Feature",
-      geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
+      geometry: { type: "Polygon", coordinates: [gridCellRing(point.latitude, point.longitude, spacingDeg)] },
       properties: { mmPerHour },
     });
   }
   return { type: "FeatureCollection", features };
 }
 
-/** 降水スライダーの1フレーム分。timeはこのフレームが表す対象時刻（スライダー操作時に
- * dynamicLayerTargetTimeへ書き込む値、対象時刻からこのフレーム配列内のindexを逆引きする
- * nearestCombinedPrecipitationFrameIndexの両方に使う）。sourceが"nowcast"なら気象庁
- * ナウキャスト（実況〜60分先、5分刻み）由来でsourceIndexはnowcastFrames内のindex、
- * "extended"なら風と共通の格子点マップ（自前実装、約48時間先まで・1時間刻み）由来で
- * sourceIndexはそのgridのtimes/precipitation_mm内のindexを指す（呼び出し側はsourceで
- * 分岐してtileUrl/GeoJSONのどちらを使うか決める、page.tsx参照）。 */
-export interface CombinedPrecipitationFrame {
-  time: Date;
-  label: string;
-  badge?: string;
-  source: "nowcast" | "extended";
-  sourceIndex: number;
-}
+/** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、
+ * 5分刻み）由来でindexはnowcastFrames内のindex、"extended"なら風と共通の格子点マップ
+ * （自前実装、約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm内の
+ * indexを指す。precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrame
+ * のtimeしか見ない、ファイル冒頭のコメント参照）。 */
+export type PrecipitationFrameRef = { source: "nowcast"; index: number } | { source: "extended"; index: number };
 
 /** 気象庁ナウキャスト（0〜60分、5分刻み）と風と共通の格子点マップ由来の延長予報
- * （60分以降、約48時間先まで・1時間刻み）を1つの時系列へ束ねる（ユーザー要望「1時間まで
- * 細かい目盛り、1時間から先は1時間毎の粗い目盛り」）。DynamicLayerTimeSliderはframes配列の
- * indexをそのままスライダーの刻みとして使うため、この2種類の間隔差がそのまま「近い将来は
- * 細かく、遠い将来は粗く」というスライダーの見た目になる（特別なUIロジック不要）。
- * extendedTimesはnowcastの最終フレーム以前の時刻を含みうる（windGridは常に「現在」から
- * 始まるため）が、ナウキャストと重複する近い将来を延長予報側でも表示すると同じ時間帯が
- * 二重に見えて紛らわしいため、ナウキャストの最終フレームより後の時刻だけを延長側として
- * 採用する。 */
-export function buildCombinedPrecipitationFrames(
+ * （60分以降、約48時間先まで・1時間刻み）を1つのフレーム列へ統合する（データ取得層での
+ * 差異吸収、ファイル冒頭のコメント参照）。extendedGridはnowcastの最終フレーム以前の時刻を
+ * 含みうる（windGridは常に「現在」から始まるため）が、ナウキャストと重複する近い将来を
+ * 延長予報側でも出すと同じ時間帯が二重に見えて紛らわしいため、ナウキャストの最終フレームより
+ * 後の時刻だけを延長側として採用する。 */
+export function precipitationFrames(
   nowcastFrames: readonly NowcastFrame[],
-  extendedTimes: readonly string[]
-): CombinedPrecipitationFrame[] {
-  const nowcastPart: CombinedPrecipitationFrame[] = nowcastFrames.map((frame, index) => ({
+  extendedGrid: readonly WindGridPoint[]
+): DynamicWeatherFrame<PrecipitationFrameRef>[] {
+  const nowcastPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = nowcastFrames.map((frame, index) => ({
     time: parseValidtime(frame.validtime),
-    label: formatNowcastFrameTime(frame.validtime),
-    badge: frame.isForecast ? "予測" : "実況",
-    source: "nowcast",
-    sourceIndex: index,
+    ref: { source: "nowcast", index },
   }));
 
   const lastNowcastMs =
     nowcastFrames.length > 0 ? parseValidtime(nowcastFrames[nowcastFrames.length - 1].validtime).getTime() : -Infinity;
-  const extendedPart: CombinedPrecipitationFrame[] = [];
+  const extendedTimes = extendedGrid[0]?.times ?? [];
+  const extendedPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = [];
   extendedTimes.forEach((time, index) => {
     const parsedTime = parseJstTime(time);
     if (parsedTime.getTime() <= lastNowcastMs) return;
-    extendedPart.push({
-      time: parsedTime,
-      label: formatWindFrameTime(time),
-      badge: "広域予報",
-      source: "extended",
-      sourceIndex: index,
-    });
+    extendedPart.push({ time: parsedTime, ref: { source: "extended", index } });
   });
 
   return [...nowcastPart, ...extendedPart];
 }
 
-/** 対象時刻に最も近いCombinedPrecipitationFrameのindex（nearestFrameIndexByTime/
- * windLayer.tsのnearestFrameIndexToNowと同型、フレームの形が異なるため別関数として持つ）。
- * 空配列なら0。 */
-export function nearestCombinedPrecipitationFrameIndex(
-  frames: readonly CombinedPrecipitationFrame[],
-  targetTime: Date
-): number {
-  if (frames.length === 0) return 0;
-  const targetMs = targetTime.getTime();
-  let bestIndex = 0;
-  let bestDiffMs = Infinity;
-  for (let i = 0; i < frames.length; i++) {
-    const diffMs = Math.abs(frames[i].time.getTime() - targetMs);
-    if (diffMs < bestDiffMs) {
-      bestDiffMs = diffMs;
-      bestIndex = i;
-    }
+/** precipitationFramesが返したrefから、地図へ渡す描画ペイロードを組み立てる。sourceで
+ * rasterTile（気象庁ナウキャストのタイル）とgridFill（延長予報、格子を色で塗る）を
+ * 切り替える——「アイコンは1つ。ただし内部は時間によって使い分けて」というユーザー要望を
+ * ここで実現する。spacingDegはextendedGridが粗い格子（WIND_GRID_SPACING_DEG）か詳細格子
+ * （WIND_GRID_DETAIL_SPACING_DEG）かを呼び出し側が判断して渡す（page.tsx参照）。 */
+export function precipitationRenderPayload(
+  nowcastFrames: readonly NowcastFrame[],
+  extendedGrid: readonly WindGridPoint[],
+  spacingDeg: number,
+  ref: PrecipitationFrameRef
+): DynamicWeatherRenderPayload | undefined {
+  if (ref.source === "nowcast") {
+    const frame = nowcastFrames[ref.index];
+    return frame ? { kind: "rasterTile", tileUrlTemplate: nowcastTileUrlTemplate(frame) } : undefined;
   }
-  return bestIndex;
+  if (extendedGrid.length === 0) return undefined;
+  return { kind: "gridFill", geojson: precipitationGridToCellFeatureCollection(extendedGrid, ref.index, spacingDeg) };
+}
+
+/** extendedGridの間隔（粗い格子か詳細格子か）に応じたセルの1辺の長さ。isDetailは
+ * useWeatherGrid.tsのdetailGridが実際に使われているか（page.tsx参照）。 */
+export function precipitationGridSpacingDeg(isDetail: boolean): number {
+  return isDetail ? WIND_GRID_DETAIL_SPACING_DEG : WIND_GRID_SPACING_DEG;
 }
