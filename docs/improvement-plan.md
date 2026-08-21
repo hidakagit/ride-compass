@@ -3066,6 +3066,40 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   ユニットテストでは検証できない旨をコメントに明記）。frontend tsc/eslintクリーン・
   vitest全464件green。
 
+### - [x] T190. 時刻スライダーの左端インジケータ化・目盛りラベルの短文化・密度調整 規模S（2026-08-21完了）
+
+- 発端: T189に続く実機フィードバック「ルーラーにもう少し目盛りを細かく表示して。日付部分は
+  不要、時刻のみ。時刻も細いところは分だけにする等」「左端を表示時刻にして。今の位置の正しい
+  日時は左端ではなく上に出して」。
+- 対応1（目盛りラベルの短文化・密度）: `dynamicWeather.ts`に`formatDynamicFrameHourMinute`
+  （日付無し、HH:mm）・`formatDynamicFrameMinuteOnly`（分のみ2桁、`getUTCMinutes()`で
+  JST判定）を追加（`formatDynamicFrameTime`はこの2つを内部で合成する形へリファクタ）。
+  `DynamicLayerTimeSliderFrame.tickLabel`をboolean→string（実際に出す短い文字列、
+  `undefined`で非表示）へ変更。`page.tsx`側で正時のコマは`formatDynamicFrameHourMinute`
+  （2時間おきに間引き、T189の3時間おきから密度を上げた）、正時でない密なコマ
+  （降水ナウキャストの5分刻み等）は`formatDynamicFrameMinuteOnly`を毎コマぶん出す
+  （文字が短いため間引き不要）。目盛りの間隔自体（`TICK_SPACING_PX`）も22px→18pxへ縮小し
+  「もう少し目盛りを細かく」に対応。
+- 対応2（左端インジケータ化・正確な日時の上段表示）: `DynamicLayerTimeSlider.tsx`の選択位置
+  インジケータを画面中央固定（`.centerIndicator`）から左端寄り固定（`.leftIndicator`、
+  `TICK_SPACING_PX`の半分だけ内側の固定px位置）へ変更。`.rulerTrack`のパディングも
+  左右対称（`calc(50% - N/2)`）から左0・右`calc(100% - Npx)`（最後のコマの中心も
+  インジケータへ届くだけの余白）へ変更。indexとscrollLeftの対応式
+  （`scrollLeft = index * TICK_SPACING_PX`）はどちらの配置でも同じ式になるよう意図的に
+  設計したため、layoutEffect/handleScroll側のロジック自体は変更不要だった。外枠
+  （`.row`→`.panel`、実機フィードバック「見た目は現状のままで良くて」のT189から続く方針）は
+  縦2段（`.timeHeader`＝正確な日時のフル表記1行＋`.controlsRow`＝ルーラーと現在ボタンの
+  横並び）へ変更し、以前ルーラーの左に横並びだった現在時刻ラベルを上段へ移した
+  （実機フィードバック「今の位置の正しい日時は左端ではなく上に出して」）。
+- 検証: 一時的な検証用ページ（コミット対象外）とPlaywrightで実際にdevサーバー上の
+  コンポーネントを操作し確認。マウスホイールでのスクロール後、`scrollLeft`から算出した
+  indexとコンポーネントが報告したindexが一致すること、インジケータが左端付近（ルーラー
+  左端から`TICK_SPACING_PX/2`とほぼ一致する数px）に位置すること、目盛りラベルが意図通り
+  （正時は2時間おきに"HH:mm"、それ以外は毎コマ分のみ2桁）表示され重ならないことをスクリーン
+  ショットで確認、コンソールエラー無し。`DynamicLayerTimeSlider.test.tsx`はテキスト内容の
+  変更の影響を受けないため無修正でも通ることを確認。frontend tsc/eslintクリーン・
+  vitest全464件green。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて
