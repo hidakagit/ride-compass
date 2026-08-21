@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import styles from "./DynamicLayerTimeSlider.module.css";
 
 /** スライダーの1フレーム分の表示内容。T183再設計でONの全レイヤーのフレーム時刻を統合した
@@ -133,6 +133,50 @@ export default function DynamicLayerTimeSlider({
     }, 90);
   };
 
+  // 普通のマウスホイール（トラックパッドの横スワイプと違い、縦方向のdeltaYしか出ない）を
+  // 横スクロールへ変換する（実機フィードバック「ルーラースクロールできない」。横スクロール
+  // 専用のこの要素は、素のブラウザ既定動作だと縦方向のホイール入力に反応しない）。横方向の
+  // 入力（トラックパッドの横スワイプ等、ブラウザのネイティブpan-xで既に効く）の方が大きい
+  // ときは変換しない。ReactのonWheelはReact 17以降ルート委譲がpassive: trueで登録される
+  // ため、合成イベント内でpreventDefaultを呼んでも無効化されない（コンソール警告になる
+  // だけ）。ネイティブのaddEventListenerでpassive: falseとして登録する必要があるため、
+  // ここはuseEffectで直接DOMへ張る。
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      viewport.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    viewport.addEventListener("wheel", handleWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", handleWheel);
+  }, [loading, error, frames.length]);
+
+  // マウスでのドラッグ操作（実機フィードバック「ルーラースクロールできない」。トラックパッド・
+  // タッチはブラウザのネイティブスクロール（touch-action: pan-x）に任せているが、素の
+  // マウスには「掴んで動かす」手段が無い。スクロールバー自体も.rulerViewportのCSSで
+  // 非表示にしているため、ドラッグを自前で用意しないとマウスだけの環境で操作できなくなる）。
+  // pointerTypeが"mouse"のときだけ有効化し、タッチ/ペンはネイティブスクロールと二重に
+  // ならないようにする。
+  const mouseDragRef = useRef<{ startClientX: number; startScrollLeft: number } | null>(null);
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "mouse") return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    mouseDragRef.current = { startClientX: e.clientX, startScrollLeft: viewport.scrollLeft };
+    viewport.setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = mouseDragRef.current;
+    const viewport = viewportRef.current;
+    if (!drag || !viewport) return;
+    viewport.scrollLeft = drag.startScrollLeft - (e.clientX - drag.startClientX);
+  };
+  const endMouseDrag = () => {
+    mouseDragRef.current = null;
+  };
+
   // キーボード操作（実機フィードバック「横スクロールでメモリの方が移動するように」で
   // ネイティブinput[type=range]をやめたため、矢印キー等の操作性は自前で用意する必要がある）。
   // ArrowLeft/Right=1コマ、Home/End=両端へ。onIndexChangeを直接呼び、スクロール位置の追従は
@@ -194,6 +238,10 @@ export default function DynamicLayerTimeSlider({
             className={styles.rulerViewport}
             onScroll={handleScroll}
             onKeyDown={handleKeyDown}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endMouseDrag}
+            onPointerCancel={endMouseDrag}
             role="slider"
             tabIndex={0}
             aria-label={ariaLabel}
