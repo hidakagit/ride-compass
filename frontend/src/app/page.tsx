@@ -69,7 +69,14 @@ import {
   type NowcastFrame,
 } from "@/components/Map/precipitationNowcast";
 import { windFrames, windRenderPayload, WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
-import { formatDynamicFrameTime, frameIndexForTime, mergeFrameTimes, nearestTimeIndex } from "@/components/Map/dynamicWeather";
+import {
+  formatDynamicFrameHourMinute,
+  formatDynamicFrameMinuteOnly,
+  formatDynamicFrameTime,
+  frameIndexForTime,
+  mergeFrameTimes,
+  nearestTimeIndex,
+} from "@/components/Map/dynamicWeather";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
@@ -832,20 +839,30 @@ export default function Home() {
   // 表示用ラベル列。
   const sliderIndex = useMemo(() => nearestTimeIndex(timeline, dynamicLayerTargetTime), [timeline, dynamicLayerTargetTime]);
   // hourMark/tickLabelは実機フィードバック「メモリを簡潔に出して」「横スクロールでメモリの
-  // 方が移動するように」への対応（DynamicLayerTimeSlider.tsx冒頭コメント参照）。正時判定は
-  // getUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが無いため、実行環境のローカル
-  // タイムゾーンに左右されずJSTの正時と一致する）。延長予報（60分以降）は全フレームが正時
-  // のため、hourMark（目盛りの線を太くするだけ）は毎コマ付けても密度の問題は無いが、
-  // tickLabel（時刻の文字を出す）を毎時間ぶん全部出すと目盛り間隔（TICK_SPACING_PX）に対して
-  // 文字が重なってしまう（実機Playwright確認で発覚）。3時間おきに間引くことで文字同士の
-  // 重なりを避けつつ、大まかな時間経過は目で追える程度の密度を残す。 */
+  // 方が移動するように」「ルーラーにもう少し目盛りを細かく表示して。日付部分は不要、時刻
+  // のみ。時刻も細いところは分だけにする等」への対応（DynamicLayerTimeSlider.tsx冒頭コメント
+  // 参照）。正時判定はgetUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが無いため、
+  // 実行環境のローカルタイムゾーンに左右されずJSTの正時と一致する）。延長予報（60分以降）は
+  // 全フレームが正時のため、hourMark（目盛りの線を太くするだけ）は毎コマ付けても密度の問題は
+  // 無いが、tickLabel（目盛りの下に出す文字）を毎時間ぶん全部「HH:mm」で出すと目盛り間隔
+  // （TICK_SPACING_PX）に対して文字が重なってしまう（実機Playwright確認で発覚）。2時間おきに
+  // 間引くことで文字同士の重なりを避けつつ、以前（3時間おき）より密度を上げた。正時でない
+  // 密なコマ（降水ナウキャストの5分刻み等）は文字自体を短い分のみ表記にできるため、間引かず
+  // 毎コマぶん出す。
   const sliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
     () =>
-      timeline.map((time) => ({
-        label: formatDynamicFrameTime(time),
-        hourMark: time.getUTCMinutes() === 0,
-        tickLabel: time.getUTCMinutes() === 0 && time.getUTCHours() % 3 === 0,
-      })),
+      timeline.map((time) => {
+        const isHour = time.getUTCMinutes() === 0;
+        return {
+          label: formatDynamicFrameTime(time),
+          hourMark: isHour,
+          tickLabel: isHour
+            ? time.getUTCHours() % 2 === 0
+              ? formatDynamicFrameHourMinute(time)
+              : undefined
+            : formatDynamicFrameMinuteOnly(time),
+        };
+      }),
     [timeline]
   );
   // 「現在」に戻るボタン（改善計画、実機フィードバック「現況に戻すボタンも横に追加して」）の
