@@ -87,6 +87,17 @@ WIND_GRID_DETAIL_SPACING_DEG = 0.02
 # 31×31=961点相当のため、余裕を持たせた上限として900点とする。
 WIND_GRID_DETAIL_MAX_POINTS = 900
 
+# ズーム依存の格子間隔（実機フィードバック「拡大率が大きいと[降水延長予報のgridFill表現の]
+# 格子がゴワゴワして気になる。拡大率によって格子サイズも大きく補正する汎用的な拡張は
+# できない？」）。ズームインするほど画面上に対する格子1マスの面積が広がり、gridFillの
+# 色境界が段差として目立ちやすくなる。風の矢印のようにアイコンの表示サイズを大きくする
+# 補正では実面積を表すgridFillには通用しない（隙間・重なりが生まれるだけ）ため、実際の
+# 格子間隔自体をズームに応じて細かくする。連続的な間隔にすると閲覧者ごとに絶対座標の
+# ラティスが微妙にずれてしまいキャッシュ共有（generate_wind_grid_detail_pointsのdocstring
+# 参照）が効かなくなるため、離散的な段階（フロント側windLayer.ts:
+# WIND_GRID_DETAIL_SPACING_STOPSと同じ値を維持すること）のみを許可する。
+WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG: tuple[float, ...] = (0.02, 0.01, 0.005, 0.0025)
+
 
 def generate_wind_grid_detail_points(
     bbox: tuple[float, float, float, float],

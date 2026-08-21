@@ -14,7 +14,9 @@ import {
   clampWindDetailBbox,
   mergeWindGridKeepingStale,
   trimWindGridToCurrentAndFuture,
+  windGridDetailSpacingDegForZoom,
   WIND_DETAIL_MIN_ZOOM,
+  WIND_GRID_SPACING_DEG,
   type MapViewport,
 } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
@@ -37,6 +39,13 @@ export interface UseWeatherGridResult {
   detailGrid: WindGridPoint[];
   /** 詳細格子が取得できていればそちらを優先し、無ければgridを使う（呼び出し側の既定の選択）。 */
   effectiveGrid: WindGridPoint[];
+  /** effectiveGridの格子間隔（度）。detailGridを使っている間はズーム依存の間隔
+   * （windGridDetailSpacingDegForZoom、T185）、gridへフォールバックしている間はWIND_GRID_
+   * SPACING_DEG。gridFillのセルサイズ（precipitationNowcast.ts: precipitationRenderPayload）が
+   * effectiveGridと矛盾しない間隔を使うために必要（実際のフェッチに使った値を返す。
+   * windGridDetailSpacingDegForZoomを呼び出し側で再計算すると、フェッチ後にズームが
+   * 動いていた場合に実際のデータと食い違いうる）。 */
+  effectiveGridSpacingDeg: number;
   /** 粗い格子の初回フェッチ中かどうか。 */
   loading: boolean;
   /** 粗い格子の取得に失敗したときのメッセージ（詳細格子側の失敗は補助的な機能のため
@@ -53,6 +62,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailGrid, setDetailGrid] = useState<WindGridPoint[]>([]);
+  const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
 
   // 再取得のたびにOpen-Meteo側の一時的な失敗（429等）で一部地点だけ抜け落ちることがあり、
   // そのまま置き換えると地図上に「その地点だけ塗られていない」穴ができる（実機フィードバック
@@ -98,6 +108,11 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   // 含まれる地点だけ」へ絞り込んでから使う（bbox外の地点は既に画面外なので補う意味が無く、
   // 絞り込まないと遠く離れたパン履歴がずっとメモリに残り続けてしまう）。
   const rawDetailGridRef = useRef<WindGridPoint[]>([]);
+  // 直前フェッチで使った格子間隔（T185）。ズームをまたいで間隔が変わると、古い間隔の格子点は
+  // 新しい間隔のラティスに乗らない（絶対座標が一致しない）ため、そのままmergeWindGridKeepingStale
+  // で持ち越すと2つの間隔の点が混在してgridFillのセルサイズが実データと食い違ってしまう。
+  // 間隔が変わった回だけ穴あき対策の持ち越しを諦め、新しい間隔で作り直す。
+  const rawDetailGridSpacingRef = useRef<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
@@ -108,22 +123,28 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
         // ズームアウトした・レイヤーOFFにした場合は詳細格子を捨てて粗い格子へ戻す
         // （古いズームイン時点の詳細格子が、ズームアウト後もそのまま使われ続けるのを防ぐ）。
         rawDetailGridRef.current = [];
+        rawDetailGridSpacingRef.current = null;
         setDetailGrid([]);
         return;
       }
-      const bbox = clampWindDetailBbox(debouncedMapViewport);
+      const spacingDeg = windGridDetailSpacingDegForZoom(debouncedMapViewport.zoom);
+      const bbox = clampWindDetailBbox(debouncedMapViewport, spacingDeg);
       try {
-        const freshGrid = await getWindGridDetail(bbox);
+        const freshGrid = await getWindGridDetail(bbox, spacingDeg);
         if (cancelled) return;
-        const relevantPrevious = rawDetailGridRef.current.filter(
-          (point) =>
-            point.longitude >= bbox.minLon &&
-            point.longitude <= bbox.maxLon &&
-            point.latitude >= bbox.minLat &&
-            point.latitude <= bbox.maxLat
-        );
+        const spacingChanged = rawDetailGridSpacingRef.current !== spacingDeg;
+        const relevantPrevious = spacingChanged
+          ? []
+          : rawDetailGridRef.current.filter(
+              (point) =>
+                point.longitude >= bbox.minLon &&
+                point.longitude <= bbox.maxLon &&
+                point.latitude >= bbox.minLat &&
+                point.latitude <= bbox.maxLat
+            );
         const rawGrid = mergeWindGridKeepingStale(relevantPrevious, freshGrid);
         rawDetailGridRef.current = rawGrid;
+        rawDetailGridSpacingRef.current = spacingDeg;
         // gridと同じ切り詰め（trimWindGridToCurrentAndFuture）を適用しないと、frameIndexが
         // effectiveGridへ切り替わったときにindexの意味がずれてしまう（gridは「現在」開始、
         // detailGridがその日の00:00開始のままだと同じindexが指す時刻が食い違う）。grid・
@@ -132,11 +153,13 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
         // 自然に揃うため許容する。
         const trimmed = trimWindGridToCurrentAndFuture(rawGrid);
         setDetailGrid(trimmed);
+        setDetailSpacingDeg(spacingDeg);
       } catch {
         // 補助的な機能のため、失敗時はエラー表示をせず静かに粗い格子へフォールバックする
         // （リクエスト自体のログはweatherApi.ts側で既に記録済み）。
         if (cancelled) return;
         rawDetailGridRef.current = [];
+        rawDetailGridSpacingRef.current = null;
         setDetailGrid([]);
       }
     });
@@ -146,6 +169,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   }, [enabled, debouncedMapViewport]);
 
   const effectiveGrid = detailGrid.length > 0 ? detailGrid : grid;
+  const effectiveGridSpacingDeg = detailGrid.length > 0 ? detailSpacingDeg : WIND_GRID_SPACING_DEG;
 
-  return { grid, detailGrid, effectiveGrid, loading, error };
+  return { grid, detailGrid, effectiveGrid, effectiveGridSpacingDeg, loading, error };
 }

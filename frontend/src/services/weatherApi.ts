@@ -27,16 +27,18 @@ export async function getWindGrid(): Promise<WindGridPoint[]> {
   return data;
 }
 
-// 風の詳細格子（改善計画T180、ヒートマップ等の面表現用）。表示範囲（bbox）に交差する
-// 密格子点ぶんの時間別風向・風速を取得する。bboxはwindLayer.tsのclampWindDetailBboxで
-// 安全な広さへクリップ済みのものを渡す想定（呼び出し元がクリップ責務を持つ、この関数は
+// 風の詳細格子（改善計画T180、ヒートマップ等の面表現用。T185でspacingDegをズーム依存に
+// して間隔可変化）。表示範囲（bbox）に交差する密格子点ぶんの時間別風向・風速を取得する。
+// bboxはwindLayer.tsのclampWindDetailBboxで安全な広さへクリップ済みのものを、spacingDegは
+// windGridDetailSpacingDegForZoomで求めたものを渡す想定（呼び出し元が責務を持つ、この関数は
 // 素直にリクエストするだけ）。
-export async function getWindGridDetail(bbox: Bbox): Promise<WindGridPoint[]> {
+export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise<WindGridPoint[]> {
   const params = new URLSearchParams({
     min_lon: String(bbox.minLon),
     min_lat: String(bbox.minLat),
     max_lon: String(bbox.maxLon),
     max_lat: String(bbox.maxLat),
+    spacing_deg: String(spacingDeg),
   });
   const url = `${API_BASE_URL}/api/weather/wind-grid-detail?${params}`;
   const data = await fetchJson<WindGridPoint[]>(url, {

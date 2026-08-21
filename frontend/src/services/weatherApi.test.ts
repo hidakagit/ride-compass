@@ -142,13 +142,14 @@ describe("getWindGridDetail", () => {
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await getWindGridDetail(bbox);
+    const result = await getWindGridDetail(bbox, 0.01);
 
     expect(result).toEqual(grid);
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/weather/wind-grid-detail");
     expect(String(url)).toContain("min_lon=139.7");
     expect(String(url)).toContain("max_lat=35.7");
+    expect(String(url)).toContain("spacing_deg=0.01");
   });
 
   it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
@@ -160,6 +161,6 @@ describe("getWindGridDetail", () => {
       ),
     );
 
-    await expect(getWindGridDetail(bbox)).rejects.toThrow("表示範囲が広すぎます。ズームインしてください。[req: req-999]");
+    await expect(getWindGridDetail(bbox, 0.02)).rejects.toThrow("表示範囲が広すぎます。ズームインしてください。[req: req-999]");
   });
 });

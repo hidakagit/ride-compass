@@ -2877,6 +2877,48 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   （新規: dynamicWeather.test.ts追加、windLayer.test.ts/precipitationNowcast.test.ts/
   DynamicLayerTimeSlider.test.tsxを新APIへ更新）全green。
 
+### - [x] T185. 降水延長予報gridFillの格子間隔をズーム依存で細かくする 規模S（2026-08-21完了）
+
+- 発端: T184デプロイ後の実機フィードバック（本番スクリーンショット）「このゴワゴワ感を
+  直すには、格子を小さくするしかない？拡大率が大きいと気になる。拡大率によって格子
+  サイズも大きく（風の矢印と同じ）補正する汎用的な拡張はできない？」。降水延長予報の
+  gridFill表現は「1格子点が担当する実面積」を色で塗る図形のため、風の矢印のicon-size
+  ズーム補正（ピクセル単位の記号を拡大するだけ）とは事情が違う——セルの表示サイズだけを
+  ズームに応じて縮めても、格子点自体の間隔（＝実データの密度）は変わらないため、単に
+  隙間が空くだけで「ゴワゴワ」（色境界の段差）は解消しない。回答として、ズームインする
+  ほど画面上の面積を大きく占める同じ間隔の格子が段差を目立たせているのが根本原因なので、
+  格子間隔自体をズームに応じて細かくする方針を提示し、ユーザー承認（「まずはズーム依存で
+  detail格子のspacingを段階的に細かくするので実装して」）を得て実装した。
+- 対応方針: 詳細格子（改善計画T180、`generate_wind_grid_detail_points`）は元々`spacing_deg`
+  引数を持っていたが、APIエンドポイントが常にデフォルト値（0.02度）で固定呼び出ししていた。
+  これをフロント側がズームに応じて選んだ離散値（0.02/0.01/0.005/0.0025度、ズーム10/13/16/19の
+  4段階）をクエリパラメータとして渡せるように拡張した。連続値にすると閲覧者ごとに格子の
+  絶対座標（ラティス原点固定によるキャッシュ共有、T180実装メモ参照）がずれてキャッシュが
+  効かなくなるため、離散段階のみ許可する（バックエンドでも許可値リスト外は400で拒否）。
+- 実装メモ（2026-08-21完了）:
+  **バックエンド**: `domain/wind_grid.py`へ`WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG =
+  (0.02, 0.01, 0.005, 0.0025)`を追加（単一の情報源、フロント側windLayer.tsのズーム段階と
+  値を揃えること）。`api/routers/weather.py: get_wind_grid_detail`へ`spacing_deg`クエリ
+  パラメータ（省略時は既存の0.02、後方互換）を追加し、許可値リスト外は400、
+  `generate_wind_grid_detail_points`へそのまま渡す。点数上限チェック（`WIND_GRID_DETAIL_
+  MAX_POINTS`、900点）は間隔に関わらず既存のロジックのまま機能する（間隔を細かくした分
+  だけ同じbboxで点数が増えるため、広いbbox×細かい間隔の組み合わせは自然に400になる）。
+  **フロントエンド**: `windLayer.ts`へ`WIND_GRID_DETAIL_SPACING_STOPS`（ズーム→間隔の
+  4段階テーブル）・`windGridDetailSpacingDegForZoom(zoom)`を追加。`clampWindDetailBbox`は
+  固定0.5度だったクリップ幅を`spacingDeg引数 × 25`（間隔なりに比例、900点上限に対し
+  26×26=676点の安全マージンは維持）へ一般化。`weatherApi.ts: getWindGridDetail`が
+  `spacing_deg`をクエリへ追加。`useWeatherGrid.ts`はズームから`spacingDeg`を都度計算して
+  bbox・APIへ渡し、実際にフェッチへ使った値を`effectiveGridSpacingDeg`として返す
+  （`precipitationRenderPayload`のセルサイズ計算がズレないよう、呼び出し側が再計算せず
+  フック側の実測値をそのまま使う設計）。ズームをまたいで間隔が変わった回は、穴あき対策の
+  持ち越し（`mergeWindGridKeepingStale`）を諦めて新しい間隔で作り直す（間隔の異なる格子点は
+  同じラティスに乗らないため混在させると不整合になる）。`precipitationNowcast.ts`の
+  `precipitationGridSpacingDeg(isDetail: boolean)`（粗い/詳細の2値切替のみ対応していた）は
+  不要になったため撤去し、`page.tsx`は`effectiveGridSpacingDeg`をそのまま
+  `precipitationRenderPayload`へ渡すよう更新。
+  backend pytest 857件（新規4件）・frontend tsc/eslintクリーン・vitest 462件（新規: 段階
+  マッピング・bboxクリップ・フック配線のテストを追加）全green。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて

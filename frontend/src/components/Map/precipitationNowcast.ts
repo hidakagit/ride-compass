@@ -19,7 +19,7 @@
 // DynamicWeatherRenderPayload）だけを渡す。
 
 import { gridCellRing, type DynamicWeatherFrame, type DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { parseJstTime, WIND_GRID_DETAIL_SPACING_DEG, WIND_GRID_SPACING_DEG } from "@/components/Map/windLayer";
+import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 export interface NowcastFrame {
@@ -214,8 +214,9 @@ export function precipitationFrames(
 /** precipitationFramesが返したrefから、地図へ渡す描画ペイロードを組み立てる。sourceで
  * rasterTile（気象庁ナウキャストのタイル）とgridFill（延長予報、格子を色で塗る）を
  * 切り替える——「アイコンは1つ。ただし内部は時間によって使い分けて」というユーザー要望を
- * ここで実現する。spacingDegはextendedGridが粗い格子（WIND_GRID_SPACING_DEG）か詳細格子
- * （WIND_GRID_DETAIL_SPACING_DEG）かを呼び出し側が判断して渡す（page.tsx参照）。 */
+ * ここで実現する。spacingDegはextendedGridの実際の格子間隔（度）を呼び出し側が渡す
+ * （useWeatherGrid.tsのeffectiveGridSpacingDeg、T185でズーム依存の詳細間隔になったため、
+ * このファイル自身は「粗いか詳細か」の判定を持たず、渡された値をそのまま使うだけにする）。 */
 export function precipitationRenderPayload(
   nowcastFrames: readonly NowcastFrame[],
   extendedGrid: readonly WindGridPoint[],
@@ -228,10 +229,4 @@ export function precipitationRenderPayload(
   }
   if (extendedGrid.length === 0) return undefined;
   return { kind: "gridFill", geojson: precipitationGridToCellFeatureCollection(extendedGrid, ref.index, spacingDeg) };
-}
-
-/** extendedGridの間隔（粗い格子か詳細格子か）に応じたセルの1辺の長さ。isDetailは
- * useWeatherGrid.tsのdetailGridが実際に使われているか（page.tsx参照）。 */
-export function precipitationGridSpacingDeg(isDetail: boolean): number {
-  return isDetail ? WIND_GRID_DETAIL_SPACING_DEG : WIND_GRID_SPACING_DEG;
 }

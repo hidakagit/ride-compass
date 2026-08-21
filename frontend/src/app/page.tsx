@@ -55,7 +55,6 @@ import DynamicLayerTimeSlider, {
 import {
   fetchNowcastFrames,
   precipitationFrames,
-  precipitationGridSpacingDeg,
   precipitationRenderPayload,
   trimToCurrentAndFuture,
   PRECIPITATION_INTENSITY_LEVELS,
@@ -780,12 +779,12 @@ export default function Home() {
   // 呼び出しで風向・風速・降水量をまとめて返すため、どちらか一方でもONならenabledにすることで
   // 両方ONのときも1本のフェッチで済む。gridは常に「現在」から始まる粗い格子（フレーム時刻軸が
   // 使う）、effectiveGridは詳細格子があればそちらを優先した表示用の格子（gridMark/gridFillの
-  // ジオメトリ計算に使う）。detailGridは表示用格子の空間解像度（gridFillのセルサイズ決定）に
-  // 使う。
+  // ジオメトリ計算に使う）。effectiveGridSpacingDegはeffectiveGridの実際の格子間隔（T185で
+  // ズーム依存になったため、gridFillのセルサイズはここから得た値をそのまま使う）。
   const {
     grid: windGrid,
-    detailGrid,
     effectiveGrid: effectiveWindGrid,
+    effectiveGridSpacingDeg,
     loading: windLoading,
     error: windError,
   } = useWeatherGrid(showWindVector || showPrecipitationNowcast, mapViewport);
@@ -847,13 +846,8 @@ export default function Home() {
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;
-    return precipitationRenderPayload(
-      nowcastFrames,
-      effectiveWindGrid,
-      precipitationGridSpacingDeg(detailGrid.length > 0),
-      precipFramesList[index].ref
-    );
-  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, effectiveWindGrid, detailGrid]);
+    return precipitationRenderPayload(nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg, precipFramesList[index].ref);
+  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg]);
 
   // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
   // 新しい動的気象要素を追加してもMapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
