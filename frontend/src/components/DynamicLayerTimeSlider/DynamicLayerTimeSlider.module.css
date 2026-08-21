@@ -73,11 +73,17 @@
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  /* .timeコメント参照。ここは横スクロールそのものが操作のため、地図の2本指ピンチと
+  /* .timeHeaderコメント参照。ここは横スクロールそのものが操作のため、地図の2本指ピンチと
      衝突しうる縦方向のパン・ピンチズームだけを打ち消し、横方向のパンはブラウザの
      ネイティブスクロールに任せる。 */
   touch-action: pan-x;
   pointer-events: auto;
+  /* マウスで掴んでドラッグできることを示す（DynamicLayerTimeSlider.tsx:
+     handlePointerDown等、実機フィードバック「ルーラースクロールできない」）。 */
+  cursor: grab;
+  /* ドラッグ中に目盛りラベルの文字列選択が始まってしまわないようにする（ドラッグ実装の
+     定番）。 */
+  user-select: none;
 }
 .rulerViewport::-webkit-scrollbar {
   display: none;
