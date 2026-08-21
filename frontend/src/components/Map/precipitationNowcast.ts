@@ -92,20 +92,26 @@ export function parseValidtime(validtime: string): Date {
   return new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
 }
 
-// 降水強度→色の対応。10mm/h以上の境界値（mm/h）は気象庁公式の「雨の強さと降り方」の分類
+// 降水強度→色の対応。20mm/h以上の境界値（mm/h）は気象庁公式の「雨の強さと降り方」の分類
 // （https://www.jma.go.jp/jma/kishou/know/yougo_hp/amehyo.html、2026-08-20確認）と同じ。
-// 同ページに公式区分の無い10mm/h未満は、実機フィードバック「雨の凡例をもう少し段階細かく」
-// を受け、天気アプリで広く使われる1mm/hの目安（傘が要るかどうかの境目とされる「小雨」）で
-// 「小雨」「弱い雨」の2段階へ分けている（気象庁の用語集にも「小雨」はあるが、この表の
-// 数値区分としては公式ではない）。一方で色そのものは気象庁がタイル配色のカラーコードを
-// 公開していないため、同庁のナウキャスト・レーダー系地図で一般的な「弱い＝青→強い＝紫」の
-// 配色慣習に沿った近似値であり、実際のタイル画像の色と厳密には一致しない（凡例としての
-// 目安）。地図チップの凡例（PRECIPITATION_INTENSITY_LEVELS）とT183の延長予報の塗り
-// （MapView.tsx側のfill-color）の両方がこの配列を単一の情報源として使う（windLayer.tsの
-// WIND_SPEED_COLOR_STOPSと同じ「片側import」の考え方）。
+// 同ページに公式区分の無い20mm/h未満は、実機フィードバック「雨の凡例をもっと細かく」
+// （他の天気アプリの雨雲レーダー凡例画面を参考画像として提示された。0.4/2/4/10mm/hの
+// 4段階境界と「ポツポツ」「パラパラ」「ザーッ」「ザーザー」という体感表現は、気象庁の
+// 「雨の程度を表すことば」ページにも載っている一般的な天気アプリの慣用表現であり
+// 特定アプリ固有のものではないためこちらでも採用。ブランド固有のアイコン・配色までは
+// 再現しない）を受け、10mm/h未満を0.4/2/4mm/hの境界で3段階、10〜20mm/hをさらに1段
+// （「弱い雨」からの独立表示ではなく気象庁の用語「ザーザー」寄りの体感表現に統一）へ
+// 細分化している。一方で色そのものは気象庁がタイル配色のカラーコードを公開していないため、
+// 同庁のナウキャスト・レーダー系地図で一般的な「弱い＝青→強い＝紫」の配色慣習に沿った
+// 近似値であり、実際のタイル画像の色と厳密には一致しない（凡例としての目安）。地図チップの
+// 凡例（PRECIPITATION_INTENSITY_LEVELS）とT183の延長予報の塗り（MapView.tsx側の
+// fill-color）の両方がこの配列を単一の情報源として使う（windLayer.tsのWIND_SPEED_COLOR_
+// STOPSと同じ「片側import」の考え方）。
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] = [
-  { mmPerHour: 0, color: "#bae6fd" },
-  { mmPerHour: 1, color: "#7dd3fc" },
+  { mmPerHour: 0, color: "#e0f2fe" },
+  { mmPerHour: 0.4, color: "#bae6fd" },
+  { mmPerHour: 2, color: "#7dd3fc" },
+  { mmPerHour: 4, color: "#38bdf8" },
   { mmPerHour: 10, color: "#3b82f6" },
   { mmPerHour: 20, color: "#eab308" },
   { mmPerHour: 30, color: "#f97316" },
@@ -122,33 +128,47 @@ export const PRECIPITATION_NONE_THRESHOLD_MM = 0.1;
 // 数値はPRECIPITATION_COLOR_STOPSからそのまま持ってくるため、境界値・色を変えてもここは
 // 自動で追従する（windLayer.tsのWIND_SPEED_LEGEND_LEVELSと同じパターン）。
 export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  { key: "very-light", label: `小雨（${PRECIPITATION_COLOR_STOPS[1].mmPerHour}mm/h未満）`, color: PRECIPITATION_COLOR_STOPS[0].color },
   {
-    key: "light",
-    label: `弱い雨（${PRECIPITATION_COLOR_STOPS[1].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[2].mmPerHour}mm/h）`,
+    key: "negligible",
+    label: `ごく弱い雨（${PRECIPITATION_COLOR_STOPS[1].mmPerHour}mm/h未満）`,
+    color: PRECIPITATION_COLOR_STOPS[0].color,
+  },
+  {
+    key: "pattering",
+    label: `ポツポツ（${PRECIPITATION_COLOR_STOPS[1].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[2].mmPerHour}mm/h）`,
     color: PRECIPITATION_COLOR_STOPS[1].color,
   },
   {
-    key: "somewhat-strong",
-    label: `やや強い雨（${PRECIPITATION_COLOR_STOPS[2].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[3].mmPerHour}mm/h）`,
+    key: "drizzling",
+    label: `パラパラ（${PRECIPITATION_COLOR_STOPS[2].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[3].mmPerHour}mm/h）`,
     color: PRECIPITATION_COLOR_STOPS[2].color,
   },
   {
-    key: "strong",
-    label: `強い雨（${PRECIPITATION_COLOR_STOPS[3].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[4].mmPerHour}mm/h）`,
+    key: "showering",
+    label: `ザーッ（${PRECIPITATION_COLOR_STOPS[3].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[4].mmPerHour}mm/h）`,
     color: PRECIPITATION_COLOR_STOPS[3].color,
   },
   {
-    key: "intense",
-    label: `激しい雨（${PRECIPITATION_COLOR_STOPS[4].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[5].mmPerHour}mm/h）`,
+    key: "pouring",
+    label: `ザーザー（${PRECIPITATION_COLOR_STOPS[4].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[5].mmPerHour}mm/h）`,
     color: PRECIPITATION_COLOR_STOPS[4].color,
   },
   {
-    key: "very-intense",
-    label: `非常に激しい雨（${PRECIPITATION_COLOR_STOPS[5].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[6].mmPerHour}mm/h）`,
+    key: "strong",
+    label: `強い雨（${PRECIPITATION_COLOR_STOPS[5].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[6].mmPerHour}mm/h）`,
     color: PRECIPITATION_COLOR_STOPS[5].color,
   },
-  { key: "violent", label: `猛烈な雨（${PRECIPITATION_COLOR_STOPS[6].mmPerHour}mm/h以上）`, color: PRECIPITATION_COLOR_STOPS[6].color },
+  {
+    key: "intense",
+    label: `激しい雨（${PRECIPITATION_COLOR_STOPS[6].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[7].mmPerHour}mm/h）`,
+    color: PRECIPITATION_COLOR_STOPS[6].color,
+  },
+  {
+    key: "very-intense",
+    label: `非常に激しい雨（${PRECIPITATION_COLOR_STOPS[7].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h）`,
+    color: PRECIPITATION_COLOR_STOPS[7].color,
+  },
+  { key: "violent", label: `猛烈な雨（${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h以上）`, color: PRECIPITATION_COLOR_STOPS[8].color },
 ];
 
 /** 降水ナウキャストのラスタタイルURLテンプレート（{z}/{x}/{y}はMapLibreが実際の値へ
