@@ -179,13 +179,26 @@ export default function DynamicLayerTimeSlider({
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    // 実機フィードバック「マウスをハンドアイコンに変わるが動かない/タッチでも反応しない」
+    // への対応。preventDefaultを呼んでいなかったため、mousedown+dragがブラウザ既定の
+    // テキスト選択ドラッグとして処理され、pointermove自体はスクリプトへ届いても既定動作と
+    // 競合して見た目に反映されていなかったと考えられる。ここで既定動作を止める。
+    e.preventDefault();
     dragRef.current = { pointerId: e.pointerId, startClientX: e.clientX, startScrollLeft: viewport.scrollLeft };
-    viewport.setPointerCapture(e.pointerId);
+    // 一部のブラウザ/状況（例: 既にキャプチャ済みのポインタ）ではsetPointerCaptureが
+    // 例外を投げることがあるが、ドラッグ自体はpointermoveのイベント委譲だけでも機能するため
+    // 致命的ではない。
+    try {
+      viewport.setPointerCapture(e.pointerId);
+    } catch {
+      // no-op
+    }
   };
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     const viewport = viewportRef.current;
     if (!drag || drag.pointerId !== e.pointerId || !viewport) return;
+    e.preventDefault();
     viewport.scrollLeft = drag.startScrollLeft - (e.clientX - drag.startClientX);
   };
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {

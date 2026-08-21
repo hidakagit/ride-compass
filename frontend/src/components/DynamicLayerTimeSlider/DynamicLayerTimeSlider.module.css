@@ -87,6 +87,12 @@
   /* ドラッグ中に目盛りラベルの文字列選択が始まってしまわないようにする（ドラッグ実装の
      定番）。 */
   user-select: none;
+  /* WebKit系ブラウザが要素を暗黙にドラッグ可能とみなし、独自のドラッグ処理と競合するのを
+     防ぐ（実機フィードバック「マウスがハンドアイコンに変わるが動かない」）。 */
+  -webkit-user-drag: none;
+  /* タップ時の既定ハイライトを消す（MapOverlayControls.module.cssの.iconChip等と同じ
+     理由）。 */
+  -webkit-tap-highlight-color: transparent;
 }
 .rulerViewport::-webkit-scrollbar {
   display: none;
