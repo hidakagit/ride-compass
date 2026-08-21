@@ -57,13 +57,19 @@ Renderへのデプロイ（`git push`からのビルド完了）が実際にサ�
 
 **パフォーマンス上の落とし穴（実機で発見・修正済み）**: 当初 `ElevationClient` がリクエストごとに新規`httpx.AsyncClient`を生成しておりTLSハンドシェイクを毎回やり直していたため、15km生成（8候補×12点=最大96リクエスト）に**約57秒**かかっていた。`httpx.AsyncClient`をFastAPIの依存性注入（`yield`付き）で1リクエストあたり1つ生成して使い回す形に直したところ**約7秒**まで短縮した。あわせて、同時リクエスト数を制限する`asyncio.Semaphore`が`get_profile`呼び出しごとに新規生成されており、意図していた「サービス全体で最大5並列」ではなく実質「候補ごとに最大5並列」（合計で最大40並列）になっていた点も、`ElevationService.__init__`でSemaphoreを1つだけ生成する形に修正した。
 
-### 標高キャッシュ（SQLite永続化）
-`ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、緯度経度を小数点以下4桁（日本付近で誤差約11m）に丸めたキーで標高値をキャッシュする。標高はほぼ不変のデータのため、`cache_db.py`（[backend/app/infrastructure/cache_db.py](../backend/app/infrastructure/cache_db.py)）経由でSQLite（`backend/data/ridecompass_cache.db`）に永続化しており、プロセス再起動やコンテナ再作成をまたいで再利用される（当初はモジュールレベルの辞書によるプロセス内メモ化のみだったが、Step5の時点でSQLite永続化に置き換え済み）。8方位の候補ルートは同じ起点から発しているため、起点付近のサンプル点が重複しやすく、実機検証では同一条件の再生成で約1.5秒（全体の約20%）短縮した。キャッシュの読み書き（`cache_db._get_elevation_sync`/`_set_elevation_sync`）はSQLiteのロック競合等の例外を握りつぶし「未キャッシュ」またはno-op扱いにフォールバックするため、DB側の障害がルート生成全体を失敗させることはない。サイズ上限・退避（LRU等）は無い簡易実装であり、以下は将来課題として残す:
+### SQLite永続キャッシュ（`cache_db.py`、標高・気象グリッド）
+`cache_db.py`（[backend/app/infrastructure/cache_db.py](../backend/app/infrastructure/cache_db.py)）は、プロセス再起動やコンテナ再作成をまたいで再利用したいキャッシュを、ファイルベースのSQLite（`backend/data/ridecompass_cache.db`、新規pip依存なし）へ永続化する共通インフラ。用途ごとにテーブルを分け、スレッドローカルな接続の使い回し（`_get_connection`）・SQLiteエラー時は「未キャッシュ」またはno-op扱いへフォールバックする方針（DB側の障害が本体機能を失敗させない）を共有する。現在2用途で使われている:
+- **`elevation_cache`テーブル**（標高、Step5）: `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）が、緯度経度を小数点以下4桁（日本付近で誤差約11m）に丸めたキーで標高値をキャッシュする。標高はほぼ不変のデータのためTTL無しの恒久キャッシュ（当初はモジュールレベルの辞書によるプロセス内メモ化のみだったが、Step5の時点でSQLite永続化に置き換え済み）。8方位の候補ルートは同じ起点から発しているため、起点付近のサンプル点が重複しやすく、実機検証では同一条件の再生成で約1.5秒（全体の約20%）短縮した。
+- **`wind_forecast_cache`テーブル**（気象グリッド＝風・降水延長予報、T194〜T195）: `WeatherClient.get_forecast_many`（下記）が、プロセス内メモリキャッシュ（L1、`_wind_forecast_cache`）でヒットしなかったキーだけをここ（L2）から引く2段構成。詳細は下記「天候取得の設計」節参照。
+
+サイズ上限・退避（LRU等）は両テーブルとも無い簡易実装であり、以下は将来課題として残す:
 - GSIのDEMタイル（ラスタ）を範囲ごと一括取得し、ローカルグリッドで補間する方式への発展（API呼び出し自体をほぼゼロにできる）
 - キャッシュサイズの上限・退避（LRU等）
 
 ### 天候取得の設計と「地点＋時刻」対応（Step6）
-`WeatherClient`（[backend/app/infrastructure/weather_client.py](../backend/app/infrastructure/weather_client.py)）はOpen-Meteo Forecast APIから`current`（現在の気象）と`hourly`（`forecast_days=2`分の時間別予報：気温・風速・風向・降水確率）を**1回のリクエストでまとめて取得**することを実機確認済み。標高と同じ「範囲でまとめて取得してキャッシュ」の原則を適用しているが、気象データは時間で変化するため**TTL付き**（30分、緯度経度は標高より粗い精度で丸める）にしている点が標高キャッシュとの違い。
+`WeatherClient`（[backend/app/infrastructure/weather_client.py](../backend/app/infrastructure/weather_client.py)）はOpen-Meteo Forecast APIから`current`（現在の気象）と`hourly`（`forecast_days=2`分の時間別予報：気温・風速・風向・降水確率）を**1回のリクエストでまとめて取得**することを実機確認済み。標高と同じ「範囲でまとめて取得してキャッシュ」の原則を適用しているが、気象データは時間で変化するため**TTL付き**（`get_forecast`＝単一地点/api/weatherパネル用は30分、緯度経度は標高より粗い精度で丸める）にしている点が標高キャッシュとの違い。
+
+`get_forecast_many`（複数地点をまとめて取得、風の格子点マップ・降水延長予報が使う）は、TTLを3時間・キャッシュをメモリ（L1、プロセス内、高速）＋SQLite（L2、`cache_db.py`の`wind_forecast_cache`テーブル、プロセス再起動をまたいで永続化）の2段構成にしている（T194〜T195、「改善計画」参照）。Open-Meteoが本番（Render、共有の送信元IP）で429を返す事象が繰り返し発生しており、L1のみだとプロセス再起動・コンテナ再作成のたびにキャッシュが消え無駄な再取得（＝日次クォータの消費）が発生していたため、再起動をまたいでも直前の値をL2から復元できるようにした。L1に無い/古いキーだけL2を引き、見つかった分（新鮮・陳腐問わず）をL1へ書き戻してから既存のTTL判定・障害時のstale fallback判定に合流させる設計のため、呼び出し側（`WindService`・`get_wind_grid`）のインターフェースは変わらない。
 
 `WeatherService.get_conditions(point, at: datetime | None = None)`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）は、`at=None`なら`current`ブロックを返し、未来時刻を渡すと`hourly`配列から最も近い時刻のデータを検索して返す。**Step6のUIでは`at`を渡さず現在地の現在の天候のみ表示するが**、この時刻指定インターフェースにより、将来「ルート上の各サンプル点＋推定通過時刻（`RouteCandidate`の距離・所要時間から按分計算できる）」を渡して「2時間後にその地点は雨か」を判定する拡張が、サービス層の設計変更なしで追加できる（ユーザー要望への対応）。既知の制約: `at`が取得済みhourly範囲（当日+翌日）を超える場合、現状は最も近い時刻を返してしまう（範囲外チェック未実装）ため、`at`を実際に使う機能を追加する際にガードを入れる必要がある。
 
@@ -273,10 +279,10 @@ RideCompass/
       infrastructure/
         ors_client.py           ✅ openrouteservice Directions API（cycling-road、複数経由地対応。`extra_info=surface`は改善計画T21で撤去済み、路面評価は自前DB空間マッチへ統一）
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
-        weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ）
+        weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ。get_forecast_manyはL1メモリ+L2 SQLite永続化の2段、T194〜T195）
         overpass_client.py         ✅ Overpass API。`get_ways_and_nodes`（Way/Node IDを保持したトポロジー取得、Road Graph構築専用）のみ保持。地域路面レイヤー用の`get_roads`は改善計画T22でOverpassフォールバックとともに削除済み（`GraphService`の`repository`未接続時＝DBなし構成でのみ使う）
         vector_tile.py               ✅ 路面データをMVT（Mapbox Vector Tile）にエンコード（Web Mercator投影、Step10改訂）
-        cache_db.py                 ✅ SQLite永続キャッシュ（標高のみ、Step5用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
+        cache_db.py                 ✅ SQLite永続キャッシュ（標高: Step5用。気象グリッド(wind_forecast_cache): T194〜T195用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
@@ -329,7 +335,7 @@ RideCompass/
       test_evaluation_service.py ✅ EvaluationService.evaluate_graphのDIモックテスト（Hard Constraint除外・属性欠損・空グラフ・カスタムRoutePreference）（Road Graph移行Phase 4、新規。Phase 5でload_route_preference（既定パス/カスタムパス）・設定ファイル経由デフォルトの検証を追加）
       test_graph_service.py   ✅ GraphService.build_graph_with_surface_tags_for_bboxのDIモックテスト（Road Graph移行Phase 1、新規）。get_or_build_graph_with_attributesのタイル単位キャッシュ動作（単一/複数タイル・部分キャッシュ・一部タイル取得失敗）の検証を追加
       test_vector_tile.py      ✅ encode_road_surface_tileのデコード可能性・座標範囲・surface_goodプロパティ・2点未満のway除外の検証（Step10改訂）
-      test_cache_db.py        ✅ 標高のSQLite永続キャッシュ読み書きの検証（Step5用。路面セルのテストはStep10改訂で撤去）
+      test_cache_db.py        ✅ SQLite永続キャッシュ読み書きの検証（標高: Step5用。気象グリッド: T194〜T195用。路面セルのテストはStep10改訂で撤去）
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
       test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）。basemap/refreshのper-IPレート制限（6回/分）の429検証を追加
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）

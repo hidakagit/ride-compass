@@ -12,12 +12,25 @@ from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, stop
 
 from app.config import settings
 from app.domain.route import Coordinates
+from app.infrastructure import cache_db
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
 # 天候は数km単位でしか変わらないため、標高キャッシュ（4桁）より粗い精度で丸める。
 CACHE_PRECISION = 2
 # 標高と異なり天候は時間で変化するため、恒久キャッシュではなくTTLを設ける。
 CACHE_TTL_SECONDS = 30 * 60
+
+# 気象グリッド（風・降水延長予報、get_forecast_many）専用のTTL・フォールバック窓（改善計画
+# 「Open-Meteo 429根本対策の6段階ロードマップ」④）。get_forecast（/api/weatherパネル、単発
+# 呼び出し）側はCACHE_TTL_SECONDS/STALE_FALLBACK_MAX_AGE_SECONDSのまま変えない
+# （こちらは値を変える理由が無い上、DB永続化の対象もget_forecast_many側だけのため）。
+# 3時間はOpen-Meteoの予報モデル自体の更新頻度に対して十分な鮮度であり、かつ1日あたりの
+# 総フェッチ回数（＝クォータ消費）を大きく削減できる（旧30分TTLの1/6）。DB永続化
+# （cache_db.get_wind_forecast_many/set_wind_forecast_many）によりプロセス再起動をまたいで
+# 生き残るようになったため、フォールバック窓も従来の3時間（再起動のたびに消えるメモリ
+# キャッシュ前提の値）から24時間へ伸ばし、Open-Meteo側の長時間障害への耐性を上げる。
+WIND_GRID_CACHE_TTL_SECONDS = 3 * 60 * 60
+WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
 
 # get_forecast（単一地点、/api/weatherの現在地パネル用）はcurrent/hourly全変数を表示に使うが、
 # get_forecast_many（WindServiceの区間風評価・風/降水延長予報の格子点マップ）は消費側を
@@ -58,6 +71,8 @@ RETRY_JITTER_RANGE = (0.75, 1.25)
 # （502で天候欄を丸ごと空にするより、多少古い予報を出す方が実用的なため）。予報自体は
 # forecast_days=2分をまとめて保持しているため、number（現在気象）はやや古くなりうるが
 # hourly（ルート評価が使う区間ごとの時刻別値）は取得時刻に関わらず妥当な範囲を保つ。
+# get_forecast（単一地点、/api/weatherパネル）専用。get_forecast_many（風・降水延長予報の
+# 格子点マップ）はWIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS（モジュール冒頭）を使う。
 STALE_FALLBACK_MAX_AGE_SECONDS = 3 * 60 * 60
 # 共有クライアントの既定タイムアウト（10秒）のままだと、ConnectTimeout1回の失敗だけで
 # 再試行の予算をほぼ使い切ってしまう。この呼び出しだけ短いタイムアウトへ上書きし、
@@ -69,7 +84,11 @@ _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 # いるのは、キーを共有すると「get_forecast_manyが先に書いた風・降水のみの応答」を後から
 # get_forecastがキャッシュヒットとして読んでしまい、/api/weatherパネルの気温等が
 # 欠落したまま返る（黙って空欄になる）事故になり得るため。両者は変数セットが異なる
-# 別物として扱う。
+# 別物として扱う。1プロセス内の高速な繰り返し参照を担うL1キャッシュで、プロセス再起動を
+# またいだ永続化はcache_db.py（wind_forecast_cacheテーブル）がL2として別途担う
+# （改善計画「Open-Meteo 429根本対策」④、get_forecast_many参照）。_forecast_cache
+# （こちら）はDB永続化の対象外のまま（/api/weatherは単発呼び出しで再起動時の再取得コストが
+# 小さく、DB化の効果が薄いため）。
 _wind_forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
 
@@ -239,6 +258,12 @@ class WeatherClient:
         （get_forecastは単発呼び出しのため変数を絞っても効果が小さく、/api/weatherパネルの
         表示項目を削ることになるためそのまま全変数を維持する）。キャッシュも_forecast_cacheとは
         分離した_wind_forecast_cacheを使う（理由はモジュール冒頭のコメント参照）。
+
+        改善計画「Open-Meteo 429根本対策」④: _wind_forecast_cacheはプロセス内メモリのため
+        Renderのようなプラットフォームでのプロセス再起動・コンテナ再作成のたびに消え、
+        再起動直後のアクセスがOpen-Meteoへの無駄な再取得（＝1日あたりのクォータ消費）を
+        招いていた。cache_db.py（wind_forecast_cacheテーブル、SQLite）へL2として永続化し、
+        L1（メモリ）に無いキーだけL2を引いてから不足分だけ実際にフェッチする。
         """
         keys: list[tuple[float, float]] = []
         seen: set[tuple[float, float]] = set()
@@ -250,10 +275,28 @@ class WeatherClient:
 
         results: dict[tuple[float, float], dict | None] = {}
         now = time.time()
-        to_fetch: list[tuple[float, float]] = []
+        needs_lookup: list[tuple[float, float]] = []
         for key in keys:
             cached = _wind_forecast_cache.get(key)
-            if cached is not None and now - cached[0] < CACHE_TTL_SECONDS:
+            if cached is not None and now - cached[0] < WIND_GRID_CACHE_TTL_SECONDS:
+                results[key] = cached[1]
+            else:
+                needs_lookup.append(key)
+
+        # メモリキャッシュ（L1）に無い/古い分だけ、プロセス再起動をまたいで永続化された
+        # DB（L2、cache_db.py）を引く（改善計画「Open-Meteo 429根本対策」④）。見つかった分は
+        # 新鮮・陳腐問わずL1へ書き戻し、以降のTTL判定・フォールバック判定を既存のL1中心の
+        # ロジックのまま使い回す（L2は「再起動直後にL1が空でも前回の値が拾える」ための層で、
+        # 1リクエスト内で繰り返し引く用途はL1が引き続き担う）。
+        if needs_lookup:
+            db_hits = await cache_db.get_wind_forecast_many(needs_lookup)
+            for key, cached in db_hits.items():
+                _wind_forecast_cache[key] = cached
+
+        to_fetch: list[tuple[float, float]] = []
+        for key in needs_lookup:
+            cached = _wind_forecast_cache.get(key)
+            if cached is not None and now - cached[0] < WIND_GRID_CACHE_TTL_SECONDS:
                 results[key] = cached[1]
             else:
                 to_fetch.append(key)
@@ -277,24 +320,32 @@ class WeatherClient:
                 # 1地点のみのリクエストはOpen-Meteoが配列ではなく単一objectを返すため、
                 # 常に地点数ぶんの配列として扱えるようここで揃える。
                 entries = data if isinstance(data, list) else ([data] if data is not None else [])
+                newly_fetched: dict[tuple[float, float], tuple[float, dict]] = {}
                 for key, entry in zip(to_fetch, entries):
                     # 失敗時（entry is None）は既存キャッシュを消さない。下のフォールバック
                     # ループがそれを使えるようにするため（成功時のみ上書き）。
                     if entry is not None:
                         _wind_forecast_cache[key] = (now, entry)
+                        newly_fetched[key] = (now, entry)
                     results[key] = entry
                 # 上流の応答件数がリクエストと食い違う異常時は、対応しきれない残りをNone扱いにする。
                 for key in to_fetch[len(entries) :]:
                     results[key] = None
 
-                # 再試行を尽くしても失敗した地点は、TTL切れ後もSTALE_FALLBACK_MAX_AGE_SECONDS
-                # 以内のキャッシュがあれば代用する（get_forecastと同じ方針）。
+                # 新規取得分をDB（L2）へ書き戻す。プロセスが再起動しても次回はここから
+                # 拾えるようにする（改善計画「Open-Meteo 429根本対策」④）。書き込み失敗は
+                # レスポンス自体には影響しない（cache_db.set_wind_forecast_many参照）。
+                if newly_fetched:
+                    await cache_db.set_wind_forecast_many(newly_fetched)
+
+                # 再試行を尽くしても失敗した地点は、TTL切れ後もWIND_GRID_STALE_FALLBACK_MAX_
+                # AGE_SECONDS以内のキャッシュがあれば代用する（get_forecastと同じ方針）。
                 stale_fallback_count = 0
                 for key in to_fetch:
                     if results.get(key) is not None:
                         continue
                     cached = _wind_forecast_cache.get(key)
-                    if cached is not None and now - cached[0] < STALE_FALLBACK_MAX_AGE_SECONDS:
+                    if cached is not None and now - cached[0] < WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS:
                         results[key] = cached[1]
                         stale_fallback_count += 1
                 if stale_fallback_count:
