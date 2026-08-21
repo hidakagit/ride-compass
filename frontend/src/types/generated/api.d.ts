@@ -124,12 +124,37 @@ export interface paths {
         };
         /**
          * Get Wind Grid
-         * @description 風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点
-         *     （domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）ぶんの時間別風向・風速を
-         *     まとめて返す。取得に失敗した地点はレスポンスから除外する（他の外部API連携と同じ
-         *     「取得失敗は握りつぶす」方針、1地点の失敗で全体を502にしない）。
+         * @description 風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水を追加）。
+         *     関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
+         *     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
+         *     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
+         *     502にしない）。
          */
         get: operations["get_wind_grid_api_weather_wind_grid_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/weather/wind-grid-detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wind Grid Detail
+         * @description 風・降水延長予報の詳細格子（改善計画T180、ヒートマップ等の面表現用）。呼び出し元
+         *     （フロント）が渡した表示範囲（bbox）に交差する密格子点（domain/wind_grid.py:
+         *     generate_wind_grid_detail_points、固定ラティス上の座標のため近い範囲を見る別ユーザーと
+         *     キャッシュを共有できる）ぶんの時間別風向・風速・降水量を返す。get_wind_gridと同じく
+         *     取得失敗地点は結果から除外する。
+         */
+        get: operations["get_wind_grid_detail_api_weather_wind_grid_detail_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -741,10 +766,14 @@ export interface components {
         };
         /**
          * WindGridPoint
-         * @description 格子点1つぶんの時間別風向・風速。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
+         * @description 格子点1つぶんの時間別風向・風速・降水量。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
          *     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
          *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
          *     切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。
+         *
+         *     precipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長
+         *     予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
+         *     （モジュール冒頭のdocstring参照）。
          */
         WindGridPoint: {
             /** Latitude */
@@ -757,6 +786,8 @@ export interface components {
             wind_speed_ms: number[];
             /** Wind Direction Deg */
             wind_direction_deg: number[];
+            /** Precipitation Mm */
+            precipitation_mm: number[];
         };
     };
     responses: never;
@@ -947,6 +978,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WindGridPoint"][];
+                };
+            };
+        };
+    };
+    get_wind_grid_detail_api_weather_wind_grid_detail_get: {
+        parameters: {
+            query: {
+                min_lon: number;
+                min_lat: number;
+                max_lon: number;
+                max_lat: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WindGridPoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

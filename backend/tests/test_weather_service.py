@@ -178,6 +178,7 @@ async def test_get_wind_grid_returns_hourly_arrays_per_point():
     assert results[0].times == SAMPLE_DATA["hourly"]["time"]
     assert results[0].wind_speed_ms == SAMPLE_DATA["hourly"]["wind_speed_10m"]
     assert results[0].wind_direction_deg == SAMPLE_DATA["hourly"]["wind_direction_10m"]
+    assert results[0].precipitation_mm == SAMPLE_DATA["hourly"]["precipitation"]
 
 
 async def test_get_wind_grid_returns_none_for_points_without_forecast():
@@ -204,6 +205,22 @@ async def test_get_wind_grid_returns_none_when_hourly_missing():
 async def test_get_wind_grid_returns_none_when_wind_fields_missing():
     stale_data = {"hourly": {"time": ["2026-08-13T20:00"], "temperature_2m": [25.0]}}
     service = WeatherService(FakeWeatherClient(stale_data), http_client=None)
+
+    results = await service.get_wind_grid([POINT])
+
+    assert results[0] is None
+
+
+async def test_get_wind_grid_returns_none_when_precipitation_missing():
+    # T183: precipitationは風の2フィールドと同じく必須（3配列とも欠けると格子点全体をNoneにする）。
+    data_without_precipitation = {
+        "hourly": {
+            "time": ["2026-08-13T20:00"],
+            "wind_speed_10m": [3.0],
+            "wind_direction_10m": [60],
+        }
+    }
+    service = WeatherService(FakeWeatherClient(data_without_precipitation), http_client=None)
 
     results = await service.get_wind_grid([POINT])
 

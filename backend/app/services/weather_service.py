@@ -56,9 +56,9 @@ class WeatherService:
         return results
 
     async def get_wind_grid(self, points: list[Coordinates]) -> list[WindGridPoint | None]:
-        """複数地点の時間別風向・風速をまとめて取得する（改善計画T178フォローアップ、
-        風の格子点マップ用）。get_conditions_manyと違い特定時刻1点へ収束させず、
-        hourly配列全体（forecast_days=2分）をそのまま返す（domain/wind_grid.py:
+        """複数地点の時間別風向・風速・降水量をまとめて取得する（改善計画T178フォローアップ、
+        T183で降水（+60分以降の延長予報）を追加）。get_conditions_manyと違い特定時刻1点へ
+        収束させず、hourly配列全体（forecast_days=2分）をそのまま返す（domain/wind_grid.py:
         WindGridPointのdocstring参照）。"""
         forecasts = await self._client.get_forecast_many(self._http_client, points)
         results = []
@@ -75,7 +75,15 @@ class WeatherService:
         times = hourly.get("time")
         speeds = hourly.get("wind_speed_10m")
         directions = hourly.get("wind_direction_10m")
-        if not speeds or not directions or len(speeds) != len(times) or len(directions) != len(times):
+        precipitation = hourly.get("precipitation")
+        if (
+            not speeds
+            or not directions
+            or not precipitation
+            or len(speeds) != len(times)
+            or len(directions) != len(times)
+            or len(precipitation) != len(times)
+        ):
             return None
         return WindGridPoint(
             latitude=point.latitude,
@@ -83,6 +91,7 @@ class WeatherService:
             times=times,
             wind_speed_ms=speeds,
             wind_direction_deg=directions,
+            precipitation_mm=precipitation,
         )
 
     def _conditions_from_data(self, data: dict, at: datetime | None) -> WeatherConditions | None:

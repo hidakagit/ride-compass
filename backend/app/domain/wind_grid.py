@@ -1,4 +1,4 @@
-"""風の格子点マップ（改善計画T178フォローアップ）。
+"""風・降水（延長予報）の格子点マップ（改善計画T178フォローアップ、T183で降水へ拡張）。
 
 `@openmeteo/weather-map-layer`（GPLv2、内部の.omファイルデコーダ@openmeteo/file-reader等も
 同じくGPL-2.0-only）を使った気象庁MSM由来の風矢印描画は、(1) GPLv2依存が避けられない、
@@ -6,8 +6,15 @@
 2つの制約に実機で行き当たった。ユーザー判断（2026-08-20「自前実装案で進めて」）により、
 既存のOpen-Meteo REST API経由の地点評価（`weather_client.get_forecast_many`、CC-BY-4.0・
 GPL無関係・TTLキャッシュ/429リトライ込み）と同じ仕組みで格子点を自前サンプリングし、
-フロント側でMapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色すべて
+フロント側でMapLibre標準のsymbolレイヤー（アイコンを独自定義、向き・長さ・色すべて
 自由に設定可能）として描画する方式へ切り替えた。
+
+T183（降水ナウキャストの延長、ユーザー要望「1時間より先も、短時間雨予報を出してほしい」
+「風と同じ考え方で、風と汎用化して実装してほしい」）で、この同じ格子点マップへ`precipitation`
+（降水量mm/h）を相乗りさせた。気象庁の降水ナウキャスト自体は+60分が上限（JMA提供APIの
+仕様上の制約であり回避不可）のため、+60分より先はこの格子（Open-Meteo・約48時間先まで・
+1時間刻み）が担う。1回のフェッチで風・降水延長予報の両方を賄うため、リクエスト数・
+Open-Meteoクォータ消費を増やさない（weather_client.py: WIND_GRID_VARIABLES参照）。
 
 このモジュール自体はexternal APIを叩かない純粋な座標生成のみを持つ（フェッチは
 services/weather_service.pyのget_wind_grid、APIエンドポイントはapi/routers/weather.py）。
@@ -117,13 +124,18 @@ def generate_wind_grid_detail_points(
 
 
 class WindGridPoint(BaseModel):
-    """格子点1つぶんの時間別風向・風速。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
+    """格子点1つぶんの時間別風向・風速・降水量。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
-    切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。"""
+    切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。
+
+    precipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長
+    予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
+    （モジュール冒頭のdocstring参照）。"""
 
     latitude: float
     longitude: float
     times: list[str]
     wind_speed_ms: list[float]
     wind_direction_deg: list[float]
+    precipitation_mm: list[float]
