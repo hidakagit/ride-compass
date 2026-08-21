@@ -189,53 +189,6 @@ export function windGridToFeatureCollection(
   return { type: "FeatureCollection", features };
 }
 
-// 格子間隔（度）。backend/app/domain/wind_grid.pyの同名定数（WIND_GRID_SPACING_DEG/
-// WIND_GRID_DETAIL_SPACING_DEG）と値を合わせること。APIレスポンス自体には間隔情報が
-// 含まれない（点の配列のみ）ため、フロント側でも同じ値を持つ必要がある。
-export const WIND_GRID_SPACING_DEG = 0.1;
-export const WIND_GRID_DETAIL_SPACING_DEG = 0.02;
-
-export interface WindCellFeatureProperties {
-  /** 風速（m/s）。矢印（WindPointFeatureProperties.speed）と同じ意味・同じ着色スケールで使う。 */
-  speed: number;
-}
-
-/** grid各点を中心とする1辺spacingDegの正方形セルへ変換する（実機フィードバック「どの範囲の
- * 風向き・風速を示しているか分かりにくい」対応）。矢印は1点の値を示す記号だが、格子点は
- * 実際には周辺の面（隣の格子点までの範囲）を代表しているため、その範囲を薄い塗りで
- * 明示する。矢印と同じ色スケール（MapView.tsx側のfill-color）で塗ることで、
- * 「この矢印がこのセルの値」という対応が一目で分かるようにする。 */
-export function windGridToCellFeatureCollection(
-  grid: readonly WindGridPoint[],
-  frameIndex: number,
-  spacingDeg: number
-): GeoJSON.FeatureCollection<GeoJSON.Polygon, WindCellFeatureProperties> {
-  const half = spacingDeg / 2;
-  const features: GeoJSON.Feature<GeoJSON.Polygon, WindCellFeatureProperties>[] = [];
-  for (const point of grid) {
-    const speed = point.wind_speed_ms[frameIndex];
-    if (speed == null) continue;
-    const { latitude: lat, longitude: lon } = point;
-    features.push({
-      type: "Feature",
-      geometry: {
-        type: "Polygon",
-        coordinates: [
-          [
-            [lon - half, lat - half],
-            [lon + half, lat - half],
-            [lon + half, lat + half],
-            [lon - half, lat + half],
-            [lon - half, lat - half],
-          ],
-        ],
-      },
-      properties: { speed },
-    });
-  }
-  return { type: "FeatureCollection", features };
-}
-
 export interface MapViewport {
   west: number;
   south: number;

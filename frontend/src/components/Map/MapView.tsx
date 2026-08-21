@@ -138,29 +138,11 @@ const WIND_VECTOR_LAYER_ID = "region-wind-vector-arrows";
 // 少し大きく・濃色単色で下に敷くことでハロー（縁取り）を作る。symbolレイヤーのicon-*には
 // text-halo-colorに相当するプロパティが無いため、この「同じ形を重ねる」方式が定番の代替策。
 const WIND_VECTOR_HALO_LAYER_ID = "region-wind-vector-arrows-halo";
-// 格子セル（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応）。
-// 矢印は1点の値を示す記号だが、格子点は実際には周辺の面（隣の格子点までの範囲）を
-// 代表しているため、そのセルを矢印と同じ色スケールで薄く塗って対応関係を明示する
-// （windLayer.ts: windGridToCellFeatureCollection参照）。T180で追加したheatmapレイヤーは
-// 「なめらかな密度分布」を見せる一方、どの矢印がどの範囲の値かというセル境界を
-// 逆に曖昧にしてしまうため、こちらへ置き換えた（矢印とは別のGeoJSON source、
-// polygonジオメトリを持つ）。
-//
-// base（粗い格子、関東本土全域を常時カバー）・detail（密な格子、ズームイン時のみ
-// ビューポート中心0.5度四方に限定、page.tsx: clampWindDetailBbox参照）の2層構成
-// （実機フィードバック「風の背景色が途中で見切れる。マップ描画域に隣接するタイルも
-// 色付けして」）。以前はdetailが取れたらbaseを丸ごと差し替えていたが、detailは
-// ビューポートの一部しかカバーしないため低ズームでは可視範囲の外側が塗られない
-// ハードエッジになっていた。baseを常に敷き詰め、detailはその上に重ねて密度を上げる
-// だけにすることで、可視範囲のどこにも塗り漏れが出ないようにする。
-const WIND_VECTOR_BASE_CELLS_SOURCE_ID = "region-wind-vector-base-cells";
-const WIND_VECTOR_BASE_CELLS_LAYER_ID = "region-wind-vector-base-cells-fill";
-const WIND_VECTOR_DETAIL_CELLS_SOURCE_ID = "region-wind-vector-detail-cells";
-const WIND_VECTOR_DETAIL_CELLS_LAYER_ID = "region-wind-vector-detail-cells-fill";
-// セルの不透明度。base層が可視範囲全体を常時覆うようになった（上記2層構成コメント参照）
-// ことで、以前（detailのみが画面の一部だけを覆っていた頃）の0.22だと色が強すぎるという
-// 実機フィードバック「タイル色の透過度を調整して。やや色がつよい」を受け、下げた。
-const WIND_CELL_FILL_OPACITY = 0.14;
+// 格子セル（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応で
+// 一時追加）による面の塗りつぶしは、道路・ルート等の他レイヤーと重なると見分けにくいという
+// 実機フィードバック（2026-08-21「背景色を付けると他要素と重ね合わせた時に分かりにくい」）
+// を受けて撤去した。範囲の対応は矢印自体の大きさ・色の強調（WIND_ICON_MIN_SCALE/
+// WIND_ICON_MAX_SCALEおよびWIND_COLOR_SCALE_EXPRESSION参照）で表現する。
 const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -533,8 +515,14 @@ const WIND_ARROW_SIZE_PX = 32;
 // アイコンサイズ（風速→スケール倍率）。実機フィードバック「矢印見にくい」を受け、
 // 最低スケールを引き上げた（旧0.4→0.7）。関東は元々弱風日が多く（改善計画T178実装メモ参照）、
 // 無風閾値ぎりぎりの矢印がほぼ最小サイズのままだと目立たなかったため。
-const WIND_ICON_MIN_SCALE = 0.7;
-const WIND_ICON_MAX_SCALE = 1.9;
+// 実機フィードバック（2026-08-21「背景色は消して。矢印をもう少し大きく、風の強さも
+// 長さと色でより目立つように」）を受け、背景セル塗りの撤去と合わせて全体を一回り
+// 大きくし（0.7→0.9）、かつ弱風〜強風の幅（=矢印の長さの差）をさらに広げた（1.9→2.6）。
+// icon-sizeはアイコン全体を一様スケールするため、この幅を広げるほど「長さで風速が
+// 分かる」度合いが強くなる（色のグラデーションは変えていない、WIND_COLOR_SCALE_
+// EXPRESSION参照）。
+const WIND_ICON_MIN_SCALE = 0.9;
+const WIND_ICON_MAX_SCALE = 2.6;
 // ハロー（縁取り）層は主層より一回り大きい濃色シルエットを下に敷く倍率。
 const WIND_ICON_HALO_SCALE_MULTIPLIER = 1.35;
 // 微風=水色→ロードバイクで走行が難しい強風域=濃い赤の連続グラデーション（ビューフォート
@@ -692,48 +680,6 @@ function ensureWindVectorLayer(map: MapLibreMap) {
       data: EMPTY_FEATURE_COLLECTION,
       attribution: "Open-Meteo",
     });
-    // 格子セル層。矢印より下に敷く（矢印を隠さないため）。無風に近い地点も含め全点を
-    // 使う（矢印と違い、面表現では「このあたりは穏やか」という情報も薄い色として意味が
-    // あるため、calmFilterは掛けない）。矢印と全く同じ色スケール（WIND_COLOR_SCALE_
-    // EXPRESSION）で塗ることで、矢印↔セルの対応が一目で分かるようにする。地図の視界を
-    // 圧迫しないよう（設計原則12）不透明度は薄めに抑える。
-    if (!map.getSource(WIND_VECTOR_BASE_CELLS_SOURCE_ID)) {
-      map.addSource(WIND_VECTOR_BASE_CELLS_SOURCE_ID, {
-        type: "geojson",
-        data: EMPTY_FEATURE_COLLECTION,
-      });
-    }
-    map.addLayer({
-      id: WIND_VECTOR_BASE_CELLS_LAYER_ID,
-      type: "fill",
-      source: WIND_VECTOR_BASE_CELLS_SOURCE_ID,
-      layout: {
-        visibility: "none",
-      },
-      paint: {
-        "fill-color": WIND_COLOR_SCALE_EXPRESSION,
-        "fill-opacity": WIND_CELL_FILL_OPACITY,
-      },
-    });
-    // detail層はbaseの真上（baseより後にaddLayerする＝スタック上で上）に敷く。
-    if (!map.getSource(WIND_VECTOR_DETAIL_CELLS_SOURCE_ID)) {
-      map.addSource(WIND_VECTOR_DETAIL_CELLS_SOURCE_ID, {
-        type: "geojson",
-        data: EMPTY_FEATURE_COLLECTION,
-      });
-    }
-    map.addLayer({
-      id: WIND_VECTOR_DETAIL_CELLS_LAYER_ID,
-      type: "fill",
-      source: WIND_VECTOR_DETAIL_CELLS_SOURCE_ID,
-      layout: {
-        visibility: "none",
-      },
-      paint: {
-        "fill-color": WIND_COLOR_SCALE_EXPRESSION,
-        "fill-opacity": WIND_CELL_FILL_OPACITY,
-      },
-    });
     // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
     // 関わらず矢印の輪郭が視認できるようにする（実機フィードバック「矢印見にくい」対応）。
     // 主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。無風に近い地点は
@@ -785,36 +731,17 @@ function ensureWindVectorLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// windVectorGeoJson/windBaseCellGeoJson/windDetailCellGeoJson（page.tsx側でwindLayer.tsの
-// windGridToFeatureCollection/windGridToCellFeatureCollectionから計算した値）を反映する。
-// visibleとそれぞれのgeoJsonのどちらか一方でも欠けていれば、そのレイヤーは非表示のまま
+// windVectorGeoJson（page.tsx側でwindLayer.tsのwindGridToFeatureCollectionから計算した値）を
+// 反映する。visibleとgeoJsonのどちらか一方でも欠けていれば非表示のまま
 // （applyPrecipitationNowcastStateと同じ、フェッチ未完了・取得失敗時に古いフレームが
-// 一瞬見えるのを防ぐ）。base/detailそれぞれ自分のデータの有無だけで表示判定する
-// （以前はセル層の表示を矢印データの有無で判定していたが、base/detail 2層構成に
-// なったことで各層が自分のデータを基準に独立して出し分けられるようにした）。
-function applyWindVectorState(
-  map: MapLibreMap,
-  visible: boolean,
-  windVectorGeoJson: GeoJSON.FeatureCollection | undefined,
-  windBaseCellGeoJson: GeoJSON.FeatureCollection | undefined,
-  windDetailCellGeoJson: GeoJSON.FeatureCollection | undefined
-) {
+// 一瞬見えるのを防ぐ）。
+function applyWindVectorState(map: MapLibreMap, visible: boolean, windVectorGeoJson: GeoJSON.FeatureCollection | undefined) {
   runWhenStyleReady(map, () => {
     ensureWindVectorLayer(map);
     if (windVectorGeoJson) {
       const source = map.getSource(WIND_VECTOR_SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(windVectorGeoJson);
     }
-    if (windBaseCellGeoJson) {
-      const baseCellsSource = map.getSource(WIND_VECTOR_BASE_CELLS_SOURCE_ID) as GeoJSONSource | undefined;
-      baseCellsSource?.setData(windBaseCellGeoJson);
-    }
-    if (windDetailCellGeoJson) {
-      const detailCellsSource = map.getSource(WIND_VECTOR_DETAIL_CELLS_SOURCE_ID) as GeoJSONSource | undefined;
-      detailCellsSource?.setData(windDetailCellGeoJson);
-    }
-    setLayerVisibility(map, WIND_VECTOR_BASE_CELLS_LAYER_ID, visible && windBaseCellGeoJson != null);
-    setLayerVisibility(map, WIND_VECTOR_DETAIL_CELLS_LAYER_ID, visible && windDetailCellGeoJson != null);
     const shouldShowArrows = visible && windVectorGeoJson != null;
     setLayerVisibility(map, WIND_VECTOR_HALO_LAYER_ID, shouldShowArrows);
     setLayerVisibility(map, WIND_VECTOR_LAYER_ID, shouldShowArrows);
@@ -1537,16 +1464,6 @@ interface MapViewProps {
    * showPrecipitationNowcast/precipitationNowcastTileUrlと同じ扱い。 */
   showWindVector: boolean;
   windVectorGeoJson: GeoJSON.FeatureCollection | undefined;
-  /** 風の格子セル・粗い格子（base、関東本土全域を常時カバー）。実機フィードバック
-   * 「どの範囲の風向き・風速を示しているか分かりにくい」対応。page.tsx側でwindLayer.tsの
-   * windGridToCellFeatureCollectionから計算した、windVectorGeoJsonと同じ時刻フレームぶんの
-   * ポリゴンFeatureCollection。 */
-  windBaseCellGeoJson: GeoJSON.FeatureCollection | undefined;
-  /** 風の格子セル・詳細格子（detail、ズームイン時のみビューポート中心付近を密にカバー）。
-   * baseの上に重ねて密度を上げる（実機フィードバック「風の背景色が途中で見切れる。
-   * マップ描画域に隣接するタイルも色付けして」、MapView.tsx: WIND_VECTOR_DETAIL_CELLS_*
-   * 定義のコメント参照）。 */
-  windDetailCellGeoJson: GeoJSON.FeatureCollection | undefined;
   /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
    * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
    * applyRoadLayerState参照）。 */
@@ -1620,8 +1537,6 @@ export default function MapView({
   precipitationNowcastTileUrl,
   showWindVector,
   windVectorGeoJson,
-  windBaseCellGeoJson,
-  windDetailCellGeoJson,
   showRoadType,
   showRoadSurface,
   showCarStress,
@@ -1673,8 +1588,6 @@ export default function MapView({
     precipitationNowcastTileUrl,
     showWindVector,
     windVectorGeoJson,
-    windBaseCellGeoJson,
-    windDetailCellGeoJson,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1719,8 +1632,6 @@ export default function MapView({
       precipitationNowcastTileUrl,
       showWindVector,
       windVectorGeoJson,
-      windBaseCellGeoJson,
-      windDetailCellGeoJson,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1749,8 +1660,6 @@ export default function MapView({
     precipitationNowcastTileUrl,
     showWindVector,
     windVectorGeoJson,
-    windBaseCellGeoJson,
-    windDetailCellGeoJson,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1787,8 +1696,6 @@ export default function MapView({
       precipitationNowcastTileUrl,
       showWindVector,
       windVectorGeoJson,
-      windBaseCellGeoJson,
-      windDetailCellGeoJson,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1818,7 +1725,7 @@ export default function MapView({
     });
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
     applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyWindVectorState(map, showWindVector, windVectorGeoJson, windBaseCellGeoJson, windDetailCellGeoJson);
+    applyWindVectorState(map, showWindVector, windVectorGeoJson);
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
@@ -2330,15 +2237,13 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyWindVectorState(map, showWindVector, windVectorGeoJson, windBaseCellGeoJson, windDetailCellGeoJson);
+    applyWindVectorState(map, showWindVector, windVectorGeoJson);
     recomputeLayerDataStatus();
   }, [
     showPrecipitationNowcast,
     precipitationNowcastTileUrl,
     showWindVector,
     windVectorGeoJson,
-    windBaseCellGeoJson,
-    windDetailCellGeoJson,
     recomputeLayerDataStatus,
   ]);
 
