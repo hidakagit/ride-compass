@@ -431,11 +431,17 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // ON/OFFに関わらず▼を出すのと不揃いだったため、ONに依存しない判定へ揃えた。
   // legendDetailsはレイヤー定義由来の固定内容でありON/OFFで内容が変わらないため、
   // OFF中に「オンにすると何が出るか」を先に確認できる利点もある）。
+  // legendDetailsが空でもsummaryがあれば▶を出す（実機フィードバック「たまに凡例を出す
+  // ための▶が消える」への対応。道路種別・路面はregionZoomTooWide中legendDetailsが空配列
+  // になる＝ズームインを促す案内文（summary、page.tsx: roadTypeSummary/roadSurfaceSummary
+  // 参照）だけが内容になる想定だが、canExpandがlegendDetailsの有無だけで判定していたため
+  // ▶自体が消えて案内文を開けなくなっていた。単独チップ側（本ファイル末尾のcanExpand=
+  // hasLegendDetails || Boolean(layer.summary)）と同じ判定へ揃える）。
   function renderRawMemberTile(member: OverlayLayerChip, groupTint: "raw" | "dynamic") {
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
-    const canExpand = Boolean(!member.disabled && hasLegend);
+    const canExpand = Boolean(!member.disabled && (hasLegend || member.summary));
     return (
       <ChipButton
         key={key}
@@ -451,7 +457,17 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         onExpandToggle={() => toggleExpanded(key)}
         expandDirection="right"
         groupTint={groupTint}
-        panelContent={canExpand ? renderLegendDetails(member.legendDetails!) : <></>}
+        panelContent={
+          canExpand ? (
+            hasLegend ? (
+              renderLegendDetails(member.legendDetails!)
+            ) : (
+              <p className={styles.detailNotice}>{member.summary}</p>
+            )
+          ) : (
+            <></>
+          )
+        }
         panelRect={panelRects[key]}
         registerRow={(el) => {
           rowRefs.current[key] = el;

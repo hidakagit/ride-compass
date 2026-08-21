@@ -2951,6 +2951,32 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   touchAction`が`"none"`（修正前は`"auto"`）になることを確認した。CSSのみの変更のため
   テストファイルの追加は無し。
 
+### - [x] T187. 観測グループの凡例展開▶が条件によって消える不具合を修正 規模XS（2026-08-21完了）
+
+- 発端: 実機フィードバック「たまに凡例を出すための▶が消える」（本番モバイル実機
+  スクリーンショット、観測グループを開いた状態で「道路種別」「路面」の隣に▶が無い）。
+- 原因: `MapOverlayControls.tsx`の`OverlayLayerChip.summary`は元々「legendDetailsが空
+  （描く凡例が無い）ときの唯一の表示内容」（例:「ズームインすると表示されます」、
+  interfaceのdocstring参照）として設計されており、単独チップの描画（末尾の
+  `canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary))`）
+  は正しくこれを反映していた。一方、観測/動的グループのメンバータイル
+  （`renderRawMemberTile`）は`canExpand`が`legendDetails`の有無だけで判定されており、
+  `summary`が考慮されていなかった。`page.tsx`の`roadTypeLegendDetails`/
+  `roadSurfaceLegendDetails`は`regionZoomTooWide`（地図が道路タイルの最低ズーム未満）の間
+  空配列になり、代わりに`roadTypeSummary`/`roadSurfaceSummary`が「ズームインすると
+  表示されます」を返す設計だったため、ズームアウトするたびに道路種別・路面の▶が
+  （案内文を出す手段ごと）消えていた。「たまに」に見えたのは、ズーム操作のたびに
+  この条件が切り替わっていたため。
+- 対応: `renderRawMemberTile`の`canExpand`を単独チップ側と同じ
+  `Boolean(!member.disabled && (hasLegend || member.summary))`へ揃え、`panelContent`も
+  `hasLegend`が偽のときは`<p className={styles.detailNotice}>{member.summary}</p>`
+  （単独チップ側と同じ`.detailNotice`表示）へフォールバックするよう修正。
+  `MapOverlayControls.test.tsx`に回帰テストを2件追加（legendDetails空+summary有りで▶が
+  出て案内文が開ける／legendDetails空+summary無しでは▶が出ない）。一度フィックスを
+  意図的に戻して新規テストが実際に落ちることを確認してから復元し、テストが不具合を
+  正しく検知することを確認済み。frontend tsc/eslintクリーン・vitest 464件（新規2件）
+  全green。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて

@@ -504,6 +504,39 @@ describe("MapOverlayControls", () => {
       await user.click(screen.getByRole("button", { name: "観測" }));
       expect(screen.getByRole("button", { name: "道路の種類の凡例を表示" })).toBeInTheDocument();
     });
+
+    // 実機フィードバック「たまに凡例を出すための▶が消える」への対応（回帰テスト）。
+    // 道路種別・路面はregionZoomTooWide中legendDetailsが空配列になり、ズームインを促す
+    // 案内文（summary）だけが内容になる。単独チップ側は元々summaryへフォールバックして
+    // いたが、観測グループのメンバータイル側はlegendDetailsの有無だけでcanExpandを判定して
+    // おり▶自体が消えてしまっていた（案内文を開けない）。
+    it("観測グループのメンバータイルはlegendDetailsが空でもsummaryがあれば▶が出て、開くと案内文が出る", async () => {
+      const user = userEvent.setup();
+      const layers = groupedLayers();
+      const roadType = layers.find((l) => l.id === "roadType")!;
+      roadType.on = true;
+      roadType.legendDetails = [];
+      roadType.summary = "ズームインすると表示されます";
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      const expandToggle = screen.getByRole("button", { name: "道路の種類の凡例を表示" });
+      expect(expandToggle).toBeInTheDocument();
+
+      await user.click(expandToggle);
+      expect(screen.getByText("ズームインすると表示されます")).toBeInTheDocument();
+    });
+
+    it("観測グループのメンバータイルはlegendDetailsもsummaryも無ければ▶が出ない", () => {
+      const layers = groupedLayers();
+      const roadType = layers.find((l) => l.id === "roadType")!;
+      roadType.on = true;
+      roadType.legendDetails = [];
+      roadType.summary = null;
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      expect(screen.queryByRole("button", { name: "道路の種類の凡例を表示" })).not.toBeInTheDocument();
+    });
   });
 
   // 動的グループ（改善計画T171、新設）。観測グループ（group:raw）と全く同じ「▼縦積み・
