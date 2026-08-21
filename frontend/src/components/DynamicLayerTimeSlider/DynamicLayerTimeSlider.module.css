@@ -18,6 +18,13 @@
   padding: 0.4rem var(--space-2);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   pointer-events: auto;
+  /* 地図キャンバス（touch-action: none）の上に重なる箱のため、同じくnoneを与える
+   * （MapOverlayControls.module.cssの.iconChip等・page.module.cssの.locateButtonと
+   * 同じ理由）。無指定（既定auto）のままだと、スマホでのピンチズームの片方の指がこの
+   * スライダー（地図下部中央に浮く）に乗ったときブラウザがタッチ開始点ごとに
+   * touch-actionを見て地図ジェスチャーとして確定できず、ピンチが反応しないことがある
+   * （実機フィードバック「スマホで地図上ピンチアウト、ピンチインが効かないことがある」）。 */
+  touch-action: none;
   /* 実機フィードバック「バー自体をもう少し長くして」を受け260px固定から拡大。
      モバイルの狭い画面では90vw（左右の余白を確保しつつほぼ画面幅）、それ以上の
      画面ではmax-widthで頭打ちにする（際限なく伸びて他の地図UIと衝突しないよう）。 */
@@ -74,6 +81,9 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   pointer-events: auto;
+  /* .rowと同じ理由（地図上に浮く箱はtouch-action: noneを明示しないとピンチズームが
+   * 反応しないことがある）。 */
+  touch-action: none;
 }
 
 .error {
