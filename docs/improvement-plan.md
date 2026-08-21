@@ -2926,17 +2926,30 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   片方の指がその要素へ乗った瞬間にブラウザがタッチ開始点ごとのtouch-actionを見て地図
   ジェスチャーとして確定できなくなる（2026-08-16に現在地ボタン、別途MapOverlayControlsの
   アイコンチップ等で同様の不具合を修正済みの既知パターン、両ファイルの`touch-action: none`
-  コメント参照）。この修正パターンが`DynamicLayerTimeSlider`（地図下部中央に浮く時刻
-  スライダー、T184で風・降水の2本を1本へ統合）だけ漏れていた。ピンチ操作は画面下部でも
-  行われうるため、スライダーの実際の当たり判定領域（`.row`/`.loading`/`.error`、
-  `pointer-events: auto`）に指が乗ると再現する。
+  コメント参照）。1回目の修正で`DynamicLayerTimeSlider`（地図下部中央に浮く時刻スライダー、
+  T184で風・降水の2本を1本へ統合）の漏れに対応したが、ユーザーから「スライダー以外でも
+  再現した」との追加報告を受け、`position: fixed`/`position: absolute`で地図に重なる
+  全要素を`touch-action`/`pointer-events`の指定有無で再監査したところ、モバイル下部固定の
+  `.mobileTabBar`（「ルートを作る」/「地図の見え方」等のタブ、`page.module.css`）にも
+  同じ漏れが見つかった。`.locateButton`/`.locateError`/`.dynamicLayerSliders`がこのバーに
+  隠れないようbottom側をタブバー高さぶん底上げしているコメントから分かるとおり、地図
+  キャンバス自体はこのバーの下にも常時描画されており（`.mapPane`側はバーぶんの余白を
+  確保していない）、画面下端は常にこのバーと地図が重なっている。スライダーが特定条件
+  （動的気象レイヤーON時）でしか出ないのに対し、タブバーは常時・全画面で出ているため、
+  こちらの方が「スライダー以外でも」再現した実体だった可能性が高い。
 - 対応: `DynamicLayerTimeSlider.module.css`の`.row`・`.loading`・`.error`（いずれも
   `pointer-events: auto`で実際にタッチを受け止める箱）へ`touch-action: none`を追加。
-  親の`.wrapper`（page.module.css: `.dynamicLayerSliders`）は元から`pointer-events: none`で
-  当たり判定を持たないため対応不要（他の隙間と同じく地図キャンバスへタッチを素通しする）。
-  Playwright実機確認（モバイル幅・タッチ有効のコンテキスト）で、風レイヤーONでスライダーが
-  表示された状態の`.row`の`getComputedStyle().touchAction`が`"none"`（修正前は`"auto"`）に
-  なることを確認した。CSSのみの変更のためテストファイルの追加は無し。
+  `page.module.css`の`.mobileTabBar`（バー自身、隙間なく子の`.tabButton`で埋まっているため
+  祖先へ一括指定）と、コードベースの既定方針（`.iconChip`等と同じく実際に押せる要素へも
+  明示する）に合わせて`.tabButton`自身にも`touch-action: none`を追加。親の`.wrapper`
+  （`.dynamicLayerSliders`）は元から`pointer-events: none`で当たり判定を持たないため対応
+  不要（他の隙間と同じく地図キャンバスへタッチを素通しする）。`position: fixed`/
+  `position: absolute`で地図に重なりうる全CSS moduleを再監査し、他に漏れが無いことを確認
+  した（MapOverlayControls・BottomSheet・FloatingPanel・locateButton/locateError・MapView
+  loadingOverlayはいずれも対応済み）。Playwright実機確認（モバイル幅・タッチ有効の
+  コンテキスト）で、`.row`・`.mobileTabBar`・`.tabButton`いずれも`getComputedStyle().
+  touchAction`が`"none"`（修正前は`"auto"`）になることを確認した。CSSのみの変更のため
+  テストファイルの追加は無し。
 
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 

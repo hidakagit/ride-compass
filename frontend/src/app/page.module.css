@@ -293,7 +293,18 @@
 
 /* モバイル下部固定のタブバー（「ルートを作る」/「地図の見え方」）。旧サイドバー
    ドロワーの置き換え（モバイル実機フィードバック対応T34）。BottomSheetはこの上に乗る
-   （BottomSheet.module.cssのbottom: var(--mobile-tabbar-height)参照）。 */
+   （BottomSheet.module.cssのbottom: var(--mobile-tabbar-height)参照）。地図側
+   （.mapPane）はこのバーぶんの余白を確保していない（.locateButton/.locateError/
+   .dynamicLayerSlidersがバーに隠れないようbottom側をmobile-tabbar-height分だけ
+   底上げしているのはそのため）ため、地図キャンバスはこのバーの下にも常に描画されて
+   いる＝画面下端はこのバーと地図が重なっている。DynamicLayerTimeSlider.module.cssと
+   同じ理由でtouch-action: noneが無いと、スマホでのピンチズームの片方の指が画面下端の
+   このバーに乗ったときに地図ジェスチャーとして確定できずピンチが反応しないことがある
+   （実機フィードバック「スマホで地図上ピンチアウト、ピンチインが効かないことがある。
+   スライダー以外でも再現した」）。バー自体（子の.tabButtonも含め）に隙間なく
+   タッチ操作を割り当てたい領域のため、子ごとに個別指定せずバー自身へ与える
+   （touch-actionはタッチ点の当たった要素とその祖先の交差で決まるため、これで
+   .tabButton等の子にも及ぶ）。 */
 .mobileTabBar {
   position: fixed;
   left: 0;
@@ -305,6 +316,7 @@
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
   box-shadow: 0 -1px 8px rgba(0, 0, 0, 0.15);
+  touch-action: none;
 }
 
 /* アイコン+短いラベルを縦に積んだボタン（改善計画: モバイル下部タブのアイコン化。
@@ -321,6 +333,9 @@
   border: none;
   background: transparent;
   color: var(--foreground);
+  /* .mobileTabBar自身のtouch-action: noneで祖先経由でも及ぶが、.iconChip等の他の
+     実際に押せるボタンと同じく明示しておく（このコードベースの既定方針）。 */
+  touch-action: none;
   cursor: pointer;
 }
 
