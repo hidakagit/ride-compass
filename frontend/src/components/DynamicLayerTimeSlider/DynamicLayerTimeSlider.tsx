@@ -7,27 +7,33 @@ import styles from "./DynamicLayerTimeSlider.module.css";
  * 1本の共有タイムラインを表すようになったため、時刻ラベルのみを持つ（旧badgeフィールドは
  * 「レイヤー固有の実況/予測ラベル」用だったが、1つの目盛りに複数レイヤーが同時に対応しうる
  * 設計では意味を持たなくなったため撤去、dynamicWeather.ts: formatDynamicFrameTime参照）。
- * hourMark/tickLabelは実機フィードバック「メモリを簡潔に出して」「横スクロールでメモリの
- * 方が移動するように」への対応（呼び出し側=page.tsxが判定して渡す）。降水ナウキャスト
+ * labelは左端の指標の上に出す1行サマリ用（実機フィードバック「今の位置の正しい日時は
+ * 左端ではなく上に出して」）で、日付をまたぐタイムラインの曖昧さを避けるため常に日付を
+ * 含むフル表記（dynamicWeather.ts: formatDynamicFrameTime）。hourMarkはルーラーの目盛りの
+ * 線を太くするかどうか（呼び出し側=page.tsxが正時判定して渡す）。降水ナウキャスト
  * （5分刻み、〜60分先）の区間では正時フレームがまばらにしか無く目盛りもまばらに、延長予報
  * （1時間刻み、〜48時間先）の区間では全フレームが正時のため毎コマに目盛りが付く。スライダー
  * 自体はコマ（インデックス）ごとに等間隔で並ぶ設計のままのため、目盛りをフレームごとの
  * 正時判定で間引くだけで「近い将来は目盛りがまばら＝連続的に細かく動かせる、遠い将来は
  * 毎コマに目盛り＝1時間刻みで止まる」という実際の間隔設計がひと目で伝わる（間隔設計自体は
- * 変更しない）。hourMark（目盛りの線）とtickLabel（線の下に出す時刻の文字）は別軸: 延長予報の
- * ように毎コマ正時が続く区間で毎コマぶん文字まで出すと、1コマの目盛り間隔（TICK_SPACING_PX）
- * に対して文字幅の方が広く重なってしまう（実機Playwright確認で発覚）ため、tickLabelは
- * hourMarkの部分集合としてさらに間引いて渡す想定（page.tsx: 3時間おき）。 */
+ * 変更しない）。tickLabelは目盛りの線の下に出す短い文字（実機フィードバック「目盛りは
+ * 日付部分は不要、時刻のみ。時刻も細いところは分だけにする等」）。日付を持たず、正時なら
+ * 「HH:mm」・そうでなければ分のみ2桁（page.tsx: formatDynamicFrameHourMinute/
+ * formatDynamicFrameMinuteOnly）。undefined/空文字ならこのコマには文字を出さない
+ * （延長予報のように毎コマ正時が続く区間で毎コマぶん文字まで出すと、1コマの目盛り間隔
+ * （TICK_SPACING_PX）に対して文字幅の方が広く重なってしまう、実機Playwright確認で発覚した
+ * ため、page.tsx側で正時ラベルはさらに間引いて渡す）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
   hourMark?: boolean;
-  tickLabel?: boolean;
+  tickLabel?: string;
 }
 
-// 1コマぶんの目盛り間隔（px）。TICK_SPACING_PXを変えるとルーラー全体の長さ・
-// スクロール量とindexの対応（下記layoutで導出するscrollLeft = index * TICK_SPACING_PX）が
-// 自動で追従する（唯一の情報源）。
-const TICK_SPACING_PX = 22;
+// 1コマぶんの目盛り間隔（px）。実機フィードバック「もう少し目盛りを細かく」を受け、
+// 元の22pxから縮小した。TICK_SPACING_PXを変えるとルーラー全体の長さ・スクロール量と
+// indexの対応（下記layoutで導出するscrollLeft = index * TICK_SPACING_PX）が自動で
+// 追従する（唯一の情報源）。
+const TICK_SPACING_PX = 18;
 
 interface DynamicLayerTimeSliderProps {
   frames: readonly DynamicLayerTimeSliderFrame[];
@@ -160,61 +166,71 @@ export default function DynamicLayerTimeSlider({
   }
 
   const frame = frames[Math.min(index, frames.length - 1)];
-  // トラック左右のパディング。半コマぶん引くことで「トラック中央の目印にコマiの中心が
-  // 重なるscrollLeft」がちょうどi * TICK_SPACING_PXになる（ファイル冒頭のTICK_SPACING_PX
-  // コメント参照、layoutEffect/handleScrollの計算はこの前提で書いている）。
-  const edgePadding = `calc(50% - ${TICK_SPACING_PX / 2}px)`;
+  // トラックの左右パディング。左指標（.leftIndicator、ルーラー左端から半コマぶん内側の
+  // 固定位置、実機フィードバック「左端を表示時刻にして」）にコマiの中心が重なる
+  // scrollLeftがちょうどi * TICK_SPACING_PXになるよう、左側パディングは0、右側は
+  // 「最後のコマの中心も指標へ届く」ぶん（ビューポート幅 - 1コマ）を確保する
+  // （ファイル冒頭のTICK_SPACING_PXコメント参照、layoutEffect/handleScrollの計算は
+  // この前提で書いている）。
+  const trackPaddingRight = `calc(100% - ${TICK_SPACING_PX}px)`;
+  const indicatorOffset = TICK_SPACING_PX / 2;
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.row}>
-        <span className={styles.time}>{frame.label}</span>
-        {/* 実機フィードバック「見た目は現状のままで良くて、横スクロールでメモリの方が
-            移動するようにしたい」への対応。ネイティブのinput[type=range]（つまみをドラッグ・
-            目盛りへコマ送り）をやめ、横スクロールで目盛り自体を動かすルーラーに置き換えた。
-            中央固定の目印（.centerIndicator）に対して、スクロールでどのコマを合わせるかを
-            選ぶ操作感になる。 */}
-        <div
-          ref={viewportRef}
-          className={styles.rulerViewport}
-          onScroll={handleScroll}
-          onKeyDown={handleKeyDown}
-          role="slider"
-          tabIndex={0}
-          aria-label={ariaLabel}
-          aria-orientation="horizontal"
-          aria-valuemin={0}
-          aria-valuemax={frames.length - 1}
-          aria-valuenow={index}
-          aria-valuetext={frame.label}
-        >
-          <div className={styles.rulerTrack} style={{ paddingLeft: edgePadding, paddingRight: edgePadding }}>
-            {frames.map((f, i) => (
-              <div key={i} className={f.hourMark ? styles.tickHour : styles.tickMinor} style={{ width: TICK_SPACING_PX }}>
-                <span className={styles.tickMark} aria-hidden="true" />
-                {/* 空文字でも.tickLabelの高さ・行送りは常に確保する（CSS側、コマによって
-                    縦位置がガタつかないようにするコメント参照）ため、tickLabel無しのコマも
-                    このspan自体は描画する。 */}
-                <span className={styles.tickLabel}>{f.tickLabel ? f.label : ""}</span>
-              </div>
-            ))}
+      <div className={styles.panel}>
+        {/* 現在選択中のコマの正確な日時（日付付き）。実機フィードバック「今の位置の正しい
+            日時は左端ではなく上に出して」を受け、ルーラーの上へ1行で出す（以前はルーラーの
+            左に横並びだった）。ルーラー側の目盛り文字（tickLabel）は日付を持たないため、
+            日付をまたいだときの曖昧さはこの1行だけが解消する。 */}
+        <div className={styles.timeHeader}>{frame.label}</div>
+        <div className={styles.controlsRow}>
+          {/* 実機フィードバック「見た目は現状のままで良くて、横スクロールでメモリの方が
+              移動するようにしたい」への対応。ネイティブのinput[type=range]（つまみをドラッグ・
+              目盛りへコマ送り）をやめ、横スクロールで目盛り自体を動かすルーラーに置き換えた。
+              左端固定の目印（.leftIndicator、実機フィードバック「左端を表示時刻にして」）に
+              対して、スクロールでどのコマを合わせるかを選ぶ操作感になる。 */}
+          <div
+            ref={viewportRef}
+            className={styles.rulerViewport}
+            onScroll={handleScroll}
+            onKeyDown={handleKeyDown}
+            role="slider"
+            tabIndex={0}
+            aria-label={ariaLabel}
+            aria-orientation="horizontal"
+            aria-valuemin={0}
+            aria-valuemax={frames.length - 1}
+            aria-valuenow={index}
+            aria-valuetext={frame.label}
+          >
+            <div className={styles.rulerTrack} style={{ paddingRight: trackPaddingRight }}>
+              {frames.map((f, i) => (
+                <div key={i} className={f.hourMark ? styles.tickHour : styles.tickMinor} style={{ width: TICK_SPACING_PX }}>
+                  <span className={styles.tickMark} aria-hidden="true" />
+                  {/* 空文字でも.tickLabelの高さ・行送りは常に確保する（CSS側、コマによって
+                      縦位置がガタつかないようにするコメント参照）ため、tickLabel無しのコマも
+                      このspan自体は描画する。 */}
+                  <span className={styles.tickLabel}>{f.tickLabel ?? ""}</span>
+                </div>
+              ))}
+            </div>
+            <div className={styles.leftIndicator} style={{ left: indicatorOffset }} aria-hidden="true" />
           </div>
-          <div className={styles.centerIndicator} aria-hidden="true" />
+          {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
+              未来・過去側を見ていたスライダー位置を、ワンタップで実時刻へ戻す（onNowコメント
+              参照）。既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの
+              全レイヤー一括OFFボタンと同じ、押しても何も起きない状態を無効表示にする方針）。 */}
+          <button
+            type="button"
+            className={styles.nowButton}
+            onClick={onNow}
+            disabled={index === currentIndex}
+            aria-label={`${ariaLabel}を現在に戻す`}
+            title="現在に戻す"
+          >
+            現在
+          </button>
         </div>
-        {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
-            未来・過去側を見ていたスライダー位置を、ワンタップで実時刻へ戻す（onNowコメント
-            参照）。既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの
-            全レイヤー一括OFFボタンと同じ、押しても何も起きない状態を無効表示にする方針）。 */}
-        <button
-          type="button"
-          className={styles.nowButton}
-          onClick={onNow}
-          disabled={index === currentIndex}
-          aria-label={`${ariaLabel}を現在に戻す`}
-          title="現在に戻す"
-        >
-          現在
-        </button>
       </div>
     </div>
   );
