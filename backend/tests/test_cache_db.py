@@ -38,3 +38,51 @@ async def test_elevation_cache_persists_across_separate_calls_simulating_restart
     result = await cache_db.get_elevation(35.5, 139.5)
 
     assert result == 42.0
+
+
+async def test_wind_forecast_cache_miss_returns_empty_dict():
+    result = await cache_db.get_wind_forecast_many([(35.0, 139.0)])
+
+    assert result == {}
+
+
+async def test_wind_forecast_cache_empty_keys_short_circuits_without_query():
+    """空リストを渡したときに0件クエリすら発行せず即座に空を返すことの確認
+    （weather_client.py: get_forecast_manyがneeds_lookupが空のときは呼ばないため通常は
+    起きないが、念のための境界値）。"""
+    result = await cache_db.get_wind_forecast_many([])
+
+    assert result == {}
+
+
+async def test_wind_forecast_cache_roundtrip():
+    await cache_db.set_wind_forecast_many({(35.0, 139.0): (123.0, {"tag": "roundtrip"})})
+
+    result = await cache_db.get_wind_forecast_many([(35.0, 139.0)])
+
+    assert result[(35.0, 139.0)] == (123.0, {"tag": "roundtrip"})
+
+
+async def test_wind_forecast_cache_persists_across_separate_calls_simulating_restart():
+    await cache_db.set_wind_forecast_many({(35.5, 139.5): (456.0, {"tag": "persisted"})})
+
+    result = await cache_db.get_wind_forecast_many([(35.5, 139.5)])
+
+    assert result[(35.5, 139.5)] == (456.0, {"tag": "persisted"})
+
+
+async def test_wind_forecast_cache_get_many_returns_only_found_keys():
+    await cache_db.set_wind_forecast_many({(35.1, 139.1): (1.0, {"tag": "found"})})
+
+    result = await cache_db.get_wind_forecast_many([(35.1, 139.1), (35.2, 139.2)])
+
+    assert list(result.keys()) == [(35.1, 139.1)]
+
+
+async def test_wind_forecast_cache_set_many_overwrites_existing_entry():
+    await cache_db.set_wind_forecast_many({(35.3, 139.3): (1.0, {"tag": "old"})})
+    await cache_db.set_wind_forecast_many({(35.3, 139.3): (2.0, {"tag": "new"})})
+
+    result = await cache_db.get_wind_forecast_many([(35.3, 139.3)])
+
+    assert result[(35.3, 139.3)] == (2.0, {"tag": "new"})

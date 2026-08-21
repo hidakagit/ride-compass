@@ -5,12 +5,22 @@ import pytest
 
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
+from app.infrastructure import cache_db
 from app.infrastructure import weather_client as weather_client_module
 from app.infrastructure.weather_client import WeatherClient
 from app.services.weather_service import WeatherService
 from app.services.wind_service import WindService
 
 START_TIME = datetime(2026, 8, 13, 12, 0)
+
+
+@pytest.fixture(autouse=True)
+def use_temp_cache_db(tmp_path, monkeypatch):
+    # get_forecast_manyがcache_db（標高キャッシュと共通のSQLite永続化、T195）へ書き込むように
+    # なったため、実DBファイルを汚染しないようテストごとに使い捨てのtmp_pathへ差し替える
+    # （test_cache_db.py・test_weather_client_cache.pyと同じ既存パターン）。
+    monkeypatch.setattr(cache_db, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(cache_db, "DB_PATH", tmp_path / "test_cache.db")
 
 
 def northbound_points() -> list[Coordinates]:
