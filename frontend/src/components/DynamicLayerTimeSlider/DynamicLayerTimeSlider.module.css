@@ -8,10 +8,15 @@
   pointer-events: none;
 }
 
-.row {
+/* 実機フィードバック「見た目は現状のままで良くて」を受け、外枠（背景・枠線・影・幅）は
+   ルーラー導入前と同じ値を保っている。以前はこの箱が横1行（現在時刻+ルーラー+現在ボタン）
+   だったが、実機フィードバック「今の位置の正しい日時は左端ではなく上に出して」を受け、
+   縦2段（.timeHeader＝正確な日時の1行＋.controlsRow＝ルーラーと現在ボタンの横並び）へ
+   変更した。 */
+.panel {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: 0.2rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -25,32 +30,36 @@
   max-width: 26rem;
 }
 
-.time {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+/* 現在選択中のコマの正確な日時（日付付き、実機フィードバック「今の位置の正しい日時は
+   左端ではなく上に出して」）。以前の.time（ルーラーの左に横並び）から独立させ、
+   ルーラーの上に1行で置く。 */
+.timeHeader {
   font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--foreground);
-  flex-shrink: 0;
-  /* 数字の桁で幅が動いて隣のスライダーがガタつかないよう固定幅にする */
+  /* 数字の桁で幅が動いてガタつかないよう固定幅にする */
   font-variant-numeric: tabular-nums;
   /* 地図キャンバス（touch-action: none）の上に重なるテキストのため、同じくnoneを与える
    * （MapOverlayControls.module.cssの.iconChip等・page.module.cssの.locateButtonと
-   * 同じ理由）。以前は.row全体へ一括指定していたが、.rulerViewport（下記）だけは
-   * 横スクロール自体が本来の操作のためpan-xを許す必要があり、祖先のnoneはpan-xも
-   * 道連れに打ち消してしまう（touch-actionは祖先との積集合で決まる仕様）。そのため
-   * .row自体からは外し、実際にタップするだけの要素（.time・.nowButton）へ個別に
-   * 明示する方針（MapOverlayControls.module.cssの.iconChip等と同じ「実際に押せる
-   * 要素へも明示する」方針）へ揃えた。 */
+   * 同じ理由）。.rulerViewport（下記）だけは横スクロール自体が本来の操作のためpan-xを
+   * 許す必要があり、祖先のnoneはpan-xも道連れに打ち消してしまう（touch-actionは祖先との
+   * 積集合で決まる仕様）ため、実際にタップ/スクロールする要素（.timeHeader・
+   * .rulerViewport・.nowButton）へ個別に明示する方針（MapOverlayControls.module.cssの
+   * .iconChip等と同じ「実際に押せる要素へも明示する」方針）へ揃えている。 */
   touch-action: none;
+}
+
+.controlsRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 /* 実機フィードバック「見た目は現状のままで良くて、横スクロールでメモリの方が移動する
    ようにしたい」。ネイティブのinput[type=range]をやめ、横スクロールで目盛り自体を
-   動かすルーラーに置き換えた（DynamicLayerTimeSlider.tsx参照）。中央固定の目印
-   （.centerIndicator）へ目盛りを合わせる操作感のため、position: relativeにし
-   目印をposition: absoluteの兄弟として重ねる。 */
+   動かすルーラーに置き換えた（DynamicLayerTimeSlider.tsx参照）。左端固定の目印
+   （.leftIndicator、実機フィードバック「左端を表示時刻にして」）へ目盛りを合わせる
+   操作感のため、position: relativeにし目印をposition: absoluteの兄弟として重ねる。 */
 .rulerViewport {
   position: relative;
   flex: 1;
@@ -108,6 +117,10 @@
   background: var(--color-muted-strong);
 }
 
+/* 実機フィードバック「目盛りは日付部分は不要、時刻のみ。時刻も細いところは分だけに
+   する等」を受け、tickLabelの中身自体を短くした（page.tsx参照。正時は"HH:mm"・それ
+   以外は分2桁のみ、日付は持たない）。それに合わせてmax-widthも以前（日付込みを
+   想定した3.6rem）から短縮した。 */
 .tickLabel {
   display: block;
   margin-top: 0.2rem;
@@ -117,17 +130,20 @@
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  max-width: 3.6rem;
+  max-width: 2.2rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 常に画面中央に固定表示する選択位置の目印。.rulerViewport自身の子だが
-   position: absoluteのためスクロールする.rulerTrackとは独立し、スクロールしても
-   横位置が動かない（選ばれているコマの方をこの目印へ合わせにいく操作感）。 */
-.centerIndicator {
+/* 左端寄りの固定位置に表示する選択位置の目印（実機フィードバック「左端を表示時刻に
+   して」）。.rulerViewport自身の子だがposition: absoluteのためスクロールする
+   .rulerTrackとは独立し、スクロールしても横位置が動かない（選ばれているコマの方を
+   この目印へ合わせにいく操作感）。leftはTICK_SPACING_PXの半分（DynamicLayerTimeSlider.tsx
+   のindicatorOffset）をインラインstyleで与える。目盛りの実際の描画位置（.tickMark、
+   自身のセルの中央）と一致させるための値のため、CSS側に固定値を置かず唯一の情報源
+   （TICK_SPACING_PX）から算出する。 */
+.leftIndicator {
   position: absolute;
-  left: 50%;
   top: 0.15rem;
   height: 1.45rem;
   width: 2px;
@@ -138,7 +154,7 @@
 }
 
 /* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
-   .timeより控えめな、枠線だけの補助ボタン。 */
+   .timeHeaderより控えめな、枠線だけの補助ボタン。 */
 .nowButton {
   flex-shrink: 0;
   padding: 0.2rem 0.5rem;
@@ -149,7 +165,7 @@
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  /* .timeと同じ理由（このファイル冒頭寄りのコメント参照）。 */
+  /* .timeHeaderと同じ理由（.panelコメント付近参照）。 */
   touch-action: none;
 }
 
@@ -171,7 +187,7 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   pointer-events: auto;
-  /* .rowと同じ理由（地図上に浮く箱はtouch-action: noneを明示しないとピンチズームが
+  /* .panelと同じ理由（地図上に浮く箱はtouch-action: noneを明示しないとピンチズームが
    * 反応しないことがある）。 */
   touch-action: none;
 }

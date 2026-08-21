@@ -68,11 +68,31 @@ export function mergeFrameTimes(frameLists: readonly (readonly { time: Date }[])
 }
 
 /** 共有スライダーの表示用時刻ラベル（JST）。タイムラインは約48時間先まで日付をまたぐため
- * 常に日付を含める（レイヤーごとのラベル形式差を表示層へ持ち込まない）。 */
+ * 常に日付を含める（レイヤーごとのラベル形式差を表示層へ持ち込まない）。DynamicLayerTimeSlider
+ * の左端インジケータ上に1行で出す「正確な日時」用（実機フィードバック「今の位置の正しい
+ * 日時は左端ではなく上に出して」）。 */
 export function formatDynamicFrameTime(time: Date): string {
-  const datePart = time.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
-  const timePart = time.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
-  return `${datePart} ${timePart}`;
+  return `${formatDynamicFrameDate(time)} ${formatDynamicFrameHourMinute(time)}`;
+}
+
+/** 日付のみ（JST、月/日）。formatDynamicFrameTimeが内部で使う。 */
+function formatDynamicFrameDate(time: Date): string {
+  return time.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
+}
+
+/** 時刻のみ（日付無し、JST、HH:mm）。DynamicLayerTimeSliderのルーラー目盛りラベル
+ * （実機フィードバック「目盛りは日付部分は不要、時刻のみ」）のうち、正時のコマ用。 */
+export function formatDynamicFrameHourMinute(time: Date): string {
+  return time.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
+}
+
+/** 分のみ（2桁、0埋め、JST）。ルーラー目盛りラベルのうち、正時でない密な区間
+ * （降水ナウキャストの5分刻み等）のコマ用（実機フィードバック「時刻も細いところは
+ * 分だけにする」）。JSTはUTC+9:00ちょうどで分のずれが無いため、getUTCMinutes()がそのまま
+ * JSTの分と一致する（page.tsxのhourMark判定と同じ理由、実行環境のローカルタイムゾーンに
+ * 左右されない）。 */
+export function formatDynamicFrameMinuteOnly(time: Date): string {
+  return String(time.getUTCMinutes()).padStart(2, "0");
 }
 
 /** timesの中で対象時刻に最も近いindex。空配列なら0（スライダーのつまみ位置導出用。
