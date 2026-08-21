@@ -3127,6 +3127,37 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   `DynamicLayerTimeSlider.test.tsx`（キーボード操作・ARIA値の既存テスト）は無修正のまま
   全green。frontend tsc/eslintクリーン・vitest全464件green。
 
+### - [x] T192. 時刻スライダー（ルーラー）がスマホの横スクロールで動かせない不具合を修正 規模S（2026-08-21完了）
+
+- 発端: T191直後の実機フィードバック「スマホで変わらず横スクロールでバーを動かせない」。
+  T191では縦マウスホイール・マウスドラッグの不具合（`scrollLeft`が変化しないことを
+  Playwrightで確認済み）を修正したが、それとは別にスマホのタッチスクロールは元々別経路
+  （ブラウザのネイティブタッチスクロール、`touch-action: pan-x`）に任せる設計のままで、
+  そちらが実機で機能していなかった。
+- 調査: 一時的な検証用ページ（コミット対象外）で、実際のページと同じ祖先要素
+  （`page.module.css`の`.bottomControlRow`/`.dynamicLayerSliders`、`translateX(-50%)`の
+  transformを含む）を再現し、Playwright+CDPの`Input.dispatchTouchEvent`でタッチスワイプを
+  合成して検証したが、この検証環境（Chromiumのタッチエミュレーション）では`scrollLeft`が
+  正しく変化する挙動しか再現できず、実機（iOS Safari等）特有の挙動差を主要因として
+  切り分けることはできなかった。
+- 対応: ブラウザのネイティブタッチスクロール（`touch-action: pan-x`）への依存をやめ、
+  タッチ・マウス・ペンのいずれもPointer Events（`pointerdown/move/up/cancel`）で統一的に
+  自前ドラッグする設計へ変更した（T191で追加したマウス限定のドラッグ処理を拡張し、
+  `pointerType`による分岐を撤去）。`.rulerViewport`の`touch-action`は`pan-x`から`none`へ
+  変更し、ブラウザ自身のジェスチャー処理と自前のドラッグ処理が競合しないようにした
+  （他の地図上コントロール＝`MapOverlayControls.module.css`の`.iconChip`等と同じ
+  「touch-action: none+実際のジェスチャーはJSで処理」という既存方針にも揃う）。
+  併せて、ネイティブスクロールに依存しなくなったことで意味を失った`scroll-snap-type`/
+  `scroll-snap-align`をCSSから削除し、代わりに`handleScroll`の確定処理（スクロールが
+  止まったタイミングで最寄りのコマへ寄せる）自体に、厳密なコマ位置への明示的な
+  スクロール（`scrollTo`のsmooth）を追加した（自前ドラッグではCSSのscroll-snapに
+  相当する「ぴったりの位置へ寄せる」処理を自前で担う必要があるため）。
+- 検証: 検証用ページ+Playwrightで、実際のページと同じ祖先要素の中でタッチスワイプ
+  （CDP合成）を再現し、`scrollLeft`とonIndexChangeで報告されたindexが一致することを
+  確認。キーボード操作・ARIA値の既存テストは無修正のまま全green。frontend
+  tsc/eslintクリーン・vitest全464件green。なお実機（特にiOS Safari）での最終確認は
+  ユーザー側にお願いする必要がある旨、申し送り。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて

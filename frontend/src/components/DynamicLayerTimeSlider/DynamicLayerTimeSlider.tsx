@@ -116,9 +116,10 @@ export default function DynamicLayerTimeSlider({
   }, [index]);
 
   // スクロールが落ち着いたタイミング（連続するscrollイベントが一定時間止まったとき）で
-  // 中央の目印に最も近いコマを確定させ、onIndexChangeへ報告する。スクロール中の毎フレーム
-  // 報告すると再描画・地図への反映が過剰に走るため、慣性スクロールが止まってからの1回に
-  // まとめる（ネイティブのscroll-snap-type: x mandatoryが実際に着地する位置と一致する）。
+  // 左端の目印に最も近いコマを確定させ、onIndexChangeへ報告する。スクロール中の毎フレーム
+  // 報告すると再描画・地図への反映が過剰に走るため、ドラッグ/ホイールが止まってからの1回に
+  // まとめる（自前ドラッグ実装のためCSSのscroll-snapには頼らず、この確定処理自体が
+  // 「最寄りのコマへ寄せる」役割を兼ねる）。
   const handleScroll = () => {
     const viewport = viewportRef.current;
     if (!viewport || frames.length === 0) return;
@@ -126,6 +127,17 @@ export default function DynamicLayerTimeSlider({
     settleTimerRef.current = setTimeout(() => {
       const raw = Math.round(viewport.scrollLeft / TICK_SPACING_PX);
       const next = Math.max(0, Math.min(frames.length - 1, raw));
+      // CSSのscroll-snapに頼らない自前ドラッグのため、最寄りのコマの厳密な位置へここで
+      // 明示的に寄せる（ドラッグ/ホイールを離した位置が必ずしもコマの区切りぴったりとは
+      // 限らないため）。
+      const targetLeft = next * TICK_SPACING_PX;
+      if (Math.abs(viewport.scrollLeft - targetLeft) > 0.5) {
+        if (typeof viewport.scrollTo === "function") {
+          viewport.scrollTo({ left: targetLeft, behavior: "smooth" });
+        } else {
+          viewport.scrollLeft = targetLeft;
+        }
+      }
       if (next !== syncedIndexRef.current) {
         syncedIndexRef.current = next;
         onIndexChange(next);
@@ -153,28 +165,31 @@ export default function DynamicLayerTimeSlider({
     return () => viewport.removeEventListener("wheel", handleWheel);
   }, [loading, error, frames.length]);
 
-  // マウスでのドラッグ操作（実機フィードバック「ルーラースクロールできない」。トラックパッド・
-  // タッチはブラウザのネイティブスクロール（touch-action: pan-x）に任せているが、素の
-  // マウスには「掴んで動かす」手段が無い。スクロールバー自体も.rulerViewportのCSSで
-  // 非表示にしているため、ドラッグを自前で用意しないとマウスだけの環境で操作できなくなる）。
-  // pointerTypeが"mouse"のときだけ有効化し、タッチ/ペンはネイティブスクロールと二重に
-  // ならないようにする。
-  const mouseDragRef = useRef<{ startClientX: number; startScrollLeft: number } | null>(null);
+  // ポインタでのドラッグ操作（実機フィードバック「ルーラースクロールできない」）。当初は
+  // タッチ/トラックパッドをブラウザのネイティブ横スクロール（touch-action: pan-x）に任せ、
+  // マウスドラッグだけ自前で足す設計にしていたが、実機で「スマホで変わらず横スクロールで
+  // バーを動かせない」との再報告を受けた。ネイティブのタッチスクロールは検証環境
+  // （Playwright+CDPのタッチイベント合成）では再現できたものの、実機のブラウザ実装差
+  // （iOS Safari等）に起因する可能性が高く切り分けが難しいため、タッチ/マウス/ペンいずれも
+  // ポインタイベントで自前ドラッグする設計へ統一し、ブラウザのネイティブスクロールには
+  // 依存しない（CSS側もtouch-action: noneへ変更、下記参照）。他の地図上コントロール
+  // （MapOverlayControls.tsxの.iconChip等）も同様に「touch-action: none+実際のジェスチャーは
+  // JSで処理」という方針のため、この方が既存の設計とも一貫する。
+  const dragRef = useRef<{ pointerId: number; startClientX: number; startScrollLeft: number } | null>(null);
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== "mouse") return;
     const viewport = viewportRef.current;
     if (!viewport) return;
-    mouseDragRef.current = { startClientX: e.clientX, startScrollLeft: viewport.scrollLeft };
+    dragRef.current = { pointerId: e.pointerId, startClientX: e.clientX, startScrollLeft: viewport.scrollLeft };
     viewport.setPointerCapture(e.pointerId);
   };
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = mouseDragRef.current;
+    const drag = dragRef.current;
     const viewport = viewportRef.current;
-    if (!drag || !viewport) return;
+    if (!drag || drag.pointerId !== e.pointerId || !viewport) return;
     viewport.scrollLeft = drag.startScrollLeft - (e.clientX - drag.startClientX);
   };
-  const endMouseDrag = () => {
-    mouseDragRef.current = null;
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null;
   };
 
   // キーボード操作（実機フィードバック「横スクロールでメモリの方が移動するように」で
@@ -240,8 +255,8 @@ export default function DynamicLayerTimeSlider({
             onKeyDown={handleKeyDown}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
-            onPointerUp={endMouseDrag}
-            onPointerCancel={endMouseDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
             role="slider"
             tabIndex={0}
             aria-label={ariaLabel}
