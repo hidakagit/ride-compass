@@ -2819,6 +2819,64 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   変わることを確認。60分以内でアイコンが出ないこと・60分超でタイルが出ないこと（相互排他）も
   確認した。
 
+### - [x] T184. 動的気象レイヤー（風・降水）を共通契約で再設計する 規模M（2026-08-21完了）
+
+- 発端: T183完了直後のユーザー実機フィードバック「動きがおかしい。動的レイヤについては
+  今後もデータ追加があり得るので、それも見据えて拡張性がある設計、実装にしてほしい。
+  格子単位は統一。格子中央にマークを出す（風パターン）または格子を指定色で塗る
+  （雨パターン）で表現する。時間経過はスライドバー1本で表現する。該当時間データがない
+  場合、地図には描画しない。1要素（雨）でも、データの取り方が複数あり得る。（ナウキャスト
+  ＋自前取得）これはデータ取得層Nだが、差異はデータ取得層で吸収。画面表示時にはそれは
+  意識しないようにしたい」。T183実装（しずくアイコン＋独立スライダー2本、風・降水延長
+  予報それぞれに専用の関数対）は機能としては動いていたが、レイヤーごとに個別の
+  source/layer管理・アイコン形状・スライダーを持つ設計だったため、要素が増えるたびに
+  同じ配線をコピーする必要があり、2本のスライダーが同じ時刻を指しているのか・どちらが
+  どのデータ範囲を持つのかも分かりにくかった。
+- 対応方針（ユーザー承認: 「案A前提でお願い。実装して」）: 3層構成へ再設計する。
+  (1) **データ取得層**（要素ごとのモジュール、`windLayer.ts`/`precipitationNowcast.ts`）が
+  各要素固有のデータソース（降水ならナウキャスト+風と共有の格子点マップの2つ）を吸収し、
+  共通のフレーム列（`DynamicWeatherFrame`）とペイロード関数を返す。(2) **共通契約層**
+  （新設`dynamicWeather.ts`、DOM/MapLibre非依存の純粋関数のみ）が、表現を`gridMark`
+  （格子中央にマーク、風パターン）・`gridFill`（格子を色で塗る、雨パターン）の2種類に
+  限定し、例外として気象庁ナウキャストのような「配信元が描画済みの画像」用に`rasterTile`を
+  1つだけ許容する（JMAのナウキャストタイルはCORS制限で数値格子へ変換できず、画像として
+  重ねるほかない）。全レイヤーのフレーム時刻を`mergeFrameTimes`で1本のタイムラインへ統合し
+  共有スライダーへ渡す。選択時刻がレイヤー自身のデータ範囲外なら`frameIndexForTime`が
+  `null`を返し「描画しない」（旧: 端のフレームへクランプして古いデータを見せ続ける挙動を
+  廃止）。(3) **表示層**（`MapView.tsx`/`page.tsx`）はペイロードの`kind`だけを見て描画し、
+  データソースの区別を一切意識しない。新しい動的要素を追加する手順を4段階の「1本道」として
+  `dynamicWeather.ts`冒頭にコメントで明文化した。
+- 実装メモ（2026-08-21完了、フロントエンドのみ・バックエンドは変更無し）:
+  **共通契約層**: `dynamicWeather.ts`を新設。`DYNAMIC_WEATHER_LAYER_IDS`（要素一覧の
+  単一の情報源）・`DynamicWeatherRenderPayload`（`rasterTile`/`gridFill`/`gridMark`の
+  判別union）・`mergeFrameTimes`・`frameIndexForTime`・`nearestTimeIndex`・
+  `formatDynamicFrameTime`・`gridCellRing`（gridFillのセルジオメトリ生成）を実装。
+  **データ取得層**: `windLayer.ts`は`windGridToFeatureCollection`を非公開化し、
+  `windFrames`/`windRenderPayload`（gridMark）を追加。`precipitationNowcast.ts`は
+  `buildCombinedPrecipitationFrames`等の旧関数群を`precipitationFrames`
+  （`PrecipitationFrameRef = {source:"nowcast"|"extended", index}`を持つフレーム列）・
+  `precipitationRenderPayload`（sourceに応じてrasterTile/gridFillを切替）・
+  `precipitationGridSpacingDeg`へ置き換えた。**表示層**: `MapView.tsx`はレイヤーごとに
+  重複していた`ensureXxxLayer`/`applyXxxState`関数対（3組）を、宣言的スペック
+  （`DynamicWeatherRendererSpec`、raster/gridFill/gridMarkそれぞれの色・サイズ・
+  アイコン生成関数を持つ）を引数に取る汎用関数対
+  `ensureDynamicWeatherLayer`/`applyDynamicWeatherState`へ統合し、要素ごとの差異は
+  `DYNAMIC_WEATHER_RENDERERS`テーブル1箇所へ集約した（風のストリームラインアイコン
+  描画自体は変更無し、降水延長予報の旧しずくアイコンはgridFill化に伴い撤去）。
+  `MapViewProps`の個別5フィールド（`showPrecipitationNowcast`等）を単一の
+  `dynamicWeather: Partial<Record<DynamicWeatherLayerId, {visible, payload}>>`へ統合し、
+  props destructure・`redrawPropsRef`・依存配列・`redrawAllLayers`・3箇所のapply呼び出しの
+  計6箇所以上あった配線をO(1)化した。`page.tsx`は風・降水それぞれの独立したフレーム
+  index計算・2本のスライダー状態を廃止し、`mergeFrameTimes`で統合した1本の
+  `timeline`・`sliderIndex`・`handleSliderIndexChange`と、`frameIndexForTime`で
+  導出する各要素のpayloadを持つ単一の`dynamicWeather`メモ化オブジェクトへ置き換えた。
+  `DynamicLayerTimeSlider`は複数レイヤー同時対応が前提のUIになったため、レイヤー固有の
+  `badge`・`unavailable`/`unavailableLabel`プロパティを撤去（1つの目盛りに複数レイヤーが
+  同時に対応しうる設計では「このレイヤーの実況/予測」「対応データなし」という単一レイヤー
+  向けの概念が意味を持たなくなったため）。tsc/eslintクリーン、frontend vitest 458件
+  （新規: dynamicWeather.test.ts追加、windLayer.test.ts/precipitationNowcast.test.ts/
+  DynamicLayerTimeSlider.test.tsxを新APIへ更新）全green。
+
 ### - [ ] T181. 観測グループ等の地図チップがメンバー増加で再び見切れる対策〔T128の2段目〕規模S〜M — トリガー: 研究用途でのレイヤー追加により実際に見切れ・スクロール必須の報告が出たとき
 
 - 発端: ユーザー報告（本番モバイル実機スクリーンショット、2026-08-20）「縦アイコンが多くて

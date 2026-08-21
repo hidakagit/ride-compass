@@ -1,0 +1,91 @@
+import { describe, expect, it } from "vitest";
+import {
+  formatDynamicFrameTime,
+  frameIndexForTime,
+  gridCellRing,
+  mergeFrameTimes,
+  nearestTimeIndex,
+} from "./dynamicWeather";
+
+describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契約）", () => {
+  describe("mergeFrameTimes", () => {
+    it("複数レイヤーのフレーム時刻を昇順・重複排除した1本のタイムラインへ統合する", () => {
+      const wind = [{ time: new Date("2026-08-20T12:00:00+09:00") }, { time: new Date("2026-08-20T13:00:00+09:00") }];
+      const precip = [{ time: new Date("2026-08-20T12:05:00+09:00") }, { time: new Date("2026-08-20T13:00:00+09:00") }];
+      const timeline = mergeFrameTimes([wind, precip]);
+      expect(timeline.map((t) => t.toISOString())).toEqual([
+        new Date("2026-08-20T12:00:00+09:00").toISOString(),
+        new Date("2026-08-20T12:05:00+09:00").toISOString(),
+        new Date("2026-08-20T13:00:00+09:00").toISOString(),
+      ]);
+    });
+
+    it("フレームリストが空、または全体が空なら空配列を返す", () => {
+      expect(mergeFrameTimes([])).toEqual([]);
+      expect(mergeFrameTimes([[], []])).toEqual([]);
+    });
+  });
+
+  describe("formatDynamicFrameTime", () => {
+    it("JSTで月/日 時:分の形式にする", () => {
+      expect(formatDynamicFrameTime(new Date("2026-08-20T12:05:00+09:00"))).toBe("8/20 12:05");
+    });
+
+    it("日付をまたぐ時刻も正しく変換する", () => {
+      expect(formatDynamicFrameTime(new Date("2026-08-21T06:00:00+09:00"))).toBe("8/21 06:00");
+    });
+  });
+
+  describe("nearestTimeIndex", () => {
+    const times = [new Date("2026-08-20T00:00:00+09:00"), new Date("2026-08-20T03:00:00+09:00"), new Date("2026-08-20T06:00:00+09:00")];
+
+    it("対象時刻に最も近いindexを返す", () => {
+      expect(nearestTimeIndex(times, new Date("2026-08-20T04:40:00+09:00"))).toBe(2);
+      expect(nearestTimeIndex(times, new Date("2026-08-20T01:00:00+09:00"))).toBe(0);
+    });
+
+    it("空配列なら0を返す", () => {
+      expect(nearestTimeIndex([], new Date())).toBe(0);
+    });
+  });
+
+  describe("frameIndexForTime（要件「該当時間データがない場合、地図には描画しない」）", () => {
+    const frames = [
+      { time: new Date("2026-08-20T12:00:00+09:00") },
+      { time: new Date("2026-08-20T13:00:00+09:00") },
+      { time: new Date("2026-08-20T14:00:00+09:00") },
+    ];
+
+    it("データ範囲内の時刻には最も近いフレームのindexを返す", () => {
+      expect(frameIndexForTime(frames, new Date("2026-08-20T12:40:00+09:00"))).toBe(1);
+    });
+
+    it("データ範囲より前・後の時刻はnull（描画しない）を返す(従来のクランプ挙動は廃止)", () => {
+      expect(frameIndexForTime(frames, new Date("2026-08-20T00:00:00+09:00"))).toBeNull();
+      expect(frameIndexForTime(frames, new Date("2026-08-21T00:00:00+09:00"))).toBeNull();
+    });
+
+    it("境界ちょうどの時刻は範囲内として扱う", () => {
+      expect(frameIndexForTime(frames, new Date("2026-08-20T12:00:00+09:00"))).toBe(0);
+      expect(frameIndexForTime(frames, new Date("2026-08-20T14:00:00+09:00"))).toBe(2);
+    });
+
+    it("フレームが空ならnullを返す", () => {
+      expect(frameIndexForTime([], new Date())).toBeNull();
+    });
+  });
+
+  describe("gridCellRing（gridFill表現のセルジオメトリ）", () => {
+    it("格子点を中心とする1辺spacingDegの閉じた正方形リングを返す", () => {
+      const ring = gridCellRing(35.68, 139.77, 0.1);
+      expect(ring).toHaveLength(5);
+      const [minLon, minLat] = ring[0];
+      const [maxLon, maxLat] = ring[2];
+      expect(minLon).toBeCloseTo(139.72);
+      expect(minLat).toBeCloseTo(35.63);
+      expect(maxLon).toBeCloseTo(139.82);
+      expect(maxLat).toBeCloseTo(35.73);
+      expect(ring[0]).toEqual(ring[ring.length - 1]);
+    });
+  });
+});

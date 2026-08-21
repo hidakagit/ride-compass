@@ -71,6 +71,11 @@ import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLay
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import {
+  DYNAMIC_WEATHER_LAYER_IDS,
+  type DynamicWeatherLayerId,
+  type DynamicWeatherRenderPayload,
+} from "@/components/Map/dynamicWeather";
+import {
   RAMP_AXES,
   axisLineLayerId,
   axisMapLayerId,
@@ -126,38 +131,14 @@ const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
-const PRECIPITATION_NOWCAST_SOURCE_ID = "region-precipitation-nowcast";
-const PRECIPITATION_NOWCAST_LAYER_ID = "region-precipitation-nowcast-raster";
-// 初期化時のsourceプレースホルダ（visibility:noneの間はMapLibreがタイルを要求しないため
-// 実際にリクエストされることはない。applyPrecipitationNowcastStateが本物のURLへ
-// setTilesで差し替える、ensureRoadSurfaceTileLayer等と同じ「仮の初期値」パターン）。
-const PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URL =
-  "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png";
-const WIND_VECTOR_SOURCE_ID = "region-wind-vector";
-const WIND_VECTOR_LAYER_ID = "region-wind-vector-arrows";
-// 矢印の縁取り用レイヤー（実機フィードバック「矢印見にくい」対応）。同じアイコン画像を
-// 少し大きく・濃色単色で下に敷くことでハロー（縁取り）を作る。symbolレイヤーのicon-*には
-// text-halo-colorに相当するプロパティが無いため、この「同じ形を重ねる」方式が定番の代替策。
-const WIND_VECTOR_HALO_LAYER_ID = "region-wind-vector-arrows-halo";
-// 格子セル（実機フィードバック「どの範囲の風向き・風速を示しているか分かりにくい」対応で
-// 一時追加）による面の塗りつぶしは、道路・ルート等の他レイヤーと重なると見分けにくいという
-// 実機フィードバック（2026-08-21「背景色を付けると他要素と重ね合わせた時に分かりにくい」）
-// を受けて撤去した。範囲の対応は矢印自体の大きさ・色の強調（WIND_ICON_MIN_SCALE/
-// WIND_ICON_MAX_SCALEおよびWIND_COLOR_SCALE_EXPRESSION参照）で表現する。
-const WIND_VECTOR_ICON_ID = "region-wind-vector-arrow-icon";
-// 降水の延長予報（T183、ユーザー要望「1時間より先も、短時間雨予報を出してほしい」）。
-// 気象庁ナウキャスト（PRECIPITATION_NOWCAST_*、0〜60分・ラスタタイル）が対応できない
-// 60分以降を、風と共有の格子点マップ（自前実装、約48時間先まで）由来のprecipitation_mmで
-// 補う。降水の地図チップ・時刻スライダーは1つのまま（ユーザー要望「アイコンは1つ。ただし
-// 内部は時間によって使い分けて」）とし、選択中の時刻が60分以内かどうかでpage.tsx側が
-// タイルURL（このソース）とアイコンGeoJSON（こちらのソース）のどちらか一方だけを計算する。
-// 見た目は風の矢印と同じ「アイコン（symbolレイヤー）+ハロー」構成（ensureWindVectorLayer
-// 参照）だが、雨に向きは無いためicon-rotateは使わない。
-const PRECIPITATION_EXTENDED_SOURCE_ID = "region-precipitation-extended";
-const PRECIPITATION_EXTENDED_LAYER_ID = "region-precipitation-extended-icons";
-const PRECIPITATION_EXTENDED_HALO_LAYER_ID = "region-precipitation-extended-icons-halo";
-const PRECIPITATION_EXTENDED_ICON_ID = "region-precipitation-extended-icon";
-// 空のFeatureCollection（初期化時のsourceプレースホルダ、風データ未取得の間の仮の初期値）。
+// 動的気象レイヤー（風・降水、T183再設計）のsource/layer id。要素id×描画方式（raster/fill/
+// mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
+// ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。
+function dynamicWeatherIds(id: DynamicWeatherLayerId, sub: "raster" | "fill" | "mark") {
+  const base = `region-dynamic-weather-${id}-${sub}`;
+  return { sourceId: base, layerId: `${base}-main`, haloLayerId: `${base}-halo`, iconId: `${base}-icon` };
+}
+// 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
@@ -467,46 +448,10 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 気象庁 降水ナウキャスト（改善計画T170/T171）。GSI標高ラスタと同じ「初期化時に一度だけ
-// ソース/レイヤーを追加し、以降はvisibility/タイルURLの差し替えのみ」のパターンだが、
-// タイルURL自体が対象時刻（地図上の時刻スライダー）によって変わる点がGSI標高と異なる
-// （GSIは常に同じURLテンプレート）。地図の最前面（他の全レイヤーより後に追加）に置き、
-// 雨雲が道路網の上に重なって見えるようにする。
-function ensurePrecipitationNowcastLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getSource(PRECIPITATION_NOWCAST_SOURCE_ID)) return;
-    map.addSource(PRECIPITATION_NOWCAST_SOURCE_ID, {
-      type: "raster",
-      tiles: [PRECIPITATION_NOWCAST_PLACEHOLDER_TILE_URL],
-      tileSize: 256,
-      minzoom: 4,
-      maxzoom: 10,
-      attribution: "気象庁",
-    });
-    map.addLayer({
-      id: PRECIPITATION_NOWCAST_LAYER_ID,
-      type: "raster",
-      source: PRECIPITATION_NOWCAST_SOURCE_ID,
-      paint: { "raster-opacity": 0.65 },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// タイルURL（page.tsx側でprecipitationNowcast.tsのnowcastTileUrlTemplateから計算した値）を
-// 反映する。visible/tileUrlのどちらか一方でも欠けていれば非表示のまま
-// （フェッチ未完了・取得失敗時に古いURLのタイルが一瞬見えるのを防ぐ）。
-function applyPrecipitationNowcastState(map: MapLibreMap, visible: boolean, tileUrl: string | undefined) {
-  runWhenStyleReady(map, () => {
-    ensurePrecipitationNowcastLayer(map);
-    if (tileUrl) {
-      const source = map.getSource(PRECIPITATION_NOWCAST_SOURCE_ID) as maplibregl.RasterTileSource | undefined;
-      source?.setTiles([tileUrl]);
-    }
-    setLayerVisibility(map, PRECIPITATION_NOWCAST_LAYER_ID, visible && tileUrl != null);
-  });
-}
+// 気象庁 降水ナウキャスト（改善計画T170/T171）を含む動的気象レイヤーのソース/レイヤー
+// 登録・状態反映は、風の矢印・降水延長予報（T183）と共通の汎用関数（ensureDynamicWeatherLayer/
+// applyDynamicWeatherState）へ集約されている。定義は本ファイル後半、アイコン生成・色/
+// サイズ式が出揃った箇所（DYNAMIC_WEATHER_RENDERERS参照）にある。
 
 // 風の矢印（改善計画T178→フォローアップで自前実装へ移行）。当初`@openmeteo/
 // weather-map-layer`（GPLv2、内部の.omデコーダも同じくGPL-2.0-only）のom://プロトコルで
@@ -549,22 +494,17 @@ const WIND_COLOR_SCALE_EXPRESSION = [
   ...WIND_SPEED_COLOR_STOPS.flatMap((stop) => [stop.speedMs, stop.color]),
 ] as unknown as maplibregl.ExpressionSpecification;
 
-// 降水延長予報アイコン（T183）のサイズ・色。風の矢印と同じ考え方（アイコン全体を一様
-// スケールし、大きさ・色の両方で強さを示す）だが、雨に向きの概念は無いため長さという
-// 表現は無く、大きさ（面積）のみで強さを示す。最低スケールは風より少し小さくしている
-// （降水延長予報は約48時間先までの粗いモデル予報であり、直近ナウキャストほどの精度は
-// 無いため、常時目立たせすぎない）。
-const PRECIPITATION_ICON_MIN_SCALE = 0.6;
-const PRECIPITATION_ICON_MAX_SCALE = 2.2;
-const PRECIPITATION_ICON_HALO_SCALE_MULTIPLIER = 1.35;
-// PRECIPITATION_COLOR_STOPS（precipitationNowcast.ts、地図チップの凡例と単一の情報源）を
-// MapLibre補間式へ組み立てる。
+// 降水延長予報（gridFill、格子セルを指定色で塗る）のfill-color。PRECIPITATION_COLOR_STOPS
+// （precipitationNowcast.ts、地図チップの凡例と単一の情報源）をMapLibre補間式へ組み立てる。
 const PRECIPITATION_COLOR_SCALE_EXPRESSION = [
   "interpolate",
   ["linear"],
   ["to-number", ["get", "mmPerHour"]],
   ...PRECIPITATION_COLOR_STOPS.flatMap((stop) => [stop.mmPerHour, stop.color]),
 ] as unknown as maplibregl.ExpressionSpecification;
+// 面塗りは色そのものの主張が強いため、気象庁ナウキャストのラスタタイル（raster-opacity
+// 0.65、DYNAMIC_WEATHER_RENDERERS参照）よりわずかに抑えている。
+const PRECIPITATION_FILL_OPACITY = 0.55;
 
 // ズームに応じた追加の拡大率（実機フィードバック「矢印デザインが地図拡大すると見にくい。
 // 拡大率に合わせて目立たせることはできる？」）。symbolレイヤーのicon-sizeは既定で画面上の
@@ -572,8 +512,8 @@ const PRECIPITATION_COLOR_SCALE_EXPRESSION = [
 // 矢印だけ同じ大きさのまま相対的に小さく・目立たなくなる。初期表示ズーム（13、page.tsx:
 // map.zoom初期値）を基準（倍率1）に据え、それより拡大するほど大きく・縮小するほど小さく
 // 描画することで、ズームレベルが変わってもアイコンの「目立ち具合」が視覚的に保たれるようにする。
-// T183（降水延長予報のアイコンも同じ考え方で自前実装）で、風専用だったwindIconSizeExpressionを
-// zoomAndPropertyIconSizeExpressionへ一般化し、両方の格子点アイコンで共有している。
+// T183再設計で、風専用だったサイズ式をgridMark全般（DynamicWeatherMarkSpec）向けに一般化し、
+// 将来追加されるgridMark要素も同じ式を共有できるようにしている。
 const ICON_ZOOM_SCALE_STOPS: readonly { zoom: number; multiplier: number }[] = [
   { zoom: 10, multiplier: 0.75 },
   { zoom: 13, multiplier: 1 },
@@ -584,8 +524,8 @@ const ICON_ZOOM_SCALE_STOPS: readonly { zoom: number; multiplier: number }[] = [
 /** ズーム×格子点プロパティの「zoom-and-property」式（MapLibre/Mapboxスタイル仕様の標準
  * パターン）。外側のinterpolateがzoomの各段でscaleMultiplier×そのズーム段の倍率を適用した
  * 内側のinterpolate（プロパティ値→サイズ、0〜maxValueForFullScaleの範囲でmin〜maxScaleへ
- * 線形補間）を返す。風の矢印（プロパティ"speed"、0〜15m/s）・降水延長予報のアイコン
- * （プロパティ"mmPerHour"、0〜80mm/h）の両方がこの関数を共有する。 */
+ * 線形補間）を返す。gridMark表現を使うすべての動的気象要素（現状は風の矢印のみ、プロパティ
+ * "speed"・0〜15m/s）がこの関数を共有する（DynamicWeatherMarkSpec参照）。 */
 function zoomAndPropertyIconSizeExpression(
   propertyName: string,
   minScale: number,
@@ -610,22 +550,6 @@ function zoomAndPropertyIconSizeExpression(
       ],
     ]),
   ] as unknown as maplibregl.ExpressionSpecification;
-}
-
-function windIconSizeExpression(scaleMultiplier: number) {
-  return zoomAndPropertyIconSizeExpression("speed", WIND_ICON_MIN_SCALE, WIND_ICON_MAX_SCALE, 15, scaleMultiplier);
-}
-
-function precipitationIconSizeExpression(scaleMultiplier: number) {
-  // 80mm/h（PRECIPITATION_COLOR_STOPSの最上段「猛烈な雨」の下限）でアイコンが最大サイズに
-  // 達するようにする。
-  return zoomAndPropertyIconSizeExpression(
-    "mmPerHour",
-    PRECIPITATION_ICON_MIN_SCALE,
-    PRECIPITATION_ICON_MAX_SCALE,
-    80,
-    scaleMultiplier
-  );
 }
 
 interface Point2D {
@@ -722,190 +646,241 @@ function createWindArrowIcon(): ImageData {
   return ctx.getImageData(0, 0, WIND_ARROW_SIZE_PX, WIND_ARROW_SIZE_PX);
 }
 
-function ensureWindVectorLayer(map: MapLibreMap) {
+/** 動的気象レイヤー1要素ぶんの描画スペック。raster/gridFill/gridMarkのうち実際に使う
+ * ものだけを持つ（例: windVectorはgridMarkのみ、precipitationNowcastはraster+gridFillの
+ * 2つを併せ持ち、選択中の時刻が60分以内かどうかでpage.tsx側がどちらのkindのペイロードを
+ * 渡すか決める。表示層は常にkindを見るだけで、この2レイヤーの扱いに差は無い）。 */
+interface DynamicWeatherRasterSpec {
+  placeholderTileUrl: string;
+  opacity: number;
+  minzoom?: number;
+  maxzoom?: number;
+  attribution?: string;
+}
+
+interface DynamicWeatherFillSpec {
+  valueProperty: string;
+  colorExpression: maplibregl.ExpressionSpecification;
+  opacity: number;
+  minValueToShow?: number;
+}
+
+interface DynamicWeatherMarkSpec {
+  createIcon: () => ImageData;
+  colorExpression: maplibregl.ExpressionSpecification;
+  valueProperty: string;
+  rotateProperty?: string;
+  minScale: number;
+  maxScale: number;
+  maxValueForFullScale: number;
+  haloScaleMultiplier: number;
+  minValueToShow?: number;
+}
+
+interface DynamicWeatherRendererSpec {
+  raster?: DynamicWeatherRasterSpec;
+  gridFill?: DynamicWeatherFillSpec;
+  gridMark?: DynamicWeatherMarkSpec;
+}
+
+// 動的気象レイヤーの描画スペック一覧（唯一の情報源）。新しい要素を追加するときはここへ
+// 1エントリ足すだけでよい（dynamicWeather.ts冒頭の「1本道」コメント参照）。色・アイコン式を
+// 参照するため、それらのconst定義より後（JSのconstはhoistされないため）に置く必要がある。
+const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRendererSpec> = {
+  precipitationNowcast: {
+    raster: {
+      // 初期化時のsourceプレースホルダ（visibility:noneの間はMapLibreがタイルを要求しない
+      // ため実際にリクエストされることはない。applyDynamicWeatherStateが本物のURLへ
+      // setTilesで差し替える、ensureRoadSurfaceTileLayer等と同じ「仮の初期値」パターン）。
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 10,
+      attribution: "気象庁",
+    },
+    gridFill: {
+      valueProperty: "mmPerHour",
+      colorExpression: PRECIPITATION_COLOR_SCALE_EXPRESSION,
+      opacity: PRECIPITATION_FILL_OPACITY,
+      minValueToShow: PRECIPITATION_NONE_THRESHOLD_MM,
+    },
+  },
+  windVector: {
+    gridMark: {
+      createIcon: createWindArrowIcon,
+      colorExpression: WIND_COLOR_SCALE_EXPRESSION,
+      valueProperty: "speed",
+      rotateProperty: "bearing",
+      minScale: WIND_ICON_MIN_SCALE,
+      maxScale: WIND_ICON_MAX_SCALE,
+      maxValueForFullScale: 15,
+      haloScaleMultiplier: WIND_ICON_HALO_SCALE_MULTIPLIER,
+      minValueToShow: WIND_CALM_THRESHOLD_MS,
+    },
+  },
+};
+
+// 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
+// パターン）。spec.raster/gridFill/gridMarkのうち実際に指定されているものだけを追加する。
+function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, spec: DynamicWeatherRendererSpec) {
   const applyData = () => {
-    if (map.getSource(WIND_VECTOR_SOURCE_ID)) return;
-    if (!map.hasImage(WIND_VECTOR_ICON_ID)) {
-      // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
-      // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
-      // 範囲では実用上問題ない簡易的な使い方）。
-      map.addImage(WIND_VECTOR_ICON_ID, createWindArrowIcon(), { sdf: true });
+    if (spec.raster) {
+      const { sourceId, layerId } = dynamicWeatherIds(id, "raster");
+      if (!map.getSource(sourceId)) {
+        map.addSource(sourceId, {
+          type: "raster",
+          tiles: [spec.raster.placeholderTileUrl],
+          tileSize: 256,
+          minzoom: spec.raster.minzoom,
+          maxzoom: spec.raster.maxzoom,
+          attribution: spec.raster.attribution,
+        });
+        map.addLayer({
+          id: layerId,
+          type: "raster",
+          source: sourceId,
+          paint: { "raster-opacity": spec.raster.opacity },
+          layout: { visibility: "none" },
+        });
+      }
     }
-    map.addSource(WIND_VECTOR_SOURCE_ID, {
-      type: "geojson",
-      data: EMPTY_FEATURE_COLLECTION,
-      attribution: "Open-Meteo",
-    });
-    // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
-    // 関わらず矢印の輪郭が視認できるようにする（実機フィードバック「矢印見にくい」対応）。
-    // 主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。無風に近い地点は
-    // 矢印自体を出さない（ユーザーフィードバック「ほぼ無風でも矢印が出るのが違和感」）
-    // フィルタをハロー層・主層の両方に掛ける。
-    map.addLayer({
-      id: WIND_VECTOR_HALO_LAYER_ID,
-      type: "symbol",
-      source: WIND_VECTOR_SOURCE_ID,
-      layout: {
-        "icon-image": WIND_VECTOR_ICON_ID,
-        "icon-rotate": ["to-number", ["get", "bearing"]],
-        "icon-rotation-alignment": "map",
-        "icon-allow-overlap": false,
-        "icon-ignore-placement": false,
-        "icon-size": windIconSizeExpression(WIND_ICON_HALO_SCALE_MULTIPLIER),
-        visibility: "none",
-      },
-      paint: {
-        "icon-color": "#1f2937",
-        "icon-opacity": 0.85,
-      },
-      filter: [">", ["to-number", ["get", "speed"]], WIND_CALM_THRESHOLD_MS],
-    });
-    map.addLayer({
-      id: WIND_VECTOR_LAYER_ID,
-      type: "symbol",
-      source: WIND_VECTOR_SOURCE_ID,
-      layout: {
-        "icon-image": WIND_VECTOR_ICON_ID,
-        "icon-rotate": ["to-number", ["get", "bearing"]],
-        "icon-rotation-alignment": "map",
-        "icon-allow-overlap": false,
-        "icon-ignore-placement": false,
-        // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
-        // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
-        "icon-size": windIconSizeExpression(1),
-        visibility: "none",
-      },
-      paint: {
-        // WIND_COLOR_SCALE_EXPRESSION（弱い風=青→中程度=オレンジ→強い風=赤）を太さ・長さと
-        // 合わせて三重の表現にする。
-        "icon-color": WIND_COLOR_SCALE_EXPRESSION,
-        "icon-opacity": 1,
-      },
-      filter: [">", ["to-number", ["get", "speed"]], WIND_CALM_THRESHOLD_MS],
-    });
+    if (spec.gridFill) {
+      const { sourceId, layerId } = dynamicWeatherIds(id, "fill");
+      if (!map.getSource(sourceId)) {
+        map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+        map.addLayer({
+          id: layerId,
+          type: "fill",
+          source: sourceId,
+          layout: { visibility: "none" },
+          paint: {
+            "fill-color": spec.gridFill.colorExpression,
+            "fill-opacity": spec.gridFill.opacity,
+          },
+          filter:
+            spec.gridFill.minValueToShow != null
+              ? [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow]
+              : undefined,
+        });
+      }
+    }
+    if (spec.gridMark) {
+      const mark = spec.gridMark;
+      const { sourceId, layerId, haloLayerId, iconId } = dynamicWeatherIds(id, "mark");
+      if (!map.getSource(sourceId)) {
+        if (!map.hasImage(iconId)) {
+          // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
+          // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
+          // 範囲では実用上問題ない簡易的な使い方）。
+          map.addImage(iconId, mark.createIcon(), { sdf: true });
+        }
+        map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+        // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
+        // 関わらずマークの輪郭が視認できるようにする（実機フィードバック「矢印見にくい」
+        // 対応）。主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。ほぼ無い
+        // 値の地点はマーク自体を出さない（ユーザーフィードバック「ほぼ無風でも矢印が出るのが
+        // 違和感」）フィルタをハロー層・主層の両方に掛ける。
+        map.addLayer({
+          id: haloLayerId,
+          type: "symbol",
+          source: sourceId,
+          layout: {
+            "icon-image": iconId,
+            "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
+            "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
+            "icon-allow-overlap": false,
+            "icon-ignore-placement": false,
+            "icon-size": zoomAndPropertyIconSizeExpression(
+              mark.valueProperty,
+              mark.minScale,
+              mark.maxScale,
+              mark.maxValueForFullScale,
+              mark.haloScaleMultiplier
+            ),
+            visibility: "none",
+          },
+          paint: {
+            "icon-color": "#1f2937",
+            "icon-opacity": 0.85,
+          },
+          filter:
+            mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
+        });
+        map.addLayer({
+          id: layerId,
+          type: "symbol",
+          source: sourceId,
+          layout: {
+            "icon-image": iconId,
+            "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
+            "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
+            "icon-allow-overlap": false,
+            "icon-ignore-placement": false,
+            // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
+            // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
+            "icon-size": zoomAndPropertyIconSizeExpression(
+              mark.valueProperty,
+              mark.minScale,
+              mark.maxScale,
+              mark.maxValueForFullScale,
+              1
+            ),
+            visibility: "none",
+          },
+          paint: {
+            "icon-color": mark.colorExpression,
+            "icon-opacity": 1,
+          },
+          filter:
+            mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
+        });
+      }
+    }
   };
   runWhenStyleReady(map, applyData);
 }
 
-// windVectorGeoJson（page.tsx側でwindLayer.tsのwindGridToFeatureCollectionから計算した値）を
-// 反映する。visibleとgeoJsonのどちらか一方でも欠けていれば非表示のまま
-// （applyPrecipitationNowcastStateと同じ、フェッチ未完了・取得失敗時に古いフレームが
-// 一瞬見えるのを防ぐ）。
-function applyWindVectorState(map: MapLibreMap, visible: boolean, windVectorGeoJson: GeoJSON.FeatureCollection | undefined) {
-  runWhenStyleReady(map, () => {
-    ensureWindVectorLayer(map);
-    if (windVectorGeoJson) {
-      const source = map.getSource(WIND_VECTOR_SOURCE_ID) as GeoJSONSource | undefined;
-      source?.setData(windVectorGeoJson);
-    }
-    const shouldShowArrows = visible && windVectorGeoJson != null;
-    setLayerVisibility(map, WIND_VECTOR_HALO_LAYER_ID, shouldShowArrows);
-    setLayerVisibility(map, WIND_VECTOR_LAYER_ID, shouldShowArrows);
-  });
-}
-
-// 降水延長予報アイコン（T183）。しずく（雨粒）を模した図形を白いシルエットで描き、風の矢印
-// （createWindArrowIcon）と同じsdf:true登録・icon-colorでの着色を行う。雨に向きの概念は
-// 無いため、風のような気流線ではなく単純なしずく形にした（icons.tsxの雨アイコン等、他の
-// 降水系UIとも見た目の系統を合わせやすい）。
-function createPrecipitationDropIcon(): ImageData {
-  const SIZE = 32;
-  const canvas = document.createElement("canvas");
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return new ImageData(SIZE, SIZE);
-  ctx.fillStyle = "#ffffff";
-
-  // しずく形: 上部の尖った頂点から左右へ膨らみつつ下側の円弧へ滑らかに繋がる、雨粒の定番シルエット。
-  const cx = 16;
-  const topY = 5;
-  const bottomCenterY = 21;
-  const radius = 8;
-  ctx.beginPath();
-  ctx.moveTo(cx, topY);
-  ctx.bezierCurveTo(cx + radius * 1.15, topY + 12, cx + radius, bottomCenterY - radius * 0.55, cx + radius, bottomCenterY);
-  ctx.arc(cx, bottomCenterY, radius, 0, Math.PI, false);
-  ctx.bezierCurveTo(cx - radius, bottomCenterY - radius * 0.55, cx - radius * 1.15, topY + 12, cx, topY);
-  ctx.closePath();
-  ctx.fill();
-
-  return ctx.getImageData(0, 0, SIZE, SIZE);
-}
-
-function ensurePrecipitationExtendedLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getSource(PRECIPITATION_EXTENDED_SOURCE_ID)) return;
-    if (!map.hasImage(PRECIPITATION_EXTENDED_ICON_ID)) {
-      map.addImage(PRECIPITATION_EXTENDED_ICON_ID, createPrecipitationDropIcon(), { sdf: true });
-    }
-    map.addSource(PRECIPITATION_EXTENDED_SOURCE_ID, {
-      type: "geojson",
-      data: EMPTY_FEATURE_COLLECTION,
-      attribution: "Open-Meteo",
-    });
-    // ハロー（縁取り）層。風の矢印と同じ理由（実機フィードバック「矢印見にくい」対応、
-    // symbolレイヤーのicon-*にtext-halo-color相当が無いための代替策）。降水がほぼ無い地点は
-    // アイコン自体を出さない（風の無風フィルタと同じ考え方）フィルタをハロー層・主層の
-    // 両方に掛ける。
-    map.addLayer({
-      id: PRECIPITATION_EXTENDED_HALO_LAYER_ID,
-      type: "symbol",
-      source: PRECIPITATION_EXTENDED_SOURCE_ID,
-      layout: {
-        "icon-image": PRECIPITATION_EXTENDED_ICON_ID,
-        "icon-allow-overlap": false,
-        "icon-ignore-placement": false,
-        "icon-size": precipitationIconSizeExpression(PRECIPITATION_ICON_HALO_SCALE_MULTIPLIER),
-        visibility: "none",
-      },
-      paint: {
-        "icon-color": "#1f2937",
-        "icon-opacity": 0.85,
-      },
-      filter: [">", ["to-number", ["get", "mmPerHour"]], PRECIPITATION_NONE_THRESHOLD_MM],
-    });
-    map.addLayer({
-      id: PRECIPITATION_EXTENDED_LAYER_ID,
-      type: "symbol",
-      source: PRECIPITATION_EXTENDED_SOURCE_ID,
-      layout: {
-        "icon-image": PRECIPITATION_EXTENDED_ICON_ID,
-        "icon-allow-overlap": false,
-        "icon-ignore-placement": false,
-        "icon-size": precipitationIconSizeExpression(1),
-        visibility: "none",
-      },
-      paint: {
-        "icon-color": PRECIPITATION_COLOR_SCALE_EXPRESSION,
-        "icon-opacity": 1,
-      },
-      filter: [">", ["to-number", ["get", "mmPerHour"]], PRECIPITATION_NONE_THRESHOLD_MM],
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// precipitationExtendedGeoJson（page.tsx側でprecipitationNowcast.tsの
-// precipitationGridToFeatureCollectionから計算した値）を反映する。気象庁ナウキャストの
-// タイル（applyPrecipitationNowcastState）とは別レイヤーだが、両者は同じshowPrecipitation
-// Nowcastで制御され、page.tsx側が選択中の時刻に応じてどちらか一方だけにデータを渡す
-// （アイコンは1つ、内部は時間によって使い分ける設計、precipitationExtendedGeoJsonの
-// コメント参照）ため、同時に両方が表示されることはない。
-function applyPrecipitationExtendedState(
+// payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。visibleとpayloadの
+// どちらか一方でも欠けていれば非表示のまま（フェッチ未完了・取得失敗時、あるいは選択時刻が
+// このレイヤーのデータ範囲外で「描画しない」場合に、古いフレームが一瞬見えるのを防ぐ）。
+// payload.kindがspecの複数サブレイヤー（precipitationNowcastのraster/gridFill）のどれと
+// 対応するかだけを見て、対応しないサブレイヤーは常に非表示にする（=同時に両方は出ない）。
+function applyDynamicWeatherState(
   map: MapLibreMap,
+  id: DynamicWeatherLayerId,
+  spec: DynamicWeatherRendererSpec,
   visible: boolean,
-  precipitationExtendedGeoJson: GeoJSON.FeatureCollection | undefined
+  payload: DynamicWeatherRenderPayload | undefined
 ) {
   runWhenStyleReady(map, () => {
-    ensurePrecipitationExtendedLayer(map);
-    if (precipitationExtendedGeoJson) {
-      const source = map.getSource(PRECIPITATION_EXTENDED_SOURCE_ID) as GeoJSONSource | undefined;
-      source?.setData(precipitationExtendedGeoJson);
+    ensureDynamicWeatherLayer(map, id, spec);
+    if (spec.raster) {
+      const { sourceId, layerId } = dynamicWeatherIds(id, "raster");
+      if (payload?.kind === "rasterTile") {
+        const source = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
+        source?.setTiles([payload.tileUrlTemplate]);
+      }
+      setLayerVisibility(map, layerId, visible && payload?.kind === "rasterTile");
     }
-    const shouldShowIcons = visible && precipitationExtendedGeoJson != null;
-    setLayerVisibility(map, PRECIPITATION_EXTENDED_HALO_LAYER_ID, shouldShowIcons);
-    setLayerVisibility(map, PRECIPITATION_EXTENDED_LAYER_ID, shouldShowIcons);
+    if (spec.gridFill) {
+      const { sourceId, layerId } = dynamicWeatherIds(id, "fill");
+      if (payload?.kind === "gridFill") {
+        const source = map.getSource(sourceId) as GeoJSONSource | undefined;
+        source?.setData(payload.geojson);
+      }
+      setLayerVisibility(map, layerId, visible && payload?.kind === "gridFill");
+    }
+    if (spec.gridMark) {
+      const { sourceId, layerId, haloLayerId } = dynamicWeatherIds(id, "mark");
+      if (payload?.kind === "gridMark") {
+        const source = map.getSource(sourceId) as GeoJSONSource | undefined;
+        source?.setData(payload.geojson);
+      }
+      const shouldShow = visible && payload?.kind === "gridMark";
+      setLayerVisibility(map, haloLayerId, shouldShow);
+      setLayerVisibility(map, layerId, shouldShow);
+    }
   });
 }
 
@@ -1319,6 +1294,17 @@ type StaticOverlayKey = string;
 // （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
 // MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
 // （MapView.dataStatus.test.ts）から個別レイヤーのsourceIdを参照できるようexportしている。
+// 動的気象レイヤーは要素ごとにraster/gridFill/gridMarkの複数サブソースを持ちうるが、
+// レイヤーデータ状態の追跡（useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、
+// rasterTile→gridFill→gridMarkの優先順で「代表」のsourceIdを1つ選ぶ（現状precipitation
+// Nowcastは常にraster、windVectorは常にgridMarkが選ばれる。取得失敗の検知対象という
+// 位置づけは旧PRECIPITATION_NOWCAST_SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。
+function primaryDynamicWeatherSourceId(id: DynamicWeatherLayerId, spec: DynamicWeatherRendererSpec): string {
+  if (spec.raster) return dynamicWeatherIds(id, "raster").sourceId;
+  if (spec.gridFill) return dynamicWeatherIds(id, "fill").sourceId;
+  return dynamicWeatherIds(id, "mark").sourceId;
+}
+
 export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; sourceLayer?: string }[] = [
   { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
@@ -1329,14 +1315,15 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-  // 降水ナウキャスト（T171）。ラスタタイルのためelevationと同じくsourceLayer無し
-  // （取得失敗のみ検知対象、0件相当の「empty」判定はしない）。
-  { key: "precipitationNowcast", sourceId: PRECIPITATION_NOWCAST_SOURCE_ID },
-  // 風の矢印（T178フォローアップ、自前実装）。GeoJSON sourceのためsourceLayerの概念自体が
-  // 無く、querySourceFeaturesによる0件判定（empty）は元から対象外（sourceLayer未指定の
-  // レイヤーはempty判定をスキップする、上のprecipitationNowcastと同じ扱い）。取得失敗のみ
-  // 検知対象とする。
-  { key: "windVector", sourceId: WIND_VECTOR_SOURCE_ID },
+  // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計）。
+  // DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しい要素を追加してもここへ手動で
+  // 1行足す必要はない。GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無く
+  // querySourceFeaturesによる0件判定（empty）は元から対象外、ラスタタイル（raster）は
+  // elevationと同じく取得失敗のみ検知対象。
+  ...DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
+    key: id,
+    sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
+  })),
   // 二次軸rampレイヤー（T145b）はroad_surfaceタイルへ焼き込み済みのプロパティを読む
   // （carStress等と同じソース共有。ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
   ...RAMP_AXES.map((axis) => ({
@@ -1614,25 +1601,14 @@ interface MapViewProps {
   selectedRouteId: string | null;
   location: Coordinates;
   showElevation: boolean;
-  /** 降水ナウキャスト（改善計画T170/T171）。ONの間、precipitationNowcastTileUrl
-   * （page.tsx側でprecipitationNowcast.tsから計算した現在時刻スライダー位置のタイルURL）を
-   * 反映する。tileUrlが未定（フェッチ未完了・取得失敗）の間はONでも非表示のまま。 */
-  showPrecipitationNowcast: boolean;
-  precipitationNowcastTileUrl: string | undefined;
-  /** 降水の延長予報（T183、ユーザー要望「1時間より先も、短時間雨予報を出してほしい」）。
-   * 気象庁ナウキャスト（+60分が上限）より先の時刻が選択されているとき、page.tsx側が
-   * precipitationNowcast.tsのprecipitationGridToFeatureCollectionから計算したGeoJSON
-   * FeatureCollectionを渡す（風と共有の格子点マップ由来）。showPrecipitationNowcastで
-   * 制御される点はprecipitationNowcastTileUrlと同じだが、選択中の時刻に応じてどちらか
-   * 一方だけが値を持つ（両方が同時にvalidなことはない、page.tsx: selectedPrecipitationFrame
-   * 参照）。 */
-  precipitationExtendedGeoJson: GeoJSON.FeatureCollection | undefined;
-  /** 風の矢印（改善計画T178フォローアップ、自前実装）。ONの間、windVectorGeoJson
-   * （page.tsx側でwindLayer.tsのwindGridToFeatureCollectionから計算した現在時刻
-   * スライダー位置のGeoJSON FeatureCollection）を反映する。
-   * showPrecipitationNowcast/precipitationNowcastTileUrlと同じ扱い。 */
-  showWindVector: boolean;
-  windVectorGeoJson: GeoJSON.FeatureCollection | undefined;
+  /** 動的気象レイヤー（降水ナウキャスト=改善計画T170/T171、風の矢印=T178フォローアップ、
+   * T183で降水延長予報を追加してから両者を再設計）。要素id（DynamicWeatherLayerId）ごとに
+   * ON/OFFと、page.tsx側が各要素のデータ層関数（precipitationRenderPayload/
+   * windRenderPayload）から計算した「選択中の共有時刻に対応するペイロード」を渡す。
+   * payloadが未定（フェッチ未完了・取得失敗、あるいは選択時刻がその要素のデータ範囲外で
+   * 「描画しない」場合）の間はvisible=trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・
+   * applyDynamicWeatherState参照）。要素を追加してもこのプロパティ自体は変わらない。 */
+  dynamicWeather: Partial<Record<DynamicWeatherLayerId, { visible: boolean; payload: DynamicWeatherRenderPayload | undefined }>>;
   /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
    * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
    * applyRoadLayerState参照）。 */
@@ -1702,11 +1678,7 @@ export default function MapView({
   selectedRouteId,
   location,
   showElevation,
-  showPrecipitationNowcast,
-  precipitationNowcastTileUrl,
-  precipitationExtendedGeoJson,
-  showWindVector,
-  windVectorGeoJson,
+  dynamicWeather,
   showRoadType,
   showRoadSurface,
   showCarStress,
@@ -1754,11 +1726,7 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
-    showPrecipitationNowcast,
-    precipitationNowcastTileUrl,
-    precipitationExtendedGeoJson,
-    showWindVector,
-    windVectorGeoJson,
+    dynamicWeather,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1799,11 +1767,7 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
-      showPrecipitationNowcast,
-      precipitationNowcastTileUrl,
-      precipitationExtendedGeoJson,
-      showWindVector,
-      windVectorGeoJson,
+      dynamicWeather,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1828,11 +1792,7 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
-    showPrecipitationNowcast,
-    precipitationNowcastTileUrl,
-    precipitationExtendedGeoJson,
-    showWindVector,
-    windVectorGeoJson,
+    dynamicWeather,
     showRoadType,
     showRoadSurface,
     showCarStress,
@@ -1865,11 +1825,7 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
-      showPrecipitationNowcast,
-      precipitationNowcastTileUrl,
-      precipitationExtendedGeoJson,
-      showWindVector,
-      windVectorGeoJson,
+      dynamicWeather,
       showRoadType,
       showRoadSurface,
       showCarStress,
@@ -1898,9 +1854,10 @@ export default function MapView({
       ...axisVisibility,
     });
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
-    applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyPrecipitationExtendedState(map, showPrecipitationNowcast, precipitationExtendedGeoJson);
-    applyWindVectorState(map, showWindVector, windVectorGeoJson);
+    for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
+      const state = dynamicWeather[id];
+      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], state?.visible ?? false, state?.payload);
+    }
     setStaticOverlayFilters(
       map,
       staticLegendHiddenKeysByAxis,
@@ -2404,25 +2361,20 @@ export default function MapView({
     recomputeLayerDataStatus,
   ]);
 
-  // 降水ナウキャスト・降水延長予報・風の矢印（改善計画T170/T171/T178、T183）。いずれも
-  // tileUrl/GeoJSONが地図上の時刻スライダー操作のたびに変わるため、上のSTATIC_OVERLAY_LAYERS
-  // 一括effect（依存が多く再実行コストの大きいshowX系フラグ群）とは分けた専用effectにまとめる
-  // （3レイヤーとも同じ「時刻依存レイヤー」の性質のため1本のeffectで足りる）。
+  // 動的気象レイヤー（降水ナウキャスト・風の矢印、改善計画T170/T171/T178、T183で降水延長予報を
+  // 追加してから再設計）。いずれもpayloadが地図上の時刻スライダー操作のたびに変わるため、
+  // 上のSTATIC_OVERLAY_LAYERS一括effect（依存が多く再実行コストの大きいshowX系フラグ群）とは
+  // 分けた専用effectにまとめる（DYNAMIC_WEATHER_LAYER_IDSで回すため、要素が増えてもこの
+  // effect自体は変わらない）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyPrecipitationNowcastState(map, showPrecipitationNowcast, precipitationNowcastTileUrl);
-    applyPrecipitationExtendedState(map, showPrecipitationNowcast, precipitationExtendedGeoJson);
-    applyWindVectorState(map, showWindVector, windVectorGeoJson);
+    for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
+      const state = dynamicWeather[id];
+      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], state?.visible ?? false, state?.payload);
+    }
     recomputeLayerDataStatus();
-  }, [
-    showPrecipitationNowcast,
-    precipitationNowcastTileUrl,
-    precipitationExtendedGeoJson,
-    showWindVector,
-    windVectorGeoJson,
-    recomputeLayerDataStatus,
-  ]);
+  }, [dynamicWeather, recomputeLayerDataStatus]);
 
   // 車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・
   // 事故（当事者/重大度）の絞り込み（改善計画T63）。

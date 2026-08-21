@@ -11,38 +11,21 @@
 // サンプリングするAPI（GET /api/weather/wind-grid）を新設し、フロントはその結果を
 // MapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色すべて自由に設定可能）で
 // 描画する方式へ切り替えた。
+//
+// T183（動的気象レイヤーの再設計、実機フィードバック「動的レイヤについては今後もデータ追加が
+// あり得るので、それも見据えて拡張性がある設計にしてほしい」）で、風・降水を共通契約
+// （dynamicWeather.ts）へ揃えた。このファイルはDynamicWeatherFrame/DynamicWeatherRenderPayload
+// を組み立てる薄いラッパーのみを持つ（実際のGeoJSON構築・色/サイズの式化はwindFrames/
+// windRenderPayload、MapView.tsx側）。
 
+import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import type { WindGridPoint } from "@/types/weather";
-
-/** grid[i].times[frameIndex]に対応する表示用フレーム。timesは全格子点で共通のはず
- * （同じforecast_days・timezoneで一括取得しているため）だが、念のため呼び出し元は
- * grid[0]?.timesを正としてスライダーへ渡す想定。 */
-
-/** 現在時刻に最も近いフレームのindex。Open-Meteoのhourly.timeは午前0時始まりの配列
- * （実際の取得時刻が真夜中とは限らない）のため、降水ナウキャストのような単純な末尾/先頭
- * ではなく実際の時刻差で探す。空配列なら0。timesは"YYYY-MM-DDTHH:MM"形式のJST時刻文字列
- * （タイムゾーン情報を持たないため、パース時にJSTを明示する。parseJstTime参照）。 */
-export function nearestFrameIndexToNow(times: readonly string[], now: Date = new Date()): number {
-  if (times.length === 0) return 0;
-  const nowMs = now.getTime();
-  let bestIndex = 0;
-  let bestDiffMs = Infinity;
-  for (let i = 0; i < times.length; i++) {
-    const diffMs = Math.abs(parseJstTime(times[i]).getTime() - nowMs);
-    if (diffMs < bestDiffMs) {
-      bestDiffMs = diffMs;
-      bestIndex = i;
-    }
-  }
-  return bestIndex;
-}
 
 /** "YYYY-MM-DDTHH:MM"（Open-Meteoのtimezone=Asia/Tokyo指定によるJST・オフセット無し表記）を
  * JSTとして解釈するDateへ変換する。オフセット無しのままDateへ渡すとブラウザのローカル
  * タイムゾーンとして解釈されてしまう（日本国外の閲覧環境で時刻がずれる）ため、明示的に
- * +09:00を付与する。下部バー2本の時刻連動（改善計画、実機フィードバック「同じ日時を
- * 示した状態で連動させ」）で、風スライダーのindexを共有の対象時刻へ変換するためpage.tsxからも
- * 使うのでexportしている。 */
+ * +09:00を付与する。降水延長予報（precipitationNowcast.ts）も同じ格子点マップ由来の時刻を
+ * パースするため、このファイルからexportして共有する。 */
 export function parseJstTime(time: string): Date {
   return new Date(`${time}+09:00`);
 }
@@ -51,13 +34,12 @@ export function parseJstTime(time: string): Date {
  * 半日近く過去の時刻が配列の前半を占める。gridを「現在時刻の属する時間帯」以降だけへ
  * 切り詰め、スライダーの左端（index 0）が常に「現在」になるようにする（実機フィードバック
  * 「過去の風を気にすることはアプリの性質上ない、デフォルト位置を左端に」）。「現在」の
- * 定義はnearestFrameIndexToNow（最も近い時刻）ではなく「現在時刻以下で最も新しい時刻」
- * （＝現在が属する1時間、precipitationNowcast.tsのlatestObservedFrameIndexと同じ考え方）
- * とする。nearestFrameIndexToNowだと現在時刻が正時をわずかに過ぎただけで次の1時間へ
- * 丸められ、本来の現在時間帯を消してしまうため。全格子点で時刻配列が共通という前提
- * （nearestFrameIndexToNowの利用箇所と同じ）のもと、grid[0]の時刻で1回だけindexを求め、
- * 全格子点の3つの並行配列（times/wind_speed_ms/wind_direction_deg）へ同じindexを適用する。
- * 空配列・全フレームが未来（＝ぴったり境界）ならそのまま返す。 */
+ * 定義は「最も近い時刻」ではなく「現在時刻以下で最も新しい時刻」（＝現在が属する1時間）
+ * とする。最も近い時刻だと現在時刻が正時をわずかに過ぎただけで次の1時間へ丸められ、
+ * 本来の現在時間帯を消してしまうため。全格子点で時刻配列が共通という前提のもと、grid[0]の
+ * 時刻で1回だけindexを求め、全格子点の4つの並行配列（times/wind_speed_ms/
+ * wind_direction_deg/precipitation_mm）へ同じindexを適用する。空配列・全フレームが
+ * 未来（＝ぴったり境界）ならそのまま返す。 */
 export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], now: Date = new Date()): WindGridPoint[] {
   if (grid.length === 0) return [];
   const times = grid[0].times;
@@ -72,6 +54,7 @@ export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], n
     times: point.times.slice(startIndex),
     wind_speed_ms: point.wind_speed_ms.slice(startIndex),
     wind_direction_deg: point.wind_direction_deg.slice(startIndex),
+    precipitation_mm: point.precipitation_mm.slice(startIndex),
   }));
 }
 
@@ -81,13 +64,12 @@ export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], n
  * セッション中にも実際に発生）で個別地点の取得に失敗すると、その地点をレスポンスから
  * 丸ごと除外する「取得失敗は握りつぶす」方針（api/routers/weather.py参照）のため、
  * 再取得のたびにどの地点が欠けるかが変わりうる。前回成功していた地点をそのまま
- * 残すことで、1地点の一時的な失敗が地図上の「その場所だけ塗られていない」穴として
- * 見えてしまうのを防ぐ（背景の色分けは正確な最新値である必要は薄く、多少古い値が
- * 残る方が穴が開くより実用上マシという判断。バックエンド側のstale fallback
- * ＝weather_client.pyのSTALE_FALLBACK_MAX_AGE_SECONDSと同じ考え方をフロント側にも
- * 及ぼす）。地点の同一性は緯度経度（固定ラティス由来でどちらも同じ丸め精度）で判定する。
- * 呼び出し側は生（trim前）の格子を渡すこと（trim後は「現在」の位置が取得のたびにずれ、
- * 古い地点だけindexの意味が食い違ってしまうため）。 */
+ * 残すことで、1地点の一時的な失敗が地図上の「その場所だけ描画されていない」穴として
+ * 見えてしまうのを防ぐ（多少古い値が残る方が穴が開くより実用上マシという判断。
+ * バックエンド側のstale fallback＝weather_client.pyのSTALE_FALLBACK_MAX_AGE_SECONDSと
+ * 同じ考え方をフロント側にも及ぼす）。地点の同一性は緯度経度（固定ラティス由来でどちらも
+ * 同じ丸め精度）で判定する。呼び出し側は生（trim前）の格子を渡すこと（trim後は「現在」の
+ * 位置が取得のたびにずれ、古い地点だけindexの意味が食い違ってしまうため）。 */
 export function mergeWindGridKeepingStale(
   previous: readonly WindGridPoint[],
   next: readonly WindGridPoint[]
@@ -97,22 +79,12 @@ export function mergeWindGridKeepingStale(
   return [...next, ...staleCarryOver];
 }
 
-/** ISO風の"YYYY-MM-DDTHH:MM"（JST）→ 表示用のJST時刻文字列。約48時間先まで日付をまたぐため
- * "M/D HH:mm"で日付も含める（precipitationNowcast.tsのformatNowcastFrameTimeは±60分で
- * 日付をまたがないため時刻のみ、こちらは異なる）。 */
-export function formatWindFrameTime(time: string): string {
-  const date = parseJstTime(time);
-  const datePart = date.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
-  const timePart = date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
-  return `${datePart} ${timePart}`;
-}
-
-// 風速→色の対応。矢印のicon-color・セルのfill-color（MapView.tsx）・地図チップの凡例
-// （page.tsx、実機フィードバック「風と雨の凡例も欲しい」）の3箇所で同じ配色を使うための
-// 単一の情報源（2箇所以上に同じ配色を書くと片方だけ直して食い違う事故が起きうるため
-// 1箇所へ集約）。MapLibre非依存の生データとして持ち、MapLibre補間式への組み立ては
-// 呼び出し側（MapView.tsx）が行う（このファイル自体はDOM/MapLibreを知らない、ファイル
-// 冒頭のコメント参照）。
+// 風速→色の対応。矢印のicon-color（MapView.tsx）・地図チップの凡例（page.tsx、実機
+// フィードバック「風と雨の凡例も欲しい」）の2箇所で同じ配色を使うための単一の情報源
+// （2箇所以上に同じ配色を書くと片方だけ直して食い違う事故が起きうるため1箇所へ集約）。
+// MapLibre非依存の生データとして持ち、MapLibre補間式への組み立ては呼び出し側
+// （MapView.tsx）が行う（このファイル自体はDOM/MapLibreを知らない、ファイル冒頭の
+// コメント参照）。
 //
 // 実機フィードバック「風の色分けをもっと細かくして。ロードバイクで走れない強風域は
 // 粒度粗く。微風からそこまでは粒度を細かくして」を受け、気象庁も使う国際的なビューフォート
@@ -134,7 +106,7 @@ export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string }
   { speedMs: 24.4, color: "#7f1d1d" }, // Bf9上限（暴風、これ以上は同じ色のまま）
 ];
 
-// この風速未満は「無風」として矢印・セルを描画しない（MapView.tsx参照）。実機確認
+// この風速未満は「無風」として矢印を描画しない（MapView.tsx参照）。実機確認
 // （2026-08-20、王子周辺で実測0.70〜0.81m/s）で当初の1.0m/sだと関東でごく普通に起きる
 // 弱風でも矢印が全滅したため、この値まで引き下げた経緯がある。
 export const WIND_CALM_THRESHOLD_MS = 0.3;
@@ -171,7 +143,7 @@ export interface WindPointFeatureProperties {
 /** grid（バックエンドから取得した格子点一覧）のframeIndex番目の時刻ぶんを、MapLibreの
  * GeoJSON sourceへそのまま渡せるFeatureCollectionへ変換する。frameIndexが範囲外、または
  * 値が欠損している格子点はスキップする（1点の欠損で全体を落とさない）。 */
-export function windGridToFeatureCollection(
+function windGridToFeatureCollection(
   grid: readonly WindGridPoint[],
   frameIndex: number
 ): GeoJSON.FeatureCollection<GeoJSON.Point, WindPointFeatureProperties> {
@@ -188,6 +160,28 @@ export function windGridToFeatureCollection(
   }
   return { type: "FeatureCollection", features };
 }
+
+/** grid[0]の時刻配列を、動的気象レイヤー共通のフレーム列（dynamicWeather.ts参照）へ変換する。
+ * refはgrid各点のtimes/wind_speed_ms/wind_direction_deg内のindexを指し、windRenderPayloadへ
+ * そのまま渡す。全格子点で時刻配列が共通という前提（同じforecast_days・timezoneで一括取得
+ * しているため）のもと、grid[0]だけを見る。 */
+export function windFrames(grid: readonly WindGridPoint[]): DynamicWeatherFrame<number>[] {
+  const times = grid[0]?.times ?? [];
+  return times.map((time, index) => ({ time: parseJstTime(time), ref: index }));
+}
+
+/** windFramesが返したref（times内のindex）から、地図へ渡す描画ペイロード（gridMark、
+ * 格子中央にマーク＝矢印を出す表現）を組み立てる。 */
+export function windRenderPayload(grid: readonly WindGridPoint[], ref: number): DynamicWeatherRenderPayload {
+  return { kind: "gridMark", geojson: windGridToFeatureCollection(grid, ref) };
+}
+
+// 格子間隔（度）。backend/app/domain/wind_grid.pyの同名定数（WIND_GRID_SPACING_DEG/
+// WIND_GRID_DETAIL_SPACING_DEG）と値を合わせること。APIレスポンス自体には間隔情報が
+// 含まれない（点の配列のみ）ため、フロント側でも同じ値を持つ必要がある。降水延長予報の
+// gridFill表現（precipitationNowcast.ts）がセルの1辺の長さとして使う。
+export const WIND_GRID_SPACING_DEG = 0.1;
+export const WIND_GRID_DETAIL_SPACING_DEG = 0.02;
 
 export interface MapViewport {
   west: number;
@@ -227,3 +221,4 @@ export function clampWindDetailBbox(viewport: MapViewport): Bbox {
     maxLat: Math.min(viewport.north, centerLat + halfSpan),
   };
 }
+

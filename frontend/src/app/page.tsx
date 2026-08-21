@@ -53,23 +53,16 @@ import DynamicLayerTimeSlider, {
   type DynamicLayerTimeSliderFrame,
 } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import {
-  buildCombinedPrecipitationFrames,
   fetchNowcastFrames,
-  nearestCombinedPrecipitationFrameIndex,
-  nowcastTileUrlTemplate,
-  precipitationGridToFeatureCollection,
+  precipitationFrames,
+  precipitationGridSpacingDeg,
+  precipitationRenderPayload,
   trimToCurrentAndFuture,
   PRECIPITATION_INTENSITY_LEVELS,
   type NowcastFrame,
 } from "@/components/Map/precipitationNowcast";
-import {
-  formatWindFrameTime,
-  nearestFrameIndexToNow,
-  parseJstTime,
-  windGridToFeatureCollection,
-  WIND_SPEED_LEGEND_LEVELS,
-  type MapViewport,
-} from "@/components/Map/windLayer";
+import { windFrames, windRenderPayload, WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
+import { formatDynamicFrameTime, frameIndexForTime, mergeFrameTimes, nearestTimeIndex } from "@/components/Map/dynamicWeather";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
@@ -261,17 +254,17 @@ export default function Home() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
 
-  // 下部バー2本（降水ナウキャスト・風）が指す対象時刻（改善計画、実機フィードバック
-  // 「同じ日時を示した状態で連動させ、変えるのは感度（スライド時の差）だけ」）。片方の
-  // バーを動かすとこの共有時刻が更新され、もう片方のindexもこの時刻へ最も近いフレームへ
-  // 追従する（下のprecipitationFrameIndex/windFrameIndex参照）。各バー自身の刻み幅（感度）は
-  // それぞれのフレーム配列の間隔がそのまま担うため、この時刻自体は連続値のままでよい。
+  // 動的気象レイヤー（降水ナウキャスト・風）が指す対象時刻（T183再設計、実機フィードバック
+  // 「時間経過はスライドバー1本で表現する」）。ONの全レイヤーのフレーム時刻を統合した
+  // 1本のタイムライン（dynamicWeather.ts: mergeFrameTimes）上の1点で、各レイヤーはこの
+  // 時刻に対応する自分のフレームを描画する（下のdynamicWeather memo参照。選択時刻がその
+  // レイヤーのデータ範囲外なら描画しない）。
   const [dynamicLayerTargetTime, setDynamicLayerTargetTime] = useState(() => new Date());
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。フェッチ・更新間隔は
   // layerVisibility.precipitationNowcastがONの間だけ動かすeffect（下記）が管理する。
   // スライダー位置(index)はnowcastFrames自体ではなく共有のdynamicLayerTargetTimeから
-  // 都度導出する（下のprecipitationFrameIndex参照）ため、ここでは持たない。
+  // 都度導出する（下のsliderIndex参照）ため、ここでは持たない。
   const [nowcastFrames, setNowcastFrames] = useState<NowcastFrame[]>([]);
   const [nowcastLoading, setNowcastLoading] = useState(false);
   const [nowcastError, setNowcastError] = useState<string | null>(null);
@@ -782,122 +775,101 @@ export default function Home() {
   }, [showPrecipitationNowcast]);
 
   const showWindVector = layerVisibility.windVector;
-  // 風・延長降水予報（T183、ユーザー要望「風と同じ考え方で、風と汎用化して実装してほしい」）
+  // 風・降水延長予報（T183、ユーザー要望「風と同じ考え方で、風と汎用化して実装してほしい」）
   // が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。バックエンドは1回のOpen-Meteo
   // 呼び出しで風向・風速・降水量をまとめて返すため、どちらか一方でもONならenabledにすることで
-  // 両方ONのときも1本のフェッチで済む。gridは常に「現在」から始まる粗い格子（windFrameIndex/
-  // windSliderFrames・降水延長予報の時刻軸が使う）、effectiveGridは詳細格子があればそちらを
-  // 優先した表示用の格子（矢印・延長降水予報アイコンのFeatureCollection計算に使う）。
+  // 両方ONのときも1本のフェッチで済む。gridは常に「現在」から始まる粗い格子（フレーム時刻軸が
+  // 使う）、effectiveGridは詳細格子があればそちらを優先した表示用の格子（gridMark/gridFillの
+  // ジオメトリ計算に使う）。detailGridは表示用格子の空間解像度（gridFillのセルサイズ決定）に
+  // 使う。
   const {
     grid: windGrid,
+    detailGrid,
     effectiveGrid: effectiveWindGrid,
     loading: windLoading,
     error: windError,
   } = useWeatherGrid(showWindVector || showPrecipitationNowcast, mapViewport);
 
-  // 降水スライダーへ渡す合成フレーム列（T183、ユーザー要望「1時間より先も、短時間雨予報を
-  // 出してほしい」「1時間まで細かい目盛り、1時間から先は1時間毎の粗い目盛り」）。気象庁
-  // ナウキャスト（0〜60分、5分刻み）と風と共有の格子点マップ由来の延長予報（60分以降、
-  // 約48時間先まで・1時間刻み）を束ねる（precipitationNowcast.ts:
-  // buildCombinedPrecipitationFrames参照）。延長側の時刻軸はwindGrid（詳細格子ではなく
-  // 粗い格子、windSliderFrames/windFrameIndexと同じ理由）から取る。
-  const precipitationFrames = useMemo(
-    () => buildCombinedPrecipitationFrames(nowcastFrames, windGrid[0]?.times ?? []),
-    [nowcastFrames, windGrid]
-  );
+  // 各要素のフレーム列（データ層、dynamicWeather.ts: DynamicWeatherFrame[]）。表示層は
+  // ここから先、どの要素がどのデータソースから来ているかを一切意識しない
+  // （T183再設計「データ取得の差異はデータ層で吸収」）。
+  const windFramesList = useMemo(() => windFrames(windGrid), [windGrid]);
+  const precipFramesList = useMemo(() => precipitationFrames(nowcastFrames, windGrid), [nowcastFrames, windGrid]);
 
-  // 共有の対象時刻（dynamicLayerTargetTime）に最も近い降水フレームのindex（下部バー2本の
-  // 時刻連動、windFrameIndexと同じ理由）。延長予報が風と同じ約48時間先まで対応するように
-  // なったため、以前存在した「風バー操作で降水ナウキャストのデータ範囲外へ出る」ケース
-  // （nowcastTargetTimeUnavailable）は事実上解消された。
-  const precipitationFrameIndex = useMemo(
-    () => nearestCombinedPrecipitationFrameIndex(precipitationFrames, dynamicLayerTargetTime),
-    [precipitationFrames, dynamicLayerTargetTime]
-  );
+  // ONの全レイヤーのフレーム時刻を統合した共有タイムライン（T183再設計、実機フィードバック
+  // 「時間経過はスライドバー1本で表現する」）。降水ナウキャスト（5分刻み）と風・延長予報
+  // （1時間刻み）が混ざると、目盛りが「近い将来は細かく、遠い将来は粗い」を自然に実現する
+  // （個別のUIロジックは不要）。
+  const activeFrameLists = useMemo(() => {
+    const lists: { time: Date }[][] = [];
+    if (showWindVector) lists.push(windFramesList);
+    if (showPrecipitationNowcast) lists.push(precipFramesList);
+    return lists;
+  }, [showWindVector, windFramesList, showPrecipitationNowcast, precipFramesList]);
+  const timeline = useMemo(() => mergeFrameTimes(activeFrameLists), [activeFrameLists]);
 
-  // 選択中フレームのsourceに応じて、気象庁ナウキャストのタイルURL（source==="nowcast"）か
-  // 延長予報のGeoJSON（source==="extended"）のどちらか一方だけを計算する（アイコンは1つ、
-  // 内部は時間によって使い分ける、というユーザー要望をここで実現する）。MapView側は
-  // それぞれ「visibleかつ値がある」ときだけ描画するため、選ばれなかった方は自然に非表示になる。
-  const selectedPrecipitationFrame = precipitationFrames[precipitationFrameIndex];
-  const precipitationNowcastTileUrl = useMemo(() => {
-    if (selectedPrecipitationFrame?.source !== "nowcast") return undefined;
-    const frame = nowcastFrames[selectedPrecipitationFrame.sourceIndex];
-    return frame ? nowcastTileUrlTemplate(frame) : undefined;
-  }, [selectedPrecipitationFrame, nowcastFrames]);
-  const precipitationExtendedGeoJson = useMemo(() => {
-    if (selectedPrecipitationFrame?.source !== "extended") return undefined;
-    if (effectiveWindGrid.length === 0) return undefined;
-    return precipitationGridToFeatureCollection(effectiveWindGrid, selectedPrecipitationFrame.sourceIndex);
-  }, [selectedPrecipitationFrame, effectiveWindGrid]);
-
-  // 共有の対象時刻に最も近い風フレームのindex（precipitationFrameIndexと同じ理由・同じ設計）。
-  // windGrid[0]?.timesを正とする（windCurrentIndex/windSliderFramesと同じ前提、下記参照）。
-  // 風は48時間ぶんの時刻幅を持つため、降水ナウキャスト側より広い範囲で追従できる。
-  const windFrameIndex = useMemo(
-    () => nearestFrameIndexToNow(windGrid[0]?.times ?? [], dynamicLayerTargetTime),
-    [windGrid, dynamicLayerTargetTime]
+  // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
+  // 表示用ラベル列。
+  const sliderIndex = useMemo(() => nearestTimeIndex(timeline, dynamicLayerTargetTime), [timeline, dynamicLayerTargetTime]);
+  const sliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
+    () => timeline.map((time) => ({ label: formatDynamicFrameTime(time) })),
+    [timeline]
   );
-
-  // 格子点が1件も無い（未取得・全地点取得失敗）間はundefined（MapView側は
-  // visible && geoJson != nullで表示するため、フェッチ未完了中に古いフレームが
-  // 一瞬見えるのを防ぐ、precipitationNowcastTileUrlと同じ扱い）。
-  const windVectorGeoJson = useMemo(
-    () => (effectiveWindGrid.length > 0 ? windGridToFeatureCollection(effectiveWindGrid, windFrameIndex) : undefined),
-    [effectiveWindGrid, windFrameIndex]
-  );
-
-  // 地図下部の時刻スライダー（DynamicLayerTimeSlider）へ渡す表示用フレーム列。時刻の
-  // 整形・実況/予測/広域予報ラベルはレイヤー固有のデータ層（precipitationNowcast.ts/
-  // windLayer.ts）に閉じているため、ここで{label, badge}へ変換してからUIコンポーネントへ渡す
-  // （DynamicLayerTimeSlider自体はレイヤー固有の時刻形式を知らない汎用コンポーネント）。
-  const precipitationSliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () => precipitationFrames.map((frame) => ({ label: frame.label, badge: frame.badge })),
-    [precipitationFrames]
-  );
-  // 全格子点で共通のはず（同じforecast_days・timezoneで一括取得しているため）の時刻配列を
-  // 先頭の格子点から取る（windLayer.ts: nearestFrameIndexToNowの利用箇所と同じ前提）。
-  const windSliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () => (windGrid[0]?.times ?? []).map((time) => ({ label: formatWindFrameTime(time) })),
-    [windGrid]
-  );
-
   // 「現在」に戻るボタン（改善計画、実機フィードバック「現況に戻すボタンも横に追加して」）の
-  // ジャンプ先index。初回フェッチ時にスライダー位置の初期値として使う値と同じ計算だが、
-  // ボタンはフェッチのたびではなく毎回押された時点の「現在」に戻したいため、frames自体から
-  // 都度計算する派生値として持つ（precipitationFrameIndex/windFrameIndexとは独立）。
-  const precipitationCurrentIndex = useMemo(
-    () => nearestCombinedPrecipitationFrameIndex(precipitationFrames, new Date()),
-    [precipitationFrames]
-  );
-  const windCurrentIndex = useMemo(() => nearestFrameIndexToNow(windGrid[0]?.times ?? []), [windGrid]);
+  // ジャンプ先index。ボタンはフェッチのたびではなく毎回押された時点の「現在」に戻したいため、
+  // timeline自体から都度計算する。
+  const sliderCurrentIndex = useMemo(() => nearestTimeIndex(timeline, new Date()), [timeline]);
 
-  // 下部バー2本の時刻連動（改善計画、実機フィードバック「同じ日時を示した状態で連動させ、
-  // 変えるのは感度（スライド時の差）だけ」）。DynamicLayerTimeSlider自体のonIndexChangeは
-  // レイヤー固有のindexしか知らないため、ここでそのレイヤーのフレーム時刻へ変換してから
-  // 共有のdynamicLayerTargetTimeへ書き込む（「現在」ボタン＝onIndexChange(currentIndex)の
+  // スライダー操作（改善計画、実機フィードバック「同じ日時を示した状態で連動させ、変えるのは
+  // 感度（スライド時の差）だけ」→T183で1本のスライダーへ統合）。DynamicLayerTimeSlider自体の
+  // onIndexChangeはタイムライン上のindexしか知らないため、ここで実時刻へ変換してから共有の
+  // dynamicLayerTargetTimeへ書き込む（「現在」ボタン＝onIndexChange(sliderCurrentIndex)の
   // 呼び出しも同じ経路を通るため、別扱い不要）。
-  const handlePrecipitationIndexChange = useCallback(
+  const handleSliderIndexChange = useCallback(
     (index: number) => {
-      const frame = precipitationFrames[index];
-      if (frame) setDynamicLayerTargetTime(frame.time);
+      const time = timeline[index];
+      if (time) setDynamicLayerTargetTime(time);
     },
-    [precipitationFrames]
+    [timeline]
   );
-  const handleWindIndexChange = useCallback(
-    (index: number) => {
-      const time = windGrid[0]?.times[index];
-      if (time) setDynamicLayerTargetTime(parseJstTime(time));
-    },
-    [windGrid]
+  const handleDynamicLayerNow = useCallback(() => setDynamicLayerTargetTime(new Date()), []);
+
+  // 選択中の共有時刻（dynamicLayerTargetTime）に対応する各要素のペイロード。該当時刻がその
+  // 要素のデータ範囲外なら描画しない（frameIndexForTimeがnullを返す、要件「該当時間データが
+  // ない場合、地図には描画しない」。従来の「端のフレームへクランプして古いデータを見せ続ける」
+  // 挙動は廃止）。表示層（MapView.tsx）はkindしか見ないため、降水がナウキャスト由来
+  // （rasterTile）か延長予報由来（gridFill）かはここで既に吸収済み。
+  const windPayload = useMemo(() => {
+    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
+    if (index == null || effectiveWindGrid.length === 0) return undefined;
+    return windRenderPayload(effectiveWindGrid, windFramesList[index].ref);
+  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
+  const precipitationPayload = useMemo(() => {
+    const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
+    if (index == null) return undefined;
+    return precipitationRenderPayload(
+      nowcastFrames,
+      effectiveWindGrid,
+      precipitationGridSpacingDeg(detailGrid.length > 0),
+      precipFramesList[index].ref
+    );
+  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, effectiveWindGrid, detailGrid]);
+
+  // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
+  // 新しい動的気象要素を追加してもMapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
+  const dynamicWeather = useMemo(
+    () => ({
+      windVector: { visible: showWindVector, payload: windPayload },
+      precipitationNowcast: { visible: showPrecipitationNowcast, payload: precipitationPayload },
+    }),
+    [showWindVector, windPayload, showPrecipitationNowcast, precipitationPayload]
   );
 
-  // 「現在」ボタン（両バー共通、DynamicLayerTimeSlider: onNow参照）。実時刻そのものへ
-  // 共有時刻を戻す。以前は押したバー自身の「現在」frameの時刻へ合わせていたが、風の
-  // currentIndexは1時間刻みで実時刻より最大59分過去の正時に丸まるため、風側の「現在」を
-  // 押すと降水ナウキャスト（「現在」より前のフレームを持たない）が範囲外になり消えてしまう
-  // 不具合があった（実機フィードバック「現在リセットすると23:00になって上バーが消えた」）。
-  const handleDynamicLayerNow = useCallback(() => setDynamicLayerTargetTime(new Date()), []);
+  // 共有スライダーのloading/error表示。windLoading/windErrorは両要素が使う格子点フェッチ
+  // （useWeatherGrid、ONのどちらか一方でも走る）、nowcastLoading/nowcastErrorは降水ナウキャスト
+  // 固有のフェッチ。風のみONならnowcastの状態は無関係（フェッチ自体走らない）。
+  const dynamicLayerLoading = windLoading || (showPrecipitationNowcast && nowcastLoading);
+  const dynamicLayerError = windError ?? (showPrecipitationNowcast ? nowcastError : null);
 
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
@@ -1382,11 +1354,7 @@ export default function Home() {
             selectedRouteId={selectedRouteId}
             location={location}
             showElevation={layerVisibility.elevation}
-            showPrecipitationNowcast={showPrecipitationNowcast}
-            precipitationNowcastTileUrl={precipitationNowcastTileUrl}
-            precipitationExtendedGeoJson={precipitationExtendedGeoJson}
-            showWindVector={showWindVector}
-            windVectorGeoJson={windVectorGeoJson}
+            dynamicWeather={dynamicWeather}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
             showCarStress={layerVisibility.carStress}
@@ -1419,36 +1387,22 @@ export default function Home() {
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 
           {/* 時刻依存レイヤーが1つ以上ONのときだけ地図上へ出す（改善計画T170、設計原則12:
-              地図の視界を圧迫しない）。複数同時ONのときはdynamicLayerSlidersコンテナ
-              （page.module.css）が縦積みにする。 */}
+              地図の視界を圧迫しない）。T183再設計で、ONの全レイヤーのフレーム時刻を統合した
+              1本のスライダー（timeline）へ統合した（旧: レイヤーごとに別々のスライダーを
+              縦積み）。 */}
           {(showPrecipitationNowcast || showWindVector) && (
             <div className={styles.dynamicLayerSliders}>
-              {showPrecipitationNowcast && (
-                <DynamicLayerTimeSlider
-                  frames={precipitationSliderFrames}
-                  index={precipitationFrameIndex}
-                  onIndexChange={handlePrecipitationIndexChange}
-                  currentIndex={precipitationCurrentIndex}
-                  onNow={handleDynamicLayerNow}
-                  loading={nowcastLoading}
-                  loadingLabel="降水ナウキャストの時刻を取得中..."
-                  error={nowcastError}
-                  ariaLabel="降水の表示時刻"
-                />
-              )}
-              {showWindVector && (
-                <DynamicLayerTimeSlider
-                  frames={windSliderFrames}
-                  index={windFrameIndex}
-                  onIndexChange={handleWindIndexChange}
-                  currentIndex={windCurrentIndex}
-                  onNow={handleDynamicLayerNow}
-                  loading={windLoading}
-                  loadingLabel="風データの時刻を取得中..."
-                  error={windError}
-                  ariaLabel="風の表示時刻"
-                />
-              )}
+              <DynamicLayerTimeSlider
+                frames={sliderFrames}
+                index={sliderIndex}
+                onIndexChange={handleSliderIndexChange}
+                currentIndex={sliderCurrentIndex}
+                onNow={handleDynamicLayerNow}
+                loading={dynamicLayerLoading}
+                loadingLabel="気象データの時刻を取得中..."
+                error={dynamicLayerError}
+                ariaLabel="気象レイヤーの表示時刻"
+              />
             </div>
           )}
 

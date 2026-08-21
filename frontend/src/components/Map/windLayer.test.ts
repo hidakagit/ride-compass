@@ -1,49 +1,40 @@
 import { describe, expect, it } from "vitest";
 import {
   clampWindDetailBbox,
-  formatWindFrameTime,
   mergeWindGridKeepingStale,
-  nearestFrameIndexToNow,
   trimWindGridToCurrentAndFuture,
-  windGridToFeatureCollection,
+  windFrames,
+  windRenderPayload,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
 } from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 describe("windLayer", () => {
-  describe("nearestFrameIndexToNow", () => {
-    const times = ["2026-08-20T00:00", "2026-08-20T03:00", "2026-08-20T06:00"];
-
-    it("現在時刻(JST)に最も近いフレームのindexを返す", () => {
-      // 2026-08-20T04:40 JST = 04:40+09:00 は 03:00寄り(index1)より06:00寄り(index2)
-      expect(nearestFrameIndexToNow(times, new Date("2026-08-20T04:40:00+09:00"))).toBe(2);
-      expect(nearestFrameIndexToNow(times, new Date("2026-08-20T01:00:00+09:00"))).toBe(0);
+  describe("windFrames（T183: dynamicWeather.tsの共通フレーム列へ変換）", () => {
+    it("grid[0]の時刻配列をJSTとしてパースし、times内のindexをrefへ持つフレーム列を返す", () => {
+      const grid: WindGridPoint[] = [
+        {
+          latitude: 35.68,
+          longitude: 139.77,
+          times: ["2026-08-20T00:00", "2026-08-20T03:00"],
+          wind_speed_ms: [1, 2],
+          wind_direction_deg: [10, 20],
+          precipitation_mm: [0, 0],
+        },
+      ];
+      const frames = windFrames(grid);
+      expect(frames).toHaveLength(2);
+      expect(frames[0]).toEqual({ time: new Date("2026-08-20T00:00:00+09:00"), ref: 0 });
+      expect(frames[1]).toEqual({ time: new Date("2026-08-20T03:00:00+09:00"), ref: 1 });
     });
 
-    it("空配列なら0を返す", () => {
-      expect(nearestFrameIndexToNow([], new Date())).toBe(0);
-    });
-  });
-
-  describe("formatWindFrameTime", () => {
-    it("JST時刻文字列を日付・時刻表示へ変換する", () => {
-      expect(formatWindFrameTime("2026-08-20T12:00")).toBe("8/20 12:00");
-    });
-
-    it("日付をまたぐ時刻も正しく変換する", () => {
-      expect(formatWindFrameTime("2026-08-21T06:00")).toBe("8/21 06:00");
-    });
-
-    it("オフセット無し表記をJSTとして解釈する(ブラウザのローカルタイムゾーンに依存しない)", () => {
-      // +09:00を明示せずDateへ渡すとブラウザのローカルタイムゾーンとして解釈されてしまうため、
-      // parseJstTime内部で明示的に付与していることを確認する回帰テスト。
-      const result = formatWindFrameTime("2026-08-20T00:00");
-      expect(result).toBe("8/20 00:00");
+    it("空配列を渡すと空配列を返す", () => {
+      expect(windFrames([])).toEqual([]);
     });
   });
 
-  describe("windGridToFeatureCollection", () => {
+  describe("windRenderPayload（gridMark、格子中央にマーク＝矢印を出す表現）", () => {
     const grid: WindGridPoint[] = [
       {
         latitude: 35.68,
@@ -63,31 +54,35 @@ describe("windLayer", () => {
       },
     ];
 
-    it("指定フレームの値でGeoJSON FeatureCollectionを構築する", () => {
-      const fc = windGridToFeatureCollection(grid, 0);
-      expect(fc.type).toBe("FeatureCollection");
-      expect(fc.features).toHaveLength(2);
-      expect(fc.features[0].geometry.coordinates).toEqual([139.77, 35.68]);
-      expect(fc.features[0].properties.speed).toBe(2.5);
+    it("kind=gridMarkで、指定フレームの値からGeoJSON FeatureCollectionを構築する", () => {
+      const payload = windRenderPayload(grid, 0);
+      expect(payload.kind).toBe("gridMark");
+      if (payload.kind !== "gridMark") throw new Error("unreachable");
+      expect(payload.geojson.features).toHaveLength(2);
+      expect(payload.geojson.features[0].geometry).toEqual({ type: "Point", coordinates: [139.77, 35.68] });
+      expect(payload.geojson.features[0].properties?.speed).toBe(2.5);
       // bearing = (direction + 180) % 360（風が吹いていく方向）
-      expect(fc.features[0].properties.bearing).toBe(270);
-      expect(fc.features[1].properties.bearing).toBe(180);
+      expect(payload.geojson.features[0].properties?.bearing).toBe(270);
+      expect(payload.geojson.features[1].properties?.bearing).toBe(180);
     });
 
-    it("フレームが変わると値も追従する", () => {
-      const fc = windGridToFeatureCollection(grid, 1);
-      expect(fc.features[0].properties.speed).toBe(3.1);
-      expect(fc.features[1].properties.speed).toBe(4.2);
+    it("refが変わると値も追従する", () => {
+      const payload = windRenderPayload(grid, 1);
+      if (payload.kind !== "gridMark") throw new Error("unreachable");
+      expect(payload.geojson.features[0].properties?.speed).toBe(3.1);
+      expect(payload.geojson.features[1].properties?.speed).toBe(4.2);
     });
 
-    it("frameIndexが範囲外の格子点はスキップする(欠損に頑健)", () => {
-      const fc = windGridToFeatureCollection(grid, 5);
-      expect(fc.features).toHaveLength(0);
+    it("refが範囲外の格子点はスキップする(欠損に頑健)", () => {
+      const payload = windRenderPayload(grid, 5);
+      if (payload.kind !== "gridMark") throw new Error("unreachable");
+      expect(payload.geojson.features).toHaveLength(0);
     });
 
     it("空配列を渡すと空のFeatureCollectionを返す", () => {
-      const fc = windGridToFeatureCollection([], 0);
-      expect(fc.features).toHaveLength(0);
+      const payload = windRenderPayload([], 0);
+      if (payload.kind !== "gridMark") throw new Error("unreachable");
+      expect(payload.geojson.features).toHaveLength(0);
     });
   });
 
