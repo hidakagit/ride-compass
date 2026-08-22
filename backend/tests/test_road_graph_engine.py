@@ -563,6 +563,53 @@ async def test_candidate_segments_carry_edge_geometry_for_map_drawing():
         assert coordinates[-1] == [seg.end_longitude, seg.end_latitude]
 
 
+async def test_candidate_segments_are_binned_into_approximately_500m_groups():
+    # 改善計画T11（レビュー指摘M3）: bearing=0のorigin→p-0スポーク（実距離約10km、
+    # build_loop_graphのRADIUS_RATIO=1/3・distance_km=30より）を、0.1km刻みの短い
+    # Edge100本のチェーンへ置き換え、実データのEdge単位segments（交差点間、多くは
+    # 500m未満）を模す。ビン化後のsegments件数がEdge本数より大幅に少なくなり、
+    # かつ合計距離は保たれることを確認する。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    origin_node = graph.nodes["origin"]
+    p0_node = graph.nodes["p-0"]
+    origin_coord = Coordinates(latitude=origin_node.latitude, longitude=origin_node.longitude)
+    p0_coord = Coordinates(latitude=p0_node.latitude, longitude=p0_node.longitude)
+
+    chain_node_count = 100
+    new_nodes = dict(graph.nodes)
+    new_edges = dict(graph.edges)
+    del new_edges["e-0-spoke1"]
+
+    previous_node_id = "origin"
+    previous_coord = origin_coord
+    for i in range(chain_node_count):
+        fraction = (i + 1) / (chain_node_count + 1)
+        lat = origin_coord.latitude + (p0_coord.latitude - origin_coord.latitude) * fraction
+        lon = origin_coord.longitude + (p0_coord.longitude - origin_coord.longitude) * fraction
+        node_id = f"chain-{i}"
+        coord = Coordinates(latitude=lat, longitude=lon)
+        new_nodes[node_id] = Node(node_id=node_id, latitude=lat, longitude=lon)
+        new_edges[f"chain-edge-{i}"] = _edge(f"chain-edge-{i}", previous_node_id, node_id, previous_coord, coord)
+        previous_node_id, previous_coord = node_id, coord
+    new_edges["chain-edge-final"] = _edge("chain-edge-final", previous_node_id, "p-0", previous_coord, p0_coord)
+
+    graph = RoadGraph(graph_version="test", nodes=new_nodes, edges=new_edges)
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    # 元のEdge数: チェーン101本 + arc(1) + spoke2(1) = 103本。ビン化後は500m単位に集約され
+    # 大幅に少なくなるはず（チェーン部分だけでも約10km÷0.5km=20ビン程度が目安）。
+    assert candidate.segments is not None
+    assert len(candidate.segments) < 30
+    total_segment_distance = sum(s.distance_km for s in candidate.segments)
+    # 各Edge単位segmentのdistance_kmは個別に2桁丸め済み（_build_segment_details）のため、
+    # 100本超のチェーンでは累積の丸め誤差が既存テスト（Edge2-3本）より目立つ。
+    # ビン化自体が誤差を増やしているわけではないため、許容差はEdge本数に応じて広めに取る。
+    assert abs(total_segment_distance - candidate.distance_km) < 0.5
+
+
 async def test_total_score_is_populated_and_candidates_sorted_descending():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)

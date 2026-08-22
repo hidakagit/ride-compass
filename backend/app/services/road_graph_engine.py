@@ -50,7 +50,7 @@ from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
-from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail, aggregate_segments_into_bins
 from app.domain.twilight import is_night
 from app.domain.traffic import (
     CarStressRecipe,
@@ -303,12 +303,19 @@ class RoadGraphEngine:
             edges_in_path, context.accident_counts, context.accident_years_covered
         )
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
+        # ルート全体の集約値（car_stress_score等）はビン化前のEdge単位segmentsから計算する
+        # （ビン単位のcar_stress自体が既に丸め済みのため、ビン後の値を使うと丸め誤差が
+        # 二重に乗ってしまう。改善計画T11）。
         car_stress_score = distance_weighted_difficulty(
             [(s.car_stress, s.distance_km) for s in segments]
         )
         bicycle_infra_score = distance_weighted_bicycle_infra_score(
             [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
         )
+        # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
+        # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
+        # 描画コストが嵩む）。
+        segments = aggregate_segments_into_bins(segments)
 
         return RouteCandidate(
             **candidate_identity(traced.bearing),

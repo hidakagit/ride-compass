@@ -230,9 +230,41 @@
     不要（T218とは異なりこの点の確認待ちは無い）。
   - この完了により、T218aのトリガー（T10完了）が成立した。
 
-### - [ ] T11. `segments` のAPI境界ビン化〔E4・レビュー指摘M3〕規模M — トリガー: road_graphエンジン常用化
+### - [x] T11. `segments` のAPI境界ビン化〔E4・レビュー指摘M3〕規模M（2026-08-23完了）
 
 - Edge単位のsegmentsを約500m単位で集約してから返す。フロントの描画コスト・転送量を削減。
+- **トリガー未到達のまま実施**: 元のトリガー「road_graphエンジン常用化」は本タスク完了時点
+  でも未成立（`settings.routing_engine`既定値は`openrouteservice`のまま、本作業では
+  変更しない方針、T12 ADR冒頭参照）。ユーザーからの明示指示「T218, T10, T218a, T219,
+  T220, T11 まで実施して」により、road_graphエンジンを将来常用化する際に備えて
+  T12 ADRの残実装（Stage 0〜2＋本タスク）を一括で実施する形で着手した。
+- **実装メモ（2026-08-23完了）**:
+  - `domain/route.py`に`aggregate_segments_into_bins(segments, bin_distance_km=0.5)`を
+    新設。連続する`RouteSegmentDetail`（Edge単位）を累積距離0.5km単位でグルーピングし、
+    1ビン1件へ集約する。集約方法はフィールドの性質ごとに使い分け:
+    距離加重平均（gradient_percent/wind_penalty/car_stress/各difficulty系、
+    `domain/difficulty.py: distance_weighted_difficulty`を再利用）・距離加重多数決
+    （road_surface_good/bicycle_infra、新設`_weighted_mode`）・先頭/末尾からの引き継ぎ
+    （cumulative_distance_km・estimated_arrival_time・start/end座標）・形状点連結
+    （geometry、隣接区間の境界点重複を除去）。最後の端数ビンも独立したビンとして残す
+    （距離の合計を正しく保つため）。既存の`RouteSegmentDetail`型のまま返すため、
+    OpenAPI契約・フロント型への影響は無い。
+  - `road_graph_engine.py: _build_candidate`で、ルート全体の集約値
+    （car_stress_score/bicycle_infra_score）はビン化前のEdge単位segmentsから計算し
+    （ビン単位のcar_stress自体が既に丸め済みのため、ビン後の値を使うと丸め誤差が
+    二重に乗ってしまうのを避ける）、APIレスポンスとして返す`segments`のみビン化後の
+    値に差し替える。
+  - 検証: 新規`tests/test_route.py`（12件、集約ロジックの単体テスト）・
+    `test_road_graph_engine.py`に統合テスト1件（0.1km刻みEdge100本のチェーンを実データの
+    細かいEdge単位segmentsに見立て、ビン化後のsegments件数が大幅に減り合計距離が
+    保たれることを確認）を追加。backend全体1064件green。さらにローカルdev DB
+    （実データ、11.02km相当の経路・190エッジ）で`aggregate_segments_into_bins`を
+    実行し、190エッジ→21ビンへ集約され合計距離が完全一致（11.020km）することを確認
+    （検証後、一時スクリプトは削除）。
+  - フロント側のコード変更は無し（型・エンドポイント契約が変わらないため）。
+    `settings.routing_engine`が既定`openrouteservice`のままの現状ではroad_graphエンジン
+    自体がまだ本番導線で使われておらず、Playwright実機確認は本タスクの変更範囲
+    （バックエンドのみ）に対しては不要と判断した。
 
 ### - [x] T12. Road Graph探索のスケール設計ADR〔C3〕規模M（設計のみ）（2026-08-23完了）
 
