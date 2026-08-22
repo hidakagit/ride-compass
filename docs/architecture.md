@@ -343,6 +343,8 @@ RideCompass/
         night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）
         twilight.py                      ✅ 改善計画T173: is_night（astralライブラリで市民薄明を判定、動的気象レイヤー参照）
         wind_grid.py                     ✅ 改善計画T178フォローアップ・T183: 風・降水延長予報の格子点マップ（固定格子生成、外部API非依存の純粋座標計算。動的気象レイヤー参照）
+        jma_warning.py                    ✅ 改善計画T205: JMA警報コード対応表（気象庁公式コード表を典拠）とサイクリング関連種別への絞り込み、3段階レベル導出、電文kinds配列からのActiveWarning抽出
+        jma_area.py                        ✅ 改善計画T205: 市区町村コード→JMA警報エリア（class20/class10/office）の解決（area.jsonの親子関係を辿る）
         routing.py                     ✅ build_networkx_graph, find_nearest_node, shortest_path_node_ids, path_to_edge_ids, concat_node_paths（「完全移行」で新規。Route Engine、NetworkXのDijkstraをラップ）
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
@@ -352,6 +354,7 @@ RideCompass/
         elevation_service.py    ✅ エンジンから渡されたサンプル点列（距離連動、約1km間隔・12〜32点）についてGSI標高APIで獲得標高・最高/最低標高・最大勾配を算出（Step5。「完全移行」でRoad Graphエンジンからは不要になり一度削除、「ルーティングエンジンの切り替え対応」で`OpenRouteServiceEngine`用に復元）
         wind_service.py         ✅ ルートのサンプル点ごとに推定到達時刻の風からwind_penalty/wind_scoreを算出（Step7。elevation_service.pyと同じ経緯で削除→復元）
         weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）。RoadGraphEngineからは出発時点・起点付近の風を取得する用途で（「完全移行」）、OpenRouteServiceEngineからはWindService経由で区間ごとの推定到達時刻の風を取得する用途で、それぞれ呼ばれる
+        warning_service.py     ✅ 改善計画T205: 緯度経度→市区町村→JMA警報エリアの解決とr8警報APIの電文配列集約でWeatherWarningsを組み立てる。地点解決・警報取得のどこで失敗しても空応答（警報なし）を返す
         route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）。「完全移行」後もRoad Graphベースの候補に対しそのまま再利用
         region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
         accident_service.py          ✅ 事故点のタイル生成（accident_repository.py経由）。region_service.pyとは別系統（外部静的データソースT50、7章参照）
@@ -362,6 +365,7 @@ RideCompass/
         ors_client.py           ✅ openrouteservice Directions API（cycling-road、複数経由地対応。`extra_info=surface`は改善計画T21で撤去済み、路面評価は自前DB空間マッチへ統一）
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
         weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ。get_forecast_manyはL1メモリ+L2 SQLite永続化の2段、T194〜T195）
+        jma_warning_client.py    ✅ 改善計画T205: 国土地理院逆ジオコーダ（緯度経度→市区町村コード）・JMA地域マスタarea.json（24時間TTL）・JMA警報API r8（10分TTL）の3クライアント。いずれも失敗時はNoneを返す（tenacity再試行は無し）
         overpass_client.py         ✅ Overpass API。`get_ways_and_nodes`（Way/Node IDを保持したトポロジー取得、Road Graph構築専用）のみ保持。地域路面レイヤー用の`get_roads`は改善計画T22でOverpassフォールバックとともに削除済み（`GraphService`の`repository`未接続時＝DBなし構成でのみ使う）
         vector_tile.py               ✅ 路面データをMVT（Mapbox Vector Tile）にエンコード（Web Mercator投影、Step10改訂）
         cache_db.py                 ✅ SQLite永続キャッシュ（標高: Step5用。気象グリッド(wind_forecast_cache): T194〜T195用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
@@ -460,6 +464,7 @@ RideCompass/
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
         WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水確率表示（Step6）
+        WarningBadge/WarningBadge.tsx ✅ 改善計画T205: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形のため、T174（WBGT警告、未着手）も同じコンポーネントを再利用する想定
         DebugPanel/DebugPanel.tsx    ✅ サイドバーのデバッグモードON/OFFチェックボックス（フロントエンドUX改善）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを画面下部に表示（フロントエンドUX改善）
       hooks/
@@ -659,6 +664,16 @@ Request（`spacing_deg`省略時は`WIND_GRID_DETAIL_SPACING_DEG`=0.02。任意�
 Response 400（`spacing_deg`が許可値以外、または表示範囲が広すぎ`WIND_GRID_DETAIL_MAX_POINTS`=900を超える場合）:
 { "detail": "spacing_degの値が不正です。" } / { "detail": "表示範囲が広すぎます。ズームインしてください。" }
 Response 429（`WIND_GRID_DETAIL_RATE_LIMIT_PER_MINUTE`超過）。
+
+GET /api/weather/warnings?latitude=...&longitude=...   # JMA警報・注意報バッジ（改善計画T205）
+Response 200: 出発地点近傍のサイクリング関連警報・注意報（大雨・洪水・暴風/強風・波浪・大雪・雷・土砂災害）。
+{ "area_name":"東京地方", "report_datetime":"2026-08-22T18:09:00+09:00",
+  "warnings":[{"code":"14","name":"雷注意報","level":"advisory","additions":["竜巻","ひょう"]}] }
+警報が無い場合は`{"area_name":null,"report_datetime":null,"warnings":[]}`。地点→市区町村→JMA警報
+エリアの解決（国土地理院逆ジオコーダ→JMA地域マスタarea.json→JMA警報API r8）のどこで失敗しても
+例外にせず同じ空応答を返す（他の`/api/weather`系と異なりこのfail-openは意図的な仕様。安全側では
+ないトレードオフをT174（WBGT警告、未着手）と共有する）。
+Response 429（`WEATHER_WARNINGS_RATE_LIMIT_PER_MINUTE`超過）。
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、

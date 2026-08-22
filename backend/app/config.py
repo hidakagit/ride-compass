@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # （domain/wind_grid.py: generate_wind_grid_detail_points参照）により大半はOpen-Meteoへの
     # 新規リクエストを伴わない軽い呼び出しになる想定。
     wind_grid_detail_rate_limit_per_minute: int = 30
+    # 警報・注意報バッジ（改善計画T205）。/weatherと同じ地点変更時デバウンス起点で呼ばれる
+    # （1回の呼び出しでGSI逆ジオコーダ・JMA地域マスタ・JMA警報APIの最大3件を叩きうるが、
+    # 後2者は長寿命TTLキャッシュが効くため実際の外部リクエストは大半がGSI呼び出しのみ）。
+    weather_warnings_rate_limit_per_minute: int = 30
     # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
     # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
     # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。

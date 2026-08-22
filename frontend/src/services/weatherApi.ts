@@ -1,5 +1,5 @@
 import type { Coordinates } from "@/types/route";
-import type { WeatherConditions, WindGridPoint } from "@/types/weather";
+import type { WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -15,6 +15,22 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
   const data = await fetchJson<WeatherConditions>(url, { timeoutMs: 15000, category: "api:weather", errorLabel: "天候情報" });
   debugLog("api:weather", "詳細", { precipitation_probability_percent: data.precipitation_probability_percent });
   return data;
+}
+
+// 警報・注意報バッジ（改善計画T205）。取得失敗時もbackend側が空のwarningsで200を返す
+// 契約（backend/app/api/routers/weather.py: get_weather_warnings参照）のため、
+// ここでのエラーはネットワーク到達不能・タイムアウト等の通信エラーのみを表す。
+export async function getWeatherWarnings(point: Coordinates): Promise<WeatherWarnings> {
+  const params = new URLSearchParams({
+    latitude: String(point.latitude),
+    longitude: String(point.longitude),
+  });
+  const url = `${API_BASE_URL}/api/weather/warnings?${params}`;
+  return fetchJson<WeatherWarnings>(url, {
+    timeoutMs: 15000,
+    category: "api:weatherWarnings",
+    errorLabel: "警報・注意報",
+  });
 }
 
 // 風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点ぶんの
