@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.domain.difficulty import distance_weighted_difficulty
+
 
 class Coordinates(BaseModel):
     latitude: float = Field(ge=-90, le=90)
@@ -119,3 +121,130 @@ class RouteCandidate(BaseModel):
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
+
+
+# 改善計画T11（レビュー指摘M3）: road_graphエンジンのsegmentsはEdge単位（交差点間、
+# 1候補あたり150〜230件、30km級）でAPIペイロード・フロント描画コストが嵩むため、
+# 約500m単位に集約してから返す。
+SEGMENT_BIN_DISTANCE_KM = 0.5
+
+
+def aggregate_segments_into_bins(
+    segments: list[RouteSegmentDetail], bin_distance_km: float = SEGMENT_BIN_DISTANCE_KM
+) -> list[RouteSegmentDetail]:
+    """連続するEdge単位の`RouteSegmentDetail`を、累積距離`bin_distance_km`単位で
+    グルーピングし、1ビン1件の`RouteSegmentDetail`へ集約する（改善計画T11）。
+
+    集約方法（フィールドの性質ごと）:
+    - 距離加重平均: gradient_percent/wind_penalty/car_stress/各difficulty系
+      （domain/difficulty.py: distance_weighted_difficulty、Noneの区間は除外し
+      残りの距離で再正規化。ルート全体の集約と同じ考え方）
+    - 距離加重多数決: road_surface_good/bicycle_infra（カテゴリ値のため平均ではなく、
+      ビン内で最も距離の長い値を代表値とする。Noneの区間は除外）
+    - 先頭からの引き継ぎ: cumulative_distance_km/estimated_arrival_time/
+      start_latitude/start_longitude（ビン開始時点の値）
+    - 末尾からの引き継ぎ: end_latitude/end_longitude（ビン終了時点の値）
+    - 合計: distance_km
+    - 連結: geometry（ビン内の全形状点を、隣接区間の境界点を重複させずに連結）
+
+    最後のビンは`bin_distance_km`未満でも単独のビンとして残す（経路全体の距離を
+    正しく合計するため、切り捨てや次ビンへの繰り越しはしない）。`segments`が空なら
+    空リストを返す。既存の`RouteSegmentDetail`型のまま返すため、OpenAPI契約・
+    フロント型への影響が無い設計（フロントは単にEdge単位からビン単位へ粒度が変わる
+    だけで、型自体は変わらない）。
+    """
+    if not segments:
+        return []
+
+    bins: list[list[RouteSegmentDetail]] = []
+    current_bin: list[RouteSegmentDetail] = []
+    current_bin_distance = 0.0
+    for segment in segments:
+        current_bin.append(segment)
+        current_bin_distance += segment.distance_km
+        if current_bin_distance >= bin_distance_km:
+            bins.append(current_bin)
+            current_bin = []
+            current_bin_distance = 0.0
+    if current_bin:
+        bins.append(current_bin)
+
+    return [_merge_segment_bin(bin_segments) for bin_segments in bins]
+
+
+def _weighted_mode(pairs: list[tuple[object | None, float]]) -> object | None:
+    """(値, 距離)のペア列から、値ごとの合計距離が最大のものを返す（距離加重多数決）。
+    Noneの値は候補から除外する。有効な値が1つも無ければNone。"""
+    totals: dict[object, float] = {}
+    for value, distance in pairs:
+        if value is None:
+            continue
+        totals[value] = totals.get(value, 0.0) + distance
+    if not totals:
+        return None
+    return max(totals.items(), key=lambda item: item[1])[0]
+
+
+def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | None:
+    coordinates: list[list[float]] = []
+    for segment in segments:
+        if segment.geometry is None:
+            continue
+        points = segment.geometry["coordinates"]
+        if coordinates and points and coordinates[-1] == points[0]:
+            points = points[1:]
+        coordinates.extend(points)
+    if len(coordinates) < 2:
+        return None
+    return {"type": "LineString", "coordinates": coordinates}
+
+
+def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
+    first, last = segments[0], segments[-1]
+    car_stress_avg = distance_weighted_difficulty(
+        [(s.car_stress, s.distance_km) for s in segments]
+    )
+    return RouteSegmentDetail(
+        geometry=_concat_segment_geometries(segments),
+        start_latitude=first.start_latitude,
+        start_longitude=first.start_longitude,
+        end_latitude=last.end_latitude,
+        end_longitude=last.end_longitude,
+        cumulative_distance_km=first.cumulative_distance_km,
+        distance_km=round(sum(s.distance_km for s in segments), 2),
+        estimated_arrival_time=first.estimated_arrival_time,
+        gradient_percent=distance_weighted_difficulty(
+            [(s.gradient_percent, s.distance_km) for s in segments]
+        ),
+        wind_penalty=distance_weighted_difficulty(
+            [(s.wind_penalty, s.distance_km) for s in segments]
+        ),
+        road_surface_good=_weighted_mode([(s.road_surface_good, s.distance_km) for s in segments]),
+        # car_stressは1-5の順序尺度だが、ルート全体の集約（RouteCandidate.car_stress_score）
+        # も同じくdistance_weighted_difficultyで連続値として扱っている（既存の前例）ため、
+        # ビン単位でも同じ方式で加重平均し最近傍の整数へ丸める。
+        car_stress=round(car_stress_avg) if car_stress_avg is not None else None,
+        bicycle_infra=_weighted_mode([(s.bicycle_infra, s.distance_km) for s in segments]),
+        elevation_difficulty=distance_weighted_difficulty(
+            [(s.elevation_difficulty, s.distance_km) for s in segments]
+        ),
+        wind_difficulty=distance_weighted_difficulty(
+            [(s.wind_difficulty, s.distance_km) for s in segments]
+        ),
+        road_difficulty=distance_weighted_difficulty(
+            [(s.road_difficulty, s.distance_km) for s in segments]
+        ),
+        stop_difficulty=distance_weighted_difficulty(
+            [(s.stop_difficulty, s.distance_km) for s in segments]
+        ),
+        car_stress_difficulty=distance_weighted_difficulty(
+            [(s.car_stress_difficulty, s.distance_km) for s in segments]
+        ),
+        accident_difficulty=distance_weighted_difficulty(
+            [(s.accident_difficulty, s.distance_km) for s in segments]
+        ),
+        night_difficulty=distance_weighted_difficulty(
+            [(s.night_difficulty, s.distance_km) for s in segments]
+        ),
+        difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
+    )
