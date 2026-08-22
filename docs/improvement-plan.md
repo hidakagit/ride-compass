@@ -3843,7 +3843,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 再検討条件: ユーザーから台風進路図そのものの表示ニーズが明示された場合、または
   上記(1)の技術的制約が変わった場合に再度調査する。
 
-### - [ ] T212. JMA指定河川洪水予報を用いた河川敷冠水警告バッジを追加する 規模S〜M
+### - [x] T212. JMA指定河川洪水予報を用いた河川敷冠水警告バッジを追加する 規模S〜M（2026-08-22完了）
 
 - 発端: T176調査（2026-08-22）で発見したJMA指定河川洪水予報API
   （`https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json`、実機確認: 200 OK、
@@ -3861,6 +3861,39 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   何も出ないこと。取得失敗時は警告なし（T205/T174と同じfail-open方針）。backend/
   frontend全green。
 - 依存: なし。T205の`jma_area.py`・`WarningBadgeList`を再利用する。
+- 実装内容:
+  - **コード対応表の確定**: 気象庁「指定河川洪水予報」電文フォーマット解説資料の表２
+    （令和8年度出水期以降、dmdata.jp経由で取得）を典拠に、`item.code`が「発表/継続/
+    警報解除（下位レベルへの引き下げ）/完全解除」を区別することを確認した。JMA警報
+    （T205）と異なりstatus文字列ではなくcode自体（`10`=完全解除、それ以外は全て
+    アクティブ）が状態を表す。ライブデータ（神田川のレベル4氾濫危険警報→善福寺川の
+    レベル2氾濫注意報解除への遷移、2026-08-22実機確認）と突き合わせて検証済み。
+  - `backend/app/domain/flood_forecast.py`（新設）: `FLOOD_CODE_LEVELS`（code→レベル
+    2〜5）、`CLEARED_CODE`（"10"）、レベル→バッジ4段階（advisory/warning/
+    severe_warning/emergency_warning、T174で追加済みの4段階をそのまま流用）の対応、
+    `extract_active_flood_forecast`（電文1件から対象地点向けの`ActiveFloodForecast`を
+    抽出。class20Code優先・class10Codeへのフォールバックで地点の該当判定）。
+  - `backend/app/infrastructure/flood_client.py`（新設）: 洪水予報API取得（10分TTL、
+    T205のjma_warning_client.pyと同じ理由でtenacity再試行は無し）。
+  - `backend/app/services/flood_service.py`（新設）: T205の`fetch_municipality_code`・
+    `fetch_area_data`・`jma_area.resolve_area`を再利用して地点解決し、洪水予報電文
+    配列から対象地点にマッチしアクティブなものだけを集約する。地点解決・取得の
+    どこで失敗しても空を返す（T205/T174と共有するfail-open方針）。訓練・試験電文
+    （`status`≠"通常"）は除外する。
+  - `GET /api/weather/flood-forecast`（`weather.py`）: T205/T174と同じfail-open方針
+    （502は返さない）。レート制限
+    （`weather_flood_forecast_rate_limit_per_minute`）を追加。
+  - `frontend`: `WarningBadgeList`（T205/T174と共有）へ河川氾濫予報バッジを合流表示。
+    天候・警報・WBGTと同じ地点変更デバウンスに相乗りしてフェッチする。
+- 検証: `test_flood_forecast_domain.py`・`test_flood_service.py`（新設、モックした
+  地点解決・洪水予報取得関数を差し替えて複数河川該当・解除済み除外・訓練電文除外・
+  取得失敗時の空応答を確認）・`test_weather_route.py`への追加（成功/失敗時空応答/
+  レート制限）。backend 1029件・frontend 491件・tsc/eslint全green。Playwrightで実機
+  確認（検証開始時点で実際に神田川がレベル4氾濫危険警報を発表中だったが、検証の途中で
+  実際に解除される事象が発生し、バッジも正しく消えることを確認できた——「code=10=
+  完全解除」判定が実データの状態遷移に対して正しく効いている証拠。バッジ表示自体は
+  直前に取得した実際のレスポンス形をモックして再現し、配色・タイトル・モバイル幅での
+  表示を確認した）。
 
 ## 残タスクの優先順位（2026-08-22整理）
 

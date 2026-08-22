@@ -7,3 +7,5 @@ export type WindGridPoint = components["schemas"]["WindGridPoint"];
 export type WeatherWarnings = components["schemas"]["WeatherWarnings"];
 export type ActiveWarning = components["schemas"]["ActiveWarning"];
 export type WbgtStatus = components["schemas"]["WbgtStatus"];
+export type FloodForecasts = components["schemas"]["FloodForecasts"];
+export type ActiveFloodForecast = components["schemas"]["ActiveFloodForecast"];

@@ -1,5 +1,5 @@
 import type { Coordinates } from "@/types/route";
-import type { WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
+import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -43,6 +43,22 @@ export async function getWbgtStatus(point: Coordinates): Promise<WbgtStatus> {
   });
   const url = `${API_BASE_URL}/api/weather/wbgt?${params}`;
   return fetchJson<WbgtStatus>(url, { timeoutMs: 15000, category: "api:wbgt", errorLabel: "暑さ指数" });
+}
+
+// 河川氾濫予報バッジ（改善計画T212）。地点解決失敗・取得失敗のいずれもbackend側が
+// forecasts=[]で200を返す契約（backend/app/api/routers/weather.py: get_flood_forecast参照）
+// のため、ここでのエラーはネットワーク到達不能・タイムアウト等の通信エラーのみを表す。
+export async function getFloodForecasts(point: Coordinates): Promise<FloodForecasts> {
+  const params = new URLSearchParams({
+    latitude: String(point.latitude),
+    longitude: String(point.longitude),
+  });
+  const url = `${API_BASE_URL}/api/weather/flood-forecast?${params}`;
+  return fetchJson<FloodForecasts>(url, {
+    timeoutMs: 15000,
+    category: "api:floodForecast",
+    errorLabel: "河川氾濫予報",
+  });
 }
 
 // 風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点ぶんの

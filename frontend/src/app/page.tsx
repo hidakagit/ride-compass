@@ -106,7 +106,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
+import { getCurrentWeather, getFloodForecasts, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
 import type {
   Coordinates,
   MotorVehicleDensityRecipeOverride,
@@ -116,7 +116,7 @@ import type {
   ScoringWeights,
   CarStressRecipeOverride,
 } from "@/types/route";
-import type { WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
+import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./page.module.css";
 
@@ -307,6 +307,9 @@ export default function Home() {
   // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ理由・同じstate設計
   // （エラー表示state無し、失敗時はbackend契約どおりlevel=nullとして扱う）。
   const [wbgtStatus, setWbgtStatus] = useState<WbgtStatus | null>(null);
+
+  // 河川氾濫予報バッジ（改善計画T212）。警報・注意報バッジと同じ理由・同じstate設計。
+  const [floodForecasts, setFloodForecasts] = useState<FloodForecasts | null>(null);
 
   // 動的気象レイヤー（降水ナウキャスト・風）が指す対象時刻（T183再設計、実機フィードバック
   // 「時間経過はスライドバー1本で表現する」）。ONの全レイヤーのフレーム時刻を統合した
@@ -860,6 +863,28 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [location, fetchWbgtFor]);
 
+  // 河川氾濫予報バッジ（改善計画T212）。他の警告バッジと同じ地点・同じデバウンスへ
+  // 相乗りさせる。取得失敗・対象河川なしのいずれもbackend契約どおりforecasts=[]として
+  // 静かに扱う。
+  const latestFloodRequestId = useRef(0);
+  const fetchFloodForecastsFor = useCallback((next: Coordinates) => {
+    const requestId = ++latestFloodRequestId.current;
+    getFloodForecasts(next)
+      .then((result) => {
+        if (requestId !== latestFloodRequestId.current) return;
+        setFloodForecasts(result);
+      })
+      .catch(() => {
+        if (requestId !== latestFloodRequestId.current) return;
+        setFloodForecasts(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => fetchFloodForecastsFor(location), WEATHER_FETCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [location, fetchFloodForecastsFor]);
+
   const warningBadgeItems = useMemo<WarningBadgeItem[]>(() => {
     const jmaItems: WarningBadgeItem[] = weatherWarnings
       ? weatherWarnings.warnings.map((warning) => ({
@@ -887,8 +912,15 @@ export default function Home() {
             },
           ]
         : [];
-    return [...jmaItems, ...wbgtItem];
-  }, [weatherWarnings, wbgtStatus]);
+    // 河川氾濫予報（T212）。対象河川が無い/取得失敗の間はforecasts=[]のため何も出ない。
+    const floodItems: WarningBadgeItem[] = (floodForecasts?.forecasts ?? []).map((forecast) => ({
+      id: `flood-${forecast.river_code}`,
+      label: forecast.label,
+      level: forecast.badge_level as WarningBadgeItem["level"],
+      title: `${forecast.condition} / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります`,
+    }));
+    return [...jmaItems, ...wbgtItem, ...floodItems];
+  }, [weatherWarnings, wbgtStatus, floodForecasts]);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。レイヤーがONの間だけ取得し、
   // 実況が5分毎に更新されるのに合わせて定期的に再取得する（OFFの間はfetch自体しない、
