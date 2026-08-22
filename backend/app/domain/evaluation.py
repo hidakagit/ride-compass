@@ -17,9 +17,10 @@ from app.domain.difficulty import (
     accident_difficulty,
     car_stress_difficulty,
     composite_difficulty,
-    evaluate_axis_difficulties,
+    gradient_difficulty,
     road_difficulty,
     stop_difficulty,
+    wind_difficulty,
 )
 from app.domain.graph import DirectedEdge
 from app.domain.night import night_difficulty
@@ -100,7 +101,12 @@ AXIS_WEIGHT_FIELD_TO_AXIS_ID: dict[str, str] = {
     "night_weight": "night",
 }
 
-# domain/difficulty.py: AxisDifficultiesのフィールド名→axis_idの対応表（compute_edge_axis_scores用）。
+# domain/difficulty.py: AxisDifficultiesのフィールド名→axis_idの対応表。
+# 改善計画T220でcompute_edge_axis_scores自体はこの辞書を経由しなくなった（7軸の変換関数を
+# 直接呼ぶ形に変更、下記参照）が、compute_edge_axis_scoresが返すべきaxis_id集合の宣言として
+# 引き続き残す（test_registry_defaults.py: test_registry_axis_ids_match_evaluation_axis_difficulty_mapping
+# がレジストリとの整合性チェックに使う）。値の集合をcompute_edge_axis_scores内のaxis_valuesの
+# キー集合と手動で一致させ続けること。
 _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID: dict[str, str] = {
     "elevation": "gradient",
     "wind": "wind",
@@ -402,19 +408,23 @@ def compute_edge_axis_scores(
         if accident_count is not None and edge.distance_m > 0 and accident_years_covered > 0
         else None
     )
-    axis_difficulties = evaluate_axis_difficulties(
-        gradient_percent, wind_penalty, is_good_surface, stop_count_per_km,
-        car_stress, intersection_count_per_km, accident_count_per_km_year, way_tags,
-        # 重みはここでは使わない（このwrapperは軸別スコアの算出のみ担当）。
-        # 全て1.0を渡してもcompositeは無視するため、compositeの計算コスト自体は避けられないが
-        # 結果は使わない（下でaxis_difficulties.compositeを参照しない）。
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-    )
-    return {
-        axis_id: value
-        for field, axis_id in _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID.items()
-        if (value := getattr(axis_difficulties, field)) is not None
+    # 改善計画T220: 以前は`evaluate_axis_difficulties`（軸別difficulty＋合成compositeを
+    # まとめて返す関数、domain/difficulty.py）を重み1.0のダミーで呼んでいたが、この
+    # wrapperは軸別スコアの算出のみ担当し合成compositeは使わない（実際の合成は
+    # `compute_cost_from_axis_scores`が実重みで別途行う）ため、常に無駄な
+    # composite_difficulty計算が発生していた（プロファイルで判明、Edge数万件規模の
+    # evaluate_graphループで無視できないオーバーヘッド）。7軸それぞれの変換関数を
+    # 直接呼び、合成は行わない。
+    axis_values = {
+        "gradient": gradient_difficulty(gradient_percent),
+        "wind": wind_difficulty(wind_penalty),
+        "surface_q": road_difficulty(is_good_surface),
+        "stop_density": stop_difficulty(stop_count_per_km, intersection_count_per_km),
+        "car_stress": car_stress_difficulty(car_stress),
+        "accident": accident_difficulty(accident_count_per_km_year),
+        "night": night_difficulty(way_tags),
     }
+    return {axis_id: value for axis_id, value in axis_values.items() if value is not None}
 
 
 def compute_cost_from_axis_scores(

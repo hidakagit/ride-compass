@@ -4521,6 +4521,29 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
     手を付けていない。将来さらに高速化が必要になった場合、car_stress判定の
     ボトルネックを個別に精査するか、対象範囲を絞ったnumpyベクトル化を再検討する
     （全面書き換えではなく部分的な対応から始める）。
+  - **追記（2026-08-23、T221再検証を受けた追加対応）**: ユーザーから「T221（評価軸の
+    フルレジストリ駆動化）を見据えるとここで全面numpy化すべきでは」との再確認を受け
+    再検討したが、方針は維持（見送り）とした。理由: T221自身のドラフト
+    （`docs/decisions/t221-axis-registry.md`）が、プロファイルでボトルネックと判明した
+    まさにその箇所（car_stress判定の連鎖等）を「Stage A: 既存7軸を4テンプレートへ
+    実装移行」で置き換える計画であり、今この場でベクトル化するとT221 Stage A実施時に
+    書き直しになるリスクが高い。T221実施後（4テンプレートに収斂した後）の方が
+    ベクトル化の対象が小さく均質になり安価に行える。また現状は目標5秒に対し
+    約2.3秒と余裕があり緊急性も無い。
+    代わりに、T221とは無関係に安全な無駄を1点解消した:
+    `compute_edge_axis_scores`が`evaluate_axis_difficulties`（domain/difficulty.py、
+    軸別difficulty＋合成compositeをまとめて返す）を重み1.0のダミーで呼んでおり、
+    内部で計算される`composite_difficulty`が呼び出し元で一切使われず（実際の合成は
+    `compute_cost_from_axis_scores`が実重みで別途行う）常に捨てられていた
+    （既存コメントで既知の割り切りだった二重計算）。`compute_edge_axis_scores`を
+    7軸それぞれの変換関数（`gradient_difficulty`/`wind_difficulty`/`road_difficulty`/
+    `stop_difficulty`/`car_stress_difficulty`/`accident_difficulty`/`night_difficulty`）を
+    直接呼ぶ形へ書き換え、無駄な合成計算を排除した（出力される軸id・値は変更前と完全に
+    同一、既存テスト1064件が無改修でgreenのまま回帰確認済み）。実測（同一bbox・
+    タイルキャッシュ温状態）でevaluate_graphが約2.0秒→約1.74秒、合計約2.3秒→約2.0秒。
+    `_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`（evaluation.py）は`compute_edge_axis_scores`の
+    実装からは参照されなくなったが、レジストリとの軸id集合整合性テスト
+    （test_registry_defaults.py）の照合先として引き続き残している。
 
 ### - [ ] T221. 評価軸のフルレジストリ駆動化＋GUI編集基盤 規模L（設計のみ、Part 2以降は未着手）— トリガー: ユーザーの実装着手指示
 
