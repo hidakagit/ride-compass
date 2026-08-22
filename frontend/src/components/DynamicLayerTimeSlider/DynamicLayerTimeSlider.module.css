@@ -152,10 +152,10 @@
 /* 左端寄りの固定位置に表示する選択位置の目印（実機フィードバック「左端を表示時刻に
    して」）。.rulerViewport自身の子だがposition: absoluteのためスクロールする
    .rulerTrackとは独立し、スクロールしても横位置が動かない（選ばれているコマの方を
-   この目印へ合わせにいく操作感）。leftはTICK_SPACING_PXの半分（DynamicLayerTimeSlider.tsx
-   のindicatorOffset）をインラインstyleで与える。目盛りの実際の描画位置（.tickMark、
-   自身のセルの中央）と一致させるための値のため、CSS側に固定値を置かず唯一の情報源
-   （TICK_SPACING_PX）から算出する。 */
+   この目印へ合わせにいく操作感）。leftはDynamicLayerTimeSlider.tsxのINDICATOR_OFFSET_PX
+   （TICK_SPACING_PXの半分で固定。正時/非正時でコマ幅＝TICK_SPACING_HOUR_PX/TICK_SPACING_PX
+   が変わっても、目印自体の位置は変えない）をインラインstyleで与える。CSS側に固定値を
+   置かず唯一の情報源（DynamicLayerTimeSlider.tsx側の定数）から算出する。 */
 .leftIndicator {
   position: absolute;
   top: 0.15rem;
