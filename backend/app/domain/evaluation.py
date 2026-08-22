@@ -459,6 +459,7 @@ def compute_edge_cost(
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
+    weights: dict[str, float] | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -472,6 +473,14 @@ def compute_edge_cost(
     パラメータの意味は`compute_edge_axis_scores`のdocstring参照（Hard Constraint判定
     `is_edge_allowed`はこの関数が担う。`max_average_grade_percent`はis_edge_allowedへ
     そのまま渡す、改善計画T218a）。
+
+    `weights`（改善計画T220、T12 Stage 2）: `preference_to_axis_weights(preference)`は
+    `preference`が変わらない限り常に同じ結果を返す純関数だが、Road Graph全体
+    （数万Edge）を評価する`evaluate_graph`のループから毎Edge呼ばれると、実測
+    （pydanticの`model_dump`込み）で無視できないオーバーヘッドになると判明した
+    （`backend/benchmarks/README.md`参照）。呼び出し元が事前計算した`weights`を渡せば
+    その再計算をスキップする。省略時（既定None）は従来どおり`preference`から算出する
+    （単発の呼び出し・既存テストへの影響なし）。
     """
     if not is_edge_allowed(
         edge, way_tags, elevation_attribute=elevation_attribute, max_average_grade_percent=max_average_grade_percent
@@ -483,7 +492,7 @@ def compute_edge_cost(
         intersection_count, accident_count, accident_years_covered, is_designated,
         car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe,
     )
-    weights = preference_to_axis_weights(preference)
-    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights, penalty_strength)
+    resolved_weights = weights if weights is not None else preference_to_axis_weights(preference)
+    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
 
     return EdgeCostResult(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)

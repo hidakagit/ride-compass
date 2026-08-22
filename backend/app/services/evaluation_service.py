@@ -3,7 +3,7 @@ from pathlib import Path
 import yaml
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost
+from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost, preference_to_axis_weights
 from app.domain.graph import RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.traffic import CarStressRecipe
@@ -117,12 +117,17 @@ class EvaluationService:
         preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
+        # 改善計画T220: weightsはこのgraph全体で共通（preferenceが変わらない限り不変）の
+        # ため、Edgeごとに再計算せずここで1回だけ求める（compute_edge_costのdocstring
+        # 参照。実測でEdge数万件規模の際に無視できないオーバーヘッドと判明）。
+        weights = preference_to_axis_weights(preference)
         return {
             edge_id: compute_edge_cost(
                 edge,
                 elevation_attributes.get(edge_id),
                 surface_attributes.get(edge_id),
                 preference,
+                weights=weights,
                 wind=wind,
                 stop_count=stop_counts.get(edge_id),
                 way_tags=way_tags.get(edge_id) if way_tags is not None else None,

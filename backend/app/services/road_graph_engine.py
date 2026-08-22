@@ -63,12 +63,14 @@ from app.domain.traffic import (
 )
 from app.domain.routing import (
     NodeSpatialIndex,
+    SparseRoadGraph,
     build_networkx_graph,
     build_node_spatial_index,
+    build_sparse_graph,
     concat_node_paths,
     find_nearest_node_indexed,
-    path_to_edge_ids,
-    shortest_path_node_ids,
+    path_to_edge_ids_sparse,
+    shortest_path_node_ids_sparse,
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
@@ -104,6 +106,10 @@ class _RoadGraphContext:
     # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
     node_index: NodeSpatialIndex
+    # 改善計画T220（T12 Stage 2）: trace_loopが実際のDijkstraに使うscipy版グラフ。
+    # nx_graphは既存テスト・区間表示ロジック互換のため引き続き構築するが、探索本体は
+    # こちらを使う（road_graph_engine.pyモジュールdocstring参照）。
+    sparse_graph: SparseRoadGraph
     # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
@@ -210,10 +216,12 @@ class RoadGraphEngine:
             max_average_grade_percent=self._max_average_grade_percent,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
+        sparse_graph = build_sparse_graph(graph, search_edge_costs)
 
         return _RoadGraphContext(
             graph=graph,
             nx_graph=nx_graph,
+            sparse_graph=sparse_graph,
             surface_attributes=surface_attributes,
             stop_counts=stop_counts,
             way_tags=way_tags,
@@ -238,14 +246,19 @@ class RoadGraphEngine:
         if node_a is None or node_b is None:
             raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
 
-        path_1 = shortest_path_node_ids(context.nx_graph, context.origin_node, node_a)
-        path_2 = shortest_path_node_ids(context.nx_graph, node_a, node_b)
-        path_3 = shortest_path_node_ids(context.nx_graph, node_b, context.origin_node)
+        # 改善計画T220（T12 Stage 2）: Dijkstra本体はNetworkX（Python実装）ではなく
+        # scipy.sparse.csgraph（C実装）で行う（1リクエストにつき最大24回、実測で
+        # ボトルネックと判明。モジュールdocstring参照）。context.nx_graphは既存の
+        # テスト・区間表示ロジックとの互換のため引き続き構築されるが、探索本体は
+        # context.sparse_graphを使う。
+        path_1 = shortest_path_node_ids_sparse(context.sparse_graph, context.origin_node, node_a)
+        path_2 = shortest_path_node_ids_sparse(context.sparse_graph, node_a, node_b)
+        path_3 = shortest_path_node_ids_sparse(context.sparse_graph, node_b, context.origin_node)
         if path_1 is None or path_2 is None or path_3 is None:
             raise RoutingError(f"direction {bearing}: no path found between waypoints")
 
         full_path = concat_node_paths([path_1, path_2, path_3])
-        edge_ids = path_to_edge_ids(context.nx_graph, full_path)
+        edge_ids = path_to_edge_ids_sparse(context.sparse_graph, full_path)
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
         # 改善計画T218（T12 Stage 0）: prepareがlean=Trueで読み込んだcontext.graphの
