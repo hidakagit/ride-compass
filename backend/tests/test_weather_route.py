@@ -1,13 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_warning_service, get_weather_service
+from app.api.dependencies import get_warning_service, get_wbgt_service, get_weather_service
 from app.config import settings
 from app.domain.jma_warning import ActiveWarning
 from app.domain.weather import WeatherConditions
 from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.warning_service import WeatherWarnings
+from app.services.wbgt_service import WbgtStatus
 
 client = TestClient(app)
 
@@ -440,6 +441,61 @@ def test_get_wind_grid_detail_is_rate_limited_per_client():
             )
         assert client.get("/api/weather/wind-grid-detail", params=params).status_code == 200
         response = client.get("/api/weather/wind-grid-detail", params=params)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
+
+
+class FakeWbgtService:
+    def __init__(self, status: WbgtStatus):
+        self._status = status
+
+    async def get_status(self, point, now=None):
+        return self._status
+
+
+def test_get_wbgt_returns_status_on_success():
+    status = WbgtStatus(level="severe_warning", label="厳重警戒", value=30.0, observed_at="2026/08/22 18:00:00")
+    app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(status)
+
+    try:
+        response = client.get("/api/weather/wbgt", params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "severe_warning"
+    assert body["value"] == 30.0
+
+
+def test_get_wbgt_returns_empty_without_error_on_failure_or_offseason():
+    # 改善計画T174完了条件「取得失敗時は警告なし」「提供期間外は何も出ない」。
+    # 502ではなく空のlevel=Noneで200を返す（T205のwarningsエンドポイントと同じfail-open方針）。
+    app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(
+        WbgtStatus(level=None, label=None, value=None, observed_at=None)
+    )
+
+    try:
+        response = client.get("/api/weather/wbgt", params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"level": None, "label": None, "value": None, "observed_at": None}
+
+
+def test_get_wbgt_is_rate_limited_per_client():
+    empty = WbgtStatus(level=None, label=None, value=None, observed_at=None)
+    app.dependency_overrides[get_wbgt_service] = lambda: FakeWbgtService(empty)
+    params = {"latitude": 35.6812, "longitude": 139.7671}
+
+    try:
+        for _ in range(settings.weather_wbgt_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("weather-wbgt:testclient", settings.weather_wbgt_rate_limit_per_minute)
+        assert client.get("/api/weather/wbgt", params=params).status_code == 200
+        response = client.get("/api/weather/wbgt", params=params)
     finally:
         app.dependency_overrides.clear()
 

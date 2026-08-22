@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
-import { getCurrentWeather, getWeatherWarnings, getWindGrid, getWindGridDetail } from "./weatherApi";
+import type { WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
+import { getCurrentWeather, getWbgtStatus, getWeatherWarnings, getWindGrid, getWindGridDetail } from "./weatherApi";
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
   return {
@@ -116,6 +116,45 @@ describe("getWeatherWarnings", () => {
 
     await expect(getWeatherWarnings({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
       "リクエストが多すぎます[req: req-321]",
+    );
+  });
+});
+
+describe("getWbgtStatus", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("成功時は/api/weather/wbgtをlatitude/longitude付きでfetchし、JSONをそのまま返す", async () => {
+    const status: WbgtStatus = {
+      level: "severe_warning",
+      label: "厳重警戒",
+      value: 30.0,
+      observed_at: "2026/08/22 18:00:00",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => status }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getWbgtStatus({ latitude: 35.6812, longitude: 139.7671 });
+
+    expect(result).toEqual(status);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/weather/wbgt");
+    expect(String(url)).toContain("latitude=35.6812");
+    expect(String(url)).toContain("longitude=139.7671");
+  });
+
+  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
+    const headers = new Headers({ "x-request-id": "req-654" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
+      ),
+    );
+
+    await expect(getWbgtStatus({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
+      "リクエストが多すぎます[req: req-654]",
     );
   });
 });

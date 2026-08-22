@@ -19,16 +19,18 @@ describe("WarningBadgeList（改善計画T205）", () => {
     expect(screen.getByText("大雨危険警報")).toBeInTheDocument();
   });
 
-  it("levelに応じたクラス名（advisory/warning/emergency_warning）を付与する", () => {
+  it("levelに応じたクラス名（advisory/warning/severe_warning/emergency_warning）を付与する", () => {
     const items: WarningBadgeItem[] = [
       { id: "10", label: "大雨注意報", level: "advisory" },
       { id: "03", label: "大雨警報", level: "warning" },
+      { id: "wbgt", label: "厳重警戒", level: "severe_warning" },
       { id: "33", label: "大雨特別警報", level: "emergency_warning" },
     ];
     render(<WarningBadgeList items={items} />);
 
     expect(screen.getByText("大雨注意報").className).toMatch(/advisory/);
     expect(screen.getByText("大雨警報").className).toMatch(/warning/);
+    expect(screen.getByText("厳重警戒").className).toMatch(/severe_warning/);
     expect(screen.getByText("大雨特別警報").className).toMatch(/emergency_warning/);
   });
 
