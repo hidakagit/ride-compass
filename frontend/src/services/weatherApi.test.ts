@@ -217,23 +217,29 @@ describe("getWindGrid", () => {
     vi.unstubAllGlobals();
   });
 
-  it("成功時は/api/weather/wind-gridをfetchし、格子点配列をそのまま返す", async () => {
-    const grid: WindGridPoint[] = [
-      {
-        latitude: 35.68,
-        longitude: 139.77,
-        times: ["2026-08-20T12:00"],
-        wind_speed_ms: [2.5],
-        wind_direction_deg: [90],
-        precipitation_mm: [0.5],
-      },
-    ];
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
+  // 改善計画T203: バックエンドはtimes配列をpoints各点からは外し、応答トップレベルに
+  // 1本だけ持つ形（WindGridResponse）で返す。フロント内部の表現（WindGridPoint、各点が
+  // timesを持つ）は変えないため、weatherApi.ts側でtimesを各点へ合成し直して返す。
+  it("成功時は/api/weather/wind-gridをfetchし、times配列を各点へ合成して返す", async () => {
+    const response = {
+      times: ["2026-08-20T12:00"],
+      points: [
+        {
+          latitude: 35.68,
+          longitude: 139.77,
+          wind_speed_ms: [2.5],
+          wind_direction_deg: [90],
+          precipitation_mm: [0.5],
+        },
+      ],
+    };
+    const expected: WindGridPoint[] = [{ ...response.points[0], times: response.times }];
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => response }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await getWindGrid();
 
-    expect(result).toEqual(grid);
+    expect(result).toEqual(expected);
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/weather/wind-grid");
   });
@@ -258,23 +264,26 @@ describe("getWindGridDetail", () => {
 
   const bbox = { minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 };
 
-  it("成功時は/api/weather/wind-grid-detailをbboxクエリ付きでfetchし、格子点配列をそのまま返す", async () => {
-    const grid: WindGridPoint[] = [
-      {
-        latitude: 35.68,
-        longitude: 139.77,
-        times: ["2026-08-20T12:00"],
-        wind_speed_ms: [2.5],
-        wind_direction_deg: [90],
-        precipitation_mm: [0.5],
-      },
-    ];
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => grid }));
+  it("成功時は/api/weather/wind-grid-detailをbboxクエリ付きでfetchし、times配列を各点へ合成して返す", async () => {
+    const response = {
+      times: ["2026-08-20T12:00"],
+      points: [
+        {
+          latitude: 35.68,
+          longitude: 139.77,
+          wind_speed_ms: [2.5],
+          wind_direction_deg: [90],
+          precipitation_mm: [0.5],
+        },
+      ],
+    };
+    const expected: WindGridPoint[] = [{ ...response.points[0], times: response.times }];
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => response }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await getWindGridDetail(bbox, 0.01);
 
-    expect(result).toEqual(grid);
+    expect(result).toEqual(expected);
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/weather/wind-grid-detail");
     expect(String(url)).toContain("min_lon=139.7");

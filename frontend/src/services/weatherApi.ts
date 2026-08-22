@@ -1,5 +1,5 @@
 import type { Coordinates } from "@/types/route";
-import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
+import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint, WindGridResponse } from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -61,14 +61,23 @@ export async function getFloodForecasts(point: Coordinates): Promise<FloodForeca
   });
 }
 
+// バックエンドの応答（times配列を1本だけ持つ、改善計画T203）を、フロント内部で使う
+// 「各点がtimesを持つ」表現（WindGridPoint、windLayer.ts/useWeatherGrid.ts等の既存ロジックが
+// 前提にしている形）へ戻す。ネットワーク転送量の削減（times重複の除去）だけを目的とした
+// 変更であり、フロント内部のデータ構造・trim/mergeロジックには影響させない。
+function toWindGridPoints(response: WindGridResponse): WindGridPoint[] {
+  return response.points.map((point) => ({ ...point, times: response.times }));
+}
+
 // 風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点ぶんの
 // 時間別風向・風速をまとめて取得する。取得失敗地点は既にバックエンド側で除外済み
 // （backend/app/api/routers/weather.py: get_wind_grid参照）。
 export async function getWindGrid(): Promise<WindGridPoint[]> {
   const url = `${API_BASE_URL}/api/weather/wind-grid`;
-  const data = await fetchJson<WindGridPoint[]>(url, { timeoutMs: 15000, category: "api:windGrid", errorLabel: "風データ" });
-  debugLog("api:windGrid", "詳細", { points: data.length });
-  return data;
+  const data = await fetchJson<WindGridResponse>(url, { timeoutMs: 15000, category: "api:windGrid", errorLabel: "風データ" });
+  const points = toWindGridPoints(data);
+  debugLog("api:windGrid", "詳細", { points: points.length });
+  return points;
 }
 
 // 風の詳細格子（改善計画T180、ヒートマップ等の面表現用。T185でspacingDegをズーム依存に
@@ -85,11 +94,12 @@ export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise
     spacing_deg: String(spacingDeg),
   });
   const url = `${API_BASE_URL}/api/weather/wind-grid-detail?${params}`;
-  const data = await fetchJson<WindGridPoint[]>(url, {
+  const data = await fetchJson<WindGridResponse>(url, {
     timeoutMs: 15000,
     category: "api:windGridDetail",
     errorLabel: "風データ(詳細)",
   });
-  debugLog("api:windGridDetail", "詳細", { points: data.length });
-  return data;
+  const points = toWindGridPoints(data);
+  debugLog("api:windGridDetail", "詳細", { points: points.length });
+  return points;
 }

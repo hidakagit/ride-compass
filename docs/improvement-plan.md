@@ -3638,17 +3638,37 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   新しい案内文（正規表現の部分一致）へ更新。frontend vitest 469件・backend pytest 967件
   全green。tsc/eslintクリーン。
 
-### - [ ] T203. wind-grid応答のtimes配列重複を削減する 規模S — トリガー: モバイル実機で風・降水延長レイヤーの初期表示の遅さ・通信量が問題として報告された時点
+### - [x] T203. wind-grid応答のtimes配列重複を削減する 規模S（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-7（第1パスO-1）。`/api/weather/wind-grid`の応答は
   実測約0.93MB（非圧縮）で、全624地点が同一内容の`times`配列（48時刻×16文字）を
   個別に持つことが約1/3を占める。gzip圧縮下では重複はほぼ消えるため実害は限定的と
   レビューでは判断（本番の圧縮有無は未確認）。
-- 対応方針（トリガー到達時）: `times`をレスポンストップレベルへ1本化する
-  （`WindGridPoint`から外し、レスポンスを`{times: [...], points: [...]}`形へ）。
-  OpenAPI・フロント型・`useWeatherGrid`/`windLayer.ts`/`precipitationNowcast.ts`の
-  index参照の連鎖更新を伴うため、着手前にまず本番レスポンスの圧縮後サイズを実測し、
-  効果が薄ければ本タスク自体をクローズしてよい（計測なき最適化を避ける）。
+- 着手前の計測（トリガー未到達分の実測、「計測なき最適化を避ける」ゲート）:
+  `backend/app/main.py`にGZipMiddlewareが存在しない（CORSMiddlewareとrequest_log_
+  middlewareのみ）ことを確認。実測で非圧縮1,068,257 bytes・gzip level6後119,874 bytes。
+  Renderのようなホスティング基盤は一般にオリジンレスポンスをそのまま転送し圧縮の付与は
+  アプリ層の責務であるため、本番でも非圧縮配信の可能性が高く、レビュー時の想定
+  （「gzip圧縮下では実害は限定的」）を覆す実測結果が得られたため実装へ進んだ。
+- 実装: `times`を`WindGridPoint`（domain/wind_grid.py）から外し、応答本体を
+  `WindGridResponse{times: list[str], points: list[WindGridPoint]}`へ変更
+  （`WeatherService.get_wind_grid`が`(times, points)`のタプルを返す形へ、
+  `api/routers/weather.py`の2エンドポイントがこれを`WindGridResponse`として返す）。
+  全地点が同じforecast_days・timezoneで一括取得される（weather_client.py）ため
+  hourly.timeは全地点共通という既存の前提（フロント側trimWindGridToCurrentAndFuture等が
+  既に採用済み）にそのまま乗る形。フロント内部（windLayer.ts/useWeatherGrid.ts/
+  precipitationNowcast.ts）は「各点がtimesを持つ」表現のまま一切変更していない。
+  `services/weatherApi.ts`の`toWindGridPoints`が、受け取った`{times, points}`を
+  内部用に`points.map(p => ({...p, times}))`へ変換してから返すことで、ワイヤー
+  フォーマット（削減対象）とフロント内部データモデル（既存ロジック）を分離した。
+  `types/weather.ts`の`WindGridPoint`は生成型（times無し）に`times: string[]`を
+  合成した型として維持し、内部表現の型を変えていない。
+- 完了条件: 応答が`{times, points}`形になり、フロント側の見た目・挙動（風矢印・
+  降水延長予報の表示、時刻スライダー）が変わらないこと。
+- 検証: バックエンド1029件・フロント495件・tsc/eslint全green。実機確認（開発サーバー、
+  curl）: `/api/weather/wind-grid`が非圧縮493,862 bytes（旧1,068,257 bytesから約54%削減、
+  事前実測どおり）・gzip後103,053 bytesへ削減されたことを確認。`wind-grid-detail`も
+  同じ`{times, points}`形で応答することを確認。
 
 ## 動的データの追加候補整理（2026-08-22・雷ほか未着手データの棚卸しと起票）
 
