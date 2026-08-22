@@ -340,6 +340,36 @@ export function RaindropIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 雷ナウキャスト（地図チップ、改善計画T204）: 雷雲から伸びる稲妻 */
+export function ThunderIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M6 8.5a4 4 0 0 1 7.6-1.7A3.2 3.2 0 0 1 13 13H6.5a3.5 3.5 0 0 1-.5-6.95"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M10.5 12 8 16.5h2.6L9.5 20l4-6h-2.6L12.5 12Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** 竜巻発生確度（地図チップ、改善計画T204）: 渦を巻く漏斗雲 */
+export function TornadoIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M3.5 4h13M4.5 7.5h11M5.7 11h8.6M7 14.5h6M8.3 18h3.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** UV指数（天候ヘッダ、改善計画T172）: 太陽 */
 export function SunIcon({ size = 16 }: IconProps) {
   return (

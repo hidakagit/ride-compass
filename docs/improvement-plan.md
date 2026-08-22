@@ -3516,7 +3516,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   CAPE延長予報）・T208（視程・霧）・T209（黄砂・PM2.5）・T210（通行止め・道路規制調査）。
   いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-### - [ ] T204. 雷ナウキャスト（活動度1〜4）を追加し、竜巻発生確度（trns）を低コストなら同梱する 規模S〜M
+### - [x] T204. 雷ナウキャスト（活動度1〜4）を追加し、竜巻発生確度（trns）を低コストなら同梱する 規模S〜M（2026-08-22完了）
 
 - 発端: ユーザー要望（2026-08-22「雷等の改善計画未記載の物含めて」）。T171実装メモが
   「雷ナウキャストはプロダクトコード未確認のため別レイヤー・別調査として残す」としていた
@@ -3543,6 +3543,47 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   出ること。竜巻を同梱する場合は視覚的に雷と区別できること。Playwright実機確認・
   backend/frontend全green。
 - 依存: なし（T170〜T178の基盤の上に載る）。
+- 実装内容:
+  - `frontend/src/components/Map/jmaNowcastFrames.ts`（新設）: precipitationNowcast.tsから
+    JMAナウキャスト系に共通する時刻一覧の取得・整形（`fetchJmaTargetTimes`・
+    `trimToCurrentAndFuture`・`parseValidtime`）を抽出（変更理由が同じ処理の共通化、
+    設計原則6）。`precipitationNowcast.ts`は内部実装をこのモジュールへ委譲しつつ、
+    既存の公開名（`trimToCurrentAndFuture`・`parseValidtime`・`NowcastFrame`）を
+    再エクスポートして既存の呼び出し元（page.tsx）への影響を無くした。
+  - `frontend/src/components/Map/thunderNowcast.ts`（新設）: `targetTimes_N3.json`
+    （1ファイルに実況・予測が同居、降水のN1/N2分割と異なる）から雷・竜巻共通のフレーム列を
+    取得する`fetchThunderNowcastFrames`、dynamicWeather.tsの共通フレーム列へ変換する
+    `thunderFrames`（windFrames/windRenderPayloadと同型の単純index-refパターン）、
+    プロダクトコードだけが異なる`thunderRenderPayload`（thns）/`tornadoRenderPayload`
+    （trns）、気象庁の公式解説
+    （[雷ナウキャストとは](https://www.jma.go.jp/jma/kishou/know/toppuu/thunder2-1.html)・
+    [竜巻発生確度ナウキャストの見方](https://www.jma.go.jp/jma/kishou/know/toppuu/tornado3-3.html)、
+    2026-08-22確認）に基づく凡例（`THUNDER_ACTIVITY_LEVELS`・`TORNADO_POTENTIAL_LEVELS`、
+    色は降水と同じく気象庁非公開のため近似値と明記）を持つ。
+  - `dynamicWeather.ts`: `DYNAMIC_WEATHER_LAYER_IDS`へ`thunderNowcast`・`tornadoNowcast`を追加。
+  - `mapLayers.ts`: 2つの`MapLayerId`（雷・竜巻は独立ON/OFF、同じ地図に両方重ねると見分け
+    にくいという判断で1つの警告レイヤーへは統合せず別チップにした）と、それぞれの
+    カタログエントリ（`kind="static"`・`dataNature="dynamic"`、評価軸には組み込まない）を追加。
+  - `MapView.tsx`: `DYNAMIC_WEATHER_RENDERERS`へ`thunderNowcast`/`tornadoNowcast`の
+    rasterTileスペックを追加（降水ナウキャストと同型、gridFill無し＝延長予報を持たない）。
+    `LAYER_DATA_SOURCES`は`DYNAMIC_WEATHER_LAYER_IDS`から自動導出されるため変更不要
+    （T184の1本道が実際に機能した箇所）。
+  - `icons.tsx`: `ThunderIcon`（雷雲から伸びる稲妻）・`TornadoIcon`（渦を巻く漏斗雲）を追加。
+  - `page.tsx`: 雷・竜巻共有の1本のfetch（どちらか一方でもONの間動作、`nowcastFrames`と
+    同じパターン）、共有フレーム列からの`thunderPayload`/`tornadoPayload`（同じref、
+    プロダクトコードのみ異なる）、`dynamicWeather`オブジェクトへの追加、共有タイムライン
+    （`activeFrameLists`）・共有スライダー表示条件・loading/error集約への合流を実装。
+    凡例（`THUNDER_LEGEND_DETAILS`/`TORNADO_LEGEND_DETAILS`）を降水/風と同じパターンで追加。
+  - `MapLayersPanel.test.tsx`: 新規`MapLayerId`2件を全ての`layerVisibility`フィクスチャへ
+    追加（`MapLayerVisibility`型の完全性をtscが強制）。
+- 検証: `jmaNowcastFrames.test.ts`（新設、fetchJmaTargetTimesのラベル付きエラー）・
+  `thunderNowcast.test.ts`（新設、時刻一覧のisForecast判定・フレーム変換・両プロダクトの
+  ペイロード組み立て・範囲外refでのundefined返却・凡例段階数）を追加。
+  frontend vitest 480件・tsc/eslint全green。Playwright実機確認（デスクトップ）で
+  `targetTimes_N3.json`の1回のfetch共有・雷/竜巻タイルの実際の取得成功・両凡例の表示内容・
+  雷だけOFFにしても竜巻は残る独立トグルを確認。プレースホルダタイルの404×2・boot時の
+  null警告3件は既知（T202で文書化済み、React Strict Mode由来と推定・実害無し）で
+  新規の問題ではない。
 
 ### - [ ] T205. 気象警報・注意報を警告バッジとして表示する 規模M
 

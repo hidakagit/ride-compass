@@ -37,7 +37,15 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 // 動的気象レイヤーの一覧（単一の情報源、MapView.tsx: DYNAMIC_WEATHER_RENDERERS・
 // page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
 // ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。
-export const DYNAMIC_WEATHER_LAYER_IDS = ["precipitationNowcast", "windVector"] as const satisfies readonly MapLayerId[];
+export const DYNAMIC_WEATHER_LAYER_IDS = [
+  "precipitationNowcast",
+  "windVector",
+  // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。同じtargetTimes_N3.json
+  // 由来のフレーム列を共有するが、地図チップ・レンダラースペックはそれぞれ独立させる
+  // （雷だけ確認したい/竜巻は非表示にしたい、という独立したON/OFFニーズに応えるため）。
+  "thunderNowcast",
+  "tornadoNowcast",
+] as const satisfies readonly MapLayerId[];
 export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
 
 /** フレーム1つぶんの描画内容。表示層はこのkindだけで描画方法を決める（データソースの
