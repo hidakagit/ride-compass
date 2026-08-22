@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 import pytest
 
 from app.domain import evaluation
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute
 from app.domain.evaluation import RoutePreference
-from app.domain.geo import destination_point, haversine_distance_km
+from app.domain.geo import bearing_between, destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
@@ -32,12 +32,16 @@ def make_route_scorer() -> RouteScorer:
 
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
+    # 改善計画T218: bearing_degはbuild_road_graphと同じくfrom_coord→to_coordの実際の
+    # 方位角から算出する（compute_wind_penaltyがgeometryではなくこの値を直接使うため、
+    # テスト用Edgeでも実データと同じ計算式で埋めておく必要がある）。
     defaults = dict(
         edge_id=edge_id,
         from_node_id=from_id,
         to_node_id=to_id,
         geometry=[[from_coord.latitude, from_coord.longitude], [to_coord.latitude, to_coord.longitude]],
         distance_m=haversine_distance_km(from_coord, to_coord) * 1000,
+        bearing_deg=bearing_between(from_coord, to_coord),
     )
     defaults.update(overrides)
     return DirectedEdge(**defaults)
@@ -111,11 +115,35 @@ class FakeGraphService:
         self._stop_data_available = stop_data_available
         self.call_count = 0
 
-    async def get_or_build_graph_with_attributes(self, bbox):
+    async def get_or_build_graph_with_attributes(self, bbox, *, lean: bool = False):
+        # 改善計画T218: lean引数はテストのfakeでは無視してよい（フェイクグラフは
+        # 元々geometryを持つ実体をそのまま返すため、lean=Trueでも挙動は変わらない）。
         self.call_count += 1
         if self._graph is None:
             return None
         return self._graph, self._surface_attributes
+
+    async def get_edges_with_geometry(self, edge_ids):
+        # 改善計画T218: フェイクグラフのEdgeは元々実ジオメトリを持つため、常に空辞書を
+        # 返す（呼び出し元trace_loopはcontext.graph.edges[edge_id]へフォールバックする、
+        # Overpass経由構築時と同じ挙動）。
+        return {}
+
+    async def get_edge_attribute_counts(self, edge_ids):
+        # 改善計画T218: get_stop_poi_counts（旧実装）と同じ「stop_data_available=Falseは
+        # repository未注入を模す」規約を踏襲する。edge_attribute_countsは一度バックフィル
+        # されれば対象の全Edgeに行を持つ（0件はゼロとして明示的に持つ、行自体が
+        # 欠けることはない）ため、get_stop_poi_countsと同じ「指定edge_idは全件存在」の形。
+        if not self._stop_data_available:
+            return {}
+        return {
+            edge_id: EdgeAttributeCounts(
+                accident_count=self._accident_counts.get(edge_id, 0),
+                stop_count=self._stop_counts.get(edge_id, 0),
+                intersection_count=self._intersection_counts.get(edge_id, 0),
+            )
+            for edge_id in edge_ids
+        }
 
     async def get_stop_poi_counts(self, edge_ids):
         if not self._stop_data_available:

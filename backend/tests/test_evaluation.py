@@ -164,9 +164,10 @@ def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
 
 
 def test_compute_wind_penalty_headwind_is_positive():
-    # Edgeは北向き（bearing=0）に進む。北から吹いてくる風（wind_direction_deg=0）は正面からの
-    # 向かい風になるはず（domain/wind.py: WindCalculatorの規約と同じ）。
-    edge = _edge(geometry=[[35.700, 139.700], [35.701, 139.700]])
+    # 改善計画T218: compute_wind_penaltyはgeometryではなくbearing_degを直接使うため、
+    # ここでbearing=0（北向きに進む）を明示する。北から吹いてくる風（wind_direction_deg=0）は
+    # 正面からの向かい風になるはず（domain/wind.py: WindCalculatorの規約と同じ）。
+    edge = _edge(bearing_deg=0.0)
     wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
 
     penalty = compute_wind_penalty(edge, wind)
@@ -175,7 +176,7 @@ def test_compute_wind_penalty_headwind_is_positive():
 
 
 def test_compute_wind_penalty_tailwind_is_negative():
-    edge = _edge(geometry=[[35.700, 139.700], [35.701, 139.700]])
+    edge = _edge(bearing_deg=0.0)
     wind = _wind(wind_speed_ms=5.0, wind_direction_deg=180.0)  # 南から北へ吹く=追い風
 
     penalty = compute_wind_penalty(edge, wind)
@@ -184,13 +185,23 @@ def test_compute_wind_penalty_tailwind_is_negative():
 
 
 def test_compute_wind_penalty_returns_none_without_wind():
-    edge = _edge()
+    edge = _edge(bearing_deg=0.0)
 
     assert compute_wind_penalty(edge, None) is None
 
 
+def test_compute_wind_penalty_returns_none_without_bearing():
+    # 改善計画T218: bearing_deg未計算（None）のEdgeは風評価を行わない
+    # （探索フェーズの軽量グラフはgeometryを持たずbearing_degのみで判定するため、
+    # このNoneガードが実質的な唯一の「データ無し」経路になる）。
+    edge = _edge(bearing_deg=None)
+    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
+
+    assert compute_wind_penalty(edge, wind) is None
+
+
 def test_compute_edge_cost_headwind_costs_more_than_tailwind():
-    edge = _edge(distance_m=100.0, geometry=[[35.700, 139.700], [35.701, 139.700]])
+    edge = _edge(distance_m=100.0, bearing_deg=0.0)
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
@@ -257,7 +268,9 @@ def test_compute_cost_from_axis_scores_signature_has_no_primary_attribute_names(
     # T142の完了条件そのもの: 三次のコードのシグネチャに一次属性名(highway/lanes等)が
     # 一切現れないことをコードレビューではなくテストでも機械的に確認する。
     params = set(inspect.signature(compute_cost_from_axis_scores).parameters)
-    assert params == {"distance_m", "axis_scores", "weights"}
+    # 改善計画T218・T12 ADR原則1: penalty_strength（P）はコスト式の割増率の強さを
+    # 調整するリクエストパラメータであり、一次属性名ではないため許容する。
+    assert params == {"distance_m", "axis_scores", "weights", "penalty_strength"}
     primary_attribute_names = {"highway", "lanes", "maxspeed", "cycleway", "surface", "way_tags", "edge"}
     assert params.isdisjoint(primary_attribute_names)
 

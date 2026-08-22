@@ -212,6 +212,11 @@ class RouteGenerateRequest(BaseModel):
     car_stress_recipe: CarStressRecipeOverride | None = None
     road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
+    # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
+    # （従来どおり最悪でも距離2倍）。road_graphエンジンのみに効く
+    # （domain/evaluation.py: compute_cost_from_axis_scores参照。openrouteservice
+    # エンジンは経路確定後の評価表示のみのためコスト自体には影響しない）。
+    penalty_strength: float = Field(ge=0, default=1.0)
 
     @model_validator(mode="after")
     def _check_lanes_threshold_order(self) -> "RouteGenerateRequest":
@@ -236,6 +241,8 @@ class GenerationConditions(BaseModel):
     car_stress_recipe: CarStressRecipeOverride
     road_suitability_recipe: RoadSuitabilityRecipeOverride
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride
+    # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。
+    penalty_strength: float
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -292,6 +299,7 @@ async def generate_routes(
         car_stress_recipe_override,
         road_suitability_recipe_override,
         motor_vehicle_density_recipe_override,
+        request.penalty_strength,
     )
 
     async with _generate_semaphore:
@@ -316,6 +324,7 @@ async def generate_routes(
             motor_vehicle_density_recipe=MotorVehicleDensityRecipeOverride(
                 **setup.motor_vehicle_density_recipe.model_dump()
             ),
+            penalty_strength=setup.penalty_strength,
             generated_at=datetime.now(JST).isoformat(),
         ),
     )

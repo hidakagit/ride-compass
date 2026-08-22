@@ -21,12 +21,10 @@ from app.domain.difficulty import (
     road_difficulty,
     stop_difficulty,
 )
-from app.domain.geo import bearing_between
 from app.domain.graph import DirectedEdge
 from app.domain.night import night_difficulty
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import classify_osm_surface
-from app.domain.route import Coordinates
 from app.domain.traffic import CarStressRecipe, car_stress_level
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindCalculator
@@ -276,6 +274,11 @@ def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> 
     正=向かい風、負=追い風（domain/wind.py: WindCalculatorをそのまま再利用）。風は
     Edgeに永続保存しない（動的データでありRoad Attributeとして扱わない、仕様書20章）。
 
+    改善計画T218（T12 Stage 0）: 進行方向はEdgeのgeometry（形状点列）から都度計算せず、
+    事前計算済みの`edge.bearing_deg`（domain/graph.py: build_road_graph参照）をそのまま
+    使う。探索フェーズではgeometry自体を取得しない（geometry decodeが不要になる）ため、
+    この関数もgeometryへ依存しない形にしている。
+
     既知の簡略化: 本来は出発時刻とEdgeまでの推定累積走行時間から「そのEdgeを実際に
     通過するであろう時刻」の風を使うべきだが（ルート単位評価の`WindService`
     （`services/wind_service.py`、`routing_engine=="openrouteservice"`のときは今も
@@ -284,14 +287,9 @@ def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> 
     起点付近の風）を一様に適用する簡略化を採用している。将来、時間展開グラフ等で
     より精密化する余地がある（docs/architecture.md参照）。
     """
-    if wind is None or len(edge.geometry) < 2:
+    if wind is None or edge.bearing_deg is None:
         return None
-    start_lat, start_lon = edge.geometry[0]
-    end_lat, end_lon = edge.geometry[-1]
-    bearing = bearing_between(
-        Coordinates(latitude=start_lat, longitude=start_lon), Coordinates(latitude=end_lat, longitude=end_lon)
-    )
-    return WindCalculator.wind_penalty(wind.wind_speed_ms, wind.wind_direction_deg, bearing)
+    return WindCalculator.wind_penalty(wind.wind_speed_ms, wind.wind_direction_deg, edge.bearing_deg)
 
 
 _CAR_STRESS_LEVEL_NOT_PROVIDED = object()
@@ -403,23 +401,26 @@ def compute_edge_axis_scores(
 
 
 def compute_cost_from_axis_scores(
-    distance_m: float, axis_scores: dict[str, float], weights: dict[str, float]
+    distance_m: float, axis_scores: dict[str, float], weights: dict[str, float], penalty_strength: float = 1.0
 ) -> tuple[float, float | None]:
     """三次: 重みベクトル×軸別スコアのみからコストを算出する純関数
-    （`cost = length × (1 + Σᵢ wᵢ × axisᵢ)`、設計プロンプト「評価システムの層構造再設計」の
-    三次そのもの。改善計画T142の完了条件どおり、シグネチャに一次属性名を一切含まない）。
+    （`cost = length × (1 + P × Σᵢ wᵢ × axisᵢ / 100)`、設計プロンプト「評価システムの
+    層構造再設計」の三次そのもの。改善計画T142の完了条件どおり、シグネチャに一次属性名を
+    一切含まない）。
 
     `axis_scores`にキーが存在しない軸は合成から除外され、残りの軸の重みで再正規化される
     （`domain/difficulty.py: composite_difficulty`と同じ「データ無しは除外」方針）。
     `weights`に対応するキーが無い軸は重み0として扱う。
 
-    戻り値は`(cost, difficulty)`。`difficulty`は0-100（大きいほど走りにくい）、
-    有効な軸が1つも無ければNone（この場合`cost`は`distance_m`そのまま、
-    `penalty_multiplier=1.0`）。
+    `penalty_strength`（P、改善計画T218・T12 ADR原則1）は割増率の強さを調整するリクエスト
+    パラメータ。既定1.0は従来どおりの挙動（最悪でも距離2倍）。P=0で常に`cost=distance_m`
+    （難易度を一切考慮しない最短距離探索）、Pを上げるほど悪路が強く避けられる
+    （P=4なら最悪の道は距離5倍相当）。`cost >= distance_m`（P>=0の間は常に成り立つ）という
+    不変条件は維持し、将来の探索高速化（直線距離を下界とするA*等）の前提を崩さない。
     """
     scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in axis_scores.items()]
     difficulty = composite_difficulty(scored_weights)
-    penalty_multiplier = 1.0 + (difficulty / 100) if difficulty is not None else 1.0
+    penalty_multiplier = 1.0 + penalty_strength * (difficulty / 100) if difficulty is not None else 1.0
     cost = round(distance_m * penalty_multiplier, 1)
     return cost, difficulty
 
@@ -439,6 +440,7 @@ def compute_edge_cost(
     car_stress_recipe: CarStressRecipe | None = None,
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+    penalty_strength: float = 1.0,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -461,6 +463,6 @@ def compute_edge_cost(
         car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe,
     )
     weights = preference_to_axis_weights(preference)
-    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights)
+    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights, penalty_strength)
 
     return EdgeCostResult(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)

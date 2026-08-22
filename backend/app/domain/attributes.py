@@ -29,6 +29,22 @@ class ElevationAttribute(BaseModel):
     calculated_at: str
 
 
+class EdgeAttributeCounts(BaseModel):
+    """Edge単位の事前集計カウント（改善計画T144: edge_attribute_counts、T218で読み取り経路に
+    配線）。事故密度・停止密度・交差点密度の評価材料（domain/difficulty.py参照）で、
+    以前はリクエストの都度PostGIS空間結合（ST_DWithin）で算出していたが、事前計算済みの
+    値をそのまま読むことで探索フェーズのDBアクセスを削減する。
+
+    accident_countはdouble precision（死亡事故の重み付けSUM、domain/accident.py:
+    ACCIDENT_FATAL_WEIGHT参照）。bicycle_only=trueで集計済みの値のみ保持する
+    （road_graph_models.py: EdgeAttributeCountsRowのdocstring参照）。
+    """
+
+    accident_count: float
+    stop_count: int
+    intersection_count: int
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

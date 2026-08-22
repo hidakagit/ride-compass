@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.domain.geo import haversine_distance_km
+from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.route import Coordinates
 
 
@@ -35,6 +35,12 @@ class DirectedEdge(BaseModel):
     distance_m: float
     osm_way_id: int | None = None
     highway: str | None = None  # OSMのhighwayタグ（生値。分類・評価はRoad Attribute側の責務）
+    # 改善計画T218（T12 Stage 0）: from_node→to_node方向の方位角（度、北=0、時計回り、
+    # domain/geo.py: bearing_betweenと同じ定義）。build_road_graphがgeometryから算出して
+    # 保持する。探索フェーズの風評価（compute_wind_penalty）がgeometryを取得・decodeせずに
+    # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
+    # build_road_graph経由の生成では必ず値を持つ）。
+    bearing_deg: float | None = None
 
 
 class RoadGraph(BaseModel):
@@ -180,6 +186,17 @@ def build_road_graph(
 
             distance_m = _way_length_m(coordinates)
             geometry_forward = [[lat, lon] for lat, lon in coordinates]
+            # 改善計画T218: forward/backwardそれぞれの実際の進行方向で方位角を算出する
+            # （+180度の単純反転ではなく、逆順の始点・終点から都度求める。短い区間では
+            # ほぼ等価だが、地球の丸みを近似せず素直に正しい値を使う）。
+            bearing_forward = bearing_between(
+                Coordinates(latitude=coordinates[0][0], longitude=coordinates[0][1]),
+                Coordinates(latitude=coordinates[-1][0], longitude=coordinates[-1][1]),
+            )
+            bearing_backward = bearing_between(
+                Coordinates(latitude=coordinates[-1][0], longitude=coordinates[-1][1]),
+                Coordinates(latitude=coordinates[0][0], longitude=coordinates[0][1]),
+            )
 
             if way.direction != "backward":
                 edge_id = f"way-{way_key}-seg{segment_index}-fwd"
@@ -191,6 +208,7 @@ def build_road_graph(
                     distance_m=round(distance_m, 1),
                     osm_way_id=way.osm_way_id,
                     highway=way.highway,
+                    bearing_deg=bearing_forward,
                 )
 
             if way.direction != "forward":
@@ -203,6 +221,7 @@ def build_road_graph(
                     distance_m=round(distance_m, 1),
                     osm_way_id=way.osm_way_id,
                     highway=way.highway,
+                    bearing_deg=bearing_backward,
                 )
 
     return RoadGraph(graph_version=graph_version or _new_graph_version(), nodes=graph_nodes, edges=edges)

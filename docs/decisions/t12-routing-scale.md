@@ -369,8 +369,11 @@ Part 2の選定を待たずに着手可能な移行として切り出せる見�
 
 **Stage 0: 素材の事前計算化＋リーンロード（共通前提工事、キャッシュ以前に効く）**
 
-- 素材列の事前計算・永続化（原則3）: タグ解読結果の型付き列・件数集計
-  （`edge_attribute_counts`の配線を含む）・bearing
+- 素材列の事前計算・永続化（原則3）: 件数集計（`edge_attribute_counts`の配線）・bearing。
+  **タグ解読結果（highway/lit/tunnel/surface分類等）の専用テーブル化は実装時に見送った**
+  （2026-08-23、下記コラム参照）——`get_way_tags`/`get_designated_edge_ids`は空間結合
+  ではなく`osm_way_id`のインデックス済みキー結合であり、実測のボトルネック
+  （ORM全行decode・3本の空間結合）に該当しないと判明したため
 - **探索経路からgeometryを外す**: 探索に必要なのはトポロジ＋距離＋素材＋bearingのみ。
   geometry（decode約4〜5秒の主犯）は最終候補の経路エッジ分だけ後から取得する
 - リクエスト時の空間結合（stop/intersection/accident件数）を保存済み素材の読取りへ置換

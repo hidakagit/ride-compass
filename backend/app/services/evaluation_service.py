@@ -101,12 +101,16 @@ class EvaluationService:
         accident_years_covered: int = 0,
         designated_edge_ids: set[str] | None = None,
         preference: RoutePreference | None = None,
+        penalty_strength: float = 1.0,
     ) -> dict[str, EdgeCostResult]:
         # preference省略時はself._preference（コンストラクタ注入・全リクエスト共有）を使う。
         # 改善計画T173: RoadGraphEngineが出発時刻に応じてnight_weightだけを差し替えた
         # RoutePreferenceを渡せるよう、呼び出し側でオーバーライドできる引数として追加した
         # （self._preferenceを直接書き換えるとリクエスト間で共有される状態を汚染するため、
         # 呼び出し元がmodel_copyしたコピーをこちらへ渡す設計）。
+        # penalty_strength（改善計画T218・T12 ADR原則1）はコスト式の割増率の強さを
+        # 調整するリクエストパラメータ（既定1.0）。domain/evaluation.py:
+        # compute_cost_from_axis_scores参照。
         preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
@@ -126,6 +130,7 @@ class EvaluationService:
                 car_stress_recipe=self._car_stress_recipe,
                 road_suitability_recipe=self._road_suitability_recipe,
                 motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+                penalty_strength=penalty_strength,
             )
             for edge_id, edge in graph.edges.items()
         }

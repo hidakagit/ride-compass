@@ -107,6 +107,7 @@ class RoadGraphEngine:
         car_stress_recipe: CarStressRecipe | None = None,
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+        penalty_strength: float = 1.0,
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
@@ -116,6 +117,9 @@ class RoadGraphEngine:
         self._car_stress_recipe = car_stress_recipe
         self._road_suitability_recipe = road_suitability_recipe
         self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
+        # 改善計画T218・T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
+        # 既定1.0は従来どおりの挙動（最悪でも距離2倍）。
+        self._penalty_strength = penalty_strength
 
     async def prepare(
         self, origin: Coordinates, radius_km: float, now: datetime | None = None
@@ -127,21 +131,28 @@ class RoadGraphEngine:
         margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
         bbox = _bbox_around_point(origin, radius_km + margin_km)
 
-        built = await self._graph_service.get_or_build_graph_with_attributes(bbox)
+        # 改善計画T218（T12 Stage 0）: lean=Trueでgeometryを取得しない軽量グラフを読む
+        # （探索コストの計算はgeometryを必要としない、モジュールdocstring参照）。
+        # 最終候補のgeometryはtrace_loopで別途取得し直す。
+        built = await self._graph_service.get_or_build_graph_with_attributes(bbox, lean=True)
         if built is None or not built[0].edges:
             return None
         graph, surface_attributes = built
-        # 静的道路属性P1（信号・横断歩道・一時停止・踏切）。探索コスト自体にも反映されるよう
-        # ここで取得する（surface_attributesと同じくprepareで1回だけ・全方位で共有）。
-        stop_counts = await self._graph_service.get_stop_poi_counts(list(graph.edges.keys()))
-        # 静的道路属性P1残り（車ストレス・自転車インフラ・交差点密度）。同じくprepareで
-        # 1回だけ取得し全方位で共有する。way_tagsはEdgeのosm_way_id経由のタグ、
-        # intersection_countsはこのローカルグラフ内で計算した交差点件数（次数3以上のNode）。
+        # 静的道路属性P1（信号・横断歩道・一時停止・踏切・交差点密度）＋外部静的データ
+        # ソースT50（事故密度）。以前はget_stop_poi_counts/get_intersection_counts/
+        # get_accident_countsの3クエリがそれぞれPostGIS空間結合（ST_DWithin）をリクエストの
+        # 都度計算していたが、事前集計済みのedge_attribute_counts（改善計画T144）を読む
+        # 1クエリへ集約した（改善計画T218、T12 Stage 0）。evaluate_graph等の呼び出し先
+        # シグネチャは従来どおり3つの個別dictを受け取るため、ここで分解する。
+        edge_counts = await self._graph_service.get_edge_attribute_counts(list(graph.edges.keys()))
+        stop_counts = {edge_id: c.stop_count for edge_id, c in edge_counts.items()}
+        intersection_counts = {edge_id: c.intersection_count for edge_id, c in edge_counts.items()}
+        accident_counts = {edge_id: c.accident_count for edge_id, c in edge_counts.items()}
+        # 静的道路属性P1残り（車ストレス・自転車インフラ）。way_tagsはEdgeのosm_way_id
+        # 経由のタグ（road_edges⟕osm_raw_waysの単純なキー結合、空間結合ではないため
+        # T218での事前計算対象には含めていない）。
         way_tags = await self._graph_service.get_way_tags(list(graph.edges.keys()))
-        intersection_counts = await self._graph_service.get_intersection_counts(list(graph.edges.keys()))
-        # 外部静的データソース T50残作業（事故密度、8軸目）。同じくprepareで1回だけ取得し
-        # 全方位で共有する。accident_years_coveredは密度の「件/(km・年)」正規化に使う。
-        accident_counts = await self._graph_service.get_accident_counts(list(graph.edges.keys()))
+        # accident_years_coveredは密度の「件/(km・年)」正規化に使う。
         accident_years_covered = await self._graph_service.get_accident_years_covered()
         # 指定路線コンフレーション機構（外部静的データソース T51）。KSJ N10/N12該当エッジの
         # 集合を同じくprepareで1回だけ取得し全方位で共有する。
@@ -169,6 +180,7 @@ class RoadGraphEngine:
             way_tags=way_tags, intersection_counts=intersection_counts,
             accident_counts=accident_counts, accident_years_covered=accident_years_covered,
             designated_edge_ids=designated_edge_ids, preference=search_preference,
+            penalty_strength=self._penalty_strength,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 
@@ -207,7 +219,13 @@ class RoadGraphEngine:
         edge_ids = path_to_edge_ids(context.nx_graph, full_path)
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
-        edges_in_path = [context.graph.edges[edge_id] for edge_id in edge_ids]
+        # 改善計画T218（T12 Stage 0）: prepareがlean=Trueで読み込んだcontext.graphの
+        # Edgeはgeometryが空プレースホルダのため、区間表示・標高取得等（後段の
+        # _build_candidate）に使う実ジオメトリをこの経路ぶん（数十〜数百Edge）だけ
+        # 取得し直す。Overpass経由構築時（context.graphが元々フルジオメトリ）は
+        # get_edges_with_geometryが空辞書を返すため、そちらのcontext.graph側の値を使う。
+        hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
+        edges_in_path = [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
         return TracedLoop(bearing=bearing, distance_km=distance_km, data=edges_in_path)
@@ -335,7 +353,9 @@ class RoadGraphEngine:
                 car_stress_level_value=car_stress,
             )
             weights = preference_to_axis_weights(preference)
-            _, composite_difficulty_value = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights)
+            _, composite_difficulty_value = compute_cost_from_axis_scores(
+                edge.distance_m, axis_scores, weights, self._penalty_strength
+            )
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
             # 一様適用する簡略化のため、到達時刻そのものはwindのfetchには使わない。
