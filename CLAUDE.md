@@ -37,6 +37,26 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - PostGIS統合テスト（road_graph_session、conftest.py）はファイル単位でエンジン・イベントループを共有する設計。新規ファイルでは `pytestmark = pytest.mark.asyncio(loop_scope="module")` が必要（自前の追加async fixtureにも `loop_scope="module"` を明示）
 - フロントエンドの新規テストがDOM（render/renderHook/window等）を使わない純ロジックなら、vitest.config.mts の environmentMatchGlobs への追加を検討する
 
+## コミット時の同期ルール（必読）
+
+コード変更と同期して更新すべきペアの漏れが繰り返し発生している（OpenAPI生成物ドリフト
+3回・architecture.md未追従5回以上）。以下は**同一コミットで**必ず実施すること
+（2026-08-23の棚卸でimprovement-plan.md「進め方の原則」から本ファイルへ昇格。
+ルールがCLAUDE.md外にあり実装セッションが読まないことが3回目の再発の根本原因だったため）。
+
+- **backend側のAPIルーター・Pydanticモデル・レジストリ・domain定数を変更したら**、
+  `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を実行し、
+  `git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを確認する
+  （T180・T185・T218の3回のドリフト実績。統合レビュー2026-08-22 T196でルール化、
+  2026-08-23にここへ昇格）。
+- **規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
+  docs/architecture.md追従を既定で含める**（同型再発が繰り返し検出されたことを受け
+  統合レビュー2026-08-22 T197でルール化）。docs（「現状」記述）はコード変更と
+  同一コミットで更新する。
+- **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
+  定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
+  上げる（T70・T93で対上げ漏れが2回発生）。
+
 ## 作業ツリーの安全（必読）
 
 このプロジェクトは並行セッション（複数のClaude Codeセッション・エージェント）が同じ作業ツリーを
