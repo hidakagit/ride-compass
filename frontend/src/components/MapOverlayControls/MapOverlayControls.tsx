@@ -38,6 +38,7 @@ import {
   StopDensityAxisIcon,
   StopPoiIcon,
   SupplyPoiIcon,
+  TunnelIcon,
   SurfaceQualityAxisIcon,
   RouteIcon,
   ThunderIcon,
@@ -123,6 +124,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   carStress: CarStressIcon,
   bicycleInfra: BicycleInfraIcon,
   designation: DesignationIcon,
+  tunnel: TunnelIcon,
   stopPoi: StopPoiIcon,
   supplyPoi: SupplyPoiIcon,
   accidents: AccidentIcon,
@@ -598,9 +600,9 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // 推定グループの各軸の下に出す材料一覧（改善計画T167）。axisMaterials（T164）から
   // 導出した一次属性を、表示レイヤーの有無で2行に分ける。レイヤーを持つ材料は
   // 「効いているものを探す」ときにそのまま地図上で確認できる旨、レイヤーを持たない材料
-  // （車線数・制限速度・交差点・街灯・トンネル・自動車通行可否）は地図では見えない材料
-  // として薄字で正直に見せる（略名はPRIMARY_ATTRIBUTE_CHIP_LABELS、primaryAttributes.ts
-  // のコメントどおりT167用に4文字以下で全属性ぶん揃えてある）。
+  // （車線数・制限速度・交差点・街灯・自動車通行可否）は地図では見えない材料として薄字で
+  // 正直に見せる（略名はPRIMARY_ATTRIBUTE_CHIP_LABELS、primaryAttributes.tsのコメント
+  // どおりT167用に4文字以下で全属性ぶん揃えてある）。
   function renderMaterialsNote(axisId: string) {
     const materials = axisMaterials(axisId);
     const withLayer = materials.filter((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId] !== undefined);

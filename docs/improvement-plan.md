@@ -4148,6 +4148,45 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   リロード後も展開状態（aria-expanded=true）と非表示設定（道路種別チップ0件）が
   localStorage経由で復元されることを確認した。
 
+### - [x] T217. トンネル（一次属性）を観測グループの独立レイヤーとして追加する 規模S（2026-08-22完了）
+
+- 発端: ユーザーからの「地図上に描画可能な状態で保持しているが、レイヤー追加していない
+  要素を洗い出して」という調査依頼を受けて洗い出した結果、tunnel（OSMのtunnelタグ）が
+  該当した。tunnelはnight軸（推定グループ、T145a）の材料として`app/infrastructure/
+  road_graph_repository.py`のroad_surfaceタイルへ既に焼き込み済みで、区間ポップアップ
+  （`MapView.tsx`）でも「トンネル」として表示されていたが、他の一次属性（道路種別・
+  路面等）と違い観測グループ内に独立した色分けレイヤー・チップを持っていなかった。
+  ユーザーから「トンネルを観測配下にアイコン追加して」と明示指示を受け実装した。
+- 対応方針: designation（指定路線）と全く同じ構成（road_surfaceソースを再利用する
+  独立line レイヤー、該当区間のみ`tunnel: true`・非該当はプロパティ欠落）で新規レイヤー
+  `tunnel`を追加。バックエンド側の変更は無い（タイルへの焼き込み自体は既存のまま）。
+  - `mapLayers.ts`: `MapLayerId`に`"tunnel"`追加、`MAP_LAYERS`へエントリ追加
+    （category: roadCondition）、`ROAD_SURFACE_SHARED_LAYER_IDS`へ追加。
+  - `staticAttributeLayers.ts`: `TUNNEL_LEGEND`/`TUNNEL_COLOR_EXPRESSION`/
+    `TUNNEL_OPACITY_EXPRESSION`を追加（tunnelは文字列列挙ではなく単純な真偽値のため
+    `buildCategoricalLayerDefs`ではなく事故と同じcase式で直接記述）、`STATIC_FILTER_AXES`
+    へ絞り込み軸を追加。
+  - `MapView.tsx`: `ensureTunnelLayer`を追加し`STATIC_OVERLAY_LAYERS`/
+    `LAYER_DATA_SOURCES`へ登録、他の1次「素材」レイヤー（道路種別・自転車インフラ・
+    指定路線）と同じ並列トラック分離（`ROAD_MATERIAL_TRACK_LAYER_IDS`）にも参加させる、
+    `showTunnel` propを新規に配線。
+  - `primaryAttributes.ts`: `PRIMARY_ATTRIBUTE_LAYER_IDS`に`tunnel: "tunnel"`を追加、
+    `PRIMARY_ATTRIBUTES_WITHOUT_LAYER`から`tunnel`を除去（litのみ引き続きレイヤー無し）。
+    これによりnight軸の材料一覧（T167のrenderMaterialsNote）が
+    「材料: トンネル」「地図では未表示の材料: 街灯」に変わる（副次効果、実害無し）。
+  - `icons.tsx`: `TunnelIcon`（アーチ型の坑口）を新規追加、`MapOverlayControls.tsx`の
+    `LAYER_ICONS`へ登録。
+- 完了条件: 観測グループを開くと「トンネル」チップがアイコン付きで並び、ONにすると
+  地図上にトンネル該当区間が色分け表示され、区間ポップアップの表示内容とも整合すること。
+- 検証: tsc/eslint全clean、フロントエンド全体501件green（新規4件:
+  `staticAttributeLayers.test.ts`にトンネルの凡例・色分け式のテスト、既存3件を更新
+  [`primaryAttributes.test.ts`のaxisMaterialLayerIds("night")期待値、`MapOverlayControls.
+  test.tsx`の夜間軸材料一覧テキスト、`MapLayersPanel.test.tsx`のlayerVisibility/
+  staticFilterHiddenKeysByAxisフィクスチャ]）。Playwright実機確認（headless chromium、
+  dev環境backend:8000・frontend:3000）: 観測グループ展開→「トンネル」チップをON→
+  地図上にオレンジ色の該当区間が描画されることを確認、推定グループの夜間軸凡例で
+  「材料: トンネル」「地図では未表示の材料: 街灯」の表示も確認。
+
 ## 残タスクの優先順位（2026-08-22整理）
 
 ユーザー要望「改善計画の残りで優先順位を決めて」を受け、未完了（`[ ]`）の全タスクを

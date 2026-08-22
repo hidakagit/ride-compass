@@ -23,6 +23,9 @@ import {
   SUPPLY_POI_KINDS,
   SUPPLY_POI_LABELS,
   SUPPLY_POI_LEGEND,
+  TUNNEL_COLOR_EXPRESSION,
+  TUNNEL_LEGEND,
+  TUNNEL_OPACITY_EXPRESSION,
   CAR_STRESS_COLOR_EXPRESSION,
   CAR_STRESS_LEGEND,
   buildCarStressColorExpression,
@@ -234,6 +237,44 @@ describe("staticAttributeLayers", () => {
   it("事故の重大度の凡例は一意な色を持つ", () => {
     const colors = ACCIDENT_SEVERITY_LEGEND.map((e) => e.color);
     expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  // 改善計画: トンネル（一次属性、OSMのtunnelタグ）。「地図上に描画可能な状態で保持している
+  // 要素の洗い出し」で判明した「観測配下にレイヤーが無いまま」を解消した新規レイヤー。
+  it("トンネルの凡例キーはトンネル/対象外の2値で重複が無い", () => {
+    const keys = TUNNEL_LEGEND.map((e) => e.key);
+    expect(new Set(keys)).toEqual(new Set(["tunnel", "other"]));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("トンネルの凡例は一意な色を持つ", () => {
+    const colors = TUNNEL_LEGEND.map((e) => e.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("トンネルの色分け式は凡例の色以外を使わない", () => {
+    const legendColors = new Set(TUNNEL_LEGEND.map((e) => e.color));
+    const expressionColors = TUNNEL_COLOR_EXPRESSION.filter(
+      (item): item is string => typeof item === "string" && item.startsWith("#"),
+    );
+    expect(expressionColors.length).toBeGreaterThan(0);
+    for (const color of expressionColors) {
+      expect(legendColors.has(color)).toBe(true);
+    }
+  });
+
+  it("トンネルのfeatureはtunnel=trueのみ強調色になり、それ以外は不透明度が下がる", () => {
+    function evaluate(expr: unknown[], properties: Record<string, unknown>): unknown {
+      const parsed = createExpression(expr);
+      if (parsed.result !== "success") throw new Error("式の構築に失敗しました");
+      return parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties });
+    }
+    const tunnelColor = evaluate(TUNNEL_COLOR_EXPRESSION, { tunnel: true });
+    const otherColor = evaluate(TUNNEL_COLOR_EXPRESSION, {});
+    expect(tunnelColor).not.toBe(otherColor);
+    expect(evaluate(TUNNEL_OPACITY_EXPRESSION, { tunnel: true })).toBeGreaterThan(
+      evaluate(TUNNEL_OPACITY_EXPRESSION, {}) as number,
+    );
   });
 
   // 改善計画T63: 絞り込みUIカタログ（STATIC_FILTER_AXES）自体の整合性。

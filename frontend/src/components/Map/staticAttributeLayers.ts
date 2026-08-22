@@ -285,6 +285,42 @@ export const DESIGNATION_LEGEND: LegendEntry[] = designationDefs.legend;
 export const DESIGNATION_COLOR_EXPRESSION: unknown[] = designationDefs.colorExpression;
 export const DESIGNATION_OPACITY_EXPRESSION: unknown[] = designationDefs.opacityExpression;
 
+// トンネル（一次属性、OSMのtunnelタグ）の色分け定義。designation同様road_surfaceソースの
+// 独立レイヤーだが、値は該当区間のみ`true`（未該当はプロパティ欠落）の単純な真偽値のため、
+// 文字列列挙用のbuildCategoricalLayerDefsではなく事故（下記ACCIDENT_COLOR_EXPRESSION）と
+// 同じcase式で直接書く。
+// 改善計画（1次/2次の地図上表現の統一）: tunnelはnight軸（domain/night.py: night_difficulty）の
+// 材料の1つで、該当区間は+50点（夜間の危険度が上がる方向）に働く。night軸自体は専用の
+// 地図レイヤーを持たない保留のまま（T145a、axis-catalog.jsonのnote参照）だが、材料である
+// tunnelタグそのものは実体のある一次属性のため、他の2次計算材料（designation等）と同じ
+// AXIS_RAMP_COLORSの危険側の色を使う。
+const TUNNEL_COLOR = AXIS_RAMP_COLORS[2];
+
+export const TUNNEL_LEGEND: LegendEntry[] = [
+  { key: "tunnel", label: "トンネル", color: TUNNEL_COLOR, filter: ["==", ["get", "tunnel"], true] },
+  {
+    key: "other",
+    label: "対象外",
+    color: COLOR_UNKNOWN,
+    filter: ["!", ["==", ["get", "tunnel"], true]],
+    isFallback: true,
+  },
+];
+
+export const TUNNEL_COLOR_EXPRESSION: unknown[] = [
+  "case",
+  ["==", ["get", "tunnel"], true],
+  TUNNEL_COLOR,
+  COLOR_UNKNOWN,
+];
+
+export const TUNNEL_OPACITY_EXPRESSION: unknown[] = [
+  "case",
+  ["==", ["get", "tunnel"], true],
+  KNOWN_LINE_OPACITY,
+  FALLBACK_LINE_OPACITY,
+];
+
 // 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 // backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論
 // （involves_bicycle=自転車が当事者A/Bのいずれかに該当、fatal=死者数>0）。
@@ -402,6 +438,7 @@ export type StaticFilterAxisId =
   | "carStress"
   | "bicycleInfra"
   | "designation"
+  | "tunnel"
   | "stopPoi"
   | "supplyPoi"
   | "accidentParty"
@@ -425,6 +462,7 @@ export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   { axisId: "carStress", layerId: "carStress", legend: CAR_STRESS_LEGEND },
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
+  { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },
   {
     axisId: "stopPoi",
     layerId: "stopPoi",

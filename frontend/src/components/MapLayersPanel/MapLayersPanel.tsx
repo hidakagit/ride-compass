@@ -348,7 +348,7 @@ export default function MapLayersPanel({
     );
   }
 
-  // 改善計画T84: carStress/bicycleInfra/designation/stopPoi/accidentsは
+  // 改善計画T84: carStress/bicycleInfra/designation/tunnel/stopPoi/accidentsは
   // 「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー（elevationはpanelHintのみ・
   // road/routeは専用UIを持つ真に特殊なレイヤーのためこの関数の対象外）。以前はレイヤーごとに
   // 同型JSXブロックを6つ複製し、説明文もmapLayers.tsのdescriptionとは別にここへハードコード
@@ -412,6 +412,7 @@ export default function MapLayersPanel({
       case "carStress":
       case "bicycleInfra":
       case "designation":
+      case "tunnel":
       case "stopPoi":
       case "supplyPoi":
       case "accidents":

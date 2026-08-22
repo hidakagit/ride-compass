@@ -35,6 +35,7 @@ export type MapLayerId =
   | "carStress"
   | "bicycleInfra"
   | "designation"
+  | "tunnel"
   | "stopPoi"
   | "supplyPoi"
   | "accidents"
@@ -273,6 +274,20 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "指定路線かどうか自体を個別に確認できるよう別レイヤーとして表示しています。",
   },
   {
+    // トンネル（一次属性、OSMのtunnelタグ）。これまで観測配下に専用レイヤーを持たず、
+    // 区間ポップアップのみで確認できたが（改善計画: 地図上に描画可能な状態で保持している
+    // 要素の洗い出しで判明）、他の一次属性と同じ独立レイヤーとして観測グループへ追加する。
+    // designation・bicycleInfraと同じroad_surfaceソースの独立レイヤー。
+    id: "tunnel",
+    label: "トンネル",
+    kind: "static",
+    category: "roadCondition",
+    description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
+    panelHint:
+      "OSMのtunnelタグが該当する区間です。「夜間」軸[推定グループ]の材料の1つとして、" +
+      "夜間の危険度の判定に使われます[night軸自体は専用レイヤーを持たない保留のままです]。",
+  },
+  {
     id: "stopPoi",
     label: "停止要因",
     kind: "static",
@@ -453,9 +468,9 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 };
 
 // roadType/roadSurface（T165で「道路情報」から論理分割）/carStress/bicycleInfra/
-// designationは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/
+// designation/tunnelは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/
 // ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を共有しているため、そのタイルの
-// minzoom未満（regionZoomTooWide）ではタイル自体が要求されず、5レイヤーとも同時に
+// minzoom未満（regionZoomTooWide）ではタイル自体が要求されず、6レイヤーとも同時に
 // loading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
@@ -466,6 +481,7 @@ export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
   "carStress",
   "bicycleInfra",
   "designation",
+  "tunnel",
   // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
   ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
 ];
