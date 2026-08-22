@@ -135,10 +135,11 @@ def test_all_primary_attributes_have_non_empty_labels():
 
 def test_registry_axis_ids_match_evaluation_axis_difficulty_mapping():
     """registry_defaults.pyの登録軸集合と、evaluation.pyの
-    _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID（compute_edge_axis_scoresが使う手書き辞書）の
-    軸ID集合が一致することを検証する（統合レビュー2026-08-19consistency F-2、
-    T156完了時点ではAXIS_WEIGHT_FIELD_TO_AXIS_IDのみが対象で、evaluation.py内で隣接
-    定義されているこちらの辞書は対象外のまま残っていた）。
+    _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID（compute_edge_axis_scoresが返すべきaxis_id集合の
+    宣言。改善計画T220でcompute_edge_axis_scores自体はこの辞書を経由しなくなったが、
+    axis_id集合の宣言としては引き続き残している）の軸ID集合が一致することを検証する
+    （統合レビュー2026-08-19consistency F-2、T156完了時点ではAXIS_WEIGHT_FIELD_TO_AXIS_IDのみが
+    対象で、evaluation.py内で隣接定義されているこちらの辞書は対象外のまま残っていた）。
 
     windはこちらの辞書にも存在し、レジストリには意図的に未登録（前テストのdocstring参照）。
     """
