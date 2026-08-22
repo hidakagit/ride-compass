@@ -1188,17 +1188,30 @@ class DerivedGraphRepository(_SessionRepository):
         ]
 
         if way_ids_to_replace:
-            new_edge_ids = {row["edge_id"] for row in edge_rows}
+            new_edge_ids = sorted({row["edge_id"] for row in edge_rows})
+            # 改善計画T224: `new_edge_ids`（再構築対象の全edge_id、都心密度で数万件）を
+            # `.not_in(...)`で素朴にIN句化すると、`id_chunk`（最大_ID_CHUNK_SIZE件）との
+            # 合算でasyncpgのプリペアド文パラメータ上限（32,767個）を超え、都心規模の
+            # bboxでroad_graphエンジンの再構築経路が毎回500エラーになっていた（実機確認、
+            # 統合レビュー2026-08-23）。`=ANY(配列)`は要素数に関わらず1パラメータのため、
+            # 本ファイルの他の大量ID参照（get_edge_attribute_counts等）と同じ
+            # `=ANY(配列)`パターンへ揃える（`NOT (edge_id = ANY(配列))`でNOT IN相当）。
             for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
-                delete_stmt = delete(RoadEdgeRow).where(RoadEdgeRow.osm_way_id.in_(id_chunk))
+                delete_stmt = delete(RoadEdgeRow).where(
+                    RoadEdgeRow.osm_way_id == any_(cast(id_chunk, ARRAY(BigInteger)))
+                )
                 # 今回も同じedge_idで再挿入される行はDELETE対象から除外する（上記docstring
                 # 参照）。new_edge_idsが空（対象way群がEdgeを1件も生成しなかった）場合は
-                # NOT INの右辺が空集合になり全削除相当のままで問題ない。
+                # 除外条件自体を付けず全削除相当のままで問題ない。
                 if new_edge_ids:
-                    delete_stmt = delete_stmt.where(RoadEdgeRow.edge_id.not_in(new_edge_ids))
+                    delete_stmt = delete_stmt.where(
+                        ~(RoadEdgeRow.edge_id == any_(cast(new_edge_ids, ARRAY(Text))))
+                    )
                 await self._session.execute(delete_stmt)
                 await self._session.execute(
-                    update(OsmRawWayRow).where(OsmRawWayRow.osm_way_id.in_(id_chunk)).values(split_at=now)
+                    update(OsmRawWayRow)
+                    .where(OsmRawWayRow.osm_way_id == any_(cast(id_chunk, ARRAY(BigInteger))))
+                    .values(split_at=now)
                 )
 
         await _bulk_upsert(

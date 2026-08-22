@@ -132,6 +132,33 @@ async def test_save_graph_with_way_ids_to_replace_deletes_then_reinserts_only_ta
     assert {e.osm_way_id for e in still_there.edges.values()} == {200}
 
 
+async def test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyncpg_parameter_limit(
+    road_graph_repository,
+):
+    """改善計画T224の回帰テスト。`new_edge_ids`（再構築対象の全edge_id）を素朴に
+    `.not_in(...)`でIN句化すると、要素数が多い場合にasyncpgのプリペアド文パラメータ上限
+    （32,767個）を超えて`InterfaceError`になっていた（都心密度のbboxでroad_graphエンジンの
+    再構築経路が毎回500エラーになる実障害、統合レビュー2026-08-23で発覚）。
+    16,384件（2^14）を超えるEdgeを1回のsave_graph呼び出しで再構築し、例外なく完了することを
+    確認する（`=ANY(配列)`化により要素数に関わらず1パラメータで済む設計に修正済み）。
+    """
+    way_count = 17_000  # 各wayが2Edge（双方向）を生成するため、new_edge_idsは34,000件になる
+    ways = [
+        WaySpec(osm_way_id=1000 + i, node_ids=[1000 + i, 2000 + i], highway="residential")
+        for i in range(way_count)
+    ]
+    # 実際の座標は問わない（PostGISへ実体化できれば十分）。全way共通の2点を使い回す。
+    nodes = {1000 + i: NODE1 for i in range(way_count)} | {2000 + i: NODE2 for i in range(way_count)}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    assert len(graph.edges) == way_count * 2
+
+    await road_graph_repository.save_graph(graph, way_ids_to_replace={w.osm_way_id for w in ways})
+
+    result = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
+    assert result is not None
+    assert len(result.edges) == way_count * 2
+
+
 async def test_save_raw_ways_and_get_way_specs_with_closure_returns_empty_for_bbox_without_primary_nodes(
     road_graph_repository,
 ):

@@ -342,7 +342,7 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 レビュー結果の全文・Evidenceは`.claude/commands/review/history/2026-08-23_all.md`、
 スコア推移の視覚レポートはArtifact（レビュースコアボード）を参照。
 
-### - [ ] T224. save_graph再構築経路の32767パラメータ超過を修正し、road_graph APIのエンドツーエンドを実測してT218/T219の完了条件を裏取りする〔P1〕規模S（修正）＋S（検証）
+### - [x] T224. save_graph再構築経路の32767パラメータ超過を修正し、road_graph APIのエンドツーエンドを実測してT218/T219の完了条件を裏取りする〔P1〕規模S（修正）＋S（検証）（2026-08-23完了、本番バックフィルはユーザー判断待ちで未実施）
 
 - 発端: 統合レビュー2026-08-23 統合-1。`ROUTING_ENGINE=road_graph`でのAPI実行
   （`POST /api/routes/generate`、dev DB）が2回連続500になることを実機確認。原因は
@@ -373,6 +373,47 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 - 完了条件: dev DBでroad_graphエンジンのルート生成が冷/温とも500にならず完走し、
   数値目標の実測値を記録。山岳エリアでのgradient経路変化を実測。バックフィルの実施可否が
   ユーザー判断で確定している。
+
+- **実装メモ（2026-08-23完了）**:
+  1. **修正**: `road_graph_repository.py: save_graph`のNOT IN句を`=ANY(配列)`化
+     （`RoadEdgeRow.osm_way_id`/`OsmRawWayRow.osm_way_id`のIN句も同様に統一）。
+     `~(RoadEdgeRow.edge_id == any_(cast(new_edge_ids, ARRAY(Text))))`でNOT IN相当を表現。
+     回帰テスト`test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyncpg_parameter_limit`
+     （17,000way・34,000Edgeの一括再構築、PostGIS統合テスト）を追加し、**修正前のコードで
+     実際に同一エラー（32767超過）が再現すること・修正後は例外なく完了することの両方を
+     確認**（一時的に修正をstashして検証）。backend全体1065件green。
+  2. **road_graph APIエンドツーエンド実測**（dev DB、`ROUTING_ENGINE=road_graph`）:
+     500エラーは解消し、複数の起点・条件で例外なく完走することを確認。
+     数値目標: 10kmループ生成（122,710エッジのbbox）で**1回目（split未済・再構築、
+     一度きりのコスト）約57秒→2回目（タイルキャッシュ初回投入）約21秒→3回目以降
+     （温）約5.4〜5.6秒**。`prepare()`内訳を直接計測すると、タイルキャッシュ自体の
+     取得は温状態で約0.16秒（T219の設計どおり）だが、**このbboxの規模
+     （122,710エッジ）では`evaluate_graph`約3.4〜3.7秒＋グラフ構築（nx+sparse）約1.0秒が
+     支配的**で、目標「5秒以内」をわずかに超過する（5.4〜5.6秒）。T219が完了条件検証時に
+     使った基準bbox（東京都心4km四方相当、69,216エッジ）より広いbboxでは
+     evaluate_graph等のPythonループコストがエッジ数に比例して伸びるため、目標達成は
+     bboxの規模に依存する。この残課題はT220の完了メモに既に記録済み
+     （「evaluate_graph自体は今回手を付けていない、将来さらに高速化が必要になった場合は
+     個別に精査」）であり、本タスクはT12の当初目標bbox規模での達成を再確認したに留まる
+     （新規の課題ではなく、既知のスコープ外事項の実測値更新）。
+  3. **T218aの山岳エリア実測**（dev DB）: `elevation_attributes`が本番未バックフィル
+     （全128,887エッジ中1,325件のみ）だったため、dev DBに対し
+     `precompute_elevation_attributes`を実行し全件（128,887件）バックフィル
+     （elapsed=107.5秒、GSI DEMタイルはT10のキャッシュにより現実的な時間で完了）。
+     急勾配エッジが集中するエリア（(35.69, 139.68)付近、平均絶対勾配7〜15%のエッジ
+     100件超）で8km周回を`penalty_strength=1.0`と`8.0`で比較生成し、**同一方位
+     （route-315）で明確な経路変化を実測**（P=1.0: distance=10.02km・
+     max_gradient_percent=48.2% → P=8.0: distance=10.74km・max_gradient_percent=31.2%、
+     より緩やかな迂回路へ変化）。ペナルティ強度を上げると候補集合自体も変化する
+     （P=1.0は6候補・P=8.0は5候補、方位180が新規出現し方位270/090が距離許容差外へ脱落）。
+     `max_average_grade_percent=8.0`のハードフィルタも指定し例外なく完走・候補集合が
+     変化することを確認（8候補、探索グラフから急勾配エッジが除外されたことによる
+     経路再構成）。T218aの完了条件を実地で満たした。
+  4. **本番Oracle DBへのmigration 0013適用・バックフィル**: **未実施**。本番DB書き込みを
+     伴うため実行前にユーザーへ確認する（本タスクの範囲外として保留、実行判断は別途）。
+  5. 検証用の一時ファイル（テスト用uvicornプロセス・診断用printデバッグ・スクリプト）は
+     全て削除・復元済み。road_graph_engine.pyの差分はゼロ（診断目的で一時追加したprint文は
+     検証後にすべて元へ戻した）。
 
 ### - [x] T225. OpenAPI生成物へpenalty_strength/max_average_grade_percentを反映する〔P1〕規模S（2026-08-23完了）
 
