@@ -4116,6 +4116,38 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   設定パネルの`maxHeight`が動的に143.4pxへ縮み、パネルの下端が常にビューポート内
   （y+height <= viewportHeight）に収まることを確認した。
 
+### - [x] T216. 地図チップのグループ開閉・表示項目設定をlocalStorageへ永続化する 規模S（2026-08-22完了）
+
+- 発端: ユーザー要望「グループの選択状態等は保持しておいて、次開いた時に同じ状態に
+  して。時間経過で変動する要素以外は、過去の設定内容はlocalStorage等で保持してほしい」。
+  各レイヤーのON/OFF自体（`layerVisibility`）はT47 R-6の時点で`useStoredState`に
+  よりlocalStorage永続化済みだが、T166〜T181で追加した観測/推定/動的グループの
+  開閉状態（`expandedIds`）とT181の表示項目設定（`hiddenIds`）はMapOverlayControls
+  内部の一時的なUI状態のままで、ページ再訪問のたびにリセットされていた。
+- 対応方針: `expandedIds`・`hiddenIds`を`useStoredState`（既存のP47 R-6集約フック、
+  page.tsxの他の永続化設定と同じ仕組み）へ置き換える
+  （`ridecompass:map-overlay-expanded-groups`・`ridecompass:map-overlay-hidden-ids`）。
+  `expandedIds`は個々の凡例展開（member:/axis:/単独チップ/`${groupKey}:legend`）まで
+  含めると「今ちょっと確認のために開いている」一時的な状態が次回訪問時に勝手にポップ
+  アップとして再現されてしまうため、グループ本体の開閉（`GROUP_VISIBILITY_KEYS`:
+  group:composite/group:raw/group:dynamic）だけを保存対象にする
+  （serialize/deserializeの両方でフィルタし、過去に保存された値・旧仕様の値が
+  紛れ込んでも安全側に倒す）。`hiddenIds`は無条件で全件を保存・復元する
+  （レイヤー構成が変わり存在しないIDが残っても、現在渡された項目とのマッチングでしか
+  使わないため実害はない）。「時間経過で変動する要素」（動的レイヤーの実際のデータ・
+  時刻スライダーのフレームインデックス等）はそもそもMapOverlayControlsの管轄外
+  （useWeatherGrid/DynamicLayerTimeSlider等）のため対応不要。
+- 完了条件: グループを展開し表示項目を設定した状態でページを再読み込みしても、
+  同じ開閉状態・表示項目設定が復元されること。個々の凡例展開（一時的なポップアップ）は
+  復元されないこと。
+- 検証: `MapOverlayControls.test.tsx`に新規1件追加（unmount→再renderで開閉状態・
+  非表示設定が復元されることを確認）、既存テストはlocalStorageが前のテストから
+  引き継がれないよう`beforeEach`で`window.localStorage.clear()`を追加、計35件green。
+  frontend全体497件・tsc/eslint全green。Playwright実機確認: 観測データの表示項目
+  設定で「道路種別」を非表示にし観測グループを展開した状態でページをリロードし、
+  リロード後も展開状態（aria-expanded=true）と非表示設定（道路種別チップ0件）が
+  localStorage経由で復元されることを確認した。
+
 ## 残タスクの優先順位（2026-08-22整理）
 
 ユーザー要望「改善計画の残りで優先順位を決めて」を受け、未完了（`[ ]`）の全タスクを
