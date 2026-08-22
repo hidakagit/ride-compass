@@ -208,6 +208,17 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   実況〜+60分・5分刻み、`rasterTile`表現）は仕様上+60分が上限のため、それ以降は上記の
   風と同じ格子点マップへ`precipitation`（mm/h）を相乗りさせ、`gridFill`表現（格子をセルとして
   塗る）で継ぎ足す。1回のフェッチで風・延長予報の両方を賄うためOpen-Meteoクォータは増えない。
+- **雷ナウキャスト・竜巻発生確度ナウキャスト（T204）**: [frontend/src/components/Map/thunderNowcast.ts](../frontend/src/components/Map/thunderNowcast.ts)が
+  降水と同じbosai/jmatile/data/nowc/系（プロダクトコード`thns`＝雷・`trns`＝竜巻）を
+  `rasterTile`表現のみで重ねる。降水と異なり`targetTimes_N3.json`1本に実況〜+60分の予測が
+  同居し（N1/N2のような分割が無い）、Open-Meteo側に相当するデータが無いため延長予報は
+  持たない（60分より先は範囲外として描画しない、T184共通契約どおり）。雷・竜巻は同じ
+  時刻一覧を共有しつつ、地図上は独立したON/OFFチップ2つに分ける（重ねると見分けにくいため）。
+  「回避一択」の危険（設計判断は本節冒頭参照）のため評価軸には組み込まず警告表示のみ。
+  JMAナウキャスト系に共通する時刻一覧の取得・整形（`fetchJmaTargetTimes`・
+  `trimToCurrentAndFuture`・`parseValidtime`）は[frontend/src/components/Map/jmaNowcastFrames.ts](../frontend/src/components/Map/jmaNowcastFrames.ts)
+  （降水・雷の2つ目の消費者が現れたことを受けT204でprecipitationNowcast.tsから抽出）が
+  単一の情報源として持つ。
 - **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
   `night_weight`をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
@@ -440,6 +451,8 @@ RideCompass/
         Map/dynamicWeather.ts        ✅ 改善計画T184: 動的気象レイヤー（風・降水）の共通契約（表現3種・共有タイムライン・範囲外非描画・追加4ステップの1本道。DOM/MapLibre非依存の純粋データ層。「動的気象レイヤー」節参照）
         Map/windLayer.ts             ✅ 改善計画T178フォローアップ・T183・T185・T198: 風の格子点マップのデータ層（フレーム変換・色スケール・詳細格子間隔のズーム依存化。wind-grid-config.jsonの間隔定数をimportし手動同期を廃止）
         Map/precipitationNowcast.ts   ✅ 改善計画T171・T183: 気象庁降水ナウキャスト（実況〜+60分）＋延長予報（+60分以降、風と共通の格子点マップへ相乗り）のデータ層
+        Map/jmaNowcastFrames.ts        ✅ 改善計画T204: JMAナウキャスト系（降水・雷/竜巻）に共通する時刻一覧の取得・整形（fetchJmaTargetTimes/trimToCurrentAndFuture/parseValidtime）。precipitationNowcast.tsから抽出、両ファイルが単一の情報源として参照
+        Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
         Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
         DynamicLayerTimeSlider/       ✅ 改善計画T170・T188〜T193: 時刻依存レイヤー共通の時刻スライダーUI（横スクロールルーラー、Pointer Events自前ドラッグ）。レイヤー固有の時刻形式を知らない汎用コンポーネント
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）

@@ -48,6 +48,11 @@ export type MapLayerId =
   // 格子点サンプリング（バックエンド新設、GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
+  // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。precipitationNowcastと同じ
+  // 理由でkind="static"・dataNature="dynamic"。「回避一択」の危険（雷・竜巻）のため
+  // 評価軸には組み込まず警告表示のみ（T170〜T178節の設計判断を踏襲）。
+  | "thunderNowcast"
+  | "tornadoNowcast"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
   // （axisLayers.ts: axisMapLayerId参照）。
@@ -380,6 +385,42 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
       "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで約48時間先" +
       "まで切り替えて確認できます。",
+  },
+  {
+    // 雷ナウキャスト（改善計画T204）。T171実装メモが「プロダクトコード未確認のため
+    // 別レイヤー・別調査として残す」としていた宿題。降水ナウキャストと同じ気象庁配信
+    // （bosai/jmatile/data/nowc/、プロダクトコードthns）だが、実況〜60分先までのみで
+    // それより先の延長予報は無い（範囲外はT184共通契約どおり描画しない）。「回避一択」の
+    // 危険のため評価軸には組み込まず警告表示のみ。
+    id: "thunderNowcast",
+    label: "雷ナウキャスト",
+    chipLabel: "雷",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の雷ナウキャストを表示[実況〜60分先、10分刻み]",
+    panelHint:
+      "気象庁の雷ナウキャスト（活動度1〜4）です。ONにすると地図上に時刻スライダーが現れ、" +
+      "実況（直近）から60分先までの雷の状況を切り替えて確認できます。活動度2以上が表示" +
+      "されている領域では、直ちに建物の中など安全な場所への避難が必要です。非公式の内部" +
+      "APIを利用しているため、取得に失敗することがあります。",
+  },
+  {
+    // 竜巻発生確度ナウキャスト（改善計画T204、雷と同じN3配信のため同時に実装）。雷とは
+    // 独立したON/OFFにする（同じ地図上に雷・竜巻を重ねると見分けにくいという判断、
+    // 必要な情報だけを選んで表示できるようにする）。
+    id: "tornadoNowcast",
+    label: "竜巻発生確度ナウキャスト",
+    chipLabel: "竜巻",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の竜巻発生確度ナウキャストを表示[実況〜60分先、10分刻み]",
+    panelHint:
+      "気象庁の竜巻発生確度ナウキャスト（発生確度1・2）です。ONにすると地図上に時刻" +
+      "スライダーが現れ、実況（直近）から60分先までの竜巻等の激しい突風の可能性を切り替えて" +
+      "確認できます。発生確度2は気象庁の「竜巻注意」情報につながる絞り込んだ予測です。" +
+      "非公式の内部APIを利用しているため、取得に失敗することがあります。",
   },
   {
     id: "route",

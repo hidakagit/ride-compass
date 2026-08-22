@@ -625,6 +625,30 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
       minValueToShow: WIND_CALM_THRESHOLD_MS,
     },
   },
+  // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。降水ナウキャストと同じ
+  // bosai/jmatile/data/nowc/系だが、60分より先の延長予報を持たない（風・降水と違い
+  // Open-Meteo側に雷・竜巻に相当するデータが無いため）。プロダクトコード違い（thns/trns）
+  // だけの単純なrasterのみのスペックで、gridFill/gridMarkは持たない。
+  thunderNowcast: {
+    raster: {
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 10,
+      attribution: "気象庁",
+    },
+  },
+  tornadoNowcast: {
+    raster: {
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 10,
+      attribution: "気象庁",
+    },
+  },
 };
 
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ

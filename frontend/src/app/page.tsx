@@ -70,6 +70,15 @@ import {
 } from "@/components/Map/precipitationNowcast";
 import { windFrames, windRenderPayload, WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import {
+  fetchThunderNowcastFrames,
+  thunderFrames,
+  thunderRenderPayload,
+  tornadoRenderPayload,
+  THUNDER_ACTIVITY_LEVELS,
+  TORNADO_POTENTIAL_LEVELS,
+  type ThunderNowcastFrame,
+} from "@/components/Map/thunderNowcast";
+import {
   formatDynamicFrameHourMinute,
   formatDynamicFrameMinuteOnly,
   formatDynamicFrameTime,
@@ -152,6 +161,9 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   precipitationNowcast: false,
   // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
+  // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
+  thunderNowcast: false,
+  tornadoNowcast: false,
   route: true,
   // 二次軸rampレイヤー（改善計画T145b）。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるため、個別の行を手書きせずカタログから導出する
@@ -181,6 +193,23 @@ const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "",
     legend: WIND_SPEED_LEGEND_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
+// 雷・竜巻の凡例（改善計画T204）。precipitation/wind凡例と同じパターン（表示専用、
+// filterはダミー値）。実データ（活動度・発生確度のラベル・近似色）はthunderNowcast.ts
+// （単一の情報源）から持ってくる。
+const THUNDER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: THUNDER_ACTIVITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
+const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: TORNADO_POTENTIAL_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
@@ -282,6 +311,13 @@ export default function Home() {
   const [nowcastFrames, setNowcastFrames] = useState<NowcastFrame[]>([]);
   const [nowcastLoading, setNowcastLoading] = useState(false);
   const [nowcastError, setNowcastError] = useState<string | null>(null);
+
+  // 雷・竜巻の時刻一覧（改善計画T204）。雷ナウキャストと竜巻発生確度ナウキャストは同じ
+  // targetTimes_N3.json由来のため、両トグルのどちらか一方でもONの間だけ1本のfetchで
+  // 両方をカバーする（nowcastFramesと同じ理由・同じパターン）。
+  const [thunderNowcastFrames, setThunderNowcastFrames] = useState<ThunderNowcastFrame[]>([]);
+  const [thunderNowcastLoading, setThunderNowcastLoading] = useState(false);
+  const [thunderNowcastError, setThunderNowcastError] = useState<string | null>(null);
 
   // 風・延長降水予報（T183）が共有する格子点マップの取得結果はuseWeatherGrid（下記）が
   // 管理する。スライダー位置はdynamicLayerTargetTimeから導出するため、ここでは持たない。
@@ -661,7 +697,11 @@ export default function Home() {
                   ? PRECIPITATION_LEGEND_DETAILS
                   : layer.id === "windVector"
                     ? WIND_LEGEND_DETAILS
-                    : staticFilterSummaries[layer.id]?.legendDetails;
+                    : layer.id === "thunderNowcast"
+                      ? THUNDER_LEGEND_DETAILS
+                      : layer.id === "tornadoNowcast"
+                        ? TORNADO_LEGEND_DETAILS
+                        : staticFilterSummaries[layer.id]?.legendDetails;
         return {
           id: layer.id,
           label: layer.label,
@@ -801,6 +841,38 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPrecipitationNowcast]);
 
+  // 雷・竜巻の時刻一覧（改善計画T204）。雷ナウキャスト・竜巻発生確度ナウキャストは同じ
+  // targetTimes_N3.json由来のため、どちらか一方でもONの間だけ1本のfetchで両方をカバーする
+  // （nowcastFramesと同じ理由・同じ更新間隔。雷は10分毎更新のためnowcastの5分より長くても
+  // 足りるが、揃えておく方が実装として単純なため同じ間隔にした）。
+  const showThunderNowcast = layerVisibility.thunderNowcast;
+  const showTornadoNowcast = layerVisibility.tornadoNowcast;
+  useEffect(() => {
+    if (!showThunderNowcast && !showTornadoNowcast) return;
+    let cancelled = false;
+    const load = async (isFirstLoad: boolean) => {
+      if (isFirstLoad) setThunderNowcastLoading(true);
+      try {
+        const frames = trimToCurrentAndFuture(await fetchThunderNowcastFrames());
+        if (cancelled) return;
+        setThunderNowcastFrames(frames);
+        setThunderNowcastError(null);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setThunderNowcastError(error instanceof Error ? error.message : "雷ナウキャストの取得に失敗しました");
+      } finally {
+        if (!cancelled && isFirstLoad) setThunderNowcastLoading(false);
+      }
+    };
+    Promise.resolve().then(() => load(true));
+    const intervalId = window.setInterval(() => load(false), NOWCAST_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showThunderNowcast, showTornadoNowcast]);
+
   const showWindVector = layerVisibility.windVector;
   // 風・降水延長予報（T183、ユーザー要望「風と同じ考え方で、風と汎用化して実装してほしい」）
   // が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。バックエンドは1回のOpen-Meteo
@@ -822,6 +894,10 @@ export default function Home() {
   // （T183再設計「データ取得の差異はデータ層で吸収」）。
   const windFramesList = useMemo(() => windFrames(windGrid), [windGrid]);
   const precipFramesList = useMemo(() => precipitationFrames(nowcastFrames, windGrid), [nowcastFrames, windGrid]);
+  // 雷・竜巻は同じthunderNowcastFrames（targetTimes_N3.json由来）を共有する1本のフレーム列
+  // （改善計画T204）。雷ナウキャストと違い延長予報を持たないため、precipFramesListのような
+  // 複数ソース統合は不要（thunderFramesがそのままdynamicWeather.tsの共通フレーム列を返す）。
+  const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
 
   // ONの全レイヤーのフレーム時刻を統合した共有タイムライン（T183再設計、実機フィードバック
   // 「時間経過はスライドバー1本で表現する」）。降水ナウキャスト（5分刻み）と風・延長予報
@@ -831,8 +907,17 @@ export default function Home() {
     const lists: { time: Date }[][] = [];
     if (showWindVector) lists.push(windFramesList);
     if (showPrecipitationNowcast) lists.push(precipFramesList);
+    if (showThunderNowcast || showTornadoNowcast) lists.push(thunderFramesList);
     return lists;
-  }, [showWindVector, windFramesList, showPrecipitationNowcast, precipFramesList]);
+  }, [
+    showWindVector,
+    windFramesList,
+    showPrecipitationNowcast,
+    precipFramesList,
+    showThunderNowcast,
+    showTornadoNowcast,
+    thunderFramesList,
+  ]);
   const timeline = useMemo(() => mergeFrameTimes(activeFrameLists), [activeFrameLists]);
 
   // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
@@ -899,6 +984,18 @@ export default function Home() {
     if (index == null) return undefined;
     return precipitationRenderPayload(nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg, precipFramesList[index].ref);
   }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg]);
+  // 雷・竜巻は同じフレーム列・同じrefを共有し、プロダクトコードだけが異なる
+  // （thunderRenderPayload/tornadoRenderPayloadの違い、thunderNowcast.ts参照）。
+  const thunderPayload = useMemo(() => {
+    const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
+    if (index == null) return undefined;
+    return thunderRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
+  }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
+  const tornadoPayload = useMemo(() => {
+    const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
+    if (index == null) return undefined;
+    return tornadoRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
+  }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
 
   // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
   // 新しい動的気象要素を追加してもMapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
@@ -906,15 +1003,31 @@ export default function Home() {
     () => ({
       windVector: { visible: showWindVector, payload: windPayload },
       precipitationNowcast: { visible: showPrecipitationNowcast, payload: precipitationPayload },
+      thunderNowcast: { visible: showThunderNowcast, payload: thunderPayload },
+      tornadoNowcast: { visible: showTornadoNowcast, payload: tornadoPayload },
     }),
-    [showWindVector, windPayload, showPrecipitationNowcast, precipitationPayload]
+    [
+      showWindVector,
+      windPayload,
+      showPrecipitationNowcast,
+      precipitationPayload,
+      showThunderNowcast,
+      thunderPayload,
+      showTornadoNowcast,
+      tornadoPayload,
+    ]
   );
 
   // 共有スライダーのloading/error表示。windLoading/windErrorは両要素が使う格子点フェッチ
   // （useWeatherGrid、ONのどちらか一方でも走る）、nowcastLoading/nowcastErrorは降水ナウキャスト
-  // 固有のフェッチ。風のみONならnowcastの状態は無関係（フェッチ自体走らない）。
-  const dynamicLayerLoading = windLoading || (showPrecipitationNowcast && nowcastLoading);
-  const dynamicLayerError = windError ?? (showPrecipitationNowcast ? nowcastError : null);
+  // 固有のフェッチ、thunderNowcastLoading/thunderNowcastErrorは雷・竜巻共有のフェッチ。
+  // 風のみONならnowcast/thunderの状態は無関係（フェッチ自体走らない）。
+  const dynamicLayerLoading =
+    windLoading || (showPrecipitationNowcast && nowcastLoading) || ((showThunderNowcast || showTornadoNowcast) && thunderNowcastLoading);
+  const dynamicLayerError =
+    windError ??
+    (showPrecipitationNowcast ? nowcastError : null) ??
+    (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null);
 
   // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
   // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
@@ -1447,7 +1560,7 @@ export default function Home() {
             >
               <ClearAllLayersIcon size={14} />
             </button>
-            {(showPrecipitationNowcast || showWindVector) && (
+            {(showPrecipitationNowcast || showWindVector || showThunderNowcast || showTornadoNowcast) && (
               <div className={styles.dynamicLayerSliders}>
                 <DynamicLayerTimeSlider
                   frames={sliderFrames}

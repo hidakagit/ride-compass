@@ -39,6 +39,8 @@ import {
   SupplyPoiIcon,
   SurfaceQualityAxisIcon,
   RouteIcon,
+  ThunderIcon,
+  TornadoIcon,
   WindIcon,
 } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
@@ -125,6 +127,8 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   precipitationNowcast: RaindropIcon,
   windVector: WindIcon,
+  thunderNowcast: ThunderIcon,
+  tornadoNowcast: TornadoIcon,
   route: RouteIcon,
 };
 
