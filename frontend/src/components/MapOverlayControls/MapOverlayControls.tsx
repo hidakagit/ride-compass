@@ -396,6 +396,28 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   const rowRefs = useRef<Partial<Record<string, HTMLDivElement | null>>>({});
   const chipRowRef = useRef<HTMLDivElement>(null);
 
+  // 観測/推定/動的グループで「表示する項目を選ぶ」設定（改善計画T181）。ユーザー報告
+  // 「縦アイコンが多くて見切れるようになってきた」への対応として、グループ見出しの
+  // Ⓘボタン（従来は読み取り専用の「アイコンの意味」凡例だった）を、配下メンバー/軸の
+  // 表示・非表示を選べる設定パネルへ拡張する。グループ本体を開くと、ここで非表示に
+  // 選んだもの以外だけが並ぶ（絞り込みは各グループ内で完結し、既定＝何も非表示に
+  // 選んでいない状態では従来どおり全件表示）。expandedIdsと同じくページ内の一時的な
+  // UI状態で永続化はしない。キーは`${scope}:${memberOrAxisId}`（scope="raw"|
+  // "composite"|"dynamic"、グループ間でIDが衝突しても名前空間で区別できるようにする）。
+  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(new Set());
+
+  function toggleHidden(hiddenKey: string) {
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(hiddenKey)) {
+        next.delete(hiddenKey);
+      } else {
+        next.add(hiddenKey);
+      }
+      return next;
+    });
+  }
+
   // anchor="right"（従来どおり行の右へ）/"down"（行の直下へ）。いずれもdocument.bodyへ
   // ポータルしてposition: fixedで浮かせる（下記ChipButton参照）。▼方向（推定グループの
   // 軸タイル）を最初はchipRowItem内の通常のフロー+position: absoluteで実装したが、
@@ -539,24 +561,34 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     return MAP_LAYER_CATEGORY_ORDER.flatMap((category) => members.filter((m) => m.category === category));
   }
 
-  function renderObservedMemberRows(members: readonly OverlayLayerChip[], groupTint: "raw" | "dynamic"): ReactElement[] {
-    return orderObservedMembers(members).map((member) => renderRawMemberTile(member, groupTint));
+  // メンバー増加（観測グループは現状8件）で展開直後に画面下端を超えて見切れるという
+  // 実機フィードバックを受け、Ⓘの設定パネル（renderVisibilitySettings）で非表示に
+  // 選んだメンバーはここで除外する（改善計画T181）。
+  function renderObservedMemberRows(
+    members: readonly OverlayLayerChip[],
+    groupTint: "raw" | "dynamic",
+    scope: "raw" | "dynamic"
+  ): ReactElement[] {
+    return orderObservedMembers(members)
+      .filter((member) => !hiddenIds.has(`${scope}:${member.id}`))
+      .map((member) => renderRawMemberTile(member, groupTint));
   }
 
-  // 観測/推定グループ見出しの「アイコンの意味」凡例トグル。実機フィードバック「スマホモード
-  // の小さい軸アイコンでも略名を表現する方法はないか」への提案からユーザーが選んだ方針:
-  // 折りたたみ時だけ見出しの脇に出す独立した入口にする（展開後は軸タイル/観測メンバー自体の
-  // アイコンが並ぶため、その場に同じアイコン+略名の一覧をもう一度出すと二重表示になって
-  // かえって読みにくいという指摘を受け、展開時はこのボタンごと消す設計にした）。呼び出し側
-  // （chipGroups.flatMapの中）が `!isExpanded` のときだけこの関数を呼ぶことで担保する。
-  // ChipButtonは使わず、同じ「小さい丸ボタン+document.bodyへポータルする内訳パネル」の
-  // 仕組み（toggleExpanded/panelRects/rowRefs）を直接流用する軽量な専用実装にする
-  // （ON/OFF・展開三角の意味を持たない単純な開閉トグルのためChipButtonの汎用APIへ新たな
-  // 概念を足すよりこちらが素直）。キーは`${groupKey}:legend`でexpandedIds等の既存Setに
-  // そのまま同居できる。 */
-  function renderGroupLegendToggle(
+  // 観測/推定/動的グループ見出しの「表示する項目を選ぶ」設定パネル（改善計画T181）。
+  // 以前は読み取り専用の「アイコンの意味」凡例（一覧を見せるだけ）だったが、ユーザー
+  // 報告「縦アイコンが多くて見切れるようになってきた」への対応として、各項目に表示/
+  // 非表示のチェックボックスを持たせ、ここで選んだ項目だけがグループ展開時に並ぶように
+  // 拡張した。折りたたみ時だけ見出しの脇に出す独立した入口にする方針は維持する（展開後は
+  // 絞り込み済みの項目自体のアイコンが並ぶため、その場に同じ一覧をもう一度出すと二重表示に
+  // なってかえって読みにくい）。呼び出し側（chipGroups.flatMapの中）が `!isExpanded` の
+  // ときだけこの関数を呼ぶことで担保する。ChipButtonは使わず、同じ「小さい丸ボタン+
+  // document.bodyへポータルする内訳パネル」の仕組み（toggleExpanded/panelRects/rowRefs）を
+  // 直接流用する軽量な専用実装にする。キーは`${groupKey}:legend`でexpandedIds等の
+  // 既存Setにそのまま同居できる。
+  function renderVisibilitySettings(
     groupKey: string,
     groupLabel: string,
+    scope: "raw" | "composite" | "dynamic",
     items: readonly { key: string; Icon: (props: { size?: number }) => ReactElement; label: string }[]
   ) {
     const legendKey = `${groupKey}:legend`;
@@ -575,8 +607,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
             type="button"
             onClick={() => toggleExpanded(legendKey, "down")}
             aria-expanded={isOpen}
-            aria-label={`${groupLabel}のアイコンの意味を${isOpen ? "隠す" : "表示"}`}
-            title="アイコンの意味を表示"
+            aria-label={`${groupLabel}の表示項目を${isOpen ? "隠す" : "設定"}`}
+            title="表示する項目を選ぶ"
             className={isOpen ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
           >
             <InfoIcon size={12} />
@@ -587,12 +619,29 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
           createPortal(
             <div className={styles.detailPanel} style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth }}>
               <ul className={styles.detailList}>
-                {items.map((item) => (
-                  <li key={item.key} className={styles.detailRow}>
-                    <item.Icon size={16} />
-                    <span className={styles.detailRowLabel}>{item.label}</span>
-                  </li>
-                ))}
+                {items.map((item) => {
+                  const hiddenKey = `${scope}:${item.key}`;
+                  const isHidden = hiddenIds.has(hiddenKey);
+                  return (
+                    <li key={item.key} className={styles.detailRow}>
+                      <button
+                        type="button"
+                        onClick={() => toggleHidden(hiddenKey)}
+                        aria-pressed={!isHidden}
+                        aria-label={`${item.label}を${isHidden ? "表示する" : "表示しない"}`}
+                        className={
+                          isHidden
+                            ? styles.visibilityCheckbox
+                            : `${styles.visibilityCheckbox} ${styles.visibilityCheckboxChecked}`
+                        }
+                      >
+                        {isHidden ? "" : "✓"}
+                      </button>
+                      <item.Icon size={16} />
+                      <span className={styles.detailRowLabel}>{item.label}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>,
             document.body
@@ -770,10 +819,13 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               >
                 {header}
                 {isExpanded
-                  ? SECONDARY_AXES.map((axis) => renderAxisTile(axis, group.members))
-                  : renderGroupLegendToggle(
+                  ? SECONDARY_AXES.filter((axis) => !hiddenIds.has(`composite:${axis.axisId}`)).map((axis) =>
+                      renderAxisTile(axis, group.members)
+                    )
+                  : renderVisibilitySettings(
                       group.key,
                       label,
+                      "composite",
                       SECONDARY_AXES.map((axis) => ({
                         key: axis.axisId,
                         Icon: SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon,
@@ -834,10 +886,11 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               >
                 {header}
                 {isExpanded
-                  ? renderObservedMemberRows(group.members, "raw")
-                  : renderGroupLegendToggle(
+                  ? renderObservedMemberRows(group.members, "raw", "raw")
+                  : renderVisibilitySettings(
                       group.key,
                       label,
+                      "raw",
                       orderObservedMembers(group.members).map((member) => ({
                         key: member.id,
                         Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
@@ -888,10 +941,11 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               >
                 {header}
                 {isExpanded
-                  ? renderObservedMemberRows(group.members, "dynamic")
-                  : renderGroupLegendToggle(
+                  ? renderObservedMemberRows(group.members, "dynamic", "dynamic")
+                  : renderVisibilitySettings(
                       group.key,
                       label,
+                      "dynamic",
                       orderObservedMembers(group.members).map((member) => ({
                         key: member.id,
                         Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,

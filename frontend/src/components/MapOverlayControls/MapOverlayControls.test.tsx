@@ -356,23 +356,25 @@ describe("MapOverlayControls", () => {
       expect(observedButton).toHaveAttribute("aria-expanded", "true");
     });
 
-    // 実機フィードバック「スマホモードでの小さい軸アイコンでも、アイコンに物理的に表示
-    // せずとも軸略名を表現する方法はないか」への提案の結果、ユーザーが選んだ方針B（折りたたみ
-    // 時だけ見える独立した凡例入口）を検証する。展開後は軸タイル自体のアイコンが並ぶため、
-    // 凡例入口ボタンごと消える（同じ内容を二重に見せない）。
-    it("折りたたみ中だけ見出しの脇に「アイコンの意味」凡例ボタンが出て、展開すると消える", async () => {
+    // 改善計画T181（実機フィードバック「縦アイコンが多くて見切れるようになってきた」への
+    // 対応で再設計）: 折りたたみ時だけ見出しの脇に出る入口（Ⓘ）は、以前は読み取り専用の
+    // 「アイコンの意味」一覧だったが、各項目にチェックボックスを持つ「表示する項目を選ぶ」
+    // 設定パネルへ拡張した。展開後は絞り込み済みの軸タイル自体のアイコンが並ぶため、
+    // 設定入口ボタンごと消える（同じ内容を二重に見せない）点は従来どおり。
+    it("折りたたみ中だけ見出しの脇に「表示項目を設定」ボタンが出て、展開すると消える", async () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
-      // 折りたたみ中: 凡例ボタンが見える（aria-labelは見出しの正式名を使う。他の凡例
+      // 折りたたみ中: 設定ボタンが見える（aria-labelは見出しの正式名を使う。他の凡例
       // トグル（例:「車の圧迫感の凡例を表示」）と同じく略名ではなく正式名を使う既存の
       // 命名規則に揃えている）
-      const estimatedLegendToggle = screen.getByRole("button", { name: "推定指標（合成）のアイコンの意味を表示" });
-      expect(estimatedLegendToggle).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "観測データのアイコンの意味を表示" })).toBeInTheDocument();
+      const estimatedSettingsToggle = screen.getByRole("button", { name: "推定指標（合成）の表示項目を設定" });
+      expect(estimatedSettingsToggle).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "観測データの表示項目を設定" })).toBeInTheDocument();
 
-      // 押すとグループを展開せず（軸タイルは出ない）、アイコン+略名の一覧だけが出る
-      await user.click(estimatedLegendToggle);
+      // 押すとグループを展開せず（軸タイルは出ない）、アイコン+略名+チェックボックスの
+      // 一覧だけが出る
+      await user.click(estimatedSettingsToggle);
       expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "推定" })).toHaveAttribute("aria-expanded", "false");
       // SECONDARY_AXES6軸ぶんの略名がすべて一覧に出る
@@ -380,11 +382,31 @@ describe("MapOverlayControls", () => {
         expect(screen.getByText(chipLabel)).toBeInTheDocument();
       }
 
-      // 展開すると凡例ボタンごと消える（軸タイル自体のアイコンと二重に見せないため）
+      // 展開すると設定ボタンごと消える（軸タイル自体のアイコンと二重に見せないため）
       await user.click(screen.getByRole("button", { name: "推定" }));
       expect(screen.getByRole("button", { name: "車の圧迫感" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "推定指標（合成）のアイコンの意味を表示" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "推定指標（合成）のアイコンの意味を隠す" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "推定指標（合成）の表示項目を設定" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "推定指標（合成）の表示項目を隠す" })).not.toBeInTheDocument();
+    });
+
+    it("表示項目の設定で非表示に選ぶと、グループを開いてもそのメンバー/軸だけが出ない", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      // 観測: 指定路線を非表示に選ぶ
+      await user.click(screen.getByRole("button", { name: "観測データの表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "指定路線を表示しない" }));
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "道路の種類" })).toBeInTheDocument(); // 他は影響なし
+
+      // 観測を折りたたんでから推定: 車の圧迫感を非表示に選ぶ
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      await user.click(screen.getByRole("button", { name: "推定指標（合成）の表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "圧迫感を表示しない" }));
+      await user.click(screen.getByRole("button", { name: "推定" }));
+      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "勾配" })).toBeInTheDocument(); // 他は影響なし
     });
 
     // 展開/折りたたみの切り替えの瞬間、見出し（ChipButton）のDOMノード自体が

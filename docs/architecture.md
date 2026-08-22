@@ -1271,6 +1271,21 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
   （`SECONDARY_AXIS_CASING_WIDTH`）は1次トラック数×オフセット間隔＋自身の太さから
   計算式で導出し（設計原則2の「導出できる関係」拡張）、素材の本数が変わっても手計算し
   直す必要がない。
+- **表示項目の設定パネル（T181）**: T169以降レイヤー追加が続き、観測グループ展開時に
+  8メンバーが縦一列に並んでモバイル幅で見切れる報告を受け、グループ見出しのⓘボタン
+  （従来は読み取り専用の凡例）を「表示する項目を選ぶ」設定パネルへ拡張した
+  （`MapOverlayControls.tsx`の`renderVisibilitySettings`、旧`renderGroupLegendToggle`）。
+  各項目にチェックボックス風ボタンを持たせ、非表示に選んだメンバー/軸のIDを
+  `hiddenIds`（`${scope}:${id}`、scope="raw"|"composite"|"dynamic"）へ記録し、
+  グループ本体の展開時はこのセットに含まれない項目だけを描画する
+  （`renderObservedMemberRows`のフィルタ、`group:composite`分岐の`SECONDARY_AXES.filter`）。
+  非表示IDのSetという設計（表示IDのSetではなく）により、既定では全件表示のまま新規
+  レイヤーが自動的に見える。設定は`expandedIds`と同様のページ内一時的なUI状態で、
+  永続化はしない。MapOverlayControlsが「レイヤー固有の知識を持たない汎用描画係」で
+  あるという既存方針は維持（scope・keyはbuildChipGroups/SECONDARY_AXES側の値をそのまま
+  受け取るのみ）。カテゴリ（`MapLayerCategory`）を観測グループのもう1段の自動折りたたみ
+  として使う案を先に検討したが、ユーザーの実際の要望は能動的なON/OFF選択だったため
+  不採用にした経緯がある。
 
 ### 区間インスペクタ（改善計画T146）
 
