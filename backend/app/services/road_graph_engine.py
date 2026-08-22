@@ -11,12 +11,17 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   公開インスタンスに拒否され全滅することを実機確認したため、起点を中心とした単一の円
   （8方位分の経由地点をすべて覆う半径）でRoad Graphを`prepare`で1回だけ取得し、
   全方位で共有する。
-- **標高はパス確定後・距離フィルタ通過後の候補だけへ絞って取得する**: Road Graph全体
-  （数万Edge）への標高取得は非現実的に遅いことを実機確認したため、経路探索は標高を
-  使わないCost（distance・路面・風）で行い、`evaluate_loops`（距離フィルタ通過後）で
-  その経路上のEdgeだけに標高を取得する。**この結果、標高（勾配）は経路選択には影響せず、
-  確定後の表示・スコアリングにのみ使われる**（PostGISキャッシュ有効化後に探索コストへ
-  戻すことを検討、docs/architecture.md参照）。
+- **標高（勾配）は改善計画T218a（T12 Stage 0.5）で探索コストへ組み込み済み**:
+  当初はRoad Graph全体（数万Edge）への標高取得（GSI API逐次呼び出し）が非現実的に遅く、
+  経路探索は標高を使わないCostで行い`evaluate_loops`（距離フィルタ通過後）でのみ標高取得
+  していた。T218a以降、`prepare`は事前計算済みの`elevation_attributes`
+  （`app.batch.precompute_elevation_attributes`、T10のDEMタイル方式で一括計算済み）を
+  単純なキー参照で読み、`search_edge_costs`のgradient軸へ組み込む（その場でのGSI問い合わせは
+  発生しない）。`evaluate_loops`側の標高取得（`ElevationAttributeService`経由、こちらは
+  未計算Edgeがあればその場で取得しrepositoryへ永続化する）は、経路確定後の表示・スコアリング
+  向けとして引き続き別に行う（`elevation_attributes`テーブルを両者が共有するキャッシュ層として
+  参照する構図。事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いに
+  なるが、他の軸で評価は継続する）。
 - 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため。
   OpenRouteServiceEngineの「区間ごとの推定到達時刻の風」とは意味が異なる点に注意。
   レスポンスの`engine`フィールドで識別できる）。
@@ -108,6 +113,7 @@ class RoadGraphEngine:
         road_suitability_recipe: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
         penalty_strength: float = 1.0,
+        max_average_grade_percent: float | None = None,
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
@@ -120,6 +126,9 @@ class RoadGraphEngine:
         # 改善計画T218・T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
         # 既定1.0は従来どおりの挙動（最悪でも距離2倍）。
         self._penalty_strength = penalty_strength
+        # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
+        # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
+        self._max_average_grade_percent = max_average_grade_percent
 
     async def prepare(
         self, origin: Coordinates, radius_km: float, now: datetime | None = None
@@ -157,6 +166,14 @@ class RoadGraphEngine:
         # 指定路線コンフレーション機構（外部静的データソース T51）。KSJ N10/N12該当エッジの
         # 集合を同じくprepareで1回だけ取得し全方位で共有する。
         designated_edge_ids = await self._graph_service.get_designated_edge_ids(list(graph.edges.keys()))
+        # 改善計画T218a（T12 Stage 0.5）: 事前計算済みのgradient（average_grade）を探索コストへ
+        # 組み込む。`app.batch.precompute_elevation_attributes`で事前計算済みのEdgeのみ値が
+        # 埋まる（未計算のEdgeはNoneのまま=評価スキップ、compute_edge_axis_scoresの既存の
+        # 「データ無しは軸を合成から除外」動作に委ねる）。探索フェーズでその場のGSI問い合わせは
+        # 行わない（elevation_attributes単純なキー参照のみ、モジュールdocstring「標高は
+        # パス確定後」の記述はEdgeのgeometry確定・表示用途の話であり、事前計算済みのgradient
+        # 値の探索コスト利用とは独立）。
+        elevation_attributes = await self._graph_service.get_elevation_attributes(list(graph.edges.keys()))
 
         origin_node = find_nearest_node(graph, origin)
         if origin_node is None:
@@ -174,13 +191,14 @@ class RoadGraphEngine:
             if night_active
             else self._route_preference.model_copy(update={"night_weight": 0.0})
         )
-        # 探索用Costは標高を含めない（理由はモジュールdocstring参照）。
+        # 改善計画T218a: 探索用Costへ事前計算済みgradientを組み込む（モジュールdocstring参照）。
         search_edge_costs = self._evaluation_service.evaluate_graph(
-            graph, {}, surface_attributes, wind=wind, stop_counts=stop_counts,
+            graph, elevation_attributes, surface_attributes, wind=wind, stop_counts=stop_counts,
             way_tags=way_tags, intersection_counts=intersection_counts,
             accident_counts=accident_counts, accident_years_covered=accident_years_covered,
             designated_edge_ids=designated_edge_ids, preference=search_preference,
             penalty_strength=self._penalty_strength,
+            max_average_grade_percent=self._max_average_grade_percent,
         )
         nx_graph = build_networkx_graph(graph, search_edge_costs)
 

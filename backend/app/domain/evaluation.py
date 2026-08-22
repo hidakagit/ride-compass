@@ -236,7 +236,11 @@ class EdgeCostResult(BaseModel):
 
 
 def is_edge_allowed(
-    edge: DirectedEdge, way_tags: dict[str, str] | None = None, hard_filters: frozenset[str] | None = None
+    edge: DirectedEdge,
+    way_tags: dict[str, str] | None = None,
+    hard_filters: frozenset[str] | None = None,
+    elevation_attribute: ElevationAttribute | None = None,
+    max_average_grade_percent: float | None = None,
 ) -> bool:
     """Hard Constraint（仕様書29章、〇次フィルタ）。highwayタグが`hard_filters`で有効な
     道路種別フィルタに該当するか、または`bicycle=no`（`no_bicycle`フィルタ、改善計画T100で
@@ -254,6 +258,12 @@ def is_edge_allowed(
     通行可能なため〇次のハード除外対象にはせず、二次軸（車ストレス・旧安全度）側の
     「該当区間は最善値へ固定」という特例として維持する（改善計画T140での方針確認、
     docs/architecture.md 7章参照）。
+
+    `max_average_grade_percent`（改善計画T218a、T12 ADR原則5: 0次ハードフィルタの
+    しきい値調整可能化）が指定され、かつ`elevation_attribute.average_grade`が取得済み
+    （事前計算バッチ未実行のEdgeはNoneのため対象外＝許可のまま）の場合、その絶対値
+    （登り・下りどちらの急勾配も対象）がしきい値を超えるEdgeを除外する。未指定
+    （既定None）なら従来どおり勾配による除外は行わない。
     """
     active_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
     if edge.highway is not None:
@@ -264,6 +274,13 @@ def is_edge_allowed(
         bicycle = (way_tags.get("bicycle") or "").strip().lower()
         if bicycle == "no":
             return False
+    if (
+        max_average_grade_percent is not None
+        and elevation_attribute is not None
+        and elevation_attribute.average_grade is not None
+        and abs(elevation_attribute.average_grade) > max_average_grade_percent
+    ):
+        return False
     return True
 
 
@@ -441,6 +458,7 @@ def compute_edge_cost(
     road_suitability_recipe: RoadSuitabilityRecipe | None = None,
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -452,9 +470,12 @@ def compute_edge_cost(
     `compute_cost_from_axis_scores`を直接使う。
 
     パラメータの意味は`compute_edge_axis_scores`のdocstring参照（Hard Constraint判定
-    `is_edge_allowed`はこの関数が担う）。
+    `is_edge_allowed`はこの関数が担う。`max_average_grade_percent`はis_edge_allowedへ
+    そのまま渡す、改善計画T218a）。
     """
-    if not is_edge_allowed(edge, way_tags):
+    if not is_edge_allowed(
+        edge, way_tags, elevation_attribute=elevation_attribute, max_average_grade_percent=max_average_grade_percent
+    ):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
     axis_scores = compute_edge_axis_scores(

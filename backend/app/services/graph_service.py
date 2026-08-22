@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from app.domain.attributes import EdgeAttributeCounts, surface_by_edge_id
+from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, surface_by_edge_id
 from app.domain.graph import DirectedEdge, RoadGraph, WaySpec, build_road_graph
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
@@ -229,6 +229,18 @@ class GraphService:
         if self._repository is None:
             return {}
         return await self._repository.get_edge_attribute_counts(edge_ids)
+
+    async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
+        """指定edge_idそれぞれの事前計算済み標高属性（average_grade等）を返す
+        （改善計画T218a、T12 Stage 0.5）。get_stop_poi_countsと同じ
+        「repositoryが無ければ`{}`」パターン。ここは`elevation_attributes`テーブルの
+        単純なキー参照のみで、未計算のEdgeへその場でGSIへ問い合わせることはしない
+        （探索フェーズは`app.batch.precompute_elevation_attributes`で事前計算済みの値を
+        読むだけに留め、リクエスト単位のレイテンシに外部API呼び出しを持ち込まない設計）。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_elevation_attributes(edge_ids)
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         """指定edge_idのうちKSJ N10/N12に該当するものの集合を返す（外部静的データソース

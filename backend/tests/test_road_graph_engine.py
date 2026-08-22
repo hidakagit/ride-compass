@@ -99,6 +99,7 @@ class FakeGraphService:
         accident_counts: dict | None = None,
         accident_years_covered: int = 0,
         designated_edge_ids: set | None = None,
+        elevation_attributes_for_search: dict | None = None,
     ):
         self._graph = graph
         self._surface_attributes = surface_attributes or {}
@@ -108,6 +109,9 @@ class FakeGraphService:
         self._accident_counts = accident_counts or {}
         self._accident_years_covered = accident_years_covered
         self._designated_edge_ids = designated_edge_ids or set()
+        # 改善計画T218a: 探索コスト（prepare）が読む事前計算済みgradient。既定{}は
+        # 「バッチ未実行のEdge」を模す（gradient軸のみデータ無し扱い、他軸の評価は継続）。
+        self._elevation_attributes_for_search = elevation_attributes_for_search or {}
         # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
         # （GraphService.get_stop_poi_counts(repository=None)と同じ{}を返す）。Trueは
         # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
@@ -170,6 +174,15 @@ class FakeGraphService:
         # 指定路線コンフレーション機構（外部静的データソース T51）。
         return {edge_id for edge_id in edge_ids if edge_id in self._designated_edge_ids}
 
+    async def get_elevation_attributes(self, edge_ids):
+        # 改善計画T218a: 探索コストが読む事前計算済みgradient（get_stop_poi_counts等と
+        # 同じ「指定edge_idのうち持っているものだけ返す」パターン）。
+        return {
+            edge_id: self._elevation_attributes_for_search[edge_id]
+            for edge_id in edge_ids
+            if edge_id in self._elevation_attributes_for_search
+        }
+
 
 class FakeElevationAttributeService:
     def __init__(self, attributes: dict | None = None):
@@ -203,10 +216,13 @@ def make_generator(
     designated_edge_ids: set | None = None,
     wind: WeatherConditions | None = None,
     route_preference: RoutePreference | None = None,
+    elevation_attributes_for_search: dict | None = None,
+    penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
-        accident_counts, accident_years_covered, designated_edge_ids,
+        accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
@@ -216,6 +232,8 @@ def make_generator(
         evaluation_service=EvaluationService(preference),
         weather_service=FakeWeatherService(wind),
         route_preference=preference,
+        penalty_strength=penalty_strength,
+        max_average_grade_percent=max_average_grade_percent,
     )
     generator = RouteGenerator(engine, make_route_scorer())
     return generator, graph_service, elevation_service
@@ -661,6 +679,61 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     # （難易度による割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
     assert night_cost > day_cost
     assert day_cost == pytest.approx(edge.distance_m, abs=0.1)
+
+
+async def test_prepare_applies_precomputed_gradient_to_search_cost():
+    # 改善計画T218a（T12 Stage 0.5）: prepareが事前計算済みのelevation_attributes
+    # （GraphService.get_elevation_attributes、バッチ`precompute_elevation_attributes`が
+    # 埋める想定）を探索コストへ組み込むことを確認する。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    preference = RoutePreference(
+        elevation_weight=1.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
+        car_stress_weight=0.0, accident_weight=0.0, night_weight=0.0,
+    )
+    steep_climb = ElevationAttribute(
+        edge_id="e1", average_grade=10.0, data_source="test", calculated_at="t"
+    )
+
+    flat_generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    steep_generator, _, _ = make_generator(
+        graph, way_tags={"e1": {}}, route_preference=preference,
+        elevation_attributes_for_search={"e1": steep_climb},
+    )
+
+    flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
+    steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    flat_cost = flat_context.nx_graph["a"]["b"]["weight"]
+    steep_cost = steep_context.nx_graph["a"]["b"]["weight"]
+    # 事前計算データが無い（{}のまま=バッチ未実行を模す）場合はgradient軸がデータ無し扱いで
+    # 割増が乗らない。事前計算済みの急勾配が渡されるとgradient軸の割増がコストへ反映される。
+    assert flat_cost == pytest.approx(edge.distance_m, abs=0.1)
+    assert steep_cost > flat_cost
+
+
+async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_search_graph():
+    # 改善計画T218a: 0次ハードフィルタの勾配しきい値がprepareの探索グラフ構築にも
+    # 反映されることを確認する（nx_graphに該当Edgeが含まれなくなる）。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    steep_climb = ElevationAttribute(edge_id="e1", average_grade=15.0, data_source="test", calculated_at="t")
+
+    generator, _, _ = make_generator(
+        graph, way_tags={"e1": {}},
+        elevation_attributes_for_search={"e1": steep_climb},
+        max_average_grade_percent=8.0,
+    )
+
+    context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    assert not context.nx_graph.has_edge("a", "b")
 
 
 async def test_build_segment_details_night_difficulty_follows_context_night_active():

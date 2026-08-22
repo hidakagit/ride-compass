@@ -102,6 +102,7 @@ class EvaluationService:
         designated_edge_ids: set[str] | None = None,
         preference: RoutePreference | None = None,
         penalty_strength: float = 1.0,
+        max_average_grade_percent: float | None = None,
     ) -> dict[str, EdgeCostResult]:
         # preference省略時はself._preference（コンストラクタ注入・全リクエスト共有）を使う。
         # 改善計画T173: RoadGraphEngineが出発時刻に応じてnight_weightだけを差し替えた
@@ -111,6 +112,8 @@ class EvaluationService:
         # penalty_strength（改善計画T218・T12 ADR原則1）はコスト式の割増率の強さを
         # 調整するリクエストパラメータ（既定1.0）。domain/evaluation.py:
         # compute_cost_from_axis_scores参照。
+        # max_average_grade_percent（改善計画T218a・T12 ADR原則5）は0次ハードフィルタの
+        # 勾配しきい値（既定None＝除外しない）。domain/evaluation.py: is_edge_allowed参照。
         preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
@@ -131,6 +134,7 @@ class EvaluationService:
                 road_suitability_recipe=self._road_suitability_recipe,
                 motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
                 penalty_strength=penalty_strength,
+                max_average_grade_percent=max_average_grade_percent,
             )
             for edge_id, edge in graph.edges.items()
         }
