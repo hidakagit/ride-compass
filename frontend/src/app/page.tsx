@@ -397,8 +397,10 @@ export default function Home() {
   // する。材料が1つも表示されていなければ、下に隠すものが無いため通常の太さ・不透明度で
   // 表示する（以前は2次をONにした瞬間から常に太く半透明にしていたため、道路網が密な都市部で
   // 下敷きの重なりだけで地図全体がぼやけて見える不具合があった、実機フィードバック）。
-  // T167の材料連動ONカスケード（handleLayerToggle）と同じaxisMaterialLayerIdsを使い、
-  // 「材料として使われている」の定義を1箇所（primaryAttributes.ts）に保つ。
+  // T167由来のaxisMaterialLayerIds（現在はhandleLayerToggleの連動ONカスケードでは使わず、
+  // ここでの「材料として使われている」の判定にのみ使う。改善計画T181フォローアップで
+  // カスケード自体は撤去したが、「材料として使われている」の定義を1箇所（primaryAttributes.ts）
+  // に保つという意図でこの関数はそのまま流用する。
   const secondaryAxisCasingLayerIds = useMemo(
     () =>
       SECONDARY_AXES.filter((axis) => {
@@ -574,24 +576,19 @@ export default function Home() {
   // 地図の再描画・T90内訳ポップアップ用のdebouncedRecipeだけが遅延する）。デバウンス自体は
   // useRecipeOverride（改善計画T133）へ集約済み。
 
-  // 改善計画T167: 推定指標レイヤー（車の圧迫感・停止密度・事故密度）をONにしたら、
-  // axisMaterials（T164）から導出した材料の観測データレイヤーも連動ONする。MapLayersPanelの
-  // 「絞り込みを操作すると自動でON」と同じ片方向パターン（OFFへは連動させない、ユーザーが
-  // 個別に隠した観測データレイヤーを推定指標のOFF操作で勝手に消さない）。
+  // 改善計画T167で導入した「推定指標をONにすると材料の観測データレイヤーも連動ON」する
+  // カスケードは撤去した（改善計画T181フォローアップ、実機フィードバック「自由にメンバを
+  // 表示非表示できることで、裏で表示状態で残るのは避けたい」）。T181で観測グループの
+  // メンバーを個別に「表示項目の設定」で非表示にできるようになった結果、非表示にした
+  // メンバーが推定指標側の操作で裏からONにされてしまうと、非表示設定でチップ自体が
+  // 隠れているためユーザーがOFFに戻す手段を失う（T181で解消したはずの「チップからは
+  // 消えたのに地図には出続ける」不整合が推定側の操作から再発する）。代わりに、推定軸の
+  // 材料がどれか（どの観測データが計算に使われているか）は`renderMaterialsNote`
+  // （MapOverlayControls.tsx、T167で導入済み）が▼展開時に「材料: ○○」として常に示すため、
+  // 連動ONで自動的に地図へ出す必要性は薄いと判断した。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
-      setLayerVisibility((prev) => {
-        const next: MapLayerVisibility = { ...prev, [id]: on };
-        if (on) {
-          const axis = SECONDARY_AXES.find((a) => a.layerId === id);
-          if (axis) {
-            for (const materialLayerId of axisMaterialLayerIds(axis.axisId)) {
-              next[materialLayerId] = true;
-            }
-          }
-        }
-        return next;
-      });
+      setLayerVisibility((prev) => ({ ...prev, [id]: on }));
     },
     [setLayerVisibility],
   );

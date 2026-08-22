@@ -157,6 +157,11 @@ const SECONDARY_AXIS_ICONS: Record<string, (props: { size?: number }) => ReactEl
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
 // JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
 const PANEL_GAP_PX = 8;
+// 内訳パネルの既定の最大高さ（MapOverlayControls.module.css: .detailPanelBaseの
+// `max-height: min(45vh, 16rem)`のうちrem側の値と一致させる。PANEL_GAP_PXと同じ理由で、
+// 画面下端からのはみ出し対策（下記toggleExpanded参照）をJS側で計算するために数値でも
+// 持つ必要がある）。
+const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot font-size 16pxベース）
 // グループ本体の開閉キー（改善計画T199、下記toggleExpandedのコメント参照）。
 // floatingパネルを持たないため排他制御の対象外にする。
 const GROUP_VISIBILITY_KEYS = new Set(["group:composite", "group:raw", "group:dynamic"]);
@@ -164,6 +169,7 @@ const GROUP_VISIBILITY_KEYS = new Set(["group:composite", "group:raw", "group:dy
 interface PanelRect {
   top: number;
   left: number;
+  maxHeight: number;
   maxWidth: number;
 }
 
@@ -355,7 +361,7 @@ function ChipButton({
         createPortal(
           <div
             className={styles.detailPanel}
-            style={{ top: panelRect.top, left: panelRect.left, maxWidth: panelRect.maxWidth }}
+            style={{ top: panelRect.top, left: panelRect.left, maxWidth: panelRect.maxWidth, maxHeight: panelRect.maxHeight }}
           >
             {panelContent}
           </div>,
@@ -444,9 +450,18 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         const rect = row.getBoundingClientRect();
         const top = anchor === "down" ? rect.bottom + PANEL_GAP_PX : rect.top;
         const left = anchor === "down" ? rect.left : rect.right + PANEL_GAP_PX;
+        // 画面下端からのはみ出し対策（実機フィードバック「スクロールできないことがある」）。
+        // position: fixedのためtopが画面下端に近いと、CSS既定の最大高さ（16rem）ぶんが
+        // ビューポート外へはみ出してしまい、パネル自身のoverflow-y: autoでスクロールしても
+        // ビューポート外の部分には原理的に到達できない（fixed要素はドキュメントのスクロール
+        // 領域に算入されないため）。横方向のmaxWidthを画面幅から逆算するのと同じ考え方で、
+        // 利用可能な高さがCSS既定の上限より狭ければmaxHeightを縮め、パネル自体をその場の
+        // 残りスペースに収める（縮めた分はパネル自身のoverflow-y: autoで内部スクロール）。
+        const availableHeight = window.innerHeight - top - PANEL_GAP_PX;
+        const maxHeight = Math.max(120, Math.min(DETAIL_PANEL_MAX_HEIGHT_PX, availableHeight));
         setPanelRects((prev) => ({
           ...prev,
-          [id]: { top, left, maxWidth: Math.max(160, window.innerWidth - left - PANEL_GAP_PX) },
+          [id]: { top, left, maxWidth: Math.max(160, window.innerWidth - left - PANEL_GAP_PX), maxHeight },
         }));
       }
     }
@@ -637,7 +652,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         {isOpen &&
           rect &&
           createPortal(
-            <div className={styles.detailPanel} style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth }}>
+            <div className={styles.detailPanel} style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth, maxHeight: rect.maxHeight }}>
               <ul className={styles.detailList}>
                 {items.map((item) => {
                   const hiddenKey = `${scope}:${item.key}`;
