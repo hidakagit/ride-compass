@@ -150,7 +150,7 @@
   「専用テーブルへの追加SELECT/UPSERTが構造的に消えた」ことは実装として確認済み
   （詳細はbackend/benchmarks/README.md 11番）
 
-### - [ ] T10. DEMタイル化＋標高キャッシュ1系統化〔E3/F3〕規模L — トリガー: 全道路網への標高属性の一括事前計算が必要になったとき（2026-08-16調査によりトリガー具体化）
+### - [x] T10. DEMタイル化＋標高キャッシュ1系統化〔E3/F3〕規模L（2026-08-23完了）
 
 - GSIのDEMタイルを範囲ごと取得しローカルグリッド補間へ移行（docsの既存将来課題）。
 - 点単位SQLiteキャッシュとEdge単位PostGISキャッシュをDEMベースの1系統へ統合。
@@ -179,6 +179,37 @@
   上記で「唯一の正当なトリガー」としていた条件そのものである。T10は
   T218a（トリガー: T10完了）の直接の前提タスクとして扱う。
   詳細は`docs/decisions/t12-routing-scale.md` Stage 0.5参照。
+
+- **実装メモ（2026-08-23完了）**:
+  - `domain/region.py`に`lonlat_to_tile_pixel`を新設（Web Mercatorタイル座標＋タイル内
+    小数ピクセル位置を1関数で返す。DEMタイル補間用に整数タイル座標だけでなく分数部も要る
+    ため既存のタイル座標系関数とは別関数にした）。
+  - `infrastructure/elevation_client.py`を全面書き換え。GSIの結合DEM
+    （`https://cyberjapandata.gsi.go.jp/xyz/dem/{z}/{x}/{y}.txt`、z=14固定）を使用。
+    このエンドポイントはGSI側で既にDEM5A→5B/5C→10Bの優先順位フォールバックを行うため、
+    当初設計メモが想定していた「アプリ側で多段フォールバックを実装する」手間が不要と
+    判明し、実装がシンプルになった（実URL・フォーマットはWebFetch＋curlで実地確認済み。
+    256行×256列カンマ区切り、単位m、欠測マーカーは`"e"`）。
+  - タイル本文は`infrastructure/tile_cache.py`（ファイルキャッシュ、DEMは不変データの
+    ためTTL無し）へ`gsi/dem/{z}/{x}/{y}.txt`のパスで保存。パース済みグリッドは
+    プロセス内メモリ辞書`_tile_grid_cache`で二重キャッシュし、同一プロセス内の
+    再パースコストも避ける。任意地点の標高は周囲4画素の双線形補間で算出。
+  - 呼び出しインターフェース（`get_elevation(client, point, refresh=False) -> float | None`）は
+    変更なし。呼び出し元（`ElevationAttributeService`等）への影響ゼロ。
+  - `cache_db.py`の旧SQLite点キャッシュ（`elevation_cache`テーブル・
+    `get_elevation`/`set_elevation`等）を削除し「標高キャッシュ1系統化」を達成。
+    風予報キャッシュ（`wind_forecast_cache`）は無関係のため維持。
+  - `benchmarks/bench_elevation_cache.py`（廃止したAPIを計測する内容だったため）を削除し、
+    `run_all.py`・`README.md`を追従修正。`docs/architecture.md`のキャッシュ節も更新。
+  - 検証: `test_elevation_client_cache.py`を新方式向けに全面書き換え（同一タイル内再利用・
+    別タイル再取得・ファイルキャッシュ経由の永続化・refresh・404・全画素欠測の6ケース）。
+    backend全体1027件green。さらに実際のGSI DEMタイルへ実HTTPで到達する検証スクリプトを
+    一時的に書いて実行し、東京駅付近（35.681236, 139.767125）で標高3.41mという
+    妥当な値が実コード経路（タイル取得→パース→双線形補間）で得られることを確認
+    （検証後にスクリプトは削除、恒久テストには含めない）。
+  - 本タスクにはDBスキーマ変更が無いため、本番Oracle DBへのmigration適用・バックフィルは
+    不要（T218とは異なりこの点の確認待ちは無い）。
+  - この完了により、T218aのトリガー（T10完了）が成立した。
 
 ### - [ ] T11. `segments` のAPI境界ビン化〔E4・レビュー指摘M3〕規模M — トリガー: road_graphエンジン常用化
 
@@ -4285,7 +4316,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   - **本番Oracle DBへのmigration適用・バックフィルは未実施**（ローカルdev DBのみ適用・
     検証済み）。実行前にユーザーへ確認すること。
 
-### - [ ] T218a. gradientの探索コスト組み込み（T12 Stage 0.5）規模M〜L — トリガー: T10完了
+### - [ ] T218a. gradientの探索コスト組み込み（T12 Stage 0.5）規模M〜L — トリガー: T10完了（2026-08-23成立、着手可能）
 
 - T12 ADR Stage 0.5に対応。T10（DEMタイル化＋標高キャッシュ1系統化）の実装により
   DEMタイル一括取得＋ローカル補間でaverage_gradeをエッジ単位に一括算出できるように

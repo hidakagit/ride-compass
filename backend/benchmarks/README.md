@@ -12,8 +12,12 @@
 ```
 .venv/Scripts/python -m benchmarks.run_all              # 全部（数分かかる）
 .venv/Scripts/python -m benchmarks.bench_nearest_node    # 個別に1本だけ
-.venv/Scripts/python -m benchmarks.bench_elevation_cache # 標高キャッシュ（数十秒〜）
 ```
+
+**2026-08-23追記**: `bench_elevation_cache.py`（標高SQLiteキャッシュの接続再利用計測）は、
+改善計画T10（DEMタイル化＋標高キャッシュ1系統化）でGSI点API＋SQLite点キャッシュ
+（`infrastructure/cache_db.py`のelevation_cacheテーブル）自体を廃止したため削除した。
+以下1番の実測は削除前の実装に対する歴史的記録として残す。
 
 ## わかったこと（実測値、開発機での参考値。絶対値はマシン依存だが相対的な傾向は再現する）
 
@@ -267,8 +271,10 @@
 | `bench_nearest_node.py` | `domain/routing.py: find_nearest_node`の線形探索スケーリング |
 | `bench_graph_build.py` | `domain/graph.py: build_road_graph`の構築コスト |
 | `bench_route_trace.py` | `RoadGraphEngine`の8方位分の最近傍探索+Dijkstraをまとめて模擬 |
-| `bench_elevation_cache.py` | `infrastructure/cache_db.py`の接続張り直しコスト、`ElevationAttributeService`のend-to-end |
 | `_harness.py` | 計測用の共通ユーティリティ（外部依存無し） |
+
+（`bench_elevation_cache.py`は改善計画T10でSQLite点キャッシュ自体を廃止したため
+2026-08-23に削除済み。上記「わかったこと」1番は削除前の歴史的記録）
 | `_synthetic.py` | 合成の格子状道路網ジェネレータ（規模を揃えて比較するため） |
 
 ## 対象外にしたもの
