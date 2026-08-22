@@ -456,6 +456,39 @@ describe("MapOverlayControls", () => {
       expect(onToggle).not.toHaveBeenCalled();
     });
 
+    // 実機フィードバック「スクロールできないことがある」への対応。内訳パネルは
+    // position: fixedでJSが測った行の位置から浮かせるため（top: rect.bottom + gap等）、
+    // 行が画面下端に近いとCSS既定の最大高さ（16rem=256px）ぶんがビューポート外へ
+    // はみ出し、パネル自身のoverflow-y: autoでスクロールしても原理的に到達できない
+    // 領域ができてしまう。toggleExpandedが画面の残り高さからmaxHeightを動的に縮める
+    // ことで、パネル自体が必ずビューポート内に収まる（縮めた分はパネル内部でスクロール）
+    // ことを確認する。
+    it("画面下端に近い位置で設定パネルを開くと、パネルのmaxHeightが利用可能な高さに収まるよう縮む", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(window, "innerHeight", "get").mockReturnValue(768);
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+        top: 700,
+        bottom: 700,
+        left: 10,
+        right: 50,
+        width: 40,
+        height: 0,
+        x: 10,
+        y: 700,
+        toJSON: () => ({}),
+      });
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      await user.click(screen.getByRole("button", { name: "観測データの表示項目を設定" }));
+      const panel = document.querySelector('[class*="detailPanel"]') as HTMLElement;
+      expect(panel).toBeTruthy();
+      // top(708) + gap(8) を引いた残り(52px)は下限120pxを下回るため、120px（下限）まで
+      // 縮まることを確認する。
+      expect(panel.style.maxHeight).toBe("120px");
+
+      vi.restoreAllMocks();
+    });
+
     // 展開/折りたたみの切り替えの瞬間、見出し（ChipButton）のDOMノード自体が
     // アンマウント/再マウントされないことを確認する回帰テスト。ラッパーdivのkeyを
     // 状態で出し分けていた実装では、展開した直後に別のDOMノードへ差し替わってしまい、
