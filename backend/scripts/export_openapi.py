@@ -34,6 +34,12 @@ from app.domain.traffic import (  # noqa: E402
     car_stress_level,
     car_stress_tile_ingredients,
 )
+from app.domain.wind_grid import (  # noqa: E402
+    WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
+    WIND_GRID_DETAIL_MAX_POINTS,
+    WIND_GRID_DETAIL_SPACING_DEG,
+    WIND_GRID_SPACING_DEG,
+)
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
     ROAD_SURFACE_LAYER_NAME,
@@ -52,6 +58,7 @@ TRAFFIC_STRESS_TEST_CASES_PATH = GENERATED_DIR / "traffic-stress-test-cases.json
 ROAD_SUITABILITY_RECIPE_PATH = GENERATED_DIR / "road-suitability-recipe.json"
 MOTOR_VEHICLE_DENSITY_RECIPE_PATH = GENERATED_DIR / "motor-vehicle-density-recipe.json"
 AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
+WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 
 # 車ストレスのPython実装（domain/traffic.py: car_stress_level）とフロント実装
 # （trafficStressExpression.ts）の相互検証用フィクスチャ（改善計画: 交通ストレスレシピ
@@ -232,6 +239,20 @@ def main() -> None:
                 }
                 for attr in all_primary_attributes()
             ],
+        },
+    )
+    # 風・降水延長予報の格子間隔（改善計画T198、統合レビュー2026-08-22指摘F-B）。
+    # domain/wind_grid.pyの定数群をfrontend/src/components/Map/windLayer.tsが
+    # 「値を合わせること」というコメントのみで手動複製していたため、他の生成物と同じ
+    # 片側import方式へ揃える（APIレスポンス自体には間隔情報が含まれないため、フロント側は
+    # このJSONから読む以外に値を知る手段がない設計にする）。
+    _write_json(
+        WIND_GRID_CONFIG_PATH,
+        {
+            "spacing_deg": WIND_GRID_SPACING_DEG,
+            "detail_spacing_deg": WIND_GRID_DETAIL_SPACING_DEG,
+            "detail_allowed_spacings_deg": list(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG),
+            "detail_max_points": WIND_GRID_DETAIL_MAX_POINTS,
         },
     )
 

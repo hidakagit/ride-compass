@@ -44,11 +44,17 @@ const SECONDARY_AXIS_CHIP_LABELS: Record<string, string> = {
   accident: "事故密度",
 };
 
-// 専用レイヤーを持たない3軸(display.kind==="none")の代役案内。
+// 専用レイヤーを持たない3軸(display.kind==="none")の代役案内。タイル自体は他の軸と
+// 見た目を統一するため個別の注記テキストを常設できない（4文字以下のチップラベル・
+// 小さいタイルという制約、改善計画T166）。「押せない行がなぜあるのか」を展開せずに
+// 伝える最小限の手当てとして、（地図表示なし）を先頭に付けタイトル属性（hover/長押しで
+// 見えるツールチップ）だけでも自己説明的にする（改善計画T202、統合レビュー2026-08-22
+// 指摘。恒常的な追加ラベル表示はタイルレイアウトへの影響を実機確認してから判断する
+// ため今回は見送り、ユーザー判断のDEFERとする）。
 const SECONDARY_AXIS_PROXY_HINTS: Record<string, string> = {
-  gradient: "標高レイヤーで確認できます",
-  surface_q: "路面の種類レイヤーで確認できます",
-  night: "専用レイヤーは今後追加予定です",
+  gradient: "（地図表示なし）標高レイヤーで確認できます",
+  surface_q: "（地図表示なし）路面の種類レイヤーで確認できます",
+  night: "（地図表示なし）専用レイヤーは今後追加予定です",
 };
 
 // display.kind==="bespoke"のcar_stressは専用MapLayerIdを個別に持つ。kind==="ramp"の

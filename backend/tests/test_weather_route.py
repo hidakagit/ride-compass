@@ -148,6 +148,24 @@ def test_get_wind_grid_omits_none_points():
     assert len(response.json()) == 1
 
 
+def test_get_wind_grid_returns_502_when_all_points_fail():
+    # 改善計画T200（統合レビュー2026-08-22指摘）: 以前は全地点失敗でも空リスト+200 OKを
+    # 返しており、フロントがエラーと判定できなかった。WeatherService.get_wind_gridの
+    # 実契約どおり、pointsと同じ長さの全Noneを返すfakeで再現する。
+    from app.domain.wind_grid import generate_wind_grid_points
+
+    point_count = len(generate_wind_grid_points())
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
+
+    try:
+        response = client.get("/api/weather/wind-grid")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "気象データの取得に失敗しました"
+
+
 def test_get_wind_grid_is_rate_limited_per_client():
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
 
@@ -220,6 +238,26 @@ def test_get_wind_grid_detail_omits_none_points():
 
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_get_wind_grid_detail_returns_502_when_all_points_fail():
+    # 改善計画T200。wind-gridと同じ全滅ガードがwind-grid-detailにも適用されること。
+    from app.domain.wind_grid import generate_wind_grid_detail_points
+
+    bbox = (139.70, 35.60, 139.90, 35.80)
+    point_count = len(generate_wind_grid_detail_points(bbox))
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": bbox[0], "min_lat": bbox[1], "max_lon": bbox[2], "max_lat": bbox[3]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "気象データの取得に失敗しました"
 
 
 def test_get_wind_grid_detail_rejects_inverted_bbox():

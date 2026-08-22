@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.dependencies import client_id, get_weather_service
@@ -15,6 +17,8 @@ from app.domain.wind_grid import (
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.weather_service import WeatherService
+
+logger = logging.getLogger("ridecompass.weather")
 
 router = APIRouter()
 
@@ -40,6 +44,22 @@ async def get_weather(
     return conditions
 
 
+def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
+    """全地点が取得失敗（Open-Meteo全滅、429常態化等）の場合のみ502で明示的に失敗を返す
+    （改善計画T200、統合レビュー2026-08-22指摘）。以前は1地点の失敗を握りつぶす方針
+    （T178）のまま全地点失敗時も空リスト+200 OKを返しており、フロントの`windError`
+    表示が機能せず「時刻スライダーが動かせるコマが無い」という形でしか症状が見えず
+    診断に実機コンソール計装を要した（T194の根本原因調査で判明）。`/api/weather`
+    （単一地点）は取得失敗を502で返す設計のため、この非対称を解消する。1地点でも
+    成功していれば従来どおり部分結果を200で返す（1地点の失敗で全体を落とさない
+    というT178の方針自体は維持）。`WeatherService.get_wind_grid`は常に`points`と
+    同じ長さの結果（失敗地点はNone）を返す契約のため、`grid`が空のまま（=呼び出し自体が
+    行われていない等）のケースは対象外にする（`grid and`のチェック）。"""
+    if points and grid and all(point is None for point in grid):
+        logger.warning("%s: 全%d地点が取得失敗しました（Open-Meteo障害の可能性）", label, len(points))
+        raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
+
+
 @router.get("/api/weather/wind-grid", response_model=list[WindGridPoint])
 async def get_wind_grid(
     http_request: Request,
@@ -49,13 +69,16 @@ async def get_wind_grid(
     関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
-    502にしない）。"""
+    502にしない）。ただし全地点が失敗した場合は502を返す（改善計画T200、
+    _reject_if_all_points_failed参照）。"""
     if not check_rate_limit(f"wind-grid:{client_id(http_request)}", settings.wind_grid_rate_limit_per_minute):
         record_rate_limit_rejection(
             "wind-grid", client_id(http_request), f"{settings.wind_grid_rate_limit_per_minute}/min"
         )
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
-    grid = await weather_service.get_wind_grid(generate_wind_grid_points())
+    points = generate_wind_grid_points()
+    grid = await weather_service.get_wind_grid(points)
+    _reject_if_all_points_failed("wind-grid", points, grid)
     return [point for point in grid if point is not None]
 
 
@@ -77,7 +100,8 @@ async def get_wind_grid_detail(
 
     spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を
     許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
-    フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。"""
+    フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。
+    全地点が失敗した場合は502を返す（改善計画T200、_reject_if_all_points_failed参照）。"""
     if not check_rate_limit(
         f"wind-grid-detail:{client_id(http_request)}", settings.wind_grid_detail_rate_limit_per_minute
     ):
@@ -93,4 +117,5 @@ async def get_wind_grid_detail(
     if len(points) > WIND_GRID_DETAIL_MAX_POINTS:
         raise HTTPException(status_code=400, detail="表示範囲が広すぎます。ズームインしてください。")
     grid = await weather_service.get_wind_grid(points)
+    _reject_if_all_points_failed("wind-grid-detail", points, grid)
     return [point for point in grid if point is not None]

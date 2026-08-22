@@ -293,10 +293,11 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "事故密度" })).toBeDisabled();
 
       // 専用レイヤーの無い軸にも個々に▼展開ボタンが付き、代役案内文（proxyHint）が見える
+      // （改善計画T202で先頭に「（地図表示なし）」が付いたため部分一致で検証する）
       await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
-      expect(screen.getByText("標高レイヤーで確認できます")).toBeInTheDocument();
+      expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "舗装質の凡例を表示" }));
-      expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
+      expect(screen.getByText(/路面の種類レイヤーで確認できます/)).toBeInTheDocument();
     });
 
     // モバイル限定の小型化（実機フィードバック「推定の横並びが複数行に折り返されて見にくい」
@@ -555,6 +556,45 @@ describe("MapOverlayControls", () => {
       await user.click(screen.getByRole("button", { name: "動的" }));
       await user.click(screen.getByRole("button", { name: "降水" }));
       expect(onToggle).toHaveBeenCalledWith("precipitationNowcast", true);
+    });
+
+    // 改善計画T199（統合レビュー2026-08-22指摘）: 降水ナウキャストと風の凡例を続けて開くと、
+    // 両方がdocument.bodyへのfloatingパネルとして同時に表示され、近接する行同士で
+    // 重なって両方とも判読不能になっていた（実機Playwright確認で再現）。member:系の
+    // floatingパネルは排他（新しく開いたら他を閉じる）にする。
+    it("動的グループの凡例は排他表示になる（先に開いた凡例は自動で閉じる）", async () => {
+      const user = userEvent.setup();
+      const layers: OverlayLayerChip[] = [
+        {
+          id: "precipitationNowcast",
+          label: "降水ナウキャスト",
+          chipLabel: "降水",
+          on: true,
+          category: "weather",
+          dataNature: "dynamic",
+          legendDetails: [{ label: "降水強度", legend: [{ key: "light", label: "弱い雨", color: "#7dd3fc", filter: ["literal", true] }], hiddenKeys: [] }],
+        },
+        {
+          id: "windVector",
+          label: "風（矢印）",
+          chipLabel: "風",
+          on: true,
+          category: "weather",
+          dataNature: "dynamic",
+          legendDetails: [{ label: "風速", legend: [{ key: "calm", label: "無風", color: "#94a3b8", filter: ["literal", true] }], hiddenKeys: [] }],
+        },
+      ];
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+      await user.click(screen.getByRole("button", { name: "動的" }));
+
+      await user.click(screen.getByRole("button", { name: "降水ナウキャストの凡例を表示" }));
+      expect(screen.getByText("弱い雨")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "風（矢印）の凡例を表示" }));
+      expect(screen.getByText("無風")).toBeInTheDocument();
+      // 降水側の凡例は自動的に閉じている（重なって両方判読不能になる不具合の再発防止）
+      expect(screen.queryByText("弱い雨")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "降水ナウキャストの凡例を表示" })).toHaveAttribute("aria-expanded", "false");
     });
   });
 });

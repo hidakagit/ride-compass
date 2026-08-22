@@ -23,10 +23,12 @@ import type { WindGridPoint } from "@/types/weather";
 import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
-// バックエンド側が30分TTLキャッシュ（weather_client.py）を持つため、それより短い間隔で
-// 再取得してもキャッシュヒットするだけで新しいデータは得られない。TTLに合わせた間隔で
-// 再取得する。
-const WEATHER_GRID_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+// バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
+// 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
+// 得られず、624地点ぶんの応答（実測約0.9MB、統合レビュー2026-08-22指摘）を無駄に
+// 再ダウンロードするだけになる。T195でTTLを30分→3時間へ拡大した際、この間隔も追従させる
+// 必要があったが更新漏れがあったため、あわせて3時間へ揃えた（改善計画T202）。
+const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
 // パン・ズームのたびに（デバウンス済みとはいえ）呼ばれうるため、道路情報の絞り込み等の
 // LEGEND_FILTER_DEBOUNCE_MSより長め。地図フィルタの再適用と違いネットワーク往復を伴うため、
 // より鷹揚な間隔にしている。
