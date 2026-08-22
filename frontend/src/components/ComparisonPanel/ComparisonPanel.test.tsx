@@ -58,6 +58,8 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
         lanes_high_threshold: 4, lanes_high_adjustment: 1,
         designation_adjustment: 1,
       },
+      penalty_strength: 1.0,
+      max_average_grade_percent: null,
       generated_at: "2026-08-15T12:00:00+09:00",
     },
     topCandidate: makeCandidate({ overall_difficulty: 42.3 }),

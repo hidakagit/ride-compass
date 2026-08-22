@@ -116,6 +116,7 @@ describe("routeApi", () => {
       distance_km: 30,
       distance_tolerance_km: 5,
       route_type: "loop",
+      penalty_strength: 1.0,
     };
 
     it("成功時はroutes・conditions・engineを返す", async () => {
@@ -166,6 +167,8 @@ describe("routeApi", () => {
           lanes_high_threshold: 4, lanes_high_adjustment: 1,
           designation_adjustment: 1,
         },
+        penalty_strength: 1.0,
+        max_average_grade_percent: null,
         generated_at: "2026-08-15T12:00:00+09:00",
       };
       vi.stubGlobal(

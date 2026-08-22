@@ -544,6 +544,10 @@ export interface components {
             car_stress_recipe: components["schemas"]["CarStressRecipeOverride"];
             road_suitability_recipe: components["schemas"]["RoadSuitabilityRecipeOverride"];
             motor_vehicle_density_recipe: components["schemas"]["MotorVehicleDensityRecipeOverride"];
+            /** Penalty Strength */
+            penalty_strength: number;
+            /** Max Average Grade Percent */
+            max_average_grade_percent: number | null;
             /** Generated At */
             generated_at: string;
         };
@@ -693,6 +697,13 @@ export interface components {
             car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
             road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
             motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
+            /**
+             * Penalty Strength
+             * @default 1
+             */
+            penalty_strength: number;
+            /** Max Average Grade Percent */
+            max_average_grade_percent?: number | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

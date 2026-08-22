@@ -374,7 +374,7 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   数値目標の実測値を記録。山岳エリアでのgradient経路変化を実測。バックフィルの実施可否が
   ユーザー判断で確定している。
 
-### - [ ] T225. OpenAPI生成物へpenalty_strength/max_average_grade_percentを反映する〔P1〕規模S
+### - [x] T225. OpenAPI生成物へpenalty_strength/max_average_grade_percentを反映する〔P1〕規模S（2026-08-23完了）
 
 - 発端: 統合レビュー2026-08-23 統合-2。T218/T218aが`RouteGenerateRequest`・
   `GenerationConditions`へ追加した2フィールドが`openapi.json`/`api.d.ts`に未反映
@@ -386,6 +386,15 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   根本原因が「ルールの置き場所」だったため）。
 - 完了条件: `git diff --exit-code -- frontend/src/types/generated/`がクリーン、
   生成物に両フィールドが存在、frontend vitest/tsc green。
+
+- **実装メモ（2026-08-23完了）**: `export_openapi.py`→`npm run generate:api`を実行し
+  `openapi.json`/`api.d.ts`へ両フィールドを反映。再生成の結果、`penalty_strength`は
+  openapi-typescriptの既定挙動（JSON Schemaに`default`があるフィールドは`?`なしの
+  必須型として生成される。既存の`distance_tolerance_km`/`route_type`と同じ扱い）により
+  型上は必須になったため、これを消費する3箇所（`page.tsx`のルート生成呼び出し・
+  `ComparisonPanel.test.tsx`・`routeApi.test.ts`）へ`penalty_strength: 1.0`
+  （UIに調整スライダーは無いため既定値を明示送信、`max_average_grade_percent`は
+  `null`）を追加してtscエラーを解消した。frontend vitest 501件・eslint・tsc全green。
 
 ### - [ ] T226. T218/T219/T220後の旧経路残骸を削除する〔P2〕規模S〜M
 

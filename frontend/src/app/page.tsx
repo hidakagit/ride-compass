@@ -1175,6 +1175,7 @@ export default function Home() {
         distance_km: distanceKm,
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
+        penalty_strength: 1.0,
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
         ...(carStressRecipeOverrideEnabled ? { car_stress_recipe: carStressRecipe } : {}),
         ...(roadSuitabilityRecipeOverrideEnabled ? { road_suitability_recipe: roadSuitabilityRecipe } : {}),

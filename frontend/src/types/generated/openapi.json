@@ -1196,6 +1196,21 @@
           "motor_vehicle_density_recipe": {
             "$ref": "#/components/schemas/MotorVehicleDensityRecipeOverride"
           },
+          "penalty_strength": {
+            "type": "number",
+            "title": "Penalty Strength"
+          },
+          "max_average_grade_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Average Grade Percent"
+          },
           "generated_at": {
             "type": "string",
             "title": "Generated At"
@@ -1212,6 +1227,8 @@
           "car_stress_recipe",
           "road_suitability_recipe",
           "motor_vehicle_density_recipe",
+          "penalty_strength",
+          "max_average_grade_percent",
           "generated_at"
         ],
         "title": "GenerationConditions",
@@ -1589,6 +1606,24 @@
                 "type": "null"
               }
             ]
+          },
+          "penalty_strength": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Penalty Strength",
+            "default": 1.0
+          },
+          "max_average_grade_percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Average Grade Percent"
           }
         },
         "type": "object",
