@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls";
 
 function baseLayers(): OverlayLayerChip[] {
@@ -23,6 +23,13 @@ function baseProps() {
 // （ON/OFFチップと▶で開く凡例パネル）だけを見る。このコンポーネントはレイヤー固有の
 // 知識を持たない汎用描画係のため、テストもpropsで渡した表示状態の反映のみを確認する。
 describe("MapOverlayControls", () => {
+  // グループの開閉・表示項目の設定はlocalStorageへ永続化される（ユーザー要望「次開いた時に
+  // 同じ状態にして」）。前のテストで書き込まれた値が次のテストの初期状態に漏れないよう、
+  // 各テストの前に消し込む。
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("各チップがON状態をaria-pressedで反映する", () => {
     const layers = baseLayers().map((layer) => ({ ...layer, on: true }));
     render(<MapOverlayControls {...baseProps()} layers={layers} />);
@@ -487,6 +494,31 @@ describe("MapOverlayControls", () => {
       expect(panel.style.maxHeight).toBe("120px");
 
       vi.restoreAllMocks();
+    });
+
+    // ユーザー要望「グループの選択状態等は保持しておいて、次開いた時に同じ状態にして。
+    // 過去の設定内容はlocalStorageで保持してほしい」。グループ本体の開閉と表示項目の
+    // 設定（hiddenIds）がlocalStorageへ保存され、次回マウント時（ページ再訪問を模した
+    // unmount→再render）に復元されることを確認する。
+    it("グループの開閉状態と表示項目の設定はlocalStorageへ保存され、再マウント後も復元される", async () => {
+      const user = userEvent.setup();
+      const { unmount } = render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+
+      // 設定パネル（折りたたみ中だけ出る）で道路の種類を非表示に選んでから観測グループを開く。
+      await user.click(screen.getByRole("button", { name: "観測データの表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "道路の種類を表示しない" }));
+      await user.click(screen.getByRole("button", { name: "観測" }));
+      expect(screen.getByRole("button", { name: "観測" })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();
+
+      unmount();
+
+      // 再訪問を模して同じlayersで新しくマウントする（layers自体はpage.tsx側のprops、
+      // ここではhiddenIds/expandedIdsという別の永続化対象だけを検証する）。
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
+      expect(await screen.findByRole("button", { name: "観測" })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "指定路線" })).toBeInTheDocument();
     });
 
     // 展開/折りたたみの切り替えの瞬間、見出し（ChipButton）のDOMノード自体が

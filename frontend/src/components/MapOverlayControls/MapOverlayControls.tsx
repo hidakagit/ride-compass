@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import { useStoredState } from "@/hooks/useStoredState";
 import {
   MAP_LAYER_CATEGORY_ORDER,
   MAP_LAYER_DATA_NATURE_CHIP_LABELS,
@@ -165,6 +166,34 @@ const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot fon
 // グループ本体の開閉キー（改善計画T199、下記toggleExpandedのコメント参照）。
 // floatingパネルを持たないため排他制御の対象外にする。
 const GROUP_VISIBILITY_KEYS = new Set(["group:composite", "group:raw", "group:dynamic"]);
+
+// グループの開閉・表示項目の設定をlocalStorageへ永続化する（改善計画、ユーザー要望
+// 「グループの選択状態等は保持しておいて、次開いた時に同じ状態にして。時間経過で変動する
+// 要素以外は、過去の設定内容はlocalStorage等で保持してほしい」）。page.tsxのlayerVisibility
+// （各レイヤーのON/OFF自体）は既にuseStoredStateで永続化済みのため、ここではMapOverlayControls
+// 固有の「見せ方」の設定（グループ本体の開閉・非表示に選んだメンバー/軸）だけを対象にする。
+const MAP_OVERLAY_EXPANDED_GROUPS_STORAGE_KEY = "ridecompass:map-overlay-expanded-groups";
+const MAP_OVERLAY_HIDDEN_IDS_STORAGE_KEY = "ridecompass:map-overlay-hidden-ids";
+
+// 文字列の配列としてSetを保存・復元する共通ヘルパー。keyFilterで「保存・復元してよい値か」を
+// 絞り込む（expandedIdsはGROUP_VISIBILITY_KEYSのみ、hiddenIdsは無条件で文字列なら許可）。
+// 個々の凡例展開（member:/axis:/単独チップ/${groupKey}:legend）は「今ちょっと確認のために
+// 開いている」一時的な状態であり、次回訪問時に勝手にポップアップが開いた状態で再現される
+// のは望ましくないため、expandedIdsはグループ本体の開閉（GROUP_VISIBILITY_KEYS）だけを
+// 保存対象にする（フィルタはserialize/deserializeの両方に必要。serializeだけで絞ると
+// 過去に保存された壊れた値・旧仕様の値がdeserialize経由でそのまま復元されてしまうため）。
+function serializeStringSet(v: ReadonlySet<string>, keyFilter: (key: string) => boolean): string {
+  return JSON.stringify([...v].filter(keyFilter));
+}
+function deserializeStringSet(raw: string, keyFilter: (key: string) => boolean): Set<string> | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return new Set(parsed.filter((key): key is string => typeof key === "string" && keyFilter(key)));
+  } catch {
+    return null;
+  }
+}
 
 interface PanelRect {
   top: number;
@@ -391,7 +420,17 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // 重なり両方とも判読不能になる不具合が実機で確認された（統合レビュー2026-08-22
   // 指摘、改善計画T199: 降水ナウキャストと風の凡例を続けて開いた場合）。
   // toggleExpanded側でfloatingパネル系のキーは排他（新しく開いたら他を閉じる）にする。
-  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
+  // グループ本体の開閉（GROUP_VISIBILITY_KEYS）だけをlocalStorageへ永続化する（上記
+  // MAP_OVERLAY_EXPANDED_GROUPS_STORAGE_KEYのコメント参照。floatingパネル系のキーは
+  // 保存対象に含めない一時的な状態のまま）。
+  const [expandedIds, setExpandedIds] = useStoredState<ReadonlySet<string>>(
+    MAP_OVERLAY_EXPANDED_GROUPS_STORAGE_KEY,
+    new Set(),
+    {
+      serialize: (v) => serializeStringSet(v, (key) => GROUP_VISIBILITY_KEYS.has(key)),
+      deserialize: (raw) => deserializeStringSet(raw, (key) => GROUP_VISIBILITY_KEYS.has(key)),
+    }
+  );
   // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
   // （レイヤー数が多い画面向け）だが、CSSの仕様上overflow-yを指定するとoverflow-xも
   // 暗黙にauto扱いになり、そのままではパネルをposition: absoluteでこの行の右へ
@@ -407,10 +446,19 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // Ⓘボタン（従来は読み取り専用の「アイコンの意味」凡例だった）を、配下メンバー/軸の
   // 表示・非表示を選べる設定パネルへ拡張する。グループ本体を開くと、ここで非表示に
   // 選んだもの以外だけが並ぶ（絞り込みは各グループ内で完結し、既定＝何も非表示に
-  // 選んでいない状態では従来どおり全件表示）。expandedIdsと同じくページ内の一時的な
-  // UI状態で永続化はしない。キーは`${scope}:${memberOrAxisId}`（scope="raw"|
-  // "composite"|"dynamic"、グループ間でIDが衝突しても名前空間で区別できるようにする）。
-  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(new Set());
+  // 選んでいない状態では従来どおり全件表示）。キーは`${scope}:${memberOrAxisId}`
+  // （scope="raw"|"composite"|"dynamic"、グループ間でIDが衝突しても名前空間で区別
+  // できるようにする）。ユーザー要望「過去の設定内容はlocalStorageで保持してほしい」を
+  // 受け、localStorageへ永続化する（レイヤー構成が変わり存在しないIDが残っても、
+  // renderVisibilitySettings側は現在渡された項目とのマッチングでしか使わないため実害はない）。
+  const [hiddenIds, setHiddenIds] = useStoredState<ReadonlySet<string>>(
+    MAP_OVERLAY_HIDDEN_IDS_STORAGE_KEY,
+    new Set(),
+    {
+      serialize: (v) => serializeStringSet(v, () => true),
+      deserialize: (raw) => deserializeStringSet(raw, () => true),
+    }
+  );
 
   // 非表示に選んだ項目に表示中のレイヤーが紐づいている場合、その場でレイヤー自体も
   // OFFにする（実機フィードバック「設定で非表示にした場合、裏でレイヤ表示ONになっていれば

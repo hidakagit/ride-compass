@@ -1334,6 +1334,18 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
   でも原理的に到達できない領域ができる問題があり、`toggleExpanded`が`window.innerHeight`
   から利用可能な高さを逆算して`maxHeight`を動的に縮めるようにした（横方向の`maxWidth`を
   画面幅から逆算する既存の仕組みと同じ考え方、下限120px）。
+- **グループ開閉・表示項目設定の永続化（T216）**: ユーザー要望「グループの選択状態等は
+  保持しておいて、次開いた時に同じ状態にして。時間経過で変動する要素以外は、過去の設定
+  内容はlocalStorage等で保持してほしい」を受け、`expandedIds`のうちグループ本体の開閉
+  （`GROUP_VISIBILITY_KEYS`）と`hiddenIds`（T181の表示項目設定）を`useStoredState`
+  （`ridecompass:map-overlay-expanded-groups`・`ridecompass:map-overlay-hidden-ids`）で
+  localStorageへ永続化した。個々の凡例展開（member:/axis:/単独チップ/`${groupKey}:legend`）は
+  「今ちょっと確認のために開いている」一時的な状態であり、次回訪問時に勝手にポップアップが
+  開いた状態で再現されるのは望ましくないため保存対象から除外する（serialize/deserialize
+  両方でGROUP_VISIBILITY_KEYSにフィルタする）。各レイヤーのON/OFF自体（`layerVisibility`）は
+  T47 R-6の時点で既に`useStoredState`で永続化済みのため今回の対応不要（動的レイヤーの
+  実際のデータ・現在時刻に依存するフレームインデックス等の「時間経過で変動する要素」は
+  そもそも永続化の対象にしていない）。
 
 ### 区間インスペクタ（改善計画T146）
 
