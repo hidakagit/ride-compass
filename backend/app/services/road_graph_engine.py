@@ -61,7 +61,15 @@ from app.domain.traffic import (
     is_dedicated_bicycle_infra,
     car_stress_level,
 )
-from app.domain.routing import build_networkx_graph, concat_node_paths, find_nearest_node, path_to_edge_ids, shortest_path_node_ids
+from app.domain.routing import (
+    NodeSpatialIndex,
+    build_networkx_graph,
+    build_node_spatial_index,
+    concat_node_paths,
+    find_nearest_node_indexed,
+    path_to_edge_ids,
+    shortest_path_node_ids,
+)
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.elevation_attribute_service import ElevationAttributeService
@@ -93,6 +101,9 @@ class _RoadGraphContext:
     designated_edge_ids: set[str]
     wind: WeatherConditions | None
     origin_node: str
+    # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
+    # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
+    node_index: NodeSpatialIndex
     # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
@@ -140,42 +151,40 @@ class RoadGraphEngine:
         margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
         bbox = _bbox_around_point(origin, radius_km + margin_km)
 
-        # 改善計画T218（T12 Stage 0）: lean=Trueでgeometryを取得しない軽量グラフを読む
-        # （探索コストの計算はgeometryを必要としない、モジュールdocstring参照）。
-        # 最終候補のgeometryはtrace_loopで別途取得し直す。
-        built = await self._graph_service.get_or_build_graph_with_attributes(bbox, lean=True)
-        if built is None or not built[0].edges:
+        # 改善計画T219（T12 Stage 1）: トポロジ＋材料（surface/edge_attribute_counts/
+        # way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位のプロセス内
+        # キャッシュ経由でまとめて取得する（同一エリアへの2回目以降のリクエストはDBへ
+        # 一切アクセスしない。以前はここで6回の個別呼び出しを行っていた、
+        # graph_service.pyのget_search_materials_for_bbox参照）。
+        materials = await self._graph_service.get_search_materials_for_bbox(bbox)
+        if materials is None or not materials.graph.edges:
             return None
-        graph, surface_attributes = built
+        graph = materials.graph
+        surface_attributes = materials.surface_attributes
         # 静的道路属性P1（信号・横断歩道・一時停止・踏切・交差点密度）＋外部静的データ
-        # ソースT50（事故密度）。以前はget_stop_poi_counts/get_intersection_counts/
-        # get_accident_countsの3クエリがそれぞれPostGIS空間結合（ST_DWithin）をリクエストの
-        # 都度計算していたが、事前集計済みのedge_attribute_counts（改善計画T144）を読む
-        # 1クエリへ集約した（改善計画T218、T12 Stage 0）。evaluate_graph等の呼び出し先
-        # シグネチャは従来どおり3つの個別dictを受け取るため、ここで分解する。
-        edge_counts = await self._graph_service.get_edge_attribute_counts(list(graph.edges.keys()))
-        stop_counts = {edge_id: c.stop_count for edge_id, c in edge_counts.items()}
-        intersection_counts = {edge_id: c.intersection_count for edge_id, c in edge_counts.items()}
-        accident_counts = {edge_id: c.accident_count for edge_id, c in edge_counts.items()}
-        # 静的道路属性P1残り（車ストレス・自転車インフラ）。way_tagsはEdgeのosm_way_id
-        # 経由のタグ（road_edges⟕osm_raw_waysの単純なキー結合、空間結合ではないため
-        # T218での事前計算対象には含めていない）。
-        way_tags = await self._graph_service.get_way_tags(list(graph.edges.keys()))
-        # accident_years_coveredは密度の「件/(km・年)」正規化に使う。
+        # ソースT50（事故密度）。事前集計済みのedge_attribute_counts（改善計画T144）が
+        # 3種の値をまとめて持つため、evaluate_graph等の呼び出し先シグネチャ（従来どおり
+        # 3つの個別dictを受け取る）に合わせてここで分解する。
+        stop_counts = {edge_id: c.stop_count for edge_id, c in materials.edge_attribute_counts.items()}
+        intersection_counts = {
+            edge_id: c.intersection_count for edge_id, c in materials.edge_attribute_counts.items()
+        }
+        accident_counts = {edge_id: c.accident_count for edge_id, c in materials.edge_attribute_counts.items()}
+        way_tags = materials.way_tags
+        # accident_years_coveredは密度の「件/(km・年)」正規化に使う（bboxに依存しない
+        # グローバル値、GraphService側でプロセス内キャッシュ済み）。
         accident_years_covered = await self._graph_service.get_accident_years_covered()
-        # 指定路線コンフレーション機構（外部静的データソース T51）。KSJ N10/N12該当エッジの
-        # 集合を同じくprepareで1回だけ取得し全方位で共有する。
-        designated_edge_ids = await self._graph_service.get_designated_edge_ids(list(graph.edges.keys()))
+        designated_edge_ids = materials.designated_edge_ids
         # 改善計画T218a（T12 Stage 0.5）: 事前計算済みのgradient（average_grade）を探索コストへ
         # 組み込む。`app.batch.precompute_elevation_attributes`で事前計算済みのEdgeのみ値が
         # 埋まる（未計算のEdgeはNoneのまま=評価スキップ、compute_edge_axis_scoresの既存の
-        # 「データ無しは軸を合成から除外」動作に委ねる）。探索フェーズでその場のGSI問い合わせは
-        # 行わない（elevation_attributes単純なキー参照のみ、モジュールdocstring「標高は
-        # パス確定後」の記述はEdgeのgeometry確定・表示用途の話であり、事前計算済みのgradient
-        # 値の探索コスト利用とは独立）。
-        elevation_attributes = await self._graph_service.get_elevation_attributes(list(graph.edges.keys()))
+        # 「データ無しは軸を合成から除外」動作に委ねる）。
+        elevation_attributes = materials.elevation_attributes
 
-        origin_node = find_nearest_node(graph, origin)
+        # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
+        # 経由地スナップ（1リクエストで最大17回）すべてで使い回す。
+        node_index = build_node_spatial_index(graph)
+        origin_node = find_nearest_node_indexed(node_index, origin)
         if origin_node is None:
             return None
 
@@ -214,6 +223,7 @@ class RoadGraphEngine:
             designated_edge_ids=designated_edge_ids,
             wind=wind,
             origin_node=origin_node,
+            node_index=node_index,
             night_active=night_active,
         )
 
@@ -221,9 +231,10 @@ class RoadGraphEngine:
         self, context: _RoadGraphContext, waypoints: list[Coordinates], bearing: int
     ) -> TracedLoop:
         # waypoints = [起点, 経由地A, 経由地B, 起点]（RouteGenerator._loop_waypoints）。
-        # 起点は最近接NodeをprepareでスナップしたNodeを使い、経由地2点をここでスナップする。
-        node_a = find_nearest_node(context.graph, waypoints[1])
-        node_b = find_nearest_node(context.graph, waypoints[2])
+        # 起点は最近接NodeをprepareでスナップしたNodeを使い、経由地2点をここでスナップする
+        # （改善計画T219: prepareで構築済みの索引を使い回す、都度線形探索しない）。
+        node_a = find_nearest_node_indexed(context.node_index, waypoints[1])
+        node_b = find_nearest_node_indexed(context.node_index, waypoints[2])
         if node_a is None or node_b is None:
             raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
 

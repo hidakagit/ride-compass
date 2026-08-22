@@ -1,10 +1,14 @@
+import random
+
 from app.domain.evaluation import EdgeCostResult
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 from app.domain.routing import (
     build_networkx_graph,
+    build_node_spatial_index,
     concat_node_paths,
     find_nearest_node,
+    find_nearest_node_indexed,
     path_to_edge_ids,
     shortest_path_node_ids,
 )
@@ -68,6 +72,49 @@ def test_find_nearest_node_returns_none_for_empty_graph():
     graph = RoadGraph(graph_version="v1", nodes={}, edges={})
 
     assert find_nearest_node(graph, Coordinates(latitude=35.7, longitude=139.7)) is None
+
+
+def test_find_nearest_node_indexed_matches_linear_scan_result():
+    # 改善計画T219: グリッドバケット索引でもfind_nearest_node（線形探索）と
+    # 同じ結果を返すことを確認する。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "near": _node("near", 35.700, 139.700),
+            "far": _node("far", 36.000, 140.000),
+        },
+        edges={},
+    )
+    index = build_node_spatial_index(graph)
+
+    result = find_nearest_node_indexed(index, Coordinates(latitude=35.701, longitude=139.701))
+
+    assert result == "near"
+
+
+def test_find_nearest_node_indexed_returns_none_for_empty_graph():
+    graph = RoadGraph(graph_version="v1", nodes={}, edges={})
+    index = build_node_spatial_index(graph)
+
+    assert find_nearest_node_indexed(index, Coordinates(latitude=35.7, longitude=139.7)) is None
+
+
+def test_find_nearest_node_indexed_matches_linear_scan_for_random_points():
+    # 索引の「安全な打ち切り条件」の正しさを、ランダムな配置・多数の格子境界を跨ぐ
+    # クエリ点で線形探索と突き合わせて検証する（グリッドセルをまたぐケースの回帰確認）。
+    rng = random.Random(42)
+    nodes = {
+        f"n{i}": _node(f"n{i}", 35.6 + rng.uniform(-0.05, 0.05), 139.7 + rng.uniform(-0.05, 0.05))
+        for i in range(200)
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges={})
+    index = build_node_spatial_index(graph, cell_size_deg=0.01)
+
+    for _ in range(100):
+        point = Coordinates(
+            latitude=35.6 + rng.uniform(-0.06, 0.06), longitude=139.7 + rng.uniform(-0.06, 0.06)
+        )
+        assert find_nearest_node_indexed(index, point) == find_nearest_node(graph, point)
 
 
 def test_shortest_path_node_ids_picks_lower_cost_route():

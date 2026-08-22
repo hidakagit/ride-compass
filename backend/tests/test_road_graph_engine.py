@@ -16,9 +16,11 @@ from app.domain.evaluation import RoutePreference
 from app.domain.geo import bearing_between, destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
+from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
 from app.services import road_graph_engine
 from app.services.evaluation_service import EvaluationService
+from app.services.graph_service import SearchMaterials
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
 from app.services.route_scorer import RouteScorer
@@ -126,6 +128,26 @@ class FakeGraphService:
         if self._graph is None:
             return None
         return self._graph, self._surface_attributes
+
+    async def get_search_materials_for_bbox(self, bbox) -> SearchMaterials | None:
+        # 改善計画T219: prepareが呼ぶ統合メソッドのfake。既存の個別fakeメソッド
+        # （get_edge_attribute_counts等）を素材の出所として使い、二重にロジックを
+        # 持たない（本物のGraphServiceがタイルキャッシュ経由で組み立てるのと同じ
+        # 中身になることをテストの他アサーション側は期待していないため、call_count計測
+        # 目的のget_or_build_graph_with_attributesを呼ぶだけでよい）。
+        built = await self.get_or_build_graph_with_attributes(bbox, lean=True)
+        if built is None:
+            return None
+        graph, surface_attributes = built
+        edge_ids = list(graph.edges.keys())
+        return SearchMaterials(
+            graph=graph,
+            surface_attributes=surface_attributes,
+            edge_attribute_counts=await self.get_edge_attribute_counts(edge_ids),
+            way_tags=await self.get_way_tags(edge_ids),
+            elevation_attributes=await self.get_elevation_attributes(edge_ids),
+            designated_edge_ids=await self.get_designated_edge_ids(edge_ids),
+        )
 
     async def get_edges_with_geometry(self, edge_ids):
         # 改善計画T218: フェイクグラフのEdgeは元々実ジオメトリを持つため、常に空辞書を
@@ -620,9 +642,12 @@ async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkey
     # （prepare()は呼ばず_build_segment_detailsを直接使うため、実際のgraph探索は不要）。
     generator, _, _ = make_generator(graph=None, way_tags=way_tags)
     engine = generator._engine
+    context_graph = RoadGraph(
+        graph_version="test", nodes={n.node_id: n for n in (node_a, node_b, node_c)},
+        edges={e.edge_id: e for e in edges},
+    )
     context = road_graph_engine._RoadGraphContext(
-        graph=RoadGraph(graph_version="test", nodes={n.node_id: n for n in (node_a, node_b, node_c)},
-                         edges={e.edge_id: e for e in edges}),
+        graph=context_graph,
         nx_graph=None,
         surface_attributes={},
         stop_counts={},
@@ -633,6 +658,7 @@ async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkey
         designated_edge_ids=set(),
         wind=None,
         origin_node="a",
+        node_index=build_node_spatial_index(context_graph),
         night_active=False,
     )
 
@@ -749,11 +775,13 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     generator, _, _ = make_generator(None, way_tags=way_tags, route_preference=preference)
     engine = generator._engine
 
+    base_graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     base_kwargs = dict(
-        graph=RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge}),
+        graph=base_graph,
         nx_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=None, origin_node="a",
+        node_index=build_node_spatial_index(base_graph),
     )
     day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
     night_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=True)
