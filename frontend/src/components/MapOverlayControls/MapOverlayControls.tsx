@@ -406,16 +406,27 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   // "composite"|"dynamic"、グループ間でIDが衝突しても名前空間で区別できるようにする）。
   const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(new Set());
 
-  function toggleHidden(hiddenKey: string) {
+  // 非表示に選んだ項目に表示中のレイヤーが紐づいている場合、その場でレイヤー自体も
+  // OFFにする（実機フィードバック「設定で非表示にした場合、裏でレイヤ表示ONになっていれば
+  // OFFにして」）。設定パネルからチップが消えた後もレイヤーが地図に描画され続け、かつ
+  // チップが無いのでOFFにする手段も無くなる、という状態を防ぐ。逆方向（非表示解除＝
+  // 再表示）はチップを選べるようにするだけで、レイヤーを自動でONにはしない
+  // （「隠す/出す」はチップの見た目の設定であり、ON/OFFの意思決定はユーザーが個別に行う
+  // という既存方針、member.onはこの関数の外＝呼び出し元のonTapが唯一の変更経路のまま）。
+  function toggleHidden(hiddenKey: string, layerId: MapLayerId | undefined, isOn: boolean | undefined) {
+    const isCurrentlyHidden = hiddenIds.has(hiddenKey);
     setHiddenIds((prev) => {
       const next = new Set(prev);
-      if (next.has(hiddenKey)) {
+      if (isCurrentlyHidden) {
         next.delete(hiddenKey);
       } else {
         next.add(hiddenKey);
       }
       return next;
     });
+    if (!isCurrentlyHidden && layerId && isOn) {
+      onToggle(layerId, false);
+    }
   }
 
   // anchor="right"（従来どおり行の右へ）/"down"（行の直下へ）。いずれもdocument.bodyへ
@@ -589,7 +600,16 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     groupKey: string,
     groupLabel: string,
     scope: "raw" | "composite" | "dynamic",
-    items: readonly { key: string; Icon: (props: { size?: number }) => ReactElement; label: string }[]
+    items: readonly {
+      key: string;
+      Icon: (props: { size?: number }) => ReactElement;
+      label: string;
+      /** 対応するレイヤーID（あれば）。非表示に選んだ瞬間そのレイヤーがONならOFFにするために使う
+       * （toggleHidden参照）。推定グループの専用レイヤーを持たない軸（勾配・舗装質・夜間）は
+       * undefinedのまま渡す。 */
+      layerId?: MapLayerId;
+      on?: boolean;
+    }[]
   ) {
     const legendKey = `${groupKey}:legend`;
     const isOpen = expandedIds.has(legendKey);
@@ -626,7 +646,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                     <li key={item.key} className={styles.detailRow}>
                       <button
                         type="button"
-                        onClick={() => toggleHidden(hiddenKey)}
+                        onClick={() => toggleHidden(hiddenKey, item.layerId, item.on)}
                         aria-pressed={!isHidden}
                         aria-label={`${item.label}を${isHidden ? "表示する" : "表示しない"}`}
                         className={
@@ -826,11 +846,16 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                       group.key,
                       label,
                       "composite",
-                      SECONDARY_AXES.map((axis) => ({
-                        key: axis.axisId,
-                        Icon: SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon,
-                        label: axis.chipLabel,
-                      }))
+                      SECONDARY_AXES.map((axis) => {
+                        const axisMember = axis.layerId ? group.members.find((m) => m.id === axis.layerId) : undefined;
+                        return {
+                          key: axis.axisId,
+                          Icon: SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon,
+                          label: axis.chipLabel,
+                          layerId: axis.layerId,
+                          on: axisMember?.on,
+                        };
+                      })
                     )}
               </div>,
             ];
@@ -895,6 +920,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                         key: member.id,
                         Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
                         label: member.chipLabel ?? member.label,
+                        layerId: member.id,
+                        on: member.on,
                       }))
                     )}
               </div>,
@@ -950,6 +977,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                         key: member.id,
                         Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
                         label: member.chipLabel ?? member.label,
+                        layerId: member.id,
+                        on: member.on,
                       }))
                     )}
               </div>,
