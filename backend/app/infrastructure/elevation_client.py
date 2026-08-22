@@ -13,11 +13,22 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 # 回数をタイル単位（近接点は同一タイルを共有）へ削減する。呼び出し側インターフェース
 # （get_elevation(client, point, refresh=False) -> float|None）は変更しない。
 #
-# タイル仕様（2026-08-23、GSI公式ページ・実タイル取得で確認済み）:
-# - URL: https://cyberjapandata.gsi.go.jp/xyz/dem/{z}/{x}/{y}.txt （統合dem種別、z=14固定）。
-#   この統合種別はDEM5A/5B/5C/10Bの優先順位フォールバックをGSIサーバー側で既に行うため、
-#   アプリ側で独自のフォールバック連鎖（DEM5A→5B→10B等）を実装する必要がない
-#   （docs/external-data-sources-review-2026-08-16.md 4.2節の当初案より単純化できた）。
+# タイル仕様（2026-08-23、GSI公式ページ・実タイル取得で確認済み。**当初は「統合dem種別が
+# DEM5A/5B/5C/10Bの優先順位フォールバックをGSIサーバー側で行う」と判断していたが誤りで、
+# 2026-08-23の再検証（ユーザー指摘）で実タイル比較により訂正した**）:
+# - URL: https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt。`type`は"dem"単体ではなく
+#   優先順位付きで複数種別（DEM_TYPE_PRIORITY）を順に試す。実測で判明した事実:
+#   - `dem`（サフィックス無し）はDEM5A等を統合したものではなく、DEM10B相当の別データセット
+#     （z=15で404、DEM10Bの最大ズーム14と一致）。同一タイルで`dem5a`と`dem`が異なる値を返す
+#     ことを都心部で確認済み（`dem5a`はより高精度な値、`dem`は明らかに粗い値）。
+#   - `dem5a`/`dem5b`/`dem5c`は独立したエンドポイントとして直接クエリでき、非対応エリアでは
+#     （タイル丸ごと）404を返す（黙って粗いデータに劣化するのではなく明示的に「無い」ことが
+#     わかる）。GSI公式の優先順位（DEM1A→DEM5A→DEM5B/C→DEM10B。DEM1Aは2026-08-16調査により
+#     本アプリのサンプリング密度では恩恵が薄いため対象外と判断済み）に沿い、
+#     dem5a→dem5b→dem5c→dem の順にタイル単位でフォールバックする（DEM_TYPE_PRIORITY）。
+#   - 上記4種別はいずれもz=14で200を返すことを確認済み（DEM5A/5B/5CはGSI仕様上の最大
+#     ズームは15だが、z=14でも取得できる。z間で座標系を切り替える複雑さを避けるため、
+#     全種別をz=14固定で扱う）。
 # - 本文: 256行×256列のカンマ区切り数値（単位m、小数点2桁）。欠測画素は"e"。
 # - z=14でのタイル1辺は緯度により変わるが日本付近で概ね1〜2km、1画素あたり数m〜10m程度。
 #   OSM形状点間隔（多くは5m超）に対し十分な粒度で、標高評価の本格精査（2026-08-16調査）が
@@ -25,18 +36,19 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 #
 # キャッシュは2段: 生タイル本文はinfrastructure/tile_cache.py（ファイルキャッシュ、
 # TTLなし。DEMは不変データのため）。パース済みグリッド（256x256のfloat|Noneの二次元配列）は
-# さらにプロセス内メモリにも保持し（_tile_grid_cache）、1リクエスト内で近接する複数の
-# サンプル点が同じタイルを共有する場合に、ファイル読み出し・パースを都度繰り返さない
-# ようにする（サイズ上限は設けていない。対象範囲が関東圏に留まる現状の運用規模では
-# 実害が無いと判断、他のプロセス内メモリキャッシュ[weather_client.py等]と同じ割り切り。
-# 将来対象範囲が全国規模まで広がる場合は上限つきLRUへの変更を検討する）。
-DEM_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem/{z}/{x}/{y}.txt"
+# さらにプロセス内メモリにも保持し（_tile_grid_cache、キー=(type, tile_x, tile_y)）、
+# 1リクエスト内で近接する複数のサンプル点が同じタイルを共有する場合に、ファイル読み出し・
+# パースを都度繰り返さないようにする（サイズ上限は設けていない。対象範囲が関東圏に留まる
+# 現状の運用規模では実害が無いと判断、他のプロセス内メモリキャッシュ[weather_client.py等]と
+# 同じ割り切り。将来対象範囲が全国規模まで広がる場合は上限つきLRUへの変更を検討する）。
+DEM_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt"
+DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")
 DEM_ZOOM = 14
 DEM_TILE_SIZE = 256
 DEM_MISSING_MARKER = "e"
 DEM_TILE_CONTENT_TYPE = "text/plain; charset=utf-8"
 
-_tile_grid_cache: dict[tuple[int, int], list[list[float | None]] | None] = {}
+_tile_grid_cache: dict[tuple[str, int, int], list[list[float | None]] | None] = {}
 
 
 def _parse_dem_tile_text(text: str) -> list[list[float | None]]:
@@ -92,24 +104,31 @@ class ElevationClient:
         # キャッシュヒット時のelapsedは実質プロセス内グリッドキャッシュ/ファイルキャッシュの
         # 所要時間になるため、このログ・統計が標高キャッシュの効き具合の観測点を兼ねる
         # （旧SQLite点キャッシュ時代のlog_external_call呼び出しと同じ位置づけ）。
+        # DEM_TYPE_PRIORITY順に、タイル自体が無い（404）・その地点の画素が欠測、いずれの
+        # 場合も次の種別へフォールバックする（GSI公式の優先順位に沿った多段フォールバック、
+        # モジュールdocstring参照）。
         with log_external_call("elevation:gsi-dem", tile_x=tile_x, tile_y=tile_y) as fields:
-            grid = await self._get_tile_grid(client, tile_x, tile_y, refresh=refresh, fields=fields)
-            if grid is None:
-                fields["result"] = "no_elevation"
-                return None
-            elevation = _bilinear_interpolate(grid, px, py)
-            fields["result"] = "ok" if elevation is not None else "no_elevation"
-            return elevation
+            for dem_type in DEM_TYPE_PRIORITY:
+                grid = await self._get_tile_grid(client, dem_type, tile_x, tile_y, refresh=refresh, fields=fields)
+                if grid is None:
+                    continue
+                elevation = _bilinear_interpolate(grid, px, py)
+                if elevation is not None:
+                    fields["result"] = "ok"
+                    fields["dem_type"] = dem_type
+                    return elevation
+            fields["result"] = "no_elevation"
+            return None
 
     async def _get_tile_grid(
-        self, client: httpx.AsyncClient, tile_x: int, tile_y: int, *, refresh: bool, fields: dict
+        self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, *, refresh: bool, fields: dict
     ) -> list[list[float | None]] | None:
-        cache_key = (tile_x, tile_y)
+        cache_key = (dem_type, tile_x, tile_y)
         if not refresh and cache_key in _tile_grid_cache:
             fields["cache"] = "hit"
             return _tile_grid_cache[cache_key]
 
-        path = f"gsi/dem/{DEM_ZOOM}/{tile_x}/{tile_y}.txt"
+        path = f"gsi/{dem_type}/{DEM_ZOOM}/{tile_x}/{tile_y}.txt"
         if not refresh:
             cached = tile_cache.get(path)
             if cached is not None:
@@ -120,20 +139,21 @@ class ElevationClient:
                 return grid
 
         fields["cache"] = "miss"
-        grid = await self._fetch_tile(client, tile_x, tile_y, path, fields)
+        grid = await self._fetch_tile(client, dem_type, tile_x, tile_y, path, fields)
         _tile_grid_cache[cache_key] = grid
         return grid
 
     async def _fetch_tile(
-        self, client: httpx.AsyncClient, tile_x: int, tile_y: int, path: str, fields: dict
+        self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, path: str, fields: dict
     ) -> list[list[float | None]] | None:
-        url = DEM_TILE_URL.format(z=DEM_ZOOM, x=tile_x, y=tile_y)
+        url = DEM_TILE_URL.format(type=dem_type, z=DEM_ZOOM, x=tile_x, y=tile_y)
         try:
             response = await client.get(url)
             fields["status"] = getattr(response, "status_code", None)
             if response.status_code == 404:
-                # カバレッジ外（海上・データ未整備地域）。エラーではなく「標高データなし」
-                # として扱う（旧GSI点APIの「守備範囲外は"-----"」と同じ位置づけ）。
+                # カバレッジ外（そのdem_typeの整備区域外）。エラーではなく「このタイルには
+                # 無い」として扱い、呼び出し元が次の優先順位へフォールバックする
+                # （旧GSI点APIの「守備範囲外は"-----"」と同じ位置づけ）。
                 return None
             response.raise_for_status()
             text = response.text

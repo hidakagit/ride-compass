@@ -113,6 +113,33 @@ async def test_get_elevation_returns_none_for_404_tile():
     assert result is None
 
 
+async def test_get_elevation_falls_back_through_dem_type_priority():
+    # 2026-08-23の再検証で判明した実仕様: "dem"はDEM5A等の統合ではなく別データセットの
+    # ため、dem5a/dem5b/dem5cが非対応（404）のタイルでのみ次の優先順位へフォールバック
+    # する必要がある（DEM_TYPE_PRIORITY = dem5a→dem5b→dem5c→dem）。
+    class TieredHttpClient:
+        def __init__(self, available_type: str, elevation: float):
+            self.available_type = available_type
+            self.elevation = elevation
+            self.requested_types: list[str] = []
+
+        async def get(self, url, params=None):
+            requested_type = url.split("/xyz/")[1].split("/")[0]
+            self.requested_types.append(requested_type)
+            if requested_type != self.available_type:
+                return FakeResponse("", status_code=404)
+            return FakeResponse(_flat_tile_text(self.elevation))
+
+    client = ElevationClient()
+    point = Coordinates(latitude=35.681, longitude=139.767)
+
+    http_client = TieredHttpClient(available_type="dem5c", elevation=12.0)
+    result = await client.get_elevation(http_client, point)
+
+    assert result == pytest.approx(12.0, abs=0.1)
+    assert http_client.requested_types == ["dem5a", "dem5b", "dem5c"]
+
+
 async def test_get_elevation_returns_none_for_missing_pixel_marker():
     # DEMタイルの欠測画素は"e"（GSI仕様、2026-08-23実タイル取得で確認済み）。
     class AllMissingHttpClient:
