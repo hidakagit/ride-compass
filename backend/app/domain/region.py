@@ -61,6 +61,22 @@ def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
     return x, y
 
 
+def lonlat_to_tile_pixel(lon: float, lat: float, z: int, tile_size: int = 256) -> tuple[int, int, float, float]:
+    """緯度経度から、そのタイルの(tile_x, tile_y)と、タイル内の連続位置(px, py、
+    0.0〜tile_sizeの浮動小数点)を返す（`_lonlat_to_tile_index`と同じWeb Mercator変換の
+    式だが、タイル内の小数位置も同時に求める点が異なる。改善計画T10: DEMタイルの
+    双線形補間で、対象地点がタイル内のどのピクセル位置に当たるかを求めるために使う）。
+    """
+    n = 2**z
+    x_f = (lon + 180.0) / 360.0 * n
+    clamped_lat = max(-_MAX_MERCATOR_LATITUDE, min(lat, _MAX_MERCATOR_LATITUDE))
+    lat_rad = math.radians(clamped_lat)
+    y_f = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n
+    tile_x, px_frac = divmod(x_f, 1.0)
+    tile_y, py_frac = divmod(y_f, 1.0)
+    return int(tile_x), int(tile_y), px_frac * tile_size, py_frac * tile_size
+
+
 def tile_ancestor(z: int, x: int, y: int, ancestor_zoom: int) -> tuple[int, int]:
     """XYZタイル(z, x, y)を含む、より粗いズームancestor_zoomの祖先タイルの(x, y)を返す。
 

@@ -7,6 +7,12 @@
 改善計画T22でOverpassフォールバックを撤去し、地域路面レイヤーのPython側MVTエンコード
 （`encode_road_surface_tile`のway数スケーリング）が構造的に無くなったため、それを計測していた
 `bench_vector_tile`・`bench_event_loop_stall`はこの一覧から削除した（2026-08-16）。
+
+改善計画T10（DEMタイル化＋標高キャッシュ1系統化）でGSI点API＋SQLite点キャッシュ
+（`infrastructure/cache_db.py`のelevation_cacheテーブル・get_elevation/set_elevation）を
+廃止したため、それを計測していた`bench_elevation_cache`もこの一覧から削除した
+（2026-08-23。新方式のタイルキャッシュ自体は`tests/test_elevation_client_cache.py`で
+機能面を検証済み。パフォーマンス計測が必要になった際は新規ベンチマークとして書き直す）。
 """
 
 from __future__ import annotations
@@ -15,7 +21,6 @@ import time
 
 from benchmarks._harness import print_report
 from benchmarks import (
-    bench_elevation_cache,
     bench_graph_build,
     bench_nearest_node,
     bench_route_trace,
@@ -25,15 +30,10 @@ from benchmarks import (
 def main() -> None:
     started = time.perf_counter()
 
-    print_report("1/4 find_nearest_node: linear scan scaling", bench_nearest_node.run())
-    print_report("2/4 build_road_graph: construction scaling", bench_graph_build.run())
+    print_report("1/3 find_nearest_node: linear scan scaling", bench_nearest_node.run())
+    print_report("2/3 build_road_graph: construction scaling", bench_graph_build.run())
     print_report(
-        "3/4 RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", bench_route_trace.run()
-    )
-    print_report("4/4 cache_db (elevation SQLite cache): per-call connection overhead", bench_elevation_cache.run())
-    print_report(
-        "4/4b ElevationAttributeService.get_attributes_for_graph: end-to-end (network stubbed)",
-        bench_elevation_cache.run_service(),
+        "3/3 RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", bench_route_trace.run()
     )
 
     print(f"\nTotal wall time: {time.perf_counter() - started:.1f} s")
