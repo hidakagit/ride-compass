@@ -183,18 +183,21 @@ describe("MapLayersPanel", () => {
   it("専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
     render(<MapLayersPanel {...baseProps()} />);
 
+    // 改善計画T202: 案内文は先頭に「（地図表示なし）」が付く（統合レビュー2026-08-22指摘、
+    // 展開せずとも「押せない行がなぜあるのか」が伝わるようにするための接頭辞）ため、
+    // 完全一致ではなく部分一致（正規表現）で検証する。
     expect(screen.getByText("勾配").closest("details")).toBeNull();
-    expect(screen.queryByText("標高レイヤーで確認できます")).not.toBeInTheDocument();
+    expect(screen.queryByText(/標高レイヤーで確認できます/)).not.toBeInTheDocument();
     openHint("勾配");
-    expect(screen.getByText("標高レイヤーで確認できます")).toBeInTheDocument();
+    expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
 
     expect(screen.getByText("舗装質").closest("details")).toBeNull();
     openHint("舗装質");
-    expect(screen.getByText("路面の種類レイヤーで確認できます")).toBeInTheDocument();
+    expect(screen.getByText(/路面の種類レイヤーで確認できます/)).toBeInTheDocument();
 
     expect(screen.getByText("夜間").closest("details")).toBeNull();
     openHint("夜間");
-    expect(screen.getByText("専用レイヤーは今後追加予定です")).toBeInTheDocument();
+    expect(screen.getByText(/専用レイヤーは今後追加予定です/)).toBeInTheDocument();
   });
 
   it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {

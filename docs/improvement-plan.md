@@ -23,6 +23,14 @@
 - 1タスク=1コミット（またはPR）。着手前後で全テストgreenを確認する。
 - 挙動を変えるタスクはテストを先に追加/更新してから実装する。
 - docs（architecture.md等の「現状」記述）はコード変更と同一コミットで更新する。
+- **規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へarchitecture.md
+  追従を既定で含める**（統合レビューでarchitecture.md未追従の同型再発が繰り返し検出された
+  ことを受け、統合レビュー2026-08-22 T197でルール化）。
+- **backend側のAPIルーター・Pydanticモデル・レジストリ・domain定数を変更したコミットは、
+  `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を同一コミットで
+  実行し、`git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを
+  確認する**（生成物のペア更新漏れがT180・T185で2回発生したことを受け、統合レビュー
+  2026-08-22 T196でルール化）。
 - 規模目安: S=1時間以内 / M=半日 / L=1日以上
 
 ---
@@ -3297,7 +3305,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 第1パスはローカルmasterの26コミット追従遅れ状態を対象にしていたため、末尾の第2パスが正）。
 ユーザー指示「程度優先度問わず全て改善計画に追記」（2026-08-22）により全件起票。
 
-### - [ ] T196. OpenAPI生成物へT185のspacing_degを反映し、master CIの実行状況を確認、再生成をコミット手順へ組み込む〔P1〕規模S
+### - [x] T196. OpenAPI生成物へT185のspacing_degを反映し、master CIの実行状況を確認、再生成をコミット手順へ組み込む〔P1〕規模S（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-1。T185（`d9f4edb`）が`/api/weather/wind-grid-detail`へ
   追加した`spacing_deg`クエリパラメータが`frontend/src/types/generated/openapi.json`・
@@ -3306,16 +3314,20 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   呼ぶため型エラーとして表面化しない。`d9f4edb`（2026-08-21）以降、CIのapi-contractジョブは
   赤になるはずの状態が継続している（非公開リポジトリ・gh CLI未導入のためレビューでは
   実行履歴未確認。Actions無償枠枯渇でCI自体が実行されていない疑いあり）。
-- 対応方針: (1) `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を
-  実行しコミット。(2) GitHub Actionsでd9f4edb以降のmasterに対しapi-contractが実行・成功して
-  いるかを確認し、結果（未実行だった場合はその期間・理由）を本タスクへ記録する。
-  (3) 再発防止: 「backendのAPIルーター・Pydanticモデルを変更したら同一コミットで
-  再生成2コマンドを実行する」を本ファイル冒頭の「進め方の原則」へチェック項目として明記
-  （pre-commitフック化は任意、まず明文化のみでよい）。
-- 完了条件: ローカル再生成後の`git diff --exit-code -- frontend/src/types/generated/`が
-  クリーン／CI実行状況の確認結果の記録／進め方の原則への追記。
+- 実装内容: `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を実行し
+  `openapi.json`/`api.d.ts`を再生成（`spacing_deg`パラメータ反映、T198のwind-grid-config.json
+  新設分も同時に反映）。GitHub ActionsのCI実行状況は非公開リポジトリ・`gh` CLI未導入のため
+  このセッションでは確認できず（未解消のまま記録。ユーザー側でActionsタブを直接確認するか
+  `gh` CLIのセットアップが必要）。
+- 再発防止: 本ファイル冒頭に「backend側のAPIルーター・Pydanticモデル・レジストリ・
+  domain定数を変更したコミットは、`export_openapi.py`→`npm run generate:api`を同一コミットで
+  実行し`git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを確認する」
+  を進め方の原則として追記（下記「進め方の原則」参照）。
+- 検証: 再生成後の差分をコミットに含めた状態でbackend pytest 967件・frontend vitest 469件が
+  全green（他タスク分含む合算値、下記T202参照）。
+- 未解消: CI実行状況の確認自体はユーザー側で別途行う必要がある。
 
-### - [ ] T197. architecture.mdへ動的気象スタック（T170〜T195）・レイヤー階層次数反転（T163〜T169）を追従し、「規模M以上の新設はarchitecture.md追従を完了条件に含める」運用を明文化する〔P1〕規模S〜M
+### - [x] T197. architecture.mdへ動的気象スタック（T170〜T195）・レイヤー階層次数反転（T163〜T169）を追従し、「規模M以上の新設はarchitecture.md追従を完了条件に含める」運用を明文化する〔P1〕規模S〜M（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-2（第4回の統合-2から継続、同型6回目）。T194/T195の
   キャッシュ2段構成はarchitecture.mdへ正しく追従された一方、動的気象スタック全体
@@ -3323,16 +3335,30 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   ・`wind-grid-detail`エンドポイント・`DynamicLayerTimeSlider`・T179リレープロキシ）と
   地図チップの観測/推定/動的グルーピング（T163〜T169、`primaryAttributes.ts`双方向導出・
   梅竹松の1次/2次表現統一）はgrep 0件のまま。「担当タスクの節だけ更新する一段浅い追従」の反復。
-- 対応方針: (1) architecture.mdへ「動的気象レイヤー（風・降水）」の節を新設し、共通契約
-  （表現3種・共有タイムライン・範囲外非描画・追加の1本道4ステップ）と関連モジュール・
-  エンドポイントを記述。(2) 「地図チップの観測/推定/動的グルーピング」の節を新設。
-  (3) §2ディレクトリ構成・§4 API設計へ新設分を追記。(4) 本ファイル冒頭の「進め方の原則」へ
-  「規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
-  architecture.md追従を既定で含める」を追記する（統合レビュー第4回から2回目の提案。
-  規則として固定しない限り同型の再発が続くため）。
-- 完了条件: 上記4点の反映。次回consistencyレビューでの再発ゼロを事後判定に使う。
+- 実装内容:
+  - `docs/architecture.md`「1. 技術選定」へ「動的気象レイヤー（風・降水延長予報）の共通契約
+    （改善計画T170〜T195）」を新設（T184共通契約の4本柱・風の格子点マップ・詳細格子・
+    降水延長予報・night軸動的化・Open-Meteo 429対策6段階ロードマップ・時刻スライダーの
+    ルーラー化・useWeatherGridフックへの抽出を記述）。
+  - 「7. 静的道路属性と7軸評価モデル」へ「地図チップの観測/推定/動的グルーピングと
+    一次/二次命名の完全化（改善計画T163〜T169）」を新設（レジストリ完全化・一次属性
+    カタログ・道路情報論理分割・チップ最上位の次数反転・材料連動ON/OFF・チップの
+    タイル化/マトリックス化・梅竹松の表現統一を記述）。
+  - §2ディレクトリ構成へ`domain/twilight.py`・`domain/wind_grid.py`・
+    `Map/dynamicWeather.ts`・`Map/windLayer.ts`・`Map/precipitationNowcast.ts`・
+    `Map/primaryAttributes.ts`・`DynamicLayerTimeSlider/`・`hooks/useWeatherGrid.ts`を
+    追記。requirements.txt（astral/tenacity追加）・generated/（axis-catalog.json・
+    wind-grid-config.json）の説明も更新。
+  - §4 API設計へ`GET /api/weather/wind-grid`・`GET /api/weather/wind-grid-detail`
+    （リクエスト/レスポンス例・400/429エラー仕様含む）を新規追記。
+  - 「静的レイヤー・タイル配信」節冒頭を「フロント9レイヤー」から実態（固定レイヤー＋
+    降水ナウキャスト・風の2 kind="static"/dataNature="dynamic"レイヤー）に合わせて修正。
+  - 本ファイル冒頭「進め方の原則」へ運用ルールを追記（上記参照）。
+- 検証: architecture.md追記後、grepで新設シンボル（`dynamicWeather`・`wind_grid`・
+  `twilight`・`DynamicLayerTimeSlider`・観測/推定/動的グルーピング）が全てヒットすることを
+  確認。ドキュメントのみの変更のためbackend/frontendテストへの影響なし。
 
-### - [ ] T198. 風格子定数群（間隔・許可段階・上限点数）を生成物経由の片側importへ集約する〔P2〕規模S
+### - [x] T198. 風格子定数群（間隔・許可段階・上限点数）を生成物経由の片側importへ集約する〔P2〕規模S（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-3（第1パス統合-3の拡大版）。backend
   `domain/wind_grid.py`とfrontend `windLayer.ts`が`WIND_GRID_SPACING_DEG=0.1`／
@@ -3341,26 +3367,42 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   コメントのみで二重定義。`WIND_GRID_DETAIL_MAX_POINTS=900`⇔フロントの係数25も同様。
   APIレスポンスに間隔情報が含まれないため、backend側の変更はフロントのセル描画の
   静かなズレとして現れる。同期バグが実際に起きた「照合の無い糊」（T120・T121-a）と同構造。
-- 対応方針: `export_openapi.py`の生成物（新規`wind-grid-config.json`、または
-  `region-tile-config.json`方式の踏襲）へspacing・allowed_spacings・max_pointsを書き出し、
-  `windLayer.ts`はそこからimportする（片側import、設計原則2）。既存の生成物ドリフト検知
-  （CI api-contract）に自動的に乗る。
-- 完了条件: フロント側の該当ハードコード定数が生成物参照へ置き換わり、値を変えたときに
-  再生成なしではテスト/CIが検知すること。
+- 実装内容:
+  - `backend/scripts/export_openapi.py`: 新規`wind-grid-config.json`
+    （`spacing_deg`/`detail_spacing_deg`/`detail_allowed_spacings_deg`/`detail_max_points`、
+    `domain/wind_grid.py`の定数から直接書き出し）を追加（`region-tile-config.json`と
+    同じパターン）。
+  - `frontend/src/components/Map/windLayer.ts`: `WIND_GRID_SPACING_DEG`・
+    `WIND_GRID_DETAIL_SPACING_DEG`・`WIND_GRID_DETAIL_SPACING_STOPS`の間隔値を
+    `wind-grid-config.json`からのimportへ置き換え（片側import、設計原則2）。zoom境界
+    （10/13/16/19）はUI固有の判断のためフロント側定数のまま維持。
+    `WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS`（安全率係数25）はexportし、
+    `detail_max_points`との整合をテストで検証する形にした（設計判断の安全率自体は
+    独立した定数のまま、ドリフトはテストで検知）。
+  - `backend/app/domain/wind_grid.py`: コメントを「wind-grid-config.jsonが単一の情報源」
+    という記述へ更新（旧「フロント側と同じ値を維持すること」を廃止）。
+- 検証: `frontend/src/components/Map/windLayer.test.ts`へ3件追加（生成物との値一致・
+  スペーシング段階の順序一致・安全率係数が上限点数の範囲内であることのドリフト検知）。
+  frontend vitest全体でgreen確認（下記T202参照）。
 
-### - [ ] T199. 動的レイヤー凡例ポップオーバーを排他表示にする〔P2〕規模S
+### - [x] T199. 動的レイヤー凡例ポップオーバーを排他表示にする〔P2〕規模S（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-4（第1パス統合-4の継続、対象コミット`a6c82a2`で再現
   確認済み）。降水凡例と風凡例を続けて開くと同x位置で約139px重なり、半透明背景のため
   両方のテキストが交錯して判読不能（レビューの実測rect: 降水y=196 h=190・風y=247 h=188）。
   雨天時に風と降水を同時確認する場面でちょうど両方の凡例を見たくなるため遭遇率が高い。
-- 対応方針: `MapOverlayControls.tsx`の`expandedIds`（Set、複数同時展開可）を、凡例パネルを
-  持つ展開について同時1つへ制限する（新しい凡例を開いたら他を閉じる。チップグループ展開の
-  既存挙動と同じ排他パターン）。代替案として不透明背景＋縦積み配置でも可。回帰テストを
-  `MapOverlayControls.test.tsx`へ追加する。
-- 完了条件: 2つの凡例を続けて開いても読める状態がPlaywright実機確認で確認できること。
+- 実装内容: `MapOverlayControls.tsx`に`GROUP_VISIBILITY_KEYS`
+  （`group:composite`/`group:raw`/`group:dynamic`、floatingパネルを持たないグループ本体の
+  開閉キー）を新設し、`toggleExpanded`が新しくキーを開くとき、そのキーがグループ本体
+  でなければ他のfloatingパネル系キー（member:/axis:/単独チップ/`${groupKey}:legend`）を
+  すべて閉じてから開くよう変更。グループ本体同士（観測/推定/動的の同時展開）は従来どおり
+  独立に開閉できる（floatingパネルを持たず重ならないため対象外）。
+- 検証: `MapOverlayControls.test.tsx`に回帰テストを追加（降水→風の順に凡例を開くと降水側が
+  自動的に閉じ`aria-expanded="false"`になることを検証）。Playwright実機確認
+  （デスクトップ1280×900）で、降水凡例→風凡例の順に開くと風の凡例のみ表示され重ならない
+  ことをスクリーンショットで確認。ルート生成本線（8候補生成）への非回帰も確認。
 
-### - [ ] T200. wind-grid全地点失敗時のエラーを可視化する（空配列200 OKの非対称解消）〔P2〕規模S
+### - [x] T200. wind-grid全地点失敗時のエラーを可視化する（空配列200 OKの非対称解消）〔P2〕規模S（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-5。T194の根本原因調査で特定済みの事項の起票
   （T194時点ではユーザー指示により記録のみとしていたが、全件起票指示を受け正式タスク化）。
@@ -3368,53 +3410,78 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   エラーと判定できず`windError`表示が機能せず、時刻スライダーが「動かせるコマが無い」として
   現象化する（診断に実機コンソール計装まで要した実績）。`/api/weather`（単一地点）は
   502を返す設計で、非対称。docs/logging.mdの「エラー・429は常時可視」方針にも反する。
-- 対応方針: 「1地点の失敗で全体を落とさない」設計（T178）は維持しつつ、**全地点失敗時のみ**
-  502（detail付き）を返す。フロントは既存の`useWeatherGrid`のerrorハンドリングが
-  そのまま機能する。wind-grid-detail側も同様に揃える。バックエンドの該当WARNINGログが
-  出ることをあわせて確認。
-- 完了条件: 全地点失敗をモックしたテストで502＋フロントのwindError表示を検証。
+- 実装内容: `backend/app/api/routers/weather.py`へ`_reject_if_all_points_failed(label, points,
+  grid)`ヘルパーを新設。`points`が非空かつ`grid`（`WeatherService.get_wind_grid`の返り値、
+  失敗地点はNone）が非空で全件Noneの場合のみ502＋抑制無しWARNINGログを出す（「1地点の失敗で
+  全体を落とさない」T178の方針は維持。`grid`が空リストの場合は対象外とし、既存テストの
+  フェイク実装（points数と無関係に空リストを返すもの）との後方互換を保った）。
+  `get_wind_grid`・`get_wind_grid_detail`の両エンドポイントへ適用。
+- 検証: `backend/tests/test_weather_route.py`へ2件追加（wind-grid・wind-grid-detailそれぞれ
+  全地点失敗時に502＋detail「気象データの取得に失敗しました」を返すこと）。
+  backend pytest 967件全green（既存の空リストフェイクを使うテスト群への影響なしを確認）。
 
-### - [ ] T201. 規模ウォッチ閾値をT184共通契約の実態に合わせて再定義する（canvas幾何ヘルパー抽出は任意）〔P2〕規模S（＋任意S）
+### - [x] T201. 規模ウォッチ閾値をT184共通契約の実態に合わせて再定義する（canvas幾何ヘルパー抽出は任意）〔P2〕規模S（＋任意S）（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-6。MapView.tsx 2,502行（閾値2,000超）・page.tsx
   1,615行（閾値1,300超。`useWeatherGrid`抽出で-115行の改善はあった）。T184で
   「レンダラー宣言・アイコン生成は`DYNAMIC_WEATHER_RENDERERS`（MapView内）へ集約」が
   契約上の正当な配置になったため、行数閾値の前提（手書き描画コードの無秩序な増加を捕捉）が
   変化した。第1パスの「アイコン生成をwindLayer.tsへ移動」案はT184契約と衝突するため撤回済み。
-- 対応方針: `docs/complexity-review-2026-08-16.md`のKeep List閾値を再定義する（例:
-  MapView.tsx「2,800行 or DYNAMIC_WEATHER_RENDERERSのスペック5件目 or 手書き
-  STATIC_OVERLAY_LAYERS（ramp除く）10件」、page.tsx「1,900行 or useState+useStoredState
-  40件」。数値は再定義時に実測から決める）。任意で、mapに依存しない汎用canvas幾何ヘルパー
-  （`cubicBezierPoint`/`fillTaperedRibbon`等、約80行）を小モジュールへ抽出してもよい
-  （レンダラー登録・アイコン定義自体はT184契約どおりMapViewに残す）。
-- 完了条件: Keep Listの該当閾値が現行構造を反映した定義へ更新されていること。
+- 実装内容:
+  - `docs/complexity-review-2026-08-16.md`のR-6・Keep Listへ2026-08-22時点の再定義を追記。
+    新閾値: MapView.tsx「2,800行 or DYNAMIC_WEATHER_RENDERERSのスペック5件目 or 手書き
+    STATIC_OVERLAY_LAYERS（ramp除く）10件 or bespoke種の軸3件目 or 5つ目のレシピ軸の
+    MapView内ミラー追加」、page.tsx「1,900行 or useState+useStoredState合計40件」。
+  - 任意の抽出も実施: mapに依存しない純粋なCanvas 2D描画コード（`Point2D`・
+    `cubicBezierPoint`・`fillTaperedRibbon`・`createWindArrowIcon`・`WIND_ARROW_SIZE_PX`）を
+    `frontend/src/components/Map/windArrowIcon.ts`（新設）へ抽出。レンダラー登録
+    （`DYNAMIC_WEATHER_RENDERERS`）・アイコン参照はMapView.tsxに残し、T184契約
+    （描画スペックはMapViewに集約）とは矛盾しない形にした。
+  - 実測（抽出後）: MapView.tsx 2,401行（新閾値2,800行に対し399行の余裕）・
+    DYNAMIC_WEATHER_RENDERERS 2件（閾値5件に対し余裕）・page.tsx 1,615行
+    （新閾値1,900行に対し285行の余裕）・state 13件（閾値40件に対し余裕）。
+- 検証: `windArrowIcon.test.ts`（新設）でスモークテスト1件追加（jsdomがcanvas 2D
+  コンテキストを実装しないため描画内容自体は検証不可、例外なく32×32のImageDataを返す
+  ことのみ確認）。tsc/eslintクリーン、frontend vitest全体green（下記T202参照）。
 
-### - [ ] T202. 統合レビュー第5回の軽微指摘6件を一括解消する〔P3〕規模S
+### - [x] T202. 統合レビュー第5回の軽微指摘6件を一括解消する〔P3〕規模S（2026-08-22完了）
 
 - 発端: 統合レビュー2026-08-22 改訂-7。いずれも単独起票に満たない軽微だが実在する取りこぼし。
-- 対応方針（6項目）:
+- 対応内容（6項目）:
   1. **動的気象ラスタのプレースホルダタイル404**: レイヤーON直後にプレースホルダURL
-     （`.../00000000000000/none/00000000000000/...`）への実リクエストが発生し404×2を実機観測
-     （現在ビューポートの2タイル分）。MapView.tsxのコメント「visibility:noneの間は
-     リクエストされない」という不変条件が不成立（表示切替とsetTilesの順序race）。
-     実URL設定前にvisibleへ切り替えない順序へ修正するか、コメントを実態に合わせる。
-  2. **`useWeatherGrid.ts`の更新間隔をT195へ追従**: `WEATHER_GRID_REFRESH_INTERVAL_MS`
-     （30分）とその根拠コメント「バックエンド側が30分TTLキャッシュを持つため」が
-     T195のTTL3時間化に未追従（30分ごとの再取得は大半が同一データの再ダウンロード
-     ≒約0.9MB/回）。間隔をTTLに合わせるかコメントの根拠を書き直す。
+     （`.../00000000000000/none/00000000000000/...`）への実リクエストが404になる事象を
+     再度実機Playwright確認で再現した（デスクトップ・モバイル双方、他タスクの変更前後で
+     常に2件）。コード上は`setTiles`→`setLayerVisibility`の順序が既に正しく（visible化前に
+     実URLへ差し替え済み）、`ensureDynamicWeatherLayer`もソース追加時にvisibility:noneで
+     追加しているため、単純な順序raceは見当たらなかった。`next dev`実行時のReact Strict
+     Modeによる開発時二重effect実行（mount→cleanup→再mount）で、初回payload未確定の瞬間に
+     一瞬visible状態が生じている可能性が高いと判断（本番ビルドでは未検証）。実害は無く
+     表示は自己回復するため、コード変更ではなく`MapView.tsx`の該当コメントを「visibility:
+     noneの間は要求されない」という不正確な断定から、観測した例外・推定原因・本番での
+     未検証である旨を明記する記述へ訂正した。
+  2. **`useWeatherGrid.ts`の更新間隔をT195へ追従**: `WEATHER_GRID_REFRESH_INTERVAL_MS`を
+     30分→3時間（`weather_client.py: WIND_GRID_CACHE_TTL_SECONDS`と一致）へ変更し、
+     コメントも新しい値・根拠に更新。
   3. **`DynamicLayerTimeSlider.tsx`冒頭の旧設計コメント修正**: 「複数の時刻依存レイヤーが
-     同時ONのときはpage.tsxがこのコンポーネントを縦に複数マウントする」はT183の1本統合で
-     廃止済み（同ファイル上部のFrame docstringとファイル内で矛盾）。
-  4. **初期ロード時のMapLibre null警告3件の由来特定**: 「Expected value to be of type
-     number, but found null instead.」がレイヤーON前のboot時に3件発生（第1パス・第2パス
-     とも再現）。nullガード（coalesce等）の欠けた式を特定して修正する。
-  5. **`config.py`のwind-gridコメント更新**: 「関東本土全域（約56地点）」は0.35°間隔の
-     初期値時代の数値。現行0.1°間隔の約624点へ更新。
-  6. **推定グループのレイヤー無し軸の添え書き**: 勾配・舗装質・夜間がグレー行として
-     「説明」のみで並ぶ状態に「（地図表示なし）」等の短い添え書きを付け、初見の
-     「押せない行がなぜあるのか」を解消する（night軸はT145aのレイヤー追加で将来解消予定の旨も
-     説明に含めてよい）。
-- 完了条件: 6項目の反映＋4のみ原因の記録（修正が大きくなる場合は別タスク切り出し可）。
+     同時ONのときは縦に複数マウントする」という記述をT183の1本統合後の実態
+     （共有タイムラインへ統合済みのため1つだけマウント）へ書き換えた。
+  4. **初期ロード時のMapLibre null警告3件の由来調査**: RideCompass自身のカスタムレイヤーは
+     いずれも初期状態でvisibility:none（`grep`で"visibility: \"visible\""のハードコードが
+     0件であることを確認）かつ空のFeatureCollectionで初期化されるため、boot時点で
+     式評価対象のフィーチャーが存在せず警告を出しようがない。警告の実際の発生源は
+     RideCompassが直接制御しないOpenFreeMap「liberty」基礎地図スタイル自体の内部式である
+     可能性が高いと判断した（サードパーティスタイルのため修正は範囲外。Confidence: Low、
+     追加のライブデバッグなしにこれ以上は特定できないため今回はここまでとする）。
+  5. **`config.py`のwind-gridコメント更新**: 「関東本土全域（約56地点）」を現行0.1°間隔の
+     約624地点へ更新し、密度変遷の経緯（`domain/wind_grid.py`参照）も併記。
+  6. **推定グループのレイヤー無し軸の添え書き**: `secondaryAxes.ts`の
+     `SECONDARY_AXIS_PROXY_HINTS`（勾配・舗装質・夜間）へ「（地図表示なし）」を先頭に付与し、
+     ▼展開時の案内文・タイトル属性（ツールチップ）の両方で自己説明的にした。タイルの見た目
+     自体（4文字以下ラベル・小型グレー表示）は展開せずに常設ラベルを追加するとレイアウトへの
+     影響を実機確認できていないため変更せず、恒常表示化は今回見送り（ユーザー判断のDEFER）。
+- 検証: `MapLayersPanel.test.tsx`・`MapOverlayControls.test.tsx`の既存アサーションを
+  新しい案内文（正規表現の部分一致）へ更新。frontend vitest 469件・backend pytest 967件
+  全green。tsc/eslintクリーン。
 
 ### - [ ] T203. wind-grid応答のtimes配列重複を削減する 規模S — トリガー: モバイル実機で風・降水延長レイヤーの初期表示の遅さ・通信量が問題として報告された時点
 

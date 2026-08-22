@@ -20,6 +20,7 @@
 
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import type { WindGridPoint } from "@/types/weather";
+import windGridConfig from "@/types/generated/wind-grid-config.json";
 
 /** "YYYY-MM-DDTHH:MM"（Open-Meteoのtimezone=Asia/Tokyo指定によるJST・オフセット無し表記）を
  * JSTとして解釈するDateへ変換する。オフセット無しのままDateへ渡すとブラウザのローカル
@@ -176,12 +177,15 @@ export function windRenderPayload(grid: readonly WindGridPoint[], ref: number): 
   return { kind: "gridMark", geojson: windGridToFeatureCollection(grid, ref) };
 }
 
-// 格子間隔（度）。backend/app/domain/wind_grid.pyの同名定数（WIND_GRID_SPACING_DEG/
-// WIND_GRID_DETAIL_SPACING_DEG）と値を合わせること。APIレスポンス自体には間隔情報が
-// 含まれない（点の配列のみ）ため、フロント側でも同じ値を持つ必要がある。降水延長予報の
-// gridFill表現（precipitationNowcast.ts）がセルの1辺の長さとして使う。
-export const WIND_GRID_SPACING_DEG = 0.1;
-export const WIND_GRID_DETAIL_SPACING_DEG = 0.02;
+// 格子間隔（度）。改善計画T198（統合レビュー2026-08-22指摘F-B）以前は
+// backend/app/domain/wind_grid.pyの同名定数を「値を合わせること」というコメントのみで
+// 手動複製していたが、APIレスポンス自体には間隔情報が含まれない（点の配列のみ）ため
+// 気づかれないままズレうる手動同期ペアだった。他の生成物（axis-catalog.json等）と同じ
+// 片側importへ揃え、backend/scripts/export_openapi.pyが書き出すwind-grid-config.jsonを
+// 単一の情報源とする。降水延長予報のgridFill表現（precipitationNowcast.ts）がセルの
+// 1辺の長さとして使う。
+export const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
+export const WIND_GRID_DETAIL_SPACING_DEG = windGridConfig.detail_spacing_deg;
 
 export interface MapViewport {
   west: number;
@@ -211,14 +215,16 @@ export const WIND_DETAIL_MIN_ZOOM = 10;
 // 面積を大きく占めて色の段差（ゴワゴワ）が目立つ」ことなので、ズームが進むほど格子間隔
 // 自体を細かくする。段階は離散値のみ（連続値にすると閲覧者ごとにラティスの絶対座標が
 // わずかにずれ、generate_wind_grid_detail_pointsのキャッシュ共有が効かなくなるため）。
-// backend/app/domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGと同じ値を維持する
-// こと（zoom境界はICON_ZOOM_SCALE_STOPS、MapView.tsxと同じ10/13/16/19の刻みに揃えた）。
-export const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] = [
-  { zoom: WIND_DETAIL_MIN_ZOOM, spacingDeg: WIND_GRID_DETAIL_SPACING_DEG },
-  { zoom: 13, spacingDeg: 0.01 },
-  { zoom: 16, spacingDeg: 0.005 },
-  { zoom: 19, spacingDeg: 0.0025 },
-];
+// 間隔の値そのものはwind-grid-config.json（detail_allowed_spacings_deg、backend/app/
+// domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGが単一の情報源、改善計画T198）
+// から取る。zoom境界（10/13/16/19、ICON_ZOOM_SCALE_STOPS・MapView.tsxと同じ刻み）は
+// 地図の見た目に関するUI側の判断のためフロント固有の定数として持つ。
+const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];
+export const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
+  WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS.map((zoom, i) => ({
+    zoom,
+    spacingDeg: windGridConfig.detail_allowed_spacings_deg[i],
+  }));
 
 /** 現在のズームから、詳細格子を要求するときの格子間隔（度）を求める。WIND_GRID_DETAIL_
  * SPACING_STOPSのうちzoom以下の段階で最も細かい（配列は昇順前提）ものを返す。zoomが
@@ -234,10 +240,14 @@ export function windGridDetailSpacingDegForZoom(zoom: number): number {
 }
 
 // 1回のリクエストで許容するbboxの最大幅・高さ（度）を、格子間隔から逆算する係数。
-// WIND_GRID_DETAIL_MAX_POINTS（900、backend/app/domain/wind_grid.py）に対し、1辺25間隔
-// （26×26=676点）で余裕を持たせる（以前の固定値0.5度＝0.02度間隔×25と同じ安全率を、
-// 間隔が変わっても保つ）。
-const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = 25;
+// wind-grid-config.jsonのdetail_max_points（900、backend/app/domain/wind_grid.py:
+// WIND_GRID_DETAIL_MAX_POINTSが単一の情報源）に対し、1辺25間隔（26×26=676点）で
+// 余裕を持たせる（以前の固定値0.5度＝0.02度間隔×25と同じ安全率を、間隔が変わっても保つ）。
+// 25という係数自体は「間隔から逆算する安全率」という設計判断でありconfigの値そのものの
+// 複製ではないため定数のまま持つが、windLayer.test.tsが
+// `(WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS + 1) ** 2 <= windGridConfig.detail_max_points`
+// を検証し、backend側の上限が下がった場合に安全率が崩れていないかをテストで検知する。
+export const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = 25;
 
 /** 現在のビューポートから、詳細格子APIへ渡すbboxを求める。ビューポートがクリップ幅より
  * 狭ければビューポートそのまま、広ければ中心を基準に最大幅へクリップする（上記コメント参照）。

@@ -1,0 +1,11 @@
+{
+  "spacing_deg": 0.1,
+  "detail_spacing_deg": 0.02,
+  "detail_allowed_spacings_deg": [
+    0.02,
+    0.01,
+    0.005,
+    0.0025
+  ],
+  "detail_max_points": 900
+}

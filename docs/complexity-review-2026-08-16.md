@@ -148,6 +148,39 @@ MapView内へミラー追加しようとした時点」は行数・レイヤー�
   実コストがO(1)のため）。次に手書きレイヤー・bespoke種の軸が増えるタイミングで
   この閾値を再確認する。
 
+**2026-08-22（T184、動的気象レイヤーの共通契約導入）以降の閾値再定義**: 統合レビュー
+2026-08-22（改訂-6、旧統合-5）で、MapView.tsxが2,502行（閾値2,000行に対し502行の超過で
+発火）・page.tsxが1,615行（閾値1,300行に対し315行の超過で発火。ただしuseState+
+useStoredState数は13件で40件の閾値には遠く未到達）と判明した。精査の結果、両ファイルの
+増分は既存閾値が捕捉しようとしていたリスク（軸追加のたびの手書きコスト増）とは異なる、
+T184が正しく設計した新しい成長軸（動的気象レイヤーの描画スペック登録・時刻タイムライン
+統合ロジック）によるものであり、以下のように判断・対応した。
+
+- **MapView.tsx**: 増分の主因は`DYNAMIC_WEATHER_RENDERERS`（レンダラー仕様の宣言的
+  レジストリ、現在2件: precipitationNowcast/windVector）と、風の矢印アイコンのCanvas 2D
+  描画（`createWindArrowIcon`等、約100行）。T184の共通契約は「描画スペック
+  （DYNAMIC_WEATHER_RENDERERS）はMapView.tsxに集約する」ことを設計として定めており、
+  この部分はSTATIC_OVERLAY_LAYERSと同種の「宣言だけ増える」構造のため分割対象ではない。
+  一方、Canvas描画（`cubicBezierPoint`/`fillTaperedRibbon`/`createWindArrowIcon`）は
+  MapLibre/DOM以外に依存しない純粋な幾何計算であり、契約の対象外と判断し
+  `windArrowIcon.ts`（新設、約110行）へ抽出した（改善計画T201、windArrowIcon.test.tsで
+  最小限のスモークテストを追加）。抽出後の実測は2,401行（閾値2,000行に対し依然401行の
+  超過）。新しい閾値は「種類数条件」を`DYNAMIC_WEATHER_RENDERERS`向けに追加し、
+  行数閾値も実態に合わせて引き上げる: **「MapView.tsx 2,800行到達」または
+  「手書きSTATIC_OVERLAY_LAYERS（ramp軸除く）10件到達」または「bespoke種の軸3件目」または
+  「5つ目のレシピ軸をMapView内へミラー追加しようとした時点」または
+  「DYNAMIC_WEATHER_RENDERERSのスペックが5件目に増加した時点」**（既存4条件は維持、
+  最後の1条件を新設）。
+- **page.tsx**: 増分の主因は動的気象レイヤーの時刻タイムライン統合（`mergeFrameTimes`・
+  `frameIndexForTime`・`dynamicWeather`単一propの組み立て）で、フェッチ・穴あき対策の
+  ロジック自体は既に`hooks/useWeatherGrid.ts`へ抽出済み（-115行の実績）。state数13件は
+  40件の閾値に対し十分な余裕があり、「stateの無秩序な蓄積」という当初のリスクは顕在化して
+  いない（orchestrationのグルーコードが増えているだけ）。閾値を実態に合わせ引き上げる:
+  **「page.tsx 1,900行到達」または「useState+useStoredState合計40件到達」**（後者は維持）。
+- 実測（2026-08-22時点）: MapView.tsx 2,401行（新閾値2,800行に対し399行の余裕）・
+  DYNAMIC_WEATHER_RENDERERS 2件（閾値5件に対し余裕あり）・page.tsx 1,615行
+  （新閾値1,900行に対し285行の余裕）・state 13件（閾値40件に対し余裕あり）。
+
 ### R-7. BICYCLE_INFRA_LABELSの語彙複製 → T46
 
 `MapView.tsx`のポップアップ用ラベル辞書（6件）が`staticAttributeLayers.ts`の
@@ -189,10 +222,11 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
   to_thread・change_detection付きUPSERT。premature optimizationは今回もゼロ）
 - **`/api/routes/preview`の残置・MAX_CONCURRENT系の非共通化**
 - **ログ・観測基盤**（request_id全レコード注入・抑制付きWARNING・/api/debug/stats）
-- **page.tsx / MapView.tsx の現状維持**（MapView.tsxはR-6の閾値〔2,000行 or 手書き
+- **page.tsx / MapView.tsx の現状維持**（MapView.tsxはR-6の閾値〔2,800行 or 手書き
   STATIC_OVERLAY_LAYERS（ramp軸除く）10件 or bespoke種の軸3件目 or 5つ目のレシピ軸の
-  MapView内ミラー追加、T157（2026-08-19）でramp軸自動生成の実態に合わせ再定義〕、
-  page.tsxは独立した閾値〔useState+useStoredState合計40件 or 1,300行、2026-08-18新設〕、
+  MapView内ミラー追加 or DYNAMIC_WEATHER_RENDERERSのスペック5件目、T201（2026-08-22）で
+  T184の動的気象レイヤー共通契約導入に合わせ再定義〕、page.tsxは独立した閾値
+  〔useState+useStoredState合計40件 or 1,900行、T201（2026-08-22）で再定義〕、
   それぞれ到達までは分割しない）
 
 ---

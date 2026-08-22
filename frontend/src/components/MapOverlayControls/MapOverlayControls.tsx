@@ -153,6 +153,9 @@ const SECONDARY_AXIS_ICONS: Record<string, (props: { size?: number }) => ReactEl
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
 // JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
 const PANEL_GAP_PX = 8;
+// グループ本体の開閉キー（改善計画T199、下記toggleExpandedのコメント参照）。
+// floatingパネルを持たないため排他制御の対象外にする。
+const GROUP_VISIBILITY_KEYS = new Set(["group:composite", "group:raw", "group:dynamic"]);
 
 interface PanelRect {
   top: number;
@@ -367,9 +370,17 @@ function ChipButton({
 export default function MapOverlayControls({ layers, onToggle }: MapOverlayControlsProps) {
   // 凡例を常時表示すると地図の視界を圧迫するという実機フィードバックを受け、既定は
   // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
-  // 複数レイヤーを同時に開いておきたい場合もあるため、開閉はキーのSetで個別管理する。
-  // キーはレイヤーID（単独チップ）またはグループキー`group:${category}`
-  // （改善計画T128、カテゴリ束ねチップ）のどちらもありうるためstring。
+  // 開閉はキーのSetで個別管理する。キーはレイヤーID（単独チップ）・`member:${id}`
+  // （観測グループのメンバー）・`axis:${axisId}`（推定グループの軸タイル）・
+  // グループキー`group:composite`/`group:raw`/`group:dynamic`（改善計画T166、次数
+  // グループ本体の開閉）・`${groupKey}:legend`（アイコンの意味凡例）のいずれか。
+  // グループ本体の開閉はfloatingパネルを持たない（member/axisの一覧をchipRowへ
+  // インラインで差し込むだけ）ため複数グループを同時に開いても重ならないが、
+  // それ以外（member:/axis:/単独チップ/${groupKey}:legend）はdocument.bodyへ
+  // ポータルするfloatingパネルのため、複数同時に開くと近接する行同士でパネルが
+  // 重なり両方とも判読不能になる不具合が実機で確認された（統合レビュー2026-08-22
+  // 指摘、改善計画T199: 降水ナウキャストと風の凡例を続けて開いた場合）。
+  // toggleExpanded側でfloatingパネル系のキーは排他（新しく開いたら他を閉じる）にする。
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
   // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
   // （レイヤー数が多い画面向け）だが、CSSの仕様上overflow-yを指定するとoverflow-xも
@@ -407,6 +418,15 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
       if (next.has(id)) {
         next.delete(id);
       } else {
+        // floatingパネル系のキー（member:/axis:/単独チップ/${groupKey}:legend）は排他
+        // （改善計画T199）: 新しく開くキーがグループ本体の開閉（GROUP_VISIBILITY_KEYS）で
+        // なければ、他のfloatingパネル系キーをすべて閉じてから開く。グループ本体同士は
+        // floatingパネルを持たないため対象外のまま複数同時に開ける。
+        if (!GROUP_VISIBILITY_KEYS.has(id)) {
+          for (const existing of next) {
+            if (!GROUP_VISIBILITY_KEYS.has(existing)) next.delete(existing);
+          }
+        }
         next.add(id);
       }
       return next;

@@ -94,8 +94,11 @@ WIND_GRID_DETAIL_MAX_POINTS = 900
 # 補正では実面積を表すgridFillには通用しない（隙間・重なりが生まれるだけ）ため、実際の
 # 格子間隔自体をズームに応じて細かくする。連続的な間隔にすると閲覧者ごとに絶対座標の
 # ラティスが微妙にずれてしまいキャッシュ共有（generate_wind_grid_detail_pointsのdocstring
-# 参照）が効かなくなるため、離散的な段階（フロント側windLayer.ts:
-# WIND_GRID_DETAIL_SPACING_STOPSと同じ値を維持すること）のみを許可する。
+# 参照）が効かなくなるため、離散的な段階のみを許可する。この定数（および
+# WIND_GRID_SPACING_DEG・WIND_GRID_DETAIL_SPACING_DEG・WIND_GRID_DETAIL_MAX_POINTS）は
+# scripts/export_openapi.pyがwind-grid-config.jsonへ書き出す唯一の情報源であり、フロント側
+# windLayer.tsはこのJSONをimportするだけで値を複製しない（改善計画T198、統合レビュー
+# 2026-08-22指摘F-B。旧「同じ値を維持すること」というコメントのみの手動同期は廃止）。
 WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG: tuple[float, ...] = (0.02, 0.01, 0.005, 0.0025)
 
 

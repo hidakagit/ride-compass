@@ -81,11 +81,14 @@ interface DynamicLayerTimeSliderProps {
 }
 
 // 時刻依存レイヤー（降水ナウキャストT171・風T178等）共通の時刻スライダーUI（改善計画T170）。
-// 地図の視界を圧迫しないよう（設計原則12）、時刻依存レイヤーがONの間だけpage.tsxが
+// 地図の視界を圧迫しないよう（設計原則12）、時刻依存レイヤーが1つ以上ONの間だけpage.tsxが
 // 条件付きでマウントする。実際の時刻の計算・URL組み立ては各レイヤー専用のデータ層
 // （precipitationNowcast.ts/windLayer.ts）に閉じ、このコンポーネントはframesのindexを
-// 操作するだけの汎用UIに徹する（複数の時刻依存レイヤーが同時にONのときは、page.tsxが
-// このコンポーネントを縦に複数マウントする）。
+// 操作するだけの汎用UIに徹する。T183再設計以降、ONの全レイヤーのフレーム時刻を
+// dynamicWeather.ts: mergeFrameTimesで1本の共有タイムラインへ統合しているため、
+// 複数の時刻依存レイヤーが同時にONでもこのコンポーネント自体は1つだけマウントする
+// （旧設計は各レイヤーごとに独立したスライダーを縦に複数マウントしていたが、
+// 「同じ日時を示した状態で連動させたい」という実機フィードバックを受け1本化した）。
 export default function DynamicLayerTimeSlider({
   frames,
   index,

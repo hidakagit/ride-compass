@@ -128,7 +128,8 @@ export interface paths {
          *     関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
          *     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
          *     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
-         *     502にしない）。
+         *     502にしない）。ただし全地点が失敗した場合は502を返す（改善計画T200、
+         *     _reject_if_all_points_failed参照）。
          */
         get: operations["get_wind_grid_api_weather_wind_grid_get"];
         put?: never;
@@ -148,11 +149,16 @@ export interface paths {
         };
         /**
          * Get Wind Grid Detail
-         * @description 風・降水延長予報の詳細格子（改善計画T180、ヒートマップ等の面表現用）。呼び出し元
-         *     （フロント）が渡した表示範囲（bbox）に交差する密格子点（domain/wind_grid.py:
-         *     generate_wind_grid_detail_points、固定ラティス上の座標のため近い範囲を見る別ユーザーと
-         *     キャッシュを共有できる）ぶんの時間別風向・風速・降水量を返す。get_wind_gridと同じく
-         *     取得失敗地点は結果から除外する。
+         * @description 風・降水延長予報の詳細格子（改善計画T180、ヒートマップ等の面表現用。T185でspacing_deg
+         *     をズーム依存にして間隔可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
+         *     密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の
+         *     ため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を
+         *     返す。get_wind_gridと同じく取得失敗地点は結果から除外する。
+         *
+         *     spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を
+         *     許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
+         *     フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。
+         *     全地点が失敗した場合は502を返す（改善計画T200、_reject_if_all_points_failed参照）。
          */
         get: operations["get_wind_grid_detail_api_weather_wind_grid_detail_get"];
         put?: never;
@@ -989,6 +995,7 @@ export interface operations {
                 min_lat: number;
                 max_lon: number;
                 max_lat: number;
+                spacing_deg?: number;
             };
             header?: never;
             path?: never;

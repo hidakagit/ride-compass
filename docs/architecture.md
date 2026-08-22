@@ -167,6 +167,75 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 既知の制約: PostGIS未取込範囲（またはDBなし構成）は常に空タイルになるため、その範囲では路面レイヤーが表示されない（Overpassフォールバックは改善計画T22で撤去済み）。取込済み範囲内であれば初回表示から高速（`ST_AsMVT`でPostGIS側がMVTバイナリまで生成するため、Pythonでの追加エンコード処理を挟まない）。
 
+### 動的気象レイヤー（風・降水延長予報）の共通契約（改善計画T170〜T195）
+
+Step10の標高・路面は「地域に固定・時間で変わらない」重ね描きだったが、ユーザー要望
+「動的レイヤーについては今後もデータ追加があり得るので、それも見据えて拡張性がある
+設計にしてほしい」を受け、**時刻によって内容が変わる**地域重ね描きレイヤー（気象庁
+降水ナウキャスト・風の矢印・延長降水予報）を第三の種別として導入した。
+
+- **共通契約（T184）**: [frontend/src/components/Map/dynamicWeather.ts](../frontend/src/components/Map/dynamicWeather.ts)が
+  DOM/MapLibreを知らない純粋なデータ層として、(1) 表現は`rasterTile`（配信元描画済み画像）／
+  `gridFill`（格子を色で塗る）／`gridMark`（格子中央にアイコン）の3種のみ、(2) ONの全レイヤーの
+  フレーム時刻を`mergeFrameTimes`で1本のタイムラインへ統合し時刻スライダーを1本に共有、
+  (3) 選択時刻がそのレイヤーのデータ範囲外なら`frameIndexForTime`が`null`を返し**描画しない**
+  （旧設計は端のフレームへクランプして古いデータを見せ続けていた）、という3つの制約を定義する。
+  新しい動的要素の追加は「①`domain/wind_grid.py: WindGridPoint`へ値フィールド追加＋
+  `weather_client.py: WIND_GRID_VARIABLES`へOpen-Meteo変数追加（フェッチは相乗り）
+  ②要素専用のデータ層モジュール新設（フレーム列＋ペイロード関数）③`MapView.tsx:
+  DYNAMIC_WEATHER_RENDERERS`へ描画スペック1エントリ追加④`mapLayers.ts`へチップ追加」の
+  4ステップに一本化されている。`page.tsx`はこの契約に従い、旧5個の風/降水個別propsを
+  `dynamicWeather: Record<DynamicWeatherLayerId, {visible, payload}>`単一propへ統合した。
+- **風の格子点マップ（T178、フォローアップ）**: 気象庁MSM由来の`@openmeteo/weather-map-layer`
+  （GPLv2）を当初採用したが、(1) GPLv2依存が避けられない、(2) 矢印の長さがライブラリ側で
+  ズームレベル依存に固定され自由に表現できない、という制約に実機で行き当たり、ユーザー判断
+  （2026-08-20）で自前実装へ切替。[backend/app/domain/wind_grid.py](../backend/app/domain/wind_grid.py)が
+  関東本土全域の固定格子点（原点固定・0.1°間隔・約624点）を生成し、既存の
+  `weather_client.get_forecast_many`（CC-BY-4.0、TTLキャッシュ・429リトライ込み）で
+  まとめて取得する。フロントは結果をMapLibre標準のGeoJSON source + symbolレイヤーで描画
+  （矢印アイコンは`MapView.tsx: createWindArrowIcon`が独自定義。当初はヒートマップ状の
+  背景セル塗り（T180）も併用していたが、「背景色が他レイヤーと重なると見分けにくい」
+  フィードバックを受け撤去し、現在は矢印の大きさ・色コントラストのみで密度を表現する）。
+- **詳細格子（T180・T185）**: ズームインした範囲だけ密な格子（`generate_wind_grid_detail_points`、
+  `GET /api/weather/wind-grid-detail`）を追加取得する。座標は表示bboxの角ではなく固定原点
+  からのオフセットで計算するため、近い範囲を見る別ユーザーとキャッシュを共有できる。
+  格子間隔はズームに応じて4段階（0.02/0.01/0.005/0.0025度）に細かくなり
+  （`WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG`の離散値のみ許可、連続値だとラティスの絶対座標が
+  ずれてキャッシュ共有が効かなくなるため）、値は`export_openapi.py`が書き出す
+  `wind-grid-config.json`をフロント（`windLayer.ts`）が単一の情報源としてimportする
+  （改善計画T198、旧「値を合わせること」というコメントのみの手動同期を廃止）。
+- **降水延長予報（T183）**: 気象庁降水ナウキャスト（[frontend/src/components/Map/precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)、
+  実況〜+60分・5分刻み、`rasterTile`表現）は仕様上+60分が上限のため、それ以降は上記の
+  風と同じ格子点マップへ`precipitation`（mm/h）を相乗りさせ、`gridFill`表現（格子をセルとして
+  塗る）で継ぎ足す。1回のフェッチで風・延長予報の両方を賄うためOpen-Meteoクォータは増えない。
+- **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
+  外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
+  `night_weight`をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
+  街灯・トンネルタグのみに基づき不変、重みの掛け替えだけで動的化）。両エンジンで判定粒度が
+  異なる非対称が意図的に残る（`OpenRouteServiceEngine`は区間ごとの推定到達時刻、
+  `RoadGraphEngine`は出発時刻1点のみで全区間へ一様適用。探索中は到達時刻が未確定という
+  同じ制約による、wind_scoreの`engine`フィールドと同型の管理された不整合）。
+- **Open-Meteo 429対策（T179・T194・T195）**: 本番（Render、共有の送信元IP）でのOpen-Meteo
+  429常態化に対し、ユーザー提示の6段階ロードマップ（①複数座標の1リクエスト集約
+  ②気象Gridの道路評価Gridからの分離③気象Gridの固定化④TTL付きDB永続キャッシュ⑤
+  バックグラウンド更新⑥利用者増加時のOpen-Meteo自前運用）の実装到達点を調査・記録した
+  （T194、④まで完了・⑤⑥は未着手のまま記録のみ）。④は`get_forecast_many`をL1（プロセス内
+  メモリ）→L2（`cache_db.py`のSQLite、標高キャッシュと同じ仕組みを相乗り）→実フェッチの
+  順に問い合わせる形で実装し（T195）、TTLを30分→3時間、失敗時のstaleフォールバック許容幅を
+  3時間→24時間へ拡大した。あわせてOracle Cloud VM上のリレープロキシ（`OPEN_METEO_BASE_URL`、
+  T179）で送信元IPを本番の共有IPから分離する経路も用意済みだが、本番では未有効化（T182の
+  調査でクォータ枯渇は送信元IP非依存の現象と判明したため）。
+- **時刻スライダーのルーラー化（T170・T188〜T193）**: [frontend/src/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx](../frontend/src/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx)は
+  当初ネイティブ`input[type=range]`だったが、「横スクロールで目盛りの方が動くように」という
+  実機フィードバックを受け、横スクロールのルーラー（左端固定インジケータ・正時/非正時で
+  異なる目盛り幅・Pointer Events自前ドラッグ・マウスホイールの横スクロール変換・
+  ArrowLeft/Right/Home/Endキー操作）へ全面置き換えた。複数の時刻依存レイヤーが同時ONでも
+  共有タイムライン1本（上記T184）に統合されているため、スライダー自体も1本のみマウントする。
+- **フックへの抽出（T183フォローアップ）**: [frontend/src/hooks/useWeatherGrid.ts](../frontend/src/hooks/useWeatherGrid.ts)が、
+  風の矢印・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子への
+  切替を1つのフックへ集約する（元はpage.tsx内に直接書かれていた風専用ロジックを、風と
+  降水延長予報が共有できる形へ切り出した）。
+
 ### ルーティングエンジンの切り替え対応（openrouteservice ⇄ Road Graph）
 「Road Graphを実際のルーティングへ接続する移行（完全移行）」で`/api/routes/generate`をopenrouteservice委譲からRoad Graph + NetworkX（Dijkstra）ベースへ全面置き換えたが、Road Graphの経路探索自体（ルーティングエンジンとしての精度・速度）はまだ発展途上で、今後も継続して手を入れる将来拡張と位置付けている。一方で、標高・風・路面といった「評価に必要な情報」の取得方法や地図上の見える化は、経路探索エンジンがどちらであっても検証を進めたい。そのため、経路探索エンジンを設定で切り替えられるようにし、openrouteservice委譲（外部APIキーのみで動く、枯れた実装）を使いながら評価まわりの精査を進められるようにした。
 
@@ -240,7 +309,7 @@ RideCompass/
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「Renderデプロイの反映確認」で新規）
       api/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions
@@ -261,6 +330,8 @@ RideCompass/
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加
         difficulty.py                    ✅ AxisDifficulties（7軸）, evaluate_axis_difficulties, accident_difficulty/gradient_difficulty等の軸別difficulty関数（Step9で標高/風/路面のみ導入、P1/T50/T138/T139/T149で7軸へ再編。7章参照）
         night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）
+        twilight.py                      ✅ 改善計画T173: is_night（astralライブラリで市民薄明を判定、動的気象レイヤー参照）
+        wind_grid.py                     ✅ 改善計画T178フォローアップ・T183: 風・降水延長予報の格子点マップ（固定格子生成、外部API非依存の純粋座標計算。動的気象レイヤー参照）
         routing.py                     ✅ build_networkx_graph, find_nearest_node, shortest_path_node_ids, path_to_edge_ids, concat_node_paths（「完全移行」で新規。Route Engine、NetworkXのDijkstraをラップ）
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
@@ -345,7 +416,7 @@ RideCompass/
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
-    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加
+    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加
     Dockerfile                ✅
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto
@@ -366,6 +437,11 @@ RideCompass/
         Map/recipeExpression.ts    ✅ 改善計画T123: carStressExpression.ts（かつては安全度safetyExpression.tsとも共有していたがT148で削除）が使うMapLibre expression断片の組み立てヘルパー（backend/app/domain/recipe.py・改善計画T122のTS側ミラー）
         Map/recipeBreakdownPopup.ts ✅ 改善計画T123: 車ストレスの区間別判定内訳ポップアップ（改善計画T90）のHTML組み立て＋ボタン配線。当初はMapView.tsxに双子関数（約158行、安全度分。T148で削除）として存在していたものを軸設定オブジェクト渡しの1実装へ集約
         Map/useLayerDataStatus.ts   ✅ 改善計画T123: レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus/clearStaleTrackedSourceErrors＋状態管理フック）。MapView.tsxから抽出（2026-08-17レビューDEFER(a)の履行）
+        Map/dynamicWeather.ts        ✅ 改善計画T184: 動的気象レイヤー（風・降水）の共通契約（表現3種・共有タイムライン・範囲外非描画・追加4ステップの1本道。DOM/MapLibre非依存の純粋データ層。「動的気象レイヤー」節参照）
+        Map/windLayer.ts             ✅ 改善計画T178フォローアップ・T183・T185・T198: 風の格子点マップのデータ層（フレーム変換・色スケール・詳細格子間隔のズーム依存化。wind-grid-config.jsonの間隔定数をimportし手動同期を廃止）
+        Map/precipitationNowcast.ts   ✅ 改善計画T171・T183: 気象庁降水ナウキャスト（実況〜+60分）＋延長予報（+60分以降、風と共通の格子点マップへ相乗り）のデータ層
+        Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
+        DynamicLayerTimeSlider/       ✅ 改善計画T170・T188〜T193: 時刻依存レイヤー共通の時刻スライダーUI（横スクロールルーラー、Pointer Events自前ドラッグ）。レイヤー固有の時刻形式を知らない汎用コンポーネント
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
@@ -379,6 +455,7 @@ RideCompass/
         useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
         useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
         useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）
+        useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
       lib/
         debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
       services/
@@ -389,7 +466,7 @@ RideCompass/
         weatherApi.ts             ✅ getCurrentWeather()
         regionApi.ts               ✅ roadSurfaceTileUrl() / ROAD_TILE_MIN_ZOOM/MAX_ZOOM / refreshBasemapCache()（Step10改訂。路面がタイル化されJSON型を持たなくなったため`types/region.ts`は削除済み）
       types/
-        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する
+        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）等の付随生成物も同じ仕組みでドリフト検知される
         route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
         weather.ts                 ✅ 同上（WeatherConditions）
   docker-compose.yml            ✅ (frontend/backend/postgres)
@@ -556,6 +633,19 @@ Response 502（Open-Meteo呼び出し失敗時）:
 { "detail": "天候情報の取得に失敗しました" }
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
+
+GET /api/weather/wind-grid   # 風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水追加。1章「動的気象レイヤー」参照）
+Response 200: `WindGridPoint`の配列（関東本土全域の固定格子点、約624点、取得失敗地点は除外）。
+{ "latitude":35.68, "longitude":139.77, "times":["2026-08-22T00:00", ...],
+  "wind_speed_ms":[1.2, ...], "wind_direction_deg":[80.0, ...], "precipitation_mm":[0.0, ...] }
+Response 429（`WIND_GRID_RATE_LIMIT_PER_MINUTE`超過）。
+
+GET /api/weather/wind-grid-detail?min_lon=...&min_lat=...&max_lon=...&max_lat=...&spacing_deg=0.01   # 詳細格子（改善計画T180、ズームイン時の面表現用。T185でspacing_degをズーム依存に）
+Response 200: `WindGridPoint`の配列（表示範囲bboxに交差する密格子点）。
+Request（`spacing_deg`省略時は`WIND_GRID_DETAIL_SPACING_DEG`=0.02。任意の連続値は許可せず`WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG`の離散値のみ受け付ける、キャッシュ共有維持のため）。
+Response 400（`spacing_deg`が許可値以外、または表示範囲が広すぎ`WIND_GRID_DETAIL_MAX_POINTS`=900を超える場合）:
+{ "detail": "spacing_degの値が不正です。" } / { "detail": "表示範囲が広すぎます。ズームインしてください。" }
+Response 429（`WIND_GRID_DETAIL_RATE_LIMIT_PER_MINUTE`超過）。
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
@@ -1007,18 +1097,22 @@ road_graph_engine経由のルート生成にも既定値変更が実際に反映
 `critical_logistics`/両方該当時は`both`/未該当はプロパティ欠落、`designation_attributes`を
 osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。
 
-### 静的レイヤー・タイル配信（フロント9レイヤー＋レジストリ駆動の二次軸ランプレイヤー）
+### 静的レイヤー・タイル配信（フロント固定レイヤー＋レジストリ駆動の二次軸ランプレイヤー）
 
 [frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の
-`MAP_LAYERS`カタログは標高図・道路情報・車ストレス・自転車インフラ・指定路線・
-停止要因POI・補給休憩ポイント（T101）・事故（警察庁統計）・ルートの9レイヤー
-（旧・安全度レイヤーは改善計画T148で削除）。交差点密度（次数3以上のroad_node）は
-バックエンドの
+`MAP_LAYERS`カタログは標高図・道路の種類・路面の種類（T165で「道路情報」から論理分割）・
+車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩ポイント（T101）・
+事故（警察庁統計）・ルートの固定レイヤー（旧・安全度レイヤーは改善計画T148で削除）に加え、
+降水ナウキャスト・風（矢印）の2レイヤーが`kind="static"`（選択候補と無関係に常設）・
+`dataNature="dynamic"`（値は時刻で変わる）として同じカタログに乗る（「動的気象レイヤー」節
+参照）。交差点密度（次数3以上のroad_node）はバックエンドの
 `poi-tiles`が引き続き焼き込むが、道路網を見れば概ね自明という判断（改善計画T96）により
 地図上の独立可視化レイヤーとしては提供しない（`intersection_weight`のルーティング材料
 としては引き続き使う）。色分け・凡例・絞り込み軸の定義は
 [frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
 に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
+チップ最上位のグルーピング（観測データ/推定指標/動的データ）はT166以降の完全化により
+`MapLayerDataNature`が担う（「地図チップの観測/推定/動的グルーピング」節参照）。
 
 タイル配信は3系統:
 
@@ -1082,6 +1176,48 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 複雑な組み合わせが必要）は`kind=bespoke`として手書きexpression（`carStressExpression.ts`）を
 例外的に維持し、gradient/surface_qは`kind=none`（既存の標高図・道路情報レイヤーが代替）。
 night軸はT145a（データ充実待ちで保留）まで未生成。
+
+### 地図チップの観測/推定/動的グルーピングと一次/二次命名の完全化（改善計画T163〜T169）
+
+T137〜T145bで導入したレジストリ制は、当初「一次属性」「二次軸」という用語・単一ソースが
+バックエンド（`registry_defaults.py`）にしか無く、フロントは独自の命名・カタログ（P1/P2、
+観測データ/推定指標が別々の対応表）を個別に持っていた。T163〜T169はこの二重管理を解消し、
+地図チップUIの最上位グルーピングをレジストリの区分そのものへ揃える改修。
+
+- **レジストリの完全化（T163）**: `domain/registry.py`/`registry_defaults.py`を一次属性・
+  二次軸の命名・材料の単一ソースとして完全化し、`export_openapi.py`が`axis-catalog.json`へ
+  `primary_attributes`（attr_id・正式名・shared）を追加で書き出す。
+- **フロント一次属性カタログ（T164）**: [frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
+  `axis-catalog.json`（`primary_attributes`・各軸の`inputs`）だけを情報源に、2次→1次
+  （推定指標レイヤーONで材料の観測データレイヤーを連動ON、T167）・1次→2次（研究タブの
+  重み行に材料一覧を表示、T146区間インスペクタのラベル共通化、T168）の双方向導出を
+  片側importで行う（設計原則2）。地図チップの4文字以内略名はこのファイルのみが持つ
+  UI固有の対応（正式名はaxis-catalog.json側が正）。
+- **道路情報レイヤーの論理分割（T165）**: 従来の単一「道路情報」レイヤーを「道路の種類」
+  （`roadType`）と「路面の種類」（`roadSurface`）へ分割（`ROAD_TILE_LAYER_ID`のline-color
+  expressionを軸ごとに分離）。
+- **チップ最上位の次数反転（T166）**: 地図チップの最上位グルーピングを、従来の
+  カテゴリ単位（道路状態/交通・安全/自転車インフラ等、`MapLayerCategory`）から、
+  「観測データ（`raw`、OSM/警察庁等の生タグをそのまま分類表示）」「推定指標（合成）
+  （`composite`、複数材料から計算した二次軸）」「動的データ（`dynamic`、T170以降の
+  時刻依存レイヤー）」の3区分（`MapLayerDataNature`）へ反転した。従来のカテゴリは
+  観測グループ内の小見出しへ役割を移した。
+- **材料の連動ON/OFF（T167・T168）**: 二次軸（推定指標）をONにすると、`primaryAttributes.ts`の
+  `inputs`が指す一次属性（観測データ）レイヤーを自動的にONする（T167）。逆方向として、
+  研究タブの各軸の重み行の直下にその軸が参照する材料一覧を表示し、区間インスペクタの
+  ラベルも同じカタログへ統一する（T168）。
+- **チップのタイル化・マトリックス化（T169）**: 観測/推定グループの地図チップを、
+  展開方向（▶=個々のメンバーの凡例展開／▼=グループ自体の縦積み展開）を統一した
+  タイル状のマトリックスへ作り直した。モバイル幅では推定軸タイルを縮小、専用アイコンの
+  追加、折りたたみ時限定のアイコン凡例表示など、実機フィードバックを受けた反復調整を
+  複数回行った（詳細はコミット履歴のT169続き群参照）。
+- **1次/2次の地図上表現統一（「梅・竹・松」）**: 1次「素材」レイヤー（道路種別/路面の合成・
+  自転車インフラ・指定路線）は`line-offset`で道路に並行する複数トラックへ分離し
+  （`ROAD_MATERIAL_TRACK_LAYER_IDS`、同時ONでも互いを覆い隠さない）、2次（car_stress・
+  ramp軸）はそれより太く半透明な「下敷き」として1次の下に重ねる。下敷き幅
+  （`SECONDARY_AXIS_CASING_WIDTH`）は1次トラック数×オフセット間隔＋自身の太さから
+  計算式で導出し（設計原則2の「導出できる関係」拡張）、素材の本数が変わっても手計算し
+  直す必要がない。
 
 ### 区間インスペクタ（改善計画T146）
 

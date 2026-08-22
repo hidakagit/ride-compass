@@ -51,10 +51,13 @@ class Settings(BaseSettings):
     # 消費する（openrouteservice: 日次2000リクエストをgenerateと共有 / Open-Meteo）。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
-    # 風の格子点マップ（改善計画T178フォローアップ）は1回で関東本土全域（約56地点）を
-    # まとめて取得する重いエンドポイントのため、/weather（1地点）より低めに絞る。
-    # 30分TTLキャッシュ（weather_client.py）が効くため、同一クライアントの短時間の
-    # 再取得（時刻スライダー操作等）はキャッシュヒットしOpen-Meteoへは行かない。
+    # 風の格子点マップ（改善計画T178フォローアップ）は1回で関東本土全域（約624地点、
+    # domain/wind_grid.py: WIND_GRID_SPACING_DEG=0.1度間隔。0.35度間隔だった初期値
+    # 約56地点からユーザー要望「通常ズームでもある程度使えるように」を受け密度を
+    # 上げた経緯はwind_grid.py参照）をまとめて取得する重いエンドポイントのため、
+    # /weather（1地点）より低めに絞る。TTLキャッシュ（weather_client.py、T195でL1+L2の
+    # 2段構成・TTL 3時間へ拡大）が効くため、同一クライアントの短時間の再取得
+    # （時刻スライダー操作等）はキャッシュヒットしOpen-Meteoへは行かない。
     wind_grid_rate_limit_per_minute: int = 20
     # 詳細格子（改善計画T180、ズームイン時の面表現用）。パン・ズームのたびに（デバウンス済み
     # とはいえ）呼ばれうるためwind_gridより高めにするが、固定ラティス由来のキャッシュ共有
