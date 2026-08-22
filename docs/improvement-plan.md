@@ -4386,7 +4386,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
     （DBスキーマ変更は無いためmigration適用は不要だが、バッチ実行自体はGSIへの大量の
     外部呼び出しを伴うため、実行前にユーザーへ確認すること）。
 
-### - [ ] T219. 探索グラフのプロセス内タイルキャッシュ（T12 Stage 1）規模M — トリガー: T218完了
+### - [x] T219. 探索グラフのプロセス内タイルキャッシュ（T12 Stage 1）規模M（2026-08-23完了）
 
 - T218の素材・トポロジ配列をz12タイル単位でプロセス内LRUキャッシュする
   （キー=タイルID＋素材世代、世代不一致で破棄。上限はエッジ数ベースで設定し実測で調整。
@@ -4394,6 +4394,48 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - `find_nearest_node`の全ノード線形走査（20万ノード規模で計1.7秒/リクエスト）を
   タイル毎の空間索引（グリッドバケット等）へ置換する。
 - 完了条件: 同一エリア2回目以降のルート生成が5秒以内（キャッシュ温の数値目標）。
+
+- **実装メモ（2026-08-23完了）**:
+  - **当初計画からの訂正**: 「タイルID＋素材世代（material_version）」でのキャッシュ
+    無効化を想定していたが、T218実装時のスコープ縮小（専用の`edge_search_materials`
+    テーブルは作らず、bearing_deg列追加＋既存`edge_attribute_counts`の読み取り配線のみに
+    留めた）により、世代管理できる単一の版番号が存在しない状態だった。ユーザーに
+    確認のうえ、**バージョン管理を行わずプロセス寿命でのみキャッシュする**単純な設計へ
+    変更（PBF再取込・各precomputeバッチはいずれも手動・低頻度操作で、本番はデプロイの
+    たびにプロセスが再起動される前提を踏まえた簡略化。T10のDEMタイルキャッシュと同じ
+    考え方）。運用中にバッチを再実行した場合、対象タイルの結果はプロセス再起動まで
+    古いまま返る点はdocs/architecture.mdに明記した。
+  - 新規`infrastructure/graph_material_cache.py`: z12タイル単位のトポロジ＋材料一式
+    （`GraphService`内の新規`SearchMaterials`/`_TileMaterials`データクラス）を
+    `OrderedDict`ベースのLRU（既定上限2,000タイル）でキャッシュ。`accident_years_covered`
+    （bboxに依存しないグローバル値）は別枠の単一値キャッシュ。
+  - 新規`GraphService.get_search_materials_for_bbox(bbox)`: 既存の
+    `is_tile_cached`/`is_split_up_to_date`チェックを踏襲し、生データ未変更の定常状態
+    では`tiles_covering_bbox`でbboxをz12タイルへ分解し、タイルごとに
+    `get_graph_topology_in_bbox`（既存メソッド、新規SQLなし）＋4種の材料取得を
+    キャッシュ経由で行い、結果をマージして返す。データ未整備・split未済（低頻度）の
+    経路は既存の`get_or_build_graph_with_attributes`＋個別材料取得メソッドをそのまま
+    呼ぶ（ロジックを二重に持たない）。
+  - `road_graph_engine.py: prepare()`は、従来の6回の個別呼び出し
+    （`get_or_build_graph_with_attributes`＋4材料メソッド＋`get_accident_years_covered`）を
+    この1メソッド呼び出しへ置き換えた。
+  - `domain/routing.py`に`NodeSpatialIndex`/`build_node_spatial_index`/
+    `find_nearest_node_indexed`を新設（緯度経度グリッドバケット、新規外部ライブラリ
+    なし）。安全な打ち切り条件（既知の最近傍距離を超えない限りリングを広げ続ける）を
+    厳密に実装し、線形探索との一致をランダム点200件×100クエリで回帰確認した。
+    `prepare()`が1回だけ索引を構築し`_RoadGraphContext`へ保持、`trace_loop`の
+    経由地スナップ（1リクエストで最大17回）が使い回す。
+  - 検証: `test_graph_service.py`にタイルキャッシュのヒット/ミス・2タイルまたぎの
+    マージ・repository無し/split未済フォールバックのテストを追加。`test_routing.py`に
+    索引の正当性テストを追加。backend全体1044件green。ローカルdev DB（東京都心4km四方
+    相当bbox、69,216エッジ）で実地検証し、1回目（未キャッシュ）約7.16秒→2回目以降
+    （キャッシュヒット）約0.06秒（約100倍）を確認。
+  - 未検証: `bench_route_trace.py`/`bench_nearest_node.py`は合成データのみを使う
+    マイクロベンチマークで、リポジトリ層のタイルキャッシュは経由しないため今回の
+    改善を計測しない（新規ベンチマークが必要になった場合は別途追加する）。
+    「同一エリア2回目以降のルート生成が5秒以内」というエンドツーエンドの数値目標は、
+    `road_graph_engine.prepare()`単体でなくAPI経由の実測が必要なため未実施（T218同様、
+    `is_split_up_to_date`まわりの別要因に影響されうる点に留意）。
 
 ### - [ ] T220. 探索データ構造のscipy化（T12 Stage 2）規模M — トリガー: T219完了後の実測で「評価＋NetworkX構築＋trace」が目標を超過した場合のみ
 

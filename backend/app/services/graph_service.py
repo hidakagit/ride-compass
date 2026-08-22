@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 import httpx
 
@@ -6,10 +7,37 @@ from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, surfa
 from app.domain.graph import DirectedEdge, RoadGraph, WaySpec, build_road_graph
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
+from app.infrastructure import graph_material_cache
 from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
+
+
+@dataclass
+class SearchMaterials:
+    """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
+    材料一式（改善計画T219、T12 Stage 1）。`GraphService.get_search_materials_for_bbox`の
+    戻り値。"""
+
+    graph: RoadGraph
+    surface_attributes: dict[str, str | None]
+    edge_attribute_counts: dict[str, EdgeAttributeCounts]
+    way_tags: dict[str, dict[str, str]]
+    elevation_attributes: dict[str, ElevationAttribute]
+    designated_edge_ids: set[str]
+
+
+@dataclass
+class _TileMaterials:
+    """z12タイル1枚ぶんの`SearchMaterials`相当（`graph_material_cache`にキャッシュされる単位）。"""
+
+    graph: RoadGraph
+    surface_attributes: dict[str, str | None]
+    edge_attribute_counts: dict[str, EdgeAttributeCounts]
+    way_tags: dict[str, dict[str, str]]
+    elevation_attributes: dict[str, ElevationAttribute]
+    designated_edge_ids: set[str]
 
 
 class GraphService:
@@ -160,6 +188,110 @@ class GraphService:
 
         return primary_graph, primary_surface_attributes
 
+    async def get_search_materials_for_bbox(self, bbox: BoundingBox) -> SearchMaterials | None:
+        """探索フェーズ（`RoadGraphEngine.prepare`）向けに、Road Graphのトポロジ＋材料
+        （surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）を
+        まとめて返す（改善計画T219、T12 Stage 1）。
+
+        `get_or_build_graph_with_attributes(lean=True)`は1回のリクエストのbbox全体で
+        素材を都度取得するため、同じエリアへ2回目以降のリクエストが来ても毎回DBへ
+        問い合わせていた。本メソッドはbboxをz12タイル（`ROAD_GRAPH_TILE_ZOOM`）に分解し、
+        タイル単位でプロセス内メモリキャッシュ（`infrastructure/graph_material_cache.py`）を
+        経由することで、既にキャッシュ済みのタイルだけで完結するリクエストはDBへ
+        一切アクセスしない（無効化方針はキャッシュモジュールのdocstring参照）。
+
+        `repository`未指定（DBなし構成）時、および対象bboxのデータが前回のsplit以降
+        変わっている稀なケース（`is_split_up_to_date`がFalse）は、既存の
+        `get_or_build_graph_with_attributes`（フルグラフ構築・保存を含む重い経路）と
+        個別の材料取得メソッドをそのまま呼ぶ（この経路自体が低頻度・重い処理のため、
+        タイルキャッシュの対象外のまま。ロジックを二重に持たない）。
+        """
+        if self._repository is None:
+            return await self._build_search_materials_uncached(bbox)
+
+        for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
+            if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
+                continue
+            logger.warning(
+                "Road Graphタイルが取込範囲外 z=%d x=%d y=%d bbox=(%.2f,%.2f,%.2f,%.2f)",
+                ROAD_GRAPH_TILE_ZOOM, x, y,
+                bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
+            )
+            return None
+
+        if not await self._repository.is_split_up_to_date(bbox):
+            return await self._build_search_materials_uncached(bbox)
+
+        return await self._build_search_materials_from_tile_cache(bbox)
+
+    async def _build_search_materials_uncached(self, bbox: BoundingBox) -> SearchMaterials | None:
+        built = await self.get_or_build_graph_with_attributes(bbox, lean=True)
+        if built is None:
+            return None
+        graph, surface_attributes = built
+        edge_ids = list(graph.edges.keys())
+        return SearchMaterials(
+            graph=graph,
+            surface_attributes=surface_attributes,
+            edge_attribute_counts=await self.get_edge_attribute_counts(edge_ids),
+            way_tags=await self.get_way_tags(edge_ids),
+            elevation_attributes=await self.get_elevation_attributes(edge_ids),
+            designated_edge_ids=await self.get_designated_edge_ids(edge_ids),
+        )
+
+    async def _build_search_materials_from_tile_cache(self, bbox: BoundingBox) -> SearchMaterials:
+        combined_nodes: dict = {}
+        combined_edges: dict = {}
+        combined_surface: dict = {}
+        combined_counts: dict = {}
+        combined_way_tags: dict = {}
+        combined_elevation: dict = {}
+        combined_designated: set = set()
+
+        for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
+            tile = await self._get_or_build_tile_materials(x, y)
+            combined_nodes.update(tile.graph.nodes)
+            combined_edges.update(tile.graph.edges)
+            combined_surface.update(tile.surface_attributes)
+            combined_counts.update(tile.edge_attribute_counts)
+            combined_way_tags.update(tile.way_tags)
+            combined_elevation.update(tile.elevation_attributes)
+            combined_designated |= tile.designated_edge_ids
+
+        graph = RoadGraph(graph_version="tile-cache", nodes=combined_nodes, edges=combined_edges)
+        return SearchMaterials(
+            graph=graph,
+            surface_attributes=combined_surface,
+            edge_attribute_counts=combined_counts,
+            way_tags=combined_way_tags,
+            elevation_attributes=combined_elevation,
+            designated_edge_ids=combined_designated,
+        )
+
+    async def _get_or_build_tile_materials(self, x: int, y: int) -> _TileMaterials:
+        cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
+        if cached is not None:
+            return cached
+
+        tile_bbox = tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y)
+        graph = await self._repository.get_graph_topology_in_bbox(tile_bbox)
+        if graph is None:
+            # このタイルに道路が1本も無い（取得失敗ではない）。空の結果もキャッシュする
+            # （毎回このタイルを無駄に再問い合わせしないため）。
+            graph = RoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
+
+        edge_ids = list(graph.edges.keys())
+        materials = _TileMaterials(
+            graph=graph,
+            surface_attributes=await self._repository.get_surface_attributes(edge_ids),
+            edge_attribute_counts=await self._repository.get_edge_attribute_counts(edge_ids),
+            way_tags=await self._repository.get_way_tags(edge_ids),
+            elevation_attributes=await self._repository.get_elevation_attributes(edge_ids),
+            designated_edge_ids=await self._repository.get_designated_edge_ids(edge_ids),
+        )
+        graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
+        return materials
+
     async def get_stop_poi_counts(self, edge_ids: list[str]) -> dict[str, int]:
         """指定edge_idそれぞれの停止密度評価用カウント（信号・横断歩道・一時停止・踏切、
         静的道路属性P1）を返す。`get_or_build_graph_with_attributes`の3経路分岐とは独立した
@@ -206,10 +338,18 @@ class GraphService:
         """事故データの収録年数を返す。get_stop_poi_countsと同じ
         「repositoryが無ければ0」パターン（0はdistance_weighted_accident_density/
         compute_edge_costの側で「データ無し」として扱われる）。
+
+        bboxに依存しないグローバルな値のため、改善計画T219でプロセス内メモリへ
+        単一値キャッシュする（`graph_material_cache`、タイル単位キャッシュとは別枠）。
         """
         if self._repository is None:
             return 0
-        return await self._repository.get_accident_years_covered()
+        cached = graph_material_cache.get_accident_years_covered()
+        if cached is not None:
+            return cached
+        value = await self._repository.get_accident_years_covered()
+        graph_material_cache.set_accident_years_covered(value)
+        return value
 
     async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
         """`lean=True`で読み込んだ探索用グラフ（geometryプレースホルダのみ）の一部Edgeへ、

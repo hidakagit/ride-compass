@@ -1,7 +1,22 @@
+import pytest
+
+from app.domain.attributes import EdgeAttributeCounts
 from app.domain.graph import RoadGraph, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
+from app.infrastructure import graph_material_cache
 from app.services.graph_service import GraphService
+
+
+@pytest.fixture(autouse=True)
+def _clear_graph_material_cache():
+    # 改善計画T219: get_search_materials_for_bboxのタイルキャッシュはプロセス内メモリの
+    # モジュールグローバル（graph_material_cache）のため、テスト間で漏れないよう
+    # 明示的にクリアする（他のプロセス内メモリキャッシュのテストと同じ規約、
+    # test_elevation_client_cache.pyのuse_temp_tile_cache参照）。
+    graph_material_cache.clear()
+    yield
+    graph_material_cache.clear()
 
 BBOX = BoundingBox(min_latitude=35.70, min_longitude=139.70, max_latitude=35.71, max_longitude=139.71)
 # ROAD_GRAPH_TILE_ZOOM(=12)においてBBOXはちょうど1タイルに収まる（[(3637, 1612)]）。
@@ -67,6 +82,18 @@ class FakeRoadGraphRepository:
         self._clock = 0
         self._raw_way_touched_at: dict[int, int] = {}
         self._way_split_at: dict[int, int] = {}
+        # 改善計画T219: get_search_materials_for_bboxのタイルキャッシュ経路用。
+        self.edge_attribute_counts: dict = {}
+        self.way_tags: dict = {}
+        self.elevation_attributes: dict = {}
+        self.designated_edge_ids: set = set()
+        self._accident_years_covered = 0
+        self.get_graph_topology_in_bbox_call_count = 0
+        self.get_edge_attribute_counts_call_count = 0
+        self.get_way_tags_call_count = 0
+        self.get_elevation_attributes_call_count = 0
+        self.get_designated_edge_ids_call_count = 0
+        self.get_accident_years_covered_call_count = 0
 
     async def commit(self) -> None:
         # 実装はサービス層が操作のまとまりごとにcommitを呼ぶ規約（T6）。Fakeは即時反映の
@@ -188,6 +215,35 @@ class FakeRoadGraphRepository:
 
     async def mark_tile_cached(self, zoom, x, y):
         self.cached_tiles.add((zoom, x, y))
+
+    # --- 改善計画T219: get_search_materials_for_bboxのタイルキャッシュ経路が使うメソッド群。
+    # get_graph_topology_in_bboxはgeometryの有無を除けばget_graph_in_bboxと同じ結果でよい
+    # （このFakeのgeometryは常にジオメトリ込みだが、呼び出し元の材料キャッシュはgeometryを
+    # 見ないため実害無し）。呼び出し回数を計測し、タイルキャッシュのヒット確認に使う。
+
+    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+        self.get_graph_topology_in_bbox_call_count += 1
+        return await self.get_graph_in_bbox(bbox)
+
+    async def get_edge_attribute_counts(self, edge_ids):
+        self.get_edge_attribute_counts_call_count += 1
+        return {edge_id: self.edge_attribute_counts[edge_id] for edge_id in edge_ids if edge_id in self.edge_attribute_counts}
+
+    async def get_way_tags(self, edge_ids):
+        self.get_way_tags_call_count += 1
+        return {edge_id: self.way_tags[edge_id] for edge_id in edge_ids if edge_id in self.way_tags}
+
+    async def get_elevation_attributes(self, edge_ids):
+        self.get_elevation_attributes_call_count += 1
+        return {edge_id: self.elevation_attributes[edge_id] for edge_id in edge_ids if edge_id in self.elevation_attributes}
+
+    async def get_designated_edge_ids(self, edge_ids):
+        self.get_designated_edge_ids_call_count += 1
+        return {edge_id for edge_id in edge_ids if edge_id in self.designated_edge_ids}
+
+    async def get_accident_years_covered(self) -> int:
+        self.get_accident_years_covered_call_count += 1
+        return self._accident_years_covered
 
 
 async def _seed_tile(
@@ -490,3 +546,132 @@ async def test_get_stop_poi_counts_with_repository_delegates():
     result = await service.get_stop_poi_counts(["edge-1", "edge-2"])
 
     assert result == {"edge-1": 3, "edge-2": 0}
+
+
+# --- 改善計画T219（T12 Stage 1）: get_search_materials_for_bboxのタイルキャッシュ経路 ---
+
+
+async def _seeded_service_with_materials() -> tuple[GraphService, FakeRoadGraphRepository]:
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    repository = FakeRoadGraphRepository()
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
+    repository.edge_attribute_counts = {
+        "way-100-seg0-fwd": EdgeAttributeCounts(accident_count=1.0, stop_count=2, intersection_count=3),
+    }
+    repository.way_tags = {"way-100-seg0-fwd": {"highway": "residential"}}
+    repository.designated_edge_ids = {"way-100-seg0-fwd"}
+    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    return service, repository
+
+
+async def test_get_search_materials_for_bbox_without_repository_falls_back_to_uncached():
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    overpass_client = FakeOverpassClient(result=(ways, nodes))
+    service = GraphService(overpass_client, http_client=None)  # repository未指定
+
+    materials = await service.get_search_materials_for_bbox(BBOX)
+
+    assert materials is not None
+    assert len(materials.graph.edges) == 2
+    assert materials.edge_attribute_counts == {}
+    assert materials.designated_edge_ids == set()
+
+
+async def test_get_search_materials_for_bbox_returns_none_for_uncached_tile():
+    repository = FakeRoadGraphRepository()  # タイル未取込
+    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+
+    assert await service.get_search_materials_for_bbox(BBOX) is None
+
+
+async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
+    service, _ = await _seeded_service_with_materials()
+
+    materials = await service.get_search_materials_for_bbox(BBOX)
+
+    assert materials is not None
+    edge_id = next(iter(materials.graph.edges))
+    assert materials.surface_attributes[edge_id] == "asphalt"
+    counts = materials.edge_attribute_counts[edge_id]
+    assert (counts.accident_count, counts.stop_count, counts.intersection_count) == (1.0, 2, 3)
+    assert materials.way_tags[edge_id] == {"highway": "residential"}
+    assert edge_id in materials.designated_edge_ids
+
+
+async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without_db_access():
+    service, repository = await _seeded_service_with_materials()
+
+    # 1回目は生データがまだ「split済み」と認識されていないため、既存の低速経路
+    # （closure再計算＋save_graph、タイルキャッシュの対象外。材料も個別に非キャッシュで
+    # 取得される）を通る（test_with_repository_cached_tile_computes_split_on_first_read
+    # と同じ前提）。
+    first = await service.get_search_materials_for_bbox(BBOX)
+    assert repository.get_graph_topology_in_bbox_call_count == 0
+    assert repository.get_edge_attribute_counts_call_count == 1
+
+    # 2回目はis_split_up_to_date=Trueとなりタイルキャッシュ経路を通る。この時点では
+    # まだタイルキャッシュが空のため、材料取得の各メソッドがもう1回呼ばれてタイル単位で
+    # キャッシュされる（1回目の非キャッシュ取得とは独立のため呼び出し回数は2に増える）。
+    second = await service.get_search_materials_for_bbox(BBOX)
+    assert repository.get_graph_topology_in_bbox_call_count == 1
+    assert repository.get_edge_attribute_counts_call_count == 2
+    assert repository.get_way_tags_call_count == 2
+    assert repository.get_elevation_attributes_call_count == 2
+    assert repository.get_designated_edge_ids_call_count == 2
+
+    # 3回目はタイルキャッシュがヒットするため、DBへ一切アクセスしない
+    # （改善計画T219の完了条件: 同一エリア2回目以降はDBへ一切アクセスしない）。
+    third = await service.get_search_materials_for_bbox(BBOX)
+    assert repository.get_graph_topology_in_bbox_call_count == 1
+    assert repository.get_edge_attribute_counts_call_count == 2
+    assert repository.get_way_tags_call_count == 2
+    assert repository.get_elevation_attributes_call_count == 2
+    assert repository.get_designated_edge_ids_call_count == 2
+
+    assert first is not None and second is not None and third is not None
+    assert set(second.graph.edges.keys()) == set(third.graph.edges.keys())
+
+
+async def test_get_search_materials_for_bbox_accident_years_covered_is_cached_globally():
+    service, repository = await _seeded_service_with_materials()
+    repository._accident_years_covered = 5
+
+    first = await service.get_accident_years_covered()
+    second = await service.get_accident_years_covered()
+
+    assert (first, second) == (5, 5)
+    assert repository.get_accident_years_covered_call_count == 1
+
+
+async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and_caches_independently():
+    ways = [
+        {"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]},
+        {"id": 200, "tags": {"highway": "residential", "surface": "gravel"}, "nodes": [3, 4]},
+    ]
+    nodes = {
+        1: _point_in_tile(tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), 0.4, 0.4),
+        2: _point_in_tile(tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), 0.6, 0.6),
+        3: _point_in_tile(tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, 3638, 1612), 0.4, 0.4),
+        4: _point_in_tile(tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, 3638, 1612), 0.6, 0.6),
+    }
+    repository = FakeRoadGraphRepository()
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, [ways[0]], {1: nodes[1], 2: nodes[2]})
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3638, 1612, [ways[1]], {3: nodes[3], 4: nodes[4]})
+    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+
+    # 1回目は低速経路（closure再計算＋save_graph）を通り、タイルキャッシュには乗らない。
+    await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
+    assert repository.get_graph_topology_in_bbox_call_count == 0
+
+    # 2回目でis_split_up_to_date=Trueとなりタイルキャッシュ経路（2タイルぶん）を通る。
+    materials = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
+    assert materials is not None
+    surfaces = set(materials.surface_attributes.values())
+    assert surfaces == {"asphalt", "gravel"}
+    assert repository.get_graph_topology_in_bbox_call_count == 2  # 2タイルぶん
+
+    # 3回目は両タイルともキャッシュ済みのため、呼び出し回数は増えない。
+    await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
+    assert repository.get_graph_topology_in_bbox_call_count == 2
