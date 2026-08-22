@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
-import { getCurrentWeather, getWbgtStatus, getWeatherWarnings, getWindGrid, getWindGridDetail } from "./weatherApi";
+import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
+import {
+  getCurrentWeather,
+  getFloodForecasts,
+  getWbgtStatus,
+  getWeatherWarnings,
+  getWindGrid,
+  getWindGridDetail,
+} from "./weatherApi";
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
   return {
@@ -155,6 +162,52 @@ describe("getWbgtStatus", () => {
 
     await expect(getWbgtStatus({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
       "リクエストが多すぎます[req: req-654]",
+    );
+  });
+});
+
+describe("getFloodForecasts", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("成功時は/api/weather/flood-forecastをlatitude/longitude付きでfetchし、JSONをそのまま返す", async () => {
+    const forecasts: FloodForecasts = {
+      forecasts: [
+        {
+          river_code: "830304004400",
+          river_name: "神田川",
+          level: 4,
+          badge_level: "severe_warning",
+          label: "神田川氾濫危険警報",
+          condition: "レベル４氾濫危険警報（発表）",
+          report_datetime: "2026-08-22T17:50:00+09:00",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => forecasts }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getFloodForecasts({ latitude: 35.6812, longitude: 139.7671 });
+
+    expect(result).toEqual(forecasts);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/weather/flood-forecast");
+    expect(String(url)).toContain("latitude=35.6812");
+    expect(String(url)).toContain("longitude=139.7671");
+  });
+
+  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
+    const headers = new Headers({ "x-request-id": "req-852" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
+      ),
+    );
+
+    await expect(getFloodForecasts({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
+      "リクエストが多すぎます[req: req-852]",
     );
   });
 });

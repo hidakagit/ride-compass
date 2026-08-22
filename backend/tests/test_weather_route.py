@@ -1,12 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_warning_service, get_wbgt_service, get_weather_service
+from app.api.dependencies import get_flood_service, get_warning_service, get_wbgt_service, get_weather_service
 from app.config import settings
+from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
 from app.domain.weather import WeatherConditions
 from app.infrastructure import rate_limiter
 from app.main import app
+from app.services.flood_service import FloodForecasts
 from app.services.warning_service import WeatherWarnings
 from app.services.wbgt_service import WbgtStatus
 
@@ -496,6 +498,73 @@ def test_get_wbgt_is_rate_limited_per_client():
             rate_limiter.check_rate_limit("weather-wbgt:testclient", settings.weather_wbgt_rate_limit_per_minute)
         assert client.get("/api/weather/wbgt", params=params).status_code == 200
         response = client.get("/api/weather/wbgt", params=params)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
+
+
+class FakeFloodService:
+    def __init__(self, forecasts: FloodForecasts):
+        self._forecasts = forecasts
+
+    async def get_forecasts(self, point):
+        return self._forecasts
+
+
+def test_get_flood_forecast_returns_forecasts_on_success():
+    forecasts = FloodForecasts(
+        forecasts=[
+            ActiveFloodForecast(
+                river_code="830304004400",
+                river_name="神田川",
+                level=4,
+                badge_level="severe_warning",
+                label="神田川氾濫危険警報",
+                condition="レベル４氾濫危険警報（発表）",
+                report_datetime="2026-08-22T17:50:00+09:00",
+            )
+        ]
+    )
+    app.dependency_overrides[get_flood_service] = lambda: FakeFloodService(forecasts)
+
+    try:
+        response = client.get("/api/weather/flood-forecast", params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["forecasts"][0]["river_name"] == "神田川"
+    assert body["forecasts"][0]["badge_level"] == "severe_warning"
+
+
+def test_get_flood_forecast_returns_empty_without_error_on_failure():
+    # 改善計画T212完了条件「取得失敗時は警告なし」。502ではなく空配列で200を返す
+    # （T205/T174と同じfail-open方針）。
+    app.dependency_overrides[get_flood_service] = lambda: FakeFloodService(FloodForecasts(forecasts=[]))
+
+    try:
+        response = client.get("/api/weather/flood-forecast", params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"forecasts": []}
+
+
+def test_get_flood_forecast_is_rate_limited_per_client():
+    empty = FloodForecasts(forecasts=[])
+    app.dependency_overrides[get_flood_service] = lambda: FakeFloodService(empty)
+    params = {"latitude": 35.6812, "longitude": 139.7671}
+
+    try:
+        for _ in range(settings.weather_flood_forecast_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit(
+                "weather-flood-forecast:testclient", settings.weather_flood_forecast_rate_limit_per_minute
+            )
+        assert client.get("/api/weather/flood-forecast", params=params).status_code == 200
+        response = client.get("/api/weather/flood-forecast", params=params)
     finally:
         app.dependency_overrides.clear()
 

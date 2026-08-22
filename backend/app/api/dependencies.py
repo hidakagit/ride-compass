@@ -40,6 +40,7 @@ from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
 from app.services.route_scorer import RouteScorer, load_scoring_weights
 from app.services.routing_service import RoutingService
+from app.services.flood_service import FloodService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
@@ -83,6 +84,11 @@ def get_wbgt_service():
     # 改善計画T174（WBGT警告バッジ）。地点マスタCSV取得・予測値API取得ともに軽量なため
     # 他のサービスと同じ共有httpx.AsyncClientを使う。
     return WbgtService(get_http_client(10.0))
+
+
+def get_flood_service():
+    # 改善計画T212（河川氾濫予報バッジ）。地点解決はT205のjma_warning_client.pyを再利用する。
+    return FloodService(get_http_client(10.0))
 
 
 def get_wind_service(

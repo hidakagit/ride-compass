@@ -309,6 +309,59 @@
         }
       }
     },
+    "/api/weather/flood-forecast": {
+      "get": {
+        "summary": "Get Flood Forecast",
+        "description": "出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す（改善計画T212、\nT176調査で発見したAPIを使う）。地点解決・洪水予報自体の取得のどこで失敗しても\n例外にせず空を返す（T205/T174と共有するfail-open方針、502は返さない）。",
+        "operationId": "get_flood_forecast_api_weather_flood_forecast_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloodForecasts"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/weather/wind-grid": {
       "get": {
         "summary": "Get Wind Grid",
@@ -743,6 +796,49 @@
   },
   "components": {
     "schemas": {
+      "ActiveFloodForecast": {
+        "properties": {
+          "river_code": {
+            "type": "string",
+            "title": "River Code"
+          },
+          "river_name": {
+            "type": "string",
+            "title": "River Name"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "badge_level": {
+            "type": "string",
+            "title": "Badge Level"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "condition": {
+            "type": "string",
+            "title": "Condition"
+          },
+          "report_datetime": {
+            "type": "string",
+            "title": "Report Datetime"
+          }
+        },
+        "type": "object",
+        "required": [
+          "river_code",
+          "river_name",
+          "level",
+          "badge_level",
+          "label",
+          "condition",
+          "report_datetime"
+        ],
+        "title": "ActiveFloodForecast"
+      },
       "ActiveWarning": {
         "properties": {
           "code": {
@@ -1058,6 +1154,22 @@
           "longitude"
         ],
         "title": "Coordinates"
+      },
+      "FloodForecasts": {
+        "properties": {
+          "forecasts": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveFloodForecast"
+            },
+            "type": "array",
+            "title": "Forecasts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "forecasts"
+        ],
+        "title": "FloodForecasts"
       },
       "GenerationConditions": {
         "properties": {

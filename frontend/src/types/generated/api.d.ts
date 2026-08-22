@@ -162,6 +162,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/weather/flood-forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Flood Forecast
+         * @description 出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す（改善計画T212、
+         *     T176調査で発見したAPIを使う）。地点解決・洪水予報自体の取得のどこで失敗しても
+         *     例外にせず空を返す（T205/T174と共有するfail-open方針、502は返さない）。
+         */
+        get: operations["get_flood_forecast_api_weather_flood_forecast_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/weather/wind-grid": {
         parameters: {
             query?: never;
@@ -368,6 +390,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActiveFloodForecast */
+        ActiveFloodForecast: {
+            /** River Code */
+            river_code: string;
+            /** River Name */
+            river_name: string;
+            /** Level */
+            level: number;
+            /** Badge Level */
+            badge_level: string;
+            /** Label */
+            label: string;
+            /** Condition */
+            condition: string;
+            /** Report Datetime */
+            report_datetime: string;
+        };
         /** ActiveWarning */
         ActiveWarning: {
             /** Code */
@@ -475,6 +514,11 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
+        };
+        /** FloodForecasts */
+        FloodForecasts: {
+            /** Forecasts */
+            forecasts: components["schemas"]["ActiveFloodForecast"][];
         };
         /**
          * GenerationConditions
@@ -1097,6 +1141,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WbgtStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_flood_forecast_api_weather_flood_forecast_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FloodForecasts"];
                 };
             };
             /** @description Validation Error */
