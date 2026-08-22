@@ -4437,7 +4437,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
     `road_graph_engine.prepare()`単体でなくAPI経由の実測が必要なため未実施（T218同様、
     `is_split_up_to_date`まわりの別要因に影響されうる点に留意）。
 
-### - [ ] T220. 探索データ構造のscipy化（T12 Stage 2）規模M — トリガー: T219完了後の実測で「評価＋NetworkX構築＋trace」が目標を超過した場合のみ
+### - [x] T220. 探索データ構造のscipy化（T12 Stage 2）規模M（2026-08-23完了、スコープ調整あり）
 
 - 計測ゲート付きの保留タスク。T219完了後の実測でキャッシュ温5秒以内を達成できて
   いれば着手しない（計測せず先回りで依存を増やさない、T12 ADR Stage 2参照）。
@@ -4448,6 +4448,47 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   数値であり、`build_networkx_graph`自体の実測値ではなかった（記述ミス、訂正済み）。
   `build_networkx_graph`単体の実測値は現時点で存在しない。ゲートの判断根拠は
   事前の推定値ではなくT219完了後の実測に置くため、本タスクの発動要否はその実測を待つ。
+- **ゲート判定（2026-08-23）**: T219完了後、ローカルdev DB（東京都心4km四方相当、
+  69,216エッジ、タイルキャッシュヒット済みの温状態）で「evaluate_graph＋
+  build_networkx_graph＋Dijkstra24回」を計測した結果、合計約5.8秒（evaluate_graphが
+  約2.6秒、Dijkstraが約2.8秒）で目標の5秒以内を超過。着手条件が成立したため実施。
+- **実装メモ（2026-08-23完了）**:
+  - **スコープ調整（当初案からの変更）**: 「コスト合成のnumpyベクトル化」は見送った。
+    cProfileで内訳を精査した結果、evaluate_graphの所要時間は単一のホットスポットでは
+    なく、car_stress判定（`car_stress_level`→`car_stress_breakdown`→`car_closeness`、
+    合計の約45%）・`composite_difficulty`・各種Pydanticモデル構築など多数の小さな
+    Python関数呼び出しに分散していると判明した。これを全面的にnumpy配列演算へ
+    書き換えるには、car_stress/recipe/difficulty/night/road/wind等7つ以上のdomainモジュール
+    すべてを配列版として並行実装し直す必要があり、既存のスカラー実装と論理的に
+    完全一致させる検証コストに対してリスク（ルーティングという安全性に関わる領域で
+    評価ロジックの二重実装がズレる懸念）が見合わないと判断し、見送った。
+  - 代わりに、プロファイルで判明した低リスクな改善を2点実施した:
+    1. **Dijkstra本体のscipy.sparse.csgraph化**（当初案どおり）。`domain/routing.py`に
+       `SparseRoadGraph`/`build_sparse_graph`/`shortest_path_node_ids_sparse`/
+       `path_to_edge_ids_sparse`を新設。`scipy.sparse.coo_matrix`が同一(row,col)への
+       重複を合算してしまう点に注意し、疎行列を組む前にPython側dictで
+       「後勝ちで1本化」（`build_networkx_graph`のadd_edgeと同じ挙動）してから渡す設計。
+       `_RoadGraphContext.nx_graph`は既存テスト・区間表示ロジックとの互換のため
+       引き続き構築するが、`trace_loop`の実際のDijkstra呼び出し（1リクエスト最大24回）は
+       `sparse_graph`を使う。
+    2. **`compute_edge_cost`が毎Edge`preference_to_axis_weights(preference)`を
+       再計算していた冗長呼び出しの排除**。プロファイルでpydantic `model_dump`込みの
+       無視できないオーバーヘッドと判明（preferenceはevaluate_graphの呼び出し全体で
+       不変のため、Edgeごとに再計算する必要が無い）。`compute_edge_cost`に
+       `weights: dict[str,float]|None=None`引数を追加し、`evaluate_graph`が1回だけ
+       計算して渡す（省略時は従来どおりpreferenceから算出、既存の単発呼び出し・
+       テストへの影響なし）。
+  - 依存追加: `numpy==2.5.2`・`scipy==1.18.1`（`requirements.txt`）。
+  - 検証: `test_routing.py`にscipy版の回帰テスト（NetworkX版との経路コスト一致を
+    ランダムグラフで突き合わせ・並行Edgeの後勝ち一本化・到達不能/始点=終点等の
+    エッジケース）を追加。backend全体1051件green。
+  - 実測（同一bbox・タイルキャッシュ温状態）: 合計約5.8秒→約2.3秒（目標5秒以内を達成）。
+    内訳: evaluate_graph 約2.6秒→約2.0秒（weights事前計算の効果）、
+    build 約0.4秒→約0.17秒、Dijkstra24回 約2.8秒→約0.08秒（約36倍）。
+  - 残課題: evaluate_graph自体（車ストレス判定等の多数の小関数呼び出し）は今回
+    手を付けていない。将来さらに高速化が必要になった場合、car_stress判定の
+    ボトルネックを個別に精査するか、対象範囲を絞ったnumpyベクトル化を再検討する
+    （全面書き換えではなく部分的な対応から始める）。
 
 ### - [ ] T221. 評価軸のフルレジストリ駆動化＋GUI編集基盤 規模L（設計のみ、Part 2以降は未着手）— トリガー: ユーザーの実装着手指示
 

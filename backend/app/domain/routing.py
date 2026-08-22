@@ -2,9 +2,12 @@
 
 Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使って、2点間の
 最小コスト経路を探索する。探索アルゴリズム自体は独自実装せず、標準的なグラフ
-アルゴリズムライブラリ（NetworkX）のDijkstra実装をそのまま利用する（仕様書34章
-「探索アルゴリズムを独断で変更しない」「独自の経路探索アルゴリズムの実装はしない」
-の趣旨を踏まえ、新規性のある独自アルゴリズムは開発しない）。
+アルゴリズムライブラリのDijkstra実装をそのまま利用する（仕様書34章「探索アルゴリズムを
+独断で変更しない」「独自の経路探索アルゴリズムの実装はしない」の趣旨を踏まえ、
+新規性のある独自アルゴリズムは開発しない）。当初はNetworkX（Python実装）のみを
+使っていたが、改善計画T220（T12 Stage 2）で大規模グラフ（数万エッジ）向けに
+scipy.sparse.csgraph（C実装のDijkstra）も追加した。どちらも標準ライブラリの実装を
+そのまま使うだけで、アルゴリズム自体の独自実装ではない点は変わらない。
 
 Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない設計とする
 （仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
@@ -14,6 +17,9 @@ import math
 from dataclasses import dataclass
 
 import networkx as nx
+import numpy as np
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.evaluation import EdgeCostResult
 from app.domain.geo import haversine_distance_km
@@ -43,6 +49,102 @@ def build_networkx_graph(graph: RoadGraph, edge_costs: dict[str, EdgeCostResult]
         nx_graph.add_edge(edge.from_node_id, edge.to_node_id, edge_id=edge_id, weight=cost_result.cost)
 
     return nx_graph
+
+
+@dataclass
+class SparseRoadGraph:
+    """探索グラフのCSR（圧縮行格納）表現（改善計画T220、T12 Stage 2）。
+
+    `RoadGraphEngine.trace_loop`が1リクエストにつき最大24回（3区間×8方位）呼ぶ
+    Dijkstraを、NetworkX（Python実装）からscipy.sparse.csgraph（C実装）へ置き換える
+    ために使う。`build_networkx_graph`と同じく、同一ノード間の並行Edgeは1本のみ保持する
+    （後から登場したEdgeで上書き。`graph.edges`の反復順=辞書の挿入順に従う）。
+    """
+
+    matrix: csr_matrix
+    node_id_to_index: dict[str, int]
+    index_to_node_id: list[str]
+    edge_id_by_index_pair: dict[tuple[int, int], str]
+
+
+def build_sparse_graph(graph: RoadGraph, edge_costs: dict[str, EdgeCostResult]) -> SparseRoadGraph:
+    """RoadGraphとEdge Costから`SparseRoadGraph`を構築する（`build_networkx_graph`の
+    scipy版）。Hard Constraintで除外されたEdge・Costが算出できなかったEdgeは含めない
+    （`build_networkx_graph`と同じ）。
+
+    `scipy.sparse.coo_matrix`は同一(row, col)への重複エントリを合算してしまう
+    （NetworkXの「後勝ちで1本化」とは異なる）ため、疎行列を組む前にPython側のdictで
+    (from_index, to_index)ごとに1本へ集約してから渡す。
+    """
+    node_ids = list(graph.nodes.keys())
+    node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
+    size = len(node_ids)
+
+    best_by_pair: dict[tuple[int, int], tuple[float, str]] = {}
+    for edge_id, edge in graph.edges.items():
+        cost_result = edge_costs.get(edge_id)
+        if cost_result is None or not cost_result.allowed or cost_result.cost is None:
+            continue
+        from_index = node_id_to_index.get(edge.from_node_id)
+        to_index = node_id_to_index.get(edge.to_node_id)
+        if from_index is None or to_index is None:
+            continue
+        best_by_pair[(from_index, to_index)] = (cost_result.cost, edge_id)
+
+    if best_by_pair:
+        rows, cols, weights = zip(
+            *((u, v, weight) for (u, v), (weight, _edge_id) in best_by_pair.items())
+        )
+    else:
+        rows, cols, weights = (), (), ()
+
+    matrix = csr_matrix((np.asarray(weights, dtype=float), (rows, cols)), shape=(size, size))
+    edge_id_by_index_pair = {pair: edge_id for pair, (_weight, edge_id) in best_by_pair.items()}
+    return SparseRoadGraph(
+        matrix=matrix,
+        node_id_to_index=node_id_to_index,
+        index_to_node_id=node_ids,
+        edge_id_by_index_pair=edge_id_by_index_pair,
+    )
+
+
+def shortest_path_node_ids_sparse(
+    sparse_graph: SparseRoadGraph, start_node_id: str, end_node_id: str
+) -> list[str] | None:
+    """`shortest_path_node_ids`のscipy版。挙動（到達不能・始点=終点の扱い）は同一。"""
+    if start_node_id == end_node_id:
+        return [start_node_id] if start_node_id in sparse_graph.node_id_to_index else None
+
+    start_index = sparse_graph.node_id_to_index.get(start_node_id)
+    end_index = sparse_graph.node_id_to_index.get(end_node_id)
+    if start_index is None or end_index is None:
+        return None
+
+    distances, predecessors = scipy_dijkstra(
+        sparse_graph.matrix, directed=True, indices=start_index, return_predecessors=True
+    )
+    if not math.isfinite(distances[end_index]):
+        return None
+
+    path_indices = [end_index]
+    current = end_index
+    while current != start_index:
+        current = predecessors[current]
+        if current < 0:  # scipyの到達不能センチネル（負値）。理論上ここには来ないはず
+            return None  # （distancesが有限だった時点で到達可能）だが安全側で扱う。
+        path_indices.append(current)
+    path_indices.reverse()
+    return [sparse_graph.index_to_node_id[i] for i in path_indices]
+
+
+def path_to_edge_ids_sparse(sparse_graph: SparseRoadGraph, path_node_ids: list[str]) -> list[str]:
+    """`path_to_edge_ids`のscipy版。Node ID列を、それらを結ぶDirected EdgeのID列へ変換する。"""
+    return [
+        sparse_graph.edge_id_by_index_pair[
+            (sparse_graph.node_id_to_index[u], sparse_graph.node_id_to_index[v])
+        ]
+        for u, v in zip(path_node_ids, path_node_ids[1:])
+    ]
 
 
 def find_nearest_node(graph: RoadGraph, point: Coordinates) -> str | None:

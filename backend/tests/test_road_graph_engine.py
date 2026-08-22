@@ -649,6 +649,7 @@ async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkey
     context = road_graph_engine._RoadGraphContext(
         graph=context_graph,
         nx_graph=None,
+        sparse_graph=None,
         surface_attributes={},
         stop_counts={},
         way_tags=way_tags,
@@ -778,7 +779,7 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     base_graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     base_kwargs = dict(
         graph=base_graph,
-        nx_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
+        nx_graph=None, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
