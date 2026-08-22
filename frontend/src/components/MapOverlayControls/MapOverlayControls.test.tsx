@@ -409,6 +409,53 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "勾配" })).toBeInTheDocument(); // 他は影響なし
     });
 
+    // 実機フィードバック「設定で非表示にした場合、裏でレイヤ表示ONになっていればOFFにして」
+    // への対応。非表示に選んだ瞬間、対応するレイヤーがONならonToggleでOFFにする（groupedLayers
+    // ではdesignation/carStressが両方on:trueのため、この2件で検証する）。逆に非表示解除は
+    // レイヤーを自動でONにはしない（隠す/出すはチップの見た目の設定であり、ON/OFFの意思決定は
+    // ユーザーが個別に行うため）。
+    it("表示項目の設定で非表示に選ぶと、そのレイヤーがONなら即座にOFFにされる", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
+
+      // 観測: ON状態の指定路線を非表示に選ぶ→OFFになる
+      await user.click(screen.getByRole("button", { name: "観測データの表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "指定路線を表示しない" }));
+      expect(onToggle).toHaveBeenCalledWith("designation", false);
+
+      // 推定: ON状態の車の圧迫感を非表示に選ぶ→OFFになる
+      await user.click(screen.getByRole("button", { name: "観測" })); // 観測の設定パネルを閉じる
+      await user.click(screen.getByRole("button", { name: "推定指標（合成）の表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "圧迫感を表示しない" }));
+      expect(onToggle).toHaveBeenCalledWith("carStress", false);
+    });
+
+    it("表示項目の設定でOFF状態のメンバーを非表示に選んでもonToggleは呼ばれない", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
+
+      // 道路の種類はon:false
+      await user.click(screen.getByRole("button", { name: "観測データの表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "道路の種類を表示しない" }));
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it("非表示を解除してもレイヤーは自動でONにならない", async () => {
+      const user = userEvent.setup();
+      const onToggle = vi.fn();
+      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
+
+      await user.click(screen.getByRole("button", { name: "観測データの表示項目を設定" }));
+      await user.click(screen.getByRole("button", { name: "指定路線を表示しない" }));
+      expect(onToggle).toHaveBeenCalledWith("designation", false);
+      onToggle.mockClear();
+
+      await user.click(screen.getByRole("button", { name: "指定路線を表示する" }));
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
     // 展開/折りたたみの切り替えの瞬間、見出し（ChipButton）のDOMノード自体が
     // アンマウント/再マウントされないことを確認する回帰テスト。ラッパーdivのkeyを
     // 状態で出し分けていた実装では、展開した直後に別のDOMノードへ差し替わってしまい、
