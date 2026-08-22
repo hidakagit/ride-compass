@@ -198,7 +198,8 @@ export interface paths {
          *     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
          *     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
          *     502にしない）。ただし全地点が失敗した場合は502を返す（改善計画T200、
-         *     _reject_if_all_points_failed参照）。
+         *     _reject_if_all_points_failed参照）。時刻配列はpoints内の各点からは外し、応答トップ
+         *     レベルに1本だけ持つ（改善計画T203、WindGridResponseのdocstring参照）。
          */
         get: operations["get_wind_grid_api_weather_wind_grid_get"];
         put?: never;
@@ -222,7 +223,8 @@ export interface paths {
          *     をズーム依存にして間隔可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
          *     密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の
          *     ため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を
-         *     返す。get_wind_gridと同じく取得失敗地点は結果から除外する。
+         *     返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに
+         *     1本だけ持つ（改善計画T203）。
          *
          *     spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を
          *     許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
@@ -894,10 +896,15 @@ export interface components {
         };
         /**
          * WindGridPoint
-         * @description 格子点1つぶんの時間別風向・風速・降水量。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
+         * @description 格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、
          *     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
          *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
          *     切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。
+         *
+         *     `times`自体はここには持たない（`WindGridResponse`参照、改善計画T203）。全地点が同じ
+         *     forecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため
+         *     hourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（実測約9割）を
+         *     時刻文字列の重複が占めていた。
          *
          *     precipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長
          *     予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
@@ -908,14 +915,26 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
-            /** Times */
-            times: string[];
             /** Wind Speed Ms */
             wind_speed_ms: number[];
             /** Wind Direction Deg */
             wind_direction_deg: number[];
             /** Precipitation Mm */
             precipitation_mm: number[];
+        };
+        /**
+         * WindGridResponse
+         * @description `/api/weather/wind-grid`・`wind-grid-detail`の応答本体（改善計画T203）。`times`は
+         *     全格子点で共通の時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、
+         *     インデックスは`times`と揃っている）。以前は`WindGridPoint`ごとに同じ`times`配列を
+         *     複製しており、624地点では非圧縮応答の約54%（実測、gzip圧縮下でも約9%）を時刻文字列の
+         *     重複が占めていた。全地点取得失敗等で`points`が空の場合は`times`も空になる。
+         */
+        WindGridResponse: {
+            /** Times */
+            times: string[];
+            /** Points */
+            points: components["schemas"]["WindGridPoint"][];
         };
     };
     responses: never;
@@ -1201,7 +1220,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WindGridPoint"][];
+                    "application/json": components["schemas"]["WindGridResponse"];
                 };
             };
         };
@@ -1227,7 +1246,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WindGridPoint"][];
+                    "application/json": components["schemas"]["WindGridResponse"];
                 };
             };
             /** @description Validation Error */

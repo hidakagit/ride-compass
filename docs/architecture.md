@@ -204,6 +204,16 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   ずれてキャッシュ共有が効かなくなるため）、値は`export_openapi.py`が書き出す
   `wind-grid-config.json`をフロント（`windLayer.ts`）が単一の情報源としてimportする
   （改善計画T198、旧「値を合わせること」というコメントのみの手動同期を廃止）。
+- **応答の時刻配列を1本化（T203）**: `wind-grid`/`wind-grid-detail`の応答は`WindGridResponse
+  {times: list[str], points: list[WindGridPoint]}`形（`WindGridPoint`自体は`times`を
+  持たない）。全地点が同じforecast_days・timezoneで一括取得されるためhourly.timeは
+  全地点で共通であり、以前は624地点ぶん同じ`times`配列を複製していた（非圧縮応答の
+  約54%を占めていた、実測）。バックエンドはGZipMiddlewareを持たないため本番でも
+  非圧縮配信の可能性が高く、圧縮下でも実害は限定的というレビュー時の想定を覆す形と
+  なったため実装した。フロント内部（windLayer.ts/useWeatherGrid.ts/precipitationNowcast.ts）
+  は「各点がtimesを持つ」既存表現のまま変えておらず、`services/weatherApi.ts`の
+  `toWindGridPoints`がバックエンド応答を受け取った直後にtimesを各点へ合成し直すことで、
+  ワイヤーフォーマット（削減対象）とフロント内部データモデル（既存ロジック）を分離した。
 - **降水延長予報（T183）**: 気象庁降水ナウキャスト（[frontend/src/components/Map/precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)、
   実況〜+60分・5分刻み、`rasterTile`表現）は仕様上+60分が上限のため、それ以降は上記の
   風と同じ格子点マップへ`precipitation`（mm/h）を相乗りさせ、`gridFill`表現（格子をセルとして
@@ -659,14 +669,15 @@ Response 502（Open-Meteo呼び出し失敗時）:
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
-GET /api/weather/wind-grid   # 風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水追加。1章「動的気象レイヤー」参照）
-Response 200: `WindGridPoint`の配列（関東本土全域の固定格子点、約624点、取得失敗地点は除外）。
-{ "latitude":35.68, "longitude":139.77, "times":["2026-08-22T00:00", ...],
-  "wind_speed_ms":[1.2, ...], "wind_direction_deg":[80.0, ...], "precipitation_mm":[0.0, ...] }
+GET /api/weather/wind-grid   # 風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水追加、T203で応答形をtimes1本化。1章「動的気象レイヤー」参照）
+Response 200: `WindGridResponse`（関東本土全域の固定格子点、約624点、取得失敗地点は除外。`times`は全格子点で共通の時刻配列を1本だけ持つ）。
+{ "times":["2026-08-22T00:00", ...],
+  "points":[{ "latitude":35.68, "longitude":139.77,
+    "wind_speed_ms":[1.2, ...], "wind_direction_deg":[80.0, ...], "precipitation_mm":[0.0, ...] }] }
 Response 429（`WIND_GRID_RATE_LIMIT_PER_MINUTE`超過）。
 
 GET /api/weather/wind-grid-detail?min_lon=...&min_lat=...&max_lon=...&max_lat=...&spacing_deg=0.01   # 詳細格子（改善計画T180、ズームイン時の面表現用。T185でspacing_degをズーム依存に）
-Response 200: `WindGridPoint`の配列（表示範囲bboxに交差する密格子点）。
+Response 200: `WindGridResponse`（表示範囲bboxに交差する密格子点）。
 Request（`spacing_deg`省略時は`WIND_GRID_DETAIL_SPACING_DEG`=0.02。任意の連続値は許可せず`WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG`の離散値のみ受け付ける、キャッシュ共有維持のため）。
 Response 400（`spacing_deg`が許可値以外、または表示範囲が広すぎ`WIND_GRID_DETAIL_MAX_POINTS`=900を超える場合）:
 { "detail": "spacing_degの値が不正です。" } / { "detail": "表示範囲が広すぎます。ズームインしてください。" }

@@ -55,20 +55,33 @@ class WeatherService:
             results.append(None if data is None else self._conditions_from_data(data, at))
         return results
 
-    async def get_wind_grid(self, points: list[Coordinates]) -> list[WindGridPoint | None]:
+    async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
         """複数地点の時間別風向・風速・降水量をまとめて取得する（改善計画T178フォローアップ、
         T183で降水（+60分以降の延長予報）を追加）。get_conditions_manyと違い特定時刻1点へ
         収束させず、hourly配列全体（forecast_days=2分）をそのまま返す（domain/wind_grid.py:
-        WindGridPointのdocstring参照）。"""
+        WindGridPointのdocstring参照）。
+
+        時刻配列は全地点で共通のため（同じforecast_days・timezoneで一括取得、
+        WindGridResponseのdocstring参照）、戻り値の先頭要素として1本だけ返す
+        （改善計画T203、応答サイズ削減）。最初に見つかった有効な地点のtimesを採用する
+        （全地点失敗時は空リストになる）。"""
         forecasts = await self._client.get_forecast_many(self._http_client, points)
-        results = []
+        times: list[str] = []
+        results: list[WindGridPoint | None] = []
         for point in points:
             data = forecasts.get(self._client.cache_key(point))
-            results.append(None if data is None else self._wind_grid_point_from_data(point, data))
-        return results
+            parsed = None if data is None else self._wind_grid_point_from_data(point, data)
+            if parsed is None:
+                results.append(None)
+                continue
+            point_times, wind_grid_point = parsed
+            if not times:
+                times = point_times
+            results.append(wind_grid_point)
+        return times, results
 
     @staticmethod
-    def _wind_grid_point_from_data(point: Coordinates, data: dict) -> WindGridPoint | None:
+    def _wind_grid_point_from_data(point: Coordinates, data: dict) -> tuple[list[str], WindGridPoint] | None:
         hourly = data.get("hourly")
         if not hourly or not hourly.get("time"):
             return None
@@ -85,10 +98,9 @@ class WeatherService:
             or len(precipitation) != len(times)
         ):
             return None
-        return WindGridPoint(
+        return times, WindGridPoint(
             latitude=point.latitude,
             longitude=point.longitude,
-            times=times,
             wind_speed_ms=speeds,
             wind_direction_deg=directions,
             precipitation_mm=precipitation,

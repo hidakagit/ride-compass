@@ -138,10 +138,15 @@ def generate_wind_grid_detail_points(
 
 
 class WindGridPoint(BaseModel):
-    """格子点1つぶんの時間別風向・風速・降水量。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
+    """格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、
     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
     切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。
+
+    `times`自体はここには持たない（`WindGridResponse`参照、改善計画T203）。全地点が同じ
+    forecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため
+    hourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（実測約9割）を
+    時刻文字列の重複が占めていた。
 
     precipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長
     予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
@@ -149,7 +154,17 @@ class WindGridPoint(BaseModel):
 
     latitude: float
     longitude: float
-    times: list[str]
     wind_speed_ms: list[float]
     wind_direction_deg: list[float]
     precipitation_mm: list[float]
+
+
+class WindGridResponse(BaseModel):
+    """`/api/weather/wind-grid`・`wind-grid-detail`の応答本体（改善計画T203）。`times`は
+    全格子点で共通の時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、
+    インデックスは`times`と揃っている）。以前は`WindGridPoint`ごとに同じ`times`配列を
+    複製しており、624地点では非圧縮応答の約54%（実測、gzip圧縮下でも約9%）を時刻文字列の
+    重複が占めていた。全地点取得失敗等で`points`が空の場合は`times`も空になる。"""
+
+    times: list[str]
+    points: list[WindGridPoint]

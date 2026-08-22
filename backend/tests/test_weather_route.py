@@ -25,15 +25,16 @@ def clear_rate_limiter():
 
 
 class FakeWeatherService:
-    def __init__(self, conditions, wind_grid=None):
+    def __init__(self, conditions, wind_grid=None, wind_times=None):
         self._conditions = conditions
         self._wind_grid = wind_grid if wind_grid is not None else []
+        self._wind_times = wind_times if wind_times is not None else []
 
     async def get_conditions(self, point, at=None):
         return self._conditions
 
     async def get_wind_grid(self, points):
-        return self._wind_grid
+        return self._wind_times, self._wind_grid
 
 
 def test_get_weather_returns_conditions_on_success():
@@ -107,13 +108,13 @@ def test_get_wind_grid_returns_points_on_success():
         WindGridPoint(
             latitude=35.68,
             longitude=139.77,
-            times=["2026-08-20T12:00", "2026-08-20T13:00"],
             wind_speed_ms=[2.5, 3.1],
             wind_direction_deg=[90.0, 95.0],
             precipitation_mm=[0.0, 0.5],
         )
     ]
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
+    times = ["2026-08-20T12:00", "2026-08-20T13:00"]
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid, wind_times=times)
 
     try:
         response = client.get("/api/weather/wind-grid")
@@ -122,10 +123,12 @@ def test_get_wind_grid_returns_points_on_success():
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["latitude"] == 35.68
-    assert body[0]["wind_speed_ms"] == [2.5, 3.1]
-    assert body[0]["precipitation_mm"] == [0.0, 0.5]
+    # 改善計画T203: 時刻配列はpoints各点からは外れ、応答トップレベルに1本だけ持つ。
+    assert body["times"] == times
+    assert len(body["points"]) == 1
+    assert body["points"][0]["latitude"] == 35.68
+    assert body["points"][0]["wind_speed_ms"] == [2.5, 3.1]
+    assert body["points"][0]["precipitation_mm"] == [0.0, 0.5]
 
 
 def test_get_wind_grid_omits_none_points():
@@ -135,14 +138,15 @@ def test_get_wind_grid_omits_none_points():
         WindGridPoint(
             latitude=35.68,
             longitude=139.77,
-            times=["2026-08-20T12:00"],
             wind_speed_ms=[2.5],
             wind_direction_deg=[90.0],
             precipitation_mm=[0.0],
         ),
         None,
     ]
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(
+        None, wind_grid=grid, wind_times=["2026-08-20T12:00"]
+    )
 
     try:
         response = client.get("/api/weather/wind-grid")
@@ -150,7 +154,7 @@ def test_get_wind_grid_omits_none_points():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert len(response.json()) == 1
+    assert len(response.json()["points"]) == 1
 
 
 def test_get_wind_grid_returns_502_when_all_points_fail():
@@ -195,13 +199,14 @@ def test_get_wind_grid_detail_returns_points_on_success():
         WindGridPoint(
             latitude=35.68,
             longitude=139.77,
-            times=["2026-08-20T12:00"],
             wind_speed_ms=[2.5],
             wind_direction_deg=[90.0],
             precipitation_mm=[0.0],
         )
     ]
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(
+        None, wind_grid=grid, wind_times=["2026-08-20T12:00"]
+    )
 
     try:
         response = client.get(
@@ -213,8 +218,8 @@ def test_get_wind_grid_detail_returns_points_on_success():
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["latitude"] == 35.68
+    assert len(body["points"]) == 1
+    assert body["points"][0]["latitude"] == 35.68
 
 
 def test_get_wind_grid_detail_omits_none_points():
@@ -224,14 +229,15 @@ def test_get_wind_grid_detail_omits_none_points():
         WindGridPoint(
             latitude=35.68,
             longitude=139.77,
-            times=["2026-08-20T12:00"],
             wind_speed_ms=[2.5],
             wind_direction_deg=[90.0],
             precipitation_mm=[0.0],
         ),
         None,
     ]
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=grid)
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(
+        None, wind_grid=grid, wind_times=["2026-08-20T12:00"]
+    )
 
     try:
         response = client.get(
@@ -242,7 +248,7 @@ def test_get_wind_grid_detail_omits_none_points():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert len(response.json()) == 1
+    assert len(response.json()["points"]) == 1
 
 
 def test_get_wind_grid_detail_returns_502_when_all_points_fail():
@@ -307,7 +313,7 @@ def test_get_wind_grid_detail_spacing_deg_defaults_to_02_when_omitted():
     class RecordingFakeWeatherService(FakeWeatherService):
         async def get_wind_grid(self, points):
             captured_points["count"] = len(points)
-            return []
+            return [], []
 
     app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
     params = {"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.80, "max_lat": 35.80}

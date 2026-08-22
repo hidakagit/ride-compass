@@ -95,7 +95,6 @@ def test_wind_grid_point_model_round_trip():
     point = WindGridPoint(
         latitude=35.68,
         longitude=139.77,
-        times=["2026-08-20T12:00"],
         wind_speed_ms=[2.5],
         wind_direction_deg=[90.0],
         precipitation_mm=[0.5],
