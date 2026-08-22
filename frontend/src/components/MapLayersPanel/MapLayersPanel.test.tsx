@@ -14,6 +14,7 @@ function baseProps() {
       carStress: false,
       bicycleInfra: false,
       designation: false,
+      tunnel: false,
       stopPoi: false,
       supplyPoi: false,
       accidents: false,
@@ -31,6 +32,7 @@ function baseProps() {
       carStress: [],
       bicycleInfra: [],
       designation: [],
+      tunnel: [],
       stopPoi: [],
       supplyPoi: [],
       accidentParty: [],
@@ -39,6 +41,7 @@ function baseProps() {
       | "carStress"
       | "bicycleInfra"
       | "designation"
+      | "tunnel"
       | "stopPoi"
       | "supplyPoi"
       | "accidentParty"
@@ -102,6 +105,7 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-carStress")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-tunnel")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-supplyPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
@@ -259,6 +263,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -348,6 +353,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -376,6 +382,7 @@ describe("MapLayersPanel", () => {
           carStress: true,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -403,6 +410,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: true,
           supplyPoi: false,
           accidents: false,
@@ -441,6 +449,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -470,6 +479,7 @@ describe("MapLayersPanel", () => {
           carStress: true,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -498,6 +508,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -527,6 +538,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: true,
           supplyPoi: false,
           accidents: false,
@@ -557,6 +569,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -584,6 +597,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,
@@ -611,6 +625,7 @@ describe("MapLayersPanel", () => {
           carStress: false,
           bicycleInfra: false,
           designation: false,
+          tunnel: false,
           stopPoi: false,
           supplyPoi: false,
           accidents: false,

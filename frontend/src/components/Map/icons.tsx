@@ -187,6 +187,16 @@ export function DesignationIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** トンネル（一次属性、OSMのtunnelタグ）: 山を貫くアーチ型の坑口 */
+export function TunnelIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M3 17V9a7 7 0 0 1 14 0v8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 17h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** 事故（外部静的データソース T50）: 衝突を示す星形バースト */
 export function AccidentIcon({ size = 16 }: IconProps) {
   return (

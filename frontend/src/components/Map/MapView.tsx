@@ -57,6 +57,8 @@ import {
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_OPACITY_EXPRESSION,
   DESIGNATION_LABELS,
+  TUNNEL_COLOR_EXPRESSION,
+  TUNNEL_OPACITY_EXPRESSION,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
@@ -146,6 +148,7 @@ const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 export const CAR_STRESS_LAYER_ID = "region-car-stress-line";
 export const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 const DESIGNATION_LAYER_ID = "region-designation-line";
+const TUNNEL_LAYER_ID = "region-tunnel-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
@@ -175,7 +178,12 @@ const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // line-widthの半分弱ずつ重なる値へ縮めた（重なりは色の切り替わりとして視認できる範囲に
 // 収まり、完全な塗り潰しにはならない）。
 const MATERIAL_TRACK_OFFSET_STEP = 2;
-const ROAD_MATERIAL_TRACK_LAYER_IDS = [ROAD_TILE_LAYER_ID, BICYCLE_INFRA_LAYER_ID, DESIGNATION_LAYER_ID] as const;
+const ROAD_MATERIAL_TRACK_LAYER_IDS = [
+  ROAD_TILE_LAYER_ID,
+  BICYCLE_INFRA_LAYER_ID,
+  DESIGNATION_LAYER_ID,
+  TUNNEL_LAYER_ID,
+] as const;
 // 改善計画（1次/2次の地図上表現の統一、松）: car_stress・ramp軸（停止密度・事故密度等、
 // axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
 // 独立レイヤーとして重ねて描画される。以前は1次（bicycleInfra/designation）と同じ
@@ -916,13 +924,14 @@ function applyRoadLayerState(
 // 次にONにしたときに古いオフセット値が一瞬残らないようにする。
 function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
-  visible: { road: boolean; bicycleInfra: boolean; designation: boolean }
+  visible: { road: boolean; bicycleInfra: boolean; designation: boolean; tunnel: boolean }
 ) {
   runWhenStyleReady(map, () => {
     const visibleByLayerId: Record<string, boolean> = {
       [ROAD_TILE_LAYER_ID]: visible.road,
       [BICYCLE_INFRA_LAYER_ID]: visible.bicycleInfra,
       [DESIGNATION_LAYER_ID]: visible.designation,
+      [TUNNEL_LAYER_ID]: visible.tunnel,
     };
     const onLayerIds = ROAD_MATERIAL_TRACK_LAYER_IDS.filter((layerId) => visibleByLayerId[layerId]);
     const center = (onLayerIds.length - 1) / 2;
@@ -1019,6 +1028,33 @@ function ensureDesignationLayer(map: MapLibreMap) {
         "line-width": 3,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-opacity": DESIGNATION_OPACITY_EXPRESSION as any,
+        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+        "line-offset": 0,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// トンネル（一次属性、OSMのtunnelタグ。改善計画: 地図上に描画可能な状態で保持している要素の
+// 洗い出しで判明した「観測配下にレイヤーが無いまま」を解消）。designationと同じく路面と
+// 同じベクタソースを再利用する独立レイヤー。tunnelプロパティは該当区間のみ値を持つ
+// （未該当はプロパティ欠落、TUNNEL_COLOR_EXPRESSIONのcase式で灰色に倒す）。
+function ensureTunnelLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(TUNNEL_LAYER_ID)) return;
+    map.addLayer({
+      id: TUNNEL_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": TUNNEL_COLOR_EXPRESSION as any,
+        "line-width": 3,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-opacity": TUNNEL_OPACITY_EXPRESSION as any,
         // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
         "line-offset": 0,
       },
@@ -1178,6 +1214,7 @@ const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (m
   ...AXIS_OVERLAY_LAYERS,
   { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
+  { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
   { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -1217,8 +1254,8 @@ type StaticOverlayKey = string;
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
 // roadType/roadSurface（T165で「道路情報」から論理分割）/carStress/bicycleInfra/
-// designationは同じroad_surfaceタイルを再利用しているため（T59でroad_edgesが未構築の
-// 地点では、この5レイヤーが同時にempty/errorになるのが正しい挙動）、あえて同じ
+// designation/tunnelは同じroad_surfaceタイルを再利用しているため（T59でroad_edgesが
+// 未構築の地点では、この6レイヤーが同時にempty/errorになるのが正しい挙動）、あえて同じ
 // sourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
 // （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
@@ -1241,6 +1278,7 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "carStress", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "tunnel", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
@@ -1352,10 +1390,10 @@ export function setStaticOverlayFilters(
   });
 }
 
-// road_surfaceタイルを共有する4レイヤー（mapLayers.ts: ROAD_SURFACE_SHARED_LAYER_IDS）の
+// road_surfaceタイルを共有する6レイヤー（mapLayers.ts: ROAD_SURFACE_SHARED_LAYER_IDS）の
 // いずれかが表示ONかを判定する。road_surfaceソースを参照する箇所（ズーム範囲外判定・
 // レイヤーデータ状態表示の抑制）が両方ともこのヘルパー経由でROAD_SURFACE_SHARED_LAYER_IDSを
-// 参照するようにし、「4レイヤーのどれが対象か」を1箇所（mapLayers.ts）だけが知っていれば
+// 参照するようにし、「6レイヤーのどれが対象か」を1箇所（mapLayers.ts）だけが知っていれば
 // よい状態にする（改善計画T87レビュー指摘: 以前はroadの表示状態だけを見ていたため、
 // road自体はOFFのままcarStress等だけONの場合にズーム範囲外の案内が一切出なかった）。
 // MapView.segments.test.tsと同じ考え方でテスト可能にexportしている。
@@ -1367,7 +1405,7 @@ export function isRoadSurfaceGroupVisible(visibility: Partial<Record<MapLayerId,
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
 // （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
 // showRoadSurfaceGroupは isRoadSurfaceGroupVisible の結果（road_surfaceタイルを共有する
-// 4レイヤーのいずれかが表示ONか）。以前はroadの表示状態だけを見ていたため、road自体はOFFの
+// 6レイヤーのいずれかが表示ONか）。以前はroadの表示状態だけを見ていたため、road自体はOFFの
 // ままcarStress等だけONで同じソースを見ている場合にこの案内が一切出ない不整合があった
 // （改善計画T87レビュー指摘）。
 function updateRoadZoomHint(
@@ -1562,6 +1600,9 @@ interface MapViewProps {
   motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride;
   /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。 */
   showDesignation: boolean;
+  /** トンネル（一次属性、OSMのtunnelタグ）。designationと同じく路面と同じソースを
+   * 再利用する独立レイヤー。 */
+  showTunnel: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
@@ -1617,6 +1658,7 @@ export default function MapView({
   roadSuitabilityRecipe,
   motorVehicleDensityRecipe,
   showDesignation,
+  showTunnel,
   showAccidents,
   showStopPoi,
   showSupplyPoi,
@@ -1665,6 +1707,7 @@ export default function MapView({
     roadSuitabilityRecipe,
     motorVehicleDensityRecipe,
     showDesignation,
+    showTunnel,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -1706,6 +1749,7 @@ export default function MapView({
       roadSuitabilityRecipe,
       motorVehicleDensityRecipe,
       showDesignation,
+      showTunnel,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1731,6 +1775,7 @@ export default function MapView({
     roadSuitabilityRecipe,
     motorVehicleDensityRecipe,
     showDesignation,
+    showTunnel,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -1764,6 +1809,7 @@ export default function MapView({
       roadSuitabilityRecipe,
       motorVehicleDensityRecipe,
       showDesignation,
+      showTunnel,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1778,6 +1824,7 @@ export default function MapView({
       carStress: showCarStress,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
+      tunnel: showTunnel,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -1800,6 +1847,7 @@ export default function MapView({
       road: showRoadSurface || showRoadType,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
+      tunnel: showTunnel,
     });
     updateRoadZoomHint(
       map,
@@ -1809,6 +1857,7 @@ export default function MapView({
         carStress: showCarStress,
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
+        tunnel: showTunnel,
       }),
       onRegionZoomHintChangeRef.current
     );
@@ -1838,6 +1887,7 @@ export default function MapView({
       showCarStress,
       showBicycleInfra,
       showDesignation,
+      showTunnel,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1850,6 +1900,7 @@ export default function MapView({
       carStress: showCarStress,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
+      tunnel: showTunnel,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -2037,7 +2088,7 @@ export default function MapView({
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
     // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
-      const { showRoadType, showRoadSurface, showCarStress, showBicycleInfra, showDesignation } =
+      const { showRoadType, showRoadSurface, showCarStress, showBicycleInfra, showDesignation, showTunnel } =
         redrawPropsRef.current;
       updateRoadZoomHint(
         map,
@@ -2047,6 +2098,7 @@ export default function MapView({
           carStress: showCarStress,
           bicycleInfra: showBicycleInfra,
           designation: showDesignation,
+          tunnel: showTunnel,
         }),
         onRegionZoomHintChangeRef.current
       );
@@ -2255,7 +2307,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・車ストレス・自転車インフラ・指定路線・事故・停止要因POI・補給休憩POI
+  // 標高・車ストレス・自転車インフラ・指定路線・トンネル・事故・停止要因POI・補給休憩POI
   // （T101）は、いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
   // のみ」という同型のレイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
   // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
@@ -2268,6 +2320,7 @@ export default function MapView({
       carStress: showCarStress,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
+      tunnel: showTunnel,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -2283,6 +2336,7 @@ export default function MapView({
     showCarStress,
     showBicycleInfra,
     showDesignation,
+    showTunnel,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2332,7 +2386,7 @@ export default function MapView({
   // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
   // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
   // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するcarStress/
-  // bicycleInfra/designationのON/OFFでも変わりうるため、依存配列に含めてこれらの
+  // bicycleInfra/designation/tunnelのON/OFFでも変わりうるため、依存配列に含めてこれらの
   // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままcarStress等
   // だけONで表示範囲が広すぎる場合に案内が一切出なかった不整合の修正）。
   useEffect(() => {
@@ -2343,6 +2397,7 @@ export default function MapView({
       road: showRoadSurface || showRoadType,
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
+      tunnel: showTunnel,
     });
     updateRoadZoomHint(
       map,
@@ -2352,6 +2407,7 @@ export default function MapView({
         carStress: showCarStress,
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
+        tunnel: showTunnel,
       }),
       onRegionZoomHintChangeRef.current
     );
@@ -2362,6 +2418,7 @@ export default function MapView({
     showCarStress,
     showBicycleInfra,
     showDesignation,
+    showTunnel,
     roadHiddenKeysByMode,
     recomputeLayerDataStatus,
   ]);

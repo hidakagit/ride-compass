@@ -558,9 +558,10 @@ describe("MapOverlayControls", () => {
       await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
       expect(screen.getByText("材料: 標高")).toBeInTheDocument();
 
-      // 夜間: 材料（街灯・トンネル）はどちらもレイヤーが無い
+      // 夜間: 材料はトンネル（レイヤーあり）・街灯（レイヤー無し）
       await user.click(screen.getByRole("button", { name: "夜間の凡例を表示" }));
-      expect(screen.getByText("地図では未表示の材料: 街灯・トンネル")).toBeInTheDocument();
+      expect(screen.getByText("材料: トンネル")).toBeInTheDocument();
+      expect(screen.getByText("地図では未表示の材料: 街灯")).toBeInTheDocument();
     });
 
     // タイルの見た目統一（改善計画T169、ユーザー指摘「1次要素、2次要素すべて推定と同様の

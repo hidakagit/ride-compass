@@ -80,8 +80,8 @@ describe("primaryAttributes", () => {
     expect(layerIds.length).toBe(new Set(layerIds).size); // 重複が無い
   });
 
-  it("axisMaterialLayerIdsはレイヤーを持つ材料が無い軸に対して空配列を返す", () => {
-    // gradientの材料はelevationのみだがレイヤーは持つため非空（対照として夜間を確認）
-    expect(axisMaterialLayerIds("night")).toEqual([]); // lit/tunnelともレイヤー無し
+  it("axisMaterialLayerIdsは一部の材料だけレイヤーを持つ軸に対してその分だけを返す", () => {
+    // night軸の材料はlit/tunnelの2件。tunnelはレイヤーを持つが、litは引き続きレイヤー無し
+    expect(axisMaterialLayerIds("night")).toEqual(["tunnel"]);
   });
 });

@@ -154,6 +154,7 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   carStress: false,
   bicycleInfra: false,
   designation: false,
+  tunnel: false,
   stopPoi: false,
   supplyPoi: false,
   accidents: false,
@@ -1642,6 +1643,7 @@ export default function Home() {
               motorVehicleDensityRecipeOverrideEnabled ? debouncedMotorVehicleDensityRecipe : undefined
             }
             showDesignation={layerVisibility.designation}
+            showTunnel={layerVisibility.tunnel}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}

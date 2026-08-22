@@ -80,17 +80,21 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
   stop_poi: "stopPoi",
   accident_point: "accidents",
   supply_poi: "supplyPoi",
+  // 改善計画: 地図上に描画可能な状態で保持している要素の洗い出しで判明した「観測配下に
+  // レイヤーが無いまま」を解消（tunnelはタイルへの焼き込み自体はnight軸の材料として
+  // 元々あったが、専用の色分けレイヤーは持っていなかった）。
+  tunnel: "tunnel",
 };
 
-// 表示レイヤーを意図的に持たない一次属性（改善計画T163の確定命名表で「なし」と明示した5件、
-// +評価軸から参照されないbicycle_access・区間の共通コンテキストgeometry）。
+// 表示レイヤーを意図的に持たない一次属性（改善計画T163の確定命名表で「なし」と明示した4件、
+// +評価軸から参照されないbicycle_access・区間の共通コンテキストgeometry）。tunnelは上記の
+// 追加でこの一覧から外れた（litは引き続きレイヤー無し）。
 // PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
 // 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
 export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
   "lanes",
   "maxspeed",
   "lit",
-  "tunnel",
   "intersection",
   "bicycle_access",
   "motor_vehicle_access",
