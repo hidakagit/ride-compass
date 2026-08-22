@@ -2,8 +2,8 @@ import logging
 
 import httpx
 
-from app.domain.attributes import surface_by_edge_id
-from app.domain.graph import RoadGraph, WaySpec, build_road_graph
+from app.domain.attributes import EdgeAttributeCounts, surface_by_edge_id
+from app.domain.graph import DirectedEdge, RoadGraph, WaySpec, build_road_graph
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.overpass_client import OverpassClient
@@ -65,10 +65,20 @@ class GraphService:
         return graph, surface_by_way_id
 
     async def get_or_build_graph_with_attributes(
-        self, bbox: BoundingBox
+        self, bbox: BoundingBox, *, lean: bool = False
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:
         """PostGISキャッシュ（`repository`）があれば使う（`repository`が未設定なら常にOverpassから
         直接構築する、Phase1-5と同じ挙動）。
+
+        `lean=True`（改善計画T218、T12 Stage 0）: 「生データがsplit以降変わっていない」
+        省略パス（下記）でのみ効く指定で、Edgeのgeometry（形状点列）を取得しない軽量版
+        （`RoadGraphRepository.get_graph_topology_in_bbox`）を使う。探索フェーズ
+        （経路選択、`RoadGraphEngine.prepare`）はgeometryを必要としない
+        （domain/evaluation.py: compute_wind_penaltyがbearing_degを直接使う設計）ため、
+        この引数で切り替える。地図表示（RegionServiceのタイル配信）は実ジオメトリが必要な
+        ため、既定の`lean=False`のまま呼ぶ。生データ変更を検知し再構築が必要な場合
+        （下記のフォールバック経路）は`lean`に関わらず常にbuild_road_graph経由のフル
+        グラフを返す（この経路自体が既に低頻度・重い処理のため、リーン化の対象外）。
 
         `repository`指定時は、まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`の
         XYZタイル群に分解し、タイルごとに「生データを取得済みか」を`is_tile_cached`で
@@ -110,7 +120,11 @@ class GraphService:
         # Edge全量再UPSERTを省略してroad_edges/road_nodesを直接読む（実測で全体の
         # 85〜90%を占めるsave_graphのコストを丸ごと避けられる。docs/osm-pbf-import.md参照）。
         if await self._repository.is_split_up_to_date(bbox):
-            graph = await self._repository.get_graph_in_bbox(bbox)
+            graph = await (
+                self._repository.get_graph_topology_in_bbox(bbox)
+                if lean
+                else self._repository.get_graph_in_bbox(bbox)
+            )
             if graph is None:
                 # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
                 return RoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
@@ -196,6 +210,25 @@ class GraphService:
         if self._repository is None:
             return 0
         return await self._repository.get_accident_years_covered()
+
+    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
+        """`lean=True`で読み込んだ探索用グラフ（geometryプレースホルダのみ）の一部Edgeへ、
+        実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。`repository`が
+        無ければ空辞書を返す（呼び出し元は`RoadGraphEngine.trace_loop`——Overpass経由
+        構築時の`context.graph`は元々フルジオメトリを持つため、この空辞書は
+        「フォールバック不要」の合図として扱われる）。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_edges_with_geometry(edge_ids)
+
+    async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
+        """事故・停止・交差点の事前集計（`edge_attribute_counts`、改善計画T144→T218で
+        読み取り配線）を返す。get_stop_poi_counts等と同じ「repositoryが無ければ`{}`」パターン。
+        """
+        if self._repository is None:
+            return {}
+        return await self._repository.get_edge_attribute_counts(edge_ids)
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         """指定edge_idのうちKSJ N10/N12に該当するものの集合を返す（外部静的データソース

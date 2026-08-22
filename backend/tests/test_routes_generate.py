@@ -70,6 +70,7 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
         car_stress_recipe_override=None,
         road_suitability_recipe_override=None,
         motor_vehicle_density_recipe_override=None,
+        penalty_strength: float = 1.0,
     ) -> RouteGenerationSetup:
         if captured is not None:
             captured["preference"] = preference_override
@@ -77,6 +78,7 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             captured["car_stress_recipe"] = car_stress_recipe_override
             captured["road_suitability_recipe"] = road_suitability_recipe_override
             captured["motor_vehicle_density_recipe"] = motor_vehicle_density_recipe_override
+            captured["penalty_strength"] = penalty_strength
         return RouteGenerationSetup(
             generator=FakeRouteGenerator(candidates),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
@@ -84,6 +86,7 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             car_stress_recipe=car_stress_recipe_override or CarStressRecipe(),
             road_suitability_recipe=road_suitability_recipe_override or RoadSuitabilityRecipe(),
             motor_vehicle_density_recipe=motor_vehicle_density_recipe_override or MotorVehicleDensityRecipe(),
+            penalty_strength=penalty_strength,
         )
 
     return lambda: build

@@ -57,7 +57,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
@@ -76,6 +76,7 @@ from app.infrastructure.vector_tile import (
 )
 from app.infrastructure.road_graph_models import (
     Base,
+    EdgeAttributeCountsRow,
     ElevationAttributeRow,
     OsmRawNodeRow,
     OsmRawWayRow,
@@ -825,11 +826,57 @@ def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[Ro
     Node59,270件）での実測でCPU時間を約37%削減（6.11秒→3.84秒、
     backend/benchmarks/README.md参照）。
     """
-    edge_rows = list(edge_rows)
     node_rows = list(node_rows)
-    edge_lines = shapely.from_wkb([bytes(row.geom.data) for row in edge_rows])
     node_points = shapely.from_wkb([bytes(row.geom.data) for row in node_rows])
+    nodes = {
+        row.node_id: Node.model_construct(
+            node_id=row.node_id, latitude=point.y, longitude=point.x, osm_node_id=row.osm_node_id
+        )
+        for row, point in zip(node_rows, node_points)
+    }
+    edges = _edge_rows_to_directed_edges(edge_rows)
+    return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
+
+def _edge_rows_to_directed_edges(edge_rows: Iterable[RoadEdgeRow]) -> dict[str, DirectedEdge]:
+    """`RoadEdgeRow`（geom込みの全カラム）のバッチをDirectedEdgeへ変換する共通ヘルパー
+    （`_rows_to_road_graph`・`get_edges_with_geometry`が共有、改善計画T218）。
+    `shapely.from_wkb()`のバッチAPIで一括デコードする理由は`_rows_to_road_graph`の
+    docstring参照。
+    """
+    edge_rows = list(edge_rows)
+    edge_lines = shapely.from_wkb([bytes(row.geom.data) for row in edge_rows])
+    return {
+        row.edge_id: DirectedEdge.model_construct(
+            edge_id=row.edge_id,
+            from_node_id=row.from_node_id,
+            to_node_id=row.to_node_id,
+            # DirectedEdge.geometryは[[lat, lon], ...]だが、Shapely/PostGISの座標順は(lon, lat)。
+            geometry=[[lat, lon] for lon, lat in line.coords],
+            distance_m=row.distance_m,
+            osm_way_id=row.osm_way_id,
+            highway=row.highway,
+            bearing_deg=row.bearing_deg,
+        )
+        for row, line in zip(edge_rows, edge_lines)
+    }
+
+
+def _topology_rows_to_road_graph(
+    edge_rows: Iterable, node_rows: Iterable[RoadNodeRow]
+) -> RoadGraph:
+    """`get_graph_topology_in_bbox`用（改善計画T218、T12 Stage 0）。`edge_rows`は
+    `RoadEdgeRow`の全カラムではなく、探索に必要な列（geom以外）だけをSELECTした
+    `Row`（SQLAlchemyの軽量タプル的な結果行）を想定する。geomカラムを一切
+    SELECTしないため、`_rows_to_road_graph`が行うshapely decode（実測でCPU時間の
+    大半を占める、backend/benchmarks/README.md参照）が発生しない。
+    `DirectedEdge.geometry`はプレースホルダの空リストにする（探索フェーズの
+    評価関数はgeometryを参照しない設計にしてある——compute_wind_penaltyは
+    `bearing_deg`を直接使う、domain/evaluation.py参照。表示用の実ジオメトリが
+    必要な最終候補は`get_edges_with_geometry`で別途取得する）。
+    """
+    node_rows = list(node_rows)
+    node_points = shapely.from_wkb([bytes(row.geom.data) for row in node_rows])
     nodes = {
         row.node_id: Node.model_construct(
             node_id=row.node_id, latitude=point.y, longitude=point.x, osm_node_id=row.osm_node_id
@@ -841,13 +888,13 @@ def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[Ro
             edge_id=row.edge_id,
             from_node_id=row.from_node_id,
             to_node_id=row.to_node_id,
-            # DirectedEdge.geometryは[[lat, lon], ...]だが、Shapely/PostGISの座標順は(lon, lat)。
-            geometry=[[lat, lon] for lon, lat in line.coords],
+            geometry=[],
             distance_m=row.distance_m,
             osm_way_id=row.osm_way_id,
             highway=row.highway,
+            bearing_deg=row.bearing_deg,
         )
-        for row, line in zip(edge_rows, edge_lines)
+        for row in edge_rows
     }
     return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
@@ -998,6 +1045,62 @@ class DerivedGraphRepository(_SessionRepository):
         # asyncio.to_threadで逃さないとイベントループを塞ぐ。
         return await asyncio.to_thread(_rows_to_road_graph, edge_rows, node_rows)
 
+    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+        """`get_graph_in_bbox`の軽量版（改善計画T218、T12 Stage 0）。探索フェーズ
+        （Dijkstra経路選択）はEdgeのトポロジ（from/to node・distance・bearing等）だけ
+        あれば成立し、geometry（形状点列）は不要（domain/evaluation.py:
+        compute_wind_penaltyがbearing_degを直接使う設計に変更済み）。
+
+        `geom`カラム自体をSELECT対象から外すことで、shapelyへのgeometry decode
+        （`_rows_to_road_graph`のコメント参照、実測でCPU時間の大半を占める）を
+        丸ごと回避する。返す`RoadGraph`の`DirectedEdge.geometry`は空リストの
+        プレースホルダ（`_topology_rows_to_road_graph`参照）。
+
+        最終候補（距離フィルタ通過後の経路）のEdgeについては、表示・区間詳細の
+        構築に実ジオメトリが必要なため、別途`get_edges_with_geometry`で取得し直す
+        （`GraphService.get_edges_with_geometry`・`RoadGraphEngine.trace_loop`参照）。
+        """
+        envelope = func.ST_MakeEnvelope(
+            bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude, 4326
+        )
+        edge_stmt = select(
+            RoadEdgeRow.edge_id,
+            RoadEdgeRow.from_node_id,
+            RoadEdgeRow.to_node_id,
+            RoadEdgeRow.distance_m,
+            RoadEdgeRow.osm_way_id,
+            RoadEdgeRow.highway,
+            RoadEdgeRow.bearing_deg,
+        ).where(func.ST_Intersects(RoadEdgeRow.geom, envelope))
+        edge_rows = (await self._session.execute(edge_stmt)).all()
+        if not edge_rows:
+            return None
+
+        node_ids = sorted({row.from_node_id for row in edge_rows} | {row.to_node_id for row in edge_rows})
+        node_rows = []
+        for id_chunk in _chunked(node_ids, 50_000):
+            node_stmt = select(RoadNodeRow).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
+            node_rows.extend((await self._session.execute(node_stmt)).scalars().all())
+
+        return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
+
+    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
+        """指定edge_idぶんだけ、実ジオメトリ込みのDirectedEdgeを取得する（改善計画T218）。
+        `get_graph_topology_in_bbox`でgeometry抜きに読み込んだ探索用グラフから、
+        Dijkstraで確定した経路（1候補あたり数十〜数百Edge）だけへ絞ってgeometryを
+        取得し直す用途。bbox全件（数万〜十数万Edge）のdecodeを避けつつ、区間詳細
+        表示に必要な実ジオメトリは確保する。
+        """
+        if not edge_ids:
+            return {}
+        edges: dict[str, DirectedEdge] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            edge_stmt = select(RoadEdgeRow).where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
+            edge_rows = (await self._session.execute(edge_stmt)).scalars().all()
+            partial = await asyncio.to_thread(_edge_rows_to_directed_edges, edge_rows)
+            edges.update(partial)
+        return edges
+
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         """bboxと交差する全ての主対象Way（`_primary_way_conditions`と同じ定義。
         `get_way_specs_with_closure`参照）について、最後のsplit（`save_graph`の
@@ -1077,6 +1180,7 @@ class DerivedGraphRepository(_SessionRepository):
                 "distance_m": edge.distance_m,
                 "osm_way_id": edge.osm_way_id,
                 "highway": edge.highway,
+                "bearing_deg": edge.bearing_deg,
                 "updated_at": now,
             }
             for edge in graph.edges.values()
@@ -1102,7 +1206,10 @@ class DerivedGraphRepository(_SessionRepository):
             RoadEdgeRow,
             edge_rows,
             ["edge_id"],
-            ["from_node_id", "to_node_id", "geom", "distance_m", "osm_way_id", "highway", "updated_at"],
+            [
+                "from_node_id", "to_node_id", "geom", "distance_m", "osm_way_id", "highway",
+                "bearing_deg", "updated_at",
+            ],
         )
 
 
@@ -1435,6 +1542,30 @@ class AttributeRepository(_SessionRepository):
                 "average_grade", "max_grade", "min_grade", "data_source", "data_version", "calculated_at",
             ],
         )
+
+    async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
+        """`edge_attribute_counts`（改善計画T144、事故・停止・交差点の事前集計）を読む。
+
+        以前は`get_stop_poi_counts`/`get_intersection_counts`/`get_accident_counts`
+        （road_graph_repository.py内、いずれも空間結合SQL）でリクエストの都度PostGIS上の
+        `ST_DWithin`空間結合を計算していたが、`app/batch/precompute_edge_attribute_counts.py`
+        が同じ計算結果を事前に永続化しているため、単純な主キー参照へ置き換える
+        （改善計画T218、T12 Stage 0）。3種の空間結合クエリが1クエリへ集約される。
+        """
+        if not edge_ids:
+            return {}
+        result: dict[str, EdgeAttributeCounts] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            stmt = select(EdgeAttributeCountsRow).where(
+                EdgeAttributeCountsRow.edge_id == any_(cast(id_chunk, ARRAY(Text)))
+            )
+            for row in (await self._session.execute(stmt)).scalars().all():
+                result[row.edge_id] = EdgeAttributeCounts(
+                    accident_count=row.accident_count,
+                    stop_count=row.stop_count,
+                    intersection_count=row.intersection_count,
+                )
+        return result
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         if not edge_ids:
@@ -1839,6 +1970,12 @@ class RoadGraphRepository:
     async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
         return await self.graph.get_graph_in_bbox(bbox)
 
+    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+        return await self.graph.get_graph_topology_in_bbox(bbox)
+
+    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
+        return await self.graph.get_edges_with_geometry(edge_ids)
+
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         return await self.graph.is_split_up_to_date(bbox)
 
@@ -1855,6 +1992,9 @@ class RoadGraphRepository:
 
     async def save_elevation_attributes(self, attributes: list[ElevationAttribute]) -> None:
         await self.attributes.save_elevation_attributes(attributes)
+
+    async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
+        return await self.attributes.get_edge_attribute_counts(edge_ids)
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)

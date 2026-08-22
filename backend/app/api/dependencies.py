@@ -113,6 +113,8 @@ class RouteGenerationSetup:
     car_stress_recipe: CarStressRecipe
     road_suitability_recipe: RoadSuitabilityRecipe
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe
+    # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
+    penalty_strength: float
 
 
 RouteGenerationBuilder = Callable[
@@ -122,6 +124,7 @@ RouteGenerationBuilder = Callable[
         CarStressRecipe | None,
         RoadSuitabilityRecipe | None,
         MotorVehicleDensityRecipe | None,
+        float,
     ],
     RouteGenerationSetup,
 ]
@@ -197,6 +200,7 @@ def get_route_generation_builder(
         car_stress_recipe_override: CarStressRecipe | None = None,
         road_suitability_recipe_override: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe_override: MotorVehicleDensityRecipe | None = None,
+        penalty_strength: float = 1.0,
     ) -> RouteGenerationSetup:
         preference = preference_override or load_route_preference()
         scoring_weights = scoring_weights_override or load_scoring_weights()
@@ -215,6 +219,7 @@ def get_route_generation_builder(
                 car_stress_recipe,
                 road_suitability_recipe,
                 motor_vehicle_density_recipe,
+                penalty_strength,
             )
         else:
             engine = OpenRouteServiceEngine(
@@ -231,6 +236,7 @@ def get_route_generation_builder(
             car_stress_recipe=car_stress_recipe,
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
+            penalty_strength=penalty_strength,
         )
 
     return build
