@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import styles from "./DynamicLayerTimeSlider.module.css";
 
 /** スライダーの1フレーム分の表示内容。T183再設計でONの全レイヤーのフレーム時刻を統合した
@@ -21,19 +21,34 @@ import styles from "./DynamicLayerTimeSlider.module.css";
  * 「HH:mm」・そうでなければ分のみ2桁（page.tsx: formatDynamicFrameHourMinute/
  * formatDynamicFrameMinuteOnly）。undefined/空文字ならこのコマには文字を出さない
  * （延長予報のように毎コマ正時が続く区間で毎コマぶん文字まで出すと、1コマの目盛り間隔
- * （TICK_SPACING_PX）に対して文字幅の方が広く重なってしまう、実機Playwright確認で発覚した
- * ため、page.tsx側で正時ラベルはさらに間引いて渡す）。 */
+ * （TICK_SPACING_HOUR_PX）に対して文字幅の方が広く重なってしまう、実機Playwright確認で
+ * 発覚したため、page.tsx側で正時ラベルはさらに間引いて渡す）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
   hourMark?: boolean;
   tickLabel?: string;
 }
 
-// 1コマぶんの目盛り間隔（px）。実機フィードバック「もう少し目盛りを細かく」を受け、
-// 元の22pxから縮小した。TICK_SPACING_PXを変えるとルーラー全体の長さ・スクロール量と
-// indexの対応（下記layoutで導出するscrollLeft = index * TICK_SPACING_PX）が自動で
-// 追従する（唯一の情報源）。
+// 1コマぶんの目盛り間隔（px、正時以外＝降水ナウキャストの5分刻み等の密なコマ）。
+// 実機フィードバック「もう少し目盛りを細かく」を受け、元の22pxから縮小した。
 const TICK_SPACING_PX = 18;
+// 正時（hourMark）ぶんの目盛り間隔（px）。実機フィードバック「1時間間隔のときはもう少し
+// 目盛り間隔を広く」への対応。延長予報区間（60分以降、全コマが正時＝1時間刻み）はこちらを
+// 使う。初期画面に全コマが収まっている必要はなく、スクロールできれば足りるという前提
+// （同フィードバック）のため、広げた分だけルーラー全体の総幅・スクロール量が伸びることは
+// 許容する。コマごとに幅が異なるため、位置計算はindex * 定数の単純な乗算ではなく
+// tickOffsets（下記）の累積和で求める（frameWidth/tickCenterが唯一の情報源）。
+const TICK_SPACING_HOUR_PX = 28;
+// スクロール位置を合わせる「左端の目印」(.leftIndicator)の、ビューポート左端からの固定
+// オフセット（px、スクロールしても動かない）。個々のコマの幅（正時/非正時で異なる）とは
+// 独立した値のため、常にTICK_SPACING_PXの半分のまま変えない。
+const INDICATOR_OFFSET_PX = TICK_SPACING_PX / 2;
+
+/** コマ1つぶんの目盛り間隔（px）。正時（hourMark）はTICK_SPACING_HOUR_PX、それ以外は
+ * TICK_SPACING_PXを使う。 */
+function frameWidth(frame: DynamicLayerTimeSliderFrame): number {
+  return frame.hourMark ? TICK_SPACING_HOUR_PX : TICK_SPACING_PX;
+}
 
 interface DynamicLayerTimeSliderProps {
   frames: readonly DynamicLayerTimeSliderFrame[];
@@ -93,6 +108,29 @@ export default function DynamicLayerTimeSlider({
   const hasMountedRef = useRef(false);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // 各コマの左端オフセット（tickOffsets[i]、トラック内のpxの累積和）。正時/非正時でコマ幅が
+  // 異なる（frameWidth）ため、以前のようなindex * 定数の単純な乗算では位置が求まらない。
+  // framesが変わらない限り同じ参照を返す（useLayoutEffect/handleScrollのuseCallback依存に
+  // 使うため、毎レンダー新しい配列/関数になるのを避ける）。
+  const tickOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let acc = 0;
+    for (const f of frames) {
+      offsets.push(acc);
+      acc += frameWidth(f);
+    }
+    return offsets;
+  }, [frames]);
+  // コマiの中心のトラック内オフセット（px）。scrollLeftがこの値からINDICATOR_OFFSET_PXを
+  // 引いた位置のとき、コマiの中心が.leftIndicatorへちょうど重なる。
+  const tickCenter = useCallback(
+    (i: number): number => {
+      const f = frames[i];
+      return f ? tickOffsets[i] + frameWidth(f) / 2 : 0;
+    },
+    [frames, tickOffsets]
+  );
+
   // propsのindexが変化したら、ルーラーのスクロール位置を合わせる（「現在」ボタン等、
   // 自分のスクロール操作以外でindexが変わったときだけ実際にスクロールする、上記コメント
   // 参照）。レイアウト確定後・ペイント前に合わせたいのでuseLayoutEffect
@@ -103,7 +141,7 @@ export default function DynamicLayerTimeSlider({
     const alreadySynced = index === syncedIndexRef.current;
     if (hasMountedRef.current && alreadySynced) return;
     syncedIndexRef.current = index;
-    const targetLeft = index * TICK_SPACING_PX;
+    const targetLeft = tickCenter(index) - INDICATOR_OFFSET_PX;
     // jsdom（テスト環境）はElement.scrollToを実装しないため、scrollLeftへの直接代入へ
     // フォールバックする（挙動としてはbehavior: "auto"と同じ即時ジャンプ）。
     if (typeof viewport.scrollTo === "function") {
@@ -113,7 +151,7 @@ export default function DynamicLayerTimeSlider({
       viewport.scrollLeft = targetLeft;
     }
     hasMountedRef.current = true;
-  }, [index]);
+  }, [index, tickCenter]);
 
   // スクロールが落ち着いたタイミング（連続するscrollイベントが一定時間止まったとき）で
   // 左端の目印に最も近いコマを確定させ、onIndexChangeへ報告する。スクロール中の毎フレーム
@@ -125,12 +163,23 @@ export default function DynamicLayerTimeSlider({
     if (!viewport || frames.length === 0) return;
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
-      const raw = Math.round(viewport.scrollLeft / TICK_SPACING_PX);
-      const next = Math.max(0, Math.min(frames.length - 1, raw));
+      // コマごとに幅が異なる（frameWidth）ため、単純な除算ではなく「コマの中心が
+      // .leftIndicatorに最も近い」コマを総当たりで探す（コマ数は最大でも数十〜百程度の
+      // オーダーのため、スクロール確定時の1回だけの実行なら線形探索で十分）。
+      const target = viewport.scrollLeft + INDICATOR_OFFSET_PX;
+      let next = 0;
+      let nearestDist = Infinity;
+      for (let i = 0; i < frames.length; i++) {
+        const dist = Math.abs(tickCenter(i) - target);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          next = i;
+        }
+      }
       // CSSのscroll-snapに頼らない自前ドラッグのため、最寄りのコマの厳密な位置へここで
       // 明示的に寄せる（ドラッグ/ホイールを離した位置が必ずしもコマの区切りぴったりとは
       // 限らないため）。
-      const targetLeft = next * TICK_SPACING_PX;
+      const targetLeft = tickCenter(next) - INDICATOR_OFFSET_PX;
       if (Math.abs(viewport.scrollLeft - targetLeft) > 0.5) {
         if (typeof viewport.scrollTo === "function") {
           viewport.scrollTo({ left: targetLeft, behavior: "smooth" });
@@ -238,14 +287,12 @@ export default function DynamicLayerTimeSlider({
   }
 
   const frame = frames[Math.min(index, frames.length - 1)];
-  // トラックの左右パディング。左指標（.leftIndicator、ルーラー左端から半コマぶん内側の
-  // 固定位置、実機フィードバック「左端を表示時刻にして」）にコマiの中心が重なる
-  // scrollLeftがちょうどi * TICK_SPACING_PXになるよう、左側パディングは0、右側は
-  // 「最後のコマの中心も指標へ届く」ぶん（ビューポート幅 - 1コマ）を確保する
-  // （ファイル冒頭のTICK_SPACING_PXコメント参照、layoutEffect/handleScrollの計算は
-  // この前提で書いている）。
-  const trackPaddingRight = `calc(100% - ${TICK_SPACING_PX}px)`;
-  const indicatorOffset = TICK_SPACING_PX / 2;
+  // トラックの左右パディング。左指標（.leftIndicator、ルーラー左端から固定オフセット
+  // INDICATOR_OFFSET_PX内側の固定位置、実機フィードバック「左端を表示時刻にして」）に
+  // 最後のコマの中心も届くよう、右側は「ビューポート幅 - 最後のコマの幅」を確保する
+  // （左側パディングは0のまま。ファイル冒頭のtickCenter/frameWidthコメント参照、
+  // layoutEffect/handleScrollの計算はこの前提で書いている）。
+  const trackPaddingRight = `calc(100% - ${frameWidth(frames[frames.length - 1])}px)`;
 
   return (
     <div className={styles.wrapper}>
@@ -281,7 +328,7 @@ export default function DynamicLayerTimeSlider({
           >
             <div className={styles.rulerTrack} style={{ paddingRight: trackPaddingRight }}>
               {frames.map((f, i) => (
-                <div key={i} className={f.hourMark ? styles.tickHour : styles.tickMinor} style={{ width: TICK_SPACING_PX }}>
+                <div key={i} className={f.hourMark ? styles.tickHour : styles.tickMinor} style={{ width: frameWidth(f) }}>
                   <span className={styles.tickMark} aria-hidden="true" />
                   {/* 空文字でも.tickLabelの高さ・行送りは常に確保する（CSS側、コマによって
                       縦位置がガタつかないようにするコメント参照）ため、tickLabel無しのコマも
@@ -290,7 +337,7 @@ export default function DynamicLayerTimeSlider({
                 </div>
               ))}
             </div>
-            <div className={styles.leftIndicator} style={{ left: indicatorOffset }} aria-hidden="true" />
+            <div className={styles.leftIndicator} style={{ left: INDICATOR_OFFSET_PX }} aria-hidden="true" />
           </div>
           {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
               未来・過去側を見ていたスライダー位置を、ワンタップで実時刻へ戻す（onNowコメント
