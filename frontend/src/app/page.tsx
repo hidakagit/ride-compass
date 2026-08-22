@@ -57,6 +57,7 @@ import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm from "@/components/RouteForm/RouteForm";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
+import WarningBadgeList, { type WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
 import DynamicLayerTimeSlider, {
   type DynamicLayerTimeSliderFrame,
 } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
@@ -105,7 +106,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather } from "@/services/weatherApi";
+import { getCurrentWeather, getWeatherWarnings } from "@/services/weatherApi";
 import type {
   Coordinates,
   MotorVehicleDensityRecipeOverride,
@@ -115,7 +116,7 @@ import type {
   ScoringWeights,
   CarStressRecipeOverride,
 } from "@/types/route";
-import type { WeatherConditions } from "@/types/weather";
+import type { WeatherConditions, WeatherWarnings } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./page.module.css";
 
@@ -296,6 +297,12 @@ export default function Home() {
   const [weather, setWeather] = useState<WeatherConditions | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  // 警報・注意報バッジ（改善計画T205）。天候と同じ地点変更起点で取得するが、失敗時は
+  // バックエンド契約どおり「警報なし」（空配列）として扱うため、weatherErrorと違い
+  // エラー表示用のstateは持たない（通信エラー自体はDebugConsoleのcategory
+  // "api:weatherWarnings"で追える）。
+  const [weatherWarnings, setWeatherWarnings] = useState<WeatherWarnings | null>(null);
 
   // 動的気象レイヤー（降水ナウキャスト・風）が指す対象時刻（T183再設計、実機フィードバック
   // 「時間経過はスライドバー1本で表現する」）。ONの全レイヤーのフレーム時刻を統合した
@@ -802,6 +809,45 @@ export default function Home() {
     const timer = window.setTimeout(() => fetchWeatherFor(location), WEATHER_FETCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [location, fetchWeatherFor]);
+
+  // 警報・注意報バッジ（改善計画T205）。天候と同じ地点・同じデバウンスへ相乗りさせる
+  // （別のuseEffectで独立に間引くと、地点変更のたびにデバウンス窓が2つ走り無駄が増える）。
+  // 通信エラー時は例外を投げるだけで、警報なし（空配列）として静かに扱う
+  // （バックエンド自体が失敗時に空warningsを返す契約のため、これは主にネットワーク到達
+  // 不能等の場合。T205完了条件「取得失敗時は警告なし」）。
+  const latestWarningsRequestId = useRef(0);
+  const fetchWarningsFor = useCallback((next: Coordinates) => {
+    const requestId = ++latestWarningsRequestId.current;
+    getWeatherWarnings(next)
+      .then((result) => {
+        if (requestId !== latestWarningsRequestId.current) return;
+        setWeatherWarnings(result);
+      })
+      .catch(() => {
+        if (requestId !== latestWarningsRequestId.current) return;
+        setWeatherWarnings(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => fetchWarningsFor(location), WEATHER_FETCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [location, fetchWarningsFor]);
+
+  const warningBadgeItems = useMemo<WarningBadgeItem[]>(() => {
+    if (!weatherWarnings) return [];
+    return weatherWarnings.warnings.map((warning) => ({
+      id: warning.code,
+      label: warning.name,
+      level: warning.level as WarningBadgeItem["level"],
+      title: [
+        warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
+        "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
+      ]
+        .filter(Boolean)
+        .join(" / "),
+    }));
+  }, [weatherWarnings]);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。レイヤーがONの間だけ取得し、
   // 実況が5分毎に更新されるのに合わせて定期的に再取得する（OFFの間はfetch自体しない、
@@ -1429,6 +1475,7 @@ export default function Home() {
         title="風向・風速はルート候補の評価に使われます"
       >
         <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+        <WarningBadgeList items={warningBadgeItems} />
       </header>
 
       <div className="app-shell">

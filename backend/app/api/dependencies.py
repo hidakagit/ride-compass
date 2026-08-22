@@ -40,6 +40,7 @@ from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
 from app.services.route_scorer import RouteScorer, load_scoring_weights
 from app.services.routing_service import RoutingService
+from app.services.warning_service import WarningService
 from app.services.weather_service import WeatherService
 from app.services.wind_service import WindService
 
@@ -69,6 +70,12 @@ def get_elevation_service():
 
 def get_weather_service():
     return WeatherService(WeatherClient(), get_http_client(10.0))
+
+
+def get_warning_service():
+    # 改善計画T205（警報・注意報バッジ）。GSI逆ジオコーダ・JMA地域マスタ・JMA警報APIは
+    # いずれも軽量なJSON取得のため、他のサービスと同じ共有httpx.AsyncClientを使う。
+    return WarningService(get_http_client(10.0))
 
 
 def get_wind_service(

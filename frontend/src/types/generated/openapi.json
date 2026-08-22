@@ -203,6 +203,59 @@
         }
       }
     },
+    "/api/weather/warnings": {
+      "get": {
+        "summary": "Get Weather Warnings",
+        "description": "出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す\n（改善計画T205）。地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した\n場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり\nこのfail-openは意図的な仕様のため、502は返さない——T174（WBGT警告）と共有する\n「安全側ではないが失敗時は警告なしとする」という既定の方針）。",
+        "operationId": "get_weather_warnings_api_weather_warnings_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherWarnings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/weather/wind-grid": {
       "get": {
         "summary": "Get Wind Grid",
@@ -637,6 +690,37 @@
   },
   "components": {
     "schemas": {
+      "ActiveWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "additions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Additions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "level",
+          "additions"
+        ],
+        "title": "ActiveWarning"
+      },
       "AxisInspectorAxis": {
         "properties": {
           "axis_id": {
@@ -1878,6 +1962,46 @@
           "observed_at"
         ],
         "title": "WeatherConditions"
+      },
+      "WeatherWarnings": {
+        "properties": {
+          "area_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Name"
+          },
+          "report_datetime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Datetime"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "area_name",
+          "report_datetime",
+          "warnings"
+        ],
+        "title": "WeatherWarnings"
       },
       "WindGridPoint": {
         "properties": {

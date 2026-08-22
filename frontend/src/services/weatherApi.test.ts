@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WeatherConditions, WindGridPoint } from "@/types/weather";
-import { getCurrentWeather, getWindGrid, getWindGridDetail } from "./weatherApi";
+import type { WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
+import { getCurrentWeather, getWeatherWarnings, getWindGrid, getWindGridDetail } from "./weatherApi";
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
   return {
@@ -78,6 +78,44 @@ describe("getCurrentWeather", () => {
 
     await expect(getCurrentWeather({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
       "天候情報の取得に失敗しました[HTTP 503]",
+    );
+  });
+});
+
+describe("getWeatherWarnings", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("成功時は/api/weather/warningsをlatitude/longitude付きでfetchし、JSONをそのまま返す", async () => {
+    const warnings: WeatherWarnings = {
+      area_name: "東京地方",
+      report_datetime: "2026-08-22T18:09:00+09:00",
+      warnings: [{ code: "14", name: "雷注意報", level: "advisory", additions: ["竜巻"] }],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => warnings }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getWeatherWarnings({ latitude: 35.6812, longitude: 139.7671 });
+
+    expect(result).toEqual(warnings);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/weather/warnings");
+    expect(String(url)).toContain("latitude=35.6812");
+    expect(String(url)).toContain("longitude=139.7671");
+  });
+
+  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
+    const headers = new Headers({ "x-request-id": "req-321" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
+      ),
+    );
+
+    await expect(getWeatherWarnings({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
+      "リクエストが多すぎます[req: req-321]",
     );
   });
 });

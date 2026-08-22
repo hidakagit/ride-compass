@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.api.dependencies import client_id, get_weather_service
+from app.api.dependencies import client_id, get_warning_service, get_weather_service
 from app.config import settings
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
@@ -16,6 +16,7 @@ from app.domain.wind_grid import (
 )
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
+from app.services.warning_service import WarningService, WeatherWarnings
 from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.weather")
@@ -42,6 +43,28 @@ async def get_weather(
     if conditions is None:
         raise HTTPException(status_code=502, detail="天候情報の取得に失敗しました")
     return conditions
+
+
+@router.get("/api/weather/warnings", response_model=WeatherWarnings)
+async def get_weather_warnings(
+    http_request: Request,
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    warning_service: WarningService = Depends(get_warning_service),
+) -> WeatherWarnings:
+    """出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す
+    （改善計画T205）。地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した
+    場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり
+    このfail-openは意図的な仕様のため、502は返さない——T174（WBGT警告）と共有する
+    「安全側ではないが失敗時は警告なしとする」という既定の方針）。"""
+    if not check_rate_limit(
+        f"weather-warnings:{client_id(http_request)}", settings.weather_warnings_rate_limit_per_minute
+    ):
+        record_rate_limit_rejection(
+            "weather-warnings", client_id(http_request), f"{settings.weather_warnings_rate_limit_per_minute}/min"
+        )
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    return await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
 
 
 def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:

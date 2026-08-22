@@ -3504,12 +3504,14 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 （「回避一択」の危険は評価軸にせず警告表示、動的データの欠測はT87のレイヤーデータ状態機構
 へ正直に載せる）。
 
-**実施順序（Phase）**:
-- **Phase A（最小コスト・即着手）**: T204（雷ナウキャスト、竜巻はオプション同梱）。
+**実施順序（Phase）**: Phase A（T204）・Phase B（T205）は完了（2026-08-22）。
+
+- **Phase A（最小コスト・即着手、完了）**: T204（雷ナウキャスト、竜巻はオプション同梱）。
   T171と同じタイル配信系で、プロダクトコード（`thns`/`targetTimes_N3.json`）の実在を
   今回のPlaywright実機確認で確定済みのため、残る作業は実装のみ。
-- **Phase B（警告バッジ基盤）**: T205（気象警報・注意報）。T174（WBGT）と警告バッジの
-  表示枠を共有できるため、この基盤を先に作ってからT174へ進むと二重実装を避けられる。
+- **Phase B（警告バッジ基盤、完了）**: T205（気象警報・注意報）。T174（WBGT）と警告バッジの
+  表示枠を共有できるため、この基盤を先に作ってからT174へ進むと二重実装を避けられる
+  （`WarningBadge.tsx`として実装済み、T174着手時はこれを再利用する）。
 - **Phase C（既起票の優先順位再確認、内容変更なし）**: T176（河川敷冠水、台風期の今が
   調査の好機）→ T175（花粉、冬季着手で間に合う）→ T177（交通量時間帯補正、季節非依存）。
 - **Phase D（トリガー付きDEFER・調査のみ）**: T206（積雪・凍結）・T207（雷ポテンシャル
@@ -3585,7 +3587,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   null警告3件は既知（T202で文書化済み、React Strict Mode由来と推定・実害無し）で
   新規の問題ではない。
 
-### - [ ] T205. 気象警報・注意報を警告バッジとして表示する 規模M
+### - [x] T205. 気象警報・注意報を警告バッジとして表示する 規模M（2026-08-22完了）
 
 - 発端: ユーザー要望（2026-08-22）。JMA警報・注意報API
   （`https://www.jma.go.jp/bosai/warning/data/warning/{市区町村等コード}.json`、
@@ -3604,6 +3606,61 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   backend/frontend全green。
 - 依存: なし。T174とバッジ表示コンポーネントを共有する（T174着手前にT205を先に実施する
   ことを推奨、Phase順参照）。
+- 実装内容:
+  - **エンドポイントの訂正（着手時に判明）**: 発端に記載した
+    `.../warning/data/warning/{code}.json`は令和8年5月29日の運用切替前の旧（legacy）
+    スキーマで、2026-08-22時点（切替後）はレスポンスが`{areaTypes:[...]}`形の
+    別スキーマへ変わっていた。現行の`.../warning/data/r8/{府県予報区コード}.json`
+    （実機確認済み、`{controlDatetime, reportDatetime, warning:{class10Items,
+    class20Items}}`の配列を返す。1レスポンスに大雨・土砂災害・高潮・暴風・波浪・大雪・
+    その他の注意報が別電文（VPWW55〜61）として同居する）を採用した。
+  - `backend/app/domain/jma_warning.py`（新設）: 気象庁「気象警報・注意報（Ｒ０６）」
+    電文フォーマット解説資料の別表3（PDF、dmdata.jp経由で取得・全コード照合）を典拠に
+    `WARNING_CODE_NAMES`（全コード→名称）を定義。`CYCLING_RELEVANT_WARNING_CODES`は
+    ユーザー要望の列挙（雷・大雨・洪水・強風・波浪・大雪）に土砂災害を追加した
+    （山間部ロングライドの通行可否に直結するため）。霜・着氷・着雪・なだれ・低温は
+    T206（積雪・凍結）、濃霧はT208（視程・霧）で別途扱う予定のため対象外、高潮・乾燥・
+    その他の注意報は道路走行との関連が薄く対象外（「対象外の種別は表示しない」の
+    「津波」と同種の除外）。`warning_level()`は名称文字列（「特別警報」「警報」を
+    含むか）から3段階を導出し、レベルを別テーブルとして二重管理しない（設計原則2）。
+  - `backend/app/domain/jma_area.py`（新設）: 緯度経度から得た市区町村コード（5桁）
+    →JMA警報エリア（class20/class10/office）の解決。JMA地域マスタ（area.json）の
+    class20エリアコードが市区町村コード+"00"と一致することを実機照合で確認し、
+    GSIの市区町村名とJMAの地域名の文字列突合を不要にした。
+  - `backend/app/infrastructure/jma_warning_client.py`（新設）: 国土地理院逆ジオコーダ
+    （緯度経度→市区町村コード）・JMA地域マスタ（area.json、24時間TTL）・JMA警報API
+    （r8、10分TTL）の3クライアント。いずれもOpen-Meteoほど更新頻度が高くないため
+    tenacity再試行は設けず、失敗時はNoneを返す（呼び出し元が「警報なし」として扱う）。
+  - `backend/app/services/warning_service.py`（新設）: 上記3つを直列に呼び、
+    どこで失敗しても空の`WeatherWarnings`（警報なし）を返す。r8レスポンスの電文配列
+    全件を走査し、対象エリアのkindsをcode単位で辞書へ集約（重複排除）、採用した警報の
+    中で最も新しいreportDatetimeをバッジの発表時刻として使う。class20Itemsに対象
+    エリアが無い電文（高潮等で実機観測）はclass10Itemsへフォールバックする。
+  - `GET /api/weather/warnings`（`weather.py`）: 他の`/api/weather`系と異なり、
+    取得失敗を502にせず常に200+空warningsで返す（完了条件どおりの意図的なfail-open。
+    T200のwind-grid全滅502ガードとは方針が異なる点をコードコメントで明記）。
+    レート制限（`weather_warnings_rate_limit_per_minute`）を追加。
+  - `frontend/src/components/WarningBadge/WarningBadge.tsx`（新設）:
+    T174と共有する汎用バッジ表示コンポーネント（JMA固有の型に依存しないitem形）。
+    3段階（advisory/warning/emergency_warning）の配色は雷ナウキャスト
+    （T204、`THUNDER_ACTIVITY_LEVELS`）の最高段階と同じ紫をemergency_warningに使い、
+    アプリ全体の警戒度配色語彙を揃えた。
+  - `frontend/src/app/page.tsx`: 天候取得と同じ地点変更デバウンス（1.5秒）に相乗りして
+    `getWeatherWarnings`を呼ぶ（独立したデバウンスを増やさない）。バッジの`title`へ
+    付随事項（竜巻・ひょう等）と「取得できない場合は警報が出ていてもバッジが表示され
+    ないことがあります」という注意書きを併記する（完了条件の「安全側でない点に注意書きを
+    添える」、T174と同じ方針）。
+  - `frontend/src/app/page.module.css`: `.weatherHeader`へ`flex-wrap: wrap`を追加し、
+    狭い幅ではバッジが2行目へ折り返るようにした（WeatherPanel内部は独自にスクロール
+    するため、ヘッダー全体を縮めるより両方の内容を読める）。
+- 検証: `test_jma_warning_domain.py`・`test_jma_area.py`（新設、コード分類・エリア解決の
+  純ロジック）・`test_warning_service.py`（新設、モックした3クライアント関数を差し替えて
+  複数電文の集約・フォールバック・失敗時の空応答を確認）・`test_weather_route.py`への
+  追加（エンドポイントの成功/失敗時空応答/レート制限）。`WarningBadge.test.tsx`・
+  `weatherApi.test.ts`への追加。backend 989件・frontend 487件・tsc/eslint全green。
+  Playwrightで実機確認（2026-08-22時点、東京地方は実際に大雨危険警報・雷注意報
+  （竜巻・ひょう付随）・土砂災害注意報が発表中だったため、モックではなく実データで
+  3件のバッジ表示・正しい配色・titleの付随事項・モバイル幅での折り返しを確認できた）。
 
 ### - [ ] T206. 積雪・凍結情報（JMA「今後の雪」タイル・Open-Meteo積雪変数） 規模S〜M — トリガー: 冬季前（毎年11月）またはユーザーからの着手指示
 

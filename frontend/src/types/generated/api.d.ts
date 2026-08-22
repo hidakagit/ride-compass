@@ -115,6 +115,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/weather/warnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Weather Warnings
+         * @description 出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す
+         *     （改善計画T205）。地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した
+         *     場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり
+         *     このfail-openは意図的な仕様のため、502は返さない——T174（WBGT警告）と共有する
+         *     「安全側ではないが失敗時は警告なしとする」という既定の方針）。
+         */
+        get: operations["get_weather_warnings_api_weather_warnings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/weather/wind-grid": {
         parameters: {
             query?: never;
@@ -321,6 +345,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActiveWarning */
+        ActiveWarning: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Level */
+            level: string;
+            /** Additions */
+            additions: string[];
+        };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {
             /** Axis Id */
@@ -770,6 +805,15 @@ export interface components {
             /** Observed At */
             observed_at: string;
         };
+        /** WeatherWarnings */
+        WeatherWarnings: {
+            /** Area Name */
+            area_name: string | null;
+            /** Report Datetime */
+            report_datetime: string | null;
+            /** Warnings */
+            warnings: components["schemas"]["ActiveWarning"][];
+        };
         /**
          * WindGridPoint
          * @description 格子点1つぶんの時間別風向・風速・降水量。`times`はOpen-Meteoのhourly.time（Asia/Tokyo、
@@ -955,6 +999,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeatherConditions"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_weather_warnings_api_weather_warnings_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeatherWarnings"];
                 };
             };
             /** @description Validation Error */

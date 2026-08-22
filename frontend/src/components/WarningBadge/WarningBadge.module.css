@@ -1,0 +1,40 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.row::-webkit-scrollbar {
+  display: none;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  /* 背景色に対して常に白文字で十分なコントラストが取れるよう、3段階とも十分暗い色を使う
+   * （ライト/ダークモード共通、警告バッジは常時強調表示のため--foreground追従にはしない）。 */
+  color: #ffffff;
+}
+
+.advisory {
+  background: var(--color-warning);
+}
+
+.warning {
+  background: var(--color-danger);
+}
+
+/* 特別警報級。雷ナウキャスト（thunderNowcast.ts: THUNDER_ACTIVITY_LEVELS level4）と
+ * 同じ紫を「最も警戒すべき段階」の色として使い回し、アプリ全体で警戒度の配色語彙を揃える。 */
+.emergency_warning {
+  background: #9333ea;
+}

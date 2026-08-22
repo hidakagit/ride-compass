@@ -1,11 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_weather_service
+from app.api.dependencies import get_warning_service, get_weather_service
 from app.config import settings
+from app.domain.jma_warning import ActiveWarning
 from app.domain.weather import WeatherConditions
 from app.infrastructure import rate_limiter
 from app.main import app
+from app.services.warning_service import WeatherWarnings
 
 client = TestClient(app)
 
@@ -363,6 +365,68 @@ def test_get_wind_grid_detail_rejects_bbox_too_large_for_finer_spacing_deg_even_
 
     assert ok.status_code == 200
     assert too_fine.status_code == 400
+
+
+class FakeWarningService:
+    def __init__(self, warnings: WeatherWarnings):
+        self._warnings = warnings
+
+    async def get_warnings(self, point):
+        return self._warnings
+
+
+def test_get_weather_warnings_returns_warnings_on_success():
+    warnings = WeatherWarnings(
+        area_name="東京地方",
+        report_datetime="2026-08-22T18:09:00+09:00",
+        warnings=[ActiveWarning(code="14", name="雷注意報", level="advisory", additions=["竜巻"])],
+    )
+    app.dependency_overrides[get_warning_service] = lambda: FakeWarningService(warnings)
+
+    try:
+        response = client.get("/api/weather/warnings", params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["area_name"] == "東京地方"
+    assert body["warnings"][0]["code"] == "14"
+    assert body["warnings"][0]["additions"] == ["竜巻"]
+
+
+def test_get_weather_warnings_returns_empty_without_error_on_failure():
+    # 改善計画T205完了条件「取得失敗時は警告なし」。502ではなく空のwarningsで200を返す
+    # （wind-grid系の全滅502ガード、T200とは意図的に異なる方針）。
+    app.dependency_overrides[get_warning_service] = lambda: FakeWarningService(
+        WeatherWarnings(area_name=None, report_datetime=None, warnings=[])
+    )
+
+    try:
+        response = client.get("/api/weather/warnings", params={"latitude": 35.6812, "longitude": 139.7671})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"area_name": None, "report_datetime": None, "warnings": []}
+
+
+def test_get_weather_warnings_is_rate_limited_per_client():
+    empty = WeatherWarnings(area_name=None, report_datetime=None, warnings=[])
+    app.dependency_overrides[get_warning_service] = lambda: FakeWarningService(empty)
+    params = {"latitude": 35.6812, "longitude": 139.7671}
+
+    try:
+        for _ in range(settings.weather_warnings_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit(
+                "weather-warnings:testclient", settings.weather_warnings_rate_limit_per_minute
+            )
+        assert client.get("/api/weather/warnings", params=params).status_code == 200
+        response = client.get("/api/weather/warnings", params=params)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
 
 
 def test_get_wind_grid_detail_is_rate_limited_per_client():
