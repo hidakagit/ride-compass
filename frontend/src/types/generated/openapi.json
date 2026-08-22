@@ -256,6 +256,59 @@
         }
       }
     },
+    "/api/weather/wbgt": {
+      "get": {
+        "summary": "Get Wbgt",
+        "description": "出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す（改善計画T174）。\n提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の\nいずれも例外にせず空（level=None）を返す（wbgt_service.py参照。T205の警報・\n注意報バッジと同じfail-open方針のため502は返さない）。",
+        "operationId": "get_wbgt_api_weather_wbgt_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WbgtStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/weather/wind-grid": {
       "get": {
         "summary": "Get Wind Grid",
@@ -1869,6 +1922,62 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WbgtStatus": {
+        "properties": {
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "level",
+          "label",
+          "value",
+          "observed_at"
+        ],
+        "title": "WbgtStatus"
       },
       "WeatherConditions": {
         "properties": {

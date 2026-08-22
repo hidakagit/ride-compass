@@ -2326,7 +2326,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   （新規10件: test_twilight.py 7件・test_road_graph_engine.py 2件・
   test_openrouteservice_engine.py 1件）全green。
 
-### - [ ] T174. 夏季の暑さ指数（WBGT）警告表示 規模S〜M
+### - [x] T174. 夏季の暑さ指数（WBGT）警告表示 規模S〜M（2026-08-22完了）
 
 - 背景: 環境省熱中症予防情報サイトが全国の暑さ指数（WBGT）の予測値・実況値をCSV/WebAPIで
   無料提供している（4〜10月のみ）。熱中症はロングライドの主要リスクで、補給・休憩POI
@@ -2339,6 +2339,60 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
 - 完了条件: 夏季にWBGT警戒レベルが表示され、提供期間外は何も出ないこと。取得失敗時は
   警告なし（安全側でない点に注意書きを添える）。backend/frontend全green。
 - 依存: なし。
+- 実装内容:
+  - **WebAPI仕様の確定**: 環境省サイトの`man15NH/wbgt_data_api_service_manual.pdf`
+    （2026-08-22取得）で正式なJSON WebAPI（`GET https://www.wbgt.env.go.jp/api/v1/
+    getForecastData`）を確認。地点別予測値は3時間刻みで翌々日まで取得できる。
+    `forecast_val`は暑さ指数を10倍した整数文字列（実機確認: "280"→28.0）。
+  - **地点マッピング**: 情報提供地点マスタ（`man15NH/wbgt_point_master-{日付}.csv`、
+    全国約840地点、アメダス観測所ベース）を取得し、出発地点への最近傍点を単純な
+    全走査（cos(緯度)補正付きユークリッド距離）で解決する（840点程度のため空間索引は
+    不要）。市区町村ベースのJMA警報（T205）と異なり行政区画の親子関係が無いため、
+    素直な最近傍点探索を新設（domain/wbgt_points.py）。
+  - **発表時刻の検索方式（着手時に判明した罠）**: 予測API当初は「特定時刻検索
+    （date_search_type=3）」でforecast_origin_dateに現在時刻を渡す設計だったが、
+    実機確認でこの検索が「発表時刻テーブルとの厳密一致」であり、分・秒はおろか
+    正時に丸めても直近の発表がまだ存在しない時間帯（例: 20時発表がまだ無い20:05）は
+    空応答になると判明。「連続期間指定（date_search_type=1）」へ変更し、直近6時間の
+    発表時刻を検索範囲として取得、レスポンスに複数の発表回（reference_time）が
+    混在する場合は最新のものだけを採用するロジック（wbgt_service.py:
+    `_pick_nearest_forecast`）を実装した。
+  - `backend/app/domain/wbgt.py`（新設）: 暑さ指数の値→3段階＋非表示（`wbgt_level`、
+    環境省サイト掲載の「熱中症予防運動指針」を典拠）、提供期間判定（`is_within_
+    provision_period`、月単位の粗い判定。境界のズレは呼び出し元のfail-open方針で
+    実害なく吸収される設計、コード内に明記）。
+  - `backend/app/domain/wbgt_points.py`（新設）: `WbgtPoint`と`nearest_point`
+    （最近傍点探索）。
+  - `backend/app/infrastructure/wbgt_client.py`（新設）: 地点マスタ取得（24時間TTL）・
+    予測値取得（1時間TTL）。サイト側の注意書き「自動化ツールからの高頻度アクセスは
+    控えて」に配慮しtenacity再試行は設けない。
+  - `backend/app/services/wbgt_service.py`（新設）: 上記を組み合わせ`WbgtStatus`
+    （level/label/value/observed_at）を構築。提供期間外・地点解決失敗・予測取得失敗・
+    「ほぼ安全」（21未満）のいずれもlevel=nullを返す（T205と共有するfail-open方針）。
+  - `GET /api/weather/wbgt`（`weather.py`）: T205の`/api/weather/warnings`と同じ
+    fail-open方針（502を返さない）。レート制限
+    （`weather_wbgt_rate_limit_per_minute`）を追加。
+  - `frontend/src/components/WarningBadge/WarningBadge.tsx`: T205で3段階だった
+    `WarningBadgeLevel`へ`severe_warning`（厳重警戒）を追加し4段階化（JMAは3段階のまま
+    利用、WBGTのみ4段階目を使う。3段階へ無理に丸め込まない）。
+  - `frontend/src/components/WarningBadge/WarningBadge.module.css`: 実機確認
+    （Playwright、モバイル幅390px）で判明した問題を修正——当初`.row`は
+    WeatherPanelと同じ`overflow-x: auto`（横スクロール）だったが、JMA警報3件+WBGT
+    1件の計4件だと1件が画面外に隠れて見切れた。警告バッジは安全性に関わる情報のため、
+    隠れて見えなくなるのは望ましくないと判断し、`flex-wrap: wrap`（バッジ単位の折り返し、
+    短い語句のためCJKの1文字折り返し問題は起きない）へ変更した。
+  - `frontend/src/app/page.tsx`: 警報・注意報バッジ（T205）と同じ地点変更デバウンス
+    （1.5秒）に相乗りしてWBGTを取得。JMA警報とWBGTの2つのバッジ配列を1つの
+    `warningBadgeItems`へ合流させ、`WarningBadgeList`は1つのまま両方を描画する
+    （表示コンポーネントを両タスクで共有するというT205時点の設計どおり）。
+- 検証: `test_wbgt_domain.py`・`test_wbgt_points.py`（新設、純ロジック）・
+  `test_wbgt_service.py`（新設、モックした地点マスタ・予測値取得を差し替え、
+  複数発表回混在時に最新のみ採用することを含む）・`test_weather_route.py`への追加
+  （成功/提供期間外・失敗時の空応答/レート制限）。backend 1010件・frontend 489件・
+  tsc/eslint全green。Playwrightで実機確認（2026-08-22、提供期間内・東京の暑さ指数
+  24.0=注意で実データによるバッジ表示を確認。JMA警報バッジ（T205）との共存、
+  デスクトップ・モバイル両方でのレイアウトを確認し、上記のモバイル見切れ問題を
+  発見・修正した）。
 
 ### - [ ] T175. 花粉飛散情報の導入可否を調査する 規模S（調査のみ）
 

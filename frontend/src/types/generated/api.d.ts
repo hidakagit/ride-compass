@@ -139,6 +139,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/weather/wbgt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wbgt
+         * @description 出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す（改善計画T174）。
+         *     提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の
+         *     いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。T205の警報・
+         *     注意報バッジと同じfail-open方針のため502は返さない）。
+         */
+        get: operations["get_wbgt_api_weather_wbgt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/weather/wind-grid": {
         parameters: {
             query?: never;
@@ -782,6 +805,17 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WbgtStatus */
+        WbgtStatus: {
+            /** Level */
+            level: string | null;
+            /** Label */
+            label: string | null;
+            /** Value */
+            value: number | null;
+            /** Observed At */
+            observed_at: string | null;
+        };
         /** WeatherConditions */
         WeatherConditions: {
             /** Temperature C */
@@ -1031,6 +1065,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeatherWarnings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_wbgt_api_weather_wbgt_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WbgtStatus"];
                 };
             };
             /** @description Validation Error */

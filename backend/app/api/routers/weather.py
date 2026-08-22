@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.api.dependencies import client_id, get_warning_service, get_weather_service
+from app.api.dependencies import client_id, get_warning_service, get_wbgt_service, get_weather_service
 from app.config import settings
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
@@ -17,6 +17,7 @@ from app.domain.wind_grid import (
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.warning_service import WarningService, WeatherWarnings
+from app.services.wbgt_service import WbgtService, WbgtStatus
 from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.weather")
@@ -65,6 +66,25 @@ async def get_weather_warnings(
         )
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     return await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
+
+
+@router.get("/api/weather/wbgt", response_model=WbgtStatus)
+async def get_wbgt(
+    http_request: Request,
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    wbgt_service: WbgtService = Depends(get_wbgt_service),
+) -> WbgtStatus:
+    """出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す（改善計画T174）。
+    提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の
+    いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。T205の警報・
+    注意報バッジと同じfail-open方針のため502は返さない）。"""
+    if not check_rate_limit(f"weather-wbgt:{client_id(http_request)}", settings.weather_wbgt_rate_limit_per_minute):
+        record_rate_limit_rejection(
+            "weather-wbgt", client_id(http_request), f"{settings.weather_wbgt_rate_limit_per_minute}/min"
+        )
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    return await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude))
 
 
 def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:

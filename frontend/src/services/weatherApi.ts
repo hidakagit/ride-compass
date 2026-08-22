@@ -1,5 +1,5 @@
 import type { Coordinates } from "@/types/route";
-import type { WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
+import type { WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -31,6 +31,18 @@ export async function getWeatherWarnings(point: Coordinates): Promise<WeatherWar
     category: "api:weatherWarnings",
     errorLabel: "警報・注意報",
   });
+}
+
+// WBGT警告バッジ（改善計画T174）。提供期間外（11〜3月）・取得失敗・「ほぼ安全」のいずれも
+// backend側がlevel=nullで200を返す契約（backend/app/api/routers/weather.py: get_wbgt参照）
+// のため、ここでのエラーはネットワーク到達不能・タイムアウト等の通信エラーのみを表す。
+export async function getWbgtStatus(point: Coordinates): Promise<WbgtStatus> {
+  const params = new URLSearchParams({
+    latitude: String(point.latitude),
+    longitude: String(point.longitude),
+  });
+  const url = `${API_BASE_URL}/api/weather/wbgt?${params}`;
+  return fetchJson<WbgtStatus>(url, { timeoutMs: 15000, category: "api:wbgt", errorLabel: "暑さ指数" });
 }
 
 // 風の格子点マップ（改善計画T178フォローアップ）。関東本土全域の固定格子点ぶんの

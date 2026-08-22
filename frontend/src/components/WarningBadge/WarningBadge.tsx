@@ -1,11 +1,13 @@
 import styles from "./WarningBadge.module.css";
 
-// JMA警報・注意報バッジ（改善計画T205）とWBGT警告（T174、未着手）が共有する表示コンポーネント。
+// JMA警報・注意報バッジ（改善計画T205）とWBGT警告（T174）が共有する表示コンポーネント。
 // 「地図レイヤーではなく警告バッジ」という表現形式を両タスクで揃えるため、JMA固有の型
-// （ActiveWarning）ではなく汎用のitem形にしている（levelの3段階もJMA固有ではなく
-// 「注意報・警報・特別警報級」相当の一般的な警戒度として扱える）。
+// （ActiveWarning）ではなく汎用のitem形にしている。
+// levelは4段階。JMA（T205）は3段階（advisory/warning/emergency_warning）のみ使い、
+// WBGT（T174、環境省の熱中症予防運動指針）は間の"severe_warning"（厳重警戒）も使う
+// （4段階のまま素直に表現し、JMAの3段階へ無理に丸め込まない）。
 
-export type WarningBadgeLevel = "advisory" | "warning" | "emergency_warning";
+export type WarningBadgeLevel = "advisory" | "warning" | "severe_warning" | "emergency_warning";
 
 export interface WarningBadgeItem {
   id: string;

@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # （1回の呼び出しでGSI逆ジオコーダ・JMA地域マスタ・JMA警報APIの最大3件を叩きうるが、
     # 後2者は長寿命TTLキャッシュが効くため実際の外部リクエストは大半がGSI呼び出しのみ）。
     weather_warnings_rate_limit_per_minute: int = 30
+    # WBGT警告バッジ（改善計画T174）。/weather・/weather/warningsと同じ地点変更デバウンス
+    # 起点で呼ばれる。地点マスタCSV・予測値APIともに長寿命TTLキャッシュが効くため、
+    # 実際の外部リクエストは大半がキャッシュヒットになる。
+    weather_wbgt_rate_limit_per_minute: int = 30
     # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
     # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
     # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。

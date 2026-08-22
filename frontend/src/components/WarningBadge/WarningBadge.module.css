@@ -2,13 +2,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.row::-webkit-scrollbar {
-  display: none;
+  /* WeatherPanelの.row（横スクロール）とは意図的に方針を変える。警告バッジは安全性に
+   * 関わる情報のため、狭い幅で横スクロールに隠れて見えなくなるのは望ましくない
+   * （実機確認、2026-08-22: モバイル幅390pxでJMA警報3件+WBGT1件の計4件がoverflow-x:
+   * autoだと1件見切れた）。バッジ単位（短い語句、CJKの1文字折り返しにはならない）で
+   * 折り返し、全件を必ず表示する。 */
+  flex-wrap: wrap;
 }
 
 .badge {
@@ -20,7 +19,7 @@
   border-radius: 999px;
   font-size: 0.85rem;
   font-weight: 700;
-  /* 背景色に対して常に白文字で十分なコントラストが取れるよう、3段階とも十分暗い色を使う
+  /* 背景色に対して常に白文字で十分なコントラストが取れるよう、4段階とも十分暗い色を使う
    * （ライト/ダークモード共通、警告バッジは常時強調表示のため--foreground追従にはしない）。 */
   color: #ffffff;
 }
@@ -31,6 +30,12 @@
 
 .warning {
   background: var(--color-danger);
+}
+
+/* 厳重警戒級（WBGT、T174）。warning（赤）とemergency_warning（紫）の中間の警戒度を
+ * 素直に別の色で表現する（3段階へ丸め込まない）。 */
+.severe_warning {
+  background: #be123c;
 }
 
 /* 特別警報級。雷ナウキャスト（thunderNowcast.ts: THUNDER_ACTIVITY_LEVELS level4）と

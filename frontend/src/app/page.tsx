@@ -106,7 +106,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather, getWeatherWarnings } from "@/services/weatherApi";
+import { getCurrentWeather, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
 import type {
   Coordinates,
   MotorVehicleDensityRecipeOverride,
@@ -116,7 +116,7 @@ import type {
   ScoringWeights,
   CarStressRecipeOverride,
 } from "@/types/route";
-import type { WeatherConditions, WeatherWarnings } from "@/types/weather";
+import type { WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./page.module.css";
 
@@ -303,6 +303,10 @@ export default function Home() {
   // エラー表示用のstateは持たない（通信エラー自体はDebugConsoleのcategory
   // "api:weatherWarnings"で追える）。
   const [weatherWarnings, setWeatherWarnings] = useState<WeatherWarnings | null>(null);
+
+  // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ理由・同じstate設計
+  // （エラー表示state無し、失敗時はbackend契約どおりlevel=nullとして扱う）。
+  const [wbgtStatus, setWbgtStatus] = useState<WbgtStatus | null>(null);
 
   // 動的気象レイヤー（降水ナウキャスト・風）が指す対象時刻（T183再設計、実機フィードバック
   // 「時間経過はスライドバー1本で表現する」）。ONの全レイヤーのフレーム時刻を統合した
@@ -834,20 +838,57 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [location, fetchWarningsFor]);
 
+  // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ地点・同じデバウンスへ
+  // 相乗りさせる（理由も同じ、デバウンス窓を増やさない）。提供期間外（11〜3月）・
+  // 取得失敗・「ほぼ安全」のいずれもbackend契約どおりlevel=nullとして静かに扱う。
+  const latestWbgtRequestId = useRef(0);
+  const fetchWbgtFor = useCallback((next: Coordinates) => {
+    const requestId = ++latestWbgtRequestId.current;
+    getWbgtStatus(next)
+      .then((result) => {
+        if (requestId !== latestWbgtRequestId.current) return;
+        setWbgtStatus(result);
+      })
+      .catch(() => {
+        if (requestId !== latestWbgtRequestId.current) return;
+        setWbgtStatus(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => fetchWbgtFor(location), WEATHER_FETCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [location, fetchWbgtFor]);
+
   const warningBadgeItems = useMemo<WarningBadgeItem[]>(() => {
-    if (!weatherWarnings) return [];
-    return weatherWarnings.warnings.map((warning) => ({
-      id: warning.code,
-      label: warning.name,
-      level: warning.level as WarningBadgeItem["level"],
-      title: [
-        warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
-        "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
-      ]
-        .filter(Boolean)
-        .join(" / "),
-    }));
-  }, [weatherWarnings]);
+    const jmaItems: WarningBadgeItem[] = weatherWarnings
+      ? weatherWarnings.warnings.map((warning) => ({
+          id: warning.code,
+          label: warning.name,
+          level: warning.level as WarningBadgeItem["level"],
+          title: [
+            warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
+            "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
+          ]
+            .filter(Boolean)
+            .join(" / "),
+        }))
+      : [];
+    // WBGTはlevelがnull（提供期間外・取得失敗・「ほぼ安全」のいずれか）の間は表示しない
+    // （T174完了条件、JMA警報が0件の場合と同じ「無ければ何も出ない」挙動）。
+    const wbgtItem: WarningBadgeItem[] =
+      wbgtStatus?.level && wbgtStatus.value != null
+        ? [
+            {
+              id: "wbgt",
+              label: `暑さ指数${wbgtStatus.label ?? ""}`,
+              level: wbgtStatus.level as WarningBadgeItem["level"],
+              title: `暑さ指数 ${wbgtStatus.value.toFixed(1)} / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります`,
+            },
+          ]
+        : [];
+    return [...jmaItems, ...wbgtItem];
+  }, [weatherWarnings, wbgtStatus]);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。レイヤーがONの間だけ取得し、
   // 実況が5分毎に更新されるのに合わせて定期的に再取得する（OFFの間はfetch自体しない、
