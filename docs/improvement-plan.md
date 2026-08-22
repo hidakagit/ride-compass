@@ -4335,7 +4335,7 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   - **本番Oracle DBへのmigration適用・バックフィルは未実施**（ローカルdev DBのみ適用・
     検証済み）。実行前にユーザーへ確認すること。
 
-### - [ ] T218a. gradientの探索コスト組み込み（T12 Stage 0.5）規模M〜L — トリガー: T10完了（2026-08-23成立、着手可能）
+### - [x] T218a. gradientの探索コスト組み込み（T12 Stage 0.5）規模M〜L（2026-08-23完了）
 
 - T12 ADR Stage 0.5に対応。T10（DEMタイル化＋標高キャッシュ1系統化）の実装により
   DEMタイル一括取得＋ローカル補間でaverage_gradeをエッジ単位に一括算出できるように
@@ -4346,6 +4346,45 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   前提タスク」へ格上げされる。T10自体の着手判断（優先順位節参照）を参照すること。
 - 完了条件: 山岳ルート（平均勾配の高いエリア）でgradient重み・ペナルティ強度Pを
   上げると実際に経路が変わることを確認。
+
+- **実装メモ（2026-08-23完了）**:
+  - 新規バッチ`app/batch/precompute_elevation_attributes.py`を追加（既存
+    `precompute_edge_attribute_counts.py`と同じ構造・チャンク方式・`--dry-run`）。
+    実際の計算ロジックは新規に書かず、既存の`ElevationAttributeService.
+    get_attributes_for_graph`（`repository`経由で未計算Edgeのみ計算・保存する既存実装）を
+    チャンクごとに呼び出すだけ。T10のDEMタイル化により、近接Edge・形状点が同一タイルを
+    共有してキャッシュヒットするため、全道路網規模でも外部呼び出しはタイル数程度に収まる
+    設計。ローカルdev DB（30エッジ）で実行し、average_grade等が妥当な値で計算・保存され、
+    2回目の読み出しで正しくキャッシュヒットすることを実地確認済み
+    （dry-runでは対象122,189エッジを検出）。
+  - `GraphService.get_elevation_attributes(edge_ids)`を新設（`get_edge_attribute_counts`等と
+    同じ「repositoryが無ければ`{}`」パターン、`elevation_attributes`テーブルの単純な
+    キー参照のみ、その場でのGSI問い合わせは行わない）。
+  - `road_graph_engine.py: prepare()`が探索コスト算出前に上記メソッドで事前計算済みの
+    `elevation_attributes`を取得し、`evaluate_graph`（従来`{}`固定だった箇所）へ渡すよう
+    変更。バッチ未実行のEdgeはgradient軸のみ「データ無し」扱いになり他軸の評価は継続する
+    （既存の「データ無しは合成から除外」方針をそのまま踏襲、新しい分岐は追加していない）。
+  - モジュールdocstring（road_graph_engine.py冒頭）の「標高は経路確定後にのみ取得し
+    経路選択には影響しない」という記述を、探索フェーズは事前計算済み値の参照のみで
+    その場のGSI問い合わせはしない、と正確な現状に更新した。`evaluate_loops`側
+    （`ElevationAttributeService`経由、未計算Edgeはその場で取得・永続化）は経路確定後の
+    表示・スコアリング向けとして引き続き別に行う（両者は`elevation_attributes`テーブルを
+    共有するキャッシュ層として連動する）。
+  - `domain/evaluation.py: is_edge_allowed`に`elevation_attribute`・
+    `max_average_grade_percent`引数を追加（0次ハードフィルタ、原則5）。指定時のみ
+    `abs(average_grade) > しきい値`のEdgeを除外（登り・下り両方向を対象、未指定
+    （既定None）は従来どおり除外なし、未計算Edge=elevation_attribute Noneも除外しない）。
+    `compute_edge_cost`→`evaluation_service.evaluate_graph`→`RoadGraphEngine`
+    （コンストラクタ引数`max_average_grade_percent`）→API（`RouteGenerateRequest.
+    max_average_grade_percent: float | None`、`GenerationConditions`へエコー）まで
+    `penalty_strength`と同じ配線パターンで貫通させた。
+  - 検証: `test_evaluation.py`にis_edge_allowedの勾配しきい値テスト6件、
+    `test_road_graph_engine.py`にprepareレベルで
+    「事前計算済みgradientが探索コストへ反映される」「しきい値超過Edgeが探索グラフから
+    除外される」の2件を追加。backend全体1035件green。
+  - **本番Oracle DBへの`precompute_elevation_attributes`バッチ初回実行は未実施**
+    （DBスキーマ変更は無いためmigration適用は不要だが、バッチ実行自体はGSIへの大量の
+    外部呼び出しを伴うため、実行前にユーザーへ確認すること）。
 
 ### - [ ] T219. 探索グラフのプロセス内タイルキャッシュ（T12 Stage 1）規模M — トリガー: T218完了
 
@@ -4403,6 +4442,32 @@ T128（カテゴリ束ね）・T161（ramp軸凡例）・T162（研究タブ整�
   消え、DBなし構成に依存していたテストが新方式（repositoryへの直接シード等、T22の
   `test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shared_node`と
   同じ移行パターン）で置き換わること。
+
+### - [ ] T223. DEM1A（1mメッシュ）標高データの組み込み可否調査 規模S（調査のみ） — トリガー: ユーザーの調査着手指示（2026-08-23起票）
+
+- 発端: T10実装直後、ユーザーから「dem 1mメッシュを仕組みに組み込むことは現実的？」との
+  質問。T10は現在`DEM_TYPE_PRIORITY = (dem5a, dem5b, dem5c, dem)`（5m/10mメッシュ相当）の
+  優先順位フォールバックのみを実装しており、GSI最高精度のDEM1A（航空レーザ測量、1m格子、
+  最大ズーム17、東京都心を含む都市部中心にカバレッジ）は対象に含めていない。
+  2026-08-16調査（本ファイルT10節参照）では「OSM形状点間隔（多くは5m超）に対し
+  1m格子化の恩恵はほぼ出ない」「DEM1Aのカバレッジは全国均一ではない」と判断し
+  見送っていたが、この判断はT10実装前の推測であり、T10完了後のDEM_TYPE_PRIORITY実装
+  （2026-08-23の多段フォールバック修正）を踏まえた再検証はまだ行っていない。
+- 調査事項（着手時に確認する）:
+  - `dem1a`エンドポイントの実在・カバレッジ範囲・応答フォーマットを実タイルで確認
+    （T10の`dem5a`等と同じ手法で`https://cyberjapandata.gsi.go.jp/xyz/dem1a/{z}/{x}/{y}.txt`
+    を実際に叩く。z=14でも取得できるか、dem5a同様の挙動か）。
+  - 対象範囲（関東本土）でのDEM1Aカバレッジ率の実測（全エッジ中どの程度が恩恵を受けるか）。
+  - サイクリングルートの勾配評価（average_grade、区間長は交差点間=数十m〜数百m）という
+    用途にとって、1m格子と5m格子の差が実際に評価結果（gradient軸のdifficulty・
+    ルート選択）へ影響する規模かの試算・実データ比較（無作為サンプルで|Δgrade|分布を見る、
+    2026-08-16調査が言及した検証方法と同種）。
+  - `DEM_TYPE_PRIORITY`の先頭に`dem1a`を追加するだけで済むか（設計上は同じ多段
+    フォールバック機構にもう1段追加するだけの想定だが、カバレッジ外の404が大半を占める
+    場合は「常に1回余分な404往復が発生する」オーバーヘッドとのトレードオフも評価する）。
+- 完了条件: 「組み込む／組み込まない」の判断とその根拠を本タスクへ記録する。組み込む
+  判断になった場合は実装を別途T224等として起票する（本タスク自体は調査のみ、実装は
+  含めない）。
 
 ## 残タスクの優先順位（2026-08-23再整理・第3版）
 

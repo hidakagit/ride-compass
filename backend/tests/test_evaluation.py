@@ -94,6 +94,46 @@ def test_is_edge_allowed_empty_hard_filters_allows_everything():
     assert is_edge_allowed(_edge(highway="motorway"), {"bicycle": "no"}, hard_filters=frozenset()) is True
 
 
+def test_is_edge_allowed_excludes_edge_exceeding_max_average_grade_percent():
+    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値。
+    steep_uphill = _elevation_attr(average_grade=9.0)
+    assert (
+        is_edge_allowed(
+            _edge(), elevation_attribute=steep_uphill, max_average_grade_percent=8.0
+        )
+        is False
+    )
+
+
+def test_is_edge_allowed_excludes_edge_exceeding_max_average_grade_percent_downhill():
+    # 下り（負のaverage_grade）も絶対値で判定する。
+    steep_downhill = _elevation_attr(average_grade=-9.0)
+    assert (
+        is_edge_allowed(
+            _edge(), elevation_attribute=steep_downhill, max_average_grade_percent=8.0
+        )
+        is False
+    )
+
+
+def test_is_edge_allowed_allows_edge_within_max_average_grade_percent():
+    gentle = _elevation_attr(average_grade=5.0)
+    assert (
+        is_edge_allowed(_edge(), elevation_attribute=gentle, max_average_grade_percent=8.0) is True
+    )
+
+
+def test_is_edge_allowed_max_average_grade_percent_none_disables_gradient_filter():
+    steep = _elevation_attr(average_grade=99.0)
+    assert is_edge_allowed(_edge(), elevation_attribute=steep, max_average_grade_percent=None) is True
+
+
+def test_is_edge_allowed_allows_edge_without_elevation_attribute_even_with_threshold_set():
+    # 事前計算バッチ未実行のEdge（elevation_attribute=None）は判断材料が無いため除外しない
+    # （他のHard Constraint同様、不明な場合は許可しSoft Constraint側に委ねる）。
+    assert is_edge_allowed(_edge(), elevation_attribute=None, max_average_grade_percent=1.0) is True
+
+
 def test_compute_edge_cost_excludes_disallowed_edge():
     edge = _edge(highway="motorway")
     result = compute_edge_cost(edge, None, None, RoutePreference())

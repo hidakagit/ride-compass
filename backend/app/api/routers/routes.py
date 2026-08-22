@@ -217,6 +217,9 @@ class RouteGenerateRequest(BaseModel):
     # （domain/evaluation.py: compute_cost_from_axis_scores参照。openrouteservice
     # エンジンは経路確定後の評価表示のみのためコスト自体には影響しない）。
     penalty_strength: float = Field(ge=0, default=1.0)
+    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
+    # 除外なし）。road_graphエンジンのみに効く（domain/evaluation.py: is_edge_allowed参照）。
+    max_average_grade_percent: float | None = Field(ge=0, default=None)
 
     @model_validator(mode="after")
     def _check_lanes_threshold_order(self) -> "RouteGenerateRequest":
@@ -243,6 +246,8 @@ class GenerationConditions(BaseModel):
     motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。
     penalty_strength: float
+    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
+    max_average_grade_percent: float | None
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -300,6 +305,7 @@ async def generate_routes(
         road_suitability_recipe_override,
         motor_vehicle_density_recipe_override,
         request.penalty_strength,
+        request.max_average_grade_percent,
     )
 
     async with _generate_semaphore:
@@ -325,6 +331,7 @@ async def generate_routes(
                 **setup.motor_vehicle_density_recipe.model_dump()
             ),
             penalty_strength=setup.penalty_strength,
+            max_average_grade_percent=setup.max_average_grade_percent,
             generated_at=datetime.now(JST).isoformat(),
         ),
     )

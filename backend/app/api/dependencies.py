@@ -115,6 +115,9 @@ class RouteGenerationSetup:
     motor_vehicle_density_recipe: MotorVehicleDensityRecipe
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
     penalty_strength: float
+    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは無効）。
+    # road_graphエンジンのみに効く。
+    max_average_grade_percent: float | None
 
 
 RouteGenerationBuilder = Callable[
@@ -125,6 +128,7 @@ RouteGenerationBuilder = Callable[
         RoadSuitabilityRecipe | None,
         MotorVehicleDensityRecipe | None,
         float,
+        float | None,
     ],
     RouteGenerationSetup,
 ]
@@ -201,6 +205,7 @@ def get_route_generation_builder(
         road_suitability_recipe_override: RoadSuitabilityRecipe | None = None,
         motor_vehicle_density_recipe_override: MotorVehicleDensityRecipe | None = None,
         penalty_strength: float = 1.0,
+        max_average_grade_percent: float | None = None,
     ) -> RouteGenerationSetup:
         preference = preference_override or load_route_preference()
         scoring_weights = scoring_weights_override or load_scoring_weights()
@@ -220,6 +225,7 @@ def get_route_generation_builder(
                 road_suitability_recipe,
                 motor_vehicle_density_recipe,
                 penalty_strength,
+                max_average_grade_percent,
             )
         else:
             engine = OpenRouteServiceEngine(
@@ -237,6 +243,7 @@ def get_route_generation_builder(
             road_suitability_recipe=road_suitability_recipe,
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
             penalty_strength=penalty_strength,
+            max_average_grade_percent=max_average_grade_percent,
         )
 
     return build
