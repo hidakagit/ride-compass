@@ -874,6 +874,45 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   CI実行には影響しない（CIの作業ディレクトリはASCIIパスの`/home/runner/work/...`）ため
   ci.ymlへの追加対応は不要と判断した。
 
+## ORS→road_graphエンジン移行の残作業（2026-08-23・ユーザー指示）
+
+ユーザー指示「ORSから独自の検索エンジンに切り替えるための作業で残っているものはある？」
+「1〜6を実施して」を受け、調査で洗い出した6項目のうち5項目を実施する
+（項目4「本番Oracle DBへのmigration 0013適用・標高バックフィル」は本番DB書き込みを
+伴うため今回保留、他5項目完了後にユーザーと実行タイミングを別途相談する）。
+
+### - [ ] T236. road_graphエンジンの経路品質比較検証 規模S
+
+- 発端: ORSとroad_graphエンジンで「経路の品質」を直接比較した検証がこれまで存在しない
+  （T12 ADRは探索速度のみが対象）。切替の意思決定材料として定量的な比較データを残す。
+- 完了条件: 起点・距離の複数パターンで両エンジンの成功率・距離誤差・所要時間を比較し、
+  road_graphの経路品質がORSと比べて実用上問題ないかを記録する。
+
+### - [ ] T237. `/api/routes/preview`のroad_graphエンジン対応 規模S〜M
+
+- 発端: `POST /api/routes/preview`は`settings.routing_engine`に関わらず常に
+  `RoutingService`（ORS）を使う（`get_routing_service`固定）。`routing_engine=road_graph`
+  設定時に挙動が食い違う契約ギャップを解消する。フロントエンドは現在このエンドポイントを
+  呼んでいない（`previewRoute`関数は定義のみ）ためUI側の変更は不要。
+- 対応方針: `RoadGraphEngine.preview_segment(origin, destination)`を新設し、評価軸重み付き
+  コスト（generateと同じ`compute_edge_cost`ベース）で最短経路を1回探索する
+  （ユーザー確認済み: ORSのような単純最短距離ではなく重み付きコストを採用）。
+  `dependencies.py`に`get_preview_builder()`を新設し`routing_engine`に応じて委譲する。
+- 完了条件: `routing_engine=road_graph`設定時に`/api/routes/preview`が経路を返す
+  （または到達不能なら502）ことをテストで確認。backend全テストgreen。
+
+### - [ ] T238. `evaluate_graph`のcar_stress判定ホットパス最適化 規模S〜M
+
+- 発端: T224実測で10km級ループ（122,710エッジ）の温状態が約5.4〜5.6秒、目標「5秒以内」を
+  わずかに超過。T220完了メモが「evaluate_graph（car_stress判定が支配的）は今回手を付けて
+  いない、全面numpyベクトル化はT221の軸レジストリ計画と手戻りが被るため見送り、対象を
+  絞った部分対応から始める」と明記しており、その部分対応を実施する。
+- 対応方針: `car_stress_level`が`car_stress_breakdown()`のpydantic`CarStressBreakdown`を
+  毎回フル生成し`.level`以外を即座に捨てている箇所を、内訳を作らず`level`のみ計算する
+  軽量経路へ変更する（全面書き換え・ベクトル化はしない）。
+- 完了条件: `car_stress_level`/`car_stress_breakdown`の出力が変更前後で一致することを
+  既存テストで確認しつつ、新設ベンチマークで`evaluate_graph`の実測短縮値を記録。
+
 ## 残タスクの優先順位（2026-08-23再整理・第5版）
 
 第4版（T12実装スタック着手直後の整理）で挙げていた最優先3件（T225・T224・T230）・
