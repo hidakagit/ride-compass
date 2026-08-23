@@ -984,6 +984,106 @@ async def _bulk_upsert(
         await session.execute(stmt)
 
 
+_STAGE_ROAD_NODES_DDL = (
+    "CREATE TEMP TABLE IF NOT EXISTS _stage_road_nodes "
+    "(node_id text, osm_node_id bigint, geom_wkb bytea) ON COMMIT DROP"
+)
+_MERGE_ROAD_NODES_SQL = (
+    "INSERT INTO road_nodes (node_id, osm_node_id, geom, updated_at) "
+    "SELECT node_id, osm_node_id, ST_GeomFromWKB(geom_wkb, 4326), $1 "
+    "FROM _stage_road_nodes "
+    "ON CONFLICT (node_id) DO UPDATE SET "
+    "osm_node_id = EXCLUDED.osm_node_id, geom = EXCLUDED.geom, updated_at = EXCLUDED.updated_at"
+)
+
+_STAGE_ROAD_EDGES_DDL = (
+    "CREATE TEMP TABLE IF NOT EXISTS _stage_road_edges "
+    "(edge_id text, from_node_id text, to_node_id text, geom_wkb bytea, "
+    "distance_m float8, osm_way_id bigint, highway text, bearing_deg float8) ON COMMIT DROP"
+)
+_MERGE_ROAD_EDGES_SQL = (
+    "INSERT INTO road_edges "
+    "(edge_id, from_node_id, to_node_id, geom, distance_m, osm_way_id, highway, bearing_deg, updated_at) "
+    "SELECT edge_id, from_node_id, to_node_id, ST_GeomFromWKB(geom_wkb, 4326), "
+    "distance_m, osm_way_id, highway, bearing_deg, $1 "
+    "FROM _stage_road_edges "
+    "ON CONFLICT (edge_id) DO UPDATE SET "
+    "from_node_id = EXCLUDED.from_node_id, to_node_id = EXCLUDED.to_node_id, geom = EXCLUDED.geom, "
+    "distance_m = EXCLUDED.distance_m, osm_way_id = EXCLUDED.osm_way_id, highway = EXCLUDED.highway, "
+    "bearing_deg = EXCLUDED.bearing_deg, updated_at = EXCLUDED.updated_at"
+)
+
+
+async def _asyncpg_connection(session: AsyncSession):
+    """SQLAlchemy `AsyncSession`の裏にある生のasyncpg接続を取得する（改善計画T248・T259）。
+
+    `_bulk_upsert`（複数行VALUESのINSERT ... ON CONFLICT、chunk=1000）は、都心規模
+    （数万Node・十数万Edge）のsave_graphで数十秒〜数百秒かかることが本番実測
+    （T248: 王子30kmでedge_upsert_ms=149,235）・実機再現（T259: Renderの約100秒
+    プラットフォームタイムアウトに到達し完全失敗）の両方で判明した。PBF取込バッチ
+    （app/batch/import_pbf.py）が既に使っているCOPY（バイナリプロトコル、インデックス
+    更新も1回のバルク処理にまとめられる）へ一時テーブル経由で置き換えることで、
+    dev DB実測で5.6〜9.6倍の高速化を確認した（backend/benchmarks/bench_save_graph_copy.py、
+    10km: 60.9秒→6.4秒、20km: 86.2秒→15.4秒）。
+
+    SQLAlchemyの`AsyncSession`は「autobegin」のため、SQLAlchemy経由で何か実行するまで
+    実トランザクション（BEGIN）がドライバへ送信されない。ここで軽いSELECTを1つ挟んで
+    BEGINを確定させないと、`CREATE TEMP TABLE ... ON COMMIT DROP`が（asyncpg接続が
+    autocommitのまま）即座にDROPされてしまい、直後のCOPYが存在しないテーブルへの
+    アクセスになる（ベンチマーク実装時に実際に踏んだ失敗）。
+    """
+    await session.execute(text("SELECT 1"))
+    raw_conn = await session.connection()
+    pooled = await raw_conn.get_raw_connection()
+    return pooled.driver_connection
+
+
+async def _copy_upsert_road_nodes(session: AsyncSession, nodes: Iterable[Node], now: datetime) -> None:
+    records = [
+        (node.node_id, node.osm_node_id, shapely.to_wkb(Point(node.longitude, node.latitude)))
+        for node in nodes
+    ]
+    if not records:
+        return
+    conn = await _asyncpg_connection(session)
+    await conn.execute(_STAGE_ROAD_NODES_DDL)
+    await conn.execute("TRUNCATE _stage_road_nodes")
+    await conn.copy_records_to_table(
+        "_stage_road_nodes", records=records, columns=["node_id", "osm_node_id", "geom_wkb"]
+    )
+    await conn.execute(_MERGE_ROAD_NODES_SQL, now)
+
+
+async def _copy_upsert_road_edges(session: AsyncSession, edges: Iterable[DirectedEdge], now: datetime) -> None:
+    records = [
+        (
+            edge.edge_id,
+            edge.from_node_id,
+            edge.to_node_id,
+            shapely.to_wkb(LineString([(lon, lat) for lat, lon in edge.geometry])),
+            edge.distance_m,
+            edge.osm_way_id,
+            edge.highway,
+            edge.bearing_deg,
+        )
+        for edge in edges
+    ]
+    if not records:
+        return
+    conn = await _asyncpg_connection(session)
+    await conn.execute(_STAGE_ROAD_EDGES_DDL)
+    await conn.execute("TRUNCATE _stage_road_edges")
+    await conn.copy_records_to_table(
+        "_stage_road_edges",
+        records=records,
+        columns=[
+            "edge_id", "from_node_id", "to_node_id", "geom_wkb",
+            "distance_m", "osm_way_id", "highway", "bearing_deg",
+        ],
+    )
+    await conn.execute(_MERGE_ROAD_EDGES_SQL, now)
+
+
 class _SessionRepository:
     """1リクエスト（1トランザクション）につき1インスタンスを想定し、`AsyncSession`を
     DIで受け取る共通基底。commitは持たない（モジュールdocstringの規約参照）。"""
@@ -1193,38 +1293,21 @@ class DerivedGraphRepository(_SessionRepository):
         now = datetime.now(timezone.utc)
         # Edgeがroad_nodes.node_idを外部キー参照するため、先にNodeを一括UPSERTする
         # （同一トランザクション内のため文の実行順で制約を満たせる）。
-        node_rows = [
-            {
-                "node_id": node.node_id,
-                "osm_node_id": node.osm_node_id,
-                "geom": from_shape(Point(node.longitude, node.latitude), srid=4326),
-                "updated_at": now,
-            }
-            for node in graph.nodes.values()
-        ]
-        await _bulk_upsert(
-            self._session, RoadNodeRow, node_rows, ["node_id"], ["osm_node_id", "geom", "updated_at"])
+        # 改善計画T248・T259: 複数行VALUESのON CONFLICT（`_bulk_upsert`）は都心規模で
+        # 数十秒〜数百秒かかるため、COPY経由の一時テーブルUPSERT（`_copy_upsert_road_nodes`/
+        # `_copy_upsert_road_edges`、詳細は`_asyncpg_connection`のdocstring参照）へ置き換えた。
+        await _copy_upsert_road_nodes(self._session, graph.nodes.values(), now)
         node_upsert_ms = round((time.monotonic() - started) * 1000)
 
-        edge_rows = [
-            {
-                "edge_id": edge.edge_id,
-                "from_node_id": edge.from_node_id,
-                "to_node_id": edge.to_node_id,
-                "geom": from_shape(LineString([(lon, lat) for lat, lon in edge.geometry]), srid=4326),
-                "distance_m": edge.distance_m,
-                "osm_way_id": edge.osm_way_id,
-                "highway": edge.highway,
-                "bearing_deg": edge.bearing_deg,
-                "updated_at": now,
-            }
+        edges_to_save = [
+            edge
             for edge in graph.edges.values()
             if way_ids_to_replace is None or edge.osm_way_id in way_ids_to_replace
         ]
 
         delete_started = time.monotonic()
         if way_ids_to_replace:
-            new_edge_ids = sorted({row["edge_id"] for row in edge_rows})
+            new_edge_ids = sorted({edge.edge_id for edge in edges_to_save})
             # 改善計画T224: `new_edge_ids`（再構築対象の全edge_id、都心密度で数万件）を
             # `.not_in(...)`で素朴にIN句化すると、`id_chunk`（最大_ID_CHUNK_SIZE件）との
             # 合算でasyncpgのプリペアド文パラメータ上限（32,767個）を超え、都心規模の
@@ -1294,16 +1377,7 @@ class DerivedGraphRepository(_SessionRepository):
         delete_ms = round((time.monotonic() - delete_started) * 1000)
 
         edge_upsert_started = time.monotonic()
-        await _bulk_upsert(
-            self._session,
-            RoadEdgeRow,
-            edge_rows,
-            ["edge_id"],
-            [
-                "from_node_id", "to_node_id", "geom", "distance_m", "osm_way_id", "highway",
-                "bearing_deg", "updated_at",
-            ],
-        )
+        await _copy_upsert_road_edges(self._session, edges_to_save, now)
         edge_upsert_ms = round((time.monotonic() - edge_upsert_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -1315,7 +1389,7 @@ class DerivedGraphRepository(_SessionRepository):
         logger.info(
             "save_graph nodes=%d edges=%d way_ids_to_replace=%s "
             "node_upsert_ms=%d delete_ms=%d edge_upsert_ms=%d total_ms=%d",
-            len(node_rows), len(edge_rows),
+            len(graph.nodes), len(edges_to_save),
             len(way_ids_to_replace) if way_ids_to_replace else 0,
             node_upsert_ms, delete_ms, edge_upsert_ms, total_ms,
         )

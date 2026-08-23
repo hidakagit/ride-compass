@@ -1743,10 +1743,59 @@ T221エントリへの追記として実施済み（新番号なし）。
   なく**プラットフォーム制約による完全失敗の回避**という、より緊急度の高い意味を持つ。
   トリガー（「一般公開の意思決定時に必須化、それまでは研究利用での体感遅延報告で着手」）
   の見直しが必要か、ユーザー判断を仰ぐ。
+  - **2026-08-24追記**: ユーザー指示「改善して」を受け、下記対応候補1（バルクUPSERT
+    最適化）をCOPY方式で実装した（dev DB実測5.6〜9.6倍）。未split地点の重さの一因
+    （save_graph段）は大幅に軽減されたが、1a（材料冷読み出し）で判明した「split済みでも
+    88〜92秒」の律速要因はデータ転送量そのものであり本対応では解消していない。20km・
+    未split地点は「save_graph（今回高速化）＋材料読み出し（未対応）」の合算のため、
+    プラットフォームの100秒制約に対して依然マージンが薄い可能性がある。本番実測での
+    再検証が必要（下記残課題）。
 - 対応候補（着手時に設計判断）:
-  1. **バルクUPSERTの最適化**: `_bulk_upsert`のINSERT ... ON CONFLICT一括化の粒度・
-     asyncpg COPYの利用（PBF取込バッチが既にCOPY直行の前例を持つ）・
-     「分割結果が前回と変わらないEdgeはUPSERT自体を省略する」差分検出等。
+  1. **バルクUPSERTの最適化**（2026-08-24実装完了）: `_bulk_upsert`（複数行VALUESの
+     INSERT ... ON CONFLICT、chunk=1000）をPBF取込バッチ（app/batch/import_pbf.py）と
+     同じasyncpg COPY方式（一時テーブルへCOPY→`INSERT ... SELECT ... ON CONFLICT`で
+     1回のセット処理へマージ）へ置き換えた。T259で「20km・未split地点がRenderの
+     約100秒プラットフォームタイムアウトに到達し完全失敗する」ことが確定した直後の
+     ユーザー指示「改善して」を受けて、T248実測で最も支配的だった段（save_graphの
+     node_upsert/edge_upsert、王子30kmでedge_upsert_ms=149,235）を対象に着手した。
+     - **設計**: `road_graph_repository.py`に`_asyncpg_connection`（SQLAlchemy
+       `AsyncSession`の裏の生asyncpg接続を`(await session.connection()).get_raw_connection()`
+       の`driver_connection`で取得、SQLAlchemy 2.0の正式なAPI）・`_copy_upsert_road_nodes`・
+       `_copy_upsert_road_edges`を新設。ジオメトリは`shapely.to_wkb`で素のWKB bytesへ
+       変換して一時テーブル（`bytea`列）へCOPYし、マージSQL側で`ST_GeomFromWKB(wkb, 4326)`
+       によりPostGIS geometryへ復元する（import_pbf.pyの`_MERGE_WAYS_SQL`と同じ考え方）。
+       一時テーブルは`CREATE TEMP TABLE IF NOT EXISTS ... ON COMMIT DROP`（既存の
+       `tmp_save_graph_new_edge_ids`と同じ規約）。
+     - **実装中に踏んだ落とし穴**: SQLAlchemyの`AsyncSession`は「autobegin」のため、
+       SQLAlchemy経由で何か実行するまで実トランザクション（BEGIN）がドライバへ
+       送信されない。生のasyncpg接続を取得した直後にいきなりCOPY/INSERTを発行すると、
+       接続がautocommitのまま動作し、`CREATE TEMP TABLE ... ON COMMIT DROP`が
+       直後の暗黙コミットで即座にDROPされてしまい、続くTRUNCATEが「テーブルが存在しない」
+       エラーになる（ベンチマーク実装時に実際に発生・原因特定）。`_asyncpg_connection`内で
+       軽い`SELECT 1`を1つ挟んでBEGINを確定させてから生接続を取り出すことで解決した。
+     - **`save_graph`側の変更**: node_rows/edge_rowsをORM用dictとして組み立てる処理を、
+       生のNode/DirectedEgeオブジェクトのまま`_copy_upsert_*`へ渡す形へ簡略化（中間dict
+       が不要になった）。DELETE段（境界Edge差分削除、T246で既に軽量化済み）・ログの
+       フィールド名・意味は完全に維持。
+     - **検証（プロファイリング、backend/benchmarks/bench_save_graph_copy.py新設）**:
+       dev DB実測で現行実装とCOPY方式を同一データ・同一セッションで比較（DELETE段を
+       除いたnode_upsert+edge_upsertのみ、公平のため2回ずつ計測）。
+       10km（58,037 Edge）: 現行60.9秒→COPY方式6.4秒（**9.6倍**）。
+       20km（143,905 Edge）: 現行86.2秒→COPY方式15.4秒（**5.6倍**）。
+       既存の`bench_postgis_prepare.py`（4km、25,710 Edge）でend-to-end再計測したところ、
+       save_graph単体3.8秒・COLD経路（closure+build+save）合計7.5秒まで短縮（同モジュールが
+       docstringに記録している最初期の実測「271秒」・T248実測「10km冷46.0秒」から
+       大幅に改善）。
+     - **テスト**: `test_road_graph_repository.py`（save_graphの既存回帰テスト94件、
+       うち大規模Edge数のasyncpgパラメータ上限回帰テストを含む）・`test_match_designations.py`
+       を直列実行で全green。**pytest-xdist（`-n auto`）実行時、このタスクの変更とは
+       無関係に発生する既存のDB競合フレーク（`test_get_nearest_stop_poi_counts_...`・
+       `test_recompute_way_attribute_counts_...`のIntegrityError）を本タスクの検証中に
+       発見した**（変更前のコードへ`git stash`で一時的に戻し、同一条件で同じ2件が
+       再現することを確認済み。本タスクの変更が原因ではないが、CI・並列実行時の
+       安定性リスクとして記録のみ残す。追加調査は本タスクのスコープ外）。
+     - 残課題: 本番Oracle Cloud PostGISでの実測検証は未実施（dev DBのみ）。書き込みを
+       伴うためユーザー許可を得てから実施する。
   1a. **材料読み込み（冷パス、split不要な場合の読み出し）の最適化**（2026-08-24調査・
      部分実装完了）: 本番実測で新規発見（上記）。「材料5クエリ×タイル数」（T229）の
      クエリ本数そのものを削減する方向で着手し、案A・案Bの2つを実装・本番実測したが、
