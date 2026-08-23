@@ -15,20 +15,23 @@
 指示どおり）のため、この判断が既定の経路・スコアに影響することはない。
 """
 
+from app.domain.axis_templates import evaluate_flag_sum
 from app.domain.recipe import tag_value_is
 
 _NO_LIT_SCORE = 50.0
 _TUNNEL_SCORE = 50.0
+_NIGHT_DIFFICULTY_CAP = 100.0
 
 
 def night_difficulty(tags: dict[str, str] | None) -> float | None:
     """街灯なし・トンネルの有無から夜間の走りにくさ(0-100)を算出する。`tags`がNone
-    （way_tags未取得、他の材料タグ依存関数と同じ「データ無し」の表現）ならNone。"""
+    （way_tags未取得、他の材料タグ依存関数と同じ「データ無し」の表現）ならNone。
+
+    「フラグ加算」テンプレート（改善計画T221 Stage A、T239）: 街灯なし・トンネルの
+    2フラグそれぞれに固定加点し合計する（`evaluate_flag_sum`）。
+    """
     if tags is None:
         return None
-    score = 0.0
-    if not tag_value_is(tags, "lit", "yes"):
-        score += _NO_LIT_SCORE
-    if tag_value_is(tags, "tunnel", "yes"):
-        score += _TUNNEL_SCORE
-    return min(score, 100.0)
+    no_lit = not tag_value_is(tags, "lit", "yes")
+    has_tunnel = tag_value_is(tags, "tunnel", "yes")
+    return evaluate_flag_sum([(no_lit, _NO_LIT_SCORE), (has_tunnel, _TUNNEL_SCORE)], cap=_NIGHT_DIFFICULTY_CAP)

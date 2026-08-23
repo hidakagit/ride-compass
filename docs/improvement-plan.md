@@ -1023,7 +1023,7 @@ T221のStage B〜E（RoutePreference等のdict化・レジストリを実評価�
 DB化・GUI編集画面）はADR自体が未承認・別途の製品判断が必要としており、
 今回のベクトル化には不要なため明示的にスコープ外とする。
 
-### - [ ] T239. T221 Stage A: 現行7軸を4テンプレートへ実装移行 規模M
+### - [x] T239. T221 Stage A: 現行7軸を4テンプレートへ実装移行 規模M（2026-08-23完了）
 
 - 発端: `docs/decisions/t221-axis-registry.md`が「現行7軸の変換ロジックは実質4
   テンプレート（区分線形補間・カテゴリ→定数・フラグ加算・レシピ→レベル→区分線形補間）に
@@ -1040,6 +1040,20 @@ DB化・GUI編集画面）はADR自体が未承認・別途の製品判断が必
 - 完了条件: 既存`test_difficulty.py`（42件）・`test_traffic.py`（95件）・
   `test_evaluation.py`（43件）・`test_evaluation_service.py`（17件）が無変更のまま
   全green（＝ロジック不変の回帰確認）。
+
+- **実装メモ（2026-08-23完了）**: 新規`domain/axis_templates.py`に4関数を実装
+  （スカラー・numpy配列の両方を受け付ける設計、配列モードはNaNを欠損値として伝播）。
+  `domain/difficulty.py`の`gradient_difficulty`/`wind_difficulty`/`road_difficulty`/
+  `stop_difficulty`/`car_stress_difficulty`/`accident_difficulty`と
+  `domain/night.py: night_difficulty`の内部実装をテンプレート呼び出しへ差し替え、
+  旧`_piecewise_linear`（`difficulty.py`のモジュール内プライベート関数）は削除
+  （`evaluate_breakpoint_linear`が同じ意味論で置き換え済み）。`wind_difficulty`
+  （従来は手書きのclamp+線形正規化）・`road_difficulty`（従来は三項演算子）も
+  それぞれ`evaluate_breakpoint_linear`/`evaluate_categorical`へ統一。
+  新設`tests/test_axis_templates.py`（10件）でテンプレート自体のスカラー/配列同値性・
+  NaN伝播・両端クランプを検証。
+- 検証: 対象4テストファイル（計197件）が**無変更のまま**全green（ロジック不変を確認）。
+  新規10件含めbackend全体1068件全green。
 
 ### - [ ] T240. `EvaluationService.evaluate_graph`のnumpyベクトル化 規模L
 

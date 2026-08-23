@@ -4,6 +4,11 @@
 
 from typing import NamedTuple
 
+from app.domain.axis_templates import (
+    evaluate_breakpoint_linear,
+    evaluate_categorical,
+    evaluate_recipe_then_breakpoint_linear,
+)
 from app.domain.night import night_difficulty
 
 # 勾配(%)の目安: 0-3%易しい、3-6%普通、6-9%大変、9%以上激坂
@@ -48,38 +53,23 @@ _CAR_STRESS_MAX_LEVEL = 5
 _ACCIDENT_DENSITY_MAX_PER_KM_YEAR = 0.5
 _ACCIDENT_DENSITY_HARD_SCORE = 100.0
 
-def _piecewise_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
-    if value <= breakpoints[0][0]:
-        return breakpoints[0][1]
-    if value >= breakpoints[-1][0]:
-        return breakpoints[-1][1]
-
-    for (x0, y0), (x1, y1) in zip(breakpoints, breakpoints[1:]):
-        if x0 <= value <= x1:
-            ratio = (value - x0) / (x1 - x0)
-            return y0 + ratio * (y1 - y0)
-
-    return breakpoints[-1][1]
-
-
 def gradient_difficulty(gradient_percent: float | None) -> float | None:
     if gradient_percent is None:
         return None
-    return round(_piecewise_linear(abs(gradient_percent), _GRADIENT_BREAKPOINTS), 1)
+    return round(evaluate_breakpoint_linear(abs(gradient_percent), _GRADIENT_BREAKPOINTS), 1)
 
 
 def wind_difficulty(wind_penalty: float | None) -> float | None:
     """wind_penaltyは符号付き（正=向かい風、負=追い風）。追い風・無風は難易度0、向かい風が強いほど増加。"""
     if wind_penalty is None:
         return None
-    clamped = max(_WIND_MIN_MS, min(wind_penalty, _WIND_MAX_MS))
-    return round((clamped - _WIND_MIN_MS) / (_WIND_MAX_MS - _WIND_MIN_MS) * 100, 1)
+    return round(evaluate_breakpoint_linear(wind_penalty, [(_WIND_MIN_MS, 0.0), (_WIND_MAX_MS, 100.0)]), 1)
 
 
 def road_difficulty(is_good_surface: bool | None) -> float | None:
     if is_good_surface is None:
         return None
-    return _ROAD_EASY_SCORE if is_good_surface else _ROAD_HARD_SCORE
+    return evaluate_categorical(is_good_surface, {True: _ROAD_EASY_SCORE, False: _ROAD_HARD_SCORE})
 
 
 def stop_difficulty(
@@ -101,8 +91,10 @@ def stop_difficulty(
     if intersection_count_per_km is not None and intersection_count_per_km < 0:
         return None
     combined_per_km = stop_count_per_km + (intersection_count_per_km or 0.0) * UNSIGNALED_INTERSECTION_WEIGHT
-    clamped = min(combined_per_km, _STOP_DENSITY_MAX_PER_KM)
-    return round(clamped / _STOP_DENSITY_MAX_PER_KM * _STOP_DENSITY_HARD_SCORE, 1)
+    return round(
+        evaluate_breakpoint_linear(combined_per_km, [(0.0, 0.0), (_STOP_DENSITY_MAX_PER_KM, _STOP_DENSITY_HARD_SCORE)]),
+        1,
+    )
 
 
 def car_stress_difficulty(car_stress_level: int | None) -> float | None:
@@ -111,7 +103,7 @@ def car_stress_difficulty(car_stress_level: int | None) -> float | None:
     if car_stress_level is None:
         return None
     return round(
-        _piecewise_linear(
+        evaluate_recipe_then_breakpoint_linear(
             car_stress_level, [(_CAR_STRESS_MIN_LEVEL, 0.0), (_CAR_STRESS_MAX_LEVEL, 100.0)]
         ),
         1,
@@ -124,8 +116,12 @@ def accident_difficulty(accident_count_per_km_year: float | None) -> float | Non
     外部静的データソース T50残作業（8軸目）。"""
     if accident_count_per_km_year is None or accident_count_per_km_year < 0:
         return None
-    clamped = min(accident_count_per_km_year, _ACCIDENT_DENSITY_MAX_PER_KM_YEAR)
-    return round(clamped / _ACCIDENT_DENSITY_MAX_PER_KM_YEAR * _ACCIDENT_DENSITY_HARD_SCORE, 1)
+    return round(
+        evaluate_breakpoint_linear(
+            accident_count_per_km_year, [(0.0, 0.0), (_ACCIDENT_DENSITY_MAX_PER_KM_YEAR, _ACCIDENT_DENSITY_HARD_SCORE)]
+        ),
+        1,
+    )
 
 
 class AxisDifficulties(NamedTuple):
