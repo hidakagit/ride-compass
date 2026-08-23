@@ -639,6 +639,52 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 - 完了条件: 4件それぞれ「確認した結果」または「確認不要と判断した根拠」が記録され、
   「未検証のまま」という記述が解消されている。
 
+## 実装・テスト整合性の総点検対応（2026-08-23・review:consistency）
+
+ユーザー指示「実装とテストがずれているところがないか総点検して」を受け、直近8コミット
+（T224・T225）を起点にconsistencyレビューを実施（結果:
+[history/2026-08-23_consistency.md](../.claude/commands/review/history/2026-08-23_consistency.md)）。
+直近差分自体は整合性OKだったが、範囲を広げた確認で2件のずれを検出・起票・修正した。
+
+### - [x] T233. CIの`backend`ジョブへPostGIS統合テスト実行環境を追加する〔P1〕規模S（2026-08-23完了）
+
+- 発端: consistencyレビュー2026-08-23 F-1。CI相当条件（`TEST_DATABASE_URL`を到達不能な
+  ホストへ向けて実行）でpytestを実行すると`965 passed, 100 skipped`（通常実行では
+  `1065 passed`）。この100件には**T224の回帰テスト自身**
+  （`test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyncpg_parameter_limit`）
+  も含まれており、CIは一度もこのテストをskip以外の結果で実行していなかった。T224が
+  修正した不具合（asyncpgプリペアド文パラメータ上限超過）自体、ユニットテストではなく
+  実機API呼び出しで発覚しており、「CI green後にPostGIS依存コードの不具合が発覚する」
+  というトリガーが既に1回成立していた。
+- 対応: `.github/workflows/ci.yml`の`backend`ジョブへ`postgis/postgis:16-3.4`
+  （docker-compose.ymlのpostgresサービスと同じイメージ）のサービスコンテナを追加し、
+  `TEST_DATABASE_URL`を注入。`conftest.py`が`CREATE EXTENSION postgis`・
+  `Base.metadata.create_all`を自前で行うため、番号付きmigrationの適用ステップは不要
+  （road_edges等はSQLAlchemyモデルから直接作成される。番号付きmigrationは本番の
+  ALTER履歴用）。
+- 検証: ローカルでdev DB（PG18+PostGIS、TEST_DATABASE_URLのデフォルト値と同じ接続先）に
+  対し`pytest -q`を実行し`1065 passed`（0 skipped）を確認済み。CI上でのサービス
+  コンテナ経由の実行結果は、このコミットのpush後にCIで確認する。
+
+### - [x] T234. e2eフィクスチャがGenerationConditions等の必須フィールドと乖離していた問題を修正する〔P2〕規模S（2026-08-23完了）
+
+- 発端: consistencyレビュー2026-08-23 F-2。`frontend/e2e/fixtures.ts`の
+  `routeGenerateResponseFixture()`が返す`conditions`が、実際の`GenerationConditions`の
+  必須12フィールド中5件（`car_stress_recipe`・`road_suitability_recipe`・
+  `motor_vehicle_density_recipe`・`penalty_strength`・`max_average_grade_percent`）を
+  欠いていた。T225（コミット1e7ade4）は同じ2フィールドを他2箇所のvitestフィクスチャ
+  （ComparisonPanel.test.tsx・routeApi.test.ts）には反映したが、このe2eフィクスチャは
+  対象に含めていなかった。戻り値に型注釈が無いため、TypeScriptもこの欠落を検知できて
+  いなかった。
+- 対応: `routeGenerateResponseFixture()`・`makeRouteCandidate()`の戻り値へ
+  `RouteGenerateResponse`/`RouteCandidate`型注釈を付与し、不足5フィールド
+  （既存の`ROUTE_PREFERENCE`定数も同様に3フィールド欠落していたため合わせて修正）を
+  埋めた。型注釈自体を今後のドリフト検知機構として残す（OpenAPI必須フィールドが
+  増えたときにtscがビルドを落とすようになる）。
+- 検証: `npx tsc --noEmit`でfixtures.tsのエラーが解消したことを確認。
+  `npx playwright test`（既定の並列2ワーカー・`--workers=1`の両方）で2件とも成功する
+  ことを確認済み。
+
 ## 残タスクの優先順位（2026-08-23再整理・第4版）
 
 第3版（T12実装スタック着手前の整理）はT218〜T220・T10・T11の完了と統合レビュー第6回・

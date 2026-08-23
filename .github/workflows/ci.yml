@@ -1,9 +1,11 @@
 # CI（docs/improvement-plan.md T1）。push / PR ごとに backend・frontend の全チェックを回す。
 #
-# - backend: pytest（391件）。PostGIS統合テスト（tests/conftest.py の road_graph_session）は
-#   接続先DBが無い場合に自動でskipされる設計のため、CIではDBサービスを立てない。
-#   将来、統合テストもCIで回したくなったら postgis/postgis のサービスコンテナを追加し
-#   TEST_DATABASE_URL を注入する（conftest.py参照）。
+# - backend: pytest。PostGIS統合テスト（tests/conftest.py の road_graph_session）は
+#   postgis/postgis サービスコンテナ（docker-compose.ymlと同じイメージ）+
+#   TEST_DATABASE_URL 注入で実行する（改善計画T233、consistencyレビュー2026-08-23 F-1:
+#   統合テスト約100件がCIで一度も検証されず、T224の回帰テスト自身もその中に含まれていた
+#   ことが発覚したため追加）。conftest.pyがCREATE EXTENSION postgis・テーブル作成を
+#   自前で行うため、migration適用ステップは不要。
 # - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
 #   失敗を早く返す。
 # - e2e: クリティカルパス（ルート生成→表示、レイヤー切替）のPlaywrightスモークテスト
@@ -70,6 +72,26 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      # docker-compose.ymlのpostgresサービスと同じイメージ・認証情報。conftest.pyが
+      # CREATE EXTENSION postgis・テーブル作成（Base.metadata.create_all）を自前で
+      # 行うため、migration適用ステップは不要（road_edges等はSQLAlchemyモデルから
+      # 直接作成される。番号付きmigrationは本番のALTER履歴用）。
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: ridecompass
+          POSTGRES_PASSWORD: ridecompass
+          POSTGRES_DB: ridecompass_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

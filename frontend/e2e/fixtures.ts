@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（openrouteservice/Open-Meteo/
 // OpenFreeMap）」には依存しない。APIコントラクトの正しさはCIのapi-contractジョブ
@@ -9,11 +10,19 @@ import type { Page } from "@playwright/test";
 const API_BASE = "http://localhost:8000";
 
 const SCORING_WEIGHTS = { distance_weight: 1, elevation_weight: 1, wind_weight: 1, road_weight: 1 };
-const ROUTE_PREFERENCE = { elevation_weight: 1, road_weight: 1, wind_weight: 1, stop_weight: 1 };
+const ROUTE_PREFERENCE = {
+  elevation_weight: 1,
+  road_weight: 1,
+  wind_weight: 1,
+  stop_weight: 1,
+  car_stress_weight: 1,
+  accident_weight: 1,
+  night_weight: 0,
+};
 
 // backend/app/domain/route.py RouteCandidate相当の最小フィクスチャ（1候補）。
 // geometryは往復可能な閉じたループの体裁のみ整える（実座標としての精度は問わない）。
-function makeRouteCandidate(id: string, directionLabel: string, distanceKm: number) {
+function makeRouteCandidate(id: string, directionLabel: string, distanceKm: number): RouteCandidate {
   return {
     id,
     direction_label: directionLabel,
@@ -33,6 +42,10 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     wind_score: -1.2,
     road_score: 82,
     stop_density: 3.1,
+    car_stress_score: null,
+    bicycle_infra_score: null,
+    intersection_density: null,
+    accident_density: null,
     total_score: 78,
     score_breakdown: null,
     segments: null,
@@ -40,7 +53,12 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
   };
 }
 
-export function routeGenerateResponseFixture() {
+// 戻り値にRouteGenerateResponse型注釈を付け、バックエンドの実際の必須フィールド
+// （GenerationConditions等）が増えてもTypeScriptがこのモックの欠落を検知できるようにする
+// （consistencyレビュー2026-08-23 F-2: 型注釈が無かったため、T225でconditionsへ
+// penalty_strength/max_average_grade_percentが必須化された際もこのモックだけ
+// 追従漏れになっていた）。
+export function routeGenerateResponseFixture(): RouteGenerateResponse {
   return {
     routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
     engine: "openrouteservice",
@@ -51,6 +69,24 @@ export function routeGenerateResponseFixture() {
       distance_tolerance_km: 5,
       scoring_weights: SCORING_WEIGHTS,
       route_preference: ROUTE_PREFERENCE,
+      car_stress_recipe: { lanes_low_threshold: 1, lanes_low_adjustment: -1 },
+      road_suitability_recipe: {
+        base_by_highway: { residential: 2 },
+        cycleway_track_adjustment: -2,
+        cycleway_lane_adjustment: -1,
+        cycleway_shared_adjustment: -1,
+      },
+      motor_vehicle_density_recipe: {
+        maxspeed_low_threshold: 30,
+        maxspeed_low_adjustment: -1,
+        maxspeed_high_threshold: 60,
+        maxspeed_high_adjustment: 1,
+        lanes_high_threshold: 4,
+        lanes_high_adjustment: 1,
+        designation_adjustment: 1,
+      },
+      penalty_strength: 1.0,
+      max_average_grade_percent: null,
       generated_at: new Date().toISOString(),
     },
   };
