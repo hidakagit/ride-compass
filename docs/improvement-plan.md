@@ -330,6 +330,41 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   でレジストリからスカラー/配列両実装を導出できれば、この二重管理が解消する**——
   ベクトル化によりStage B以降の価値が起票時点より上がったことを、将来の着手判断の
   材料として記録する。
+- **Part 2着手（2026-08-23、ユーザー指示「T221に着手して」）**: スコープは
+  ADRのStage B＋C相当。Stage D（DB化）・Stage E（GUI編集画面）はADR自身が
+  「製品判断待ち（GUI編集の開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ
+  無効化条件との整合）」と明記しているため**今回も対象外のまま**とする。
+  並行セッションがT250（モバイル上部バーUI、`page.tsx`等）を作業中のため、
+  本タスクは専用worktree（ブランチ`t221-registry`）で実施し、masterへの統合は
+  T250のコミット後に行う。実施内容の分割:
+  1. **C-1 軸定義のデータ化**: 新規`domain/axis_definitions.py`へ、ADRの
+     `AxisDefinition`スキーマ（axis_id・材料・shape・shape_params・default_weight）を
+     宣言データとして7軸分定義する。breakpoints等の定数は`difficulty.py`/`night.py`から
+     ここへ移動（定数の片側import原則）。
+  2. **C-2 評価ロジックのレジストリ駆動化**: 汎用評価関数（スカラー/配列両対応）が
+     `AxisDefinition`を読んでスコアを返す形にし、`difficulty.py`の`*_difficulty`
+     スカラー関数を定義参照の薄いラッパへ（外部シグネチャ不変）、`*_array`個別実装は
+     廃止して同一定義から導出（**T240で増えたスカラー/配列二重実装の解消**）。
+     `compute_edge_axis_scores`/`compute_edge_costs_bulk`の軸ループを
+     `AXIS_DEFINITIONS`駆動へ置き換え、軸ごとのハードコード行を消す。
+  3. **B-1 内部dict化**: `AxisDifficulties`（NamedTuple）→`dict[axis_id, float | None]`、
+     `evaluate_axis_difficulties`をレジストリループの薄い関数へ。両エンジンの
+     区間ビルダー追従。
+  4. **B-2 重みのdict化**: `RoutePreference`→axis_idキーの重み辞書（既知axis_id集合に
+     対する全キー必須バリデーションは維持）、`route_preference.yaml`のキーをaxis_idへ、
+     API層`RoutePreferenceWeights`→dict形式へ一般化。OpenAPI再生成＋フロント追従
+     （`evaluationAxes.ts`の手書き対応表`PREFERENCE_WEIGHT_KEY_BY_AXIS_ID`廃止、
+     `WeightPanel`のyamlミラーのaxis_idキー化）。`AXIS_WEIGHT_FIELD_TO_AXIS_ID`・
+     `_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`の手書き対応表を削除。
+  5. 整合: `registry_defaults.py`（表示カタログ）と`AXIS_DEFINITIONS`（評価定義）の
+     軸集合突き合わせテスト、docs/architecture.md追従（同一コミット）。
+  - 見送り（本Part内で判断）: `RouteSegmentDetail`の軸別固定フィールドのdict化は
+    ADRでも「検討」止まりのため今回は据え置く。**保留の影響**: 軸を追加する際、
+    評価・重み系はデータ変更のみで済むようになる一方、区間詳細表示（route.py＋
+    両エンジンの区間ビルダー＋フロントのrouteStyleModes）へは引き続き軸ごとの
+    手書き追記が必要なまま残る（ルート生成・探索コストはブロックされない。
+    表示系の追従漏れは新軸の区間色分けが出ないという形で顕在化する）。
+    必要になった時点で別タスクとして起票する。
 
 ### - [x] T222. Overpassライブ経路（`repository`未指定構成）の削除 規模M（2026-08-23完了）
 
