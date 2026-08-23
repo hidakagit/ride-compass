@@ -208,8 +208,12 @@ Dependency）へ集約し、共有トークンによる簡易実装から実権�
   （`git diff`は`axis-catalog.json`を含む生成物のうちopenapi.json/api.d.tsのみ変化、
   axis-catalog.jsonは無変化）、`tsc --noEmit` green。
 - **残作業（保留、影響範囲付き）**:
-  1. **本番DBへのmigration適用**: 未実施。安全側フォールバック設計により適用が遅れても
-     評価の振る舞いは変わらず、管理API（`/api/admin/axis-definitions`）が404相当
-     （テーブル未作成でDBエラー）になるだけのため緊急度は低い。適用時は
-     `AXIS_ADMIN_TOKEN`環境変数の設定も忘れないこと（未設定だと管理APIが常に403のまま）。
+  1. **本番DBへのmigration適用**: 完了（2026-08-24、ユーザー指示）。
+     `scripts/apply_migrations.py`をOracle Cloud本番PostGIS（`.env.oracle.local`）へ
+     向けて実行し、シードされた7軸が`domain/axis_definitions.py`のPython定義と
+     バイト単位で一致することを本番DBに対して直接確認した（既存テーブル・既存データには
+     一切触れない加算的な変更）。**未設定のまま残っている項目**: Render側の環境変数
+     `AXIS_ADMIN_TOKEN`が未設定のため、本番の管理API（`/api/admin/axis-definitions`）は
+     現状常に403を返す（安全側のデフォルト、意図通り）。管理APIを実際に使う段階で
+     Renderのダッシュボードから設定すること。
   2. **Stage E（GUI編集画面）**: 引き続き別タスクとして起票する（本ADRのスコープ外）。
