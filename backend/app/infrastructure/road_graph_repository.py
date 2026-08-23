@@ -1200,18 +1200,52 @@ class DerivedGraphRepository(_SessionRepository):
             # 統合レビュー2026-08-23）。`=ANY(配列)`は要素数に関わらず1パラメータのため、
             # 本ファイルの他の大量ID参照（get_edge_attribute_counts等）と同じ
             # `=ANY(配列)`パターンへ揃える（`NOT (edge_id = ANY(配列))`でNOT IN相当）。
-            for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
-                delete_stmt = delete(RoadEdgeRow).where(
-                    RoadEdgeRow.osm_way_id == any_(cast(id_chunk, ARRAY(BigInteger)))
+            #
+            # 改善計画T246: 上記の`NOT (edge_id = ANY(配列))`除外条件は、本番実測（T245）で
+            # 広域bbox（`new_edge_ids`が数十万件規模）の場合、チャンク（`id_chunk`、最大
+            # _ID_CHUNK_SIZE件ずつ）1回ごとに同じ巨大な配列フィルタを毎回再評価してしまい、
+            # 1チャンクあたり100秒超×チャンク数という、チャンク数に比例して悪化する遅延を
+            # 引き起こすことが判明した（`pg_stat_activity`でDELETE文が長時間アクティブ実行中、
+            # ロック待ちではないことを確認済み）。除外側集合を一時テーブルへ1回だけ投入・
+            # PKインデックス化し、各チャンクのDELETEは`NOT EXISTS`（インデックスを使う反結合）
+            # で参照する形へ変更し、チャンク数ぶんの重複評価を無くす。
+            if new_edge_ids:
+                await self._session.execute(text("DROP TABLE IF EXISTS tmp_save_graph_new_edge_ids"))
+                await self._session.execute(
+                    text(
+                        "CREATE TEMP TABLE tmp_save_graph_new_edge_ids (edge_id TEXT PRIMARY KEY) ON COMMIT DROP"
+                    )
                 )
+                await self._session.execute(
+                    text(
+                        "INSERT INTO tmp_save_graph_new_edge_ids (edge_id) "
+                        "SELECT unnest(CAST(:new_edge_ids AS TEXT[]))"
+                    ),
+                    {"new_edge_ids": new_edge_ids},
+                )
+
+            for id_chunk in _chunked(sorted(way_ids_to_replace), _ID_CHUNK_SIZE):
                 # 今回も同じedge_idで再挿入される行はDELETE対象から除外する（上記docstring
                 # 参照）。new_edge_idsが空（対象way群がEdgeを1件も生成しなかった）場合は
                 # 除外条件自体を付けず全削除相当のままで問題ない。
                 if new_edge_ids:
-                    delete_stmt = delete_stmt.where(
-                        ~(RoadEdgeRow.edge_id == any_(cast(new_edge_ids, ARRAY(Text))))
+                    await self._session.execute(
+                        text(
+                            "DELETE FROM road_edges "
+                            "WHERE road_edges.osm_way_id = ANY(CAST(:id_chunk AS BIGINT[])) "
+                            "AND NOT EXISTS ("
+                            "SELECT 1 FROM tmp_save_graph_new_edge_ids t "
+                            "WHERE t.edge_id = road_edges.edge_id"
+                            ")"
+                        ),
+                        {"id_chunk": id_chunk},
                     )
-                await self._session.execute(delete_stmt)
+                else:
+                    await self._session.execute(
+                        delete(RoadEdgeRow).where(
+                            RoadEdgeRow.osm_way_id == any_(cast(id_chunk, ARRAY(BigInteger)))
+                        )
+                    )
                 await self._session.execute(
                     update(OsmRawWayRow)
                     .where(OsmRawWayRow.osm_way_id == any_(cast(id_chunk, ARRAY(BigInteger))))
