@@ -453,7 +453,7 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   話であり本タスクの対象外。
 - 完了条件: backend全テストgreen、削除後にprepareの所要時間が短縮されることを確認。
 
-### - [ ] T227. architecture.mdのT11完了を追従する〔P2〕規模S
+### - [x] T227. architecture.mdのT11完了を追従する〔P2〕規模S（2026-08-23完了）
 
 - 発端: 統合レビュー2026-08-23 統合-4（consistency F-3）。`docs/architecture.md`の
   「未着手: T11（segmentsのAPI境界ビン化）」行が、同日完了済みのT11
@@ -461,6 +461,12 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 - 対応方針: 該当行を完了の記述へ更新し、segments集約の1文（road_graphエンジンのみに
   適用・`RouteSegmentDetail`型は不変・集約方法の要点）を追記。
 - 完了条件: architecture.mdにT11の現状が反映されている。
+
+- **実装メモ（2026-08-23完了）**: `docs/architecture.md`の該当行を、`aggregate_segments_
+  into_bins`（`domain/route.py`）による約500m単位集約の説明（road_graph_engine.pyの
+  `prepare`が生成した候補のみに適用・openrouteserviceエンジンは対象外・
+  `RouteSegmentDetail`型は不変で契約影響なし）へ更新。コード変更なしのためテスト実行は
+  不要。
 
 ### - [ ] T228. 統合レビュー第6回の軽微指摘4件を一括解消する〔P3〕規模S
 

@@ -67,7 +67,13 @@ Renderへのデプロイ（`git push`からのビルド完了）が実際にサ�
 - **T218a（Stage 0.5）**: `app/batch/precompute_elevation_attributes.py`（全道路網一括、T10のDEMタイル方式を利用）が事前計算した`elevation_attributes`（average_grade等）を、`prepare`が単純なキー参照で読み探索コストのgradient軸へ組み込む。0次ハードフィルタへ勾配しきい値（`max_average_grade_percent`）も追加した。
 - **T219（Stage 1）**: `GraphService.get_search_materials_for_bbox`が、トポロジ＋材料一式（surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位（`domain/region.py: ROAD_GRAPH_TILE_ZOOM`）でプロセス内メモリへLRUキャッシュする（`infrastructure/graph_material_cache.py`）。**無効化はバージョン管理せずプロセス寿命のみ**（PBF再取込・各precomputeバッチは手動・低頻度操作であり、デプロイのたびにプロセスが再起動される前提。T10のDEMタイルキャッシュと同じ割り切り）。ローカル実測（東京都心4km四方相当）でキャッシュヒット時は約7.2秒→約0.06秒（約100倍）。あわせて`find_nearest_node`（1リクエストにつき最大17回呼ばれる、`prepare`で1回＋`trace_loop`で方位ごとに2回）を、都度の線形探索から`NodeSpatialIndex`（緯度経度グリッドバケット、`domain/routing.py`）を1回だけ構築して使い回す方式へ変更した（外部ライブラリは追加していない）。
 - **T220（Stage 2）**: T219完了後の実測（キャッシュ温、69,216エッジ規模）で「evaluate_graph＋build＋Dijkstra24回」が約5.8秒と目標超過だったため着手。Dijkstra本体をNetworkX（Python実装）からscipy.sparse.csgraph（C実装、`domain/routing.py: SparseRoadGraph`/`build_sparse_graph`/`shortest_path_node_ids_sparse`）へ置換（同一ノード間の並行Edgeは後勝ちで1本化、NetworkX版と同じ挙動）。`_RoadGraphContext.nx_graph`は既存テスト・区間表示ロジック互換のため引き続き構築するが、`trace_loop`の探索本体は`sparse_graph`を使う。あわせて`compute_edge_cost`が毎Edge`preference_to_axis_weights`を再計算していた（pydantic `model_dump`込みで無視できないオーバーヘッド）のを、`evaluate_graph`側で1回だけ計算し渡す形に変更。実測（同条件）で合計約5.8秒→約2.3秒（Dijkstra部分は約2.8秒→約0.08秒）。新規依存: `numpy`・`scipy`。
-- 未着手: T11（segmentsのAPI境界ビン化）。
+- **T11**: road_graphエンジンが返す`segments`はEdge単位（交差点間、1候補あたり150〜230件、
+  30km級）のままではAPIペイロード・フロント描画コストが嵩むため、`domain/route.py:
+  aggregate_segments_into_bins`で約500m単位（`SEGMENT_BIN_DISTANCE_KM`）へ集約してから
+  返す（road_graph_engine.py: `prepare`が生成した候補へのみ適用。openrouteserviceエンジン
+  側の`segments`は元々粒度が粗くビン化対象外）。集約はgradient/wind_penalty/car_stress等を
+  距離加重平均、road_surface_good等のカテゴリ値を距離加重多数決で代表値化し、
+  `RouteSegmentDetail`型自体は変えない（フロント型・OpenAPI契約への影響なし）。
 
 ### SQLite永続キャッシュ（`cache_db.py`、気象グリッド）
 `cache_db.py`（[backend/app/infrastructure/cache_db.py](../backend/app/infrastructure/cache_db.py)）は、プロセス再起動やコンテナ再作成をまたいで再利用したいキャッシュを、ファイルベースのSQLite（`backend/data/ridecompass_cache.db`、新規pip依存なし）へ永続化する共通インフラ。スレッドローカルな接続の使い回し（`_get_connection`）・SQLiteエラー時は「未キャッシュ」またはno-op扱いへフォールバックする方針（DB側の障害が本体機能を失敗させない）を持つ。現在は気象グリッド用途のみで使われている:
