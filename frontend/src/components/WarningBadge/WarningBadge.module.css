@@ -1,13 +1,59 @@
-.row {
-  display: flex;
+/* サマリーボタン（UI改善2026-08-24、詳細はPopoverで開く）。見た目は従来のバッジ
+ * （.badge、下記）と同じピル型だが、実体はボタンでありクリック/タップで詳細を開く。
+ * 天候ヘッダ（page.tsx: .weatherHeader）が常に1行に収まるよう、常時表示はこの1個だけに
+ * 抑える。 */
+.summaryButton {
+  display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.summaryButton[data-state="open"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* 詳細パネル（Popover.Content）。recipeControls.module.cssの.infoTooltip・MapLibre
+ * ポップアップと同じ「フローティングカード」の見た目（背景・枠線・影）に揃える。
+ * z-index:46はBottomSheet（45）より前面、開発者向けFloatingPanel（50）より背面という
+ * 位置づけ（他のPopover利用箇所と同じ値）。 */
+.detailPanel {
+  max-width: min(90vw, 20rem);
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2) var(--space-3);
+  z-index: 46;
+}
+
+.detailList {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
-  /* WeatherPanelの.row（横スクロール）とは意図的に方針を変える。警告バッジは安全性に
-   * 関わる情報のため、狭い幅で横スクロールに隠れて見えなくなるのは望ましくない
-   * （実機確認、2026-08-22: モバイル幅390pxでJMA警報3件+WBGT1件の計4件がoverflow-x:
-   * autoだと1件見切れた）。バッジ単位（短い語句、CJKの1文字折り返しにはならない）で
-   * 折り返し、全件を必ず表示する。 */
-  flex-wrap: wrap;
+}
+
+.detailItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.detailText {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
 }
 
 .badge {

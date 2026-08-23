@@ -16,10 +16,13 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  /* 警報・注意報バッジ（改善計画T205）をWeatherPanelの右に並べる。狭い幅では
-     折り返す（WeatherPanel内部は独自にoverflow-x: autoで横スクロールするため、
-     ヘッダー全体を縮めるのではなく2行目へ逃がす方が両方の内容を読める）。 */
-  flex-wrap: wrap;
+  /* 警報・注意報バッジ（改善計画T205、UI改善2026-08-24でサマリーボタン1個へ集約）を
+     WeatherPanelの右に並べる。以前はバッジが複数件だと折り返してヘッダーが2行以上に
+     なっていたが、バッジ側を「最高警戒度+件数のボタン1個、詳細はタップで開く」へ
+     変更したことで常に1行に収まるようになったため、nowrapへ戻した（本来1行ヘッダという
+     T36時点の設計に立ち戻る）。WeatherPanel側は引き続き内部でoverflow-x: autoを
+     持つため、極端に狭い幅でも折り返さず横スクロールへ逃がす。 */
+  flex-wrap: nowrap;
   gap: var(--space-2);
   padding: 0.35rem var(--space-3);
   border-bottom: 1px solid var(--color-border);
