@@ -539,6 +539,21 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   従量課金の有効化／セルフホストランナー／ローカルpre-push hookでの代替検証）は
   ユーザーへ別途提示し、方針が決まり次第本タスクを完了とする。
 
+- **追加確認（2026-08-23、リポジトリをprivate→publicへ切替後）**: public repoはActions
+  無償枠が実質無制限になるため無償枠超過は解消する想定だったが、切替後最新のRun #266
+  （コミット71bb5d7）を確認すると、4ジョブ（api-contract/backend/frontend/e2e）全てが
+  4秒で即失敗しており、いずれも同一エラー:
+  `The job was not started because recent account payments have failed or your
+  spending limit needs to be increased. Please check the 'Billing & plans' section
+  in your settings`。
+  これは「無償枠2000/2000消費」とは別種の**アカウントの支払い方法エラーまたは
+  spending limit設定**がジョブの起動自体をブロックしているもので、public化だけでは
+  解消しないことが判明した。GitHub Settings → Billing and plansでの支払い方法確認・
+  spending limit引き上げが必要（アカウント所有者の決済操作のため、Claude側では代行
+  不可。安全ルール上も決済情報の入力は禁止行為に該当する）。
+  → **本タスクは依然未完了**。ユーザーがBilling設定を確認・是正した後、再度CIが
+  正常実行されることを確認して完了とする。
+
 ### - [ ] T231. 設計判断の未確定残件2件を確定して記録する 規模S（判断のみ）
 
 - 発端: 2026-08-23棚卸の全記録見直し。「未解決のまま残す」「別途確認が必要」と明記された
