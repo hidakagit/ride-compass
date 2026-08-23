@@ -89,10 +89,13 @@ class Settings(BaseSettings):
     generate_max_concurrent: int = 2
     # 路面タイルはPostGIS問い合わせ・ディスクキャッシュ書き込みを伴うため、無制限に叩かれると
     # 外部サービス負荷やディスク消費に繋がる。同時実行上限6の根拠: ST_AsMVT化でタイル処理は
-    # ほぼDB応答待ちになり、律速はSupabase側の同時クエリ負荷とSQLAlchemyの接続プール
-    # （既定pool_size=5+max_overflow=10=最大15接続）。6ならルート生成用の接続と合わせても
-    # プール上限に収まり、コールドタイルのバースト時の待ち行列を半減できる
-    # （詳細な経緯はapi/routers/region.pyのコメント参照）。
+    # ほぼDB応答待ちになり、律速はDB側の同時クエリ負荷とSQLAlchemyの接続プール
+    # （既定pool_size=5+max_overflow=10=最大15接続）。6なら事故タイル分と合わせても
+    # タイル配信系プールの上限に収まり、コールドタイルのバースト時の待ち行列を半減できる
+    # （詳細な経緯はapi/routers/region.pyのコメント参照。改善計画T243でルート生成系は
+    # 専用エンジン・別プール[さらに15接続、database.py: get_route_generation_engine]へ
+    # 分離済みのため、ルート生成とタイル配信は接続プールを取り合わない。プール合計は
+    # 最大30接続で、本番PostgreSQLのmax_connections=100に対し余裕がある）。
     road_tile_rate_limit_per_minute: int = 120
     road_tile_max_concurrent: int = 6
     # 事故タイル（外部静的データソース T50）。road_tileと同じ理由（PostGIS問い合わせ・
