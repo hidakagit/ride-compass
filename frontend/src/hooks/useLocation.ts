@@ -10,6 +10,11 @@ const GEOLOCATION_TIMEOUT_MS = 8000;
 export interface UseLocationResult {
   location: Coordinates;
   locationSource: LocationSource;
+  // マウント時の自動取得（成功・失敗・API非対応のいずれか）が確定したかどうか。
+  // page.tsxの天候・警報等のフェッチが、DEFAULT_LOCATIONぶんの使い捨てリクエストを
+  // 発行せず「確定した1つの地点」だけで済むよう待ち合わせるために使う（改善計画、
+  // 実機フィードバック「天候がすぐ出てその後リフレッシュされる＝2回問い合わせ」対応）。
+  locationReady: boolean;
   locating: boolean;
   locateError: string | null;
   handleLocateMe: () => void;
@@ -26,14 +31,22 @@ export interface UseLocationResult {
 export function useLocation(): UseLocationResult {
   const [location, setLocation] = useState<Coordinates>(DEFAULT_LOCATION);
   const [locationSource, setLocationSource] = useState<LocationSource>("default");
+  const [locationReady, setLocationReady] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
 
   const latestGeolocationRequestId = useRef(0);
 
-  // 現在地取得（失敗時は王子付近のデフォルト座標のまま。エラー表示はしない）
+  // 現在地取得（失敗時は王子付近のデフォルト座標のまま。エラー表示はしない）。
+  // 成功・失敗・API非対応のいずれの経路でも必ずlocationReadyをtrueにする
+  // （呼び出し側がこのフラグだけを見て「もう待つ必要は無い」と判断できるようにする）。
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
+      // （react-hooks/set-state-in-effect対策、page.tsxのfetchWeatherForと同じ流儀）。
+      Promise.resolve().then(() => setLocationReady(true));
+      return;
+    }
 
     const requestId = ++latestGeolocationRequestId.current;
     navigator.geolocation.getCurrentPosition(
@@ -44,10 +57,12 @@ export function useLocation(): UseLocationResult {
           longitude: position.coords.longitude,
         });
         setLocationSource("geolocation");
+        setLocationReady(true);
       },
       () => {
         if (requestId !== latestGeolocationRequestId.current) return;
         setLocationSource("default");
+        setLocationReady(true);
       },
       { timeout: GEOLOCATION_TIMEOUT_MS }
     );
@@ -87,6 +102,7 @@ export function useLocation(): UseLocationResult {
   return {
     location,
     locationSource,
+    locationReady,
     locating,
     locateError,
     handleLocateMe,

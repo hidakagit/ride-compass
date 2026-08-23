@@ -96,4 +96,43 @@ describe("useLocation", () => {
     expect(result.current.locateError).toBe("この端末では位置情報を取得できません。");
     expect(result.current.locating).toBe(false);
   });
+
+  // locationReady（実機フィードバック「天候がすぐ出てその後リフレッシュされる」対応、
+  // page.tsxの天候・警報等フェッチがこのフラグで「DEFAULT_LOCATIONぶんの使い捨て
+  // リクエスト」を発行しないよう待ち合わせる）。
+  describe("locationReady", () => {
+    it("マウント直後はfalseで、Geolocation成功で確定するとtrueになる", () => {
+      const { result } = renderHook(() => useLocation());
+      expect(result.current.locationReady).toBe(false);
+
+      act(() => {
+        calls[0].success(makePosition(34.6937, 135.5023));
+      });
+
+      expect(result.current.locationReady).toBe(true);
+      expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
+    });
+
+    it("Geolocationが失敗してもtrueになる（デフォルト座標のまま確定）", () => {
+      const { result } = renderHook(() => useLocation());
+
+      act(() => {
+        calls[0].error({ code: 1, message: "denied" } as GeolocationPositionError);
+      });
+
+      expect(result.current.locationReady).toBe(true);
+      expect(result.current.locationSource).toBe("default");
+    });
+
+    it("位置情報APIが無い端末では（マイクロタスク経由で）待たせずtrueになる", async () => {
+      Object.defineProperty(global.navigator, "geolocation", { value: undefined, configurable: true });
+      const { result } = renderHook(() => useLocation());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(result.current.locationReady).toBe(true);
+    });
+  });
 });

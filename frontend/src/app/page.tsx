@@ -232,7 +232,7 @@ const DEVELOPER_SHEET_TITLE_ID = "developer-sheet-title";
 type MobileSheet = "route" | "map" | "research" | "developer" | null;
 
 export default function Home() {
-  const { location, locationSource, locating, locateError, handleLocateMe } = useLocation();
+  const { location, locationSource, locationReady, locating, locateError, handleLocateMe } = useLocation();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -802,24 +802,24 @@ export default function Home() {
   }, []);
 
   // マウント直後はDEFAULT_LOCATION、その直後にGeolocationが成功すると実際の現在地で
-  // locationが変わり、以前はどちらのタイミングでもfetchWeatherForを即座に呼んでいたため
-  // 通常のページ読み込みだけでOpen-Meteoへの呼び出しが2回（デフォルト地点ぶん＋実地点ぶん）
-  // 発生していた（実機フィードバック「api呼び出しを節約できないか」）。デフォルト地点ぶんは
-  // Geolocationが成功した瞬間に表示上は上書きされる使い捨ての結果のため、locationの変化を
-  // 少し待ってから最後の値だけでfetchWeatherForする（短い間隔で連続タップする道路情報の
-  // 絞り込み等と同じ「間引き」の考え方、useDebouncedValueは初回値を遅延させない設計のため
-  // ここでは同じ仕組みを直接書く）。Geolocationが遅い/失敗する端末では、この待機ぶんだけ
-  // 初回の天候表示が遅れるが、8秒のGeolocationタイムアウト（useLocation.ts）よりは
-  // 十分短いWEATHER_FETCH_DEBOUNCE_MSに留めている。
-  const WEATHER_FETCH_DEBOUNCE_MS = 1500;
+  // locationが変わる。以前は固定時間（1.5秒）のデバウンスでこれを間引いていたが、
+  // Geolocationの許可ダイアログへの応答等でその時間を超えることが多く、結局
+  // DEFAULT_LOCATIONぶん＋実地点ぶんの2回Open-Meteoへ問い合わせてしまっていた
+  // （実機フィードバック「天候がすぐ出てその後リフレッシュされる」＝時間ベースの間引きでは
+  // 解決しない構造的な問題だったと判明）。マウント時の自動取得が確定するまで
+  // （locationReady、useLocation.ts参照）待ってから1回だけfetchWeatherForする形にし、
+  // 「いつ確定するか分からない」ものを固定時間の推測で間引くのをやめた。確定後
+  // （handleLocateMeによる再取得等）はlocationReadyがtrueのまま変わらないため、
+  // locationの変化に即座に反応する（従来どおり遅延なし）。
+  // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
+  // （react-hooks/set-state-in-effect対策、SystemStatusPanel.tsxと同じ流儀）。
   useEffect(() => {
-    const timer = window.setTimeout(() => fetchWeatherFor(location), WEATHER_FETCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [location, fetchWeatherFor]);
+    if (!locationReady) return;
+    Promise.resolve().then(() => fetchWeatherFor(location));
+  }, [locationReady, location, fetchWeatherFor]);
 
-  // 警報・注意報バッジ（改善計画T205）。天候と同じ地点・同じデバウンスへ相乗りさせる
-  // （別のuseEffectで独立に間引くと、地点変更のたびにデバウンス窓が2つ走り無駄が増える）。
-  // 通信エラー時は例外を投げるだけで、警報なし（空配列）として静かに扱う
+  // 警報・注意報バッジ（改善計画T205）。天候と同じ「locationReadyになるまで待つ」方式
+  // （上記参照）。通信エラー時は例外を投げるだけで、警報なし（空配列）として静かに扱う
   // （バックエンド自体が失敗時に空warningsを返す契約のため、これは主にネットワーク到達
   // 不能等の場合。T205完了条件「取得失敗時は警告なし」）。
   const latestWarningsRequestId = useRef(0);
@@ -837,13 +837,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => fetchWarningsFor(location), WEATHER_FETCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [location, fetchWarningsFor]);
+    if (!locationReady) return;
+    Promise.resolve().then(() => fetchWarningsFor(location));
+  }, [locationReady, location, fetchWarningsFor]);
 
-  // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ地点・同じデバウンスへ
-  // 相乗りさせる（理由も同じ、デバウンス窓を増やさない）。提供期間外（11〜3月）・
-  // 取得失敗・「ほぼ安全」のいずれもbackend契約どおりlevel=nullとして静かに扱う。
+  // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ「locationReadyになるまで
+  // 待つ」方式。提供期間外（11〜3月）・取得失敗・「ほぼ安全」のいずれもbackend契約どおり
+  // level=nullとして静かに扱う。
   const latestWbgtRequestId = useRef(0);
   const fetchWbgtFor = useCallback((next: Coordinates) => {
     const requestId = ++latestWbgtRequestId.current;
@@ -859,12 +859,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => fetchWbgtFor(location), WEATHER_FETCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [location, fetchWbgtFor]);
+    if (!locationReady) return;
+    Promise.resolve().then(() => fetchWbgtFor(location));
+  }, [locationReady, location, fetchWbgtFor]);
 
-  // 河川氾濫予報バッジ（改善計画T212）。他の警告バッジと同じ地点・同じデバウンスへ
-  // 相乗りさせる。取得失敗・対象河川なしのいずれもbackend契約どおりforecasts=[]として
+  // 河川氾濫予報バッジ（改善計画T212）。他の警告バッジと同じ「locationReadyになるまで
+  // 待つ」方式。取得失敗・対象河川なしのいずれもbackend契約どおりforecasts=[]として
   // 静かに扱う。
   const latestFloodRequestId = useRef(0);
   const fetchFloodForecastsFor = useCallback((next: Coordinates) => {
@@ -881,9 +881,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => fetchFloodForecastsFor(location), WEATHER_FETCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [location, fetchFloodForecastsFor]);
+    if (!locationReady) return;
+    Promise.resolve().then(() => fetchFloodForecastsFor(location));
+  }, [locationReady, location, fetchFloodForecastsFor]);
 
   const warningBadgeItems = useMemo<WarningBadgeItem[]>(() => {
     const jmaItems: WarningBadgeItem[] = weatherWarnings
