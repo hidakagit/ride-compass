@@ -50,7 +50,13 @@ from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
-from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail, aggregate_segments_into_bins
+from app.domain.route import (
+    Coordinates,
+    RouteCandidate,
+    RouteSegment,
+    RouteSegmentDetail,
+    aggregate_segments_into_bins,
+)
 from app.domain.twilight import is_night
 from app.domain.traffic import (
     CarStressRecipe,
@@ -86,6 +92,11 @@ from app.services.weather_service import WeatherService
 BBOX_MARGIN_RATIO = 0.3
 BBOX_MARGIN_MIN_KM = 2.0
 
+# 改善計画T237: preview_segment（起点・終点2点間の単発経路確認）が使うbboxマージン。
+# ループ探索のBBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形からはみ出る余裕」を
+# 単純な固定値で持たせる（previewは距離が事前に分からないため半径比例のロジックは使えない）。
+PREVIEW_BBOX_MARGIN_KM = 2.0
+
 
 @dataclass
 class _RoadGraphContext:
@@ -112,6 +123,26 @@ class _RoadGraphContext:
     # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
+    night_active: bool
+
+
+@dataclass
+class _SearchGraph:
+    """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」
+    （改善計画T237）。wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックを
+    `_build_search_graph`1箇所にまとめ、ループ探索・単発区間確認の両方で重複させない。
+    """
+
+    graph: RoadGraph
+    sparse_graph: SparseRoadGraph
+    surface_attributes: dict[str, str | None]
+    stop_counts: dict[str, int]
+    way_tags: dict[str, dict[str, str]]
+    intersection_counts: dict[str, int]
+    accident_counts: dict[str, int]
+    accident_years_covered: int
+    designated_edge_ids: set[str]
+    wind: WeatherConditions | None
     night_active: bool
 
 
@@ -146,16 +177,15 @@ class RoadGraphEngine:
         # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
         self._max_average_grade_percent = max_average_grade_percent
 
-    async def prepare(
-        self, origin: Coordinates, radius_km: float, now: datetime | None = None
-    ) -> _RoadGraphContext | None:
-        # nowは改善計画T173のnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
-        # 注入できるよう引数化した（wind同様、探索中は到達時刻が未確定のためprepare実行時点を
-        # 出発時刻の近似として使う簡略化、詳細は下記night_active算出箇所のコメント参照）。
-        now = now or datetime.now(timezone.utc)
-        margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
-        bbox = _bbox_around_point(origin, radius_km + margin_km)
-
+    async def _build_search_graph(
+        self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
+    ) -> _SearchGraph | None:
+        """bboxに対する探索用グラフ（sparse_graph）＋材料一式を構築する（改善計画T237、
+        `prepare`・`preview_segment`共通）。wind/night軸の判定は`wind_and_night_origin`
+        （周回ならその起点、区間確認なら起点側の座標）を基準にする——探索中は到達時刻が
+        未確定のため出発時刻の近似として使う簡略化はどちらの用途でも変わらない
+        （モジュールdocstring参照）。
+        """
         # 改善計画T219（T12 Stage 1）: トポロジ＋材料（surface/edge_attribute_counts/
         # way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位のプロセス内
         # キャッシュ経由でまとめて取得する（同一エリアへの2回目以降のリクエストはDBへ
@@ -186,20 +216,13 @@ class RoadGraphEngine:
         # 「データ無しは軸を合成から除外」動作に委ねる）。
         elevation_attributes = materials.elevation_attributes
 
-        # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
-        # 経由地スナップ（1リクエストで最大17回）すべてで使い回す。
-        node_index = build_node_spatial_index(graph)
-        origin_node = find_nearest_node_indexed(node_index, origin)
-        if origin_node is None:
-            return None
-
-        wind = await self._weather_service.get_conditions(origin)
+        wind = await self._weather_service.get_conditions(wind_and_night_origin)
         # 改善計画T173: night軸の動的化。区間ごとの到達時刻は探索中は未確定のため（風と
-        # 同じモジュールdocstringの制約）、prepare実行時点を出発時刻の近似として採用し、
-        # 起点が市民薄明の外（夜間）ならnight_weightをそのまま、日中なら0倍にした
+        # 同じモジュールdocstringの制約）、出発地点の座標・呼び出し時点を出発時刻の近似として
+        # 採用し、起点が市民薄明の外（夜間）ならnight_weightをそのまま、日中なら0倍にした
         # RoutePreferenceのコピーを探索コストへ渡す（self._route_preference自体は
         # 書き換えない、リクエスト間で共有される状態のため）。
-        night_active = is_night(origin, now)
+        night_active = is_night(wind_and_night_origin, now)
         search_preference = (
             self._route_preference
             if night_active
@@ -216,7 +239,7 @@ class RoadGraphEngine:
         )
         sparse_graph = build_sparse_graph(graph, search_edge_costs)
 
-        return _RoadGraphContext(
+        return _SearchGraph(
             graph=graph,
             sparse_graph=sparse_graph,
             surface_attributes=surface_attributes,
@@ -227,10 +250,89 @@ class RoadGraphEngine:
             accident_years_covered=accident_years_covered,
             designated_edge_ids=designated_edge_ids,
             wind=wind,
-            origin_node=origin_node,
-            node_index=node_index,
             night_active=night_active,
         )
+
+    async def prepare(
+        self, origin: Coordinates, radius_km: float, now: datetime | None = None
+    ) -> _RoadGraphContext | None:
+        # nowは改善計画T173のnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
+        # 注入できるよう引数化した（wind同様、探索中は到達時刻が未確定のためprepare実行時点を
+        # 出発時刻の近似として使う簡略化、詳細は_build_search_graph参照）。
+        now = now or datetime.now(timezone.utc)
+        margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
+        bbox = _bbox_around_point(origin, radius_km + margin_km)
+
+        search = await self._build_search_graph(bbox, origin, now)
+        if search is None:
+            return None
+
+        # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
+        # 経由地スナップ（1リクエストで最大17回）すべてで使い回す。
+        node_index = build_node_spatial_index(search.graph)
+        origin_node = find_nearest_node_indexed(node_index, origin)
+        if origin_node is None:
+            return None
+
+        return _RoadGraphContext(
+            graph=search.graph,
+            sparse_graph=search.sparse_graph,
+            surface_attributes=search.surface_attributes,
+            stop_counts=search.stop_counts,
+            way_tags=search.way_tags,
+            intersection_counts=search.intersection_counts,
+            accident_counts=search.accident_counts,
+            accident_years_covered=search.accident_years_covered,
+            designated_edge_ids=search.designated_edge_ids,
+            wind=search.wind,
+            origin_node=origin_node,
+            node_index=node_index,
+            night_active=search.night_active,
+        )
+
+    async def preview_segment(
+        self, origin: Coordinates, destination: Coordinates, now: datetime | None = None
+    ) -> RouteSegment | None:
+        """起点・終点2点間の単発区間確認（`/api/routes/preview`、改善計画T237）。
+
+        `prepare`＋`trace_loop`（周回・3レグ探索）とは異なり、1回の最短経路探索のみを行う。
+        探索コストは`generate`と同じ評価軸重み付き（`RoutePreference`）を使う——ORSの
+        previewのような単純最短距離ではなく、`penalty_strength`等の研究パラメータも含めて
+        generateと一貫した経路選択にする（2026-08-23、ユーザー確認済みの設計判断）。
+        経路が見つからない場合はNoneを返す（呼び出し元がRoutingErrorへ変換する）。
+        """
+        now = now or datetime.now(timezone.utc)
+        bbox = _bbox_covering_points([origin, destination], PREVIEW_BBOX_MARGIN_KM)
+
+        search = await self._build_search_graph(bbox, origin, now)
+        if search is None:
+            return None
+
+        node_index = build_node_spatial_index(search.graph)
+        origin_node = find_nearest_node_indexed(node_index, origin)
+        destination_node = find_nearest_node_indexed(node_index, destination)
+        if origin_node is None or destination_node is None:
+            return None
+
+        path = shortest_path_node_ids_sparse(search.sparse_graph, origin_node, destination_node)
+        if path is None:
+            return None
+        edge_ids = path_to_edge_ids_sparse(search.sparse_graph, path)
+        if not edge_ids:
+            return None
+
+        # 改善計画T218（T12 Stage 0）と同じレイジー取得（prepareがlean=Trueで読み込んだ
+        # search.graphのEdgeはgeometryが空プレースホルダのため、この経路ぶんだけ取得し直す）。
+        hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
+        edges_in_path = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
+
+        distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
+        geometry = _concat_edge_geometries(edges_in_path)
+        # road_graphエンジンは実測所要時間モデルを持たないため、他所（segments構築時の
+        # estimated_arrival_time）と同じASSUMED_SPEED_KMHで概算する。
+        duration_minutes = round(distance_km / ASSUMED_SPEED_KMH * 60, 1)
+
+        return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)
 
     async def trace_loop(
         self, context: _RoadGraphContext, waypoints: list[Coordinates], bearing: int
@@ -448,7 +550,7 @@ class RoadGraphEngine:
 
 
 def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
-    """centerを中心とした半径radius_kmの円を覆う矩形bboxを求める（1回のOverpass問い合わせで
+    """centerを中心とした半径radius_kmの円を覆う矩形bboxを求める（1回のRoad Graph取得で
     8方位全ての経由地点をカバーするため、方位ごとではなく起点1つに対して1回だけ計算する）。"""
     lat_margin_deg = radius_km / KM_PER_DEGREE_LATITUDE
     lon_margin_deg = radius_km / (KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(center.latitude)), 1e-6))
@@ -457,6 +559,22 @@ def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
         max_latitude=center.latitude + lat_margin_deg,
         min_longitude=center.longitude - lon_margin_deg,
         max_longitude=center.longitude + lon_margin_deg,
+    )
+
+
+def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> BoundingBox:
+    """複数地点すべてを覆う外接矩形に、margin_kmの余裕を足したbboxを求める（改善計画T237、
+    `preview_segment`の起点・終点2点用）。`_bbox_around_point`と異なり中心・半径ではなく
+    点集合の外接矩形が起点になる点が違うだけで、マージンの度数換算は同じ
+    （`KM_PER_DEGREE_LATITUDE`ベース）。"""
+    center_lat = sum(p.latitude for p in points) / len(points)
+    lat_margin_deg = margin_km / KM_PER_DEGREE_LATITUDE
+    lon_margin_deg = margin_km / (KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(center_lat)), 1e-6))
+    return BoundingBox(
+        min_latitude=min(p.latitude for p in points) - lat_margin_deg,
+        max_latitude=max(p.latitude for p in points) + lat_margin_deg,
+        min_longitude=min(p.longitude for p in points) - lon_margin_deg,
+        max_longitude=max(p.longitude for p in points) + lon_margin_deg,
     )
 
 

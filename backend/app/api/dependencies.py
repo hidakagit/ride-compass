@@ -6,13 +6,15 @@
 """
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Awaitable, Callable
 
 from fastapi import Depends, Request
 
 from app.config import settings
+from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
+from app.domain.route import Coordinates, RouteSegment
 from app.domain.traffic import CarStressRecipe
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.basemap_client import BasemapClient
@@ -236,6 +238,42 @@ def get_route_generation_builder(
         )
 
     return build
+
+
+PreviewBuilder = Callable[[Coordinates, Coordinates], Awaitable[RouteSegment]]
+
+
+def get_preview_builder(
+    routing_service: RoutingService = Depends(get_routing_service),
+    graph_service: GraphService = Depends(get_graph_service),
+    elevation_attribute_service: ElevationAttributeService = Depends(get_elevation_attribute_service),
+    weather_service: WeatherService = Depends(get_weather_service),
+) -> PreviewBuilder:
+    """`/api/routes/preview`（単一区間確認）向けのビルダー（改善計画T237）。
+
+    `get_route_generation_builder`と対になる構成で、`settings.routing_engine`に応じて
+    ORS（`RoutingService.get_route`）またはroad_graph（`RoadGraphEngine.preview_segment`）へ
+    委譲する。previewはリクエストボディでの評価重み上書きに対応しない（generateと違い
+    研究インターフェース向けの調整UIが無い）ため、既定値のみを使う。
+    """
+
+    async def preview(origin: Coordinates, destination: Coordinates) -> RouteSegment:
+        if settings.routing_engine == "road_graph":
+            preference = load_route_preference()
+            engine = RoadGraphEngine(
+                graph_service,
+                elevation_attribute_service,
+                EvaluationService(preference),
+                weather_service,
+                preference,
+            )
+            segment = await engine.preview_segment(origin, destination)
+            if segment is None:
+                raise RoutingError("road_graph: no path found between origin and destination")
+            return segment
+        return await routing_service.get_route([origin, destination])
+
+    return preview
 
 
 async def get_region_service():

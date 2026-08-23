@@ -842,3 +842,56 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。
     assert day_segments[0].difficulty is None
     assert night_segments[0].difficulty == 50.0
+
+
+# --- 改善計画T237: preview_segment（/api/routes/previewのroad_graphエンジン対応） ---
+
+
+async def test_preview_segment_returns_route_segment_when_path_exists():
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    node_c = Node(node_id="c", latitude=ORIGIN.latitude + 0.02, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    coord_c = Coordinates(latitude=node_c.latitude, longitude=node_c.longitude)
+    edge_ab = _edge("e-ab", "a", "b", coord_a, coord_b, highway="residential")
+    edge_bc = _edge("e-bc", "b", "c", coord_b, coord_c, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c}, edges={"e-ab": edge_ab, "e-bc": edge_bc})
+    way_tags = {"e-ab": {"highway": "residential"}, "e-bc": {"highway": "residential"}}
+
+    generator, _, _ = make_generator(graph, way_tags=way_tags)
+
+    segment = await generator._engine.preview_segment(coord_a, coord_c)
+
+    assert segment is not None
+    expected_km = round((edge_ab.distance_m + edge_bc.distance_m) / 1000, 2)
+    assert segment.distance_km == expected_km
+    assert segment.duration_minutes > 0
+    assert segment.geometry["type"] == "LineString"
+
+
+async def test_preview_segment_returns_none_when_no_path_exists():
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    # cは他のどのEdgeとも繋がっていない孤立Node（destinationが到達不能なケースを再現）。
+    node_c = Node(node_id="c", latitude=ORIGIN.latitude + 1.0, longitude=ORIGIN.longitude + 1.0)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    coord_c = Coordinates(latitude=node_c.latitude, longitude=node_c.longitude)
+    edge_ab = _edge("e-ab", "a", "b", coord_a, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c}, edges={"e-ab": edge_ab})
+    way_tags = {"e-ab": {"highway": "residential"}}
+
+    generator, _, _ = make_generator(graph, way_tags=way_tags)
+
+    segment = await generator._engine.preview_segment(coord_a, coord_c)
+
+    assert segment is None
+
+
+async def test_preview_segment_returns_none_when_bbox_has_no_road_data():
+    generator, _, _ = make_generator(graph=None)
+
+    segment = await generator._engine.preview_segment(ORIGIN, ORIGIN)
+
+    assert segment is None

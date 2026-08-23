@@ -1,10 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_routing_service
+from app.api.dependencies import get_preview_builder, get_routing_service
 from app.config import settings
+from app.domain.attributes import SearchMaterials
 from app.domain.errors import RoutingError
-from app.domain.route import RouteSegment
+from app.domain.graph import DirectedEdge, Node, RoadGraph
+from app.domain.route import Coordinates, RouteSegment
 from app.infrastructure import rate_limiter
 from app.main import app
 
@@ -105,3 +107,116 @@ def test_preview_route_is_rate_limited_per_client():
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
+
+
+# --- 改善計画T237: get_preview_builderのroad_graphエンジン対応 ---
+
+
+def test_preview_route_uses_preview_builder_and_returns_road_graph_result():
+    """ルータが`get_preview_builder`経由であること自体を、直接オーバーライドで確認する
+    （`get_route_generation_builder`と同じ、ビルダーを丸ごと差し替えるテスト方式）。"""
+    segment = RouteSegment(
+        distance_km=3.3, duration_minutes=9.9, geometry={"type": "LineString", "coordinates": []}
+    )
+    captured = {}
+
+    async def fake_preview(origin, destination):
+        captured["origin"] = origin
+        captured["destination"] = destination
+        return segment
+
+    app.dependency_overrides[get_preview_builder] = lambda: fake_preview
+
+    try:
+        response = client.post("/api/routes/preview", json=REQUEST_BODY)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["distance_km"] == 3.3
+    assert captured["origin"].latitude == REQUEST_BODY["origin"]["latitude"]
+
+
+def test_preview_route_returns_502_when_preview_builder_raises():
+    async def fake_preview(origin, destination):
+        raise RoutingError("road_graph: no path found between origin and destination")
+
+    app.dependency_overrides[get_preview_builder] = lambda: fake_preview
+
+    try:
+        response = client.post("/api/routes/preview", json=REQUEST_BODY)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+
+
+class _FakeGraphServiceForPreview:
+    def __init__(self, graph: RoadGraph | None):
+        self._graph = graph
+
+    async def get_search_materials_for_bbox(self, bbox):
+        if self._graph is None or not self._graph.edges:
+            return None
+        return SearchMaterials(
+            graph=self._graph,
+            surface_attributes={},
+            edge_attribute_counts={},
+            way_tags={edge_id: {"highway": edge.highway} for edge_id, edge in self._graph.edges.items()},
+            elevation_attributes={},
+            designated_edge_ids=set(),
+        )
+
+    async def get_accident_years_covered(self) -> int:
+        return 0
+
+    async def get_edges_with_geometry(self, edge_ids):
+        return {}
+
+
+class _FakeWeatherServiceForPreview:
+    async def get_conditions(self, point, at=None):
+        return None
+
+
+async def test_get_preview_builder_road_graph_branch_calls_preview_segment(monkeypatch):
+    """`get_preview_builder`自体（`settings.routing_engine=="road_graph"`分岐）を、
+    HTTP経由ではなく直接呼んで検証する（router越しのオーバーライドでは配線ロジック
+    自体のバグを検知できないため）。"""
+    monkeypatch.setattr(settings, "routing_engine", "road_graph")
+
+    node_a = Node(node_id="a", latitude=35.0, longitude=139.0)
+    node_b = Node(node_id="b", latitude=35.01, longitude=139.0)
+    edge = DirectedEdge(
+        edge_id="e1", from_node_id="a", to_node_id="b",
+        geometry=[[35.0, 139.0], [35.01, 139.0]], distance_m=1111.0, highway="residential",
+    )
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+
+    build = get_preview_builder(
+        routing_service=None,
+        graph_service=_FakeGraphServiceForPreview(graph),
+        elevation_attribute_service=None,
+        weather_service=_FakeWeatherServiceForPreview(),
+    )
+
+    segment = await build(
+        Coordinates(latitude=35.0, longitude=139.0), Coordinates(latitude=35.01, longitude=139.0)
+    )
+
+    assert segment.distance_km == 1.11
+    assert segment.duration_minutes > 0
+
+
+async def test_get_preview_builder_road_graph_branch_raises_routing_error_when_unreachable(monkeypatch):
+    monkeypatch.setattr(settings, "routing_engine", "road_graph")
+
+    build = get_preview_builder(
+        routing_service=None,
+        graph_service=_FakeGraphServiceForPreview(None),
+        elevation_attribute_service=None,
+        weather_service=_FakeWeatherServiceForPreview(),
+    )
+
+    with pytest.raises(RoutingError):
+        await build(Coordinates(latitude=35.0, longitude=139.0), Coordinates(latitude=35.01, longitude=139.0))

@@ -6,10 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
 from app.api.dependencies import (
+    PreviewBuilder,
     RouteGenerationBuilder,
     client_id,
+    get_preview_builder,
     get_route_generation_builder,
-    get_routing_service,
 )
 from app.config import settings
 from app.domain.errors import RoutingError
@@ -26,7 +27,6 @@ from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE, CarStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.route_generator import JST
-from app.services.routing_service import RoutingService
 
 router = APIRouter()
 
@@ -45,7 +45,7 @@ class RoutePreviewRequest(BaseModel):
 async def preview_route(
     request: RoutePreviewRequest,
     http_request: Request,
-    routing_service: RoutingService = Depends(get_routing_service),
+    preview: PreviewBuilder = Depends(get_preview_builder),
 ) -> RouteSegment:
     if not check_rate_limit(f"preview:{client_id(http_request)}", settings.preview_rate_limit_per_minute):
         record_rate_limit_rejection(
@@ -53,7 +53,7 @@ async def preview_route(
         )
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     try:
-        return await routing_service.get_route([request.origin, request.destination])
+        return await preview(request.origin, request.destination)
     except RoutingError as exc:
         raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
 
