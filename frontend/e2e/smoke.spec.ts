@@ -24,14 +24,18 @@ test("ルート生成→候補一覧の表示", async ({ page }) => {
 test("地図レイヤーのON/OFF切替", async ({ page }) => {
   await page.goto("/");
 
-  // 地図上のレイヤーチップ（MapOverlayControls）。「道路情報」レイヤーのチップを
-  // 1回押して、押下状態（aria-pressed）が反転することを確認する。サイドバー
-  // （MapLayersPanel）側にも同名のチップ（aria-label="道路情報レイヤーを表示"）が
+  // 地図上のレイヤーチップ（MapOverlayControls）。「道路情報」は改善計画T165で
+  // 「道路種別」「路面」の2チップへ論理分割され、さらにT166で「観測」グループの
+  // 折りたたみ配下へ格納された。まずグループ見出しを展開してから、道路種別チップを
+  // 1回押して押下状態（aria-pressed）が反転することを確認する。サイドバー
+  // （MapLayersPanel）側にも同名のチップ（aria-label="道路の種類レイヤーを表示"）が
   // あるため、完全一致で地図上のチップだけに絞り込む。
-  const roadChip = page.getByRole("button", { name: "道路情報", exact: true });
-  await expect(roadChip).toBeVisible();
+  await page.getByRole("button", { name: "観測", exact: true }).click();
 
-  const initiallyOn = (await roadChip.getAttribute("aria-pressed")) === "true";
-  await roadChip.click();
-  await expect(roadChip).toHaveAttribute("aria-pressed", String(!initiallyOn));
+  const roadTypeChip = page.getByRole("button", { name: "道路種別", exact: true });
+  await expect(roadTypeChip).toBeVisible();
+
+  const initiallyOn = (await roadTypeChip.getAttribute("aria-pressed")) === "true";
+  await roadTypeChip.click();
+  await expect(roadTypeChip).toHaveAttribute("aria-pressed", String(!initiallyOn));
 });
