@@ -1,4 +1,4 @@
-"""RoadGraphEngine（Road Graph + NetworkX Dijkstraエンジン）のテスト。
+"""RoadGraphEngine（Road Graph + scipy.sparse.csgraph Dijkstraエンジン）のテスト。
 
 RouteGenerator（戦略層）を通したエンドツーエンドで、エンジン固有の責務
 （Road Graph取得が1回のみ・Dijkstra経路・標高がパス上のEdgeだけに絞られること・
@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.domain import evaluation
-from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute
+from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import bearing_between, destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, Node, RoadGraph
@@ -20,7 +20,6 @@ from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
 from app.services import road_graph_engine
 from app.services.evaluation_service import EvaluationService
-from app.services.graph_service import SearchMaterials
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
 from app.services.route_scorer import RouteScorer
@@ -31,6 +30,22 @@ SCORING_WEIGHTS = {"distance_weight": 0.30, "elevation_weight": 0.15, "wind_weig
 
 def make_route_scorer() -> RouteScorer:
     return RouteScorer(SCORING_WEIGHTS)
+
+
+def _sparse_edge_weight(sparse_graph, from_node_id: str, to_node_id: str) -> float:
+    # 改善計画T226: context.nx_graph削除後、sparse_graph（実際に探索本体が使うグラフ）
+    # から直接Edgeの重みを読む。
+    i = sparse_graph.node_id_to_index[from_node_id]
+    j = sparse_graph.node_id_to_index[to_node_id]
+    return sparse_graph.matrix[i, j]
+
+
+def _sparse_has_edge(sparse_graph, from_node_id: str, to_node_id: str) -> bool:
+    i = sparse_graph.node_id_to_index.get(from_node_id)
+    j = sparse_graph.node_id_to_index.get(to_node_id)
+    if i is None or j is None:
+        return False
+    return (i, j) in sparse_graph.edge_id_by_index_pair
 
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
@@ -115,9 +130,9 @@ class FakeGraphService:
         # 「バッチ未実行のEdge」を模す（gradient軸のみデータ無し扱い、他軸の評価は継続）。
         self._elevation_attributes_for_search = elevation_attributes_for_search or {}
         # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
-        # （GraphService.get_stop_poi_counts(repository=None)と同じ{}を返す）。Trueは
+        # （get_edge_attribute_counts(repository=None)と同じ{}を返す）。Trueは
         # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
-        # （AttributeRepository.get_stop_poi_countsの実挙動、テストで未設定のedge_idは0扱い）。
+        # （AttributeRepository.get_edge_attribute_countsの実挙動、テストで未設定のedge_idは0扱い）。
         self._stop_data_available = stop_data_available
         self.call_count = 0
 
@@ -171,23 +186,10 @@ class FakeGraphService:
             for edge_id in edge_ids
         }
 
-    async def get_stop_poi_counts(self, edge_ids):
-        if not self._stop_data_available:
-            return {}
-        return {edge_id: self._stop_counts.get(edge_id, 0) for edge_id in edge_ids}
-
     async def get_way_tags(self, edge_ids):
         # 静的道路属性P1残り。既定は{}（未設定時は「repository未注入」相当で既存
         # アサーションに影響しない）。way_tagsに指定されたedge_idのみ実値を返す。
         return {edge_id: self._way_tags[edge_id] for edge_id in edge_ids if edge_id in self._way_tags}
-
-    async def get_intersection_counts(self, edge_ids):
-        # 同上（intersectionDensity）。
-        return {edge_id: self._intersection_counts[edge_id] for edge_id in edge_ids if edge_id in self._intersection_counts}
-
-    async def get_accident_counts(self, edge_ids):
-        # 同上（事故密度、外部静的データソース T50残作業）。
-        return {edge_id: self._accident_counts[edge_id] for edge_id in edge_ids if edge_id in self._accident_counts}
 
     async def get_accident_years_covered(self):
         return self._accident_years_covered
@@ -695,7 +697,6 @@ async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkey
     )
     context = road_graph_engine._RoadGraphContext(
         graph=context_graph,
-        nx_graph=None,
         sparse_graph=None,
         surface_attributes={},
         stop_counts={},
@@ -747,8 +748,8 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     assert day_context.night_active is False
     assert night_context.night_active is True
 
-    day_cost = day_context.nx_graph["a"]["b"]["weight"]
-    night_cost = night_context.nx_graph["a"]["b"]["weight"]
+    day_cost = _sparse_edge_weight(day_context.sparse_graph, "a", "b")
+    night_cost = _sparse_edge_weight(night_context.sparse_graph, "a", "b")
     # 日中はnight_weightが0倍されるため、他の軸の重みも全て0の本ケースではdistance_mそのもの
     # （難易度による割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
     assert night_cost > day_cost
@@ -781,8 +782,8 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
     flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
     steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
 
-    flat_cost = flat_context.nx_graph["a"]["b"]["weight"]
-    steep_cost = steep_context.nx_graph["a"]["b"]["weight"]
+    flat_cost = _sparse_edge_weight(flat_context.sparse_graph, "a", "b")
+    steep_cost = _sparse_edge_weight(steep_context.sparse_graph, "a", "b")
     # 事前計算データが無い（{}のまま=バッチ未実行を模す）場合はgradient軸がデータ無し扱いで
     # 割増が乗らない。事前計算済みの急勾配が渡されるとgradient軸の割増がコストへ反映される。
     assert flat_cost == pytest.approx(edge.distance_m, abs=0.1)
@@ -791,7 +792,7 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
 
 async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_search_graph():
     # 改善計画T218a: 0次ハードフィルタの勾配しきい値がprepareの探索グラフ構築にも
-    # 反映されることを確認する（nx_graphに該当Edgeが含まれなくなる）。
+    # 反映されることを確認する（sparse_graphに該当Edgeが含まれなくなる）。
     node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
     node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
     coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
@@ -807,7 +808,7 @@ async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_se
 
     context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
 
-    assert not context.nx_graph.has_edge("a", "b")
+    assert not _sparse_has_edge(context.sparse_graph, "a", "b")
 
 
 async def test_build_segment_details_night_difficulty_follows_context_night_active():
@@ -826,7 +827,7 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     base_graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     base_kwargs = dict(
         graph=base_graph,
-        nx_graph=None, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
+        sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),

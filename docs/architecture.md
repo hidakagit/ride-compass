@@ -278,7 +278,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
 - **戦略（共通）とエンジン（差し替え可能）の分離**: 当初は「2つの`generate_loops`実装を丸ごと並行して残す」形で切り替えを導入したが、8方位・半径ヒューリスティック・距離許容フィルタ・`RouteScorer`適用・ソートという周回生成戦略が二重化し、仕様書5章の将来拡張（適応的半径調整・候補地点選定の改善等）を2回ずつ実装することになるため、直後の設計レビュー（後述）でポート分割へリファクタリングした。現在の構造:
   - **`RouteGenerator`**（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)、戦略層・単一実装）: 経由地点の計算（`destination_point`）、8方位分の`trace_loop`並列実行、距離許容範囲フィルタ、`RouteScorer`によるtotal_score付与・ソートを持つ。エンジンには`LoopRoutingEngine`（Protocol）として`prepare`（リクエスト単位の共有準備）／`trace_loop`（1方位分の経路と距離）／`evaluate_loops`（**距離フィルタ通過後の候補だけ**への標高・風・路面評価）の3段階で委譲する。評価を後段に分離しているのは、棄却済み候補への外部API問い合わせ（GSI標高等）を避けるため（旧openrouteservice版が持っていたクォータ節約の挙動を両エンジン共通の戦略として保証する形。Road Graph版は従来フィルタ前に標高を取得していたが、この分割でフィルタ後のみになった）
   - **`OpenRouteServiceEngine`**（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)）: 経路はopenrouteservice Directions API（`RoutingService`/`ORSClient`）へ1方位1リクエストで委譲し、評価は復元した`ElevationService`（距離連動サンプリング、約1km間隔・12〜32点）・`WindService`（区間ごとの推定到達時刻の風）で行う
-  - **`RoadGraphEngine`**（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)）: `prepare`でRoad Graphを1回だけ取得しEdge Cost・NetworkXグラフ・起点スナップ・出発時点の風を構築、`trace_loop`でDijkstra探索、`evaluate_loops`で経路上のEdgeだけに標高を取得する（完全移行時の実機検証で判明した性能問題への対応をポート3段階へ対応付けた形）
+  - **`RoadGraphEngine`**（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)）: `prepare`でRoad Graphを1回だけ取得しEdge Cost・探索用グラフ（`SparseRoadGraph`、改善計画T220）・起点スナップ・出発時点の風を構築、`trace_loop`でDijkstra探索、`evaluate_loops`で経路上のEdgeだけに標高を取得する（完全移行時の実機検証で判明した性能問題への対応をポート3段階へ対応付けた形。`prepare`は当初NetworkXグラフも並行構築していたが、探索本体は最初からscipy.sparse版のみを使っており並行構築分はランタイムで誰にも読まれていなかったため改善計画T226で削除、`prepare`のコストが約0.2〜0.4秒/リクエスト@69,216エッジ短縮した）
 - **`domain/geo.py`のサンプリング関数も復元**: `sample_indices`/`sample_line_coordinates`/`sample_line_points`（`geo.py`）は、完全移行で「Road Graphエンジンからは参照されなくなった」という理由で削除されていたが、`OpenRouteServiceEngine`が引き続き必要とするため復元した。
 - **路面判定は1系統へ統一済み（2026-08-15、改善計画T21）**: 導入当初は`GOOD_SURFACE_IDS`/`paved_percent`/`surface_id_at_index`/`is_good_surface`（openrouteserviceの数値ID基準）と`classify_osm_surface`（OSMタグ基準、RoadGraphEngine用）の2系統が併存していたが、`decisions/pre-static-attributes-gate.md`（決定1）に基づき、ORSエンジンのサンプル点を`RoadGraphRepository.get_nearest_surface_tags`（PostGIS KNN、スナップ半径`SURFACE_MATCH_MAX_DISTANCE_M=30m`）で自前DBのEdgeへ空間マッチしてOSMタグを読む方式へ統一した。前者4関数は削除済み。両エンジンとも`classify_osm_surface`＋距離加重集計`distance_weighted_road_score`（`domain/road.py`、Edge/サンプル区間どちらの距離単位でも使える共通関数）を使う。`settings.road_graph_use_repository=false`（DBなしプロファイル）では空間マッチ自体を行わず、ORSエンジンの路面評価は全区間`None`になる。
 - **設定と既定値**: `config.py`に`routing_engine: Literal["openrouteservice", "road_graph"]`を追加した（`.env`の`ROUTING_ENGINE`で上書き可）。現状はマップの見える化・評価情報の精査を優先するという方針に合わせ、既定値は`openrouteservice`にした（Road Graphエンジンを使うには`.env`で明示的に`road_graph`を指定する）。
@@ -1145,8 +1145,13 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 `False`→`True`へ変更した（自転車ルート案内アプリで自動車同士のみの事故まで数えていたのは
 実質バグに近いという判断）。あわせて単純COUNTから死亡事故を`ACCIDENT_FATAL_WEIGHT`
 （`domain/accident.py`、暫定値3.0）件分として積算するSUMへ変更し、戻り値がint→floatに
-なった。`GraphService.get_accident_counts`に欠けていた`bicycle_only`引数も追加し、
-road_graph_engine経由のルート生成にも既定値変更が実際に反映されるようにした。
+なった。当時`GraphService.get_accident_counts`（repository層への薄いラッパー）に
+欠けていた`bicycle_only`引数も追加し、road_graph_engine経由のルート生成にも既定値変更が
+実際に反映されるようにした（この`GraphService`側ラッパー自体は、T219以降
+`get_search_materials_for_bbox`/`get_edge_attribute_counts`が探索フェーズの読み取り経路を
+一本化したことでランタイム呼び出し元が無くなり、改善計画T226で削除済み。repository層の
+`get_accident_counts`/`get_nearest_accident_counts`は現在も存在し、`bicycle_only`の
+既定値もそのまま有効）。
 
 ### 指定路線コンフレーション機構（T51、国土数値情報 N10/N12）
 

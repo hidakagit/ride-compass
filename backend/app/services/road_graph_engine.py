@@ -1,4 +1,4 @@
-"""Road Graph + NetworkX（Dijkstra）の自前ルーティングエンジン（試験実装）。
+"""Road Graph + scipy.sparse.csgraph（Dijkstra）の自前ルーティングエンジン（試験実装）。
 
 `RouteGenerator`（services/route_generator.py）の`LoopRoutingEngine`契約を実装する。
 Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って経由地点間の
@@ -25,16 +25,15 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
 - 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため。
   OpenRouteServiceEngineの「区間ごとの推定到達時刻の風」とは意味が異なる点に注意。
   レスポンスの`engine`フィールドで識別できる）。
-- NetworkXの`DiGraph`は同一ノード間の並行Edgeを1本しか保持しない（`MultiDiGraph`ではない）。
-  稀なケースでは最安のEdgeが選ばれない可能性がある。
+- `SparseRoadGraph`（domain/routing.py: build_sparse_graph）は同一ノード間の並行Edgeを
+  1本しか保持しない（後から登場したEdgeで上書き）。稀なケースでは最安のEdgeが
+  選ばれない可能性がある。
 """
 
 import asyncio
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-
-import networkx as nx
 
 from app.domain.accident import distance_weighted_accident_density
 from app.domain.difficulty import distance_weighted_difficulty
@@ -65,7 +64,6 @@ from app.domain.traffic import (
 from app.domain.routing import (
     NodeSpatialIndex,
     SparseRoadGraph,
-    build_networkx_graph,
     build_node_spatial_index,
     build_sparse_graph,
     concat_node_paths,
@@ -94,7 +92,6 @@ class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
     graph: RoadGraph
-    nx_graph: nx.DiGraph
     surface_attributes: dict[str, str | None]
     stop_counts: dict[str, int]
     way_tags: dict[str, dict[str, str]]
@@ -107,9 +104,10 @@ class _RoadGraphContext:
     # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
     node_index: NodeSpatialIndex
-    # 改善計画T220（T12 Stage 2）: trace_loopが実際のDijkstraに使うscipy版グラフ。
-    # nx_graphは既存テスト・区間表示ロジック互換のため引き続き構築するが、探索本体は
-    # こちらを使う（road_graph_engine.pyモジュールdocstring参照）。
+    # 改善計画T220（T12 Stage 2）: trace_loopが実際のDijkstraに使うscipy版グラフ。探索本体は
+    # 常にこちらを使う（road_graph_engine.pyモジュールdocstring参照）。旧nx_graphフィールドは
+    # ランタイムで誰にも読まれていなかったため改善計画T226で削除済み（domain/routing.pyの
+    # NetworkX系関数自体はsparse版の回帰テストオラクルとして引き続き存在する）。
     sparse_graph: SparseRoadGraph
     # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
@@ -216,12 +214,10 @@ class RoadGraphEngine:
             penalty_strength=self._penalty_strength,
             max_average_grade_percent=self._max_average_grade_percent,
         )
-        nx_graph = build_networkx_graph(graph, search_edge_costs)
         sparse_graph = build_sparse_graph(graph, search_edge_costs)
 
         return _RoadGraphContext(
             graph=graph,
-            nx_graph=nx_graph,
             sparse_graph=sparse_graph,
             surface_attributes=surface_attributes,
             stop_counts=stop_counts,
@@ -249,9 +245,7 @@ class RoadGraphEngine:
 
         # 改善計画T220（T12 Stage 2）: Dijkstra本体はNetworkX（Python実装）ではなく
         # scipy.sparse.csgraph（C実装）で行う（1リクエストにつき最大24回、実測で
-        # ボトルネックと判明。モジュールdocstring参照）。context.nx_graphは既存の
-        # テスト・区間表示ロジックとの互換のため引き続き構築されるが、探索本体は
-        # context.sparse_graphを使う。
+        # ボトルネックと判明。モジュールdocstring参照）。context.sparse_graphを使う。
         path_1 = shortest_path_node_ids_sparse(context.sparse_graph, context.origin_node, node_a)
         path_2 = shortest_path_node_ids_sparse(context.sparse_graph, node_a, node_b)
         path_3 = shortest_path_node_ids_sparse(context.sparse_graph, node_b, context.origin_node)

@@ -265,50 +265,18 @@ class GraphService:
         graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
         return materials
 
-    async def get_stop_poi_counts(self, edge_ids: list[str]) -> dict[str, int]:
-        """指定edge_idそれぞれの停止密度評価用カウント（信号・横断歩道・一時停止・踏切、
-        静的道路属性P1）を返す。`get_or_build_graph_with_attributes`の3経路分岐とは独立した
-        呼び出しにしている（`repository`が無ければ`{}`を返すだけで済み、Overpassフォールバック
-        経路には新属性を実装しないというADR方針とも自然に整合するため。docs/decisions/
-        pre-static-attributes-gate.md）。
-        """
-        if self._repository is None:
-            return {}
-        return await self._repository.get_stop_poi_counts(edge_ids)
-
     async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
         """指定edge_idそれぞれの許可リストタグ（静的道路属性P0）を返す（静的道路属性P1残り、
-        車ストレス・自転車インフラ評価の入力）。get_stop_poi_countsと同じ
-        「repositoryが無ければ`{}`」パターン。
+        車ストレス・自転車インフラ評価の入力）。`repository`が無ければ`{}`を返す
+        （Overpassフォールバック経路には新属性を実装しないというADR方針と整合するため。
+        docs/decisions/pre-static-attributes-gate.md）。
         """
         if self._repository is None:
             return {}
         return await self._repository.get_way_tags(edge_ids)
 
-    async def get_intersection_counts(self, edge_ids: list[str]) -> dict[str, int]:
-        """指定edge_idそれぞれの交差点密度評価用カウント（静的道路属性P1残り、
-        intersectionDensity）を返す。get_stop_poi_countsと同じ
-        「repositoryが無ければ`{}`」パターン。
-        """
-        if self._repository is None:
-            return {}
-        return await self._repository.get_intersection_counts(edge_ids)
-
-    async def get_accident_counts(self, edge_ids: list[str], bicycle_only: bool = True) -> dict[str, float]:
-        """指定edge_idそれぞれの事故密度評価用カウント（外部静的データソース T50残作業、
-        死亡事故重み付け込み、改善計画: 事故密度の精度改善）を返す。get_stop_poi_countsと
-        同じ「repositoryが無ければ`{}`」パターン。`bicycle_only`既定値はrepository層
-        （RoadGraphRepository.get_accident_counts）と同じTrue（自転車ルート案内で
-        自動車同士のみの事故まで数えるのを避ける、既定挙動としてユーザー承認済み）。
-        以前はこの引数自体が欠けており、repository層の既定値変更だけでは
-        road_graph_engine経由のルート生成には反映されない状態だった。
-        """
-        if self._repository is None:
-            return {}
-        return await self._repository.get_accident_counts(edge_ids, bicycle_only=bicycle_only)
-
     async def get_accident_years_covered(self) -> int:
-        """事故データの収録年数を返す。get_stop_poi_countsと同じ
+        """事故データの収録年数を返す。get_way_tagsと同じ
         「repositoryが無ければ0」パターン（0はdistance_weighted_accident_density/
         compute_edge_costの側で「データ無し」として扱われる）。
 
@@ -337,7 +305,7 @@ class GraphService:
 
     async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
         """事故・停止・交差点の事前集計（`edge_attribute_counts`、改善計画T144→T218で
-        読み取り配線）を返す。get_stop_poi_counts等と同じ「repositoryが無ければ`{}`」パターン。
+        読み取り配線）を返す。get_way_tags等と同じ「repositoryが無ければ`{}`」パターン。
         """
         if self._repository is None:
             return {}
@@ -345,7 +313,7 @@ class GraphService:
 
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         """指定edge_idそれぞれの事前計算済み標高属性（average_grade等）を返す
-        （改善計画T218a、T12 Stage 0.5）。get_stop_poi_countsと同じ
+        （改善計画T218a、T12 Stage 0.5）。get_way_tagsと同じ
         「repositoryが無ければ`{}`」パターン。ここは`elevation_attributes`テーブルの
         単純なキー参照のみで、未計算のEdgeへその場でGSIへ問い合わせることはしない
         （探索フェーズは`app.batch.precompute_elevation_attributes`で事前計算済みの値を
@@ -357,7 +325,7 @@ class GraphService:
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         """指定edge_idのうちKSJ N10/N12に該当するものの集合を返す（外部静的データソース
-        T51）。get_stop_poi_countsと同じ「repositoryが無ければ空集合」パターン。
+        T51）。get_way_tagsと同じ「repositoryが無ければ空集合」パターン。
         """
         if self._repository is None:
             return set()

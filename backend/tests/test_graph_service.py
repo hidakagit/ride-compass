@@ -73,7 +73,6 @@ class FakeRoadGraphRepository:
         self.nodes = {}
         self.edges = {}
         self.cached_tiles = set()
-        self.stop_poi_counts: dict[str, int] = {}
         self.save_graph_call_count = 0
         self.save_raw_ways_call_count = 0
         self.get_way_specs_with_closure_call_count = 0
@@ -205,10 +204,6 @@ class FakeRoadGraphRepository:
             way = self.raw_ways.get(edge.osm_way_id) if edge.osm_way_id is not None else None
             result[edge_id] = way.surface if way is not None else None
         return result
-
-    async def get_stop_poi_counts(self, edge_ids):
-        # 静的道路属性P1。テストが差し込んだstop_poi_countsをそのまま返す（未設定edge_idは0）。
-        return {edge_id: self.stop_poi_counts.get(edge_id, 0) for edge_id in edge_ids}
 
     async def is_tile_cached(self, zoom, x, y):
         return (zoom, x, y) in self.cached_tiles
@@ -528,24 +523,6 @@ async def test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shar
     assert {e.distance_m for e in w_edges_from_tile_a.values()} == {
         e.distance_m for e in w_edges_from_tile_b_after_a.values()
     }
-
-
-async def test_get_stop_poi_counts_without_repository_returns_empty_dict():
-    # 静的道路属性P1。repository未指定（DBなし構成）はget_or_build_graph_with_attributesの
-    # 分岐とは独立に、常に{}を返す（Overpassフォールバック側には実装しないADR方針）。
-    service = GraphService(FakeOverpassClient(), http_client=None)
-
-    assert await service.get_stop_poi_counts(["edge-1", "edge-2"]) == {}
-
-
-async def test_get_stop_poi_counts_with_repository_delegates():
-    repository = FakeRoadGraphRepository()
-    repository.stop_poi_counts = {"edge-1": 3}
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
-
-    result = await service.get_stop_poi_counts(["edge-1", "edge-2"])
-
-    assert result == {"edge-1": 3, "edge-2": 0}
 
 
 # --- 改善計画T219（T12 Stage 1）: get_search_materials_for_bboxのタイルキャッシュ経路 ---
