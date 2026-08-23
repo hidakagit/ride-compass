@@ -9,11 +9,14 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "http://localhost:3000"
     openrouteservice_api_key: str = ""
     # /api/routes/generateのルーティングエンジン切り替え。"road_graph"（自前Road Graph+
-    # NetworkX Dijkstra、外部APIキー不要だがルーティング自体は開発中。road_graph_engine.py）と
+    # scipy.sparse.csgraph Dijkstra、外部APIキー不要。road_graph_engine.py）と
     # "openrouteservice"（外部APIキー方式、Road Graph移行前の実装。openrouteservice_engine.py）
-    # のどちらを使うかを選べる。ルーティング部分は将来拡張として並行開発を続ける一方、
-    # 現状はマップの見える化・評価に必要な情報の精査を優先するため、既定値はopenrouteservice。
-    routing_engine: Literal["road_graph", "openrouteservice"] = "openrouteservice"
+    # のどちらを使うかを選べる。改善計画T236（経路品質比較、致命的な差異なし）・T241
+    # （道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・
+    # DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て、既定値を
+    # road_graphへ切り替えた（2026-08-23、ユーザー判断）。road_graphを使うには
+    # `DATABASE_URL`への実接続が必須（改善計画T222でDBなし構成を撤去済みのため）。
+    routing_engine: Literal["road_graph", "openrouteservice"] = "road_graph"
     # Road Graph/Road Attributeの永続化先（PostGIS）。docker-compose.ymlのpostgresサービスに
     # 対応する。ElevationAttributeServiceへrepositoryを明示的に注入した場合にのみ使われる
     # （infrastructure/database.py, road_graph_repository.py）。GraphServiceは改善計画T222で

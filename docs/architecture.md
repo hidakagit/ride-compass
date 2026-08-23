@@ -17,7 +17,7 @@
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
 | DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。Overpassフォールバックは改善計画T22で撤去済みのため、取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、`routing_engine=road_graph`を使うには`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService/ORSエンジンの路面評価用repository]のみに引き続き効く設定として残る）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
-| ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **切り替え可能**（既定: openrouteservice API、`config.py`の`routing_engine`設定で`road_graph`にも切替可） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価だけを`LoopRoutingEngine`ポート経由で`OpenRouteServiceEngine`（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、外部APIキー方式、Road Graph移行前の実装）または`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のscipy.sparse.csgraph Dijkstraを使う）へ委譲する。ルーティング自体（自前の経路探索）は将来拡張として開発を続ける一方、現状はマップの見える化・評価に必要な情報の精査を優先するため既定値はopenrouteservice。レスポンスの`engine`フィールドでどちらが生成したかを識別できる。詳細は「ルーティングエンジンの切り替え対応」および[decisions/road-graph-migration.md](decisions/road-graph-migration.md)参照 |
+| ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **切り替え可能**（既定: road_graph、`config.py`の`routing_engine`設定で`openrouteservice`にも切替可） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価だけを`LoopRoutingEngine`ポート経由で`OpenRouteServiceEngine`（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、外部APIキー方式、Road Graph移行前の実装）または`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のscipy.sparse.csgraph Dijkstraを使う）へ委譲する。改善計画T236（経路品質比較、致命的な差異なし）・T241（道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て、既定値を`road_graph`へ切り替えた（改善計画T247、2026-08-23）。レスポンスの`engine`フィールドでどちらが生成したかを識別できる。詳細は「ルーティングエンジンの切り替え対応」および[decisions/road-graph-migration.md](decisions/road-graph-migration.md)参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **切り替え可能**（`routing_engine`設定に連動、改善計画T237） | Step3の疎通確認用エンドポイント。`routing_engine=="road_graph"`なら`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）、それ以外は従来どおり`RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）経由の`ORSClient`（単純最短距離）。`dependencies.py: get_preview_builder`が分岐を持つ。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **Open-Meteo Forecast API**（APIキー不要） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`current`＋`hourly`をまとめて取得し、「地点＋時刻」で天候を引ける設計（後述）。周回ルート生成は8候補（方位）ぶんの風評価を並列実行するため、素朴には候補数ぶんのOpen-Meteo呼び出しがほぼ同時発火し本番の共有送信元IPで429が常態化する一因になっていた。`WeatherService.prefetch`/`WindService.prefetch`（[backend/app/services/wind_service.py](../backend/app/services/wind_service.py)）が候補間でサンプル点を合流させ、`get_forecast_many`のTTLキャッシュを先読みで温めることで、実質1リクエストへ集約する（`/api/debug/stats`の`error_types`/`last_error_type`等の診断情報拡張と併せて対応） |
@@ -282,7 +282,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   - **`RoadGraphEngine`**（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)）: `prepare`でRoad Graphを1回だけ取得しEdge Cost・探索用グラフ（`SparseRoadGraph`、改善計画T220）・起点スナップ・出発時点の風を構築、`trace_loop`でDijkstra探索、`evaluate_loops`で経路上のEdgeだけに標高を取得する（完全移行時の実機検証で判明した性能問題への対応をポート3段階へ対応付けた形。`prepare`は当初NetworkXグラフも並行構築していたが、探索本体は最初からscipy.sparse版のみを使っており並行構築分はランタイムで誰にも読まれていなかったため改善計画T226で削除、`prepare`のコストが約0.2〜0.4秒/リクエスト@69,216エッジ短縮した）
 - **`domain/geo.py`のサンプリング関数も復元**: `sample_indices`/`sample_line_coordinates`/`sample_line_points`（`geo.py`）は、完全移行で「Road Graphエンジンからは参照されなくなった」という理由で削除されていたが、`OpenRouteServiceEngine`が引き続き必要とするため復元した。
 - **路面判定は1系統へ統一済み（2026-08-15、改善計画T21）**: 導入当初は`GOOD_SURFACE_IDS`/`paved_percent`/`surface_id_at_index`/`is_good_surface`（openrouteserviceの数値ID基準）と`classify_osm_surface`（OSMタグ基準、RoadGraphEngine用）の2系統が併存していたが、`decisions/pre-static-attributes-gate.md`（決定1）に基づき、ORSエンジンのサンプル点を`RoadGraphRepository.get_nearest_surface_tags`（PostGIS KNN、スナップ半径`SURFACE_MATCH_MAX_DISTANCE_M=30m`）で自前DBのEdgeへ空間マッチしてOSMタグを読む方式へ統一した。前者4関数は削除済み。両エンジンとも`classify_osm_surface`＋距離加重集計`distance_weighted_road_score`（`domain/road.py`、Edge/サンプル区間どちらの距離単位でも使える共通関数）を使う。`settings.road_graph_use_repository=false`（DBなしプロファイル）では空間マッチ自体を行わず、ORSエンジンの路面評価は全区間`None`になる。
-- **設定と既定値**: `config.py`に`routing_engine: Literal["openrouteservice", "road_graph"]`を追加した（`.env`の`ROUTING_ENGINE`で上書き可）。現状はマップの見える化・評価情報の精査を優先するという方針に合わせ、既定値は`openrouteservice`にした（Road Graphエンジンを使うには`.env`で明示的に`road_graph`を指定する）。
+- **設定と既定値**: `config.py`に`routing_engine: Literal["openrouteservice", "road_graph"]`を追加した（`.env`の`ROUTING_ENGINE`で上書き可）。導入当初はマップの見える化・評価情報の精査を優先するという方針に合わせ既定値を`openrouteservice`にしていたが、改善計画T236・T241〜T246（品質比較・連結性調査・本番DB起動不能問題とDELETE性能問題の解消）を経て、**改善計画T247（2026-08-23）で既定値を`road_graph`へ切り替えた**（openrouteserviceを使うには`.env`で明示的に指定する）。
 - **DI（`api/dependencies.py`の`get_route_generation_builder`）**: `settings.routing_engine`の値に応じてどちらのエンジンを構築し`RouteGenerator`へ渡すかを切り替える。両エンジン分の依存を`Depends`パラメータとして宣言しているため、FastAPIの制約上、実際には使わない側の依存（`httpx.AsyncClient`等、いずれもこの時点では実I/Oを伴わない軽量なオブジェクト）も毎リクエスト構築されるが、条件分岐に応じて一部の`Depends`だけを解決する簡便な方法が無いため単純さを優先した（コード上のコメント参照）。研究インターフェース改善Phase 1（T23）で、`RouteGenerator`本体ではなくビルダーを返す形へ再構成し、エンドポイントが検証済みの重み上書き（無ければYAML既定値）を渡して組み立てを完了する（5章「評価重みのリクエスト上書きと評価モデル研究時の構成」参照）。
 - **`/api/routes/preview`**: Step3の疎通確認用エンドポイントは当初`RoutingService`/`ORSClient`直接使用のままエンジン切り替えの対象外だったが、改善計画T237で`get_preview_builder`（`api/dependencies.py`）を新設し`routing_engine`に連動するようにした（`RoadGraphEngine.preview_segment`参照、7章参照）。
 
@@ -304,7 +304,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
 - **周回品質（M4）**: 両エンジンとも「行きと帰りが同じ道」の往復型周回を防ぐ仕組みが無い。Road Graph版は「前の脚で使ったEdgeのコストを一時的に引き上げる」ことで自前修正でき、自前エンジンの差別化ポイントになりうる
 - **`find_nearest_node`の距離上限が無い（M5）**: 起点が道路網から極端に遠い場合も最近傍Nodeへ黙ってスナップする
 - ~~`RoutingService`へのORS固有パース漏れ（M2）~~: **解消済み（2026-08-15、改善計画T21）**。`properties.extras.surface`のパース自体を撤去した（路面評価が自前DB空間マッチへ統一されたため、ORS側のextra_infoが不要になった）
-- **`WeatherService.get_conditions(at=...)`のhourly範囲外ガード未実装（L3）**: openrouteservice版が既定へ戻ったことで実使用中の既知制約となった（20km/h想定の周回では実害はほぼ無い）
+- **`WeatherService.get_conditions(at=...)`のhourly範囲外ガード未実装（L3）**: openrouteservice版（改善計画T247で既定はroad_graphへ切替済みだが、引き続き選択可能なエンジン）が使う経路で実使用時の既知制約として残る（20km/h想定の周回では実害はほぼ無い）
 
 ### 道路種別（highway）の3つのスコープと路面（surface）語彙の正準定義
 
@@ -342,7 +342,7 @@ RideCompass/
   backend/
     app/
       main.py                ✅ FastAPI app, CORS
-      config.py               ✅ pydantic-settings（.env読込、basemap_public_base_url含む）。routing_engine（"openrouteservice" | "road_graph"、既定openrouteservice）を「ルーティングエンジンの切り替え対応」で追加。render_git_commit（Render自動注入のRENDER_GIT_COMMIT、ローカルはnull）を「Renderデプロイの反映確認」で追加
+      config.py               ✅ pydantic-settings（.env読込、basemap_public_base_url含む）。routing_engine（"openrouteservice" | "road_graph"、既定road_graph。改善計画T247で既定値をopenrouteserviceから切替）を「ルーティングエンジンの切り替え対応」で追加。render_git_commit（Render自動注入のRENDER_GIT_COMMIT、ローカルはnull）を「Renderデプロイの反映確認」で追加
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「Renderデプロイの反映確認」で新規）
       api/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
@@ -583,7 +583,7 @@ Response 429（同一クライアントIPから1分あたり20リクエスト（
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 POST /api/routes/generate   # Step4: 周回ルート候補生成、Step5: 標高フィールド追加、Step7: wind_score追加、Step8: road_score/total_score追加
-                            # ルーティングエンジンはsettings.routing_engineで切り替え（既定openrouteservice）。
+                            # ルーティングエンジンはsettings.routing_engineで切り替え（既定road_graph、改善計画T247）。
                             # レスポンスのengineフィールドでどちらのエンジンが生成したかを識別できる
                             # （wind_score等はエンジンによって算出の意味が異なるため。設計レビュー対応で追加）。
 Request:
@@ -834,10 +834,11 @@ scoring:
 - 上書きは全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ）。重みは有効指標の
   重み和で正規化するため合計1.0でなくてよく、`scoring_weights`を全て0にした場合は合成不能として
   `total_score=null`（`RouteScorer`のweight_sum==0ガード、`composite_difficulty`と同じ扱い）
-- **研究時のエンジン選択**: 既定エンジン（openrouteservice）では重みは同じ8候補の並べ替え・色分けにしか
-  効かない（経路形状はORSが決める）。**重みの変更をルート形状まで反映させる実験は`.env`で
-  `ROUTING_ENGINE=road_graph`を指定して行うこと**（`route_preference`がEdge Cost→Dijkstra探索に効く。
-  ただし勾配は探索コストに含まれない既知の制約がある。road_graph_engine.pyのdocstring参照）
+- **研究時のエンジン選択**: 既定エンジン（road_graph、改善計画T247）では`route_preference`が
+  Edge Cost→Dijkstra探索に直接効くため、重みの変更はルート形状そのものに反映される
+  （ただし勾配は探索コストに含まれない既知の制約がある。road_graph_engine.pyのdocstring参照）。
+  一方openrouteservice（`.env`で`ROUTING_ENGINE=openrouteservice`を明示指定）では重みは
+  同じ8候補の並べ替え・色分けにしか効かない（経路形状はORSが決めるため）
 
 ---
 
@@ -1414,6 +1415,6 @@ Edge全量再UPSERT）だけを`config.py: graph_build_max_concurrent`（既定1
 経緯・フェーズ別の詳細は [decisions/road-graph-migration.md](decisions/road-graph-migration.md) へ移動した。
 現状の要点:
 
-- `/api/routes/generate`は`config.py`の`routing_engine`設定でopenrouteservice委譲（既定）とRoad Graph＋NetworkX Dijkstraを切り替えられる（1章「ルーティングエンジンの切り替え対応」参照）
+- `/api/routes/generate`は`config.py`の`routing_engine`設定でRoad Graph＋scipy.sparse.csgraph Dijkstra（既定、改善計画T247）とopenrouteservice委譲を切り替えられる（1章「ルーティングエンジンの切り替え対応」参照）
 - OSMデータはPBF取込バッチ（`app/batch/import_pbf.py`）でPostGISへ事前取込済みの範囲を第一系統とし、Overpassフォールバックは改善計画T22で撤去済み（取込範囲外は空タイル/データ未整備扱い。docs/osm-pbf-import.md、[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照）
 - 永続化層の構造（生OSM層／派生グラフ／属性／表示用MVTの4リポジトリ＋ファサード、トランザクション境界の規約）は`infrastructure/road_graph_repository.py`のdocstring参照

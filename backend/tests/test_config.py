@@ -10,7 +10,7 @@ from app.config import Settings, settings
 
 def test_default_field_declarations():
     assert Settings.model_fields["cors_allowed_origins"].default == "http://localhost:3000"
-    assert Settings.model_fields["routing_engine"].default == "openrouteservice"
+    assert Settings.model_fields["routing_engine"].default == "road_graph"
     assert Settings.model_fields["debug_mode"].default is False
     assert Settings.model_fields["render_git_commit"].default is None
 

@@ -38,7 +38,11 @@ class FakeRoutingService:
         return self._segment
 
 
-def test_preview_route_returns_segment_on_success():
+def test_preview_route_returns_segment_on_success(monkeypatch):
+    # `get_preview_builder`はsettings.routing_engineで分岐する（改善計画T237）。
+    # このテストはORS委譲経路（get_routing_serviceのフェイク差し替え）を検証するため、
+    # 既定値がroad_graphへ変わった後（改善計画T247）も明示的にopenrouteserviceへ固定する。
+    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
     segment = RouteSegment(
         distance_km=5.0,
         duration_minutes=10.0,
@@ -57,7 +61,9 @@ def test_preview_route_returns_segment_on_success():
     assert body["duration_minutes"] == 10.0
 
 
-def test_preview_route_returns_502_on_routing_error():
+def test_preview_route_returns_502_on_routing_error(monkeypatch):
+    # 上記test_preview_route_returns_segment_on_successと同じ理由でORS経路へ固定する。
+    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
     app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService(
         error=RoutingError("openrouteservice unavailable")
     )
