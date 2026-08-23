@@ -1745,7 +1745,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 のみとする。着手する場合はT252→T253→T254→T255の順（T251の推奨順序どおり、後続
 Phaseほど前Phaseの成果を安全網として使える）。**
 
-### - [ ] T252. Phase0: Tailwindの併用導入 規模S（2026-08-23起票） — トリガー: 別セッション完了後、着手指示
+### - [x] T252. Phase0: Tailwindの併用導入 規模S（2026-08-23完了）
 
 - 発端: T251の調査結果。「デザインの微調整を素早く試したい」という動機（下部シートの
   余白調整等）を受け、既存CSS Modulesは維持したままTailwindのユーティリティクラスを
@@ -1757,6 +1757,57 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: ビルド成功、既存の全画面表示に差分が出ないことを確認、型検査/ESLint green。
   T253以降でTailwindユーティリティを使う具体例（例: BottomSheetヘッダーの余白調整）を
   1件試して動作確認する。
+
+- **実装メモ（2026-08-23完了）**:
+  1. **導入**: `tailwindcss`/`@tailwindcss/postcss`を追加、`postcss.config.mjs`新設、
+     `globals.css`先頭へ`@import "tailwindcss";`。`--space-1〜4`はTailwind既定の
+     スペーシングスケール（`--spacing: 0.25rem`単位）と数値一致するため@theme上書き
+     不要と確認。`--color-*`はダークモードを`@media (prefers-color-scheme: dark)`内の
+     再定義で切り替える実装のため、`@theme`（静的値へ固定される）へは取り込まず
+     `var(--color-*)`を個別クラスで参照する運用とした（取り込むとダークモード追従が
+     壊れるため）。
+  2. **重大な発見（1件試す動作確認で発覚）**: 完了条件の「1件試す」検証
+     （一時ページ+一時Playwright spec、検証後削除）で`p-2`等のpaddingユーティリティが
+     `padding:0`のまま効かないことを発見。原因はCSS Cascade Layersの仕様
+     （unlayeredなルールはレイヤー内のルールに詳細度・順序に関係なく常に勝つ）と、
+     既存`globals.css`の`* { padding:0; margin:0 }`等の汎用リセットがunlayeredの
+     ままだったことの組み合わせ。Tailwindの`.p-2`は`@layer utilities`内にあるため
+     機械的に無効化されていた。これはT252の動機そのもの（下部シートの余白調整）を
+     阻害する致命的な穴のため、Phase0のうちに修正: `globals.css`の汎用リセット
+     （`*`/`html`/`body`/`a`/`button`/`input`の既定値）を`@layer base`へ包み、
+     Tailwindが内部で宣言する`@layer theme,base,components,utilities;`の同名
+     レイヤーへ合流させ、`utilities`が正しく優先されるようにした。一方MapLibre
+     ポップアップの配色上書き（別のunlayeredな`maplibre-gl.css`に詳細度で勝つ設計）と、
+     モバイルの44pxタップ領域確保ルール（アクセシビリティ要件を意図的にどのユーティリティ
+     クラスにも負けないよう保つ安全網）はunlayeredのまま維持し、その理由をコメントで
+     明記した。ユーザー指示により、globals.css以外の全CSS（.module.css全件・
+     `:global()`ブロック）も棚卸しし、他に同種の危険な汎用unlayered指定が無いことを
+     確認済み（MapLibre関連の`:global()`上書きのみで、いずれも同じ理由で意図的に
+     unlayered）。
+  3. **副次的に発覚した既存バグ（E2Eサーバーの本番不一致）**: 検証中、Playwrightの
+     webServerログに`"next start" does not work with "output: standalone"
+     configuration`という警告を発見。`next.config.ts`は`output: "standalone"`
+     （本番Dockerfileが`node server.js`で起動する構成）だが、`playwright.config.ts`の
+     webServerは`next start`（`npm run start`）を使っており、E2Eがローカル・CIとも
+     本番と異なるサーバー実装をテストしていた（フルリポジトリがある環境では
+     `next start`でも動作するため偶然気づかれていなかった、T252以前からの既存問題）。
+     `frontend/scripts/prepare-standalone.mjs`を新設（Dockerfileの`COPY .next/static`・
+     `COPY public`相当をNode標準`fs.cp`でクロスプラットフォームに再現）、
+     `package.json`へ`start:standalone`スクリプトを追加、`playwright.config.ts`の
+     webServerを`npm run build && npm run start:standalone`へ切替。修正後は警告が
+     消え、本番と同じ`node .next/standalone/server.js`エントリポイントでE2Eが走る。
+  4. **副次的に発覚した問題（ローカルE2Eのリソース競合）**: 検証中、Playwrightの
+     既定worker数（CPU論理コア数ベース）のまま3並列実行すると、同一のwebServer
+     プロセスへ複数のヘッドレスChromiumが同時に地図（MapLibre GL・WASM）を読み込みに
+     行き、ページ遷移・`beforeEach`フックが軒並み30秒タイムアウトする事象を複数回
+     実測（ユーザー報告「同じようにリソース競合でタイムアウトすることが多い」を受け
+     切り分け）。`workers: process.env.CI ? undefined : 1`でローカル実行を明示的に
+     直列化し、同条件で安定して全green化を確認。CIはGitHub Actions側のジョブ専有
+     リソースを前提に対象外。あわせて`docs/testing.md`へパターン4として本項目
+     （本番同等サーバー・workers=1）を追記。
+  - 検証: `tsc --noEmit`・ESLint・frontend vitest 56ファイル505件・`next build`
+    いずれもgreen。Playwright E2E（smoke.spec.ts、standalone起動・workers=1）2件green。
+    一時ページ・一時specは検証後に削除済み。
 
 ### - [ ] T253. Phase1: 点在する小部品の置換＋FloatingPanel→react-rnd 規模S〜M（2026-08-23起票） — トリガー: T252完了後、着手指示
 
@@ -1789,21 +1840,20 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 実機チューニング済みの現行操作性（touch-action・スワイプ閉じ・ホイール変換等）
   と同等以上をPlaywright＋実機確認。
 
-## 残タスクの優先順位（2026-08-23再整理・第12版）
+## 残タスクの優先順位（2026-08-23再整理・第13版）
 
-第11版以降、T221 Part 2（Stage B+C、評価軸のレジストリ駆動化・重みのdict化）を
-ユーザー指示で実施・完了し（ブランチ`t221-registry`→masterへマージ済み、T221エントリの
-実装メモ参照）、並行セッションでT250（モバイル上部バーUI）完了・T251（UIライブラリ調査）
-完了・T252〜T255起票が行われた。第12版として両セッションの結果を統合した。
+第12版以降、T252（Phase0: Tailwindの併用導入）をユーザー指示「改善計画の残タスクを
+優先度順に洗い出して、実施待ちのものがあればそのまま実施して」を受けて実施・完了した
+（T252エントリの実装メモ参照。副次的に発覚したE2Eサーバーの本番不一致・ローカル
+リソース競合の2件も合わせて修正済み）。第13版として結果を反映した。
 
 - **指示待ち（トリガー成立済み）**:
   1. T242の残課題（標高バックフィルの定期再実行、新規splitされたEdgeへの反映）を
      自動化するか都度手動実行に留めるかの方針決定。指示待ち。
   2. **T221 Stage D/E**（レジストリDB化・GUI編集画面）: 製品判断待ち（GUI編集の
      開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ無効化条件との整合）。
-  3. **T252〜T255**（UIライブラリ導入Phase0〜3、規模S〜M〜L）: 並行セッションの完了待ち
-    としていたが、T221 Part 2のマージによりトリガー成立。着手指示待ち（2026-08-23）。
-    T252→T253→T254→T255の順で着手する。
+  3. **T253〜T255**（UIライブラリ導入Phase1〜3、規模S〜M〜L）: T252完了によりトリガー
+     成立。着手指示待ち。T253→T254→T255の順で着手する。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
@@ -1824,9 +1874,9 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-**サマリ（14タスク）**: 指示待ち6件（T242残課題・T221 Stage D/E・T252〜T255）／
+**サマリ（13タスク）**: 指示待ち5件（T242残課題・T221 Stage D/E・T253〜T255）／
 トリガー未到達8件（T248・T206・T145a・T105・T127・T145・T207・T208）。
-T209・T223・T241は調査完了・T242〜T247・T249〜T251は実装/調査完了・T229はT248へ
+T209・T223・T241は調査完了・T242〜T247・T249〜T252は実装/調査完了・T229はT248へ
 統合クローズ・T221はPart 2（Stage B+C）まで実装完了（masterへマージ済み）のため
 本リストの指示待ちから外した。安全網の回復3件（T225・T224・T230）とレビュー指摘の
 消化5件（T226〜T228・T231・T232）、およびT222（Overpassライブ経路削除）は全て完了済み。

@@ -81,3 +81,20 @@ jsdom環境の構築コストはテストファイルごとにかかるため、
 `document.createElement`等を呼んでいないかも確認すること**（`windArrowIcon.ts`が
 `document.createElement("canvas")`を使う実例。テストファイル単体では判断できない
 「実装側の隠れたDOM依存」を見落とし、node環境化すると実行時エラーになる）。
+
+## パターン4: フロントエンドのPlaywright（E2E）→ 本番同等サーバー・ローカルworkers=1
+
+1. **webServerは本番と同じエントリポイントを使う。** `frontend/next.config.ts`は
+   `output: "standalone"`（本番Dockerfileが`node server.js`で起動する構成）のため、
+   `playwright.config.ts`のwebServerも`npm run build && npm run start:standalone`
+   （`frontend/scripts/prepare-standalone.mjs`でDockerfileのCOPY相当を再現してから
+   `node .next/standalone/server.js`を起動）を使う。以前は`next start`
+   （`npm run start`）を使っていたが、standalone構成とは組み合わせ不可という警告が
+   出ており、standalone構成固有の問題（静的アセット配置ずれ等）をE2Eが検知できない
+   状態だった（T252併用導入の実機検証で発覚、2026-08-23）。
+2. **ローカル実行はworkers=1に固定する。** `playwright.config.ts`の既定
+   （CPU論理コア数ベースの並列worker）のまま実行すると、同一のwebServer（Next.js
+   サーバー1プロセス）へ複数のヘッドレスChromiumが同時に地図（MapLibre GL・WASM）を
+   読み込みに行き、ページ遷移・`beforeEach`フックが軒並み30秒タイムアウトする事象を
+   複数回実測した（2026-08-23）。workers=1へ絞ると同条件で安定して全green。
+   CIはGitHub Actions側のジョブ専有リソースを前提に対象外（`process.env.CI`判定）。

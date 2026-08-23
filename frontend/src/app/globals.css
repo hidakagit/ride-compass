@@ -1,3 +1,12 @@
+/* Tailwind CSS v4併用導入（T252）。既存のCSS Modulesはそのまま維持しつつ、新規/改修箇所で
+   ユーティリティクラスを併用できるようにする。既存の--space-1〜4（0.25/0.5/0.75/1rem）は
+   Tailwind既定のスペーシングスケール（--spacing: 0.25rem単位）と数値一致しているため
+   （T251調査で確認済み）、p-2・gap-3等の既定ユーティリティがそのままpx単位で既存トークンと
+   揃う。--color-*はダークモードを@media (prefers-color-scheme: dark)内の再定義で切り替える
+   実装のため、Tailwindの@themeへ取り込む（静的値へ固定される）とダークモード追従が壊れる。
+   取り込まずvar(--color-*)をそのまま個別クラスで参照する運用とする。 */
+@import "tailwindcss";
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -98,97 +107,108 @@
   }
 }
 
-html {
-  height: 100%;
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans",
-    "Yu Gothic UI", "Meiryo", Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-/* ボタン・入力欄の既定見た目。個々のCSS Module側のクラスセレクタ（.chip等）は
-   セレクタ詳細度でこれより優先されるため、意図的にスタイル済みの要素（地図上のチップ等）を
-   上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。 */
-button {
-  font-family: inherit;
-  font-size: var(--font-size-md);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--foreground);
-  padding: 0.5rem 0.9rem;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
-}
-
-button:hover:not(:disabled) {
-  border-color: var(--color-accent);
-}
-
-button:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-/* type="submit"は各フォームの主操作（ルート生成・緯度経度の設定）のため、
-   アクセントカラーで塗って他のボタンと差をつける */
-button[type="submit"] {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #ffffff;
-  font-weight: 600;
-}
-
-button[type="submit"]:hover:not(:disabled) {
-  background: var(--color-accent-strong);
-  border-color: var(--color-accent-strong);
-}
-
-input[type="text"],
-input[type="number"] {
-  font-family: inherit;
-  font-size: var(--font-size-md);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--foreground);
-  padding: 0.4rem 0.6rem;
-}
-
-@media (prefers-color-scheme: dark) {
+/* Tailwindの@layer utilities（併用導入、T252）は、レイヤー指定なし（unlayered）のCSSに対し
+   詳細度に関係なく常に負ける（CSS Cascade Layersの仕様上、unlayeredなルールは名前付き/匿名の
+   どのレイヤーよりも優先度が高い）。この汎用リセット群（*・html・body・a・button・input）は
+   従来unlayeredのままだったため、実機検証（T252）でTailwindの`p-2`等が`padding:0`に潰される
+   ことを確認した。@layer baseへ包み、Tailwindが内部で使う`@layer theme,base,components,
+   utilities;`の同名レイヤーへ合流させることで、utilitiesレイヤーが正しく優先されるようにする。
+   一方MapLibreポップアップの配色上書き（下記、maplibre-gl.cssという別のunlayeredスタイル
+   シートに詳細度で勝つ設計）は、レイヤー化すると即座に負けてしまうため意図的にunlayeredの
+   まま維持する（このコメント直下のブロックのみが対象、それ以外は触れない）。 */
+@layer base {
   html {
-    color-scheme: dark;
+    height: 100%;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    color: var(--foreground);
+    background: var(--background);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans",
+      "Yu Gothic UI", "Meiryo", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* ボタン・入力欄の既定見た目。個々のCSS Module側のクラスセレクタ（.chip等）は
+     unlayeredのため本レイヤーより優先度が高く、意図的にスタイル済みの要素（地図上のチップ等）を
+     上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。 */
+  button {
+    font-family: inherit;
+    font-size: var(--font-size-md);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--foreground);
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--color-accent);
+  }
+
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  button:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+
+  /* type="submit"は各フォームの主操作（ルート生成・緯度経度の設定）のため、
+     アクセントカラーで塗って他のボタンと差をつける */
+  button[type="submit"] {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  button[type="submit"]:hover:not(:disabled) {
+    background: var(--color-accent-strong);
+    border-color: var(--color-accent-strong);
+  }
+
+  input[type="text"],
+  input[type="number"] {
+    font-family: inherit;
+    font-size: var(--font-size-md);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--foreground);
+    padding: 0.4rem 0.6rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html {
+      color-scheme: dark;
+    }
   }
 }
 
@@ -309,7 +329,11 @@ input[type="number"] {
      内のボタン/チェックボックス/入力欄は、指でのタップに適した領域（目安44px角）を
      確保する。app-bottom-sheetはBottomSheet.module.cssのクラス名がハッシュ化され
      グローバルCSSから参照できないため併用しているマーカークラス（FloatingPanelの
-     .app-floating-panelと同じ手法）。 */
+     .app-floating-panelと同じ手法）。ここは意図的にunlayeredのまま維持する
+     （T252併用導入）。@layer baseへ入れるとTailwindユーティリティ（例:
+     min-h-8等）で44px未満のサイズへ簡単に上書きできてしまい、タップ領域確保という
+     アクセシビリティ要件が個別コンポーネントの都合で静かに壊れうるため、常に勝つ
+     unlayeredのまま安全網として残す。 */
   .app-sidebar button,
   .app-floating-panel button,
   .app-bottom-sheet button {
