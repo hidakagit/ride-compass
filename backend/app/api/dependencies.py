@@ -18,7 +18,7 @@ from app.domain.route import Coordinates, RouteSegment
 from app.domain.traffic import CarStressRecipe
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.basemap_client import BasemapClient
-from app.infrastructure.database import get_session_factory
+from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.ors_client import ORSClient
@@ -140,7 +140,12 @@ async def get_graph_service():
     # （改善計画T22でOverpassフォールバックを撤去済み。改善計画T222でDBなし構成
     # 自体も撤去したため、road_graph_use_repository設定に関わらず常にrepository付きで
     # 構築する。config.py参照）。
-    async with get_session_factory()() as session:
+    # get_session_factory()（タイル配信と共有、command_timeout=20）ではなく
+    # get_route_generation_session_factory()（改善計画T242、command_timeout=180）を使う。
+    # 未splitエリアの初回タッチ時に発生しうる重い再構築（graph_service.pyのdocstring参照）が
+    # タイル配信保護用の短いタイムアウトでキャンセルされる実測不具合への対応
+    # （database.py: get_route_generation_engineのコメント参照）。
+    async with get_route_generation_session_factory()() as session:
         yield GraphService(repository=RoadGraphRepository(session))
 
 
@@ -148,9 +153,11 @@ async def get_elevation_attribute_service():
     # Road GraphのEdge形状点ごとに問い合わせるため、リクエスト単位でコネクションを使い回す。
     # road_graph_use_repository有効時はEdge単位の標高キャッシュ（PostGIS）を注入する
     # （GraphService側とは別セッション。各操作が独立にcommitするため同居させる必要は無い）。
+    # get_graph_serviceと同じ理由でget_route_generation_session_factory()を使う
+    # （改善計画T242）。
     http_client = get_http_client(10.0)
     if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
+        async with get_route_generation_session_factory()() as session:
             yield ElevationAttributeService(ElevationClient(), http_client, repository=RoadGraphRepository(session))
     else:
         yield ElevationAttributeService(ElevationClient(), http_client)

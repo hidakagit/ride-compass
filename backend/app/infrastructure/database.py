@@ -43,3 +43,43 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     if _session_factory is None:
         _session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     return _session_factory
+
+
+# road_graphエンジンの経路生成専用（GraphService/ElevationAttributeService、改善計画T242）。
+# 未splitエリアへの初回タッチ時、生データからの再構築（get_way_specs_with_closure→
+# build_road_graph→save_graph、graph_service.pyのdocstring参照）が発生しうる低頻度・重い
+# 処理で、本番実測（2026-08-23、T241/T242調査）では広域・生データが密なエリア（10km級半径）の
+# 初回splitがget_session_factory()共有のcommand_timeout=20（上記get_engine()のコメント参照、
+# 本来は路面タイル配信のハング検知用）を超え、bare TimeoutError（asyncpgのcommand_timeout
+# 強制キャンセルと一致する挙動）でキャンセルされることを確認した。
+# タイル配信用の20秒はそのまま維持する（無関係な用途まで巻き込んで緩めると、タイル配信側の
+# ハング検知が効かなくなり本来の保護目的が損なわれる）。この経路専用に別エンジン・別コネクション
+# プールで、より長いcommand_timeoutを与える。
+#
+# 180秒はT236実測の最悪値（門前仲町20km、密集都心部の初回split、175.8秒）に余裕を持たせた値。
+# 正常系（タイルキャッシュ温状態）は数秒〜数十秒で完了するため、この上限に達すること自体が
+# 既に異常（生データが極端に密なエリア・DB/pooler側の輻輳等）を示すシグナルとして機能する。
+ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS = 180
+
+_route_generation_engine: AsyncEngine | None = None
+_route_generation_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def get_route_generation_engine() -> AsyncEngine:
+    global _route_generation_engine
+    if _route_generation_engine is None:
+        _route_generation_engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            connect_args={"command_timeout": ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS},
+        )
+    return _route_generation_engine
+
+
+def get_route_generation_session_factory() -> async_sessionmaker[AsyncSession]:
+    global _route_generation_session_factory
+    if _route_generation_session_factory is None:
+        _route_generation_session_factory = async_sessionmaker(
+            get_route_generation_engine(), expire_on_commit=False
+        )
+    return _route_generation_session_factory

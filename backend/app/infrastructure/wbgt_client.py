@@ -10,9 +10,9 @@ TTLキャッシュで呼び出し頻度自体を抑える。取得失敗はNone�
 
 import csv
 import io
-import time
 
 import httpx
+from cachetools import TTLCache
 
 from app.domain.wbgt_points import WbgtPoint
 from app.infrastructure.debug_log import error_type_label, log_external_call
@@ -31,20 +31,22 @@ _FORECAST_CACHE_TTL_SECONDS = 60 * 60
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
 
-_point_master_cache: tuple[float, list[WbgtPoint]] | None = None
+_POINT_MASTER_CACHE_KEY = "point_master"
+_point_master_cache: TTLCache = TTLCache(maxsize=1, ttl=_POINT_MASTER_CACHE_TTL_SECONDS)
 # forecast_no単位の粒度でキャッシュする（地点ごとに問い合わせ元の緯度経度は丸められて
-# 同じ地点へ収束するため、地点番号キーで十分にキャッシュが効く）。
-_forecast_cache: dict[str, tuple[float, list[dict]]] = {}
+# 同じ地点へ収束するため、地点番号キーで十分にキャッシュが効く）。maxsizeは全国の
+# 情報提供地点数（約840地点）に十分な余裕を持たせた値。
+_forecast_cache: TTLCache = TTLCache(maxsize=2048, ttl=_FORECAST_CACHE_TTL_SECONDS)
 
 
 async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | None:
     """情報提供地点マスタ（全国約840地点）を取得する。運用終了済み地点
     （End Year-End Month-End Dayが"9999-99-99"以外）は除外する。"""
-    global _point_master_cache
     with log_external_call("weather:wbgt-point-master") as fields:
-        if _point_master_cache is not None and time.time() - _point_master_cache[0] < _POINT_MASTER_CACHE_TTL_SECONDS:
+        cached = _point_master_cache.get(_POINT_MASTER_CACHE_KEY)
+        if cached is not None:
             fields["cache"] = "hit"
-            return _point_master_cache[1]
+            return cached
         fields["cache"] = "miss"
         try:
             response = await client.get(WBGT_POINT_MASTER_URL, timeout=REQUEST_TIMEOUT)
@@ -56,7 +58,7 @@ async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | Non
             fields["error_type"] = error_type_label(exc)
             return None
         fields["result"] = "ok"
-        _point_master_cache = (time.time(), points)
+        _point_master_cache[_POINT_MASTER_CACHE_KEY] = points
         return points
 
 
@@ -97,9 +99,9 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
     """
     with log_external_call("weather:wbgt-forecast", wbgt_no=wbgt_no) as fields:
         cached = _forecast_cache.get(wbgt_no)
-        if cached is not None and time.time() - cached[0] < _FORECAST_CACHE_TTL_SECONDS:
+        if cached is not None:
             fields["cache"] = "hit"
-            return cached[1]
+            return cached
         fields["cache"] = "miss"
         params = {
             "location_type": 1,
@@ -123,5 +125,5 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
             return None
         fields["result"] = "ok"
         data = body["data"]
-        _forecast_cache[wbgt_no] = (time.time(), data)
+        _forecast_cache[wbgt_no] = data
         return data

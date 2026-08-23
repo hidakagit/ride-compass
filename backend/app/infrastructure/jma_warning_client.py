@@ -8,9 +8,8 @@
 安全側ではない既知のトレードオフをT174と共有する）。
 """
 
-import time
-
 import httpx
+from cachetools import TTLCache
 
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
@@ -30,9 +29,12 @@ _WARNING_CACHE_TTL_SECONDS = 10 * 60
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
-_muni_code_cache: dict[tuple[float, float], tuple[float, str | None]] = {}
-_area_data_cache: tuple[float, dict] | None = None
-_warning_cache: dict[str, tuple[float, list]] = {}
+# maxsizeは実運用で想定されるキー数（市区町村約1,700・府県予報区約50）に十分な余裕を
+# 持たせた上限（LRU的なサイズ超過退避が実質発生しない値。TTL切れによる鮮度管理が主）。
+_muni_code_cache: TTLCache = TTLCache(maxsize=4096, ttl=_MUNI_CACHE_TTL_SECONDS)
+_area_data_cache: TTLCache = TTLCache(maxsize=1, ttl=_AREA_DATA_CACHE_TTL_SECONDS)
+_warning_cache: TTLCache = TTLCache(maxsize=256, ttl=_WARNING_CACHE_TTL_SECONDS)
+_AREA_DATA_CACHE_KEY = "area"
 
 
 async def fetch_municipality_code(client: httpx.AsyncClient, lat: float, lon: float) -> str | None:
@@ -40,9 +42,9 @@ async def fetch_municipality_code(client: httpx.AsyncClient, lat: float, lon: fl
     key = (round(lat, _MUNI_CACHE_PRECISION), round(lon, _MUNI_CACHE_PRECISION))
     with log_external_call("weather:gsi-reverse-geocode", lat=key[0], lon=key[1]) as fields:
         cached = _muni_code_cache.get(key)
-        if cached is not None and time.time() - cached[0] < _MUNI_CACHE_TTL_SECONDS:
+        if cached is not None:
             fields["cache"] = "hit"
-            return cached[1]
+            return cached
         fields["cache"] = "miss"
         try:
             response = await client.get(
@@ -57,18 +59,18 @@ async def fetch_municipality_code(client: httpx.AsyncClient, lat: float, lon: fl
             fields["error_type"] = error_type_label(exc)
             return None
         fields["result"] = "ok"
-        _muni_code_cache[key] = (time.time(), muni_cd)
+        _muni_code_cache[key] = muni_cd
         return muni_cd
 
 
 async def fetch_area_data(client: httpx.AsyncClient) -> dict | None:
     """気象庁の地域マスタ(area.json)を取得する。行政区画変更以外では変化しないため
     プロセス内で長時間キャッシュする。"""
-    global _area_data_cache
     with log_external_call("weather:jma-area") as fields:
-        if _area_data_cache is not None and time.time() - _area_data_cache[0] < _AREA_DATA_CACHE_TTL_SECONDS:
+        cached = _area_data_cache.get(_AREA_DATA_CACHE_KEY)
+        if cached is not None:
             fields["cache"] = "hit"
-            return _area_data_cache[1]
+            return cached
         fields["cache"] = "miss"
         try:
             response = await client.get(JMA_AREA_JSON_URL, timeout=REQUEST_TIMEOUT)
@@ -80,7 +82,7 @@ async def fetch_area_data(client: httpx.AsyncClient) -> dict | None:
             fields["error_type"] = error_type_label(exc)
             return None
         fields["result"] = "ok"
-        _area_data_cache = (time.time(), data)
+        _area_data_cache[_AREA_DATA_CACHE_KEY] = data
         return data
 
 
@@ -93,9 +95,9 @@ async def fetch_warning_documents(client: httpx.AsyncClient, office_code: str) -
     （domain/jma_warning.py参照）。"""
     with log_external_call("weather:jma-warning", office_code=office_code) as fields:
         cached = _warning_cache.get(office_code)
-        if cached is not None and time.time() - cached[0] < _WARNING_CACHE_TTL_SECONDS:
+        if cached is not None:
             fields["cache"] = "hit"
-            return cached[1]
+            return cached
         fields["cache"] = "miss"
         try:
             response = await client.get(
@@ -113,5 +115,5 @@ async def fetch_warning_documents(client: httpx.AsyncClient, office_code: str) -
             fields["error_type"] = "unexpected_shape"
             return None
         fields["result"] = "ok"
-        _warning_cache[office_code] = (time.time(), data)
+        _warning_cache[office_code] = data
         return data

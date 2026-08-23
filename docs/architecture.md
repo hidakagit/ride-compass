@@ -397,16 +397,16 @@ RideCompass/
         ors_client.py           ✅ openrouteservice Directions API（cycling-road、複数経由地対応。`extra_info=surface`は改善計画T21で撤去済み、路面評価は自前DB空間マッチへ統一）
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
         weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ。get_forecast_manyはL1メモリ+L2 SQLite永続化の2段、T194〜T195）
-        jma_warning_client.py    ✅ 改善計画T205: 国土地理院逆ジオコーダ（緯度経度→市区町村コード）・JMA地域マスタarea.json（24時間TTL）・JMA警報API r8（10分TTL）の3クライアント。いずれも失敗時はNoneを返す（tenacity再試行は無し）
-        wbgt_client.py            ✅ 改善計画T174: 環境省WBGT情報提供地点マスタCSV（24時間TTL）・暑さ指数予測値WebAPI（1時間TTL、直近6時間の発表時刻を検索範囲とする連続期間指定）の2クライアント。サイト側の「自動化ツールからの高頻度アクセスは控えて」注記に配慮しtenacity再試行は無し
-        flood_client.py            ✅ 改善計画T212: JMA指定河川洪水予報API（10分TTL、全国分を1回のGETで取得）のクライアント。tenacity再試行は無し
+        jma_warning_client.py    ✅ 改善計画T205: 国土地理院逆ジオコーダ（緯度経度→市区町村コード）・JMA地域マスタarea.json（24時間TTL）・JMA警報API r8（10分TTL）の3クライアント。いずれも失敗時はNoneを返す（tenacity再試行は無し）。TTLキャッシュは`cachetools.TTLCache`を使用（改善計画T244、flood/wbgtクライアントと同型のキャッシュ実装重複を解消）
+        wbgt_client.py            ✅ 改善計画T174: 環境省WBGT情報提供地点マスタCSV（24時間TTL）・暑さ指数予測値WebAPI（1時間TTL、直近6時間の発表時刻を検索範囲とする連続期間指定）の2クライアント。サイト側の「自動化ツールからの高頻度アクセスは控えて」注記に配慮しtenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
+        flood_client.py            ✅ 改善計画T212: JMA指定河川洪水予報API（10分TTL、全国分を1回のGETで取得）のクライアント。tenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
         vector_tile.py               ✅ 路面データをMVT（Mapbox Vector Tile）にエンコード（Web Mercator投影、Step10改訂）
         cache_db.py                 ✅ SQLite永続キャッシュ（標高: Step5用。気象グリッド(wind_forecast_cache): T194〜T195用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
         debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
-        database.py                  ✅ SQLAlchemy非同期エンジン・セッションファクトリ（Road Graph移行「永続化」、新規。DB未接続でも既存機能に影響なし）
+        database.py                  ✅ SQLAlchemy非同期エンジン・セッションファクトリ（Road Graph移行「永続化」、新規。DB未接続でも既存機能に影響なし）。`get_engine`/`get_session_factory`（command_timeout=20、元は路面タイル配信のハング検知用）と、road_graphエンジンの経路生成専用`get_route_generation_engine`/`get_route_generation_session_factory`（command_timeout=180、改善計画T243）の2系統のエンジンを持つ。未splitエリアの初回タッチ時に発生しうる重い再構築が前者の短いタイムアウトでキャンセルされる本番実測不具合への対応
         migrate.py                   ✅ 最小マイグレーション機構（`apply_pending_migrations`。改善計画T17、decisions/pre-static-attributes-gate.md 決定3）。`../migrations/`配下の番号付きSQLを`schema_migrations`テーブルで適用管理する。`create_tables`（新規DB向けの基本スキーマのみ）とは役割分離
         road_graph_models.py         ✅ road_nodes/road_edges/elevation_attributes/surface_attributesのSQLAlchemy ORMモデル（PostGIS Geometry型、Road Graph移行「永続化」、新規）。OsmRawNodeRow/OsmRawWayRow（生OSMデータ、配列型+GINインデックス）を「根本修正」で追加
         road_graph_repository.py     ✅ 責務別4リポジトリ＋ファサード（改善計画T6で分割）: RawOsmRepository（生OSM層・タイルマーカー）/ DerivedGraphRepository（road_nodes/edges・split_at鮮度判定）/ AttributeRepository（標高・路面属性）/ RoadSurfaceTileQuery（表示用MVT）/ RoadGraphRepository（既存公開APIを保つファサード、DI注入点）。**書き込みメソッドはcommitせず、サービス層が操作のまとまりごとにcommit()を呼ぶ規約**（トランザクション境界の詳細はモジュールdocstring参照）。save_raw_ways/get_way_specs_with_closureは「根本修正」で追加、save_graphはway_ids_to_replaceによるdelete-then-reinsert対応
@@ -465,7 +465,7 @@ RideCompass/
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
-    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加
+    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加
     Dockerfile                ✅
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto
