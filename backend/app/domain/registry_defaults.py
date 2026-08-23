@@ -29,7 +29,7 @@ axis_idは設計プロンプトが示す目標名（`car_stress`等）を使う�
 car_stressへの統一）で追従済み。
 """
 
-from app.domain.difficulty import UNSIGNALED_INTERSECTION_WEIGHT
+from app.domain.axis_definitions import UNSIGNALED_INTERSECTION_WEIGHT
 from app.domain.registry import (
     AxisDisplaySpec,
     AxisSpec,

@@ -190,29 +190,41 @@ def test_accident_difficulty_negative_is_none():
 
 
 def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
+    # 改善計画T221 Stage B: 材料値の辞書＋axis_idキーの重み辞書を渡す形
+    # （domain/axis_definitions.py: AXIS_DEFINITIONS参照）。各軸のdifficultyは
+    # 既存のスカラーラッパ関数と一致する（同じ軸定義を参照するため）。
+    weights = {axis_id: 1.0 for axis_id in
+               ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night")}
     result = evaluate_axis_difficulties(
-        6.0, 4.0, True, 2.0, 2, 1.0, 0.25, {"lit": "yes"},
-        elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
-        car_stress_weight=1.0, accident_weight=1.0,
-        night_weight=1.0,
+        {
+            "gradient_percent": 6.0,
+            "wind_penalty": 4.0,
+            "surface_good": True,
+            "stop_count_per_km": 2.0,
+            "intersection_count_per_km": 1.0,
+            "car_stress_level": 2,
+            "accident_count_per_km_year": 0.25,
+            "no_lit": False,
+            "has_tunnel": False,
+        },
+        weights,
     )
 
-    assert result.elevation == gradient_difficulty(6.0)
-    assert result.wind == wind_difficulty(4.0)
-    assert result.road == road_difficulty(True)
-    assert result.stop == stop_difficulty(2.0, 1.0)
-    assert result.car_stress == car_stress_difficulty(2)
-    assert result.accident == accident_difficulty(0.25)
-    assert result.night == night_difficulty({"lit": "yes"})
+    assert result.axes["gradient"] == gradient_difficulty(6.0)
+    assert result.axes["wind"] == wind_difficulty(4.0)
+    assert result.axes["surface_q"] == road_difficulty(True)
+    assert result.axes["stop_density"] == stop_difficulty(2.0, 1.0)
+    assert result.axes["car_stress"] == car_stress_difficulty(2)
+    assert result.axes["accident"] == accident_difficulty(0.25)
+    assert result.axes["night"] == night_difficulty({"lit": "yes"})
     assert result.composite is not None
 
 
 def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
-    result = evaluate_axis_difficulties(
-        None, None, None, None, None, None, None, None,
-        elevation_weight=1.0, wind_weight=1.0, road_weight=1.0, stop_weight=1.0,
-        car_stress_weight=1.0, accident_weight=1.0,
-        night_weight=1.0,
-    )
+    weights = {axis_id: 1.0 for axis_id in
+               ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night")}
+    result = evaluate_axis_difficulties({}, weights)
 
-    assert result == (None, None, None, None, None, None, None, None)
+    assert all(value is None for value in result.axes.values())
+    assert set(result.axes.keys()) == set(weights.keys())
+    assert result.composite is None

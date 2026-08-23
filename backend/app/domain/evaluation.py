@@ -14,24 +14,15 @@ import numpy as np
 from pydantic import BaseModel
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.axis_templates import round1_array
-from app.domain.difficulty import (
-    accident_difficulty,
-    accident_difficulty_array,
-    car_stress_difficulty,
-    car_stress_difficulty_array,
-    composite_difficulty,
-    gradient_difficulty,
-    gradient_difficulty_array,
-    road_difficulty,
-    road_difficulty_array,
-    stop_difficulty,
-    stop_difficulty_array,
-    wind_difficulty,
-    wind_difficulty_array,
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    evaluate_axis_array,
+    evaluate_axis_scalar,
 )
+from app.domain.axis_templates import round1_array
+from app.domain.difficulty import composite_difficulty
 from app.domain.graph import DirectedEdge, RoadGraph
-from app.domain.night import night_difficulty, night_difficulty_array
+from app.domain.night import night_materials
 from app.domain.recipe import (
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -119,23 +110,6 @@ AXIS_WEIGHT_FIELD_TO_AXIS_ID: dict[str, str] = {
     "night_weight": "night",
 }
 
-# domain/difficulty.py: AxisDifficultiesのフィールド名→axis_idの対応表。
-# 改善計画T220でcompute_edge_axis_scores自体はこの辞書を経由しなくなった（7軸の変換関数を
-# 直接呼ぶ形に変更、下記参照）が、compute_edge_axis_scoresが返すべきaxis_id集合の宣言として
-# 引き続き残す（test_registry_defaults.py: test_registry_axis_ids_match_evaluation_axis_difficulty_mapping
-# がレジストリとの整合性チェックに使う）。値の集合をcompute_edge_axis_scores内のaxis_valuesの
-# キー集合と手動で一致させ続けること。
-_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID: dict[str, str] = {
-    "elevation": "gradient",
-    "wind": "wind",
-    "road": "surface_q",
-    "stop": "stop_density",
-    "car_stress": "car_stress",
-    "accident": "accident",
-    "night": "night",
-}
-
-
 def preference_to_axis_weights(preference: RoutePreference) -> dict[str, float]:
     """`RoutePreference`をaxis_id（`gradient`/`wind`/`surface_q`/`stop_density`/`car_stress`/
     `accident`/`night`）をキーとする重み辞書へ変換する（改善計画T142）。"""
@@ -208,22 +182,29 @@ def axis_inspector_breakdown(
     if length_km and accident_count is not None and accident_years_covered > 0:
         accident_per_km_year = (accident_count / length_km) / accident_years_covered
 
-    # gradient/windは単独wayでは算出不能（ルート文脈が必要）なため、scoresへ含めない
-    # （composite_difficultyの「データ無しは除外」動作をそのまま使う）。
+    # 改善計画T221 Stage B/C: 軸ごとのハードコードをやめ、AXIS_DEFINITIONSをループする。
+    # gradient/windの材料（勾配%・風ペナルティ）は単独wayでは算出不能（ルート文脈が必要）
+    # なためNoneのまま渡す＝常にavailable=Falseとして扱われる（データ欠損の軸と同じ
+    # 「Noneは合成から除外」動作に自然に乗る）。
+    materials: dict[str, object] = {
+        "gradient_percent": None,
+        "wind_penalty": None,
+        "surface_good": surface_good,
+        "stop_count_per_km": stop_per_km,
+        "intersection_count_per_km": intersection_per_km,
+        "accident_count_per_km_year": accident_per_km_year,
+        "car_stress_level": level,
+        **night_materials(tags),
+    }
     scores: dict[str, float | None] = {
-        "car_stress": car_stress_difficulty(level),
-        "surface_q": road_difficulty(surface_good),
-        "stop_density": stop_difficulty(stop_per_km, intersection_per_km),
-        "accident": accident_difficulty(accident_per_km_year),
-        "night": night_difficulty(tags),
+        axis_id: evaluate_axis_scalar(definition, materials)
+        for axis_id, definition in AXIS_DEFINITIONS.items()
     }
 
     axes = [
         AxisInspectorAxis(axis_id=axis_id, difficulty=score, weight=weights.get(axis_id, 0.0), available=score is not None)
         for axis_id, score in scores.items()
     ]
-    for axis_id in ("gradient", "wind"):
-        axes.append(AxisInspectorAxis(axis_id=axis_id, difficulty=None, weight=weights.get(axis_id, 0.0), available=False))
 
     composite = composite_difficulty([(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()])
     total_weight = sum(weights.values())
@@ -426,21 +407,26 @@ def compute_edge_axis_scores(
         if accident_count is not None and edge.distance_m > 0 and accident_years_covered > 0
         else None
     )
-    # 改善計画T220: 以前は`evaluate_axis_difficulties`（軸別difficulty＋合成compositeを
-    # まとめて返す関数、domain/difficulty.py）を重み1.0のダミーで呼んでいたが、この
-    # wrapperは軸別スコアの算出のみ担当し合成compositeは使わない（実際の合成は
-    # `compute_cost_from_axis_scores`が実重みで別途行う）ため、常に無駄な
-    # composite_difficulty計算が発生していた（プロファイルで判明、Edge数万件規模の
-    # evaluate_graphループで無視できないオーバーヘッド）。7軸それぞれの変換関数を
-    # 直接呼び、合成は行わない。
+    # 改善計画T220: 合成composite計算はここでは行わない（実際の合成は
+    # `compute_cost_from_axis_scores`が実重みで別途行う。以前ダミー重みの
+    # `evaluate_axis_difficulties`を呼んで無駄な合成が発生していた経緯はT220参照）。
+    # 改善計画T221 Stage B/C: 軸ごとに変換関数を1行ずつ呼ぶハードコードをやめ、
+    # 解決済み材料の辞書に対してAXIS_DEFINITIONS（domain/axis_definitions.py）を
+    # ループする。既存テンプレート＋既存材料で表現できる新しい軸は、定義データの
+    # 追加だけでここへ反映される。
+    materials: dict[str, object] = {
+        "gradient_percent": gradient_percent,
+        "wind_penalty": wind_penalty,
+        "surface_good": is_good_surface,
+        "stop_count_per_km": stop_count_per_km,
+        "intersection_count_per_km": intersection_count_per_km,
+        "accident_count_per_km_year": accident_count_per_km_year,
+        "car_stress_level": car_stress,
+        **night_materials(way_tags),
+    }
     axis_values = {
-        "gradient": gradient_difficulty(gradient_percent),
-        "wind": wind_difficulty(wind_penalty),
-        "surface_q": road_difficulty(is_good_surface),
-        "stop_density": stop_difficulty(stop_count_per_km, intersection_count_per_km),
-        "car_stress": car_stress_difficulty(car_stress),
-        "accident": accident_difficulty(accident_count_per_km_year),
-        "night": night_difficulty(way_tags),
+        axis_id: evaluate_axis_scalar(definition, materials)
+        for axis_id, definition in AXIS_DEFINITIONS.items()
     }
     return {axis_id: value for axis_id, value in axis_values.items() if value is not None}
 
@@ -577,9 +563,12 @@ def compute_edge_costs_bulk(
       `threshold_adjustment`・`cycleway_class`・`parse_lanes`・`tag_value_is`等の
       文字列処理を伴う既存の判定プリミティブをそのまま呼ぶ、ロジックの再実装はしない）を
       ここに集約し、以降で使う数値をすべてnumpy配列へ落とし込む。欠損値はNaNで表現する。
-    - 計算フェーズ（Pythonループ無し）: Stage A（改善計画T239）のテンプレートを使った
-      `*_difficulty_array`関数で7軸のdifficulty配列を求め、重み配列とのマスク付き
-      加重平均（`composite_difficulty`のベクトル版）→cost算出まで、すべて配列演算で行う。
+    - 計算フェーズ（Pythonループ無し）: 材料id→配列の辞書に対して`AXIS_DEFINITIONS`
+      （domain/axis_definitions.py、改善計画T221 Stage B/C）を軸ごとに適用して
+      difficulty配列を求め、重み配列とのマスク付き加重平均（`composite_difficulty`の
+      ベクトル版）→cost算出まで、すべて配列演算で行う。スカラー経路
+      （`compute_edge_axis_scores`）と同じ軸定義データを読むため、軸の追加は
+      定義データの追加だけで両経路へ同時に反映される。
 
     スカラー版`compute_edge_cost`は削除せず、本関数との出力一致を検証する回帰テスト
     （`tests/test_evaluation_bulk.py`）のオラクルとして残す。
@@ -712,14 +701,20 @@ def compute_edge_costs_bulk(
         ),
     )
 
+    material_arrays = {
+        "gradient_percent": gradient_percent,
+        "wind_penalty": wind_penalty,
+        "surface_good": surface_good,
+        "stop_count_per_km": stop_count_per_km,
+        "intersection_count_per_km": intersection_count_per_km,
+        "accident_count_per_km_year": accident_count_per_km_year,
+        "car_stress_level": car_stress_level_value,
+        "no_lit": no_lit,
+        "has_tunnel": has_tunnel,
+    }
     axis_arrays = {
-        "gradient": gradient_difficulty_array(gradient_percent),
-        "wind": wind_difficulty_array(wind_penalty),
-        "surface_q": road_difficulty_array(surface_good),
-        "stop_density": stop_difficulty_array(stop_count_per_km, intersection_count_per_km),
-        "car_stress": car_stress_difficulty_array(car_stress_level_value),
-        "accident": accident_difficulty_array(accident_count_per_km_year),
-        "night": night_difficulty_array(no_lit, has_tunnel),
+        axis_id: evaluate_axis_array(definition, material_arrays)
+        for axis_id, definition in AXIS_DEFINITIONS.items()
     }
 
     # composite_difficultyのベクトル版: Noneの軸（NaN）は除外し残りの重みで再正規化する
