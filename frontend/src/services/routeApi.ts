@@ -56,9 +56,12 @@ export interface GenerateRoutesResult {
 }
 
 export async function generateRoutes(request: RouteGenerateRequest): Promise<GenerateRoutesResult> {
-  // road_graphエンジンはコールド時40〜70秒かかりうる(docs/architecture.md)ため、
-  // previewより長めのタイムアウトにする。
-  const result = await postJson<RouteGenerateResponse>("/api/routes/generate", request, 90000);
+  // road_graphエンジンの冷パスは、バックエンドのDBコマンドタイムアウト
+  // (ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS=180秒、backend/app/infrastructure/database.py)
+  // より短いとフロントが先にタイムアウトしてしまう(改善計画T248で発覚)。本番実測の
+  // 最悪ケース(王子30km、save_graphのバルクUPSERT込みでtotal_ms=315,859≒316秒)を
+  // 安全マージン込みで上回る値にする。
+  const result = await postJson<RouteGenerateResponse>("/api/routes/generate", request, 360000);
   debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
   // conditionsは実験スロット（比較・再現用、研究インターフェース改善 §10-3/6）の入力になる。
   return { routes: result.routes, conditions: result.conditions, engine: result.engine };
