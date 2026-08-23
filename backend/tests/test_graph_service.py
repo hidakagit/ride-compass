@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.attributes import EdgeAttributeCounts
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch
 from app.domain.graph import RoadGraph, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
@@ -75,6 +75,7 @@ class FakeRoadGraphRepository:
         self.get_designated_edge_ids_call_count = 0
         self.get_accident_years_covered_call_count = 0
         self.get_cached_tiles_call_count = 0
+        self.get_edge_materials_batch_call_count = 0
 
     async def commit(self) -> None:
         # 実装はサービス層が操作のまとまりごとにcommitを呼ぶ規約（T6）。Fakeは即時反映の
@@ -221,6 +222,27 @@ class FakeRoadGraphRepository:
     async def get_designated_edge_ids(self, edge_ids):
         self.get_designated_edge_ids_call_count += 1
         return {edge_id for edge_id in edge_ids if edge_id in self.designated_edge_ids}
+
+    async def get_edge_materials_batch(self, edge_ids) -> EdgeMaterialsBatch:
+        # 改善計画T248: 実装（AttributeRepository.get_edge_materials_batch）は5種の材料を
+        # 1回のJOINクエリへ統合するが、Fakeでは個別メソッドの導出ロジックをそのまま
+        # 束ねるだけでよい（呼び出し回数の計測はこのメソッド専用のカウンタで行う）。
+        self.get_edge_materials_batch_call_count += 1
+        return EdgeMaterialsBatch(
+            surface_attributes=await self.get_surface_attributes(edge_ids),
+            edge_attribute_counts={
+                edge_id: self.edge_attribute_counts[edge_id]
+                for edge_id in edge_ids
+                if edge_id in self.edge_attribute_counts
+            },
+            way_tags={edge_id: self.way_tags[edge_id] for edge_id in edge_ids if edge_id in self.way_tags},
+            elevation_attributes={
+                edge_id: self.elevation_attributes[edge_id]
+                for edge_id in edge_ids
+                if edge_id in self.elevation_attributes
+            },
+            designated_edge_ids={edge_id for edge_id in edge_ids if edge_id in self.designated_edge_ids},
+        )
 
     async def get_accident_years_covered(self) -> int:
         self.get_accident_years_covered_call_count += 1
@@ -516,29 +538,23 @@ async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without
     # 1回目は生データがまだ「split済み」と認識されていないため、既存の低速経路
     # （closure再計算＋save_graph、タイルキャッシュの対象外。材料も個別に非キャッシュで
     # 取得される）を通る（test_with_repository_cached_tile_computes_split_on_first_read
-    # と同じ前提）。
+    # と同じ前提）。改善計画T248: 材料5種は`get_edge_materials_batch`の1回へ統合済み。
     first = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 0
-    assert repository.get_edge_attribute_counts_call_count == 1
+    assert repository.get_edge_materials_batch_call_count == 1
 
     # 2回目はis_split_up_to_date=Trueとなりタイルキャッシュ経路を通る。この時点では
-    # まだタイルキャッシュが空のため、材料取得の各メソッドがもう1回呼ばれてタイル単位で
-    # キャッシュされる（1回目の非キャッシュ取得とは独立のため呼び出し回数は2に増える）。
+    # まだタイルキャッシュが空のため、材料取得がもう1回呼ばれてタイル単位でキャッシュ
+    # される（1回目の非キャッシュ取得とは独立のため呼び出し回数は2に増える）。
     second = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 1
-    assert repository.get_edge_attribute_counts_call_count == 2
-    assert repository.get_way_tags_call_count == 2
-    assert repository.get_elevation_attributes_call_count == 2
-    assert repository.get_designated_edge_ids_call_count == 2
+    assert repository.get_edge_materials_batch_call_count == 2
 
     # 3回目はタイルキャッシュがヒットするため、DBへ一切アクセスしない
     # （改善計画T219の完了条件: 同一エリア2回目以降はDBへ一切アクセスしない）。
     third = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 1
-    assert repository.get_edge_attribute_counts_call_count == 2
-    assert repository.get_way_tags_call_count == 2
-    assert repository.get_elevation_attributes_call_count == 2
-    assert repository.get_designated_edge_ids_call_count == 2
+    assert repository.get_edge_materials_batch_call_count == 2
 
     assert first is not None and second is not None and third is not None
     assert set(second.graph.edges.keys()) == set(third.graph.edges.keys())

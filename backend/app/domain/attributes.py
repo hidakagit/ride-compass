@@ -62,6 +62,23 @@ class SearchMaterials:
     designated_edge_ids: set[str]
 
 
+@dataclass
+class EdgeMaterialsBatch:
+    """`SearchMaterials`から`graph`を除いた5種の材料（改善計画T248）。
+
+    以前は`surface_attributes`/`edge_attribute_counts`/`way_tags`/
+    `elevation_attributes`/`designated_edge_ids`をEdge集合が同じまま5回individually
+    取得していたが、実測（dev DB、71,791 Edge）で現行5クエリ8.33秒→統合1クエリ
+    （`AttributeRepository.get_edge_materials_batch`）1.30秒（6.4倍）を確認したため、
+    1回のJOINクエリへ統合した戻り値の型として新設した。"""
+
+    surface_attributes: dict[str, str | None]
+    edge_attribute_counts: dict[str, EdgeAttributeCounts]
+    way_tags: dict[str, dict[str, str]]
+    elevation_attributes: dict[str, ElevationAttribute]
+    designated_edge_ids: set[str]
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

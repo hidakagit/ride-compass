@@ -1673,6 +1673,35 @@ T221エントリへの追記として実施済み（新番号なし）。
      - 対応方針としてgeo形式キャッシュ（DBと同じ`ST_Intersects`をサーバー側JOIN条件として
        使い、geometry自体はSELECTしない設計）も検討したが、真因が転送データ量である以上
        効果は薄いと判断し実装は見送った。
+  1b. **材料5クエリの1クエリへの統合**（2026-08-24実装完了）: 案Bのrevert後、ユーザーから
+     「転送量自体がネックならそれを減らす方針、アーキテクチャを考えられないか」という
+     提起を受け、真因を再検討した。dev DBでプロファイリングした結果、律速は往復回数でも
+     転送データ量そのものでもなく、**同じEdge集合に対しSQLAlchemy ORMの行オブジェクト
+     構築を5回（surface/edge_attribute_counts/way_tags/elevation_attributes/
+     designated_edge_ids）繰り返していたPython側のオーバーヘッド**と判明した
+     （71,791 Edgeで現行5クエリ8.33秒 → 統合1クエリ[SQLAlchemy Core]1.30秒[6.4倍] →
+     統合1クエリ[生asyncpg]0.83秒[10倍]）。
+     - **実装**: `domain/attributes.py`に`EdgeMaterialsBatch`（`SearchMaterials`から
+       `graph`を除いた5材料のみの型）を新設。`AttributeRepository.get_edge_materials_batch`
+       （`road_graph_repository.py`）で、road_edges LEFT JOIN osm_raw_ways/
+       edge_attribute_counts/elevation_attributes＋designation_attributesへの
+       相関EXISTS副問い合わせを1クエリへ統合。生asyncpg（10倍）ではなくSQLAlchemy Core
+       （6.4倍）を採用——効果の大部分をより低リスク（既存セッション・型を維持）に得られる
+       ため。各材料の「該当行なし」の意味（surface/way_tagsはLEFT JOINでNone/{}を明示的に
+       持つ・edge_attribute_counts/elevation_attributesはNOT NULL列で行の有無を判定し
+       key自体を省略・designated_edge_idsはEXISTSの真偽）は元の5メソッドと完全に同じ
+       意味を保つよう設計・テストした。`graph_service.py`の`_build_search_materials_uncached`・
+       `_get_or_build_tile_materials`の両方をこの1メソッド呼び出しへ差し替え。
+     - **テスト**: `test_road_graph_repository.py`に、実在するfwd/bwd2本のEdgeの一方だけへ
+       edge_attribute_counts・elevation_attributesを投入し「該当行なしのkey省略」を
+       検証する統合テストを追加。`test_graph_service.py`のFakeリポジトリにも
+       `get_edge_materials_batch`を追加し、既存の呼び出し回数アサーションを更新。
+       backend全体1084件green。dev DBでのE2E確認（新宿10km候補8/8・王子15km候補6/8）で
+       機能面の回帰も無いことを確認。
+     - **残課題**: この最適化は5つの「材料」クエリのみが対象で、`get_graph_topology_in_bbox`
+       （Edge/Node本体のトポロジ取得、深掘りプロファイリングで新宿10km実測33秒、5材料
+       クエリの合計より単体で大きい）は未着手のまま残っている。同種の「ORM行構築の
+       オーバーヘッド」が真因である可能性が高く、次に着手する際の候補として記録する。
   2. **冷パスの体験設計**: 初回タッチの重い処理（split再構築）をリクエスト同期から
      切り離す選択肢（バックグラウンドウォームアップ・主要エリアの事前split・
      プログレス表示等）。T59の`_maybe_trigger_graph_build`（タイル閲覧起点の

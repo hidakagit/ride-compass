@@ -73,7 +73,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch, ElevationAttribute
 from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
@@ -85,6 +85,7 @@ from app.domain.traffic import (
     STOP_POI_KINDS,
     STOP_POI_MATCH_MAX_DISTANCE_M,
 )
+from app.infrastructure.designation_models import DesignationAttributeRow
 from app.infrastructure.vector_tile import (
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
@@ -1981,6 +1982,109 @@ class AttributeRepository(_SessionRepository):
             result.update(edge_id for (edge_id,) in rows.all())
         return result
 
+    async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
+        """探索フェーズ（`RoadGraphEngine.prepare`）が必要とする5種の材料（surface・
+        edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids）を
+        1回のJOINクエリへ統合して取得する（改善計画T248）。
+
+        以前は`get_surface_attributes`・`get_edge_attribute_counts`・`get_way_tags`・
+        `get_elevation_attributes`・`get_designated_edge_ids`を同じedge_id集合に対して
+        個別に呼んでいたが、真のボトルネックはラウンドトリップ回数ではなく「同じEdge集合に
+        対してSQLAlchemy ORMの行構築を5回繰り返すオーバーヘッド」と実測で判明した
+        （dev DB、71,791 Edgeで現行5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
+        `graph_service.py`の`_build_search_materials_uncached`・
+        `_get_or_build_tile_materials`の両方から呼ばれる。
+
+        各材料の「該当行なし」の扱いは元の5メソッドとそれぞれ同じ意味を保つ:
+        surface_attributes・way_tagsはLEFT JOINでNone/{}を明示的に持つ（key自体は必ず
+        存在）。edge_attribute_counts・elevation_attributesは対象テーブルへの行が
+        無ければkey自体を含めない（NOT NULL列を「行の有無」の判定に使う）。
+        designated_edge_idsはEXISTS副問い合わせで判定する（get_designated_edge_idsと
+        同じ「対象kindのdesignation_attributes行が1つでもあれば該当」の意味）。
+        """
+        if not edge_ids:
+            return EdgeMaterialsBatch(
+                surface_attributes={}, edge_attribute_counts={}, way_tags={},
+                elevation_attributes={}, designated_edge_ids=set(),
+            )
+
+        surface_attributes: dict[str, str | None] = {}
+        edge_attribute_counts: dict[str, EdgeAttributeCounts] = {}
+        way_tags: dict[str, dict[str, str]] = {}
+        elevation_attributes: dict[str, ElevationAttribute] = {}
+        designated_edge_ids: set[str] = set()
+
+        designation_kinds = sorted(CAR_STRESS_DESIGNATION_KINDS)
+        designation_exists = (
+            select(DesignationAttributeRow.osm_way_id)
+            .where(
+                DesignationAttributeRow.osm_way_id == RoadEdgeRow.osm_way_id,
+                DesignationAttributeRow.kind == any_(cast(designation_kinds, ARRAY(Text))),
+            )
+            .exists()
+        )
+
+        for id_chunk in _chunked(edge_ids, 50_000):
+            stmt = (
+                select(
+                    RoadEdgeRow.edge_id,
+                    OsmRawWayRow.surface,
+                    OsmRawWayRow.tags,
+                    EdgeAttributeCountsRow.accident_count,
+                    EdgeAttributeCountsRow.stop_count,
+                    EdgeAttributeCountsRow.intersection_count,
+                    ElevationAttributeRow.start_elevation_m,
+                    ElevationAttributeRow.end_elevation_m,
+                    ElevationAttributeRow.elevation_gain_m,
+                    ElevationAttributeRow.elevation_loss_m,
+                    ElevationAttributeRow.average_grade,
+                    ElevationAttributeRow.max_grade,
+                    ElevationAttributeRow.min_grade,
+                    ElevationAttributeRow.data_source,
+                    ElevationAttributeRow.data_version,
+                    ElevationAttributeRow.calculated_at,
+                    designation_exists.label("is_designated"),
+                )
+                .select_from(RoadEdgeRow)
+                .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
+                .outerjoin(EdgeAttributeCountsRow, EdgeAttributeCountsRow.edge_id == RoadEdgeRow.edge_id)
+                .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
+                .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
+            )
+            for row in await self._session.execute(stmt):
+                surface_attributes[row.edge_id] = row.surface
+                way_tags[row.edge_id] = row.tags or {}
+                if row.intersection_count is not None:
+                    edge_attribute_counts[row.edge_id] = EdgeAttributeCounts(
+                        accident_count=row.accident_count,
+                        stop_count=row.stop_count,
+                        intersection_count=row.intersection_count,
+                    )
+                if row.calculated_at is not None:
+                    elevation_attributes[row.edge_id] = ElevationAttribute(
+                        edge_id=row.edge_id,
+                        start_elevation_m=row.start_elevation_m,
+                        end_elevation_m=row.end_elevation_m,
+                        elevation_gain_m=row.elevation_gain_m,
+                        elevation_loss_m=row.elevation_loss_m,
+                        average_grade=row.average_grade,
+                        max_grade=row.max_grade,
+                        min_grade=row.min_grade,
+                        data_source=row.data_source,
+                        data_version=row.data_version,
+                        calculated_at=row.calculated_at.isoformat(),
+                    )
+                if row.is_designated:
+                    designated_edge_ids.add(row.edge_id)
+
+        return EdgeMaterialsBatch(
+            surface_attributes=surface_attributes,
+            edge_attribute_counts=edge_attribute_counts,
+            way_tags=way_tags,
+            elevation_attributes=elevation_attributes,
+            designated_edge_ids=designated_edge_ids,
+        )
+
     async def rebuild_raw_intersection_nodes(self) -> None:
         """raw_intersection_nodes（次数3以上の生OSMノード、改善計画T145b）を全再構築する。
 
@@ -2165,6 +2269,9 @@ class RoadGraphRepository:
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         return await self.attributes.get_designated_edge_ids(edge_ids)
+
+    async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
+        return await self.attributes.get_edge_materials_batch(edge_ids)
 
     async def rebuild_raw_intersection_nodes(self) -> None:
         await self.attributes.rebuild_raw_intersection_nodes()

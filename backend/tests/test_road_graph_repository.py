@@ -17,7 +17,7 @@ from app.domain.graph import WaySpec, build_road_graph
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*/route_designationsテーブルを登録するためのimport
-from app.infrastructure.road_graph_models import OsmRawPoiRow
+from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, OsmRawPoiRow
 
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
 # ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
@@ -1068,6 +1068,72 @@ async def test_get_designated_edge_ids_ignores_kinds_outside_car_stress_set(road
     result = await road_graph_repository.get_designated_edge_ids([edge_id])
 
     assert result == set()
+
+
+async def test_get_edge_materials_batch_returns_empty_for_empty_input(road_graph_repository):
+    batch = await road_graph_repository.get_edge_materials_batch([])
+    assert batch.surface_attributes == {}
+    assert batch.edge_attribute_counts == {}
+    assert batch.way_tags == {}
+    assert batch.elevation_attributes == {}
+    assert batch.designated_edge_ids == set()
+
+
+async def test_get_edge_materials_batch_combines_all_five_materials_correctly(road_graph_repository, road_graph_session):
+    # 改善計画T248: 5メソッド個別呼び出しと同じ意味（該当行なしの扱い含む）を、
+    # 1回のJOINクエリへ統合した後も保つことを確認する回帰テスト。
+    way = WaySpec(
+        osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt",
+        tags={"lanes": "2"},
+    )
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_ids = list(graph.edges.keys())
+    fwd_edge_id = next(e for e in edge_ids if e.endswith("-fwd"))
+    bwd_edge_id = next(e for e in edge_ids if e.endswith("-bwd"))
+
+    # edge_attribute_counts・elevation_attributesはfwd側のみに投入し、
+    # 「該当行が無いEdge」の扱い（key自体を含めない）をbwd側で検証する。
+    await road_graph_session.execute(
+        insert(EdgeAttributeCountsRow).values(
+            edge_id=fwd_edge_id, accident_count=1.5, stop_count=2, intersection_count=3,
+            computed_at=datetime.now(timezone.utc),
+        )
+    )
+    elevation = ElevationAttribute(
+        edge_id=fwd_edge_id, start_elevation_m=10.0, end_elevation_m=15.0,
+        elevation_gain_m=5.0, elevation_loss_m=0.0, average_grade=1.2, max_grade=1.2, min_grade=1.2,
+        data_source="gsi", data_version="v1",
+        calculated_at=datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat(),
+    )
+    await road_graph_repository.save_elevation_attributes([elevation])
+    # designationはosm_way_id単位のため、fwd・bwd両方が該当する。
+    await _insert_designation_attribute(road_graph_session, 100, "emergency_transport")
+    await road_graph_session.commit()
+
+    batch = await road_graph_repository.get_edge_materials_batch(
+        [fwd_edge_id, bwd_edge_id, "nonexistent-edge"]
+    )
+
+    # surface_attributes・way_tagsはLEFT JOINのため実在するEdgeは両方とも必ずkeyを持つ
+    # （存在しないEdgeのみ除外される）。
+    assert set(batch.surface_attributes.keys()) == {fwd_edge_id, bwd_edge_id}
+    assert batch.surface_attributes[fwd_edge_id] == "asphalt"
+    assert batch.surface_attributes[bwd_edge_id] == "asphalt"
+    assert set(batch.way_tags.keys()) == {fwd_edge_id, bwd_edge_id}
+    assert batch.way_tags[fwd_edge_id] == {"lanes": "2"}
+
+    # edge_attribute_counts・elevation_attributesは該当行が無いbwdのkey自体が無い。
+    assert set(batch.edge_attribute_counts.keys()) == {fwd_edge_id}
+    counts = batch.edge_attribute_counts[fwd_edge_id]
+    assert (counts.accident_count, counts.stop_count, counts.intersection_count) == (1.5, 2, 3)
+    assert set(batch.elevation_attributes.keys()) == {fwd_edge_id}
+    assert batch.elevation_attributes[fwd_edge_id].start_elevation_m == 10.0
+
+    # designationはosm_way_id単位のためfwd・bwd両方。
+    assert batch.designated_edge_ids == {fwd_edge_id, bwd_edge_id}
 
 
 async def test_get_nearest_way_tags_is_designated_true_near_designated_edge(road_graph_repository, road_graph_session):
