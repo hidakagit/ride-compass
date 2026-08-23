@@ -230,6 +230,73 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 - 完了条件: 未達（対応方針の選定がユーザー判断待ち）。方針確定後、実施・本番再検証・
   `Instance failed`イベントの再発有無の確認をもって完了とする。
 
+### - [x] T262. 冷パスのメモリ・CPU削減（Pydantic依存の解消、T261対応方針2） 規模M（2026-08-24完了、クラウド移行と併用でユーザー承認）
+
+- 発端: T261の対応方針として「別クラウドサービスの調査」（ユーザーが別途比較検討）と
+  「冷パスの計算・メモリ使用量削減」の併用を承認。後者の技術的フィージビリティを
+  調査した結果（`domain/graph.py`の`Node`/`DirectedEdge`/`RoadGraph`/`WaySpec`が
+  全てPydantic BaseModelで、都心規模（数万〜十数万Way/Edge）の`build_road_graph`が
+  そのバリデーションコストを毎回払っていた）を踏まえ、既存の`LeanNode`/`LeanEdge`/
+  `LeanRoadGraph`/`RoadGraphLike`基盤（T248候補1d、探索の読み取り専用パスに限定して
+  導入済み）を「構築（build）」「保存（save）」パスへ拡張する形で実装した。
+- **調査（Explore agent、実装前）**: `WaySpec`のコンストラクタ呼び出し・フィールド
+  アクセス・`build_road_graph`戻り値の使われ方・`save_graph`引数の使われ方・関連
+  テストのアサーションを全数洗い出し、Pydantic固有機能（`.model_dump()`等）への
+  依存が0件であることを確認してから着手（障害になる箇所なし）。
+- **実装1: `WaySpec`をdataclass化**（`domain/graph.py`）: 外部境界（API）を一切
+  跨がない内部契約と確認済みのため、Lean/Full分離ではなく直接`@dataclass(frozen=True,
+  slots=True)`へ変更。フィールド順を`node_ids`（必須）→デフォルト付きの順へ並び替え
+  （全呼び出し元がキーワード引数のため無影響）。`tags`のミュータブルデフォルトは
+  `field(default_factory=dict)`へ。
+- **実装2: `build_road_graph`が`LeanRoadGraph`を返すよう変更**（`domain/graph.py`）:
+  内部で構築する`Node`/`DirectedEdge`を`LeanNode`/`LeanEdge`へ変更。`LeanEdge.geometry`
+  は「常に空」という規約（`get_graph_topology_in_bbox`側の規約）ではなく実座標を
+  保持させることで、探索専用（`lean=True`）・地図表示（`lean=False`、実ジオメトリ
+  必須）の両方の呼び出し元を同じ型で満たせるようにした（呼び出し元
+  `GraphService.get_or_build_graph_with_attributes`は元々戻り値を`RoadGraphLike`
+  Protocolで受けており、変更不要と確認済み）。
+- **実装3: `save_graph`が`RoadGraphLike`を受けるよう変更**（`road_graph_repository.py`、
+  本体・ファサード委譲の両方）。内部は元々`.node_id`/`.latitude`等の属性読み取りのみで
+  完結しており、型注釈の変更のみで対応できた。
+- **実装4: `Coordinates`（Pydantic、API境界のバリデーションが必要なため型自体は
+  維持）への不要な変換を解消**（`domain/geo.py`・`domain/graph.py`・
+  `domain/routing.py`）: `bearing_between`/`haversine_distance_km`の型ヒントを
+  `Coordinates`固定から、`.latitude`/`.longitude`を持つ任意の型を受け付ける
+  `LatLon`Protocol（新設）へ変更。`build_road_graph`の`_way_length_m`・bearing計算は
+  座標ペアごとに`Coordinates`を構築し直していたのを、Pydanticバリデーション無しの
+  `LatLonPoint`（`NamedTuple`、新設）へ変更。`domain/routing.py`の`find_nearest_node`/
+  `find_nearest_node_indexed`（1リクエストにつき最大17回呼ばれる、T219）は、既に
+  `latitude`/`longitude`を持つ`node`オブジェクトを`Coordinates`へ包み直さず直接渡す
+  よう変更（無駄な構築そのものを無くした）。`Coordinates`自体はAPI境界（リクエスト
+  スキーマの`ge=-90,le=90`検証等）で今後も使うため型は維持。
+- **横展開の調査（ユーザー依頼「他にも同様修正を横展開できる個所はある？」）**:
+  リポジトリ全体のPydantic BaseModelサブクラスを洗い出し、構築ホットパスの有無で
+  仕分けた。
+  - **対応済み**: `Node`/`DirectedEdge`/`RoadGraph`（T248候補1d）・`WaySpec`・
+    `Coordinates`の内部ホットパス使用（本タスク）。
+  - **追加候補として発見・未対応**: `EdgeAttributeCounts`/`ElevationAttribute`
+    （`domain/attributes.py`）。`get_edge_materials_batch`・`get_graph_in_bbox`系の
+    JOINクエリで、該当行があるEdgeの数ぶん（都心規模で数万件）ループ内でPydantic
+    構築している。API層（ルーター）へは一切露出せず、`EvaluationService`が構造的
+    アクセスのみで消費していることを確認済みで、`WaySpec`と同種の対応が可能と見込む。
+    次に着手する場合の最有力候補として記録する。
+  - **調査したが対象外と判断**: `WindGridPoint`/`WindGridResponse`（`domain/wind_grid.py`）
+    はAPIレスポンスへ直接シリアライズされる境界型のため対象外。`POISpec`
+    （`domain/osm_adapter.py`）はPBF取込バッチ（オフライン処理、リクエスト時間に
+    影響しない）専用のため優先度低。
+- **検証**: 隔離マイクロベンチマークで`Coordinates`→`LatLonPoint`の構築コストを
+  直接計測（300,000回構築、`Coordinates`0.552秒→`LatLonPoint`0.185秒、**3.0倍**）。
+  `Node`/`DirectedEdge`側の効果はT248候補1dの既存実測（171,461件で構築コスト推定
+  11秒相当）を踏襲（実装が変わっていないため今回は再計測せず）。end-to-endの
+  `bench_postgis_prepare.py`は、直前に実行したbackend全体テスト（155秒、通常47秒の
+  3倍以上）等による同時実行負荷でノイズが大きく、今回は参考値に留める
+  （システムが空いている時間帯に改めて計測することが望ましい）。
+  backend全体1126件green（直列実行、xdist並列時の既存フレークはT248候補1と同じ理由
+  で対象外）。
+- 完了条件: 満たした（横展開調査を含む）。本番デプロイ後の`Instance failed`再発有無の
+  確認、および追加候補（EdgeAttributeCounts/ElevationAttribute）への着手要否は
+  T261側でユーザー判断を仰ぐ。
+
 ---
 
 

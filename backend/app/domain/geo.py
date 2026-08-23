@@ -1,8 +1,33 @@
 import math
+from typing import NamedTuple, Protocol, runtime_checkable
 
 from app.domain.route import Coordinates
 
 EARTH_RADIUS_KM = 6371.0
+
+
+@runtime_checkable
+class LatLon(Protocol):
+    """緯度経度を持つ任意の型（`Coordinates`・`Node`・`LeanNode`等）を受け付ける
+    構造的型（改善計画T262）。`bearing_between`/`haversine_distance_km`は内部で
+    `.latitude`/`.longitude`を読むだけで完結しており、元は型ヒントが`Coordinates`
+    （Pydantic）固定だったため、`build_road_graph`（domain/graph.py）・
+    `find_nearest_node`系（domain/routing.py）のようなホットパスで、既に手元にある
+    生の緯度経度ペアやNodeオブジェクトからわざわざ`Coordinates`を構築し直す
+    無駄が生じていた（T248でNode/DirectedEdgeに対して確認したのと同種の問題）。
+    """
+
+    latitude: float
+    longitude: float
+
+
+class LatLonPoint(NamedTuple):
+    """`LatLon`を満たす最小実装（改善計画T262）。Pydanticのバリデーションコストを
+    避けたい内部計算専用（`Coordinates`は入力検証が必要なAPI境界向けに残す）。
+    """
+
+    latitude: float
+    longitude: float
 
 # 緯度1度あたりの概算距離（km、地球を球とみなす近似。EARTH_RADIUS_KMと同じ半径前提で
 # 十分、空間索引のバケット分割・打ち切り判定・矩形マージンの見積もりという「目安」用途に
@@ -43,7 +68,7 @@ def destination_point(origin: Coordinates, bearing_deg: float, distance_km: floa
     return Coordinates(latitude=math.degrees(lat2), longitude=lon2_deg)
 
 
-def bearing_between(origin: Coordinates, destination: Coordinates) -> float:
+def bearing_between(origin: LatLon, destination: LatLon) -> float:
     """originからdestinationを見た初期方位角（0=北、時計回り、0-360）を球面三角法で求める。"""
     lat1 = math.radians(origin.latitude)
     lat2 = math.radians(destination.latitude)
@@ -55,7 +80,7 @@ def bearing_between(origin: Coordinates, destination: Coordinates) -> float:
     return math.degrees(math.atan2(x, y)) % 360
 
 
-def haversine_distance_km(a: Coordinates, b: Coordinates) -> float:
+def haversine_distance_km(a: LatLon, b: LatLon) -> float:
     """2地点間の球面距離（km）。"""
     lat1, lon1, lat2, lon2 = (
         math.radians(a.latitude),

@@ -1,7 +1,7 @@
 import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch
-from app.domain.graph import RoadGraph, WaySpec
+from app.domain.graph import LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
 from app.infrastructure import graph_material_cache
@@ -144,7 +144,7 @@ class FakeRoadGraphRepository:
                 return False
         return True
 
-    async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+    async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraphLike | None:
         # 実装（ST_Intersects(Edge.geom, envelope)）の簡易近似: Edgeのジオメトリ上の
         # いずれかの点がbbox内にあればマッチしたとみなす。
         matched_edges = {
@@ -159,9 +159,13 @@ class FakeRoadGraphRepository:
             return None
         node_ids = {e.from_node_id for e in matched_edges.values()} | {e.to_node_id for e in matched_edges.values()}
         matched_nodes = {nid: self.nodes[nid] for nid in node_ids if nid in self.nodes}
-        return RoadGraph(graph_version="cached", nodes=matched_nodes, edges=matched_edges)
+        # 改善計画T262: save_graphが実際にLeanRoadGraph（LeanNode/LeanEdge）を保存する
+        # ようになったため、Fakeの内部ストア（self.nodes/self.edges）もLean型を保持する。
+        # ここで改めてPydantic RoadGraphへ包み直すとValidationErrorになるため、
+        # LeanRoadGraphのまま返す（呼び出し元はRoadGraphLikeとしてのみ扱うため実害無し）。
+        return LeanRoadGraph(graph_version="cached", nodes=matched_nodes, edges=matched_edges)
 
-    async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
+    async def save_graph(self, graph: RoadGraphLike, way_ids_to_replace: set[int] | None = None) -> None:
         self.save_graph_call_count += 1
         self._clock += 1
         now = self._clock
@@ -203,7 +207,7 @@ class FakeRoadGraphRepository:
     # （このFakeのgeometryは常にジオメトリ込みだが、呼び出し元の材料キャッシュはgeometryを
     # 見ないため実害無し）。呼び出し回数を計測し、タイルキャッシュのヒット確認に使う。
 
-    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraphLike | None:
         self.get_graph_topology_in_bbox_call_count += 1
         return await self.get_graph_in_bbox(bbox)
 

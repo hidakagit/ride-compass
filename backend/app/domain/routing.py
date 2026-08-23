@@ -173,7 +173,10 @@ def find_nearest_node(graph: RoadGraphLike, point: Coordinates) -> str | None:
     nearest_node_id: str | None = None
     nearest_distance: float | None = None
     for node_id, node in graph.nodes.items():
-        distance = haversine_distance_km(point, Coordinates(latitude=node.latitude, longitude=node.longitude))
+        # 改善計画T262: nodeは既にlatitude/longitudeを持つ（NodeLike）ため、
+        # Coordinates（Pydantic）へ包み直さずそのまま渡す（haversine_distance_kmは
+        # LatLon Protocolで受ける）。
+        distance = haversine_distance_km(point, node)
         if nearest_distance is None or distance < nearest_distance:
             nearest_distance = distance
             nearest_node_id = node_id
@@ -256,9 +259,8 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
                     continue  # 内側のリングは前回までのループで調べ済み
                 for node_id in index.buckets.get((cell_lat + dx, cell_lon + dy), ()):
                     node = index.graph.nodes[node_id]
-                    distance = haversine_distance_km(
-                        point, Coordinates(latitude=node.latitude, longitude=node.longitude)
-                    )
+                    # 改善計画T262: find_nearest_node同様、Coordinatesへ包み直さない。
+                    distance = haversine_distance_km(point, node)
                     if nearest_distance is None or distance < nearest_distance:
                         nearest_distance = distance
                         nearest_node_id = node_id

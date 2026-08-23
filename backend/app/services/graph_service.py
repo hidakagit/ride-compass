@@ -69,8 +69,11 @@ class GraphService:
         （domain/evaluation.py: compute_wind_penaltyがbearing_degを直接使う設計）ため、
         この引数で切り替える。地図表示（RegionServiceのタイル配信）は実ジオメトリが必要な
         ため、既定の`lean=False`のまま呼ぶ。生データ変更を検知し再構築が必要な場合
-        （下記のフォールバック経路）は`lean`に関わらず常にbuild_road_graph経由のフル
-        グラフを返す（この経路自体が既に低頻度・重い処理のため、リーン化の対象外）。
+        （下記のフォールバック経路）は`lean`に関わらず常に`build_road_graph`経由で
+        グラフを返す。改善計画T262により`build_road_graph`自体が`LeanRoadGraph`
+        （dataclass、geometryは実座標を保持）を返すため、この経路も`lean`の値に関わらず
+        軽量なオブジェクト構築で完結する（地図表示側もgeometryは通常どおり取得できる、
+        Pydanticバリデーションのコストだけを避ける設計）。
 
         まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`のXYZタイル群に分解し、
         `_ensure_tiles_cached`で「生データを取得済みか」を判定する（地域路面レイヤー/
@@ -119,7 +122,8 @@ class GraphService:
         way_specs, node_coords, primary_way_ids = await self._repository.get_way_specs_with_closure(bbox)
         if not way_specs:
             # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
-            return RoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
+            # 改善計画T262: この経路（再構築フォールバック）はLeanRoadGraphで統一する。
+            return LeanRoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
 
         # 改善計画T261: build_road_graph（交差点分割、純Pythonの同期CPU処理）は都心規模
         # （数万way）で数秒規模かかる（bench_postgis_prepare.py実測: 4kmで1.1秒、
@@ -141,7 +145,9 @@ class GraphService:
             edge.to_node_id for edge in primary_edges.values()
         }
         primary_nodes = {node_id: node for node_id, node in graph.nodes.items() if node_id in referenced_node_ids}
-        primary_graph = RoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
+        # 改善計画T262: build_road_graphが既にLeanRoadGraphを返すため、ここでも
+        # 再度Pydantic RoadGraphへ変換せずLeanRoadGraphのまま保持する。
+        primary_graph = LeanRoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
         primary_surface_attributes = surface_by_edge_id(primary_graph, surface_by_way_id)
 
         await self._repository.save_graph(primary_graph, way_ids_to_replace=primary_way_ids)

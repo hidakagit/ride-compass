@@ -1,12 +1,11 @@
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from app.domain.geo import bearing_between, haversine_distance_km
-from app.domain.route import Coordinates
+from app.domain.geo import LatLonPoint, bearing_between, haversine_distance_km
 
 
 class Node(BaseModel):
@@ -152,7 +151,8 @@ class LeanRoadGraph:
     edges: dict[str, LeanEdge]
 
 
-class WaySpec(BaseModel):
+@dataclass(frozen=True, slots=True)
+class WaySpec:
     """Road Graph構築（build_road_graph）への入力単位。
 
     データソースに依存しない契約であり、OSM Adapter（domain/osm_adapter.py）等、
@@ -161,10 +161,16 @@ class WaySpec(BaseModel):
     タグの生値（OSMのoneway文字列等）を一切解釈しない。将来Overpass以外の
     データソース（PBF一括抽出等）に切り替えても、Adapterを差し替えるだけで
     build_road_graphは無変更で使える。
+
+    改善計画T262: 元はPydantic BaseModelだったが、`build_road_graph`が対象bbox＋近傍の
+    全Way（都心規模で数万〜十数万件）ぶん構築するたびPydanticバリデーションのコストが
+    かかっていた（T248でNode/DirectedEdgeに対して確認したのと同種の問題）。外部境界
+    （API・DB行）からの変換専用の内部契約でPydantic固有機能（.model_dump()等）への
+    依存が無いことを確認済みのため、素のdataclassへ変更した。
     """
 
-    osm_way_id: int | None = None
     node_ids: list[int]
+    osm_way_id: int | None = None
     highway: str | None = None
     surface: str | None = None  # OSMのsurfaceタグ生値。DirectedEdgeへは持たせず、Road Attribute
     # 生成側（domain/attributes.py）がosm_way_id経由で参照する（仕様書13章：Edge本体と
@@ -173,7 +179,7 @@ class WaySpec(BaseModel):
     # osm_adapter.py: ALLOWED_WAY_TAGS）。highway/surface同様、build_road_graphは
     # 解釈しない（DirectedEdgeへは持たせない）。表示（MVT）・将来の評価拡張の
     # 入力として、osm_way_id経由で別途参照する想定。
-    tags: dict[str, str] = {}
+    tags: dict[str, str] = field(default_factory=dict)
     direction: Literal["forward", "backward", "both"] = "both"
 
 
@@ -182,11 +188,12 @@ def _new_graph_version() -> str:
 
 
 def _way_length_m(coordinates: list[tuple[float, float]]) -> float:
+    # 改善計画T262: 座標ペアごとにPydantic Coordinatesを構築していたのを、
+    # LatLonPoint（NamedTuple、バリデーション無し）へ変更。build_road_graphは
+    # 都心規模で数万〜十数万Edgeぶんこのループを回すホットパスのため。
     total_km = 0.0
     for (lat1, lon1), (lat2, lon2) in zip(coordinates, coordinates[1:]):
-        total_km += haversine_distance_km(
-            Coordinates(latitude=lat1, longitude=lon1), Coordinates(latitude=lat2, longitude=lon2)
-        )
+        total_km += haversine_distance_km(LatLonPoint(lat1, lon1), LatLonPoint(lat2, lon2))
     return total_km * 1000
 
 
@@ -214,7 +221,7 @@ def build_road_graph(
     ways: list[WaySpec],
     nodes: dict[int, tuple[float, float]],
     graph_version: str | None = None,
-) -> RoadGraph:
+) -> LeanRoadGraph:
     """WaySpecの列とノード座標から、交差点で分割したDirected Edgeを持つRoadGraphを構築する。
 
     nodes: osm_node_id（またはデータソース側のノードID） -> (latitude, longitude)
@@ -225,6 +232,15 @@ def build_road_graph(
     upsertが成立する）。ただし内部IDそのものはOSM IDの生値ではなく別表現（`osm-node-<id>`等）
     にしており、osm_way_idを永続的な道路の識別子としてそのまま扱ってはいない点は維持する
     （仕様書11章）。
+
+    改善計画T262: 戻り値は`RoadGraph`（Pydantic）ではなく`LeanRoadGraph`（dataclass）。
+    対象bbox＋近傍の全Way（都心規模で数万〜十数万件）ぶんNode/DirectedEdgeを構築する
+    このホットパスでPydanticバリデーションのコストがかかっていた（T248でNode/DirectedEdgeの
+    `model_construct`ですら171,461件で8.9秒超と判明済み）。呼び出し元
+    （`GraphService.get_or_build_graph_with_attributes`）は元々`RoadGraphLike`
+    Protocolで受けており、Pydantic固有機能への依存が無いことを確認済み。`LeanEdge.geometry`
+    は「常に空」という規約（`get_graph_topology_in_bbox`側の規約）ではなく、ここでは実際の
+    座標列をそのまま持たせる（地図表示（`lean=False`）でも実ジオメトリが必要なため）。
     """
     # 分割地点＝Wayの端点、または複数のWayから参照される（＝交差点の）ノード、
     # または同一Way内に複数回登場するノード（仕様書9章）。
@@ -243,7 +259,7 @@ def build_road_graph(
             if node_occurrences[node_id] >= 2:
                 split_node_ids.add(node_id)
 
-    graph_nodes: dict[str, Node] = {}
+    graph_nodes: dict[str, LeanNode] = {}
     osm_to_internal_node_id: dict[int, str] = {}
 
     def _get_or_create_node(osm_node_id: int) -> str | None:
@@ -254,11 +270,13 @@ def build_road_graph(
             return None
         internal_id = f"osm-node-{osm_node_id}"
         lat, lon = coordinates
-        graph_nodes[internal_id] = Node(node_id=internal_id, latitude=lat, longitude=lon, osm_node_id=osm_node_id)
+        graph_nodes[internal_id] = LeanNode(
+            node_id=internal_id, latitude=lat, longitude=lon, osm_node_id=osm_node_id
+        )
         osm_to_internal_node_id[osm_node_id] = internal_id
         return internal_id
 
-    edges: dict[str, DirectedEdge] = {}
+    edges: dict[str, LeanEdge] = {}
     anonymous_way_counter = 0
 
     for way in ways:
@@ -286,18 +304,14 @@ def build_road_graph(
             # 改善計画T218: forward/backwardそれぞれの実際の進行方向で方位角を算出する
             # （+180度の単純反転ではなく、逆順の始点・終点から都度求める。短い区間では
             # ほぼ等価だが、地球の丸みを近似せず素直に正しい値を使う）。
-            bearing_forward = bearing_between(
-                Coordinates(latitude=coordinates[0][0], longitude=coordinates[0][1]),
-                Coordinates(latitude=coordinates[-1][0], longitude=coordinates[-1][1]),
-            )
-            bearing_backward = bearing_between(
-                Coordinates(latitude=coordinates[-1][0], longitude=coordinates[-1][1]),
-                Coordinates(latitude=coordinates[0][0], longitude=coordinates[0][1]),
-            )
+            start_point = LatLonPoint(*coordinates[0])
+            end_point = LatLonPoint(*coordinates[-1])
+            bearing_forward = bearing_between(start_point, end_point)
+            bearing_backward = bearing_between(end_point, start_point)
 
             if way.direction != "backward":
                 edge_id = f"way-{way_key}-seg{segment_index}-fwd"
-                edges[edge_id] = DirectedEdge(
+                edges[edge_id] = LeanEdge(
                     edge_id=edge_id,
                     from_node_id=from_internal,
                     to_node_id=to_internal,
@@ -310,7 +324,7 @@ def build_road_graph(
 
             if way.direction != "forward":
                 edge_id = f"way-{way_key}-seg{segment_index}-bwd"
-                edges[edge_id] = DirectedEdge(
+                edges[edge_id] = LeanEdge(
                     edge_id=edge_id,
                     from_node_id=to_internal,
                     to_node_id=from_internal,
@@ -321,4 +335,4 @@ def build_road_graph(
                     bearing_deg=bearing_backward,
                 )
 
-    return RoadGraph(graph_version=graph_version or _new_graph_version(), nodes=graph_nodes, edges=edges)
+    return LeanRoadGraph(graph_version=graph_version or _new_graph_version(), nodes=graph_nodes, edges=edges)

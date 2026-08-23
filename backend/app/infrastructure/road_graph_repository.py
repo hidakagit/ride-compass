@@ -74,7 +74,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch, ElevationAttribute
-from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, Node, RoadGraph, WaySpec
+from app.domain.graph import (
+    DirectedEdge,
+    LeanEdge,
+    LeanNode,
+    LeanRoadGraph,
+    Node,
+    RoadGraph,
+    RoadGraphLike,
+    WaySpec,
+)
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
@@ -1165,8 +1174,15 @@ class DerivedGraphRepository(_SessionRepository):
         )
         return (await self._session.execute(stale_stmt)).first() is None
 
-    async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
+    async def save_graph(self, graph: RoadGraphLike, way_ids_to_replace: set[int] | None = None) -> None:
         """RoadGraphをroad_nodes/road_edgesへ永続化する。
+
+        改善計画T262: 引数は`RoadGraph`ではなく`RoadGraphLike`（`Node`/`DirectedEdge`の
+        Pydantic版・`LeanNode`/`LeanEdge`のdataclass版いずれも受け付ける構造的型）。
+        本メソッドは`graph.nodes`/`graph.edges`とその属性（node_id/latitude/longitude等）を
+        読むだけでPydantic固有機能に依存していないため、呼び出し元
+        （`GraphService.get_or_build_graph_with_attributes`）が返すLeanRoadGraphを
+        そのまま渡せる。
 
         `way_ids_to_replace`を指定した場合、それらのosm_way_idを持つ既存Edge行のうち
         「今回のgraphに同じedge_idで含まれないもの」だけを削除してから`graph`内の該当Edgeを
@@ -2206,7 +2222,7 @@ class RoadGraphRepository:
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         return await self.graph.is_split_up_to_date(bbox)
 
-    async def save_graph(self, graph: RoadGraph, way_ids_to_replace: set[int] | None = None) -> None:
+    async def save_graph(self, graph: RoadGraphLike, way_ids_to_replace: set[int] | None = None) -> None:
         await self.graph.save_graph(graph, way_ids_to_replace=way_ids_to_replace)
 
     async def recompute_node_degrees(self) -> None:

@@ -80,7 +80,7 @@ async def _run_scenario(
     トレードオフだが、まずは1回でも実データでの規模感を掴むことを優先する）。"""
     from sqlalchemy import update
 
-    from app.domain.graph import RoadGraph, build_road_graph
+    from app.domain.graph import LeanRoadGraph, build_road_graph
     from app.domain.route import Coordinates
     from app.infrastructure.road_graph_models import OsmRawWayRow
     from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -139,7 +139,7 @@ async def _run_scenario(
         e.to_node_id for e in primary_edges.values()
     }
     primary_nodes = {nid: n for nid, n in graph.nodes.items() if nid in referenced_node_ids}
-    primary_graph = RoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
+    primary_graph = LeanRoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
     edge_note = f"primary_edges={len(primary_edges)} primary_nodes={len(primary_nodes)}"
 
     # --- Stage 3: save_graph（bulk UPSERT、DB書き込み） ---
