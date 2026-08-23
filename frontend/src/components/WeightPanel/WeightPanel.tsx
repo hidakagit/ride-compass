@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { FieldLabel, RecipePanelSection, withAutoEnable } from "@/components/Map/recipeControls";
 import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
@@ -77,27 +77,23 @@ function WeightInput<T extends Record<string, number>>({
   values: T;
   onChange: (next: T) => void;
 }) {
-  const [infoOpen, setInfoOpen] = useState(false);
   return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <input
-          type="number"
-          min="0"
-          step="0.05"
-          aria-label={field.label}
-          value={values[field.key]}
-          onChange={(e) => {
-            const next = Number(e.target.value);
-            if (Number.isNaN(next) || next < 0) return;
-            onChange({ ...values, [field.key]: next });
-          }}
-          className={styles.input}
-        />
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
+    <div className={styles.field}>
+      <FieldLabel label={field.label} description={field.description} />
+      <input
+        type="number"
+        min="0"
+        step="0.05"
+        aria-label={field.label}
+        value={values[field.key]}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isNaN(next) || next < 0) return;
+          onChange({ ...values, [field.key]: next });
+        }}
+        className={styles.input}
+      />
+    </div>
   );
 }
 

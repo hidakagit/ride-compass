@@ -27,13 +27,13 @@ describe("RoadSuitabilityRecipePanel", () => {
     renderPanel();
 
     expect(screen.getAllByRole("spinbutton")).toHaveLength(CYCLEWAY_FIELD_COUNT);
-    expect(screen.getAllByRole("group", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
+    expect(screen.getAllByRole("radiogroup", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
   });
 
   it("上書き無効でも既定値のレベルピッカーを表示する", () => {
     renderPanel({ overrideEnabled: false });
 
-    expect(screen.getAllByRole("group", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
+    expect(screen.getAllByRole("radiogroup", { name: /の基準値$/ })).toHaveLength(HIGHWAY_COUNT);
   });
 
   it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
@@ -55,8 +55,8 @@ describe("RoadSuitabilityRecipePanel", () => {
     const primaryInfoButton = screen.getByRole("button", { name: "国道クラスの幹線道路の説明を表示" });
     const primaryRow = primaryInfoButton.closest("tr");
     if (!primaryRow) throw new Error("primary行が見つかりません");
-    const primaryPicker = within(primaryRow).getByRole("group");
-    await user.click(within(primaryPicker).getByRole("button", { name: "2" }));
+    const primaryPicker = within(primaryRow).getByRole("radiogroup");
+    await user.click(within(primaryPicker).getByRole("radio", { name: "2" }));
 
     expect(onOverrideEnabledChange).toHaveBeenCalledWith(true);
     expect(onRecipeChange).toHaveBeenCalledWith({
@@ -73,8 +73,8 @@ describe("RoadSuitabilityRecipePanel", () => {
     const primaryInfoButton = screen.getByRole("button", { name: "国道クラスの幹線道路の説明を表示" });
     const primaryRow = primaryInfoButton.closest("tr");
     if (!primaryRow) throw new Error("primary行が見つかりません");
-    const primaryPicker = within(primaryRow).getByRole("group");
-    await user.click(within(primaryPicker).getByRole("button", { name: "2" }));
+    const primaryPicker = within(primaryRow).getByRole("radiogroup");
+    await user.click(within(primaryPicker).getByRole("radio", { name: "2" }));
 
     expect(onRecipeChange).toHaveBeenCalledWith({
       ...DEFAULT_ROAD_SUITABILITY_RECIPE,

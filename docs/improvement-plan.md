@@ -1607,10 +1607,34 @@ T221エントリへの追記として実施済み（新番号なし）。
     （`prepare_ms=5281`が支配的）。**T224目標「温5秒以内」に対し+30%超過**。
   - 本番・王子30km（T246検証時）: 冷パス316秒（`node_upsert_ms=46000`＋
     `edge_upsert_ms=149235`のバルクUPSERTが支配、DELETE段はT246で10.2秒へ解消済み）。
+- **本番実測（2026-08-23、専用worktreeでDATABASE_URLを本番Oracle Cloud PostGISへ向け、
+  ローカルbackendから`POST /api/routes/generate`を6地点・8リクエスト実際に発行して再実施。
+  ユーザー許可を得た上で本番DBへ実際に書き込みを伴う）**:
+  - 王子15km（既存split済領域内）: prepare_ms=10,921・total_ms=14,203・候補7件。
+  - 前橋10km（新規split）: `save_graph total_ms=42,406`（node_upsert=7,781・
+    delete=672・edge_upsert=30,172）、prepare_ms=67,078・total_ms=77,891・候補8件
+    （温再実行はprepare_ms=6,891・total_ms=7,922）。
+  - 銚子25km（新規split、沿岸のため2方位失敗は妥当）: `save_graph total_ms=23,797`、
+    prepare_ms=33,843・total_ms=41,125・候補2件。
+  - バルクUPSERTがprepare全体の6〜7割を占める傾向を再確認（前橋63%・銚子70%）。
+  - **新規発見: 「分割済みデータの冷読み出し」単体でも66〜91秒かかる**。新宿10km
+    （既にsplit済み、`save_graph`は発生せず）でprepare_ms=88,219（初回）／
+    91,578（サーバ再起動後の材料再読込のみ）。T229が懸念していた「材料5クエリ×
+    タイル数」問題（冷パスのクエリ本数増）が、save_graph以外の内訳としても実測で
+    裏付けられた。温パス（プロセス内キャッシュ命中）は一貫して5〜8秒でdev実測と
+    ほぼ一致。
+  - 詳細は改善計画の作業ログ（2026-08-23のT248本番実測セッション）参照。
 - 対応候補（着手時に設計判断）:
   1. **バルクUPSERTの最適化**: `_bulk_upsert`のINSERT ... ON CONFLICT一括化の粒度・
      asyncpg COPYの利用（PBF取込バッチが既にCOPY直行の前例を持つ）・
      「分割結果が前回と変わらないEdgeはUPSERT自体を省略する」差分検出等。
+  1a. **材料読み込み（冷パス、split不要な場合の読み出し）の最適化**: 本番実測で新規発見
+     （上記）。「材料5クエリ×タイル数」（T229）の本数そのものを減らす一括クエリ化、
+     または結果をより長寿命・永続的なキャッシュ（T12 Part 2）で吸収する方向を検討。
+     着手前に`_build_search_graph`（road_graph_engine.py）・
+     `get_search_materials_for_bbox`（graph_service.py）へsave_graph同様の
+     ステージ別1行INFOログ（タイル数・クエリ本数・所要時間）を追加すると、次回の
+     切り分けが速くなる（今回はDBログ・EXPLAIN無しで内訳分解できなかった）。
   2. **冷パスの体験設計**: 初回タッチの重い処理（split再構築）をリクエスト同期から
      切り離す選択肢（バックグラウンドウォームアップ・主要エリアの事前split・
      プログレス表示等）。T59の`_maybe_trigger_graph_build`（タイル閲覧起点の
@@ -1619,6 +1643,74 @@ T221エントリへの追記として実施済み（新番号なし）。
      最適化済みのため、これ以上の短縮はT12 Part 2（キャッシュ永続化等）の領域。
 - 完了条件（着手時に確定）: 温パス5秒以内（T224目標の達成）＋冷パスの体験方針の決定・
   実装。実測値をもって記録する。
+- **切り出し**: 本番実測中に発見した「都心部（新宿・渋谷）で候補0件」は性能問題ではなく
+  接続性の問題のため、本タスクのスコープ外としてT256へ切り出した。
+
+### - [ ] T256. 都心部（新宿・渋谷）でルート生成が候補0件になる事象の原因調査 規模S〜M（原因特定済み、対応未着手）
+
+- 発端: T248の本番実測（2026-08-23、専用worktreeでDATABASE_URLを本番Oracle Cloud
+  PostGISへ向けた直接サンプリング）で偶発的に発見。
+- 事象: 新宿駅(35.6896,139.7006)・渋谷駅(35.6580,139.7016)を起点にdistance_km=10〜20
+  （半径≈3.3〜6.7km）で`/api/routes/generate`を実行すると、8方位すべてでtrace失敗し
+  候補0件になる。60〜152秒（新規split時）ないし66〜92秒（split済みデータの読み込みのみ）
+  待たされた末の結果であるため、単なる低速ではなく「時間をかけても使えない」という
+  T248より深刻な体験。DEBUG_MODE有効時の詳細ログでは全方位が
+  `RoutingError("no path found between waypoints")`で失敗しており、waypointの
+  最近接ノードへのスナップ自体は成功している（＝スナップ失敗ではなく、
+  scipy.sparse.csgraph Dijkstraでの経路探索が起点↔経由地間で経路を見つけられていない）。
+  半径を10km→20kmに拡大しても再現するため、単純な半径不足ではなさそうである。
+- 対照実験: 同じ本番実測で王子15km（候補7件・8/8成功）・前橋10km（候補8件・8/8成功）・
+  銚子25km（候補2件・6/8成功、沿岸のため2方位失敗は妥当）はいずれも正常に候補を返しており、
+  密集した都心部（山手線内側相当）特有の事象である可能性が高い。一方通行の多さ等、
+  役場道路網のトポロジ的特性が疑われるが未検証。
+- 影響範囲（保留・未着手のまま次に何が起きうるか）: これまでの性能実測はほぼ王子を
+  起点に行われており（T236・T242〜T247）、王子は正常系のため本事象はT247での
+  road_graph既定化以降も検出されずに残っていた。研究利用者が実際に試す可能性が高い
+  都心部（新宿・渋谷等の主要駅）で発生するため、影響を受ける利用者の割合は郊外での
+  発生より大きいと想定される。原因未特定のまま放置すると、T248（性能改善）に着手して
+  冷パスを高速化しても、都心部では「速く0件が返る」だけで体験は改善しない。
+- 完了条件（調査フェーズ）: 原因を切り分け、以下のいずれかに分類する。
+  1. road_graphエンジンの経路探索ロジックの不具合（one-way処理・グラフ構築の
+     連結性等）→ 修正タスクとして規模を見積もり直す。
+  2. 本番DBのデータ品質固有の問題（特定エリアのOSMデータ・split処理の副作用等）→
+     dev DBでも再現するか確認し、再現すればロジック側、しなければデータ側の問題として
+     切り分ける。
+  3. 既知の事象（T241「8方位中平均1〜2方位が見つからない」）の延長で説明できる限定的な
+     ものと判明した場合は、その旨を記録し見送り判定とする（ただし今回は8/8全滅のため
+     T241とは事象の severity が異なる点に留意）。
+- 参考: T241（道路グラフの連結性、規模不明、8方位中平均1〜2方位の失敗は残存するが実運用
+  影響は限定的と評価済み）。
+- **原因特定（2026-08-23、専用worktreeでdev DBに対し直接調査）**: 上記完了条件の
+  分類1（road_graphエンジンのロジック不具合）と判明。dev DB（東京都心南部データ）でも
+  同じ条件で全方位失敗を再現し、本番DB固有の問題ではないことをまず確認した。
+  次にdev DBへ直接SQLで最近傍`road_nodes`とその接続`road_edges`のhighwayタグを
+  問い合わせたところ、新宿駅最近傍ノード（76m）・渋谷駅最近傍ノード（33m）はいずれも
+  **接続edgeが全て`highway=trunk`（甲州街道・明治通り等の国道）のみ**という構造だった。
+  一方、王子駅・前橋駅の最近傍ノードは`unclassified`で正常。
+  - **根本原因**: `find_nearest_node_indexed`（`domain/routing.py`、`prepare`の
+    origin_nodeスナップ・`trace_loop`の経由地スナップ両方で使用）は
+    `build_node_spatial_index`が保持する**フィルタ前の生グラフ**（`search.graph`、
+    Hard Constraint適用前）から純粋に地理的最近傍のNodeを選ぶ。一方
+    `build_sparse_graph`（探索本体が使う`sparse_graph`）は`is_edge_allowed`の
+    Hard Constraint（既定`DEFAULT_HARD_FILTERS={"no_bicycle","motorway","trunk"}`、
+    `evaluation.py:63`）で`trunk`Edgeを除外する。主要駅が国道の幹線交差点に直接
+    面していると、最近傍Nodeの接続Edgeが全てtrunkで除外され、探索用グラフ上では
+    孤立点（次数0）になる。この状態でorigin_nodeからDijkstraを実行すると
+    到達可能なNodeが存在せず、半径や経由地の位置に関わらず8方位すべてが
+    `no path found`で失敗する（実際には50〜100m先に自転車で通行可能な道路網が
+    広がっているにもかかわらず）。
+  - 影響範囲の裏付け: 新宿・渋谷はいずれも駅前が国道の幹線交差点に面する典型例で、
+    同種の主要駅（他にも新橋・池袋等、国道と直接面する駅は都心に多い）で同様の事象が
+    起きうる。
+  - 対応方針（次に着手する場合の規模見積もり、実装は未着手）: `find_nearest_node_indexed`
+    （またはその呼び出し元の`prepare`/`trace_loop`/`preview_segment`）で、Hard
+    Constraint適用後も次数1以上を保つNodeのみを候補にする。具体的には
+    (a) 索引を`search.graph`ではなく`sparse_graph`側のNode集合から構築する、または
+    (b) 最近傍探索が孤立Nodeに当たった場合はグリッドリング探索を継続し次善のNodeへ
+    フォールバックする、のいずれか。影響箇所は`road_graph_engine.py`の
+    `prepare`・`preview_segment`（node_index構築）と`domain/routing.py`
+    （`build_node_spatial_index`/`find_nearest_node_indexed`）。規模S〜M（ロジック変更は
+    限定的だが、origin・waypoint両方のスナップ経路・関連テストの追従が必要）。
 
 ### - [x] T249. 統合レビュー第7回の軽微指摘一括 規模S（2026-08-23完了）
 
@@ -1809,7 +1901,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
     いずれもgreen。Playwright E2E（smoke.spec.ts、standalone起動・workers=1）2件green。
     一時ページ・一時specは検証後に削除済み。
 
-### - [ ] T253. Phase1: 点在する小部品の置換＋FloatingPanel→react-rnd 規模S〜M（2026-08-23起票） — トリガー: T252完了後、着手指示
+### - [x] T253. Phase1: 点在する小部品の置換＋FloatingPanel→react-rnd 規模S〜M（2026-08-23完了）
 
 - 発端: T251の調査結果。
 - 対応内容: トグルチップ（LayerChip等）→Radix Toggle、ラジオ/セグメント選択
@@ -1819,6 +1911,59 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   ドラッグを再現、`bounds="window"`で画面外へ出ないようクランプ）。
 - 完了条件: 各コンポーネントの既存vitestテストgreen（必要なら更新）、Playwrightで
   モバイル実機確認、型検査/ESLint green。
+
+- **実装メモ（2026-08-23完了）**:
+  1. **LayerChip→Radix Toggle**: `pressed`/`onClick`（生イベント）のみ渡し、
+     `onPressedChange`は使わない設計にした。`<summary>`内で使う呼び出し側
+     （RecipePanelSection）が`event.preventDefault()`で親detailsの開閉を止めることが
+     あり、Radixの`composeEventHandlers`は`defaultPrevented`時に内部トグルハンドラを
+     スキップする仕様のため、内部ロジックへ依存すると押下が反映されないケースが生まれる
+     ことが分かった。押下状態は従来どおり呼び出し側が完全外部管理のまま、Radixは
+     セマンティクス（aria-pressed/data-state）とキーボード操作の提供に留める。
+  2. **LevelPicker→Radix RadioGroup**: `role="group"`+個別`aria-pressed`ボタンの
+     自前実装（矢印キー移動なし）から、`role="radiogroup"`/`role="radio"`＋roving
+     tabindex（矢印キー移動が標準で付く）へ。見た目（`data-filled`+`--level-color`の
+     進捗バー表現）はCSS変更なしで維持。呼び出し側テスト4ファイル
+     （recipeControls/RoadSuitabilityRecipePanel）の`role: "group"`→`"radiogroup"`、
+     `role: "button"`→`"radio"`、`aria-pressed`→`aria-checked`を更新。
+  3. **ルート色分けモード（page.tsx）→Radix RadioGroup**: 既に手書きで
+     `role="radiogroup"`/`role="radio"`/`aria-checked`を実装していた箇所を置き換え、
+     矢印キー移動を標準搭載化。
+  4. **FieldLabelのinfoButton→Radix Popover**: 単純な置換に留まらず設計を見直した。
+     従来は`open`/`onToggle`を呼び出し側が持ち、説明文（`infoTooltip`）を呼び出し側が
+     DOM上の直後（`<p>`または`<tr colSpan>`、呼び出し側ごとに配置形が違った）へ
+     個別に配置していた。Popoverはトリガー位置基準のフローティング表示のためDOM配置に
+     依存せず、開閉状態もFieldLabel自身が持てるようになったため、`open`/`onToggle`を
+     廃し`description`を渡すだけのAPIへ簡素化した。呼び出し側4箇所
+     （ScalarInput/ThresholdAdjustmentRow/WeightInput/HighwayRow）から
+     `useState`＋条件付きレンダリングの重複コードが消え、`WeightPanel.module.css`/
+     `RoadSuitabilityRecipePanel.module.css`の重複していた`infoTooltip`系クラスも削除。
+     `.infoTooltip`（recipeControls.module.css）はPortal描画に伴い地の文から
+     カード状の見た目（背景・枠線・影、MapLibreポップアップと同トークン）へ変更、
+     z-index:46（BottomSheet:45より前面、FloatingPanel:50より背面）。
+     `recipeControls.test.tsx`のFieldLabelテストを新API（`description`渡し・
+     Popover開閉）へ書き換え。
+  5. **FloatingPanel→react-rnd**: 自前のpointerイベントによるposition state管理を
+     `Rnd`（`dragHandleClassName`でヘッダーのつまみへドラッグ限定、
+     `bounds="window"`で画面外クランプ、`enableResizing={false}`でリサイズ不可は
+     維持）へ置換。幅（`widthRem`）は従来どおりCSS側の`min(widthRem, 100vw -
+     2*space-3)`で応答的に決め、Rnd自体はx/y位置のみ管理する設計にした
+     （Rndのsize経由の固定px化だとウィンドウ幅変更に追従しなくなるため）。
+     Rndはx/y絶対px指定のみでCSSの`left:50%+transform:translateX(-50%)`のような
+     相対中央寄せができないため、開いた直後に`useLayoutEffect`（ペイント前に同期実行）
+     で実際の描画幅を測って中央寄せのx座標を計算し反映する設計にした。Rndの既定
+     `style.position`は`"absolute"`（ページスクロールに追従）のため、元のCSS
+     （`position:fixed`）と同じビューポート基準の浮遊挙動を保つよう`style`propで
+     `"fixed"`に上書きした。
+  - **実機確認（Playwright、一時spec・検証後削除）**: モバイル幅(390x844)で
+     (a) SystemStatusPanel（FloatingPanel/react-rnd）をハンドルドラッグし、画面外まで
+     引っ張ってもbounds="window"でクランプされ座標が0以上に収まること、実際に位置が
+     変わることを確認。(b) 研究タブでWeightPanelのFieldLabel Popoverを開き、
+     BottomSheetの`overflow-y:auto`にクリップされずポータル先の内容が画面内
+     （x/y≥0）に収まること、RoadSuitabilityRecipePanelのLevelPicker（RadioGroup）を
+     クリックしaria-checkedが正しく切り替わることを確認。
+  - 検証: `tsc --noEmit`・ESLint・frontend vitest 56ファイル505件・`next build`・
+    Playwright smoke.spec.ts（standalone・workers=1）いずれもgreen。
 
 ### - [ ] T254. Phase2（任意）: アコーディオンをRadix Accordionへ 規模S（2026-08-23起票） — トリガー: T253完了後、必要性が生じたら（現状で機能不満なし・優先度低）
 
@@ -1847,13 +1992,19 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 （T252エントリの実装メモ参照。副次的に発覚したE2Eサーバーの本番不一致・ローカル
 リソース競合の2件も合わせて修正済み）。第13版として結果を反映した。
 
+- **原因特定済み・対応着手指示待ち**:
+  - **T256**（都心部でルート生成が候補0件になる事象、規模S〜M）: T248の本番実測
+    （2026-08-23）で発見。`find_nearest_node_indexed`がHard Constraint（trunk等の除外）を
+    考慮せず最近傍Nodeを選ぶため、主要駅（新宿・渋谷等、国道に面する駅）で孤立Node化し
+    全方位失敗する構造と特定済み（T256本文参照）。
+
 - **指示待ち（トリガー成立済み）**:
   1. T242の残課題（標高バックフィルの定期再実行、新規splitされたEdgeへの反映）を
      自動化するか都度手動実行に留めるかの方針決定。指示待ち。
   2. **T221 Stage D/E**（レジストリDB化・GUI編集画面）: 製品判断待ち（GUI編集の
      開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ無効化条件との整合）。
-  3. **T253〜T255**（UIライブラリ導入Phase1〜3、規模S〜M〜L）: T252完了によりトリガー
-     成立。着手指示待ち。T253→T254→T255の順で着手する。
+  3. **T254〜T255**（UIライブラリ導入Phase2〜3、規模S〜M〜L）: T253完了（2026-08-23、
+     T253エントリの実装メモ参照）によりトリガー成立。着手指示待ち。T254→T255の順で着手する。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
@@ -1874,9 +2025,10 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-**サマリ（13タスク）**: 指示待ち5件（T242残課題・T221 Stage D/E・T253〜T255）／
-トリガー未到達8件（T248・T206・T145a・T105・T127・T145・T207・T208）。
-T209・T223・T241は調査完了・T242〜T247・T249〜T252は実装/調査完了・T229はT248へ
+**サマリ（14タスク）**: 原因特定済み・対応着手指示待ち1件（T256）／指示待ち4件
+（T242残課題・T221 Stage D/E・T254〜T255）／トリガー未到達8件（T248・T206・T145a・
+T105・T127・T145・T207・T208）。
+T209・T223・T241は調査完了・T242〜T247・T249〜T253は実装/調査完了・T229はT248へ
 統合クローズ・T221はPart 2（Stage B+C）まで実装完了（masterへマージ済み）のため
 本リストの指示待ちから外した。安全網の回復3件（T225・T224・T230）とレビュー指摘の
 消化5件（T226〜T228・T231・T232）、およびT222（Overpassライブ経路削除）は全て完了済み。

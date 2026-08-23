@@ -1,5 +1,6 @@
 "use client";
 
+import { Toggle } from "@radix-ui/react-toggle";
 import type { LayerDataStatus } from "./mapLayers";
 import { LAYER_DATA_STATUS_LABELS } from "./mapLayers";
 import styles from "./LayerChip.module.css";
@@ -24,14 +25,21 @@ interface LayerChipProps {
 // サイドバー（MapLayersPanel）の「表示」チップで使うテキストのみのON/OFFボタン。
 // 以前は地図上（MapOverlayControls）とも共有していたが、地図上はスペース節約のため
 // アイコン+短いラベルのボタン（MapOverlayControls.module.cssのiconChip）へ置き換えた。
+//
+// 押下状態の表示・キーボード操作（Space/Enter）はRadix Toggleへ委譲する（T253併用導入）。
+// ただし押下状態自体は従来どおり呼び出し側（`on` prop）が完全に外部管理しており、
+// このコンポーネントは内部状態を一切持たない（Toggleの`onPressedChange`は使わず生の
+// `onClick`のみを渡す）。`<summary>`内で使う呼び出し側（RecipePanelSection等）が
+// `event.preventDefault()`で親のdetails開閉を止めることがあるため、内部トグルロジックに
+// 依存すると`composeEventHandlers`の仕様上（defaultPrevented時は内部ハンドラをスキップ）
+// 押下が反映されないケースが生まれてしまう。生のonClickだけを使うことでこれを避ける。
 export default function LayerChip({ label, on, disabled, title, ariaLabel, dataStatus, onClick }: LayerChipProps) {
   const active = on && !disabled;
   const showStatusDot = active && dataStatus != null;
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
   return (
-    <button
-      type="button"
-      aria-pressed={active}
+    <Toggle
+      pressed={active}
       aria-label={ariaLabel}
       disabled={disabled}
       onClick={onClick}
@@ -45,6 +53,6 @@ export default function LayerChip({ label, on, disabled, title, ariaLabel, dataS
         <span aria-hidden="true" className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`} />
       )}
       {label}
-    </button>
+    </Toggle>
   );
 }

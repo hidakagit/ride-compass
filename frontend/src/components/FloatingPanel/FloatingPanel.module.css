@@ -4,16 +4,14 @@
 
 /* 一般ユーザーは使わない開発者向け機能のため、地図やサイドバーに場所を固定せず、
    ビューポート基準で浮かせた独立パネルにする（「設定」内のボタンから開閉、T43）。
-   位置はドラッグで動かせる（FloatingPanel.tsxのposition state）。既定の上端位置・幅・
+   位置・ドラッグ（つまみ限定）・画面外クランプはFloatingPanel.tsx側のreact-rnd（Rnd）が
+   管理する（T253併用導入。以前は自前のposition state+pointerイベントで、position:fixedと
+   left:50%+transform:translateX(-50%)による中央寄せをこのクラス自身が持っていたが、
+   位置制御はRndの外側ラッパーへ委譲したためこのクラスからは外した）。既定の上端位置・幅・
    最大高さは呼び出し側がprops（topRem/widthRem/maxHeightPx）で指定し、インラインstyleで
    適用する（パネルごとに異なるサイズを持たせるため、widthはこのクラスで固定しない）。
-   ドラッグ開始後はFloatingPanel.tsx側がtransformを無効化しtop/leftの絶対値へ切り替える
-   （このtranslateとの二重適用を避けるため）。背景を半透明にして、パネルの裏の地図が
-   うっすら透けるようにする。 */
+   背景を半透明にして、パネルの裏の地図がうっすら透けるようにする。 */
 .panel {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   background: rgba(17, 24, 39, 0.8);
@@ -23,9 +21,6 @@
   color: #e5e7eb;
   font-family: monospace;
   font-size: 0.75rem;
-  /* モバイルの下部シート・タブバー（z:45）より前面に出す（独立ウィンドウとして常に
-     手前に見せる。BottomSheetを開いたままでもこのパネルは隠れない）。 */
-  z-index: 50;
 }
 
 .header {

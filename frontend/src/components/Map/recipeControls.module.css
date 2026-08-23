@@ -159,11 +159,23 @@
   composes: input from "../WeightPanel/WeightPanel.module.css";
 }
 
+/* 情報アイコンのRadix Popover.Content（T253併用導入）。以前は呼び出し側のDOM上に
+   直接並ぶ地の文（背景無し）だったが、Portalでフローティング表示するようになったため
+   周囲から視覚的に浮き上がるカード状の見た目（背景・枠線・影）を持たせる必要がある
+   （MapLibreポップアップと同じトークンの組み合わせに揃えた）。z-index:46は
+   BottomSheet（45、モバイルではこのポップオーバーがBottomSheet内から開くことが多い）より
+   前面、開発者向けFloatingPanel（50）より背面という位置づけ。 */
 .infoTooltip {
-  margin: 0;
+  max-width: 16rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   line-height: 1.4;
+  z-index: 46;
 }
 
 .pairControls {

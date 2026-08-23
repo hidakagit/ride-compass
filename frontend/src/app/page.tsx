@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as RadioGroup from "@radix-ui/react-radio-group";
 import MapView from "@/components/Map/MapView";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
@@ -1295,14 +1296,20 @@ export default function Home() {
               on={layerVisibility.route}
               onClick={() => handleLayerToggle("route", !layerVisibility.route)}
             />
-            <div role="radiogroup" aria-label="ルートの色分け" className={layerPanelStyles.modeGroup}>
+            {/* 単一選択のため矢印キーでの移動が期待される構成。以前は
+                role="radiogroup"/role="radio"を手書きしていたが、roving tabindex（矢印キー
+                移動）までは自前実装していなかったため、Radix RadioGroupへ置き換えて標準で
+                備わるようにした（T253併用導入）。 */}
+            <RadioGroup.Root
+              aria-label="ルートの色分け"
+              className={layerPanelStyles.modeGroup}
+              value={routeStyleModeId}
+              onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
+            >
               {ROUTE_STYLE_MODES.map((mode) => (
-                <button
+                <RadioGroup.Item
                   key={mode.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode.id === routeStyleModeId}
-                  onClick={() => handleRouteModeSelect(mode.id)}
+                  value={mode.id}
                   className={
                     mode.id === routeStyleModeId
                       ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
@@ -1310,9 +1317,9 @@ export default function Home() {
                   }
                 >
                   {mode.label}
-                </button>
+                </RadioGroup.Item>
               ))}
-            </div>
+            </RadioGroup.Root>
             <div className={layerPanelStyles.legendCheckboxList}>
               {routeStyleMode.legend.map((entry) => {
                 const visible = !hiddenRouteLegendKeys.includes(entry.key);

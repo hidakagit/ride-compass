@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
+import * as RadioGroup from "@radix-ui/react-radio-group";
 import { InfoIcon } from "./icons";
 import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
@@ -84,7 +86,11 @@ export function withAutoEnable<T>(
 }
 
 // 基準値のレベルピッカー。levelsぶんのボタンを並べ、選択値以下の段階をcolorsの色で塗って
-// 進捗バー風に見せる。
+// 進捗バー風に見せる。単一選択（常にどれか1つだけ選ばれる）のためRadix RadioGroupで実装する
+// （T253併用導入。以前は`role="group"`+個別`aria-pressed`ボタンの自前実装で矢印キーでの
+// 移動ができなかったが、RadioGroupは`role="radio"`＋roving tabindexでの矢印キー移動を
+// 標準で提供する）。見た目（塗りつぶし段階の表現）は従来どおり独自の`data-filled`属性＋
+// `--level-color`で行うため、CSS（.levelSegment）は変更不要。
 export function LevelPicker({
   levels,
   colors,
@@ -99,22 +105,25 @@ export function LevelPicker({
   groupLabel: string;
 }) {
   return (
-    <div className={styles.levelPicker} role="group" aria-label={groupLabel}>
+    <RadioGroup.Root
+      className={styles.levelPicker}
+      aria-label={groupLabel}
+      value={String(value)}
+      onValueChange={(next) => onChange(Number(next))}
+    >
       {levels.map((level) => (
-        <button
+        <RadioGroup.Item
           key={level}
-          type="button"
-          aria-pressed={value === level}
+          value={String(level)}
           aria-label={String(level)}
           data-filled={level <= value}
           className={styles.levelSegment}
           style={{ "--level-color": colors[level] } as React.CSSProperties}
-          onClick={() => onChange(level)}
         >
           {level}
-        </button>
+        </RadioGroup.Item>
       ))}
-    </div>
+    </RadioGroup.Root>
   );
 }
 
@@ -171,9 +180,12 @@ export function AdjustmentStepper({
 }
 
 // フィールドラベル+情報アイコン。タップでも確実に開くクリック式の開閉ボタン
-// （MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。説明本体（infoTooltip）は
-// open/onToggleを渡す呼び出し側が、DOM上input/tr等の後ろへ別要素として配置する
-// （このコンポーネント自身はラベル行だけを返す）。`className`は任意の追加クラス
+// （MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。説明本体はRadix Popoverで
+// フローティング表示する（T253併用導入。以前は呼び出し側がopen/onToggleを受け取り、
+// DOM上input/tr等の後ろへ`<p>`/`<tr>`を個別に配置していたが、呼び出し側ごとに配置形が
+// バラバラだった（div直後の<p> vs テーブル行内の<tr colSpan>）。Popoverはトリガー位置基準の
+// フローティング表示のためDOM上の配置形に依存せず、開閉状態もこのコンポーネント自身が
+// 持つため呼び出し側は`description`を渡すだけでよくなった）。`className`は任意の追加クラス
 // （改善計画T118のモバイル幅溢れ修正: highway別基準値テーブル内では
 // nowrap/flex-shrink:0を打ち消して折り返しを許可する必要があり、呼び出し側の
 // module.cssでその上書きクラスを定義してここへ渡す）。
@@ -294,22 +306,18 @@ export function ScalarInput<TRecipe, TKey extends NumericKeys<TRecipe>>({
   negativeColor: string;
   positiveColor: string;
 }) {
-  const [infoOpen, setInfoOpen] = useState(false);
   const value = recipe[field.key] as number;
   return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <AdjustmentStepper
-          label={field.label}
-          value={value}
-          onChange={(next) => onChange({ ...recipe, [field.key]: next } as TRecipe)}
-          negativeColor={negativeColor}
-          positiveColor={positiveColor}
-        />
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
+    <div className={styles.field}>
+      <FieldLabel label={field.label} description={field.description} />
+      <AdjustmentStepper
+        label={field.label}
+        value={value}
+        onChange={(next) => onChange({ ...recipe, [field.key]: next } as TRecipe)}
+        negativeColor={negativeColor}
+        positiveColor={positiveColor}
+      />
+    </div>
   );
 }
 
@@ -346,67 +354,72 @@ export function ThresholdAdjustmentRow<
   negativeColor: string;
   positiveColor: string;
 }) {
-  const [infoOpen, setInfoOpen] = useState(false);
   const thresholdValue = recipe[field.thresholdKey] as number;
   const adjustmentValue = recipe[field.adjustmentKey] as number;
   return (
-    <>
-      <div className={styles.field}>
-        <FieldLabel label={field.label} open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
-        <span className={styles.pairControls}>
-          <AdjustmentStepper
-            label={field.label}
-            value={adjustmentValue}
-            onChange={(next) => onChange({ ...recipe, [field.adjustmentKey]: next } as TRecipe)}
-            negativeColor={negativeColor}
-            positiveColor={positiveColor}
+    <div className={styles.field}>
+      <FieldLabel label={field.label} description={field.description} />
+      <span className={styles.pairControls}>
+        <AdjustmentStepper
+          label={field.label}
+          value={adjustmentValue}
+          onChange={(next) => onChange({ ...recipe, [field.adjustmentKey]: next } as TRecipe)}
+          negativeColor={negativeColor}
+          positiveColor={positiveColor}
+        />
+        <span className={styles.thresholdInline}>
+          <span className={styles.thresholdCaption}>条件</span>
+          <input
+            type="number"
+            step="1"
+            aria-label={`${field.label}の条件`}
+            value={thresholdValue}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (Number.isNaN(next)) return;
+              onChange({ ...recipe, [field.thresholdKey]: next } as TRecipe);
+            }}
+            className={styles.thresholdInput}
           />
-          <span className={styles.thresholdInline}>
-            <span className={styles.thresholdCaption}>条件</span>
-            <input
-              type="number"
-              step="1"
-              aria-label={`${field.label}の条件`}
-              value={thresholdValue}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (Number.isNaN(next)) return;
-                onChange({ ...recipe, [field.thresholdKey]: next } as TRecipe);
-              }}
-              className={styles.thresholdInput}
-            />
-            <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
-          </span>
+          <span className={styles.thresholdSuffix}>{field.thresholdSuffix}</span>
         </span>
-      </div>
-      {infoOpen && <p className={styles.infoTooltip}>{field.description}</p>}
-    </>
+      </span>
+    </div>
   );
 }
 
 export function FieldLabel({
   label,
-  open,
-  onToggle,
+  description,
   className,
 }: {
   label: string;
-  open: boolean;
-  onToggle: () => void;
+  description: string;
   className?: string;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <span className={className ? `${styles.fieldLabel} ${className}` : styles.fieldLabel}>
-      {label}
-      <button
-        type="button"
-        className={styles.infoButton}
-        aria-expanded={open}
-        aria-label={`${label}の説明を${open ? "隠す" : "表示"}`}
-        onClick={onToggle}
-      >
-        <InfoIcon />
-      </button>
-    </span>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <span className={className ? `${styles.fieldLabel} ${className}` : styles.fieldLabel}>
+        {label}
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            className={styles.infoButton}
+            aria-label={`${label}の説明を${open ? "隠す" : "表示"}`}
+          >
+            <InfoIcon />
+          </button>
+        </Popover.Trigger>
+      </span>
+      {/* Portalでdocument.body直下へ描画する（呼び出し側がoverflow-y:autoの
+          サイドバー・BottomSheet内にあっても、その祖先要素のoverflowでクリップされない
+          ようにするため）。 */}
+      <Popover.Portal>
+        <Popover.Content className={styles.infoTooltip} side="bottom" align="start" sideOffset={6}>
+          {description}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   ScalarInput,
   FieldLabel,
@@ -112,42 +111,31 @@ function HighwayRow({
   value: number | undefined;
   onChange: (highway: string, next: number) => void;
 }) {
-  const [infoOpen, setInfoOpen] = useState(false);
   const highwayLabel = HIGHWAY_LABELS[highway];
   const resolvedValue = value ?? ROAD_SUITABILITY_LEVELS[0];
   return (
-    <>
-      <tr>
-        <td className={styles.tableLabel}>
-          {highwayLabel ? (
-            <FieldLabel
-              label={highwayLabel.label}
-              open={infoOpen}
-              onToggle={() => setInfoOpen((v) => !v)}
-              className={styles.tableLabelFieldLabel}
-            />
-          ) : (
-            highway
-          )}
-        </td>
-        <td className={styles.tableValue}>
-          <LevelPicker
-            levels={ROAD_SUITABILITY_LEVELS}
-            colors={CAR_STRESS_COLORS}
-            value={resolvedValue}
-            onChange={(next) => onChange(highway, next)}
-            groupLabel={`${highwayLabel?.label ?? highway}の基準値`}
+    <tr>
+      <td className={styles.tableLabel}>
+        {highwayLabel ? (
+          <FieldLabel
+            label={highwayLabel.label}
+            description={highwayLabel.description}
+            className={styles.tableLabelFieldLabel}
           />
-        </td>
-      </tr>
-      {infoOpen && highwayLabel && (
-        <tr>
-          <td colSpan={2} className={styles.infoTooltipCell}>
-            {highwayLabel.description}
-          </td>
-        </tr>
-      )}
-    </>
+        ) : (
+          highway
+        )}
+      </td>
+      <td className={styles.tableValue}>
+        <LevelPicker
+          levels={ROAD_SUITABILITY_LEVELS}
+          colors={CAR_STRESS_COLORS}
+          value={resolvedValue}
+          onChange={(next) => onChange(highway, next)}
+          groupLabel={`${highwayLabel?.label ?? highway}の基準値`}
+        />
+      </td>
+    </tr>
   );
 }
 

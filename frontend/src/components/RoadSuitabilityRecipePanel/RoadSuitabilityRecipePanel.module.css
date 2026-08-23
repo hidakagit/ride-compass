@@ -57,9 +57,3 @@
   white-space: normal;
 }
 
-.infoTooltipCell {
-  padding: 0 0 0.3rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
-}

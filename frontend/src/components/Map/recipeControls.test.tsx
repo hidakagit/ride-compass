@@ -12,34 +12,34 @@ describe("LevelPicker", () => {
   const levels = [1, 2, 3, 4];
   const colors = { 1: "#111111", 2: "#222222", 3: "#333333", 4: "#444444" };
 
-  it("levelsぶんのボタンを表示し、選択値以下をdata-filled=trueにする", () => {
+  it("levelsぶんのラジオ項目を表示し、選択値以下をdata-filled=trueにする", () => {
     render(<LevelPicker levels={levels} colors={colors} value={2} onChange={vi.fn()} groupLabel="テスト軸" />);
 
-    const group = screen.getByRole("group", { name: "テスト軸" });
+    const group = screen.getByRole("radiogroup", { name: "テスト軸" });
     expect(group).toBeInTheDocument();
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(4);
-    expect(buttons[0]).toHaveAttribute("data-filled", "true"); // 1 <= 2
-    expect(buttons[1]).toHaveAttribute("data-filled", "true"); // 2 <= 2
-    expect(buttons[2]).toHaveAttribute("data-filled", "false"); // 3 > 2
-    expect(buttons[3]).toHaveAttribute("data-filled", "false"); // 4 > 2
+    const items = screen.getAllByRole("radio");
+    expect(items).toHaveLength(4);
+    expect(items[0]).toHaveAttribute("data-filled", "true"); // 1 <= 2
+    expect(items[1]).toHaveAttribute("data-filled", "true"); // 2 <= 2
+    expect(items[2]).toHaveAttribute("data-filled", "false"); // 3 > 2
+    expect(items[3]).toHaveAttribute("data-filled", "false"); // 4 > 2
   });
 
-  it("段階ボタンを押すとonChangeにその段階の値が渡る", async () => {
+  it("段階項目を押すとonChangeにその段階の値が渡る", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<LevelPicker levels={levels} colors={colors} value={1} onChange={onChange} groupLabel="テスト軸" />);
 
-    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("radio", { name: "3" }));
 
     expect(onChange).toHaveBeenCalledWith(3);
   });
 
-  it("選択中の段階はaria-pressed=trueを持つ", () => {
+  it("選択中の段階はaria-checked=trueを持つ", () => {
     render(<LevelPicker levels={levels} colors={colors} value={3} onChange={vi.fn()} groupLabel="テスト軸" />);
 
-    expect(screen.getByRole("button", { name: "3" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "1" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("radio", { name: "3" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "1" })).toHaveAttribute("aria-checked", "false");
   });
 });
 
@@ -84,27 +84,32 @@ describe("AdjustmentStepper", () => {
 });
 
 describe("FieldLabel", () => {
-  it("open=falseのときaria-expanded=falseで「表示」ラベルを持つ", () => {
-    render(<FieldLabel label="項目" open={false} onToggle={vi.fn()} />);
+  it("初期状態はaria-expanded=falseで「表示」ラベルを持ち、説明文は表示しない", () => {
+    render(<FieldLabel label="項目" description="項目の説明文" />);
 
     const button = screen.getByRole("button", { name: "項目の説明を表示" });
     expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("項目の説明文")).not.toBeInTheDocument();
   });
 
-  it("open=trueのときaria-expanded=trueで「隠す」ラベルを持つ", () => {
-    render(<FieldLabel label="項目" open={true} onToggle={vi.fn()} />);
-
-    const button = screen.getByRole("button", { name: "項目の説明を隠す" });
-    expect(button).toHaveAttribute("aria-expanded", "true");
-  });
-
-  it("ボタンを押すとonToggleが呼ばれる", async () => {
+  it("ボタンを押すと説明文がフローティング表示され、ラベルが「隠す」に切り替わる", async () => {
     const user = userEvent.setup();
-    const onToggle = vi.fn();
-    render(<FieldLabel label="項目" open={false} onToggle={onToggle} />);
+    render(<FieldLabel label="項目" description="項目の説明文" />);
 
     await user.click(screen.getByRole("button", { name: "項目の説明を表示" }));
 
-    expect(onToggle).toHaveBeenCalledOnce();
+    const button = screen.getByRole("button", { name: "項目の説明を隠す" });
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("項目の説明文")).toBeInTheDocument();
+  });
+
+  it("もう一度押すと閉じて「表示」ラベルへ戻る", async () => {
+    const user = userEvent.setup();
+    render(<FieldLabel label="項目" description="項目の説明文" />);
+
+    await user.click(screen.getByRole("button", { name: "項目の説明を表示" }));
+    await user.click(screen.getByRole("button", { name: "項目の説明を隠す" }));
+
+    expect(screen.getByRole("button", { name: "項目の説明を表示" })).toHaveAttribute("aria-expanded", "false");
   });
 });
