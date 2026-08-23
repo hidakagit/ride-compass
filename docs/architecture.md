@@ -1019,6 +1019,45 @@ APIの`route_preference`・`route_preference.yaml`・フロントの重みUIも�
 （改善計画T154、統合レビュー2026-08-19 overall F-2・consistency F-3。軸ID集合の
 片側更新漏れは`test_registry_defaults.py`がAXIS_DEFINITIONSとの突き合わせで機械検知する）。
 
+### 評価軸定義のDB化＋管理API（改善計画T221 Stage D）
+
+`AXIS_DEFINITIONS`（上記1本道の到達点）はStage Dで、Pythonファイルの定数から
+PostGISテーブル`axis_definitions`（+版数管理用`axis_registry_meta`、
+`migrations/0014_axis_definitions.sql`）を実データソースとする形へ昇格した。
+`domain/axis_definitions.py`のPython辞書は「DBへの初期シード」「migration未適用・
+DB未接続環境でのフォールバック値」として引き続き存在する（ソースは1つのままだが、
+役割が「唯一の実データ」から「既定値・安全網」へ変わった）。
+
+評価ホットパス（`evaluation.py`/`difficulty.py`等）は従来どおり`AXIS_DEFINITIONS`を
+同期的なモジュールレベル辞書として読む——この既存の読み出し方法は一切変えていない。
+`services/axis_registry_service.py: refresh_axis_definitions`が、(1)アプリ起動時
+（`main.py`のlifespan）と(2)管理API書き込み直後の2箇所だけで、同じdictオブジェクトを
+`.clear()`+`.update()`でin-place更新する「push型」の設計にしたため（再代入すると
+`from ... import AXIS_DEFINITIONS`で束縛済みの参照先が更新されない）。DB未接続・
+テーブル未migration・0行（＝migration未適用）の場合はWARNINGログを出しコード内蔵の
+既定値のまま動作を続けるため、本migrationを本番へ適用するまでの間は評価の振る舞いが
+一切変わらない安全側ロールアウトになっている。
+
+管理API（`/api/admin/axis-definitions`、`api/routers/axis_admin.py`）は軸定義の
+CRUDのみを提供する（GUI編集画面はStage Eのスコープで未実装）。書き込みでルート生成の
+振る舞いを直接変えられるため、他のバックエンドAPI（認証機構が無い）と異なり共有トークン
+header（`X-Admin-Token`、環境変数`AXIS_ADMIN_TOKEN`）による認可を要求する
+（`require_axis_admin_token`）。将来、研究モードを一般ユーザーから隠し何らかの権限制御を
+導入する計画があるため、認可判定はこの1関数へ集約し差し替え可能にしている。
+妥当性検証は型・範囲チェックのみ（極端な重み設定への意味的な歯止めは設けない、
+2026-08-24ユーザー判断）。ただし「最後の1軸は削除できない」制約だけは例外的に持つ
+（レジストリを空にできてしまうと`refresh_axis_definitions`の0件フォールバックと
+衝突し評価が壊れるため、重みの妥当性とは別次元の構造的な安全策として設ける）。
+
+`route_preference.yaml`や既存のAPIリクエストが参照するaxis_idを管理API経由で削除した
+場合の整合性チェックは意図的に実装していない（削除直後から`RoutePreference`の
+バリデーションでルート生成が壊れうる。Stage EでGUI編集が実利用される段階で改めて検討）。
+
+`export_openapi.py`が生成する`axis-catalog.json`（フロントのビルド時静的import）は
+本Stageでは変更していない——CIの`api-contract`ジョブがDB接続を持たないため、引き続き
+Python内蔵の`AXIS_DEFINITIONS`から生成する。DB編集がこの生成物へ反映されるのは
+Stage E（GUI編集が実利用される段階、CI側にDB接続を追加する判断とセット）以降の課題。
+
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
 `domain/registry.py`が一次属性（`PrimaryAttributeSpec`）・二次軸（`AxisSpec`）の宣言的な

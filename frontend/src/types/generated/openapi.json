@@ -784,6 +784,289 @@
           }
         }
       }
+    },
+    "/api/admin/axis-definitions": {
+      "get": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "List Axis Definitions",
+        "operationId": "list_axis_definitions_api_admin_axis_definitions_get",
+        "parameters": [
+          {
+            "name": "x-admin-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AxisDefinitionResponse"
+                  },
+                  "title": "Response List Axis Definitions Api Admin Axis Definitions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "Create Axis Definition",
+        "operationId": "create_axis_definition_api_admin_axis_definitions_post",
+        "parameters": [
+          {
+            "name": "x-admin-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AxisDefinitionPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AxisDefinitionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/axis-definitions/{axis_id}": {
+      "get": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "Get Axis Definition",
+        "operationId": "get_axis_definition_api_admin_axis_definitions__axis_id__get",
+        "parameters": [
+          {
+            "name": "axis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Axis Id"
+            }
+          },
+          {
+            "name": "x-admin-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AxisDefinitionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "Update Axis Definition",
+        "operationId": "update_axis_definition_api_admin_axis_definitions__axis_id__put",
+        "parameters": [
+          {
+            "name": "axis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Axis Id"
+            }
+          },
+          {
+            "name": "x-admin-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AxisDefinitionPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AxisDefinitionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "Delete Axis Definition",
+        "operationId": "delete_axis_definition_api_admin_axis_definitions__axis_id__delete",
+        "parameters": [
+          {
+            "name": "axis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Axis Id"
+            }
+          },
+          {
+            "name": "x-admin-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -861,6 +1144,75 @@
           "additions"
         ],
         "title": "ActiveWarning"
+      },
+      "AxisDefinitionPayload": {
+        "properties": {
+          "axis_id": {
+            "type": "string",
+            "title": "Axis Id"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakpointLinearShape"
+              },
+              {
+                "$ref": "#/components/schemas/CategoricalShape"
+              },
+              {
+                "$ref": "#/components/schemas/FlagSumShape"
+              }
+            ],
+            "title": "Shape"
+          },
+          "default_weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Default Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "axis_id",
+          "shape",
+          "default_weight"
+        ],
+        "title": "AxisDefinitionPayload",
+        "description": "作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ\n\n（極端な重み設定に対する意味的な歯止めは設けない、2026-08-24ユーザー判断。\ndefault_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。"
+      },
+      "AxisDefinitionResponse": {
+        "properties": {
+          "axis_id": {
+            "type": "string",
+            "title": "Axis Id"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakpointLinearShape"
+              },
+              {
+                "$ref": "#/components/schemas/CategoricalShape"
+              },
+              {
+                "$ref": "#/components/schemas/FlagSumShape"
+              }
+            ],
+            "title": "Shape"
+          },
+          "default_weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Default Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "axis_id",
+          "shape",
+          "default_weight"
+        ],
+        "title": "AxisDefinitionResponse"
       },
       "AxisInspectorAxis": {
         "properties": {
@@ -1005,6 +1357,59 @@
         ],
         "title": "AxisInspectorResult"
       },
+      "BreakpointLinearShape": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "breakpoint_linear",
+              "recipe_then_breakpoint_linear"
+            ],
+            "title": "Kind",
+            "default": "breakpoint_linear"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialTerm"
+            },
+            "type": "array",
+            "title": "Terms"
+          },
+          "preprocess": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "abs"
+            ],
+            "title": "Preprocess",
+            "default": "identity"
+          },
+          "breakpoints": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "array",
+            "title": "Breakpoints"
+          }
+        },
+        "type": "object",
+        "required": [
+          "terms",
+          "breakpoints"
+        ],
+        "title": "BreakpointLinearShape",
+        "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n`kind=\"recipe_then_breakpoint_linear\"`は計算上は同一で、材料が軸固有のレシピ判定\n（car_stress: `domain/traffic.py: car_stress_level`）の算出済み結果であることを\n表す命名（ADRの4テンプレート名に対応）。"
+      },
       "CarStressBreakdown": {
         "properties": {
           "base": {
@@ -1125,6 +1530,34 @@
         "title": "CarStressRecipeOverride",
         "description": "車ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。\nキーはdomain/traffic.py: CarStressRecipeと同じ。RoutePreferenceWeightsと同じ\n「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。\n\nhighway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は\nRoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする\n（改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側\n(MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた\nため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は\n`_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/\n`CarStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:\ncar_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で\nなくなり、両方が同時に発火して打ち消し合う）。"
       },
+      "CategoricalShape": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "categorical",
+            "title": "Kind",
+            "default": "categorical"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Mapping"
+          }
+        },
+        "type": "object",
+        "required": [
+          "material",
+          "mapping"
+        ],
+        "title": "CategoricalShape",
+        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。"
+      },
       "Coordinates": {
         "properties": {
           "latitude": {
@@ -1146,6 +1579,50 @@
           "longitude"
         ],
         "title": "Coordinates"
+      },
+      "FlagSumShape": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "flag_sum",
+            "title": "Kind",
+            "default": "flag_sum"
+          },
+          "flags": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "array",
+            "title": "Flags"
+          },
+          "cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "flags"
+        ],
+        "title": "FlagSumShape",
+        "description": "(boolフラグ材料, 加点)の合計、capでクランプ（丸めなし）。いずれかの材料が\n欠損なら軸全体を欠損として扱う（現行night軸はway_tags未取得時に全フラグが\nまとめて欠損する構造のため、部分欠損の細かい規約は定めない）。"
       },
       "FloodForecasts": {
         "properties": {
@@ -1246,6 +1723,30 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "MaterialTerm": {
+        "properties": {
+          "material": {
+            "type": "string",
+            "title": "Material"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight",
+            "default": 1.0
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "material"
+        ],
+        "title": "MaterialTerm",
+        "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。"
       },
       "MotorVehicleDensityRecipeOverride": {
         "properties": {

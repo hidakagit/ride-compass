@@ -149,3 +149,67 @@ AxisPresentationOverride {
   として残す）** → **承認済み（2026-08-23）**
 - Stage A〜Eの段階構成・具体的スキーマ・DB化の要否 → **未承認（ドラフトのまま）**
 - 実装着手 → **ユーザーの明示指示待ち**
+
+## Stage D実装（2026-08-24完了）
+
+「スコープ外・要検討事項（未決）」の3点はユーザー判断で以下に確定した:
+
+- GUI編集の開放範囲 → **研究モード限定**（Stage EのGUI自体は本Stageのスコープ外のまま）
+- 極端な重み設定への歯止め → **型・範囲チェックのみ**（意味的な妥当性検証は追加しない）
+- Stage D（DB化）とT12 Part 2キャッシュとの整合 → **軸定義の版数をキャッシュキーに含める**
+  （実装は`axis_registry_meta.revision`として記録。ただしT12 Part 2の
+  `graph_material_cache.py`は軸評価済みスコアを持たない設計のため実際には無効化が不要
+  と判明し、revisionはプロセス内キャッシュ更新のポーリングには使わずpush型更新の記録用
+  として持つのみに留めた——詳細下記）。
+
+加えて、GUI編集を誰に開放するかとは別に「将来、研究モードを一般ユーザーから隠し何らかの
+権限制御を導入する計画がある」という方針が示された（2026-08-24）。管理APIの認可を
+「研究モードだから無認可でよい」という前提にしないよう、認可判定を1箇所（FastAPI
+Dependency）へ集約し、共有トークンによる簡易実装から実権限チェックへ後から差し替え
+られる設計にした。
+
+### 実装内容
+
+- **DB化**: `backend/migrations/0014_axis_definitions.sql`が`axis_definitions`
+  （軸定義本体、`AxisShape`を`model_dump(mode="json")`したJSONBとして保存）・
+  `axis_registry_meta`（版数、1行のみ）の2テーブルを追加し、既存7軸を
+  `domain/axis_definitions.py`の内容そのままシードする。ORM
+  （`infrastructure/axis_definition_models.py`）・リポジトリ
+  （`infrastructure/axis_definition_repository.py`）は既存の`road_graph_repository.py`と
+  同じ「書き込みはcommitしない、呼び出し側がまとめて確定する」規約に従う。
+- **評価ロジックの読み出し方法は変えていない**: `AXIS_DEFINITIONS`は引き続き
+  同期的なモジュールレベル辞書として`evaluation.py`/`difficulty.py`等から読まれる。
+  `services/axis_registry_service.py: refresh_axis_definitions`が(1)アプリ起動時
+  （`main.py`のlifespan）・(2)管理API書き込み直後、の2箇所だけで同じdictオブジェクトを
+  in-place更新する「push型」設計にすることで、既存の同期アクセス箇所（Pydanticバリデータ
+  含む）を一切変更せずに済ませた。単一プロセスデプロイという前提のもと
+  `graph_material_cache.py`と同じ「プロセス単位、バージョン照合はしない」考え方を踏襲した
+  ——結果として、当初想定していた「軸定義の版数をキャッシュキーに含める」対応は、
+  実際にはT12 Part 2側のキャッシュ（軸評価済みスコアを持たない設計と判明）には不要で、
+  `axis_registry_meta.revision`は将来のマルチプロセス化（ポーリング方式への切替）・監査用の
+  記録としてのみ持つ形に落ち着いた。
+  DB未接続・未migration・0行（migration未適用の可能性）の場合はWARNINGログを出し
+  コード内蔵の既定値のまま動作を続けるため、**本migrationを本番へ適用するまでの間は
+  評価の振る舞いが一切変わらない**（docs/improvement-plan.md T74「本番DBが置き去りになる」
+  の教訓を踏まえた意図的な安全側ロールアウト）。
+- **管理API**: `/api/admin/axis-definitions`（GET一覧・GET単体・POST作成・PUT更新・
+  DELETE削除）。共有トークンheader（`X-Admin-Token`、`settings.axis_admin_token`、
+  環境変数`AXIS_ADMIN_TOKEN`）で保護し、未設定（既定""）の環境では常に拒否する。
+  「最後の1軸は削除できない」制約のみ構造的な歯止めとして持つ（重みの妥当性とは別次元、
+  空レジストリは`refresh_axis_definitions`の0件フォールバックと衝突するため）。
+- **axis-catalog.json（フロント）は変更していない**: CIの`api-contract`ジョブはDB接続を
+  持たないため、`export_openapi.py`は引き続きPython内蔵の`AXIS_DEFINITIONS`から生成する。
+  DB編集がこの生成物へ反映されるのはStage E以降の課題（CI側にDB接続を追加する判断とセット）。
+- **検証**: backend全1126件green（新規37件含む）。dev DBへ実際に
+  `0014_axis_definitions.sql`を適用し、シードされた7軸の内容が
+  `domain/axis_definitions.py`のPython定義とバイト単位で一致すること、
+  `refresh_axis_definitions`後の`AXIS_DEFINITIONS`が元の内容と一致すること（＝評価の
+  振る舞いが変わらないこと）を実DBで確認した。OpenAPI再生成＋フロント型追従
+  （`git diff`は`axis-catalog.json`を含む生成物のうちopenapi.json/api.d.tsのみ変化、
+  axis-catalog.jsonは無変化）、`tsc --noEmit` green。
+- **残作業（保留、影響範囲付き）**:
+  1. **本番DBへのmigration適用**: 未実施。安全側フォールバック設計により適用が遅れても
+     評価の振る舞いは変わらず、管理API（`/api/admin/axis-definitions`）が404相当
+     （テーブル未作成でDBエラー）になるだけのため緊急度は低い。適用時は
+     `AXIS_ADMIN_TOKEN`環境変数の設定も忘れないこと（未設定だと管理APIが常に403のまま）。
+  2. **Stage E（GUI編集画面）**: 引き続き別タスクとして起票する（本ADRのスコープ外）。

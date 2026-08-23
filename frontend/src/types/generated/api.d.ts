@@ -388,6 +388,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/axis-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Axis Definitions */
+        get: operations["list_axis_definitions_api_admin_axis_definitions_get"];
+        put?: never;
+        /** Create Axis Definition */
+        post: operations["create_axis_definition_api_admin_axis_definitions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/axis-definitions/{axis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Axis Definition */
+        get: operations["get_axis_definition_api_admin_axis_definitions__axis_id__get"];
+        /** Update Axis Definition */
+        put: operations["update_axis_definition_api_admin_axis_definitions__axis_id__put"];
+        post?: never;
+        /** Delete Axis Definition */
+        delete: operations["delete_axis_definition_api_admin_axis_definitions__axis_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -419,6 +456,30 @@ export interface components {
             level: string;
             /** Additions */
             additions: string[];
+        };
+        /**
+         * AxisDefinitionPayload
+         * @description 作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ
+         *
+         *     （極端な重み設定に対する意味的な歯止めは設けない、2026-08-24ユーザー判断。
+         *     default_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。
+         */
+        AxisDefinitionPayload: {
+            /** Axis Id */
+            axis_id: string;
+            /** Shape */
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"] | components["schemas"]["FlagSumShape"];
+            /** Default Weight */
+            default_weight: number;
+        };
+        /** AxisDefinitionResponse */
+        AxisDefinitionResponse: {
+            /** Axis Id */
+            axis_id: string;
+            /** Shape */
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"] | components["schemas"]["FlagSumShape"];
+            /** Default Weight */
+            default_weight: number;
         };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {
@@ -455,6 +516,35 @@ export interface components {
             composite_difficulty: number | null;
             /** Covered Weight Fraction */
             covered_weight_fraction: number | null;
+        };
+        /**
+         * BreakpointLinearShape
+         * @description 区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
+         *
+         *     `kind="recipe_then_breakpoint_linear"`は計算上は同一で、材料が軸固有のレシピ判定
+         *     （car_stress: `domain/traffic.py: car_stress_level`）の算出済み結果であることを
+         *     表す命名（ADRの4テンプレート名に対応）。
+         */
+        BreakpointLinearShape: {
+            /**
+             * Kind
+             * @default breakpoint_linear
+             * @enum {string}
+             */
+            kind: "breakpoint_linear" | "recipe_then_breakpoint_linear";
+            /** Terms */
+            terms: components["schemas"]["MaterialTerm"][];
+            /**
+             * Preprocess
+             * @default identity
+             * @enum {string}
+             */
+            preprocess: "identity" | "abs";
+            /** Breakpoints */
+            breakpoints: [
+                number,
+                number
+            ][];
         };
         /**
          * CarStressBreakdown
@@ -510,12 +600,51 @@ export interface components {
             /** Lanes Low Adjustment */
             lanes_low_adjustment: number;
         };
+        /**
+         * CategoricalShape
+         * @description カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
+         */
+        CategoricalShape: {
+            /**
+             * Kind
+             * @default categorical
+             * @constant
+             */
+            kind: "categorical";
+            /** Material */
+            material: string;
+            /** Mapping */
+            mapping: {
+                [key: string]: number;
+            };
+        };
         /** Coordinates */
         Coordinates: {
             /** Latitude */
             latitude: number;
             /** Longitude */
             longitude: number;
+        };
+        /**
+         * FlagSumShape
+         * @description (boolフラグ材料, 加点)の合計、capでクランプ（丸めなし）。いずれかの材料が
+         *     欠損なら軸全体を欠損として扱う（現行night軸はway_tags未取得時に全フラグが
+         *     まとめて欠損する構造のため、部分欠損の細かい規約は定めない）。
+         */
+        FlagSumShape: {
+            /**
+             * Kind
+             * @default flag_sum
+             * @constant
+             */
+            kind: "flag_sum";
+            /** Flags */
+            flags: [
+                string,
+                number
+            ][];
+            /** Cap */
+            cap?: number | null;
         };
         /** FloodForecasts */
         FloodForecasts: {
@@ -555,6 +684,28 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MaterialTerm
+         * @description 区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。
+         *
+         *     `required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。
+         *     `required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の
+         *     「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。
+         */
+        MaterialTerm: {
+            /** Material */
+            material: string;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
         };
         /**
          * MotorVehicleDensityRecipeOverride
@@ -1475,6 +1626,173 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    list_axis_definitions_api_admin_axis_definitions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisDefinitionResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_axis_definition_api_admin_axis_definitions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AxisDefinitionPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisDefinitionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_axis_definition_api_admin_axis_definitions__axis_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                axis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisDefinitionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_axis_definition_api_admin_axis_definitions__axis_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                axis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AxisDefinitionPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisDefinitionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_axis_definition_api_admin_axis_definitions__axis_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                axis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

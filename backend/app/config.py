@@ -127,6 +127,15 @@ class Settings(BaseSettings):
     # Renderのアウトバウンド範囲のみに制限済み）。
     open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
 
+    # 評価軸レジストリの管理API（改善計画T221 Stage D、/api/admin/axis-definitions）を
+    # 保護する共有トークン。空文字（既定）のときは常に拒否する（うっかり無保護公開しない、
+    # api/dependencies.py: require_axis_admin_token参照）。研究モード限定機能の権限制御は
+    # 現状フロント表示のみで、バックエンドに認証機構が無かった（他のAPIも同様）。書き込みで
+    # ルート生成の振る舞いを直接変えられるこのAPIだけは簡易な保護を設ける。将来、研究モードを
+    # 一般ユーザーから隠し何らかの権限制御を導入する計画（ユーザー、2026-08-24）があるため、
+    # 認可判定は差し替え可能な1関数へ集約している。
+    axis_admin_token: str = ""
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return self.cors_allowed_origins.split(",")

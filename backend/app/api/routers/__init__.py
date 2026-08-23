@@ -9,13 +9,15 @@
 - accidents.py: /api/region/accident-tiles/{z}/{x}/{y}.pbf（外部静的データソース T50。
   警察庁交通事故統計レイヤー）
 - basemap.py: /api/basemap/{path}, /api/basemap/refresh（基礎地図プロキシ）
+- axis_admin.py: /api/admin/axis-definitions（評価軸定義のCRUD管理API、改善計画T221
+  Stage D。共有トークンheaderによる認可が必要）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。
 """
 
 from fastapi import APIRouter
 
-from app.api.routers import accidents, basemap, health, region, routes, weather
+from app.api.routers import accidents, axis_admin, basemap, health, region, routes, weather
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -24,3 +26,4 @@ api_router.include_router(weather.router)
 api_router.include_router(region.router)
 api_router.include_router(accidents.router)
 api_router.include_router(basemap.router)
+api_router.include_router(axis_admin.router)

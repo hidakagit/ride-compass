@@ -17,6 +17,7 @@ from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.route import Coordinates, RouteSegment
 from app.domain.traffic import CarStressRecipe
 from app.infrastructure.accident_repository import AccidentTileQuery
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.elevation_client import ElevationClient
@@ -25,6 +26,7 @@ from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
 from app.services.accident_service import AccidentService
+from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.elevation_service import ElevationService
 from app.services.evaluation_service import (
@@ -308,3 +310,10 @@ async def get_accident_service():
 
 def get_basemap_client():
     return BasemapClient(get_http_client(15.0), settings.basemap_public_base_url)
+
+
+async def get_axis_registry_admin_service():
+    # 軸定義CRUD管理API（改善計画T221 Stage D）専用。タイル配信と同じ
+    # get_session_factory()（command_timeout=20）で十分（書き込みは軽量なUPSERT/DELETE）。
+    async with get_session_factory()() as session:
+        yield AxisRegistryAdminService(AxisDefinitionRepository(session))
