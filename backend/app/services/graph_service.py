@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials, surface_by_edge_id
@@ -120,7 +121,15 @@ class GraphService:
             # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
             return RoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
 
-        graph = build_road_graph(way_specs, node_coords)
+        # 改善計画T261: build_road_graph（交差点分割、純Pythonの同期CPU処理）は都心規模
+        # （数万way）で数秒規模かかる（bench_postgis_prepare.py実測: 4kmで1.1秒、
+        # 20km規模ではさらに長くなる）。awaitせず直接呼ぶとイベントループを丸ごと塞ぎ、
+        # その間ヘルスチェック（/health）にも応答できなくなる。road_graph_repository.pyの
+        # `_rows_to_road_graph`/`_topology_rows_to_road_graph`が同種の重いCPU処理を
+        # asyncio.to_threadで逃がしているのと同じ対応。T105が記録した「タイル要求急増→
+        # CPU専有→ヘルスチェック無応答→Render強制再起動」と同型の障害が、本番の実プロセス
+        # 経由での大規模ルート生成リクエストで再現したことを受けて追加した。
+        graph = await asyncio.to_thread(build_road_graph, way_specs, node_coords)
         surface_by_way_id = {w.osm_way_id: w.surface for w in way_specs if w.osm_way_id is not None}
 
         # 永続化・返却するのは主対象Way分のみ（近傍Wayは分割の文脈情報として使うだけで、
