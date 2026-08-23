@@ -1698,10 +1698,40 @@ T221エントリへの追記として実施済み（新番号なし）。
        `get_edge_materials_batch`を追加し、既存の呼び出し回数アサーションを更新。
        backend全体1084件green。dev DBでのE2E確認（新宿10km候補8/8・王子15km候補6/8）で
        機能面の回帰も無いことを確認。
-     - **残課題**: この最適化は5つの「材料」クエリのみが対象で、`get_graph_topology_in_bbox`
-       （Edge/Node本体のトポロジ取得、深掘りプロファイリングで新宿10km実測33秒、5材料
-       クエリの合計より単体で大きい）は未着手のまま残っている。同種の「ORM行構築の
-       オーバーヘッド」が真因である可能性が高く、次に着手する際の候補として記録する。
+     - **残課題（2026-08-24追記で対応済み、下記1c参照）**: この最適化は5つの「材料」
+       クエリのみが対象で、`get_graph_topology_in_bbox`（Edge/Node本体のトポロジ取得、
+       深掘りプロファイリングで新宿10km実測33秒）は当初未着手のまま残っていた。
+  1c. **`get_graph_topology_in_bbox`のNode取得をST_X/ST_Y列指定へ変更**（2026-08-24実装
+     完了）: 1a・1bの流れを受け、残っていた最大の未着手コストを調査した。Node取得が
+     `select(RoadNodeRow)`（geom列込みのORM行）＋`shapely.from_wkb`によるgeometry decode
+     をしていたが、探索フェーズが必要とするのは緯度経度のみ（Edge側は既にT218で
+     `_topology_rows_to_road_graph`向けにgeom列を除いた列指定クエリへ最適化済みだった、
+     Node側だけが未対応のまま残っていた）。dev DB実測（68,760件、6タイル拡張bbox・
+     T229深掘り計測と同規模）でORM全体取得+shapely decode 2.76秒 → PostGIS側で
+     `ST_X(geom)`/`ST_Y(geom)`を計算させプレーンなfloatとして受け取る方式0.89秒
+     （**3.1倍**）を確認して実装した。
+     - **実装**: `road_graph_repository.py`の`get_graph_topology_in_bbox`のnode_stmtを
+       `select(RoadNodeRow)`から`select(RoadNodeRow.node_id, RoadNodeRow.osm_node_id,
+       func.ST_X(RoadNodeRow.geom), func.ST_Y(RoadNodeRow.geom))`へ変更。
+       `_topology_rows_to_road_graph`も同様に`shapely.from_wkb`呼び出しを削除し、
+       行から緯度経度を直接読むだけにした。
+     - **注意（深掘りで判明した誤差の原因）**: 当初「33秒の内訳」を特定しようとしたが、
+       edge_query単体2.49秒・node取得（旧実装）2.76秒で合計5.25秒にしかならず、
+       元の33秒との差が大きいことが判明した。33秒の計測はセッション序盤（DBキャッシュが
+       冷えた状態）に対し、今回の内訳計測は同じ範囲への大量の反復アクセス後（DB
+       キャッシュが温まった状態）だったための差と考えられる（T229で確認した同種の
+       現象）。したがって「edgeクエリ・node取得のどちらが33秒の主因か」は未確定のまま
+       だが、**node取得側の3.1倍という相対的な改善効果自体は2回の独立した計測
+       （29,017件規模で3.2倍・68,760件規模で3.1倍）で再現しており、方式自体の有効性は
+       確度高く確認できている**。`_topology_rows_to_road_graph`内のPydantic
+       `model_construct`呼び出し（Edge+Node合計24万件規模）のコストは今回切り分けて
+       おらず、次に着手する場合の候補として残る。
+     - **テスト**: `get_graph_topology_in_bbox`にはPostGIS統合テストが1件も無かったため
+       新規に3件追加（未保存時None・`get_graph_in_bbox`との座標一致回帰・bbox外Edge除外）。
+       backend全体1087件green。dev DBでのE2E確認（新宿10km候補8/8・渋谷10km候補6/8・
+       王子15km候補4/6）で機能面の回帰なし（新宿の初回計測で237秒という外れ値が出たが、
+       直前の重いpytest実行によるDB側の一時的な負荷が原因と考えられ、再実行では10.2秒
+       まで復帰したため再現性の問題ではないと判断した）。
   2. **冷パスの体験設計**: 初回タッチの重い処理（split再構築）をリクエスト同期から
      切り離す選択肢（バックグラウンドウォームアップ・主要エリアの事前split・
      プログレス表示等）。T59の`_maybe_trigger_graph_build`（タイル閲覧起点の

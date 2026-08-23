@@ -879,26 +879,26 @@ def _edge_rows_to_directed_edges(edge_rows: Iterable[RoadEdgeRow]) -> dict[str, 
     }
 
 
-def _topology_rows_to_road_graph(
-    edge_rows: Iterable, node_rows: Iterable[RoadNodeRow]
-) -> RoadGraph:
+def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> RoadGraph:
     """`get_graph_topology_in_bbox`用（改善計画T218、T12 Stage 0）。`edge_rows`は
     `RoadEdgeRow`の全カラムではなく、探索に必要な列（geom以外）だけをSELECTした
     `Row`（SQLAlchemyの軽量タプル的な結果行）を想定する。geomカラムを一切
     SELECTしないため、`_rows_to_road_graph`が行うshapely decode（実測でCPU時間の
     大半を占める、backend/benchmarks/README.md参照）が発生しない。
+    `node_rows`も同様に`RoadNodeRow`の全カラムではなく、`node_id`・`osm_node_id`・
+    `ST_X(geom)`（経度）・`ST_Y(geom)`（緯度）だけをSELECTした`Row`を想定する
+    （改善計画T248: geom列自体を取得してshapely decodeするより、PostGIS側で
+    ST_X/ST_Yを計算させプレーンなfloatとして受け取る方が3倍以上速いと実測で判明）。
     `DirectedEdge.geometry`はプレースホルダの空リストにする（探索フェーズの
     評価関数はgeometryを参照しない設計にしてある——compute_wind_penaltyは
     `bearing_deg`を直接使う、domain/evaluation.py参照。表示用の実ジオメトリが
     必要な最終候補は`get_edges_with_geometry`で別途取得する）。
     """
-    node_rows = list(node_rows)
-    node_points = shapely.from_wkb([bytes(row.geom.data) for row in node_rows])
     nodes = {
         row.node_id: Node.model_construct(
-            node_id=row.node_id, latitude=point.y, longitude=point.x, osm_node_id=row.osm_node_id
+            node_id=row.node_id, latitude=row.latitude, longitude=row.longitude, osm_node_id=row.osm_node_id
         )
-        for row, point in zip(node_rows, node_points)
+        for row in node_rows
     }
     edges = {
         row.edge_id: DirectedEdge.model_construct(
@@ -1094,10 +1094,20 @@ class DerivedGraphRepository(_SessionRepository):
             return None
 
         node_ids = sorted({row.from_node_id for row in edge_rows} | {row.to_node_id for row in edge_rows})
+        # 改善計画T248: `select(RoadNodeRow)`（geom列込みのORM行）+shapely decodeは、
+        # 緯度経度だけが目的の探索フェーズには過剰なコストだった（dev DB実測、
+        # 68,760件でORM+shapely decode 2.76秒 → ST_X/ST_Y列指定0.89秒、3.1倍）。
+        # PostGIS側でST_X/ST_Yを計算させ、緯度経度をプレーンなfloatとして直接受け取る
+        # ことでshapely decode自体を丸ごと回避する。
         node_rows = []
         for id_chunk in _chunked(node_ids, 50_000):
-            node_stmt = select(RoadNodeRow).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
-            node_rows.extend((await self._session.execute(node_stmt)).scalars().all())
+            node_stmt = select(
+                RoadNodeRow.node_id,
+                RoadNodeRow.osm_node_id,
+                func.ST_X(RoadNodeRow.geom).label("longitude"),
+                func.ST_Y(RoadNodeRow.geom).label("latitude"),
+            ).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
+            node_rows.extend((await self._session.execute(node_stmt)).all())
 
         return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
 

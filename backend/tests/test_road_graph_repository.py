@@ -85,6 +85,62 @@ async def test_get_graph_in_bbox_only_returns_edges_intersecting_bbox(road_graph
     assert result_far is None
 
 
+async def test_get_graph_topology_in_bbox_returns_none_when_nothing_saved(road_graph_repository):
+    result = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
+
+    assert result is None
+
+
+async def test_get_graph_topology_in_bbox_matches_get_graph_in_bbox_coordinates(road_graph_repository):
+    # 改善計画T248回帰テスト: get_graph_topology_in_bboxはgeom列を取得せず
+    # ST_X/ST_Yで緯度経度を直接計算する（shapely decodeを回避するため）。
+    # get_graph_in_bbox（shapely decode経由）と同じ座標値を返すことを確認する。
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    topology = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
+    full = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
+
+    assert topology is not None
+    assert topology.graph_version == "cached"
+    assert set(topology.edges.keys()) == set(full.edges.keys())
+    assert set(topology.nodes.keys()) == set(full.nodes.keys())
+    for node_id, topology_node in topology.nodes.items():
+        full_node = full.nodes[node_id]
+        assert topology_node.latitude == pytest.approx(full_node.latitude, abs=1e-9)
+        assert topology_node.longitude == pytest.approx(full_node.longitude, abs=1e-9)
+        assert topology_node.osm_node_id == full_node.osm_node_id
+    # 探索フェーズ向けの軽量版はgeometryを持たない（プレースホルダの空リスト）。
+    assert all(edge.geometry == [] for edge in topology.edges.values())
+    # from/to node・距離・osm_way_id・highway・bearing_degはget_graph_in_bboxと同じ値を持つ。
+    for edge_id, topology_edge in topology.edges.items():
+        full_edge = full.edges[edge_id]
+        assert topology_edge.from_node_id == full_edge.from_node_id
+        assert topology_edge.to_node_id == full_edge.to_node_id
+        assert topology_edge.distance_m == pytest.approx(full_edge.distance_m)
+        assert topology_edge.osm_way_id == full_edge.osm_way_id
+        assert topology_edge.highway == full_edge.highway
+        assert topology_edge.bearing_deg == pytest.approx(full_edge.bearing_deg)
+
+
+async def test_get_graph_topology_in_bbox_only_returns_edges_intersecting_bbox(road_graph_repository):
+    ways = [
+        WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
+        WaySpec(osm_way_id=200, node_ids=[3, 4], highway="residential"),
+    ]
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    result_1_2 = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
+    result_far = await road_graph_repository.get_graph_topology_in_bbox(BBOX_FAR_AWAY)
+
+    assert {e.osm_way_id for e in result_1_2.edges.values()} == {100}
+    assert result_far is None
+
+
 async def test_save_graph_upserts_same_edge_without_duplicating(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
