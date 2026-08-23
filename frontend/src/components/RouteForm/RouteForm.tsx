@@ -10,12 +10,15 @@ interface RouteFormProps {
   onDistanceChange: (value: string) => void;
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
+  /** モバイル上部の操作バー向け（改善計画T250）。出発地点・生成ボタンと同じ行に収める
+   * ため、ラベル文言を削って幅を詰める（アクセシブルネームはaria-labelで維持）。 */
+  compact?: boolean;
 }
 
 // backend/app/api/routes.pyのRouteGenerateRequest.distance_km（Field(gt=0, le=100)）と一致させる。
 const MAX_DISTANCE_KM = 100;
 
-export default function RouteForm({ distance, onDistanceChange, onGenerate, loading }: RouteFormProps) {
+export default function RouteForm({ distance, onDistanceChange, onGenerate, loading, compact = false }: RouteFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   function handleSubmit(event: React.FormEvent) {
@@ -43,9 +46,9 @@ export default function RouteForm({ distance, onDistanceChange, onGenerate, load
     // ブラウザ既定のnumber input制約検証(既定ロケールの英語ツールチップ)が、下の独自の
     // 日本語エラー表示より先にフォーム送信をブロックしてしまい、アプリ内の他のエラー表示と
     // 一貫しないUXになるのを避けるためnoValidateにし、検証は下のJSロジックに一本化する。
-    <form onSubmit={handleSubmit} className={styles.form} noValidate>
-      <label>
-        距離
+    <form onSubmit={handleSubmit} className={compact ? styles.formCompact : styles.form} noValidate>
+      <label className={compact ? styles.labelCompact : undefined}>
+        {!compact && "距離"}
         <input
           type="number"
           min="1"
@@ -53,12 +56,13 @@ export default function RouteForm({ distance, onDistanceChange, onGenerate, load
           step="1"
           value={distance}
           onChange={(e) => onDistanceChange(e.target.value)}
-          className={styles.distanceInput}
+          className={compact ? styles.distanceInputCompact : styles.distanceInput}
+          aria-label={compact ? "距離(km)" : undefined}
         />
         km
       </label>
       <button type="submit" disabled={loading}>
-        {loading ? "生成中..." : "ルート生成"}
+        {loading ? (compact ? "…" : "生成中...") : compact ? "生成" : "ルート生成"}
       </button>
       {error && <ErrorText>{error}</ErrorText>}
     </form>

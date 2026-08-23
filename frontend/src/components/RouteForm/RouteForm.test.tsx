@@ -10,13 +10,23 @@ function ControlledRouteForm({
   onGenerate,
   loading,
   initialDistance = "30",
+  compact = false,
 }: {
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
   initialDistance?: string;
+  compact?: boolean;
 }) {
   const [distance, setDistance] = useState(initialDistance);
-  return <RouteForm distance={distance} onDistanceChange={setDistance} onGenerate={onGenerate} loading={loading} />;
+  return (
+    <RouteForm
+      distance={distance}
+      onDistanceChange={setDistance}
+      onGenerate={onGenerate}
+      loading={loading}
+      compact={compact}
+    />
+  );
 }
 
 describe("RouteForm", () => {
@@ -110,5 +120,30 @@ describe("RouteForm", () => {
 
     expect(onGenerate).not.toHaveBeenCalled();
     expect(await screen.findByRole("alert")).toHaveTextContent("距離は100km以下で入力してください。");
+  });
+
+  describe("compact", () => {
+    it("ボタン文言が「生成」に短縮され、距離入力にaria-labelが付く", () => {
+      render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} compact />);
+
+      expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
+      expect(screen.getByRole("spinbutton", { name: "距離(km)" })).toHaveValue(30);
+    });
+
+    it("loading=trueのときボタンが「…」と表示される", () => {
+      render(<ControlledRouteForm onGenerate={vi.fn()} loading={true} compact />);
+
+      expect(screen.getByRole("button", { name: "…" })).toBeDisabled();
+    });
+
+    it("送信するとonGenerateが呼ばれる(通常版と同じ検証ロジックを共有)", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(<ControlledRouteForm onGenerate={onGenerate} loading={false} compact />);
+
+      await user.click(screen.getByRole("button", { name: "生成" }));
+
+      expect(onGenerate).toHaveBeenCalledWith(30);
+    });
   });
 });

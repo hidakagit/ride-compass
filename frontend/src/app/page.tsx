@@ -1223,9 +1223,9 @@ export default function Home() {
     }
   }
 
-  // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37。
-  // デスクトップの<details>とモバイルのBottomSheetの両方から呼ぶ、モバイル実機
-  // フィードバック対応T34）。
+  // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
+  // デスクトップの<details>専用（改善計画T250でモバイルはヘッダーの操作バー
+  // ＋下部「ルート詳細」タブへ分割したため、モバイルからはrenderRouteResultsBodyを呼ぶ）。
   function renderRouteSectionBody() {
     return (
       <>
@@ -1237,10 +1237,22 @@ export default function Home() {
           onGenerate={handleGenerate}
           loading={loading}
         />
+        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
+        {renderRouteResultsBody()}
+      </>
+    );
+  }
+
+  // 生成結果に関する表示のみ（出発地点・距離入力・生成ボタンを含まない）。モバイルの
+  // 下部「ルート詳細」タブから直接呼ぶほか、デスクトップの「ルートを作る」ブロックからも
+  // renderRouteSectionBody経由で呼ぶ（改善計画T250: 出発地点・距離・生成ボタンを
+  // モバイル上部の操作バーへ移した結果、このタブの中身は生成結果だけになった）。
+  function renderRouteResultsBody() {
+    return (
+      <>
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
         )}
-        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
         {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30） */}
         {routes.length === 0 && !loading && !errorMessage && (
           <p className={styles.emptyHint}>
@@ -1550,6 +1562,25 @@ export default function Home() {
         <WarningBadgeList items={warningBadgeItems} />
       </header>
 
+      {/* モバイル専用の操作バー（改善計画T250）。「ルートを作る」タブを開かないと出発地点の
+          確認も生成もできない、という導線の長さが実機フィードバックだったため、天候ヘッダー
+          直下に常設し、地図を見ながらでも操作できるようにした。生成ボタンがタブの外に出た
+          ことで、失敗時のエラーメッセージが見えなくなる回帰を避けるためここにも表示する
+          （生成結果自体は下部「ルート詳細」タブ、renderRouteResultsBody参照）。 */}
+      {isMobile && (
+        <div className={styles.mobileActionBar}>
+          <LocationControl location={location} source={locationSource} compact />
+          <RouteForm
+            distance={distanceInput}
+            onDistanceChange={setDistanceInput}
+            onGenerate={handleGenerate}
+            loading={loading}
+            compact
+          />
+          {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
+        </div>
+      )}
+
       <div className="app-shell">
         {!isMobile && (
           <aside className={`app-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}>
@@ -1755,7 +1786,7 @@ export default function Home() {
               className={mobileSheet === "route" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
             >
               <RouteIcon />
-              <span className={styles.tabLabel}>ルートを作る</span>
+              <span className={styles.tabLabel}>ルート詳細</span>
             </button>
             <button
               type="button"
@@ -1797,13 +1828,13 @@ export default function Home() {
           <BottomSheet
             open={mobileSheet === "route"}
             onClose={() => setMobileSheet(null)}
-            title="ルートを作る"
+            title="ルート詳細"
             titleId={GENERATE_SECTION_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderRouteSectionBody()}
+            {renderRouteResultsBody()}
           </BottomSheet>
 
           <BottomSheet

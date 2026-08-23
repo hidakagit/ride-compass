@@ -26,6 +26,20 @@
   background: var(--color-surface);
 }
 
+/* モバイル専用の操作バー（出発地点・距離・生成ボタン、改善計画T250）。「ルートを作る」
+   タブを開かないと生成できないという導線の長さが実機フィードバックだったため、天候
+   ヘッダーの直下に常設した。天候ヘッダーと同じ1行構成・折返し方針にする。 */
+.mobileActionBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0.35rem var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
 .toggleButton {
   align-self: flex-start;
 }

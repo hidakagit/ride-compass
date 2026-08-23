@@ -30,4 +30,16 @@ describe("LocationControl", () => {
     render(<LocationControl {...baseProps()} />);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
+
+  describe("compact", () => {
+    it("座標を省いた1行表示になり、詳細はtitle属性に残る", () => {
+      render(<LocationControl {...baseProps()} compact />);
+      expect(screen.getByText(/出発: 現在地\[取得済み\]/)).toBeInTheDocument();
+      expect(screen.queryByText(/35\.12346, 139\.65432/)).not.toBeInTheDocument();
+      expect(screen.getByText(/出発: 現在地\[取得済み\]/)).toHaveAttribute(
+        "title",
+        "出発地点: 現在地[取得済み] (35.12346, 139.65432)"
+      );
+    });
+  });
 });

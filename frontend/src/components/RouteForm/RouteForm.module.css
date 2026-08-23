@@ -10,3 +10,24 @@
   margin-left: var(--space-2);
   width: 5rem;
 }
+
+/* モバイル上部の操作バー向け（改善計画T250）。出発地点・生成ボタンと1行を分け合うため、
+   通常版より詰めた余白・幅にする。 */
+.formCompact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.labelCompact {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.distanceInputCompact {
+  width: 3.5rem;
+}
