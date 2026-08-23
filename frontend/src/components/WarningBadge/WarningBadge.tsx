@@ -46,6 +46,17 @@ const LEVEL_SUMMARY_LABEL: Record<WarningBadgeSource, Record<WarningBadgeLevel, 
   flood: { advisory: "氾濫注意報", warning: "氾濫警報", severe_warning: "氾濫危険警報", emergency_warning: "氾濫特別警報" },
 };
 
+// 色もLEVEL_SUMMARY_LABELと同じ理由でsource別に分ける（2026-08-24、実機フィードバック
+// 「WBGTの“警戒”がJMAの“警報”と同じ赤色なのが気になる」）。JMA（気象庁の公式警報）と
+// flood（河川管理者の公式氾濫警報、氾濫注意報→氾濫警報→…→氾濫特別警報という同じ4段階の
+// 公式警報語彙を持つ）は「公式警報」として同じ配色（.advisory〜.emergency_warning）を
+// 共有してよいが、WBGT（環境省の熱中症予防運動指針、気象庁の警報とは無関係の別基準）は
+// 見た目からして別物と分かるよう専用の配色（.wbgt_advisory〜.wbgt_emergency_warning、
+// 緑→黄→橙→赤の熱中症指数らしい配色でJMA/floodのどの色とも重複しない）を持つ。
+function levelColorClassName(item: WarningBadgeItem): string {
+  return item.source === "wbgt" ? `wbgt_${item.level}` : item.level;
+}
+
 // 複数件のitemsのうち最も警戒度が高いitemを1つ返す（LEVEL_ORDERの並び=警戒度の昇順）。
 // サマリーボタンの語彙は出所（source）によって変わるため、レベルだけでなくitem自体を返す。
 function highestLevelItem(items: readonly WarningBadgeItem[]): WarningBadgeItem {
@@ -77,7 +88,7 @@ export default function WarningBadgeList({ items }: WarningBadgeListProps) {
       <Popover.Trigger asChild>
         <button
           type="button"
-          className={`${styles.summaryButton} ${styles[topItem.level]}`}
+          className={`${styles.summaryButton} ${styles[levelColorClassName(topItem)]}`}
           aria-label={`気象警報・注意報あり: ${summaryLabel}。押すと詳細を表示`}
         >
           {summaryLabel}
@@ -88,7 +99,7 @@ export default function WarningBadgeList({ items }: WarningBadgeListProps) {
           <div role="list" aria-label="気象警報・注意報の詳細" className={styles.detailList}>
             {items.map((item) => (
               <div key={item.id} role="listitem" className={styles.detailItem}>
-                <span className={`${styles.badge} ${styles[item.level]}`}>{item.label}</span>
+                <span className={`${styles.badge} ${styles[levelColorClassName(item)]}`}>{item.label}</span>
                 {item.title && <p className={styles.detailText}>{item.title}</p>}
               </div>
             ))}

@@ -89,3 +89,26 @@
 .emergency_warning {
   background: #9333ea;
 }
+
+/* WBGT（環境省の熱中症予防運動指針）専用の配色（2026-08-24、実機フィードバック「WBGTの
+ * “警戒”がJMAの“警報”と同じ赤色なのが気になる」）。JMA/floodは気象庁・河川管理者の
+ * 公式警報として上記.advisory〜.emergency_warningの配色（黄橙→赤→濃赤→紫）を共有するが、
+ * WBGTは無関係の別基準のため、緑→黄→橙→赤という熱中症指数らしい別の配色にして
+ * 一目で系統が異なると分かるようにする（levelColorClassName、WarningBadge.tsx参照）。
+ * いずれもJMA/floodの4色（var(--color-warning)/var(--color-danger)/#be123c/#9333ea）とは
+ * 重複しない値を選んでいる。 */
+.wbgt_advisory {
+  background: #4d7c0f;
+}
+
+.wbgt_warning {
+  background: #ca8a04;
+}
+
+.wbgt_severe_warning {
+  background: #ea580c;
+}
+
+.wbgt_emergency_warning {
+  background: #b91c1c;
+}
