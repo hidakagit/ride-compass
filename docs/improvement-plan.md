@@ -2174,7 +2174,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   - 検証: `tsc --noEmit`・ESLint・frontend vitest 56ファイル505件・`next build`・
     Playwright smoke.spec.ts（standalone・workers=1）いずれもgreen。
 
-### - [ ] T255. Phase3: BottomSheet→vaul、DynamicLayerTimeSlider→Embla Carousel 規模M〜L（2026-08-23起票） — トリガー: T253完了後、着手指示（実機検証込みのため慎重に判断）
+### - [x] T255. Phase3: BottomSheet→vaul（断念）、DynamicLayerTimeSlider→Embla Carousel 規模M〜L（2026-08-24完了、BottomSheetは断念し現行実装を維持）
 
 - 発端: T251の調査結果。4件中もっともリスクが高い2件。
 - 対応内容: BottomSheet→vaul(Drawer)。4シート共有の高さ状態・暗幕なし・地図の
@@ -2185,22 +2185,79 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   `role="slider"`のARIA・「現在」ボタンは今と同程度の自前実装が残る。
 - 完了条件: 実機チューニング済みの現行操作性（touch-action・スワイプ閉じ・ホイール変換等）
   と同等以上をPlaywright＋実機確認。
+- **着手判断（2026-08-24）**: T254で規模Sの想定がM相当になった直後だったため、着手前に
+  改めてユーザーへ確認（AskUserQuestion）。「両方とも実施（リスク承知）」の回答を受けて着手。
 
-## 残タスクの優先順位（2026-08-23再整理・第13版）
+- **実装メモ（2026-08-24完了）**:
+  1. **BottomSheet→vaul: 断念（上流の確定バグ）**。実装自体はPlaywright実機Chromiumで
+     一通り動作するところまで到達した（`modal={false}`＋`snapPoints`でheight=100vh＋
+     transformで対象スナップポイント分だけ見せる設計、bottom:0＋padding-bottomで
+     タブバー分のクリアランスを確保する等、vaulのtransform計算がbottom:0前提であることを
+     実機検証で突き止めて回避策を確立した）。しかし最終検証で、`modal={false}`と
+     `snapPoints`の組み合わせにおいて、vaulの内部実装（Radix Dialog由来）が`body`要素へ
+     `pointer-events: none`を適用してしまい、シート表示中に地図・下部タブバーが
+     一切クリックできなくなる**上流の確定した既知バグ**（GitHub Issue
+     [emilkowalski/vaul#509](https://github.com/emilkowalski/vaul/issues/509)・
+     [#534](https://github.com/emilkowalski/vaul/issues/534)、いずれもOpen・未修正）を
+     発見・実機Chromiumで再現確認した。`body.style.pointerEvents`を強制的に空へ戻す
+     回避策も試したが、4枚あるBottomSheetインスタンスが切り替わるたびに（Radix Dialogの
+     マウント/アンマウントサイクルのたび）再発するため、継続的な監視（MutationObserver等）が
+     要る不安定なハックにしかならないと判断した。「暗幕なし・地図が常に操作可能」は
+     T34由来のこのアプリの核心要件のため、BottomSheetはvaul化を断念し現行の自前実装
+     （pointerイベントによる自前ドラッグ・タッチスワイプ閉じ）をそのまま維持する
+     （`git checkout`で復元）。vaulパッケージは削除した。
+  2. **DynamicLayerTimeSlider→Embla Carousel: 完了**。可変幅コマ（正時/非正時で幅が違う）は
+     Embla標準の可変スライド幅対応でそのままカバーできた。左端固定の目印（旧実装の
+     `INDICATOR_OFFSET_PX`）に対して選択中コマの中心を合わせる操作感は、Emblaのカスタム
+     `align`関数（`(viewSize, snapSize) => INDICATOR_OFFSET_PX - snapSize / 2`）で再現し、
+     `containScroll: false`で最初/最後のコマも目印まで届くようにした。自前だった
+     設定確定タイマー（90msデバウンス）・ドラッグのpointerイベント処理・ホイール変換の
+     nativeリスナーはすべて撤去できた。キーボード操作（Arrow/Home/End）・
+     `role="slider"`のARIAはEmblaが提供しないため従来どおり自前で維持（想定どおり）。
+     `settle`イベントで最終確定indexを報告する設計を当初試みたが、実機Playwright検証で
+     高速な合成ドラッグ後に`settle`が発火しないケースを確認したため、より標準的で
+     確実に発火する`select`イベント（最寄りスナップ位置が変わった瞬間のみ発火し、
+     ドラッグ中の毎フレームでは発火しないため過剰報告の懸念も生じない）へ切り替えた。
+     jsdomでのテストはmatchMedia・IntersectionObserver・ResizeObserverの3つをEmbla自身が
+     無条件に呼ぶため、いずれも未実装のjsdomでは例外になる（useIsMobile.test.tsと同じ
+     既知の欠落パターン）。テストファイル側でモックして解消した。
+  - **実機確認で判明した限界（Playwrightでは検証不能）**: ホイール（縦スクロール→横変換）
+     動作は、Playwrightの合成`mouse.wheel()`イベントでは`embla-carousel-wheel-gestures`
+     プラグインの内部ジェスチャー検出（wheelイベントを合成mousedown/mousemoveへ変換して
+     Emblaの通常のドラッグ処理に載せる方式）が発火しないことを実機Chromiumで複数パターン
+     確認した（単発・連続・高速連打いずれも不発）。ドラッグ（マウス/タッチ）・キーボードは
+     Embla自身のAPI（`selectedScrollSnap()`）レベルで正しく動作することを確認済みのため、
+     Embla本体の統合自体は機能している。ホイール変換だけがPlaywright上で検証できない状態
+     であり、これがPlaywright特有の合成イベントの限界（vaulのケースのような確定した
+     実ブラウザバグではない）なのか、実機でも機能しないのかは、実際のマウスホイール/
+     トラックパッドを持つユーザーの実機確認が必要（ユーザーへの実機確認依頼事項）。
+  - 検証: `tsc --noEmit`・ESLint・frontend vitest 56ファイル505件・`next build`・
+    Playwright smoke.spec.ts（standalone・workers=1）いずれもgreen。BottomSheet.test.tsx
+    （5件、既存の自前実装のまま）も引き続きgreen。DynamicLayerTimeSlider.test.tsx
+    （9件）はEmbla化後も既存の検証観点（ARIA・キーボード操作）を維持したままgreen。
 
-第12版以降、T252（Phase0: Tailwindの併用導入）をユーザー指示「改善計画の残タスクを
-優先度順に洗い出して、実施待ちのものがあればそのまま実施して」を受けて実施・完了した
-（T252エントリの実装メモ参照。副次的に発覚したE2Eサーバーの本番不一致・ローカル
-リソース競合の2件も合わせて修正済み）。第13版として結果を反映した。
+## 残タスクの優先順位（2026-08-24再整理・第14版）
+
+第13版以降、T255（Phase3: BottomSheet→vaul・DynamicLayerTimeSlider→Embla Carousel）を
+ユーザー承認のうえ実施した。BottomSheetはvaulの上流確定バグ（modal={false}+snapPoints
+併用時にbody全体がクリック不能になる、GitHub Issue #509/#534未修正）により断念し
+現行の自前実装を維持、DynamicLayerTimeSliderはEmbla Carouselへの移行を完了した
+（T255エントリの実装メモ参照）。これによりT251で起票したUIライブラリ導入
+Phase0〜3（T252〜T255）が完結した（BottomSheetのみ断念という結果を含む）。
+第14版として結果を反映した。
 
 - **指示待ち（トリガー成立済み）**:
   1. T242の残課題（標高バックフィルの定期再実行、新規splitされたEdgeへの反映）を
      自動化するか都度手動実行に留めるかの方針決定。指示待ち。
   2. **T221 Stage D/E**（レジストリDB化・GUI編集画面）: 製品判断待ち（GUI編集の
      開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ無効化条件との整合）。
-  3. **T255**（UIライブラリ導入Phase3、規模M〜L）: T253完了（2026-08-23、
-     T253エントリの実装メモ参照）によりトリガー成立。着手指示待ち。T254（完了）を経て
-     4件中もっともリスクが高い最終フェーズ。
+
+- **ユーザーへの実機確認依頼事項**:
+  - **T255のDynamicLayerTimeSliderのホイール操作**（縦スクロール→横スクロール変換）が
+    実際のマウスホイール/トラックパッドで機能するか。Playwrightの合成イベントでは
+    `embla-carousel-wheel-gestures`プラグインの内部ジェスチャー検出が発火せず検証不能
+    だった（T255エントリの実装メモ参照。ドラッグ・キーボード操作は実機Playwrightで
+    動作確認済み）。機能しない場合は別タスクとして起票する。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
@@ -2221,9 +2278,10 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-**サマリ（13タスク）**: 指示待ち3件（T242残課題・T221 Stage D/E・T255）／
-トリガー未到達8件（T248・T206・T145a・T105・T127・T145・T207・T208）。
-T209・T223・T241は調査完了・T242〜T247・T249〜T254・T256は実装/調査完了・T229はT248へ
+**サマリ（12タスク）**: 指示待ち2件（T242残課題・T221 Stage D/E）／実機確認依頼1件
+（T255ホイール操作）／トリガー未到達8件（T248・T206・T145a・T105・T127・T145・T207・
+T208）。T209・T223・T241は調査完了・T242〜T247・T249〜T254・T256は実装/調査完了・
+T255はDynamicLayerTimeSlider完了・BottomSheetは断念で完了扱い・T229はT248へ
 統合クローズ・T221はPart 2（Stage B+C）まで実装完了（masterへマージ済み）のため
 本リストの指示待ちから外した。安全網の回復3件（T225・T224・T230）とレビュー指摘の
 消化5件（T226〜T228・T231・T232）、およびT222（Overpassライブ経路削除）は全て完了済み。

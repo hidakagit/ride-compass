@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import DynamicLayerTimeSlider from "./DynamicLayerTimeSlider";
 
 // jsdomはscrollTo/レイアウトを実装しないため、実際の横スクロールジェスチャー自体
@@ -8,6 +8,38 @@ import DynamicLayerTimeSlider from "./DynamicLayerTimeSlider";
 // onIndexChangeが呼ばれる一連の挙動）はここでは検証できない（Playwright実機/ブラウザ
 // 確認の領域）。ここではrole="slider"のARIA属性と、代替操作手段であるキーボード操作
 // （矢印キー・Home/End）がonIndexChangeを正しく呼ぶことを検証する。
+
+// jsdomはwindow.matchMedia・IntersectionObserverのいずれも実装しない
+// （matchMediaはuseIsMobile.test.tsと同じ既知の欠落）。T255でEmbla Carouselへ移行した後、
+// Embla自身が内部で両方を無条件に呼ぶため（matchMediaはbreakpoints機能用、
+// IntersectionObserverはslidesInView検出用。このコンポーネントではどちらも直接使わないが
+// 呼び出し自体はEmblaの初期化处理の一部として発生する）、未定義のままだとマウント時に
+// 例外になる。
+beforeEach(() => {
+  window.matchMedia = vi.fn().mockReturnValue({
+    matches: false,
+    media: "",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+  } as unknown as MediaQueryList);
+
+  class IntersectionObserverMock {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+    takeRecords = vi.fn(() => []);
+  }
+  window.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver;
+
+  class ResizeObserverMock {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  }
+  window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+});
 
 const FRAMES = [{ label: "12:00" }, { label: "12:05" }, { label: "12:10" }];
 

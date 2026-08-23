@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
+import useEmblaCarousel from "embla-carousel-react";
+import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import styles from "./DynamicLayerTimeSlider.module.css";
 
 /** スライダーの1フレーム分の表示内容。T183再設計でONの全レイヤーのフレーム時刻を統合した
@@ -36,12 +38,12 @@ const TICK_SPACING_PX = 18;
 // 目盛り間隔を広く」への対応。延長予報区間（60分以降、全コマが正時＝1時間刻み）はこちらを
 // 使う。初期画面に全コマが収まっている必要はなく、スクロールできれば足りるという前提
 // （同フィードバック）のため、広げた分だけルーラー全体の総幅・スクロール量が伸びることは
-// 許容する。コマごとに幅が異なるため、位置計算はindex * 定数の単純な乗算ではなく
-// tickOffsets（下記）の累積和で求める（frameWidth/tickCenterが唯一の情報源）。
+// 許容する。
 const TICK_SPACING_HOUR_PX = 28;
 // スクロール位置を合わせる「左端の目印」(.leftIndicator)の、ビューポート左端からの固定
-// オフセット（px、スクロールしても動かない）。個々のコマの幅（正時/非正時で異なる）とは
-// 独立した値のため、常にTICK_SPACING_PXの半分のまま変えない。
+// オフセット（px）。個々のコマの幅（正時/非正時で異なる）とは独立した値のため、常に
+// TICK_SPACING_PXの半分のまま変えない。EmblaのカスタムalignもこのINDICATOR_OFFSET_PXを
+// 単一の情報源として使う（下記emblaOptions.align参照）。
 const INDICATOR_OFFSET_PX = TICK_SPACING_PX / 2;
 
 /** コマ1つぶんの目盛り間隔（px）。正時（hourMark）はTICK_SPACING_HOUR_PX、それ以外は
@@ -89,6 +91,22 @@ interface DynamicLayerTimeSliderProps {
 // 複数の時刻依存レイヤーが同時にONでもこのコンポーネント自体は1つだけマウントする
 // （旧設計は各レイヤーごとに独立したスライダーを縦に複数マウントしていたが、
 // 「同じ日時を示した状態で連動させたい」という実機フィードバックを受け1本化した）。
+//
+// T255（UIライブラリ導入Phase3）でEmbla Carousel（+wheel-gesturesプラグイン）へ移行。
+// 可変幅コマ・ホイールの横スクロール変換・離した位置への吸着はEmbla標準機能でカバーし、
+// 自前だった設定確定タイマー・ドラッグのpointerイベント処理・ホイール変換のnative
+// リスナーを撤去した。左端固定の目印に対する位置合わせは、Emblaのカスタムalign関数
+// （align: (viewSize, snapSize) => INDICATOR_OFFSET_PX - snapSize / 2、下記emblaOptions）で
+// 「コマの中心をINDICATOR_OFFSET_PXへ合わせる」既存の操作感をそのまま再現する。
+// キーボード操作（Arrow/Home/End）・role="slider"のARIAはEmbla側が提供しないため、
+// 従来どおり自前で用意する。
+const emblaOptions = {
+  axis: "x" as const,
+  align: (viewSize: number, snapSize: number) => INDICATOR_OFFSET_PX - snapSize / 2,
+  containScroll: false as const,
+  dragFree: false,
+};
+
 export default function DynamicLayerTimeSlider({
   frames,
   index,
@@ -100,167 +118,55 @@ export default function DynamicLayerTimeSlider({
   error,
   ariaLabel,
 }: DynamicLayerTimeSliderProps) {
-  const viewportRef = useRef<HTMLDivElement>(null);
+  const [emblaRef, emblaApi] = useEmblaCarousel(emblaOptions, [WheelGesturesPlugin({ forceWheelAxis: "x" })]);
   // 直近に自分がonIndexChangeへ報告した（またはpropsのindexとして反映済みの）index。
-  // スクロール確定時に検出したindexをここへ書き、「propsのindexが自分のスクロール由来か・
+  // 確定（settle）時に検出したindexをここへ書き、「propsのindexが自分のドラッグ由来か・
   // 現在ボタン等の外部由来か」を判定する（外部由来のときだけプログラムでスクロールし直す。
-  // 自分のスクロールが呼んだonIndexChangeでpropsが更新されるたびにまたスクロールし直す
+  // 自分のドラッグが呼んだonIndexChangeでpropsが更新されるたびにまたスクロールし直す
   // 無限ループを避けるため）。
   const syncedIndexRef = useRef(index);
   // 初回マウント時はアニメーションさせず即座に開始位置へ合わせるための印。
   const hasMountedRef = useRef(false);
-  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // 各コマの左端オフセット（tickOffsets[i]、トラック内のpxの累積和）。正時/非正時でコマ幅が
-  // 異なる（frameWidth）ため、以前のようなindex * 定数の単純な乗算では位置が求まらない。
-  // framesが変わらない限り同じ参照を返す（useLayoutEffect/handleScrollのuseCallback依存に
-  // 使うため、毎レンダー新しい配列/関数になるのを避ける）。
-  const tickOffsets = useMemo(() => {
-    const offsets: number[] = [];
-    let acc = 0;
-    for (const f of frames) {
-      offsets.push(acc);
-      acc += frameWidth(f);
-    }
-    return offsets;
-  }, [frames]);
-  // コマiの中心のトラック内オフセット（px）。scrollLeftがこの値からINDICATOR_OFFSET_PXを
-  // 引いた位置のとき、コマiの中心が.leftIndicatorへちょうど重なる。
-  const tickCenter = useCallback(
-    (i: number): number => {
-      const f = frames[i];
-      return f ? tickOffsets[i] + frameWidth(f) / 2 : 0;
-    },
-    [frames, tickOffsets]
-  );
 
   // propsのindexが変化したら、ルーラーのスクロール位置を合わせる（「現在」ボタン等、
-  // 自分のスクロール操作以外でindexが変わったときだけ実際にスクロールする、上記コメント
-  // 参照）。レイアウト確定後・ペイント前に合わせたいのでuseLayoutEffect
-  // （useEffectだと初回マウント時に一瞬scrollLeft=0が見えてしまう）。
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
+  // 自分のドラッグ操作以外でindexが変わったときだけ実際にスクロールする、上記コメント
+  // 参照）。
+  useEffect(() => {
+    if (!emblaApi) return;
     const alreadySynced = index === syncedIndexRef.current;
     if (hasMountedRef.current && alreadySynced) return;
     syncedIndexRef.current = index;
-    const targetLeft = tickCenter(index) - INDICATOR_OFFSET_PX;
-    // jsdom（テスト環境）はElement.scrollToを実装しないため、scrollLeftへの直接代入へ
-    // フォールバックする（挙動としてはbehavior: "auto"と同じ即時ジャンプ）。
-    if (typeof viewport.scrollTo === "function") {
-      const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      viewport.scrollTo({ left: targetLeft, behavior: hasMountedRef.current && !prefersReducedMotion ? "smooth" : "auto" });
-    } else {
-      viewport.scrollLeft = targetLeft;
-    }
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    emblaApi.scrollTo(index, !hasMountedRef.current || prefersReducedMotion);
     hasMountedRef.current = true;
-  }, [index, tickCenter]);
+  }, [emblaApi, index]);
 
-  // スクロールが落ち着いたタイミング（連続するscrollイベントが一定時間止まったとき）で
-  // 左端の目印に最も近いコマを確定させ、onIndexChangeへ報告する。スクロール中の毎フレーム
-  // 報告すると再描画・地図への反映が過剰に走るため、ドラッグ/ホイールが止まってからの1回に
-  // まとめる（自前ドラッグ実装のためCSSのscroll-snapには頼らず、この確定処理自体が
-  // 「最寄りのコマへ寄せる」役割を兼ねる）。
-  const handleScroll = () => {
-    const viewport = viewportRef.current;
-    if (!viewport || frames.length === 0) return;
-    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = setTimeout(() => {
-      // コマごとに幅が異なる（frameWidth）ため、単純な除算ではなく「コマの中心が
-      // .leftIndicatorに最も近い」コマを総当たりで探す（コマ数は最大でも数十〜百程度の
-      // オーダーのため、スクロール確定時の1回だけの実行なら線形探索で十分）。
-      const target = viewport.scrollLeft + INDICATOR_OFFSET_PX;
-      let next = 0;
-      let nearestDist = Infinity;
-      for (let i = 0; i < frames.length; i++) {
-        const dist = Math.abs(tickCenter(i) - target);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          next = i;
-        }
-      }
-      // CSSのscroll-snapに頼らない自前ドラッグのため、最寄りのコマの厳密な位置へここで
-      // 明示的に寄せる（ドラッグ/ホイールを離した位置が必ずしもコマの区切りぴったりとは
-      // 限らないため）。
-      const targetLeft = tickCenter(next) - INDICATOR_OFFSET_PX;
-      if (Math.abs(viewport.scrollLeft - targetLeft) > 0.5) {
-        if (typeof viewport.scrollTo === "function") {
-          viewport.scrollTo({ left: targetLeft, behavior: "smooth" });
-        } else {
-          viewport.scrollLeft = targetLeft;
-        }
-      }
+  // 選ばれたコマが変わるたびonIndexChangeへ報告する。旧実装は「スクロール中の毎フレーム
+  // 報告すると再描画・地図への反映が過剰に走るため、止まってからの1回にまとめる」設計で
+  // settle相当のタイミングを狙っていたが、Emblaの`settle`イベントは実機検証で
+  // （高速な合成ドラッグの後）発火しないケースが確認された。`select`イベントは
+  // 「最寄りのスナップ位置（=選択中のコマ）が変わった瞬間」にのみ発火し、ドラッグ中の
+  // 毎フレームでは発火しない（コマを跨いだ時だけ）ため、過剰報告の懸念自体は`select`でも
+  // 生じない。
+  useEffect(() => {
+    if (!emblaApi) return;
+    const handleSelect = () => {
+      const next = emblaApi.selectedScrollSnap();
       if (next !== syncedIndexRef.current) {
         syncedIndexRef.current = next;
         onIndexChange(next);
       }
-    }, 90);
-  };
-
-  // 普通のマウスホイール（トラックパッドの横スワイプと違い、縦方向のdeltaYしか出ない）を
-  // 横スクロールへ変換する（実機フィードバック「ルーラースクロールできない」。横スクロール
-  // 専用のこの要素は、素のブラウザ既定動作だと縦方向のホイール入力に反応しない）。横方向の
-  // 入力（トラックパッドの横スワイプ等、ブラウザのネイティブpan-xで既に効く）の方が大きい
-  // ときは変換しない。ReactのonWheelはReact 17以降ルート委譲がpassive: trueで登録される
-  // ため、合成イベント内でpreventDefaultを呼んでも無効化されない（コンソール警告になる
-  // だけ）。ネイティブのaddEventListenerでpassive: falseとして登録する必要があるため、
-  // ここはuseEffectで直接DOMへ張る。
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const handleWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      viewport.scrollLeft += e.deltaY;
-      e.preventDefault();
     };
-    viewport.addEventListener("wheel", handleWheel, { passive: false });
-    return () => viewport.removeEventListener("wheel", handleWheel);
-  }, [loading, error, frames.length]);
-
-  // ポインタでのドラッグ操作（実機フィードバック「ルーラースクロールできない」）。当初は
-  // タッチ/トラックパッドをブラウザのネイティブ横スクロール（touch-action: pan-x）に任せ、
-  // マウスドラッグだけ自前で足す設計にしていたが、実機で「スマホで変わらず横スクロールで
-  // バーを動かせない」との再報告を受けた。ネイティブのタッチスクロールは検証環境
-  // （Playwright+CDPのタッチイベント合成）では再現できたものの、実機のブラウザ実装差
-  // （iOS Safari等）に起因する可能性が高く切り分けが難しいため、タッチ/マウス/ペンいずれも
-  // ポインタイベントで自前ドラッグする設計へ統一し、ブラウザのネイティブスクロールには
-  // 依存しない（CSS側もtouch-action: noneへ変更、下記参照）。他の地図上コントロール
-  // （MapOverlayControls.tsxの.iconChip等）も同様に「touch-action: none+実際のジェスチャーは
-  // JSで処理」という方針のため、この方が既存の設計とも一貫する。
-  const dragRef = useRef<{ pointerId: number; startClientX: number; startScrollLeft: number } | null>(null);
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    // 実機フィードバック「マウスをハンドアイコンに変わるが動かない/タッチでも反応しない」
-    // への対応。preventDefaultを呼んでいなかったため、mousedown+dragがブラウザ既定の
-    // テキスト選択ドラッグとして処理され、pointermove自体はスクリプトへ届いても既定動作と
-    // 競合して見た目に反映されていなかったと考えられる。ここで既定動作を止める。
-    e.preventDefault();
-    dragRef.current = { pointerId: e.pointerId, startClientX: e.clientX, startScrollLeft: viewport.scrollLeft };
-    // 一部のブラウザ/状況（例: 既にキャプチャ済みのポインタ）ではsetPointerCaptureが
-    // 例外を投げることがあるが、ドラッグ自体はpointermoveのイベント委譲だけでも機能するため
-    // 致命的ではない。
-    try {
-      viewport.setPointerCapture(e.pointerId);
-    } catch {
-      // no-op
-    }
-  };
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    const viewport = viewportRef.current;
-    if (!drag || drag.pointerId !== e.pointerId || !viewport) return;
-    e.preventDefault();
-    viewport.scrollLeft = drag.startScrollLeft - (e.clientX - drag.startClientX);
-  };
-  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null;
-  };
+    emblaApi.on("select", handleSelect);
+    return () => {
+      emblaApi.off("select", handleSelect);
+    };
+  }, [emblaApi, onIndexChange]);
 
   // キーボード操作（実機フィードバック「横スクロールでメモリの方が移動するように」で
-  // ネイティブinput[type=range]をやめたため、矢印キー等の操作性は自前で用意する必要がある）。
-  // ArrowLeft/Right=1コマ、Home/End=両端へ。onIndexChangeを直接呼び、スクロール位置の追従は
-  // 上のuseLayoutEffect（外部由来のindex変化）に任せる。
+  // ネイティブinput[type=range]をやめたため、矢印キー等の操作性は自前で用意する必要がある。
+  // Emblaはキーボード操作を提供しないため引き続き自前）。onIndexChangeを直接呼び、
+  // スクロール位置の追従は上のuseEffect（外部由来のindex変化）に任せる。
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (frames.length === 0) return;
     let next: number | null = null;
@@ -290,12 +196,6 @@ export default function DynamicLayerTimeSlider({
   }
 
   const frame = frames[Math.min(index, frames.length - 1)];
-  // トラックの左右パディング。左指標（.leftIndicator、ルーラー左端から固定オフセット
-  // INDICATOR_OFFSET_PX内側の固定位置、実機フィードバック「左端を表示時刻にして」）に
-  // 最後のコマの中心も届くよう、右側は「ビューポート幅 - 最後のコマの幅」を確保する
-  // （左側パディングは0のまま。ファイル冒頭のtickCenter/frameWidthコメント参照、
-  // layoutEffect/handleScrollの計算はこの前提で書いている）。
-  const trackPaddingRight = `calc(100% - ${frameWidth(frames[frames.length - 1])}px)`;
 
   return (
     <div className={styles.wrapper}>
@@ -310,16 +210,12 @@ export default function DynamicLayerTimeSlider({
               移動するようにしたい」への対応。ネイティブのinput[type=range]（つまみをドラッグ・
               目盛りへコマ送り）をやめ、横スクロールで目盛り自体を動かすルーラーに置き換えた。
               左端固定の目印（.leftIndicator、実機フィードバック「左端を表示時刻にして」）に
-              対して、スクロールでどのコマを合わせるかを選ぶ操作感になる。 */}
+              対して、スクロールでどのコマを合わせるかを選ぶ操作感になる（Emblaのalign関数で
+              実現、ファイル冒頭のemblaOptionsコメント参照）。 */}
           <div
-            ref={viewportRef}
+            ref={emblaRef}
             className={styles.rulerViewport}
-            onScroll={handleScroll}
             onKeyDown={handleKeyDown}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
             role="slider"
             tabIndex={0}
             aria-label={ariaLabel}
@@ -329,7 +225,7 @@ export default function DynamicLayerTimeSlider({
             aria-valuenow={index}
             aria-valuetext={frame.label}
           >
-            <div className={styles.rulerTrack} style={{ paddingRight: trackPaddingRight }}>
+            <div className={styles.rulerTrack}>
               {frames.map((f, i) => (
                 <div key={i} className={f.hourMark ? styles.tickHour : styles.tickMinor} style={{ width: frameWidth(f) }}>
                   <span className={styles.tickMark} aria-hidden="true" />
