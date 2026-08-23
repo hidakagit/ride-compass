@@ -1210,6 +1210,14 @@ class DerivedGraphRepository(_SessionRepository):
             # PKインデックス化し、各チャンクのDELETEは`NOT EXISTS`（インデックスを使う反結合）
             # で参照する形へ変更し、チャンク数ぶんの重複評価を無くす。
             if new_edge_ids:
+                # 改善計画T246（DB設計レビュー）: 一時テーブルとroad_edgesのハッシュ結合
+                # サイズは実測でwork_mem既定値(4MB、tile配信保護用のget_engine()と共有する
+                # 設定、database.pyのコメント参照)を要素数万件規模で既に超えており
+                # （実測: 76,221行のハッシュで5.5MB）、広域bbox（数十万件規模）ではさらに
+                # 上回りディスクスピルが起きうる。この操作専用にトランザクションローカルで
+                # work_memを引き上げる（`SET LOCAL`のためこのトランザクション終了時に
+                # 自動的に既定値へ戻り、他セッション・他クエリには影響しない）。
+                await self._session.execute(text("SET LOCAL work_mem = '256MB'"))
                 await self._session.execute(text("DROP TABLE IF EXISTS tmp_save_graph_new_edge_ids"))
                 await self._session.execute(
                     text(
