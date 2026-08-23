@@ -15,13 +15,37 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
   const startedAt = performance.now();
   debugLog("api:route", `POST ${path}`, { body });
 
-  // タイムアウトが無いとバックエンドがハングした場合に「生成中...」が無期限に続く。
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  // fetch()自体の失敗（タイムアウト・バックエンド到達不能等の通信エラー）はresponse.okの
+  // チェック以前の例外として送出されるため、ここで捕まえずにいると失敗がデバッグログに
+  // 一切残らない（lib/fetchJson.tsのGET用実装と同じパターン、T105調査で確立。実機で
+  // 「20kmルート生成がfail to fetchで失敗するが原因がログから追えない」という報告を
+  // 受けて2026-08-24にPOST側にも適用）。AbortSignal.timeout由来の中断は
+  // DOMException("TimeoutError")として送出される（fetch仕様）ため、タイムアウトか
+  // それ以外の通信エラーかをログで区別できるようにする。
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    const isTimeout = error instanceof DOMException && error.name === "TimeoutError";
+    debugLog(
+      "api:route",
+      isTimeout ? `失敗 (タイムアウト ${timeoutMs}ms)` : "失敗 (通信エラー)",
+      {
+        path,
+        durationMs: Math.round(performance.now() - startedAt),
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      },
+      "error",
+    );
+    throw error instanceof Error
+      ? error
+      : new Error(`リクエストに失敗しました: ${String(error)}`);
+  }
   const durationMs = Math.round(performance.now() - startedAt);
   // バックエンドが全リクエストに付与するリクエストID(backend/app/infrastructure/request_log.py)。
   // サーバーログと突き合わせるためDebugConsoleと失敗時のエラーメッセージに含める。

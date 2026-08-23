@@ -102,6 +102,7 @@ import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useRecipeOverride } from "@/hooks/useRecipeOverride";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
+import { debugLog } from "@/lib/debugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
@@ -890,6 +891,7 @@ export default function Home() {
           id: warning.code,
           label: warning.name,
           level: warning.level as WarningBadgeItem["level"],
+          source: "jma",
           title: [
             warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
             "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
@@ -907,6 +909,7 @@ export default function Home() {
               id: "wbgt",
               label: `暑さ指数${wbgtStatus.label ?? ""}`,
               level: wbgtStatus.level as WarningBadgeItem["level"],
+              source: "wbgt",
               title: `暑さ指数 ${wbgtStatus.value.toFixed(1)} / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります`,
             },
           ]
@@ -916,6 +919,7 @@ export default function Home() {
       id: `flood-${forecast.river_code}`,
       label: forecast.label,
       level: forecast.badge_level as WarningBadgeItem["level"],
+      source: "flood",
       title: `${forecast.condition} / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります`,
     }));
     return [...jmaItems, ...wbgtItem, ...floodItems];
@@ -945,7 +949,13 @@ export default function Home() {
         setNowcastError(null);
       } catch (error: unknown) {
         if (cancelled) return;
-        setNowcastError(error instanceof Error ? error.message : "降水ナウキャストの取得に失敗しました");
+        const message = error instanceof Error ? error.message : "降水ナウキャストの取得に失敗しました";
+        // fetchNowcastFrames自体（jmaNowcastFrames.ts経由）はdebugLogへ記録済みだが、
+        // ここ（catch側）でも失敗した事実自体をログする。取得失敗はUI（nowcastError→
+        // dynamicLayerError）には出るがデバッグコンソールには出ていなかった
+        // （2026-08-24実機調査で発覚した「異常があってもログに出ない」箇所の1つ）。
+        debugLog("api:jma-nowcast-times", "降水ナウキャストの読み込みに失敗", { error: message }, "error");
+        setNowcastError(message);
       } finally {
         if (!cancelled && isFirstLoad) setNowcastLoading(false);
       }
@@ -977,7 +987,10 @@ export default function Home() {
         setThunderNowcastError(null);
       } catch (error: unknown) {
         if (cancelled) return;
-        setThunderNowcastError(error instanceof Error ? error.message : "雷ナウキャストの取得に失敗しました");
+        const message = error instanceof Error ? error.message : "雷ナウキャストの取得に失敗しました";
+        // 降水ナウキャストのcatchと同じ理由でログする（2026-08-24実機調査）。
+        debugLog("api:jma-nowcast-times", "雷・竜巻ナウキャストの読み込みに失敗", { error: message }, "error");
+        setThunderNowcastError(message);
       } finally {
         if (!cancelled && isFirstLoad) setThunderNowcastLoading(false);
       }
@@ -1218,7 +1231,13 @@ export default function Home() {
         });
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "不明なエラーが発生しました");
+      const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
+      // generateRoutes（routeApi.ts: postJson）自体の失敗は既にそちらでdebugLog記録済みだが、
+      // ここに来る他の例外（候補構築中の想定外エラー等）も含め、ルート生成ハンドラの失敗として
+      // ここでも記録する（2026-08-24実機調査「fail to fetchがどこにもログされない」を受けて
+      // 監査、多層防御として残す）。
+      debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
+      setErrorMessage(message);
     } finally {
       setLoading(false);
     }

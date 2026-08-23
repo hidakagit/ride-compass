@@ -122,17 +122,32 @@ async function fetchBreakdown<TRecipe, TBreakdown extends { level: number | null
   const startedAt = performance.now();
   debugLog(config.debugKey, "リクエスト開始", { url, osmWayId });
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      osm_way_id: osmWayId,
-      [config.recipeBodyKey]: recipe ?? null,
-      road_suitability_recipe: roadSuitabilityRecipe ?? null,
-      motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
+  // fetch()自体の失敗（タイムアウト・通信エラー）はresponse.okのチェック以前の例外の
+  // ため、ここで捕まえないとdebugLogに一切残らない（refreshBasemapCacheで確立した
+  // パターン。以前は本関数・fetchAxisInspectorだけこの対処が漏れていた、2026-08-24
+  // 実機調査で発覚）。
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        osm_way_id: osmWayId,
+        [config.recipeBodyKey]: recipe ?? null,
+        road_suitability_recipe: roadSuitabilityRecipe ?? null,
+        motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    debugLog(
+      config.debugKey,
+      "失敗 (通信エラー)",
+      { durationMs: Math.round(performance.now() - startedAt), error: error instanceof Error ? error.message : String(error) },
+      "error",
+    );
+    throw error instanceof Error ? error : new Error(`${config.errorLabel}の内訳取得に失敗しました`);
+  }
   const durationMs = Math.round(performance.now() - startedAt);
   const requestId = response.headers.get("x-request-id");
 
@@ -183,17 +198,29 @@ export async function fetchAxisInspector(
   const startedAt = performance.now();
   debugLog("api:axis-inspector", "リクエスト開始", { url, osmWayId });
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      osm_way_id: osmWayId,
-      car_stress_recipe: carStressRecipe ?? null,
-      road_suitability_recipe: roadSuitabilityRecipe ?? null,
-      motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
+  // fetchBreakdownと同じ理由でtry/catchする（このファイルのコメント参照）。
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        osm_way_id: osmWayId,
+        car_stress_recipe: carStressRecipe ?? null,
+        road_suitability_recipe: roadSuitabilityRecipe ?? null,
+        motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    debugLog(
+      "api:axis-inspector",
+      "失敗 (通信エラー)",
+      { durationMs: Math.round(performance.now() - startedAt), error: error instanceof Error ? error.message : String(error) },
+      "error",
+    );
+    throw error instanceof Error ? error : new Error("内訳取得に失敗しました");
+  }
   const durationMs = Math.round(performance.now() - startedAt);
   const requestId = response.headers.get("x-request-id");
 

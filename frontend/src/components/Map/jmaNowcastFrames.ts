@@ -6,6 +6,8 @@
 // として共通化する（設計原則6）。降水・雷それぞれ固有のURL構造（降水はN1実況/N2予測の
 // 2ファイル、雷/竜巻はN3の1ファイルに実況・予測が同居）は呼び出し元に残す。
 
+import { fetchJson } from "@/lib/fetchJson";
+
 export interface JmaNowcastFrame {
   basetime: string;
   validtime: string;
@@ -19,13 +21,19 @@ export interface RawJmaTargetTime {
 }
 
 /** 気象庁の時刻一覧JSON（targetTimes_*.json）を取得する。labelはエラーメッセージに使う
- * 対象名（例:「降水ナウキャスト」「雷ナウキャスト」）。 */
+ * 対象名（例:「降水ナウキャスト」「雷ナウキャスト」）。
+ *
+ * 改善計画T248の実機調査で判明した「fetch()自体の失敗（タイムアウト・通信エラー）が
+ * どこにもログされない」という穴（他のAPIクライアントで繰り返し発生していたのと同じ
+ * パターン）を踏まえ、共通のfetchJson（lib/fetchJson.ts、通信エラー・HTTPエラー・
+ * 解析エラーを全てdebugLogへ記録する）経由にした。以前は素のfetch()でタイムアウトも
+ * 指定していなかった。 */
 export async function fetchJmaTargetTimes(url: string, label: string): Promise<RawJmaTargetTime[]> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`${label}の時刻一覧取得に失敗しました[${response.status}]`);
-  }
-  const data: unknown = await response.json();
+  const data = await fetchJson<unknown>(url, {
+    timeoutMs: 15000,
+    category: "api:jma-nowcast-times",
+    errorLabel: `${label}の時刻一覧`,
+  });
   if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
   return data as RawJmaTargetTime[];
 }

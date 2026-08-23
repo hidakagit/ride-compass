@@ -7,7 +7,10 @@ import type {
   RoutePreviewRequest,
   RouteSegment,
 } from "@/types/route";
+import { debugLog } from "@/lib/debugLog";
 import { generateRoutes, previewRoute } from "./routeApi";
+
+vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
 
 function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
   return {
@@ -106,6 +109,36 @@ describe("routeApi", () => {
       );
 
       await expect(previewRoute(request)).rejects.toThrow("リクエストに失敗しました[HTTP 502]");
+    });
+
+    // 2026-08-24回帰テスト: fetch()自体が失敗する場合（タイムアウト・通信エラー）は
+    // response.okのチェック以前の例外のため、try/catchで捕まえていないとdebugLogに
+    // 一切記録が残らない（実機で「20kmルート生成がfail to fetchで失敗するがログに
+    // 何も出ない」という報告を受けて発覚、lib/fetchJson.tsのGET用実装と同じ穴）。
+    it("AbortSignal.timeoutによるタイムアウトはTimeoutErrorとしてdebugLogに記録した上で再送出する", async () => {
+      const timeoutError = new DOMException("The operation was aborted.", "TimeoutError");
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
+
+      await expect(previewRoute(request)).rejects.toThrow(timeoutError.message);
+      expect(debugLog).toHaveBeenCalledWith(
+        "api:route",
+        expect.stringContaining("タイムアウト"),
+        expect.objectContaining({ error: expect.stringContaining("TimeoutError") }),
+        "error",
+      );
+    });
+
+    it("fetch()自体が失敗する通信エラー（バックエンド到達不能等）もdebugLogに記録した上で再送出する", async () => {
+      const networkError = new TypeError("Failed to fetch");
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError));
+
+      await expect(previewRoute(request)).rejects.toThrow("Failed to fetch");
+      expect(debugLog).toHaveBeenCalledWith(
+        "api:route",
+        "失敗 (通信エラー)",
+        expect.objectContaining({ error: expect.stringContaining("Failed to fetch") }),
+        "error",
+      );
     });
   });
 

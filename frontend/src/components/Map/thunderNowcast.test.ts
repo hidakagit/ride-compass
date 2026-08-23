@@ -10,7 +10,7 @@ import {
 } from "./thunderNowcast";
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
-  return { ok, status, json: async () => body };
+  return { ok, status, json: async () => body, headers: new Headers() };
 }
 
 // 実機確認（2026-08-22）で得た実際のtargetTimes_N3.json構造を模したフィクスチャ:

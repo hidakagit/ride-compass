@@ -6,7 +6,7 @@ import { fetchJmaTargetTimes } from "./jmaNowcastFrames";
 // 再エクスポート）で検証済みのため、ここではjmaNowcastFrames.ts固有の追加分
 // （fetchJmaTargetTimesのラベル付きエラーメッセージ）だけを検証する（改善計画T204）。
 function jsonResponse(body: unknown, ok = true, status = 200) {
-  return { ok, status, json: async () => body };
+  return { ok, status, json: async () => body, headers: new Headers() };
 }
 
 describe("fetchJmaTargetTimes", () => {
@@ -32,7 +32,7 @@ describe("fetchJmaTargetTimes", () => {
     );
 
     await expect(fetchJmaTargetTimes("https://example.test/targetTimes.json", "雷ナウキャスト")).rejects.toThrow(
-      "雷ナウキャストの時刻一覧取得に失敗しました[503]"
+      "雷ナウキャストの時刻一覧の取得に失敗しました[HTTP 503]"
     );
   });
 
