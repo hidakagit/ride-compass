@@ -1,3 +1,8 @@
+// @vitest-environment node
+// DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
+// （docs/testing.mdパターン3。windLayer.tsは型importのみでランタイムのDOM依存が
+// 無いことを確認済み。windArrowIcon.tsはdocument.createElement("canvas")を使うため
+// 対象外のまま）。
 import { describe, expect, it } from "vitest";
 import {
   clampWindDetailBbox,

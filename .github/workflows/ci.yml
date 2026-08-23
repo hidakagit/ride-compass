@@ -101,7 +101,11 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt
-      - run: python -m pytest -q
+      # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
+      # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
+      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/testing.mdパターン2）
+      # なので、それら以外のテストだけが安全に並列化される。
+      - run: python -m pytest -q -n auto --dist loadgroup
 
   frontend:
     runs-on: ubuntu-latest

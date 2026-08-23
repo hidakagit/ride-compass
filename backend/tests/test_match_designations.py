@@ -18,7 +18,10 @@ from tests.conftest import TEST_DATABASE_URL
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
 # ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
 # イベントループスコープをそれに合わせる必要がある。
-pytestmark = pytest.mark.asyncio(loop_scope="module")
+# xdist_group="postgis": 改善計画T233フォローアップ。同じridecompass_test DBを使う
+# 全PostGIS統合テストファイルを同一workerへ固定し直列実行させる（本ファイルはasyncpgで
+# 追加の直接接続も張るため特に重要、docs/testing.mdパターン2）。
+pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)

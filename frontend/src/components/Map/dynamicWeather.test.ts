@@ -1,3 +1,7 @@
+// @vitest-environment node
+// DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
+// （docs/testing.mdパターン3。dynamicWeather.tsはmapLayers.tsを型のみimportしており
+// ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {
   formatDynamicFrameTime,

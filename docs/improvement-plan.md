@@ -685,6 +685,32 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   `npx playwright test`（既定の並列2ワーカー・`--workers=1`の両方）で2件とも成功する
   ことを確認済み。
 
+### - [x] T235. backend pytestをpytest-xdistで並列化する〔ユーザー指摘: テスト実行が遅い〕規模S（2026-08-23完了）
+
+- 発端: ユーザー「テスト実施が非常に遅い。以前にも改善要望したが、まだ見直せるところは
+  ないか？再確認して」。T233でCIがPostGIS統合テスト約100件を実行するようになった分、
+  backendのpytest総数が増えており、直列実行のままでは今後さらに伸びる。
+- 対応: `pytest-xdist==3.8.0`を追加。PostGIS統合テスト4ファイル
+  （test_road_graph_repository.py・test_accident_repository.py・
+  test_match_designations.py・test_health.pyの該当テスト）へ
+  `pytest.mark.xdist_group(name="postgis")`を付け、同一ridecompass_test DBへ接続する
+  テストを全て同一workerへ固定（別workerでの同時TRUNCATEレースを防止）。CIの
+  pytestステップを`-n auto --dist loadgroup`に変更。docs/testing.md・CLAUDE.mdへ
+  新規DBテストファイルに同マーカーが必須である旨を追記。
+- 検証: ローカル（Windows、8論理コア）で`-n auto --dist loadgroup`実行し1065件全green
+  （xdist_groupによるレースなしを確認）。ただし実測はローカルでは効果が限定的
+  （直列182s→`-n 2`で217s＝悪化、`-n auto`で158s＝約13%短縮）で、OneDriveフォルダの
+  ファイルI/O・ウイルス対策スキャン等のワーカー起動オーバーヘッドが要因と推測される。
+  CI（Linux、低レイテンシ）は別途pushして実測する（T233導入時点でbackendジョブの
+  pytestステップ自体が8秒→27秒[PostGIS込み1065件]と、ローカルより大幅に高速な実行
+  環境であることが確認済みのため、CIでの並列化効果はローカルより大きく出る見込み）。
+- 実装メモ: ローカルWindows環境でexecnet（xdistのworker起動に使用）が
+  `EOFError: expected 1 bytes, got 0`で即座に失敗する問題に遭遇。作業ディレクトリの
+  絶対パスに日本語（OneDriveの「ドキュメント」）が含まれることが原因と推測され、
+  `PYTHONUTF8=1 PYTHONIOENCODING=utf-8`環境変数で回避できることを確認したが、
+  CI実行には影響しない（CIの作業ディレクトリはASCIIパスの`/home/runner/work/...`）ため
+  ci.ymlへの追加対応は不要と判断した。
+
 ## 残タスクの優先順位（2026-08-23再整理・第4版）
 
 第3版（T12実装スタック着手前の整理）はT218〜T220・T10・T11の完了と統合レビュー第6回・

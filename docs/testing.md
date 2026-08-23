@@ -56,13 +56,28 @@ test_accident_routes.py, test_routes_preview.py, test_routes_generate.py
 実例: test_road_graph_repository.py, test_health.py（db_status_test_engine）,
 test_match_designations.py（designation_conn）, test_accident_repository.py
 
+**xdist_group="postgis"（改善計画T233フォローアップ、pytest-xdist導入後は必須）**:
+CIは`-n auto --dist loadgroup`でDB以外のテストを並列化している。road_graph_session系
+フィクスチャを使うテスト（ファイルまたは個別テスト関数）には必ず
+`pytest.mark.xdist_group(name="postgis")`を付け、`pytestmark`が既にリストでなければ
+`pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]`
+の形にする。これを付けないと、同じridecompass_test DBへ複数workerが同時接続し、
+他ファイルのTRUNCATEでテストデータが消える形のflakyな失敗を起こしうる。
+
 ## パターン3: フロントエンドのテスト環境 → DOM不要ならnode環境
 
-`vitest.config.mts`の`environmentMatchGlobs`で、DOM（render/renderHook/window/document等）を
-使わない純ロジックのテストファイルはnode環境に倒している。jsdom環境の構築コストはテスト
-ファイルごとにかかるため、対象外にできるファイルが増えるほど実行時間が縮む。
+DOM（render/renderHook/window/document等）を使わない純ロジックのテストファイルは、
+ファイル先頭へ`// @vitest-environment node`docblockを付けてnode環境に倒している。
+jsdom環境の構築コストはテストファイルごとにかかるため、対象外にできるファイルが増えるほど
+実行時間が縮む（旧`vitest.config.mts`の`environmentMatchGlobs`による一括指定は、Vitest 4で
+同オプションが廃止されコンパイルエラー・ランタイムでの黙殺の両方を引き起こしたため
+改善計画T126で撤去済み。バージョン間で仕様が安定しているdocblock方式へ移行した）。
 
 新規テストファイルがservices/lib配下やMap内の式・フィルタ関数のようにDOMに触れない場合、
-`environmentMatchGlobs`への追加を検討する。省略してもデフォルトのjsdomのままなので壊れる
-ことはない（速度だけの問題）。判断に迷ったら、そのテストファイルが
-`render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているか確認する。
+このdocblockの追加を検討する。省略してもデフォルトのjsdomのままなので壊れることはない
+（速度だけの問題）。判断に迷ったら、そのテストファイルが
+`render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているか確認する
+——ただし**テストファイル自身だけでなく、importしている実装側の関数が内部で
+`document.createElement`等を呼んでいないかも確認すること**（`windArrowIcon.ts`が
+`document.createElement("canvas")`を使う実例。テストファイル単体では判断できない
+「実装側の隠れたDOM依存」を見落とし、node環境化すると実行時エラーになる）。

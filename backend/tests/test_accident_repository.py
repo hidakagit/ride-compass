@@ -9,7 +9,9 @@ from app.infrastructure.accident_repository import AccidentTileQuery
 # への統合テスト、conftest.pyのroad_graph_sessionフィクスチャを共有する）。
 # road_graph_sessionはDB接続確立コスト削減のためファイル単位で1本のエンジン・イベント
 # ループを使い回す設計。ファイル内の全テストのイベントループスコープをそれに合わせる。
-pytestmark = pytest.mark.asyncio(loop_scope="module")
+# xdist_group="postgis": 改善計画T233フォローアップ。同じridecompass_test DBを使う
+# 全PostGIS統合テストファイルを同一workerへ固定し直列実行させる（docs/testing.mdパターン2）。
+pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
 
 MVT_Z, MVT_X, MVT_Y = 14, 14549, 6450
 
