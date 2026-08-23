@@ -410,11 +410,14 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
     1. **masterへの統合**: 完了（2026-08-23、並行セッションのT250〜T252-255コミット後に
        マージ。コンフリクトはdocs/improvement-plan.mdのみで、`page.tsx`はT250側の変更と
        自動マージされた）。
-    2. **研究タブ重みUIのPlaywright実機確認**: worktree環境と並行セッションの
-       資源衝突（devポート・dev DB）を避けるためmaster統合後に実施する。
-       影響: 万一UI表示の崩れがあっても検知が統合後になる（機能面はWeightPanel等の
-       ユニットテスト501件と実機API検証で担保済み。重みUIは研究モード限定のため
-       一般導線への影響なし）。
+    2. **研究タブ重みUIのPlaywright実機確認**: 完了（2026-08-23、master統合後に実施）。
+       e2eスモーク2件green＋一時spec（T250と同じ運用、検証後削除）で研究タブの
+       区間難易度の重み7軸がカタログ由来のラベル・既定値（preference_defaults）で
+       表示されることを実機確認した。あわせて`e2e/fixtures.ts`のroute_preference
+       フィクスチャが旧キーのまま残っていたのを発見し修正（RootModel化で
+       RoutePreferenceWeightsがindex signature型になったため、旧キーでも型検査を
+       通ってしまう——この種のドリフトは今後`evaluationAxes.test.ts`のキー集合照合と
+       API側の422検証が防波堤になる）。
   - Stage D（レジストリDB化）・Stage E（GUI編集画面）は引き続き製品判断待ち
     （本エントリ冒頭のトリガー・ADR参照。T221自体はPart 2完了でStage Cまで到達）。
 

@@ -10,14 +10,18 @@ import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
 const API_BASE = "http://localhost:8000";
 
 const SCORING_WEIGHTS = { distance_weight: 1, elevation_weight: 1, wind_weight: 1, road_weight: 1 };
+// キーはaxis_id（改善計画T221 Stage B、backend AXIS_DEFINITIONS参照）。
+// RoutePreferenceWeightsはindex signature型のため旧キーでも型検査を通ってしまう
+// （コンパイルではドリフト検知できない）。実キー集合の正はaxis-catalog.jsonの
+// preference_defaults（evaluationAxes.test.tsが照合）。
 const ROUTE_PREFERENCE = {
-  elevation_weight: 1,
-  road_weight: 1,
-  wind_weight: 1,
-  stop_weight: 1,
-  car_stress_weight: 1,
-  accident_weight: 1,
-  night_weight: 0,
+  gradient: 1,
+  surface_q: 1,
+  wind: 1,
+  stop_density: 1,
+  car_stress: 1,
+  accident: 1,
+  night: 0,
 };
 
 // backend/app/domain/route.py RouteCandidate相当の最小フィクスチャ（1候補）。
