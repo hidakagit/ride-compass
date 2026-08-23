@@ -22,14 +22,9 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.evaluation import EdgeCostResult
-from app.domain.geo import haversine_distance_km
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
 from app.domain.graph import RoadGraph
 from app.domain.route import Coordinates
-
-# 緯度1度あたりの概算距離（km、地球を球とみなす近似。haversine_distance_kmと同じ半径
-# 前提で十分、空間索引のバケット分割・打ち切り判定という「目安」用途にのみ使う。
-# 実際の距離計算は常にhaversine_distance_kmで正確に行う）。
-_KM_PER_DEGREE_LATITUDE = 111.0
 
 
 def build_networkx_graph(graph: RoadGraph, edge_costs: dict[str, EdgeCostResult]) -> nx.DiGraph:
@@ -221,7 +216,7 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
 
     cell_lat = math.floor(point.latitude / index.cell_size_deg)
     cell_lon = math.floor(point.longitude / index.cell_size_deg)
-    cell_size_km_lower_bound = index.cell_size_deg * _KM_PER_DEGREE_LATITUDE
+    cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE
 
     nearest_node_id: str | None = None
     nearest_distance: float | None = None

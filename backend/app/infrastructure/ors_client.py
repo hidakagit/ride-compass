@@ -46,7 +46,13 @@ class ORSClient:
                     f"openrouteservice returned {exc.response.status_code}: {exc.response.text}"
                 ) from exc
             except httpx.RequestError as exc:
-                raise RoutingError(f"openrouteservice request failed: {exc}") from exc
+                # 改善計画T228: str(exc)が空文字になるhttpx例外があり
+                # （例: 一部の接続エラー）、その場合`RoutingError`のメッセージが
+                # 診断情報ゼロになっていた（2026-08-23の実機確認で原因切り分けができず
+                # 発覚）。例外種別名を必ず含める。
+                raise RoutingError(
+                    f"openrouteservice request failed: {type(exc).__name__}: {exc}"
+                ) from exc
 
             try:
                 data = response.json()

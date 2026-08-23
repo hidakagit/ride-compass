@@ -23,6 +23,8 @@ road_edges/road_nodesの密度次第だが、対象が関東圏に留まる現�
 from collections import OrderedDict
 from typing import Generic, TypeVar
 
+from app.domain.attributes import SearchMaterials
+
 _T = TypeVar("_T")
 
 # 1タイルあたりの素材（Edge数百〜数千件分の辞書群）を想定した上限。関東圏（z12タイル
@@ -50,18 +52,21 @@ class _LRUCache(Generic[_T]):
     def __len__(self) -> int:
         return len(self._data)
 
+    def clear(self) -> None:
+        self._data.clear()
 
-_tile_materials_cache: _LRUCache = _LRUCache(DEFAULT_MAX_TILES)
+
+_tile_materials_cache: _LRUCache[SearchMaterials] = _LRUCache(DEFAULT_MAX_TILES)
 # accident_years_coveredはbboxに依存しないグローバルな値（事故データの収録年数）のため、
 # タイル単位ではなく単一値としてキャッシュする。
 _accident_years_covered_cache: int | None = None
 
 
-def get_tile_materials(zoom: int, x: int, y: int) -> object | None:
+def get_tile_materials(zoom: int, x: int, y: int) -> SearchMaterials | None:
     return _tile_materials_cache.get((zoom, x, y))
 
 
-def set_tile_materials(zoom: int, x: int, y: int, materials: object) -> None:
+def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) -> None:
     _tile_materials_cache.set((zoom, x, y), materials)
 
 
@@ -81,6 +86,6 @@ def cached_tile_count() -> int:
 
 def clear() -> None:
     """テスト用。キャッシュを全消去する（本番コードパスからは呼ばない）。"""
-    _tile_materials_cache._data.clear()
+    _tile_materials_cache.clear()
     global _accident_years_covered_cache
     _accident_years_covered_cache = None

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from pydantic import BaseModel
@@ -43,6 +44,22 @@ class EdgeAttributeCounts(BaseModel):
     accident_count: float
     stop_count: int
     intersection_count: int
+
+
+@dataclass
+class SearchMaterials:
+    """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
+    材料一式（改善計画T219、T12 Stage 1）。`GraphService.get_search_materials_for_bbox`の
+    戻り値であり、`infrastructure/graph_material_cache.py`のタイル単位キャッシュ値
+    （z12タイル1枚ぶんの同形の内容）としても使う共通の型（改善計画T228、旧`_TileMaterials`
+    はフィールド完全一致の重複定義だったため統合済み）。"""
+
+    graph: RoadGraph
+    surface_attributes: dict[str, str | None]
+    edge_attribute_counts: dict[str, EdgeAttributeCounts]
+    way_tags: dict[str, dict[str, str]]
+    elevation_attributes: dict[str, ElevationAttribute]
+    designated_edge_ids: set[str]
 
 
 def _now_iso() -> str:

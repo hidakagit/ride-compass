@@ -4,6 +4,12 @@ from app.domain.route import Coordinates
 
 EARTH_RADIUS_KM = 6371.0
 
+# 緯度1度あたりの概算距離（km、地球を球とみなす近似。EARTH_RADIUS_KMと同じ半径前提で
+# 十分、空間索引のバケット分割・打ち切り判定・矩形マージンの見積もりという「目安」用途に
+# のみ使う。実際の距離計算は常にhaversine_distance_kmで正確に行う。改善計画T228で
+# domain/routing.py・services/road_graph_engine.pyの重複定義をここへ片側import化）。
+KM_PER_DEGREE_LATITUDE = 111.0
+
 COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"]
 
 

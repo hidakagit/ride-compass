@@ -469,7 +469,7 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   `RouteSegmentDetail`型は不変で契約影響なし）へ更新。コード変更なしのためテスト実行は
   不要。
 
-### - [ ] T228. 統合レビュー第6回の軽微指摘4件を一括解消する〔P3〕規模S
+### - [x] T228. 統合レビュー第6回の軽微指摘4件を一括解消する〔P3〕規模S（2026-08-23完了）
 
 - 発端: 統合レビュー2026-08-23 統合-5。いずれも規模S:
   1. `SearchMaterials`/`_TileMaterials`（graph_service.py）のフィールド完全一致の
@@ -482,6 +482,26 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
      診断情報ゼロの問題——例外種別・HTTPステータスをメッセージへ含める
      （2026-08-23の実機確認でdev環境のORS全滅の原因切り分けができなかった実績）。
 - 完了条件: backend全テストgreen。
+
+- **実装メモ（2026-08-23完了）**:
+  1. `SearchMaterials`を`domain/attributes.py`へ移設（`EdgeAttributeCounts`/
+     `ElevationAttribute`が既にそこにあり、`domain/graph.py`側へ置くと循環importになる
+     ため）。`graph_service.py`の`_TileMaterials`を削除し`SearchMaterials`を共有型として
+     使用（`_get_or_build_tile_materials`の戻り値・生成箇所を差し替え）。
+  2. `KM_PER_DEGREE_LATITUDE`を`domain/geo.py`（`EARTH_RADIUS_KM`の隣）へ定義し、
+     `domain/routing.py`の`_KM_PER_DEGREE_LATITUDE`定義を削除してimportへ、
+     `road_graph_engine.py: _bbox_around_point`のリテラル`111.0`2箇所をimportへ置換。
+  3. `graph_material_cache.py`の`_LRUCache`を`_LRUCache[SearchMaterials]`として具体化し、
+     `get_tile_materials`/`set_tile_materials`の型注釈も`object`→`SearchMaterials`へ。
+     `_LRUCache`へ`clear()`メソッドを追加し、モジュールの`clear()`関数の
+     `_tile_materials_cache._data.clear()`（内部属性への直接アクセス）を
+     `_tile_materials_cache.clear()`へ置換。
+  4. `ors_client.py`の`httpx.RequestError`ハンドラで、メッセージへ
+     `type(exc).__name__`を必ず含める形に変更（`str(exc)`が空文字になる
+     httpx例外があるため、種別名だけは常に残る形にした。HTTPステータス側
+     （`httpx.HTTPStatusError`）は元々`exc.response.status_code`を含んでおり対象外）。
+  - 検証: backend pytest 1065件全green（既存の`test_graph_service.py`・
+    `test_road_graph_engine.py`・`domain/routing.py`関連テストを含む）。
 
 ### - [ ] T229. T219冷パス（タイル分解）のクエリ本数増を実測する 規模S（計測のみ）— トリガー: 30km級ルート生成の初回リクエストで体感遅延が報告された時点、またはT224のエンドツーエンド実測時に相乗り
 

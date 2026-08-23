@@ -1,9 +1,8 @@
 import logging
-from dataclasses import dataclass
 
 import httpx
 
-from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, surface_by_edge_id
+from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials, surface_by_edge_id
 from app.domain.graph import DirectedEdge, RoadGraph, WaySpec, build_road_graph
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
@@ -12,32 +11,6 @@ from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
-
-
-@dataclass
-class SearchMaterials:
-    """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
-    材料一式（改善計画T219、T12 Stage 1）。`GraphService.get_search_materials_for_bbox`の
-    戻り値。"""
-
-    graph: RoadGraph
-    surface_attributes: dict[str, str | None]
-    edge_attribute_counts: dict[str, EdgeAttributeCounts]
-    way_tags: dict[str, dict[str, str]]
-    elevation_attributes: dict[str, ElevationAttribute]
-    designated_edge_ids: set[str]
-
-
-@dataclass
-class _TileMaterials:
-    """z12タイル1枚ぶんの`SearchMaterials`相当（`graph_material_cache`にキャッシュされる単位）。"""
-
-    graph: RoadGraph
-    surface_attributes: dict[str, str | None]
-    edge_attribute_counts: dict[str, EdgeAttributeCounts]
-    way_tags: dict[str, dict[str, str]]
-    elevation_attributes: dict[str, ElevationAttribute]
-    designated_edge_ids: set[str]
 
 
 class GraphService:
@@ -268,7 +241,7 @@ class GraphService:
             designated_edge_ids=combined_designated,
         )
 
-    async def _get_or_build_tile_materials(self, x: int, y: int) -> _TileMaterials:
+    async def _get_or_build_tile_materials(self, x: int, y: int) -> SearchMaterials:
         cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
         if cached is not None:
             return cached
@@ -281,7 +254,7 @@ class GraphService:
             graph = RoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
 
         edge_ids = list(graph.edges.keys())
-        materials = _TileMaterials(
+        materials = SearchMaterials(
             graph=graph,
             surface_attributes=await self._repository.get_surface_attributes(edge_ids),
             edge_attribute_counts=await self._repository.get_edge_attribute_counts(edge_ids),

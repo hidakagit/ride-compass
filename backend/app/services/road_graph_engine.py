@@ -46,6 +46,7 @@ from app.domain.evaluation import (
     compute_wind_penalty,
     preference_to_axis_weights,
 )
+from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.graph import DirectedEdge, RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
@@ -455,8 +456,8 @@ class RoadGraphEngine:
 def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
     """centerを中心とした半径radius_kmの円を覆う矩形bboxを求める（1回のOverpass問い合わせで
     8方位全ての経由地点をカバーするため、方位ごとではなく起点1つに対して1回だけ計算する）。"""
-    lat_margin_deg = radius_km / 111.0
-    lon_margin_deg = radius_km / (111.0 * max(math.cos(math.radians(center.latitude)), 1e-6))
+    lat_margin_deg = radius_km / KM_PER_DEGREE_LATITUDE
+    lon_margin_deg = radius_km / (KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(center.latitude)), 1e-6))
     return BoundingBox(
         min_latitude=center.latitude - lat_margin_deg,
         max_latitude=center.latitude + lat_margin_deg,
