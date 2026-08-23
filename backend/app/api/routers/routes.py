@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, RootModel, model_validator
 
 from app.api.dependencies import (
     PreviewBuilder,
@@ -13,6 +13,7 @@ from app.api.dependencies import (
     get_route_generation_builder,
 )
 from app.config import settings
+from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.recipe import (
@@ -71,22 +72,37 @@ class ScoringWeights(BaseModel):
     road_weight: float = Field(ge=0)
 
 
-class RoutePreferenceWeights(BaseModel):
+class RoutePreferenceWeights(RootModel[dict[str, float]]):
     """Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
-    キーはroute_preference.yamlと同じ。
+    キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
+    route_preference.yamlと同じ。
 
-    domain/evaluation.pyのRoutePreferenceと同形だが、API境界では「フィールド省略時に
-    クラス既定値が黙って入る」ことを避けるため、全フィールド必須の別モデルにしている
-    （上書きするなら全軸を明示する）。
+    改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
+    （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が
+    黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する
+    （上書きするなら全軸を明示する、という従来の全フィールド必須方針のまま。
+    RoadSuitabilityRecipeOverride.base_by_highwayと同じ考え方）。値は非負。
     """
 
-    elevation_weight: float = Field(ge=0)
-    road_weight: float = Field(ge=0)
-    wind_weight: float = Field(ge=0)
-    stop_weight: float = Field(ge=0)
-    car_stress_weight: float = Field(ge=0)
-    accident_weight: float = Field(ge=0)
-    night_weight: float = Field(ge=0)
+    @model_validator(mode="after")
+    def _check_axis_keys(self) -> "RoutePreferenceWeights":
+        expected = AXIS_DEFINITIONS.keys()
+        actual = self.root.keys()
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            detail_parts = []
+            if missing:
+                detail_parts.append(f"missing={missing}")
+            if extra:
+                detail_parts.append(f"unknown={extra}")
+            raise ValueError(
+                f"route_preference must specify exactly the {len(expected)} known axis_id keys ({', '.join(detail_parts)})"
+            )
+        negative = sorted(axis_id for axis_id, weight in self.root.items() if weight < 0)
+        if negative:
+            raise ValueError(f"route_preference weights must be >= 0 (negative: {negative})")
+        return self
 
 
 class RoadSuitabilityRecipeOverride(BaseModel):
@@ -282,7 +298,7 @@ async def generate_routes(
 
     # 重みの上書き（省略時はビルダー側でYAML既定値を読む）。適用された値はconditionsへエコーする。
     preference_override = (
-        RoutePreference(**request.route_preference.model_dump()) if request.route_preference else None
+        RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
     )
     scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
     car_stress_recipe_override = (
@@ -324,7 +340,7 @@ async def generate_routes(
             distance_km=request.distance_km,
             distance_tolerance_km=request.distance_tolerance_km,
             scoring_weights=ScoringWeights(**setup.scoring_weights),
-            route_preference=RoutePreferenceWeights(**setup.route_preference.model_dump()),
+            route_preference=RoutePreferenceWeights(setup.route_preference.weights),
             car_stress_recipe=CarStressRecipeOverride(**setup.car_stress_recipe.model_dump()),
             road_suitability_recipe=RoadSuitabilityRecipeOverride(**setup.road_suitability_recipe.model_dump()),
             motor_vehicle_density_recipe=MotorVehicleDensityRecipeOverride(

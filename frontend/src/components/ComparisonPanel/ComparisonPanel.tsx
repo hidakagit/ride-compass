@@ -69,7 +69,7 @@ function formatWeights(slot: ExperimentSlot): string {
   const s = slot.conditions.scoring_weights;
   const p = slot.conditions.route_preference;
   const scoreLine = `score ${SCORING_AXES.map((axis) => `${axis.label}${s[axis.weightKey]}`).join("/")}`;
-  const prefLine = `pref ${PREFERENCE_AXES.map((axis) => `${axis.label}${p[axis.weightKey]}`).join("/")}`;
+  const prefLine = `pref ${PREFERENCE_AXES.map((axis) => `${axis.label}${p[axis.axisId]}`).join("/")}`;
   return `${scoreLine}\n${prefLine}`;
 }
 

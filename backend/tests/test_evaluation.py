@@ -11,7 +11,6 @@ from app.domain.evaluation import (
     compute_edge_cost,
     compute_wind_penalty,
     is_edge_allowed,
-    preference_to_axis_weights,
 )
 from app.domain.graph import DirectedEdge
 from app.domain.weather import WeatherConditions
@@ -291,9 +290,11 @@ def test_compute_edge_cost_respects_custom_weights():
     surface = "asphalt"  # 舗装路（易しい）
 
     elevation_focused = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(elevation_weight=1.0, road_weight=0.0)
+        edge, elevation, surface, RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0})
     )
-    road_focused = compute_edge_cost(edge, elevation, surface, RoutePreference(elevation_weight=0.0, road_weight=1.0))
+    road_focused = compute_edge_cost(
+        edge, elevation, surface, RoutePreference(weights={"gradient": 0.0, "surface_q": 1.0})
+    )
 
     # 勾配を全く考慮しない重みなら、舗装路のroad_difficulty(0)がそのままdifficultyになる
     assert road_focused.difficulty == 0.0
@@ -331,12 +332,27 @@ def test_compute_edge_axis_scores_omits_none_axes():
     assert scores == {}
 
 
-def test_preference_to_axis_weights_maps_to_target_axis_ids():
-    weights = preference_to_axis_weights(RoutePreference(car_stress_weight=0.4, night_weight=0.1))
+def test_route_preference_weights_fill_defaults_and_reject_unknown_axis():
+    # 改善計画T221 Stage B: RoutePreference自体がaxis_idキーの重み辞書を持つ。
+    # 部分指定は既定値（AXIS_DEFINITIONSのdefault_weight）で補完され、未知キーはエラー。
+    preference = RoutePreference(weights={"car_stress": 0.4, "night": 0.1})
 
-    assert weights["car_stress"] == 0.4
-    assert weights["night"] == 0.1
-    assert set(weights) == {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night"}
+    assert preference.weights["car_stress"] == 0.4
+    assert preference.weights["night"] == 0.1
+    assert preference.weights["gradient"] == 0.15  # 既定値で補完
+    assert set(preference.weights) == {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night"}
+
+    with pytest.raises(ValueError, match="unknown axis_id"):
+        RoutePreference(weights={"no_such_axis": 1.0})
+
+
+def test_route_preference_with_weight_returns_modified_copy():
+    base = RoutePreference()
+    modified = base.with_weight("night", 0.5)
+
+    assert modified.weights["night"] == 0.5
+    assert base.weights["night"] == 0.0  # 元のインスタンスは不変
+    assert modified.weights["gradient"] == base.weights["gradient"]
 
 
 def test_compute_cost_from_axis_scores_matches_composite_difficulty_semantics():
@@ -386,8 +402,7 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
     axis_scores = compute_edge_axis_scores(
         edge, elevation, surface, way_tags=way_tags, stop_count=2, is_designated=True
     )
-    weights = preference_to_axis_weights(preference)
-    composed_cost, composed_difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, weights)
+    composed_cost, composed_difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, preference.weights)
 
     assert direct.cost == composed_cost
     assert direct.difficulty == composed_difficulty
@@ -467,12 +482,12 @@ def test_axis_inspector_breakdown_unknown_highway_yields_no_usable_composite():
     assert result.covered_weight_fraction == 0.0
 
 
-def test_axis_inspector_breakdown_weights_match_preference_to_axis_weights():
-    """各軸のweightはpreference_to_axis_weightsと一致する（既定route_preference使用時）。"""
+def test_axis_inspector_breakdown_weights_match_route_preference_weights():
+    """各軸のweightはRoutePreference.weightsと一致する（既定route_preference使用時）。"""
     result = axis_inspector_breakdown(
         highway="residential", tags={}, is_designated=False, way_counts=None, accident_years_covered=0,
     )
 
-    expected_weights = preference_to_axis_weights(RoutePreference())
+    expected_weights = RoutePreference().weights
     for axis in result.axes:
         assert axis.weight == expected_weights[axis.axis_id]

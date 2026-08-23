@@ -339,6 +339,84 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   でレジストリからスカラー/配列両実装を導出できれば、この二重管理が解消する**——
   ベクトル化によりStage B以降の価値が起票時点より上がったことを、将来の着手判断の
   材料として記録する。
+- **Part 2着手（2026-08-23、ユーザー指示「T221に着手して」）**: スコープは
+  ADRのStage B＋C相当。Stage D（DB化）・Stage E（GUI編集画面）はADR自身が
+  「製品判断待ち（GUI編集の開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ
+  無効化条件との整合）」と明記しているため**今回も対象外のまま**とする。
+  並行セッションがT250（モバイル上部バーUI、`page.tsx`等）を作業中のため、
+  本タスクは専用worktree（ブランチ`t221-registry`）で実施し、masterへの統合は
+  T250のコミット後に行う。実施内容の分割:
+  1. **C-1 軸定義のデータ化**: 新規`domain/axis_definitions.py`へ、ADRの
+     `AxisDefinition`スキーマ（axis_id・材料・shape・shape_params・default_weight）を
+     宣言データとして7軸分定義する。breakpoints等の定数は`difficulty.py`/`night.py`から
+     ここへ移動（定数の片側import原則）。
+  2. **C-2 評価ロジックのレジストリ駆動化**: 汎用評価関数（スカラー/配列両対応）が
+     `AxisDefinition`を読んでスコアを返す形にし、`difficulty.py`の`*_difficulty`
+     スカラー関数を定義参照の薄いラッパへ（外部シグネチャ不変）、`*_array`個別実装は
+     廃止して同一定義から導出（**T240で増えたスカラー/配列二重実装の解消**）。
+     `compute_edge_axis_scores`/`compute_edge_costs_bulk`の軸ループを
+     `AXIS_DEFINITIONS`駆動へ置き換え、軸ごとのハードコード行を消す。
+  3. **B-1 内部dict化**: `AxisDifficulties`（NamedTuple）→`dict[axis_id, float | None]`、
+     `evaluate_axis_difficulties`をレジストリループの薄い関数へ。両エンジンの
+     区間ビルダー追従。
+  4. **B-2 重みのdict化**: `RoutePreference`→axis_idキーの重み辞書（既知axis_id集合に
+     対する全キー必須バリデーションは維持）、`route_preference.yaml`のキーをaxis_idへ、
+     API層`RoutePreferenceWeights`→dict形式へ一般化。OpenAPI再生成＋フロント追従
+     （`evaluationAxes.ts`の手書き対応表`PREFERENCE_WEIGHT_KEY_BY_AXIS_ID`廃止、
+     `WeightPanel`のyamlミラーのaxis_idキー化）。`AXIS_WEIGHT_FIELD_TO_AXIS_ID`・
+     `_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`の手書き対応表を削除。
+  5. 整合: `registry_defaults.py`（表示カタログ）と`AXIS_DEFINITIONS`（評価定義）の
+     軸集合突き合わせテスト、docs/architecture.md追従（同一コミット）。
+  - 見送り（本Part内で判断）: `RouteSegmentDetail`の軸別固定フィールドのdict化は
+    ADRでも「検討」止まりのため今回は据え置く。**保留の影響**: 軸を追加する際、
+    評価・重み系はデータ変更のみで済むようになる一方、区間詳細表示（route.py＋
+    両エンジンの区間ビルダー＋フロントのrouteStyleModes）へは引き続き軸ごとの
+    手書き追記が必要なまま残る（ルート生成・探索コストはブロックされない。
+    表示系の追従漏れは新軸の区間色分けが出ないという形で顕在化する）。
+    必要になった時点で別タスクとして起票する。
+
+- **Part 2実装メモ（2026-08-23完了、ブランチ`t221-registry`）**:
+  - **C-1/C-2＋B-1（コミット`522e957`）**: 新規`domain/axis_definitions.py`に
+    `AXIS_DEFINITIONS`（7軸の材料・shape・パラメータ・既定重みの宣言データ。辞書の
+    挿入順が合成の加算順として意味を持つ——Neumaier加算のビット一致条件）と
+    汎用評価関数`evaluate_axis_scalar`/`evaluate_axis_array`を実装。
+    `difficulty.py`/`night.py`のスカラー関数は定義参照の互換ラッパ（None・負値ガードのみ
+    担当）となり、`*_difficulty_array`群を削除して**T240で生じたスカラー/配列二重実装を
+    解消**。`compute_edge_axis_scores`/`compute_edge_costs_bulk`/
+    `axis_inspector_breakdown`/`evaluate_axis_difficulties`の軸ループをすべて
+    `AXIS_DEFINITIONS`駆動化（軸ごとの1行ハードコードが消滅）。`AxisDifficulties`は
+    axis_idキーの辞書＋compositeへ一般化。
+  - **B-2（コミット`20cd840`）**: `RoutePreference`をaxis_idキーの重み辞書`weights`へ
+    一般化（既定値は`AXIS_DEFINITIONS.default_weight`が単一ソース、部分指定は既定値補完・
+    未知キーはエラー、night動的化は`with_weight()`）。手書き対応表
+    `AXIS_WEIGHT_FIELD_TO_AXIS_ID`・`_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`・
+    `preference_to_axis_weights`を削除。API層`RoutePreferenceWeights`はRootModel(dict)化
+    （全axis_id明示＋非負の検証で「省略時に既定値が黙って入らない」従来方針を維持）。
+    `route_preference.yaml`のキーをaxis_idへ移行。`axis-catalog.json`へ
+    `preference_defaults`を追加し、フロントの既定重み手書きミラー・
+    `PREFERENCE_WEIGHT_KEY_BY_AXIS_ID`対応表を廃止（キー集合の突き合わせは
+    `evaluationAxes.test.ts`が生成物と機械照合）。OpenAPI再生成＋型追従、
+    docs/architecture.md追従（重み表・APIサンプル・1本道・レジストリ節）。
+  - **検証**: backend全1077件green・frontend全501件green・tsc green。dev DB実データ
+    54,020エッジでscalar/bulk全件一致（不一致0）。`bench_evaluate_graph`は同一負荷条件の
+    masterと同水準（性能回帰なし。並行セッション負荷で絶対値は不安定なためmin値で比較、
+    68k: 1.17s vs 1.57s / 121k: 2.40s vs 2.50s）。実機API検証: 旧形式キー422拒否・
+    部分指定422拒否・新形式全軸で生成成功（road_graph、5候補）＋conditionsエコー一致。
+  - **達成状態**: 既存4テンプレート＋既存材料で表現できる新しい軸は、
+    `AXIS_DEFINITIONS`への1エントリ追加＋`registry_defaults.py`の表示登録＋生成物再生成
+    だけで、探索コスト・区間インスペクタ・重みAPI/UI（スライダー・既定値）まで反映される。
+    残る手書き追記は区間詳細表示（`RouteSegmentDetail`固定フィールド、上記保留）のみ。
+  - **残作業（保留、影響範囲付き）**:
+    1. **masterへの統合**: 完了（2026-08-23、並行セッションのT250〜T252-255コミット後に
+       マージ。コンフリクトはdocs/improvement-plan.mdのみで、`page.tsx`はT250側の変更と
+       自動マージされた）。
+    2. **研究タブ重みUIのPlaywright実機確認**: worktree環境と並行セッションの
+       資源衝突（devポート・dev DB）を避けるためmaster統合後に実施する。
+       影響: 万一UI表示の崩れがあっても検知が統合後になる（機能面はWeightPanel等の
+       ユニットテスト501件と実機API検証で担保済み。重みUIは研究モード限定のため
+       一般導線への影響なし）。
+  - Stage D（レジストリDB化）・Stage E（GUI編集画面）は引き続き製品判断待ち
+    （本エントリ冒頭のトリガー・ADR参照。T221自体はPart 2完了でStage Cまで到達）。
 
 ### - [x] T222. Overpassライブ経路（`repository`未指定構成）の削除 規模M（2026-08-23完了）
 
@@ -1708,20 +1786,21 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 実機チューニング済みの現行操作性（touch-action・スワイプ閉じ・ホイール変換等）
   と同等以上をPlaywright＋実機確認。
 
-## 残タスクの優先順位（2026-08-23再整理・第11版）
+## 残タスクの優先順位（2026-08-23再整理・第12版）
 
-第10版以降、統合レビュー第7回（健全度89/100、P0/P1ゼロ）の起票・対応を実施した。
-統合-2（T221背景追記）・統合-3（T249、軽微一括）は即時対応済み。統合-1はT248として
-起票し、T229を統合クローズした。第11版として更新した。
+第11版以降、T221 Part 2（Stage B+C、評価軸のレジストリ駆動化・重みのdict化）を
+ユーザー指示で実施・完了し（ブランチ`t221-registry`→masterへマージ済み、T221エントリの
+実装メモ参照）、並行セッションでT250（モバイル上部バーUI）完了・T251（UIライブラリ調査）
+完了・T252〜T255起票が行われた。第12版として両セッションの結果を統合した。
 
 - **指示待ち（トリガー成立済み）**:
-  1. **T221**（評価軸のフルレジストリ駆動化、規模L・方向性のみ承認済み）: 指示待ち。
-     Stage AはT239で実施済み。T240のベクトル化によりStage B以降の価値が上がった
-     （スカラー/配列二重実装の解消、T221エントリの2026-08-23追記参照）。
-  2. T242の残課題（標高バックフィルの定期再実行、新規splitされたEdgeへの反映）を
+  1. T242の残課題（標高バックフィルの定期再実行、新規splitされたEdgeへの反映）を
      自動化するか都度手動実行に留めるかの方針決定。指示待ち。
-  - **T252〜T255**（UIライブラリ導入Phase0〜3、規模S〜M〜L）: 並行して進行中の別セッションの
-    作業が完了してから着手指示待ち（2026-08-23）。T252→T253→T254→T255の順で着手する。
+  2. **T221 Stage D/E**（レジストリDB化・GUI編集画面）: 製品判断待ち（GUI編集の
+     開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ無効化条件との整合）。
+  3. **T252〜T255**（UIライブラリ導入Phase0〜3、規模S〜M〜L）: 並行セッションの完了待ち
+    としていたが、T221 Part 2のマージによりトリガー成立。着手指示待ち（2026-08-23）。
+    T252→T253→T254→T255の順で着手する。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
@@ -1742,10 +1821,11 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-**サマリ（10タスク）**: 指示待ち2件（T221・T242残課題）／
+**サマリ（14タスク）**: 指示待ち6件（T242残課題・T221 Stage D/E・T252〜T255）／
 トリガー未到達8件（T248・T206・T145a・T105・T127・T145・T207・T208）。
-T209・T223・T241は調査完了・T242〜T247・T249は実装完了・T229はT248へ統合クローズ
-のため本リストから除外した。安全網の回復3件（T225・T224・T230）とレビュー指摘の
+T209・T223・T241は調査完了・T242〜T247・T249〜T251は実装/調査完了・T229はT248へ
+統合クローズ・T221はPart 2（Stage B+C）まで実装完了（masterへマージ済み）のため
+本リストの指示待ちから外した。安全網の回復3件（T225・T224・T230）とレビュー指摘の
 消化5件（T226〜T228・T231・T232）、およびT222（Overpassライブ経路削除）は全て完了済み。
 
 ---

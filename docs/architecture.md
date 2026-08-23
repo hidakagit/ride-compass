@@ -247,7 +247,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   単一の情報源として持つ。
 - **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
-  `night_weight`をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
+  night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
   街灯・トンネルタグのみに基づき不変、重みの掛け替えだけで動的化）。両エンジンで判定粒度が
   異なる非対称が意図的に残る（`OpenRouteServiceEngine`は区間ごとの推定到達時刻、
   `RoadGraphEngine`は出発時刻1点のみで全区間へ一様適用。探索中は到達時刻が未確定という
@@ -366,8 +366,9 @@ RideCompass/
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239: 7軸の変換ロジックが還元される4テンプレート（evaluate_breakpoint_linear/evaluate_categorical/evaluate_flag_sum/evaluate_recipe_then_breakpoint_linear）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
-        difficulty.py                    ✅ AxisDifficulties（7軸）, evaluate_axis_difficulties, accident_difficulty/gradient_difficulty等の軸別difficulty関数（Step9で標高/風/路面のみ導入、P1/T50/T138/T139/T149で7軸へ再編。7章参照）。T239で内部実装をaxis_templates.pyのテンプレート呼び出しへ差し替え（外部契約不変）。各`*_difficulty_array`（T240、evaluate_graphベクトル化専用の配列版）も同居
-        night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。night_difficulty_array（T240、配列版）も同居
+        axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
+        difficulty.py                    ✅ AxisDifficulties（axis_idキーの軸別difficulty辞書＋composite、T221 Stage Bでdict化）, evaluate_axis_difficulties（AXIS_DEFINITIONSをループする薄い関数）, accident_difficulty/gradient_difficulty等の軸別difficulty互換ラッパ（Noneガード・負値ガードのみ担い変換はaxis_definitions.pyへ委譲）。composite_difficulty/distance_weighted_difficultyも同居（7章参照）
+        night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。T221 Stage B/Cでnight_materials（lit/tunnelタグ→材料フラグ解決）へ再編、加点値はaxis_definitions.pyのnight軸定義へ移動
         twilight.py                      ✅ 改善計画T173: is_night（astralライブラリで市民薄明を判定、動的気象レイヤー参照）
         wind_grid.py                     ✅ 改善計画T178フォローアップ・T183: 風・降水延長予報の格子点マップ（固定格子生成、外部API非依存の純粋座標計算。動的気象レイヤー参照）
         jma_warning.py                    ✅ 改善計画T205: JMA警報コード対応表（気象庁公式コード表を典拠）とサイクリング関連種別への絞り込み、3段階レベル導出、電文kinds配列からのActiveWarning抽出
@@ -591,8 +592,8 @@ Request:
 Request（評価重みの上書き。研究用・省略可。docs/research-interface-review-2026-08-15.md §10-1）:
 { ...上記に加えて,
   "scoring_weights": { "distance_weight":0.1, "elevation_weight":0.2, "wind_weight":0.3, "road_weight":0.4 },
-  "route_preference": { "elevation_weight":0.15, "road_weight":0.19, "wind_weight":0.26, "stop_weight":0.20,
-    "car_stress_weight":0.20, "accident_weight":0.08, "night_weight":0.0 },
+  "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
+    "car_stress":0.20, "accident":0.08, "night":0.0 },
   "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
   "road_suitability_recipe": { "base_by_highway": { "cycleway":1, "living_street":1, "residential":2,
     "unclassified":2, "track":2, "tertiary":3, "tertiary_link":3, "secondary":3, "secondary_link":3,
@@ -662,8 +663,8 @@ Response 200:
                        部分指定不可の説明と対応） */
     "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5,
     "scoring_weights": { "distance_weight":0.30, "elevation_weight":0.15, "wind_weight":0.30, "road_weight":0.25 },
-    "route_preference": { "elevation_weight":0.15, "road_weight":0.19, "wind_weight":0.26, "stop_weight":0.20,
-      "car_stress_weight":0.20, "accident_weight":0.08, "night_weight":0.0 },
+    "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
+      "car_stress":0.20, "accident":0.08, "night":0.0 },
     "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
     "road_suitability_recipe": { "base_by_highway": { "...": "13highwayキー全件（略）" },
       "cycleway_track_adjustment":-2, "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
@@ -961,8 +962,8 @@ scoring.yaml（total_score）には含めない（stop_weightと同じ
 続く改善計画T139で、安全度軸（旧`safety_weight`）自体を廃止した。highway・cycleway・
 maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側へ吸収済みのため重複実装せず、
 街灯・トンネル由来の部分のみ`domain/night.py: night_difficulty`として独立させた
-（既定重み`night_weight=0.0`で運用。街灯・トンネルを気にするユーザーが研究モードで
-個別に重みを上げる想定）。事故実績は元から独立軸（`accident_weight`）のため変更なし。
+（night軸の既定重み0.0で運用。街灯・トンネルを気にするユーザーが研究モードで
+個別に重みを上げる想定）。事故実績は元から独立軸（`accident`）のため変更なし。
 `domain/safety.py`・`safety_recipe.yaml`・関連API・地図の安全度レイヤーは表示用途
 （研究モードの内訳確認等）として一時的に残置していたが、本番投入前で移行リスクが
 無いことを踏まえ、改善計画T148で削除した（跡地はrecipe.pyの判定プリミティブ・
@@ -978,32 +979,45 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 
 ### 7軸の一覧と重み
 
-`domain/difficulty.py: evaluate_axis_difficulties`が7軸の生値と重みから軸別difficulty・
-合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する。重みは
+`domain/difficulty.py: evaluate_axis_difficulties`が材料値の辞書と重み辞書から軸別difficulty・
+合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する（改善計画T221 Stage B/Cで
+`AXIS_DEFINITIONS`をループする形へ再編、軸ごとの変換パラメータは
+`domain/axis_definitions.py`が単一ソース）。重みは
 [backend/app/route_preference.yaml](../backend/app/route_preference.yaml)：
 
-| 軸 | weight フィールド | 既定値 | 生値の単位 | 算出元 |
+| 軸 | axis_id（重み辞書のキー） | 既定値 | 生値の単位 | 算出元 |
 |---|---|---|---|---|
-| 標高（勾配） | `elevation_weight` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
-| 路面 | `road_weight` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
-| 風 | `wind_weight` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
-| 停止密度（交差点密度込み） | `stop_weight` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス（自転車インフラ込み） | `car_stress_weight` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で`traffic_weight`から改称） |
-| 事故密度 | `accident_weight` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
-| 夜間 | `night_weight` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
+| 標高（勾配） | `gradient` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
+| 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
+| 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
+| 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
+| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
+| 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
+| 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
+
+重みのキーは改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名からaxis_idへ統一した
+（`RoutePreference`はaxis_idキーの重み辞書`weights`を持ち、既定値は
+`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`が単一ソース。
+APIの`route_preference`・`route_preference.yaml`・フロントの重みUIもすべて同じaxis_idキー）。
 
 `scoring.yaml`（total_score・候補集合内相対評価）にはこの7軸のうち距離・標高・風・路面の
 4指標のみ残す（区間難易度と違い、停止密度以降の指標は候補間の「おすすめ度」の並び順には
 効かせない、というユーザー承認済みのスコープ判断。P1着手時に決定）。**軸を追加するときは
 必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
-→ domain純関数 → `evaluate_axis_difficulties`への追加 → `route_preference.yaml` →
-`AttributeRepository`＋ファサード対称委譲 → 両エンジン（`OpenRouteServiceEngine`/
-`RoadGraphEngine`）→ フロント`evaluationAxes.ts`のカタログ1行。エンジンファイルに軸固有の
-知識（SQL・タグ解釈）を書き足さない。**この1本道はコスト計算（ルーティング・研究モードの
-重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例・区間インスペクタ）への
+→ 材料の解決（既存材料で足りない場合のみ、抽出箇所は`compute_edge_axis_scores`・
+`compute_edge_costs_bulk`の材料辞書と`AttributeRepository`＋ファサード対称委譲）→
+`domain/axis_definitions.py: AXIS_DEFINITIONS`への定義データ追加（改善計画T221 Stage B/C。
+既存テンプレート＋既存材料の組み合わせならこの1エントリでスカラー/配列両経路の評価・
+区間インスペクタ・`evaluate_axis_difficulties`へ同時反映される）→ `route_preference.yaml` →
+フロント`evaluationAxes.ts`のカタログ。エンジンファイルに軸固有の知識（SQL・タグ解釈）を
+書き足さない。区間詳細表示（`RouteSegmentDetail`の軸別固定フィールド＋両エンジンの
+区間ビルダー＋フロントrouteStyleModes）は現状dict化しておらず、軸ごとの手書き追記が
+引き続き必要（T221 Part 2で据え置き判断、improvement-plan.md参照）。**この1本道はコスト計算
+（ルーティング・研究モードの重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例）への
 反映は別経路（下記「一次属性レジストリ・二次軸レジストリ」参照）** — 両者は現状レジストリ
 登録`register_axis()`を挟んで独立しており、軸を追加する際は両方を行う必要がある
-（改善計画T154、統合レビュー2026-08-19 overall F-2・consistency F-3）。
+（改善計画T154、統合レビュー2026-08-19 overall F-2・consistency F-3。軸ID集合の
+片側更新漏れは`test_registry_defaults.py`がAXIS_DEFINITIONSとの突き合わせで機械検知する）。
 
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
@@ -1016,13 +1030,15 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 `car_stress`/`accident`/`night`の6軸を登録。`wind`はレジストリ未登録＝独立項目のまま、
 `frontend/src/components/Map/axisLayers.ts`のコメント参照）。
 
-**レジストリが実際に駆動するのは表示メタデータのみ**で、コスト計算（`evaluate_axis_difficulties`
-の引数・`AXIS_WEIGHT_FIELD_TO_AXIS_ID`等）には接続されていない。T142実装時、各軸の
-`transform_fn`のシグネチャが軸ごとに大きく異なる（tags dict/数値/bool等）ため、動的解決
-（レジストリに登録するだけでコスト計算まで自動配線される完全な「レジストリ駆動」）は
-標準化コストが高いとして意図的に見送られた。このため軸を追加するときは、上記「7軸の一覧と
-重み」の1本道（コスト計算側）と、本レジストリへの`register_axis()`登録（表示側、下記
-「レジストリ駆動の二次軸ランプレイヤー」参照）の**両方**が必要になる。
+**本レジストリ（`registry.py`）が駆動するのは表示メタデータのみ**。コスト計算側は
+改善計画T221 Stage B/Cで`domain/axis_definitions.py: AXIS_DEFINITIONS`（軸定義データ＋
+汎用評価関数）が参照元になった——T142当時に見送られた「レジストリ駆動のコスト計算」は、
+transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプレート＋パラメータをデータで
+宣言する」形（Stage Aの4テンプレートで全軸のシグネチャが標準化されたため可能になった）で
+実現している。表示レジストリと評価定義の軸ID集合は`test_registry_defaults.py`が機械的に
+突き合わせる。軸を追加するときは、上記「7軸の一覧と重み」の1本道（コスト計算側、
+中心はAXIS_DEFINITIONSへの1エントリ）と、本レジストリへの`register_axis()`登録（表示側、
+下記「レジストリ駆動の二次軸ランプレイヤー」参照）の**両方**が必要になる。
 
 `domain/recipe_definition.py`（T141、`Recipe`/`RecipeComponents`等でレシピをJSON/DB
 レコード形式へ統合する宣言的インフラとして新設）は、T142が別方式

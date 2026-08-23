@@ -33,6 +33,7 @@ from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_di
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
+from app.domain.night import night_materials
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
@@ -299,6 +300,9 @@ class OpenRouteServiceEngine:
         # 以前はscoring.yaml（候補集合内の相対評価用）を流用しており、RoadGraphEngineと
         # 地図の色分けが食い違っていたため、両エンジンでこちらへ統一した。
         preference = self._route_preference
+        # 改善計画T221 Stage B: 合成重み（axis_idキーの辞書）はpreferenceが直接持つ。
+        # 区間ごとにはnight軸の動的な掛け替え（T173、下記）だけを上書きする。
+        base_axis_weights = preference.weights
         segments = []
         cumulative_km = 0.0
         # 区間の道なり形状: サンプル点はルートgeometry上の点（インデックス付き）なので、
@@ -368,16 +372,25 @@ class OpenRouteServiceEngine:
             # arrival_time不明（風データ取得失敗等）のときは従来どおりnight_weightを
             # そのまま適用する（安全側、night.pyのlitタグ欠落時の判断と同じ考え方）。
             night_weight = (
-                preference.night_weight
+                base_axis_weights["night"]
                 if arrival_time is None or is_night(points[i], arrival_time)
                 else 0.0
             )
 
+            # 改善計画T221 Stage B/C: 材料値の辞書＋axis_idキーの重み辞書を渡す形へ変更
+            # （旧: 軸ごとの位置引数15個）。各材料の意味はdomain/axis_definitions.py参照。
             axis_difficulties = evaluate_axis_difficulties(
-                gradient_percent, wind_penalty, road_surface_good, stop_count_per_km,
-                car_stress, intersection_count_per_km, accident_count_per_km_year, tags,
-                preference.elevation_weight, preference.wind_weight, preference.road_weight, preference.stop_weight,
-                preference.car_stress_weight, preference.accident_weight, night_weight,
+                {
+                    "gradient_percent": gradient_percent,
+                    "wind_penalty": wind_penalty,
+                    "surface_good": road_surface_good,
+                    "stop_count_per_km": stop_count_per_km,
+                    "intersection_count_per_km": intersection_count_per_km,
+                    "accident_count_per_km_year": accident_count_per_km_year,
+                    "car_stress_level": car_stress,
+                    **night_materials(tags),
+                },
+                {**base_axis_weights, "night": night_weight},
             )
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
@@ -401,13 +414,13 @@ class OpenRouteServiceEngine:
                     road_surface_good=road_surface_good,
                     car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
-                    elevation_difficulty=axis_difficulties.elevation,
-                    wind_difficulty=axis_difficulties.wind,
-                    road_difficulty=axis_difficulties.road,
-                    stop_difficulty=axis_difficulties.stop,
-                    car_stress_difficulty=axis_difficulties.car_stress,
-                    accident_difficulty=axis_difficulties.accident,
-                    night_difficulty=axis_difficulties.night,
+                    elevation_difficulty=axis_difficulties.axes["gradient"],
+                    wind_difficulty=axis_difficulties.axes["wind"],
+                    road_difficulty=axis_difficulties.axes["surface_q"],
+                    stop_difficulty=axis_difficulties.axes["stop_density"],
+                    car_stress_difficulty=axis_difficulties.axes["car_stress"],
+                    accident_difficulty=axis_difficulties.axes["accident"],
+                    night_difficulty=axis_difficulties.axes["night"],
                     difficulty=axis_difficulties.composite,
                 )
             )

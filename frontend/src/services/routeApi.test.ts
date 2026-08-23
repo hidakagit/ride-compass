@@ -150,9 +150,9 @@ describe("routeApi", () => {
         distance_tolerance_km: 5,
         scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
         route_preference: {
-          elevation_weight: 0.15, road_weight: 0.19, wind_weight: 0.26, stop_weight: 0.2,
-          car_stress_weight: 0.2, accident_weight: 0.08,
-          night_weight: 0.0,
+          gradient: 0.15, surface_q: 0.19, wind: 0.26, stop_density: 0.2,
+          car_stress: 0.2, accident: 0.08,
+          night: 0.0,
         },
         car_stress_recipe: {
           lanes_low_threshold: 1, lanes_low_adjustment: -1,

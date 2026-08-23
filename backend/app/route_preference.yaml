@@ -1,36 +1,24 @@
 # Evaluation Engine（domain/evaluation.py）がEdge Costを算出する際の既定の重み。
 # scoring.yaml（ルート単位・candidate集合内の相対評価、RouteScorer用）とは対象が異なる
 # 別設定（Edge単位・単体のEdgeに対する絶対評価、EvaluationService用）のため分離している。
-# 標高・路面（Phase3）・風（Dynamic Data対応、Phase6）・停止密度（信号・横断歩道・一時停止・
-# 踏切、静的道路属性P1）に加え、車ストレス・交差点密度（静的道路属性P1残り）・
-# 事故密度（外部静的データソース T50残作業、8軸目）・安全度（改善計画: 安全度レシピ、9軸目）
-# も対象に含む。7項目の比率は、元の4項目（elevation:wind:road:stop = 0.20:0.35:0.25:0.20）の
-# バランス感を保ったまま0.75倍し、残り0.25を新3項目（traffic:infra:intersection =
-# 0.10:0.10:0.05、intersectionは出現頻度が低い想定のため半分）へ配分した参考値だった。
-# accident_weight・safety_weight追加時も既存項目の値は変更せず追加のみ行う（既存バランスを
-# 保ったまま新項目を足す方針。スコアの本格チューニングはP2据え置き）。safety_weightは
-# car_stress_weightと同じ暫定値（同じ1-4段階の軸のため）。
-# scoring.yamlには追加しない（ユーザー承認済みのスコープ判断。おすすめ度の並び順には
-# 効かせない、静的道路属性P1参照）。
-# 改善計画T138（設計プロンプト「評価システムの層構造再設計」）: 自転車インフラの独立軸
-# （infra_weight=0.10）を廃止し、車ストレス（旧「交通ストレス」、car_closeness()の
-# cycleway補正が既に自転車インフラの情報を反映するため独立に持たない）へ統合。
-# car_stress_weightへinfra_weight分をそのまま合算し(0.10+0.10=0.20)、既存項目全体への
-# 相対的な影響度は維持した。
-# 改善計画T139（同プロンプト）: 安全度軸（旧safety_weight=0.10）を廃止し、highway等由来の
-# 部分はT138で車ストレスへ既に統合済み、街灯・トンネル由来の部分をnight_weightとして
-# 分離した。night_weightは設計プロンプトの指示どおり既定0.0で運用する（既存の重み合計・
-# 経路・total_scoreへの影響が既定運用では一切出ないようにするため。街灯・トンネルを
-# 気にするユーザーは研究モードでnight_weightを個別に上げて使う想定）。
-# 改善計画T149（同プロンプト改訂2026-08-18）: 交差点密度の独立軸（旧intersection_weight=0.05）
-# を廃止し、停止密度（stop_difficultyがタグなし交差点を低い重みで加算）へ統合。
-# stop_weightへintersection_weight分をそのまま合算し(0.15+0.05=0.20)、既存項目全体への
-# 相対的な影響度は維持した。
+#
+# キーはaxis_id（backend/app/domain/axis_definitions.py: AXIS_DEFINITIONSと厳密一致、
+# 改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名キーからaxis_idキーへ移行。
+# 対応: elevation_weight→gradient / road_weight→surface_q / wind_weight→wind /
+# stop_weight→stop_density / car_stress_weight→car_stress / accident_weight→accident /
+# night_weight→night）。各軸のdefault_weight（AXIS_DEFINITIONS）と同値を既定として
+# 明示する（このファイルは運用時の上書き点。値の比率の根拠・軸再編の経緯
+# （T138自転車インフラ統合・T139安全度廃止/night分離・T149交差点密度統合等）は
+# git履歴の旧コメントとdocs/architecture.md 7章参照）。
+# scoring.yamlには停止密度以降の軸を追加しない（ユーザー承認済みのスコープ判断。
+# おすすめ度の並び順には効かせない、静的道路属性P1参照）。
+# nightは既定0.0で運用する（設計プロンプトの指示どおり。街灯・トンネルを気にする
+# ユーザーが研究モードで個別に上げる想定）。
 route_preference:
-  elevation_weight: 0.15
-  road_weight: 0.19
-  wind_weight: 0.26
-  stop_weight: 0.20
-  car_stress_weight: 0.20
-  accident_weight: 0.08
-  night_weight: 0.0
+  gradient: 0.15
+  surface_q: 0.19
+  wind: 0.26
+  stop_density: 0.20
+  car_stress: 0.20
+  accident: 0.08
+  night: 0.0

@@ -225,5 +225,14 @@
       "label": "区間形状",
       "shared": true
     }
-  ]
+  ],
+  "preference_defaults": {
+    "gradient": 0.15,
+    "wind": 0.26,
+    "surface_q": 0.19,
+    "stop_density": 0.2,
+    "car_stress": 0.2,
+    "accident": 0.08,
+    "night": 0.0
+  }
 }

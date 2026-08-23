@@ -5,7 +5,7 @@
 import pytest
 
 from app.domain import registry
-from app.domain.evaluation import _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID, AXIS_WEIGHT_FIELD_TO_AXIS_ID
+from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.registry_defaults import register_defaults
 
 
@@ -93,26 +93,6 @@ def test_register_defaults_is_idempotent_guarded():
         register_defaults()
 
 
-def test_registry_axis_ids_match_evaluation_axis_weight_mapping():
-    """registry_defaults.pyの登録軸集合と、evaluation.pyの
-    AXIS_WEIGHT_FIELD_TO_AXIS_ID（手書き辞書）の軸ID集合が一致することを検証する
-    （改善計画T156、統合レビュー2026-08-19 complexity F-2）。
-
-    レジストリはコスト計算（AXIS_WEIGHT_FIELD_TO_AXIS_ID・evaluate_axis_difficulties等）へは
-    接続されておらず（T142がtransform_fnの動的解決を意図的に見送ったため、改善計画T154・
-    docs/architecture.md「一次属性レジストリ・二次軸レジストリ」節参照）、両者は独立した
-    手書き管理のまま残っている。将来軸を追加・削除する際、片方だけ更新してももう片方の
-    既存テストは気づかない死角があったため、本テストで機械的に突き合わせる。
-
-    windはAXIS_WEIGHT_FIELD_TO_AXIS_IDにのみ存在し、レジストリには意図的に未登録
-    （`frontend/src/components/Map/axisLayers.ts`のコメント・`test_default_axes_are_registered_
-    without_conflict`参照）。
-    """
-    registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
-    weight_mapping_axis_ids = set(AXIS_WEIGHT_FIELD_TO_AXIS_ID.values())
-    assert weight_mapping_axis_ids - {"wind"} == registry_axis_ids
-
-
 def test_car_stress_axis_includes_motor_vehicle_access():
     """car_stress_level（domain/traffic.py）はmotor_vehicle=noを他の補正に関わらず1固定に
     する分岐でmotor_vehicle_accessを実際に消費しているが、登録軸のinputsには記載が
@@ -133,16 +113,21 @@ def test_all_primary_attributes_have_non_empty_labels():
         assert attr.label.strip() != "", f"{attr.attr_id} has empty label"
 
 
-def test_registry_axis_ids_match_evaluation_axis_difficulty_mapping():
-    """registry_defaults.pyの登録軸集合と、evaluation.pyの
-    _AXIS_DIFFICULTY_FIELD_TO_AXIS_ID（compute_edge_axis_scoresが返すべきaxis_id集合の
-    宣言。改善計画T220でcompute_edge_axis_scores自体はこの辞書を経由しなくなったが、
-    axis_id集合の宣言としては引き続き残している）の軸ID集合が一致することを検証する
-    （統合レビュー2026-08-19consistency F-2、T156完了時点ではAXIS_WEIGHT_FIELD_TO_AXIS_IDのみが
-    対象で、evaluation.py内で隣接定義されているこちらの辞書は対象外のまま残っていた）。
+def test_registry_axis_ids_match_axis_definitions():
+    """registry_defaults.py（表示カタログ用レジストリ）の登録軸集合と、
+    domain/axis_definitions.pyのAXIS_DEFINITIONS（評価ロジックが実際に参照する軸定義、
+    改善計画T221 Stage B/C）の軸ID集合が一致することを検証する（旧
+    `_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID`手書き辞書との突き合わせを置き換えた。
+    統合レビュー2026-08-19 consistency F-2の「片方だけ更新しても気づかない死角」対策は
+    この形で引き続き機械化する）。
 
-    windはこちらの辞書にも存在し、レジストリには意図的に未登録（前テストのdocstring参照）。
+    windはAXIS_DEFINITIONSに存在し、表示カタログには意図的に未登録
+    （前テストのdocstring参照）。
+
+    各軸のaxis_idフィールドが辞書キーと一致することも合わせて確認する。
     """
     registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
-    difficulty_mapping_axis_ids = set(_AXIS_DIFFICULTY_FIELD_TO_AXIS_ID.values())
-    assert difficulty_mapping_axis_ids - {"wind"} == registry_axis_ids
+    definition_axis_ids = set(AXIS_DEFINITIONS.keys())
+    assert definition_axis_ids - {"wind"} == registry_axis_ids
+    for axis_id, definition in AXIS_DEFINITIONS.items():
+        assert definition.axis_id == axis_id

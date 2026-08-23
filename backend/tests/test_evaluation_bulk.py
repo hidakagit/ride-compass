@@ -15,7 +15,6 @@ from app.domain.evaluation import (
     RoutePreference,
     compute_edge_cost,
     compute_edge_costs_bulk,
-    preference_to_axis_weights,
 )
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.recipe import DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE, DEFAULT_ROAD_SUITABILITY_RECIPE
@@ -23,15 +22,17 @@ from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE
 from app.domain.weather import WeatherConditions
 
 # 全軸の重みを非ゼロにし、compositeが「一部の軸だけ」で決まらないようにする
-# （デフォルトのnight_weight=0.0だと夜間軸のバグが合成結果に現れず見逃しうるため）。
+# （デフォルトのnight重み0.0だと夜間軸のバグが合成結果に現れず見逃しうるため）。
 PREFERENCE = RoutePreference(
-    elevation_weight=1.0,
-    wind_weight=1.0,
-    road_weight=1.0,
-    stop_weight=1.0,
-    car_stress_weight=1.0,
-    accident_weight=1.0,
-    night_weight=1.0,
+    weights={
+        "gradient": 1.0,
+        "wind": 1.0,
+        "surface_q": 1.0,
+        "stop_density": 1.0,
+        "car_stress": 1.0,
+        "accident": 1.0,
+        "night": 1.0,
+    }
 )
 
 WIND = WeatherConditions(
@@ -153,7 +154,7 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
 @pytest.mark.parametrize("penalty_strength", [1.0, 2.5])
 def test_bulk_matches_scalar_for_every_edge(wind, max_average_grade_percent, penalty_strength):
     graph, materials = _build_diverse_graph()
-    weights = preference_to_axis_weights(PREFERENCE)
+    weights = PREFERENCE.weights
 
     scalar_results = {
         edge_id: compute_edge_cost(

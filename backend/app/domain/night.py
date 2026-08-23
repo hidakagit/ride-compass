@@ -11,38 +11,36 @@
 `lit`タグ不在は「街灯なしとみなす」（unknown safeの原則から外れる意図的な選択。litタグは
 明示的に付与されている場合のみ確認できる情報で、多くのwayは単にタグが無いだけだが、
 「街灯があるかどうか分からない区間」を「街灯ありと同等に扱う」よりは安全側に倒すほうが
-夜間ライドの実用上望ましいと判断した）。既定重み`night_weight=0.0`（設計プロンプトの
-指示どおり）のため、この判断が既定の経路・スコアに影響することはない。
+夜間ライドの実用上望ましいと判断した）。既定重み`night`＝0.0（`domain/axis_definitions.py`）
+のため、この判断が既定の経路・スコアに影響することはない。
+
+改善計画T221 Stage B/C: 加点値・上限（フラグ加算テンプレートのパラメータ）は
+`domain/axis_definitions.py`のnight軸定義へ移した。本モジュールは「lit/tunnelタグ→
+材料フラグ」の解決（`night_materials`）と、既存呼び出し元向けの互換ラッパ
+（`night_difficulty`）だけを担う。配列版（旧`night_difficulty_array`）は
+`evaluate_axis_array`（同一定義から導出）へ置き換えたため削除した。
 """
 
-import numpy as np
-
-from app.domain.axis_templates import evaluate_flag_sum
+from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.recipe import tag_value_is
 
-_NO_LIT_SCORE = 50.0
-_TUNNEL_SCORE = 50.0
-_NIGHT_DIFFICULTY_CAP = 100.0
+
+def night_materials(tags: dict[str, str] | None) -> dict[str, bool | None]:
+    """way_tagsからnight軸の材料フラグ（no_lit/has_tunnel）を解決する。`tags`がNone
+    （way_tags未取得、他の材料タグ依存関数と同じ「データ無し」の表現）なら両方None
+    （＝night軸は評価されない）。"""
+    if tags is None:
+        return {"no_lit": None, "has_tunnel": None}
+    return {
+        "no_lit": not tag_value_is(tags, "lit", "yes"),
+        "has_tunnel": tag_value_is(tags, "tunnel", "yes"),
+    }
 
 
 def night_difficulty(tags: dict[str, str] | None) -> float | None:
-    """街灯なし・トンネルの有無から夜間の走りにくさ(0-100)を算出する。`tags`がNone
-    （way_tags未取得、他の材料タグ依存関数と同じ「データ無し」の表現）ならNone。
+    """街灯なし・トンネルの有無から夜間の走りにくさ(0-100)を算出する。
 
     「フラグ加算」テンプレート（改善計画T221 Stage A、T239）: 街灯なし・トンネルの
-    2フラグそれぞれに固定加点し合計する（`evaluate_flag_sum`）。
+    2フラグそれぞれに固定加点し合計する（パラメータは`AXIS_DEFINITIONS["night"]`）。
     """
-    if tags is None:
-        return None
-    no_lit = not tag_value_is(tags, "lit", "yes")
-    has_tunnel = tag_value_is(tags, "tunnel", "yes")
-    return evaluate_flag_sum([(no_lit, _NO_LIT_SCORE), (has_tunnel, _TUNNEL_SCORE)], cap=_NIGHT_DIFFICULTY_CAP)
-
-
-def night_difficulty_array(no_lit: np.ndarray, has_tunnel: np.ndarray) -> np.ndarray:
-    """`night_difficulty`の配列版（改善計画T240、`EvaluationService.evaluate_graph`の
-    numpyベクトル化専用）。tagsそのものはEdge単位の辞書のため配列化できず、呼び出し元
-    （`domain/evaluation.py: compute_edge_costs_bulk`）が抽出フェーズで
-    `tag_value_is`を1回ずつ呼んで作った`no_lit`/`has_tunnel`のbool配列を受け取る。
-    """
-    return evaluate_flag_sum([(no_lit, _NO_LIT_SCORE), (has_tunnel, _TUNNEL_SCORE)], cap=_NIGHT_DIFFICULTY_CAP)
+    return evaluate_axis_scalar(AXIS_DEFINITIONS["night"], night_materials(tags))

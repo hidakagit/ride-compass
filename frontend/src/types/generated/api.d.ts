@@ -716,27 +716,17 @@ export interface components {
         /**
          * RoutePreferenceWeights
          * @description Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
-         *     キーはroute_preference.yamlと同じ。
+         *     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
+         *     route_preference.yamlと同じ。
          *
-         *     domain/evaluation.pyのRoutePreferenceと同形だが、API境界では「フィールド省略時に
-         *     クラス既定値が黙って入る」ことを避けるため、全フィールド必須の別モデルにしている
-         *     （上書きするなら全軸を明示する）。
+         *     改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
+         *     （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が
+         *     黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する
+         *     （上書きするなら全軸を明示する、という従来の全フィールド必須方針のまま。
+         *     RoadSuitabilityRecipeOverride.base_by_highwayと同じ考え方）。値は非負。
          */
         RoutePreferenceWeights: {
-            /** Elevation Weight */
-            elevation_weight: number;
-            /** Road Weight */
-            road_weight: number;
-            /** Wind Weight */
-            wind_weight: number;
-            /** Stop Weight */
-            stop_weight: number;
-            /** Car Stress Weight */
-            car_stress_weight: number;
-            /** Accident Weight */
-            accident_weight: number;
-            /** Night Weight */
-            night_weight: number;
+            [key: string]: number;
         };
         /** RoutePreviewRequest */
         RoutePreviewRequest: {

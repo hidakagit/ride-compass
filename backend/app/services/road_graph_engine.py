@@ -43,7 +43,6 @@ from app.domain.evaluation import (
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_wind_penalty,
-    preference_to_axis_weights,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.graph import DirectedEdge, RoadGraph
@@ -226,7 +225,7 @@ class RoadGraphEngine:
         search_preference = (
             self._route_preference
             if night_active
-            else self._route_preference.model_copy(update={"night_weight": 0.0})
+            else self._route_preference.with_weight("night", 0.0)
         )
         # 改善計画T218a: 探索用Costへ事前計算済みgradientを組み込む（モジュールdocstring参照）。
         search_edge_costs = self._evaluation_service.evaluate_graph(
@@ -446,7 +445,7 @@ class RoadGraphEngine:
         preference = (
             self._route_preference
             if context.night_active
-            else self._route_preference.model_copy(update={"night_weight": 0.0})
+            else self._route_preference.with_weight("night", 0.0)
         )
         segments = []
         cumulative_km = 0.0
@@ -498,7 +497,7 @@ class RoadGraphEngine:
                 motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
                 car_stress_level_value=car_stress,
             )
-            weights = preference_to_axis_weights(preference)
+            weights = preference.weights
             _, composite_difficulty_value = compute_cost_from_axis_scores(
                 edge.distance_m, axis_scores, weights, self._penalty_strength
             )
