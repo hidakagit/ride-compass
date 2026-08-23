@@ -18,6 +18,12 @@ from app.batch.import_designations import (
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from tests.conftest import TEST_DATABASE_URL
 
+# xdist_group="postgis": designation_connは同じridecompass_test DBの
+# route_designationsテーブルを無条件DELETEで初期化する。他のpostgis系テスト
+# （test_match_designations.py等）と別workerで並走すると、互いのDELETEで
+# 相手のseed行が消えるflaky失敗を起こすため固定する（docs/testing.md参照）。
+pytestmark = pytest.mark.xdist_group(name="postgis")
+
 
 class TestKindSpecs:
     def test_covers_every_import_kind(self):

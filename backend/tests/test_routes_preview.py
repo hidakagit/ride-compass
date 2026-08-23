@@ -96,7 +96,9 @@ def test_preview_route_rejects_out_of_range_coordinates(body):
     assert response.status_code == 422
 
 
-def test_preview_route_is_rate_limited_per_client():
+def test_preview_route_is_rate_limited_per_client(monkeypatch):
+    # 上記2テストと同じ理由でORS経路へ固定する（road_graphは実DBアクセスが必要なため）。
+    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
     segment = RouteSegment(
         distance_km=5.0,
         duration_minutes=10.0,
