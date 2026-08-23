@@ -14,6 +14,7 @@ from app.domain.routing import (
     find_nearest_node_indexed,
     path_to_edge_ids,
     path_to_edge_ids_sparse,
+    routable_node_ids,
     shortest_path_node_ids,
     shortest_path_node_ids_sparse,
 )
@@ -120,6 +121,52 @@ def test_find_nearest_node_indexed_matches_linear_scan_for_random_points():
             latitude=35.6 + rng.uniform(-0.06, 0.06), longitude=139.7 + rng.uniform(-0.06, 0.06)
         )
         assert find_nearest_node_indexed(index, point) == find_nearest_node(graph, point)
+
+
+def test_routable_node_ids_excludes_nodes_with_only_hard_filtered_edges():
+    # 改善計画T256: 幹線道路（highway=trunk等）にしか接続していないNodeは、Hard
+    # Constraint適用後のsparse_graph上では次数0の孤立点になる。routable_node_idsは
+    # そのようなNodeを除外し、実際に経路探索可能なNodeだけを返す。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "isolated": _node("isolated", 35.700, 139.700),
+            "a": _node("a", 35.701, 139.701),
+            "b": _node("b", 35.702, 139.702),
+        },
+        edges={
+            "e_trunk": _edge("e_trunk", "isolated", "a"),  # Hard Constraintで除外される想定
+            "e_ok": _edge("e_ok", "a", "b"),
+        },
+    )
+    edge_costs = {
+        "e_trunk": _cost("e_trunk", cost=None, allowed=False),
+        "e_ok": _cost("e_ok", cost=100.0, allowed=True),
+    }
+    sparse_graph = build_sparse_graph(graph, edge_costs)
+
+    result = routable_node_ids(sparse_graph)
+
+    assert result == {"a", "b"}
+
+
+def test_build_node_spatial_index_with_node_ids_skips_isolated_nearest_node():
+    # 改善計画T256回帰テスト: 地理的に最も近いNode（"isolated"）が幹線道路にしか
+    # 接続していない場合、node_idsで絞った索引はそれを候補から除き、次に近い
+    # 経路探索可能なNode（"routable"）を返す。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "isolated": _node("isolated", 35.7001, 139.7001),  # クエリ点に最も近いが孤立
+            "routable": _node("routable", 35.702, 139.702),  # やや遠いが経路探索可能
+        },
+        edges={},
+    )
+    index = build_node_spatial_index(graph, node_ids={"routable"})
+
+    result = find_nearest_node_indexed(index, Coordinates(latitude=35.700, longitude=139.700))
+
+    assert result == "routable"
 
 
 def test_shortest_path_node_ids_picks_lower_cost_route():

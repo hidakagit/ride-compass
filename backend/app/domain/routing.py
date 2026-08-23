@@ -14,6 +14,7 @@ Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を�
 """
 
 import math
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import networkx as nx
@@ -142,6 +143,23 @@ def path_to_edge_ids_sparse(sparse_graph: SparseRoadGraph, path_node_ids: list[s
     ]
 
 
+def routable_node_ids(sparse_graph: SparseRoadGraph) -> set[str]:
+    """`sparse_graph`上で最低1本のEdge（発/着どちらでも可）を持つNode ID集合を返す
+    （改善計画T256）。
+
+    `build_sparse_graph`はHard Constraintで除外されたEdgeを含めないため、幹線道路
+    （`highway=trunk`等）にしか接続していないNodeは、除外後のグラフ上では次数0の
+    孤立点になる。孤立Nodeを最近傍探索の候補に含めたまま`find_nearest_node_indexed`を
+    呼ぶと、地理的には最も近くても実際には出発・経由不能なNodeが選ばれ、そこから先の
+    Dijkstra探索が常に失敗する（主要駅が国道の交差点に直接面している新宿駅・渋谷駅等で
+    実機確認、8方位すべてが`no path found`になる）。`build_node_spatial_index`へ
+    この集合を渡すことで、索引の候補を「実際に経路探索可能なNode」だけに絞れる。
+    """
+    rows, cols = sparse_graph.matrix.nonzero()
+    connected_indices = set(rows.tolist()) | set(cols.tolist())
+    return {sparse_graph.index_to_node_id[i] for i in connected_indices}
+
+
 def find_nearest_node(graph: RoadGraph, point: Coordinates) -> str | None:
     """総当たりで指定地点に最も近いNodeを探す。
 
@@ -190,13 +208,22 @@ DEFAULT_NODE_INDEX_CELL_SIZE_DEG = 0.01
 
 
 def build_node_spatial_index(
-    graph: RoadGraph, cell_size_deg: float = DEFAULT_NODE_INDEX_CELL_SIZE_DEG
+    graph: RoadGraph,
+    cell_size_deg: float = DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
+    node_ids: Collection[str] | None = None,
 ) -> NodeSpatialIndex:
     """`graph.nodes`からグリッドバケット索引を構築する。ノードが1つも無くても
     空のbucketsを持つ索引を返す（呼び出し元は`find_nearest_node_indexed`が
-    その場合Noneを返すことで区別すればよい）。"""
+    その場合Noneを返すことで区別すればよい）。
+
+    `node_ids`省略時は`graph.nodes`全件を対象にする。指定時はその集合に含まれるNode
+    のみを索引の候補にする（改善計画T256: `routable_node_ids`と組み合わせ、Hard
+    Constraint通過後に孤立するNodeを最近傍探索の候補から除外するために使う）。
+    """
+    ids = graph.nodes.keys() if node_ids is None else node_ids
     buckets: dict[tuple[int, int], list[str]] = {}
-    for node_id, node in graph.nodes.items():
+    for node_id in ids:
+        node = graph.nodes[node_id]
         key = (math.floor(node.latitude / cell_size_deg), math.floor(node.longitude / cell_size_deg))
         buckets.setdefault(key, []).append(node_id)
     return NodeSpatialIndex(graph=graph, cell_size_deg=cell_size_deg, buckets=buckets)

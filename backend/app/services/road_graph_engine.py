@@ -74,6 +74,7 @@ from app.domain.routing import (
     concat_node_paths,
     find_nearest_node_indexed,
     path_to_edge_ids_sparse,
+    routable_node_ids,
     shortest_path_node_ids_sparse,
 )
 from app.domain.weather import WeatherConditions
@@ -268,7 +269,13 @@ class RoadGraphEngine:
 
         # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
         # 経由地スナップ（1リクエストで最大17回）すべてで使い回す。
-        node_index = build_node_spatial_index(search.graph)
+        # 改善計画T256: 索引の候補はsparse_graph上で実際に経路探索可能な（Hard
+        # Constraint通過後も次数1以上の）Nodeのみに絞る。絞らないと、幹線道路
+        # （highway=trunk等）にしか接続していない地理的最近傍Node（新宿駅・渋谷駅等、
+        # 駅前が国道の交差点に直接面する場所で実機確認）が選ばれ、そこがHard Constraint
+        # 除外後のグラフ上では孤立点になるため、8方位すべてのDijkstra探索が
+        # "no path found"で失敗してしまう。
+        node_index = build_node_spatial_index(search.graph, node_ids=routable_node_ids(search.sparse_graph))
         origin_node = find_nearest_node_indexed(node_index, origin)
         if origin_node is None:
             return None
@@ -307,7 +314,9 @@ class RoadGraphEngine:
         if search is None:
             return None
 
-        node_index = build_node_spatial_index(search.graph)
+        # 改善計画T256: prepareと同じ理由で、索引の候補をsparse_graph上で経路探索可能な
+        # Nodeのみに絞る（幹線道路にしか接続していない孤立Nodeを除外）。
+        node_index = build_node_spatial_index(search.graph, node_ids=routable_node_ids(search.sparse_graph))
         origin_node = find_nearest_node_indexed(node_index, origin)
         destination_node = find_nearest_node_indexed(node_index, destination)
         if origin_node is None or destination_node is None:

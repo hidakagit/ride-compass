@@ -793,15 +793,25 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
 async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_search_graph():
     # 改善計画T218a: 0次ハードフィルタの勾配しきい値がprepareの探索グラフ構築にも
     # 反映されることを確認する（sparse_graphに該当Edgeが含まれなくなる）。
+    # 改善計画T256: 起点(node "a")が孤立しない（＝node_indexの候補から除外されない）よう、
+    # 除外されないEdge（a-c）も持たせておく（除外Edge1本だけの構成だと"a"自体が
+    # 孤立点になりprepareがNoneを返してしまい、この後のsparse_graph検証に届かない）。
     node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
     node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    node_c = Node(node_id="c", latitude=ORIGIN.latitude - 0.01, longitude=ORIGIN.longitude)
     coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
-    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
-    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    coord_c = Coordinates(latitude=node_c.latitude, longitude=node_c.longitude)
+    edge_steep = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    edge_flat = _edge("e2", "a", "c", ORIGIN, coord_c, highway="residential")
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={"a": node_a, "b": node_b, "c": node_c},
+        edges={"e1": edge_steep, "e2": edge_flat},
+    )
     steep_climb = ElevationAttribute(edge_id="e1", average_grade=15.0, data_source="test", calculated_at="t")
 
     generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}},
+        graph, way_tags={"e1": {}, "e2": {}},
         elevation_attributes_for_search={"e1": steep_climb},
         max_average_grade_percent=8.0,
     )
@@ -809,6 +819,37 @@ async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_se
     context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
 
     assert not _sparse_has_edge(context.sparse_graph, "a", "b")
+    assert _sparse_has_edge(context.sparse_graph, "a", "c")
+
+
+async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint():
+    # 改善計画T256回帰テスト: 起点に地理的に最も近いNodeが幹線道路（highway=trunk、
+    # 既定のHard Constraintで除外対象）にしか接続していない場合（新宿駅・渋谷駅等、
+    # 駅前が国道の交差点に直接面する場所で実機確認）、そのNodeはHard Constraint適用後の
+    # sparse_graph上で孤立点になる。origin_nodeにこの孤立Nodeがそのまま選ばれると、
+    # 半径・方位に関わらずDijkstra探索が常に失敗する（8方位全滅の原因だった）。
+    # 修正後は、地理的最近傍ではなく「実際に経路探索可能な」最近傍Nodeへスナップする。
+    trunk_hub = Node(node_id="trunk_hub", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    b = Node(node_id="b", latitude=ORIGIN.latitude + 0.001, longitude=ORIGIN.longitude)
+    c = Node(node_id="c", latitude=ORIGIN.latitude + 0.002, longitude=ORIGIN.longitude)
+    b_coord = Coordinates(latitude=b.latitude, longitude=b.longitude)
+    c_coord = Coordinates(latitude=c.latitude, longitude=c.longitude)
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={"trunk_hub": trunk_hub, "b": b, "c": c},
+        edges={
+            # 起点(ORIGIN)に厳密に一致する最近傍Nodeだが、接続Edgeはtrunkのみ
+            # （Hard Constraintで除外＝sparse_graph上で孤立）。
+            "e_trunk": _edge("e_trunk", "trunk_hub", "b", ORIGIN, b_coord, highway="trunk"),
+            # 経路探索可能な唯一の経路（bは孤立していない）。
+            "e_ok": _edge("e_ok", "b", "c", b_coord, c_coord, highway="residential"),
+        },
+    )
+    generator, _, _ = make_generator(graph, way_tags={"e_trunk": {}, "e_ok": {}})
+
+    context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    assert context.origin_node == "b"
 
 
 async def test_build_segment_details_night_difficulty_follows_context_night_active():
