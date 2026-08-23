@@ -1628,13 +1628,42 @@ T221エントリへの追記として実施済み（新番号なし）。
   1. **バルクUPSERTの最適化**: `_bulk_upsert`のINSERT ... ON CONFLICT一括化の粒度・
      asyncpg COPYの利用（PBF取込バッチが既にCOPY直行の前例を持つ）・
      「分割結果が前回と変わらないEdgeはUPSERT自体を省略する」差分検出等。
-  1a. **材料読み込み（冷パス、split不要な場合の読み出し）の最適化**: 本番実測で新規発見
-     （上記）。「材料5クエリ×タイル数」（T229）の本数そのものを減らす一括クエリ化、
-     または結果をより長寿命・永続的なキャッシュ（T12 Part 2）で吸収する方向を検討。
-     着手前に`_build_search_graph`（road_graph_engine.py）・
-     `get_search_materials_for_bbox`（graph_service.py）へsave_graph同様の
-     ステージ別1行INFOログ（タイル数・クエリ本数・所要時間）を追加すると、次回の
-     切り分けが速くなる（今回はDBログ・EXPLAIN無しで内訳分解できなかった）。
+  1a. **材料読み込み（冷パス、split不要な場合の読み出し）の最適化**（2026-08-24実装完了）:
+     本番実測で新規発見（上記）。「材料5クエリ×タイル数」（T229）のクエリ本数そのものを
+     削減する方向で対応した。
+     - **案A（`is_tile_cached`のバッチ化）**: タイル数ぶん個別に発行していた
+       `is_tile_cached`ループを、`RoadGraphRepository.get_cached_tiles`（新設、
+       `(zoom,x,y) IN (...)`の1クエリ）へ集約。`GraphService._ensure_tiles_cached`
+       として`get_or_build_graph_with_attributes`・`get_search_materials_for_bbox`
+       両方の入口で共有。**冷パス・温パスの両方**で毎リクエスト効く（温パスは新宿10kmで
+       7クエリ→2クエリ）。
+     - **案B（未キャッシュタイルの材料バッチ取得）**: `_build_search_materials_from_tile_cache`
+       を、未キャッシュな複数タイルぶんを個別に`_get_or_build_tile_materials`呼び出す
+       ループから、対象タイル群の外接矩形（`_bbox_covering_tiles`。XYZタイルは隙間なく
+       矩形を敷き詰めるため、連続タイルなら正確に一致する）へ1回のクエリセット（トポロジ＋
+       材料5種＝計6クエリ）へ集約する`_fetch_and_cache_missing_tile_materials`へ変更。
+       取得結果は`_partition_search_materials_by_tile`でタイルごとへ分割してプロセス内
+       キャッシュへ格納する（探索用の軽量取得はgeometryを持たないため、Edgeの両端Node
+       座標だけで帰属タイルを判定。境界をまたぐEdgeは取りこぼしを避けるため両方の
+       タイルへ多重登録する安全側の設計。既知の限界として、両端が同一タイル内にありながら
+       途中で隣接タイルへ湾曲してはみ出すEdgeは検出できない——OSM Wayは交差点で分割済みの
+       ため実害は限定的と判断）。新宿10km・z12タイル6枚で49クエリ→25クエリへ削減
+       （内訳は`_chunked`の50,000件チャンク化により5クエリ×6タイル=30が単純に9まで
+       落ちるわけではない点に注意、実測25）。
+     - **テスト**: `test_road_graph_repository.py`に`get_cached_tiles`のPostGIS統合テスト、
+       `test_graph_service.py`に境界をまたぐEdgeの多重登録・タイルごとの分割が正しいことを
+       確認する単体テスト・2タイルバッチ後に単一タイルのみを問い合わせてDB非アクセスかつ
+       正しい部分集合が返ることを確認する回帰テストを追加。backend全体1085件green。
+     - **検証で判明した限界（正直な結論）**: dev DB（localhost、ネットワーク遅延ゼロ）では、
+       新方式（バッチ、71.56秒）と旧方式（タイル毎、68.80秒、DBキャッシュ状態を揃えた
+       公平な比較）はほぼ同等で、有意な改善は確認できなかった。dev-localの律速はクエリ本数
+       ではなく転送・処理するデータ量（新宿10kmで約17万Edge）そのものであり、クエリ本数
+       削減の効果はラウンドトリップの遅延（レイテンシ）が支配的な環境でのみ現れる
+       （本番実測で冷46〜152秒だったのに対しdev-localは同等データ規模で30〜90秒台という
+       差自体が、本番はレイテンシ律速・dev-localはデータ量律速であることを裏付ける）。
+       **本番DBでの再実測はまだ実施していない**——クエリ本数削減（49→25、温7→2）という
+       設計上の効果自体は妥当だが、本番での実際の秒数改善はこの改修だけでは未確認。
+       次に着手する際はT12 ADR原則の実測主義に従い本番で再実測することを推奨する。
   2. **冷パスの体験設計**: 初回タッチの重い処理（split再構築）をリクエスト同期から
      切り離す選択肢（バックグラウンドウォームアップ・主要エリアの事前split・
      プログレス表示等）。T59の`_maybe_trigger_graph_build`（タイル閲覧起点の
@@ -1989,13 +2018,72 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   - 検証: `tsc --noEmit`・ESLint・frontend vitest 56ファイル505件・`next build`・
     Playwright smoke.spec.ts（standalone・workers=1）いずれもgreen。
 
-### - [ ] T254. Phase2（任意）: アコーディオンをRadix Accordionへ 規模S（2026-08-23起票） — トリガー: T253完了後、必要性が生じたら（現状で機能不満なし・優先度低）
+### - [x] T254. Phase2: アコーディオンをRadix Accordionへ 規模S（2026-08-23完了、事前見積もりを上回るM相当の作業になった）
 
 - 発端: T251の調査結果。サイドバー4ブロック（page.tsx）・MapLayersPanel・WeightPanel等の
   `<details>`をRadix Accordionへ置き換える。現状で機能不満はなく優先度は低いため、
   アニメーション等の明確な要望が出るまで見送ってもよい。
 - 完了条件: 既存の開閉挙動（デスクトップ「ルートを作る」ブロックの状態外部管理を含む）
   と同等以上、既存テストgreen。
+- **着手判断（2026-08-23）**: 実装前の調査で規模Sの見積もりを上回る3つの技術的課題
+  （button内buttonの無効なHTML・Radix Accordionの追加DOM階層によるCSS/テスト影響・
+  ネイティブ`<details>.open`へのテスト依存26箇所超）が判明したため、着手前にユーザーへ
+  規模超過を報告し方針を確認した（AskUserQuestion）。ユーザー判断「計画通り進める」を
+  受けて実施。
+
+- **実装メモ（2026-08-23完了）**:
+  1. **共通部品`Disclosure`を新設**（`frontend/src/components/Disclosure/`）。9ファイル・
+     15箇所超の`<details>/<summary>`をRadix Accordion（`type="single" collapsible`、
+     常に1項目のみ＝各セクションが独立開閉する既存の`<details>`と同じ挙動）でラップする
+     共通コンポーネント。`Accordion.Item`は`display:contents`で透過させ親CSSへの影響を
+     最小化。
+  2. **button内buttonの回避**: MapLayersPanel（LayerChip「表示」）・
+     RecipePanelSection（LayerChip「上書き」）の2箇所は見出し内に別のインタラクティブ
+     ボタンをネストしていた。Radix `Accordion.Trigger`は実体が`<button>`のため、
+     そのままネストすると無効なHTMLになる。`trailing` propでTrigger外（見出し行のflex
+     コンテナ内の兄弟）に配置する設計へ変更し、以前`<summary>`内クリックの既定動作
+     （details開閉）との衝突回避に必要だった`preventDefault`/`stopPropagation`を
+     両箇所から削除できた（構造的に開閉トリガーへ伝播しなくなったため不要に）。
+  3. **h3のtextContent汚染バグを実機不要で発見・修正**: 当初`trailing`をAccordion.Header
+     （h3）の中に置いたところ、h3のtextContentに見出しテキスト＋trailingの文言
+     （「勾配表示」等）が混入し、テキスト完全一致で検証する既存テストが複数破壊された。
+     `trailing`がある場合のみ見出し行の視覚的な横並び（flex row）を素の`<div>`が担い、
+     h3自体はTriggerだけを包む薄い意味付けに留める設計へ修正（trailingが無い単純な
+     場合は素のh3のみで済ませ余計なラップを増やさない）。
+  4. **ネイティブ`<details open]`>属性→Radix `data-state`のCSS移行**: 3ファイル
+     （MapLayersPanel/WeightPanel/recipeControls、他3ファイルはcomposesで追従）の
+     chevron回転セレクタを`.layerSection[open] > .layerHeader .chevron`から
+     `.layerTitle[data-state="open"] .chevron`（Triggerが自身にdata-stateを持つため
+     祖先属性セレクタが不要になった）へ書き換え、`::-webkit-details-marker`の
+     dead CSSを削除。page.tsx側3ブロックはネイティブ`<summary>`の既定ディスクロージャ
+     三角に頼っていたため（自前chevronが元々無かった）、Radix化でこれが失われる
+     退行を防ぐため`.blockChevron`を新設した。
+  5. **テストのjsdom依存差分**: 旧`<details>`はjsdomが閉じた中身も隠さずクエリ可能にする
+     （実ブラウザのUAスタイルとは異なる）挙動だったため、多数の既存テストが開閉状態を
+     意識せず中身を直接検証できていた。Radix Accordion.Contentは閉じるとネイティブ
+     `hidden`属性を持ち実ブラウザに忠実に隠れるため、46件のテストが一斉に失敗した
+     （CarStressRecipePanel/MotorVehicleDensityRecipePanel/RoadSuitabilityRecipePanel/
+     MapLayersPanelの4ファイル）。各ファイルのrenderヘルパーへ「レンダー直後に
+     閉じたAccordion.Triggerを全クリックして開く」ヘルパーを追加して解消（ネストした
+     Disclosureは1回のクエリで拾いきれない場合があるため変化が無くなるまで反復、
+     FieldLabelのPopover.Trigger・renderHintToggleの情報アイコンは同じ
+     `aria-expanded="false"`を持つが`aria-controls`の有無で区別し誤って開かないようにした）。
+     MapLayersPanel.test.tsxの`openSection`（`document.getElementById(...).open =
+     true`）はコンテナ内のトリガーを`fireEvent.click`で辿る方式へ変更（生DOMの
+     `.click()`だとReactのstate更新がact()で包まれず次のexpectまでに反映されないことが
+     あったため`fireEvent.click`を使用）。domIdは旧`<details id>`と同じ位置づけで
+     Trigger単体ではなくRoot（コンテナ）へ付け直した（`within()`によるセクション内
+     スコープ検索を保つため）。
+  - **実機確認（Playwright、一時spec・検証後削除）**: デスクトップでサイドバー3ブロック
+     （ルートを作る/研究/開発者）の開閉・aria-expanded・チェブロン回転を確認。研究タブの
+     ネストしたDisclosure（RecipePanelSection内のgroup）とLevelPicker（RadioGroup）の
+     組み合わせ動作、および見出し(h3)のtextContentにtrailingの文言が混入していないことを
+     実機でも確認（jsdomで見つけた問題の裏取り）。モバイル幅(390x844)でMapLayersPanelの
+     レイヤーセクション開閉とLayerChip操作がセクション開閉に影響しないことを確認。
+     スクリーンショットで視覚的な崩れ（チェブロン・上書きチップ・LevelPickerの色分け）が
+     無いことも確認した。
+  - 検証: `tsc --noEmit`・ESLint・frontend vitest 56ファイル505件・`next build`・
+    Playwright smoke.spec.ts（standalone・workers=1）いずれもgreen。
 
 ### - [ ] T255. Phase3: BottomSheet→vaul、DynamicLayerTimeSlider→Embla Carousel 規模M〜L（2026-08-23起票） — トリガー: T253完了後、着手指示（実機検証込みのため慎重に判断）
 
@@ -2021,8 +2109,9 @@ Phaseほど前Phaseの成果を安全網として使える）。**
      自動化するか都度手動実行に留めるかの方針決定。指示待ち。
   2. **T221 Stage D/E**（レジストリDB化・GUI編集画面）: 製品判断待ち（GUI編集の
      開放範囲・極端な重み設定への歯止め・T12 Part 2キャッシュ無効化条件との整合）。
-  3. **T254〜T255**（UIライブラリ導入Phase2〜3、規模S〜M〜L）: T253完了（2026-08-23、
-     T253エントリの実装メモ参照）によりトリガー成立。着手指示待ち。T254→T255の順で着手する。
+  3. **T255**（UIライブラリ導入Phase3、規模M〜L）: T253完了（2026-08-23、
+     T253エントリの実装メモ参照）によりトリガー成立。着手指示待ち。T254（完了）を経て
+     4件中もっともリスクが高い最終フェーズ。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
@@ -2043,9 +2132,9 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-**サマリ（13タスク）**: 指示待ち4件（T242残課題・T221 Stage D/E・T254〜T255）／
+**サマリ（13タスク）**: 指示待ち3件（T242残課題・T221 Stage D/E・T255）／
 トリガー未到達8件（T248・T206・T145a・T105・T127・T145・T207・T208）。
-T209・T223・T241は調査完了・T242〜T247・T249〜T253・T256は実装/調査完了・T229はT248へ
+T209・T223・T241は調査完了・T242〜T247・T249〜T254・T256は実装/調査完了・T229はT248へ
 統合クローズ・T221はPart 2（Stage B+C）まで実装完了（masterへマージ済み）のため
 本リストの指示待ちから外した。安全網の回復3件（T225・T224・T230）とレビュー指摘の
 消化5件（T226〜T228・T231・T232）、およびT222（Overpassライブ経路削除）は全て完了済み。

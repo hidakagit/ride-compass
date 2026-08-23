@@ -230,10 +230,6 @@
   list-style: none;
 }
 
-.referenceHeader::-webkit-details-marker {
-  display: none;
-}
-
 .referenceChevron {
   flex-shrink: 0;
   width: 0.5rem;
@@ -244,7 +240,10 @@
   transition: transform 0.15s ease;
 }
 
-.referenceSection[open] > .referenceHeader .referenceChevron {
+/* Radix Accordion.Triggerはopen中data-state="open"を自身へ持つ（T254、以前の
+   ネイティブ<details open>属性に代わるフック）。.referenceHeaderはTrigger自身の
+   クラス（見出し行全体がトリガーの単純なDisclosure利用のため）。 */
+.referenceHeader[data-state="open"] .referenceChevron {
   transform: rotate(45deg);
 }
 

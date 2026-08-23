@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import MapView from "@/components/Map/MapView";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
@@ -1620,16 +1621,22 @@ export default function Home() {
                 {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
                     編集は生成ボタンを押すまで地図へ影響しない（評価重み・車ストレスレシピの
                     上書きは独立した「研究」ブロックにあり、この契約の対象外）。 */}
-                <details
+                <Disclosure
                   className={styles.blockSection}
+                  triggerClassName={styles.blockSummary}
+                  bodyClassName={styles.blockBody}
+                  id={GENERATE_SECTION_TITLE_ID}
+                  summary={
+                    <>
+                      <span aria-hidden="true" className={styles.blockChevron} />
+                      ルートを作る
+                    </>
+                  }
                   open={generateOpen}
-                  onToggle={(e) => setGenerateOpen(e.currentTarget.open)}
+                  onOpenChange={setGenerateOpen}
                 >
-                  <summary id={GENERATE_SECTION_TITLE_ID} className={styles.blockSummary}>
-                    ルートを作る
-                  </summary>
-                  <div className={styles.blockBody}>{renderRouteSectionBody()}</div>
-                </details>
+                  {renderRouteSectionBody()}
+                </Disclosure>
 
                 {/* B. 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
                     地図の上（MapOverlayControls）にはON/OFFチップと適用中の条件の1行サマリだけを
@@ -1643,18 +1650,36 @@ export default function Home() {
                 {/* 研究: 研究モードのトグルと、それが有効化する評価重み・車ストレスレシピの
                     調整パネル。一般ユーザーは通常触らないためデフォルト閉の折りたたみにする
                     （開発者ブロックと同じ扱い）。 */}
-                <details className={styles.blockSection}>
-                  <summary className={styles.blockSummary}>研究</summary>
-                  <div className={styles.blockBody}>{renderResearchSectionBody()}</div>
-                </details>
+                <Disclosure
+                  className={styles.blockSection}
+                  triggerClassName={styles.blockSummary}
+                  bodyClassName={styles.blockBody}
+                  summary={
+                    <>
+                      <span aria-hidden="true" className={styles.blockChevron} />
+                      研究
+                    </>
+                  }
+                >
+                  {renderResearchSectionBody()}
+                </Disclosure>
 
                 {/* C. 開発者（旧称「設定」）: デバッグログ起動・疎通確認・キャッシュ更新など、
                     一般ユーザーは通常触らない運用/デバッグツール。デフォルト閉の折りたたみに
                     する（T30・T43）。 */}
-                <details className={styles.blockSection}>
-                  <summary className={styles.blockSummary}>開発者</summary>
-                  <div className={styles.blockBody}>{renderDeveloperSectionBody()}</div>
-                </details>
+                <Disclosure
+                  className={styles.blockSection}
+                  triggerClassName={styles.blockSummary}
+                  bodyClassName={styles.blockBody}
+                  summary={
+                    <>
+                      <span aria-hidden="true" className={styles.blockChevron} />
+                      開発者
+                    </>
+                  }
+                >
+                  {renderDeveloperSectionBody()}
+                </Disclosure>
               </>
             )}
           </aside>

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { FieldLabel, RecipePanelSection, withAutoEnable } from "@/components/Map/recipeControls";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
@@ -140,37 +141,45 @@ export default function WeightPanel({
             （route_scorer.py: RouteScorer.score、3次相当）、区間難易度の重みは
             route_preference.yamlの各軸[2次要素]と1:1対応する重み（下記コメント参照）で
             2次相当。表示順「3次→2次」は元々この並びだったため変更していない。 */}
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            <span className={styles.tierBadge}>3次</span>
-            おすすめ度の重み[候補一覧内の相対評価]
-          </summary>
-          <div className={styles.groupBody}>
-            {SCORING_FIELDS.map((field) => (
-              <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={handleScoringChange} />
-            ))}
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              <span className={styles.tierBadge}>3次</span>
+              おすすめ度の重み[候補一覧内の相対評価]
+            </>
+          }
+        >
+          {SCORING_FIELDS.map((field) => (
+            <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={handleScoringChange} />
+          ))}
+        </Disclosure>
 
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            <span className={styles.tierBadge}>2次</span>
-            区間難易度の重み[絶対評価]
-          </summary>
-          <div className={styles.groupBody}>
-            {PREFERENCE_FIELDS.map((field) => (
-              <div key={String(field.key)} className={styles.fieldGroup}>
-                <WeightInput field={field} values={routePreference} onChange={handlePreferenceChange} />
-                {/* keyof（index signature型）はstring | numberに広がるためStringで確定させる */}
-                {renderPreferenceFieldExtra?.(String(field.key))}
-              </div>
-            ))}
-            {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
-            <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              <span className={styles.tierBadge}>2次</span>
+              区間難易度の重み[絶対評価]
+            </>
+          }
+        >
+          {PREFERENCE_FIELDS.map((field) => (
+            <div key={String(field.key)} className={styles.fieldGroup}>
+              <WeightInput field={field} values={routePreference} onChange={handlePreferenceChange} />
+              {/* keyof（index signature型）はstring | numberに広がるためStringで確定させる */}
+              {renderPreferenceFieldExtra?.(String(field.key))}
+            </div>
+          ))}
+          {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
+          <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
+        </Disclosure>
 
         <button
           type="button"

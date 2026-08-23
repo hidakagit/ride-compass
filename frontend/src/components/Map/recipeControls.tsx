@@ -3,6 +3,7 @@
 import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as RadioGroup from "@radix-ui/react-radio-group";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import { InfoIcon } from "./icons";
 import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
@@ -43,32 +44,35 @@ export function RecipePanelSection({
   children: React.ReactNode;
 }) {
   return (
-    <details className={styles.panelSection}>
-      <summary className={styles.panelHeader}>
-        <h3 className={styles.panelTitle}>
+    <Disclosure
+      className={styles.panelSection}
+      headerClassName={styles.panelHeader}
+      triggerClassName={styles.panelTitle}
+      bodyClassName={styles.panelBody}
+      summary={
+        <>
           <span aria-hidden="true" className={styles.panelChevron} />
           {title}
-        </h3>
-        {/* MapLayersPanel.tsxのhandleRoadLegendToggle等と同じ理由でpreventDefault/
-            stopPropagationする（summary内クリックのdetails開閉デフォルト動作との衝突回避）。 */}
+        </>
+      }
+      // LayerChipはAccordion.Trigger（button）の兄弟として配置する（trailing）。
+      // button内buttonという無効なHTMLを避けるためで、以前<summary>内で必要だった
+      // preventDefault/stopPropagation（開閉のデフォルト動作との衝突回避）は、
+      // Trigger外に出たことで不要になった。
+      trailing={
         <LayerChip
           label="上書き"
           ariaLabel={overrideAriaLabel}
           on={overrideEnabled}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOverrideEnabledChange(!overrideEnabled);
-          }}
+          onClick={() => onOverrideEnabledChange(!overrideEnabled)}
         />
-      </summary>
-      <div className={styles.panelBody}>
-        {!overrideEnabled && (
-          <p className={styles.panelOffHint}>上書きはOFFです[値を変更すると自動でONになります]</p>
-        )}
-        {children}
-      </div>
-    </details>
+      }
+    >
+      {!overrideEnabled && (
+        <p className={styles.panelOffHint}>上書きはOFFです[値を変更すると自動でONになります]</p>
+      )}
+      {children}
+    </Disclosure>
   );
 }
 
@@ -227,12 +231,17 @@ export function CarClosenessReferenceSection({
   };
 }) {
   return (
-    <details className={styles.referenceSection}>
-      <summary className={styles.referenceHeader}>
-        <span aria-hidden="true" className={styles.referenceChevron} />
-        土台: 道路適正＋自動車密度[編集は各パネルで]
-      </summary>
-      <div className={styles.referenceBody}>
+    <Disclosure
+      className={styles.referenceSection}
+      triggerClassName={styles.referenceHeader}
+      bodyClassName={styles.referenceBody}
+      summary={
+        <>
+          <span aria-hidden="true" className={styles.referenceChevron} />
+          土台: 道路適正＋自動車密度[編集は各パネルで]
+        </>
+      }
+    >
         <ul className={styles.referenceTags}>
           <li className={styles.referenceTag}>
             専用レーン: {formatSignedTerm(roadSuitabilityRecipe.cycleway_track_adjustment)}
@@ -259,8 +268,7 @@ export function CarClosenessReferenceSection({
             指定路線: {formatSignedTerm(motorVehicleDensityRecipe.designation_adjustment)}
           </li>
         </ul>
-      </div>
-    </details>
+    </Disclosure>
   );
 }
 

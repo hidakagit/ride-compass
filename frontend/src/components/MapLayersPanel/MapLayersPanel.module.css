@@ -76,10 +76,6 @@
   min-height: 2.2rem;
 }
 
-.layerHeader::-webkit-details-marker {
-  display: none;
-}
-
 .layerTitle {
   display: flex;
   align-items: center;
@@ -99,7 +95,9 @@
   transition: transform 0.15s ease;
 }
 
-.layerSection[open] > .layerHeader .chevron {
+/* Radix Accordion.Triggerはopen中data-state="open"を自身（.layerTitle）へ持つ
+   （T254、以前のネイティブ<details open]>属性に代わるフック）。 */
+.layerTitle[data-state="open"] .chevron {
   transform: rotate(45deg);
 }
 

@@ -25,10 +25,6 @@
   list-style: none;
 }
 
-.groupHeader::-webkit-details-marker {
-  display: none;
-}
-
 .groupChevron {
   flex-shrink: 0;
   width: 0.5rem;
@@ -39,7 +35,10 @@
   transition: transform 0.15s ease;
 }
 
-.group[open] > .groupHeader .groupChevron {
+/* Radix Accordion.Triggerはopen中data-state="open"を自身へ持つ（T254、以前の
+   ネイティブ<details open>属性に代わるフック）。.groupHeaderはTrigger自身のクラス
+   （見出し行全体がトリガーの単純なDisclosure利用のため）。 */
+.groupHeader[data-state="open"] .groupChevron {
   transform: rotate(45deg);
 }
 

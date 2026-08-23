@@ -11,6 +11,7 @@ import {
 } from "@/components/Map/recipeControls";
 import { CAR_STRESS_COLORS } from "@/components/Map/staticAttributeLayers";
 import { DEFAULT_ROAD_SUITABILITY_RECIPE, type RoadSuitabilityRecipe } from "@/components/Map/carStressExpression";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import styles from "./RoadSuitabilityRecipePanel.module.css";
 
 // 「道路適正」（highway別基準値＋cycleway補正）の研究モード上書きUI（改善計画: 車との近さ
@@ -155,50 +156,58 @@ export default function RoadSuitabilityRecipePanel({
       onOverrideEnabledChange={onOverrideEnabledChange}
     >
       <div className={styles.groups}>
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            道路種別ごとの基準値[低→高]
-          </summary>
-          <div className={styles.groupBody}>
-            <table className={styles.table}>
-              <tbody>
-                {HIGHWAY_ORDER.map((highway) => (
-                  <HighwayRow
-                    key={highway}
-                    highway={highway}
-                    value={recipe.base_by_highway[highway]}
-                    onChange={(hw, next) =>
-                      handleRecipeChange({
-                        ...recipe,
-                        base_by_highway: { ...recipe.base_by_highway, [hw]: next },
-                      })
-                    }
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              道路種別ごとの基準値[低→高]
+            </>
+          }
+        >
+          <table className={styles.table}>
+            <tbody>
+              {HIGHWAY_ORDER.map((highway) => (
+                <HighwayRow
+                  key={highway}
+                  highway={highway}
+                  value={recipe.base_by_highway[highway]}
+                  onChange={(hw, next) =>
+                    handleRecipeChange({
+                      ...recipe,
+                      base_by_highway: { ...recipe.base_by_highway, [hw]: next },
+                    })
+                  }
+                />
+              ))}
+            </tbody>
+          </table>
+        </Disclosure>
 
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            自転車インフラ補正[cycleway]
-          </summary>
-          <div className={styles.groupBody}>
-            {CYCLEWAY_FIELDS.map((field) => (
-              <ScalarInput
-                key={field.key}
-                field={field}
-                recipe={recipe}
-                onChange={handleRecipeChange}
-                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-              />
-            ))}
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              自転車インフラ補正[cycleway]
+            </>
+          }
+        >
+          {CYCLEWAY_FIELDS.map((field) => (
+            <ScalarInput
+              key={field.key}
+              field={field}
+              recipe={recipe}
+              onChange={handleRecipeChange}
+              negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+              positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+            />
+          ))}
+        </Disclosure>
 
         <button
           type="button"

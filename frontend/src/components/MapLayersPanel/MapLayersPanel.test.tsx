@@ -57,13 +57,30 @@ function baseProps() {
   };
 }
 
-// 各レイヤーは折りたたみ（<details>、モバイル実機フィードバック対応T38）でデフォルト全閉のため、
-// セクション内の凡例・絞り込み等（renderSectionBodyの出力）を検証するテストは先にこれで開く。
-// 見出し（h3）やON/OFFチップ（LayerChip）は<summary>直下にあり閉じていても常に見えるため
-// 開く必要はない。
+// 各レイヤーは折りたたみ（Disclosure/Radix Accordion、モバイル実機フィードバック対応T38）で
+// デフォルト全閉のため、セクション内の凡例・絞り込み等（renderSectionBodyの出力）を検証する
+// テストは先にこれで開く。見出しやON/OFFチップ（LayerChip）はトリガーの外に出ており閉じていても
+// 常に見えるため開く必要はない。domIdはDisclosureのコンテナ（Root）に振られている
+// （MapLayersPanel.tsx参照。以前はネイティブ<details>の.open書き換えだったが、T254の
+// Radix Accordion化でコンテナ内のトリガー（button）を辿ってクリックする方式へ変更した）。
 function openSection(id: MapLayerId) {
-  const details = document.getElementById(layerSectionDomId(id));
-  if (details instanceof HTMLDetailsElement) details.open = true;
+  // 生DOMの.click()ではなくfireEvent.click（act()で包まれる）を使う。ネイティブ<details>の
+  // .open書き換えと違いRadix Accordionの開閉はReactのstate更新を伴うため、act()無しだと
+  // 次のexpectまでに再描画が反映されないことがある。
+  const button = document.getElementById(layerSectionDomId(id))?.querySelector("button");
+  if (button) fireEvent.click(button);
+}
+
+// 個別セクションの開閉自体ではなく中身の挙動を検証する大半のテストのために、レンダー直後に
+// 全セクションを開く一括版。Accordion.Triggerだけを`[aria-controls]`の有無で区別する
+// （情報アイコンのrenderHintToggleボタンやFieldLabelのPopover.Triggerも同じ
+// aria-expanded="false"を持つが、いずれもaria-controlsを持たないため誤って開いてしまわない。
+// 「セクションを開いただけでは説明は見えない」ことを検証するテスト自体は個別にopenSectionを
+// 使う）。
+function openAllSections() {
+  document
+    .querySelectorAll('button[aria-expanded="false"][aria-controls]')
+    .forEach((button) => fireEvent.click(button));
 }
 
 // 各メンバーの説明（panelHint、改善計画: 実機フィードバック「各メンバーの説明は、情報
@@ -157,6 +174,7 @@ describe("MapLayersPanel", () => {
   // 車ストレスの8行に及ぶ判定内訳などが常時表示されて読みにくいという指摘につながっていた。
   it("レイヤーの説明はセクションを開いただけでは見えず、情報アイコンを押すと表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("elevation");
     expect(screen.queryByText("国土地理院の色別標高図を重ねる")).not.toBeInTheDocument();
 
@@ -173,6 +191,7 @@ describe("MapLayersPanel", () => {
   // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
   it("降水ナウキャストのセクションが表示され、説明が出るがOFF案内（絞り込み用）は出ない", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("precipitationNowcast");
     openHint("降水ナウキャスト");
 
@@ -188,6 +207,7 @@ describe("MapLayersPanel", () => {
   // <details>ではなく常時見える案内行として存在させる。
   it("専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
 
     // 改善計画T202: 案内文は先頭に「（地図表示なし）」が付く（統合レビュー2026-08-22指摘、
     // 展開せずとも「押せない行がなぜあるのか」が伝わるようにするための接頭辞）ため、
@@ -235,6 +255,7 @@ describe("MapLayersPanel", () => {
 
   it("指定路線レイヤーのセクションに凡例（緊急輸送道路/重要物流道路/両方該当）が表示される(外部静的データソース T51、改善計画T74)", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("designation");
 
     expect(screen.getByText("緊急輸送道路[N10]")).toBeInTheDocument();
@@ -244,6 +265,7 @@ describe("MapLayersPanel", () => {
 
   it("事故レイヤーのセクションに凡例（自転車関連/その他）が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("accidents");
 
     expect(screen.getByText("自転車関連")).toBeInTheDocument();
@@ -290,17 +312,20 @@ describe("MapLayersPanel", () => {
   it("チップ操作は所属するセクションの開閉状態を変えない", async () => {
     const user = userEvent.setup();
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
 
-    const details = document.getElementById(layerSectionDomId("elevation")) as HTMLDetailsElement;
-    expect(details.open).toBe(false);
+    const section = document.getElementById(layerSectionDomId("elevation")) as HTMLElement;
+    const trigger = within(section).getByRole("button", { name: "標高図" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
 
     await user.click(screen.getByRole("button", { name: "標高図レイヤーを表示" }));
 
-    expect(details.open).toBe(false);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("路面の種類OFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("roadSurface");
     // OFF案内の文言はT63で他レイヤーにも共通化されたため、セクション内に絞って確認する
     const section = document.getElementById(layerSectionDomId("roadSurface")) as HTMLElement;
@@ -645,6 +670,7 @@ describe("MapLayersPanel", () => {
 
   it("車ストレスの凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("carStress");
     openHint("車の圧迫感");
     expect(screen.getByText(/5段階\[1=快適〜5=圧迫大\]/)).toBeInTheDocument();
@@ -654,6 +680,7 @@ describe("MapLayersPanel", () => {
   // 1〜2文の要約だけでは加点/減点の内訳が伝わらなかったため、panelHintDetail（箇条書き）で補う。
   it("車ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("carStress");
     openHint("車の圧迫感");
     // jsdomは閉じた<details>の中身もクエリ対象から隠さないため、安全度レイヤー（改善計画:
@@ -670,6 +697,7 @@ describe("MapLayersPanel", () => {
   // 受け、区切り線付きの専用クラスで分離する（legendFilter.ts: LegendEntry.isFallback）。
   it("車ストレスの凡例で「不明・他」は数値段階と区切って表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("carStress");
     const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
     const fallbackLabel = within(section).getByText("不明・他[判定対象外の道路種別]");
@@ -679,6 +707,7 @@ describe("MapLayersPanel", () => {
 
   it("自転車インフラの凡例に道路情報（路面）との違いの説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("bicycleInfra");
     openHint("自転車インフラ");
     expect(screen.getByText(/「路面の種類」レイヤーの/)).toBeInTheDocument();
@@ -686,6 +715,7 @@ describe("MapLayersPanel", () => {
 
   it("停止要因POIの凡例（種別ごとの色分け）が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("stopPoi");
     expect(screen.getByText("信号")).toBeInTheDocument();
     expect(screen.getByText("踏切")).toBeInTheDocument();
@@ -696,6 +726,7 @@ describe("MapLayersPanel", () => {
   // 同じ挙動になったことを検証する。
   it("車ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
     openSection("carStress");
     // OFF案内の文言は他レイヤーとも共通のため、セクション内に絞って確認する
     const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;

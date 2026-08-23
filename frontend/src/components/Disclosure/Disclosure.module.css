@@ -1,0 +1,32 @@
+/* Accordion.Item（常に1項目のみ、視覚的な意味を持たない層）を透過させ、呼び出し側から見て
+   「開閉全体を包む要素の直下にheader/bodyが並ぶ」という<details>時代と同じ実効box構造に
+   近づける。 */
+.item {
+  display: contents;
+}
+
+/* Accordion.Headerは既定でh3を描画する。ブラウザ既定のh3マージン/フォントサイズが
+   意図せず滲み出さないよう、ここで必ずリセットする（旧<summary>は元々余計なUA
+   スタイルを持たなかったため、h3化にあたり呼び出し側の各module.cssが個別に
+   気にする必要が無いようここへ集約する）。 */
+.header {
+  margin: 0;
+  font: inherit;
+}
+
+/* Accordion.Triggerは実体としてはbutton要素のため、globals.css（@layer base）のbutton既定
+   （padding・border・background-color等）が下敷きとして効いてしまう。旧<summary>は
+   ブラウザ既定スタイルを持たない要素だったため、呼び出し側のtriggerClassName
+   （見た目は各module.cssが担当）に一切ボタンらしさが混ざらないよう、ここで先に
+   全消しする。開閉可能であることを示すcursor:pointerだけ残す。 */
+.trigger {
+  all: unset;
+  /* display:blockのみ（width:100%は指定しない）。単独利用（見出し行全体が
+     トリガー）ではブロック要素の既定挙動で親幅いっぱいに広がり、trailingと
+     横並びのflex行内で使う場合（MapLayersPanel等）はflexアイテムとして内容量に
+     応じた幅になる（width:100%を指定するとflex-basisとして扱われ、trailingの
+     隣に並ばず行全体を占有してしまうため、あえて指定しない）。 */
+  display: block;
+  box-sizing: border-box;
+  cursor: pointer;
+}

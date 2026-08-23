@@ -14,6 +14,7 @@ import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   type MotorVehicleDensityRecipe,
 } from "@/components/Map/carStressExpression";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import styles from "./MotorVehicleDensityRecipePanel.module.css";
 
 // 「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の研究モード上書きUI（改善計画:
@@ -89,62 +90,74 @@ export default function MotorVehicleDensityRecipePanel({
       onOverrideEnabledChange={onOverrideEnabledChange}
     >
       <div className={styles.groups}>
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            制限速度補正[maxspeed]
-          </summary>
-          <div className={styles.groupBody}>
-            {MAXSPEED_PAIRS.map((field) => (
-              <ThresholdAdjustmentRow
-                key={field.thresholdKey}
-                field={field}
-                recipe={recipe}
-                onChange={handleRecipeChange}
-                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-              />
-            ))}
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              制限速度補正[maxspeed]
+            </>
+          }
+        >
+          {MAXSPEED_PAIRS.map((field) => (
+            <ThresholdAdjustmentRow
+              key={field.thresholdKey}
+              field={field}
+              recipe={recipe}
+              onChange={handleRecipeChange}
+              negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+              positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+            />
+          ))}
+        </Disclosure>
 
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            車線数補正[lanes]
-          </summary>
-          <div className={styles.groupBody}>
-            {LANES_PAIRS.map((field) => (
-              <ThresholdAdjustmentRow
-                key={field.thresholdKey}
-                field={field}
-                recipe={recipe}
-                onChange={handleRecipeChange}
-                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-              />
-            ))}
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              車線数補正[lanes]
+            </>
+          }
+        >
+          {LANES_PAIRS.map((field) => (
+            <ThresholdAdjustmentRow
+              key={field.thresholdKey}
+              field={field}
+              recipe={recipe}
+              onChange={handleRecipeChange}
+              negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+              positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+            />
+          ))}
+        </Disclosure>
 
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            指定路線補正
-          </summary>
-          <div className={styles.groupBody}>
-            {DESIGNATION_FIELDS.map((field) => (
-              <ScalarInput
-                key={field.key}
-                field={field}
-                recipe={recipe}
-                onChange={handleRecipeChange}
-                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-              />
-            ))}
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              指定路線補正
+            </>
+          }
+        >
+          {DESIGNATION_FIELDS.map((field) => (
+            <ScalarInput
+              key={field.key}
+              field={field}
+              recipe={recipe}
+              onChange={handleRecipeChange}
+              negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+              positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+            />
+          ))}
+        </Disclosure>
 
         <button
           type="button"

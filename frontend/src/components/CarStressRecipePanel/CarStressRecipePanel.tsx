@@ -15,6 +15,7 @@ import {
   type RoadSuitabilityRecipe,
   type CarStressRecipe,
 } from "@/components/Map/carStressExpression";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import styles from "./CarStressRecipePanel.module.css";
 
 // 車ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の研究モード上書きUI
@@ -90,24 +91,28 @@ export default function CarStressRecipePanel({
           motorVehicleDensityRecipe={motorVehicleDensityRecipe}
         />
 
-        <details className={styles.group}>
-          <summary className={styles.groupHeader}>
-            <span aria-hidden="true" className={styles.groupChevron} />
-            車線数補正[lanes]
-          </summary>
-          <div className={styles.groupBody}>
-            {LANES_PAIRS.map((field) => (
-              <ThresholdAdjustmentRow
-                key={field.thresholdKey}
-                field={field}
-                recipe={recipe}
-                onChange={handleRecipeChange}
-                negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
-                positiveColor={ADJUSTMENT_POSITIVE_COLOR}
-              />
-            ))}
-          </div>
-        </details>
+        <Disclosure
+          className={styles.group}
+          triggerClassName={styles.groupHeader}
+          bodyClassName={styles.groupBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={styles.groupChevron} />
+              車線数補正[lanes]
+            </>
+          }
+        >
+          {LANES_PAIRS.map((field) => (
+            <ThresholdAdjustmentRow
+              key={field.thresholdKey}
+              field={field}
+              recipe={recipe}
+              onChange={handleRecipeChange}
+              negativeColor={ADJUSTMENT_NEGATIVE_COLOR}
+              positiveColor={ADJUSTMENT_POSITIVE_COLOR}
+            />
+          ))}
+        </Disclosure>
 
         <button
           type="button"

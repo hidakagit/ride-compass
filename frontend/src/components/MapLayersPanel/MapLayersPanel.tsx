@@ -28,6 +28,7 @@ import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } fr
 import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import { InfoIcon } from "@/components/Map/icons";
 import LayerChip from "@/components/Map/LayerChip";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
 
@@ -440,32 +441,41 @@ export default function MapLayersPanel({
     return (
       // 要素ごとに折りたたむ階層メニュー（モバイル実機フィードバック対応T38。
       // 以前は5レイヤー分の設定が常時全展開でスクロールが長かった）。デフォルト全閉。
-      // domIdはdetails自体に振る（テストでdocument.getElementByIdから開閉する
-      // ためのフック。MapLayersPanel.test.tsxのopenSection参照）。
-      <details key={layer.id} id={domId} className={styles.layerSection}>
-        <summary className={styles.layerHeader}>
-          <h3 className={styles.layerTitle}>
+      // domIdはコンテナ（Root）に振る（旧<details id>と同じ位置づけ。テストで
+      // document.getElementByIdから領域を絞り込んだりトリガーを辿ってクリックする
+      // ためのフック。MapLayersPanel.test.tsxのopenSection参照。以前はネイティブ<details>の
+      // .open書き換えだったが、Radix Accordion化(T254)によりトリガーをクリックする方式へ
+      // 変更した）。
+      <Disclosure
+        key={layer.id}
+        className={styles.layerSection}
+        headerClassName={styles.layerHeader}
+        triggerClassName={styles.layerTitle}
+        bodyClassName={styles.layerBody}
+        id={domId}
+        summary={
+          <>
             <span aria-hidden="true" className={styles.chevron} />
             {layer.label}
-          </h3>
-          {/* ON/OFFは地図上のチップと同一部品（LayerChip）。見た目が同じ＝同じ操作だと
-              伝えるため、role=switchのチェックボックスからチップへ統一した（T30）。
-              summary内のクリックはdetails開閉のデフォルト動作を伴うため、チップ操作が
-              同時に開閉してしまわないようpreventDefault/stopPropagationする。 */}
+          </>
+        }
+        // ON/OFFは地図上のチップと同一部品（LayerChip）。見た目が同じ＝同じ操作だと
+        // 伝えるため、role=switchのチェックボックスからチップへ統一した（T30）。
+        // trailingとしてTrigger（button）の外に置くため、button内buttonという無効な
+        // HTMLにならず、以前summary内で必要だったpreventDefault/stopPropagation
+        // （details開閉のデフォルト動作との衝突回避）も不要になった。
+        trailing={
           <LayerChip
             label="表示"
             ariaLabel={`${layer.label}レイヤーを表示`}
             on={layerVisibility[layer.id]}
             dataStatus={visibleDataStatus(layer.id)}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onLayerToggle(layer.id, !layerVisibility[layer.id]);
-            }}
+            onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
           />
-        </summary>
-        <div className={styles.layerBody}>{renderSectionBody(layer)}</div>
-      </details>
+        }
+      >
+        {renderSectionBody(layer)}
+      </Disclosure>
     );
   }
 

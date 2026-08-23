@@ -7,8 +7,30 @@ import MotorVehicleDensityRecipePanel from "./MotorVehicleDensityRecipePanel";
 // 旧CarStressRecipePanel.test.tsxの制限速度補正・車線数(多い方)補正・指定路線補正に
 // 関するテストをそのまま移設した(改善計画: 車との近さ材料の共有元化)。
 
+// RecipePanelSection・内側のグループ（制限速度/車線数/指定路線）はいずれもDisclosure
+// （Radix Accordion、T254）でデフォルト全閉。以前のネイティブ<details>時代はjsdomが閉じた
+// 中身も隠さずクエリ可能にする（実ブラウザとは異なる）挙動だったため、各テストは開閉を
+// 意識せず中身を直接検証できていたが、Radix化によりhidden属性で実際に隠れるようになった
+// （実ブラウザに忠実な挙動）。テストの意図（開閉状態そのものではなく中身の挙動）を保つため、
+// レンダー直後に全セクションを開く。
+function openAllDisclosures() {
+  // ネストしたDisclosure（RecipePanelSection内のグループ等）は外側を開いた直後の
+  // querySelectorAllでは1回で全部拾いきれない場合があるため、変化が無くなるまで
+  // 繰り返す（安全のため最大5周で打ち切る）。
+  for (let i = 0; i < 5; i++) {
+    // :not([aria-haspopup])でFieldLabelの情報Popover（Radix Popover.Trigger、
+    // T253併用導入。同じくaria-expanded="false"を持つ）を除外し、Disclosure
+    // （Accordion.Trigger）だけを対象にする。除外しないとテストのセットアップ自体が
+    // 情報Popoverを開いてしまい、各テストが期待する「閉じた状態のPopoverボタン」を
+    // 見つけられなくなる。
+    const buttons = document.querySelectorAll('button[aria-expanded="false"]:not([aria-haspopup])');
+    if (buttons.length === 0) break;
+    buttons.forEach((button) => fireEvent.click(button));
+  }
+}
+
 function renderPanel(overrides: Partial<React.ComponentProps<typeof MotorVehicleDensityRecipePanel>> = {}) {
-  return render(
+  const result = render(
     <MotorVehicleDensityRecipePanel
       overrideEnabled={true}
       onOverrideEnabledChange={vi.fn()}
@@ -17,6 +39,8 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof MotorVehicle
       {...overrides}
     />,
   );
+  openAllDisclosures();
+  return result;
 }
 
 describe("MotorVehicleDensityRecipePanel", () => {

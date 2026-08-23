@@ -54,11 +54,31 @@
 }
 
 .blockSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   cursor: pointer;
   font-weight: bold;
   font-size: var(--font-size-md);
   /* summary直下のコンテンツとの間隔。閉じているときは影響しない */
   margin-bottom: var(--space-2);
+}
+
+/* 以前はネイティブ<summary>の既定ディスクロージャ三角に任せていたが、Disclosure化（T254、
+   Radix Accordionのbuttonトリガー）でその既定表示が失われるため、他の折りたたみ
+   （MapLayersPanel.module.cssの.chevron等）と同じ視覚言語の代替インジケータを出す。 */
+.blockChevron {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--color-neutral);
+  border-bottom: 2px solid var(--color-neutral);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.blockSummary[data-state="open"] .blockChevron {
+  transform: rotate(45deg);
 }
 
 /* 開閉を持たないブロックの見出し（blockSummaryと同じ見た目に揃える） */
