@@ -729,10 +729,10 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     # way_tags={}（litタグ無し）はnight_difficulty=50.0（test_night.py参照）。他の軸の重みを
-    # 0にし、night_weightだけが探索コストへ効くようにする（差分をnight軸だけに起因させる）。
+    # 0にし、night重みだけが探索コストへ効くようにする（差分をnight軸だけに起因させる）。
     preference = RoutePreference(
-        elevation_weight=0.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
-        car_stress_weight=0.0, accident_weight=0.0, night_weight=1.0,
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 1.0}
     )
     generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
     engine = generator._engine
@@ -766,8 +766,8 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
     edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     preference = RoutePreference(
-        elevation_weight=1.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
-        car_stress_weight=0.0, accident_weight=0.0, night_weight=0.0,
+        weights={"gradient": 1.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0}
     )
     steep_climb = ElevationAttribute(
         edge_id="e1", average_grade=10.0, data_source="test", calculated_at="t"
@@ -818,8 +818,8 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
     way_tags = {"e1": {}}
     preference = RoutePreference(
-        elevation_weight=0.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
-        car_stress_weight=0.0, accident_weight=0.0, night_weight=1.0,
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 1.0}
     )
     generator, _, _ = make_generator(None, way_tags=way_tags, route_preference=preference)
     engine = generator._engine

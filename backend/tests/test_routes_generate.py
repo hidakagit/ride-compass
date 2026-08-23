@@ -150,7 +150,9 @@ def test_generate_routes_echoes_applied_conditions():
     assert conditions["distance_km"] == REQUEST_BODY["distance_km"]
     assert conditions["distance_tolerance_km"] == REQUEST_BODY["distance_tolerance_km"]
     assert conditions["scoring_weights"] == DEFAULT_SCORING_WEIGHTS
-    assert conditions["route_preference"] == RoutePreference().model_dump()
+    # RoutePreferenceWeightsはRootModel(dict)のため、レスポンスではaxis_idキーの
+    # プレーンな辞書としてシリアライズされる（改善計画T221 Stage B）。
+    assert conditions["route_preference"] == RoutePreference().weights
     # ISO8601（JST）。厳密な時刻は環境依存のため形式だけ確認する
     assert "+09:00" in conditions["generated_at"]
 
@@ -162,9 +164,9 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
     app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
     scoring_weights = {"distance_weight": 0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}
     route_preference = {
-        "elevation_weight": 0.5, "road_weight": 0.25, "wind_weight": 0.2, "stop_weight": 0.05,
-        "car_stress_weight": 0.0, "accident_weight": 0.0,
-        "night_weight": 0.0,
+        "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
+        "car_stress": 0.0, "accident": 0.0,
+        "night": 0.0,
     }
 
     try:
@@ -177,7 +179,7 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
 
     assert response.status_code == 200
     assert captured["scoring"] == scoring_weights
-    assert captured["preference"] == RoutePreference(**route_preference)
+    assert captured["preference"] == RoutePreference(weights=route_preference)
     conditions = response.json()["conditions"]
     assert conditions["scoring_weights"] == scoring_weights
     assert conditions["route_preference"] == route_preference
@@ -330,7 +332,7 @@ def test_generation_builder_uses_yaml_defaults_when_no_override():
 
 
 def test_generation_builder_uses_overrides_when_provided():
-    preference = RoutePreference(elevation_weight=1.0, road_weight=0.0, wind_weight=0.0)
+    preference = RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0, "wind": 0.0})
     scoring_weights = {"distance_weight": 1.0, "elevation_weight": 0.0, "wind_weight": 0.0, "road_weight": 0.0}
 
     setup = _lightweight_generation_builder()(preference, scoring_weights)

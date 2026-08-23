@@ -29,7 +29,6 @@ import {
 import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import { axisMaterialLayerIds, axisMaterials, PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
-import { PREFERENCE_AXES } from "@/lib/evaluationAxes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   ROAD_FILTER_AXES,
@@ -1414,12 +1413,13 @@ export default function Home() {
     );
   }
 
-  function renderPreferenceFieldExtra(weightKey: keyof RoutePreferenceWeights) {
-    const axisId = PREFERENCE_AXES.find((axis) => axis.weightKey === weightKey)?.axisId;
+  function renderPreferenceFieldExtra(axisId: string) {
+    // 改善計画T221 Stage B: 重み辞書のキーがaxis_idそのものになったため、
+    // 旧weightKey→axisIdの逆引きは不要になった。
     return (
       <>
-        {axisId && renderAxisMaterialsExtra(axisId)}
-        {weightKey === "car_stress_weight" && renderCarStressRecipeExtra()}
+        {renderAxisMaterialsExtra(axisId)}
+        {axisId === "car_stress" && renderCarStressRecipeExtra()}
       </>
     );
   }

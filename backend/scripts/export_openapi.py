@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.domain.axis_definitions import default_axis_weights  # noqa: E402
 from app.domain.recipe import (  # noqa: E402
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -239,6 +240,13 @@ def main() -> None:
                 }
                 for attr in all_primary_attributes()
             ],
+            # 区間難易度の重み（route_preference）の既定値（改善計画T221 Stage B）。
+            # domain/axis_definitions.py: AXIS_DEFINITIONSのdefault_weightを書き出し、
+            # フロント（evaluationAxes.ts: DEFAULT_ROUTE_PREFERENCE）はこの値を読む
+            # （以前はroute_preference.yamlの手書きミラーで、値の変更時にドリフトしうる
+            # 手動同期ペアだった）。表示カタログのaxes[]と異なりwindを含む全軸を持つ
+            # （windはレイヤー表示を持たないためaxes[]には無いが、重みの軸としては存在する）。
+            "preference_defaults": default_axis_weights(),
         },
     )
     # 風・降水延長予報の格子間隔（改善計画T198、統合レビュー2026-08-22指摘F-B）。

@@ -129,9 +129,9 @@ describe("WeightPanel", () => {
         scoringWeights={{ distance_weight: 0.9, elevation_weight: 0.9, wind_weight: 0.9, road_weight: 0.9 }}
         onScoringWeightsChange={onScoringChange}
         routePreference={{
-          elevation_weight: 0.9, road_weight: 0.9, wind_weight: 0.9, stop_weight: 0.9,
-          car_stress_weight: 0.9, accident_weight: 0.9,
-          night_weight: 0.9,
+          gradient: 0.9, surface_q: 0.9, wind: 0.9, stop_density: 0.9,
+          car_stress: 0.9, accident: 0.9,
+          night: 0.9,
         }}
         onRoutePreferenceChange={onPreferenceChange}
       />,
@@ -147,7 +147,7 @@ describe("WeightPanel", () => {
   // 改善計画: 研究タブを2次要素ごとに整理。区間難易度の重み（PREFERENCE_FIELDS）の
   // 各行の直下へ、その軸固有の内容（page.tsx側が組み立てるレシピパネル等）を
   // 差し込める汎用の枠（renderPreferenceFieldExtra）を検証する。
-  it("renderPreferenceFieldExtraは対象のweightKeyの行にだけ差し込まれる", async () => {
+  it("renderPreferenceFieldExtraは対象のaxis_idの行にだけ差し込まれる", async () => {
     const user = userEvent.setup();
     render(
       <WeightPanel
@@ -157,8 +157,8 @@ describe("WeightPanel", () => {
         onScoringWeightsChange={vi.fn()}
         routePreference={DEFAULT_ROUTE_PREFERENCE}
         onRoutePreferenceChange={vi.fn()}
-        renderPreferenceFieldExtra={(weightKey) =>
-          weightKey === "car_stress_weight" ? <p>車ストレスのレシピをここに差し込む</p> : null
+        renderPreferenceFieldExtra={(axisId) =>
+          axisId === "car_stress" ? <p>車ストレスのレシピをここに差し込む</p> : null
         }
       />,
     );

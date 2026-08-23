@@ -11,11 +11,12 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 """
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
+    default_axis_weights,
     evaluate_axis_array,
     evaluate_axis_scalar,
 )
@@ -65,56 +66,40 @@ DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "tru
 class RoutePreference(BaseModel):
     """Evaluation Engineが使う重み（仕様書27章）。
 
-    Road Attributeとして実装済みの標高・路面・停止密度（信号・横断歩道・一時停止・踏切・
-    タグなし交差点）・車ストレス・事故密度（外部静的データソース T50）・夜間
-    （改善計画T139、街灯なし・トンネル）と、Dynamic Data対応（Phase 6）の風を対象とする。
-    設定ファイルからの外部化はPhase 5で実施済み（route_preference.yaml、
-    services/evaluation_service.py）。
+    改善計画T221 Stage B: 軸ごとの固定フィールド（`elevation_weight`等）をやめ、
+    axis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`のキー）をキーとする重み辞書へ
+    一般化した。旧フィールド名→axis_idの手書き対応表（`AXIS_WEIGHT_FIELD_TO_AXIS_ID`）と
+    変換関数`preference_to_axis_weights`は不要になり削除（呼び出し元は`preference.weights`を
+    直接使う）。軸の増減はAXIS_DEFINITIONSの変更だけで本モデルへ自動反映される。
 
-    自転車インフラ（旧`infra_weight`）は改善計画T138で独立軸を廃止し車ストレス側へ
-    統合済み（`car_closeness()`のcycleway補正が既に反映する情報のため独立に持たない）。
-    安全度（旧`safety_weight`）は改善計画T139で軸ごと廃止し、highway等由来の部分は
-    T138で車ストレスへ、街灯・トンネル由来の部分はここで`night_weight`へ置き換えた
-    （事故実績は既存の`accident_weight`のまま変更なし）。`domain/safety.py`自体・
-    `safety_recipe.yaml`・関連API（`SafetyRecipeOverride`等）はT148で削除済み。
-    `night_weight`は既定0.0で運用する（設計プロンプトの指示どおり、街灯・トンネルを
-    気にするユーザーが個別に重みを上げる想定）。
-    交差点密度（旧`intersection_weight`）は改善計画T149で独立軸を廃止し停止密度側へ
-    統合済み（`stop_difficulty`がタグなし交差点を低い重みで加算するため独立に持たない）。
+    `weights`は部分指定を許す（不足キーは各軸の`default_weight`で補完。ドメイン内部・
+    テストの利便のため）。未知のキーはエラー。**API境界の「上書きするなら全軸を明示する」
+    検証は`api/routers/routes.py: RoutePreferenceWeights`が担う**（省略時にクラス既定値が
+    黙って入ることを避ける従来方針のまま）。
 
-    car_stress_weight/accident_weight/night_weightは区間難易度・探索コスト（本モデル）にのみ
-    効き、scoring.yaml（total_score＝おすすめ度、候補集合内の相対評価）には含めない
-    （stop_weightと同じ扱い。ユーザー承認済みのスコープ判断、静的道路属性P1参照）。
+    軸再編の経緯（T138自転車インフラ統合・T139安全度廃止/night分離・T149交差点密度統合）は
+    `docs/architecture.md` 7章とgit履歴参照。car_stress/accident/nightの重みは区間難易度・
+    探索コスト（本モデル）にのみ効き、scoring.yaml（total_score＝おすすめ度、候補集合内の
+    相対評価）には含めない（ユーザー承認済みのスコープ判断、静的道路属性P1参照）。
     """
 
-    elevation_weight: float = 0.15
-    road_weight: float = 0.19
-    wind_weight: float = 0.26
-    stop_weight: float = 0.20
-    car_stress_weight: float = 0.20
-    accident_weight: float = 0.08
-    night_weight: float = 0.0
+    weights: dict[str, float] = Field(default_factory=default_axis_weights)
 
+    @model_validator(mode="after")
+    def _validate_and_fill_weights(self) -> "RoutePreference":
+        unknown = sorted(set(self.weights) - set(AXIS_DEFINITIONS))
+        if unknown:
+            raise ValueError(f"unknown axis_id in weights: {unknown} (known: {sorted(AXIS_DEFINITIONS)})")
+        merged = default_axis_weights()
+        merged.update(self.weights)
+        # キー順をAXIS_DEFINITIONSの定義順（＝合成の加算順）へ正規化する。
+        self.weights = {axis_id: merged[axis_id] for axis_id in AXIS_DEFINITIONS}
+        return self
 
-# RoutePreferenceのフィールド名（現行のPythonシンボル名、呼称統一はT150）→レジストリの
-# axis_id（設計プロンプトが示す目標名、domain/registry_defaults.py参照）への対応表。
-# 三次（compute_cost_from_axis_scores）はaxis_idキーの重み辞書のみを受け取るため、
-# RoutePreferenceから変換する（改善計画T142）。
-AXIS_WEIGHT_FIELD_TO_AXIS_ID: dict[str, str] = {
-    "elevation_weight": "gradient",
-    "wind_weight": "wind",
-    "road_weight": "surface_q",
-    "stop_weight": "stop_density",
-    "car_stress_weight": "car_stress",
-    "accident_weight": "accident",
-    "night_weight": "night",
-}
-
-def preference_to_axis_weights(preference: RoutePreference) -> dict[str, float]:
-    """`RoutePreference`をaxis_id（`gradient`/`wind`/`surface_q`/`stop_density`/`car_stress`/
-    `accident`/`night`）をキーとする重み辞書へ変換する（改善計画T142）。"""
-    dump = preference.model_dump()
-    return {axis_id: dump[field] for field, axis_id in AXIS_WEIGHT_FIELD_TO_AXIS_ID.items()}
+    def with_weight(self, axis_id: str, value: float) -> "RoutePreference":
+        """1軸の重みだけを差し替えたコピーを返す（T173のnight重み動的化等、
+        リクエスト間で共有するインスタンスを汚染しないための生成ヘルパー）。"""
+        return RoutePreference(weights={**self.weights, axis_id: value})
 
 
 # 区間インスペクタ（改善計画T146）。「一次属性→二次軸→三次合成コスト」をレジストリの
@@ -162,7 +147,7 @@ def axis_inspector_breakdown(
     （length_m, accident_count, stop_count, intersection_count）で、Noneなら
     事故密度・停止密度は算出不能（available=False）として扱う。
     """
-    weights = preference_to_axis_weights(preference or RoutePreference())
+    weights = (preference or RoutePreference()).weights
 
     level = car_stress_level(
         highway, tags, is_designated, car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe
@@ -488,13 +473,11 @@ def compute_edge_cost(
     `is_edge_allowed`はこの関数が担う。`max_average_grade_percent`はis_edge_allowedへ
     そのまま渡す、改善計画T218a）。
 
-    `weights`（改善計画T220、T12 Stage 2）: `preference_to_axis_weights(preference)`は
-    `preference`が変わらない限り常に同じ結果を返す純関数だが、Road Graph全体
-    （数万Edge）を評価する`evaluate_graph`のループから毎Edge呼ばれると、実測
-    （pydanticの`model_dump`込み）で無視できないオーバーヘッドになると判明した
-    （`backend/benchmarks/README.md`参照）。呼び出し元が事前計算した`weights`を渡せば
-    その再計算をスキップする。省略時（既定None）は従来どおり`preference`から算出する
-    （単発の呼び出し・既存テストへの影響なし）。
+    `weights`（改善計画T220、T12 Stage 2）: 呼び出し元が事前解決した重み辞書を渡すと
+    そのまま使う。省略時（既定None）は`preference.weights`を使う（T221 Stage Bで
+    RoutePreference自体がaxis_idキーの辞書になったため、旧`preference_to_axis_weights`の
+    ような変換は不要になった。T220当時の毎Edge変換オーバーヘッドの経緯は
+    `backend/benchmarks/README.md`参照）。
     """
     if not is_edge_allowed(
         edge, way_tags, elevation_attribute=elevation_attribute, max_average_grade_percent=max_average_grade_percent
@@ -506,7 +489,7 @@ def compute_edge_cost(
         intersection_count, accident_count, accident_years_covered, is_designated,
         car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe,
     )
-    resolved_weights = weights if weights is not None else preference_to_axis_weights(preference)
+    resolved_weights = weights if weights is not None else preference.weights
     cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
 
     return EdgeCostResult(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
@@ -586,7 +569,7 @@ def compute_edge_costs_bulk(
     intersection_counts = intersection_counts or {}
     accident_counts = accident_counts or {}
     designated_edge_ids = designated_edge_ids or set()
-    resolved_weights = weights if weights is not None else preference_to_axis_weights(preference)
+    resolved_weights = weights if weights is not None else preference.weights
 
     edge_ids = list(graph.edges.keys())
     n = len(edge_ids)

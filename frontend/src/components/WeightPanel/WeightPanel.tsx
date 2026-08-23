@@ -4,9 +4,10 @@ import { useState, type ReactNode } from "react";
 import { FieldLabel, RecipePanelSection, withAutoEnable } from "@/components/Map/recipeControls";
 import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 import styles from "./WeightPanel.module.css";
 
-// backend/app/scoring.yaml / backend/app/route_preference.yaml の既定値のフロント側ミラー。
+// backend/app/scoring.yaml の既定値のフロント側ミラー。
 // 「既定値に戻す」ボタンの起点、および上書き有効化の直後に送る初期値としてのみ使う
 // （実際にリクエストへ乗るのはonOverrideEnabledChangeがtrueの間だけで、falseの間は
 // scoring_weights/route_preferenceを省略しバックエンドのYAML既定値がそのまま使われるため、
@@ -18,15 +19,10 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   road_weight: 0.25,
 };
 
-export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = {
-  elevation_weight: 0.15,
-  road_weight: 0.19,
-  wind_weight: 0.26,
-  stop_weight: 0.2,
-  car_stress_weight: 0.2,
-  accident_weight: 0.08,
-  night_weight: 0.0,
-};
+// 区間難易度の重みの既定値は手書きミラーをやめ、axis-catalog.jsonのpreference_defaults
+// （backend domain/axis_definitions.py: AXIS_DEFINITIONSのdefault_weightを生成物として
+// 書き出したもの、改善計画T221 Stage B）から読む。軸の増減・既定値変更に自動追従する。
+export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = axisCatalog.preference_defaults;
 
 interface WeightPanelProps {
   overrideEnabled: boolean;
@@ -41,7 +37,7 @@ interface WeightPanelProps {
    * 分離していたが、同じ軸の重みのすぐ下に置く方が「この軸を調整する」ときに探す場所が
    * 1箇所で済む。WeightPanel自身は車ストレス等の個別知識を持たず、page.tsx側が
    * weightKeyごとに何を差し込むか（無ければnull）を決める汎用の枠として提供する。 */
-  renderPreferenceFieldExtra?: (weightKey: keyof RoutePreferenceWeights) => ReactNode;
+  renderPreferenceFieldExtra?: (axisId: string) => ReactNode;
 }
 
 interface WeightField<T> {
@@ -61,8 +57,9 @@ const SCORING_FIELDS: WeightField<ScoringWeights>[] = SCORING_AXES.map((axis) =>
   description: axis.description,
 }));
 
+// キーはaxis_id（改善計画T221 Stage B、RoutePreferenceWeightsはaxis_idキーの辞書）。
 const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES.map((axis) => ({
-  key: axis.weightKey,
+  key: axis.axisId,
   label: axis.label,
   description: axis.description,
 }));
@@ -170,7 +167,8 @@ export default function WeightPanel({
             {PREFERENCE_FIELDS.map((field) => (
               <div key={String(field.key)} className={styles.fieldGroup}>
                 <WeightInput field={field} values={routePreference} onChange={handlePreferenceChange} />
-                {renderPreferenceFieldExtra?.(field.key)}
+                {/* keyof（index signature型）はstring | numberに広がるためStringで確定させる */}
+                {renderPreferenceFieldExtra?.(String(field.key))}
               </div>
             ))}
             {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}

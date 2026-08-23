@@ -247,7 +247,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   単一の情報源として持つ。
 - **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
-  `night_weight`をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
+  night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
   街灯・トンネルタグのみに基づき不変、重みの掛け替えだけで動的化）。両エンジンで判定粒度が
   異なる非対称が意図的に残る（`OpenRouteServiceEngine`は区間ごとの推定到達時刻、
   `RoadGraphEngine`は出発時刻1点のみで全区間へ一様適用。探索中は到達時刻が未確定という
@@ -592,8 +592,8 @@ Request:
 Request（評価重みの上書き。研究用・省略可。docs/research-interface-review-2026-08-15.md §10-1）:
 { ...上記に加えて,
   "scoring_weights": { "distance_weight":0.1, "elevation_weight":0.2, "wind_weight":0.3, "road_weight":0.4 },
-  "route_preference": { "elevation_weight":0.15, "road_weight":0.19, "wind_weight":0.26, "stop_weight":0.20,
-    "car_stress_weight":0.20, "accident_weight":0.08, "night_weight":0.0 },
+  "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
+    "car_stress":0.20, "accident":0.08, "night":0.0 },
   "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
   "road_suitability_recipe": { "base_by_highway": { "cycleway":1, "living_street":1, "residential":2,
     "unclassified":2, "track":2, "tertiary":3, "tertiary_link":3, "secondary":3, "secondary_link":3,
@@ -663,8 +663,8 @@ Response 200:
                        部分指定不可の説明と対応） */
     "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5,
     "scoring_weights": { "distance_weight":0.30, "elevation_weight":0.15, "wind_weight":0.30, "road_weight":0.25 },
-    "route_preference": { "elevation_weight":0.15, "road_weight":0.19, "wind_weight":0.26, "stop_weight":0.20,
-      "car_stress_weight":0.20, "accident_weight":0.08, "night_weight":0.0 },
+    "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
+      "car_stress":0.20, "accident":0.08, "night":0.0 },
     "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
     "road_suitability_recipe": { "base_by_highway": { "...": "13highwayキー全件（略）" },
       "cycleway_track_adjustment":-2, "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
@@ -962,8 +962,8 @@ scoring.yaml（total_score）には含めない（stop_weightと同じ
 続く改善計画T139で、安全度軸（旧`safety_weight`）自体を廃止した。highway・cycleway・
 maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側へ吸収済みのため重複実装せず、
 街灯・トンネル由来の部分のみ`domain/night.py: night_difficulty`として独立させた
-（既定重み`night_weight=0.0`で運用。街灯・トンネルを気にするユーザーが研究モードで
-個別に重みを上げる想定）。事故実績は元から独立軸（`accident_weight`）のため変更なし。
+（night軸の既定重み0.0で運用。街灯・トンネルを気にするユーザーが研究モードで
+個別に重みを上げる想定）。事故実績は元から独立軸（`accident`）のため変更なし。
 `domain/safety.py`・`safety_recipe.yaml`・関連API・地図の安全度レイヤーは表示用途
 （研究モードの内訳確認等）として一時的に残置していたが、本番投入前で移行リスクが
 無いことを踏まえ、改善計画T148で削除した（跡地はrecipe.pyの判定プリミティブ・
@@ -985,15 +985,20 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 `domain/axis_definitions.py`が単一ソース）。重みは
 [backend/app/route_preference.yaml](../backend/app/route_preference.yaml)：
 
-| 軸 | weight フィールド | 既定値 | 生値の単位 | 算出元 |
+| 軸 | axis_id（重み辞書のキー） | 既定値 | 生値の単位 | 算出元 |
 |---|---|---|---|---|
-| 標高（勾配） | `elevation_weight` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
-| 路面 | `road_weight` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
-| 風 | `wind_weight` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
-| 停止密度（交差点密度込み） | `stop_weight` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス（自転車インフラ込み） | `car_stress_weight` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で`traffic_weight`から改称） |
-| 事故密度 | `accident_weight` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
-| 夜間 | `night_weight` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
+| 標高（勾配） | `gradient` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
+| 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
+| 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
+| 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
+| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
+| 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
+| 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
+
+重みのキーは改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名からaxis_idへ統一した
+（`RoutePreference`はaxis_idキーの重み辞書`weights`を持ち、既定値は
+`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`が単一ソース。
+APIの`route_preference`・`route_preference.yaml`・フロントの重みUIもすべて同じaxis_idキー）。
 
 `scoring.yaml`（total_score・候補集合内相対評価）にはこの7軸のうち距離・標高・風・路面の
 4指標のみ残す（区間難易度と違い、停止密度以降の指標は候補間の「おすすめ度」の並び順には

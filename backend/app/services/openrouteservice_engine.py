@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M, distance_weighted_accident_density
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
-from app.domain.evaluation import RoutePreference, preference_to_axis_weights
+from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
 from app.domain.night import night_materials
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
@@ -300,9 +300,9 @@ class OpenRouteServiceEngine:
         # 以前はscoring.yaml（候補集合内の相対評価用）を流用しており、RoadGraphEngineと
         # 地図の色分けが食い違っていたため、両エンジンでこちらへ統一した。
         preference = self._route_preference
-        # 改善計画T221 Stage B: 合成重みはaxis_idキーの辞書として1回だけ解決し、
+        # 改善計画T221 Stage B: 合成重み（axis_idキーの辞書）はpreferenceが直接持つ。
         # 区間ごとにはnight軸の動的な掛け替え（T173、下記）だけを上書きする。
-        base_axis_weights = preference_to_axis_weights(preference)
+        base_axis_weights = preference.weights
         segments = []
         cumulative_km = 0.0
         # 区間の道なり形状: サンプル点はルートgeometry上の点（インデックス付き）なので、

@@ -135,7 +135,7 @@ def test_evaluate_graph_uses_custom_route_preference():
     surface_attributes = {"edge-1": "asphalt"}
 
     default_service = EvaluationService()
-    elevation_only_service = EvaluationService(RoutePreference(elevation_weight=1.0, road_weight=0.0))
+    elevation_only_service = EvaluationService(RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0}))
 
     default_result = default_service.evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
     elevation_only_result = elevation_only_service.evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
@@ -147,26 +147,26 @@ def test_evaluate_graph_uses_custom_route_preference():
 def test_load_route_preference_reads_default_config_file():
     preference = load_route_preference()
 
-    assert preference.elevation_weight == 0.15
-    assert preference.road_weight == 0.19
-    assert preference.wind_weight == 0.26
-    assert preference.stop_weight == 0.20
-    assert preference.car_stress_weight == 0.20
-    assert preference.accident_weight == 0.08
-    assert preference.night_weight == 0.0
+    assert preference.weights["gradient"] == 0.15
+    assert preference.weights["surface_q"] == 0.19
+    assert preference.weights["wind"] == 0.26
+    assert preference.weights["stop_density"] == 0.20
+    assert preference.weights["car_stress"] == 0.20
+    assert preference.weights["accident"] == 0.08
+    assert preference.weights["night"] == 0.0
 
 
 def test_load_route_preference_reads_custom_path(tmp_path):
     config_path = tmp_path / "custom_route_preference.yaml"
     config_path.write_text(
-        "route_preference:\n  elevation_weight: 0.8\n  road_weight: 0.2\n",
+        "route_preference:\n  gradient: 0.8\n  surface_q: 0.2\n",
         encoding="utf-8",
     )
 
     preference = load_route_preference(config_path)
 
-    assert preference.elevation_weight == 0.8
-    assert preference.road_weight == 0.2
+    assert preference.weights["gradient"] == 0.8
+    assert preference.weights["surface_q"] == 0.2
 
 
 def test_load_car_stress_recipe_reads_default_config_file():
@@ -281,8 +281,7 @@ def test_evaluation_service_without_explicit_preference_uses_config_file_default
     default_via_config = EvaluationService().evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
     explicit_matching_weights = EvaluationService(
         RoutePreference(
-            elevation_weight=0.15, road_weight=0.19, wind_weight=0.26, stop_weight=0.20,
-            car_stress_weight=0.20,
+            weights={"gradient": 0.15, "surface_q": 0.19, "wind": 0.26, "stop_density": 0.20, "car_stress": 0.20}
         )
     ).evaluate_graph(graph, elevation_attributes, surface_attributes)["edge-1"]
 

@@ -7,7 +7,6 @@ from app.domain.evaluation import (
     EdgeCostResult,
     RoutePreference,
     compute_edge_costs_bulk,
-    preference_to_axis_weights,
 )
 from app.domain.graph import RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
@@ -42,7 +41,7 @@ def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePre
     将来複数プロファイル（快適性重視/トレーニング重視等、仕様書27・45章）を
     別ファイルとして追加した場合もコード変更なしで切り替えられる。
     """
-    return RoutePreference(**_load_yaml_section(path, "route_preference"))
+    return RoutePreference(weights=_load_yaml_section(path, "route_preference"))
 
 
 def load_car_stress_recipe(path: Path = CAR_STRESS_RECIPE_CONFIG_PATH) -> CarStressRecipe:
@@ -122,10 +121,9 @@ class EvaluationService:
         preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
-        # 改善計画T220: weightsはこのgraph全体で共通（preferenceが変わらない限り不変）の
-        # ため、Edgeごとに再計算せずここで1回だけ求める（compute_edge_costのdocstring
-        # 参照。実測でEdge数万件規模の際に無視できないオーバーヘッドと判明）。
-        weights = preference_to_axis_weights(preference)
+        # 改善計画T221 Stage B: RoutePreference自体がaxis_idキーの重み辞書を持つため
+        # そのまま渡す（T220で導入した「graph全体で1回だけ重みを解決する」意図は不変）。
+        weights = preference.weights
         # 改善計画T240: compute_edge_costを1件ずつ呼ぶPythonループから、numpyベクトル化した
         # compute_edge_costs_bulkへ切り替えた（Edge数万〜十数万件規模での実行時間短縮）。
         # スカラー版compute_edge_costは削除せず、tests/test_evaluation_bulk.pyの回帰

@@ -551,8 +551,8 @@ async def test_segments_carry_route_geometry_slices():
 async def test_night_weight_zeroed_during_daytime_and_applied_at_night():
     repository = FakeSurfaceRepository()  # default_way_tags={}（litタグ無し）はnight_difficulty=50.0
     preference = RoutePreference(
-        elevation_weight=0.0, wind_weight=0.0, road_weight=0.0, stop_weight=0.0,
-        car_stress_weight=0.0, accident_weight=0.0, night_weight=1.0,
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 1.0}
     )
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0)]),
