@@ -21,6 +21,7 @@ import time
 
 from benchmarks._harness import print_report
 from benchmarks import (
+    bench_evaluate_graph,
     bench_graph_build,
     bench_nearest_node,
     bench_route_trace,
@@ -30,11 +31,12 @@ from benchmarks import (
 def main() -> None:
     started = time.perf_counter()
 
-    print_report("1/3 find_nearest_node: linear scan scaling", bench_nearest_node.run())
-    print_report("2/3 build_road_graph: construction scaling", bench_graph_build.run())
+    print_report("1/4 find_nearest_node: linear scan scaling", bench_nearest_node.run())
+    print_report("2/4 build_road_graph: construction scaling", bench_graph_build.run())
     print_report(
-        "3/3 RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", bench_route_trace.run()
+        "3/4 RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", bench_route_trace.run()
     )
+    print_report("4/4 EvaluationService.evaluate_graph: car_stress判定ホットパス", bench_evaluate_graph.run())
 
     print(f"\nTotal wall time: {time.perf_counter() - started:.1f} s")
 

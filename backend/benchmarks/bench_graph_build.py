@@ -1,8 +1,9 @@
 """`domain/graph.py: build_road_graph`の計測（Road Graph構築、交差点分割）。
 
-`GraphService.get_or_build_graph_with_attributes`はOverpassから取得した生Way/Node
-データに対して、リクエストのたびに（repository未指定の既定構成では特に）この関数を
-呼び出す。Way数・Node数の増加に対する構築コストのスケールを確認する。
+`GraphService.get_or_build_graph_with_attributes`は、生データが前回のsplit以降
+変わっていた場合（または未取込）に、PostGIS上の生Way/Nodeデータに対してこの関数を
+呼び出す（省略パスが効かない低頻度・重い経路）。Way数・Node数の増加に対する構築コストの
+スケールを確認する。
 """
 
 from __future__ import annotations
