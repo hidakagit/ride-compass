@@ -46,6 +46,7 @@ node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出される�
 
 import asyncio
 import logging
+import time
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 
@@ -1156,6 +1157,7 @@ class DerivedGraphRepository(_SessionRepository):
         この時刻へ更新する（`is_split_up_to_date`の鮮度判定に使う。Edgeを1件も生成しなかった
         Wayでもスタンプする点に注意。road_graph_models.py: OsmRawWayRowのdocstring参照）。
         """
+        started = time.monotonic()
         now = datetime.now(timezone.utc)
         # Edgeがroad_nodes.node_idを外部キー参照するため、先にNodeを一括UPSERTする
         # （同一トランザクション内のため文の実行順で制約を満たせる）。
@@ -1170,6 +1172,7 @@ class DerivedGraphRepository(_SessionRepository):
         ]
         await _bulk_upsert(
             self._session, RoadNodeRow, node_rows, ["node_id"], ["osm_node_id", "geom", "updated_at"])
+        node_upsert_ms = round((time.monotonic() - started) * 1000)
 
         edge_rows = [
             {
@@ -1187,6 +1190,7 @@ class DerivedGraphRepository(_SessionRepository):
             if way_ids_to_replace is None or edge.osm_way_id in way_ids_to_replace
         ]
 
+        delete_started = time.monotonic()
         if way_ids_to_replace:
             new_edge_ids = sorted({row["edge_id"] for row in edge_rows})
             # 改善計画T224: `new_edge_ids`（再構築対象の全edge_id、都心密度で数万件）を
@@ -1213,7 +1217,9 @@ class DerivedGraphRepository(_SessionRepository):
                     .where(OsmRawWayRow.osm_way_id == any_(cast(id_chunk, ARRAY(BigInteger))))
                     .values(split_at=now)
                 )
+        delete_ms = round((time.monotonic() - delete_started) * 1000)
 
+        edge_upsert_started = time.monotonic()
         await _bulk_upsert(
             self._session,
             RoadEdgeRow,
@@ -1223,6 +1229,21 @@ class DerivedGraphRepository(_SessionRepository):
                 "from_node_id", "to_node_id", "geom", "distance_m", "osm_way_id", "highway",
                 "bearing_deg", "updated_at",
             ],
+        )
+        edge_upsert_ms = round((time.monotonic() - edge_upsert_started) * 1000)
+        total_ms = round((time.monotonic() - started) * 1000)
+
+        # 高コスト処理のステージ別所要時間サマリ（docs/logging.md）。この経路は低頻度だが、
+        # 未splitエリアの初回タッチ時に重くなりうる（改善計画T243でDBタイムアウトを
+        # 180秒へ分離した際、本番実測でDELETE段が想定外に長時間化する事例を検知したが、
+        # 当時は本ログが無く事後のEXPLAIN ANALYZEでしか原因追跡できなかった。以後は
+        # このサマリで長時間化の発生自体・どの段が支配的かを都度検知できるようにする）。
+        logger.info(
+            "save_graph nodes=%d edges=%d way_ids_to_replace=%s "
+            "node_upsert_ms=%d delete_ms=%d edge_upsert_ms=%d total_ms=%d",
+            len(node_rows), len(edge_rows),
+            len(way_ids_to_replace) if way_ids_to_replace else 0,
+            node_upsert_ms, delete_ms, edge_upsert_ms, total_ms,
         )
 
 
