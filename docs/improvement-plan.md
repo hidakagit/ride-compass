@@ -1604,6 +1604,87 @@ T221エントリへの追記として実施済み（新番号なし）。
   - スコープ外として明記した下部タブ本体の構成見直し・RouteListの表示方法変更は
     今回未着手（次に着手する場合は新規タスクとして起票）。
 
+### - [x] T251. 定番UIライブラリでの現行UI同等再現可否・規模の調査 規模M（2026-08-23調査完了、実装は未着手）
+
+- 発端: T250対応中にユーザーが表明した方針（「新規UI機構は自前実装より定番ライブラリを
+  優先検討」、進め方の原則へ追記済み）を受け、「今後もデザイン変更・調整を続けるので、
+  早い段階で定番ライブラリ・汎用的な拡張機構を用意しておきたい」との指示。新規追加時に
+  限らず、**現時点のUIを定番ライブラリ（Radix UI Primitives、vaul等）で同等再現できるか、
+  それにどれだけの規模がかかるかを先行調査する**（実装はしない、調査のみ）。
+- 完了条件: frontend/src/components配下の汎用UI機構（タブ・折りたたみ・ボトムシート・
+  スライダー・トグル/ラジオグループ・モーダル/ポップオーバー等）を棚卸しし、component単位で
+  候補ライブラリ・実現性・移行規模（S/M/L）を判定した表を作成。特にBottomSheet
+  （地図のピンチズームと衝突しないtouch-action調整・暗幕なし表示という実機チューニング
+  済みの独自要件を持つ）は個別にリスクを検討する。Tailwind導入の要否（Radix系ライブラリの
+  多くはheadlessでCSS Modulesとも併用可能なため、必須ではない）も論点として明記する。
+
+- **調査メモ（2026-08-23完了、Tailwind検証・ユーザー指摘による訂正を反映）**:
+  frontend/src/components配下26コンポーネントを棚卸し（調査レポートはArtifactとして
+  作成、ユーザーへ共有済み）。
+  - **適合（規模S、機械的に置換可）**: トグルチップ（LayerChip等）→Radix Toggle、
+    ラジオ/セグメント選択（ルート色分けモード・LevelPicker）→Radix RadioGroup/ToggleGroup、
+    情報開閉ボタン（FieldLabelのinfoButton）→Radix Popover、アコーディオン
+    （サイドバー4ブロック・MapLayersPanel・WeightPanel等の`<details>`）→Radix Accordion
+    （ただし現状で機能不満はなく優先度低）、汎用アイコンのみ→lucide-react等（大半は
+    ドメイン固有で流用不可、効果限定的）、**FloatingPanel（DebugConsole/SystemStatusPanel
+    の共通シェル）→react-rnd**（`dragHandleClassName`で現行のハンドル限定ドラッグを再現可、
+    `bounds="window"`で画面外へ出ないようクランプする現行に無い改善も可能）。
+  - **要検証（規模M〜L）**: BottomSheet→vaul(Drawer)。ドラッグ高さ変更・暗幕なし・
+    地図のピンチズームと衝突しないtouch-action調整という3つの独自要件はいずれもvaul単体
+    では自動的にカバーされず、個別の実機再検証が要る。**DynamicLayerTimeSlider→Embla
+    Carousel**（可変幅スライド・公式wheel-gesturesプラグイン・`align:"start"`スナップは
+    いずれも標準機能でカバーできることを確認したが、キーボード操作(Arrow/Home/End)と
+    `role="slider"`のARIA意味づけは今と同程度の自前配線が残る）。
+  - **対象外**: RouteFormのバリデーション（数値1項目のみで導入コストに見合わない）、
+    モバイル判定の二重管理（useIsMobile/globals.css、ライブラリで解決する種類の課題ではない）。
+  - **訂正の経緯**: 初回調査ではRadix UI Primitivesの守備範囲だけで判定し、
+    DynamicLayerTimeSlider・FloatingPanelを「適合ライブラリなし・非推奨」と誤って結論して
+    いた。ユーザーから「類似のコンポーネント実装は世の中にはないか」と指摘を受けRadixに
+    限定せず調べ直し（WebSearchでEmbla Carousel公式ドキュメント・react-rnd npmページを
+    確認）、上記へ訂正した。
+  - **Tailwind導入も検証**: 「下部シートの余白調整のようなデザイン微調整を素早く試したい」
+    という動機を受け、①フル移行（26コンポーネント全書き換え、非推奨・規模L）②新規コード
+    のみ（導入は軽いが既存ファイルの不満は解決しない）③既存CSS Modulesと併用しJSX上で
+    ユーティリティクラスを都度足す（推奨・規模S）の3方式を比較。globals.cssの
+    `--space-1〜4`（0.25/0.5/0.75/1rem）がTailwind既定のスペーシングスケールと数値一致
+    しており、CSS変数を書き換えずに橋渡しできることを確認。あわせてBottomSheetの
+    ヘッダーが窮屈に見える原因を実装から特定: 閉じるボタンの`min-width/height: 44px`
+    （タップ領域確保の設計判断）が支配的で、Tailwind導入そのものでは解決しない
+    （現行CSSのままでも数行の調整で対応可能）。
+  - **推奨順序**: Phase0（Tailwind併用導入、規模S）→Phase1（トグル/ラジオ/Popover/
+    FloatingPanel→react-rnd、規模S〜M）→Phase2（アコーディオン、任意・規模S）→
+    Phase3（BottomSheet→vaul・DynamicLayerTimeSlider→Embla、規模M〜L、実機検証込み）。
+  - 次のアクション: T252として実装タスクを起票（下記）。
+
+### - [ ] T252. UIライブラリ導入 Phase0〜3の実装 規模M〜L（2026-08-23起票） — トリガー: 着手指示
+
+- 発端: T251の調査結果（Radix UI Primitives・vaul・Embla Carousel・react-rnd・Tailwindの
+  適合判定・規模見積り）を受け、実装フェーズとして起票。T251は調査のみで実装を含まない
+  ため、着手時は本タスクを進める。
+- 対応内容（T251の推奨順序どおりPhase0→3の順に進める。各Phaseは独立して着手・
+  完了できるため、1Phase=1コミットを基本とする）:
+  1. **Phase0（規模S）**: Tailwind併用導入。`tailwindcss`/`@tailwindcss/postcss`を追加し
+     globals.cssへ`@import "tailwindcss";`、既存の`--space-*`/`--color-*`をTailwindの
+     `@theme`でトークンとして取り込めるか検証。既存CSS Modulesは変更しない。
+  2. **Phase1（規模S〜M）**: トグルチップ（LayerChip等）→Radix Toggle、ラジオ/セグメント
+     選択（ルート色分けモード・LevelPicker）→Radix RadioGroup/ToggleGroup、情報開閉ボタン
+     （FieldLabelのinfoButton）→Radix Popover、FloatingPanel（DebugConsole/
+     SystemStatusPanelの共通シェル）→react-rnd。
+  3. **Phase2（規模S、任意）**: サイドバー4ブロック・MapLayersPanel・WeightPanel等の
+     `<details>`アコーディオン→Radix Accordion。現状で機能不満はなく優先度は低いため、
+     Phase1着手後に改めて要否を判断してもよい。
+  4. **Phase3（規模M〜L、実機検証込み）**: BottomSheet→vaul(Drawer)、
+     DynamicLayerTimeSlider→Embla Carousel（+wheel-gesturesプラグイン）。地図の
+     ピンチズームとの共存・暗幕なし表示・キーボード操作等、T251で洗い出した個別リスクの
+     実機再検証を伴う。4シート共有の高さ状態（BottomSheet）はvaulの標準機能でカバー
+     しきれない可能性があるため、着手前に設計判断が必要。
+- 完了条件: 各Phase完了時に該当コンポーネントのテスト（vitest）green・Playwrightでの
+  モバイル実機確認・型検査/ESLint green。Phase3はBottomSheet/DynamicLayerTimeSliderの
+  既存の実機チューニング（touch-action・スワイプ閉じ・ホイール変換等）と同等以上の
+  操作性を維持できていることを実機確認する。
+
+## 残タスクの優先順位（2026-08-23再整理・第11版）
+
 第10版以降、統合レビュー第7回（健全度89/100、P0/P1ゼロ）の起票・対応を実施した。
 統合-2（T221背景追記）・統合-3（T249、軽微一括）は即時対応済み。統合-1はT248として
 起票し、T229を統合クローズした。第11版として更新した。
