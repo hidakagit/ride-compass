@@ -1014,6 +1014,52 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   - 検証: backend pytest 1058件全green（`test_traffic.py`95件が変更前後で出力一致を
     既に検証済み）。
 
+## T221 Stage A先行＋evaluate_graph全面ベクトル化（2026-08-23・ユーザー指示）
+
+ユーザー指示「全面ベクトル化に踏み切って」「軸のフルレジストリ化（T221）を先にやった
+ほうが効率いいならそちらも合わせて実施して」を受け、T220完了メモが示していた順序
+（T221 Stage A→ベクトル化の方が対象が均質になり安価）に従い2段階で実施する。
+T221のStage B〜E（RoutePreference等のdict化・レジストリを実評価の参照元へ昇格・
+DB化・GUI編集画面）はADR自体が未承認・別途の製品判断が必要としており、
+今回のベクトル化には不要なため明示的にスコープ外とする。
+
+### - [ ] T239. T221 Stage A: 現行7軸を4テンプレートへ実装移行 規模M
+
+- 発端: `docs/decisions/t221-axis-registry.md`が「現行7軸の変換ロジックは実質4
+  テンプレート（区分線形補間・カテゴリ→定数・フラグ加算・レシピ→レベル→区分線形補間）に
+  還元できる」とし、Stage Aとして「ロジックは変えず表現だけを変える」内部移行を提案していた
+  （方向性のみ承認済み、実装はユーザーの明示指示待ちのまま）。T220完了メモは「この
+  移行を先に済ませてからevaluate_graphをベクトル化する方が対象が均質になり安価」と
+  明記している。
+- 対応方針: 新規`backend/app/domain/axis_templates.py`に4つの汎用関数
+  （`evaluate_breakpoint_linear`/`evaluate_categorical`/`evaluate_flag_sum`/
+  `evaluate_recipe_then_breakpoint_linear`）を実装し、`domain/difficulty.py`の6関数
+  （gradient/wind/road/stop/car_stress/accident各difficulty）と`domain/night.py:
+  night_difficulty`の内部実装をテンプレート呼び出しへ差し替える。関数シグネチャ・
+  戻り値の型と意味は一切変更しない。
+- 完了条件: 既存`test_difficulty.py`（42件）・`test_traffic.py`（95件）・
+  `test_evaluation.py`（43件）・`test_evaluation_service.py`（17件）が無変更のまま
+  全green（＝ロジック不変の回帰確認）。
+
+### - [ ] T240. `EvaluationService.evaluate_graph`のnumpyベクトル化 規模L
+
+- 発端: T238で車ストレス判定のpydantic構築コストのみ対応したが約10%短縮に留まり、
+  T224の「10kmループ生成で温状態約5.4〜5.6秒」という目標「5秒以内」への到達は
+  未確定のまま。ユーザー指示によりT239（Stage A）完了を前提に全面ベクトル化を実施する。
+- 対応方針: 新規`domain/evaluation.py: compute_edge_costs_bulk(...)`を実装し
+  `EvaluationService.evaluate_graph`の内部実装をこれへ差し替える（外部シグネチャ・
+  戻り値型`dict[str, EdgeCostResult]`は不変）。1回のPythonループでEdge単位の辞書・
+  タグ解析をnumpy配列へ抽出した後は、Stage Aのテンプレートを使った配列演算のみで
+  7軸のdifficulty・加重合成・costを算出する（`EdgeCostResult`の生成は
+  `model_construct()`でバリデーション省略）。既存の`compute_edge_cost`（1件ずつの
+  スカラー版）は削除せず、回帰テストのオラクルとして存続させる。
+- 完了条件: 新設`test_evaluation_bulk.py`で、多様なEdge（highway種別・タグ組み合わせ・
+  欠損データパターン網羅）に対しスカラー版とバルク版の`cost`/`allowed`/`difficulty`が
+  全件一致することを確認。`benchmarks/bench_evaluate_graph.py`でT238時点
+  （68,120エッジ約1.18秒/121,800エッジ約2.12秒）からの短縮率を実測・記録。
+  dev DBでのroad_graphエンジン実行（T232/T236と同じ直接呼び出し方式）で1シナリオ
+  以上の実データ動作確認。backend全テストgreen。
+
 ## 残タスクの優先順位（2026-08-23再整理・第5版）
 
 第4版（T12実装スタック着手直後の整理）で挙げていた最優先3件（T225・T224・T230）・
