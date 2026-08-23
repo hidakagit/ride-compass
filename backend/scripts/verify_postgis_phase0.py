@@ -80,22 +80,6 @@ def approx(a: float, b: float, tol: float = 1e-9) -> bool:
     return abs(a - b) <= tol
 
 
-class FakeOverpassClient:
-    """GraphService統合検証用。Overpass API形式の生データを返し、呼び出し回数を数える。"""
-
-    def __init__(self):
-        self.call_count = 0
-
-    async def get_ways_and_nodes(self, client, bbox):
-        self.call_count += 1
-        raw_ways = [
-            {"id": WAY_A, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [N1, N2, N3]},
-            {"id": WAY_B, "tags": {"highway": "residential"}, "nodes": [N4, N2, N5]},
-            {"id": WAY_C, "tags": {"highway": "service", "surface": "gravel", "oneway": "yes"}, "nodes": [N3, N6]},
-        ]
-        return raw_ways, dict(NODE_COORDS)
-
-
 async def cleanup(engine) -> None:
     """フィクスチャ由来の行をすべて削除する（属性はroad_edgesのON DELETE CASCADEで消える）。"""
     async with engine.begin() as conn:
@@ -245,25 +229,20 @@ async def main() -> int:
             await repo.commit()
 
         print("== 5. GraphService統合（タイルキャッシュのオーケストレーション） ==")
-        # 生データ・Edgeを一旦消し、GraphServiceがゼロから構築する流れを検証する
+        # 生データ・Edgeを一旦消し、GraphServiceがPostGISだけでゼロから構築する流れを検証する
+        # （改善計画T222でGraphServiceのDBなし構成・Overpassフォールバックは撤去済みのため、
+        # ここでは`repository`のみを渡す）。
         await cleanup(engine)
-        fake_overpass = FakeOverpassClient()
         async with session_factory() as session:
-            service = GraphService(fake_overpass, http_client=None, repository=RoadGraphRepository(session))
+            service = GraphService(repository=RoadGraphRepository(session))
             result1 = await service.get_or_build_graph_with_attributes(BBOX)
-            calls_after_first = fake_overpass.call_count
-            expected_tiles = len(tiles_covering_bbox(BBOX, ROAD_GRAPH_TILE_ZOOM))
-            check("初回はタイル数分だけOverpass（fake）を呼ぶ",
-                  calls_after_first == expected_tiles, f"calls={calls_after_first}, tiles={expected_tiles}")
             check("初回呼び出しが主対象8Edge＋8 surface属性を返す",
                   result1 is not None and len(result1[0].edges) == 8 and len(result1[1]) == 8,
                   f"got={None if result1 is None else (len(result1[0].edges), len(result1[1]))}")
         async with session_factory() as session:
-            service = GraphService(fake_overpass, http_client=None, repository=RoadGraphRepository(session))
+            service = GraphService(repository=RoadGraphRepository(session))
             result2 = await service.get_or_build_graph_with_attributes(BBOX)
-            check("2回目はタイルキャッシュによりOverpass（fake）を一切呼ばない",
-                  fake_overpass.call_count == calls_after_first, f"calls={fake_overpass.call_count}")
-            check("2回目もDBから同一のグラフを返す",
+            check("2回目もDBから同一のグラフを返す（タイルキャッシュによる省略パス）",
                   result2 is not None and len(result2[0].edges) == 8
                   and set(result2[0].edges) == set(result1[0].edges))
     finally:

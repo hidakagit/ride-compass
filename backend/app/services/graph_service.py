@@ -1,75 +1,42 @@
 import logging
 
-import httpx
-
 from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials, surface_by_edge_id
-from app.domain.graph import DirectedEdge, RoadGraph, WaySpec, build_road_graph
-from app.domain.osm_adapter import osm_ways_to_way_specs
+from app.domain.graph import DirectedEdge, RoadGraph, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache
-from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
 
 
 class GraphService:
-    """指定bboxのOSM道路データからRoad Graph（Node/Directed Edge）を構築する。
-
-    OSM Adapter（domain/osm_adapter.py）を介して、OverpassClientが返すOSM生データを
-    データソース非依存の`WaySpec`へ変換してからbuild_road_graphへ渡す（仕様書2・47章の
-    「OSM Adapter/Importer → Road Graph」の分離、Phase 2）。
+    """指定bboxのRoad Graph（Node/Directed Edge）をPostGIS（`repository`）経由で取得する。
 
     既存のルート探索（RoutingService/RouteGenerator）から使われる。地図表示（RegionService）も
     タイル配信のバックグラウンドで`get_or_build_graph_with_attributes`を呼ぶ（改善計画T59:
     ルート生成した地点でしか道路グラフが構築されず、地図を眺めるだけの利用では
     road_nodes/road_edgesが永遠に空のままだった問題への対応。region_service.py参照）。
 
-    `repository`（infrastructure/road_graph_repository.RoadGraphRepository）を渡すと、
     `get_or_build_graph_with_attributes`はPostGIS（PBF取込バッチ等でタイル取得済みマーク
-    された範囲）のみを読み、Overpassへは問い合わせない（改善計画T22でOverpassフォールバックを
-    撤去済み）。渡さない場合（既定）は、Phase 1-5と同じ「毎回Overpassから構築する」挙動のまま
-    （既存の`build_graph_with_surface_tags_for_bbox`の呼び出し方・挙動には一切影響しない）。
-
-    `repository`指定時の`get_or_build_graph_with_attributes`は、タイル取得時に
-    交差点分割（build_road_graph）を行わない。分割計算はDB上の既知の生データ全体から
+    された範囲）のみを読み、取込範囲外はデータ未整備としてNoneを返す（Overpassへは
+    問い合わせない。改善計画T22でOverpassフォールバックを撤去済み）。タイル取得時に
+    交差点分割（build_road_graph）は行わない。分割計算はDB上の既知の生データ全体から
     近傍Wayを含めて都度行う（タイル境界依存の交差点分割不一致問題への根本対応。
     詳細はdocs/architecture.md参照）。ただし生データが前回のsplit以降変わっていなければ、
     その分割計算・永続化を丸ごと省略して既存のroad_edges/road_nodesを直接読む
     （`RoadGraphRepository.is_split_up_to_date`参照）。
+
+    `repository`未接続（DBなし構成）でOverpassから都度構築する経路は改善計画T222で
+    撤去済み（`repository`は必須）。
     """
 
-    def __init__(
-        self,
-        overpass_client: OverpassClient,
-        http_client: httpx.AsyncClient,
-        repository: RoadGraphRepository | None = None,
-    ):
-        self._overpass_client = overpass_client
-        self._http_client = http_client
+    def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
-
-    async def build_graph_with_surface_tags_for_bbox(
-        self, bbox: BoundingBox
-    ) -> tuple[RoadGraph, dict[int, str | None]] | None:
-        """RoadGraphと、同じOverpass取得結果由来のosm_way_id→surfaceタグを同時に返す。
-
-        Edge単位のsurface導出（domain/attributes.py: surface_by_edge_id）は
-        Road Graph構築に使ったのと同じWay情報を必要とするため、Overpassへの
-        再問い合わせを避けるためにこのメソッドを設けている（1回の取得結果を共有する）。
-        """
-        built = await self._build(bbox)
-        if built is None:
-            return None
-        graph, way_specs = built
-        surface_by_way_id = {w.osm_way_id: w.surface for w in way_specs if w.osm_way_id is not None}
-        return graph, surface_by_way_id
 
     async def get_or_build_graph_with_attributes(
         self, bbox: BoundingBox, *, lean: bool = False
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:
-        """PostGISキャッシュ（`repository`）があれば使う（`repository`が未設定なら常にOverpassから
-        直接構築する、Phase1-5と同じ挙動）。
+        """PostGIS（`repository`）のみを参照してRoad Graphを返す。
 
         `lean=True`（改善計画T218、T12 Stage 0）: 「生データがsplit以降変わっていない」
         省略パス（下記）でのみ効く指定で、Edgeのgeometry（形状点列）を取得しない軽量版
@@ -81,11 +48,11 @@ class GraphService:
         （下記のフォールバック経路）は`lean`に関わらず常にbuild_road_graph経由のフル
         グラフを返す（この経路自体が既に低頻度・重い処理のため、リーン化の対象外）。
 
-        `repository`指定時は、まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`の
-        XYZタイル群に分解し、タイルごとに「生データを取得済みか」を`is_tile_cached`で
-        正確に判定する（地域路面レイヤー/RegionServiceと同じ「タイル単位で厳密に
-        キャッシュする」考え方）。未取得のタイルが1つでもあれば、そのbboxは「データ未整備」
-        としてNoneを返す（Overpassへは問い合わせない。改善計画T22）。
+        まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`のXYZタイル群に分解し、
+        タイルごとに「生データを取得済みか」を`is_tile_cached`で正確に判定する
+        （地域路面レイヤー/RegionServiceと同じ「タイル単位で厳密にキャッシュする」考え方）。
+        未取得のタイルが1つでもあれば、そのbboxは「データ未整備」としてNoneを返す
+        （Overpassへは問い合わせない。改善計画T22）。
 
         全タイルの生データ取得を確認できた後、まず`is_split_up_to_date`で「対象bboxの生データが
         前回のsplit以降変わっていないか」を確認する。変わっていなければ`get_graph_in_bbox`で
@@ -100,9 +67,6 @@ class GraphService:
         経由で取得したデータかに関わらず一貫した分割結果が得られる（タイル境界依存の
         交差点分割不一致問題への根本対応。詳細・残存する制約はdocs/architecture.md参照）。
         """
-        if self._repository is None:
-            return await self._fetch_graph_with_surface_attributes(bbox)
-
         for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
             if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
                 continue
@@ -173,15 +137,11 @@ class GraphService:
         経由することで、既にキャッシュ済みのタイルだけで完結するリクエストはDBへ
         一切アクセスしない（無効化方針はキャッシュモジュールのdocstring参照）。
 
-        `repository`未指定（DBなし構成）時、および対象bboxのデータが前回のsplit以降
-        変わっている稀なケース（`is_split_up_to_date`がFalse）は、既存の
-        `get_or_build_graph_with_attributes`（フルグラフ構築・保存を含む重い経路）と
-        個別の材料取得メソッドをそのまま呼ぶ（この経路自体が低頻度・重い処理のため、
-        タイルキャッシュの対象外のまま。ロジックを二重に持たない）。
+        対象bboxのデータが前回のsplit以降変わっている稀なケース（`is_split_up_to_date`が
+        False）は、既存の`get_or_build_graph_with_attributes`（フルグラフ構築・保存を含む
+        重い経路）と個別の材料取得メソッドをそのまま呼ぶ（この経路自体が低頻度・重い処理の
+        ため、タイルキャッシュの対象外のまま。ロジックを二重に持たない）。
         """
-        if self._repository is None:
-            return await self._build_search_materials_uncached(bbox)
-
         for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
             if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
                 continue
@@ -267,24 +227,16 @@ class GraphService:
 
     async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
         """指定edge_idそれぞれの許可リストタグ（静的道路属性P0）を返す（静的道路属性P1残り、
-        車ストレス・自転車インフラ評価の入力）。`repository`が無ければ`{}`を返す
-        （Overpassフォールバック経路には新属性を実装しないというADR方針と整合するため。
-        docs/decisions/pre-static-attributes-gate.md）。
+        車ストレス・自転車インフラ評価の入力）。
         """
-        if self._repository is None:
-            return {}
         return await self._repository.get_way_tags(edge_ids)
 
     async def get_accident_years_covered(self) -> int:
-        """事故データの収録年数を返す。get_way_tagsと同じ
-        「repositoryが無ければ0」パターン（0はdistance_weighted_accident_density/
-        compute_edge_costの側で「データ無し」として扱われる）。
+        """事故データの収録年数を返す。
 
         bboxに依存しないグローバルな値のため、改善計画T219でプロセス内メモリへ
         単一値キャッシュする（`graph_material_cache`、タイル単位キャッシュとは別枠）。
         """
-        if self._repository is None:
-            return 0
         cached = graph_material_cache.get_accident_years_covered()
         if cached is not None:
             return cached
@@ -294,57 +246,27 @@ class GraphService:
 
     async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
         """`lean=True`で読み込んだ探索用グラフ（geometryプレースホルダのみ）の一部Edgeへ、
-        実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。`repository`が
-        無ければ空辞書を返す（呼び出し元は`RoadGraphEngine.trace_loop`——Overpass経由
-        構築時の`context.graph`は元々フルジオメトリを持つため、この空辞書は
-        「フォールバック不要」の合図として扱われる）。
+        実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。
         """
-        if self._repository is None:
-            return {}
         return await self._repository.get_edges_with_geometry(edge_ids)
 
     async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
         """事故・停止・交差点の事前集計（`edge_attribute_counts`、改善計画T144→T218で
-        読み取り配線）を返す。get_way_tags等と同じ「repositoryが無ければ`{}`」パターン。
+        読み取り配線）を返す。
         """
-        if self._repository is None:
-            return {}
         return await self._repository.get_edge_attribute_counts(edge_ids)
 
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         """指定edge_idそれぞれの事前計算済み標高属性（average_grade等）を返す
-        （改善計画T218a、T12 Stage 0.5）。get_way_tagsと同じ
-        「repositoryが無ければ`{}`」パターン。ここは`elevation_attributes`テーブルの
-        単純なキー参照のみで、未計算のEdgeへその場でGSIへ問い合わせることはしない
-        （探索フェーズは`app.batch.precompute_elevation_attributes`で事前計算済みの値を
-        読むだけに留め、リクエスト単位のレイテンシに外部API呼び出しを持ち込まない設計）。
+        （改善計画T218a、T12 Stage 0.5）。`elevation_attributes`テーブルの単純なキー参照
+        のみで、未計算のEdgeへその場でGSIへ問い合わせることはしない（探索フェーズは
+        `app.batch.precompute_elevation_attributes`で事前計算済みの値を読むだけに留め、
+        リクエスト単位のレイテンシに外部API呼び出しを持ち込まない設計）。
         """
-        if self._repository is None:
-            return {}
         return await self._repository.get_elevation_attributes(edge_ids)
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         """指定edge_idのうちKSJ N10/N12に該当するものの集合を返す（外部静的データソース
-        T51）。get_way_tagsと同じ「repositoryが無ければ空集合」パターン。
+        T51）。
         """
-        if self._repository is None:
-            return set()
         return await self._repository.get_designated_edge_ids(edge_ids)
-
-    async def _fetch_graph_with_surface_attributes(
-        self, bbox: BoundingBox
-    ) -> tuple[RoadGraph, dict[str, str | None]] | None:
-        built = await self.build_graph_with_surface_tags_for_bbox(bbox)
-        if built is None:
-            return None
-        graph, surface_by_way_id = built
-        return graph, surface_by_edge_id(graph, surface_by_way_id)
-
-    async def _build(self, bbox: BoundingBox) -> tuple[RoadGraph, list[WaySpec]] | None:
-        result = await self._overpass_client.get_ways_and_nodes(self._http_client, bbox)
-        if result is None:
-            return None
-        raw_ways, nodes = result
-        way_specs = osm_ways_to_way_specs(raw_ways)
-        graph = build_road_graph(way_specs, nodes)
-        return graph, way_specs

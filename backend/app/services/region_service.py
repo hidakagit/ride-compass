@@ -4,8 +4,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-import httpx
-
 from app.config import settings
 from app.domain.evaluation import AxisInspectorResult, RoutePreference, axis_inspector_breakdown
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
@@ -14,7 +12,6 @@ from app.domain.traffic import CarStressBreakdown, CarStressRecipe, car_stress_b
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call
-from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
@@ -65,9 +62,8 @@ async def _build_graph_for_tile_background(ancestor_tile: tuple[int, int, int], 
             started = time.monotonic()
             async with get_session_factory()() as session:
                 repository = RoadGraphRepository(session)
-                async with httpx.AsyncClient() as http_client:
-                    graph_service = GraphService(OverpassClient(), http_client, repository=repository)
-                    built = await graph_service.get_or_build_graph_with_attributes(bbox)
+                graph_service = GraphService(repository=repository)
+                built = await graph_service.get_or_build_graph_with_attributes(bbox)
             elapsed_ms = round((time.monotonic() - started) * 1000)
             edge_count = len(built[0].edges) if built else 0
             logger.info(

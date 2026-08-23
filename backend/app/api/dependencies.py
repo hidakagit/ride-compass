@@ -20,7 +20,6 @@ from app.infrastructure.database import get_session_factory
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.ors_client import ORSClient
-from app.infrastructure.overpass_client import OverpassClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
 from app.services.accident_service import AccidentService
@@ -135,22 +134,12 @@ RouteGenerationBuilder = Callable[
 
 
 async def get_graph_service():
-    # ルート生成は周回全体を覆うbboxを1回のOverpass問い合わせで取得するため、
-    # 地域路面レイヤー（タイル単位、15秒）より長めのタイムアウトにする
-    # （road_graph_use_repository無効時のDBなし構成でのみ実際にOverpassへ問い合わせる）。
-    # road_graph_use_repository有効時はPostGISのみを参照し、取込範囲外はOverpassへ
-    # 問い合わせずデータ未整備として扱う（改善計画T22でOverpassフォールバックを撤去済み。
-    # config.py参照）。
-    http_client = get_http_client(30.0)
-    if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
-            yield GraphService(
-                OverpassClient(),
-                http_client,
-                repository=RoadGraphRepository(session),
-            )
-    else:
-        yield GraphService(OverpassClient(), http_client)
+    # PostGISのみを参照し、取込範囲外はOverpassへ問い合わせずデータ未整備として扱う
+    # （改善計画T22でOverpassフォールバックを撤去済み。改善計画T222でDBなし構成
+    # 自体も撤去したため、road_graph_use_repository設定に関わらず常にrepository付きで
+    # 構築する。config.py参照）。
+    async with get_session_factory()() as session:
+        yield GraphService(repository=RoadGraphRepository(session))
 
 
 async def get_elevation_attribute_service():

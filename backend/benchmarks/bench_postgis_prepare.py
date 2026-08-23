@@ -40,18 +40,6 @@ ORIGIN_LAT = 35.681
 ORIGIN_LON = 139.767
 
 
-class _FailingOverpassClient:
-    """呼ばれたら即座に失敗する（取込漏れタイルがある場合に実Overpassへ問い合わせて
-    しまうのを防ぐ安全弁。事前に`_check_tiles_cached`でSKIPするため通常は呼ばれない）。
-    """
-
-    async def get_ways_and_nodes(self, client, bbox):
-        raise AssertionError(
-            "Overpassが呼ばれた（取込漏れタイルがある可能性）。"
-            "先にapp.batch.import_pbfで対象bboxを取込むこと。"
-        )
-
-
 async def _measure_async(name: str, coro_fn, *, repeat: int, warmup: int = 0, note: str = "") -> BenchmarkResult:
     """`_harness.measure_async`と同じ計測ロジックだが、呼び出し側が既に持つイベント
     ループ内で使う（asyncio.runを内包しないため、DBセッション等を跨いで使い回せる）。
@@ -90,7 +78,6 @@ async def _run_scenario(
     回数。分けているのは、遅いステージをむやみに繰り返すと1回の実行が数十分規模になり
     試行錯誤の妨げになるため（実測で判明。デフォルトのslow_repeat=1は分散が取れない
     トレードオフだが、まずは1回でも実データでの規模感を掴むことを優先する）。"""
-    import httpx
     from sqlalchemy import update
 
     from app.domain.graph import RoadGraph, build_road_graph
@@ -169,7 +156,6 @@ async def _run_scenario(
     )
 
     # --- Stage 4: get_or_build_graph_with_attributes end-to-end（実際のprepare()と同じ呼び出し） ---
-    # 全タイル取得済みのためOverpassには到達しない（_FailingOverpassClientで保証）。
     # is_split_up_to_date（省略パス）により、生データ不変時はCOLD/WARMで所要時間が大きく
     # 異なるようになった。直前のStage 3（save_graph）でprimary_way_idsのsplit_atが既に
     # 刷新済み（＝WARM状態）のため、まずWARM（省略パス、fast path）を計測し、次に
@@ -178,14 +164,9 @@ async def _run_scenario(
     # slow path）を計測する。
     async def _end_to_end():
         async with session_factory() as session:
-            async with httpx.AsyncClient(timeout=30.0) as http_client:
-                service = GraphService(
-                    _FailingOverpassClient(),
-                    http_client,
-                    repository=RoadGraphRepository(session),
-                )
-                built = await service.get_or_build_graph_with_attributes(bbox)
-                assert built is not None and built[0].edges, "空グラフが返った(取込範囲を確認)"
+            service = GraphService(repository=RoadGraphRepository(session))
+            built = await service.get_or_build_graph_with_attributes(bbox)
+            assert built is not None and built[0].edges, "空グラフが返った(取込範囲を確認)"
 
     async def _is_split_up_to_date_only():
         async with session_factory() as session:

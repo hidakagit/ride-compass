@@ -11,7 +11,7 @@ from app.domain.traffic import CarStressRecipe
 from app.infrastructure import rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.ors_client import ORSClient
-from app.infrastructure.overpass_client import OverpassClient
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
 from app.main import app
 from app.services.elevation_attribute_service import ElevationAttributeService
@@ -253,12 +253,13 @@ async def test_generate_routes_rejects_when_concurrency_limit_reached():
 def _lightweight_generation_builder():
     # get_route_generation_builderはFastAPIのDependsで解決される前提の関数だが、ここでは
     # 依存を直接渡して「settings.routing_engineに応じたエンジン選択」と重みの既定値/上書きの
-    # 反映だけを検証する。いずれの依存もコンストラクタではI/Oを行わないため、http_clientはNoneでよい。
+    # 反映だけを検証する。いずれの依存もコンストラクタではI/Oを行わないため、http_client・
+    # session（RoadGraphRepository）はNoneでよい。
     return get_route_generation_builder(
         routing_service=RoutingService(ORSClient("test-key", http_client=None)),
         elevation_service=ElevationService(ElevationClient(), http_client=None),
         wind_service=WindService(WeatherService(WeatherClient(), http_client=None)),
-        graph_service=GraphService(OverpassClient(), http_client=None),
+        graph_service=GraphService(repository=RoadGraphRepository(session=None)),
         elevation_attribute_service=ElevationAttributeService(ElevationClient(), http_client=None),
         weather_service=WeatherService(WeatherClient(), http_client=None),
     )

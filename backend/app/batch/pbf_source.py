@@ -9,7 +9,7 @@ from pathlib import Path
 
 import osmium
 
-# way1件ぶんの生データ（OverpassClient.get_ways_and_nodesのway要素と同じ形）と、
+# way1件ぶんの生データ（osm_adapter.py: osm_way_to_way_specが受け取る形と同じ）と、
 # そのwayが参照するノードのうち位置が判明しているものの座標（node_id -> (lat, lon)）。
 WaySink = Callable[[dict, dict[int, tuple[float, float]]], None]
 

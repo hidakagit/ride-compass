@@ -41,25 +41,6 @@ def _point_in_tile(tile_bbox: BoundingBox, lat_frac: float, lon_frac: float) -> 
     return lat, lon
 
 
-class FakeOverpassClient:
-    def __init__(self, result=None, results_by_call=None):
-        """result: 全呼び出しで返す固定値。results_by_call: 呼び出し順に消費するリスト
-        （タイルごとに異なる結果を返したいテスト、例えば一部タイルだけ取得失敗させる
-        ケースや、タイルごとに異なるWay集合を返したいケースで使う）。
-        両方渡した場合はresults_by_callを優先する。"""
-        self.call_count = 0
-        self._result = result
-        self._results_by_call = results_by_call
-
-    async def get_ways_and_nodes(self, http_client, bbox):
-        if self._results_by_call is not None:
-            result = self._results_by_call[self.call_count]
-            self.call_count += 1
-            return result
-        self.call_count += 1
-        return self._result
-
-
 class FakeRoadGraphRepository:
     """road_graph_repository.RoadGraphRepositoryの簡易インメモリ版（実PostGISへの
     接続確認ができない開発環境のため、キャッシュ利用側のオーケストレーションロジック
@@ -254,50 +235,11 @@ async def _seed_tile(
     await repository.commit()
 
 
-async def test_build_graph_with_surface_tags_returns_graph_and_way_surface_map():
-    ways = [
-        {"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]},
-        {"id": 101, "tags": {"highway": "track"}, "nodes": [2, 3]},  # surfaceタグ無し
-    ]
-    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701), 3: (35.702, 139.702)}
-    overpass_client = FakeOverpassClient(result=(ways, nodes))
-    service = GraphService(overpass_client, http_client=None)
-
-    result = await service.build_graph_with_surface_tags_for_bbox(BBOX)
-
-    assert result is not None
-    graph, surface_by_way_id = result
-    assert len(graph.nodes) == 3
-    assert surface_by_way_id == {100: "asphalt", 101: None}
-    assert overpass_client.call_count == 1  # Overpassへの問い合わせは1回だけ
-
-
-async def test_build_graph_with_surface_tags_returns_none_on_overpass_failure():
-    overpass_client = FakeOverpassClient(result=None)
-    service = GraphService(overpass_client, http_client=None)
-
-    result = await service.build_graph_with_surface_tags_for_bbox(BBOX)
-
-    assert result is None
-
-
-async def test_without_repository_get_or_build_always_fetches_from_overpass():
-    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
-    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
-    overpass_client = FakeOverpassClient(result=(ways, nodes))
-    service = GraphService(overpass_client, http_client=None)  # repository未指定
-
-    await service.get_or_build_graph_with_attributes(BBOX)
-    await service.get_or_build_graph_with_attributes(BBOX)
-
-    assert overpass_client.call_count == 2  # キャッシュされないため毎回Overpassへ
-
-
 async def test_with_repository_uncached_tile_returns_none():
-    """repositoryモードは読み出し専用（改善計画T22でOverpassフォールバックを撤去済み）。
-    未取込タイルを含むリクエストはOverpassへ問い合わせず、即Noneを返す。"""
+    """未取込タイルを含むリクエストは即Noneを返す（改善計画T22でOverpassフォールバックを
+    撤去済み、改善計画T222でDBなし構成自体も撤去済み）。"""
     repository = FakeRoadGraphRepository()
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     result = await service.get_or_build_graph_with_attributes(BBOX)
 
@@ -309,7 +251,7 @@ async def test_with_repository_cached_tile_computes_split_on_first_read():
     nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     result = await service.get_or_build_graph_with_attributes(BBOX)
 
@@ -329,7 +271,7 @@ async def test_with_repository_second_read_uses_fast_path_when_split_up_to_date(
     nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     first = await service.get_or_build_graph_with_attributes(BBOX)
     second = await service.get_or_build_graph_with_attributes(BBOX)
@@ -349,7 +291,7 @@ async def test_with_repository_falls_back_to_slow_path_when_raw_way_content_actu
     nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     await service.get_or_build_graph_with_attributes(BBOX)
     assert repository.get_way_specs_with_closure_call_count == 1
@@ -378,7 +320,7 @@ async def test_with_repository_semantically_identical_resave_does_not_trigger_sl
     nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     await service.get_or_build_graph_with_attributes(BBOX)
     assert repository.get_way_specs_with_closure_call_count == 1
@@ -403,7 +345,7 @@ async def test_with_repository_bbox_spanning_two_tiles_reads_and_merges_both():
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, ways, nodes)
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3638, 1612, ways, nodes)
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     result = await service.get_or_build_graph_with_attributes(TWO_TILE_BBOX)
 
@@ -415,7 +357,7 @@ async def test_with_repository_bbox_spanning_two_tiles_returns_none_until_both_c
     nodes = {1: (35.710, 139.750), 2: (35.711, 139.751)}
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, ways, nodes)  # 片方のタイルのみ取込済み
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     result = await service.get_or_build_graph_with_attributes(TWO_TILE_BBOX)
 
@@ -432,7 +374,7 @@ async def test_with_repository_legitimately_empty_area_returns_empty_graph_not_n
     # （PBF取込バッチはway 0件の地域もタイルとしてマークする）。
     repository = FakeRoadGraphRepository()
     await repository.mark_tile_cached(ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE)
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     first = await service.get_or_build_graph_with_attributes(BBOX)
 
@@ -499,7 +441,7 @@ async def test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shar
     # ケース1: タイルAをまとめて取込済みにする（WとBを同時に見て、node11が交差点だと正しく認識できる）
     repository_a_first = FakeRoadGraphRepository()
     await _seed_tile(repository_a_first, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, tile_a_ways, tile_a_nodes)
-    service_a_first = GraphService(FakeOverpassClient(), http_client=None, repository=repository_a_first)
+    service_a_first = GraphService(repository=repository_a_first)
     await service_a_first.get_or_build_graph_with_attributes(tile_a_query_bbox)
     w_edges_from_tile_a = {eid: e for eid, e in repository_a_first.edges.items() if e.osm_way_id == 200}
 
@@ -508,11 +450,11 @@ async def test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shar
     # 壊れていた状況の再現）。
     repository_b_after_a = FakeRoadGraphRepository()
     await _seed_tile(repository_b_after_a, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, tile_a_ways, tile_a_nodes)
-    service_b_after_a = GraphService(FakeOverpassClient(), http_client=None, repository=repository_b_after_a)
+    service_b_after_a = GraphService(repository=repository_b_after_a)
     await service_b_after_a.get_or_build_graph_with_attributes(tile_a_query_bbox)
 
     await _seed_tile(repository_b_after_a, ROAD_GRAPH_TILE_ZOOM, 3638, 1612, tile_b_ways, tile_b_nodes)
-    service_b_only = GraphService(FakeOverpassClient(), http_client=None, repository=repository_b_after_a)
+    service_b_only = GraphService(repository=repository_b_after_a)
     await service_b_only.get_or_build_graph_with_attributes(tile_b_query_bbox)
     w_edges_from_tile_b_after_a = {eid: e for eid, e in repository_b_after_a.edges.items() if e.osm_way_id == 200}
 
@@ -538,27 +480,13 @@ async def _seeded_service_with_materials() -> tuple[GraphService, FakeRoadGraphR
     }
     repository.way_tags = {"way-100-seg0-fwd": {"highway": "residential"}}
     repository.designated_edge_ids = {"way-100-seg0-fwd"}
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
     return service, repository
-
-
-async def test_get_search_materials_for_bbox_without_repository_falls_back_to_uncached():
-    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
-    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
-    overpass_client = FakeOverpassClient(result=(ways, nodes))
-    service = GraphService(overpass_client, http_client=None)  # repository未指定
-
-    materials = await service.get_search_materials_for_bbox(BBOX)
-
-    assert materials is not None
-    assert len(materials.graph.edges) == 2
-    assert materials.edge_attribute_counts == {}
-    assert materials.designated_edge_ids == set()
 
 
 async def test_get_search_materials_for_bbox_returns_none_for_uncached_tile():
     repository = FakeRoadGraphRepository()  # タイル未取込
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     assert await service.get_search_materials_for_bbox(BBOX) is None
 
@@ -636,7 +564,7 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, [ways[0]], {1: nodes[1], 2: nodes[2]})
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3638, 1612, [ways[1]], {3: nodes[3], 4: nodes[4]})
-    service = GraphService(FakeOverpassClient(), http_client=None, repository=repository)
+    service = GraphService(repository=repository)
 
     # 1回目は低速経路（closure再計算＋save_graph）を通り、タイルキャッシュには乗らない。
     await service.get_search_materials_for_bbox(TWO_TILE_BBOX)

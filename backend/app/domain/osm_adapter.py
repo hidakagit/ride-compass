@@ -90,8 +90,8 @@ def _filter_allowed_tags(tags: dict) -> dict[str, str]:
 
 
 def osm_way_to_way_spec(raw_way: dict) -> WaySpec | None:
-    """OverpassClient.get_ways_and_nodesが返すway要素
-    （`{"id": int, "tags": dict, "nodes": list[int]}`）を`WaySpec`へ変換する。
+    """OSM生データ由来のway要素（`{"id": int, "tags": dict, "nodes": list[int]}`、
+    PBF取込バッチ・テストフィクスチャ等が共通で使う形）を`WaySpec`へ変換する。
 
     ノードが2未満のwayは経路探索上の区間になり得ないためNoneを返す。
     """

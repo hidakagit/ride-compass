@@ -15,16 +15,18 @@ class Settings(BaseSettings):
     # 現状はマップの見える化・評価に必要な情報の精査を優先するため、既定値はopenrouteservice。
     routing_engine: Literal["road_graph", "openrouteservice"] = "openrouteservice"
     # Road Graph/Road Attributeの永続化先（PostGIS）。docker-compose.ymlのpostgresサービスに
-    # 対応する。現時点ではどのAPIエンドポイントもこれに依存していない（DBが無くても
-    # 既存機能は動作する）。GraphService/ElevationAttributeServiceへrepositoryを明示的に
-    # 注入した場合にのみ使われる（infrastructure/database.py, road_graph_repository.py）。
+    # 対応する。ElevationAttributeServiceへrepositoryを明示的に注入した場合にのみ使われる
+    # （infrastructure/database.py, road_graph_repository.py）。GraphServiceは改善計画T222で
+    # repository必須（このURLへの接続必須）へ一本化済み。
     database_url: str = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     # Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして使うかどうか。
-    # Trueにすると、GraphService/ElevationAttributeServiceへRoadGraphRepositoryが注入され、
-    # PBF取込バッチ（app/batch/import_pbf.py）等で取得済みマークされた範囲では
-    # routing_engine=road_graphのルート生成がOverpassへ問い合わせずDBだけで完結する。
-    # database_urlのDBへ実際に接続できる環境でのみ有効化すること（既定Falseのままなら
-    # 従来どおりDBなしで動作する）。
+    # ElevationAttributeService・地図表示系（RegionService/AccidentService、
+    # ORSエンジンの路面評価用surface_match_repository）へRoadGraphRepositoryを注入するかを
+    # 切り替える。database_urlのDBへ実際に接続できる環境でのみTrueにすること（既定Falseの
+    # ままならこれらはDBなしで動作する）。GraphService（get_or_build_graph_with_attributes等、
+    # routing_engine=road_graphのルート生成が使う）はこの設定に関わらず常にrepositoryを
+    # 必要とする（改善計画T222でDBなし構成を撤去済みのため、Falseのままroad_graphエンジンを
+    # 使うとGraphService経由のDBアクセスが失敗する）。
     road_graph_use_repository: bool = False
     # 基礎地図プロキシ（/api/basemap）のスタイルJSON内URL書き換えに使う絶対URL。
     # MapLibreは相対URLをスタイル自身の取得元ではなくページのオリジンに対して解決してしまう

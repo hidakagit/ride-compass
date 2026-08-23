@@ -1,5 +1,5 @@
-"""Phase 1 E2E検証: PBF取込済みのPostGISだけを使い、Overpassへ一切問い合わせずに
-routing_engine=road_graph相当のルート生成が完走することを確認する。
+"""Phase 1 E2E検証: PBF取込済みのPostGISだけを使い、routing_engine=road_graph相当の
+ルート生成が完走することを確認する。
 
 前提: app/batch/import_pbf.pyで対象範囲（東京駅周辺を含むbbox）を取込済みであること。
 
@@ -7,10 +7,9 @@ routing_engine=road_graph相当のルート生成が完走することを確認�
     $env:DATABASE_URL = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     .venv\\Scripts\\python.exe scripts\\verify_phase1_e2e.py
 
-OverpassClientの代わりに「呼ばれたら記録して失敗する」スタブを注入するため、
-ルート生成が成功して呼び出し回数が0であれば「Overpass依存なしで完結した」ことの
-直接的な証明になる。天候（Open-Meteo）と標高（GSI）は実APIを呼ぶ（Phase 1の
-解消対象はOverpassのみ。docs/osm-pbf-import.md参照）。
+GraphServiceは改善計画T222でPostGIS（repository）必須構成へ一本化済みのため、本スクリプトも
+PostGISのみで完結する（Overpassへ問い合わせる経路自体がコードから撤去済み）。天候
+（Open-Meteo）と標高（GSI）は実APIを呼ぶ。
 """
 
 import asyncio
@@ -43,20 +42,8 @@ DISTANCE_KM = 4.0
 DISTANCE_TOLERANCE_KM = 5.0
 
 
-class FailingOverpassClient:
-    """呼ばれたら記録して失敗するOverpassスタブ（呼ばれないことの証明用）。"""
-
-    def __init__(self):
-        self.call_count = 0
-
-    async def get_ways_and_nodes(self, client, bbox):
-        self.call_count += 1
-        return None
-
-
 async def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    overpass = FailingOverpassClient()
     engine = get_engine()
     session_factory = get_session_factory()
 
@@ -64,9 +51,7 @@ async def main() -> int:
     try:
         async with httpx.AsyncClient(timeout=10.0) as http_client:
             async with session_factory() as graph_session, session_factory() as elevation_session:
-                graph_service = GraphService(
-                    overpass, http_client, repository=RoadGraphRepository(graph_session)
-                )
+                graph_service = GraphService(repository=RoadGraphRepository(graph_session))
                 elevation_attribute_service = ElevationAttributeService(
                     ElevationClient(), http_client, repository=RoadGraphRepository(elevation_session)
                 )
@@ -87,22 +72,18 @@ async def main() -> int:
     elapsed = time.perf_counter() - started
 
     print()
-    print(f"候補数: {len(candidates)}  所要時間: {elapsed:.1f}s  Overpass呼び出し回数: {overpass.call_count}")
+    print(f"候補数: {len(candidates)}  所要時間: {elapsed:.1f}s")
     for c in candidates:
         print(
             f"  {c.direction_label:>3}: distance={c.distance_km}km gain={c.elevation_gain_m}m "
             f"road={c.road_score} wind={c.wind_score} total={c.total_score} segments={len(c.segments or [])}"
         )
 
-    ok = True
-    if overpass.call_count != 0:
-        print(f"FAIL: Overpassが{overpass.call_count}回呼ばれた（PostGISだけで完結していない）")
-        ok = False
-    if not candidates:
+    ok = bool(candidates)
+    if not ok:
         print("FAIL: 候補が0件（取込データでのルート生成に失敗）")
-        ok = False
-    if ok:
-        print("PASS: Overpassへの問い合わせゼロでルート生成が完走した")
+    else:
+        print("PASS: PostGISのみでルート生成が完走した")
     return 0 if ok else 1
 
 

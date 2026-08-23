@@ -293,7 +293,7 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 - 未決の製品判断: GUI編集を誰に開放するか（研究モード限定か否か）、軸追加・重み変更の
   安全性検証をどう設けるか。詳細はADR末尾参照。
 
-### - [ ] T222. Overpassライブ経路（`repository`未指定構成）の削除 規模M — トリガー: ユーザーの実装着手指示
+### - [x] T222. Overpassライブ経路（`repository`未指定構成）の削除 規模M（2026-08-23完了）
 
 - 背景: T218（探索の素材事前計算化＋リーンロード）実装時に判明。`GraphService`は
   `repository`未指定時、`OverpassClient.get_ways_and_nodes`経由でOverpassから都度
@@ -311,6 +311,38 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   消え、DBなし構成に依存していたテストが新方式（repositoryへの直接シード等、T22の
   `test_way_split_is_consistent_regardless_of_which_tile_reveals_the_shared_node`と
   同じ移行パターン）で置き換わること。
+
+- **実装メモ（2026-08-23完了、ORS→road_graphエンジン移行の残作業調査を受けて着手）**:
+  1. `GraphService.__init__`から`overpass_client`/`http_client`引数を削除し
+     `repository: RoadGraphRepository`を必須化。`_build`・
+     `build_graph_with_surface_tags_for_bbox`・`_fetch_graph_with_surface_attributes`を
+     削除し、残り全メソッドの`if self._repository is None`分岐を除去（常に
+     `self._repository.X(...)`を直接呼ぶ）。
+  2. `app/infrastructure/overpass_client.py`（`OverpassClient`本体）を丸ごと削除
+     （`get_ways_and_nodes`の呼び出し元がGraphService以外に無いことを確認済み。
+     クラスの存在理由自体が「GraphServiceのDBなし構成専用」だったため）。
+     `tests/test_overpass_client.py`も削除。
+  3. `app/api/dependencies.py: get_graph_service()`の`road_graph_use_repository`分岐を
+     削除し、常にrepository付きで構築（GraphServiceに限りこの設定の影響を受けなくなる。
+     他4箇所[`get_elevation_attribute_service`/`get_surface_match_repository`/
+     `get_region_service`/`get_accident_service`]の同フラグ利用は今回のスコープ外の
+     ため維持）。`app/services/region_service.py`の直接構築箇所も同様に更新。
+  4. `tests/test_graph_service.py`のDBなし構成自体を検証する4テスト（Overpass呼び出し
+     回数を数えるテスト等）を削除し、他の全テストの`GraphService(...)`呼び出しを
+     `repository=`のみの新シグネチャへ更新。`tests/test_routes_generate.py`の
+     軽量ビルダーテストも同様に更新（`RoadGraphRepository(session=None)`でI/O無しの
+     ダミーrepositoryを渡す）。
+  5. `scripts/verify_phase1_e2e.py`・`scripts/verify_postgis_phase0.py`・
+     `benchmarks/bench_postgis_prepare.py`にあった「Overpassが呼ばれないことを保証する」
+     ためのFake/Failingスタブ（`FailingOverpassClient`等）を削除し、新シグネチャへ
+     更新（これらのスタブの存在理由自体が消滅したため）。
+  6. `docs/architecture.md`のファイル構成表（`overpass_client.py`・
+     `test_overpass_client.py`の行を削除、`graph_service.py`の説明を更新）・
+     `backend/app/config.py`・`backend/.env.example`（`road_graph_use_repository`の
+     コメント・プロファイル表）を現状に追従。特に`.env.example`の「開発（DBなし）」
+     プロファイルは`ROUTING_ENGINE=road_graph`が選べなくなった点（GraphServiceが
+     DATABASE_URLへの実接続を常に必要とするため）を明記した。
+  - 検証: backend pytest 1051件全green（削除した重複・DBなし構成専用テスト12件分減）。
 
 ### - [ ] T223. DEM1A（1mメッシュ）標高データの組み込み可否調査 規模S（調査のみ） — トリガー: ユーザーの調査着手指示（2026-08-23起票）
 
@@ -852,28 +884,27 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
 - **今すぐ着手できる（トリガー成立済み・指示待ち）**:
   1. **T209**（黄砂・PM2.5調査、規模S・調査のみ）: トリガー成立済み・着手コスト最小。
   2. **T221**（評価軸のフルレジストリ駆動化、規模L・方向性のみ承認済み）: 指示待ち。
-     着手時はStage Aの詳細設計から。T226（残骸削除、完了済み）で土台は既に整理済み。
-  3. **T222**（Overpassライブ経路の削除、規模M）: 指示待ち。T221 Stage Aと同じく
-     GraphService周りを触るため、着手順は衝突しないよう調整する。
-  4. **T223**（DEM1A調査、規模S・調査のみ）: 指示待ち。
+     着手時はStage Aの詳細設計から。T226（残骸削除）・T222（Overpassライブ経路削除、
+     いずれも完了済み）で土台は既に整理済み。
+  3. **T223**（DEM1A調査、規模S・調査のみ）: 指示待ち。
 
 - **トリガー未到達（現時点では着手しない）**:
-  5. **T206**（積雪・凍結、規模S〜M）: 冬季前=11月。季節トリガーの到達が最も近い。
-  6. **T145a**（night軸レイヤー、規模S〜M）: litタグデータの充実待ち（変化なし）。
-  7. **T105**（バックエンド到達不能の原因特定、規模S〜M）: 次回の再現報告待ち。
-  8. **T127**（全国データ取込の検証、規模不明）: 全国展開の意思決定待ち。
-  9. **T145**（レイヤーパネルのレジストリ駆動化・三次レイヤー、規模L）: 裁量待ち。
-  10. **T207**（CAPE延長予報、規模S）: 利用実績・要望待ち。
-  11. **T208**（視程・霧調査、規模S）: 利用報告待ち。
-  12. **T229**（冷パス計測、規模S）: 体感遅延報告待ち（T224でのエンドツーエンド実測は
+  4. **T206**（積雪・凍結、規模S〜M）: 冬季前=11月。季節トリガーの到達が最も近い。
+  5. **T145a**（night軸レイヤー、規模S〜M）: litタグデータの充実待ち（変化なし）。
+  6. **T105**（バックエンド到達不能の原因特定、規模S〜M）: 次回の再現報告待ち。
+  7. **T127**（全国データ取込の検証、規模不明）: 全国展開の意思決定待ち。
+  8. **T145**（レイヤーパネルのレジストリ駆動化・三次レイヤー、規模L）: 裁量待ち。
+  9. **T207**（CAPE延長予報、規模S）: 利用実績・要望待ち。
+  10. **T208**（視程・霧調査、規模S）: 利用報告待ち。
+  11. **T229**（冷パス計測、規模S）: 体感遅延報告待ち（T224でのエンドツーエンド実測は
       基準bbox規模のみのため、30km級冷パスの計測自体は未実施のまま残っている）。
 
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
-**サマリ（12タスク）**: 指示待ち4件（T209・T221・T222・T223）／
+**サマリ（11タスク）**: 指示待ち3件（T209・T221・T223）／
 トリガー未到達8件（T206・T145a・T105・T127・T145・T207・T208・T229）。
 安全網の回復3件（T225・T224・T230）とレビュー指摘の消化5件
-（T226〜T228・T231・T232）は全て完了済み。
+（T226〜T228・T231・T232）、およびT222（Overpassライブ経路削除）は全て完了済み。
 
 ---
 
