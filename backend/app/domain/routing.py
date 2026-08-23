@@ -24,11 +24,11 @@ from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.evaluation import EdgeCostResult
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
-from app.domain.graph import RoadGraph
+from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 
 
-def build_networkx_graph(graph: RoadGraph, edge_costs: dict[str, EdgeCostResult]) -> nx.DiGraph:
+def build_networkx_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResult]) -> nx.DiGraph:
     """RoadGraphとEdge CostからNetworkXの有向グラフを構築する。
 
     Hard Constraintで除外されたEdge（`allowed=False`）やCostが算出できなかったEdge
@@ -63,7 +63,7 @@ class SparseRoadGraph:
     edge_id_by_index_pair: dict[tuple[int, int], str]
 
 
-def build_sparse_graph(graph: RoadGraph, edge_costs: dict[str, EdgeCostResult]) -> SparseRoadGraph:
+def build_sparse_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResult]) -> SparseRoadGraph:
     """RoadGraphとEdge Costから`SparseRoadGraph`を構築する（`build_networkx_graph`の
     scipy版）。Hard Constraintで除外されたEdge・Costが算出できなかったEdgeは含めない
     （`build_networkx_graph`と同じ）。
@@ -160,7 +160,7 @@ def routable_node_ids(sparse_graph: SparseRoadGraph) -> set[str]:
     return {sparse_graph.index_to_node_id[i] for i in connected_indices}
 
 
-def find_nearest_node(graph: RoadGraph, point: Coordinates) -> str | None:
+def find_nearest_node(graph: RoadGraphLike, point: Coordinates) -> str | None:
     """総当たりで指定地点に最も近いNodeを探す。
 
     1回のRoad Graph構築（1リクエスト分のbbox）あたりのNode数は数千程度を想定しており、
@@ -193,7 +193,7 @@ class NodeSpatialIndex:
     構成でも同じロジックで動く）。
     """
 
-    graph: RoadGraph
+    graph: RoadGraphLike
     cell_size_deg: float
     buckets: dict[tuple[int, int], list[str]]
 
@@ -208,7 +208,7 @@ DEFAULT_NODE_INDEX_CELL_SIZE_DEG = 0.01
 
 
 def build_node_spatial_index(
-    graph: RoadGraph,
+    graph: RoadGraphLike,
     cell_size_deg: float = DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
     node_ids: Collection[str] | None = None,
 ) -> NodeSpatialIndex:

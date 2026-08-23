@@ -173,3 +173,63 @@ def test_different_ways_produce_different_edge_ids_even_with_same_split_topology
     way_ids_used = {e.osm_way_id for e in graph.edges.values()}
     assert way_ids_used == {100, 200}
     assert len(graph.edges) == 4  # 2way × 双方向
+
+
+# --- 改善計画T248: 探索専用lean型（LeanNode/LeanEdge/LeanRoadGraph）の単体テスト ---
+
+
+def test_lean_types_satisfy_road_graph_like_protocols():
+    from app.domain.graph import (
+        DirectedEdge,
+        EdgeLike,
+        LeanEdge,
+        LeanNode,
+        LeanRoadGraph,
+        Node,
+        NodeLike,
+        RoadGraph,
+        RoadGraphLike,
+    )
+
+    lean_node = LeanNode(node_id="n1", latitude=35.7, longitude=139.7, osm_node_id=1)
+    lean_edge = LeanEdge(
+        edge_id="e1", from_node_id="n1", to_node_id="n2", geometry=[],
+        distance_m=10.0, osm_way_id=100, highway="residential", bearing_deg=90.0,
+    )
+    lean_graph = LeanRoadGraph(graph_version="v1", nodes={"n1": lean_node}, edges={"e1": lean_edge})
+
+    # LeanNode/LeanEdge/LeanRoadGraphは探索フェーズが要求するProtocolを満たす。
+    assert isinstance(lean_node, NodeLike)
+    assert isinstance(lean_edge, EdgeLike)
+    assert isinstance(lean_graph, RoadGraphLike)
+
+    # 表示・保存用のPydantic型（Node/DirectedEdge/RoadGraph）も同じProtocolを満たす
+    # （trace_loop等がlean/フル両方を同じリストへ混在させられることの前提）。
+    full_node = Node(node_id="n1", latitude=35.7, longitude=139.7, osm_node_id=1)
+    full_edge = DirectedEdge(
+        edge_id="e1", from_node_id="n1", to_node_id="n2", geometry=[[35.7, 139.7]],
+        distance_m=10.0, osm_way_id=100, highway="residential", bearing_deg=90.0,
+    )
+    full_graph = RoadGraph(graph_version="v1", nodes={"n1": full_node}, edges={"e1": full_edge})
+    assert isinstance(full_node, NodeLike)
+    assert isinstance(full_edge, EdgeLike)
+    assert isinstance(full_graph, RoadGraphLike)
+
+
+def test_lean_types_are_frozen():
+    from app.domain.graph import LeanEdge, LeanNode
+
+    node = LeanNode(node_id="n1", latitude=35.7, longitude=139.7)
+    edge = LeanEdge(edge_id="e1", from_node_id="n1", to_node_id="n2", geometry=[], distance_m=10.0)
+
+    # 改善計画T248: 探索フェーズ内で書き換えられるべきではないためfrozen。
+    try:
+        node.latitude = 0.0
+        assert False, "frozen dataclassのはずが書き換えできてしまった"
+    except AttributeError:
+        pass
+    try:
+        edge.distance_m = 0.0
+        assert False, "frozen dataclassのはずが書き換えできてしまった"
+    except AttributeError:
+        pass

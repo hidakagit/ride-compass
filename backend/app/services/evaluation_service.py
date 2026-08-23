@@ -8,7 +8,7 @@ from app.domain.evaluation import (
     RoutePreference,
     compute_edge_costs_bulk,
 )
-from app.domain.graph import RoadGraph
+from app.domain.graph import RoadGraphLike
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.traffic import CarStressRecipe
 from app.domain.weather import WeatherConditions
@@ -94,7 +94,7 @@ class EvaluationService:
 
     def evaluate_graph(
         self,
-        graph: RoadGraph,
+        graph: RoadGraphLike,
         elevation_attributes: dict[str, ElevationAttribute],
         surface_attributes: dict[str, str | None],
         wind: WeatherConditions | None = None,

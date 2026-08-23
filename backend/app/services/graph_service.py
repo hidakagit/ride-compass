@@ -1,7 +1,7 @@
 import logging
 
 from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials, surface_by_edge_id
-from app.domain.graph import DirectedEdge, RoadGraph, build_road_graph
+from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -58,7 +58,7 @@ class GraphService:
 
     async def get_or_build_graph_with_attributes(
         self, bbox: BoundingBox, *, lean: bool = False
-    ) -> tuple[RoadGraph, dict[str, str | None]] | None:
+    ) -> tuple[RoadGraphLike, dict[str, str | None]] | None:
         """PostGIS（`repository`）のみを参照してRoad Graphを返す。
 
         `lean=True`（改善計画T218、T12 Stage 0）: 「生データがsplit以降変わっていない」
@@ -104,7 +104,13 @@ class GraphService:
             )
             if graph is None:
                 # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
-                return RoadGraph(graph_version="cached-empty", nodes={}, edges={}), {}
+                # 改善計画T248: leanの実体型（LeanRoadGraph/RoadGraph）に合わせる。
+                empty_graph: RoadGraphLike = (
+                    LeanRoadGraph(graph_version="cached-empty", nodes={}, edges={})
+                    if lean
+                    else RoadGraph(graph_version="cached-empty", nodes={}, edges={})
+                )
+                return empty_graph, {}
             surface_attributes = await self._repository.get_surface_attributes(list(graph.edges.keys()))
             return graph, surface_attributes
 
@@ -183,8 +189,10 @@ class GraphService:
         )
 
     async def _build_search_materials_from_tile_cache(self, bbox: BoundingBox) -> SearchMaterials:
-        combined_nodes: dict = {}
-        combined_edges: dict = {}
+        # 改善計画T248: このメソッドはタイルキャッシュ経路専用（_get_or_build_tile_materials
+        # は常にLeanRoadGraphを返す）のため、結合後もLeanRoadGraphで統一する。
+        combined_nodes: dict[str, LeanNode] = {}
+        combined_edges: dict[str, LeanEdge] = {}
         combined_surface: dict = {}
         combined_counts: dict = {}
         combined_way_tags: dict = {}
@@ -201,7 +209,7 @@ class GraphService:
             combined_elevation.update(tile.elevation_attributes)
             combined_designated |= tile.designated_edge_ids
 
-        graph = RoadGraph(graph_version="tile-cache", nodes=combined_nodes, edges=combined_edges)
+        graph = LeanRoadGraph(graph_version="tile-cache", nodes=combined_nodes, edges=combined_edges)
         return SearchMaterials(
             graph=graph,
             surface_attributes=combined_surface,
@@ -221,7 +229,7 @@ class GraphService:
         if graph is None:
             # このタイルに道路が1本も無い（取得失敗ではない）。空の結果もキャッシュする
             # （毎回このタイルを無駄に再問い合わせしないため）。
-            graph = RoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
+            graph = LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
 
         edge_ids = list(graph.edges.keys())
         # 改善計画T248: 5種の材料を個別に取得する代わりに1回のJOINクエリへ統合する

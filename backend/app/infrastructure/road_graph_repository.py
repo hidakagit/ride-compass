@@ -74,7 +74,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch, ElevationAttribute
-from app.domain.graph import DirectedEdge, Node, RoadGraph, WaySpec
+from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, Node, RoadGraph, WaySpec
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
@@ -879,7 +879,7 @@ def _edge_rows_to_directed_edges(edge_rows: Iterable[RoadEdgeRow]) -> dict[str, 
     }
 
 
-def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> RoadGraph:
+def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> LeanRoadGraph:
     """`get_graph_topology_in_bbox`用（改善計画T218、T12 Stage 0）。`edge_rows`は
     `RoadEdgeRow`の全カラムではなく、探索に必要な列（geom以外）だけをSELECTした
     `Row`（SQLAlchemyの軽量タプル的な結果行）を想定する。geomカラムを一切
@@ -889,19 +889,25 @@ def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> Ro
     `ST_X(geom)`（経度）・`ST_Y(geom)`（緯度）だけをSELECTした`Row`を想定する
     （改善計画T248: geom列自体を取得してshapely decodeするより、PostGIS側で
     ST_X/ST_Yを計算させプレーンなfloatとして受け取る方が3倍以上速いと実測で判明）。
-    `DirectedEdge.geometry`はプレースホルダの空リストにする（探索フェーズの
-    評価関数はgeometryを参照しない設計にしてある——compute_wind_penaltyは
-    `bearing_deg`を直接使う、domain/evaluation.py参照。表示用の実ジオメトリが
-    必要な最終候補は`get_edges_with_geometry`で別途取得する）。
+
+    戻り値は`RoadGraph`（Pydantic）ではなく`LeanRoadGraph`（dataclass、`domain/graph.py`）
+    にする（改善計画T248）。プロファイリングで`Node.model_construct`/
+    `DirectedEdge.model_construct`自体（バリデーションをスキップしてもなおPydanticの
+    内部簿記コストが残る）が、171,461Edge規模でDBクエリ本体（合計3.4秒）より支配的な
+    11秒を占めることが判明したため、探索専用パスに限りPydanticを完全に外した。
+    `LeanEdge.geometry`はプレースホルダの空リストにする（探索フェーズの評価関数は
+    geometryを参照しない設計にしてある——compute_wind_penaltyは`bearing_deg`を
+    直接使う、domain/evaluation.py参照。表示用の実ジオメトリが必要な最終候補は
+    `get_edges_with_geometry`で別途取得する）。
     """
     nodes = {
-        row.node_id: Node.model_construct(
+        row.node_id: LeanNode(
             node_id=row.node_id, latitude=row.latitude, longitude=row.longitude, osm_node_id=row.osm_node_id
         )
         for row in node_rows
     }
     edges = {
-        row.edge_id: DirectedEdge.model_construct(
+        row.edge_id: LeanEdge(
             edge_id=row.edge_id,
             from_node_id=row.from_node_id,
             to_node_id=row.to_node_id,
@@ -913,7 +919,7 @@ def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> Ro
         )
         for row in edge_rows
     }
-    return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
+    return LeanRoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
 
 def _primary_way_conditions(envelope):
@@ -1062,7 +1068,7 @@ class DerivedGraphRepository(_SessionRepository):
         # asyncio.to_threadで逃さないとイベントループを塞ぐ。
         return await asyncio.to_thread(_rows_to_road_graph, edge_rows, node_rows)
 
-    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
         """`get_graph_in_bbox`の軽量版（改善計画T218、T12 Stage 0）。探索フェーズ
         （Dijkstra経路選択）はEdgeのトポロジ（from/to node・distance・bearing等）だけ
         あれば成立し、geometry（形状点列）は不要（domain/evaluation.py:
@@ -2191,7 +2197,7 @@ class RoadGraphRepository:
     async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
         return await self.graph.get_graph_in_bbox(bbox)
 
-    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
+    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
         return await self.graph.get_graph_topology_in_bbox(bbox)
 
     async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:

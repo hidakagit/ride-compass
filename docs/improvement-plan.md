@@ -1732,6 +1732,60 @@ T221エントリへの追記として実施済み（新番号なし）。
        王子15km候補4/6）で機能面の回帰なし（新宿の初回計測で237秒という外れ値が出たが、
        直前の重いpytest実行によるDB側の一時的な負荷が原因と考えられ、再実行では10.2秒
        まで復帰したため再現性の問題ではないと判断した）。
+  1d. **探索専用lean型をPydanticから完全に分離**（2026-08-24実装完了）: 1cで残課題として
+     記録した`model_construct`のコスト（プロファイリングで新宿10km・171,461Edge規模の
+     `DirectedEdge.model_construct`だけで8.938秒、`Node.model_construct`2.125秒、DB
+     クエリ本体3.4秒より支配的）を受け、ユーザーから「lean型とフル型を完全に分ける」
+     方向での実装指示を受けて着手した。
+     - **設計**: `domain/graph.py`に`LeanNode`/`LeanEdge`/`LeanRoadGraph`
+       （`@dataclass(frozen=True, slots=True)`、Pydanticのバリデーション・内部簿記を
+       持たない）を新設。既存の`Node`/`DirectedEdge`/`RoadGraph`（Pydantic、表示・保存用）
+       とフィールド構成を完全に一致させ、`NodeLike`/`EdgeLike`/`RoadGraphLike`
+       （`typing.Protocol`、`@runtime_checkable`）で両者が満たす構造的型を定義した。
+       `RoadGraphEngine.trace_loop`が`hydrated.get(edge_id) or context.graph.edges[edge_id]`
+       でlean型（探索グラフ由来）とフル型（表示用に取り直したEdge）を同じリストへ
+       混在させる境界があり、フィールド完全一致の設計がこれを事故なく成立させる
+       （調査で特定した最大のリスク要因）。
+     - **実装範囲**: `_topology_rows_to_road_graph`（road_graph_repository.py）が
+       `LeanRoadGraph`を返すよう変更。`domain/routing.py`（`build_sparse_graph`・
+       `build_networkx_graph`・`find_nearest_node`・`build_node_spatial_index`・
+       `NodeSpatialIndex`）、`domain/evaluation.py`（`is_edge_allowed`・
+       `compute_wind_penalty`・`compute_edge_axis_scores`・`compute_edge_cost`・
+       `compute_edge_costs_bulk`）、`services/evaluation_service.py`
+       （`EvaluationService.evaluate_graph`）、`services/elevation_attribute_service.py`
+       （`get_attributes_for_graph`）、`services/road_graph_engine.py`
+       （`_SearchGraph`/`_RoadGraphContext`の`graph`フィールド、`_build_segment_details`
+       等のEdge集約関数群）、`domain/attributes.py`（`SearchMaterials.graph`）の型注釈を
+       `RoadGraph`/`DirectedEdge`から`RoadGraphLike`/`EdgeLike`へ変更（実行時の分岐は
+       元々duck typingで動いていたコードのため、型注釈の変更のみで済んだ箇所が大半）。
+     - **実装中に見つけた実際のバグ**: `RoadGraphEngine._build_candidate`が
+       `path_graph = RoadGraph(graph_version=..., nodes=context.graph.nodes, edges=...)`
+       と、Pydantic `RoadGraph`へ`context.graph.nodes`（今回`LeanNode`の辞書になる）を
+       直接渡しており、Pydanticのフィールド型検証（`dict[str, Node]`）に失敗して
+       実行時エラーになる箇所を発見した。調査の結果`get_attributes_for_graph`は
+       `graph.edges`しか参照せず`nodes`は完全に未使用と判明したため、`nodes={}`へ変更した
+       上で、`RoadGraph`ではなくバリデーションを行わない`LeanRoadGraph`で`path_graph`を
+       構築するよう修正（`edges_in_path`が稀にlean/フル混在になりうる`trace_loop`の
+       フォールバック分岐に対しても安全）。副次効果として、候補ごとに数万件規模の
+       `context.graph.nodes`をコピーしていた無駄も無くなった。
+     - **`GraphService`側の型整合**: `get_or_build_graph_with_attributes`の戻り値、
+       `_build_search_materials_from_tile_cache`・`_get_or_build_tile_materials`の
+       空グラフ・結合グラフ構築を、`lean`引数や呼び出し経路に応じて`LeanRoadGraph`/
+       `RoadGraph`を作り分けるよう修正（`get_or_build_graph_with_attributes`は
+       `is_split_up_to_date=True`かつ`lean=True`の高速パスのみ`LeanRoadGraph`を返し、
+       closure再構築を伴う低頻度の重い経路は`lean`に関わらず常に`RoadGraph`のまま）。
+     - **テスト**: `test_graph.py`に`LeanNode`/`LeanEdge`/`LeanRoadGraph`が対応する
+       Protocolを満たすこと・frozenであることの単体テストを追加。
+       `test_road_graph_repository.py`の座標一致回帰テストに、戻り値の実体型が
+       `LeanRoadGraph`/`LeanNode`/`LeanEdge`であることの検証を追加。backend全体
+       1089件green。
+     - **実測（dev DB、新宿10km・171,461Edge・68,760Node、6タイル拡張bbox規模）**:
+       `get_graph_topology_in_bbox`全体（DBクエリ＋オブジェクト構築を含む）が
+       4.2〜4.6秒（3回計測の範囲）。1cまでの実測（edge_query 2.49秒＋node取得
+       [ST_X/ST_Y] 0.89秒 ≈ 3.4秒のDB部分のみ）と合わせて、Pydantic
+       `model_construct`のオーバーヘッド（旧実装で推定11秒）がほぼ解消されたことを
+       裏付ける。dev DBでのE2E確認（新宿10km候補8/8・渋谷10km候補6/8・王子15km候補4/6、
+       いずれもエラー無し）で機能面の回帰も無いことを確認。
   2. **冷パスの体験設計**: 初回タッチの重い処理（split再構築）をリクエスト同期から
      切り離す選択肢（バックグラウンドウォームアップ・主要エリアの事前split・
      プログレス表示等）。T59の`_maybe_trigger_graph_build`（タイル閲覧起点の

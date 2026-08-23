@@ -1,6 +1,7 @@
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -53,6 +54,102 @@ class RoadGraph(BaseModel):
     graph_version: str
     nodes: dict[str, Node]
     edges: dict[str, DirectedEdge]
+
+
+@runtime_checkable
+class NodeLike(Protocol):
+    """探索フェーズ（domain/routing.py・domain/evaluation.py）が実際に読む`Node`の
+    フィールドのみを表す構造的型（改善計画T248）。`Node`（Pydantic）と`LeanNode`
+    （dataclass、探索専用の軽量実装）の両方がこのProtocolを満たす。"""
+
+    node_id: str
+    latitude: float
+    longitude: float
+    osm_node_id: int | None
+
+
+@runtime_checkable
+class EdgeLike(Protocol):
+    """探索フェーズが実際に読む`DirectedEdge`のフィールドのみを表す構造的型
+    （改善計画T248）。`DirectedEdge`（Pydantic、表示・保存用）と`LeanEdge`
+    （dataclass、探索専用の軽量実装）の両方がこのProtocolを満たす。
+
+    `RoadGraphEngine.trace_loop`（`hydrated.get(edge_id) or context.graph.edges[edge_id]`、
+    表示用に取り直したフルEdgeと探索グラフのlean Edgeを同じリストへ混在させる）が
+    どちらの実体型が来ても同じ属性名で読める必要があるため、フィールド構成は
+    `DirectedEdge`と完全に一致させる（`geometry`はlean側では常に空リストの
+    プレースホルダ、`osm_way_id`は探索フェーズでは未使用だが表示用途との
+    フィールド互換のため保持する）。
+    """
+
+    edge_id: str
+    from_node_id: str
+    to_node_id: str
+    geometry: list[list[float]]
+    distance_m: float
+    osm_way_id: int | None
+    highway: str | None
+    bearing_deg: float | None
+
+
+@runtime_checkable
+class RoadGraphLike(Protocol):
+    """`RoadGraph`（Pydantic、表示・保存用）と`LeanRoadGraph`（dataclass、探索専用の
+    軽量実装）の両方が満たす構造的型（改善計画T248）。探索フェーズ
+    （`RoadGraphEngine`・`domain/routing.py`・`domain/evaluation.py`）はどちらの実体型を
+    渡されても同じ属性アクセスで動作する。"""
+
+    graph_version: str
+    nodes: dict[str, NodeLike]
+    edges: dict[str, EdgeLike]
+
+
+@dataclass(frozen=True, slots=True)
+class LeanNode:
+    """`Node`の探索専用軽量実装（改善計画T248）。フィールド構成は`Node`と完全に一致させる
+    （`NodeLike`Protocol参照）。Pydantic（`model_construct`でもバリデーション機構自体の
+    簿記コストは残る）ではなく素のdataclassにすることで、探索用グラフ構築時の
+    オブジェクト構築コストを削減する（dev DB実測、68,760件でNode.model_construct
+    2.125秒→dataclass構築、詳細はdocs/improvement-plan.md T248参照）。
+    """
+
+    node_id: str
+    latitude: float
+    longitude: float
+    osm_node_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LeanEdge:
+    """`DirectedEdge`の探索専用軽量実装（改善計画T248）。フィールド構成は
+    `DirectedEdge`と完全に一致させる（`EdgeLike`Protocol参照、
+    `RoadGraphEngine.trace_loop`がlean/フル両方のEdgeを同じリストへ混在させるため）。
+    `geometry`は常に空リストのプレースホルダ（探索フェーズはgeometryを参照しない設計、
+    `_topology_rows_to_road_graph`参照）。dev DB実測、171,461件で
+    DirectedEdge.model_construct 8.938秒→dataclass構築（詳細はdocs/improvement-plan.md
+    T248参照）。
+    """
+
+    edge_id: str
+    from_node_id: str
+    to_node_id: str
+    geometry: list[list[float]]
+    distance_m: float
+    osm_way_id: int | None = None
+    highway: str | None = None
+    bearing_deg: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LeanRoadGraph:
+    """`RoadGraph`の探索専用軽量実装（改善計画T248）。`graph_version`・`nodes`・`edges`の
+    フィールド構成は`RoadGraph`と一致させ、`RoadGraphLike`Protocolを満たす。
+    `get_graph_topology_in_bbox`（road_graph_repository.py）の戻り値として使う。
+    """
+
+    graph_version: str
+    nodes: dict[str, LeanNode]
+    edges: dict[str, LeanEdge]
 
 
 class WaySpec(BaseModel):

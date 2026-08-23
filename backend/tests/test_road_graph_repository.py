@@ -105,6 +105,13 @@ async def test_get_graph_topology_in_bbox_matches_get_graph_in_bbox_coordinates(
 
     assert topology is not None
     assert topology.graph_version == "cached"
+    # 改善計画T248: 戻り値の実体型はPydantic RoadGraphではなく軽量dataclassのLeanRoadGraph
+    # （Node.model_construct/DirectedEdge.model_constructのオーバーヘッドを避けるため）。
+    from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
+
+    assert isinstance(topology, LeanRoadGraph)
+    assert all(isinstance(n, LeanNode) for n in topology.nodes.values())
+    assert all(isinstance(e, LeanEdge) for e in topology.edges.values())
     assert set(topology.edges.keys()) == set(full.edges.keys())
     assert set(topology.nodes.keys()) == set(full.nodes.keys())
     for node_id, topology_node in topology.nodes.items():

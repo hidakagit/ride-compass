@@ -45,7 +45,7 @@ from app.domain.evaluation import (
     compute_wind_penalty,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from app.domain.graph import DirectedEdge, RoadGraph
+from app.domain.graph import EdgeLike, LeanRoadGraph, RoadGraphLike
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
@@ -102,7 +102,7 @@ PREVIEW_BBOX_MARGIN_KM = 2.0
 class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
-    graph: RoadGraph
+    graph: RoadGraphLike
     surface_attributes: dict[str, str | None]
     stop_counts: dict[str, int]
     way_tags: dict[str, dict[str, str]]
@@ -133,7 +133,7 @@ class _SearchGraph:
     `_build_search_graph`1箇所にまとめ、ループ探索・単発区間確認の両方で重複させない。
     """
 
-    graph: RoadGraph
+    graph: RoadGraphLike
     sparse_graph: SparseRoadGraph
     surface_attributes: dict[str, str | None]
     stop_counts: dict[str, int]
@@ -332,7 +332,7 @@ class RoadGraphEngine:
         # 改善計画T218（T12 Stage 0）と同じレイジー取得（prepareがlean=Trueで読み込んだ
         # search.graphのEdgeはgeometryが空プレースホルダのため、この経路ぶんだけ取得し直す）。
         hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
-        edges_in_path = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
+        edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
         geometry = _concat_edge_geometries(edges_in_path)
@@ -372,7 +372,7 @@ class RoadGraphEngine:
         # 取得し直す。Overpass経由構築時（context.graphが元々フルジオメトリ）は
         # get_edges_with_geometryが空辞書を返すため、そちらのcontext.graph側の値を使う。
         hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
-        edges_in_path = [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in edge_ids]
+        edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
         return TracedLoop(bearing=bearing, distance_km=distance_km, data=edges_in_path)
@@ -389,11 +389,18 @@ class RoadGraphEngine:
     async def _build_candidate(
         self, context: _RoadGraphContext, traced: TracedLoop, start_time: datetime
     ) -> RouteCandidate:
-        edges_in_path: list[DirectedEdge] = traced.data
+        edges_in_path: list[EdgeLike] = traced.data
 
-        path_graph = RoadGraph(
+        # 改善計画T248: ElevationAttributeService.get_attributes_for_graphは
+        # graph.edgesしか読まない（nodesは未参照）ため、nodesは空でよい。
+        # context.graph.nodes（LeanNode、数万件規模）をそのまま渡すとPydantic
+        # RoadGraphのフィールド型（dict[str, Node]）検証に失敗するため、
+        # バリデーションを行わないLeanRoadGraphを使う（edges_in_pathは通常
+        # hydrated＝Pydantic DirectedEdgeだが、稀なフォールバック時のLeanEdgeが
+        # 混在してもLeanRoadGraphなら型検証エラーにならない）。
+        path_graph = LeanRoadGraph(
             graph_version=context.graph.graph_version,
-            nodes=context.graph.nodes,
+            nodes={},
             edges={edge.edge_id: edge for edge in edges_in_path},
         )
         elevation_attributes = await self._elevation_attribute_service.get_attributes_for_graph(path_graph)
@@ -439,7 +446,7 @@ class RoadGraphEngine:
 
     def _build_segment_details(
         self,
-        edges: list[DirectedEdge],
+        edges: list[EdgeLike],
         elevation_attributes: dict,
         context: _RoadGraphContext,
         start_time: datetime,
@@ -586,7 +593,7 @@ def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> Boundi
     )
 
 
-def _concat_edge_geometries(edges: list[DirectedEdge]) -> dict:
+def _concat_edge_geometries(edges: list[EdgeLike]) -> dict:
     """経路上のEdge群をひとつながりのGeoJSON LineStringへ変換する。隣接するEdgeの
     境界点（前Edgeの終端＝次Edgeの始端）は重複させない。"""
     coordinates: list[list[float]] = []
@@ -598,7 +605,7 @@ def _concat_edge_geometries(edges: list[DirectedEdge]) -> dict:
     return {"type": "LineString", "coordinates": coordinates}
 
 
-def _aggregate_elevation(edges: list[DirectedEdge], elevation_attributes: dict) -> dict:
+def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> dict:
     attrs = [elevation_attributes.get(edge.edge_id) for edge in edges]
     valid = [a for a in attrs if a is not None]
 
@@ -620,7 +627,7 @@ def _aggregate_elevation(edges: list[DirectedEdge], elevation_attributes: dict) 
     }
 
 
-def _aggregate_road_score(edges: list[DirectedEdge], surface_attributes: dict[str, str | None]) -> float | None:
+def _aggregate_road_score(edges: list[EdgeLike], surface_attributes: dict[str, str | None]) -> float | None:
     """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。Edge単位のsurfaceタグを
     domain/road.py: distance_weighted_road_score（両エンジン共通の集約定義、改善計画T21）へ渡す薄いラッパー。
     """
@@ -629,7 +636,7 @@ def _aggregate_road_score(edges: list[DirectedEdge], surface_attributes: dict[st
     )
 
 
-def _aggregate_stop_density(edges: list[DirectedEdge], stop_counts: dict[str, int]) -> float | None:
+def _aggregate_stop_density(edges: list[EdgeLike], stop_counts: dict[str, int]) -> float | None:
     """経路全体の信号・横断歩道・一時停止・踏切の合計密度(回/km)。Edge単位のカウントを
     domain/traffic.py: distance_weighted_stop_density（両エンジン共通の集約定義、
     静的道路属性P1）へ渡す薄いラッパー。stop_countsに無いEdge（repository未注入等で
@@ -641,7 +648,7 @@ def _aggregate_stop_density(edges: list[DirectedEdge], stop_counts: dict[str, in
     )
 
 
-def _aggregate_intersection_density(edges: list[DirectedEdge], intersection_counts: dict[str, int]) -> float | None:
+def _aggregate_intersection_density(edges: list[EdgeLike], intersection_counts: dict[str, int]) -> float | None:
     """経路全体の交差点（次数3以上のNode）の合計密度(回/km)。_aggregate_stop_densityと
     同じ薄いラッパー（静的道路属性P1残り、intersectionDensity）。
     """
@@ -651,7 +658,7 @@ def _aggregate_intersection_density(edges: list[DirectedEdge], intersection_coun
 
 
 def _aggregate_accident_density(
-    edges: list[DirectedEdge], accident_counts: dict[str, int], accident_years_covered: int
+    edges: list[EdgeLike], accident_counts: dict[str, int], accident_years_covered: int
 ) -> float | None:
     """経路全体の事故密度(件/(km・年))。_aggregate_stop_density/_aggregate_intersection_density
     と同じ薄いラッパー（外部静的データソース T50残作業、8軸目）。
@@ -661,7 +668,7 @@ def _aggregate_accident_density(
     )
 
 
-def _aggregate_wind_score(edges: list[DirectedEdge], wind: WeatherConditions | None) -> float | None:
+def _aggregate_wind_score(edges: list[EdgeLike], wind: WeatherConditions | None) -> float | None:
     """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。
     OpenRouteServiceEngine（WindService）と同じ加重平均の考え方だが、風は区間ごとの
     推定到達時刻ではなく出発時点の値をルート全体に一様適用する

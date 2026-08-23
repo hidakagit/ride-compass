@@ -3,7 +3,7 @@ import asyncio
 import httpx
 
 from app.domain.attributes import ElevationAttribute, compute_elevation_attribute
-from app.domain.graph import DirectedEdge, RoadGraph
+from app.domain.graph import DirectedEdge, RoadGraphLike
 from app.domain.route import Coordinates
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -55,7 +55,7 @@ class ElevationAttributeService:
         # HTTP問い合わせ（_get_attribute）はロック外のまま並列に走る。
         self._repository_lock = asyncio.Lock()
 
-    async def get_attributes_for_graph(self, graph: RoadGraph) -> dict[str, ElevationAttribute]:
+    async def get_attributes_for_graph(self, graph: RoadGraphLike) -> dict[str, ElevationAttribute]:
         edges = list(graph.edges.values())
 
         cached: dict[str, ElevationAttribute] = {}

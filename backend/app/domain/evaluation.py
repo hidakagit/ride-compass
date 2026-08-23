@@ -22,7 +22,7 @@ from app.domain.axis_definitions import (
 )
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty
-from app.domain.graph import DirectedEdge, RoadGraph
+from app.domain.graph import EdgeLike, RoadGraphLike
 from app.domain.night import night_materials
 from app.domain.recipe import (
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
@@ -226,7 +226,7 @@ class EdgeCostResult(BaseModel):
 
 
 def is_edge_allowed(
-    edge: DirectedEdge,
+    edge: EdgeLike,
     way_tags: dict[str, str] | None = None,
     hard_filters: frozenset[str] | None = None,
     elevation_attribute: ElevationAttribute | None = None,
@@ -274,7 +274,7 @@ def is_edge_allowed(
     return True
 
 
-def compute_wind_penalty(edge: DirectedEdge, wind: WeatherConditions | None) -> float | None:
+def compute_wind_penalty(edge: EdgeLike, wind: WeatherConditions | None) -> float | None:
     """Edgeの進行方向（from_node→to_node）と風向風速からwind_penaltyを算出する
     （Dynamic Data対応、仕様書20・44章：Edge + Travel Direction + Timeから評価する）。
 
@@ -303,7 +303,7 @@ _CAR_STRESS_LEVEL_NOT_PROVIDED = object()
 
 
 def compute_edge_axis_scores(
-    edge: DirectedEdge,
+    edge: EdgeLike,
     elevation_attribute: ElevationAttribute | None,
     surface_type: str | None,
     wind: WeatherConditions | None = None,
@@ -442,7 +442,7 @@ def compute_cost_from_axis_scores(
 
 
 def compute_edge_cost(
-    edge: DirectedEdge,
+    edge: EdgeLike,
     elevation_attribute: ElevationAttribute | None,
     surface_type: str | None,
     preference: RoutePreference,
@@ -519,7 +519,7 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
 
 
 def compute_edge_costs_bulk(
-    graph: RoadGraph,
+    graph: RoadGraphLike,
     elevation_attributes: dict[str, ElevationAttribute],
     surface_attributes: dict[str, str | None],
     preference: RoutePreference,

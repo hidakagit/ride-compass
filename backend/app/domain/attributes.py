@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel
 
 from app.domain.geo import haversine_distance_km
-from app.domain.graph import RoadGraph
+from app.domain.graph import RoadGraph, RoadGraphLike
 from app.domain.route import Coordinates
 
 
@@ -54,7 +54,9 @@ class SearchMaterials:
     （z12タイル1枚ぶんの同形の内容）としても使う共通の型（改善計画T228、旧`_TileMaterials`
     はフィールド完全一致の重複定義だったため統合済み）。"""
 
-    graph: RoadGraph
+    # RoadGraph（Pydantic、split再構築を伴うuncached経路）またはLeanRoadGraph
+    # （dataclass、タイルキャッシュ経路、改善計画T248）のいずれかが入る。
+    graph: RoadGraphLike
     surface_attributes: dict[str, str | None]
     edge_attribute_counts: dict[str, EdgeAttributeCounts]
     way_tags: dict[str, dict[str, str]]
