@@ -71,7 +71,7 @@ class EvaluationService:
     """Evaluation Engineのオーケストレーション層（仕様書26章）。
 
     I/Oは行わない。属性の取得自体はPhase 3の`ElevationAttributeService`・
-    `GraphService.build_graph_with_surface_tags_for_bbox`が担当し、ここでは
+    `GraphService.get_or_build_graph_with_attributes`が担当し、ここでは
     既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。Route Engineからは
     独立しており、既存のルート探索（RoutingService/RouteGenerator）からは参照されない。
     """

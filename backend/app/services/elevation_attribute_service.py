@@ -34,8 +34,7 @@ class ElevationAttributeService:
     への外部キー（ON DELETE CASCADE）を持つため、渡す`graph`は事前に同じ`repository`
     経由でDBへ保存済み（`road_edges`にそのedge_idの行が存在する状態）でなければならない。
     `GraphService.get_or_build_graph_with_attributes`で得たRoadGraphはこの条件を満たすが、
-    `GraphService.build_graph_with_surface_tags_for_bbox`等の非キャッシュ系メソッドで得た
-    RoadGraph（DB未保存）を`repository`指定時に渡すと、`save_elevation_attributes`が
+    DB未保存のRoadGraphを`repository`指定時に渡すと、`save_elevation_attributes`が
     外部キー制約違反で失敗する。
     """
 
