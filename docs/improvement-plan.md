@@ -1654,34 +1654,59 @@ T221エントリへの追記として実施済み（新番号なし）。
   - **推奨順序**: Phase0（Tailwind併用導入、規模S）→Phase1（トグル/ラジオ/Popover/
     FloatingPanel→react-rnd、規模S〜M）→Phase2（アコーディオン、任意・規模S）→
     Phase3（BottomSheet→vaul・DynamicLayerTimeSlider→Embla、規模M〜L、実機検証込み）。
-  - 次のアクション: T252として実装タスクを起票（下記）。
+  - 次のアクション: T251の推奨順序（Phase0〜3）をPhaseごとの個別タスク
+    （T252〜T255、下記）として起票した。
 
-### - [ ] T252. UIライブラリ導入 Phase0〜3の実装 規模M〜L（2026-08-23起票） — トリガー: 着手指示
+**T252〜T255は並行して進行中の別セッションの作業が完了してから着手する
+（2026-08-23、ユーザー指示）。それまでは4件とも指示待ちで保留する。保留による
+実害はない（他のタスク・本番挙動をブロックしない、UI機構自体は現行の自前実装のまま
+問題なく動作し続ける）ため、トリガーは「別セッション完了後のユーザーからの着手指示」
+のみとする。着手する場合はT252→T253→T254→T255の順（T251の推奨順序どおり、後続
+Phaseほど前Phaseの成果を安全網として使える）。**
 
-- 発端: T251の調査結果（Radix UI Primitives・vaul・Embla Carousel・react-rnd・Tailwindの
-  適合判定・規模見積り）を受け、実装フェーズとして起票。T251は調査のみで実装を含まない
-  ため、着手時は本タスクを進める。
-- 対応内容（T251の推奨順序どおりPhase0→3の順に進める。各Phaseは独立して着手・
-  完了できるため、1Phase=1コミットを基本とする）:
-  1. **Phase0（規模S）**: Tailwind併用導入。`tailwindcss`/`@tailwindcss/postcss`を追加し
-     globals.cssへ`@import "tailwindcss";`、既存の`--space-*`/`--color-*`をTailwindの
-     `@theme`でトークンとして取り込めるか検証。既存CSS Modulesは変更しない。
-  2. **Phase1（規模S〜M）**: トグルチップ（LayerChip等）→Radix Toggle、ラジオ/セグメント
-     選択（ルート色分けモード・LevelPicker）→Radix RadioGroup/ToggleGroup、情報開閉ボタン
-     （FieldLabelのinfoButton）→Radix Popover、FloatingPanel（DebugConsole/
-     SystemStatusPanelの共通シェル）→react-rnd。
-  3. **Phase2（規模S、任意）**: サイドバー4ブロック・MapLayersPanel・WeightPanel等の
-     `<details>`アコーディオン→Radix Accordion。現状で機能不満はなく優先度は低いため、
-     Phase1着手後に改めて要否を判断してもよい。
-  4. **Phase3（規模M〜L、実機検証込み）**: BottomSheet→vaul(Drawer)、
-     DynamicLayerTimeSlider→Embla Carousel（+wheel-gesturesプラグイン）。地図の
-     ピンチズームとの共存・暗幕なし表示・キーボード操作等、T251で洗い出した個別リスクの
-     実機再検証を伴う。4シート共有の高さ状態（BottomSheet）はvaulの標準機能でカバー
-     しきれない可能性があるため、着手前に設計判断が必要。
-- 完了条件: 各Phase完了時に該当コンポーネントのテスト（vitest）green・Playwrightでの
-  モバイル実機確認・型検査/ESLint green。Phase3はBottomSheet/DynamicLayerTimeSliderの
-  既存の実機チューニング（touch-action・スワイプ閉じ・ホイール変換等）と同等以上の
-  操作性を維持できていることを実機確認する。
+### - [ ] T252. Phase0: Tailwindの併用導入 規模S（2026-08-23起票） — トリガー: 別セッション完了後、着手指示
+
+- 発端: T251の調査結果。「デザインの微調整を素早く試したい」という動機（下部シートの
+  余白調整等）を受け、既存CSS Modulesは維持したままTailwindのユーティリティクラスを
+  併用できるようにする（T251「③併用（推奨）」方式）。
+- 対応内容: `tailwindcss`/`@tailwindcss/postcss`を追加し、globals.cssへ
+  `@import "tailwindcss";`。既存の`--space-*`/`--color-*`をTailwindの`@theme`で
+  トークンとして取り込めるか検証（`--space-1〜4`は既にTailwind既定のスペーシング
+  スケールと数値一致していることをT251で確認済み）。既存CSS Modulesファイルは変更しない。
+- 完了条件: ビルド成功、既存の全画面表示に差分が出ないことを確認、型検査/ESLint green。
+  T253以降でTailwindユーティリティを使う具体例（例: BottomSheetヘッダーの余白調整）を
+  1件試して動作確認する。
+
+### - [ ] T253. Phase1: 点在する小部品の置換＋FloatingPanel→react-rnd 規模S〜M（2026-08-23起票） — トリガー: T252完了後、着手指示
+
+- 発端: T251の調査結果。
+- 対応内容: トグルチップ（LayerChip等）→Radix Toggle、ラジオ/セグメント選択
+  （ルート色分けモード・LevelPicker）→Radix RadioGroup/ToggleGroup、情報開閉ボタン
+  （FieldLabelのinfoButton）→Radix Popover、FloatingPanel（DebugConsole/
+  SystemStatusPanelの共通シェル）→react-rnd（`dragHandleClassName`でハンドル限定
+  ドラッグを再現、`bounds="window"`で画面外へ出ないようクランプ）。
+- 完了条件: 各コンポーネントの既存vitestテストgreen（必要なら更新）、Playwrightで
+  モバイル実機確認、型検査/ESLint green。
+
+### - [ ] T254. Phase2（任意）: アコーディオンをRadix Accordionへ 規模S（2026-08-23起票） — トリガー: T253完了後、必要性が生じたら（現状で機能不満なし・優先度低）
+
+- 発端: T251の調査結果。サイドバー4ブロック（page.tsx）・MapLayersPanel・WeightPanel等の
+  `<details>`をRadix Accordionへ置き換える。現状で機能不満はなく優先度は低いため、
+  アニメーション等の明確な要望が出るまで見送ってもよい。
+- 完了条件: 既存の開閉挙動（デスクトップ「ルートを作る」ブロックの状態外部管理を含む）
+  と同等以上、既存テストgreen。
+
+### - [ ] T255. Phase3: BottomSheet→vaul、DynamicLayerTimeSlider→Embla Carousel 規模M〜L（2026-08-23起票） — トリガー: T253完了後、着手指示（実機検証込みのため慎重に判断）
+
+- 発端: T251の調査結果。4件中もっともリスクが高い2件。
+- 対応内容: BottomSheet→vaul(Drawer)。4シート共有の高さ状態・暗幕なし・地図の
+  ピンチズームとの共存・矢印キーでの5vh刻み調整は個別の実機再検証が要る（4シート共有の
+  高さ状態はvaulの標準機能でカバーしきれない可能性があり、着手前に設計判断が必要）。
+  DynamicLayerTimeSlider→Embla Carousel（+wheel-gesturesプラグイン）。可変幅スライド・
+  ホイール変換・スナップは標準機能でカバーできるが、キーボード操作（Arrow/Home/End）・
+  `role="slider"`のARIA・「現在」ボタンは今と同程度の自前実装が残る。
+- 完了条件: 実機チューニング済みの現行操作性（touch-action・スワイプ閉じ・ホイール変換等）
+  と同等以上をPlaywright＋実機確認。
 
 ## 残タスクの優先順位（2026-08-23再整理・第11版）
 
@@ -1695,6 +1720,8 @@ T221エントリへの追記として実施済み（新番号なし）。
      （スカラー/配列二重実装の解消、T221エントリの2026-08-23追記参照）。
   2. T242の残課題（標高バックフィルの定期再実行、新規splitされたEdgeへの反映）を
      自動化するか都度手動実行に留めるかの方針決定。指示待ち。
+  - **T252〜T255**（UIライブラリ導入Phase0〜3、規模S〜M〜L）: 並行して進行中の別セッションの
+    作業が完了してから着手指示待ち（2026-08-23）。T252→T253→T254→T255の順で着手する。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
