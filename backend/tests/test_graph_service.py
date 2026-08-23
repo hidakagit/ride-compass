@@ -74,6 +74,7 @@ class FakeRoadGraphRepository:
         self.get_elevation_attributes_call_count = 0
         self.get_designated_edge_ids_call_count = 0
         self.get_accident_years_covered_call_count = 0
+        self.get_cached_tiles_call_count = 0
 
     async def commit(self) -> None:
         # 実装はサービス層が操作のまとまりごとにcommitを呼ぶ規約（T6）。Fakeは即時反映の
@@ -188,6 +189,10 @@ class FakeRoadGraphRepository:
 
     async def is_tile_cached(self, zoom, x, y):
         return (zoom, x, y) in self.cached_tiles
+
+    async def get_cached_tiles(self, zoom, tiles):
+        self.get_cached_tiles_call_count += 1
+        return {(x, y) for x, y in tiles if (zoom, x, y) in self.cached_tiles}
 
     async def mark_tile_cached(self, zoom, x, y):
         self.cached_tiles.add((zoom, x, y))

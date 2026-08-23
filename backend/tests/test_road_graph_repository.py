@@ -1107,6 +1107,24 @@ async def test_mark_tile_cached_is_idempotent(road_graph_repository):
     assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is True
 
 
+async def test_get_cached_tiles_returns_empty_set_for_empty_input(road_graph_repository):
+    # 改善計画T229: is_tile_cachedをタイル数ぶん個別に呼ぶループを1クエリへ集約するために追加。
+    assert await road_graph_repository.get_cached_tiles(zoom=12, tiles=[]) == set()
+
+
+async def test_get_cached_tiles_returns_only_marked_tiles_in_one_query(road_graph_repository):
+    await road_graph_repository.mark_tile_cached(zoom=12, x=100, y=200)
+    await road_graph_repository.mark_tile_cached(zoom=12, x=101, y=200)
+    # 別ズームの同じx,yは対象外（is_tile_cachedのズーム独立性と同じ挙動）。
+    await road_graph_repository.mark_tile_cached(zoom=13, x=100, y=200)
+
+    result = await road_graph_repository.get_cached_tiles(
+        zoom=12, tiles=[(100, 200), (101, 200), (102, 200)]
+    )
+
+    assert result == {(100, 200), (101, 200)}
+
+
 # --- get_road_surface_tile_mvt（ST_AsMVTによるDB側MVT生成・カバレッジ判定込み1クエリ）---
 
 # NODE1/NODE2（35.700付近）を含むz14タイル。テストデータの座標から逆算せず、

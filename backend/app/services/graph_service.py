@@ -33,6 +33,29 @@ class GraphService:
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
+    async def _ensure_tiles_cached(self, bbox: BoundingBox) -> bool:
+        """bboxを覆う全z12タイルが取込済みかを1クエリで判定する（改善計画T229:
+        タイル数ぶん`is_tile_cached`を個別に呼ぶループを`get_cached_tiles`の1回の
+        バッチ問い合わせへ集約。半径10kmの起点1件で6回の個別往復が発生していたのを解消）。
+
+        1つでも未取込のタイルがあれば、そのbboxは「データ未整備」としてFalseを返す
+        （Overpassへは問い合わせない。改善計画T22でOverpassフォールバックを撤去済み。
+        ログ方針: 常時WARNING。PBF取込漏れ・想定外の範囲へのリクエストを運用で
+        気づけるようにする）。
+        """
+        tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+        cached_tiles = await self._repository.get_cached_tiles(ROAD_GRAPH_TILE_ZOOM, tiles)
+        missing = [tile for tile in tiles if tile not in cached_tiles]
+        if not missing:
+            return True
+        x, y = missing[0]
+        logger.warning(
+            "Road Graphタイルが取込範囲外 z=%d x=%d y=%d bbox=(%.2f,%.2f,%.2f,%.2f)",
+            ROAD_GRAPH_TILE_ZOOM, x, y,
+            bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
+        )
+        return False
+
     async def get_or_build_graph_with_attributes(
         self, bbox: BoundingBox, *, lean: bool = False
     ) -> tuple[RoadGraph, dict[str, str | None]] | None:
@@ -49,8 +72,8 @@ class GraphService:
         グラフを返す（この経路自体が既に低頻度・重い処理のため、リーン化の対象外）。
 
         まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`のXYZタイル群に分解し、
-        タイルごとに「生データを取得済みか」を`is_tile_cached`で正確に判定する
-        （地域路面レイヤー/RegionServiceと同じ「タイル単位で厳密にキャッシュする」考え方）。
+        `_ensure_tiles_cached`で「生データを取得済みか」を判定する（地域路面レイヤー/
+        RegionServiceと同じ「タイル単位で厳密にキャッシュする」考え方）。
         未取得のタイルが1つでもあれば、そのbboxは「データ未整備」としてNoneを返す
         （Overpassへは問い合わせない。改善計画T22）。
 
@@ -67,18 +90,7 @@ class GraphService:
         経由で取得したデータかに関わらず一貫した分割結果が得られる（タイル境界依存の
         交差点分割不一致問題への根本対応。詳細・残存する制約はdocs/architecture.md参照）。
         """
-        for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
-            if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
-                continue
-
-            # 取込範囲外。データ未整備として即Noneを返す（Overpassへは問い合わせない。
-            # 改善計画T22でOverpassフォールバックを撤去済み。ログ方針: 常時WARNING。
-            # PBF取込漏れ・想定外の範囲へのリクエストを運用で気づけるようにする）。
-            logger.warning(
-                "Road Graphタイルが取込範囲外 z=%d x=%d y=%d bbox=(%.2f,%.2f,%.2f,%.2f)",
-                ROAD_GRAPH_TILE_ZOOM, x, y,
-                bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
-            )
+        if not await self._ensure_tiles_cached(bbox):
             return None
 
         # 生データ（osm_raw_ways）が前回のsplit以降変わっていなければ、closure再計算・
@@ -142,14 +154,7 @@ class GraphService:
         重い経路）と個別の材料取得メソッドをそのまま呼ぶ（この経路自体が低頻度・重い処理の
         ため、タイルキャッシュの対象外のまま。ロジックを二重に持たない）。
         """
-        for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
-            if await self._repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
-                continue
-            logger.warning(
-                "Road Graphタイルが取込範囲外 z=%d x=%d y=%d bbox=(%.2f,%.2f,%.2f,%.2f)",
-                ROAD_GRAPH_TILE_ZOOM, x, y,
-                bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
-            )
+        if not await self._ensure_tiles_cached(bbox):
             return None
 
         if not await self._repository.is_split_up_to_date(bbox):

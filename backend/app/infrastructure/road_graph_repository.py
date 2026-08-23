@@ -53,7 +53,22 @@ from datetime import datetime, timezone
 import shapely
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import LineString, Point
-from sqlalchemy import BigInteger, Boolean, Float, Text, any_, bindparam, cast, delete, func, or_, select, text, update
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Float,
+    Text,
+    any_,
+    bindparam,
+    cast,
+    delete,
+    func,
+    or_,
+    select,
+    text,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -1470,6 +1485,19 @@ class RawOsmRepository(_SessionRepository):
         row = (await self._session.execute(stmt)).scalars().first()
         return row is not None
 
+    async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
+        """指定タイル群のうち、取込済み（`road_graph_tiles`に存在する）ものの(x,y)集合を
+        1クエリで返す（改善計画T229: `is_tile_cached`をタイル数ぶん個別に呼ぶループを
+        集約するため。半径10kmの起点1件で6回の個別往復が発生することを実測確認済み）。
+        """
+        if not tiles:
+            return set()
+        stmt = select(RoadGraphTileRow.x, RoadGraphTileRow.y).where(
+            RoadGraphTileRow.zoom == zoom, tuple_(RoadGraphTileRow.x, RoadGraphTileRow.y).in_(tiles)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {(row.x, row.y) for row in rows}
+
     async def mark_tile_cached(self, zoom: int, x: int, y: int) -> None:
         # 以前はSession.merge（ORM。INSERTがflushまで保留される）だったが、T6でcommitを
         # サービス層へ移した結果、同一トランザクション内の後続の生SQL実行
@@ -2037,6 +2065,9 @@ class RoadGraphRepository:
 
     async def is_tile_cached(self, zoom: int, x: int, y: int) -> bool:
         return await self.raw_osm.is_tile_cached(zoom, x, y)
+
+    async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
+        return await self.raw_osm.get_cached_tiles(zoom, tiles)
 
     async def mark_tile_cached(self, zoom: int, x: int, y: int) -> None:
         await self.raw_osm.mark_tile_cached(zoom, x, y)
