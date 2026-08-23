@@ -15,6 +15,8 @@
 指示どおり）のため、この判断が既定の経路・スコアに影響することはない。
 """
 
+import numpy as np
+
 from app.domain.axis_templates import evaluate_flag_sum
 from app.domain.recipe import tag_value_is
 
@@ -34,4 +36,13 @@ def night_difficulty(tags: dict[str, str] | None) -> float | None:
         return None
     no_lit = not tag_value_is(tags, "lit", "yes")
     has_tunnel = tag_value_is(tags, "tunnel", "yes")
+    return evaluate_flag_sum([(no_lit, _NO_LIT_SCORE), (has_tunnel, _TUNNEL_SCORE)], cap=_NIGHT_DIFFICULTY_CAP)
+
+
+def night_difficulty_array(no_lit: np.ndarray, has_tunnel: np.ndarray) -> np.ndarray:
+    """`night_difficulty`の配列版（改善計画T240、`EvaluationService.evaluate_graph`の
+    numpyベクトル化専用）。tagsそのものはEdge単位の辞書のため配列化できず、呼び出し元
+    （`domain/evaluation.py: compute_edge_costs_bulk`）が抽出フェーズで
+    `tag_value_is`を1回ずつ呼んで作った`no_lit`/`has_tunnel`のbool配列を受け取る。
+    """
     return evaluate_flag_sum([(no_lit, _NO_LIT_SCORE), (has_tunnel, _TUNNEL_SCORE)], cap=_NIGHT_DIFFICULTY_CAP)

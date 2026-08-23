@@ -10,23 +10,41 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 正規化方式を発明せず、評価基準の食い違いも避ける。
 """
 
+import numpy as np
 from pydantic import BaseModel
 
 from app.domain.attributes import ElevationAttribute
+from app.domain.axis_templates import round1_array
 from app.domain.difficulty import (
     accident_difficulty,
+    accident_difficulty_array,
     car_stress_difficulty,
+    car_stress_difficulty_array,
     composite_difficulty,
     gradient_difficulty,
+    gradient_difficulty_array,
     road_difficulty,
+    road_difficulty_array,
     stop_difficulty,
+    stop_difficulty_array,
     wind_difficulty,
+    wind_difficulty_array,
 )
-from app.domain.graph import DirectedEdge
-from app.domain.night import night_difficulty
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
+from app.domain.graph import DirectedEdge, RoadGraph
+from app.domain.night import night_difficulty, night_difficulty_array
+from app.domain.recipe import (
+    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+    DEFAULT_ROAD_SUITABILITY_RECIPE,
+    MotorVehicleDensityRecipe,
+    RoadSuitabilityRecipe,
+    car_closeness,
+    cycleway_class,
+    parse_lanes,
+    tag_value_is,
+    threshold_adjustment,
+)
 from app.domain.road import classify_osm_surface
-from app.domain.traffic import CarStressRecipe, car_stress_level
+from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE, CarStressRecipe, car_stress_level
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindCalculator
 
@@ -506,3 +524,248 @@ def compute_edge_cost(
     cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
 
     return EdgeCostResult(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
+
+
+def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
+    """`terms`を先頭から順に加算する（Neumaier補償加算、Kahan加算の改良版）。
+
+    Python組み込み`sum()`はPython 3.12以降、float列を単純な逐次`+=`ではなく
+    Neumaier補償加算で合計するよう変更されている（丸め誤差を打ち消す補正項cを
+    別途積算し、最後に本体へ足し込む）。スカラー版`composite_difficulty`の
+    `sum(score*weight for score,weight in available)`と本関数（`compute_edge_costs_bulk`の
+    重み付き合成）をビット単位で一致させるには、単純な逐次`+=`ではこのNeumaier補正が
+    再現できず、ちょうど.X5境界の値で最終丸め結果が食い違う（実測: 実データのEdgeで
+    単純逐次加算は0.8200000000000001、`sum()`は0.82と異なる浮動小数点値になり、
+    composite=41.25の丸めが41.3 vs 41.2に分かれた）。本関数はNeumaier加算をn件分まとめて
+    配列演算で行うことで、`sum()`と同じ結果をEdge数万件規模でもPythonループ無しで再現する。
+    """
+    total = np.zeros_like(terms[0], dtype=float)
+    compensation = np.zeros_like(terms[0], dtype=float)
+    for term in terms:
+        t = total + term
+        correction = np.where(np.abs(total) >= np.abs(term), (total - t) + term, (term - t) + total)
+        compensation += correction
+        total = t
+    return total + compensation
+
+
+def compute_edge_costs_bulk(
+    graph: RoadGraph,
+    elevation_attributes: dict[str, ElevationAttribute],
+    surface_attributes: dict[str, str | None],
+    preference: RoutePreference,
+    car_stress_recipe: CarStressRecipe | None = None,
+    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
+    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
+    wind: WeatherConditions | None = None,
+    stop_counts: dict[str, int] | None = None,
+    way_tags: dict[str, dict[str, str]] | None = None,
+    intersection_counts: dict[str, int] | None = None,
+    accident_counts: dict[str, int] | None = None,
+    accident_years_covered: int = 0,
+    designated_edge_ids: set[str] | None = None,
+    penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
+    weights: dict[str, float] | None = None,
+) -> dict[str, EdgeCostResult]:
+    """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
+    算出する（改善計画T221/T240、`EvaluationService.evaluate_graph`専用）。
+
+    構造は「抽出フェーズ」と「計算フェーズ」の2段:
+
+    - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセス（`car_closeness`・
+      `threshold_adjustment`・`cycleway_class`・`parse_lanes`・`tag_value_is`等の
+      文字列処理を伴う既存の判定プリミティブをそのまま呼ぶ、ロジックの再実装はしない）を
+      ここに集約し、以降で使う数値をすべてnumpy配列へ落とし込む。欠損値はNaNで表現する。
+    - 計算フェーズ（Pythonループ無し）: Stage A（改善計画T239）のテンプレートを使った
+      `*_difficulty_array`関数で7軸のdifficulty配列を求め、重み配列とのマスク付き
+      加重平均（`composite_difficulty`のベクトル版）→cost算出まで、すべて配列演算で行う。
+
+    スカラー版`compute_edge_cost`は削除せず、本関数との出力一致を検証する回帰テスト
+    （`tests/test_evaluation_bulk.py`）のオラクルとして残す。
+
+    `stop_count`/`intersection_count`/`accident_count`は実データ上ゼロ以上の整数
+    （PostGIS事前集計、`domain/attributes.py: EdgeAttributeCounts`）であることを前提とし、
+    スカラー版`stop_difficulty`/`accident_difficulty`が持つ「負値ならNone」という防御的
+    ガード（テスト専用の異常値入力を想定したもの）はここでは再現しない（実データでは
+    到達しない分岐のため、ベクトル化の単純さを優先した）。
+    """
+    car_stress_recipe = car_stress_recipe or DEFAULT_CAR_STRESS_RECIPE
+    road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
+    motor_vehicle_density_recipe = motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
+    stop_counts = stop_counts or {}
+    intersection_counts = intersection_counts or {}
+    accident_counts = accident_counts or {}
+    designated_edge_ids = designated_edge_ids or set()
+    resolved_weights = weights if weights is not None else preference_to_axis_weights(preference)
+
+    edge_ids = list(graph.edges.keys())
+    n = len(edge_ids)
+    if n == 0:
+        return {}
+    edges = [graph.edges[edge_id] for edge_id in edge_ids]
+
+    distance_m = np.array([edge.distance_m for edge in edges], dtype=float)
+    bearing_deg = np.array(
+        [edge.bearing_deg if edge.bearing_deg is not None else np.nan for edge in edges], dtype=float
+    )
+
+    # --- 抽出フェーズ ---
+    gradient_percent = np.full(n, np.nan)
+    surface_good = np.full(n, np.nan)  # 1.0/0.0/NaN
+    stop_count_per_km = np.full(n, np.nan)
+    intersection_count_per_km = np.full(n, np.nan)
+    accident_count_per_km_year = np.full(n, np.nan)
+    car_stress_base = np.full(n, np.nan)
+    car_stress_cycleway_adj = np.zeros(n)
+    car_stress_maxspeed_adj = np.zeros(n)
+    car_stress_lanes_adj = np.zeros(n)
+    car_stress_designation_adj = np.zeros(n)
+    motor_vehicle_no = np.zeros(n, dtype=bool)
+    no_lit = np.zeros(n, dtype=bool)
+    has_tunnel = np.zeros(n, dtype=bool)
+    hard_filter_excluded = np.zeros(n, dtype=bool)
+
+    for i, (edge_id, edge) in enumerate(zip(edge_ids, edges)):
+        edge_way_tags = way_tags.get(edge_id) if way_tags is not None else None
+
+        # 0次ハードフィルタ（is_edge_allowedと同じ判定。DEFAULT_HARD_FILTERS常時有効を前提とする、
+        # hard_filters引数によるレシピ単位の上書きは本関数では未対応——現時点でどの呼び出し元も
+        # 上書きしていないため、compute_edge_costと同じ既定挙動をここでは決め打ちする）。
+        if edge.highway is not None:
+            for filter_name, highway_types in HARD_FILTER_HIGHWAY_TYPES.items():
+                if filter_name in DEFAULT_HARD_FILTERS and edge.highway in highway_types:
+                    hard_filter_excluded[i] = True
+                    break
+        if edge_way_tags is not None and tag_value_is(edge_way_tags, "bicycle", "no"):
+            hard_filter_excluded[i] = True
+
+        elevation_attribute = elevation_attributes.get(edge_id)
+        if elevation_attribute is not None and elevation_attribute.average_grade is not None:
+            gradient_percent[i] = elevation_attribute.average_grade
+            if (
+                max_average_grade_percent is not None
+                and abs(elevation_attribute.average_grade) > max_average_grade_percent
+            ):
+                hard_filter_excluded[i] = True
+
+        is_good_surface = classify_osm_surface(surface_attributes.get(edge_id))
+        if is_good_surface is not None:
+            surface_good[i] = 1.0 if is_good_surface else 0.0
+
+        distance_km = edge.distance_m / 1000
+        stop_count = stop_counts.get(edge_id)
+        if stop_count is not None and distance_km > 0:
+            stop_count_per_km[i] = stop_count / distance_km
+        intersection_count = intersection_counts.get(edge_id)
+        if intersection_count is not None and distance_km > 0:
+            intersection_count_per_km[i] = intersection_count / distance_km
+        accident_count = accident_counts.get(edge_id)
+        if accident_count is not None and distance_km > 0 and accident_years_covered > 0:
+            accident_count_per_km_year[i] = accident_count / distance_km / accident_years_covered
+
+        if edge_way_tags is not None:
+            is_designated = edge_id in designated_edge_ids
+            base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness(
+                edge.highway, edge_way_tags, is_designated, road_suitability_recipe, motor_vehicle_density_recipe
+            )
+            if base is not None:
+                car_stress_base[i] = base
+                car_stress_cycleway_adj[i] = cycleway_adj
+                car_stress_maxspeed_adj[i] = maxspeed_adj
+                if tag_value_is(edge_way_tags, "motor_vehicle", "no"):
+                    motor_vehicle_no[i] = True
+                    # motor_vehicle=noはlanes_low・designationに関わらずlevel=1固定
+                    # （domain/traffic.py: _compute_car_stressと同じ、下の計算フェーズ参照）。
+                else:
+                    car_stress_designation_adj[i] = designation_adj
+                    lanes_low_threshold = (
+                        None if cycleway_class(edge_way_tags) == "track" else car_stress_recipe.lanes_low_threshold
+                    )
+                    lanes_low_adj = threshold_adjustment(
+                        parse_lanes(edge_way_tags), lanes_low_threshold, car_stress_recipe.lanes_low_adjustment, None, 0
+                    )
+                    car_stress_lanes_adj[i] = lanes_high_adj + lanes_low_adj
+            no_lit[i] = not tag_value_is(edge_way_tags, "lit", "yes")
+            has_tunnel[i] = tag_value_is(edge_way_tags, "tunnel", "yes")
+
+    # --- 計算フェーズ（Pythonループ無し） ---
+    wind_penalty = (
+        np.full(n, np.nan)
+        if wind is None
+        else wind.wind_speed_ms * np.cos(np.radians(wind.wind_direction_deg - bearing_deg))
+    )
+
+    # clamp_level（domain/recipe.py）と同じ1-5クランプ（domain/traffic.py:
+    # _compute_car_stressもclamp_level(value, 1, 5)とリテラルで持つ既存の重複と同じ扱い）。
+    car_stress_level_value = np.where(
+        motor_vehicle_no,
+        1.0,
+        np.clip(
+            car_stress_base
+            + car_stress_cycleway_adj
+            + car_stress_maxspeed_adj
+            + car_stress_lanes_adj
+            + car_stress_designation_adj,
+            1,
+            5,
+        ),
+    )
+
+    axis_arrays = {
+        "gradient": gradient_difficulty_array(gradient_percent),
+        "wind": wind_difficulty_array(wind_penalty),
+        "surface_q": road_difficulty_array(surface_good),
+        "stop_density": stop_difficulty_array(stop_count_per_km, intersection_count_per_km),
+        "car_stress": car_stress_difficulty_array(car_stress_level_value),
+        "accident": accident_difficulty_array(accident_count_per_km_year),
+        "night": night_difficulty_array(no_lit, has_tunnel),
+    }
+
+    # composite_difficultyのベクトル版: Noneの軸（NaN）は除外し残りの重みで再正規化する
+    # （辞書挿入順=上のaxis_arraysと同じgradient→wind→...→nightの順、無効な軸はスカラー版の
+    # `available`リストでは最初から除外されるが、ここでは0.0を加算するのと数学的に等価
+    # ——Neumaier加算でも0.0項の加算は補正項に影響しないため、スカラー版と同じ結果になる）。
+    # スカラー版composite_difficultyの`sum(score*weight for score,weight in available)`は
+    # Python組み込み`sum()`（3.12以降、Neumaier補償加算）であり、単純な逐次`+=`とは
+    # 異なる浮動小数点結果になりうる（`_neumaier_accumulate`のdocstring参照）。
+    score_terms = []
+    weight_terms = []
+    for axis_id, arr in axis_arrays.items():
+        weight = resolved_weights.get(axis_id, 0.0)
+        valid = ~np.isnan(arr)
+        score_terms.append(np.where(valid, arr * weight, 0.0))
+        weight_terms.append(np.where(valid, weight, 0.0))
+    weighted_scores = _neumaier_accumulate(score_terms)
+    weighted_weight_sums = _neumaier_accumulate(weight_terms)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        composite = weighted_scores / weighted_weight_sums
+    composite = np.where(weighted_weight_sums == 0, np.nan, composite)
+    # np.roundは内部で「×10→rint→÷10」という段階を踏むため、その中間の掛け算で
+    # 丸め誤差が混入し、ちょうど.X5の境界にある値でPythonの`round(x, 1)`
+    # （2進浮動小数点の実際の値に対する正しい丸め）と結果が食い違うことがある
+    # （実測: 385.949999999999988...→np.roundは386.0、round()は385.9）。
+    # スカラー版composite_difficulty/compute_cost_from_axis_scoresの`round(x, 1)`と
+    # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する
+    # （軸別スコアの計算・加重合成自体はベクトル化済みのままで、丸めのみの
+    # 逐次処理はn件でも計算コストは無視できる）。
+    composite = round1_array(composite)
+
+    # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは距離そのもの
+    # （割増なし）。allowed=Falseのcost=Noneは出力構築時に別途上書きする。
+    penalty_multiplier = np.where(np.isnan(composite), 1.0, 1.0 + penalty_strength * (composite / 100))
+    cost = round1_array(distance_m * penalty_multiplier)
+
+    # --- 出力構築（EdgeCostResult.model_construct: 値は内部計算済みでバリデーション不要） ---
+    results: dict[str, EdgeCostResult] = {}
+    for i, edge_id in enumerate(edge_ids):
+        if hard_filter_excluded[i]:
+            results[edge_id] = EdgeCostResult.model_construct(
+                edge_id=edge_id, cost=None, difficulty=None, allowed=False
+            )
+        else:
+            difficulty_value = None if np.isnan(composite[i]) else float(composite[i])
+            results[edge_id] = EdgeCostResult.model_construct(
+                edge_id=edge_id, cost=float(cost[i]), difficulty=difficulty_value, allowed=True
+            )
+    return results

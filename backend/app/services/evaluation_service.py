@@ -3,7 +3,12 @@ from pathlib import Path
 import yaml
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.evaluation import EdgeCostResult, RoutePreference, compute_edge_cost, preference_to_axis_weights
+from app.domain.evaluation import (
+    EdgeCostResult,
+    RoutePreference,
+    compute_edge_costs_bulk,
+    preference_to_axis_weights,
+)
 from app.domain.graph import RoadGraph
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.traffic import CarStressRecipe
@@ -121,25 +126,26 @@ class EvaluationService:
         # ため、Edgeごとに再計算せずここで1回だけ求める（compute_edge_costのdocstring
         # 参照。実測でEdge数万件規模の際に無視できないオーバーヘッドと判明）。
         weights = preference_to_axis_weights(preference)
-        return {
-            edge_id: compute_edge_cost(
-                edge,
-                elevation_attributes.get(edge_id),
-                surface_attributes.get(edge_id),
-                preference,
-                weights=weights,
-                wind=wind,
-                stop_count=stop_counts.get(edge_id),
-                way_tags=way_tags.get(edge_id) if way_tags is not None else None,
-                intersection_count=intersection_counts.get(edge_id) if intersection_counts is not None else None,
-                accident_count=accident_counts.get(edge_id) if accident_counts is not None else None,
-                accident_years_covered=accident_years_covered,
-                is_designated=edge_id in designated_edge_ids,
-                car_stress_recipe=self._car_stress_recipe,
-                road_suitability_recipe=self._road_suitability_recipe,
-                motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                penalty_strength=penalty_strength,
-                max_average_grade_percent=max_average_grade_percent,
-            )
-            for edge_id, edge in graph.edges.items()
-        }
+        # 改善計画T240: compute_edge_costを1件ずつ呼ぶPythonループから、numpyベクトル化した
+        # compute_edge_costs_bulkへ切り替えた（Edge数万〜十数万件規模での実行時間短縮）。
+        # スカラー版compute_edge_costは削除せず、tests/test_evaluation_bulk.pyの回帰
+        # オラクルとして存続させている。
+        return compute_edge_costs_bulk(
+            graph,
+            elevation_attributes,
+            surface_attributes,
+            preference,
+            car_stress_recipe=self._car_stress_recipe,
+            road_suitability_recipe=self._road_suitability_recipe,
+            motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
+            wind=wind,
+            stop_counts=stop_counts,
+            way_tags=way_tags,
+            intersection_counts=intersection_counts,
+            accident_counts=accident_counts,
+            accident_years_covered=accident_years_covered,
+            designated_edge_ids=designated_edge_ids,
+            penalty_strength=penalty_strength,
+            max_average_grade_percent=max_average_grade_percent,
+            weights=weights,
+        )

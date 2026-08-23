@@ -72,3 +72,15 @@ def evaluate_flag_sum(flags_and_points: list[tuple], cap: float | None = None):
         return np.minimum(total, cap) if cap is not None else total
     total = sum((1.0 if flag else 0.0) * points for flag, points in flags_and_points)
     return min(total, cap) if cap is not None else total
+
+
+def round1_array(values: np.ndarray) -> np.ndarray:
+    """`round(x, 1)`（Python組み込み、2進浮動小数点の実際の値に対する正しい丸め）と
+    ビット単位で一致させるための配列版丸め。`np.round`は内部で「×10→rint→÷10」という
+    段階を踏むため、その掛け算で丸め誤差が混入し、値がちょうど.X5の境界にあると
+    Python組み込みの`round()`と結果が食い違うことがある（実測: 実データのEdgeで
+    `np.round`は41.3、`round()`は41.2。`domain/difficulty.py`の配列版4関数・
+    `domain/evaluation.py: compute_edge_costs_bulk`の最終丸めの両方で使う共通実装）。
+    NaNはNaNのまま返す。
+    """
+    return np.array([round(float(v), 1) if not np.isnan(v) else np.nan for v in values])

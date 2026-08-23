@@ -4,6 +4,8 @@
 
 from typing import NamedTuple
 
+import numpy as np
+
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
@@ -117,6 +119,62 @@ def accident_difficulty(accident_count_per_km_year: float | None) -> float | Non
     if accident_count_per_km_year is None or accident_count_per_km_year < 0:
         return None
     return round(
+        evaluate_breakpoint_linear(
+            accident_count_per_km_year, [(0.0, 0.0), (_ACCIDENT_DENSITY_MAX_PER_KM_YEAR, _ACCIDENT_DENSITY_HARD_SCORE)]
+        ),
+        1,
+    )
+
+
+# --- 配列版（改善計画T221/T240、EvaluationService.evaluate_graphのnumpyベクトル化専用） ---
+# スカラー版と同じ定数・テンプレートを使う純関数。NaNは欠損値（スカラー版のNoneに相当）として
+# そのまま伝播する。スカラー版に対する回帰は`tests/test_evaluation_bulk.py`
+# （compute_edge_cost 1件ずつ vs compute_edge_costs_bulk の全Edge一致確認）が担保する。
+#
+# 丸めは`np.round`のまま（`domain/axis_templates.py: round1_array`のような要素ごとの
+# Python `round()`は使わない）。`np.round`は「×10→rint→÷10」の掛け算で丸め誤差が
+# 混入しスカラー版の`round()`と.X5境界でごく稀に食い違いうるが、実データ4.6万Edge超の
+# 突き合わせ（T240）で軸別スコア単体はこの食い違いが発生しないことを確認済み。
+# `compute_edge_costs_bulk`側の最終cost/composite（重み付き合成後の値）でのみ
+# `round1_array`必須（実際に不一致が発生したのはそちら、Neumaier加算の解説参照）。
+# Edge数万件規模でこの丸めをここでも要素ごとのPythonループにすると
+# （実測）ベクトル化の速度向上分を相殺してしまうため、必要な箇所にのみ限定する。
+
+
+def gradient_difficulty_array(gradient_percent: np.ndarray) -> np.ndarray:
+    return np.round(evaluate_breakpoint_linear(np.abs(gradient_percent), _GRADIENT_BREAKPOINTS), 1)
+
+
+def wind_difficulty_array(wind_penalty: np.ndarray) -> np.ndarray:
+    return np.round(evaluate_breakpoint_linear(wind_penalty, [(_WIND_MIN_MS, 0.0), (_WIND_MAX_MS, 100.0)]), 1)
+
+
+def road_difficulty_array(is_good_surface: np.ndarray) -> np.ndarray:
+    """is_good_surfaceは1.0(良好)/0.0(不良)/NaN(不明)の3値。"""
+    return evaluate_categorical(is_good_surface, {1.0: _ROAD_EASY_SCORE, 0.0: _ROAD_HARD_SCORE})
+
+
+def stop_difficulty_array(stop_count_per_km: np.ndarray, intersection_count_per_km: np.ndarray) -> np.ndarray:
+    """intersection_count_per_kmのNaN（交差点データ未取得）は寄与0として扱う
+    （スカラー版の`intersection_count_per_km or 0.0`と同じ）。"""
+    intersection_filled = np.where(np.isnan(intersection_count_per_km), 0.0, intersection_count_per_km)
+    combined_per_km = stop_count_per_km + intersection_filled * UNSIGNALED_INTERSECTION_WEIGHT
+    return np.round(
+        evaluate_breakpoint_linear(combined_per_km, [(0.0, 0.0), (_STOP_DENSITY_MAX_PER_KM, _STOP_DENSITY_HARD_SCORE)]), 1
+    )
+
+
+def car_stress_difficulty_array(car_stress_level: np.ndarray) -> np.ndarray:
+    return np.round(
+        evaluate_recipe_then_breakpoint_linear(
+            car_stress_level, [(_CAR_STRESS_MIN_LEVEL, 0.0), (_CAR_STRESS_MAX_LEVEL, 100.0)]
+        ),
+        1,
+    )
+
+
+def accident_difficulty_array(accident_count_per_km_year: np.ndarray) -> np.ndarray:
+    return np.round(
         evaluate_breakpoint_linear(
             accident_count_per_km_year, [(0.0, 0.0), (_ACCIDENT_DENSITY_MAX_PER_KM_YEAR, _ACCIDENT_DENSITY_HARD_SCORE)]
         ),
