@@ -52,7 +52,7 @@ describe("axisInspectorPopup", () => {
       }),
     );
     const el = makePopupElement();
-    attachAxisInspectorHandler(el, 12345, undefined, undefined, undefined);
+    attachAxisInspectorHandler(el, 12345);
 
     const button = el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!;
     button.click();
@@ -87,7 +87,7 @@ describe("axisInspectorPopup", () => {
       }),
     );
     const el = makePopupElement();
-    attachAxisInspectorHandler(el, 12345, undefined, undefined, undefined);
+    attachAxisInspectorHandler(el, 12345);
     el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -99,7 +99,7 @@ describe("axisInspectorPopup", () => {
   it("fetch失敗時は「取得できませんでした」を表示する", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const el = makePopupElement();
-    attachAxisInspectorHandler(el, 12345, undefined, undefined, undefined);
+    attachAxisInspectorHandler(el, 12345);
 
     el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));

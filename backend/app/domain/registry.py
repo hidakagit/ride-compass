@@ -51,7 +51,7 @@ class PrimaryAttributeSpec(BaseModel):
 
 
 class TileInputSpec(BaseModel):
-    """地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278）。
+    """地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278・T292）。
 
     数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre
     expressionが計算する。
@@ -69,6 +69,19 @@ class TileInputSpec(BaseModel):
     `false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、
     trueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:
     evaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。
+
+    N値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:
+    CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の
+    場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
+    （`weight`と併用可、寄与値=`categories[value] * weight`）。未登録値は0扱い
+    （`CategoricalShape`の評価がNoneを返す＝寄与なしと同じ規約）。`has_unknown_fallback`は
+    boolean材料と同じ意味で使え、タイルプロパティが完全に欠損している場合を「不明」
+    （灰色）へ倒す（未登録の既知の値と、プロパティ自体が無い場合を区別する）。
+
+    自己変換材料（`breakpoints`、改善計画T292）: 材料自身が
+    `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
+    `car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`
+    expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
     """
 
     property: str
@@ -78,6 +91,8 @@ class TileInputSpec(BaseModel):
     true_value: float = 0.0
     false_value: float = 0.0
     has_unknown_fallback: bool = False
+    categories: dict[str, float] | None = None
+    breakpoints: list[tuple[float, float]] | None = None
 
 
 class AxisDisplaySpec(BaseModel):

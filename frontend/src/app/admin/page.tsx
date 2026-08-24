@@ -7,34 +7,23 @@ import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
-import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
-import RoadSuitabilityRecipePanel from "@/components/RoadSuitabilityRecipePanel/RoadSuitabilityRecipePanel";
-import MotorVehicleDensityRecipePanel from "@/components/MotorVehicleDensityRecipePanel/MotorVehicleDensityRecipePanel";
-import {
-  DEFAULT_CAR_STRESS_RECIPE,
-  DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-} from "@/components/Map/carStressExpression";
 import { axisMaterials, PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 import AxisStudio from "@/components/AxisStudio/AxisStudio";
-import { useRecipeOverride } from "@/hooks/useRecipeOverride";
 import { useStoredJsonState } from "@/hooks/useStoredState";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
-import type { CarStressRecipeOverride, MotorVehicleDensityRecipeOverride, RoadSuitabilityRecipeOverride, RoutePreferenceWeights, ScoringWeights } from "@/types/route";
+import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import styles from "./admin.module.css";
-
-const LEGEND_FILTER_DEBOUNCE_MS = 250;
 
 // 軸スタジオ・研究モード・開発者向け機能をまとめた独立URLの管理画面（改善計画T270、
 // 目論見書4章「軸スタジオ」）。一般向けメインページ（/）とはURLレベルで分離しており、
 // 権限制御（改善計画T272、2026-08-24完了）はこのルーティング境界（src/proxy.ts、
 // matcher: ["/admin","/admin/:path*"]）にHTTP Basic認証として敷いている
 // （環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可）。
-// 研究モード・評価重み・レシピの各stateはlocalStorage経由でメインページと共有する
-// ——同じキーでuseStoredJsonState/useRecipeOverrideを呼ぶことで、ここでの編集が
-// 次回メインページを開いたとき/再読み込みしたときに反映される。同一タブでのリアルタイム
-// 同期ではない点はlib/researchMode.ts等の既存パターンと同じ）。
+// 研究モード・評価重みの各stateはlocalStorage経由でメインページと共有する
+// ——同じキーでuseStoredJsonStateを呼ぶことで、ここでの編集が次回メインページを開いたとき/
+// 再読み込みしたときに反映される。同一タブでのリアルタイム同期ではない点はlib/researchMode.ts
+// 等の既存パターンと同じ）。
 export default function AdminPage() {
   const researchEnabled = useResearchEnabled();
   const debugEnabled = useDebugEnabled();
@@ -53,37 +42,6 @@ export default function AdminPage() {
     DEFAULT_ROUTE_PREFERENCE
   );
 
-  const {
-    overrideEnabled: carStressRecipeOverrideEnabled,
-    setOverrideEnabled: setCarStressRecipeOverrideEnabled,
-    recipe: carStressRecipe,
-    setRecipe: setCarStressRecipe,
-  } = useRecipeOverride<CarStressRecipeOverride>(
-    DEFAULT_CAR_STRESS_RECIPE,
-    LEGEND_FILTER_DEBOUNCE_MS,
-    "ridecompass:car-stress-recipe"
-  );
-  const {
-    overrideEnabled: roadSuitabilityRecipeOverrideEnabled,
-    setOverrideEnabled: setRoadSuitabilityRecipeOverrideEnabled,
-    recipe: roadSuitabilityRecipe,
-    setRecipe: setRoadSuitabilityRecipe,
-  } = useRecipeOverride<RoadSuitabilityRecipeOverride>(
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    LEGEND_FILTER_DEBOUNCE_MS,
-    "ridecompass:road-suitability-recipe"
-  );
-  const {
-    overrideEnabled: motorVehicleDensityRecipeOverrideEnabled,
-    setOverrideEnabled: setMotorVehicleDensityRecipeOverrideEnabled,
-    recipe: motorVehicleDensityRecipe,
-    setRecipe: setMotorVehicleDensityRecipe,
-  } = useRecipeOverride<MotorVehicleDensityRecipeOverride>(
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    LEGEND_FILTER_DEBOUNCE_MS,
-    "ridecompass:motor-vehicle-density-recipe"
-  );
-
   // 改善計画T168: 区間難易度の重み行の直下へ、その軸が参照する一次属性の一覧を出す
   // （page.tsxのrenderAxisMaterialsExtraを移設）。
   function renderAxisMaterialsExtra(axisId: string) {
@@ -96,61 +54,12 @@ export default function AdminPage() {
     );
   }
 
-  // page.tsxのrenderCarStressRecipeExtraを移設。道路適正・自動車密度（車の圧迫感が
-  // 参照する共有材料）と車ストレスレシピ本体を、重み行の直下へ差し込む。
-  function renderCarStressRecipeExtra() {
-    return (
-      <>
-        <div className={styles.recipeSharedMaterialGroup}>
-          <p className={styles.recipeSharedMaterialHeading}>
-            レシピ[一次情報→二次情報の変換式]・共有材料[車の圧迫感が参照]
-          </p>
-          <div className={styles.card}>
-            <RoadSuitabilityRecipePanel
-              overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
-              onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
-              recipe={roadSuitabilityRecipe}
-              onRecipeChange={setRoadSuitabilityRecipe}
-            />
-          </div>
-          <div className={styles.card}>
-            <MotorVehicleDensityRecipePanel
-              overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
-              onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
-              recipe={motorVehicleDensityRecipe}
-              onRecipeChange={setMotorVehicleDensityRecipe}
-            />
-          </div>
-        </div>
-        <div className={styles.recipeDependentAxes}>
-          <div className={styles.card}>
-            <CarStressRecipePanel
-              overrideEnabled={carStressRecipeOverrideEnabled}
-              onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
-              recipe={carStressRecipe}
-              onRecipeChange={setCarStressRecipe}
-              roadSuitabilityRecipe={
-                roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
-              }
-              motorVehicleDensityRecipe={
-                motorVehicleDensityRecipeOverrideEnabled
-                  ? motorVehicleDensityRecipe
-                  : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
-              }
-            />
-          </div>
-        </div>
-      </>
-    );
-  }
-
+  // 改善計画T292: 車ストレス専用の3レシピパネル（CarStressRecipePanel等）は、専用Python
+  // レシピの廃止（内部軸6つ+公開軸1つの階層構造への再実装）に伴い削除した。内部軸の
+  // mapping/breakpointsの調整は軸スタジオ（上のAxisStudio、is_published=falseの
+  // 内部軸も編集対象）で行う。
   function renderPreferenceFieldExtra(axisId: string) {
-    return (
-      <>
-        {renderAxisMaterialsExtra(axisId)}
-        {axisId === "car_stress" && renderCarStressRecipeExtra()}
-      </>
-    );
+    return renderAxisMaterialsExtra(axisId);
   }
 
   return (

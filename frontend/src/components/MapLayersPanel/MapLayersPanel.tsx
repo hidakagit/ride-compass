@@ -327,7 +327,7 @@ export default function MapLayersPanel({
   // （renderDataStatusHint）とヘッダーのLayerChip状態ドット（renderLayerSection）の両方が
   // この判定を共有する単一の入口にすることで、片方だけ抑制し忘れる食い違いを防ぐ
   // （レビュー指摘: 以前はroadのswitchケースの呼び出し元だけでregionZoomTooWideを見ており、
-  // 同じソースを共有するcarStress/bicycleInfra/designationの本文や、road自身を含む
+  // 同じソースを共有するbicycleInfra/designationの本文や、road自身を含む
   // 全レイヤーのヘッダーチップには抑制が効いていなかった）。
   function visibleDataStatus(layerId: MapLayerId): LayerDataStatus | undefined {
     if (!layerVisibility[layerId]) return undefined;
@@ -349,8 +349,9 @@ export default function MapLayersPanel({
     );
   }
 
-  // 改善計画T84: carStress/bicycleInfra/designation/tunnel/oneway/stopPoi/accidentsは
-  // 「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー（elevationはpanelHintのみ・
+  // 改善計画T84: bicycleInfra/designation/tunnel/oneway/stopPoi/accidents（T292でcar_stress
+  // もaxis:${string}経由でここへ合流）は「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの
+  // 標準レイヤー（elevationはpanelHintのみ・
   // road/routeは専用UIを持つ真に特殊なレイヤーのためこの関数の対象外）。以前はレイヤーごとに
   // 同型JSXブロックを6つ複製し、説明文もmapLayers.tsのdescriptionとは別にここへハードコード
   // していた（文言修正時に片方だけ直り画面間で食い違うリスク、設計原則8違反）。
@@ -410,7 +411,6 @@ export default function MapLayersPanel({
             {renderDataStatusHint(layer.id)}
           </>
         );
-      case "carStress":
       case "bicycleInfra":
       case "designation":
       case "tunnel":
@@ -424,9 +424,9 @@ export default function MapLayersPanel({
       case "roadType":
         return renderRoadAxisSectionBody(layer, roadWidthAxis, "太さ");
       default:
-        // axis:${string}（ramp軸、改善計画T145b: 停止/事故密度の凡例追加）は
-        // carStress等と同じ標準構成（panelHint＋OFF案内＋絞り込み軸）で足りるため、
-        // 個別caseを持たずデフォルトで拾う。
+        // axis:${string}（ramp軸、改善計画T145b: 停止/事故密度の凡例追加。T292で
+        // car_stressもここに合流）はbicycleInfra等と同じ標準構成（panelHint＋OFF案内＋
+        // 絞り込み軸）で足りるため、個別caseを持たずデフォルトで拾う。
         return renderStandardSectionBody(layer);
     }
   }

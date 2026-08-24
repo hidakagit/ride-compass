@@ -51,10 +51,10 @@ export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 // 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き(改善計画T266)。
 export type HardFilterOverride = Schemas["HardFilterOverride"];
-export type CarStressRecipeOverride = Schemas["CarStressRecipeOverride"];
-// 車ストレスが参照する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の共有元化）。
-export type RoadSuitabilityRecipeOverride = Schemas["RoadSuitabilityRecipeOverride"];
-export type MotorVehicleDensityRecipeOverride = Schemas["MotorVehicleDensityRecipeOverride"];
+// 改善計画T292: 車の圧迫感（car_stress）専用レシピ（CarStressRecipeOverride・
+// RoadSuitabilityRecipeOverride・MotorVehicleDensityRecipeOverride）はbackend側で
+// 専用Pythonレシピごと廃止（内部軸6つ+公開軸1つの階層構造へ再実装）したため、
+// 対応する型定義も削除した。
 
 // 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
 // 保持・比較表・再現性メモの入力になる。

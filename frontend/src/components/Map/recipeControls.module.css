@@ -1,6 +1,8 @@
-/* レシピ入力フォームの共通UI部品（改善計画: 安全度レシピ、T113でCarStressRecipePanel
-   専用に実装したものを2つ目のレシピ登場を機に汎用化）のスタイル。段階数・色は呼び出し側が
-   propsで渡すため、このCSS自体は段階数に依存しない。 */
+/* 研究タブの評価重み上書きUI（WeightPanel）・一般向けルート設定画面（RouteSettingsPanel）
+   が共有する上書きUI部品のスタイル（改善計画: 安全度レシピ、T113でCarStressRecipePanel
+   専用に実装したものを2つ目のレシピ登場を機に汎用化）。改善計画T292: 車ストレス専用の
+   3レシピパネルの廃止に伴い、それらだけが使っていたスタイル（.levelPicker・.stepper・
+   .referenceSection等）は削除した。 */
 
 /* RecipePanelSection（研究タブ各パネルの最上位の折りたたみ）。MapLayersPanel.module.cssの
    .layerSection/.layerHeader/.layerTitle/.chevron/.layerBody/.mutedHintをcomposesでそのまま
@@ -38,8 +40,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  /* 右側の内容（ステッパー・条件入力）が長い行で、ラベル自体が押し縮められて
-     途中で折り返される不具合を防ぐ（呼び出し側の.field参照）。 */
+  /* 右側の入力欄が長い行で、ラベル自体が押し縮められて途中で折り返される不具合を防ぐ。 */
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -62,103 +63,6 @@
   color: var(--color-accent-strong);
 }
 
-/* 基準値のレベルピッカー。levelsぶんの.levelSegmentが並ぶ（段階数を変えてもこのCSS自体は
-   変更不要、flexで自動的に並ぶため）。 */
-.levelPicker {
-  display: inline-flex;
-  gap: 2px;
-}
-
-.levelSegment {
-  /* 改善計画T118（車ストレス5段階化のモバイル幅溢れ修正）: highway別基準値テーブル
-     （table-layout: fixed の.tableValue列）の内側でwidth/height/paddingが原因不明の
-     カスケード上書きを受け続ける現象が実機で確認されたため、対症療法として!important
-     を付ける（テーブル文脈・非テーブル文脈のどちらで使っても崩れないようにするため
-     ここで一律に付与する）。 */
-  width: 1.25rem !important;
-  height: 1.25rem !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 !important;
-  font-size: 0.7rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-muted);
-  cursor: pointer;
-}
-
-/* 選択値以下の段階を呼び出し側が渡す色（JS側でstyleへ渡す--level-color）で塗り、
-   進捗バーのように見せる（未選択より高い段階は塗らない）。 */
-.levelSegment[data-filled="true"] {
-  background: var(--level-color);
-  border-color: var(--level-color);
-  color: #ffffff;
-  font-weight: 700;
-}
-
-/* 補正値のステッパー。-/+ボタン付きの色付き入力欄（色は呼び出し側が正負に応じて
-   styleへ渡す）で「0中心に変動する」ことを常に確実に伝える。 */
-.stepper {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.stepperButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4rem;
-  border: none;
-  background: var(--color-surface-2);
-  color: var(--foreground);
-  font-size: var(--font-size-md);
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-}
-
-.stepperInput {
-  width: 2.4rem;
-  border: none;
-  border-left: 1px solid var(--color-border-strong);
-  border-right: 1px solid var(--color-border-strong);
-  text-align: center;
-  font-size: var(--font-size-md);
-  background: var(--color-surface);
-  color: inherit;
-  padding: 0.15rem 0;
-  /* ネイティブの上下スピナー矢印は小さくタップしづらいため非表示にする
-     （増減は左右の-/+ボタンで行う）。直接のタイプ入力はできるまま残す。 */
-  -moz-appearance: textfield;
-}
-
-.stepperInput::-webkit-outer-spin-button,
-.stepperInput::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-/* ScalarInput/ThresholdAdjustmentRow（改善計画: 車との近さ材料の共有元化のレビュー指摘。
-   各パネル独自の.module.cssへ個別にcomposesされていた同一定義をここへ集約）。
-   CarClosenessReferenceSectionと同じ理由で、呼び出し元のCSSモジュールに依存しない
-   自己完結スタイルにする。 */
-.field {
-  composes: field from "../WeightPanel/WeightPanel.module.css";
-  /* 右側（ステッパー+条件）が長いThresholdAdjustmentRowで、ラベル側が予期せず
-     押し縮められて途中で折り返される不具合を防ぐ。 */
-  flex-wrap: wrap;
-}
-
-.input {
-  composes: input from "../WeightPanel/WeightPanel.module.css";
-}
-
 /* 情報アイコンのRadix Popover.Content（T253併用導入）。以前は呼び出し側のDOM上に
    直接並ぶ地の文（背景無し）だったが、Portalでフローティング表示するようになったため
    周囲から視覚的に浮き上がるカード状の見た目（背景・枠線・影）を持たせる必要がある
@@ -178,101 +82,3 @@
   z-index: 46;
 }
 
-.pairControls {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.thresholdInline {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
-.thresholdCaption {
-  flex-shrink: 0;
-}
-
-.thresholdInput {
-  composes: input;
-  width: 3rem;
-}
-
-.thresholdSuffix {
-  flex-shrink: 0;
-}
-
-/* CarClosenessReferenceSection（改善計画: 車との近さ材料の共有元化）。車の圧迫感
-   パネルの先頭に置く読み取り専用の参照ブロックで、各パネル固有の.group/.groupHeader
-   （WeightPanel.module.css由来のcomposes）とは独立した自己完結スタイルにする
-   （呼び出し元のCSSモジュールに依存しないようrecipeControls.tsx側で完結させるため）。
-   淡い背景色で「編集不可の参照情報」であることを他のグループと区別する。 */
-.referenceSection {
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-3);
-  background: var(--color-surface-2);
-}
-
-.referenceHeader {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  cursor: pointer;
-  min-height: 2rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  list-style: none;
-}
-
-.referenceChevron {
-  flex-shrink: 0;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-right: 2px solid var(--color-neutral);
-  border-bottom: 2px solid var(--color-neutral);
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
-}
-
-/* Radix Accordion.Triggerはopen中data-state="open"を自身へ持つ（T254、以前の
-   ネイティブ<details open>属性に代わるフック）。.referenceHeaderはTrigger自身の
-   クラス（見出し行全体がトリガーの単純なDisclosure利用のため）。 */
-.referenceHeader[data-state="open"] .referenceChevron {
-  transform: rotate(45deg);
-}
-
-.referenceBody {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-bottom: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
-/* 現在値のタグ一覧（改善計画: 研究タブのレイアウト改善）。以前は前置き文2つ＋「／」区切りの
-   長文箇条書きだったが冗長だった。
-   MapLayersPanel.module.cssの.legendCheckboxList/.swatchと同じ「短いラベルを並べる」発想を
-   踏襲し、各値を独立した小さなタグにして一覧性を上げる。 */
-.referenceTags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.referenceTag {
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  white-space: nowrap;
-}

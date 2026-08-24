@@ -8,12 +8,14 @@ import {
   AXIS_RAMP_COLORS,
   COLOR_UNKNOWN,
   RAMP_AXES,
+  type RampAxis,
   axisLineLayerId,
   axisMapLayerId,
   buildAxisRampColorExpression,
   buildAxisRampLegend,
   buildAxisRampUnknownExpression,
   buildAxisRampValueExpression,
+  rampColorForBand,
 } from "./axisLayers";
 import { MAP_LAYERS, ROAD_SURFACE_SHARED_LAYER_IDS } from "./mapLayers";
 
@@ -158,5 +160,84 @@ describe("axisLayers", () => {
   it("IDヘルパーは軸IDから決定的なIDを生成する", () => {
     expect(axisMapLayerId("accident")).toBe("axis:accident");
     expect(axisLineLayerId("accident")).toBe("region-axis-accident-line");
+  });
+});
+
+describe("rampColorForBand（改善計画T292: 可変バンド数の配色一般化）", () => {
+  it("bandCount=4のとき旧AXIS_RAMP_COLORSと完全一致する（後方互換）", () => {
+    expect([0, 1, 2, 3].map((i) => rampColorForBand(i, 4))).toEqual([...AXIS_RAMP_COLORS]);
+  });
+
+  it("両端は常にアンカーの緑・赤になる（bandCountによらず）", () => {
+    for (const bandCount of [2, 3, 5, 6]) {
+      expect(rampColorForBand(0, bandCount)).toBe(AXIS_RAMP_COLORS[0]);
+      expect(rampColorForBand(bandCount - 1, bandCount)).toBe(AXIS_RAMP_COLORS[3]);
+    }
+  });
+
+  it("bandCount=1は緑1色になる（範囲外を落ちなく処理する）", () => {
+    expect(rampColorForBand(0, 1)).toBe(AXIS_RAMP_COLORS[0]);
+  });
+
+  it("色は#rrggbb形式で、同一bandCount内で単調に変化する", () => {
+    for (let i = 0; i < 5; i++) {
+      expect(rampColorForBand(i, 5)).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+});
+
+describe("buildAxisRampValueExpression（改善計画T292: categories/breakpoints分岐）", () => {
+  const baseAxis: RampAxis = { axisId: "test", label: "テスト", category: "trafficSafety", tileInputs: [], thresholds: [50], unit: "", note: "" };
+
+  it("categories入力はmatch式でmapping値×weightを返す", () => {
+    const axis: RampAxis = {
+      ...baseAxis,
+      tileInputs: [{ property: "highway", weight: 2, categories: { primary: 4, residential: 2 } }],
+    };
+    const expression = buildAxisRampValueExpression(axis);
+    expect(expression).toEqual(["match", ["coalesce", ["get", "highway"], "__unknown__"], "primary", 8, "residential", 4, 0]);
+  });
+
+  it("breakpoints入力はinterpolate式（weight=1なら素通し）を返す", () => {
+    const axis: RampAxis = {
+      ...baseAxis,
+      tileInputs: [{ property: "maxspeed_kmh", weight: 1, breakpoints: [[0, -1], [30, -1], [60, 1]] }],
+    };
+    const expression = buildAxisRampValueExpression(axis);
+    expect(expression).toEqual([
+      "interpolate",
+      ["linear"],
+      ["coalesce", ["get", "maxspeed_kmh"], 0],
+      0,
+      -1,
+      30,
+      -1,
+      60,
+      1,
+    ]);
+  });
+
+  it("breakpoints入力はweight≠1のとき乗算で包む", () => {
+    const axis: RampAxis = {
+      ...baseAxis,
+      tileInputs: [{ property: "lanes_count", weight: 0.5, breakpoints: [[0, -1], [4, 1]] }],
+    };
+    const expression = buildAxisRampValueExpression(axis);
+    expect(expression[0]).toBe("*");
+    expect((expression[1] as unknown[])[0]).toBe("interpolate");
+    expect(expression[2]).toBe(0.5);
+  });
+
+  it("categories/breakpointsを含む複数入力はΣで合成される", () => {
+    const axis: RampAxis = {
+      ...baseAxis,
+      tileInputs: [
+        { property: "highway", weight: 1, categories: { primary: 4 } },
+        { property: "maxspeed_kmh", weight: 1, breakpoints: [[0, -1], [60, 1]] },
+      ],
+    };
+    const expression = buildAxisRampValueExpression(axis);
+    expect(expression[0]).toBe("+");
+    expect(expression.length).toBe(3);
   });
 });

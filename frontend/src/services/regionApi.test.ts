@@ -9,7 +9,7 @@ import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
-  fetchCarStressBreakdown,
+  fetchAxisInspector,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
@@ -69,37 +69,31 @@ describe("regionApi", () => {
     expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1`);
   });
 
-  describe("fetchCarStressBreakdown", () => {
+  describe("fetchAxisInspector", () => {
     it("osm_way_idをJSONボディに含めてPOSTし、JSONをそのまま返す", async () => {
-      const breakdown = {
-        base: 4,
-        cycleway_adjustment: 0,
-        maxspeed_adjustment: 1,
-        lanes_adjustment: 0,
-        designation_adjustment: 0,
-        motor_vehicle_no_override: false,
-        level: 4,
+      const result_ = {
+        highway: "residential",
+        tags: {},
+        is_designated: false,
+        axes: [{ axis_id: "car_stress", difficulty: 25.0, weight: 0.2, available: true }],
+        composite_difficulty: 25.0,
+        covered_weight_fraction: 1.0,
       };
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers(),
-        json: async () => breakdown,
+        json: async () => result_,
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchCarStressBreakdown(12345);
+      const result = await fetchAxisInspector(12345);
 
       const [url, options] = fetchMock.mock.calls[0];
-      expect(String(url)).toContain("/api/region/car-stress-breakdown");
+      expect(String(url)).toContain("/api/region/axis-inspector");
       expect(options.method).toBe("POST");
-      expect(JSON.parse(options.body as string)).toEqual({
-        osm_way_id: 12345,
-        car_stress_recipe: null,
-        road_suitability_recipe: null,
-        motor_vehicle_density_recipe: null,
-      });
-      expect(result).toEqual(breakdown);
+      expect(JSON.parse(options.body as string)).toEqual({ osm_way_id: 12345 });
+      expect(result).toEqual(result_);
     });
 
     it("該当wayが無い場合(null)もそのまま返す", async () => {
@@ -108,7 +102,7 @@ describe("regionApi", () => {
         vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers(), json: async () => null }),
       );
 
-      await expect(fetchCarStressBreakdown(12345)).resolves.toBeNull();
+      await expect(fetchAxisInspector(12345)).resolves.toBeNull();
     });
 
     it("fetchがok:falseの場合は例外を投げる", async () => {
@@ -122,7 +116,7 @@ describe("regionApi", () => {
         }),
       );
 
-      await expect(fetchCarStressBreakdown(12345)).rejects.toThrow(/リクエストが多すぎます/);
+      await expect(fetchAxisInspector(12345)).rejects.toThrow(/リクエストが多すぎます/);
     });
   });
 

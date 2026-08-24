@@ -45,19 +45,6 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
         car_stress: 0.2, accident: 0.08,
         night: 0.0,
       },
-      car_stress_recipe: {
-        lanes_low_threshold: 1, lanes_low_adjustment: -1,
-      },
-      road_suitability_recipe: {
-        base_by_highway: { residential: 2 },
-        cycleway_track_adjustment: -2, cycleway_lane_adjustment: -1, cycleway_shared_adjustment: -1,
-      },
-      motor_vehicle_density_recipe: {
-        maxspeed_low_threshold: 30, maxspeed_low_adjustment: -1,
-        maxspeed_high_threshold: 60, maxspeed_high_adjustment: 1,
-        lanes_high_threshold: 4, lanes_high_adjustment: 1,
-        designation_adjustment: 1,
-      },
       penalty_strength: 1.0,
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },

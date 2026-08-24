@@ -1,9 +1,4 @@
-import type { AxisInspectorResult, CarStressBreakdown } from "@/types/traffic";
-import type {
-  MotorVehicleDensityRecipeOverride,
-  RoadSuitabilityRecipeOverride,
-  CarStressRecipeOverride,
-} from "@/types/route";
+import type { AxisInspectorResult } from "@/types/traffic";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
@@ -90,127 +85,29 @@ export function poiTileUrl(): string {
 export const ROAD_TILE_MIN_ZOOM = 12;
 export const ROAD_TILE_MAX_ZOOM = 15;
 
-// 車ストレスの区間別判定内訳（改善計画T90）。地図上の道路クリックで
-// 得たosm_way_id（路面タイルのMVTプロパティに含まれる識別子）から判定根拠（ベース値・各補正・
-// 最終値）を取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
-// backend/app/services/region_service.py: get_car_stress_breakdownのdocstring参照
+// 区間インスペクタ（改善計画T146）。地図上の道路クリックで得たosm_way_id（路面タイルの
+// MVTプロパティに含まれる識別子）から一次属性・全二次軸（車の圧迫感を含む）・合成コストを
+// 取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
+// backend/app/services/region_service.py: get_axis_inspectorのdocstring参照
 // （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
-//
-// GETではなくPOST+JSONボディなのは、`recipe`（レシピの上書き、研究モードでレシピを
-// 上書き中はここにも渡して地図・ルート採点と表示を一致させる）という複雑なオブジェクトを
-// クエリパラメータで渡すのが不自然なため（backend/app/api/routers/region.py参照）。
-//
-// 改善計画T123: 車ストレス・安全度（T148で削除）で完全に同じ構造だった2関数を、軸固有部分（パス・
-// レシピのボディキー・ログキー・エラーメッセージのラベル）だけを設定オブジェクトとして
-// 渡す1関数へ畳んだ（backend/app/services/region_service.py: _get_breakdownと同じ方針）。
-interface BreakdownAxisConfig {
-  path: string;
-  recipeBodyKey: string;
-  debugKey: string;
-  errorLabel: string;
-}
-
-async function fetchBreakdown<TRecipe, TBreakdown extends { level: number | null } | null>(
-  config: BreakdownAxisConfig,
-  osmWayId: number,
-  recipe: TRecipe | undefined,
-  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
-  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
-): Promise<TBreakdown> {
-  const url = `${API_BASE_URL}${config.path}`;
-  const startedAt = performance.now();
-  debugLog(config.debugKey, "リクエスト開始", { url, osmWayId });
-
-  // fetch()自体の失敗（タイムアウト・通信エラー）はresponse.okのチェック以前の例外の
-  // ため、ここで捕まえないとdebugLogに一切残らない（refreshBasemapCacheで確立した
-  // パターン。以前は本関数・fetchAxisInspectorだけこの対処が漏れていた、2026-08-24
-  // 実機調査で発覚）。
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        osm_way_id: osmWayId,
-        [config.recipeBodyKey]: recipe ?? null,
-        road_suitability_recipe: roadSuitabilityRecipe ?? null,
-        motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (error) {
-    debugLog(
-      config.debugKey,
-      "失敗 (通信エラー)",
-      { durationMs: Math.round(performance.now() - startedAt), error: error instanceof Error ? error.message : String(error) },
-      "error",
-    );
-    throw error instanceof Error ? error : new Error(`${config.errorLabel}の内訳取得に失敗しました`);
-  }
-  const durationMs = Math.round(performance.now() - startedAt);
-  const requestId = response.headers.get("x-request-id");
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    debugLog(config.debugKey, `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `${config.errorLabel}の内訳取得に失敗しました[HTTP ${response.status}]`;
-    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
-  }
-
-  const data: TBreakdown = await response.json();
-  debugLog(config.debugKey, "成功", { durationMs, requestId, level: data?.level });
-  return data;
-}
-
-const CAR_STRESS_BREAKDOWN_CONFIG: BreakdownAxisConfig = {
-  path: "/api/region/car-stress-breakdown",
-  recipeBodyKey: "car_stress_recipe",
-  debugKey: "api:car-stress-breakdown",
-  errorLabel: "車の圧迫感",
-};
-
-export function fetchCarStressBreakdown(
-  osmWayId: number,
-  recipe?: CarStressRecipeOverride,
-  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
-  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
-): Promise<CarStressBreakdown | null> {
-  return fetchBreakdown(
-    CAR_STRESS_BREAKDOWN_CONFIG,
-    osmWayId,
-    recipe,
-    roadSuitabilityRecipe,
-    motorVehicleDensityRecipe,
-  );
-}
-
-// 区間インスペクタ（改善計画T146）。fetchBreakdownと同じPOST+JSONボディ・エラー処理の
-// 骨格だが、戻り値がlevelを持たない（AxisInspectorResultは複数軸のリストのため
-// fetchBreakdownの`{ level: number | null }`制約に合わない）ため専用実装にする。
-export async function fetchAxisInspector(
-  osmWayId: number,
-  carStressRecipe?: CarStressRecipeOverride,
-  roadSuitabilityRecipe?: RoadSuitabilityRecipeOverride,
-  motorVehicleDensityRecipe?: MotorVehicleDensityRecipeOverride,
-): Promise<AxisInspectorResult | null> {
+// POST+JSONボディなのはosm_way_idを本文で渡す既存の設計を踏襲（backend/app/api/routers/
+// region.py参照）。改善計画T292: 車ストレス専用の内訳取得（旧fetchCarStressBreakdown、
+// レシピ上書きパラメータ）は専用Pythonレシピの廃止に伴い削除し、このAPIへ一本化した。
+export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspectorResult | null> {
   const url = `${API_BASE_URL}/api/region/axis-inspector`;
   const startedAt = performance.now();
   debugLog("api:axis-inspector", "リクエスト開始", { url, osmWayId });
 
-  // fetchBreakdownと同じ理由でtry/catchする（このファイルのコメント参照）。
+  // fetch()自体の失敗（タイムアウト・通信エラー）はresponse.okのチェック以前の例外のため、
+  // ここで捕まえないとdebugLogに一切残らない（refreshBasemapCacheで確立したパターン）。
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        osm_way_id: osmWayId,
-        car_stress_recipe: carStressRecipe ?? null,
-        road_suitability_recipe: roadSuitabilityRecipe ?? null,
-        motor_vehicle_density_recipe: motorVehicleDensityRecipe ?? null,
-      }),
+      body: JSON.stringify({ osm_way_id: osmWayId }),
       signal: AbortSignal.timeout(15000),
     });
   } catch (error) {

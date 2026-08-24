@@ -36,6 +36,14 @@ export interface AxisTileInput {
    * has_unknown_fallback参照）。既定false（欠損=falseとみなしてよい材料、例:
    * no_lit⟵lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
+  /** N値文字列材料（改善計画T292、例: highway/bicycle_infra）。タイルプロパティの
+   * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
+   * （registry.py: TileInputSpec.categories参照）。 */
+  categories?: Record<string, number>;
+  /** 自己変換材料（改善計画T292、例: maxspeed_kmh/lanes_count）。材料自身が持つ
+   * 区分線形breakpointsでタイルプロパティの生値をinterpolateした値×weightを
+   * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
+  breakpoints?: readonly (readonly [number, number])[];
 }
 
 export interface RampAxis {
@@ -57,6 +65,10 @@ interface CatalogTileInput {
   true_value?: number;
   false_value?: number;
   has_unknown_fallback?: boolean;
+  // JSON生成物（axis-catalog.json）はpydantic model_dump()の未設定optionalフィールドを
+  // undefinedではなくnullとしてシリアライズするため、nullも許容する。
+  categories?: Record<string, number> | null;
+  breakpoints?: (readonly [number, number])[] | null;
 }
 
 interface CatalogAxis {
@@ -95,6 +107,8 @@ export const RAMP_AXES: readonly RampAxis[] = (axisCatalog.axes as CatalogAxis[]
       trueValue: input.true_value,
       falseValue: input.false_value,
       hasUnknownFallback: input.has_unknown_fallback,
+      categories: input.categories ?? undefined,
+      breakpoints: input.breakpoints ?? undefined,
     })),
     thresholds: axis.display!.thresholds,
     unit: axis.display!.unit,
@@ -113,9 +127,61 @@ export function axisLineLayerId(axisId: string): string {
   return `region-axis-${axisId}-line`;
 }
 
-// 4段階の共有ランプ配色（低→高）。全ramp軸が同じ配色を使うことで「低=緑〜高=赤」という
-// 読み方を1回覚えれば全軸に通用させる（軸ごとに独自配色を作らない）。
-export const AXIS_RAMP_COLORS = ["#4caf50", "#ffb300", "#fb8c00", "#e53935"] as const;
+// 共有ランプ配色（低→高、緑→黄→橙→赤）のアンカー。全ramp軸が同じ配色系統を使うことで
+// 「低=緑〜高=赤」という読み方を1回覚えれば全軸に通用させる（軸ごとに独自配色を作らない）。
+// 改善計画T292: 段階数（バンド数）は軸によって異なりうる（例: car_stressは複数材料の
+// 組み合わせのためthresholdsが4個ちょうどに収まるとは限らない）。以前は4色固定配列
+// だったため5段階以上の軸があると末尾の段階が同色に潰れる問題があった
+// （旧CAR_STRESS_COLORSが専用の5段階配色を手書きしていた理由そのもの）。
+// rampColorForBandはこの4色をアンカーとしてbandCount段階ぶんの色を線形補間で生成する
+// ため、bandCount=4のときは既存の4色と完全に一致し（axisLayers.test.ts参照）、
+// bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数ぶんの色を自動生成できる。
+const RAMP_COLOR_ANCHORS: readonly [number, string][] = [
+  [0, "#4caf50"],
+  [1 / 3, "#ffb300"],
+  [2 / 3, "#fb8c00"],
+  [1, "#e53935"],
+];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHex(rgb: readonly [number, number, number]): string {
+  return "#" + rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+}
+
+function lerpColor(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  return rgbToHex([ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t]);
+}
+
+/** bandCount段階中index番目(0始まり)の色。RAMP_COLOR_ANCHORSを緑(0)→赤(1)の相対位置で
+ * 線形補間する。bandCount=4のとき旧AXIS_RAMP_COLORSと完全一致する（axisLayers.test.ts）。 */
+export function rampColorForBand(index: number, bandCount: number): string {
+  const t = bandCount <= 1 ? 0 : Math.min(1, Math.max(0, index / (bandCount - 1)));
+  for (let i = 0; i < RAMP_COLOR_ANCHORS.length - 1; i++) {
+    const [t0, c0] = RAMP_COLOR_ANCHORS[i];
+    const [t1, c1] = RAMP_COLOR_ANCHORS[i + 1];
+    if (t <= t1 || i === RAMP_COLOR_ANCHORS.length - 2) {
+      const localT = t1 === t0 ? 0 : Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
+      return lerpColor(c0, c1, localT);
+    }
+  }
+  return RAMP_COLOR_ANCHORS[RAMP_COLOR_ANCHORS.length - 1][1];
+}
+
+// 既存4段階軸（gradient/surface_q/stop_density/night/accident等）・staticAttributeLayers.ts
+// の非ramp用途（BICYCLE_INFRA/DESIGNATION/TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
+// rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
+export const AXIS_RAMP_COLORS = [
+  rampColorForBand(0, 4),
+  rampColorForBand(1, 4),
+  rampColorForBand(2, 4),
+  rampColorForBand(3, 4),
+] as const;
 
 // 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。staticAttributeLayers.ts:
 // COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
@@ -135,7 +201,8 @@ export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null
 }
 
 /** 数値材料はΣ property×weight、真偽値材料（改善計画T278）は
- * ["case", 真偽比較, trueValue, falseValue]で寄与値を組み立てるMapLibre expression。 */
+ * ["case", 真偽比較, trueValue, falseValue]、N値文字列材料・自己変換材料（改善計画T292）は
+ * それぞれ["match", ...]・["interpolate", ...]で寄与値を組み立てるMapLibre expression。 */
 export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
   const terms = axis.tileInputs.map((input) => {
     if (input.boolean) {
@@ -143,6 +210,24 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
         ? ["!=", ["get", input.property], true]
         : ["==", ["get", input.property], true];
       return ["case", comparison, input.trueValue ?? 0, input.falseValue ?? 0];
+    }
+    if (input.categories) {
+      const value = [
+        "match",
+        ["coalesce", ["get", input.property], "__unknown__"],
+        ...Object.entries(input.categories).flatMap(([key, score]) => [key, score * input.weight]),
+        0,
+      ];
+      return value;
+    }
+    if (input.breakpoints) {
+      const value = [
+        "interpolate",
+        ["linear"],
+        ["coalesce", ["get", input.property], input.breakpoints[0][0]],
+        ...input.breakpoints.flat(),
+      ];
+      return input.weight === 1 ? value : ["*", value, input.weight];
     }
     return ["*", ["coalesce", ["get", input.property], 0], input.weight];
   });
@@ -155,9 +240,10 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
  * （レビュー指摘の修正: 以前はfalseValueへ自動的に倒れ「不明」が「悪い」側の色で
  * 誤表示されていた）。 */
 export function buildAxisRampColorExpression(axis: RampAxis): unknown[] {
-  const stepExpression: unknown[] = ["step", buildAxisRampValueExpression(axis), AXIS_RAMP_COLORS[0]];
+  const bandCount = axis.thresholds.length + 1;
+  const stepExpression: unknown[] = ["step", buildAxisRampValueExpression(axis), rampColorForBand(0, bandCount)];
   axis.thresholds.forEach((threshold, index) => {
-    stepExpression.push(threshold, AXIS_RAMP_COLORS[Math.min(index + 1, AXIS_RAMP_COLORS.length - 1)]);
+    stepExpression.push(threshold, rampColorForBand(index + 1, bandCount));
   });
   const unknownExpression = buildAxisRampUnknownExpression(axis);
   if (unknownExpression === null) return stepExpression;
@@ -206,7 +292,7 @@ export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
     return {
       key: `${axis.axisId}-${index}`,
       label: axisRampBandLabel(axis, lower, upper),
-      color: AXIS_RAMP_COLORS[Math.min(index, AXIS_RAMP_COLORS.length - 1)],
+      color: rampColorForBand(index, bandCount),
       filter: filterParts,
     };
   });

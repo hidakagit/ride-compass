@@ -1,87 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
-import { AdjustmentStepper, FieldLabel, LevelPicker } from "./recipeControls";
+import { describe, expect, it } from "vitest";
+import { FieldLabel } from "./recipeControls";
 
-// T113でCarStressRecipePanel専用に実装した3部品を、2つ目のレシピ（当時の安全度レシピ。
+// T113でCarStressRecipePanel専用に実装した部品群を、2つ目のレシピ（当時の安全度レシピ。
 // 安全度軸自体はT148で削除済み）登場を機に汎用化した（改善計画: 安全度レシピ）。
-// 切り出し自体で挙動が変わっていないことをここで単体検証する（CarStressRecipePanel.test.tsxは
-// 呼び出し元経由の結合テストのため、部品単体の境界値はここでカバーする）。
-
-describe("LevelPicker", () => {
-  const levels = [1, 2, 3, 4];
-  const colors = { 1: "#111111", 2: "#222222", 3: "#333333", 4: "#444444" };
-
-  it("levelsぶんのラジオ項目を表示し、選択値以下をdata-filled=trueにする", () => {
-    render(<LevelPicker levels={levels} colors={colors} value={2} onChange={vi.fn()} groupLabel="テスト軸" />);
-
-    const group = screen.getByRole("radiogroup", { name: "テスト軸" });
-    expect(group).toBeInTheDocument();
-    const items = screen.getAllByRole("radio");
-    expect(items).toHaveLength(4);
-    expect(items[0]).toHaveAttribute("data-filled", "true"); // 1 <= 2
-    expect(items[1]).toHaveAttribute("data-filled", "true"); // 2 <= 2
-    expect(items[2]).toHaveAttribute("data-filled", "false"); // 3 > 2
-    expect(items[3]).toHaveAttribute("data-filled", "false"); // 4 > 2
-  });
-
-  it("段階項目を押すとonChangeにその段階の値が渡る", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<LevelPicker levels={levels} colors={colors} value={1} onChange={onChange} groupLabel="テスト軸" />);
-
-    await user.click(screen.getByRole("radio", { name: "3" }));
-
-    expect(onChange).toHaveBeenCalledWith(3);
-  });
-
-  it("選択中の段階はaria-checked=trueを持つ", () => {
-    render(<LevelPicker levels={levels} colors={colors} value={3} onChange={vi.fn()} groupLabel="テスト軸" />);
-
-    expect(screen.getByRole("radio", { name: "3" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "1" })).toHaveAttribute("aria-checked", "false");
-  });
-});
-
-describe("AdjustmentStepper", () => {
-  it("-ボタンで値が1減り、+ボタンで値が1増える", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(
-      <AdjustmentStepper label="補正値" value={0} onChange={onChange} negativeColor="#00ff00" positiveColor="#ff0000" />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "補正値を1減らす" }));
-    expect(onChange).toHaveBeenLastCalledWith(-1);
-
-    await user.click(screen.getByRole("button", { name: "補正値を1増やす" }));
-    expect(onChange).toHaveBeenLastCalledWith(1);
-  });
-
-  it("数値入力欄への直接入力でも値が変わる", () => {
-    const onChange = vi.fn();
-    render(
-      <AdjustmentStepper label="補正値" value={0} onChange={onChange} negativeColor="#00ff00" positiveColor="#ff0000" />,
-    );
-
-    const input = screen.getByRole("spinbutton", { name: "補正値" });
-    fireEvent.change(input, { target: { value: "5" } });
-
-    expect(onChange).toHaveBeenCalledWith(5);
-  });
-
-  it("入力欄を空にするとonChangeが0で呼ばれる(type=numberはブラウザ側で非数値文字を受け付けないため、空文字列がNumber()で0になる経路)", () => {
-    const onChange = vi.fn();
-    render(
-      <AdjustmentStepper label="補正値" value={3} onChange={onChange} negativeColor="#00ff00" positiveColor="#ff0000" />,
-    );
-
-    const input = screen.getByRole("spinbutton", { name: "補正値" });
-    fireEvent.change(input, { target: { value: "" } });
-
-    expect(onChange).toHaveBeenCalledWith(0);
-  });
-});
+// 改善計画T292: 車ストレス専用の3レシピパネルの廃止に伴いLevelPicker/AdjustmentStepperは
+// 削除された（recipeControls.tsx参照）。FieldLabelはWeightPanel/RouteSettingsPanelが
+// 引き続き使うため単体検証を残す。
 
 describe("FieldLabel", () => {
   it("初期状態はaria-expanded=falseで「表示」ラベルを持ち、説明文は表示しない", () => {

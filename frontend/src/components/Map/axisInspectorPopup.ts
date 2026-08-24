@@ -8,11 +8,6 @@
 // 参照するため、新しい軸が増えてもこのファイルの変更は不要（表示される軸自体は
 // AxisInspectorResult.axesがサーバー側で決める）。
 import type { AxisInspectorResult } from "@/types/traffic";
-import type {
-  MotorVehicleDensityRecipeOverride,
-  RoadSuitabilityRecipeOverride,
-  CarStressRecipeOverride,
-} from "@/types/route";
 import { fetchAxisInspector } from "@/services/regionApi";
 import { AXIS_LABELS } from "./axisLayers";
 import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
@@ -67,13 +62,7 @@ export function buildAxisInspectorAffordanceHtml(): string {
   </div>`;
 }
 
-export function attachAxisInspectorHandler(
-  popupElement: HTMLElement,
-  osmWayId: number,
-  carStressRecipe: CarStressRecipeOverride | undefined,
-  roadSuitabilityRecipe: RoadSuitabilityRecipeOverride | undefined,
-  motorVehicleDensityRecipe: MotorVehicleDensityRecipeOverride | undefined,
-) {
+export function attachAxisInspectorHandler(popupElement: HTMLElement, osmWayId: number) {
   const button = popupElement.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`);
   const resultEl = popupElement.querySelector<HTMLElement>(`[${AXIS_INSPECTOR_RESULT_ATTR}]`);
   if (!button || !resultEl) return;
@@ -81,7 +70,7 @@ export function attachAxisInspectorHandler(
     button.disabled = true;
     button.textContent = "取得中…";
     try {
-      const result = await fetchAxisInspector(osmWayId, carStressRecipe, roadSuitabilityRecipe, motorVehicleDensityRecipe);
+      const result = await fetchAxisInspector(osmWayId);
       resultEl.innerHTML = result ? buildAxisInspectorHtml(result) : UNAVAILABLE_HTML;
     } catch {
       resultEl.innerHTML = UNAVAILABLE_HTML;

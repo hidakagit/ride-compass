@@ -1,16 +1,18 @@
 // 二次軸（推定指標）のカタログ（改善計画T166「地図チップ最上位を次数へ反転」）。
 //
 // 地図チップの「推定指標（合成）」グループは、axis-catalog.json（display!==null）の
-// 全軸を列挙する（確定命名表T166時点は6軸、改善計画T278でsurface_q・nightがkind="ramp"
-// へ変わり専用レイヤーを持つようになった。将来軸スタジオが作る新規軸も材料がタイル
-// 焼き込み済みならここへ自動で追加される）。専用の表示レイヤー（MapLayerId）を持つ軸
-// （車の圧迫感=carStress[bespoke]、kind="ramp"の軸=axisMapLayerId経由）はON/OFF
-// トグル付きの行として、専用レイヤーの無い軸（勾配のみ、材料がタイル非依存）は薄字＋
-// 代役へのポインタだけの行として表示する（MapOverlayControls.tsx参照）。
+// 全軸を列挙する（確定命名表T166時点は6軸、改善計画T278でsurface_q・night、T292で
+// car_stressがそれぞれkind="ramp"へ変わり専用レイヤーを持つようになった。将来軸スタジオが
+// 作る新規軸も材料がタイル焼き込み済みならここへ自動で追加される）。専用の表示レイヤー
+// （MapLayerId）を持つ軸（kind="ramp"の軸=axisMapLayerId経由）はON/OFFトグル付きの行として、
+// 専用レイヤーの無い軸（勾配のみ、材料がタイル非依存）は薄字＋代役へのポインタだけの
+// 行として表示する（MapOverlayControls.tsx参照）。
 //
 // 正式名はaxis-catalog.json（display.label、backendのregistry_defaults.pyが単一ソース）を
 // そのまま使う。このファイルが独自に持つのは、UI固有の対応（略名・対応する表示レイヤーID・
 // レイヤー無し軸の代役案内文）だけ（片側import、primaryAttributes.tsと同じ設計）。
+// 改善計画T292: 車の圧迫感（car_stress）もkind="ramp"へ移行し、他のkind="ramp"軸と
+// 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
 
 import type { MapLayerId } from "./mapLayers";
 import { axisMapLayerId } from "./axisLayers";
@@ -60,17 +62,15 @@ const SECONDARY_AXIS_PROXY_HINTS: Record<string, string> = {
   gradient: "（地図表示なし）標高レイヤーで確認できます",
 };
 
-// display.kind==="bespoke"の軸（現状car_stressのみ）は専用MapLayerIdを手書きで持つ
-// （フロントの手書きexpressionが必要なため自動導出できない）。kind==="ramp"の軸は
-// axisMapLayerId(axis_id)で機械的に求まる（改善計画T278、以前はstop_density/accidentの
-// 2件をこの辞書に手書き列挙していたが、ramp軸が増えるたびに追記する手間を無くした）。
-const SECONDARY_AXIS_BESPOKE_LAYER_IDS: Partial<Record<string, MapLayerId>> = {
-  car_stress: "carStress",
-};
-
+// kind==="ramp"の軸はaxisMapLayerId(axis_id)で機械的に求まる（改善計画T278、以前は
+// stop_density/accidentの2件をここへ手書き列挙していたが、ramp軸が増えるたびに追記
+// する手間を無くした）。改善計画T292: car_stressもkind="bespoke"（専用MapLayerIdを
+// 手書きで持つ扱い）からkind="ramp"へ移行したため、専用の対応表（旧
+// SECONDARY_AXIS_BESPOKE_LAYER_IDS）は不要になった。kind==="none"（例: gradient、
+// 材料がタイル非依存）はundefined（専用レイヤー無し）のまま。
 function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
   if (axis.display!.kind === "ramp") return axisMapLayerId(axis.axis_id);
-  return SECONDARY_AXIS_BESPOKE_LAYER_IDS[axis.axis_id];
+  return undefined;
 }
 
 /** 二次軸(推定指標)を、axis-catalog.jsonの並び順(確定命名表と同じ順)で返す。 */

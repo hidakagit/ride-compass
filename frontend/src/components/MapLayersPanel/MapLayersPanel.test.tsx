@@ -11,7 +11,7 @@ function baseProps() {
       elevation: false,
       roadType: false,
       roadSurface: false,
-      carStress: false,
+      "axis:car_stress": false,
       bicycleInfra: false,
       designation: false,
       tunnel: false,
@@ -29,8 +29,10 @@ function baseProps() {
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
     onRoadLegendToggle: vi.fn(),
     onRoadAxisSetHidden: vi.fn(),
+    // car_stress（改善計画T292でramp軸化）はbicycleInfra等と同じStaticFilterAxisId文字列
+    // （axisIdそのもの、layerVisibility側の"axis:car_stress"とは別の値）を使う。
     staticFilterHiddenKeysByAxis: {
-      carStress: [],
+      car_stress: [],
       bicycleInfra: [],
       designation: [],
       tunnel: [],
@@ -40,7 +42,7 @@ function baseProps() {
       accidentParty: [],
       accidentSeverity: [],
     } as Record<
-      | "carStress"
+      | "car_stress"
       | "bicycleInfra"
       | "designation"
       | "tunnel"
@@ -122,7 +124,8 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadType")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadSurface")).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-carStress")).toBeInTheDocument();
+    // axis:car_stressはコロンを含むためCSS ID選択子（#...）では壊れる。属性選択子で確認する。
+    expect(container.querySelector('[id="map-layer-section-axis:car_stress"]')).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-tunnel")).toBeInTheDocument();
@@ -134,17 +137,19 @@ describe("MapLayersPanel", () => {
   });
 
   it("レイヤーが想定した次数グループの下に属する", () => {
-    const { container } = render(<MapLayersPanel {...baseProps()} />);
+    render(<MapLayersPanel {...baseProps()} />);
 
     function natureTitleFor(layerId: string): string | null {
-      const section = container.querySelector(`#map-layer-section-${layerId}`);
+      // axis:car_stressのようなコロンを含むIDはCSS ID選択子（#...）では壊れるため
+      // getElementByIdで引く（属性値としては通常のCSS.escape不要な安全な経路）。
+      const section = document.getElementById(`map-layer-section-${layerId}`);
       const nature = section?.closest(`.${styles.natureGroup}`);
       return nature?.querySelector(`.${styles.natureTitle}`)?.textContent ?? null;
     }
 
-    // carStressのみ推定指標（合成）、他は観測データ（車ストレスは車の圧迫感の材料から
+    // axis:car_stressのみ推定指標（合成）、他は観測データ（車ストレスは車の圧迫感の材料から
     // 合成した推定指標、mapLayers.ts参照）
-    expect(natureTitleFor("carStress")).toBe("推定指標（合成）");
+    expect(natureTitleFor("axis:car_stress")).toBe("推定指標（合成）");
     expect(natureTitleFor("roadType")).toBe("観測データ");
     expect(natureTitleFor("roadSurface")).toBe("観測データ");
     expect(natureTitleFor("designation")).toBe("観測データ");
@@ -289,7 +294,7 @@ describe("MapLayersPanel", () => {
           elevation: true,
           roadType: false,
           roadSurface: false,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -383,7 +388,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: true,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -413,7 +418,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: false,
-          carStress: true,
+          "axis:car_stress": true,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -427,10 +432,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
-        layerDataStatus={{ carStress: "error" }}
+        layerDataStatus={{ "axis:car_stress": "error" }}
       />,
     );
-    openSection("carStress");
+    openSection("axis:car_stress");
     expect(screen.getByText(/データの取得に失敗しました/)).toBeInTheDocument();
   });
 
@@ -442,7 +447,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: false,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -467,10 +472,10 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerDataStatus={{ carStress: "error" }}
+        layerDataStatus={{ "axis:car_stress": "error" }}
       />,
     );
-    openSection("carStress");
+    openSection("axis:car_stress");
     expect(screen.queryByText(/データの取得に失敗しました/)).not.toBeInTheDocument();
   });
 
@@ -482,7 +487,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: true,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -505,7 +510,7 @@ describe("MapLayersPanel", () => {
     expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
   });
 
-  it("改善計画T87レビュー指摘: road_surfaceタイルを共有するcarStressも、regionZoomTooWide中はデータ状態の案内を出さない", () => {
+  it("改善計画T87レビュー指摘: road_surfaceタイルを共有するaxis:car_stressも、regionZoomTooWide中はデータ状態の案内を出さない", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
@@ -513,7 +518,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: false,
-          carStress: true,
+          "axis:car_stress": true,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -528,10 +533,10 @@ describe("MapLayersPanel", () => {
           tornadoNowcast: false,
         }}
         regionZoomTooWide={true}
-        layerDataStatus={{ carStress: "empty" }}
+        layerDataStatus={{ "axis:car_stress": "empty" }}
       />,
     );
-    openSection("carStress");
+    openSection("axis:car_stress");
     expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
   });
 
@@ -543,7 +548,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: true,
           roadSurface: true,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -574,7 +579,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: false,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -606,7 +611,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: true,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -635,7 +640,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: true,
           roadSurface: false,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -664,7 +669,7 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: true,
           roadSurface: true,
-          carStress: false,
+          "axis:car_stress": false,
           bicycleInfra: false,
           designation: false,
           tunnel: false,
@@ -686,39 +691,27 @@ describe("MapLayersPanel", () => {
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
   });
 
-  it("車ストレスの凡例に判定基準の説明が表示される", () => {
+  // 改善計画T292: 車ストレス（車の圧迫感）は専用Pythonレシピの廃止に伴い、他の推定軸
+  // （停止密度・事故密度等）と同じ汎用ramp機構へ統合された。専用の5段階panelHintDetail
+  // （加点/減点の箇条書き内訳）は廃止され、mapLayers.ts: RAMP_AXIS_PANEL_HINTSの
+  // 単一の説明文（ramp軸共通の形）に置き換わった。
+  it("車の圧迫感の凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
-    openSection("carStress");
+    openSection("axis:car_stress");
     openHint("車の圧迫感");
-    expect(screen.getByText(/5段階\[1=快適〜5=圧迫大\]/)).toBeInTheDocument();
+    expect(screen.getByText(/道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した/)).toBeInTheDocument();
   });
 
-  // 改善計画T89: 「ストレス1〜5評価基準が分かりにくい」という実機フィードバック対応。
-  // 1〜2文の要約だけでは加点/減点の内訳が伝わらなかったため、panelHintDetail（箇条書き）で補う。
-  it("車ストレスの凡例に加点/減点の内訳が箇条書きで表示される", () => {
+  // 「不明」がしきい値段階と並ぶ数値段階に見えないよう、区切り線付きの専用クラスで
+  // 分離する（legendFilter.ts: LegendEntry.isFallback）。車の圧迫感はhighway材料が
+  // 未登録の道路種別（path/footway等）で「不明」になる（axis_display.py参照）。
+  it("車の圧迫感の凡例で「不明」はしきい値段階と区切って表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
-    openSection("carStress");
-    openHint("車の圧迫感");
-    // jsdomは閉じた<details>の中身もクエリ対象から隠さないため、安全度レイヤー（改善計画:
-    // 安全度レシピ）が似た文言のpanelHintDetailを持つようになった今、screen.getByTextの
-    // ページ全体探索だと複数該当してしまう。トグルされたcarStressセクションへ
-    // within()で明示的にスコープする（「不明・他」テストと同じ方式）。
-    const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
-    expect(within(section).getByText(/制限速度30km\/h以下: -1/)).toBeInTheDocument();
-    expect(within(section).getByText(/車線数4以上: \+1/)).toBeInTheDocument();
-    expect(within(section).getByText(/指定路線.*に該当: \+1/)).toBeInTheDocument();
-  });
-
-  // 「不明・他」が1〜4と並ぶ5番目の数値段階に見え「1〜5評価」と誤解される実機フィードバックを
-  // 受け、区切り線付きの専用クラスで分離する（legendFilter.ts: LegendEntry.isFallback）。
-  it("車ストレスの凡例で「不明・他」は数値段階と区切って表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("carStress");
-    const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
-    const fallbackLabel = within(section).getByText("不明・他[判定対象外の道路種別]");
+    openSection("axis:car_stress");
+    const section = document.getElementById(layerSectionDomId("axis:car_stress")) as HTMLElement;
+    const fallbackLabel = within(section).getByText("不明");
     const row = fallbackLabel.closest("label");
     expect(row?.className).toMatch(/legendCheckboxRowFallback/);
   });
@@ -745,11 +738,12 @@ describe("MapLayersPanel", () => {
   it("車ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
-    openSection("carStress");
+    openSection("axis:car_stress");
     // OFF案内の文言は他レイヤーとも共通のため、セクション内に絞って確認する
-    const section = document.getElementById(layerSectionDomId("carStress")) as HTMLElement;
+    const section = document.getElementById(layerSectionDomId("axis:car_stress")) as HTMLElement;
     expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "1[快適]" })).toBeInTheDocument();
+    // 車の圧迫感のrampしきい値[2,3,4]（registry_defaults.py参照）の最下段バンドラベル。
+    expect(screen.getByRole("checkbox", { name: "2未満" })).toBeInTheDocument();
   });
 
   it("事故のセクションは当事者・重大度の2軸が別々の見出しで表示され、死亡事故だけの絞り込みができる", async () => {
@@ -772,7 +766,7 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         staticFilterHiddenKeysByAxis={{
-          carStress: [],
+          car_stress: [],
           bicycleInfra: [],
           designation: [],
           stopPoi: [],

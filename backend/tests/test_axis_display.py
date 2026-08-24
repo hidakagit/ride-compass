@@ -126,8 +126,11 @@ def test_tile_independent_material_is_not_auto_derived():
     assert ramp is None
 
 
-def test_recipe_composed_material_is_not_auto_derived():
-    # car_stress: 材料car_stress_levelがレシピ合成値でタイル非依存。
+def test_axis_referencing_breakpoint_linear_is_not_auto_derived():
+    # car_stress（改善計画T292）: BreakpointLinearShapeのtermsが材料ではなく他の軸
+    # （car_stress_highway_base等、is_published=Falseの内部軸）を参照する。
+    # MATERIAL_CATALOGには存在しないためspecがNoneとなり自動導出対象外になる
+    # （tile_inputs/thresholdsはregistry_defaults.pyへ直接手書きしている）。
     ramp = derive_ramp_inputs(AXIS_DEFINITIONS["car_stress"])
 
     assert ramp is None

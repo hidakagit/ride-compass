@@ -12,13 +12,17 @@
   既存breakpointsのx値（先頭除く）をそのまま閾値に流用。
 
 それ以外（複数材料の重み付き結合・abs前処理・タイル非依存材料・実行時スケール変換が
-必要な材料[`tile_property_needs_runtime_scale=True`]を含む軸）は`None`を返す
-（自動導出対象外——地図に出ない。既存のkind="none"/"bespoke"軸を壊さない安全側の判断）。
+必要な材料[`tile_property_needs_runtime_scale=True`]を含む軸、他の軸を参照する
+`MaterialTerm`を含む軸）は`None`を返す（自動導出対象外——地図に出ない。既存の
+kind="none"/"bespoke"軸を壊さない安全側の判断）。
 
 現行7軸のうち、この関数が実際に使われるのは`surface_q`・`night`のみ（`registry_defaults.py`
 参照）。`stop_density`（複数材料の重み付き結合）・`accident`（材料が年正規化済みで
-タイル生値とスケールが異なる、静的な変換係数を持てない）・`car_stress`（材料が
-タイル非依存のレシピ合成値）は対象外のまま手書きのdisplayを維持する。
+タイル生値とスケールが異なる、静的な変換係数を持てない）・`car_stress`（改善計画T292:
+内部軸6つを参照するBreakpointLinearShapeのため、他の軸を参照するMaterialTermをこの関数は
+解決できない）は対象外のまま手書きのdisplayを維持する（car_stressもT292以降kind="ramp"
+だが、tile_inputsはこの関数ではなくregistry_defaults.pyへ直接手書きしている
+——stop_density/accidentと同じ前例）。
 """
 
 from itertools import combinations
