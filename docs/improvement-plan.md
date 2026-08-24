@@ -4867,6 +4867,65 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - **トリガー解消（2026-08-25、T299完了）**: 本タスクが待っていた「現在進行中の別
   フロント改修」（T299、Tailwind + Radix UIデザイン基盤の新設）が完了した。着手可能。
 
+## 管理者画面（軸スタジオ）の改善（2026-08-25・ユーザー指示）
+
+### - [ ] T301. `/admin`画面のモバイル対応（レスポンシブ未実装の解消）〔P3〕規模S〜M
+
+- 背景: ユーザー実機フィードバック「管理者画面、スマホだと見切れてさわれない」。調査の
+  結果、`/admin`配下（`frontend/src/app/admin/admin.module.css`・
+  `frontend/src/components/AxisStudio/AxisStudio.module.css`・`DebugPanel.tsx`）には
+  `@media`クエリが1件も無く、メインページで確立済みの640pxブレークポイント
+  （`page.module.css`、`frontend/src/hooks/useIsMobile.ts`）が移植されていないだけと
+  判明した（意図的にモバイル非対応としたという設計記述はT270完了記録に見当たらない）。
+- 内容: T299で新設されたTailwind CSS + Radix UI基盤（docs/frontend-design-system.md）に
+  沿って対応する。既存の手書きCSS Modulesへメディアクエリを追記するのではなく、
+  `components/ui/`のプリミティブ＋Tailwindのレスポンシブユーティリティ（`sm:`等）を使う
+  （新基盤の方針「新規UIコンポーネントはcomponents/ui/+Tailwindユーティリティを優先」に
+  従う）。特にAxisComposerのフォーム行（固定幅input、AxisStudio.module.css:180-182）と
+  一覧の折り返し（:34-41,:106-111）を375〜428px幅で確認する。
+- 完了条件: Playwrightでモバイル幅(375px程度)実機確認、既存デスクトップ表示に回帰が
+  無いこと。
+- 状態: 現時点でこのタスクを塞ぐ並行作業は無い（T299完了済み）。次のフロント着手時に
+  進めてよい。
+
+### - [ ] T302. 軸の公開→未公開（unpublish）を追加し、既存軸の削除を解禁する〔P2〕規模M
+
+- 背景: ユーザーから「公開軸を未公開に戻す拡張はできる？既存軸の削除したい」という要望。
+  T271のADR（docs/decisions/t221-axis-registry.md「Stage D拡張2」）はunpublishを
+  意図的に持たない一方向設計を採用しており、`AxisRegistryAdminService.delete`
+  （backend/app/services/axis_registry_service.py:205-208）のコメントには
+  「route_preferenceとの整合性チェックは意図的に未実装、Stage EでGUI編集が実利用される
+  段階で改めて検討する」と明記されている。今回のユーザー要望がまさにそのトリガー
+  （GUI編集の実利用）に該当するため、方針を決定した（決定内容の詳細は
+  docs/decisions/t221-axis-registry.md「Stage D拡張3」参照、本エントリはその要約）。
+- 決定内容:
+  1. **unpublishは専用アクションとして追加する**（`update()`の一般的な緩和ではなく、
+     `is_published: True→False`の遷移だけを許す専用エンドポイント/サービスメソッドを
+     新設）。それ以外のフィールド編集は引き続き「公開済みは不変」のまま拒否する。
+     unpublish後は既存のupdate()経路で自由に再編集・再publishできる（複製ではなく
+     同一axis_idのまま行き来できる、データは失われない）。
+  2. **フロントの自己修復とセット実装が必須条件**。`RouteSettingsPanel.tsx:92-105`の
+     反映ロジックは現状「カタログにあるがroutePreferenceに無いキーを補う」片方向のみ。
+     symmetricに「routePreferenceにあるがカタログに無いキーを削除する」処理を追加する。
+     これが無いとunpublish直後、旧設定を保持したブラウザで`RoutePreferenceWeights`の
+     キー完全一致検証（backend/app/api/routers/routes.py:78-100）が422で落ち、
+     ルート生成そのものが壊れる（サーバ側の永続化は無くブラウザのlocalStorage状態のみが
+     問題になる）。unpublish機能と自己修復ロジックは同一コミットで実装すること。
+  3. **既存軸の削除**: 現行の「公開済みは削除不可」ガード
+     （axis_registry_service.py:202-204）はそのまま維持する。削除したい場合は
+     「unpublish→（影響が無いことを確認）→delete」の2段階を正式フローとする。実装変更は
+     不要（削除ボタンの活性化条件がis_published=Falseに連動するのは既存ロジックのまま
+     自然に成立する）。
+  4. **既知の残課題（本タスクでは対応しない）**: 地図側の軸カタログ表示（`registry.py`
+     由来の静的`axis-catalog.json`、T285未着手）はis_publishedを動的に反映しないため、
+     unpublish直後もしばらく地図の凡例・レイヤーパネルには残りうる。表示のみの影響で
+     評価・ルート生成には影響しないため、T285完了までの一時的な不整合として許容する。
+- 完了条件: 着手時に確定。少なくとも(a)unpublish専用エンドポイントの実装とテスト、
+  (b)RouteSettingsPanelの自己修復ロジック追加とテスト、(c)unpublish→delete一連の
+  実機確認（Playwright）、(d)OpenAPI生成物の同期を含める。
+- 状態: 現時点でこのタスクを塞ぐ並行作業は無い（T299完了済み）。次のバックエンド/
+  管理画面着手時に進めてよい。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
