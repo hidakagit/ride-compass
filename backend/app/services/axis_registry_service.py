@@ -145,6 +145,14 @@ class AxisRegistryAdminService:
         existing = await self._repository.list_all_with_sort_order()
         if definition.axis_id in existing:
             raise ValueError(f"axis_id={definition.axis_id} は既に存在します")
+        # 改善計画T296: axis_idが既知の材料idと衝突していないか検査する。衝突すると
+        # evaluate_axes_scalar/evaluate_axis_array（domain/axis_definitions.py）が
+        # 評価結果をmaterials辞書へ`materials_with_axes[axis_id] = value`で書き込む際、
+        # 同名の生材料値を黙って上書きし、それ以降に評価される軸が壊れる
+        # （axis_dependenciesは既知材料名を依存として数えないため評価順の保証も効かない）。
+        # axis_idはupdate時に変更されないため、このチェックはcreate時のみでよい。
+        if is_known_material(definition.axis_id):
+            raise ValueError(f"axis_id={definition.axis_id} は既存の材料idと衝突しています（T296）")
         # 改善計画T268: 材料の排他帰属チェック（registry.pyの原則を計算系レジストリへ移植）。
         # 新規軸が既存軸の材料を黙って再利用し二重計上が混入する事故を構造的に防ぐ。
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}

@@ -144,6 +144,19 @@ async def test_create_persists_and_refreshes_process_cache(road_graph_session):
     assert (await repository.list_all())["test_axis"] == _definition("test_axis")
 
 
+async def test_create_rejects_axis_id_colliding_with_known_material(road_graph_session):
+    # 改善計画T296: MATERIAL_CATALOGに実在する材料id（例: "highway"）と同名のaxis_idは
+    # 作成できない。放置すると評価時に生の材料値がdifficulty値で上書きされ、それ以降に
+    # 評価される軸が黙って壊れる（axis_definitions.py: evaluate_axes_scalar参照）。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+
+    with pytest.raises(ValueError, match="highway"):
+        await service.create(_definition("highway", material="wind_penalty"))
+
+    assert "highway" not in AXIS_DEFINITIONS
+
+
 async def test_create_rejects_duplicate_axis_id(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)

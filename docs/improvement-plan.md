@@ -4582,7 +4582,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   CRUD系テスト自体の意図は変えていない）。backend全1111件green
   （既存1108件+新規3件、他の軸関連テストファイル87件も個別green確認済み）。
 
-### - [ ] T296. 軸スタジオでの軸id⇔材料idの名前空間衝突ガード追加〔P3〕規模S
+### - [x] T296. 軸スタジオでの軸id⇔材料idの名前空間衝突ガード追加〔P3〕規模S（2026-08-25完了）
 
 - 背景: レビュー指摘（レポートF-2）。軸スタジオ（管理API）で、`MATERIAL_CATALOG`の
   材料idと同名のaxis_id（例: `highway`・`surface`）を持つ軸を作成できてしまう。
@@ -4600,6 +4600,13 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   起きた場合はエラーなしの黙った評価破壊で、T292が慎重に排除してきた「黙って欠損する」
   クラスそのものが再発する。
 - 完了条件: ガード追加＋テスト（材料id同名でのcreate/updateが409で拒否されることを検証）。
+- **対応（2026-08-25完了）**: `AxisRegistryAdminService.create`へ、axis_id重複チェックの
+  直後に`is_known_material(definition.axis_id)`のガードを追加した（`ValueError`、
+  router層で409へ変換される既存の仕組みをそのまま利用）。axis_idはupdate時に変更
+  されないため（`update`はaxis_id自体を書き換える経路を持たない）、update側への
+  追加チェックは不要と判断した。テストを1件追加
+  （`test_create_rejects_axis_id_colliding_with_known_material`、既知材料"highway"と
+  同名のaxis_idでcreateが拒否されることを確認）。backend全1112件green。
 
 ### - [ ] T297. car_stressランプ表示のmapping未登録highway（footway/path等）の意味論確定〔P3〕規模S〜M
 
