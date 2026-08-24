@@ -115,6 +115,30 @@ AxisShape = BreakpointLinearShape | CategoricalShape | FlagSumShape
 AxisCategory = Literal["観測", "推定", "動的"]
 
 
+class PriorityCondition(BaseModel):
+    """0次条件（改善計画T292）: 探索除外のハードフィルタ（`domain/evaluation.py:
+    DEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、
+    **評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算
+    （shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。
+
+    典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・
+    自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
+    自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ
+    （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
+    （「探索除外」と「評価の優先確定」は別の概念、docs/improvement-plan.md T292参照）。
+
+    軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な
+    仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる
+    （「各推定軸に重複して持たせない」というユーザー方針）。
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    material: str
+    equals: str
+    value: float
+
+
 class AxisDefinition(BaseModel):
     """1つの評価軸の宣言（ADRの`AxisDefinition`スキーマ）。
 
@@ -131,6 +155,19 @@ class AxisDefinition(BaseModel):
     観測（タグ・POI等の一次属性を直接読む、または単純なフラグ加算のみの軸）／
     推定（複数材料をレシピ・判定式で合成する軸）／動的（時々刻々変わる外部データ由来の軸）
     の3分類（目論見書3章、T267で確定）。
+
+    **軸の階層（改善計画T292）**: `shape`の`MaterialTerm.material`/`CategoricalShape.
+    material`等は、`MATERIAL_CATALOG`の材料idだけでなく**他の軸のaxis_id**も指せる
+    （評価時、既に計算済みの軸のdifficulty値が`materials`辞書へ材料と同じ扱いで
+    混ぜ込まれる。`evaluate_axis_scalar`/`evaluate_axis_array`のシグネチャ・実装は
+    無変更、呼び出し側が依存順に評価して結果を`materials`へ書き足すだけ）。これにより
+    「highway基準値」「自転車インフラ」等の細かい推定軸（`is_published=False`、
+    一般ユーザーには非公開）を、さらに1段合成した「翻訳結果」として公開軸
+    （`is_published=True`）を作る、という階層構造を表現できる。`materials`プロパティは
+    材料id・軸id両方を区別なく返すため、材料の排他帰属チェック
+    （`check_material_exclusivity`）は`MATERIAL_CATALOG`に実在するものだけを対象に
+    絞り、軸参照は対象外とする（複数の公開軸が同じ内部軸を参照するのは意図的な共有で
+    あり、材料の二重計上とは別の話のため）。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -144,17 +181,33 @@ class AxisDefinition(BaseModel):
     # 改善計画T271: 公開済み軸は一般向け`GET /api/axis-catalog`（一般ユーザーの保存設定が
     # axis_idキーで再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って
     # 壊す）に出る一方、下書き軸は管理API（軸スタジオ）でのみ見える。既定Falseは
-    # 「新規作成した軸はまず下書き」という安全側の初期値。
+    # 「新規作成した軸はまず下書き」という安全側の初期値。改善計画T292でこのフラグを
+    # 「内部軸（他の軸から参照される専用、恒久的に非公開のまま運用）」の表現にも流用する
+    # （新フィールドを増やさず既存の仕組みを再利用する、ユーザー承認済み）。
     is_published: bool = False
+    # 改善計画T292: 0次条件（軸の通常計算より前に評価される優先確定ルール）。空リストは
+    # 「無し」（従来どおりshapeだけで評価）で、既存6軸の挙動には影響しない。
+    priority_overrides: list[PriorityCondition] = Field(default_factory=list)
 
     @property
     def materials(self) -> list[str]:
-        """この軸が参照する材料idの一覧（shapeから導出。二重管理しない）。"""
+        """この軸が参照する材料id・軸idの一覧（shapeから導出。二重管理しない。
+        `priority_overrides`が参照する材料も含む）。呼び出し側が材料か軸かを
+        区別する必要がある場合は`material_catalog.is_known_material`で判別する
+        （改善計画T292、`check_material_exclusivity`参照）。"""
         if isinstance(self.shape, BreakpointLinearShape):
-            return [term.material for term in self.shape.terms]
-        if isinstance(self.shape, CategoricalShape):
-            return [self.shape.material]
-        return [material for material, _ in self.shape.flags]
+            shape_materials = [term.material for term in self.shape.terms]
+        elif isinstance(self.shape, CategoricalShape):
+            shape_materials = [self.shape.material]
+        else:
+            shape_materials = [material for material, _ in self.shape.flags]
+        override_materials = [cond.material for cond in self.priority_overrides]
+        # 順序を安定させつつ重複を除く（同じ材料をpriority_overridesとshapeの両方が
+        # 参照するケース、例: motor_vehicle_noを他のtermでも使う場合を許容するため）。
+        seen: dict[str, None] = {}
+        for m in [*shape_materials, *override_materials]:
+            seen.setdefault(m, None)
+        return list(seen)
 
 
 # 7軸の定義。**辞書の挿入順は合成（composite）の加算順として意味を持つ**
@@ -329,19 +382,93 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     現時点の`AXIS_DEFINITIONS`（7軸）には`registry.py`の`shared=True`相当（距離等、
     複数軸が参照してよい共通コンテキスト）の材料が存在しないため、`shared`フラグは
     持たない。将来そうした材料が必要になった時点で`MaterialTerm`側への追加を検討する。
+
+    改善計画T292: `candidate.materials`は材料idと軸id（軸の階層構造、他の軸への参照）を
+    区別せずに返すため、`MATERIAL_CATALOG`に実在するものだけを検査対象とする
+    （`is_known_material`でフィルタ）。軸参照は複数の公開軸が同じ内部軸を意図的に
+    共有できる設計のため、この排他チェックの対象外——材料の二重計上とは別の話。
     """
-    candidate_materials = set(candidate.materials)
+    from app.domain.material_catalog import is_known_material
+
+    candidate_materials = {m for m in candidate.materials if is_known_material(m)}
     for other_id, other in existing.items():
         if other_id == candidate.axis_id:
             continue
-        overlap = candidate_materials & set(other.materials)
+        overlap = candidate_materials & {m for m in other.materials if is_known_material(m)}
         if overlap:
             raise AxisMaterialConflictError(candidate.axis_id, other_id, overlap)
 
 
+class AxisDependencyCycleError(ValueError):
+    """軸間の依存関係（他の軸をmaterialとして参照する構造）に循環があった場合に
+    送出する（改善計画T292）。"""
+
+    def __init__(self, cycle: list[str]) -> None:
+        self.cycle = cycle
+        chain = " -> ".join(cycle)
+        super().__init__(f"circular axis dependency detected: {chain}")
+
+
+def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> set[str]:
+    """`definition`が参照する軸id（materialsのうち、材料ではなく軸を指すもの）を返す
+    （改善計画T292）。`known_axis_ids`は循環検出・評価順序決定の対象となる軸id全体
+    （通常は`AXIS_DEFINITIONS`のキー集合）。"""
+    from app.domain.material_catalog import is_known_material
+
+    return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
+
+
+def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
+    """軸を「依存先（参照される軸）が先」の順序に並べ替える（改善計画T292、
+    深さ優先探索によるトポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
+    送出する。依存を持たない軸同士の相対順序は`definitions`の挿入順を保つ（既存の
+    Neumaier加算のビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
+    計算自体の再現性のため安定ソートにする）。
+    """
+    known_axis_ids = set(definitions.keys())
+    order: list[str] = []
+    visited: dict[str, int] = {}  # 0=visiting, 1=done
+
+    def visit(axis_id: str, path: list[str]) -> None:
+        state = visited.get(axis_id)
+        if state == 1:
+            return
+        if state == 0:
+            raise AxisDependencyCycleError([*path, axis_id])
+        visited[axis_id] = 0
+        for dep in sorted(axis_dependencies(definitions[axis_id], known_axis_ids)):
+            visit(dep, [*path, axis_id])
+        visited[axis_id] = 1
+        order.append(axis_id)
+
+    for axis_id in definitions:
+        visit(axis_id, [])
+    return order
+
+
 def default_axis_weights() -> dict[str, float]:
-    """axis_idキーの既定重み辞書（route_preference.yaml・APIで上書きされる前の値）。"""
-    return {axis_id: definition.default_weight for axis_id, definition in AXIS_DEFINITIONS.items()}
+    """axis_idキーの既定重み辞書（route_preference.yaml・APIで上書きされる前の値）。
+
+    改善計画T292: 内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
+    除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と
+    整合させる。"""
+    return {
+        axis_id: definition.default_weight
+        for axis_id, definition in AXIS_DEFINITIONS.items()
+        if definition.is_published
+    }
+
+
+def _priority_override_matches_scalar(value: object, equals: str) -> bool:
+    """スカラー材料値がPriorityCondition.equals（str固定）と一致するか判定する。
+
+    bool材料（`materials`に生のPython bool値がそのまま入る、例: motor_vehicle_no）は
+    `True == "True"`が常にFalseになるため、"true"/"false"（大文字小文字を無視）の
+    文字列表現へ正規化して比較する。categorical材料（str値）はそのまま比較する。
+    """
+    if isinstance(value, bool):
+        return equals.strip().lower() == str(value).lower()
+    return value == equals
 
 
 def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, object]) -> float | None:
@@ -349,7 +476,16 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
 
     `materials`は材料id→解決済みスカラー値（float/bool/int/None）。定義が参照しない
     材料が含まれていてもよい（呼び出し元は既知の全材料をまとめて渡してよい）。
+
+    改善計画T292: `definition.priority_overrides`が1件でも一致すれば、shapeの通常計算を
+    スキップしその条件のvalueをそのまま返す（定義順で最初に一致したものを採用。探索除外の
+    ハードフィルタとは別に「評価を優先確定する」ための機構、最初の適用例はmotor_vehicle_no
+    =true。自転車通行禁止は既存の0次ハードフィルタ`no_bicycle`で既にカバー済みのため
+    この機構は使わない）。
     """
+    for override in definition.priority_overrides:
+        if _priority_override_matches_scalar(materials.get(override.material), override.equals):
+            return override.value
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
         total: float | None = None
@@ -385,8 +521,13 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
     """`evaluate_axis_scalar`の配列版（欠損=NaN、`compute_edge_costs_bulk`のベクトル化経路用）。
 
     `materials`は材料id→同一形状のnumpy配列（フラグ材料はbool配列、それ以外はfloat配列で
-    欠損はNaN）。requiredな材料のNaNは演算で自然に伝播し、required=Falseの材料のNaNは
-    0へ置き換えて寄与なしとして扱う（スカラー版のNone規約と対応）。
+    欠損はNaN。categorical材料はdtype=object の文字列配列）。requiredな材料のNaNは演算で
+    自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う（スカラー版の
+    None規約と対応）。
+
+    改善計画T292: `definition.priority_overrides`はshape計算の結果へ後から重ねる
+    （`np.where`をpriority_overridesの逆順に重ねることで、先頭の条件が最終的に最優先になる
+    ——スカラー版の「定義順で最初に一致したものを採用」と同じ優先順位）。
     """
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
@@ -400,12 +541,21 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
         assert total is not None  # 定義上termsは1件以上
         if shape.preprocess == "abs":
             total = np.abs(total)
-        return np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
-    if isinstance(shape, CategoricalShape):
+        result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
+    elif isinstance(shape, CategoricalShape):
         # スカラー定義のboolキーを配列表現（True→1.0/False→0.0の3値float配列）へ読み替える。
         array_mapping = {float(key): score for key, score in shape.mapping.items()}
-        return evaluate_categorical(materials[shape.material], array_mapping)
-    # FlagSumShape
-    return evaluate_flag_sum(
-        [(materials[material], points) for material, points in shape.flags], cap=shape.cap
-    )
+        result = evaluate_categorical(materials[shape.material], array_mapping)
+    else:
+        # FlagSumShape
+        result = evaluate_flag_sum(
+            [(materials[material], points) for material, points in shape.flags], cap=shape.cap
+        )
+    for override in reversed(definition.priority_overrides):
+        values = materials[override.material]
+        # bool配列（フラグ材料、例: motor_vehicle_no）は"true"/"false"の文字列表現へ
+        # 正規化して比較する（スカラー版_priority_override_matches_scalarと同じ理由:
+        # bool配列とstr型のequalsをそのまま==比較すると常にFalseになる）。
+        mask = values == (override.equals.strip().lower() == "true") if values.dtype == bool else values == override.equals
+        result = np.where(mask, override.value, result)
+    return result

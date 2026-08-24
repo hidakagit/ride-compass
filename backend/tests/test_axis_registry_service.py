@@ -103,13 +103,15 @@ async def test_create_rejects_duplicate_axis_id(road_graph_session):
 
 async def test_create_rejects_axis_reusing_existing_material(road_graph_session):
     # 改善計画T268: 材料の排他帰属チェック。既存軸が使用中の材料を参照する新軸の
-    # 登録は管理APIレベル（サービス層）で拒否される。
+    # 登録は管理APIレベル（サービス層）で拒否される。改善計画T292: 排他チェックは
+    # MATERIAL_CATALOGに実在する材料だけを対象にする（軸参照との区別のため）ので、
+    # ここではMATERIAL_CATALOGに実在するが既存7軸には未使用の材料（"bridge"）を使う。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition("first_axis", material="shared_material"))
+    await service.create(_definition("first_axis", material="bridge"))
 
-    with pytest.raises(AxisMaterialConflictError, match="shared_material"):
-        await service.create(_definition("second_axis", material="shared_material"))
+    with pytest.raises(AxisMaterialConflictError, match="bridge"):
+        await service.create(_definition("second_axis", material="bridge"))
 
     assert "second_axis" not in AXIS_DEFINITIONS
 
@@ -128,13 +130,13 @@ async def test_update_allows_keeping_own_materials(road_graph_session):
 async def test_update_rejects_axis_reusing_another_axis_material(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition("first_axis", material="material_a"))
-    await service.create(_definition("second_axis", material="material_b"))
+    await service.create(_definition("first_axis", material="motor_vehicle_no"))
+    await service.create(_definition("second_axis", material="oneway"))
 
-    with pytest.raises(AxisMaterialConflictError, match="material_a"):
-        await service.update("second_axis", _definition("second_axis", material="material_a"))
+    with pytest.raises(AxisMaterialConflictError, match="motor_vehicle_no"):
+        await service.update("second_axis", _definition("second_axis", material="motor_vehicle_no"))
 
-    assert AXIS_DEFINITIONS["second_axis"].materials == ["material_b"]
+    assert AXIS_DEFINITIONS["second_axis"].materials == ["oneway"]
 
 
 async def test_update_replaces_definition_and_keeps_sort_order(road_graph_session):

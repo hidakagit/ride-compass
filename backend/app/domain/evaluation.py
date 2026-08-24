@@ -19,6 +19,7 @@ from app.domain.axis_definitions import (
     default_axis_weights,
     evaluate_axis_array,
     evaluate_axis_scalar,
+    topological_axis_order,
 )
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty
@@ -87,13 +88,18 @@ class RoutePreference(BaseModel):
 
     @model_validator(mode="after")
     def _validate_and_fill_weights(self) -> "RoutePreference":
-        unknown = sorted(set(self.weights) - set(AXIS_DEFINITIONS))
+        # 改善計画T292: 内部軸（is_published=False、他の公開軸から参照される専用の
+        # 推定軸）は一般ユーザー・リクエストからの重み付け対象外。3次合成
+        # （compute_edge_costs_bulk側）も公開軸のみをループするため、weights辞書の
+        # キー集合をここで揃えておく。
+        published_axis_ids = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
+        unknown = sorted(set(self.weights) - published_axis_ids)
         if unknown:
-            raise ValueError(f"unknown axis_id in weights: {unknown} (known: {sorted(AXIS_DEFINITIONS)})")
+            raise ValueError(f"unknown axis_id in weights: {unknown} (known: {sorted(published_axis_ids)})")
         merged = default_axis_weights()
         merged.update(self.weights)
         # キー順をAXIS_DEFINITIONSの定義順（＝合成の加算順）へ正規化する。
-        self.weights = {axis_id: merged[axis_id] for axis_id in AXIS_DEFINITIONS}
+        self.weights = {axis_id: merged[axis_id] for axis_id in AXIS_DEFINITIONS if axis_id in published_axis_ids}
         return self
 
     def with_weight(self, axis_id: str, value: float) -> "RoutePreference":
@@ -409,11 +415,18 @@ def compute_edge_axis_scores(
         "car_stress_level": car_stress,
         **night_materials(way_tags),
     }
-    axis_values = {
-        axis_id: evaluate_axis_scalar(definition, materials)
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-    }
-    return {axis_id: value for axis_id, value in axis_values.items() if value is not None}
+    # 改善計画T292: 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
+    # 階層構造）。依存先（参照される軸）を先に評価し、結果をmaterialsへ混ぜ込みながら
+    # 進めることで、参照する側は追加のAPIなしに`materials.get(axis_id)`で読める
+    # （`evaluate_axis_scalar`自体は無変更、materialsに軸のスコアも入っているだけ）。
+    axis_values: dict[str, float] = {}
+    materials_with_axes: dict[str, object] = dict(materials)
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        value = evaluate_axis_scalar(AXIS_DEFINITIONS[axis_id], materials_with_axes)
+        if value is not None:
+            axis_values[axis_id] = value
+            materials_with_axes[axis_id] = value
+    return axis_values
 
 
 def compute_cost_from_axis_scores(
@@ -711,10 +724,14 @@ def compute_edge_costs_bulk(
         "no_lit": no_lit,
         "has_tunnel": has_tunnel,
     }
-    axis_arrays = {
-        axis_id: evaluate_axis_array(definition, material_arrays)
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-    }
+    # 改善計画T292: スカラー版compute_edge_axis_scoresと同じ依存順評価（軸が他の軸の
+    # difficultyをmaterialとして参照できる階層構造）。
+    axis_arrays: dict[str, np.ndarray] = {}
+    material_arrays_with_axes: dict[str, np.ndarray] = dict(material_arrays)
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        arr = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
+        axis_arrays[axis_id] = arr
+        material_arrays_with_axes[axis_id] = arr
 
     # composite_difficultyのベクトル版: Noneの軸（NaN）は除外し残りの重みで再正規化する
     # （辞書挿入順=上のaxis_arraysと同じgradient→wind→...→nightの順、無効な軸はスカラー版の
