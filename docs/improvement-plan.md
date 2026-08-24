@@ -4644,7 +4644,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   （`test_create_rejects_axis_id_colliding_with_known_material`、既知材料"highway"と
   同名のaxis_idでcreateが拒否されることを確認）。backend全1112件green。
 
-### - [ ] T297. car_stressランプ表示のmapping未登録highway（footway/path等）の意味論確定〔P3〕規模S〜M
+### - [x] T297. car_stressランプ表示のmapping未登録highway（footway/path等）の意味論確定〔P3〕規模S〜M（2026-08-25完了）
 
 - 背景: レビュー指摘（レポートF-3）。評価側はhighway基準値未登録（footway/path等、
   河川敷サイクリングロード等のshared_pedestrian該当を含む）のEdgeを「car_stress未評価」
@@ -4662,6 +4662,49 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 影響範囲（保留した場合）: 表示上の意味論のみ（探索・評価は正しい）。実害は小さいが、
   区間インスペクタ（available=False表示）と地図の色が矛盾したまま残る。
 - 完了条件: 実データ確認の実施と、上記いずれかの対応（コード変更またはnote明記）の完了。
+- **実データ確認（2026-08-25）**: dev DBへ直接クエリし、shared_pedestrian該当
+  （highway∈{footway,path} AND bicycle∈{yes,designated,permissive}）のwayが
+  **4,148件**実在することを確認した（東京都心南部の投入済み範囲、負荷なしの
+  一過性クエリ）。既に一定量発生する事象と確定したため「実害は小さい」の前提を
+  再確認したうえで対応方針を決めた。
+- **調査で判明した根本原因（対応2を選んだ決め手）**: `has_unknown_fallback=True`は
+  highwayのTileInputSpec（registry_defaults.py:437）へ**既に設定済み**だった。
+  すなわち「未登録値は不明扱いにする」という意図は元々あったが、実装
+  （`axisLayers.ts: buildAxisRampUnknownExpression`）が`!has(property)`
+  （プロパティの**欠損**）しか見ておらず、highwayのように**プロパティは常に存在するが
+  値が未登録**というケースを検出できていなかった——「決めていなかった」のではなく
+  「決めていたが実装が意図どおり動いていなかった」設計と実装の乖離だった。
+  さらに評価側（`domain/axis_templates.py: evaluate_categorical`）を確認したところ、
+  未登録値は`mapping.get(value, None)`で**None**（寄与0ではなく評価不能）を返し、
+  `required=True`の材料でNoneは軸全体（car_stress公開軸）を評価不能にすると確定した
+  （registry.pyの旧docstringが「未登録値は0扱い＝CategoricalShapeの評価がNoneを
+  返すのと同じ規約」と書いていたのは誤りで、Noneと0は別物だった）。この2点により
+  「対応2（未登録値も不明扱いへ変更）」が正しい修正であり、「対応1（緑のまま・
+  意味論を明記するだけ）」は評価側の実際の意味論と食い違ったまま追認することになる
+  ため採らなかった。
+- **対応（コード変更、対応2）**:
+  1. `axisLayers.ts: buildAxisRampUnknownExpression`を拡張し、`categories`を持つ
+     tile_input（`has_unknown_fallback=True`の場合）はプロパティ欠損に加えて
+     「値はあるがcategoriesに未登録」も`match`式で「不明」判定するようにした
+     （boolean材料の判定は従来どおり`!has(property)`のみで変更なし）。
+  2. `registry.py: TileInputSpec`のdocstringを、`has_unknown_fallback`の実際の意味
+     （categories材料では未登録値も不明化する。boolean材料とは扱いが異なる）に
+     合わせて訂正した。
+  3. 新規コード追加・材料の追加は不要（`car_stress`のhighway入力は既存の
+     `has_unknown_fallback=True`をそのまま活かすだけで修正された）。
+- テスト: `axisLayers.test.ts`へ1件追加（car_stressのhighway入力について、
+  match式が既知highway値をfalse[不明でない]・footway等の未登録値と欠損センチネルを
+  true[不明]に分類することを検証、凡例に「不明」エントリが現れることも確認）。
+  backend全1112件・frontend全458件green（回帰なし）、tsc/eslint clean。
+- **実機（Playwright）確認について**: 着手時点で稼働していたdevサーバー
+  （backend:8000・frontend:3010、別セッションのT293検証用と思われる）が、確認直前に
+  停止していた（並行セッションの作業終了によるものと推測、CLAUDE.md「作業ツリーの
+  安全」に従い自分で新規起動はせず現状を尊重した）。かわりに、変更の正しさを
+  (a) dev DBへの直接クエリによる実データ4,148件の存在確認、(b) `evaluate_categorical`
+  ソースコードの直読みによるNone/0の意味論の確定、(c) 決定的なMapLibre expression
+  単体テストの3点で担保した（過去のPlaywright実機確認で座標特定・セレクタ誤りによる
+  誤所見が生じた実績があり、決定的な単体テストで代替できる場合はそちらを優先する
+  判断）。地図上のピクセル色を実際に目視する確認は次回devサーバー稼働時に持ち越し。
 
 ### - [ ] T298. T292削除物を参照する残骸コメントの訂正・種別の削除条件明文化〔P3〕規模S
 

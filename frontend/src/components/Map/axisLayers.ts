@@ -189,13 +189,31 @@ export const AXIS_RAMP_COLORS = [
 // importする向きのため、逆方向のimportはできない）。
 export const COLOR_UNKNOWN = "#9ca3af";
 
-/** hasUnknownFallback=trueのtile_inputについて、対象タイルプロパティが欠損しているか
- * を判定するMapLibre expression。該当する入力を持たない軸はnull（＝不明状態を持たない、
- * 従来どおりstep色分けのみでよい）。 */
+/** hasUnknownFallback=trueのtile_inputについて、「不明」と判定すべきかを求める
+ * MapLibre expression。該当する入力を持たない軸はnull（＝不明状態を持たない、
+ * 従来どおりstep色分けのみでよい）。
+ *
+ * 改善計画T297: categories材料（N値文字列、例: highway）は、プロパティが欠損している
+ * 場合に加えて、**値はあるがcategoriesに未登録**の場合も「不明」に含める（以前は
+ * プロパティ欠損のみを見ており、値が未登録のケースを見落としていた——例:
+ * highway="footway"はプロパティとしては常に存在するため、`!has(property)`だけでは
+ * 一生「不明」にならなかった）。backend側の評価（`domain/axis_definitions.py:
+ * evaluate_axis_scalar`のCategoricalShape分岐）は、未登録値も`mapping.get(value, None)`
+ * によりNone（評価不能）を返す——required=Trueの材料でNoneは軸全体を評価不能にする
+ * ため、「未登録値=寄与0（最良側）」ではなく「未登録値=評価不能（不明）」が
+ * 評価側の実際の意味論であり、地図表示側もこれに合わせる。categoriesを持たない
+ * 真偽値材料（例: surface_good）は従来どおりプロパティ欠損のみで判定する
+ * （欠損以外の「未登録値」という状態がそもそも存在しないため）。 */
 export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
   const checks = axis.tileInputs
     .filter((input) => input.hasUnknownFallback)
-    .map((input) => ["!", ["has", input.property]]);
+    .map((input) => {
+      if (input.categories) {
+        const knownValuePairs = Object.keys(input.categories).flatMap((key) => [key, false]);
+        return ["match", ["coalesce", ["get", input.property], "__unknown__"], ...knownValuePairs, true];
+      }
+      return ["!", ["has", input.property]];
+    });
   if (checks.length === 0) return null;
   return checks.length === 1 ? checks[0] : ["any", ...checks];
 }

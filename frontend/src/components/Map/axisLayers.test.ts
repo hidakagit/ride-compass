@@ -142,6 +142,42 @@ describe("axisLayers", () => {
     expect(unknownEntry!.label).toBe("不明");
   });
 
+  it("車ストレス（car_stress）はhighway未登録値（footway/path等）を0点[最良]ではなく灰色「不明」にする（改善計画T297）", () => {
+    // 背景: highwayのcategories入力はhas_unknown_fallback=trueが以前から設定済み
+    // だったが、buildAxisRampUnknownExpressionはプロパティの「欠損」しか見ておらず
+    // 「値はあるが未登録」（highway="footway"等、プロパティは常に存在する）を
+    // 見落としていた。評価側（domain/axis_definitions.py: evaluate_axis_scalar）は
+    // 未登録値をNone（評価不能）として扱う——required=Trueの材料でNoneは軸全体を
+    // 評価不能にする——ため、表示側もこれに合わせて「不明」へ倒す必要がある。
+    const carStress = RAMP_AXES.find((axis) => axis.axisId === "car_stress")!;
+    const highwayInput = carStress.tileInputs.find((input) => input.property === "highway")!;
+    expect(highwayInput.hasUnknownFallback).toBe(true);
+    expect(highwayInput.categories).toBeDefined();
+
+    const unknownExpression = buildAxisRampUnknownExpression(carStress);
+    expect(unknownExpression).not.toBeNull();
+
+    // "match"式の分岐: 登録済みの値(例: "residential")はfalse(不明ではない)、
+    // 未登録の値(例: "footway")・プロパティ欠損時のsentinel("__unknown__")はtrue(不明)。
+    const [op, valueExpr, ...branches] = unknownExpression as unknown[];
+    expect(op).toBe("match");
+    expect(valueExpr).toEqual(["coalesce", ["get", "highway"], "__unknown__"]);
+    const pairs = branches.slice(0, -1);
+    const fallback = branches[branches.length - 1];
+    expect(fallback).toBe(true);
+    for (const knownHighway of Object.keys(highwayInput.categories!)) {
+      const idx = pairs.indexOf(knownHighway);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(pairs[idx + 1]).toBe(false);
+    }
+    expect(pairs).not.toContain("footway");
+
+    const legend = buildAxisRampLegend(carStress);
+    const unknownEntry = legend.find((entry) => entry.isFallback);
+    expect(unknownEntry).toBeDefined();
+    expect(unknownEntry!.color).toBe(COLOR_UNKNOWN);
+  });
+
   it("MAP_LAYERSへramp軸のレイヤーが自動で現れる（レジストリ駆動の受け入れ検証）", () => {
     for (const axis of RAMP_AXES) {
       const descriptor = MAP_LAYERS.find((layer) => layer.id === axisMapLayerId(axis.axisId));

@@ -73,10 +73,22 @@ class TileInputSpec(BaseModel):
     N値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:
     CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の
     場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
-    （`weight`と併用可、寄与値=`categories[value] * weight`）。未登録値は0扱い
-    （`CategoricalShape`の評価がNoneを返す＝寄与なしと同じ規約）。`has_unknown_fallback`は
-    boolean材料と同じ意味で使え、タイルプロパティが完全に欠損している場合を「不明」
-    （灰色）へ倒す（未登録の既知の値と、プロパティ自体が無い場合を区別する）。
+    （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
+    （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
+    圧迫感等の点数に反映すれば足りる材料向け、例: `bicycle_infra`は評価側のmappingが
+    全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。
+    `has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく
+    「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/
+    axis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で
+    Noneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0
+    [最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`
+    （`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は
+    評価側でcar_stress軸全体を評価しない[required=True]。以前はフロント側の実装が
+    プロパティの**欠損**のみを「不明」判定していたため、この「値はあるが未登録」の
+    ケースを見落とし、実際には未評価のはずの区間が0点=最良[緑]色で表示される
+    不整合があった。`axisLayers.ts: buildAxisRampUnknownExpression`参照）。
+    boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している
+    場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。
 
     自己変換材料（`breakpoints`、改善計画T292）: 材料自身が
     `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
