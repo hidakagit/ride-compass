@@ -22,7 +22,7 @@ export function useMaterialCatalog(): readonly AxisMaterialOption[] {
             response.materials.map((m) => ({
               id: m.material_id,
               label: m.label,
-              boolean: m.dtype === "boolean",
+              dtype: m.dtype,
             })),
           );
         }

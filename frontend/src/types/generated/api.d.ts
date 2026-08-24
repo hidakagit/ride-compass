@@ -802,7 +802,7 @@ export interface components {
              * Dtype
              * @enum {string}
              */
-            dtype: "numeric" | "boolean";
+            dtype: "numeric" | "boolean" | "categorical";
         };
         /** MaterialCatalogResponse */
         MaterialCatalogResponse: {

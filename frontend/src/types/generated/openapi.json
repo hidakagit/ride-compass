@@ -1823,7 +1823,8 @@
             "type": "string",
             "enum": [
               "numeric",
-              "boolean"
+              "boolean",
+              "categorical"
             ],
             "title": "Dtype"
           }

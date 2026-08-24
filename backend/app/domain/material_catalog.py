@@ -6,6 +6,18 @@
 かった（軸スタジオ実装時、フロント側`axisMaterialsCatalog.ts`が独自にハードコードして
 いた）。本モジュールがその単一ソースになる。
 
+**材料の「登録」と「評価軸での利用」は独立している（改善計画T290）**: MVTタイル
+（`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）には、既存7軸が実際に使う
+材料以外にも多くの生データ（highway・surface・smoothness・bicycle_infra等）が
+既に焼き込まれている。設計の一貫性のため、これらも「評価や地図描画に使えそうな
+生データ」として本カタログへ網羅的に登録する（ユーザー方針、2026-08-24）。
+ただし`dtype="categorical"`の材料は、`domain/axis_definitions.py: CategoricalShape`
+（`mapping: dict[bool, float]`、真偽値限定）が現状は文字列多値を扱えないため、
+**登録済みでもまだどの評価軸の材料としても使えない**（軸スタジオの材料選択肢には
+現れるが、選んでも軸を完成させられない）。文字列対応拡張は、実際にcategorical材料を
+使う新規軸の要求が出た時点で、その軸の要件に応じて設計する（トリガー付きDEFER、
+今使う予定のない評価ロジックを先回りで作らない。設計原則9）。
+
 **設計方針（ユーザー指示、2026-08-24）**: 材料は今後システムメンテナンス（コード変更＋
 デプロイ）によって増減されうるものとして設計するが、材料自体をGUIから追加・編集・削除
 できるようにはしない。軸スタジオ（`/admin`）が材料を選ぶ際は、本カタログを
@@ -25,7 +37,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-MaterialDType = Literal["numeric", "boolean"]
+MaterialDType = Literal["numeric", "boolean", "categorical"]
 
 
 class MaterialSpec(BaseModel):
@@ -47,7 +59,9 @@ class MaterialSpec(BaseModel):
     tile_property_needs_runtime_scale: bool = False
 
 
-# 現行7軸が参照する9材料（AXIS_DEFINITIONSのコメントと1:1対応）。
+# 現行7軸が参照する9材料（AXIS_DEFINITIONSのコメントと1:1対応）＋改善計画T290で追加した
+# 11材料（MVTタイルに焼き込み済みだが評価軸には未使用の生データ。カタログ冒頭の
+# T290注記参照）。
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "gradient_percent": MaterialSpec(
         material_id="gradient_percent",
@@ -117,6 +131,95 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="トンネル",
         dtype="boolean",
         tile_property="tunnel",
+    ),
+    # --- 改善計画T290: MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
+    "bridge": MaterialSpec(
+        material_id="bridge",
+        label="橋・高架",
+        dtype="boolean",
+        # OSMのbridgeタグ（yesのみtrue、それ以外はキー省略＝unknown/false扱い）。
+        tile_property="bridge",
+    ),
+    "motor_vehicle_no": MaterialSpec(
+        material_id="motor_vehicle_no",
+        label="自動車通行不可",
+        dtype="boolean",
+        # OSMのmotor_vehicleタグがnoの区間（car_stress_levelのレシピ内部でも参照される
+        # 材料だが、レシピ合成前の生の真偽値自体は独立して材料登録していなかった）。
+        tile_property="motor_vehicle_no",
+    ),
+    "oneway": MaterialSpec(
+        material_id="oneway",
+        label="一方通行",
+        dtype="boolean",
+        # osm_raw_ways.direction（forward/backward/both）から算出（改善計画T289で
+        # 一次属性・地図レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
+        tile_property="oneway",
+    ),
+    "maxspeed_kmh": MaterialSpec(
+        material_id="maxspeed_kmh",
+        label="制限速度(km/h)",
+        dtype="numeric",
+        tile_property="maxspeed_kmh",
+    ),
+    "lanes_count": MaterialSpec(
+        material_id="lanes_count",
+        label="車線数",
+        dtype="numeric",
+        tile_property="lanes_count",
+    ),
+    "highway": MaterialSpec(
+        material_id="highway",
+        label="道路種別",
+        dtype="categorical",
+        # OSMのhighwayタグ生値（motorway/trunk/primary/secondary/tertiary/residential/
+        # living_street/unclassified/track/cycleway/path/footway等）。取込プロファイル
+        # （import_pbf.py: ALLOWED_HIGHWAY_TYPES）で許可された値のみ実際に現れる。
+        # 正準の閉じた値集合はこのプロジェクトで管理していない（OSMタグの生値のため）。
+        tile_property="highway",
+    ),
+    "surface": MaterialSpec(
+        material_id="surface",
+        label="路面種別",
+        dtype="categorical",
+        # OSMのsurfaceタグ生値（正規化: lower/btrim）。良否の正準分類は
+        # domain/road.py: GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS参照（本材料は
+        # その分類前の生タグ値そのもの。分類後の真偽値は既存材料surface_good）。
+        tile_property="surface",
+    ),
+    "bicycle_infra": MaterialSpec(
+        material_id="bicycle_infra",
+        label="自転車インフラ種別",
+        dtype="categorical",
+        # domain/traffic.py: classify_bicycle_infrastructureの分類値
+        # （separated/lane/shared_busway/shared_pedestrian/prohibited/roadway。
+        # unknownはタイル側でプロパティ省略として表現され現れない）。
+        tile_property="bicycle_infra",
+    ),
+    "cycleway_class": MaterialSpec(
+        material_id="cycleway_class",
+        label="自転車レーン種別",
+        dtype="categorical",
+        # 車ストレスのcycleway補正が参照する3値（track/lane/shared）。bicycle_infraより
+        # 粗い分類（bicycle_infraのseparated/lane/shared_buswayに相当する部分集合）。
+        tile_property="cycleway_class",
+    ),
+    "designation": MaterialSpec(
+        material_id="designation",
+        label="指定路線",
+        dtype="categorical",
+        # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
+        # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
+        tile_property="designation",
+    ),
+    "smoothness": MaterialSpec(
+        material_id="smoothness",
+        label="路面の状態",
+        dtype="categorical",
+        # OSMのsmoothnessタグ生値（excellent/good/intermediate/bad/very_bad/horrible/
+        # very_horrible/impassable、正規化: lower/btrim）。surfaceが路面「種別」なのに
+        # 対し、smoothnessは実際の走行感（同じasphaltでも荒れ具合が違う等）。
+        tile_property="smoothness",
     ),
 }
 

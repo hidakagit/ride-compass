@@ -51,7 +51,7 @@ interface Draft {
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
-  const firstBoolean = materialOptions.find((m) => m.boolean)?.id ?? materialOptions[0].id;
+  const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0].id;
   return {
     axisId: "",
     label: "",
@@ -311,7 +311,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
           {draft.terms.map((term, i) => (
             <div key={i} className={styles.termRow}>
               <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
-                {materialOptions.filter((m) => !m.boolean).map((m) => (
+                {materialOptions.filter((m) => m.dtype === "numeric").map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>
@@ -391,7 +391,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
               value={draft.categoricalMaterial}
               onChange={(e) => setDraft((d) => ({ ...d, categoricalMaterial: e.target.value }))}
             >
-              {materialOptions.filter((m) => m.boolean).map((m) => (
+              {materialOptions.filter((m) => m.dtype === "boolean").map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
                 </option>
@@ -417,7 +417,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
           {draft.flags.map((flag, i) => (
             <div key={i} className={styles.termRow}>
               <select value={flag.material} onChange={(e) => updateFlag(i, { material: e.target.value })}>
-                {materialOptions.filter((m) => m.boolean).map((m) => (
+                {materialOptions.filter((m) => m.dtype === "boolean").map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>
@@ -439,7 +439,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
             onClick={() =>
               setDraft((d) => ({
                 ...d,
-                flags: [...d.flags, { material: materialOptions.find((m) => m.boolean)?.id ?? "", points: 10 }],
+                flags: [...d.flags, { material: materialOptions.find((m) => m.dtype === "boolean")?.id ?? "", points: 10 }],
               }))
             }
           >

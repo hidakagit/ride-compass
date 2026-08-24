@@ -3984,7 +3984,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   T280（材料供給の1本道短縮）の実証にはならなかった。T280は「軸スタジオUI拡張より先に
   実施する」という順序制約付きでトリガー待ちのまま据え置き。
 
-### - [ ] T290. MVTタイルに焼き込み済みだが材料未登録の生データをMATERIAL_CATALOGへ網羅登録する 規模M
+### - [x] T290. MVTタイルに焼き込み済みだが材料未登録の生データをMATERIAL_CATALOGへ網羅登録する 規模M（2026-08-24完了）
 
 - 背景: T289完了後、ユーザーから「設計の一貫性を取ろうとしている。評価や地図描画に
   使えそうな生データは全部材料登録しておきたい」という方針指示。`_ROAD_SURFACE_TILE_
@@ -4014,6 +4014,19 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   確認。backend/frontend全テストgreen。既存7軸の挙動・OpenAPI契約（`AXIS_DEFINITIONS`
   非対象のため本来変更なしのはずだが、`material-catalog.json`生成物のドリフト確認は必須）に
   影響がないことを確認。
+- 検証: backend全1181件green（新規7件: `test_material_catalog_routes.py`新設5件＋
+  `test_axis_admin_routes.py`2件、`categorical`材料をBreakpointLinearShape/
+  CategoricalShapeに指定した場合の422拒否を確認）。frontend tsc/eslint/vitest全523件
+  green（既存件数のまま、回帰なし）。実機確認（`GET /api/material-catalog`で20材料・
+  categorical6件のdtypeを確認、軸スタジオの3つのshape種別[区分線形補間/カテゴリ値/
+  フラグ加算]それぞれで材料ドロップダウンを実機確認——numeric専用は7件[新規2件含む]、
+  boolean専用は6件[新規3件含む]がそれぞれ正しく表示され、categorical6件はどちらにも
+  混入しないことを確認、コンソールエラー0件）。
+- 追従修正: `lib/axisMaterialsCatalog.ts: AxisMaterialOption.boolean`（2値フラグ）を
+  `dtype: AxisMaterialDType`（"numeric"/"boolean"/"categorical"の3値）へ変更した。
+  旧実装のまま`categorical`材料を追加すると`!boolean`（numeric用フィルタ）に誤って
+  混入し「選べるのに送信時にエラーになる」UXを生むため、T290に付随する必須の追従修正
+  として対応した（`AxisComposer.tsx`のフィルタ条件4箇所を`dtype`比較へ書き換え）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

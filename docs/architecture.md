@@ -370,7 +370,7 @@ RideCompass/
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239: 7軸の変換ロジックが還元される4テンプレート（evaluate_breakpoint_linear/evaluate_categorical/evaluate_flag_sum/evaluate_recipe_then_breakpoint_linear）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
-        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
+        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
         axis_display.py                  ✅ 改善計画T278: derive_ramp_inputs()。AXIS_DEFINITIONSの軸とMATERIAL_CATALOGから地図ramp表示（tile_inputs/thresholds）を自動導出する（安全に導出できるCategorical/FlagSum/単一材料BreakpointLinearのみ、詳細は「地図表示ルール（kind=ramp）の自動導出」節参照）
         difficulty.py                    ✅ AxisDifficulties（axis_idキーの軸別difficulty辞書＋composite、T221 Stage Bでdict化）, evaluate_axis_difficulties（AXIS_DEFINITIONSをループする薄い関数）, accident_difficulty/gradient_difficulty等の軸別difficulty互換ラッパ（Noneガード・負値ガードのみ担い変換はaxis_definitions.pyへ委譲）。composite_difficulty/distance_weighted_difficultyも同居（7章参照）
         night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。T221 Stage B/Cでnight_materials（lit/tunnelタグ→材料フラグ解決）へ再編、加点値はaxis_definitions.pyのnight軸定義へ移動
@@ -1207,6 +1207,31 @@ MaterialSpec`/`MATERIAL_CATALOG`が単一の情報源になった——各材料
 
 T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自動判定）は2026-08-24に完了した。
 詳細は次節参照。
+
+**材料の網羅登録（改善計画T290）**: MVTタイル（`_ROAD_SURFACE_TILE_MVT_SQL`）には
+既存7軸が実際に使う材料以外にも生データ（`highway`・`surface`・`smoothness`・
+`bridge`・`bicycle_infra`・`cycleway_class`・`maxspeed_kmh`・`lanes_count`・
+`motor_vehicle_no`・`designation`・`oneway`）が既に焼き込まれていたが、
+`MATERIAL_CATALOG`には登録されていなかった。「評価や地図描画に使えそうな生データは
+全部材料登録しておく」という設計一貫性の方針（ユーザー方針、2026-08-24）に基づき、
+11材料すべてを登録し**9材料→20材料**へ拡張した。`dtype`を
+`Literal["numeric", "boolean"]`から`Literal["numeric", "boolean", "categorical"]`へ
+拡張し、多値カテゴリカルな6件（`highway`・`surface`・`bicycle_infra`・
+`cycleway_class`・`designation`・`smoothness`）は`categorical`として登録した。
+
+**「登録」と「評価軸での利用」は独立**: `CategoricalShape.mapping`は現状
+`dict[bool, float]`（真偽値限定）のため、`categorical`材料は軸スタジオの選択肢には
+現れるが、まだどの評価軸の材料としても使えない（選んでもバリデーションで拒否される。
+`_check_materials_are_known`の`material_dtype(m) != expected_dtype`判定が
+`categorical`をnumeric/booleanどちらとも不一致として扱うため、安全に拒否される）。
+`CategoricalShape`の文字列対応拡張は、実際にcategorical材料を使う新規軸の要求が
+出た時点で行う（トリガー付きDEFER、今使う予定のない評価ロジックを先回りで作らない）。
+
+フロント側`lib/axisMaterialsCatalog.ts: AxisMaterialOption`は`boolean: boolean`
+（2値フラグ）から`dtype: AxisMaterialDType`（"numeric"/"boolean"/"categorical"の3値）へ
+変更した——旧実装のまま`categorical`材料を追加すると`!boolean`（numeric用フィルタ）に
+誤って混入し、選べるのに送信時にエラーになるUXを生んでいたため、T290に付随する
+必須の追従修正として対応した。
 
 ### 地図表示ルール（kind=ramp）の自動導出（改善計画T278）
 

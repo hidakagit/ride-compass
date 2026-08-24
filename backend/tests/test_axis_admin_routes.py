@@ -171,6 +171,47 @@ def test_create_returns_422_when_categorical_shape_uses_numeric_material(overrid
     assert "stop_count_per_km" in response.text
 
 
+def test_create_returns_422_when_breakpoint_linear_shape_uses_categorical_material(override_service):
+    # 改善計画T290: MATERIAL_CATALOGへ追加したdtype="categorical"材料（highway等）は
+    # 登録のみで評価軸には未対応（CategoricalShapeが現状booleanのみ対応のため）。
+    # numeric専用のBreakpointLinearShapeに指定した場合も、既存のdtype検証
+    # （expected_dtype != material_dtype）で正しく拒否されることを確認する
+    # （"numeric"でも"boolean"でもないcategoricalは、両方のexpected_dtype判定と
+    # 必ず不一致になる設計）。
+    payload = {
+        **_PAYLOAD,
+        "shape": {
+            "kind": "breakpoint_linear",
+            "terms": [{"material": "highway", "weight": 1.0, "required": True}],
+            "preprocess": "identity",
+            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
+        },
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "highway" in response.text
+
+
+def test_create_returns_422_when_categorical_shape_uses_categorical_material(override_service):
+    # 上と対称: CategoricalShape（boolean専用）にcategorical材料（surface）を指定した
+    # 場合も拒否される。
+    payload = {
+        **_PAYLOAD,
+        "shape": {
+            "kind": "categorical",
+            "material": "surface",
+            "mapping": {"true": 0.0, "false": 80.0},
+        },
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "surface" in response.text
+
+
 def test_create_returns_422_when_flag_sum_shape_uses_numeric_material(override_service):
     payload = {
         **_PAYLOAD,
