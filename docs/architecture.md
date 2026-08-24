@@ -437,7 +437,7 @@ RideCompass/
         import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
         import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
         match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
-    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ measure_axis_stats.py（改善計画T124、dev DBに対する軸ペア相関・クランプ前生値分布・材料タグの補正発火率・highway階級別事故密度の計測。相関・丸め損失の実測方法はT121の使い捨て版を常設化したもの）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）/ analyze_jartic_calibration.py（改善計画T53、collect_jartic.pyの収集結果を最寄りosm_raw_waysへ空間マッチし車ストレス軸の値（改善計画T150で「交通ストレス」から改称、T292でAXIS_DEFINITIONSの軸階層へ再設計済み）との突き合わせを集計。相関計算はmeasure_axis_stats.pyの純関数を再利用）
+    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
@@ -1344,10 +1344,11 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 
 **`motor_vehicle=no`（自転車可・自動車のみ通行禁止）はここに含めない**（改善計画T140での
 方針確認）。自転車は法的に通行できるため〇次のハード除外対象にはせず、二次軸
-（車ストレス、`domain/traffic.py`の
-`motor_vehicle_no_override`）側で「該当区間は最善値へ固定」という軸内の特例として
-扱い続ける。ハード制約（探索対象から消える）とこの特例（探索はするが最も走りやすい
-扱いになる）は挙動が異なるため区別が必要、という設計プロンプトの「ハード制約は
+（車ストレス、`domain/axis_definitions.py: AXIS_DEFINITIONS["car_stress_motor_vehicle_no_
+adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_override`から移行済み）
+側で「該当区間は最善値へ固定」という軸内の特例として扱い続ける。ハード制約（探索対象から
+消える）とこの特例（探索はするが最も走りやすい扱いになる）は挙動が異なるため区別が必要、
+という設計プロンプトの「ハード制約は
 スコア外」原則との整合はこの区別を保つことで満たされる。
 
 ### 停止密度・車ストレス・自転車インフラ・交差点密度（P1、OSM由来）

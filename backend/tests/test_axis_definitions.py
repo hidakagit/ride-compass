@@ -11,7 +11,23 @@ from app.domain.axis_definitions import (
     car_stress_display_level,
     check_material_exclusivity,
     check_publish_immutability,
+    evaluate_axis_scalar,
 )
+
+
+def test_car_stress_lanes_adjustment_applies_regardless_of_separated_cycleway():
+    # 改善計画T292回帰テスト: 旧car_stress_levelは「分離自転車道(cycleway=track)がある
+    # 区間ではlanes_low(-1)補正を無効化する」という条件分岐を持っていたが、実データ確認
+    # （dev DB 2026-08-19、該当ほぼ皆無）によりユーザー承認の上で撤廃し常時適用にした
+    # （axis_definitions.py: car_stress_lanes_adjustmentのコメント参照）。この単純化を
+    # 将来誤って部分的に復活させないための回帰テスト。
+    lanes_adjustment = AXIS_DEFINITIONS["car_stress_lanes_adjustment"]
+
+    with_separated_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "bicycle_infra": "separated"})
+    without_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "bicycle_infra": None})
+
+    assert with_separated_cycleway == -1.0
+    assert without_cycleway == -1.0
 
 
 def _definition(axis_id: str, material: str, is_published: bool = False) -> AxisDefinition:

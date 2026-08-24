@@ -16,12 +16,17 @@ export interface AxisMaterialOption {
   id: string;
   label: string;
   /** "numeric"=数値材料（BreakpointLinearShape向け）、"boolean"=真偽値材料
-   * （CategoricalShape/FlagSumShape向け）、"categorical"=文字列多値材料（改善計画T290で
-   * 登録のみ先行、CategoricalShapeが現状booleanのみ対応のためどちらの選択肢にも出さない
-   * ——`material_catalog.py`冒頭のT290注記参照）。 */
+   * （CategoricalShape/FlagSumShape向け）、"categorical"=文字列多値材料
+   * （CategoricalShapeがbool/str両方に対応、改善計画T292）。 */
   dtype: AxisMaterialDType;
 }
 
+// backend/app/domain/material_catalog.py: MATERIAL_CATALOGと同じ内容（改善計画T292で
+// car_stress_levelを撤去・highway等の新規材料を追加した後の状態）。動的取得が失敗した
+// 場合のみこの一覧が使われるため、backend側の変更に追従できていなくても軸スタジオの
+// 選択肢が古くなるだけで実害はないが、削除済みの材料id（car_stress_level）を含んだまま
+// だと選択→保存時にAxisDefinitionPayload._check_materials_are_knownの
+// "unknown material(s)"エラーになるため、削除済みidだけは残さない。
 export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
   { id: "gradient_percent", label: "勾配%（符号付き）", dtype: "numeric" },
   { id: "wind_penalty", label: "向かい風ペナルティ(m/s、正=向かい風)", dtype: "numeric" },
@@ -29,9 +34,20 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
   { id: "stop_count_per_km", label: "停止密度(回/km)", dtype: "numeric" },
   { id: "intersection_count_per_km", label: "交差点密度(回/km)", dtype: "numeric" },
   { id: "accident_count_per_km_year", label: "事故密度(件/(km・年))", dtype: "numeric" },
-  { id: "car_stress_level", label: "車ストレスレベル(1-5、レシピ判定済み)", dtype: "numeric" },
   { id: "no_lit", label: "街灯なし", dtype: "boolean" },
   { id: "has_tunnel", label: "トンネル", dtype: "boolean" },
+  { id: "bridge", label: "橋・高架", dtype: "boolean" },
+  { id: "motor_vehicle_no", label: "自動車通行不可", dtype: "boolean" },
+  { id: "oneway", label: "一方通行", dtype: "boolean" },
+  { id: "maxspeed_kmh", label: "制限速度(km/h)", dtype: "numeric" },
+  { id: "lanes_count", label: "車線数", dtype: "numeric" },
+  { id: "highway", label: "道路種別", dtype: "categorical" },
+  { id: "surface", label: "路面種別", dtype: "categorical" },
+  { id: "bicycle_infra", label: "自転車インフラ種別", dtype: "categorical" },
+  { id: "cycleway_class", label: "自転車レーン種別", dtype: "categorical" },
+  { id: "designation", label: "指定路線", dtype: "categorical" },
+  { id: "is_designated", label: "指定路線該当（真偽）", dtype: "boolean" },
+  { id: "smoothness", label: "路面の状態", dtype: "categorical" },
 ];
 
 export function materialLabel(materialId: string): string {

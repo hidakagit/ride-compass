@@ -198,34 +198,31 @@ describe("buildAxisRampValueExpression（改善計画T292: categories/breakpoint
     expect(expression).toEqual(["match", ["coalesce", ["get", "highway"], "__unknown__"], "primary", 8, "residential", 4, 0]);
   });
 
-  it("breakpoints入力はinterpolate式（weight=1なら素通し）を返す", () => {
+  it("breakpoints入力はinterpolate式（weight=1なら素通し）をcaseで包み、タイルプロパティ欠損時は寄与0にする", () => {
     const axis: RampAxis = {
       ...baseAxis,
       tileInputs: [{ property: "maxspeed_kmh", weight: 1, breakpoints: [[0, -1], [30, -1], [60, 1]] }],
     };
     const expression = buildAxisRampValueExpression(axis);
     expect(expression).toEqual([
-      "interpolate",
-      ["linear"],
-      ["coalesce", ["get", "maxspeed_kmh"], 0],
+      "case",
+      ["!", ["has", "maxspeed_kmh"]],
       0,
-      -1,
-      30,
-      -1,
-      60,
-      1,
+      ["interpolate", ["linear"], ["get", "maxspeed_kmh"], 0, -1, 30, -1, 60, 1],
     ]);
   });
 
-  it("breakpoints入力はweight≠1のとき乗算で包む", () => {
+  it("breakpoints入力はweight≠1のとき乗算で包む（caseの内側）", () => {
     const axis: RampAxis = {
       ...baseAxis,
       tileInputs: [{ property: "lanes_count", weight: 0.5, breakpoints: [[0, -1], [4, 1]] }],
     };
     const expression = buildAxisRampValueExpression(axis);
-    expect(expression[0]).toBe("*");
-    expect((expression[1] as unknown[])[0]).toBe("interpolate");
-    expect(expression[2]).toBe(0.5);
+    expect(expression[0]).toBe("case");
+    const value = expression[3] as unknown[];
+    expect(value[0]).toBe("*");
+    expect((value[1] as unknown[])[0]).toBe("interpolate");
+    expect(value[2]).toBe(0.5);
   });
 
   it("categories/breakpointsを含む複数入力はΣで合成される", () => {

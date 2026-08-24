@@ -221,13 +221,13 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
       return value;
     }
     if (input.breakpoints) {
-      const value = [
-        "interpolate",
-        ["linear"],
-        ["coalesce", ["get", input.property], input.breakpoints[0][0]],
-        ...input.breakpoints.flat(),
-      ];
-      return input.weight === 1 ? value : ["*", value, input.weight];
+      // タイルプロパティが欠損している場合、backendのrequired=False材料と同じ
+      // 「寄与0」規約に合わせる（coalesceでbreakpoints[0][0]へ倒すとinterpolateが
+      // breakpoints[0][1]（例: -1）を返してしまい、欠損=寄与0の規約と食い違うため
+      // レビュー指摘で修正）。
+      const interpolated = ["interpolate", ["linear"], ["get", input.property], ...input.breakpoints.flat()];
+      const value = input.weight === 1 ? interpolated : ["*", interpolated, input.weight];
+      return ["case", ["!", ["has", input.property]], 0, value];
     }
     return ["*", ["coalesce", ["get", input.property], 0], input.weight];
   });
