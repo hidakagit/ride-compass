@@ -48,11 +48,15 @@ jobs:
             # ブリッジネットワーク（既定）ではなくホストのネットワーク名前空間を共有する
             # 必要がある（ブリッジのままだとコンテナ内のlocalhostはコンテナ自身を指し、
             # ConnectionRefusedErrorになる。実機で確認済み）。
+            # --log-opt: 既定のjson-fileドライバはログサイズに上限が無く、無制限に
+            # ディスクを消費しうる（Renderでは基盤側が保持期間を管理してくれていたが、
+            # 自前運用ではこちらで明示する必要がある）。10MB×5世代=最大50MBに制限する。
             sudo docker run -d \
               --name ridecompass-backend \
               --restart unless-stopped \
               --memory=6g --memory-swap=6g \
               --network=host \
+              --log-opt max-size=10m --log-opt max-file=5 \
               --env-file /home/ubuntu/ridecompass-backend.env \
               ridecompass-backend:latest
             sudo docker image prune -f
