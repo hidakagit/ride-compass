@@ -40,6 +40,12 @@ jobs:
             git fetch --depth 1 origin master
             git reset --hard origin/master
             cd backend
+            # GIT_COMMIT: Renderは`RENDER_GIT_COMMIT`をデプロイ先へ自動注入していたが、
+            # このVM上でのDocker運用にはその仕組みが無い。「本番に実際にどのコミットが
+            # 反映されているか」を/healthから確認できるようにするため、実際にビルドした
+            # HEADのSHAを明示的にコンテナへ渡す（改善計画T263フォローアップ、config.py:
+            # settings.git_commit参照）。
+            GIT_COMMIT=$(git rev-parse HEAD)
             sudo docker build -t ridecompass-backend:latest .
             sudo docker stop ridecompass-backend 2>/dev/null || true
             sudo docker rm ridecompass-backend 2>/dev/null || true
@@ -58,5 +64,6 @@ jobs:
               --network=host \
               --log-opt max-size=10m --log-opt max-file=5 \
               --env-file /home/ubuntu/ridecompass-backend.env \
+              -e GIT_COMMIT="$GIT_COMMIT" \
               ridecompass-backend:latest
             sudo docker image prune -f

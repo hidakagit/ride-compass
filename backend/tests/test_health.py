@@ -34,18 +34,20 @@ def test_health_includes_started_at_as_valid_iso_timestamp():
     datetime.fromisoformat(started_at)  # 例外を送出しなければ有効なISO8601
 
 
-def test_health_commit_is_none_when_render_git_commit_not_set():
-    # ローカル開発環境ではRENDER_GIT_COMMIT環境変数が無いため未設定のまま
-    assert settings.render_git_commit is None
+def test_health_commit_is_none_when_git_commit_not_set():
+    # ローカル開発環境ではGIT_COMMIT環境変数が無いため未設定のまま
+    assert settings.git_commit is None
     response = client.get("/health")
 
     assert response.json()["commit"] is None
 
 
-def test_health_reflects_render_git_commit_when_configured(monkeypatch):
-    # Renderにデプロイされたプロセスでは自動注入されるRENDER_GIT_COMMITの値をそのまま返し、
-    # 手元のgit HEADと比較して最新版が反映されているか確認できるようにする
-    monkeypatch.setattr(settings, "render_git_commit", "abc1234def5678")
+def test_health_reflects_git_commit_when_configured(monkeypatch):
+    # 本番にデプロイされたプロセスではデプロイワークフローが注入するGIT_COMMITの値を
+    # そのまま返し、手元のgit HEADと比較して最新版が反映されているか確認できるようにする
+    # （改善計画T263: Render自動注入のRENDER_GIT_COMMITから、Oracle VM向けdeploy-backend.ymlが
+    # 明示的に渡すGIT_COMMITへ変更）
+    monkeypatch.setattr(settings, "git_commit", "abc1234def5678")
 
     response = client.get("/health")
 

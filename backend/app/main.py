@@ -13,7 +13,7 @@ from app.services.axis_registry_service import refresh_axis_definitions
 
 # ログレベルの方針(詳細は docs/logging.md):
 # - INFO以上(アクセスサマリ・ルート生成サマリ・外部APIエラーWARNING等)は常時出力し、
-#   実運用(debug_mode=False)の調査に足る情報をRenderのログに残す。
+#   実運用(debug_mode=False)の調査に足る情報を本番のログに残す。
 # - DEBUG(外部API/タイルキャッシュのイベント単位ログ等)はdebug_mode有効時のみ出力する。
 # %(request_id)sはRequestIdLogFilterが全レコードへ注入する(request_log.py参照)。
 logging.basicConfig(
@@ -28,11 +28,11 @@ for _handler in logging.getLogger().handlers:
 # 常時出るhttpxのINFOはタイルプロキシ等でログを埋めるだけなのでWARNING以上に抑える。
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# 起動時の構成スナップショット。Renderのログだけで「どのコミット・どのエンジン設定で
+# 起動時の構成スナップショット。ログだけで「どのコミット・どのエンジン設定で
 # 動いていたか」を後から確認できるようにする(/healthと同じ情報のログ版)。
 logging.getLogger("ridecompass.startup").info(
     "starting commit=%s engine=%s debug_mode=%s",
-    settings.render_git_commit,
+    settings.git_commit,
     settings.routing_engine,
     settings.debug_mode,
 )

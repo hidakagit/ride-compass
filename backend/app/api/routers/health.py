@@ -17,7 +17,7 @@ router = APIRouter()
 # 気づかれない事故（T54: osm_raw_pois/accident_points未migration、T74:
 # route_designations未投入）が2度発生した反省から、migration適用状況・データ投入バッチの
 # 最終実行状況・主要テーブル行数を1エンドポイントで確認できるようにする。
-# 「Renderデプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
+# 「デプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
 #
 # *_import_runsテーブル（osm_import_runs/accident_import_runs/designation_import_runs）は
 # いずれも「1回のバッチ実行につき1行以上、status(running|succeeded|failed)・started_at・
@@ -43,13 +43,13 @@ _KEY_TABLES = (
 
 @router.get("/health")
 def health() -> dict[str, str | None]:
-    # commit（Renderが自動注入するRENDER_GIT_COMMIT）とstarted_at（プロセス起動時刻、
-    # デプロイのたびに再起動されるため実質デプロイ時刻の目安）で、Render上に実際に
+    # commit（デプロイワークフローが注入するGIT_COMMIT）とstarted_at（プロセス起動時刻、
+    # デプロイのたびに再起動されるため実質デプロイ時刻の目安）で、本番に実際に
     # デプロイされているコミットが最新かどうかを外部から確認できるようにする
     # （ローカル開発ではcommitはnullのまま。詳細はdocs/architecture.md参照）。
     return {
         "status": "ok",
-        "commit": settings.render_git_commit,
+        "commit": settings.git_commit,
         "started_at": STARTED_AT.isoformat(),
     }
 
@@ -62,7 +62,7 @@ def debug_stats() -> dict:
     # 座標を含まないため、debug_modeに関わらず/healthと同様に常時公開する。
     # プロセス再起動でリセットされる点に注意(started_atで起点を判別できる)。
     return {
-        "commit": settings.render_git_commit,
+        "commit": settings.git_commit,
         "started_at": STARTED_AT.isoformat(),
         "engine": settings.routing_engine,
         "debug_mode": settings.debug_mode,
@@ -109,7 +109,7 @@ async def db_status() -> dict:
     診断用途のため、DB障害時にHTTP 500にする必要はない）。
     """
     if not settings.road_graph_use_repository:
-        return {"commit": settings.render_git_commit, "database_configured": False}
+        return {"commit": settings.git_commit, "database_configured": False}
 
     try:
         async with get_engine().connect() as conn:
@@ -121,14 +121,14 @@ async def db_status() -> dict:
     except Exception as exc:  # noqa: BLE001 診断エンドポイントはDB障害でも500にせず可視化する
         logger.warning("db-status診断のPostGIS読み取りに失敗 error=%r", exc)
         return {
-            "commit": settings.render_git_commit,
+            "commit": settings.git_commit,
             "database_configured": True,
             "reachable": False,
             "error": repr(exc),
         }
 
     return {
-        "commit": settings.render_git_commit,
+        "commit": settings.git_commit,
         "database_configured": True,
         "reachable": True,
         "pending_migrations": pending_migrations,

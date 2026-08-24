@@ -41,12 +41,15 @@ class Settings(BaseSettings):
     # 調査用デバッグモード。有効にすると外部API呼び出し（Open-Meteo/Overpass/OpenFreeMap）
     # やタイルキャッシュのhit/missをイベント単位でDEBUGログに出力する（main.pyのlogging設定を参照）。
     debug_mode: bool = False
-    # Renderへデプロイされたgitサービスには`RENDER_GIT_COMMIT`（デプロイされたコミットの
-    # フルSHA）が自動的に環境変数として注入される（.envには書かない。ローカル開発では
-    # 未設定のためNoneのまま）。`/health`のレスポンスに含め、Render上で実際に動いている
-    # コミットが手元のgit HEADと一致しているか（＝最新版が反映されているか）を外部から
-    # 確認できるようにする（詳細はdocs/architecture.md参照）。
-    render_git_commit: str | None = None
+    # デプロイ先で実際にビルド・起動されたコミットのフルSHA（`GIT_COMMIT`環境変数、
+    # .envには書かない。ローカル開発では未設定のためNoneのまま）。`/health`のレスポンスに
+    # 含め、本番で実際に動いているコミットが手元のgit HEADと一致しているか（＝最新版が
+    # 反映されているか）を外部から確認できるようにする（詳細はdocs/architecture.md参照）。
+    # 改善計画T263: backendがRenderからOracle Cloud VMへ移行し、Render固有の自動注入
+    # 環境変数`RENDER_GIT_COMMIT`が使えなくなったため、デプロイワークフロー
+    # （.github/workflows/deploy-backend.yml）側で`git rev-parse HEAD`の結果を明示的に
+    # `GIT_COMMIT`として渡す方式へ変更した（旧名`render_git_commit`から改称）。
+    git_commit: str | None = None
 
     # --- 認証なしエンドポイントのper-IPレート制限・同時実行上限（api/routers/*が参照） ---
     # 元はapi/routes.pyのモジュール定数だったが、環境（Render無料枠/ローカル/負荷試験）で
