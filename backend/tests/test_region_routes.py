@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_region_service
 from app.config import settings
-from app.domain.traffic import CarStressBreakdown, CarStressRecipe
+from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
 from app.main import app
 
@@ -20,15 +20,12 @@ def clear_rate_limiter():
 
 
 class FakeRegionService:
-    def __init__(self, tile_bytes=b"\x00\x01\x02", car_stress_breakdown=None):
+    def __init__(self, tile_bytes=b"\x00\x01\x02", axis_inspector_result=None):
         self._tile_bytes = tile_bytes
-        self._car_stress_breakdown = car_stress_breakdown
+        self._axis_inspector_result = axis_inspector_result
         self.last_request = None
         self.last_poi_request = None
-        self.last_breakdown_request = None
-        self.last_breakdown_recipe = None
-        self.last_breakdown_road_suitability_recipe = None
-        self.last_breakdown_motor_vehicle_density_recipe = None
+        self.last_axis_inspector_request = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
@@ -38,14 +35,9 @@ class FakeRegionService:
         self.last_poi_request = (z, x, y)
         return self._tile_bytes
 
-    async def get_car_stress_breakdown(
-        self, osm_way_id, recipe=None, road_suitability_recipe=None, motor_vehicle_density_recipe=None
-    ):
-        self.last_breakdown_request = osm_way_id
-        self.last_breakdown_recipe = recipe
-        self.last_breakdown_road_suitability_recipe = road_suitability_recipe
-        self.last_breakdown_motor_vehicle_density_recipe = motor_vehicle_density_recipe
-        return self._car_stress_breakdown
+    async def get_axis_inspector(self, osm_way_id):
+        self.last_axis_inspector_request = osm_way_id
+        return self._axis_inspector_result
 
 
 def test_region_road_surface_tile_returns_mvt_bytes():
@@ -183,36 +175,36 @@ def test_region_poi_tile_rate_limit_is_independent_from_road_surface_tile_rate_l
     assert response.status_code == 200
 
 
-def test_region_car_stress_breakdown_returns_breakdown_json():
-    breakdown = CarStressBreakdown(
-        base=4,
-        cycleway_adjustment=0,
-        maxspeed_adjustment=1,
-        lanes_adjustment=0,
-        designation_adjustment=0,
-        motor_vehicle_no_override=False,
-        level=4,
+def test_region_axis_inspector_returns_result_json():
+    # 改善計画T292: 車ストレス専用の内訳エンドポイント（旧/api/region/car-stress-breakdown）は
+    # 廃止し、軸別の汎用内訳エンドポイント（本エンドポイント）へ統合した。
+    result = AxisInspectorResult(
+        highway="primary",
+        tags={},
+        is_designated=False,
+        axes=[AxisInspectorAxis(axis_id="car_stress", difficulty=75.0, weight=0.2, available=True)],
+        composite_difficulty=75.0,
+        covered_weight_fraction=1.0,
     )
-    fake = FakeRegionService(car_stress_breakdown=breakdown)
+    fake = FakeRegionService(axis_inspector_result=result)
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.post("/api/region/car-stress-breakdown", json={"osm_way_id": 12345})
+        response = client.post("/api/region/axis-inspector", json={"osm_way_id": 12345})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == breakdown.model_dump()
-    assert fake.last_breakdown_request == 12345
-    assert fake.last_breakdown_recipe is None
+    assert response.json() == result.model_dump()
+    assert fake.last_axis_inspector_request == 12345
 
 
-def test_region_car_stress_breakdown_returns_null_when_service_returns_none():
+def test_region_axis_inspector_returns_null_when_service_returns_none():
     # DBなし構成・該当wayが無い場合はRegionService側がNoneを返す
-    app.dependency_overrides[get_region_service] = lambda: FakeRegionService(car_stress_breakdown=None)
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionService(axis_inspector_result=None)
 
     try:
-        response = client.post("/api/region/car-stress-breakdown", json={"osm_way_id": 12345})
+        response = client.post("/api/region/axis-inspector", json={"osm_way_id": 12345})
     finally:
         app.dependency_overrides.clear()
 
@@ -220,40 +212,18 @@ def test_region_car_stress_breakdown_returns_null_when_service_returns_none():
     assert response.json() is None
 
 
-def test_region_car_stress_breakdown_rejects_non_integer_osm_way_id():
+def test_region_axis_inspector_rejects_non_integer_osm_way_id():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
-        response = client.post("/api/region/car-stress-breakdown", json={"osm_way_id": "not-a-number"})
+        response = client.post("/api/region/axis-inspector", json={"osm_way_id": "not-a-number"})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
 
 
-def test_region_car_stress_breakdown_rejects_inverted_lanes_thresholds_across_recipes():
-    # lanes_low_threshold(car_stress_recipe)とlanes_high_threshold
-    # (motor_vehicle_density_recipe、省略時は既定値4)は別モデルに分かれているため、
-    # routes.py: validate_lanes_threshold_order（CarStressBreakdownRequest.
-    # model_validator経由）が両モデルを跨いで検証することを確認する
-    # （test_routes_generate.pyの同種テストと対の回帰テスト）。
-    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-
-    try:
-        response = client.post(
-            "/api/region/car-stress-breakdown",
-            json={
-                "osm_way_id": 12345,
-                "car_stress_recipe": {**CarStressRecipe().model_dump(), "lanes_low_threshold": 5},
-            },
-        )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 422
-
-
-def test_region_car_stress_breakdown_rate_limit_is_independent_from_road_surface_tile_rate_limit():
+def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_rate_limit():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
 
     try:
@@ -261,7 +231,7 @@ def test_region_car_stress_breakdown_rate_limit_is_independent_from_road_surface
             rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
-        response = client.post("/api/region/car-stress-breakdown", json={"osm_way_id": 12345})
+        response = client.post("/api/region/axis-inspector", json={"osm_way_id": 12345})
     finally:
         app.dependency_overrides.clear()
 

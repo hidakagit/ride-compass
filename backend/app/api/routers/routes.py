@@ -16,15 +16,7 @@ from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
-from app.domain.recipe import (
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    ROAD_SUITABILITY_BASE_BY_HIGHWAY,
-    MotorVehicleDensityRecipe,
-    RoadSuitabilityRecipe,
-    validate_threshold_order,
-)
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
-from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE, CarStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.route_generator import JST
@@ -80,13 +72,16 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
     改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
     （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が
     黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する
-    （上書きするなら全軸を明示する、という従来の全フィールド必須方針のまま。
-    RoadSuitabilityRecipeOverride.base_by_highwayと同じ考え方）。値は非負。
+    （上書きするなら全軸を明示する、という方針）。値は非負。
     """
 
     @model_validator(mode="after")
     def _check_axis_keys(self) -> "RoutePreferenceWeights":
-        expected = AXIS_DEFINITIONS.keys()
+        # 改善計画T292: AXIS_DEFINITIONSには内部軸（is_published=False、他の公開軸から
+        # 参照される専用の推定軸）も含まれるため、一般ユーザー向けAPIの上書き対象は
+        # 公開軸のみへ絞る（domain/evaluation.py: RoutePreference._validate_and_fill_weightsと
+        # 同じ絞り込み）。
+        expected = {axis_id for axis_id, definition in AXIS_DEFINITIONS.items() if definition.is_published}
         actual = self.root.keys()
         if actual != expected:
             missing = sorted(expected - actual)
@@ -137,112 +132,6 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
         return cls({name: name in active for name in sorted(DEFAULT_HARD_FILTERS)})
 
 
-class RoadSuitabilityRecipeOverride(BaseModel):
-    """「道路適正」（highway別基準値＋cycleway補正）の上書き。キーはdomain/recipe.py:
-    RoadSuitabilityRecipeと同じ。RoutePreferenceWeightsと同じ「全フィールド必須」の
-    別モデル（上書きするなら全項目を明示する）。
-
-    車ストレス・安全度の両方が共通して参照する「車との近さ」(N2)の材料の1つ
-    （改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ
-    反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが
-    無いため順序検証は不要。
-
-    `base_by_highway`は「全12highwayキーを明示した完全な置き換え」を前提とする
-    （このモデル自体の「全フィールド必須」方針と同じ考え方）。domain/recipe.py:
-    road_suitability()はキー欠落を「そのhighwayは評価対象外」(base=None)として
-    静かに扱うため、部分的なdictを許すと、そのhighway種別が車ストレス・安全度の
-    両方から同時に消える（道路適正の共有化によって影響範囲が2軸分に広がった）。
-    """
-
-    base_by_highway: dict[str, int]
-    cycleway_track_adjustment: int
-    cycleway_lane_adjustment: int
-    cycleway_shared_adjustment: int
-
-    @model_validator(mode="after")
-    def _check_base_by_highway_keys(self) -> "RoadSuitabilityRecipeOverride":
-        expected = ROAD_SUITABILITY_BASE_BY_HIGHWAY.keys()
-        actual = self.base_by_highway.keys()
-        if actual != expected:
-            missing = sorted(expected - actual)
-            extra = sorted(actual - expected)
-            detail_parts = []
-            if missing:
-                detail_parts.append(f"missing={missing}")
-            if extra:
-                detail_parts.append(f"unknown={extra}")
-            raise ValueError(f"base_by_highway must specify exactly the {len(expected)} known highway keys ({', '.join(detail_parts)})")
-        return self
-
-
-class MotorVehicleDensityRecipeOverride(BaseModel):
-    """「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の上書き。キーは
-    domain/recipe.py: MotorVehicleDensityRecipeと同じ。RoadSuitabilityRecipeOverrideと
-    合わせて「車との近さ」(N2)を構成する、車ストレス・安全度が共有するもう1つの材料
-    （改善計画: 車との近さ材料の共有元化）。
-    """
-
-    maxspeed_low_threshold: int
-    maxspeed_low_adjustment: int
-    maxspeed_high_threshold: int
-    maxspeed_high_adjustment: int
-    lanes_high_threshold: int
-    lanes_high_adjustment: int
-    designation_adjustment: int
-
-    @model_validator(mode="after")
-    def _check_threshold_order(self) -> "MotorVehicleDensityRecipeOverride":
-        # domain/recipe.py: validate_threshold_orderのdocstring参照（low>=highだと
-        # threshold_adjustmentの2条件が排他的でなくなる）。
-        validate_threshold_order(self.maxspeed_low_threshold, self.maxspeed_high_threshold, "maxspeed")
-        return self
-
-
-class CarStressRecipeOverride(BaseModel):
-    """車ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。
-    キーはdomain/traffic.py: CarStressRecipeと同じ。RoutePreferenceWeightsと同じ
-    「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
-
-    highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
-    RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
-    （改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側
-    (MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた
-    ため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は
-    `_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/
-    `CarStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:
-    car_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で
-    なくなり、両方が同時に発火して打ち消し合う）。
-    """
-
-    lanes_low_threshold: int
-    lanes_low_adjustment: int
-
-
-def validate_lanes_threshold_order(
-    car_stress_recipe: "CarStressRecipeOverride | None",
-    motor_vehicle_density_recipe: "MotorVehicleDensityRecipeOverride | None",
-) -> None:
-    """`lanes_low_threshold`（CarStressRecipeOverride）と`lanes_high_threshold`
-    （MotorVehicleDensityRecipeOverride）は別モデルに分かれているため、Pydanticの
-    単一モデル`model_validator`では検証できない。どちらか一方だけが上書きされる
-    ケースもあるため、省略された側は既定値（DEFAULT_CAR_STRESS_RECIPE/
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE）を補って「実際に適用される値」どうしを
-    比較する。両モデルを併せ持つリクエストボディ（`RouteGenerateRequest`/
-    `CarStressBreakdownRequest`）の`model_validator(mode="after")`から呼ぶ。
-    """
-    lanes_low = (
-        car_stress_recipe.lanes_low_threshold
-        if car_stress_recipe is not None
-        else DEFAULT_CAR_STRESS_RECIPE.lanes_low_threshold
-    )
-    lanes_high = (
-        motor_vehicle_density_recipe.lanes_high_threshold
-        if motor_vehicle_density_recipe is not None
-        else DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.lanes_high_threshold
-    )
-    validate_threshold_order(lanes_low, lanes_high, "lanes")
-
-
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -257,9 +146,6 @@ class RouteGenerateRequest(BaseModel):
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     scoring_weights: ScoringWeights | None = None
     route_preference: RoutePreferenceWeights | None = None
-    car_stress_recipe: CarStressRecipeOverride | None = None
-    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
     # （従来どおり最悪でも距離2倍）。road_graphエンジンのみに効く
     # （domain/evaluation.py: compute_cost_from_axis_scores参照。openrouteservice
@@ -272,11 +158,6 @@ class RouteGenerateRequest(BaseModel):
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。road_graphエンジンの
     # みに効く。
     hard_filters: HardFilterOverride | None = None
-
-    @model_validator(mode="after")
-    def _check_lanes_threshold_order(self) -> "RouteGenerateRequest":
-        validate_lanes_threshold_order(self.car_stress_recipe, self.motor_vehicle_density_recipe)
-        return self
 
 
 class GenerationConditions(BaseModel):
@@ -293,9 +174,6 @@ class GenerationConditions(BaseModel):
     distance_tolerance_km: float
     scoring_weights: ScoringWeights
     route_preference: RoutePreferenceWeights
-    car_stress_recipe: CarStressRecipeOverride
-    road_suitability_recipe: RoadSuitabilityRecipeOverride
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。
     penalty_strength: float
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
@@ -339,26 +217,10 @@ async def generate_routes(
         RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
     )
     scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
-    car_stress_recipe_override = (
-        CarStressRecipe(**request.car_stress_recipe.model_dump()) if request.car_stress_recipe else None
-    )
-    road_suitability_recipe_override = (
-        RoadSuitabilityRecipe(**request.road_suitability_recipe.model_dump())
-        if request.road_suitability_recipe
-        else None
-    )
-    motor_vehicle_density_recipe_override = (
-        MotorVehicleDensityRecipe(**request.motor_vehicle_density_recipe.model_dump())
-        if request.motor_vehicle_density_recipe
-        else None
-    )
     hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
     setup = build_generation(
         preference_override,
         scoring_override,
-        car_stress_recipe_override,
-        road_suitability_recipe_override,
-        motor_vehicle_density_recipe_override,
         request.penalty_strength,
         request.max_average_grade_percent,
         hard_filters_override,
@@ -381,11 +243,6 @@ async def generate_routes(
             distance_tolerance_km=request.distance_tolerance_km,
             scoring_weights=ScoringWeights(**setup.scoring_weights),
             route_preference=RoutePreferenceWeights(setup.route_preference.weights),
-            car_stress_recipe=CarStressRecipeOverride(**setup.car_stress_recipe.model_dump()),
-            road_suitability_recipe=RoadSuitabilityRecipeOverride(**setup.road_suitability_recipe.model_dump()),
-            motor_vehicle_density_recipe=MotorVehicleDensityRecipeOverride(
-                **setup.motor_vehicle_density_recipe.model_dump()
-            ),
             penalty_strength=setup.penalty_strength,
             max_average_grade_percent=setup.max_average_grade_percent,
             hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),

@@ -25,19 +25,9 @@ from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty
 from app.domain.graph import EdgeLike, RoadGraphLike
 from app.domain.night import night_materials
-from app.domain.recipe import (
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    MotorVehicleDensityRecipe,
-    RoadSuitabilityRecipe,
-    car_closeness,
-    cycleway_class,
-    parse_lanes,
-    tag_value_is,
-    threshold_adjustment,
-)
+from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
-from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE, CarStressRecipe, car_stress_level
+from app.domain.traffic import classify_bicycle_infrastructure
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindCalculator
 
@@ -144,9 +134,6 @@ def axis_inspector_breakdown(
     way_counts: tuple[float, float, int, int] | None,
     accident_years_covered: int,
     preference: RoutePreference | None = None,
-    car_stress_recipe: CarStressRecipe | None = None,
-    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。`way_counts`は
     `RoadGraphRepository.get_way_attribute_counts`の戻り値
@@ -155,10 +142,11 @@ def axis_inspector_breakdown(
     """
     weights = (preference or RoutePreference()).weights
 
-    level = car_stress_level(
-        highway, tags, is_designated, car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe
-    )
     surface_good = classify_osm_surface(tags.get("surface"))
+    bicycle_infra = classify_bicycle_infrastructure(tags, highway)
+    maxspeed_kmh = parse_maxspeed(tags)
+    lanes_count = parse_lanes(tags)
+    motor_vehicle_no = tag_value_is(tags, "motor_vehicle", "no")
 
     length_km = None
     accident_count = stop_count = intersection_count = None
@@ -176,7 +164,10 @@ def axis_inspector_breakdown(
     # 改善計画T221 Stage B/C: 軸ごとのハードコードをやめ、AXIS_DEFINITIONSをループする。
     # gradient/windの材料（勾配%・風ペナルティ）は単独wayでは算出不能（ルート文脈が必要）
     # なためNoneのまま渡す＝常にavailable=Falseとして扱われる（データ欠損の軸と同じ
-    # 「Noneは合成から除外」動作に自然に乗る）。
+    # 「Noneは合成から除外」動作に自然に乗る）。改善計画T292: car_stress軸が内部軸5つを
+    # 参照する階層構造になったため、compute_edge_axis_scoresと同じ依存順評価
+    # （topological_axis_order）を使う。内部軸は`available=False`相当の扱いのため
+    # 最終結果（axes）からは除外し、公開軸のみを返す（旧来のAPI応答形状を維持）。
     materials: dict[str, object] = {
         "gradient_percent": None,
         "wind_penalty": None,
@@ -184,13 +175,22 @@ def axis_inspector_breakdown(
         "stop_count_per_km": stop_per_km,
         "intersection_count_per_km": intersection_per_km,
         "accident_count_per_km_year": accident_per_km_year,
-        "car_stress_level": level,
+        "highway": highway,
+        "bicycle_infra": bicycle_infra,
+        "maxspeed_kmh": maxspeed_kmh,
+        "lanes_count": lanes_count,
+        "is_designated": is_designated,
+        "motor_vehicle_no": motor_vehicle_no,
         **night_materials(tags),
     }
-    scores: dict[str, float | None] = {
-        axis_id: evaluate_axis_scalar(definition, materials)
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-    }
+    scores: dict[str, float | None] = {}
+    materials_with_axes: dict[str, object] = dict(materials)
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        value = evaluate_axis_scalar(AXIS_DEFINITIONS[axis_id], materials_with_axes)
+        scores[axis_id] = value
+        if value is not None:
+            materials_with_axes[axis_id] = value
+    scores = {axis_id: score for axis_id, score in scores.items() if AXIS_DEFINITIONS[axis_id].is_published}
 
     axes = [
         AxisInspectorAxis(axis_id=axis_id, difficulty=score, weight=weights.get(axis_id, 0.0), available=score is not None)
@@ -305,9 +305,6 @@ def compute_wind_penalty(edge: EdgeLike, wind: WeatherConditions | None) -> floa
     return WindCalculator.wind_penalty(wind.wind_speed_ms, wind.wind_direction_deg, edge.bearing_deg)
 
 
-_CAR_STRESS_LEVEL_NOT_PROVIDED = object()
-
-
 def compute_edge_axis_scores(
     edge: EdgeLike,
     elevation_attribute: ElevationAttribute | None,
@@ -319,10 +316,6 @@ def compute_edge_axis_scores(
     accident_count: int | None = None,
     accident_years_covered: int = 0,
     is_designated: bool = False,
-    car_stress_recipe: CarStressRecipe | None = None,
-    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
-    car_stress_level_value: int | None = _CAR_STRESS_LEVEL_NOT_PROVIDED,  # type: ignore[assignment]
 ) -> dict[str, float]:
     """二次: 一次属性から軸別スコア（axis_id→0-100のdifficulty）を算出する
     （改善計画T142、設計プロンプト「評価システムの層構造再設計」の二次そのもの）。
@@ -338,8 +331,9 @@ def compute_edge_axis_scores(
     Noneはデータ無し（未評価、0個と区別する）。
     `way_tags`はこのEdgeのosm_way_idに対応する許可リストタグ（静的道路属性P0、
     車ストレス・夜間評価の入力）。Noneはデータ未取得（repository未注入等）を表し両軸とも
-    評価しない。タグ自体が空（`{}`）でも`edge.highway`があれば車ストレスの基本値は
-    評価できる（unknown安全設計のため）。
+    評価しない（改善計画T292: highway由来の車ストレス内部軸もway_tags未取得時は
+    意図的にNoneにして評価しない。旧ロジックと同じ「way_tags無し=car_stress未評価」を
+    維持するため）。
     `intersection_count`はこのEdge周辺の交差点（次数3以上のNode）の件数（静的道路属性P1残り、
     改善計画T149でstop_density軸への補助入力へ変更）。Noneはデータ無し（未評価、0件と区別する）。
     `accident_count`はこのEdge周辺の事故（accident_points）の件数（外部静的データソース
@@ -348,48 +342,11 @@ def compute_edge_axis_scores(
     正規化するために使う。
     `is_designated`はこのEdgeがKSJ N10/N12（緊急輸送道路・重要物流道路）に該当するか
     （外部静的データソース T51）。車ストレスへの補正のみに使う。
-    `car_stress_recipe`は車ストレス軸の判定レシピの上書き（省略時はdomain/traffic.py:
-    DEFAULT_CAR_STRESS_RECIPE）。研究モードでのレシピ調整用（一次情報→二次情報の変換式
-    自体をリクエスト単位で差し替える）。
-    `road_suitability_recipe`/`motor_vehicle_density_recipe`は車ストレスが参照する
-    「車との近さ」(N2)の材料の上書き（省略時はそれぞれdomain/recipe.py:
-    DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE、改善計画:
-    車との近さ材料の共有元化）。
-    `car_stress_level_value`は呼び出し元が既に`car_stress_level()`を計算済みの場合、その
-    結果（1-5、またはway_tags未取得ならNone）を渡すことで内部での再計算を省略できる
-    （改善計画T153。省略時は`way_tags`等から本関数がその場で計算する。呼び出し元は
-    `car_stress_level_value`に使ったのと同じ`car_stress_recipe`/`road_suitability_recipe`/
-    `motor_vehicle_density_recipe`をこの関数へも渡すこと——異なるレシピを渡すと
-    car_stress_level_valueとaxis_scores["car_stress"]が別レシピの値になり不整合になる）。
     """
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_type)
     wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
-    # 「車との近さ」(N2)はcar_stress_levelがこの1箇所でのみ参照する（T148で安全度軸を
-    # 削除するまではsafety_levelとも共有する共通の土台だったため、呼び出し元で1回だけ
-    # 計算して両方へ渡すdedupをしていたが、参照元が1箇所になったためcar_stress_level内部の
-    # 計算へ戻した）。ただしroad_graph_engine.pyの区間表示ビルダーは、この関数とは別に
-    # 表示用の生値car_stressを自分でも必要とするため、依然としてcar_stress_level()を
-    # 呼び出し元・本関数の両方で計算する二重計算が残っていた（統合レビュー2026-08-19、
-    # overall F-1／改善計画T153）。car_stress_level_valueが明示的に渡された場合は
-    # ここでの再計算をスキップしてそれを使う。
-    car_stress = (
-        (
-            car_stress_level(
-                edge.highway,
-                way_tags,
-                is_designated,
-                car_stress_recipe,
-                road_suitability_recipe=road_suitability_recipe,
-                motor_vehicle_density_recipe=motor_vehicle_density_recipe,
-            )
-            if way_tags is not None
-            else None
-        )
-        if car_stress_level_value is _CAR_STRESS_LEVEL_NOT_PROVIDED
-        else car_stress_level_value
-    )
     intersection_count_per_km = (
         intersection_count / (edge.distance_m / 1000) if intersection_count is not None and edge.distance_m > 0 else None
     )
@@ -398,6 +355,22 @@ def compute_edge_axis_scores(
         if accident_count is not None and edge.distance_m > 0 and accident_years_covered > 0
         else None
     )
+    # 改善計画T292: 車ストレスは専用Pythonレシピ（car_stress_level等）を廃止し、
+    # AXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造（axis_definitions.py:
+    # "car_stress_highway_base"等のコメント参照）で再現する。ここでは一次材料
+    # （highway/bicycle_infra/maxspeed_kmh/lanes_count/is_designated/motor_vehicle_no）を
+    # 素直に抽出するだけで、highway基準値以外の判定式は一切持たない。
+    #
+    # way_tagsがNone（データ未取得）の場合、旧ロジックはcar_stress全体を評価しなかった
+    # （car_stress_level(...) if way_tags is not None else None）。この挙動を保つため、
+    # "highway"材料自体をway_tags未取得時はNoneにする（edge.highwayが分かっていても
+    # あえて使わない）。highway基準値軸はrequired=Trueで公開軸car_stressの最初のterm
+    # のため、これがNoneなら公開軸全体がNoneになり旧挙動と一致する。
+    highway_for_car_stress = edge.highway if way_tags is not None else None
+    bicycle_infra = classify_bicycle_infrastructure(way_tags, edge.highway) if way_tags is not None else None
+    maxspeed_kmh = parse_maxspeed(way_tags) if way_tags is not None else None
+    lanes_count = parse_lanes(way_tags) if way_tags is not None else None
+    motor_vehicle_no = tag_value_is(way_tags, "motor_vehicle", "no") if way_tags is not None else None
     # 改善計画T220: 合成composite計算はここでは行わない（実際の合成は
     # `compute_cost_from_axis_scores`が実重みで別途行う。以前ダミー重みの
     # `evaluate_axis_difficulties`を呼んで無駄な合成が発生していた経緯はT220参照）。
@@ -412,7 +385,12 @@ def compute_edge_axis_scores(
         "stop_count_per_km": stop_count_per_km,
         "intersection_count_per_km": intersection_count_per_km,
         "accident_count_per_km_year": accident_count_per_km_year,
-        "car_stress_level": car_stress,
+        "highway": highway_for_car_stress,
+        "bicycle_infra": bicycle_infra,
+        "maxspeed_kmh": maxspeed_kmh,
+        "lanes_count": lanes_count,
+        "is_designated": is_designated,
+        "motor_vehicle_no": motor_vehicle_no,
         **night_materials(way_tags),
     }
     # 改善計画T292: 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
@@ -424,8 +402,9 @@ def compute_edge_axis_scores(
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
         value = evaluate_axis_scalar(AXIS_DEFINITIONS[axis_id], materials_with_axes)
         if value is not None:
-            axis_values[axis_id] = value
             materials_with_axes[axis_id] = value
+            if AXIS_DEFINITIONS[axis_id].is_published:
+                axis_values[axis_id] = value
     return axis_values
 
 
@@ -466,9 +445,6 @@ def compute_edge_cost(
     accident_count: int | None = None,
     accident_years_covered: int = 0,
     is_designated: bool = False,
-    car_stress_recipe: CarStressRecipe | None = None,
-    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     weights: dict[str, float] | None = None,
@@ -508,7 +484,6 @@ def compute_edge_cost(
     axis_scores = compute_edge_axis_scores(
         edge, elevation_attribute, surface_type, wind, stop_count, way_tags,
         intersection_count, accident_count, accident_years_covered, is_designated,
-        car_stress_recipe, road_suitability_recipe, motor_vehicle_density_recipe,
     )
     resolved_weights = weights if weights is not None else preference.weights
     cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
@@ -544,9 +519,6 @@ def compute_edge_costs_bulk(
     elevation_attributes: dict[str, ElevationAttribute],
     surface_attributes: dict[str, str | None],
     preference: RoutePreference,
-    car_stress_recipe: CarStressRecipe | None = None,
-    road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     wind: WeatherConditions | None = None,
     stop_counts: dict[str, int] | None = None,
     way_tags: dict[str, dict[str, str]] | None = None,
@@ -564,10 +536,11 @@ def compute_edge_costs_bulk(
 
     構造は「抽出フェーズ」と「計算フェーズ」の2段:
 
-    - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセス（`car_closeness`・
-      `threshold_adjustment`・`cycleway_class`・`parse_lanes`・`tag_value_is`等の
-      文字列処理を伴う既存の判定プリミティブをそのまま呼ぶ、ロジックの再実装はしない）を
-      ここに集約し、以降で使う数値をすべてnumpy配列へ落とし込む。欠損値はNaNで表現する。
+    - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセス（`classify_bicycle_infrastructure`・
+      `parse_lanes`・`parse_maxspeed`・`tag_value_is`等の文字列処理を伴う既存の判定
+      プリミティブをそのまま呼ぶ、ロジックの再実装はしない）をここに集約し、以降で使う
+      数値をすべてnumpy配列へ落とし込む。欠損値は数値材料がNaN、文字列材料（highway・
+      bicycle_infra、dtype=object）がNoneで表現する。
     - 計算フェーズ（Pythonループ無し）: 材料id→配列の辞書に対して`AXIS_DEFINITIONS`
       （domain/axis_definitions.py、改善計画T221 Stage B/C）を軸ごとに適用して
       difficulty配列を求め、重み配列とのマスク付き加重平均（`composite_difficulty`の
@@ -587,9 +560,6 @@ def compute_edge_costs_bulk(
     `hard_filters`（改善計画T266）: `is_edge_allowed`と同じフィルタ名集合による上書き。
     省略時（既定None）は`DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。
     """
-    car_stress_recipe = car_stress_recipe or DEFAULT_CAR_STRESS_RECIPE
-    road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
-    motor_vehicle_density_recipe = motor_vehicle_density_recipe or DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
     stop_counts = stop_counts or {}
     intersection_counts = intersection_counts or {}
     accident_counts = accident_counts or {}
@@ -614,11 +584,14 @@ def compute_edge_costs_bulk(
     stop_count_per_km = np.full(n, np.nan)
     intersection_count_per_km = np.full(n, np.nan)
     accident_count_per_km_year = np.full(n, np.nan)
-    car_stress_base = np.full(n, np.nan)
-    car_stress_cycleway_adj = np.zeros(n)
-    car_stress_maxspeed_adj = np.zeros(n)
-    car_stress_lanes_adj = np.zeros(n)
-    car_stress_designation_adj = np.zeros(n)
+    # 改善計画T292: car_stress軸の内部軸5つが参照する一次材料。highway/bicycle_infraは
+    # dtype=objectの文字列配列（欠損=None、CategoricalShape側の`values==key`比較は
+    # Noneに対して常にFalseになるので欠損の伝播に特別な処理は要らない）。
+    highway_for_car_stress: list[str | None] = [None] * n
+    bicycle_infra: list[str | None] = [None] * n
+    maxspeed_kmh = np.full(n, np.nan)
+    lanes_count = np.full(n, np.nan)
+    is_designated_flags = np.zeros(n, dtype=bool)
     motor_vehicle_no = np.zeros(n, dtype=bool)
     no_lit = np.zeros(n, dtype=bool)
     has_tunnel = np.zeros(n, dtype=bool)
@@ -665,28 +638,22 @@ def compute_edge_costs_bulk(
         if accident_count is not None and distance_km > 0 and accident_years_covered > 0:
             accident_count_per_km_year[i] = accident_count / distance_km / accident_years_covered
 
+        is_designated_flags[i] = edge_id in designated_edge_ids
+
+        # 改善計画T292: highway由来の車ストレス内部軸はway_tags未取得時に評価しない
+        # （旧ロジックの「way_tags無し=car_stress全体を評価しない」を維持するため、
+        # edge.highwayが分かっていてもここでは意図的に使わない。
+        # compute_edge_axis_scoresの同名コメント参照）。
         if edge_way_tags is not None:
-            is_designated = edge_id in designated_edge_ids
-            base, cycleway_adj, maxspeed_adj, lanes_high_adj, designation_adj = car_closeness(
-                edge.highway, edge_way_tags, is_designated, road_suitability_recipe, motor_vehicle_density_recipe
-            )
-            if base is not None:
-                car_stress_base[i] = base
-                car_stress_cycleway_adj[i] = cycleway_adj
-                car_stress_maxspeed_adj[i] = maxspeed_adj
-                if tag_value_is(edge_way_tags, "motor_vehicle", "no"):
-                    motor_vehicle_no[i] = True
-                    # motor_vehicle=noはlanes_low・designationに関わらずlevel=1固定
-                    # （domain/traffic.py: _compute_car_stressと同じ、下の計算フェーズ参照）。
-                else:
-                    car_stress_designation_adj[i] = designation_adj
-                    lanes_low_threshold = (
-                        None if cycleway_class(edge_way_tags) == "track" else car_stress_recipe.lanes_low_threshold
-                    )
-                    lanes_low_adj = threshold_adjustment(
-                        parse_lanes(edge_way_tags), lanes_low_threshold, car_stress_recipe.lanes_low_adjustment, None, 0
-                    )
-                    car_stress_lanes_adj[i] = lanes_high_adj + lanes_low_adj
+            highway_for_car_stress[i] = edge.highway
+            bicycle_infra[i] = classify_bicycle_infrastructure(edge_way_tags, edge.highway)
+            maxspeed_value = parse_maxspeed(edge_way_tags)
+            if maxspeed_value is not None:
+                maxspeed_kmh[i] = maxspeed_value
+            lanes_value = parse_lanes(edge_way_tags)
+            if lanes_value is not None:
+                lanes_count[i] = lanes_value
+            motor_vehicle_no[i] = tag_value_is(edge_way_tags, "motor_vehicle", "no")
             no_lit[i] = not tag_value_is(edge_way_tags, "lit", "yes")
             has_tunnel[i] = tag_value_is(edge_way_tags, "tunnel", "yes")
 
@@ -697,30 +664,19 @@ def compute_edge_costs_bulk(
         else wind.wind_speed_ms * np.cos(np.radians(wind.wind_direction_deg - bearing_deg))
     )
 
-    # clamp_level（domain/recipe.py）と同じ1-5クランプ（domain/traffic.py:
-    # _compute_car_stressもclamp_level(value, 1, 5)とリテラルで持つ既存の重複と同じ扱い）。
-    car_stress_level_value = np.where(
-        motor_vehicle_no,
-        1.0,
-        np.clip(
-            car_stress_base
-            + car_stress_cycleway_adj
-            + car_stress_maxspeed_adj
-            + car_stress_lanes_adj
-            + car_stress_designation_adj,
-            1,
-            5,
-        ),
-    )
-
-    material_arrays = {
+    material_arrays: dict[str, np.ndarray] = {
         "gradient_percent": gradient_percent,
         "wind_penalty": wind_penalty,
         "surface_good": surface_good,
         "stop_count_per_km": stop_count_per_km,
         "intersection_count_per_km": intersection_count_per_km,
         "accident_count_per_km_year": accident_count_per_km_year,
-        "car_stress_level": car_stress_level_value,
+        "highway": np.array(highway_for_car_stress, dtype=object),
+        "bicycle_infra": np.array(bicycle_infra, dtype=object),
+        "maxspeed_kmh": maxspeed_kmh,
+        "lanes_count": lanes_count,
+        "is_designated": is_designated_flags,
+        "motor_vehicle_no": motor_vehicle_no,
         "no_lit": no_lit,
         "has_tunnel": has_tunnel,
     }

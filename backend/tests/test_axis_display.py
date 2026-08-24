@@ -1,4 +1,10 @@
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+)
 from app.domain.axis_display import derive_ramp_inputs
 from app.domain.registry import TileInputSpec
 
@@ -20,6 +26,26 @@ def test_categorical_shape_derives_two_band_ramp():
     # 不明」を表すため、has_unknown_fallback=Trueを立てる（フロントはtrue_value/
     # false_valueどちらにも倒さず灰色「不明」表示にする）。
     assert tile_input.has_unknown_fallback is True
+
+
+def test_categorical_shape_with_str_multi_value_material_is_not_auto_derived():
+    # 改善計画T292回帰テスト: CategoricalShape.mappingがstr多値材料（highway等、3値以上）
+    # にも対応した後、export_openapi.pyの自動ramp化ループがcar_stress_highway_base等の
+    # 内部軸へderive_ramp_inputsを呼んでKeyError(shape.mapping[True])でクラッシュする
+    # 実障害が発覚した。str多値のmappingは2色rampで表現できないためNone（ramp化不可）を
+    # 返すべきで、例外は送出しない。
+    definition = AxisDefinition(
+        axis_id="highway_like_axis",
+        shape=CategoricalShape(
+            material="highway",
+            mapping={"residential": 2.0, "primary": 4.0, "trunk": 4.0},
+        ),
+        default_weight=0.0,
+        label="テスト軸",
+        is_published=False,
+    )
+
+    assert derive_ramp_inputs(definition) is None
 
 
 def test_flag_sum_shape_derives_subset_sum_thresholds():

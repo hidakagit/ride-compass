@@ -5,9 +5,7 @@ from app.api.dependencies import RouteGenerationSetup, get_route_generation_buil
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.route import RouteCandidate
-from app.domain.traffic import CarStressRecipe
 from app.infrastructure import rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.ors_client import ORSClient
@@ -67,9 +65,6 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
     def build(
         preference_override=None,
         scoring_weights_override=None,
-        car_stress_recipe_override=None,
-        road_suitability_recipe_override=None,
-        motor_vehicle_density_recipe_override=None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters_override: frozenset[str] | None = None,
@@ -77,9 +72,6 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
         if captured is not None:
             captured["preference"] = preference_override
             captured["scoring"] = scoring_weights_override
-            captured["car_stress_recipe"] = car_stress_recipe_override
-            captured["road_suitability_recipe"] = road_suitability_recipe_override
-            captured["motor_vehicle_density_recipe"] = motor_vehicle_density_recipe_override
             captured["penalty_strength"] = penalty_strength
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
@@ -87,9 +79,6 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             generator=FakeRouteGenerator(candidates),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
-            car_stress_recipe=car_stress_recipe_override or CarStressRecipe(),
-            road_suitability_recipe=road_suitability_recipe_override or RoadSuitabilityRecipe(),
-            motor_vehicle_density_recipe=motor_vehicle_density_recipe_override or MotorVehicleDensityRecipe(),
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
             hard_filters=hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS,
@@ -238,39 +227,6 @@ def test_generate_routes_rejects_hard_filters_with_missing_keys():
     assert response.status_code == 422
 
 
-def test_generate_routes_applies_road_suitability_and_motor_vehicle_density_overrides_independently_of_car_stress():
-    # 改善計画: 車との近さ材料の共有元化。道路適正・自動車密度・車ストレス(軸固有部分)を
-    # 同時に上書きしても、それぞれ独立してビルダーへ渡り、conditionsへエコーされることを
-    # 確認する（3つの独立したトグルが組み合わさる想定）。
-    captured: dict = {}
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
-    road_suitability_recipe = {**RoadSuitabilityRecipe().model_dump(), "cycleway_track_adjustment": -3}
-    motor_vehicle_density_recipe = {**MotorVehicleDensityRecipe().model_dump(), "designation_adjustment": 2}
-    car_stress_recipe = {**CarStressRecipe().model_dump(), "lanes_low_adjustment": -2}
-
-    try:
-        response = client.post(
-            "/api/routes/generate",
-            json={
-                **REQUEST_BODY,
-                "road_suitability_recipe": road_suitability_recipe,
-                "motor_vehicle_density_recipe": motor_vehicle_density_recipe,
-                "car_stress_recipe": car_stress_recipe,
-            },
-        )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    assert captured["road_suitability_recipe"] == RoadSuitabilityRecipe(**road_suitability_recipe)
-    assert captured["motor_vehicle_density_recipe"] == MotorVehicleDensityRecipe(**motor_vehicle_density_recipe)
-    assert captured["car_stress_recipe"] == CarStressRecipe(**car_stress_recipe)
-    conditions = response.json()["conditions"]
-    assert conditions["road_suitability_recipe"] == road_suitability_recipe
-    assert conditions["motor_vehicle_density_recipe"] == motor_vehicle_density_recipe
-    assert conditions["car_stress_recipe"] == car_stress_recipe
-
-
 def test_generate_routes_is_rate_limited_per_client():
     # ルート生成は最も高コストなエンドポイント（外部APIクォータ・数十秒の処理時間）のため、
     # per-IPの上限を超えたリクエストは429で拒否する。
@@ -337,25 +293,6 @@ def _lightweight_generation_builder():
         {"scoring_weights": {"distance_weight": 0.5}},
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
-        # レビュー指摘の回帰テスト: maxspeed_low_threshold >= maxspeed_high_thresholdは
-        # domain/recipe.pyのif/elif判定順序（threshold_adjustment）で「高い方の補正」を
-        # 無効化してしまうため拒否する。改善計画: 車との近さ材料の共有元化でmaxspeed補正は
-        # MotorVehicleDensityRecipeOverrideへ移設済み（routes.py:
-        # MotorVehicleDensityRecipeOverride._check_threshold_order）。
-        {
-            "motor_vehicle_density_recipe": {
-                **MotorVehicleDensityRecipe().model_dump(),
-                "maxspeed_low_threshold": 60,
-                "maxspeed_high_threshold": 30,
-            }
-        },
-        # レビュー指摘の回帰テスト: lanes_low_threshold(CarStressRecipeOverride)と
-        # lanes_high_threshold(MotorVehicleDensityRecipeOverride)は別モデルに分かれて
-        # いるため、単体のmodel_validatorでは検証できない。routes.py:
-        # validate_lanes_threshold_order（RouteGenerateRequest.model_validator経由）が
-        # 両モデルを跨いで検証することを確認する。motor_vehicle_density_recipeは省略し、
-        # 既定値(lanes_high_threshold=4)への暗黙フォールバックも含めて検証する。
-        {"car_stress_recipe": {**CarStressRecipe().model_dump(), "lanes_low_threshold": 5}},
     ],
 )
 def test_generate_routes_rejects_invalid_request_body(overrides):

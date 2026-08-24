@@ -58,11 +58,26 @@ def test_update_skips_self_comparison():
     check_material_exclusivity(candidate, existing)  # 例外が出ないことを確認
 
 
+PUBLISHED_AXIS_IDS = frozenset(
+    {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night"}
+)
+
+
 def test_builtin_seven_axes_are_all_published():
     # 改善計画T271完了条件: 既存7軸（本番稼働中、一般ユーザーへ既に公開済み）は
     # is_published=Trueでなければならない（backfill漏れ・既定値の取り違えを防ぐ）。
-    for definition in AXIS_DEFINITIONS.values():
-        assert definition.is_published is True
+    # 改善計画T292: car_stress軸を支える内部軸（is_published=False、他の公開軸から
+    # 参照される専用の推定軸）がAXIS_DEFINITIONSへ加わったため、対象を公開7軸へ絞る。
+    for axis_id in PUBLISHED_AXIS_IDS:
+        assert AXIS_DEFINITIONS[axis_id].is_published is True
+
+
+def test_internal_axes_are_not_published():
+    # 上のテストと対になる確認: 公開7軸以外（car_stressを支える内部軸）は
+    # is_published=Falseのまま運用する（改善計画T292、内部軸の恒久的な終着点）。
+    for axis_id, definition in AXIS_DEFINITIONS.items():
+        if axis_id not in PUBLISHED_AXIS_IDS:
+            assert definition.is_published is False, axis_id
 
 
 def test_check_publish_immutability_allows_draft():

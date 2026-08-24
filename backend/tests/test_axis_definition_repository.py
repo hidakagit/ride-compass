@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, CategoricalShape, MaterialTerm
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 # road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
@@ -34,6 +34,55 @@ async def test_upsert_then_list_all_round_trips_shape_and_weight(road_graph_sess
 
     result = await repository.list_all()
     assert result == {"test_axis": definition}
+
+
+async def test_upsert_then_list_all_round_trips_categorical_bool_keys(road_graph_session):
+    # 改善計画T292回帰テスト: CategoricalShape.mappingをdict[bool|str, float]へ広げた際、
+    # 既定のPydantic smart-mode union解決だとJSON文字列"true"/"false"がbool True/Falseへ
+    # 強制変換されずstr型のまま残ってしまい、DB往復後にmapping={"true": ..., "false": ...}
+    # （str キー）になる回帰が実データ検証で発覚した（本来はmapping={True: ..., False: ...}）。
+    # union_mode="left_to_right"でbool判定を先に試すよう修正済み。
+    definition = AxisDefinition(
+        axis_id="bool_categorical_axis",
+        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.1,
+        label="テスト軸[bool_categorical_axis]",
+        description="",
+        category="推定",
+    )
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(definition, sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    loaded_shape = result["bool_categorical_axis"].shape
+    assert isinstance(loaded_shape, CategoricalShape)
+    assert loaded_shape.mapping == {True: 0.0, False: 80.0}
+    assert all(isinstance(key, bool) for key in loaded_shape.mapping)
+
+
+async def test_upsert_then_list_all_round_trips_categorical_str_keys(road_graph_session):
+    # 上と対称: 通常のstr多値categorical材料（highway等）は文字列キーのまま
+    # 正しく往復すること（bool優先判定の副作用で意図せずbool化されないことの確認）。
+    definition = AxisDefinition(
+        axis_id="str_categorical_axis",
+        shape=CategoricalShape(material="bicycle_infra", mapping={"separated": -2.0, "roadway": 1.0}),
+        default_weight=0.1,
+        label="テスト軸[str_categorical_axis]",
+        description="",
+        category="推定",
+    )
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(definition, sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    loaded_shape = result["str_categorical_axis"].shape
+    assert isinstance(loaded_shape, CategoricalShape)
+    assert loaded_shape.mapping == {"separated": -2.0, "roadway": 1.0}
+    assert all(isinstance(key, str) for key in loaded_shape.mapping)
 
 
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):

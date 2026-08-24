@@ -47,6 +47,50 @@ def _linear_axis(
     )
 
 
+# --- CategoricalShapeのstrキー対応（改善計画T292、highway/bicycle_infra等の多値材料） ---
+
+
+def _categorical_axis(axis_id: str, material: str, mapping: dict) -> AxisDefinition:
+    from app.domain.axis_definitions import CategoricalShape
+
+    return AxisDefinition(
+        axis_id=axis_id,
+        shape=CategoricalShape(material=material, mapping=mapping),
+        default_weight=0.1,
+        label=f"テスト軸[{axis_id}]",
+        is_published=False,
+    )
+
+
+def test_evaluate_axis_scalar_categorical_shape_accepts_str_keys():
+    definition = _categorical_axis("test", "bicycle_infra", {"separated": -2.0, "lane": -1.0, "roadway": 1.0})
+    assert evaluate_axis_scalar(definition, {"bicycle_infra": "separated"}) == -2.0
+    assert evaluate_axis_scalar(definition, {"bicycle_infra": "roadway"}) == 1.0
+
+
+def test_evaluate_axis_scalar_categorical_shape_unmatched_str_is_none():
+    definition = _categorical_axis("test", "bicycle_infra", {"separated": -2.0})
+    assert evaluate_axis_scalar(definition, {"bicycle_infra": "prohibited"}) is None
+
+
+def test_evaluate_axis_array_categorical_shape_accepts_str_keys():
+    definition = _categorical_axis("test", "bicycle_infra", {"separated": -2.0, "lane": -1.0, "roadway": 1.0})
+    materials = {"bicycle_infra": np.array(["separated", "roadway", "unknown"], dtype=object)}
+    result = evaluate_axis_array(definition, materials)
+    assert result[0] == -2.0
+    assert result[1] == 1.0
+    assert np.isnan(result[2])
+
+
+def test_evaluate_axis_array_categorical_shape_still_accepts_bool_keys():
+    # 既存軸（surface_q等）のbool材料が引き続き正しく動くことの回帰確認。
+    definition = _categorical_axis("test", "surface_good", {True: 0.0, False: 80.0})
+    materials = {"surface_good": np.array([True, False])}
+    result = evaluate_axis_array(definition, materials)
+    assert result[0] == 0.0
+    assert result[1] == 80.0
+
+
 # --- priority_overrides（0次条件） ---
 
 
@@ -254,7 +298,10 @@ def test_compute_edge_axis_scores_resolves_internal_axis_reference(isolated_axis
 
     scores = compute_edge_axis_scores(_edge(), elevation, surface_type=None)
 
-    assert scores["internal_a"] == 50.0
+    # 改善計画T292: compute_edge_axis_scoresの返り値は公開軸のみに絞る（内部軸は
+    # 実装詳細のため含めない）。internal_aが正しく計算されたことは、それを参照する
+    # public_bの値（50.0）を通じて間接的に確認する。
+    assert "internal_a" not in scores
     assert scores["public_b"] == 50.0
 
 
@@ -295,10 +342,8 @@ def test_compute_edge_axis_scores_resolves_priority_override_through_hierarchy(i
     # surface_type="asphalt"はclassify_osm_surfaceでTrue(良路面)と判定される
     # （domain/road.py: GOOD_OSM_SURFACE_TAGS）ため、materials["surface_good"]=Trueになる。
     overridden = compute_edge_axis_scores(_edge(), elevation, surface_type="asphalt")
-    assert overridden["internal_a"] == 0.0
     assert overridden["public_b"] == 0.0
 
     # 非舗装（surface_good=False）なら0次条件が発火せず通常のshape計算になる。
     not_overridden = compute_edge_axis_scores(_edge(), elevation, surface_type="ground")
-    assert not_overridden["internal_a"] == 50.0
     assert not_overridden["public_b"] == 50.0

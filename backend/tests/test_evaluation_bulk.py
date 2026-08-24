@@ -17,8 +17,6 @@ from app.domain.evaluation import (
     compute_edge_costs_bulk,
 )
 from app.domain.graph import DirectedEdge, Node, RoadGraph
-from app.domain.recipe import DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE, DEFAULT_ROAD_SUITABILITY_RECIPE
-from app.domain.traffic import DEFAULT_CAR_STRESS_RECIPE
 from app.domain.weather import WeatherConditions
 
 # 全軸の重みを非ゼロにし、compositeが「一部の軸だけ」で決まらないようにする
@@ -170,9 +168,6 @@ def test_bulk_matches_scalar_for_every_edge(wind, max_average_grade_percent, pen
             accident_count=materials["accident_counts"].get(edge_id),
             accident_years_covered=3,
             is_designated=edge_id in materials["designated_edge_ids"],
-            car_stress_recipe=DEFAULT_CAR_STRESS_RECIPE,
-            road_suitability_recipe=DEFAULT_ROAD_SUITABILITY_RECIPE,
-            motor_vehicle_density_recipe=DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
         )
@@ -184,9 +179,6 @@ def test_bulk_matches_scalar_for_every_edge(wind, max_average_grade_percent, pen
         materials["elevation_attributes"],
         materials["surface_attributes"],
         PREFERENCE,
-        car_stress_recipe=DEFAULT_CAR_STRESS_RECIPE,
-        road_suitability_recipe=DEFAULT_ROAD_SUITABILITY_RECIPE,
-        motor_vehicle_density_recipe=DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
         wind=wind,
         stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
@@ -239,9 +231,6 @@ def test_bulk_hard_filters_override_matches_scalar(hard_filters):
             accident_count=materials["accident_counts"].get(edge_id),
             accident_years_covered=3,
             is_designated=edge_id in materials["designated_edge_ids"],
-            car_stress_recipe=DEFAULT_CAR_STRESS_RECIPE,
-            road_suitability_recipe=DEFAULT_ROAD_SUITABILITY_RECIPE,
-            motor_vehicle_density_recipe=DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
             hard_filters=hard_filters,
         )
         for edge_id, edge in graph.edges.items()
@@ -252,9 +241,6 @@ def test_bulk_hard_filters_override_matches_scalar(hard_filters):
         materials["elevation_attributes"],
         materials["surface_attributes"],
         PREFERENCE,
-        car_stress_recipe=DEFAULT_CAR_STRESS_RECIPE,
-        road_suitability_recipe=DEFAULT_ROAD_SUITABILITY_RECIPE,
-        motor_vehicle_density_recipe=DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
         stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
         intersection_counts=materials["intersection_counts"],

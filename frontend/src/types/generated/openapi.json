@@ -577,57 +577,10 @@
         }
       }
     },
-    "/api/region/car-stress-breakdown": {
-      "post": {
-        "summary": "Region Car Stress Breakdown",
-        "description": "車ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、\n路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:\ncar_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、\nhighwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ\n「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は\nRegionService.get_car_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。\nタイル取得と同じ歯止め（クリックの連打対策）を流用する。\n\nGETではなくPOST+JSONボディなのは、`car_stress_recipe`（レシピ上書き、改善計画:\n交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが\n不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。",
-        "operationId": "region_car_stress_breakdown_api_region_car_stress_breakdown_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CarStressBreakdownRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/CarStressBreakdown"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "title": "Response Region Car Stress Breakdown Api Region Car Stress Breakdown Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/region/axis-inspector": {
       "post": {
         "summary": "Region Axis Inspector",
-        "description": "区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nregion_car_stress_breakdownと同じ構造（POST+JSONボディ・osm_way_id完全一致の理由は\n同エンドポイントのdocstring参照）。gradient/wind軸は単独wayでは算出不能なため常に\navailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果自体を見る）。",
+        "description": "区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能\nなため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果\n自体を見る）。\n\n改善計画T292: 車ストレス専用レシピ（旧`/api/region/car-stress-breakdown`、\n`CarStressBreakdown`）は廃止し、本エンドポイント（軸別の汎用内訳）へ統合した。\nレシピ上書きパラメータ（旧car_stress_recipe等）も、専用Pythonレシピの廃止に伴い\n廃止した。",
         "operationId": "region_axis_inspector_api_region_axis_inspector_post",
         "requestBody": {
           "content": {
@@ -1326,36 +1279,6 @@
           "osm_way_id": {
             "type": "integer",
             "title": "Osm Way Id"
-          },
-          "car_stress_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CarStressRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "road_suitability_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoadSuitabilityRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "motor_vehicle_density_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MotorVehicleDensityRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "type": "object",
@@ -1482,126 +1405,6 @@
         "title": "BreakpointLinearShape",
         "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n`kind=\"recipe_then_breakpoint_linear\"`は計算上は同一で、材料が軸固有のレシピ判定\n（car_stress: `domain/traffic.py: car_stress_level`）の算出済み結果であることを\n表す命名（ADRの4テンプレート名に対応）。"
       },
-      "CarStressBreakdown": {
-        "properties": {
-          "base": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Base"
-          },
-          "cycleway_adjustment": {
-            "type": "integer",
-            "title": "Cycleway Adjustment"
-          },
-          "maxspeed_adjustment": {
-            "type": "integer",
-            "title": "Maxspeed Adjustment"
-          },
-          "lanes_adjustment": {
-            "type": "integer",
-            "title": "Lanes Adjustment"
-          },
-          "designation_adjustment": {
-            "type": "integer",
-            "title": "Designation Adjustment"
-          },
-          "motor_vehicle_no_override": {
-            "type": "boolean",
-            "title": "Motor Vehicle No Override"
-          },
-          "level": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Level"
-          }
-        },
-        "type": "object",
-        "required": [
-          "base",
-          "cycleway_adjustment",
-          "maxspeed_adjustment",
-          "lanes_adjustment",
-          "designation_adjustment",
-          "motor_vehicle_no_override",
-          "level"
-        ],
-        "title": "CarStressBreakdown",
-        "description": "`car_stress_level`の判定内訳（改善計画T90、T150で「交通ストレス」から改称）。\n地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データで、\n`level`は`car_stress_level`と同じ最終値。highwayが判定基準\n（`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に登録されていない場合は\n`base`/`level`ともNoneで、他の補正フィールドは0/False。"
-      },
-      "CarStressBreakdownRequest": {
-        "properties": {
-          "osm_way_id": {
-            "type": "integer",
-            "title": "Osm Way Id"
-          },
-          "car_stress_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CarStressRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "road_suitability_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoadSuitabilityRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "motor_vehicle_density_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MotorVehicleDensityRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "osm_way_id"
-        ],
-        "title": "CarStressBreakdownRequest"
-      },
-      "CarStressRecipeOverride": {
-        "properties": {
-          "lanes_low_threshold": {
-            "type": "integer",
-            "title": "Lanes Low Threshold"
-          },
-          "lanes_low_adjustment": {
-            "type": "integer",
-            "title": "Lanes Low Adjustment"
-          }
-        },
-        "type": "object",
-        "required": [
-          "lanes_low_threshold",
-          "lanes_low_adjustment"
-        ],
-        "title": "CarStressRecipeOverride",
-        "description": "車ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。\nキーはdomain/traffic.py: CarStressRecipeと同じ。RoutePreferenceWeightsと同じ\n「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。\n\nhighway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は\nRoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする\n（改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側\n(MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた\nため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は\n`_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/\n`CarStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:\ncar_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で\nなくなり、両方が同時に発火して打ち消し合う）。"
-      },
       "CategoricalShape": {
         "properties": {
           "kind": {
@@ -1628,7 +1431,7 @@
           "mapping"
         ],
         "title": "CategoricalShape",
-        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。"
+        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と\nstr（highway/bicycle_infra等、MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`\n自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで\n新テンプレートは不要だった。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残ってしまい、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる回帰があった——実データ検証で発覚、\"true\"/\"false\"以外の文字列キーは\nbool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。"
       },
       "Coordinates": {
         "properties": {
@@ -1737,15 +1540,6 @@
           "route_preference": {
             "$ref": "#/components/schemas/RoutePreferenceWeights"
           },
-          "car_stress_recipe": {
-            "$ref": "#/components/schemas/CarStressRecipeOverride"
-          },
-          "road_suitability_recipe": {
-            "$ref": "#/components/schemas/RoadSuitabilityRecipeOverride"
-          },
-          "motor_vehicle_density_recipe": {
-            "$ref": "#/components/schemas/MotorVehicleDensityRecipeOverride"
-          },
           "penalty_strength": {
             "type": "number",
             "title": "Penalty Strength"
@@ -1777,9 +1571,6 @@
           "distance_tolerance_km",
           "scoring_weights",
           "route_preference",
-          "car_stress_recipe",
-          "road_suitability_recipe",
-          "motor_vehicle_density_recipe",
           "penalty_strength",
           "max_average_grade_percent",
           "hard_filters",
@@ -1876,82 +1667,6 @@
         ],
         "title": "MaterialTerm",
         "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。"
-      },
-      "MotorVehicleDensityRecipeOverride": {
-        "properties": {
-          "maxspeed_low_threshold": {
-            "type": "integer",
-            "title": "Maxspeed Low Threshold"
-          },
-          "maxspeed_low_adjustment": {
-            "type": "integer",
-            "title": "Maxspeed Low Adjustment"
-          },
-          "maxspeed_high_threshold": {
-            "type": "integer",
-            "title": "Maxspeed High Threshold"
-          },
-          "maxspeed_high_adjustment": {
-            "type": "integer",
-            "title": "Maxspeed High Adjustment"
-          },
-          "lanes_high_threshold": {
-            "type": "integer",
-            "title": "Lanes High Threshold"
-          },
-          "lanes_high_adjustment": {
-            "type": "integer",
-            "title": "Lanes High Adjustment"
-          },
-          "designation_adjustment": {
-            "type": "integer",
-            "title": "Designation Adjustment"
-          }
-        },
-        "type": "object",
-        "required": [
-          "maxspeed_low_threshold",
-          "maxspeed_low_adjustment",
-          "maxspeed_high_threshold",
-          "maxspeed_high_adjustment",
-          "lanes_high_threshold",
-          "lanes_high_adjustment",
-          "designation_adjustment"
-        ],
-        "title": "MotorVehicleDensityRecipeOverride",
-        "description": "「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の上書き。キーは\ndomain/recipe.py: MotorVehicleDensityRecipeと同じ。RoadSuitabilityRecipeOverrideと\n合わせて「車との近さ」(N2)を構成する、車ストレス・安全度が共有するもう1つの材料\n（改善計画: 車との近さ材料の共有元化）。"
-      },
-      "RoadSuitabilityRecipeOverride": {
-        "properties": {
-          "base_by_highway": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Base By Highway"
-          },
-          "cycleway_track_adjustment": {
-            "type": "integer",
-            "title": "Cycleway Track Adjustment"
-          },
-          "cycleway_lane_adjustment": {
-            "type": "integer",
-            "title": "Cycleway Lane Adjustment"
-          },
-          "cycleway_shared_adjustment": {
-            "type": "integer",
-            "title": "Cycleway Shared Adjustment"
-          }
-        },
-        "type": "object",
-        "required": [
-          "base_by_highway",
-          "cycleway_track_adjustment",
-          "cycleway_lane_adjustment",
-          "cycleway_shared_adjustment"
-        ],
-        "title": "RoadSuitabilityRecipeOverride",
-        "description": "「道路適正」（highway別基準値＋cycleway補正）の上書き。キーはdomain/recipe.py:\nRoadSuitabilityRecipeと同じ。RoutePreferenceWeightsと同じ「全フィールド必須」の\n別モデル（上書きするなら全項目を明示する）。\n\n車ストレス・安全度の両方が共通して参照する「車との近さ」(N2)の材料の1つ\n（改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ\n反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが\n無いため順序検証は不要。\n\n`base_by_highway`は「全12highwayキーを明示した完全な置き換え」を前提とする\n（このモデル自体の「全フィールド必須」方針と同じ考え方）。domain/recipe.py:\nroad_suitability()はキー欠落を「そのhighwayは評価対象外」(base=None)として\n静かに扱うため、部分的なdictを許すと、そのhighway種別が車ストレス・安全度の\n両方から同時に消える（道路適正の共有化によって影響範囲が2軸分に広がった）。"
       },
       "RouteCandidate": {
         "properties": {
@@ -2207,36 +1922,6 @@
               }
             ]
           },
-          "car_stress_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CarStressRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "road_suitability_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoadSuitabilityRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "motor_vehicle_density_recipe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MotorVehicleDensityRecipeOverride"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "penalty_strength": {
             "type": "number",
             "minimum": 0.0,
@@ -2305,7 +1990,7 @@
         },
         "type": "object",
         "title": "RoutePreferenceWeights",
-        "description": "Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\nroute_preference.yamlと同じ。\n\n改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した\n（軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が\n黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する\n（上書きするなら全軸を明示する、という従来の全フィールド必須方針のまま。\nRoadSuitabilityRecipeOverride.base_by_highwayと同じ考え方）。値は非負。"
+        "description": "Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\nroute_preference.yamlと同じ。\n\n改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した\n（軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が\n黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する\n（上書きするなら全軸を明示する、という方針）。値は非負。"
       },
       "RoutePreviewRequest": {
         "properties": {

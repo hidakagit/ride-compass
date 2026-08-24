@@ -14,7 +14,14 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.api.dependencies import get_axis_registry_admin_service
 from app.config import settings
-from app.domain.axis_definitions import AxisCategory, AxisDefinition, AxisShape, BreakpointLinearShape, CategoricalShape
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisCategory,
+    AxisDefinition,
+    AxisShape,
+    BreakpointLinearShape,
+    CategoricalShape,
+)
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.services.axis_registry_service import AxisRegistryAdminService
 
@@ -98,32 +105,40 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         判定は`MATERIAL_CATALOG`を都度参照する形にし、本モデル側に材料一覧を
         複製しない。
 
-        あわせて、材料のdtype（numeric/boolean）がshape種別の前提と一致するかも
-        検証する（レビュー指摘で発見: 以前は存在チェックのみで、例えば
+        あわせて、材料のdtype（numeric/boolean/categorical）がshape種別の前提と
+        一致するかも検証する（レビュー指摘で発見: 以前は存在チェックのみで、例えば
         `CategoricalShape`にnumeric材料[例: stop_count_per_km]を指定しても素通り
         していた。`axis_templates.evaluate_categorical`はmapping.get(value, None)で
-        True/Falseキーしか引けないため、numeric値は常にNone/NaNとなり、その軸は
-        全Edgeで恒久的に欠損扱いになる——エラーもログも一切出ないまま）。
-        `CategoricalShape`/`FlagSumShape`はboolean材料、`BreakpointLinearShape`は
-        numeric材料を前提とする。
+        マッピング済みキーしか引けないため、想定外dtypeの値は常にNone/NaNとなり、
+        その軸は全Edgeで恒久的に欠損扱いになる——エラーもログも一切出ないまま）。
+        `CategoricalShape`はboolean/categorical材料（改善計画T292でstr多値対応）、
+        `FlagSumShape`はboolean材料、`BreakpointLinearShape`はnumeric材料を前提とする。
+
+        改善計画T292: materialsは`MATERIAL_CATALOG`の材料idだけでなく、他の軸の
+        axis_id（軸の階層構造、内部軸→公開軸）も指せる。軸参照はdtypeチェックの
+        対象外とする（評価結果は常に数値[0-100のdifficulty]のため、単純な材料の
+        dtype検証とは別の話。循環参照・参照先の存在チェックは
+        `AxisRegistryAdminService.create/update`側で行う）。
         """
         if isinstance(self.shape, BreakpointLinearShape):
             materials = [term.material for term in self.shape.terms]
-            expected_dtype = "numeric"
+            expected_dtypes = {"numeric"}
         elif isinstance(self.shape, CategoricalShape):
             materials = [self.shape.material]
-            expected_dtype = "boolean"
+            expected_dtypes = {"boolean", "categorical"}
         else:
             materials = [material for material, _ in self.shape.flags]
-            expected_dtype = "boolean"
-        unknown = sorted({m for m in materials if not is_known_material(m)})
+            expected_dtypes = {"boolean"}
+        unknown = sorted({m for m in materials if not is_known_material(m) and m not in AXIS_DEFINITIONS})
         if unknown:
-            raise ValueError(f"unknown material(s) in shape: {unknown}")
-        mismatched = sorted({m for m in materials if material_dtype(m) != expected_dtype})
+            raise ValueError(f"unknown material(s)/axis reference(s) in shape: {unknown}")
+        mismatched = sorted(
+            {m for m in materials if is_known_material(m) and material_dtype(m) not in expected_dtypes}
+        )
         if mismatched:
             raise ValueError(
                 f"material(s) {mismatched} have the wrong dtype for this shape "
-                f"(expected {expected_dtype})"
+                f"(expected one of {sorted(expected_dtypes)})"
             )
         return self
 

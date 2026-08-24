@@ -194,22 +194,23 @@ def test_create_returns_422_when_breakpoint_linear_shape_uses_categorical_materi
     assert "highway" in response.text
 
 
-def test_create_returns_422_when_categorical_shape_uses_categorical_material(override_service):
-    # 上と対称: CategoricalShape（boolean専用）にcategorical材料（surface）を指定した
-    # 場合も拒否される。
+def test_create_accepts_categorical_shape_with_categorical_material(override_service):
+    # 改善計画T292: CategoricalShape.mappingがstrキーにも対応した（highway/bicycle_infra等の
+    # dtype="categorical"材料、多値対応）ため、以前は拒否していたこの組み合わせが正当に
+    # 受理されるようになった（T290時点ではCategoricalShapeがbooleanキー専用だったため
+    # 422で拒否する回帰テストだったが、T292でその制約自体を撤廃したため意味が反転した）。
     payload = {
         **_PAYLOAD,
         "shape": {
             "kind": "categorical",
-            "material": "surface",
-            "mapping": {"true": 0.0, "false": 80.0},
+            "material": "bicycle_infra",
+            "mapping": {"separated": 0.0, "lane": 20.0, "roadway": 70.0},
         },
     }
 
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
 
-    assert response.status_code == 422
-    assert "surface" in response.text
+    assert response.status_code == 201
 
 
 def test_create_returns_422_when_flag_sum_shape_uses_numeric_material(override_service):

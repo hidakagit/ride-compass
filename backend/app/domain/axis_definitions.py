@@ -30,7 +30,7 @@
 実データでの安全性確認はdomain/difficulty.pyの配列版コメント（T240）参照）。
 """
 
-from typing import Literal, Mapping
+from typing import Annotated, Literal, Mapping, Union
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
@@ -82,13 +82,26 @@ class BreakpointLinearShape(BaseModel):
 
 
 class CategoricalShape(BaseModel):
-    """カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。"""
+    """カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
+
+    改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と
+    str（highway/bicycle_infra等、MATERIAL_CATALOGのdtype="categorical"材料、
+    3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`
+    自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで
+    新テンプレートは不要だった。
+
+    キー型は`union_mode="left_to_right"`でbool判定を先に試す（既定のsmart modeだと
+    JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残ってしまい、
+    `infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が
+    壊れる回帰があった——実データ検証で発覚、"true"/"false"以外の文字列キーは
+    bool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。
+    """
 
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["categorical"] = "categorical"
     material: str
-    mapping: dict[bool, float]
+    mapping: dict[Annotated[Union[bool, str], Field(union_mode="left_to_right")], float]
 
 
 class FlagSumShape(BaseModel):
@@ -280,14 +293,149 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         category="観測",
         is_published=True,
     ),
-    # 車ストレス。材料car_stress_level=レシピ判定済みレベル1-5（domain/traffic.py:
-    # car_stress_level。highway基準値＋cycleway/maxspeed/lanes/指定路線補正、
-    # motor_vehicle=noは1固定）。レベル1で0、5で100。
+    # 車ストレス（改善計画T292: 専用Pythonレシピ[旧domain/traffic.py: car_stress_level、
+    # CarStressRecipe等]を廃止し、内部軸5つ+公開軸1つの階層構造で再現する）。
+    #
+    # 内部軸（is_published=False、他の公開軸から参照される専用の推定軸。単独では
+    # 一般ユーザーに公開しない）。各軸の値は「highway基準値(1-4)に対する加減点」という
+    # 共通のスケールに揃えてあり、公開軸car_stress側でそのまま合算する。
+    #
+    # highway基準値（旧ROAD_SUITABILITY_BASE_BY_HIGHWAY、12区分、値は完全に同一）。
+    # 未登録のhighway（footway/path等の歩行者共用道、実データで実在——dev DB実測で
+    # motor_vehicle=noタグの81.6%がこれに該当）は評価しない（CategoricalShapeの
+    # 既定挙動どおりNone）。car_stress公開軸側でrequired=Trueにすることで、旧ロジックの
+    # 「highway未登録なら car_stress全体を評価しない」を再現する。
+    "car_stress_highway_base": AxisDefinition(
+        axis_id="car_stress_highway_base",
+        shape=CategoricalShape(
+            material="highway",
+            mapping={
+                "cycleway": 1.0,
+                "living_street": 1.0,
+                "residential": 2.0,
+                "unclassified": 2.0,
+                "track": 2.0,
+                "tertiary": 3.0,
+                "tertiary_link": 3.0,
+                "secondary": 3.0,
+                "secondary_link": 3.0,
+                "primary": 4.0,
+                "primary_link": 4.0,
+                "trunk": 4.0,
+                "trunk_link": 4.0,
+            },
+        ),
+        default_weight=0.0,
+        label="車ストレス内部軸: highway基準値",
+        description="highway種別による車の圧迫感の基準値(1-4、非公開)",
+        category="推定",
+        is_published=False,
+    ),
+    # 自転車インフラ由来の補正（改善計画T291で承認済みのスコアを流用、旧cycleway_class
+    # [3値]をbicycle_infra[6値、domain/traffic.py: classify_bicycle_infrastructure]へ
+    # 精密化）。0-100スケールのユーザー承認値（separated=0/lane=20/shared_busway=40/
+    # shared_pedestrian=50/roadway=70）を`round(score/100*4-2)`でhighway基準値と同じ
+    # 加減点スケールへ変換した値をそのままmappingへ記録する
+    # （separated=-2[旧track相当、変更なし]/lane=-1[変更なし]/shared_busway=0[旧-1から変更]/
+    # shared_pedestrian=0[新規]/roadway=+1[新規]）。shared_buswayの挙動変化はユーザーが
+    # 意図して求めた再定義（T291合意事項）。prohibitedは0次ハードフィルタ(no_bicycle)で
+    # 通常除外されるため補正を持たない（未登録→補正なし0点、旧ロジックと同じ扱い）。
+    "car_stress_bicycle_infra_adjustment": AxisDefinition(
+        axis_id="car_stress_bicycle_infra_adjustment",
+        shape=CategoricalShape(
+            material="bicycle_infra",
+            mapping={"separated": -2.0, "lane": -1.0, "shared_busway": 0.0, "shared_pedestrian": 0.0, "roadway": 1.0},
+        ),
+        default_weight=0.0,
+        label="車ストレス内部軸: 自転車インフラ補正",
+        description="自転車インフラ種別による補正(非公開)",
+        category="推定",
+        is_published=False,
+    ),
+    # 制限速度による補正（低速緩和-1・高速加点+1、旧MotorVehicleDensityRecipeの既定値と
+    # 同一）。breakpointsは閾値ちょうどの整数(maxspeed_kmhは常に整数、domain/recipe.py:
+    # parse_maxspeed)で段差を表現する（30以下→-1、31-59→0、60以上→+1）。
+    "car_stress_maxspeed_adjustment": AxisDefinition(
+        axis_id="car_stress_maxspeed_adjustment",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="maxspeed_kmh")],
+            breakpoints=[(0.0, -1.0), (30.0, -1.0), (31.0, 0.0), (59.0, 0.0), (60.0, 1.0), (999.0, 1.0)],
+        ),
+        default_weight=0.0,
+        label="車ストレス内部軸: 制限速度補正",
+        description="制限速度による補正(非公開)",
+        category="推定",
+        is_published=False,
+    ),
+    # 車線数による補正（少車線緩和-1・多車線加点+1、旧CarStressRecipe/
+    # MotorVehicleDensityRecipeの既定値と同一）。改善計画T292演算要素⑥
+    # （自転車専用道路区間でのlanes低減緩和の抑制）は実データ確認（dev DB
+    # 2026-08-19、該当ほぼ皆無）によりユーザー承認済みで単純化し、常に適用する
+    # （bicycle_infraによる条件分岐を持たない）。lanes_countは常に整数
+    # （domain/recipe.py: parse_lanes）のためbreakpointsで段差を表現できる
+    # （1以下→-1、2-3→0、4以上→+1）。
+    "car_stress_lanes_adjustment": AxisDefinition(
+        axis_id="car_stress_lanes_adjustment",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="lanes_count")],
+            breakpoints=[(0.0, -1.0), (1.0, -1.0), (2.0, 0.0), (3.0, 0.0), (4.0, 1.0), (99.0, 1.0)],
+        ),
+        default_weight=0.0,
+        label="車ストレス内部軸: 車線数補正",
+        description="車線数による補正(非公開)",
+        category="推定",
+        is_published=False,
+    ),
+    # 指定路線（KSJ N10/N12）該当による加点（+1、種別[emergency_transport/
+    # critical_logistics]によらず一律。material_catalog.py: is_designatedのdocstring
+    # 参照——種別を評価まで運ぶ配線が無いための簡略化）。
+    "car_stress_designation_adjustment": AxisDefinition(
+        axis_id="car_stress_designation_adjustment",
+        shape=CategoricalShape(material="is_designated", mapping={True: 1.0, False: 0.0}),
+        default_weight=0.0,
+        label="車ストレス内部軸: 指定路線補正",
+        description="指定路線(緊急輸送道路・重要物流道路)該当による補正(非公開)",
+        category="推定",
+        is_published=False,
+    ),
+    # motor_vehicle=no（自動車通行不可）の優先確定（旧ロジック: 他の補正に関わらず
+    # レベル1固定）。改善計画T292検討時、shape評価を無条件スキップするpriority_overrides
+    # 機構を最初はこの用途に想定していたが、実データ確認でmotor_vehicle=noの81.6%が
+    # highway基準値未登録（footway/path）であることが判明し、priority_overridesを
+    # car_stress公開軸へ直接使うとhighway未登録の場合まで車ストレス最良値が確定して
+    # しまう（旧ロジック=未評価のまま、と不一致）という問題が見つかった。そこで
+    # priority_overridesではなく、他の全補正の取りうる最大合計(highway基準値4+
+    # bicycle_infra補正+1+maxspeed補正+1+lanes補正+1+designation補正+1=8)を確実に
+    # 下回る大きさの固定マイナス項(-1000、安全マージン込み)を「普通の内部軸」として
+    # 加算する方式にした。breakpoints両端のクランプ（np.interp既定挙動）により
+    # motor_vehicle_no=trueの区間は必ず最良値(0)へ張り付く。highway基準値が未登録
+    # （required=True）なら、この補正が効いていても公開軸全体がNoneのままになり
+    # 旧ロジックと完全に一致する。**この値を変更する場合、他の内部軸の点数レンジの
+    # 合計を必ず上回る負の大きさを維持すること**（軸スタジオ等でこの値だけ調整すると、
+    # 他の内部軸の点数レンジ次第で頭打ちが効かなくなりうる、レビュー時要確認）。
+    "car_stress_motor_vehicle_no_adjustment": AxisDefinition(
+        axis_id="car_stress_motor_vehicle_no_adjustment",
+        shape=CategoricalShape(material="motor_vehicle_no", mapping={True: -1000.0, False: 0.0}),
+        default_weight=0.0,
+        label="車ストレス内部軸: 自動車通行不可の優先確定",
+        description="motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
+        category="推定",
+        is_published=False,
+    ),
+    # 公開軸: 上記6内部軸をhighway基準値(必須)+5つの補正(任意、欠損時は補正なし=0点
+    # 扱い)として加重合成する。breakpoints(1,0)-(5,100)は旧ロジックのclamp_level(.,1,5)
+    # →(level-1)/4*100と同じ役割（np.interp既定のクランプ挙動で1未満/5超も1/5に丸め込む）。
     "car_stress": AxisDefinition(
         axis_id="car_stress",
         shape=BreakpointLinearShape(
-            kind="recipe_then_breakpoint_linear",
-            terms=[MaterialTerm(material="car_stress_level")],
+            terms=[
+                MaterialTerm(material="car_stress_highway_base", required=True),
+                MaterialTerm(material="car_stress_bicycle_infra_adjustment", required=False),
+                MaterialTerm(material="car_stress_maxspeed_adjustment", required=False),
+                MaterialTerm(material="car_stress_lanes_adjustment", required=False),
+                MaterialTerm(material="car_stress_designation_adjustment", required=False),
+                MaterialTerm(material="car_stress_motor_vehicle_no_adjustment", required=False),
+            ],
             breakpoints=[(1.0, 0.0), (5.0, 100.0)],
         ),
         default_weight=0.20,
@@ -543,9 +691,16 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
             total = np.abs(total)
         result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
     elif isinstance(shape, CategoricalShape):
-        # スカラー定義のboolキーを配列表現（True→1.0/False→0.0の3値float配列）へ読み替える。
-        array_mapping = {float(key): score for key, score in shape.mapping.items()}
-        result = evaluate_categorical(materials[shape.material], array_mapping)
+        values = materials[shape.material]
+        if values.dtype == bool:
+            # bool材料（例: surface_good）はスカラー定義のboolキーを配列表現
+            # （True→1.0/False→0.0の3値float配列）へ読み替える。
+            array_mapping = {float(key): score for key, score in shape.mapping.items()}
+        else:
+            # str材料（改善計画T292、dtype=object の文字列配列。例: highway/bicycle_infra）
+            # はキーをそのまま使う（値の一致比較は`==`で行うため変換不要）。
+            array_mapping = dict(shape.mapping)
+        result = evaluate_categorical(values, array_mapping)
     else:
         # FlagSumShape
         result = evaluate_flag_sum(

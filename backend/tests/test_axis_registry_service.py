@@ -3,6 +3,7 @@ import pytest
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    AxisDependencyCycleError,
     AxisMaterialConflictError,
     AxisPublishedImmutableError,
     BreakpointLinearShape,
@@ -137,6 +138,46 @@ async def test_update_rejects_axis_reusing_another_axis_material(road_graph_sess
         await service.update("second_axis", _definition("second_axis", material="motor_vehicle_no"))
 
     assert AXIS_DEFINITIONS["second_axis"].materials == ["oneway"]
+
+
+async def test_create_allows_axis_referencing_another_axis(road_graph_session):
+    # 改善計画T292: 軸間参照（内部軸→公開軸の階層構造）。既存軸のaxis_idをmaterialとして
+    # 参照する新規軸の作成は、材料の排他チェック・循環検証のどちらにも引っかからず
+    # 正常に作成できる。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("base_axis", material="oneway"))
+
+    await service.create(_definition("dependent_axis", material="base_axis"))
+
+    assert "dependent_axis" in AXIS_DEFINITIONS
+    assert AXIS_DEFINITIONS["dependent_axis"].materials == ["base_axis"]
+
+
+async def test_create_rejects_direct_cycle_between_two_axes(road_graph_session):
+    # 改善計画T292: axis_a→axis_bの参照が既に存在する状態でaxis_b→axis_aを作ろうとすると
+    # （2軸間の循環）、AxisDependencyCycleErrorで拒否される。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("axis_a", material="oneway"))
+    await service.create(_definition("axis_b", material="axis_a"))
+
+    with pytest.raises(AxisDependencyCycleError):
+        await service.update("axis_a", _definition("axis_a", material="axis_b"))
+
+    # 循環が拒否された結果、axis_aは元の材料参照のまま変わっていないこと。
+    assert AXIS_DEFINITIONS["axis_a"].materials == ["oneway"]
+
+
+async def test_create_rejects_self_referencing_axis(road_graph_session):
+    # 改善計画T292: 軸が自分自身のaxis_idを材料として参照する（自己循環）ケースも
+    # AxisDependencyCycleErrorで拒否される。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("first_axis", material="oneway"))
+
+    with pytest.raises(AxisDependencyCycleError):
+        await service.update("first_axis", _definition("first_axis", material="first_axis"))
 
 
 async def test_update_replaces_definition_and_keeps_sort_order(road_graph_session):

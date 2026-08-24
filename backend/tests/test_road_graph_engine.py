@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.domain import evaluation
 from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import bearing_between, destination_point, haversine_distance_km
@@ -652,71 +651,6 @@ async def test_build_segment_details_uses_compute_edge_axis_scores(monkeypatch):
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
     assert len(calls) > 0
-
-
-async def test_build_segment_details_calls_car_stress_level_once_per_edge(monkeypatch):
-    # 改善計画T153（統合レビュー2026-08-19 overall F-1）: _build_segment_detailsは表示用の
-    # 生値car_stressをcar_stress_level()で計算したうえで、同じ値をcompute_edge_axis_scores
-    # （T143で導入）へcar_stress_level_valueとして渡す設計になっている。以前はこの受け渡しが
-    # 無く、compute_edge_axis_scores内部でcar_stress_level()が再計算されていた
-    # （road_graph_engine.car_stress_levelとevaluation.car_stress_levelは
-    # `from ... import car_stress_level`によりモジュールごとに別々の名前束縛を持つため、
-    # 片方だけをmonkeypatchする回帰テストでは検知できない死角があった——本テストは
-    # 両方の束縛にスパイを仕込むことでこの死角を塞ぐ）。
-    #
-    # _build_segment_detailsを直接呼ぶ（generate_loops経由だとRoadGraphEngine.prepareが
-    # 探索コスト用にグラフ全Edgeへevaluate_graph→car_stress_levelを呼ぶため、区間数との
-    # 単純な1:1比較ができなくなる）。
-    calls = []
-    original = road_graph_engine.car_stress_level
-
-    def spy(*args, **kwargs):
-        calls.append(1)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(road_graph_engine, "car_stress_level", spy)
-    monkeypatch.setattr(evaluation, "car_stress_level", spy)
-
-    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
-    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
-    node_c = Node(node_id="c", latitude=ORIGIN.latitude + 0.02, longitude=ORIGIN.longitude)
-    edges = [
-        _edge("e1", "a", "b", Coordinates(latitude=node_a.latitude, longitude=node_a.longitude),
-              Coordinates(latitude=node_b.latitude, longitude=node_b.longitude), highway="residential"),
-        _edge("e2", "b", "c", Coordinates(latitude=node_b.latitude, longitude=node_b.longitude),
-              Coordinates(latitude=node_c.latitude, longitude=node_c.longitude), highway="residential"),
-    ]
-    way_tags = {edge.edge_id: {"highway": "residential"} for edge in edges}
-    # graph=Noneでもmake_generatorは(Fake)GraphService付きのRoadGraphEngineを構築できる
-    # （prepare()は呼ばず_build_segment_detailsを直接使うため、実際のgraph探索は不要）。
-    generator, _, _ = make_generator(graph=None, way_tags=way_tags)
-    engine = generator._engine
-    context_graph = RoadGraph(
-        graph_version="test", nodes={n.node_id: n for n in (node_a, node_b, node_c)},
-        edges={e.edge_id: e for e in edges},
-    )
-    context = road_graph_engine._RoadGraphContext(
-        graph=context_graph,
-        sparse_graph=None,
-        surface_attributes={},
-        stop_counts={},
-        way_tags=way_tags,
-        intersection_counts={},
-        accident_counts={},
-        accident_years_covered=0,
-        designated_edge_ids=set(),
-        wind=None,
-        origin_node="a",
-        node_index=build_node_spatial_index(context_graph),
-        night_active=False,
-    )
-
-    segments = engine._build_segment_details(edges, {}, context, datetime.now(timezone.utc))
-
-    assert len(segments) == len(edges)
-    assert len(calls) == len(edges)
-
-
 
 
 # 改善計画T173: night軸の動的化（prepare実行時点の起点が市民薄明の外かどうかで、

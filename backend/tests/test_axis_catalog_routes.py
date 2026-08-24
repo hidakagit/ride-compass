@@ -30,7 +30,10 @@ def test_get_axis_catalog_requires_no_auth_and_returns_builtin_axes():
     assert response.status_code == 200
     body = response.json()
     axis_ids = {entry["axis_id"] for entry in body["axes"]}
-    assert axis_ids == set(AXIS_DEFINITIONS.keys())
+    # 改善計画T292: car_stress軸を支える内部軸（is_published=False）は一般公開しない
+    # ため比較対象から除く（endpoint自体が既にis_published絞り込み済み、T271）。
+    published_axis_ids = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
+    assert axis_ids == published_axis_ids
 
 
 def test_get_axis_catalog_reflects_axis_definitions_content():

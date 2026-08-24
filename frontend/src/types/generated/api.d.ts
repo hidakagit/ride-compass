@@ -282,36 +282,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/region/car-stress-breakdown": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Region Car Stress Breakdown
-         * @description 車ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
-         *     路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:
-         *     car_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
-         *     highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ
-         *     「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
-         *     RegionService.get_car_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
-         *     タイル取得と同じ歯止め（クリックの連打対策）を流用する。
-         *
-         *     GETではなくPOST+JSONボディなのは、`car_stress_recipe`（レシピ上書き、改善計画:
-         *     交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
-         *     不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
-         */
-        post: operations["region_car_stress_breakdown_api_region_car_stress_breakdown_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/region/axis-inspector": {
         parameters: {
             query?: never;
@@ -326,9 +296,15 @@ export interface paths {
          * @description 区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
          *     一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→
          *     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
-         *     region_car_stress_breakdownと同じ構造（POST+JSONボディ・osm_way_id完全一致の理由は
-         *     同エンドポイントのdocstring参照）。gradient/wind軸は単独wayでは算出不能なため常に
-         *     available=falseで返る（ルートに含まれる区間の正確な値はルート生成結果自体を見る）。
+         *     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
+         *     docstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能
+         *     なため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果
+         *     自体を見る）。
+         *
+         *     改善計画T292: 車ストレス専用レシピ（旧`/api/region/car-stress-breakdown`、
+         *     `CarStressBreakdown`）は廃止し、本エンドポイント（軸別の汎用内訳）へ統合した。
+         *     レシピ上書きパラメータ（旧car_stress_recipe等）も、専用Pythonレシピの廃止に伴い
+         *     廃止した。
          */
         post: operations["region_axis_inspector_api_region_axis_inspector_post"];
         delete?: never;
@@ -592,9 +568,6 @@ export interface components {
         AxisInspectorRequest: {
             /** Osm Way Id */
             osm_way_id: number;
-            car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
-            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
-            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
         };
         /** AxisInspectorResult */
         AxisInspectorResult: {
@@ -643,62 +616,20 @@ export interface components {
             ][];
         };
         /**
-         * CarStressBreakdown
-         * @description `car_stress_level`の判定内訳（改善計画T90、T150で「交通ストレス」から改称）。
-         *     地図上の道路クリック時に「なぜこの値になったか」を説明する表示専用データで、
-         *     `level`は`car_stress_level`と同じ最終値。highwayが判定基準
-         *     （`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`）に登録されていない場合は
-         *     `base`/`level`ともNoneで、他の補正フィールドは0/False。
-         */
-        CarStressBreakdown: {
-            /** Base */
-            base: number | null;
-            /** Cycleway Adjustment */
-            cycleway_adjustment: number;
-            /** Maxspeed Adjustment */
-            maxspeed_adjustment: number;
-            /** Lanes Adjustment */
-            lanes_adjustment: number;
-            /** Designation Adjustment */
-            designation_adjustment: number;
-            /** Motor Vehicle No Override */
-            motor_vehicle_no_override: boolean;
-            /** Level */
-            level: number | null;
-        };
-        /** CarStressBreakdownRequest */
-        CarStressBreakdownRequest: {
-            /** Osm Way Id */
-            osm_way_id: number;
-            car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
-            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
-            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
-        };
-        /**
-         * CarStressRecipeOverride
-         * @description 車ストレス軸だけが持つ判定レシピ（対面通行の少車線道路への緩和）の上書き。
-         *     キーはdomain/traffic.py: CarStressRecipeと同じ。RoutePreferenceWeightsと同じ
-         *     「全フィールド必須」の別モデル（上書きするなら全項目を明示する）。
-         *
-         *     highway別基準値・cycleway補正・制限速度補正・車線数[多い方]補正・指定路線補正は
-         *     RoadSuitabilityRecipeOverride/MotorVehicleDensityRecipeOverride側で上書きする
-         *     （改善計画: 車との近さ材料の共有元化）。少車線側(lanes_low_threshold)は多車線側
-         *     (MotorVehicleDensityRecipeOverride.lanes_high_threshold)と別モデルに分かれた
-         *     ため、このモデル単体では閾値の大小関係を検証できない。実際の順序検証は
-         *     `_validate_lanes_threshold_order`で、両モデルを併せ持つ`RouteGenerateRequest`/
-         *     `CarStressBreakdownRequest`側の`model_validator`から行う（domain/traffic.py:
-         *     car_stress_breakdown参照。low>=highだとthreshold_adjustmentの2条件が排他的で
-         *     なくなり、両方が同時に発火して打ち消し合う）。
-         */
-        CarStressRecipeOverride: {
-            /** Lanes Low Threshold */
-            lanes_low_threshold: number;
-            /** Lanes Low Adjustment */
-            lanes_low_adjustment: number;
-        };
-        /**
          * CategoricalShape
          * @description カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
+         *
+         *     改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と
+         *     str（highway/bicycle_infra等、MATERIAL_CATALOGのdtype="categorical"材料、
+         *     3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`
+         *     自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで
+         *     新テンプレートは不要だった。
+         *
+         *     キー型は`union_mode="left_to_right"`でbool判定を先に試す（既定のsmart modeだと
+         *     JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残ってしまい、
+         *     `infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が
+         *     壊れる回帰があった——実データ検証で発覚、"true"/"false"以外の文字列キーは
+         *     bool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。
          */
         CategoricalShape: {
             /**
@@ -766,9 +697,6 @@ export interface components {
             distance_tolerance_km: number;
             scoring_weights: components["schemas"]["ScoringWeights"];
             route_preference: components["schemas"]["RoutePreferenceWeights"];
-            car_stress_recipe: components["schemas"]["CarStressRecipeOverride"];
-            road_suitability_recipe: components["schemas"]["RoadSuitabilityRecipeOverride"];
-            motor_vehicle_density_recipe: components["schemas"]["MotorVehicleDensityRecipeOverride"];
             /** Penalty Strength */
             penalty_strength: number;
             /** Max Average Grade Percent */
@@ -830,58 +758,6 @@ export interface components {
              * @default true
              */
             required: boolean;
-        };
-        /**
-         * MotorVehicleDensityRecipeOverride
-         * @description 「自動車密度」（制限速度・車線数[多い方]・指定路線該当）の上書き。キーは
-         *     domain/recipe.py: MotorVehicleDensityRecipeと同じ。RoadSuitabilityRecipeOverrideと
-         *     合わせて「車との近さ」(N2)を構成する、車ストレス・安全度が共有するもう1つの材料
-         *     （改善計画: 車との近さ材料の共有元化）。
-         */
-        MotorVehicleDensityRecipeOverride: {
-            /** Maxspeed Low Threshold */
-            maxspeed_low_threshold: number;
-            /** Maxspeed Low Adjustment */
-            maxspeed_low_adjustment: number;
-            /** Maxspeed High Threshold */
-            maxspeed_high_threshold: number;
-            /** Maxspeed High Adjustment */
-            maxspeed_high_adjustment: number;
-            /** Lanes High Threshold */
-            lanes_high_threshold: number;
-            /** Lanes High Adjustment */
-            lanes_high_adjustment: number;
-            /** Designation Adjustment */
-            designation_adjustment: number;
-        };
-        /**
-         * RoadSuitabilityRecipeOverride
-         * @description 「道路適正」（highway別基準値＋cycleway補正）の上書き。キーはdomain/recipe.py:
-         *     RoadSuitabilityRecipeと同じ。RoutePreferenceWeightsと同じ「全フィールド必須」の
-         *     別モデル（上書きするなら全項目を明示する）。
-         *
-         *     車ストレス・安全度の両方が共通して参照する「車との近さ」(N2)の材料の1つ
-         *     （改善計画: 車との近さ材料の共有元化）。研究モードで1箇所を上書きすると両軸へ
-         *     反映される（軸ごとに別の値へ上書きする自由度は無い、意図した設計）。閾値ペアが
-         *     無いため順序検証は不要。
-         *
-         *     `base_by_highway`は「全12highwayキーを明示した完全な置き換え」を前提とする
-         *     （このモデル自体の「全フィールド必須」方針と同じ考え方）。domain/recipe.py:
-         *     road_suitability()はキー欠落を「そのhighwayは評価対象外」(base=None)として
-         *     静かに扱うため、部分的なdictを許すと、そのhighway種別が車ストレス・安全度の
-         *     両方から同時に消える（道路適正の共有化によって影響範囲が2軸分に広がった）。
-         */
-        RoadSuitabilityRecipeOverride: {
-            /** Base By Highway */
-            base_by_highway: {
-                [key: string]: number;
-            };
-            /** Cycleway Track Adjustment */
-            cycleway_track_adjustment: number;
-            /** Cycleway Lane Adjustment */
-            cycleway_lane_adjustment: number;
-            /** Cycleway Shared Adjustment */
-            cycleway_shared_adjustment: number;
         };
         /**
          * RouteCandidate
@@ -969,9 +845,6 @@ export interface components {
             route_type: "loop";
             scoring_weights?: components["schemas"]["ScoringWeights"] | null;
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
-            car_stress_recipe?: components["schemas"]["CarStressRecipeOverride"] | null;
-            road_suitability_recipe?: components["schemas"]["RoadSuitabilityRecipeOverride"] | null;
-            motor_vehicle_density_recipe?: components["schemas"]["MotorVehicleDensityRecipeOverride"] | null;
             /**
              * Penalty Strength
              * @default 1
@@ -998,8 +871,7 @@ export interface components {
          *     改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
          *     （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が
          *     黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する
-         *     （上書きするなら全軸を明示する、という従来の全フィールド必須方針のまま。
-         *     RoadSuitabilityRecipeOverride.base_by_highwayと同じ考え方）。値は非負。
+         *     （上書きするなら全軸を明示する、という方針）。値は非負。
          */
         RoutePreferenceWeights: {
             [key: string]: number;
@@ -1590,39 +1462,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    region_car_stress_breakdown_api_region_car_stress_breakdown_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CarStressBreakdownRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarStressBreakdown"] | null;
                 };
             };
             /** @description Validation Error */

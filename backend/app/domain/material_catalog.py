@@ -59,9 +59,10 @@ class MaterialSpec(BaseModel):
     tile_property_needs_runtime_scale: bool = False
 
 
-# 現行7軸が参照する9材料（AXIS_DEFINITIONSのコメントと1:1対応）＋改善計画T290で追加した
-# 11材料（MVTタイルに焼き込み済みだが評価軸には未使用の生データ。カタログ冒頭の
-# T290注記参照）。
+# 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと
+# 1:1対応）＋改善計画T290で追加した生データ（MVTタイルに焼き込み済みだが評価軸には
+# 未使用のものを含む。カタログ冒頭のT290注記参照）。改善計画T292でcar_stress_levelを
+# 撤去・is_designatedを追加した（旧専用Pythonレシピの廃止に伴う入れ替え）。
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "gradient_percent": MaterialSpec(
         material_id="gradient_percent",
@@ -107,15 +108,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # registry_defaults.pyの既存accident表示は手書きのまま維持する）。
         tile_property="accident_per_km",
         tile_property_needs_runtime_scale=True,
-    ),
-    "car_stress_level": MaterialSpec(
-        material_id="car_stress_level",
-        label="車ストレスレベル(1-5、レシピ判定済み)",
-        dtype="numeric",
-        # highway×cycleway×maxspeed×lanes×指定路線のレシピ合成値で、単一のタイル
-        # プロパティに対応しない（個々の入力タグはタイルにあるが、合成はフロントの
-        # 手書きexpression[carStressExpression.ts]が担う。domain/recipe.py参照）。
-        tile_property=None,
     ),
     "no_lit": MaterialSpec(
         material_id="no_lit",
@@ -211,6 +203,19 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
         # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
         tile_property="designation",
+    ),
+    "is_designated": MaterialSpec(
+        material_id="is_designated",
+        label="指定路線該当（真偽）",
+        dtype="boolean",
+        # 改善計画T292: car_stress軸の内部軸（designation由来の調整軸）が使う簡略化された
+        # 真偽値材料。指定路線の種別（emergency_transport/critical_logistics/both、材料
+        # "designation"）は評価パイプライン側で種別ごとに区別して保持していない
+        # （domain/designation.py: 補正量が種別によらず一律+1のため、種別を評価まで
+        # 運ぶ配線を新設する理由が無い）。"designation"材料自体は将来種別を区別する軸が
+        # 必要になった時点でそちらを使う（トリガー付きDEFER、設計原則9）。car_stress_level
+        # と同じくタイル非依存（評価時にdesignated_edge_idsから都度算出）。
+        tile_property=None,
     ),
     "smoothness": MaterialSpec(
         material_id="smoothness",

@@ -22,13 +22,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights  # noqa: E402
 from app.domain.axis_display import derive_ramp_inputs  # noqa: E402
-from app.domain.recipe import (  # noqa: E402
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    ROAD_SUITABILITY_BASE_BY_HIGHWAY,
-    MotorVehicleDensityRecipe,
-    RoadSuitabilityRecipe,
-)
 from app.domain.registry import (  # noqa: E402
     AxisDisplaySpec,
     all_axes,
@@ -37,12 +30,6 @@ from app.domain.registry import (  # noqa: E402
 )
 from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
-from app.domain.traffic import (  # noqa: E402
-    DEFAULT_CAR_STRESS_RECIPE,
-    CarStressRecipe,
-    car_stress_level,
-    car_stress_tile_ingredients,
-)
 from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
     WIND_GRID_DETAIL_MAX_POINTS,
@@ -67,108 +54,8 @@ GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "type
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
 SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
-TRAFFIC_STRESS_RECIPE_PATH = GENERATED_DIR / "traffic-stress-recipe.json"
-TRAFFIC_STRESS_TEST_CASES_PATH = GENERATED_DIR / "traffic-stress-test-cases.json"
-ROAD_SUITABILITY_RECIPE_PATH = GENERATED_DIR / "road-suitability-recipe.json"
-MOTOR_VEHICLE_DENSITY_RECIPE_PATH = GENERATED_DIR / "motor-vehicle-density-recipe.json"
 AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
-
-# 車ストレスのPython実装（domain/traffic.py: car_stress_level）とフロント実装
-# （trafficStressExpression.ts）の相互検証用フィクスチャ（改善計画: 交通ストレスレシピ
-# 外出し基盤・車との近さ材料の共有元化）。backend/tests/test_traffic.pyの代表ケースを
-# 踏襲しつつ、材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no/
-# designation）の観点で全分岐を1回ずつ踏むよう構成する。
-# (highway, tags, is_designated, recipe_override, road_suitability_recipe_override,
-# motor_vehicle_density_recipe_override)の6-tupleで持ち、Noneならそれぞれ既定レシピを使う。
-_CAR_STRESS_TEST_CASES: list[
-    tuple[str | None, dict[str, str], bool, dict[str, object] | None, dict[str, object] | None, dict[str, object] | None]
-] = [
-    ("cycleway", {}, False, None, None, None),
-    ("residential", {}, False, None, None, None),
-    ("tertiary", {}, False, None, None, None),
-    ("secondary", {}, False, None, None, None),
-    ("primary", {}, False, None, None, None),
-    ("trunk", {}, False, None, None, None),
-    ("motorway", {}, False, None, None, None),  # 判定基準に未登録→None
-    (None, {}, False, None, None, None),  # highway自体が無い→None
-    ("primary", {"motor_vehicle": "no"}, False, None, None, None),  # 固定1（他の補正より優先）
-    ("primary", {"cycleway": "track"}, False, None, None, None),
-    ("primary", {"cycleway": "lane"}, False, None, None, None),
-    ("primary", {"cycleway": "shared_lane"}, False, None, None, None),
-    ("primary", {"maxspeed": "30"}, False, None, None, None),
-    ("tertiary", {"maxspeed": "60"}, False, None, None, None),
-    ("tertiary", {"lanes": "4"}, False, None, None, None),
-    ("primary", {"lanes": "1"}, False, None, None, None),
-    # lanes_lowは分離自転車道（cycleway=track）区間では該当しない（domain/traffic.py:
-    # car_stress_breakdown参照）。track単体の-2のみが効く。
-    ("primary", {"lanes": "1", "cycleway": "track"}, False, None, None, None),
-    # コードレビューで発覚したlanes/maxspeed="0"の無効値ケース（値>0のみ有効、
-    # road_graph_repository.pyのSQL側と挙動を合わせた回帰確認）。
-    ("primary", {"lanes": "0"}, False, None, None, None),
-    ("primary", {"maxspeed": "0"}, False, None, None, None),
-    ("cycleway", {"cycleway": "track", "maxspeed": "20"}, False, None, None, None),  # 下限1でクランプ
-    ("primary", {"maxspeed": "80", "lanes": "6"}, False, None, None, None),  # raw=6、上限5でクランプ
-    ("residential", {}, True, None, None, None),  # 指定路線+1
-    ("primary", {}, True, None, None, None),  # 指定路線+1でraw=5、上限5ちょうど（改善計画: 交通ストレス5段階化）
-    ("primary", {"motor_vehicle": "no"}, True, None, None, None),  # 指定路線+motor_vehicle=noは1固定
-    # 道路適正レシピの上書き（研究モード相当）でも一致することを確認する（改善計画: 車との
-    # 近さ材料の共有元化。旧base_by_highway上書きケースをこちらへ移設）。
-    ("secondary", {}, False, None, {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}}, None),
-    # 自動車密度レシピの上書きでも一致することを確認する。
-    (
-        "tertiary",
-        {"maxspeed": "40"},
-        False,
-        None,
-        None,
-        {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "maxspeed_high_threshold": 40},
-    ),
-    # 3レシピ（軸固有・道路適正・自動車密度）を同時に上書きしても正しく合成されることを
-    # 確認する（フロント側ミラー実装の合成検証、改善計画: 車との近さ材料の共有元化）。
-    (
-        "secondary",
-        {"lanes": "1"},
-        True,
-        {**DEFAULT_CAR_STRESS_RECIPE.model_dump(), "lanes_low_adjustment": -3},
-        {**DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump(), "base_by_highway": {**ROAD_SUITABILITY_BASE_BY_HIGHWAY, "secondary": 2}},
-        {**DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump(), "designation_adjustment": 2},
-    ),
-]
-
-
-def _car_stress_test_cases() -> list[dict[str, object]]:
-    cases = []
-    for (
-        highway,
-        tags,
-        is_designated,
-        recipe_override,
-        road_suitability_recipe_override,
-        motor_vehicle_density_recipe_override,
-    ) in _CAR_STRESS_TEST_CASES:
-        recipe = CarStressRecipe(**recipe_override) if recipe_override else None
-        road_suitability_recipe = (
-            RoadSuitabilityRecipe(**road_suitability_recipe_override) if road_suitability_recipe_override else None
-        )
-        motor_vehicle_density_recipe = (
-            MotorVehicleDensityRecipe(**motor_vehicle_density_recipe_override)
-            if motor_vehicle_density_recipe_override
-            else None
-        )
-        cases.append(
-            {
-                "properties": car_stress_tile_ingredients(highway, tags, is_designated),
-                "recipe": recipe_override,
-                "road_suitability_recipe": road_suitability_recipe_override,
-                "motor_vehicle_density_recipe": motor_vehicle_density_recipe_override,
-                "expected_level": car_stress_level(
-                    highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe
-                ),
-            }
-        )
-    return cases
-
 
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
@@ -229,23 +116,11 @@ def main() -> None:
             },
         },
     )
-    # 車ストレスの既定レシピ（domain/traffic.py: CarStressRecipe）。フロントの
-    # trafficStressExpression.ts（地図表示用のMapLibre expression）が既定値をこのJSONから
-    # 読み、Python側とのドリフトをCI（trafficStressExpression.test.ts）で検知する
-    # （手動同期ペアを作らない設計原則1）。
-    _write_json(TRAFFIC_STRESS_RECIPE_PATH, DEFAULT_CAR_STRESS_RECIPE.model_dump())
-    # car_stress_level()を実際に実行して得た(材料タグ, レシピ, 期待値)の組。
-    # trafficStressExpression.test.tsがこのJSONを読み、同じ入力でJS実装が同じ結果を返すかを
-    # 検証する（旧test_road_graph_repository.pyのSQL⇔Python整合性テストに代わる、
-    # Python⇔JS間の実ドリフト検知。ハードコードした期待値ではなくPythonの実行結果を都度
-    # 書き出すため、car_stress_breakdownのロジックが変わればこのJSONも追従し、
-    # JS側のミラー実装が古いままなら再生成後にテストが落ちる）。
-    _write_json(TRAFFIC_STRESS_TEST_CASES_PATH, _car_stress_test_cases())
-    # 「車との近さ」(N2)を構成する共有レシピ2つの既定値（domain/recipe.py:
-    # RoadSuitabilityRecipe/MotorVehicleDensityRecipe、改善計画: 車との近さ材料の
-    # 共有元化）。車ストレスのMapLibre expressionが読む。
-    _write_json(ROAD_SUITABILITY_RECIPE_PATH, DEFAULT_ROAD_SUITABILITY_RECIPE.model_dump())
-    _write_json(MOTOR_VEHICLE_DENSITY_RECIPE_PATH, DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE.model_dump())
+    # 改善計画T292: 車ストレスの専用Pythonレシピ（CarStressRecipe等）を廃止し、
+    # AXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造で再現するようにしたため、
+    # レシピ既定値・Python⇔JS相互検証フィクスチャ（旧traffic-stress-recipe.json・
+    # traffic-stress-test-cases.json・road-suitability-recipe.json・
+    # motor-vehicle-density-recipe.json）の生成は廃止した。
     # 二次軸カタログ（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
     # レジストリ（domain/registry_defaults.py）の全軸と表示宣言（AxisDisplaySpec）を
     # 書き出し、フロントの汎用レイヤーファクトリ（axisLayers.ts）がkind="ramp"の軸から
@@ -268,6 +143,11 @@ def main() -> None:
     _auto_ramp_axes = []
     for axis_id, definition in AXIS_DEFINITIONS.items():
         if axis_id in _registered_axis_ids:
+            continue
+        # 改善計画T292: 内部軸（is_published=False、他の公開軸から参照される専用の
+        # 推定軸）は恒久的に非公開のため、単独の地図レイヤーとして自動生成しない
+        # （公開軸car_stressの内訳であって、それ自体が地図に出る意味を持たない）。
+        if not definition.is_published:
             continue
         ramp = derive_ramp_inputs(definition)
         if ramp is None:

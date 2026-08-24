@@ -167,10 +167,15 @@ def test_registry_axis_ids_match_axis_definitions():
     windはAXIS_DEFINITIONSに存在し、表示カタログには意図的に未登録
     （前テストのdocstring参照）。
 
+    改善計画T292: car_stress軸を支える内部軸6つ（is_published=False、他の公開軸から
+    参照される専用の推定軸）もAXIS_DEFINITIONSに含まれるが、表示カタログ（一般ユーザー
+    向けの軸選択・地図レイヤー用）には登録しない（内部軸は恒久的に非公開のまま運用する
+    設計）。比較対象を公開軸のみへ絞る。
+
     各軸のaxis_idフィールドが辞書キーと一致することも合わせて確認する。
     """
     registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
-    definition_axis_ids = set(AXIS_DEFINITIONS.keys())
+    definition_axis_ids = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
     assert definition_axis_ids - {"wind"} == registry_axis_ids
     for axis_id, definition in AXIS_DEFINITIONS.items():
         assert definition.axis_id == axis_id

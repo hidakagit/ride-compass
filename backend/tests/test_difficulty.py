@@ -6,7 +6,6 @@ from app.domain.difficulty import (
     gradient_difficulty,
     road_difficulty,
     stop_difficulty,
-    car_stress_difficulty,
     wind_difficulty,
 )
 from app.domain.night import night_difficulty
@@ -152,23 +151,6 @@ def test_distance_weighted_difficulty_empty_returns_none():
     assert distance_weighted_difficulty([]) is None
 
 
-def test_car_stress_difficulty_level_1_is_easiest():
-    assert car_stress_difficulty(1) == 0.0
-
-
-def test_car_stress_difficulty_level_5_is_hardest():
-    assert car_stress_difficulty(5) == 100.0
-
-
-def test_car_stress_difficulty_is_linear_between_min_and_max():
-    # (3-1)/(5-1)*100 = 50.0
-    assert car_stress_difficulty(3) == 50.0
-
-
-def test_car_stress_difficulty_none_passthrough():
-    assert car_stress_difficulty(None) is None
-
-
 def test_accident_difficulty_zero_density_is_easiest():
     assert accident_difficulty(0.0) == 0.0
 
@@ -202,7 +184,12 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
             "surface_good": True,
             "stop_count_per_km": 2.0,
             "intersection_count_per_km": 1.0,
-            "car_stress_level": 2,
+            # 改善計画T292: car_stressは内部軸5つ+公開軸1つの階層構造になったため、
+            # 単一のcar_stress_level材料ではなくhighwayを渡す（highway基準値=2、
+            # 他の補正材料[bicycle_infra/maxspeed_kmh/lanes_count/is_designated/
+            # motor_vehicle_no]は省略=補正なしのため、breakpoints(1,0)-(5,100)で
+            # (2-1)/4*100=25.0になる）。
+            "highway": "residential",
             "accident_count_per_km_year": 0.25,
             "no_lit": False,
             "has_tunnel": False,
@@ -214,7 +201,7 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
     assert result.axes["wind"] == wind_difficulty(4.0)
     assert result.axes["surface_q"] == road_difficulty(True)
     assert result.axes["stop_density"] == stop_difficulty(2.0, 1.0)
-    assert result.axes["car_stress"] == car_stress_difficulty(2)
+    assert result.axes["car_stress"] == 25.0
     assert result.axes["accident"] == accident_difficulty(0.25)
     assert result.axes["night"] == night_difficulty({"lit": "yes"})
     assert result.composite is not None

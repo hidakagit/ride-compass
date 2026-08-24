@@ -1,14 +1,10 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable
-from typing import Any
 
 from app.config import settings
 from app.domain.evaluation import AxisInspectorResult, RoutePreference, axis_inspector_breakdown
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
-from app.domain.traffic import CarStressBreakdown, CarStressRecipe, car_stress_breakdown
 from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call
@@ -293,21 +289,9 @@ class RegionService:
             y=y,
         )
 
-    async def _get_breakdown(
-        self,
-        *,
-        domain_fn: Callable[[str | None, dict, bool, Any, Any, Any], Any],
-        external_call_name: str,
-        label: str,
-        osm_way_id: int,
-        recipe: Any,
-        road_suitability_recipe: Any,
-        motor_vehicle_density_recipe: Any,
-    ) -> Any | None:
-        """クリックされた道路（osm_way_id）の判定内訳を返す（get_car_stress_breakdownの
-        実装、改善計画T123。当初は安全度の内訳（get_safety_breakdown）とも共有する
-        共通実装だったが、安全度軸はT148で削除済み）。`_get_tile`と同じ「軸固有部分
-        （domain_fn・ログ名・ラベル）だけを引数化して1実装に畳む」方針。
+    async def get_axis_inspector(self, osm_way_id: int) -> AxisInspectorResult | None:
+        """区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
+        一次属性→二次軸スコア→三次合成コスト（取得可能な軸だけの参考値）を返す。
 
         クリック地点の緯度経度から最近傍道路を空間マッチ（`get_nearest_way_tags`）で
         引く方式は、交差点付近など複数の道路が近接する場所で、実際にクリックされた
@@ -316,78 +300,13 @@ class RegionService:
         osm_way_id（`_ROAD_SURFACE_TILE_MVT_SQL`が焼き込み済み）で該当行を曖昧さ無く
         引き直す。
 
-        `recipe`は各軸固有の判定レシピの上書き（省略時は軸ごとの既定レシピ）。
-        `road_suitability_recipe`/`motor_vehicle_density_recipe`は車ストレスが参照する
-        「車との近さ」(N2)の材料の上書き（改善計画: 車との近さ材料の共有元化）。
-        研究モードでレシピを上書き中は、ポップアップの内訳も上書き中のレシピで計算する
-        （地図の色・ルート採点との整合を保つため）。
-
-        `repository`未注入（DBなし構成）、または該当way自体が存在しない場合はNone。
-        highwayが判定基準に登録されていない場合はbase=None, level=None（タイル・区間評価と
-        同じ「不明・他」の扱い）。
-
-        DB例外はNoneへ倒す（改善計画T94・get_road_surface_tile等の`_tile_from_repository`と
-        同じグレースフルデグレード方針。ログ・統計も同様に`log_external_call`＋
-        `/api/debug/stats`計上へ揃える）。
-        """
-        if self._repository is None:
-            return None
-        with log_external_call(external_call_name, osm_way_id=osm_way_id) as fields:
-            try:
-                result = await self._repository.get_way_tags_by_osm_way_id(osm_way_id)
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
-                # result="error"はlog_external_call自身の二重WARNINGを招くため、
-                # 詳細な自前WARNINGを出した上でwarned=Trueを立てて抑制する
-                # （/api/debug/statsのerror集計には正しく計上される。debug_log.py参照）。
-                # error_typeは他の呼び出し元（weather_client.py等）と同じくerror_type_labelで
-                # 設定する（省略するとerror_types集計が常に"unknown"になり原因診断に使えない）。
-                fields["result"] = "error"
-                fields["warned"] = True
-                fields["error_type"] = error_type_label(exc)
-                logger.warning("%s内訳のPostGIS読み取りに失敗 osm_way_id=%d error=%r", label, osm_way_id, exc)
-                return None
-            if result is None:
-                fields["lookup"] = "not_found"
-                return None
-            fields["lookup"] = "ok"
-            highway, tags, is_designated = result
-            return domain_fn(highway, tags, is_designated, recipe, road_suitability_recipe, motor_vehicle_density_recipe)
-
-    async def get_car_stress_breakdown(
-        self,
-        osm_way_id: int,
-        recipe: CarStressRecipe | None = None,
-        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
-    ) -> CarStressBreakdown | None:
-        """車ストレスの判定内訳（改善計画T90）。共通実装・詳細は`_get_breakdown`参照。"""
-        return await self._get_breakdown(
-            domain_fn=car_stress_breakdown,
-            external_call_name="region:car-stress-breakdown",
-            label="車ストレス",
-            osm_way_id=osm_way_id,
-            recipe=recipe,
-            road_suitability_recipe=road_suitability_recipe,
-            motor_vehicle_density_recipe=motor_vehicle_density_recipe,
-        )
-
-    async def get_axis_inspector(
-        self,
-        osm_way_id: int,
-        car_stress_recipe: CarStressRecipe | None = None,
-        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
-    ) -> AxisInspectorResult | None:
-        """区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
-        一次属性→二次軸スコア→三次合成コスト（取得可能な軸だけの参考値）を返す。
-
-        `_get_breakdown`と同じくosm_way_id完全一致で該当wayを引き直す（同docstring参照）。
-        車ストレス・停止密度・事故密度・道路適正・自動車密度の材料は既存のway_tags/
-        way_attribute_counts/accident_years_coveredをまとめて取得する必要があるため
-        `_get_breakdown`（軸1つぶんの単純な委譲）は再利用せず専用実装にする。
-
         `repository`未注入、該当way自体が存在しない場合はNone。DB例外もNoneへ倒す
-        （`_get_breakdown`と同じグレースフルデグレード方針）。
+        （改善計画T94・get_road_surface_tile等の`_tile_from_repository`と同じ
+        グレースフルデグレード方針。ログ・統計も同様に`log_external_call`＋
+        `/api/debug/stats`計上へ揃える）。
+
+        改善計画T292: 車ストレスは専用Pythonレシピを廃止したため、レシピ上書き
+        パラメータ（旧car_stress_recipe等）は廃止した。
         """
         if self._repository is None:
             return None
@@ -399,7 +318,7 @@ class RegionService:
                     return None
                 way_counts = await self._repository.get_way_attribute_counts(osm_way_id)
                 accident_years_covered = await self._repository.get_accident_years_covered()
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（_get_breakdownと同じ方針）
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
@@ -408,14 +327,4 @@ class RegionService:
             fields["lookup"] = "ok"
             fields["way_counts_available"] = way_counts is not None
             highway, tags, is_designated = way_tags_result
-            return axis_inspector_breakdown(
-                highway,
-                tags,
-                is_designated,
-                way_counts,
-                accident_years_covered,
-                RoutePreference(),
-                car_stress_recipe,
-                road_suitability_recipe,
-                motor_vehicle_density_recipe,
-            )
+            return axis_inspector_breakdown(highway, tags, is_designated, way_counts, accident_years_covered, RoutePreference())

@@ -46,7 +46,6 @@ from app.domain.evaluation import (
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.graph import EdgeLike, LeanRoadGraph, RoadGraphLike
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import (
@@ -58,13 +57,11 @@ from app.domain.route import (
 )
 from app.domain.twilight import is_night
 from app.domain.traffic import (
-    CarStressRecipe,
     classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
-    car_stress_level,
 )
 from app.domain.routing import (
     NodeSpatialIndex,
@@ -156,9 +153,6 @@ class RoadGraphEngine:
         evaluation_service: EvaluationService,
         weather_service: WeatherService,
         route_preference: RoutePreference,
-        car_stress_recipe: CarStressRecipe | None = None,
-        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
@@ -168,9 +162,6 @@ class RoadGraphEngine:
         self._evaluation_service = evaluation_service
         self._weather_service = weather_service
         self._route_preference = route_preference
-        self._car_stress_recipe = car_stress_recipe
-        self._road_suitability_recipe = road_suitability_recipe
-        self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
         # 改善計画T218・T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
         # 既定1.0は従来どおりの挙動（最悪でも距離2倍）。
         self._penalty_strength = penalty_strength
@@ -485,18 +476,6 @@ class RoadGraphEngine:
             road_surface_good = classify_osm_surface(surface_type)
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
             is_designated = edge.edge_id in context.designated_edge_ids
-            car_stress = (
-                car_stress_level(
-                    edge.highway,
-                    edge_way_tags,
-                    is_designated,
-                    self._car_stress_recipe,
-                    road_suitability_recipe=self._road_suitability_recipe,
-                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                )
-                if edge_way_tags is not None
-                else None
-            )
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
             )
@@ -505,19 +484,19 @@ class RoadGraphEngine:
             # EvaluationService.evaluate_graph経由）と同じcompute_edge_axis_scores（T142）を
             # 通す。設計プロンプトの完了条件「地図表示とルーティングコストが同一のレシピ定義
             # から生成される」に対応し、二次の計算式が表示・探索コストの2箇所に独立実装される
-            # 非DRY構造（現状把握C.で判明）を解消する。car_stress_level_valueには上で表示用に
-            # 計算済みのcar_stressをそのまま渡し、compute_edge_axis_scores内部での
-            # car_stress_level()再計算を避ける（改善計画T153、二重計算の解消）。
+            # 非DRY構造（現状把握C.で判明）を解消する。
             axis_scores = compute_edge_axis_scores(
                 edge, elevation_attr, surface_type,
                 wind=context.wind, stop_count=stop_count, way_tags=edge_way_tags,
                 intersection_count=intersection_count, accident_count=accident_count,
                 accident_years_covered=context.accident_years_covered, is_designated=is_designated,
-                car_stress_recipe=self._car_stress_recipe,
-                road_suitability_recipe=self._road_suitability_recipe,
-                motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                car_stress_level_value=car_stress,
             )
+            # 改善計画T292: car_stress（1-5の生値、将来の色分けモード等での利用に備えて
+            # domain/route.py: RouteSegmentDetailが保持するdisplayフィールド）は、専用
+            # レシピ（旧car_stress_level）廃止後、公開軸car_stressのdifficulty(0-100)を
+            # 逆変換して求める（旧breakpoints(1,0)-(5,100)の逆）。
+            car_stress_difficulty = axis_scores.get("car_stress")
+            car_stress = round(car_stress_difficulty / 100 * 4 + 1) if car_stress_difficulty is not None else None
             weights = preference.weights
             _, composite_difficulty_value = compute_cost_from_axis_scores(
                 edge.distance_m, axis_scores, weights, self._penalty_strength

@@ -34,20 +34,18 @@ from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import haversine_distance_km, sample_line_points
 from app.domain.night import night_materials
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
+from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.twilight import is_night
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
-    CarStressRecipe,
     classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
-    car_stress_level,
 )
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
@@ -128,9 +126,6 @@ class OpenRouteServiceEngine:
         wind_service: WindService,
         route_preference: RoutePreference,
         repository: RoadGraphRepository | None = None,
-        car_stress_recipe: CarStressRecipe | None = None,
-        road_suitability_recipe: RoadSuitabilityRecipe | None = None,
-        motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
     ):
         self._routing_service = routing_service
         self._elevation_service = elevation_service
@@ -139,9 +134,6 @@ class OpenRouteServiceEngine:
         # 路面評価の空間マッチ用（改善計画T21）。GraphService/ElevationAttributeServiceと同じ
         # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
         self._repository = repository
-        self._car_stress_recipe = car_stress_recipe
-        self._road_suitability_recipe = road_suitability_recipe
-        self._motor_vehicle_density_recipe = motor_vehicle_density_recipe
 
     async def prepare(self, origin: Coordinates, radius_km: float):
         return _NO_CONTEXT
@@ -341,19 +333,16 @@ class OpenRouteServiceEngine:
             stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
 
             highway, tags, is_designated = attr.highway, attr.tags, attr.is_designated
-            car_stress = (
-                car_stress_level(
-                    highway,
-                    tags,
-                    is_designated,
-                    self._car_stress_recipe,
-                    road_suitability_recipe=self._road_suitability_recipe,
-                    motor_vehicle_density_recipe=self._motor_vehicle_density_recipe,
-                )
-                if tags is not None
-                else None
-            )
+            # 改善計画T292: 車ストレスは専用Pythonレシピ（car_stress_level等）を廃止し、
+            # AXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造で再現する（domain/evaluation.py:
+            # compute_edge_axis_scoresと同じ材料抽出。highway由来の材料はtags未取得時に
+            # 意図的にNoneにして評価しない、旧ロジックと同じ「tags無し=car_stress未評価」を
+            # 維持するため）。
+            highway_for_car_stress = highway if tags is not None else None
             bicycle_infra = classify_bicycle_infrastructure(tags, highway) if tags is not None else None
+            maxspeed_kmh = parse_maxspeed(tags) if tags is not None else None
+            lanes_count = parse_lanes(tags) if tags is not None else None
+            motor_vehicle_no = tag_value_is(tags, "motor_vehicle", "no") if tags is not None else None
             intersection_count = attr.intersection_count
             intersection_count_per_km = (
                 intersection_count / distance_km if intersection_count is not None and distance_km > 0 else None
@@ -387,11 +376,21 @@ class OpenRouteServiceEngine:
                     "stop_count_per_km": stop_count_per_km,
                     "intersection_count_per_km": intersection_count_per_km,
                     "accident_count_per_km_year": accident_count_per_km_year,
-                    "car_stress_level": car_stress,
+                    "highway": highway_for_car_stress,
+                    "bicycle_infra": bicycle_infra,
+                    "maxspeed_kmh": maxspeed_kmh,
+                    "lanes_count": lanes_count,
+                    "is_designated": is_designated,
+                    "motor_vehicle_no": motor_vehicle_no,
                     **night_materials(tags),
                 },
                 {**base_axis_weights, "night": night_weight},
             )
+            # car_stress（1-5の生値、RouteSegmentDetail.car_stress・route候補集計用）は
+            # 公開軸car_stressのdifficulty(0-100)を逆変換して求める（改善計画T292、
+            # road_graph_engine.pyと同じ導出。旧breakpoints(1,0)-(5,100)の逆）。
+            car_stress_difficulty = axis_difficulties.axes.get("car_stress")
+            car_stress = round(car_stress_difficulty / 100 * 4 + 1) if car_stress_difficulty is not None else None
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
 

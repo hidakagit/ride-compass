@@ -373,17 +373,18 @@ def _register_axes() -> None:
         AxisSpec(
             axis_id="car_stress",
             inputs=["highway", "lanes", "maxspeed", "cycleway", "designation", "motor_vehicle_access"],
-            transform_fn="app.domain.traffic.car_stress_level",
+            transform_fn="app.domain.axis_definitions.AXIS_DEFINITIONS['car_stress']",
             output_range=(0.0, 100.0),
-            description="道路種別・車線数・制限速度・N10/N12該当・自転車インフラ（cycleway補正）・"
-            "自動車通行可否（motor_vehicle=noなら他の補正に関わらず1固定）から算出する"
+            description="道路種別・車線数・制限速度・N10/N12該当・自転車インフラ・"
+            "自動車通行可否（motor_vehicle=noなら他の補正に関わらず最良値）から算出する"
             "車ストレス（走行中の車との近接ストレス）。旧「交通ストレス」・"
             "「圧迫感」。改善計画T138で自転車インフラの独立軸を統合済み。呼称のtraffic→"
             "car_stressへの統一（Pythonシンボル名）は改善計画T150で実施済み。"
-            "transform_fnは1-5の生レベルを返す`car_stress_level`を指す（0-100の"
-            "difficultyへの変換は`domain/difficulty.py: car_stress_difficulty`が別途行う"
-            "2段階構成。実際の呼び出しは`domain/evaluation.py: compute_edge_axis_scores`が"
-            "この2段階を合成して行っており、まだtransform_fn文字列を動的解決してはいない）。"
+            "改善計画T292: 専用Pythonレシピ（旧car_stress_level等）を廃止し、内部軸5つ"
+            "（is_published=Falseのcar_stress_highway_base等、AXIS_DEFINITIONS参照）+"
+            "公開軸1つの階層構造で再現する。transform_fnは実際には動的解決されない"
+            "ドキュメント目的の文字列（実際の呼び出しはdomain/evaluation.py: "
+            "compute_edge_axis_scores等が依存順評価で行う）。"
             "motor_vehicle_accessは地図レイヤー階層の次数反転検討（改善計画T163）で"
             "inputsからの記載漏れが発覚し追加した（排他違反ではないが不完全だった）",
             display=AxisDisplaySpec(

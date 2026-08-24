@@ -14,6 +14,7 @@ from typing import Mapping, NamedTuple
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     evaluate_axis_scalar,
+    topological_axis_order,
 )
 
 
@@ -59,14 +60,6 @@ def stop_difficulty(
     )
 
 
-def car_stress_difficulty(car_stress_level: int | None) -> float | None:
-    """車ストレス(1-5、domain/traffic.py: car_stress_level)を難易度へ変換する。
-    レベルが高いほど走りにくいため単調増加。判定不能（未知のhighway等）はNone。"""
-    if car_stress_level is None:
-        return None
-    return evaluate_axis_scalar(AXIS_DEFINITIONS["car_stress"], {"car_stress_level": car_stress_level})
-
-
 def accident_difficulty(accident_count_per_km_year: float | None) -> float | None:
     """事故密度(件/(km・年)、domain/accident.py: distance_weighted_accident_density)を
     難易度へ変換する。密度が高いほど走りにくいため単調増加。データ無し（Noneまたは負値）はNone。
@@ -107,13 +100,24 @@ def evaluate_axis_difficulties(
     `materials`は材料id→解決済みスカラー値（欠損はNone）。各軸が何を参照するかは
     `domain/axis_definitions.py: AXIS_DEFINITIONS`参照。`weights`はaxis_id→合成重み
     （キーが無い軸は重み0として扱う）。
+
+    改善計画T292: 軸が他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
+    階層構造）ため、依存先を先に評価し結果をmaterialsへ混ぜ込みながら進める
+    （domain/evaluation.py: compute_edge_axis_scoresと同じ依存順評価）。内部軸
+    （is_published=False）は実装詳細のため、返り値のaxesには含めない
+    （compute_edge_axis_scoresと同じ絞り込み）。
     """
-    axes = {
-        axis_id: evaluate_axis_scalar(definition, materials)
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-    }
+    axes: dict[str, float | None] = {}
+    materials_with_axes: dict[str, object] = dict(materials)
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        definition = AXIS_DEFINITIONS[axis_id]
+        value = evaluate_axis_scalar(definition, materials_with_axes)
+        if definition.is_published:
+            axes[axis_id] = value
+        if value is not None:
+            materials_with_axes[axis_id] = value
     composite = composite_difficulty(
-        [(axes[axis_id], weights.get(axis_id, 0.0)) for axis_id in AXIS_DEFINITIONS]
+        [(axes[axis_id], weights.get(axis_id, 0.0)) for axis_id in axes]
     )
     return AxisDifficulties(axes=axes, composite=composite)
 

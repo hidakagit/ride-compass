@@ -328,8 +328,11 @@ async def test_car_stress_reflects_designation_bonus_when_repository_injected():
     designated_values = await _car_stress_values(repository_designated)
     not_designated_values = await _car_stress_values(repository_not_designated)
 
-    assert designated_values == {3}
-    assert not_designated_values == {2}
+    # 改善計画T292: bicycle_infra（6値）ベースの補正導入により、cyclewayタグが無い
+    # 普通の道路は"roadway"に分類され+1点される（T291合意の変換表、旧cycleway_class
+    # ベースでは「タグ無し=補正0」だったため、以前より両ケースとも+1）。
+    assert designated_values == {4}
+    assert not_designated_values == {3}
 
 
 async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():

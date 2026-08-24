@@ -1,22 +1,12 @@
 import asyncio
-from collections.abc import Awaitable, Callable
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 from app.api.dependencies import client_id, get_region_service
-from app.api.routers.routes import (
-    MotorVehicleDensityRecipeOverride,
-    RoadSuitabilityRecipeOverride,
-    CarStressRecipeOverride,
-    validate_lanes_threshold_order,
-)
 from app.config import settings
 from app.domain.evaluation import AxisInspectorResult
-from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
-from app.domain.traffic import CarStressBreakdown, CarStressRecipe
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.region_service import RegionService
@@ -129,90 +119,8 @@ async def region_poi_tile(
     )
 
 
-async def _breakdown_response(
-    http_request: Request,
-    rate_limit_prefix: str,
-    osm_way_id: int,
-    recipe: Any,
-    road_suitability_recipe: Any,
-    motor_vehicle_density_recipe: Any,
-    service_call: Callable[[int, Any, Any, Any], Awaitable[Any]],
-) -> Any:
-    """車ストレス・安全度の内訳エンドポイントが共有するリクエスト処理（改善計画T123）。
-    歯止め（レート制限）→サービス呼び出しという共通の骨格だけを引数化する（レシピの
-    APIモデル→domainモデル変換はエンドポイントごとに型が異なるため呼び出し元に残す）。
-    """
-    _check_tile_rate_limit(http_request, rate_limit_prefix)
-    return await service_call(osm_way_id, recipe, road_suitability_recipe, motor_vehicle_density_recipe)
-
-
-class CarStressBreakdownRequest(BaseModel):
-    osm_way_id: int
-    # 研究モードでレシピを上書き中の内訳表示用（改善計画: 交通ストレスレシピ外出し基盤）。
-    # 省略時はdomain/traffic.py: DEFAULT_CAR_STRESS_RECIPEで計算する。
-    car_stress_recipe: CarStressRecipeOverride | None = None
-    # 車ストレス・安全度が共有する「車との近さ」(N2)の材料の上書き（改善計画: 車との
-    # 近さ材料の共有元化）。省略時はそれぞれdomain/recipe.py:
-    # DEFAULT_ROAD_SUITABILITY_RECIPE/DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPEで計算する。
-    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
-
-    @model_validator(mode="after")
-    def _check_lanes_threshold_order(self) -> "CarStressBreakdownRequest":
-        validate_lanes_threshold_order(self.car_stress_recipe, self.motor_vehicle_density_recipe)
-        return self
-
-
-@router.post("/api/region/car-stress-breakdown")
-async def region_car_stress_breakdown(
-    body: CarStressBreakdownRequest,
-    http_request: Request,
-    region_service: RegionService = Depends(get_region_service),
-) -> CarStressBreakdown | None:
-    """車ストレスの判定内訳（改善計画T90）。クリックされた道路（osm_way_id、
-    路面タイルのMVTプロパティに含まれる識別子）について、`domain/traffic.py:
-    car_stress_level`が計算に使ったベース値・各補正・最終値を返す。該当wayが存在しない、
-    highwayが判定基準に未登録、またはDBなし構成の場合はlevel=null（タイル・区間評価と同じ
-    「不明・他」の扱い）。緯度経度の空間マッチではなく完全一致で引く理由は
-    RegionService.get_car_stress_breakdownのdocstring参照（交差点付近での取り違え対策）。
-    タイル取得と同じ歯止め（クリックの連打対策）を流用する。
-
-    GETではなくPOST+JSONボディなのは、`car_stress_recipe`（レシピ上書き、改善計画:
-    交通ストレスレシピ外出し基盤）という複雑なオブジェクトをクエリパラメータで渡すのが
-    不自然なため。`/api/routes/generate`と同じ「読み取り専用だがボディ渡し」の形に揃えた。
-    """
-    recipe = CarStressRecipe(**body.car_stress_recipe.model_dump()) if body.car_stress_recipe else None
-    road_suitability_recipe = (
-        RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
-    )
-    motor_vehicle_density_recipe = (
-        MotorVehicleDensityRecipe(**body.motor_vehicle_density_recipe.model_dump())
-        if body.motor_vehicle_density_recipe
-        else None
-    )
-    return await _breakdown_response(
-        http_request,
-        "car-stress-breakdown",
-        body.osm_way_id,
-        recipe,
-        road_suitability_recipe,
-        motor_vehicle_density_recipe,
-        region_service.get_car_stress_breakdown,
-    )
-
-
 class AxisInspectorRequest(BaseModel):
     osm_way_id: int
-    # CarStressBreakdownRequestと同じ「車との近さ」(N2)材料の上書き（車ストレス軸のスコアに
-    # 反映される。研究モードで重みを上書き中はここも追従させる、改善計画T146）。
-    car_stress_recipe: CarStressRecipeOverride | None = None
-    road_suitability_recipe: RoadSuitabilityRecipeOverride | None = None
-    motor_vehicle_density_recipe: MotorVehicleDensityRecipeOverride | None = None
-
-    @model_validator(mode="after")
-    def _check_lanes_threshold_order(self) -> "AxisInspectorRequest":
-        validate_lanes_threshold_order(self.car_stress_recipe, self.motor_vehicle_density_recipe)
-        return self
 
 
 @router.post("/api/region/axis-inspector")
@@ -224,25 +132,15 @@ async def region_axis_inspector(
     """区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
     一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→
     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
-    region_car_stress_breakdownと同じ構造（POST+JSONボディ・osm_way_id完全一致の理由は
-    同エンドポイントのdocstring参照）。gradient/wind軸は単独wayでは算出不能なため常に
-    available=falseで返る（ルートに含まれる区間の正確な値はルート生成結果自体を見る）。
+    POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
+    docstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能
+    なため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果
+    自体を見る）。
+
+    改善計画T292: 車ストレス専用レシピ（旧`/api/region/car-stress-breakdown`、
+    `CarStressBreakdown`）は廃止し、本エンドポイント（軸別の汎用内訳）へ統合した。
+    レシピ上書きパラメータ（旧car_stress_recipe等）も、専用Pythonレシピの廃止に伴い
+    廃止した。
     """
-    recipe = CarStressRecipe(**body.car_stress_recipe.model_dump()) if body.car_stress_recipe else None
-    road_suitability_recipe = (
-        RoadSuitabilityRecipe(**body.road_suitability_recipe.model_dump()) if body.road_suitability_recipe else None
-    )
-    motor_vehicle_density_recipe = (
-        MotorVehicleDensityRecipe(**body.motor_vehicle_density_recipe.model_dump())
-        if body.motor_vehicle_density_recipe
-        else None
-    )
-    return await _breakdown_response(
-        http_request,
-        "axis-inspector",
-        body.osm_way_id,
-        recipe,
-        road_suitability_recipe,
-        motor_vehicle_density_recipe,
-        region_service.get_axis_inspector,
-    )
+    _check_tile_rate_limit(http_request, "axis-inspector")
+    return await region_service.get_axis_inspector(body.osm_way_id)

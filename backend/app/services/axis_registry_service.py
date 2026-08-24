@@ -26,6 +26,7 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     check_material_exclusivity,
     check_publish_immutability,
+    topological_axis_order,
 )
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
@@ -89,7 +90,13 @@ class AxisRegistryAdminService:
             raise ValueError(f"axis_id={definition.axis_id} は既に存在します")
         # 改善計画T268: 材料の排他帰属チェック（registry.pyの原則を計算系レジストリへ移植）。
         # 新規軸が既存軸の材料を黙って再利用し二重計上が混入する事故を構造的に防ぐ。
-        check_material_exclusivity(definition, {aid: d for aid, (d, _) in existing.items()})
+        existing_definitions = {aid: d for aid, (d, _) in existing.items()}
+        check_material_exclusivity(definition, existing_definitions)
+        # 改善計画T292: 軸間参照（内部軸→公開軸の階層構造）に循環が無いか検証する。
+        # 参照先axis_idが存在しない場合はAxisDefinitionPayload._check_materials_are_known
+        # （router層）で既に弾かれている前提のため、ここではAXIS_DEFINITIONS.keys()を
+        # is_known_axis_idの集合として使うtopological_axis_orderへそのまま委ねる。
+        topological_axis_order({**existing_definitions, definition.axis_id: definition})
         sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
@@ -110,7 +117,10 @@ class AxisRegistryAdminService:
         # 改善計画T268: 自分自身（axis_id）は比較対象から除外される
         # （check_material_exclusivityが同一キーをスキップする）ため、材料構成を
         # 変えない・変える更新のどちらも自己衝突しない。
-        check_material_exclusivity(definition, {aid: d for aid, (d, _) in existing.items()})
+        existing_definitions = {aid: d for aid, (d, _) in existing.items()}
+        check_material_exclusivity(definition, existing_definitions)
+        # 改善計画T292: 軸間参照の循環検証（createと同じ、自分自身は上書きで置き換える）。
+        topological_axis_order({**existing_definitions, axis_id: definition})
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)

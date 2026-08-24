@@ -62,6 +62,12 @@ def derive_ramp_inputs(definition: AxisDefinition) -> RampInputs | None:
     if isinstance(shape, CategoricalShape):
         spec = specs[shape.material]
         assert spec is not None and spec.tile_property is not None
+        # 改善計画T292: CategoricalShape.mappingはstr多値材料（highway/bicycle_infra等、
+        # 3値以上）にも対応したが、2色ramp（true_score/false_score）はbool2値材料
+        # 専用の表現のため、str多値のmappingはramp化不可（None、qualitative色分けは
+        # 別の自動導出の対象——フロント表示層の汎用化タスクで扱う）とする。
+        if set(shape.mapping.keys()) != {True, False}:
+            return None
         true_score = shape.mapping[True]
         false_score = shape.mapping[False]
         lower, upper = sorted([true_score, false_score])
