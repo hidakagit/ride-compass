@@ -269,3 +269,20 @@ async def delete_axis_definition(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{axis_id}/unpublish", dependencies=[Depends(require_admin_basic_auth)])
+async def unpublish_axis_definition(
+    axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
+) -> AxisDefinitionResponse:
+    """公開済み軸を下書きへ戻す（改善計画T302）。`update()`と異なり公開済み軸に対しても
+    成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の
+    フィールドは一切変更しない、T271の「公開済みは編集不可」原則を保ったまま公開フラグの
+    反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。"""
+    try:
+        await service.unpublish(axis_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
+    definition = await service.get(axis_id)
+    assert definition is not None  # unpublishが例外なく返った直後のため必ず存在する
+    return _to_response(definition)

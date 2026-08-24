@@ -204,10 +204,40 @@ class AxisRegistryAdminService:
             check_publish_immutability(existing[axis_id], "deleted")
         # route_preference.yamlや既存のAPIリクエストがこのaxis_idを重みキーとして参照して
         # いた場合、削除直後からRoutePreferenceのバリデーション（unknown key）でルート生成が
-        # 壊れうる。この整合性チェックは意図的に実装しない（Stage EでGUI編集が実利用される
-        # 段階で改めて検討する）。
+        # 壊れうる。この整合性チェックは意図的に実装しない——公開済み軸は上のガードで
+        # そもそも削除できず、削除できるのは常に下書き（is_published=False、一般ユーザー
+        # からは`GET /api/axis-catalog`経由で見えていない）軸のみのため、削除時点で
+        # 一般ユーザーの保存設定がこのaxis_idを参照している状況自体が起こらない
+        # （改善計画T302、docs/decisions/t221-axis-registry.md「Stage D拡張3」で確定）。
         deleted = await self._repository.delete(axis_id)
         if not deleted:
             raise KeyError(axis_id)
+        await self._repository.commit()
+        await refresh_axis_definitions(self._repository)
+
+    async def unpublish(self, axis_id: str) -> None:
+        """公開済み軸を下書き（is_published=False）へ戻す（改善計画T302）。
+
+        `update()`は`check_publish_immutability`で公開済み軸への変更を一律拒否するため、
+        「公開フラグの反転だけを許す」専用操作として独立させた。他フィールドの変更は
+        引き続きupdate()経由では拒否されたままで、「公開済みは編集不可」という
+        T271の原則自体は変えない。下書きへ戻った後は通常のupdate()経路で自由に
+        再編集・再公開できる（複製ではなく同一axis_idのまま行き来する、データは
+        失われない）。
+
+        呼び出し側（api/routers/axis_admin.py）は、この呼び出しが成功した直後の
+        レスポンスで一般ユーザーに`is_published=False`を伝える。フロント側
+        （RouteSettingsPanel）は`GET /api/axis-catalog`が返す公開軸集合の変化に合わせて
+        routePreferenceのキーを自己修復する前提（同ADR）——これが無いまま本メソッドだけ
+        単独で使うと、旧設定を保持したブラウザで次回のルート生成がRoutePreferenceWeights
+        のキー完全一致検証で422になるため、フロント実装とセットで使うこと。
+        """
+        existing = await self._repository.list_all_with_sort_order()
+        if axis_id not in existing:
+            raise KeyError(axis_id)
+        definition, sort_order = existing[axis_id]
+        if not definition.is_published:
+            return  # 既に下書きなら何もしない（べき等）
+        await self._repository.upsert(definition.model_copy(update={"is_published": False}), sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)

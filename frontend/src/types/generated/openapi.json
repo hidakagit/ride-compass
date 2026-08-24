@@ -952,6 +952,54 @@
         }
       }
     },
+    "/api/admin/axis-definitions/{axis_id}/unpublish": {
+      "post": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "Unpublish Axis Definition",
+        "description": "公開済み軸を下書きへ戻す（改善計画T302）。`update()`と異なり公開済み軸に対しても\n成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の\nフィールドは一切変更しない、T271の「公開済みは編集不可」原則を保ったまま公開フラグの\n反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。",
+        "operationId": "unpublish_axis_definition_api_admin_axis_definitions__axis_id__unpublish_post",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "axis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Axis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AxisDefinitionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/axis-catalog": {
       "get": {
         "summary": "Get Axis Catalog",

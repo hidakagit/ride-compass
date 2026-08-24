@@ -1081,8 +1081,11 @@ PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善�
 衝突し評価が壊れるため、重みの妥当性とは別次元の構造的な安全策として設ける）。
 
 `route_preference.yaml`や既存のAPIリクエストが参照するaxis_idを管理API経由で削除した
-場合の整合性チェックは意図的に実装していない（削除直後から`RoutePreference`の
-バリデーションでルート生成が壊れうる。Stage EでGUI編集が実利用される段階で改めて検討）。
+場合の整合性チェックは意図的に実装していない。ただし削除は公開済み軸には及ばない
+（下記「軸の公開フローと統治ルール」の不変制約により、削除できるのは常に下書き軸のみ）ため、
+削除時点で一般ユーザーの保存設定がそのaxis_idを参照している状況自体が起こらない
+（改善計画T302で確定、旧記述は「Stage EでGUI編集が実利用される段階で改めて検討」だったが
+そのタイミングが実際に到来したため決着した）。
 
 `export_openapi.py`が生成する`axis-catalog.json`（フロントのビルド時静的import）は
 本Stageでは変更していない——CIの`api-contract`ジョブがDB接続を持たないため、引き続き
@@ -1097,7 +1100,7 @@ Python内蔵の`AXIS_DEFINITIONS`から生成する（正確には`axes[]`/`prim
 0016_axis_definitions_is_published.sql`。既存7行は本番稼働中のためbackfillで`True`）が
 公開状態を持ち、以下2点を構造的に強制する:
 
-- **公開済み軸は不変**: `domain/axis_definitions.py: check_publish_immutability`が
+- **公開済み軸は編集不変**: `domain/axis_definitions.py: check_publish_immutability`が
   `AxisRegistryAdminService.update`/`delete`の冒頭で呼ばれ、`is_published=True`の軸への
   更新・削除要求は`AxisPublishedImmutableError`（`ValueError`のサブクラス）で拒否される
   （管理APIは自動的に409を返す）。改良したい場合は軸スタジオの「複製して新規作成」で
@@ -1105,16 +1108,32 @@ Python内蔵の`AXIS_DEFINITIONS`から生成する（正確には`axes[]`/`prim
   `api/routers/axis_admin.py: update_axis_definition`にこれまで欠けていた`ValueError`
   ハンドラも本タスクで追加した（従来は更新時の材料衝突[T268]が想定外の500になっていた
   抜け穴も合わせて塞いだ）。
+- **公開済み軸を下書きへ戻すunpublish**（改善計画T302で追加。当初のT271は「unpublishは
+  無い、複製して新規作成のみ」という一方向設計だったが、ユーザー要望を受けて追加した）:
+  `AxisRegistryAdminService.unpublish()`・`POST /api/admin/axis-definitions/{axis_id}/
+  unpublish`が、`is_published`のみをFalseへ反転する（他フィールドは一切変更しない、
+  `update()`の一般的な緩和ではなく専用アクション）。下書きへ戻った軸は通常の`update()`
+  経路で自由に再編集・再公開でき、削除も上記の不変制約により可能になる
+  （「unpublish→delete」の2段階が正式な削除フロー）。フロント（`RouteSettingsPanel`）は
+  `GET /api/axis-catalog`の返す公開軸集合の変化に合わせて、保存済み`routePreference`の
+  キー集合を双方向に同期する（新しい軸のキーを補う・消えた軸のキーを削除する）。これが
+  無いと、unpublish直後に旧設定を保持したブラウザで`RoutePreferenceWeights`のキー完全
+  一致検証（`routers/routes.py`）が422になる。ただしこの同期は`RouteSettingsPanel`が
+  マウントされたときにしか走らないため、モバイルで同パネル（「ルート詳細」タブ）を
+  一度も開かずに生成ボタン（T250でヘッダーへ分離済み）を押す経路には残課題がある
+  （改善計画T303、トリガー未到達）。
 - **下書き軸は一般ユーザーに見えない**: `GET /api/axis-catalog`（T269、`RouteSettingsPanel`
   が読む）は`is_published=True`の軸のみを返す。下書きの一覧・編集は認可必須の
   `GET /api/admin/axis-definitions`（軸スタジオ）側でのみ行う。
 
 軸スタジオ（`components/AxisStudio/AxisStudio.tsx`）は各軸に「公開済み/下書き」バッジを
 表示し、公開済み軸の「編集」「削除」ボタンをdisabledにする（バックエンドの拒否に加えて
-UI側でも先回りして防ぐ）。「複製して新規作成」ボタンは公開済み・下書きどちらの軸からも
-使え、`AxisComposer.tsx: draftFromDuplicate`が既存定義の内容をコピーしつつ
-`axis_id`を空に・`is_published`を`false`に強制する。新規作成フォームには「公開する」
-チェックボックス（既定OFF）があり、送信時のpayloadへ`is_published`として含まれる。
+UI側でも先回りして防ぐ）。公開済み軸には「非公開に戻す」ボタン（改善計画T302）も表示され、
+押すとバッジが「下書き」へ切り替わり「削除」ボタンが活性化する。「複製して新規作成」
+ボタンは公開済み・下書きどちらの軸からも使え、`AxisComposer.tsx: draftFromDuplicate`が
+既存定義の内容をコピーしつつ`axis_id`を空に・`is_published`を`false`に強制する。
+新規作成フォームには「公開する」チェックボックス（既定OFF）があり、送信時のpayloadへ
+`is_published`として含まれる。
 
 ### 管理画面の権限制御（改善計画T272）
 
@@ -1131,7 +1150,8 @@ Phase 3のもう1件。以前は`/admin`ページ本体（軸スタジオ・研�
    未設定または不一致ならブラウザの標準Basic認証ダイアログを起動させる
    `WWW-Authenticate: Basic`ヘッダ付き401を返す。研究モード・開発者ツールも`/admin`配下
    のため、このゲート1つで一般ユーザーの導線から到達不可能になる。
-2. **軸スタジオの管理API**（`GET/POST/PUT/DELETE /api/admin/axis-definitions`）:
+2. **軸スタジオの管理API**（`GET/POST/PUT/DELETE /api/admin/axis-definitions`、
+   `POST /api/admin/axis-definitions/{axis_id}/unpublish`）:
    backend側`require_admin_basic_auth`（環境変数`ADMIN_BASIC_AUTH_USERNAME`/
    `ADMIN_BASIC_AUTH_PASSWORD`、backend側）が`secrets.compare_digest`でタイミング
    攻撃を避けつつ検証する。

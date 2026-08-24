@@ -89,18 +89,26 @@ export default function RouteSettingsPanel({
   const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
 
-  // カタログ取得後に新しい軸（軸スタジオがDBへ追加した軸）が現れた場合、routePreferenceへ
-  // その既定重みを補う（値は変えずキーを追加するだけなのでoverrideEnabledは動かさない、
-  // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う）。backendの
-  // route_preference検証は「上書きするなら既知の全axis_idを明示する」方針のため、
-  // routePreferenceが新しい軸のキーを欠いたまま他の操作でoverrideEnabledが有効化されると
-  // 422になる（改善計画T269、将来のT270軸追加に備えた防御）。
+  // カタログとroutePreferenceのキー集合を双方向に同期する（改善計画T269・T302）。
+  // backendのroute_preference検証は「上書きするなら既知の全axis_idを明示する」方針
+  // （キー完全一致、routers/routes.py: RoutePreferenceWeights._check_axis_keys）のため、
+  // どちら向きのズレを放置してもルート生成が422になる（改善計画T269、将来のT270軸追加に
+  // 備えた防御）。
+  // - 新しい軸（軸スタジオがDBへ追加した軸）が現れた場合: その既定重みを補う。
+  // - 軸が消えた場合（改善計画T302、公開軸のunpublish）: そのキーをroutePreferenceから
+  //   削除する。これが無いと、unpublish直後に旧設定を保持したブラウザで次のルート生成が
+  //   422で壊れる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
+  // どちらも値を変えずキーの追加/削除だけなのでoverrideEnabledは動かさない、
+  // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う。
   useEffect(() => {
+    const catalogAxisIds = new Set(Object.keys(catalog.defaultWeights));
     const missingAxisIds = Object.keys(catalog.defaultWeights).filter((id) => !(id in routePreference));
-    if (missingAxisIds.length === 0) return;
-    const merged = { ...routePreference };
-    for (const id of missingAxisIds) merged[id] = catalog.defaultWeights[id];
-    onRoutePreferenceChange(merged);
+    const staleAxisIds = Object.keys(routePreference).filter((id) => !catalogAxisIds.has(id));
+    if (missingAxisIds.length === 0 && staleAxisIds.length === 0) return;
+    const synced = { ...routePreference };
+    for (const id of missingAxisIds) synced[id] = catalog.defaultWeights[id];
+    for (const id of staleAxisIds) delete synced[id];
+    onRoutePreferenceChange(synced);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog.defaultWeights]);
 

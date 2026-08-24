@@ -8,6 +8,7 @@ import {
   createAxisDefinition,
   deleteAxisDefinition,
   listAxisDefinitions,
+  unpublishAxisDefinition,
   updateAxisDefinition,
 } from "@/services/axisAdminApi";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
@@ -24,6 +25,7 @@ export default function AxisStudio() {
   const [listError, setListError] = useState<string | null>(null);
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
+  const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
   // 複製元（改善計画T271）。nullでなければAxisComposerを「新規作成」モードのまま
   // duplicateFromの内容で初期化する（axis_idは空のまま、is_publishedは常にfalseへ
   // 落とす——公開済み軸を複製しても複製先は下書きから始まる）。
@@ -59,6 +61,21 @@ export default function AxisStudio() {
   function handleDuplicate(def: AxisDefinitionResponse) {
     setEditingAxisId(null);
     setDuplicateFrom(def);
+  }
+
+  async function handleUnpublish(axisId: string) {
+    // 改善計画T302: 公開済み軸を下書きへ戻す。一般ユーザー向けGET /api/axis-catalogから
+    // 即座に消えるため、フロント側の自己修復（RouteSettingsPanel）とセットで
+    // 初めて安全な操作になる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
+    setUnpublishingAxisId(axisId);
+    try {
+      await unpublishAxisDefinition(axisId);
+      await reload();
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnpublishingAxisId(null);
+    }
   }
 
   async function handleDelete(axisId: string) {
@@ -148,6 +165,16 @@ export default function AxisStudio() {
                   <button type="button" onClick={() => handleDuplicate(def)}>
                     複製して新規作成
                   </button>
+                  {def.is_published && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnpublish(def.axis_id)}
+                      disabled={unpublishingAxisId === def.axis_id}
+                      title="一般ユーザー向けの軸カタログから外し、下書きへ戻します（削除するにはこの後もう一度「削除」を押します）"
+                    >
+                      非公開に戻す
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleDelete(def.axis_id)}
@@ -156,7 +183,7 @@ export default function AxisStudio() {
                     }
                     title={
                       def.is_published
-                        ? "公開済み軸は削除できません"
+                        ? "公開済み軸は削除できません（先に「非公開に戻す」を押してください）"
                         : (definitions?.length ?? 0) <= 1
                           ? "最後の1軸は削除できません"
                           : undefined

@@ -401,6 +401,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/axis-definitions/{axis_id}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpublish Axis Definition
+         * @description 公開済み軸を下書きへ戻す（改善計画T302）。`update()`と異なり公開済み軸に対しても
+         *     成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の
+         *     フィールドは一切変更しない、T271の「公開済みは編集不可」原則を保ったまま公開フラグの
+         *     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。
+         */
+        post: operations["unpublish_axis_definition_api_admin_axis_definitions__axis_id__unpublish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/axis-catalog": {
         parameters: {
             query?: never;
@@ -1759,6 +1782,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpublish_axis_definition_api_admin_axis_definitions__axis_id__unpublish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                axis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisDefinitionResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -342,3 +342,69 @@ async def test_get_returns_none_for_unknown_axis_id(road_graph_session):
     service = AxisRegistryAdminService(repository)
 
     assert await service.get("unknown") is None
+
+
+# --- unpublish（改善計画T302） ---
+
+
+async def test_unpublish_flips_published_axis_to_draft(road_graph_session):
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("test_axis", default_weight=0.3, is_published=True))
+
+    await service.unpublish("test_axis")
+
+    assert AXIS_DEFINITIONS["test_axis"].is_published is False
+    # is_published以外のフィールドは変わらないこと。
+    assert AXIS_DEFINITIONS["test_axis"].default_weight == 0.3
+    persisted, _ = await repository.get("test_axis")
+    assert persisted.is_published is False
+
+
+async def test_unpublish_allows_update_afterwards(road_graph_session):
+    # 下書きへ戻った後は通常のupdate()経路で自由に再編集・再公開できる
+    # （複製ではなく同一axis_idのまま行き来する）。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("test_axis", default_weight=0.3, is_published=True))
+    await service.unpublish("test_axis")
+
+    await service.update("test_axis", _definition("test_axis", default_weight=0.9, is_published=True))
+
+    assert AXIS_DEFINITIONS["test_axis"].default_weight == 0.9
+    assert AXIS_DEFINITIONS["test_axis"].is_published is True
+
+
+async def test_unpublish_is_idempotent_for_already_draft_axis(road_graph_session):
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("test_axis", is_published=False))
+
+    await service.unpublish("test_axis")  # 例外にならないこと
+
+    assert AXIS_DEFINITIONS["test_axis"].is_published is False
+
+
+async def test_unpublish_raises_key_error_for_unknown_axis_id(road_graph_session):
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+
+    with pytest.raises(KeyError):
+        await service.unpublish("unknown")
+
+
+async def test_unpublish_then_delete_succeeds_where_direct_delete_was_rejected(road_graph_session):
+    # T271のガード単体では公開済み軸を削除できないが、unpublish→deleteの2段階なら
+    # 削除できる（改善計画T302で正式フローとして決定）。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("test_axis", is_published=True))
+    await service.create(_definition("other_axis", material="wind_penalty"))
+
+    with pytest.raises(AxisPublishedImmutableError):
+        await service.delete("test_axis")
+
+    await service.unpublish("test_axis")
+    await service.delete("test_axis")
+
+    assert "test_axis" not in AXIS_DEFINITIONS

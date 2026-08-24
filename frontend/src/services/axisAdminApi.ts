@@ -82,3 +82,13 @@ export function updateAxisDefinition(
 export function deleteAxisDefinition(axisId: string): Promise<void> {
   return adminFetch<void>(`/api/admin/axis-definitions/${encodeURIComponent(axisId)}`, "DELETE");
 }
+
+// 改善計画T302: 公開済み軸を下書きへ戻す。他フィールドは変更しない専用アクション
+// （通常のupdateAxisDefinitionは公開済み軸に対して409で拒否される、
+// backend/app/services/axis_registry_service.py: AxisRegistryAdminService.unpublish参照）。
+export function unpublishAxisDefinition(axisId: string): Promise<AxisDefinitionResponse> {
+  return adminFetch<AxisDefinitionResponse>(
+    `/api/admin/axis-definitions/${encodeURIComponent(axisId)}/unpublish`,
+    "POST",
+  );
+}
