@@ -1,10 +1,17 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 相対パス".env"はプロセスのカレントディレクトリ基準になるため、backend/以外から
+# 起動した場合（例: uvicornに--app-dir backendだけを渡しリポジトリルートから起動する等、
+# cwdを変えない起動方法）に読み込まれない。config.py自身の位置から解決することで
+# 起動時のcwdに依存しないようにする。
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     cors_allowed_origins: str = "http://localhost:3000"
     openrouteservice_api_key: str = ""
