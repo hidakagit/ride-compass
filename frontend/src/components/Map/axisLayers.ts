@@ -7,12 +7,16 @@
 //   2. タイルへ事実プロパティを焼き込む（way_attribute_counts等）
 // だけでフロントのコード変更なしに地図レイヤーとして現れる。
 //
-// rampの値は tile_inputs の線形結合（Σ property×weight。例: 停止密度 =
-// stop_per_km + 0.3×intersection_per_km）で、backend側の軸内係数
-// （domain/difficulty.py: UNSIGNALED_INTERSECTION_WEIGHT等）がカタログ経由で反映される
-// （設計原則2: 片側import。フロントに同じ係数を手書きしない）。
-// プロパティ欠損はタイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
+// rampの値は tile_inputs から組み立てる。数値材料はΣ property×weight（例: 停止密度 =
+// stop_per_km + 0.3×intersection_per_km、backend側の軸内係数
+// [domain/difficulty.py: UNSIGNALED_INTERSECTION_WEIGHT等]がカタログ経由で反映される
+// ——設計原則2: 片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
+// タイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
 // （_ROAD_SURFACE_TILE_MVT_SQLのコメント参照）。
+// 真偽値材料（改善計画T278、例: 舗装質=surface_good、夜間=no_lit/has_tunnel）はMVTの
+// 真偽値プロパティを["==",["get",property],true]のような比較でしか読めず数値の重み付け
+// 結合が成立しないため、tile_inputs.boolean=trueのときはtrueValue/falseValueで
+// 寄与値を直接指定する（weightは無視。domain/axis_display.py: derive_ramp_inputs参照）。
 
 import type { LegendEntry } from "./legendFilter";
 import axisCatalog from "@/types/generated/axis-catalog.json";
@@ -20,6 +24,18 @@ import axisCatalog from "@/types/generated/axis-catalog.json";
 export interface AxisTileInput {
   property: string;
   weight: number;
+  /** true=真偽値材料（改善計画T278）。weightは無視し、trueValue/falseValueで寄与値を直接指定する。 */
+  boolean?: boolean;
+  /** 材料がタイルプロパティの否定（例: no_lit⟵lit）の場合true。 */
+  invert?: boolean;
+  trueValue?: number;
+  falseValue?: number;
+  /** true=タイルプロパティの欠損が「true/falseどちらでもない不明」を表す（例:
+   * surface_good、未分類の路面）。欠損時はtrueValue/falseValueどちらにも倒さず、
+   * 灰色「不明」表示にする（レビュー指摘の修正、registry.py: TileInputSpec.
+   * has_unknown_fallback参照）。既定false（欠損=falseとみなしてよい材料、例:
+   * no_lit⟵lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
+  hasUnknownFallback?: boolean;
 }
 
 export interface RampAxis {
@@ -33,13 +49,23 @@ export interface RampAxis {
   note: string;
 }
 
+interface CatalogTileInput {
+  property: string;
+  weight: number;
+  boolean?: boolean;
+  invert?: boolean;
+  true_value?: number;
+  false_value?: number;
+  has_unknown_fallback?: boolean;
+}
+
 interface CatalogAxis {
   axis_id: string;
   display: {
     kind: string;
     label: string;
     category: string;
-    tile_inputs: { property: string; weight: number }[];
+    tile_inputs: CatalogTileInput[];
     thresholds: number[];
     unit: string;
     note: string;
@@ -61,7 +87,15 @@ export const RAMP_AXES: readonly RampAxis[] = (axisCatalog.axes as CatalogAxis[]
     axisId: axis.axis_id,
     label: axis.display!.label,
     category: axis.display!.category,
-    tileInputs: axis.display!.tile_inputs,
+    tileInputs: axis.display!.tile_inputs.map((input) => ({
+      property: input.property,
+      weight: input.weight,
+      boolean: input.boolean,
+      invert: input.invert,
+      trueValue: input.true_value,
+      falseValue: input.false_value,
+      hasUnknownFallback: input.has_unknown_fallback,
+    })),
     thresholds: axis.display!.thresholds,
     unit: axis.display!.unit,
     note: axis.display!.note,
@@ -83,24 +117,51 @@ export function axisLineLayerId(axisId: string): string {
 // 読み方を1回覚えれば全軸に通用させる（軸ごとに独自配色を作らない）。
 export const AXIS_RAMP_COLORS = ["#4caf50", "#ffb300", "#fb8c00", "#e53935"] as const;
 
-/** tile_inputsの線形結合（Σ property×weight）のMapLibre expression */
+// 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。staticAttributeLayers.ts:
+// COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
+// 循環import回避のため値を複製している（staticAttributeLayers.tsがaxisLayers.tsを
+// importする向きのため、逆方向のimportはできない）。
+export const COLOR_UNKNOWN = "#9ca3af";
+
+/** hasUnknownFallback=trueのtile_inputについて、対象タイルプロパティが欠損しているか
+ * を判定するMapLibre expression。該当する入力を持たない軸はnull（＝不明状態を持たない、
+ * 従来どおりstep色分けのみでよい）。 */
+export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
+  const checks = axis.tileInputs
+    .filter((input) => input.hasUnknownFallback)
+    .map((input) => ["!", ["has", input.property]]);
+  if (checks.length === 0) return null;
+  return checks.length === 1 ? checks[0] : ["any", ...checks];
+}
+
+/** 数値材料はΣ property×weight、真偽値材料（改善計画T278）は
+ * ["case", 真偽比較, trueValue, falseValue]で寄与値を組み立てるMapLibre expression。 */
 export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
-  const terms = axis.tileInputs.map((input) => [
-    "*",
-    ["coalesce", ["get", input.property], 0],
-    input.weight,
-  ]);
+  const terms = axis.tileInputs.map((input) => {
+    if (input.boolean) {
+      const comparison = input.invert
+        ? ["!=", ["get", input.property], true]
+        : ["==", ["get", input.property], true];
+      return ["case", comparison, input.trueValue ?? 0, input.falseValue ?? 0];
+    }
+    return ["*", ["coalesce", ["get", input.property], 0], input.weight];
+  });
   if (terms.length === 1) return terms[0];
   return ["+", ...terms];
 }
 
-/** thresholdsによるstep色分けのMapLibre expression */
+/** thresholdsによるstep色分けのMapLibre expression。hasUnknownFallbackなtile_inputの
+ * プロパティが欠損している場合は、step色分けより先にCOLOR_UNKNOWN（灰色）で塗る
+ * （レビュー指摘の修正: 以前はfalseValueへ自動的に倒れ「不明」が「悪い」側の色で
+ * 誤表示されていた）。 */
 export function buildAxisRampColorExpression(axis: RampAxis): unknown[] {
-  const expression: unknown[] = ["step", buildAxisRampValueExpression(axis), AXIS_RAMP_COLORS[0]];
+  const stepExpression: unknown[] = ["step", buildAxisRampValueExpression(axis), AXIS_RAMP_COLORS[0]];
   axis.thresholds.forEach((threshold, index) => {
-    expression.push(threshold, AXIS_RAMP_COLORS[Math.min(index + 1, AXIS_RAMP_COLORS.length - 1)]);
+    stepExpression.push(threshold, AXIS_RAMP_COLORS[Math.min(index + 1, AXIS_RAMP_COLORS.length - 1)]);
   });
-  return expression;
+  const unknownExpression = buildAxisRampUnknownExpression(axis);
+  if (unknownExpression === null) return stepExpression;
+  return ["case", unknownExpression, COLOR_UNKNOWN, stepExpression];
 }
 
 /** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。
@@ -128,13 +189,18 @@ function axisRampBandLabel(axis: RampAxis, lower: number | null, upper: number |
  * （MapView.tsx: setStaticOverlayFilters、buildCombinedLegendFilterExpression）を
  * 他レイヤーと同じ仕組みでそのまま共有できる（新規UIコンポーネント不要）。
  * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
- * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。 */
+ * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
+ * hasUnknownFallbackな軸（例: surface_q）は末尾に「不明」エントリを追加し（既存の
+ * staticAttributeLayers.tsの分類レイヤーと同じ「不明・他」の扱い方）、他の段階の
+ * filterには「不明ではない」条件を足して二重分類を防ぐ（レビュー指摘の修正）。 */
 export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   const valueExpression = buildAxisRampValueExpression(axis);
+  const unknownExpression = buildAxisRampUnknownExpression(axis);
   const bandCount = axis.thresholds.length + 1;
-  return Array.from({ length: bandCount }, (_, index) => {
+  const bands = Array.from({ length: bandCount }, (_, index) => {
     const { lower, upper } = axisRampBand(axis.thresholds, index);
     const filterParts: unknown[] = ["all"];
+    if (unknownExpression !== null) filterParts.push(["!", unknownExpression]);
     if (lower !== null) filterParts.push([">=", valueExpression, lower]);
     if (upper !== null) filterParts.push(["<", valueExpression, upper]);
     return {
@@ -144,4 +210,15 @@ export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
       filter: filterParts,
     };
   });
+  if (unknownExpression === null) return bands;
+  return [
+    ...bands,
+    {
+      key: `${axis.axisId}-unknown`,
+      label: "不明",
+      color: COLOR_UNKNOWN,
+      filter: ["all", unknownExpression],
+      isFallback: true,
+    },
+  ];
 }

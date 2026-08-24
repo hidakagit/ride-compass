@@ -1,0 +1,96 @@
+.page {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.title {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.section {
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.sectionSummary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.sectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.sectionHeading {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.card {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.recipeSharedMaterialGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}
+
+.recipeSharedMaterialHeading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.recipeDependentAxes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-left: var(--space-4);
+}
+
+.systemRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.debugControl {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

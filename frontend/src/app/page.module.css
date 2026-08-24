@@ -118,68 +118,6 @@
   padding: var(--space-2);
 }
 
-/* 「研究」内の見出し（評価の重み）。MapLayersPanel.module.cssのカテゴリ見出し
-   （.groupTitle、道路状態/交通・安全等）と同じ見た目に揃えるためcomposesで再利用する。
-   改善計画: 研究タブを2次要素ごとに整理（以前は評価の重み/レシピの2カテゴリで
-   `.researchCategory + .researchCategory`が2つ目以降の余白を付けていたが、
-   レシピは各軸の重み行の直下へ差し込む構成になり.researchCategoryが1つだけになった
-   ため、隣接セレクタは削除した）。 */
-.researchCategoryHeading {
-  composes: groupTitle from "../components/MapLayersPanel/MapLayersPanel.module.css";
-}
-
-/* 改善計画T133: 道路適正・自動車密度は車の圧迫感が参照する共有材料
-   （domain/recipe.py: car_closeness()、改善計画: 車との近さ材料の共有元化）であることを、
-   視覚的に示す。共有材料の2パネルを枠で囲み見出しを添え、それを参照する車の圧迫感の
-   レシピパネルはインデントすることで「材料→材料を使う軸」の一方向の依存関係を表す
-   （相互参照ではない）。かつては車の圧迫感・安全度の2軸が共有していたが、安全度は
-   T139で軸ごと廃止済み（改善計画: 研究タブを2次要素ごとに整理）。 */
-.recipeSharedMaterialGroup {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
-}
-
-.recipeSharedMaterialHeading {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
-.recipeDependentAxes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  /* recipeSharedMaterialGroupのborder(1px)+padding(--space-2)が既に内容を約9px
-     内側へ寄せているため、--space-3のままでは見た目の差が実測3pxしか出ない
-     （統合レビュー2026-08-19 ui P3・改善計画T160(4)）。--space-4へ増やし
-     視覚的な階層差を確保する。 */
-  margin-left: var(--space-4);
-}
-
-/* デバッグモード・バックエンド疎通確認は開発者向けの補助情報のため、他の情報より
-   一段控えめな見た目（小さく・淡く）で1行にまとめる */
-.systemRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
-/* デバッグログのチェックボックス・ログ起動ボタン・システム状況起動ボタンを1つの塊として
-   扱い、systemRowのflex-wrapで他の項目（研究モード等）と別行になっても、これらは常に
-   横並びを保つ（チェックON時にボタンが下の行へ落ちて縦積みの「メニュー」に見えるのを防ぐ）。 */
-.debugControl {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
 .refreshButton {
   align-self: flex-start;
   font-size: var(--font-size-sm);
@@ -438,27 +376,5 @@
 .tabButtonActive {
   color: var(--color-accent-strong);
   font-weight: 700;
-  background: var(--color-accent-bg);
-}
-
-/* 「設定」内のデバッグログ・システム状況の起動ボタン共通（systemRowの他の項目=文字だけの
-   控えめな見た目とは区別し、押せるボタンだと分かるよう枠を付ける）。ONのときはlocateButton
-   等と同じアクセントカラーで強調する。チェックボックスの真横に収まるよう、文言は持たず
-   アイコンのみ（ラベルはaria-label/titleで提供）にしている。 */
-.panelToggleButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  padding: 0.2rem;
-  background: transparent;
-  color: var(--color-muted);
-  cursor: pointer;
-}
-
-.panelToggleButton[aria-pressed="true"] {
-  color: var(--color-accent-strong);
-  border-color: var(--color-accent);
   background: var(--color-accent-bg);
 }

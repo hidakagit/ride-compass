@@ -27,9 +27,41 @@ T137時点から既に排他、`stop_density`はT149でintersectionを吸収済�
 axis_idは設計プロンプトが示す目標名（`car_stress`等）を使う。対応するPythonのモジュール・
 関数のシンボル名（`domain/traffic.py: car_stress_level`）も改善計画T150（呼称のtraffic→
 car_stressへの統一）で追従済み。
+
+**表示名（label）の単一ソース化（改善計画T270フォローアップ、2026-08-24）**: 各軸の
+`AxisDisplaySpec.label`は`domain/axis_definitions.py: AXIS_DEFINITIONS[axis_id].label`
+（T269でAxisDefinitionへ追加、DB化・軸スタジオでGUI編集可能な方）から参照する形にした。
+以前はこのファイルへ同じ文字列（例:「車の圧迫感」）を独立して手書きしており、
+2箇所が実質同じ事実を別々に宣言する重複だった（設計原則2「片側import」違反）。
+`AxisSpec.description`（本ファイル、開発者向けの長い技術説明）と`AxisDisplaySpec.category`
+（本ファイル、地図レイヤーパネルのグルーピング用「terrain」「road」「trafficSafety」等）は
+`AXIS_DEFINITIONS`の`description`（ユーザー向けの短い説明、RouteSettingsPanelのツールチップ用）
+・`category`（評価軸の性質「観測」「推定」「動的」、目論見書3章）とは対象読者・意味が
+異なる別概念のため統合しない（同じ「category」という語を使うが指す軸が異なる点に注意）。
+
+**この単一ソース化が解決しない範囲**: `register_defaults()`はビルド時
+（`export_openapi.py`）とテストのみで呼ばれ、FastAPIアプリ起動時には呼ばれない
+（本docstring冒頭参照）。そのためこの参照は「Pythonコード上の既定値が一致する」ことを
+保証するのみで、軸スタジオ（`/admin`）でDBの`label`をGUI編集しても、地図レイヤーパネル・
+`axis-catalog.json`（ビルド時生成物）側のラベルは再デプロイまで追従しない
+（`docs/decisions/t221-axis-registry.md`「Stage E実装」節の残作業3と同根の制約）。
+
+**地図表示ルール（kind=ramp）の自動導出（改善計画T278、2026-08-24）**: `surface_q`・
+`night`の`display`（`tile_inputs`/`thresholds`）は`domain/axis_display.py:
+derive_ramp_inputs()`が`AXIS_DEFINITIONS`の材料（`domain/material_catalog.py`の
+`tile_property`保持材料）から自動導出する。以前は`surface_q`が「既存の道路情報レイヤーと
+重複するため」という理由で`kind="none"`に手書き固定されていたが、ユーザー判断
+（2026-08-24）で「ramp化技術的に可能な軸は一律`kind="ramp"`にし、重複回避は地図
+レイヤーパネル側の表示/非表示切替で運用する」方針へ統一した。`gradient`（材料が
+タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
+統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（材料がタイル非依存の
+レシピ合成値）・`accident`（材料が年正規化済みでタイル生値とスケールが異なり、
+静的な変換係数を持てない）は自動導出の対象外のまま手書きの`display`を維持する
+（詳細はdomain/axis_display.pyのdocstring、改善計画T278参照）。
 """
 
-from app.domain.axis_definitions import UNSIGNALED_INTERSECTION_WEIGHT
+from app.domain.axis_definitions import AXIS_DEFINITIONS, UNSIGNALED_INTERSECTION_WEIGHT
+from app.domain.axis_display import derive_ramp_inputs
 from app.domain.registry import (
     AxisDisplaySpec,
     AxisSpec,
@@ -257,7 +289,7 @@ def _register_axes() -> None:
             description="区間の平均勾配から算出する難易度（絶対基準）",
             display=AxisDisplaySpec(
                 kind="none",
-                label="勾配",
+                label=AXIS_DEFINITIONS["gradient"].label,
                 category="terrain",
                 note="標高属性（elevation_attributes）はGSI APIから都度取得でDBへ恒久保存"
                 "しない設計のため、タイルへ焼き込める事実データが無い。標高図レイヤー"
@@ -265,6 +297,8 @@ def _register_axes() -> None:
             ),
         )
     )
+    surface_q_ramp = derive_ramp_inputs(AXIS_DEFINITIONS["surface_q"])
+    assert surface_q_ramp is not None  # 材料surface_goodはtile_property保持済み（material_catalog.py）
     register_axis(
         AxisSpec(
             axis_id="surface_q",
@@ -276,11 +310,15 @@ def _register_axes() -> None:
             "距離加重の舗装率%）は別関数`domain/road.py: distance_weighted_road_score`が担う"
             "（区間単位のこの軸と混同しないこと）",
             display=AxisDisplaySpec(
-                kind="none",
-                label="舗装質",
+                kind="ramp",
+                label=AXIS_DEFINITIONS["surface_q"].label,
                 category="road",
-                note="既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分け"
-                "モード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない。"
+                tile_inputs=surface_q_ramp.tile_inputs,
+                thresholds=surface_q_ramp.thresholds,
+                note="改善計画T278: 材料surface_good（タイル焼き込み済み）から自動導出。"
+                "既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分け"
+                "モード）と表示内容が重複するため非表示にしたい場合は地図レイヤーパネルの"
+                "表示切替で運用する（backend側にkind=noneの手動固定は設けない）。"
                 "ラベルは「路面」から改名（改善計画T163）: 一次属性「路面の種類」（surface）"
                 "との紛らわしさを解消するため。重みラベル「舗装」・レジストリ記述"
                 "「路面材質」と整合させた",
@@ -299,7 +337,7 @@ def _register_axes() -> None:
             "（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）",
             display=AxisDisplaySpec(
                 kind="ramp",
-                label="停止密度",
+                label=AXIS_DEFINITIONS["stop_density"].label,
                 category="trafficSafety",
                 tile_inputs=[
                     TileInputSpec(property="stop_per_km", weight=1.0),
@@ -333,7 +371,7 @@ def _register_axes() -> None:
             "inputsからの記載漏れが発覚し追加した（排他違反ではないが不完全だった）",
             display=AxisDisplaySpec(
                 kind="bespoke",
-                label="車の圧迫感",
+                label=AXIS_DEFINITIONS["car_stress"].label,
                 category="trafficSafety",
                 note="highway×cycleway×maxspeed×lanes×指定路線のレシピ判定が必要なため"
                 "汎用rampでは表せない。フロントの手書きexpression"
@@ -341,6 +379,8 @@ def _register_axes() -> None:
             ),
         )
     )
+    night_ramp = derive_ramp_inputs(AXIS_DEFINITIONS["night"])
+    assert night_ramp is not None  # 材料no_lit/has_tunnelはtile_property保持済み（material_catalog.py）
     register_axis(
         AxisSpec(
             axis_id="night",
@@ -350,12 +390,15 @@ def _register_axes() -> None:
             description="街灯なし・トンネルから算出する夜間の走りにくさ。改善計画T139で"
             "安全度軸から分離・新設。既定重み0で運用（route_preference.yaml参照）",
             display=AxisDisplaySpec(
-                kind="bespoke",
-                label="夜間",
+                kind="ramp",
+                label=AXIS_DEFINITIONS["night"].label,
                 category="trafficSafety",
-                note="現OSMデータではlitタグが疎で他軸との差がほぼ見えないため、"
-                "専用レイヤーは保留（改善計画T145a、データ充実がトリガー）。"
-                "フロントにexpressionが未登録のためレイヤーは生成されない",
+                tile_inputs=night_ramp.tile_inputs,
+                thresholds=night_ramp.thresholds,
+                note="改善計画T278: 材料no_lit（lit材料の否定）・has_tunnelから自動導出。"
+                "現OSMデータではlitタグが疎なため色分けの差が小さく見える場合があるが、"
+                "手書きexpressionを持たずとも自動導出のrampレイヤーとして表示できるように"
+                "なったため専用レイヤー保留（改善計画T145a）は解消した",
             ),
         )
     )
@@ -369,7 +412,7 @@ def _register_axes() -> None:
             "他のどの軸とも一次属性を共有しない",
             display=AxisDisplaySpec(
                 kind="ramp",
-                label="事故密度",
+                label=AXIS_DEFINITIONS["accident"].label,
                 category="trafficSafety",
                 tile_inputs=[TileInputSpec(property="accident_per_km", weight=1.0)],
                 # domain/difficulty.py: accident_difficultyの正準スケール（0→0.5件/(km・年)で

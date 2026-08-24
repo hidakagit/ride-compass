@@ -12,13 +12,16 @@ frontendのnpm run generate:apiを実行して生成物を同じコミットに�
     .venv\\Scripts\\python.exe scripts\\export_openapi.py
 """
 
+import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.domain.axis_definitions import default_axis_weights  # noqa: E402
+from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights  # noqa: E402
+from app.domain.axis_display import derive_ramp_inputs  # noqa: E402
 from app.domain.recipe import (  # noqa: E402
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     DEFAULT_ROAD_SUITABILITY_RECIPE,
@@ -26,7 +29,12 @@ from app.domain.recipe import (  # noqa: E402
     MotorVehicleDensityRecipe,
     RoadSuitabilityRecipe,
 )
-from app.domain.registry import all_axes, all_primary_attributes, reset_registry_for_testing  # noqa: E402
+from app.domain.registry import (  # noqa: E402
+    AxisDisplaySpec,
+    all_axes,
+    all_primary_attributes,
+    reset_registry_for_testing,
+)
 from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
@@ -41,6 +49,8 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
+from app.infrastructure.database import get_session_factory  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
     ROAD_SURFACE_LAYER_NAME,
@@ -48,7 +58,10 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 )
 from app.main import app  # noqa: E402
 from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
+from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
+
+logger = logging.getLogger("ridecompass.export_openapi")
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
@@ -166,8 +179,32 @@ def _write_json(path: Path, data: dict | list) -> None:
     print(f"wrote {path}")
 
 
+async def _try_load_axis_definitions_from_db() -> None:
+    """可能ならDBの軸定義でAXIS_DEFINITIONSをin-place更新する（改善計画T278の
+    バグ修正）。
+
+    以前は本スクリプトがAXIS_DEFINITIONSをコード内蔵の静的辞書のまま一切DBへ
+    問い合わせなかったため、下記main()の「registry.py未登録だがramp化可能な軸を
+    axis-catalog.jsonへ足す」ループ（軸スタジオがDBのみに作った新規軸を拾う想定）が
+    恒久的に空リストのまま機能していなかった（_registered_axis_idsと
+    AXIS_DEFINITIONS.keys()が常に同じ7軸で一致してしまうため）。
+
+    CIの`api-contract`ジョブはDB接続を持たない（本スクリプトのdocstring参照）ため、
+    接続失敗時は`services/axis_registry_service.py: refresh_axis_definitions`と
+    同じ安全側フォールバック（WARNINGログを出しコード内蔵の既定値のまま続行）に
+    倣う——DB無しの環境でも生成物の内容（既存7軸ぶん）は今までどおり変わらない。
+    """
+    try:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            await refresh_axis_definitions(AxisDefinitionRepository(session))
+    except Exception as exc:  # noqa: BLE001 生成を止めず内蔵の既定値へ安全側フォールバックする
+        logger.warning("軸定義のDB読み込みに失敗、コード内蔵の既定値を使用します error=%r", exc)
+
+
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    asyncio.run(_try_load_axis_definitions_from_db())
     _write_json(OUTPUT_PATH, app.openapi())
     # 路面語彙の正準タグ集合（domain/road.py）。フロントの表示グループ定義
     # （roadFilterAxes.ts）が正準分類とずれていないことをroadFilterAxes.test.tsが
@@ -220,6 +257,42 @@ def main() -> None:
     # 2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
     reset_registry_for_testing()
     register_defaults()
+    # 改善計画T278: registry.pyへ手書き登録されていない軸（軸スタジオ/AXIS_DEFINITIONSにのみ
+    # 存在する新規軸）のうち、材料が全てタイル焼き込み済み（ramp化可能と自動判定された）
+    # ものだけをここへ追加する。ramp化不可（None）と判定された軸は追加しない（地図に出ない
+    # ＝現状と同じ「専用レイヤー無し」のまま、退行にならない）。
+    # AXIS_DEFINITIONSは上の_try_load_axis_definitions_from_dbが可能ならDBの内容で
+    # 更新済み（DB未接続時は内蔵の既定7軸のまま＝このループは空リストのまま安全側で終わる）。
+    # inputs（一次属性id一覧）は registry.py 側の別語彙（T12関係）のため空のまま。
+    _registered_axis_ids = {axis.axis_id for axis in all_axes()}
+    _auto_ramp_axes = []
+    for axis_id, definition in AXIS_DEFINITIONS.items():
+        if axis_id in _registered_axis_ids:
+            continue
+        ramp = derive_ramp_inputs(definition)
+        if ramp is None:
+            continue
+        _auto_ramp_axes.append(
+            {
+                "axis_id": axis_id,
+                "inputs": [],
+                "output_range": [0.0, 100.0],
+                "display": AxisDisplaySpec(
+                    kind="ramp",
+                    label=definition.label,
+                    # registry.py側のcategory（地図レイヤーのグルーピング用「terrain」
+                    # 「road」「trafficSafety」等）とAXIS_DEFINITIONS.category（軸の性質
+                    # 「観測」「推定」「動的」）は別語彙で機械的な対応が無いため、
+                    # 軸スタジオ作成軸には汎用既定値trafficSafetyを充てる（多くの推定・観測軸が
+                    # 実際に属する分類、地図レイヤーパネル上の表示グループが最適でないだけで
+                    # 動作自体は壊れない）。カテゴリを選ばせるUIはStage Eのスコープ外。
+                    category="trafficSafety",
+                    tile_inputs=ramp.tile_inputs,
+                    thresholds=ramp.thresholds,
+                    note=f"{definition.description}(改善計画T278: 軸スタジオ作成軸の自動導出表示)",
+                ).model_dump(),
+            }
+        )
     _write_json(
         AXIS_CATALOG_PATH,
         {
@@ -231,7 +304,8 @@ def main() -> None:
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }
                 for axis in all_axes()
-            ],
+            ]
+            + _auto_ramp_axes,
             "primary_attributes": [
                 {
                     "attr_id": attr.attr_id,

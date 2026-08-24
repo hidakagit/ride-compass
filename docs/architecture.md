@@ -349,7 +349,7 @@ RideCompass/
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「デプロイの反映確認」で新規）
       api/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions
@@ -370,6 +370,8 @@ RideCompass/
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239: 7軸の変換ロジックが還元される4テンプレート（evaluate_breakpoint_linear/evaluate_categorical/evaluate_flag_sum/evaluate_recipe_then_breakpoint_linear）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
+        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
+        axis_display.py                  ✅ 改善計画T278: derive_ramp_inputs()。AXIS_DEFINITIONSの軸とMATERIAL_CATALOGから地図ramp表示（tile_inputs/thresholds）を自動導出する（安全に導出できるCategorical/FlagSum/単一材料BreakpointLinearのみ、詳細は「地図表示ルール（kind=ramp）の自動導出」節参照）
         difficulty.py                    ✅ AxisDifficulties（axis_idキーの軸別difficulty辞書＋composite、T221 Stage Bでdict化）, evaluate_axis_difficulties（AXIS_DEFINITIONSをループする薄い関数）, accident_difficulty/gradient_difficulty等の軸別difficulty互換ラッパ（Noneガード・負値ガードのみ担い変換はaxis_definitions.pyへ委譲）。composite_difficulty/distance_weighted_difficultyも同居（7章参照）
         night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。T221 Stage B/Cでnight_materials（lit/tunnelタグ→材料フラグ解決）へ再編、加点値はaxis_definitions.pyのnight軸定義へ移動
         twilight.py                      ✅ 改善計画T173: is_night（astralライブラリで市民薄明を判定、動的気象レイヤー参照）
@@ -476,9 +478,11 @@ RideCompass/
   frontend/
     next.config.ts               ✅ `/api/basemap/*`と`/api/region/road-surface-tiles/*`をバックエンドへプロキシするrewrites（同一オリジン維持、Step10・Step10改訂）
     src/
+      proxy.ts                   ✅ 改善計画T272: `/admin`ルーティング境界のHTTP Basic認証（Next.js 16の`middleware.ts`改称後の規約名、frontend/AGENTS.md参照）。環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可
       app/
-        page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持（UI再構成）
+        page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持（UI再構成）。改善計画T270で研究・開発者セクションを/adminへ移設済み（地図インスタンスに紐づく「地図データを再読み込み」ボタンのみ「開発者」に残る）
         layout.tsx              ✅
+        admin/page.tsx           ✅ 改善計画T270: 軸スタジオ・研究・開発者ツールをまとめた独立URLの管理画面。権限制御（改善計画T272、2026-08-24完了）は`src/proxy.ts`がこのルーティング境界（`/admin/:path*`）でHTTP Basic認証を敷く。研究モードの評価重み・レシピ上書きstateはlocalStorage経由でpage.tsxと共有する（useStoredJsonState/useRecipeOverrideのstorageKey、hooks/参照）
         api/version/route.ts    ✅ GET /api/version。RENDER_GIT_COMMIT（frontendは今もRender稼働のため据え置き）/起動時刻を返すRoute Handler（force-dynamic）。バックエンドの/healthと対になるデプロイ確認用（「デプロイの反映確認」で新規）
       components/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
@@ -504,17 +508,23 @@ RideCompass/
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
         WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水確率表示（Step6）
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
-        DebugPanel/DebugPanel.tsx    ✅ サイドバーのデバッグモードON/OFFチェックボックス（フロントエンドUX改善）
-        DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを画面下部に表示（フロントエンドUX改善）
+        DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
+        DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
+        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除の状態管理（/api/admin/axis-definitions、X-Admin-Tokenはlib/adminToken.ts） / AxisComposer.tsx: 材料選択→4テンプレート（区分線形補間×2種・カテゴリ値・フラグ加算）選択→パラメータ調整のフォーム。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）
       hooks/
         useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
         useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
         useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
-        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）
+        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重み・レシピ上書きstate共有に使う）
         useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
+        useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時は既存7軸の静的フォールバック（axis-catalog.json＋evaluationAxes.tsの手書きラベル）を返す
+        useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）
+        useAdminCredentials.ts         ✅ 改善計画T270、T272でBasic認証化に伴い改称: lib/adminToken.tsの購読（useSyncExternalStore、researchMode.tsと同型）
       lib/
         debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
+        adminToken.ts               ✅ 改善計画T270、T272でBasic認証化: 軸スタジオ（/admin）の管理API資格情報（ユーザー名+パスワード、`Authorization: Basic`ヘッダ用）を`localStorage`へ保存する。researchMode.tsと同型のシングルトン＋購読パターン。将来アカウント制へ差し替え予定（ユーザー方針、2026-08-24）
+        axisMaterialsCatalog.ts      ✅ 改善計画T270で新設、T277でGET /api/material-catalogの取得失敗時フォールバックへ役割縮小。軸コンポーザーの材料選択候補（既存9件のスナップショット）。単一の情報源はbackend/app/domain/material_catalog.py: MATERIAL_CATALOGへ移行済みで、通常利用時はこのファイルの更新不要（動的取得が失敗した場合のみ古いまま表示される）
       services/
         healthApi.ts             ✅
         routeApi.ts               ✅ previewRoute() / generateRoutes()。previewRouteは`/api/routes/preview`
@@ -522,6 +532,9 @@ RideCompass/
                                     現状どのUIコンポーネントからも呼ばれていない（テストのみが参照）
         weatherApi.ts             ✅ getCurrentWeather()
         regionApi.ts               ✅ roadSurfaceTileUrl() / ROAD_TILE_MIN_ZOOM/MAX_ZOOM / refreshBasemapCache()（Step10改訂。路面がタイル化されJSON型を持たなくなったため`types/region.ts`は削除済み）
+        axisCatalogApi.ts           ✅ 改善計画T269: getAxisCatalog()。GET /api/axis-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
+        materialCatalogApi.ts       ✅ 改善計画T277: getMaterialCatalog()。GET /api/material-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
+        axisAdminApi.ts             ✅ 改善計画T270: listAxisDefinitions()/createAxisDefinition()/updateAxisDefinition()/deleteAxisDefinition()。/api/admin/axis-definitionsのCRUDクライアント（`Authorization: Basic`ヘッダ付与[改善計画T272でX-Admin-Tokenから置換]、PUT/DELETE対応が必要なためfetchJson[GET専用]ではなく自前実装）。改善計画T277でshapeが参照する材料id（terms/flags/categoricalのmaterial）が未知の場合、backend側が422を返すようになった
       types/
         generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）等の付随生成物も同じ仕組みでドリフト検知される
         route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
@@ -1053,11 +1066,13 @@ DB未接続環境でのフォールバック値」として引き続き存在す
 一切変わらない安全側ロールアウトになっている。
 
 管理API（`/api/admin/axis-definitions`、`api/routers/axis_admin.py`）は軸定義の
-CRUDのみを提供する（GUI編集画面はStage Eのスコープで未実装）。書き込みでルート生成の
-振る舞いを直接変えられるため、他のバックエンドAPI（認証機構が無い）と異なり共有トークン
-header（`X-Admin-Token`、環境変数`AXIS_ADMIN_TOKEN`）による認可を要求する
-（`require_axis_admin_token`）。将来、研究モードを一般ユーザーから隠し何らかの権限制御を
-導入する計画があるため、認可判定はこの1関数へ集約し差し替え可能にしている。
+CRUDのみを提供する（GUI編集画面は改善計画T270で実装済み、`frontend/src/app/admin/`
+「材料の排他帰属チェック・軸カタログ公開API」「Stage E実装」節参照）。書き込みでルート生成の
+振る舞いを直接変えられるため、他のバックエンドAPI（認証機構が無い）と異なりHTTP Basic認証
+（`require_admin_basic_auth`、環境変数`ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_
+PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善計画T272でBasic認証へ
+差し替え済み、下記「軸の公開フローと統治ルール」節の次「管理画面の権限制御」節参照）に
+よる認可を要求する。認可判定はこの1関数へ集約し差し替え可能にしている。
 妥当性検証は型・範囲チェックのみ（極端な重み設定への意味的な歯止めは設けない、
 2026-08-24ユーザー判断）。ただし「最後の1軸は削除できない」制約だけは例外的に持つ
 （レジストリを空にできてしまうと`refresh_axis_definitions`の0件フォールバックと
@@ -1069,8 +1084,177 @@ header（`X-Admin-Token`、環境変数`AXIS_ADMIN_TOKEN`）による認可を�
 
 `export_openapi.py`が生成する`axis-catalog.json`（フロントのビルド時静的import）は
 本Stageでは変更していない——CIの`api-contract`ジョブがDB接続を持たないため、引き続き
-Python内蔵の`AXIS_DEFINITIONS`から生成する。DB編集がこの生成物へ反映されるのは
-Stage E（GUI編集が実利用される段階、CI側にDB接続を追加する判断とセット）以降の課題。
+Python内蔵の`AXIS_DEFINITIONS`から生成する（正確には`axes[]`/`primary_attributes[]`は
+下記`registry.py`由来、`preference_defaults`のみ`AXIS_DEFINITIONS`由来。T269実装メモ参照）。
+
+### 軸の公開フローと統治ルール（改善計画T271）
+
+一般ユーザーの保存設定（`RouteSettingsPanel`のプリセット・重み、`localStorage`永続化）は
+`axis_id`キーで再現されるため、公開後の軸の破壊的変更・削除は他ユーザーの設定を黙って
+壊す。`AxisDefinition.is_published: bool`（既定`False`＝下書き、`migrations/
+0016_axis_definitions_is_published.sql`。既存7行は本番稼働中のためbackfillで`True`）が
+公開状態を持ち、以下2点を構造的に強制する:
+
+- **公開済み軸は不変**: `domain/axis_definitions.py: check_publish_immutability`が
+  `AxisRegistryAdminService.update`/`delete`の冒頭で呼ばれ、`is_published=True`の軸への
+  更新・削除要求は`AxisPublishedImmutableError`（`ValueError`のサブクラス）で拒否される
+  （管理APIは自動的に409を返す）。改良したい場合は軸スタジオの「複製して新規作成」で
+  新しい`axis_id`の下書きを作り、そちらを検証・公開する（元の公開済み軸はそのまま残る）。
+  `api/routers/axis_admin.py: update_axis_definition`にこれまで欠けていた`ValueError`
+  ハンドラも本タスクで追加した（従来は更新時の材料衝突[T268]が想定外の500になっていた
+  抜け穴も合わせて塞いだ）。
+- **下書き軸は一般ユーザーに見えない**: `GET /api/axis-catalog`（T269、`RouteSettingsPanel`
+  が読む）は`is_published=True`の軸のみを返す。下書きの一覧・編集は認可必須の
+  `GET /api/admin/axis-definitions`（軸スタジオ）側でのみ行う。
+
+軸スタジオ（`components/AxisStudio/AxisStudio.tsx`）は各軸に「公開済み/下書き」バッジを
+表示し、公開済み軸の「編集」「削除」ボタンをdisabledにする（バックエンドの拒否に加えて
+UI側でも先回りして防ぐ）。「複製して新規作成」ボタンは公開済み・下書きどちらの軸からも
+使え、`AxisComposer.tsx: draftFromDuplicate`が既存定義の内容をコピーしつつ
+`axis_id`を空に・`is_published`を`false`に強制する。新規作成フォームには「公開する」
+チェックボックス（既定OFF）があり、送信時のpayloadへ`is_published`として含まれる。
+
+### 管理画面の権限制御（改善計画T272）
+
+Phase 3のもう1件。以前は`/admin`ページ本体（軸スタジオ・研究モード・開発者ツールを
+まとめた独立URL、T270）自体には認可が一切無く、誰でも到達できた（軸CRUD APIだけが
+共有トークンで保護されていた）。ユーザー方針（2026-08-24、着手時に決定：「将来的には
+アカウント制としたいが、現状は動作確認・研究用のためBasic認証として後から拡張する」）
+に基づき、HTTP Basic認証で以下2箇所を独立に保護する:
+
+1. **`/admin`ページ本体**: `frontend/src/proxy.ts`（Next.js 16でファイル名が
+   `middleware.ts`から`proxy.ts`へ改称された、`frontend/AGENTS.md`参照）が
+   `matcher: ["/admin", "/admin/:path*"]`でルーティング境界を敷く。環境変数
+   `ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_PASSWORD`（frontend側）と照合し、
+   未設定または不一致ならブラウザの標準Basic認証ダイアログを起動させる
+   `WWW-Authenticate: Basic`ヘッダ付き401を返す。研究モード・開発者ツールも`/admin`配下
+   のため、このゲート1つで一般ユーザーの導線から到達不可能になる。
+2. **軸スタジオの管理API**（`GET/POST/PUT/DELETE /api/admin/axis-definitions`）:
+   backend側`require_admin_basic_auth`（環境変数`ADMIN_BASIC_AUTH_USERNAME`/
+   `ADMIN_BASIC_AUTH_PASSWORD`、backend側）が`secrets.compare_digest`でタイミング
+   攻撃を避けつつ検証する。
+
+**2箇所が独立している理由**: `axisAdminApi.ts`の管理API呼び出しは`NEXT_PUBLIC_API_URL`
+（backendの別オリジン、通常ポートが異なる）へ直接飛ぶため、ブラウザが1.のBasic認証
+資格情報を自動転送しない（同一オリジンにのみキャッシュされる仕様）。そのため軸スタジオ
+UI自体に資格情報入力フォーム（`AxisStudio.tsx`、ユーザー名・パスワードの2フィールド、
+`lib/adminToken.ts`が`localStorage`へ保存し`Authorization: Basic`ヘッダを組み立てる）を
+引き続き持つ。運用上は両側のenvへ同じ値を設定することで、実質1つの資格情報として扱う
+（バックエンド側の値が正、フロント側`proxy.ts`の値が食い違うとページ本体は入れるが
+軸CRUDだけ401になる、または逆になる——設定時は両者を必ず揃えること）。
+
+研究モードの表示切替（`lib/researchMode.ts`、`/admin`内でWeightPanel等の表示ON/OFFを
+選ぶだけのUI用トグル）は元々認可の意味を持たない簡易フラグだったが、`/admin`ページ
+自体が認証済みユーザーしか到達できなくなったため、意味の重複が解消された（このトグル
+自体はT272で変更していない、単なる表示設定として残る）。
+
+### 材料の排他帰属チェック（改善計画T268）
+
+`registry.py: register_axis`が持つ「1つの材料は原則1つの軸だけが使う」排他制約
+（`AxisInputConflictError`）は表示用レジストリ（下記）にしか無く、実際にルーティング
+計算を駆動する`AXIS_DEFINITIONS`側には存在しなかった。`domain/axis_definitions.py:
+check_material_exclusivity`が同じ原則を計算系へ移植し、`AxisRegistryAdminService.create`/
+`update`（管理API書き込み経路）の冒頭で呼ぶ。既存軸が使用中の材料を新軸が黙って再利用し
+評価の二重計上が混入する事故を構造的に防ぐ（`AxisMaterialConflictError`、`ValueError`の
+サブクラスのため管理APIは自動的に409を返す）。現行7軸の材料には`registry.py`の
+`shared=True`相当（複数軸が参照してよい共通コンテキスト）が存在しないため`shared`
+フラグは持たせていない。
+
+### 軸カタログ公開API・表示名のDB化（改善計画T269）
+
+`AxisDefinition`（`domain/axis_definitions.py`）へ`label: str`（必須）・
+`description: str`・`category`（`"観測"|"推定"|"動的"`）を追加した
+（`migrations/0015_axis_definitions_label.sql`、`0014`が本番適用済みのため追加カラム＋
+backfillという安全な別migrationとした）。これにより、軸スタジオ（T270）がGUIから
+作った新規軸も表示名を持てる——`registry.py`はDBを持たずGUI作成軸を表現できないため、
+DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
+
+新規公開エンドポイント`GET /api/axis-catalog`（`api/routers/axis_catalog.py`、認可不要、
+読み取り専用）が、プロセス内キャッシュ`AXIS_DEFINITIONS`（push型更新済み、上記Stage D
+設計）をそのまま`{axis_id, label, description, category, default_weight}[]`として返す。
+フロントは`hooks/useAxisCatalog.ts`がマウント時に1回取得し、取得完了まで・失敗時は
+既存7軸の静的フォールバック（`axis-catalog.json`の`preference_defaults`＋
+`evaluationAxes.ts`の手書きラベル）を返す。一般向けルート設定画面
+（`components/RouteSettingsPanel/`）がこのhookを使う。研究モードの`WeightPanel`は
+本タスクの時点では旧`axis-catalog.json`静的読み込みのまま（T270でWeightPanel自体を
+置き換える際に統合する想定）。
+
+### 材料カタログの正式レジストリ化（改善計画T277）
+
+軸が参照する「材料」（`MaterialTerm.material`/`CategoricalShape.material`/
+`FlagSumShape.flags`が指す文字列id、`gradient_percent`等）は、これまで`AXIS_DEFINITIONS`の
+コメントに散文で説明されるだけで正式な一覧を持たず、軸スタジオ（T270）のフロント側
+`lib/axisMaterialsCatalog.ts`が独自にハードコードしていた。`domain/material_catalog.py:
+MaterialSpec`/`MATERIAL_CATALOG`が単一の情報源になった——各材料は`material_id`・`label`・
+`dtype`（numeric/boolean）に加え、内部専用（公開APIには含めない）の`tile_property`
+（MVTタイルへの焼き込み済みプロパティ名、Noneはタイル非依存＝地図レイヤーのramp自動生成
+不可を意味する）・`tile_property_inverted`（no_lit⟵litのような符号反転フラグ）を持つ。
+**材料自体をGUIから追加・編集・削除する経路は用意しない**（ユーザー方針、材料の増減は
+引き続き本ファイルへのコード変更＋デプロイのみで行う）。
+
+新規公開エンドポイント`GET /api/material-catalog`（`api/routers/material_catalog.py`、
+認可不要、読み取り専用）が`material_id`/`label`/`dtype`のみを返す（`tile_property`系は
+地図表示ルール自動生成タスクT278・未起票がbackend内部でのみ使う想定で、公開レスポンスには
+含めない）。フロントは`hooks/useMaterialCatalog.ts`がマウント時に1回取得し、取得完了まで・
+失敗時は`lib/axisMaterialsCatalog.ts`の静的9件（同じ内容のスナップショット）を返す
+（`useAxisCatalog.ts`と同型のパターン）。`components/AxisStudio/AxisComposer.tsx`が
+このhook経由で材料選択ドロップダウンを構成する。
+
+管理API（`api/routers/axis_admin.py: AxisDefinitionPayload`）に
+`_check_materials_are_known`バリデータを追加し、shapeが参照する材料idが
+`MATERIAL_CATALOG`に存在しない場合は422で拒否する（従来は任意の文字列を受け付けて
+しまっていた抜け穴を塞いだ）。
+
+T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自動判定）は2026-08-24に完了した。
+詳細は次節参照。
+
+### 地図表示ルール（kind=ramp）の自動導出（改善計画T278）
+
+新規`domain/axis_display.py: derive_ramp_inputs(definition) -> RampInputs | None`が、
+`AXIS_DEFINITIONS`の軸の材料が全て`MATERIAL_CATALOG`で`tile_property`保持済み（かつ
+`tile_property_needs_runtime_scale=False`）であれば、地図ramp表示の`tile_inputs`/
+`thresholds`を自動導出する。**安全に自動導出できるケースに限定する**設計:
+
+- `CategoricalShape`（真偽値材料1件）: 2値の中間点を閾値とする2段階ramp。
+- `FlagSumShape`（真偽値フラグN件）: 達成しうる合計値（部分和の全組合せ、cap適用後）の
+  隣接中間点を閾値とする（例: night軸の2フラグ×50点→部分和{0,50,100}→閾値[25,75]）。
+- `BreakpointLinearShape`で単一材料・weight=1.0・preprocess="identity"の場合のみ:
+  既存breakpointsのx値（先頭除く）をそのまま閾値に流用。
+
+それ以外（複数材料の重み付き結合・abs前処理・タイル非依存材料・実行時スケール変換が
+必要な材料を含む軸）は`None`を返し自動導出対象外のまま（地図に出ない、既存軸を壊さない
+安全側の判断）。現行7軸では`surface_q`（材料`surface_good`、以前はkind="none"に手書き
+固定していたが「既存の道路情報レイヤーと重複するため出したくない」という理由は
+UI側の表示/非表示切替で運用する方針へ変更）・`night`（材料`no_lit`・`has_tunnel`、
+以前はkind="bespoke"でフロントにexpressionが無く実質レイヤー無し）の2軸が対象になり、
+`registry_defaults.py`の`display`がこの自動導出値へ置き換わった。`gradient`（材料が
+タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
+統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（材料がタイル非依存の
+レシピ合成値）・`accident`（材料`accident_count_per_km_year`が収録年数[実行時にDBから
+取得、`accident_import_runs`]で正規化済みだがタイル生値`accident_per_km`は年正規化前で
+静的な変換係数を持てない、`MaterialSpec.tile_property_needs_runtime_scale=True`で
+明示的に自動導出対象外とマークしている）は自動導出の対象外のまま手書きの`display`を
+維持する。
+
+`export_openapi.py`のaxis-catalog.json生成は、`registry.all_axes()`（手書き登録済みの
+既存軸）に加えて「`AXIS_DEFINITIONS`にあるが`registry.py`未登録の軸」も走査し、
+`derive_ramp_inputs()`がramp化可能と判定した場合のみ`inputs=[]`（一次属性の対応は
+registry.py側の別語彙のため空のまま）・自動生成`display`で追加する。これにより将来
+軸スタジオが作る新規軸のうち、真偽値材料またはシンプルな単一数値材料のものは
+再デプロイ後に自動で地図へ現れる（ただしDB上の軸データがビルド時静的生成物である
+axis-catalog.jsonへ反映されるのは再デプロイ後、という既存の制約はそのまま残る）。
+
+フロント`components/Map/axisLayers.ts`の`AxisTileInput`/`buildAxisRampValueExpression`は
+真偽値材料に対応する`boolean`/`invert`/`trueValue`/`falseValue`を追加した。MVTの真偽値
+プロパティは`["==",["get",property],true]`のような比較でしか読めず、既存の数値
+`Σproperty×weight`結合が成立しないため、`boolean=true`の入力は
+`["case", 真偽比較, trueValue, falseValue]`で組み立てる（既存の数値材料分岐とは独立、
+後方互換）。`components/Map/secondaryAxes.ts`の`SECONDARY_AXIS_LAYER_IDS`は、
+`display.kind==="ramp"`の軸を`axisMapLayerId(axis_id)`で自動算出するよう一般化した
+（bespoke軸[car_stress]のみ引き続き手書き）——ramp軸が増えるたびに個別追記していた
+手動同期ペアを1つ解消した。`MapView.tsx`・`mapLayers.ts`・`staticAttributeLayers.ts`は
+`RAMP_AXES`を汎用的に走査する既存実装のままで変更不要だった（`RAMP_AXES`の要素数が
+2→4に増えるだけで、レイヤー生成・凡例・絞り込みのロジックはそのまま新しい2軸を拾う）。
 
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
@@ -1081,7 +1265,14 @@ Stage E（GUI編集が実利用される段階、CI側にDB接続を追加する
 `surface_q`軸の`transform_fn`誤参照を実際に検出した実績がある）。`domain/registry_defaults.py`
 が正準の登録内容（`register_defaults()`、7軸中`gradient`/`surface_q`/`stop_density`/
 `car_stress`/`accident`/`night`の6軸を登録。`wind`はレジストリ未登録＝独立項目のまま、
-`frontend/src/components/Map/axisLayers.ts`のコメント参照）。
+`frontend/src/components/Map/axisLayers.ts`のコメント参照）。各軸の`AxisDisplaySpec.label`
+（改善計画T276、2026-08-24）は`AXIS_DEFINITIONS[axis_id].label`（Stage DでDB化・軸スタジオで
+GUI編集可能な方）からの参照で、ハードコードの重複ではない。`AxisSpec.description`
+（開発者向け説明）・`AxisDisplaySpec.category`（地図レイヤーのグルーピング用、
+「観測/推定/動的」とは別概念）は対象読者が異なるため統合していない。ただし
+`register_defaults()`自体はビルド時・テストのみ実行されアプリ起動時には呼ばれないため、
+軸スタジオでのDB上のlabel編集はこの参照を経由して地図レイヤー側へ動的反映されるわけではない
+（下記Stage D節参照）。
 
 **本レジストリ（`registry.py`）が駆動するのは表示メタデータのみ**。コスト計算側は
 改善計画T221 Stage B/Cで`domain/axis_definitions.py: AXIS_DEFINITIONS`（軸定義データ＋

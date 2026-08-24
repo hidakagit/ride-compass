@@ -201,29 +201,33 @@ describe("MapLayersPanel", () => {
   });
 
   // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
-  // 専用の表示レイヤーを持たない3軸（勾配・舗装質・夜間）は、地図チップではタップ不能の
-  // 灰色タイルとして存在する一方、以前のパネルはMapLayerId自体を持たないため一覧から
-  // 完全に抜け落ちていた。設定項目もON/OFFも無いため、他レイヤーのような開閉式
-  // <details>ではなく常時見える案内行として存在させる。
-  it("専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
+  // 専用の表示レイヤーを持たない軸（勾配。材料gradient_percentがタイル非依存のため
+  // 改善計画T278の自動導出対象外）は、地図チップではタップ不能の灰色タイルとして存在する
+  // 一方、以前のパネルはMapLayerId自体を持たないため一覧から完全に抜け落ちていた。
+  // 設定項目もON/OFFも無いため、他レイヤーのような開閉式セクションではなく常時見える
+  // 案内行として存在させる。
+  it("専用の表示レイヤーを持たない推定軸（勾配）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
 
     // 改善計画T202: 案内文は先頭に「（地図表示なし）」が付く（統合レビュー2026-08-22指摘、
     // 展開せずとも「押せない行がなぜあるのか」が伝わるようにするための接頭辞）ため、
     // 完全一致ではなく部分一致（正規表現）で検証する。
-    expect(screen.getByText("勾配").closest("details")).toBeNull();
     expect(screen.queryByText(/標高レイヤーで確認できます/)).not.toBeInTheDocument();
     openHint("勾配");
     expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
+  });
 
-    expect(screen.getByText("舗装質").closest("details")).toBeNull();
-    openHint("舗装質");
-    expect(screen.getByText(/路面の種類レイヤーで確認できます/)).toBeInTheDocument();
+  // 改善計画T278: surface_q・nightは材料（surface_good・no_lit/has_tunnel）がMVTタイルへ
+  // 焼き込み済みのためkind="ramp"の自動導出表示を持つようになり、以前の「専用レイヤー無し」
+  // 案内行（proxy）から、他のramp軸（停止密度・事故密度）と同じ実レイヤーセクション
+  // （ON/OFFチップ付き）へ変わった。
+  it("改善計画T278でramp表示になった舗装質・夜間は、他のレイヤーと同じON/OFFチップ付きセクションとして表示される", () => {
+    render(<MapLayersPanel {...baseProps()} />);
+    openAllSections();
 
-    expect(screen.getByText("夜間").closest("details")).toBeNull();
-    openHint("夜間");
-    expect(screen.getByText(/専用レイヤーは今後追加予定です/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "舗装質レイヤーを表示" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "夜間レイヤーを表示" })).toBeInTheDocument();
   });
 
   it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {

@@ -59,3 +59,22 @@ export type MotorVehicleDensityRecipeOverride = Schemas["MotorVehicleDensityReci
 // 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
 // 保持・比較表・再現性メモの入力になる。
 export type GenerationConditions = Schemas["GenerationConditions"];
+
+// 軸カタログ（改善計画T269）。GET /api/axis-catalogのレスポンス。軸スタジオ（T270）が
+// 管理API経由でDBへ追加した軸も、コード変更・再デプロイなしにここへ反映される。
+export type AxisCatalogEntry = Schemas["AxisCatalogEntry"];
+export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
+
+// 軸スタジオ（改善計画T270）が使う評価軸定義のCRUD型。/api/admin/axis-definitions。
+export type AxisDefinitionPayload = Schemas["AxisDefinitionPayload"];
+export type AxisDefinitionResponse = Schemas["AxisDefinitionResponse"];
+export type MaterialTerm = Schemas["MaterialTerm"];
+export type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
+export type CategoricalShape = Schemas["CategoricalShape"];
+export type FlagSumShape = Schemas["FlagSumShape"];
+export type AxisShape = BreakpointLinearShape | CategoricalShape | FlagSumShape;
+
+// 材料カタログ（改善計画T277）。GET /api/material-catalogのレスポンス。軸スタジオの
+// 材料選択候補を、材料自体の追加時にコード変更・再デプロイだけで反映する。
+export type MaterialCatalogEntry = Schemas["MaterialCatalogEntry"];
+export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];

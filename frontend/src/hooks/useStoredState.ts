@@ -75,3 +75,23 @@ export function useStoredState<T>(
 
   return [value, setStoredValue, commit];
 }
+
+// JSON直列化のuseStoredState（改善計画T270）。researchモード関連のstate（評価重み・
+// route_preference等）をpage.tsx/admin/page.tsxの2ルート間で共有する際に、
+// 呼び出し側でserialize/deserializeを毎回書かずに済むようにする薄いラッパー。
+// 壊れた保存値はデフォルト値へフォールバックする（useStoredStateの既定動作）。
+export function useStoredJsonState<T>(
+  key: string,
+  defaultValue: T
+): [T, (value: T | ((prev: T) => T)) => void, (value: T) => void] {
+  return useStoredState<T>(key, defaultValue, {
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => {
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    },
+  });
+}

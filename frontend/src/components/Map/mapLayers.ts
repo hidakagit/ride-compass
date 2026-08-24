@@ -285,7 +285,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
     panelHint:
       "OSMのtunnelタグが該当する区間です。「夜間」軸[推定グループ]の材料の1つとして、" +
-      "夜間の危険度の判定に使われます[night軸自体は専用レイヤーを持たない保留のままです]。",
+      "夜間の危険度の判定に使われます[改善計画T278でnight軸自体も専用レイヤーを持つようになりました]。",
   },
   {
     id: "stopPoi",
@@ -346,7 +346,9 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       // ramp軸は定義上「一次属性（tile_inputs）を重み付けで合成した二次軸スコア」
       // （axisLayers.ts冒頭コメント参照）のため、常にcomposite（生データではない）。
       dataNature: "composite",
-      description: `${axis.label}[${axis.unit}]をway単位の事前集計から色分け表示`,
+      // unit=""（改善計画T278の自動導出軸、真偽値材料由来のためkm単位等が無い）の場合は
+      // 空の[]を出さない。
+      description: `${axis.label}${axis.unit ? `[${axis.unit}]` : ""}をway単位の事前集計から色分け表示`,
       // axis.note（backendレジストリの実装メモ、registry_defaults.py）は開発者向けに
       // 書かれており「way単位の事前集計（way_attribute_counts）由来」等の実装用語を
       // 含むため、そのままpanelHintへ出すと読みにくいという実機フィードバックを受けた。

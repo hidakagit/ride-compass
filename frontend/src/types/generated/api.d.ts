@@ -425,6 +425,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/axis-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Axis Catalog */
+        get: operations["get_axis_catalog_api_axis_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/material-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Material Catalog */
+        get: operations["get_material_catalog_api_material_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -457,6 +491,27 @@ export interface components {
             /** Additions */
             additions: string[];
         };
+        /** AxisCatalogEntry */
+        AxisCatalogEntry: {
+            /** Axis Id */
+            axis_id: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "観測" | "推定" | "動的";
+            /** Default Weight */
+            default_weight: number;
+        };
+        /** AxisCatalogResponse */
+        AxisCatalogResponse: {
+            /** Axes */
+            axes: components["schemas"]["AxisCatalogEntry"][];
+        };
         /**
          * AxisDefinitionPayload
          * @description 作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ
@@ -471,6 +526,24 @@ export interface components {
             shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"] | components["schemas"]["FlagSumShape"];
             /** Default Weight */
             default_weight: number;
+            /** Label */
+            label: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Category
+             * @default 推定
+             * @enum {string}
+             */
+            category: "観測" | "推定" | "動的";
+            /**
+             * Is Published
+             * @default false
+             */
+            is_published: boolean;
         };
         /** AxisDefinitionResponse */
         AxisDefinitionResponse: {
@@ -480,6 +553,24 @@ export interface components {
             shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"] | components["schemas"]["FlagSumShape"];
             /** Default Weight */
             default_weight: number;
+            /** Label */
+            label: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Category
+             * @default 推定
+             * @enum {string}
+             */
+            category: "観測" | "推定" | "動的";
+            /**
+             * Is Published
+             * @default false
+             */
+            is_published: boolean;
         };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {
@@ -695,6 +786,23 @@ export interface components {
          */
         HardFilterOverride: {
             [key: string]: boolean;
+        };
+        /** MaterialCatalogEntry */
+        MaterialCatalogEntry: {
+            /** Material Id */
+            material_id: string;
+            /** Label */
+            label: string;
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "numeric" | "boolean";
+        };
+        /** MaterialCatalogResponse */
+        MaterialCatalogResponse: {
+            /** Materials */
+            materials: components["schemas"]["MaterialCatalogEntry"][];
         };
         /**
          * MaterialTerm
@@ -1645,9 +1753,7 @@ export interface operations {
     list_axis_definitions_api_admin_axis_definitions_get: {
         parameters: {
             query?: never;
-            header?: {
-                "x-admin-token"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1662,23 +1768,12 @@ export interface operations {
                     "application/json": components["schemas"]["AxisDefinitionResponse"][];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
         };
     };
     create_axis_definition_api_admin_axis_definitions_post: {
         parameters: {
             query?: never;
-            header?: {
-                "x-admin-token"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1711,9 +1806,7 @@ export interface operations {
     get_axis_definition_api_admin_axis_definitions__axis_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                "x-admin-token"?: string | null;
-            };
+            header?: never;
             path: {
                 axis_id: string;
             };
@@ -1744,9 +1837,7 @@ export interface operations {
     update_axis_definition_api_admin_axis_definitions__axis_id__put: {
         parameters: {
             query?: never;
-            header?: {
-                "x-admin-token"?: string | null;
-            };
+            header?: never;
             path: {
                 axis_id: string;
             };
@@ -1781,9 +1872,7 @@ export interface operations {
     delete_axis_definition_api_admin_axis_definitions__axis_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                "x-admin-token"?: string | null;
-            };
+            header?: never;
             path: {
                 axis_id: string;
             };
@@ -1805,6 +1894,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_axis_catalog_api_axis_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AxisCatalogResponse"];
+                };
+            };
+        };
+    };
+    get_material_catalog_api_material_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialCatalogResponse"];
                 };
             };
         };

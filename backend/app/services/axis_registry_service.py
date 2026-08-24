@@ -21,7 +21,12 @@ push型の更新にする（辞書オブジェクト自体を再代入すると`
 
 import logging
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisDefinition,
+    check_material_exclusivity,
+    check_publish_immutability,
+)
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 logger = logging.getLogger("ridecompass.axis_registry")
@@ -74,18 +79,38 @@ class AxisRegistryAdminService:
         return existing[0] if existing else None
 
     async def create(self, definition: AxisDefinition) -> None:
-        if await self._repository.get(definition.axis_id) is not None:
+        # レビュー指摘の修正: 以前は存在チェック用get()（単一行）と排他チェック用
+        # list_all()（全件）を別々に発行しており、後者が前者を情報として完全に
+        # 包含するため冗長だった。list_all_with_sort_order()を1回だけ呼び、
+        # 存在チェック・排他チェック・sort_order算出（従来は別クエリの
+        # next_sort_order()）の全てをここから賄う。
+        existing = await self._repository.list_all_with_sort_order()
+        if definition.axis_id in existing:
             raise ValueError(f"axis_id={definition.axis_id} は既に存在します")
-        sort_order = await self._repository.next_sort_order()
+        # 改善計画T268: 材料の排他帰属チェック（registry.pyの原則を計算系レジストリへ移植）。
+        # 新規軸が既存軸の材料を黙って再利用し二重計上が混入する事故を構造的に防ぐ。
+        check_material_exclusivity(definition, {aid: d for aid, (d, _) in existing.items()})
+        sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
 
     async def update(self, axis_id: str, definition: AxisDefinition) -> None:
-        existing = await self._repository.get(axis_id)
-        if existing is None:
+        # レビュー指摘の修正: 以前はaxis_id存在チェック用get()（単一行、sort_order取得も
+        # 兼ねる）と排他チェック用list_all()（全件）を別々に発行しており冗長だった。
+        # list_all_with_sort_order()を1回だけ呼び、両方をここから賄う。
+        existing = await self._repository.list_all_with_sort_order()
+        if axis_id not in existing:
             raise KeyError(axis_id)
-        _, sort_order = existing
+        existing_definition, sort_order = existing[axis_id]
+        # 改善計画T271: 公開済み軸は不変（複製して新しい下書き軸として改良する導線を
+        # UI側に用意する）。既存の公開状態を見て判定するため、payload側のis_published
+        # 値には関わらず拒否する（公開済みを装って未公開のふりをして更新を通す抜け道を防ぐ）。
+        check_publish_immutability(existing_definition, "updated")
+        # 改善計画T268: 自分自身（axis_id）は比較対象から除外される
+        # （check_material_exclusivityが同一キーをスキップする）ため、材料構成を
+        # 変えない・変える更新のどちらも自己衝突しない。
+        check_material_exclusivity(definition, {aid: d for aid, (d, _) in existing.items()})
         await self._repository.upsert(definition, sort_order)
         await self._repository.commit()
         await refresh_axis_definitions(self._repository)
@@ -99,6 +124,9 @@ class AxisRegistryAdminService:
         existing = await self._repository.list_all()
         if axis_id in existing and len(existing) == 1:
             raise ValueError("最後の1軸は削除できません")
+        if axis_id in existing:
+            # 改善計画T271: 公開済み軸の削除も不変制約の対象（updateと同じ理由）。
+            check_publish_immutability(existing[axis_id], "deleted")
         # route_preference.yamlや既存のAPIリクエストがこのaxis_idを重みキーとして参照して
         # いた場合、削除直後からRoutePreferenceのバリデーション（unknown key）でルート生成が
         # 壊れうる。この整合性チェックは意図的に実装しない（Stage EでGUI編集が実利用される

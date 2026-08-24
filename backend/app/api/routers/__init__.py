@@ -11,13 +11,27 @@
 - basemap.py: /api/basemap/{path}, /api/basemap/refresh（基礎地図プロキシ）
 - axis_admin.py: /api/admin/axis-definitions（評価軸定義のCRUD管理API、改善計画T221
   Stage D。共有トークンheaderによる認可が必要）
+- axis_catalog.py: /api/axis-catalog（評価軸カタログの読み取り専用API、改善計画T269。
+  認可不要。一般向けルート設定画面がGUI編集済みの軸を再デプロイなしに取得するために使う）
+- material_catalog.py: /api/material-catalog（材料カタログの読み取り専用API、改善計画T277。
+  認可不要。軸スタジオの材料選択候補を、材料自体の追加はコード変更のみのまま動的取得させる）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。
 """
 
 from fastapi import APIRouter
 
-from app.api.routers import accidents, axis_admin, basemap, health, region, routes, weather
+from app.api.routers import (
+    accidents,
+    axis_admin,
+    axis_catalog,
+    basemap,
+    health,
+    material_catalog,
+    region,
+    routes,
+    weather,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -27,3 +41,5 @@ api_router.include_router(region.router)
 api_router.include_router(accidents.router)
 api_router.include_router(basemap.router)
 api_router.include_router(axis_admin.router)
+api_router.include_router(axis_catalog.router)
+api_router.include_router(material_catalog.router)

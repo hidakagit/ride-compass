@@ -12,7 +12,7 @@ bool型フィールドとして正しく往復することを確認済み（実�
 from datetime import datetime, timezone
 
 from pydantic import TypeAdapter
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,10 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         axis_id=row.axis_id,
         shape=_SHAPE_ADAPTER.validate_python(row.shape_params),
         default_weight=row.default_weight,
+        label=row.label,
+        description=row.description,
+        category=row.category,
+        is_published=row.is_published,
     )
 
 
@@ -43,6 +47,18 @@ class AxisDefinitionRepository:
         )
         return {row.axis_id: _row_to_definition(row) for row in rows}
 
+    async def list_all_with_sort_order(self) -> dict[str, tuple[AxisDefinition, int]]:
+        """`list_all()`と同じ全件だが、各軸のsort_orderも保持する（改善計画T271の
+        レビュー指摘の修正: `AxisRegistryAdminService.create`/`update`が「既存軸の
+        列挙」と「更新対象1件のsort_order取得」のために`list_all()`＋`get()`を
+        2回に分けてSELECTしていたのを1回へ集約するため新設）。"""
+        rows = (
+            (await self._session.execute(select(AxisDefinitionRow).order_by(AxisDefinitionRow.sort_order)))
+            .scalars()
+            .all()
+        )
+        return {row.axis_id: (_row_to_definition(row), row.sort_order) for row in rows}
+
     async def get(self, axis_id: str) -> tuple[AxisDefinition, int] | None:
         """定義とsort_orderの組。updateがsort_orderを維持するために使う。"""
         row = (
@@ -52,17 +68,16 @@ class AxisDefinitionRepository:
             return None
         return _row_to_definition(row), row.sort_order
 
-    async def next_sort_order(self) -> int:
-        """新規作成時に末尾へ追加するためのsort_order（並べ替えUIはStage Eのスコープ）。"""
-        current_max = await self._session.scalar(select(func.max(AxisDefinitionRow.sort_order)))
-        return 0 if current_max is None else current_max + 1
-
     async def upsert(self, definition: AxisDefinition, sort_order: int) -> None:
         stmt = pg_insert(AxisDefinitionRow).values(
             axis_id=definition.axis_id,
             sort_order=sort_order,
             shape_params=definition.shape.model_dump(mode="json"),
             default_weight=definition.default_weight,
+            label=definition.label,
+            description=definition.description,
+            category=definition.category,
+            is_published=definition.is_published,
             updated_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
@@ -71,6 +86,10 @@ class AxisDefinitionRepository:
                 "sort_order": stmt.excluded.sort_order,
                 "shape_params": stmt.excluded.shape_params,
                 "default_weight": stmt.excluded.default_weight,
+                "label": stmt.excluded.label,
+                "description": stmt.excluded.description,
+                "category": stmt.excluded.category,
+                "is_published": stmt.excluded.is_published,
                 "updated_at": stmt.excluded.updated_at,
             },
         )

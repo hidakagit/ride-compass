@@ -6,6 +6,7 @@ import pytest
 
 from app.domain import registry
 from app.domain.axis_definitions import AXIS_DEFINITIONS
+from app.domain.axis_display import derive_ramp_inputs
 from app.domain.registry_defaults import register_defaults
 
 
@@ -111,6 +112,48 @@ def test_all_primary_attributes_have_non_empty_labels():
     ここで機械的に空でないことを確認する。"""
     for attr in registry.all_primary_attributes():
         assert attr.label.strip() != "", f"{attr.attr_id} has empty label"
+
+
+def test_registry_axis_display_labels_match_axis_definitions():
+    """registry_defaults.pyのAxisDisplaySpec.labelは、domain/axis_definitions.py:
+    AXIS_DEFINITIONS[axis_id].label（T269でDB化・軸スタジオでGUI編集可能になった方）を
+    参照する形に統合済み（改善計画T270フォローアップ、2026-08-24）。以前は同じ文字列を
+    2箇所で独立して手書きしており、片方だけ変更しても気づかない重複だった。この参照が
+    将来また手書きの別文字列へ差し戻されないことを機械的に確認する。
+    """
+    for axis in registry.all_axes():
+        assert axis.display is not None
+        assert axis.display.label == AXIS_DEFINITIONS[axis.axis_id].label
+
+
+def test_surface_q_and_night_kind_is_auto_derived_ramp():
+    """改善計画T278: surface_q（従来kind="none"、既存の道路情報レイヤーとの重複を理由に
+    手書き固定していた）・night（従来kind="bespoke"、専用expression未登録のためレイヤー
+    非生成だった）は、ユーザー判断（2026-08-24、「ramp化技術的に可能な軸は一律ramp、
+    重複回避はUI層で運用」）によりkind="ramp"の自動導出表示へ変わった。
+    tile_inputs/thresholdsがdomain/axis_display.py: derive_ramp_inputsの出力と
+    完全一致することも確認し、手書きの値が自動導出結果から差し戻されないようにする。
+    """
+    for axis_id in ("surface_q", "night"):
+        axis = registry.get_axis(axis_id)
+        assert axis.display is not None
+        assert axis.display.kind == "ramp"
+        ramp = derive_ramp_inputs(AXIS_DEFINITIONS[axis_id])
+        assert ramp is not None
+        assert axis.display.tile_inputs == ramp.tile_inputs
+        assert axis.display.thresholds == ramp.thresholds
+
+
+def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
+    """改善計画T278の自動導出対象外（複数材料の重み付き結合・タイル非依存材料・
+    実行時スケール変換が必要な材料）の4軸は、kindが従来どおりであることを確認する
+    （回帰防止）。"""
+    assert registry.get_axis("gradient").display.kind == "none"
+    assert registry.get_axis("stop_density").display.kind == "ramp"
+    assert registry.get_axis("stop_density").display.thresholds == [1.0, 2.0, 4.0]
+    assert registry.get_axis("car_stress").display.kind == "bespoke"
+    assert registry.get_axis("accident").display.kind == "ramp"
+    assert registry.get_axis("accident").display.thresholds == [0.4, 0.8, 1.5]
 
 
 def test_registry_axis_ids_match_axis_definitions():

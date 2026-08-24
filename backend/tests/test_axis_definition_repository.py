@@ -13,6 +13,9 @@ def _definition(axis_id: str = "test_axis", default_weight: float = 0.1) -> Axis
         axis_id=axis_id,
         shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
         default_weight=default_weight,
+        label=f"テスト軸[{axis_id}]",
+        description="テスト用ダミー軸",
+        category="推定",
     )
 
 
@@ -74,19 +77,24 @@ async def test_get_returns_none_for_unknown_axis_id(road_graph_session):
     assert await repository.get("unknown") is None
 
 
-async def test_next_sort_order_is_zero_when_empty(road_graph_session):
+async def test_list_all_with_sort_order_returns_empty_dict_when_empty(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
 
-    assert await repository.next_sort_order() == 0
+    assert await repository.list_all_with_sort_order() == {}
 
 
-async def test_next_sort_order_continues_after_max(road_graph_session):
+async def test_list_all_with_sort_order_returns_definitions_and_sort_order(road_graph_session):
+    # 改善計画T271のレビュー指摘の修正: AxisRegistryAdminService.create/updateが
+    # 既存軸一覧の取得とsort_order算出を1回のSELECTで済ませられるよう新設したメソッド。
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("a"), sort_order=0)
     await repository.upsert(_definition("b"), sort_order=5)
     await repository.commit()
 
-    assert await repository.next_sort_order() == 6
+    result = await repository.list_all_with_sort_order()
+
+    assert result["a"] == (_definition("a"), 0)
+    assert result["b"] == (_definition("b"), 5)
 
 
 async def test_delete_removes_row_and_returns_true(road_graph_session):

@@ -290,10 +290,11 @@ export const DESIGNATION_OPACITY_EXPRESSION: unknown[] = designationDefs.opacity
 // 文字列列挙用のbuildCategoricalLayerDefsではなく事故（下記ACCIDENT_COLOR_EXPRESSION）と
 // 同じcase式で直接書く。
 // 改善計画（1次/2次の地図上表現の統一）: tunnelはnight軸（domain/night.py: night_difficulty）の
-// 材料の1つで、該当区間は+50点（夜間の危険度が上がる方向）に働く。night軸自体は専用の
-// 地図レイヤーを持たない保留のまま（T145a、axis-catalog.jsonのnote参照）だが、材料である
-// tunnelタグそのものは実体のある一次属性のため、他の2次計算材料（designation等）と同じ
-// AXIS_RAMP_COLORSの危険側の色を使う。
+// 材料の1つで、該当区間は+50点（夜間の危険度が上がる方向）に働く。night軸自体も改善計画
+// T278でramp表示（axisMapLayerId("night")、自動導出）を持つようになったが、材料である
+// tunnelタグそのものは実体のある一次属性として独立表示する価値があるため、この専用の
+// 真偽値レイヤーは維持する。他の2次計算材料（designation等）と同じAXIS_RAMP_COLORSの
+// 危険側の色を使う。
 const TUNNEL_COLOR = AXIS_RAMP_COLORS[2];
 
 export const TUNNEL_LEGEND: LegendEntry[] = [

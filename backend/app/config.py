@@ -130,14 +130,19 @@ class Settings(BaseSettings):
     # Renderのアウトバウンド範囲のみに制限済み）。
     open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
 
-    # 評価軸レジストリの管理API（改善計画T221 Stage D、/api/admin/axis-definitions）を
-    # 保護する共有トークン。空文字（既定）のときは常に拒否する（うっかり無保護公開しない、
-    # api/dependencies.py: require_axis_admin_token参照）。研究モード限定機能の権限制御は
-    # 現状フロント表示のみで、バックエンドに認証機構が無かった（他のAPIも同様）。書き込みで
-    # ルート生成の振る舞いを直接変えられるこのAPIだけは簡易な保護を設ける。将来、研究モードを
-    # 一般ユーザーから隠し何らかの権限制御を導入する計画（ユーザー、2026-08-24）があるため、
-    # 認可判定は差し替え可能な1関数へ集約している。
-    axis_admin_token: str = ""
+    # 管理画面（/admin、軸スタジオの管理API/api/admin/axis-definitions）を保護するHTTP Basic
+    # 認証の資格情報（改善計画T272）。空文字（既定）のときは常に拒否する（うっかり無保護
+    # 公開しない、api/routers/axis_admin.py: require_admin_basic_auth参照）。以前は
+    # 共有トークン（X-Admin-Tokenヘッダ、axis_admin_token）による簡易保護だったが、T272で
+    # 「実権限チェックへの差し替え」としてBasic認証へ置き換えた（ユーザー方針、2026-08-24:
+    # 「将来的にはアカウント制としたいが、現状は動作確認・研究用のためBasic認証として
+    # 後から拡張する」）。frontend側（src/proxy.ts、/adminページ全体のルーティング境界）も
+    # 同じ資格情報をNEXT側の環境変数（ADMIN_BASIC_AUTH_USERNAME/PASSWORD）として持つ
+    # ——2つの独立したBasic認証チェック（ページ本体とAPI呼び出しはオリジンが異なるため
+    # ブラウザの認証情報が自動伝播しない、docs/architecture.md「T272」節参照）だが、
+    # 同じ値を設定運用することで実質1つの資格情報として扱う。
+    admin_basic_auth_username: str = ""
+    admin_basic_auth_password: str = ""
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

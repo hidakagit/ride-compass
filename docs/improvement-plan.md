@@ -3136,7 +3136,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   7. 検証: backend全1140件green（T266と共通）、フロントtsc/vitest 516件green。
      docs/architecture.md（コンポーネント一覧）へRouteSettingsPanelを追記。
 
-### - [ ] T268. 材料の排他帰属チェックを計算系レジストリへ移植する（Phase 2前提） 規模S〜M
+### - [x] T268. 材料の排他帰属チェックを計算系レジストリへ移植する（Phase 2前提） 規模S〜M（2026-08-24完了）
 
 - 背景: 目論見書7章・歯止め1。排他帰属の機械検査（`registry.py: register_axis`の
   `AxisInputConflictError`）は表示用レジストリにしか無く、実際のルーティング計算を
@@ -3150,8 +3150,31 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 既存軸が使用中の材料を参照する新軸の登録が管理APIレベルで拒否される
   テストがgreen。既存7軸のシードデータが検査を通過する（現状の共有設計と矛盾しない）
   ことを確認。
+- **実装メモ（2026-08-24完了）**:
+  1. `domain/axis_definitions.py`へ`AxisMaterialConflictError`（`registry.py:
+     AxisInputConflictError`と同じ原則）と`check_material_exclusivity(candidate,
+     existing)`を新設。`existing`に`candidate.axis_id`と同じキーがあれば
+     自己比較としてスキップする（更新時に自分自身とは衝突しない）。
+  2. **`shared`フラグは持たせなかった**（過剰な汎用化を避ける判断）: 現行7軸の材料
+     （gradient_percent/wind_penalty/surface_good/stop_count_per_km/
+     intersection_count_per_km/accident_count_per_km_year/car_stress_level/
+     no_lit/has_tunnel）はいずれも単一軸専有で、`registry.py`の`shared=True`
+     （距離等の共通コンテキスト）に相当する材料が1件も存在しないため
+     （`compute_edge_axis_scores`のmaterials辞書を確認、distance_mは軸材料としては
+     未使用）。必要になった時点で`MaterialTerm`側への追加を検討する注記のみ残した。
+  3. `AxisRegistryAdminService.create`/`update`の冒頭で`check_material_exclusivity`を
+     呼ぶ（`ValueError`系のため`axis_admin.py`の既存`except ValueError → 409`が
+     そのまま機能し、ルーター側の変更は不要だった）。
+  4. T218素材カタログとの対応関係整理は、既存7軸の材料が`registry.py`側の
+     `attr_id`と1:1で対応済み（新規の乖離なし）と確認するに留めた。二重管理の解消
+     そのもの（レジストリ統合）はT270着手時に改めて要否を判断する。
+  5. 既存テスト（`test_axis_registry_service.py`）が同一material="dummy"を使い回す
+     フィクスチャだったため、新チェックに引っかかった2件（sort_order確認用ダミー・
+     最後の1軸削除ガード確認用の2軸目）をmaterial引数で分離して修正。
+  6. 検証: 新規`test_axis_definitions.py`（純粋domain、既存7軸の相互チェックが通ることを
+     含む）＋`test_axis_registry_service.py`への追加3件。backend全1147件green。
 
-### - [ ] T269. 軸カタログ（axis-catalog.json）のDB追従方式の決定＋実装（Phase 2前提） 規模M
+### - [x] T269. 軸カタログ（axis-catalog.json）のDB追従方式の決定＋実装（Phase 2前提） 規模M（2026-08-24完了）
 
 - 背景: 目論見書8章の要判断事項。フロントの軸一覧・既定重み・ラベルは
   `export_openapi.py`が**Python内蔵の`AXIS_DEFINITIONS`から**生成する
@@ -3162,11 +3185,48 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   ビルド時生成を維持、(b) 公開操作時にカタログを再生成しランタイム配信へ切替、
   (c) カタログ取得APIを新設しフロントは起動時フェッチ。静的生成物としての
   型安全性（generated型とのペア）と、デプロイなしで軸が増える運用の両立が論点。
+  → **ユーザー選択: (c) カタログ取得API + 起動時フェッチ**。
 - 完了条件: 管理APIで追加した軸が、フロントの軸カタログ（一般UIの軸一覧・
   重み既定値）へコード変更・再デプロイなしに（または合意した方式の運用フローで）
   反映されること。
+- **実装メモ（2026-08-24完了）**:
+  1. **重要な前提の訂正**: 当初の背景文は「axis-catalog.jsonがAXIS_DEFINITIONSから
+     生成される」としていたが、調査の結果`axis-catalog.json`の`axes[]`/
+     `primary_attributes[]`は実際には`registry.py`（表示専用レジストリ、T137/T145b、
+     DB化されていないPython宣言のみ）から生成されており、`AXIS_DEFINITIONS`由来なのは
+     `preference_defaults`のみと判明した。`registry.py`はDB書き込み手段を持たないため
+     GUIで作った軸を原理的に表現できず、既存のaxis-catalog.jsonをそのまま追従させても
+     目的を達成できない。そのため`AxisDefinition`（DB化済み・GUI編集可能な方）自体へ
+     `label`/`description`/`category`を追加し、これを単一ソースとする新エンドポイントを
+     新設する方針に切り替えた。
+  2. `domain/axis_definitions.py: AxisDefinition`へ`label: str`（必須）・
+     `description: str = ""`・`category: AxisCategory("観測"|"推定"|"動的") = "推定"`を
+     追加。既存7軸の値は`frontend/src/lib/evaluationAxes.ts`の旧`PREFERENCE_AXIS_DESCRIPTIONS`
+     ・`registry_defaults.py`のlabelから移植（表示文言は変更なし）。
+  3. DB: `migrations/0015_axis_definitions_label.sql`（`0014`は既に本番適用済みのため
+     追加カラムのNOT NULL DEFAULT + backfillという安全な形の別migrationとした）。
+     ORM（`AxisDefinitionRow`）・repository（`_row_to_definition`/`upsert`）・
+     管理API（`AxisDefinitionPayload`/`_to_response`）を追従。本番・dev DB・
+     ローカルテストDB(ridecompass_test)いずれにも適用済み。
+  4. 新規公開エンドポイント`GET /api/axis-catalog`（`api/routers/axis_catalog.py`、
+     認可不要）。DBへは触れず、プロセス内キャッシュ`AXIS_DEFINITIONS`
+     （起動時・管理API書き込み直後にpush型更新済み、Stage D設計を踏襲）をそのまま
+     読むだけの実装。
+  5. フロント: `services/axisCatalogApi.ts`（`fetchJson`共通ヘルパー経由）・
+     `hooks/useAxisCatalog.ts`（マウント時に1回取得、取得完了まで/失敗時は既存7軸の
+     静的フォールバックを返す）を新設。`RouteSettingsPanel`をこのhook経由に置き換え、
+     プリセット適用時は`{...catalog.defaultWeights, ...preset.weights}`で未言及の軸を
+     補うようにした（新しい軸が増えてもプリセットが必須キー欠落で422にならないための
+     防御）。カタログ更新後に未知のaxis_idが増えていた場合、`routePreference`stateへ
+     自動で既定重みを補う`useEffect`も追加（同じ理由）。研究モードの`WeightPanel`は
+     引き続き旧`axis-catalog.json`静的読み込みのまま（T270でWeightPanel自体を
+     置き換える際に統合する想定、今回はスコープ外）。
+  6. 検証: backend全1149件green（新規`test_axis_catalog_routes.py`2件含む）、
+     フロントtsc/vitest 516件green、実機確認（`/api/axis-catalog`が200・
+     RouteSettingsPanelがDB由来のlabel/description/categoryで正しく表示されることを
+     ブラウザで確認）。docs/architecture.md追従。
 
-### - [ ] T270. 軸スタジオ — 独立URLの管理画面としてT221 Stage Eを実装する（Phase 2本体） 規模L
+### - [x] T270. 軸スタジオ — 独立URLの管理画面としてT221 Stage Eを実装する（Phase 2本体） 規模L（2026-08-24完了・残作業あり）
 
 - 背景: 目論見書4章「軸スタジオ」・T221 ADRのStage E（GUI編集画面、ADRスコープ外と
   して起票待ちだったもの）。**ユーザー指示（2026-08-24）により、既存ページ内の
@@ -3192,8 +3252,60 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   docs/architecture.md追従（新レイヤー種=管理画面の追加）。
 - 依存: T268（排他検査）・T269（カタログ追従）。規模M以上のため着手時に本エントリを
   さらに分割してよい。
+- **実装メモ（2026-08-24完了・一部残作業あり）**:
+  1. **新規ルート`frontend/src/app/admin/page.tsx`**（+`admin.module.css`）。
+     `AxisStudio`（軸コンポーザー・一覧・CRUD）、`ResearchPanel`＋`WeightPanel`＋
+     `CarStressRecipePanel`/`RoadSuitabilityRecipePanel`/`MotorVehicleDensityRecipePanel`
+     （研究セクション）、`DebugPanel`/`DebugConsole`/`SystemStatusPanel`/`BackendStatus`
+     （開発者セクション）をすべて移設した。
+  2. **状態共有の設計判断**: WeightPanel等が使うstate（`weightOverrideEnabled`・
+     `scoringWeights`・`routePreference`・3レシピの`overrideEnabled`/`recipe`）は、
+     メインページ（`/`）と`/admin`が別Reactツリーのため直接共有できない。
+     `useStoredJsonState`（新設、`hooks/useStoredState.ts`にJSON直列化の薄いラッパーを
+     追加）と、`useRecipeOverride`に追加した`storageKey`引数（指定時は内部で
+     `useStoredJsonState`を使う）で、同じlocalStorageキーを両ルートから読み書きする形に
+     した。同一タブでのリアルタイム同期ではなく次回マウント時に反映される
+     （`lib/researchMode.ts`の既存挙動と同じ制約）。メインページ側は編集UIを持たず
+     読み取り専用で使う（setterを破棄）。
+  3. **軸コンポーザー**（`components/AxisStudio/`）: `AxisShape`の3判別式
+     （区分線形補間・カテゴリ値・フラグ加算、`recipe_then_breakpoint_linear`込みで
+     実質4テンプレート）をフォームへ写した。材料選択は
+     `lib/axisMaterialsCatalog.ts`の**閉じた9件**
+     （`AXIS_DEFINITIONS`が実際に参照するmaterial idの全量、
+     `registry_defaults.py`の一次属性カタログとは別語彙）から選ぶ。
+  4. **管理APIクライアント**: `lib/adminToken.ts`（localStorage、researchMode.tsと同型の
+     簡易実装）＋`services/axisAdminApi.ts`（CRUD、X-Admin-Tokenヘッダ付与）。
+  5. **実機E2E確認（2026-08-24、backend/.envへdev専用のAXIS_ADMIN_TOKENを設定して実施）**:
+     (a) `/admin`でトークン入力→一覧取得成功。(b) 新規軸作成で`surface_good`材料を選ぶと
+     T268の排他チェックが409で正しく拒否することを確認（既存`surface_q`軸と衝突する
+     ケース）。(c) `gradient`軸の`default_weight`を編集→PUT 200→
+     `GET /api/axis-catalog`が更新値を即座に返す（再起動不要のpush型更新）ことを確認、
+     検証後に既定値0.15へ戻した。(d) メインページ（`/`）から「研究」タブが消え、
+     「開発者」タブは地図キャッシュ再読み込みボタンのみが残ることを確認。
+     backend全1149件・フロントtsc/vitest 516件green。
+  6. **残作業（未完了、影響範囲付き）**:
+     - **地図プレビュー・比較生成への導線**（対応方針2）は未実装。軸コンポーザーは
+       数値入力のみで、作成した軸のスコア分布や地図上の見え方を確認する手段がない。
+       次に軸を作る人が「妥当な折れ点か」を勘で決めるしかない状態。
+     - **本番Renderの`AXIS_ADMIN_TOKEN`設定**（対応方針4）は未実施
+       （Renderダッシュボードへのアクセスが必要、Stage D ADR残作業と同じ制約）。
+       設定するまで本番の`/api/admin/axis-definitions`は常時403のまま
+       （安全側のデフォルト、意図通り）。**T272（2026-08-24完了）でこの認可機構自体が
+       `AXIS_ADMIN_TOKEN`共有トークンからHTTP Basic認証
+       （`ADMIN_BASIC_AUTH_USERNAME`/`PASSWORD`）へ置き換わったため、この項目は
+       本番側の設定作業として当時のまま未着手だが、設定すべき変数名が変わっている
+       点に注意（T272エントリ参照）。**
+     - **「新しい軸を作成→ルート生成」のE2Eは未検証**。原因は設計上の制約:
+       `lib/axisMaterialsCatalog.ts`の9材料は**全て既存7軸が専有済み**のため、
+       現在の閉じた材料集合の範囲では、既存軸を削除しない限りT268の排他チェックに
+       必ず引っかかり新規作成できない（実機で実際に確認した制約、上記(b)参照）。
+       真に新しい軸を作るには、まず新しい材料を取込パイプライン側に追加する
+       （目論見書7章・歯止め4「材料の天井」、コード変更が要る）必要がある。
+       軸スタジオ自体はこの制約下で正しく動作している（バグではない）が、
+       「材料が増えるまで新規軸は事実上作れない」という運用上の制約は
+       ユーザーへ明示しておくべき。
 
-### - [ ] T271. 軸の公開フローと統治ルール（Phase 3） 規模M
+### - [x] T271. 軸の公開フローと統治ルール（Phase 3） 規模M
 
 - 背景: 目論見書7章・歯止め2、8章。一般ユーザーの保存設定は`axis_id`キーで再現される
   ため、公開後の軸の破壊的変更・削除は他ユーザーの設定を黙って壊す。また同じ意図の
@@ -3205,8 +3317,29 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 公開済み軸の破壊的変更が構造的に不可能であること、下書き軸が一般UIに
   漏れないことのテストがgreen。
 - 依存: T270。
+- 実装メモ（2026-08-24完了）: `AxisDefinition.is_published: bool`（既定False）を追加し
+  （`migrations/0016_axis_definitions_is_published.sql`、既存7行はDEFAULT trueで
+  backfill）、`domain/axis_definitions.py: AxisPublishedImmutableError`/
+  `check_publish_immutability`を`AxisRegistryAdminService.update`/`delete`の冒頭で
+  呼ぶ形で実装。`GET /api/axis-catalog`（T269）は`is_published=True`のみ返すよう変更。
+  `axis_admin.py: update_axis_definition`に欠けていた`ValueError`ハンドラも追加
+  （実装中に発見した既存の抜け穴、以前は更新時の材料衝突[T268]が想定外の500だった）。
+  フロントは`AxisStudio.tsx`に公開済み/下書きバッジ・編集/削除の無効化・「複製して
+  新規作成」ボタンを追加、`AxisComposer.tsx`に`draftFromDuplicate`（axis_idクリア・
+  is_published強制false）と「公開する」チェックボックスを追加。「改良は複製＋新IDの
+  導線」は3.命名・重複ガイドの専用UI（チェックリスト等）までは作らず、複製ボタン自体を
+  唯一の導線とするミニマムな実装とした（対応方針3「命名・重複ガイド・公開前チェック
+  リストのUI組み込み」は見送り、複製フローがあれば実用上十分と判断）。
+  検証: backend全1169件green（新規`test_axis_definitions.py`3件・
+  `test_axis_registry_service.py`3件・`test_axis_admin_routes.py`2件・
+  `test_axis_catalog_routes.py`1件含む）、frontend tsc/eslint/vitest 517件green、
+  実サーバーで軸スタジオの公開済みバッジ・編集/削除disabled・複製フロー（axis_id空・
+  公開チェックOFF）を確認。複製後の新規作成は材料の天井（9材料が既存7軸で専有済み、
+  [[rc-phase2-t270-axis-studio]]の既知の制約）により409（材料衝突）で拒否されたが、
+  これはT271の不具合ではなく既存の設計上の制約——エラー応答自体が正しく返り、
+  公開済みgradient軸のデータが無傷であることをAPI直接確認で検証した。
 
-### - [ ] T272. 管理画面・研究機能の権限制御導入（Phase 3） 規模M
+### - [x] T272. 管理画面・研究機能の権限制御導入（Phase 3） 規模M
 
 - 背景: 目論見書6章Phase 3。「将来、研究パネルを一般ユーザーから隠し権限制御を導入
   する」という以前からの方針（Stage D ADRにも記録）を、管理画面のURL分離（T270）を
@@ -3219,6 +3352,33 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 一般ユーザーの導線から管理画面・研究機能へ到達できず、認可を持つ
   ユーザーのみがアクセスできること。docs/architecture.md追従（認可境界の記述）。
 - 依存: T270。
+- 実装メモ（2026-08-24完了）: フロント側方式はAskUserQuestionでユーザーに確認し
+  「将来的にはアカウント制としたいが、現状は動作確認・研究用のためBasic認証として
+  後から拡張する」との回答を得てBasic認証で実装した。共有トークンからの「差し替え」は
+  backend/frontend両方でHTTP Basic認証へ統一する形にした（2箇所独立: (1)
+  `frontend/src/proxy.ts`が`/admin/:path*`のルーティング境界でブラウザ標準Basic認証
+  ダイアログを要求[Next.js 16で`middleware.ts`→`proxy.ts`へ改称、frontend/AGENTS.md
+  「このNext.jsは知っているものと違う」の指示どおりnode_modules内docsを確認して
+  対応]、(2) backend `axis_admin.py: require_admin_basic_auth`が
+  `fastapi.security.HTTPBasic`+`secrets.compare_digest`で軸CRUD APIを保護——別
+  オリジンのためブラウザの認証キャッシュが自動転送されず、軸スタジオUI自体の資格情報
+  入力フォームは維持。`config.py`の`axis_admin_token`は`admin_basic_auth_username`/
+  `admin_basic_auth_password`へ置換、`lib/adminToken.ts`は単一トークンからusername/
+  password保持へ再設計、`hooks/useAdminToken.ts`は`useAdminCredentials.ts`へ改称。
+  `researchMode.ts`は変更不要と判断（/admin自体が認証済みユーザーのみ到達可能になった
+  ため、表示ON/OFFトグルとしての役割のみ残っても意味の重複は生じない）。
+  検証: backend全1169件green（`test_axis_admin_routes.py`の認可テストをBasic認証へ
+  書き換え）、frontend tsc/eslint/vitest 517件green、実サーバーで(1)`/admin`が資格情報
+  なし/誤りで401＋`WWW-Authenticate`ヘッダ、正しい資格情報（`http://user:pass@host/admin`
+  形式でBrowser paneから確認）で200、(2)軸CRUD APIも同様に401/200を確認、(3)軸スタジオの
+  新ユーザー名/パスワードフォームで実際に軸一覧が取得できることを確認した。
+  **残作業（影響範囲付き）**: 本番Render（backend・frontend双方）へ
+  `ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_PASSWORD`を未設定のため、
+  設定するまで本番の`/admin`ページ・軸CRUD APIは共に401で到達不能のまま（Renderダッシュ
+  ボードへのアクセスが必要、Stage D ADR「本番RenderのAXIS_ADMIN_TOKEN未設定」残作業と
+  同じ制約が形を変えて継続）。機能低下ではない（本番の管理機能は以前から使えない設計
+  だった）が、本番で軸スタジオ・研究モードを実際に使いたくなった時点で必ず両方の
+  Renderサービスへ同じ値を設定する必要がある。
 
 ### - [ ] T273. 蒸留 — 一般UIの軸カタログ縮退（Phase 4） 規模S〜M（継続的）— トリガー: 一般公開の意思決定、およびPhase 3までの利用実績の蓄積
 
@@ -3303,6 +3463,275 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 未実装。着手時、上記設計に基づき実装・テスト（逆回り判定のガード条件・
   代数変換の正当性・比較ロジック）を行う。
 
+### - [ ] T275. Tailwind CSSの採否を決定する（現状は未使用のまま依存関係にのみ存在） 規模S（調査・意思決定）
+
+- 背景: 2026-08-24、T270作業中のユーザー質問（「Radix/Tailwindは実装コスト低減や保守性の
+  向上につながっているか」）への回答時に調査して判明。`frontend/package.json`に
+  `tailwindcss`/`@tailwindcss/postcss`が依存関係として存在し`globals.css`からも
+  importされているが、実際のコンポーネント（`.tsx`）でTailwindのユーティリティクラス
+  （`flex`/`gap-`/`bg-`等）を使っている箇所は**リポジトリ全体でゼロ**。全コンポーネントは
+  一貫してCSS Modules＋手書きCSSカスタムプロパティ（`--space-*`/`--color-*`等、
+  `globals.css`定義）で実装されている。Next.jsのデフォルトスキャフォールドが自動同梱した
+  ものがそのまま残っているだけと推測され、意図して導入・活用された形跡がない。
+  一方Radix UI（`@radix-ui/react-*`）は`Disclosure`/`FieldLabel`/`LevelPicker`/`LayerChip`等
+  複数箇所で実際に採用され、キーボード操作（roving tabindex）・Popover位置計算・
+  トグル押下等の自前実装を置き換えて明確にコスト削減できている（対比としてRadixは
+  「効果が出ている」と評価できる状態）。
+- 対応方針（実装前にユーザーと方式を決定する）: 既存のCSS Modules資産（多数のコンポーネント
+  × module.css）をどう扱うかをコストと天秤にかけて判断する。候補は (a) Tailwindを
+  依存関係から撤去し「使わない」と明文化してCSS Modules一本化を継続、(b) 新規コンポーネント
+  のみTailwindを使い既存CSS Modulesは段階的に置き換えない併用方針、(c) 全面的な
+  Tailwindへの移行（既存CSS Modules資産の書き換えコストが規模に対して大きい可能性が高く、
+  現時点では推奨しない）。
+- 完了条件: 方針を決定し、`docs/architecture.md`（技術選定表）へ明記する。(a)を選ぶ場合は
+  `tailwindcss`/`@tailwindcss/postcss`の依存関係除去と`globals.css`のimport除去も行う。
+  (b)を選ぶ場合はCSS ModulesとTailwindの使い分け基準（どういう場合にどちらを使うか）を
+  明文化する。
+
+### - [x] T276. registry.py（表示用レジストリ）とAXIS_DEFINITIONS（Stage D）の軸ラベル重複を解消する 規模S（2026-08-24完了）
+
+- 背景: T270完了報告でユーザーから「2つのレジストリ未統合」について「意図的に据え置き」と
+  説明したところ、その意図を問われた。実態を確認すると、これは重み付けした設計判断ではなく
+  T270のタスク文に統合が明記されていなかったために単に着手していなかっただけで、しかも
+  T269の実装メモで自ら「T270で統合する想定」と書いていた宿題を果たしていなかった
+  （T270エントリ完了時の見落とし）。ユーザー指示によりその場で着手した。
+- 現状把握: `domain/registry_defaults.py`（`registry.py`向けの既定登録、T137）の6軸
+  （gradient/surface_q/stop_density/car_stress/night/accident）は、`AxisDisplaySpec.label`
+  （地図レイヤーパネル・凡例が表示する軸名）を`AXIS_DEFINITIONS[axis_id].label`
+  （T269でDB化、軸スタジオでGUI編集可能）と**完全に同じ文字列**で独立して手書きしていた
+  （例:「車の圧迫感」を2箇所で個別に宣言）。一方`AxisSpec.description`
+  （開発者向けの長い技術説明）・`AxisDisplaySpec.category`（地図レイヤーパネルの
+  グルーピング用「terrain」「road」「trafficSafety」）は`AXIS_DEFINITIONS`側の
+  `description`（ユーザー向けの短い説明）・`category`（軸の性質「観測」「推定」「動的」）
+  とは対象読者・意味が異なる別概念と判断し、統合対象から除外した（同じ「category」という
+  語を使うが指す軸が異なる点に注意）。
+- 対応: `registry_defaults.py`の6軸登録で`AxisDisplaySpec(label="車の圧迫感", ...)`のような
+  ハードコードをやめ、`AxisDisplaySpec(label=AXIS_DEFINITIONS["car_stress"].label, ...)`
+  という参照へ置き換えた（`AXIS_DEFINITIONS`をimport）。`test_registry_defaults.py`へ
+  `test_registry_axis_display_labels_match_axis_definitions`を追加し、この参照が将来
+  また手書きの別文字列へ差し戻されないことを機械的に確認する（既存の
+  `test_registry_axis_ids_match_axis_definitions`と同じ「片方だけ更新しても気づかない
+  死角」対策のパターン）。
+- **この対応が解決しない範囲（重要）**: `register_defaults()`はビルド時
+  （`export_openapi.py`）とテストのみで呼ばれ、FastAPIアプリ起動時には呼ばれない
+  （`registry_defaults.py`モジュールdocstring参照）。そのため今回の統合は
+  「Pythonコード上の既定値が一致する」ことを保証するのみで、**軸スタジオでDBの`label`を
+  GUI編集しても、地図レイヤーパネル・`axis-catalog.json`（ビルド時生成物）側のラベルは
+  再デプロイまで追従しない**（T270「残作業」3・Stage D ADR「DB編集がこの生成物へ反映
+  されるのはStage E以降の課題」と同根の制約が依然として残る）。真に動的反映させるには、
+  地図レイヤー側（`SECONDARY_AXES`/`primaryAttributes.ts`等、`axis-catalog.json`静的importの
+  複数箇所）を`useAxisCatalog`と同様の動的フェッチへ置き換える別タスクが必要
+  （規模が大きく、地図UI一式に触れるリスクを伴うため本タスクのスコープ外とした）。
+- 検証: `test_registry_defaults.py`全13件green（新規1件含む）、backend全1150件green、
+  `export_openapi.py`再生成で`axis-catalog.json`が無変化（＝統合前後で値が完全一致、
+  意図通りの無害な置き換え）であることを確認。フロントtsc green（生成物差分なし）。
+
+### - [x] T277. 材料カタログをbackend正式レジストリ化し軸コンポーザーへ動的連携する 規模S〜M
+
+- 背景: T276に続き「軸を編集することで地図上の推定アイコンを増減できるか」という
+  ユーザー質問を調査した結果、(1) `registry.py`の軸集合と地図タイルのMVT焼き込み
+  プロパティを調べたところ、`kind="ramp"`軸は`tile_inputs`（材料→tileプロパティの
+  線形結合）から`MapOverlayControls`/`axisLayers.ts`が**既存コードのまま**汎用レイヤーを
+  自動生成できること、アイコンも`SECONDARY_AXIS_ICONS[axisId] ?? AxisRampIcon`という
+  汎用フォールバックが既にあり専用アイコン無しでも壊れないことが判明した。(2) 9材料中
+  5〜6件がMVTタイルへ焼き込み済み（`surface_good`/`stop_per_km`/`intersection_per_km`/
+  `accident_per_km`/`tunnel`、`lit`は符号反転要）で、`gradient_percent`/`wind_penalty`
+  （タイル非焼き込み・動的取得）・`car_stress_level`（レシピ合成値）はramp化不可と
+  判明した。(3) この調査中、ユーザーから「材料は今後システムメンテナンスで増減されうる
+  ものとして設計してほしい。ただし材料自体をGUIでメンテナンスする必要はない。
+  タイルに焼き込まれた状態である材料を取得し、推定要素（軸）に紐づけてCRUDできることが
+  求めている点」という設計要件が示された。これは`frontend/src/lib/axisMaterialsCatalog.ts`
+  （T270で作った、9材料をフロントに手書きしたリスト）自体が「システムメンテナンスで
+  増減するものをフロントへ固定書きする」という、まさに避けるべき重複だったことを意味する。
+- 対応方針:
+  1. backendに材料カタログの正式レジストリを新設する（`domain/axis_definitions.py`への
+     追加、または新規`domain/material_catalog.py`。案は着手時に決定）。各材料は
+     `material_id`・`label`・`dtype`（numeric/boolean）に加え、内部用（フロントへは
+     非公開）の`tile_property`（MVT焼き込み済みプロパティ名、無ければNone＝ramp化不可）・
+     `tile_property_inverted`（no_lit⟵litのような符号反転フラグ）を持つ。
+     `AXIS_MATERIAL_OPTIONS`（axisMaterialsCatalog.ts）と同じ9件を初期データとして移植する。
+  2. 新規公開エンドポイント`GET /api/material-catalog`（認可不要、`material_id`/`label`/
+     `dtype`のみ返す。`tile_property`系はbackend内部でのみ使う想定——T278（下記の地図表示
+     ルール自動生成タスク、未起票）が消費する）。
+  3. 管理API（`axis_admin.py`）の作成・更新経路に軽い検証を追加する: 送信された
+     `material`（terms/flags/categoricalのmaterial）が材料カタログに存在しない場合は
+     422で拒否する（現状は任意文字列を受け付けてしまう）。
+  4. フロント: `services/materialCatalogApi.ts`＋`hooks/useMaterialCatalog.ts`
+     （`useAxisCatalog`と同じ「マウント時1回取得、取得失敗時は静的フォールバック」
+     パターン）を新設し、`components/AxisStudio/AxisComposer.tsx`をこのhook経由に
+     置き換える。`lib/axisMaterialsCatalog.ts`はフォールバック定数としてのみ残す
+     （またはhook内へ統合し削除）。
+  5. **材料自体を追加・編集・削除するGUIは作らない**（ユーザー明示、材料の追加は
+     引き続きbackendコード変更＋デプロイで行う、既存ADR「新素材の追加は引き続き
+     バックフィルが必要」原則のまま）。
+- 完了条件: `GET /api/material-catalog`が材料一覧を返し、軸コンポーザーの材料選択
+  ドロップダウンがこのAPIから動的取得した値で構成されること。backend側に材料を
+  1件追加（テスト用の一時的な追加で可）すると、フロントのコード変更・再デプロイなしに
+  軸コンポーザーの選択肢に現れることを実機確認する。存在しない材料名を指定した
+  軸作成・更新が422で拒否されることをテストで確認する。
+- 依存: なし（T270完了後の独立タスクとして着手可能）。後続のT278（地図表示ルール
+  自動生成、軸集合の同期・kind=ramp自動判定・SECONDARY_AXES動的化。未起票、
+  T277完了後に別途起票する）の前提になる。
+  **kind自動判定の手動オーバーライド要否はユーザー判断で解消済み（2026-08-24）**:
+  `tile_property`を持つ材料（ramp化技術的に可能な材料）を使う軸は一律`kind="ramp"`とし、
+  backend側にnoneへの手動オーバーライドは設けない。`surface_q`のような「技術的には
+  ramp化可能だが既存の道路情報レイヤーと重複するため出したくない」というケースは、
+  地図レイヤーパネル側（`MapOverlayControls`等）にレイヤーの表示/非表示切替を用意する
+  ことで運用回避する（＝重複回避はUI層の関心事とし、backendのkind導出ロジックを
+  複雑化させない）。T278起工時にこの方針で`kind`自動導出ルールを設計すること。
+- 実装メモ（2026-08-24完了）: 対応方針1〜5をそのまま実装。新規`domain/material_catalog.py`
+  （`MaterialSpec`/`MATERIAL_CATALOG`、既存9材料を移植）・新規`api/routers/material_catalog.py`
+  （`GET /api/material-catalog`、`tile_property`系は非公開）・`axis_admin.py`へ
+  `_check_materials_are_known`バリデータ追加（未知材料は422）。フロントは新規
+  `services/materialCatalogApi.ts`・`hooks/useMaterialCatalog.ts`（`useAxisCatalog.ts`と
+  同型：マウント時1回取得、失敗時は静的フォールバック）を追加し、`AxisComposer.tsx`の
+  `emptyDraft`/`draftFromExisting`にmaterialOptions引数を追加してhook経由の材料一覧を
+  注入する形へ変更。`lib/axisMaterialsCatalog.ts`は削除せず「フォールバック専用」へ
+  役割を縮小（doc commentのみ更新）。OpenAPI再生成（`export_openapi.py`→
+  `npm run generate:api`）で`MaterialCatalogEntry`/`MaterialCatalogResponse`型を
+  frontend生成物へ反映。検証: backend全1151件green（新規テスト
+  `test_create_returns_422_for_unknown_material`含む）、frontend tsc/eslint green、
+  vitest全516件green、backend/frontend実サーバーでE2E確認
+  （`GET /api/material-catalog`が9材料を返す、軸スタジオの材料ドロップダウンが
+  API由来のラベルで構成されることをread_page/get_page_textで確認）。
+
+### - [x] T278. 地図表示ルール(kind=ramp)の自動導出・軸集合の同期 規模M
+
+- 背景: T277完了時点で、軸スタジオ（`/admin`）でDBへ新規登録した軸は`GET /api/axis-catalog`
+  （T269）経由で一般向けルート設定画面には現れるが、**地図（レイヤーパネル・凡例・
+  地図チップ）には一切現れない**——地図側は`registry.py: all_axes()`が書き出す
+  build時静的生成物`axis-catalog.json`（`export_openapi.py`）を単一ソースとしており、
+  `registry_defaults.py`に手書き登録された既存6軸（`wind`除く7軸中6軸）以外を知らない
+  ため。またT276で調査した際、既存の`surface_q`軸は材料`surface_good`が
+  タイルへ焼き込み済み（ramp化技術的に可能）にも関わらず「既存の道路情報レイヤーと
+  重複するため」という理由で`kind="none"`に手書き固定されていた。この「技術的には
+  ramp化可能だが手で`none`に固定している」という状態を、ユーザー判断（2026-08-24、
+  T277完了報告時）で「一律`kind="ramp"`にし、重複回避は地図レイヤーパネル側の表示/
+  非表示切替で運用する」という自動導出ルールへ統一する方針が決まった
+  （T277エントリ「依存」節に記録済み）。
+- 調査で判明した制約（重要）:
+  1. `registry.py`の`axes[].inputs`（一次属性=OSM生タグ単位の参照。T167の「推定軸ON→
+     観測レイヤー連動ON」・T146の「軸の材料一覧表示」が依存）と、`AXIS_DEFINITIONS`の
+     `materials`（評価直前まで解決済みの値単位）は別の語彙で、機械的に統合できない
+     （T12関係、docs/decisions/t221-axis-registry.md記載どおり）。そのため
+     **`axis-catalog.json`の生成元をregistry.pyからAXIS_DEFINITIONSへ丸ごと差し替える
+     ことはできない**——軸スタジオ作成軸は`inputs=[]`（材料一覧表示無し）で妥協する。
+  2. `事故密度`軸の材料`accident_count_per_km_year`は年正規化済み（`accident_import_runs`
+     の収録年数で除算、実行時に変動しうる）だが、タイル焼き込み済みの`accident_per_km`は
+     年正規化前の生値。両者のスケール変換係数は静的に持てないため、**`accident`軸の
+     ramp表示（thresholds等）は自動導出の対象外とし、`registry_defaults.py`の
+     既存手書き値をそのまま維持する**。
+  3. `停止密度`軸は2材料の重み付き線形結合（`stop_count_per_km` + 0.3×
+     `intersection_count_per_km`）で、既存thresholds`[1,2,4]`は統計的な経験則であり
+     単純な折れ点流用では再現できない。**複数材料の重み付き結合を伴う軸は自動導出の
+     対象外**とし、既存の手書き値を維持する（stop_densityはこれに該当し変更しない）。
+  4. `車ストレス`軸は材料`car_stress_level`がタイル非依存（レシピ合成値）のため
+     自動的にramp化対象外と判定される（既存の`kind="bespoke"`を維持、変更不要）。
+  5. MVLタイルの真偽値プロパティ（`surface_good`/`lit`/`tunnel`）はMapLibre上で
+     `["==",["get","tunnel"],true]`のような真偽比較で読む必要があり、既存の
+     `buildAxisRampValueExpression`（`Σ property×weight`の数値線形結合前提）では
+     直接扱えない。`AxisTileInput`/`TileInputSpec`を拡張し、真偽値材料
+     （`boolean`/`invert`/`true_value`/`false_value`）に対応させる必要がある。
+- 対応方針（自動導出が安全に成立するケースに限定する）:
+  1. 新規`domain/axis_display.py: derive_ramp_inputs(definition) -> RampInputs | None`。
+     `AxisDefinition.materials`が全て`MATERIAL_CATALOG`でtile_property保持済みの場合のみ
+     ramp化を試み、shape種別ごとに以下だけを扱う（それ以外は`None`＝自動導出対象外）:
+     - `CategoricalShape`（真偽値材料1件）: 2値の中間点を閾値とする2段階ramp。
+     - `FlagSumShape`（真偽値フラグN件）: 達成しうる合計値（部分和の全組合せ、cap適用後）の
+       隣接中間点を閾値とする。
+     - `BreakpointLinearShape`で**単一材料・weight=1.0・preprocess="identity"**の場合のみ:
+       既存breakpointsのx値（先頭除く）をそのまま閾値に流用。複数材料・非等倍weight・
+       abs前処理は対象外（制約3・既存stop_density等を変更しないため）。
+  2. `registry.py: TileInputSpec`へ`boolean: bool = False`・`invert: bool = False`・
+     `true_value: float = 0.0`・`false_value: float = 0.0`を追加（数値材料は`weight`のみ
+     使用、真偽値材料は`boolean=True`で`true_value`/`false_value`を使用、`weight`は無視）。
+  3. `registry_defaults.py`: `surface_q`（材料`surface_good`）と`night`
+     （材料`no_lit`・`has_tunnel`）の`display`を`derive_ramp_inputs()`経由の
+     `kind="ramp"`へ置き換える（`category`・`label`・既存の`note`文言は手書きのまま
+     維持、`tile_inputs`/`thresholds`のみ自動導出値に差し替え）。`gradient`
+     （タイル非依存で自動的に対象外）・`stop_density`（制約3）・`car_stress`
+     （制約4）・`accident`（制約2）は変更しない。
+  4. `export_openapi.py`: `axis-catalog.json`の`axes[]`生成を、`registry.all_axes()`に
+     加えて「`AXIS_DEFINITIONS`にあるが`registry.py`未登録の軸」も走査し、
+     `derive_ramp_inputs()`が`None`を返さない（＝ramp化可能と判定された）場合のみ
+     `inputs=[]`・`output_range=(0,100)`・自動生成`display`（`category="trafficSafety"`
+     既定、`note`はdefinition.descriptionを流用）で追加する。`None`の場合は追加しない
+     （地図に出ない＝現状と同じ「専用レイヤー無し」のまま、regressionにならない）。
+     これにより将来軸スタジオが作る新規軸のうち、真偽値材料またはシンプルな単一数値材料の
+     ものは再デプロイ後に自動で地図へ現れるようになる（複雑な軸は従来どおり地図無しのまま
+     グレースフルに動作）。
+  5. フロント`components/Map/axisLayers.ts`: `AxisTileInput`に`boolean?`/`invert?`/
+     `trueValue?`/`falseValue?`を追加し、`buildAxisRampValueExpression`が
+     `boolean=true`の入力を`["case", 真偽比較, trueValue, falseValue]`で組み立てる分岐を
+     追加する（既存の数値`Σproperty×weight`分岐とは独立、後方互換）。
+  6. フロント`components/Map/secondaryAxes.ts`: `SECONDARY_AXIS_LAYER_IDS`（現状
+     car_stress/stop_density/accidentの3件を手書き固定）を「`display.kind==="ramp"`なら
+     `axisMapLayerId(axis_id)`を自動算出、bespoke（car_stress）のみ引き続き手書き」という
+     ルールへ一般化する（将来ramp軸が増えるたびにこの辞書へ追記する手間を無くす、
+     T278の「SECONDARY_AXES動的化」の一部）。`SECONDARY_AXIS_PROXY_HINTS`から
+     `surface_q`・`night`のエントリを削除する（両軸ともkind="ramp"に変わり専用レイヤーを
+     持つため、「地図表示なし」の代役案内は不要になる）。
+  7. `MapView.tsx`・`mapLayers.ts`・`staticAttributeLayers.ts`は変更不要（`RAMP_AXES`を
+     汎用的に走査する既存実装がそのまま新しいramp軸2件を拾う設計、調査で確認済み）。
+- 完了条件: `surface_q`・`night`が地図の推定指標レイヤーとしてON/OFFトグル・凡例付きで
+  表示され、`stop_density`/`accident`/`car_stress`/`gradient`の既存表示が変更前と
+  完全に一致すること（回帰無し）。backend/frontend双方のテストが全てgreen。
+  実機ブラウザでsurface_q・nightレイヤーのON/OFF・色分け・凡例クリック絞り込みを確認する。
+- 依存: T277（材料カタログ、完了済み）。
+- 実装メモ（2026-08-24完了）: 対応方針1〜7をそのまま実装。新規`domain/axis_display.py:
+  derive_ramp_inputs()`（Categorical/FlagSum/単一材料BreakpointLinearのみ自動導出、
+  部分和ベースの閾値算出込み）・`MaterialSpec.tile_property_needs_runtime_scale`
+  （accidentを明示的に自動導出対象外とマーク）を追加。`registry_defaults.py`の
+  surface_q/nightの`display`を自動導出値へ差し替え、`export_openapi.py`のaxis-catalog.json
+  生成を「registry.py未登録だがramp化可能な軸」も含める形へ拡張。フロントは
+  `axisLayers.ts`（`AxisTileInput`へboolean/invert/trueValue/falseValue追加、
+  `buildAxisRampValueExpression`が`["case",...]`分岐を追加）・`secondaryAxes.ts`
+  （`SECONDARY_AXIS_LAYER_IDS`をkind="ramp"なら自動算出する一般化、surface_q/nightの
+  proxyHintエントリ削除）・`mapLayers.ts`（unit=""時の空`[]`表示を抑止する軽微な修正）を
+  変更。`MapView.tsx`等は調査どおり無変更で新axisを拾えた。
+  検証: backend全1160件green（新規`test_axis_display.py`7件＋`test_registry_defaults.py`
+  2件含む）、frontend tsc/eslint/vitest 517件green（`MapOverlayControls.test.tsx`・
+  `MapLayersPanel.test.tsx`の「surface_q/nightは専用レイヤー無し」という旧前提のテストを
+  「他のramp軸と同じ実レイヤーセクションになる」という新前提へ更新）。実サーバーで
+  `/api/material-catalog`・軸スタジオの材料ドロップダウン・地図の推定指標グループを
+  確認し、舗装質・夜間が停止密度・事故密度と同じ「ON/OFF可能なタイル」として現れる
+  （disabledの情報タイルではなくなる）ことをアクセシビリティツリー・コンソール
+  エラー無し・ネットワークログで確認した。**ただし本セッションのBrowser paneが
+  非表示（compositing不可）の制約により、地図キャンバスへの実際のタイル取得・
+  色分けピクセル描画そのもの（MapLibreの実際の色分け結果）は確認できていない**——
+  MapLibre style自体の妥当性（`["case",...]`式が無効ならスタイル読込時に例外が出る）は
+  コンソールエラー無しで確認済みだが、これは「地図が実際に正しい色で塗られるか」の
+  代用にはならない。次にBrowser paneが表示可能なセッションで、舗装質・夜間の
+  色分け・凡例クリック絞り込みを実ピクセルで再確認することが望ましい。
+- **レビュー修正（2026-08-24、T268〜T278の追加コミット分を対象に`/code-review`実施）**:
+  上位10件を修正: (1) `export_openapi.py`がAXIS_DEFINITIONSをDBから再読込しておらず
+  「軸スタジオで作った軸が再デプロイ後に地図へ自動反映される」という上記の完了条件が
+  実は満たされていなかった致命的バグを修正（DB接続失敗時は`refresh_axis_definitions`と
+  同じ安全側フォールバックへ倣う）。(2) OpenAPI/api.d.tsのX-Admin-Token残存ドリフトを
+  再生成で解消。(3) 軸定義payloadのdtype（numeric/boolean）と形状種別の不整合を
+  バリデーションで拒否するよう追加。(4) `surface_good`未分類路面がNULL→「悪い」評価に
+  誤判定されていたバグを`has_unknown_fallback`で修正（灰色「不明」表示に変更）。
+  (5) `AxisDefinitionResponse`が書き込み専用バリデータを継承し、削除済み材料を参照する
+  既存軸の一覧/取得APIが500になる問題を、フィールド共有の基底クラス分割で修正。
+  (6) `BreakpointLinearShape`のramp自動導出が符号反転(`tile_property_inverted`)を
+  無視していたため、対象外（`None`）を返すガードへ修正。(7) docs/architecture.md・
+  admin/page.tsxのX-Admin-Token時代の古い記述をT272後の実態へ更新。(8) `proxy.ts`の
+  Basic認証比較を`timingSafeEqual`によるタイミング攻撃耐性のある比較へ修正。
+  (9) `AxisRegistryAdminService.create`/`update`の冗長なDB往復（list_all()+get()の
+  2回発行）を`list_all_with_sort_order()`新設で1回へ集約。(10) `FlagSumShape.flags`に
+  `Field(max_length=12)`を追加し組合せ爆発を防止。加えてユーザー指示により、
+  DebugConsole（地図イベントのライブログ）がT270で`/admin`へ移設された結果
+  「`/admin`には地図が無くログがタブ間で共有されないため実質機能しなくなっていた」
+  問題を、「`/`=地図を操作しながら見るライブログ本体」「`/admin`=デバッグモードの
+  設定・集計」という役割分割で再設計・修正した。上位10件以外の候補6件も精査し、
+  `useRecipeOverride.ts`のstorageKey省略時の非永続分岐（T270以降、本番の全呼び出し元が
+  storageKeyを渡すためテスト以外では到達しない死んだ分岐だった）をstorageKey必須化で
+  簡略化。残り5件（排他チェックの二重実装・TileInputSpecのデュアルモード・
+  AxisComposerのDraft構造・proxy.ts/backend二重Basic認証・runtime_scaleフラグ）は
+  既存設計が妥当と判断し見送った。検証: backend全1173件green、frontend
+  tsc/eslint/vitest全519件green、Playwright(headless)でDebugConsole移設後の
+  トップページ・`/admin`両方を実機確認。
+
 ---
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
@@ -3318,11 +3747,26 @@ Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していた�
 **第18版への追記（2026-08-24・目論見書承認）**: 二画面構想の目論見書がユーザー承認され、
 T266に加えT267〜T273の7タスクを正式起票した（上記「目論見書による二画面構想の正式化」
 セクション参照）。着手順序はPhase順（T266→T267がPhase 1、T268・T269→T270がPhase 2、
-T271・T272がPhase 3、T273がPhase 4=トリガー待ち）。**同日中にPhase 1（T266・T267）を
-実装・完了した**（backend: hard_filtersのAPI・計算パス配線＋副次バグ修正、frontend:
-一般向けルート設定画面RouteSettingsPanel新設、docs/architecture.md追従、backend全1140件・
-フロントtsc/vitest 516件green、実機確認済み。詳細は各タスクの実装メモ参照）。
-Phase 2（T268・T269・T270）は未着手。
+T271・T272がPhase 3、T273がPhase 4=トリガー待ち）。**同日中にPhase 1（T266・T267）に続き
+Phase 2の前提2件（T268・T269）も実装・完了した**。T268: 材料の排他帰属チェックを
+`registry.py`から計算系レジストリ（`AXIS_DEFINITIONS`）へ移植。T269: 軸カタログを
+`GET /api/axis-catalog`（新規公開API、`AxisDefinition`へlabel/description/category追加、
+migration 0015）経由でDBの内容に追従させ、`RouteSettingsPanel`を静的`axis-catalog.json`
+依存から切り離した（調査の結果、当初想定と異なり`axis-catalog.json`は`registry.py`
+（DB化されていない別レジストリ）由来と判明し、方針を修正した経緯は実装メモ参照）。
+backend全1149件・フロントtsc/vitest 516件green、実機確認済み。
+**残るPhase 2はT270（軸スタジオ本体、独立URL管理画面）のみ**。
+
+**第18版への追記2（2026-08-24）**: 同日中にPhase 2〜4が以下のとおり進んだ。
+Phase 2: T270（軸スタジオ本体）完了、続けてT276（registry.py↔AXIS_DEFINITIONS
+ラベル統合）・T277（材料カタログのbackend正式レジストリ化）・T278（地図表示ルール
+kind=rampの自動導出、軸集合の同期）を追加着手・完了した——**T278でnight軸が
+自動導出のrampレイヤーを持つようになったため、下記「トリガー未到達」リストの
+T145a（night軸レイヤー、litタグデータの充実待ち）は解消済み**。Phase 3:
+T271（軸の公開フローと統治ルール、is_published導入）・T272（管理画面の権限制御、
+HTTP Basic認証）を完了し、**目論見書の二画面構想はPhase 1〜3すべて完了**。
+残るはPhase 4のT273（一般UIの軸カタログ縮退、トリガー待ちの継続タスク）のみ。
+副次的にT275（Tailwind CSSの要否判断）も起票済み（未着手）。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は
@@ -3334,7 +3778,11 @@ Phase 2（T268・T269・T270）は未着手。
      遅延に関する具体的な要望・報告で着手。T259の「完全な失敗」自体は解消済みのため、
      T248時点にあった緊急性は無い。
   2. **T206**（積雪・凍結、規模S〜M）: 冬季前=11月。季節トリガーの到達が最も近い。
-  3. **T145a**（night軸レイヤー、規模S〜M）: litタグデータの充実待ち（変化なし）。
+  3. ~~T145a（night軸レイヤー、規模S〜M）: litタグデータの充実待ち~~ →
+     **2026-08-24、T278で解消**。night軸は材料（no_lit/has_tunnel）がタイル焼き込み
+     済みのため、litタグの疎密に関わらず自動導出のrampレイヤーとして表示できるように
+     なった（litタグデータ自体の充実は引き続き別問題として残るが、レイヤーの有無を
+     それに依存させる必要が無くなった）。
   4. **T105**（バックエンド到達不能の原因特定、規模S〜M）: 次回の再現報告待ち。
   5. **T127**（全国データ取込の検証、規模不明）: 全国展開の意思決定待ち。
   6. **T145**（レイヤーパネルのレジストリ駆動化・三次レイヤー、規模L）: 裁量待ち。

@@ -288,23 +288,24 @@ describe("MapOverlayControls", () => {
       const carStressToggle = screen.getByRole("button", { name: "車の圧迫感" });
       expect(carStressToggle).toHaveAttribute("aria-pressed", "true");
       expect(carStressToggle).not.toBeDisabled();
-      // レイヤーの無い軸（勾配・舗装質・夜間）は正式名のタイルだが押せない（disabled）
+      // レイヤーを持たない軸（勾配のみ、材料gradient_percentがタイル非依存）は正式名の
+      // タイルだが押せない（disabled）
       const gradientTile = screen.getByRole("button", { name: "勾配" });
       expect(gradientTile).toBeDisabled();
-      const surfaceQTile = screen.getByRole("button", { name: "舗装質" });
-      expect(surfaceQTile).toBeDisabled();
+      // レイヤーはある（改善計画T278でsurface_q・nightもkind="ramp"の自動導出表示を
+      // 持つようになった）がlayers propに渡されていない軸（舗装質・夜間・停止密度・
+      // 事故密度）も同様にdisabledのタイルとして並ぶ（layersに無いので対応するチップを
+      // 引けない）
+      expect(screen.getByRole("button", { name: "舗装質" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "夜間" })).toBeDisabled();
-      // レイヤーはあるがlayers propに渡されていない軸（停止密度・事故密度）も同様に
-      // disabledのタイルとして並ぶ（layersに無いので対応するチップを引けない）
       expect(screen.getByRole("button", { name: "停止密度" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "事故密度" })).toBeDisabled();
 
-      // 専用レイヤーの無い軸にも個々に▼展開ボタンが付き、代役案内文（proxyHint）が見える
-      // （改善計画T202で先頭に「（地図表示なし）」が付いたため部分一致で検証する）
+      // 専用レイヤーの無い軸（勾配のみ）にも個々に▼展開ボタンが付き、代役案内文
+      // （proxyHint）が見える（改善計画T202で先頭に「（地図表示なし）」が付いたため
+      // 部分一致で検証する）
       await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
       expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "舗装質の凡例を表示" }));
-      expect(screen.getByText(/路面の種類レイヤーで確認できます/)).toBeInTheDocument();
     });
 
     // モバイル限定の小型化（実機フィードバック「推定の横並びが複数行に折り返されて見にくい」

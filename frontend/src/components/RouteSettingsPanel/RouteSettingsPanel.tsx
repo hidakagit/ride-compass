@@ -1,17 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
-import { AXIS_CATEGORIES, PREFERENCE_AXES, axisCategory } from "@/lib/evaluationAxes";
+import { AXIS_CATEGORIES } from "@/lib/evaluationAxes";
+import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
-import axisCatalog from "@/types/generated/axis-catalog.json";
 import styles from "./RouteSettingsPanel.module.css";
 
 // 一般ユーザー向けルート設定画面（改善計画T267、目論見書4章「①一般ユーザ向け
 // ルーティング設定」）。研究モード（WeightPanel）とは別の導線で、常に表示される
 // メインの操作面に置く。0次(除外)→軸選択+重み(観測/推定/動的別)→重み配分の可視化→
 // プリセット、という並びは提示済みのモックアップをそのまま実装したもの。
+//
+// 軸の一覧・分類・既定重みはuseAxisCatalog（改善計画T269）経由でGET /api/axis-catalogから
+// 取得する。軸スタジオ（T270）がDBへ追加した軸も、コード変更・再デプロイなしにここへ
+// 現れる（取得完了まで・失敗時は既存7軸の静的フォールバックを使う）。
 
 // backend/app/domain/evaluation.py: DEFAULT_HARD_FILTERSと同じ3種（改善計画T266）。
 const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
@@ -22,18 +26,17 @@ const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
 
 export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, motorway: true, trunk: true };
 
-// backend/app/domain/axis_definitions.py: AXIS_DEFINITIONSのdefault_weight（axis-catalog.json
-// 経由、WeightPanel.tsx: DEFAULT_ROUTE_PREFERENCEと同じ単一ソース）。
-export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = axisCatalog.preference_defaults;
-
 interface Preset {
   label: string;
+  /** 部分指定可。未言及の軸は`catalog.defaultWeights`で補われる（applyPreset参照）。
+   * カタログにまだ無い将来の軸を差し替え不要のまま安全に無視できる。 */
   weights: RoutePreferenceWeights;
 }
 
-// 重みは叩き台（目論見書8章「要判断事項」、実走検証を経て確定する）。
-const PRESETS: readonly Preset[] = [
-  { label: "バランス", weights: DEFAULT_ROUTE_PREFERENCE },
+// 既存7軸向けの重みは叩き台（目論見書8章「要判断事項」、実走検証を経て確定する）。
+// バランスプリセットのみカタログの既定重みをそのまま使うため、コンポーネント内で組み立てる
+// （PRESETS参照）。
+const NON_DEFAULT_PRESETS: readonly Preset[] = [
   {
     label: "自転車専用道を優先",
     weights: {
@@ -83,16 +86,37 @@ export default function RouteSettingsPanel({
   overrideEnabled,
   onOverrideEnabledChange,
 }: RouteSettingsPanelProps) {
+  const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
+
+  // カタログ取得後に新しい軸（軸スタジオがDBへ追加した軸）が現れた場合、routePreferenceへ
+  // その既定重みを補う（値は変えずキーを追加するだけなのでoverrideEnabledは動かさない、
+  // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う）。backendの
+  // route_preference検証は「上書きするなら既知の全axis_idを明示する」方針のため、
+  // routePreferenceが新しい軸のキーを欠いたまま他の操作でoverrideEnabledが有効化されると
+  // 422になる（改善計画T269、将来のT270軸追加に備えた防御）。
+  useEffect(() => {
+    const missingAxisIds = Object.keys(catalog.defaultWeights).filter((id) => !(id in routePreference));
+    if (missingAxisIds.length === 0) return;
+    const merged = { ...routePreference };
+    for (const id of missingAxisIds) merged[id] = catalog.defaultWeights[id];
+    onRoutePreferenceChange(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog.defaultWeights]);
+
+  const PRESETS: readonly Preset[] = [
+    { label: "バランス", weights: catalog.defaultWeights },
+    ...NON_DEFAULT_PRESETS,
+  ];
 
   // チェックを外した軸の重みを覚えておき、再度チェックしたときに元へ戻す
   // （routePreference自体は常に0を含む「実際に送る値」のため、ここでしか保持できない）。
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({
-    ...DEFAULT_ROUTE_PREFERENCE,
+    ...catalog.defaultWeights,
   }));
 
   function handleToggle(axisId: string, checked: boolean) {
-    const restored = checked ? lastWeights[axisId] || DEFAULT_ROUTE_PREFERENCE[axisId] || 0.1 : 0;
+    const restored = checked ? lastWeights[axisId] || catalog.defaultWeights[axisId] || 0.1 : 0;
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 
@@ -102,14 +126,17 @@ export default function RouteSettingsPanel({
   }
 
   function applyPreset(preset: Preset) {
+    // 未言及の軸はカタログの既定重みで補い、全既知axis_idを常に埋めた状態でbackendへ送る
+    // （T268コメント参照、PRESET定義側の部分指定を許すための必須処理）。
+    const merged: RoutePreferenceWeights = { ...catalog.defaultWeights, ...preset.weights };
     setLastWeights((prev) => {
       const next = { ...prev };
-      for (const [axisId, weight] of Object.entries(preset.weights)) {
+      for (const [axisId, weight] of Object.entries(merged)) {
         if (weight > 0) next[axisId] = weight;
       }
       return next;
     });
-    handlePreferenceChange(preset.weights);
+    handlePreferenceChange(merged);
   }
 
   const total = totalWeight(routePreference);
@@ -147,7 +174,7 @@ export default function RouteSettingsPanel({
       <div className={styles.stackBarWrap}>
         <p className={styles.sectionLabel}>重み配分</p>
         <div className={styles.stackBar}>
-          {PREFERENCE_AXES.map(({ axisId, label }) => {
+          {catalog.axes.map(({ axisId, label }) => {
             const weight = routePreference[axisId] ?? 0;
             if (weight <= 0 || total <= 0) return null;
             const pct = (weight / total) * 100;
@@ -165,7 +192,7 @@ export default function RouteSettingsPanel({
       </div>
 
       {AXIS_CATEGORIES.map((category) => {
-        const axesInCategory = PREFERENCE_AXES.filter((axis) => axisCategory(axis.axisId) === category);
+        const axesInCategory = catalog.axes.filter((axis) => catalog.categoryOf(axis.axisId) === category);
         return (
           <div key={category} className={styles.group}>
             <p className={styles.groupHeader}>{category}</p>
@@ -211,8 +238,8 @@ export default function RouteSettingsPanel({
         type="button"
         className={styles.resetButton}
         onClick={() => {
-          setLastWeights({ ...DEFAULT_ROUTE_PREFERENCE });
-          handlePreferenceChange(DEFAULT_ROUTE_PREFERENCE);
+          setLastWeights({ ...catalog.defaultWeights });
+          handlePreferenceChange(catalog.defaultWeights);
           onHardFiltersChange(DEFAULT_HARD_FILTERS);
         }}
       >

@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   AXIS_RAMP_COLORS,
+  COLOR_UNKNOWN,
   RAMP_AXES,
   axisLineLayerId,
   axisMapLayerId,
   buildAxisRampColorExpression,
   buildAxisRampLegend,
+  buildAxisRampUnknownExpression,
   buildAxisRampValueExpression,
 } from "./axisLayers";
 import { MAP_LAYERS, ROAD_SURFACE_SHARED_LAYER_IDS } from "./mapLayers";
@@ -47,23 +49,38 @@ describe("axisLayers", () => {
     expect(expression[1]).toEqual(["coalesce", ["get", "accident_per_km"], 0]);
   });
 
-  it("色expressionはstep形式でしきい値の数+1段階の色を持つ", () => {
+  it("色expressionはstep形式でしきい値の数+1段階の色を持つ（hasUnknownFallbackな軸はcaseで一段包む）", () => {
     for (const axis of RAMP_AXES) {
       const expression = buildAxisRampColorExpression(axis);
-      expect(expression[0]).toBe("step");
+      const unknownExpression = buildAxisRampUnknownExpression(axis);
+      // 改善計画T278レビュー指摘の修正: hasUnknownFallback（例: surface_q）な軸は
+      // ["case", 不明判定, COLOR_UNKNOWN, stepExpression]で一段包まれる。
+      const stepExpression = unknownExpression === null ? expression : (expression[3] as unknown[]);
+      if (unknownExpression !== null) {
+        expect(expression[0]).toBe("case");
+        expect(expression[2]).toBe(COLOR_UNKNOWN);
+      }
+      expect(stepExpression[0]).toBe("step");
       // ["step", value, color0, t1, color1, ...] → 長さ = 3 + 2×しきい値数
-      expect(expression.length).toBe(3 + axis.thresholds.length * 2);
-      expect(expression[2]).toBe(AXIS_RAMP_COLORS[0]);
+      expect(stepExpression.length).toBe(3 + axis.thresholds.length * 2);
+      expect(stepExpression[2]).toBe(AXIS_RAMP_COLORS[0]);
     }
   });
 
-  it("凡例エントリはしきい値の数+1段階でラベルへ単位を含み、キー・色が重複しない", () => {
+  it("凡例エントリはしきい値の数+1段階(+hasUnknownFallbackなら不明1件)でラベルへ単位を含み、キー・色が重複しない", () => {
     for (const axis of RAMP_AXES) {
       const entries = buildAxisRampLegend(axis);
-      expect(entries.length).toBe(axis.thresholds.length + 1);
+      const unknownExpression = buildAxisRampUnknownExpression(axis);
+      const expectedLength = axis.thresholds.length + 1 + (unknownExpression === null ? 0 : 1);
+      expect(entries.length).toBe(expectedLength);
       const keys = entries.map((entry) => entry.key);
       expect(new Set(keys).size).toBe(keys.length);
       for (const entry of entries) {
+        if (entry.isFallback && unknownExpression !== null) {
+          // 「不明」エントリは範囲ラベルではないため単位を含まない。
+          expect(entry.color).toBe(COLOR_UNKNOWN);
+          continue;
+        }
         expect(entry.label).toContain(axis.unit);
         expect(entry.color).toBeTruthy();
       }
@@ -74,19 +91,53 @@ describe("axisLayers", () => {
     for (const axis of RAMP_AXES) {
       const entries = buildAxisRampLegend(axis);
       const valueExpression = buildAxisRampValueExpression(axis);
-      // 最初の段階は下限なし（["all", ["<", value, t1]]）、最後は上限なし
-      // （["all", [">=", value, tN]]）、中間は["all", [">=",...], ["<",...]]。
-      expect(entries[0].filter).toEqual(["all", ["<", valueExpression, axis.thresholds[0]]]);
-      const last = entries[entries.length - 1];
-      expect(last.filter).toEqual(["all", [">=", valueExpression, axis.thresholds[axis.thresholds.length - 1]]]);
-      for (let i = 1; i < entries.length - 1; i++) {
+      const unknownExpression = buildAxisRampUnknownExpression(axis);
+      const unknownPrefix: unknown[] = unknownExpression === null ? [] : [["!", unknownExpression]];
+      const bandCount = axis.thresholds.length + 1;
+      // 最初の段階は下限なし（["<", value, t1]）、最後は上限なし（[">=", value, tN]）、
+      // 中間は[">=",...]と["<",...]の両方。hasUnknownFallbackな軸は各段階の先頭に
+      // ["!", 不明判定]が入り、不明そのものを二重分類しない（改善計画T278レビュー指摘の修正）。
+      expect(entries[0].filter).toEqual(["all", ...unknownPrefix, ["<", valueExpression, axis.thresholds[0]]]);
+      const last = entries[bandCount - 1];
+      expect(last.filter).toEqual([
+        "all",
+        ...unknownPrefix,
+        [">=", valueExpression, axis.thresholds[axis.thresholds.length - 1]],
+      ]);
+      for (let i = 1; i < bandCount - 1; i++) {
         expect(entries[i].filter).toEqual([
           "all",
+          ...unknownPrefix,
           [">=", valueExpression, axis.thresholds[i - 1]],
           ["<", valueExpression, axis.thresholds[i]],
         ]);
       }
+      if (unknownExpression !== null) {
+        expect(entries[bandCount].filter).toEqual(["all", unknownExpression]);
+      }
     }
+  });
+
+  it("舗装質（surface_q）は未分類の路面をfalse_value（悪い）ではなく灰色「不明」にする", () => {
+    // 改善計画T278レビュー指摘の修正確認: surface_goodがタイルに焼き込まれていない
+    // （未分類）区間は、以前は["==",null,true]がfalseと評価されfalse_value=80
+    // （最悪スコア）に落ちていた。has_unknown_fallback=trueにより、色分け式が
+    // 欠損を先にCOLOR_UNKNOWNへ振り分けるようになっているはず。
+    const surfaceQ = RAMP_AXES.find((axis) => axis.axisId === "surface_q")!;
+    const colorExpression = buildAxisRampColorExpression(surfaceQ);
+
+    expect(colorExpression).toEqual([
+      "case",
+      ["!", ["has", "surface_good"]],
+      COLOR_UNKNOWN,
+      expect.arrayContaining(["step"]),
+    ]);
+
+    const legend = buildAxisRampLegend(surfaceQ);
+    const unknownEntry = legend.find((entry) => entry.isFallback);
+    expect(unknownEntry).toBeDefined();
+    expect(unknownEntry!.color).toBe(COLOR_UNKNOWN);
+    expect(unknownEntry!.label).toBe("不明");
   });
 
   it("MAP_LAYERSへramp軸のレイヤーが自動で現れる（レジストリ駆動の受け入れ検証）", () => {

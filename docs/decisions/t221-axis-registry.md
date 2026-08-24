@@ -215,5 +215,123 @@ Dependency）へ集約し、共有トークンによる簡易実装から実権�
      一切触れない加算的な変更）。**未設定のまま残っている項目**: Render側の環境変数
      `AXIS_ADMIN_TOKEN`が未設定のため、本番の管理API（`/api/admin/axis-definitions`）は
      現状常に403を返す（安全側のデフォルト、意図通り）。管理APIを実際に使う段階で
-     Renderのダッシュボードから設定すること。
-  2. **Stage E（GUI編集画面）**: 引き続き別タスクとして起票する（本ADRのスコープ外）。
+     Renderのダッシュボードから設定すること。**T272（下記「Stage D拡張2」節、
+     2026-08-24完了）でこの認可機構自体がHTTP Basic認証（`ADMIN_BASIC_AUTH_USERNAME`/
+     `PASSWORD`）へ置き換わったため、本番で設定すべき環境変数名が変わっている
+     点に注意。**
+  2. **Stage E（GUI編集画面）**: 目論見書（二画面構想、2026-08-24承認）でT270として
+     正式起票され、同日実装完了（下記「Stage E実装」節参照）。
+
+## Stage D拡張: 排他帰属チェック・軸カタログ公開API（改善計画T268・T269、2026-08-24完了）
+
+目論見書（二画面構想）Phase 2の前提として、Stage Dのスコープを2点拡張した。
+
+- **T268（材料の排他帰属チェック）**: `registry.py: register_axis`が持つ
+  `AxisInputConflictError`と同じ原則を`domain/axis_definitions.py:
+  check_material_exclusivity`/`AxisMaterialConflictError`として計算系（`AXIS_DEFINITIONS`）
+  側へ移植し、`AxisRegistryAdminService.create`/`update`の書き込み経路で検査するように
+  した。Stage D完了時点では管理APIに軸を自由登録できる状態でありながらこの検査が
+  存在せず、既存軸の材料を新軸が黙って再利用できてしまう抜け穴があった。
+- **T269（軸カタログ公開API）**: 当初「`axis-catalog.json`をDBに追従させる」という
+  課題設定だったが、調査の結果`axis-catalog.json`の`axes[]`/`primary_attributes[]`は
+  `AXIS_DEFINITIONS`ではなく`registry.py`（DB化されていない別の表示専用レジストリ、
+  下記「一次属性レジストリ・二次軸レジストリ」節）から生成されていると判明し、
+  そのままでは目的を達成できないことが分かった。そのため`AxisDefinition`へ
+  `label`/`description`/`category`を追加（`migrations/0015_axis_definitions_label.sql`）
+  し、新規公開エンドポイント`GET /api/axis-catalog`（認可不要、`AXIS_DEFINITIONS`を
+  そのまま返す）を実装した。フロントの一般向けルート設定画面
+  （`RouteSettingsPanel`）はこの新APIを使うよう切り替え済み。研究モードの`WeightPanel`は
+  旧`axis-catalog.json`静的読み込みのまま残っている（下記Stage E実装の残作業参照）。
+
+両タスクの詳細な実装内容はdocs/improvement-plan.mdのT268・T269エントリ参照。
+
+## Stage E実装（改善計画T270、2026-08-24完了・残作業あり）
+
+独立URL（`frontend/src/app/admin/`）の管理画面として実装した（目論見書・ユーザー指示どおり、
+既存ページ内パネルではない）。
+
+- **軸コンポーザー**（`components/AxisStudio/`）: `AxisShape`の判別union
+  （区分線形補間×2種・カテゴリ値・フラグ加算）をフォームへ写した。材料選択は
+  `AXIS_DEFINITIONS`が実際に参照するmaterial idの閉じた9件
+  （`lib/axisMaterialsCatalog.ts`、`registry.py`側のattr_idとは別語彙）に限定。
+  管理API（`/api/admin/axis-definitions`）をCRUDする`services/axisAdminApi.ts`と、
+  トークンをlocalStorageへ保存する簡易実装`lib/adminToken.ts`（`researchMode.ts`と
+  同型、T272で実権限チェックへ差し替え予定）を新設した。
+- **研究・開発者セクションの移設**: メインページ（`/`）から`ResearchPanel`・
+  `WeightPanel`・3レシピパネル・`DebugPanel`・`DebugConsole`・`SystemStatusPanel`・
+  `BackendStatus`を`/admin`へ移設し、メインページからは削除した（地図インスタンスに
+  紐づく「地図データを再読み込み」ボタンのみ、開発者セクションの残滓としてメインページに
+  残した——`/admin`には地図が無いため）。
+- **クロスルートの状態共有**という、Stage E着手前には無かった新しい設計課題が生じた:
+  WeightPanel等が使う評価重み・レシピ上書きのstateは、従来`page.tsx`内のReact stateだけで
+  完結していたが、編集UIが別ルート（`/admin`）に移った以上、直接共有できない。
+  `hooks/useStoredState.ts`へ`useStoredJsonState`（JSON直列化の薄いラッパー）を追加し、
+  `useRecipeOverride`に`storageKey`引数（省略時は従来どおりページ内state、指定時は
+  localStorage永続化）を追加することで、同じキーを両ルートから読み書きする形にした。
+  同一タブでのリアルタイム同期ではなく次回マウント時に反映される制約は
+  `lib/researchMode.ts`と同じ（この制約を許容する設計判断）。
+- **実機E2E確認**: 新規軸作成（`surface_good`材料選択）でT268の排他チェックが409で
+  正しく拒否されること、既存軸（`gradient`）の編集（PUT）が成功し`GET /api/axis-catalog`が
+  即座に更新値を返すこと（push型更新の再確認）、メインページから研究/開発者タブが
+  正しく消えることを確認した。
+- **残作業（未完了、影響範囲付き）**:
+  1. **地図プレビュー・比較生成への導線が無い**。軸コンポーザーは数値入力のみで、
+     作成した軸のスコア分布や地図上の見え方を確認する手段が無いため、折れ点の妥当性を
+     勘で決めるしかない。
+  2. **本番Renderの`AXIS_ADMIN_TOKEN`が未設定**（ダッシュボードアクセスが必要、
+     Stage D ADR残作業1と同じ制約が再発）。設定するまで本番の管理APIは常時403。
+     **T272（下記「Stage D拡張2」節、2026-08-24完了）でHTTP Basic認証へ置き換わった
+     ため、本番で設定すべき環境変数は`ADMIN_BASIC_AUTH_USERNAME`/`PASSWORD`
+     （backend・frontend双方）に変わっている。**
+  3. **「新規軸作成→ルート生成」のE2Eが未検証**。`axisMaterialsCatalog.ts`の9材料は
+     全て既存7軸が専有済みのため、既存軸を削除しない限りT268の排他チェックに必ず
+     引っかかり新規作成できないという制約が実機で判明した（バグではなく設計上の
+     「材料の天井」、目論見書7章・歯止め4）。新しい材料を取込パイプラインへ追加する
+     までは、軸スタジオは実質的に既存軸の編集専用ツールになる。
+  4. ~~`registry.py`（表示用レジストリ、T137）と`AXIS_DEFINITIONS`（Stage D、DB化済み）の
+     統合は依然として未着手~~ → **2026-08-24、T276で対応**。`registry_defaults.py`の
+     `AxisDisplaySpec.label`（6軸）を`AXIS_DEFINITIONS[axis_id].label`からの参照へ
+     置き換え、重複していたラベル宣言を1箇所（`AXIS_DEFINITIONS`）へ統合した。
+     `AxisSpec.description`（開発者向け技術説明）・`AxisDisplaySpec.category`
+     （地図レイヤーのグルーピング用、`AXIS_DEFINITIONS.category`の「観測/推定/動的」とは
+     別概念）は意図的に統合対象から除外し、`registry.py`は引き続き地図レイヤー専用の
+     レジストリとして存続する（`PrimaryAttributeSpec`はそもそも`AXIS_DEFINITIONS`に
+     対応物が無いため対象外）。**ただし`register_defaults()`はビルド時
+     （`export_openapi.py`）とテストのみ実行されアプリ起動時には呼ばれないため、
+     この統合はコード上の既定値が一致することを保証するのみで、軸スタジオでのDB上の
+     `label`編集が地図レイヤーパネル・`axis-catalog.json`へ動的反映されるようには
+     ならない**（詳細はdocs/improvement-plan.md T276参照）。
+
+## Stage D拡張2: 軸の公開フロー・管理画面の権限制御（改善計画T271・T272、2026-08-24完了）
+
+目論見書のPhase 3（二画面構想）として、Stage Eで積み残していた「一般ユーザーの保存設定を
+公開後の破壊的変更から守る仕組み」「管理画面の権限制御」の2件を実装した。
+
+- **T271（軸の公開フロー）**: `AxisDefinition.is_published: bool`（既定False=下書き、
+  `migrations/0016_axis_definitions_is_published.sql`）を追加。
+  `domain/axis_definitions.py: check_publish_immutability`が公開済み軸への更新・削除を
+  構造的に拒否する（`AxisRegistryAdminService.update`/`delete`冒頭）。改良したい場合は
+  軸スタジオの「複製して新規作成」で新しい`axis_id`の下書きを作る一方向設計
+  （unpublishは無い）。`GET /api/axis-catalog`は`is_published=True`の軸のみ返す。
+  実装中に`axis_admin.py: update_axis_definition`（PUT）に`ValueError`用のexcept節が
+  無かった既存バグ（T268の材料衝突がPUT経由だと想定外の500になっていたはず）も発見・
+  修正した。詳細はdocs/improvement-plan.md T271参照。
+- **T272（管理画面の権限制御）**: それまで`/admin`ページ本体（軸スタジオ・研究モード・
+  開発者ツール）には認可が一切無く誰でも到達できた（軸CRUD APIだけが共有トークンで
+  保護されていた）。ユーザー方針（2026-08-24、着手時にAskUserQuestionで確認：
+  「将来的にはアカウント制としたいが、現状は動作確認・研究用のためBasic認証として
+  後から拡張する」）に基づき、HTTP Basic認証で2箇所を独立に保護する形へ再設計した:
+  (1) `frontend/src/proxy.ts`（Next.js 16で`middleware.ts`から改称、
+  `matcher: ["/admin", "/admin/:path*"]`）がページ本体のルーティング境界を守り、
+  (2) backend `axis_admin.py: require_admin_basic_auth`（`fastapi.security.HTTPBasic`+
+  `secrets.compare_digest`）が軸CRUD APIを守る。2箇所が独立している理由は、
+  `axisAdminApi.ts`の呼び出し先（backendの別オリジン）にブラウザのBasic認証
+  キャッシュが自動転送されないため——軸スタジオUI自体の資格情報入力フォーム
+  （`AxisStudio.tsx`、ユーザー名+パスワード）は維持し、`lib/adminToken.ts`が
+  `Authorization: Basic`ヘッダを組み立てる。旧`settings.axis_admin_token`
+  （`AXIS_ADMIN_TOKEN`）は`admin_basic_auth_username`/`admin_basic_auth_password`
+  （`ADMIN_BASIC_AUTH_USERNAME`/`PASSWORD`）へ置換した。詳細は
+  docs/improvement-plan.md T272参照。
+- **本番Renderへの反映は未実施**（上記Stage D・Stage E残作業と同じ制約の継続）。
+  backend・frontend双方のRenderサービスへ`ADMIN_BASIC_AUTH_USERNAME`/`PASSWORD`を
+  設定するまで、本番の`/admin`・軸CRUD APIは共に401で到達不能のまま。

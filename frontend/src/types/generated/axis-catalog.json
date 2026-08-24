@@ -29,13 +29,25 @@
         100.0
       ],
       "display": {
-        "kind": "none",
+        "kind": "ramp",
         "label": "舗装質",
         "category": "road",
-        "tile_inputs": [],
-        "thresholds": [],
+        "tile_inputs": [
+          {
+            "property": "surface_good",
+            "weight": 1.0,
+            "boolean": true,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 80.0,
+            "has_unknown_fallback": true
+          }
+        ],
+        "thresholds": [
+          40.0
+        ],
         "unit": "",
-        "note": "既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分けモード）が一次属性からの表示を既に提供しているため専用レイヤーは持たない。ラベルは「路面」から改名（改善計画T163）: 一次属性「路面の種類」（surface）との紛らわしさを解消するため。重みラベル「舗装」・レジストリ記述「路面材質」と整合させた"
+        "note": "改善計画T278: 材料surface_good（タイル焼き込み済み）から自動導出。既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分けモード）と表示内容が重複するため非表示にしたい場合は地図レイヤーパネルの表示切替で運用する（backend側にkind=noneの手動固定は設けない）。ラベルは「路面」から改名（改善計画T163）: 一次属性「路面の種類」（surface）との紛らわしさを解消するため。重みラベル「舗装」・レジストリ記述「路面材質」と整合させた"
       }
     },
     {
@@ -55,11 +67,21 @@
         "tile_inputs": [
           {
             "property": "stop_per_km",
-            "weight": 1.0
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false
           },
           {
             "property": "intersection_per_km",
-            "weight": 0.3
+            "weight": 0.3,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false
           }
         ],
         "thresholds": [
@@ -106,13 +128,35 @@
         100.0
       ],
       "display": {
-        "kind": "bespoke",
+        "kind": "ramp",
         "label": "夜間",
         "category": "trafficSafety",
-        "tile_inputs": [],
-        "thresholds": [],
+        "tile_inputs": [
+          {
+            "property": "lit",
+            "weight": 1.0,
+            "boolean": true,
+            "invert": true,
+            "true_value": 50.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false
+          },
+          {
+            "property": "tunnel",
+            "weight": 1.0,
+            "boolean": true,
+            "invert": false,
+            "true_value": 50.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false
+          }
+        ],
+        "thresholds": [
+          25.0,
+          75.0
+        ],
         "unit": "",
-        "note": "現OSMデータではlitタグが疎で他軸との差がほぼ見えないため、専用レイヤーは保留（改善計画T145a、データ充実がトリガー）。フロントにexpressionが未登録のためレイヤーは生成されない"
+        "note": "改善計画T278: 材料no_lit（lit材料の否定）・has_tunnelから自動導出。現OSMデータではlitタグが疎なため色分けの差が小さく見える場合があるが、手書きexpressionを持たずとも自動導出のrampレイヤーとして表示できるようになったため専用レイヤー保留（改善計画T145a）は解消した"
       }
     },
     {
@@ -131,7 +175,12 @@
         "tile_inputs": [
           {
             "property": "accident_per_km",
-            "weight": 1.0
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false
           }
         ],
         "thresholds": [

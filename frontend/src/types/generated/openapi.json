@@ -792,50 +792,27 @@
         ],
         "summary": "List Axis Definitions",
         "operationId": "list_axis_definitions_api_admin_axis_definitions_get",
-        "parameters": [
-          {
-            "name": "x-admin-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-Token"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/AxisDefinitionResponse"
                   },
+                  "type": "array",
                   "title": "Response List Axis Definitions Api Admin Axis Definitions Get"
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -843,33 +820,15 @@
         ],
         "summary": "Create Axis Definition",
         "operationId": "create_axis_definition_api_admin_axis_definitions_post",
-        "parameters": [
-          {
-            "name": "x-admin-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-Token"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AxisDefinitionPayload"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -892,7 +851,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
       }
     },
     "/api/admin/axis-definitions/{axis_id}": {
@@ -902,6 +866,11 @@
         ],
         "summary": "Get Axis Definition",
         "operationId": "get_axis_definition_api_admin_axis_definitions__axis_id__get",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "parameters": [
           {
             "name": "axis_id",
@@ -910,22 +879,6 @@
             "schema": {
               "type": "string",
               "title": "Axis Id"
-            }
-          },
-          {
-            "name": "x-admin-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-Token"
             }
           }
         ],
@@ -958,6 +911,11 @@
         ],
         "summary": "Update Axis Definition",
         "operationId": "update_axis_definition_api_admin_axis_definitions__axis_id__put",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "parameters": [
           {
             "name": "axis_id",
@@ -966,22 +924,6 @@
             "schema": {
               "type": "string",
               "title": "Axis Id"
-            }
-          },
-          {
-            "name": "x-admin-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-Token"
             }
           }
         ],
@@ -1024,6 +966,11 @@
         ],
         "summary": "Delete Axis Definition",
         "operationId": "delete_axis_definition_api_admin_axis_definitions__axis_id__delete",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "parameters": [
           {
             "name": "axis_id",
@@ -1032,22 +979,6 @@
             "schema": {
               "type": "string",
               "title": "Axis Id"
-            }
-          },
-          {
-            "name": "x-admin-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-Token"
             }
           }
         ],
@@ -1061,6 +992,42 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/axis-catalog": {
+      "get": {
+        "summary": "Get Axis Catalog",
+        "operationId": "get_axis_catalog_api_axis_catalog_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AxisCatalogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/material-catalog": {
+      "get": {
+        "summary": "Get Material Catalog",
+        "operationId": "get_material_catalog_api_material_catalog_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialCatalogResponse"
                 }
               }
             }
@@ -1145,6 +1112,60 @@
         ],
         "title": "ActiveWarning"
       },
+      "AxisCatalogEntry": {
+        "properties": {
+          "axis_id": {
+            "type": "string",
+            "title": "Axis Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "観測",
+              "推定",
+              "動的"
+            ],
+            "title": "Category"
+          },
+          "default_weight": {
+            "type": "number",
+            "title": "Default Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "axis_id",
+          "label",
+          "description",
+          "category",
+          "default_weight"
+        ],
+        "title": "AxisCatalogEntry"
+      },
+      "AxisCatalogResponse": {
+        "properties": {
+          "axes": {
+            "items": {
+              "$ref": "#/components/schemas/AxisCatalogEntry"
+            },
+            "type": "array",
+            "title": "Axes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "axes"
+        ],
+        "title": "AxisCatalogResponse"
+      },
       "AxisDefinitionPayload": {
         "properties": {
           "axis_id": {
@@ -1169,13 +1190,38 @@
             "type": "number",
             "minimum": 0.0,
             "title": "Default Weight"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "観測",
+              "推定",
+              "動的"
+            ],
+            "title": "Category",
+            "default": "推定"
+          },
+          "is_published": {
+            "type": "boolean",
+            "title": "Is Published",
+            "default": false
           }
         },
         "type": "object",
         "required": [
           "axis_id",
           "shape",
-          "default_weight"
+          "default_weight",
+          "label"
         ],
         "title": "AxisDefinitionPayload",
         "description": "作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ\n\n（極端な重み設定に対する意味的な歯止めは設けない、2026-08-24ユーザー判断。\ndefault_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。"
@@ -1204,13 +1250,38 @@
             "type": "number",
             "minimum": 0.0,
             "title": "Default Weight"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "観測",
+              "推定",
+              "動的"
+            ],
+            "title": "Category",
+            "default": "推定"
+          },
+          "is_published": {
+            "type": "boolean",
+            "title": "Is Published",
+            "default": false
           }
         },
         "type": "object",
         "required": [
           "axis_id",
           "shape",
-          "default_weight"
+          "default_weight",
+          "label"
         ],
         "title": "AxisDefinitionResponse"
       },
@@ -1603,6 +1674,7 @@
               "minItems": 2
             },
             "type": "array",
+            "maxItems": 12,
             "title": "Flags"
           },
           "cap": {
@@ -1735,6 +1807,49 @@
         "type": "object",
         "title": "HardFilterOverride",
         "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き（改善計画T266）。\nキーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
+      },
+      "MaterialCatalogEntry": {
+        "properties": {
+          "material_id": {
+            "type": "string",
+            "title": "Material Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "dtype": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "boolean"
+            ],
+            "title": "Dtype"
+          }
+        },
+        "type": "object",
+        "required": [
+          "material_id",
+          "label",
+          "dtype"
+        ],
+        "title": "MaterialCatalogEntry"
+      },
+      "MaterialCatalogResponse": {
+        "properties": {
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialCatalogEntry"
+            },
+            "type": "array",
+            "title": "Materials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "materials"
+        ],
+        "title": "MaterialCatalogResponse"
       },
       "MaterialTerm": {
         "properties": {
@@ -2798,6 +2913,12 @@
         ],
         "title": "WindGridResponse",
         "description": "`/api/weather/wind-grid`・`wind-grid-detail`の応答本体（改善計画T203）。`times`は\n全格子点で共通の時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、\nインデックスは`times`と揃っている）。以前は`WindGridPoint`ごとに同じ`times`配列を\n複製しており、624地点では非圧縮応答の約54%（実測、gzip圧縮下でも約9%）を時刻文字列の\n重複が占めていた。全地点取得失敗等で`points`が空の場合は`times`も空になる。"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBasic": {
+        "type": "http",
+        "scheme": "basic"
       }
     }
   }

@@ -33,7 +33,7 @@
 from typing import Literal, Mapping
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
@@ -99,11 +99,20 @@ class FlagSumShape(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["flag_sum"] = "flag_sum"
-    flags: list[tuple[str, float]]
+    # 改善計画T278のderive_ramp_inputs（domain/axis_display.py: _flag_sum_thresholds）が
+    # 達成しうる合計値を全部分集合（2^N-1通り）列挙して求めるため、Nを明示的に上限で
+    # 保護する（レビュー指摘: 以前は上限が無く、軸スタジオUIの「+ フラグを追加」で
+    # 際限なく増やせた）。現行の「材料の天井」（目論見書7章・歯止め4、材料は全軸合計で
+    # MATERIAL_CATALOGの登録数までしか増やせない設計）を踏まえれば実運用でこの上限に
+    # 達することは無い想定の、余裕を持った安全弁。
+    flags: list[tuple[str, float]] = Field(max_length=12)
     cap: float | None = None
 
 
 AxisShape = BreakpointLinearShape | CategoricalShape | FlagSumShape
+
+
+AxisCategory = Literal["観測", "推定", "動的"]
 
 
 class AxisDefinition(BaseModel):
@@ -111,6 +120,17 @@ class AxisDefinition(BaseModel):
 
     `default_weight`はroute_preference.yaml・APIリクエストで上書きされなかった場合の
     既定の合成重み（`RoutePreference`の既定値の単一ソース）。
+
+    `label`/`description`/`category`（改善計画T269）は一般向けルート設定画面
+    （`RouteSettingsPanel`）が`GET /api/axis-catalog`経由で表示する。従来
+    `frontend/src/lib/evaluationAxes.ts`に手書きしていた値をここへ移し、
+    軸スタジオ（T270）がGUIから作る新規軸も同じ経路で表示名を持てるようにする
+    （`registry.py`側の表示レジストリ[T137/T145b、地図レイヤー専用]とは別物——
+    あちらはPython宣言のみでDB化されておらず、GUIで作った軸を表現できないため、
+    ルーティング計算を駆動するこちら側に単一ソースを置く）。`category`は
+    観測（タグ・POI等の一次属性を直接読む、または単純なフラグ加算のみの軸）／
+    推定（複数材料をレシピ・判定式で合成する軸）／動的（時々刻々変わる外部データ由来の軸）
+    の3分類（目論見書3章、T267で確定）。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -118,6 +138,14 @@ class AxisDefinition(BaseModel):
     axis_id: str
     shape: AxisShape
     default_weight: float
+    label: str
+    description: str = ""
+    category: AxisCategory = "推定"
+    # 改善計画T271: 公開済み軸は一般向け`GET /api/axis-catalog`（一般ユーザーの保存設定が
+    # axis_idキーで再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って
+    # 壊す）に出る一方、下書き軸は管理API（軸スタジオ）でのみ見える。既定Falseは
+    # 「新規作成した軸はまず下書き」という安全側の初期値。
+    is_published: bool = False
 
     @property
     def materials(self) -> list[str]:
@@ -147,6 +175,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             breakpoints=[(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.0, 100.0)],
         ),
         default_weight=0.15,
+        label="勾配",
+        description="登り坂の急さが小さいほど易しい",
+        category="観測",
+        is_published=True,
     ),
     # 向かい風。材料wind_penalty=符号付き風ペナルティm/s（正=向かい風、負=追い風。
     # domain/evaluation.py: compute_wind_penalty）。追い風・無風は0、8m/sで100。
@@ -157,6 +189,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             breakpoints=[(0.0, 0.0), (8.0, 100.0)],
         ),
         default_weight=0.26,
+        label="風",
+        description="向かい風が弱いほど易しい",
+        category="動的",
+        is_published=True,
     ),
     # 舗装質。材料surface_good=舗装良否（domain/road.py: classify_osm_surfaceの3値、
     # True/False/欠損）。舗装路は0、非舗装は80。
@@ -164,6 +200,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         axis_id="surface_q",
         shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
         default_weight=0.19,
+        label="舗装質",
+        description="舗装路であるほど易しい",
+        category="観測",
+        is_published=True,
     ),
     # 停止密度。材料stop_count_per_km=信号・横断歩道・一時停止・踏切の合計密度(回/km、必須)、
     # intersection_count_per_km=タグなし交差点密度(回/km、補助・欠損は寄与0)。
@@ -182,6 +222,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
         ),
         default_weight=0.20,
+        label="停止密度",
+        description="信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
+        category="観測",
+        is_published=True,
     ),
     # 車ストレス。材料car_stress_level=レシピ判定済みレベル1-5（domain/traffic.py:
     # car_stress_level。highway基準値＋cycleway/maxspeed/lanes/指定路線補正、
@@ -194,6 +238,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             breakpoints=[(1.0, 0.0), (5.0, 100.0)],
         ),
         default_weight=0.20,
+        label="車の圧迫感",
+        description="推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
+        category="推定",
+        is_published=True,
     ),
     # 事故密度。材料accident_count_per_km_year=事故密度(件/(km・年)、警察庁統計の
     # 距離・収録年数正規化値)。0で0、0.5件/(km・年)で100。
@@ -204,6 +252,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             breakpoints=[(0.0, 0.0), (0.5, 100.0)],
         ),
         default_weight=0.08,
+        label="事故密度",
+        description="事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
+        category="推定",
+        is_published=True,
     ),
     # 夜間。材料no_lit=街灯なし（litタグ不在は街灯なしとみなす安全側の判断、
     # domain/night.py参照）、has_tunnel=トンネル。各50点加算、上限100。既定重み0で運用。
@@ -211,8 +263,80 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         axis_id="night",
         shape=FlagSumShape(flags=[("no_lit", 50.0), ("has_tunnel", 50.0)], cap=100.0),
         default_weight=0.0,
+        label="夜間",
+        description="街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
+        category="観測",
+        is_published=True,
     ),
 }
+
+
+class AxisMaterialConflictError(ValueError):
+    """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する
+    （改善計画T268）。
+
+    `registry.py: register_axis`の`AxisInputConflictError`（表示用レジストリの排他帰属
+    チェック）と同じ「1つの材料は原則1つの軸だけが使う」原則を、実際にルーティング計算を
+    駆動する`AXIS_DEFINITIONS`側（Stage DでDB化・管理API経由の書き込みが可能になった）へ
+    移植したもの。軸スタジオ（T270）で任意の軸を登録できるようになる前に、既存軸が使う
+    材料を新軸が黙って再利用し二重計上が混入する事故を構造的に防ぐ。
+    """
+
+    def __init__(self, axis_id: str, conflicting_axis_id: str, overlapping_materials: set[str]) -> None:
+        self.axis_id = axis_id
+        self.conflicting_axis_id = conflicting_axis_id
+        self.overlapping_materials = overlapping_materials
+        materials = ", ".join(sorted(overlapping_materials))
+        super().__init__(
+            f"axis '{axis_id}' shares material(s) [{materials}] with existing axis '{conflicting_axis_id}'; "
+            f"each material may belong to at most one axis (exclusive assignment principle, T268)"
+        )
+
+
+class AxisPublishedImmutableError(ValueError):
+    """公開済み（is_published=True）の軸を更新・削除しようとした場合に送出する
+    （改善計画T271）。
+
+    一般ユーザーの保存設定（RouteSettingsPanelのプリセット・重み）はaxis_idキーで
+    再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って壊す。
+    改良したい場合は複製（新しいaxis_idの下書き軸として作成）してから公開する導線を
+    UI側に用意する（この関数は変更を一切拒否するのみで、複製自体は関与しない）。
+    """
+
+    def __init__(self, axis_id: str, action: str) -> None:
+        self.axis_id = axis_id
+        self.action = action
+        super().__init__(
+            f"axis '{axis_id}' is published and cannot be {action} "
+            f"(publish-immutability principle, T271); duplicate it as a new draft axis instead"
+        )
+
+
+def check_publish_immutability(existing: AxisDefinition, action: str) -> None:
+    """`existing`が公開済みなら`AxisPublishedImmutableError`を送出する（更新・削除の
+    どちらの直前でも呼べる汎用関数、`action`はエラーメッセージ用の英語動詞句）。"""
+    if existing.is_published:
+        raise AxisPublishedImmutableError(existing.axis_id, action)
+
+
+def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, AxisDefinition]) -> None:
+    """`candidate`の材料が`existing`内の他軸と重複していないか検査する。
+
+    `existing`に`candidate.axis_id`と同じキーが含まれていても（更新時、自分自身との
+    比較になるため）スキップする。重複が見つかれば`AxisMaterialConflictError`を送出する
+    （登録は行わない、呼び出し元の責務）。
+
+    現時点の`AXIS_DEFINITIONS`（7軸）には`registry.py`の`shared=True`相当（距離等、
+    複数軸が参照してよい共通コンテキスト）の材料が存在しないため、`shared`フラグは
+    持たない。将来そうした材料が必要になった時点で`MaterialTerm`側への追加を検討する。
+    """
+    candidate_materials = set(candidate.materials)
+    for other_id, other in existing.items():
+        if other_id == candidate.axis_id:
+            continue
+        overlap = candidate_materials & set(other.materials)
+        if overlap:
+            raise AxisMaterialConflictError(candidate.axis_id, other_id, overlap)
 
 
 def default_axis_weights() -> dict[str, float]:

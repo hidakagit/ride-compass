@@ -5,6 +5,7 @@ import { useRecipeOverride } from "./useRecipeOverride";
 describe("useRecipeOverride", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -12,7 +13,7 @@ describe("useRecipeOverride", () => {
   });
 
   it("初期値はoverrideEnabled=false・recipe/debouncedRecipeとも既定レシピ", () => {
-    const { result } = renderHook(() => useRecipeOverride({ base: 1 }, 400));
+    const { result } = renderHook(() => useRecipeOverride({ base: 1 }, 400, "test:initial"));
 
     expect(result.current.overrideEnabled).toBe(false);
     expect(result.current.recipe).toEqual({ base: 1 });
@@ -20,7 +21,7 @@ describe("useRecipeOverride", () => {
   });
 
   it("setOverrideEnabledで有効フラグが即座に切り替わる", () => {
-    const { result } = renderHook(() => useRecipeOverride({ base: 1 }, 400));
+    const { result } = renderHook(() => useRecipeOverride({ base: 1 }, 400, "test:enabled"));
 
     act(() => {
       result.current.setOverrideEnabled(true);
@@ -30,7 +31,7 @@ describe("useRecipeOverride", () => {
   });
 
   it("setRecipeでrecipeは即座に、debouncedRecipeはdebounceMs経過後に更新される", () => {
-    const { result } = renderHook(() => useRecipeOverride({ base: 1 }, 400));
+    const { result } = renderHook(() => useRecipeOverride({ base: 1 }, 400, "test:debounce"));
 
     act(() => {
       result.current.setRecipe({ base: 2 });
@@ -44,5 +45,18 @@ describe("useRecipeOverride", () => {
     });
 
     expect(result.current.debouncedRecipe).toEqual({ base: 2 });
+  });
+
+  it("storageKeyが同じであればlocalStorage経由で値が復元される", () => {
+    const { result: first } = renderHook(() => useRecipeOverride({ base: 1 }, 400, "test:shared"));
+    act(() => {
+      first.current.setOverrideEnabled(true);
+      first.current.setRecipe({ base: 9 });
+    });
+
+    const { result: second } = renderHook(() => useRecipeOverride({ base: 1 }, 400, "test:shared"));
+
+    expect(second.current.overrideEnabled).toBe(true);
+    expect(second.current.recipe).toEqual({ base: 9 });
   });
 });

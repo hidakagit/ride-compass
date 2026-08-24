@@ -4,21 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import MapView from "@/components/Map/MapView";
-import BackendStatus from "@/components/BackendStatus";
-import DebugPanel from "@/components/DebugPanel/DebugPanel";
-import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
-import DebugConsole from "@/components/DebugConsole/DebugConsole";
-import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllLayersIcon,
   DeveloperIcon,
-  LogIcon,
   MapAppearanceIcon,
-  ResearchIcon,
   RouteIcon,
-  StatusIcon,
 } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
@@ -30,7 +22,7 @@ import {
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
-import { axisMaterialLayerIds, axisMaterials, PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
+import { axisMaterialLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   ROAD_FILTER_AXES,
@@ -90,24 +82,25 @@ import {
   nearestTimeIndex,
 } from "@/components/Map/dynamicWeather";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
-import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
-import CarStressRecipePanel from "@/components/CarStressRecipePanel/CarStressRecipePanel";
+// 改善計画T270: WeightPanel/CarStressRecipePanel/RoadSuitabilityRecipePanel/
+// MotorVehicleDensityRecipePanel自体（編集UI）は/adminへ移設したが、既定値定数は
+// useRecipeOverrideの初期値・useStoredJsonStateの初期値としてこのページでも使う。
+import { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import {
   DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
   DEFAULT_ROAD_SUITABILITY_RECIPE,
   DEFAULT_CAR_STRESS_RECIPE,
 } from "@/components/Map/carStressExpression";
-import RoadSuitabilityRecipePanel from "@/components/RoadSuitabilityRecipePanel/RoadSuitabilityRecipePanel";
-import MotorVehicleDensityRecipePanel from "@/components/MotorVehicleDensityRecipePanel/MotorVehicleDensityRecipePanel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
+import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useRecipeOverride } from "@/hooks/useRecipeOverride";
-import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { debugLog } from "@/lib/debugLog";
+import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
-import { useStoredState } from "@/hooks/useStoredState";
+import { useStoredState, useStoredJsonState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather, getFloodForecasts, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
 import type {
@@ -226,12 +219,10 @@ const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 // モバイルの「地図の見え方」シート見出しのDOM id。
 const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
-// モバイルの「研究」シート見出しのDOM id。
-const RESEARCH_SHEET_TITLE_ID = "research-sheet-title";
 // モバイルの「開発者」シート見出しのDOM id。
 const DEVELOPER_SHEET_TITLE_ID = "developer-sheet-title";
 
-type MobileSheet = "route" | "map" | "research" | "developer" | null;
+type MobileSheet = "route" | "map" | "developer" | null;
 
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe } = useLocation();
@@ -258,11 +249,20 @@ export default function Home() {
   // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
   // 完全に維持する（一般ユーザーには影響しない）。route_preference/routePreference自体は
   // 改善計画T267で一般向けルート設定画面（RouteSettingsPanel）とも共有する状態になった
-  // （withAutoEnableにより、どちらのパネルを操作してもこのフラグが自動でONになる。
-  // T270で研究UIを独立URLの管理画面へ分離する際に整理し直す想定）。
-  const [weightOverrideEnabled, setWeightOverrideEnabled] = useState(false);
-  const [scoringWeights, setScoringWeights] = useState<ScoringWeights>(DEFAULT_SCORING_WEIGHTS);
-  const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>(DEFAULT_ROUTE_PREFERENCE);
+  // （withAutoEnableにより、どちらのパネルを操作してもこのフラグが自動でONになる）。
+  // 改善計画T270: 編集UI（WeightPanel）は/adminへ移設したため、localStorage経由で
+  // 共有する（useStoredJsonState）。本ページはこの値を読んでリクエスト構築に使うのみ。
+  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
+    "ridecompass:weight-override-enabled",
+    false
+  );
+  // setter未使用: scoringWeightsの編集UI（WeightPanel）は/adminへ移設済み。このページは
+  // 値を読んでリクエスト構築に使うのみ（useStoredJsonStateの戻り値2番目は/admin側が使う）。
+  const [scoringWeights] = useStoredJsonState<ScoringWeights>("ridecompass:scoring-weights", DEFAULT_SCORING_WEIGHTS);
+  const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
+    "ridecompass:route-preference",
+    DEFAULT_ROUTE_PREFERENCE
+  );
   // 0次ハードフィルタ（改善計画T266・T267）。一般向けルート設定画面（RouteSettingsPanel）が
   // 常時操作するため、weightOverrideEnabledのような別トグルは持たず常にリクエストへ含める
   // （既定値はDEFAULT_HARD_FILTERS＝backendのDEFAULT_HARD_FILTERSと同じ全フィルタ有効で、
@@ -277,31 +277,39 @@ export default function Home() {
   // 共有する材料[domain/recipe.py: car_closeness()]で、上書きすると両軸の地図色・内訳
   // ポップアップ・次回のルート生成すべてへ同時に反映される）。無効の間はMapViewへ
   // undefinedを渡し（既定レシピを使う）、生成リクエストからも対応するrecipeキーを省略する。
+  // 改善計画T270: 編集UI（各RecipePanel）は/adminへ移設したため、storageKeyを渡して
+  // localStorage経由で共有する。本ページはdebouncedRecipe等をMapView・リクエスト構築へ
+  // 読み渡すのみ。
+  // setter未使用: 各レシピの編集UI（*RecipePanel）は/adminへ移設済み。このページは
+  // overrideEnabled/debouncedRecipeを読んでMapView・リクエスト構築へ渡すのみ。
   const {
     overrideEnabled: carStressRecipeOverrideEnabled,
-    setOverrideEnabled: setCarStressRecipeOverrideEnabled,
     recipe: carStressRecipe,
-    setRecipe: setCarStressRecipe,
     debouncedRecipe: debouncedCarStressRecipe,
-  } = useRecipeOverride<CarStressRecipeOverride>(DEFAULT_CAR_STRESS_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
+  } = useRecipeOverride<CarStressRecipeOverride>(
+    DEFAULT_CAR_STRESS_RECIPE,
+    LEGEND_FILTER_DEBOUNCE_MS,
+    "ridecompass:car-stress-recipe"
+  );
 
   const {
     overrideEnabled: roadSuitabilityRecipeOverrideEnabled,
-    setOverrideEnabled: setRoadSuitabilityRecipeOverrideEnabled,
     recipe: roadSuitabilityRecipe,
-    setRecipe: setRoadSuitabilityRecipe,
     debouncedRecipe: debouncedRoadSuitabilityRecipe,
-  } = useRecipeOverride<RoadSuitabilityRecipeOverride>(DEFAULT_ROAD_SUITABILITY_RECIPE, LEGEND_FILTER_DEBOUNCE_MS);
+  } = useRecipeOverride<RoadSuitabilityRecipeOverride>(
+    DEFAULT_ROAD_SUITABILITY_RECIPE,
+    LEGEND_FILTER_DEBOUNCE_MS,
+    "ridecompass:road-suitability-recipe"
+  );
 
   const {
     overrideEnabled: motorVehicleDensityRecipeOverrideEnabled,
-    setOverrideEnabled: setMotorVehicleDensityRecipeOverrideEnabled,
     recipe: motorVehicleDensityRecipe,
-    setRecipe: setMotorVehicleDensityRecipe,
     debouncedRecipe: debouncedMotorVehicleDensityRecipe,
   } = useRecipeOverride<MotorVehicleDensityRecipeOverride>(
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     LEGEND_FILTER_DEBOUNCE_MS,
+    "ridecompass:motor-vehicle-density-recipe"
   );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
@@ -495,13 +503,17 @@ export default function Home() {
   // 「読込中」「データなし」「取得失敗」の表示として反映する。
   const [layerDataStatus, setLayerDataStatus] = useState<LayerDataStatusByLayer>({});
   const [refreshToken, setRefreshToken] = useState(0);
-  // デバッグログパネル自体の開閉。デバッグモードON＝ログ記録は常時有効だが、パネル表示は
-  // 別（常時画面を占有させたくないという実機フィードバックを受け、右上の起動アイコンで
-  // 開閉する方式へ変更、モバイル実機フィードバック対応T42）。デフォルト閉。
-  const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
-  const [systemStatusOpen, setSystemStatusOpen] = useState(false);
 
+  // 改善計画T270でDebugPanel（デバッグモードON/OFFの設定）・SystemStatusPanel・
+  // BackendStatus（バックエンド集計情報、地図に依存しない）は/adminへ移設したが、
+  // DebugConsole（地図の表示イベント・API呼び出しのライブログ）は地図インスタンスに
+  // 紐づく情報のため、レビュー指摘（/adminには地図が無くログがタブ間で共有されない
+  // ため実質機能しなくなっていた）を受けてこのページへ戻した（2026-08-24）。
+  // 「/admin=設定・集計」「/=地図を操作しながら見るライブログ」という役割分担にする。
+  // デバッグモードのON/OFF自体（useDebugEnabled、researchMode.tsと同型のlocalStorage
+  // 共有フラグ）は引き続き/adminのDebugPanelで切り替える。
   const debugEnabled = useDebugEnabled();
+  const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
   const researchEnabled = useResearchEnabled();
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -767,7 +779,7 @@ export default function Home() {
   }, [overlayLayers, handleLayerToggle]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
-  const handleMobileTabClick = useCallback((sheet: "route" | "map" | "research" | "developer") => {
+  const handleMobileTabClick = useCallback((sheet: "route" | "map" | "developer") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
   }, []);
 
@@ -1397,138 +1409,6 @@ export default function Home() {
     );
   }
 
-  // 「研究」ブロックの中身（研究モードのトグルと、それが有効化する調整パネル2つ）。
-  // 元は研究モードトグルを「設定」ブロックへ、パネル自体を「ルートを作る」ブロックへ
-  // 分けて置いていたが、評価重み・車ストレスレシピは生成時にも地図描画時にも使う
-  // 横断的パラメータでどちらの子でもなく、かつスマホでは2つが別タブに分かれるため
-  // 「設定タブでONにしても効果がどこに出るか分からない」という実機フィードバックを受け、
-  // トグルと効果を同じブロックへ同居させる独立ブロックへ切り出した
-  // （改善計画: 研究パラメータの導線改善）。ComparisonPanel（生成結果の一覧）は
-  // renderRouteSectionBody側に残る（上記コメント参照）。
-  // 区間難易度の重み（2次要素）のうち、一次情報→二次情報の変換式（レシピ）を個別に持つ軸の
-  // 差し込み内容。現状は車の圧迫感のみ（自転車インフラ等、将来レシピ化が広がる軸が増えたら
-  // ここへケースを足す）。WeightPanel.renderPreferenceFieldExtra経由で車の圧迫感の重み行の
-  // すぐ下に差し込まれる（改善計画: 研究タブを2次要素ごとに整理。以前は「評価の重み」
-  // 「レシピ」という別カテゴリに分かれ、同じ軸の重みとレシピを見比べるのに2箇所を
-  // 行き来する必要があった）。
-  function renderCarStressRecipeExtra() {
-    if (!researchEnabled) return null;
-    return (
-      <>
-        {/* 道路適正・自動車密度は車の圧迫感が参照する材料（domain/recipe.py:
-            car_closeness()、改善計画: 車との近さ材料の共有元化。かつては安全度軸とも
-            共有していたが、安全度はT139で軸ごと廃止済み）。フラットな3パネル並びからは
-            「材料→材料を使う軸」の関係が伝わりにくいという統合レビュー指摘（改善計画T133）を
-            受け、この2枚を枠付きの「共有材料」グループへまとめ、それを参照する車の圧迫感の
-            レシピパネルはインデントして下に続ける。編集内容は参照する側のパネルの
-            参照セクションへ即座に反映される。 */}
-        <div className={styles.recipeSharedMaterialGroup}>
-          <p className={styles.recipeSharedMaterialHeading}>
-            レシピ[一次情報→二次情報の変換式]・共有材料[車の圧迫感が参照]
-          </p>
-          <div className={styles.legendCard}>
-            <RoadSuitabilityRecipePanel
-              overrideEnabled={roadSuitabilityRecipeOverrideEnabled}
-              onOverrideEnabledChange={setRoadSuitabilityRecipeOverrideEnabled}
-              recipe={roadSuitabilityRecipe}
-              onRecipeChange={setRoadSuitabilityRecipe}
-            />
-          </div>
-          <div className={styles.legendCard}>
-            <MotorVehicleDensityRecipePanel
-              overrideEnabled={motorVehicleDensityRecipeOverrideEnabled}
-              onOverrideEnabledChange={setMotorVehicleDensityRecipeOverrideEnabled}
-              recipe={motorVehicleDensityRecipe}
-              onRecipeChange={setMotorVehicleDensityRecipe}
-            />
-          </div>
-        </div>
-        <div className={styles.recipeDependentAxes}>
-          {/* 車ストレスレシピパネル（改善計画: 車ストレスレシピ調整UIパネル、T107の次
-              ラウンド）。上のWeightInput（重み）とは独立したトグル（地図の色分けへ
-              即時反映される点が重みの上書きと挙動が異なるため）。少車線道路(F)のみを持つ
-              薄いパネルになり、先頭に道路適正・自動車密度の現在値（上書き中ならその値、
-              無効なら既定値）を読み取り専用で表示する参照セクションを持つ。 */}
-          <div className={styles.legendCard}>
-            <CarStressRecipePanel
-              overrideEnabled={carStressRecipeOverrideEnabled}
-              onOverrideEnabledChange={setCarStressRecipeOverrideEnabled}
-              recipe={carStressRecipe}
-              onRecipeChange={setCarStressRecipe}
-              roadSuitabilityRecipe={
-                roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : DEFAULT_ROAD_SUITABILITY_RECIPE
-              }
-              motorVehicleDensityRecipe={
-                motorVehicleDensityRecipeOverrideEnabled
-                  ? motorVehicleDensityRecipe
-                  : DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE
-              }
-            />
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  // 改善計画T168: axisMaterials（T164）の逆導出を評価側へ適用する。区間難易度の重み行の
-  // 直下へ、その軸が参照する一次属性の一覧（正式命名、PRIMARY_ATTRIBUTE_LABELS）を出す。
-  // 地図側（T167のPRIMARY_ATTRIBUTE_CHIP_LABELS、地図チップの制約で略名）とは異なり、
-  // 研究タブはサイドバー・研究タブ=正式命名の使い分け規則（改善計画T166確定命名表）に従う。
-  function renderAxisMaterialsExtra(axisId: string) {
-    const materials = axisMaterials(axisId);
-    if (materials.length === 0) return null;
-    return (
-      <p className={styles.recipeSharedMaterialHeading}>
-        材料: {materials.map((attrId) => PRIMARY_ATTRIBUTE_LABELS[attrId]).join("・")}
-      </p>
-    );
-  }
-
-  function renderPreferenceFieldExtra(axisId: string) {
-    // 改善計画T221 Stage B: 重み辞書のキーがaxis_idそのものになったため、
-    // 旧weightKey→axisIdの逆引きは不要になった。
-    return (
-      <>
-        {renderAxisMaterialsExtra(axisId)}
-        {axisId === "car_stress" && renderCarStressRecipeExtra()}
-      </>
-    );
-  }
-
-  function renderResearchSectionBody() {
-    return (
-      <>
-        <ResearchPanel />
-
-        {/* 「評価の重み」1カテゴリのみ（改善計画: 研究タブを2次要素ごとに整理。以前は
-            重み[WeightPanel]とレシピ[CarStressRecipePanel等]を別カテゴリの見出しで分けて
-            いたが、同じ軸を調整するのに2箇所を行き来させる構成だった。区間難易度の重み
-            [PREFERENCE_FIELDS]は route_preference.yaml の各軸[2次要素]と1:1対応するため、
-            レシピを持つ軸[現状は車の圧迫感のみ]はその軸の重み行の直下へ差し込む
-            [WeightPanel.renderPreferenceFieldExtra]構成にした）。見出しの見た目は
-            MapLayersPanel.tsxのカテゴリ見出し（道路状態/交通・安全等）と同じ発想
-            （styles.researchCategoryHeadingがcomposesで再利用）。 */}
-        <div className={styles.researchCategory}>
-          <h3 className={styles.researchCategoryHeading}>評価の重み</h3>
-          {/* 評価重みパネル（研究インターフェース改善Phase2 §10-1/4）。 */}
-          {researchEnabled && (
-            <div className={styles.legendCard}>
-              <WeightPanel
-                overrideEnabled={weightOverrideEnabled}
-                onOverrideEnabledChange={setWeightOverrideEnabled}
-                scoringWeights={scoringWeights}
-                onScoringWeightsChange={setScoringWeights}
-                routePreference={routePreference}
-                onRoutePreferenceChange={setRoutePreference}
-                renderPreferenceFieldExtra={renderPreferenceFieldExtra}
-              />
-            </div>
-          )}
-        </div>
-      </>
-    );
-  }
-
   // 「地図の見え方」の中身。開発者向け機能はrenderDeveloperSectionBody（独立した
   // 「開発者」ブロック、旧称「設定」）へ分離済み（一般ユーザーは使わないログ起動を地図上の
   // アイコンから追い出した際に、「地図の見え方」内の折りたたみからも独立ブロックへ
@@ -1554,56 +1434,35 @@ export default function Home() {
     );
   }
 
-  // 「開発者」ブロック（旧称「設定」、改善計画: 研究パラメータの導線改善でユーザー指摘を
-  // 受け改名。「設定」は元々研究モードのトグルも含む何でも入れ場所だった名残の名前で、
-  // トグルを「研究」ブロックへ分離した後は一般ユーザー向けの環境設定が一切無い、純粋な
-  // 開発者/運用ツール集になっていたため実態に合わせた）の中身: ログ・システム状況・
-  // 疎通確認・キャッシュ更新など、一般ユーザーは触らない開発者向け機能をまとめる。
-  // デバッグログの起動ボタンは、デバッグモード（DebugPanelのチェック）がONのときだけ
-  // 現れる（以前の地図上trailingButtonと同じ条件。ログの記録自体がチェックボックス依存の
-  // ため）。システム状況（commit・起動日時・外部API呼出サマリ）はデバッグログの記録有無と
-  // 無関係に確認したい情報のため、常時表示のボタンにしている。チェックボックスと同じ
-  // debugControl内に置いてnowrapにすることで、他のsystemRow項目と並んで縦積みの
-  // 「メニュー」に見えないようにしている。アイコンのみのボタンにしているのも、隣に文言を
-  // 並べる冗長さを避けるため。起動すると地図に浮かぶ独立したフローティングパネルが開く
-  // （T43）。ログ本文（DebugConsole）とシステム状況（SystemStatusPanel）は情報源・
-  // 更新頻度が異なるため別パネルに分離した（2026-08-16、ユーザーFB「中身が混ざって
-  // 見にくい」）。
+  // 「開発者」ブロック（旧称「設定」）の中身。改善計画T270で、DebugPanel（デバッグモード
+  // ON/OFF設定）・SystemStatusPanel・BackendStatus（バックエンド集計、地図に依存しない）は
+  // 独立URLの管理画面（/admin）へ移設した。DebugConsole（地図の表示イベント・API呼び出しの
+  // ライブログ）は一度/adminへ移設したが、レビュー指摘（/adminには地図が無くログの発生源
+  // そのものが無いため実質機能しなくなっていた——各タブは独立したJSランタイムでログの
+  // in-memoryな記録先lib/debugLog.tsを共有しないため、他タブでの地図操作は/adminのログに
+  // 現れない）を受けてこのページへ戻した（2026-08-24）。デバッグモードのON/OFF自体は
+  // 引き続き/adminで切り替える（useDebugEnabledはlocalStorage共有のためどちらのページからも
+  // 同じ状態を参照できる、researchMode.tsと同型）。
   function renderDeveloperSectionBody() {
     return (
       <>
-        <div className={styles.systemRow}>
-          <div className={styles.debugControl}>
-            <DebugPanel />
-            {debugEnabled && (
-              <button
-                type="button"
-                onClick={() => setDebugConsoleOpen((v) => !v)}
-                aria-pressed={debugConsoleOpen}
-                aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-                title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-                className={styles.panelToggleButton}
-              >
-                <LogIcon size={14} />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setSystemStatusOpen((v) => !v)}
-              aria-pressed={systemStatusOpen}
-              aria-label={systemStatusOpen ? "システム状況を隠す" : "システム状況を表示"}
-              title={systemStatusOpen ? "システム状況を隠す" : "システム状況を表示"}
-              className={styles.panelToggleButton}
-            >
-              <StatusIcon size={14} />
-            </button>
-          </div>
-          <BackendStatus />
-        </div>
-        {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン */}
+        {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン。
+            このページが持つ地図インスタンス（refreshToken）に紐づくため、/adminへは
+            移設せずここに残す。 */}
         <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
           地図データを再読み込み
         </button>
+        {debugEnabled && (
+          <button
+            type="button"
+            onClick={() => setDebugConsoleOpen((v) => !v)}
+            aria-pressed={debugConsoleOpen}
+            className={styles.refreshButton}
+          >
+            {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+          </button>
+        )}
+        <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
       </>
     );
   }
@@ -1697,23 +1556,6 @@ export default function Home() {
                   <h2 className={styles.blockHeading}>地図の見え方</h2>
                   {renderMapSettingsSectionBody()}
                 </section>
-
-                {/* 研究: 研究モードのトグルと、それが有効化する評価重み・車ストレスレシピの
-                    調整パネル。一般ユーザーは通常触らないためデフォルト閉の折りたたみにする
-                    （開発者ブロックと同じ扱い）。 */}
-                <Disclosure
-                  className={styles.blockSection}
-                  triggerClassName={styles.blockSummary}
-                  bodyClassName={styles.blockBody}
-                  summary={
-                    <>
-                      <span aria-hidden="true" className={styles.blockChevron} />
-                      研究
-                    </>
-                  }
-                >
-                  {renderResearchSectionBody()}
-                </Disclosure>
 
                 {/* C. 開発者（旧称「設定」）: デバッグログ起動・疎通確認・キャッシュ更新など、
                     一般ユーザーは通常触らない運用/デバッグツール。デフォルト閉の折りたたみに
@@ -1839,12 +1681,6 @@ export default function Home() {
           </button>
 
           {locateError && <p className={styles.locateError}>{locateError}</p>}
-
-          {/* デバッグログ・システム状況の起動は「開発者」ブロック内のボタン
-              （renderDeveloperSectionBody）から。position: fixedの独立フローティングパネルの
-              ためDOM上の位置は表示に影響しない。 */}
-          <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
-          <SystemStatusPanel open={systemStatusOpen} onClose={() => setSystemStatusOpen(false)} />
         </div>
       </div>
 
@@ -1879,19 +1715,6 @@ export default function Home() {
             >
               <MapAppearanceIcon />
               <span className={styles.tabLabel}>地図の見え方</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={mobileSheet === "research"}
-              onClick={() => handleMobileTabClick("research")}
-              className={
-                mobileSheet === "research"
-                  ? `${styles.tabButton} ${styles.tabButtonSmall} ${styles.tabButtonActive}`
-                  : `${styles.tabButton} ${styles.tabButtonSmall}`
-              }
-            >
-              <ResearchIcon />
-              <span className={styles.tabLabel}>研究</span>
             </button>
             <button
               type="button"
@@ -1930,18 +1753,6 @@ export default function Home() {
             onHeightCommit={commitMobileSheetHeight}
           >
             {renderMapSettingsSectionBody()}
-          </BottomSheet>
-
-          <BottomSheet
-            open={mobileSheet === "research"}
-            onClose={() => setMobileSheet(null)}
-            title="研究"
-            titleId={RESEARCH_SHEET_TITLE_ID}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={commitMobileSheetHeight}
-          >
-            {renderResearchSectionBody()}
           </BottomSheet>
 
           <BottomSheet
