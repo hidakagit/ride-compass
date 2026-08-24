@@ -4256,6 +4256,49 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   専用レシピコード削除、`axis_admin.py: _check_materials_are_known`の軸参照対応）→
   フロント表示層の汎用化（orderedフラグによる自動配色、`carStressExpression.ts`置換）→
   目論見書Artifact更新・docs/architecture.md追従。
+- **進捗2（2026-08-24）**: 第2段階（軸置き換え）完了。car_stress軸をhighway基準値
+  （必須）＋4補正＋motor_vehicle=no優先確定の内部軸6つ（is_published=false）＋
+  公開軸1つの階層構造で再実装した。bicycle_infra補正はT291合意済みスコア
+  （separated=-2/lane=-1/shared_busway=0/shared_pedestrian=0/roadway=+1）をそのまま
+  採用——**実データ検証で、この変更が想定より広範囲（cyclewayタグ未整備の大多数の
+  普通道路がroadway=+1点を受ける）に及ぶと判明したが、ユーザー確認の上で予定通り
+  適用した**。motor_vehicle=noの優先確定は当初priority_overrides機構を想定していたが、
+  実データ確認（dev DB、motor_vehicle=noタグの81.6%がhighway基準値未登録の
+  footway/path）でpriority_overridesだと旧ロジックと不一致になる問題が発覚し、
+  「他の内部軸の最大合計を確実に上回る固定マイナス項（-1000）を普通の内部軸として
+  加算しbreakpointsの端でクランプさせる」方式へ変更した（新しいPythonロジック不要、
+  priority_overrides機構自体は他の将来軸用の汎用機構として温存）。
+  旧専用Pythonレシピ（`CarStressRecipe`・`RoadSuitabilityRecipe`・
+  `MotorVehicleDensityRecipe`・`car_closeness`・`road_suitability`・
+  `cycleway_adjustment`・`car_stress_level`・`car_stress_breakdown`等）と、それに依存する
+  研究モードAPIのレシピ上書き機能（`/api/routes/generate`・旧`/api/region/
+  car-stress-breakdown`エンドポイント含む）・YAML設定3ファイル・calibration用の
+  独立研究スクリプト3本（`analyze_jartic_calibration.py`・`measure_axis_correlation.py`・
+  `measure_axis_stats.py`、いずれも旧car_stress_levelの1-5段階値を分析対象にしており
+  再設計後は主題自体が消滅したため削除）を全廃した。旧`/api/region/car-stress-breakdown`
+  は汎用の`/api/region/axis-inspector`（レシピ上書きパラメータなし）へ統合。
+  `axis_admin.py: _check_materials_are_known`を軸参照（他の軸のaxis_idをmaterialとして
+  指定）対応させ、`AxisRegistryAdminService.create/update`に循環参照検証
+  （`topological_axis_order`経由）を追加した。
+  **実装中に発見・修正した副次バグ2件**: (1) `CategoricalShape.mapping`を
+  `dict[bool, float]`から`dict[bool|str, float]`へ拡張した際、Pydantic既定のsmart-mode
+  union解決だとDB往復でJSON文字列"true"/"false"がbool化されずstr型のまま残る回帰
+  （既存のsurface_q軸も対象、`union_mode="left_to_right"`で修正、実データ検証・
+  回帰テスト追加済み）。(2) 内部軸を`export_openapi.py`のramp自動導出ループが
+  誤って処理対象にしKeyErrorでクラッシュ（is_published絞り込み漏れ、
+  `derive_ramp_inputs`側もstr多値categoricalで防御的にNoneを返すよう修正）。
+  **DB migration**: `0017_car_stress_axis_hierarchy.sql`を作成・dev DBへ適用、
+  Python側の値と完全一致することを実測確認済み（本番は別途適用が必要、T74の教訓により
+  未適用でも安全側フォールバックのため急ぎではない）。migration適用中に
+  dev DBの`schema_migrations`追跡漏れ（0016が実際は適用済みなのに未記録）も発見し、
+  スキーマ一致を確認した上でバックフィルした。
+  backend全1082件green（scalar/bulk評価パスの回帰比較テストも完全一致）。
+  **残る段階**: フロント表示層の汎用化（orderedフラグによる自動配色、
+  `carStressExpression.ts`・`recipeExpression.ts`・`recipeBreakdownPopup.ts`・
+  研究モードのレシピパネル3種の置き換え・削除、影響ファイル26件・約2000行、
+  別セッションで着手予定）→パフォーマンス実測（軸評価が7軸→13軸相当に増えたことの
+  影響、ユーザー合意により実装完了後に一括実施）→目論見書Artifact更新・
+  docs/architecture.md追従→コミット。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
