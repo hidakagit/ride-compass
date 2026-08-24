@@ -3930,6 +3930,47 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 着手時に確定（ADRの方針どおりrevisionポーリング等へ差し替え、複数プロセスでの
   反映テストを含む）。
 
+### - [ ] T289. 一方通行（一次属性）を観測グループの独立レイヤーとして追加する 規模S〜M
+
+- 背景: T280（材料供給の1本道短縮）着手にあたりユーザーへ具体的な新規要素を確認したところ
+  「一方通行」の追加希望が挙がった。調査の結果、**一方通行は既にグラフ構造レベルで完全に
+  ハンドリング済み**（`osm_adapter.py: _resolve_direction`が`oneway`/`oneway:bicycle`
+  タグからforward/backward/bothを解決し、`graph.py: build_road_graph`が逆方向Edge自体を
+  生成しない。探索は構造的に一方通行を厳密に守っており、逆走はそもそも不可能）と判明。
+  そのためT280（評価軸向け材料の追加コスト削減）の実証対象にはならず、**独立タスク**として
+  起票する。用途はユーザー確認により「まず表示のみ（評価軸への重み付け組み込みは別途）」に
+  確定した。
+- 設計: `MATERIAL_CATALOG`（評価軸専用）ではなく、`domain/registry.py:
+  PrimaryAttributeSpec`（一次属性）＋地図の静的属性レイヤーとして追加する
+  （2026-08-22のT217「トンネルを観測グループの独立レイヤーとして追加」と全く同型の
+  一次属性追加パターン。tunnelはタイルへの焼き込み自体は既存だったためbackend変更
+  ゼロだったが、one-wayは`osm_raw_ways.direction`列がありながらタイルSQLに未焼き込みの
+  ため、backend側の変更が一手多い点が異なる）。
+- 内容（T217を1本道の地図として利用、`git show 2a603c6`参照）:
+  1. **backend**: `_ROAD_SURFACE_TILE_MVT_SQL`（road_graph_repository.py）のCASE式へ
+     `CASE WHEN w.direction != 'both' THEN true END AS oneway`を追加
+     （`osm_raw_ways.direction`は既にDB永続化済み、migration不要）。
+  2. タイル世代番号を上げる（`region_service.py: ROAD_SURFACE_TILE_VERSION`と
+     `region-tile-config.json`、CLAUDE.md同期ルール必須）。
+  3. `registry_defaults.py`へ一次属性として登録（`attr_id="oneway"`,
+     `dtype="boolean"`, `geometry="edge"`, `source="osm"`,
+     `ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec"`。どの評価軸のinputsにも
+     含めない＝軸に属さない表示専用の一次属性、`all_primary_attributes()`が
+     `axis-catalog.json`のprimary_attributes[]へ自動反映するため軸登録は不要と確認済み）。
+  4. **frontend**: `mapLayers.ts`（MapLayerId型・MAP_LAYERS・ROAD_SURFACE_SHARED_LAYER_IDS）・
+     `staticAttributeLayers.ts`（ONEWAY_LEGEND/COLOR_EXPRESSION/OPACITY_EXPRESSION、
+     StaticFilterAxisId・STATIC_FILTER_AXES）・`icons.tsx`（OnewayIcon）・
+     `MapView.tsx`（ONEWAY_LAYER_ID・ensureOnewayLayer・STATIC_OVERLAY_LAYERS・
+     LAYER_DATA_SOURCES・showOneway props配線、T217差分どおり多数のuseEffect依存配列へ
+     機械的に追加）・`page.tsx`（DEFAULT_LAYER_VISIBILITY・showOneway受け渡し）・
+     `primaryAttributes.ts`（PRIMARY_ATTRIBUTE_LAYER_IDS・PRIMARY_ATTRIBUTE_CHIP_LABELS）・
+     `MapLayersPanel.tsx`（switch文case追加）・`MapOverlayControls.tsx`（LAYER_ICONS）。
+  5. テスト: T217の対応テスト（`staticAttributeLayers.test.ts`・`primaryAttributes.test.ts`・
+     `MapView.dataStatus.test.ts`・`MapLayersPanel.test.tsx`・`MapOverlayControls.test.tsx`）と
+     同型のケースを追加。
+- 完了条件: backend/frontend全テストgreen、Playwright実機確認（地図上で一方通行区間が
+  色分け表示されること）、docs/architecture.md追従。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
