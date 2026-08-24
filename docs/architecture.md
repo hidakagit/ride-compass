@@ -996,7 +996,7 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
 | 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
 | 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
+| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | 推定（`domain/axis_definitions.py: AXIS_DEFINITIONS['car_stress']`、内部軸6つの階層合成。T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一、T292で専用Pythonレシピ[旧`car_stress_level`]から内部軸階層へ再実装） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
 | 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
 
@@ -1450,7 +1450,8 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 評価粒度もedge単位any-matchからway単位ratio-matchへ統一されている。
 
 該当区間は新しい評価軸を増やさず、**車ストレスへの+1補正のみ**として組み込む
-（`car_stress_breakdown`の`designation_adjustment`、大型車交通の代理指標）。
+（内部軸`car_stress_designation_adjustment`、大型車交通の代理指標。改善計画T292で
+`car_stress_breakdown`の`designation_adjustment`から移行）。
 `AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合。呼び出し時点で
 `road_edges`は構築済みのため、`road_edges.osm_way_id`経由で`designation_attributes`へJOINする）と
 `get_nearest_way_tags`が返す3要素目`is_designated`（OpenRouteServiceEngine、highway・tagsと
@@ -1534,10 +1535,12 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 `frontend/src/components/Map/axisLayers.ts`が`kind=ramp`の軸から色分けexpression・凡例を
 自動生成する（`RAMP_AXES`、`page.tsx`/`mapLayers.ts`/`MapView.tsx`が
 `MapLayerId`の`axis:${string}`テンプレート型経由でチップ・パネル・凡例・地図レイヤーへ自動
-合流。新しいramp軸はレジストリ登録＋タイル焼き込みだけで地図に現れる）。car_stress（タグの
-複雑な組み合わせが必要）は`kind=bespoke`として手書きexpression（`carStressExpression.ts`）を
-例外的に維持し、gradient/surface_qは`kind=none`（既存の標高図・道路情報レイヤーが代替）。
-night軸はT145a（データ充実待ちで保留）まで未生成。
+合流。新しいramp軸はレジストリ登録＋タイル焼き込みだけで地図に現れる）。改善計画T292で
+car_stress（内部軸6つの合成値、複数材料の重み付き結合のため`derive_ramp_inputs`の自動導出
+対象外だが`tile_inputs`は手書きで`kind=ramp`登録済み。上記「停止密度・車ストレス...」節
+参照）もこの汎用パスへ合流し、専用の手書きexpression（旧`carStressExpression.ts`）は
+不要になった。現在`kind=bespoke`の軸は無く、gradient/surface_qは`kind=none`（既存の
+標高図・道路情報レイヤーが代替）。night軸はT145a（データ充実待ちで保留）まで未生成。
 
 ### 地図チップの観測/推定/動的グルーピングと一次/二次命名の完全化（改善計画T163〜T169）
 
@@ -1672,10 +1675,10 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
 
 道路をクリックした際に「一次属性→取得可能な軸のみのスコア→参考合成コスト」を表示する
 機能。`POST /api/region/axis-inspector`（§4参照）→`RegionService.get_axis_inspector`
-→`domain/evaluation.py: axis_inspector_breakdown`（純関数）という、既存の車ストレス内訳
-ボタン（`POST /api/region/car-stress-breakdown`）と同型の「クリック時にサーバーへ1回
-問い合わせ」パターンを踏襲する（クライアント側での難易度式再実装はドリフトリスクがある
-ため見送り）。
+→`domain/evaluation.py: axis_inspector_breakdown`（純関数）という、当初の車ストレス内訳
+ボタン（旧`POST /api/region/car-stress-breakdown`。改善計画T292でaxis-inspectorへ統合済み、
+§4参照）と同型の「クリック時にサーバーへ1回問い合わせ」パターンを踏襲する（クライアント側
+での難易度式再実装はドリフトリスクがあるため見送り）。
 
 `way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
 その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・
