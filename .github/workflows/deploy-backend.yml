@@ -27,6 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GitHub Actionsのubuntu-latestランナーはamd64だが、デプロイ先のOracle Cloud
+      # VMはAmpere A1（arm64）。setup-qemu-actionでのクロスビルドが必要
+      # （初回実行でamd64イメージのみ生成され、VM側`docker run`が
+      # "no matching manifest for linux/arm64/v8"で失敗することを実機確認済み）。
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       # 既定のdockerドライバはcache-to type=ghaのキャッシュexportに対応していない
       # （初回実行で"Cache export is not supported for the docker driver"により失敗、
       # 実機確認済み）。docker-containerドライバへ切り替える。
@@ -41,6 +49,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: backend
+          platforms: linux/arm64
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
