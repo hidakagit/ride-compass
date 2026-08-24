@@ -4530,7 +4530,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 今回の最重要指摘は、レビュー期間中に実際に発生した**T294（本番DB migration
 0017/0018未適用、4回目の同クラス障害）の恒久対策が宙に浮いている**という点（F-1→T295）。
 
-### - [ ] T295. 軸定義DB読み込みの整合検証（未知材料参照の検出・axis_id集合差分の常時ログ）〔P2〕規模S〜M
+### - [x] T295. 軸定義DB読み込みの整合検証（未知材料参照の検出・axis_id集合差分の常時ログ）〔P2〕規模S〜M（2026-08-25完了）
 
 - 背景: レビュー指摘（レポートF-1）。`refresh_axis_definitions`
   （services/axis_registry_service.py:36〜）のフォールバック条件は「0行」または
@@ -4559,6 +4559,28 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 未知材料参照時のフォールバック強化・起動時のaxis_id差分ログ・
   docstring訂正の3点を実装し、既存テスト（test_axis_hierarchy.py等）へ
   「半端なDB状態からのフォールバック」を検証するケースを追加する。
+- **対応（2026-08-25完了）**: `services/axis_registry_service.py`に
+  `_find_unknown_references`を新設し、DB読み込み成功後・AXIS_DEFINITIONS反映前に
+  各軸が参照する材料id・軸id（`AxisDefinition.materials`）が`is_known_material`
+  または同じ読み込みバッチ内の既知axis_idであることを検証するようにした。未知参照が
+  1件でも見つかれば（T294のような「行はあるが半端に古い」状態）ERRORログを出し
+  コード内蔵の既定値へフォールバックする（0行・例外と同じ全件フォールバック方式。
+  一部だけ差し替える部分適用は、依存する公開軸が内部軸を見失う不整合を生みうるため
+  意図的に採らなかった）。あわせて、モジュールimport時点の`AXIS_DEFINITIONS`
+  キー集合をコード内蔵の既定axis_id集合としてスナップショットし（`_CODE_BUILTIN_AXIS_IDS`）、
+  refresh成功時は常にコード側/DB側それぞれにしかないaxis_idの差分をINFOログへ出す
+  （差分が無くても空リストで出力し、検証自体が走ったことを常に確認できるようにした、
+  docs/logging.md「起動時の構成スナップショット」に対応）。`refresh_axis_definitions`の
+  docstringへ、0行・例外の2条件では検知できない「半端に古い」状態の実例（T294）と、
+  今回の検証がその限界をどう埋めるかを追記した。
+  テストは`tests/test_axis_registry_service.py`に3件追加
+  （未知材料参照時のフォールバック・軸id参照は誤検知しないことの確認・axis_id差分の
+  INFOログ確認）。既存テストの一部が材料の実在チェックを経ないプレースホルダー材料
+  （"dummy"・"own_material"等）を使っていたため、`MATERIAL_CATALOG`に実在する材料
+  （gradient_percent/wind_penalty/stop_count_per_km）へ置き換えた（`_check_materials_are_known`
+  はAPI層のみの検証で、`AxisRegistryAdminService`は元々これを行っていないため、既存の
+  CRUD系テスト自体の意図は変えていない）。backend全1111件green
+  （既存1108件+新規3件、他の軸関連テストファイル87件も個別green確認済み）。
 
 ### - [ ] T296. 軸スタジオでの軸id⇔材料idの名前空間衝突ガード追加〔P3〕規模S
 

@@ -28,9 +28,38 @@ from app.domain.axis_definitions import (
     check_publish_immutability,
     topological_axis_order,
 )
+from app.domain.material_catalog import is_known_material
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 logger = logging.getLogger("ridecompass.axis_registry")
+
+# 改善計画T295: コード内蔵の既定axis_id集合（モジュールimport時、AXIS_DEFINITIONSが
+# まだ一度もrefresh_axis_definitionsで上書きされていない時点のスナップショット）。
+# refresh_axis_definitionsが呼ばれるたびに、この集合とDB側集合の差分をログへ出し、
+# 「GUIで新規軸を作った」「削除済み軸がDBに残っている」等の意図した/しない差分を
+# 常に目視できるようにする（起動ログの目視以外に検知手段が無かったT294の教訓）。
+_CODE_BUILTIN_AXIS_IDS: frozenset[str] = frozenset(AXIS_DEFINITIONS)
+
+
+def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:
+    """各軸のshapeが参照する材料id・軸idのうち、`MATERIAL_CATALOG`にも同じ`definitions`内の
+    軸idにも存在しないものを検出する（改善計画T295）。
+
+    DBのaxis_definitionsテーブルは「行はあるがmigrationが半端に古い」状態になりうる
+    （T294: migration 0017適用・0018未適用のような組み合わせで、旧shape_paramsが
+    削除済み材料id[例: car_stress_level]を参照し続けていた）。Pydanticのバリデーション
+    （`AxisShape`）はshapeの構造だけを検証し材料の実在は見ないため、この種の「行として読める
+    が意味的には古い」状態は例外を送出せず素通りする。`AxisDefinition.materials`
+    （domain/axis_definitions.py）が既に材料id・軸id参照の一覧を提供しているため、ここでは
+    それを`is_known_material`と`definitions`のキー集合に照らして未知参照を洗い出すだけでよい。
+    """
+    known_axis_ids = set(definitions)
+    unknown: dict[str, list[str]] = {}
+    for axis_id, definition in definitions.items():
+        missing = sorted({m for m in definition.materials if not is_known_material(m) and m not in known_axis_ids})
+        if missing:
+            unknown[axis_id] = missing
+    return unknown
 
 
 async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
@@ -46,6 +75,17 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     0行をフォールバック対象に含めても、管理API側で「最後の1軸は削除できない」制約
     （AxisRegistryAdminService.delete参照）を設けているため、正常適用後のテーブルが
     運用中に意図せず空になることは無い。
+
+    **「安全側フォールバック」の実際の限界（改善計画T295、T294の教訓を受けた訂正）**:
+    上記の0行・例外という2条件は「テーブルが全く読めない」状態しか検知できない。
+    「行はあるが一部の軸が削除済みの材料id・axis_idを参照している」ような**半端に古い**
+    状態（T294で実際に発生。0017適用・0018未適用の環境で、旧car_stress行が削除済み材料
+    car_stress_levelを参照し続けていたが、0018のカラム不在によるSELECT自体の例外という
+    **偶然**でしか検知できていなかった）は、この2条件のどちらにも該当せず、読み込みに
+    成功した内容をそのままAXIS_DEFINITIONSへ反映してしまう。`_find_unknown_references`が
+    この種の状態を明示的に検出し、検出時はDB内容を採用せずコード内蔵の既定値へ
+    フォールバックする（0行・例外と同じ安全側動作）。この検証を経て初めて
+    「読み込んだ内容を採用してよい」という意味での安全側フォールバックが成立する。
     """
     try:
         definitions = await repository.list_all()
@@ -57,9 +97,26 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
             "axis_definitionsテーブルが空です（migration未適用の可能性）。コード内蔵の既定値を使用します"
         )
         return
+    unknown_references = _find_unknown_references(definitions)
+    if unknown_references:
+        logger.error(
+            "軸定義DBに未知の材料/軸参照を検出しました。コード内蔵の既定値を使用します"
+            "（migration未適用・DB定義が半端に古い可能性、改善計画T294/T295参照） unknown=%s",
+            unknown_references,
+        )
+        return
+    # 改善計画T295: axis_id集合の差分は「良い/悪い」を判定できない（GUIで作った軸が
+    # コードに無いのは正常）ため、常にINFOで出す（docs/logging.md「起動時の構成
+    # スナップショット」）。差分が無い場合も空リストのまま出力し、「この検証が実際に
+    # 走った」ことをログから確認できるようにする。
+    missing_in_db = sorted(_CODE_BUILTIN_AXIS_IDS - set(definitions))
+    extra_in_db = sorted(set(definitions) - _CODE_BUILTIN_AXIS_IDS)
+    logger.info(
+        "軸定義をDBから読み込みました axes=%d code_only=%s db_only=%s",
+        len(definitions), missing_in_db, extra_in_db,
+    )
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)
-    logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
 
 
 class AxisRegistryAdminService:
