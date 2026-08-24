@@ -4244,6 +4244,18 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   `test_evaluation_bulk.py`と同種の手法）を必須とし、既存の評価結果からの意図しない
   乖離が無いことを検証する。docs/architecture.md・docs/decisions/・目論見書
   Artifactへの設計記録を追従させる。
+- **進捗（2026-08-24、コミットab213ec）**: 第1段階（依存解決基盤・3次合成フィルタ・
+  0次条件機構）完了。`PriorityCondition`/`priority_overrides`・
+  `topological_axis_order`/`axis_dependencies`/`AxisDependencyCycleError`・
+  `check_material_exclusivity`の軸参照除外・`default_axis_weights`/
+  `RoutePreference`のis_published絞り込み・`compute_edge_axis_scores`/
+  `compute_edge_costs_bulk`の依存順評価化を実装、`test_axis_hierarchy.py`新設
+  （16件）でbool材料の0次条件を含め検証。backend全1197件green（既存軸間に参照が
+  無いため現状の合成順・浮動小数点結果は不変）。**残る段階**: 軸置き換え
+  （car_stress軸を内部軸5つ＋公開軸1つへ実再定義、旧`recipe.py`/`traffic.py`の
+  専用レシピコード削除、`axis_admin.py: _check_materials_are_known`の軸参照対応）→
+  フロント表示層の汎用化（orderedフラグによる自動配色、`carStressExpression.ts`置換）→
+  目論見書Artifact更新・docs/architecture.md追従。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
