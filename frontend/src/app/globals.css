@@ -7,6 +7,19 @@
    取り込まずvar(--color-*)をそのまま個別クラスで参照する運用とする。 */
 @import "tailwindcss";
 
+/* T299: components/ui/配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
+   使えるようにする登録。値は下記:rootの--radius-*/--shadow-floatと必ず一致させること
+   (変更時は両方直す)。:root側は移動しない(unlayeredで既存のCSS Modulesが依存しており、
+   動かすことによる予期せぬCascade Layers影響を避けるため)。colorトークンはここに
+   含めない(ダークモードが:root再定義に依存しており、@themeに入れると値が静的に
+   固定されダークモード追従が壊れるため。詳細はdocs/frontend-design-system.md参照)。 */
+@theme {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
