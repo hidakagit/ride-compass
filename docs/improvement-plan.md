@@ -4748,6 +4748,44 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   （`export_openapi.py`再生成→`git diff`クリーンを確認、実行時のINFOログ
   `axes=13 code_only=[] db_only=[]`でT295の差分ログも実データで正常動作を確認）。
 
+### - [ ] T299. Tailwind CSS + Radix UI + components/ui/ のデザイン基盤を新設する 規模M
+
+- 背景: ユーザーから「Tailwind CSS + Radix UI + 自前UIコンポーネント層」をデザイン基盤
+  として導入したいという明示的な要望があった。T252でTailwindはCascade Layers込みで
+  併用導入済み（`@import "tailwindcss"`、スペーシングスケールも既存`--space-*`と数値
+  一致）、`@radix-ui/react-*`もAccordion/Popover/RadioGroup/Toggleの4種が
+  `Disclosure`/`LayerChip`/`FieldLabel`で既に実採用され効果を上げているが、これらを
+  束ねる共通UIコンポーネント層（`components/ui/`）は存在せず、Tailwindユーティリティの
+  実利用はリポジトリ全体でゼロのままだった（T275で採否判断を保留中）。
+- 事前調査（3件のExploreエージェント＋1件のPlanエージェント）で、`components/ui/`が
+  存在しないこと、汎用Buttonが無く各所で素の`<button>`にCSS Modulesクラスを直接当てて
+  いること、カード状コンテナ・チップ/トグル・input系・モーダル系で重複実装があることを
+  定量確認した。
+- 対応方針:
+  - **移行範囲はゼロではなく、定量調査で「本当に同一実装」と確認できた重複7箇所
+    （カード状コンテナ2・純レイアウト3・送信ボタン1・CSS Modulesファイル丸ごと削除1）
+    を実際に移行する**。「基盤だけ作っても効果が見えない」「汎用的な部品で重複実装
+    しているところはある程度置き換えを試してほしい」というユーザーフィードバックを
+    受け、当初のゼロ移行方針から修正した。それ以外の既存CSS Modules・既存コンポーネント
+    は一切変更しない（大規模な一括置換はしない、という当初方針は維持）。
+  - shadcn/ui方式（Radix + Tailwind + `class-variance-authority`(variant管理) +
+    `clsx`/`tailwind-merge`(`cn()`ヘルパー)をコピー&オウン、npmパッケージとしての
+    導入ではない）を採用。定番ライブラリ優先という既存方針と合致する。
+  - 新設プリミティブはButton・Input・Card・Dialog・Checkboxの5種。Select・Tabsは
+    現状利用箇所ゼロのため見送り（YAGNI、実需が生じたら追加）。`LayerChip.tsx`は
+    既に良い設計のRadix Toggleラッパーのため今回は触れず、汎用Chip化も見送る。
+  - Design Tokenはradius(`--radius-sm/md/lg`)とshadow(`--shadow-float`)をTailwindの
+    `@theme`へ追加登録（既存`:root`の値は変更せず、値を一致させたまま意図的に重複させる
+    ——`:root`はunlayeredで既存27ファイルのCSS Modulesが依存しており、動かすことで
+    予期せぬCascade Layers影響を受けるリスクを避けるため）。colorトークンは`@theme`へ
+    統合しない（ダークモード追従が壊れるリスクを避ける、T252の判断を踏襲）。
+  - 詳細な設計判断（各プリミティブのAPI、移行7箇所の内訳と対象外理由、`@theme`の
+    具体的な値）は実装メモ・`docs/frontend-design-system.md`参照。
+- 完了条件: `components/ui/{Button,Input,Card,Dialog,Checkbox}`実装・テスト
+  （vitest+Testing Library、role/aria基準）完了。移行7箇所の実装・既存テストのgreen
+  確認・実画面のBefore/After確認（Playwright）完了。`docs/architecture.md`技術選定表へ
+  追従。`docs/frontend-design-system.md`新設。T275を(b)採用として決着。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
