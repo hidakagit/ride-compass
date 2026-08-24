@@ -1,18 +1,23 @@
 """評価軸の変換ロジックが還元できる4つの汎用テンプレート（改善計画T221 Stage A、T239）。
 
-`docs/decisions/t221-axis-registry.md`の調査で、現行7軸（勾配・向かい風・路面・停止密度・
+`docs/decisions/t221-axis-registry.md`の調査で、旧7軸（勾配・向かい風・路面・停止密度・
 車ストレス・事故密度・夜間）の一次属性→軸別difficulty(0-100)変換は、実質以下の4パターンに
 還元できると判明した。
 
-- **区分線形補間**（`evaluate_breakpoint_linear`）: 勾配・向かい風・停止密度・事故密度が
-  該当。両端でクランプする折れ線補間。
-- **カテゴリ→定数**（`evaluate_categorical`）: 路面（舗装/非舗装）が該当。
+- **区分線形補間**（`evaluate_breakpoint_linear`）: 勾配・向かい風・停止密度・事故密度・
+  車ストレスを支える内部軸の一部（highway基本値・制限速度補正・車線数補正）が該当。
+  両端でクランプする折れ線補間。
+- **カテゴリ→定数**（`evaluate_categorical`）: 路面（舗装/非舗装）、車ストレスを支える
+  内部軸の一部（自転車インフラ補正・指定路線補正・motor_vehicle=no優先確定）が該当。
 - **フラグ加算**（`evaluate_flag_sum`）: 夜間（街灯なし・トンネル）が該当。
-- **レシピ→レベル→区分線形補間**（`evaluate_recipe_then_breakpoint_linear`）: 車ストレスが
-  該当。レベル自体の算出（highway別基準値＋各種タグ補正、`domain/recipe.py: car_closeness`・
-  `domain/traffic.py: _compute_car_stress`）は軸固有のレシピ判定として引き続きそちらが担い、
-  ここでは算出済みレベルを区分線形補間へ渡すだけ（実装は`evaluate_breakpoint_linear`と同一。
-  ADRの命名に合わせて別名として提供する）。
+- **レシピ→レベル→区分線形補間**（`evaluate_recipe_then_breakpoint_linear`）: 導入当時は
+  専用Pythonレシピ（highway別基準値＋各種タグ補正を1関数で算出する車ストレス判定）を
+  想定していたが、改善計画T292でその専用レシピ自体を廃止し、car_stress軸を
+  `domain/axis_definitions.py`の内部軸6つ+公開軸1つの階層構造（区分線形補間・
+  カテゴリ→定数の組み合わせ）へ再設計したため、現在この種別を使う軸は無い
+  （実装自体は`evaluate_breakpoint_linear`のエイリアスとしてそのまま残置。
+  `kind="recipe_then_breakpoint_linear"`という語彙は目論見書の歯止め③
+  [テンプレート4種の線引き]に触れるため、未使用であっても保守的に残す設計判断）。
 
 各関数はスカラー（Python float/bool/int）とnumpy配列の両方を受け付ける。スカラー入力には
 Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
@@ -49,16 +54,32 @@ evaluate_recipe_then_breakpoint_linear = evaluate_breakpoint_linear
 
 
 def evaluate_categorical(value, mapping: dict, default: float | None = None):
-    """カテゴリ値→定数のマッピング。配列入力は要素ごとに`mapping`を適用し、NaN
-    （不明値のプレースホルダ）はそのまま伝播する（`mapping`に一致するキーが無い要素は
+    """カテゴリ値→定数のマッピング。配列入力は要素ごとに`mapping`を適用し、NaN・None
+    （不明値のプレースホルダ、材料により表現が異なる。dtype=object の文字列配列は
+    欠損をNoneで表す）はそのまま伝播する（`mapping`に一致するキーが無い要素は
     `default`、既定Noneなら数値配列の文脈に合わせてNaN）。
+
+    配列入力はキーでソートした`np.searchsorted`（二分探索）で該当インデックスを求める
+    （コードレビュー指摘の修正: 以前はmappingの各キーごとに配列全体を`np.where`で
+    走査するO(要素数×キー数)のループだったが、highway等キー数が多い多値categorical
+    材料でO(要素数×log(キー数))へ改善）。欠損（None）は`keys[0]`の位置へ一時的に
+    差し替えてから検索する必要がある（Noneはstr材料と順序比較できずsearchsorted自体が
+    例外になるため）が、`keys[0]`はmappingの実在キーなので置き換えただけでは
+    「一致した」ことにしてしまう——`missing`マスクを別途保持し、検索結果とは無関係に
+    強制的に不一致（=`default`）にする。
     """
     if isinstance(value, np.ndarray):
         fill = np.nan if default is None else float(default)
-        result = np.full(value.shape, fill, dtype=float)
-        for key, mapped in mapping.items():
-            result = np.where(value == key, float(mapped), result)
-        return result
+        if not mapping:
+            return np.full(value.shape, fill, dtype=float)
+        keys = sorted(mapping.keys())
+        key_scores = np.array([mapping[key] for key in keys], dtype=float)
+        keys_array = np.array(keys, dtype=value.dtype if value.dtype != object else object)
+        missing = value == None  # noqa: E711 (numpy配列の要素ごと比較、`is`では動かない)
+        safe_value = np.where(missing, keys[0], value)
+        idx = np.clip(np.searchsorted(keys_array, safe_value), 0, len(keys) - 1)
+        matched = (keys_array[idx] == safe_value) & ~missing
+        return np.where(matched, key_scores[idx], fill)
     return mapping.get(value, default)
 
 

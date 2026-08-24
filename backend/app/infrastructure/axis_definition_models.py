@@ -41,6 +41,13 @@ class AxisDefinitionRow(Base):
     # アプリ層[domain/axis_definitions.py: AxisDefinition.is_published]の新規作成時の
     # 既定はFalse=下書きが正）。
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    # 改善計画T292: 0次条件（PriorityCondition）のリスト。domain/axis_definitions.py:
+    # AxisDefinition.priority_overridesを`model_dump(mode="json")`したJSON配列
+    # （0018 migrationでNOT NULL DEFAULT '[]'の追加カラムとして導入。既存行は
+    # 全てpriority_overrides=[]のためbackfillは自明）。レビュー指摘で発見: 以前は
+    # このカラム自体が存在せず、DB往復（起動時refresh_axis_definitions・管理API
+    # 書き込み直後の反映）のたびに設定した0次条件が黙って失われていた。
+    priority_overrides: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

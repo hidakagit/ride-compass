@@ -228,6 +228,37 @@ def test_topological_axis_order_raises_on_self_reference():
         topological_axis_order(definitions)
 
 
+def test_topological_axis_order_reflects_in_place_mutation_not_stale_cache():
+    # コードレビュー指摘の修正確認(finding #6): topological_axis_orderはホットパス
+    # 高速化のため結果をメモ化するが、キーはdictのオブジェクト同一性ではなく内容
+    # （各軸のmaterials）から導出する。services/axis_registry_service.py:
+    # refresh_axis_definitionsはAXIS_DEFINITIONS.clear()+update()で同一オブジェクトの
+    # まま中身を差し替えるため、id()ベースの誤ったキャッシュ実装だとこの差し替え後も
+    # 古い順序を返してしまう（再現のため、ここでも同じ手順=同一dictをclear()+update()）。
+    definitions = {"a": _linear_axis("a", "raw_material"), "b": _linear_axis("b", "raw_material")}
+    order_before = topological_axis_order(definitions)
+    assert order_before == ["a", "b"]
+
+    replacement = {"b": _linear_axis("b", "a"), "a": _linear_axis("a", "raw_material")}
+    definitions.clear()
+    definitions.update(replacement)
+
+    order_after = topological_axis_order(definitions)
+    assert order_after == ["a", "b"]
+
+
+def test_topological_axis_order_does_not_cache_cycle_error():
+    # コードレビュー指摘の修正確認: 循環参照はキャッシュしない。軸スタジオでの
+    # 試行錯誤中に一時的な循環を経て正しい定義へ修正した場合、修正後の再評価を
+    # キャッシュに妨げられてはならない。
+    cyclic = {"x": _linear_axis("x", "y"), "y": _linear_axis("y", "x")}
+    with pytest.raises(AxisDependencyCycleError):
+        topological_axis_order(cyclic)
+
+    fixed = {"x": _linear_axis("x", "raw_material"), "y": _linear_axis("y", "x")}
+    assert topological_axis_order(fixed) == ["x", "y"]
+
+
 def test_axis_dependencies_ignores_material_catalog_entries():
     definition = _linear_axis("public_axis", "gradient_percent")
     assert axis_dependencies(definition, known_axis_ids={"gradient", "public_axis"}) == set()

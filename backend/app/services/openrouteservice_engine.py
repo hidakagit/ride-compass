@@ -29,6 +29,7 @@ import asyncio
 from dataclasses import dataclass
 
 from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M, distance_weighted_accident_density
+from app.domain.axis_definitions import car_stress_display_level
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
@@ -387,10 +388,10 @@ class OpenRouteServiceEngine:
                 {**base_axis_weights, "night": night_weight},
             )
             # car_stress（1-5の生値、RouteSegmentDetail.car_stress・route候補集計用）は
-            # 公開軸car_stressのdifficulty(0-100)を逆変換して求める（改善計画T292、
-            # road_graph_engine.pyと同じ導出。旧breakpoints(1,0)-(5,100)の逆）。
+            # 公開軸car_stressのdifficulty(0-100)をcar_stress_display_levelで逆変換して
+            # 求める（改善計画T292、road_graph_engine.pyと共通）。
             car_stress_difficulty = axis_difficulties.axes.get("car_stress")
-            car_stress = round(car_stress_difficulty / 100 * 4 + 1) if car_stress_difficulty is not None else None
+            car_stress = car_stress_display_level(car_stress_difficulty)
 
             segment_coordinates = route_coordinates[indices[i] : indices[i + 1] + 1]
 

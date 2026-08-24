@@ -1,6 +1,12 @@
 import pytest
 
-from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, CategoricalShape, MaterialTerm
+from app.domain.axis_definitions import (
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+    PriorityCondition,
+)
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 # road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
@@ -83,6 +89,29 @@ async def test_upsert_then_list_all_round_trips_categorical_str_keys(road_graph_
     assert isinstance(loaded_shape, CategoricalShape)
     assert loaded_shape.mapping == {"separated": -2.0, "roadway": 1.0}
     assert all(isinstance(key, str) for key in loaded_shape.mapping)
+
+
+async def test_upsert_then_list_all_round_trips_priority_overrides(road_graph_session):
+    # コードレビュー指摘の修正確認: priority_overrides（0次条件）がDB往復で
+    # 失われないこと（以前はカラム自体が無く、DB経由では常に空リストへ戻っていた）。
+    definition = AxisDefinition(
+        axis_id="priority_override_axis",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+        default_weight=0.1,
+        label="テスト軸[priority_override_axis]",
+        description="",
+        category="推定",
+        priority_overrides=[PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)],
+    )
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(definition, sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    assert result["priority_override_axis"].priority_overrides == [
+        PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)
+    ]
 
 
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):

@@ -21,6 +21,7 @@ from app.domain.axis_definitions import (
     AxisShape,
     BreakpointLinearShape,
     CategoricalShape,
+    PriorityCondition,
 )
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.services.axis_registry_service import AxisRegistryAdminService
@@ -88,6 +89,12 @@ class AxisDefinitionFields(BaseModel):
     # AxisRegistryAdminServiceが拒否する（このPayload自体はis_published=falseで送っても
     # 既存が公開済みなら通らない、サービス層のcheck_publish_immutability参照）。
     is_published: bool = False
+    # 改善計画T292: 0次条件（探索除外のハードフィルタとは別の、評価を優先確定する条件。
+    # domain/axis_definitions.py: PriorityCondition参照）。レビュー指摘の修正:
+    # 以前はこのフィールド自体が管理APIのリクエスト/レスポンスに露出しておらず、
+    # DB永続化層（axis_definition_repository.py）にも書き込まれなかったため、
+    # 軸スタジオ経由では設定も参照もできなかった。
+    priority_overrides: list[PriorityCondition] = Field(default_factory=list)
 
 
 class AxisDefinitionPayload(AxisDefinitionFields):
@@ -140,6 +147,25 @@ class AxisDefinitionPayload(AxisDefinitionFields):
                 f"material(s) {mismatched} have the wrong dtype for this shape "
                 f"(expected one of {sorted(expected_dtypes)})"
             )
+        # コードレビュー指摘の修正: 上のdtypeチェックはmaterialのdtype「クラス」
+        # （boolean/categoricalのどちらか）しか見ておらず、CategoricalShape.mapping
+        # の実際のキー型（bool値かstr値か）がそのmaterialのdtypeと一致するかは
+        # 検証していなかった。例えばhighway（dtype="categorical"、値は"residential"
+        # 等の文字列）を参照するCategoricalShapeに{True: 1.0, False: 0.0}という
+        # boolキーのmappingを指定してもここまでの検証は通過してしまい、評価時
+        # evaluate_categoricalがmapping.get("residential", None)で常にNoneを返す
+        # ため、その軸は全Edgeで恒久的に欠損扱いになる（このバリデータ自体が
+        # 防ごうとしていたのと全く同型のバグの再発）。CategoricalShapeに限り、
+        # mappingキーの型とmaterialのdtypeが一致することも検証する。
+        if isinstance(self.shape, CategoricalShape) and is_known_material(self.shape.material):
+            dtype = material_dtype(self.shape.material)
+            key_types = {type(key) for key in self.shape.mapping}
+            expected_key_type = bool if dtype == "boolean" else str
+            if key_types and key_types != {expected_key_type}:
+                raise ValueError(
+                    f"material '{self.shape.material}' has dtype={dtype!r} but mapping keys are "
+                    f"{sorted(t.__name__ for t in key_types)} (expected all {expected_key_type.__name__})"
+                )
         return self
 
 
@@ -158,6 +184,7 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         description=definition.description,
         category=definition.category,
         is_published=definition.is_published,
+        priority_overrides=definition.priority_overrides,
     )
 
 
@@ -191,6 +218,7 @@ async def create_axis_definition(
         description=payload.description,
         category=payload.category,
         is_published=payload.is_published,
+        priority_overrides=payload.priority_overrides,
     )
     try:
         await service.create(definition)
@@ -217,6 +245,7 @@ async def update_axis_definition(
         description=payload.description,
         category=payload.category,
         is_published=payload.is_published,
+        priority_overrides=payload.priority_overrides,
     )
     try:
         await service.update(axis_id, definition)

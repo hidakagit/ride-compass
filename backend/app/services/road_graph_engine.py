@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.domain.accident import distance_weighted_accident_density
+from app.domain.axis_definitions import car_stress_display_level
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
@@ -494,9 +495,9 @@ class RoadGraphEngine:
             # 改善計画T292: car_stress（1-5の生値、将来の色分けモード等での利用に備えて
             # domain/route.py: RouteSegmentDetailが保持するdisplayフィールド）は、専用
             # レシピ（旧car_stress_level）廃止後、公開軸car_stressのdifficulty(0-100)を
-            # 逆変換して求める（旧breakpoints(1,0)-(5,100)の逆）。
+            # car_stress_display_levelで逆変換して求める（openrouteservice_engine.pyと共通）。
             car_stress_difficulty = axis_scores.get("car_stress")
-            car_stress = round(car_stress_difficulty / 100 * 4 + 1) if car_stress_difficulty is not None else None
+            car_stress = car_stress_display_level(car_stress_difficulty)
             weights = preference.weights
             _, composite_difficulty_value = compute_cost_from_axis_scores(
                 edge.distance_m, axis_scores, weights, self._penalty_strength

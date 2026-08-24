@@ -70,7 +70,7 @@ Windows環境では `uvicorn --reload` はリローダー親プロセスとワ�
 - **T218a（Stage 0.5）**: `app/batch/precompute_elevation_attributes.py`（全道路網一括、T10のDEMタイル方式を利用）が事前計算した`elevation_attributes`（average_grade等）を、`prepare`が単純なキー参照で読み探索コストのgradient軸へ組み込む。0次ハードフィルタへ勾配しきい値（`max_average_grade_percent`）も追加した。
 - **T219（Stage 1）**: `GraphService.get_search_materials_for_bbox`が、トポロジ＋材料一式（surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位（`domain/region.py: ROAD_GRAPH_TILE_ZOOM`）でプロセス内メモリへLRUキャッシュする（`infrastructure/graph_material_cache.py`）。**無効化はバージョン管理せずプロセス寿命のみ**（PBF再取込・各precomputeバッチは手動・低頻度操作であり、デプロイのたびにプロセスが再起動される前提。T10のDEMタイルキャッシュと同じ割り切り）。ローカル実測（東京都心4km四方相当）でキャッシュヒット時は約7.2秒→約0.06秒（約100倍）。あわせて`find_nearest_node`（1リクエストにつき最大17回呼ばれる、`prepare`で1回＋`trace_loop`で方位ごとに2回）を、都度の線形探索から`NodeSpatialIndex`（緯度経度グリッドバケット、`domain/routing.py`）を1回だけ構築して使い回す方式へ変更した（外部ライブラリは追加していない）。
 - **T220（Stage 2）**: T219完了後の実測（キャッシュ温、69,216エッジ規模）で「evaluate_graph＋build＋Dijkstra24回」が約5.8秒と目標超過だったため着手。Dijkstra本体をNetworkX（Python実装）からscipy.sparse.csgraph（C実装、`domain/routing.py: SparseRoadGraph`/`build_sparse_graph`/`shortest_path_node_ids_sparse`）へ置換（同一ノード間の並行Edgeは後勝ちで1本化、NetworkX版と同じ挙動）。`_RoadGraphContext.nx_graph`は既存テスト・区間表示ロジック互換のため引き続き構築するが、`trace_loop`の探索本体は`sparse_graph`を使う。あわせて`compute_edge_cost`が毎Edge`preference_to_axis_weights`を再計算していた（pydantic `model_dump`込みで無視できないオーバーヘッド）のを、`evaluate_graph`側で1回だけ計算し渡す形に変更。実測（同条件）で合計約5.8秒→約2.3秒（Dijkstra部分は約2.8秒→約0.08秒）。新規依存: `numpy`・`scipy`。
-- **T239（軸のテンプレート化）→T240（evaluate_graphのnumpyベクトル化）**: T220完了メモが提案した「軸を4テンプレートへ統一してからベクトル化する」の順で実施。T239で`domain/axis_templates.py`を新設し、7軸の変換ロジックが実質「区分線形補間・カテゴリ→定数・フラグ加算・レシピ→レベル→区分線形補間」の4パターンへ還元できることを確認、`domain/difficulty.py`・`domain/night.py`の各`*_difficulty`関数の内部実装をこれらのテンプレート呼び出しへ差し替えた（外部シグネチャ・挙動は不変）。T240で`EvaluationService.evaluate_graph`を、Edge毎に`compute_edge_cost`を呼ぶPythonループから、`domain/evaluation.py: compute_edge_costs_bulk`（抽出フェーズ＝1回のPythonループでnumpy配列へ集約、計算フェーズ＝7軸のdifficulty配列を`*_difficulty_array`関数で求め重み付き合成→costまでPythonループ無しの配列演算）へ切り替えた。**実装中に判明した重要な制約**: Python 3.12以降の組み込み`sum()`はfloat列をNeumaier補償加算（Kahan加算の改良版）で合計するため、単純な逐次`+=`やnumpyの`.sum(axis=1)`では合成difficultyの最終丸め（1桁）がスカラー版の`composite_difficulty`と.X5境界でごく稀に食い違う（実データで確認）。`compute_edge_costs_bulk`はNeumaier加算を配列でまとめて行う`_neumaier_accumulate`でこれを再現し、さらに`np.round`自体の内部誤差（×10→rint→÷10）がPython組み込み`round()`と食い違いうる問題を最終cost/difficultyの丸めのみ`axis_templates.py: round1_array`（要素ごとのPython`round()`）で回避している（軸別スコア単体の丸めは実データで不一致が出なかったため速度を優先し`np.round`のまま）。実データ12万Edge超（東京都心2エリア）でスカラー版との全Edge一致（cost/difficulty/allowed）を確認済み。**実測速度**: 68,120エッジで約1.18秒→約1.02秒、121,800エッジで約2.12秒→約1.83秒（約14%短縮）。抽出フェーズ（車ストレス等のタグ解析、既存の`car_closeness`等をそのまま1回のループで呼ぶ）とpydantic`model_construct`が依然としてEdge数に比例するコストの大半を占めており、「合成計算自体のベクトル化」による短縮効果は当初期待より小さいというのが実測に基づく正直な結論（ボトルネックの所在はcProfileで確認済み）。
+- **T239（軸のテンプレート化）→T240（evaluate_graphのnumpyベクトル化）**: T220完了メモが提案した「軸を4テンプレートへ統一してからベクトル化する」の順で実施。T239で`domain/axis_templates.py`を新設し、7軸の変換ロジックが実質「区分線形補間・カテゴリ→定数・フラグ加算・レシピ→レベル→区分線形補間」の4パターンへ還元できることを確認、`domain/difficulty.py`・`domain/night.py`の各`*_difficulty`関数の内部実装をこれらのテンプレート呼び出しへ差し替えた（外部シグネチャ・挙動は不変）。T240で`EvaluationService.evaluate_graph`を、Edge毎に`compute_edge_cost`を呼ぶPythonループから、`domain/evaluation.py: compute_edge_costs_bulk`（抽出フェーズ＝1回のPythonループでnumpy配列へ集約、計算フェーズ＝7軸のdifficulty配列を`*_difficulty_array`関数で求め重み付き合成→costまでPythonループ無しの配列演算）へ切り替えた。**実装中に判明した重要な制約**: Python 3.12以降の組み込み`sum()`はfloat列をNeumaier補償加算（Kahan加算の改良版）で合計するため、単純な逐次`+=`やnumpyの`.sum(axis=1)`では合成difficultyの最終丸め（1桁）がスカラー版の`composite_difficulty`と.X5境界でごく稀に食い違う（実データで確認）。`compute_edge_costs_bulk`はNeumaier加算を配列でまとめて行う`_neumaier_accumulate`でこれを再現し、さらに`np.round`自体の内部誤差（×10→rint→÷10）がPython組み込み`round()`と食い違いうる問題を最終cost/difficultyの丸めのみ`axis_templates.py: round1_array`（要素ごとのPython`round()`）で回避している（軸別スコア単体の丸めは実データで不一致が出なかったため速度を優先し`np.round`のまま）。実データ12万Edge超（東京都心2エリア）でスカラー版との全Edge一致（cost/difficulty/allowed）を確認済み。**実測速度**: 68,120エッジで約1.18秒→約1.02秒、121,800エッジで約2.12秒→約1.83秒（約14%短縮）。抽出フェーズ（車ストレス等のタグ解析）とpydantic`model_construct`が依然としてEdge数に比例するコストの大半を占めており、「合成計算自体のベクトル化」による短縮効果は当初期待より小さいというのが実測に基づく正直な結論（ボトルネックの所在はcProfileで確認済み）。
 - **T11**: road_graphエンジンが返す`segments`はEdge単位（交差点間、1候補あたり150〜230件、
   30km級）のままではAPIペイロード・フロント描画コストが嵩むため、`domain/route.py:
   aggregate_segments_into_bins`で約500m単位（`SEGMENT_BIN_DISTANCE_KM`）へ集約してから
@@ -363,8 +363,8 @@ RideCompass/
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
-        recipe.py                      ✅ 改善計画T122: レシピ付き軸（traffic.py、かつてはsafety.pyとも共有していたがT148で削除）が使う判定プリミティブ。clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/tag_value_is/validate_threshold_order、材料タグ正規化（parse_lanes/parse_maxspeed/cycleway_values/cycleway_class、traffic.pyから移設）
-        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/car_stress_level（highway,tags,is_designated、改善計画T150で「交通ストレス」から改称）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。判定プリミティブはrecipe.pyへ切り出し済み（改善計画T122）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル
+        recipe.py                      ✅ 改善計画T122: タグ由来の材料タグを正規化する純関数群（parse_lanes/parse_maxspeed/cycleway_values/cycleway_class/tag_value_is）。旧`RoadSuitabilityRecipe`等の専用Pythonレシピ採点構造（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order）は改善計画T292でcar_stress軸をAXIS_DEFINITIONSの内部軸階層へ再設計した際に削除済み
+        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure（改善計画T150で「交通ストレス」から改称）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
@@ -426,7 +426,7 @@ RideCompass/
         import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
         import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
         match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
-    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ measure_axis_stats.py（改善計画T124、dev DBに対する軸ペア相関・クランプ前生値分布・材料タグの補正発火率・highway階級別事故密度の計測。相関・丸め損失の実測方法はT121の使い捨て版を常設化したもの）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）/ analyze_jartic_calibration.py（改善計画T53、collect_jartic.pyの収集結果を最寄りosm_raw_waysへ空間マッチしcar_stress_level（改善計画T150で「交通ストレス」から改称）との突き合わせを集計。相関計算はmeasure_axis_stats.pyの純関数を再利用）
+    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ measure_axis_stats.py（改善計画T124、dev DBに対する軸ペア相関・クランプ前生値分布・材料タグの補正発火率・highway階級別事故密度の計測。相関・丸め損失の実測方法はT121の使い捨て版を常設化したもの）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）/ analyze_jartic_calibration.py（改善計画T53、collect_jartic.pyの収集結果を最寄りosm_raw_waysへ空間マッチし車ストレス軸の値（改善計画T150で「交通ストレス」から改称、T292でAXIS_DEFINITIONSの軸階層へ再設計済み）との突き合わせを集計。相関計算はmeasure_axis_stats.pyの純関数を再利用）
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
@@ -612,27 +612,18 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
   "scoring_weights": { "distance_weight":0.1, "elevation_weight":0.2, "wind_weight":0.3, "road_weight":0.4 },
   "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
     "car_stress":0.20, "accident":0.08, "night":0.0 },
-  "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
-  "road_suitability_recipe": { "base_by_highway": { "cycleway":1, "living_street":1, "residential":2,
-    "unclassified":2, "track":2, "tertiary":3, "tertiary_link":3, "secondary":3, "secondary_link":3,
-    "primary":4, "primary_link":4, "trunk":4, "trunk_link":4 }, "cycleway_track_adjustment":-2,
-    "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
-  "motor_vehicle_density_recipe": { "maxspeed_low_threshold":30, "maxspeed_low_adjustment":-1,
-    "maxspeed_high_threshold":60, "maxspeed_high_adjustment":1, "lanes_high_threshold":4,
-    "lanes_high_adjustment":1, "designation_adjustment":1 },
+  "penalty_strength": 1.0, "max_average_grade_percent": null,
   "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":false } }
-  # 省略時はscoring.yaml / route_preference.yaml / car_stress_recipe.yaml /
-  # road_suitability_recipe.yaml / motor_vehicle_density_recipe.yamlの既定値。指定する場合は
-  # いずれも全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ。
-  # route_preference・car_stress_recipe・road_suitability_recipe・
-  # motor_vehicle_density_recipe・hard_filtersは全フィールド必須の別モデルで、一部だけの
-  # 指定は422になる。base_by_highwayも同様に全highwayキーの明示が必要）。
+  # 省略時はscoring.yaml / route_preference.yamlの既定値。指定する場合はいずれも
+  # 全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ。
+  # route_preference・hard_filtersは全フィールド必須の別モデルで、一部だけの指定は422になる。
+  # route_preferenceのキーは公開軸のaxis_id集合（改善計画T221 Stage B・T292で軸ごとの
+  # 固定フィールドからaxis_idキーの辞書へ一般化済み。AXIS_DEFINITIONSのis_published=True
+  # の軸のみが対象で、car_stressを支える内部軸は含まない。7章参照）。
   # scoring_weightsの重みは有効指標の重み和で正規化されるため合計1.0でなくてよい。全て0にすると
-  # total_score=nullになる（RouteScorer参照）。car_stress_recipeは軸固有の
-  # 変換式（少車線緩和）の上書き、road_suitability_recipe/
-  # motor_vehicle_density_recipeは車ストレスが参照する「車との近さ」(N2)の材料の上書き
-  # （改善計画: 車との近さ材料の共有元化）で、
-  # route_preferenceのcar_stress_weight（軸間の重み）とは別階層（7章参照）。
+  # total_score=nullになる（RouteScorer参照）。penalty_strength（改善計画T218・T12 ADR原則1）は
+  # コスト式の割増率の強さ、max_average_grade_percent（改善計画T218a・T12 ADR原則5）は
+  # 0次ハードフィルタの勾配しきい値で、いずれもroad_graphエンジンのみに効く。
   # hard_filters（改善計画T266）は0次ハードフィルタ（`no_bicycle`/`motorway`/`trunk`、
   # domain/evaluation.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
   # 「2次の重み」とは異なり、Falseにしたフィルタに該当する道路はコストを上げるのではなく
@@ -681,19 +672,14 @@ Response 200:
   ],
   "engine": "openrouteservice",
   "conditions": {   /* この生成に実際に適用された条件のエコー（実験の記録・再現用。研究IF改善 §10-6）。
-                       重みは上書き値またはYAML既定値のうち実際に使われた方。7軸の重み・4レシピとも
+                       重みは上書き値またはYAML既定値のうち実際に使われた方。route_preferenceも
                        常にこの形で全フィールドが埋まって返る（GenerationConditions、上のRequest
                        部分指定不可の説明と対応） */
     "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5,
     "scoring_weights": { "distance_weight":0.30, "elevation_weight":0.15, "wind_weight":0.30, "road_weight":0.25 },
     "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
       "car_stress":0.20, "accident":0.08, "night":0.0 },
-    "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
-    "road_suitability_recipe": { "base_by_highway": { "...": "13highwayキー全件（略）" },
-      "cycleway_track_adjustment":-2, "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
-    "motor_vehicle_density_recipe": { "maxspeed_low_threshold":30, "maxspeed_low_adjustment":-1,
-      "maxspeed_high_threshold":60, "maxspeed_high_adjustment":1, "lanes_high_threshold":4,
-      "lanes_high_adjustment":1, "designation_adjustment":1 },
+    "penalty_strength": 1.0, "max_average_grade_percent": null,
     "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":true },
     "generated_at": "2026-08-15T14:30:00+09:00"
   }
@@ -763,9 +749,10 @@ Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリ
   （P0/P1/T51/T74/T90/車ストレスレシピ外出し基盤/T145b、現行タイル世代v12。7章参照）プロパティを持つ。
   車ストレスの最終値（1-5）はタイルへ焼き込まず、
   フロントエンド（`carStressExpression.ts`、MapLibre expression）と
-  ルート採点（`domain/traffic.py: car_stress_breakdown`）がそれぞれ材料タグから計算する
-  （7章参照）。`osm_way_id`は表示用ではなく、
-  区間クリック時の車ストレス内訳取得（`POST /api/region/car-stress-breakdown`）が
+  ルート採点（改善計画T292: `domain/axis_definitions.py`のAXIS_DEFINITIONS、内部軸5つ+
+  公開軸car_stressの階層構造。旧`domain/traffic.py: car_stress_breakdown`は廃止）が
+  それぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
+  区間クリック時の軸別内訳取得（`POST /api/region/axis-inspector`）が
   クリックされたフィーチャーを曖昧さ無く引き直すための識別子（T90）
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
@@ -782,20 +769,16 @@ GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計�
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`accidents`。各地物（Point）は`involves_bicycle`（自転車関連か）・`fatal`（死亡事故か）プロパティを持つ
 Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`accident_tile_max_concurrent`で別枠）
 
-POST /api/region/car-stress-breakdown   # 車ストレスの区間別判定内訳（T90）。クリックされた道路（road-surface-tilesが焼き込む`osm_way_id`）について、`car_stress_breakdown`が計算に使ったベース値・各補正・最終値を返す
-Request: `{ "osm_way_id": number, "car_stress_recipe"?: CarStressRecipeOverride }`。
-  `car_stress_recipe`省略時は既定レシピ（`domain/traffic.py: DEFAULT_CAR_STRESS_RECIPE`）。
-  GETでなくPOST+JSONボディなのは、レシピ上書きという複雑なオブジェクトをクエリパラメータで
-  渡すのが不自然なため（車ストレスレシピ外出し基盤、`/api/routes/generate`と同じ形に統一）
-Response 200: `CarStressBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adjustment`/`lanes_adjustment`/`designation_adjustment`/`motor_vehicle_no_override`/`level`）。該当wayが存在しない・highwayが判定基準に未登録・DBなし構成の場合はnullまたはlevel=null
+POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコアだけの内訳→参考合成コストを返す
+Request: `{ "osm_way_id": number }`。GETでなくPOST+JSONボディなのは、
+  `/api/routes/generate`と同じ形に統一しているため（改善計画T292: かつての
+  レシピ上書きパラメータ（旧`car_stress_recipe`/`road_suitability_recipe`/
+  `motor_vehicle_density_recipe`）は、専用Pythonレシピの廃止（`/api/region/car-stress-breakdown`も
+  本エンドポイントへ統合・廃止）に伴い削除した）
+Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
+  gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）。該当wayが存在しない場合はnull
 Response 422（osm_way_idが整数でない場合）
 Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
-
-POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコアだけの内訳→参考合成コストを返す
-Request: `{ "osm_way_id": number, "car_stress_recipe"?, "road_suitability_recipe"?, "motor_vehicle_density_recipe"? }`（car-stress-breakdownと同じ「車との近さ」(N2)材料の上書き）
-Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
-  gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）
-Response 422/429: car-stress-breakdownと同じ規約
 
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送
@@ -945,8 +928,9 @@ interface RouteGenerateRequest {
   distance_tolerance_km: number;
   route_type: "loop";
   scoring_weights?: ScoringWeights;          // 評価重みの上書き（研究用・省略可、§10-1）
-  route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み）
-  car_stress_recipe?: CarStressRecipeOverride; // 同上（車ストレス軸の中身、7章参照）
+  route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み、axis_idキーの辞書。改善計画T292でレシピ上書きは廃止）
+  penalty_strength?: number;         // コスト式の割増率の強さ（改善計画T218・T12 ADR原則1、省略時1.0）
+  max_average_grade_percent?: number | null; // 0次ハードフィルタの勾配しきい値（改善計画T218a・T12 ADR原則5、省略時は除外なし）
   hard_filters?: HardFilterOverride; // 0次ハードフィルタの個別ON/OFF（改善計画T266）。
     // 一般向けルート設定画面（frontend/src/components/RouteSettingsPanel、改善計画T267）が
     // 常時操作する（省略時と同じ既定値を常に明示送信するため実質的に常に指定される）
@@ -981,7 +965,8 @@ scoring.yaml（total_score）には含めない（stop_weightと同じ
 スコープ判断、後述）。
 
 自転車インフラは改善計画T138（評価システムの層構造再設計）で独立軸（`infra_weight`）を
-廃止し車ストレス側へ統合済み（9軸→8軸。`car_closeness()`のcycleway補正が既に
+廃止し車ストレス側へ統合済み（9軸→8軸。当時の車ストレス判定（旧`car_closeness()`、
+改善計画T292で内部軸`car_stress_bicycle_infra_adjustment`へ再設計）のcycleway補正が既に
 自転車インフラの情報を反映しているため、独立に同じ情報を二重に持たない設計）。
 生値（`bicycle_infra`分類）・ルート集約統計（`bicycle_infra_score`、専用インフラ区間の
 距離加重率%）自体は一次属性の表示用データとして引き続き保持する。
@@ -994,8 +979,7 @@ maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側
 `domain/safety.py`・`safety_recipe.yaml`・関連API・地図の安全度レイヤーは表示用途
 （研究モードの内訳確認等）として一時的に残置していたが、本番投入前で移行リスクが
 無いことを踏まえ、改善計画T148で削除した（跡地はrecipe.pyの判定プリミティブ・
-`lit`タイルプロパティ・car_closeness()材料等、車ストレス・night軸に転用済みのため
-そのまま残る）。
+`lit`タイルプロパティ等、車ストレス・night軸に転用済みのためそのまま残る）。
 
 続く改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）で、交差点密度
 （旧`intersection_weight`）の独立軸を廃止し停止密度側へ統合した。`domain/difficulty.py:
@@ -1018,7 +1002,7 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
 | 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
 | 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
+| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（改善計画T292で`domain/axis_definitions.py`の内部軸5つ+公開軸1つの階層構造へ再設計。T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
 | 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
 
@@ -1350,36 +1334,33 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
   traffic_signals/crossing/stop/give_way/level_crossingへ分類、`STOP_POI_MATCH_MAX_DISTANCE_M
   =15m`でEdge/サンプル点へ空間マッチ）。集約は`distance_weighted_stop_density`
   （合計count÷合計distance_km）。
-- **車ストレス**（改善計画T150で「交通ストレス」から改称）: `car_stress_breakdown(highway, tags, is_designated, recipe)`がhighway
-  基本値（既定は`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`、T130で共有材料として
-  切り出し済み、かつては安全度とも共有していたが安全度軸自体はT148で削除）に
-  自転車専用帯・制限速度・車線数・T51指定
-  路線該当（後述、+1補正）を加味した1-5の整数。未知highwayは評価対象外（None）。
-  `car_stress_level`は`.level`だけを返す薄いラッパー。判定基準のうち軸固有の部分
-  （対面通行の少車線道路への緩和）は`domain/traffic.py: CarStressRecipe`という「レシピ」に
-  切り出してあり（車ストレスレシピ外出し基盤）、`recipe`省略時は既定レシピ
-  （`DEFAULT_CAR_STRESS_RECIPE`、`car_stress_recipe.yaml`と同値）を使う。ルート採点は
-  `/api/routes/generate`のリクエストで`route_preference`と同じ形で上書き可能（研究モード用、
-  §10-1と同じ設計）。地図表示は最終値をタイルへ焼き込まず、材料タグ（後述）だけを焼き込んで
-  フロントエンド側（`frontend/src/components/Map/carStressExpression.ts`、MapLibre
-  expressionとして同じレシピを再現）で計算する。最終値を計算済みでタイル（全ユーザー共有
-  キャッシュ）へ焼き込む従来方式では、レシピを変えるたびに世界中のタイルキャッシュを
-  作り直す必要があった（T92/T93）ため、材料タグとレシピを分離した。
-  **調整UI**（改善計画: 車ストレスレシピ調整UIパネル、T107の次ラウンド）:
-  `frontend/src/components/CarStressRecipePanel/CarStressRecipePanel.tsx`が
-  研究モード限定・`WeightPanel`（評価重みの上書き）とは独立したトグルでレシピの項目
-  （T130で道路適正・自動車密度へ大部分が分離済みのため、現在は少車線道路への緩和2項目
-  のみ）を編集できる
-  （独立トグルにした理由: レシピは上書きすると地図の色分けへ即座に反映されるが、
-  重みは次回のルート生成まで反映されないという挙動差があるため）。上書き中は
-  `MapView.tsx`が車ストレスレイヤーの`line-color`（`setPaintProperty`）と凡例による
-  絞り込み（`setStaticOverlayFilters`、`buildCarStressLegend`で該当軸だけ動的に
-  組み立て直す）の両方をライブ更新し、区間クリックの内訳ポップアップ・次回のルート生成
-  リクエストにも同じレシピを渡す（`page.tsx`が単一のstateを両方へ配線）。
+- **車ストレス**（改善計画T150で「交通ストレス」から改称）: 改善計画T292で専用Python
+  レシピ（旧`car_stress_breakdown`/`CarStressRecipe`）を廃止し、`domain/axis_definitions.py:
+  AXIS_DEFINITIONS`の宣言的な軸階層で再現している。公開軸`car_stress`（`BreakpointLinearShape`、
+  breakpoints `(1,0)-(5,100)`）が非公開の内部軸6つを単純合算する構成: highway基本値
+  （`car_stress_highway_base`、必須。値は旧`ROAD_SUITABILITY_BASE_BY_HIGHWAY`と同一の12区分
+  1-4）＋自転車インフラ補正（`car_stress_bicycle_infra_adjustment`、`bicycle_infra`の6値
+  ベース、T291で承認済みのスコアを流用）＋制限速度補正（`car_stress_maxspeed_adjustment`、
+  低速緩和-1/高速+1）＋車線数補正（`car_stress_lanes_adjustment`、少車線緩和-1/多車線+1）＋
+  T51指定路線該当補正（`car_stress_designation_adjustment`、+1）＋motor_vehicle=no優先確定
+  （`car_stress_motor_vehicle_no_adjustment`、他の内部軸の取りうる最大合計を確実に下回る
+  固定マイナス項-1000を加算し、breakpointsのクランプで必ず最良値0へ張り付かせる。highway
+  未登録の場合はhighway基本値がrequiredのため軸全体が未評価のまま=旧ロジックと一致）。
+  未知highwayは評価対象外（None）。表示用の1-5生値（`RouteSegmentDetail.car_stress`）は
+  公開軸`car_stress`のdifficulty(0-100)を`domain/axis_definitions.py:
+  car_stress_display_level`で逆変換して求める。地図表示は最終値をタイルへ焼き込まず、
+  材料タグ（後述）だけを焼き込んでフロントエンド側（`frontend/src/components/Map/
+  carStressExpression.ts`、MapLibre expression）で計算する。最終値を計算済みでタイル
+  （全ユーザー共有キャッシュ）へ焼き込む従来方式では、判定基準を変えるたびに世界中の
+  タイルキャッシュを作り直す必要があった（T92/T93）ため、材料タグと判定基準を分離した。
+  **調整UI**: 研究モード用のレシピ上書きAPI（旧`car_stress_recipe`等のリクエストフィールド）は
+  T292で廃止した。`frontend/src/components/CarStressRecipePanel/CarStressRecipePanel.tsx`
+  （旧レシピUI）はこの廃止に未追従（フロント側の移行は別セッションで対応予定）。
 - **自転車インフラ**: `classify_bicycle_infrastructure`がseparated/lane/shared_busway/
   shared_pedestrian/roadway/prohibited/unknownの7値に分類（優先順位あり）。改善計画T138で
-  難易度への寄与は独立軸を持たず車ストレス側（`car_closeness()`のcycleway補正）へ
-  一本化済み。この分類自体（`RouteSegmentDetail.bicycle_infra`の生値、
+  難易度への寄与は独立軸を持たず車ストレス側（内部軸`car_stress_bicycle_infra_adjustment`、
+  T291でスコア精密化・T292で内部軸へ再定義）へ一本化済み。この分類自体
+  （`RouteSegmentDetail.bicycle_infra`の生値、
   `RouteCandidate.bicycle_infra_score`のルート集約統計）は一次属性の表示用データとして
   引き続き独立に保持する（地図の「自転車インフラ」レイヤー・研究インターフェースの
   統計表示はこちらを参照する）。
@@ -1395,8 +1376,9 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 `get_intersection_counts`/`get_nearest_intersection_counts`）で提供し、`get_*`＝Edge集合を
 渡してEdge単位（RoadGraphEngine）、`get_nearest_*`＝サンプル点列を渡してKNN空間マッチ
 （OpenRouteServiceEngine）という対で揃えている。`get_way_tags_by_osm_way_id`（T90、
-osm_way_id完全一致の1行取得）はこの対に属さない別系統で、区間別車ストレス内訳API
-（`POST /api/region/car-stress-breakdown`）専用。地図表示は同じ属性を`road-surface-tiles`
+osm_way_id完全一致の1行取得）はこの対に属さない別系統で、区間インスペクタAPI
+（`POST /api/region/axis-inspector`、旧`car-stress-breakdown`は改善計画T292で本エンドポイント
+へ統合・廃止）専用。地図表示は同じ属性を`road-surface-tiles`
 （highway・surface同様プロパティとして焼き込み。車ストレス・自転車インフラ）と、点データの
 `poi-tiles`（停止要因・交差点密度、後述）で提供する。
 
@@ -1460,7 +1442,8 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 評価粒度もedge単位any-matchからway単位ratio-matchへ統一されている。
 
 該当区間は新しい評価軸を増やさず、**車ストレスへの+1補正のみ**として組み込む
-（`car_stress_breakdown`の`designation_adjustment`、大型車交通の代理指標）。
+（内部軸`car_stress_designation_adjustment`、改善計画T292でAXIS_DEFINITIONSへ再設計済み。
+大型車交通の代理指標）。
 `AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合。呼び出し時点で
 `road_edges`は構築済みのため、`road_edges.osm_way_id`経由で`designation_attributes`へJOINする）と
 `get_nearest_way_tags`が返す3要素目`is_designated`（OpenRouteServiceEngine、highway・tagsと
@@ -1682,10 +1665,10 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
 
 道路をクリックした際に「一次属性→取得可能な軸のみのスコア→参考合成コスト」を表示する
 機能。`POST /api/region/axis-inspector`（§4参照）→`RegionService.get_axis_inspector`
-→`domain/evaluation.py: axis_inspector_breakdown`（純関数）という、既存の車ストレス内訳
-ボタン（`POST /api/region/car-stress-breakdown`）と同型の「クリック時にサーバーへ1回
-問い合わせ」パターンを踏襲する（クライアント側での難易度式再実装はドリフトリスクがある
-ため見送り）。
+→`domain/evaluation.py: axis_inspector_breakdown`（純関数）という「クリック時にサーバーへ
+1回問い合わせ」パターンを採る（クライアント側での難易度式再実装はドリフトリスクがある
+ため見送り。改善計画T292で本エンドポイントへ統合・廃止された旧車ストレス内訳ボタン
+`POST /api/region/car-stress-breakdown`も同じパターンだった）。
 
 `way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
 その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・

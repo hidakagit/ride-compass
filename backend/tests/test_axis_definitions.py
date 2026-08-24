@@ -6,7 +6,9 @@ from app.domain.axis_definitions import (
     AxisMaterialConflictError,
     AxisPublishedImmutableError,
     BreakpointLinearShape,
+    CategoricalShape,
     MaterialTerm,
+    car_stress_display_level,
     check_material_exclusivity,
     check_publish_immutability,
 )
@@ -94,3 +96,73 @@ def test_check_publish_immutability_rejects_published():
 
     assert exc_info.value.axis_id == "published_axis"
     assert exc_info.value.action == "deleted"
+
+
+# --- car_stress_motor_vehicle_no_adjustmentの-1000固定マイナス項（改善計画T292） ---
+
+
+def _axis_max_abs_output(definition: AxisDefinition) -> float:
+    """1軸が取りうる出力の絶対値の最大（car_stressのBreakpointLinear合成へ加算する
+    「点数」としての最大寄与）。car_stress内部軸はCategoricalShapeとBreakpointLinearShapeの
+    どちらかのため、この2種類だけを扱う（新しい種類の内部軸が増えたら、このテストの
+    メンテナンス時に対応を追加する必要があることを示すため、既知の2種類以外は
+    AssertionErrorで明示的に落とす）。
+    """
+    shape = definition.shape
+    if isinstance(shape, CategoricalShape):
+        return max(abs(v) for v in shape.mapping.values())
+    if isinstance(shape, BreakpointLinearShape):
+        return max(abs(y) for _, y in shape.breakpoints)
+    raise AssertionError(f"car_stress内部軸に想定外のshape種別: {type(shape).__name__}")
+
+
+def test_car_stress_motor_vehicle_no_adjustment_dominates_other_internal_axes():
+    # コードレビュー指摘の修正確認(finding #4): car_stress_motor_vehicle_no_adjustmentの
+    # -1000は「他の全内部軸(motor_vehicle_no補正自身を除く)が同時に最大値を取っても
+    # 上回れない」という安全マージンの上で成り立つ設計（axis_definitions.pyの
+    # car_stress_motor_vehicle_no_adjustment定義直前のコメント参照）。この不変条件を
+    # コード側で検証せず定数だけ変更すると、他の内部軸の点数レンジ次第で
+    # motor_vehicle=noの「必ず最良値へ張り付く」保証が黙って壊れる（旧ロジックとの
+    # 不一致が再発する）ため、将来の軸編集を検知する回帰テストとして固定する。
+    motor_vehicle_no_axis = AXIS_DEFINITIONS["car_stress_motor_vehicle_no_adjustment"]
+    assert isinstance(motor_vehicle_no_axis.shape, CategoricalShape)
+    guard_value = motor_vehicle_no_axis.shape.mapping[True]
+
+    car_stress = AXIS_DEFINITIONS["car_stress"]
+    assert isinstance(car_stress.shape, BreakpointLinearShape)
+    other_axis_ids = [
+        term.material
+        for term in car_stress.shape.terms
+        if term.material != "car_stress_motor_vehicle_no_adjustment"
+    ]
+    max_other_total = sum(_axis_max_abs_output(AXIS_DEFINITIONS[axis_id]) for axis_id in other_axis_ids)
+
+    assert guard_value < 0
+    assert abs(guard_value) > max_other_total
+
+
+# --- car_stress_display_level（改善計画T292のコードレビュー指摘の修正、finding #9/#10） ---
+
+
+def test_car_stress_display_level_returns_none_for_none():
+    assert car_stress_display_level(None) is None
+
+
+def test_car_stress_display_level_endpoints_match_breakpoints():
+    # car_stress軸のbreakpoints((1.0, 0.0), (5.0, 100.0))の逆変換であることの確認。
+    assert car_stress_display_level(0.0) == 1
+    assert car_stress_display_level(100.0) == 5
+
+
+def test_car_stress_display_level_rounds_half_up_not_banker_rounding():
+    # コードレビュー指摘の修正確認: 組み込みround()は偶数丸め(banker's rounding)のため、
+    # difficulty=37.5(level=2.5)はround()だと2、difficulty=62.5(level=3.5)は4という
+    # 非対称な結果になっていた。四捨五入(0.5は常に切り上げ)であればどちらもlevel側の
+    # 整数部+1で統一される。
+    assert car_stress_display_level(37.5) == 3
+    assert car_stress_display_level(62.5) == 4
+
+
+def test_car_stress_display_level_clamps_out_of_range_difficulty():
+    assert car_stress_display_level(-10.0) == 1
+    assert car_stress_display_level(110.0) == 5

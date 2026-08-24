@@ -11,11 +11,7 @@
 
 from typing import Mapping, NamedTuple
 
-from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
-    evaluate_axis_scalar,
-    topological_axis_order,
-)
+from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_scalar, evaluate_axis_scalar
 
 
 def gradient_difficulty(gradient_percent: float | None) -> float | None:
@@ -103,19 +99,12 @@ def evaluate_axis_difficulties(
 
     改善計画T292: 軸が他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
     階層構造）ため、依存先を先に評価し結果をmaterialsへ混ぜ込みながら進める
-    （domain/evaluation.py: compute_edge_axis_scoresと同じ依存順評価）。内部軸
-    （is_published=False）は実装詳細のため、返り値のaxesには含めない
-    （compute_edge_axis_scoresと同じ絞り込み）。
+    （`domain/axis_definitions.py: evaluate_axes_scalar`が
+    `compute_edge_axis_scores`/`axis_inspector_breakdown`[domain/evaluation.py]と
+    共有する実装）。内部軸（is_published=False）は実装詳細のため、返り値のaxesには
+    含めない。
     """
-    axes: dict[str, float | None] = {}
-    materials_with_axes: dict[str, object] = dict(materials)
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        definition = AXIS_DEFINITIONS[axis_id]
-        value = evaluate_axis_scalar(definition, materials_with_axes)
-        if definition.is_published:
-            axes[axis_id] = value
-        if value is not None:
-            materials_with_axes[axis_id] = value
+    axes, _ = evaluate_axes_scalar(materials)
     composite = composite_difficulty(
         [(axes[axis_id], weights.get(axis_id, 0.0)) for axis_id in axes]
     )

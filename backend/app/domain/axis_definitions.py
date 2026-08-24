@@ -30,6 +30,7 @@
 実データでの安全性確認はdomain/difficulty.pyの配列版コメント（T240）参照）。
 """
 
+import math
 from typing import Annotated, Literal, Mapping, Union
 
 import numpy as np
@@ -566,13 +567,40 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
     return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
 
 
+_TOPOLOGICAL_ORDER_CACHE_MAX_SIZE = 64
+_topological_order_cache: dict[tuple[tuple[str, tuple[str, ...]], ...], list[str]] = {}
+
+
+def _topological_axis_order_cache_key(
+    definitions: dict[str, AxisDefinition],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return tuple((axis_id, tuple(definition.materials)) for axis_id, definition in definitions.items())
+
+
 def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """軸を「依存先（参照される軸）が先」の順序に並べ替える（改善計画T292、
     深さ優先探索によるトポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
     送出する。依存を持たない軸同士の相対順序は`definitions`の挿入順を保つ（既存の
     Neumaier加算のビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
     計算自体の再現性のため安定ソートにする）。
+
+    コードレビュー指摘の修正: `compute_edge_axis_scores`等がEdge単位（1ルート候補あたり
+    最大数百回）で呼ぶホットパスのため、結果をプロセス内メモリでメモ化する。キーは
+    各軸の`materials`（依存関係を決める唯一の入力）から導出した内容ベースの値であり、
+    `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`refresh_axis_definitions`
+    [services/axis_registry_service.py]が`AXIS_DEFINITIONS.clear()`+`update()`で同一
+    オブジェクトのまま中身だけ差し替えるため、オブジェクトidベースのキーだと差し替え後も
+    古いキャッシュを誤って返しうる）。循環参照（`AxisDependencyCycleError`）はキャッシュ
+    しない（軸スタジオでの試行錯誤中に一時的な循環を経て修正された場合の再評価を妨げない
+    ため）。キャッシュは単純なFIFOで上限を設け、無制限な増大を避ける
+    （`AxisRegistryAdminService`は呼び出しのたびに新しい`dict`を作るため、通常運用では
+    ほぼ`AXIS_DEFINITIONS`本体のキーだけがヒットし続ける）。
     """
+    cache_key = _topological_axis_order_cache_key(definitions)
+    cached = _topological_order_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     known_axis_ids = set(definitions.keys())
     order: list[str] = []
     visited: dict[str, int] = {}  # 0=visiting, 1=done
@@ -591,6 +619,10 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
     for axis_id in definitions:
         visit(axis_id, [])
+
+    if len(_topological_order_cache) >= _TOPOLOGICAL_ORDER_CACHE_MAX_SIZE:
+        _topological_order_cache.pop(next(iter(_topological_order_cache)))
+    _topological_order_cache[cache_key] = order
     return order
 
 
@@ -605,6 +637,28 @@ def default_axis_weights() -> dict[str, float]:
         for axis_id, definition in AXIS_DEFINITIONS.items()
         if definition.is_published
     }
+
+
+def car_stress_display_level(difficulty: float | None) -> int | None:
+    """car_stress軸のdifficulty(0-100)を表示用の1-5生値へ逆変換する
+    （RouteSegmentDetail.car_stress、road_graph_engine.py/openrouteservice_engine.pyが
+    共通で使う。改善計画T292のコードレビュー指摘の修正: 逆変換式が両エンジンへ
+    (level-1)/4*100の逆算として重複ハードコードされていたのを1箇所へ集約）。
+
+    breakpointsをここへ再度ハードコードせず`AXIS_DEFINITIONS["car_stress"]`から動的に
+    読むため、旧clamp_level(.,1,5)相当のこの軸のbreakpointsが将来変わっても追従不要。
+    Python組み込みround()は偶数への銀行丸め（例: difficulty=37.5だとlevel=2.5→2に丸まり、
+    difficulty=62.5だとlevel=3.5→4に丸まるという非対称な挙動）のため、四捨五入
+    （0.5は常に切り上げ）で境界を一貫させるmath.floor(x+0.5)を使う。
+    """
+    if difficulty is None:
+        return None
+    shape = AXIS_DEFINITIONS["car_stress"].shape
+    assert isinstance(shape, BreakpointLinearShape)
+    (x0, y0), (x1, y1) = shape.breakpoints[0], shape.breakpoints[-1]
+    clamped = min(max(difficulty, y0), y1)
+    level = x0 + (clamped - y0) / (y1 - y0) * (x1 - x0)
+    return math.floor(level + 0.5)
 
 
 def _priority_override_matches_scalar(value: object, equals: str) -> bool:
@@ -665,6 +719,33 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
     return evaluate_flag_sum(flag_values, cap=shape.cap)
 
 
+def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, float | None], dict[str, object]]:
+    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価する共通ループ
+    （コードレビュー指摘の修正: 同じ「`topological_axis_order`で依存順に並べ、
+    `evaluate_axis_scalar`の結果を次の軸のmaterialとして混ぜ込みながら進め、公開軸だけを
+    返す」という組み立てが`compute_edge_axis_scores`/`axis_inspector_breakdown`
+    [domain/evaluation.py]・`evaluate_axis_difficulties`[domain/difficulty.py]の3箇所に
+    重複していたための共通化）。
+
+    戻り値は`(公開軸のみのdifficulty辞書, 評価済みの内部軸も含む全materials辞書)`。
+    前者は内部軸（`is_published=False`）を含まないが、値が算出不能だった公開軸は
+    `None`のままキーを残す（`axis_inspector_breakdown`の`available=False`判定・
+    `evaluate_axis_difficulties`の`composite_difficulty`への受け渡しがこれを前提にする
+    ため、値がNoneのキーを黙って落とさない）。呼び出し元でNoneのキー自体を除きたい場合は
+    呼び出し側でフィルタする（`compute_edge_axis_scores`参照）。
+    """
+    scores: dict[str, float | None] = {}
+    materials_with_axes: dict[str, object] = dict(materials)
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        definition = AXIS_DEFINITIONS[axis_id]
+        value = evaluate_axis_scalar(definition, materials_with_axes)
+        if definition.is_published:
+            scores[axis_id] = value
+        if value is not None:
+            materials_with_axes[axis_id] = value
+    return scores, materials_with_axes
+
+
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:
     """`evaluate_axis_scalar`の配列版（欠損=NaN、`compute_edge_costs_bulk`のベクトル化経路用）。
 
@@ -691,16 +772,11 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
             total = np.abs(total)
         result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
     elif isinstance(shape, CategoricalShape):
-        values = materials[shape.material]
-        if values.dtype == bool:
-            # bool材料（例: surface_good）はスカラー定義のboolキーを配列表現
-            # （True→1.0/False→0.0の3値float配列）へ読み替える。
-            array_mapping = {float(key): score for key, score in shape.mapping.items()}
-        else:
-            # str材料（改善計画T292、dtype=object の文字列配列。例: highway/bicycle_infra）
-            # はキーをそのまま使う（値の一致比較は`==`で行うため変換不要）。
-            array_mapping = dict(shape.mapping)
-        result = evaluate_categorical(values, array_mapping)
+        # コードレビュー指摘の修正: `evaluate_categorical`は`values == key`という
+        # 要素ごとの比較のみでbool配列・str(dtype=object)配列のどちらも正しく動く
+        # （`bool配列 == True/False`は`bool配列 == 1.0/0.0`と同じ結果になる、実データ
+        # 検証済み）ため、bool材料をfloatキーへ変換する特別扱いは不要だった。
+        result = evaluate_categorical(materials[shape.material], shape.mapping)
     else:
         # FlagSumShape
         result = evaluate_flag_sum(

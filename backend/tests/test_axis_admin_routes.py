@@ -213,6 +213,28 @@ def test_create_accepts_categorical_shape_with_categorical_material(override_ser
     assert response.status_code == 201
 
 
+def test_create_returns_422_when_categorical_shape_mapping_keys_mismatch_material_dtype(override_service):
+    # コードレビュー指摘の修正確認: dtype「クラス」（boolean/categoricalのどちらか）の
+    # 一致だけを見ていた従来のチェックだと、highway（dtype="categorical"、文字列値）を
+    # 参照しつつmappingはboolキー（{"true": ..., "false": ...}）という組み合わせが
+    # 素通りしていた。これは評価時evaluate_categoricalが常にNoneを返す（=軸が恒久的に
+    # 欠損扱いになる）のと同型の無言バグのため、mappingキーの実際の型もmaterialの
+    # dtypeと一致することを検証するようにした。
+    payload = {
+        **_PAYLOAD,
+        "shape": {
+            "kind": "categorical",
+            "material": "highway",
+            "mapping": {"true": 0.0, "false": 80.0},
+        },
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "highway" in response.text
+
+
 def test_create_returns_422_when_flag_sum_shape_uses_numeric_material(override_service):
     payload = {
         **_PAYLOAD,
@@ -235,6 +257,24 @@ def test_create_returns_201_and_persists(override_service):
     assert response.status_code == 201
     assert response.json()["axis_id"] == "test_axis"
     assert "test_axis" in override_service._definitions
+
+
+def test_create_persists_and_returns_priority_overrides(override_service):
+    # コードレビュー指摘の修正確認: priority_overrides（0次条件）が管理API経由で
+    # 設定・参照できること（以前はAxisDefinitionFieldsに露出しておらず、
+    # 送信しても静かに無視されていた）。
+    payload = {
+        **_PAYLOAD,
+        "priority_overrides": [{"material": "motor_vehicle_no", "equals": "true", "value": 0.0}],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    assert response.json()["priority_overrides"] == [
+        {"material": "motor_vehicle_no", "equals": "true", "value": 0.0}
+    ]
+    assert override_service._definitions["test_axis"].priority_overrides[0].material == "motor_vehicle_no"
 
 
 def test_create_returns_409_on_duplicate(override_service):

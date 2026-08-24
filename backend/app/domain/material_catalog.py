@@ -11,12 +11,11 @@
 材料以外にも多くの生データ（highway・surface・smoothness・bicycle_infra等）が
 既に焼き込まれている。設計の一貫性のため、これらも「評価や地図描画に使えそうな
 生データ」として本カタログへ網羅的に登録する（ユーザー方針、2026-08-24）。
-ただし`dtype="categorical"`の材料は、`domain/axis_definitions.py: CategoricalShape`
-（`mapping: dict[bool, float]`、真偽値限定）が現状は文字列多値を扱えないため、
-**登録済みでもまだどの評価軸の材料としても使えない**（軸スタジオの材料選択肢には
-現れるが、選んでも軸を完成させられない）。文字列対応拡張は、実際にcategorical材料を
-使う新規軸の要求が出た時点で、その軸の要件に応じて設計する（トリガー付きDEFER、
-今使う予定のない評価ロジックを先回りで作らない。設計原則9）。
+`dtype="categorical"`の材料は、改善計画T292で`domain/axis_definitions.py: CategoricalShape`
+（`mapping: dict[bool | str, float]`）が文字列多値も扱えるよう拡張されたため、既に
+car_stress軸の内部軸（highway・bicycle_infra、car_stress_highway_base/
+car_stress_bicycle_infra_adjustment）が実際に利用している。それ以外のcategorical材料は
+登録済みでも対応する軸が無ければ評価には使われない（軸スタジオの材料選択肢には現れる）。
 
 **設計方針（ユーザー指示、2026-08-24）**: 材料は今後システムメンテナンス（コード変更＋
 デプロイ）によって増減されうるものとして設計するが、材料自体をGUIから追加・編集・削除
@@ -136,8 +135,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         material_id="motor_vehicle_no",
         label="自動車通行不可",
         dtype="boolean",
-        # OSMのmotor_vehicleタグがnoの区間（car_stress_levelのレシピ内部でも参照される
-        # 材料だが、レシピ合成前の生の真偽値自体は独立して材料登録していなかった）。
+        # OSMのmotor_vehicleタグがnoの区間（car_stress_motor_vehicle_no_adjustment内部軸
+        # [domain/axis_definitions.py]でも参照される材料だが、軸合成前の生の真偽値自体は
+        # 独立して材料登録していなかった）。
         tile_property="motor_vehicle_no",
     ),
     "oneway": MaterialSpec(
@@ -213,8 +213,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # "designation"）は評価パイプライン側で種別ごとに区別して保持していない
         # （domain/designation.py: 補正量が種別によらず一律+1のため、種別を評価まで
         # 運ぶ配線を新設する理由が無い）。"designation"材料自体は将来種別を区別する軸が
-        # 必要になった時点でそちらを使う（トリガー付きDEFER、設計原則9）。car_stress_level
-        # と同じくタイル非依存（評価時にdesignated_edge_idsから都度算出）。
+        # 必要になった時点でそちらを使う（トリガー付きDEFER、設計原則9）。
+        # car_stress_designation_adjustment内部軸と同じくタイル非依存
+        # （評価時にdesignated_edge_idsから都度算出）。
         tile_property=None,
     ),
     "smoothness": MaterialSpec(

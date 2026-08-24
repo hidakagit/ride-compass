@@ -520,6 +520,8 @@ export interface components {
              * @default false
              */
             is_published: boolean;
+            /** Priority Overrides */
+            priority_overrides?: components["schemas"]["PriorityCondition"][];
         };
         /**
          * AxisDefinitionResponse
@@ -552,6 +554,8 @@ export interface components {
              * @default false
              */
             is_published: boolean;
+            /** Priority Overrides */
+            priority_overrides?: components["schemas"]["PriorityCondition"][];
         };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {
@@ -758,6 +762,31 @@ export interface components {
              * @default true
              */
             required: boolean;
+        };
+        /**
+         * PriorityCondition
+         * @description 0次条件（改善計画T292）: 探索除外のハードフィルタ（`domain/evaluation.py:
+         *     DEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、
+         *     **評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算
+         *     （shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。
+         *
+         *     典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・
+         *     自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
+         *     自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ
+         *     （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
+         *     （「探索除外」と「評価の優先確定」は別の概念、docs/improvement-plan.md T292参照）。
+         *
+         *     軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な
+         *     仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる
+         *     （「各推定軸に重複して持たせない」というユーザー方針）。
+         */
+        PriorityCondition: {
+            /** Material */
+            material: string;
+            /** Equals */
+            equals: string;
+            /** Value */
+            value: number;
         };
         /**
          * RouteCandidate

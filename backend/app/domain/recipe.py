@@ -52,7 +52,7 @@ def cycleway_class(tags: dict[str, str]) -> str | None:
     """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
     _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
     （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
-    テストで担保）。car_stress_breakdownがcycleway_adjustment経由でこの分類を使う。"""
+    テストで担保）。"""
     values = cycleway_values(tags)
     if "track" in values:
         return "track"

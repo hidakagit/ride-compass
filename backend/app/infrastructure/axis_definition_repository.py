@@ -5,8 +5,14 @@
 
 shape_paramsの(逆)シリアライズは`AxisShape.model_dump(mode="json")` /
 `TypeAdapter(AxisShape).validate_python(...)`にそのまま委ねる。`CategoricalShape.mapping`の
-`dict[bool, float]`キーはmode="json"でJSON文字列"true"/"false"へ変換され、TypeAdapter側でも
-bool型フィールドとして正しく往復することを確認済み（実装時に実データで検証）。
+`dict[bool | str, float]`キーはmode="json"でJSON文字列("true"/"false"、または通常の
+文字列キー)へ変換され、TypeAdapter側は`union_mode="left_to_right"`でbool判定を先に
+試すため、bool材料・str多値材料のどちらも正しく往復する（改善計画T292、実データ検証済み。
+既定のsmart mode unionだと"true"/"false"がbool化されずstr型のまま残る回帰があったため
+明示指定した）。
+
+priority_overrides（改善計画T292、0次条件）も同様に`list[PriorityCondition]`を
+`model_dump(mode="json")`したJSON配列としてそのまま往復する。
 """
 
 from datetime import datetime, timezone
@@ -16,10 +22,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.axis_definitions import AxisDefinition, AxisShape
+from app.domain.axis_definitions import AxisDefinition, AxisShape, PriorityCondition
 from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisRegistryMetaRow
 
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
+_PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
 
 
 def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
@@ -31,6 +38,7 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         description=row.description,
         category=row.category,
         is_published=row.is_published,
+        priority_overrides=_PRIORITY_OVERRIDES_ADAPTER.validate_python(row.priority_overrides),
     )
 
 
@@ -78,6 +86,7 @@ class AxisDefinitionRepository:
             description=definition.description,
             category=definition.category,
             is_published=definition.is_published,
+            priority_overrides=[cond.model_dump(mode="json") for cond in definition.priority_overrides],
             updated_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
@@ -90,6 +99,7 @@ class AxisDefinitionRepository:
                 "description": stmt.excluded.description,
                 "category": stmt.excluded.category,
                 "is_published": stmt.excluded.is_published,
+                "priority_overrides": stmt.excluded.priority_overrides,
                 "updated_at": stmt.excluded.updated_at,
             },
         )

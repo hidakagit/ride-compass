@@ -68,6 +68,37 @@ def test_evaluate_categorical_array_matches_scalar_and_propagates_nan():
     assert np.isnan(result[2])
 
 
+def test_evaluate_categorical_array_str_keys_with_missing_and_unmatched_values():
+    # コードレビュー指摘の修正確認(finding #5): 配列版をnp.searchsortedベースの
+    # 二分探索へ書き換えた際、欠損(None)を検索用に一時的にkeys[0]（=mappingの実在キー）
+    # へ差し替える実装だと、置き換えただけで「一致した」ことになってしまいNoneの区間が
+    # keys[0]のスコアへ誤って解決される回帰が実装中に見つかった（`missing`マスクで
+    # 検索結果と無関係に不一致へ強制する形で修正済み）。この回帰を固定する。
+    mapping = {"separated": -2.0, "lane": -1.0, "roadway": 1.0}
+    values = np.array(["separated", "lane", "roadway", None, "unknown_value"], dtype=object)
+
+    result = evaluate_categorical(values, mapping)
+
+    assert result[0] == -2.0
+    assert result[1] == -1.0
+    assert result[2] == 1.0
+    assert np.isnan(result[3])  # None（欠損）はmappingの最初のキーへ誤マッチしないこと
+    assert np.isnan(result[4])  # mapping未登録の値
+
+
+def test_evaluate_categorical_array_bool_keys_matches_scalar():
+    # コードレビュー指摘の修正確認: bool材料をfloatキー(1.0/0.0)へ変換する特別扱いを
+    # 撤去した後も、bool配列に対する結果がスカラー版と一致すること。
+    mapping = {True: 0.0, False: 80.0}
+    values = np.array([True, False, True])
+
+    result = evaluate_categorical(values, mapping)
+
+    assert result[0] == evaluate_categorical(True, mapping) == 0.0
+    assert result[1] == evaluate_categorical(False, mapping) == 80.0
+    assert result[2] == 0.0
+
+
 def test_evaluate_flag_sum_scalar_sums_and_caps():
     assert evaluate_flag_sum([(True, 50.0), (False, 50.0)]) == 50.0
     assert evaluate_flag_sum([(True, 50.0), (True, 50.0)]) == 100.0

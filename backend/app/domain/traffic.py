@@ -66,8 +66,9 @@ def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -
     """自転車インフラ分類（優先順位: separated＞lane＞shared_busway等＞shared_pedestrian＞
     roadway/prohibited＞unknown。計画書§2.4）。
 
-    cycleway/cycleway:left/right/bothタグは`car_stress_level`（本モジュール）でも
-    「専用自転車道の有無」の補正に使われている（trackなら-2、laneなら-1）。同じ入力を
+    cycleway/cycleway:left/right/bothタグは`car_stress_bicycle_infra_adjustment`
+    （domain/axis_definitions.py、改善計画T292でAXIS_DEFINITIONSの内部軸へ再設計）でも
+    「専用自転車道の有無」の補正に使われている（separatedなら-2、laneなら-1）。同じ入力を
     別目的で解釈しているため、bicycle_infra_score（本分類ベース）とcar_stress_score
     （車ストレス）は完全には独立ではなく、専用自転車道が併設された区間では両方が
     同時に「易しい」側へ動く（改善計画T62、意図的な設計でありバグではない）。
