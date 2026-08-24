@@ -191,6 +191,23 @@ def _register_primary_attributes() -> None:
     )
     register_primary_attribute(
         PrimaryAttributeSpec(
+            attr_id="oneway",
+            label="一方通行",
+            source="osm",
+            geometry="edge",
+            dtype="boolean",
+            update_cadence="on_reimport",
+            description=(
+                "OSM onewayタグ（oneway:bicycleによるcontraflow例外込みでosm_adapter.py: "
+                "_resolve_directionが解決済み）。逆方向は既にbuild_road_graphがEdge自体を"
+                "生成しないため探索の正しさには無関係で、表示専用の一次属性（改善計画T289）。"
+                "どの評価軸のinputsにも含めない。"
+            ),
+            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
+        )
+    )
+    register_primary_attribute(
+        PrimaryAttributeSpec(
             attr_id="designation",
             label="指定路線",
             source="kokudo_suuchi",

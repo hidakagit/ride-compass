@@ -1639,6 +1639,19 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
   `PRIMARY_ATTRIBUTE_LAYER_IDS`にtunnelが移り`PRIMARY_ATTRIBUTES_WITHOUT_LAYER`から
   外れたため、night軸の材料一覧（T167の`renderMaterialsNote`）は
   「材料: トンネル」「地図では未表示の材料: 街灯」（litのみ引き続きレイヤー無し）に変わる。
+- **一方通行の独立レイヤー化（T289）**: 一方通行はグラフ構造レベルで既に完全に
+  ハンドリング済み（`domain/osm_adapter.py: _resolve_direction`が`oneway`/
+  `oneway:bicycle`タグ[contraflow例外込み]からforward/backward/bothを解決し、
+  `domain/graph.py: build_road_graph`が逆方向のEdge自体を生成しないため、探索は
+  構造的に一方通行を守っており逆走経路は原理的に生成されない）。一方通行かどうかを
+  評価・表示に使う材料としては未配線だったため、T217（トンネル）と同型の一次属性・
+  独立レイヤー追加を行った。tunnelと異なり`osm_raw_ways.direction`列（forward/
+  backward/both）自体はDB永続化済みだがMVTタイルへは未焼き込みだったため、
+  `_ROAD_SURFACE_TILE_MVT_SQL`へ`CASE WHEN w.direction != 'both' THEN true END AS
+  oneway`を追加した（タイル世代v13）。どの評価軸のinputsにも含めない、表示専用の
+  一次属性（`registry_defaults.py`へ登録、評価軸には組み込まない設計判断）。
+  評価軸の危険色（`AXIS_RAMP_COLORS`）とは意図的に別の中立色（青系`#2563eb`）を使い、
+  「色が付く＝評価に効く」という他の観測レイヤーの読み方と混同しない。
 
 ### 区間インスペクタ（改善計画T146）
 

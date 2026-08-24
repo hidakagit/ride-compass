@@ -279,6 +279,12 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         lower(btrim(w.tags->>'smoothness')) AS smoothness,
                         CASE WHEN lower(btrim(w.tags->>'tunnel')) = 'yes' THEN true END AS tunnel,
                         CASE WHEN lower(btrim(w.tags->>'bridge')) = 'yes' THEN true END AS bridge,
+                        -- 一方通行（一次属性、改善計画T289）。w.directionはosm_adapter.py:
+                        -- _resolve_directionがoneway/oneway:bicycleタグから解決済みの
+                        -- forward/backward/both（osm_raw_ways専用列、tagsのJSONBには
+                        -- 含まれない）。一方通行の逆方向は既にbuild_road_graphがEdge自体を
+                        -- 生成しないため、探索の正しさには無関係（表示専用の一次属性）。
+                        CASE WHEN w.direction != 'both' THEN true END AS oneway,
                         CASE
                             WHEN w.highway = 'cycleway' OR 'track' = ANY(cw.values) THEN 'separated'
                             WHEN 'lane' = ANY(cw.values) THEN 'lane'

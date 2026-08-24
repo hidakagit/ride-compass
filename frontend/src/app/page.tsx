@@ -152,6 +152,7 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   bicycleInfra: false,
   designation: false,
   tunnel: false,
+  oneway: false,
   stopPoi: false,
   supplyPoi: false,
   accidents: false,
@@ -1601,6 +1602,7 @@ export default function Home() {
             }
             showDesignation={layerVisibility.designation}
             showTunnel={layerVisibility.tunnel}
+            showOneway={layerVisibility.oneway}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}

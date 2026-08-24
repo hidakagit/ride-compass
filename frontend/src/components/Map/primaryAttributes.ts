@@ -66,6 +66,7 @@ export const PRIMARY_ATTRIBUTE_CHIP_LABELS: Record<string, string> = {
   accident_point: "事故地点",
   intersection: "交差点",
   geometry: "区間形状",
+  oneway: "一方通行",
 };
 
 // 一次属性→表示レイヤーIDの対応（Partial: キーが無い＝表示レイヤー無し）。改善計画T163の
@@ -84,6 +85,9 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
   // レイヤーが無いまま」を解消（tunnelはタイルへの焼き込み自体はnight軸の材料として
   // 元々あったが、専用の色分けレイヤーは持っていなかった）。
   tunnel: "tunnel",
+  // 改善計画T289: 一方通行はどの評価軸のinputsにも属さない（表示専用の一次属性）ため
+  // axisMaterials経由の連動ON（T167）対象にはならないが、独立レイヤー自体は持つ。
+  oneway: "oneway",
 };
 
 // 表示レイヤーを意図的に持たない一次属性（改善計画T163の確定命名表で「なし」と明示した4件、

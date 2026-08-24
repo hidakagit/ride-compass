@@ -197,6 +197,23 @@ export function TunnelIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 一方通行（一次属性、OSM onewayタグ。改善計画T289）: 一方向の矢印 */
+export function OnewayIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M3 10h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M12 5.5 17 10l-5 4.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 /** 事故（外部静的データソース T50）: 衝突を示す星形バースト */
 export function AccidentIcon({ size = 16 }: IconProps) {
   return (

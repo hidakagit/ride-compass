@@ -59,6 +59,8 @@ import {
   DESIGNATION_LABELS,
   TUNNEL_COLOR_EXPRESSION,
   TUNNEL_OPACITY_EXPRESSION,
+  ONEWAY_COLOR_EXPRESSION,
+  ONEWAY_OPACITY_EXPRESSION,
   STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
@@ -149,6 +151,7 @@ export const CAR_STRESS_LAYER_ID = "region-car-stress-line";
 export const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
 const DESIGNATION_LAYER_ID = "region-designation-line";
 const TUNNEL_LAYER_ID = "region-tunnel-line";
+const ONEWAY_LAYER_ID = "region-oneway-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
@@ -183,6 +186,7 @@ const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   BICYCLE_INFRA_LAYER_ID,
   DESIGNATION_LAYER_ID,
   TUNNEL_LAYER_ID,
+  ONEWAY_LAYER_ID,
 ] as const;
 // 改善計画（1次/2次の地図上表現の統一、松）: car_stress・ramp軸（停止密度・事故密度等、
 // axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
@@ -924,7 +928,7 @@ function applyRoadLayerState(
 // 次にONにしたときに古いオフセット値が一瞬残らないようにする。
 function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
-  visible: { road: boolean; bicycleInfra: boolean; designation: boolean; tunnel: boolean }
+  visible: { road: boolean; bicycleInfra: boolean; designation: boolean; tunnel: boolean; oneway: boolean }
 ) {
   runWhenStyleReady(map, () => {
     const visibleByLayerId: Record<string, boolean> = {
@@ -932,6 +936,7 @@ function applyRoadMaterialTrackOffsets(
       [BICYCLE_INFRA_LAYER_ID]: visible.bicycleInfra,
       [DESIGNATION_LAYER_ID]: visible.designation,
       [TUNNEL_LAYER_ID]: visible.tunnel,
+      [ONEWAY_LAYER_ID]: visible.oneway,
     };
     const onLayerIds = ROAD_MATERIAL_TRACK_LAYER_IDS.filter((layerId) => visibleByLayerId[layerId]);
     const center = (onLayerIds.length - 1) / 2;
@@ -1055,6 +1060,34 @@ function ensureTunnelLayer(map: MapLibreMap) {
         "line-width": 3,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "line-opacity": TUNNEL_OPACITY_EXPRESSION as any,
+        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+        "line-offset": 0,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// 一方通行（一次属性、OSM onewayタグ。改善計画T289）。tunnelと同じく路面と同じベクタ
+// ソースを再利用する独立レイヤー。onewayプロパティは該当区間のみ値を持つ
+// （双方向はプロパティ欠落、ONEWAY_COLOR_EXPRESSIONのcase式で灰色に倒す）。評価軸には
+// 組み込まないため、色は評価軸の危険色（AXIS_RAMP_COLORS）と混同しない中立色を使う
+// （staticAttributeLayers.ts: ONEWAY_COLOR参照）。
+function ensureOnewayLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(ONEWAY_LAYER_ID)) return;
+    map.addLayer({
+      id: ONEWAY_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": ONEWAY_COLOR_EXPRESSION as any,
+        "line-width": 3,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-opacity": ONEWAY_OPACITY_EXPRESSION as any,
         // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
         "line-offset": 0,
       },
@@ -1215,6 +1248,7 @@ const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (m
   { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
   { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
   { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
+  { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
   { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
   { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
   { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -1254,8 +1288,8 @@ type StaticOverlayKey = string;
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
 // roadType/roadSurface（T165で「道路情報」から論理分割）/carStress/bicycleInfra/
-// designation/tunnelは同じroad_surfaceタイルを再利用しているため（T59でroad_edgesが
-// 未構築の地点では、この6レイヤーが同時にempty/errorになるのが正しい挙動）、あえて同じ
+// designation/tunnel/onewayは同じroad_surfaceタイルを再利用しているため（T59でroad_edgesが
+// 未構築の地点では、この7レイヤーが同時にempty/errorになるのが正しい挙動）、あえて同じ
 // sourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
 // （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
@@ -1279,6 +1313,7 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
   { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "tunnel", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  { key: "oneway", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
   { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
   { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
@@ -1479,6 +1514,8 @@ interface RoadSurfacePopupProperties {
   smoothness?: string | null;
   tunnel?: boolean | null;
   bridge?: boolean | null;
+  /** 一方通行（一次属性、OSM onewayタグ。改善計画T289）。未該当（双方向）はプロパティ欠落。 */
+  oneway?: boolean | null;
   car_stress?: number | null;
   bicycle_infra?: string | null;
   /** 指定路線コンフレーション機構（外部静的データソース T51）。未該当はプロパティ欠落。 */
@@ -1517,6 +1554,7 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   }
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
+  if (properties.oneway) rows.push("一方通行");
   const carStressBreakdownAffordance =
     properties.car_stress != null
       ? `<div style="margin-top:var(--space-1);">
@@ -1603,6 +1641,9 @@ interface MapViewProps {
   /** トンネル（一次属性、OSMのtunnelタグ）。designationと同じく路面と同じソースを
    * 再利用する独立レイヤー。 */
   showTunnel: boolean;
+  /** 一方通行（一次属性、OSM onewayタグ、改善計画T289）。tunnelと同じく路面と同じソースを
+   * 再利用する独立レイヤー。評価軸には組み込まない表示専用。 */
+  showOneway: boolean;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
@@ -1659,6 +1700,7 @@ export default function MapView({
   motorVehicleDensityRecipe,
   showDesignation,
   showTunnel,
+  showOneway,
   showAccidents,
   showStopPoi,
   showSupplyPoi,
@@ -1708,6 +1750,7 @@ export default function MapView({
     motorVehicleDensityRecipe,
     showDesignation,
     showTunnel,
+    showOneway,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -1750,6 +1793,7 @@ export default function MapView({
       motorVehicleDensityRecipe,
       showDesignation,
       showTunnel,
+      showOneway,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1776,6 +1820,7 @@ export default function MapView({
     motorVehicleDensityRecipe,
     showDesignation,
     showTunnel,
+    showOneway,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -1810,6 +1855,7 @@ export default function MapView({
       motorVehicleDensityRecipe,
       showDesignation,
       showTunnel,
+      showOneway,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1825,6 +1871,7 @@ export default function MapView({
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
+      oneway: showOneway,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -1848,6 +1895,7 @@ export default function MapView({
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
+      oneway: showOneway,
     });
     updateRoadZoomHint(
       map,
@@ -1858,6 +1906,7 @@ export default function MapView({
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
         tunnel: showTunnel,
+        oneway: showOneway,
       }),
       onRegionZoomHintChangeRef.current
     );
@@ -1888,6 +1937,7 @@ export default function MapView({
       showBicycleInfra,
       showDesignation,
       showTunnel,
+      showOneway,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1901,6 +1951,7 @@ export default function MapView({
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
+      oneway: showOneway,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -2088,7 +2139,7 @@ export default function MapView({
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
     // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
-      const { showRoadType, showRoadSurface, showCarStress, showBicycleInfra, showDesignation, showTunnel } =
+      const { showRoadType, showRoadSurface, showCarStress, showBicycleInfra, showDesignation, showTunnel, showOneway } =
         redrawPropsRef.current;
       updateRoadZoomHint(
         map,
@@ -2099,6 +2150,7 @@ export default function MapView({
           bicycleInfra: showBicycleInfra,
           designation: showDesignation,
           tunnel: showTunnel,
+          oneway: showOneway,
         }),
         onRegionZoomHintChangeRef.current
       );
@@ -2321,6 +2373,7 @@ export default function MapView({
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
+      oneway: showOneway,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -2337,6 +2390,7 @@ export default function MapView({
     showBicycleInfra,
     showDesignation,
     showTunnel,
+    showOneway,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2398,6 +2452,7 @@ export default function MapView({
       bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
+      oneway: showOneway,
     });
     updateRoadZoomHint(
       map,
@@ -2408,6 +2463,7 @@ export default function MapView({
         bicycleInfra: showBicycleInfra,
         designation: showDesignation,
         tunnel: showTunnel,
+        oneway: showOneway,
       }),
       onRegionZoomHintChangeRef.current
     );
@@ -2419,6 +2475,7 @@ export default function MapView({
     showBicycleInfra,
     showDesignation,
     showTunnel,
+    showOneway,
     roadHiddenKeysByMode,
     recomputeLayerDataStatus,
   ]);

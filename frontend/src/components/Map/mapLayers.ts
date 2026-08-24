@@ -36,6 +36,7 @@ export type MapLayerId =
   | "bicycleInfra"
   | "designation"
   | "tunnel"
+  | "oneway"
   | "stopPoi"
   | "supplyPoi"
   | "accidents"
@@ -288,6 +289,20 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       "夜間の危険度の判定に使われます[改善計画T278でnight軸自体も専用レイヤーを持つようになりました]。",
   },
   {
+    // 一方通行（一次属性、OSM onewayタグ。改善計画T289）。tunnelと同じ「観測配下に専用
+    // レイヤーが無いまま保持していた要素」パターン。一方通行の逆方向は既にRoad Graph構築時
+    // （backend/app/domain/graph.py: build_road_graph）にEdge自体が生成されないため探索の
+    // 正しさには無関係で、評価軸（route_preference）にも組み込まない表示専用の一次属性。
+    id: "oneway",
+    label: "一方通行",
+    kind: "static",
+    category: "roadCondition",
+    description: "一方通行区間[OSMのonewayタグ]を色分け表示",
+    panelHint:
+      "OSMのonewayタグが該当する区間です。ルート探索は既に一方通行の向きを守っており" +
+      "（逆走経路自体が生成されません）、このレイヤーは表示のみで評価には影響しません。",
+  },
+  {
     id: "stopPoi",
     label: "停止要因",
     kind: "static",
@@ -484,6 +499,7 @@ export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
   "bicycleInfra",
   "designation",
   "tunnel",
+  "oneway",
   // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
   ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
 ];

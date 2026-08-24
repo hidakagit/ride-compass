@@ -322,6 +322,39 @@ export const TUNNEL_OPACITY_EXPRESSION: unknown[] = [
   FALLBACK_LINE_OPACITY,
 ];
 
+// 一方通行（一次属性、OSM onewayタグ。改善計画T289）の色分け定義。tunnelと同型の
+// 単純な真偽値プロパティ（該当区間のみtrue、未該当はプロパティ欠落）。
+// tunnel/designationとは異なりAXIS_RAMP_COLORS（危険寄りの色）を使わない——一方通行は
+// どの評価軸の材料にもならない（表示専用、mapLayers.tsのpanelHint参照）ため、「色が付く＝
+// 評価に効く」という他レイヤーの読み方と混同されないよう、評価軸に使われていない中立色
+// （crossing等と同じ青系）を割り当てる。
+const ONEWAY_COLOR = "#2563eb";
+
+export const ONEWAY_LEGEND: LegendEntry[] = [
+  { key: "oneway", label: "一方通行", color: ONEWAY_COLOR, filter: ["==", ["get", "oneway"], true] },
+  {
+    key: "other",
+    label: "対象外",
+    color: COLOR_UNKNOWN,
+    filter: ["!", ["==", ["get", "oneway"], true]],
+    isFallback: true,
+  },
+];
+
+export const ONEWAY_COLOR_EXPRESSION: unknown[] = [
+  "case",
+  ["==", ["get", "oneway"], true],
+  ONEWAY_COLOR,
+  COLOR_UNKNOWN,
+];
+
+export const ONEWAY_OPACITY_EXPRESSION: unknown[] = [
+  "case",
+  ["==", ["get", "oneway"], true],
+  KNOWN_LINE_OPACITY,
+  FALLBACK_LINE_OPACITY,
+];
+
 // 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
 // backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論
 // （involves_bicycle=自転車が当事者A/Bのいずれかに該当、fatal=死者数>0）。
@@ -440,6 +473,7 @@ export type StaticFilterAxisId =
   | "bicycleInfra"
   | "designation"
   | "tunnel"
+  | "oneway"
   | "stopPoi"
   | "supplyPoi"
   | "accidentParty"
@@ -464,6 +498,7 @@ export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
   { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },
+  { axisId: "oneway", layerId: "oneway", legend: ONEWAY_LEGEND },
   {
     axisId: "stopPoi",
     layerId: "stopPoi",

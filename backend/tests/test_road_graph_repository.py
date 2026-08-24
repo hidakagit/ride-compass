@@ -1414,6 +1414,30 @@ async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_g
     assert "tunnel" not in tunnel_no_way  # tunnel=noはfalseではなくキー自体を省略する
 
 
+async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository):
+    """改善計画T289: 一方通行はosm_raw_ways.direction（forward/backward/both）から
+    算出する。both（双方向）はキー省略、forward/backwardはtrueが焼かれる。"""
+    import mapbox_vector_tile
+
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", direction="forward"),
+        WaySpec(osm_way_id=2, node_ids=[1, 2], highway="residential", direction="backward"),
+        WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", direction="both"),
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_repository)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    properties_by_way_id = {p["osm_way_id"]: p for p in [f["properties"] for f in decoded["road_surface"]["features"]]}
+
+    assert properties_by_way_id[1]["oneway"] is True
+    assert properties_by_way_id[2]["oneway"] is True
+    assert "oneway" not in properties_by_way_id[3]  # both（双方向）はキー自体を省略する
+
+
 async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(road_graph_repository):
     """SQLのbicycle_infra CASE式がdomain/traffic.py（正準の判定ロジック）と同じ結果になることを、
     複数のタグ組合せで突き合わせる（改善計画: 判定ロジックの二重実装ドリフト検知）。

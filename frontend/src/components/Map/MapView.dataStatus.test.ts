@@ -156,18 +156,20 @@ describe("isRoadSurfaceGroupVisible", () => {
   // レビュー指摘: 以前はregionZoomTooWideがroad（現roadType/roadSurface）のvisibilityだけを
   // 見ていたため、road自体はOFFのままcarStress等だけONで表示範囲が広すぎる場合に、
   // ズーム範囲外の案内が一切出ない不整合があった。road_surfaceタイルを共有する
-  // 6レイヤー（roadType/roadSurface/carStress/bicycleInfra/designation/tunnel、改善計画T165で
-  // roadが論理2レイヤーへ分割）のいずれか1つでもONならtrueを返すことを確認する。
-  it("roadType/roadSurface/carStress/bicycleInfra/designation/tunnelのいずれか1つでもONならtrue", () => {
+  // 7レイヤー（roadType/roadSurface/carStress/bicycleInfra/designation/tunnel/oneway、
+  // 改善計画T165でroadが論理2レイヤーへ分割、T289でonewayを追加）のいずれか1つでも
+  // ONならtrueを返すことを確認する。
+  it("roadType/roadSurface/carStress/bicycleInfra/designation/tunnel/onewayのいずれか1つでもONならtrue", () => {
     expect(isRoadSurfaceGroupVisible({ roadType: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ roadSurface: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ carStress: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ bicycleInfra: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ designation: true })).toBe(true);
     expect(isRoadSurfaceGroupVisible({ tunnel: true })).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ oneway: true })).toBe(true);
   });
 
-  it("5レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
+  it("7レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
     expect(
       isRoadSurfaceGroupVisible({
         roadType: false,

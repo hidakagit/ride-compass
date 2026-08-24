@@ -45,7 +45,8 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
 // v12: 改善計画T145b。二次軸rampレイヤー用の事前集計密度プロパティ
 // （accident_per_km/stop_per_km/intersection_per_km）を追加。
-const ROAD_SURFACE_TILE_VERSION = "12";
+// v13: 改善計画T289。一方通行（一次属性、oneway）プロパティを追加。
+const ROAD_SURFACE_TILE_VERSION = "13";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

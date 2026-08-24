@@ -70,6 +70,10 @@ describe("primaryAttributes", () => {
     expect(attrConsumers("accident_point")).toEqual(["accident"]);
     // supply_poiはどの軸からも参照されない一次属性（registry_defaults.py参照）
     expect(attrConsumers("supply_poi")).toEqual([]);
+    // 改善計画T289: onewayは表示専用の一次属性（探索は既にグラフ構造で一方通行を
+    // 守っているため評価軸には組み込まない）。supply_poiと同じ「レイヤーは持つが
+    // どの軸からも参照されない」パターン。
+    expect(attrConsumers("oneway")).toEqual([]);
   });
 
   it("axisMaterialLayerIdsはレイヤーを持つ材料だけを重複無しで返す", () => {

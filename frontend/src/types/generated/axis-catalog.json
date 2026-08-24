@@ -240,6 +240,11 @@
       "shared": false
     },
     {
+      "attr_id": "oneway",
+      "label": "一方通行",
+      "shared": false
+    },
+    {
       "attr_id": "designation",
       "label": "指定路線",
       "shared": false

@@ -132,7 +132,10 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
 # 改善計画T7）でsurface_goodの値が変わった世代。
 # v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-ROAD_SURFACE_TILE_VERSION = "12"
+# v13: 改善計画T289。一方通行（一次属性、osm_raw_ways.directionの解決済み値から算出）を
+# 追加した世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
+# プロパティ追加のみ（削除なし）で、v10〜v12と同じくデプロイ順序制約なし。
+ROAD_SURFACE_TILE_VERSION = "13"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。

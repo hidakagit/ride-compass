@@ -26,6 +26,9 @@ import {
   TUNNEL_COLOR_EXPRESSION,
   TUNNEL_LEGEND,
   TUNNEL_OPACITY_EXPRESSION,
+  ONEWAY_COLOR_EXPRESSION,
+  ONEWAY_LEGEND,
+  ONEWAY_OPACITY_EXPRESSION,
   CAR_STRESS_COLOR_EXPRESSION,
   CAR_STRESS_LEGEND,
   buildCarStressColorExpression,
@@ -274,6 +277,44 @@ describe("staticAttributeLayers", () => {
     expect(tunnelColor).not.toBe(otherColor);
     expect(evaluate(TUNNEL_OPACITY_EXPRESSION, { tunnel: true })).toBeGreaterThan(
       evaluate(TUNNEL_OPACITY_EXPRESSION, {}) as number,
+    );
+  });
+
+  // 改善計画T289: 一方通行（一次属性、OSM onewayタグ）。tunnelと同型の真偽値レイヤーだが、
+  // どの評価軸の材料にもならない（表示専用）ため評価軸の危険色とは別の中立色を使う。
+  it("一方通行の凡例キーは一方通行/対象外の2値で重複が無い", () => {
+    const keys = ONEWAY_LEGEND.map((e) => e.key);
+    expect(new Set(keys)).toEqual(new Set(["oneway", "other"]));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("一方通行の凡例は一意な色を持つ", () => {
+    const colors = ONEWAY_LEGEND.map((e) => e.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("一方通行の色分け式は凡例の色以外を使わない", () => {
+    const legendColors = new Set(ONEWAY_LEGEND.map((e) => e.color));
+    const expressionColors = ONEWAY_COLOR_EXPRESSION.filter(
+      (item): item is string => typeof item === "string" && item.startsWith("#"),
+    );
+    expect(expressionColors.length).toBeGreaterThan(0);
+    for (const color of expressionColors) {
+      expect(legendColors.has(color)).toBe(true);
+    }
+  });
+
+  it("一方通行のfeatureはoneway=trueのみ強調色になり、それ以外は不透明度が下がる", () => {
+    function evaluate(expr: unknown[], properties: Record<string, unknown>): unknown {
+      const parsed = createExpression(expr);
+      if (parsed.result !== "success") throw new Error("式の構築に失敗しました");
+      return parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties });
+    }
+    const onewayColor = evaluate(ONEWAY_COLOR_EXPRESSION, { oneway: true });
+    const otherColor = evaluate(ONEWAY_COLOR_EXPRESSION, {});
+    expect(onewayColor).not.toBe(otherColor);
+    expect(evaluate(ONEWAY_OPACITY_EXPRESSION, { oneway: true })).toBeGreaterThan(
+      evaluate(ONEWAY_OPACITY_EXPRESSION, {}) as number,
     );
   });
 
