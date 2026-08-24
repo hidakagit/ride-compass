@@ -1,10 +1,14 @@
+import asyncio
+
 import pytest
 
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch, SearchMaterials
 from app.domain.graph import LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
 from app.infrastructure import graph_material_cache
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services import graph_service as graph_service_module
 from app.services.graph_service import GraphService
 
 
@@ -17,6 +21,15 @@ def _clear_graph_material_cache():
     graph_material_cache.clear()
     yield
     graph_material_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clear_warming_tiles():
+    # 改善計画T248: _warming_tilesもgraph_material_cacheと同じくプロセス内メモリの
+    # モジュールグローバルのため、テスト間で漏れないよう明示的にクリアする。
+    graph_service_module._warming_tiles.clear()
+    yield
+    graph_service_module._warming_tiles.clear()
 
 BBOX = BoundingBox(min_latitude=35.70, min_longitude=139.70, max_latitude=35.71, max_longitude=139.71)
 # ROAD_GRAPH_TILE_ZOOM(=12)においてBBOXはちょうど1タイルに収まる（[(3637, 1612)]）。
@@ -605,3 +618,126 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     # 3回目は両タイルともキャッシュ済みのため、呼び出し回数は増えない。
     await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 2
+
+
+# --- 改善計画T248: split直後のタイル材料キャッシュのバックグラウンド温め ---
+
+
+class _RealRepositoryStandIn(RoadGraphRepository):
+    """isinstance(repository, RoadGraphRepository)判定だけを満たすなりすまし。
+
+    RoadGraphRepository自体がFakeRoadGraphRepositoryと同名の実メソッドを持つため、
+    単純な継承オーバーライド（region_service.pyの_FakeRealRoadGraphRepositoryと同じ形）
+    では実メソッドに隠されてしまう。`__getattribute__`で全属性アクセスを委譲先の
+    FakeRoadGraphRepositoryへ丸ごと転送することで、isinstance判定と実際の挙動
+    （Fake）を両立させる。実DBセッションは一切使わない。
+    """
+
+    def __init__(self, fake: "FakeRoadGraphRepository"):
+        object.__setattr__(self, "_fake", fake)
+
+    def __getattribute__(self, name: str):
+        if name == "_fake":
+            return object.__getattribute__(self, "_fake")
+        return getattr(object.__getattribute__(self, "_fake"), name)
+
+
+async def test_build_search_materials_uncached_schedules_warm_for_real_repository(monkeypatch):
+    """splitを伴う非キャッシュ経路（isinstance判定で実リポジトリと分かる場合）は、
+    応答後にタイルキャッシュを温めるため_maybe_warm_tile_cacheを呼ぶ。"""
+    calls: list[BoundingBox] = []
+    monkeypatch.setattr(graph_service_module, "_maybe_warm_tile_cache", calls.append)
+
+    fake = FakeRoadGraphRepository()
+    await _seed_tile(
+        fake,
+        ROAD_GRAPH_TILE_ZOOM,
+        *BBOX_TILE,
+        [{"id": 100, "tags": {"highway": "residential"}, "nodes": [1, 2]}],
+        {1: (35.700, 139.700), 2: (35.701, 139.701)},
+    )
+    service = GraphService(repository=_RealRepositoryStandIn(fake))
+
+    materials = await service.get_search_materials_for_bbox(BBOX)
+
+    assert materials is not None
+    assert calls == [BBOX]
+
+
+async def test_get_search_materials_for_bbox_does_not_schedule_warm_for_fake_repository(monkeypatch):
+    """ユニットテストのFakeRoadGraphRepositoryはRoadGraphRepositoryを継承しないため、
+    実DBセッションを開こうとするバックグラウンド温めは発火しない
+    （region_service.pyの同種の既存ガードと同じ理由）。"""
+    calls: list[BoundingBox] = []
+    monkeypatch.setattr(graph_service_module, "_maybe_warm_tile_cache", calls.append)
+
+    service, _ = await _seeded_service_with_materials()
+    await service.get_search_materials_for_bbox(BBOX)
+
+    assert calls == []
+
+
+async def test_maybe_warm_tile_cache_schedules_background_task_per_uncached_tile(monkeypatch):
+    warmed: list[tuple[int, int]] = []
+    started = asyncio.Event()
+
+    async def fake_warm(x: int, y: int) -> None:
+        warmed.append((x, y))
+        started.set()
+
+    monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
+
+    graph_service_module._maybe_warm_tile_cache(BBOX)
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    assert warmed == [BBOX_TILE]
+
+
+async def test_maybe_warm_tile_cache_skips_tile_already_in_material_cache(monkeypatch):
+    warmed: list[tuple[int, int]] = []
+
+    async def fake_warm(x: int, y: int) -> None:
+        warmed.append((x, y))
+
+    monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
+    empty_materials = SearchMaterials(
+        graph=LeanRoadGraph(graph_version="cached", nodes={}, edges={}),
+        surface_attributes={},
+        edge_attribute_counts={},
+        way_tags={},
+        elevation_attributes={},
+        designated_edge_ids=set(),
+    )
+    graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, empty_materials)
+
+    graph_service_module._maybe_warm_tile_cache(BBOX)
+    await asyncio.sleep(0)
+
+    assert warmed == []
+
+
+async def test_maybe_warm_tile_cache_skips_tile_already_warming(monkeypatch):
+    warmed: list[tuple[int, int]] = []
+
+    async def fake_warm(x: int, y: int) -> None:
+        warmed.append((x, y))
+
+    monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
+    graph_service_module._warming_tiles.add(BBOX_TILE)
+
+    graph_service_module._maybe_warm_tile_cache(BBOX)
+    await asyncio.sleep(0)
+
+    assert warmed == []
+
+
+async def test_warm_tile_cache_background_discards_in_flight_marker_even_on_failure(monkeypatch):
+    async def failing_get_or_build(self, x: int, y: int) -> SearchMaterials:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(GraphService, "_get_or_build_tile_materials", failing_get_or_build)
+    graph_service_module._warming_tiles.add(BBOX_TILE)
+
+    await graph_service_module._warm_tile_cache_background(*BBOX_TILE)
+
+    assert BBOX_TILE not in graph_service_module._warming_tiles

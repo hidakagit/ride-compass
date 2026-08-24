@@ -6,9 +6,44 @@ from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, Searc
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache
+from app.infrastructure.database import get_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
+
+# 改善計画T248: split直後の初回リクエスト（_build_search_materials_uncached）は
+# graph_material_cacheへ書き込まないため、次のリクエストもタイル単位のDB読み出しから
+# やり直していた（本番実測: 1回目27.6秒[新規split]→2回目13.3秒[キャッシュ未着火]→
+# 3回目4.9秒[真の温パス、T224目標達成]）。レスポンスを遅らせないよう、split直後に
+# バックグラウンドで対象タイルのキャッシュを温める（region_service.pyの
+# _maybe_trigger_graph_build/_build_graph_for_tile_backgroundと同じ考え方。対象データ
+# ・キャッシュ先が異なる別モジュールのため状態は分けて持つ）。
+_warming_tiles: set[tuple[int, int, int]] = set()
+
+
+def _maybe_warm_tile_cache(bbox: BoundingBox) -> None:
+    for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
+        tile = (x, y)
+        if tile in _warming_tiles or graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y) is not None:
+            continue
+        _warming_tiles.add(tile)
+        asyncio.create_task(_warm_tile_cache_background(x, y))
+
+
+async def _warm_tile_cache_background(x: int, y: int) -> None:
+    """リクエストのセッションとは別の新規セッションを使う（HTTPレスポンスが返った後も
+    タスクを続けるため、T59の_build_graph_for_tile_backgroundと同じ理由）。"""
+    try:
+        async with get_session_factory()() as session:
+            service = GraphService(repository=RoadGraphRepository(session))
+            await service._get_or_build_tile_materials(x, y)
+    except Exception as exc:  # noqa: BLE001 バックグラウンド温めの失敗は元のレスポンスに影響させない
+        logger.warning(
+            "タイル材料キャッシュのバックグラウンド温めに失敗 zoom=%d x=%d y=%d error=%r",
+            ROAD_GRAPH_TILE_ZOOM, x, y, exc,
+        )
+    finally:
+        _warming_tiles.discard((x, y))
 
 
 class GraphService:
@@ -190,8 +225,13 @@ class GraphService:
 
         対象bboxのデータが前回のsplit以降変わっている稀なケース（`is_split_up_to_date`が
         False）は、既存の`get_or_build_graph_with_attributes`（フルグラフ構築・保存を含む
-        重い経路）と個別の材料取得メソッドをそのまま呼ぶ（この経路自体が低頻度・重い処理の
-        ため、タイルキャッシュの対象外のまま。ロジックを二重に持たない）。
+        重い経路）と個別の材料取得メソッドをそのまま呼ぶ。このリクエスト自体の応答は
+        タイルキャッシュを経由せず返すが（bboxはタイル境界と一致しないため、部分的な
+        データをタイル単位キャッシュへ書き込むと次回以降のリクエストへ不完全な結果を
+        返しかねない）、応答後にバックグラウンドで対象タイルを正規の経路
+        （`_get_or_build_tile_materials`、タイル全体をDBから取得）で温める
+        （改善計画T248: 温めが無いと直後の2回目リクエストもキャッシュ未着火のまま
+        DB読み出しになる問題があった。`_maybe_warm_tile_cache`参照）。
         """
         if not await self._ensure_tiles_cached(bbox):
             return None
@@ -220,6 +260,12 @@ class GraphService:
         logger.info(
             "_build_search_materials_uncached edges=%d materials_ms=%d", len(edge_ids), materials_ms
         )
+        # isinstanceで実リポジトリのときだけ発火させる（region_service.pyの
+        # _maybe_trigger_graph_build呼び出し箇所と同じ理由。テストのFakeRoadGraphRepositoryは
+        # ダックタイピングでこのクラスを継承しないため、ここで弾かれ実DBセッションを
+        # 開こうとしない）。
+        if isinstance(self._repository, RoadGraphRepository):
+            _maybe_warm_tile_cache(bbox)
         return SearchMaterials(
             graph=graph,
             surface_attributes=surface_attributes,
