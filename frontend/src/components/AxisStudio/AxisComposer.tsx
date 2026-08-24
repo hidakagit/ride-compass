@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import styles from "./AxisStudio.module.css";
 
@@ -284,10 +285,10 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       </div>
 
       <label className={styles.inlineCheckbox}>
-        <input
-          type="checkbox"
+        <Checkbox
           checked={draft.isPublished}
-          onChange={(e) => setDraft((d) => ({ ...d, isPublished: e.target.checked }))}
+          onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
+          aria-label="公開する"
         />
         公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
       </label>
@@ -325,7 +326,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                 onChange={(e) => updateTerm(i, { weight: Number(e.target.value) })}
               />
               <label className={styles.inlineCheckbox}>
-                <input type="checkbox" checked={term.required} onChange={(e) => updateTerm(i, { required: e.target.checked })} />
+                <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
                 必須
               </label>
               <button

@@ -65,7 +65,6 @@
   justify-content: space-between;
   gap: var(--space-2);
   cursor: pointer;
-  /* タップ領域を確保（サイドバー内ボタンのmin-height:44pxと揃える、モバイルCSS参照） */
   min-height: 2.2rem;
 }
 
@@ -76,6 +75,19 @@
   font-size: var(--font-size-md);
   font-weight: 700;
   margin: 0;
+}
+
+/* モバイルでのみmin-height:44pxを自前で明示する（改善計画T299フォローアップ、
+   2026-08-25）。以前はglobals.cssのモバイル向けブランケットルール（全<button>に
+   一律44px強制）に依存していたが、そのブランケット自体がLayerChip等の意図的な
+   小サイズを踏みつぶす副作用を持っていたため廃止した。このレイヤー見出しはパネル内で
+   最も繰り返しタップされる主要な開閉操作のため、コンポーネント自身が44pxを持つ
+   （globals.cssへは一律ルールとして戻さない。デスクトップはマウス操作のため対象外、
+   640pxはuseIsMobile.tsのMOBILE_BREAKPOINT_PXと一致させる）。 */
+@media (max-width: 640px) {
+  .layerTitle {
+    min-height: 44px;
+  }
 }
 
 .chevron {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import MapView from "@/components/Map/MapView";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
@@ -1329,11 +1330,7 @@ export default function Home() {
                   : layerPanelStyles.legendCheckboxRow;
                 return (
                   <label key={entry.key} className={rowClassName}>
-                    <input
-                      type="checkbox"
-                      checked={visible}
-                      onChange={() => handleRouteLegendToggle(entry.key)}
-                    />
+                    <Checkbox checked={visible} onCheckedChange={() => handleRouteLegendToggle(entry.key)} aria-label={entry.label} />
                     <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
                     {entry.label}
                   </label>

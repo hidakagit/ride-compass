@@ -342,37 +342,37 @@
 }
 
 @media (max-width: 640px) {
-  /* サイドバー・BottomSheet・開発者向けフローティングパネル（デバッグログ/システム状況）
-     内のボタン/チェックボックス/入力欄は、指でのタップに適した領域（目安44px角）を
-     確保する。app-bottom-sheetはBottomSheet.module.cssのクラス名がハッシュ化され
-     グローバルCSSから参照できないため併用しているマーカークラス（FloatingPanelの
-     .app-floating-panelと同じ手法）。ここは意図的にunlayeredのまま維持する
-     （T252併用導入）。@layer baseへ入れるとTailwindユーティリティ（例:
-     min-h-8等）で44px未満のサイズへ簡単に上書きできてしまい、タップ領域確保という
-     アクセシビリティ要件が個別コンポーネントの都合で静かに壊れうるため、常に勝つ
-     unlayeredのまま安全網として残す。 */
-  .app-sidebar button,
-  .app-floating-panel button,
-  .app-bottom-sheet button {
-    min-height: 44px;
-    padding: 0.5rem 0.9rem;
-  }
+  /* T299フォローアップ（2026-08-25）: 以前はBottomSheet/FloatingPanel内の全<button>に
+     一律44px+paddingを強制するブランケットルールだった。しかしこの「一律適用」自体が、
+     LayerChip（意図的に36pxのピル型、.chip）やRadioGroup.Item（32px、.modeItem）が
+     既に持っていた自前サイズを詳細度で踏みつぶす不具合の温床だった（実機Playwrightで
+     発覚）。「本当にメインの導線」だけがタップ領域を必要とするという方針に転換し、
+     ブランケットのbuttonルール自体を廃止した。44pxが必要な主要ボタン（例:
+     MapLayersPanel.module.cssのレイヤー見出し）は、そのコンポーネント自身のCSS
+     Modulesファイルで個別に持たせる（このファイルへ一律ルールとして書き戻さない）。
+     .app-sidebarは`<aside>`要素がisMobile(=640px以下)時はそもそもレンダーされない
+     （frontend/src/hooks/useIsMobile.tsのMOBILE_BREAKPOINT_PXと本メディアクエリの
+     640pxが一致するよう自動検証されている）ため、このメディアクエリ内では常に
+     マッチ対象が存在しない死んだセレクタだった。削除して.app-bottom-sheet/
+     .app-floating-panelのみに絞る。 */
 
-  .app-sidebar input[type="checkbox"],
-  .app-bottom-sheet input[type="checkbox"] {
+  /* components/ui/Checkbox（Radix製<button role="checkbox">）・ネイティブの
+     input[type=checkbox]は、モバイルでは1.4rem角（ラベルのテキスト・スウォッチを
+     含めた行全体が実質的なタップ領域になる設計、下のlabelルール参照）へ意図的に
+     拡大する（T34の元設計を踏襲）。Checkbox自身は既に自分のpadding/min-heightを
+     明示しているため（Checkbox.tsx参照）、ここではサイズの意図（1.4rem）だけを持つ。 */
+  .app-bottom-sheet input[type="checkbox"],
+  .app-bottom-sheet [role="checkbox"] {
     width: 1.4rem;
     height: 1.4rem;
   }
 
-  .app-sidebar input[type="text"],
-  .app-sidebar input[type="number"],
   .app-bottom-sheet input[type="text"],
   .app-bottom-sheet input[type="number"] {
     min-height: 44px;
     font-size: 16px; /* iOS Safariでフォーカス時に自動ズームされるのを防ぐ */
   }
 
-  .app-sidebar label,
   .app-bottom-sheet label {
     min-height: 44px;
     align-items: center;

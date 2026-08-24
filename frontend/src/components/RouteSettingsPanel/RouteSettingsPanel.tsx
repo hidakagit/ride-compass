@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
 import { AXIS_CATEGORIES } from "@/lib/evaluationAxes";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
@@ -205,12 +206,10 @@ export default function RouteSettingsPanel({
                       checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
                       押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
                       同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={checked}
-                    onChange={(e) => handleToggle(axis.axisId, e.target.checked)}
+                    onCheckedChange={(next) => handleToggle(axis.axisId, next)}
                     aria-label={axis.label}
-                    className={styles.checkbox}
                   />
                   <span className={styles.rowLabel}>
                     <FieldLabel label={axis.label} description={axis.description} />
