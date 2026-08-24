@@ -3742,7 +3742,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 ユーザー指示「知見として見つけたものもタスク化・掘り下げするべきものがないか再チェック」を
 受け、レポート本文に留めていた知見4件（T285〜T288）もトリガー付きで正式起票した。
 
-### - [ ] T279. OpenAPI生成物ドリフトの解消＋CI状態確認＋コミット前検知の機械化判断〔P1〕規模S
+### - [x] T279. OpenAPI生成物ドリフトの解消＋CI状態確認＋コミット前検知の機械化判断〔P1〕規模S（2026-08-24完了）
 
 - 背景: レビューで実測検出（レポートF-1）。HEAD `fc7bd5a`自身が`api/routers/axis_admin.py`の
   `AxisDefinitionResponse`へdocstringを追加（500バグ修正の継承分離）しながら
@@ -3761,7 +3761,29 @@ Phaseほど前Phaseの成果を安全網として使える）。**
      ローカルのコミット前検知（pre-commitフック等でbackend側API関連ファイル変更時に
      生成物ドリフトをチェック）の導入要否を決め、判断理由ごと記録する。導入しない場合も
      「なぜCIだけで足りるとするか」を明記する（設計原則10）。
-- 完了条件: 生成物差分ゼロのコミット＋CI green確認＋機械化の判断記録。
+- 対応:
+  1. `export_openapi.py`→`npm run generate:api`を実行し再生成。差分はレビュー実測
+     どおり`AxisDefinitionResponse`のdocstring1件のみ（`openapi.json`・`api.d.ts`）で
+     他生成物は無変化。フロントtsc green（型整合確認）を確認しコミット。
+  2. GitHub Actions公開API（`/repos/{owner}/{repo}/actions/runs`、認証不要）で`fc7bd5a`の
+     CI実行を確認したところ、**予測どおりapi-contractジョブが`git diff --exit-code`で
+     失敗（exit code 1）していた**（ユーザーが実際のCIログを提示し裏取り）。ローカルに
+     `gh` CLI未導入のため、この公開API直叩きを今回の確認手段として採用した。
+  3. **機械化判断: ローカルpre-commitフックを導入する（4回目の再発を受け「気をつける」型
+     ルールでは不十分と判断）**。`scripts/pre-commit-api-contract.sh`（リポジトリへコミット、
+     版管理下）を新設し、このワークツリーの`.git/hooks/pre-commit`へ手動配置して有効化した。
+     設計判断: (a) ステージ済みファイルが`backend/app/api/`・`backend/app/domain/`・
+     `backend/app/config.py`・`backend/scripts/export_openapi.py`に該当する場合のみ実行
+     （実測約12秒のコストをdocsのみ・frontend UIのみのコミットに負わせない）。
+     (b) venv・npmが見つからない環境（並行セッションの`git worktree`で`.venv`が
+     複製されない構成を含む。CLAUDE.md「作業ツリーの安全」の並行セッション前提）では
+     警告のみでコミットを止めないsoft-fail。差分が実際に検出された場合のみexit 1する。
+     (c) `git config core.hooksPath`は変更しない（CLAUDE.md「git configを更新しない」
+     方針に従い、このワークツリーへのファイル配置のみに留めた）。他のworktree・clone・CI
+     環境には影響しない。**同種のリスクを持つ他の手動同期ペア（タイル世代番号・
+     region-tile-config.json等）への同型フック拡張は本タスクのスコープ外**（まず
+     OpenAPI契約1件で運用実績を積んでから判断する）。
+- 完了条件: 生成物差分ゼロのコミット（済）＋CI状態確認（済、失敗を確認）＋機械化の判断記録（済）。
 
 ### - [ ] T280. 材料供給の1本道短縮（軸スタジオの「材料の天井」の構造対策）〔P2〕規模M〜L — トリガー: 次に軸・材料関連の実装要望が出た時点（軸スタジオのUI拡張より先に実施する）
 

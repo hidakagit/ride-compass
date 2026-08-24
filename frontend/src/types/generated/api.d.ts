@@ -545,7 +545,12 @@ export interface components {
              */
             is_published: boolean;
         };
-        /** AxisDefinitionResponse */
+        /**
+         * AxisDefinitionResponse
+         * @description 一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
+         *     `AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は
+         *     継承しない（`AxisDefinitionFields`のdocstring参照）。
+         */
         AxisDefinitionResponse: {
             /** Axis Id */
             axis_id: string;

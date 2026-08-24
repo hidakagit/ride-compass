@@ -1283,7 +1283,8 @@
           "default_weight",
           "label"
         ],
-        "title": "AxisDefinitionResponse"
+        "title": "AxisDefinitionResponse",
+        "description": "一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、\n`AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は\n継承しない（`AxisDefinitionFields`のdocstring参照）。"
       },
       "AxisInspectorAxis": {
         "properties": {
