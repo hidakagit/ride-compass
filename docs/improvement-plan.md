@@ -3984,6 +3984,37 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   T280（材料供給の1本道短縮）の実証にはならなかった。T280は「軸スタジオUI拡張より先に
   実施する」という順序制約付きでトリガー待ちのまま据え置き。
 
+### - [ ] T290. MVTタイルに焼き込み済みだが材料未登録の生データをMATERIAL_CATALOGへ網羅登録する 規模M
+
+- 背景: T289完了後、ユーザーから「設計の一貫性を取ろうとしている。評価や地図描画に
+  使えそうな生データは全部材料登録しておきたい」という方針指示。`_ROAD_SURFACE_TILE_
+  MVT_SQL`の全プロパティと`MATERIAL_CATALOG`（9材料）を突き合わせた結果、**11件の
+  生データが既にタイルに焼き込まれているのに材料未登録**と判明した:
+  - 既存dtype（numeric/boolean）でそのまま登録可能（5件）: `bridge`・`motor_vehicle_no`・
+    `oneway`（T289で一次属性化したが材料化はしていなかった）・`maxspeed_kmh`・`lanes_count`
+  - 多値カテゴリカル、dtype拡張が必要（6件）: `highway`・`surface`・`bicycle_infra`・
+    `cycleway_class`・`designation`・`smoothness`
+- 設計方針（ユーザー承認済み）:
+  1. `material_catalog.py: MaterialDType`を`Literal["numeric", "boolean"]`から
+     `Literal["numeric", "boolean", "categorical"]`へ拡張し、11材料すべてを登録する。
+  2. **`categories`（許容値一覧）フィールドは追加しない**——highway等はこのプロジェクトで
+     正準の閉じた集合を管理しておらず、無理に列挙すると事実と異なる情報になるため。
+     詳細はMaterialSpecのコメントで説明する。
+  3. **`axis_definitions.py: CategoricalShape`（`mapping: dict[bool, float]`）の
+     文字列対応拡張は今回のスコープに含めない**——材料の「存在を宣言する」ことと
+     「評価軸として実際に使えるようにする」ことは独立した作業であり、今使う予定のない
+     評価ロジックを先回りで拡張すると過剰設計になる（設計原則9）。
+     **トリガー: 上記6件のいずれかを実際に評価軸の材料として使う新規軸の要求が出た時点**
+     （その時点でCategoricalShapeを拡張するか、その軸専用の新Shape種別を追加するかを
+     具体的な要件に応じて判断する）。
+- 影響範囲（保留した場合）: 現状どおり——軸スタジオの材料選択肢に現れないだけで、
+  実害はない。ただしT280（材料の天井対策）の候補材料が見えないままになる。
+- 完了条件: `material_catalog.py`へ11材料追加＋`MaterialDType`拡張。
+  `GET /api/material-catalog`のレスポンスに20材料（既存9+新規11）が含まれることを
+  確認。backend/frontend全テストgreen。既存7軸の挙動・OpenAPI契約（`AXIS_DEFINITIONS`
+  非対象のため本来変更なしのはずだが、`material-catalog.json`生成物のドリフト確認は必須）に
+  影響がないことを確認。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
