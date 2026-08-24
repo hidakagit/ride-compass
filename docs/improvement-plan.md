@@ -3497,7 +3497,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 実装・テスト（逆回り判定のガード条件・代数変換の正当性・比較ロジック）を
   完了。上記参照。
 
-### - [ ] T275. Tailwind CSSの採否を決定する（現状は未使用のまま依存関係にのみ存在） 規模S（調査・意思決定）
+### - [x] T275. Tailwind CSSの採否を決定する（現状は未使用のまま依存関係にのみ存在） 規模S（調査・意思決定）（2026-08-25、T299で決着）
 
 - 背景: 2026-08-24、T270作業中のユーザー質問（「Radix/Tailwindは実装コスト低減や保守性の
   向上につながっているか」）への回答時に調査して判明。`frontend/package.json`に
@@ -3535,6 +3535,15 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   (b)を選ぶ場合はCSS ModulesとTailwindの使い分け基準（どういう場合にどちらを使うか）を
   明文化する。(c)を選ぶ場合は30ファイル・3,302行のCSS Modules書き換え計画を別タスクとして
   起票する。
+- **決着（2026-08-25、T299）**: (b)（新規UIはTailwind+`components/ui/`を優先、既存CSS
+  Modulesは機能改修のタイミングで段階移行し一括置換はしない）を採用した。Radix UI +
+  `class-variance-authority`/`clsx`/`tailwind-merge`によるshadcn風の自前コンポーネント層
+  `frontend/src/components/ui/`（Button/Input/Card/Dialog/Checkbox）を新設し、使い分け基準・
+  Design Token一覧は`docs/architecture.md`技術選定表経由で`docs/frontend-design-system.md`へ
+  明文化した。効果実証として、定量調査で「本当に同一実装」と確認できた重複7箇所
+  （カード状コンテナ2・純レイアウト3・送信ボタン1・CSS Modulesファイル丸ごと削除1）も
+  実際に移行した。(c)全面移行の是非は引き続き別途判断とする（本タスクでは判断しない）。
+  詳細はT299参照。
 
 ### - [x] T276. registry.py（表示用レジストリ）とAXIS_DEFINITIONS（Stage D）の軸ラベル重複を解消する 規模S（2026-08-24完了）
 
@@ -4748,7 +4757,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   （`export_openapi.py`再生成→`git diff`クリーンを確認、実行時のINFOログ
   `axes=13 code_only=[] db_only=[]`でT295の差分ログも実データで正常動作を確認）。
 
-### - [ ] T299. Tailwind CSS + Radix UI + components/ui/ のデザイン基盤を新設する 規模M
+### - [x] T299. Tailwind CSS + Radix UI + components/ui/ のデザイン基盤を新設する 規模M（2026-08-25完了）
 
 - 背景: ユーザーから「Tailwind CSS + Radix UI + 自前UIコンポーネント層」をデザイン基盤
   として導入したいという明示的な要望があった。T252でTailwindはCascade Layers込みで
@@ -4785,6 +4794,40 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   （vitest+Testing Library、role/aria基準）完了。移行7箇所の実装・既存テストのgreen
   確認・実画面のBefore/After確認（Playwright）完了。`docs/architecture.md`技術選定表へ
   追従。`docs/frontend-design-system.md`新設。T275を(b)採用として決着。
+- **対応（2026-08-25完了）**: 上記方針どおり実装した。
+  - `frontend/src/components/ui/{Button,Input,Card,Dialog,Checkbox}`を新設（各21件、
+    計21テスト）。`frontend/src/lib/cn.ts`（`clsx`+`tailwind-merge`）、新規依存
+    `@radix-ui/react-dialog`・`@radix-ui/react-checkbox`・`class-variance-authority`・
+    `clsx`・`tailwind-merge`を追加。
+  - `globals.css`へ`@theme`ブロックを追加（`--radius-sm/md/lg`・`--shadow-float`、既存
+    `:root`定義とは値を一致させたまま意図的に重複——理由は上記対応方針参照）。
+  - 移行7箇所を実施（詳細はコミットログ参照）。当初「6箇所の完全重複」と見ていた
+    `.panel`/`.legendCard`/`.card`系クラスを精査した結果、実際には**カード表面
+    （背景+角丸+padding、`legendCard`/`admin.card`の2箇所がバイト単位で完全一致）**と
+    **純レイアウト（`ComparisonPanel`/`RouteSettingsPanel`/`MapLayersPanel`の`.panel`、
+    背景・枠線なしの縦積みのみ）**という2種類の異なるパターンが同じ命名慣習で
+    紛れていたことが判明し、前者のみ`Card`へ統合、後者はTailwindユーティリティ直書きに
+    留めた（新規コンポーネント化は投機的と判断）。`RouteForm`の送信ボタンは`Button`へ
+    （暗黙のグローバル`button[type=submit]`リセット依存を解消）、
+    `LocationControl.module.css`（18行）はTailwindユーティリティ化により**ファイルごと
+    削除**。CSS Modulesの正味削減は約37行（削除した重複ルール6箇所＋ファイル1つぶん、
+    `docs/frontend-design-system.md`参照）。
+  - 実装中、`globals.css`の`@theme`直前コメントでコロン直後にroot要素セレクタ名を
+    書くとLightning CSS（Tailwind v4のCSSエンジン）がコメント境界を誤認識しビルド
+    エラーになる実機不具合を発見・回避した（`globals.css`本文・
+    `docs/frontend-design-system.md`に注意書きを残した）。
+  - 検証: tsc・vitest（フロント全体479件）・`next build`すべてgreen。Playwright
+    headless chromiumでライト/ダーク双方の実画面（トップページ・「地図の見え方」
+    展開後・adminページの評価重みカード）を確認、コンソールエラーなし。
+    `RouteForm.test.tsx`/`LocationControl.test.tsx`はCSSクラス名を一切アサートせず
+    無改修のままgreen（移行成功の直接的な証拠）。
+  - `docs/frontend-design-system.md`を新設し使い分け基準・Design Token一覧・意図的に
+    作らないもの（Select/Tabs/汎用Chip/Dialog↔FloatingPanel統合）・将来候補
+    （colorトークンの`@theme inline`統合）を明文化。`docs/architecture.md`技術選定表へ
+    追従。T275を(b)採用として決着。
+  - 対象外としたもの: `MapOverlayControls.tsx`のiconChip・`RouteList.tsx`のitemの
+    チップ重複解消（`MapOverlayControls.tsx`は563行の中心的な地図UIファイルで直近も
+    T292で大きく触られたため、追加リスクを取らず将来タスクへ切り出し）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
