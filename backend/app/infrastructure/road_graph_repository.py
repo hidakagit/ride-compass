@@ -51,7 +51,7 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 
 import shapely
-from geoalchemy2.shape import from_shape, to_shape
+from geoalchemy2.shape import from_shape
 from shapely.geometry import LineString, Point
 from sqlalchemy import (
     BigInteger,
@@ -171,11 +171,6 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
         data_version=row.data_version,
         calculated_at=row.calculated_at.isoformat(),
     )
-
-
-def _raw_node_row_to_coords(row: OsmRawNodeRow) -> tuple[float, float]:
-    point = to_shape(row.geom)
-    return point.y, point.x  # (latitude, longitude)
 
 
 # 路面タイル（MVT）をPostGIS側で丸ごと生成するクエリ（get_road_surface_tile_mvt参照）。
@@ -845,22 +840,25 @@ _NEAREST_INTERSECTION_COUNTS_SQL = text(
 )
 
 
-def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable[RoadNodeRow]) -> RoadGraph:
-    """`get_graph_in_bbox`用。Edge/Nodeが数万〜十数万行になる規模のため、1行ずつ
+def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -> RoadGraph:
+    """`get_graph_in_bbox`用。Edgeが数万〜十数万行になる規模のため、1行ずつ
     `to_shape()`を呼ぶ従来実装ではなく`shapely.from_wkb()`のバッチAPI（GEOS呼び出しの
     ループをPython側ではなくC側で回す）でgeometryを一括デコードし、Pydanticの
     `model_construct`（フィールド検証をスキップ。DB由来で型が保証済みのため安全）で
-    Node/DirectedEdgeを構築する。実データ（東京都心4km相当bbox、Edge151,820件・
+    DirectedEdgeを構築する。実データ（東京都心4km相当bbox、Edge151,820件・
     Node59,270件）での実測でCPU時間を約37%削減（6.11秒→3.84秒、
     backend/benchmarks/README.md参照）。
+
+    `node_rows`は`Node`が`geometry`フィールドを持たない（`latitude`/`longitude`のみ）ことを
+    踏まえ、`get_graph_topology_in_bbox`と同じくST_X/ST_Y列指定クエリの結果を受け取る
+    （改善計画T264、geom列自体のshapely decodeを丸ごと回避）。
     """
     node_rows = list(node_rows)
-    node_points = shapely.from_wkb([bytes(row.geom.data) for row in node_rows])
     nodes = {
         row.node_id: Node.model_construct(
-            node_id=row.node_id, latitude=point.y, longitude=point.x, osm_node_id=row.osm_node_id
+            node_id=row.node_id, latitude=row.latitude, longitude=row.longitude, osm_node_id=row.osm_node_id
         )
-        for row, point in zip(node_rows, node_points)
+        for row in node_rows
     }
     edges = _edge_rows_to_directed_edges(edge_rows)
     return RoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
@@ -939,17 +937,6 @@ def _primary_way_conditions(envelope):
     定義を使う必要があるため、述語がずれないようここへ共通化する。
     """
     return (OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, envelope))
-
-
-def _way_spec_row_to_domain(row: OsmRawWayRow) -> WaySpec:
-    return WaySpec(
-        osm_way_id=row.osm_way_id,
-        node_ids=list(row.node_ids),
-        highway=row.highway,
-        surface=row.surface,
-        tags=row.tags or {},
-        direction=row.direction,
-    )
 
 
 async def _bulk_upsert(
@@ -1168,10 +1155,19 @@ class DerivedGraphRepository(_SessionRepository):
         # =ANY(配列)化の理由はget_elevation_attributesのコメント参照（1要素=1パラメータの
         # IN句展開と異なり配列全体で1パラメータのため、WAN経由でのラウンドトリップ増加を
         # 避けられる。50,000件チャンクなのでasyncpgのパラメータ上限32767個の問題も無い）。
+        # 改善計画T264: `Node`は`latitude`/`longitude`のみを持ち`geometry`フィールドを
+        # 持たない（`DirectedEdge`と異なりgeom列自体を必要としない）。`get_graph_topology_in_bbox`
+        # （T248でST_X/ST_Y列指定へ最適化済み、3.1倍）と同じ理由がこの`get_graph_in_bbox`
+        # （lean=False、非探索の表示用パス）のNode取得にも当てはまるが未適用のままだった。
         node_rows = []
         for id_chunk in _chunked(node_ids, 50_000):
-            node_stmt = select(RoadNodeRow).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
-            node_rows.extend((await self._session.execute(node_stmt)).scalars().all())
+            node_stmt = select(
+                RoadNodeRow.node_id,
+                RoadNodeRow.osm_node_id,
+                func.ST_X(RoadNodeRow.geom).label("longitude"),
+                func.ST_Y(RoadNodeRow.geom).label("latitude"),
+            ).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
+            node_rows.extend((await self._session.execute(node_stmt)).all())
 
         # 密集した都市部のbboxではEdge/Nodeが数万〜十数万行になり、shapelyへのgeometry
         # decode（to_shape）だけで数秒〜十数秒のCPU処理になる（bench_postgis_prepare.py
@@ -1567,22 +1563,51 @@ class RawOsmRepository(_SessionRepository):
         extent_envelope = func.ST_MakeEnvelope(
             extent_row.xmin, extent_row.ymin, extent_row.xmax, extent_row.ymax, 4326
         )
-        way_stmt = select(OsmRawWayRow).where(
-            OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, extent_envelope)
-        )
-        way_rows = (await self._session.execute(way_stmt)).scalars().all()
-        way_specs = [_way_spec_row_to_domain(row) for row in way_rows]
+        # 改善計画T264: `_way_spec_row_to_domain`は`geom`列を一切参照しない
+        # （osm_way_id/node_ids/highway/surface/tags/directionのみ）。にもかかわらず
+        # `select(OsmRawWayRow)`は全列（geom＝LINESTRING込み）をORM行として取得しており、
+        # 本番実測（宇都宮30km、primary_ways=35,725）でDBサーバー側の実行自体はEXPLAIN
+        # ANALYZEで112msしかかからないのに対し、closure_ms全体は9.7秒（約85倍）だった。
+        # `get_graph_topology_in_bbox`がEdge側で既にgeom列を除外した経緯（T218）と同じ
+        # パターンのため、Way側にも列指定クエリを適用してORM行構築・shapely decode・
+        # ネットワーク転送量を削減する。WHERE句自体はgeom列を条件に使い続けてよい
+        # （SELECTする列と条件に使う列は独立）。
+        way_stmt = select(
+            OsmRawWayRow.osm_way_id,
+            OsmRawWayRow.node_ids,
+            OsmRawWayRow.highway,
+            OsmRawWayRow.surface,
+            OsmRawWayRow.tags,
+            OsmRawWayRow.direction,
+        ).where(OsmRawWayRow.geom.is_not(None), func.ST_Intersects(OsmRawWayRow.geom, extent_envelope))
+        way_rows = (await self._session.execute(way_stmt)).all()
+        way_specs = [
+            WaySpec(
+                osm_way_id=row.osm_way_id,
+                node_ids=list(row.node_ids),
+                highway=row.highway,
+                surface=row.surface,
+                tags=row.tags or {},
+                direction=row.direction,
+            )
+            for row in way_rows
+        ]
 
         # ノード座標はWayが実際に参照するIDで正確に引く（=ANY(配列)は1パラメータで済み、
         # IN句のようなパラメータ数上限の問題を起こさない）。
+        # 改善計画T264: ここも呼び出し元が緯度経度のみを必要とし`geom`（WKB）自体は
+        # 不要なため、`select(OsmRawNodeRow)`（全列＋`to_shape`によるshapely decode）を
+        # ST_X/ST_Y列指定へ変更する（way_stmt・get_graph_in_bboxのnode_stmtと同じ対応）。
         final_node_ids = sorted({node_id for way in way_specs for node_id in way.node_ids})
         node_coords: dict[int, tuple[float, float]] = {}
         for id_chunk in _chunked(final_node_ids, 50_000):
-            node_stmt = select(OsmRawNodeRow).where(
-                OsmRawNodeRow.osm_node_id == any_(cast(id_chunk, ARRAY(BigInteger)))
-            )
-            for row in (await self._session.execute(node_stmt)).scalars().all():
-                node_coords[row.osm_node_id] = _raw_node_row_to_coords(row)
+            node_stmt = select(
+                OsmRawNodeRow.osm_node_id,
+                func.ST_X(OsmRawNodeRow.geom).label("longitude"),
+                func.ST_Y(OsmRawNodeRow.geom).label("latitude"),
+            ).where(OsmRawNodeRow.osm_node_id == any_(cast(id_chunk, ARRAY(BigInteger))))
+            for row in (await self._session.execute(node_stmt)).all():
+                node_coords[row.osm_node_id] = (row.latitude, row.longitude)
 
         return way_specs, node_coords, primary_way_ids
 
