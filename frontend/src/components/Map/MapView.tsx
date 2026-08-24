@@ -57,6 +57,7 @@ import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLay
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
+import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
 import {
   DYNAMIC_WEATHER_LAYER_IDS,
   type DynamicWeatherLayerId,
@@ -112,6 +113,12 @@ const ROUTES_SOURCE_ID = "route-candidates";
 const ROUTES_LAYER_ID = "route-candidates-line";
 const OUTLINE_SOURCE_ID = "route-selected-outline";
 const OUTLINE_LAYER_ID = "route-selected-outline-line";
+// 周回ルートの採用向き（順回り/逆回り）を示す矢印（改善計画T293）。8候補すべてに出すと
+// 輻輳するため専用sourceは持たず、選択中1候補のgeometryだけを保持するOUTLINE_SOURCE_IDを
+// そのまま流用する（drawSelectedOutline参照）。
+const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
+const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
+const ROUTE_ARROW_LAYER_ID = "route-arrow";
 const DETAIL_SOURCE_ID = "route-detail-segments";
 const DETAIL_LAYER_ID = "route-detail-segments-line";
 const SLOTS_SOURCE_ID = "experiment-slots";
@@ -331,9 +338,48 @@ function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], selecte
       },
       map.getLayer(ROUTES_LAYER_ID) ? ROUTES_LAYER_ID : undefined
     );
+    ensureRouteArrowLayer(map);
   };
 
   runWhenStyleReady(map, applyData);
+}
+
+// 周回ルートの採用向き（順回り/逆回り）を矢印で明示する（改善計画T293）。
+// symbol-placement: "line" + icon-rotation-alignment: "map"の組み合わせだけで、LineStringの
+// 座標順（T274が逆回り候補で座標を逆順に構築済み、RouteCandidate.geometry/segmentsは採用
+// された向きの座標順で返る）がそのまま矢印の向きに反映される（T293技術検証Artifactで確認
+// 済み、フロント側で「どちらが採用されたか」を判定する追加ロジックは不要）。
+// ハロー（縁取り）層+主層の2層重ねは風の矢印（ensureDynamicWeatherLayer）と同じ既存パターン。
+function ensureRouteArrowLayer(map: MapLibreMap) {
+  if (map.getLayer(ROUTE_ARROW_LAYER_ID)) return;
+  if (!map.hasImage(ROUTE_ARROW_ICON_ID)) {
+    map.addImage(ROUTE_ARROW_ICON_ID, createRouteArrowIcon(), { sdf: true });
+  }
+  const lineLayout = {
+    "icon-image": ROUTE_ARROW_ICON_ID,
+    "symbol-placement": "line",
+    "symbol-spacing": ROUTE_ARROW_SPACING_PX,
+    "icon-rotation-alignment": "map",
+    "icon-allow-overlap": false,
+    "icon-ignore-placement": false,
+  } as const;
+  map.addLayer({
+    id: ROUTE_ARROW_HALO_LAYER_ID,
+    type: "symbol",
+    source: OUTLINE_SOURCE_ID,
+    layout: {
+      ...lineLayout,
+      "icon-size": zoomIconSizeExpression(ROUTE_ARROW_BASE_SCALE * ROUTE_ARROW_HALO_SCALE_MULTIPLIER),
+    },
+    paint: { "icon-color": "#ffffff", "icon-opacity": 0.9 },
+  });
+  map.addLayer({
+    id: ROUTE_ARROW_LAYER_ID,
+    type: "symbol",
+    source: OUTLINE_SOURCE_ID,
+    layout: { ...lineLayout, "icon-size": zoomIconSizeExpression(ROUTE_ARROW_BASE_SCALE) },
+    paint: { "icon-color": "#1e3a8a", "icon-opacity": 0.95 },
+  });
 }
 
 // 実験スロット（研究インターフェース改善 §10-3）の重ね描き。各スロットの代表候補
@@ -537,6 +583,28 @@ function zoomAndPropertyIconSizeExpression(
     ]),
   ] as unknown as maplibregl.ExpressionSpecification;
 }
+
+/** ズームのみに依存するicon-size式（zoomAndPropertyIconSizeExpressionのプロパティ非依存版）。
+ * ルート矢印（T293）のように「全シンボル共通の基準サイズをズームでスケールするだけ」で
+ * 足りるケース向け。ICON_ZOOM_SCALE_STOPSを共有し、風の矢印と同じズーム曲線に揃える
+ * （片側importで2箇所のズーム曲線が食い違わないようにする）。 */
+function zoomIconSizeExpression(baseScale: number) {
+  return [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    ...ICON_ZOOM_SCALE_STOPS.flatMap((stop) => [stop.zoom, baseScale * stop.multiplier]),
+  ] as unknown as maplibregl.ExpressionSpecification;
+}
+
+// ルート矢印（T293）のsymbol-spacing（線に沿った矢印間隔、画面px単位。ズームで密度が
+// 自動調整されるためズーム別の値は持たない、T293技術検証Artifactで確認済み）・基準サイズ。
+// 実データ（都心の急カーブ・折り返し区間）での密集/欠落確認は実装タスク3の実機調整で行う。
+const ROUTE_ARROW_SPACING_PX = 80;
+const ROUTE_ARROW_BASE_SCALE = 0.55;
+// ハロー層は主層より一回り大きい濃色シルエットを下に敷く倍率（風の矢印のWIND_ICON_HALO_
+// SCALE_MULTIPLIERと同じ考え方）。
+const ROUTE_ARROW_HALO_SCALE_MULTIPLIER = 1.4;
 
 /** 動的気象レイヤー1要素ぶんの描画スペック。raster/gridFill/gridMarkのうち実際に使う
  * ものだけを持つ（例: windVectorはgridMarkのみ、precipitationNowcastはraster+gridFillの
