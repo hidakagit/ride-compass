@@ -207,11 +207,19 @@ class GraphService:
             return None
         graph, surface_attributes = built
         edge_ids = list(graph.edges.keys())
+        # 改善計画T264: get_or_build_graph_with_attributesのrebuild内訳
+        # （closure_ms/build_ms/save_ms）をログ済みだが、その合計とprepare_ms全体との
+        # 差分（本番30km実測で約17秒）がこのバッチ取得由来かをここで確認する。
+        materials_started = time.monotonic()
         # 改善計画T248: surface_attributesはget_or_build_graph_with_attributesが
         # 既に取得済みのためここでは使わず、残り4種のみバッチ取得する
         # （get_edge_materials_batchのsurface_attributesは捨てる二重取得になるが、
         # このメソッド自体が低頻度・重い処理のuncachedフォールバック経路のため許容する）。
         batch = await self._repository.get_edge_materials_batch(edge_ids)
+        materials_ms = round((time.monotonic() - materials_started) * 1000)
+        logger.info(
+            "_build_search_materials_uncached edges=%d materials_ms=%d", len(edge_ids), materials_ms
+        )
         return SearchMaterials(
             graph=graph,
             surface_attributes=surface_attributes,
