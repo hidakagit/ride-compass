@@ -1,0 +1,70 @@
+# backendをOracle Cloud VM（DBと同居）へデプロイする（改善計画T261/T263）。
+# Renderの無料プラン（0.1 CPU/512MB）が冷パスの重いリクエストでクラッシュ→自動復旧を
+# 繰り返す障害（T261）を受け、DBが既に稼働しているOracle Cloud Always Free VM
+# （2 OCPU/12GB・egress月10TB）へbackendを同居させることにした。ビルドはGitHub
+# Actions側で行い（VM側の負荷にしない）、GitHub Container Registry（ghcr.io、
+# 追加アカウント不要）へpushしたイメージをSSH経由でVMがpullして再起動する。
+name: Deploy Backend to Oracle VM
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
+            ghcr.io/${{ github.repository_owner }}/ridecompass-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ORACLE_VM_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          script: |
+            set -e
+            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            sudo docker pull ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
+            sudo docker stop ridecompass-backend 2>/dev/null || true
+            sudo docker rm ridecompass-backend 2>/dev/null || true
+            # --network=host: PostgreSQLがこのVMにネイティブ（Dockerコンテナ外）で
+            # 稼働しているため、コンテナ内からDATABASE_URL=localhost:5432で到達させるには
+            # ブリッジネットワーク（既定）ではなくホストのネットワーク名前空間を共有する
+            # 必要がある（ブリッジのままだとコンテナ内のlocalhostはコンテナ自身を指し、
+            # ConnectionRefusedErrorになる。実機で確認済み）。
+            sudo docker run -d \
+              --name ridecompass-backend \
+              --restart unless-stopped \
+              --memory=6g --memory-swap=6g \
+              --network=host \
+              --env-file /home/ubuntu/ridecompass-backend.env \
+              ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
+            sudo docker image prune -f
