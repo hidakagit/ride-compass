@@ -85,7 +85,7 @@ export default function ComparisonPanel({ slots }: ComparisonPanelProps) {
   if (slots.length < 2) return null;
 
   return (
-    <div className={styles.panel}>
+    <div className="flex flex-col gap-2">
       <p className={styles.hint}>
         直近{slots.length}回の生成結果を比較[各列は各回のtotal_score最上位候補。生値・絶対難易度のみで、
         リクエスト間の比較ができないtotal_scoreは含まない]

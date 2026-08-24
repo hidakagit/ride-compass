@@ -1,7 +1,6 @@
 "use client";
 
 import type { Coordinates, LocationSource } from "@/types/route";
-import styles from "./LocationControl.module.css";
 
 const SOURCE_LABEL: Record<LocationSource, string> = {
   geolocation: "現在地[取得済み]",
@@ -25,14 +24,17 @@ export default function LocationControl({ location, source, compact = false }: L
 
   if (compact) {
     return (
-      <span className={styles.compact} title={`出発地点: ${SOURCE_LABEL[source]} (${coords})`}>
+      <span
+        className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs"
+        title={`出発地点: ${SOURCE_LABEL[source]} (${coords})`}
+      >
         出発: {SOURCE_LABEL[source]}
       </span>
     );
   }
 
   return (
-    <div className={styles.wrapper}>
+    <div className="flex flex-col gap-2 text-[length:var(--font-size-md)]">
       {/* ルート生成の入力（周回の起点）であることが伝わるよう「位置情報」から言い換える（T30） */}
       <span>
         出発地点: {SOURCE_LABEL[source]}

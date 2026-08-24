@@ -512,7 +512,8 @@ export default function MapLayersPanel({
   }
 
   return (
-    <div className={styles.panel}>
+    // gap-2(0.5rem)は要素間の余白を詰めてほしいという実機フィードバックを受けた縮小値（T41）
+    <div className="flex flex-col gap-2">
       {/* 各軸に「すべて表示」はあるが、複数レイヤーにまたがって絞り込んだ後に全部を
           1つずつ開いて戻すのは手間が大きい（ゆる～と等の地図ポータルの「消去」ボタンを
           参考に追加）。絞り込みが無ければボタンを無効化・非表示にするが、要素自体は

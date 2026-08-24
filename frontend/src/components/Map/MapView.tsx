@@ -1479,7 +1479,7 @@ function formatRoad(good: boolean | null): string {
 }
 
 // ポップアップ本文の共通スタイル。line-heightは以前1.6だったが、短い行の羅列に対して
-// 間延びして見えたため、サイドバーの他カード（page.module.css .legendCard等）に近い
+// 間延びして見えたため、サイドバーの他カード（components/ui/Card等、改善計画T299）に近い
 // 密度の1.4へ詰めた。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 

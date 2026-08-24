@@ -142,7 +142,7 @@ export default function RouteSettingsPanel({
   const total = totalWeight(routePreference);
 
   return (
-    <div className={styles.panel}>
+    <div className="flex flex-col gap-3">
       <div className={styles.presets}>
         {PRESETS.map((preset) => (
           <button

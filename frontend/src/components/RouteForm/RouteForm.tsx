@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ErrorText from "@/components/ErrorText/ErrorText";
+import { Button } from "@/components/ui/Button/Button";
 import styles from "./RouteForm.module.css";
 
 interface RouteFormProps {
@@ -61,9 +62,9 @@ export default function RouteForm({ distance, onDistanceChange, onGenerate, load
         />
         km
       </label>
-      <button type="submit" disabled={loading}>
+      <Button variant="primary" type="submit" disabled={loading}>
         {loading ? (compact ? "…" : "生成中...") : compact ? "生成" : "ルート生成"}
-      </button>
+      </Button>
       {error && <ErrorText>{error}</ErrorText>}
     </form>
   );

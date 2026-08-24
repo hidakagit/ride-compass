@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
+import { Card } from "@/components/ui/Card/Card";
 import MapView from "@/components/Map/MapView";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
@@ -1351,7 +1352,7 @@ export default function Home() {
   // 格上げした、T43）。
   function renderMapSettingsSectionBody() {
     return (
-      <div className={styles.legendCard}>
+      <Card>
         <MapLayersPanel
           layerVisibility={layerVisibility}
           onLayerToggle={handleLayerToggle}
@@ -1366,7 +1367,7 @@ export default function Home() {
           hasHiddenFilters={hasHiddenFilters}
           onClearAllFilters={handleClearAllFilters}
         />
-      </div>
+      </Card>
     );
   }
 

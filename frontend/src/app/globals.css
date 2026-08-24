@@ -7,12 +7,16 @@
    取り込まずvar(--color-*)をそのまま個別クラスで参照する運用とする。 */
 @import "tailwindcss";
 
-/* T299: components/ui/配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
-   使えるようにする登録。値は下記:rootの--radius-*/--shadow-floatと必ず一致させること
-   (変更時は両方直す)。:root側は移動しない(unlayeredで既存のCSS Modulesが依存しており、
-   動かすことによる予期せぬCascade Layers影響を避けるため)。colorトークンはここに
-   含めない(ダークモードが:root再定義に依存しており、@themeに入れると値が静的に
-   固定されダークモード追従が壊れるため。詳細はdocs/frontend-design-system.md参照)。 */
+/* T299: components/ui配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
+   使えるようにする登録。値は後方のroot要素の定義と必ず一致させること(変更時は両方直す)。
+   root要素側は移動しない(unlayeredで既存のCSS Modulesが依存しており、動かすことで
+   予期せぬCascade Layers影響を受けるリスクを避けるため)。colorトークンはここに含めない
+   (ダークモードがroot要素の再定義に依存しており、themeに入れると値が静的に固定され
+   ダークモード追従が壊れるため。詳細はdocs/frontend-design-system.md参照)。
+   注意: このコメント内で「コロン」の直後に続けてroot要素セレクタ名を書くと、Lightning CSS
+   (Tailwind v4のCSSエンジン)が@theme直前のコメント境界を誤認識しビルドエラーになる
+   実機不具合を踏んだ(2026-08-25)。今後この付近のコメントを編集する際は該当パターンを
+   避けること(セレクタ名を書く場合は「root要素」のように文字だけで表現する)。 */
 @theme {
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -268,7 +272,7 @@
    ここでvar(--color-surface)/var(--foreground)ペアで固定し、tipの矢印も背景色に追従させる。
    既定のbox-shadow（0 1px 2px rgba(0,0,0,.1)）とborder-radius:3pxは淡すぎて、道路や
    建物で色数の多い地図の上だと縁が視認しづらい（UIレビュー2026-08-16指摘）。他のカード
-   （page.module.css .legendCard等）と同じ角丸・枠線・浮き影のトークンに揃えて地図から
+   （components/ui/Card等、改善計画T299）と同じ角丸・枠線・浮き影のトークンに揃えて地図から
    はっきり浮かせる。
    セレクタは単一クラスの.maplibregl-popup-contentではなく、親要素込みの2クラス指定にして
    詳細度をmaplibre-gl.css側の既定ルール（同じ単一クラス）より高くしている。Next.jsのビルドは

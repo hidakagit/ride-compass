@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Disclosure from "@/components/Disclosure/Disclosure";
+import { Card } from "@/components/ui/Card/Card";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
@@ -87,7 +88,7 @@ export default function AdminPage() {
       >
         <ResearchPanel />
         {researchEnabled && (
-          <div className={styles.card}>
+          <Card>
             <WeightPanel
               overrideEnabled={weightOverrideEnabled}
               onOverrideEnabledChange={setWeightOverrideEnabled}
@@ -97,7 +98,7 @@ export default function AdminPage() {
               onRoutePreferenceChange={setRoutePreference}
               renderPreferenceFieldExtra={renderPreferenceFieldExtra}
             />
-          </div>
+          </Card>
         )}
         {!researchEnabled && (
           <p className={styles.hint}>
