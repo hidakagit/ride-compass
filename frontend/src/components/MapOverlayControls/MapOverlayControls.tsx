@@ -122,7 +122,6 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   elevation: ElevationIcon,
   roadType: RoadIcon,
   roadSurface: RoadSurfaceIcon,
-  carStress: CarStressIcon,
   bicycleInfra: BicycleInfraIcon,
   designation: DesignationIcon,
   tunnel: TunnelIcon,

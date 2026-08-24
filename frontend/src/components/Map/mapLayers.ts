@@ -32,7 +32,6 @@ export type MapLayerId =
   | "elevation"
   | "roadType"
   | "roadSurface"
-  | "carStress"
   | "bicycleInfra"
   | "designation"
   | "tunnel"
@@ -168,6 +167,16 @@ export interface MapLayerDescriptor {
 const RAMP_AXIS_PANEL_HINTS: Record<string, string> = {
   stop_density: "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
   accident: "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
+  // 改善計画T292: 専用パネル（旧carStress固定エントリ）から、内部軸6つ（highway基準値・
+  // 自転車インフラ補正・制限速度補正・車線数補正・指定路線補正・自動車通行不可の優先確定）
+  // を合成する汎用ramp軸へ移行した。判定基準の内訳（旧panelHintDetail相当）は
+  // 内部軸自体が非公開（is_published=False）のため専用UIを持たず、区間クリックの
+  // 「一次属性・全軸の内訳を見る」ポップアップ（axisInspectorPopup.ts、内部軸を含む
+  // AXIS_DEFINITIONS全体を依存順評価する区間インスペクタ）で確認する。
+  car_stress:
+    "道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した" +
+    "車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして" +
+    "「一次属性・全軸の内訳を見る」から確認できます。",
 };
 
 export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
@@ -211,34 +220,6 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     description: "路面の材質を色で表示[アスファルト・砂利・土など]",
   },
   {
-    id: "carStress",
-    label: "車の圧迫感",
-    chipLabel: "圧迫感",
-    kind: "static",
-    category: "trafficSafety",
-    dataNature: "composite",
-    description: "道路種別・車線数・制限速度・自転車インフラから推定した車の圧迫感(1-5)を色分け表示",
-    // 判定基準が不明という実機フィードバック（モバイル実機フィードバック対応T39）を受け、
-    // backend/app/domain/traffic.py: car_stress_levelの要約を明記する。
-    // 改善計画T89: T39の1文要約だけでは「4段階であること」「何が加点/減点されるか」まで
-    // 伝わらず「1〜5評価」と誤解される実機フィードバックが再発。panelHintの冒頭で段階数を
-    // 明示し、内訳はpanelHintDetail（箇条書き）へ分離した。
-    // 改善計画T92: 「指定路線がほぼ全部ストレス最大（赤）で判定が粗い」という指摘を受け、
-    // 判定ロジック自体を見直した（幹線道路の一律扱いをやめ、県道級は国道級と分離、
-    // 既存タグの中で未活用だった項目を追加）。この一覧もその変更に合わせて更新している。
-    panelHint: "道路の種別をもとに5段階[1=快適〜5=圧迫大]で判定した目安です。実際の交通量そのものは加味していません。",
-    panelHintDetail: [
-      "基準値: 道路の種別[生活道路・県道・国道など]で決まります。国道・幹線道路が最も高く、県道はやや低めです",
-      "分離された自転車道が併設: -2 ／ 自転車レーンが併設・自転車と共有の車線表示: -1",
-      "制限速度30km/h以下: -1 ／ 60km/h以上: +1",
-      "車線数4以上: +1 ／ 対面通行の1車線: -1",
-      "指定路線[緊急輸送道路・重要物流道路、下の「指定路線」レイヤーで個別に確認できます]に該当: +1",
-      "車両通行不可[自転車専用]の区間は上記の補正に関わらず1に固定",
-      "上記の合計が1〜5の範囲を超える場合は範囲内に収まるよう丸めます[信号・一時停止の多さは、別の「停止要因」レイヤーで確認できます]",
-      "「不明・他」はpath/footway・高速道路等、判定基準に登録の無い道路種別です",
-    ],
-  },
-  {
     id: "bicycleInfra",
     label: "自転車インフラ",
     chipLabel: "インフラ",
@@ -263,12 +244,12 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     category: "roadCondition",
     description: "国土数値情報の緊急輸送道路・重要物流道路[KSJ N10/N12]に該当する区間を色分け表示",
     // バッファマッチ（20m、交差率50%以上）でroad_edgesへ対応付けた区間を色分けする。
-    // 該当区間はcarStress軸にも+1の補正として反映される
-    // （road_graph_repository.py: car_stress_level参照）。
+    // 該当区間は車の圧迫感軸（axis:car_stress）にも+1の補正として反映される
+    // （改善計画T292: domain/axis_definitions.py: car_stress_designation_adjustment参照）。
     // 改善計画T89: 「車ストレスと指定路線は何が違うのか」という実機フィードバックを受け、
     // 指定路線が「行政指定という事実」の表示であり、車ストレスはそれを含む複数要因
     // （道路種別・車線数・制限速度・自転車インフラ）を合成した推定指標であるという
-    // 役割の違いを明記する（carStressのpanelHintDetailと対で参照）。
+    // 役割の違いを明記する（RAMP_AXIS_PANEL_HINTS.car_stressと対で参照）。
     panelHint:
       "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
       "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
@@ -484,10 +465,10 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
 
-// roadType/roadSurface（T165で「道路情報」から論理分割）/carStress/bicycleInfra/
-// designation/tunnelは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/
+// roadType/roadSurface（T165で「道路情報」から論理分割）/bicycleInfra/designation/tunnel/
+// onewayは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/
 // ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を共有しているため、そのタイルの
-// minzoom未満（regionZoomTooWide）ではタイル自体が要求されず、6レイヤーとも同時に
+// minzoom未満（regionZoomTooWide）ではタイル自体が要求されず、同時に
 // loading/emptyと判定される。「表示範囲が広すぎます」という案内が既にある
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
@@ -495,11 +476,11 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
   "roadType",
   "roadSurface",
-  "carStress",
   "bicycleInfra",
   "designation",
   "tunnel",
   "oneway",
   // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
+  // （改善計画T292: car_stressもここに含まれるようになった）。
   ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
 ];

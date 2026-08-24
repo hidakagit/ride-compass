@@ -363,8 +363,8 @@ RideCompass/
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
-        recipe.py                      ✅ 改善計画T122: レシピ付き軸（traffic.py、かつてはsafety.pyとも共有していたがT148で削除）が使う判定プリミティブ。clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/tag_value_is/validate_threshold_order、材料タグ正規化（parse_lanes/parse_maxspeed/cycleway_values/cycleway_class、traffic.pyから移設）
-        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/car_stress_level（highway,tags,is_designated、改善計画T150で「交通ストレス」から改称）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。判定プリミティブはrecipe.pyへ切り出し済み（改善計画T122）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル
+        recipe.py                      ✅ 改善計画T122: 材料タグ正規化の純関数群（parse_lanes/parse_maxspeed/cycleway_values/cycleway_class/tag_value_is）。改善計画T292でcar_stress専用の判定プリミティブ（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order等、「専用Pythonレシピ」の採点構造）は削除し、材料タグ正規化のみが残る
+        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。改善計画T292で車ストレス判定（旧car_stress_level/car_stress_breakdown）は削除し、`domain/axis_definitions.py: AXIS_DEFINITIONS['car_stress']`の内部軸階層へ再実装した。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
@@ -482,17 +482,15 @@ RideCompass/
       app/
         page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持（UI再構成）。改善計画T270で研究・開発者セクションを/adminへ移設済み（地図インスタンスに紐づく「地図データを再読み込み」ボタンのみ「開発者」に残る）
         layout.tsx              ✅
-        admin/page.tsx           ✅ 改善計画T270: 軸スタジオ・研究・開発者ツールをまとめた独立URLの管理画面。権限制御（改善計画T272、2026-08-24完了）は`src/proxy.ts`がこのルーティング境界（`/admin/:path*`）でHTTP Basic認証を敷く。研究モードの評価重み・レシピ上書きstateはlocalStorage経由でpage.tsxと共有する（useStoredJsonState/useRecipeOverrideのstorageKey、hooks/参照）
+        admin/page.tsx           ✅ 改善計画T270: 軸スタジオ・研究・開発者ツールをまとめた独立URLの管理画面。権限制御（改善計画T272、2026-08-24完了）は`src/proxy.ts`がこのルーティング境界（`/admin/:path*`）でHTTP Basic認証を敷く。研究モードの評価重みstateはlocalStorage経由でpage.tsxと共有する（useStoredJsonStateのstorageKey、hooks/参照）
         api/version/route.ts    ✅ GET /api/version。RENDER_GIT_COMMIT（frontendは今もRender稼働のため据え置き）/起動時刻を返すRoute Handler（force-dynamic）。バックエンドの/healthと対になるデプロイ確認用（「デプロイの反映確認」で新規）
       components/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
         LocationControl/LocationControl.tsx ✅ 現在地表示・手動緯度経度入力フォーム（UI再構成、MapViewから分離）
         Map/mapLayers.ts        ✅ 地図レイヤーのカタログ（id/label/kind/description、単一ソース）。チップ行とサイドバーのセクション枠はこの列挙で描画（UI再構成 第2段で新規）
         MapOverlayControls/MapOverlayControls.tsx ✅ 地図上のON/OFFチップ行＋▶で開く凡例内訳パネル（レイヤー固有の知識を持たない汎用描画係。UI再構成 第2段で全面書き換え、旧⚙ボタン・RoadFilterDialogは廃止。凡例パネルは実機フィードバックを受け位置ズレ・展開挙動を反復修正済み）
-        Map/staticAttributeLayers.ts ✅ P1/T50/T51の静的レイヤー色分け・凡例・絞り込み軸カタログ（CAR_STRESS/BICYCLE_INFRA/DESIGNATION/ACCIDENT/STOP_POI/INTERSECTION、STATIC_FILTER_AXES。7章参照）。buildCategoricalLayerDefsで同型3組を共通化（T82）
+        Map/staticAttributeLayers.ts ✅ P1/T50/T51の静的レイヤー色分け・凡例・絞り込み軸カタログ（BICYCLE_INFRA/DESIGNATION/TUNNEL/ONEWAY/STOP_POI/SUPPLY_POI/ACCIDENT、STATIC_FILTER_AXES。7章参照）。buildCategoricalLayerDefsで同型3組を共通化（T82）。car_stressを含むramp軸（停止密度・事故密度等）の凡例はRAMP_AXES（axisLayers.ts）から自動合流し、STATIC_FILTER_AXESへの手書きは不要（改善計画T292でcar_stress分の手書きエントリを廃止）
         Map/icons.tsx              ✅ 地図上チップ用の自作SVGアイコン群（レイヤー数増加に伴う新規）
-        Map/recipeExpression.ts    ✅ 改善計画T123: carStressExpression.ts（かつては安全度safetyExpression.tsとも共有していたがT148で削除）が使うMapLibre expression断片の組み立てヘルパー（backend/app/domain/recipe.py・改善計画T122のTS側ミラー）
-        Map/recipeBreakdownPopup.ts ✅ 改善計画T123: 車ストレスの区間別判定内訳ポップアップ（改善計画T90）のHTML組み立て＋ボタン配線。当初はMapView.tsxに双子関数（約158行、安全度分。T148で削除）として存在していたものを軸設定オブジェクト渡しの1実装へ集約
         Map/useLayerDataStatus.ts   ✅ 改善計画T123: レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus/clearStaleTrackedSourceErrors＋状態管理フック）。MapView.tsxから抽出（2026-08-17レビューDEFER(a)の履行）
         Map/dynamicWeather.ts        ✅ 改善計画T184: 動的気象レイヤー（風・降水）の共通契約（表現3種・共有タイムライン・範囲外非描画・追加4ステップの1本道。DOM/MapLibre非依存の純粋データ層。「動的気象レイヤー」節参照）
         Map/windLayer.ts             ✅ 改善計画T178フォローアップ・T183・T185・T198: 風の格子点マップのデータ層（フレーム変換・色スケール・詳細格子間隔のズーム依存化。wind-grid-config.jsonの間隔定数をimportし手動同期を廃止）
@@ -516,7 +514,7 @@ RideCompass/
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
         useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
         useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
-        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重み・レシピ上書きstate共有に使う）
+        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重みstate共有に使う）
         useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
         useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時は既存7軸の静的フォールバック（axis-catalog.json＋evaluationAxes.tsの手書きラベル）を返す
         useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）
@@ -612,27 +610,15 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
   "scoring_weights": { "distance_weight":0.1, "elevation_weight":0.2, "wind_weight":0.3, "road_weight":0.4 },
   "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
     "car_stress":0.20, "accident":0.08, "night":0.0 },
-  "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
-  "road_suitability_recipe": { "base_by_highway": { "cycleway":1, "living_street":1, "residential":2,
-    "unclassified":2, "track":2, "tertiary":3, "tertiary_link":3, "secondary":3, "secondary_link":3,
-    "primary":4, "primary_link":4, "trunk":4, "trunk_link":4 }, "cycleway_track_adjustment":-2,
-    "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
-  "motor_vehicle_density_recipe": { "maxspeed_low_threshold":30, "maxspeed_low_adjustment":-1,
-    "maxspeed_high_threshold":60, "maxspeed_high_adjustment":1, "lanes_high_threshold":4,
-    "lanes_high_adjustment":1, "designation_adjustment":1 },
   "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":false } }
-  # 省略時はscoring.yaml / route_preference.yaml / car_stress_recipe.yaml /
-  # road_suitability_recipe.yaml / motor_vehicle_density_recipe.yamlの既定値。指定する場合は
+  # 省略時はscoring.yaml / route_preference.yamlの既定値。指定する場合は
   # いずれも全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ。
-  # route_preference・car_stress_recipe・road_suitability_recipe・
-  # motor_vehicle_density_recipe・hard_filtersは全フィールド必須の別モデルで、一部だけの
-  # 指定は422になる。base_by_highwayも同様に全highwayキーの明示が必要）。
+  # route_preference・hard_filtersは全フィールド必須の別モデルで、一部だけの
+  # 指定は422になる）。route_preferenceのキーはaxis_id（公開軸のみ、7章参照）。
   # scoring_weightsの重みは有効指標の重み和で正規化されるため合計1.0でなくてよい。全て0にすると
-  # total_score=nullになる（RouteScorer参照）。car_stress_recipeは軸固有の
-  # 変換式（少車線緩和）の上書き、road_suitability_recipe/
-  # motor_vehicle_density_recipeは車ストレスが参照する「車との近さ」(N2)の材料の上書き
-  # （改善計画: 車との近さ材料の共有元化）で、
-  # route_preferenceのcar_stress_weight（軸間の重み）とは別階層（7章参照）。
+  # total_score=nullになる（RouteScorer参照）。改善計画T292で専用Pythonレシピ
+  # （car_stress_recipe/road_suitability_recipe/motor_vehicle_density_recipe）は廃止され、
+  # car_stressを含む全軸の材料はAXIS_DEFINITIONSの内部軸階層（下記参照）へ一本化された。
   # hard_filters（改善計画T266）は0次ハードフィルタ（`no_bicycle`/`motorway`/`trunk`、
   # domain/evaluation.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
   # 「2次の重み」とは異なり、Falseにしたフィルタに該当する道路はコストを上げるのではなく
@@ -681,19 +667,14 @@ Response 200:
   ],
   "engine": "openrouteservice",
   "conditions": {   /* この生成に実際に適用された条件のエコー（実験の記録・再現用。研究IF改善 §10-6）。
-                       重みは上書き値またはYAML既定値のうち実際に使われた方。7軸の重み・4レシピとも
-                       常にこの形で全フィールドが埋まって返る（GenerationConditions、上のRequest
-                       部分指定不可の説明と対応） */
+                       重みは上書き値またはYAML既定値のうち実際に使われた方。7軸の重み・hard_filters
+                       とも常にこの形で全フィールドが埋まって返る（GenerationConditions、上のRequest
+                       部分指定不可の説明と対応。改善計画T292で専用Pythonレシピ3つは廃止済み） */
     "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5,
     "scoring_weights": { "distance_weight":0.30, "elevation_weight":0.15, "wind_weight":0.30, "road_weight":0.25 },
     "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
       "car_stress":0.20, "accident":0.08, "night":0.0 },
-    "car_stress_recipe": { "lanes_low_threshold":1, "lanes_low_adjustment":-1 },
-    "road_suitability_recipe": { "base_by_highway": { "...": "13highwayキー全件（略）" },
-      "cycleway_track_adjustment":-2, "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
-    "motor_vehicle_density_recipe": { "maxspeed_low_threshold":30, "maxspeed_low_adjustment":-1,
-      "maxspeed_high_threshold":60, "maxspeed_high_adjustment":1, "lanes_high_threshold":4,
-      "lanes_high_adjustment":1, "designation_adjustment":1 },
+    "penalty_strength": 1.0, "max_average_grade_percent": null,
     "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":true },
     "generated_at": "2026-08-15T14:30:00+09:00"
   }
@@ -755,18 +736,18 @@ Response 429（`WEATHER_FLOOD_FORECAST_RATE_LIMIT_PER_MINUTE`超過）。
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
-  highway/surface/smoothness/tunnel/bridge/`bicycle_infra`/`designation`/`osm_way_id`、車ストレスが
-  参照する材料タグ`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`と、night軸が
+  highway/surface/smoothness/tunnel/bridge/`bicycle_infra`/`designation`/`oneway`/`osm_way_id`、車の圧迫感（car_stress、改善計画T292で内部軸6つ+公開軸1つの階層構造へ再実装）が
+  参照する材料タグ`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`と、night軸が
   参照する`lit`（`shoulder`は改善計画T122でP1実測0.0%の死に補正と判明し撤去済み。かつて安全度
   レシピが使っていたが軸自体はT148で削除、`lit`のみT139でnight軸へ転用され現在も使用中）、
   改善計画T145bが追加したkm正規化密度3種`accident_per_km`/`stop_per_km`/`intersection_per_km`
-  （P0/P1/T51/T74/T90/車ストレスレシピ外出し基盤/T145b、現行タイル世代v12。7章参照）プロパティを持つ。
-  車ストレスの最終値（1-5）はタイルへ焼き込まず、
-  フロントエンド（`carStressExpression.ts`、MapLibre expression）と
-  ルート採点（`domain/traffic.py: car_stress_breakdown`）がそれぞれ材料タグから計算する
-  （7章参照）。`osm_way_id`は表示用ではなく、
-  区間クリック時の車ストレス内訳取得（`POST /api/region/car-stress-breakdown`）が
-  クリックされたフィーチャーを曖昧さ無く引き直すための識別子（T90）
+  （P0/P1/T51/T74/T90/T292/T145b、現行タイル世代v13。7章参照）プロパティを持つ。
+  車の圧迫感の最終値は（改善計画T292以降）タイルへ焼き込まず、フロントエンド
+  （`axisLayers.ts`の汎用ramp機構、他の推定軸=停止密度・事故密度等と同じ経路）と
+  ルート採点（`domain/axis_definitions.py: AXIS_DEFINITIONS['car_stress']`、内部軸6つの
+  階層評価）がそれぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
+  区間クリック時の全軸内訳取得（`POST /api/region/axis-inspector`）が
+  クリックされたフィーチャーを曖昧さ無く引き直すための識別子（T90・T146）
 Response 400（zがROAD_TILE_MIN_ZOOM=12未満、またはROAD_TILE_MAX_ZOOM=15を超える場合）:
 { "detail": "対応していないズームレベルです。" }
 Response 400（x/yがそのズームレベルで存在しうる範囲 `0 <= x,y < 2**z` を外れる場合。直接APIを叩かれた場合の安全弁で、通常はMapLibreが範囲外のタイルを要求しないため到達しない）:
@@ -782,20 +763,17 @@ GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計�
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`accidents`。各地物（Point）は`involves_bicycle`（自転車関連か）・`fatal`（死亡事故か）プロパティを持つ
 Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`accident_tile_max_concurrent`で別枠）
 
-POST /api/region/car-stress-breakdown   # 車ストレスの区間別判定内訳（T90）。クリックされた道路（road-surface-tilesが焼き込む`osm_way_id`）について、`car_stress_breakdown`が計算に使ったベース値・各補正・最終値を返す
-Request: `{ "osm_way_id": number, "car_stress_recipe"?: CarStressRecipeOverride }`。
-  `car_stress_recipe`省略時は既定レシピ（`domain/traffic.py: DEFAULT_CAR_STRESS_RECIPE`）。
-  GETでなくPOST+JSONボディなのは、レシピ上書きという複雑なオブジェクトをクエリパラメータで
-  渡すのが不自然なため（車ストレスレシピ外出し基盤、`/api/routes/generate`と同じ形に統一）
-Response 200: `CarStressBreakdown`（`base`/`cycleway_adjustment`/`maxspeed_adjustment`/`lanes_adjustment`/`designation_adjustment`/`motor_vehicle_no_override`/`level`）。該当wayが存在しない・highwayが判定基準に未登録・DBなし構成の場合はnullまたはlevel=null
+POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコア（車の圧迫感を含む全軸）の内訳→参考合成コストを返す。
+  改善計画T292: 車ストレス専用の内訳API（旧`POST /api/region/car-stress-breakdown`、
+  `CarStressBreakdown`）は専用Pythonレシピの廃止に伴い廃止し、本エンドポイントへ統合した。
+Request: `{ "osm_way_id": number }`。GETでなくPOST+JSONボディなのは、
+  `/api/routes/generate`等の他のPOST系APIと形を揃えたもの（backend/app/api/routers/region.py参照）
+Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
+  gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）。
+  `axes`は公開軸（is_published=True）のみを返す（car_stressの内部軸6つはaxes.car_stressの
+  difficulty値へ既に合成済みで、個別には現れない）
 Response 422（osm_way_idが整数でない場合）
 Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
-
-POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコアだけの内訳→参考合成コストを返す
-Request: `{ "osm_way_id": number, "car_stress_recipe"?, "road_suitability_recipe"?, "motor_vehicle_density_recipe"? }`（car-stress-breakdownと同じ「車との近さ」(N2)材料の上書き）
-Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
-  gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）
-Response 422/429: car-stress-breakdownと同じ規約
 
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送
@@ -945,8 +923,8 @@ interface RouteGenerateRequest {
   distance_tolerance_km: number;
   route_type: "loop";
   scoring_weights?: ScoringWeights;          // 評価重みの上書き（研究用・省略可、§10-1）
-  route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み）
-  car_stress_recipe?: CarStressRecipeOverride; // 同上（車ストレス軸の中身、7章参照）
+  route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み。改善計画T292で
+    // car_stress_recipe等の専用Pythonレシピ上書きは廃止し、公開軸の重みのみで表現する）
   hard_filters?: HardFilterOverride; // 0次ハードフィルタの個別ON/OFF（改善計画T266）。
     // 一般向けルート設定画面（frontend/src/components/RouteSettingsPanel、改善計画T267）が
     // 常時操作する（省略時と同じ既定値を常に明示送信するため実質的に常に指定される）
@@ -1246,7 +1224,7 @@ T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自�
 - `BreakpointLinearShape`で単一材料・weight=1.0・preprocess="identity"の場合のみ:
   既存breakpointsのx値（先頭除く）をそのまま閾値に流用。
 
-それ以外（複数材料の重み付き結合・abs前処理・タイル非依存材料・実行時スケール変換が
+それ以外（複数材料の重み付き結合・abs前処理・他の軸を参照する材料・実行時スケール変換が
 必要な材料を含む軸）は`None`を返し自動導出対象外のまま（地図に出ない、既存軸を壊さない
 安全側の判断）。現行7軸では`surface_q`（材料`surface_good`、以前はkind="none"に手書き
 固定していたが「既存の道路情報レイヤーと重複するため出したくない」という理由は
@@ -1254,12 +1232,15 @@ UI側の表示/非表示切替で運用する方針へ変更）・`night`（材�
 以前はkind="bespoke"でフロントにexpressionが無く実質レイヤー無し）の2軸が対象になり、
 `registry_defaults.py`の`display`がこの自動導出値へ置き換わった。`gradient`（材料が
 タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
-統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（材料がタイル非依存の
-レシピ合成値）・`accident`（材料`accident_count_per_km_year`が収録年数[実行時にDBから
+統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（改善計画T292以降、他の6内部軸
+[`car_stress_highway_base`等、`MaterialTerm.material`として他axis_idを参照]を合成する
+`BreakpointLinearShape`のため、参照先も材料であることを前提とする`derive_ramp_inputs`では
+解決できない）・`accident`（材料`accident_count_per_km_year`が収録年数[実行時にDBから
 取得、`accident_import_runs`]で正規化済みだがタイル生値`accident_per_km`は年正規化前で
 静的な変換係数を持てない、`MaterialSpec.tile_property_needs_runtime_scale=True`で
 明示的に自動導出対象外とマークしている）は自動導出の対象外のまま手書きの`display`を
-維持する。
+維持する（`car_stress`・`stop_density`・`accident`はいずれも`kind="ramp"`自体は手書きで
+維持しており、地図に出ない・レイヤー無しという意味の対象外ではない）。
 
 `export_openapi.py`のaxis-catalog.json生成は、`registry.all_axes()`（手書き登録済みの
 既存軸）に加えて「`AXIS_DEFINITIONS`にあるが`registry.py`未登録の軸」も走査し、
@@ -1276,10 +1257,12 @@ axis-catalog.jsonへ反映されるのは再デプロイ後、という既存の
 `["case", 真偽比較, trueValue, falseValue]`で組み立てる（既存の数値材料分岐とは独立、
 後方互換）。`components/Map/secondaryAxes.ts`の`SECONDARY_AXIS_LAYER_IDS`は、
 `display.kind==="ramp"`の軸を`axisMapLayerId(axis_id)`で自動算出するよう一般化した
-（bespoke軸[car_stress]のみ引き続き手書き）——ramp軸が増えるたびに個別追記していた
-手動同期ペアを1つ解消した。`MapView.tsx`・`mapLayers.ts`・`staticAttributeLayers.ts`は
-`RAMP_AXES`を汎用的に走査する既存実装のままで変更不要だった（`RAMP_AXES`の要素数が
-2→4に増えるだけで、レイヤー生成・凡例・絞り込みのロジックはそのまま新しい2軸を拾う）。
+——ramp軸が増えるたびに個別追記していた手動同期ペアを1つ解消した。`MapView.tsx`・
+`mapLayers.ts`・`staticAttributeLayers.ts`は`RAMP_AXES`を汎用的に走査する既存実装のままで
+変更不要だった（`RAMP_AXES`の要素数が2→4に増えるだけで、レイヤー生成・凡例・絞り込みの
+ロジックはそのまま新しい2軸を拾う）。改善計画T292でcar_stressも`kind="bespoke"`から
+`kind="ramp"`へ移行し、`carStressExpression.ts`等の手書きフロントコードを廃止して同じ
+`RAMP_AXES`汎用パスへ合流した（下記「停止密度・車ストレス...」節参照）。
 
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
@@ -1350,36 +1333,38 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
   traffic_signals/crossing/stop/give_way/level_crossingへ分類、`STOP_POI_MATCH_MAX_DISTANCE_M
   =15m`でEdge/サンプル点へ空間マッチ）。集約は`distance_weighted_stop_density`
   （合計count÷合計distance_km）。
-- **車ストレス**（改善計画T150で「交通ストレス」から改称）: `car_stress_breakdown(highway, tags, is_designated, recipe)`がhighway
-  基本値（既定は`domain/recipe.py: ROAD_SUITABILITY_BASE_BY_HIGHWAY`、T130で共有材料として
-  切り出し済み、かつては安全度とも共有していたが安全度軸自体はT148で削除）に
-  自転車専用帯・制限速度・車線数・T51指定
-  路線該当（後述、+1補正）を加味した1-5の整数。未知highwayは評価対象外（None）。
-  `car_stress_level`は`.level`だけを返す薄いラッパー。判定基準のうち軸固有の部分
-  （対面通行の少車線道路への緩和）は`domain/traffic.py: CarStressRecipe`という「レシピ」に
-  切り出してあり（車ストレスレシピ外出し基盤）、`recipe`省略時は既定レシピ
-  （`DEFAULT_CAR_STRESS_RECIPE`、`car_stress_recipe.yaml`と同値）を使う。ルート採点は
-  `/api/routes/generate`のリクエストで`route_preference`と同じ形で上書き可能（研究モード用、
-  §10-1と同じ設計）。地図表示は最終値をタイルへ焼き込まず、材料タグ（後述）だけを焼き込んで
-  フロントエンド側（`frontend/src/components/Map/carStressExpression.ts`、MapLibre
-  expressionとして同じレシピを再現）で計算する。最終値を計算済みでタイル（全ユーザー共有
-  キャッシュ）へ焼き込む従来方式では、レシピを変えるたびに世界中のタイルキャッシュを
-  作り直す必要があった（T92/T93）ため、材料タグとレシピを分離した。
-  **調整UI**（改善計画: 車ストレスレシピ調整UIパネル、T107の次ラウンド）:
-  `frontend/src/components/CarStressRecipePanel/CarStressRecipePanel.tsx`が
-  研究モード限定・`WeightPanel`（評価重みの上書き）とは独立したトグルでレシピの項目
-  （T130で道路適正・自動車密度へ大部分が分離済みのため、現在は少車線道路への緩和2項目
-  のみ）を編集できる
-  （独立トグルにした理由: レシピは上書きすると地図の色分けへ即座に反映されるが、
-  重みは次回のルート生成まで反映されないという挙動差があるため）。上書き中は
-  `MapView.tsx`が車ストレスレイヤーの`line-color`（`setPaintProperty`）と凡例による
-  絞り込み（`setStaticOverlayFilters`、`buildCarStressLegend`で該当軸だけ動的に
-  組み立て直す）の両方をライブ更新し、区間クリックの内訳ポップアップ・次回のルート生成
-  リクエストにも同じレシピを渡す（`page.tsx`が単一のstateを両方へ配線）。
+- **車ストレス**（改善計画T150で「交通ストレス」から改称）: 改善計画T292で専用Pythonレシピ
+  （旧`domain/traffic.py: car_stress_level`/`car_stress_breakdown`・`CarStressRecipe`・
+  `car_stress_recipe.yaml`。highway基本値に対面通行の少車線道路への緩和などをif分岐で
+  加減点していく手続き的な実装だった）を廃止し、`domain/axis_definitions.py:
+  AXIS_DEFINITIONS`上の内部軸6つ+公開軸1つの宣言的な階層構造で再実装した。内部軸
+  （いずれも`is_published=False`、他の軸から参照される専用の推定軸で一般ユーザーへは
+  公開しない）は`car_stress_highway_base`（highway種別の基準値1-4、旧
+  `ROAD_SUITABILITY_BASE_BY_HIGHWAY`と同一）・`car_stress_bicycle_infra_adjustment`・
+  `car_stress_maxspeed_adjustment`・`car_stress_lanes_adjustment`・
+  `car_stress_designation_adjustment`・`car_stress_motor_vehicle_no_adjustment`
+  （motor_vehicle=noの区間を最良値へ強制する優先確定を、他の補正の取りうる合計を
+  確実に下回る固定マイナス項として表現。詳細は同ファイルのコメント参照）。公開軸
+  `car_stress`はこの6軸を`BreakpointLinearShape`で加重合成し、highway基準値
+  （`required=True`）が未登録なら旧ロジックと同じくNone（未評価）になる。
+  地図表示は最終値をタイルへ焼き込まず、6内部軸それぞれの材料（highway/bicycle_infra/
+  maxspeed_kmh/lanes_count/designation/motor_vehicle_no、T290でMVTへ焼き込み済み）を
+  フロント側（`components/Map/axisLayers.ts`のramp汎用機構、下記「レジストリ駆動の
+  二次軸ランプレイヤー」節参照）で再合成する。`registry_defaults.py`が内部軸のmapping/
+  breakpointsをそのまま転記した`tile_inputs`を手書き登録しており（`stop_density`/
+  `accident`と同じ「複数材料の合成のためderive_ramp_inputsの自動導出対象外」の前例）、
+  最終値を計算済みでタイルへ焼き込む従来方式（レシピを変えるたびに世界中のタイル
+  キャッシュを作り直す必要があった、T92/T93）とは異なりタイル世代を上げずにcar_stress
+  自体の判定ロジックを変更できる。研究モード限定の専用調整UI（旧`CarStressRecipePanel`・
+  `RoadSuitabilityRecipePanel`・`MotorVehicleDensityRecipePanel`）は、任意の軸を
+  GUIで組み立てられる軸スタジオ（改善計画T270）が代替したため削除した。ルート採点の
+  重み上書きは他の公開軸と同じく`/api/routes/generate`の`route_preference`（§10-1）
+  で行う。
 - **自転車インフラ**: `classify_bicycle_infrastructure`がseparated/lane/shared_busway/
   shared_pedestrian/roadway/prohibited/unknownの7値に分類（優先順位あり）。改善計画T138で
-  難易度への寄与は独立軸を持たず車ストレス側（`car_closeness()`のcycleway補正）へ
-  一本化済み。この分類自体（`RouteSegmentDetail.bicycle_infra`の生値、
+  難易度への寄与は独立軸を持たず車ストレス側（改善計画T292以降は内部軸
+  `car_stress_bicycle_infra_adjustment`）へ一本化済み。この分類自体
+  （`RouteSegmentDetail.bicycle_infra`の生値、
   `RouteCandidate.bicycle_infra_score`のルート集約統計）は一次属性の表示用データとして
   引き続き独立に保持する（地図の「自転車インフラ」レイヤー・研究インターフェースの
   統計表示はこちらを参照する）。
@@ -1395,8 +1380,10 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 `get_intersection_counts`/`get_nearest_intersection_counts`）で提供し、`get_*`＝Edge集合を
 渡してEdge単位（RoadGraphEngine）、`get_nearest_*`＝サンプル点列を渡してKNN空間マッチ
 （OpenRouteServiceEngine）という対で揃えている。`get_way_tags_by_osm_way_id`（T90、
-osm_way_id完全一致の1行取得）はこの対に属さない別系統で、区間別車ストレス内訳API
-（`POST /api/region/car-stress-breakdown`）専用。地図表示は同じ属性を`road-surface-tiles`
+osm_way_id完全一致の1行取得）はこの対に属さない別系統で、区間インスペクタAPI
+（`POST /api/region/axis-inspector`。改善計画T292で車ストレス専用の内訳API
+`POST /api/region/car-stress-breakdown`を統合した、下記「レジストリ駆動の二次軸ランプ
+レイヤー」節参照）専用。地図表示は同じ属性を`road-surface-tiles`
 （highway・surface同様プロパティとして焼き込み。車ストレス・自転車インフラ）と、点データの
 `poi-tiles`（停止要因・交差点密度、後述）で提供する。
 
@@ -1410,10 +1397,13 @@ safety_breakdown`（車ストレスと同じ構造、街灯・トンネル補正
 （`frontend/src/components/Map/safetyExpression.ts`）・調整UI
 （`frontend/src/components/SafetyRecipePanel/`）を一括削除した。街灯・トンネル補正は
 T139時点で既に`domain/night.py: night_difficulty`として独立済みのため、削除による評価軸の
-欠落は無い。`CarStressRecipePanel.tsx`と共有していた`recipeControls.tsx`
-（`LevelPicker`/`AdjustmentStepper`/`FieldLabel`）・`recipeExpression.ts`
-（MapLibre expression断片）・`recipe.py`（判定プリミティブ）は車ストレス軸の実装として
-そのまま残る。
+欠落は無い。当時`recipeControls.tsx`（`LevelPicker`/`AdjustmentStepper`/`FieldLabel`）・
+`recipeExpression.ts`・`recipe.py`（判定プリミティブ）は車ストレス軸の実装として
+そのまま残っていたが、改善計画T292で車ストレス自体が専用Pythonレシピを廃止したことに伴い、
+`CarStressRecipePanel.tsx`ごと`recipeExpression.ts`は削除。`recipeControls.tsx`は
+`WeightPanel`等が引き続き使う`RecipePanelSection`/`withAutoEnable`/`FieldLabel`のみ残し、
+車ストレス専用だった`LevelPicker`/`AdjustmentStepper`等は削除。`recipe.py`は材料タグ正規化
+の純関数群のみ残る（詳細は上記「停止密度・車ストレス...」節参照）。
 
 ### 事故密度（T50、警察庁交通事故統計オープンデータ）
 

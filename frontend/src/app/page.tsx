@@ -82,19 +82,12 @@ import {
   nearestTimeIndex,
 } from "@/components/Map/dynamicWeather";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
-// 改善計画T270: WeightPanel/CarStressRecipePanel/RoadSuitabilityRecipePanel/
-// MotorVehicleDensityRecipePanel自体（編集UI）は/adminへ移設したが、既定値定数は
-// useRecipeOverrideの初期値・useStoredJsonStateの初期値としてこのページでも使う。
+// 改善計画T270: WeightPanel自体（編集UI）は/adminへ移設したが、既定値定数は
+// useStoredJsonStateの初期値としてこのページでも使う。
 import { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
-import {
-  DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-  DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_CAR_STRESS_RECIPE,
-} from "@/components/Map/carStressExpression";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useRecipeOverride } from "@/hooks/useRecipeOverride";
 import { debugLog } from "@/lib/debugLog";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
@@ -106,12 +99,9 @@ import { getCurrentWeather, getFloodForecasts, getWbgtStatus, getWeatherWarnings
 import type {
   Coordinates,
   HardFilterOverride,
-  MotorVehicleDensityRecipeOverride,
-  RoadSuitabilityRecipeOverride,
   RouteCandidate,
   RoutePreferenceWeights,
   ScoringWeights,
-  CarStressRecipeOverride,
 } from "@/types/route";
 import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
@@ -148,7 +138,6 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   // 両方へ移行する処理はuseStoredStateのdeserialize（下記）参照。
   roadType: false,
   roadSurface: false,
-  carStress: false,
   bicycleInfra: false,
   designation: false,
   tunnel: false,
@@ -269,49 +258,6 @@ export default function Home() {
   // （既定値はDEFAULT_HARD_FILTERS＝backendのDEFAULT_HARD_FILTERSと同じ全フィルタ有効で、
   // 省略時と挙動が一致するため常時送信して問題ない）。
   const [hardFilters, setHardFilters] = useState<HardFilterOverride>(DEFAULT_HARD_FILTERS);
-
-  // 車の圧迫感・安全度・道路適正・自動車密度の4レシピの上書き状態（有効フラグ・値・地図反映用の
-  // デバウンス値）はuseRecipeOverride（改善計画T133）へ集約。各レシピは互いに独立したトグル
-  // （レシピは有効化すると地図の色分けに即座に反映されるが、重みは次回のルート生成まで
-  // 反映されないという挙動差があるため、ユーザー承認済みで別トグルにしてある。「道路適正」
-  // 「自動車密度」は改善計画: 車との近さ材料の共有元化により車の圧迫感・安全度の両方が
-  // 共有する材料[domain/recipe.py: car_closeness()]で、上書きすると両軸の地図色・内訳
-  // ポップアップ・次回のルート生成すべてへ同時に反映される）。無効の間はMapViewへ
-  // undefinedを渡し（既定レシピを使う）、生成リクエストからも対応するrecipeキーを省略する。
-  // 改善計画T270: 編集UI（各RecipePanel）は/adminへ移設したため、storageKeyを渡して
-  // localStorage経由で共有する。本ページはdebouncedRecipe等をMapView・リクエスト構築へ
-  // 読み渡すのみ。
-  // setter未使用: 各レシピの編集UI（*RecipePanel）は/adminへ移設済み。このページは
-  // overrideEnabled/debouncedRecipeを読んでMapView・リクエスト構築へ渡すのみ。
-  const {
-    overrideEnabled: carStressRecipeOverrideEnabled,
-    recipe: carStressRecipe,
-    debouncedRecipe: debouncedCarStressRecipe,
-  } = useRecipeOverride<CarStressRecipeOverride>(
-    DEFAULT_CAR_STRESS_RECIPE,
-    LEGEND_FILTER_DEBOUNCE_MS,
-    "ridecompass:car-stress-recipe"
-  );
-
-  const {
-    overrideEnabled: roadSuitabilityRecipeOverrideEnabled,
-    recipe: roadSuitabilityRecipe,
-    debouncedRecipe: debouncedRoadSuitabilityRecipe,
-  } = useRecipeOverride<RoadSuitabilityRecipeOverride>(
-    DEFAULT_ROAD_SUITABILITY_RECIPE,
-    LEGEND_FILTER_DEBOUNCE_MS,
-    "ridecompass:road-suitability-recipe"
-  );
-
-  const {
-    overrideEnabled: motorVehicleDensityRecipeOverrideEnabled,
-    recipe: motorVehicleDensityRecipe,
-    debouncedRecipe: debouncedMotorVehicleDensityRecipe,
-  } = useRecipeOverride<MotorVehicleDensityRecipeOverride>(
-    DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
-    LEGEND_FILTER_DEBOUNCE_MS,
-    "ridecompass:motor-vehicle-density-recipe"
-  );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
@@ -597,10 +543,6 @@ export default function Home() {
     staticLegendHiddenKeysByAxis,
     LEGEND_FILTER_DEBOUNCE_MS,
   );
-  // 車の圧迫感・安全度・道路適正・自動車密度レシピの数値入力欄も、地図への反映だけを
-  // 同じ猶予でデバウンスする（各パネル自体は即時のrecipeを参照し入力欄の反応は遅らせない。
-  // 地図の再描画・T90内訳ポップアップ用のdebouncedRecipeだけが遅延する）。デバウンス自体は
-  // useRecipeOverride（改善計画T133）へ集約済み。
 
   // 改善計画T167で導入した「推定指標をONにすると材料の観測データレイヤーも連動ON」する
   // カスケードは撤去した（改善計画T181フォローアップ、実機フィードバック「自由にメンバを
@@ -1183,13 +1125,11 @@ export default function Home() {
     (showPrecipitationNowcast ? nowcastError : null) ??
     (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null);
 
-  // 生成条件のうち重み設定・車ストレスレシピの比較キー（上書き無効時はnull＝
-  // バックエンド既定値を表す）。トグルは独立のため、それぞれ個別に無効時null化する。
+  // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
+  // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
+  // 廃止に伴い比較対象から削除した。
   const currentWeightsKey = JSON.stringify({
     weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
-    carStressRecipe: carStressRecipeOverrideEnabled ? carStressRecipe : null,
-    roadSuitabilityRecipe: roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : null,
-    motorVehicleDensityRecipe: motorVehicleDensityRecipeOverrideEnabled ? motorVehicleDensityRecipe : null,
     // 改善計画T267: hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず
     // 常に比較対象へ含める。
     hardFilters,
@@ -1221,11 +1161,6 @@ export default function Home() {
         // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
-        ...(carStressRecipeOverrideEnabled ? { car_stress_recipe: carStressRecipe } : {}),
-        ...(roadSuitabilityRecipeOverrideEnabled ? { road_suitability_recipe: roadSuitabilityRecipe } : {}),
-        ...(motorVehicleDensityRecipeOverrideEnabled
-          ? { motor_vehicle_density_recipe: motorVehicleDensityRecipe }
-          : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -1591,15 +1526,7 @@ export default function Home() {
             dynamicWeather={dynamicWeather}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
-            showCarStress={layerVisibility.carStress}
             showBicycleInfra={layerVisibility.bicycleInfra}
-            carStressRecipe={carStressRecipeOverrideEnabled ? debouncedCarStressRecipe : undefined}
-            roadSuitabilityRecipe={
-              roadSuitabilityRecipeOverrideEnabled ? debouncedRoadSuitabilityRecipe : undefined
-            }
-            motorVehicleDensityRecipe={
-              motorVehicleDensityRecipeOverrideEnabled ? debouncedMotorVehicleDensityRecipe : undefined
-            }
             showDesignation={layerVisibility.designation}
             showTunnel={layerVisibility.tunnel}
             showOneway={layerVisibility.oneway}

@@ -28,11 +28,6 @@ import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
 import { AXIS_RAMP_COLORS, RAMP_AXES, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
-import {
-  DEFAULT_CAR_STRESS_RECIPE,
-  buildCarStressExpression,
-  type CarStressRecipe,
-} from "./carStressExpression";
 
 const COLOR_UNKNOWN = "#9ca3af";
 
@@ -55,8 +50,10 @@ const COLOR_UNKNOWN = "#9ca3af";
 //
 // (B) 2次の材料そのもの（順序を持つ）: 自転車インフラ・指定路線・事故の当事者区分
 // （自転車関連/その他）は、実際に2次の計算材料として使われている（自転車インフラ・
-// 指定路線はmapLayers.ts: carStressのpanelHintDetail「分離自転車道: -2」「指定路線に
-// 該当: +1」等。事故の当事者区分はbackend/app/infrastructure/road_graph_repository.pyの
+// 指定路線は改善計画T292のcar_stress内部軸（domain/axis_definitions.py:
+// car_stress_bicycle_infra_adjustment「分離自転車道: -2」等・
+// car_stress_designation_adjustment「指定路線に該当: +1」）の材料。
+// 事故の当事者区分はbackend/app/infrastructure/road_graph_repository.pyの
 // 事故密度集計がbicycle_only=true固定＝自転車関連の事故だけを数え、その他は数えない
 // ＝寄与ゼロ、domain/accident.py: distance_weighted_accident_density参照）。つまりこれらは
 // 「安全寄り→危険寄り」という2次と同じ意味の順序を実際に持っており、中立色にしてしまうと
@@ -125,95 +122,6 @@ function buildCategoricalLayerDefs(
   return { labels, legend, colorExpression, opacityExpression };
 }
 
-// LTS(Level of Traffic Stress)風の1-5段階。1=快適(緑)〜5=ストレス大(赤)。
-// backend/app/domain/traffic.py: car_stress_levelと同じ意味論（1-5の整数、算出不能はNone）。
-// exportしているのはCarStressRecipePanel（改善計画: レシピ入力フォームの改善）が
-// 基準値の選択UI（低→高のレベルピッカー）の色・段階数をここから導出し、地図の色分けと
-// 常に一致させるため。段階数をさらに増やす場合もここへキーを追加するだけで両方に反映される。
-// 改善計画（車ストレス5段階化）: 実データ実測で旧上限4にraw値5〜7が丸め込まれ、
-// primary/trunk/指定路線（N10/N12）の悪化要因が地図上で見分けられなくなっていたため
-// 4→5へ拡張した。
-//
-// 改善計画（1次/2次の地図上表現の統一、梅）: 以前は車ストレス単独のTailwind系配色
-// （緑#16a34a〜赤#dc2626）を持っていたが、停止密度・事故密度等のramp軸（axisLayers.ts:
-// AXIS_RAMP_COLORS、緑→橙→赤のMaterial系4色）と色相ファミリーが異なり、「推定グループの
-// どの軸を開いても同じ読み方」になっていなかった（実機フィードバック「1次と2次の地図上
-// 表現を一致させたい」）。1・3・4・5段階目はAXIS_RAMP_COLORSをそのまま再利用して色を
-// 統一する。ただしAXIS_RAMP_COLORSは4色・車ストレスは5段階のため単純に4色へ圧縮すると
-// 4と5が同色になり、5段階化した理由（上記コメント）そのものが再発してしまう。そのため
-// 2段階目だけAXIS_RAMP_COLORS[0]→[1]の間を橋渡しする遷移色（Material Light Green 500）を
-// 新規に挿入し、5段階の判別性を保ったまま同じ色系統でつなぐ。
-export const CAR_STRESS_COLORS: Record<number, string> = {
-  1: AXIS_RAMP_COLORS[0],
-  2: "#8bc34a",
-  3: AXIS_RAMP_COLORS[1],
-  4: AXIS_RAMP_COLORS[2],
-  5: AXIS_RAMP_COLORS[3],
-};
-
-// 車ストレスの最終値は（改善計画: 車ストレスレシピ外出し基盤により）タイルへ計算済みの
-// 値として焼き込まれておらず、材料タグ（highway/cycleway_class/maxspeed_kmh/lanes_count/
-// designation/motor_vehicle_no）からMapLibre expressionとして計算する
-// （carStressExpression.ts参照）。レシピ（研究モードで上書き可能、改善計画:
-// 車ストレスレシピ調整UIパネル）ごとに凡例・色分け式が変わるため関数化してある。
-// 既定レシピ（DEFAULT_CAR_STRESS_RECIPE）を渡す限り見た目は従来と同一。
-
-// 「不明・他」が1〜5と並ぶ6番目の数値段階に見え「1〜6評価」と誤解されるという実機
-// フィードバック（改善計画T89）を受け、isFallback: trueを立てて描画側（MapLayersPanel・
-// MapOverlayControls）に区切り線＋弱調表示させる。
-export function buildCarStressLegend(
-  recipe: CarStressRecipe,
-  levelExpression: unknown[] = buildCarStressExpression(recipe),
-): LegendEntry[] {
-  return [
-    { key: "1", label: "1[快適]", color: CAR_STRESS_COLORS[1], filter: ["==", levelExpression, 1] },
-    { key: "2", label: "2[やや快適]", color: CAR_STRESS_COLORS[2], filter: ["==", levelExpression, 2] },
-    { key: "3", label: "3[やや注意]", color: CAR_STRESS_COLORS[3], filter: ["==", levelExpression, 3] },
-    { key: "4", label: "4[注意]", color: CAR_STRESS_COLORS[4], filter: ["==", levelExpression, 4] },
-    { key: "5", label: "5[圧迫大]", color: CAR_STRESS_COLORS[5], filter: ["==", levelExpression, 5] },
-    {
-      key: "unknown",
-      label: "不明・他[判定対象外の道路種別]",
-      color: COLOR_UNKNOWN,
-      filter: ["==", levelExpression, -1],
-      isFallback: true,
-    },
-  ];
-}
-
-// buildCarStressExpressionは判定対象外を-1で返す（carStressExpression.ts参照）ため、
-// 従来の`coalesce(get("car_stress"), -1)`と同じ形でmatchできる。
-// levelExpressionを省略した場合はrecipeから自前で計算する（単体呼び出し・モジュール直下の
-// CAR_STRESS_COLOR_EXPRESSION定数用）。呼び出し元がbuildCarStressLegendと同じ
-// レシピで両方組み立てる場合は、二重計算を避けるため計算済みの式を渡すこと
-// （MapView.tsx: setStaticOverlayFiltersを参照）。
-export function buildCarStressColorExpression(
-  recipe: CarStressRecipe,
-  levelExpression: unknown[] = buildCarStressExpression(recipe),
-): unknown[] {
-  return [
-    "match",
-    levelExpression,
-    1,
-    CAR_STRESS_COLORS[1],
-    2,
-    CAR_STRESS_COLORS[2],
-    3,
-    CAR_STRESS_COLORS[3],
-    4,
-    CAR_STRESS_COLORS[4],
-    5,
-    CAR_STRESS_COLORS[5],
-    COLOR_UNKNOWN,
-  ];
-}
-
-export const CAR_STRESS_LEGEND: LegendEntry[] = buildCarStressLegend(DEFAULT_CAR_STRESS_RECIPE);
-
-export const CAR_STRESS_COLOR_EXPRESSION: unknown[] = buildCarStressColorExpression(
-  DEFAULT_CAR_STRESS_RECIPE,
-);
-
 // backend/app/domain/traffic.py: classify_bicycle_infrastructureの列挙値と1:1対応
 // （separated/lane/shared_busway/shared_pedestrian/roadway/prohibited、算出不能はunknown）。
 //
@@ -225,9 +133,10 @@ export const CAR_STRESS_COLOR_EXPRESSION: unknown[] = buildCarStressColorExpress
 // 次第でshared_pedestrianになる場合とroadwayに落ちる場合があり、pedestrian/bridleway/
 // stepsはどちらの個別分岐も無くroadwayへ落ちる。cycleway=track併設の幹線道路は
 // highway側では「自転車・歩行者道」に入らないままseparatedになる（非対称）。
-// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料（cycleway補正、mapLayers.ts:
-// carStressのpanelHintDetail「分離自転車道: -2／自転車レーン・共有の車線表示: -1」参照）
-// そのものであり、上から下へ「安全寄り→危険寄り」の実際の順序を持つ。梅で車ストレス
+// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料（改善計画T292のcar_stress
+// 内部軸、domain/axis_definitions.py: car_stress_bicycle_infra_adjustment
+// 「分離自転車道: -2／自転車レーン・共有の車線表示: -1」参照）そのものであり、
+// 上から下へ「安全寄り→危険寄り」の実際の順序を持つ。梅で車ストレス
 // 5段階に適用したのと同じ手順（AXIS_RAMP_COLORSの4色をそのまま複数段階へ再利用し、
 // 段階数の差分だけMaterial系の中間色を新規に挿入）で6段階の緑→赤を割り付ける。
 // 1段目(separated)・4〜6段目(shared_pedestrian/roadway/prohibited)はAXIS_RAMP_COLORSの
@@ -259,8 +168,9 @@ export const BICYCLE_INFRA_OPACITY_EXPRESSION: unknown[] = bicycleInfraDefs.opac
 // 改善計画T74: N10・N12両方に該当するwayは3値目"both"として独立カテゴリ化する
 // （以前は単一値CASE式でemergency_transport側のみ出力され、凡例で「緊急輸送道路」を
 // 非表示にするとN12でもある区間が地図から完全に消えていた）。
-// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料そのもの（mapLayers.ts:
-// carStressのpanelHintDetail「指定路線に該当: +1」参照）で、N10/N12いずれに該当しても
+// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料そのもの（改善計画T292、
+// domain/axis_definitions.py: car_stress_designation_adjustment「指定路線に該当: +1」
+// 参照）で、N10/N12いずれに該当しても
 // 一律+1と扱われ、3カテゴリ間に強弱の差は無い（該当なし=対象外との二値に近い）。
 // AXIS_RAMP_COLORSの上位3色（アンバー・オレンジ・赤、いずれも「危険寄り」の範囲）を
 // そのまま再利用し、「指定路線に色が付く=車の圧迫感が上がる材料」と直接読めるようにする
@@ -430,7 +340,7 @@ const STOP_POI_CATEGORIES: CategoryDef[] = [
 
 // osm_raw_pois.kindは取込時にclassify_stop_poiで5値のいずれかへ分類済みのため実際には
 // unknown（プロパティ欠落）は出現しない想定だが、match式のフォールバック（COLOR_UNKNOWN）
-// と対にして凡例側にも残す（carStress/bicycleInfraと同じ「不明・他」の扱い）。
+// と対にして凡例側にも残す（bicycleInfra等と同じ「不明・他」の扱い）。
 const stopPoiDefs = buildCategoricalLayerDefs("kind", STOP_POI_CATEGORIES, "不明・他");
 
 export const STOP_POI_LABELS: Record<string, string> = stopPoiDefs.labels;
@@ -469,7 +379,6 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c)
 // リテラル列挙できず、RampAxis["axisId"]（string）を足しあわせる（改善計画T145b: 停止/事故密度の
 // 凡例追加。ここに追加のコード変更なしにSTATIC_FILTER_AXESへ含められる）。
 export type StaticFilterAxisId =
-  | "carStress"
   | "bicycleInfra"
   | "designation"
   | "tunnel"
@@ -494,7 +403,6 @@ export interface StaticFilterAxis {
 }
 
 export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
-  { axisId: "carStress", layerId: "carStress", legend: CAR_STRESS_LEGEND },
   { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
   { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
   { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },

@@ -33,11 +33,12 @@ interface WeightPanelProps {
   routePreference: RoutePreferenceWeights;
   onRoutePreferenceChange: (preference: RoutePreferenceWeights) => void;
   /** 区間難易度の重み（2次要素）を軸ごとに整理する研究タブの改修（改善計画T145関連）用の
-   * 差し込み枠。軸によっては重みだけでなく一次情報→二次情報の変換式そのもの
-   * （車の圧迫感のCarStressRecipePanel等）を持ち、以前は「レシピ」という別カテゴリへ
-   * 分離していたが、同じ軸の重みのすぐ下に置く方が「この軸を調整する」ときに探す場所が
-   * 1箇所で済む。WeightPanel自身は車ストレス等の個別知識を持たず、page.tsx側が
-   * weightKeyごとに何を差し込むか（無ければnull）を決める汎用の枠として提供する。 */
+   * 差し込み枠。軸によっては重みだけでなく参照する一次属性の一覧（admin/page.tsx:
+   * renderAxisMaterialsExtra）等を持ち、以前は「レシピ」という別カテゴリへ分離していたが、
+   * 同じ軸の重みのすぐ下に置く方が「この軸を調整する」ときに探す場所が1箇所で済む。
+   * WeightPanel自身は各軸の個別知識を持たず、呼び出し側がweightKeyごとに何を差し込むか
+   * （無ければnull）を決める汎用の枠として提供する（改善計画T292: 車の圧迫感専用の
+   * CarStressRecipePanel等はこの枠から専用Pythonレシピごと廃止された）。 */
   renderPreferenceFieldExtra?: (axisId: string) => ReactNode;
 }
 
@@ -68,7 +69,7 @@ const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES
 // ラベル横の情報アイコン（FieldLabel、Map/recipeControls.tsx）でdescriptionを開閉表示する。
 // evaluationAxesのdescriptionフィールドはこれまでコード上に存在するだけでUIに出ていなかった
 // （「車ストレス」等のラベルだけでは実際の判定材料が伝わらないという指摘への対応）。
-// レシピパネル（CarStressRecipePanel等）と同じ「タップで開くinfoTooltip」パターンを再利用する。
+// RouteSettingsPanel等、他の呼び出し元と同じ「タップで開くinfoTooltip」パターンを再利用する。
 function WeightInput<T extends Record<string, number>>({
   field,
   values,

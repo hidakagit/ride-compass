@@ -3,11 +3,6 @@ import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import type { LegendEntry } from "./legendFilter";
 import {
-  DEFAULT_ROAD_SUITABILITY_RECIPE,
-  DEFAULT_CAR_STRESS_RECIPE,
-  buildCarStressExpression,
-} from "./carStressExpression";
-import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_LEGEND,
   ACCIDENT_RADIUS_EXPRESSION,
@@ -29,81 +24,14 @@ import {
   ONEWAY_COLOR_EXPRESSION,
   ONEWAY_LEGEND,
   ONEWAY_OPACITY_EXPRESSION,
-  CAR_STRESS_COLOR_EXPRESSION,
-  CAR_STRESS_LEGEND,
-  buildCarStressColorExpression,
-  buildCarStressLegend,
 } from "./staticAttributeLayers";
 
-// MapLibre expressionを実評価するヘルパー（carStressExpression.test.tsと同じ手法）。
-function evaluateFilter(filter: unknown, properties: Record<string, unknown>): boolean {
-  const parsed = createExpression(filter);
-  if (parsed.result !== "success") throw new Error("filter式の構築に失敗しました");
-  return Boolean(parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties }));
-}
+// 改善計画T292: 車ストレス（車の圧迫感）専用の凡例・色分け式（CAR_STRESS_LEGEND・
+// CAR_STRESS_COLOR_EXPRESSION・buildCarStressLegend・buildCarStressColorExpression）は
+// 専用Pythonレシピの廃止に伴いこのファイルから削除された。車の圧迫感は他の推定軸
+// （停止密度・事故密度等）と同じ汎用ramp機構（axisLayers.test.ts参照）に一本化された。
 
 describe("staticAttributeLayers", () => {
-  it("車ストレスの凡例キーは1-5+不明で、重複が無い", () => {
-    const keys = CAR_STRESS_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(new Set(["1", "2", "3", "4", "5", "unknown"]));
-    expect(new Set(keys).size).toBe(keys.length);
-  });
-
-  it("車ストレスのmatch式はプロパティ欠落時に凡例のunknown色へ落ちる", () => {
-    expect(CAR_STRESS_COLOR_EXPRESSION[0]).toBe("match");
-    const unknownColor = CAR_STRESS_LEGEND.find((e) => e.key === "unknown")!.color;
-    expect(CAR_STRESS_COLOR_EXPRESSION[CAR_STRESS_COLOR_EXPRESSION.length - 1]).toBe(unknownColor);
-  });
-
-  it("凡例の色とmatch式に出てくる色が一致する（凡例に無い色で描画されない）", () => {
-    const legendColors = new Set(CAR_STRESS_LEGEND.map((e) => e.color));
-    const expressionColors = CAR_STRESS_COLOR_EXPRESSION.filter(
-      (item): item is string => typeof item === "string" && item.startsWith("#"),
-    );
-    for (const color of expressionColors) {
-      expect(legendColors.has(color)).toBe(true);
-    }
-  });
-
-  // 改善計画: 車ストレスレシピ調整UIパネル。buildCarStressLegend/
-  // buildCarStressColorExpressionはレシピを引数に取る関数化されており、
-  // CAR_STRESS_LEGEND/CAR_STRESS_COLOR_EXPRESSIONはその既定レシピ版（無変更）。
-  describe("buildCarStressLegend/buildCarStressColorExpression（レシピ引数）", () => {
-    it("既定レシピを渡すと既存のCAR_STRESS_LEGEND/COLOR_EXPRESSIONと同じ内容になる", () => {
-      expect(buildCarStressLegend(DEFAULT_CAR_STRESS_RECIPE)).toEqual(CAR_STRESS_LEGEND);
-      expect(buildCarStressColorExpression(DEFAULT_CAR_STRESS_RECIPE)).toEqual(CAR_STRESS_COLOR_EXPRESSION);
-    });
-
-    it("道路適正レシピのbase_by_highwayを変えると、そのhighwayのフィーチャーが属するカテゴリが変わる", () => {
-      // base_by_highwayは道路適正レシピ側（改善計画: 車との近さ材料の共有元化）。
-      // levelExpressionを明示的に組み立てて渡す（buildCarStressLegendのdocstring参照）。
-      const customRoadSuitabilityRecipe = {
-        ...DEFAULT_ROAD_SUITABILITY_RECIPE,
-        base_by_highway: { ...DEFAULT_ROAD_SUITABILITY_RECIPE.base_by_highway, secondary: 1 },
-      };
-      const legend = buildCarStressLegend(
-        DEFAULT_CAR_STRESS_RECIPE,
-        buildCarStressExpression(DEFAULT_CAR_STRESS_RECIPE, customRoadSuitabilityRecipe),
-      );
-      const properties = { highway: "secondary" };
-
-      // 既定レシピ（secondary=3）では"3"カテゴリに属するが、customRecipe（secondary=1）では
-      // "1"カテゴリに属する。
-      const defaultLegend = buildCarStressLegend(DEFAULT_CAR_STRESS_RECIPE);
-      expect(evaluateFilter(defaultLegend.find((e) => e.key === "3")!.filter, properties)).toBe(true);
-      expect(evaluateFilter(legend.find((e) => e.key === "1")!.filter, properties)).toBe(true);
-      expect(evaluateFilter(legend.find((e) => e.key === "3")!.filter, properties)).toBe(false);
-    });
-
-    it("凡例のラベル・色・key構成自体はレシピに関わらず不変（変わるのはfilterの中身だけ）", () => {
-      const customRecipe = { ...DEFAULT_CAR_STRESS_RECIPE, lanes_low_adjustment: -3 };
-      const legend = buildCarStressLegend(customRecipe);
-      expect(legend.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback }))).toEqual(
-        CAR_STRESS_LEGEND.map((e) => ({ key: e.key, label: e.label, color: e.color, isFallback: e.isFallback })),
-      );
-    });
-  });
-
   it("自転車インフラの凡例キーはdomain/traffic.pyのBicycleInfraClass列挙値+不明と一致する", () => {
     const keys = BICYCLE_INFRA_LEGEND.map((e) => e.key);
     expect(new Set(keys)).toEqual(
@@ -128,11 +56,9 @@ describe("staticAttributeLayers", () => {
     }
   });
 
-  it("各軸とも凡例エントリごとに一意な色を持つ（見分けられる配色）", () => {
-    for (const legend of [CAR_STRESS_LEGEND, BICYCLE_INFRA_LEGEND]) {
-      const colors = legend.map((e) => e.color);
-      expect(new Set(colors).size).toBe(colors.length);
-    }
+  it("自転車インフラの凡例エントリごとに一意な色を持つ（見分けられる配色）", () => {
+    const colors = BICYCLE_INFRA_LEGEND.map((e) => e.color);
+    expect(new Set(colors).size).toBe(colors.length);
   });
 
   it("事故レイヤーの凡例キーは自転車関連/その他の2値で重複が無い", () => {
@@ -327,7 +253,6 @@ describe("staticAttributeLayers", () => {
   it("STATIC_FILTER_AXESの各軸は対応するLEGEND定数と同じ内容を参照する", () => {
     const byAxisId = Object.fromEntries(STATIC_FILTER_AXES.map((axis) => [axis.axisId, axis.legend]));
     const expected: Record<string, readonly LegendEntry[]> = {
-      carStress: CAR_STRESS_LEGEND,
       bicycleInfra: BICYCLE_INFRA_LEGEND,
       stopPoi: STOP_POI_LEGEND,
       supplyPoi: SUPPLY_POI_LEGEND,
@@ -344,8 +269,8 @@ describe("staticAttributeLayers", () => {
     const supplyPoiAxis = STATIC_FILTER_AXES.find((axis) => axis.axisId === "supplyPoi");
     expect(stopPoiAxis?.baseFilter).toEqual(["in", ["get", "kind"], ["literal", STOP_POI_KINDS]]);
     expect(supplyPoiAxis?.baseFilter).toEqual(["in", ["get", "kind"], ["literal", SUPPLY_POI_KINDS]]);
-    // 他の軸（例: carStress）はkindプロパティを持たない別ソースのためbaseFilter不要。
-    expect(STATIC_FILTER_AXES.find((axis) => axis.axisId === "carStress")?.baseFilter).toBeUndefined();
+    // 他の軸（例: bicycleInfra）はkindプロパティを持たない別ソースのためbaseFilter不要。
+    expect(STATIC_FILTER_AXES.find((axis) => axis.axisId === "bicycleInfra")?.baseFilter).toBeUndefined();
   });
 
   it("事故は当事者・重大度の2軸を持ち、それ以外のレイヤーは1軸のみ", () => {

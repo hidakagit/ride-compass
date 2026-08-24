@@ -146,14 +146,34 @@ def test_surface_q_and_night_kind_is_auto_derived_ramp():
 
 def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
     """改善計画T278の自動導出対象外（複数材料の重み付き結合・タイル非依存材料・
-    実行時スケール変換が必要な材料）の4軸は、kindが従来どおりであることを確認する
-    （回帰防止）。"""
+    実行時スケール変換が必要な材料）の軸は、kindが従来どおりであることを確認する
+    （回帰防止）。car_stressは改善計画T292で"bespoke"から"ramp"へ変更されたため、
+    本テストの対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
     assert registry.get_axis("gradient").display.kind == "none"
     assert registry.get_axis("stop_density").display.kind == "ramp"
     assert registry.get_axis("stop_density").display.thresholds == [1.0, 2.0, 4.0]
-    assert registry.get_axis("car_stress").display.kind == "bespoke"
     assert registry.get_axis("accident").display.kind == "ramp"
     assert registry.get_axis("accident").display.thresholds == [0.4, 0.8, 1.5]
+
+
+def test_car_stress_ramp_display():
+    """改善計画T292: car_stressは内部軸6つ+公開軸1つの階層構造への再実装に伴い
+    kind="bespoke"からkind="ramp"へ変更した。derive_ramp_inputsでは解決できない
+    （他の軸を参照するBreakpointLinearShapeのため）ためtile_inputsは本ファイルへ
+    直接手書きしている。内部軸6つぶんのtile_inputsが揃っていることを確認する。"""
+    display = registry.get_axis("car_stress").display
+    assert display.kind == "ramp"
+    assert display.thresholds == [2.0, 3.0, 4.0]
+    properties = {ti.property for ti in display.tile_inputs}
+    assert properties == {"highway", "bicycle_infra", "maxspeed_kmh", "lanes_count", "designation", "motor_vehicle_no"}
+    highway_input = next(ti for ti in display.tile_inputs if ti.property == "highway")
+    assert highway_input.categories is not None
+    assert highway_input.has_unknown_fallback is True
+    maxspeed_input = next(ti for ti in display.tile_inputs if ti.property == "maxspeed_kmh")
+    assert maxspeed_input.breakpoints is not None
+    motor_vehicle_input = next(ti for ti in display.tile_inputs if ti.property == "motor_vehicle_no")
+    assert motor_vehicle_input.boolean is True
+    assert motor_vehicle_input.true_value == -1000.0
 
 
 def test_registry_axis_ids_match_axis_definitions():

@@ -54,10 +54,17 @@ derive_ramp_inputs()`が`AXIS_DEFINITIONS`の材料（`domain/material_catalog.p
 （2026-08-24）で「ramp化技術的に可能な軸は一律`kind="ramp"`にし、重複回避は地図
 レイヤーパネル側の表示/非表示切替で運用する」方針へ統一した。`gradient`（材料が
 タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
-統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（材料がタイル非依存の
-レシピ合成値）・`accident`（材料が年正規化済みでタイル生値とスケールが異なり、
-静的な変換係数を持てない）は自動導出の対象外のまま手書きの`display`を維持する
-（詳細はdomain/axis_display.pyのdocstring、改善計画T278参照）。
+統計的経験則で単純な折れ点流用では再現不可）・`accident`（材料が年正規化済みでタイル
+生値とスケールが異なり、静的な変換係数を持てない）は自動導出の対象外のまま手書きの
+`display`を維持する（詳細はdomain/axis_display.pyのdocstring、改善計画T278参照）。
+
+**car_stressのkind="ramp"化（改善計画T292、2026-08-24）**: 専用Pythonレシピ廃止・
+内部軸6つ+公開軸1つの階層構造への再実装に伴い、`car_stress`も`kind="bespoke"`から
+`kind="ramp"`へ変更した。ただし内部軸6つを参照する`BreakpointLinearShape`（他の軸を
+`MaterialTerm.material`として参照する構造）は`derive_ramp_inputs`が解決できないため、
+`stop_density`/`accident`と同じ前例で`tile_inputs`/`thresholds`を本ファイルへ直接
+手書きしている（自動導出ではない）。旧`carStressExpression.ts`（フロントの手書き
+expression）は不要になり削除した。
 """
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, UNSIGNALED_INTERSECTION_WEIGHT
@@ -380,7 +387,7 @@ def _register_axes() -> None:
             "車ストレス（走行中の車との近接ストレス）。旧「交通ストレス」・"
             "「圧迫感」。改善計画T138で自転車インフラの独立軸を統合済み。呼称のtraffic→"
             "car_stressへの統一（Pythonシンボル名）は改善計画T150で実施済み。"
-            "改善計画T292: 専用Pythonレシピ（旧car_stress_level等）を廃止し、内部軸5つ"
+            "改善計画T292: 専用Pythonレシピ（旧car_stress_level等）を廃止し、内部軸6つ"
             "（is_published=Falseのcar_stress_highway_base等、AXIS_DEFINITIONS参照）+"
             "公開軸1つの階層構造で再現する。transform_fnは実際には動的解決されない"
             "ドキュメント目的の文字列（実際の呼び出しはdomain/evaluation.py: "
@@ -388,12 +395,73 @@ def _register_axes() -> None:
             "motor_vehicle_accessは地図レイヤー階層の次数反転検討（改善計画T163）で"
             "inputsからの記載漏れが発覚し追加した（排他違反ではないが不完全だった）",
             display=AxisDisplaySpec(
-                kind="bespoke",
+                kind="ramp",
                 label=AXIS_DEFINITIONS["car_stress"].label,
                 category="trafficSafety",
-                note="highway×cycleway×maxspeed×lanes×指定路線のレシピ判定が必要なため"
-                "汎用rampでは表せない。フロントの手書きexpression"
-                "（carStressExpression.ts、既存carStressレイヤー）が担う",
+                # 改善計画T292: 内部軸6つがそれぞれ参照する材料は全てMVTタイルへ焼き込み済み
+                # （highway/bicycle_infra/maxspeed_kmh/lanes_count/motor_vehicle_no、
+                # material_catalog.py参照。designationのみtile_property保持の"designation"
+                # [3値文字列]と評価用の"is_designated"[bool]が別材料——タイルには前者しか
+                # 無いため、is_designatedと同じ意味を「designationがどの値であれ+1」という
+                # categories（3値とも同じ点数）で表現する）。derive_ramp_inputsの自動導出は
+                # 「他の軸を参照するBreakpointLinearShape（AXIS_DEFINITIONS['car_stress']の
+                # terms）」を解決できないため対象外のまま（domain/axis_display.py参照）、
+                # stop_density/accidentと同じ前例で手書き登録する。
+                #
+                # 値はAXIS_DEFINITIONS内部軸の生の合計（0-100への最終rescale
+                # [breakpoints=(1,0)-(5,100)]は適用しない）。stop_density/accidentも
+                # 生の集計値（回/km・件/km）へ直接thresholdsを置いており、rampの目的は
+                # 色分けの相対比較であって難易度の絶対値表示ではない
+                # （正確な合成コストは区間インスペクタ/api/region/axis-inspectorが
+                # サーバー側で正確に計算する）。
+                tile_inputs=[
+                    TileInputSpec(
+                        property="highway",
+                        categories={
+                            "cycleway": 1.0,
+                            "living_street": 1.0,
+                            "residential": 2.0,
+                            "unclassified": 2.0,
+                            "track": 2.0,
+                            "tertiary": 3.0,
+                            "tertiary_link": 3.0,
+                            "secondary": 3.0,
+                            "secondary_link": 3.0,
+                            "primary": 4.0,
+                            "primary_link": 4.0,
+                            "trunk": 4.0,
+                            "trunk_link": 4.0,
+                        },
+                        has_unknown_fallback=True,
+                    ),
+                    TileInputSpec(
+                        property="bicycle_infra",
+                        categories={"separated": -2.0, "lane": -1.0, "shared_busway": 0.0, "shared_pedestrian": 0.0, "roadway": 1.0},
+                    ),
+                    TileInputSpec(
+                        property="maxspeed_kmh",
+                        breakpoints=[(0.0, -1.0), (30.0, -1.0), (31.0, 0.0), (59.0, 0.0), (60.0, 1.0), (999.0, 1.0)],
+                    ),
+                    TileInputSpec(
+                        property="lanes_count",
+                        breakpoints=[(0.0, -1.0), (1.0, -1.0), (2.0, 0.0), (3.0, 0.0), (4.0, 1.0), (99.0, 1.0)],
+                    ),
+                    TileInputSpec(
+                        property="designation",
+                        categories={"emergency_transport": 1.0, "critical_logistics": 1.0, "both": 1.0},
+                    ),
+                    TileInputSpec(property="motor_vehicle_no", boolean=True, true_value=-1000.0, false_value=0.0),
+                ],
+                # highway基準値（1-4）の区分境界そのもの（4段階の主要因）。他5補正の
+                # 寄与幅（各-2〜+1）に対し、highway基準値が主要な分散要因のため、その
+                # 境界をそのまま閾値に流用する（stop_density/accidentと同じく統計分析
+                # ではなくドメイン知識による選定、実データでの分布確認は必要になれば
+                # 別タスクで実施）。
+                thresholds=[2.0, 3.0, 4.0],
+                note="改善計画T292: highway/bicycle_infra/maxspeed_kmh/lanes_count/"
+                "designation/motor_vehicle_noの6材料から自動計算する。以前は専用の"
+                "手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への"
+                "階層再構成でtile_inputsの重み付き結合として表現できるようになった",
             ),
         )
     )

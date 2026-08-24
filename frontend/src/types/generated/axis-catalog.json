@@ -40,7 +40,9 @@
             "invert": false,
             "true_value": 0.0,
             "false_value": 80.0,
-            "has_unknown_fallback": true
+            "has_unknown_fallback": true,
+            "categories": null,
+            "breakpoints": null
           }
         ],
         "thresholds": [
@@ -72,7 +74,9 @@
             "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
-            "has_unknown_fallback": false
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
           },
           {
             "property": "intersection_per_km",
@@ -81,7 +85,9 @@
             "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
-            "has_unknown_fallback": false
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
           }
         ],
         "thresholds": [
@@ -108,13 +114,158 @@
         100.0
       ],
       "display": {
-        "kind": "bespoke",
+        "kind": "ramp",
         "label": "車の圧迫感",
         "category": "trafficSafety",
-        "tile_inputs": [],
-        "thresholds": [],
+        "tile_inputs": [
+          {
+            "property": "highway",
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": true,
+            "categories": {
+              "cycleway": 1.0,
+              "living_street": 1.0,
+              "residential": 2.0,
+              "unclassified": 2.0,
+              "track": 2.0,
+              "tertiary": 3.0,
+              "tertiary_link": 3.0,
+              "secondary": 3.0,
+              "secondary_link": 3.0,
+              "primary": 4.0,
+              "primary_link": 4.0,
+              "trunk": 4.0,
+              "trunk_link": 4.0
+            },
+            "breakpoints": null
+          },
+          {
+            "property": "bicycle_infra",
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": {
+              "separated": -2.0,
+              "lane": -1.0,
+              "shared_busway": 0.0,
+              "shared_pedestrian": 0.0,
+              "roadway": 1.0
+            },
+            "breakpoints": null
+          },
+          {
+            "property": "maxspeed_kmh",
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": [
+              [
+                0.0,
+                -1.0
+              ],
+              [
+                30.0,
+                -1.0
+              ],
+              [
+                31.0,
+                0.0
+              ],
+              [
+                59.0,
+                0.0
+              ],
+              [
+                60.0,
+                1.0
+              ],
+              [
+                999.0,
+                1.0
+              ]
+            ]
+          },
+          {
+            "property": "lanes_count",
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": [
+              [
+                0.0,
+                -1.0
+              ],
+              [
+                1.0,
+                -1.0
+              ],
+              [
+                2.0,
+                0.0
+              ],
+              [
+                3.0,
+                0.0
+              ],
+              [
+                4.0,
+                1.0
+              ],
+              [
+                99.0,
+                1.0
+              ]
+            ]
+          },
+          {
+            "property": "designation",
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": {
+              "emergency_transport": 1.0,
+              "critical_logistics": 1.0,
+              "both": 1.0
+            },
+            "breakpoints": null
+          },
+          {
+            "property": "motor_vehicle_no",
+            "weight": 1.0,
+            "boolean": true,
+            "invert": false,
+            "true_value": -1000.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          }
+        ],
+        "thresholds": [
+          2.0,
+          3.0,
+          4.0
+        ],
         "unit": "",
-        "note": "highway×cycleway×maxspeed×lanes×指定路線のレシピ判定が必要なため汎用rampでは表せない。フロントの手書きexpression（carStressExpression.ts、既存carStressレイヤー）が担う"
+        "note": "改善計画T292: highway/bicycle_infra/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの6材料から自動計算する。以前は専用の手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への階層再構成でtile_inputsの重み付き結合として表現できるようになった"
       }
     },
     {
@@ -139,7 +290,9 @@
             "invert": true,
             "true_value": 50.0,
             "false_value": 0.0,
-            "has_unknown_fallback": false
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
           },
           {
             "property": "tunnel",
@@ -148,7 +301,9 @@
             "invert": false,
             "true_value": 50.0,
             "false_value": 0.0,
-            "has_unknown_fallback": false
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
           }
         ],
         "thresholds": [
@@ -180,7 +335,9 @@
             "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
-            "has_unknown_fallback": false
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
           }
         ],
         "thresholds": [

@@ -161,7 +161,7 @@ describe("MapOverlayControls", () => {
         { id: "elevation", label: "標高図", on: false }, // categoryなし→単独のまま
         { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
         { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
-        { id: "carStress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
+        { id: "axis:car_stress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
         { id: "accidents", label: "事故地点", on: false, category: "trafficSafety" }, // dataNature省略→raw扱い
       ];
     }
@@ -419,7 +419,7 @@ describe("MapOverlayControls", () => {
 
     // 実機フィードバック「設定で非表示にした場合、裏でレイヤ表示ONになっていればOFFにして」
     // への対応。非表示に選んだ瞬間、対応するレイヤーがONならonToggleでOFFにする（groupedLayers
-    // ではdesignation/carStressが両方on:trueのため、この2件で検証する）。逆に非表示解除は
+    // ではdesignation/axis:car_stressが両方on:trueのため、この2件で検証する）。逆に非表示解除は
     // レイヤーを自動でONにはしない（隠す/出すはチップの見た目の設定であり、ON/OFFの意思決定は
     // ユーザーが個別に行うため）。
     it("表示項目の設定で非表示に選ぶと、そのレイヤーがONなら即座にOFFにされる", async () => {
@@ -436,7 +436,7 @@ describe("MapOverlayControls", () => {
       await user.click(screen.getByRole("button", { name: "観測" })); // 観測の設定パネルを閉じる
       await user.click(screen.getByRole("button", { name: "推定指標（合成）の表示項目を設定" }));
       await user.click(screen.getByRole("button", { name: "圧迫感を表示しない" }));
-      expect(onToggle).toHaveBeenCalledWith("carStress", false);
+      expect(onToggle).toHaveBeenCalledWith("axis:car_stress", false);
     });
 
     it("表示項目の設定でOFF状態のメンバーを非表示に選んでもonToggleは呼ばれない", async () => {

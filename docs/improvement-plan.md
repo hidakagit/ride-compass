@@ -4293,12 +4293,38 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   dev DBの`schema_migrations`追跡漏れ（0016が実際は適用済みなのに未記録）も発見し、
   スキーマ一致を確認した上でバックフィルした。
   backend全1082件green（scalar/bulk評価パスの回帰比較テストも完全一致）。
-  **残る段階**: フロント表示層の汎用化（orderedフラグによる自動配色、
-  `carStressExpression.ts`・`recipeExpression.ts`・`recipeBreakdownPopup.ts`・
-  研究モードのレシピパネル3種の置き換え・削除、影響ファイル26件・約2000行、
-  別セッションで着手予定）→パフォーマンス実測（軸評価が7軸→13軸相当に増えたことの
-  影響、ユーザー合意により実装完了後に一括実施）→目論見書Artifact更新・
-  docs/architecture.md追従→コミット。
+- **進捗3（2026-08-24、フロント表示層の汎用化）完了**: 別セッションへ切り出されていた
+  残る段階に着手。着手前に`npx tsc --noEmit`を実行したところ、進捗2のbackend変更の
+  副作用でフロントのビルドが実際に壊れていることが判明した（13件のTSエラー。backendが
+  削除済みの型`CarStressRecipeOverride`等を`types/route.ts`・`types/traffic.ts`が参照、
+  backendが削除済みの`/api/region/car-stress-breakdown`を`regionApi.ts`が呼び続けている等）。
+  改善計画本文が当初想定していた設計（「各内部軸のmappingにorderedフラグを持たせ、
+  フロントの汎用レイヤーファクトリでグラデーション/定性色パレットを自動生成する」）は、
+  調査の結果、速度補正・車線数補正という2つの内部軸（自身もbreakpoints型で計算される）を
+  扱えず**不完全**と判明したため方針転換した。実際に採用した方式:
+  car_stressを他の推定軸（勾配・停止密度・事故密度等）と**全く同じ`axisLayers.ts`の
+  汎用rampパイプライン**にそのまま乗せる（car_stressの材料は進捗2でMVTタイルへ全て
+  焼き込み済みのためタイル側の変更は不要。`kind="bespoke"`→`kind="ramp"`、
+  `TileInputSpec`へN値文字列材料用の`categories`・自身もbreakpoints変換を持つ材料用の
+  `breakpoints`の2フィールドを追加し、`registry_defaults.py`へ6内部軸ぶんの
+  `tile_inputs`を`stop_density`/`accident`と同じ前例で手書き登録）。あわせて、色分けの
+  段階数（バンド数）が4段階固定だったため5段階以上のthresholdsを持つ軸で末尾の段階が
+  同色に潰れる問題をユーザーが指摘し、`AXIS_RAMP_COLORS`固定4色配列を
+  `rampColorForBand(index, bandCount)`（4色のアンカー間を線形補間、bandCount=4で既存
+  4色と完全一致することをテストで担保）へ一般化した。研究モードの専用調整UI3種
+  （`CarStressRecipePanel`・`RoadSuitabilityRecipePanel`・`MotorVehicleDensityRecipePanel`）
+  は軸スタジオ（T270）が代替済みのため削除。`carStressExpression.ts`・
+  `recipeExpression.ts`・`recipeBreakdownPopup.ts`、および調査の過程で発見した
+  完全に孤立していた`useRecipeOverride.ts`（削除済みパネルの唯一の呼び出し元を失い
+  未import状態になっていた）も削除。backend全935件・frontend全460件green、
+  eslint clean、`export_openapi.py`→`npm run generate:api`後の
+  `git diff --exit-code -- frontend/src/types/generated/`もクリーン。実機確認
+  （Playwright、メイン画面・/admin画面とも）でコンソールエラー0件・地図上の
+  「車の圧迫感」レイヤーが新しい階層構造の値で正しく色分け表示されることを確認した
+  （このサンドボックス環境にはPostGISデータが無いため、実データでの色の見え方自体は
+  T289と同じ方式での確認はできず、ビルド・型・テスト・実機の疎通確認のみ）。
+  **残る段階**: パフォーマンス実測（軸評価が7軸→13軸相当に増えたことの影響、
+  ユーザー合意により実装完了後に一括実施）→目論見書Artifact更新。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
