@@ -84,7 +84,8 @@ interface CatalogAxis {
   } | null;
 }
 
-// 全軸（ramp/bespoke/noneを問わない）のラベル辞書。区間インスペクタ（改善計画T146）が
+// 全軸（ramp/noneを問わない。改善計画T298: kind="bespoke"は利用ゼロのため削除済み）の
+// ラベル辞書。区間インスペクタ（改善計画T146）が
 // 「一次属性→二次軸スコア」を表示する際、軸ごとに専用UIを持たずカタログのラベルへ
 // 汎用的に頼るために使う。windはレジストリ未登録（RoutePreferenceの独立項目、
 // domain/registry_defaults.py参照）のためカタログに無く、ここでのみ補う。

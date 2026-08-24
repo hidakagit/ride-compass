@@ -221,12 +221,13 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
 #   （cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
 #   流用）だけを焼き込み、最終値の計算はフロントエンド側
-#   （frontend/src/components/Map/carStressExpression.ts、MapLibre expression）と
-#   ルート採点（改善計画T292: domain/axis_definitions.pyのAXIS_DEFINITIONS、car_stressを
+#   （改善計画T292: frontend/src/components/Map/axisLayers.ts、汎用ramp
+#   パイプライン。専用手書きexpression`carStressExpression.ts`は廃止済み）と
+#   ルート採点（domain/axis_definitions.pyのAXIS_DEFINITIONS、car_stressを
 #   支える内部軸6つ+公開軸1つの階層構造。旧domain/traffic.py: car_stress_breakdownは廃止）が
-#   それぞれ行う。両者は同じ材料タグの定義に対応させ、carStressExpression.test.tsで
-#   整合性を検証する（このSQL側の整合性テストは材料タグの焼き込みが正しいことだけを
-#   検証すればよくなった）。
+#   それぞれ行う。両者は同じ材料タグの定義（domain/registry_defaults.pyのtile_inputsが
+#   AXIS_DEFINITIONSの各内部軸shapeを片側importで参照）に対応させることで同期を担保する
+#   （このSQL側の整合性テストは材料タグの焼き込みが正しいことだけを検証すればよい）。
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
 #   弾いてunknown安全にする。

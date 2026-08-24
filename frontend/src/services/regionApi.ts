@@ -19,7 +19,8 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // プロパティを再利用）追加のため世代を上げた。lit自体はT139でnight軸へ転用され現在も使用中。
 // v9: 車ストレスレシピ外出し基盤。計算済みのcar_stress最終値プロパティを廃止し、
 // 材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no）へ差し替えた
-// （最終値の計算はcarStressExpression.tsがMapLibre expressionとして行う）。
+// （最終値の計算は改善計画T292以降、components/Map/axisLayers.tsの汎用rampパイプラインが
+// MapLibre expressionとして行う。専用手書きexpression`carStressExpression.ts`は廃止済み）。
 // v2〜v8はプロパティ追加のみで旧フロントとの後方互換が保たれていたが、v9はプロパティ削除を
 // 伴う初めての非互換変更。backend（road_graph_repository.py）がこの世代へ切り替わるより先に
 // この変更を含むfrontendをデプロイすること（逆順だと、この世代のcar_stress前提の凡例

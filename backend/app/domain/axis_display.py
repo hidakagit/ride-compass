@@ -14,7 +14,8 @@
 それ以外（複数材料の重み付き結合・abs前処理・タイル非依存材料・実行時スケール変換が
 必要な材料[`tile_property_needs_runtime_scale=True`]を含む軸、他の軸を参照する
 `MaterialTerm`を含む軸）は`None`を返す（自動導出対象外——地図に出ない。既存の
-kind="none"/"bespoke"軸を壊さない安全側の判断）。
+kind="none"軸を壊さない安全側の判断。改善計画T298: kind="bespoke"は利用ゼロのため
+Literal自体を削除済み、registry.py参照）。
 
 現行7軸のうち、この関数が実際に使われるのは`surface_q`・`night`のみ（`registry_defaults.py`
 参照）。`stop_density`（複数材料の重み付き結合）・`accident`（材料が年正規化済みで

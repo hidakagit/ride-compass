@@ -113,14 +113,17 @@ class AxisDisplaySpec(BaseModel):
     - kind="ramp": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を
       `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの
       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
-    - kind="bespoke": タグの複雑な組み合わせを要しフロント側の手書きexpression
-      （例: carStressExpression.ts）が必要な軸。フロントに対応するexpressionが
-      登録されていない場合レイヤーは生成されない。
     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
       `note`へ理由を書く。
+
+    改善計画T298: 以前は「タグの複雑な組み合わせを要しフロント側の手書きexpressionが
+    必要な軸」向けのkind="bespoke"（例: 旧`carStressExpression.ts`）もあったが、
+    改善計画T292でcar_stressが最後の利用者としてkind="ramp"へ移行し利用がゼロになった
+    ため削除した（Literalから外すだけで、既存データ・呼び出し元への影響は無いことを
+    grep（`kind="bespoke"`の構築箇所ゼロ）で確認済み）。
     """
 
-    kind: Literal["ramp", "bespoke", "none"]
+    kind: Literal["ramp", "none"]
     label: str
     category: str = "trafficSafety"
     tile_inputs: list[TileInputSpec] = Field(default_factory=list)
