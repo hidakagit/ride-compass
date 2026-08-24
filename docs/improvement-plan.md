@@ -374,6 +374,72 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   Render側のbackendサービスを停止する（ユーザー合意、即削除はせずロールバック手段として
   当面残す）。
 
+### - [x] T264. 冷パスのステージ別ログ追加＋closure_ms削減 規模S（2026-08-24完了）
+
+- 発端: T263移行後、ユーザーから「30kmがなかなか帰ってこない」報告。調査したところ
+  未split地点への初回アクセス（冷パス）で正常に重い処理（クラッシュではない）が
+  進行中と判明したが、`prepare_ms`の内訳が`save_graph`の個別ログ以外に無く、
+  どの段が支配的か特定できなかった。ユーザー指示「もう少し軽くできない？」を受けて
+  ステージ別計測を追加し、実測に基づいて改善余地を探った。
+- **ステージ別ログ追加**（`graph_service.py: get_or_build_graph_with_attributes`・
+  `_build_search_materials_uncached`）: `closure_ms`（`get_way_specs_with_closure`の
+  DB空間クエリ）・`build_ms`（`build_road_graph`の交差点分割）・`save_ms`
+  （`save_graph`、既存ログと重複するが1行サマリとして再掲）・`materials_ms`
+  （`get_edge_materials_batch`の材料バッチ取得）を追加。
+- **実測（水戸・宇都宮、30km・未split地点）**: `build_ms`はT262のlean型化の効果で
+  既に軽い（142,081 Edge規模でも2.7秒、8%）。残る内訳: `save_ms`(35%、既にCOPY化済み)・
+  `closure_ms`(29%)・`materials_ms`(15%)・その他(14%)。
+- **Open-Meteo 429の調査（横道、実害なしと確認）**: 実測中に`weather:open-meteo`で
+  429が複数発生していたが、`/api/debug/stats`で確認したところエラー座標が全て
+  テスト地点と無関係な東京都心だった。原因は検証用に開いたままだったBrowserタブ
+  （東京都心の地図を表示し裏で風データをポーリング）と同時実行したことによる
+  Open-Meteo側レート制限への同時ヒットで、移行自体が原因ではないと判定した
+  （リレープロキシの経路・送信元IPは移行前後で変わっていない）。タブを閉じて解消。
+  既存のリトライ＋stale fallback機構が機能しており、ユーザーへの実害は無かった。
+- **closure_msの`EXPLAIN (ANALYZE, BUFFERS)`によるDB側切り分け**: 宇都宮30km
+  （primary_ways=35,725）の実際のbboxで`get_way_specs_with_closure`のWay取得クエリを
+  直接実行したところ、GiST索引（`idx_osm_raw_ways_geom`）を使ったパラレル
+  ビットマップスキャンで**DBサーバー側の実行時間はわずか112ms**だった。
+  `closure_ms=9,748ms`との差（約85倍）は、Python側のORM行構築・デシリアライズ・
+  ネットワーク転送が支配的であることを示す。
+- **原因**: `_way_spec_row_to_domain`（Way→WaySpec変換）・`_raw_node_row_to_coords`
+  （Node座標変換）はいずれも`geom`列を一切参照しない（前者はosm_way_id/node_ids/
+  highway/surface/tags/directionのみ、後者は緯度経度のみ）にもかかわらず、
+  `select(OsmRawWayRow)`・`select(OsmRawNodeRow)`で**全列（geom＝LINESTRING/POINT
+  込み）をORM行として取得**しており、不要なshapely decode・ネットワーク転送量を
+  発生させていた。`get_graph_topology_in_bbox`（T248候補1c）が同じ理由でEdge/Node
+  ともにST_X/ST_Y列指定へ最適化済みだったが、`get_way_specs_with_closure`（closure
+  取得）と`get_graph_in_bbox`（表示用フルパス）のNode取得には未適用のまま残っていた。
+- **修正**（`road_graph_repository.py`）:
+  1. `get_way_specs_with_closure`のway取得クエリを列指定（geom除外）へ変更。
+     `_way_spec_row_to_domain`ヘルパーは呼び出し元が無くなったため削除。
+  2. 同メソッドのnode座標取得クエリをST_X/ST_Y列指定へ変更。
+     `_raw_node_row_to_coords`ヘルパーは呼び出し元が無くなったため削除。
+  3. `get_graph_in_bbox`（`lean=False`の表示用パス）のnode取得も同様にST_X/ST_Y
+     列指定へ変更（`Node`は`latitude`/`longitude`のみを持ち`geometry`フィールドを
+     持たないため、lean/フルどちらのパスでも本来Node側にgeom decodeは不要）。
+     `_rows_to_road_graph`を列指定行を受け取る形へ変更。
+  4. 未使用になった`geoalchemy2.shape.to_shape`のimportを削除。
+- **横展開調査（他に同様の無駄がないか再チェック）**: リポジトリ全体の`select(Model)`
+  パターンを再確認。`get_edges_with_geometry`（最終候補への実ジオメトリ付与、T218）・
+  `get_graph_in_bbox`のedge取得は実際にgeometry表示が必要なため対象外と確認。
+  MVT生成・最近傍検索等の生SQLは全てDB側でgeomを直接使う設計（Pythonへ転送しない）で
+  無駄なし。`recompute_node_degrees`系のINSERT...SELECTもDB内で完結しPython側は
+  一切geomに触れないため対象外。
+- **検証**: `EXPLAIN ANALYZE`と同じ座標帯で正規化比較（エッジあたりの時間）:
+  修正前（宇都宮、142,081 Edge）`closure_ms=9,748ms`＝68.6μs/edge → 修正後
+  （高崎、207,280 Edge）`closure_ms=5,839ms`＝28.2μs/edge、**約2.4倍の改善**
+  （規模が46%大きいにもかかわらず絶対値でも9,748ms→5,839msへ40%減）。
+  backend全体1125件green（1件`test_save_graph_with_way_ids_to_replace_handles_...`は
+  合成データ（全17,000wayが同一2点を使い回す、GiST索引が病的に遅くなる既知の
+  テスト特性）の影響で並列実行時に既存dev DBの状態と衝突し一時的に長時間化したが、
+  単体実行では45秒で成功・今回の変更（`road_edges`のINSERTではなく`osm_raw_ways`/
+  `osm_raw_nodes`のSELECT側）とは無関係と確認済み）。
+- 完了条件: 満たした。`build_ms`は既に十分軽く、`closure_ms`は容易な改善（geom列の
+  不要な取得除去）で2.4倍高速化。残る`save_ms`（既にCOPY化済み）・`materials_ms`は
+  さらなる高速化にDB側の構造的な見直しが必要になる規模のため、ユーザー判断により
+  一旦ここで区切りとする。
+
 ---
 
 
