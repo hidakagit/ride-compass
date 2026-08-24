@@ -36,6 +36,10 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  /* 改善計画T301: flex-wrapが無いと.listRowActions(3〜4ボタン、flex-shrink:0)が
+     狭い画面幅で.listRowMainを押しのけて画面外へはみ出し、ボタンに触れなくなる
+     （実機フィードバック「管理者画面、スマホだと見切れてさわれない」）。 */
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--color-border);
   padding-bottom: var(--space-2);
 }
@@ -86,7 +90,13 @@
 .listRowActions {
   display: flex;
   gap: var(--space-1);
-  flex-shrink: 0;
+  /* 改善計画T301: 編集/複製/非公開に戻す/削除の最大4ボタンが1行に収まらない狭い画面幅では、
+     ボタン自体を折り返す。flex-shrink:0のままだと、.listRowが折り返してこのグループが
+     単独行になっても「中身のボタン全部ぶんの最大幅」を維持しようとして画面外へ
+     はみ出し続ける（flex-wrap:wrapだけでは、そもそも自分の幅が狭まらない限り
+     折り返す理由が生まれないため無意味だった）。flex-shrinkを許可することで初めて
+     wrapが機能し、ボタンが押せない状態を解消する。 */
+  flex-wrap: wrap;
 }
 
 .composer {
@@ -126,6 +136,9 @@
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
   padding: 0.25rem 0.4rem;
+  /* 改善計画T301: ネイティブselectは選択肢テキストの最大幅に合わせて広がるため、
+     長いラベルの材料選択肢が狭い画面幅で行からはみ出しうる。 */
+  max-width: 100%;
 }
 
 .fieldFull {
@@ -166,6 +179,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* 改善計画T301: 材料選択select・折れ点inputが並ぶ行。.rowと同じくflex-wrapが無いと
+     狭い画面幅ではみ出す。 */
+  flex-wrap: wrap;
 }
 
 .termRow select,
@@ -175,6 +191,7 @@
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
   padding: 0.2rem 0.4rem;
+  max-width: 100%;
 }
 
 .breakpointRow input {

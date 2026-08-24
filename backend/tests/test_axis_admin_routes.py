@@ -70,6 +70,11 @@ class FakeAxisRegistryAdminService:
         check_publish_immutability(self._definitions[axis_id], "deleted")
         del self._definitions[axis_id]
 
+    async def unpublish(self, axis_id: str) -> None:
+        if axis_id not in self._definitions:
+            raise KeyError(axis_id)
+        self._definitions[axis_id] = self._definitions[axis_id].model_copy(update={"is_published": False})
+
 
 def _basic_auth_header(username: str, password: str) -> str:
     encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
@@ -393,3 +398,44 @@ def test_delete_returns_409_for_last_remaining_axis(override_service):
     response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
 
     assert response.status_code == 409
+
+
+# --- unpublish（改善計画T302） ---
+
+
+def test_unpublish_returns_404_for_unknown_axis_id(override_service):
+    response = client.post("/api/admin/axis-definitions/unknown/unpublish", headers=AUTH_HEADERS)
+
+    assert response.status_code == 404
+
+
+def test_unpublish_returns_200_and_flips_published_axis_to_draft(override_service):
+    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
+
+    response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["is_published"] is False
+    assert override_service._definitions["test_axis"].is_published is False
+
+
+def test_unpublish_then_delete_succeeds(override_service):
+    # unpublish→deleteの2段階が正式フロー（改善計画T302）。直接deleteは409で拒否される
+    # （test_delete_returns_409_for_published_axisで確認済み）が、unpublish後は成功する。
+    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
+    override_service._definitions["other_axis"] = _DEFINITION.model_copy(update={"axis_id": "other_axis"})
+
+    unpublish_response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
+    delete_response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
+
+    assert unpublish_response.status_code == 200
+    assert delete_response.status_code == 204
+    assert "test_axis" not in override_service._definitions
+
+
+def test_unpublish_rejects_missing_credentials(override_service):
+    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
+
+    response = client.post("/api/admin/axis-definitions/test_axis/unpublish")
+
+    assert response.status_code == 401

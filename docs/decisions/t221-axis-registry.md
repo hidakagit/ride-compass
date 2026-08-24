@@ -335,3 +335,39 @@ Dependency）へ集約し、共有トークンによる簡易実装から実権�
 - **本番Renderへの反映は未実施**（上記Stage D・Stage E残作業と同じ制約の継続）。
   backend・frontend双方のRenderサービスへ`ADMIN_BASIC_AUTH_USERNAME`/`PASSWORD`を
   設定するまで、本番の`/admin`・軸CRUD APIは共に401で到達不能のまま。
+
+## Stage D拡張3: unpublish（公開→未公開）の追加方針（改善計画T302、2026-08-25方針決定）
+
+ユーザーから「公開軸を未公開に戻す拡張はできる？既存軸の削除したい」との要望が出た。
+T271は「改良したい場合は複製して新規作成、unpublishは無い」という一方向設計を意図的に
+採用しており（上記「Stage D拡張2」）、`AxisRegistryAdminService.delete`
+（axis_registry_service.py:205-208）のコメントも「route_preferenceとの整合性チェックは
+意図的に未実装、Stage EでGUI編集が実利用される段階で改めて検討する」と明記している。
+今回の要望はまさにそのトリガー（GUI編集の実利用）に該当するため、ここで方針を決定する
+（実装はT302として起票、現在は別のフロント改修=T299 Tailwind/Radix移行と並行のため着手待ち）。
+
+- **unpublishは「更新の一般的な緩和」ではなく専用アクションとして追加する**。
+  `AxisRegistryAdminService.update()`が無条件に呼ぶ`check_publish_immutability`は
+  そのまま残し（公開済み軸の他フィールド編集は引き続き拒否）、`is_published: True→False`
+  だけを許す専用メソッド/エンドポイントを新設する。これにより「公開済みは編集不可」という
+  T271の原則は維持したまま、公開フラグの反転だけに限定した穴を開ける。unpublish後は
+  下書き扱いに戻るため、既存のupdate()経路で自由に再編集・再publishできる
+  （複製ではなく同一axis_idのまま行き来できる、データが失われない対称な操作）。
+- **フロントの自己修復とセット実装を必須条件とする**。`RouteSettingsPanel.tsx:92-105`の
+  反映ロジックは現状「カタログにあるがroutePreferenceに無いキーを補う」片方向のみで、
+  逆方向（カタログから消えたキーをroutePreferenceから消す）が無い。これが無いまま
+  unpublishすると、旧設定を保持したブラウザで`RoutePreferenceWeights`のキー完全一致検証
+  （backend/app/api/routers/routes.py:78-100）が422で落ち、ルート生成そのものが
+  壊れる（サーバ側に永続化されたユーザー別route_preferenceは無く、ブラウザの
+  localStorage状態のみが問題になる点はT271検討時の想定より単純）。unpublish機能と
+  この自己修復ロジックは同一コミットで実装すること。
+- **削除は現行ガードのまま維持する**。`AxisRegistryAdminService.delete()`の
+  「公開済みは削除不可」ガード（axis_registry_service.py:202-204）は変更しない。
+  削除したい場合は「unpublish→（影響が無いことを確認）→delete」の2段階を正式フローと
+  する。いきなり公開軸を削除できるようにすると、有効な保存済み設定・進行中のルート生成が
+  予告なく壊れるため、unpublishという明示的な一段階を挟むことが実害を抑える最小コストの
+  安全弁になる。
+- **地図側の表示（`registry.py`由来の静的`axis-catalog.json`、T285未着手）は今回のスコープ外**。
+  is_publishedを動的に反映しないため、unpublish直後も地図の凡例・レイヤーパネルには
+  しばらく残りうるが、表示のみの影響でルート生成・評価には影響しないため、T285完了までの
+  一時的な不整合として許容する。

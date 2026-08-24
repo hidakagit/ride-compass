@@ -4901,6 +4901,144 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - **トリガー解消（2026-08-25、T299完了）**: 本タスクが待っていた「現在進行中の別
   フロント改修」（T299、Tailwind + Radix UIデザイン基盤の新設）が完了した。着手可能。
 
+## 管理者画面（軸スタジオ）の改善（2026-08-25・ユーザー指示）
+
+### - [x] T301. `/admin`画面のモバイル対応（レスポンシブ未実装の解消） 規模S（2026-08-25完了）
+
+- 背景: ユーザー実機フィードバック「管理者画面、スマホだと見切れてさわれない」。調査の
+  結果、`/admin`配下（`frontend/src/app/admin/admin.module.css`・
+  `frontend/src/components/AxisStudio/AxisStudio.module.css`・`DebugPanel.tsx`）には
+  `@media`クエリが1件も無く、メインページで確立済みの640pxブレークポイント
+  （`page.module.css`、`frontend/src/hooks/useIsMobile.ts`）が移植されていないだけと
+  判明した（意図的にモバイル非対応としたという設計記述はT270完了記録に見当たらない）。
+- 当初の内容案: T299のTailwind CSS + Radix UI基盤（docs/frontend-design-system.md）に
+  沿ってcomponents/ui/+Tailwindユーティリティで書き直す想定だった。
+- **対応（2026-08-25完了）**: 実装時にPlaywrightで375px幅を実機確認したところ、
+  想定していた「固定幅inputのはみ出し」ではなく、**別の根本原因**が見つかったため
+  方針を変更した。
+  1. **真因**: `globals.css`の`body { display: flex; flex-direction: column; }`により
+     `AdminPage`のルート`.page`はbodyのflex item（column方向なのでcross軸=横幅）になる。
+     `.page`は`margin: 0 auto`で左右マージンがautoのため、Flexboxの仕様上
+     「cross軸のマージンがautoの場合はstretchされず、要素自身のfit-content幅で配置される」
+     （align-items:stretchが効かない）。この結果、`.page`は子孫の内容に応じた
+     最大幅（実測406px）まで広がり、`html,body`の`overflow-x: hidden`（globals.css）で
+     はみ出し分が見えないまま操作不能になっていた（横スクロールにならず「見切れて
+     さわれない」という言葉通りの症状）。`admin.module.css: .page`へ`width: 100%`を
+     追加し、stretchに頼らず明示的にbody幅へ合わせることで解消した
+     （`min-width: 0`も併記、Flexアイテムの既定`min-width: auto`による副作用の再発防止）。
+  2. `AxisStudio.module.css`の`.listRow`（軸一覧の行）へ`flex-wrap: wrap`を追加。
+  3. 同ファイルの`.listRowActions`（編集/複製/非公開に戻す/削除の最大4ボタン）へ
+     `flex-wrap: wrap`を追加し、かつ既存の`flex-shrink: 0`を削除した（`flex-shrink:0`が
+     残っていると、`.listRow`が折り返してこのグループが単独行になっても「中身のボタン
+     全部ぶんの最大幅」を維持しようとして画面外へはみ出し続け、`flex-wrap:wrap`だけでは
+     無意味だった。両方揃って初めてボタンが折り返す）。
+  4. `.termRow`・`.breakpointRow`（材料選択select・折れ点input）へも`flex-wrap: wrap`、
+     `.field input/select`・`.termRow select`へ`max-width: 100%`を追加（保守的な予防、
+     この時点では実際のはみ出しは未確認だが同型の再発を避ける）。
+  5. Tailwindへの書き直しは行わなかった（理由: 既存CSS Modulesの不具合修正であり新規
+     コンポーネントではない、規模Sの局所修正にTailwind移行という別軸の変更を混ぜない）。
+     Tailwind移行自体はT299の対象範囲内で今後の一般的な移行の一部として進む想定。
+- 完了条件の実施内容: PlaywrightでDOM全走査し「viewport幅を超える要素」を機械的に検出する
+  スクリプトで確認（375px幅、offendersCount 0を確認）。デスクトップ幅（1280px）でも
+  同スクリプトでoffendersCount 0を確認済み（回帰なし）。フロントtsc/eslint/vitest
+  （482件）全green。
+
+### - [x] T302. 軸の公開→未公開（unpublish）を追加し、既存軸の削除を解禁する 規模M（2026-08-25完了）
+
+- 背景: ユーザーから「公開軸を未公開に戻す拡張はできる？既存軸の削除したい」という要望。
+  T271のADR（docs/decisions/t221-axis-registry.md「Stage D拡張2」）はunpublishを
+  意図的に持たない一方向設計を採用しており、`AxisRegistryAdminService.delete`
+  （backend/app/services/axis_registry_service.py:205-208）のコメントには
+  「route_preferenceとの整合性チェックは意図的に未実装、Stage EでGUI編集が実利用される
+  段階で改めて検討する」と明記されている。今回のユーザー要望がまさにそのトリガー
+  （GUI編集の実利用）に該当するため、方針を決定した（決定内容の詳細は
+  docs/decisions/t221-axis-registry.md「Stage D拡張3」参照、本エントリはその要約）。
+- 決定内容:
+  1. **unpublishは専用アクションとして追加する**（`update()`の一般的な緩和ではなく、
+     `is_published: True→False`の遷移だけを許す専用エンドポイント/サービスメソッドを
+     新設）。それ以外のフィールド編集は引き続き「公開済みは不変」のまま拒否する。
+     unpublish後は既存のupdate()経路で自由に再編集・再publishできる（複製ではなく
+     同一axis_idのまま行き来できる、データは失われない）。
+  2. **フロントの自己修復とセット実装が必須条件**。`RouteSettingsPanel.tsx:92-105`の
+     反映ロジックは現状「カタログにあるがroutePreferenceに無いキーを補う」片方向のみ。
+     symmetricに「routePreferenceにあるがカタログに無いキーを削除する」処理を追加する。
+     これが無いとunpublish直後、旧設定を保持したブラウザで`RoutePreferenceWeights`の
+     キー完全一致検証（backend/app/api/routers/routes.py:78-100）が422で落ち、
+     ルート生成そのものが壊れる（サーバ側の永続化は無くブラウザのlocalStorage状態のみが
+     問題になる）。unpublish機能と自己修復ロジックは同一コミットで実装すること。
+  3. **既存軸の削除**: 現行の「公開済みは削除不可」ガード
+     （axis_registry_service.py:202-204）はそのまま維持する。削除したい場合は
+     「unpublish→（影響が無いことを確認）→delete」の2段階を正式フローとする。実装変更は
+     不要（削除ボタンの活性化条件がis_published=Falseに連動するのは既存ロジックのまま
+     自然に成立する）。
+  4. **既知の残課題（本タスクでは対応しない）**: 地図側の軸カタログ表示（`registry.py`
+     由来の静的`axis-catalog.json`、T285未着手）はis_publishedを動的に反映しないため、
+     unpublish直後もしばらく地図の凡例・レイヤーパネルには残りうる。表示のみの影響で
+     評価・ルート生成には影響しないため、T285完了までの一時的な不整合として許容する。
+- 完了条件: 着手時に確定。少なくとも(a)unpublish専用エンドポイントの実装とテスト、
+  (b)RouteSettingsPanelの自己修復ロジック追加とテスト、(c)unpublish→delete一連の
+  実機確認（Playwright）、(d)OpenAPI生成物の同期を含める。
+- **対応（2026-08-25完了）**:
+  1. `AxisRegistryAdminService.unpublish()`（axis_registry_service.py）を新設。
+     `is_published`のみをFalseへ反転してupsertする（他フィールドは既存値のまま）。
+     既に下書きの軸に対してはべき等（何もしない）。
+  2. `POST /api/admin/axis-definitions/{axis_id}/unpublish`（axis_admin.py）を新設し、
+     更新後の`AxisDefinitionResponse`を返す。OpenAPI・フロント生成型
+     （`api.d.ts`・`openapi.json`）を同期。
+  3. `RouteSettingsPanel.tsx`の反映effectを双方向化（`RouteSettingsPanel.tsx:92-113`）。
+     従来「カタログにあるが無いキーを補う」だけだったのを、「カタログに無いキーを
+     routePreferenceから削除する」処理も同じeffectへ追加した。
+  4. `AxisStudio.tsx`に「非公開に戻す」ボタンを追加（`is_published`な軸のみ表示）。
+     削除ボタンの説明文言も「先に非公開に戻す」を促す内容へ更新。
+  5. `axisAdminApi.ts`に`unpublishAxisDefinition()`を追加。
+  6. テスト: backend（`test_axis_registry_service.py`5件・`test_axis_admin_routes.py`4件、
+     unpublish→再update・unpublish→delete・べき等性・404を含む）、frontend
+     （`RouteSettingsPanel.test.tsx`新設、カタログから消えた軸のキー削除・新しい軸の
+     キー補完・既に一致時は呼ばれないことの3件）。backend全1121件・frontend
+     tsc/eslint/vitest（482件）全green。OpenAPI再生成→`git diff`クリーンを確認。
+  7. Playwright実機確認（375px幅、ローカルPostGIS+backend+frontendを一時起動）:
+     軸一覧で「公開済み」バッジの軸に「非公開に戻す」ボタンが現れる→クリックで
+     「下書き」バッジへ切り替わる→この時点で「削除」ボタンが活性化する→クリックで
+     一覧から消え件数が1つ減ることを確認。デスクトップ幅（1280px）でも、unpublishされ
+     カタログから消えたaxis_idキーを含むlocalStorageの`route_preference`が、
+     ページ訪問後に自動でそのキーを取り除いた状態へ書き換わることを確認。
+  8. **既知の残課題（本タスクの対応範囲外として記録）**: 自己修復
+     （項目3）は`RouteSettingsPanel`がマウントされたタイミングで走る。モバイルでは
+     このパネルは「ルート詳細」タブ（BottomSheet）を開いたときにしかマウントされず、
+     ヘッダーの生成ボタン（T250でパネルと分離済み）は直接押せてしまうため、
+     「過去に一度でも重みをカスタマイズ済み（`weightOverrideEnabled`永続化済み）の
+     ユーザーが、軸のunpublish後にモバイルで『ルート詳細』タブを一度も開かずに
+     いきなり生成ボタンを押す」という狭い経路では、自己修復が間に合わず422になる
+     可能性が残る。これはT269（新規軸追加時の補完）の時点から存在する同型の
+     未解決経路であり、本タスクで新たに作った問題ではないが、解消もしていない。
+     影響範囲（保留した場合）: 上記の狭い条件（要weightOverrideEnabled=true＋
+     unpublish発生＋モバイルでタブ未オープンのまま生成）でのみ422が起こりうる。
+     解消するには生成リクエスト組み立て時（page.tsx側）にも同様のキー整合チェックを
+     持たせる設計変更が必要で、規模はS〜M程度。次に「ルート詳細タブを開かず生成できる」
+     導線（T250）やroute_preferenceまわりを触るタスクの際に、あわせて解消を検討すること。
+
+### - [ ] T303. route_preferenceのキー整合チェックを生成リクエスト組み立て時にも持たせる〔P3〕規模S〜M — トリガー: 「ルート詳細タブを開かず生成できる」導線（T250）またはroute_preferenceまわりを触る次のタスクの際
+
+- 背景: T302完了時に発見した既知の残課題（本ファイルT302「対応」項目8参照）。
+  `RouteSettingsPanel`の自己修復（カタログと`routePreference`のキー集合を合わせる処理、
+  T269・T302）は同パネルがマウントされたときにしか走らない。モバイルでは「ルート詳細」
+  タブ（BottomSheet）を開いたときにしかマウントされないが、生成ボタン自体はT250で
+  ヘッダーへ分離済みのため、タブを一度も開かずに生成できてしまう。
+- 内容: 「過去に重みをカスタマイズ済み（`weightOverrideEnabled`永続化済み）のユーザーが、
+  軸の追加/unpublishが起きた後、モバイルで『ルート詳細』タブを一度も開かずに生成ボタンを
+  押す」という経路で、`RoutePreferenceWeights`のキー完全一致検証（routes.py）が422になる
+  可能性が残っている。生成リクエスト組み立て時（page.tsx側、`weightOverrideEnabled`が
+  trueの場合のroute_preference送出箇所）にも、`RouteSettingsPanel`と同じキー整合チェック
+  （カタログにない古いキーを送信直前に落とす、または送信前にカタログを取得し直す）を
+  持たせる。
+- 影響範囲（保留した場合）: 上記の狭い条件（重みカスタマイズ済み＋軸の追加/unpublish＋
+  モバイルでタブ未オープンのまま生成）でのみ422が起こりうる。発生頻度は低いと想定される
+  （軸の追加/unpublish自体が稀な管理操作であり、かつその直後にタブを開かず生成する
+  ユーザーという狭い交差条件のため）が、発生した場合はエラーメッセージだけでは原因が
+  分かりにくく、ユーザーがルート生成できない状態に見える。
+- 完了条件: 着手時に確定。少なくとも上記の経路を再現するテスト（新しい軸の追加/
+  unpublish直後、パネル未マウントのまま生成リクエストを組み立てるケース）を含める。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
@@ -4991,6 +5129,10 @@ T292で消化された。今回の最重要指摘は**T295（P2・軸定義DB読
   16. **T287**（text型PKの再評価、規模S・調査のみ）: T127の意思決定時に容量試算へ含める。
   17. **T288**（AXIS_DEFINITIONSのマルチワーカー対応、規模S〜M）: 複数ワーカー構成の
       採用時（複数ワーカー化タスクの完了条件に含めること）。
+  18. **T303**（route_preferenceキー整合チェックの生成リクエスト側追加、規模S〜M）:
+      「ルート詳細タブを開かず生成できる」導線（T250）またはroute_preferenceまわりを
+      触る次のタスクの際。T302完了時に発見した既知の残課題（低頻度、422のみ・データ
+      破損等の実害は無い）。
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
 **サマリ（第8回レビュー起票後・19タスク）**: **T279・T289・T274・T281段階1・T282・T294・
