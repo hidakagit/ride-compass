@@ -1,9 +1,14 @@
 # backendをOracle Cloud VM（DBと同居）へデプロイする（改善計画T261/T263）。
 # Renderの無料プラン（0.1 CPU/512MB）が冷パスの重いリクエストでクラッシュ→自動復旧を
 # 繰り返す障害（T261）を受け、DBが既に稼働しているOracle Cloud Always Free VM
-# （2 OCPU/12GB・egress月10TB）へbackendを同居させることにした。ビルドはGitHub
-# Actions側で行い（VM側の負荷にしない）、GitHub Container Registry（ghcr.io、
-# 追加アカウント不要）へpushしたイメージをSSH経由でVMがpullして再起動する。
+# （2 OCPU/12GB・egress月10TB）へbackendを同居させることにした。
+#
+# 当初はGitHub Actions（amd64ランナー）でビルドしghcr.ioへpushする方式（VM側の負荷を
+# 避ける狙い）を試みたが、VMがAmpere A1（arm64）のためQEMUエミュレーションでの
+# クロスビルドが必要になり、実測で10分超かかっても終わらないほど非現実的に遅かった
+# （numpy/scipy等C拡張を含む依存関係のインストール自体がエミュレーション対象になるため）。
+# VM上でのネイティブビルドは実測約3分で完了することを確認済みのため、SSH経由で
+# VM自身にgit pull→dockerビルド→再起動させる方式へ変更した（レジストリ不要）。
 name: Deploy Backend to Oracle VM
 
 on:
@@ -19,54 +24,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
-      - uses: actions/checkout@v4
-
-      # GitHub Actionsのubuntu-latestランナーはamd64だが、デプロイ先のOracle Cloud
-      # VMはAmpere A1（arm64）。setup-qemu-actionでのクロスビルドが必要
-      # （初回実行でamd64イメージのみ生成され、VM側`docker run`が
-      # "no matching manifest for linux/arm64/v8"で失敗することを実機確認済み）。
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      # 既定のdockerドライバはcache-to type=ghaのキャッシュexportに対応していない
-      # （初回実行で"Cache export is not supported for the docker driver"により失敗、
-      # 実機確認済み）。docker-containerドライバへ切り替える。
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/build-push-action@v6
-        with:
-          context: backend
-          platforms: linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
-            ghcr.io/${{ github.repository_owner }}/ridecompass-backend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Deploy via SSH
+      - name: Deploy via SSH (native arm64 build on VM)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          command_timeout: 15m
           script: |
             set -e
-            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            sudo docker pull ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
+            cd ~/ridecompass-repo
+            git fetch --depth 1 origin master
+            git reset --hard origin/master
+            cd backend
+            sudo docker build -t ridecompass-backend:latest .
             sudo docker stop ridecompass-backend 2>/dev/null || true
             sudo docker rm ridecompass-backend 2>/dev/null || true
             # --network=host: PostgreSQLがこのVMにネイティブ（Dockerコンテナ外）で
@@ -80,5 +54,5 @@ jobs:
               --memory=6g --memory-swap=6g \
               --network=host \
               --env-file /home/ubuntu/ridecompass-backend.env \
-              ghcr.io/${{ github.repository_owner }}/ridecompass-backend:latest
+              ridecompass-backend:latest
             sudo docker image prune -f
