@@ -16,10 +16,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.axis_definitions import AxisDefinition, AxisShape
+from app.domain.axis_definitions import AxisDefinition, AxisShape, PriorityCondition
 from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisRegistryMetaRow
 
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
+_PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
 
 
 def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
@@ -31,6 +32,7 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         description=row.description,
         category=row.category,
         is_published=row.is_published,
+        priority_overrides=_PRIORITY_OVERRIDES_ADAPTER.validate_python(row.priority_overrides),
     )
 
 
@@ -78,6 +80,7 @@ class AxisDefinitionRepository:
             description=definition.description,
             category=definition.category,
             is_published=definition.is_published,
+            priority_overrides=[cond.model_dump(mode="json") for cond in definition.priority_overrides],
             updated_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
@@ -90,6 +93,7 @@ class AxisDefinitionRepository:
                 "description": stmt.excluded.description,
                 "category": stmt.excluded.category,
                 "is_published": stmt.excluded.is_published,
+                "priority_overrides": stmt.excluded.priority_overrides,
                 "updated_at": stmt.excluded.updated_at,
             },
         )

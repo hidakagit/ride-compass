@@ -1,6 +1,12 @@
 import pytest
 
-from app.domain.axis_definitions import AxisDefinition, BreakpointLinearShape, CategoricalShape, MaterialTerm
+from app.domain.axis_definitions import (
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+    PriorityCondition,
+)
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 # road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
@@ -83,6 +89,42 @@ async def test_upsert_then_list_all_round_trips_categorical_str_keys(road_graph_
     assert isinstance(loaded_shape, CategoricalShape)
     assert loaded_shape.mapping == {"separated": -2.0, "roadway": 1.0}
     assert all(isinstance(key, str) for key in loaded_shape.mapping)
+
+
+async def test_upsert_then_list_all_round_trips_priority_overrides(road_graph_session):
+    # レビュー指摘の修正: 0018 migrationでpriority_overridesカラムを追加するまで、
+    # AxisDefinition.priority_overrides（改善計画T292）はrepositoryが一切読み書きせず、
+    # DB経由で保存すると値がエラーもログも無いまま失われ常に空リストへ戻る欠陥だった。
+    definition = AxisDefinition(
+        axis_id="priority_override_axis",
+        shape=CategoricalShape(material="motor_vehicle_no", mapping={True: 0.0, False: 1.0}),
+        default_weight=0.1,
+        label="テスト軸[priority_override_axis]",
+        description="",
+        category="推定",
+        priority_overrides=[PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)],
+    )
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(definition, sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    assert result["priority_override_axis"].priority_overrides == [
+        PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)
+    ]
+
+
+async def test_upsert_then_list_all_round_trips_empty_priority_overrides(road_graph_session):
+    # 既存軸（priority_overrides未設定=空リスト）を保存・再読み込みしても空リストのまま
+    # であること（NOT NULL DEFAULT '[]'のbackfill・往復とも壊れていないことの確認）。
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(_definition(), sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    assert result["test_axis"].priority_overrides == []
 
 
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):

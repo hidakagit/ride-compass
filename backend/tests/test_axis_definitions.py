@@ -6,9 +6,11 @@ from app.domain.axis_definitions import (
     AxisMaterialConflictError,
     AxisPublishedImmutableError,
     BreakpointLinearShape,
+    CategoricalShape,
     MaterialTerm,
     check_material_exclusivity,
     check_publish_immutability,
+    evaluate_axis_scalar,
 )
 
 
@@ -94,3 +96,50 @@ def test_check_publish_immutability_rejects_published():
 
     assert exc_info.value.axis_id == "published_axis"
     assert exc_info.value.action == "deleted"
+
+
+def test_car_stress_motor_vehicle_no_safety_margin_exceeds_other_internal_axes_max_total():
+    # 改善計画T292回帰テスト: car_stress_motor_vehicle_no_adjustmentの-1000は、他の
+    # 全内部軸（highway基準値+bicycle_infra/maxspeed/lanes/designation補正）の点数
+    # レンジ合計を確実に下回る大きさの安全マージンとして選ばれている（axis_definitions.py:
+    # car_stress_motor_vehicle_no_adjustmentのコメント「この値を変更する場合、他の
+    # 内部軸の点数レンジの合計を必ず上回る負の大きさを維持すること」参照）。この不変条件は
+    # コード上で検査されずコメントの注意書きのみで守られていたため、将来いずれかの内部軸の
+    # 点数レンジが拡張された際に安全マージンが不足する回帰を検知できるようテスト化する。
+    other_internal_axis_ids = [
+        "car_stress_highway_base",
+        "car_stress_bicycle_infra_adjustment",
+        "car_stress_maxspeed_adjustment",
+        "car_stress_lanes_adjustment",
+        "car_stress_designation_adjustment",
+    ]
+    max_other_total = 0.0
+    for axis_id in other_internal_axis_ids:
+        shape = AXIS_DEFINITIONS[axis_id].shape
+        if isinstance(shape, CategoricalShape):
+            max_other_total += max(shape.mapping.values())
+        else:
+            assert isinstance(shape, BreakpointLinearShape)
+            max_other_total += max(y for _, y in shape.breakpoints)
+
+    motor_vehicle_no_shape = AXIS_DEFINITIONS["car_stress_motor_vehicle_no_adjustment"].shape
+    assert isinstance(motor_vehicle_no_shape, CategoricalShape)
+    safety_margin_value = motor_vehicle_no_shape.mapping[True]
+
+    assert safety_margin_value < -max_other_total
+
+
+def test_car_stress_lanes_adjustment_applies_regardless_of_separated_cycleway():
+    # 改善計画T292回帰テスト: 旧car_stress_levelは「分離自転車道(cycleway=track)がある
+    # 区間ではlanes_low(-1)補正を無効化する」という条件分岐を持っていたが、実データ確認
+    # （dev DB 2026-08-19、該当ほぼ皆無）によりユーザー承認の上で撤廃し常時適用にした
+    # （axis_definitions.py: car_stress_lanes_adjustmentのコメント参照）。この単純化を
+    # 将来誤って部分的に復活させないための回帰テスト（旧
+    # test_single_lane_does_not_reduce_when_separated_cycleway_presentの置き換え）。
+    lanes_adjustment = AXIS_DEFINITIONS["car_stress_lanes_adjustment"]
+
+    with_separated_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "bicycle_infra": "separated"})
+    without_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "bicycle_infra": None})
+
+    assert with_separated_cycleway == -1.0
+    assert without_cycleway == -1.0

@@ -426,7 +426,7 @@ RideCompass/
         import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
         import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
         match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
-    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ measure_axis_stats.py（改善計画T124、dev DBに対する軸ペア相関・クランプ前生値分布・材料タグの補正発火率・highway階級別事故密度の計測。相関・丸め損失の実測方法はT121の使い捨て版を常設化したもの）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）/ analyze_jartic_calibration.py（改善計画T53、collect_jartic.pyの収集結果を最寄りosm_raw_waysへ空間マッチしcar_stress_level（改善計画T150で「交通ストレス」から改称）との突き合わせを集計。相関計算はmeasure_axis_stats.pyの純関数を再利用）
+    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
@@ -996,7 +996,7 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
 | 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
 | 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（`domain/traffic.py: car_stress_level`、T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
+| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | P1（`domain/axis_definitions.py: AXIS_DEFINITIONS["car_stress"]`、内部軸6つの階層合成。T138で旧`infra_weight`0.10を合算・改善計画T150で呼称をtraffic→car_stressへ統一・改善計画T292で専用Pythonレシピ[旧`domain/traffic.py: car_stress_level`]から現行の宣言的階層構造へ移行） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
 | 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
 
@@ -1321,11 +1321,11 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 
 **`motor_vehicle=no`（自転車可・自動車のみ通行禁止）はここに含めない**（改善計画T140での
 方針確認）。自転車は法的に通行できるため〇次のハード除外対象にはせず、二次軸
-（車ストレス、`domain/traffic.py`の
-`motor_vehicle_no_override`）側で「該当区間は最善値へ固定」という軸内の特例として
-扱い続ける。ハード制約（探索対象から消える）とこの特例（探索はするが最も走りやすい
-扱いになる）は挙動が異なるため区別が必要、という設計プロンプトの「ハード制約は
-スコア外」原則との整合はこの区別を保つことで満たされる。
+（車ストレス、`domain/axis_definitions.py: AXIS_DEFINITIONS["car_stress_motor_vehicle_no_
+adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_override`から移行済み）
+側で「該当区間は最善値へ固定」という軸内の特例として扱い続ける。ハード制約（探索対象から
+消える）とこの特例（探索はするが最も走りやすい扱いになる）は挙動が異なるため区別が必要、
+という設計プロンプトの「ハード制約はスコア外」原則との整合はこの区別を保つことで満たされる。
 
 ### 停止密度・車ストレス・自転車インフラ・交差点密度（P1、OSM由来）
 
@@ -1450,7 +1450,9 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 評価粒度もedge単位any-matchからway単位ratio-matchへ統一されている。
 
 該当区間は新しい評価軸を増やさず、**車ストレスへの+1補正のみ**として組み込む
-（`car_stress_breakdown`の`designation_adjustment`、大型車交通の代理指標）。
+（`domain/axis_definitions.py: AXIS_DEFINITIONS["car_stress_designation_adjustment"]`
+（改善計画T292で専用Pythonレシピの`car_stress_breakdown.designation_adjustment`から移行済み）、
+大型車交通の代理指標）。
 `AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合。呼び出し時点で
 `road_edges`は構築済みのため、`road_edges.osm_way_id`経由で`designation_attributes`へJOINする）と
 `get_nearest_way_tags`が返す3要素目`is_designated`（OpenRouteServiceEngine、highway・tagsと

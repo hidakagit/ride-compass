@@ -67,7 +67,7 @@ derive_ramp_inputs()`が`AXIS_DEFINITIONS`の材料（`domain/material_catalog.p
 expression）は不要になり削除した。
 """
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, UNSIGNALED_INTERSECTION_WEIGHT
+from app.domain.axis_definitions import AXIS_DEFINITIONS, UNSIGNALED_INTERSECTION_WEIGHT, BreakpointLinearShape, CategoricalShape
 from app.domain.axis_display import derive_ramp_inputs
 from app.domain.registry import (
     AxisDisplaySpec,
@@ -77,6 +77,22 @@ from app.domain.registry import (
     register_axis,
     register_primary_attribute,
 )
+
+# car_stressのtile_inputsが参照する内部軸のshape（derive_ramp_inputsが解決できない
+# 「他の軸を参照するBreakpointLinearShape」を手書き登録する際、highway/bicycle_infra/
+# maxspeed_kmh/lanes_count/motor_vehicle_noの値自体はAXIS_DEFINITIONSを単一ソースとして
+# 参照する。designationのみ材料自体が異なる[categories="designation"(3値) vs
+# 評価用"is_designated"(bool)]ため単一ソース化できず手書きのまま、_register_axes参照）。
+_CAR_STRESS_HIGHWAY_BASE_SHAPE = AXIS_DEFINITIONS["car_stress_highway_base"].shape
+_CAR_STRESS_BICYCLE_INFRA_SHAPE = AXIS_DEFINITIONS["car_stress_bicycle_infra_adjustment"].shape
+_CAR_STRESS_MAXSPEED_SHAPE = AXIS_DEFINITIONS["car_stress_maxspeed_adjustment"].shape
+_CAR_STRESS_LANES_SHAPE = AXIS_DEFINITIONS["car_stress_lanes_adjustment"].shape
+_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE = AXIS_DEFINITIONS["car_stress_motor_vehicle_no_adjustment"].shape
+assert isinstance(_CAR_STRESS_HIGHWAY_BASE_SHAPE, CategoricalShape)
+assert isinstance(_CAR_STRESS_BICYCLE_INFRA_SHAPE, CategoricalShape)
+assert isinstance(_CAR_STRESS_MAXSPEED_SHAPE, BreakpointLinearShape)
+assert isinstance(_CAR_STRESS_LANES_SHAPE, BreakpointLinearShape)
+assert isinstance(_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE, CategoricalShape)
 
 
 def register_defaults() -> None:
@@ -417,40 +433,33 @@ def _register_axes() -> None:
                 tile_inputs=[
                     TileInputSpec(
                         property="highway",
-                        categories={
-                            "cycleway": 1.0,
-                            "living_street": 1.0,
-                            "residential": 2.0,
-                            "unclassified": 2.0,
-                            "track": 2.0,
-                            "tertiary": 3.0,
-                            "tertiary_link": 3.0,
-                            "secondary": 3.0,
-                            "secondary_link": 3.0,
-                            "primary": 4.0,
-                            "primary_link": 4.0,
-                            "trunk": 4.0,
-                            "trunk_link": 4.0,
-                        },
+                        categories=_CAR_STRESS_HIGHWAY_BASE_SHAPE.mapping,
                         has_unknown_fallback=True,
                     ),
                     TileInputSpec(
                         property="bicycle_infra",
-                        categories={"separated": -2.0, "lane": -1.0, "shared_busway": 0.0, "shared_pedestrian": 0.0, "roadway": 1.0},
+                        categories=_CAR_STRESS_BICYCLE_INFRA_SHAPE.mapping,
                     ),
                     TileInputSpec(
                         property="maxspeed_kmh",
-                        breakpoints=[(0.0, -1.0), (30.0, -1.0), (31.0, 0.0), (59.0, 0.0), (60.0, 1.0), (999.0, 1.0)],
+                        breakpoints=_CAR_STRESS_MAXSPEED_SHAPE.breakpoints,
                     ),
                     TileInputSpec(
                         property="lanes_count",
-                        breakpoints=[(0.0, -1.0), (1.0, -1.0), (2.0, 0.0), (3.0, 0.0), (4.0, 1.0), (99.0, 1.0)],
+                        breakpoints=_CAR_STRESS_LANES_SHAPE.breakpoints,
                     ),
                     TileInputSpec(
+                        # designationはcar_stress内部軸の材料(is_designated、bool)とは別の
+                        # 材料（3値文字列、種別によらず一律+1）のため単一ソース化できない。
                         property="designation",
                         categories={"emergency_transport": 1.0, "critical_logistics": 1.0, "both": 1.0},
                     ),
-                    TileInputSpec(property="motor_vehicle_no", boolean=True, true_value=-1000.0, false_value=0.0),
+                    TileInputSpec(
+                        property="motor_vehicle_no",
+                        boolean=True,
+                        true_value=_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE.mapping[True],
+                        false_value=_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE.mapping[False],
+                    ),
                 ],
                 # highway基準値（1-4）の区分境界そのもの（4段階の主要因）。他5補正の
                 # 寄与幅（各-2〜+1）に対し、highway基準値が主要な分散要因のため、その

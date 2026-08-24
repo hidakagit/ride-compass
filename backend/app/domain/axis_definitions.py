@@ -30,6 +30,7 @@
 実データでの安全性確認はdomain/difficulty.pyの配列版コメント（T240）参照）。
 """
 
+import graphlib
 from typing import Annotated, Literal, Mapping, Union
 
 import numpy as np
@@ -39,6 +40,7 @@ from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
     evaluate_flag_sum,
+    invert_breakpoint_linear,
 )
 
 # 改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）: 交差点密度は
@@ -567,31 +569,105 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
 
 
 def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
-    """軸を「依存先（参照される軸）が先」の順序に並べ替える（改善計画T292、
-    深さ優先探索によるトポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
-    送出する。依存を持たない軸同士の相対順序は`definitions`の挿入順を保つ（既存の
-    Neumaier加算のビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
-    計算自体の再現性のため安定ソートにする）。
+    """軸を「依存先（参照される軸）が先」の順序に並べ替える（改善計画T292）。
+    循環参照があれば`AxisDependencyCycleError`を送出する。依存を持たない軸同士の
+    相対順序は`definitions`の挿入順を保つ（既存のNeumaier加算のビット一致要件——
+    3次合成の対象は公開軸のみだが、軸単位のdifficulty計算自体の再現性のため安定
+    ソートにする）。標準ライブラリ`graphlib.TopologicalSorter`（`static_order()`は
+    独立ノード同士を`add()`した順=定義の挿入順で返す）にソート自体を委ね、循環検出の
+    `graphlib.CycleError`を本モジュール固有の`AxisDependencyCycleError`へ変換する。
     """
     known_axis_ids = set(definitions.keys())
-    order: list[str] = []
-    visited: dict[str, int] = {}  # 0=visiting, 1=done
+    graph = {axis_id: axis_dependencies(definitions[axis_id], known_axis_ids) for axis_id in definitions}
+    try:
+        return list(graphlib.TopologicalSorter(graph).static_order())
+    except graphlib.CycleError as exc:
+        raise AxisDependencyCycleError(list(exc.args[1])) from exc
 
-    def visit(axis_id: str, path: list[str]) -> None:
-        state = visited.get(axis_id)
-        if state == 1:
-            return
-        if state == 0:
-            raise AxisDependencyCycleError([*path, axis_id])
-        visited[axis_id] = 0
-        for dep in sorted(axis_dependencies(definitions[axis_id], known_axis_ids)):
-            visit(dep, [*path, axis_id])
-        visited[axis_id] = 1
-        order.append(axis_id)
 
-    for axis_id in definitions:
-        visit(axis_id, [])
-    return order
+def invert_axis_breakpoints(axis_id: str, value: float) -> float:
+    """`axis_id`の軸がBreakpointLinearShapeであることを前提に、そのbreakpointsを単一
+    ソースとして`evaluate_axis_scalar`の逆変換（difficulty→元のスケール）を行う
+    （改善計画T292）。
+
+    最初の用途はcar_stress公開軸のdifficulty(0-100)から表示用の1-5生値を求めること
+    （`services/road_graph_engine.py`・`services/openrouteservice_engine.py`）。以前は
+    breakpoints=[(1,0),(5,100)]の逆写像を`round(difficulty/100*4+1)`という定数として
+    2箇所に手書き複製していたが、車ストレスのbreakpointsを変更してもこの2箇所が追従を
+    検知できない問題があったため、単一ソース（`AXIS_DEFINITIONS[axis_id].shape.
+    breakpoints`）を読む形にした（定数の片側import原則）。
+    """
+    shape = AXIS_DEFINITIONS[axis_id].shape
+    assert isinstance(shape, BreakpointLinearShape), f"axis '{axis_id}' is not a BreakpointLinearShape"
+    return invert_breakpoint_linear(value, shape.breakpoints)
+
+
+_axis_order_cache: list[str] | None = None
+
+
+def replace_axis_definitions(new_definitions: Mapping[str, AxisDefinition]) -> None:
+    """AXIS_DEFINITIONSの中身をin-placeで丸ごと置き換える（改善計画T292フォローアップ）。
+
+    `from ... import AXIS_DEFINITIONS`で束縛済みの参照を保つため、辞書オブジェクト自体は
+    再代入せず`.clear()`+`.update()`で中身だけを差し替える（services/axis_registry_service.py
+    のdocstring参照）。あわせて`get_axis_evaluation_order`のキャッシュを無効化する——
+    AXIS_DEFINITIONSは起動時とこの置き換え時にしか変わらない前提で依存順評価の結果を
+    使い回しているため、このヘルパーを経由しない置き換えは古いキャッシュを残してしまう
+    （本体コード[axis_registry_service.py]・テスト[isolated_axis_definitions等]とも
+    このヘルパーを必ず経由すること）。
+    """
+    global _axis_order_cache
+    AXIS_DEFINITIONS.clear()
+    AXIS_DEFINITIONS.update(new_definitions)
+    _axis_order_cache = None
+
+
+def get_axis_evaluation_order() -> list[str]:
+    """`topological_axis_order(AXIS_DEFINITIONS)`の結果をキャッシュして返す
+    （改善計画T292フォローアップ）。
+
+    AXIS_DEFINITIONSはプロセス起動時と`replace_axis_definitions`実行時（DB更新直後）の
+    2箇所でしか中身が変わらない静的辞書だが、依存順評価（compute_edge_axis_scores等）は
+    Edge単位・区間単位の評価ホットパスから毎回呼ばれるため、都度DFSで計算し直すと
+    軸数・呼び出し回数に比例した無駄なコストになる。`evaluation.py`/`difficulty.py`の
+    評価ホットパスは`topological_axis_order(AXIS_DEFINITIONS)`を直接呼ばずこちらを使うこと。
+    """
+    global _axis_order_cache
+    if _axis_order_cache is None:
+        _axis_order_cache = topological_axis_order(AXIS_DEFINITIONS)
+    return _axis_order_cache
+
+
+def evaluate_all_axes_scalar(materials: Mapping[str, object]) -> dict[str, float | None]:
+    """依存順（`get_axis_evaluation_order`）に全軸（内部軸・公開軸とも）をスカラー評価し、
+    結果を`materials`へ混ぜ込みながら進める（内部軸→公開軸の階層解決、改善計画T292）。
+
+    全軸分（`is_published=False`の内部軸・値がNoneの軸も含む）をそのまま返すため、
+    「依存順に評価してmaterialsへ書き戻す」という同一のループを持っていた
+    `evaluation.py: axis_inspector_breakdown`/`compute_edge_axis_scores`・
+    `difficulty.py: evaluate_axis_difficulties`の3箇所が共有する（改善計画T292
+    フォローアップ、それぞれ用途に応じた絞り込み[公開軸のみ・Noneを除く等]は
+    呼び出し元の責務のまま残す）。配列版は`evaluate_all_axes_array`。
+    """
+    materials_with_axes: dict[str, object] = dict(materials)
+    result: dict[str, float | None] = {}
+    for axis_id in get_axis_evaluation_order():
+        value = evaluate_axis_scalar(AXIS_DEFINITIONS[axis_id], materials_with_axes)
+        result[axis_id] = value
+        if value is not None:
+            materials_with_axes[axis_id] = value
+    return result
+
+
+def evaluate_all_axes_array(material_arrays: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """`evaluate_all_axes_scalar`の配列版（`compute_edge_costs_bulk`専用、改善計画T292）。"""
+    material_arrays_with_axes: dict[str, np.ndarray] = dict(material_arrays)
+    result: dict[str, np.ndarray] = {}
+    for axis_id in get_axis_evaluation_order():
+        arr = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
+        result[axis_id] = arr
+        material_arrays_with_axes[axis_id] = arr
+    return result
 
 
 def default_axis_weights() -> dict[str, float]:

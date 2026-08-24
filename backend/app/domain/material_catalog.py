@@ -11,12 +11,10 @@
 材料以外にも多くの生データ（highway・surface・smoothness・bicycle_infra等）が
 既に焼き込まれている。設計の一貫性のため、これらも「評価や地図描画に使えそうな
 生データ」として本カタログへ網羅的に登録する（ユーザー方針、2026-08-24）。
-ただし`dtype="categorical"`の材料は、`domain/axis_definitions.py: CategoricalShape`
-（`mapping: dict[bool, float]`、真偽値限定）が現状は文字列多値を扱えないため、
-**登録済みでもまだどの評価軸の材料としても使えない**（軸スタジオの材料選択肢には
-現れるが、選んでも軸を完成させられない）。文字列対応拡張は、実際にcategorical材料を
-使う新規軸の要求が出た時点で、その軸の要件に応じて設計する（トリガー付きDEFER、
-今使う予定のない評価ロジックを先回りで作らない。設計原則9）。
+`dtype="categorical"`の材料（highway・bicycle_infra等、文字列多値）は改善計画T292で
+`domain/axis_definitions.py: CategoricalShape.mapping`が`dict[bool|str, float]`へ拡張され、
+実際に評価軸（`car_stress_highway_base`等）から使われている（登録時点[T290]では
+真偽値限定のため未対応だったが、そのDEFERはT292のcar_stress軸階層化で解消済み）。
 
 **設計方針（ユーザー指示、2026-08-24）**: 材料は今後システムメンテナンス（コード変更＋
 デプロイ）によって増減されうるものとして設計するが、材料自体をGUIから追加・編集・削除

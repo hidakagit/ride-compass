@@ -8,6 +8,7 @@ from app.domain.axis_definitions import (
     AxisPublishedImmutableError,
     BreakpointLinearShape,
     MaterialTerm,
+    replace_axis_definitions,
 )
 from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -23,8 +24,7 @@ def restore_axis_definitions():
     # （services/axis_registry_service.pyのdocstring参照）。
     snapshot = dict(AXIS_DEFINITIONS)
     yield
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(snapshot)
+    replace_axis_definitions(snapshot)
 
 
 def _definition(

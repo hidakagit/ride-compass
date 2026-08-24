@@ -4325,6 +4325,87 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   T289と同じ方式での確認はできず、ビルド・型・テスト・実機の疎通確認のみ）。
   **残る段階**: パフォーマンス実測（軸評価が7軸→13軸相当に増えたことの影響、
   ユーザー合意により実装完了後に一括実施）→目論見書Artifact更新。
+- **進捗4（2026-08-24、コードレビュー指摘の消化）**: 進捗3完了後のHEAD（コミット
+  `e625ad3`）に対する多角度コードレビュー（正しさ・再利用性・簡潔性・効率性・高度・
+  CLAUDE.md規約・削除挙動監査の7角度）で見つかった指摘12件超に対応した。
+  - **正しさのバグ2件（修正）**: (1) `axisLayers.ts: buildAxisRampValueExpression`の
+    breakpoints型tile_inputで、タイルプロパティ欠損時のcoalesceフォールバックが
+    `breakpoints[0][0]`（x値）だったためinterpolateが`breakpoints[0][1]`（例:-1）を
+    返し、backend側の「required=False材料の欠損=寄与0」規約と食い違い、maxspeed/lanes
+    タグが無い（非常に多い）residential道路等でcar_stressの色分けが系統的に安全側
+    （緑寄り）に誤表示される実害があった。`["case",["!",["has",property]],0,interpolate式]`
+    へ修正。(2) `frontend/src/lib/axisMaterialsCatalog.ts: AXIS_MATERIAL_OPTIONS`
+    （API取得失敗時のフォールバック材料一覧）が本タスクで削除済みの`car_stress_level`を
+    含んだまま、新規追加された9材料（highway/bicycle_infra等）を含んでおらず、
+    オフライン時に軸スタジオで削除済み材料を選択して保存すると
+    `_check_materials_are_known`の分かりにくいエラーになる状態だった。backend
+    `MATERIAL_CATALOG`と同じ内容へ更新。
+  - **サイレントなデータ消失1件（修正）**: `AxisDefinition.priority_overrides`
+    （0次条件、進捗1で追加）を`infrastructure/axis_definition_repository.py`が
+    一切読み書きしておらず、DB経由でこの機構を使う軸を保存すると値がエラーもログも
+    無いまま失われ常に空リストへ戻る欠陥があった（現状は全軸未使用のため無症状だが、
+    将来この機構を実際に使う軸が作られた瞬間に踏む時限爆弾）。`priority_overrides`
+    カラムを追加するmigration（`0018_axis_definitions_priority_overrides.sql`、
+    JSONB NOT NULL DEFAULT '[]'）を作成し、`AxisDefinitionRow`・`_row_to_definition`・
+    `upsert`を対応させた。往復テスト2件を追加（値あり・空リストとも）。
+    `priority_overrides`機構自体（未使用のまま）は、コード内コメントに「将来の軸追加でも
+    同型のケースをコード変更なしに表現できる」というユーザー方針が明記された意図的な
+    先行実装であるため、YAGNI違反として削除する選択はせず維持した（削除するかどうかは
+    製品判断が必要な別トピックとして残る）。
+  - **CLAUDE.md「定数の片側import」原則違反2件（修正）**: (1) `road_graph_engine.py`・
+    `openrouteservice_engine.py`が、car_stress公開軸のbreakpoints=(1,0)-(5,100)の
+    逆変換（difficulty→1-5生値）を`round(d/100*4+1)`というマジックナンバー式で2箇所に
+    手書き複製していた。`axis_templates.py: invert_breakpoint_linear`（汎用の逆変換）＋
+    `axis_definitions.py: invert_axis_breakpoints`（AXIS_DEFINITIONSを単一ソースとする
+    軸専用アクセサ）を新設し、2箇所ともそちらを呼ぶよう変更。(2)
+    `registry_defaults.py`のcar_stress用`tile_inputs`（highway/bicycle_infra/maxspeed/
+    lanes/motor_vehicle_noのcategories・breakpoints・true_value）が、
+    `axis_definitions.py`の内部軸定義と生値で二重定義されていた（`-1000`という
+    安全マージンの値も含む）。`AXIS_DEFINITIONS`の該当shapeを直接参照する形へ変更
+    （designationのみ材料自体が異なるため単一ソース化できず据え置き）。
+    `export_openapi.py`再生成後の生成物diffはゼロ（値は変わらず参照元が変わっただけ
+    のことを確認）。
+  - **ドキュメント同期漏れ4箇所（修正）**: `docs/architecture.md`のscripts一覧が
+    本タスクで削除済みの研究スクリプト3本（`measure_axis_stats.py`等）を現存として
+    紹介・0次ハード制約節と車ストレス+1補正節が削除済みの`domain/traffic.py:
+    motor_vehicle_no_override`/`car_stress_breakdown`を参照・7軸一覧表が
+    `car_stress_level`を現行ソースとして記載、の計4箇所を現行の
+    `AXIS_DEFINITIONS`ベースの記述へ更新。`road_graph_repository.py`のMVT生成SQL
+    コメント2箇所（削除済みの`CarStressRecipe`・`trafficStressExpression.ts`等を
+    現行設計として説明）も更新。`material_catalog.py`冒頭のdocstring（T290時点の
+    「categorical材料は評価軸でまだ使えない」という記述が、本タスクのcar_stress
+    内部軸で実際に使われるようになった後も残っていた）も更新。
+  - **効率性・再利用性（修正）**: `topological_axis_order(AXIS_DEFINITIONS)`が
+    評価のたびに毎回DFS再計算されていた（Edge単位・区間単位のホットパスから）ため、
+    `get_axis_evaluation_order`でキャッシュ化し、`AXIS_DEFINITIONS`の唯一の書き換え
+    経路を`replace_axis_definitions`（キャッシュ無効化込み）へ一本化した（本体コード
+    2箇所・テストの直接書き換え4箇所を全てこのヘルパー経由に統一）。また
+    `axis_inspector_breakdown`/`compute_edge_axis_scores`/`compute_edge_costs_bulk`/
+    `difficulty.py: evaluate_axis_difficulties`の4箇所にほぼ同一の「依存順に軸を
+    評価しmaterialsへ書き戻す」ループが複製されていたため、`evaluate_all_axes_scalar`/
+    `evaluate_all_axes_array`（axis_definitions.py）へ集約し、各呼び出し元は用途に
+    応じた絞り込み（公開軸のみ・Noneを除く等、既存の挙動どおり）だけを行う形にした。
+    独自DFS実装だった`topological_axis_order`本体も標準ライブラリ
+    `graphlib.TopologicalSorter`へ置き換えた（振る舞いは全テストで不変を確認）。
+  - **テスト2件追加**: 旧`car_stress_level`が持っていた「分離自転車道がある区間では
+    lanes低減緩和を無効化する」条件分岐の撤廃（進捗2で実施済み）を直接検証する
+    回帰テストが無かったため追加。`car_stress_motor_vehicle_no_adjustment`の`-1000`
+    安全マージンが他の内部軸の点数レンジ合計を確実に上回ることをコード上で検証する
+    テストも追加（従来はコメントの注意書きのみで守られていた不変条件）。
+  - **検証**: backend非DB系テスト942件・frontend全456件green、
+    `npx tsc --noEmit`（既存の`layout.tsx: LayoutProps`エラー1件は本タスク無関係の
+    既存事象、変更前後で同一と確認）・eslint clean、`export_openapi.py`→
+    `npm run generate:api`後の生成物diffゼロ。**PostGIS統合テスト
+    （`test_axis_definition_repository.py`の新規2件を含む）はこのサンドボックス環境に
+    Docker/Postgresが無く未実行**——DDLコンパイル確認・`TypeAdapter`単体での
+    シリアライズ往復確認は実施済みだが、実DBでの動作確認は次回のPostGIS環境がある
+    セッションで要実施。
+  - **対応を見送った指摘（レビュー結果には含まれていたが今回は変更しない）**:
+    `AxisComposer.tsx`（軸スタジオGUI）が`CategoricalShape`のbool2値材料しか
+    組み立てられず、本タスクでbackendが対応したstr多値categorical材料
+    （highway/bicycle_infra等）をGUIから使えないことに気づいたが、これは今回の
+    レビュー指摘一覧には無かった追加のGUI機能ギャップ（新規実装が必要な規模）のため
+    今回は着手せず記録のみ。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

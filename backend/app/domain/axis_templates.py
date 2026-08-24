@@ -43,6 +43,18 @@ def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
     return float(np.interp(value, xp, fp))
 
 
+def invert_breakpoint_linear(value: float, breakpoints: list[tuple[float, float]]) -> float:
+    """`evaluate_breakpoint_linear`の逆変換（y→x）。breakpointsのyが単調非減少であることを
+    前提に、np.interpのxp/fpを入れ替えて使う（呼び出し元の責務: 単調なbreakpointsにのみ
+    使うこと）。改善計画T292: car_stress公開軸のdifficulty(0-100)から表示用の1-5生値へ
+    逆変換する用途（`domain/axis_definitions.py: invert_axis_breakpoints`経由）で新設。
+    スカラー専用（配列版が必要になった時点で追加する、現状の呼び出し元はEdge単位のみ）。
+    """
+    xp = [p[1] for p in breakpoints]
+    fp = [p[0] for p in breakpoints]
+    return float(np.interp(value, xp, fp))
+
+
 # レシピ→レベル→区分線形補間（car_stress）。レベル計算自体は呼び出し側（軸固有のレシピ判定）
 # の責務で、ここに来た時点では既に区分線形補間そのものになっているため実装を共有する。
 evaluate_recipe_then_breakpoint_linear = evaluate_breakpoint_linear

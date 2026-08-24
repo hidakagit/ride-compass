@@ -5,7 +5,11 @@
 Stage DでDBを実データソースへ昇格させた後もこの既存の同期アクセス方法を一切変えずに済むよう、
 「モジュールレベルの同じdictオブジェクトを、決まった2つのタイミングでin-placeに書き換える」
 push型の更新にする（辞書オブジェクト自体を再代入すると`from ... import AXIS_DEFINITIONS`で
-束縛済みの参照先が古いままになるため、必ず`.clear()`+`.update()`で中身だけを差し替える）。
+束縛済みの参照先が古いままになるため、`domain.axis_definitions.replace_axis_definitions`が
+`.clear()`+`.update()`で中身だけを差し替える。同関数は評価ホットパスが使う
+`topological_axis_order`の結果キャッシュ[`get_axis_evaluation_order`、改善計画T292
+フォローアップ]も合わせて無効化するため、AXIS_DEFINITIONSの中身を変える箇所は必ず
+この関数を経由すること——直接`.clear()`/`.update()`すると古いキャッシュが残る）。
 
 更新タイミングは以下の2箇所のみ:
 1. アプリ起動時（main.pyのlifespanから`refresh_axis_definitions`を1回呼ぶ）
@@ -22,10 +26,10 @@ push型の更新にする（辞書オブジェクト自体を再代入すると`
 import logging
 
 from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
     AxisDefinition,
     check_material_exclusivity,
     check_publish_immutability,
+    replace_axis_definitions,
     topological_axis_order,
 )
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -57,8 +61,7 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
             "axis_definitionsテーブルが空です（migration未適用の可能性）。コード内蔵の既定値を使用します"
         )
         return
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(definitions)
+    replace_axis_definitions(definitions)
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
 
 

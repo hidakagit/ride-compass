@@ -217,15 +217,16 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 # - car_stress（車ストレス、1-5）は改善計画（交通ストレスレシピ外出し基盤）以降、
 #   ここでは**計算済みの最終値を焼かない**。タイルは全ユーザー共有でキャッシュされる
 #   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
-#   判定レシピ（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに
-#   世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
-#   （cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
-#   流用）だけを焼き込み、最終値の計算はフロントエンド側
-#   （frontend/src/components/Map/trafficStressExpression.ts、MapLibre expression）と
-#   ルート採点（domain/traffic.py: car_stress_breakdown）がそれぞれ行う。両者は
-#   domain/traffic.py: CarStressRecipeという共通のレシピ定義に対応させ、
-#   trafficStressExpression.test.tsで整合性を検証する（このSQL側の整合性テストは
-#   材料タグの焼き込みが正しいことだけを検証すればよくなった）。
+#   判定ロジック（highway別基準値・bicycle_infra/maxspeed/lanes/指定路線の補正）を
+#   変えるたびに世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
+#   （highway/bicycle_infra/maxspeed_kmh/lanes_count/motor_vehicle_no/designation）だけを
+#   焼き込み、最終値の計算はフロントエンド側（frontend/src/components/Map/axisLayers.ts、
+#   MapLibre expression、改善計画T292でramp汎用機構へ移行）とルート採点
+#   （domain/axis_definitions.py: AXIS_DEFINITIONS["car_stress"]の内部軸6つ+公開軸1つの
+#   階層構造）がそれぞれ行う。両者はAXIS_DEFINITIONSという共通の宣言的定義に対応させ、
+#   axisLayers.test.tsで整合性を検証する（このSQL側の整合性テストは材料タグの焼き込みが
+#   正しいことだけを検証すればよくなった）。旧CarStressRecipe・car_stress_breakdown・
+#   trafficStressExpression.tsは改善計画T292で廃止済み。
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
 #   弾いてunknown安全にする。
@@ -623,7 +624,8 @@ _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
 
 # 静的道路属性P1残り（車ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
 # 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
-# （domain/traffic.py: car_stress_level/classify_bicycle_infrastructureの入力）。
+# （domain/axis_definitions.py: AXIS_DEFINITIONS["car_stress_highway_base"]等・
+# domain/traffic.py: classify_bicycle_infrastructureの入力）。
 # 改善計画T76: is_designated（外部静的データソース T51、KSJ N10/N12該当）もここへ統合する。
 # 以前はget_nearest_designated_flagsが同一サンプル点集合に対して独立のLATERAL KNN
 # （WITH pts〜LEFT JOIN LATERAL road_edgesの骨格ごとコピー）を3本目のラウンドトリップとして

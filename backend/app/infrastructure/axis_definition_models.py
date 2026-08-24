@@ -41,6 +41,11 @@ class AxisDefinitionRow(Base):
     # アプリ層[domain/axis_definitions.py: AxisDefinition.is_published]の新規作成時の
     # 既定はFalse=下書きが正）。
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    # 改善計画T292: 0次条件（domain/axis_definitions.py: AxisDefinition.priority_overrides、
+    # PriorityConditionのリストをmodel_dump(mode="json")した内容）。0018 migrationで
+    # NOT NULL DEFAULT '[]'の追加カラムとして導入した（既存行は空リスト=無しでbackfill、
+    # 現行の全軸はこの機構を使わないため挙動は変わらない）。
+    priority_overrides: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

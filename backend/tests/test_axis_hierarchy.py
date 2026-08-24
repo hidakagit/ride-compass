@@ -25,6 +25,7 @@ from app.domain.axis_definitions import (
     axis_dependencies,
     evaluate_axis_array,
     evaluate_axis_scalar,
+    replace_axis_definitions,
     topological_axis_order,
 )
 from app.domain.evaluation import compute_edge_axis_scores
@@ -245,11 +246,13 @@ def test_axis_dependencies_returns_referenced_axis_ids():
 def isolated_axis_definitions():
     # AXIS_DEFINITIONSはプロセス全体で共有されるグローバル辞書のため、他のテストへ
     # 汚染が漏れないよう必ずスナップショット・復元する（test_axis_registry_service.py:
-    # restore_axis_definitionsと同じパターン）。
+    # restore_axis_definitionsと同じパターン）。中身の置き換えは必ずreplace_axis_definitions
+    # 経由で行う（topological_axis_orderの結果キャッシュ[get_axis_evaluation_order]を
+    # 合わせて無効化するため、直接.clear()/.update()すると他のテストへ古いキャッシュが
+    # 漏れる）。
     snapshot = dict(AXIS_DEFINITIONS)
     yield AXIS_DEFINITIONS
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(snapshot)
+    replace_axis_definitions(snapshot)
 
 
 def _edge() -> DirectedEdge:
@@ -268,8 +271,7 @@ def test_compute_edge_axis_scores_resolves_internal_axis_reference(isolated_axis
     # internal_a（非公開）はgradient_percentから、public_b（公開）はinternal_aの結果値
     # そのものから計算する2段構成。1回のcompute_edge_axis_scores呼び出しで両方の値が
     # 正しく（依存順に）解決されることを確認する。
-    isolated_axis_definitions.clear()
-    isolated_axis_definitions.update(
+    replace_axis_definitions(
         {
             "internal_a": AxisDefinition(
                 axis_id="internal_a",
@@ -310,8 +312,7 @@ def test_compute_edge_axis_scores_resolves_priority_override_through_hierarchy(i
     # →public_bが内部軸の結果をそのまま材料として使う。0次条件が階層越しでも
     # 正しく効くことを確認する（surface_goodはcompute_edge_axis_scoresが実際に
     # 解決するbool材料、改善計画T292）。
-    isolated_axis_definitions.clear()
-    isolated_axis_definitions.update(
+    replace_axis_definitions(
         {
             "internal_a": AxisDefinition(
                 axis_id="internal_a",
