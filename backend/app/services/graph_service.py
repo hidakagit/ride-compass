@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials, surface_by_edge_id
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
@@ -118,8 +119,14 @@ class GraphService:
             surface_attributes = await self._repository.get_surface_attributes(list(graph.edges.keys()))
             return graph, surface_attributes
 
+        # 改善計画T264: 冷パス（未split地点、都心規模で数十万Edge級）でどの段が支配的かを
+        # 特定するため、closure取得・build_road_graph・save_graph（自身が個別ログ済み）を
+        # ステージ別に計測する（docs/logging.mdの方針、save_graphの既存ログと同じ考え方）。
+        rebuild_started = time.monotonic()
+
         # 必要なタイルの生データは全て取得済み（元々キャッシュ済み、または今回の取得に成功）。
         way_specs, node_coords, primary_way_ids = await self._repository.get_way_specs_with_closure(bbox)
+        closure_ms = round((time.monotonic() - rebuild_started) * 1000)
         if not way_specs:
             # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
             # 改善計画T262: この経路（再構築フォールバック）はLeanRoadGraphで統一する。
@@ -133,7 +140,9 @@ class GraphService:
         # asyncio.to_threadで逃がしているのと同じ対応。T105が記録した「タイル要求急増→
         # CPU専有→ヘルスチェック無応答→Render強制再起動」と同型の障害が、本番の実プロセス
         # 経由での大規模ルート生成リクエストで再現したことを受けて追加した。
+        build_started = time.monotonic()
         graph = await asyncio.to_thread(build_road_graph, way_specs, node_coords)
+        build_ms = round((time.monotonic() - build_started) * 1000)
         surface_by_way_id = {w.osm_way_id: w.surface for w in way_specs if w.osm_way_id is not None}
 
         # 永続化・返却するのは主対象Way分のみ（近傍Wayは分割の文脈情報として使うだけで、
@@ -150,11 +159,20 @@ class GraphService:
         primary_graph = LeanRoadGraph(graph_version=graph.graph_version, nodes=primary_nodes, edges=primary_edges)
         primary_surface_attributes = surface_by_edge_id(primary_graph, surface_by_way_id)
 
+        save_started = time.monotonic()
         await self._repository.save_graph(primary_graph, way_ids_to_replace=primary_way_ids)
         # 「分割結果の保存」を1コミットで確定する（上記と同じ規約。surfaceは
         # road_edges.osm_way_id経由でosm_raw_ways.surfaceから導出するため、Edge単位の
         # 保存は不要、改善計画T9）。
         await self._repository.commit()
+        save_ms = round((time.monotonic() - save_started) * 1000)
+        total_ms = round((time.monotonic() - rebuild_started) * 1000)
+        logger.info(
+            "get_or_build_graph_with_attributes rebuild ways=%d primary_ways=%d primary_edges=%d "
+            "closure_ms=%d build_ms=%d save_ms=%d total_ms=%d",
+            len(way_specs), len(primary_way_ids), len(primary_edges),
+            closure_ms, build_ms, save_ms, total_ms,
+        )
 
         return primary_graph, primary_surface_attributes
 
