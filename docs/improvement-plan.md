@@ -592,7 +592,7 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   レジストリ登録のみで地図に現れるのが理想形。
 - 完了条件: night軸レイヤーが地図上で意味のある差を表示できること。
 
-### - [ ] T266. 0次ハードフィルタをAPI・ベクトル化計算パスへ配線し、研究モードから選択できるようにする 規模M
+### - [x] T266. 0次ハードフィルタをAPI・ベクトル化計算パスへ配線する 規模M（2026-08-24完了）
 
 - 背景: 2026-08-24、ユーザーから「自転車専用道をなるべく優先して探索したい」という要望を
   受けて調査した結果判明したギャップ。`domain/evaluation.py: is_edge_allowed`は
@@ -614,10 +614,37 @@ docs/improvement-plan-archive/2026-08-15.md へ移設済み（2026-08-23棚卸�
   3. 拡張除外設定（highway種別3種＋no_bicycle以外の任意条件、例: 未舗装除外）の要否は
      スコープを絞り本タスクでは着手しない。まず既存4種フィルタの選択的ON/OFFのみを実装し、
      利用実績を見てから任意条件の拡張は別タスクとして起票する。
-  4. 研究モードUIへ0次フィルタのON/OFFチェックボックス群を追加する（UI自体の構成は
-     評価重みパネルの再設計と合わせて検討、本セッションのUI提案を参照）。
-- 完了条件: 研究モードから`no_bicycle`/`motorway`/`trunk`を個別にON/OFFしてルート生成でき、
-  OFFにしたフィルタに該当する道路が実際に経路候補へ現れることを実機確認する。
+  4. ~~研究モードUIへ0次フィルタのON/OFFチェックボックス群を追加する~~ → **2026-08-24、
+     目論見書承認によりUI側はT267（一般向けルート設定画面の「除外する道路」チップ）へ
+     移管**。本タスクはbackend配線（上記1〜2）までをスコープとする。
+- 完了条件: APIリクエストで`no_bicycle`/`motorway`/`trunk`を個別にON/OFFしてルート生成でき、
+  OFFにしたフィルタに該当する道路が実際に経路候補へ現れることを確認する（UI経由の
+  実機確認はT267の完了条件側で行う）。
+- **実装メモ（2026-08-24完了）**:
+  1. `compute_edge_costs_bulk`/`compute_edge_cost`（scalarオラクル側も合わせて）へ
+     `hard_filters: frozenset[str] | None`引数を追加。抽出フェーズ冒頭で
+     `active_hard_filters = hard_filters or DEFAULT_HARD_FILTERS`を1回だけ計算し、
+     highway種別判定・`no_bicycle`判定の両方をこの値で判定するよう修正した。
+  2. **副次的なバグ修正**: 従来の`compute_edge_costs_bulk`は`no_bicycle`フィルタの
+     ON/OFFに関わらず`bicycle=no`のEdgeを常時除外していた（フィルタ名チェックが
+     漏れていた）。`is_edge_allowed`とロジックがずれていたバグで、今回`hard_filters`の
+     配線と同時に修正した（`no_bicycle`をhard_filtersから外すと実際に候補へ現れることを
+     `test_bulk_hard_filters_empty_allows_bicycle_no_edge`で確認）。
+  3. `EvaluationService.evaluate_graph`→`RoadGraphEngine`（コンストラクタで保持、
+     `penalty_strength`/`max_average_grade_percent`と同じパターン）→
+     `dependencies.py: RouteGenerationSetup`/`get_route_generation_builder`まで、
+     既存の`max_average_grade_percent`と全く同じ経路で配線した。openrouteserviceエンジンは
+     対象外（従来の`max_average_grade_percent`等と同じ「road_graphエンジンのみに効く」
+     方針を踏襲）。
+  4. API: `routes.py`に`HardFilterOverride`（`RootModel[dict[str, bool]]`、
+     `RoutePreferenceWeights`と同じ「全3キー必須」検証）を新設し、
+     `RouteGenerateRequest.hard_filters`・`GenerationConditions.hard_filters`へ追加。
+     省略時は`DEFAULT_HARD_FILTERS`（全フィルタ有効）がconditionsへエコーされる。
+  5. OpenAPI再生成・フロント型追従（`api.d.ts`/`openapi.json`）、
+     `frontend/src/types/route.ts`へ`HardFilterOverride`型を追加。
+  6. 検証: backend全1140件green（新規5件: bulk/scalar一致・no_bicycleバグ回帰・
+     API上書き/エコー/バリデーションエラー）、フロントtsc/vitest 516件green。
+     docs/architecture.md（Request/Response例・TS型定義）へ`hard_filters`を追記。
 
 **[統合レビュー対応（2026-08-19・review:all第4回の指摘） の全タスクは docs/improvement-plan-archive/2026-08-19.md へ移設済み（2026-08-23棚卸）]**
 
@@ -3036,6 +3063,248 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 ---
 
+## 目論見書による二画面構想の正式化（2026-08-24・ユーザー承認）
+
+「自転車専用道を優先したい」という要望の調査から始まった一連の議論（0次フィルタの
+未配線発見→T266起票→重みUI再設計案→二画面分割案→最終形の構想）を、目論見書
+（Artifact: `RideCompass 目論見書`、https://claude.ai/code/artifact/ce418e86-3338-410b-9d14-826e00764b78 ）
+として取りまとめ、**ユーザーが承認した**（2026-08-24）。骨子:
+
+- **最終形**: 一般ユーザーは研究側で練り上げられた少数の推定軸の重みを調整するだけで
+  最適なルーティングが得られる状態へ「蒸留」していく。一般UIの選択肢は増やさず、
+  利用実績に基づいて淘汰する。
+- **二画面分割**: 「軸を使う人」（一般向けルート設定）と「軸を作る人」（軸スタジオ=
+  T221 Stage E相当）を別画面にする。**軸スタジオは既存ページ内のパネルではなく
+  独立URLの管理画面として実装する**（ユーザー指示による修正点。URLレベルで切れて
+  いる方が権限制御を敷きやすい）。現行メインページの「研究」セクション
+  （ResearchPanel・WeightPanel・レシピパネル群）と「開発者」セクション（DebugPanel・
+  DebugConsole・SystemStatusPanel）はこの管理画面へ移設する。
+- **設計上の歯止め6条**（材料の排他帰属の機械検査／公開済みaxis_id不変・変更は複製＋
+  新ID／テンプレート4種の線引き維持／材料の天井の明示／認可境界1箇所・安全側
+  デフォルト／DBが追いつくまで挙動を変えない）を実装に埋め込む。
+
+現在地: T221 Stage A〜D完了（DB化・管理API・本番migration適用済み）、T266起票済み。
+残るギャップを以下のタスクへ正式分解する。Phase番号は目論見書6章のロードマップに対応。
+
+### - [x] T267. 一般向けルート設定画面の再設計実装（Phase 1） 規模M〜L（2026-08-24完了）
+
+- 背景: 目論見書4章「ルート設定」。現行の評価重みUI（研究タブ内のWeightPanel）は
+  全軸が横並びの数値入力で、どの軸が効いているか・観測/推定/動的の別が分からない。
+  これを一般ユーザー向けの導線として再設計する。
+- 対応方針（モックアップは本セッションで提示済み・ユーザー合意済み）:
+  1. 最上部に0次の除外チップ（自転車通行禁止・高速道路・幹線道路(trunk)）。
+     backend配線はT266が前提。
+  2. 軸を観測・推定・動的の3カテゴリにグルーピングし、チェックボックスで軸ごと
+     ON/OFF＋スライダーで重み設定。**カテゴリ分類の確定（特に夜間軸が観測か推定かの
+     境界例判断）を実装時に行い、分類基準を明文化する**（目論見書8章の要判断事項）。
+  3. 有効な軸の重み配分を積み上げバーで常時可視化。
+  4. プリセットボタン（バランス／自転車専用道を優先／最短時間重視／安全重視）で
+     一発適用→微調整の導線。重み値は暫定でよい（実走検証を経て確定、目論見書8章）。
+- 完了条件: 一般導線からプリセット適用・軸選択・重み調整・0次除外の変更ができ、
+  「自転車専用道を優先」プリセットで実際にcycleway/自転車レーンのある道路が
+  優先されたルートが生成されることを実機確認する。docs/architecture.md追従
+  （規模M以上・UI構成の変更）。
+- 依存: T266（0次チップのbackend）。
+- **実装メモ（2026-08-24完了）**:
+  1. カテゴリ分類を確定: 観測=`gradient`/`surface_q`/`stop_density`/`night`
+     （タグ・POI等の一次属性を直接読む、または単純なフラグ加算のみで判定式を持たない軸）、
+     推定=`car_stress`/`accident`（複数材料をレシピ・判定式で合成する軸）、
+     動的=`wind`（時々刻々変わる外部データ由来）。夜間はlit/tunnelタグのフラグ加算のみで
+     判定式が無いため観測へ分類（目論見書の暫定表と同じ結論。
+     `frontend/src/lib/evaluationAxes.ts: axisCategory`が単一ソース）。
+  2. 新規コンポーネント`frontend/src/components/RouteSettingsPanel/`。既存の研究モード
+     `WeightPanel`とは別の常時表示パネルとして、`renderRouteResultsBody`（デスクトップ・
+     モバイル両方が経由する共通関数）内の`RouteList`直前へ設置。
+  3. **状態はWeightPanelと共有**: `route_preference`（`routePreference`/
+     `weightOverrideEnabled`）はpage.tsxの同じstateをそのまま渡し、`withAutoEnable`で
+     どちらのパネルを操作しても自動的に上書きが有効になる（研究モードとの二重管理を
+     避けた。T270で研究UIを独立URLの管理画面へ分離する際に整理し直す前提）。
+     `hard_filters`は新規state（`hardFilters`）で、既定値がbackendの
+     `DEFAULT_HARD_FILTERS`と一致するため上書き専用トグルを設けず常時送信する。
+  4. プリセット4種の重み値は目論見書提示のモックアップの値をそのまま採用（暫定、
+     実走検証で調整予定と明記）。
+  5. UI詳細: `FieldLabel`（説明ポップオーバー、内部に`<button>`を持つ）と
+     `checkbox`を`<label>`で束ねると、ポップオーバーボタン押下でcheckboxも
+     連動トグルされてしまう不具合になるため、`WeightPanel`の`WeightInput`と同じく
+     `aria-label`で関連付ける非`<label>`構成にした。
+  6. 実機確認（Playwright代替としてClaude Browserで確認、地図タイル自体は別ポート
+     由来のポート不一致で無関係に表示失敗するが対象外）: プリセット「自転車専用道を優先」
+     適用→重み配分バーがcar_stress 45%等へ更新→「幹線道路(trunk)」チップをOFF→
+     「生成」→`POST /api/routes/generate`のリクエストボディで
+     `route_preference`（car_stress:0.45等）・`hard_filters`（trunk:false）が
+     期待通り送信され、レスポンスの`conditions`にも同じ値がエコーされることを確認。
+  7. 検証: backend全1140件green（T266と共通）、フロントtsc/vitest 516件green。
+     docs/architecture.md（コンポーネント一覧）へRouteSettingsPanelを追記。
+
+### - [ ] T268. 材料の排他帰属チェックを計算系レジストリへ移植する（Phase 2前提） 規模S〜M
+
+- 背景: 目論見書7章・歯止め1。排他帰属の機械検査（`registry.py: register_axis`の
+  `AxisInputConflictError`）は表示用レジストリにしか無く、実際のルーティング計算を
+  駆動する`axis_definitions.py: AXIS_DEFINITIONS`（Stage DでDB化済み）には存在しない。
+  軸スタジオ（T270）で自由に軸を登録できるようになる前にこの検査を計算系へ移植
+  しないと、既存軸が専有する材料を新軸が黙って再利用し二重計上が混入する。
+- 対応方針: 管理API（`/api/admin/axis-definitions`）の作成・更新経路で、材料
+  （`AxisDefinition.materials`）の排他帰属を検査する。`shared`相当（距離等の共通
+  コンテキスト）の扱いは`registry.py`の設計を踏襲。T218素材カタログ・`registry.py`側の
+  attr_idとの対応関係（二重管理の回避、ADR「T12との関係」参照）もここで整理する。
+- 完了条件: 既存軸が使用中の材料を参照する新軸の登録が管理APIレベルで拒否される
+  テストがgreen。既存7軸のシードデータが検査を通過する（現状の共有設計と矛盾しない）
+  ことを確認。
+
+### - [ ] T269. 軸カタログ（axis-catalog.json）のDB追従方式の決定＋実装（Phase 2前提） 規模M
+
+- 背景: 目論見書8章の要判断事項。フロントの軸一覧・既定重み・ラベルは
+  `export_openapi.py`が**Python内蔵の`AXIS_DEFINITIONS`から**生成する
+  `axis-catalog.json`に由来し、CIの`api-contract`ジョブはDB接続を持たない。
+  このままでは軸スタジオでDBに追加した軸がフロントのカタログに現れない
+  （Stage D ADR「axis-catalog.jsonは変更していない」の積み残し）。
+- 対応方針（実装前にユーザーと方式を決定する）: 候補は (a) CIにDB接続を追加して
+  ビルド時生成を維持、(b) 公開操作時にカタログを再生成しランタイム配信へ切替、
+  (c) カタログ取得APIを新設しフロントは起動時フェッチ。静的生成物としての
+  型安全性（generated型とのペア）と、デプロイなしで軸が増える運用の両立が論点。
+- 完了条件: 管理APIで追加した軸が、フロントの軸カタログ（一般UIの軸一覧・
+  重み既定値）へコード変更・再デプロイなしに（または合意した方式の運用フローで）
+  反映されること。
+
+### - [ ] T270. 軸スタジオ — 独立URLの管理画面としてT221 Stage Eを実装する（Phase 2本体） 規模L
+
+- 背景: 目論見書4章「軸スタジオ」・T221 ADRのStage E（GUI編集画面、ADRスコープ外と
+  して起票待ちだったもの）。**ユーザー指示（2026-08-24）により、既存ページ内の
+  パネルではなく独立URL（`/admin`系ルート）の管理画面として実装する**。URLレベルで
+  一般画面から切れていることで、権限制御（T272）をルーティング境界で敷ける。
+- 対応方針:
+  1. Next.jsの独立ルートとして管理画面を新設。軸コンポーザー（材料選択→4テンプレート
+     選択→パラメータ調整→保存）を管理API（`/api/admin/axis-definitions`）経由で実装。
+  2. 検証手段（地図プレビュー・比較生成）への導線を持たせる。空間JOIN系材料
+     （事故点・POI集計）は地図プレビュー不可という非対称をUI上で最初から明示する
+     （目論見書・歯止め4）。
+  3. **現行メインページの「研究」セクション（ResearchPanel・WeightPanel・
+     CarStressRecipePanel等のレシピ群）と「開発者」セクション（DebugPanel・
+     DebugConsole・SystemStatusPanel）を管理画面へ移設し、メインページからは
+     削除する**（ユーザー指示。一般画面に開発者導線を残さない）。
+     移設に伴うlocalStorageフラグ（research/debug）の扱いはT272の権限制御設計と
+     整合させる。
+  4. 本番Renderの`AXIS_ADMIN_TOKEN`設定（現状未設定で管理APIは常時403、
+     Stage D ADR残作業1）を完了条件に含める。
+- 完了条件: 管理画面から新しい軸を作成・保存し、（T269の方式で）一般UIのカタログに
+  出現し、その軸へ重みを付けたルート生成が動作することをE2Eで実機確認。
+  メインページから研究・開発者セクションが消え、管理画面で同機能が使えること。
+  docs/architecture.md追従（新レイヤー種=管理画面の追加）。
+- 依存: T268（排他検査）・T269（カタログ追従）。規模M以上のため着手時に本エントリを
+  さらに分割してよい。
+
+### - [ ] T271. 軸の公開フローと統治ルール（Phase 3） 規模M
+
+- 背景: 目論見書7章・歯止め2、8章。一般ユーザーの保存設定は`axis_id`キーで再現される
+  ため、公開後の軸の破壊的変更・削除は他ユーザーの設定を黙って壊す。また同じ意図の
+  軸が乱立すると一般UIの選択肢が増えて蒸留の方向と逆行する。
+- 対応方針: (1) 公開済み`axis_id`の不変制約（管理APIレベルで、公開フラグ付き軸の
+  破壊的更新・削除を拒否。改良は複製＋新IDの導線をUIに用意）。(2) 下書き→検証→公開の
+  状態遷移をDBスキーマへ追加（公開前の軸は一般カタログに出さない）。(3) 命名・重複
+  ガイドと公開前チェックリストを軸スタジオUIへ組み込む。
+- 完了条件: 公開済み軸の破壊的変更が構造的に不可能であること、下書き軸が一般UIに
+  漏れないことのテストがgreen。
+- 依存: T270。
+
+### - [ ] T272. 管理画面・研究機能の権限制御導入（Phase 3） 規模M
+
+- 背景: 目論見書6章Phase 3。「将来、研究パネルを一般ユーザーから隠し権限制御を導入
+  する」という以前からの方針（Stage D ADRにも記録）を、管理画面のURL分離（T270）を
+  機に実施する。現行の`researchMode.ts`（localStorageトグル、誰でもON可）は
+  廃止または管理画面ログインへの置換対象。
+- 対応方針: 管理画面のルーティング境界で認可を敷く。backend側は認可判定が
+  FastAPI Dependency 1箇所に集約済み（Stage Dの設計）のため、共有トークンから
+  実権限チェックへの差し替えを行う。frontend側の方式（Basic認証・トークン入力・
+  アカウント制等）は着手時にユーザーと決定する。
+- 完了条件: 一般ユーザーの導線から管理画面・研究機能へ到達できず、認可を持つ
+  ユーザーのみがアクセスできること。docs/architecture.md追従（認可境界の記述）。
+- 依存: T270。
+
+### - [ ] T273. 蒸留 — 一般UIの軸カタログ縮退（Phase 4） 規模S〜M（継続的）— トリガー: 一般公開の意思決定、およびPhase 3までの利用実績の蓄積
+
+- 背景: 目論見書3章・6章Phase 4。最終形は「言葉のレベルのつまみ数個」。一般UIの
+  軸カタログを練られた少数の推定軸＋プリセットへ絞り込み、観測系の生軸は推定軸の
+  内部へ吸収していく。
+- 対応方針: 縮退基準（どの利用実績をもって軸を「卒業」＝カタログから隠す・吸収すると
+  判定するか、目論見書8章の要判断事項）を利用データが溜まった時点で定義してから
+  着手する。機能削除ではなくカタログ表示の絞り込み（軸自体はレジストリに残す）を
+  基本とする。
+- 完了条件: トリガー到達時に縮退基準とあわせて再定義する。
+
+### - [ ] T274. 周回ルートの逆回り（反時計回り/時計回り）候補も評価し、良い方を採用する 規模M — トリガー: ユーザーの実装意思は確定済み、着手タイミングのみ並行作業待ち
+
+- 発端: ユーザー指摘「地図上に描画されているルートは有向グラフにできない？勾配や風向き等、
+  同じルートでも左回り右回りで評点が変わるはず」（2026-08-24）。
+- **調査で確認した現状**:
+  1. road_graphエンジンのグラフは既に正しい有向グラフになっている
+     （[domain/graph.py:312-336](../backend/app/domain/graph.py:312)）。道路の各区間は
+     `-fwd`/`-bwd`という別々のedge_idを持ち、それぞれ実際の進行方向で算出した独自の
+     `bearing_deg`（風向きペナルティに使用）を持つ。
+  2. 勾配も進行方向で正しく符号反転している
+     （[domain/attributes.py:88-124](../backend/app/domain/attributes.py:88):
+     `compute_elevation_attribute`はedge自身の形状点列の順序で積算するため、`-fwd`と
+     `-bwd`で獲得標高/損失標高・平均勾配の符号が入れ替わる）。
+  3. **しかしルート生成（`RouteGenerator._loop_waypoints`、
+     [route_generator.py:196-199](../backend/app/services/route_generator.py:196)）は
+     8方位それぞれ「起点→経由地A(方位θ)→経由地B(方位θ+45°)→起点」という固定した
+     回転方向でしか経路探索していない**。同じ物理的なループ形状を逆回り
+     （起点→B→A→起点）で通った場合の候補は生成・比較されていない。
+  4. edgeレベルの評価は方向を正しく区別できているのに、生成アルゴリズム側がその区別を
+     活かせていない、という食い違いがある。
+- **設計（ユーザーとの検討で確定、実装時はこの方針に従う）**: 単純に16候補（8方位×2回転）を
+  全て新規にtrace_loop+評価すると、Dijkstra・DB幾何取得・GSI標高取得がいずれも倍になり
+  重くなる。以下の要素分割により、**追加のDB/外部API呼び出しゼロ**で逆回り候補を合成できる。
+  - **方向に依存しない（そのまま使い回せる）**: `distance_km`（物理長不変）・`road_score`・
+    `stop_density`・`intersection_density`・`accident_density`・`car_stress_score`・
+    `bicycle_infra_score`。いずれも`edge.edge_id`をキーに`context.surface_attributes`等
+    （`prepare()`でbbox全域・両方向のedge_idぶんが取得済み）を引くだけの集計のため、
+    逆方向edge_idで引いても新規フェッチ不要。
+  - **方向に依存する（再計算は要るが追加I/Oはゼロ）**:
+    - `wind_score`: `compute_wind_penalty`は`edge.bearing_deg`依存。逆方向edgeの
+      `bearing_deg`は`road_edges`テーブルにpersisted済み・`context.graph`から既に
+      取得済み（[road_graph_repository.py:1203](../backend/app/infrastructure/road_graph_repository.py:1203)）のため、参照するだけ。
+    - `elevation_gain_m`/`max_gradient_percent`等: GSI標高APIを叩き直さず、順方向で
+      既に取得済みの`ElevationAttribute`から代数的に導出する
+      （`elevation_gain_m`↔`elevation_loss_m`を入れ替え、`max_grade`↔`min_grade`を
+      符号反転して入れ替え、`start_elevation_m`↔`end_elevation_m`を入れ替え、
+      `average_grade`を符号反転）。標高は地形の物理量で進行方向に依存しないため、
+      この変換は厳密に正しい。
+    - `geometry`・turn-by-turn `segments`: 順方向で既に`get_edges_with_geometry`済みの
+      ジオメトリ点列を逆順に並べ替えるだけ（DB再取得不要）。
+  - **逆回りが成立しない場合のガード**: 経路中に一方通行（`-bwd`が存在しない）edgeが
+    1つでもあれば物理的に逆走不可能なため、その方位の逆candidateは生成しない。
+    `context.graph`から一度（リクエスト単位）だけ`(from_node_id, to_node_id) → edge_id`
+    の逆引きテーブルを作れば判定できる。多重辺（同じNode対を結ぶ別wayが複数存在する稀な
+    ケース）は逆引きテーブルの後勝ちで曖昧になりうるが、既存のsparse_graph/
+    NodeSpatialIndex側にも同種の簡略化があり許容範囲とした。
+  - **候補の採否（ユーザー判断で確定）**: 逆回りcandidateが生成できた場合、
+    レスポンスには**方位ごとに評点の良い方だけ**を採用する（両方向を別candidateとして
+    追加する案は、候補リストUI・`direction_label`の重複対応が別途必要になり見送った）。
+    比較指標は`distance_weighted_difficulty`（`car_stress_score`と同じ集計関数、
+    segmentsの`composite_difficulty_value`を距離加重平均したもの）を両方向で算出し、
+    小さい方を採用する（ルーティングコスト自体が使う軸重み付けと同じ基準のため、
+    アドホックな新規スコア定義を避けられる）。
+  - **実装イメージ**（`road_graph_engine.py`）: `_build_candidate`から標高取得部分を
+    抽出し、順方向の`ElevationAttribute`を引数として受け取れるようにする。新設する
+    `_reverse_traced_loop`（逆方向のEdgeシーケンス＋ジオメトリ合成、上記ガード判定）と
+    `_reverse_elevation_attribute`（代数変換）を使い、`evaluate_loops`で各bearingについて
+    順方向・逆方向（生成できれば）の両方の`_build_candidate`を呼び、
+    `distance_weighted_difficulty`で比較して良い方だけを最終候補に残す。
+    `candidate_identity`は方位ベースのまま変更不要（1方位1候補のため）。
+- **保留する場合の影響**: 現状の8方位一方向のみのルート生成自体は正常に動作しており、
+  失敗ではなく最適化機会の見送りに留まる。ただし保留し続けると、風向き・勾配が不利な
+  回転方向のまま候補が提示され続け、同じ形状でより良いスコアの逆回りルートが存在しても
+  ユーザーには見えない状態が続く。
+- **着手タイミングに関する注記（2026-08-24）**: 設計検討中に、並行セッションが
+  `backend/app/services/road_graph_engine.py`・`backend/app/domain/evaluation.py`等
+  （T266〜T273、0次ハードフィルタ・二画面構想関連）を編集中であることが判明した
+  （作業ツリーの安全ルールに従い、それらのファイルには一切触れていない）。本タスクの
+  実装は同じファイルを触るため、並行作業のコミット完了後に着手すること。
+- 完了条件: 未実装。着手時、上記設計に基づき実装・テスト（逆回り判定のガード条件・
+  代数変換の正当性・比較ロジック）を行う。
+
+---
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
@@ -3045,6 +3314,15 @@ Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していた�
 `GIT_COMMIT`（deploy-backend.ymlが`git rev-parse HEAD`で明示注入）へ切り替えて修正した
 （T263本文「残作業」参照）。指示待ちだった項目が無くなったため、指示待ちリストは
 現在空。
+
+**第18版への追記（2026-08-24・目論見書承認）**: 二画面構想の目論見書がユーザー承認され、
+T266に加えT267〜T273の7タスクを正式起票した（上記「目論見書による二画面構想の正式化」
+セクション参照）。着手順序はPhase順（T266→T267がPhase 1、T268・T269→T270がPhase 2、
+T271・T272がPhase 3、T273がPhase 4=トリガー待ち）。**同日中にPhase 1（T266・T267）を
+実装・完了した**（backend: hard_filtersのAPI・計算パス配線＋副次バグ修正、frontend:
+一般向けルート設定画面RouteSettingsPanel新設、docs/architecture.md追従、backend全1140件・
+フロントtsc/vitest 516件green、実機確認済み。詳細は各タスクの実装メモ参照）。
+Phase 2（T268・T269・T270）は未着手。
 
 - **参考記録（対応は不要〜任意、監視のみ）**:
   - T241で見つかった一部方位での「経路が見つからない」事象（8方位中平均1〜2方位）は

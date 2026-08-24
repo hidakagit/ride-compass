@@ -212,3 +212,96 @@ def test_bulk_returns_empty_dict_for_empty_graph():
     graph = RoadGraph(graph_version="test", nodes={}, edges={})
     result = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE)
     assert result == {}
+
+
+@pytest.mark.parametrize(
+    "hard_filters",
+    [frozenset(), frozenset({"no_bicycle"}), frozenset({"motorway"}), frozenset({"no_bicycle", "motorway", "trunk"})],
+)
+def test_bulk_hard_filters_override_matches_scalar(hard_filters):
+    """改善計画T266: hard_filters引数の上書きが、bulk/scalarで同じ結果になることを
+    確認する（compute_edge_costs_bulkはこれまでDEFAULT_HARD_FILTERS決め打ちだった、
+    かつno_bicycleフィルタはフィルタ名の有効/無効に関わらず常時適用されるバグがあった）。
+    """
+    graph, materials = _build_diverse_graph()
+    weights = PREFERENCE.weights
+
+    scalar_results = {
+        edge_id: compute_edge_cost(
+            edge,
+            materials["elevation_attributes"].get(edge_id),
+            materials["surface_attributes"].get(edge_id),
+            PREFERENCE,
+            weights=weights,
+            stop_count=materials["stop_counts"].get(edge_id),
+            way_tags=materials["way_tags"].get(edge_id),
+            intersection_count=materials["intersection_counts"].get(edge_id),
+            accident_count=materials["accident_counts"].get(edge_id),
+            accident_years_covered=3,
+            is_designated=edge_id in materials["designated_edge_ids"],
+            car_stress_recipe=DEFAULT_CAR_STRESS_RECIPE,
+            road_suitability_recipe=DEFAULT_ROAD_SUITABILITY_RECIPE,
+            motor_vehicle_density_recipe=DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+            hard_filters=hard_filters,
+        )
+        for edge_id, edge in graph.edges.items()
+    }
+
+    bulk_results = compute_edge_costs_bulk(
+        graph,
+        materials["elevation_attributes"],
+        materials["surface_attributes"],
+        PREFERENCE,
+        car_stress_recipe=DEFAULT_CAR_STRESS_RECIPE,
+        road_suitability_recipe=DEFAULT_ROAD_SUITABILITY_RECIPE,
+        motor_vehicle_density_recipe=DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
+        stop_counts=materials["stop_counts"],
+        way_tags=materials["way_tags"],
+        intersection_counts=materials["intersection_counts"],
+        accident_counts=materials["accident_counts"],
+        accident_years_covered=3,
+        designated_edge_ids=materials["designated_edge_ids"],
+        weights=weights,
+        hard_filters=hard_filters,
+    )
+
+    assert set(bulk_results.keys()) == set(scalar_results.keys())
+    mismatches = []
+    for edge_id, scalar in scalar_results.items():
+        bulk = bulk_results[edge_id]
+        if (bulk.allowed, bulk.cost, bulk.difficulty) != (scalar.allowed, scalar.cost, scalar.difficulty):
+            mismatches.append((edge_id, scalar, bulk))
+    assert not mismatches, f"{len(mismatches)}件不一致: {mismatches[:5]}"
+
+
+def test_bulk_hard_filters_empty_allows_bicycle_no_edge():
+    """no_bicycleフィルタが無効化されている場合、bicycle=noのEdgeも除外されない
+    （改善計画T266で修正したバグの直接的な回帰確認）。"""
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "a": Node(node_id="a", latitude=35.0, longitude=139.0),
+            "b": Node(node_id="b", latitude=35.0, longitude=139.001),
+        },
+        edges={
+            "e0": DirectedEdge(
+                edge_id="e0",
+                from_node_id="a",
+                to_node_id="b",
+                geometry=[[35.0, 139.0], [35.0, 139.001]],
+                distance_m=100.0,
+                osm_way_id=1,
+                highway="residential",
+                bearing_deg=0.0,
+            )
+        },
+    )
+    way_tags = {"e0": {"bicycle": "no"}}
+
+    excluded = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE, way_tags=way_tags)
+    assert excluded["e0"].allowed is False
+
+    included = compute_edge_costs_bulk(
+        graph, {}, {}, PREFERENCE, way_tags=way_tags, hard_filters=frozenset({"motorway", "trunk"})
+    )
+    assert included["e0"].allowed is True

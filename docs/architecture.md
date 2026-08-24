@@ -500,6 +500,7 @@ RideCompass/
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
+        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・観測/推定/動的の3カテゴリ別チェックボックス＋重みスライダー・重み配分の積み上げバー・プリセット）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
         WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水確率表示（Step6）
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
@@ -605,19 +606,24 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
     "cycleway_lane_adjustment":-1, "cycleway_shared_adjustment":-1 },
   "motor_vehicle_density_recipe": { "maxspeed_low_threshold":30, "maxspeed_low_adjustment":-1,
     "maxspeed_high_threshold":60, "maxspeed_high_adjustment":1, "lanes_high_threshold":4,
-    "lanes_high_adjustment":1, "designation_adjustment":1 } }
+    "lanes_high_adjustment":1, "designation_adjustment":1 },
+  "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":false } }
   # 省略時はscoring.yaml / route_preference.yaml / car_stress_recipe.yaml /
   # road_suitability_recipe.yaml / motor_vehicle_density_recipe.yamlの既定値。指定する場合は
   # いずれも全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ。
   # route_preference・car_stress_recipe・road_suitability_recipe・
-  # motor_vehicle_density_recipeは全フィールド必須の別モデルで、一部だけの指定は422になる。
-  # base_by_highwayも同様に全highwayキーの明示が必要）。
+  # motor_vehicle_density_recipe・hard_filtersは全フィールド必須の別モデルで、一部だけの
+  # 指定は422になる。base_by_highwayも同様に全highwayキーの明示が必要）。
   # scoring_weightsの重みは有効指標の重み和で正規化されるため合計1.0でなくてよい。全て0にすると
   # total_score=nullになる（RouteScorer参照）。car_stress_recipeは軸固有の
   # 変換式（少車線緩和）の上書き、road_suitability_recipe/
   # motor_vehicle_density_recipeは車ストレスが参照する「車との近さ」(N2)の材料の上書き
   # （改善計画: 車との近さ材料の共有元化）で、
-  # route_preferenceのcar_stress_weight（軸間の重み）とは別階層（7章参照）
+  # route_preferenceのcar_stress_weight（軸間の重み）とは別階層（7章参照）。
+  # hard_filters（改善計画T266）は0次ハードフィルタ（`no_bicycle`/`motorway`/`trunk`、
+  # domain/evaluation.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
+  # 「2次の重み」とは異なり、Falseにしたフィルタに該当する道路はコストを上げるのではなく
+  # 探索グラフから除外しない＝候補に含める（0次＝スコア計算に一切登場しないハード制約）
 Response 200:
 {
   "routes": [
@@ -675,6 +681,7 @@ Response 200:
     "motor_vehicle_density_recipe": { "maxspeed_low_threshold":30, "maxspeed_low_adjustment":-1,
       "maxspeed_high_threshold":60, "maxspeed_high_adjustment":1, "lanes_high_threshold":4,
       "lanes_high_adjustment":1, "designation_adjustment":1 },
+    "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":true },
     "generated_at": "2026-08-15T14:30:00+09:00"
   }
 }
@@ -927,6 +934,9 @@ interface RouteGenerateRequest {
   scoring_weights?: ScoringWeights;          // 評価重みの上書き（研究用・省略可、§10-1）
   route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み）
   car_stress_recipe?: CarStressRecipeOverride; // 同上（車ストレス軸の中身、7章参照）
+  hard_filters?: HardFilterOverride; // 0次ハードフィルタの個別ON/OFF（改善計画T266）。
+    // 一般向けルート設定画面（frontend/src/components/RouteSettingsPanel、改善計画T267）が
+    // 常時操作する（省略時と同じ既定値を常に明示送信するため実質的に常に指定される）
 }
 
 interface WeatherConditions {

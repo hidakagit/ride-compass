@@ -107,6 +107,7 @@ class EvaluationService:
         preference: RoutePreference | None = None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
+        hard_filters: frozenset[str] | None = None,
     ) -> dict[str, EdgeCostResult]:
         # preference省略時はself._preference（コンストラクタ注入・全リクエスト共有）を使う。
         # 改善計画T173: RoadGraphEngineが出発時刻に応じてnight_weightだけを差し替えた
@@ -118,6 +119,8 @@ class EvaluationService:
         # compute_cost_from_axis_scores参照。
         # max_average_grade_percent（改善計画T218a・T12 ADR原則5）は0次ハードフィルタの
         # 勾配しきい値（既定None＝除外しない）。domain/evaluation.py: is_edge_allowed参照。
+        # hard_filters（改善計画T266）は0次フィルタ名（no_bicycle/motorway/trunk）の
+        # 個別ON/OFF上書き（既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
@@ -146,4 +149,5 @@ class EvaluationService:
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
             weights=weights,
+            hard_filters=hard_filters,
         )

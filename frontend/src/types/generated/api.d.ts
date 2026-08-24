@@ -677,6 +677,7 @@ export interface components {
             penalty_strength: number;
             /** Max Average Grade Percent */
             max_average_grade_percent: number | null;
+            hard_filters: components["schemas"]["HardFilterOverride"];
             /** Generated At */
             generated_at: string;
         };
@@ -684,6 +685,16 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HardFilterOverride
+         * @description 0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き（改善計画T266）。
+         *     キーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/
+         *     'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら
+         *     全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。
+         */
+        HardFilterOverride: {
+            [key: string]: boolean;
         };
         /**
          * MaterialTerm
@@ -855,6 +866,7 @@ export interface components {
             penalty_strength: number;
             /** Max Average Grade Percent */
             max_average_grade_percent?: number | null;
+            hard_filters?: components["schemas"]["HardFilterOverride"] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

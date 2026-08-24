@@ -56,6 +56,7 @@ import LayerChip from "@/components/Map/LayerChip";
 import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm from "@/components/RouteForm/RouteForm";
+import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import WarningBadgeList, { type WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
@@ -111,6 +112,7 @@ import { generateRoutes } from "@/services/routeApi";
 import { getCurrentWeather, getFloodForecasts, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
 import type {
   Coordinates,
+  HardFilterOverride,
   MotorVehicleDensityRecipeOverride,
   RoadSuitabilityRecipeOverride,
   RouteCandidate,
@@ -254,10 +256,18 @@ export default function Home() {
 
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
   // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
-  // 完全に維持する（一般ユーザーには影響しない）。
+  // 完全に維持する（一般ユーザーには影響しない）。route_preference/routePreference自体は
+  // 改善計画T267で一般向けルート設定画面（RouteSettingsPanel）とも共有する状態になった
+  // （withAutoEnableにより、どちらのパネルを操作してもこのフラグが自動でONになる。
+  // T270で研究UIを独立URLの管理画面へ分離する際に整理し直す想定）。
   const [weightOverrideEnabled, setWeightOverrideEnabled] = useState(false);
   const [scoringWeights, setScoringWeights] = useState<ScoringWeights>(DEFAULT_SCORING_WEIGHTS);
   const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>(DEFAULT_ROUTE_PREFERENCE);
+  // 0次ハードフィルタ（改善計画T266・T267）。一般向けルート設定画面（RouteSettingsPanel）が
+  // 常時操作するため、weightOverrideEnabledのような別トグルは持たず常にリクエストへ含める
+  // （既定値はDEFAULT_HARD_FILTERS＝backendのDEFAULT_HARD_FILTERSと同じ全フィルタ有効で、
+  // 省略時と挙動が一致するため常時送信して問題ない）。
+  const [hardFilters, setHardFilters] = useState<HardFilterOverride>(DEFAULT_HARD_FILTERS);
 
   // 車の圧迫感・安全度・道路適正・自動車密度の4レシピの上書き状態（有効フラグ・値・地図反映用の
   // デバウンス値）はuseRecipeOverride（改善計画T133）へ集約。各レシピは互いに独立したトグル
@@ -1167,6 +1177,9 @@ export default function Home() {
     carStressRecipe: carStressRecipeOverrideEnabled ? carStressRecipe : null,
     roadSuitabilityRecipe: roadSuitabilityRecipeOverrideEnabled ? roadSuitabilityRecipe : null,
     motorVehicleDensityRecipe: motorVehicleDensityRecipeOverrideEnabled ? motorVehicleDensityRecipe : null,
+    // 改善計画T267: hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず
+    // 常に比較対象へ含める。
+    hardFilters,
   });
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
@@ -1190,6 +1203,10 @@ export default function Home() {
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
         penalty_strength: 1.0,
+        // 改善計画T267: hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が
+        // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
+        // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
+        hard_filters: hardFilters,
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
         ...(carStressRecipeOverrideEnabled ? { car_stress_recipe: carStressRecipe } : {}),
         ...(roadSuitabilityRecipeOverrideEnabled ? { road_suitability_recipe: roadSuitabilityRecipe } : {}),
@@ -1279,6 +1296,21 @@ export default function Home() {
             距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
           </p>
         )}
+        {/* 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・
+            重みを生成前に調整できる、常時表示のメイン導線。研究モードのWeightPanelとは
+            route_preference（weightOverrideEnabled）の状態を共有する（page.tsx冒頭の
+            state宣言・handleGenerateのコメント参照）。 */}
+        <div className={layerPanelStyles.group}>
+          <h2 className={layerPanelStyles.groupTitle}>ルート設定</h2>
+          <RouteSettingsPanel
+            hardFilters={hardFilters}
+            onHardFiltersChange={setHardFilters}
+            routePreference={routePreference}
+            onRoutePreferenceChange={setRoutePreference}
+            overrideEnabled={weightOverrideEnabled}
+            onOverrideEnabledChange={setWeightOverrideEnabled}
+          />
+        </div>
         <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
         {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
             2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ

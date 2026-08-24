@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import RouteGenerationSetup, get_route_generation_builder
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
-from app.domain.evaluation import RoutePreference
+from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.route import RouteCandidate
 from app.domain.traffic import CarStressRecipe
@@ -72,6 +72,7 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
         motor_vehicle_density_recipe_override=None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
+        hard_filters_override: frozenset[str] | None = None,
     ) -> RouteGenerationSetup:
         if captured is not None:
             captured["preference"] = preference_override
@@ -81,6 +82,7 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             captured["motor_vehicle_density_recipe"] = motor_vehicle_density_recipe_override
             captured["penalty_strength"] = penalty_strength
             captured["max_average_grade_percent"] = max_average_grade_percent
+            captured["hard_filters"] = hard_filters_override
         return RouteGenerationSetup(
             generator=FakeRouteGenerator(candidates),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
@@ -90,6 +92,7 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             motor_vehicle_density_recipe=motor_vehicle_density_recipe_override or MotorVehicleDensityRecipe(),
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
+            hard_filters=hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS,
         )
 
     return lambda: build
@@ -183,6 +186,56 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
     conditions = response.json()["conditions"]
     assert conditions["scoring_weights"] == scoring_weights
     assert conditions["route_preference"] == route_preference
+
+
+def test_generate_routes_echoes_default_hard_filters_when_omitted():
+    # 改善計画T266: hard_filters省略時はDEFAULT_HARD_FILTERS（全フィルタ有効）が
+    # そのままconditionsへエコーされる。
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+
+    try:
+        response = client.post("/api/routes/generate", json=REQUEST_BODY)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    conditions = response.json()["conditions"]
+    assert conditions["hard_filters"] == {"no_bicycle": True, "motorway": True, "trunk": True}
+
+
+def test_generate_routes_applies_hard_filters_override_and_echoes_them():
+    # 改善計画T266: hard_filtersの個別ON/OFF上書きがビルダーへ渡り、conditionsへ
+    # 適用値がエコーされる。
+    captured: dict = {}
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
+    hard_filters = {"no_bicycle": True, "motorway": True, "trunk": False}
+
+    try:
+        response = client.post(
+            "/api/routes/generate", json={**REQUEST_BODY, "hard_filters": hard_filters}
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert captured["hard_filters"] == frozenset({"no_bicycle", "motorway"})
+    conditions = response.json()["conditions"]
+    assert conditions["hard_filters"] == hard_filters
+
+
+def test_generate_routes_rejects_hard_filters_with_missing_keys():
+    # RoutePreferenceWeightsと同じ「上書きするなら全項目を明示する」方針
+    # （改善計画T266）。
+    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+
+    try:
+        response = client.post(
+            "/api/routes/generate", json={**REQUEST_BODY, "hard_filters": {"no_bicycle": True}}
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
 
 
 def test_generate_routes_applies_road_suitability_and_motor_vehicle_density_overrides_independently_of_car_stress():

@@ -459,6 +459,7 @@ def compute_edge_cost(
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     weights: dict[str, float] | None = None,
+    hard_filters: frozenset[str] | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -478,9 +479,16 @@ def compute_edge_cost(
     RoutePreference自体がaxis_idキーの辞書になったため、旧`preference_to_axis_weights`の
     ような変換は不要になった。T220当時の毎Edge変換オーバーヘッドの経緯は
     `backend/benchmarks/README.md`参照）。
+
+    `hard_filters`（改善計画T266）はそのまま`is_edge_allowed`へ渡す（省略時は
+    `DEFAULT_HARD_FILTERS`）。
     """
     if not is_edge_allowed(
-        edge, way_tags, elevation_attribute=elevation_attribute, max_average_grade_percent=max_average_grade_percent
+        edge,
+        way_tags,
+        hard_filters=hard_filters,
+        elevation_attribute=elevation_attribute,
+        max_average_grade_percent=max_average_grade_percent,
     ):
         return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
@@ -536,6 +544,7 @@ def compute_edge_costs_bulk(
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     weights: dict[str, float] | None = None,
+    hard_filters: frozenset[str] | None = None,
 ) -> dict[str, EdgeCostResult]:
     """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
     算出する（改善計画T221/T240、`EvaluationService.evaluate_graph`専用）。
@@ -561,6 +570,9 @@ def compute_edge_costs_bulk(
     スカラー版`stop_difficulty`/`accident_difficulty`が持つ「負値ならNone」という防御的
     ガード（テスト専用の異常値入力を想定したもの）はここでは再現しない（実データでは
     到達しない分岐のため、ベクトル化の単純さを優先した）。
+
+    `hard_filters`（改善計画T266）: `is_edge_allowed`と同じフィルタ名集合による上書き。
+    省略時（既定None）は`DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。
     """
     car_stress_recipe = car_stress_recipe or DEFAULT_CAR_STRESS_RECIPE
     road_suitability_recipe = road_suitability_recipe or DEFAULT_ROAD_SUITABILITY_RECIPE
@@ -570,6 +582,7 @@ def compute_edge_costs_bulk(
     accident_counts = accident_counts or {}
     designated_edge_ids = designated_edge_ids or set()
     resolved_weights = weights if weights is not None else preference.weights
+    active_hard_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
 
     edge_ids = list(graph.edges.keys())
     n = len(edge_ids)
@@ -601,15 +614,18 @@ def compute_edge_costs_bulk(
     for i, (edge_id, edge) in enumerate(zip(edge_ids, edges)):
         edge_way_tags = way_tags.get(edge_id) if way_tags is not None else None
 
-        # 0次ハードフィルタ（is_edge_allowedと同じ判定。DEFAULT_HARD_FILTERS常時有効を前提とする、
-        # hard_filters引数によるレシピ単位の上書きは本関数では未対応——現時点でどの呼び出し元も
-        # 上書きしていないため、compute_edge_costと同じ既定挙動をここでは決め打ちする）。
+        # 0次ハードフィルタ（is_edge_allowedと同じ判定、改善計画T266でactive_hard_filters
+        # 引数による上書きに対応）。
         if edge.highway is not None:
             for filter_name, highway_types in HARD_FILTER_HIGHWAY_TYPES.items():
-                if filter_name in DEFAULT_HARD_FILTERS and edge.highway in highway_types:
+                if filter_name in active_hard_filters and edge.highway in highway_types:
                     hard_filter_excluded[i] = True
                     break
-        if edge_way_tags is not None and tag_value_is(edge_way_tags, "bicycle", "no"):
+        if (
+            "no_bicycle" in active_hard_filters
+            and edge_way_tags is not None
+            and tag_value_is(edge_way_tags, "bicycle", "no")
+        ):
             hard_filter_excluded[i] = True
 
         elevation_attribute = elevation_attributes.get(edge_id)

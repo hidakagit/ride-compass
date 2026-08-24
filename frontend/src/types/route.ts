@@ -49,6 +49,8 @@ export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse
 
 export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
+// 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き(改善計画T266)。
+export type HardFilterOverride = Schemas["HardFilterOverride"];
 export type CarStressRecipeOverride = Schemas["CarStressRecipeOverride"];
 // 車ストレスが参照する「車との近さ」(N2)の材料（改善計画: 車との近さ材料の共有元化）。
 export type RoadSuitabilityRecipeOverride = Schemas["RoadSuitabilityRecipeOverride"];

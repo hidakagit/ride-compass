@@ -12,7 +12,7 @@ from fastapi import Depends, Request
 
 from app.config import settings
 from app.domain.errors import RoutingError
-from app.domain.evaluation import RoutePreference
+from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.recipe import MotorVehicleDensityRecipe, RoadSuitabilityRecipe
 from app.domain.route import Coordinates, RouteSegment
 from app.domain.traffic import CarStressRecipe
@@ -121,6 +121,9 @@ class RouteGenerationSetup:
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは無効）。
     # road_graphエンジンのみに効く。
     max_average_grade_percent: float | None
+    # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
+    # road_graphエンジンのみに効く。常に解決済み（Noneではなく実際に適用された集合）。
+    hard_filters: frozenset[str]
 
 
 RouteGenerationBuilder = Callable[
@@ -132,6 +135,7 @@ RouteGenerationBuilder = Callable[
         MotorVehicleDensityRecipe | None,
         float,
         float | None,
+        frozenset[str] | None,
     ],
     RouteGenerationSetup,
 ]
@@ -206,12 +210,14 @@ def get_route_generation_builder(
         motor_vehicle_density_recipe_override: MotorVehicleDensityRecipe | None = None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
+        hard_filters_override: frozenset[str] | None = None,
     ) -> RouteGenerationSetup:
         preference = preference_override or load_route_preference()
         scoring_weights = scoring_weights_override or load_scoring_weights()
         car_stress_recipe = car_stress_recipe_override or load_car_stress_recipe()
         road_suitability_recipe = road_suitability_recipe_override or load_road_suitability_recipe()
         motor_vehicle_density_recipe = motor_vehicle_density_recipe_override or load_motor_vehicle_density_recipe()
+        hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
         if settings.routing_engine == "road_graph":
             engine = RoadGraphEngine(
                 graph_service,
@@ -226,6 +232,7 @@ def get_route_generation_builder(
                 motor_vehicle_density_recipe,
                 penalty_strength,
                 max_average_grade_percent,
+                hard_filters,
             )
         else:
             engine = OpenRouteServiceEngine(
@@ -244,6 +251,7 @@ def get_route_generation_builder(
             motor_vehicle_density_recipe=motor_vehicle_density_recipe,
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
+            hard_filters=hard_filters,
         )
 
     return build

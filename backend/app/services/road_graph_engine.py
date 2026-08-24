@@ -161,6 +161,7 @@ class RoadGraphEngine:
         motor_vehicle_density_recipe: MotorVehicleDensityRecipe | None = None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
+        hard_filters: frozenset[str] | None = None,
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
@@ -176,6 +177,9 @@ class RoadGraphEngine:
         # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
         # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
         self._max_average_grade_percent = max_average_grade_percent
+        # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
+        # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
+        self._hard_filters = hard_filters
 
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
@@ -236,6 +240,7 @@ class RoadGraphEngine:
             designated_edge_ids=designated_edge_ids, preference=search_preference,
             penalty_strength=self._penalty_strength,
             max_average_grade_percent=self._max_average_grade_percent,
+            hard_filters=self._hard_filters,
         )
         sparse_graph = build_sparse_graph(graph, search_edge_costs)
 

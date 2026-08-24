@@ -1688,6 +1688,9 @@
             ],
             "title": "Max Average Grade Percent"
           },
+          "hard_filters": {
+            "$ref": "#/components/schemas/HardFilterOverride"
+          },
           "generated_at": {
             "type": "string",
             "title": "Generated At"
@@ -1706,6 +1709,7 @@
           "motor_vehicle_density_recipe",
           "penalty_strength",
           "max_average_grade_percent",
+          "hard_filters",
           "generated_at"
         ],
         "title": "GenerationConditions",
@@ -1723,6 +1727,14 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HardFilterOverride": {
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "type": "object",
+        "title": "HardFilterOverride",
+        "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き（改善計画T266）。\nキーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
       },
       "MaterialTerm": {
         "properties": {
@@ -2125,6 +2137,16 @@
               }
             ],
             "title": "Max Average Grade Percent"
+          },
+          "hard_filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HardFilterOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

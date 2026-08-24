@@ -15,7 +15,7 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
-from app.domain.evaluation import RoutePreference
+from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.recipe import (
     DEFAULT_MOTOR_VEHICLE_DENSITY_RECIPE,
     ROAD_SUITABILITY_BASE_BY_HIGHWAY,
@@ -103,6 +103,38 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
         if negative:
             raise ValueError(f"route_preference weights must be >= 0 (negative: {negative})")
         return self
+
+
+class HardFilterOverride(RootModel[dict[str, bool]]):
+    """0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き（改善計画T266）。
+    キーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/
+    'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら
+    全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。
+    """
+
+    @model_validator(mode="after")
+    def _check_filter_keys(self) -> "HardFilterOverride":
+        expected = DEFAULT_HARD_FILTERS
+        actual = set(self.root.keys())
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            detail_parts = []
+            if missing:
+                detail_parts.append(f"missing={missing}")
+            if extra:
+                detail_parts.append(f"unknown={extra}")
+            raise ValueError(
+                f"hard_filters must specify exactly the {len(expected)} known filter names ({', '.join(detail_parts)})"
+            )
+        return self
+
+    def to_frozenset(self) -> frozenset[str]:
+        return frozenset(name for name, enabled in self.root.items() if enabled)
+
+    @classmethod
+    def from_frozenset(cls, active: frozenset[str]) -> "HardFilterOverride":
+        return cls({name: name in active for name in sorted(DEFAULT_HARD_FILTERS)})
 
 
 class RoadSuitabilityRecipeOverride(BaseModel):
@@ -236,6 +268,10 @@ class RouteGenerateRequest(BaseModel):
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
     # 除外なし）。road_graphエンジンのみに効く（domain/evaluation.py: is_edge_allowed参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
+    # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
+    # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。road_graphエンジンの
+    # みに効く。
+    hard_filters: HardFilterOverride | None = None
 
     @model_validator(mode="after")
     def _check_lanes_threshold_order(self) -> "RouteGenerateRequest":
@@ -264,6 +300,8 @@ class GenerationConditions(BaseModel):
     penalty_strength: float
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
     max_average_grade_percent: float | None
+    # 改善計画T266: 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
+    hard_filters: HardFilterOverride
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -314,6 +352,7 @@ async def generate_routes(
         if request.motor_vehicle_density_recipe
         else None
     )
+    hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
     setup = build_generation(
         preference_override,
         scoring_override,
@@ -322,6 +361,7 @@ async def generate_routes(
         motor_vehicle_density_recipe_override,
         request.penalty_strength,
         request.max_average_grade_percent,
+        hard_filters_override,
     )
 
     async with _generate_semaphore:
@@ -348,6 +388,7 @@ async def generate_routes(
             ),
             penalty_strength=setup.penalty_strength,
             max_average_grade_percent=setup.max_average_grade_percent,
+            hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
             generated_at=datetime.now(JST).isoformat(),
         ),
     )

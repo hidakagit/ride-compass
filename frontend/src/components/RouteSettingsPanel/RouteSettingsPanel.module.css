@@ -1,0 +1,127 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.presetButton {
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  padding: 0.25rem 0.7rem;
+  cursor: pointer;
+}
+
+.presetButton:hover {
+  border-color: var(--color-accent);
+}
+
+.sectionLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.hardFilters {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.stackBarWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.stackBar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--color-surface-2);
+}
+
+.stackSegment {
+  height: 100%;
+}
+
+/* 軸ごとの色分け（改善計画T267のモックアップと同じ配色）。data-axis属性で切り替える
+   （軸の追加時にここへ1行足すだけで済む、色自体に意味は持たせない識別用のため
+   固定パレットで足りる）。 */
+.stackSegment[data-axis="gradient"] { background: #7f77dd; }
+.stackSegment[data-axis="surface_q"] { background: #1d9e75; }
+.stackSegment[data-axis="stop_density"] { background: #d85a30; }
+.stackSegment[data-axis="night"] { background: #d4537e; }
+.stackSegment[data-axis="car_stress"] { background: #378add; }
+.stackSegment[data-axis="accident"] { background: #ef9f27; }
+.stackSegment[data-axis="wind"] { background: #639922; }
+
+.group {
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.groupHeader {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-muted-strong);
+  margin: 0 0 var(--space-1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.checkbox {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+}
+
+.rowLabel {
+  width: 6.5rem;
+  flex-shrink: 0;
+  font-size: var(--font-size-md);
+}
+
+.slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.weightValue {
+  flex-shrink: 0;
+  width: 2.6rem;
+  text-align: right;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.resetButton {
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
