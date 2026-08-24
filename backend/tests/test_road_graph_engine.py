@@ -13,8 +13,8 @@ import pytest
 from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import bearing_between, destination_point, haversine_distance_km
-from app.domain.graph import DirectedEdge, Node, RoadGraph
-from app.domain.route import Coordinates
+from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
+from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
 from app.services import road_graph_engine
@@ -806,6 +806,7 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
+        node_pair_index={},
     )
     day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
     night_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=True)
@@ -870,3 +871,256 @@ async def test_preview_segment_returns_none_when_bbox_has_no_road_data():
     segment = await generator._engine.preview_segment(ORIGIN, ORIGIN)
 
     assert segment is None
+
+
+# --- 改善計画T274: 周回ルートの逆回り候補評価 ---
+
+
+def test_build_node_pair_index_maps_from_to_pairs_to_edges():
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    edge = _edge("e1", "o", "a", ORIGIN, coord_a)
+    graph = RoadGraph(graph_version="t", nodes={}, edges={"e1": edge})
+
+    index = road_graph_engine._build_node_pair_index(graph)
+
+    assert index == {("o", "a"): edge}
+
+
+def test_reverse_traced_edges_builds_connected_reverse_path_without_new_geometry():
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    coord_b = destination_point(ORIGIN, 90, 2.0)
+    e1_fwd = _edge("e1-fwd", "o", "a", ORIGIN, coord_a)
+    e2_fwd = _edge("e2-fwd", "a", "b", coord_a, coord_b)
+    e1_bwd = _edge("e1-bwd", "a", "o", coord_a, ORIGIN)
+    e2_bwd = _edge("e2-bwd", "b", "a", coord_b, coord_a)
+    graph = RoadGraph(
+        graph_version="t", nodes={},
+        edges={"e1-fwd": e1_fwd, "e2-fwd": e2_fwd, "e1-bwd": e1_bwd, "e2-bwd": e2_bwd},
+    )
+    node_pair_index = road_graph_engine._build_node_pair_index(graph)
+
+    reverse_edges = road_graph_engine._reverse_traced_edges([e1_fwd, e2_fwd], node_pair_index)
+
+    assert reverse_edges is not None
+    # 元の経路o→a→bを逆順に辿るb→a→oの順(改善計画T274)。
+    assert [e.edge_id for e in reverse_edges] == ["e2-bwd", "e1-bwd"]
+    assert (reverse_edges[0].from_node_id, reverse_edges[0].to_node_id) == ("b", "a")
+    assert (reverse_edges[1].from_node_id, reverse_edges[1].to_node_id) == ("a", "o")
+    # geometryは逆方向Edge自体からではなく、順方向で既にhydrate済みのgeometryを反転させたもの
+    # （DB再取得なし）。
+    assert reverse_edges[0].geometry == list(reversed(e2_fwd.geometry))
+    assert reverse_edges[1].geometry == list(reversed(e1_fwd.geometry))
+    # bearing_degは逆方向Edge自身のトポロジ値(node_pair_index由来、+180近似ではない)を使う。
+    assert reverse_edges[0].bearing_deg == e2_bwd.bearing_deg
+    assert reverse_edges[1].bearing_deg == e1_bwd.bearing_deg
+
+
+def test_reverse_traced_edges_returns_none_when_any_segment_is_one_way():
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    e1_fwd = _edge("e1-fwd", "o", "a", ORIGIN, coord_a)
+    # e1-bwdを作らない(一方通行を模す)。
+    graph = RoadGraph(graph_version="t", nodes={}, edges={"e1-fwd": e1_fwd})
+    node_pair_index = road_graph_engine._build_node_pair_index(graph)
+
+    assert road_graph_engine._reverse_traced_edges([e1_fwd], node_pair_index) is None
+
+
+def test_reverse_elevation_attribute_swaps_and_negates():
+    forward = ElevationAttribute(
+        edge_id="e-fwd", start_elevation_m=10.0, end_elevation_m=30.0,
+        elevation_gain_m=20.0, elevation_loss_m=2.0, average_grade=1.8,
+        max_grade=3.0, min_grade=-0.5, data_source="test", data_version="v1", calculated_at="t",
+    )
+
+    reverse = road_graph_engine._reverse_elevation_attribute(forward, "e-bwd")
+
+    assert reverse.edge_id == "e-bwd"
+    assert reverse.start_elevation_m == 30.0
+    assert reverse.end_elevation_m == 10.0
+    assert reverse.elevation_gain_m == 2.0
+    assert reverse.elevation_loss_m == 20.0
+    assert reverse.average_grade == -1.8
+    assert reverse.max_grade == 0.5
+    assert reverse.min_grade == -3.0
+    assert reverse.data_source == "test"
+    assert reverse.data_version == "v1"
+    assert reverse.calculated_at == "t"
+
+
+def test_reverse_elevation_attribute_preserves_all_none_when_unavailable():
+    # domain/attributes.py: compute_elevation_attributeは有効な標高点が2点未満だと
+    # edge_id/data_source/calculated_at以外全てNoneのまま返す。この形の入力に対しても
+    # 代数変換が例外を出さずNoneを維持することを確認する。
+    forward = ElevationAttribute(edge_id="e-fwd", data_source="test", calculated_at="t")
+
+    reverse = road_graph_engine._reverse_elevation_attribute(forward, "e-bwd")
+
+    assert reverse.start_elevation_m is None
+    assert reverse.end_elevation_m is None
+    assert reverse.elevation_gain_m is None
+    assert reverse.elevation_loss_m is None
+    assert reverse.average_grade is None
+    assert reverse.max_grade is None
+    assert reverse.min_grade is None
+
+
+def test_reverse_elevation_attributes_maps_by_reverse_edge_id_and_skips_missing():
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    coord_b = destination_point(ORIGIN, 90, 2.0)
+    e1_fwd = _edge("e1-fwd", "o", "a", ORIGIN, coord_a)
+    e2_fwd = _edge("e2-fwd", "a", "b", coord_a, coord_b)
+    e1_bwd = LeanEdge(edge_id="e1-bwd", from_node_id="a", to_node_id="o", geometry=[], distance_m=e1_fwd.distance_m)
+    e2_bwd = LeanEdge(edge_id="e2-bwd", from_node_id="b", to_node_id="a", geometry=[], distance_m=e2_fwd.distance_m)
+    elevation_attributes = {
+        "e1-fwd": ElevationAttribute(
+            edge_id="e1-fwd", start_elevation_m=0.0, end_elevation_m=10.0, data_source="t", calculated_at="t"
+        ),
+        # e2-fwdは標高未取得(欠落)を模す。
+    }
+
+    result = road_graph_engine._reverse_elevation_attributes(
+        [e1_fwd, e2_fwd], [e2_bwd, e1_bwd], elevation_attributes
+    )
+
+    assert set(result.keys()) == {"e1-bwd"}
+    assert result["e1-bwd"].start_elevation_m == 10.0
+    assert result["e1-bwd"].end_elevation_m == 0.0
+
+
+def _candidate_with_difficulties(difficulty_distance_pairs: list[tuple[float, float]]) -> RouteCandidate:
+    segments = [
+        RouteSegmentDetail(
+            start_latitude=0.0, start_longitude=0.0, end_latitude=0.0, end_longitude=0.0,
+            cumulative_distance_km=0.0, distance_km=distance_km, difficulty=difficulty,
+        )
+        for difficulty, distance_km in difficulty_distance_pairs
+    ]
+    return RouteCandidate(
+        id="route-000", direction_label="北",
+        distance_km=sum(d for _, d in difficulty_distance_pairs),
+        geometry={"type": "LineString", "coordinates": []},
+        segments=segments,
+    )
+
+
+def test_route_composite_difficulty_is_distance_weighted_average():
+    candidate = _candidate_with_difficulties([(0.0, 1.0), (100.0, 3.0)])
+
+    assert road_graph_engine._route_composite_difficulty(candidate) == 75.0
+
+
+def test_route_composite_difficulty_is_none_without_segments():
+    candidate = RouteCandidate(
+        id="route-000", direction_label="北", distance_km=1.0,
+        geometry={"type": "LineString", "coordinates": []},
+    )
+
+    assert road_graph_engine._route_composite_difficulty(candidate) is None
+
+
+def test_pick_better_candidate_prefers_lower_composite_difficulty():
+    easy = _candidate_with_difficulties([(10.0, 1.0)])
+    hard = _candidate_with_difficulties([(90.0, 1.0)])
+
+    assert road_graph_engine._pick_better_candidate(hard, easy) is easy
+    assert road_graph_engine._pick_better_candidate(easy, hard) is easy
+
+
+def test_pick_better_candidate_falls_back_to_forward_when_reverse_unavailable():
+    forward = _candidate_with_difficulties([(50.0, 1.0)])
+    reverse_unavailable = RouteCandidate(
+        id="route-000", direction_label="北", distance_km=1.0,
+        geometry={"type": "LineString", "coordinates": []},
+    )  # segments=None（逆回り不成立を模す）
+
+    assert road_graph_engine._pick_better_candidate(forward, reverse_unavailable) is forward
+
+
+async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_difficulty():
+    # 改善計画T274の統合確認: 東向き(bearing≈90)の経路へ強い向かい風(wind_direction_deg=90、
+    # 8m/s=wind軸のdifficulty上限に達する強さ)を設定すると、折り返す逆回り(西向き、追い風)の
+    # 方がwind軸のdifficultyが低くなる。wind以外の重みをすべて0にし、_build_best_candidateが
+    # 実際に逆回り側（起点からa→oではなくo→aの逆、つまりsegmentsの起点がaになる側）を
+    # 選ぶことを確認する。
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    edge_fwd = _edge("e-fwd", "o", "a", ORIGIN, coord_a, highway="residential")
+    edge_bwd = _edge("e-bwd", "a", "o", coord_a, ORIGIN, highway="residential")
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "a": Node(node_id="a", latitude=coord_a.latitude, longitude=coord_a.longitude),
+        },
+        edges={"e-fwd": edge_fwd, "e-bwd": edge_bwd},
+    )
+    wind = WeatherConditions(
+        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=8.0, wind_direction_deg=90.0,
+        wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
+        precipitation_mm=None, uv_index=None, observed_at="t",
+    )
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 1.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0}
+    )
+    engine = RoadGraphEngine(
+        graph_service=None,
+        elevation_attribute_service=FakeElevationAttributeService({}),
+        evaluation_service=EvaluationService(preference),
+        weather_service=FakeWeatherService(wind),
+        route_preference=preference,
+    )
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags={},
+        intersection_counts={}, accident_counts={}, accident_years_covered=0,
+        designated_edge_ids=set(), wind=wind, origin_node="o",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        node_pair_index=road_graph_engine._build_node_pair_index(graph),
+    )
+    traced = road_graph_engine.TracedLoop(
+        bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
+    )
+
+    candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
+
+    # 逆回り(a→o、追い風)が採用されるため、区間の始点は順方向の起点(o)ではなくa。
+    assert candidate.segments[0].start_latitude == pytest.approx(coord_a.latitude)
+    assert candidate.segments[0].start_longitude == pytest.approx(coord_a.longitude)
+    assert candidate.wind_score is not None and candidate.wind_score < 0  # 追い風
+
+
+async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_edge():
+    # 経路中に一方通行(逆方向Edgeが存在しない)区間があれば逆回りは合成不能なため、
+    # 順方向のみが返ることを確認する。
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    edge_fwd = _edge("e-fwd", "o", "a", ORIGIN, coord_a, highway="residential")
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "a": Node(node_id="a", latitude=coord_a.latitude, longitude=coord_a.longitude),
+        },
+        edges={"e-fwd": edge_fwd},
+    )
+    preference = RoutePreference()
+    engine = RoadGraphEngine(
+        graph_service=None,
+        elevation_attribute_service=FakeElevationAttributeService({}),
+        evaluation_service=EvaluationService(preference),
+        weather_service=FakeWeatherService(None),
+        route_preference=preference,
+    )
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags={},
+        intersection_counts={}, accident_counts={}, accident_years_covered=0,
+        designated_edge_ids=set(), wind=None, origin_node="o",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        node_pair_index=road_graph_engine._build_node_pair_index(graph),
+    )
+    traced = road_graph_engine.TracedLoop(
+        bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
+    )
+
+    candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
+
+    assert candidate.segments[0].start_latitude == pytest.approx(ORIGIN.latitude)
+    assert candidate.segments[0].start_longitude == pytest.approx(ORIGIN.longitude)

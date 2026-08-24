@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.domain.accident import distance_weighted_accident_density
+from app.domain.attributes import ElevationAttribute
 from app.domain.axis_definitions import car_stress_display_level
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
@@ -46,7 +47,7 @@ from app.domain.evaluation import (
     compute_wind_penalty,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from app.domain.graph import EdgeLike, LeanRoadGraph, RoadGraphLike
+from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import (
@@ -122,6 +123,13 @@ class _RoadGraphContext:
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
     night_active: bool
+    # 改善計画T274: (from_node_id, to_node_id) → Edge の逆引き表。周回の逆回り候補
+    # （_reverse_traced_edges）が「この経路の各Edgeを逆方向に辿るEdgeが存在するか」を
+    # 追加のDB問い合わせなしに判定するために使う。bboxの全Edge（探索対象の両方向）から
+    # 1リクエストにつき1回だけ構築し、全方位のevaluate_loopsで使い回す。同じNode対を
+    # 複数のEdgeが結ぶ稀なケース（多重辺）は後勝ちで曖昧になりうるが、
+    # build_sparse_graph（並行Edgeを1本しか保持しない）と同種の簡略化として許容する。
+    node_pair_index: dict[tuple[str, str], EdgeLike]
 
 
 @dataclass
@@ -291,6 +299,7 @@ class RoadGraphEngine:
             origin_node=origin_node,
             node_index=node_index,
             night_active=search.night_active,
+            node_pair_index=_build_node_pair_index(search.graph),
         )
 
     async def preview_segment(
@@ -380,14 +389,38 @@ class RoadGraphEngine:
         # 標高は経路確定後・距離フィルタ通過後の候補だけに絞って取得する
         # （モジュールdocstring参照。棄却済み候補へのGSI問い合わせを避ける）。
         return list(
-            await asyncio.gather(*(self._build_candidate(context, t, start_time) for t in traced))
+            await asyncio.gather(*(self._build_best_candidate(context, t, start_time) for t in traced))
         )
 
-    async def _build_candidate(
+    async def _build_best_candidate(
         self, context: _RoadGraphContext, traced: TracedLoop, start_time: datetime
     ) -> RouteCandidate:
+        """1方位ぶんの周回候補を組み立てる。改善計画T274: 同じ物理的な周回形状の
+        逆回り（起点→B→A→起点）も、追加のDB/外部API呼び出しゼロで合成できる場合は
+        合成し、distance_weighted_difficulty（segmentsの距離加重平均、
+        RouteGenerator._with_overall_difficultyと同じ指標）が小さい方を採用する
+        （両方向を別候補として追加するのではなく、方位ごとに良い方だけを残す設計。
+        経路中に一方通行Edgeが1つでもあれば逆回りは物理的に成立しないため、その場合は
+        順方向のみを返す）。
+        """
         edges_in_path: list[EdgeLike] = traced.data
+        elevation_attributes = await self._fetch_elevation_attributes(context, edges_in_path)
+        forward_candidate = self._build_candidate(context, traced, edges_in_path, elevation_attributes, start_time)
 
+        reverse_edges = _reverse_traced_edges(edges_in_path, context.node_pair_index)
+        if reverse_edges is None:
+            return forward_candidate
+        reverse_elevation_attributes = _reverse_elevation_attributes(
+            edges_in_path, reverse_edges, elevation_attributes
+        )
+        reverse_candidate = self._build_candidate(
+            context, traced, reverse_edges, reverse_elevation_attributes, start_time
+        )
+        return _pick_better_candidate(forward_candidate, reverse_candidate)
+
+    async def _fetch_elevation_attributes(
+        self, context: _RoadGraphContext, edges_in_path: list[EdgeLike]
+    ) -> dict[str, ElevationAttribute]:
         # 改善計画T248: ElevationAttributeService.get_attributes_for_graphは
         # graph.edgesしか読まない（nodesは未参照）ため、nodesは空でよい。
         # context.graph.nodes（LeanNode、数万件規模）をそのまま渡すとPydantic
@@ -400,8 +433,21 @@ class RoadGraphEngine:
             nodes={},
             edges={edge.edge_id: edge for edge in edges_in_path},
         )
-        elevation_attributes = await self._elevation_attribute_service.get_attributes_for_graph(path_graph)
+        return await self._elevation_attribute_service.get_attributes_for_graph(path_graph)
 
+    def _build_candidate(
+        self,
+        context: _RoadGraphContext,
+        traced: TracedLoop,
+        edges_in_path: list[EdgeLike],
+        elevation_attributes: dict[str, ElevationAttribute],
+        start_time: datetime,
+    ) -> RouteCandidate:
+        # 改善計画T274: edges_in_path・elevation_attributesを引数化し（以前はtraced.dataと
+        # 自前のGSI問い合わせ結果を直接使っていた）、逆回り候補（_reverse_traced_edges・
+        # _reverse_elevation_attributes、追加I/Oなしで導出済み）も同じ組み立てロジックへ
+        # 通せるようにした。distance_km・bearingは順方向・逆回りで共通（同じ物理経路の
+        # 総距離・同じ方位の候補のため）traced（順方向のTracedLoop）からそのまま使う。
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         road_score = _aggregate_road_score(edges_in_path, context.surface_attributes)
@@ -547,6 +593,118 @@ class RoadGraphEngine:
             cumulative_km += distance_km
 
         return segments
+
+
+def _build_node_pair_index(graph: RoadGraphLike) -> dict[tuple[str, str], EdgeLike]:
+    """(from_node_id, to_node_id) → Edge の逆引き表（改善計画T274）。`_RoadGraphContext`
+    に1リクエストにつき1回だけ構築し、`_reverse_traced_edges`が使い回す。多重辺
+    （同じNode対を複数のEdgeが結ぶ稀なケース）は辞書内包表記の性質上、`graph.edges`の
+    挿入順で後勝ちになる（`_RoadGraphContext.node_pair_index`のコメント参照）。
+    """
+    return {(edge.from_node_id, edge.to_node_id): edge for edge in graph.edges.values()}
+
+
+def _reverse_traced_edges(
+    edges_in_path: list[EdgeLike], node_pair_index: dict[tuple[str, str], EdgeLike]
+) -> list[EdgeLike] | None:
+    """順方向の経路`edges_in_path`（起点→...→起点）を逆順に辿った場合の、対応する
+    逆方向Edge列を構築する（改善計画T274）。経路中に一方通行（逆方向Edgeが存在しない）
+    区間が1つでもあれば物理的に逆走不可能なため`None`を返す。
+
+    `node_pair_index`（`context.graph`から構築済み）を使い、逆方向Edgeのトポロジ
+    （`bearing_deg`等、進行方向で値が変わる唯一のフィールド）を追加のDB/外部API
+    呼び出しなしに引く。`geometry`だけは逆方向Edge自体（lean、空プレースホルダ）からではなく、
+    順方向で既にhydrate済みのgeometryを反転させて使う（同じ物理区間を逆順に辿るだけの
+    ため、DB再取得不要。build_road_graphの`-bwd`Edgeが`-fwd`のgeometryを反転して持つのと
+    同じ関係）。distance_m・osm_way_id・highwayは進行方向に依存しない値だが、
+    「逆方向Edge自身の値」として`node_pair_index`側から読む（forward側からの流用ではなく、
+    逆方向Edgeが実在するという確認を兼ねる）。
+    """
+    reverse_edges: list[EdgeLike] = []
+    for edge in reversed(edges_in_path):
+        reverse_topology = node_pair_index.get((edge.to_node_id, edge.from_node_id))
+        if reverse_topology is None:
+            return None
+        reverse_edges.append(
+            LeanEdge(
+                edge_id=reverse_topology.edge_id,
+                from_node_id=reverse_topology.from_node_id,
+                to_node_id=reverse_topology.to_node_id,
+                geometry=list(reversed(edge.geometry)),
+                distance_m=reverse_topology.distance_m,
+                osm_way_id=reverse_topology.osm_way_id,
+                highway=reverse_topology.highway,
+                bearing_deg=reverse_topology.bearing_deg,
+            )
+        )
+    return reverse_edges
+
+
+def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: str) -> ElevationAttribute:
+    """順方向のElevationAttributeから、同じ物理的な地形を逆方向に走った場合の値を
+    代数的に導出する（改善計画T274）。標高は地形の物理量で進行方向に依存しないため、
+    この変換は厳密に正しい: 獲得標高↔喪失標高の入れ替え、始点/終点標高の入れ替え、
+    平均勾配の符号反転、最大/最小勾配の符号反転＋入れ替え（domain/attributes.py:
+    compute_elevation_attributeが区間の形状点列を進行方向の順で積算するため、逆順に
+    辿ると各区間のdiff＝勾配の符号がすべて反転し、max/minも入れ替わる）。GSI標高APIを
+    叩き直さない。
+    """
+    return ElevationAttribute(
+        edge_id=reverse_edge_id,
+        start_elevation_m=forward.end_elevation_m,
+        end_elevation_m=forward.start_elevation_m,
+        elevation_gain_m=forward.elevation_loss_m,
+        elevation_loss_m=forward.elevation_gain_m,
+        average_grade=-forward.average_grade if forward.average_grade is not None else None,
+        max_grade=-forward.min_grade if forward.min_grade is not None else None,
+        min_grade=-forward.max_grade if forward.max_grade is not None else None,
+        data_source=forward.data_source,
+        data_version=forward.data_version,
+        calculated_at=forward.calculated_at,
+    )
+
+
+def _reverse_elevation_attributes(
+    edges_in_path: list[EdgeLike],
+    reverse_edges: list[EdgeLike],
+    elevation_attributes: dict[str, ElevationAttribute],
+) -> dict[str, ElevationAttribute]:
+    """`_reverse_traced_edges`が返した逆方向Edge列ぶんの`ElevationAttribute`辞書を、
+    順方向で既に取得済みの値から代数的に導出する（改善計画T274、`_reverse_elevation_attribute`
+    を経路全体へ適用する薄いラッパー）。順方向で標高が取得できなかったEdge
+    （`elevation_attributes`にキーが無い）は、逆方向側でもキーを持たせない（欠損の伝播）。
+    """
+    result: dict[str, ElevationAttribute] = {}
+    for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
+        forward_attribute = elevation_attributes.get(forward_edge.edge_id)
+        if forward_attribute is not None:
+            result[reverse_edge.edge_id] = _reverse_elevation_attribute(forward_attribute, reverse_edge.edge_id)
+    return result
+
+
+def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
+    """候補のsegmentsから、距離加重平均の合成difficultyを求める（改善計画T274、
+    逆回り候補との比較指標）。`RouteGenerator._with_overall_difficulty`と同じ計算だが、
+    あちらは方位ごとに採否が確定した最終候補へ`overall_difficulty`を付与する後処理
+    （エンジン非依存の戦略層）なのに対し、ここは同じ方位の順方向・逆回り候補のどちらを
+    残すかをエンジン内部で決めるための指標であり、計算するタイミング・対象が異なる
+    （同じ指標を2箇所で使うが、役割が違うため無理に共通化しない）。
+    """
+    if not candidate.segments:
+        return None
+    return distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in candidate.segments])
+
+
+def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
+    """順方向・逆回り候補のうち、`_route_composite_difficulty`が小さい（走りやすい）方を
+    採用する（改善計画T274）。逆回り側が算出不能（segments欠損等）なら順方向を採用する
+    （比較不能を「逆回りの方が良い」とは解釈しない、安全側）。
+    """
+    forward_difficulty = _route_composite_difficulty(forward)
+    reverse_difficulty = _route_composite_difficulty(reverse)
+    if reverse_difficulty is not None and (forward_difficulty is None or reverse_difficulty < forward_difficulty):
+        return reverse
+    return forward
 
 
 def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:

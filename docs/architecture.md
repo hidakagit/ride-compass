@@ -78,6 +78,17 @@ Windows環境では `uvicorn --reload` はリローダー親プロセスとワ�
   側の`segments`は元々粒度が粗くビン化対象外）。集約はgradient/wind_penalty/car_stress等を
   距離加重平均、road_surface_good等のカテゴリ値を距離加重多数決で代表値化し、
   `RouteSegmentDetail`型自体は変えない（フロント型・OpenAPI契約への影響なし）。
+- **T274（周回ルートの逆回り候補評価）**: `evaluate_loops`は各方位につき、`trace_loop`が
+  確定した順方向の経路に加え、同じ物理形状を逆順に辿る「逆回り」候補も合成できる場合は
+  合成し、`distance_weighted_difficulty`（segmentsの距離加重平均）が低い方だけを最終候補
+  として残す（両方向を別候補として追加はしない）。逆回りEdge列（`_reverse_traced_edges`）は
+  `context.graph`から1リクエストにつき1回だけ構築する`(from_node_id, to_node_id) → Edge`
+  逆引き表（`_RoadGraphContext.node_pair_index`）を使い、標高（`_reverse_elevation_attribute`、
+  獲得標高↔喪失標高の入替・勾配の符号反転等の代数変換）も既に取得済みの順方向の値から
+  導出するため、追加のDB問い合わせ・GSI標高APIの再呼び出しは発生しない
+  （bearing_deg等の進行方向依存値のみ`context.graph`から引く。geometryは順方向で
+  hydrate済みの値を反転して使う）。経路中に一方通行（逆方向Edgeが存在しない）区間が
+  1つでもあれば逆回りは物理的に成立しないため、その方位は順方向のみを候補とする。
 
 ### SQLite永続キャッシュ（`cache_db.py`、気象グリッド）
 `cache_db.py`（[backend/app/infrastructure/cache_db.py](../backend/app/infrastructure/cache_db.py)）は、プロセス再起動やコンテナ再作成をまたいで再利用したいキャッシュを、ファイルベースのSQLite（`backend/data/ridecompass_cache.db`、新規pip依存なし）へ永続化する共通インフラ。スレッドローカルな接続の使い回し（`_get_connection`）・SQLiteエラー時は「未キャッシュ」またはno-op扱いへフォールバックする方針（DB側の障害が本体機能を失敗させない）を持つ。現在は気象グリッド用途のみで使われている:
