@@ -10,6 +10,10 @@ import {
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LEGEND,
   buildStaticFilterAxes,
+  DESIGNATION_COLOR_EXPRESSION,
+  DESIGNATION_LABELS,
+  DESIGNATION_LEGEND,
+  DESIGNATION_OPACITY_EXPRESSION,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_KINDS,
   STOP_POI_LABELS,
@@ -295,5 +299,62 @@ describe("staticAttributeLayers", () => {
     const axis = extended.find((a) => a.axisId === "new_gui_axis");
     expect(axis).toBeDefined();
     expect(axis!.layerId).toBe("axis:new_gui_axis");
+  });
+
+  // 改善計画T331: 指定路線（DESIGNATION関連export）が完全未テストだった（過去にT74で
+  // 実害の実績あり、既存の他レイヤーと同型の検証パターンをそのまま適用する）。
+  describe("指定路線（外部静的データソースT51、DESIGNATION関連export）", () => {
+    it("指定路線の凡例キーはN10/N12/両方該当[both]の3値+対象外と一致する（T74: 3値目bothの独立カテゴリ化）", () => {
+      const keys = DESIGNATION_LEGEND.map((e) => e.key);
+      expect(new Set(keys)).toEqual(new Set(["emergency_transport", "critical_logistics", "both", "unknown"]));
+      expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it("指定路線の凡例エントリごとに一意な色を持つ（見分けられる配色）", () => {
+      const colors = DESIGNATION_LEGEND.map((e) => e.color);
+      expect(new Set(colors).size).toBe(colors.length);
+    });
+
+    it("指定路線のmatch式はプロパティ欠落時に凡例のunknown色へ落ちる", () => {
+      expect(DESIGNATION_COLOR_EXPRESSION[0]).toBe("match");
+      const unknownColor = DESIGNATION_LEGEND.find((e) => e.key === "unknown")!.color;
+      expect(DESIGNATION_COLOR_EXPRESSION[DESIGNATION_COLOR_EXPRESSION.length - 1]).toBe(unknownColor);
+    });
+
+    it("指定路線の色分け式は凡例の色以外を使わない", () => {
+      const legendColors = new Set(DESIGNATION_LEGEND.map((e) => e.color));
+      const expressionColors = DESIGNATION_COLOR_EXPRESSION.filter(
+        (item): item is string => typeof item === "string" && item.startsWith("#"),
+      );
+      expect(expressionColors.length).toBeGreaterThan(0);
+      for (const color of expressionColors) {
+        expect(legendColors.has(color)).toBe(true);
+      }
+    });
+
+    it("DESIGNATION_LABELSは凡例のkey→labelと一致する（ポップアップ表示用の対訳表。unknownは対訳表に無く呼び出し側でフォールバックする）", () => {
+      for (const entry of DESIGNATION_LEGEND.filter((e) => e.key !== "unknown")) {
+        expect(DESIGNATION_LABELS[entry.key]).toBe(entry.label);
+      }
+    });
+
+    it("指定路線のfeatureは該当カテゴリのみ強調色になり、対象外は不透明度が下がる", () => {
+      function evaluate(expr: unknown[], properties: Record<string, unknown>): unknown {
+        const parsed = createExpression(expr);
+        if (parsed.result !== "success") throw new Error("式の構築に失敗しました");
+        return parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties });
+      }
+      const emergencyColor = evaluate(DESIGNATION_COLOR_EXPRESSION, { designation: "emergency_transport" });
+      const otherColor = evaluate(DESIGNATION_COLOR_EXPRESSION, {});
+      expect(emergencyColor).not.toBe(otherColor);
+      expect(evaluate(DESIGNATION_OPACITY_EXPRESSION, { designation: "critical_logistics" })).toBeGreaterThan(
+        evaluate(DESIGNATION_OPACITY_EXPRESSION, {}) as number,
+      );
+    });
+
+    it("STATIC_FILTER_AXESのdesignation軸はDESIGNATION_LEGENDと同じ内容を参照する", () => {
+      const designationAxis = STATIC_FILTER_AXES.find((axis) => axis.axisId === "designation");
+      expect(designationAxis?.legend).toBe(DESIGNATION_LEGEND);
+    });
   });
 });

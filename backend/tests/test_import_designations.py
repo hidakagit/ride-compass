@@ -1,11 +1,14 @@
 import json
+import zipfile
 from datetime import datetime, timezone
 
 import asyncpg
+import httpx
 import pytest
 import pytest_asyncio
 from shapely.geometry import LineString
 
+from app.batch import import_designations
 from app.batch._common import asyncpg_dsn
 from app.batch.import_designations import (
     _INSERT_SQL,
@@ -14,6 +17,7 @@ from app.batch.import_designations import (
     _parse_n12_geojson,
     _write_designations,
     _zip_url,
+    run_import,
 )
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from tests.conftest import TEST_DATABASE_URL
@@ -158,9 +162,15 @@ async def designation_conn():
         pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
     try:
         await conn.execute("DELETE FROM route_designations")
+        # designation_import_runsは元々このfixtureの対象外だったが、改善計画T331で
+        # run_import本体の結合テスト（TestRunImportOrchestration）を追加した際に、
+        # ここを未クリアのままにすると前のテストで書き込まれたrun記録が残り、
+        # WHERE無しSELECTが別テストの行を拾ってしまうflakyな失敗を起こすため追加した。
+        await conn.execute("DELETE FROM designation_import_runs")
         yield conn
     finally:
         await conn.execute("DELETE FROM route_designations")
+        await conn.execute("DELETE FROM designation_import_runs")
         await conn.close()
 
 
@@ -235,3 +245,108 @@ class TestWriteDesignations:
             "emergency_transport", "13",
         )
         assert [r["name"] for r in rows] == ["旧路線"]
+
+
+_N10_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<Dataset xmlns:gml="http://www.opengis.net/gml/3.2" '
+    'xmlns:ksj="http://nlftp.mlit.go.jp/ksj/schemas/ksj-app" '
+    'xmlns:xlink="http://www.w3.org/1999/xlink">'
+    '<gml:Curve gml:id="c1"><gml:segments><gml:LineStringSegment>'
+    "<gml:posList>35.0 139.0 35.1 139.1</gml:posList>"
+    "</gml:LineStringSegment></gml:segments></gml:Curve>"
+    '<ksj:UrgentTransportationRoad><ksj:loc xlink:href="#c1"/>'
+    "<ksj:rdn>テスト緊急輸送道路</ksj:rdn></ksj:UrgentTransportationRoad>"
+    "</Dataset>"
+).encode("utf-8")
+
+
+def _write_n10_zip(dest, pref: str) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w") as zf:
+        zf.writestr(f"N10-15_{pref}.xml", _N10_XML)
+
+
+class TestRunImportOrchestration:
+    """run_import本体（DESIGNATION_IMPORT_KINDS×KANTO_PREFECTURE_CODES_KSJ全14組合せの
+    ダウンロード→ZIP展開→DELETE+INSERT→run記録）の結合検証（改善計画T331）。
+
+    run_importのオーケストレーション本体（メイン処理フロー）はこれまでCI未検証で
+    手動E2Eスクリプトでしか確認されていなかった。
+
+    実HTTPは行わない。run_importは毎回2kind×7prefの全14組合せをダウンロード対象にする
+    構造のため、狙った1組合せ（emergency_transport/pref=13）以外はhttpx.AsyncClient.stream
+    をConnectErrorへ差し替えて実ネットワークへ出さず高速に失敗させる。狙った1組合せだけは
+    DATA_DIR（tmp_pathへ差し替え）に事前配置したZIPを使い、download_to_pathの
+    「dest存在時はHTTP省略」でスキップさせる。
+    """
+
+    @staticmethod
+    def _patch_network_to_fail_fast(monkeypatch):
+        def _raise_connect_error(self, method, url, **kwargs):
+            raise httpx.ConnectError("boom", request=httpx.Request(method, url))
+
+        monkeypatch.setattr(httpx.AsyncClient, "stream", _raise_connect_error)
+
+    async def test_writes_route_designations_and_marks_run_succeeded(self, designation_conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
+        self._patch_network_to_fail_fast(monkeypatch)
+        _write_n10_zip(tmp_path / "emergency_transport_13.zip", "13")
+
+        result = await run_import(TEST_DATABASE_URL, dry_run=False)
+
+        assert result == 0
+        rows = await designation_conn.fetch("SELECT kind, pref_code, name, source FROM route_designations")
+        assert [dict(r) for r in rows] == [
+            {"kind": "emergency_transport", "pref_code": "13", "name": "テスト緊急輸送道路", "source": "ksj_n10"}
+        ]
+        run_rows = await designation_conn.fetch(
+            "SELECT kind, source, status, designation_count FROM designation_import_runs"
+        )
+        # ダウンロードに成功した1組合せぶんだけrunが記録される（失敗した13組合せは
+        # zip_pathsに入らずrun記録対象外、import_designations.py: run_import参照）。
+        assert len(run_rows) == 1
+        assert run_rows[0]["kind"] == "emergency_transport"
+        assert run_rows[0]["source"] == "ksj_n10"
+        assert run_rows[0]["status"] == "succeeded"
+        assert run_rows[0]["designation_count"] == 1
+
+    async def test_dry_run_does_not_touch_db(self, designation_conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
+        self._patch_network_to_fail_fast(monkeypatch)
+        _write_n10_zip(tmp_path / "emergency_transport_13.zip", "13")
+
+        result = await run_import(TEST_DATABASE_URL, dry_run=True)
+
+        assert result == 0
+        assert await designation_conn.fetchval("SELECT count(*) FROM route_designations") == 0
+        assert await designation_conn.fetchval("SELECT count(*) FROM designation_import_runs") == 0
+
+    async def test_returns_error_when_nothing_downloaded(self, tmp_path, monkeypatch):
+        # DATA_DIRが空でHTTPも全滅（実ネットワークへは出ない）なら、DB接続を試みず
+        # run_importが1を返すことを確認する（DB fixture不要＝DB未起動でも実行できるテスト）。
+        monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
+        self._patch_network_to_fail_fast(monkeypatch)
+
+        result = await run_import(TEST_DATABASE_URL, dry_run=False)
+
+        assert result == 1
+
+    async def test_marks_run_failed_and_reraises_when_insert_fails(self, designation_conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
+        self._patch_network_to_fail_fast(monkeypatch)
+        _write_n10_zip(tmp_path / "emergency_transport_13.zip", "13")
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        # asyncpg.Connectionはインスタンス属性の上書きを許さない（__slots__）ため、
+        # クラス側のメソッドをmonkeypatchする（このファイルの既存テストと同じ手法）。
+        monkeypatch.setattr(asyncpg.Connection, "executemany", _boom)
+
+        with pytest.raises(RuntimeError):
+            await run_import(TEST_DATABASE_URL, dry_run=False)
+
+        run_row = await designation_conn.fetchrow("SELECT status FROM designation_import_runs")
+        assert run_row["status"] == "failed"
+        assert await designation_conn.fetchval("SELECT count(*) FROM route_designations") == 0

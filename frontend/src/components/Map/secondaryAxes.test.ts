@@ -78,4 +78,45 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     const axes = secondaryAxesFromCatalogAxes(catalogAxes);
     expect(axes.some((axis) => axis.axisId === "unset_axis")).toBe(true);
   });
+
+  // コードレビュー指摘の修正（secondaryAxes.tsのコメント参照）: T308でaxis_display_for()が
+  // 全公開軸に対して常に非nullを返すようになった結果、`display !== null`だけのフィルタでは
+  // category="動的"（wind等、複数材料から合成した推定指標ではなく生の外部データそのもの）を
+  // 除外できなくなっていた不具合の回帰テスト。
+  describe("「動的」軸除外フィルタ（コードレビュー指摘の修正）", () => {
+    it("category=動的の軸は推定指標グループの一覧から除外される", () => {
+      const catalogAxes: CatalogAxis[] = [
+        {
+          axis_id: "wind",
+          category: "動的",
+          display: { kind: "none", label: "風", category: "weather", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        },
+        {
+          axis_id: "gradient",
+          category: "推定",
+          display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        },
+      ];
+
+      const axes = secondaryAxesFromCatalogAxes(catalogAxes);
+      expect(axes.some((axis) => axis.axisId === "wind")).toBe(false);
+      expect(axes.some((axis) => axis.axisId === "gradient")).toBe(true);
+    });
+
+    it("既存軸（静的フォールバック）にはcategory=動的の軸が含まれない（windは推定指標チップグループに出ない）", () => {
+      expect(SECONDARY_AXES.some((axis) => axis.axisId === "wind")).toBe(false);
+    });
+
+    it("category=動的以外の軸はdisplay!==nullかつshow_map_icon!==falseであれば除外されない", () => {
+      const catalogAxes: CatalogAxis[] = [
+        {
+          axis_id: "car_stress",
+          display: { kind: "ramp", label: "車の圧迫感", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        },
+      ];
+
+      const axes = secondaryAxesFromCatalogAxes(catalogAxes);
+      expect(axes.some((axis) => axis.axisId === "car_stress")).toBe(true);
+    });
+  });
 });

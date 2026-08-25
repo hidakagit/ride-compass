@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useWeatherGrid } from "./useWeatherGrid";
 import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
-import { WIND_GRID_SPACING_DEG } from "@/components/Map/windLayer";
+import { WIND_GRID_SPACING_DEG, type MapViewport } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 vi.mock("@/services/weatherApi", () => ({
@@ -107,6 +107,71 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
       await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
       expect(getWindGridDetail).toHaveBeenCalledWith(expect.anything(), 0.0025);
       expect(result.current.effectiveGridSpacingDeg).toBe(0.0025);
+    });
+  });
+
+  describe("詳細格子の失敗フォールバック・間隔変更時のリセット（改善計画T331）", () => {
+    it("詳細格子の取得に失敗すると、エラー表示はせずdetailGridを空にして粗い格子へ静かにフォールバックする", async () => {
+      vi.mocked(getWindGrid).mockResolvedValue([point({ latitude: 35.0, longitude: 139.0 })]);
+      vi.mocked(getWindGridDetail).mockResolvedValueOnce([point()]);
+
+      const { result, rerender } = renderHook(
+        ({ viewport }: { viewport: MapViewport }) => useWeatherGrid(true, viewport),
+        { initialProps: { viewport: { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 } } }
+      );
+
+      // まず正常系: 詳細格子が1件取得できることを確認してから、続く再取得を失敗させる。
+      await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
+      expect(result.current.effectiveGrid).toEqual(result.current.detailGrid);
+
+      vi.mocked(getWindGridDetail).mockRejectedValueOnce(new Error("open-meteo 429"));
+      rerender({ viewport: { west: 139.71, south: 35.61, east: 139.81, north: 35.71, zoom: 13 } });
+
+      await waitFor(() => expect(result.current.detailGrid).toHaveLength(0));
+      // 補助的な機能のため、詳細格子側の失敗はerrorへ反映されず、effectiveGridは粗い格子へ
+      // 静かにフォールバックする（フックのUseWeatherGridResult.errorのドキュメント参照）。
+      expect(result.current.error).toBeNull();
+      expect(result.current.effectiveGrid).toEqual(result.current.grid);
+      expect(result.current.effectiveGridSpacingDeg).toBe(WIND_GRID_SPACING_DEG);
+    });
+
+    it("ズームをまたいで格子間隔が変わると、直前の間隔の詳細格子点を穴埋め用に持ち越さない", async () => {
+      vi.mocked(getWindGrid).mockResolvedValue([point({ latitude: 35.0, longitude: 139.0 })]);
+      // ビューポート中心と同じ座標にして、ズーム13→19どちらのclampWindDetailBboxでも
+      // 確実にbbox内へ収まるようにする（間隔が変わってもbbox内に「居続ける」点でないと、
+      // 「間隔が変わったから捨てた」のか「bbox外に出たから捨てた」のか区別できないため）。
+      const centerPoint = point({ latitude: 35.65, longitude: 139.725 });
+      vi.mocked(getWindGridDetail).mockResolvedValueOnce([centerPoint]);
+
+      const { result, rerender } = renderHook(
+        ({ viewport }: { viewport: MapViewport }) => useWeatherGrid(true, viewport),
+        {
+          initialProps: {
+            viewport: { west: 139.6, south: 35.55, east: 139.85, north: 35.75, zoom: 13 },
+          },
+        }
+      );
+
+      await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
+      expect(result.current.effectiveGridSpacingDeg).toBe(0.01);
+
+      // 同じビューポート範囲のままズームだけを19へ上げる（spacingDeg 0.01→0.0025）。
+      // 今回のfetchは空配列（一時的に取得できなかった状態）を返す——間隔が変わらなければ
+      // mergeWindGridKeepingStaleがcenterPointを穴埋め用に持ち越しdetailGridは1件のままの
+      // はずだが、間隔が変わった場合は持ち越し自体をリセットする実装（useWeatherGrid.ts:
+      // spacingChanged判定）のため、0件になるべき（0件になるとeffectiveGridSpacingDegは
+      // detailGridが空の間の既定フォールバックであるWIND_GRID_SPACING_DEGへ戻る。これは
+      // 別テスト「ズームが...未満のビューポートでは詳細格子を取得しない」で確認済みの
+      // 既存の意図した挙動なので、ここではリクエストに使われたspacingDeg自体
+      // （新しい間隔0.0025でリクエストされたこと）とdetailGridが0件になったことを見る）。
+      vi.mocked(getWindGridDetail).mockResolvedValueOnce([]);
+      rerender({
+        viewport: { west: 139.6, south: 35.55, east: 139.85, north: 35.75, zoom: 19 },
+      });
+
+      await waitFor(() => expect(getWindGridDetail).toHaveBeenLastCalledWith(expect.anything(), 0.0025));
+      await waitFor(() => expect(result.current.detailGrid).toHaveLength(0));
+      expect(result.current.effectiveGridSpacingDeg).toBe(WIND_GRID_SPACING_DEG);
     });
   });
 });
