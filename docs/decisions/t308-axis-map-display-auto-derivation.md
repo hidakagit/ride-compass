@@ -121,6 +121,42 @@ ramp表示には単純化できない（時間表現は`DynamicLayerTimeSlider`�
 T289）が、将来方向依存材料が追加された際に安全側へ倒す型的な安全弁として今のうちに
 用意する。
 
+### 凡例・色分けの描画方法自体は既に汎用化済み（残る手動属性はunit/categoryの2つ）
+
+ユーザーからの確認事項: 「地図の凡例や描画方法はどうメンテナンスするのか」。
+
+調査の結果、**凡例（色スウォッチ付きのラベル一覧）・実際の色分け（線の色）は、
+軸ごとの手書きが一切無い、既に完全に汎用化された仕組み**であることを確認した
+（`frontend/src/components/Map/axisLayers.ts`）:
+
+- 色: `rampColorForBand(index, bandCount)`が、4色のアンカーを`bandCount`
+  （＝`thresholds.length + 1`）段階へ線形補間するだけの純粋関数。軸ごとの色指定は
+  存在しない。`buildAxisRampColorExpression`がこれを使ってMapLibreの`step`式を組み立てる。
+- 凡例ラベル: `buildAxisRampLegend`が`axis.thresholds`と`axis.unit`から
+  「1〜2回/km」「4回/km以上」のような区間表記を機械的に生成する（`axisRampBandLabel`）。
+  `hasUnknownFallback`な軸は末尾に「不明」（灰色固定）エントリを自動追加する。
+
+つまり、**Gap 2（`tile_inputs`/`thresholds`の自動導出）さえ解決すれば、凡例・色分けは
+追加の実装・メンテナンスなしにそのまま動く**。ここは当初の設計で明示していなかった点で、
+ユーザーの確認により言語化できた。
+
+ただし`AxisDisplaySpec`には、材料構成から機械的に導出できない**2つの属性**が残る:
+
+- `unit`（凡例ラベルの単位、例:「回/km」「件/km」）。既定値は空文字列（単位なし表記でも
+  破綻しない）だが、意味のある単位を出したい場合は軸ごとの人手入力が要る。
+- `category`（`MapLayerCategory`、フロント側は`roadCondition`/`trafficSafety`/
+  `bicycleInfra`/`terrain`/`amenity`/`weather`の6値に閉じたUnion型。地図レイヤーパネル内の
+  並び順キー、`MAP_LAYER_CATEGORY_ORDER`参照）。どのテーマ区分に属すべきかは人間の
+  判断が要る。
+
+**対応方針**: 両方とも`axis_display_for()`の既定値（`unit=""`、`category="trafficSafety"`
+——現行`AxisDisplaySpec.category`のPydantic既定値と同じ）へフォールバックさせれば、
+GUI作成軸でも安全に動作する（表示は多少素っ気なくなるが破綻はしない）。より丁寧に
+出したい場合は、`AxisComposer.tsx`へ`unit`（任意テキスト入力）・`category`
+（6値からの選択、既定`trafficSafety`）の2フィールドを追加する案がある。必須要件では
+なく、Stage B実装時の付随改善として扱う（下記「軸スタジオへの付随改善案」と合わせて
+検討）。
+
 ### 軸スタジオ（GUI）への付随改善案（必須要件ではない）
 
 `AxisComposer.tsx`の材料選択肢は`GET /api/material-catalog`由来で内部詳細
@@ -160,3 +196,6 @@ T289）が、将来方向依存材料が追加された際に安全側へ倒す�
   踏み込むか（コード削減・二重管理の解消というメリットがある一方、既存の表示が
   一字一句変わらないことの検証コストが増える）、それとも新規GUI軸だけを対象にして
   既存7軸の手書きはそのまま残すか（後者の方が安全でスコープが小さい）。
+- `unit`・`category`（凡例の単位・地図レイヤーパネルの並び順区分、上記「凡例・色分けの
+  描画方法」節参照）を、既定値フォールバックのみで済ませるか、軸スタジオへ入力欄を
+  追加してユーザーが指定できるようにするか。
