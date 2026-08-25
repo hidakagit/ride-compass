@@ -1,4 +1,5 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "./RouteSettingsPanel";
@@ -108,5 +109,43 @@ describe("RouteSettingsPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(onRoutePreferenceChange).not.toHaveBeenCalled();
+  });
+
+  // 改善計画T313回帰テスト: 「バランス以外のルート設定を選択すると、重み配分がMAXに
+  // ならない」不具合。以前はプリセットが言及しない軸をcatalog.defaultWeights（非ゼロ）で
+  // 補っていたため、軸スタジオ経由でプリセット未対応の軸（既存7軸以外）が公開されると、
+  // 非バランスプリセットの重み配分にその軸の既定重みが黙って混入し、対象軸の相対比率が
+  // 意図した値まで上がらなくなっていた。
+  it("非バランスプリセット適用時、プリセットが言及しない軸は0になる（catalog既定重みで薄まらない）", async () => {
+    // 既存7軸に加え、プリセットが一切知らない軸スタジオ発の公開軸`new_axis`を含むカタログ。
+    vi.mocked(getAxisCatalog).mockResolvedValue(
+      catalogResponse([
+        "gradient", "surface_q", "stop_density", "night", "car_stress", "accident", "wind", "new_axis",
+      ]),
+    );
+    const user = userEvent.setup();
+    const onRoutePreferenceChange = vi.fn();
+
+    render(
+      <RouteSettingsPanel
+        hardFilters={DEFAULT_HARD_FILTERS}
+        onHardFiltersChange={vi.fn()}
+        routePreference={{}}
+        onRoutePreferenceChange={onRoutePreferenceChange}
+        overrideEnabled={false}
+        onOverrideEnabledChange={vi.fn()}
+      />,
+    );
+
+    // プリセットボタン自体は静的フォールバックカタログの段階から常に描画されるため、
+    // 実カタログ（new_axisを含む8軸）への切り替わりを軸一覧の描画で待ってからクリックする。
+    await waitFor(() => expect(screen.getByText("ラベル[new_axis]")).toBeInTheDocument());
+    await user.click(screen.getByText("自転車専用道を優先"));
+
+    const applied = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
+    expect(applied).toEqual({
+      gradient: 0.1, surface_q: 0.12, stop_density: 0.22, night: 0.0,
+      car_stress: 0.45, accident: 0.08, wind: 0.03, new_axis: 0,
+    });
   });
 });
