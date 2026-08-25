@@ -100,7 +100,7 @@ describe("AxisStudio", () => {
 
   // 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
   // ON/OFFできるようにして。ヘッダのT310等の文字は消して」）。
-  // 改善計画T328でウィザード化された後は、この項目は最終ステップ（地図表示・公開）に
+  // 改善計画T332でウィザード化された後は、この項目は最終ステップ（地図表示・公開）に
   // あるため、表示名を入力して3ステップ分「次へ」を押してから確認する。
   it("フォームに地図上アイコン表示のON/OFFチェックボックスがあり、既定でONで、見出しに開発用のタスク番号表記が残っていない", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
@@ -136,7 +136,7 @@ describe("AxisStudio", () => {
 
   // 改善計画T322: 「はい/いいえ、または種類ごとに点数を決める」の材料選択にcategorical
   // dtype材料（bicycle_infra等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
-  // 改善計画T328でウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、
+  // 改善計画T332でウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、
   // という3ステップに分かれている。
   it("「はい/いいえ、または種類ごとに点数を決める」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
@@ -162,7 +162,7 @@ describe("AxisStudio", () => {
     expect(screen.getAllByLabelText("値")).toHaveLength(2);
   });
 
-  // 改善計画T328（軸スタジオのウィザード化）: 表示名が空のまま「次へ」を押すと、
+  // 改善計画T332（軸スタジオのウィザード化）: 表示名が空のまま「次へ」を押すと、
   // ステップは進まずエラーが表示される回帰テスト。
   it("ウィザードの1ステップ目で表示名が空のまま「次へ」を押すと進まずエラーが出る", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
@@ -177,7 +177,7 @@ describe("AxisStudio", () => {
     expect(screen.getByText("ステップ 1/4: 基本情報")).toBeInTheDocument();
   });
 
-  // 改善計画T328: 「戻る」で前のステップに戻っても入力済みの値は失われない回帰テスト。
+  // 改善計画T332: 「戻る」で前のステップに戻っても入力済みの値は失われない回帰テスト。
   it("ウィザードで「次へ」→「戻る」しても表示名の入力内容が残る", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
     const user = userEvent.setup();

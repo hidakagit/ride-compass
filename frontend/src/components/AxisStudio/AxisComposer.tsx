@@ -13,7 +13,7 @@ import styles from "./AxisStudio.module.css";
 // 地図表示・公開、という4ステップのウィザードで軸を組み立てる中核機能。既存の
 // `AxisDefinition.shape`（判別union、backend/app/domain/axis_definitions.py）をそのまま
 // GUIの入力欄群へ写す構造は変えず、専門知識のないユーザーにも辿れる導線へ再構成した
-// （改善計画T328、UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」
+// （改善計画T332、UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」
 // への対応。カード選択の文言化でF-2の元ネタT324、地図チップ折れ点のスコア向き説明で
 // T327、旧ドロップダウンの「真偽2値→定数」という食い違った文言の撤去でT326も併せて解消）。
 //
@@ -25,7 +25,7 @@ import styles from "./AxisStudio.module.css";
 
 type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical" | "flag_sum";
 
-// 改善計画T328: 「変換テンプレート(shape)」という技術名のドロップダウンを、
+// 改善計画T332: 「変換テンプレート(shape)」という技術名のドロップダウンを、
 // 「どうやって点数をつけたいか」という利用者視点の質問＋カード選択へ置き換える
 // （旧SHAPE_KIND_DESCRIPTIONSは「用語が何か」の説明だったが、こちらは「どんな時に選ぶか」
 // を主役にする）。recipe_then_breakpoint_linearのみ、内部軸参照という上級者向けの用途の
@@ -283,7 +283,7 @@ interface AxisComposerProps {
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
 
-// 改善計画T328: 4ステップのウィザード。ステップ自体の追加・削除はコード変更を要する
+// 改善計画T332: 4ステップのウィザード。ステップ自体の追加・削除はコード変更を要する
 // （4テンプレート限定の方針と同様、際限のない動的ステップ化は目指さない）。
 const STEPS = ["basic", "shape_kind", "shape_params", "display_publish"] as const;
 type Step = (typeof STEPS)[number];
@@ -311,7 +311,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
-  // 改善計画T328: ステップを進める前の検証。「表示名が無いまま次へ進んで、最後の保存時に
+  // 改善計画T332: ステップを進める前の検証。「表示名が無いまま次へ進んで、最後の保存時に
   // 初めてエラーが出る」という手戻りを避け、該当ステップに留まったまま原因を示す。
   function validateStep(target: Step): string | null {
     if (target === "basic") {
@@ -332,7 +332,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       // 保存時まで待たせない。地図チップの略称(chip_label)欄はこのステップにあるため、
       // ここでチェックする（「基本情報」ステップでチェックすると、まだ入力欄が無い
       // 「地図表示・公開」ステップへ誘導するだけで先へ進めない詰みを生む——実機確認で
-      // 発覚したT328実装時の不具合、修正済み）。
+      // 発覚したT332実装時の不具合、修正済み）。
       if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
         return "表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。";
       }
@@ -357,7 +357,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // 改善計画T328: 最終ステップ以外でのEnterキー送信は「次へ」として扱う
+    // 改善計画T332: 最終ステップ以外でのEnterキー送信は「次へ」として扱う
     // （このコンポーネントは単一の<form>のまま、表示するステップだけを切り替える設計の
     // ため、type="submit"ボタンが常にDOM上に無くても暗黙のフォーム送信は起こりうる）。
     if (step !== "display_publish") {
