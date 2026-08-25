@@ -46,6 +46,21 @@ jobs:
             # HEADのSHAを明示的にコンテナへ渡す（改善計画T263フォローアップ、config.py:
             # settings.git_commit参照）。
             GIT_COMMIT=$(git rev-parse HEAD)
+            # CORS_ALLOWED_ORIGINSの自己修復（改善計画T315）: この値はgit管理外の
+            # VM上の環境変数ファイルで手動管理されており、本番フロントのオリジンと
+            # 食い違うと「ブラウザから直接叩くAPI（例: POST /api/routes/generate）だけが
+            # TypeError: Failed to fetchで即時失敗するが、サーバー間通信を使う画面
+            # [軸スタジオ等]は正常」という診断しづらい障害になる(2026-08-18・
+            # 2026-08-25の2回実際に発生)。デプロイのたびに本番フロントの既知オリジンが
+            # 含まれているか確認し、無ければ追記する（既存の値・他のオリジンは変更しない、
+            # 何度実行しても安全な冪等処理）。
+            ENV_FILE=/home/ubuntu/ridecompass-backend.env
+            REQUIRED_ORIGIN="https://ride-compass-frontend.onrender.com"
+            if ! grep -q "^CORS_ALLOWED_ORIGINS=" "$ENV_FILE"; then
+              echo "CORS_ALLOWED_ORIGINS=$REQUIRED_ORIGIN" | sudo tee -a "$ENV_FILE" > /dev/null
+            elif ! grep "^CORS_ALLOWED_ORIGINS=" "$ENV_FILE" | grep -qF "$REQUIRED_ORIGIN"; then
+              sudo sed -i "s#^CORS_ALLOWED_ORIGINS=.*#&,$REQUIRED_ORIGIN#" "$ENV_FILE"
+            fi
             sudo docker build -t ridecompass-backend:latest .
             # -t 90: docker stopの既定SIGTERM猶予(10秒)は、ルート生成(通常は数秒〜十数秒、
             # 冷パスは最大316秒実測)の完了を待つには短すぎ、デプロイと処理中リクエストが
