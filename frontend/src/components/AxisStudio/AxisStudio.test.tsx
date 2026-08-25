@@ -1,3 +1,8 @@
+// 改善計画T329: 既定のDOM環境をhappy-domへ変更した際、happy-domはwindow.confirmを
+// 定義せずvi.spyOn(window, "confirm")が失敗した（jsdomはNot implementedスタブとして
+// 関数を持つため成功する）。window.confirmを使う削除確認ダイアログのテストがあるこの
+// ファイルだけ、明示的に従来のjsdomへ戻す。
+// @vitest-environment jsdom
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
