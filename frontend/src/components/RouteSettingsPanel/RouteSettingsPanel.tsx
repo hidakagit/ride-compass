@@ -37,7 +37,7 @@ export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, moto
 
 interface Preset {
   label: string;
-  /** 部分指定可。未言及の軸は`catalog.defaultWeights`で補われる（applyPreset参照）。
+  /** 部分指定可。未言及の軸は0（このプリセットの対象外）で補われる（applyPreset参照）。
    * カタログにまだ無い将来の軸を差し替え不要のまま安全に無視できる。 */
   weights: RoutePreferenceWeights;
 }
@@ -137,9 +137,18 @@ export default function RouteSettingsPanel({
   }
 
   function applyPreset(preset: Preset) {
-    // 未言及の軸はカタログの既定重みで補い、全既知axis_idを常に埋めた状態でbackendへ送る
-    // （T268コメント参照、PRESET定義側の部分指定を許すための必須処理）。
-    const merged: RoutePreferenceWeights = { ...catalog.defaultWeights, ...preset.weights };
+    // 未言及の軸は0（このプリセットの対象外）で補い、全既知axis_idを常に埋めた状態で
+    // backendへ送る（PRESET定義側の部分指定を許すための必須処理、backendのキー完全一致
+    // 検証・RoutePreferenceWeights._check_axis_keys対応）。
+    // 改善計画T313: 以前は0ではなくcatalog.defaultWeightsで補っていたため、軸スタジオで
+    // 新しい公開軸が増えるたびに「自転車専用道を優先」等の非バランスプリセットへその軸の
+    // 既定重みが黙って混入し、重み配分の合計が増えて対象軸（car_stress等）の相対比率が
+    // 意図した値まで上がらなくなる不具合があった（バランスプリセットはweights自体が
+    // catalog.defaultWeightsそのもので全軸を明示済みのため、この変更による影響を受けない）。
+    const zeroFilled: RoutePreferenceWeights = Object.fromEntries(
+      Object.keys(catalog.defaultWeights).map((axisId) => [axisId, 0]),
+    );
+    const merged: RoutePreferenceWeights = { ...zeroFilled, ...preset.weights };
     setLastWeights((prev) => {
       const next = { ...prev };
       for (const [axisId, weight] of Object.entries(merged)) {
