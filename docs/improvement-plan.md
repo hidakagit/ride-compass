@@ -6844,6 +6844,92 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   修正確認後に削除した。
 - 依存: T330（当該テストの新規追加元）。
 
+### - [ ] T336. bicycle_infra材料をcar_stress_bicycle_infra_adjustment内部軸から正規化フラグ材料群へ置き換える 規模M〔P2〕— トリガー: 軸スタジオから自転車インフラ関連の新しい評価軸を作りたい要望が出た時点
+
+- 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  の設計判断（2026-08-26）。`bicycle_infra`材料（`classify_bicycle_infrastructure`、
+  複数タグの優先順位付き分類）を「正規化フラグ材料＋線形結合」で近似したときの
+  一致率を実データ（`osm_raw_ways` 86,642件）で検証し、ズレは0.0127%のみと確認した。
+  評価軸としては新しいプリミティブを追加せず既存の`BreakpointLinearShape`だけで
+  表現できることが分かったが、実装（`car_stress_bicycle_infra_adjustment`内部軸が
+  依然`bicycle_infra`材料を直接参照している）はまだこの方針に追従していない。
+- 内容: `cycleway`/`cycleway:left`/`cycleway:right`/`cycleway:both`/`highway`/
+  `bicycle`から、`cycleway_has_track`/`cycleway_has_lane`/`cycleway_has_shared`/
+  `highway_is_cycleway`等の正規化された真偽値材料を`material_catalog.py`へ追加し、
+  `car_stress_bicycle_infra_adjustment`のshapeを`CategoricalShape(material=
+  "bicycle_infra", ...)`から`BreakpointLinearShape`（正規化材料の重み付き和）へ
+  置き換える。`bicycle_infra`材料自体は地図表示用（`staticAttributeLayers.ts`の
+  凡例）に引き続き必要なため削除しない。
+- 完了条件: `car_stress`軸のスコアが実データで置き換え前とほぼ一致すること（検証済みの
+  0.0127%程度のズレは許容）を確認し、`bicycle_infra`材料が評価軸から参照されなくなる。
+
+### - [ ] T337. cycleway_class材料の未使用状態を整理する 規模S〔P3〕— トリガー: 次に材料関連の整理作業を行う時点
+
+- 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  の調査で判明: `cycleway_class`材料は`axis_definitions.py`のどの軸からも参照されて
+  いないが、`material_catalog.py`に登録済みのため軸スタジオの材料選択肢には現れ続けて
+  いる。選ぶと値ごとのスコア入力（当初のUX課題）に利用者が直面しうる。
+- 内容（着手時に判断）: (a) 削除する、(b) T336と合わせて正規化フラグ材料へ置き換えて
+  実際に使えるようにする、(c) 現状のまま「登録されているが未使用」を許容する、の
+  いずれか。実データではズレ0.0012%とT336同様に正規化で近似可能なことは確認済み。
+
+### - [ ] T338. designation材料（3値カテゴリ）の未使用状態を整理する 規模S〔P3〕— トリガー: 次に材料関連の整理作業を行う時点
+
+- 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  の調査で判明: `designation`材料（`emergency_transport`/`critical_logistics`/`both`の
+  3値）はどの評価軸からも参照されておらず、既に単純化済みの`is_designated`（真偽値）が
+  代わりに使われている。実データで"both"が35.01%という高頻度で発生し、他の
+  categorical材料と異なりAND条件が構造的に頻発するため、正規化＋線形結合による近似は
+  そのままでは不向き。
+- 内容（着手時に判断）: T337と同様、削除するか、評価目的では使わず表示専用の材料として
+  明示的に位置づけ直すか（`GET /api/material-catalog`のレスポンスから表示専用フラグで
+  除外する等）を判断する。
+
+### - [ ] T339. 材料抽出（extractor）の完全宣言駆動化 規模M〜L〔P2〕— トリガー: 次に単純な新規材料を追加する要望が出た時点
+
+- 背景: T280で`MaterialSpec.extractor`により「材料→抽出関数」の対応表は宣言的になったが、
+  関数の中身自体は依然手書きのPythonコード。実際には現行17個のextractorのうち15個が
+  「単一タグの生値取得」「タグ値の単純一致判定（`tag_value_is`）」「数値パース
+  （`parse_maxspeed`/`parse_lanes`）」「件数/距離の密度計算」という少数の汎用パターンに
+  分類できる（複雑な組み合わせ分類は`bicycle_infra`/`cycleway_class`の2つのみ、
+  T336・T337参照）。この汎用パターンが宣言的パラメータとして表現できていないため、
+  単純な新規材料（例: 新しいOSMタグを1つ追加するだけ）でも依然Python関数を1つ書く
+  必要が残っている。
+- 内容（候補、着手時に設計判断）: `MaterialSpec`へ`extractor_kind`（例:
+  `"raw_tag"`/`"tag_equals"`/`"count_per_km"`等）＋パラメータ（タグ名・期待値等）の
+  宣言を追加し、対応する汎用extractor実装から動的に関数を組み立てる。既存の複雑な
+  2材料（bicycle_infra/cycleway_class）は引き続き専用関数のままでよい（T336・T337で
+  評価軸からは切り離される想定のため、地図表示専用としてこの宣言化の対象外にできる）。
+- 完了条件: 単純パターンに該当する新規材料1件を、専用のPython関数を書かずに
+  `material_catalog.py`への宣言追加だけで抽出可能にできることを実証する。
+
+### - [ ] T340. highway/surface/smoothnessの値一覧・ラベル提示（軸スタジオの値入力UX改善） 規模M〔P2〕— トリガー: 軸スタジオでこれらの材料を使った新規軸作成の要望が出た時点
+
+- 背景: 2026-08-26のユーザー報告「軸スタジオで、値ごとのスコアを入れるのに、物理名を
+  直接入力はきつい。暗記していない」が発端。`highway`/`surface`/`smoothness`は
+  OSMタグの生値でオープンエンドなため、事前に全量を静的に列挙できない
+  （`bicycle_infra`等の閉じた集合とは異なる、詳細は
+  [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  参照）。
+- 内容（検討済み、未実装）: DBに実際に存在する値を動的取得するAPIを新設し
+  （`_ROAD_SURFACE_TILE_MVT_SQL`の計算式を再利用したクエリが必要、単純な`DISTINCT`
+  では取れない材料もある）、既知の値には日本語ラベルを付与、未知の値はタグ値
+  そのまま表示するフォールバックとする。`AxisComposer.tsx`の値入力欄をテキスト
+  自由入力から選択式へ変更する。
+- 依存: T339（材料抽出の宣言化が先に進むなら、値一覧取得の仕組みもその枠組みに
+  乗せられる可能性がある。ただし本タスクは独立に着手可能）。
+
+### - [ ] T341. 評価軸材料と地図表示カテゴリラベルの分離原則をdocs/architecture.mdへ反映 規模S〔P3〕
+
+- 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  で「評価軸の材料は正規化された生データに統一する」「地図表示用の人間向けカテゴリ
+  ラベルは評価軸の材料とは別レイヤーの関心事として、既存のPython分類ロジック・SQL
+  CASE式をそのまま維持してよい」という原則を確立したが、`docs/architecture.md`の
+  評価システムの説明箇所にはまだ反映されていない。記録が`docs/decisions/`の1ファイルに
+  留まっていると、次にこの領域を触る際に同じ議論を繰り返すリスクが残る。
+- 内容: `docs/architecture.md`の該当節へ、上記原則の要約と
+  `material-normalization-for-axis-composition.md`への参照を追記する。
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構
