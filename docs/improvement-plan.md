@@ -6318,7 +6318,7 @@ fetch/mergeで発覚したため、本タスクをT322へ改番して重複を�
   検証: backend pytest 1137 passed、ruff clean。frontend vitest 524 passed、eslint/tsc
   clean。
 
-### - [ ] T329. テスト実行コストの是正 規模S（未着手）
+### - [x] T329. テスト実行コストの是正 規模S（実装完了）
 
 - 背景: 上記監査（T328と同じ成果物）で、テスト実行時間そのものへの懸念を受けてコスト面も
   調査した。結論として**削減すべき冗長テストはほぼ見つからなかった**（「モック比率が
@@ -6346,6 +6346,12 @@ fetch/mergeで発覚したため、本タスクをT322へ改番して重複を�
   test_basemap_routes.pyの該当テストがdocs/testing.mdのパターンに従う形へ修正されている
   こと。
 - 依存: T321（監査の発端）。
+- **実装メモ（2026-08-25完了）**: (a)(b)を実施した時点で当該テスト単体が42.75秒→1.31秒
+  （約97%減）まで縮み、想定より大幅に改善したため(c)の`slow`マーカー導入は不要と判断し
+  見送った。`test_basemap_refresh_is_rate_limited_per_client`も
+  `test_basemap_proxy_is_rate_limited_per_client`と同じ形（`rate_limiter.check_rate_limit`
+  で上限-1件を埋め、実HTTPは境界の1〜2回）へ揃えた。検証: backend pytest
+  **全体で52.56秒→11.65秒（約78%短縮）**、1137 passed、ruff clean。
 
 ### - [ ] T330. テストカバレッジ欠落の是正（影響度「高」・複数レビューで確認済み） 規模M（未着手）
 
