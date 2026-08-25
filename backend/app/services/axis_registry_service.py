@@ -207,9 +207,11 @@ class AxisRegistryAdminService:
         if axis_id in existing:
             # 改善計画T271: 公開済み軸の削除も不変制約の対象（updateと同じ理由）。
             check_publish_immutability(existing[axis_id], "deleted")
-        # route_preference.yamlや既存のAPIリクエストがこのaxis_idを重みキーとして参照して
-        # いた場合、削除直後からRoutePreferenceのバリデーション（unknown key）でルート生成が
-        # 壊れうる。この整合性チェックは意図的に実装しない——公開済み軸は上のガードで
+        # 既存のAPIリクエストがこのaxis_idを重みキーとして参照していた場合、削除直後から
+        # RoutePreferenceのバリデーション（unknown key）でルート生成が壊れうる（改善計画T316:
+        # 上書き無しの既定値は常にAXIS_DEFINITIONS由来へ一本化済みのため、この経路は
+        # 上書きしているクライアントのみが対象）。この整合性チェックは意図的に実装しない——
+        # 公開済み軸は上のガードで
         # そもそも削除できず、削除できるのは常に下書き（is_published=False、一般ユーザー
         # からは`GET /api/axis-catalog`経由で見えていない）軸のみのため、削除時点で
         # 一般ユーザーの保存設定がこのaxis_idを参照している状況自体が起こらない

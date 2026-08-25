@@ -16,7 +16,8 @@
   night_weightをそのまま、日中なら0倍にして合成する（wind_penaltyと同じ
   `wind_segment["arrival_time"]`を流用、追加の到達時刻計算は行わない）。RoadGraphEngineは
   出発時刻1点のみで昼夜を判定しルート全体へ一様適用する（同じ到達時刻未確定の制約）
-- `road_score`・`segments[].road_surface_good`・区間難易度の重み（route_preference.yaml）は
+- `road_score`・`segments[].road_surface_good`・区間難易度の重み（RoutePreference、
+  改善計画T316で既定値の情報源をAXIS_DEFINITIONSへ一本化）は
   両エンジンで定義を統一済み（不明路面は分母から除外・難易度なし扱い。domain/road.py参照）。
   路面判定そのものも、本エンジンのサンプル点を自前DBのEdgeへ空間マッチ（`RoadGraphRepository.
   get_nearest_surface_tags`）して読むOSMタグ語彙に統一されている（改善計画T21。以前は
@@ -289,7 +290,8 @@ class OpenRouteServiceEngine:
         accident_years_covered: int,
         route_geometry: dict,
     ) -> list[RouteSegmentDetail]:
-        # 区間難易度の合成重みはroute_preference.yaml（Edge単位の絶対評価用の重み）を使う。
+        # 区間難易度の合成重みはRoutePreference（Edge単位の絶対評価用の重み、既定値は
+        # load_route_preference→AXIS_DEFINITIONS由来）を使う。
         # 以前はscoring.yaml（候補集合内の相対評価用）を流用しており、RoadGraphEngineと
         # 地図の色分けが食い違っていたため、両エンジンでこちらへ統一した。
         preference = self._route_preference

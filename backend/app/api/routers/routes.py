@@ -67,7 +67,7 @@ class ScoringWeights(BaseModel):
 class RoutePreferenceWeights(RootModel[dict[str, float]]):
     """Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
-    route_preference.yamlと同じ。
+    `domain/evaluation.py: RoutePreference`と同じ。
 
     改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
     （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が
@@ -142,7 +142,8 @@ class RouteGenerateRequest(BaseModel):
     distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
-    # §10-1）。省略時はYAML既定値（scoring.yaml / route_preference.yaml）を使う。
+    # §10-1）。省略時はscoring.yaml（おすすめ度）・AXIS_DEFINITIONS由来の既定値
+    # （load_route_preference、改善計画T316）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     scoring_weights: ScoringWeights | None = None
     route_preference: RoutePreferenceWeights | None = None

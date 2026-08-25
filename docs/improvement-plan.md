@@ -5687,6 +5687,47 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   VMへの直接アクセスを持たない）。
 - 依存: T314（同一のユーザー報告「ルート生成失敗する」の別側面、時系列で先に対応）。
 
+### - [x] T316. route_preference.yaml撤廃（既定重みの情報源をAXIS_DEFINITIONSへ一本化） 規模S（実装完了）
+
+- 背景: T314・T315を対応してもなお「変わらずルート生成が失敗する」というユーザー報告が
+  続いた。VM上のbackendログ（`sudo docker logs`）で実際のトレースバックを確認した結果、
+  真因は`pydantic_core.ValidationError: unknown axis_id in weights: ['car_stress',
+  'gradient', 'night', 'stop_density'] (known: ['accident', 'surface_q', 'wind'])`
+  という、通信経路とは全く別の500だった。ユーザーが軸スタジオ経由で意図的に4軸を
+  非公開にしたところ（「今後は公開軸の数を自由に増減させたい、7軸固定は改修意図に
+  反する」という明言あり）、`backend/app/route_preference.yaml`（既存7軸のaxis_idを
+  固定で書いた重み設定ファイル、`load_route_preference()`が読んでいた）が現在の
+  公開軸集合と食い違い、`route_preference`を明示的に上書きしない**全リクエスト**が
+  即500になっていた。
+- この不整合は、一連の改修（T221 Stage D以降）の目的そのもの——「推定軸の特別な扱い・
+  べた書きを撤廃し、軸スタジオから自由に追加・編集・公開/非公開できるようにする」——と
+  真っ向から矛盾する見落としだった。`export_openapi.py`の`preference_defaults`は
+  既に同種の手書きミラーを`default_axis_weights()`（`AXIS_DEFINITIONS`が唯一の
+  情報源）へ置き換え済みだったが、backend自身の`load_route_preference()`だけが
+  この移行から取り残されていた。
+- 対策: `evaluation_service.py: load_route_preference()`を、YAML読み込みをやめ
+  `RoutePreference()`（`weights`の`default_factory=default_axis_weights`が
+  `AXIS_DEFINITIONS`のis_published軸から動的に導出）を返すだけに簡素化。
+  `route_preference.yaml`・`_load_yaml_section`・`ROUTE_PREFERENCE_CONFIG_PATH`・
+  `path`引数を削除（`path`引数は将来の複数プロファイル機能[T307]向けに残していたが、
+  実際の呼び出し元は全て既定パスのみで使っており、T307自体が保留中のためYAGNI
+  判断で削除。復活させる場合は「静的プロファイルファイルも軸増減に追従できる設計」を
+  T307着手時に別途検討する）。関連コメント（`openrouteservice_engine.py`・
+  `axis_registry_service.py`・`routes.py`・`axis_definitions.py`・
+  `registry_defaults.py`）と`docs/architecture.md`（7軸表・重みのキー節・「1本道」の
+  配線経路説明・ファイルツリー・研究インターフェースの上書き節・削除時整合性の節）を
+  同一コミットで追従。
+- 検証: `route_preference.yaml`の値（gradient=0.15等）が元々`AXIS_DEFINITIONS`の
+  `default_weight`と完全一致（手書きミラーとして同期済みだった）していたことを確認
+  した上で、`test_evaluation_service.py`の関連テストを`default_axis_weights()`との
+  比較へ書き換え（新規回帰テストが今回の障害パターン——公開軸が7から変動しても
+  既定値が壊れないこと——を保証）。backend pytest 775 passed（PostGIS統合テストは
+  本セッションにDB接続が無いため除外）、ruff clean、OpenAPI生成物は
+  `RoutePreferenceWeights`のdocstring変更分のみ（`route_preference.yaml`への言及を
+  修正）を反映して再生成・コミット対象に含めた。
+- 依存: T221 Stage D（軸のDB化・軸スタジオそのもの）、T269（`export_openapi.py`の
+  `preference_defaults`が同種の手書きミラーを先行して撤廃済みだった前例）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
