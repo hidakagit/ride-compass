@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
+from app.domain.region import BoundingBox, lonlat_to_tile_pixel, tile_bounds_lonlat, tiles_covering_bbox
 
 
 def test_tile_bounds_lonlat_covers_whole_world_at_zoom_0():
@@ -79,6 +79,63 @@ def test_tiles_covering_bbox_does_not_raise_for_out_of_range_latitude():
     tiles = tiles_covering_bbox(out_of_range_bbox, z)
 
     assert all(0 <= tx < n and 0 <= ty < n for tx, ty in tiles)
+
+
+def test_lonlat_to_tile_pixel_matches_tile_index_of_known_point():
+    # 王子駅付近（test_tile_bounds_lonlat_contains_the_point_it_was_computed_forと同じ点・タイル）。
+    tile_x, tile_y, px, py = lonlat_to_tile_pixel(139.7387, 35.7597, 14)
+
+    assert (tile_x, tile_y) == (14551, 6447)
+    assert 0.0 <= px < 256.0
+    assert 0.0 <= py < 256.0
+
+
+def test_lonlat_to_tile_pixel_near_top_left_corner_is_near_pixel_origin():
+    z, x, y = 12, 3637, 1612
+    bbox = tile_bounds_lonlat(z, x, y)
+    eps = 1e-6  # ちょうど境界だと浮動小数点誤差で隣タイルへこぼれうるため少し内側にずらす
+
+    tile_x, tile_y, px, py = lonlat_to_tile_pixel(bbox.min_longitude + eps, bbox.max_latitude - eps, z)
+
+    assert (tile_x, tile_y) == (x, y)
+    assert px < 1.0
+    assert py < 1.0
+
+
+def test_lonlat_to_tile_pixel_near_bottom_right_corner_is_near_tile_size():
+    z, x, y = 12, 3637, 1612
+    bbox = tile_bounds_lonlat(z, x, y)
+    eps = 1e-6
+    tile_size = 256
+
+    tile_x, tile_y, px, py = lonlat_to_tile_pixel(
+        bbox.max_longitude - eps, bbox.min_latitude + eps, z, tile_size=tile_size
+    )
+
+    assert (tile_x, tile_y) == (x, y)
+    assert px > tile_size - 1.0
+    assert py > tile_size - 1.0
+
+
+def test_lonlat_to_tile_pixel_scales_linearly_with_tile_size():
+    lon, lat, z = 139.7387, 35.7597, 14
+
+    _, _, px_256, py_256 = lonlat_to_tile_pixel(lon, lat, z, tile_size=256)
+    _, _, px_512, py_512 = lonlat_to_tile_pixel(lon, lat, z, tile_size=512)
+
+    assert px_512 == pytest.approx(px_256 * 2)
+    assert py_512 == pytest.approx(py_256 * 2)
+
+
+def test_lonlat_to_tile_pixel_does_not_raise_for_latitude_beyond_mercator_limit():
+    # tiles_covering_bboxと同じく、90度を超える不正な緯度が渡されてもmath domain errorで
+    # クラッシュしない（_MAX_MERCATOR_LATITUDEへクランプされる）。
+    tile_x, tile_y, px, py = lonlat_to_tile_pixel(139.0, 95.0, 5)
+
+    assert isinstance(tile_x, int)
+    assert isinstance(tile_y, int)
+    assert 0.0 <= px < 256.0
+    assert 0.0 <= py < 256.0
 
 
 def test_tile_ancestor_maps_finer_tiles_into_their_z12_parent():

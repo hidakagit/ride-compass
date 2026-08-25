@@ -63,6 +63,23 @@ def test_region_accident_tile_rejects_x_at_or_beyond_tile_index_max():
     assert response.status_code == 400
 
 
+def test_region_accident_tile_rejects_y_out_of_range():
+    # test_region_routes.pyのtest_region_road_surface_tile_rejects_y_out_of_rangeと同じ
+    # パターン（region.py側にはy方向の境界テストがある一方、事故タイル側には無く非対称
+    # だったため追加、改善計画T331）。巨大なyは経路パラメータのintパースに失敗し422
+    # （範囲チェックまで到達しない）。domain/region.pyのtile_bounds_lonlatがmath.sinhで
+    # OverflowErrorを送出しうる極端な値を弾く目的自体は、パース可能な範囲内の値
+    # （2**z以上）のケース（rejects_x_at_or_beyond_tile_index_max）で検証済み。
+    app.dependency_overrides[get_accident_service] = lambda: FakeAccidentService()
+
+    try:
+        response = client.get("/api/region/accident-tiles/14/14551/99999999999999999999.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code in (400, 422)
+
+
 def test_region_accident_tile_is_rate_limited_per_client():
     app.dependency_overrides[get_accident_service] = lambda: FakeAccidentService()
 
