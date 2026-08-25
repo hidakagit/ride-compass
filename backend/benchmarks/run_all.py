@@ -31,7 +31,7 @@ from benchmarks import (
 def main() -> None:
     started = time.perf_counter()
 
-    print_report("1/4 find_nearest_node: linear scan scaling", bench_nearest_node.run())
+    print_report("1/4 find_nearest_node_indexed: grid bucket index scaling", bench_nearest_node.run())
     print_report("2/4 build_road_graph: construction scaling", bench_graph_build.run())
     print_report(
         "3/4 RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", bench_route_trace.run()

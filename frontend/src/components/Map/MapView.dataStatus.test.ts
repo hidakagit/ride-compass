@@ -1,8 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { LAYER_DATA_SOURCES, isRoadSurfaceGroupVisible } from "./MapView";
-import { ROAD_SURFACE_SHARED_LAYER_IDS } from "./mapLayers";
+import { RAMP_AXES } from "./axisLayers";
+import { buildLayerDataSources, isRoadSurfaceGroupVisible } from "./MapView";
+import { buildRoadSurfaceSharedLayerIds } from "./mapLayers";
 import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
+
+// ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
+// 入力に組み立てた結果。以前のLAYER_DATA_SOURCES/ROAD_SURFACE_SHARED_LAYER_IDS定数と
+// 同じ内容。
+const LAYER_DATA_SOURCES = buildLayerDataSources(RAMP_AXES);
+const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES);
 
 // computeLayerDataStatus（改善計画T87）が読む3メソッドだけを持つフェイクmap。
 // getSourceは「そのsourceが追加済みか」、isSourceLoadedは「保留中のタイル要求が無いか」、
@@ -193,5 +200,14 @@ describe("isRoadSurfaceGroupVisible", () => {
     "公開した新規ramp軸を反映した実行時リストを渡せることの回帰テスト）", () => {
     expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, ["axis:new_gui_axis"])).toBe(true);
     expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
+  });
+
+  // 上のテストが示す「静的フォールバック（RAMP_AXES）だけではnew_gui_axisが含まれない」
+  // という既知のズレは、実行時経路（buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes)）
+  // に軸スタジオの公開軸を含む拡張カタログを渡せば正しく解消することを確認する。
+  it("buildRoadSurfaceSharedLayerIdsは軸スタジオの新規公開軸（拡張カタログ）にも追従する", () => {
+    const extraAxis = { ...RAMP_AXES[0], axisId: "new_gui_axis", label: "新規GUI軸" };
+    const extendedRoadSurfaceSharedLayerIds = buildRoadSurfaceSharedLayerIds([...RAMP_AXES, extraAxis]);
+    expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, extendedRoadSurfaceSharedLayerIds)).toBe(true);
   });
 });

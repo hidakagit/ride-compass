@@ -61,216 +61,32 @@ def register_defaults() -> None:
 
 
 def _register_primary_attributes() -> None:
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="highway",
-            label="道路の種類",
-            source="osm",
-            geometry="edge",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="OSM highwayタグ（道路種別）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="lanes",
-            label="車線数",
-            source="osm",
-            geometry="edge",
-            dtype="numeric",
-            update_cadence="on_reimport",
-            description="OSM lanesタグ（車線数）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="maxspeed",
-            label="制限速度",
-            source="osm",
-            geometry="edge",
-            dtype="numeric",
-            update_cadence="on_reimport",
-            description="OSM maxspeedタグ（制限速度、km/h）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="cycleway",
-            label="自転車インフラ",
-            source="osm",
-            geometry="edge",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="OSM cycleway/cycleway:left/right/bothタグ（自転車インフラ種別の材料）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="surface",
-            label="路面の種類",
-            source="osm",
-            geometry="edge",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="OSM surfaceタグ（路面材質）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="bicycle_access",
-            label="自転車通行可否",
-            source="osm",
-            geometry="edge",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="OSM bicycleタグ（自転車の通行可否・分類）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="motor_vehicle_access",
-            label="自動車通行可否",
-            source="osm",
-            geometry="edge",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="OSM motor_vehicleタグ（自動車の通行可否）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="lit",
-            label="街灯",
-            source="osm",
-            geometry="edge",
-            dtype="boolean",
-            update_cadence="on_reimport",
-            description="OSM litタグ（街灯の有無）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="tunnel",
-            label="トンネル",
-            source="osm",
-            geometry="edge",
-            dtype="boolean",
-            update_cadence="on_reimport",
-            description="OSM tunnelタグ（トンネルの有無）",
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="oneway",
-            label="一方通行",
-            source="osm",
-            geometry="edge",
-            dtype="boolean",
-            update_cadence="on_reimport",
-            description=(
-                "OSM onewayタグ（oneway:bicycleによるcontraflow例外込みでosm_adapter.py: "
-                "_resolve_directionが解決済み）。逆方向は既にbuild_road_graphがEdge自体を"
-                "生成しないため探索の正しさには無関係で、表示専用の一次属性（改善計画T289）。"
-                "どの評価軸のinputsにも含めない。"
-            ),
-            ingest_fn="app.domain.osm_adapter.osm_way_to_way_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="designation",
-            label="指定路線",
-            source="kokudo_suuchi",
-            geometry="edge",
-            dtype="categorical",
-            update_cadence="yearly",
-            description="国土数値情報 N10（緊急輸送道路）・N12（重要物流道路）該当フラグ",
-            ingest_fn="app.batch.match_designations",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="elevation",
-            label="標高",
-            source="gsi",
-            geometry="edge",
-            dtype="numeric",
-            update_cadence="static",
-            description="国土地理院 標高API由来のEdge単位勾配（average_grade等）",
-            ingest_fn="app.services.elevation_attribute_service",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="stop_poi",
-            label="停止要因",
-            source="osm",
-            geometry="point",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="信号・横断歩道・一時停止・踏切のnode（静的道路属性P1）",
-            ingest_fn="app.domain.osm_adapter.osm_node_to_poi_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="supply_poi",
-            label="補給・休憩ポイント",
-            source="osm",
-            geometry="point",
-            dtype="categorical",
-            update_cadence="on_reimport",
-            description="補給・休憩POI（コンビニ・自販機・トイレ・給水・駐輪場、T101）。"
-            "スコア化はせず表示レイヤーとしてのみ使う（設計プロンプトの制約）ため、"
-            "本レジストリでは軸から参照されない一次属性として登録するのみ。",
-            ingest_fn="app.domain.osm_adapter.osm_node_to_poi_spec",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="accident_point",
-            label="事故地点",
-            source="npa_accident",
-            geometry="point",
-            dtype="categorical",
-            update_cadence="yearly",
-            description="警察庁交通事故統計の事故地点データ",
-            ingest_fn="app.batch.import_accidents",
-        )
-    )
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="intersection",
-            label="交差点",
-            source="osm",
-            geometry="point",
-            dtype="numeric",
-            update_cadence="on_reimport",
-            description="次数3以上のroad_node（交差点、OSMの道路網トポロジーから導出。専用テーブルなし）",
-            ingest_fn=None,
-        )
-    )
+    # 死コード監査（過去の監査）で、各PrimaryAttributeSpecからsource/geometry/dtype/
+    # update_cadence/description/ingest_fnを削除した（唯一の消費者export_openapi.pyは
+    # attr_id/label/sharedの3つしか書き出しておらず、これらは宣言されているだけで
+    # 実際には誰にも消費されていなかった。詳細はdomain/registry.py: PrimaryAttributeSpec
+    # docstring参照）。
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="highway", label="道路の種類"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="lanes", label="車線数"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="surface", label="路面の種類"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="bicycle_access", label="自転車通行可否"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="lit", label="街灯"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="tunnel", label="トンネル"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="oneway", label="一方通行"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="designation", label="指定路線"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="elevation", label="標高"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="stop_poi", label="停止要因"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="supply_poi", label="補給・休憩ポイント"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="accident_point", label="事故地点"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="intersection", label="交差点"))
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="geometry",
             label="区間形状",
-            source="osm",
-            geometry="edge",
-            dtype="geometry",
-            update_cadence="on_reimport",
-            description="区間の形状・距離（全軸が参照してよい共通コンテキスト、排他チェック対象外）",
-            ingest_fn=None,
-            shared=True,
+            shared=True,  # 区間の形状・距離（全軸が参照してよい共通コンテキスト、排他チェック対象外）
         )
     )
 

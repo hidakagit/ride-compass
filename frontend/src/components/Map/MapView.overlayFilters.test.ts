@@ -3,15 +3,21 @@
 // Map/*.test.tsと違いjsdom環境が必要（既定のまま。node環境docblockを付けない）。
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
-import { axisLineLayerId } from "@/components/Map/axisLayers";
+import { RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
 import {
   BICYCLE_INFRA_LAYER_ID,
-  STATIC_OVERLAY_LAYERS,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
+  buildAxisOverlayLayers,
+  buildStaticOverlayLayers,
   setStaticOverlayFilters,
 } from "./MapView";
-import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "./staticAttributeLayers";
+import { buildStaticFilterAxes, type StaticFilterAxisId } from "./staticAttributeLayers";
+
+// ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
+// 入力に組み立てた結果。以前のSTATIC_OVERLAY_LAYERS/STATIC_FILTER_AXES定数と同じ内容。
+const STATIC_OVERLAY_LAYERS = buildStaticOverlayLayers(buildAxisOverlayLayers(RAMP_AXES));
+const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 
 // setStaticOverlayFiltersが読む最小限のmapフェイク。__rcStyleReady=trueでrunWhenStyleReadyの
 // 即時実行分岐を通す（MapView.dataStatus.test.tsのfakeMapと同じ発想）。

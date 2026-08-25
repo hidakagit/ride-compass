@@ -26,7 +26,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
-import { AXIS_RAMP_COLORS, RAMP_AXES, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
+import { AXIS_RAMP_COLORS, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 
 const COLOR_UNKNOWN = "#9ca3af";
@@ -403,8 +403,9 @@ export interface StaticFilterAxis {
 }
 
 // 改善計画T308: ramp軸ぶん（末尾のspread）が実行時フェッチのrampAxes（軸スタジオの
-// 公開軸を含む）に追従できるよう関数化した。STATIC_FILTER_AXESはビルド時静的
-// フォールバック（RAMP_AXES）で呼んだ結果を指す後方互換export（テスト・フォールバック用）。
+// 公開軸を含む）に追従できるよう関数化した。テスト（staticAttributeLayers.test.ts、
+// MapView.overlayFilters.test.ts、MapLayersPanel.test.tsx）からはbuildStaticFilterAxes
+// (RAMP_AXES)として直接呼べる。
 export function buildStaticFilterAxes(rampAxes: readonly RampAxis[]): readonly StaticFilterAxis[] {
   return [
     { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
@@ -434,5 +435,3 @@ export function buildStaticFilterAxes(rampAxes: readonly RampAxis[]): readonly S
     })),
   ];
 }
-
-export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = buildStaticFilterAxes(RAMP_AXES);

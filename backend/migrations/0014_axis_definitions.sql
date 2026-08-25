@@ -13,7 +13,7 @@
 -- infrastructure/axis_definition_repository.py参照）。sort_orderは合成（composite）の
 -- 加算順として意味を持つ（AXIS_DEFINITIONSの辞書挿入順と同じ、Neumaier加算のビット一致
 -- 条件のため。tests/test_evaluation_bulk.py参照）。
-CREATE TABLE axis_definitions (
+CREATE TABLE IF NOT EXISTS axis_definitions (
     axis_id TEXT PRIMARY KEY,
     sort_order INTEGER NOT NULL,
     shape_params JSONB NOT NULL,
@@ -25,12 +25,12 @@ CREATE TABLE axis_definitions (
 -- インクリメントする。現時点ではプロセス内キャッシュの無効化には使わない
 -- （起動時＋管理API書き込み直後のpush型更新のみのため、同一プロセスではポーリング不要。
 -- ADR「Stage D設計メモ」参照）が、将来のマルチプロセス対応・監査用に記録しておく。
-CREATE TABLE axis_registry_meta (
+CREATE TABLE IF NOT EXISTS axis_registry_meta (
     id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     revision INTEGER NOT NULL DEFAULT 1
 );
 
-INSERT INTO axis_registry_meta (id, revision) VALUES (1, 1);
+INSERT INTO axis_registry_meta (id, revision) VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
 
 -- 既存7軸をdomain/axis_definitions.pyのAXIS_DEFINITIONSからそのまま複製した初期データ
 -- （挙動が変わらないことがStage移行の前提、T239/Part2と同じ原則）。

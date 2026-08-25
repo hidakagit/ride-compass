@@ -23,11 +23,11 @@
 -- 同期させる）。値はaxis_definitions.pyから`model_dump(mode="json")`で機械的に
 -- 生成したもの（本migration作成時点、手で書き写していないため転記ミスが無い）。
 ALTER TABLE axis_definitions
-    ADD COLUMN icon_id VARCHAR,
-    ADD COLUMN chip_label VARCHAR,
-    ADD COLUMN panel_hint VARCHAR,
-    ADD COLUMN proxy_hint VARCHAR,
-    ADD COLUMN display_override JSONB;
+    ADD COLUMN IF NOT EXISTS icon_id VARCHAR,
+    ADD COLUMN IF NOT EXISTS chip_label VARCHAR,
+    ADD COLUMN IF NOT EXISTS panel_hint VARCHAR,
+    ADD COLUMN IF NOT EXISTS proxy_hint VARCHAR,
+    ADD COLUMN IF NOT EXISTS display_override JSONB;
 
 UPDATE axis_definitions
     SET icon_id = 'incline',

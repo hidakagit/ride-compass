@@ -64,10 +64,11 @@ async def _measure_async(name: str, coro_fn, *, repeat: int, warmup: int = 0, no
 async def _check_tiles_cached(repository, bbox) -> bool:
     from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox
 
-    for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
-        if not await repository.is_tile_cached(ROAD_GRAPH_TILE_ZOOM, x, y):
-            return False
-    return True
+    # 改善計画T229: is_tile_cached（実行時未使用のため削除済み）ではなく、1クエリで
+    # 判定するget_cached_tilesを使う（road_graph_repository.pyのget_cached_tilesと同じ流儀）。
+    tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+    cached = await repository.get_cached_tiles(ROAD_GRAPH_TILE_ZOOM, tiles)
+    return cached.issuperset(tiles)
 
 
 async def _run_scenario(

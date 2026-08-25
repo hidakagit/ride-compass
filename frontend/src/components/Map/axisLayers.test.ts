@@ -21,7 +21,7 @@ import {
   rampAxesFromCatalogAxes,
   rampColorForBand,
 } from "./axisLayers";
-import { MAP_LAYERS, ROAD_SURFACE_SHARED_LAYER_IDS } from "./mapLayers";
+import { buildMapLayers, buildRoadSurfaceSharedLayerIds } from "./mapLayers";
 
 describe("axisLayers", () => {
   it("カタログのkind=ramp軸（accident・stop_density）が取り込まれている", () => {
@@ -182,9 +182,10 @@ describe("axisLayers", () => {
     expect(unknownEntry!.color).toBe(COLOR_UNKNOWN);
   });
 
-  it("MAP_LAYERSへramp軸のレイヤーが自動で現れる（レジストリ駆動の受け入れ検証）", () => {
+  it("buildMapLayers(RAMP_AXES)へramp軸のレイヤーが自動で現れる（レジストリ駆動の受け入れ検証）", () => {
+    const mapLayers = buildMapLayers(RAMP_AXES);
     for (const axis of RAMP_AXES) {
-      const descriptor = MAP_LAYERS.find((layer) => layer.id === axisMapLayerId(axis.axisId));
+      const descriptor = mapLayers.find((layer) => layer.id === axisMapLayerId(axis.axisId));
       expect(descriptor).toBeDefined();
       expect(descriptor!.label).toBe(axis.label);
       expect(descriptor!.kind).toBe("static");
@@ -192,9 +193,28 @@ describe("axisLayers", () => {
   });
 
   it("ramp軸レイヤーはroad_surfaceタイル共有グループに登録されている", () => {
+    const roadSurfaceSharedLayerIds = buildRoadSurfaceSharedLayerIds(RAMP_AXES);
     for (const axis of RAMP_AXES) {
-      expect(ROAD_SURFACE_SHARED_LAYER_IDS).toContain(axisMapLayerId(axis.axisId));
+      expect(roadSurfaceSharedLayerIds).toContain(axisMapLayerId(axis.axisId));
     }
+  });
+
+  it("buildMapLayers/buildRoadSurfaceSharedLayerIdsは軸スタジオの新規公開軸（拡張カタログ）にも追従する", () => {
+    const extraAxis: RampAxis = {
+      ...RAMP_AXES[0],
+      axisId: "new_gui_axis",
+      label: "新規GUI軸",
+    };
+    const extendedRampAxes: readonly RampAxis[] = [...RAMP_AXES, extraAxis];
+
+    const mapLayers = buildMapLayers(extendedRampAxes);
+    const descriptor = mapLayers.find((layer) => layer.id === axisMapLayerId("new_gui_axis"));
+    expect(descriptor).toBeDefined();
+    expect(descriptor!.label).toBe("新規GUI軸");
+    expect(descriptor!.kind).toBe("static");
+
+    const roadSurfaceSharedLayerIds = buildRoadSurfaceSharedLayerIds(extendedRampAxes);
+    expect(roadSurfaceSharedLayerIds).toContain(axisMapLayerId("new_gui_axis"));
   });
 
   it("IDヘルパーは軸IDから決定的なIDを生成する", () => {

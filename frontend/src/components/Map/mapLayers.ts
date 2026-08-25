@@ -23,7 +23,6 @@
 //   trafficSafetyへ含めるのは意味的に不適切なため独立カテゴリにした
 
 import {
-  RAMP_AXES,
   axisMapLayerId,
   type AxisMapLayerId,
   type RampAxis,
@@ -85,15 +84,6 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
   "amenity",
   "weather",
 ];
-export const MAP_LAYER_CATEGORY_LABELS: Record<MapLayerCategory, string> = {
-  roadCondition: "道路状態",
-  trafficSafety: "交通・安全",
-  bicycleInfra: "自転車インフラ",
-  terrain: "地形",
-  amenity: "補給・施設",
-  // 改善計画T171/T178: 降水ナウキャスト・風（矢印）等、動的グループのメンバー用。
-  weather: "気象",
-};
 
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
  * 推定指標（合成）か、時刻で内容が変わる動的データか。地図上チップの最上位グルーピングに
@@ -165,12 +155,12 @@ export interface MapLayerDescriptor {
 // データ（axis.panelHint、AXIS_DEFINITIONS.panel_hint）へ移設し、既存軸限定の特別扱いを
 // 解消した。axis.note（backendレジストリの実装メモ、開発者向け）をそのまま出すと
 // 読みにくいという実機フィードバックを受け、未設定時のみaxis.noteへフォールバックする
-// （下記MAP_LAYERSのrampAxes.map参照）。
+// （下記buildMapLayersのrampAxes.map参照）。
 
-// 改善計画T308: MAP_LAYERSのramp軸部分はbuildMapLayers(rampAxes)として関数化し、
+// 改善計画T308: ramp軸部分はbuildMapLayers(rampAxes)として関数化し、
 // hooks/useAxisCatalog.tsが実行時に取得したrampAxes（軸スタジオの公開軸を含む）から
-// 呼べるようにした。MAP_LAYERS自体はビルド時静的フォールバック（RAMP_AXES）で
-// 呼んだ結果を指す後方互換export（テスト・フォールバック用）。
+// 呼べるようにした。テスト（axisLayers.test.ts、MapLayersPanel.test.tsx）からは
+// buildMapLayers(RAMP_AXES)として直接呼べる。
 export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayerDescriptor[] {
   return [
   {
@@ -436,10 +426,6 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
   ];
 }
 
-// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。取得完了までの初期表示・
-// フェッチ失敗時、および実行時フェッチを行わない箇所（テスト等）向け。
-export const MAP_LAYERS: readonly MapLayerDescriptor[] = buildMapLayers(RAMP_AXES);
-
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
 /** サイドバーの各レイヤー設定セクション（<details>）のDOM id */
@@ -470,8 +456,8 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
 // 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
-// 改善計画T308: buildMapLayers()と同じ理由で関数化。ROAD_SURFACE_SHARED_LAYER_IDSは
-// ビルド時静的フォールバックで呼んだ結果を指す後方互換export。
+// 改善計画T308: buildMapLayers()と同じ理由で関数化。テスト（axisLayers.test.ts、
+// MapView.dataStatus.test.ts）からbuildRoadSurfaceSharedLayerIds(RAMP_AXES)として直接呼べる。
 export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {
   return [
     "roadType",
@@ -485,5 +471,3 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
     ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),
   ];
 }
-
-export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = buildRoadSurfaceSharedLayerIds(RAMP_AXES);

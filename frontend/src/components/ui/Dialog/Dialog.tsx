@@ -14,17 +14,15 @@ import { cn } from "@/lib/cn";
 // z-indexは既存のBottomSheet(45)より上、地図UIより確実に前面に出るTailwindのz-50を使う。
 
 export const DialogRoot = RadixDialog.Root;
-export const DialogTrigger = RadixDialog.Trigger;
 
 interface DialogContentProps {
   title: string;
   hideTitle?: boolean;
-  description?: string;
   children: React.ReactNode;
   className?: string;
 }
 
-export function DialogContent({ title, hideTitle, description, children, className }: DialogContentProps) {
+export function DialogContent({ title, hideTitle, children, className }: DialogContentProps) {
   return (
     <RadixDialog.Portal>
       <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
@@ -39,11 +37,6 @@ export function DialogContent({ title, hideTitle, description, children, classNa
         <RadixDialog.Title className={hideTitle ? "sr-only" : "text-[length:var(--font-size-md)] font-semibold"}>
           {title}
         </RadixDialog.Title>
-        {description && (
-          <RadixDialog.Description className="mt-1 text-[length:var(--font-size-sm)] text-[var(--color-muted)]">
-            {description}
-          </RadixDialog.Description>
-        )}
         <div className="mt-3">{children}</div>
         <RadixDialog.Close
           aria-label="閉じる"

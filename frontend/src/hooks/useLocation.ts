@@ -61,7 +61,10 @@ export function useLocation(): UseLocationResult {
       },
       () => {
         if (requestId !== latestGeolocationRequestId.current) return;
-        setLocationSource("default");
+        // no-op削除（デッドコード監査、2026-08-25）: ここに来る時点でlocationSourceは
+        // 初期値"default"のまま変化しえない（成功コールバックとは排他、かつ上のrequestId
+        // チェックによりhandleLocateMe由来の後発リクエストに追い越されていた場合は既に
+        // returnしている）ため、setLocationSource("default")は常にno-opだった。
         setLocationReady(true);
       },
       { timeout: GEOLOCATION_TIMEOUT_MS }

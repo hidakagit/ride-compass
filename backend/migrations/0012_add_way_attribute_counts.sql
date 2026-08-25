@@ -16,14 +16,14 @@
 -- 適用後はbackend/app/batch/precompute_way_attribute_counts.pyの実行が必須（適用しただけ
 -- ではテーブルが空のまま、edge_attribute_counts等と同じ運用）。accident_points/
 -- osm_raw_pois/osm_raw_waysのいずれかが変わった場合（PBF再取込等）は再実行が必要。
-CREATE TABLE raw_intersection_nodes (
+CREATE TABLE IF NOT EXISTS raw_intersection_nodes (
     osm_node_id bigint PRIMARY KEY,
     degree integer NOT NULL,
     geom geometry(Point, 4326) NOT NULL
 );
-CREATE INDEX idx_raw_intersection_nodes_geom ON raw_intersection_nodes USING gist (geom);
+CREATE INDEX IF NOT EXISTS idx_raw_intersection_nodes_geom ON raw_intersection_nodes USING gist (geom);
 
-CREATE TABLE way_attribute_counts (
+CREATE TABLE IF NOT EXISTS way_attribute_counts (
     osm_way_id bigint PRIMARY KEY REFERENCES osm_raw_ways(osm_way_id) ON DELETE CASCADE,
     length_m double precision NOT NULL,
     accident_count double precision NOT NULL,

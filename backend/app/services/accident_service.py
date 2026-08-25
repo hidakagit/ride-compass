@@ -1,11 +1,9 @@
-import asyncio
 import logging
 
 from app.domain.region import tile_bounds_lonlat
-from app.infrastructure import tile_cache
 from app.infrastructure.accident_repository import AccidentTileQuery
-from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.vector_tile import encode_empty_accident_tile
+from app.services.tile_serving import serve_cached_tile
 
 logger = logging.getLogger("ridecompass.accident")
 
@@ -35,32 +33,29 @@ class AccidentService:
         self._repository = repository
 
     async def get_accident_tile(self, z: int, x: int, y: int) -> bytes:
-        path = _tile_cache_path(z, x, y)
+        async def fetch_tile(fields: dict) -> bytes | None:
+            if self._repository is None:
+                # repository未接続（road_graph_use_repository無効時）。データ未整備として
+                # 空タイルを返す（ログ方針: 常時WARNING）。
+                logger.warning("事故タイルがrepository未接続のため空タイルを返しました z=%d x=%d y=%d", z, x, y)
+                return None
+            try:
+                tile_bytes = await self._repository.get_accident_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
+            except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する
+                logger.warning("事故タイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
+                fields["postgis"] = "error"
+                fields["postgis_error"] = repr(exc)
+                return None
+            fields["postgis"] = "hit"
+            return tile_bytes
 
-        with log_external_call("accident:tile", z=z, x=x, y=y) as fields:
-            cached = await asyncio.to_thread(tile_cache.get, path)
-            if cached is not None:
-                fields["cache"] = "hit"
-                content, _content_type = cached
-                return content
-            fields["cache"] = "miss"
-
-            if self._repository is not None:
-                try:
-                    tile_bytes = await self._repository.get_accident_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
-                except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する
-                    logger.warning("事故タイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
-                    fields["postgis"] = "error"
-                    fields["postgis_error"] = repr(exc)
-                    return encode_empty_accident_tile()
-                fields["postgis"] = "hit"
-                fields["source"] = "postgis"
-                fields["tile_bytes"] = len(tile_bytes)
-                await asyncio.to_thread(tile_cache.set, path, tile_bytes, ACCIDENT_TILE_CONTENT_TYPE)
-                return tile_bytes
-
-            # repository未接続（road_graph_use_repository無効時）。データ未整備として
-            # 空タイルを返す（ログ方針: 常時WARNING）。
-            logger.warning("事故タイルがrepository未接続のため空タイルを返しました z=%d x=%d y=%d", z, x, y)
-            fields["source"] = "uncovered_empty"
-            return encode_empty_accident_tile()
+        return await serve_cached_tile(
+            z=z,
+            x=x,
+            y=y,
+            cache_path=_tile_cache_path(z, x, y),
+            empty_tile=encode_empty_accident_tile(),
+            content_type=ACCIDENT_TILE_CONTENT_TYPE,
+            external_call_name="accident:tile",
+            fetch_tile=fetch_tile,
+        )

@@ -19,7 +19,7 @@ _client_idが返す値の違いを確認する。
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-import app.api.routers.region as region_module
+import app.api.routers._tile_validation as tile_validation_module
 from app.main import app
 
 FORWARDED_CLIENT_IP = "203.0.113.5"
@@ -33,20 +33,22 @@ def _client_id_seen_by(trusted_hosts) -> str:
     client = TestClient(wrapped)
 
     captured: list[str] = []
-    # ルータは`from app.api.dependencies import client_id`で取り込んだモジュール属性を
-    # 呼び出し時に参照するため、region側のモジュール属性を差し替えれば観測できる。
-    real_client_id = region_module.client_id
+    # ルータのレート制限チェックは`app/api/routers/_tile_validation.py`（region.py/accidents.py
+    # 共有ヘルパー、デッドコード監査で重複統一）が`from app.api.dependencies import client_id`で
+    # 取り込んだモジュール属性を呼び出し時に参照するため、そちらのモジュール属性を
+    # 差し替えれば観測できる。
+    real_client_id = tile_validation_module.client_id
 
     def spy_client_id(request):
         client_id = real_client_id(request)
         captured.append(client_id)
         return client_id
 
-    region_module.client_id = spy_client_id
+    tile_validation_module.client_id = spy_client_id
     try:
         client.get(ROAD_TILE_PATH, headers={"X-Forwarded-For": f"{FORWARDED_CLIENT_IP}, 10.0.0.1"})
     finally:
-        region_module.client_id = real_client_id
+        tile_validation_module.client_id = real_client_id
 
     assert len(captured) == 1
     return captured[0]

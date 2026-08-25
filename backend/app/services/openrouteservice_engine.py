@@ -34,7 +34,7 @@ from app.domain.axis_definitions import car_stress_display_level
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
-from app.domain.geo import haversine_distance_km, sample_line_points
+from app.domain.geo import sample_line_points
 from app.domain.night import night_materials
 from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
@@ -306,13 +306,17 @@ class OpenRouteServiceEngine:
         route_coordinates = route_geometry["coordinates"]
 
         for i in range(len(points) - 1):
-            wind_segment = wind_segments[i] if i < len(wind_segments) else None
-            distance_km = (
-                wind_segment["distance_km"] if wind_segment else haversine_distance_km(points[i], points[i + 1])
-            )
+            # wind_segments/elevations/attributesはいずれもこの候補の同じ点集合points
+            # （長さlen(points)）から構築される（wind_segmentsはlen(points)-1、elevationsは
+            # len(points)、attributesはpoint_counts[i]=len(points)）ため、このループの
+            # 添字i（0..len(points)-2）は常にそれぞれの範囲内に収まる。デッドコード監査で
+            # 境界外ガード（常に真だった防御的チェック）を撤去し直接インデックスアクセスへ
+            # 簡略化した。
+            wind_segment = wind_segments[i]
+            distance_km = wind_segment["distance_km"]
 
-            e1 = elevations[i] if i < len(elevations) else None
-            e2 = elevations[i + 1] if i + 1 < len(elevations) else None
+            e1 = elevations[i]
+            e2 = elevations[i + 1]
             gradient_percent = None
             if e1 is not None and e2 is not None and distance_km > 0:
                 # 符号付き（進行方向基準、登り=正/下り=負）。RoadGraphEngineの
@@ -323,13 +327,13 @@ class OpenRouteServiceEngine:
                 # gradient_difficultyが内部で絶対値を取るため影響しない。
                 gradient_percent = (e2 - e1) / (distance_km * 1000) * 100
 
-            wind_penalty = wind_segment["wind_penalty"] if wind_segment else None
-            arrival_time = wind_segment["arrival_time"] if wind_segment else None
+            wind_penalty = wind_segment["wind_penalty"]
+            arrival_time = wind_segment["arrival_time"]
 
             # 改善計画T78: 6本の平行フラット配列だったsurface_tags/stop_counts/way_tags/
             # intersection_counts/accident_counts/designated_flagsを1つの_PointAttributesへ
-            # 束ねたことで、境界外ガードもここ1箇所に集約された。
-            attr = attributes[i] if i < len(attributes) else _PointAttributes()
+            # 束ねた。
+            attr = attributes[i]
 
             road_surface_good = classify_osm_surface(attr.surface_tag)
             stop_count = attr.stop_count

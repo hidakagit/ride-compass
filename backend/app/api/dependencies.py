@@ -160,6 +160,16 @@ async def get_surface_match_repository():
     # 他の各所（get_elevation_attribute_service等）と同じ「road_graph_use_repository無効時は
     # Noneを注入し、該当評価をスキップさせる」パターン。専用セッションを使う理由も同様
     # （GraphService/ElevationAttributeServiceと同居させる必要が無い読み取り専用アクセスのため）。
+    #
+    # get_graph_service（GraphService、routing_engine=road_graphのルート生成が使う）と違い
+    # 本関数はrepository必須へは一本化していない。本関数の利用元OpenRouteServiceEngineは
+    # routing_engine=openrouteserviceでのみ使われ、その構成はGraphService（DB接続必須、
+    # 改善計画T222）を経由しないため、`else: yield None`（DBなし構成）は
+    # routing_engine=openrouteservice + road_graph_use_repository=False（既定）という
+    # 現在も有効な本番構成の組み合わせで到達する（road_graph_use_repository=falseのDBなし
+    # 構成は、openrouteserviceエンジン専用の運用ではまだ現役。routing_engine=road_graphを
+    # 選ぶ場合はDB接続が必須になる（main.py起動時WARNING参照）ため、その構成でこの設定を
+    # Falseのままにするのは非推奨の組み合わせになる）。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
             yield RoadGraphRepository(session)
@@ -267,6 +277,17 @@ async def get_region_service():
     # Overpassフォールバックは改善計画T22で撤去済み。docs/osm-pbf-import.md Phase 2、
     # docs/decisions/pre-static-attributes-gate.md 決定2改定）。road_graph_use_repository
     # 無効時（DBなし構成）はrepository自体を注入しないため、路面レイヤーは常に空タイルになる。
+    #
+    # 本関数（地図タイル配信）は`routing_engine`設定と無関係に常に呼ばれるため、
+    # get_graph_service（GraphService、routing_engine=road_graphのときのみDB接続必須へ
+    # 一本化済み、改善計画T222）とは独立に`road_graph_use_repository`の値をそのまま見てよい。
+    # `else: yield RegionService()`（DBなし構成）は、routing_engine（ルート生成）の設定に
+    # 関わらず、単に「road_graph_use_repositoryを有効にしていない環境」（DBを持たない
+    # 軽量構成、または各種テスト）で到達する。ただしrouting_engine=road_graphを選ぶ場合は
+    # GraphServiceがこの設定に関わらずDB接続を必須とする（main.py起動時WARNING参照）ため、
+    # 本番でrouting_engine=road_graphかつDB接続済みの環境でこの設定だけFalseのままにすると
+    # 「ルート生成はDBを使うのに地図タイルは常に空」という一貫性の無い構成になる
+    # （運用上は非推奨だが、コード上はエラーにならず空タイルを返し続けるだけで安全側）。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
             yield RegionService(repository=RoadGraphRepository(session))
@@ -276,8 +297,9 @@ async def get_region_service():
 
 async def get_accident_service():
     # PostGISのみを参照する（get_region_serviceと同じ「road_graph_use_repository無効時は
-    # repository自体を注入しない」パターン）。事故データはroad_graph_tilesのカバレッジとは
-    # 無関係な独立データのため、DBなし構成では常に空タイルになる。
+    # repository自体を注入しない」パターン、到達可能性の説明もget_region_service参照）。
+    # 事故データはroad_graph_tilesのカバレッジとは無関係な独立データのため、DBなし構成では
+    # 常に空タイルになる。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
             yield AccidentService(repository=AccidentTileQuery(session))

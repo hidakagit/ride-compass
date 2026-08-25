@@ -13,6 +13,14 @@ interface UseStoredStateOptions<T> {
    * 保存タイミングを明示的に制御したいケース向け（例: ドラッグ中は毎フレーム状態更新するが
    * 保存はドラッグ確定時のみ、という分離。既定はtrue＝setterのたびに保存）。 */
   autoSave?: boolean;
+  /** 復元処理（localStorageの読み出し→deserialize→setValue）を再実行させたいタイミングを
+   * 表す追加の依存値（省略時は初回マウント時の1回のみ復元、元の挙動）。値が変わるたびに、
+   * その時点の最新のdeserializeクロージャで再度localStorageから読み直す。
+   * 例: deserializeが実行時カタログ（axisCatalog.rampAxes等）を参照して復元対象キーを
+   * 決めているとき、この値にaxisCatalog.loadedを渡すと、マウント直後（未フェッチ、静的
+   * フォールバック集合で復元）→フェッチ完了後（実行時集合で再復元）の2段階復元になる
+   * （page.tsx: layerVisibility参照）。 */
+  reloadKey?: unknown;
 }
 
 // localStorageへ保存し、リロード後も復元するuseState（改善計画T47 R-6:
@@ -29,7 +37,7 @@ interface UseStoredStateOptions<T> {
 export function useStoredState<T>(
   key: string,
   defaultValue: T,
-  { serialize, deserialize, autoSave = true }: UseStoredStateOptions<T>
+  { serialize, deserialize, autoSave = true, reloadKey }: UseStoredStateOptions<T>
 ): [T, (value: T | ((prev: T) => T)) => void, (value: T) => void] {
   const [value, setValue] = useState(defaultValue);
   // serializeは呼び出し側がインライン関数で渡すため参照が毎レンダー変わりうるが、
@@ -40,6 +48,9 @@ export function useStoredState<T>(
     serializeRef.current = serialize;
   });
 
+  // deserializeは意図的にrefへ退避しない（reloadKeyが変わった際、その時点の最新の
+  // deserializeクロージャを使って再復元したいため。reloadKey省略時はkeyが不変な限り
+  // このeffectは初回のみ実行される、元の挙動のまま）。
   useIsomorphicLayoutEffect(() => {
     try {
       const raw = window.localStorage.getItem(key);
@@ -49,7 +60,7 @@ export function useStoredState<T>(
     } catch {
       // 読み出し不可・壊れた値はデフォルトのまま
     }
-  }, [key]);
+  }, [key, reloadKey]);
 
   const commit = useCallback(
     (next: T) => {

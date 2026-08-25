@@ -6,7 +6,6 @@ from app.domain.geo import (
     destination_point,
     haversine_distance_km,
     sample_indices,
-    sample_line_coordinates,
     sample_line_points,
 )
 from app.domain.route import Coordinates
@@ -65,20 +64,20 @@ def make_line_geometry(count: int) -> dict:
     return {"type": "LineString", "coordinates": [[i * 0.5, i * 0.5] for i in range(count)]}
 
 
-def test_sample_line_coordinates_includes_start_and_end():
+def test_sample_line_points_includes_start_and_end():
     geometry = make_line_geometry(100)
 
-    samples = sample_line_coordinates(geometry, sample_count=12)
+    samples = sample_line_points(geometry, sample_count=12)
 
-    assert samples[0].longitude == 0.0
-    assert samples[-1].longitude == 49.5
+    assert samples[0][1].longitude == 0.0
+    assert samples[-1][1].longitude == 49.5
     assert len(samples) <= 12
 
 
-def test_sample_line_coordinates_returns_all_points_when_fewer_than_sample_count():
+def test_sample_line_points_returns_all_points_when_fewer_than_sample_count():
     geometry = make_line_geometry(5)
 
-    samples = sample_line_coordinates(geometry, sample_count=12)
+    samples = sample_line_points(geometry, sample_count=12)
 
     assert len(samples) == 5
 
@@ -97,14 +96,17 @@ def test_sample_indices_returns_all_when_fewer_than_sample_count():
     assert indices == [0, 1, 2, 3, 4]
 
 
-def test_sample_line_points_indices_match_sample_line_coordinates():
+def test_sample_line_points_indices_and_coordinates_are_consistent():
     geometry = make_line_geometry(100)
 
-    coords = sample_line_coordinates(geometry, sample_count=12)
     indexed = sample_line_points(geometry, sample_count=12)
 
-    assert [c for _, c in indexed] == coords
-    assert [i for i, _ in indexed] == sample_indices(100, 12)
+    expected_indices = sample_indices(100, 12)
+    raw_points = geometry["coordinates"]
+    expected_coords = [Coordinates(latitude=raw_points[i][1], longitude=raw_points[i][0]) for i in expected_indices]
+
+    assert [i for i, _ in indexed] == expected_indices
+    assert [c for _, c in indexed] == expected_coords
 
 
 def test_bearing_between_matches_destination_point_north():

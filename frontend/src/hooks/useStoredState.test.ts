@@ -69,4 +69,62 @@ describe("useStoredState", () => {
     act(() => result.current[2](9));
     expect(window.localStorage.getItem("k")).toBe("9");
   });
+
+  // 実バグ修正の回帰テスト（デッドコード監査、2026-08-25）: app/page.tsxのlayerVisibility
+  // 永続化ホワイトリスト静的固定バグ。復元対象キー集合が実行時カタログ（axisCatalog.
+  // rampAxes等）に依存するとき、そのカタログのフェッチが完了する前（マウント直後）にしか
+  // 復元処理が走らないと、フェッチ完了後に初めて存在が分かる動的キー（軸スタジオ公開軸等）の
+  // 保存値が黙って無視される。reloadKeyに「カタログがフェッチ済みか」を渡すことで、
+  // フェッチ完了時に復元処理を再実行し、その時点の最新のdeserializeクロージャ
+  // （動的キー集合を認識できる）で再度localStorageから読み直せることを確認する。
+  it("reloadKeyが変化すると、その時点の最新のdeserializeで復元処理を再実行する", () => {
+    window.localStorage.setItem("k3", JSON.stringify({ fixed: true, dynamic: true }));
+
+    let loaded = false;
+    const deserialize = (raw: string): Record<string, boolean> | null => {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        // 未フェッチ時は固定キーのみ、フェッチ完了後は動的キーも走査する
+        // （page.tsx: layerVisibilityのdeserializeと同じ形）。
+        const keys = loaded ? ["fixed", "dynamic"] : ["fixed"];
+        const next: Record<string, boolean> = { fixed: false, dynamic: false };
+        for (const key of keys) {
+          if (typeof parsed[key] === "boolean") next[key] = parsed[key];
+        }
+        return next;
+      } catch {
+        return null;
+      }
+    };
+
+    const { result, rerender } = renderHook(
+      ({ reloadKey }: { reloadKey: boolean }) =>
+        useStoredState("k3", { fixed: false, dynamic: false }, {
+          serialize: (v) => JSON.stringify(v),
+          deserialize,
+          reloadKey,
+        }),
+      { initialProps: { reloadKey: false } },
+    );
+
+    // マウント時点（reloadKey=false・loaded=false相当）ではdynamicキーは復元されない。
+    expect(result.current[0]).toEqual({ fixed: true, dynamic: false });
+
+    // カタログ取得完了に相当する変化（reloadKeyの値を変える）。
+    loaded = true;
+    rerender({ reloadKey: true });
+
+    expect(result.current[0]).toEqual({ fixed: true, dynamic: true });
+  });
+
+  it("reloadKeyを渡さない場合は従来どおり初回マウント時の1回だけ復元する", () => {
+    window.localStorage.setItem("k4", "42");
+    const { result, rerender } = renderHook(() => useStoredState("k4", 1, jsonOptions));
+    expect(result.current[0]).toBe(42);
+
+    // マウント後に保存値を書き換えても、reloadKey省略時は再復元されない（元の挙動）。
+    window.localStorage.setItem("k4", "100");
+    rerender();
+    expect(result.current[0]).toBe(42);
+  });
 });

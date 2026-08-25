@@ -1,10 +1,10 @@
-"""Road Graph + scipy.sparse.csgraph（Dijkstra）の自前ルーティングエンジン（試験実装）。
+"""Road Graph + scipy.sparse.csgraph（Dijkstra）の自前ルーティングエンジン。
 
 `RouteGenerator`（services/route_generator.py）の`LoopRoutingEngine`契約を実装する。
 Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って経由地点間の
-経路を自前で計算する。ルーティング自体（経路探索の品質・速度）は将来拡張として
-引き続き開発中で、`config.py`の`routing_engine`設定で既定のopenrouteservice委譲
-（openrouteservice_engine.py）と切り替えて使う。
+経路を自前で計算する。2026-08-23以降、`config.py`の`routing_engine`設定の既定値は
+本エンジン（road_graph）であり、openrouteservice委譲（openrouteservice_engine.py）は
+非既定の代替経路として切り替えて使う。
 
 設計上の重要な決定（実機検証で判明した問題への対応）:
 - **Overpassへの問い合わせは1回だけ**: 8方位が個別にbboxを計算して並列問い合わせすると
@@ -78,6 +78,7 @@ from app.domain.routing import (
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
+from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import EvaluationService
 from app.services.graph_service import GraphService
@@ -372,11 +373,16 @@ class RoadGraphEngine:
         edge_ids = path_to_edge_ids_sparse(context.sparse_graph, full_path)
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
-        # 改善計画T218（T12 Stage 0）: prepareがlean=Trueで読み込んだcontext.graphの
+        # 改善計画T218（T12 Stage 0）: prepareが読み込んだcontext.graph（LeanRoadGraph）の
         # Edgeはgeometryが空プレースホルダのため、区間表示・標高取得等（後段の
         # _build_candidate）に使う実ジオメトリをこの経路ぶん（数十〜数百Edge）だけ
-        # 取得し直す。Overpass経由構築時（context.graphが元々フルジオメトリ）は
-        # get_edges_with_geometryが空辞書を返すため、そちらのcontext.graph側の値を使う。
+        # 取得し直す。`or context.graph.edges[edge_id]`は、Overpassフォールバック撤去
+        # （T22/T222）後の現在はOverpass経由構築を指すものではない——prepare時点から
+        # このget_edges_with_geometryのDBクエリまでの間に、別リクエストが同じbboxを
+        # 再構築（save_graphのUPSERT/DELETE、is_split_up_to_dateの項参照）してedge_idが
+        # 入れ替わるレースが理論上ありうるため、その場合にKeyErrorで落とさず
+        # context.graph側の値（geometryは空プレースホルダのまま）へ倒す防御的フォールバック
+        # として残す。
         hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
         edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in edge_ids]
 
@@ -521,7 +527,6 @@ class RoadGraphEngine:
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, context.wind)
             road_surface_good = classify_osm_surface(surface_type)
-            stop_count_per_km = stop_count / distance_km if stop_count is not None and distance_km > 0 else None
             is_designated = edge.edge_id in context.designated_edge_ids
             bicycle_infra = (
                 classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
@@ -759,11 +764,13 @@ def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> d
     grades = [abs(a.max_grade) for a in valid if a.max_grade is not None]
     grades += [abs(a.min_grade) for a in valid if a.min_grade is not None]
 
+    # 最終集約（sum/min/max・空ならNone・小数1桁丸め）はElevationService.get_profileと
+    # 共有する（elevation_aggregation.pyのdocstring参照。標高値自体の算出方法は別実装のまま）。
     return {
-        "elevation_gain_m": round(sum(gains), 1) if gains else None,
-        "min_elevation_m": round(min(elevations), 1) if elevations else None,
-        "max_elevation_m": round(max(elevations), 1) if elevations else None,
-        "max_gradient_percent": round(max(grades), 1) if grades else None,
+        "elevation_gain_m": sum_or_none(gains),
+        "min_elevation_m": min_or_none(elevations),
+        "max_elevation_m": max_or_none(elevations),
+        "max_gradient_percent": max_or_none(grades),
     }
 
 

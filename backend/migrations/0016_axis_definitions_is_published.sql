@@ -17,4 +17,4 @@
 -- フォールバックするため、本migrationを本番へ適用するまでの間は評価の振る舞い・表示の
 -- いずれも変わらない。
 ALTER TABLE axis_definitions
-    ADD COLUMN is_published BOOLEAN NOT NULL DEFAULT true;
+    ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT true;

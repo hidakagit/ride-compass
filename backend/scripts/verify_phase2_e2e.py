@@ -7,7 +7,11 @@
     .venv\\Scripts\\python.exe scripts\\verify_phase2_e2e.py
 
 検証項目:
-1. create_tables()の再実行で旧GINインデックスが削除されること
+1. 旧GINインデックス（ix_osm_raw_ways_node_ids）がDBに存在しないこと（T17でALTER/
+   インデックス操作はcreate_tables()からmigrations/0001へ移設済み。0001が未適用の
+   新規DBに対して実行した場合はapply_pending_migrations()が削除するが、既に0001
+   適用済みのDBでは0001自体がスキップされるため、この検証は「今回削除される」ではなく
+   「（過去の適用を含め）存在しないこと」の確認に留まる）
 2. 取込範囲内のタイル: PostGISだけでMVTが生成され、地物が入っている
 3. 取込範囲外のタイル: 空タイルが返る（改善計画T22でOverpassフォールバックを撤去済み。
    docs/decisions/pre-static-attributes-gate.md 決定2改定）
@@ -64,11 +68,14 @@ async def main() -> int:
     engine = get_engine()
     session_factory = get_session_factory()
     try:
-        print("== 1. スキーマ更新（GINインデックス削除）と容量 ==")
+        print("== 1. スキーマ更新（旧GINインデックス不在の確認）と容量 ==")
         async with engine.connect() as conn:
             size_before = (await conn.execute(text("SELECT pg_database_size(current_database())"))).scalar()
         await create_tables(engine)
-        await apply_pending_migrations(engine)  # GINインデックス削除等はT17でマイグレーションへ移設
+        # GINインデックス削除自体はT17でmigrations/0001へ移設済み。既に0001適用済みのDBでは
+        # ここでスキップされる（apply_pending_migrationsの冪等性はtests/test_migrate.py・
+        # scripts/verify_postgis_phase0.pyで別途検証済み）。
+        await apply_pending_migrations(engine)
         async with engine.connect() as conn:
             size_after = (await conn.execute(text("SELECT pg_database_size(current_database())"))).scalar()
             gin_exists = (
@@ -76,7 +83,7 @@ async def main() -> int:
                     text("SELECT 1 FROM pg_indexes WHERE indexname = 'ix_osm_raw_ways_node_ids'")
                 )
             ).scalar()
-        check("旧GINインデックス（ix_osm_raw_ways_node_ids）が削除されている", gin_exists is None)
+        check("旧GINインデックス（ix_osm_raw_ways_node_ids）が存在しない", gin_exists is None)
         print(f"  DBサイズ: {size_before / 1e6:.0f}MB -> {size_after / 1e6:.0f}MB（情報表示のみ。"
               f"Oracle移行後は容量が実質制約でないため予算アサーションは行わない）")
 

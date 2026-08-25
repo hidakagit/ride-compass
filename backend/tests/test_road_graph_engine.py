@@ -135,9 +135,7 @@ class FakeGraphService:
         self._stop_data_available = stop_data_available
         self.call_count = 0
 
-    async def get_or_build_graph_with_attributes(self, bbox, *, lean: bool = False):
-        # 改善計画T218: lean引数はテストのfakeでは無視してよい（フェイクグラフは
-        # 元々geometryを持つ実体をそのまま返すため、lean=Trueでも挙動は変わらない）。
+    async def get_or_build_graph_with_attributes(self, bbox):
         self.call_count += 1
         if self._graph is None:
             return None
@@ -149,7 +147,7 @@ class FakeGraphService:
         # 持たない（本物のGraphServiceがタイルキャッシュ経由で組み立てるのと同じ
         # 中身になることをテストの他アサーション側は期待していないため、call_count計測
         # 目的のget_or_build_graph_with_attributesを呼ぶだけでよい）。
-        built = await self.get_or_build_graph_with_attributes(bbox, lean=True)
+        built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
             return None
         graph, surface_attributes = built

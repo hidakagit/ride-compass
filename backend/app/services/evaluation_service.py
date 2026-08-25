@@ -31,18 +31,21 @@ class EvaluationService:
 
     I/Oは行わない。属性の取得自体はPhase 3の`ElevationAttributeService`・
     `GraphService.get_or_build_graph_with_attributes`が担当し、ここでは
-    既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。Route Engineからは
-    独立しており、既存のルート探索（RoutingService/RouteGenerator）からは参照されない。
+    既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。2026-08-23からの既定
+    エンジンroad_graphでは`RouteGenerator`→`RoadGraphEngine.prepare`→本クラスの
+    `evaluate_graph`が既定のホットパス（探索コストの算出）である
+    （RoutingService/OpenRouteServiceEngine側はEvaluation Engineを経由しない別実装）。
     """
 
-    def __init__(self, preference: RoutePreference | None = None):
-        self._preference = preference or load_route_preference()
+    def __init__(self, preference: RoutePreference):
+        self._preference = preference
 
     def evaluate_graph(
         self,
         graph: RoadGraphLike,
         elevation_attributes: dict[str, ElevationAttribute],
         surface_attributes: dict[str, str | None],
+        preference: RoutePreference,
         wind: WeatherConditions | None = None,
         stop_counts: dict[str, int] | None = None,
         way_tags: dict[str, dict[str, str]] | None = None,
@@ -50,15 +53,13 @@ class EvaluationService:
         accident_counts: dict[str, int] | None = None,
         accident_years_covered: int = 0,
         designated_edge_ids: set[str] | None = None,
-        preference: RoutePreference | None = None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
     ) -> dict[str, EdgeCostResult]:
-        # preference省略時はself._preference（コンストラクタ注入・全リクエスト共有）を使う。
-        # 改善計画T173: RoadGraphEngineが出発時刻に応じてnight_weightだけを差し替えた
-        # RoutePreferenceを渡せるよう、呼び出し側でオーバーライドできる引数として追加した
-        # （self._preferenceを直接書き換えるとリクエスト間で共有される状態を汚染するため、
+        # preferenceは呼び出し元が必ず明示的に渡す（唯一の呼び出し元RoadGraphEngine.prepareは
+        # 改善計画T173で出発時刻に応じてnight_weightだけを差し替えたRoutePreferenceのコピーを
+        # 渡す。self._preferenceを直接書き換えるとリクエスト間で共有される状態を汚染するため、
         # 呼び出し元がmodel_copyしたコピーをこちらへ渡す設計）。
         # penalty_strength（改善計画T218・T12 ADR原則1）はコスト式の割増率の強さを
         # 調整するリクエストパラメータ（既定1.0）。domain/evaluation.py:
@@ -67,7 +68,6 @@ class EvaluationService:
         # 勾配しきい値（既定None＝除外しない）。domain/evaluation.py: is_edge_allowed参照。
         # hard_filters（改善計画T266）は0次フィルタ名（no_bicycle/motorway/trunk）の
         # 個別ON/OFF上書き（既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
-        preference = preference or self._preference
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
         # 改善計画T221 Stage B: RoutePreference自体がaxis_idキーの重み辞書を持つため

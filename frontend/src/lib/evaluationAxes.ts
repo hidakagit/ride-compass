@@ -22,7 +22,9 @@ export interface ScoringAxisDef {
   weightKey: keyof ScoringWeights;
   /** RouteListのhint文・WeightPanelの入力欄ラベルに共通で使う表示名 */
   label: string;
-  /** この軸が何を表すかの短い説明（将来のツールチップ等向け、現状は未使用） */
+  /** この軸が何を表すかの短い説明。WeightPanel.tsxがFieldLabelのdescriptionとして
+   * ラベル横の情報アイコン開閉表示に使う（コメント修正: デッドコード監査2026-08-25、
+   * 「将来のツールチップ等向け、現状は未使用」という記述は事実誤認だった）。 */
   description: string;
 }
 

@@ -225,26 +225,6 @@
   cursor: pointer;
 }
 
-.legendRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-size: var(--font-size-sm);
-}
-
-/* 参照表示のみ（タップでは操作しない） */
-.legendItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-/* 非表示中のカテゴリは薄く+取り消し線で「消してある」ことを示す */
-.legendItemHidden {
-  opacity: 0.45;
-  text-decoration: line-through;
-}
-
 .swatch {
   width: 10px;
   height: 10px;

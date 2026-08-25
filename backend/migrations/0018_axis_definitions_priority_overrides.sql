@@ -15,4 +15,4 @@
 -- domain/axis_definitions.py内蔵の既定値へ安全側フォールバックするため、本migrationを
 -- 本番へ適用するまでの間は評価の振る舞いは変わらない。
 ALTER TABLE axis_definitions
-    ADD COLUMN priority_overrides JSONB NOT NULL DEFAULT '[]';
+    ADD COLUMN IF NOT EXISTS priority_overrides JSONB NOT NULL DEFAULT '[]';

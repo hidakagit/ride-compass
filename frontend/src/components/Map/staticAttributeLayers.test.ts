@@ -9,7 +9,7 @@ import {
   ACCIDENT_SEVERITY_LEGEND,
   BICYCLE_INFRA_COLOR_EXPRESSION,
   BICYCLE_INFRA_LEGEND,
-  STATIC_FILTER_AXES,
+  buildStaticFilterAxes,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_KINDS,
   STOP_POI_LABELS,
@@ -25,11 +25,16 @@ import {
   ONEWAY_LEGEND,
   ONEWAY_OPACITY_EXPRESSION,
 } from "./staticAttributeLayers";
+import { RAMP_AXES } from "./axisLayers";
 
 // 改善計画T292: 車ストレス（車の圧迫感）専用の凡例・色分け式（CAR_STRESS_LEGEND・
 // CAR_STRESS_COLOR_EXPRESSION・buildCarStressLegend・buildCarStressColorExpression）は
 // 専用Pythonレシピの廃止に伴いこのファイルから削除された。車の圧迫感は他の推定軸
 // （停止密度・事故密度等）と同じ汎用ramp機構（axisLayers.test.ts参照）に一本化された。
+
+// ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
+// 入力にbuildStaticFilterAxes()を呼んだ結果。以前のSTATIC_FILTER_AXES定数と同じ内容。
+const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 
 describe("staticAttributeLayers", () => {
   it("自転車インフラの凡例キーはdomain/traffic.pyのBicycleInfraClass列挙値+不明と一致する", () => {
@@ -282,5 +287,13 @@ describe("staticAttributeLayers", () => {
     for (const [layerId, count] of countsByLayer) {
       if (layerId !== "accidents") expect(count).toBe(1);
     }
+  });
+
+  it("buildStaticFilterAxesは軸スタジオの新規公開軸（拡張カタログ）にも追従する", () => {
+    const extraAxis = { ...RAMP_AXES[0], axisId: "new_gui_axis", label: "新規GUI軸" };
+    const extended = buildStaticFilterAxes([...RAMP_AXES, extraAxis]);
+    const axis = extended.find((a) => a.axisId === "new_gui_axis");
+    expect(axis).toBeDefined();
+    expect(axis!.layerId).toBe("axis:new_gui_axis");
   });
 });
