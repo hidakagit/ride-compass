@@ -29,6 +29,7 @@ import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/seco
 import { InfoIcon } from "@/components/Map/icons";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
 
@@ -228,7 +229,7 @@ export default function MapLayersPanel({
             : styles.legendCheckboxRow;
           return (
             <label key={entry.key} className={rowClassName}>
-              <input type="checkbox" checked={visible} onChange={() => onToggle(entry.key)} />
+              <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
               {entry.width !== undefined ? (
                 <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />
               ) : (

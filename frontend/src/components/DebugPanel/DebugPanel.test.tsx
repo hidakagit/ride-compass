@@ -9,25 +9,25 @@ describe("DebugPanel", () => {
     setDebugEnabled(false);
   });
 
-  it("初期状態でチェックボックスのcheckedがisDebugEnabledと一致する", () => {
+  it("初期状態でチェックボックスのaria-checkedがisDebugEnabledと一致する", () => {
     render(<DebugPanel />);
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(isDebugEnabled());
-    expect(checkbox.checked).toBe(false);
+    const checkbox = screen.getByRole("checkbox");
+    expect(checkbox).toHaveAttribute("aria-checked", String(isDebugEnabled()));
+    expect(checkbox).toHaveAttribute("aria-checked", "false");
   });
 
-  it("チェックボックスをクリックするとsetDebugEnabled経由で状態が反映されcheckedが反転する", async () => {
+  it("チェックボックスをクリックするとsetDebugEnabled経由で状態が反映されaria-checkedが反転する", async () => {
     const user = userEvent.setup();
     render(<DebugPanel />);
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    const checkbox = screen.getByRole("checkbox");
 
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox).toHaveAttribute("aria-checked", "false");
 
     await act(async () => {
       await user.click(checkbox);
     });
 
-    expect(checkbox.checked).toBe(true);
+    expect(checkbox).toHaveAttribute("aria-checked", "true");
     expect(isDebugEnabled()).toBe(true);
   });
 });

@@ -49,6 +49,18 @@ function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefini
 describe("AxisStudio", () => {
   beforeEach(() => {
     setAdminCredentials({ username: "admin", password: "secret" });
+
+    // jsdomはResizeObserverを実装しない（DynamicLayerTimeSlider.test.tsxと同じ既知の欠落）。
+    // AxisComposerの<form>内にあるRadix Checkbox（改善計画T299フォローアップ）はフォーム
+    // 直下でのみ隠しbubble input（HTMLフォーム互換用）のサイズ同期にuseSizeを使い、これが
+    // 内部でResizeObserverを呼ぶため、フォーム外で単体レンダリングするCheckbox.test.tsxでは
+    // 再現しないがAxisStudioのモーダルを開くテストでは未定義のまま例外になる。
+    class ResizeObserverMock {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    }
+    window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
   });
 
   it("「編集」を押すとその軸の内容で編集モーダルが即座に開く", async () => {

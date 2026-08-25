@@ -4828,6 +4828,40 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   - 対象外としたもの: `MapOverlayControls.tsx`のiconChip・`RouteList.tsx`のitemの
     チップ重複解消（`MapOverlayControls.tsx`は563行の中心的な地図UIファイルで直近も
     T292で大きく触られたため、追加リスクを取らず将来タスクへ切り出し）。
+- **フォローアップ（2026-08-25、同日中）**: 実装直後の実機確認で、`components/ui/Checkbox`
+  （Radix製`<button role="checkbox">`）が`globals.css`のモバイル向けブランケットルール
+  （`.app-sidebar/.app-floating-panel/.app-bottom-sheet button`全てに一律
+  `min-height: 44px`を強制、T34由来）へ意図せず巻き込まれ、375px幅で30.78×44pxという
+  不釣り合いなブロックになる不具合をユーザー指摘で発見した。調査の結果、この「一律適用」
+  自体が、`LayerChip`（意図的な36pxピル型）・`RadioGroup.Item`（32px）という**既存の
+  正しく設計されたコンポーネントも同様に踏みつぶしていた**（詳細度負けで自前サイズが
+  無視されていた）ことが判明し、ユーザー判断により以下へ全面再設計した:
+  1. `components/ui/Checkbox`自身に`p-0 min-h-0`を明示（`@layer base button`の既定padding
+     はTailwindの`utilities`レイヤーより弱く通常は上書きできるが、対象コンポーネントが
+     明示的に宣言しない限り素通しされるため）。
+  2. `globals.css`のモバイル向け`button`ブランケットルールを**撤去**。「本当にメインの
+     導線だけが44pxを持つ」方針へ転換し、`.app-sidebar`（`isMobile`時は`<aside>`自体が
+     レンダーされずこのメディアクエリ内では実質デッドコードだったことも判明）を全セレクタ
+     から削除。
+  3. 唯一「主要な導線」と判断した`MapLayersPanel.module.css`の`.layerTitle`
+     （各レイヤーの開閉見出し）にのみ、コンポーネント自身が`@media (max-width: 640px)`
+     スコープで`min-height: 44px`を明示。それ以外（RouteSettingsPanelのプリセット/
+     リセットボタン・RouteListの候補選択・MapLayersPanelの一括操作リンク・FieldLabelの
+     情報アイコン・DebugConsole/FloatingPanelの閉じるボタン・開発者ブロックの運用ボタン群）
+     はブランケット撤去後も意図的にオプトインさせず、自然なサイズのままにした。
+  4. モバイル向けinput（44px+iOS自動ズーム防止のfont-size:16px）・label（44px）・
+     checkbox（1.4rem拡大）のルールは「特定要素カテゴリ全体に共通し個別コンポーネントの
+     意図が入り込む余地がない」ため副作用リスクが無いと判断し維持（`.app-sidebar`は
+     同様の理由でこちらも削除、`.app-floating-panel`はチェックボックス/input/labelを
+     持つ利用先が無いことを確認の上削除）。
+  - 検証: 実機Playwright（375px幅）で`.layerTitle`80.17×**44**px・`LayerChip`
+    57.98×**36**px（自前サイズへ復元）・`Checkbox`22.39×**22.39**px（1.4rem）を確認。
+    devサーバー再起動後のクリーンな状態でhydration警告も再現しないことを確認（再起動前に
+    見えていたものは長時間HMRしたサーバーのSSRキャッシュ起因の見せかけの警告と判明）。
+    tsc・vitest（479件）・`next build`すべてgreen。
+  - `docs/frontend-design-system.md`へ「globals.cssのグローバルルールに関する方針」節
+    （新設9節）として、この事例と再発防止の指針（新しい主要導線はコンポーネント自身へ
+    `@media`スコープで明示、globals.cssへブランケットとして戻さない）を明文化した。
 
 ## ルート詳細タブのモバイルUI再構成（2026-08-25・ユーザー指示）
 

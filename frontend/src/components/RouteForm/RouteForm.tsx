@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
+import { Input } from "@/components/ui/Input/Input";
 import styles from "./RouteForm.module.css";
 
 interface RouteFormProps {
@@ -50,14 +51,14 @@ export default function RouteForm({ distance, onDistanceChange, onGenerate, load
     <form onSubmit={handleSubmit} className={compact ? styles.formCompact : styles.form} noValidate>
       <label className={compact ? styles.labelCompact : undefined}>
         {!compact && "距離"}
-        <input
+        <Input
           type="number"
           min="1"
           max={MAX_DISTANCE_KM}
           step="1"
           value={distance}
           onChange={(e) => onDistanceChange(e.target.value)}
-          className={compact ? styles.distanceInputCompact : styles.distanceInput}
+          className={compact ? "w-14" : "ml-2 w-20"}
           aria-label={compact ? "距離(km)" : undefined}
         />
         km

@@ -9,25 +9,25 @@ describe("ResearchPanel", () => {
     setResearchEnabled(false);
   });
 
-  it("初期状態でチェックボックスのcheckedがisResearchEnabledと一致する", () => {
+  it("初期状態でチェックボックスのaria-checkedがisResearchEnabledと一致する", () => {
     render(<ResearchPanel />);
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(isResearchEnabled());
-    expect(checkbox.checked).toBe(false);
+    const checkbox = screen.getByRole("checkbox");
+    expect(checkbox).toHaveAttribute("aria-checked", String(isResearchEnabled()));
+    expect(checkbox).toHaveAttribute("aria-checked", "false");
   });
 
-  it("チェックボックスをクリックするとsetResearchEnabled経由で状態が反映されcheckedが反転する", async () => {
+  it("チェックボックスをクリックするとsetResearchEnabled経由で状態が反映されaria-checkedが反転する", async () => {
     const user = userEvent.setup();
     render(<ResearchPanel />);
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    const checkbox = screen.getByRole("checkbox");
 
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox).toHaveAttribute("aria-checked", "false");
 
     await act(async () => {
       await user.click(checkbox);
     });
 
-    expect(checkbox.checked).toBe(true);
+    expect(checkbox).toHaveAttribute("aria-checked", "true");
     expect(isResearchEnabled()).toBe(true);
   });
 
