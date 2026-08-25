@@ -248,79 +248,102 @@ class TestRunMatch:
     ):
         """T335診断専用（一時的、原因特定後に削除する）。
 
-        CI（postgis/postgis:16-3.4）でのみtest_overlapping_designations_complete_without_error
-        がcritical_logisticsを取りこぼす現象が再現し、ローカル（PG18）では一度も再現しない。
-        当て推量でWay座標をずらす修正を試みたが根拠が無く、むしろCIで別の既存テストまで
-        壊す結果になった（改善計画T335の訂正版参照）。
+        1回目の診断ラウンドで、CI（postgis/postgis:16-3.4）では最小構成（1way・1designation・
+        完全一致ジオメトリ）ですら`ST_Intersects=true`なのに`ST_Intersection`が
+        `LINESTRING EMPTY`を返すという実データを取得した（ローカルPG18では常に正常値）。
+        GEOSの既知の頑健性問題（線がバッファの生成元と完全一致する退化ケースで交差計算が
+        空になる）と一致する。
 
-        このテストは、他テストの未クリーンアップ行（route_designationsはBase.metadataの
-        対象外でroad_graph_sessionのtruncateが効かない）や重複行の複雑さを排除した最小構成
-        （1way・2designation・完全一致ジオメトリ）で、_MATCH_SQLのCTE中間結果
-        （buffered→matched、ratioでのフィルタ前）を生のまま取得する。assertを意図的に
-        常に失敗させ、pytestの失敗メッセージに中間結果を埋め込むことで、CIログとして
-        確認できるようにする（-sフラグなしのCI実行でもprint()は表示されないため、
-        assert文の説明メッセージへ埋め込む方式を取る）。
+        このラウンドでは、対策候補を複数同時に検証する（当て推量の一発勝負を避け、CI
+        往復1回で複数の実データを得るため）:
+        - baseline: 完全一致（再現確認用）
+        - offset_3m / offset_10m: Way座標を指定路線から垂直方向へ3m/10mずらす
+          （最初に試して失敗した3mも、他の要因[重複行]を排したこの最小構成で改めて検証する）
+        - buffer_zero: Way側ジオメトリに`ST_Buffer(geom, 0)`を適用してから交差判定
+          （座標を変えず、GEOSの頑健性問題に対する定石の回避策）
+        - snap_to_grid: 両ジオメトリに`ST_SnapToGrid(geom, 1e-7)`を適用してから交差判定
+        - swapped_args: `ST_Intersection`の引数順序を入れ替える（GEOSの一部の頑健性問題は
+          引数順序に依存することが知られている）
         """
-        diag_way_id = 9001
-        way = WaySpec(osm_way_id=diag_way_id, node_ids=[1, 2], highway="residential")
-        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
-        await road_graph_repository.save_raw_ways([way], node_coords)
+        base_lat, base_lon0, base_lon1 = 35.7000, 139.6990, 139.7010
+        designation_line = [(base_lat, base_lon0), (base_lat, base_lon1)]
+
+        async def _seed_way(way_id: int, lat_offset_deg: float) -> None:
+            way = WaySpec(osm_way_id=way_id, node_ids=[way_id * 10 + 1, way_id * 10 + 2], highway="residential")
+            node_coords = {
+                way_id * 10 + 1: (base_lat + lat_offset_deg, base_lon0),
+                way_id * 10 + 2: (base_lat + lat_offset_deg, base_lon1),
+            }
+            await road_graph_repository.save_raw_ways([way], node_coords)
+
+        WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M = 9001, 9002, 9003
+        await _seed_way(WAY_BASELINE, 0.0)
+        await _seed_way(WAY_OFFSET_3M, 0.00003)  # 緯度1度≈111320mなので0.00003度≈3.3m
+        await _seed_way(WAY_OFFSET_10M, 0.00009)  # ≈10.0m
         await road_graph_session.commit()
 
-        id_emergency = await _seed_route_designation(designation_conn, "emergency_transport", DESIG_LINE)
-        id_critical = await _seed_route_designation(designation_conn, "critical_logistics", DESIG_LINE)
+        designation_id = await _seed_route_designation(designation_conn, "emergency_transport", designation_line)
 
-        # _MATCH_SQLと同じロジックを、対象2行(id_emergency/id_critical)だけに絞って複製する。
-        # ratioでのフィルタ前の全行・各段階のST_GeometryTypeを見る。
-        diag_rows = await designation_conn.fetch(
+        rows = await designation_conn.fetch(
             """
             WITH buffered AS MATERIALIZED (
-                SELECT id, kind, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
+                SELECT id, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
                 FROM route_designations
-                WHERE id = ANY($1)
+                WHERE id = $1
             ),
-            intersected AS (
-                SELECT b.id, b.kind,
-                       ST_Intersects(w.geom, b.buffer_geom) AS intersects,
-                       ST_GeometryType(ST_Intersection(w.geom, b.buffer_geom)) AS raw_intersection_type,
-                       ST_AsText(ST_Intersection(w.geom, b.buffer_geom)) AS raw_intersection_wkt,
-                       ST_GeometryType(ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2))
-                           AS extracted_type,
-                       ST_IsEmpty(ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2))
-                           AS extracted_is_empty
-                FROM buffered b
-                JOIN osm_raw_ways w ON w.osm_way_id = $2
+            ways AS (
+                SELECT osm_way_id, geom FROM osm_raw_ways WHERE osm_way_id = ANY($2)
             )
-            SELECT * FROM intersected ORDER BY kind
+            SELECT
+                w.osm_way_id,
+                'baseline' AS variant,
+                ST_Intersects(w.geom, b.buffer_geom) AS intersects,
+                ST_AsText(ST_Intersection(w.geom, b.buffer_geom)) AS wkt,
+                ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography) AS length_m
+            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
+            UNION ALL
+            SELECT
+                w.osm_way_id,
+                'buffer_zero' AS variant,
+                ST_Intersects(ST_Buffer(w.geom, 0), b.buffer_geom),
+                ST_AsText(ST_Intersection(ST_Buffer(w.geom, 0), b.buffer_geom)),
+                ST_Length(ST_Intersection(ST_Buffer(w.geom, 0), b.buffer_geom)::geography)
+            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
+            UNION ALL
+            SELECT
+                w.osm_way_id,
+                'snap_to_grid' AS variant,
+                ST_Intersects(ST_SnapToGrid(w.geom, 0.0000001), ST_SnapToGrid(b.buffer_geom, 0.0000001)),
+                ST_AsText(ST_Intersection(ST_SnapToGrid(w.geom, 0.0000001), ST_SnapToGrid(b.buffer_geom, 0.0000001))),
+                ST_Length(ST_Intersection(ST_SnapToGrid(w.geom, 0.0000001), ST_SnapToGrid(b.buffer_geom, 0.0000001))::geography)
+            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
+            UNION ALL
+            SELECT
+                w.osm_way_id,
+                'swapped_args' AS variant,
+                ST_Intersects(b.buffer_geom, w.geom),
+                ST_AsText(ST_Intersection(b.buffer_geom, w.geom)),
+                ST_Length(ST_Intersection(b.buffer_geom, w.geom)::geography)
+            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
+            UNION ALL
+            SELECT
+                w.osm_way_id,
+                'offset_3m' AS variant,
+                ST_Intersects(w.geom, b.buffer_geom),
+                ST_AsText(ST_Intersection(w.geom, b.buffer_geom)),
+                ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography)
+            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $4
+            UNION ALL
+            SELECT
+                w.osm_way_id,
+                'offset_10m' AS variant,
+                ST_Intersects(w.geom, b.buffer_geom),
+                ST_AsText(ST_Intersection(w.geom, b.buffer_geom)),
+                ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography)
+            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $5
             """,
-            [id_emergency, id_critical], diag_way_id,
+            designation_id, [WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M],
+            WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M,
         )
-        matched_rows = await designation_conn.fetch(
-            """
-            WITH buffered AS MATERIALIZED (
-                SELECT id, kind, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
-                FROM route_designations
-                WHERE id = ANY($1)
-            ),
-            matched AS (
-                SELECT w.osm_way_id, b.kind,
-                       ST_Length(w.geom::geography) AS way_length_m,
-                       ST_Union(
-                           ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2)
-                       ) AS unioned
-                FROM buffered b
-                JOIN osm_raw_ways w ON w.geom IS NOT NULL AND ST_Intersects(w.geom, b.buffer_geom)
-                WHERE w.osm_way_id = $2
-                GROUP BY w.osm_way_id, b.kind
-            )
-            SELECT osm_way_id, kind, way_length_m,
-                   ST_AsText(unioned) AS unioned_wkt,
-                   ST_Length(unioned::geography) AS unioned_length_m,
-                   ST_Length(unioned::geography) / NULLIF(way_length_m, 0) AS ratio
-            FROM matched ORDER BY kind
-            """,
-            [id_emergency, id_critical], diag_way_id,
-        )
-        dump = "\n".join(f"[intersected] {dict(r)}" for r in diag_rows) + "\n" + \
-               "\n".join(f"[matched] {dict(r)}" for r in matched_rows)
-        assert False, f"T335診断ダンプ（自己判定用の意図的な失敗）:\n{dump}"
+        dump = "\n".join(f"[{r['variant']}] way={r['osm_way_id']} {dict(r)}" for r in rows)
+        assert False, f"T335診断ダンプ2回目（対策候補比較、自己判定用の意図的な失敗）:\n{dump}"
