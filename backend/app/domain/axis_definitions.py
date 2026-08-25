@@ -296,6 +296,41 @@ _CAR_STRESS_BICYCLE_INFRA_MAPPING: dict[str, float] = {
     "shared_pedestrian": 0.0,
     "roadway": 1.0,
 }
+# 改善計画T336: car_stress_bicycle_infra_adjustment内部軸を、bicycle_infra材料
+# （優先順位付き分類）ではなく正規化フラグ材料群の線形結合で再現するための重み・折れ点。
+# 上の_CAR_STRESS_BICYCLE_INFRA_MAPPINGと同じ5値（separated/lane/shared_busway/
+# shared_pedestrian/roadway、prohibitedは0点扱い）を、優先順位（track/highway=cycleway
+# ＞lane＞shared_busway等）を保ったまま次の重み付き和で再現する。
+#
+# - highway_is_cycleway・cycleway_has_trackは同じ最優先階層（どちらか一方でもseparated
+#   確定）のため、他の2フラグを両方足し合わせても届かない大きさの重み(-4.0、
+#   cycleway_has_lane+cycleway_has_shared合計-3.0を上回る)を与え、breakpointsの
+#   [-11.0, -4.0]区間をseparated(-2.0)で平坦にする（全フラグ同時成立の最小値-11.0まで
+#   カバー）。
+# - cycleway_has_lane(-2.0)・cycleway_has_shared(-1.0)は互いに排他ではない
+#   （両方成立時-3.0）が、[-3.0, -2.0]区間もlane(-1.0)で平坦にしてあるため、
+#   lane側が優先されるclassify_bicycle_infrastructureの判定順と一致する。
+#
+# 4フラグいずれも不成立（0.0）はroadway(+1.0)として近似する。bicycle由来の分岐
+# （shared_pedestrian・prohibited）はこの4フラグに含まれないためroadway側へ丸められる
+# ——decisions/material-normalization-for-axis-composition.mdで実データ検証済みの
+# 許容ズレ（0.0127%）と同じ性質の近似（本置き換えではcycleway/highway由来の判定は
+# 全数combinatorial検証で完全一致、bicycle由来の分岐のみがズレの原因であることを
+# test_material_catalog.pyで確認済み）。
+_CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS: list[tuple[str, float]] = [
+    ("highway_is_cycleway", -4.0),
+    ("cycleway_has_track", -4.0),
+    ("cycleway_has_lane", -2.0),
+    ("cycleway_has_shared", -1.0),
+]
+_CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS: list[tuple[float, float]] = [
+    (-11.0, -2.0),
+    (-4.0, -2.0),
+    (-3.0, -1.0),
+    (-2.0, -1.0),
+    (-1.0, 0.0),
+    (0.0, 1.0),
+]
 _CAR_STRESS_MAXSPEED_BREAKPOINTS: list[tuple[float, float]] = [
     (0.0, -1.0),
     (30.0, -1.0),
@@ -425,18 +460,24 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         category="推定",
         is_published=False,
     ),
-    # 自転車インフラ由来の補正（改善計画T291で承認済みのスコアを流用、旧cycleway_class
-    # [3値]をbicycle_infra[6値、domain/traffic.py: classify_bicycle_infrastructure]へ
-    # 精密化）。0-100スケールのユーザー承認値（separated=0/lane=20/shared_busway=40/
-    # shared_pedestrian=50/roadway=70）を`round(score/100*4-2)`でhighway基準値と同じ
-    # 加減点スケールへ変換した値をそのままmappingへ記録する
-    # （separated=-2[旧track相当、変更なし]/lane=-1[変更なし]/shared_busway=0[旧-1から変更]/
-    # shared_pedestrian=0[新規]/roadway=+1[新規]）。shared_buswayの挙動変化はユーザーが
-    # 意図して求めた再定義（T291合意事項）。prohibitedは0次ハードフィルタ(no_bicycle)で
-    # 通常除外されるため補正を持たない（未登録→補正なし0点、旧ロジックと同じ扱い）。
+    # 自転車インフラ由来の補正。改善計画T291で承認したスコア（separated=-2/lane=-1/
+    # shared_busway=0/shared_pedestrian=0/roadway=+1、_CAR_STRESS_BICYCLE_INFRA_MAPPING
+    # 参照、地図表示ramp用に現在もこの5値マッピングを維持）を、改善計画T336で
+    # bicycle_infra材料（domain/traffic.py: classify_bicycle_infrastructureの優先順位付き
+    # 分類）ではなく正規化フラグ材料群の線形結合（_CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS/
+    # _CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS）で再現するよう置き換えた
+    # （decisions/material-normalization-for-axis-composition.md参照、材料の天井対策）。
+    # prohibitedは0次ハードフィルタ(no_bicycle)で通常除外されるため補正を持たない
+    # （未該当→補正なし0点、旧ロジックと同じ扱い）。
     "car_stress_bicycle_infra_adjustment": AxisDefinition(
         axis_id="car_stress_bicycle_infra_adjustment",
-        shape=CategoricalShape(material="bicycle_infra", mapping=_CAR_STRESS_BICYCLE_INFRA_MAPPING),
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material=material, weight=weight)
+                for material, weight in _CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS
+            ],
+            breakpoints=_CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS,
+        ),
         default_weight=0.0,
         label="車ストレス内部軸: 自転車インフラ補正",
         description="自転車インフラ種別による補正(非公開)",

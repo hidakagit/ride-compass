@@ -39,6 +39,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import EdgeLike
+from app.domain.recipe import bicycle_infra_flags
 from app.domain.recipe import cycleway_class as _cycleway_class
 from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
@@ -186,6 +187,42 @@ def _extract_cycleway_class(ctx: MaterialExtractionContext) -> str | None:
     if ctx.way_tags is None:
         return None
     return _cycleway_class(ctx.way_tags)
+
+
+# 改善計画T336: bicycle_infra材料（優先順位付き分類）を評価軸から切り離すための正規化
+# フラグ材料群。domain/traffic.py: classify_bicycle_infrastructureの判定条件のうち、
+# cycleway/highway由来の部分（優先順位: track/highway=cycleway ＞ lane ＞ shared_busway等）
+# をそのままOR条件の真偽値へ分解したもの（decisions/material-normalization-for-
+# axis-composition.md参照）。bicycle由来の分岐（shared_pedestrian・prohibited、
+# highway×bicycleのAND条件）は正規化フラグの線形結合では近似できないと実データ検証済み
+# のため意図的に対象外（軸定義側の車ストレス補正では「roadway」扱いへ丸められる、
+# 実データでのズレ0.0127%は許容）。抽出ロジック自体は`domain/recipe.py: bicycle_infra_flags`
+# へ集約し（evaluation.py/openrouteservice_engine.pyの3つのスカラー評価経路が同じ材料を
+# 手組みするmaterials辞書へ`**bicycle_infra_flags(...)`で混ぜ込む、bicycle_infra材料と
+# 同じ構成）、ここではbulk抽出フェーズ（MaterialExtractionContext）向けの薄いラッパのみ
+# 持つ。
+def _extract_highway_is_cycleway(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["highway_is_cycleway"]
+
+
+def _extract_cycleway_has_track(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_track"]
+
+
+def _extract_cycleway_has_lane(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_lane"]
+
+
+def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_shared"]
 
 
 def _extract_maxspeed_kmh(ctx: MaterialExtractionContext) -> int | None:
@@ -398,6 +435,43 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bicycle_infra",
         primary_attribute_id="cycleway",
         extractor=_extract_bicycle_infra,
+    ),
+    # 改善計画T336: bicycle_infraを評価軸から切り離すための正規化フラグ材料群
+    # （_extract_highway_is_cycleway等のdocstring参照）。地図表示用のtile_propertyは
+    # 持たない（bicycle_infra/cycleway_classのタイルプロパティをそのまま流用でき、
+    # 専用カラムを新設する理由が無い。wind_penalty/is_designatedと同じ評価パイプライン
+    # 専用材料）。
+    "highway_is_cycleway": MaterialSpec(
+        material_id="highway_is_cycleway",
+        label="道路種別が自転車道",
+        dtype="boolean",
+        tile_property=None,
+        primary_attribute_id="highway",
+        extractor=_extract_highway_is_cycleway,
+    ),
+    "cycleway_has_track": MaterialSpec(
+        material_id="cycleway_has_track",
+        label="自転車道(track)を併設",
+        dtype="boolean",
+        tile_property=None,
+        primary_attribute_id="cycleway",
+        extractor=_extract_cycleway_has_track,
+    ),
+    "cycleway_has_lane": MaterialSpec(
+        material_id="cycleway_has_lane",
+        label="自転車レーン(lane)を併設",
+        dtype="boolean",
+        tile_property=None,
+        primary_attribute_id="cycleway",
+        extractor=_extract_cycleway_has_lane,
+    ),
+    "cycleway_has_shared": MaterialSpec(
+        material_id="cycleway_has_shared",
+        label="バス共用等の自転車レーンを併設",
+        dtype="boolean",
+        tile_property=None,
+        primary_attribute_id="cycleway",
+        extractor=_extract_cycleway_has_shared,
     ),
     "cycleway_class": MaterialSpec(
         material_id="cycleway_class",

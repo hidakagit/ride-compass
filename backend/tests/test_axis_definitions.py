@@ -1,3 +1,5 @@
+import itertools
+
 import pytest
 
 from app.domain.axis_definitions import (
@@ -15,6 +17,102 @@ from app.domain.axis_definitions import (
     check_publish_immutability,
     evaluate_axis_scalar,
 )
+from app.domain.recipe import bicycle_infra_flags
+from app.domain.traffic import classify_bicycle_infrastructure
+
+# 改善計画T292由来の旧`_CAR_STRESS_BICYCLE_INFRA_MAPPING`と同じ5値
+# （axis_definitions.py参照、地図表示ramp用に現在も定数として維持している）。
+_OLD_BICYCLE_INFRA_MAPPING = {
+    "separated": -2.0,
+    "lane": -1.0,
+    "shared_busway": 0.0,
+    "shared_pedestrian": 0.0,
+    "roadway": 1.0,
+}
+
+
+def test_car_stress_bicycle_infra_adjustment_flag_combinations():
+    """改善計画T336回帰テスト: car_stress_bicycle_infra_adjustmentをbicycle_infra材料
+    （優先順位付き分類）から正規化フラグ材料の線形結合へ置き換えた後も、単独成立時の
+    5値（separated/lane/shared_busway/shared_pedestrianの近似先=roadway/roadway）を
+    再現すること。"""
+    axis = AXIS_DEFINITIONS["car_stress_bicycle_infra_adjustment"]
+    base = {
+        "highway_is_cycleway": False,
+        "cycleway_has_track": False,
+        "cycleway_has_lane": False,
+        "cycleway_has_shared": False,
+    }
+
+    def score(**flags: bool) -> float | None:
+        return evaluate_axis_scalar(axis, {**base, **flags})
+
+    assert score() == 1.0  # roadway相当（何も該当しない既定状態）
+    assert score(cycleway_has_shared=True) == 0.0  # shared_busway相当
+    assert score(cycleway_has_lane=True) == -1.0  # lane相当
+    assert score(cycleway_has_track=True) == -2.0  # separated相当
+    assert score(highway_is_cycleway=True) == -2.0  # separated相当（highway=cycleway側）
+    # 優先順位保持: lane+shared同時成立でもlaneが勝つ（classify_bicycle_infrastructureと
+    # 同じ優先順位、線形結合の単純な積み上げでは本来ズレうる箇所）。
+    assert score(cycleway_has_lane=True, cycleway_has_shared=True) == -1.0
+    # 優先順位保持: track/highway=cyclewayはlane/sharedと同時成立してもseparatedのまま。
+    assert score(cycleway_has_track=True, cycleway_has_lane=True, cycleway_has_shared=True) == -2.0
+    assert score(highway_is_cycleway=True, cycleway_has_lane=True) == -2.0
+
+
+def test_car_stress_bicycle_infra_adjustment_matches_bicycle_infra_mapping_exhaustively():
+    """改善計画T336回帰テスト: 正規化フラグ材料群への置き換え後も、旧bicycle_infra材料
+    ベースのスコア（_OLD_BICYCLE_INFRA_MAPPING、prohibited/unknownは補正なし0点扱い）と
+    実質的に一致することを、cycleway系タグ・highway・bicycleタグの組み合わせを網羅する
+    形で検証する（decisions/material-normalization-for-axis-composition.mdの実データ検証
+    [ズレ0.0127%]と同じ性質の許容ズレを、DBアクセス無しの全数combinatorialで裏付ける）。
+
+    唯一のズレはbicycle由来の分岐（shared_pedestrian: highway×bicycleのAND条件、
+    prohibited: bicycle=no）——正規化フラグの線形結合では表現しないと設計判断済みの箇所
+    （material_catalog.py: _extract_highway_is_cycleway等のdocstring参照）。cycleway/
+    highway由来の判定（track/lane/shared_busway/roadwayの優先順位）は1件のズレも
+    無いことをここで担保する。
+    """
+    axis = AXIS_DEFINITIONS["car_stress_bicycle_infra_adjustment"]
+    cycleway_values_domain = [None, "no", "track", "lane", "share_busway", "shared_lane", "opposite_lane", "separate"]
+    highways = ["cycleway", "path", "footway", "residential", "primary", "trunk", "living_street"]
+    bicycles = [None, "yes", "designated", "permissive", "no", "dismount"]
+
+    mismatches_with_infra_flag = []
+    mismatches_without_infra_flag = 0
+    total = 0
+    for cw, cwl, cwr, cwb, highway, bicycle in itertools.product(
+        cycleway_values_domain, cycleway_values_domain, cycleway_values_domain, cycleway_values_domain,
+        highways, bicycles,
+    ):
+        tags = {
+            k: v
+            for k, v in {
+                "cycleway": cw,
+                "cycleway:left": cwl,
+                "cycleway:right": cwr,
+                "cycleway:both": cwb,
+                "bicycle": bicycle,
+            }.items()
+            if v is not None
+        }
+        total += 1
+        old_score = _OLD_BICYCLE_INFRA_MAPPING.get(classify_bicycle_infrastructure(tags, highway), 0.0)
+        flags = bicycle_infra_flags(tags, highway)
+        new_score = evaluate_axis_scalar(axis, flags)
+        if old_score != new_score:
+            if any(flags.values()):
+                mismatches_with_infra_flag.append((tags, highway, old_score, new_score))
+            else:
+                mismatches_without_infra_flag += 1
+
+    assert total > 0
+    # cycleway/highway由来の判定（正規化フラグが1つでも成立するケース）は1件もズレない。
+    assert mismatches_with_infra_flag == []
+    # bicycle由来の分岐（正規化フラグが全て不成立、roadway側へ丸められるケース）のみが
+    # ズレうる。0件になった場合はこのアサーションごと更新してよい（設計上許容している
+    # 近似の存在を示すための下限チェックであり、0への改善を妨げる意図ではない）。
+    assert mismatches_without_infra_flag > 0
 
 
 def test_car_stress_lanes_adjustment_applies_regardless_of_separated_cycleway():

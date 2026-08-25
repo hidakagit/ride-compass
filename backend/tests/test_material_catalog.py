@@ -132,6 +132,33 @@ def test_bridge_smoothness_cycleway_class_surface_are_now_extractable():
     assert surface.extractor(_ctx()) is None
 
 
+def test_bicycle_infra_flag_materials_extract_from_cycleway_and_highway_tags():
+    """改善計画T336で追加した正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/
+    cycleway_has_lane/cycleway_has_shared）のextractor。way_tags欠損時はNone
+    （car_stress軸グループ全体を評価しない既存仕様、他のway_tags依存材料と同じ）。"""
+    highway_is_cycleway = MATERIAL_CATALOG["highway_is_cycleway"]
+    assert highway_is_cycleway.extractor(_ctx(way_tags={}, edge=_edge(highway="cycleway"))) is True
+    assert highway_is_cycleway.extractor(_ctx(way_tags={}, edge=_edge(highway="residential"))) is False
+    assert highway_is_cycleway.extractor(_ctx(way_tags=None)) is None
+
+    cycleway_has_track = MATERIAL_CATALOG["cycleway_has_track"]
+    assert cycleway_has_track.extractor(_ctx(way_tags={"cycleway": "track"})) is True
+    assert cycleway_has_track.extractor(_ctx(way_tags={"cycleway:left": "track"})) is True
+    assert cycleway_has_track.extractor(_ctx(way_tags={"cycleway": "lane"})) is False
+    assert cycleway_has_track.extractor(_ctx(way_tags=None)) is None
+
+    cycleway_has_lane = MATERIAL_CATALOG["cycleway_has_lane"]
+    assert cycleway_has_lane.extractor(_ctx(way_tags={"cycleway": "lane"})) is True
+    assert cycleway_has_lane.extractor(_ctx(way_tags={"cycleway": "track"})) is False
+    assert cycleway_has_lane.extractor(_ctx(way_tags=None)) is None
+
+    cycleway_has_shared = MATERIAL_CATALOG["cycleway_has_shared"]
+    assert cycleway_has_shared.extractor(_ctx(way_tags={"cycleway": "share_busway"})) is True
+    assert cycleway_has_shared.extractor(_ctx(way_tags={"cycleway:both": "shared_lane"})) is True
+    assert cycleway_has_shared.extractor(_ctx(way_tags={"cycleway": "lane"})) is False
+    assert cycleway_has_shared.extractor(_ctx(way_tags=None)) is None
+
+
 def test_oneway_and_designation_remain_unwired_by_design():
     """extractor未設定=意図的なDEFER（material_catalog.pyのコメント参照）。誤って
     extractorが付いた場合にこのテストが落ちるのではなく、逆に外れたことに気付けるよう

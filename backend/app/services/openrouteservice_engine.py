@@ -36,7 +36,7 @@ from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import sample_line_points
 from app.domain.night import night_materials
-from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
+from app.domain.recipe import bicycle_infra_flags, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import SURFACE_MATCH_MAX_DISTANCE_M, classify_osm_surface, distance_weighted_road_score
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.twilight import is_night
@@ -347,6 +347,7 @@ class OpenRouteServiceEngine:
             # 維持するため）。
             highway_for_car_stress = highway if tags is not None else None
             bicycle_infra = classify_bicycle_infrastructure(tags, highway) if tags is not None else None
+            car_stress_bicycle_infra_flags = bicycle_infra_flags(tags, highway) if tags is not None else {}
             maxspeed_kmh = parse_maxspeed(tags) if tags is not None else None
             lanes_count = parse_lanes(tags) if tags is not None else None
             motor_vehicle_no = tag_value_is(tags, "motor_vehicle", "no") if tags is not None else None
@@ -390,6 +391,7 @@ class OpenRouteServiceEngine:
                     "accident_count_per_km_year": accident_count_per_km_year,
                     "highway": highway_for_car_stress,
                     "bicycle_infra": bicycle_infra,
+                    **car_stress_bicycle_infra_flags,
                     "maxspeed_kmh": maxspeed_kmh,
                     "lanes_count": lanes_count,
                     "is_designated": is_designated,

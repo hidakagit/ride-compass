@@ -332,6 +332,24 @@ def test_compute_edge_axis_scores_omits_none_axes():
     assert scores == {}
 
 
+def test_compute_edge_axis_scores_car_stress_reflects_bicycle_infra_tags():
+    """改善計画T336回帰テスト: car_stress_bicycle_infra_adjustmentをbicycle_infra材料から
+    正規化フラグ材料（highway_is_cycleway等）へ置き換えた際、compute_edge_axis_scoresが
+    手組みするmaterials辞書に新materialsを混ぜ込み忘れると、この関数経由の車ストレス評価
+    だけが常に「補正なし」に固定されてしまう（required=Trueな内部軸terms→全欠損→
+    car_stress公開軸側required=Falseで0点扱いに丸め込まれ、テストなしでは気付けない）。
+    cycleway=trackタグの有無でcar_stressスコアが変わること（分離自転車道は易しい側=
+    値が小さい）を確認する。"""
+    edge = _edge(distance_m=100.0, highway="residential")
+
+    without_track = compute_edge_axis_scores(edge, None, None, way_tags={})
+    with_track = compute_edge_axis_scores(edge, None, None, way_tags={"cycleway": "track"})
+
+    assert without_track["car_stress"] == 50.0
+    assert with_track["car_stress"] == 0.0
+    assert with_track["car_stress"] < without_track["car_stress"]
+
+
 def test_route_preference_weights_fill_defaults_and_reject_unknown_axis():
     # 改善計画T221 Stage B: RoutePreference自体がaxis_idキーの重み辞書を持つ。
     # 部分指定は既定値（AXIS_DEFINITIONSのdefault_weight）で補完され、未知キーはエラー。
@@ -449,6 +467,30 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     assert result.composite_difficulty is not None
     # 全7軸の重み合計1.08のうちgradient(0.15)+wind(0.26)を除いた0.67ぶんが取得できている
     assert result.covered_weight_fraction == pytest.approx(0.67 / 1.08, abs=0.001)
+
+
+def test_axis_inspector_breakdown_car_stress_reflects_bicycle_infra_tags():
+    """改善計画T336回帰テスト: compute_edge_axis_scores版と同じ理由
+    （車ストレスの自転車インフラ補正が正規化フラグ材料へ置き換わったため、
+    axis_inspector_breakdownが手組みするmaterials辞書にも新materialsを混ぜ込む必要が
+    ある）。cycleway=trackタグの有無で区間インスペクタのcar_stress表示が変わることを
+    確認する。"""
+    without_track = axis_inspector_breakdown(
+        highway="residential", tags={}, is_designated=False, way_counts=None, accident_years_covered=0
+    )
+    with_track = axis_inspector_breakdown(
+        highway="residential",
+        tags={"cycleway": "track"},
+        is_designated=False,
+        way_counts=None,
+        accident_years_covered=0,
+    )
+
+    without_difficulty = next(a.difficulty for a in without_track.axes if a.axis_id == "car_stress")
+    with_difficulty = next(a.difficulty for a in with_track.axes if a.axis_id == "car_stress")
+    assert without_difficulty == 50.0
+    assert with_difficulty == 0.0
+    assert with_difficulty < without_difficulty
 
 
 def test_axis_inspector_breakdown_way_counts_none_marks_count_based_axes_unavailable():

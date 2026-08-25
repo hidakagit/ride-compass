@@ -68,11 +68,15 @@ Pythonコードが肥大化し続けるのではないか**、という懸念で
 
 ## 未実施（今後の対応、着手は任意のトリガー待ち）
 
-- `car_stress_bicycle_infra_adjustment`を、`bicycle_infra`材料ではなく複数の正規化
+- ~~`car_stress_bicycle_infra_adjustment`を、`bicycle_infra`材料ではなく複数の正規化
   フラグ材料（例: `cycleway_has_track`/`cycleway_has_lane`/`cycleway_has_shared`/
-  `highway_is_cycleway`等）の線形結合へ置き換える。現状のスコアは動作しており実害が
-  無いため優先度は低い。**トリガー: 軸スタジオから自転車インフラ関連の新しい評価軸を
-  作りたいという要望が出た時点**（材料の天井に実際にぶつかった時点で着手する）。
+  `highway_is_cycleway`等）の線形結合へ置き換える。~~ **改善計画T336で実施済み
+  （2026-08-25）**。`domain/axis_definitions.py`の
+  `_CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS`/`_CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS`
+  参照。`bicycle_infra`材料自体は削除せず地図表示専用として維持している（本ドキュメント
+  「結論」3参照）。cycleway/highway由来の判定（優先順位: track/highway=cycleway＞lane＞
+  shared_busway等）は全数combinatorial検証でズレ0件、ズレが残るのは本ドキュメントが
+  想定していたbicycle由来の分岐（shared_pedestrian・prohibitedのAND条件）のみ。
 - `highway`/`surface`/`smoothness`のような本質的にオープンエンドな多値材料の
   「値の一覧とラベル」問題（当初の発端）は、この設計判断とは独立に対応する必要がある。
   対応案（DBから実データの値を動的取得＋既知の値にはラベルを付与、未知の値はタグ値

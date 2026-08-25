@@ -67,3 +67,20 @@ def tag_value_is(tags: dict[str, str], key: str, expected: str) -> bool:
     """タグの値が`expected`（大文字小文字・前後空白を許容）と一致するかどうか。
     motor_vehicle=no・lit/tunnel=yesのような「タグ有無・タグ値の正規化」に共通する判定。"""
     return (tags.get(key) or "").strip().lower() == expected
+
+
+def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, bool]:
+    """改善計画T336: `domain/material_catalog.py`のhighway_is_cycleway/cycleway_has_track/
+    cycleway_has_lane/cycleway_has_shared材料（正規化フラグ材料id→真偽値）と同じキーを
+    まとめて返す。`domain/evaluation.py: axis_inspector_breakdown`/`compute_edge_axis_scores`・
+    `services/openrouteservice_engine.py`が手組みするmaterials辞書へそのまま
+    `**bicycle_infra_flags(tags, highway)`で混ぜ込める（bicycle_infra[classify_
+    bicycle_infrastructure]と同じ材料抽出を1箇所にまとめ、3箇所への手書き複製を避ける）。
+    """
+    values = cycleway_values(tags)
+    return {
+        "highway_is_cycleway": highway == "cycleway",
+        "cycleway_has_track": "track" in values,
+        "cycleway_has_lane": "lane" in values,
+        "cycleway_has_shared": any(v in ("share_busway", "shared_lane") for v in values),
+    }

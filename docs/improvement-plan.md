@@ -6885,7 +6885,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   修正確認後に削除した。
 - 依存: T330（当該テストの新規追加元）。
 
-### - [ ] T336. bicycle_infra材料をcar_stress_bicycle_infra_adjustment内部軸から正規化フラグ材料群へ置き換える 規模M〔P2〕— トリガー: 軸スタジオから自転車インフラ関連の新しい評価軸を作りたい要望が出た時点
+### - [x] T336. bicycle_infra材料をcar_stress_bicycle_infra_adjustment内部軸から正規化フラグ材料群へ置き換える 規模M〔P2〕（2026-08-25完了）
 
 - 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
   の設計判断（2026-08-26）。`bicycle_infra`材料（`classify_bicycle_infrastructure`、
@@ -6894,15 +6894,42 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   評価軸としては新しいプリミティブを追加せず既存の`BreakpointLinearShape`だけで
   表現できることが分かったが、実装（`car_stress_bicycle_infra_adjustment`内部軸が
   依然`bicycle_infra`材料を直接参照している）はまだこの方針に追従していない。
-- 内容: `cycleway`/`cycleway:left`/`cycleway:right`/`cycleway:both`/`highway`/
-  `bicycle`から、`cycleway_has_track`/`cycleway_has_lane`/`cycleway_has_shared`/
-  `highway_is_cycleway`等の正規化された真偽値材料を`material_catalog.py`へ追加し、
+- 内容: `cycleway`/`cycleway:left`/`cycleway:right`/`cycleway:both`/`highway`から、
+  `cycleway_has_track`/`cycleway_has_lane`/`cycleway_has_shared`/`highway_is_cycleway`の
+  正規化された真偽値材料を`material_catalog.py`へ追加し、
   `car_stress_bicycle_infra_adjustment`のshapeを`CategoricalShape(material=
-  "bicycle_infra", ...)`から`BreakpointLinearShape`（正規化材料の重み付き和）へ
-  置き換える。`bicycle_infra`材料自体は地図表示用（`staticAttributeLayers.ts`の
-  凡例）に引き続き必要なため削除しない。
-- 完了条件: `car_stress`軸のスコアが実データで置き換え前とほぼ一致すること（検証済みの
-  0.0127%程度のズレは許容）を確認し、`bicycle_infra`材料が評価軸から参照されなくなる。
+  "bicycle_infra", ...)`から`BreakpointLinearShape`（正規化材料の重み付き和、
+  `_CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS`/`_CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS`、
+  `axis_definitions.py`）へ置き換えた。`bicycle_infra`材料自体は地図表示用
+  （`staticAttributeLayers.ts`の凡例・car_stress軸`display_override`の
+  ramp）に引き続き必要なため削除していない。
+- 実装メモ（着手時に判明した設計時点未把握の追加スコープ）: `bicycle_infra`材料は
+  評価パイプライン中3箇所（`domain/evaluation.py: axis_inspector_breakdown`・
+  `compute_edge_axis_scores`、`services/openrouteservice_engine.py`）が
+  `MATERIAL_CATALOG`のextractorを経由せず`classify_bicycle_infrastructure`を直接呼んで
+  手組みのmaterials辞書へ詰めるスカラー評価経路だったため、新4材料もこの3箇所すべてで
+  併せて配線しないと「常に補正なし(0点)」へ静かに劣化する（`BreakpointLinearShape`の
+  `MaterialTerm`既定`required=True`のため、新4材料が辞書に無ければ内部軸全体がNone→
+  親のcar_stress側は`required=False`で0点扱いに丸め込まれ、例外にもならず気付けない）。
+  抽出ロジックの重複を避けるため`domain/recipe.py: bicycle_infra_flags(tags, highway)`へ
+  1箇所へ集約し、3箇所とも`**bicycle_infra_flags(...)`で辞書へ混ぜ込む形にした
+  （`bicycle_infra`材料と同じ構成）。この配線漏れを検知する回帰テストを
+  `test_evaluation.py`（`compute_edge_axis_scores`/`axis_inspector_breakdown`各1件）へ
+  追加、`openrouteservice_engine.py`側は既存の
+  `test_car_stress_and_bicycle_infra_reflect_nearest_way_tags_when_repository_injected`
+  が既に同じシナリオ（primary+cycleway=track）を検証しており追加不要だった。
+- 検証: DBアクセス無しでも検証可能な形にした——cycleway系タグ（track/lane/
+  share_busway/shared_lane/opposite_lane/separate/no/未設定）×highway×bicycleタグの
+  組み合わせ約17万通りを全数combinatorialで旧`classify_bicycle_infrastructure`ベースの
+  スコアと新実装を突き合わせるテスト（`test_axis_definitions.py`）を追加し、
+  cycleway/highway由来の判定（track/lane/shared_busway/roadwayの優先順位）は1件も
+  ズレが無いこと、ズレは設計文書が想定していたbicycle由来の分岐（shared_pedestrian・
+  prohibitedのAND条件、正規化フラグの線形結合では意図的に近似対象外）由来のみである
+  ことを機械的に確認した（設計判断時の実データ検証[ズレ0.0127%]と同じ性質）。
+- 完了条件: `car_stress`軸のスコアが置き換え前とほぼ一致すること（許容ズレはbicycle由来
+  の分岐のみ、cycleway/highway由来のズレは0件）を確認し、`bicycle_infra`材料が評価軸
+  （`AXIS_DEFINITIONS`のshape）から参照されなくなった（地図表示`TileInputSpec`からの
+  参照のみ残る）。
 
 ### - [ ] T337. cycleway_class材料の未使用状態を整理する 規模S〔P3〕— トリガー: 次に材料関連の整理作業を行う時点
 
