@@ -20,7 +20,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PrimaryAttributeSpec(BaseModel):
@@ -100,6 +100,20 @@ class TileInputSpec(BaseModel):
     has_unknown_fallback: bool = False
     categories: dict[str, float] | None = None
     breakpoints: list[tuple[float, float]] | None = None
+
+    @field_validator("categories")
+    @classmethod
+    def _sort_categories(cls, value: dict[str, float] | None) -> dict[str, float] | None:
+        # 改善計画T333: このフィールドの値は情報源によって挿入順が非決定になりうる
+        # （手書きのPython dictリテラル[AXIS_DEFINITIONS.display_override等]は決定的だが、
+        # DBのdisplay_override[JSONB列]へ一度でも往復するとPostgreSQLのjsonb内部順
+        # [キー長→バイト順]へ変わり両者は一致しない）。ここは表示専用（frontendの色分け
+        # 表示にしか使わない）のため、モデル構築のたびにキーをソートして経路によらず
+        # 決定的な順序へ正規化する。TileInputSpecはPydanticモデルのためこのvalidatorが
+        # 構築元（コード内リテラル・DB読み込み・APIリクエストボディ）を問わず一律に効く。
+        if value is None:
+            return None
+        return dict(sorted(value.items()))
 
 
 class AxisDisplaySpec(BaseModel):

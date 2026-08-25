@@ -6609,7 +6609,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   複数回のコミットに分割してよい（都度backend/frontend全テストgreenを確認）。
 - 依存: T321（監査の発端）、T330（同種パターンの優先対応）。
 
-### - [ ] T333. axis-catalog.json（categorical材料のcategories辞書）の生成順序がDB接続可否で非決定になる 規模S〜M（未着手）
+### - [x] T333. axis-catalog.json（categorical材料のcategories辞書）の生成順序がDB接続可否で非決定になる 規模S〜M（実装完了・2026-08-26）
 
 - 背景: T330（フレッシュDBブートストラップ統合テスト新設）の実装検証中、直近コミット
   （5325af1）に対するCIで`git diff --exit-code -- frontend/src/types/generated/`が失敗し、
@@ -6639,6 +6639,30 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   frontend/backendの全テストgreenを維持する。
 - 依存: T330（発見の発端）。CLAUDE.mdの「コミット時の同期ルール」（OpenAPI生成物ドリフト
   防止）に該当する再発防止対象。
+- 実装: 当初`domain/axis_display.py: derive_ramp_inputs`側の`str_mapping`組み立て時に
+  ソートする案で着手したが、実機検証（DB接続あり/なし両方でexport_openapi.pyを実行し
+  diff）したところ、この修正だけでは`highway`/`bicycle_infra`のcategoriesに加えて
+  `designation`のcategoriesも依然として順序が食い違うことが判明した。原因は
+  `car_stress`軸の`display_override`（`TileInputSpec.categories={"emergency_transport":
+  1.0, ...}`という手書きPythonリテラル、`axis_definitions.py:579`）自体もDBの
+  `display_override`列（JSONB）へ往復して読み込まれており、この経路も同じくPostgreSQLの
+  jsonb内部順の影響を受けていたため。個別の組み立て箇所を1つずつ塞ぐのではなく、
+  `registry.py: TileInputSpec`に`categories`フィールドの`field_validator`を追加し、
+  モデル構築のたびに（コード内リテラル・DB読み込み・APIリクエストボディいずれの経路でも）
+  キーをソートして正規化する形に変更した（当初案の`axis_display.py`側の修正は撤回・
+  リバート済み、こちらの単一箇所の修正に一本化）。
+- 検証: DB接続あり/なし両方の環境で`export_openapi.py`を実行し、生成される
+  `axis-catalog.json`が完全一致することを実機確認した（`diff`でバイト同一）。正規手順
+  （DB接続あり→`export_openapi.py`→`npm run generate:api`）で生成物を再生成し、
+  `openapi.json`/`api.d.ts`等の他生成物には差分が出ないこと、`axis-catalog.json`の
+  差分がcategoricalの`categories`辞書のキー順序（アルファベット順へ正規化、値の集合は
+  無変更）のみであることを確認した。`test_registry.py`/`test_axis_display.py`/
+  `test_axis_definitions.py`/`test_registry_defaults.py`（59件）green。backend全体は
+  `test_axis_definition_repository.py`除外で1116 passed / 29 failed
+  （`test_axis_registry_service.py`全件、`test_axis_definition_repository.py`を含めると
+  さらに15件）、いずれも同一原因の「ローカルテストDBに`icon_id`列が無い」エラーで
+  T333とは無関係。修正前のHEAD状態でも同じ失敗を再現し切り分け済み。別タスクとして
+  起票案を提示済み。
 
 ### - [x] T334. 地図チップ「表示する項目を選ぶ」設定パネルの各項目に個別の情報アイコンを追加する 規模M（実装完了・2026-08-25）
 
