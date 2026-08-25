@@ -6,6 +6,7 @@ from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
     AxisDependencyCycleError,
+    AxisInternalAxisPublishError,
     AxisMaterialConflictError,
     AxisPublishedImmutableError,
     BreakpointLinearShape,
@@ -216,6 +217,33 @@ async def test_create_allows_axis_referencing_another_axis(road_graph_session):
 
     assert "dependent_axis" in AXIS_DEFINITIONS
     assert AXIS_DEFINITIONS["dependent_axis"].materials == ["base_axis"]
+
+
+async def test_create_rejects_publishing_axis_referenced_by_another_axis(road_graph_session):
+    # T311フォローアップ回帰テスト: 軸スタジオの操作ミスでcar_stress内部軸のような
+    # 「他の軸から参照される内部軸」がis_published=Trueのまま保存され、一般ユーザー向け
+    # ルート設定画面へ漏れ出た実障害を受けたガード。既にdependent_axisがbase_axisを
+    # 参照している状態で、base_axis自身を公開しようとすると拒否される。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("base_axis", material="oneway"))
+    await service.create(_definition("dependent_axis", material="base_axis"))
+
+    with pytest.raises(AxisInternalAxisPublishError, match="base_axis"):
+        await service.update("base_axis", _definition("base_axis", material="oneway", is_published=True))
+
+    assert AXIS_DEFINITIONS["base_axis"].is_published is False
+
+
+async def test_create_allows_publishing_axis_with_no_dependents(road_graph_session):
+    # 上のテストと対になる確認: 誰からも参照されていない軸は公開してよい（過検出しない）。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("standalone_axis", material="oneway"))
+
+    await service.update("standalone_axis", _definition("standalone_axis", material="oneway", is_published=True))
+
+    assert AXIS_DEFINITIONS["standalone_axis"].is_published is True
 
 
 async def test_create_rejects_direct_cycle_between_two_axes(road_graph_session):

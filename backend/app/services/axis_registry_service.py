@@ -24,6 +24,7 @@ import logging
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    check_internal_axis_not_published,
     check_material_exclusivity,
     check_publish_immutability,
     topological_axis_order,
@@ -157,6 +158,8 @@ class AxisRegistryAdminService:
         # 新規軸が既存軸の材料を黙って再利用し二重計上が混入する事故を構造的に防ぐ。
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_material_exclusivity(definition, existing_definitions)
+        # T311フォローアップ: 他の軸から参照されている内部軸を誤って公開させない。
+        check_internal_axis_not_published(definition, existing_definitions)
         # 改善計画T292: 軸間参照（内部軸→公開軸の階層構造）に循環が無いか検証する。
         # 参照先axis_idが存在しない場合はAxisDefinitionPayload._check_materials_are_known
         # （router層）で既に弾かれている前提のため、ここではAXIS_DEFINITIONS.keys()を
@@ -184,6 +187,8 @@ class AxisRegistryAdminService:
         # 変えない・変える更新のどちらも自己衝突しない。
         existing_definitions = {aid: d for aid, (d, _) in existing.items()}
         check_material_exclusivity(definition, existing_definitions)
+        # T311フォローアップ: 他の軸から参照されている内部軸を誤って公開させない。
+        check_internal_axis_not_published(definition, existing_definitions)
         # 改善計画T292: 軸間参照の循環検証（createと同じ、自分自身は上書きで置き換える）。
         topological_axis_order({**existing_definitions, axis_id: definition})
         await self._repository.upsert(definition, sort_order)

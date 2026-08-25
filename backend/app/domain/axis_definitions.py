@@ -736,6 +736,43 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
     return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
 
 
+class AxisInternalAxisPublishError(ValueError):
+    """他の軸から参照されている内部軸を公開（is_published=True）しようとした場合に
+    送出する（改善計画T292/T311フォローアップ）。
+
+    「内部軸は他の軸から参照される専用で、恒久的に非公開のまま運用する」という軸階層の
+    設計意図（本モジュールのAxisDefinition docstring「軸の階層」参照）は、従来コード
+    レベルで強制されていなかった。軸スタジオでの操作（動作確認・トグルの戻し忘れ等）で
+    car_stress内部軸の1つがis_published=Trueのまま保存され、migration適用ラグでDB読み込み
+    自体が失敗し続けていた間は気付かれず、DB読み込みが復旧した際に一般ユーザー向けの
+    ルート設定画面（`GET /api/axis-catalog`、is_publishedフィルタのみ）へそのまま
+    漏れ出た実障害があった（T311フォローアップ、2026-08-25）。
+    """
+
+    def __init__(self, axis_id: str, referencing_axis_id: str) -> None:
+        self.axis_id = axis_id
+        self.referencing_axis_id = referencing_axis_id
+        super().__init__(
+            f"axis '{axis_id}' is referenced by axis '{referencing_axis_id}' as an internal axis "
+            f"and cannot be published (internal axes stay permanently unpublished, T292/T311)"
+        )
+
+
+def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[str, AxisDefinition]) -> None:
+    """`candidate`が`existing`内の他の軸（自分自身を除く）から軸参照（内部軸）として
+    使われているにもかかわらず、is_published=Trueで保存しようとしていないか検査する
+    （改善計画T292/T311フォローアップ）。非公開のままなら常に許可する（早期return）。
+    """
+    if not candidate.is_published:
+        return
+    known_axis_ids = set(existing) | {candidate.axis_id}
+    for other_id, other in existing.items():
+        if other_id == candidate.axis_id:
+            continue
+        if candidate.axis_id in axis_dependencies(other, known_axis_ids):
+            raise AxisInternalAxisPublishError(candidate.axis_id, other_id)
+
+
 _TOPOLOGICAL_ORDER_CACHE_MAX_SIZE = 64
 _topological_order_cache: dict[tuple[tuple[str, tuple[str, ...]], ...], list[str]] = {}
 

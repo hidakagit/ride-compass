@@ -3,12 +3,14 @@ import pytest
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    AxisInternalAxisPublishError,
     AxisMaterialConflictError,
     AxisPublishedImmutableError,
     BreakpointLinearShape,
     CategoricalShape,
     MaterialTerm,
     car_stress_display_level,
+    check_internal_axis_not_published,
     check_material_exclusivity,
     check_publish_immutability,
     evaluate_axis_scalar,
@@ -112,6 +114,73 @@ def test_check_publish_immutability_rejects_published():
 
     assert exc_info.value.axis_id == "published_axis"
     assert exc_info.value.action == "deleted"
+
+
+# --- check_internal_axis_not_published（T311フォローアップ回帰テスト） ---
+# 軸スタジオを開くと未公開の推定軸（内部軸）がルート設定画面に漏れ出た実障害
+# （migration適用ラグでDB読み込みが失敗し続け、汚染データが隠れていたケース）を受けて
+# 追加したガード。内部軸（他の軸から参照されている軸）をis_published=Trueで保存
+# しようとした場合に拒否する。
+
+
+def _referencing_definition(axis_id: str, referenced_axis_id: str, is_published: bool = True) -> AxisDefinition:
+    return AxisDefinition(
+        axis_id=axis_id,
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material=referenced_axis_id)], breakpoints=[(0.0, 0.0), (10.0, 100.0)]
+        ),
+        default_weight=0.1,
+        label=f"テスト軸[{axis_id}]",
+        description="テスト用ダミー軸",
+        category="推定",
+        is_published=is_published,
+    )
+
+
+def test_check_internal_axis_not_published_allows_draft():
+    internal = _definition("internal_axis", "material_a", is_published=False)
+    existing = {"public_axis": _referencing_definition("public_axis", "internal_axis")}
+
+    check_internal_axis_not_published(internal, existing)  # 例外が出ないことを確認
+
+
+def test_check_internal_axis_not_published_allows_unreferenced_publish():
+    unreferenced = _definition("standalone_axis", "material_a", is_published=True)
+    existing = {"public_axis": _referencing_definition("public_axis", "internal_axis")}
+
+    check_internal_axis_not_published(unreferenced, existing)  # 例外が出ないことを確認
+
+
+def test_check_internal_axis_not_published_rejects_publishing_referenced_axis():
+    internal = _definition("internal_axis", "material_a", is_published=True)
+    existing = {"public_axis": _referencing_definition("public_axis", "internal_axis")}
+
+    with pytest.raises(AxisInternalAxisPublishError) as exc_info:
+        check_internal_axis_not_published(internal, existing)
+
+    assert exc_info.value.axis_id == "internal_axis"
+    assert exc_info.value.referencing_axis_id == "public_axis"
+
+
+def test_check_internal_axis_not_published_skips_self_comparison():
+    # 更新時、existing辞書に自分自身（同じaxis_id）が含まれていても自己参照とは見なさない。
+    existing = {"public_axis": _referencing_definition("public_axis", "public_axis", is_published=True)}
+    candidate = existing["public_axis"]
+
+    check_internal_axis_not_published(candidate, existing)  # 例外が出ないことを確認
+
+
+def test_car_stress_internal_axes_reject_publish_attempt():
+    # 実障害の直接的な回帰テスト: car_stressを支える内部軸6つのいずれかを、実際の
+    # AXIS_DEFINITIONS構成の中でis_published=Trueにして保存しようとすると拒否される。
+    others = {aid: d for aid, d in AXIS_DEFINITIONS.items() if aid != "car_stress_highway_base"}
+    candidate = AXIS_DEFINITIONS["car_stress_highway_base"].model_copy(update={"is_published": True})
+
+    with pytest.raises(AxisInternalAxisPublishError) as exc_info:
+        check_internal_axis_not_published(candidate, others)
+
+    assert exc_info.value.axis_id == "car_stress_highway_base"
+    assert exc_info.value.referencing_axis_id == "car_stress"
 
 
 # --- car_stress_motor_vehicle_no_adjustmentの-1000固定マイナス項（改善計画T292） ---
