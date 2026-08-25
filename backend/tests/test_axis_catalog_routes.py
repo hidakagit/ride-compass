@@ -55,3 +55,51 @@ def test_get_axis_catalog_excludes_draft_axes(draft_axis):
 
     axis_ids = {entry["axis_id"] for entry in response.json()["axes"]}
     assert "draft_axis" not in axis_ids
+
+
+def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axes():
+    # 改善計画T308: displayフィールドが軸ごとに含まれ、is_published切替が即座に
+    # （axis-catalog.jsonの再生成・フロント再デプロイなしに）反映されることの土台。
+    response = client.get("/api/axis-catalog")
+
+    body = response.json()
+    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
+
+    # stop_densityは手書きoverride（axis_display.py: STOP_DENSITY_DISPLAY）を優先する。
+    stop_density_display = entries_by_id["stop_density"]["display"]
+    assert stop_density_display["kind"] == "ramp"
+    assert stop_density_display["thresholds"] == [1.0, 2.0, 4.0]
+
+    # surface_qは手書きoverrideが無いためderive_ramp_inputsによる自動導出。
+    surface_q_display = entries_by_id["surface_q"]["display"]
+    assert surface_q_display["kind"] == "ramp"
+    assert surface_q_display["tile_inputs"][0]["property"] == "surface_good"
+
+    # gradientはどちらの経路でも導出できないためkind="none"。
+    assert entries_by_id["gradient"]["display"]["kind"] == "none"
+
+
+def test_get_axis_catalog_display_reflects_gui_created_published_axis():
+    # 改善計画T308の完了条件そのもの: 軸スタジオが公開した軸（複数材料の重み付き結合、
+    # 手書きoverrideテーブルに含まれない）が、コード変更・再デプロイなしにramp表示を持つ。
+    AXIS_DEFINITIONS["gui_published_axis"] = AxisDefinition(
+        axis_id="gui_published_axis",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="lanes_count", weight=1.0)],
+            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="GUI公開軸テスト",
+        is_published=True,
+    )
+    try:
+        response = client.get("/api/axis-catalog")
+        entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+        display = entries_by_id["gui_published_axis"]["display"]
+        assert display["kind"] == "ramp"
+        assert len(display["tile_inputs"]) == 1
+        assert display["tile_inputs"][0]["property"] == "lanes_count"
+        assert display["tile_inputs"][0]["weight"] == 1.0
+        assert display["thresholds"] == [10.0]
+    finally:
+        del AXIS_DEFINITIONS["gui_published_axis"]

@@ -1,4 +1,4 @@
-"""軸カタログの公開読み取りAPI（改善計画T269）。
+"""軸カタログの公開読み取りAPI（改善計画T269、T308で地図表示宣言を追加）。
 
 一般向けルート設定画面（RouteSettingsPanel）・研究モードのフロントが、評価軸の一覧
 （label/description/category/default_weight）を取得するための読み取り専用・認可不要の
@@ -15,12 +15,22 @@
 固まっていない軸を一般ユーザーが選んでしまい、その後の破壊的変更・削除ができなく
 なる——公開の意味が失われる）。下書き軸の一覧・編集は認可必須の
 `GET /api/admin/axis-definitions`（軸スタジオ）側で行う。
+
+**`display`フィールド（改善計画T308）**: `domain/axis_display.py: axis_display_for()`
+（プロセス内メモリのみを見る純粋関数、DB/IO無し）を軸ごとに呼んで含める。これにより、
+軸スタジオでの公開操作（is_publishedの切替）が、地図レイヤーのramp表示へ**再デプロイ
+なしに即座に**反映される（従来はビルド時静的生成物`axis-catalog.json`
+——`domain/registry.py`のレジストリ由来で、GUI作成軸を走査する経路自体が無かった——
+にしか地図表示情報が無く、GUI作成軸は技術的にramp化可能な材料構成であっても地図に
+一切現れなかった。docs/decisions/t308-axis-map-display-auto-derivation.md参照）。
 """
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory
+from app.domain.axis_display import axis_display_for
+from app.domain.registry import AxisDisplaySpec
 
 router = APIRouter()
 
@@ -31,6 +41,7 @@ class AxisCatalogEntry(BaseModel):
     description: str
     category: AxisCategory
     default_weight: float
+    display: AxisDisplaySpec
 
 
 class AxisCatalogResponse(BaseModel):
@@ -41,7 +52,8 @@ class AxisCatalogResponse(BaseModel):
 async def get_axis_catalog() -> AxisCatalogResponse:
     # AXIS_DEFINITIONSは常に最新（起動時＋管理API書き込み直後にin-place更新済み、
     # services/axis_registry_service.py参照）のため、DBへは触れずプロセス内の値を
-    # そのまま返す（評価ホットパスと同じ同期アクセス方式）。
+    # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()も同様に
+    # プロセス内メモリだけを見る純粋関数のため、リクエスト毎に呼んでもコストは無視できる。
     return AxisCatalogResponse(
         axes=[
             AxisCatalogEntry(
@@ -50,6 +62,7 @@ async def get_axis_catalog() -> AxisCatalogResponse:
                 description=definition.description,
                 category=definition.category,
                 default_weight=definition.default_weight,
+                display=axis_display_for(definition),
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

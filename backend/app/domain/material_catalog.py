@@ -56,6 +56,14 @@ class MaterialSpec(BaseModel):
     # domain/axis_display.py: derive_ramp_inputsはこれがTrueの材料を含む軸のramp自動導出を
     # 拒否する（静的な変換係数を持てないため、閾値を安全に流用できない）。
     tile_property_needs_runtime_scale: bool = False
+    # 改善計画T308: 材料の値が進行方向によって変わる（有向）場合True。地図のrampレイヤーは
+    # 1本の線を単色で塗る前提のため、方向依存材料は単純な重み付き和で表現できない
+    # （時間依存の風レイヤー・降水ナウキャストと同じく、矢印等の専用表示が別途必要）。
+    # derive_ramp_inputsはこれがTrueの材料を含む軸のramp自動導出を拒否する。現行
+    # MATERIAL_CATALOGに該当する材料は無い（onewayはどの軸の材料にもなっていない表示専用の
+    # 一次属性、T289）が、将来方向依存材料が追加された際に安全側へ倒す型的な安全弁として
+    # 用意する。
+    tile_property_direction_dependent: bool = False
 
 
 # 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと

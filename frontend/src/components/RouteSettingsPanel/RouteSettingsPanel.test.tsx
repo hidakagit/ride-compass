@@ -23,6 +23,9 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
       description: "",
       category: "観測",
       default_weight: 0.1,
+      // 改善計画T308: GET /api/axis-catalogのレスポンスへdisplayが必須フィールドとして
+      // 追加された。このテストはdisplayの内容自体を検証しないためkind="none"で済ませる。
+      display: { kind: "none", label: `ラベル[${axisId}]`, category: "trafficSafety", unit: "", note: "" },
     })),
   };
 }

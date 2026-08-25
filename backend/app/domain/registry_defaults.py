@@ -67,32 +67,15 @@ derive_ramp_inputs()`が`AXIS_DEFINITIONS`の材料（`domain/material_catalog.p
 expression）は不要になり削除した。
 """
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, UNSIGNALED_INTERSECTION_WEIGHT, BreakpointLinearShape, CategoricalShape
-from app.domain.axis_display import derive_ramp_inputs
+from app.domain.axis_definitions import AXIS_DEFINITIONS
+from app.domain.axis_display import ACCIDENT_DISPLAY, CAR_STRESS_DISPLAY, STOP_DENSITY_DISPLAY, derive_ramp_inputs
 from app.domain.registry import (
     AxisDisplaySpec,
     AxisSpec,
     PrimaryAttributeSpec,
-    TileInputSpec,
     register_axis,
     register_primary_attribute,
 )
-
-# car_stressのtile_inputsが参照する内部軸のshape（derive_ramp_inputsが解決できない
-# 「他の軸を参照するBreakpointLinearShape」を手書き登録する際、highway/bicycle_infra/
-# maxspeed_kmh/lanes_count/motor_vehicle_noの値自体はAXIS_DEFINITIONSを単一ソースとして
-# 参照する。designationのみ材料自体が異なる[categories="designation"(3値) vs
-# 評価用"is_designated"(bool)]ため単一ソース化できず手書きのまま、_register_axes参照）。
-_CAR_STRESS_HIGHWAY_BASE_SHAPE = AXIS_DEFINITIONS["car_stress_highway_base"].shape
-_CAR_STRESS_BICYCLE_INFRA_SHAPE = AXIS_DEFINITIONS["car_stress_bicycle_infra_adjustment"].shape
-_CAR_STRESS_MAXSPEED_SHAPE = AXIS_DEFINITIONS["car_stress_maxspeed_adjustment"].shape
-_CAR_STRESS_LANES_SHAPE = AXIS_DEFINITIONS["car_stress_lanes_adjustment"].shape
-_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE = AXIS_DEFINITIONS["car_stress_motor_vehicle_no_adjustment"].shape
-assert isinstance(_CAR_STRESS_HIGHWAY_BASE_SHAPE, CategoricalShape)
-assert isinstance(_CAR_STRESS_BICYCLE_INFRA_SHAPE, CategoricalShape)
-assert isinstance(_CAR_STRESS_MAXSPEED_SHAPE, BreakpointLinearShape)
-assert isinstance(_CAR_STRESS_LANES_SHAPE, BreakpointLinearShape)
-assert isinstance(_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE, CategoricalShape)
 
 
 def register_defaults() -> None:
@@ -375,21 +358,10 @@ def _register_axes() -> None:
             "難易度。交差点密度(intersection)は単独軸を持たず、タグなし交差点として低い重み"
             "（0.3、signal等のstop_poiを1.0とした相対値）でこの軸へ吸収する"
             "（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）",
-            display=AxisDisplaySpec(
-                kind="ramp",
-                label=AXIS_DEFINITIONS["stop_density"].label,
-                category="trafficSafety",
-                tile_inputs=[
-                    TileInputSpec(property="stop_per_km", weight=1.0),
-                    TileInputSpec(property="intersection_per_km", weight=UNSIGNALED_INTERSECTION_WEIGHT),
-                ],
-                # domain/difficulty.py: stop_difficultyの正準スケール（0→4.0回/kmで0→100）に
-                # 対応する4段階（〜1/〜2/〜4/4超）。
-                thresholds=[1.0, 2.0, 4.0],
-                unit="回/km",
-                note="信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた"
-                "停止要因の密度。way単位の事前集計（way_attribute_counts）由来",
-            ),
+            # 改善計画T308: 表示宣言（tile_inputs/thresholds）はaxis_display.pyへ移設
+            # （derive_ramp_inputsが解決できない3軸をaxis_display_for()と共有する単一
+            # ソースにするため、片側import）。
+            display=STOP_DENSITY_DISPLAY,
         )
     )
     register_axis(
@@ -410,68 +382,8 @@ def _register_axes() -> None:
             "compute_edge_axis_scores等が依存順評価で行う）。"
             "motor_vehicle_accessは地図レイヤー階層の次数反転検討（改善計画T163）で"
             "inputsからの記載漏れが発覚し追加した（排他違反ではないが不完全だった）",
-            display=AxisDisplaySpec(
-                kind="ramp",
-                label=AXIS_DEFINITIONS["car_stress"].label,
-                category="trafficSafety",
-                # 改善計画T292: 内部軸6つがそれぞれ参照する材料は全てMVTタイルへ焼き込み済み
-                # （highway/bicycle_infra/maxspeed_kmh/lanes_count/motor_vehicle_no、
-                # material_catalog.py参照。designationのみtile_property保持の"designation"
-                # [3値文字列]と評価用の"is_designated"[bool]が別材料——タイルには前者しか
-                # 無いため、is_designatedと同じ意味を「designationがどの値であれ+1」という
-                # categories（3値とも同じ点数）で表現する）。derive_ramp_inputsの自動導出は
-                # 「他の軸を参照するBreakpointLinearShape（AXIS_DEFINITIONS['car_stress']の
-                # terms）」を解決できないため対象外のまま（domain/axis_display.py参照）、
-                # stop_density/accidentと同じ前例で手書き登録する。
-                #
-                # 値はAXIS_DEFINITIONS内部軸の生の合計（0-100への最終rescale
-                # [breakpoints=(1,0)-(5,100)]は適用しない）。stop_density/accidentも
-                # 生の集計値（回/km・件/km）へ直接thresholdsを置いており、rampの目的は
-                # 色分けの相対比較であって難易度の絶対値表示ではない
-                # （正確な合成コストは区間インスペクタ/api/region/axis-inspectorが
-                # サーバー側で正確に計算する）。
-                tile_inputs=[
-                    TileInputSpec(
-                        property="highway",
-                        categories=_CAR_STRESS_HIGHWAY_BASE_SHAPE.mapping,
-                        has_unknown_fallback=True,
-                    ),
-                    TileInputSpec(
-                        property="bicycle_infra",
-                        categories=_CAR_STRESS_BICYCLE_INFRA_SHAPE.mapping,
-                    ),
-                    TileInputSpec(
-                        property="maxspeed_kmh",
-                        breakpoints=_CAR_STRESS_MAXSPEED_SHAPE.breakpoints,
-                    ),
-                    TileInputSpec(
-                        property="lanes_count",
-                        breakpoints=_CAR_STRESS_LANES_SHAPE.breakpoints,
-                    ),
-                    TileInputSpec(
-                        # designationはcar_stress内部軸の材料(is_designated、bool)とは別の
-                        # 材料（3値文字列、種別によらず一律+1）のため単一ソース化できない。
-                        property="designation",
-                        categories={"emergency_transport": 1.0, "critical_logistics": 1.0, "both": 1.0},
-                    ),
-                    TileInputSpec(
-                        property="motor_vehicle_no",
-                        boolean=True,
-                        true_value=_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE.mapping[True],
-                        false_value=_CAR_STRESS_MOTOR_VEHICLE_NO_SHAPE.mapping[False],
-                    ),
-                ],
-                # highway基準値（1-4）の区分境界そのもの（4段階の主要因）。他5補正の
-                # 寄与幅（各-2〜+1）に対し、highway基準値が主要な分散要因のため、その
-                # 境界をそのまま閾値に流用する（stop_density/accidentと同じく統計分析
-                # ではなくドメイン知識による選定、実データでの分布確認は必要になれば
-                # 別タスクで実施）。
-                thresholds=[2.0, 3.0, 4.0],
-                note="改善計画T292: highway/bicycle_infra/maxspeed_kmh/lanes_count/"
-                "designation/motor_vehicle_noの6材料から自動計算する。以前は専用の"
-                "手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への"
-                "階層再構成でtile_inputsの重み付き結合として表現できるようになった",
-            ),
+            # 改善計画T308: 表示宣言はaxis_display.pyへ移設（STOP_DENSITY_DISPLAYと同じ理由）。
+            display=CAR_STRESS_DISPLAY,
         )
     )
     night_ramp = derive_ramp_inputs(AXIS_DEFINITIONS["night"])
@@ -505,19 +417,7 @@ def _register_axes() -> None:
             output_range=(0.0, 100.0),
             description="事故地点密度（件/(km・年)）から算出する難易度。事故実績のみを入力とし、"
             "他のどの軸とも一次属性を共有しない",
-            display=AxisDisplaySpec(
-                kind="ramp",
-                label=AXIS_DEFINITIONS["accident"].label,
-                category="trafficSafety",
-                tile_inputs=[TileInputSpec(property="accident_per_km", weight=1.0)],
-                # domain/difficulty.py: accident_difficultyの正準スケール（0→0.5件/(km・年)で
-                # 0→100）を、タイルへ焼き込む生値（収録3年分の重み付き件数/km、年正規化前）へ
-                # 換算した4段階（〜0.4/〜0.8/〜1.5/1.5超）。
-                thresholds=[0.4, 0.8, 1.5],
-                unit="件/km",
-                note="警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の"
-                "距離正規化密度。way単位の事前集計（way_attribute_counts）由来。"
-                "正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
-            ),
+            # 改善計画T308: 表示宣言はaxis_display.pyへ移設（STOP_DENSITY_DISPLAYと同じ理由）。
+            display=ACCIDENT_DISPLAY,
         )
     )
