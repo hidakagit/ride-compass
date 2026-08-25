@@ -124,14 +124,16 @@ describe("MapLayersPanel", () => {
   // 中分類（category）の見出しは出さない（「地図の見え方と合わせて、中分類は不要」という
   // 実機フィードバック）。「生成したルートの色分け」（route、次数を持たない）はこのパネルの
   // 対象外へ移設した（「ルートを作る」パネル、page.tsx参照）。
-  it("レイヤーカタログの全レイヤーが、次数見出し（観測/推定/動的）のみのフラットな一覧としてセクションで並ぶ", () => {
+  it("レイヤーカタログの全レイヤーが、次数見出し（観測/推定）のみのフラットな一覧としてセクションで並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
     const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
     // パネル内は観測を推定より上にする（実機フィードバック「推定指標よりも観測指標を
     // 上にして」への対応。地図チップ側の「推定→観測」順とはあえて独立させている、
-    // mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDERのコメント参照）。動的は末尾。
-    expect(natureHeadings).toEqual(["観測データ", "推定指標（合成）", "動的データ"]);
+    // mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDERのコメント参照）。動的グループ（降水
+    // ナウキャスト・風・雷・竜巻）はユーザー判断（2026-08-25）により絞り込み機能を
+    // 持たないためこのパネルから撤去済み（見出し自体が出ない、下記の別テスト参照）。
+    expect(natureHeadings).toEqual(["観測データ", "推定指標（合成）"]);
 
     // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
     // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
@@ -149,8 +151,26 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-supplyPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-precipitationNowcast")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).not.toBeInTheDocument();
+  });
+
+  // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は観測
+  // グループと違い、凡例の帯単位で表示/非表示を切り替える絞り込み機能を持たない
+  // （降水の直近60分・雷・竜巻は気象庁配信の完成画像のみで生データがフロントに来ない
+  // ため技術的に困難、風のみ限定的に可能だが「仕様を統一する」ため実装しない判断）。
+  // 絞り込み機能が無い以上このパネルに出しても「表示」トグル以外に意味のある操作が
+  // 無いため、見出し・4行を丸ごと撤去した（ON/OFFは地図上チップで引き続き操作できる、
+  // 各レイヤーの説明文はMapOverlayControls.tsxの▶パネルへ移設——MapOverlayControls.
+  // test.tsx参照）。
+  it("動的グループ（降水ナウキャスト・風・雷・竜巻）は見出し・行とも表示されない", () => {
+    const { container } = render(<MapLayersPanel {...baseProps()} />);
+
+    const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    expect(natureHeadings).not.toContain("動的データ");
+    expect(container.querySelector("#map-layer-section-precipitationNowcast")).not.toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-windVector")).not.toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-thunderNowcast")).not.toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-tornadoNowcast")).not.toBeInTheDocument();
   });
 
   it("レイヤーが想定した次数グループの下に属する", () => {
@@ -175,8 +195,6 @@ describe("MapLayersPanel", () => {
     expect(natureTitleFor("supplyPoi")).toBe("観測データ");
     expect(natureTitleFor("bicycleInfra")).toBe("観測データ");
     expect(natureTitleFor("elevation")).toBe("観測データ");
-    // 改善計画T171: 降水ナウキャストは3値目「動的」に属する。
-    expect(natureTitleFor("precipitationNowcast")).toBe("動的データ");
   });
 
   // 実機フィードバック「推定指標の上から数えた順番を地図上の左から数えた順番と一致させて」
@@ -219,36 +237,19 @@ describe("MapLayersPanel", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
-  // 改善計画T171: 降水ナウキャストは絞り込みUIを持たないため、elevationと同じ専用case
-  // （説明の情報アイコンのみ、「絞り込みを操作すると自動でON」案内は出さない）で表示される。
-  // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
-  it("降水ナウキャストのセクションが表示され、説明が出るがOFF案内（絞り込み用）は出ない", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("precipitationNowcast");
-    openHint("降水ナウキャスト");
-
-    expect(screen.getByText(/気象庁の高解像度降水ナウキャストです/)).toBeInTheDocument();
-    const section = document.getElementById(layerSectionDomId("precipitationNowcast")) as HTMLElement;
-    expect(within(section).queryByText(/絞り込みを操作すると自動でONになります/)).not.toBeInTheDocument();
-  });
-
   // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
   // 専用の表示レイヤーを持たない軸（勾配。材料gradient_percentがタイル非依存のため
   // 改善計画T278の自動導出対象外）は、地図チップではタップ不能の灰色タイルとして存在する
   // 一方、以前のパネルはMapLayerId自体を持たないため一覧から完全に抜け落ちていた。
   // 設定項目もON/OFFも無いため、他レイヤーのような開閉式セクションではなく常時見える
-  // 案内行として存在させる。
-  it("専用の表示レイヤーを持たない推定軸（勾配）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
+  // 案内行として存在させる。改善計画T318で代役案内文（旧proxy_hint）を撤去したため、
+  // この案内行は見出し（h3）のみのシンプルな表示になった（軸スタジオでshow_map_icon
+  // をfalseにすれば行自体を丸ごと消せる、secondaryAxes.test.ts参照）。
+  it("専用の表示レイヤーを持たない推定軸（勾配）は開閉式にせず、見出しのみの案内行として存在する", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
 
-    // 改善計画T202: 案内文は先頭に「（地図表示なし）」が付く（統合レビュー2026-08-22指摘、
-    // 展開せずとも「押せない行がなぜあるのか」が伝わるようにするための接頭辞）ため、
-    // 完全一致ではなく部分一致（正規表現）で検証する。
-    expect(screen.queryByText(/標高レイヤーで確認できます/)).not.toBeInTheDocument();
-    openHint("勾配");
-    expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "勾配", level: 3 })).toBeInTheDocument();
   });
 
   // 改善計画T278: surface_q・nightは材料（surface_good・no_lit/has_tunnel）がMVTタイルへ

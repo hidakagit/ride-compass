@@ -221,9 +221,14 @@ class AxisDefinition(BaseModel):
     panel_hint: str | None = None
     """地図の見え方パネル（MapLayersPanel）向けの噛み砕いた説明文。未設定は
     descriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
-    proxy_hint: str | None = None
-    """display.kind="none"（専用地図レイヤー無し）の軸向け、代役レイヤーへの案内文。
-    未設定は案内なし（無効化されたチップとしてのみ表示）。"""
+    show_map_icon: bool = True
+    """falseなら地図上チップ（MapOverlayControls）・地図の見え方パネル
+    （MapLayersPanel）の両方からこの軸を丸ごと除外する
+    （frontend/src/components/Map/secondaryAxes.ts: secondaryAxesFromCatalogAxes()の
+    フィルタ条件）。既定trueは既存軸の見た目を変えないための後方互換値。旧`proxy_hint`
+    （専用地図レイヤーを持たない軸向けの代役案内文）は、この真偽値ON/OFFで
+    「そもそも表示しない」という選択肢自体が持てるようになったことで不要となり撤去した
+    （ユーザー判断2026-08-25、改善計画T318）。"""
     display_override: AxisDisplaySpec | None = None
     """地図ramp表示（domain/axis_display.py: axis_display_for()が返す値）の手書き上書き。
     未設定は`derive_ramp_inputs()`による自動導出（不可能ならkind="none"）に委ねる。
@@ -326,7 +331,6 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         is_published=True,
         icon_id="incline",
         chip_label="勾配",
-        proxy_hint="（地図表示なし）標高レイヤーで確認できます",
     ),
     # 向かい風。材料wind_penalty=符号付き風ペナルティm/s（正=向かい風、負=追い風。
     # domain/evaluation.py: compute_wind_penalty）。追い風・無風は0、8m/sで100。

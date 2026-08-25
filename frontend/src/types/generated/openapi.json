@@ -1176,16 +1176,9 @@
             ],
             "title": "Panel Hint"
           },
-          "proxy_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Proxy Hint"
+          "show_map_icon": {
+            "type": "boolean",
+            "title": "Show Map Icon"
           },
           "primary_attribute_ids": {
             "items": {
@@ -1206,7 +1199,7 @@
           "icon_id",
           "chip_label",
           "panel_hint",
-          "proxy_hint",
+          "show_map_icon",
           "primary_attribute_ids"
         ],
         "title": "AxisCatalogEntry"
@@ -1316,16 +1309,10 @@
             ],
             "title": "Panel Hint"
           },
-          "proxy_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Proxy Hint"
+          "show_map_icon": {
+            "type": "boolean",
+            "title": "Show Map Icon",
+            "default": true
           },
           "display_override": {
             "anyOf": [
@@ -1437,16 +1424,10 @@
             ],
             "title": "Panel Hint"
           },
-          "proxy_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Proxy Hint"
+          "show_map_icon": {
+            "type": "boolean",
+            "title": "Show Map Icon",
+            "default": true
           },
           "display_override": {
             "anyOf": [

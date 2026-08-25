@@ -55,7 +55,11 @@ class AxisDefinitionRow(Base):
     icon_id: Mapped[str | None] = mapped_column(String, nullable=True)
     chip_label: Mapped[str | None] = mapped_column(String, nullable=True)
     panel_hint: Mapped[str | None] = mapped_column(String, nullable=True)
-    proxy_hint: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 改善計画T318: falseなら地図上チップ・地図の見え方パネルの両方からこの軸を丸ごと
+    # 除外する。0020 migrationでNOT NULL DEFAULT trueの追加カラムとして導入（既存行は
+    # 全て「表示する」が現状の挙動のためbackfill不要）。旧proxy_hint（専用地図レイヤーを
+    # 持たない軸向けの代役案内文、NULL許容カラム）はこの真偽値へ置き換わり撤去した。
+    show_map_icon: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     # domain/axis_definitions.py: AxisDefinition.display_override（AxisDisplaySpec）を
     # `model_dump(mode="json")`したJSONオブジェクト。shape_paramsと同じ規約。
     display_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

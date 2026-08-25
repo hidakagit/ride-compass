@@ -1398,10 +1398,11 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 `SECONDARY_AXIS_PROXY_HINTS`、backend`axis_display.py`の`STOP_DENSITY_DISPLAY`等）として
 残っていた（汎用フォールバックがあり機能自体は壊れないため、T308の完了条件からは意図的に
 除外していた）。T310でこれらを全廃し、軸自身のデータ（`AxisDefinition`のフィールド、
-軸スタジオ経由でDBへ登録可能）へ移設した:
+軸スタジオ経由でDBへ登録可能）へ移設した（「代役案内」`proxy_hint`はT318で
+`show_map_icon`という真偽値ON/OFFへ置き換わり撤去済み、詳細は本節末尾参照）:
 
-- **`AxisDefinition`（`axis_definitions.py`）へ`icon_id`/`chip_label`/`panel_hint`/
-  `proxy_hint`（いずれも`str | None`）・`display_override`（`registry.py: AxisDisplaySpec
+- **`AxisDefinition`（`axis_definitions.py`）へ`icon_id`/`chip_label`/`panel_hint`
+  （いずれも`str | None`）・`display_override`（`registry.py: AxisDisplaySpec
   | None`、地図ramp表示のtile_inputs/thresholds/unit/noteをまとめて上書きする既存の型を
   再利用）を追加した。既存6軸（gradient/surface_q/night/stop_density/car_stress/
   accident）はこれらを自軸のエントリへ直接記述する（`label`/`description`と同じ、
@@ -1416,10 +1417,10 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   `registry_defaults.py`（ビルド時静的axis-catalog.json生成用の別レジストリ、T137）も
   `AXIS_DEFINITIONS[axis_id].display_override`を参照する形へ揃えた。
 - **`GET /api/axis-catalog`**（`axis_catalog.py: AxisCatalogEntry`）へ`icon_id`/
-  `chip_label`/`panel_hint`/`proxy_hint`を追加（`display_override`は`axis_display_for()`
+  `chip_label`/`panel_hint`を追加（`display_override`は`axis_display_for()`
   の出力[`display`フィールド]に統合済みのため別フィールド化しない）。
 - **フロント**: `RampAxis`（`axisLayers.ts`）・`SecondaryAxisSummary`（`secondaryAxes.ts`）
-  へ`iconId`/`panelHint`/`chipLabel`/`proxyHint`を追加し、旧ハードコード辞書は全廃した。
+  へ`iconId`/`panelHint`/`chipLabel`を追加し、旧ハードコード辞書は全廃した。
   アイコンは新設の`axisIconPalette.tsx`（固定パレット、`icon_id`→アイコンコンポーネント
   のフラットな辞書）から`axisIconFor(iconId)`で引く——未知/未設定は汎用`AxisRampIcon`へ
   安全側フォールバックする。
@@ -1448,6 +1449,25 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   引き続き軸スタジオの範囲外）。ルート詳細のセグメント別内訳（`RouteSegmentDetail`の
   既存7軸固定フィールド）は別タスク（T309）として切り出し、後日
   `axis_difficulties`汎用dictへ置換して解消済み（下記7章・6章参照）。
+
+#### `proxy_hint`撤去と`show_map_icon`の追加（改善計画T318、2026-08-25）
+
+ユーザー判断（「軸スタジオで、地図マップ上にアイコン表示するかどうかON/OFFできるように
+して。代役案内文(proxy_hint)は不要になるので消して」）を受け、`proxy_hint`（専用地図
+レイヤーを持たない軸向けの代役案内文）を全廃し、`show_map_icon: bool`（既定`true`、
+`migrations/0020_axis_definitions_show_map_icon.sql`でカラム追加と同時にDROP）へ
+置き換えた。
+
+- 判定・除外は1箇所に集約: `secondaryAxes.ts: secondaryAxesFromCatalogAxes()`の
+  フィルタへ`axis.show_map_icon !== false`を足すだけで、`show_map_icon=false`の軸は
+  地図上チップ（`MapOverlayControls.tsx`）・地図の見え方パネル（`MapLayersPanel.tsx`）
+  の両方から丸ごと除外される。専用レイヤーの有無（`display.kind`）に関わらず一律に効く
+  ため、kind別の分岐を新設する必要が無い。
+- `show_map_icon=true`のまま専用レイヤーを持たない軸（例: gradient）は、以前は
+  無効化タイルのツールチップ・展開パネルに`proxy_hint`の文言を出していたが、その表示は
+  単純に撤去した（代替の説明文は用意しない——存在理由が自明でなくなった場合は
+  `show_map_icon=false`にして表示自体を止める、というのが新しい設計判断）。
+  `MapLayersPanel.tsx: renderProxyAxisSection()`も同様に見出し（h3）のみへ簡略化した。
 
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 

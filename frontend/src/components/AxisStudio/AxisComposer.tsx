@@ -87,7 +87,10 @@ interface Draft {
   iconId: string;
   chipLabel: string;
   panelHint: string;
-  proxyHint: string;
+  /** 改善計画T318: この軸のアイコンを地図上チップ・地図の見え方パネルに表示するか
+   * どうか。既定true（表示する）。旧proxyHint（専用地図レイヤーを持たない軸向けの
+   * 代役案内文）はこのON/OFFに置き換わり撤去した。 */
+  showMapIcon: boolean;
   /** コードレビュー指摘の修正: priority_overrides（改善計画T292、0次条件）・
    * display_override（改善計画T310、地図ramp閾値の手書き上書き）はどちらもこの
    * フォームに編集欄を持たないが、既存軸の値をpayloadへ素通しして保持する
@@ -120,7 +123,7 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     iconId: "",
     chipLabel: "",
     panelHint: "",
-    proxyHint: "",
+    showMapIcon: true,
     priorityOverrides: [],
     displayOverride: null,
   };
@@ -139,7 +142,7 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     iconId: def.icon_id ?? "",
     chipLabel: def.chip_label ?? "",
     panelHint: def.panel_hint ?? "",
-    proxyHint: def.proxy_hint ?? "",
+    showMapIcon: def.show_map_icon,
     priorityOverrides: def.priority_overrides,
     displayOverride: def.display_override,
   };
@@ -259,7 +262,8 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       icon_id: draft.iconId.trim() === "" ? null : draft.iconId,
       chip_label: draft.chipLabel.trim() === "" ? null : draft.chipLabel.trim(),
       panel_hint: draft.panelHint.trim() === "" ? null : draft.panelHint.trim(),
-      proxy_hint: draft.proxyHint.trim() === "" ? null : draft.proxyHint.trim(),
+      // 改善計画T318: 地図上にアイコンを表示するかどうかのON/OFF（既定true）。
+      show_map_icon: draft.showMapIcon,
       // コードレビュー指摘の修正: このフォームに編集欄を持たないフィールドも、既存値を
       // 素通しして送る（未送信＝サーバー側の既定値[空リスト/null]で上書きされ、既存軸の
       // 値が消えるのを防ぐ）。
@@ -511,11 +515,19 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       )}
 
       <div className={styles.shapeGroup}>
-        <p className={styles.groupLabel}>地図チップ表示要素(任意、改善計画T310)</p>
+        <p className={styles.groupLabel}>地図チップ表示要素(任意)</p>
         <p className={styles.hint}>
           いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は
           説明(description)がそれぞれ代わりに使われる）。
         </p>
+        <label className={styles.inlineCheckbox}>
+          <Checkbox
+            checked={draft.showMapIcon}
+            onCheckedChange={(next) => setDraft((d) => ({ ...d, showMapIcon: next }))}
+            aria-label="地図上にアイコンを表示する(show_map_icon)"
+          />
+          地図上にアイコンを表示する(show_map_icon)（オフにすると地図上チップ・地図の見え方パネルのどちらにもこの軸が現れなくなります）
+        </label>
         <div className={styles.field}>
           <FieldLabel label="アイコン(icon_id)" description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。" />
           <div className={styles.row}>
@@ -560,15 +572,6 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
           />
         </label>
 
-        <label className={styles.fieldFull}>
-          代役案内文(proxy_hint)
-          <textarea
-            value={draft.proxyHint}
-            onChange={(e) => setDraft((d) => ({ ...d, proxyHint: e.target.value }))}
-            rows={2}
-            placeholder="専用の地図レイヤーを持たない軸向け、代わりに確認できるレイヤーの案内（例: 標高レイヤーで確認できます）"
-          />
-        </label>
       </div>
 
       <label className={styles.inlineCheckbox}>

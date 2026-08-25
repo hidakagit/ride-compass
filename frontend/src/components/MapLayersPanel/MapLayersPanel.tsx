@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import {
   LAYER_DATA_STATUS_LABELS,
@@ -133,69 +132,6 @@ export default function MapLayersPanel({
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
-
-  // 各メンバーの説明（panelHint/panelHintDetail/proxyHint）の開閉状態。実機フィードバック
-  // 「各メンバーの説明は、情報アイコン（！）を押したら見えるようにして」への対応。以前は
-  // セクションを開く（<details>）だけで説明文が常に見えており、車ストレスの8行に及ぶ
-  // 判定内訳などが常時表示されて読みにくいという指摘につながっていた。研究タブの
-  // FieldLabel（recipeControls.tsx、評価重み入力の説明トグルと同じ部品）をそのまま再利用し、
-  // 「見出し（ON/OFFの下）に説明トグルを置き、押すまで説明文自体は非表示」という統一挙動に
-  // する。キーはlayer.idまたは`axis-proxy-${axisId}`（専用レイヤーを持たない推定軸）。
-  const [openHintKeys, setOpenHintKeys] = useState<ReadonlySet<string>>(new Set());
-  function toggleHintOpen(key: string) {
-    setOpenHintKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }
-  // panelHint（＋panelHintDetailがあれば内訳の箇条書き）を、情報アイコンのトグルの下へ
-  // まとめて出す共通描画。renderStandardSectionBody・elevationケース・
-  // renderProxyAxisSectionの3箇所が共有する（以前はmutedHintの<p>を直接埋め込むだけの
-  // 3箇所バラバラの実装だった）。研究タブのFieldLabel（recipeControls.tsx）と同趣向だが、
-  // あちらは「フィールド名＋アイコン」がラベル代わりを兼ねる構成（フィールド名自体が
-  // 他に表示されていない）のに対し、こちらはレイヤー名が既に見出し（<summary><h3>）に
-  // 出ているため、ボタンの可視テキストは汎用の「説明」に留め、アクセシブル名
-  // （aria-label）の方にレイヤー固有の名前（subjectLabel）を使い分ける。
-  function renderHintToggle(
-    key: string,
-    subjectLabel: string,
-    hint: string | undefined,
-    detail?: readonly string[],
-  ) {
-    if (!hint) return null;
-    const open = openHintKeys.has(key);
-    return (
-      <>
-        <button
-          type="button"
-          className={styles.hintToggle}
-          aria-expanded={open}
-          aria-label={`${subjectLabel}の説明を${open ? "隠す" : "表示"}`}
-          onClick={() => toggleHintOpen(key)}
-        >
-          <InfoIcon size={13} />
-          <span aria-hidden="true">説明</span>
-        </button>
-        {open && (
-          <>
-            <p className={styles.mutedHint}>{hint}</p>
-            {detail && detail.length > 0 && (
-              <ul className={styles.hintList}>
-                {detail.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </>
-    );
-  }
 
   // レイヤー見出し行（Disclosureのtrailing、開閉状態に関わらず常に見える箇所）に置く
   // 情報アイコン（実機フィードバック「情報アイコンは、折りたたみを展開しなくても見れる
@@ -448,16 +384,6 @@ export default function MapLayersPanel({
             {renderDataStatusHint(layer.id)}
           </>
         );
-      case "precipitationNowcast":
-      case "windVector":
-        // elevationと同じ理由（絞り込みUIを持たないレイヤー）でOFF案内
-        // （renderOffHint、「絞り込みを操作すると自動でONになります」）を出さない。
-        // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
-        return (
-          <>
-            {renderDataStatusHint(layer.id)}
-          </>
-        );
       case "bicycleInfra":
       case "designation":
       case "tunnel":
@@ -551,12 +477,13 @@ export default function MapLayersPanel({
   // 常時見える案内行にする（上記コメント参照）。設定項目もON/OFFも無いため、
   // 他レイヤーのセクション（renderLayerSection）とは別の軽量な描画にする。
   function renderProxyAxisSection(axis: SecondaryAxisSummary) {
+    // 改善計画T318: 以前はここに代役案内文（旧proxy_hint）を開く情報アイコンを
+    // 出していたが、show_map_iconのON/OFFで「そもそも表示するかどうか」を選べる
+    // ようになったため撤去した。この見出しに来る軸はshow_map_icon=trueのまま専用
+    // レイヤーを持たないだけなので、見出し（h3）のみのシンプルな案内行にする。
     return (
       <div key={`axis-proxy-${axis.axisId}`} className={styles.proxyAxisSection}>
         <h3 className={styles.proxyAxisTitle}>{axis.label}</h3>
-        <div className={styles.proxyAxisBody}>
-          {renderHintToggle(`axis-proxy-${axis.axisId}`, axis.label, axis.proxyHint)}
-        </div>
       </div>
     );
   }
@@ -584,6 +511,16 @@ export default function MapLayersPanel({
         </button>
       </div>
       {MAP_LAYER_DATA_NATURE_ORDER.map((dataNature: MapLayerDataNature) => {
+        // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
+        // 観測グループと違い凡例の帯単位で表示/非表示を切り替える絞り込み機能を持たない
+        // （降水の直近60分・雷・竜巻は気象庁配信の完成画像のみで生データがフロントに来ない
+        // ため技術的に困難、風のみ限定的に可能だが「仕様を統一する」ため実装しない判断）。
+        // 絞り込み機能が無い以上このパネルに出しても「表示」トグル以外に意味のある操作が
+        // 無く、そのトグル自体は地図上チップ（MapOverlayControls.tsx）で引き続き操作できる
+        // ため、動的グループの見出し・4行を丸ごとこのパネルから除外する。各レイヤーの
+        // 説明文（panelHint）は地図上チップの▶パネルへ移設した
+        // （page.tsx: overlayLayersのhint、MapOverlayControls.tsx: renderRawMemberTile参照）。
+        if (dataNature === "dynamic") return null;
         if (dataNature === "composite") {
           // 推定グループだけは地図チップの並び（SECONDARY_AXES）を使う（上記コメント参照）。
           const entries = orderedCompositeEntries();

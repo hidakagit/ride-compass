@@ -758,7 +758,12 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     const materialsNote = renderMaterialsNote(axis.primaryAttributeIds);
     const Icon = axisIconFor(axis.iconId);
     if (!member) {
-      const canExpand = Boolean(axis.proxyHint) || materialsNote !== null;
+      // 改善計画T318: 専用レイヤーを持たない軸は、以前は代役案内文（旧proxy_hint）を
+      // 出していたが、show_map_iconのON/OFFで「そもそも表示するかどうか」を選べる
+      // ようになったため撤去した。この分岐に来る軸はshow_map_icon=trueのまま専用
+      // レイヤーを持たないだけなので、タップ不能の情報タイル（アイコン+略称のみ）
+      // として引き続き存在させる。
+      const canExpand = materialsNote !== null;
       return (
         <ChipButton
           key={key}
@@ -767,7 +772,6 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
           chipLabel={axis.label}
           active={false}
           disabled
-          title={axis.proxyHint}
           onTap={() => {}}
           canExpand={canExpand}
           isExpanded={canExpand && expandedIds.has(key)}
@@ -782,7 +786,6 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                   隠した分をここで見出しとして出す。デスクトップでは冗長になるが、
                   タイル本体にも同じ文字が出ているだけで害はない。 */}
               <div className={styles.detailAxisLabel}>{axis.chipLabel}</div>
-              {axis.proxyHint && <p className={styles.detailNotice}>{axis.proxyHint}</p>}
               {materialsNote}
             </div>
           }

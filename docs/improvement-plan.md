@@ -6257,6 +6257,105 @@ T261の本番クラッシュ調査・T263（Oracle VM移行）という一連の
 ウォームアップ等）はT265へ切り出してトリガー未到達リストへ移した。T263は同日、
 Render backendの停止とデプロイ確認機構の修正をもって残作業を含め完了した。**
 
+## T317: 動的グループを「地図の見え方」パネルから撤去し、説明文を地図上チップへ移設（完了・2026-08-25）
+
+**番号重複についての注記**: 本タスクと並行して別セッション（`claude/jiku-studio-500-error-bvnrvd`
+ブランチ）が進めていた作業でも、独立に「T317」という番号が別内容
+（`### - [x] T317. night軸非公開時にRoutePreference.with_weightがValidationErrorになる
+不具合の恒久対策` 、本ファイル内の別見出し形式・別セクションを参照）に採番されていた
+（master統合時の衝突リスクとして事前に把握していたが、見出し形式・挿入位置が異なった
+ためgit mergeの機械的な衝突にはならなかった）。両タスクは無関係な別内容であり、
+本節が指すのは本文中の実装内容（動的グループのパネル撤去）のみ。
+
+ユーザー指摘「地図上チップの凡例（無風・微風…）と『地図の見え方』パネルの中身が同期
+されない、凡例に合わせてパネル内でon/off切り替えたい」から検討開始。調査の結果、
+動的グループ（降水ナウキャスト・風・雷・竜巻）は観測グループと異なり、凡例の帯単位で
+表示/非表示を切り替える絞り込み機能自体を持たないと判明した（降水の直近60分・雷・竜巻は
+気象庁配信の完成画像のみで生データがフロントに来ないため技術的に困難、風のみ
+`speed`プロパティを持つ自前GeoJSONのため限定的に可能）。
+
+ユーザー判断: 風だけ限定実装する対応はせず「仕様を統一」し、動的グループは絞り込み
+機能を持たないものとして確定。絞り込み機能が無い以上「地図の見え方」パネルに行を
+出す意味が無い（ON/OFFは地図上チップで完結する）ため、パネルから動的グループの
+見出し・4行を丸ごと撤去した。各行が持っていた説明文（`panelHint`、雷ナウキャストの
+「活動度2以上は直ちに避難」等の安全上の注意を含む）は失わせず、地図上チップの▶パネル
+（`MapOverlayControls.tsx`）へ移設した。
+
+実装:
+- `MapLayersPanel.tsx`: `MAP_LAYER_DATA_NATURE_ORDER`ループで`dataNature === "dynamic"`
+  なら即`null`を返し、動的グループの見出し・行を丸ごと非表示に。到達不能になった
+  `renderSectionBody`の`precipitationNowcast`/`windVector`専用caseを削除。
+- `page.tsx`: `OverlayLayerChip`に新フィールド`hint`を追加し、動的グループ4レイヤーに
+  限り`layer.panelHint`を渡す（他レイヤーはサイドバーに説明文が残るため`undefined`の
+  まま、重複表示を避ける）。チップの`title`も動的グループでは「[設定はサイドバー]」を
+  付けないよう修正（サイドバーに設定行が無くなったため）。
+- `MapOverlayControls.tsx`: `OverlayLayerChip.hint`を追加し、`renderRawMemberTile`の
+  ▶パネルで凡例（`legendDetails`）の下に説明文を続けて表示するよう拡張
+  （実機フィードバックで「凡例が先、説明文は後」の順に確定）。折りたたみ中の
+  「表示する項目を選ぶ」設定パネル（`renderVisibilitySettings`）にも、グループ展開
+  まで説明文に辿り着けないという実機フィードバックを受け、各項目に個別の（！）
+  トグルを追加し、パネルを開いたまま各メンバーの説明文を確認できるようにした。
+
+検証: frontend tsc/eslint/vitest 504 passed（新規回帰テスト3件追加）。Playwrightで
+実機確認——「地図の見え方」パネルに「動的データ」見出し・4行が一切出ないこと、
+地図上チップの▶パネルで凡例と説明文が両方（凡例が先）読めること、折りたたみ中の
+設定パネルからも各メンバーの（！）で説明文（雷の安全注意を含む）が確認できることを
+スクリーンショットで確認した。
+
+**T317追記（同日）**: 地図上チップへの説明文表示（▶パネル本体・折りたたみ中の設定
+パネルの入れ子（！）の両方）は、ユーザー判断「▶内に移動した説明文は消して」により
+撤去した。動的グループの行を「地図の見え方」パネルから撤去する対応（本体）自体は
+変更せず、凡例（legendDetails）のみを表示する元の挙動へ戻した
+（`OverlayLayerChip.hint`フィールド・`renderVisibilitySettings`の入れ子トグル機構を削除）。
+frontend tsc/eslint/vitest 502 passed。
+
+## T318: 軸スタジオに「地図上にアイコン表示」ON/OFFを追加し、proxy_hintを撤去（完了・2026-08-25）
+
+**番号重複についての注記**: 本タスクと並行して別セッション（`claude/jiku-studio-500-error-bvnrvd`
+ブランチ）が独立に「T318」という番号を別内容
+（`### - [ ] T318. 起点(35.75,139.74)でdistance_km=25/30が候補0件になる` 、本ファイル内の
+別見出し形式・別セクションを参照、そのセッションはさらにT319・T320も採番して既存7軸
+ハードコーディングの全面撤去を実施済み）に採番していた。見出し形式・挿入位置が異なった
+ためgit mergeの機械的な衝突にはならなかったが、両タスクは無関係な別内容である。本節が
+指すのは本文中の実装内容（`show_map_icon`追加・`proxy_hint`撤去）のみ。
+
+軸スタジオ（AxisComposer.tsx）で作成する軸は、専用の地図レイヤーを持つか持たないかに
+関わらず、公開されている限り常に地図上チップ・「地図の見え方」パネルの両方に何らかの形
+（interactive tileまたは無効化されたグレーの案内タイル）で表示される。専用レイヤーを
+持たない軸向けの「代役案内文（`proxy_hint`）」がその無効化タイルの説明に使われていた。
+
+ユーザー判断: 軸スタジオ側で「この軸のアイコンを地図上に表示するかどうか」を明示的に
+ON/OFFできる新フィールド`show_map_icon`（既定true）を追加し、OFFにした軸は地図上
+チップ・サイドバーの両方から丸ごと除外する。これに伴い`proxy_hint`（DBカラム・
+Pydanticモデル2箇所・OpenAPI生成物・フロントエンド6箇所に及ぶフルスタックのフィールド）
+を撤去した。併せてAxisComposer.tsxのフォーム見出しに残っていた開発用のタスク番号表記
+「(任意、改善計画T310)」もユーザー向け画面から削除した。
+
+実装:
+- backend: `migrations/0020_axis_definitions_show_map_icon.sql`（`show_map_icon BOOLEAN
+  NOT NULL DEFAULT true`追加＋`proxy_hint` DROP、既存行はbackfill不要）。
+  `domain/axis_definitions.py`（`AxisDefinition`）・`api/routers/axis_admin.py`
+  （`AxisDefinitionFields`）・`api/routers/axis_catalog.py`（`AxisCatalogEntry`、
+  必須の真偽値フィールドとして追加）・`infrastructure/axis_definition_models.py`/
+  `axis_definition_repository.py`・`scripts/export_openapi.py`の6箇所を機械的に置き換え。
+- frontend: `secondaryAxes.ts: secondaryAxesFromCatalogAxes()`のフィルタへ
+  `axis.show_map_icon !== false`を1行追加するだけで、地図上チップ
+  （`MapOverlayControls.tsx`）・「地図の見え方」パネル（`MapLayersPanel.tsx`）の両方から
+  対象軸が除外される（`display.kind`のramp/none別分岐は不要）。`renderAxisTile()`の
+  `!member`分岐・`renderProxyAxisSection()`から`proxyHint`表示を削除し、後者は見出し
+  （h3）のみへ簡略化（`renderHintToggle`自体が唯一の呼び出し元を失ったため削除）。
+  `AxisComposer.tsx`は`proxy_hint`のtextareaを`Checkbox`（`isPublished`と同じ部品）へ
+  置き換え、グループ見出しから「、改善計画T310」を削除。
+- ドキュメント: `docs/architecture.md`のT310節を`show_map_icon`へ更新し、T318の追加節を
+  末尾に置いた。
+
+検証: backend pytest 984 passed / 154 skipped（`show_map_icon` true/false双方のround-trip
+テストを含む）。frontend tsc/eslint/vitest 505 passed（`secondaryAxesFromCatalogAxes`の
+除外テスト2件・`AxisStudio`のチェックボックス＋T310文字列不在テスト1件を新規追加）。
+OpenAPI/静的axis-catalog.json再生成後のdiffもクリーン。本番DB migration（0020）は
+コード側の検証が完了した段階のため、適用タイミングは別途ユーザーへ確認する
+（無断で本番へは適用しない）。
+
 ---
 
 完了タスクの日付別一覧は[docs/improvement-plan-archive/README.md](improvement-plan-archive/README.md)を参照
