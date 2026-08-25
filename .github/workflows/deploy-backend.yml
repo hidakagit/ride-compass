@@ -47,7 +47,20 @@ jobs:
             # settings.git_commit参照）。
             GIT_COMMIT=$(git rev-parse HEAD)
             sudo docker build -t ridecompass-backend:latest .
-            sudo docker stop ridecompass-backend 2>/dev/null || true
+            # -t 90: docker stopの既定SIGTERM猶予(10秒)は、ルート生成(通常は数秒〜十数秒、
+            # 冷パスは最大316秒実測)の完了を待つには短すぎ、デプロイと処理中リクエストが
+            # 重なると接続がRSTで強制切断され、フロントで「TypeError: Failed to fetch」
+            # として観測される障害があった(改善計画T314)。uvicorn(--workers未指定の単一
+            # プロセス、backend/Dockerfile)はSIGTERM受信で新規接続を止め既存接続の完了を
+            # 待つグレースフルシャットダウンが既定動作のため、猶予さえ延ばせばアプリ側の
+            # 変更なしで解決する。90秒は本番実測の大半のケース(4〜17秒)を十分にカバーする
+            # 値として選んだ(冷パス最悪ケース316秒まで待つと通常デプロイが長時間ブロック
+            # されるため、そこまでは保証しない意図的なトレードオフ)。
+            # 真のゼロダウンタイム(新コンテナを起動しヘルスチェック後に旧を止める
+            # blue/green)は、--network=hostで単一ポートを共有する現在の構成では
+            # 新旧コンテナを同時起動できず実現できない(VM上nginx側のポート切替が別途
+            # 必要、リポジトリ管理外のため本タスクのスコープ外)。
+            sudo docker stop -t 90 ridecompass-backend 2>/dev/null || true
             sudo docker rm ridecompass-backend 2>/dev/null || true
             # --network=host: PostgreSQLがこのVMにネイティブ（Dockerコンテナ外）で
             # 稼働しているため、コンテナ内からDATABASE_URL=localhost:5432で到達させるには
