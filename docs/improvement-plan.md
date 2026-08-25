@@ -6337,7 +6337,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   表示されること（サイレント失敗しないこと）を確認した。
 - 依存: T321〜T323（UIレビューとその起票群）、T270（軸スタジオ基盤）。
 
-### - [ ] T328. テスト品質監査で発見した現存する実装バグ4件の修正 規模S（未着手）
+### - [x] T328. テスト品質監査で発見した現存する実装バグ4件の修正 規模S（実装完了）
 
 - 背景: T321完了後、「実装とテストの乖離が無いか」という観点で全211実装ファイルを対象に
   機械的トリアージ＋16並列エージェントによる全件監査を実施した（成果物:
@@ -6377,6 +6377,30 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   `verify_postgis_phase0.py`は全ステップPASSすることを実機確認する。backend/frontend
   全テストgreenを維持する。
 - 依存: T321（監査の発端）。
+- **実装メモ（2026-08-25完了）**: 4件とも修正し、実機検証済み。
+  1. `bench_evaluate_graph.py`: `preference=preference`を追加、実行してクラッシュしない
+     ことを確認。
+  2. `verify_postgis_phase0.py`: ステップ5の直前でBBOXを覆う全タイルを
+     `road_graph_tiles`へ明示的にマークするよう修正（従来あった`cleanup()`呼び出しは、
+     ステップ1-2で保存した生データ・Edgeそのものも消してしまい「フレッシュな
+     GraphServiceがステップ1-2の永続化済みデータを正しく読めるか」という本来の検証意図と
+     矛盾していたため撤去した）。実機検証の過程で**もう1件、無関係の既存バグ**を発見・
+     修正: `build_road_graph`がT262でPydantic `RoadGraph`から軽量dataclass
+     `LeanRoadGraph`を返すよう移行済みだったが、本スクリプトのステップ2はフィルタ後に
+     旧`RoadGraph(...)`へ素通しで渡しており、`LeanNode`/`LeanEdge`を`Node`/
+     `DirectedEdge`型フィールドへ渡す形になって`ValidationError`で即クラッシュしていた
+     （`LeanRoadGraph(...)`へ差し替えて解消）。ついでに既存のruff指摘（未使用変数
+     `applied_first`、T321以前からの指摘）も解消。フレッシュなdev DBに対し実行し
+     21/21 PASSを確認済み。
+  3. `regionApi.ts: refreshBasemapCache`: `fetchAxisInspector`と同じ構造（`!response.ok`
+     判定をtryの外に出す）へ揃えた。`regionApi.test.ts`に、HTTPエラー時`debugLog`が
+     「失敗 (HTTP xxx)」で1回だけ呼ばれ「失敗 (通信エラー)」では呼ばれないことを
+     直接検証する回帰テストを追加。
+  4. `compare_engines_quality.py`: `run_ors`が`session_factory`を受け取り、
+     `run_road_graph`と同じ「呼び出しごとに新規セッション」パターンで
+     `RoadGraphRepository`を`OpenRouteServiceEngine(repository=...)`へ注入するよう修正。
+  検証: backend pytest 1137 passed、ruff clean。frontend vitest 524 passed、eslint/tsc
+  clean。
 
 ### - [ ] T329. テスト実行コストの是正 規模S（未着手）
 
