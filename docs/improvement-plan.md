@@ -5284,6 +5284,49 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   扱うかは着手時に再検討する。
 - 依存: 特になし（トリガー条件の充足待ち）。
 
+### - [ ] T308. 推定軸の地図表示自動連動 規模M〜L（設計完了・実装未着手）
+
+- 背景: ユーザーからの質問「管理画面で公開した推定要素のみ、地図上でアイコン表示する
+  ようにできている？材料はモジュール修正が必要なのは理解できるが、推定軸はあくまで
+  既存合成した結果。推定軸と地図・凡例は連動させたい」を受けて調査した結果、
+  **現状はできていない**ことが判明した。地図レイヤーの動的部分（`RAMP_AXES`）は
+  実行時API（`GET /api/axis-catalog`、is_published切替が即反映）ではなくビルド時静的
+  生成物（`axis-catalog.json`）を単一ソースにしており、その生成元レジストリ
+  （`registry_defaults.py: _register_axes()`）自体が既存7軸のみのハードコードで、
+  軸スタジオで作成・公開した軸を走査する経路が無い（Gap 1: 配信経路）。加えて、
+  地図表示ルールの自動導出関数（`domain/axis_display.py: derive_ramp_inputs`）が
+  対応できる材料構成が狭く（単一材料の軸のみ）、GUIの標準的な軸作成手段
+  （複数材料の重み付き結合）で作った軸の多くは自動導出の対象外になる
+  （Gap 2: 導出ロジック）。ユーザーへの確認により「推定軸の色分けはMVTタイルに
+  焼き込まれていない・タイルの材料の生値から軸の合成式で導出できるはず」という認識が
+  合っていることを確認し、「推定軸の材料によって対応が変わる。動的要素や向きのある
+  観測要素は時間・有向表現の別途検討が要る」という補足も得た。
+- 対応方針: 上記2ギャップを解消する設計を`docs/decisions/
+  t308-axis-map-display-auto-derivation.md`へまとめた。要点:
+  1. **Gap 1**: `axis_display_for()`という純粋関数（`AXIS_DEFINITIONS`/
+     `MATERIAL_CATALOG`のみを見る、DB/IO無し）を新設し、`GET /api/axis-catalog`の
+     レスポンスへ`display`フィールドを追加。フロントの`RAMP_AXES`取得を
+     `useAxisCatalog.ts`と同じ「実行時フェッチ＋静的フォールバック」パターンへ切替え、
+     ビルド時生成物への依存を解消する。
+  2. **Gap 2**: `derive_ramp_inputs`の制約（`CategoricalShape`はbool2値のみ、
+     `BreakpointLinearShape`は単一材料・weight=1.0のみ）のうち、`BreakpointLinearShape`の
+     複数材料重み付き結合は`shape.breakpoints`のx値をそのまま閾値に流用できることが
+     数学的に導けるため撤廃可能、`CategoricalShape`のstr N値マッピングも
+     `TileInputSpec.categories`（既存機能）で対応可能と判明。一方、`preprocess="abs"`は
+     フロント側expression未対応のため当面対象外のまま。
+  3. ユーザー指摘を受け、`MaterialSpec`へ`tile_property_direction_dependent`
+     （方向依存材料の除外フラグ、新設）を追加し、方向依存・実行時スケール変換要・
+     タイル非依存の材料を含む軸は安全側で`kind="none"`（地図に出さない）へ倒す設計とした。
+  4. Stage A（Gap2・backend単独）→Stage B（Gap1・backend API＋frontend）の2段階を想定
+     （Stage BがStage Aの汎用化を前提とするため）。
+- 現状: 設計のみ完了・ユーザーへ提示済み。実装は未着手（Stage分割・着手順・スコープの
+  最終確認[既存7軸の手書きdisplayをどこまで置き換えるか等]はユーザー判断待ち）。
+- 完了条件（実装着手後）: 上記設計に基づきStage A・Bを実装し、既存7軸の地図表示が
+  一字一句変わらないことをテストで担保した上で、軸スタジオで新規作成・公開した軸が
+  再デプロイなしに地図へ現れることを実機確認する。docs/architecture.md追従（規模M以上・
+  API/表示レイヤー種の変更のため）。
+- 依存: なし（T278[derive_ramp_inputs新設]・T292[car_stressのramp化]の上に積む）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
