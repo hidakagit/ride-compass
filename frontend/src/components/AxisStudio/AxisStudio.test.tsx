@@ -21,7 +21,7 @@ vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
-import { listAxisDefinitions } from "@/services/axisAdminApi";
+import { deleteAxisDefinition, listAxisDefinitions } from "@/services/axisAdminApi";
 
 function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
   return {
@@ -149,6 +149,81 @@ describe("AxisStudio", () => {
     await user.type(valueInput, "separated");
     await user.click(screen.getByRole("button", { name: "+ 値を追加" }));
     expect(screen.getAllByLabelText("値")).toHaveLength(2);
+  });
+
+  // 改善計画T323（UIレビュー2026-08-25 F-1）: 他の軸から材料として参照されている軸を
+  // 削除しようとすると、参照元の名前と影響を明示する確認ダイアログが出る回帰テスト。
+  it("他の軸から参照されている軸を削除しようとすると確認ダイアログが出て、キャンセルすれば削除されない", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      definition({ axis_id: "highway_base", label: "highway基準値" }),
+      definition({
+        axis_id: "car_stress",
+        label: "車の圧迫感",
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "highway_base", weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
+      }),
+    ]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("highway基準値")).toBeInTheDocument());
+    await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("車の圧迫感"));
+    expect(deleteAxisDefinition).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("確認ダイアログでOKを押せば、参照されている軸でも削除される", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      definition({ axis_id: "highway_base", label: "highway基準値" }),
+      definition({
+        axis_id: "car_stress",
+        label: "車の圧迫感",
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "highway_base", weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
+      }),
+    ]);
+    vi.mocked(deleteAxisDefinition).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("highway基準値")).toBeInTheDocument());
+    await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
+
+    expect(deleteAxisDefinition).toHaveBeenCalledWith("highway_base");
+    confirmSpy.mockRestore();
+  });
+
+  it("他の軸から参照されていない軸の削除は確認ダイアログを出さない", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition(), definition({ axis_id: "surface_q", label: "舗装状況" })]);
+    vi.mocked(deleteAxisDefinition).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleteAxisDefinition).toHaveBeenCalledWith("gradient");
+    confirmSpy.mockRestore();
   });
 
   it("公開済み軸には「非公開に戻す」ボタンが表示され、下書き軸には表示されない", async () => {
