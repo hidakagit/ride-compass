@@ -5,7 +5,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.infrastructure.migrate import _split_statements, apply_pending_migrations
+from app.infrastructure.migrate import MIGRATIONS_DIR, _split_statements, apply_pending_migrations
+from app.infrastructure.road_graph_repository import create_tables
 from tests.conftest import TEST_DATABASE_URL
 
 # xdist_group="postgis": migration_engineは同じridecompass_test DBに対して
@@ -146,3 +147,72 @@ async def test_apply_pending_migrations_skips_already_applied_and_runs_rest_in_o
             [already_applied_table, pending_table],
             [already_applied_filename, pending_filename],
         )
+
+
+async def _drop_all_public_tables(engine) -> None:
+    """publicスキーマの既存テーブルを（PostGIS付属のspatial_ref_sysを除いて）全てDROPする。
+
+    本番の唯一のブートストラップ経路（create_tables→apply_pending_migrations）は
+    「テーブルが1つも無いまっさらな状態」から始まることが前提のため、フィクスチャの
+    実行順序（他のテストが先にschema_migrations等を作っている可能性）に依らずこの前提を
+    保証する（タスク指示: まっさらな状態を保証できない場合は冒頭で明示的に全DROPする）。
+    """
+    async with engine.begin() as conn:
+        rows = (
+            await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
+        ).all()
+        for (table_name,) in rows:
+            if table_name == "spatial_ref_sys":
+                continue  # PostGIS拡張付属のテーブル。DROPすると拡張自体が壊れる。
+            await conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+
+
+@pytest_asyncio.fixture
+async def bootstrap_engine():
+    """まっさらな状態からのブートストラップ経路検証専用engine。
+
+    migration_engineフィクスチャと同じTEST_DATABASE_URLへ接続するが、テスト開始時に
+    publicスキーマの既存テーブルを明示的に全てDROPしてから使う点が異なる
+    （create_tables()→apply_pending_migrations()の一連の流れを「テーブルが1つも無い」
+    前提から検証するため）。
+    """
+    engine = create_async_engine(TEST_DATABASE_URL)
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        await engine.dispose()
+        pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
+
+    await _drop_all_public_tables(engine)
+
+    yield engine
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(bootstrap_engine):
+    """本番の唯一のブートストラップ経路（app/batch/import_pbf.pyが使う
+    create_tables()→apply_pending_migrations()の順）を、テーブルが1つも無いまっさらな
+    状態から検証する。
+
+    road_graph_engineフィクスチャ（tests/conftest.py）はBase.metadata.create_allのみで
+    migrationを一度も経由せず、この組み合わせを検証する自動テストがCIに存在しなかった
+    ことが、migration 0010〜0020のIF NOT EXISTS欠如という同一バグが2回連続で発生した
+    直接の原因だった（改善計画T321・T328、backend/scripts/verify_postgis_phase0.py
+    ステップ0〜1相当をpytest化する）。
+    """
+    await create_tables(bootstrap_engine)  # 例外なく完了すること
+    applied = await apply_pending_migrations(bootstrap_engine)  # 例外なく完了すること
+
+    expected_filenames = {path.name for path in MIGRATIONS_DIR.glob("*.sql")}
+    assert expected_filenames, "migrations/配下にファイルが見つからない（テスト前提が崩れている）"
+    assert set(applied) == expected_filenames  # migrations/配下の全SQLファイルが適用された
+
+    second_applied = await apply_pending_migrations(bootstrap_engine)
+    assert second_applied == []  # 2回目は空リスト（冪等、再適用しない）
+
+    async with bootstrap_engine.connect() as conn:
+        axis_count = (await conn.execute(text("SELECT count(*) FROM axis_definitions"))).scalar()
+    # 公開7軸（migrations/0014）+ car_stress内部軸6（migrations/0017）= 13行
+    assert axis_count == 13

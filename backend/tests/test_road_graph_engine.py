@@ -116,6 +116,7 @@ class FakeGraphService:
         accident_years_covered: int = 0,
         designated_edge_ids: set | None = None,
         elevation_attributes_for_search: dict | None = None,
+        edges_with_geometry: dict | None = None,
     ):
         self._graph = graph
         self._surface_attributes = surface_attributes or {}
@@ -128,6 +129,12 @@ class FakeGraphService:
         # 改善計画T218a: 探索コスト（prepare）が読む事前計算済みgradient。既定{}は
         # 「バッチ未実行のEdge」を模す（gradient軸のみデータ無し扱い、他軸の評価は継続）。
         self._elevation_attributes_for_search = elevation_attributes_for_search or {}
+        # 改善計画T218の主経路（hydrated優先）を検証するためのフェイクDB取得結果。既定{}は
+        # 従来どおり「常に空辞書」（呼び出し元trace_loop/preview_segmentがcontext.graph.edges
+        # ［or search.graph.edges］へフォールバックする、防御的フォールバック側のみが動く）。
+        # テスト側でedge_idごとにDirectedEdgeをセットした場合のみ、そのedge_idに対して
+        # 非空の結果を返す（主経路＝hydrated優先を検証できるようにする）。
+        self._edges_with_geometry = edges_with_geometry or {}
         # 静的道路属性P1。Falseは「repository未注入でデータ自体を取得できない」を模す
         # （get_edge_attribute_counts(repository=None)と同じ{}を返す）。Trueは
         # 「repository注入済み、指定edge_idは（0件含め）必ず実測値を持つ」を模す
@@ -162,10 +169,13 @@ class FakeGraphService:
         )
 
     async def get_edges_with_geometry(self, edge_ids):
-        # 改善計画T218: フェイクグラフのEdgeは元々実ジオメトリを持つため、常に空辞書を
-        # 返す（呼び出し元trace_loopはcontext.graph.edges[edge_id]へフォールバックする、
-        # Overpass経由構築時と同じ挙動）。
-        return {}
+        # 主経路（hydrated優先、road_graph_engine.py:341,386の`hydrated.get(edge_id) or
+        # context.graph.edges[edge_id]`のor左辺）。既定{}は「未セット」を模し、これまでどおり
+        # 空辞書を返す（呼び出し元trace_loopはcontext.graph.edges[edge_id]へフォールバックする、
+        # Overpass経由構築時と同じ挙動＝or右辺のみが動く防御的フォールバック）。
+        # edges_with_geometryにセットされたedge_idのみ、その値を返す（本物のRoadGraphRepository
+        # と同じ「指定edge_idのうち持っているものだけ返す」規約）。
+        return {edge_id: self._edges_with_geometry[edge_id] for edge_id in edge_ids if edge_id in self._edges_with_geometry}
 
     async def get_edge_attribute_counts(self, edge_ids):
         # 改善計画T218: get_stop_poi_counts（旧実装）と同じ「stop_data_available=Falseは
@@ -240,10 +250,13 @@ def make_generator(
     elevation_attributes_for_search: dict | None = None,
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
+    hard_filters: frozenset[str] | None = None,
+    edges_with_geometry: dict | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
         accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
+        edges_with_geometry,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
@@ -255,6 +268,7 @@ def make_generator(
         route_preference=preference,
         penalty_strength=penalty_strength,
         max_average_grade_percent=max_average_grade_percent,
+        hard_filters=hard_filters,
     )
     generator = RouteGenerator(engine, make_route_scorer())
     return generator, graph_service, elevation_service
@@ -289,6 +303,39 @@ async def test_generate_loops_returns_empty_list_when_no_road_graph():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
     assert candidates == []
+
+
+async def test_trace_loop_uses_hydrated_geometry_over_context_graph_edge():
+    # 全リクエスト・全方位が通る主経路の検証（road_graph_engine.py:341,386の
+    # `hydrated.get(edge_id) or context.graph.edges[edge_id]`のor左辺）。従来は
+    # FakeGraphService.get_edges_with_geometryが常に{}を返す実装だったため、or右辺
+    # （実DBアクセスが何らかの理由で失敗した場合の防御的フォールバック）だけがテストされ、
+    # hydrated（実DBジオメトリ相当）優先の主経路が一度も検証されていなかった。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    target_edge_id = "e-0-spoke1"  # route-000（bearing=0）の経路に含まれるEdge
+    original_edge = graph.edges[target_edge_id]
+    # 実DBから取得し直した想定のhydrated版: 元のgeometryにはない中間点を挟み、
+    # context.graph.edges側にフォールバックした場合と区別できるようにする。
+    midpoint = destination_point(ORIGIN, 0, 1.0)
+    hydrated_edge = original_edge.model_copy(
+        update={
+            "geometry": [
+                original_edge.geometry[0],
+                [midpoint.latitude, midpoint.longitude],
+                original_edge.geometry[-1],
+            ],
+        }
+    )
+    generator, graph_service, _ = make_generator(
+        graph, edges_with_geometry={target_edge_id: hydrated_edge}
+    )
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = next(c for c in candidates if c.id == "route-000")
+
+    # hydrated側の中間点（GeoJSONは[lon, lat]順）が候補のgeometryへ反映されている
+    # ＝context.graph.edges側（フォールバック、中間点を持たない）ではなくhydratedが使われた。
+    assert [midpoint.longitude, midpoint.latitude] in candidate.geometry["coordinates"]
 
 
 async def test_generate_loops_fetches_road_graph_only_once_for_all_directions():
@@ -780,6 +827,37 @@ async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_se
 
     assert not _sparse_has_edge(context.sparse_graph, "a", "b")
     assert _sparse_has_edge(context.sparse_graph, "a", "c")
+
+
+async def test_prepare_hard_filters_override_restricts_exclusion_to_specified_filters():
+    # 改善計画T266: 0次ハードフィルタ名の個別ON/OFF上書き（コンストラクタの`hard_filters`）が
+    # RoadGraphEngineのprepareが構築する探索用グラフ（sparse_graph）まで実際に配線されている
+    # ことを確認する。DEFAULT_HARD_FILTERS（domain/evaluation.py）はmotorway/trunk/no_bicycleを
+    # 全て除外するため、単に`hard_filters={"motorway"}`を渡してmotorwayが除外されることだけを
+    # 見ても「既定のまま素通りしている」ケースと区別できない。ここでは意図的にtrunkを含めない
+    # `hard_filters={"motorway"}`を渡し、motorwayは除外されるがtrunk（既定なら除外される）は
+    # 除外されないことまで確認することで、コンストラクタ引数が実際に使われていることを示す。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    node_c = Node(node_id="c", latitude=ORIGIN.latitude - 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    coord_c = Coordinates(latitude=node_c.latitude, longitude=node_c.longitude)
+    edge_motorway = _edge("e1", "a", "b", ORIGIN, coord_b, highway="motorway")
+    edge_trunk = _edge("e2", "a", "c", ORIGIN, coord_c, highway="trunk")
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={"a": node_a, "b": node_b, "c": node_c},
+        edges={"e1": edge_motorway, "e2": edge_trunk},
+    )
+
+    generator, _, _ = make_generator(
+        graph, way_tags={"e1": {}, "e2": {}}, hard_filters=frozenset({"motorway"}),
+    )
+
+    context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    assert not _sparse_has_edge(context.sparse_graph, "a", "b")  # motorwayはhard_filtersに含む＝除外
+    assert _sparse_has_edge(context.sparse_graph, "a", "c")  # trunkはhard_filtersに含めていない＝除外されない
 
 
 async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint():

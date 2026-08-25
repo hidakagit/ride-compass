@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch, SearchMaterials
-from app.domain.graph import LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
+from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
 from app.infrastructure import graph_material_cache
@@ -89,6 +89,10 @@ class FakeRoadGraphRepository:
         self.get_accident_years_covered_call_count = 0
         self.get_cached_tiles_call_count = 0
         self.get_edge_materials_batch_call_count = 0
+        # 改善計画T218: trace_loop/preview_segmentの主経路（hydrated優先）が委譲する
+        # GraphService.get_edges_with_geometryのFake用ストア。
+        self.edges_with_geometry: dict = {}
+        self.get_edges_with_geometry_call_count = 0
 
     async def commit(self) -> None:
         # 実装はサービス層が操作のまとまりごとにcommitを呼ぶ規約（T6）。Fakeは即時反映の
@@ -258,6 +262,12 @@ class FakeRoadGraphRepository:
     async def get_accident_years_covered(self) -> int:
         self.get_accident_years_covered_call_count += 1
         return self._accident_years_covered
+
+    async def get_edges_with_geometry(self, edge_ids):
+        # 実装（RoadGraphRepository.get_edges_with_geometry）と同じ「指定edge_idのうち
+        # 持っているものだけ返す」規約。
+        self.get_edges_with_geometry_call_count += 1
+        return {edge_id: self.edges_with_geometry[edge_id] for edge_id in edge_ids if edge_id in self.edges_with_geometry}
 
 
 async def _seed_tile(
@@ -580,6 +590,32 @@ async def test_get_search_materials_for_bbox_accident_years_covered_is_cached_gl
 
     assert (first, second) == (5, 5)
     assert repository.get_accident_years_covered_call_count == 1
+
+
+async def test_get_edges_with_geometry_delegates_to_repository():
+    # 改善計画T218: trace_loop/preview_segmentの主経路（hydrated優先）が使う委譲メソッド。
+    # GraphServiceは加工を行わずrepositoryへそのまま委譲することを確認する。
+    repository = FakeRoadGraphRepository()
+    edge = DirectedEdge(
+        edge_id="e1", from_node_id="a", to_node_id="b",
+        geometry=[[35.700, 139.700], [35.701, 139.701]], distance_m=100.0,
+    )
+    repository.edges_with_geometry = {"e1": edge}
+    service = GraphService(repository=repository)
+
+    result = await service.get_edges_with_geometry(["e1", "not-cached"])
+
+    assert result == {"e1": edge}
+    assert repository.get_edges_with_geometry_call_count == 1
+
+
+async def test_get_edges_with_geometry_returns_empty_dict_when_none_cached():
+    repository = FakeRoadGraphRepository()
+    service = GraphService(repository=repository)
+
+    result = await service.get_edges_with_geometry(["e1", "e2"])
+
+    assert result == {}
 
 
 async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and_caches_independently():
