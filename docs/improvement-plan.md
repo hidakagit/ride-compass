@@ -5354,6 +5354,83 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   docs/architecture.md追従はこのコミットで実施。
 - 依存: なし（T278[derive_ramp_inputs新設]・T292[car_stressのramp化]の上に積んだ）。
 
+### - [ ] T309. ルート詳細レスポンス（RouteSegmentDetail/RouteCandidate）の軸別内訳を汎用化 規模M（保留・トリガー未到達）
+
+- 背景: T308（推定軸の地図表示自動連動）完了後の洗い出しで、地図表示・評価・materials
+  経路は軸スタジオ作成軸まで汎用化された一方、**ルート詳細のセグメント別内訳レスポンス**
+  （`backend/app/domain/route.py`）だけは既存軸限定の固定フィールドのまま残っていることを
+  確認した。具体的には`RouteSegmentDetail`が`elevation_difficulty`/`wind_difficulty`/
+  `road_difficulty`/`stop_difficulty`/`car_stress_difficulty`/`accident_difficulty`/
+  `night_difficulty`という7個の固定フィールド（既存7軸1対1）を持ち、
+  `road_graph_engine.py`/`openrouteservice_engine.py`が`axis_scores.get("gradient")`等で
+  個別に埋めている。`RouteCandidate`側の集約値はさらに範囲が狭く、7軸中4軸
+  （elevation/wind/road/stop）分のフィールドしか無く、car_stress/accident/nightは
+  ルート集約レベルでは既存軸ですら埋まっていない（T309着手前から存在する非対称、
+  T308による新規劣化ではない）。総合スコアの内訳（`RouteCandidate.score_breakdown:
+  list[RouteScoreComponent]`、`{axis, score, weight, contribution}`）は元々`axis: str`の
+  汎用リストで既に軸スタジオ作成軸を含め全軸を返せる——固定フィールドの問題は
+  **区間ごと**の難易度内訳（地図の難易度色分けレイヤー描画・区間クリックポップアップが
+  参照）に限られる。
+- 保留の影響範囲: 軸スタジオで新規公開した軸は、地図のramp色分け・凡例・重み設定・
+  材料ノート（T308まで完了）には現れるが、区間クリックポップアップやルート詳細画面が
+  参照する**区間単位の難易度内訳**には出てこない（フィールドが無いため常に欠落、
+  エラーにはならない）。ユーザーが軸スタジオで軸を作って地図色分けまで確認できても、
+  「この区間はどの軸のせいで難易度が高いか」を区間単位で見る手段が既存7軸限定のまま
+  という体験の非対称が生じる。対応を保留し続けた場合、次に軸スタジオで新規軸を作って
+  公開するたびにこの非対称が新規軸ぶん積み重なり、後から「区間内訳になぜ出ないのか」が
+  都度問い合わせ・調査対象になりうる。
+- 対応方針（未確定、着手時に設計）: `RouteSegmentDetail`の固定7フィールドを
+  `Dict[str, float | None]`（axis_id→difficulty）のような汎用構造へ置き換える、または
+  固定フィールドは既存7軸の後方互換のため残しつつ汎用の追加フィールドを併設する等の
+  選択肢がある。地図の難易度色分けレイヤー（`routeStyleModes.ts`等）・区間ポップアップ
+  （`axisInspectorPopup.ts`）双方がこのレスポンス形を直接参照しており、変更するとルート
+  詳細画面・区間ポップアップ側の広い改修が要る（ユーザー判断でT308のスコープからは
+  明示的に除外）。
+- 依存: なし（トリガー条件未確定のため優先順位リストには未登録。次に軸スタジオ関連の
+  作業へ着手するタイミングで再検討）。
+
+### - [ ] T310. 軸スタジオへ地図チップ表示要素（アイコン・略称・地図パネル説明文・代役案内・地図ramp閾値上書き）の登録機能を追加 規模M〜L（設計中・アイコン登録方式はユーザー判断待ち）
+
+- 背景: T308の洗い出しで、既存軸だけを特別扱いしているコードのうち以下5件は「汎用
+  フォールバックがあり機能は壊れない（未対応でも動く）」という理由でT308スコープ外・
+  意図的に残す判断としていた。ユーザーから「これも特別扱いはなくしたい。軸スタジオに
+  対応する要素を登録できるようにして、そちらから引っ張ってきて」との追加指示を受け、
+  本タスクとして起票する。
+  1. `SECONDARY_AXIS_ICONS`（`MapOverlayControls.tsx`）: 既存6軸だけ専用の手描きSVG
+     アイコン（`icons.tsx`）を持ち、他の軸は汎用`AxisRampIcon`にフォールバックする。
+  2. `RAMP_AXIS_PANEL_HINTS`（`mapLayers.ts`）: 既存3軸（stop_density/accident/
+     car_stress）だけ、地図の見え方パネル向けに噛み砕いた説明文を持ち、他の軸は
+     `axis.note`（開発者向け実装メモ）がそのまま出る。
+  3. `SECONDARY_AXIS_CHIP_LABELS`（`secondaryAxes.ts`）: 既存6軸だけ4文字以内の略称を
+     持ち、他の軸は正式名（`label`）がそのままチップに出る。
+  4. `SECONDARY_AXIS_PROXY_HINTS`（`secondaryAxes.ts`）: `kind="none"`（専用地図
+     レイヤー無し）の軸のうち`gradient`だけ代役レイヤーへの案内文を持ち、他の
+     `kind="none"`軸は案内無しの単なる無効行になる。
+  5. backend `STOP_DENSITY_DISPLAY`/`ACCIDENT_DISPLAY`/`CAR_STRESS_DISPLAY`
+     （`axis_display.py`）: 既存3軸だけ、`derive_ramp_inputs`の自動導出（粗い/導出不能）
+     に代えて統計的に調整済みのramp閾値を手書きで持つ。他の軸は自動導出結果（導出
+     できなければ`kind="none"`）に固定される——軸スタジオでGUIから閾値を調整する
+     手段が無い。
+- 対応方針（設計の方向性、要確定）: 1〜4はUI表示用の文字列/参照idであり、
+  `AxisDefinitionFields`（`axis_admin.py`）へ`icon_id: str | None`・
+  `panel_hint: str | None`・`chip_label: str | None`・`proxy_hint: str | None`を追加し、
+  DBマイグレーション（`migrations/0019_...sql`、既存の0014〜0018と同じ「NOT NULL
+  DEFAULT値で後方互換」パターン）・`AxisComposer.tsx`のフォーム項目追加という、
+  T292の`priority_overrides`追加と同型の配線で対応できる見込み。5は性質が異なり
+  （評価shapeではなく地図表示のramp閾値そのものの上書き）、`display_thresholds:
+  list[float] | None`のような別フィールドを追加し、`axis_display_for()`の優先順位
+  （①手書きoverride→②自動導出→③none）の①をDB由来の値へ差し替える設計を想定。
+  **1（アイコン）のみ登録方式が未確定**: 既存アイコンはSVGを1件ずつ手描きしたReact
+  コンポーネント（`icons.tsx`）であり、GUIから任意のSVGを登録させる方式は
+  スタイル一貫性・XSS等のサニタイズコストが高い。代替として (a)
+  あらかじめ用意した固定パレット（10〜数十種の汎用ピクトグラム）から`icon_id`を選ぶ
+  方式（新規アイコン形状の追加自体は引き続きコード変更を要するが、既存パレットからの
+  割当ては軸スタジオから再デプロイ無しに行える）、(b) ラベルの頭文字等から
+  モノグラムバッジを機械的に生成し登録UI自体を無くす方式、(c) 専用アイコンという
+  機能自体をやめ全軸`AxisRampIcon`共通にする方式、の3案を検討中。ユーザーへ相談し
+  方式を確定してから着手する。
+- 依存: T308（`axis_display_for()`・`primary_attribute_ids`等の基盤の上に積む）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
