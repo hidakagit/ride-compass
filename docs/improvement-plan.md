@@ -6224,7 +6224,7 @@ fetch/mergeで発覚したため、本タスクをT322へ改番して重複を�
 - 実装: ユーザーから追加で「軸スタジオの抜本的な用語平易化・ウィザード化」の要望があり、
   単独の文言差し替えではなくT328（ウィザード化）の一部として実装した。詳細はT328参照。
 
-### - [ ] T325. 「車の圧迫感」軸のサマリ表示で、他axis_id参照材料をaxis_idのlabelへ解決する 規模S（未着手）
+### - [x] T325. 「車の圧迫感」軸のサマリ表示で、他axis_id参照材料をaxis_idのlabelへ解決する 規模S（実装完了・2026-08-25）
 
 - 背景: `.claude/commands/review/history/2026-08-25_ui.md` F-3。`AxisStudio.tsx:148-152`の
   `materialLabel(t.material)`が、`car_stress`軸のterms（T292「他axis_idを材料として参照する
@@ -6238,6 +6238,13 @@ fetch/mergeで発覚したため、本タスクをT322へ改番して重複を�
 - Scope: S（`AxisStudio.tsx`のサマリ生成部1箇所）。
 - 参照: `.claude/commands/review/history/2026-08-25_ui.md` F-3（Confidence: High、コード上の
   フォールバック仕様・呼び出し元を確認済み）。
+- 実装: `labelForMaterialOrAxis(id, definitions)`（`definitions`一覧からaxis_idの一致を
+  探し、見つかればその`label`、無ければ`materialLabel(id)`）を追加。サマリ生成自体も
+  categorical/flag_sum/terms別々の三項分岐から、T323で追加済みの`materialIdsOf(shape)`
+  （shape種別を問わず材料id一覧を返す）を使う1行へ統合し、重複していたロジックを解消した。
+- 検証: frontend tsc --noEmit clean、eslint clean、vitest 65ファイル/530 passed
+  （`AxisStudio.test.tsx`回帰1件追加: 他axis_id参照材料が生識別子ではなく参照先の表示名で
+  出ることを確認）。
 
 ### - [x] T326. 軸スタジオ「カテゴリ値」テンプレートの選択肢ラベルを、多値対応後の実態に合わせて修正 規模S（T328へ統合実装・2026-08-25）
 

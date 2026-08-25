@@ -23,6 +23,16 @@ function materialIdsOf(shape: AxisShape): string[] {
   return shape.terms.map((t) => t.material);
 }
 
+// 改善計画T325（UIレビュー2026-08-25 F-3）: 一覧のサマリ表示用に、材料id/軸idどちらも
+// 人間向けラベルへ解決する。`materialLabel`は材料カタログにのみ問い合わせるため、
+// `t.material`が他axis_id（改善計画T292「他axis_idを材料として参照する内部軸階層」、
+// 例: car_stress軸のterms）を指すケースでは該当ラベルを引けず、材料カタログのフォールバック
+// （`?? materialId`）で生のsnake_case識別子がそのまま表示されていた。まずこのaxis_id一覧
+// 内に該当する軸が無いか探し、あればその表示名(label)を優先する。
+function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
+  return definitions.find((d) => d.axis_id === id)?.label ?? materialLabel(id);
+}
+
 // 改善計画T323: 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という
 // 事実が見えないまま削除できてしまう問題への対応（UIレビュー2026-08-25 F-1）。削除の可否は
 // 制限せず、削除前に参照元とその影響をユーザーへ明示する。
@@ -172,11 +182,9 @@ export default function AxisStudio() {
               </span>
               <span className={styles.listMeta}>
                 {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
-                {def.shape.kind === "categorical"
-                  ? materialLabel(def.shape.material)
-                  : def.shape.kind === "flag_sum"
-                    ? def.shape.flags.map(([m]) => materialLabel(m)).join("・")
-                    : def.shape.terms.map((t) => materialLabel(t.material)).join("・")}
+                {materialIdsOf(def.shape)
+                  .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
+                  .join("・")}
               </span>
             </div>
             <div className={styles.listRowActions}>

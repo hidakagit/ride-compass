@@ -212,6 +212,36 @@ describe("AxisStudio", () => {
     expect(screen.getByText(/スコアは0\(最も走りにくい\)〜100\(最も走りやすい\)/)).toBeInTheDocument();
   });
 
+  // 改善計画T325（UIレビュー2026-08-25 F-3）: 他axis_idを材料として参照する軸（例:
+  // car_stress軸）の一覧サマリが、生のsnake_case識別子ではなく参照先の表示名(label)で
+  // 表示される回帰テスト。
+  it("他axis_idを材料として参照する軸のサマリは、生の識別子ではなく参照先の表示名で表示される", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      definition({ axis_id: "highway_base", label: "highway基準値" }),
+      definition({
+        axis_id: "car_stress",
+        label: "車の圧迫感",
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "highway_base", weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
+      }),
+    ]);
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("車の圧迫感")).toBeInTheDocument());
+
+    // 軸名の見出し（"highway基準値"単体）と紛れないよう、サマリ行特有の
+    // 「・ <ラベル>」という区切り付きパターンで照合する。
+    expect(screen.getByText(/・ highway基準値/)).toBeInTheDocument();
+    expect(screen.queryByText(/highway_base/)).not.toBeInTheDocument();
+  });
+
   // 改善計画T323（UIレビュー2026-08-25 F-1）: 他の軸から材料として参照されている軸を
   // 削除しようとすると、参照元の名前と影響を明示する確認ダイアログが出る回帰テスト。
   it("他の軸から参照されている軸を削除しようとすると確認ダイアログが出て、キャンセルすれば削除されない", async () => {
