@@ -101,9 +101,11 @@ export default function AdminPage() {
           // 紐づく情報のため、地図の無いこのページへ置いても記録先lib/debugLog.tsが
           // タブ間で共有されず実質機能しなかった。「/admin=デバッグモードの設定」
           // 「/=地図を操作しながら見るライブログ本体」という役割分担にし、閲覧はトップ
-          // ページ（/）の「開発者」ブロックで行う（デバッグモードのON/OFF自体は上の
-          // DebugPanelがlocalStorage経由でトップページと共有する）。
-          <p className={styles.hint}>デバッグログの表示はトップページ（/）の「開発者」ブロックで行えます。</p>
+          // ページ（/）で行う（デバッグモードのON/OFF自体は上のDebugPanelがlocalStorage
+          // 経由でトップページと共有する）。トップページ側の起動導線は改善計画T300で
+          // 「開発者」ブロック（旧称「設定」）廃止に伴い、常設ヘッダーのアイコンボタンへ
+          // 移設済み。
+          <p className={styles.hint}>デバッグログの表示はトップページ（/）のヘッダーアイコンで行えます。</p>
         )}
         <SystemStatusPanel open={systemStatusOpen} onClose={() => setSystemStatusOpen(false)} />
       </Disclosure>
