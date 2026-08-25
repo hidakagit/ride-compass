@@ -43,9 +43,9 @@ export default function AdminPage() {
       <header className={styles.header}>
         <h1 className={styles.title}>軸スタジオ・研究/開発者ツール</h1>
         <p className={styles.subtitle}>
-          このページは独立URL（/admin）の管理画面です（改善計画T270）。一般向けルート設定は
-          トップページ（/）を使ってください。評価重み・レシピの設定はブラウザのlocalStorage
-          経由でトップページと共有されます。
+          このページは独立URL（/admin）の管理画面です。一般向けルート設定はトップページ
+          （/）を使ってください。評価重み・レシピの設定はブラウザのlocalStorage経由で
+          トップページと共有されます。
         </p>
       </header>
 

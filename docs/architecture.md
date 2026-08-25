@@ -495,6 +495,8 @@ RideCompass/
         page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持（UI再構成）。改善計画T270で研究・開発者セクションを/adminへ移設済み（地図インスタンスに紐づく「地図データを再読み込み」ボタンのみ「開発者」に残る）
         layout.tsx              ✅
         admin/page.tsx           ✅ 改善計画T270: 軸スタジオ・研究・開発者ツールをまとめた独立URLの管理画面。権限制御（改善計画T272、2026-08-24完了）は`src/proxy.ts`がこのルーティング境界（`/admin/:path*`）でHTTP Basic認証を敷く。研究モードの評価重みstateはlocalStorage経由でpage.tsxと共有する（useStoredJsonStateのstorageKey、hooks/参照）
+        admin/api/axis-definitions/route.ts, [axisId]/route.ts, [axisId]/unpublish/route.ts
+                                   ✅ 改善計画T305で新設。軸CRUD管理APIの同一オリジンproxy（lib/adminApiProxy.ts本体、「管理画面の権限制御」節参照）。`/admin/:path*`に含まれるためproxy.tsのBasic認証ゲートを自動的に通り、ブラウザが/admin読込時の認証情報を自動転送する
         api/version/route.ts    ✅ GET /api/version。RENDER_GIT_COMMIT（frontendは今もRender稼働のため据え置き）/起動時刻を返すRoute Handler（force-dynamic）。バックエンドの/healthと対になるデプロイ確認用（「デプロイの反映確認」で新規）
       components/
         Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
@@ -520,7 +522,7 @@ RideCompass/
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
         DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
-        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除の状態管理（/api/admin/axis-definitions、X-Admin-Tokenはlib/adminToken.ts） / AxisComposer.tsx: 材料選択→4テンプレート（区分線形補間×2種・カテゴリ値・フラグ加算）選択→パラメータ調整のフォーム。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）
+        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: 表示名・既定重み入力→4テンプレート（区分線形補間×2種・カテゴリ値・フラグ加算）選択→パラメータ調整のフォーム。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）
       hooks/
         useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
@@ -530,10 +532,9 @@ RideCompass/
         useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
         useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時は既存7軸の静的フォールバック（axis-catalog.json＋evaluationAxes.tsの手書きラベル）を返す
         useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）
-        useAdminCredentials.ts         ✅ 改善計画T270、T272でBasic認証化に伴い改称: lib/adminToken.tsの購読（useSyncExternalStore、researchMode.tsと同型）
       lib/
         debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
-        adminToken.ts               ✅ 改善計画T270、T272でBasic認証化: 軸スタジオ（/admin）の管理API資格情報（ユーザー名+パスワード、`Authorization: Basic`ヘッダ用）を`localStorage`へ保存する。researchMode.tsと同型のシングルトン＋購読パターン。将来アカウント制へ差し替え予定（ユーザー方針、2026-08-24）
+        adminApiProxy.ts            ✅ 改善計画T305で新設（旧adminToken.ts・useAdminCredentials.tsは撤去）: 軸CRUD管理APIのサーバー側プロキシ本体。`app/admin/api/axis-definitions/`配下の各route handlerから呼ばれ、サーバー環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORDからbackend宛Authorizationヘッダを組み立てて転送する（「管理画面の権限制御」節参照）
         axisMaterialsCatalog.ts      ✅ 改善計画T270で新設、T277でGET /api/material-catalogの取得失敗時フォールバックへ役割縮小。軸コンポーザーの材料選択候補（既存9件のスナップショット）。単一の情報源はbackend/app/domain/material_catalog.py: MATERIAL_CATALOGへ移行済みで、通常利用時はこのファイルの更新不要（動的取得が失敗した場合のみ古いまま表示される）
       services/
         healthApi.ts             ✅
@@ -544,7 +545,7 @@ RideCompass/
         regionApi.ts               ✅ roadSurfaceTileUrl() / ROAD_TILE_MIN_ZOOM/MAX_ZOOM / refreshBasemapCache()（Step10改訂。路面がタイル化されJSON型を持たなくなったため`types/region.ts`は削除済み）
         axisCatalogApi.ts           ✅ 改善計画T269: getAxisCatalog()。GET /api/axis-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
         materialCatalogApi.ts       ✅ 改善計画T277: getMaterialCatalog()。GET /api/material-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
-        axisAdminApi.ts             ✅ 改善計画T270: listAxisDefinitions()/createAxisDefinition()/updateAxisDefinition()/deleteAxisDefinition()。/api/admin/axis-definitionsのCRUDクライアント（`Authorization: Basic`ヘッダ付与[改善計画T272でX-Admin-Tokenから置換]、PUT/DELETE対応が必要なためfetchJson[GET専用]ではなく自前実装）。改善計画T277でshapeが参照する材料id（terms/flags/categoricalのmaterial）が未知の場合、backend側が422を返すようになった
+        axisAdminApi.ts             ✅ 改善計画T270: listAxisDefinitions()/createAxisDefinition()/updateAxisDefinition()/deleteAxisDefinition()/unpublishAxisDefinition()。改善計画T305で呼び出し先を同一オリジンの`/admin/api/axis-definitions`（Next.js route handler、lib/adminApiProxy.ts参照）へ変更し、Authorizationヘッダの手動付与を撤去（ブラウザの認証キャッシュが自動付与するため）。PUT/DELETE対応が必要なためfetchJson[GET専用]ではなく自前実装。改善計画T277でshapeが参照する材料id（terms/flags/categoricalのmaterial）が未知の場合、backend側が422を返すようになった
       types/
         generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）等の付随生成物も同じ仕組みでドリフト検知される
         route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
@@ -1131,9 +1132,9 @@ Python内蔵の`AXIS_DEFINITIONS`から生成する（正確には`axes[]`/`prim
 UI側でも先回りして防ぐ）。公開済み軸には「非公開に戻す」ボタン（改善計画T302）も表示され、
 押すとバッジが「下書き」へ切り替わり「削除」ボタンが活性化する。「複製して新規作成」
 ボタンは公開済み・下書きどちらの軸からも使え、`AxisComposer.tsx: draftFromDuplicate`が
-既存定義の内容をコピーしつつ`axis_id`を空に・`is_published`を`false`に強制する。
-新規作成フォームには「公開する」チェックボックス（既定OFF）があり、送信時のpayloadへ
-`is_published`として含まれる。
+既存定義の内容をコピーしつつ`axis_id`を新規に自動採番（改善計画T305、`generateAxisId()`）・
+`is_published`を`false`に強制する。新規作成フォームには「公開する」チェックボックス
+（既定OFF）があり、送信時のpayloadへ`is_published`として含まれる。
 
 ### 管理画面の権限制御（改善計画T272）
 
@@ -1156,14 +1157,25 @@ Phase 3のもう1件。以前は`/admin`ページ本体（軸スタジオ・研�
    `ADMIN_BASIC_AUTH_PASSWORD`、backend側）が`secrets.compare_digest`でタイミング
    攻撃を避けつつ検証する。
 
-**2箇所が独立している理由**: `axisAdminApi.ts`の管理API呼び出しは`NEXT_PUBLIC_API_URL`
-（backendの別オリジン、通常ポートが異なる）へ直接飛ぶため、ブラウザが1.のBasic認証
-資格情報を自動転送しない（同一オリジンにのみキャッシュされる仕様）。そのため軸スタジオ
-UI自体に資格情報入力フォーム（`AxisStudio.tsx`、ユーザー名・パスワードの2フィールド、
-`lib/adminToken.ts`が`localStorage`へ保存し`Authorization: Basic`ヘッダを組み立てる）を
-引き続き持つ。運用上は両側のenvへ同じ値を設定することで、実質1つの資格情報として扱う
-（バックエンド側の値が正、フロント側`proxy.ts`の値が食い違うとページ本体は入れるが
-軸CRUDだけ401になる、または逆になる——設定時は両者を必ず揃えること）。
+**2箇所を1回のブラウザ認証で満たす仕組み（改善計画T305で改訂）**: 当初（T272時点）は
+`axisAdminApi.ts`の管理API呼び出しが`NEXT_PUBLIC_API_URL`（backendの別オリジン）へ直接
+飛んでおり、ブラウザが1.のBasic認証資格情報を自動転送しない（同一オリジンにのみ
+キャッシュされる仕様）ため、軸スタジオUI自体に専用の資格情報入力フォーム
+（ユーザー名・パスワードの2フィールド、`localStorage`保存）を持っていた。しかし
+「`/admin`へは既に認証済みなのに、画面内でもう一度ログインを求められる」という実機
+フィードバックを受け、二重ログインUIを撤去した。
+
+代わりに、軸CRUD APIは同一オリジンのNext.js route handler
+（`frontend/src/app/admin/api/axis-definitions/`配下、`lib/adminApiProxy.ts`）を経由する。
+このパスは1.のproxy.ts matcher（`/admin/:path*`）に含まれるため、ブラウザは`/admin`
+読込時に一度入力したBasic認証資格情報を、同一オリジン・同一realmへの後続リクエスト
+（`fetch`の既定`credentials`モード）へブラウザ自身の認証キャッシュから自動付与する。
+route handler側は自分のサーバー環境（frontend側の`ADMIN_BASIC_AUTH_USERNAME`/
+`PASSWORD`、1.と同じ値）から2.のbackend宛`Authorization: Basic`ヘッダを組み立てて
+転送するため、backend向けの資格情報がブラウザへ一切露出しない。運用上両側のenvへ
+同じ値を設定する既存の方針（バックエンド側の値が正、フロント側`proxy.ts`の値が
+食い違うとページ本体は入れるがAPI呼び出しだけ500/401になる——設定時は両者を必ず
+揃えること）はT272から変わらない。
 
 研究モードの表示切替（`lib/researchMode.ts`、`/admin`内でWeightPanel等の表示ON/OFFを
 選ぶだけのUI用トグル）は元々認可の意味を持たない簡易フラグだったが、`/admin`ページ

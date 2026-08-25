@@ -2,7 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisDefinitionResponse } from "@/types/route";
-import { setAdminCredentials } from "@/lib/adminToken";
 import AxisStudio from "./AxisStudio";
 
 // 改善計画T304: 「編集ボタンを押した後にそのまま編集画面がポップアップ起動してほしい。
@@ -48,8 +47,6 @@ function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefini
 
 describe("AxisStudio", () => {
   beforeEach(() => {
-    setAdminCredentials({ username: "admin", password: "secret" });
-
     // jsdomはResizeObserverを実装しない（DynamicLayerTimeSlider.test.tsxと同じ既知の欠落）。
     // AxisComposerの<form>内にあるRadix Checkbox（改善計画T299フォローアップ）はフォーム
     // 直下でのみ隠しbubble input（HTMLフォーム互換用）のサイズ同期にuseSizeを使い、これが
@@ -63,6 +60,17 @@ describe("AxisStudio", () => {
     window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
   });
 
+  it("マウント時に資格情報の入力を待たず軸一覧を読み込む", async () => {
+    // 改善計画T305: /adminページ自体が既にBasic認証済みのため、この画面固有の
+    // ユーザー名/パスワード入力欄はもう無い（回帰確認）。
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    expect(screen.queryByLabelText("管理者ユーザー名")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("管理者パスワード")).not.toBeInTheDocument();
+  });
+
   it("「編集」を押すとその軸の内容で編集モーダルが即座に開く", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
     const user = userEvent.setup();
@@ -71,8 +79,10 @@ describe("AxisStudio", () => {
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "編集" }));
 
-    expect(screen.getByRole("dialog", { name: "軸を編集: gradient" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "axis_id" })).toHaveValue("gradient");
+    // 改善計画T305: axis_idはフォームから撤去し、モーダル見出しも表示名(label)基準にした。
+    expect(screen.getByRole("dialog", { name: "軸を編集: 勾配" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("勾配");
+    expect(screen.queryByRole("textbox", { name: "axis_id" })).not.toBeInTheDocument();
   });
 
   it("「+ 新しい軸を作る」を押すと空のモーダルが開く", async () => {
@@ -84,7 +94,7 @@ describe("AxisStudio", () => {
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
 
     expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "axis_id" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("");
   });
 
   it("モーダルを閉じるとダイアログが消え、一覧はそのまま残る", async () => {

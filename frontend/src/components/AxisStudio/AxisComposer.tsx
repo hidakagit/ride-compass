@@ -19,7 +19,6 @@ import styles from "./AxisStudio.module.css";
 // 静的フォールバックへ自動的に切り替わる）。
 
 type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical" | "flag_sum";
-type Category = "観測" | "推定" | "動的";
 
 // 各変換テンプレート(shape)の説明（改善計画T304、「軸スタジオの使い方が分かりにくい」
 // という実機フィードバックへの対応）。選択肢のラベルだけでは何が起きるか分からない
@@ -32,6 +31,16 @@ const SHAPE_KIND_DESCRIPTIONS: Record<ShapeKind, string> = {
   categorical: "真偽値1つを見て、該当する/しないの2パターンにそれぞれ固定スコアを割り当てます。例: 一方通行かどうか。",
   flag_sum: "複数の真偽フラグそれぞれに加点し合計します（上限[cap]を設定可）。例: 危険要因が多いほど減点する。",
 };
+
+// 改善計画T305: axis_idはユーザー入力欄から撤去した。ユーザーからの指摘「axis_idは
+// システムが勝手に一意な何かを自動採番してくれればよい。設定画面に不要では？画面上は
+// 表示名があればよい」への対応——内部識別子であって人間が読む必要はなく、実際に画面上で
+// 意味を持つのは表示名(label)の方だけだったため。新規作成・複製時にここで自動生成し、
+// 編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が無い[str]ため、
+// 半角英数字で読みやすいprefix+乱数のみで十分）。
+function generateAxisId(): string {
+  return `axis_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
 
 interface TermDraft {
   material: string;
@@ -48,7 +57,6 @@ interface Draft {
   axisId: string;
   label: string;
   description: string;
-  category: Category;
   defaultWeight: number;
   shapeKind: ShapeKind;
   terms: TermDraft[];
@@ -67,10 +75,9 @@ interface Draft {
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
   const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0].id;
   return {
-    axisId: "",
+    axisId: generateAxisId(),
     label: "",
     description: "",
-    category: "推定",
     defaultWeight: 0.1,
     shapeKind: "breakpoint_linear",
     terms: [{ material: materialOptions[0].id, weight: 1.0, required: true }],
@@ -96,7 +103,6 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     axisId: def.axis_id,
     label: def.label,
     description: def.description,
-    category: def.category,
     defaultWeight: def.default_weight,
     isPublished: def.is_published,
   };
@@ -130,10 +136,10 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
 }
 
 /** 複製（改善計画T271、公開済み軸を「改良」する唯一の経路）。既存の内容を丸ごと写すが、
- * axis_idは空にして必ず新しいidの入力を求め、is_publishedは常にfalse（下書き）から
+ * axis_idは新規に自動採番し（改善計画T305）、is_publishedは常にfalse（下書き）から
  * 始める——複製元が公開済みでも複製先まで公開扱いを引き継がない。 */
 function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {
-  return { ...draftFromExisting(def, materialOptions), axisId: "", isPublished: false };
+  return { ...draftFromExisting(def, materialOptions), axisId: generateAxisId(), isPublished: false };
 }
 
 function buildShape(draft: Draft): AxisShape {
@@ -188,19 +194,19 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (draft.axisId.trim() === "") {
-      setError("axis_idを入力してください。");
-      return;
-    }
     if (draft.label.trim() === "") {
       setError("表示名(label)を入力してください。");
       return;
     }
     const payload: AxisDefinitionPayload = {
-      axis_id: draft.axisId.trim(),
+      axis_id: draft.axisId,
       label: draft.label.trim(),
       description: draft.description,
-      category: draft.category,
+      // 改善計画T305: 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。
+      // 「観測」（タグ・POIをそのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）は
+      // どちらもそれ自体が材料の性質であり、材料を組み合わせて判定式を作る軸スタジオの
+      // 仕組みからこれらを生み出すのは概念上おかしい、というユーザー指摘を受けて固定した。
+      category: "推定",
       default_weight: draft.defaultWeight,
       shape: buildShape(draft),
       is_published: draft.isPublished,
@@ -235,34 +241,18 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
 
   return (
     <form onSubmit={handleSubmit} className={styles.composer}>
-      <div className={styles.row}>
-        <div className={styles.field}>
-          <FieldLabel
-            label="axis_id"
-            description="軸の内部識別子（半角英数字とアンダースコア）。ルート設定・APIのキーとして使われ、作成後は変更できません。"
-          />
-          <input
-            type="text"
-            value={draft.axisId}
-            disabled={!isNew}
-            aria-label="axis_id"
-            onChange={(e) => setDraft((d) => ({ ...d, axisId: e.target.value }))}
-            placeholder="例: unpaved_avoidance"
-          />
-        </div>
-        <div className={styles.field}>
-          <FieldLabel
-            label="表示名(label)"
-            description="一般ユーザー向けのルート設定画面・地図の凡例に表示される名前です。"
-          />
-          <input
-            type="text"
-            value={draft.label}
-            aria-label="表示名(label)"
-            onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
-            placeholder="例: 未舗装回避"
-          />
-        </div>
+      <div className={styles.field}>
+        <FieldLabel
+          label="表示名(label)"
+          description="一般ユーザー向けのルート設定画面・地図の凡例に表示される名前です。"
+        />
+        <input
+          type="text"
+          value={draft.label}
+          aria-label="表示名(label)"
+          onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
+          placeholder="例: 未舗装回避"
+        />
       </div>
 
       <label className={styles.fieldFull}>
@@ -274,36 +264,19 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
         />
       </label>
 
-      <div className={styles.row}>
-        <div className={styles.field}>
-          <FieldLabel
-            label="分類(category)"
-            description="観測=タグ・POIをそのまま読む軸／推定=複数の材料を判定式で合成する軸／動的=気象等、時々刻々変わる外部データ由来の軸。一般向けルート設定画面のグループ分けに使われます。"
-          />
-          <select
-            value={draft.category}
-            aria-label="分類(category)"
-            onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value as Category }))}
-          >
-            <option value="観測">観測</option>
-            <option value="推定">推定</option>
-            <option value="動的">動的</option>
-          </select>
-        </div>
-        <div className={styles.field}>
-          <FieldLabel
-            label="既定重み(default_weight)"
-            description="この軸を誰も上書きしていないときに使われる重みです。0にするとおすすめ度の計算から実質除外されます。"
-          />
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            aria-label="既定重み(default_weight)"
-            value={draft.defaultWeight}
-            onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
-          />
-        </div>
+      <div className={styles.field}>
+        <FieldLabel
+          label="既定重み(default_weight)"
+          description="この軸を誰も上書きしていないときに使われる重みです。0にするとおすすめ度の計算から実質除外されます。"
+        />
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          aria-label="既定重み(default_weight)"
+          value={draft.defaultWeight}
+          onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
+        />
       </div>
 
       <label className={styles.fieldFull}>

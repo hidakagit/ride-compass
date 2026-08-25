@@ -66,9 +66,12 @@
 /* 情報アイコンのRadix Popover.Content（T253併用導入）。以前は呼び出し側のDOM上に
    直接並ぶ地の文（背景無し）だったが、Portalでフローティング表示するようになったため
    周囲から視覚的に浮き上がるカード状の見た目（背景・枠線・影）を持たせる必要がある
-   （MapLibreポップアップと同じトークンの組み合わせに揃えた）。z-index:46は
-   BottomSheet（45、モバイルではこのポップオーバーがBottomSheet内から開くことが多い）より
-   前面、開発者向けFloatingPanel（50）より背面という位置づけ。 */
+   （MapLibreポップアップと同じトークンの組み合わせに揃えた）。
+   改善計画T305: z-index:46（BottomSheet[45]より前面・開発者向けFloatingPanel[50]より
+   背面という位置づけだった）のままだと、軸スタジオの編集モーダル（components/ui/Dialog、
+   T299導入、z-50）内でこの情報アイコンを押しても後ろに隠れて見えなかった
+   （実機フィードバック）。このポップオーバーは「開いた時点で必ず最前面に見える」ことが
+   目的なので、現状の最大z-index（Dialog: 50）より確実に上へ引き上げる。 */
 .infoTooltip {
   max-width: 16rem;
   background: var(--color-surface);
@@ -79,6 +82,6 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   line-height: 1.4;
-  z-index: 46;
+  z-index: 60;
 }
 
