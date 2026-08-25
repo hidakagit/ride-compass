@@ -6352,6 +6352,25 @@ fetch/mergeで発覚したため、本タスクをT322へ改番して重複を�
   `test_basemap_proxy_is_rate_limited_per_client`と同じ形（`rate_limiter.check_rate_limit`
   で上限-1件を埋め、実HTTPは境界の1〜2回）へ揃えた。検証: backend pytest
   **全体で52.56秒→11.65秒（約78%短縮）**、1137 passed、ruff clean。
+- **追記（同日、ユーザー指摘によりfrontend側も対応）**: 「フロントのテストも開発サイクルの
+  ボトルネックになりつつある」という指摘を受け、backendと同様に調査した。frontendは
+  backendと違い突出して遅い1本は無く（最遅個別テストでも559ms）、65テストファイル分の
+  DOM環境構築コストの積み上げが支配的だった。対応:
+  - **既定のDOM環境をjsdomからhappy-domへ変更**（`vitest.config.mts: test.environment`）。
+    テストスイート全体で30秒→19秒（約35%短縮）を複数回の実行で安定して確認。
+    `canvas.getContext("2d")`が未実装でnullを返す挙動（`windArrowIcon.ts`/
+    `routeArrowIcon.ts`のフォールバック分岐が依存）がjsdomと同一であることを診断テストで
+    個別に確認済み。65ファイル・524テスト全件green（happy-domによる挙動差での破綻なし）。
+    未使用になった`jsdom`依存は削除、`happy-dom`を新規devDependencyとして追加。
+    `docs/testing.md`の関連記述も更新。
+  - **`isolate: false`（ファイル間でモジュール状態・DOM環境を使い回す高速化）も試したが
+    不採用**: 30秒→15〜17秒とさらに速くなるが、実行のたびに異なる4〜8件のテストが
+    不安定に失敗する（ファイル間の状態漏れ）副作用があり、docs/testing.md基本原則3
+    「速度最適化はテストの検証内容を変えない範囲で行う」に反するため見送った。
+  - `pool: "threads"`の明示指定・`poolOptions.threads.{min,max}Threads`の明示（4コア
+    フル活用）はいずれも有意な差が無かった（元々デフォルトで同等の並列度が出ていたと
+    推定）ため採用しなかった。
+  - 検証: frontend vitest 65 files / 524 tests passed、eslint/tsc --noEmit clean。
 
 ### - [ ] T330. テストカバレッジ欠落の是正（影響度「高」・複数レビューで確認済み） 規模M（未着手）
 

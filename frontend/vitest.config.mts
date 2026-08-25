@@ -16,7 +16,18 @@ export default defineConfig({
     // 生む（SafetyRecipePanel.test.tsx/TrafficStressRecipePanel.test.tsxの情報アイコン開閉テスト
     // 等で複数回再現）。コールドスタート実測（初回6.4秒）に十分な余裕を持たせた値へ引き上げる。
     testTimeout: 15000,
-    environment: "jsdom",
+    // 改善計画T329: 既定のDOM環境をjsdomからhappy-domへ変更（テストスイート全体で
+    // 30秒→19秒、約35%短縮を実測。環境構築コストだけでなくテスト本体の実行時間も
+    // 縮む）。canvas.getContext("2d")が未実装でnullを返す挙動（windArrowIcon.ts/
+    // routeArrowIcon.tsのフォールバック分岐が依存する）もjsdomと同一であることを
+    // 確認済み。既定のjsdom環境を使う全テスト（下記の`@vitest-environment node`指定
+    // ファイルを除く）が対象になる。個別ファイルで`// @vitest-environment jsdom`
+    // docblockを付けば従来のjsdomへ戻せる（happy-domが特定APIで挙動差を持つ場合の
+    // 逃げ道として）。`isolate: false`（ファイル間でモジュール状態・DOM環境を使い回す
+    // 高速化）も試したが、テストが実行のたびに異なる4〜8件で不安定に失敗する
+    // 副作用があり不採用（速度最適化はテストの検証内容を変えない範囲で行う、
+    // docs/testing.md基本原則3）。
+    environment: "happy-dom",
     // jsdom環境の構築はテストファイルごとに毎回発生し（vitestのデフォルトはファイル単位で
     // 環境を再構築する）、DOMを使わない純ロジックのテスト（services/lib/Map内の式・
     // フィルタ関数群）にまで一律で課すと無駄なオーバーヘッドになる（実測でsetup/environment

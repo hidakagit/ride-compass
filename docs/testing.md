@@ -68,13 +68,17 @@ CIは`-n auto --dist loadgroup`でDB以外のテストを並列化している�
 
 DOM（render/renderHook/window/document等）を使わない純ロジックのテストファイルは、
 ファイル先頭へ`// @vitest-environment node`docblockを付けてnode環境に倒している。
-jsdom環境の構築コストはテストファイルごとにかかるため、対象外にできるファイルが増えるほど
+DOM環境の構築コストはテストファイルごとにかかるため、対象外にできるファイルが増えるほど
 実行時間が縮む（旧`vitest.config.mts`の`environmentMatchGlobs`による一括指定は、Vitest 4で
 同オプションが廃止されコンパイルエラー・ランタイムでの黙殺の両方を引き起こしたため
 改善計画T126で撤去済み。バージョン間で仕様が安定しているdocblock方式へ移行した）。
+既定のDOM環境自体も改善計画T329でjsdomからhappy-domへ変更済み（テストスイート全体の
+実行時間が約35%短縮。canvas.getContext("2d")が未実装でnullを返す等、既存テストが依存する
+挙動はjsdomと同一であることを確認済み。個別ファイルで`// @vitest-environment jsdom`を
+付ければ従来のjsdomへ戻せる）。
 
 新規テストファイルがservices/lib配下やMap内の式・フィルタ関数のようにDOMに触れない場合、
-このdocblockの追加を検討する。省略してもデフォルトのjsdomのままなので壊れることはない
+このdocblockの追加を検討する。省略してもデフォルトのhappy-domのままなので壊れることはない
 （速度だけの問題）。判断に迷ったら、そのテストファイルが
 `render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているか確認する
 ——ただし**テストファイル自身だけでなく、importしている実装側の関数が内部で
