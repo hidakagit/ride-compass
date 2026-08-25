@@ -10,9 +10,35 @@ import {
   unpublishAxisDefinition,
   updateAxisDefinition,
 } from "@/services/axisAdminApi";
-import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
+import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
 import styles from "./AxisStudio.module.css";
+
+// 改善計画T323: shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。
+// この中には材料カタログの材料idだけでなく、他axis_idを指すもの（改善計画T292「他axis_idを
+// 材料として参照する内部軸階層」）も混在しうる。
+function materialIdsOf(shape: AxisShape): string[] {
+  if (shape.kind === "categorical") return [shape.material];
+  if (shape.kind === "flag_sum") return shape.flags.map(([material]) => material);
+  return shape.terms.map((t) => t.material);
+}
+
+// 改善計画T325（UIレビュー2026-08-25 F-3）: 一覧のサマリ表示用に、材料id/軸idどちらも
+// 人間向けラベルへ解決する。`materialLabel`は材料カタログにのみ問い合わせるため、
+// `t.material`が他axis_id（改善計画T292「他axis_idを材料として参照する内部軸階層」、
+// 例: car_stress軸のterms）を指すケースでは該当ラベルを引けず、材料カタログのフォールバック
+// （`?? materialId`）で生のsnake_case識別子がそのまま表示されていた。まずこのaxis_id一覧
+// 内に該当する軸が無いか探し、あればその表示名(label)を優先する。
+function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
+  return definitions.find((d) => d.axis_id === id)?.label ?? materialLabel(id);
+}
+
+// 改善計画T323: 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という
+// 事実が見えないまま削除できてしまう問題への対応（UIレビュー2026-08-25 F-1）。削除の可否は
+// 制限せず、削除前に参照元とその影響をユーザーへ明示する。
+function axesReferencing(axisId: string, definitions: readonly AxisDefinitionResponse[]): AxisDefinitionResponse[] {
+  return definitions.filter((d) => d.axis_id !== axisId && materialIdsOf(d.shape).includes(axisId));
+}
 
 // 軸スタジオ（改善計画T270、T221 Stage E）のトップレベルコンポーネント。
 // 一覧取得・作成・更新・削除の状態管理をここに集約し、フォーム自体はAxisComposerへ委ねる。
@@ -98,6 +124,17 @@ export default function AxisStudio() {
   }
 
   async function handleDelete(axisId: string) {
+    // 改善計画T323: 削除しようとしている軸が他の軸から材料として参照されている場合、
+    // その事実と影響を確認ダイアログで明示する（一律拒否はしない——内部軸を整理・
+    // 再設計するために意図的に削除したい場面もありうるため、最終判断はユーザーに委ねる）。
+    const referencing = definitions ? axesReferencing(axisId, definitions) : [];
+    if (referencing.length > 0) {
+      const names = referencing.map((d) => d.label).join("・");
+      const confirmed = window.confirm(
+        `この軸は次の軸から材料として参照されています: ${names}\n削除すると、それらの軸が正しく評価できなくなります（評価対象外になります）。\n本当に削除しますか？`,
+      );
+      if (!confirmed) return;
+    }
     setDeletingAxisId(axisId);
     try {
       await deleteAxisDefinition(axisId);
@@ -145,11 +182,9 @@ export default function AxisStudio() {
               </span>
               <span className={styles.listMeta}>
                 {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
-                {def.shape.kind === "categorical"
-                  ? materialLabel(def.shape.material)
-                  : def.shape.kind === "flag_sum"
-                    ? def.shape.flags.map(([m]) => materialLabel(m)).join("・")
-                    : def.shape.terms.map((t) => materialLabel(t.material)).join("・")}
+                {materialIdsOf(def.shape)
+                  .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
+                  .join("・")}
               </span>
             </div>
             <div className={styles.listRowActions}>

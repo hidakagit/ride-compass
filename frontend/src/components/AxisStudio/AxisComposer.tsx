@@ -9,30 +9,61 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
 import styles from "./AxisStudio.module.css";
 
-// 軸コンポーザー（改善計画T270、T221 Stage E）。材料選択→4テンプレート選択→パラメータ
-// 調整→保存、という軸スタジオの中核機能。既存の`AxisDefinition.shape`（判別union、
-// backend/app/domain/axis_definitions.py）をそのままGUIの入力欄群へ写す。
+// 軸コンポーザー（改善計画T270、T221 Stage E）。表示名→点数のつけ方を選ぶ→点数の詳細→
+// 地図表示・公開、という4ステップのウィザードで軸を組み立てる中核機能。既存の
+// `AxisDefinition.shape`（判別union、backend/app/domain/axis_definitions.py）をそのまま
+// GUIの入力欄群へ写す構造は変えず、専門知識のないユーザーにも辿れる導線へ再構成した
+// （改善計画T332、UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」
+// への対応。カード選択の文言化でF-2の元ネタT324、地図チップ折れ点のスコア向き説明で
+// T327、旧ドロップダウンの「真偽2値→定数」という食い違った文言の撤去でT326も併せて解消）。
 //
-// テンプレートは4種に限定する（ADR「新しい計算テンプレートの追加は引き続きコード変更が
-// 必要、際限のない汎用化は目指さない」という承認済み方針）。材料は
-// useMaterialCatalog()（改善計画T277、GET /api/material-catalog）が返す候補から選ぶ
-// （目論見書7章・歯止め4「材料の天井」。API取得失敗時はlib/axisMaterialsCatalog.tsの
-// 静的フォールバックへ自動的に切り替わる）。
+// 内部で保持する4種の変換テンプレート(shape kind)自体は変えない（ADR「新しい計算
+// テンプレートの追加は引き続きコード変更が必要、際限のない汎用化は目指さない」という
+// 承認済み方針）。材料はuseMaterialCatalog()（改善計画T277、GET /api/material-catalog）が
+// 返す候補から選ぶ（目論見書7章・歯止め4「材料の天井」。API取得失敗時はlib/
+// axisMaterialsCatalog.tsの静的フォールバックへ自動的に切り替わる）。
 
 type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical" | "flag_sum";
 
-// 各変換テンプレート(shape)の説明（改善計画T304、「軸スタジオの使い方が分かりにくい」
-// という実機フィードバックへの対応）。選択肢のラベルだけでは何が起きるか分からない
-// という指摘のため、選んだ時点でその意味と具体例を1文で示す。
-const SHAPE_KIND_DESCRIPTIONS: Record<ShapeKind, string> = {
-  breakpoint_linear:
-    "1つ以上の材料を重み付きで足し合わせ、折れ点（入力値→スコア）でなめらかに0〜100点へ変換します。例: 勾配(%)が急なほど点数を下げる。",
-  recipe_then_breakpoint_linear:
-    "他の軸（is_published=falseの内部軸）の計算結果を材料として使う場合に選びます。変換の仕組み自体はひとつ上の区分線形補間と同じです。",
-  categorical:
-    "真偽値、または複数の値を持つカテゴリ材料を見て、値ごとに固定スコアを割り当てます。例: 一方通行かどうか（真偽値）、道路種別ごとに点数を変える（カテゴリ値）。",
-  flag_sum: "複数の真偽フラグそれぞれに加点し合計します（上限[cap]を設定可）。例: 危険要因が多いほど減点する。",
-};
+// 改善計画T332: 「変換テンプレート(shape)」という技術名のドロップダウンを、
+// 「どうやって点数をつけたいか」という利用者視点の質問＋カード選択へ置き換える
+// （旧SHAPE_KIND_DESCRIPTIONSは「用語が何か」の説明だったが、こちらは「どんな時に選ぶか」
+// を主役にする）。recipe_then_breakpoint_linearのみ、内部軸参照という上級者向けの用途の
+// ため`advanced: true`を付け、他3枚より控えめに表示する。
+interface ShapeKindOption {
+  kind: ShapeKind;
+  title: string;
+  description: string;
+  advanced?: boolean;
+}
+
+const SHAPE_KIND_OPTIONS: ShapeKindOption[] = [
+  {
+    kind: "categorical",
+    title: "はい/いいえ、または種類ごとに点数を決める",
+    description: "例: 一方通行かどうか、自転車専用道かどうか、道路の種類ごとに点数を変える。",
+  },
+  {
+    kind: "breakpoint_linear",
+    title: "数値の大きさに応じて点数を変える",
+    description: "例: 勾配(%)が急なほど点数を下げる、停止回数が多いほど点数を下げる。",
+  },
+  {
+    kind: "flag_sum",
+    title: "複数の要素の有無を数えて減点・加点する",
+    description: "例: 街灯なし・トンネルなど、危険要素が当てはまるほど点数を下げる。",
+  },
+  {
+    kind: "recipe_then_breakpoint_linear",
+    title: "他の軸の計算結果をもとに点数を変える",
+    description: "内部軸（下書きのまま公開しない軸）の計算結果を材料として使う場合に選びます。仕組み自体は「数値の大きさに応じて点数を変える」と同じです。",
+    advanced: true,
+  },
+];
+
+function shapeKindOption(kind: ShapeKind): ShapeKindOption {
+  return SHAPE_KIND_OPTIONS.find((o) => o.kind === kind) ?? SHAPE_KIND_OPTIONS[0];
+}
 
 // 改善計画T305: axis_idはユーザー入力欄から撤去した。ユーザーからの指摘「axis_idは
 // システムが勝手に一意な何かを自動採番してくれればよい。設定画面に不要では？画面上は
@@ -65,8 +96,9 @@ interface FlagDraft {
 }
 
 /** 改善計画T322: categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
- * 「カテゴリ値」テンプレートで使うための(値, スコア)行。値は自由入力（既知の値一覧を
- * 返すAPIを持たないため）で、mapping未登録の値は評価対象外(欠損)として扱われる。 */
+ * 「はい/いいえ、または種類ごとに点数を決める」で使うための(値, スコア)行。値は自由入力
+ * （既知の値一覧を返すAPIを持たないため）で、mapping未登録の値は評価対象外(欠損)として
+ * 扱われる。 */
 interface CategoricalRowDraft {
   value: string;
   score: number;
@@ -251,6 +283,17 @@ interface AxisComposerProps {
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
 
+// 改善計画T332: 4ステップのウィザード。ステップ自体の追加・削除はコード変更を要する
+// （4テンプレート限定の方針と同様、際限のない動的ステップ化は目指さない）。
+const STEPS = ["basic", "shape_kind", "shape_params", "display_publish"] as const;
+type Step = (typeof STEPS)[number];
+const STEP_TITLES: Record<Step, string> = {
+  basic: "基本情報",
+  shape_kind: "点数のつけ方を選ぶ",
+  shape_params: "点数の詳細を設定",
+  display_publish: "地図表示・公開",
+};
+
 export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onSave }: AxisComposerProps) {
   const materialOptions = useMaterialCatalog();
   const [draft, setDraft] = useState<Draft>(() => {
@@ -258,6 +301,8 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions);
     return emptyDraft(materialOptions);
   });
+  const [stepIndex, setStepIndex] = useState(0);
+  const step = STEPS[stepIndex];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
@@ -266,27 +311,67 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (draft.label.trim() === "") {
-      setError("表示名(label)を入力してください。");
-      return;
+  // 改善計画T332: ステップを進める前の検証。「表示名が無いまま次へ進んで、最後の保存時に
+  // 初めてエラーが出る」という手戻りを避け、該当ステップに留まったまま原因を示す。
+  function validateStep(target: Step): string | null {
+    if (target === "basic") {
+      if (draft.label.trim() === "") return "表示名(label)を入力してください。";
     }
-    // コードレビュー指摘の修正: backend側の検証（axis_admin.py:
-    // _check_label_length_or_chip_label）と同じ条件をここでも先回りしてチェックし、
-    // 送信前にエラーを示す（保存ボタンを押してから422が返るまで待たせない）。
-    if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
-      setError("表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。");
-      return;
-    }
-    // 改善計画T322: categorical材料選択時、値の行が1つも入力されていないと
-    // mapping={}のまま保存されてしまい（全区間で評価不能=欠損になるだけで保存自体は
-    // 通ってしまう）、設定し忘れに気づきにくいため事前に弾く。
-    if (draft.shapeKind === "categorical") {
+    if (target === "shape_params" && draft.shapeKind === "categorical") {
+      // 改善計画T322: categorical材料選択時、値の行が1つも入力されていないと
+      // mapping={}のまま保存されてしまい（全区間で評価不能=欠損になるだけで保存自体は
+      // 通ってしまう）、設定し忘れに気づきにくいため事前に弾く。
       const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
       if (dtype === "categorical" && draft.categoricalRows.every((r) => r.value.trim() === "")) {
-        setError("値ごとのスコアを少なくとも1件設定してください。");
+        return "値ごとのスコアを少なくとも1件設定してください。";
+      }
+    }
+    if (target === "display_publish") {
+      // コードレビュー指摘の修正: backend側の検証（axis_admin.py:
+      // _check_label_length_or_chip_label）と同じ条件をここでも先回りしてチェックし、
+      // 保存時まで待たせない。地図チップの略称(chip_label)欄はこのステップにあるため、
+      // ここでチェックする（「基本情報」ステップでチェックすると、まだ入力欄が無い
+      // 「地図表示・公開」ステップへ誘導するだけで先へ進めない詰みを生む——実機確認で
+      // 発覚したT332実装時の不具合、修正済み）。
+      if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
+        return "表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。";
+      }
+    }
+    return null;
+  }
+
+  function goNext() {
+    const err = validateStep(step);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setError(null);
+    setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
+  }
+
+  function goBack() {
+    setError(null);
+    setStepIndex((i) => Math.max(i - 1, 0));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    // 改善計画T332: 最終ステップ以外でのEnterキー送信は「次へ」として扱う
+    // （このコンポーネントは単一の<form>のまま、表示するステップだけを切り替える設計の
+    // ため、type="submit"ボタンが常にDOM上に無くても暗黙のフォーム送信は起こりうる）。
+    if (step !== "display_publish") {
+      goNext();
+      return;
+    }
+    setError(null);
+    // basic・shape_paramsステップの検証を保存直前にも通す（ステップを戻って値を空へ
+    // 書き換えてから、戻らずに保存を試みた場合の安全網）。
+    for (const target of STEPS) {
+      const err = validateStep(target);
+      if (err) {
+        setError(err);
+        setStepIndex(STEPS.indexOf(target));
         return;
       }
     }
@@ -368,342 +453,409 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
     return <PreviewIcon size={20} />;
   }
 
-  return (
-    <form onSubmit={handleSubmit} className={styles.composer}>
-      <div className={styles.field}>
-        <FieldLabel
-          label="表示名(label)"
-          description="一般ユーザー向けのルート設定画面・地図の凡例に表示される名前です。"
-        />
-        <input
-          type="text"
-          value={draft.label}
-          aria-label="表示名(label)"
-          onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
-          placeholder="例: 未舗装回避"
-        />
-      </div>
-
-      <label className={styles.fieldFull}>
-        説明(description)
-        <textarea
-          value={draft.description}
-          onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-          rows={2}
-        />
-      </label>
-
-      <div className={styles.field}>
-        <FieldLabel
-          label="既定重み(default_weight)"
-          description="この軸を誰も上書きしていないときに使われる重みです。0にするとおすすめ度の計算から実質除外されます。"
-        />
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          aria-label="既定重み(default_weight)"
-          value={draft.defaultWeight}
-          onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
-        />
-      </div>
-
-      <label className={styles.fieldFull}>
-        変換テンプレート(shape)
-        <select
-          value={draft.shapeKind}
-          onChange={(e) => setDraft((d) => ({ ...d, shapeKind: e.target.value as ShapeKind }))}
-        >
-          <option value="breakpoint_linear">区分線形補間（複数材料の線形結合→折れ線）</option>
-          <option value="recipe_then_breakpoint_linear">区分線形補間（レシピ判定済み材料向け）</option>
-          <option value="categorical">カテゴリ値（真偽2値→定数）</option>
-          <option value="flag_sum">フラグ加算（複数の真偽フラグ→加点合計）</option>
-        </select>
-      </label>
-      <p className={styles.hint}>{SHAPE_KIND_DESCRIPTIONS[draft.shapeKind]}</p>
-
-      {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
-        <div className={styles.shapeGroup}>
-          <p className={styles.groupLabel}>材料(terms)</p>
-          {draft.terms.map((term, i) => (
-            <div key={i} className={styles.termRow}>
-              <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
-                {materialOptions.filter((m) => m.dtype === "numeric").map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                step="0.1"
-                value={term.weight}
-                aria-label="係数"
-                onChange={(e) => updateTerm(i, { weight: Number(e.target.value) })}
-              />
-              <label className={styles.inlineCheckbox}>
-                <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
-                必須
-              </label>
-              <button
-                type="button"
-                onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
-                disabled={draft.terms.length <= 1}
-              >
-                削除
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className={styles.addButton}
-            onClick={() =>
-              setDraft((d) => ({
-                ...d,
-                terms: [...d.terms, { material: materialOptions[0].id, weight: 1.0, required: false }],
-              }))
-            }
-          >
-            + 材料を追加
-          </button>
-
-          <label className={styles.field}>
-            前処理(preprocess)
-            <select value={draft.preprocess} onChange={(e) => setDraft((d) => ({ ...d, preprocess: e.target.value as "identity" | "abs" }))}>
-              <option value="identity">そのまま</option>
-              <option value="abs">絶対値</option>
-            </select>
-          </label>
-
-          <p className={styles.groupLabel}>折れ点(breakpoints) [入力値, スコア0-100]</p>
-          {draft.breakpoints.map((bp, i) => (
-            <div key={i} className={styles.breakpointRow}>
-              <input type="number" step="0.1" value={bp[0]} aria-label="入力値" onChange={(e) => updateBreakpoint(i, 0, Number(e.target.value))} />
-              <span>→</span>
-              <input type="number" step="1" value={bp[1]} aria-label="スコア" onChange={(e) => updateBreakpoint(i, 1, Number(e.target.value))} />
-              <button
-                type="button"
-                onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
-                disabled={draft.breakpoints.length <= 2}
-              >
-                削除
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className={styles.addButton}
-            onClick={() => setDraft((d) => ({ ...d, breakpoints: [...d.breakpoints, [0, 0]] }))}
-          >
-            + 折れ点を追加
-          </button>
-        </div>
-      )}
-
-      {draft.shapeKind === "categorical" && (() => {
-        // 改善計画T322: 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
-        // categorical→値ごとのスコア行）。
-        const selectedDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
-        return (
-          <div className={styles.shapeGroup}>
-            <label className={styles.field}>
-              材料(material)
-              <select
-                value={draft.categoricalMaterial}
-                onChange={(e) => {
-                  const nextMaterial = e.target.value;
-                  const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
-                  setDraft((d) => ({
-                    ...d,
-                    categoricalMaterial: nextMaterial,
-                    categoricalRows:
-                      nextDtype === "categorical" && d.categoricalRows.length === 0
-                        ? [{ value: "", score: 0 }]
-                        : d.categoricalRows,
-                  }));
-                }}
-              >
-                {materialOptions
-                  .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {selectedDtype === "categorical" ? (
-              <>
-                <p className={styles.hint}>
-                  値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。
-                </p>
-                <p className={styles.groupLabel}>値ごとのスコア</p>
-                {draft.categoricalRows.map((row, i) => (
-                  <div key={i} className={styles.termRow}>
-                    <input
-                      type="text"
-                      value={row.value}
-                      aria-label="値"
-                      placeholder="例: separated"
-                      onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
-                    />
-                    <input
-                      type="number"
-                      step="1"
-                      value={row.score}
-                      aria-label="スコア"
-                      onChange={(e) => updateCategoricalRow(i, { score: Number(e.target.value) })}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeCategoricalRow(i)}
-                      disabled={draft.categoricalRows.length <= 1}
-                    >
-                      削除
-                    </button>
-                  </div>
-                ))}
-                <button type="button" className={styles.addButton} onClick={addCategoricalRow}>
-                  + 値を追加
-                </button>
-              </>
-            ) : (
-              <div className={styles.row}>
-                <label className={styles.field}>
-                  該当時(true)のスコア
-                  <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
-                </label>
-                <label className={styles.field}>
-                  非該当時(false)のスコア
-                  <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
-                </label>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {draft.shapeKind === "flag_sum" && (
-        <div className={styles.shapeGroup}>
-          <p className={styles.groupLabel}>フラグ(flags)</p>
-          {draft.flags.map((flag, i) => (
-            <div key={i} className={styles.termRow}>
-              <select value={flag.material} onChange={(e) => updateFlag(i, { material: e.target.value })}>
-                {materialOptions.filter((m) => m.dtype === "boolean").map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <input type="number" step="1" value={flag.points} aria-label="加点" onChange={(e) => updateFlag(i, { points: Number(e.target.value) })} />
-              <button
-                type="button"
-                onClick={() => setDraft((d) => ({ ...d, flags: d.flags.filter((_, j) => j !== i) }))}
-                disabled={draft.flags.length <= 1}
-              >
-                削除
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className={styles.addButton}
-            onClick={() =>
-              setDraft((d) => ({
-                ...d,
-                flags: [...d.flags, { material: materialOptions.find((m) => m.dtype === "boolean")?.id ?? "", points: 10 }],
-              }))
-            }
-          >
-            + フラグを追加
-          </button>
-          <label className={styles.field}>
-            上限(cap、任意)
-            <input
-              type="number"
-              step="1"
-              value={draft.cap ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, cap: e.target.value === "" ? null : Number(e.target.value) }))}
-            />
-          </label>
-        </div>
-      )}
-
-      <div className={styles.shapeGroup}>
-        <p className={styles.groupLabel}>地図チップ表示要素(任意)</p>
-        <p className={styles.hint}>
-          いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は
-          説明(description)がそれぞれ代わりに使われる）。
-        </p>
-        <label className={styles.inlineCheckbox}>
-          <Checkbox
-            checked={draft.showMapIcon}
-            onCheckedChange={(next) => setDraft((d) => ({ ...d, showMapIcon: next }))}
-            aria-label="地図上にアイコンを表示する(show_map_icon)"
-          />
-          地図上にアイコンを表示する(show_map_icon)（オフにすると地図上チップ・地図の見え方パネルのどちらにもこの軸が現れなくなります）
-        </label>
-        <div className={styles.field}>
-          <FieldLabel label="アイコン(icon_id)" description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。" />
-          <div className={styles.row}>
-            <select
-              value={draft.iconId}
-              aria-label="アイコン(icon_id)"
-              onChange={(e) => setDraft((d) => ({ ...d, iconId: e.target.value }))}
-            >
-              <option value="">（未設定、汎用アイコン）</option>
-              {Object.entries(AXIS_ICON_PALETTE).map(([iconId, entry]) => (
-                <option key={iconId} value={iconId}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-            {renderIconPreview()}
-          </div>
-        </div>
-
+  function renderBasicStep() {
+    return (
+      <>
         <div className={styles.field}>
           <FieldLabel
-            label="地図チップの略称(chip_label)"
-            description="4文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が4文字を超える場合はここで略称を設定すること）。"
+            label="表示名(label)"
+            description="一般ユーザー向けのルート設定画面・地図の凡例に表示される名前です。"
           />
           <input
             type="text"
-            value={draft.chipLabel}
-            aria-label="地図チップの略称(chip_label)"
-            onChange={(e) => setDraft((d) => ({ ...d, chipLabel: e.target.value }))}
-            maxLength={4}
-            placeholder="例: 未舗装"
+            value={draft.label}
+            aria-label="表示名(label)"
+            onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
+            placeholder="例: 未舗装回避"
           />
         </div>
 
         <label className={styles.fieldFull}>
-          地図の見え方パネル向け説明文(panel_hint)
+          説明(description)
           <textarea
-            value={draft.panelHint}
-            onChange={(e) => setDraft((d) => ({ ...d, panelHint: e.target.value }))}
+            value={draft.description}
+            onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
             rows={2}
-            placeholder="一般ユーザー向けに噛み砕いた説明文（未設定時は説明(description)がそのまま使われる）"
           />
         </label>
 
-      </div>
+        <div className={styles.field}>
+          <FieldLabel
+            label="既定重み(default_weight)"
+            description="この軸を誰も上書きしていないときに使われる重みです。0にするとおすすめ度の計算から実質除外されます。"
+          />
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            aria-label="既定重み(default_weight)"
+            value={draft.defaultWeight}
+            onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
+          />
+        </div>
+      </>
+    );
+  }
 
-      <label className={styles.inlineCheckbox}>
-        <Checkbox
-          checked={draft.isPublished}
-          onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
-          aria-label="公開する"
-        />
-        公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
-      </label>
+  function renderShapeKindStep() {
+    return (
+      <>
+        <p className={styles.groupLabel}>この軸はどうやって点数をつけますか？</p>
+        <div className={styles.shapeKindOptions}>
+          {SHAPE_KIND_OPTIONS.map((option) => (
+            <label
+              key={option.kind}
+              className={
+                option.kind === draft.shapeKind
+                  ? `${styles.shapeKindOption} ${styles.shapeKindOptionSelected}`
+                  : styles.shapeKindOption
+              }
+            >
+              <input
+                type="radio"
+                name="shapeKind"
+                value={option.kind}
+                checked={draft.shapeKind === option.kind}
+                onChange={() => setDraft((d) => ({ ...d, shapeKind: option.kind }))}
+              />
+              <span className={styles.shapeKindOptionBody}>
+                <strong>
+                  {option.title}
+                  {option.advanced && <span className={styles.hint}>（上級者向け）</span>}
+                </strong>
+                <span className={styles.hint}>{option.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  function renderShapeParamsStep() {
+    return (
+      <>
+        <p className={styles.groupLabel}>選択中: {shapeKindOption(draft.shapeKind).title}</p>
+
+        {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
+          <div className={styles.shapeGroup}>
+            <p className={styles.groupLabel}>材料(terms)</p>
+            {draft.terms.map((term, i) => (
+              <div key={i} className={styles.termRow}>
+                <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
+                  {materialOptions.filter((m) => m.dtype === "numeric").map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={term.weight}
+                  aria-label="係数"
+                  onChange={(e) => updateTerm(i, { weight: Number(e.target.value) })}
+                />
+                <label className={styles.inlineCheckbox}>
+                  <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
+                  必須
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
+                  disabled={draft.terms.length <= 1}
+                >
+                  削除
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className={styles.addButton}
+              onClick={() =>
+                setDraft((d) => ({
+                  ...d,
+                  terms: [...d.terms, { material: materialOptions[0].id, weight: 1.0, required: false }],
+                }))
+              }
+            >
+              + 材料を追加
+            </button>
+
+            <label className={styles.field}>
+              前処理(preprocess)
+              <select value={draft.preprocess} onChange={(e) => setDraft((d) => ({ ...d, preprocess: e.target.value as "identity" | "abs" }))}>
+                <option value="identity">そのまま</option>
+                <option value="abs">絶対値</option>
+              </select>
+            </label>
+
+            <p className={styles.groupLabel}>折れ点(breakpoints) [入力値, スコア0-100]</p>
+            {/* 改善計画T327（UIレビュー2026-08-25 F-5）: スコア0〜100が「走りやすさ」か
+                「難しさ」かを明示しないまま数値ペアだけを並べていた。既存軸の実データ
+                （例: gradient軸は勾配0%→0点・15%→100点ではなく、実際は逆で勾配が急なほど
+                スコアが下がる設計）から「スコアは高いほど走りやすい」という規約を明文化する。 */}
+            <p className={styles.hint}>
+              スコアは0(最も走りにくい)〜100(最も走りやすい)で入力します。入力値が大きくなるほどスコアを上げれば「値が大きいほど走りやすい」、下げれば「値が大きいほど走りにくい」という軸になります。
+            </p>
+            {draft.breakpoints.map((bp, i) => (
+              <div key={i} className={styles.breakpointRow}>
+                <input type="number" step="0.1" value={bp[0]} aria-label="入力値" onChange={(e) => updateBreakpoint(i, 0, Number(e.target.value))} />
+                <span>→</span>
+                <input type="number" step="1" value={bp[1]} aria-label="スコア" onChange={(e) => updateBreakpoint(i, 1, Number(e.target.value))} />
+                <button
+                  type="button"
+                  onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
+                  disabled={draft.breakpoints.length <= 2}
+                >
+                  削除
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className={styles.addButton}
+              onClick={() => setDraft((d) => ({ ...d, breakpoints: [...d.breakpoints, [0, 0]] }))}
+            >
+              + 折れ点を追加
+            </button>
+          </div>
+        )}
+
+        {draft.shapeKind === "categorical" && (() => {
+          // 改善計画T322: 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
+          // categorical→値ごとのスコア行）。
+          const selectedDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+          return (
+            <div className={styles.shapeGroup}>
+              <label className={styles.field}>
+                材料(material)
+                <select
+                  value={draft.categoricalMaterial}
+                  onChange={(e) => {
+                    const nextMaterial = e.target.value;
+                    const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
+                    setDraft((d) => ({
+                      ...d,
+                      categoricalMaterial: nextMaterial,
+                      categoricalRows:
+                        nextDtype === "categorical" && d.categoricalRows.length === 0
+                          ? [{ value: "", score: 0 }]
+                          : d.categoricalRows,
+                    }));
+                  }}
+                >
+                  {materialOptions
+                    .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {selectedDtype === "categorical" ? (
+                <>
+                  <p className={styles.hint}>
+                    値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。
+                  </p>
+                  <p className={styles.groupLabel}>値ごとのスコア</p>
+                  {draft.categoricalRows.map((row, i) => (
+                    <div key={i} className={styles.termRow}>
+                      <input
+                        type="text"
+                        value={row.value}
+                        aria-label="値"
+                        placeholder="例: separated"
+                        onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
+                      />
+                      <input
+                        type="number"
+                        step="1"
+                        value={row.score}
+                        aria-label="スコア"
+                        onChange={(e) => updateCategoricalRow(i, { score: Number(e.target.value) })}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeCategoricalRow(i)}
+                        disabled={draft.categoricalRows.length <= 1}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" className={styles.addButton} onClick={addCategoricalRow}>
+                    + 値を追加
+                  </button>
+                </>
+              ) : (
+                <div className={styles.row}>
+                  <label className={styles.field}>
+                    該当時(true)のスコア
+                    <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
+                  </label>
+                  <label className={styles.field}>
+                    非該当時(false)のスコア
+                    <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
+                  </label>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {draft.shapeKind === "flag_sum" && (
+          <div className={styles.shapeGroup}>
+            <p className={styles.groupLabel}>フラグ(flags)</p>
+            {draft.flags.map((flag, i) => (
+              <div key={i} className={styles.termRow}>
+                <select value={flag.material} onChange={(e) => updateFlag(i, { material: e.target.value })}>
+                  {materialOptions.filter((m) => m.dtype === "boolean").map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <input type="number" step="1" value={flag.points} aria-label="加点" onChange={(e) => updateFlag(i, { points: Number(e.target.value) })} />
+                <button
+                  type="button"
+                  onClick={() => setDraft((d) => ({ ...d, flags: d.flags.filter((_, j) => j !== i) }))}
+                  disabled={draft.flags.length <= 1}
+                >
+                  削除
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className={styles.addButton}
+              onClick={() =>
+                setDraft((d) => ({
+                  ...d,
+                  flags: [...d.flags, { material: materialOptions.find((m) => m.dtype === "boolean")?.id ?? "", points: 10 }],
+                }))
+              }
+            >
+              + フラグを追加
+            </button>
+            <label className={styles.field}>
+              上限(cap、任意)
+              <input
+                type="number"
+                step="1"
+                value={draft.cap ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, cap: e.target.value === "" ? null : Number(e.target.value) }))}
+              />
+            </label>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function renderDisplayPublishStep() {
+    return (
+      <>
+        <div className={styles.shapeGroup}>
+          <p className={styles.groupLabel}>地図チップ表示要素(任意)</p>
+          <p className={styles.hint}>
+            いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は
+            説明(description)がそれぞれ代わりに使われる）。
+          </p>
+          <label className={styles.inlineCheckbox}>
+            <Checkbox
+              checked={draft.showMapIcon}
+              onCheckedChange={(next) => setDraft((d) => ({ ...d, showMapIcon: next }))}
+              aria-label="地図上にアイコンを表示する(show_map_icon)"
+            />
+            地図上にアイコンを表示する(show_map_icon)（オフにすると地図上チップ・地図の見え方パネルのどちらにもこの軸が現れなくなります）
+          </label>
+          <div className={styles.field}>
+            <FieldLabel label="アイコン(icon_id)" description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。" />
+            <div className={styles.row}>
+              <select
+                value={draft.iconId}
+                aria-label="アイコン(icon_id)"
+                onChange={(e) => setDraft((d) => ({ ...d, iconId: e.target.value }))}
+              >
+                <option value="">（未設定、汎用アイコン）</option>
+                {Object.entries(AXIS_ICON_PALETTE).map(([iconId, entry]) => (
+                  <option key={iconId} value={iconId}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+              {renderIconPreview()}
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <FieldLabel
+              label="地図チップの略称(chip_label)"
+              description="4文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が4文字を超える場合はここで略称を設定すること）。"
+            />
+            <input
+              type="text"
+              value={draft.chipLabel}
+              aria-label="地図チップの略称(chip_label)"
+              onChange={(e) => setDraft((d) => ({ ...d, chipLabel: e.target.value }))}
+              maxLength={4}
+              placeholder="例: 未舗装"
+            />
+          </div>
+
+          <label className={styles.fieldFull}>
+            地図の見え方パネル向け説明文(panel_hint)
+            <textarea
+              value={draft.panelHint}
+              onChange={(e) => setDraft((d) => ({ ...d, panelHint: e.target.value }))}
+              rows={2}
+              placeholder="一般ユーザー向けに噛み砕いた説明文（未設定時は説明(description)がそのまま使われる）"
+            />
+          </label>
+        </div>
+
+        <label className={styles.inlineCheckbox}>
+          <Checkbox
+            checked={draft.isPublished}
+            onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
+            aria-label="公開する"
+          />
+          公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
+        </label>
+      </>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.composer}>
+      <p className={styles.stepIndicator}>
+        ステップ {stepIndex + 1}/{STEPS.length}: {STEP_TITLES[step]}
+      </p>
+
+      {step === "basic" && renderBasicStep()}
+      {step === "shape_kind" && renderShapeKindStep()}
+      {step === "shape_params" && renderShapeParamsStep()}
+      {step === "display_publish" && renderDisplayPublishStep()}
 
       {error && <p className={styles.errorText}>{error}</p>}
 
       <div className={styles.row}>
-        <button type="submit" disabled={saving} className={styles.saveButton}>
-          {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
-        </button>
+        {stepIndex > 0 && (
+          <button type="button" onClick={goBack} disabled={saving}>
+            戻る
+          </button>
+        )}
+        {step !== "display_publish" ? (
+          <button type="button" onClick={goNext} className={styles.saveButton}>
+            次へ
+          </button>
+        ) : (
+          <button type="submit" disabled={saving} className={styles.saveButton}>
+            {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
+          </button>
+        )}
         {!isNew && (
           <button type="button" onClick={onCancelEdit} disabled={saving}>
             編集をやめる
