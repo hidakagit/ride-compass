@@ -1393,8 +1393,8 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）。
     # surfaceタグ無しも同様にsurfaceキーごと省略される。bicycle_infraはhighwayさえ分かれば
     # 常に決まる（静的道路属性P0、いずれもtags未設定の4件はどちらもhighway=residential/track
-    # で「roadway」になる）。車ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/
-    # motor_vehicle_no、改善計画: 交通ストレスレシピ外出し基盤）はcycleway等のタグ自体が
+    # で「roadway」になる）。車ストレスの材料タグ（maxspeed_kmh/lanes_count/motor_vehicle_no、
+    # 改善計画: 交通ストレスレシピ外出し基盤）はcycleway等のタグ自体が
     # 無いためすべて省略される（最終値はもうSQL側では計算しない、ファイル冒頭コメント参照）。
     # smoothness/tunnel/bridgeもtags自体が空のためキーが省略される。
     assert properties == [
@@ -1547,13 +1547,16 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(ro
 
 
 async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repository, road_graph_session):
-    """車ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、
-    改善計画: 交通ストレスレシピ外出し基盤）と、night軸の材料タグ（lit、
-    domain/registry_defaults.py: inputs=["lit","tunnel"]。かつては安全度軸の材料でも
-    あったが、安全度軸自体はT148で削除済み）が、SQLで正しく抽出・正規化されることを
-    確認する。最終値の計算はもうSQL側の責務ではない（frontend/src/components/Map/
-    trafficStressExpression.ts、domain/traffic.py: car_stress_breakdownが担う）ため、
-    ここでは「材料タグがタグから正しく取り出せているか」だけを検証する。
+    """車ストレスの材料タグ（maxspeed_kmh/lanes_count/motor_vehicle_no、改善計画:
+    交通ストレスレシピ外出し基盤）と、night軸の材料タグ（lit、domain/registry_defaults.py:
+    inputs=["lit","tunnel"]。かつては安全度軸の材料でもあったが、安全度軸自体はT148で
+    削除済み）が、SQLで正しく抽出・正規化されることを確認する。最終値の計算はもうSQL側の
+    責務ではない（frontend/src/components/Map/axisLayers.ts、domain/axis_definitions.pyの
+    AXIS_DEFINITIONSが担う）ため、ここでは「材料タグがタグから正しく取り出せているか」
+    だけを検証する。cycleway由来のタグ（cycleway_class）は改善計画T337でこのタイル
+    プロパティ自体を削除したため、ここでの検証対象からも外れた（cycleway由来の材料は
+    現在bicycle_infraのみタイルへ焼き込まれており、test_get_road_surface_tile_mvt_
+    bicycle_infra_matches_domain_trafficで別途検証済み）。
     """
     import mapbox_vector_tile
 
@@ -1561,10 +1564,6 @@ async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repos
     # 保証されないため、各fixtureが一意なhighway値を持つよう構成する）。
     fixtures: list[tuple[str, dict[str, str], dict[str, object]]] = [
         ("cycleway", {}, {}),
-        ("primary", {"cycleway": "track"}, {"cycleway_class": "track"}),
-        ("primary_link", {"cycleway:left": "lane"}, {"cycleway_class": "lane"}),
-        ("secondary", {"cycleway": "share_busway"}, {"cycleway_class": "shared"}),
-        ("tertiary_link", {"cycleway": "shared_lane"}, {"cycleway_class": "shared"}),
         ("footway", {"bicycle": "designated"}, {}),
         ("secondary_link", {"motor_vehicle": "no"}, {"motor_vehicle_no": True}),
         ("tertiary", {"maxspeed": "60"}, {"maxspeed_kmh": 60}),
@@ -1599,8 +1598,12 @@ async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repos
 
     for highway, tags, expected in fixtures:
         actual = properties_by_highway[highway]
-        for key in ("cycleway_class", "maxspeed_kmh", "lanes_count", "motor_vehicle_no", "lit"):
+        for key in ("maxspeed_kmh", "lanes_count", "motor_vehicle_no", "lit"):
             assert actual.get(key) == expected.get(key), (highway, tags, key)
+
+    # 改善計画T337回帰テスト: cycleway_classプロパティが誤って復活していないこと
+    # （どの評価軸・地図表示からも参照されない未使用材料だったため削除済み）。
+    assert all("cycleway_class" not in p for p in properties_by_highway.values())
 
 
 async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
@@ -1661,6 +1664,40 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
 
     both = properties_by_highway["unclassified"]
     assert both.get("designation") == "both"
+
+
+# --- get_distinct_material_values（改善計画T340: 軸スタジオの値入力UX改善） ---
+
+
+async def test_get_distinct_material_values_returns_sorted_deduped_values(
+    road_graph_repository, road_graph_session,
+):
+    """highway/surface/smoothnessの実データ値一覧が、重複無し・ソート済みで返る。
+    surface/smoothnessは_ROAD_SURFACE_TILE_MVT_SQLと同じ正規化（lower/btrim）を適用する。
+    """
+    ways = [
+        WaySpec(osm_way_id=300, node_ids=[1, 2], highway="residential", surface=" Asphalt "),
+        WaySpec(osm_way_id=301, node_ids=[1, 2], highway="primary", surface="asphalt"),  # 正規化後重複
+        WaySpec(osm_way_id=302, node_ids=[1, 2], highway="residential", tags={"smoothness": " Good "}),
+        WaySpec(osm_way_id=303, node_ids=[1, 2], highway="track"),  # surface/smoothnessタグ無し
+    ]
+    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
+    await road_graph_session.commit()
+
+    highway_values = await road_graph_repository.get_distinct_material_values("highway")
+    surface_values = await road_graph_repository.get_distinct_material_values("surface")
+    smoothness_values = await road_graph_repository.get_distinct_material_values("smoothness")
+
+    assert highway_values == sorted({"residential", "primary", "track"})
+    assert surface_values == ["asphalt"]  # 正規化後は1件に重複排除される
+    assert smoothness_values == ["good"]
+
+
+async def test_get_distinct_material_values_unsupported_material_returns_empty_list(road_graph_repository):
+    # bicycle_infra等、事前に閉じた値集合を持つ材料（_MATERIAL_VALUE_COLUMN_EXPR未登録）は
+    # DBへ問い合わせず空リストを返す。
+    assert await road_graph_repository.get_distinct_material_values("bicycle_infra") == []
+    assert await road_graph_repository.get_distinct_material_values("not_a_real_material") == []
 
 
 # --- get_poi_tile_mvt（改善計画T54: 停止要因POI・交差点密度の可視化） ---

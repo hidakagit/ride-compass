@@ -2,10 +2,10 @@
 
 抽出フェーズをdomain/evaluation.pyの手書きループからMATERIAL_CATALOG駆動へ移した
 ことに伴い、各材料のextractorが期待どおりの生値（欠損はNone）を返すことをここで
-直接検証する。特にbridge/smoothness/cycleway_class/surfaceはこの改修で新たに
-抽出可能になった材料（以前はMATERIAL_CATALOGへ登録済みでもevaluation.pyの
-ループに専用コードが無く、実際には一切抽出されていなかった）で、evaluation.py側の
-変更なしに使えるようになったことの証跡でもある。
+直接検証する。特にbridge/smoothness/surfaceはこの改修で新たに抽出可能になった材料
+（以前はMATERIAL_CATALOGへ登録済みでもevaluation.pyのループに専用コードが無く、
+実際には一切抽出されていなかった）で、evaluation.py側の変更なしに使えるようになった
+ことの証跡でもある。
 """
 
 from app.domain.attributes import ElevationAttribute
@@ -111,9 +111,10 @@ def test_highway_and_bicycle_infra_require_way_tags_present():
     assert highway_spec.extractor(_ctx(way_tags=None, edge=_edge(highway="trunk"))) is None
 
 
-def test_bridge_smoothness_cycleway_class_surface_are_now_extractable():
-    """改善計画T280で新たに抽出可能になった4材料（以前はMATERIAL_CATALOG登録済みでも
-    evaluation.pyのループに専用コードが無く未抽出だった）。"""
+def test_bridge_smoothness_surface_are_now_extractable():
+    """改善計画T280で新たに抽出可能になった材料（以前はMATERIAL_CATALOG登録済みでも
+    evaluation.pyのループに専用コードが無く未抽出だった）。cycleway_classは改善計画T337で
+    削除済み（どの評価軸・地図表示からも参照されない未使用材料だったため）。"""
     bridge = MATERIAL_CATALOG["bridge"]
     assert bridge.extractor(_ctx(way_tags={"bridge": "yes"})) is True
     assert bridge.extractor(_ctx(way_tags={})) is False
@@ -123,13 +124,15 @@ def test_bridge_smoothness_cycleway_class_surface_are_now_extractable():
     assert smoothness.extractor(_ctx(way_tags={"smoothness": " Good "})) == "good"
     assert smoothness.extractor(_ctx(way_tags={})) is None
 
-    cycleway_class = MATERIAL_CATALOG["cycleway_class"]
-    assert cycleway_class.extractor(_ctx(way_tags={"cycleway": "track"})) == "track"
-    assert cycleway_class.extractor(_ctx(way_tags={})) is None
-
     surface = MATERIAL_CATALOG["surface"]
     assert surface.extractor(_ctx(surface_attributes={"e1": "gravel"})) == "gravel"
     assert surface.extractor(_ctx()) is None
+
+
+def test_cycleway_class_material_removed():
+    """改善計画T337回帰テスト: cycleway_classは軸定義・地図表示のどちらからも参照が
+    無い未使用材料だったため削除した。誤って復活しないことを固定するテスト。"""
+    assert "cycleway_class" not in MATERIAL_CATALOG
 
 
 def test_bicycle_infra_flag_materials_extract_from_cycleway_and_highway_tags():
@@ -165,3 +168,64 @@ def test_oneway_and_designation_remain_unwired_by_design():
     現状を固定するテスト（着手時はこのテストごと更新する）。"""
     assert MATERIAL_CATALOG["oneway"].extractor is None
     assert MATERIAL_CATALOG["designation"].extractor is None
+
+
+# --- 改善計画T339: 汎用extractorファクトリの単体テスト。既存の簡易extractorをこれらの
+# ファクトリへ置き換えた際の振る舞い不変性は、上記の各材料テスト・
+# test_all_cataloged_extractors_run_without_error_on_minimal_and_missing_contextが
+# 既に間接的に担保している。ここではファクトリ自体を材料から独立して検証する。
+
+
+def test_raw_way_tag_extractor_normalizes_and_handles_missing():
+    from app.domain.material_catalog import raw_way_tag_extractor
+
+    extractor = raw_way_tag_extractor("smoothness", normalize=True)
+    assert extractor(_ctx(way_tags={"smoothness": " Good "})) == "good"
+    assert extractor(_ctx(way_tags={})) is None
+    assert extractor(_ctx(way_tags=None)) is None
+
+    raw_extractor = raw_way_tag_extractor("smoothness")
+    assert raw_extractor(_ctx(way_tags={"smoothness": " Good "})) == " Good "
+
+
+def test_tag_equals_extractor_matches_and_negates():
+    from app.domain.material_catalog import tag_equals_extractor
+
+    bridge = tag_equals_extractor("bridge", "yes")
+    assert bridge(_ctx(way_tags={"bridge": "yes"})) is True
+    assert bridge(_ctx(way_tags={})) is False
+    assert bridge(_ctx(way_tags=None)) is None
+
+    no_lit = tag_equals_extractor("lit", "yes", negate=True)
+    assert no_lit(_ctx(way_tags={"lit": "yes"})) is False
+    assert no_lit(_ctx(way_tags={})) is True
+    assert no_lit(_ctx(way_tags=None)) is None
+
+
+def test_way_tag_parser_extractor_delegates_to_parser_and_handles_missing_way_tags():
+    from app.domain.material_catalog import way_tag_parser_extractor
+    from app.domain.recipe import parse_maxspeed
+
+    extractor = way_tag_parser_extractor(parse_maxspeed)
+    assert extractor(_ctx(way_tags={"maxspeed": "40"})) == 40
+    assert extractor(_ctx(way_tags={})) is None
+    assert extractor(_ctx(way_tags=None)) is None
+
+
+def test_count_per_km_extractor_selects_correct_counts_dict():
+    from app.domain.material_catalog import count_per_km_extractor
+
+    extractor = count_per_km_extractor(lambda ctx: ctx.stop_counts)
+    assert extractor(_ctx(stop_counts={"e1": 4}, edge=_edge())) == 40.0  # 4件/0.1km
+    assert extractor(_ctx()) is None
+
+
+def test_tracktype_material_is_extractable_without_a_dedicated_function():
+    """改善計画T339完了条件の実証: tracktypeはmaterial_catalog.pyに専用のPython関数
+    （`def _extract_tracktype`のようなもの）を持たず、汎用ファクトリ
+    （raw_way_tag_extractor）への宣言だけでMATERIAL_CATALOGへ登録・抽出可能になっている。
+    """
+    tracktype = MATERIAL_CATALOG["tracktype"]
+    assert tracktype.extractor(_ctx(way_tags={"tracktype": "Grade2"})) == "grade2"
+    assert tracktype.extractor(_ctx(way_tags={})) is None
+    assert tracktype.extractor(_ctx(way_tags=None)) is None

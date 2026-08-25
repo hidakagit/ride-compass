@@ -1,5 +1,4 @@
 from app.domain.recipe import (
-    cycleway_class,
     cycleway_values,
     parse_lanes,
     parse_maxspeed,
@@ -50,24 +49,6 @@ class TestCyclewayValues:
 
     def test_no_keys_is_empty(self):
         assert cycleway_values({}) == []
-
-
-class TestCyclewayClass:
-    def test_track_takes_priority(self):
-        assert cycleway_class({"cycleway": "lane", "cycleway:left": "track"}) == "track"
-
-    def test_lane(self):
-        assert cycleway_class({"cycleway": "lane"}) == "lane"
-
-    def test_shared_lane_or_share_busway_is_shared(self):
-        assert cycleway_class({"cycleway": "shared_lane"}) == "shared"
-        assert cycleway_class({"cycleway": "share_busway"}) == "shared"
-
-    def test_unrelated_value_is_none(self):
-        assert cycleway_class({"cycleway": "no"}) is None
-
-    def test_no_tags_is_none(self):
-        assert cycleway_class({}) is None
 
 
 class TestTagValueIs:

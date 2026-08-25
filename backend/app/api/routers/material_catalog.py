@@ -7,12 +7,29 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 `tile_property`/`tile_property_inverted`（地図レイヤーのramp自動生成が内部で使う想定、
 T278）は公開レスポンスに含めない——フロントの軸コンポーザーが必要とするのは
 `material_id`/`label`/`dtype`のみのため。
+
+改善計画T338: `MaterialSpec.display_only=True`の材料（現状designationのみ）は
+このレスポンスから除外する（`axis_studio_materials()`）。地図表示専用の材料で、
+軸スタジオで評価軸材料として選ぶと構造的なAND条件（"both"）を素朴なCategoricalShapeが
+正しく表現できず誤解を招くため。地図表示（`tile_property`経由）には影響しない。
+
+改善計画T340: `GET /api/material-catalog/{material_id}/values`（同じく認可不要・
+読み取り専用）を追加した。highway/surface/smoothnessはOSMタグの生値でオープンエンドな
+ため、`AxisComposer.tsx`の値入力欄が「タグ生値を暗記して手入力する」というUX課題を
+抱えていた（2026-08-26ユーザー報告）。DBに実際に取り込まれている値を動的取得し、
+既知の値は軸コンポーザー側（`lib/materialValueLabels.ts`）が日本語ラベルへ変換、
+未知の値はタグ値そのまま表示するフォールバックとする。ラベル付与自体はUI語彙のため
+backend側では行わない（「UI語彙のカタログ集約」原則、frontend側の単一カタログに
+まとめる）。DB未接続構成（`road_graph_use_repository=False`）では空リストを返し、
+呼び出し側（フロント）が自由テキスト入力へフォールバックする。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.domain.material_catalog import MaterialDType, all_materials
+from app.api.dependencies import get_region_service
+from app.domain.material_catalog import MaterialDType, axis_studio_materials, is_known_material
+from app.services.region_service import RegionService
 
 router = APIRouter()
 
@@ -27,11 +44,32 @@ class MaterialCatalogResponse(BaseModel):
     materials: list[MaterialCatalogEntry]
 
 
+class MaterialValuesResponse(BaseModel):
+    values: list[str]
+
+
 @router.get("/api/material-catalog", response_model=MaterialCatalogResponse)
 async def get_material_catalog() -> MaterialCatalogResponse:
     return MaterialCatalogResponse(
         materials=[
             MaterialCatalogEntry(material_id=m.material_id, label=m.label, dtype=m.dtype)
-            for m in all_materials()
+            for m in axis_studio_materials()
         ]
     )
+
+
+@router.get("/api/material-catalog/{material_id}/values", response_model=MaterialValuesResponse)
+async def get_material_values(
+    material_id: str,
+    region_service: RegionService = Depends(get_region_service),
+) -> MaterialValuesResponse:
+    """改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
+    未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
+    材料（`bicycle_infra`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
+    いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
+    方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
+    """
+    if not is_known_material(material_id):
+        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
+    values = await region_service.get_material_values(material_id)
+    return MaterialValuesResponse(values=values)

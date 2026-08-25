@@ -131,7 +131,15 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v13: 改善計画T289。一方通行（一次属性、osm_raw_ways.directionの解決済み値から算出）を
 # 追加した世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
 # プロパティ追加のみ（削除なし）で、v10〜v12と同じくデプロイ順序制約なし。
-ROAD_SURFACE_TILE_VERSION = "13"
+# v14: 改善計画T337。cycleway_classプロパティを削除した世代（infrastructure/
+# road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。改善計画T336で車ストレスの
+# cycleway補正がbicycle_infra/正規化フラグ材料ベースへ再設計されて以降このプロパティは
+# 評価軸・地図表示のどちらからも一切参照されておらず（frontend/src/components/Map/
+# axisLayers.ts・staticAttributeLayers.tsに参照なし）、削除しても参照側への影響が無いため
+# v9のような非互換変更ではない（デプロイ順序制約なし。旧世代の焼き込み済みキャッシュは
+# 未使用の余分なキーを持ったまま残るだけで実害はなく、世代更新自体はキャッシュ陳腐化を
+# 明示するために行う）。
+ROAD_SURFACE_TILE_VERSION = "14"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
@@ -330,3 +338,26 @@ class RegionService:
             fields["way_counts_available"] = way_counts is not None
             highway, tags, is_designated = way_tags_result
             return axis_inspector_breakdown(highway, tags, is_designated, way_counts, accident_years_covered, RoutePreference())
+
+    async def get_material_values(self, material_id: str) -> list[str]:
+        """改善計画T340: 軸スタジオ（AxisComposer.tsx）の値入力UX改善。指定した材料id
+        （highway/surface/smoothness、`infrastructure/road_graph_repository.py:
+        _MATERIAL_VALUE_COLUMN_EXPR`参照）についてDBへ実際に取り込まれている値の一覧を
+        返す。`repository`未注入・DB例外はいずれも空リストへ倒す（get_axis_inspectorと
+        同じグレースフルデグレード方針。空リストは呼び出し元routerが「未知の材料id」と
+        区別できるよう、材料idの妥当性自体はrouter側`is_known_material`が事前に検証する
+        前提）。
+        """
+        if self._repository is None:
+            return []
+        with log_external_call("region:material-values", material_id=material_id) as fields:
+            try:
+                values = await self._repository.get_distinct_material_values(material_id)
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(空リスト)へ倒す（他メソッドと同じ方針）
+                fields["result"] = "error"
+                fields["warned"] = True
+                fields["error_type"] = error_type_label(exc)
+                logger.warning("材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r", material_id, exc)
+                return []
+            fields["value_count"] = len(values)
+            return values

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
+import { useMaterialValues } from "@/hooks/useMaterialValues";
+import { materialValueLabel } from "@/lib/materialValueLabels";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
@@ -97,8 +99,10 @@ interface FlagDraft {
 
 /** 改善計画T322: categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
  * 「はい/いいえ、または種類ごとに点数を決める」で使うための(値, スコア)行。値は自由入力
- * （既知の値一覧を返すAPIを持たないため）で、mapping未登録の値は評価対象外(欠損)として
- * 扱われる。 */
+ * テキストで持つ（mapping未登録の値は評価対象外[欠損]として扱われる）。改善計画T340:
+ * highway/surface/smoothnessのようにGET /api/material-catalog/{material_id}/valuesが
+ * 実データの値一覧を返せる材料では、入力欄の隣に候補選択セレクトを添えてタグ生値の
+ * 暗記・手入力の負担を減らす（値の保存先はこのvalueフィールドのまま変わらない）。 */
 interface CategoricalRowDraft {
   value: string;
   score: number;
@@ -301,6 +305,14 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions);
     return emptyDraft(materialOptions);
   });
+  // 改善計画T340: categorical材料の値入力欄に候補選択を添えるための実データ値一覧。
+  // dtype="categorical"の材料を選んでいる間だけ取得する（boolean材料選択中・
+  // categorical材料でも動的値一覧に対応していない場合[bicycle_infra等]は空配列が返り、
+  // 呼び出し先の入力欄は自由テキストのままになる）。
+  const selectedCategoricalDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+  const categoricalMaterialValues = useMaterialValues(
+    selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
+  );
   const [stepIndex, setStepIndex] = useState(0);
   const step = STEPS[stepIndex];
   const [saving, setSaving] = useState(false);
@@ -624,8 +636,9 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
 
         {draft.shapeKind === "categorical" && (() => {
           // 改善計画T322: 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
-          // categorical→値ごとのスコア行）。
-          const selectedDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+          // categorical→値ごとのスコア行）。selectedDtypeはコンポーネント冒頭の
+          // selectedCategoricalDtype（useMaterialValuesの入力にも使う、改善計画T340）と同じ計算。
+          const selectedDtype = selectedCategoricalDtype;
           return (
             <div className={styles.shapeGroup}>
               <label className={styles.field}>
@@ -657,11 +670,32 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
               {selectedDtype === "categorical" ? (
                 <>
                   <p className={styles.hint}>
-                    値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。
+                    {categoricalMaterialValues.length > 0
+                      ? "値は下の候補（実データに含まれる値）から選ぶか、直接入力できます。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"
+                      : "値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"}
                   </p>
                   <p className={styles.groupLabel}>値ごとのスコア</p>
                   {draft.categoricalRows.map((row, i) => (
                     <div key={i} className={styles.termRow}>
+                      {categoricalMaterialValues.length > 0 && (
+                        <select
+                          aria-label="値の候補"
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) updateCategoricalRow(i, { value: e.target.value });
+                          }}
+                        >
+                          <option value="">候補から選ぶ...</option>
+                          {categoricalMaterialValues.map((v) => {
+                            const label = materialValueLabel(draft.categoricalMaterial, v);
+                            return (
+                              <option key={v} value={v}>
+                                {label === v ? v : `${label} (${v})`}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
                       <input
                         type="text"
                         value={row.value}

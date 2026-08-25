@@ -1,6 +1,6 @@
 """タグ由来の材料タグを正規化する純関数群（改善計画T122）。
 
-タグの値パース（`parse_lanes`/`parse_maxspeed`）・cycleway系タグの分類（`cycleway_class`）・
+タグの値パース（`parse_lanes`/`parse_maxspeed`）・cycleway系タグの集約（`cycleway_values`）・
 タグ値の真偽判定（`tag_value_is`）を「材料タグの正規化」としてここを正準1箇所にしている。
 複数のevaluationパイプライン（domain/evaluation.py・domain/traffic.py・
 services/openrouteservice_engine.py）が同じ関数を参照する。
@@ -46,21 +46,6 @@ def cycleway_values(tags: dict[str, str]) -> list[str]:
     （left/right統合の正規化）。"""
     keys = ("cycleway", "cycleway:left", "cycleway:right", "cycleway:both")
     return [tags[k].strip().lower() for k in keys if tags.get(k)]
-
-
-def cycleway_class(tags: dict[str, str]) -> str | None:
-    """cycleway系タグの3分類（'track'|'lane'|'shared'|None）。road_graph_repository.py:
-    _ROAD_SURFACE_TILE_MVT_SQLが焼き込む`cycleway_class`タイルプロパティと同じ判定基準
-    （正準はこちら、SQL側はCASE式で1:1対応させ、test_road_graph_repository.pyの整合性
-    テストで担保）。"""
-    values = cycleway_values(tags)
-    if "track" in values:
-        return "track"
-    if "lane" in values:
-        return "lane"
-    if any(v in ("shared_lane", "share_busway") for v in values):
-        return "shared"
-    return None
 
 
 def tag_value_is(tags: dict[str, str], key: str, expected: str) -> bool:

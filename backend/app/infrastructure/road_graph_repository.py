@@ -220,8 +220,9 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
 #   判定基準（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに
 #   世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
-#   （cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
-#   流用）だけを焼き込み、最終値の計算はフロントエンド側
+#   （bicycle_infra/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
+#   流用。改善計画T337: cycleway_classプロパティは評価軸・地図表示のどちらからも参照が
+#   無くなったため削除済み）だけを焼き込み、最終値の計算はフロントエンド側
 #   （改善計画T292: frontend/src/components/Map/axisLayers.ts、汎用ramp
 #   パイプライン。専用手書きexpression`carStressExpression.ts`は廃止済み）と
 #   ルート採点（domain/axis_definitions.pyのAXIS_DEFINITIONS、car_stressを
@@ -298,12 +299,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN lower(btrim(w.tags->>'bicycle')) = 'no' THEN 'prohibited'
                             WHEN w.highway IS NOT NULL THEN 'roadway'
                         END AS bicycle_infra,
-                        -- 車ストレスの材料タグ（最終値はフロント/Pythonが計算、上のコメント参照）。
-                        CASE
-                            WHEN 'track' = ANY(cw.values) THEN 'track'
-                            WHEN 'lane' = ANY(cw.values) THEN 'lane'
-                            WHEN cw.values && ARRAY['shared_lane', 'share_busway'] THEN 'shared'
-                        END AS cycleway_class,
                         -- ST_AsMVTはnumeric型を認識せずtextへフォールバックする（実機確認で
                         -- 判明。フロントのMapLibre expressionが数値比較できなくなる）ため、
                         -- integerへキャストしてから焼き込む。0以下はPythonのparse_maxspeed/
@@ -1419,6 +1414,17 @@ class DerivedGraphRepository(_SessionRepository):
         )
 
 
+# 改善計画T340: get_distinct_material_valuesが対応する材料id→SQL式（正規化含む）。
+# 新しい材料をこの一覧へ追加する場合、_ROAD_SURFACE_TILE_MVT_SQLの対応する正規化式と
+# 揃えること（test_road_graph_repository.pyの整合性テスト参照）。値はosm_raw_waysの列名
+# ・JSONB参照のみで構成された固定リテラルで、外部入力を連結しない（SQLインジェクション対象外）。
+_MATERIAL_VALUE_COLUMN_EXPR: dict[str, str] = {
+    "highway": "highway",
+    "surface": "lower(btrim(surface))",
+    "smoothness": "lower(btrim(tags->>'smoothness'))",
+}
+
+
 class RawOsmRepository(_SessionRepository):
     """生OSM層（osm_raw_ways/osm_raw_nodes）とタイル取得マーカー（road_graph_tiles）の読み書き。"""
 
@@ -1634,6 +1640,31 @@ class RawOsmRepository(_SessionRepository):
         )
         rows = (await self._session.execute(stmt)).all()
         return {(row.x, row.y) for row in rows}
+
+    async def get_distinct_material_values(self, material_id: str) -> list[str]:
+        """改善計画T340: 軸スタジオ（AxisComposer.tsx）の値入力UX改善。highway/surface/
+        smoothnessのようなオープンエンドな多値材料は事前に全量を静的に列挙できないため、
+        実際にDBへ取り込まれている値をここで動的取得する。
+
+        正規化は`_ROAD_SURFACE_TILE_MVT_SQL`（RoadSurfaceTileQuery）と同じ式
+        （surface/smoothnessは`lower(btrim(...))`、highwayは生値のまま——OSM取込
+        プロファイル[`batch/import_pbf.py: ALLOWED_HIGHWAY_TYPES`]で既に許可リスト化
+        された正準値のため正規化不要）を使う。単純な`SELECT DISTINCT`で足りる
+        （複雑な優先順位付き分類を要する`bicycle_infra`等はこの対象外、
+        material_catalog.pyのdisplay_only/dtype="categorical"のうち事前に閉じた値集合を
+        持つ材料は本APIを使う必要が無い）。未対応の`material_id`は空リストを返す
+        （呼び出し元のrouterが404を判断する）。
+        """
+        column_expr = _MATERIAL_VALUE_COLUMN_EXPR.get(material_id)
+        if column_expr is None:
+            return []
+        result = await self._session.execute(
+            text(
+                f"SELECT DISTINCT {column_expr} AS value FROM osm_raw_ways "  # noqa: S608 固定の内部辞書のみ使用、外部入力を連結しない
+                f"WHERE {column_expr} IS NOT NULL ORDER BY value"
+            )
+        )
+        return [row.value for row in result]
 
 
 class RoadSurfaceTileQuery(_SessionRepository):
@@ -2293,6 +2324,9 @@ class RoadGraphRepository:
 
     async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
         return await self.raw_osm.get_cached_tiles(zoom, tiles)
+
+    async def get_distinct_material_values(self, material_id: str) -> list[str]:
+        return await self.raw_osm.get_distinct_material_values(material_id)
 
     # --- 派生グラフ（DerivedGraphRepository） ---
 

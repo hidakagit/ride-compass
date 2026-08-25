@@ -458,6 +458,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/material-catalog/{material_id}/values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Material Values
+         * @description 改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
+         *     未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
+         *     材料（`bicycle_infra`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
+         *     いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
+         *     方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
+         */
+        get: operations["get_material_values_api_material_catalog__material_id__values_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -864,6 +888,11 @@ export interface components {
              * @default true
              */
             required: boolean;
+        };
+        /** MaterialValuesResponse */
+        MaterialValuesResponse: {
+            /** Values */
+            values: string[];
         };
         /**
          * PriorityCondition
@@ -2019,6 +2048,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaterialCatalogResponse"];
+                };
+            };
+        };
+    };
+    get_material_values_api_material_catalog__material_id__values_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                material_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialValuesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

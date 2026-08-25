@@ -1035,6 +1035,46 @@
           }
         }
       }
+    },
+    "/api/material-catalog/{material_id}/values": {
+      "get": {
+        "summary": "Get Material Values",
+        "description": "改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`bicycle_infra`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は\nいずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード\n方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。",
+        "operationId": "get_material_values_api_material_catalog__material_id__values_get",
+        "parameters": [
+          {
+            "name": "material_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Material Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialValuesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1930,6 +1970,22 @@
         ],
         "title": "MaterialTerm",
         "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。"
+      },
+      "MaterialValuesResponse": {
+        "properties": {
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "values"
+        ],
+        "title": "MaterialValuesResponse"
       },
       "PriorityCondition": {
         "properties": {

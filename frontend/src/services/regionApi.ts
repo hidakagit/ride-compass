@@ -42,7 +42,10 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v12: 改善計画T145b。二次軸rampレイヤー用の事前集計密度プロパティ
 // （accident_per_km/stop_per_km/intersection_per_km）を追加。
 // v13: 改善計画T289。一方通行（一次属性、oneway）プロパティを追加。
-const ROAD_SURFACE_TILE_VERSION = "13";
+// v14: 改善計画T337。cycleway_classプロパティを削除した（どの評価軸・地図表示からも
+// 参照されない未使用材料だったため。cycleway由来の材料はbicycle_infraのみ現存）。
+// 削除のみで参照側への影響は無いため、v9のような非互換変更ではない。
+const ROAD_SURFACE_TILE_VERSION = "14";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

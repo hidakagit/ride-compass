@@ -179,7 +179,10 @@ const HIGHWAY_DASHARRAY_SOLID = [1, 0];
 const HIGHWAY_DASHARRAY_UNKNOWN = [2, 1.5];
 
 // OSMのhighwayタグ（道路種別）の表示用グルーピング。
-const HIGHWAY_GROUPS: CategoryGroup[] = [
+// 改善計画T340: 軸スタジオ（lib/materialValueLabels.ts）が「値→ラベル」の日本語対訳を
+// このグルーピングから導出するため、export必須（UI語彙のカタログ集約——同じ語彙を
+// 2箇所に手書きしない）。
+export const HIGHWAY_GROUPS: CategoryGroup[] = [
   {
     key: "arterial",
     label: "幹線道路",

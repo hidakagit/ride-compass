@@ -39,9 +39,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import EdgeLike
-from app.domain.recipe import bicycle_infra_flags
-from app.domain.recipe import cycleway_class as _cycleway_class
-from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
+from app.domain.recipe import bicycle_infra_flags, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
 from app.domain.traffic import classify_bicycle_infrastructure
 
@@ -123,16 +121,35 @@ class MaterialSpec(BaseModel):
     # 見て分岐するため、この2表現は数値的に等価ではなく、材料ごとに固定する必要がある
     # （改善計画T280で発見、統一すると当該分岐が壊れる）。
     bool_default: Literal["false", "nan"] = "false"
+    # 改善計画T338: この材料を軸スタジオ（`GET /api/material-catalog`の公開レスポンス）
+    # から除外し、地図表示（tile_property・primary_attribute_id経由の凡例等）専用に
+    # 限定する場合True。「登録されているが評価軸から未参照」な材料は他にも複数ある
+    # （bridge/oneway/smoothness等）が、これらは単に軸がまだ無いだけで正規化フラグ・
+    # 線形結合による評価軸化に技術的な障害は無い。designationはそれらと異なり、
+    # 3値中"both"が実データで35.01%という高頻度で発生する構造的AND条件
+    # （decisions/material-normalization-for-axis-composition.md参照）を持ち、
+    # CategoricalShapeで素朴に値ごとスコアを付けても「AND条件」という実態を正しく
+    # 表現できない（線形結合による近似も不向きと検証済み）。ユーザーが軸スタジオで
+    # 誤って使い、意図と異なる評価軸を作ってしまうことを防ぐため、選択肢自体から
+    # 除外する（評価目的で指定路線を使いたい場合は既に単純化済みの`is_designated`
+    # [真偽値]を使う）。地図表示（`car_stress`の`display_override.tile_inputs`・
+    # `staticAttributeLayers.ts`の凡例）は本フラグと無関係にtile_property経由で
+    # 引き続き動作する。
+    display_only: bool = False
 
 
 # --- 改善計画T280: 抽出関数（compute_edge_costs_bulkの旧手書き抽出ループを1材料1関数へ
 # 分解したもの。ロジック自体は移動のみで再実装していない——既存の判定プリミティブ
 # [tag_value_is/parse_maxspeed/parse_lanes/classify_bicycle_infrastructure/
-# classify_osm_surface/cycleway_class]をそのまま呼ぶ）。way_tags依存の材料は
+# classify_osm_surface]をそのまま呼ぶ）。way_tags依存の材料は
 # way_tags自体が無いEdge（この場合car_stress軸グループ全体を評価しない、旧実装からの
 # 既存挙動）でNoneを返し、bool系はbool_defaultの規約でFalseへ、それ以外はNaN/Noneへ
 # 落ちる。新しい材料を1件増やすときは、この関数を1つ書いてMATERIAL_CATALOGへ
-# extractorとして登録するだけでよく、compute_edge_costs_bulk自体の変更は不要。
+# extractorとして登録するだけでよく、compute_edge_costs_bulk自体の変更は不要
+# （改善計画T339: 汎用パターンに収まる材料はここに専用関数を書く必要すら無く、下記
+# raw_way_tag_extractor等の汎用ファクトリへMATERIAL_CATALOG側で直接パラメータを渡すだけで
+# よい。gradient_percent/surface_good/surface/accident_count_per_km_year/is_designated/
+# highway/bicycle_infraのように、材料固有の計算経路を持つものだけが専用関数のまま残る）。
 def _extract_gradient_percent(ctx: MaterialExtractionContext) -> float | None:
     attribute = ctx.elevation_attributes.get(ctx.edge_id)
     return attribute.average_grade if attribute is not None else None
@@ -152,12 +169,67 @@ def _per_km(count: int | None, distance_km: float) -> float | None:
     return count / distance_km
 
 
-def _extract_stop_count_per_km(ctx: MaterialExtractionContext) -> float | None:
-    return _per_km(ctx.stop_counts.get(ctx.edge_id), ctx.distance_km)
+# --- 改善計画T339: 汎用extractorファクトリ。material_catalog.pyのextractorのうち大半が
+# 「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という
+# 少数の汎用パターンに分類できる（T339背景参照）ことを踏まえ、材料ごとに専用のPython関数を
+# 書く代わりに、ここで定義した汎用ファクトリへパラメータを渡して`MaterialExtractor`を
+# 組み立てる。新しい材料がこれらのパターンに収まる限り、MATERIAL_CATALOGへの1エントリ
+# 追加（`extractor=xxx_extractor(...)`という宣言）だけで抽出可能になり、専用関数を書く
+# 必要が無い（tracktype材料が実例、下記参照）。優先順位付き分類（bicycle_infra）のような
+# 複雑な組み合わせロジックは引き続き専用関数のままでよい（この汎用化の対象外）。
+def raw_way_tag_extractor(tag: str, *, normalize: bool = False) -> MaterialExtractor:
+    """「単一タグの生値取得」パターン（smoothness/tracktype等）。normalize=Trueで
+    lower/btrim相当の正規化（surface/smoothnessタグと同じ流儀）。"""
+
+    def _extract(ctx: MaterialExtractionContext) -> str | None:
+        if ctx.way_tags is None:
+            return None
+        raw = ctx.way_tags.get(tag)
+        if raw is None:
+            return None
+        return raw.strip().lower() if normalize else raw
+
+    return _extract
 
 
-def _extract_intersection_count_per_km(ctx: MaterialExtractionContext) -> float | None:
-    return _per_km(ctx.intersection_counts.get(ctx.edge_id), ctx.distance_km)
+def tag_equals_extractor(tag: str, expected: str, *, negate: bool = False) -> MaterialExtractor:
+    """「タグ値の単純一致判定」パターン（motor_vehicle_no/has_tunnel/bridge等）。
+    `domain/recipe.py: tag_value_is`をMaterialExtractionContext向けに包む。
+    negate=Trueで判定を反転する（no_litのような「タグ不在・不一致を陽性とみなす」材料）。"""
+
+    def _extract(ctx: MaterialExtractionContext) -> bool | None:
+        if ctx.way_tags is None:
+            return None
+        matched = tag_value_is(ctx.way_tags, tag, expected)
+        return (not matched) if negate else matched
+
+    return _extract
+
+
+def way_tag_parser_extractor(parser: Callable[[dict[str, str]], int | None]) -> MaterialExtractor:
+    """「数値パース」パターン（maxspeed_kmh/lanes_count等）。parserは
+    `domain/recipe.py: parse_maxspeed`/`parse_lanes`のようなway_tags dict→パース済み値の
+    既存正規化関数をそのまま渡す。"""
+
+    def _extract(ctx: MaterialExtractionContext) -> int | None:
+        if ctx.way_tags is None:
+            return None
+        return parser(ctx.way_tags)
+
+    return _extract
+
+
+def count_per_km_extractor(
+    counts_selector: Callable[[MaterialExtractionContext], dict[str, int]],
+) -> MaterialExtractor:
+    """「件数/距離の密度計算」パターン（stop_count_per_km/intersection_count_per_km等）。
+    counts_selectorはctxから該当する件数辞書（stop_counts/intersection_counts等）を
+    選び出す関数。"""
+
+    def _extract(ctx: MaterialExtractionContext) -> float | None:
+        return _per_km(counts_selector(ctx).get(ctx.edge_id), ctx.distance_km)
+
+    return _extract
 
 
 def _extract_accident_count_per_km_year(ctx: MaterialExtractionContext) -> float | None:
@@ -181,12 +253,6 @@ def _extract_bicycle_infra(ctx: MaterialExtractionContext) -> str | None:
     if ctx.way_tags is None:
         return None
     return classify_bicycle_infrastructure(ctx.way_tags, ctx.edge.highway)
-
-
-def _extract_cycleway_class(ctx: MaterialExtractionContext) -> str | None:
-    if ctx.way_tags is None:
-        return None
-    return _cycleway_class(ctx.way_tags)
 
 
 # 改善計画T336: bicycle_infra材料（優先順位付き分類）を評価軸から切り離すための正規化
@@ -223,49 +289,6 @@ def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
     if ctx.way_tags is None:
         return None
     return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_shared"]
-
-
-def _extract_maxspeed_kmh(ctx: MaterialExtractionContext) -> int | None:
-    if ctx.way_tags is None:
-        return None
-    return parse_maxspeed(ctx.way_tags)
-
-
-def _extract_lanes_count(ctx: MaterialExtractionContext) -> int | None:
-    if ctx.way_tags is None:
-        return None
-    return parse_lanes(ctx.way_tags)
-
-
-def _extract_motor_vehicle_no(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return tag_value_is(ctx.way_tags, "motor_vehicle", "no")
-
-
-def _extract_no_lit(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return not tag_value_is(ctx.way_tags, "lit", "yes")
-
-
-def _extract_has_tunnel(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return tag_value_is(ctx.way_tags, "tunnel", "yes")
-
-
-def _extract_bridge(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return tag_value_is(ctx.way_tags, "bridge", "yes")
-
-
-def _extract_smoothness(ctx: MaterialExtractionContext) -> str | None:
-    if ctx.way_tags is None:
-        return None
-    raw = ctx.way_tags.get("smoothness")
-    return raw.strip().lower() if raw else None
 
 
 # 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと
@@ -308,7 +331,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
-        extractor=_extract_stop_count_per_km,
+        extractor=count_per_km_extractor(lambda ctx: ctx.stop_counts),
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
@@ -316,7 +339,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
-        extractor=_extract_intersection_count_per_km,
+        extractor=count_per_km_extractor(lambda ctx: ctx.intersection_counts),
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
@@ -341,7 +364,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="lit",
         tile_property_inverted=True,
         primary_attribute_id="lit",
-        extractor=_extract_no_lit,
+        extractor=tag_equals_extractor("lit", "yes", negate=True),
     ),
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",
@@ -349,7 +372,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="tunnel",
         primary_attribute_id="tunnel",
-        extractor=_extract_has_tunnel,
+        extractor=tag_equals_extractor("tunnel", "yes"),
     ),
     # --- 改善計画T290: MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
     "bridge": MaterialSpec(
@@ -360,7 +383,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bridge",
         # bridgeに対応する一次属性は未登録（表示専用のtunnel/onewayと異なり一次属性
         # レジストリに追加されていない）。
-        extractor=_extract_bridge,
+        extractor=tag_equals_extractor("bridge", "yes"),
     ),
     "motor_vehicle_no": MaterialSpec(
         material_id="motor_vehicle_no",
@@ -371,7 +394,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 独立して材料登録していなかった）。
         tile_property="motor_vehicle_no",
         primary_attribute_id="motor_vehicle_access",
-        extractor=_extract_motor_vehicle_no,
+        extractor=tag_equals_extractor("motor_vehicle", "no"),
     ),
     "oneway": MaterialSpec(
         material_id="oneway",
@@ -392,7 +415,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="maxspeed_kmh",
         primary_attribute_id="maxspeed",
-        extractor=_extract_maxspeed_kmh,
+        extractor=way_tag_parser_extractor(parse_maxspeed),
     ),
     "lanes_count": MaterialSpec(
         material_id="lanes_count",
@@ -400,7 +423,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="lanes_count",
         primary_attribute_id="lanes",
-        extractor=_extract_lanes_count,
+        extractor=way_tag_parser_extractor(parse_lanes),
     ),
     "highway": MaterialSpec(
         material_id="highway",
@@ -438,9 +461,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     ),
     # 改善計画T336: bicycle_infraを評価軸から切り離すための正規化フラグ材料群
     # （_extract_highway_is_cycleway等のdocstring参照）。地図表示用のtile_propertyは
-    # 持たない（bicycle_infra/cycleway_classのタイルプロパティをそのまま流用でき、
-    # 専用カラムを新設する理由が無い。wind_penalty/is_designatedと同じ評価パイプライン
-    # 専用材料）。
+    # 持たない（bicycle_infraのタイルプロパティをそのまま流用でき、専用カラムを
+    # 新設する理由が無い。wind_penalty/is_designatedと同じ評価パイプライン専用材料）。
     "highway_is_cycleway": MaterialSpec(
         material_id="highway_is_cycleway",
         label="道路種別が自転車道",
@@ -473,16 +495,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="cycleway",
         extractor=_extract_cycleway_has_shared,
     ),
-    "cycleway_class": MaterialSpec(
-        material_id="cycleway_class",
-        label="自転車レーン種別",
-        dtype="categorical",
-        # 車ストレスのcycleway補正が参照する3値（track/lane/shared）。bicycle_infraより
-        # 粗い分類（bicycle_infraのseparated/lane/shared_buswayに相当する部分集合）。
-        tile_property="cycleway_class",
-        primary_attribute_id="cycleway",
-        extractor=_extract_cycleway_class,
-    ),
     "designation": MaterialSpec(
         material_id="designation",
         label="指定路線",
@@ -493,6 +505,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 配線されていない。is_designatedのコメントにある既存DEFERとまとめて扱う）。
         tile_property="designation",
         primary_attribute_id="designation",
+        # 改善計画T338: display_onlyのdocstring参照（"both"のAND条件が実データで35.01%と
+        # 構造的に頻発するため、軸スタジオでの評価軸材料としての選択肢からは除外する）。
+        display_only=True,
     ),
     "is_designated": MaterialSpec(
         material_id="is_designated",
@@ -519,13 +534,30 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 対し、smoothnessは実際の走行感（同じasphaltでも荒れ具合が違う等）。
         tile_property="smoothness",
         # smoothnessに対応する一次属性は未登録（bridgeと同じくレジストリ未追加）。
-        extractor=_extract_smoothness,
+        extractor=raw_way_tag_extractor("smoothness", normalize=True),
+    ),
+    # 改善計画T339完了条件の実証: 専用のPython関数を書かず、汎用ファクトリ
+    # （raw_way_tag_extractor）への宣言追加だけで抽出可能にした新規材料。tracktypeは
+    # OSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）で、smoothnessと同じ
+    # 「単一タグの生値取得（正規化: lower/btrim）」パターンにそのまま収まる。
+    # MVTタイルへは未焼き込み（新規追加のため、他の材料と異なりT290の「既存焼き込み済み
+    # データの網羅登録」ではない。地図表示で必要になれば別途タイルへ追加する）。
+    "tracktype": MaterialSpec(
+        material_id="tracktype",
+        label="未舗装路グレード(tracktype)",
+        dtype="categorical",
+        tile_property=None,
+        extractor=raw_way_tag_extractor("tracktype", normalize=True),
     ),
 }
 
 
-def all_materials() -> list[MaterialSpec]:
-    return list(MATERIAL_CATALOG.values())
+def axis_studio_materials() -> list[MaterialSpec]:
+    """改善計画T338: 軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）
+    向けに`display_only`材料を除外した一覧。`display_only`は選択肢からの除外のみを
+    意味し、材料idとしての正当性（`is_known_material`）には影響しない
+    （designationのdocstring参照）。"""
+    return [spec for spec in MATERIAL_CATALOG.values() if not spec.display_only]
 
 
 def is_known_material(material_id: str) -> bool:

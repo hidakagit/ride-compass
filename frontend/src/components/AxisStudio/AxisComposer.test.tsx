@@ -16,11 +16,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { AxisDefinitionResponse, AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
 
-// AxisComposerが使うuseMaterialCatalogの取得先。AxisStudio.test.tsxと同じ方針で、
-// 静的フォールバック（AXIS_MATERIAL_OPTIONS、lib/axisMaterialsCatalog.ts）で十分なため
-// 失敗させておく（実HTTPは呼ばない）。
+// AxisComposerが使うuseMaterialCatalog/useMaterialValuesの取得先。AxisStudio.test.tsxと
+// 同じ方針で、静的フォールバック（AXIS_MATERIAL_OPTIONS、lib/axisMaterialsCatalog.ts）で
+// 十分なため失敗させておく（実HTTPは呼ばない）。getMaterialValues（改善計画T340）も
+// 失敗させ、値入力欄が既定の自由テキストのままになることをこのファイルの既存テストが
+// 引き続き検証する（候補選択セレクトのテストはAxisComposer.materialValues.test.tsx参照）。
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
 function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {

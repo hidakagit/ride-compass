@@ -361,7 +361,7 @@ RideCompass/
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「デプロイの反映確認」で新規）
       api/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions
@@ -375,14 +375,14 @@ RideCompass/
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
-        recipe.py                      ✅ 改善計画T122: タグ由来の材料タグを正規化する純関数群（parse_lanes/parse_maxspeed/cycleway_values/cycleway_class/tag_value_is）。旧`RoadSuitabilityRecipe`等の専用Pythonレシピ採点構造（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order）は改善計画T292でcar_stress軸をAXIS_DEFINITIONSの内部軸階層へ再設計した際に削除済み
+        recipe.py                      ✅ 改善計画T122: タグ由来の材料タグを正規化する純関数群（parse_lanes/parse_maxspeed/cycleway_values/tag_value_is/bicycle_infra_flags[T336]）。旧`RoadSuitabilityRecipe`等の専用Pythonレシピ採点構造（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order）は改善計画T292でcar_stress軸をAXIS_DEFINITIONSの内部軸階層へ再設計した際に削除済み。cycleway_class関数は改善計画T337で削除済み（唯一の呼び出し元だった同名材料が評価軸・地図表示のどちらからも未使用だったため）
         traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/classify_bicycle_infrastructure（改善計画T150で「交通ストレス」から改称）/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239: 7軸の変換ロジックが還元される4テンプレート（evaluate_breakpoint_linear/evaluate_categorical/evaluate_flag_sum/evaluate_recipe_then_breakpoint_linear）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
-        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
+        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
         axis_display.py                  ✅ 改善計画T278: derive_ramp_inputs()。AXIS_DEFINITIONSの軸とMATERIAL_CATALOGから地図ramp表示（tile_inputs/thresholds）を自動導出する（安全に導出できるCategorical/FlagSum/単一材料BreakpointLinearのみ、詳細は「地図表示ルール（kind=ramp）の自動導出」節参照）
         difficulty.py                    ✅ AxisDifficulties（axis_idキーの軸別difficulty辞書＋composite、T221 Stage Bでdict化）, evaluate_axis_difficulties（AXIS_DEFINITIONSをループする薄い関数）, accident_difficulty/gradient_difficulty等の軸別difficulty互換ラッパ（Noneガード・負値ガードのみ担い変換はaxis_definitions.pyへ委譲）。composite_difficulty/distance_weighted_difficultyも同居（7章参照）
         night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。T221 Stage B/Cでnight_materials（lit/tunnelタグ→材料フラグ解決）へ再編、加点値はaxis_definitions.pyのnight軸定義へ移動
@@ -523,7 +523,7 @@ RideCompass/
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
         DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
-        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: 表示名・既定重み入力→4テンプレート（区分線形補間×2種・カテゴリ値・フラグ加算）選択→パラメータ調整のフォーム。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）
+        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: 表示名・既定重み入力→4テンプレート（区分線形補間×2種・カテゴリ値・フラグ加算）選択→パラメータ調整のフォーム。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）。categorical材料の値入力欄は改善計画T340でhooks/useMaterialValues.ts（GET /api/material-catalog/{material_id}/values）＋lib/materialValueLabels.tsが「値の候補」セレクトを添える（値一覧が空の材料は従来どおり自由テキスト入力のみ、詳細は「軸スタジオの値入力UX改善」節参照）
       hooks/
         useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
@@ -1260,6 +1260,60 @@ MaterialSpec`/`MATERIAL_CATALOG`が単一の情報源になった——各材料
 T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自動判定）は2026-08-24に完了した。
 詳細は次節参照。
 
+**表示専用材料の除外（改善計画T338）**: `MaterialSpec.display_only=True`の材料は
+`GET /api/material-catalog`（`axis_studio_materials()`）から除外され、軸スタジオの
+選択肢に現れない。現状該当するのは`designation`のみ——3値中"both"が実データで35.01%と
+構造的なAND条件で頻発し（`decisions/material-normalization-for-axis-composition.md`
+参照）、素朴な`CategoricalShape`の値ごとスコア付けでは実態を正しく表現できず誤解を招く
+評価軸を作りやすいため。`MATERIAL_CATALOG`への登録自体は維持し
+（`is_known_material`はTrueのまま）、`tile_property`経由の地図表示
+（`staticAttributeLayers.ts`のdesignation凡例レイヤー・`car_stress`の
+`display_override.tile_inputs`）には影響しない。「登録されているが評価軸から未参照」な
+材料は他にも複数ある（`bridge`/`oneway`/`smoothness`等）が、これらは単に対応する軸が
+まだ無いだけで評価軸化に技術的な障害は無いため`display_only`にはしていない
+（`designation`固有の理由はコード側のフィールドdocstring参照）。
+
+**材料抽出の宣言駆動化（改善計画T339）**: T280で「材料→抽出関数」の対応表自体は
+`MaterialSpec.extractor`で宣言的になったが、関数の中身は依然手書きのPythonコードだった。
+実際には大半のextractorが「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」
+「件数/距離の密度計算」という少数の汎用パターンに分類できたため、パラメータ化された
+extractorファクトリ関数（`raw_way_tag_extractor`/`tag_equals_extractor`/
+`way_tag_parser_extractor`/`count_per_km_extractor`、いずれも`material_catalog.py`）を
+新設し、`MaterialSpec`宣言の場で`extractor=tag_equals_extractor("bridge", "yes")`のように
+直接呼び出す形にした（`MaterialSpec`へ`extractor_kind`文字列フィールドを追加する案は、
+GUIから材料を追加・編集できない設計方針の下では実行時に動的解釈する相手が無く実益が
+薄いため見送った）。既存9材料のextractorをこの形へ置き換え、専用関数を9つ削除した。
+汎用パターンに収まる新しい材料は、ファクトリ呼び出し1行の宣言だけで（専用のPython関数を
+書かずに）抽出可能になる——`tracktype`（OSMの未舗装路グレードタグ）がその実証例。
+優先順位付き分類のような複雑な組み合わせロジック（`bicycle_infra`）は対象外で専用関数
+のまま。
+
+**軸スタジオの値入力UX改善（改善計画T340）**: `highway`/`surface`/`smoothness`はOSMタグの
+生値でオープンエンドなため、`AxisComposer.tsx`の「値ごとのスコア」入力欄がタグ生値の
+暗記・手入力を要求するUX課題を抱えていた（2026-08-26ユーザー報告）。新設エンドポイント
+`GET /api/material-catalog/{material_id}/values`（`api/routers/material_catalog.py`、
+認可不要）が、DBに実際に取り込まれている値の一覧（重複無し・ソート済み）を返す。DB読み取り
+は`RawOsmRepository.get_distinct_material_values`（`infrastructure/
+road_graph_repository.py`、単純な`SELECT DISTINCT`。surface/smoothnessは
+`_ROAD_SURFACE_TILE_MVT_SQL`と同じ`lower(btrim(...))`正規化、highwayは生値のまま）が
+担い、DB未接続・DB障害時のグレースフルデグレード（空リスト、`log_external_call`による
+ログ・統計）は`RegionService.get_material_values`（`get_axis_inspector`と同じ方針）が
+担う。既知だが動的値一覧に対応していない材料（`bicycle_infra`等）は空リスト、未知の
+材料idは404。
+
+日本語ラベルの付与は「UI語彙のカタログ集約」原則に従いbackend側では行わず、
+frontend側`lib/materialValueLabels.ts`が単一の情報源になる。highway/surfaceは既存の
+地図絞り込みUIカタログ（`components/Map/roadFilterAxes.ts`のHIGHWAY_GROUPS/
+SURFACE_GROUPS）から「タグ値→表示グループの日本語ラベル」を導出（export済みに変更、
+同じ語彙を2箇所に手書きしない）、smoothnessはOSM標準8値のラベルを新規定義した。未知の
+値・未登録の材料idはタグ値そのまま表示するフォールバック（`materialValueLabel`）。
+
+`AxisComposer.tsx`の値入力欄は自由テキスト入力を完全に置き換えず、`useMaterialValues`
+フック（`hooks/useMaterialValues.ts`）が取得した値一覧がある材料でのみ、隣に「値の候補」
+セレクトを添える形にした（選ぶと自由テキスト入力欄へ反映される。値一覧が空の間は候補
+セレクト自体を表示せず、従来どおりの自由テキスト入力のみ）。新しいタグ値がDBへまだ
+反映されていないケース・想定外の値を先回りして設定したいケースを塞がないための判断。
+
 **材料の網羅登録（改善計画T290）**: MVTタイル（`_ROAD_SURFACE_TILE_MVT_SQL`）には
 既存7軸が実際に使う材料以外にも生データ（`highway`・`surface`・`smoothness`・
 `bridge`・`bicycle_infra`・`cycleway_class`・`maxspeed_kmh`・`lanes_count`・
@@ -1270,6 +1324,10 @@ T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自�
 `Literal["numeric", "boolean"]`から`Literal["numeric", "boolean", "categorical"]`へ
 拡張し、多値カテゴリカルな6件（`highway`・`surface`・`bicycle_infra`・
 `cycleway_class`・`designation`・`smoothness`）は`categorical`として登録した。
+（`cycleway_class`は改善計画T337で削除済み。地図描画に使えそうという理由で網羅登録
+されたが、実際にはMVTタイルへ焼き込むだけで評価軸・地図表示のどちらからも参照されない
+まま残っていたため。「使えそうな生データを登録しておく」網羅登録方針自体は、実際に
+参照されるようになるかを継続的に見直す前提であることの実例）。
 
 **「登録」と「評価軸での利用」は独立**: 執筆当初（T290）は`CategoricalShape.mapping`が
 `dict[bool, float]`（真偽値限定）だったため、`categorical`材料は軸スタジオの選択肢には
@@ -1721,8 +1779,9 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 
 1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
    smoothness・tunnel・bridgeに加え、`bicycle_infra`・`designation`・車ストレスの
-   材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）と、
-   night軸が参照する`lit`、改善計画T145b（下記「レジストリ駆動の二次軸ランプレイヤー」参照）が
+   材料タグ（`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`。`cycleway_class`は
+   改善計画T337で削除済み）と、night軸が参照する`lit`、改善計画T145b（下記
+   「レジストリ駆動の二次軸ランプレイヤー」参照）が
    追加した`way_attribute_counts`由来のkm正規化密度3種（`accident_per_km`/`stop_per_km`/
    `intersection_per_km`、0はNULLIFでプロパティ自体を省略）をLineString地物へ追加
    （P1・T51・T145bで拡張）。世代v2=surface/highway追加、

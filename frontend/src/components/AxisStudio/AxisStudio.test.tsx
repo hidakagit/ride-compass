@@ -24,6 +24,7 @@ vi.mock("@/services/axisAdminApi", () => ({
 // 失敗させておく。
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
 import { deleteAxisDefinition, listAxisDefinitions } from "@/services/axisAdminApi";

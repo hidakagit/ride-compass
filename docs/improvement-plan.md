@@ -6931,7 +6931,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   （`AXIS_DEFINITIONS`のshape）から参照されなくなった（地図表示`TileInputSpec`からの
   参照のみ残る）。
 
-### - [ ] T337. cycleway_class材料の未使用状態を整理する 規模S〔P3〕— トリガー: 次に材料関連の整理作業を行う時点
+### - [x] T337. cycleway_class材料の未使用状態を整理する 規模S〔P3〕（2026-08-25完了）
 
 - 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
   の調査で判明: `cycleway_class`材料は`axis_definitions.py`のどの軸からも参照されて
@@ -6940,8 +6940,22 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 - 内容（着手時に判断）: (a) 削除する、(b) T336と合わせて正規化フラグ材料へ置き換えて
   実際に使えるようにする、(c) 現状のまま「登録されているが未使用」を許容する、の
   いずれか。実データではズレ0.0012%とT336同様に正規化で近似可能なことは確認済み。
+  → **(a) 削除を選択した**。T336で追加した`cycleway_has_track`/`cycleway_has_lane`/
+  `cycleway_has_shared`正規化フラグ材料が既に同じcycleway系タグをより細かい粒度で
+  カバーしており、(b)（cycleway_classを評価軸で使えるようにする）は屋上屋になる
+  だけで実利が無い。(c)（現状維持）は背景で述べた軸スタジオUXの問題をそのまま残す。
+  加えて調査の結果、地図表示側（`staticAttributeLayers.ts`・`axisLayers.ts`）でも
+  `cycleway_class`は一切参照されておらず（`bicycle_infra`のみが表示に使われている）、
+  MVTタイルへ焼き込むだけで完全に無消費だったことが判明したため、`MATERIAL_CATALOG`
+  登録だけでなく、抽出関数（`material_catalog.py`）・正準判定関数
+  （`domain/recipe.py: cycleway_class`）・タイルCASE式
+  （`infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）まで
+  全層を削除した（フロントfallback`lib/axisMaterialsCatalog.ts`も同期）。タイル
+  プロパティ削除に伴い`ROAD_SURFACE_TILE_VERSION`を13→14へ対上げ（`region_service.py`・
+  `frontend/src/services/regionApi.ts`）。プロパティ削除のみで参照側への影響が
+  無いため、デプロイ順序制約は無い（詳細はコード側コメント参照）。
 
-### - [ ] T338. designation材料（3値カテゴリ）の未使用状態を整理する 規模S〔P3〕— トリガー: 次に材料関連の整理作業を行う時点
+### - [x] T338. designation材料（3値カテゴリ）の未使用状態を整理する 規模S〔P3〕（2026-08-25完了）
 
 - 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
   の調査で判明: `designation`材料（`emergency_transport`/`critical_logistics`/`both`の
@@ -6952,8 +6966,19 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 - 内容（着手時に判断）: T337と同様、削除するか、評価目的では使わず表示専用の材料として
   明示的に位置づけ直すか（`GET /api/material-catalog`のレスポンスから表示専用フラグで
   除外する等）を判断する。
+  → **表示専用として明示的に位置づけ直す方を選択した**（T337のcycleway_class削除とは
+  異なる判断）。designationは`cycleway_class`と違い、地図表示側（`staticAttributeLayers.ts`
+  のdesignation凡例レイヤー）で実際に使われている生きたデータのため、削除は不適切。
+  `MaterialSpec`へ`display_only: bool = False`フィールドを追加し（`material_catalog.py`）、
+  designationへ`display_only=True`を設定。`GET /api/material-catalog`（新設
+  `axis_studio_materials()`）はこれを除外して返すため軸スタジオの選択肢には現れなくなるが、
+  `MATERIAL_CATALOG`自体からは削除しない（`is_known_material`はTrueのまま、
+  `tile_property`経由の地図表示・car_stress`display_override`のtile_inputsには影響しない）。
+  未使用になっていた`all_materials()`（旧`GET /api/material-catalog`の唯一の呼び出し元）は
+  `axis_studio_materials()`へ置き換えて削除した。フロントfallback
+  `lib/axisMaterialsCatalog.ts`から`designation`エントリも削除し同期。
 
-### - [ ] T339. 材料抽出（extractor）の完全宣言駆動化 規模M〜L〔P2〕— トリガー: 次に単純な新規材料を追加する要望が出た時点
+### - [x] T339. 材料抽出（extractor）の完全宣言駆動化 規模M〜L〔P2〕（2026-08-25完了）
 
 - 背景: T280で`MaterialSpec.extractor`により「材料→抽出関数」の対応表は宣言的になったが、
   関数の中身自体は依然手書きのPythonコード。実際には現行17個のextractorのうち15個が
@@ -6968,10 +6993,31 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   宣言を追加し、対応する汎用extractor実装から動的に関数を組み立てる。既存の複雑な
   2材料（bicycle_infra/cycleway_class）は引き続き専用関数のままでよい（T336・T337で
   評価軸からは切り離される想定のため、地図表示専用としてこの宣言化の対象外にできる）。
+  → **`MaterialSpec`へのフィールド追加ではなく、パラメータ化された「extractorファクトリ
+  関数」（`raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
+  `count_per_km_extractor`、`material_catalog.py`）を採用した**。`extractor_kind`文字列＋
+  frozen pydanticモデルの事後変換という案は、材料自体をGUIから追加・編集できるように
+  しない（コード変更＋デプロイのみ）という既存方針の下では`extractor_kind`をデータとして
+  持つ実益が無く（実行時に動的解釈する相手がGUIでもDBでもない）、frozenモデルの
+  事後書き換えという複雑さだけが増えるため見送った。ファクトリ関数は
+  `extractor=raw_way_tag_extractor("smoothness", normalize=True)`のように
+  `MaterialSpec`宣言の場で直接呼び出せ、「宣言的パラメータで表現する」という目的を
+  フィールド追加なしで満たす。既存extractor 9件（motor_vehicle_no/no_lit/has_tunnel/
+  bridge/maxspeed_kmh/lanes_count/smoothness/stop_count_per_km/
+  intersection_count_per_km）をこれらのファクトリへ置き換え、対応する専用関数
+  （`_extract_motor_vehicle_no`等）を削除した（振る舞いは全数テストで不変を確認）。
+  cycleway_classはT337で削除済みのため、専用関数のまま残るのは`bicycle_infra`のみ
+  （gradient_percent/surface_good/surface/accident_count_per_km_year/is_designated/
+  highwayは各々固有の計算経路を持つため対象外）。
 - 完了条件: 単純パターンに該当する新規材料1件を、専用のPython関数を書かずに
   `material_catalog.py`への宣言追加だけで抽出可能にできることを実証する。
+  → **`tracktype`材料（OSMの未舗装路グレードタグ、grade1〜grade5）で実証した**。
+  `extractor=raw_way_tag_extractor("tracktype", normalize=True)`という1行の宣言のみで
+  追加し、専用の`def _extract_tracktype`は書いていない
+  （`test_material_catalog.py: test_tracktype_material_is_extractable_without_a_
+  dedicated_function`で固定）。フロントfallback`lib/axisMaterialsCatalog.ts`にも追加。
 
-### - [ ] T340. highway/surface/smoothnessの値一覧・ラベル提示（軸スタジオの値入力UX改善） 規模M〔P2〕— トリガー: 軸スタジオでこれらの材料を使った新規軸作成の要望が出た時点
+### - [x] T340. highway/surface/smoothnessの値一覧・ラベル提示（軸スタジオの値入力UX改善） 規模M〔P2〕（2026-08-25完了）
 
 - 背景: 2026-08-26のユーザー報告「軸スタジオで、値ごとのスコアを入れるのに、物理名を
   直接入力はきつい。暗記していない」が発端。`highway`/`surface`/`smoothness`は
@@ -6984,8 +7030,37 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   では取れない材料もある）、既知の値には日本語ラベルを付与、未知の値はタグ値
   そのまま表示するフォールバックとする。`AxisComposer.tsx`の値入力欄をテキスト
   自由入力から選択式へ変更する。
+  → **実装時に判明: highway/surface/smoothnessの3材料に限れば単純な`SELECT DISTINCT`
+  （surface/smoothnessは`lower(btrim(...))`、highwayは生値のまま——OSM取込プロファイルで
+  既に許可リスト化された正準値のため正規化不要）で足り、`_ROAD_SURFACE_TILE_MVT_SQL`の
+  複雑な計算式の再利用は不要だった**（「単純なDISTINCTでは取れない材料もある」という
+  当初の想定は`bicycle_infra`のような優先順位付き分類材料を指しており、本タスクの対象
+  3材料には該当しなかった）。新設エンドポイントは
+  `GET /api/material-catalog/{material_id}/values`
+  （`api/routers/material_catalog.py`、既知だが動的値一覧に対応していない材料・
+  DB未接続・DB障害はいずれも空リスト、未知の材料idは404）。DB読み取りは
+  `RawOsmRepository.get_distinct_material_values`（`infrastructure/
+  road_graph_repository.py`）、グレースフルデグレード（DB障害→空リスト、
+  `log_external_call`によるログ・統計）は`RegionService.get_material_values`
+  （`get_axis_inspector`と同じ方針）が担う。
+  → **ラベル付与は「UI語彙のカタログ集約」原則に従い、backendではなくfrontend側
+  （`lib/materialValueLabels.ts`）で行う**。highway/surfaceは既存の地図絞り込みUI
+  カタログ（`components/Map/roadFilterAxes.ts`のHIGHWAY_GROUPS/SURFACE_GROUPS、
+  export済みに変更）から「タグ値→表示グループの日本語ラベル」をそのまま導出し
+  （同じ語彙を2箇所に手書きしない）、smoothnessはOSM標準8値のラベルを新規に定義した。
+  未知の値・未登録の材料idはタグ値そのまま表示するフォールバック
+  （`materialValueLabel`）。
+  → **`AxisComposer.tsx`の値入力欄は、自由テキスト入力を完全に置き換えるのではなく、
+  隣に「値の候補」セレクト（`useMaterialValues`フック経由で取得した値一覧、
+  materialValueLabelでラベル表示）を添える形にした**（選ぶと自由テキスト入力欄へ値が
+  反映される）。値一覧が空（動的値一覧に非対応の材料・DB未接続・取得失敗）の間は
+  候補セレクト自体を表示せず、従来どおりの自由テキスト入力のみになる（フォールバック）。
+  自由テキスト入力を完全に廃止しなかったのは、DBにまだ反映されていない新しいタグ値や
+  想定外の値を軸スタジオ側で先回りして設定したいケースを塞がないため。
 - 依存: T339（材料抽出の宣言化が先に進むなら、値一覧取得の仕組みもその枠組みに
-  乗せられる可能性がある。ただし本タスクは独立に着手可能）。
+  乗せられる可能性がある。ただし本タスクは独立に着手可能）。→ 実際には独立に着手し、
+  T339の宣言的extractorファクトリとは無関係（値一覧取得はDB直接読み取りのため
+  material_catalog.pyのextractor機構を経由しない）。
 
 ### - [ ] T341. 地図表示ロジックの定義場所をSQL側へ一本化し、分離原則をdocs/architecture.mdへ反映 規模S〜M〔P3〕— トリガー: T336・T337完了後
 

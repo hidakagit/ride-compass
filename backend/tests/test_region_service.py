@@ -34,6 +34,9 @@ class FakeRegionRepository:
         self.way_attribute_counts_result: tuple[float, float, int, int] | None = None
         self.way_attribute_counts_calls: list[int] = []
         self.accident_years_covered_result: int = 3
+        # 改善計画T340: 材料の実データ値一覧フェイク応答。
+        self.distinct_material_values_result: list[str] = []
+        self.distinct_material_values_calls: list[str] = []
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id):
         self.way_tags_by_osm_way_id_calls.append(osm_way_id)
@@ -67,6 +70,12 @@ class FakeRegionRepository:
         if not self._covered:
             return None
         return self._tile
+
+    async def get_distinct_material_values(self, material_id):
+        self.distinct_material_values_calls.append(material_id)
+        if self._error is not None:
+            raise self._error
+        return self.distinct_material_values_result
 
 
 async def test_covered_tile_is_served_from_postgis():
@@ -368,3 +377,43 @@ async def test_axis_inspector_missing_way_attribute_counts_still_returns_tag_bas
     assert by_id["car_stress"].available is True
     assert by_id["stop_density"].available is False
     assert by_id["accident"].available is False
+
+
+# --- 材料の実データ値一覧（改善計画T340） ---
+
+
+async def test_material_values_returns_repository_result():
+    repository = FakeRegionRepository()
+    repository.distinct_material_values_result = ["residential", "primary", "cycleway"]
+    service = RegionService(repository=repository)
+
+    result = await service.get_material_values("highway")
+
+    assert result == ["residential", "primary", "cycleway"]
+    assert repository.distinct_material_values_calls == ["highway"]
+
+
+async def test_material_values_no_repository_returns_empty_list():
+    service = RegionService()
+
+    assert await service.get_material_values("highway") == []
+
+
+async def test_material_values_db_error_returns_empty_list():
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    assert await service.get_material_values("highway") == []
+
+
+async def test_material_values_db_error_is_counted_in_debug_stats():
+    reset_stats()
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    await service.get_material_values("highway")
+
+    stats = get_stats()["external"]["region:material-values"]
+    assert stats["errors"] == 1
+    assert stats["error_types"] == {"RuntimeError": 1}
+    reset_stats()

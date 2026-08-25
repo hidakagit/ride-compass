@@ -21,12 +21,13 @@ export interface AxisMaterialOption {
   dtype: AxisMaterialDType;
 }
 
-// backend/app/domain/material_catalog.py: MATERIAL_CATALOGと同じ内容（改善計画T292で
-// car_stress_levelを撤去・highway等の新規材料を追加した後の状態）。動的取得が失敗した
-// 場合のみこの一覧が使われるため、backend側の変更に追従できていなくても軸スタジオの
-// 選択肢が古くなるだけで実害はないが、削除済みの材料id（car_stress_level）を含んだまま
-// だと選択→保存時にAxisDefinitionPayload._check_materials_are_knownの
-// "unknown material(s)"エラーになるため、削除済みidだけは残さない。
+// backend/app/domain/material_catalog.py: MATERIAL_CATALOGのうちdisplay_only=Falseの
+// 材料（GET /api/material-catalogの公開レスポンスと同じ集合、改善計画T338）と同じ内容。
+// 動的取得が失敗した場合のみこの一覧が使われるため、backend側の変更に追従できていなくても
+// 軸スタジオの選択肢が古くなるだけで実害はないが、削除済みの材料id（car_stress_level）や
+// display_only化された材料id（designation、改善計画T338）を含んだままだと選択→保存時に
+// AxisDefinitionPayload._check_materials_are_knownの"unknown material(s)"エラーには
+// ならないものの選択肢として不適切なままになるため、削除・除外済みidだけは残さない。
 export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
   { id: "gradient_percent", label: "勾配%（符号付き）", dtype: "numeric" },
   { id: "wind_penalty", label: "向かい風ペナルティ(m/s、正=向かい風)", dtype: "numeric" },
@@ -44,10 +45,13 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
   { id: "highway", label: "道路種別", dtype: "categorical" },
   { id: "surface", label: "路面種別", dtype: "categorical" },
   { id: "bicycle_infra", label: "自転車インフラ種別", dtype: "categorical" },
-  { id: "cycleway_class", label: "自転車レーン種別", dtype: "categorical" },
-  { id: "designation", label: "指定路線", dtype: "categorical" },
+  { id: "highway_is_cycleway", label: "道路種別が自転車道", dtype: "boolean" },
+  { id: "cycleway_has_track", label: "自転車道(track)を併設", dtype: "boolean" },
+  { id: "cycleway_has_lane", label: "自転車レーン(lane)を併設", dtype: "boolean" },
+  { id: "cycleway_has_shared", label: "バス共用等の自転車レーンを併設", dtype: "boolean" },
   { id: "is_designated", label: "指定路線該当（真偽）", dtype: "boolean" },
   { id: "smoothness", label: "路面の状態", dtype: "categorical" },
+  { id: "tracktype", label: "未舗装路グレード(tracktype)", dtype: "categorical" },
 ];
 
 export function materialLabel(materialId: string): string {
