@@ -41,10 +41,12 @@ def test_default_primary_attributes_are_registered():
 
 
 def test_default_axes_are_registered_without_conflict():
-    # 設計プロンプトが示す目標の6軸（car_stress/accident/surface_q/stop_density/gradient/night）
-    # と一致する（T137〜T149を経て到達）。
+    # 改善計画T320: _register_axes()はAXIS_DEFINITIONSの公開軸すべてを走査して登録する
+    # ため、windも含む（以前は本ファイルへの手書き登録から意図的に除外していたが、
+    # GET /api/axis-catalogという実行時APIは元々windも含めて返しており、静的生成物
+    # だけが取り残されていた不整合を解消した）。
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
-    assert axis_ids == {"gradient", "surface_q", "stop_density", "accident", "car_stress", "night"}
+    assert axis_ids == {"gradient", "wind", "surface_q", "stop_density", "accident", "car_stress", "night"}
 
 
 def test_intersection_density_is_not_a_standalone_axis():
@@ -176,6 +178,23 @@ def test_car_stress_ramp_display():
     assert motor_vehicle_input.true_value == -1000.0
 
 
+def test_register_defaults_does_not_crash_when_a_builtin_axis_is_removed(monkeypatch):
+    """改善計画T320: `_register_axes()`はAXIS_DEFINITIONSをそのまま走査するだけで、
+    特定のaxis_id（"gradient"等）を直接indexingしない。そのため、組み込み軸が軸スタジオで
+    unpublish→削除された状態でビルド（export_openapi.py）を実行しても、以前のように
+    AXIS_DEFINITIONS["gradient"]がKeyErrorでビルドごと落ちることはなく、単にその軸が
+    登録対象から自然に外れるだけであることを確認する（if文で個別に存在確認する対症療法とは
+    異なり、そもそも欠けている軸を名指しする必要が無い設計）。"""
+    registry.reset_registry_for_testing()
+    monkeypatch.delitem(AXIS_DEFINITIONS, "gradient")
+
+    register_defaults()
+
+    axis_ids = {axis.axis_id for axis in registry.all_axes()}
+    assert "gradient" not in axis_ids
+    assert axis_ids == {"wind", "surface_q", "stop_density", "accident", "car_stress", "night"}
+
+
 def test_registry_axis_ids_match_axis_definitions():
     """registry_defaults.py（表示カタログ用レジストリ）の登録軸集合と、
     domain/axis_definitions.pyのAXIS_DEFINITIONS（評価ロジックが実際に参照する軸定義、
@@ -184,18 +203,20 @@ def test_registry_axis_ids_match_axis_definitions():
     統合レビュー2026-08-19 consistency F-2の「片方だけ更新しても気づかない死角」対策は
     この形で引き続き機械化する）。
 
-    windはAXIS_DEFINITIONSに存在し、表示カタログには意図的に未登録
-    （前テストのdocstring参照）。
+    改善計画T320: `_register_axes()`がAXIS_DEFINITIONSの公開軸をそのまま走査するように
+    なったため、windも含め比較対象は「公開軸すべて」で一致する（以前はwindだけ意図的に
+    表示カタログから除外されていたが、GET /api/axis-catalogという実行時APIは元々windも
+    含めて返しており、静的生成物側だけの片手落ちだった）。
 
     改善計画T292: car_stress軸を支える内部軸6つ（is_published=False、他の公開軸から
-    参照される専用の推定軸）もAXIS_DEFINITIONSに含まれるが、表示カタログ（一般ユーザー
-    向けの軸選択・地図レイヤー用）には登録しない（内部軸は恒久的に非公開のまま運用する
-    設計）。比較対象を公開軸のみへ絞る。
+    参照される専用の推定軸）もAXIS_DEFINITIONSに含まれるが、`is_published=False`のため
+    `_register_axes()`のループ自体が最初からスキップする（表示カタログ・一般ユーザー向けの
+    軸選択・地図レイヤー用には登録しない、内部軸は恒久的に非公開のまま運用する設計）。
 
     各軸のaxis_idフィールドが辞書キーと一致することも合わせて確認する。
     """
     registry_axis_ids = {axis.axis_id for axis in registry.all_axes()}
     definition_axis_ids = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
-    assert definition_axis_ids - {"wind"} == registry_axis_ids
+    assert definition_axis_ids == registry_axis_ids
     for axis_id, definition in AXIS_DEFINITIONS.items():
         assert definition.axis_id == axis_id

@@ -131,6 +131,18 @@ export default function RouteSettingsPanel({
     ...NON_DEFAULT_PRESETS,
   ];
 
+  // 改善計画T320: NON_DEFAULT_PRESETSは既存7軸を名指しした固定コンテンツのため、
+  // 軸スタジオでその軸群がすべて非公開・削除されると、押しても実質何も変わらない
+  // （zeroFilledのままの重み配分になる）操作になってしまう。「一見選べるのに押しても
+  // 意味を持たない」状態はユーザーから見て設計不整合（何が起きたのか分からない）と
+  // 判断し、プリセットが対象とする軸が1つも現在の公開軸集合に無い場合はボタンを
+  // 無効化し、理由をtitleで示す。1つでも重なりがあれば「部分的には効く」ため有効のまま
+  // にする（applyPreset側の対処により、存在しない軸のキーはzeroFilledから自然に除かれる）。
+  const publishedAxisIds = new Set(Object.keys(catalog.defaultWeights));
+  function presetIsApplicable(preset: Preset): boolean {
+    return Object.keys(preset.weights).some((axisId) => publishedAxisIds.has(axisId));
+  }
+
   // チェックを外した軸の重みを覚えておき、再度チェックしたときに元へ戻す
   // （routePreference自体は常に0を含む「実際に送る値」のため、ここでしか保持できない）。
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({
@@ -184,16 +196,21 @@ export default function RouteSettingsPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className={styles.presets}>
-        {PRESETS.map((preset) => (
-          <button
-            key={preset.label}
-            type="button"
-            className={styles.presetButton}
-            onClick={() => applyPreset(preset)}
-          >
-            {preset.label}
-          </button>
-        ))}
+        {PRESETS.map((preset) => {
+          const applicable = presetIsApplicable(preset);
+          return (
+            <button
+              key={preset.label}
+              type="button"
+              className={styles.presetButton}
+              disabled={!applicable}
+              title={applicable ? undefined : "対象の軸が現在すべて非公開のため使用できません"}
+              onClick={() => applyPreset(preset)}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className={styles.hardFilters}>

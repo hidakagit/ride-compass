@@ -51,36 +51,17 @@ class TestRegisterPrimaryAttribute:
 class TestRegisterAxis:
     def test_registers_axis_with_known_inputs(self):
         register_primary_attribute(_attr("surface"))
-        register_axis(
-            AxisSpec(
-                axis_id="surface_q",
-                inputs=["surface"],
-                transform_fn="app.domain.road.distance_weighted_road_score",
-                description="test axis",
-            )
-        )
+        register_axis(AxisSpec(axis_id="surface_q", inputs=["surface"]))
         assert get_axis("surface_q").axis_id == "surface_q"
         assert all_axes() == [get_axis("surface_q")]
 
     def test_unknown_input_raises(self):
         with pytest.raises(ValueError, match="unregistered primary attribute"):
-            register_axis(
-                AxisSpec(
-                    axis_id="surface_q",
-                    inputs=["surface"],
-                    transform_fn="app.domain.road.distance_weighted_road_score",
-                    description="test axis",
-                )
-            )
+            register_axis(AxisSpec(axis_id="surface_q", inputs=["surface"]))
 
     def test_duplicate_axis_id_raises(self):
         register_primary_attribute(_attr("surface"))
-        spec = AxisSpec(
-            axis_id="surface_q",
-            inputs=["surface"],
-            transform_fn="app.domain.road.distance_weighted_road_score",
-            description="test axis",
-        )
+        spec = AxisSpec(axis_id="surface_q", inputs=["surface"])
         register_axis(spec)
         with pytest.raises(ValueError, match="already registered"):
             register_axis(spec)
@@ -88,21 +69,15 @@ class TestRegisterAxis:
     def test_two_axes_with_disjoint_inputs_both_register(self):
         register_primary_attribute(_attr("surface"))
         register_primary_attribute(_attr("lit"))
-        register_axis(
-            AxisSpec(axis_id="surface_q", inputs=["surface"], transform_fn="x.a", description="d")
-        )
-        register_axis(AxisSpec(axis_id="night", inputs=["lit"], transform_fn="x.b", description="d"))
+        register_axis(AxisSpec(axis_id="surface_q", inputs=["surface"]))
+        register_axis(AxisSpec(axis_id="night", inputs=["lit"]))
         assert {axis.axis_id for axis in all_axes()} == {"surface_q", "night"}
 
     def test_overlapping_non_shared_input_raises_axis_input_conflict(self):
         register_primary_attribute(_attr("highway"))
-        register_axis(
-            AxisSpec(axis_id="car_stress", inputs=["highway"], transform_fn="x.a", description="d")
-        )
+        register_axis(AxisSpec(axis_id="car_stress", inputs=["highway"]))
         with pytest.raises(AxisInputConflictError) as exc_info:
-            register_axis(
-                AxisSpec(axis_id="safety", inputs=["highway"], transform_fn="x.b", description="d")
-            )
+            register_axis(AxisSpec(axis_id="safety", inputs=["highway"]))
         assert exc_info.value.new_axis_id == "safety"
         assert exc_info.value.existing_axis_id == "car_stress"
         assert exc_info.value.overlapping_attrs == {"highway"}
@@ -112,11 +87,7 @@ class TestRegisterAxis:
     def test_shared_input_does_not_conflict(self):
         register_primary_attribute(_attr("highway"))
         register_primary_attribute(_attr("geometry", shared=True))
-        register_axis(
-            AxisSpec(
-                axis_id="car_stress", inputs=["highway", "geometry"], transform_fn="x.a", description="d"
-            )
-        )
+        register_axis(AxisSpec(axis_id="car_stress", inputs=["highway", "geometry"]))
         # 2つ目の軸も"geometry"(shared)を使うが、highwayを使わなければ衝突しない
-        register_axis(AxisSpec(axis_id="gradient", inputs=["geometry"], transform_fn="x.b", description="d"))
+        register_axis(AxisSpec(axis_id="gradient", inputs=["geometry"]))
         assert {axis.axis_id for axis in all_axes()} == {"car_stress", "gradient"}

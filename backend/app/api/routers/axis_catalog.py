@@ -28,9 +28,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisDefinition
-from app.domain.axis_display import axis_display_for
-from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory
+from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
 from app.domain.registry import AxisDisplaySpec
 
 router = APIRouter()
@@ -67,40 +66,12 @@ class AxisCatalogResponse(BaseModel):
     axes: list[AxisCatalogEntry]
 
 
-def _primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
-    """軸が参照する材料を一次属性idへ解決する。`AxisDefinition.materials`は材料idだけで
-    なく他の軸id（改善計画T292の階層構造、例: car_stressの内部軸6つ）も返しうるため、
-    材料id側で見つからないエントリはAXIS_DEFINITIONSの軸として再帰的に解決する
-    （内部軸自体も内部軸を参照しうる想定はないが、循環参照は軸スタジオ側で拒否済み
-    [test_create_rejects_direct_cycle_between_two_axes]のため`visited`で安全側に保護する）。
-    """
-    seen: dict[str, None] = {}
-    visited: set[str] = set()
-
-    def resolve(current: AxisDefinition) -> None:
-        if current.axis_id in visited:
-            return
-        visited.add(current.axis_id)
-        for material_id in current.materials:
-            spec = MATERIAL_CATALOG.get(material_id)
-            if spec is not None:
-                if spec.primary_attribute_id is not None:
-                    seen.setdefault(spec.primary_attribute_id, None)
-                continue
-            referenced_axis = AXIS_DEFINITIONS.get(material_id)
-            if referenced_axis is not None:
-                resolve(referenced_axis)
-
-    resolve(definition)
-    return list(seen)
-
-
 @router.get("/api/axis-catalog", response_model=AxisCatalogResponse)
 async def get_axis_catalog() -> AxisCatalogResponse:
     # AXIS_DEFINITIONSは常に最新（起動時＋管理API書き込み直後にin-place更新済み、
     # services/axis_registry_service.py参照）のため、DBへは触れずプロセス内の値を
     # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()・
-    # _primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
+    # primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
     # リクエスト毎に呼んでもコストは無視できる。
     return AxisCatalogResponse(
         axes=[
@@ -115,7 +86,7 @@ async def get_axis_catalog() -> AxisCatalogResponse:
                 chip_label=definition.chip_label,
                 panel_hint=definition.panel_hint,
                 proxy_hint=definition.proxy_hint,
-                primary_attribute_ids=_primary_attribute_ids_for(definition),
+                primary_attribute_ids=primary_attribute_ids_for(definition),
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

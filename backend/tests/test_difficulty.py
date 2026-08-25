@@ -1,110 +1,127 @@
+from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.difficulty import (
-    accident_difficulty,
     composite_difficulty,
     distance_weighted_difficulty,
     evaluate_axis_difficulties,
-    gradient_difficulty,
-    road_difficulty,
-    stop_difficulty,
-    wind_difficulty,
 )
-from app.domain.night import night_difficulty
+
+# 改善計画T320: 以前はgradient_difficulty/wind_difficulty/road_difficulty/stop_difficulty/
+# accident_difficulty（domain/difficulty.py）・night_difficulty（domain/night.py）という
+# 軸ごとのスカラー版互換ラッパ経由でテストしていたが、これらは実行時経路のどこからも
+# 呼ばれておらずテストのみの消費者だったため削除した（両エンジンとも
+# evaluate_axis_difficulties/compute_edge_axis_scoresが材料辞書を直接渡す経路を使う）。
+# 削除された関数が担っていた「軸定義（breakpoints等）どおりに変換される」という検証自体は
+# 引き続き価値があるため、実際に使われている評価関数evaluate_axis_scalarを軸定義付きで
+# 直接呼ぶ形へ書き換えた。
 
 
-def test_gradient_difficulty_easy_flat_road():
-    assert gradient_difficulty(0.0) == 0.0
+def test_gradient_axis_easy_flat_road():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 0.0}) == 0.0
 
 
-def test_gradient_difficulty_moderate_climb():
-    assert gradient_difficulty(3.0) == 25.0
+def test_gradient_axis_moderate_climb():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 3.0}) == 25.0
 
 
-def test_gradient_difficulty_hard_climb():
-    assert gradient_difficulty(9.0) == 75.0
+def test_gradient_axis_hard_climb():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 9.0}) == 75.0
 
 
-def test_gradient_difficulty_caps_at_100_for_steep_climbs():
-    assert gradient_difficulty(20.0) == 100.0
+def test_gradient_axis_caps_at_100_for_steep_climbs():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 20.0}) == 100.0
 
 
-def test_gradient_difficulty_treats_descent_same_as_climb():
-    # abs()で評価するため、下りも同じ勾配なら同じ難易度になる
-    assert gradient_difficulty(-6.0) == gradient_difficulty(6.0)
+def test_gradient_axis_treats_descent_same_as_climb():
+    # preprocess="abs"で評価するため、下りも同じ勾配なら同じ難易度になる
+    definition = AXIS_DEFINITIONS["gradient"]
+    assert evaluate_axis_scalar(definition, {"gradient_percent": -6.0}) == evaluate_axis_scalar(
+        definition, {"gradient_percent": 6.0}
+    )
 
 
-def test_gradient_difficulty_none_passthrough():
-    assert gradient_difficulty(None) is None
+def test_gradient_axis_missing_material_is_none():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {}) is None
 
 
-def test_wind_difficulty_tailwind_is_zero():
-    assert wind_difficulty(-3.0) == 0.0
+def test_wind_axis_tailwind_is_zero():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": -3.0}) == 0.0
 
 
-def test_wind_difficulty_no_wind_is_zero():
-    assert wind_difficulty(0.0) == 0.0
+def test_wind_axis_no_wind_is_zero():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": 0.0}) == 0.0
 
 
-def test_wind_difficulty_strong_headwind_caps_at_100():
-    assert wind_difficulty(10.0) == 100.0
+def test_wind_axis_strong_headwind_caps_at_100():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": 10.0}) == 100.0
 
 
-def test_wind_difficulty_moderate_headwind_is_between():
-    assert 0.0 < wind_difficulty(4.0) < 100.0
+def test_wind_axis_moderate_headwind_is_between():
+    value = evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": 4.0})
+    assert value is not None
+    assert 0.0 < value < 100.0
 
 
-def test_road_difficulty_good_surface_is_easy():
-    assert road_difficulty(True) == 0.0
+def test_surface_q_axis_good_surface_is_easy():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {"surface_good": True}) == 0.0
 
 
-def test_road_difficulty_bad_surface_is_hard():
-    assert road_difficulty(False) > 0.0
+def test_surface_q_axis_bad_surface_is_hard():
+    value = evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {"surface_good": False})
+    assert value is not None
+    assert value > 0.0
 
 
-def test_road_difficulty_none_passthrough():
-    assert road_difficulty(None) is None
+def test_surface_q_axis_missing_material_is_none():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {}) is None
 
 
-def test_stop_difficulty_zero_density_is_easiest():
-    assert stop_difficulty(0.0) == 0.0
+def test_stop_density_axis_zero_density_is_easiest():
+    assert (
+        evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"stop_count_per_km": 0.0}) == 0.0
+    )
 
 
-def test_stop_difficulty_increases_with_density():
-    assert stop_difficulty(2.0) == 50.0
+def test_stop_density_axis_increases_with_density():
+    assert (
+        evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"stop_count_per_km": 2.0}) == 50.0
+    )
 
 
-def test_stop_difficulty_caps_at_100_for_high_density():
-    assert stop_difficulty(10.0) == 100.0
+def test_stop_density_axis_caps_at_100_for_high_density():
+    assert (
+        evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"stop_count_per_km": 10.0}) == 100.0
+    )
 
 
-def test_stop_difficulty_none_passthrough():
-    assert stop_difficulty(None) is None
+def test_stop_density_axis_missing_stop_count_is_none():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {}) is None
 
 
-def test_stop_difficulty_negative_is_none():
-    assert stop_difficulty(-1.0) is None
+def test_stop_density_axis_intersection_count_defaults_to_no_contribution():
+    definition = AXIS_DEFINITIONS["stop_density"]
+    with_intersection_absent = evaluate_axis_scalar(definition, {"stop_count_per_km": 2.0})
+    with_intersection_none = evaluate_axis_scalar(
+        definition, {"stop_count_per_km": 2.0, "intersection_count_per_km": None}
+    )
+    assert with_intersection_absent == with_intersection_none
 
 
-def test_stop_difficulty_intersection_count_defaults_to_no_contribution():
-    assert stop_difficulty(2.0) == stop_difficulty(2.0, None)
-
-
-def test_stop_difficulty_intersection_count_adds_weighted_contribution():
+def test_stop_density_axis_intersection_count_adds_weighted_contribution():
     # 改善計画T149: タグなし交差点は0.3倍の重みでstop_countへ加算される
     # (2.0 + 2.0*0.3=2.6)/4.0*100 = 65.0
-    assert stop_difficulty(2.0, 2.0) == 65.0
+    value = evaluate_axis_scalar(
+        AXIS_DEFINITIONS["stop_density"],
+        {"stop_count_per_km": 2.0, "intersection_count_per_km": 2.0},
+    )
+    assert value == 65.0
 
 
-def test_stop_difficulty_intersection_count_alone_without_stop_count_is_none():
-    # stop_count_per_kmがNoneならintersection_count_per_kmの値に関わらず評価しない
-    assert stop_difficulty(None, 5.0) is None
-
-
-def test_stop_difficulty_negative_intersection_count_is_none():
-    assert stop_difficulty(2.0, -1.0) is None
-
-
-def test_stop_difficulty_combined_still_caps_at_100():
-    assert stop_difficulty(4.0, 10.0) == 100.0
+def test_stop_density_axis_combined_still_caps_at_100():
+    value = evaluate_axis_scalar(
+        AXIS_DEFINITIONS["stop_density"],
+        {"stop_count_per_km": 4.0, "intersection_count_per_km": 10.0},
+    )
+    assert value == 100.0
 
 
 def test_composite_difficulty_weighted_average():
@@ -151,59 +168,60 @@ def test_distance_weighted_difficulty_empty_returns_none():
     assert distance_weighted_difficulty([]) is None
 
 
-def test_accident_difficulty_zero_density_is_easiest():
-    assert accident_difficulty(0.0) == 0.0
+def test_accident_axis_zero_density_is_easiest():
+    assert (
+        evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": 0.0}) == 0.0
+    )
 
 
-def test_accident_difficulty_increases_with_density():
-    assert accident_difficulty(0.25) == 50.0
+def test_accident_axis_increases_with_density():
+    value = evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": 0.25})
+    assert value == 50.0
 
 
-def test_accident_difficulty_caps_at_100_for_high_density():
-    assert accident_difficulty(10.0) == 100.0
+def test_accident_axis_caps_at_100_for_high_density():
+    value = evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": 10.0})
+    assert value == 100.0
 
 
-def test_accident_difficulty_none_passthrough():
-    assert accident_difficulty(None) is None
-
-
-def test_accident_difficulty_negative_is_none():
-    assert accident_difficulty(-1.0) is None
+def test_accident_axis_missing_material_is_none():
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {}) is None
 
 
 def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
     # 改善計画T221 Stage B: 材料値の辞書＋axis_idキーの重み辞書を渡す形
-    # （domain/axis_definitions.py: AXIS_DEFINITIONS参照）。各軸のdifficultyは
-    # 既存のスカラーラッパ関数と一致する（同じ軸定義を参照するため）。
+    # （domain/axis_definitions.py: AXIS_DEFINITIONS参照）。
     weights = {axis_id: 1.0 for axis_id in
                ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night")}
-    result = evaluate_axis_difficulties(
-        {
-            "gradient_percent": 6.0,
-            "wind_penalty": 4.0,
-            "surface_good": True,
-            "stop_count_per_km": 2.0,
-            "intersection_count_per_km": 1.0,
-            # 改善計画T292: car_stressは内部軸5つ+公開軸1つの階層構造になったため、
-            # 単一のcar_stress_level材料ではなくhighwayを渡す（highway基準値=2、
-            # 他の補正材料[bicycle_infra/maxspeed_kmh/lanes_count/is_designated/
-            # motor_vehicle_no]は省略=補正なしのため、breakpoints(1,0)-(5,100)で
-            # (2-1)/4*100=25.0になる）。
-            "highway": "residential",
-            "accident_count_per_km_year": 0.25,
-            "no_lit": False,
-            "has_tunnel": False,
-        },
-        weights,
-    )
+    materials = {
+        "gradient_percent": 6.0,
+        "wind_penalty": 4.0,
+        "surface_good": True,
+        "stop_count_per_km": 2.0,
+        "intersection_count_per_km": 1.0,
+        # 改善計画T292: car_stressは内部軸5つ+公開軸1つの階層構造になったため、
+        # 単一のcar_stress_level材料ではなくhighwayを渡す（highway基準値=2、
+        # 他の補正材料[bicycle_infra/maxspeed_kmh/lanes_count/is_designated/
+        # motor_vehicle_no]は省略=補正なしのため、breakpoints(1,0)-(5,100)で
+        # (2-1)/4*100=25.0になる）。
+        "highway": "residential",
+        "accident_count_per_km_year": 0.25,
+        "no_lit": False,
+        "has_tunnel": False,
+    }
+    result = evaluate_axis_difficulties(materials, weights)
 
-    assert result.axes["gradient"] == gradient_difficulty(6.0)
-    assert result.axes["wind"] == wind_difficulty(4.0)
-    assert result.axes["surface_q"] == road_difficulty(True)
-    assert result.axes["stop_density"] == stop_difficulty(2.0, 1.0)
+    assert result.axes["gradient"] == evaluate_axis_scalar(
+        AXIS_DEFINITIONS["gradient"], materials
+    )
+    assert result.axes["wind"] == evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], materials)
+    assert result.axes["surface_q"] == evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], materials)
+    assert result.axes["stop_density"] == evaluate_axis_scalar(
+        AXIS_DEFINITIONS["stop_density"], materials
+    )
     assert result.axes["car_stress"] == 25.0
-    assert result.axes["accident"] == accident_difficulty(0.25)
-    assert result.axes["night"] == night_difficulty({"lit": "yes"})
+    assert result.axes["accident"] == evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], materials)
+    assert result.axes["night"] == evaluate_axis_scalar(AXIS_DEFINITIONS["night"], materials)
     assert result.composite is not None
 
 

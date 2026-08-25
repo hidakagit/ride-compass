@@ -42,6 +42,7 @@ from typing import cast
 from pydantic import BaseModel
 
 from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
@@ -208,6 +209,39 @@ def derive_ramp_inputs(definition: AxisDefinition) -> RampInputs | None:
         return RampInputs(tile_inputs=tile_inputs, thresholds=thresholds)
 
     return None
+
+
+def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
+    """軸が参照する材料を一次属性idへ解決する。`AxisDefinition.materials`は材料idだけで
+    なく他の軸id（改善計画T292の階層構造、例: car_stressの内部軸6つ）も返しうるため、
+    材料id側で見つからないエントリはAXIS_DEFINITIONSの軸として再帰的に解決する
+    （内部軸自体も内部軸を参照しうる想定はないが、循環参照は軸スタジオ側で拒否済み
+    [test_create_rejects_direct_cycle_between_two_axes]のため`visited`で安全側に保護する）。
+
+    改善計画T320: 元は`api/routers/axis_catalog.py`（GET /api/axis-catalog、実行時API）
+    専用のprivateヘルパーだったが、`registry_defaults.py`（`export_openapi.py`向けの
+    ビルド時静的axis-catalog.json生成）が同じ解決ロジックを`AxisSpec.inputs`として
+    軸ごとに手書きで重複させていたため、この関数へ一本化した（片側import、設計原則2）。
+    """
+    seen: dict[str, None] = {}
+    visited: set[str] = set()
+
+    def resolve(current: AxisDefinition) -> None:
+        if current.axis_id in visited:
+            return
+        visited.add(current.axis_id)
+        for material_id in current.materials:
+            spec = MATERIAL_CATALOG.get(material_id)
+            if spec is not None:
+                if spec.primary_attribute_id is not None:
+                    seen.setdefault(spec.primary_attribute_id, None)
+                continue
+            referenced_axis = AXIS_DEFINITIONS.get(material_id)
+            if referenced_axis is not None:
+                resolve(referenced_axis)
+
+    resolve(definition)
+    return list(seen)
 
 
 def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
