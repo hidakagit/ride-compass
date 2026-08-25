@@ -251,3 +251,18 @@ def test_car_stress_display_level_rounds_half_up_not_banker_rounding():
 def test_car_stress_display_level_clamps_out_of_range_difficulty():
     assert car_stress_display_level(-10.0) == 1
     assert car_stress_display_level(110.0) == 5
+
+
+def test_car_stress_display_level_returns_none_when_shape_is_not_breakpoint_linear(monkeypatch):
+    """改善計画T320: 以前は`AXIS_DEFINITIONS["car_stress"].shape`が
+    BreakpointLinearShapeであることをassertで前提しており、運用者が軸スタジオで
+    car_stressの評価式をcategorical等へ作り替えるとAssertionErrorがルート生成の
+    たびに500として表面化していた。逆変換が意味を持たない形状へ変わった場合は
+    Noneへ安全側に倒すことを確認する。"""
+    non_linear_shape = CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0})
+    monkeypatch.setitem(
+        AXIS_DEFINITIONS, "car_stress",
+        AXIS_DEFINITIONS["car_stress"].model_copy(update={"shape": non_linear_shape}),
+    )
+
+    assert car_stress_display_level(50.0) is None

@@ -148,4 +148,41 @@ describe("RouteSettingsPanel", () => {
       car_stress: 0.45, accident: 0.08, wind: 0.03, new_axis: 0,
     });
   });
+
+  // 改善計画T320回帰テスト: プリセット（自転車専用道を優先/最短時間重視/安全重視）が
+  // 対象とする既存7軸のうち車の圧迫感等が軸スタジオで非公開化されても、ゴーストキーの
+  // 混入自体は既に修正済みだが、プリセットが「1つも該当軸を持たない」状態でボタンを
+  // 有効なまま残すと、押しても実質何も変わらない（zeroFilledのまま）操作になり
+  // ユーザーから見て設計不整合になる。対象軸が0件のプリセットは無効化する。
+  it("プリセットが対象とする軸が1つも公開されていない場合、そのプリセットボタンを無効化する", async () => {
+    // 「自転車専用道を優先」が参照するgradient/surface_q/stop_density/night/car_stress/
+    // accident/windのいずれも含まないカタログ（軸スタジオのGUI作成軸だけが公開されている想定）。
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["new_axis_a", "new_axis_b"]));
+    const user = userEvent.setup();
+    const onRoutePreferenceChange = vi.fn();
+
+    render(
+      <RouteSettingsPanel
+        hardFilters={DEFAULT_HARD_FILTERS}
+        onHardFiltersChange={vi.fn()}
+        routePreference={{}}
+        onRoutePreferenceChange={onRoutePreferenceChange}
+        overrideEnabled={false}
+        onOverrideEnabledChange={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("ラベル[new_axis_a]")).toBeInTheDocument());
+
+    const presetButton = screen.getByText("自転車専用道を優先");
+    expect(presetButton).toBeDisabled();
+
+    onRoutePreferenceChange.mockClear();
+    await user.click(presetButton);
+    // disabledボタンはクリックしてもonClickが発火しない（applyPresetが呼ばれない）。
+    expect(onRoutePreferenceChange).not.toHaveBeenCalled();
+
+    // バランスプリセット（catalog.defaultWeightsそのもの）は常に対象軸を持つため無効化しない。
+    expect(screen.getByText("バランス")).not.toBeDisabled();
+  });
 });

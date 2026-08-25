@@ -554,8 +554,8 @@ def compute_edge_costs_bulk(
 
     `stop_count`/`intersection_count`/`accident_count`は実データ上ゼロ以上の整数
     （PostGIS事前集計、`domain/attributes.py: EdgeAttributeCounts`）であることを前提とし、
-    スカラー版`stop_difficulty`/`accident_difficulty`が持つ「負値ならNone」という防御的
-    ガード（テスト専用の異常値入力を想定したもの）はここでは再現しない（実データでは
+    「負値ならNone」という防御的ガード（テスト専用の異常値入力を想定したもの、改善計画
+    T320で削除済みのスカラー版互換ラッパが持っていた）はここでは再現しない（実データでは
     到達しない分岐のため、ベクトル化の単純さを優先した）。
 
     `hard_filters`（改善計画T266）: `is_edge_allowed`と同じフィルタ名集合による上書き。

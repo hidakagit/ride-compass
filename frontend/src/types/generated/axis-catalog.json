@@ -13,18 +13,33 @@
       "chip_label": "勾配",
       "panel_hint": null,
       "proxy_hint": "（地図表示なし）標高レイヤーで確認できます",
-      "output_range": [
-        0.0,
-        100.0
-      ],
       "display": {
         "kind": "none",
         "label": "勾配",
-        "category": "terrain",
+        "category": "trafficSafety",
         "tile_inputs": [],
         "thresholds": [],
         "unit": "",
-        "note": "標高属性（elevation_attributes）はGSI APIから都度取得でDBへ恒久保存しない設計のため、タイルへ焼き込める事実データが無い。標高図レイヤー（elevation）が地形の把握を代替する"
+        "note": ""
+      }
+    },
+    {
+      "axis_id": "wind",
+      "category": "動的",
+      "inputs": [],
+      "primary_attribute_ids": [],
+      "icon_id": null,
+      "chip_label": null,
+      "panel_hint": null,
+      "proxy_hint": null,
+      "display": {
+        "kind": "none",
+        "label": "風",
+        "category": "trafficSafety",
+        "tile_inputs": [],
+        "thresholds": [],
+        "unit": "",
+        "note": ""
       }
     },
     {
@@ -40,14 +55,10 @@
       "chip_label": "舗装",
       "panel_hint": null,
       "proxy_hint": null,
-      "output_range": [
-        0.0,
-        100.0
-      ],
       "display": {
         "kind": "ramp",
         "label": "舗装質",
-        "category": "road",
+        "category": "trafficSafety",
         "tile_inputs": [
           {
             "property": "surface_good",
@@ -65,7 +76,7 @@
           40.0
         ],
         "unit": "",
-        "note": "改善計画T278: 材料surface_good（タイル焼き込み済み）から自動導出。既存の道路情報レイヤー（road、surface_good/surface/highwayの3色分けモード）と表示内容が重複するため非表示にしたい場合は地図レイヤーパネルの表示切替で運用する（backend側にkind=noneの手動固定は設けない）。ラベルは「路面」から改名（改善計画T163）: 一次属性「路面の種類」（surface）との紛らわしさを解消するため。重みラベル「舗装」・レジストリ記述「路面材質」と整合させた"
+        "note": ""
       }
     },
     {
@@ -83,10 +94,6 @@
       "chip_label": "停止密度",
       "panel_hint": "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
       "proxy_hint": null,
-      "output_range": [
-        0.0,
-        100.0
-      ],
       "display": {
         "kind": "ramp",
         "label": "停止密度",
@@ -129,17 +136,17 @@
       "category": "推定",
       "inputs": [
         "highway",
-        "lanes",
-        "maxspeed",
         "cycleway",
+        "maxspeed",
+        "lanes",
         "designation",
         "motor_vehicle_access"
       ],
       "primary_attribute_ids": [
         "highway",
-        "lanes",
-        "maxspeed",
         "cycleway",
+        "maxspeed",
+        "lanes",
         "designation",
         "motor_vehicle_access"
       ],
@@ -147,10 +154,6 @@
       "chip_label": "圧迫感",
       "panel_hint": "道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして確認できます。",
       "proxy_hint": null,
-      "output_range": [
-        0.0,
-        100.0
-      ],
       "display": {
         "kind": "ramp",
         "label": "車の圧迫感",
@@ -307,6 +310,45 @@
       }
     },
     {
+      "axis_id": "accident",
+      "category": "推定",
+      "inputs": [
+        "accident_point"
+      ],
+      "primary_attribute_ids": [
+        "accident_point"
+      ],
+      "icon_id": "density-scatter",
+      "chip_label": "事故密度",
+      "panel_hint": "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
+      "proxy_hint": null,
+      "display": {
+        "kind": "ramp",
+        "label": "事故密度",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "accident_per_km",
+            "weight": 1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          }
+        ],
+        "thresholds": [
+          0.4,
+          0.8,
+          1.5
+        ],
+        "unit": "件/km",
+        "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる"
+      }
+    },
+    {
       "axis_id": "night",
       "category": "観測",
       "inputs": [
@@ -321,10 +363,6 @@
       "chip_label": "夜間",
       "panel_hint": null,
       "proxy_hint": null,
-      "output_range": [
-        0.0,
-        100.0
-      ],
       "display": {
         "kind": "ramp",
         "label": "夜間",
@@ -358,50 +396,7 @@
           75.0
         ],
         "unit": "",
-        "note": "改善計画T278: 材料no_lit（lit材料の否定）・has_tunnelから自動導出。現OSMデータではlitタグが疎なため色分けの差が小さく見える場合があるが、手書きexpressionを持たずとも自動導出のrampレイヤーとして表示できるようになったため専用レイヤー保留（改善計画T145a）は解消した"
-      }
-    },
-    {
-      "axis_id": "accident",
-      "category": "推定",
-      "inputs": [
-        "accident_point"
-      ],
-      "primary_attribute_ids": [
-        "accident_point"
-      ],
-      "icon_id": "density-scatter",
-      "chip_label": "事故密度",
-      "panel_hint": "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
-      "proxy_hint": null,
-      "output_range": [
-        0.0,
-        100.0
-      ],
-      "display": {
-        "kind": "ramp",
-        "label": "事故密度",
-        "category": "trafficSafety",
-        "tile_inputs": [
-          {
-            "property": "accident_per_km",
-            "weight": 1.0,
-            "boolean": false,
-            "invert": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": null,
-            "breakpoints": null
-          }
-        ],
-        "thresholds": [
-          0.4,
-          0.8,
-          1.5
-        ],
-        "unit": "件/km",
-        "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる"
+        "note": ""
       }
     }
   ],

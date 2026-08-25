@@ -5944,38 +5944,72 @@ Phaseほど前Phaseの成果を安全網として使える）。**
      「風undefined」のように表示されていた不具合**。表示対象を`route_preference`
      オブジェクト自身のキー集合（＝その回のgenerateへ実際に送られた条件、backendが
      エコーした正）へ変更し、ラベルだけ動的な`axisLabels`から引く形にした。
-  6. 上記以外に監査で洗い出したが**意図的に変更しなかった**もの:
-     - `axisLayers.ts: axisLabelsFromCatalogAxes`の`wind: "風"`（T319の訂正欄と同じ理由、
-       windは軸スタジオのレジストリとは別枠の構造的特別軸）。
-     - `NON_DEFAULT_PRESETS`自体（自転車専用道を優先/最短時間重視/安全重視）が既存7軸を
-       名指しした固定コンテンツである点。項目2の対策でクラッシュ・表示不整合は解消した
-       が、プリセットの中身自体はキュレーションされたコンテンツであり、軸スタジオの
-       任意の新規軸をプリセットへ自動的に含める仕組みは今回のスコープに含めない
-       （routeStyleModes.tsの4色分けモードと同種の「意図的なUI選択」として許容）。
-     - `backend/app/domain/registry_defaults.py: _register_axes()`の
-       `AXIS_DEFINITIONS["gradient"|"surface_q"|...]`直接indexing。ビルド時スクリプト
-       （`export_openapi.py`）限定で、実行中のアプリからは呼ばれない。運用者が
-       組み込み軸をunpublish→delete削除した状態でビルドを実行するとKeyErrorで
-       ビルドが落ちる（実害はビルド失敗という分かりやすい形で顕在化し、ユーザーへ
-       不整合な状態を見せることはない）。低優先の残課題として記録するのみ。
-     - `backend/app/domain/difficulty.py`/`night.py`の`AXIS_DEFINITIONS["..."]`直接参照
-       ラッパ関数（`transform_fn`文字列・テストのみが参照、実行時経路からは未使用）。
-       7軸前提の残骸だが実害無し。
-     - `car_stress_display_level`のshape型assert（car_stressの評価式を
-       BreakpointLinearShape以外へ変更する運用操作をすると500になりうる）。既存の
-       組み込み軸の評価式を根本から作り変えるという稀な運用操作が前提のため、今回は
-       見送り。
+  6. **`NON_DEFAULT_PRESETS`（自転車専用道を優先/最短時間重視/安全重視）が既存7軸を
+     名指しした固定コンテンツで、対象軸がすべて非公開だと押しても実質何も変わらない
+     （zeroFilledのまま）操作になる、というユーザー指摘への対応**。プリセット定義
+     自体をキュレーションされたコンテンツとして残すこと自体は妥当と判断したが、
+     「一見選べるのに押しても意味を持たない」ボタンを有効なまま見せるのは設計不整合、
+     というユーザー指摘を受け入れ、プリセットが対象とする軸が現在の公開軸集合と
+     1つも重ならない場合はボタンを無効化（`disabled`＋理由をtitleで表示）するよう
+     `RouteSettingsPanel.tsx`を修正した。1つでも重なりがあれば「部分的には効く」ため
+     有効のまま。
+  7. **`backend/app/domain/registry_defaults.py: _register_axes()`が組み込み6軸を
+     `if "gradient" in AXIS_DEFINITIONS: register_axis(...)`のように1軸ずつ名指しで
+     分岐していた点**。「存在確認さえすれば安全」という前段階の対症療法的な修正を
+     ユーザーが明確に拒否（「`if "surface_q" in AXIS_DEFINITIONS:`という分岐が存在
+     すること自体を是正してほしい」）したのを受け、`AXIS_DEFINITIONS`をそのまま走査する
+     形へ全面書き換えした。`inputs`（参照する一次属性id）・`display`（地図表示宣言）は、
+     `GET /api/axis-catalog`（実行時API）が同じ軸に対して呼ぶのと同一の純粋関数
+     （`domain/axis_display.py: primary_attribute_ids_for()`・`axis_display_for()`、
+     前者は`api/routers/axis_catalog.py`からこのファイルへ移設し両者で共有）から導出する
+     ため、ビルド時静的生成物と実行時APIの計算ロジックが完全に一致する。副次効果として
+     `scripts/export_openapi.py`側にあった「registry.py未登録の軸だけを別ループで拾う」
+     という重複実装（`_auto_ramp_axes`）が構造的に不要になったため削除した。
+     `AxisSpec`の`transform_fn`/`output_range`/`description`フィールド（いずれも
+     実行時経路のどこからも参照されておらず、`axis-catalog.json`へも書き出されて
+     いなかった完全な死蔵フィールド）も削除した。
+  8. **`backend/app/domain/difficulty.py`/`night.py`の`*_difficulty`スカラー版互換
+     ラッパ（`gradient_difficulty`/`wind_difficulty`/`road_difficulty`/
+     `stop_difficulty`/`accident_difficulty`/`night_difficulty`）が実行時経路の
+     どこからも呼ばれておらずテストのみの消費者だった点**。「残骸を残しておく意味は
+     ない」というユーザー指摘を受け、6関数すべて削除した。実際の評価は両エンジンとも
+     `evaluate_axis_difficulties`/`compute_edge_axis_scores`が材料辞書を直接
+     `evaluate_axes_scalar`へ渡す経路を使っており、この6関数を経由していなかった
+     （削除しても実行時挙動に変化なし）。テストは`evaluate_axis_scalar(AXIS_DEFINITIONS
+     [axis_id], {...})`を直接呼ぶ形へ書き換え、同じ検証内容（breakpoints・cap・None
+     伝播）を維持した。
+  9. **`car_stress_display_level`が`AXIS_DEFINITIONS["car_stress"].shape`が
+     `BreakpointLinearShape`であることをassertで前提しており、運用者が軸スタジオで
+     car_stressの評価式をcategorical等へ作り替えるとAssertionErrorがルート生成の
+     たびに500として表面化する不具合**。「同上、技術的負債を残しておく意味はない」
+     というユーザー指摘を受け、assertをif文へ変え、逆変換が意味を持たない形状へ
+     変わった場合はNone（他のdifficulty系関数と同じ「算出不能はNone」の規約）を
+     返すよう修正した。
+  10. 監査で洗い出した上で**意図的に変更しなかった**唯一の項目:
+     `axisLayers.ts: axisLabelsFromCatalogAxes`の`wind: "風"`（ユーザー確認済み:
+     「風は、推定軸ではない。対象外で問題ない」。windは専用の動的気象UIを別に持つため、
+     そもそも軸スタジオのis_publishedレジストリとは独立した「地図表示レジストリに
+     未登録」の構造的な特別軸として設計されている）。
   - **T319の反省を踏まえた対応方針**: 1件のバグを直して終わりにせず、同じ性質の
     問題（「軸スタジオが返す実行時の値」と「ビルド時静的な既存7軸フォールバック」の
     取り違え）を横展開でgrepし尽くしたことが今回との違い。今後同種の改修をする際は、
     修正した1箇所だけでなく`axis-catalog.json`・`PREFERENCE_AXES`・`AXIS_LABELS`・
-    `RAMP_AXES`等の静的importを持つ全消費者を毎回洗い出すこと。
-- 検証: frontend vitest 507 passed（新規回帰テスト6件: useAxisCatalogのloaded関連、
-  axisInspectorPopupの未知axis_idフォールバック、ComparisonPanelの新規軸・非公開軸
-  ケース2件を含む）、eslint clean、tsc --noEmit clean（既存の無関係なlayout.tsxエラー
-  のみ残存）。backend側は変更なし（T319の時点で既にis_publishedフィルタが正しく
-  効いていることを確認済み）。
-- 依存: T319（直接の発端）、T309（軸スタジオの可変軸方針そのもの）。
+    `RAMP_AXES`等の静的importを持つ全消費者を毎回洗い出すこと。さらに、いったん
+    「意図的に変更しない」と判断した項目についても、ユーザーへ理由を提示した上で
+    最終判断を仰ぐこと（「存在確認すれば安全」「実害が顕在化しない」「稀な運用操作が
+    前提」という個々の理由づけが妥当に見えても、"技術的負債を残す判断はユーザー自身が
+    する"という原則を優先する）。
+- 検証: backend pytest 1151 passed（PostGIS統合テスト含む）、ruff（触れたファイルで
+  新規指摘なし、既存の無関係な指摘のみ）。frontend vitest 508 passed（新規回帰テスト8件:
+  useAxisCatalogのloaded関連、axisInspectorPopupの未知axis_idフォールバック、
+  ComparisonPanelの新規軸・非公開軸ケース2件、プリセット無効化ケースを含む）、eslint
+  clean、tsc --noEmit clean（既存の無関係なlayout.tsxエラーのみ残存）。axis-catalog.json
+  の再生成に伴い、地図チップ・地図レイヤーパネルの推定グループの並び順が
+  AXIS_DEFINITIONSのsort_order（accident=5がnight=6より前）どおりに変わった
+  （以前の手書き登録順はsort_orderと食い違っていた）ため、影響するfrontendテスト2件
+  （MapLayersPanel.test.tsx・MapOverlayControls.test.tsx）の期待値を実際の並びへ更新した。
+- 依存: T319（直接の発端）、T309（軸スタジオの可変軸方針そのもの）、T310
+  （`display_override`・`axis_display_for()`という単一ソースの基盤）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

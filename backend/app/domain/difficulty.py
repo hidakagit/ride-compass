@@ -3,68 +3,20 @@
 # 地図上の色分けは候補間の比較ではなく「客観的にどこが大変か」を示す目的のため絶対基準を採用する。
 #
 # 改善計画T221 Stage B/C: 各軸の変換パラメータ（breakpoints等）と計算本体は
-# `domain/axis_definitions.py`（軸定義データ＋汎用評価関数）へ移した。本モジュールの
-# `*_difficulty`関数は、既存呼び出し元（区間表示ビルダー・区間インスペクタ・テスト）向けの
-# 外部シグネチャ互換ラッパとして残す（Noneガード・負値ガードという「入力の防御」だけを
-# ここで担い、変換自体は軸定義へ委譲する）。配列版（旧`*_difficulty_array`）は
-# `evaluate_axis_array`（同一定義から導出）へ置き換えたため削除した。
+# `domain/axis_definitions.py`（軸定義データ＋汎用評価関数）へ移した。
+#
+# 改善計画T320: 以前は軸ごとの`*_difficulty`（gradient_difficulty/wind_difficulty/
+# road_difficulty/stop_difficulty/accident_difficulty）というスカラー版の外部シグネチャ
+# 互換ラッパ（Noneガード・負値ガードを担うだけで、変換自体は軸定義へ委譲する薄い関数）を
+# ここに残していたが、実行時経路のどこからも呼ばれておらずテストのみが参照していたため
+# 削除した（両エンジンとも`evaluate_axis_difficulties`/`compute_edge_axis_scores`が
+# 材料辞書を直接渡す経路を使っており、軸ごとの個別関数を経由していなかった）。配列版
+# （旧`*_difficulty_array`）は`evaluate_axis_array`（同一定義から導出）へ置き換えたため
+# 既に削除済み。
 
 from typing import Mapping, NamedTuple
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_scalar, evaluate_axis_scalar
-
-
-def gradient_difficulty(gradient_percent: float | None) -> float | None:
-    if gradient_percent is None:
-        return None
-    return evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": gradient_percent})
-
-
-def wind_difficulty(wind_penalty: float | None) -> float | None:
-    """wind_penaltyは符号付き（正=向かい風、負=追い風）。追い風・無風は難易度0、向かい風が強いほど増加。"""
-    if wind_penalty is None:
-        return None
-    return evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": wind_penalty})
-
-
-def road_difficulty(is_good_surface: bool | None) -> float | None:
-    if is_good_surface is None:
-        return None
-    return evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {"surface_good": is_good_surface})
-
-
-def stop_difficulty(
-    stop_count_per_km: float | None, intersection_count_per_km: float | None = None
-) -> float | None:
-    """信号・横断歩道・一時停止・踏切の合計密度(回/km)に、次数3以上のタグなし交差点の
-    密度を低い重み（`axis_definitions.UNSIGNALED_INTERSECTION_WEIGHT`）で加算した値を
-    難易度へ変換する（改善計画T149で交差点密度の独立軸を廃止しここへ吸収）。
-
-    `stop_count_per_km`がNone・負値ならNone（Edge単位でカウント不能なケースは呼び出し元が
-    Noneを渡す、他のdifficulty関数と同じ方針）。`intersection_count_per_km`は省略可
-    （None＝交差点データ未取得、寄与0として扱う。stop_count_per_km自体はデータありのまま
-    評価する非対称な扱い＝信号等のデータが主、交差点データは補助という位置づけ）。
-    負のintersection_count_per_kmが渡された場合はNone（不正データとして評価しない）。
-    """
-    if stop_count_per_km is None or stop_count_per_km < 0:
-        return None
-    if intersection_count_per_km is not None and intersection_count_per_km < 0:
-        return None
-    return evaluate_axis_scalar(
-        AXIS_DEFINITIONS["stop_density"],
-        {"stop_count_per_km": stop_count_per_km, "intersection_count_per_km": intersection_count_per_km},
-    )
-
-
-def accident_difficulty(accident_count_per_km_year: float | None) -> float | None:
-    """事故密度(件/(km・年)、domain/accident.py: distance_weighted_accident_density)を
-    難易度へ変換する。密度が高いほど走りにくいため単調増加。データ無し（Noneまたは負値）はNone。
-    外部静的データソース T50残作業（8軸目）。"""
-    if accident_count_per_km_year is None or accident_count_per_km_year < 0:
-        return None
-    return evaluate_axis_scalar(
-        AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": accident_count_per_km_year}
-    )
+from app.domain.axis_definitions import evaluate_axes_scalar
 
 
 class AxisDifficulties(NamedTuple):

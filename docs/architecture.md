@@ -1445,17 +1445,29 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 登録簿を提供する。`register_axis()`は、登録しようとする軸の`inputs`（参照する一次属性の
 `attr_id`一覧）のうち`shared=False`のものが既存の別軸と重複していれば
 `AxisInputConflictError`を送出する「排他制約の機械的チェック」が設計の核（T142実装中に
-`surface_q`軸の`transform_fn`誤参照を実際に検出した実績がある）。`domain/registry_defaults.py`
-が正準の登録内容（`register_defaults()`、7軸中`gradient`/`surface_q`/`stop_density`/
-`car_stress`/`accident`/`night`の6軸を登録。`wind`はレジストリ未登録＝独立項目のまま、
-`frontend/src/components/Map/axisLayers.ts`のコメント参照）。各軸の`AxisDisplaySpec.label`
-（改善計画T276、2026-08-24）は`AXIS_DEFINITIONS[axis_id].label`（Stage DでDB化・軸スタジオで
-GUI編集可能な方）からの参照で、ハードコードの重複ではない。`AxisSpec.description`
-（開発者向け説明）・`AxisDisplaySpec.category`（地図レイヤーのグルーピング用、
-「観測/推定/動的」とは別概念）は対象読者が異なるため統合していない。ただし
-`register_defaults()`自体はビルド時・テストのみ実行されアプリ起動時には呼ばれないため、
-軸スタジオでのDB上のlabel編集はこの参照を経由して地図レイヤー側へ動的反映されるわけではない
-（下記Stage D節参照）。
+`surface_q`軸の`transform_fn`誤参照を実際に検出した実績がある）。
+
+**改善計画T320: `domain/registry_defaults.py: _register_axes()`を軸id直書きの手動列挙から
+AXIS_DEFINITIONS走査へ一本化した**。以前は`gradient`/`surface_q`/`stop_density`/
+`car_stress`/`accident`/`night`の6軸を1軸ずつ`if axis_id in AXIS_DEFINITIONS: register_axis(
+AxisSpec(axis_id="gradient", ...))`のように手書きしており（`wind`は意図的に未登録）、
+①組み込み軸がAXIS_DEFINITIONSから削除されるとKeyErrorでビルドが落ちる、②軸スタジオが
+新規追加した軸はこの一覧に含まれず`axis-catalog.json`（ビルド時静的生成物）へ永遠に現れない
+——という2つの不整合があった（後者は`scripts/export_openapi.py`側の別ループ
+`_auto_ramp_axes`で部分的に穴埋めしていたが、これ自体が同じロジックの二重実装という
+別の問題だった）。現在は`AXIS_DEFINITIONS.items()`を走査し、公開軸すべて（`wind`も含む、
+軸id・軸の数を一切コードへ書かずに）を登録する。`inputs`・`display`は
+`domain/axis_display.py: primary_attribute_ids_for()`・`axis_display_for()`
+（`GET /api/axis-catalog`が実行時に同じ軸へ対して呼ぶのと同一の純粋関数、片側import）
+から導出するため、ビルド時静的生成物と実行時APIの計算ロジックが完全に一致する。
+`export_openapi.py`側の`_auto_ramp_axes`は構造的に不要になったため削除した。
+`AxisSpec.transform_fn`/`output_range`/`description`フィールド（いずれも実行時経路の
+どこからも参照されておらず、`axis-catalog.json`へも書き出されていなかった死蔵フィールド）
+も削除した。各軸の`AxisDisplaySpec.label`は`AXIS_DEFINITIONS[axis_id].label`
+（Stage DでDB化・軸スタジオでGUI編集可能な方）に統合済み。ただし`register_defaults()`
+自体はビルド時・テストのみ実行されアプリ起動時には呼ばれないため、軸スタジオでのDB上の
+編集はこの参照を経由して`axis-catalog.json`側へ動的反映されるわけではない
+（`GET /api/axis-catalog`という実行時APIには即座に反映される、下記Stage D節参照）。
 
 **本レジストリ（`registry.py`）が駆動するのは表示メタデータのみ**。コスト計算側は
 改善計画T221 Stage B/Cで`domain/axis_definitions.py: AXIS_DEFINITIONS`（軸定義データ＋
@@ -1463,9 +1475,9 @@ GUI編集可能な方）からの参照で、ハードコードの重複では�
 transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプレート＋パラメータをデータで
 宣言する」形（Stage Aの4テンプレートで全軸のシグネチャが標準化されたため可能になった）で
 実現している。表示レジストリと評価定義の軸ID集合は`test_registry_defaults.py`が機械的に
-突き合わせる。軸を追加するときは、上記「7軸の一覧と重み」の1本道（コスト計算側、
-中心はAXIS_DEFINITIONSへの1エントリ）と、本レジストリへの`register_axis()`登録（表示側、
-下記「レジストリ駆動の二次軸ランプレイヤー」参照）の**両方**が必要になる。
+突き合わせる。改善計画T320により、軸を追加するときに本レジストリへの個別登録は不要になった
+——上記「7軸の一覧と重み」の1本道（コスト計算側、中心はAXIS_DEFINITIONSへの1エントリ）
+だけで、表示レジストリ（`axis-catalog.json`）側も`_register_axes()`の走査により自動反映される。
 
 `domain/recipe_definition.py`（T141、`Recipe`/`RecipeComponents`等でレシピをJSON/DB
 レコード形式へ統合する宣言的インフラとして新設）は、T142が別方式
@@ -1867,8 +1879,8 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
 
 `way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
 その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・
-stop_density・accident・nightの5軸（`registry_defaults.py`の登録軸のうちgradient/windを
-除く）を算出する。gradient・windは単独wayでは算出できない（ルート文脈が必要）ため
+stop_density・accident・nightの5軸（`AXIS_DEFINITIONS`の公開軸のうちgradient/windを除く）
+を算出する。gradient・windは単独wayでは算出できない（ルート文脈が必要）ため
 `AxisInspectorAxis.available=false`で常に返し、`composite_difficulty`は取得できた軸だけの
 加重平均（`covered_weight_fraction`が全7軸重みに対する充足率を示す参考値）。
 

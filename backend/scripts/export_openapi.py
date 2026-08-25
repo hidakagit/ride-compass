@@ -21,9 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights  # noqa: E402
-from app.domain.axis_display import derive_ramp_inputs  # noqa: E402
 from app.domain.registry import (  # noqa: E402
-    AxisDisplaySpec,
     all_axes,
     all_primary_attributes,
     reset_registry_for_testing,
@@ -71,15 +69,13 @@ async def _try_load_axis_definitions_from_db() -> None:
     バグ修正）。
 
     以前は本スクリプトがAXIS_DEFINITIONSをコード内蔵の静的辞書のまま一切DBへ
-    問い合わせなかったため、下記main()の「registry.py未登録だがramp化可能な軸を
-    axis-catalog.jsonへ足す」ループ（軸スタジオがDBのみに作った新規軸を拾う想定）が
-    恒久的に空リストのまま機能していなかった（_registered_axis_idsと
-    AXIS_DEFINITIONS.keys()が常に同じ7軸で一致してしまうため）。
+    問い合わせなかったため、軸スタジオがDBのみに作った新規軸（コード内蔵の既定値には
+    存在しない）が生成物へ一切反映されなかった。
 
     CIの`api-contract`ジョブはDB接続を持たない（本スクリプトのdocstring参照）ため、
     接続失敗時は`services/axis_registry_service.py: refresh_axis_definitions`と
     同じ安全側フォールバック（WARNINGログを出しコード内蔵の既定値のまま続行）に
-    倣う——DB無しの環境でも生成物の内容（既存7軸ぶん）は今までどおり変わらない。
+    倣う——DB無しの環境でも生成物の内容（コード内蔵の既定値ぶん）は今までどおり変わらない。
     """
     try:
         session_factory = get_session_factory()
@@ -130,68 +126,14 @@ def main() -> None:
     # 書き出す。各軸のinputsは既にattr_idのリストとして含まれているため、
     # フロントはこのprimary_attributesのlabel（正式名）とinputsの組み合わせだけで
     # 2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
+    #
+    # 改善計画T320: 以前は組み込み6軸を`registry_defaults.py`が手書きで個別登録し、
+    # それ以外の軸（軸スタジオ作成軸）だけをここで別ループ（`_auto_ramp_axes`）で
+    # 拾うという二重実装だった。`_register_axes()`が`AXIS_DEFINITIONS`を走査して
+    # 公開軸すべてを一様に登録するようになったため（`domain/registry_defaults.py`
+    # 参照）、`all_axes()`は既に組み込み・GUI作成を問わず全公開軸を含む。
     reset_registry_for_testing()
     register_defaults()
-    # 改善計画T278: registry.pyへ手書き登録されていない軸（軸スタジオ/AXIS_DEFINITIONSにのみ
-    # 存在する新規軸）のうち、材料が全てタイル焼き込み済み（ramp化可能と自動判定された）
-    # ものだけをここへ追加する。ramp化不可（None）と判定された軸は追加しない（地図に出ない
-    # ＝現状と同じ「専用レイヤー無し」のまま、退行にならない）。
-    # AXIS_DEFINITIONSは上の_try_load_axis_definitions_from_dbが可能ならDBの内容で
-    # 更新済み（DB未接続時は内蔵の既定7軸のまま＝このループは空リストのまま安全側で終わる）。
-    # inputs（一次属性id一覧）は registry.py 側の別語彙（T12関係）のため空のまま。
-    _registered_axis_ids = {axis.axis_id for axis in all_axes()}
-    _auto_ramp_axes = []
-    for axis_id, definition in AXIS_DEFINITIONS.items():
-        if axis_id in _registered_axis_ids:
-            continue
-        # 改善計画T292: 内部軸（is_published=False、他の公開軸から参照される専用の
-        # 推定軸）は恒久的に非公開のため、単独の地図レイヤーとして自動生成しない
-        # （公開軸car_stressの内訳であって、それ自体が地図に出る意味を持たない）。
-        if not definition.is_published:
-            continue
-        # コードレビュー指摘の修正: 以前はderive_ramp_inputs()の自動導出結果のみを見ており、
-        # T310で導入したdefinition.display_override（derive_ramp_inputsが解決できない軸
-        # 向けの正式な代替手段）を一切チェックしていなかった。そのため、GUI作成軸が
-        # display_overrideを設定して公開しても、実行時API（axis_display_for()、①display_
-        # override→②自動導出の優先順位）では正しくrampとして現れる一方、この静的
-        # axis-catalog.json生成物には永久に含まれない（export_openapi.pyを再実行しても
-        # 変わらない）という非対称が生じていた。axis_display_for()と同じ優先順位で解決する。
-        if definition.display_override is not None:
-            display = definition.display_override
-        else:
-            ramp = derive_ramp_inputs(definition)
-            if ramp is None:
-                continue
-            display = AxisDisplaySpec(
-                kind="ramp",
-                label=definition.label,
-                # registry.py側のcategory（地図レイヤーのグルーピング用「terrain」
-                # 「road」「trafficSafety」等）とAXIS_DEFINITIONS.category（軸の性質
-                # 「観測」「推定」「動的」）は別語彙で機械的な対応が無いため、
-                # 軸スタジオ作成軸には汎用既定値trafficSafetyを充てる（多くの推定・観測軸が
-                # 実際に属する分類、地図レイヤーパネル上の表示グループが最適でないだけで
-                # 動作自体は壊れない）。カテゴリを選ばせるUIはStage Eのスコープ外。
-                category="trafficSafety",
-                tile_inputs=ramp.tile_inputs,
-                thresholds=ramp.thresholds,
-                note=f"{definition.description}(改善計画T278: 軸スタジオ作成軸の自動導出表示)",
-            )
-        _auto_ramp_axes.append(
-            {
-                "axis_id": axis_id,
-                "category": definition.category,
-                "inputs": [],
-                "primary_attribute_ids": [],
-                # 改善計画T310: 地図チップ表示要素も実行時API（GET /api/axis-catalog）と
-                # 同じキー名で書き出す（primary_attribute_idsと同じ理由）。
-                "icon_id": definition.icon_id,
-                "chip_label": definition.chip_label,
-                "panel_hint": definition.panel_hint,
-                "proxy_hint": definition.proxy_hint,
-                "output_range": [0.0, 100.0],
-                "display": display.model_dump(),
-            }
-        )
     _write_json(
         AXIS_CATALOG_PATH,
         {
@@ -216,12 +158,10 @@ def main() -> None:
                     "chip_label": AXIS_DEFINITIONS[axis.axis_id].chip_label,
                     "panel_hint": AXIS_DEFINITIONS[axis.axis_id].panel_hint,
                     "proxy_hint": AXIS_DEFINITIONS[axis.axis_id].proxy_hint,
-                    "output_range": list(axis.output_range),
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }
                 for axis in all_axes()
-            ]
-            + _auto_ramp_axes,
+            ],
             "primary_attributes": [
                 {
                     "attr_id": attr.attr_id,

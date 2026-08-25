@@ -1,25 +1,25 @@
-from app.domain.night import night_difficulty
+from app.domain.night import night_materials
 
 
-def test_night_difficulty_lit_road_without_tunnel_is_no_lit_score_only():
-    assert night_difficulty({"lit": "yes"}) == 0.0
+def test_night_materials_lit_yes_is_not_no_lit():
+    assert night_materials({"lit": "yes"}) == {"no_lit": False, "has_tunnel": False}
 
 
-def test_night_difficulty_no_lit_tag_is_penalized():
-    assert night_difficulty({}) == 50.0
+def test_night_materials_missing_lit_tag_is_no_lit():
+    assert night_materials({}) == {"no_lit": True, "has_tunnel": False}
 
 
-def test_night_difficulty_explicit_lit_no_is_penalized_same_as_absent():
-    assert night_difficulty({"lit": "no"}) == 50.0
+def test_night_materials_explicit_lit_no_is_no_lit():
+    assert night_materials({"lit": "no"}) == {"no_lit": True, "has_tunnel": False}
 
 
-def test_night_difficulty_tunnel_adds_on_top_of_no_lit():
-    assert night_difficulty({"tunnel": "yes"}) == 100.0
+def test_night_materials_tunnel_yes_sets_has_tunnel():
+    assert night_materials({"tunnel": "yes"}) == {"no_lit": True, "has_tunnel": True}
 
 
-def test_night_difficulty_lit_and_tunnel_is_tunnel_score_only():
-    assert night_difficulty({"lit": "yes", "tunnel": "yes"}) == 50.0
+def test_night_materials_lit_and_tunnel_both_set():
+    assert night_materials({"lit": "yes", "tunnel": "yes"}) == {"no_lit": False, "has_tunnel": True}
 
 
-def test_night_difficulty_none_tags_passthrough():
-    assert night_difficulty(None) is None
+def test_night_materials_none_tags_is_both_none():
+    assert night_materials(None) == {"no_lit": None, "has_tunnel": None}

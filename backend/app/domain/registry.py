@@ -134,15 +134,19 @@ class AxisDisplaySpec(BaseModel):
 
 class AxisSpec(BaseModel):
     """二次軸の宣言。`inputs`は参照する一次属性の`attr_id`リスト（`register_axis`が
-    登録済みの一次属性であることを検証する）。`transform_fn`は`PrimaryAttributeSpec.ingest_fn`
-    と同じくモジュールパス文字列。`display`は地図レイヤー表示の宣言（改善計画T145b、
-    未指定は「表示宣言なし」でkind="none"相当）。"""
+    登録済みの一次属性であることを検証する）。`display`は地図レイヤー表示の宣言
+    （改善計画T145b、未指定は「表示宣言なし」でkind="none"相当）。
+
+    改善計画T320: `transform_fn`（実際には動的解決されないドキュメント目的の文字列）・
+    `output_range`（全軸で常に(0.0, 100.0)固定、呼び出し元は`export_openapi.py`のみで
+    しかも読んでいなかった）・`description`（開発者向けの長い技術説明のつもりだったが
+    axis-catalog.json生成時に一度も参照されていなかった）は、いずれもモデルへ必須
+    フィールドとして残っているだけで実際には誰にも消費されていなかった（`_register_axes`
+    [domain/registry_defaults.py]がAXIS_DEFINITIONSの軸ごとに手書きしていた分の名残）。
+    フィールド自体を削除した。"""
 
     axis_id: str
     inputs: list[str]
-    transform_fn: str
-    output_range: tuple[float, float] = (0.0, 1.0)
-    description: str
     display: AxisDisplaySpec | None = None
 
 

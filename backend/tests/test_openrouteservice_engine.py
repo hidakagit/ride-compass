@@ -7,7 +7,7 @@ RouteGenerator（戦略層）を通したエンドツーエンドで、エンジ
 
 from datetime import datetime, timezone
 
-from app.domain.difficulty import gradient_difficulty
+from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -499,7 +499,9 @@ async def test_segment_gradient_is_signed_and_negative_for_downhill():
     # 区間距離1.0km（FakeWindService）で標高差-10m → -1.0%
     assert seg.gradient_percent == -1.0
     # 難易度は勾配の絶対値で決まる（下りを「易しすぎる」扱いにはしない、domain/difficulty.py）
-    assert seg.axis_difficulties["gradient"] == gradient_difficulty(1.0)
+    assert seg.axis_difficulties["gradient"] == evaluate_axis_scalar(
+        AXIS_DEFINITIONS["gradient"], {"gradient_percent": 1.0}
+    )
 
 
 async def test_engine_name_is_openrouteservice():
