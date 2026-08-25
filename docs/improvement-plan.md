@@ -6122,6 +6122,137 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 依存: T320（直接の発端、同じ「ビルド時静的値とDB/GUI実行時値の取り違え」系統の
   問題が周辺のデッドコードにも波及していないか確認する動機）。
 
+**T321番号の重複についての注記**: 本タスクと並行して別セッションが独立に「T321」という
+番号を本タスク（軸スタジオのカテゴリ値テンプレート拡張）に採番していた。git
+fetch/mergeで発覚したため、本タスクをT322へ改番して重複を解消した（T318で確立した
+「番号衝突が起きたら片方を改番し注記を残す」運用に従う）。
+
+### - [x] T322. 軸スタジオの「カテゴリ値」テンプレートをcategorical材料（highway/bicycle_infra等）にも対応させる 規模S〜M（実装完了・2026-08-25）
+
+- 背景: ユーザーから「自転車専用道かどうかをどう設定すればいいか分からない」との実機
+  フィードバック。調査の結果、`material_catalog.py`には自転車専用道に対応する
+  `bicycle_infra`材料（`separated`値）が既に登録されていたが、`AxisComposer.tsx`の
+  「カテゴリ値」テンプレートの材料選択が`dtype === "boolean"`のみでフィルタされており、
+  `dtype="categorical"`の6材料（highway/surface/bicycle_infra/cycleway_class/
+  designation/smoothness）はどのテンプレートからも選択できないUI実装漏れだった。
+  backend側は改善計画T292で`CategoricalShape.mapping`が`dict[bool | str, float]`へ
+  既に拡張済みで、内部軸（`car_stress_highway_base`等）は実際にcategorical材料を
+  使っているため、GUIだけが取り残されていた。
+- 決定: 「カテゴリ値」テンプレートの材料選択肢へcategorical dtype材料も含め、選んだ
+  材料がcategoricalの場合は真偽値2択の代わりに「値(自由入力)→スコア」の行を複数
+  追加できるUIへ切り替える。値の一覧をAPIで返す仕組みは持たない（`material_catalog.py`
+  の各categorical材料が取りうる値は生OSMタグ値やdomain関数の分類結果でコード側にしか
+  無く、閉じた列挙として一元管理されていない材料もある）ため自由入力とし、マッピングに
+  無い値は評価対象外（欠損）として扱われる旨をUI上に明示する。
+- 実装: `AxisComposer.tsx`のみの変更（backend側は無改修、T292で既にcategorical値の
+  文字列mappingを受け付ける）。
+  - 材料選択の`filter`を`dtype === "boolean"`から`dtype === "boolean" || dtype ===
+    "categorical"`へ拡張。
+  - `Draft`へ`categoricalRows: {value, score}[]`を追加。材料切替時、選択先が
+    categoricalかつ現在0行なら空行を1件自動追加（terms/flags同様、最初から
+    編集対象が見える状態にする）。
+  - `draftFromExisting`は保存済みshapeの`material`のdtype（materialOptionsから
+    引く）で真偽値2択/カテゴリ値複数行のどちらを初期表示するか判定する
+    （mapping自体のキーはJSON化時点で常に文字列のため、キー型からは判別できない）。
+  - `buildShape`もdtypeで分岐し、categoricalの場合は空値行を除外して
+    `Object.fromEntries`でmappingを組み立てる。全行が空のまま送信しようとすると
+    フォーム側で「値ごとのスコアを少なくとも1件設定してください。」を出して弾く
+    （空mappingのまま保存され、全区間が黙って評価不能になる事故を防ぐ）。
+  - 値が元データのタグ値と完全一致でなければならないこと、未設定値は評価対象外
+    （欠損）になることをヒント文で明示。
+  - `docs/architecture.md`のT290節にあった「categorical材料はまだどの評価軸でも
+    使えない」という記述は、実際にはT292でbackend側が既に対応済みでGUI側だけが
+    取り残されていた（本タスクの直接の原因）ため、T322で解消した旨へ更新した。
+- 検証: frontend tsc --noEmit clean、eslint（変更2ファイル）clean、vitest 512 passed
+  （AxisStudio.test.tsxへ新規回帰テスト1件を追加、既存回帰なし）。ローカルdev環境
+  （frontend:3010・backend:8000、Basic認証はDATABASE_URL同様`.env`のdev専用値）で
+  軸スタジオを実機確認し、「カテゴリ値」テンプレートで「自転車インフラ種別」を選ぶと
+  値・スコアの複数行編集UIへ切り替わり、`separated`のような値を自由入力できることを
+  確認した（保存自体はコンソールエラー無し、`GET /api/axis-definitions`のみブラウザの
+  Basic認証URL埋め込み方式に起因する検証環境固有の制約で失敗——実運用のブラウザ
+  ネイティブ認証プロンプト経由では発生しない）。
+
+### - [ ] T323. 軸の削除時、他軸から材料として参照されている場合にその事実と影響を明示する 規模S〜M（未着手）
+
+- 背景: `.claude/commands/review/history/2026-08-25_ui.md` F-1（UIレビュー、専門知識のない
+  一般ユーザー視点での軸スタジオ実機確認）。`car_stress`公開軸が内部で依存する6つの下書き軸
+  （「車ストレス内部軸: highway基準値」等）が、軸一覧でユーザー自身が作った下書き軸と全く
+  同じ表示形式・同じ「削除」ボタンで並ぶ（`AxisStudio.tsx:137-182`は`is_published`の真偽
+  のみで表示を分岐し、「他軸から参照されている」という第3の状態を区別しない）。
+  `AxisRegistryAdminService.delete()`（`axis_registry_service.py:198-219`）も、最後の1軸
+  保護・公開済み軸保護はあるが、他軸の`MaterialTerm.material`としてこのaxis_idが参照されて
+  いるかどうかのチェックは無い。
+- 指摘の核心（ユーザー訂正、2026-08-25）: 論点は「内部軸の削除を禁止すべきか」ではない
+  ——内部軸を意図的に整理・再設計するために削除したい場面は今後もありうるため、一律拒否は
+  硬直的すぎる。核心は**削除しようとしている軸が他の軸から参照されている、という事実自体が
+  UI上見えないこと**。
+- 決定: 削除前に、参照されている場合はその事実と影響（例:「この軸は公開軸『車の圧迫感』から
+  参照されています。削除すると評価できなくなります。」）を明示する（確認ダイアログ・警告
+  表示等）。一律拒否ガードは「それでも削除しようとした場合の最終防波堤」程度の位置づけに
+  留める。
+- Scope: frontend側の警告表示はS、backend側で「参照元一覧」を返す仕組み（削除APIレスポンス
+  or 事前チェック用エンドポイント）を追加する場合はM。
+- 参照: `.claude/commands/review/history/2026-08-25_ui.md` F-1（Confidence: High、削除後の
+  実際の壊れ方の詳細はMedium）。
+
+### - [ ] T324. 軸スタジオの変換テンプレート4択の説明文を、専門知識のない一般ユーザー向けに言い換える 規模M（未着手）
+
+- 背景: `.claude/commands/review/history/2026-08-25_ui.md` F-2。新規軸作成の最初の必須判断
+  である「変換テンプレート(shape)」の4択（`AxisComposer.tsx:27-34`
+  `SHAPE_KIND_DESCRIPTIONS`）が、いずれも数学・統計寄りの専門用語（区分線形補間・線形結合・
+  折れ点・レシピ判定済み材料・フラグ加算）で構成されており、「その用語が何であるか」は
+  説明していても「どんな時にこれを選ぶか」を説明していない。材料(terms)欄の選択肢自体も
+  「勾配%（符号付き）」「向かい風ペナルティ(m/s、正=向かい風)」等、単位・符号規約付きで
+  専門知識前提。
+- 決定: 各テンプレートの説明文冒頭を「◯◯したいとき」というユースケース文へ言い換える
+  （例: 「YES/NOで判定したい（一方通行かどうか、等）→カテゴリ値」「値が大きい/小さいほど
+  点数を変えたい（勾配が急なほど減点、等）→区分線形補間」）。技術名は括弧書きで残してよいが
+  主役にしない。
+- Scope: M（4テンプレート分の文言設計＋表示順の再検討）。
+- 参照: `.claude/commands/review/history/2026-08-25_ui.md` F-2（Confidence: High）。
+
+### - [ ] T325. 「車の圧迫感」軸のサマリ表示で、他axis_id参照材料をaxis_idのlabelへ解決する 規模S（未着手）
+
+- 背景: `.claude/commands/review/history/2026-08-25_ui.md` F-3。`AxisStudio.tsx:148-152`の
+  `materialLabel(t.material)`が、`car_stress`軸のterms（T292「他axis_idを材料として参照する
+  内部軸階層」）に対しては該当ラベルを引けず、`axisMaterialsCatalog.ts: materialLabel()`の
+  フォールバック（`?? materialId`）でid素通しになる実装バグ。一覧に
+  「car_stress_highway_base・car_stress_bicycle_infra_adjustment・...」という生の
+  snake_case識別子がそのまま表示される（他の軸は正しく日本語ラベル化されている）。
+- 決定: `materialLabel`呼び出し側で、`t.material`が材料idではなくaxis_idを指すケース
+  （`known_axis_ids`に含まれる場合）は、そのaxis_idの`label`を解決して表示する
+  （`AxisStudio`は`definitions`一覧を既に持っているため追加取得は不要）。
+- Scope: S（`AxisStudio.tsx`のサマリ生成部1箇所）。
+- 参照: `.claude/commands/review/history/2026-08-25_ui.md` F-3（Confidence: High、コード上の
+  フォールバック仕様・呼び出し元を確認済み）。
+
+### - [ ] T326. 軸スタジオ「カテゴリ値」テンプレートの選択肢ラベルを、多値対応後の実態に合わせて修正 規模S（未着手）
+
+- 背景: `.claude/commands/review/history/2026-08-25_ui.md` F-4。T322で「カテゴリ値」
+  テンプレートをcategorical材料（多値）にも対応させたが、`<select>`の選択肢ラベル
+  （`AxisComposer.tsx:419`付近 `<option value="categorical">カテゴリ値（真偽2値→定数）
+  </option>`）の文言更新を忘れていた（説明文`SHAPE_KIND_DESCRIPTIONS`側は更新済み）。
+  「真偽2値」という表記が実態と食い違い、多値カテゴリ材料が選べることに気づきにくい。
+- 決定: 「カテゴリ値（真偽値・複数値→定数）」等、多値対応を反映した文言へ修正する。
+- Scope: S（1行）。
+- 参照: `.claude/commands/review/history/2026-08-25_ui.md` F-4（Confidence: High）。
+
+### - [ ] T327. 軸スタジオの折れ点(breakpoints)編集欄に、スコアの向き（走りやすさの規約）を明示する 規模S（未着手）
+
+- 背景: `.claude/commands/review/history/2026-08-25_ui.md` F-5。「折れ点(breakpoints)
+  [入力値, スコア0-100]」欄（`AxisComposer.tsx:454-471`付近）は数値ペアを並べるだけで、
+  スコア0〜100が「走りやすさ」を指すのか「難しさ」を指すのかがフィールド上に明示されない。
+  既存軸のbreakpoints実データ（`gradient`: `[0,0],[3,25],[6,50],[9,75],[15,100]`）から
+  逆算すると「スコアが高いほど走りやすい」という規約と読み取れるが、この規約はUI文言の
+  どこにも書かれていない。専門知識のないユーザーが折れ点を自分で編集すると、意図と逆方向の
+  スコアリングを誤って作ってしまうリスクが高い。
+- 決定: 見出し付近に「スコアは0(最も走りにくい)〜100(最も走りやすい)」という1行の規約説明を
+  追加する。折れ点の推移をグラフでプレビュー表示する拡張は別途検討（規模M〜L、本タスクの
+  スコープ外）。
+- Scope: S（文言追加のみ）。
+- 参照: `.claude/commands/review/history/2026-08-25_ui.md` F-5（Confidence: High、UI文言の
+  欠如は確認済み。実データからの規約推測はInference）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の

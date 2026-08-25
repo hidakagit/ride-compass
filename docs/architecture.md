@@ -1267,13 +1267,17 @@ T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自�
 拡張し、多値カテゴリカルな6件（`highway`・`surface`・`bicycle_infra`・
 `cycleway_class`・`designation`・`smoothness`）は`categorical`として登録した。
 
-**「登録」と「評価軸での利用」は独立**: `CategoricalShape.mapping`は現状
-`dict[bool, float]`（真偽値限定）のため、`categorical`材料は軸スタジオの選択肢には
-現れるが、まだどの評価軸の材料としても使えない（選んでもバリデーションで拒否される。
-`_check_materials_are_known`の`material_dtype(m) != expected_dtype`判定が
-`categorical`をnumeric/booleanどちらとも不一致として扱うため、安全に拒否される）。
-`CategoricalShape`の文字列対応拡張は、実際にcategorical材料を使う新規軸の要求が
-出た時点で行う（トリガー付きDEFER、今使う予定のない評価ロジックを先回りで作らない）。
+**「登録」と「評価軸での利用」は独立**: 執筆当初（T290）は`CategoricalShape.mapping`が
+`dict[bool, float]`（真偽値限定）だったため、`categorical`材料は軸スタジオの選択肢には
+現れるがまだどの評価軸の材料としても使えない状態だった。その後改善計画T292で
+`CategoricalShape.mapping`が`dict[bool | str, float]`へ拡張され（`_check_materials_are_known`
+の許容dtypeも`categorical`を含むよう追従）、内部軸（`car_stress_highway_base`・
+`car_stress_bicycle_infra_adjustment`等）が実際にcategorical材料を使うようになった。
+ただし軸スタジオGUI（`AxisComposer.tsx`）側は「カテゴリ値」テンプレートの材料選択が
+`dtype === "boolean"`のみに絞られたままで、GUIからcategorical材料を選べない状態が
+改善計画T322まで残っていた（バックエンドの利用可否とGUIの選択可否がT292時点で
+乖離していた）。T322で「カテゴリ値」テンプレートの材料選択肢へcategorical dtype材料も
+含め、選択時は値(自由入力)ごとのスコアを複数行で設定できるUIへ拡張し、この乖離を解消した。
 
 フロント側`lib/axisMaterialsCatalog.ts: AxisMaterialOption`は`boolean: boolean`
 （2値フラグ）から`dtype: AxisMaterialDType`（"numeric"/"boolean"/"categorical"の3値）へ

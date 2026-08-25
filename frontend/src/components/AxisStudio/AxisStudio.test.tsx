@@ -128,6 +128,29 @@ describe("AxisStudio", () => {
     expect(screen.getByText("勾配")).toBeInTheDocument();
   });
 
+  // 改善計画T322: 「カテゴリ値」テンプレートの材料選択にcategorical dtype材料
+  // （bicycle_infra等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
+  it("「カテゴリ値」テンプレートでcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "変換テンプレート(shape)" }), "categorical");
+
+    const materialSelect = screen.getByRole("combobox", { name: "材料(material)" });
+    // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として自転車インフラ種別を含む。
+    expect(screen.getByRole("option", { name: "自転車インフラ種別" })).toBeInTheDocument();
+    await user.selectOptions(materialSelect, "bicycle_infra");
+
+    expect(screen.queryByText("該当時(true)のスコア")).not.toBeInTheDocument();
+    const valueInput = screen.getByLabelText("値");
+    await user.type(valueInput, "separated");
+    await user.click(screen.getByRole("button", { name: "+ 値を追加" }));
+    expect(screen.getAllByLabelText("値")).toHaveLength(2);
+  });
+
   it("公開済み軸には「非公開に戻す」ボタンが表示され、下書き軸には表示されない", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
       definition({ axis_id: "gradient", is_published: true }),

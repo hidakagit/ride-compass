@@ -29,7 +29,8 @@ const SHAPE_KIND_DESCRIPTIONS: Record<ShapeKind, string> = {
     "1つ以上の材料を重み付きで足し合わせ、折れ点（入力値→スコア）でなめらかに0〜100点へ変換します。例: 勾配(%)が急なほど点数を下げる。",
   recipe_then_breakpoint_linear:
     "他の軸（is_published=falseの内部軸）の計算結果を材料として使う場合に選びます。変換の仕組み自体はひとつ上の区分線形補間と同じです。",
-  categorical: "真偽値1つを見て、該当する/しないの2パターンにそれぞれ固定スコアを割り当てます。例: 一方通行かどうか。",
+  categorical:
+    "真偽値、または複数の値を持つカテゴリ材料を見て、値ごとに固定スコアを割り当てます。例: 一方通行かどうか（真偽値）、道路種別ごとに点数を変える（カテゴリ値）。",
   flag_sum: "複数の真偽フラグそれぞれに加点し合計します（上限[cap]を設定可）。例: 危険要因が多いほど減点する。",
 };
 
@@ -63,6 +64,14 @@ interface FlagDraft {
   points: number;
 }
 
+/** 改善計画T322: categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
+ * 「カテゴリ値」テンプレートで使うための(値, スコア)行。値は自由入力（既知の値一覧を
+ * 返すAPIを持たないため）で、mapping未登録の値は評価対象外(欠損)として扱われる。 */
+interface CategoricalRowDraft {
+  value: string;
+  score: number;
+}
+
 interface Draft {
   axisId: string;
   label: string;
@@ -75,6 +84,9 @@ interface Draft {
   categoricalMaterial: string;
   trueScore: number;
   falseScore: number;
+  /** 改善計画T322: categoricalMaterialのdtypeが"categorical"のときのみ使う行群。
+   * dtype="boolean"の材料を選んでいる間はtrueScore/falseScoreの方を使う。 */
+  categoricalRows: CategoricalRowDraft[];
   flags: FlagDraft[];
   cap: number | null;
   /** 改善計画T271: 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
@@ -117,6 +129,7 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     categoricalMaterial: firstBoolean,
     trueScore: 0,
     falseScore: 80,
+    categoricalRows: [],
     flags: [{ material: firstBoolean, points: 50 }],
     cap: 100,
     isPublished: false,
@@ -150,6 +163,18 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
   // backend側の判別子(kind)に合わせてこちらを単一の判定基準にする）。
   if (shape.kind === "categorical") {
+    // 改善計画T322: 材料のdtypeで真偽値2択/カテゴリ値複数行のどちらの編集UIを
+    // 初期表示するか決める（保存済みmapping自体のキー型からは判別しない。JSON化された
+    // mappingのキーは常に文字列で、bool材料でも"true"/"false"という文字列キーになるため）。
+    const dtype = materialOptions.find((m) => m.id === shape.material)?.dtype;
+    if (dtype === "categorical") {
+      return {
+        ...common,
+        shapeKind: "categorical",
+        categoricalMaterial: shape.material,
+        categoricalRows: Object.entries(shape.mapping).map(([value, score]) => ({ value, score })),
+      };
+    }
     return {
       ...common,
       shapeKind: "categorical",
@@ -182,7 +207,7 @@ function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readon
   return { ...draftFromExisting(def, materialOptions), axisId: generateAxisId(), isPublished: false };
 }
 
-function buildShape(draft: Draft): AxisShape {
+function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]): AxisShape {
   if (draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") {
     return {
       kind: draft.shapeKind,
@@ -192,6 +217,16 @@ function buildShape(draft: Draft): AxisShape {
     };
   }
   if (draft.shapeKind === "categorical") {
+    const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+    if (dtype === "categorical") {
+      return {
+        kind: "categorical",
+        material: draft.categoricalMaterial,
+        mapping: Object.fromEntries(
+          draft.categoricalRows.filter((r) => r.value.trim() !== "").map((r) => [r.value.trim(), r.score]),
+        ),
+      };
+    }
     return {
       kind: "categorical",
       material: draft.categoricalMaterial,
@@ -245,6 +280,16 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       setError("表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。");
       return;
     }
+    // 改善計画T322: categorical材料選択時、値の行が1つも入力されていないと
+    // mapping={}のまま保存されてしまい（全区間で評価不能=欠損になるだけで保存自体は
+    // 通ってしまう）、設定し忘れに気づきにくいため事前に弾く。
+    if (draft.shapeKind === "categorical") {
+      const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+      if (dtype === "categorical" && draft.categoricalRows.every((r) => r.value.trim() === "")) {
+        setError("値ごとのスコアを少なくとも1件設定してください。");
+        return;
+      }
+    }
     const payload: AxisDefinitionPayload = {
       axis_id: draft.axisId,
       label: draft.label.trim(),
@@ -255,7 +300,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       // 仕組みからこれらを生み出すのは概念上おかしい、というユーザー指摘を受けて固定した。
       category: "推定",
       default_weight: draft.defaultWeight,
-      shape: buildShape(draft),
+      shape: buildShape(draft, materialOptions),
       is_published: draft.isPublished,
       // 改善計画T310: 空文字列は「未設定」の意味でnullへ変換する（trim()の理由はlabelと同じ、
       // 空白のみの入力を未設定扱いにする）。
@@ -296,6 +341,21 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
 
   function updateFlag(index: number, patch: Partial<FlagDraft>) {
     setDraft((d) => ({ ...d, flags: d.flags.map((f, i) => (i === index ? { ...f, ...patch } : f)) }));
+  }
+
+  function updateCategoricalRow(index: number, patch: Partial<CategoricalRowDraft>) {
+    setDraft((d) => ({
+      ...d,
+      categoricalRows: d.categoricalRows.map((r, i) => (i === index ? { ...r, ...patch } : r)),
+    }));
+  }
+
+  function addCategoricalRow() {
+    setDraft((d) => ({ ...d, categoricalRows: [...d.categoricalRows, { value: "", score: 0 }] }));
+  }
+
+  function removeCategoricalRow(index: number) {
+    setDraft((d) => ({ ...d, categoricalRows: d.categoricalRows.filter((_, i) => i !== index) }));
   }
 
   // 選択中iconIdのプレビュー表示用。axisIconFor自体はaxisIconPalette.tsxの固定辞書を
@@ -440,33 +500,88 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
         </div>
       )}
 
-      {draft.shapeKind === "categorical" && (
-        <div className={styles.shapeGroup}>
-          <label className={styles.field}>
-            材料(material)
-            <select
-              value={draft.categoricalMaterial}
-              onChange={(e) => setDraft((d) => ({ ...d, categoricalMaterial: e.target.value }))}
-            >
-              {materialOptions.filter((m) => m.dtype === "boolean").map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className={styles.row}>
+      {draft.shapeKind === "categorical" && (() => {
+        // 改善計画T322: 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
+        // categorical→値ごとのスコア行）。
+        const selectedDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+        return (
+          <div className={styles.shapeGroup}>
             <label className={styles.field}>
-              該当時(true)のスコア
-              <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
+              材料(material)
+              <select
+                value={draft.categoricalMaterial}
+                onChange={(e) => {
+                  const nextMaterial = e.target.value;
+                  const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
+                  setDraft((d) => ({
+                    ...d,
+                    categoricalMaterial: nextMaterial,
+                    categoricalRows:
+                      nextDtype === "categorical" && d.categoricalRows.length === 0
+                        ? [{ value: "", score: 0 }]
+                        : d.categoricalRows,
+                  }));
+                }}
+              >
+                {materialOptions
+                  .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+              </select>
             </label>
-            <label className={styles.field}>
-              非該当時(false)のスコア
-              <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
-            </label>
+            {selectedDtype === "categorical" ? (
+              <>
+                <p className={styles.hint}>
+                  値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。
+                </p>
+                <p className={styles.groupLabel}>値ごとのスコア</p>
+                {draft.categoricalRows.map((row, i) => (
+                  <div key={i} className={styles.termRow}>
+                    <input
+                      type="text"
+                      value={row.value}
+                      aria-label="値"
+                      placeholder="例: separated"
+                      onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
+                    />
+                    <input
+                      type="number"
+                      step="1"
+                      value={row.score}
+                      aria-label="スコア"
+                      onChange={(e) => updateCategoricalRow(i, { score: Number(e.target.value) })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeCategoricalRow(i)}
+                      disabled={draft.categoricalRows.length <= 1}
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className={styles.addButton} onClick={addCategoricalRow}>
+                  + 値を追加
+                </button>
+              </>
+            ) : (
+              <div className={styles.row}>
+                <label className={styles.field}>
+                  該当時(true)のスコア
+                  <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
+                </label>
+                <label className={styles.field}>
+                  非該当時(false)のスコア
+                  <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
+                </label>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {draft.shapeKind === "flag_sum" && (
         <div className={styles.shapeGroup}>
