@@ -5,14 +5,16 @@ import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
+import { Button } from "@/components/ui/Button/Button";
 import MapView from "@/components/Map/MapView";
 import LocationControl from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllLayersIcon,
-  DeveloperIcon,
+  LogIcon,
   MapAppearanceIcon,
   RouteIcon,
+  RouteSettingsIcon,
 } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
@@ -84,6 +86,8 @@ import {
   nearestTimeIndex,
 } from "@/components/Map/dynamicWeather";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
+import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 // 改善計画T270: WeightPanel自体（編集UI）は/adminへ移設したが、既定値定数は
 // useStoredJsonStateの初期値としてこのページでも使う。
 import { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
@@ -205,16 +209,20 @@ const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   },
 ];
 
-// 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>とモバイルのBottomSheetの
-// 見出しの両方で使う（両者は排他表示のためid重複しない）。地図の見え方セクション
-// （MapLayersPanel）のルート未生成時の案内からの誘導スクロール先でもある。
+// 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>専用
+// （改善計画T300: モバイルは「ルート設定」「ルート結果」の2タブへ分割したため、
+// 専用のROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 // モバイルの「地図の見え方」シート見出しのDOM id。
 const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
-// モバイルの「開発者」シート見出しのDOM id。
-const DEVELOPER_SHEET_TITLE_ID = "developer-sheet-title";
+// モバイルの「ルート設定」「ルート結果」シート見出しのDOM id（改善計画T300、
+// 「ルート詳細」タブの2分割に伴い新設。旧DEVELOPER_SHEET_TITLE_IDは「開発者」タブ廃止に
+// 伴い削除——地図データ再読み込みは地図の見え方タブへ、デバッグログはヘッダーアイコンへ
+// それぞれ移設した）。
+const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
+const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
-type MobileSheet = "route" | "map" | "developer" | null;
+type MobileSheet = "routeSettings" | "routeOutcome" | "map" | null;
 
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe } = useLocation();
@@ -464,6 +472,14 @@ export default function Home() {
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
   const researchEnabled = useResearchEnabled();
+  // 改善計画T303: RouteSettingsPanelのroute_preferenceキー整合自己修復（T269・T302）は
+  // そのパネルがマウントされたときにしか走らない。モバイルでは生成ボタンがヘッダーへ
+  // 分離済み（T250）のため「ルート設定」タブを一度も開かずに生成できてしまい、
+  // 稀にキー不整合のまま送信して422になりうる。ここでもカタログを取得し、生成リクエスト
+  // 組み立て時（handleGenerate）に同じ整合チェックを適用する（syncRoutePreferenceKeys、
+  // RouteSettingsPanel.tsxと共有）。routePreference state自体は書き換えない
+  // （送信直前の値だけを補正する、常時同期化はスコープ外）。
+  const axisCatalog = useAxisCatalog();
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
@@ -724,7 +740,7 @@ export default function Home() {
   }, [overlayLayers, handleLayerToggle]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
-  const handleMobileTabClick = useCallback((sheet: "route" | "map" | "developer") => {
+  const handleMobileTabClick = useCallback((sheet: "routeSettings" | "routeOutcome" | "map") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
   }, []);
 
@@ -1151,6 +1167,9 @@ export default function Home() {
     setLoading(true);
     setErrorMessage(null);
     try {
+      // 改善計画T303: 送信直前にキー整合を補正する（上のコメント参照）。RouteSettingsPanel
+      // がマウント済みならこの時点で既にキーは一致しており synced は null になる。
+      const syncedRoutePreference = syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference;
       const { routes: candidates, conditions, engine } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
@@ -1162,7 +1181,7 @@ export default function Home() {
         // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
         // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
-        ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: routePreference } : {}),
+        ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: syncedRoutePreference } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -1211,8 +1230,10 @@ export default function Home() {
   }
 
   // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
-  // デスクトップの<details>専用（改善計画T250でモバイルはヘッダーの操作バー
-  // ＋下部「ルート詳細」タブへ分割したため、モバイルからはrenderRouteResultsBodyを呼ぶ）。
+  // デスクトップの<details>専用（改善計画T250でモバイルはヘッダーの操作バーへ出発地点・
+  // 距離・生成ボタンを分離済み。改善計画T300でモバイルの結果表示自体も「ルート設定」
+  // 「ルート結果」の2タブへ分割したため、デスクトップはその両方を続けて呼ぶことで
+  // 従来どおり1つの折りたたみ内に収める）。
   function renderRouteSectionBody() {
     return (
       <>
@@ -1225,16 +1246,37 @@ export default function Home() {
           loading={loading}
         />
         {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-        {renderRouteResultsBody()}
+        {renderRouteSettingsSectionBody()}
+        {renderRouteOutcomeSectionBody()}
       </>
     );
   }
 
-  // 生成結果に関する表示のみ（出発地点・距離入力・生成ボタンを含まない）。モバイルの
-  // 下部「ルート詳細」タブから直接呼ぶほか、デスクトップの「ルートを作る」ブロックからも
-  // renderRouteSectionBody経由で呼ぶ（改善計画T250: 出発地点・距離・生成ボタンを
-  // モバイル上部の操作バーへ移した結果、このタブの中身は生成結果だけになった）。
-  function renderRouteResultsBody() {
+  // 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・重みを
+  // 生成前に調整できる、常時表示のメイン導線。研究モードのWeightPanelとはroute_preference
+  // （weightOverrideEnabled）の状態を共有する（page.tsx冒頭のstate宣言・handleGenerateの
+  // コメント参照）。モバイルの「ルート設定」タブ、デスクトップの「ルートを作る」ブロック
+  // 前半から呼ぶ（改善計画T300、旧renderRouteResultsBodyの前半を分離）。
+  function renderRouteSettingsSectionBody() {
+    return (
+      <div className={layerPanelStyles.group}>
+        <h2 className={layerPanelStyles.groupTitle}>ルート設定</h2>
+        <RouteSettingsPanel
+          hardFilters={hardFilters}
+          onHardFiltersChange={setHardFilters}
+          routePreference={routePreference}
+          onRoutePreferenceChange={setRoutePreference}
+          overrideEnabled={weightOverrideEnabled}
+          onOverrideEnabledChange={setWeightOverrideEnabled}
+        />
+      </div>
+    );
+  }
+
+  // 生成結果に関する表示（設定変更の警告・空状態ガイド・候補一覧・比較表・色分け設定、
+  // ルート設定は含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」
+  // ブロック後半から呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。
+  function renderRouteOutcomeSectionBody() {
     return (
       <>
         {conditionsDirty && (
@@ -1246,21 +1288,6 @@ export default function Home() {
             距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
           </p>
         )}
-        {/* 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・
-            重みを生成前に調整できる、常時表示のメイン導線。研究モードのWeightPanelとは
-            route_preference（weightOverrideEnabled）の状態を共有する（page.tsx冒頭の
-            state宣言・handleGenerateのコメント参照）。 */}
-        <div className={layerPanelStyles.group}>
-          <h2 className={layerPanelStyles.groupTitle}>ルート設定</h2>
-          <RouteSettingsPanel
-            hardFilters={hardFilters}
-            onHardFiltersChange={setHardFilters}
-            routePreference={routePreference}
-            onRoutePreferenceChange={setRoutePreference}
-            overrideEnabled={weightOverrideEnabled}
-            onOverrideEnabledChange={setWeightOverrideEnabled}
-          />
-        </div>
         <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
         {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
             2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
@@ -1343,13 +1370,20 @@ export default function Home() {
     );
   }
 
-  // 「地図の見え方」の中身。開発者向け機能はrenderDeveloperSectionBody（独立した
-  // 「開発者」ブロック、旧称「設定」）へ分離済み（一般ユーザーは使わないログ起動を地図上の
-  // アイコンから追い出した際に、「地図の見え方」内の折りたたみからも独立ブロックへ
-  // 格上げした、T43）。
+  // 「地図の見え方」の中身。改善計画T300: 「開発者」ブロック（旧称「設定」）廃止に伴い、
+  // 地図インスタンス（refreshToken）に紐づく「地図データを再読み込み」ボタンをここへ
+  // 移設した（デバッグログ切替はヘッダーのアイコンボタンへ移設、下記header参照。
+  // 情報量が薄い独立ブロックとして維持する理由が無くなったため、両方とも他の場所へ
+  // 移すだけで「開発者」ブロック自体は廃止した）。
   function renderMapSettingsSectionBody() {
     return (
       <Card>
+        {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン。
+            このページが持つ地図インスタンス（refreshToken）に紐づくため、/adminへは
+            移設せずここに残す。 */}
+        <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
+          地図データを再読み込み
+        </button>
         <MapLayersPanel
           layerVisibility={layerVisibility}
           onLayerToggle={handleLayerToggle}
@@ -1368,39 +1402,6 @@ export default function Home() {
     );
   }
 
-  // 「開発者」ブロック（旧称「設定」）の中身。改善計画T270で、DebugPanel（デバッグモード
-  // ON/OFF設定）・SystemStatusPanel・BackendStatus（バックエンド集計、地図に依存しない）は
-  // 独立URLの管理画面（/admin）へ移設した。DebugConsole（地図の表示イベント・API呼び出しの
-  // ライブログ）は一度/adminへ移設したが、レビュー指摘（/adminには地図が無くログの発生源
-  // そのものが無いため実質機能しなくなっていた——各タブは独立したJSランタイムでログの
-  // in-memoryな記録先lib/debugLog.tsを共有しないため、他タブでの地図操作は/adminのログに
-  // 現れない）を受けてこのページへ戻した（2026-08-24）。デバッグモードのON/OFF自体は
-  // 引き続き/adminで切り替える（useDebugEnabledはlocalStorage共有のためどちらのページからも
-  // 同じ状態を参照できる、researchMode.tsと同型）。
-  function renderDeveloperSectionBody() {
-    return (
-      <>
-        {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン。
-            このページが持つ地図インスタンス（refreshToken）に紐づくため、/adminへは
-            移設せずここに残す。 */}
-        <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
-          地図データを再読み込み
-        </button>
-        {debugEnabled && (
-          <button
-            type="button"
-            onClick={() => setDebugConsoleOpen((v) => !v)}
-            aria-pressed={debugConsoleOpen}
-            className={styles.refreshButton}
-          >
-            {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-          </button>
-        )}
-        <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
-      </>
-    );
-  }
-
   return (
     <div className={styles.viewport}>
       {/* 天候は生成条件（風評価の起点）だが、以前はサイドバー内の「ルートを作る」ブロックに
@@ -1412,13 +1413,32 @@ export default function Home() {
       >
         <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
         <WarningBadgeList items={warningBadgeItems} />
+        {/* デバッグログの起動アイコン（改善計画T300）。以前は「開発者」タブ内のボタン
+            だったが、そのタブ自体を廃止したためヘッダーへ移設した。debugEnabled時のみ
+            表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
+            DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
+            JSXツリー上のどこに置いても見た目は変わらない。 */}
+        {debugEnabled && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setDebugConsoleOpen((v) => !v)}
+            aria-pressed={debugConsoleOpen}
+            aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+            title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+            className="ml-auto shrink-0"
+          >
+            <LogIcon size={15} />
+          </Button>
+        )}
       </header>
+      <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
 
       {/* モバイル専用の操作バー（改善計画T250）。「ルートを作る」タブを開かないと出発地点の
           確認も生成もできない、という導線の長さが実機フィードバックだったため、天候ヘッダー
           直下に常設し、地図を見ながらでも操作できるようにした。生成ボタンがタブの外に出た
           ことで、失敗時のエラーメッセージが見えなくなる回帰を避けるためここにも表示する
-          （生成結果自体は下部「ルート詳細」タブ、renderRouteResultsBody参照）。 */}
+          （生成結果自体は下部「ルート結果」タブ、renderRouteOutcomeSectionBody参照）。 */}
       {isMobile && (
         <div className={styles.mobileActionBar}>
           <LocationControl location={location} source={locationSource} compact />
@@ -1448,23 +1468,16 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
-                    「B. 地図の見え方（表示系・即時反映）」「研究（評価重み・車ストレスレシピの
-                    上書き）」「C. 開発者（運用/デバッグツール、旧称「設定」）」の4ブロック構成
-                    （UI一貫性再編T30、地図上のログアイコン廃止に伴い開発者向けをBから
-                    独立ブロックへ格上げ、T43）。生成に効く条件（出発地点・距離・重み）が
+                    「B. 地図の見え方（表示系・即時反映）」の2ブロック構成
+                    （UI一貫性再編T30）。生成に効く条件（出発地点・距離・重み）が
                     画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。
-                    「研究」ブロックは元々、トグル自体を「設定」ブロックへ・調整パネルをAブロックへ
-                    分けて置いていたが、評価重み・車ストレスレシピは生成時にも地図描画時にも
-                    使う横断的パラメータでA/Bどちらの子でもなく、スマホでは2つが別タブに
-                    分かれるため「設定タブでONにしても効果がどこに出るか分からない」という
-                    実機フィードバックを受け、トグルと効果を同居させる独立ブロックへ切り出した。
-                    切り出した後の「設定」ブロックには研究モード関連が一切残らず開発者/運用
-                    ツールのみになったため、「設定」から「開発者」へ改名した（いずれも改善計画:
-                    研究パラメータの導線改善）。 */}
+                    評価重み・車ストレスレシピの調整UI（旧「研究」ブロック）はT270で/adminへ
+                    移設済み。運用/デバッグツール（旧「C. 開発者」ブロック、旧称「設定」）は
+                    改善計画T300で廃止し、地図データ再読み込みボタンはB（地図の見え方）へ、
+                    デバッグログ切替は常設ヘッダーのアイコンへそれぞれ移設した
+                    （renderMapSettingsSectionBody・header部分参照）。 */}
 
-                {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。このブロック内の
-                    編集は生成ボタンを押すまで地図へ影響しない（評価重み・車ストレスレシピの
-                    上書きは独立した「研究」ブロックにあり、この契約の対象外）。 */}
+                {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。 */}
                 <Disclosure
                   className={styles.blockSection}
                   triggerClassName={styles.blockSummary}
@@ -1490,23 +1503,6 @@ export default function Home() {
                   <h2 className={styles.blockHeading}>地図の見え方</h2>
                   {renderMapSettingsSectionBody()}
                 </section>
-
-                {/* C. 開発者（旧称「設定」）: デバッグログ起動・疎通確認・キャッシュ更新など、
-                    一般ユーザーは通常触らない運用/デバッグツール。デフォルト閉の折りたたみに
-                    する（T30・T43）。 */}
-                <Disclosure
-                  className={styles.blockSection}
-                  triggerClassName={styles.blockSummary}
-                  bodyClassName={styles.blockBody}
-                  summary={
-                    <>
-                      <span aria-hidden="true" className={styles.blockChevron} />
-                      開発者
-                    </>
-                  }
-                >
-                  {renderDeveloperSectionBody()}
-                </Disclosure>
               </>
             )}
           </aside>
@@ -1611,28 +1607,47 @@ export default function Home() {
         </div>
       </div>
 
-      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート4枚へ置換
-          （モバイル実機フィードバック対応T34、開発者向け機能の独立ブロック化に伴い
-          「設定」タブを追加、T43。評価重み・車ストレスレシピのトグルと調整パネルが
-          別タブに分かれていて分かりにくいという実機フィードバックを受け「研究」タブを追加、
-          切り出し後の「設定」タブが開発者/運用ツールのみになったため「開発者」へ改名
-          （いずれも改善計画: 研究パラメータの導線改善）。各タブはアイコン+1行ラベル
-          （地図上のiconChip、MapOverlayControls.module.cssと同じ構成）。文字だけだと
-          「開発者」が4rem幅ボタン内で折り返され読みにくいという実機フィードバックを受けて
-          アイコン化した。「研究」「開発者」は一般ユーザーが日常的に使う2タブより控えめな幅に
-          する（tabButtonSmall）。シート表示中も地図の上側が見えたままパン/ズームできる
-          （暗幕なし、詳細はBottomSheetのコメント参照）。 */}
+      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート3枚へ置換
+          （モバイル実機フィードバック対応T34）。改善計画T300: 「ルート詳細」パネルが
+          RouteSettingsPanel・RouteList・ComparisonPanel・色分け設定を1枚に同居させ縦長に
+          なっていたという実機フィードバックを受け、「ルート設定」「ルート結果」の2タブへ
+          分割した。空いた枠は増やさず、情報量の薄かった「開発者」タブ（廃止、地図データ
+          再読み込みは地図の見え方タブへ・デバッグログはヘッダーアイコンへ移設）の枠を使う
+          ため、タブ総数は3のまま変わらない。各タブはアイコン+1行ラベル（地図上のiconChip、
+          MapOverlayControls.module.cssと同じ構成）。「ルート結果」タブには、設定変更後
+          未反映（conditionsDirty）を分割前と同じくタブを開かなくても気づけるよう、
+          小さいバッジを付ける（完了条件(c)）。シート表示中も地図の上側が見えたまま
+          パン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
       {isMobile && (
         <>
           <nav className={styles.mobileTabBar} aria-label="パネル切り替え">
             <button
               type="button"
-              aria-pressed={mobileSheet === "route"}
-              onClick={() => handleMobileTabClick("route")}
-              className={mobileSheet === "route" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
+              aria-pressed={mobileSheet === "routeSettings"}
+              onClick={() => handleMobileTabClick("routeSettings")}
+              className={
+                mobileSheet === "routeSettings" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
+              }
+            >
+              <RouteSettingsIcon />
+              <span className={styles.tabLabel}>ルート設定</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileSheet === "routeOutcome"}
+              onClick={() => handleMobileTabClick("routeOutcome")}
+              className={`relative ${
+                mobileSheet === "routeOutcome" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
+              }`}
             >
               <RouteIcon />
-              <span className={styles.tabLabel}>ルート詳細</span>
+              <span className={styles.tabLabel}>ルート結果</span>
+              {conditionsDirty && (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-[0.6rem] top-[0.35rem] h-[0.5rem] w-[0.5rem] rounded-full bg-[var(--color-warning-strong)]"
+                />
+              )}
             </button>
             <button
               type="button"
@@ -1643,31 +1658,30 @@ export default function Home() {
               <MapAppearanceIcon />
               <span className={styles.tabLabel}>地図の見え方</span>
             </button>
-            <button
-              type="button"
-              aria-pressed={mobileSheet === "developer"}
-              onClick={() => handleMobileTabClick("developer")}
-              className={
-                mobileSheet === "developer"
-                  ? `${styles.tabButton} ${styles.tabButtonSmall} ${styles.tabButtonActive}`
-                  : `${styles.tabButton} ${styles.tabButtonSmall}`
-              }
-            >
-              <DeveloperIcon />
-              <span className={styles.tabLabel}>開発者</span>
-            </button>
           </nav>
 
           <BottomSheet
-            open={mobileSheet === "route"}
+            open={mobileSheet === "routeSettings"}
             onClose={() => setMobileSheet(null)}
-            title="ルート詳細"
-            titleId={GENERATE_SECTION_TITLE_ID}
+            title="ルート設定"
+            titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderRouteResultsBody()}
+            {renderRouteSettingsSectionBody()}
+          </BottomSheet>
+
+          <BottomSheet
+            open={mobileSheet === "routeOutcome"}
+            onClose={() => setMobileSheet(null)}
+            title="ルート結果"
+            titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
+            heightVh={mobileSheetHeightVh}
+            onHeightChange={handleMobileSheetHeightChange}
+            onHeightCommit={commitMobileSheetHeight}
+          >
+            {renderRouteOutcomeSectionBody()}
           </BottomSheet>
 
           <BottomSheet
@@ -1680,18 +1694,6 @@ export default function Home() {
             onHeightCommit={commitMobileSheetHeight}
           >
             {renderMapSettingsSectionBody()}
-          </BottomSheet>
-
-          <BottomSheet
-            open={mobileSheet === "developer"}
-            onClose={() => setMobileSheet(null)}
-            title="開発者"
-            titleId={DEVELOPER_SHEET_TITLE_ID}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={commitMobileSheetHeight}
-          >
-            {renderDeveloperSectionBody()}
           </BottomSheet>
         </>
       )}

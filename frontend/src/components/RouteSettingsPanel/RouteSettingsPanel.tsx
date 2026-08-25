@@ -5,6 +5,7 @@ import LayerChip from "@/components/Map/LayerChip";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
 import { AXIS_CATEGORIES } from "@/lib/evaluationAxes";
+import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
@@ -102,14 +103,8 @@ export default function RouteSettingsPanel({
   // どちらも値を変えずキーの追加/削除だけなのでoverrideEnabledは動かさない、
   // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う。
   useEffect(() => {
-    const catalogAxisIds = new Set(Object.keys(catalog.defaultWeights));
-    const missingAxisIds = Object.keys(catalog.defaultWeights).filter((id) => !(id in routePreference));
-    const staleAxisIds = Object.keys(routePreference).filter((id) => !catalogAxisIds.has(id));
-    if (missingAxisIds.length === 0 && staleAxisIds.length === 0) return;
-    const synced = { ...routePreference };
-    for (const id of missingAxisIds) synced[id] = catalog.defaultWeights[id];
-    for (const id of staleAxisIds) delete synced[id];
-    onRoutePreferenceChange(synced);
+    const synced = syncRoutePreferenceKeys(routePreference, catalog.defaultWeights);
+    if (synced) onRoutePreferenceChange(synced);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog.defaultWeights]);
 

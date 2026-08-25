@@ -472,12 +472,14 @@ export function ResearchIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 開発者（モバイル下部タブ）: コードを表す山カッコ「&lt; &gt;」 */
-export function DeveloperIcon({ size = 16 }: IconProps) {
+/** ルート設定（モバイル下部タブ、改善計画T300）: 高さ違いのスライダー3本 */
+export function RouteSettingsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M7 5 2 10l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M13 5l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="7" cy="6" r="1.8" fill="currentColor" />
+      <circle cx="13" cy="10" r="1.8" fill="currentColor" />
+      <circle cx="9" cy="14" r="1.8" fill="currentColor" />
     </svg>
   );
 }
