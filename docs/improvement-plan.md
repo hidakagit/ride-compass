@@ -6330,6 +6330,193 @@ fetch/mergeで発覚したため、本タスクをT322へ改番して重複を�
   表示されること（サイレント失敗しないこと）を確認した。
 - 依存: T321〜T323（UIレビューとその起票群）、T270（軸スタジオ基盤）。
 
+### - [ ] T328. テスト品質監査で発見した現存する実装バグ4件の修正 規模S（未着手）
+
+- 背景: T321完了後、「実装とテストの乖離が無いか」という観点で全211実装ファイルを対象に
+  機械的トリアージ＋16並列エージェントによる全件監査を実施した（成果物:
+  https://claude.ai/code/artifact/46de02ba-3db5-4356-a776-215262996dfe ）。この監査は
+  「テストの不足」を探す過程で、テストの話ではなく**実装自体が壊れている**箇所を4件
+  発見した。いずれも小規模な修正で完結する。
+- 対応内容（4件、優先度順）:
+  1. **`backend/benchmarks/bench_evaluate_graph.py:33-37`（今回のT321コミット自身が原因）**:
+     `EvaluationService.evaluate_graph()`の第4引数`preference`をT321で必須化した際、
+     追従修正した`bench_nearest_node.py`等4ファイルにこのファイルだけ含まれておらず、
+     実行すると`TypeError: missing 1 required positional argument: 'preference'`で
+     即失敗する。`run_all.py`経由の実行も道連れで落ちる。`preference=preference`を
+     呼び出しへ追加するだけで直る。
+  2. **`backend/scripts/verify_postgis_phase0.py:245-261`（T321とは無関係の既存バグ）**:
+     ステップ5（「生データを消しGraphServiceがPostGISだけからゼロ構築できるか」の検証）が、
+     検証対象bboxのタイルを`road_graph_tiles`へマークする処理を一度も呼んでいないため、
+     `GraphService.get_or_build_graph_with_attributes`が`_ensure_tiles_cached`
+     （`graph_service.py:73-90`）の判定で常に`None`を返し、この統合検証は毎回
+     サイレントに失敗している。`cleanup()`実行後・GraphService呼び出し前に、bboxを
+     カバーする全タイルを`road_graph_tiles`へ明示的にマークするステップを追加する。
+     まさにこのスクリプトは、T321で発見したmigration 0010〜0020のIF NOT EXISTS欠如
+     バグの再発防止としてpytest化を推奨した検証内容そのものであり、放置すると
+     T329（下記）の統合テスト新設時に同じ穴を引き継ぐリスクがある。
+  3. **`frontend/src/services/regionApi.ts:144-171`（`refreshBasemapCache`）**:
+     `!response.ok`時の`throw`が同じtry節内にあるため直後のcatchで再捕捉され、
+     実際は「失敗 (HTTP xxx)」なのに「失敗 (通信エラー)」と誤ってログされる
+     （ユーザー影響は無いが、障害調査時にログを誤誘導する。docs/logging.mdの
+     エラー分類の正確性方針に反する）。`fetchAxisInspector`と同じ構造（`!response.ok`
+     判定をtryの外に出す）へ揃える。
+  4. **`backend/scripts/compare_engines_quality.py:54-65`（`run_ors`）**:
+     docstringは「本番と同じ組み立て方で両エンジンを構築する」と明記するが、
+     `OpenRouteServiceEngine`構築時に`repository`引数を渡しておらず、本番では有効な
+     路面・停止・交差点・事故の評価軸がORS側だけ欠落した非対称比較になっている。
+     T236（エンジン移行判断）の材料として使う以上、系統的バイアスを排除する必要がある。
+     `repository=`を明示的に注入するよう修正する。
+- 完了条件: 4件とも修正し、`bench_evaluate_graph.py`は実行してクラッシュしないこと、
+  `verify_postgis_phase0.py`は全ステップPASSすることを実機確認する。backend/frontend
+  全テストgreenを維持する。
+- 依存: T321（監査の発端）。
+
+### - [ ] T329. テスト実行コストの是正 規模S（未着手）
+
+- 背景: 上記監査（T328と同じ成果物）で、テスト実行時間そのものへの懸念を受けてコスト面も
+  調査した。結論として**削減すべき冗長テストはほぼ見つからなかった**（「モック比率が
+  高い」という機械判定の大半は、jsdomの未実装API穴埋めや意図的なオラクル比較設計と
+  判明し誤検知だった）。唯一の実質的な支配要因は1本の巨大なテストと、テスト方針からの
+  逸脱1件。
+- 対応内容:
+  1. **`backend/tests/test_road_graph_repository.py::test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyncpg_parameter_limit`**:
+     backend全体のテスト実行時間52.56秒のうち42.75秒（81%）を単独で占める
+     （17,000way/34,000edge規模でチャンク境界を検証）。以下を実施する。
+     - (a) `way_count`を17,000→約10,050へ削減（`_ID_CHUNK_SIZE=10_000`の境界を
+       2チャンック踏破する条件は維持したまま約4割減）
+     - (b) 検証方法を`get_graph_in_bbox`による全edgeジオメトリのWKBフルデコードから、
+       `road_edges`の行数を直接COUNTする軽量クエリへ変更する
+     - (c) (a)(b)後も数秒〜十秒台に収まらない場合は`@pytest.mark.slow`等の新規マーカーを
+       導入しCI高速フィードバックから分離する（導入時はdocs/testing.mdへの追記が必要）。
+       まずは(a)(b)のみで様子を見る。
+  2. **`backend/tests/test_basemap_routes.py::test_basemap_refresh_is_rate_limited_per_client`**:
+     docs/testing.mdが定めるレート制限境界値テストのパターン（`rate_limiter.check_rate_limit`
+     を直接呼んで上限-1件を埋め、実HTTPは境界の1〜2回に絞る）に反し、上限回数分
+     （`settings.basemap_refresh_rate_limit_per_minute`＝6回）を実際にHTTPループで
+     消費している。同ファイルの他のレート制限テストは正しいパターンに従っており、
+     このテストだけが取り残されている。規定パターンへ揃える。
+- 完了条件: backend全テストスイートの実行時間を計測し、42.75秒テストの短縮幅を報告する。
+  test_basemap_routes.pyの該当テストがdocs/testing.mdのパターンに従う形へ修正されている
+  こと。
+- 依存: T321（監査の発端）。
+
+### - [ ] T330. テストカバレッジ欠落の是正（影響度「高」・複数レビューで確認済み） 規模M（未着手）
+
+- 背景: T328と同じ監査成果物より、**影響度が高く、かつ独立した複数回のレビューパスで
+  一致して検出された**——すなわち一過性の誤検知ではないと確信度が高い——カバレッジ欠落を
+  優先度の高い順にまとめる。共通する性質として、いずれも「過去の実障害・実データ消失
+  バグの再発防止コード」または「既定構成で全リクエストが通る主経路」がテストされていない、
+  という重大度の高いパターンに該当する。
+- 対応内容（8件、優先度順）:
+  1. **`frontend/src/components/AxisStudio/AxisComposer.tsx`（600行、テスト無し）**:
+     軸スタジオの中核フォーム。`buildShape()`の4テンプレート分岐（breakpoint_linear/
+     recipe_then_breakpoint_linear/categorical/flag_sum）、既存軸編集時の
+     `priority_overrides`/`display_override`の素通し保持——コード自身のコメントが
+     「以前は黙って失われていた」と明記する実データ消失バグの再発防止対象——、
+     バリデーション（label空欄・chip_label長）のいずれも、フォーム送信を一度も
+     実行しない`AxisStudio.test.tsx`からは検証されていない。`AxisComposer.test.tsx`を
+     新設し、4テンプレートの送信payload・素通し保持の回帰・バリデーションを検証する。
+  2. **`frontend/src/proxy.ts:35-64`（`/admin`配下のBasic認証ミドルウェア、テスト無し）**:
+     資格情報未設定時401・ヘッダ欠落401・Base64デコード失敗時の安全側401（例外を
+     投げない）・タイミング攻撃対策`safeEqual`の長さ違い時の挙動、いずれも未検証。
+     認可をすり抜けるリグレッションがCIで検知できない。上記6分岐の最小テストを追加する。
+  3. **`backend/app/domain/route.py:202-215`（`_merge_axis_difficulties`）**:
+     「既存軸を非公開にするとKeyError/ValidationErrorで500になる」という実障害
+     （T316フォローアップ、2026-08-25発生）の修正箇所。区間ごとのaxis_difficultiesを
+     axis_id別に距離加重平均する集約ロジックが、複数区間の加重平均・部分的axis_id
+     欠損・全区間で欠損時の除外いずれも未検証（`test_route.py`に"axis_difficulties"
+     の言及が1件も無い）。上記3パターンの最小ケースを追加する。
+  4. **`backend/app/services/road_graph_engine.py:341,386` / `infrastructure/road_graph_repository.py:1237`（`get_edges_with_geometry`）**:
+     既定エンジン(road_graph)の全リクエスト・全方位で通る「DB実ジオメトリ優先」の
+     主経路（`hydrated.get(edge_id) or context.graph.edges[edge_id]`）が、
+     `test_road_graph_engine.py`・`test_routes_preview.py`双方のFakeが常に`{}`を
+     返すため一度も踏まれず、稀にしか通らない防御的フォールバックだけがテストされている
+     逆転状態。PostGIS統合テストも0件。Fakeに非空データを返すケースを追加し、実PostGIS
+     統合テストを新設する。付随して`hard_filters`（T266）のエンジンレベル配線確認テスト
+     （`road_graph_engine.py:168,183,244`）も同時に追加する。
+  5. **フレッシュDBブートストラップ経路（`backend/app/infrastructure/migrate.py`）**:
+     本番唯一のブートストラップ順序（`create_tables()`→`apply_pending_migrations()`）を
+     検証する自動テストが無い。`conftest.py`は`create_all`のみで`migrations/*.sql`を
+     一度も適用しない。この構造的な穴が、migration 0010〜0020のIF NOT EXISTS欠如という
+     同一バグを2回連続発生させた直接の原因（T321参照）。T328で修正する
+     `verify_postgis_phase0.py`相当の検証を、フレッシュDBに対し
+     `create_tables()`→`apply_pending_migrations(engine, migrations_dir=MIGRATIONS_DIR)`
+     を実行し例外なく完了することを確認するpytest統合テストとして新設し、CIへ組み込む。
+  6. **`backend/app/batch/match_designations.py:57-75`（`_MATCH_SQL`）**:
+     「geographyキャストでGiST索引を認識できず30分超無応答になった」という重大な性能
+     事故の実績があるST_Buffer/ST_Intersects/ST_Unionクエリ本体が、`run_designations`
+     経由でもテスト経由でも一度も実行されていない（テストは前後のDELETE/INSERT
+     原子性のみ対象）。少数件seedでの実PostGIS統合テストを追加する。
+  7. **`backend/app/infrastructure/database.py:12-85`（テスト無し）**:
+     Session pooler対Transaction poolerの実機障害・command_timeout値という重い経緯を
+     持つ接続設定にもかかわらず、シングルトン生成すら検証されていない
+     （`test_health.py`は`get_engine`自体を差し替えてテストしており実装本体は未実行）。
+     シングルトン性・タイムアウト設定値の反映を検証する軽量テストを追加する。
+  8. **`frontend/src/components/Map/useLayerDataStatus.ts`（176行、テストファイル自体が
+     存在しない）**: 「idleから呼ぶと進行中障害を誤って解除する」という実機バグ修正の
+     長文コメント付きロジック（`clearStaleTrackedSourceErrors`）と、
+     `querySourceFeatures`の重複呼び出しを避けるメモ化（`computeLayerDataStatus`）を
+     含むが無テスト。メモ化条件とerror解除条件（`isSourceLoaded`=true時のみ）の
+     単体テストを追加する。
+- 完了条件: 8件それぞれにテストを追加し、backend/frontend全テストgreenを維持する。
+  新設した統合テスト（5番）はCIで実行されることを確認する。
+- 依存: T321（監査の発端）、T328（4番はverify_postgis_phase0.pyの並行修正と整合させる
+  必要がある）。
+
+### - [ ] T331. テストカバレッジ欠落の是正（影響度「中」・残り） 規模L（未着手）
+
+- 背景: T330に次ぐ優先度の指摘群。T330ほどの緊急性は無いが、放置すると同種のパターン
+  （静かに縮退する失敗処理・兄弟ファイルとの非対称・新設モジュールの単体テスト欠如）が
+  積み上がる。領域別に列挙する（全指摘の詳細・根拠・対象行番号は監査成果物
+  https://claude.ai/code/artifact/46de02ba-3db5-4356-a776-215262996dfe の該当セクション
+  および全ファイル一覧を参照。ここでは要点のみ）。
+- 対応内容（領域別）:
+  - **backend/domain**（B判定2件）: `accident.py: distance_weighted_accident_density`の
+    境界値（distance_sum=0等）、`region.py: lonlat_to_tile_pixel`の座標変換精度
+    （標高評価の入力に直結、姉妹関数`tile_bounds_lonlat`は網羅的なのにこれだけ欠落）。
+  - **backend/services・api**（B判定3件）: `dependencies.py`のDB分岐DIファクトリ5本
+    （`get_graph_service`等）が直接テストされない、`accidents.py`のy方向境界テストが
+    region.py側と非対称。
+  - **backend/infrastructure・batch**（C判定3件・D判定2件）: `precompute_elevation_attributes.py`
+    （テストファイル自体が無い）、`http_client.py`（timeout別キャッシュという唯一の
+    要件が無検証）、`precompute_edge_attribute_counts.py`（`run()`本体・UPSERT無テスト）、
+    `graph_material_cache.py`（LRU立ち退き無テスト）、`import_accidents.py`/
+    `import_designations.py`/`import_pbf.py`のrun_importオーケストレーション本体が
+    CI未検証（手動E2Eスクリプトのみ）。
+  - **backend/infrastructure（クライアント群）**: `wbgt_client.py`/`jma_warning_client.py`/
+    `flood_client.py`が、同型の`weather_client.py`（キャッシュ・リトライまで網羅的）と
+    非対称にテスト無し。失敗時は静かに空リストへ縮退する設計のため気づきにくい。
+  - **backend/batch（新設・境界）**: `pbf_source.py`（osmium境界の唯一の層、サイレントな
+    データ欠損リスク）、`precompute_way_attribute_counts.py`（兄弟の
+    `precompute_edge_attribute_counts.py`は`_chunked`のテストがあるのにこれだけ無い）。
+  - **frontend/components**（C判定2件・B判定多数）: `Map/LayerChip.tsx`のdataStatus状態
+    表示（statusDot/title）に肯定的な検証が無い、`Map/routeArrowIcon.ts`/`windArrowIcon.ts`
+    はjsdomのcanvas制約で描画ロジック自体が未実行、`MapView.tsx`の
+    `routesToFeatureCollection`/`computeRouteBounds`が通常テストでは未検証（ベンチマーク
+    経由のみ）、`AxisStudio.tsx`のCRUD実行系（複製・削除・非公開化・保存）、
+    `BottomSheet.tsx`の高さ調整系（ドラッグ・キーボード・`clampSheetHeightVh`）、
+    `Map/staticAttributeLayers.ts`のDESIGNATION関連exportが完全未テスト（過去のT74実績
+    あり）、`Map/secondaryAxes.ts`の「動的」軸除外フィルタ（過去のコードレビュー指摘の
+    修正）、`RouteList.tsx`の選択状態スタイル・条件付き表示4項目。
+  - **frontend/app・lib・hooks・services**（D判定多数）: `lib/researchMode.ts`/
+    `hooks/useResearchMode.ts`（同型の`debugLog.ts`は網羅的なのに無テスト）、
+    `axis-definitions`配下のroute handler3本、`app/admin/page.tsx`、
+    `services/axisAdminApi.ts`/`lib/adminApiProxy.ts`（`AxisStudio.test.tsx`が
+    モジュール全体をモックするため実装コードが一度も実行されない。同型の`fetchJson.ts`は
+    模範的にテストされておりそのまま流用可能）、`services/axisCatalogApi.ts`/
+    `materialCatalogApi.ts`（兄弟の`versionApi.ts`等は皆テストあり）、
+    `hooks/useWeatherGrid.ts`の詳細格子失敗フォールバック・間隔変更リセット。
+  - **frontend/app/page.tsx**: `handleGenerate`（0件成功・例外失敗・研究モードスロット
+    記録）と、天候/警報/WBGT/氾濫予報4並列fetchの「リクエストIDで古い応答を捨てる」
+    競合対策ロジックが、`page.test.tsx`（layerVisibility永続化のみ検証）からは
+    無防備。15個以上あるハンドラのうち直接検証されているのは実質0個。
+- 優先着手順の目安: 「同型の兄弟ファイルとの非対称」（コピーで済むため低コスト・
+  高費用対効果）→「新設モジュールの単体テスト」→「巨大コンポーネントの主要ハンドラ」の順。
+- 完了条件: 上記領域それぞれで最低1件以上のテストを追加し、D/C判定だったファイルが
+  B以上へ改善していることを監査成果物の分類表と突き合わせて確認する。規模が大きいため
+  複数回のコミットに分割してよい（都度backend/frontend全テストgreenを確認）。
+- 依存: T321（監査の発端）、T330（同種パターンの優先対応）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
