@@ -11,36 +11,27 @@ import {
   type MapLayerDataNature,
   type MapLayerId,
 } from "@/components/Map/mapLayers";
-import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
-import {
-  PRIMARY_ATTRIBUTE_CHIP_LABELS,
-  PRIMARY_ATTRIBUTE_LAYER_IDS,
-  axisMaterials,
-} from "@/components/Map/primaryAttributes";
+import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+import { PRIMARY_ATTRIBUTE_CHIP_LABELS, PRIMARY_ATTRIBUTE_LAYER_IDS } from "@/components/Map/primaryAttributes";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
+import { axisIconFor } from "@/components/Map/axisIconPalette";
 import {
   AccidentIcon,
-  AccidentDensityAxisIcon,
   AxisRampIcon,
   DesignationIcon,
   DynamicDataIcon,
   ElevationIcon,
   EstimatedIndexIcon,
-  GradientAxisIcon,
   InfoIcon,
-  NightAxisIcon,
   ObservedDataIcon,
   RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
-  CarStressIcon,
   BicycleInfraIcon,
-  StopDensityAxisIcon,
   StopPoiIcon,
   SupplyPoiIcon,
   TunnelIcon,
   OnewayIcon,
-  SurfaceQualityAxisIcon,
   RouteIcon,
   ThunderIcon,
   TornadoIcon,
@@ -82,6 +73,9 @@ export interface OverlayLayerChip {
 interface MapOverlayControlsProps {
   layers: readonly OverlayLayerChip[];
   onToggle: (id: MapLayerId, on: boolean) => void;
+  /** 改善計画T308: 二次軸(推定指標)一覧。page.tsx側でaxisCatalog.secondaryAxes
+   * （useAxisCatalog、軸スタジオの公開軸を含む実行時フェッチ）をそのまま渡す。 */
+  secondaryAxes: readonly SecondaryAxisSummary[];
 }
 
 // 次数（観測/推定）単位でグルーピングされたチップの中身。categoryを持たないレイヤー
@@ -144,19 +138,12 @@ const DATA_NATURE_ICONS: Record<MapLayerDataNature, (props: { size?: number }) =
 };
 
 // 推定グループの軸タイル（改善計画: 実機フィードバック「2次要素はアイコンだけで区別が
-// つくように」への対応）。axisId（secondaryAxes.ts、確定命名表6軸）ごとに専用アイコンを
-// 割り当てる。member.id（MapLayerId）や自動生成のramp軸レイヤーIDにひも付くLAYER_ICONSとは
-// 別物として持つ理由: stop_density・accidentは専用レイヤーIDがLAYER_ICONSの対象外
-// （axisMapLayerId経由の生成物）で、そのままではAxisRampIcon（汎用フォールバック）に
-// 埋もれてしまうため。renderAxisTileはmemberの有無に関わらずこちらで引く。
-const SECONDARY_AXIS_ICONS: Record<string, (props: { size?: number }) => ReactElement> = {
-  gradient: GradientAxisIcon,
-  surface_q: SurfaceQualityAxisIcon,
-  night: NightAxisIcon,
-  stop_density: StopDensityAxisIcon,
-  car_stress: CarStressIcon,
-  accident: AccidentDensityAxisIcon,
-};
+// つくように」への対応）。member.id（MapLayerId）や自動生成のramp軸レイヤーIDにひも付く
+// LAYER_ICONSとは別に、axis.iconId（secondaryAxes.ts、改善計画T310で軸自身のデータへ移設）
+// から`axisIconFor()`（axisIconPalette.tsx）で引く理由: stop_density・accidentは専用
+// レイヤーIDがLAYER_ICONSの対象外（axisMapLayerId経由の生成物）で、そのままでは
+// AxisRampIcon（汎用フォールバック）に埋もれてしまうため。renderAxisTileはmemberの
+// 有無に関わらずこちらで引く。
 
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
 // JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
@@ -409,7 +396,7 @@ function ChipButton({
 // ジャンプ」動線はここが確認専用になったことで廃止した）。このコンポーネントはレイヤー
 // 固有の知識を持たない汎用の描画係で、レイヤーが増えてもここは変更不要（mapLayers.tsの
 // コメント参照）。
-export default function MapOverlayControls({ layers, onToggle }: MapOverlayControlsProps) {
+export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: MapOverlayControlsProps) {
   // 凡例を常時表示すると地図の視界を圧迫するという実機フィードバックを受け、既定は
   // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
   // 開閉はキーのSetで個別管理する。キーはレイヤーID（単独チップ）・`member:${id}`
@@ -598,14 +585,15 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
     );
   }
 
-  // 推定グループの各軸の下に出す材料一覧（改善計画T167）。axisMaterials（T164）から
-  // 導出した一次属性を、表示レイヤーの有無で2行に分ける。レイヤーを持つ材料は
-  // 「効いているものを探す」ときにそのまま地図上で確認できる旨、レイヤーを持たない材料
-  // （車線数・制限速度・交差点・街灯・自動車通行可否）は地図では見えない材料として薄字で
-  // 正直に見せる（略名はPRIMARY_ATTRIBUTE_CHIP_LABELS、primaryAttributes.tsのコメント
-  // どおりT167用に4文字以下で全属性ぶん揃えてある）。
-  function renderMaterialsNote(axisId: string) {
-    const materials = axisMaterials(axisId);
+  // 推定グループの各軸の下に出す材料一覧（改善計画T167、T308でaxisMaterials（軸id→
+  // 一次属性、静的axis-catalog.json由来）からSecondaryAxisSummary.primaryAttributeIds
+  // （軸スタジオ作成軸も含む実行時カタログ由来）へ切替）。一次属性を、表示レイヤーの
+  // 有無で2行に分ける。レイヤーを持つ材料は「効いているものを探す」ときにそのまま
+  // 地図上で確認できる旨、レイヤーを持たない材料（車線数・制限速度・交差点・街灯・
+  // 自動車通行可否）は地図では見えない材料として薄字で正直に見せる（略名は
+  // PRIMARY_ATTRIBUTE_CHIP_LABELS、primaryAttributes.tsのコメントどおりT167用に
+  // 4文字以下で全属性ぶん揃えてある）。
+  function renderMaterialsNote(materials: readonly string[]) {
     const withLayer = materials.filter((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId] !== undefined);
     const withoutLayer = materials.filter((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId] === undefined);
     if (withLayer.length === 0 && withoutLayer.length === 0) return null;
@@ -767,8 +755,8 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
   function renderAxisTile(axis: SecondaryAxisSummary, members: readonly OverlayLayerChip[]) {
     const key = `axis:${axis.axisId}`;
     const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
-    const materialsNote = renderMaterialsNote(axis.axisId);
-    const Icon = SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon;
+    const materialsNote = renderMaterialsNote(axis.primaryAttributeIds);
+    const Icon = axisIconFor(axis.iconId);
     if (!member) {
       const canExpand = Boolean(axis.proxyHint) || materialsNote !== null;
       return (
@@ -871,7 +859,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
                 // （実機フィードバック「展開三角アイコンをなくし、展開状態は推定と観測
                 // アイコンの状態で表現して」への対応）。
                 active={false}
-                title={`${label}[${SECONDARY_AXES.length}件をタップで一覧]`}
+                title={`${label}[${secondaryAxes.length}件をタップで一覧]`}
                 onTap={() => {
                   toggleExpanded(group.key);
                   closeGroupLegend(group.key);
@@ -905,18 +893,18 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               >
                 {header}
                 {isExpanded
-                  ? SECONDARY_AXES.filter((axis) => !hiddenIds.has(`composite:${axis.axisId}`)).map((axis) =>
+                  ? secondaryAxes.filter((axis) => !hiddenIds.has(`composite:${axis.axisId}`)).map((axis) =>
                       renderAxisTile(axis, group.members)
                     )
                   : renderVisibilitySettings(
                       group.key,
                       label,
                       "composite",
-                      SECONDARY_AXES.map((axis) => {
+                      secondaryAxes.map((axis) => {
                         const axisMember = axis.layerId ? group.members.find((m) => m.id === axis.layerId) : undefined;
                         return {
                           key: axis.axisId,
-                          Icon: SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon,
+                          Icon: axisIconFor(axis.iconId),
                           label: axis.chipLabel,
                           layerId: axis.layerId,
                           on: axisMember?.on,

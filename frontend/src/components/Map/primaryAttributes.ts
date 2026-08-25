@@ -1,18 +1,17 @@
-// 一次属性（生データ）のカタログと、二次軸との双方向導出（改善計画T163〜T168
-// 「地図レイヤー階層の次数反転」）。
-//
-// backendのレジストリ（app/domain/registry_defaults.py）は、二次軸ごとに参照する一次属性
-// （`inputs`、attr_idのリスト）を排他制約つきで宣言している（T137、domain/registry.py参照）。
-// この属性単位の対応関係から、以下2方向の導出が同じ単一ソース（axis-catalog.json）だけで
-// 機械的に得られる（片側import、設計原則2）。
-//   - 2次→1次（地図）: 推定指標レイヤーをONにしたとき、材料になっている観測データレイヤーを
-//     連動ONする（T167）・推定グループの展開UIに材料一覧を出す
-//   - 1次→2次（評価側）: 研究タブの各軸の重み行の直下に、その軸が参照する材料一覧を出す
-//     （T168）・区間インスペクタのラベル共通化
+// 一次属性（生データ）のカタログ（改善計画T163〜T168「地図レイヤー階層の次数反転」）。
 //
 // 一次属性の正式名（label）はaxis-catalog.jsonのprimary_attributes[]（T163でbackendが
 // 書き出し）が単一ソース。このファイルが独自に持つのは、UI固有の対応（地図チップの略名・
 // 対応する表示レイヤーID）だけ（片側import）。
+//
+// 改善計画T308: 「2次軸→材料の一次属性一覧」（推定指標レイヤーON時の観測データレイヤー
+// 連動ON=T167・推定グループの展開UIに材料一覧を出す）は、以前はここ（axisMaterials/
+// attrConsumers/axisMaterialLayerIds、ビルド時静的axis-catalog.jsonのregistry.py:
+// AxisSpec.inputs由来）が担っていたが、GUI作成軸を含まなかったため撤去した。代わりに
+// backendのGET /api/axis-catalogが軸ごとに解決して返す primary_attribute_ids
+// （SecondaryAxisSummary.primaryAttributeIds、secondaryAxes.ts参照）を呼び出し側が使う。
+// このファイルにはprimaryAttributeIdsToLayerIds（一次属性id列→表示レイヤーid列への
+// 変換、PRIMARY_ATTRIBUTE_LAYER_IDSを引くだけの純粋関数）だけを残す。
 
 import type { MapLayerId } from "./mapLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
@@ -21,11 +20,6 @@ interface CatalogPrimaryAttribute {
   attr_id: string;
   label: string;
   shared: boolean;
-}
-
-interface CatalogAxisInputs {
-  axis_id: string;
-  inputs: string[];
 }
 
 export interface PrimaryAttribute {
@@ -105,26 +99,14 @@ export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
   "geometry",
 ]);
 
-const AXES_WITH_INPUTS = axisCatalog.axes as CatalogAxisInputs[];
-
-/** 2次軸→材料の1次属性id一覧（axis-catalog.json: axes[].inputsをそのまま返す）。
- * 未知の軸idはT145bのRAMP_AXES同様、空配列を返す（存在しない軸を指すバグを早期に
- * 気づけるよう、呼び出し側でlength===0を「軸が無い」の判定に使わない設計は避けること）。 */
-export function axisMaterials(axisId: string): readonly string[] {
-  return AXES_WITH_INPUTS.find((axis) => axis.axis_id === axisId)?.inputs ?? [];
-}
-
-/** 1次属性→それを参照する2次軸id一覧（逆導出）。レジストリの排他制約（T137）により
- * shared=falseの属性は通常0または1件、shared=true（geometry等）は複数件になりうる。 */
-export function attrConsumers(attrId: string): readonly string[] {
-  return AXES_WITH_INPUTS.filter((axis) => axis.inputs.includes(attrId)).map((axis) => axis.axis_id);
-}
-
-/** 2次軸の材料のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す
+/** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す
  * （T167: 推定指標レイヤーON時の観測データレイヤー連動ON用）。複数の一次属性が同じ
- * 表示レイヤーへ集約される場合（1レイヤーが複数属性を表す場合）は1件にまとめる。 */
-export function axisMaterialLayerIds(axisId: string): readonly MapLayerId[] {
-  const layerIds = axisMaterials(axisId)
+ * 表示レイヤーへ集約される場合（1レイヤーが複数属性を表す場合）は1件にまとめる。
+ * 改善計画T308: 引数を軸id（静的カタログの逆引き）からattrId列（呼び出し側が
+ * SecondaryAxisSummary.primaryAttributeIds等、実行時カタログから既に持っている値）へ
+ * 変更した——GUI作成軸を含む全軸に対して同じ関数で動くようにするため。 */
+export function primaryAttributeIdsToLayerIds(attrIds: readonly string[]): readonly MapLayerId[] {
+  const layerIds = attrIds
     .map((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId])
     .filter((layerId): layerId is MapLayerId => layerId !== undefined);
   return Array.from(new Set(layerIds));

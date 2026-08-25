@@ -402,30 +402,37 @@ export interface StaticFilterAxis {
   baseFilter?: unknown[];
 }
 
-export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = [
-  { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
-  { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
-  { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },
-  { axisId: "oneway", layerId: "oneway", legend: ONEWAY_LEGEND },
-  {
-    axisId: "stopPoi",
-    layerId: "stopPoi",
-    legend: STOP_POI_LEGEND,
-    baseFilter: ["in", ["get", "kind"], ["literal", STOP_POI_KINDS]],
-  },
-  {
-    axisId: "supplyPoi",
-    layerId: "supplyPoi",
-    legend: SUPPLY_POI_LEGEND,
-    baseFilter: ["in", ["get", "kind"], ["literal", SUPPLY_POI_KINDS]],
-  },
-  { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
-  { axisId: "accidentSeverity", layerId: "accidents", label: "重大度", legend: ACCIDENT_SEVERITY_LEGEND },
-  // ramp軸（停止密度・事故密度等）の凡例。凡例の内訳はカタログのthresholds/tile_inputsから
-  // 自動生成される（axisLayers.ts: buildAxisRampLegend）ため、軸追加時にここへの変更は不要。
-  ...RAMP_AXES.map((axis) => ({
-    axisId: axis.axisId,
-    layerId: axisMapLayerId(axis.axisId),
-    legend: buildAxisRampLegend(axis),
-  })),
-];
+// 改善計画T308: ramp軸ぶん（末尾のspread）が実行時フェッチのrampAxes（軸スタジオの
+// 公開軸を含む）に追従できるよう関数化した。STATIC_FILTER_AXESはビルド時静的
+// フォールバック（RAMP_AXES）で呼んだ結果を指す後方互換export（テスト・フォールバック用）。
+export function buildStaticFilterAxes(rampAxes: readonly RampAxis[]): readonly StaticFilterAxis[] {
+  return [
+    { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
+    { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
+    { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },
+    { axisId: "oneway", layerId: "oneway", legend: ONEWAY_LEGEND },
+    {
+      axisId: "stopPoi",
+      layerId: "stopPoi",
+      legend: STOP_POI_LEGEND,
+      baseFilter: ["in", ["get", "kind"], ["literal", STOP_POI_KINDS]],
+    },
+    {
+      axisId: "supplyPoi",
+      layerId: "supplyPoi",
+      legend: SUPPLY_POI_LEGEND,
+      baseFilter: ["in", ["get", "kind"], ["literal", SUPPLY_POI_KINDS]],
+    },
+    { axisId: "accidentParty", layerId: "accidents", label: "当事者", legend: ACCIDENT_LEGEND },
+    { axisId: "accidentSeverity", layerId: "accidents", label: "重大度", legend: ACCIDENT_SEVERITY_LEGEND },
+    // ramp軸（停止密度・事故密度等）の凡例。凡例の内訳はカタログのthresholds/tile_inputsから
+    // 自動生成される（axisLayers.ts: buildAxisRampLegend）ため、軸追加時にここへの変更は不要。
+    ...rampAxes.map((axis) => ({
+      axisId: axis.axisId,
+      layerId: axisMapLayerId(axis.axisId),
+      legend: buildAxisRampLegend(axis),
+    })),
+  ];
+}
+
+export const STATIC_FILTER_AXES: readonly StaticFilterAxis[] = buildStaticFilterAxes(RAMP_AXES);

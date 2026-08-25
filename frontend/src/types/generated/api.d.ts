@@ -505,6 +505,17 @@ export interface components {
             category: "観測" | "推定" | "動的";
             /** Default Weight */
             default_weight: number;
+            display: components["schemas"]["AxisDisplaySpec"];
+            /** Icon Id */
+            icon_id: string | null;
+            /** Chip Label */
+            chip_label: string | null;
+            /** Panel Hint */
+            panel_hint: string | null;
+            /** Proxy Hint */
+            proxy_hint: string | null;
+            /** Primary Attribute Ids */
+            primary_attribute_ids: string[];
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {
@@ -545,6 +556,15 @@ export interface components {
             is_published: boolean;
             /** Priority Overrides */
             priority_overrides?: components["schemas"]["PriorityCondition"][];
+            /** Icon Id */
+            icon_id?: string | null;
+            /** Chip Label */
+            chip_label?: string | null;
+            /** Panel Hint */
+            panel_hint?: string | null;
+            /** Proxy Hint */
+            proxy_hint?: string | null;
+            display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**
          * AxisDefinitionResponse
@@ -579,6 +599,59 @@ export interface components {
             is_published: boolean;
             /** Priority Overrides */
             priority_overrides?: components["schemas"]["PriorityCondition"][];
+            /** Icon Id */
+            icon_id?: string | null;
+            /** Chip Label */
+            chip_label?: string | null;
+            /** Panel Hint */
+            panel_hint?: string | null;
+            /** Proxy Hint */
+            proxy_hint?: string | null;
+            display_override?: components["schemas"]["AxisDisplaySpec"] | null;
+        };
+        /**
+         * AxisDisplaySpec
+         * @description 二次軸の地図レイヤー表示宣言（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
+         *
+         *     - kind="ramp": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を
+         *       `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの
+         *       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
+         *     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
+         *       `note`へ理由を書く。
+         *
+         *     改善計画T298: 以前は「タグの複雑な組み合わせを要しフロント側の手書きexpressionが
+         *     必要な軸」向けのkind="bespoke"（例: 旧`carStressExpression.ts`）もあったが、
+         *     改善計画T292でcar_stressが最後の利用者としてkind="ramp"へ移行し利用がゼロになった
+         *     ため削除した（Literalから外すだけで、既存データ・呼び出し元への影響は無いことを
+         *     grep（`kind="bespoke"`の構築箇所ゼロ）で確認済み）。
+         */
+        AxisDisplaySpec: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "ramp" | "none";
+            /** Label */
+            label: string;
+            /**
+             * Category
+             * @default trafficSafety
+             */
+            category: string;
+            /** Tile Inputs */
+            tile_inputs?: components["schemas"]["TileInputSpec"][];
+            /** Thresholds */
+            thresholds?: number[];
+            /**
+             * Unit
+             * @default
+             */
+            unit: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {
@@ -1042,6 +1115,95 @@ export interface components {
             wind_weight: number;
             /** Road Weight */
             road_weight: number;
+        };
+        /**
+         * TileInputSpec
+         * @description 地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278・T292）。
+         *
+         *     数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre
+         *     expressionが計算する。
+         *     真偽値材料（`boolean=True`、改善計画T278）: MVTの真偽値プロパティは
+         *     `["==",["get",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が
+         *     成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。
+         *     `invert`は材料がタイルプロパティの否定（例: no_lit⟵lit）の場合に立てる。
+         *
+         *     `has_unknown_fallback`（レビュー指摘の修正、改善計画T278）: タイルプロパティが
+         *     欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、
+         *     未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する
+         *     うちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい
+         *     真偽値材料」（例: no_lit⟵lit、has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と
+         *     元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/
+         *     `false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、
+         *     trueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:
+         *     evaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。
+         *
+         *     N値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:
+         *     CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の
+         *     場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
+         *     （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
+         *     （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
+         *     圧迫感等の点数に反映すれば足りる材料向け、例: `bicycle_infra`は評価側のmappingが
+         *     全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。
+         *     `has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく
+         *     「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/
+         *     axis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で
+         *     Noneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0
+         *     [最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`
+         *     （`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は
+         *     評価側でcar_stress軸全体を評価しない[required=True]。以前はフロント側の実装が
+         *     プロパティの**欠損**のみを「不明」判定していたため、この「値はあるが未登録」の
+         *     ケースを見落とし、実際には未評価のはずの区間が0点=最良[緑]色で表示される
+         *     不整合があった。`axisLayers.ts: buildAxisRampUnknownExpression`参照）。
+         *     boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している
+         *     場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。
+         *
+         *     自己変換材料（`breakpoints`、改善計画T292）: 材料自身が
+         *     `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
+         *     `car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`
+         *     expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
+         */
+        TileInputSpec: {
+            /** Property */
+            property: string;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+            /**
+             * Boolean
+             * @default false
+             */
+            boolean: boolean;
+            /**
+             * Invert
+             * @default false
+             */
+            invert: boolean;
+            /**
+             * True Value
+             * @default 0
+             */
+            true_value: number;
+            /**
+             * False Value
+             * @default 0
+             */
+            false_value: number;
+            /**
+             * Has Unknown Fallback
+             * @default false
+             */
+            has_unknown_fallback: boolean;
+            /** Categories */
+            categories?: {
+                [key: string]: number;
+            } | null;
+            /** Breakpoints */
+            breakpoints?: [
+                number,
+                number
+            ][] | null;
         };
         /** ValidationError */
         ValidationError: {

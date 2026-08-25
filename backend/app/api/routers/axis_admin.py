@@ -10,7 +10,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.api.dependencies import get_axis_registry_admin_service
 from app.config import settings
@@ -24,6 +24,7 @@ from app.domain.axis_definitions import (
     PriorityCondition,
 )
 from app.domain.material_catalog import is_known_material, material_dtype
+from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
 
 router = APIRouter(prefix="/api/admin/axis-definitions", tags=["axis-admin"])
@@ -95,6 +96,19 @@ class AxisDefinitionFields(BaseModel):
     # DB永続化層（axis_definition_repository.py）にも書き込まれなかったため、
     # 軸スタジオ経由では設定も参照もできなかった。
     priority_overrides: list[PriorityCondition] = Field(default_factory=list)
+    # 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
+    # 軸id→値の手書き辞書を撤去し、軸スタジオから登録できるようにしたもの）。全て省略可
+    # （未設定はフロント側の汎用フォールバックに委ねる、動作は壊れない）。
+    icon_id: str | None = None
+    chip_label: str | None = None
+    panel_hint: str | None = None
+    proxy_hint: str | None = None
+    # display_overrideはTileInputSpecの構造が複雑なため、AxisComposer.tsx（GUIフォーム）は
+    # 現時点で編集UIを持たない（domain/axis_definitions.py: AxisDefinition.display_override
+    # のdocstring参照）。それでもAPIレベルでは軸スタジオ（管理API）経由で直接設定・参照
+    # できるようにしておく（フィールド自体を隠さない——将来のGUI化・直接API呼び出しの
+    # どちらでも同じ経路で軸データとして永続化されるようにするため）。
+    display_override: AxisDisplaySpec | None = None
 
 
 class AxisDefinitionPayload(AxisDefinitionFields):
@@ -103,6 +117,19 @@ class AxisDefinitionPayload(AxisDefinitionFields):
     （極端な重み設定に対する意味的な歯止めは設けない、2026-08-24ユーザー判断。
     default_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。
     """
+
+    @field_validator("chip_label")
+    @classmethod
+    def _check_chip_label_length(cls, value: str | None) -> str | None:
+        """改善計画T310（ユーザー指摘、2026-08-25）: 地図チップは4文字以下を前提とした
+        固定サイズのタイル（MapOverlayControls.module.css）で設計されており、正式名
+        （label、例:「車の圧迫感」5文字）をそのまま出すとレイアウトが崩れる。chip_label
+        未設定時のフォールバックはlabelのため、chip_labelを設定する場合は必ず4文字以下で
+        あることをここで検証する（未設定=Noneはフォールバックへ委ねるため対象外）。
+        """
+        if value is not None and len(value) > 4:
+            raise ValueError(f"chip_label must be 4 characters or fewer (got {len(value)}: {value!r})")
+        return value
 
     @model_validator(mode="after")
     def _check_materials_are_known(self) -> "AxisDefinitionPayload":
@@ -185,6 +212,11 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         category=definition.category,
         is_published=definition.is_published,
         priority_overrides=definition.priority_overrides,
+        icon_id=definition.icon_id,
+        chip_label=definition.chip_label,
+        panel_hint=definition.panel_hint,
+        proxy_hint=definition.proxy_hint,
+        display_override=definition.display_override,
     )
 
 
@@ -219,6 +251,11 @@ async def create_axis_definition(
         category=payload.category,
         is_published=payload.is_published,
         priority_overrides=payload.priority_overrides,
+        icon_id=payload.icon_id,
+        chip_label=payload.chip_label,
+        panel_hint=payload.panel_hint,
+        proxy_hint=payload.proxy_hint,
+        display_override=payload.display_override,
     )
     try:
         await service.create(definition)
@@ -246,6 +283,11 @@ async def update_axis_definition(
         category=payload.category,
         is_published=payload.is_published,
         priority_overrides=payload.priority_overrides,
+        icon_id=payload.icon_id,
+        chip_label=payload.chip_label,
+        panel_hint=payload.panel_hint,
+        proxy_hint=payload.proxy_hint,
+        display_override=payload.display_override,
     )
     try:
         await service.update(axis_id, definition)

@@ -5,6 +5,13 @@
       "inputs": [
         "elevation"
       ],
+      "primary_attribute_ids": [
+        "elevation"
+      ],
+      "icon_id": "incline",
+      "chip_label": "勾配",
+      "panel_hint": null,
+      "proxy_hint": "（地図表示なし）標高レイヤーで確認できます",
       "output_range": [
         0.0,
         100.0
@@ -24,6 +31,13 @@
       "inputs": [
         "surface"
       ],
+      "primary_attribute_ids": [
+        "surface"
+      ],
+      "icon_id": "wave",
+      "chip_label": "舗装",
+      "panel_hint": null,
+      "proxy_hint": null,
       "output_range": [
         0.0,
         100.0
@@ -58,6 +72,14 @@
         "stop_poi",
         "intersection"
       ],
+      "primary_attribute_ids": [
+        "stop_poi",
+        "intersection"
+      ],
+      "icon_id": "density-stack",
+      "chip_label": "停止密度",
+      "panel_hint": "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
+      "proxy_hint": null,
       "output_range": [
         0.0,
         100.0
@@ -109,6 +131,18 @@
         "designation",
         "motor_vehicle_access"
       ],
+      "primary_attribute_ids": [
+        "highway",
+        "lanes",
+        "maxspeed",
+        "cycleway",
+        "designation",
+        "motor_vehicle_access"
+      ],
+      "icon_id": "warning-triangle",
+      "chip_label": "圧迫感",
+      "panel_hint": "道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして確認できます。",
+      "proxy_hint": null,
       "output_range": [
         0.0,
         100.0
@@ -274,6 +308,14 @@
         "lit",
         "tunnel"
       ],
+      "primary_attribute_ids": [
+        "lit",
+        "tunnel"
+      ],
+      "icon_id": "crescent-moon",
+      "chip_label": "夜間",
+      "panel_hint": null,
+      "proxy_hint": null,
       "output_range": [
         0.0,
         100.0
@@ -319,6 +361,13 @@
       "inputs": [
         "accident_point"
       ],
+      "primary_attribute_ids": [
+        "accident_point"
+      ],
+      "icon_id": "density-scatter",
+      "chip_label": "事故密度",
+      "panel_hint": "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
+      "proxy_hint": null,
       "output_range": [
         0.0,
         100.0

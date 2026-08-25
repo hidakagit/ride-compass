@@ -15,13 +15,14 @@
 // 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
 
 import type { MapLayerId } from "./mapLayers";
-import { axisMapLayerId } from "./axisLayers";
+import { axisMapLayerId, type CatalogAxis } from "./axisLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
-interface CatalogAxis {
-  axis_id: string;
-  display: { kind: string; label: string } | null;
-}
+// 改善計画T308: 実行時API（GET /api/axis-catalog）から取得したエントリからも同じ形へ
+// 変換できるよう、静的jsonの走査ロジックを共通関数として切り出す（axisLayers.tsの
+// rampAxesFromCatalogAxes等と同じ理由、片側import）。hooks/useAxisCatalog.tsが
+// フェッチ結果から呼ぶ。CatalogAxis型自体はaxisLayers.tsと共有する（同じ形の入力を
+// 両ファイルの変換関数が受け取るため、別々に定義しない）。
 
 export interface SecondaryAxisSummary {
   axisId: string;
@@ -33,34 +34,26 @@ export interface SecondaryAxisSummary {
   layerId?: MapLayerId;
   /** layerId未定義の軸向け、代役レイヤーへの案内文 */
   proxyHint?: string;
+  /** 改善計画T308: この軸が参照する材料の一次属性id一覧（primaryAttributes.ts:
+   * PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキーと同じ名前空間）。
+   * 実行時APIのprimary_attribute_idsをそのまま反映する。ビルド時静的フォールバックは
+   * この情報を持たないため空配列（取得完了までの一時的な機能低下、致命的ではない）。 */
+  primaryAttributeIds: readonly string[];
+  /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。軸自身のデータ
+   * （AXIS_DEFINITIONS.icon_id）をそのまま反映する。未設定は汎用フォールバック
+   * （AxisRampIcon）を使う——axisIconFor()側の責務。 */
+  iconId?: string;
 }
 
-// 略名（改善計画T166確定命名表）。全軸とも正式名が4文字以下のため実質そのままだが、
-// 表記をカタログ（label）に追従させず明示的に固定する（primaryAttributes.tsの
-// PRIMARY_ATTRIBUTE_CHIP_LABELSと同じ理由: カタログのlabel変更に略名が無警告で
-// 引きずられない）。
-const SECONDARY_AXIS_CHIP_LABELS: Record<string, string> = {
-  gradient: "勾配",
-  surface_q: "舗装",
-  stop_density: "停止密度",
-  car_stress: "圧迫感",
-  night: "夜間",
-  accident: "事故密度",
-};
-
-// 専用レイヤーを持たない軸(display.kind==="none")の代役案内。タイル自体は他の軸と
+// 略名・代役案内文（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
+// （SECONDARY_AXIS_CHIP_LABELS/SECONDARY_AXIS_PROXY_HINTS）だったが、改善計画T310で
+// 軸自身のデータ（AXIS_DEFINITIONS.chip_label/proxy_hint、軸スタジオから登録可能）へ
+// 移設し、既存軸限定の特別扱いを解消した（下記secondaryAxesFromCatalogAxes参照）。
+// 専用レイヤーを持たない軸(display.kind==="none")のproxy_hintは、タイル自体は他の軸と
 // 見た目を統一するため個別の注記テキストを常設できない（4文字以下のチップラベル・
-// 小さいタイルという制約、改善計画T166）。「押せない行がなぜあるのか」を展開せずに
-// 伝える最小限の手当てとして、（地図表示なし）を先頭に付けタイトル属性（hover/長押しで
-// 見えるツールチップ）だけでも自己説明的にする（改善計画T202、統合レビュー2026-08-22
-// 指摘。恒常的な追加ラベル表示はタイルレイアウトへの影響を実機確認してから判断する
-// ため今回は見送り、ユーザー判断のDEFERとする）。
-// 改善計画T278でsurface_q・nightはkind="none"/"bespoke"からkind="ramp"（自動導出表示）へ
-// 変わり専用レイヤーを持つようになったため、この一覧から除外した（gradientのみ残る。
-// 材料gradient_percentがタイル非依存[標高はGSI APIから都度取得]のため引き続きramp化不可）。
-const SECONDARY_AXIS_PROXY_HINTS: Record<string, string> = {
-  gradient: "（地図表示なし）標高レイヤーで確認できます",
-};
+// 小さいタイルという制約、改善計画T166）という理由から、「押せない行がなぜあるのか」を
+// 展開せずに伝える最小限の手当て（（地図表示なし）を先頭に付けタイトル属性で見える
+// ツールチップ、改善計画T202）として使う。
 
 // kind==="ramp"の軸はaxisMapLayerId(axis_id)で機械的に求まる（改善計画T278、以前は
 // stop_density/accidentの2件をここへ手書き列挙していたが、ramp軸が増えるたびに追記
@@ -73,13 +66,23 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
   return undefined;
 }
 
+/** 二次軸(推定指標)一覧を、カタログの並び順のまま変換する。 */
+export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
+  return axes
+    .filter((axis) => axis.display !== null)
+    .map((axis) => ({
+      axisId: axis.axis_id,
+      label: axis.display!.label,
+      chipLabel: axis.chip_label ?? axis.display!.label,
+      layerId: layerIdFor(axis),
+      proxyHint: axis.proxy_hint ?? undefined,
+      primaryAttributeIds: axis.primary_attribute_ids ?? [],
+      iconId: axis.icon_id ?? undefined,
+    }));
+}
+
+// ビルド時静的json由来のフォールバック専用値（モジュール先頭の注記参照）。
 /** 二次軸(推定指標)を、axis-catalog.jsonの並び順(確定命名表と同じ順)で返す。 */
-export const SECONDARY_AXES: readonly SecondaryAxisSummary[] = (axisCatalog.axes as CatalogAxis[])
-  .filter((axis) => axis.display !== null)
-  .map((axis) => ({
-    axisId: axis.axis_id,
-    label: axis.display!.label,
-    chipLabel: SECONDARY_AXIS_CHIP_LABELS[axis.axis_id] ?? axis.display!.label,
-    layerId: layerIdFor(axis),
-    proxyHint: SECONDARY_AXIS_PROXY_HINTS[axis.axis_id],
-  }));
+export const SECONDARY_AXES: readonly SecondaryAxisSummary[] = secondaryAxesFromCatalogAxes(
+  axisCatalog.axes as CatalogAxis[]
+);

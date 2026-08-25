@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls";
+import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 
 function baseLayers(): OverlayLayerChip[] {
   return [
@@ -15,6 +16,10 @@ function baseProps() {
   return {
     layers: baseLayers(),
     onToggle: vi.fn(),
+    // 改善計画T308: secondaryAxesが実行時APIから取得したprops経由になったため、
+    // 以前ここが直接importしていた静的SECONDARY_AXES（既存6軸）をそのまま既定値にする
+    // （推定グループの内訳を検証する既存テストの挙動を変えないため）。
+    secondaryAxes: SECONDARY_AXES,
   };
 }
 

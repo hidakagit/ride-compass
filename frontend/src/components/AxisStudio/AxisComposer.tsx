@@ -6,6 +6,7 @@ import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
+import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
 import styles from "./AxisStudio.module.css";
 
 // 軸コンポーザー（改善計画T270、T221 Stage E）。材料選択→4テンプレート選択→パラメータ
@@ -70,6 +71,14 @@ interface Draft {
   /** 改善計画T271: 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
    * backend側で更新・削除が拒否される（不変制約）ため、確定前によく確認してからONにする。 */
   isPublished: boolean;
+  /** 改善計画T310: 地図チップ表示要素（未設定は空文字列で表し、送信時にnullへ変換する）。
+   * display_override（地図rampの閾値上書き）はTileInputSpecの構造が複雑なため、
+   * このフォームには編集欄を持たない（domain/axis_definitions.py: AxisDefinition.
+   * display_overrideのdocstring参照。管理API経由の直接編集のみ対応）。 */
+  iconId: string;
+  chipLabel: string;
+  panelHint: string;
+  proxyHint: string;
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -92,6 +101,10 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     flags: [{ material: firstBoolean, points: 50 }],
     cap: 100,
     isPublished: false,
+    iconId: "",
+    chipLabel: "",
+    panelHint: "",
+    proxyHint: "",
   };
 }
 
@@ -105,6 +118,10 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     description: def.description,
     defaultWeight: def.default_weight,
     isPublished: def.is_published,
+    iconId: def.icon_id ?? "",
+    chipLabel: def.chip_label ?? "",
+    panelHint: def.panel_hint ?? "",
+    proxyHint: def.proxy_hint ?? "",
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -210,6 +227,12 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       default_weight: draft.defaultWeight,
       shape: buildShape(draft),
       is_published: draft.isPublished,
+      // 改善計画T310: 空文字列は「未設定」の意味でnullへ変換する（trim()の理由はlabelと同じ、
+      // 空白のみの入力を未設定扱いにする）。
+      icon_id: draft.iconId.trim() === "" ? null : draft.iconId,
+      chip_label: draft.chipLabel.trim() === "" ? null : draft.chipLabel.trim(),
+      panel_hint: draft.panelHint.trim() === "" ? null : draft.panelHint.trim(),
+      proxy_hint: draft.proxyHint.trim() === "" ? null : draft.proxyHint.trim(),
     };
     setSaving(true);
     try {
@@ -237,6 +260,16 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
 
   function updateFlag(index: number, patch: Partial<FlagDraft>) {
     setDraft((d) => ({ ...d, flags: d.flags.map((f, i) => (i === index ? { ...f, ...patch } : f)) }));
+  }
+
+  // 選択中iconIdのプレビュー表示用。axisIconFor自体はaxisIconPalette.tsxの固定辞書を
+  // 引くだけの純関数だが、react-hooks/static-componentsのeslintルールはコンポーネント
+  // 本体直下で`const X = fn(); <X/>`という形を「レンダー毎にコンポーネントを新規生成
+  // している」と静的に誤検知する（MapOverlayControls.tsxのrenderAxisTile等、ネストした
+  // 関数内では同じ形でも誤検知しないため、ここも小さな関数に包んで回避する）。
+  function renderIconPreview() {
+    const PreviewIcon = axisIconFor(draft.iconId || null);
+    return <PreviewIcon size={20} />;
   }
 
   return (
@@ -444,6 +477,67 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
           </label>
         </div>
       )}
+
+      <div className={styles.shapeGroup}>
+        <p className={styles.groupLabel}>地図チップ表示要素(任意、改善計画T310)</p>
+        <p className={styles.hint}>
+          いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は
+          説明(description)がそれぞれ代わりに使われる）。
+        </p>
+        <div className={styles.field}>
+          <FieldLabel label="アイコン(icon_id)" description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。" />
+          <div className={styles.row}>
+            <select
+              value={draft.iconId}
+              aria-label="アイコン(icon_id)"
+              onChange={(e) => setDraft((d) => ({ ...d, iconId: e.target.value }))}
+            >
+              <option value="">（未設定、汎用アイコン）</option>
+              {Object.entries(AXIS_ICON_PALETTE).map(([iconId, entry]) => (
+                <option key={iconId} value={iconId}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+            {renderIconPreview()}
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <FieldLabel
+            label="地図チップの略称(chip_label)"
+            description="4文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が4文字を超える場合はここで略称を設定すること）。"
+          />
+          <input
+            type="text"
+            value={draft.chipLabel}
+            aria-label="地図チップの略称(chip_label)"
+            onChange={(e) => setDraft((d) => ({ ...d, chipLabel: e.target.value }))}
+            maxLength={4}
+            placeholder="例: 未舗装"
+          />
+        </div>
+
+        <label className={styles.fieldFull}>
+          地図の見え方パネル向け説明文(panel_hint)
+          <textarea
+            value={draft.panelHint}
+            onChange={(e) => setDraft((d) => ({ ...d, panelHint: e.target.value }))}
+            rows={2}
+            placeholder="一般ユーザー向けに噛み砕いた説明文（未設定時は説明(description)がそのまま使われる）"
+          />
+        </label>
+
+        <label className={styles.fieldFull}>
+          代役案内文(proxy_hint)
+          <textarea
+            value={draft.proxyHint}
+            onChange={(e) => setDraft((d) => ({ ...d, proxyHint: e.target.value }))}
+            rows={2}
+            placeholder="専用の地図レイヤーを持たない軸向け、代わりに確認できるレイヤーの案内（例: 標高レイヤーで確認できます）"
+          />
+        </label>
+      </div>
 
       <label className={styles.inlineCheckbox}>
         <Checkbox

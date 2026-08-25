@@ -5208,9 +5208,11 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   推定要素でラップし、推定要素かつpublishedのみをルートの見せ方では表示して。これに
   合わせてgui上の見え方グルーピングも不要」。
 - 対応方針: `category`という分類データ・判定基準（T267で確定した観測/推定/動的の境界例
-  判断を含む）自体はbackend側にそのまま残す（他用途・下記T307のプロファイル構想のため）。
-  変更対象はあくまで**ルート設定画面（RouteSettingsPanel）の表示方法**のみとし、公開済み
-  軸をカテゴリに関わらずフラットな1本のリストとして表示するよう変更する（＝ユーザーの
+  判断を含む）自体はbackend側にそのまま残す（軸スタジオの一覧表示等の他用途のため。
+  なお下記T307「プロファイル」は0次除外＋重み配分のプリセットをマスタ化する別概念で、
+  `category`とは直接関係しない）。変更対象はあくまで**ルート設定画面（RouteSettingsPanel）
+  の表示方法**のみとし、公開済み軸をカテゴリに関わらずフラットな1本のリストとして
+  表示するよう変更する（＝ユーザーの
   言う「推定要素でラップ」を、表示側でカテゴリの区別自体をしないことで実現）。GUI側の
   見え方グルーピング（軸スタジオの一覧表示）は本タスクでは変更しない
   （軸スタジオの一覧はcategoryを情報として見せているだけでグルーピング表示ではなく、
@@ -5246,35 +5248,222 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 上記の表示変更、テストgreen、docs/architecture.md追従（コンポーネント一覧の
   RouteSettingsPanel説明を更新）。すべて満たして完了。
 
-### - [ ] T307. 軸のプロファイル（グルーピング）機能のマスタ化 規模M〜L（トリガー未到達・保留）
+### - [ ] T307. プリセット（プロファイル）機能のマスタ化 規模M〜L（トリガー未到達・保留）
 
 - 背景: T306でRouteSettingsPanel側のカテゴリ別グルーピング表示を撤去した際、ユーザーから
   補足指示があった：「プロファイルね。将来的に公開する推定軸が蒸留しきってから整備
-  したい。これもマスタで整備できるようにしたいかな。」——ユーザーはこの種の軸グルーピング
-  概念を「プロファイル」と呼び、①今は実装せず将来のタイミング（後述トリガー）まで
-  保留する、②実装する際はハードコードではなくマスタデータ（軸スタジオのような管理画面
-  経由で編集可能な仕組み）として整備したい、という2点を明示した。
+  したい。これもマスタで整備できるようにしたいかな。」——当初は軸の観測/推定/動的分類の
+  マスタ化と誤って解釈したが、後続のやり取りでユーザーが「プロファイル」と呼んでいるのは
+  別概念だと判明した。正しくは: **0次除外（`hard_filters`）＋軸の重み配分
+  （`route_preference`）＋名前をひとまとまりにしたテンプレート**（例:「最短距離」）の
+  ことで、現行の`RouteSettingsPanel.tsx`の`PRESETS`/`NON_DEFAULT_PRESETS`
+  （「自転車専用道を優先」「最短時間重視」「安全重視」等、改善計画T267導入）の
+  **メンテナンス機能のイメージ**——現状フロントのTypeScript配列にハードコードされている
+  プリセット定義（かつ`hard_filters`は含まず`route_preference`のみ）を、軸スタジオと
+  同様にマスタデータとして管理画面から追加・編集できるようにしたい、という意図。
+  ①今は実装せず将来のタイミング（後述トリガー）まで保留する、②実装する際はハードコード
+  ではなくマスタデータとして整備したい、という2点は当初の理解通り変わらない。
 - 保留する理由と、保留し続けることでブロックされる影響範囲（CLAUDE.mdの保留起票ルール
-  に基づき明記）: 現時点でGUI作成軸のcategoryはT305によりすべて`"推定"`固定であり、
-  公開軸の集合自体もまだ流動的（T267完了直後で軸スタジオの実運用が始まったばかり）。
-  この状態でプロファイル（グルーピング）のマスタ機構を先に作っても、グルーピングの
-  「区分」自体がまだ定まっていないため設計が空転する可能性が高い。保留し続けても、
-  T306によりRouteSettingsPanelは既にカテゴリ非依存のフラット表示になっているため、
-  一般ユーザー向け機能は現状のまま問題なく動作し続ける（本タスクを着手しないことで
-  壊れる既存機能は無い）。ブロックされるのは「軸を意味のあるグループへ分けて見せる」
-  という表示改善のみであり、緊急性は無い。
+  に基づき明記）: プリセットは軸の重み配分の具体的な数値を持つため、公開軸の集合・既定重み
+  自体がまだ流動的（T267完了直後で軸スタジオの実運用が始まったばかり、公開`推定`軸が
+  増減し続けている段階）だと、マスタ化した先からプリセット内容の手直しが頻発し設計が
+  空転する可能性が高い。保留し続けても、既存の4プリセット（ハードコード）は現状のまま
+  問題なく動作し続ける（本タスクを着手しないことで壊れる既存機能は無い）。ブロックされる
+  のは「プリセットを管理画面から追加・編集できる」という運用上の柔軟性のみであり、
+  緊急性は無い。
 - トリガー条件: 「将来的に公開する推定軸が蒸留しきってから」（ユーザー原文）——具体的には
-  軸スタジオ経由で追加された`推定`軸が一定数公開され、実際の利用を通じてどのような
-  グルーピング区分が有用か（用途別・難易度別・データ源別など）の実例が蓄積し、
-  グルーピング基準そのものが安定した時点。現時点ではこの条件に達しているか判断する
-  材料が無いため、着手タイミングの判断は都度ユーザーへ確認する。
-- 対応方針（着手時の設計メモ、保留中は変更しない）: `axis_definitions`テーブルの
-  `category`カラム（観測/推定/動的、T269）とは別に、マスタデータとして管理可能な
-  「プロファイル」概念（プロファイルごとに軸の集合・表示順・見出しラベルを持つ）を
-  新設し、軸スタジオのような管理画面から追加・編集できるようにする想定。既存の
-  `category`をそのまま流用するかは着手時に再検討する（ユーザーが「観測/推定/動的」とは
-  別の軸として「プロファイル」と呼んでいる点に注意）。
+  軸スタジオ経由で追加された`推定`軸が一定数公開され、その重みを織り込んだプリセットの
+  構成（どの軸をどの程度使うか）が実際の利用を通じて安定した時点。現時点ではこの条件に
+  達しているか判断する材料が無いため、着手タイミングの判断は都度ユーザーへ確認する。
+- 対応方針（着手時の設計メモ、保留中は変更しない）: `axis_definitions`のようなDBテーブル
+  （例: `route_profiles`）を新設し、`{name, hard_filters, route_preference}`をレコードとして
+  持たせ、軸スタジオと同様の管理画面（例:「プロファイルスタジオ」）から追加・編集・
+  公開/非公開を制御できるようにする想定。RouteSettingsPanelの`PRESETS`配列は
+  `useAxisCatalog`と同様の取得hookへ置き換える。既定の「バランス」プリセット
+  （`catalog.defaultWeights`をそのまま使う特別枠、T267実装メモ参照）を新方式でどう
+  扱うかは着手時に再検討する。
 - 依存: 特になし（トリガー条件の充足待ち）。
+
+### - [x] T308. 推定軸の地図表示自動連動 規模M〜L（実装完了）
+
+- 背景: ユーザーからの質問「管理画面で公開した推定要素のみ、地図上でアイコン表示する
+  ようにできている？材料はモジュール修正が必要なのは理解できるが、推定軸はあくまで
+  既存合成した結果。推定軸と地図・凡例は連動させたい」を受けて調査した結果、
+  **現状はできていない**ことが判明した。地図レイヤーの動的部分（`RAMP_AXES`）は
+  実行時API（`GET /api/axis-catalog`、is_published切替が即反映）ではなくビルド時静的
+  生成物（`axis-catalog.json`）を単一ソースにしており、その生成元レジストリ
+  （`registry_defaults.py: _register_axes()`）自体が既存7軸のみのハードコードで、
+  軸スタジオで作成・公開した軸を走査する経路が無い（Gap 1: 配信経路）。加えて、
+  地図表示ルールの自動導出関数（`domain/axis_display.py: derive_ramp_inputs`）が
+  対応できる材料構成が狭く（単一材料の軸のみ）、GUIの標準的な軸作成手段
+  （複数材料の重み付き結合）で作った軸の多くは自動導出の対象外になる
+  （Gap 2: 導出ロジック）。ユーザーへの確認により「推定軸の色分けはMVTタイルに
+  焼き込まれていない・タイルの材料の生値から軸の合成式で導出できるはず」という認識が
+  合っていることを確認し、「推定軸の材料によって対応が変わる。動的要素や向きのある
+  観測要素は時間・有向表現の別途検討が要る」という補足も得た。
+- 対応方針: 上記2ギャップを解消する設計を`docs/decisions/
+  t308-axis-map-display-auto-derivation.md`へまとめた。要点:
+  1. **Gap 1**: `axis_display_for()`という純粋関数（`AXIS_DEFINITIONS`/
+     `MATERIAL_CATALOG`のみを見る、DB/IO無し）を新設し、`GET /api/axis-catalog`の
+     レスポンスへ`display`フィールドを追加。フロントの`RAMP_AXES`取得を
+     `useAxisCatalog.ts`と同じ「実行時フェッチ＋静的フォールバック」パターンへ切替え、
+     ビルド時生成物への依存を解消する。
+  2. **Gap 2**: `derive_ramp_inputs`の制約（`CategoricalShape`はbool2値のみ、
+     `BreakpointLinearShape`は単一材料・weight=1.0のみ）のうち、`BreakpointLinearShape`の
+     複数材料重み付き結合は`shape.breakpoints`のx値をそのまま閾値に流用できることが
+     数学的に導けるため撤廃可能、`CategoricalShape`のstr N値マッピングも
+     `TileInputSpec.categories`（既存機能）で対応可能と判明。一方、`preprocess="abs"`は
+     フロント側expression未対応のため当面対象外のまま。
+  3. ユーザー指摘を受け、`MaterialSpec`へ`tile_property_direction_dependent`
+     （方向依存材料の除外フラグ、新設）を追加し、方向依存・実行時スケール変換要・
+     タイル非依存の材料を含む軸は安全側で`kind="none"`（地図に出さない）へ倒す設計とした。
+  4. Stage A（Gap2・backend単独）→Stage B（Gap1・backend API＋frontend）の2段階を想定
+     （Stage BがStage Aの汎用化を前提とするため）。
+- 現状: Stage A（`derive_ramp_inputs`汎用化・`MaterialSpec.tile_property_direction_dependent`
+  追加）・Stage B（`axis_display_for()`新設、`GET /api/axis-catalog`への`display`フィールド
+  追加、フロント`RAMP_AXES`/`MAP_LAYERS`/`SECONDARY_AXES`等を`useAxisCatalog`経由の実行時
+  フェッチ＋静的フォールバックへ切替）とも実装完了。既存7軸の地図表示（ramp閾値・色・
+  レイヤー構成）が旧静的生成物と一字一句一致することをテストで担保。
+  実装中にユーザーから追加要望を受け、当初設計（Gap1・Gap2）の範囲を超えて
+  以下も同一の流れで解消した:
+  - **materials統一**: `axisMaterials`/`axisMaterialLayerIds`（`primaryAttributes.ts`）が
+    静的json専用の`inputs`フィールド参照のまま残っており、軸スタジオ作成軸には
+    「材料の共起ケーシング」「材料一覧ノート」UIが効かないギャップが判明。
+    `MaterialSpec.primary_attribute_id`（material_id→attr_idの対応）を新設し、
+    `AxisCatalogEntry.primary_attribute_ids`（`car_stress`のような内部軸参照を再帰解決した
+    attr_id一覧）をAPIへ追加。フロントは`primaryAttributeIdsToLayerIds(attrIds)`という
+    純関数へ置き換え、ライブデータのattr_idを直接渡す形に統一。
+  - **STATIC_FILTER_AXES統一**: 上記と同じ「静的RAMP_AXES依存」パターンが凡例の値
+    フィルタリング（`staticAttributeLayers.ts`）にも残存していたため、
+    `buildStaticFilterAxes(rampAxes)`関数化＋静的フォールバックの型で統一。
+  - 既存軸だけ特別扱いしている箇所の洗い出しを実施。上記2件は解消、他は
+    「意図的に残す（例: 車速換算等ドメイン固有の表示ロジック）」「対象外
+    （動的ramp・向き依存表現は本タスクのスコープ外、T308冒頭の背景参照）」の
+    いずれかに分類し、削除対象の死んだコードは合わせて除去した
+    （`CatalogAxisInputs`/`AXES_WITH_INPUTS`等）。
+  - 実機確認: フロント/バックエンド両サーバーを起動しPlaywrightで確認。
+    `GET /api/axis-catalog`への実行時フェッチが発生していること（4回、200）、
+    RouteSettingsPanel・MapOverlayControlsがライブレスポンスの重み・軸一覧で描画される
+    こと、`車の圧迫感`（car_stress、内部軸再帰解決のケース）の材料ノートが
+    「材料: 道路種別・インフラ・指定路線／地図では未表示の材料: 制限速度・車線数・
+    車両可否」と期待通り分割表示されることを確認。地図タイル本体（MapLibreの背景地図
+    スタイル取得）は本番タイルサーバーへの外部到達性が無いサンドボックス環境の制約で
+    502となったが、これは本タスクの変更と無関係。
+- 完了条件: 達成済み（上記実機確認・全テストスイート[backend pytest 977 passed / 152
+  skipped、frontend tsc・eslint・vitest 491 passed]がすべてクリーン）。
+  docs/architecture.md追従はこのコミットで実施。
+- 依存: なし（T278[derive_ramp_inputs新設]・T292[car_stressのramp化]の上に積んだ）。
+
+### - [ ] T309. ルート詳細レスポンス（RouteSegmentDetail/RouteCandidate）の軸別内訳を汎用化 規模M（保留・トリガー未到達）
+
+- 背景: T308（推定軸の地図表示自動連動）完了後の洗い出しで、地図表示・評価・materials
+  経路は軸スタジオ作成軸まで汎用化された一方、**ルート詳細のセグメント別内訳レスポンス**
+  （`backend/app/domain/route.py`）だけは既存軸限定の固定フィールドのまま残っていることを
+  確認した。具体的には`RouteSegmentDetail`が`elevation_difficulty`/`wind_difficulty`/
+  `road_difficulty`/`stop_difficulty`/`car_stress_difficulty`/`accident_difficulty`/
+  `night_difficulty`という7個の固定フィールド（既存7軸1対1）を持ち、
+  `road_graph_engine.py`/`openrouteservice_engine.py`が`axis_scores.get("gradient")`等で
+  個別に埋めている。`RouteCandidate`側の集約値はさらに範囲が狭く、7軸中4軸
+  （elevation/wind/road/stop）分のフィールドしか無く、car_stress/accident/nightは
+  ルート集約レベルでは既存軸ですら埋まっていない（T309着手前から存在する非対称、
+  T308による新規劣化ではない）。総合スコアの内訳（`RouteCandidate.score_breakdown:
+  list[RouteScoreComponent]`、`{axis, score, weight, contribution}`）は元々`axis: str`の
+  汎用リストで既に軸スタジオ作成軸を含め全軸を返せる——固定フィールドの問題は
+  **区間ごと**の難易度内訳（地図の難易度色分けレイヤー描画・区間クリックポップアップが
+  参照）に限られる。
+- 保留の影響範囲: 軸スタジオで新規公開した軸は、地図のramp色分け・凡例・重み設定・
+  材料ノート（T308まで完了）には現れるが、区間クリックポップアップやルート詳細画面が
+  参照する**区間単位の難易度内訳**には出てこない（フィールドが無いため常に欠落、
+  エラーにはならない）。ユーザーが軸スタジオで軸を作って地図色分けまで確認できても、
+  「この区間はどの軸のせいで難易度が高いか」を区間単位で見る手段が既存7軸限定のまま
+  という体験の非対称が生じる。対応を保留し続けた場合、次に軸スタジオで新規軸を作って
+  公開するたびにこの非対称が新規軸ぶん積み重なり、後から「区間内訳になぜ出ないのか」が
+  都度問い合わせ・調査対象になりうる。
+- 対応方針（未確定、着手時に設計）: `RouteSegmentDetail`の固定7フィールドを
+  `Dict[str, float | None]`（axis_id→difficulty）のような汎用構造へ置き換える、または
+  固定フィールドは既存7軸の後方互換のため残しつつ汎用の追加フィールドを併設する等の
+  選択肢がある。地図の難易度色分けレイヤー（`routeStyleModes.ts`等）・区間ポップアップ
+  （`axisInspectorPopup.ts`）双方がこのレスポンス形を直接参照しており、変更するとルート
+  詳細画面・区間ポップアップ側の広い改修が要る（ユーザー判断でT308のスコープからは
+  明示的に除外）。
+- 依存: なし（トリガー条件未確定のため優先順位リストには未登録。次に軸スタジオ関連の
+  作業へ着手するタイミングで再検討）。
+
+### - [x] T310. 軸スタジオへ地図チップ表示要素（アイコン・略称・地図パネル説明文・代役案内・地図ramp閾値上書き）の登録機能を追加 規模M〜L（実装完了）
+
+- 背景: T308の洗い出しで、既存軸だけを特別扱いしているコードのうち以下5件は「汎用
+  フォールバックがあり機能は壊れない（未対応でも動く）」という理由でT308スコープ外・
+  意図的に残す判断としていた。ユーザーから「これも特別扱いはなくしたい。軸スタジオに
+  対応する要素を登録できるようにして、そちらから引っ張ってきて」との追加指示を受け、
+  本タスクとして起票する。
+  1. `SECONDARY_AXIS_ICONS`（`MapOverlayControls.tsx`）: 既存6軸だけ専用の手描きSVG
+     アイコン（`icons.tsx`）を持ち、他の軸は汎用`AxisRampIcon`にフォールバックする。
+  2. `RAMP_AXIS_PANEL_HINTS`（`mapLayers.ts`）: 既存3軸（stop_density/accident/
+     car_stress）だけ、地図の見え方パネル向けに噛み砕いた説明文を持ち、他の軸は
+     `axis.note`（開発者向け実装メモ）がそのまま出る。
+  3. `SECONDARY_AXIS_CHIP_LABELS`（`secondaryAxes.ts`）: 既存6軸だけ4文字以内の略称を
+     持ち、他の軸は正式名（`label`）がそのままチップに出る。
+  4. `SECONDARY_AXIS_PROXY_HINTS`（`secondaryAxes.ts`）: `kind="none"`（専用地図
+     レイヤー無し）の軸のうち`gradient`だけ代役レイヤーへの案内文を持ち、他の
+     `kind="none"`軸は案内無しの単なる無効行になる。
+  5. backend `STOP_DENSITY_DISPLAY`/`ACCIDENT_DISPLAY`/`CAR_STRESS_DISPLAY`
+     （`axis_display.py`）: 既存3軸だけ、`derive_ramp_inputs`の自動導出（粗い/導出不能）
+     に代えて統計的に調整済みのramp閾値を手書きで持つ。他の軸は自動導出結果（導出
+     できなければ`kind="none"`）に固定される——軸スタジオでGUIから閾値を調整する
+     手段が無い。
+- 対応方針・実装内容:
+  1. **アイコン登録方式**: ユーザーへ3案（(a)固定パレットから選択／(b)ラベル頭文字の
+     モノグラム自動生成／(c)専用アイコン廃止）を、実際のチップUI上でのモックアップ
+     （Artifact）付きで提示して相談した結果、(a)固定パレット方式を採用。
+     `frontend/src/components/Map/axisIconPalette.tsx`を新設し、既存6軸の意匠
+     （incline/wave/crescent-moon/density-stack/density-scatter/warning-triangle）
+     に加え、新規軸向けのスペア6種（wind-flow/thermometer/shield/target/clock/layers、
+     `icons.tsx`へ4種を新規追加）を含む計12種の固定パレットを用意した。`axisIconFor
+     (iconId)`が未知/未設定のidを汎用`AxisRampIcon`へ安全側でフォールバックする。
+     新規アイコン形状の追加は引き続きこのファイルへの1件追加＋コード変更を要する
+     （軸スタジオ側はicon_idを選ぶだけ、ユーザー承認済み）。
+  2〜4. `panel_hint`/`chip_label`/`proxy_hint`（いずれも`str | None`）を追加。
+  5. `display_override: AxisDisplaySpec | None`を追加（`registry.py`の既存型を
+     そのまま再利用、TileInputSpecの構造が複雑なためAxisComposer.tsxには編集UIを
+     持たせず管理API直接編集のみ対応というスコープ限定を行った）。
+  - 上記5フィールドを`domain/axis_definitions.py: AxisDefinition`・
+    `axis_admin.py: AxisDefinitionFields`（create/update/レスポンスすべて）・
+    `axis_catalog.py: AxisCatalogEntry`（icon_id/chip_label/panel_hint/proxy_hintの4件、
+    display_overrideは`axis_display_for()`の出力に統合済みのため別フィールド化しない）・
+    `infrastructure/axis_definition_models.py`（新規カラム5件、NULL許容）・
+    `axis_definition_repository.py`（読み書き）に配線した。
+  - **既存6軸のデータもコード内蔵の既定値（Pythonフォールバック）だけでなく、
+    実際の本番DB行としてもbackfillする**（ユーザー指示「今ハードコードされている
+    ところは、軸スタジオレコードに対応付けて本番DBに移行してほしい」2026-08-25）。
+    `migrations/0019_axis_definitions_display_fields.sql`が、`ALTER TABLE`での
+    カラム追加に続けて、`AXIS_DEFINITIONS`から`model_dump(mode="json")`で機械的に
+    生成した値（手で書き写していないため転記ミスなし）を`UPDATE`文でDB行へ
+    書き込む。本番環境ではこのmigrationの適用（`scripts/apply_migrations.py`）を
+    もって初めてDB行にも反映される（既存の0014〜0018と同じ、適用まではPython
+    フォールバックのまま動作する設計）。
+  - `axis_display.py: axis_display_for()`は軸id→値のハードコード辞書
+    （`_HAND_WRITTEN_DISPLAY`）を完全に廃止し、`definition.display_override`を見る
+    3行の純粋関数になった（軸id文字列を一切含まない）。`registry_defaults.py`
+    （ビルド時静的axis-catalog.json生成用の別レジストリ）も同様に
+    `AXIS_DEFINITIONS[axis_id].display_override`を参照する形へ統一した。
+  - **chip_labelの4文字制約を検証で強制**（ユーザー指摘「地図アイコンに表示する
+    文字は4文字以下の想定」2026-08-25。「車の圧迫感」[label]は5文字のため、
+    chip_label未設定のままだとフォールバックのlabelがそのままチップに出て
+    レイアウトが崩れる）: `AxisDefinitionPayload`へ`field_validator`を追加し、
+    5文字以上のchip_labelを422で拒否する（フロントも`maxLength={4}`で入力段階から
+    防ぐ）。既存6軸のchip_labelは全て4文字以内で設定済み（最長は「停止密度」
+    「事故密度」の4文字）。
+  - 検証: backend pytest 982 passed / 154 skipped（PostGIS往復の新規テスト2件含む）、
+    frontend tsc・eslint・vitest 500 passed（新規テスト9件、axisIconPalette.test.ts・
+    secondaryAxes.test.ts新設含む）。Playwrightで実サーバーを起動し、`/api/axis-catalog`
+    が新フィールドを返すこと・地図チップのアイコンが従来と見た目一致で表示される
+    こと（軸id→値の辞書からicon_idベースの動的解決へ内部的に置き換わっただけで
+    退行が無いこと）を確認。既存軸だけの特別扱いが残っていないことをユーザー指示で
+    再監査し（`SECONDARY_AXIS_ICONS`等の旧シンボル名を全文検索、過去形の説明コメント
+    以外に実コードが1件も残っていないことを確認）、残るのはT309（区間別内訳の別タスク、
+    意図的にスコープ外）とdisplay_overrideのGUI編集UI（データ層は特別扱い無し、
+    編集フォームのみ未対応、ユーザー承認済みのスコープ限定）の2点のみ。
+- 依存: T308（`axis_display_for()`・`primary_attribute_ids`等の基盤の上に積んだ）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

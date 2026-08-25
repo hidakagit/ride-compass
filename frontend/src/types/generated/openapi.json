@@ -1139,6 +1139,60 @@
           "default_weight": {
             "type": "number",
             "title": "Default Weight"
+          },
+          "display": {
+            "$ref": "#/components/schemas/AxisDisplaySpec"
+          },
+          "icon_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Id"
+          },
+          "chip_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chip Label"
+          },
+          "panel_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Hint"
+          },
+          "proxy_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Hint"
+          },
+          "primary_attribute_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Primary Attribute Ids"
           }
         },
         "type": "object",
@@ -1147,7 +1201,13 @@
           "label",
           "description",
           "category",
-          "default_weight"
+          "default_weight",
+          "display",
+          "icon_id",
+          "chip_label",
+          "panel_hint",
+          "proxy_hint",
+          "primary_attribute_ids"
         ],
         "title": "AxisCatalogEntry"
       },
@@ -1222,6 +1282,60 @@
             },
             "type": "array",
             "title": "Priority Overrides"
+          },
+          "icon_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Id"
+          },
+          "chip_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chip Label"
+          },
+          "panel_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Hint"
+          },
+          "proxy_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Hint"
+          },
+          "display_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AxisDisplaySpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1289,6 +1403,60 @@
             },
             "type": "array",
             "title": "Priority Overrides"
+          },
+          "icon_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Id"
+          },
+          "chip_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chip Label"
+          },
+          "panel_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Hint"
+          },
+          "proxy_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Hint"
+          },
+          "display_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AxisDisplaySpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1300,6 +1468,58 @@
         ],
         "title": "AxisDefinitionResponse",
         "description": "一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、\n`AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は\n継承しない（`AxisDefinitionFields`のdocstring参照）。"
+      },
+      "AxisDisplaySpec": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ramp",
+              "none"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "trafficSafety"
+          },
+          "tile_inputs": {
+            "items": {
+              "$ref": "#/components/schemas/TileInputSpec"
+            },
+            "type": "array",
+            "title": "Tile Inputs"
+          },
+          "thresholds": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Thresholds"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "AxisDisplaySpec",
+        "description": "二次軸の地図レイヤー表示宣言（改善計画T145b「事実はタイルに、解釈はクライアントに」）。\n\n- kind=\"ramp\": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を\n  `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの\n  レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。\n- kind=\"none\": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。\n  `note`へ理由を書く。\n\n改善計画T298: 以前は「タグの複雑な組み合わせを要しフロント側の手書きexpressionが\n必要な軸」向けのkind=\"bespoke\"（例: 旧`carStressExpression.ts`）もあったが、\n改善計画T292でcar_stressが最後の利用者としてkind=\"ramp\"へ移行し利用がゼロになった\nため削除した（Literalから外すだけで、既存データ・呼び出し元への影響は無いことを\ngrep（`kind=\"bespoke\"`の構築箇所ゼロ）で確認済み）。"
       },
       "AxisInspectorAxis": {
         "properties": {
@@ -2396,6 +2616,88 @@
         ],
         "title": "ScoringWeights",
         "description": "total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。\n\n値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は\n無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。"
+      },
+      "TileInputSpec": {
+        "properties": {
+          "property": {
+            "type": "string",
+            "title": "Property"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight",
+            "default": 1.0
+          },
+          "boolean": {
+            "type": "boolean",
+            "title": "Boolean",
+            "default": false
+          },
+          "invert": {
+            "type": "boolean",
+            "title": "Invert",
+            "default": false
+          },
+          "true_value": {
+            "type": "number",
+            "title": "True Value",
+            "default": 0.0
+          },
+          "false_value": {
+            "type": "number",
+            "title": "False Value",
+            "default": 0.0
+          },
+          "has_unknown_fallback": {
+            "type": "boolean",
+            "title": "Has Unknown Fallback",
+            "default": false
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "breakpoints": {
+            "anyOf": [
+              {
+                "items": {
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array",
+                  "maxItems": 2,
+                  "minItems": 2
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Breakpoints"
+          }
+        },
+        "type": "object",
+        "required": [
+          "property"
+        ],
+        "title": "TileInputSpec",
+        "description": "地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278・T292）。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`、改善計画T278）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n`invert`は材料がタイルプロパティの否定（例: no_lit⟵lit）の場合に立てる。\n\n`has_unknown_fallback`（レビュー指摘の修正、改善計画T278）: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: no_lit⟵lit、has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け、例: `bicycle_infra`は評価側のmappingが\n全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。\n`has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は\n評価側でcar_stress軸全体を評価しない[required=True]。以前はフロント側の実装が\nプロパティの**欠損**のみを「不明」判定していたため、この「値はあるが未登録」の\nケースを見落とし、実際には未評価のはずの区間が0点=最良[緑]色で表示される\n不整合があった。`axisLayers.ts: buildAxisRampUnknownExpression`参照）。\nboolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`、改善計画T292）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n`car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。"
       },
       "ValidationError": {
         "properties": {

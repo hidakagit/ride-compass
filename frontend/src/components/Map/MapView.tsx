@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -46,11 +46,12 @@ import {
   TUNNEL_OPACITY_EXPRESSION,
   ONEWAY_COLOR_EXPRESSION,
   ONEWAY_OPACITY_EXPRESSION,
-  STATIC_FILTER_AXES,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_LABELS,
   SUPPLY_POI_COLOR_EXPRESSION,
   SUPPLY_POI_LABELS,
+  buildStaticFilterAxes,
+  type StaticFilterAxis,
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
@@ -1233,11 +1234,18 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
   };
 }
 
-const AXIS_OVERLAY_LAYERS = RAMP_AXES.map((axis) => ({
-  key: axisMapLayerId(axis.axisId) as string,
-  layerId: axisLineLayerId(axis.axisId),
-  ensure: makeEnsureAxisRampLayer(axis),
-}));
+type OverlayLayerEntry = { key: string; layerId: string; ensure: (map: MapLibreMap) => void };
+
+// 改善計画T308: 軸スタジオが公開したramp軸（RAMP_AXESのビルド時静的フォールバックに限らず、
+// 実行時フェッチで増減しうる）を反映できるよう関数化した。呼び出し側（コンポーネント内、
+// useMemo経由）がrampAxesを渡す。
+function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly OverlayLayerEntry[] {
+  return rampAxes.map((axis) => ({
+    key: axisMapLayerId(axis.axisId) as string,
+    layerId: axisLineLayerId(axis.axisId),
+    ensure: makeEnsureAxisRampLayer(axis),
+  }));
+}
 
 // 改善計画（1次/2次の地図上表現の統一、松）: map.addLayer()はbeforeId省略時にレイヤー
 // スタックの最上位へ積み上げるため、この配列の並び順がそのままensureAllStaticOverlayLayers
@@ -1248,24 +1256,25 @@ const AXIS_OVERLAY_LAYERS = RAMP_AXES.map((axis) => ({
 // 上書き）をその上に置く。
 // 以前はramp軸が配列末尾（最前面）だったため、材料の連動ON（T167）で観測データと推定を
 // 同時に表示しても、後から追加された推定側が観測データを塗り潰して見えなくなっていた。
-const STATIC_OVERLAY_LAYERS: readonly { key: string; layerId: string; ensure: (map: MapLibreMap) => void }[] = [
-  { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
-  // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
-  // 吸収されたため、以前ここにあった専用エントリ（ensureCarStressLayer）は不要になった。
-  ...AXIS_OVERLAY_LAYERS,
-  { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
-  { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
-  { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
-  { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
-  { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
-  { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
-  { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
-];
+function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
+  return [
+    { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
+    // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
+    // 吸収されたため、以前ここにあった専用エントリ（ensureCarStressLayer）は不要になった。
+    ...axisOverlayLayers,
+    { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
+    { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
+    { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
+    { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
+    { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
+    { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
+    { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
+  ];
+}
 
-// 2次（ramp軸）のうち、下敷き（SECONDARY_AXIS_CASING_WIDTH/OPACITY）の対象。
-// STATIC_OVERLAY_LAYERSのramp軸部分（改善計画T292: car_stressもAXIS_OVERLAY_LAYERSへ
-// 吸収され含まれるようになった）から取り出すだけの薄いラッパー。
-const SECONDARY_AXIS_CASING_TARGETS: readonly { key: string; layerId: string }[] = [...AXIS_OVERLAY_LAYERS];
+// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。テスト・フォールバック用。
+// テスト（MapView.overlayFilters.test.ts）から静的フォールバックとして参照できるようexport。
+export const STATIC_OVERLAY_LAYERS: readonly OverlayLayerEntry[] = buildStaticOverlayLayers(buildAxisOverlayLayers(RAMP_AXES));
 
 // 改善計画（2次の下敷きの副作用対応）: 2次（ramp軸）を太く半透明な下敷きに
 // するのは、その材料（1次）が同時に表示されているときだけにする。材料が1つも表示されて
@@ -1274,10 +1283,16 @@ const SECONDARY_AXIS_CASING_TARGETS: readonly { key: string; layerId: string }[]
 // 太く半透明にしていたため、道路網が密な都市部では下敷きの重なりだけで地図全体が
 // ぼやけて見えてしまっていた（実機フィードバック）。casingLayerKeysは、どの2次レイヤーの
 // 材料が現在表示中かをpage.tsx側（axisMaterialLayerIds）が判定して渡す（このファイルは
-// レイヤー固有の材料関係を知らない汎用描画係のまま、という方針を保つ）。
-function applySecondaryAxisCasingStyles(map: MapLibreMap, casingLayerKeys: ReadonlySet<string>) {
+// レイヤー固有の材料関係を知らない汎用描画係のまま、という方針を保つ）。axisOverlayLayers
+// （改善計画T308）は「2次（ramp軸）のうち下敷きの対象」そのもの——STATIC_OVERLAY_LAYERSの
+// ramp軸部分と同一集合のため、呼び出し側がbuildAxisOverlayLayers(rampAxes)の結果を渡す。
+function applySecondaryAxisCasingStyles(
+  map: MapLibreMap,
+  casingLayerKeys: ReadonlySet<string>,
+  axisOverlayLayers: readonly OverlayLayerEntry[]
+) {
   runWhenStyleReady(map, () => {
-    for (const target of SECONDARY_AXIS_CASING_TARGETS) {
+    for (const target of axisOverlayLayers) {
       if (!map.getLayer(target.layerId)) continue;
       const useCasing = casingLayerKeys.has(target.key);
       map.setPaintProperty(target.layerId, "line-width", useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH);
@@ -1313,40 +1328,48 @@ function primaryDynamicWeatherSourceId(id: DynamicWeatherLayerId, spec: DynamicW
   return dynamicWeatherIds(id, "mark").sourceId;
 }
 
-export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; sourceLayer?: string }[] = [
-  { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "tunnel", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "oneway", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-  { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
-  { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
-  { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-  // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計）。
-  // DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しい要素を追加してもここへ手動で
-  // 1行足す必要はない。GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無く
-  // querySourceFeaturesによる0件判定（empty）は元から対象外、ラスタタイル（raster）は
-  // elevationと同じく取得失敗のみ検知対象。
-  ...DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
-    key: id,
-    sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
-  })),
-  // 二次軸rampレイヤー（T145b、改善計画T292でcar_stressも含む）はroad_surfaceタイルへ
-  // 焼き込み済みのプロパティを読む（bicycleInfra等と同じソース共有。
-  // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
-  ...RAMP_AXES.map((axis) => ({
-    key: axisMapLayerId(axis.axisId) as MapLayerId,
-    sourceId: ROAD_TILE_SOURCE_ID,
-    sourceLayer: ROAD_TILE_SOURCE_LAYER,
-  })),
-];
+type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
+
+// 改善計画T308: buildAxisOverlayLayers等と同じ理由で関数化。
+function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly LayerDataSource[] {
+  return [
+    { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+    { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+    { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+    { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+    { key: "tunnel", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+    { key: "oneway", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+    { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
+    { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
+    { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
+    { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
+    // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計）。
+    // DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しい要素を追加してもここへ手動で
+    // 1行足す必要はない。GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無く
+    // querySourceFeaturesによる0件判定（empty）は元から対象外、ラスタタイル（raster）は
+    // elevationと同じく取得失敗のみ検知対象。
+    ...DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
+      key: id,
+      sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
+    })),
+    // 二次軸rampレイヤー（T145b、改善計画T292でcar_stressも含む）はroad_surfaceタイルへ
+    // 焼き込み済みのプロパティを読む（bicycleInfra等と同じソース共有。
+    // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
+    ...rampAxes.map((axis) => ({
+      key: axisMapLayerId(axis.axisId) as MapLayerId,
+      sourceId: ROAD_TILE_SOURCE_ID,
+      sourceLayer: ROAD_TILE_SOURCE_LAYER,
+    })),
+  ];
+}
 
 // レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus・
 // clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.ts（改善計画T123）に
 // 集約されている。LAYER_DATA_SOURCES自体はSTATIC_OVERLAY_LAYERS等の他の定数と同じくこの
 // ファイルに残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
+// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。MapView.dataStatus.test.tsから
+// 個別レイヤーのsourceIdを参照できるようexportしている。
+export const LAYER_DATA_SOURCES: readonly LayerDataSource[] = buildLayerDataSources(RAMP_AXES);
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
@@ -1358,21 +1381,27 @@ export const LAYER_DATA_SOURCES: readonly { key: MapLayerId; sourceId: string; s
 // 二次軸rampレイヤー（T145b）はクリック時の内訳ポップアップ（recipeBreakdownPopup等）に
 // 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する
 // （一次属性→軸スコアを遡る汎用インスペクタは改善計画T146のスコープ）。
-const INTERACTIVE_LAYER_IDS = [
-  DETAIL_LAYER_ID,
-  ROAD_TILE_LAYER_ID,
-  ...STATIC_OVERLAY_LAYERS.filter(
-    (layer) => layer.key !== "elevation" && !layer.key.startsWith("axis:"),
-  ).map((layer) => layer.layerId),
-];
-
-function ensureAllStaticOverlayLayers(map: MapLibreMap) {
-  for (const layer of STATIC_OVERLAY_LAYERS) layer.ensure(map);
+function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
+  return [
+    DETAIL_LAYER_ID,
+    ROAD_TILE_LAYER_ID,
+    ...staticOverlayLayers.filter(
+      (layer) => layer.key !== "elevation" && !layer.key.startsWith("axis:"),
+    ).map((layer) => layer.layerId),
+  ];
 }
 
-function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverlayKey, boolean>) {
+function ensureAllStaticOverlayLayers(map: MapLibreMap, staticOverlayLayers: readonly OverlayLayerEntry[]) {
+  for (const layer of staticOverlayLayers) layer.ensure(map);
+}
+
+function setStaticOverlayVisibility(
+  map: MapLibreMap,
+  flags: Record<StaticOverlayKey, boolean>,
+  staticOverlayLayers: readonly OverlayLayerEntry[]
+) {
   runWhenStyleReady(map, () => {
-    for (const layer of STATIC_OVERLAY_LAYERS) {
+    for (const layer of staticOverlayLayers) {
       layer.ensure(map);
       setLayerVisibility(map, layer.layerId, flags[layer.key]);
     }
@@ -1395,10 +1424,12 @@ function setStaticOverlayVisibility(map: MapLibreMap, flags: Record<StaticOverla
 export function setStaticOverlayFilters(
   map: MapLibreMap,
   hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>,
+  staticOverlayLayers: readonly OverlayLayerEntry[],
+  staticFilterAxes: readonly StaticFilterAxis[],
 ) {
   runWhenStyleReady(map, () => {
-    for (const layer of STATIC_OVERLAY_LAYERS) {
-      const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layer.key);
+    for (const layer of staticOverlayLayers) {
+      const axes = staticFilterAxes.filter((axis) => axis.layerId === layer.key);
       if (axes.length === 0) continue;
       layer.ensure(map);
       const filter = buildCombinedLegendFilterExpression(
@@ -1647,6 +1678,11 @@ interface MapViewProps {
   /** 実験スロット（研究インターフェース改善 §10-3）。デバッグモードOFF時は呼び出し側が
    * 空配列を渡すため、通常利用ではレイヤーは作られない。 */
   experimentSlots: ExperimentSlot[];
+  /** 二次軸の汎用rampレイヤー一覧（改善計画T308）。呼び出し側（page.tsx）が
+   * useAxisCatalog経由で取得したもの（取得完了までとエラー時は静的フォールバック
+   * RAMP_AXES）を渡す。軸スタジオでの新規公開軸もここへ含まれれば、再デプロイなしに
+   * 地図レイヤーとして現れる。 */
+  rampAxes: readonly RampAxis[];
 }
 
 export default function MapView({
@@ -1676,11 +1712,32 @@ export default function MapView({
   onLayerDataStatusChange,
   refreshToken,
   experimentSlots,
+  rampAxes,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  // 改善計画T308: 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
+  // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
+  const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
+  const staticOverlayLayers = useMemo(
+    () => buildStaticOverlayLayers(axisOverlayLayers),
+    [axisOverlayLayers]
+  );
+  const interactiveLayerIds = useMemo(
+    () => buildInteractiveLayerIds(staticOverlayLayers),
+    [staticOverlayLayers]
+  );
+  const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
+  const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
+  // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
+  // 最新のinteractiveLayerIdsを読めるようにするref（onRegionZoomHintChangeRef等と同じ
+  // 「安定コールバックが最新値を読む」パターン）。
+  const interactiveLayerIdsRef = useRef(interactiveLayerIds);
+  useEffect(() => {
+    interactiveLayerIdsRef.current = interactiveLayerIds;
+  }, [interactiveLayerIds]);
   // 描画コールバックはmap.once("load", ...)頼み(runWhenStyleReady)だが、スタイルURL自体が
   // 404/5xx等で取得できない場合MapLibreは"load"ではなく"error"を発火するため、地図が
   // 無言で空白のまま永久に止まる問題があった。スタイルが一度もreadyにならないまま
@@ -1715,6 +1772,9 @@ export default function MapView({
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
+    staticOverlayLayers,
+    axisOverlayLayers,
+    staticFilterAxes,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -1754,6 +1814,9 @@ export default function MapView({
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
+      staticOverlayLayers,
+      axisOverlayLayers,
+      staticFilterAxes,
     };
   }, [
     routes,
@@ -1776,6 +1839,9 @@ export default function MapView({
     secondaryAxisCasingLayerIds,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
+    staticOverlayLayers,
+    axisOverlayLayers,
+    staticFilterAxes,
     experimentSlots,
   ]);
 
@@ -1808,24 +1874,31 @@ export default function MapView({
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
+      staticOverlayLayers,
+      axisOverlayLayers,
+      staticFilterAxes,
     } = redrawPropsRef.current;
-    setStaticOverlayVisibility(map, {
-      elevation: showElevation,
-      bicycleInfra: showBicycleInfra,
-      designation: showDesignation,
-      tunnel: showTunnel,
-      oneway: showOneway,
-      accidents: showAccidents,
-      stopPoi: showStopPoi,
-      supplyPoi: showSupplyPoi,
-      ...axisVisibility,
-    });
-    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
+    setStaticOverlayVisibility(
+      map,
+      {
+        elevation: showElevation,
+        bicycleInfra: showBicycleInfra,
+        designation: showDesignation,
+        tunnel: showTunnel,
+        oneway: showOneway,
+        accidents: showAccidents,
+        stopPoi: showStopPoi,
+        supplyPoi: showSupplyPoi,
+        ...axisVisibility,
+      },
+      staticOverlayLayers
+    );
+    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
       const state = dynamicWeather[id];
       applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], state?.visible ?? false, state?.payload);
     }
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
+    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, {
       road: showRoadSurface || showRoadType,
@@ -1899,7 +1972,7 @@ export default function MapView({
   const { recompute: recomputeLayerDataStatus, markSourceErrored, clearSourceLoading, notifySourceData, settleViewport } =
     useLayerDataStatus({
       mapRef,
-      layerDataSources: LAYER_DATA_SOURCES,
+      layerDataSources,
       getVisibility: getLayerVisibility,
       onChangeRef: onLayerDataStatusChangeRef,
     });
@@ -1971,14 +2044,18 @@ export default function MapView({
     // 発覚）。標高を先に単独ensureしてから路面ソースを作ることで「標高が最背面、その上に路面」
     // の意図を保ったまま直す（ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが
     // 自身のガードで無害化される）。
-    STATIC_OVERLAY_LAYERS.find((layer) => layer.key === "elevation")?.ensure(map);
+    // 改善計画T308: staticOverlayLayersはredrawPropsRef.current経由で読む（このeffectは
+    // マウント時のみ実行され、propsのrampAxesが後から変わっても再実行されないため。
+    // 実行時フェッチで新しい軸が現れた場合の追従は、別途staticOverlayLayers変更時の
+    // effectで対応する）。
+    redrawPropsRef.current.staticOverlayLayers.find((layer) => layer.key === "elevation")?.ensure(map);
     ensureRoadSurfaceTileLayer(map);
-    ensureAllStaticOverlayLayers(map);
+    ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
     function handleClick(e: MapMouseEvent) {
-      const layers = INTERACTIVE_LAYER_IDS.filter((id) => map.getLayer(id));
+      const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) return;
       const features = map.queryRenderedFeatures(e.point, { layers });
       if (features.length === 0) return;
@@ -2013,7 +2090,7 @@ export default function MapView({
     }
 
     function handleMouseMove(e: MapMouseEvent) {
-      const layers = INTERACTIVE_LAYER_IDS.filter((id) => map.getLayer(id));
+      const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         map.getCanvas().style.cursor = "";
         return;
@@ -2254,18 +2331,22 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    setStaticOverlayVisibility(map, {
-      elevation: showElevation,
-      bicycleInfra: showBicycleInfra,
-      designation: showDesignation,
-      tunnel: showTunnel,
-      oneway: showOneway,
-      accidents: showAccidents,
-      stopPoi: showStopPoi,
-      supplyPoi: showSupplyPoi,
-      ...axisVisibility,
-    });
-    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds));
+    setStaticOverlayVisibility(
+      map,
+      {
+        elevation: showElevation,
+        bicycleInfra: showBicycleInfra,
+        designation: showDesignation,
+        tunnel: showTunnel,
+        oneway: showOneway,
+        accidents: showAccidents,
+        stopPoi: showStopPoi,
+        supplyPoi: showSupplyPoi,
+        ...axisVisibility,
+      },
+      staticOverlayLayers
+    );
+    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
     // 状態が更新されるようにするため）。
@@ -2282,6 +2363,11 @@ export default function MapView({
     axisVisibility,
     secondaryAxisCasingLayerIds,
     recomputeLayerDataStatus,
+    // 改善計画T308: staticOverlayLayers/axisOverlayLayersが変わる（軸スタジオの実行時
+    // フェッチで新しい軸が現れる）たびにsetStaticOverlayVisibility経由でensure()が
+    // 再実行され、新しい軸のレイヤーもここで初めて登録される。
+    staticOverlayLayers,
+    axisOverlayLayers,
   ]);
 
   // 動的気象レイヤー（降水ナウキャスト・風の矢印、改善計画T170/T171/T178、T183で降水延長予報を
@@ -2305,8 +2391,8 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis);
-  }, [staticLegendHiddenKeysByAxis]);
+    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
+  }, [staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes]);
 
   // 路面（道路の種類/路面の種類、改善計画T165）ON/OFF・凡例フィルタの切替は、いずれも
   // visibility/paint/フィルタ式の差し替えのみで反映される（データ取得はMapLibreがパン/

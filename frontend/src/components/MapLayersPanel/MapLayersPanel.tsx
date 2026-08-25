@@ -6,8 +6,6 @@ import {
   MAP_LAYER_CATEGORY_ORDER,
   MAP_LAYER_DATA_NATURE_LABELS,
   MAP_LAYER_DATA_NATURE_ORDER,
-  MAP_LAYERS,
-  ROAD_SURFACE_SHARED_LAYER_IDS,
   layerSectionDomId,
   type LayerDataStatus,
   type LayerDataStatusByLayer,
@@ -25,7 +23,7 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
-import { SECONDARY_AXES, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import { InfoIcon } from "@/components/Map/icons";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
@@ -63,6 +61,14 @@ interface MapLayersPanelProps {
   /** 全軸の非表示カテゴリを一度に解除する（軸ごとの「すべて表示」を繰り返させない）。
    * レイヤーのON/OFFには触れない（絞り込みとは別の状態のため） */
   onClearAllFilters: () => void;
+  /** 改善計画T308: 地図レイヤーカタログ（page.tsx側でaxisCatalog.rampAxesから
+   * buildMapLayers()経由で組み立てたもの、軸スタジオの公開軸を含む）。 */
+  mapLayers: readonly MapLayerDescriptor[];
+  /** road_surfaceタイルを共有するレイヤーのMapLayerId一覧（page.tsx側でmapLayersと同じ
+   * rampAxesからbuildRoadSurfaceSharedLayerIds()経由で組み立てたもの）。 */
+  roadSurfaceSharedLayerIds: readonly MapLayerId[];
+  /** 二次軸(推定指標)一覧（page.tsx側でaxisCatalog.secondaryAxesをそのまま渡す）。 */
+  secondaryAxes: readonly SecondaryAxisSummary[];
 }
 
 // サイドバーのグループ見出し。改善計画（地図の見え方パネルのグルーピングを地図上チップと
@@ -112,6 +118,9 @@ export default function MapLayersPanel({
   layerDataStatus,
   hasHiddenFilters,
   onClearAllFilters,
+  mapLayers,
+  roadSurfaceSharedLayerIds,
+  secondaryAxes,
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
@@ -332,7 +341,7 @@ export default function MapLayersPanel({
   // 全レイヤーのヘッダーチップには抑制が効いていなかった）。
   function visibleDataStatus(layerId: MapLayerId): LayerDataStatus | undefined {
     if (!layerVisibility[layerId]) return undefined;
-    if (regionZoomTooWide && ROAD_SURFACE_SHARED_LAYER_IDS.includes(layerId)) return undefined;
+    if (regionZoomTooWide && roadSurfaceSharedLayerIds.includes(layerId)) return undefined;
     return layerDataStatus[layerId];
   }
 
@@ -481,18 +490,18 @@ export default function MapLayersPanel({
     );
   }
 
-  // 推定グループの1件（SECONDARY_AXES由来）。専用の表示レイヤーを持つ軸はMAP_LAYERSの
+  // 推定グループの1件（secondaryAxes props由来）。専用の表示レイヤーを持つ軸はmapLayersの
   // 対応するレイヤーを、持たない軸（proxy）はaxis自体を返す（上記コメント参照）。
   type CompositeEntry =
     | { kind: "layer"; layer: MapLayerDescriptor }
     | { kind: "proxy"; axis: SecondaryAxisSummary };
 
-  // SECONDARY_AXES（axis-catalog.json由来、地図チップの左からの並びと同じ順序）をそのまま
-  // なぞって推定グループの並び順を作る。地図チップ側と単一ソースを共有することで、
-  // 軸の追加・並び替えがあってもここを個別に追従させる必要がない。
+  // secondaryAxes（改善計画T308: axisCatalog.secondaryAxes、地図チップの左からの並びと
+  // 同じ順序）をそのままなぞって推定グループの並び順を作る。地図チップ側と単一ソースを
+  // 共有することで、軸の追加・並び替えがあってもここを個別に追従させる必要がない。
   function orderedCompositeEntries(): readonly CompositeEntry[] {
-    return SECONDARY_AXES.map((axis): CompositeEntry => {
-      const layer = axis.layerId ? MAP_LAYERS.find((l) => l.id === axis.layerId) : undefined;
+    return secondaryAxes.map((axis): CompositeEntry => {
+      const layer = axis.layerId ? mapLayers.find((l) => l.id === axis.layerId) : undefined;
       return layer ? { kind: "layer", layer } : { kind: "proxy", axis };
     });
   }
@@ -551,7 +560,7 @@ export default function MapLayersPanel({
         // categoryは見出しにはせず、地図上チップの観測グループと同じ並び順
         // （MAP_LAYER_CATEGORY_ORDER）を揃えるためだけに使う内部キー（上記コメント参照）。
         const layers = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
-          MAP_LAYERS.filter(
+          mapLayers.filter(
             (layer) => layer.kind === "static" && layer.category === category && (layer.dataNature ?? "raw") === dataNature
           )
         );

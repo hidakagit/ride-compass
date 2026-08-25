@@ -4,9 +4,13 @@
 import { describe, expect, it } from "vitest";
 
 import { PREFERENCE_AXES } from "./evaluationAxes";
-import { axisMaterials } from "@/components/Map/primaryAttributes";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import axisCatalog from "@/types/generated/axis-catalog.json";
+
+interface CatalogAxisInputs {
+  axis_id: string;
+  inputs: string[];
+}
 
 describe("evaluationAxes", () => {
   // ドリフト検知（改善計画T221 Stage B）: PREFERENCE_AXESのaxisId集合は、
@@ -21,14 +25,17 @@ describe("evaluationAxes", () => {
   });
 
   // ドリフト検知: wind（動的データ由来、表示カタログ未登録・材料一覧なし）を除く全軸は、
-  // 必ずaxis-catalog.json（axisMaterials経由）に実在する軸を指していること。誤字・
+  // 必ずaxis-catalog.json（axes[].inputs）に実在する軸を指していること。誤字・
   // 削除済み軸idを指すと、研究タブの材料一覧（T168）が常に空配列（＝何も表示しない）
-  // のまま気づかれずに壊れるため、ここで明示的にaxisMaterialsの結果が非空であることを
-  // 確認する。
+  // のまま気づかれずに壊れるため、ここで明示的にinputsの結果が非空であることを確認する
+  // （改善計画T308: axisMaterials自体は撤去済み[primaryAttributes.ts参照]、このテストは
+  // ビルド時静的生成物自体の整合性検証のため、その生成元axes[].inputsを直接見る）。
   it("wind以外の全軸は、axis-catalog.json上に実在し材料を1件以上持つ", () => {
+    const axesWithInputs = axisCatalog.axes as CatalogAxisInputs[];
     for (const axis of PREFERENCE_AXES) {
       if (axis.axisId === "wind") continue;
-      expect(axisMaterials(axis.axisId).length, `axisId(${axis.axisId})に材料が無い`).toBeGreaterThan(0);
+      const inputs = axesWithInputs.find((a) => a.axis_id === axis.axisId)?.inputs ?? [];
+      expect(inputs.length, `axisId(${axis.axisId})に材料が無い`).toBeGreaterThan(0);
     }
   });
 

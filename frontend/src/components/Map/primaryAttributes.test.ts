@@ -10,9 +10,7 @@ import {
   PRIMARY_ATTRIBUTE_LABELS,
   PRIMARY_ATTRIBUTE_LAYER_IDS,
   PRIMARY_ATTRIBUTES_WITHOUT_LAYER,
-  attrConsumers,
-  axisMaterialLayerIds,
-  axisMaterials,
+  primaryAttributeIdsToLayerIds,
 } from "./primaryAttributes";
 
 describe("primaryAttributes", () => {
@@ -47,8 +45,15 @@ describe("primaryAttributes", () => {
     expect(PRIMARY_ATTRIBUTE_LABELS.elevation).toBe("標高");
   });
 
-  it("axisMaterialsは軸の材料一次属性をそのまま返す（car_stressはT163でmotor_vehicle_accessを含む）", () => {
-    expect(axisMaterials("car_stress")).toEqual([
+  // 改善計画T308: axisMaterials/attrConsumers（軸id→材料の逆引き、ビルド時静的
+  // axis-catalog.json由来）は撤去した。GUI作成軸を含む解決はbackendのGET /api/axis-catalog
+  // （primary_attribute_ids）へ移し、frontendはその結果（呼び出し側が既に持つattrId配列）を
+  // primaryAttributeIdsToLayerIdsへ渡すだけの汎用関数として残す。
+
+  it("primaryAttributeIdsToLayerIdsはレイヤーを持つ材料だけを重複無しで返す", () => {
+    // car_stressの材料6件のうちレイヤーを持つのはcycleway/designation/highway
+    // （lanes/maxspeed/motor_vehicle_accessはレイヤー無し）
+    const layerIds = primaryAttributeIdsToLayerIds([
       "highway",
       "lanes",
       "maxspeed",
@@ -56,36 +61,16 @@ describe("primaryAttributes", () => {
       "designation",
       "motor_vehicle_access",
     ]);
-    expect(axisMaterials("accident")).toEqual(["accident_point"]);
-    expect(axisMaterials("stop_density")).toEqual(["stop_poi", "intersection"]);
-  });
-
-  it("axisMaterialsは未知の軸idに対して空配列を返す", () => {
-    expect(axisMaterials("no_such_axis")).toEqual([]);
-  });
-
-  it("attrConsumersは1次属性を参照する2次軸を返す（排他制約により通常0〜1件）", () => {
-    expect(attrConsumers("motor_vehicle_access")).toEqual(["car_stress"]);
-    expect(attrConsumers("stop_poi")).toEqual(["stop_density"]);
-    expect(attrConsumers("accident_point")).toEqual(["accident"]);
-    // supply_poiはどの軸からも参照されない一次属性（registry_defaults.py参照）
-    expect(attrConsumers("supply_poi")).toEqual([]);
-    // 改善計画T289: onewayは表示専用の一次属性（探索は既にグラフ構造で一方通行を
-    // 守っているため評価軸には組み込まない）。supply_poiと同じ「レイヤーは持つが
-    // どの軸からも参照されない」パターン。
-    expect(attrConsumers("oneway")).toEqual([]);
-  });
-
-  it("axisMaterialLayerIdsはレイヤーを持つ材料だけを重複無しで返す", () => {
-    // car_stressの材料6件のうちレイヤーを持つのはcycleway/designation/highway
-    // （lanes/maxspeed/motor_vehicle_accessはレイヤー無し）
-    const layerIds = axisMaterialLayerIds("car_stress");
     expect(new Set(layerIds)).toEqual(new Set(["roadType", "bicycleInfra", "designation"]));
     expect(layerIds.length).toBe(new Set(layerIds).size); // 重複が無い
   });
 
-  it("axisMaterialLayerIdsは一部の材料だけレイヤーを持つ軸に対してその分だけを返す", () => {
+  it("primaryAttributeIdsToLayerIdsは一部の材料だけレイヤーを持つ場合その分だけを返す", () => {
     // night軸の材料はlit/tunnelの2件。tunnelはレイヤーを持つが、litは引き続きレイヤー無し
-    expect(axisMaterialLayerIds("night")).toEqual(["tunnel"]);
+    expect(primaryAttributeIdsToLayerIds(["lit", "tunnel"])).toEqual(["tunnel"]);
+  });
+
+  it("primaryAttributeIdsToLayerIdsは未知のattrIdを無視する", () => {
+    expect(primaryAttributeIdsToLayerIds(["no_such_attr"])).toEqual([]);
   });
 });

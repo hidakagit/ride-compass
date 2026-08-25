@@ -1,11 +1,15 @@
 // 二次軸の汎用rampレイヤー定義（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
 //
-// backendのレジストリ（app/domain/registry_defaults.py）が書き出す生成物
-// axis-catalog.json（export_openapi.py）を単一ソースとして、display.kind==="ramp"の軸から
-// 地図レイヤー・凡例・パネル項目を自動生成する。新しい軸は、
-//   1. backendのレジストリへAxisSpec（display: kind="ramp"）を登録
-//   2. タイルへ事実プロパティを焼き込む（way_attribute_counts等）
-// だけでフロントのコード変更なしに地図レイヤーとして現れる。
+// 改善計画T308: 軸の地図表示情報（display）は`GET /api/axis-catalog`が実行時に返す
+// （`domain/axis_display.py: axis_display_for()`が軸スタジオの公開状態を都度反映する）。
+// `RAMP_AXES`/`AXIS_LABELS`（本ファイル下部）はビルド時静的生成物axis-catalog.json由来の
+// **フォールバック専用**の値で、`useAxisCatalog`フック（hooks/useAxisCatalog.ts）が
+// マウント時に上記APIを取得できるまで・失敗時に使う。新しい軸は、
+//   1. 軸スタジオ（GUI）またはbackendのAXIS_DEFINITIONSへ軸を追加・公開する
+//   2. タイルへ事実プロパティを焼き込む（way_attribute_counts等、材料がタイル非依存でなければ）
+// だけで、再デプロイなしに地図レイヤーとして現れる（軸スタジオでの公開操作が
+// `useAxisCatalog`経由で即座に反映される。docs/decisions/
+// t308-axis-map-display-auto-derivation.md参照）。
 //
 // rampの値は tile_inputs から組み立てる。数値材料はΣ property×weight（例: 停止密度 =
 // stop_per_km + 0.3×intersection_per_km、backend側の軸内係数
@@ -55,6 +59,12 @@ export interface RampAxis {
   thresholds: readonly number[];
   unit: string;
   note: string;
+  /** 改善計画T310: 地図の見え方パネル向けの噛み砕いた説明文（軸自身のデータ）。
+   * 未設定はnote（開発者向け実装メモ）へフォールバック（mapLayers.ts参照）。 */
+  panelHint?: string;
+  /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。未設定は
+   * 汎用フォールバック（AxisRampIcon）。 */
+  iconId?: string;
 }
 
 interface CatalogTileInput {
@@ -71,7 +81,7 @@ interface CatalogTileInput {
   breakpoints?: (readonly [number, number])[] | null;
 }
 
-interface CatalogAxis {
+export interface CatalogAxis {
   axis_id: string;
   display: {
     kind: string;
@@ -82,39 +92,67 @@ interface CatalogAxis {
     unit: string;
     note: string;
   } | null;
+  // 改善計画T308: この軸が参照する材料を一次属性idへ解決した一覧（GET /api/axis-catalogの
+  // primary_attribute_ids、backend側で解決済み）。ビルド時静的json（axis-catalog.json）には
+  // このフィールドが無いため、その場合はundefined（secondaryAxes.ts側で[]へ補う）。
+  primary_attribute_ids?: string[];
+  // 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
+  // 軸id→値の手書き辞書を撤去し、軸自身のデータとして持たせたもの）。全てnull/undefined可
+  // （未設定は各消費側の汎用フォールバックに委ねる）。
+  icon_id?: string | null;
+  chip_label?: string | null;
+  panel_hint?: string | null;
+  proxy_hint?: string | null;
 }
 
-// 全軸（ramp/noneを問わない。改善計画T298: kind="bespoke"は利用ゼロのため削除済み）の
-// ラベル辞書。区間インスペクタ（改善計画T146）が
-// 「一次属性→二次軸スコア」を表示する際、軸ごとに専用UIを持たずカタログのラベルへ
-// 汎用的に頼るために使う。windはレジストリ未登録（RoutePreferenceの独立項目、
-// domain/registry_defaults.py参照）のためカタログに無く、ここでのみ補う。
-export const AXIS_LABELS: Record<string, string> = {
-  wind: "風",
-  ...Object.fromEntries((axisCatalog.axes as CatalogAxis[]).map((axis) => [axis.axis_id, axis.display?.label ?? axis.axis_id])),
-};
+// 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、
+// AxisCatalogEntry[]、displayが必ず非nullな点以外はCatalogAxisと構造的に同じ）の
+// どちらからもRAMP_AXES/AXIS_LABELSと同じ形へ変換できる共通関数（片側import、
+// 変換ロジックを2箇所へ手書きしない）。hooks/useAxisCatalog.tsがこれらを呼んで
+// 実行時フェッチ結果から同じ形の値を組み立てる。
 
-export const RAMP_AXES: readonly RampAxis[] = (axisCatalog.axes as CatalogAxis[])
-  .filter((axis) => axis.display?.kind === "ramp")
-  .map((axis) => ({
-    axisId: axis.axis_id,
-    label: axis.display!.label,
-    category: axis.display!.category,
-    tileInputs: axis.display!.tile_inputs.map((input) => ({
-      property: input.property,
-      weight: input.weight,
-      boolean: input.boolean,
-      invert: input.invert,
-      trueValue: input.true_value,
-      falseValue: input.false_value,
-      hasUnknownFallback: input.has_unknown_fallback,
-      categories: input.categories ?? undefined,
-      breakpoints: input.breakpoints ?? undefined,
-    })),
-    thresholds: axis.display!.thresholds,
-    unit: axis.display!.unit,
-    note: axis.display!.note,
-  }));
+/** 全軸（ramp/noneを問わない。改善計画T298: kind="bespoke"は利用ゼロのため削除済み）の
+ * ラベル辞書。区間インスペクタ（改善計画T146）が「一次属性→二次軸スコア」を表示する際、
+ * 軸ごとに専用UIを持たずカタログのラベルへ汎用的に頼るために使う。windはレジストリ未登録
+ * （RoutePreferenceの独立項目、domain/registry_defaults.py参照）のためカタログに無く、
+ * ここでのみ補う。 */
+export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<string, string> {
+  return {
+    wind: "風",
+    ...Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.display?.label ?? axis.axis_id])),
+  };
+}
+
+export function rampAxesFromCatalogAxes(axes: readonly CatalogAxis[]): RampAxis[] {
+  return axes
+    .filter((axis) => axis.display?.kind === "ramp")
+    .map((axis) => ({
+      axisId: axis.axis_id,
+      label: axis.display!.label,
+      category: axis.display!.category,
+      tileInputs: axis.display!.tile_inputs.map((input) => ({
+        property: input.property,
+        weight: input.weight,
+        boolean: input.boolean,
+        invert: input.invert,
+        trueValue: input.true_value,
+        falseValue: input.false_value,
+        hasUnknownFallback: input.has_unknown_fallback,
+        categories: input.categories ?? undefined,
+        breakpoints: input.breakpoints ?? undefined,
+      })),
+      thresholds: axis.display!.thresholds,
+      unit: axis.display!.unit,
+      note: axis.display!.note,
+      panelHint: axis.panel_hint ?? undefined,
+      iconId: axis.icon_id ?? undefined,
+    }));
+}
+
+// ビルド時静的json由来のフォールバック専用値（モジュール先頭の注記参照）。
+export const AXIS_LABELS: Record<string, string> = axisLabelsFromCatalogAxes(axisCatalog.axes as CatalogAxis[]);
+
+export const RAMP_AXES: readonly RampAxis[] = rampAxesFromCatalogAxes(axisCatalog.axes as CatalogAxis[]);
 
 /** mapLayers.ts のレイヤーID（チップ・パネル・visibility状態のキー） */
 export type AxisMapLayerId = `axis:${string}`;

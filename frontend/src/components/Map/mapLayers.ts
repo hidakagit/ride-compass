@@ -26,6 +26,7 @@ import {
   RAMP_AXES,
   axisMapLayerId,
   type AxisMapLayerId,
+  type RampAxis,
 } from "./axisLayers";
 
 export type MapLayerId =
@@ -159,27 +160,19 @@ export interface MapLayerDescriptor {
   panelHintDetail?: readonly string[];
 }
 
-// ramp軸（RAMP_AXES、現状stop_density/accident）のpanelHint（改善計画: 地図の見え方
-// パネルの推定指標説明を簡略化）。axis.note（backendレジストリの実装メモ、開発者向け）を
-// そのまま出すと読みにくいという実機フィードバックを受け、エンドユーザー向けの言い換えを
-// ここに持つ（下記MAP_LAYERSのRAMP_AXES.map参照）。未登録の軸（将来ramp軸が増えた場合）は
-// axis.noteへフォールバックする。
-const RAMP_AXIS_PANEL_HINTS: Record<string, string> = {
-  stop_density: "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
-  accident: "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
-  // 改善計画T292: 専用パネル（旧carStress固定エントリ）から、内部軸6つ（highway基準値・
-  // 自転車インフラ補正・制限速度補正・車線数補正・指定路線補正・自動車通行不可の優先確定）
-  // を合成する汎用ramp軸へ移行した。判定基準の内訳（旧panelHintDetail相当）は
-  // 内部軸自体が非公開（is_published=False）のため専用UIを持たず、区間クリックの
-  // 「一次属性・全軸の内訳を見る」ポップアップ（axisInspectorPopup.ts、内部軸を含む
-  // AXIS_DEFINITIONS全体を依存順評価する区間インスペクタ）で確認する。
-  car_stress:
-    "道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した" +
-    "車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして" +
-    "「一次属性・全軸の内訳を見る」から確認できます。",
-};
+// ramp軸のpanelHint（改善計画: 地図の見え方パネルの推定指標説明を簡略化）。以前は
+// 軸id→値の手書き辞書（RAMP_AXIS_PANEL_HINTS）を持っていたが、改善計画T310で軸自身の
+// データ（axis.panelHint、AXIS_DEFINITIONS.panel_hint）へ移設し、既存軸限定の特別扱いを
+// 解消した。axis.note（backendレジストリの実装メモ、開発者向け）をそのまま出すと
+// 読みにくいという実機フィードバックを受け、未設定時のみaxis.noteへフォールバックする
+// （下記MAP_LAYERSのrampAxes.map参照）。
 
-export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
+// 改善計画T308: MAP_LAYERSのramp軸部分はbuildMapLayers(rampAxes)として関数化し、
+// hooks/useAxisCatalog.tsが実行時に取得したrampAxes（軸スタジオの公開軸を含む）から
+// 呼べるようにした。MAP_LAYERS自体はビルド時静的フォールバック（RAMP_AXES）で
+// 呼んだ結果を指す後方互換export（テスト・フォールバック用）。
+export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayerDescriptor[] {
+  return [
   {
     id: "elevation",
     // ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける
@@ -249,7 +242,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     // 改善計画T89: 「車ストレスと指定路線は何が違うのか」という実機フィードバックを受け、
     // 指定路線が「行政指定という事実」の表示であり、車ストレスはそれを含む複数要因
     // （道路種別・車線数・制限速度・自転車インフラ）を合成した推定指標であるという
-    // 役割の違いを明記する（RAMP_AXIS_PANEL_HINTS.car_stressと対で参照）。
+    // 役割の違いを明記する（car_stress軸自身のpanel_hint、AXIS_DEFINITIONS参照と対で参照）。
     panelHint:
       "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
       "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
@@ -333,7 +326,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   // （staticAttributeLayers.ts、axisLayers.ts: buildAxisRampLegend由来）が
   // 他の静的レイヤーと同じ仕組みで提供するため、panelHintDetail（文字のみの内訳）は持たない
   // （改善計画: 停止密度・事故密度の凡例追加）。
-  ...RAMP_AXES.map(
+  ...rampAxes.map(
     (axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       label: axis.label,
@@ -349,10 +342,9 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
       // 書かれており「way単位の事前集計（way_attribute_counts）由来」等の実装用語を
       // 含むため、そのままpanelHintへ出すと読みにくいという実機フィードバックを受けた。
       // 「何を集計した目安か＋実地点はどこで確認できるか」という他の静的レイヤーの
-      // 説明文と同じ型で言い換えたものをRAMP_AXIS_PANEL_HINTSに持ち、優先して使う
-      // （未登録の軸はaxis.noteへフォールバック。片側importの例外として、この言い換えは
-      // エンドユーザー向け文言でありレジストリ側に置く性質のものではないためフロント固有）。
-      panelHint: RAMP_AXIS_PANEL_HINTS[axis.axisId] ?? axis.note,
+      // 説明文と同じ型で言い換えたものを軸自身のpanelHint（改善計画T310、AXIS_DEFINITIONS.
+      // panel_hint）に持ち、優先して使う（未設定の軸はaxis.noteへフォールバック）。
+      panelHint: axis.panelHint ?? axis.note,
     }),
   ),
   {
@@ -441,7 +433,12 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     kind: "dynamic",
     description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
   },
-];
+  ];
+}
+
+// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。取得完了までの初期表示・
+// フェッチ失敗時、および実行時フェッチを行わない箇所（テスト等）向け。
+export const MAP_LAYERS: readonly MapLayerDescriptor[] = buildMapLayers(RAMP_AXES);
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
@@ -473,14 +470,20 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
 // 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
-export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
-  "roadType",
-  "roadSurface",
-  "bicycleInfra",
-  "designation",
-  "tunnel",
-  "oneway",
-  // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
-  // （改善計画T292: car_stressもここに含まれるようになった）。
-  ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
-];
+// 改善計画T308: buildMapLayers()と同じ理由で関数化。ROAD_SURFACE_SHARED_LAYER_IDSは
+// ビルド時静的フォールバックで呼んだ結果を指す後方互換export。
+export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {
+  return [
+    "roadType",
+    "roadSurface",
+    "bicycleInfra",
+    "designation",
+    "tunnel",
+    "oneway",
+    // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
+    // （改善計画T292: car_stressもここに含まれるようになった）。
+    ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),
+  ];
+}
+
+export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = buildRoadSurfaceSharedLayerIds(RAMP_AXES);

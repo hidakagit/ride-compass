@@ -19,14 +19,14 @@ import {
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
-  MAP_LAYERS,
+  buildMapLayers,
+  buildRoadSurfaceSharedLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
-import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
-import { axisMaterialLayerIds } from "@/components/Map/primaryAttributes";
+import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
   ROAD_FILTER_AXES,
@@ -226,6 +226,11 @@ type MobileSheet = "routeSettings" | "routeOutcome" | "map" | null;
 
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe } = useLocation();
+  // 改善計画T308: 軸カタログ（ramp表示・凡例チップグルーピングを含む）を先頭で取得する。
+  // axisVisibility/secondaryAxisCasingLayerIds（下記）・地図チップ組み立てが参照するため、
+  // それらより前で宣言する必要がある。取得完了までとエラー時は静的フォールバック
+  // （axisLayers.ts: RAMP_AXES等）を返すため、呼び出し側は常に何かしらの一覧を受け取れる。
+  const axisCatalog = useAxisCatalog();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -363,29 +368,28 @@ export default function Home() {
   const axisVisibility = useMemo(
     () =>
       Object.fromEntries(
-        RAMP_AXES.map((axis) => {
+        axisCatalog.rampAxes.map((axis) => {
           const id = axisMapLayerId(axis.axisId);
           return [id, layerVisibility[id] ?? false];
         }),
       ),
-    [layerVisibility],
+    [layerVisibility, axisCatalog.rampAxes],
   );
   // 改善計画（2次の下敷きの副作用対応）: 2次（車の圧迫感・ramp軸）を太く半透明な下敷きに
-  // するのは、その材料（1次、axisMaterialLayerIds）が1つでも同時に表示されているときだけに
-  // する。材料が1つも表示されていなければ、下に隠すものが無いため通常の太さ・不透明度で
-  // 表示する（以前は2次をONにした瞬間から常に太く半透明にしていたため、道路網が密な都市部で
-  // 下敷きの重なりだけで地図全体がぼやけて見える不具合があった、実機フィードバック）。
-  // T167由来のaxisMaterialLayerIds（現在はhandleLayerToggleの連動ONカスケードでは使わず、
-  // ここでの「材料として使われている」の判定にのみ使う。改善計画T181フォローアップで
-  // カスケード自体は撤去したが、「材料として使われている」の定義を1箇所（primaryAttributes.ts）
-  // に保つという意図でこの関数はそのまま流用する。
+  // するのは、その材料（1次、primaryAttributeIdsToLayerIds）が1つでも同時に表示されている
+  // ときだけにする。材料が1つも表示されていなければ、下に隠すものが無いため通常の太さ・
+  // 不透明度で表示する（以前は2次をONにした瞬間から常に太く半透明にしていたため、道路網が
+  // 密な都市部で下敷きの重なりだけで地図全体がぼやけて見える不具合があった、実機
+  // フィードバック）。改善計画T308: 軸→一次属性の解決自体はaxisCatalog.secondaryAxes
+  // （実行時カタログ、GUI作成軸を含む）のprimaryAttributeIdsへ移した（以前は
+  // axisMaterialLayerIds(axisId)がビルド時静的axis-catalog.jsonを軸id経由で逆引きしていた）。
   const secondaryAxisCasingLayerIds = useMemo(
     () =>
-      SECONDARY_AXES.filter((axis) => {
+      axisCatalog.secondaryAxes.filter((axis) => {
         if (!axis.layerId) return false;
-        return axisMaterialLayerIds(axis.axisId).some((materialId) => layerVisibility[materialId]);
+        return primaryAttributeIdsToLayerIds(axis.primaryAttributeIds).some((materialId) => layerVisibility[materialId]);
       }).map((axis) => axis.layerId as MapLayerId),
-    [layerVisibility],
+    [layerVisibility, axisCatalog.secondaryAxes],
   );
   // 色分けモード（ルート）。保存形式はJSON化しない生文字列（他の設定と異なる。
   // isRouteStyleModeIdによる妥当性検証がJSON.parseを兼ねる）。
@@ -475,11 +479,11 @@ export default function Home() {
   // 改善計画T303: RouteSettingsPanelのroute_preferenceキー整合自己修復（T269・T302）は
   // そのパネルがマウントされたときにしか走らない。モバイルでは生成ボタンがヘッダーへ
   // 分離済み（T250）のため「ルート設定」タブを一度も開かずに生成できてしまい、
-  // 稀にキー不整合のまま送信して422になりうる。ここでもカタログを取得し、生成リクエスト
-  // 組み立て時（handleGenerate）に同じ整合チェックを適用する（syncRoutePreferenceKeys、
-  // RouteSettingsPanel.tsxと共有）。routePreference state自体は書き換えない
-  // （送信直前の値だけを補正する、常時同期化はスコープ外）。
-  const axisCatalog = useAxisCatalog();
+  // 稀にキー不整合のまま送信して422になりうる。ここでもカタログ（axisCatalog、
+  // コンポーネント先頭で取得済み）を使い、生成リクエスト組み立て時（handleGenerate）に
+  // 同じ整合チェックを適用する（syncRoutePreferenceKeys、RouteSettingsPanel.tsxと共有）。
+  // routePreference state自体は書き換えない（送信直前の値だけを補正する、常時同期化は
+  // スコープ外）。
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
@@ -669,11 +673,19 @@ export default function Home() {
     return result;
   }, [staticLegendHiddenKeysByAxis]);
 
-  // 地図上のチップ行はレイヤーカタログ（MAP_LAYERS）から組み立てる。レイヤーを追加したら
+  // 改善計画T308: MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes
+  // （実行時フェッチ、軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
+  const mapLayers = useMemo(() => buildMapLayers(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
+  const roadSurfaceSharedLayerIds = useMemo(
+    () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes),
+    [axisCatalog.rampAxes]
+  );
+
+  // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(
     () =>
-      MAP_LAYERS.map((layer) => {
+      mapLayers.map((layer) => {
         const disabled = layer.id === "route" && !hasDetail;
         const summary =
           layer.id === "roadSurface"
@@ -723,6 +735,7 @@ export default function Home() {
       routeLegendDetails,
       routeSummary,
       staticFilterSummaries,
+      mapLayers,
     ],
   );
 
@@ -1397,6 +1410,9 @@ export default function Home() {
           layerDataStatus={layerDataStatus}
           hasHiddenFilters={hasHiddenFilters}
           onClearAllFilters={handleClearAllFilters}
+          mapLayers={mapLayers}
+          roadSurfaceSharedLayerIds={roadSurfaceSharedLayerIds}
+          secondaryAxes={axisCatalog.secondaryAxes}
         />
       </Card>
     );
@@ -1539,9 +1555,10 @@ export default function Home() {
             onLayerDataStatusChange={setLayerDataStatus}
             refreshToken={refreshToken}
             experimentSlots={researchEnabled ? experimentSlots : []}
+            rampAxes={axisCatalog.rampAxes}
           />
 
-          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
+          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+

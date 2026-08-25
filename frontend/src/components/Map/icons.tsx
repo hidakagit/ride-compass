@@ -29,11 +29,10 @@ export function ElevationIcon({ size = 16 }: IconProps) {
 }
 
 /** 二次軸rampレイヤー（改善計画T145b）の汎用フォールバック: 密度の濃淡を表す棒グラフ。
- * 確定命名表の6軸（勾配・舗装質・夜間・停止密度・車の圧迫感・事故密度）はSECONDARY_AXIS_ICONS
- * （MapOverlayControls.tsx）でそれぞれ専用アイコンを持つ（実機フィードバック「2次要素は
- * アイコンだけで区別がつくように」への対応、旧来はこのアイコンを全軸で共用していた）。
- * この汎用形はレジストリ生成物から自動で増える、まだ専用アイコンの無いramp軸・単独チップ
- * 向けのフォールバックとして残す。 */
+ * 各軸は`icon_id`（軸自身のデータ、改善計画T310）でaxisIconPalette.tsxの固定パレットから
+ * 専用アイコンを選べる（実機フィードバック「2次要素はアイコンだけで区別がつくように」への
+ * 対応、旧来はこのアイコンを全軸で共用していた）。この汎用形はicon_id未設定の軸（まだ
+ * 専用アイコンを選んでいないramp軸・単独チップ）向けのフォールバックとして残す。 */
 export function AxisRampIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -480,6 +479,64 @@ export function RouteSettingsIcon({ size = 16 }: IconProps) {
       <circle cx="7" cy="6" r="1.8" fill="currentColor" />
       <circle cx="13" cy="10" r="1.8" fill="currentColor" />
       <circle cx="9" cy="14" r="1.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+// --- 改善計画T310: 軸スタジオの地図チップアイコン選択パレット向け、汎用ピクトグラム ---
+// 既存の軸専用アイコン（勾配=GradientAxisIcon等）に加え、新規作成した軸がすぐ選べる
+// スペア（あらかじめ用意しておく、ユーザー判断）。既存アイコンと同じ線画スタイル
+// （stroke=currentColor、丸端、塗りなし基調）に揃える。新しい意匠の追加は引き続き
+// コード変更を要する（axisIconPalette.tsx参照、GUIからの任意SVG登録は見送り）。
+
+/** 盾（安全・保護の概念向け）: 縦の盾形シルエット */
+export function ShieldIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 2.5 16.5 5v5c0 4.2-2.9 6.8-6.5 7.5-3.6-.7-6.5-3.3-6.5-7.5V5L10 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 的（精度・命中の概念向け）: 同心円3つ */
+export function TargetIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="10" cy="10" r="4" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="10" cy="10" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** 時計（時間・スケジュールの概念向け）: 円+短針長針 */
+export function ClockIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M10 6v4.2l3 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** 積層（複数材料の合成・複合指標の概念向け）: ずらして重ねた3枚のひし形 */
+export function LayersStackIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 3 17 7.5 10 12 3 7.5 10 3Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M3 11 10 15.5 17 11" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
 }
