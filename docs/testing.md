@@ -56,6 +56,22 @@ test_accident_routes.py, test_routes_preview.py, test_routes_generate.py
 実例: test_road_graph_repository.py, test_health.py（db_status_test_engine）,
 test_match_designations.py（designation_conn）, test_accident_repository.py
 
+**ローカルのridecompass_test DBが古いままだと`UndefinedColumnError`で失敗する**:
+`road_graph_engine`（conftest.py）は`Base.metadata.create_all()`のみでスキーマを作り、
+`migrations/`配下のSQLは一切適用しない（本番のブートストラップ経路
+`create_tables→apply_pending_migrations`の検証はtest_migrate.pyの`bootstrap_engine`が
+別途専用に担う。改善計画T321・T328）。`create_all()`は**既存テーブルへの列追加をしない**
+（テーブルが既に存在すれば丸ごとスキップする）ため、ローカルの`ridecompass_test`を
+作成した後にORMモデルへ新規カラムが追加されても、そのテーブルを作り直さない限り
+自動では追従しない。「モデルには定義があるのにDB側だけ列が無い」形の
+`asyncpg.exceptions.UndefinedColumnError`が出たら、まずこれを疑う。
+
+対処: 該当テーブルをDROPしてから再実行する（`create_all`が最新スキーマで作り直す）。
+`migrations/`配下の個別ファイルを手動で1本だけpsql適用するのは、そのカラムが
+複数のmigrationファイルに分散している場合に他のカラムが揃わないため非推奨
+（例: axis_definitionsのicon_id/chip_label/panel_hintは0019、show_map_iconは0020、
+priority_overridesは0018と別ファイル）。
+
 **xdist_group="postgis"（改善計画T233フォローアップ、pytest-xdist導入後は必須）**:
 CIは`-n auto --dist loadgroup`でDB以外のテストを並列化している。road_graph_session系
 フィクスチャを使うテスト（ファイルまたは個別テスト関数）には必ず
