@@ -33,14 +33,20 @@ const COLOR_UP_STEEP = "#ea580c";
 // boundaries[i]は「カテゴリiとi+1の境界値」（カテゴリ数-1個）。値がnull（データ欠落）の
 // カテゴリは別枠で扱う。GeoJSONのproperties値はnullが明示的に入るため、to-numberが
 // null→0に変換してしまう前に必ずnull判定を先に行う。
+//
+// valueExpressionはMapLibreの値取得式（`["get", "difficulty"]`のような直下プロパティ、
+// または`["get", "wind", ["get", "axis_difficulties"]]`のようなネストしたプロパティへの
+// アクセスも渡せる）。改善計画T309: RouteSegmentDetailの軸別難易度が既存7軸固定フィールド
+// からaxis_id→difficultyの汎用dict（axis_difficulties）へ置き換わったため、この関数自体は
+// 特定のプロパティ名に依存しない形にしてある。
 function buildSteppedMode(
-  field: string,
+  valueExpression: unknown[],
   steps: { key: string; label: string; color: string }[],
   boundaries: number[]
 ): Pick<RouteStyleMode, "legend" | "colorExpression"> {
-  const value: unknown[] = ["to-number", ["get", field]];
-  const noData: unknown[] = ["==", ["get", field], null];
-  const hasData: unknown[] = ["!=", ["get", field], null];
+  const value: unknown[] = ["to-number", valueExpression];
+  const noData: unknown[] = ["==", valueExpression, null];
+  const hasData: unknown[] = ["!=", valueExpression, null];
 
   const colorExpression: unknown[] = ["step", value, steps[0].color];
   boundaries.forEach((boundary, i) => colorExpression.push(boundary, steps[i + 1].color));
@@ -63,10 +69,11 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
   {
     id: "wind",
     label: "風の影響",
-    // wind_difficultyは0-100の難易度。以前は連続補間（0緑〜50アンバー〜100赤）だったが、
-    // 凡例タップのカテゴリフィルタと対応させるため3段階のステップへ変更した（見た目は近い）。
+    // wind軸のdifficultyは0-100（axis_difficulties.wind、改善計画T309）。以前は連続補間
+    // （0緑〜50アンバー〜100赤）だったが、凡例タップのカテゴリフィルタと対応させるため
+    // 3段階のステップへ変更した（見た目は近い）。
     ...buildSteppedMode(
-      "wind_difficulty",
+      ["get", "wind", ["get", "axis_difficulties"]],
       [
         { key: "easy", label: "易しい", color: COLOR_EASY },
         { key: "normal", label: "普通", color: COLOR_NORMAL },
@@ -81,7 +88,7 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
     // gradient_percentは進行方向基準の符号付き（登り=正）。ルートには進行方向があるため
     // 登り/下りを色で区別できる（無方向の地域レイヤーでは絶対値しか意味を持てない）。
     ...buildSteppedMode(
-      "gradient_percent",
+      ["get", "gradient_percent"],
       [
         // 範囲表記は「〜10%」のような下限が読み取れない書き方を避け、境界値を両側とも
         // 明示する（初見ユーザー向けの表記統一、T30）
@@ -127,7 +134,7 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
     // 「評価モデルが各区間をどれだけ走りにくいと見ているか」をそのまま地図で確認する用途
     // （研究インターフェース改善 §10-5）。
     ...buildSteppedMode(
-      "difficulty",
+      ["get", "difficulty"],
       [
         { key: "easy", label: "易しい", color: COLOR_EASY },
         { key: "normal", label: "普通", color: COLOR_NORMAL },

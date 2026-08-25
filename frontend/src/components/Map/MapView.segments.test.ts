@@ -18,13 +18,7 @@ function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail
     road_surface_good: true,
     car_stress: null,
     bicycle_infra: null,
-    elevation_difficulty: 10,
-    wind_difficulty: 20,
-    road_difficulty: 0,
-    stop_difficulty: 0,
-    car_stress_difficulty: null,
-    accident_difficulty: null,
-    night_difficulty: null,
+    axis_difficulties: { gradient: 10, wind: 20, surface_q: 0, stop_density: 0 },
     difficulty: 12,
     ...overrides,
   };
@@ -70,7 +64,7 @@ describe("segmentsToFeatureCollection", () => {
     const properties = collection.features[0].properties;
     expect(properties).not.toHaveProperty("geometry");
     // 色分け式・ポップアップが参照する値は残っている
-    expect(properties.wind_difficulty).toBe(20);
+    expect(properties.axis_difficulties).toEqual({ gradient: 10, wind: 20, surface_q: 0, stop_density: 0 });
     expect(properties.gradient_percent).toBe(1.2);
     expect(properties.road_surface_good).toBe(true);
     expect(properties.difficulty).toBe(12);

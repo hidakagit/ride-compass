@@ -28,7 +28,7 @@ describe("routeStyleModes", () => {
   it("データ欠落（プロパティnull）はグレーへ倒してからstep式で色分けする（to-numberのnull→0変換対策）", () => {
     const wind = getRouteStyleMode("wind");
     expect(wind.colorExpression[0]).toBe("case");
-    expect(wind.colorExpression[1]).toEqual(["==", ["get", "wind_difficulty"], null]);
+    expect(wind.colorExpression[1]).toEqual(["==", ["get", "wind", ["get", "axis_difficulties"]], null]);
     expect(wind.colorExpression[2]).toBe("#9ca3af");
     expect((wind.colorExpression[3] as unknown[])[0]).toBe("step");
 
@@ -60,9 +60,9 @@ describe("routeStyleModes", () => {
     const normal = wind.legend.find((entry) => entry.key === "normal");
     expect(normal?.filter).toEqual([
       "all",
-      ["!=", ["get", "wind_difficulty"], null],
-      [">=", ["to-number", ["get", "wind_difficulty"]], 33],
-      ["<", ["to-number", ["get", "wind_difficulty"]], 66],
+      ["!=", ["get", "wind", ["get", "axis_difficulties"]], null],
+      [">=", ["to-number", ["get", "wind", ["get", "axis_difficulties"]]], 33],
+      ["<", ["to-number", ["get", "wind", ["get", "axis_difficulties"]]], 66],
     ]);
     expect(buildLegendFilterExpression(wind.legend, ["normal"])).toEqual(["all", ["!", normal!.filter]]);
   });

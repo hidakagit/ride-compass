@@ -258,7 +258,9 @@ async def test_stop_density_reflects_nearest_poi_counts_when_repository_injected
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.stop_density is not None and c.stop_density > 0.0 for c in candidates)
-    assert all(seg.stop_difficulty is not None and seg.stop_difficulty > 0.0 for c in candidates for seg in c.segments)
+    assert all(
+        seg.axis_difficulties.get("stop_density", 0) > 0.0 for c in candidates for seg in c.segments
+    )
     # 全候補分のサンプル点をまとめて1回のDBラウンドトリップで問い合わせる（路面と同じ方針）
     assert len(repository.stop_count_calls) == 1
 
@@ -390,10 +392,10 @@ async def test_intersection_density_reflects_nearest_intersection_counts_when_re
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.intersection_density is not None and c.intersection_density > 0.0 for c in candidates)
-    # 改善計画T149: 交差点密度は独立軸を持たずstop_difficulty側へ低い重みで吸収される
+    # 改善計画T149: 交差点密度は独立軸を持たずstop_density側へ低い重みで吸収される
     # （旧intersection_difficultyは廃止）。
     assert all(
-        seg.stop_difficulty is not None and seg.stop_difficulty > 0.0
+        seg.axis_difficulties.get("stop_density", 0) > 0.0
         for c in candidates
         for seg in c.segments
     )
@@ -414,7 +416,9 @@ async def test_accident_density_reflects_nearest_accident_counts_when_repository
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.accident_density is not None and c.accident_density > 0.0 for c in candidates)
-    assert all(seg.accident_difficulty is not None and seg.accident_difficulty > 0 for c in candidates for seg in c.segments)
+    assert all(
+        seg.axis_difficulties.get("accident", 0) > 0 for c in candidates for seg in c.segments
+    )
 
 
 async def test_accident_density_is_none_without_repository():
@@ -429,7 +433,7 @@ async def test_accident_density_is_none_without_repository():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.accident_density is None for c in candidates)
-    assert all(seg.accident_difficulty is None for c in candidates for seg in c.segments)
+    assert all("accident" not in seg.axis_difficulties for c in candidates for seg in c.segments)
 
 
 async def test_intersection_density_is_none_without_repository():
@@ -458,7 +462,7 @@ async def test_stop_density_is_none_without_repository():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.stop_density is None for c in candidates)
-    assert all(seg.stop_difficulty is None for c in candidates for seg in c.segments)
+    assert all("stop_density" not in seg.axis_difficulties for c in candidates for seg in c.segments)
 
 
 class FakeDescendingElevationService:
@@ -495,7 +499,7 @@ async def test_segment_gradient_is_signed_and_negative_for_downhill():
     # 区間距離1.0km（FakeWindService）で標高差-10m → -1.0%
     assert seg.gradient_percent == -1.0
     # 難易度は勾配の絶対値で決まる（下りを「易しすぎる」扱いにはしない、domain/difficulty.py）
-    assert seg.elevation_difficulty == gradient_difficulty(1.0)
+    assert seg.axis_difficulties["gradient"] == gradient_difficulty(1.0)
 
 
 async def test_engine_name_is_openrouteservice():
@@ -579,3 +583,33 @@ async def test_night_weight_zeroed_during_daytime_and_applied_at_night():
     # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。
     assert day_candidates[0].segments[0].difficulty is None
     assert night_candidates[0].segments[0].difficulty == 50.0
+
+
+async def test_evaluate_loops_does_not_crash_when_night_axis_is_unpublished(monkeypatch):
+    # 改善計画T316フォローアップ回帰テスト: night軸が軸スタジオで非公開化されると
+    # RoutePreference.weights・axis_difficulties.axesのどちらにも"night"キーが
+    # 存在しなくなる。修正前はbase_axis_weights["night"]・axis_difficulties.axes["night"]
+    # の直接indexingが素のKeyErrorで落ちていた（2026-08-25の実障害、7軸のどれが
+    # 非公開化されても同型で発生しうる）。
+    from app.domain.axis_definitions import AXIS_DEFINITIONS
+
+    original_night = AXIS_DEFINITIONS["night"]
+    monkeypatch.setitem(AXIS_DEFINITIONS, "night", original_night.model_copy(update={"is_published": False}))
+
+    repository = FakeSurfaceRepository()
+    preference = RoutePreference()
+    assert "night" not in preference.weights  # night非公開のため既定値に含まれない前提の確認
+    engine = OpenRouteServiceEngine(
+        FakeRoutingService([segment(30.0)]),
+        FakeElevationService(),
+        FakeWindService(),
+        preference,
+        repository=repository,
+    )
+    context = await engine.prepare(ORIGIN, radius_km=10.0)
+    traced = await engine.trace_loop(context, [ORIGIN, ORIGIN, ORIGIN], bearing=0)
+
+    daytime = datetime(2024, 6, 21, 3, 0, tzinfo=timezone.utc)
+    candidates = await engine.evaluate_loops(context, [traced], daytime)  # 例外が出ないことを確認
+
+    assert "night" not in candidates[0].segments[0].axis_difficulties

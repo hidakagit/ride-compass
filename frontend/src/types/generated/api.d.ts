@@ -1082,20 +1082,10 @@ export interface components {
             car_stress?: number | null;
             /** Bicycle Infra */
             bicycle_infra?: string | null;
-            /** Elevation Difficulty */
-            elevation_difficulty?: number | null;
-            /** Wind Difficulty */
-            wind_difficulty?: number | null;
-            /** Road Difficulty */
-            road_difficulty?: number | null;
-            /** Stop Difficulty */
-            stop_difficulty?: number | null;
-            /** Car Stress Difficulty */
-            car_stress_difficulty?: number | null;
-            /** Accident Difficulty */
-            accident_difficulty?: number | null;
-            /** Night Difficulty */
-            night_difficulty?: number | null;
+            /** Axis Difficulties */
+            axis_difficulties?: {
+                [key: string]: number;
+            };
             /** Difficulty */
             difficulty?: number | null;
         };

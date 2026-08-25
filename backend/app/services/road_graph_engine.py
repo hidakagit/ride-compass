@@ -580,13 +580,10 @@ class RoadGraphEngine:
                     road_surface_good=road_surface_good,
                     car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
-                    elevation_difficulty=axis_scores.get("gradient"),
-                    wind_difficulty=axis_scores.get("wind"),
-                    road_difficulty=axis_scores.get("surface_q"),
-                    stop_difficulty=axis_scores.get("stop_density"),
-                    car_stress_difficulty=axis_scores.get("car_stress"),
-                    accident_difficulty=axis_scores.get("accident"),
-                    night_difficulty=axis_scores.get("night"),
+                    # 改善計画T309: axis_scores（compute_edge_axis_scores）は既にaxis_id→
+                    # difficultyの汎用dict（データ無しの軸はキー自体を持たない）のため、
+                    # そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
+                    axis_difficulties=axis_scores,
                     difficulty=composite_difficulty_value,
                 )
             )
