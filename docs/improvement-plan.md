@@ -4865,7 +4865,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
 ## ルート詳細タブのモバイルUI再構成（2026-08-25・ユーザー指示）
 
-### - [ ] T300. 「開発者」タブ廃止＋「ルート詳細」タブの設定/結果2分割〔P3〕規模M — トリガー: 現在進行中の別フロント改修の完了後
+### - [x] T300. 「開発者」タブ廃止＋「ルート詳細」タブの設定/結果2分割〔P3〕規模M（2026-08-25完了）
 
 - 背景: ユーザーの実機フィードバック「ルート詳細パネル、下に長い。スマホだと使いにくい」。
   調査の結果、モバイル下部タブ`renderRouteResultsBody()`（page.tsx:1235-1271）内で
@@ -4900,6 +4900,42 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   (c)`conditionsDirty`の結果タブ側導線、(d)Playwright等でのモバイル幅実機確認を含める。
 - **トリガー解消（2026-08-25、T299完了）**: 本タスクが待っていた「現在進行中の別
   フロント改修」（T299、Tailwind + Radix UIデザイン基盤の新設）が完了した。着手可能。
+- **対応（2026-08-25完了）**: 上記内容どおり実装した。
+  1. 「開発者」タブを廃止。モバイルの下部タブバーは「ルート設定」「ルート結果」
+     「地図の見え方」の3つへ再構成（タブ総数は3のまま）。「ルート設定」用に新規アイコン
+     （`components/Map/icons.tsx`の`RouteSettingsIcon`、スライダー3本）を追加し、
+     不要になった`DeveloperIcon`は削除した。デスクトップのサイドバーにあった対応する
+     「C. 開発者」`Disclosure`ブロックも、中身が全て移設され空になったため同様に廃止した
+     （T300の背景で述べた「情報量が薄い」という判断はモバイル・デスクトップ双方に
+     等しく当てはまるため）。
+  2. 「地図データを再読み込み」ボタンは`renderMapSettingsSectionBody`（地図の見え方）へ、
+     デバッグログ切替＋`DebugConsole`は常設ヘッダー（`weatherHeader`）内の新規アイコン
+     ボタン（`LogIcon`、`debugEnabled`時のみ表示）へ移設した。`DebugConsole`自体は
+     `FloatingPanel`ベースで自己完結する`position:fixed`コンポーネントのため、
+     JSXツリー上の設置場所を変えても見た目は変わらない（移設のみ、実装変更なし）。
+  3. `renderRouteResultsBody`を`renderRouteSettingsSectionBody`（`RouteSettingsPanel`
+     のみ）と`renderRouteOutcomeSectionBody`（`conditionsDirty`ヒント・空状態ガイド・
+     `RouteList`・`ComparisonPanel`・色分けセクション）へ分割。デスクトップの
+     「ルートを作る」ブロックは両方を続けて呼ぶことで従来どおり1つの折りたたみに収める
+     （`conditionsDirty`ヒントの表示位置が「設定の後・結果の前」へ移る軽微な並び替えのみ、
+     デスクトップの見た目への実質的な影響はない）。
+  4. 「ルート結果」タブボタンに、設定変更後未反映（`conditionsDirty`）を示す小さいバッジ
+     （Tailwindユーティリティで実装、新規CSS Modulesクラスは追加していない）を追加し、
+     タブを開かなくても気づけるようにした（完了条件(c)）。
+  5. ヘッダーの新規デバッグログボタンは`components/ui/Button`（`variant="ghost"`）を
+     使用（ユーザー指示「なるべくTailwind使ってね、共通化の一環」を反映）。一方
+     「地図データを再読み込み」ボタンは、意図的にボタンらしくないテキストリンク調の
+     見た目（`.refreshButton`、下線+透明背景、運用頻度の低さを見た目で伝える設計）を
+     既に持っていたため、`Button`コンポーネントの既存variant（primary/secondary/
+     danger/ghost）に無理に当てはめず、既存CSS Modulesのまま維持した（移設のみ）。
+  6. T303（同時対応、下記参照）とあわせて実装。
+- 検証: `npx tsc --noEmit`・`npx eslint`・`npx vitest run`（フロント全体485件、
+  並行セッションが追加した`RouteSettingsPanel.test.tsx`3件も無改修でgreenのまま）・
+  `npm run build`すべてgreen。Playwright headless chromium（375px幅、light/dark）で
+  実機確認: 3タブの開閉・「ルート設定」タブでの`RouteSettingsPanel`表示・「ルート結果」
+  タブでの空状態ガイド表示・「地図の見え方」タブでの再読み込みボタン表示・「開発者」
+  タブが存在しないこと・ヘッダーのデバッグログボタン→`DebugConsole`表示、いずれも
+  確認しコンソールエラーなし。
 
 ## 管理者画面（軸スタジオ）の改善（2026-08-25・ユーザー指示）
 
@@ -5017,7 +5053,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
      持たせる設計変更が必要で、規模はS〜M程度。次に「ルート詳細タブを開かず生成できる」
      導線（T250）やroute_preferenceまわりを触るタスクの際に、あわせて解消を検討すること。
 
-### - [ ] T303. route_preferenceのキー整合チェックを生成リクエスト組み立て時にも持たせる〔P3〕規模S〜M — トリガー: 「ルート詳細タブを開かず生成できる」導線（T250）またはroute_preferenceまわりを触る次のタスクの際
+### - [x] T303. route_preferenceのキー整合チェックを生成リクエスト組み立て時にも持たせる〔P3〕規模S〜M（2026-08-25完了）
 
 - 背景: T302完了時に発見した既知の残課題（本ファイルT302「対応」項目8参照）。
   `RouteSettingsPanel`の自己修復（カタログと`routePreference`のキー集合を合わせる処理、
@@ -5038,6 +5074,18 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   分かりにくく、ユーザーがルート生成できない状態に見える。
 - 完了条件: 着手時に確定。少なくとも上記の経路を再現するテスト（新しい軸の追加/
   unpublish直後、パネル未マウントのまま生成リクエストを組み立てるケース）を含める。
+- **対応（2026-08-25完了、T300と同時実施）**: `RouteSettingsPanel.tsx`のキー整合ロジック
+  （`useEffect`本体）を純粋関数`syncRoutePreferenceKeys`（新規
+  `frontend/src/lib/routePreferenceSync.ts`）へ抽出した。`RouteSettingsPanel.tsx`は
+  この関数を呼ぶだけに変更（**挙動は一切変えていない**——並行セッションが直前に追加した
+  `RouteSettingsPanel.test.tsx`3件が無改修のままgreenで通ることで確認済み）。
+  `page.tsx`に`useAxisCatalog()`を新規追加し、`handleGenerate`内で`generateRoutes`呼び出し
+  直前に`weightOverrideEnabled`が真の場合のみ`syncRoutePreferenceKeys(routePreference,
+  catalog.defaultWeights)`を適用し、`null`でなければ補正後の値を送出する。
+  `routePreference` state自体は書き換えない（完了条件どおり「生成リクエスト組み立て時」
+  だけの穴埋めに留めた。`RouteSettingsPanel`が別途マウントされれば従来どおりstate自体も
+  修復される）。`frontend/src/lib/routePreferenceSync.test.ts`（新規、3ケース: 不足キー
+  補完・余剰キー削除・変更なしはnull）で検証。frontend全体485件green。
 
 ### - [x] T304. 軸スタジオのUX改善（編集モーダル化・説明文追加・研究モードの重み整理） 規模M（2026-08-25完了）
 
@@ -5177,10 +5225,6 @@ T292で消化された。今回の最重要指摘は**T295（P2・軸定義DB読
   16. **T287**（text型PKの再評価、規模S・調査のみ）: T127の意思決定時に容量試算へ含める。
   17. **T288**（AXIS_DEFINITIONSのマルチワーカー対応、規模S〜M）: 複数ワーカー構成の
       採用時（複数ワーカー化タスクの完了条件に含めること）。
-  18. **T303**（route_preferenceキー整合チェックの生成リクエスト側追加、規模S〜M）:
-      「ルート詳細タブを開かず生成できる」導線（T250）またはroute_preferenceまわりを
-      触る次のタスクの際。T302完了時に発見した既知の残課題（低頻度、422のみ・データ
-      破損等の実害は無い）。
 いずれもトリガー未到達の実装を「ついで」にやらない（設計原則10）。
 
 **サマリ（第8回レビュー起票後・19タスク）**: **T279・T289・T274・T281段階1・T282・T294・
@@ -5202,10 +5246,14 @@ T298の`recipe_then_breakpoint_linear`については、実装時に既存コメ
 components/ui/デザイン基盤の新設）も同日完了**——重複が実証された7箇所（カード状
 コンテナ2・純レイアウト3・送信ボタン1・CSS Modulesファイル丸ごと削除1）を実際に移行し、
 保留中だった**T275（Tailwind採否）も(b)採用で決着**した。これによりT300
-（開発者タブ廃止＋ルート詳細タブの設定/結果2分割）のトリガーが解消し着手可能になった。
-トリガー未到達16件（T265・T206・T105・T127・T145・T207・T208・T242残課題・
+（開発者タブ廃止＋ルート詳細タブの設定/結果2分割）のトリガーが解消し、同日中に
+**T300・T303も完了**——モバイル下部タブを「ルート設定」「ルート結果」「地図の見え方」の
+3つへ再構成し、`conditionsDirty`をルート結果タブのバッジで示すようにした。T303
+（route_preferenceキー整合チェックの生成リクエスト側追加）はT300と同時に対応し、
+`RouteSettingsPanel.tsx`と共有する純粋関数`syncRoutePreferenceKeys`へ抽出した。
+トリガー未到達15件（T265・T206・T105・T127・T145・T207・T208・T242残課題・
 T280・T281段階2〜3・T283〜T288。T145aはT278で解消済みのため除外）／
-このほかT273（Phase 4蒸留）・T300（トリガー解消、着手可能）が着手待ち。
+このほかT273（Phase 4蒸留、トリガー未到達）のみが着手待ち。
 T209・T223・T241は調査完了・T242本体（migration 0013適用・
 標高バックフィル初回実行）・T243〜T249・T251〜T254・T256〜T259・T261〜T264・
 **T248・T263（残作業含む）**は実装/調査完了・T255はDynamicLayerTimeSlider完了
