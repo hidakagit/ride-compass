@@ -27,6 +27,37 @@
   padding: 0.35rem var(--space-3);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  /* UI改善: 上部バーの見切れ対応。バッジ文言が長い・端末幅が狭い等でヘッダー全体の
+     必要幅が.weatherHeaderの表示幅を超えると、以前はhtml,body{overflow-x:hidden}
+     （globals.css）によって右側のバッジ・デバッグアイコン（.headerActions、下記）が
+     サイレントに画面外へ切れて完全に見えなくなっていた。WeatherPanel（.row）と同じ
+     「折り返さず横スクロールへ逃がす」方針をヘッダー自体にも適用し、少なくとも
+     スクロールすれば全要素へ到達できるようにする（.headerActions側のsticky指定と
+     合わせ、警報バッジは実際にはスクロールなしでも常に見える）。 */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.weatherHeader::-webkit-scrollbar {
+  display: none;
+}
+
+/* 警報バッジ＋デバッグアイコンのグループ。.weatherHeaderがoverflow-x: autoで
+   横スクロールするようになった際、この右側グループだけはposition: stickyで
+   右端に固定し続ける——スクロールに巻き込んで見えなくなることを避ける。警報の
+   存在自体はスクロール操作なしで常に気づける状態を保つ（WarningBadge.tsx冒頭
+   コメントの「全件表示という安全側の方針」と同じ理由）。以前はデバッグアイコン
+   単体にml-autoで右寄せしていたが、それをこのグループへ引き継いだ
+   （グループ内にバッジが無い場合でもデバッグアイコンは引き続き右端に来る）。 */
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  margin-left: auto;
+  position: sticky;
+  right: 0;
+  background: var(--color-surface);
 }
 
 /* モバイル専用の操作バー（出発地点・距離・生成ボタン、改善計画T250）。「ルートを作る」

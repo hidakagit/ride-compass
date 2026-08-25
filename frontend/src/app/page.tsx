@@ -1436,25 +1436,34 @@ export default function Home() {
         title="風向・風速はルート候補の評価に使われます"
       >
         <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
-        <WarningBadgeList items={warningBadgeItems} />
-        {/* デバッグログの起動アイコン（改善計画T300）。以前は「開発者」タブ内のボタン
-            だったが、そのタブ自体を廃止したためヘッダーへ移設した。debugEnabled時のみ
-            表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
-            DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
-            JSXツリー上のどこに置いても見た目は変わらない。 */}
-        {debugEnabled && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDebugConsoleOpen((v) => !v)}
-            aria-pressed={debugConsoleOpen}
-            aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-            title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-            className="ml-auto shrink-0"
-          >
-            <LogIcon size={15} />
-          </Button>
-        )}
+        {/* 警報バッジ＋デバッグアイコンのグループ（UI改善: 上部バーの見切れ対応）。
+            端末幅が狭い・警報の文言が長い等で.weatherHeader全体が入り切らない場合、
+            以前はhtml,body{overflow-x:hidden}（globals.css）によってこのグループが
+            画面外へサイレントに切れて完全に見えなくなっていた。.weatherHeaderを
+            横スクロール可能にした上で、このグループをposition:stickyで右端に固定し、
+            スクロールしても警報バッジが常に見える状態を保つ（「警報の存在に気づけない
+            ことを避ける」という既存の安全側方針、WarningBadge.tsx冒頭コメント参照）。 */}
+        <div className={styles.headerActions}>
+          <WarningBadgeList items={warningBadgeItems} />
+          {/* デバッグログの起動アイコン（改善計画T300）。以前は「開発者」タブ内のボタン
+              だったが、そのタブ自体を廃止したためヘッダーへ移設した。debugEnabled時のみ
+              表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
+              DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
+              JSXツリー上のどこに置いても見た目は変わらない。 */}
+          {debugEnabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDebugConsoleOpen((v) => !v)}
+              aria-pressed={debugConsoleOpen}
+              aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+              title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+              className="shrink-0"
+            >
+              <LogIcon size={15} />
+            </Button>
+          )}
+        </div>
       </header>
       <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
 
