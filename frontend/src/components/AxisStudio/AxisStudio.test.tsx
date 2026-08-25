@@ -100,6 +100,8 @@ describe("AxisStudio", () => {
 
   // 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
   // ON/OFFできるようにして。ヘッダのT310等の文字は消して」）。
+  // 改善計画T328でウィザード化された後は、この項目は最終ステップ（地図表示・公開）に
+  // あるため、表示名を入力して3ステップ分「次へ」を押してから確認する。
   it("フォームに地図上アイコン表示のON/OFFチェックボックスがあり、既定でONで、見出しに開発用のタスク番号表記が残っていない", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
     const user = userEvent.setup();
@@ -107,6 +109,10 @@ describe("AxisStudio", () => {
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.click(screen.getByRole("button", { name: "次へ" }));
 
     const toggle = screen.getByRole("checkbox", { name: "地図上にアイコンを表示する(show_map_icon)" });
     expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -128,16 +134,21 @@ describe("AxisStudio", () => {
     expect(screen.getByText("勾配")).toBeInTheDocument();
   });
 
-  // 改善計画T322: 「カテゴリ値」テンプレートの材料選択にcategorical dtype材料
-  // （bicycle_infra等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
-  it("「カテゴリ値」テンプレートでcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
+  // 改善計画T322: 「はい/いいえ、または種類ごとに点数を決める」の材料選択にcategorical
+  // dtype材料（bicycle_infra等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
+  // 改善計画T328でウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、
+  // という3ステップに分かれている。
+  it("「はい/いいえ、または種類ごとに点数を決める」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "変換テンプレート(shape)" }), "categorical");
+    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+    await user.click(screen.getByRole("button", { name: "次へ" }));
 
     const materialSelect = screen.getByRole("combobox", { name: "材料(material)" });
     // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として自転車インフラ種別を含む。
@@ -149,6 +160,56 @@ describe("AxisStudio", () => {
     await user.type(valueInput, "separated");
     await user.click(screen.getByRole("button", { name: "+ 値を追加" }));
     expect(screen.getAllByLabelText("値")).toHaveLength(2);
+  });
+
+  // 改善計画T328（軸スタジオのウィザード化）: 表示名が空のまま「次へ」を押すと、
+  // ステップは進まずエラーが表示される回帰テスト。
+  it("ウィザードの1ステップ目で表示名が空のまま「次へ」を押すと進まずエラーが出る", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+
+    expect(screen.getByText("表示名(label)を入力してください。")).toBeInTheDocument();
+    expect(screen.getByText("ステップ 1/4: 基本情報")).toBeInTheDocument();
+  });
+
+  // 改善計画T328: 「戻る」で前のステップに戻っても入力済みの値は失われない回帰テスト。
+  it("ウィザードで「次へ」→「戻る」しても表示名の入力内容が残る", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "私の軸");
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+    expect(screen.getByText("ステップ 2/4: 点数のつけ方を選ぶ")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "戻る" }));
+
+    expect(screen.getByText("ステップ 1/4: 基本情報")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("私の軸");
+  });
+
+  // 改善計画T327（UIレビュー2026-08-25 F-5）: 折れ点(breakpoints)欄に、スコアの向き
+  // （高いほど走りやすい）を明示する説明文が出る回帰テスト。
+  it("折れ点(breakpoints)のステップにスコアの向きを説明する文言がある", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+    // 既定の選択（数値の大きさに応じて点数を変える）のまま次へ。
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+
+    expect(screen.getByText(/スコアは0\(最も走りにくい\)〜100\(最も走りやすい\)/)).toBeInTheDocument();
   });
 
   // 改善計画T323（UIレビュー2026-08-25 F-1）: 他の軸から材料として参照されている軸を

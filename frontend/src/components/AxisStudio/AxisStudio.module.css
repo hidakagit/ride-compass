@@ -232,3 +232,38 @@
   color: var(--color-danger, #c0392b);
   font-size: var(--font-size-sm);
 }
+
+/* 改善計画T328: 軸コンポーザーのウィザード化（ステップ表示・カード選択）。 */
+.stepIndicator {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-muted);
+}
+
+.shapeKindOptions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.shapeKindOption {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  cursor: pointer;
+}
+
+.shapeKindOptionSelected {
+  border-color: var(--color-accent, #2563eb);
+  background: var(--color-surface-2);
+}
+
+.shapeKindOptionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
