@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { debugLog } from "@/lib/debugLog";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+
+// 改善計画T328回帰テスト: refreshBasemapCacheが!response.ok時のthrowを自分のcatchで
+// 再捕捉し、「失敗 (HTTP xxx)」の直後に「失敗 (通信エラー)」と誤って二重ログしていた
+// 不具合の検証に、debugLogの呼び出し回数・ラベルを直接アサートする必要があるためモックする。
+vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
 import {
   ACCIDENT_TILE_SOURCE_LAYER,
   ROAD_TILE_SOURCE_LAYER,
@@ -121,6 +127,10 @@ describe("regionApi", () => {
   });
 
   describe("refreshBasemapCache", () => {
+    afterEach(() => {
+      vi.mocked(debugLog).mockClear();
+    });
+
     it("POSTで/api/basemap/refreshを含むURLへ呼ばれる", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -147,6 +157,28 @@ describe("regionApi", () => {
       );
 
       await expect(refreshBasemapCache()).rejects.toThrow(/502/);
+    });
+
+    // 改善計画T328回帰テスト: !response.ok時のthrowが同じtry節内のcatchで再捕捉され、
+    // 正しい「失敗 (HTTP xxx)」ログの直後に誤った「失敗 (通信エラー)」が二重にログ
+    // される不具合があった。debugLogがHTTPエラー時に1回だけ、正しいラベルで呼ばれる
+    // ことを検証する（通信エラーラベルでは呼ばれないこと）。
+    it("HTTPエラー時はdebugLogが「失敗 (HTTP xxx)」で1回だけ呼ばれ、「通信エラー」では呼ばれない", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 502,
+          headers: new Headers(),
+        }),
+      );
+
+      await expect(refreshBasemapCache()).rejects.toThrow(/502/);
+
+      const calls = vi.mocked(debugLog).mock.calls.filter(([category]) => category === "api:basemap-refresh");
+      expect(calls).toHaveLength(2); // 「リクエスト開始」＋「失敗 (HTTP 502)」
+      expect(calls.map(([, message]) => message)).toEqual(["リクエスト開始", "失敗 (HTTP 502)"]);
+      expect(calls.some(([, message]) => message === "失敗 (通信エラー)")).toBe(false);
     });
 
     it("fetch自体が例外を投げる場合もエラーとして伝播する", async () => {

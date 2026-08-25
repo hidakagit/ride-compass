@@ -141,22 +141,19 @@ export async function refreshBasemapCache(): Promise<void> {
   // 以前はtry/catchも!response.okのチェックも無く、ネットワークエラー時は
   // 未処理のPromise rejectionになり、失敗時に呼び出し元(MapView.tsx)へ何も伝わらず
   // 「変わらないデータを更新」ボタンが無反応に見えていた。
+  //
+  // 改善計画T328で発見: fetch()自体の失敗（通信エラー）と!response.ok（HTTPエラー）を
+  // 同じtry節で扱っていたため、HTTPエラー時にthrowしたErrorをこのtry節直後のcatchが
+  // 再捕捉し、「失敗 (HTTP xxx)」ログの直後に「失敗 (通信エラー)」という誤ったラベルで
+  // 二重にログしていた（例外メッセージ自体は正しいため実害は無いが、障害調査時にログを
+  // 誤誘導する）。fetchAxisInspectorと同じ構造（fetch()自体の失敗だけをtryで囲み、
+  // !response.okの判定はtryの外で行う）へ揃える。
+  let response: Response;
   try {
-    const response = await fetch(`${API_BASE_URL}/api/basemap/refresh`, {
+    response = await fetch(`${API_BASE_URL}/api/basemap/refresh`, {
       method: "POST",
       signal: AbortSignal.timeout(15000),
     });
-    const durationMs = Math.round(performance.now() - startedAt);
-    const requestId = response.headers.get("x-request-id");
-    debugLog(
-      "api:basemap-refresh",
-      response.ok ? "成功" : `失敗 (HTTP ${response.status})`,
-      { durationMs, requestId },
-      response.ok ? "info" : "error",
-    );
-    if (!response.ok) {
-      throw new Error(`地図キャッシュの更新に失敗しました[HTTP ${response.status}]`);
-    }
   } catch (error) {
     debugLog(
       "api:basemap-refresh",
@@ -168,5 +165,16 @@ export async function refreshBasemapCache(): Promise<void> {
       "error",
     );
     throw error instanceof Error ? error : new Error("地図キャッシュの更新に失敗しました");
+  }
+  const durationMs = Math.round(performance.now() - startedAt);
+  const requestId = response.headers.get("x-request-id");
+  debugLog(
+    "api:basemap-refresh",
+    response.ok ? "成功" : `失敗 (HTTP ${response.status})`,
+    { durationMs, requestId },
+    response.ok ? "info" : "error",
+  );
+  if (!response.ok) {
+    throw new Error(`地図キャッシュの更新に失敗しました[HTTP ${response.status}]`);
   }
 }
