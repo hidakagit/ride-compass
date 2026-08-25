@@ -93,7 +93,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         icon_id: null,
         chip_label: null,
         panel_hint: null,
-        proxy_hint: null,
+        show_map_icon: true,
       },
     ],
   };

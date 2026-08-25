@@ -19,5 +19,5 @@
 -- コード側（domain/axis_definitions.py）からも削除済みのため、DB側にだけ残しておく
 -- 意味が無い。
 ALTER TABLE axis_definitions
-    ADD COLUMN show_map_icon BOOLEAN NOT NULL DEFAULT true,
-    DROP COLUMN proxy_hint;
+    ADD COLUMN IF NOT EXISTS show_map_icon BOOLEAN NOT NULL DEFAULT true,
+    DROP COLUMN IF EXISTS proxy_hint;
