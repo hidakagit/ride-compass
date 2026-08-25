@@ -6718,7 +6718,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   側が使い続けるため変更していない。tsc --noEmit clean、関連テスト71件パス、Playwright
   実機確認で観測・推定・動的の3グループとも情報アイコンが出ないことを確認。
 
-### - [ ] T335. CI(backend)のtest_match_designations.pyがCI環境（PostGIS 16）でだけ失敗する 規模S〜M（調査中・2026-08-26）
+### - [x] T335. CI(backend)のtest_match_designations.pyがCI環境（PostGIS 16）でだけ失敗する 規模S〜M（2026-08-26完了）
 
 - 背景: T333対応中にCI状況を確認したところ、`api-contract`とは別に`backend`ジョブ
   （`python -m pytest -q -n auto --dist loadgroup`）が失敗していることを発見した。
@@ -6753,10 +6753,41 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   常に失敗させることでpytestの失敗メッセージにダンプを埋め込み、CIログとして
   確認できるようにした。ローカル（PG18）ではこの最小構成で両kindとも
   `intersects=True`・`ratio=1.0`と問題なく、想定どおり再現しない。
-- 次のステップ: このコミットのCI結果（PostGIS 16での実際のダンプ内容）をユーザーに
-  共有してもらい、`intersected`/`matched`各段階でcritical_logisticsとemergency_transport
-  の値がどこから分岐するかを実データで確認してから、根拠に基づく修正を検討する。
-  診断テスト自体は原因特定後に削除する（本番コードに影響しないテスト専用の一時追加）。
+- 診断ラウンド2（CI実測）: 座標完全一致・offset_3m・offset_10m・buffer_zero・
+  swapped_argsの5候補をUNION ALLで同時比較したところ、offset_10m（座標完全一致の
+  退化とは到底言えない距離）まで含め全候補が`LINESTRING EMPTY`のままだった。これにより
+  「座標完全一致の退化ケース」仮説は完全に否定された。
+- 診断ラウンド3（CI実測）: 「`route_designations`/`designation_attributes`は
+  `osm_raw_ways`等と異なり`Base.metadata`（road_graph_models.py）に属さず
+  `road_graph_session`のtruncate対象外なので、`TestRunMatch`内の他テストの残留行が
+  `_MATCH_SQL`のCTE処理に干渉している」という仮説（コードで確認済みの事実が根拠）を
+  検証するため、診断テスト冒頭で明示的にTRUNCATEしてから最小構成を再構築したが、
+  それでも`ST_Intersects=true`かつ`ST_Intersection`が`LINESTRING EMPTY`のまま再現した。
+  あわせてway・designation・buffer各ジオメトリの生値（SRID・点数・WKT・ST_IsValid）を
+  直接確認したが、いずれも正常だった。これにより「他テストの残留行によるCTE干渉」
+  「入力ジオメトリ自体の不正」の両仮説も否定された。
+- ヒント確認: ユーザーから「NGが起き始めたのはb101082から」という指摘を受け
+  `git show b101082^1:backend/tests/test_match_designations.py`で当該コミット直前の
+  内容を確認したところ、`TestRunMatch`クラス自体（`DESIG_LINE`・`WAY_MATCH_ID`・
+  `run_match`のimportを含む）がb101082（T330マージ）で新規追加されたものであり、
+  それ以前はこのファイルに`TestWriteMatches`しかなかったことが分かった。本番SQL
+  （`_MATCH_SQL`・バッファ幅定数）はこの前後で無変更（直近の変更履歴はT137〜T150の
+  d245099まで遡り無関係）。つまり「動いていたものが壊れた」のではなく、「新規追加した
+  テストが、これまで一度も踏まれたことのない座標パターン（線がバッファの中心軸と
+  完全に平行・同一直線上）で、CI環境のGEOSが持つ既存の数値ロバストネス上の不具合を
+  初めて踏み抜いた」という構図であることが確定した。
+- 診断ラウンド4（CI実測・確定）: 消去法で残った仮説「GEOS OverlayNGの数値ロバストネス
+  不具合（ST_Intersectsは頂点近傍判定、ST_Intersectionはnoding処理で別アルゴリズムの
+  ため食い違いうる）」を検証するため、PostGIS公式ドキュメントが明記する対策候補
+  （`ST_Intersection`の3引数版=gridSize指定でsnap-rounding noding経路に切り替える）を
+  gridsize_1e-9/1e-7/1e-5とbuffer_zeroの4候補でCI実測した。結果:
+  gridSize指定の3候補は全て正しい長さ（181.0m）を返し、baselineとbuffer_zeroは
+  引き続き空だった。gridSizeが唯一有効な対策であることを実地確認した。
+- 修正: `_MATCH_SQL`の`ST_Intersection(w.geom, b.buffer_geom)`に
+  `gridSize=1e-7`（度単位、OSM座標精度＝小数点以下7桁と同じ桁。バッファ幅20mより
+  はるかに細かく精度劣化なし）を追加。診断専用テスト
+  `test_diagnostic_t335_gridsize_candidates_for_empty_intersection`は原因特定・
+  修正確認後に削除した。
 - 依存: T330（当該テストの新規追加元）。
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の

@@ -54,6 +54,12 @@ _KINDS = DESIGNATION_IMPORT_KINDS
 # 含める必要が無く、PostGISジオメトリを含めたGROUP BYはハッシュ・比較コストが高いため避ける。
 # ST_Unionでまとめてから測ることで、同一(osm_way_id, kind)へ複数のroute_designations行
 # （例: 隣接するN10区間データが同じWay近傍を2本通る場合）が寄与しても交差長を二重計上しない。
+# ST_Intersectionの第3引数（gridSize=1e-7度、OSM座標精度と同じ桁）: 改善計画T335。
+# ST_Intersects=trueなのにST_Intersection（gridSize省略のデフォルト経路）がLINESTRING EMPTYを
+# 返すケースがCI環境（postgis/postgis:16-3.4）で確認された（GEOS OverlayNGの数値ロバストネス
+# 不具合、線がバッファポリゴンの中心軸と完全に平行・同一直線上の場合に発生。ST_Buffer(...,0)
+# による正規化では解消せず、gridSize指定でsnap-rounding noding経路に切り替えることでのみ
+# 解消することをCI実測で確認済み）。
 _MATCH_SQL = """
 WITH buffered AS MATERIALIZED (
     SELECT id, kind, ST_Buffer(geom::geography, $1)::geometry AS buffer_geom
@@ -64,7 +70,7 @@ matched AS (
     SELECT w.osm_way_id, b.kind,
            ST_Length(w.geom::geography) AS way_length_m,
            ST_Union(
-               ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2)
+               ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom, 1e-7), 2)
            ) AS unioned
     FROM buffered b
     JOIN osm_raw_ways w ON w.geom IS NOT NULL AND ST_Intersects(w.geom, b.buffer_geom)
