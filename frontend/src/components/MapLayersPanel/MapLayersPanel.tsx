@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import {
   LAYER_DATA_STATUS_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
@@ -196,6 +197,38 @@ export default function MapLayersPanel({
     );
   }
 
+  // レイヤー見出し行（Disclosureのtrailing、開閉状態に関わらず常に見える箇所）に置く
+  // 情報アイコン（実機フィードバック「情報アイコンは、折りたたみを展開しなくても見れる
+  // ようにして」への対応）。以前はrenderHintToggleでセクション本文（Disclosureのbody、
+  // 展開しないと見えない）に置いていたが、WarningBadge.tsx（気象警報のサマリーボタン）と
+  // 同じRadix Popoverへ差し替え、開閉トリガー（button）の外に置くことで折りたたんだままでも
+  // 説明文へアクセスできるようにする。trailingはtrigger（button）の外に置かれるため、
+  // Popover.Triggerをbuttonにしてもbutton内buttonにならない（Disclosure.tsx冒頭コメント参照）。
+  function renderHintPopoverTrigger(subjectLabel: string, hint: string | undefined, detail?: readonly string[]) {
+    if (!hint) return null;
+    return (
+      <Popover.Root>
+        <Popover.Trigger asChild>
+          <button type="button" className={styles.hintPopoverTrigger} aria-label={`${subjectLabel}の説明を表示`}>
+            <InfoIcon size={14} />
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content className={styles.hintPopoverContent} side="bottom" align="end" sideOffset={6}>
+            <p className={styles.mutedHint}>{hint}</p>
+            {detail && detail.length > 0 && (
+              <ul className={styles.hintList}>
+                {detail.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+    );
+  }
+
   // 路面の種類・道路の種類の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditor
   // ごと廃止し、ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら
   // レイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
@@ -376,7 +409,6 @@ export default function MapLayersPanel({
   function renderStandardSectionBody(layer: MapLayerDescriptor) {
     return (
       <>
-        {renderHintToggle(layer.id, layer.label, layer.panelHint, layer.panelHintDetail)}
         {renderDataStatusHint(layer.id)}
         {renderOffHint(layer.id)}
         {staticFilterAxesFor(layer.id).map(renderStaticFilterAxis)}
@@ -392,7 +424,6 @@ export default function MapLayersPanel({
     const layerId = layer.id;
     return (
       <>
-        {renderHintToggle(layer.id, layer.label, layer.panelHint)}
         {!layerVisibility[layerId] && (
           <p className={styles.mutedHint}>表示はOFFです[絞り込みを操作すると自動でONになります]</p>
         )}
@@ -414,7 +445,6 @@ export default function MapLayersPanel({
         // ラスタタイルのためデータ取得状態は取得失敗のみ検知対象（MapView.tsx参照）。
         return (
           <>
-            {renderHintToggle(layer.id, layer.label, layer.panelHint)}
             {renderDataStatusHint(layer.id)}
           </>
         );
@@ -425,7 +455,6 @@ export default function MapLayersPanel({
         // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
         return (
           <>
-            {renderHintToggle(layer.id, layer.label, layer.panelHint)}
             {renderDataStatusHint(layer.id)}
           </>
         );
@@ -484,13 +513,16 @@ export default function MapLayersPanel({
         // HTMLにならず、以前summary内で必要だったpreventDefault/stopPropagation
         // （details開閉のデフォルト動作との衝突回避）も不要になった。
         trailing={
-          <LayerChip
-            label="表示"
-            ariaLabel={`${layer.label}レイヤーを表示`}
-            on={layerVisibility[layer.id]}
-            dataStatus={visibleDataStatus(layer.id)}
-            onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
-          />
+          <>
+            {renderHintPopoverTrigger(layer.label, layer.panelHint, layer.panelHintDetail)}
+            <LayerChip
+              label="表示"
+              ariaLabel={`${layer.label}レイヤーを表示`}
+              on={layerVisibility[layer.id]}
+              dataStatus={visibleDataStatus(layer.id)}
+              onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
+            />
+          </>
         }
       >
         {renderSectionBody(layer)}

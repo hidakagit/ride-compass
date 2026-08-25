@@ -92,20 +92,18 @@ function openSection(id: MapLayerId) {
 
 // 個別セクションの開閉自体ではなく中身の挙動を検証する大半のテストのために、レンダー直後に
 // 全セクションを開く一括版。Accordion.Triggerだけを`[aria-controls]`の有無で区別する
-// （情報アイコンのrenderHintToggleボタンやFieldLabelのPopover.Triggerも同じ
-// aria-expanded="false"を持つが、いずれもaria-controlsを持たないため誤って開いてしまわない。
-// 「セクションを開いただけでは説明は見えない」ことを検証するテスト自体は個別にopenSectionを
-// 使う）。
+// （情報アイコンのrenderHintPopoverTriggerボタンやFieldLabelのPopover.Triggerも同じ
+// aria-expanded="false"を持つが、いずれもaria-controlsを持たないため誤って開いてしまわない）。
 function openAllSections() {
   document
     .querySelectorAll('button[aria-expanded="false"][aria-controls]')
     .forEach((button) => fireEvent.click(button));
 }
 
-// 各メンバーの説明（panelHint、改善計画: 実機フィードバック「各メンバーの説明は、情報
-// アイコン（！）を押したら見えるようにして」への対応）は情報アイコンを押すまで本文が
-// DOMに出ない。openSectionでセクション自体を開いたうえで、このヘルパーで「{label}の説明を
-// 表示」ボタンを押してから説明文を検証する。
+// 各メンバーの説明（panelHint）は情報アイコン（renderHintPopoverTrigger、実機フィードバック
+// 「情報アイコンは、折りたたみ展開せずに見れるようにして」への対応）を押すまで本文がDOMに
+// 出ないが、アイコン自体はセクションの開閉状態と無関係に常に見える（Disclosureのtrailing、
+// トリガーボタンの外）。このヘルパーはセクションを開いているかどうかに関わらず使える。
 function openHint(subjectLabel: string) {
   fireEvent.click(screen.getByRole("button", { name: `${subjectLabel}の説明を表示` }));
 }
@@ -192,12 +190,17 @@ describe("MapLayersPanel", () => {
   });
 
   // 実機フィードバック「各メンバーの説明は、情報アイコン（！）を押したら見えるようにして」
-  // への対応。以前はセクションを開く（<details>）だけで説明文（panelHint）が常に見えており、
-  // 車ストレスの8行に及ぶ判定内訳などが常時表示されて読みにくいという指摘につながっていた。
-  it("レイヤーの説明はセクションを開いただけでは見えず、情報アイコンを押すと表示される", () => {
+  // （説明文は押すまで常時表示しない）、続けて「情報アイコンは、折りたたみ展開せずに見れる
+  // ようにして」（アイコン自体はセクションを開かなくても見える）の2段階の実機フィードバックへの
+  // 対応。以前はセクションを開く（<details>）だけで説明文（panelHint）が常に見えており、
+  // 車ストレスの8行に及ぶ判定内訳などが常時表示されて読みにくいという指摘につながっていた
+  // その後、情報アイコン自体もセクションを開かないと現れない（Disclosureのbodyにあった）ため
+  // 探すのに開閉操作が要るという指摘を受け、情報アイコンをtrailing（トリガーの外、常時表示）へ
+  // 移設した（MapLayersPanel.tsx: renderHintPopoverTrigger）。
+  it("レイヤーの情報アイコンはセクションを開かなくても見え、押すとPopoverで説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("elevation");
+    // openAllSections/openSectionを一切呼ばない＝セクションを閉じたままでもアイコンが
+    // 見え、説明文は押すまで出ないことの両方を確認する。
     expect(screen.queryByText("国土地理院の色別標高図を重ねる")).not.toBeInTheDocument();
 
     const toggle = screen.getByRole("button", { name: "標高図の説明を表示" });
@@ -205,7 +208,7 @@ describe("MapLayersPanel", () => {
     fireEvent.click(toggle);
 
     expect(screen.getByText("国土地理院の色別標高図を重ねる")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "標高図の説明を隠す" })).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
   // 改善計画T171: 降水ナウキャストは絞り込みUIを持たないため、elevationと同じ専用case
