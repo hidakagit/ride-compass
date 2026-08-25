@@ -4,12 +4,13 @@
 // 「ボタン押下でオンデマンド取得しDOMへ直接差し込む」方式（MapLibre PopupはReactツリー外
 // のためイベントハンドラをaddTo後にquerySelectorで配線する）。
 //
-// レジストリ駆動: 軸ラベルはaxisLayers.ts: AXIS_LABELS（backendのaxis-catalog.json由来）を
-// 参照するため、新しい軸が増えてもこのファイルの変更は不要（表示される軸自体は
-// AxisInspectorResult.axesがサーバー側で決める）。
+// レジストリ駆動: 軸ラベルは呼び出し側（MapView.tsx）がuseAxisCatalog経由で取得した
+// 実行時のaxisLabels（axis_id→表示名の辞書）を引数で受け取る。改善計画T320: 以前は
+// axisLayers.ts: AXIS_LABELS（ビルド時静的axis-catalog.json由来）を直接importしており、
+// 軸スタジオで新規公開したGUI作成軸のラベルが表示されず生のaxis_idがそのまま出ていた
+// （動的なaxisLabelsが既に用意されていたのに消費者が無かった配線漏れ）。
 import type { AxisInspectorResult } from "@/types/traffic";
 import { fetchAxisInspector } from "@/services/regionApi";
-import { AXIS_LABELS } from "./axisLayers";
 import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
 
 export const AXIS_INSPECTOR_BUTTON_ATTR = "data-axis-inspector-button";
@@ -25,13 +26,13 @@ function formatDifficulty(value: number | null): string {
 // キーがレジストリ登録済みの一次属性（PRIMARY_ATTRIBUTE_LABELS、T163のカタログ正式名）と
 // 一致する場合はその正式名を表示する（1次→2次の逆導出と対で「同じ属性は同じ名前で呼ぶ」
 // 統一ルールT30に揃える）。一致しないキー（name/ref等、登録外の生タグ）は従来どおりraw keyのまま。
-function buildAxisInspectorHtml(result: AxisInspectorResult): string {
+function buildAxisInspectorHtml(result: AxisInspectorResult, axisLabels: Record<string, string>): string {
   const primaryRows = Object.entries(result.tags)
     .map(([key, value]) => `${PRIMARY_ATTRIBUTE_LABELS[key] ?? key}=${value}`)
     .join(", ");
   const axisRows = result.axes
     .map((axis) => {
-      const label = AXIS_LABELS[axis.axis_id] ?? axis.axis_id;
+      const label = axisLabels[axis.axis_id] ?? axis.axis_id;
       const suffix = axis.available ? "" : "（この区間では算出不可）";
       return `${label}: ${formatDifficulty(axis.difficulty)}${suffix}`;
     })
@@ -62,7 +63,11 @@ export function buildAxisInspectorAffordanceHtml(): string {
   </div>`;
 }
 
-export function attachAxisInspectorHandler(popupElement: HTMLElement, osmWayId: number) {
+export function attachAxisInspectorHandler(
+  popupElement: HTMLElement,
+  osmWayId: number,
+  axisLabels: Record<string, string>,
+) {
   const button = popupElement.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`);
   const resultEl = popupElement.querySelector<HTMLElement>(`[${AXIS_INSPECTOR_RESULT_ATTR}]`);
   if (!button || !resultEl) return;
@@ -71,7 +76,7 @@ export function attachAxisInspectorHandler(popupElement: HTMLElement, osmWayId: 
     button.textContent = "取得中…";
     try {
       const result = await fetchAxisInspector(osmWayId);
-      resultEl.innerHTML = result ? buildAxisInspectorHtml(result) : UNAVAILABLE_HTML;
+      resultEl.innerHTML = result ? buildAxisInspectorHtml(result, axisLabels) : UNAVAILABLE_HTML;
     } catch {
       resultEl.innerHTML = UNAVAILABLE_HTML;
     } finally {

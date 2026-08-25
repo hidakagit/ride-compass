@@ -1691,6 +1691,13 @@ interface MapViewProps {
    * RAMP_AXES）を渡す。軸スタジオでの新規公開軸もここへ含まれれば、再デプロイなしに
    * 地図レイヤーとして現れる。 */
   rampAxes: readonly RampAxis[];
+  /** axis_id→表示名の辞書（改善計画T320）。区間インスペクタ（axisInspectorPopup.ts）が
+   * 軸別内訳のラベルを表示するために使う。呼び出し側（page.tsx）がuseAxisCatalog経由で
+   * 取得したもの（取得完了までとエラー時は静的フォールバック）を渡す。以前はビルド時
+   * 静的なAXIS_LABELSを直接参照しており、軸スタジオで新規公開したGUI作成軸のラベルが
+   * 表示されず生のaxis_idがそのまま出ていた（動的なaxisLabelsが用意済みなのに
+   * 消費者が無かった配線漏れ）。 */
+  axisLabels: Record<string, string>;
 }
 
 export default function MapView({
@@ -1721,6 +1728,7 @@ export default function MapView({
   refreshToken,
   experimentSlots,
   rampAxes,
+  axisLabels,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -1788,6 +1796,7 @@ export default function MapView({
     axisOverlayLayers,
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
+    axisLabels,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -1831,6 +1840,7 @@ export default function MapView({
       axisOverlayLayers,
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
+      axisLabels,
     };
   }, [
     routes,
@@ -1858,6 +1868,7 @@ export default function MapView({
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     experimentSlots,
+    axisLabels,
   ]);
 
   // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
@@ -2103,7 +2114,12 @@ export default function MapView({
       if (roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
         if (popupElement) {
-          attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id);
+          // 改善計画T320: axisLabelsはredrawPropsRef.current経由で読む（handleClickを
+          // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
+          // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
+          // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
+          // ままになってしまう）。
+          attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
         }
       }
     }

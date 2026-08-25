@@ -35,6 +35,17 @@ const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
 
 export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, motorway: true, trunk: true };
 
+// 重み配分バーの軸ごとの色分け（改善計画T267のモックアップと同じ配色を初期7色として流用）。
+// 改善計画T320: 以前はCSS側でdata-axis属性値（axis_id文字列）ごとにセレクタを書いており、
+// 軸スタジオで新規公開した軸は対応するセレクタが無いため無色（透明な帯）になっていた
+// （色自体に意味は持たせない識別用のため、固定パレットで足りるという前提自体は変えず、
+// axis_idではなく表示順indexで引く方式へ変更し、軸の増減にコード変更無しで追従させる）。
+const STACK_BAR_COLORS = ["#7f77dd", "#1d9e75", "#d85a30", "#d4537e", "#378add", "#ef9f27", "#639922"];
+
+function stackBarColorForIndex(index: number): string {
+  return STACK_BAR_COLORS[index % STACK_BAR_COLORS.length];
+}
+
 interface Preset {
   label: string;
   /** 部分指定可。未言及の軸は0（このプリセットの対象外）で補われる（applyPreset参照）。
@@ -148,7 +159,16 @@ export default function RouteSettingsPanel({
     const zeroFilled: RoutePreferenceWeights = Object.fromEntries(
       Object.keys(catalog.defaultWeights).map((axisId) => [axisId, 0]),
     );
-    const merged: RoutePreferenceWeights = { ...zeroFilled, ...preset.weights };
+    // 改善計画T320: NON_DEFAULT_PRESETSは既存7軸を名指しした固定コンテンツのため、
+    // 軸スタジオで非公開化・削除された軸のキーがpreset.weights側に残っていることがある。
+    // フィルタせずspreadすると、zeroFilledには無いはずの軸idがmergedに復活し（例:
+    // 全軸非公開でzeroFilled={}でも、プリセットのgradient等がそのままmergedへ残る）、
+    // 重み配分バーの合計計算・送信ペイロードの両方が実際の公開軸集合と食い違う。
+    // catalog.defaultWeightsに存在する（＝現在公開されている）軸のキーだけを反映する。
+    const presetWeightsForPublishedAxes = Object.fromEntries(
+      Object.entries(preset.weights).filter(([axisId]) => axisId in zeroFilled),
+    );
+    const merged: RoutePreferenceWeights = { ...zeroFilled, ...presetWeightsForPublishedAxes };
     setLastWeights((prev) => {
       const next = { ...prev };
       for (const [axisId, weight] of Object.entries(merged)) {
@@ -194,7 +214,7 @@ export default function RouteSettingsPanel({
       <div className={styles.stackBarWrap}>
         <p className={styles.sectionLabel}>重み配分</p>
         <div className={styles.stackBar}>
-          {catalog.axes.map(({ axisId, label }) => {
+          {catalog.axes.map(({ axisId, label }, index) => {
             const weight = routePreference[axisId] ?? 0;
             if (weight <= 0 || total <= 0) return null;
             const pct = (weight / total) * 100;
@@ -202,8 +222,7 @@ export default function RouteSettingsPanel({
               <div
                 key={axisId}
                 className={styles.stackSegment}
-                data-axis={axisId}
-                style={{ width: `${pct}%` }}
+                style={{ width: `${pct}%`, background: stackBarColorForIndex(index) }}
                 title={`${label} ${Math.round(pct)}%`}
               />
             );

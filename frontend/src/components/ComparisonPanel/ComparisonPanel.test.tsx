@@ -55,9 +55,21 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
   };
 }
 
+// 改善計画T320: axisLabelsは呼び出し側（page.tsx）がuseAxisCatalog経由で渡す実行時辞書
+// のため、このテストでも実データを模したものを明示的に渡す（静的importに依存しない）。
+const SAMPLE_AXIS_LABELS: Record<string, string> = {
+  gradient: "勾配",
+  wind: "風",
+  surface_q: "舗装質",
+  stop_density: "停止密度",
+  car_stress: "車の圧迫感",
+  accident: "事故密度",
+  night: "夜間",
+};
+
 describe("ComparisonPanel", () => {
   it("スロットが1件以下のときは何も表示しない", () => {
-    const { container } = render(<ComparisonPanel slots={[makeSlot({})]} />);
+    const { container } = render(<ComparisonPanel slots={[makeSlot({})]} axisLabels={SAMPLE_AXIS_LABELS} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -66,7 +78,7 @@ describe("ComparisonPanel", () => {
       makeSlot({ id: "a", topCandidate: makeCandidate({ distance_km: 30.1, overall_difficulty: 40 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ distance_km: 29.8, overall_difficulty: 55 }) }),
     ];
-    render(<ComparisonPanel slots={slots} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
 
     expect(screen.getByText(/30\.1 km/)).toBeInTheDocument();
     expect(screen.getByText(/29\.8 km/)).toBeInTheDocument();
@@ -79,7 +91,7 @@ describe("ComparisonPanel", () => {
       makeSlot({ id: "a", topCandidate: makeCandidate({ total_score: 12.3 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ total_score: 45.6 }) }),
     ];
-    render(<ComparisonPanel slots={slots} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
 
     expect(screen.queryByText(/12\.3/)).not.toBeInTheDocument();
     expect(screen.queryByText(/45\.6/)).not.toBeInTheDocument();
@@ -90,7 +102,7 @@ describe("ComparisonPanel", () => {
       makeSlot({ id: "a", topCandidate: makeCandidate({ stop_density: 1.5 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ stop_density: null }) }),
     ];
-    render(<ComparisonPanel slots={slots} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
 
     expect(screen.getByText("停止密度")).toBeInTheDocument();
     expect(screen.getByText("1.50 回/km")).toBeInTheDocument();
@@ -104,7 +116,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
     ];
-    render(<ComparisonPanel slots={slots} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
 
     expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
     expect(screen.getByText("2.3")).toBeInTheDocument();
@@ -119,7 +131,7 @@ describe("ComparisonPanel", () => {
       makeSlot({ id: "a", topCandidate: makeCandidate({ accident_density: 0.15 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
     ];
-    render(<ComparisonPanel slots={slots} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
 
     expect(screen.getByText("事故密度")).toBeInTheDocument();
     expect(screen.getByText("0.15 件/(km・年)")).toBeInTheDocument();
@@ -130,7 +142,7 @@ describe("ComparisonPanel", () => {
     // stop_weightが実験条件の表示から漏れていた(研究モードでstop_weightを変えて
     // 比較しても条件表示に差が現れない実害)。カタログ生成後は全軸が含まれる。
     const slots = [makeSlot({ id: "a" }), makeSlot({ id: "b" })];
-    render(<ComparisonPanel slots={slots} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     expect(headers).toHaveLength(2);
@@ -143,5 +155,42 @@ describe("ComparisonPanel", () => {
       expect(title).toContain("score");
       expect(title).toContain("pref");
     }
+  });
+
+  it("改善計画T320: 軸スタジオのGUI作成軸(axisLabelsに無いaxis_id)はaxis_idのまま重み表示に含める", () => {
+    const slots = [
+      makeSlot({
+        id: "a",
+        conditions: {
+          ...makeSlot({}).conditions,
+          route_preference: { gui_published_axis: 0.3 },
+        },
+      }),
+      makeSlot({ id: "b" }),
+    ];
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+
+    const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
+    expect(headers[0].getAttribute("title")).toContain("gui_published_axis0.3");
+  });
+
+  it("改善計画T320: 非公開化された軸はroute_preferenceから既に消えているため重み表示にも出ない", () => {
+    const slots = [
+      makeSlot({
+        id: "a",
+        conditions: {
+          ...makeSlot({}).conditions,
+          route_preference: { wind: 0.26, surface_q: 0.19, accident: 0.08 },
+        },
+      }),
+      makeSlot({ id: "b" }),
+    ];
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+
+    const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
+    const title = headers[0].getAttribute("title") ?? "";
+    expect(title).toContain("風0.26");
+    expect(title).not.toContain("undefined");
+    expect(title).not.toContain("勾配");
   });
 });

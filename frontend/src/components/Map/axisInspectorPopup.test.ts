@@ -31,6 +31,18 @@ const SAMPLE_RESULT: AxisInspectorResult = {
   covered_weight_fraction: 0.62,
 };
 
+// 改善計画T320: axisLabelsは呼び出し側（MapView.tsx）がuseAxisCatalog経由で渡す実行時
+// 辞書のため、このテストでも実データを模したものを明示的に渡す（静的importに依存しない）。
+const SAMPLE_AXIS_LABELS: Record<string, string> = {
+  gradient: "勾配",
+  wind: "風",
+  surface_q: "舗装質",
+  stop_density: "停止密度",
+  car_stress: "車の圧迫感",
+  accident: "事故密度",
+  night: "夜間",
+};
+
 describe("axisInspectorPopup", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -52,7 +64,7 @@ describe("axisInspectorPopup", () => {
       }),
     );
     const el = makePopupElement();
-    attachAxisInspectorHandler(el, 12345);
+    attachAxisInspectorHandler(el, 12345, SAMPLE_AXIS_LABELS);
 
     const button = el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!;
     button.click();
@@ -87,7 +99,7 @@ describe("axisInspectorPopup", () => {
       }),
     );
     const el = makePopupElement();
-    attachAxisInspectorHandler(el, 12345);
+    attachAxisInspectorHandler(el, 12345, SAMPLE_AXIS_LABELS);
     el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -96,10 +108,32 @@ describe("axisInspectorPopup", () => {
     expect(resultEl.innerHTML).toContain("name=テスト通り");
   });
 
+  it("改善計画T320: axisLabelsに無いaxis_id（軸スタジオのGUI作成軸等）は生のaxis_idのまま表示する", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          ...SAMPLE_RESULT,
+          axes: [{ axis_id: "gui_published_axis", difficulty: 42.0, weight: 0.1, available: true }],
+        }),
+      }),
+    );
+    const el = makePopupElement();
+    attachAxisInspectorHandler(el, 12345, SAMPLE_AXIS_LABELS);
+    el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const resultEl = el.querySelector<HTMLElement>(`[${AXIS_INSPECTOR_RESULT_ATTR}]`)!;
+    expect(resultEl.innerHTML).toContain("gui_published_axis: 42.0/100");
+  });
+
   it("fetch失敗時は「取得できませんでした」を表示する", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const el = makePopupElement();
-    attachAxisInspectorHandler(el, 12345);
+    attachAxisInspectorHandler(el, 12345, SAMPLE_AXIS_LABELS);
 
     el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));

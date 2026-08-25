@@ -5895,6 +5895,87 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 検証: 回帰テスト`useAxisCatalog.test.ts`に「axesが0件のレスポンスはFALLBACK_CATALOGへ
   戻さずそのまま空を返す」ケースを追加。frontend vitest 504 passed、eslint・tsc clean。
 - 依存: T309（軸スタジオの公開軸を可変に扱う一連の改修）の直後に発覚した見落とし。
+- **訂正（T320で判明）**: 「ハードコーディングはfrontendのこの1箇所のみだった」という
+  上記の結論は誤りだった。ユーザーから「他にないか、５回目ぐらいの依頼になるけれども
+  再度確認して」との指摘を受け改めて全面監査した結果、少なくとも4件の追加のハード
+  コーディング・配線漏れが見つかった（T320参照）。1件直して満足せず、同じクラスの
+  問題が他に無いかを毎回横展開すべきだったという反省点として記録する。
+
+### - [x] T320. 既存7軸ハードコーディングの全面再監査と修正（T319で見落とした残り分） 規模M（実装完了）
+
+- 背景: T319対応後、ユーザーから「重ね重ね全部消して、推定軸は可変にしてと何度も
+  お願いしていたはず。他にないか、５回目ぐらいの依頼になるけれども再度確認して」との
+  強い指摘を受け、frontend/backend全体を対象に「軸の数・軸id集合が7固定、または
+  軸スタジオの現在の公開軸集合と食い違いうる」箇所を徹底的に再監査した
+  （T313・T316・T317・T309・T319は既知のため対象外）。
+- 発見・修正した項目（優先度順）:
+  1. **【最重要】`page.tsx: handleGenerate`が、`GET /api/axis-catalog`のフェッチ未完了・
+     失敗時にビルド時静的な既存7軸(`axisCatalog.defaultWeights`)へ`route_preference`の
+     キーを同期してしまい、実際の公開軸集合と食い違うペイロードを送って422になりうる
+     不具合**。`useAxisCatalog`の戻り値へ`loaded: boolean`（フェッチ成功時のみtrue、
+     0件成功も含む）を追加し、`loaded===false`の間は`route_preference`自体を送らず
+     backend側の既定値（常に最新のAXIS_DEFINITIONS由来）に委ねるよう修正
+     （`scoring_weights`は軸レジストリと無関係なため引き続き送る）。
+  2. **`RouteSettingsPanel.tsx: applyPreset`が、ゼロ埋め後に`preset.weights`
+     （既存7軸を名指しした固定コンテンツ）をそのままspreadしていたため、非公開・削除
+     済みの軸idがゴーストキーとしてroutePreference stateへ復活する不具合**。プリセットに
+     由来する重みを`catalog.defaultWeights`（＝現在の公開軸集合）に存在するキーだけへ
+     フィルタしてから合成するよう修正（重み配分バーの%表示が実際の送信内容と食い違う
+     問題、全軸非公開時にプリセットを押すと区間難易度が全てNoneになる問題を解消）。
+  3. **`RouteSettingsPanel.module.css`の重み配分バーの色分けが`data-axis="gradient"`等、
+     既存7軸のCSSセレクタ固定だった不具合**。軸スタジオで新規公開した軸は対応する
+     セレクタが無く、幅だけ取られた透明な帯になっていた。CSS属性セレクタ方式を廃し、
+     TSX側でindexベースの固定パレット（`STACK_BAR_COLORS`、色自体に意味は持たせない
+     識別用という元の方針は維持）から選ぶ方式へ変更し、軸の増減にコード変更無しで
+     追従するようにした。
+  4. **区間インスペクタ（`axisInspectorPopup.ts`）が、ビルド時静的な`AXIS_LABELS`を
+     直接importしており、軸スタジオで新規公開したGUI作成軸のラベルが表示されず生の
+     axis_idがそのまま出ていた不具合**。`useAxisCatalog`が既に用意していた動的な
+     `axisLabels`（T308で追加済みだったが消費者が1件も無かった配線漏れ）を
+     `MapView.tsx`経由で受け取るよう配線した（`buildAxisInspectorHtml`/
+     `attachAxisInspectorHandler`が引数で受け取る形へ変更）。MapView側は
+     `redrawPropsRef.current`経由で読む（クリックハンドラを登録するeffectはマウント時
+     のみ実行されるため、propsを直接クロージャで捕まえるとフェッチ解決後も
+     マウント時点の静的フォールバックのままになる、既存のstaticOverlayLayers等と
+     同じ理由）。
+  5. **`ComparisonPanel.tsx`（研究モードの実験比較表）が、重みのツールチップ表示で
+     ビルド時静的な`PREFERENCE_AXES`（既存7軸固定）を回しており、軸スタジオで新規
+     公開した軸の重みが表示されず、非公開化した軸は`p[axis.axisId]`が`undefined`のまま
+     「風undefined」のように表示されていた不具合**。表示対象を`route_preference`
+     オブジェクト自身のキー集合（＝その回のgenerateへ実際に送られた条件、backendが
+     エコーした正）へ変更し、ラベルだけ動的な`axisLabels`から引く形にした。
+  6. 上記以外に監査で洗い出したが**意図的に変更しなかった**もの:
+     - `axisLayers.ts: axisLabelsFromCatalogAxes`の`wind: "風"`（T319の訂正欄と同じ理由、
+       windは軸スタジオのレジストリとは別枠の構造的特別軸）。
+     - `NON_DEFAULT_PRESETS`自体（自転車専用道を優先/最短時間重視/安全重視）が既存7軸を
+       名指しした固定コンテンツである点。項目2の対策でクラッシュ・表示不整合は解消した
+       が、プリセットの中身自体はキュレーションされたコンテンツであり、軸スタジオの
+       任意の新規軸をプリセットへ自動的に含める仕組みは今回のスコープに含めない
+       （routeStyleModes.tsの4色分けモードと同種の「意図的なUI選択」として許容）。
+     - `backend/app/domain/registry_defaults.py: _register_axes()`の
+       `AXIS_DEFINITIONS["gradient"|"surface_q"|...]`直接indexing。ビルド時スクリプト
+       （`export_openapi.py`）限定で、実行中のアプリからは呼ばれない。運用者が
+       組み込み軸をunpublish→delete削除した状態でビルドを実行するとKeyErrorで
+       ビルドが落ちる（実害はビルド失敗という分かりやすい形で顕在化し、ユーザーへ
+       不整合な状態を見せることはない）。低優先の残課題として記録するのみ。
+     - `backend/app/domain/difficulty.py`/`night.py`の`AXIS_DEFINITIONS["..."]`直接参照
+       ラッパ関数（`transform_fn`文字列・テストのみが参照、実行時経路からは未使用）。
+       7軸前提の残骸だが実害無し。
+     - `car_stress_display_level`のshape型assert（car_stressの評価式を
+       BreakpointLinearShape以外へ変更する運用操作をすると500になりうる）。既存の
+       組み込み軸の評価式を根本から作り変えるという稀な運用操作が前提のため、今回は
+       見送り。
+  - **T319の反省を踏まえた対応方針**: 1件のバグを直して終わりにせず、同じ性質の
+    問題（「軸スタジオが返す実行時の値」と「ビルド時静的な既存7軸フォールバック」の
+    取り違え）を横展開でgrepし尽くしたことが今回との違い。今後同種の改修をする際は、
+    修正した1箇所だけでなく`axis-catalog.json`・`PREFERENCE_AXES`・`AXIS_LABELS`・
+    `RAMP_AXES`等の静的importを持つ全消費者を毎回洗い出すこと。
+- 検証: frontend vitest 507 passed（新規回帰テスト6件: useAxisCatalogのloaded関連、
+  axisInspectorPopupの未知axis_idフォールバック、ComparisonPanelの新規軸・非公開軸
+  ケース2件を含む）、eslint clean、tsc --noEmit clean（既存の無関係なlayout.tsxエラー
+  のみ残存）。backend側は変更なし（T319の時点で既にis_publishedフィルタが正しく
+  効いていることを確認済み）。
+- 依存: T319（直接の発端）、T309（軸スタジオの可変軸方針そのもの）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

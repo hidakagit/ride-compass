@@ -33,6 +33,13 @@ export interface AxisCatalog {
   /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む、改善計画T308でフェッチ
    * 対応）。フェッチ完了までとエラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
+  /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを
+   * 表す（改善計画T320）。falseの間（未取得・取得失敗）は他フィールドが静的フォールバック
+   * （ビルド時の既存7軸スナップショット）である可能性があるため、呼び出し側が
+   * 「軸スタジオの現在の公開軸集合と一致している」ことを要求する処理（route_preference
+   * のキー整合等）では、このフラグで未確定状態を区別しなければならない。取得成功時に
+   * axesが0件（全軸非公開）であってもtrueになる（0件も確定した実際の状態のため）。 */
+  loaded: boolean;
 }
 
 const FALLBACK_CATALOG: AxisCatalog = {
@@ -41,6 +48,7 @@ const FALLBACK_CATALOG: AxisCatalog = {
   rampAxes: RAMP_AXES,
   axisLabels: AXIS_LABELS,
   secondaryAxes: SECONDARY_AXES,
+  loaded: false,
 };
 
 /** GET /api/axis-catalogのAxisCatalogEntry（displayが必ず非null）を、axisLayers.ts/
@@ -92,6 +100,7 @@ function buildCatalog(entries: readonly AxisCatalogEntry[]): AxisCatalog {
     rampAxes: rampAxesFromCatalogAxes(catalogAxes),
     axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
+    loaded: true,
   };
 }
 
@@ -118,6 +127,12 @@ function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
  * （is_publishedの切替も含め、再デプロイ不要で即座に反映される）。取得完了までとエラー時は
  * 静的な既存7軸カタログ（フォールバック）を返すため、呼び出し側は常に何かしらの
  * 一覧を受け取れる（loading状態を個別に扱う必要がない）。
+ *
+ * 改善計画T320: フォールバック中（`loaded=false`）の値を「軸スタジオの現在の公開軸集合」と
+ * 取り違えて送信すると、実際の公開軸と食い違うroute_preferenceを送ってしまい422になりうる
+ * （`page.tsx: handleGenerate`参照）。フォールバック値をUIの初期描画・地図レイヤーの初期状態
+ * 用に使うことは問題ないが、APIへ送るペイロードの構築等「軸スタジオの現在の状態と一致して
+ * いなければならない」処理では、必ず`loaded`を確認すること。
  *
  * 改善計画T306: 以前はaxis_idから観測/推定/動的カテゴリを引く`categoryOf`も持っていたが、
  * 唯一の消費者だったRouteSettingsPanelのカテゴリ別グルーピング表示を撤去したのに伴い削除。

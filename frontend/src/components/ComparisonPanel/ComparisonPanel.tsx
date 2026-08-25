@@ -1,11 +1,18 @@
 "use client";
 
-import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
+import { SCORING_AXES } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./ComparisonPanel.module.css";
 
 interface ComparisonPanelProps {
   slots: ExperimentSlot[];
+  /** axis_id→表示名の辞書（改善計画T320）。route_preferenceの重み表示に使う。呼び出し側
+   * （page.tsx）がuseAxisCatalog経由で取得したもの。以前はビルド時静的な
+   * PREFERENCE_AXES（既存7軸固定）を直接参照しており、軸スタジオで新規公開した軸の重みが
+   * 比較表のツールチップに出ず、非公開化した軸は`p[axis.axisId]`がundefinedのまま
+   * 「風undefined」のような表示になっていた（実際に送信されたroute_preferenceの
+   * キー集合＝Object.keys(p)を正とし、ラベルだけこの辞書から引く形へ修正）。 */
+  axisLabels: Record<string, string>;
 }
 
 interface MetricRow {
@@ -65,11 +72,20 @@ const METRIC_ROWS: MetricRow[] = [
 // 実験条件の表示から漏れていた（研究モードでstop_weightを変えて比較しても、
 // 条件表示に差が現れず「同条件なのに結果が違う」ように見える実害があった）。
 // カタログはWeightPanel/RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
-function formatWeights(slot: ExperimentSlot): string {
+//
+// 改善計画T320: pref行は`slot.conditions.route_preference`（その回のgenerateへ実際に
+// 送られ、backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。以前は
+// ビルド時静的なPREFERENCE_AXES（既存7軸固定）を回していたため、軸スタジオで新規
+// 公開した軸の重みが表示されず、非公開化された軸は`p[axis.axisId]`がundefinedのまま
+// 表示されていた。ラベルはaxisLabels（呼び出し側がuseAxisCatalog経由で取得した動的
+// 辞書）から引き、未知のaxis_id（axisLabelsに無い）はaxis_idそのものにフォールバックする。
+function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>): string {
   const s = slot.conditions.scoring_weights;
   const p = slot.conditions.route_preference;
   const scoreLine = `score ${SCORING_AXES.map((axis) => `${axis.label}${s[axis.weightKey]}`).join("/")}`;
-  const prefLine = `pref ${PREFERENCE_AXES.map((axis) => `${axis.label}${p[axis.axisId]}`).join("/")}`;
+  const prefLine = `pref ${Object.entries(p)
+    .map(([axisId, weight]) => `${axisLabels[axisId] ?? axisId}${weight}`)
+    .join("/")}`;
   return `${scoreLine}\n${prefLine}`;
 }
 
@@ -81,7 +97,7 @@ function formatGeneratedAt(iso: string): string {
 
 // 実験スロット間の比較表（研究インターフェース改善 §10-3）。行=メトリクス、列=スロット
 // （生成のたびに自動保存された直近最大3件）。スロットが2件以上たまった時だけ表示する。
-export default function ComparisonPanel({ slots }: ComparisonPanelProps) {
+export default function ComparisonPanel({ slots, axisLabels }: ComparisonPanelProps) {
   if (slots.length < 2) return null;
 
   return (
@@ -96,7 +112,7 @@ export default function ComparisonPanel({ slots }: ComparisonPanelProps) {
             <tr>
               <th />
               {slots.map((slot) => (
-                <th key={slot.id} title={formatWeights(slot)}>
+                <th key={slot.id} title={formatWeights(slot, axisLabels)}>
                   <span className={styles.swatch} style={{ background: slot.color }} aria-hidden="true" />
                   {formatGeneratedAt(slot.conditions.generated_at)}
                   <br />
