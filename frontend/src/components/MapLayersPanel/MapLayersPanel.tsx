@@ -448,16 +448,6 @@ export default function MapLayersPanel({
             {renderDataStatusHint(layer.id)}
           </>
         );
-      case "precipitationNowcast":
-      case "windVector":
-        // elevationと同じ理由（絞り込みUIを持たないレイヤー）でOFF案内
-        // （renderOffHint、「絞り込みを操作すると自動でONになります」）を出さない。
-        // 表示時刻は地図上の時刻スライダー（page.tsx）で操作する、このパネルの対象外の機構。
-        return (
-          <>
-            {renderDataStatusHint(layer.id)}
-          </>
-        );
       case "bicycleInfra":
       case "designation":
       case "tunnel":
@@ -584,6 +574,16 @@ export default function MapLayersPanel({
         </button>
       </div>
       {MAP_LAYER_DATA_NATURE_ORDER.map((dataNature: MapLayerDataNature) => {
+        // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
+        // 観測グループと違い凡例の帯単位で表示/非表示を切り替える絞り込み機能を持たない
+        // （降水の直近60分・雷・竜巻は気象庁配信の完成画像のみで生データがフロントに来ない
+        // ため技術的に困難、風のみ限定的に可能だが「仕様を統一する」ため実装しない判断）。
+        // 絞り込み機能が無い以上このパネルに出しても「表示」トグル以外に意味のある操作が
+        // 無く、そのトグル自体は地図上チップ（MapOverlayControls.tsx）で引き続き操作できる
+        // ため、動的グループの見出し・4行を丸ごとこのパネルから除外する。各レイヤーの
+        // 説明文（panelHint）は地図上チップの▶パネルへ移設した
+        // （page.tsx: overlayLayersのhint、MapOverlayControls.tsx: renderRawMemberTile参照）。
+        if (dataNature === "dynamic") return null;
         if (dataNature === "composite") {
           // 推定グループだけは地図チップの並び（SECONDARY_AXES）を使う（上記コメント参照）。
           const entries = orderedCompositeEntries();

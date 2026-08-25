@@ -718,15 +718,33 @@ export default function Home() {
                       : layer.id === "tornadoNowcast"
                         ? TORNADO_LEGEND_DETAILS
                         : staticFilterSummaries[layer.id]?.legendDetails;
+        // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
+        // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
+        // （MapLayersPanel.tsx参照）。その行のⓘで見せていた説明文（panelHint）を
+        // 行き場を失わせないよう、地図上チップの▶パネルへ移す（MapOverlayControls.tsx:
+        // renderRawMemberTile、hintフィールド）。他レイヤーはサイドバーに説明文が
+        // 引き続きあるため重複表示を避け、undefinedのままにする。
+        const isDynamicGroupLayer =
+          layer.id === "precipitationNowcast" ||
+          layer.id === "windVector" ||
+          layer.id === "thunderNowcast" ||
+          layer.id === "tornadoNowcast";
+        const hint = isDynamicGroupLayer ? layer.panelHint : undefined;
         return {
           id: layer.id,
           label: layer.label,
           chipLabel: layer.chipLabel ?? layer.label,
           on: layerVisibility[layer.id],
           disabled,
-          title: disabled ? "ルートを生成・選択すると使えます" : `${layer.description}[設定はサイドバー]`,
+          // 動的グループはサイドバーに設定行が無くなったため「[設定はサイドバー]」を付けない。
+          title: disabled
+            ? "ルートを生成・選択すると使えます"
+            : isDynamicGroupLayer
+              ? layer.description
+              : `${layer.description}[設定はサイドバー]`,
           summary,
           legendDetails,
+          hint,
           // 地図上チップのカテゴリ束ね（改善計画T128、MapOverlayControls.tsx）用。
           category: layer.category,
           dataNature: layer.dataNature,
