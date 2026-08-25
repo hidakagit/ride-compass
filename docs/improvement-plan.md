@@ -6707,6 +6707,16 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   には情報アイコンが出ないことを確認。モバイル幅390pxでも横スクロールなし・タップ操作
   可能なことを確認。コンソールエラーなし。
 - 依存: T317（同日の一連の作業、抜け落ちの直接の発端）。
+- 2026-08-26追記（撤去）: 同じ説明文(panelHint)がサイドバー「地図の見え方」パネル
+  （MapLayersPanel.tsx: renderHintPopoverTrigger、各レイヤーセクション見出し脇に常設）
+  からも確認できるようになったため、地図上チップの「表示する項目を選ぶ」設定パネル側
+  （本タスクで追加した個別情報アイコン）は重複と判断し撤去した。`MapOverlayControls.tsx`
+  の`renderVisibilitySettings`から情報アイコンボタン・`openInfoKeys`state・
+  `OverlayLayerChip.panelHint`フィールドを削除、`page.tsx`のpanelHint配線・
+  `MapOverlayControls.module.css`の`.visibilityInfoButton`系スタイル・回帰テスト3件も
+  合わせて削除。`panelHint`データ自体（mapLayers.ts/secondaryAxes.ts）はMapLayersPanel.tsx
+  側が使い続けるため変更していない。tsc --noEmit clean、関連テスト71件パス、Playwright
+  実機確認で観測・推定・動的の3グループとも情報アイコンが出ないことを確認。
 
 ### - [ ] T335. CI(backend)のtest_match_designations.pyがCI環境（PostGIS 16）でだけ失敗する 規模S〜M（調査中・2026-08-26）
 

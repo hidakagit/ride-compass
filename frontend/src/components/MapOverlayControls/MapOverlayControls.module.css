@@ -443,39 +443,6 @@
   color: #ffffff;
 }
 
-/* 改善計画T334: 「表示する項目を選ぶ」設定パネルの各行、右端に置く個別の情報アイコン。
-   .expandToggle（グループ見出し脇の情報アイコン、1.6rem）より小さく、.visibilityCheckbox
-   （1.1rem）と近いサイズにして行の中で主張しすぎないようにする。.detailRowLabelが
-   flex:1のため、後続要素であるこのボタンは自然と行の右端に押し出される。 */
-.visibilityInfoButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.2rem;
-  height: 1.2rem;
-  flex-shrink: 0;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-neutral);
-  cursor: pointer;
-  touch-action: none;
-  pointer-events: auto;
-}
-
-.visibilityInfoButtonActive {
-  color: var(--foreground);
-  border-color: var(--color-accent);
-}
-
-/* 情報アイコンを押して開く説明文の行。チェックボックス列の幅ぶんだけ字下げし、
-   ラベルの開始位置と揃える（.visibilityCheckbox幅1.1rem + gap0.4rem + アイコン幅1rem分の
-   目安）。 */
-.visibilityInfoRow {
-  padding-left: 1.9rem;
-}
-
 /* 非表示カテゴリは薄く見せ、右側に「非表示」バッジを添えて、地図上には出ていないことを
    一目で分かるようにする（表示中と同じ並びに置いて全体像を見せつつ区別する）。 */
 .detailRowHidden {
