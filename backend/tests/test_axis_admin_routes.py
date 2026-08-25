@@ -2,6 +2,7 @@ import base64
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_axis_registry_admin_service
 from app.config import settings
@@ -76,6 +77,32 @@ class FakeAxisRegistryAdminService:
         self._definitions[axis_id] = self._definitions[axis_id].model_copy(update={"is_published": False})
 
 
+def _dbapi_error() -> DBAPIError:
+    return DBAPIError("SELECT ...", {}, Exception('column "icon_id" does not exist'))
+
+
+class FailingAxisRegistryAdminService(FakeAxisRegistryAdminService):
+    """migration未適用時のDBAPIErrorを模す（軸スタジオ500エラー修正の回帰テスト用）。"""
+
+    async def list_all(self) -> dict[str, AxisDefinition]:
+        raise _dbapi_error()
+
+    async def get(self, axis_id: str) -> AxisDefinition | None:
+        raise _dbapi_error()
+
+    async def create(self, definition: AxisDefinition) -> None:
+        raise _dbapi_error()
+
+    async def update(self, axis_id: str, definition: AxisDefinition) -> None:
+        raise _dbapi_error()
+
+    async def delete(self, axis_id: str) -> None:
+        raise _dbapi_error()
+
+    async def unpublish(self, axis_id: str) -> None:
+        raise _dbapi_error()
+
+
 def _basic_auth_header(username: str, password: str) -> str:
     encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
     return f"Basic {encoded}"
@@ -93,6 +120,16 @@ def override_service():
     app.dependency_overrides[get_axis_registry_admin_service] = lambda: fake
     try:
         yield fake
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def override_failing_service():
+    failing = FailingAxisRegistryAdminService()
+    app.dependency_overrides[get_axis_registry_admin_service] = lambda: failing
+    try:
+        yield failing
     finally:
         app.dependency_overrides.clear()
 
@@ -506,3 +543,46 @@ def test_unpublish_rejects_missing_credentials(override_service):
     response = client.post("/api/admin/axis-definitions/test_axis/unpublish")
 
     assert response.status_code == 401
+
+
+# --- DBAPIError（migration未適用等）が診断可能な503になること ---
+# 軸スタジオを開くと500エラーになった実障害（migration 0019の本番未適用でaxis_definitions
+# テーブルに新カラムが無くSELECTが失敗）の回帰テスト。素の未処理500ではなく、
+# 原因（migration未適用の可能性）を示す503を返すことを確認する。
+
+
+def test_list_returns_503_on_db_error(override_failing_service):
+    response = client.get("/api/admin/axis-definitions", headers=AUTH_HEADERS)
+
+    assert response.status_code == 503
+    assert "migration" in response.json()["detail"]
+
+
+def test_get_returns_503_on_db_error(override_failing_service):
+    response = client.get("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
+
+    assert response.status_code == 503
+
+
+def test_create_returns_503_on_db_error(override_failing_service):
+    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
+
+    assert response.status_code == 503
+
+
+def test_update_returns_503_on_db_error(override_failing_service):
+    response = client.put("/api/admin/axis-definitions/test_axis", json=_PAYLOAD, headers=AUTH_HEADERS)
+
+    assert response.status_code == 503
+
+
+def test_delete_returns_503_on_db_error(override_failing_service):
+    response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
+
+    assert response.status_code == 503
+
+
+def test_unpublish_returns_503_on_db_error(override_failing_service):
+    response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
+
+    assert response.status_code == 503

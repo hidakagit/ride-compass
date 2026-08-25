@@ -7,10 +7,12 @@
 """
 
 import secrets
+from typing import Awaitable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_axis_registry_admin_service
 from app.config import settings
@@ -30,6 +32,31 @@ from app.services.axis_registry_service import AxisRegistryAdminService
 router = APIRouter(prefix="/api/admin/axis-definitions", tags=["axis-admin"])
 
 _basic_auth = HTTPBasic(realm="RideCompass admin", auto_error=False)
+
+_T = TypeVar("_T")
+
+
+async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
+    """軸スタジオCRUDのDB例外を診断可能な503へ変換する（migration適用ラグの実障害を受けた対応）。
+
+    `refresh_axis_definitions`（axis_registry_service.py）はDB読み込み失敗時にコード内蔵の
+    既定値へ安全側フォールバックするが、それは「一般ユーザー向け画面の表示を止めない」ための
+    設計で、軸スタジオ（本ルーター）のCRUDには同じフォールバックは適さない——編集対象は常に
+    DBの実データそのものであるべきで、DB障害時に古い既定値を編集画面に出すと気付かないまま
+    上書きしてしまう危険がある。ここでは代わりに、DBAPIError（接続失敗・migration未適用による
+    カラム不在など）だけを捕捉し、未処理の素の500ではなく原因の当たりが付くメッセージを返す
+    （ValueError/KeyErrorは呼び出し元の既存except節がそのまま扱うため対象外）。
+    """
+    try:
+        return await awaitable
+    except DBAPIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "軸定義DBへのアクセスに失敗しました。migration未適用の可能性があります"
+                "（backend/scripts/apply_migrations.pyの適用状況を確認してください）"
+            ),
+        ) from exc
 
 
 async def require_admin_basic_auth(credentials: HTTPBasicCredentials | None = Depends(_basic_auth)) -> None:
@@ -224,7 +251,7 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
 async def list_axis_definitions(
     service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service),
 ) -> list[AxisDefinitionResponse]:
-    definitions = await service.list_all()
+    definitions = await _guard_db_errors(service.list_all())
     return [_to_response(definition) for definition in definitions.values()]
 
 
@@ -232,7 +259,7 @@ async def list_axis_definitions(
 async def get_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
-    definition = await service.get(axis_id)
+    definition = await _guard_db_errors(service.get(axis_id))
     if definition is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません")
     return _to_response(definition)
@@ -258,7 +285,7 @@ async def create_axis_definition(
         display_override=payload.display_override,
     )
     try:
-        await service.create(definition)
+        await _guard_db_errors(service.create(definition))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return _to_response(definition)
@@ -290,7 +317,7 @@ async def update_axis_definition(
         display_override=payload.display_override,
     )
     try:
-        await service.update(axis_id, definition)
+        await _guard_db_errors(service.update(axis_id, definition))
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
     except ValueError as exc:
@@ -306,7 +333,7 @@ async def delete_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> None:
     try:
-        await service.delete(axis_id)
+        await _guard_db_errors(service.delete(axis_id))
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
     except ValueError as exc:
@@ -322,9 +349,9 @@ async def unpublish_axis_definition(
     フィールドは一切変更しない、T271の「公開済みは編集不可」原則を保ったまま公開フラグの
     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。"""
     try:
-        await service.unpublish(axis_id)
+        await _guard_db_errors(service.unpublish(axis_id))
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
-    definition = await service.get(axis_id)
+    definition = await _guard_db_errors(service.get(axis_id))
     assert definition is not None  # unpublishが例外なく返った直後のため必ず存在する
     return _to_response(definition)
