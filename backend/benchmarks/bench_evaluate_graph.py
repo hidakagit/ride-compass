@@ -31,7 +31,7 @@ def run() -> list[BenchmarkResult]:
         result = measure(
             f"evaluate_graph (edges={edge_count})",
             lambda g=graph, wt=way_tags: service.evaluate_graph(
-                g, elevation_attributes={}, surface_attributes={}, way_tags=wt
+                g, elevation_attributes={}, surface_attributes={}, preference=preference, way_tags=wt
             ),
             repeat=10,
         )
