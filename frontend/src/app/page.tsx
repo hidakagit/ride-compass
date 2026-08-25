@@ -1189,7 +1189,15 @@ export default function Home() {
     try {
       // 改善計画T303: 送信直前にキー整合を補正する（上のコメント参照）。RouteSettingsPanel
       // がマウント済みならこの時点で既にキーは一致しており synced は null になる。
-      const syncedRoutePreference = syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference;
+      // 改善計画T320: axisCatalog.defaultWeights自体がまだ軸スタジオの現在状態を反映して
+      // いない（axisCatalog.loaded===false、未取得・取得失敗）場合、この同期は静的フォール
+      // バック（既存7軸）に合わせてroutePreferenceを書き換えてしまい、実際の公開軸集合とは
+      // 無関係な値になる。この場合はroute_preference自体を省略し、backend側の既定値
+      // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）に委ねる方が安全
+      // （scoring_weightsは軸レジストリと無関係なため引き続き送る）。
+      const syncedRoutePreference = axisCatalog.loaded
+        ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
+        : null;
       const { routes: candidates, conditions, engine } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
@@ -1201,7 +1209,8 @@ export default function Home() {
         // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
         // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
-        ...(weightOverrideEnabled ? { scoring_weights: scoringWeights, route_preference: syncedRoutePreference } : {}),
+        ...(weightOverrideEnabled ? { scoring_weights: scoringWeights } : {}),
+        ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -1313,7 +1322,7 @@ export default function Home() {
             2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
             （評価重み・車ストレスレシピ、renderResearchSectionBody参照）とは分け、
             RouteListの並びであるこのブロックに残す。 */}
-        {researchEnabled && <ComparisonPanel slots={experimentSlots} />}
+        {researchEnabled && <ComparisonPanel slots={experimentSlots} axisLabels={axisCatalog.axisLabels} />}
         {renderRouteColorSectionBody()}
       </>
     );
@@ -1573,6 +1582,7 @@ export default function Home() {
             refreshToken={refreshToken}
             experimentSlots={researchEnabled ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
+            axisLabels={axisCatalog.axisLabels}
           />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />

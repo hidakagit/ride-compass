@@ -50,18 +50,10 @@
 
 .stackSegment {
   height: 100%;
+  /* 改善計画T320: 色自体はRouteSettingsPanel.tsx側でindex基準の固定パレット
+     （STACK_BAR_COLORS）からインラインstyleとして与える（軸id固定のCSSセレクタでは
+     軸スタジオで増減する軸に追従できないため）。 */
 }
-
-/* 軸ごとの色分け（改善計画T267のモックアップと同じ配色）。data-axis属性で切り替える
-   （軸の追加時にここへ1行足すだけで済む、色自体に意味は持たせない識別用のため
-   固定パレットで足りる）。 */
-.stackSegment[data-axis="gradient"] { background: #7f77dd; }
-.stackSegment[data-axis="surface_q"] { background: #1d9e75; }
-.stackSegment[data-axis="stop_density"] { background: #d85a30; }
-.stackSegment[data-axis="night"] { background: #d4537e; }
-.stackSegment[data-axis="car_stress"] { background: #378add; }
-.stackSegment[data-axis="accident"] { background: #ef9f27; }
-.stackSegment[data-axis="wind"] { background: #639922; }
 
 .group {
   border: 1px solid var(--color-border-muted);
