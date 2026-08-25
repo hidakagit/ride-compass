@@ -6708,6 +6708,44 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   可能なことを確認。コンソールエラーなし。
 - 依存: T317（同日の一連の作業、抜け落ちの直接の発端）。
 
+### - [x] T335. CI(backend)のtest_match_designations.pyが座標完全一致エッジケースでPostGISバージョン依存の失敗をする 規模S（実装完了・2026-08-26）
+
+- 背景: T333対応中にCI状況を確認したところ、`api-contract`とは別に`backend`ジョブ
+  （`python -m pytest -q -n auto --dist loadgroup`）が失敗していることを発見した。
+  ユーザーがCIの実ログを共有してくれたことで特定: 失敗箇所は
+  `test_match_designations.py::TestRunMatch::test_overlapping_designations_complete_without_error`
+  （T330で新規追加）で、`critical_logistics`のmatched_ratioが期待通り算出されず
+  `assert set(by_kind) == {"emergency_transport", "critical_logistics"}`が
+  `{"emergency_transport"}`のみで失敗していた。ローカル（実DB・実PostGIS、PG18）では
+  該当ファイル6件とも常にpassし、この失敗は一度も再現しなかった。
+- 原因（推定、Docker非搭載のためPG16での直接検証はできず確定ではない）: このテストは
+  Wayの座標を指定路線(`route_designations`)の座標と**完全一致**させていた
+  （`node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}`）。「Wayの線がバッファ
+  ポリゴンの境界線ちょうど上に乗る」という完全一致は、`ST_Intersection`/`ST_Union`
+  （GEOSライブラリ）の数値ロバスト性がPostGISバージョンによって異なる既知の退化
+  ケースにあたる。`emergency_transport`は同じ線を3本（完全重複2本＋部分重複1本）
+  重ねてから`ST_Union`するため退化の影響が他の重複分に隠れて安定するが、
+  `critical_logistics`は1本だけのため退化がそのまま結果に出た、と推定される。実データ
+  （OSM実測座標と国土数値情報の指定路線座標）は測量元が異なり座標完全一致は起こらない
+  ため、本番のマッチング精度自体の問題ではなく、テストが作った非現実的な座標配置が
+  原因と判断した。
+- 決定（ユーザー承認）: 本番の`_MATCH_SQL`（`match_designations.py`）は変更せず、
+  テストの座標をわずかにずらして再現性のある非退化ケースへ寄せる。SQL側の数値
+  ロバスト化（`ST_SnapToGrid`等）は実データへの影響範囲が広くより慎重な検証を要するため
+  見送り、まずはテスト側の非現実的な座標配置を是正する対応から着手した。
+- 実装: `test_match_designations.py`に`WAY_MATCH_LINE`（`DESIG_LINE`から緯度方向へ
+  約3m北へオフセットした座標）を追加し、`WAY_MATCH_ID`のWay座標（
+  `test_intersecting_way_gets_matched_ratio`・
+  `test_overlapping_designations_complete_without_error`の2箇所）を`DESIG_LINE`から
+  `WAY_MATCH_LINE`へ差し替えた。3mは20mバッファに対して十分小さく交差率（期待値
+  ~1.0）をほぼ変えないが、完全一致による退化ケースは避けられる。
+- 検証: ローカル（PG18）で該当ファイル6件green（従来から変化なし、オフセット後も
+  `test_intersecting_way_gets_matched_ratio`の`pytest.approx(1.0, abs=0.05)`を満たす
+  ことを確認）。**CI（PostGIS 16、失敗の再現環境）での確認はプッシュ後の結果を
+  改めて確認する必要がある**（ローカルでは元々一度も再現していなかったため、
+  ローカルgreenだけでは修正の効果を証明できない）。
+- 依存: T330（当該テストの新規追加元）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の

@@ -135,6 +135,18 @@ DESIG_KIND = "emergency_transport"
 # 東西方向の指定路線（緯度35.7000固定、経度139.6990→139.7010、長さ約180m）。
 DESIG_LINE = [(35.7000, 139.6990), (35.7000, 139.7010)]
 
+# WAY_MATCH_IDのWay座標は、DESIG_LINEと完全一致させず約3m北へオフセットする
+# （実データ[OSM実測座標と国土数値情報の指定路線座標]は座標系・測量元が異なり
+# 完全一致することは無いため、この方が実態に近い）。「Wayの線がバッファの境界線
+# ちょうど上に乗る」という完全一致ケースは、ST_Intersection/ST_Unionの結果が
+# PostGISのバージョン（GEOSライブラリの数値ロバスト性の実装差）によって不安定になる
+# 既知の退化ケースであり、CI環境（postgis/postgis:16-3.4）でのみ
+# test_overlapping_designations_complete_without_errorが失敗する原因と推定される
+# （開発機PG18では常に再現せず、Dockerが無くPG16での直接検証もできないため確定では
+# ない）。3mは20mバッファに対して十分小さく交差率はほぼ変えず、かつ完全一致による
+# 退化を避けるのに十分な差。
+WAY_MATCH_LINE = [(35.70003, 139.6990), (35.70003, 139.7010)]
+
 WAY_MATCH_ID = 400  # 指定路線とほぼ重なる（matched_ratio ~= 1.0 を期待）
 WAY_PARTIAL_ID = 401  # 指定路線を直交して横切るだけの長いWay（matched_ratio << 0.5 を期待）
 WAY_FAR_ID = 402  # 指定路線から遠く離れたWay（バッファに一切交差しない）
@@ -160,7 +172,7 @@ class TestRunMatch:
         """指定路線とほぼ重なるWayが、正しいmatched_ratio（閾値以上）でdesignation_attributes
         へ反映されることを確認する（_MATCH_SQLの交差率計算そのもの）。"""
         way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
-        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        node_coords = {1: WAY_MATCH_LINE[0], 2: WAY_MATCH_LINE[1]}
         await road_graph_repository.save_raw_ways([way], node_coords)
         await road_graph_session.commit()
         await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
@@ -214,7 +226,7 @@ class TestRunMatch:
         同一(osm_way_id, kind)への交差長が二重計上されない（matched_ratioが1.0を
         超えない）ことを確認する。異なるkindは別行として独立に反映されることも確認する。"""
         way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
-        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        node_coords = {1: WAY_MATCH_LINE[0], 2: WAY_MATCH_LINE[1]}
         await road_graph_repository.save_raw_ways([way], node_coords)
         await road_graph_session.commit()
 
