@@ -1,7 +1,3 @@
-from pathlib import Path
-
-import yaml
-
 from app.domain.attributes import ElevationAttribute
 from app.domain.evaluation import (
     EdgeCostResult,
@@ -11,30 +7,23 @@ from app.domain.evaluation import (
 from app.domain.graph import RoadGraphLike
 from app.domain.weather import WeatherConditions
 
-ROUTE_PREFERENCE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "route_preference.yaml"
 
+def load_route_preference() -> RoutePreference:
+    """既定のRoute Preference（重み）を返す（仕様書27-28章）。
 
-def _load_yaml_section(path: Path, key: str) -> dict:
-    """`path`のYAMLファイルからトップレベルキー`key`の中身を読み込む（load_route_preference等
-    3関数の共通部分）。リクエストの都度再読込する（dependencies.py:
-    get_route_generation_builder参照。サーバー再起動なしでYAML編集を反映する意図的な挙動のため
-    キャッシュしない）。
+    改善計画T316: 以前は`route_preference.yaml`（axis_id 7件を固定で書いた手書き
+    ミラー）から読んでいたが、軸スタジオ（T270）で公開軸の集合・default_weightを
+    自由に増減できるようになった設計と根本的に矛盾していた——公開軸の集合が
+    元の7件から変わるたびに、YAML側の固定キー集合と`RoutePreference`のバリデーション
+    （未知のaxis_idを拒否、`domain/evaluation.py`参照）が食い違い、「route_preference
+    未上書きでルート生成すると即500」という実障害を起こした（2026-08-25、ユーザーが
+    軸スタジオで一部軸を意図的に非公開にした際に発覚）。`export_openapi.py`の
+    `preference_defaults`が同種の手書きミラーを既に`default_axis_weights()`
+    （`AXIS_DEFINITIONS`が唯一の情報源）へ置き換え済みだったのと同じ理由で、
+    こちらも追従させる。`RoutePreference.weights`の`default_factory`が
+    `default_axis_weights()`のため、単に既定値を使うだけでよい。
     """
-    with open(path, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    return config[key]
-
-
-def load_route_preference(path: Path = ROUTE_PREFERENCE_CONFIG_PATH) -> RoutePreference:
-    """route_preference.yamlから既定のRoute Preference（重み）を読み込む（仕様書27-28章）。
-
-    scoring.yaml/load_scoring_weights（ルート単位のRouteScorer用）と同じパターンだが、
-    対象・データ構造が異なる別設定のため、別ファイル・別関数として分離している
-    （Phase 4完了時点の引き継ぎ事項を参照）。呼び出し元が`path`を差し替えれば、
-    将来複数プロファイル（快適性重視/トレーニング重視等、仕様書27・45章）を
-    別ファイルとして追加した場合もコード変更なしで切り替えられる。
-    """
-    return RoutePreference(weights=_load_yaml_section(path, "route_preference"))
+    return RoutePreference()
 
 
 class EvaluationService:

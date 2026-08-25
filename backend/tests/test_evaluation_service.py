@@ -1,4 +1,5 @@
 from app.domain.attributes import ElevationAttribute
+from app.domain.axis_definitions import default_axis_weights
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.evaluation_service import EvaluationService, load_route_preference
 
@@ -138,29 +139,14 @@ def test_evaluate_graph_uses_custom_route_preference():
     assert elevation_only_result.difficulty > default_result.difficulty
 
 
-def test_load_route_preference_reads_default_config_file():
+def test_load_route_preference_matches_axis_definitions_defaults():
+    # 改善計画T316回帰テスト: 以前はroute_preference.yaml（axis_id 7件固定の手書き
+    # ミラー）から読んでいたため、軸スタジオで公開軸の集合が変わるとバリデーション
+    # エラーで500になる実障害があった。既定値は常にAXIS_DEFINITIONS（軸スタジオが
+    # 唯一の情報源）由来になり、公開軸の増減に自動追従することを確認する。
     preference = load_route_preference()
 
-    assert preference.weights["gradient"] == 0.15
-    assert preference.weights["surface_q"] == 0.19
-    assert preference.weights["wind"] == 0.26
-    assert preference.weights["stop_density"] == 0.20
-    assert preference.weights["car_stress"] == 0.20
-    assert preference.weights["accident"] == 0.08
-    assert preference.weights["night"] == 0.0
-
-
-def test_load_route_preference_reads_custom_path(tmp_path):
-    config_path = tmp_path / "custom_route_preference.yaml"
-    config_path.write_text(
-        "route_preference:\n  gradient: 0.8\n  surface_q: 0.2\n",
-        encoding="utf-8",
-    )
-
-    preference = load_route_preference(config_path)
-
-    assert preference.weights["gradient"] == 0.8
-    assert preference.weights["surface_q"] == 0.2
+    assert preference.weights == default_axis_weights()
 
 
 def test_evaluation_service_without_explicit_preference_uses_config_file_defaults():

@@ -157,8 +157,8 @@ class PriorityCondition(BaseModel):
 class AxisDefinition(BaseModel):
     """1つの評価軸の宣言（ADRの`AxisDefinition`スキーマ）。
 
-    `default_weight`はroute_preference.yaml・APIリクエストで上書きされなかった場合の
-    既定の合成重み（`RoutePreference`の既定値の単一ソース）。
+    `default_weight`はAPIリクエストで上書きされなかった場合の既定の合成重み
+    （`RoutePreference`の既定値の単一ソース、改善計画T316）。
 
     `label`/`description`/`category`（改善計画T269）は一般向けルート設定画面
     （`RouteSettingsPanel`）が`GET /api/axis-catalog`経由で表示する。従来
@@ -833,7 +833,9 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
 
 def default_axis_weights() -> dict[str, float]:
-    """axis_idキーの既定重み辞書（route_preference.yaml・APIで上書きされる前の値）。
+    """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
+    既定値・`GET /api/axis-catalog`のpreference_defaultsが共通で参照する単一
+    ソース、改善計画T316）。
 
     改善計画T292: 内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
     除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と

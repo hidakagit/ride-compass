@@ -991,7 +991,7 @@ export interface components {
          * RoutePreferenceWeights
          * @description Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
          *     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
-         *     route_preference.yamlと同じ。
+         *     `domain/evaluation.py: RoutePreference`と同じ。
          *
          *     改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
          *     （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が

@@ -397,7 +397,7 @@ def _register_axes() -> None:
             transform_fn="app.domain.night.night_difficulty",
             output_range=(0.0, 100.0),
             description="街灯なし・トンネルから算出する夜間の走りにくさ。改善計画T139で"
-            "安全度軸から分離・新設。既定重み0で運用（route_preference.yaml参照）",
+            "安全度軸から分離・新設。既定重み0で運用（AXIS_DEFINITIONS[\"night\"].default_weight参照）",
             display=AxisDisplaySpec(
                 kind="ramp",
                 label=AXIS_DEFINITIONS["night"].label,

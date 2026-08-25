@@ -481,7 +481,6 @@ RideCompass/
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
     migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
-    route_preference.yaml       ✅ Evaluation Engine（Edge Cost算出）の既定の重み設定（Road Graph移行Phase 5、新規。scoring.yamlとは対象が別のため分離）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
     requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加
     Dockerfile                ✅
@@ -625,7 +624,8 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
     "car_stress":0.20, "accident":0.08, "night":0.0 },
   "penalty_strength": 1.0, "max_average_grade_percent": null,
   "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":false } }
-  # 省略時はscoring.yaml / route_preference.yamlの既定値。指定する場合はいずれも
+  # 省略時はscoring.yamlの既定値 / AXIS_DEFINITIONSのdefault_weight（改善計画T316）。
+  # 指定する場合はいずれも
   # 全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ。
   # route_preference・hard_filtersは全フィールド必須の別モデルで、一部だけの指定は422になる。
   # route_preferenceのキーは公開軸のaxis_id集合（改善計画T221 Stage B・T292で軸ごとの
@@ -678,7 +678,7 @@ Response 200:
       "stop_density": 3.1, "car_stress_score": 2.4, "bicycle_infra_score": 18.0,
       "intersection_density": 5.2, "accident_density": 0.03,
       /* ↑ P1（停止密度〜交差点密度）・T50（事故密度）。
-         route_preference.yaml側の重みのみに効き、上のtotal_scoreには含まれない。
+         RoutePreference（区間難易度）側の重みのみに効き、上のtotal_scoreには含まれない。
          segments[]側にも軸別difficulty・生値が入る（7章参照） */
       "overall_difficulty": 22.5  /* segments.difficultyの距離加重平均（絶対基準、実験間比較用） */
     },
@@ -850,13 +850,16 @@ scoring:
 ### 評価重みのリクエスト上書きと評価モデル研究時の構成（研究インターフェース改善 Phase 1）
 
 評価モデルの探索・研究（[research-interface-review-2026-08-15.md](research-interface-review-2026-08-15.md)）のため、
-`scoring.yaml`（total_score・候補集合内相対）と`route_preference.yaml`（Edge評価・区間難易度・絶対）の重みは
+`scoring.yaml`（total_score・候補集合内相対）と`RoutePreference`（Edge評価・区間難易度・絶対、
+既定値は`domain/axis_definitions.py: AXIS_DEFINITIONS`のdefault_weight、改善計画T316）の重みは
 `/api/routes/generate`のリクエストボディでリクエスト単位に上書きできる（§10-1）。実際に適用された値は
 レスポンスの`conditions`にエコーされ（§10-6）、レスポンスJSONを保存すればそのまま再現条件になる。
 
 - 配線: `dependencies.py: get_route_generation_builder`がビルダー（`RouteGenerationSetup`を返す呼び出し可能）を
-  DIで供給し、エンドポイントが検証済みの上書き値（無ければNone→YAML既定値）を渡して組み立てを完了する。
-  YAMLはリクエスト毎に再読込されるため、ファイル編集もサーバー再起動なしで反映される
+  DIで供給し、エンドポイントが検証済みの上書き値（無ければNone→既定値）を渡して組み立てを完了する。
+  `scoring.yaml`はリクエスト毎に再読込されるためファイル編集もサーバー再起動なしで反映されるが、
+  `route_preference`側の既定値は軸スタジオでの公開軸・default_weight編集がサーバー再起動なしで
+  即座に反映される（`AxisRegistryAdminService`の書き込み直後リフレッシュ、改善計画T221 Stage D）
 - 上書きは全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ）。重みは有効指標の
   重み和で正規化するため合計1.0でなくてよく、`scoring_weights`を全て0にした場合は合成不能として
   `total_score=null`（`RouteScorer`のweight_sum==0ガード、`composite_difficulty`と同じ扱い）
@@ -977,7 +980,7 @@ interface WeatherConditions {
 ## 7. 静的道路属性と7軸評価モデル（P0/P1、外部静的データソースT50/T51）
 
 Step8時点の評価（距離・標高・風・路面の4指標）に加え、OSMタグ・警察庁事故統計・国土数値情報
-（KSJ）を材料とした指標を追加し、区間難易度（`route_preference.yaml`）・地図の静的レイヤーの
+（KSJ）を材料とした指標を追加し、区間難易度（`RoutePreference`）・地図の静的レイヤーの
 両方に反映した（`static-road-attributes-plan.md` P0/P1、
 [external-data-sources-review-2026-08-16.md](external-data-sources-review-2026-08-16.md)）。
 scoring.yaml（total_score）には含めない（stop_weightと同じ
@@ -1013,7 +1016,8 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する（改善計画T221 Stage B/Cで
 `AXIS_DEFINITIONS`をループする形へ再編、軸ごとの変換パラメータは
 `domain/axis_definitions.py`が単一ソース）。重みは
-[backend/app/route_preference.yaml](../backend/app/route_preference.yaml)：
+`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`（改善計画T316で
+`route_preference.yaml`の手書きミラーを撤廃、軸スタジオが唯一の情報源になった）：
 
 | 軸 | axis_id（重み辞書のキー） | 既定値 | 生値の単位 | 算出元 |
 |---|---|---|---|---|
@@ -1027,8 +1031,9 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 
 重みのキーは改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名からaxis_idへ統一した
 （`RoutePreference`はaxis_idキーの重み辞書`weights`を持ち、既定値は
-`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`が単一ソース。
-APIの`route_preference`・`route_preference.yaml`・フロントの重みUIもすべて同じaxis_idキー）。
+`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`が単一ソース
+（改善計画T316でこの既定値の情報源を一本化、`route_preference.yaml`の手書きミラーは撤廃済み）。
+APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキー）。
 
 `scoring.yaml`（total_score・候補集合内相対評価）にはこの7軸のうち距離・標高・風・路面の
 4指標のみ残す（区間難易度と違い、停止密度以降の指標は候補間の「おすすめ度」の並び順には
@@ -1038,8 +1043,9 @@ APIの`route_preference`・`route_preference.yaml`・フロントの重みUIも�
 `compute_edge_costs_bulk`の材料辞書と`AttributeRepository`＋ファサード対称委譲）→
 `domain/axis_definitions.py: AXIS_DEFINITIONS`への定義データ追加（改善計画T221 Stage B/C。
 既存テンプレート＋既存材料の組み合わせならこの1エントリでスカラー/配列両経路の評価・
-区間インスペクタ・`evaluate_axis_difficulties`へ同時反映される）→ `route_preference.yaml` →
-フロント`evaluationAxes.ts`のカタログ。エンジンファイルに軸固有の知識（SQL・タグ解釈）を
+区間インスペクタ・`evaluate_axis_difficulties`・既定重み（改善計画T316で
+`route_preference.yaml`の手書きミラーを撤廃したため、この1エントリだけで自動反映される）
+へ同時反映される）→ フロント`evaluationAxes.ts`のカタログ。エンジンファイルに軸固有の知識（SQL・タグ解釈）を
 書き足さない。区間詳細表示（`RouteSegmentDetail`の軸別固定フィールド＋両エンジンの
 区間ビルダー＋フロントrouteStyleModes）は現状dict化しておらず、軸ごとの手書き追記が
 引き続き必要（T221 Part 2で据え置き判断、improvement-plan.md参照）。**この1本道はコスト計算
@@ -1081,8 +1087,10 @@ PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善�
 （レジストリを空にできてしまうと`refresh_axis_definitions`の0件フォールバックと
 衝突し評価が壊れるため、重みの妥当性とは別次元の構造的な安全策として設ける）。
 
-`route_preference.yaml`や既存のAPIリクエストが参照するaxis_idを管理API経由で削除した
-場合の整合性チェックは意図的に実装していない。ただし削除は公開済み軸には及ばない
+既存のAPIリクエストが参照するaxis_idを管理API経由で削除した場合の整合性チェックは
+意図的に実装していない（改善計画T316: 上書き無しの既定値は常にAXIS_DEFINITIONS由来へ
+一本化済みのため、この経路は上書きしているクライアントのみが対象）。ただし削除は
+公開済み軸には及ばない
 （下記「軸の公開フローと統治ルール」の不変制約により、削除できるのは常に下書き軸のみ）ため、
 削除時点で一般ユーザーの保存設定がそのaxis_idを参照している状況自体が起こらない
 （改善計画T302で確定、旧記述は「Stage EでGUI編集が実利用される段階で改めて検討」だったが
