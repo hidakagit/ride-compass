@@ -72,13 +72,6 @@
   gap: var(--space-1);
 }
 
-.groupHeader {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: var(--color-muted-strong);
-  margin: 0 0 var(--space-1);
-}
-
 .row {
   display: flex;
   align-items: center;

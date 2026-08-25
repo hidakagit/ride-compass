@@ -83,27 +83,9 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
   { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind },
 ];
 
-// 軸の分類（観測/推定/動的、改善計画T267で確定・目論見書3章）。一般向けルート設定画面
-// （RouteSettingsPanel）が軸をこの3カテゴリでグルーピングする単一ソース。
-// - 観測: タグ・POI等の一次属性をそのまま（または単純なフラグ加算で）読む軸
-// - 推定: 複数材料をレシピ・判定式で合成する軸
-// - 動的: 時々刻々変わる外部データ（気象等）由来の軸
-// 夜間(night)はlit/tunnelタグの直接フラグ加算のみで判定式を持たないため観測に分類する
-// （境界例、目論見書8章の要判断事項を実装時に確定した）。
-export type AxisCategory = "観測" | "推定" | "動的";
-
-export const AXIS_CATEGORIES: readonly AxisCategory[] = ["観測", "推定", "動的"];
-
-const AXIS_CATEGORY_BY_ID: Record<string, AxisCategory> = {
-  gradient: "観測",
-  surface_q: "観測",
-  stop_density: "観測",
-  night: "観測",
-  car_stress: "推定",
-  accident: "推定",
-  wind: "動的",
-};
-
-export function axisCategory(axisId: string): AxisCategory {
-  return AXIS_CATEGORY_BY_ID[axisId] ?? "推定";
-}
+// 軸の分類（観測/推定/動的、改善計画T267で確定・目論見書3章）は、一般向けルート設定画面
+// （RouteSettingsPanel）が軸をこの3カテゴリでグルーピング表示するために使っていたが、
+// 改善計画T306でその表示を撤去したのに伴いこのフロント側の静的対応表（AxisCategory型・
+// AXIS_CATEGORIES・axisCategory()）も削除した。分類データ自体（backend側の`category`
+// フィールド、GET /api/axis-catalogのAxisCatalogEntry.category）は他用途・将来の
+// プロファイル機能のため引き続き存在する。復元する場合はgit履歴（本コミット直前）参照。

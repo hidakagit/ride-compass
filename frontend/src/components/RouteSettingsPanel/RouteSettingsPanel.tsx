@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
-import { AXIS_CATEGORIES } from "@/lib/evaluationAxes";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
@@ -12,12 +11,20 @@ import styles from "./RouteSettingsPanel.module.css";
 
 // 一般ユーザー向けルート設定画面（改善計画T267、目論見書4章「①一般ユーザ向け
 // ルーティング設定」）。研究モード（WeightPanel）とは別の導線で、常に表示される
-// メインの操作面に置く。0次(除外)→軸選択+重み(観測/推定/動的別)→重み配分の可視化→
-// プリセット、という並びは提示済みのモックアップをそのまま実装したもの。
+// メインの操作面に置く。0次(除外)→軸選択+重み→重み配分の可視化→プリセット、という
+// 並びは提示済みのモックアップをそのまま実装したもの。
 //
-// 軸の一覧・分類・既定重みはuseAxisCatalog（改善計画T269）経由でGET /api/axis-catalogから
-// 取得する。軸スタジオ（T270）がDBへ追加した軸も、コード変更・再デプロイなしにここへ
-// 現れる（取得完了まで・失敗時は既存7軸の静的フォールバックを使う）。
+// 改善計画T306: 以前は軸を観測/推定/動的の3カテゴリへ見出し付きで分けて表示していた
+// （T267の意図的な設計判断）。しかし改善計画T305で軸スタジオのGUIが常にcategory="推定"
+// 固定で軸を作るようになった結果、「観測/動的グループに入るのはコード内蔵の既定軸だけ」
+// というハードコードされた非対称性が生まれた。この非対称性を無くすため、ルート設定画面の
+// 表示からカテゴリによるグルーピングを撤去し、公開済みの軸を（内部的な観測/推定/動的の
+// 分類に関わらず）フラットに1本のリストとして表示する。軸の`category`データ自体は
+// backend側にそのまま残す（他の用途・将来のプロファイル機能[下記]のために消さない）。
+//
+// 軸の一覧・既定重みはuseAxisCatalog（改善計画T269）経由でGET /api/axis-catalogから
+// 取得する（is_published=Trueのみ）。軸スタジオ（T270）がDBへ追加した軸も、コード変更・
+// 再デプロイなしにここへ現れる（取得完了まで・失敗時は既存7軸の静的フォールバックを使う）。
 
 // backend/app/domain/evaluation.py: DEFAULT_HARD_FILTERSと同じ3種（改善計画T266）。
 const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
@@ -195,46 +202,40 @@ export default function RouteSettingsPanel({
         </div>
       </div>
 
-      {AXIS_CATEGORIES.map((category) => {
-        const axesInCategory = catalog.axes.filter((axis) => catalog.categoryOf(axis.axisId) === category);
-        return (
-          <div key={category} className={styles.group}>
-            <p className={styles.groupHeader}>{category}</p>
-            {axesInCategory.map((axis) => {
-              const weight = routePreference[axis.axisId] ?? 0;
-              const checked = weight > 0;
-              return (
-                <div key={axis.axisId} className={styles.row}>
-                  {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
-                      checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
-                      押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
-                      同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={(next) => handleToggle(axis.axisId, next)}
-                    aria-label={axis.label}
-                  />
-                  <span className={styles.rowLabel}>
-                    <FieldLabel label={axis.label} description={axis.description} />
-                  </span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="0.6"
-                    step="0.01"
-                    value={weight}
-                    disabled={!checked}
-                    aria-label={`${axis.label}の重み`}
-                    onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
-                    className={styles.slider}
-                  />
-                  <span className={styles.weightValue}>{weight.toFixed(2)}</span>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
+      <div className={styles.group}>
+        {catalog.axes.map((axis) => {
+          const weight = routePreference[axis.axisId] ?? 0;
+          const checked = weight > 0;
+          return (
+            <div key={axis.axisId} className={styles.row}>
+              {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
+                  checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
+                  押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
+                  同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
+              <Checkbox
+                checked={checked}
+                onCheckedChange={(next) => handleToggle(axis.axisId, next)}
+                aria-label={axis.label}
+              />
+              <span className={styles.rowLabel}>
+                <FieldLabel label={axis.label} description={axis.description} />
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="0.6"
+                step="0.01"
+                value={weight}
+                disabled={!checked}
+                aria-label={`${axis.label}の重み`}
+                onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
+                className={styles.slider}
+              />
+              <span className={styles.weightValue}>{weight.toFixed(2)}</span>
+            </div>
+          );
+        })}
+      </div>
 
       <button
         type="button"
