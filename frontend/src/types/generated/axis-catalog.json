@@ -2,6 +2,7 @@
   "axes": [
     {
       "axis_id": "gradient",
+      "category": "観測",
       "inputs": [
         "elevation"
       ],
@@ -28,6 +29,7 @@
     },
     {
       "axis_id": "surface_q",
+      "category": "観測",
       "inputs": [
         "surface"
       ],
@@ -68,6 +70,7 @@
     },
     {
       "axis_id": "stop_density",
+      "category": "観測",
       "inputs": [
         "stop_poi",
         "intersection"
@@ -123,6 +126,7 @@
     },
     {
       "axis_id": "car_stress",
+      "category": "推定",
       "inputs": [
         "highway",
         "lanes",
@@ -304,6 +308,7 @@
     },
     {
       "axis_id": "night",
+      "category": "観測",
       "inputs": [
         "lit",
         "tunnel"
@@ -358,6 +363,7 @@
     },
     {
       "axis_id": "accident",
+      "category": "推定",
       "inputs": [
         "accident_point"
       ],

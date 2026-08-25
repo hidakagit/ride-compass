@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { LAYER_DATA_SOURCES, isRoadSurfaceGroupVisible } from "./MapView";
+import { ROAD_SURFACE_SHARED_LAYER_IDS } from "./mapLayers";
 import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
 
 // computeLayerDataStatus（改善計画T87）が読む3メソッドだけを持つフェイクmap。
@@ -160,28 +161,37 @@ describe("isRoadSurfaceGroupVisible", () => {
   // 改善計画T165でroadが論理2レイヤーへ分割、T289でonewayを追加）のいずれか1つでも
   // ONならtrueを返すことを確認する。
   it("roadType/roadSurface/axis:car_stress/bicycleInfra/designation/tunnel/onewayのいずれか1つでもONならtrue", () => {
-    expect(isRoadSurfaceGroupVisible({ roadType: true })).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ roadSurface: true })).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ "axis:car_stress": true })).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ bicycleInfra: true })).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ designation: true })).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ tunnel: true })).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ oneway: true })).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ roadType: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ roadSurface: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ "axis:car_stress": true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ bicycleInfra: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ designation: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ tunnel: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ oneway: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
   });
 
   it("7レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
     expect(
-      isRoadSurfaceGroupVisible({
-        roadType: false,
-        roadSurface: false,
-        "axis:car_stress": false,
-        stopPoi: true,
-        accidents: true,
-      }),
+      isRoadSurfaceGroupVisible(
+        {
+          roadType: false,
+          roadSurface: false,
+          "axis:car_stress": false,
+          stopPoi: true,
+          accidents: true,
+        },
+        ROAD_SURFACE_SHARED_LAYER_IDS,
+      ),
     ).toBe(false);
   });
 
   it("空のvisibilityオブジェクトはfalse", () => {
-    expect(isRoadSurfaceGroupVisible({})).toBe(false);
+    expect(isRoadSurfaceGroupVisible({}, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
+  });
+
+  it("コードレビュー指摘の修正確認: 第2引数のリストに含まれる軸だけが対象になる（軸スタジオが\n" +
+    "公開した新規ramp軸を反映した実行時リストを渡せることの回帰テスト）", () => {
+    expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, ["axis:new_gui_axis"])).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
   });
 });

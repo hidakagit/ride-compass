@@ -150,13 +150,29 @@ class AxisDefinitionPayload(AxisDefinitionFields):
     def _check_chip_label_length(cls, value: str | None) -> str | None:
         """改善計画T310（ユーザー指摘、2026-08-25）: 地図チップは4文字以下を前提とした
         固定サイズのタイル（MapOverlayControls.module.css）で設計されており、正式名
-        （label、例:「車の圧迫感」5文字）をそのまま出すとレイアウトが崩れる。chip_label
-        未設定時のフォールバックはlabelのため、chip_labelを設定する場合は必ず4文字以下で
-        あることをここで検証する（未設定=Noneはフォールバックへ委ねるため対象外）。
+        （label、例:「車の圧迫感」5文字）をそのまま出すとレイアウトが崩れる。chip_labelを
+        設定する場合は必ず4文字以下であることをここで検証する（未設定=Noneはこの
+        フィールド単体では対象外——label側の制約は`_check_label_length_or_chip_label`
+        [下記model_validator]がまとめて検証する）。
         """
         if value is not None and len(value) > 4:
             raise ValueError(f"chip_label must be 4 characters or fewer (got {len(value)}: {value!r})")
         return value
+
+    @model_validator(mode="after")
+    def _check_label_length_or_chip_label(self) -> "AxisDefinitionPayload":
+        """コードレビュー指摘の修正: 上のfield_validatorは「chip_labelが明示的に4文字を
+        超える場合」だけを弾いており、本来の再発防止対象だった「chip_label未設定のまま
+        labelが4文字を超える」経路（フォールバック先のlabelそのものに長さ制約が無い
+        ため、chip_labelを設定し忘れた新規軸で同じレイアウト崩れが再発する）を防げて
+        いなかった。chip_label未設定時はlabelの長さも検証する。
+        """
+        if self.chip_label is None and len(self.label) > 4:
+            raise ValueError(
+                f"label is longer than 4 characters ({len(self.label)}: {self.label!r}); "
+                "set chip_label explicitly (4 characters or fewer) for the map chip"
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_materials_are_known(self) -> "AxisDefinitionPayload":
@@ -222,6 +238,28 @@ class AxisDefinitionPayload(AxisDefinitionFields):
                 )
         return self
 
+    def to_definition(self) -> AxisDefinition:
+        """コードレビュー指摘の修正: create/update両エンドポイントが同じ全フィールドを
+        手書きコピーしてAxisDefinition(...)を組み立てており、`AxisDefinitionFields`へ
+        フィールドを追加するたびに2箇所を同時に直す必要があった（今回のT310でicon_id等
+        5フィールドが両方に追加された、CLAUDE.mdが警告する「同期ペアの片側更新漏れ」と
+        同型のリスク）。フィールド一覧をこの1箇所へ集約する。"""
+        return AxisDefinition(
+            axis_id=self.axis_id,
+            shape=self.shape,
+            default_weight=self.default_weight,
+            label=self.label,
+            description=self.description,
+            category=self.category,
+            is_published=self.is_published,
+            priority_overrides=self.priority_overrides,
+            icon_id=self.icon_id,
+            chip_label=self.chip_label,
+            panel_hint=self.panel_hint,
+            proxy_hint=self.proxy_hint,
+            display_override=self.display_override,
+        )
+
 
 class AxisDefinitionResponse(AxisDefinitionFields):
     """一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
@@ -269,21 +307,7 @@ async def get_axis_definition(
 async def create_axis_definition(
     payload: AxisDefinitionPayload, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
-    definition = AxisDefinition(
-        axis_id=payload.axis_id,
-        shape=payload.shape,
-        default_weight=payload.default_weight,
-        label=payload.label,
-        description=payload.description,
-        category=payload.category,
-        is_published=payload.is_published,
-        priority_overrides=payload.priority_overrides,
-        icon_id=payload.icon_id,
-        chip_label=payload.chip_label,
-        panel_hint=payload.panel_hint,
-        proxy_hint=payload.proxy_hint,
-        display_override=payload.display_override,
-    )
+    definition = payload.to_definition()
     try:
         await _guard_db_errors(service.create(definition))
     except ValueError as exc:
@@ -301,21 +325,7 @@ async def update_axis_definition(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="axis_idはURLとボディで一致させてください"
         )
-    definition = AxisDefinition(
-        axis_id=axis_id,
-        shape=payload.shape,
-        default_weight=payload.default_weight,
-        label=payload.label,
-        description=payload.description,
-        category=payload.category,
-        is_published=payload.is_published,
-        priority_overrides=payload.priority_overrides,
-        icon_id=payload.icon_id,
-        chip_label=payload.chip_label,
-        panel_hint=payload.panel_hint,
-        proxy_hint=payload.proxy_hint,
-        display_override=payload.display_override,
-    )
+    definition = payload.to_definition()
     try:
         await _guard_db_errors(service.update(axis_id, definition))
     except KeyError as exc:

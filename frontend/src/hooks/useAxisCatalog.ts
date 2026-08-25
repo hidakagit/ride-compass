@@ -51,6 +51,7 @@ const FALLBACK_CATALOG: AxisCatalog = {
 function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
   return {
     axis_id: entry.axis_id,
+    category: entry.category,
     display: {
       kind: entry.display.kind,
       label: entry.display.label,
@@ -94,6 +95,24 @@ function buildCatalog(entries: readonly AxisCatalogEntry[]): AxisCatalog {
   };
 }
 
+// コードレビュー指摘の修正: useAxisCatalog()は呼び出しごとに独立してGET /api/axis-catalogを
+// 発火していたため、page.tsxとRouteSettingsPanel.tsx（page.tsxの子として初回描画時から
+// マウントされる）が同時にこのフックを呼ぶと、初回描画で同じリクエストが2回同時に飛んで
+// いた。同時に飛んでいる（未解決の）フェッチだけをこのモジュールレベル変数で共有し、
+// 解決/失敗したら即座にクリアする（解決後の結果を永続キャッシュしない——軸スタジオでの
+// 公開操作を再デプロイなしに反映するというT269の設計を保つため、後続の別マウント
+// [例: モバイルのBottomSheetでタブを開き直す]では改めて最新を取得する）。
+let inFlightCatalogFetch: ReturnType<typeof getAxisCatalog> | null = null;
+
+function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
+  if (inFlightCatalogFetch) return inFlightCatalogFetch;
+  const request = getAxisCatalog().finally(() => {
+    if (inFlightCatalogFetch === request) inFlightCatalogFetch = null;
+  });
+  inFlightCatalogFetch = request;
+  return request;
+}
+
 /** 軸カタログ（改善計画T269、T308で地図表示情報を追加）。マウント時に一度
  * `GET /api/axis-catalog`を取得し、軸スタジオ（T270）がDBへ追加・公開した軸を反映する
  * （is_publishedの切替も含め、再デプロイ不要で即座に反映される）。取得完了までとエラー時は
@@ -109,7 +128,7 @@ export function useAxisCatalog(): AxisCatalog {
 
   useEffect(() => {
     let cancelled = false;
-    getAxisCatalog()
+    fetchAxisCatalogDeduped()
       .then((response) => {
         if (!cancelled && response.axes.length > 0) {
           setCatalog(buildCatalog(response.axes));

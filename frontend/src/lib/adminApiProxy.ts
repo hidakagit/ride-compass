@@ -18,7 +18,7 @@
 // 運用上backend側と揃えて設定する既存の方針）からbackend宛のAuthorizationヘッダを
 // 組み立てて転送するため、backend向けの資格情報はブラウザへ一切露出しない。
 
-const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000";
+import { BACKEND_INTERNAL_URL } from "@/lib/backendInternalUrl";
 
 function backendAuthHeader(): string | null {
   const username = process.env.ADMIN_BASIC_AUTH_USERNAME ?? "";

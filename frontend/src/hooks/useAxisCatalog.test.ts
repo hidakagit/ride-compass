@@ -98,4 +98,22 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(result.current.rampAxes.length).toBeGreaterThan(0);
     expect(result.current.rampAxes.every((axis) => axis.axisId !== "gui_published_axis")).toBe(true);
   });
+
+  it("コードレビュー指摘の修正確認: 同時にマウントされた複数の呼び出し元は1回のフェッチを共有する", async () => {
+    // page.tsx・RouteSettingsPanel.tsxが同時にuseAxisCatalog()を呼ぶ初回描画のシナリオ
+    // （以前は呼び出し元の数だけGET /api/axis-catalogが同時に飛んでいた）。
+    // 呼び出し回数はvi.mocked(getAxisCatalog)がテストファイル内で共有される（このテスト単体
+    // では自動リセットされない）ため、このテスト内での増分だけを見る。
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse());
+    const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
+
+    const first = renderHook(() => useAxisCatalog());
+    const second = renderHook(() => useAxisCatalog());
+
+    await waitFor(() => {
+      expect(first.result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
+      expect(second.result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
+    });
+    expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1);
+  });
 });

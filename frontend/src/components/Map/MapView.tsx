@@ -54,7 +54,7 @@ import {
   type StaticFilterAxis,
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
-import { ROAD_SURFACE_SHARED_LAYER_IDS, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
+import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
@@ -1445,15 +1445,23 @@ export function setStaticOverlayFilters(
   });
 }
 
-// road_surfaceタイルを共有する6レイヤー（mapLayers.ts: ROAD_SURFACE_SHARED_LAYER_IDS）の
-// いずれかが表示ONかを判定する。road_surfaceソースを参照する箇所（ズーム範囲外判定・
-// レイヤーデータ状態表示の抑制）が両方ともこのヘルパー経由でROAD_SURFACE_SHARED_LAYER_IDSを
-// 参照するようにし、「6レイヤーのどれが対象か」を1箇所（mapLayers.ts）だけが知っていれば
-// よい状態にする（改善計画T87レビュー指摘: 以前はroadの表示状態だけを見ていたため、
-// road自体はOFFのままcarStress等だけONの場合にズーム範囲外の案内が一切出なかった）。
-// MapView.segments.test.tsと同じ考え方でテスト可能にexportしている。
-export function isRoadSurfaceGroupVisible(visibility: Partial<Record<MapLayerId, boolean>>): boolean {
-  return ROAD_SURFACE_SHARED_LAYER_IDS.some((id) => visibility[id]);
+// road_surfaceタイルを共有するレイヤー（mapLayers.ts: buildRoadSurfaceSharedLayerIds、
+// 軸スタジオの公開ramp軸を含む）のいずれかが表示ONかを判定する。road_surfaceソースを
+// 参照する箇所（ズーム範囲外判定・レイヤーデータ状態表示の抑制）が両方ともこのヘルパー
+// 経由でroadSurfaceSharedLayerIdsを参照するようにし、「対象レイヤーはどれか」を1箇所
+// （mapLayers.ts）だけが知っていればよい状態にする（改善計画T87レビュー指摘: 以前はroadの
+// 表示状態だけを見ていたため、road自体はOFFのままcarStress等だけONの場合にズーム範囲外の
+// 案内が一切出なかった）。MapView.segments.test.tsと同じ考え方でテスト可能にexportしている。
+//
+// コードレビュー指摘の修正: 以前は第2引数を持たず、ビルド時静的フォールバック
+// ROAD_SURFACE_SHARED_LAYER_IDSを直接参照していたため、軸スタジオで新規公開したramp軸を
+// 低ズームでONにしても「表示範囲が広すぎます」の案内が出ないまま何も表示されない状態に
+// なっていた（呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す前提へ変更）。
+export function isRoadSurfaceGroupVisible(
+  visibility: Partial<Record<MapLayerId, boolean>>,
+  roadSurfaceSharedLayerIds: readonly MapLayerId[],
+): boolean {
+  return roadSurfaceSharedLayerIds.some((id) => visibility[id]);
 }
 
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
@@ -1731,6 +1739,10 @@ export default function MapView({
   );
   const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
+  // コードレビュー指摘の修正: isRoadSurfaceGroupVisibleが以前はビルド時静的
+  // ROAD_SURFACE_SHARED_LAYER_IDSを直接参照していたため、軸スタジオで新規公開したramp軸
+  // （road_surfaceタイルを共有する軸）が実行時フェッチに含まれていても対象外のままだった。
+  const roadSurfaceSharedLayerIds = useMemo(() => buildRoadSurfaceSharedLayerIds(rampAxes), [rampAxes]);
   // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
   // 最新のinteractiveLayerIdsを読めるようにするref（onRegionZoomHintChangeRef等と同じ
   // 「安定コールバックが最新値を読む」パターン）。
@@ -1775,6 +1787,7 @@ export default function MapView({
     staticOverlayLayers,
     axisOverlayLayers,
     staticFilterAxes,
+    roadSurfaceSharedLayerIds,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -1817,6 +1830,7 @@ export default function MapView({
       staticOverlayLayers,
       axisOverlayLayers,
       staticFilterAxes,
+      roadSurfaceSharedLayerIds,
     };
   }, [
     routes,
@@ -1842,6 +1856,7 @@ export default function MapView({
     staticOverlayLayers,
     axisOverlayLayers,
     staticFilterAxes,
+    roadSurfaceSharedLayerIds,
     experimentSlots,
   ]);
 
@@ -1877,6 +1892,7 @@ export default function MapView({
       staticOverlayLayers,
       axisOverlayLayers,
       staticFilterAxes,
+      roadSurfaceSharedLayerIds,
     } = redrawPropsRef.current;
     setStaticOverlayVisibility(
       map,
@@ -1909,14 +1925,17 @@ export default function MapView({
     });
     updateRoadZoomHint(
       map,
-      isRoadSurfaceGroupVisible({
-        roadType: showRoadType,
-        roadSurface: showRoadSurface,
-        bicycleInfra: showBicycleInfra,
-        designation: showDesignation,
-        tunnel: showTunnel,
-        oneway: showOneway,
-      }),
+      isRoadSurfaceGroupVisible(
+        {
+          roadType: showRoadType,
+          roadSurface: showRoadSurface,
+          bicycleInfra: showBicycleInfra,
+          designation: showDesignation,
+          tunnel: showTunnel,
+          oneway: showOneway,
+        },
+        roadSurfaceSharedLayerIds
+      ),
       onRegionZoomHintChangeRef.current
     );
 
@@ -2104,18 +2123,28 @@ export default function MapView({
     // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
     // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
-      const { showRoadType, showRoadSurface, showBicycleInfra, showDesignation, showTunnel, showOneway } =
-        redrawPropsRef.current;
+      const {
+        showRoadType,
+        showRoadSurface,
+        showBicycleInfra,
+        showDesignation,
+        showTunnel,
+        showOneway,
+        roadSurfaceSharedLayerIds,
+      } = redrawPropsRef.current;
       updateRoadZoomHint(
         map,
-        isRoadSurfaceGroupVisible({
-          roadType: showRoadType,
-          roadSurface: showRoadSurface,
-          bicycleInfra: showBicycleInfra,
-          designation: showDesignation,
-          tunnel: showTunnel,
-          oneway: showOneway,
-        }),
+        isRoadSurfaceGroupVisible(
+          {
+            roadType: showRoadType,
+            roadSurface: showRoadSurface,
+            bicycleInfra: showBicycleInfra,
+            designation: showDesignation,
+            tunnel: showTunnel,
+            oneway: showOneway,
+          },
+          roadSurfaceSharedLayerIds
+        ),
         onRegionZoomHintChangeRef.current
       );
     }
@@ -2417,14 +2446,17 @@ export default function MapView({
     });
     updateRoadZoomHint(
       map,
-      isRoadSurfaceGroupVisible({
-        roadType: showRoadType,
-        roadSurface: showRoadSurface,
-        bicycleInfra: showBicycleInfra,
-        designation: showDesignation,
-        tunnel: showTunnel,
-        oneway: showOneway,
-      }),
+      isRoadSurfaceGroupVisible(
+        {
+          roadType: showRoadType,
+          roadSurface: showRoadSurface,
+          bicycleInfra: showBicycleInfra,
+          designation: showDesignation,
+          tunnel: showTunnel,
+          oneway: showOneway,
+        },
+        roadSurfaceSharedLayerIds
+      ),
       onRegionZoomHintChangeRef.current
     );
     recomputeLayerDataStatus();
@@ -2436,6 +2468,7 @@ export default function MapView({
     showTunnel,
     showOneway,
     roadHiddenKeysByMode,
+    roadSurfaceSharedLayerIds,
     recomputeLayerDataStatus,
   ]);
 

@@ -35,7 +35,7 @@ import {
   getRoadFilterAxis,
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
-import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
+import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   ROUTE_STYLE_MODES,
@@ -505,15 +505,22 @@ export default function Home() {
       ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
     [hiddenLegendKeysByMode],
   );
+  // コードレビュー指摘の修正: 以前はこのファイル自身の凡例・絞り込みサマリ計算
+  // （staticLegendHiddenKeysByAxis・staticFilterSummaries、下記）だけがビルド時静的
+  // STATIC_FILTER_AXESのまま取り残されており、軸スタジオで新規公開したramp軸の凡例・
+  // 絞り込み操作がこの画面のサマリ表示・MapLayersPanelへ一切反映されなかった
+  // （MapView.tsx側は既にbuildStaticFilterAxes(rampAxes)へ移行済み）。mapLayers/
+  // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる。
+  const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・指定路線・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
   const staticLegendHiddenKeysByAxis = useMemo(
     () =>
       Object.fromEntries(
-        STATIC_FILTER_AXES.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
+        staticFilterAxes.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
       ) as unknown as Record<StaticFilterAxisId, readonly string[]>,
-    [hiddenLegendKeysByMode],
+    [staticFilterAxes, hiddenLegendKeysByMode],
   );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
   const toggleHiddenLegendKey = useCallback(
@@ -658,9 +665,9 @@ export default function Home() {
         }
       >
     > = {};
-    const layerIds = new Set(STATIC_FILTER_AXES.map((axis) => axis.layerId));
+    const layerIds = new Set(staticFilterAxes.map((axis) => axis.layerId));
     for (const layerId of layerIds) {
-      const axes = STATIC_FILTER_AXES.filter((axis) => axis.layerId === layerId).map((axis) => ({
+      const axes = staticFilterAxes.filter((axis) => axis.layerId === layerId).map((axis) => ({
         label: axis.label ?? "",
         legend: axis.legend,
         hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
@@ -671,7 +678,7 @@ export default function Home() {
       };
     }
     return result;
-  }, [staticLegendHiddenKeysByAxis]);
+  }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);
 
   // 改善計画T308: MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes
   // （実行時フェッチ、軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
@@ -1413,6 +1420,7 @@ export default function Home() {
           mapLayers={mapLayers}
           roadSurfaceSharedLayerIds={roadSurfaceSharedLayerIds}
           secondaryAxes={axisCatalog.secondaryAxes}
+          staticFilterAxes={staticFilterAxes}
         />
       </Card>
     );

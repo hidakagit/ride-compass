@@ -5464,6 +5464,78 @@ Phaseほど前Phaseの成果を安全網として使える）。**
     意図的にスコープ外）とdisplay_overrideのGUI編集UI（データ層は特別扱い無し、
     編集フォームのみ未対応、ユーザー承認済みのスコープ限定）の2点のみ。
 - 依存: T308（`axis_display_for()`・`primary_attribute_ids`等の基盤の上に積んだ）。
+- **`/code-review`によるT308〜T310差分の指摘・修正（2026-08-25）**: 8観点（行単位差分・
+  削除挙動監査・再利用性・簡素化・効率性・altitude・CLAUDE.md準拠・cross-file追跡）の
+  並列レビューで13件の指摘（うちCONFIRMED8件）を受け、全て対応した。
+  - **CONFIRMED（実害あり、修正必須）**:
+    1. `AxisComposer.tsx`が既存軸編集時に`display_override`/`priority_overrides`を
+       payloadへ含めておらず、公開済み軸を非公開化→軽微編集→保存するとDB上のこの
+       2フィールドが黙って消えていた（エラー・警告なし）。Draftへ素通し用フィールドを
+       追加し保存時に含めるよう修正。
+    2. `axis_display_for()`が全公開軸へ常に非null値を返すようになった結果、
+       `secondaryAxesFromCatalogAxes`の`display !== null`フィルタでは`wind`
+       （category="動的"、専用の動的気象UIを別に持つ）を推定指標チップグループから
+       除外できなくなっていた（実際にPlaywright確認スクリーンショットにも写っていたが
+       確認時に見落としていた）。`AxisCatalogEntry`/`CatalogAxis`へ軸自身の
+       `category`を追加し、`category==="動的"`を明示的に除外する形へ修正。
+    3. chip_labelの4文字バリデータが明示的な超過のみを弾き、未設定時のlabelフォールバック
+       が4文字を超えるケース（今回の「車の圧迫感」再発パターンそのもの）を防げていな
+       かった。`chip_label`未設定時は`label`の長さも検証するmodel_validatorを追加し、
+       フロントにも同条件の事前チェックを追加。
+    4. `MapLayersPanel.tsx`の凡例・絞り込みが静的`STATIC_FILTER_AXES`のまま
+       （propとして未配線）だった。`staticFilterAxes` propを追加し、page.tsx側で
+       `buildStaticFilterAxes(axisCatalog.rampAxes)`を計算して渡すよう修正。
+    5. page.tsx自身の凡例・絞り込みサマリ計算（`staticLegendHiddenKeysByAxis`・
+       `staticFilterSummaries`）も同じく静的`STATIC_FILTER_AXES`のまま取り残されて
+       いた。4と同じ`useMemo`から取得する形へ統一。
+    6. `MapView.tsx: isRoadSurfaceGroupVisible`がビルド時静的
+       `ROAD_SURFACE_SHARED_LAYER_IDS`のまま（MapLayersPanel側は実行時propへ移行
+       済みで不整合）だった。第2引数`roadSurfaceSharedLayerIds`を追加し、
+       `buildRoadSurfaceSharedLayerIds(rampAxes)`から呼び出し元が渡す形へ変更
+       （3箇所の呼び出し元のうち2箇所は一度きりのマウントeffect内のクロージャの
+       ため、`redrawPropsRef`経由で最新値を読む既存パターンに合わせて配線）。
+    7. `export_openapi.py`の自動ramp軸ループが`derive_ramp_inputs()`の結果のみ見ており、
+       T310で導入した`display_override`を一切チェックしていなかった。display_override
+       を使う新規GUI軸は実行時APIでは動くが静的axis-catalog.jsonには永久に現れない
+       非対称があったため、`axis_display_for()`と同じ優先順位で解決するよう修正。
+    8. `derive_ramp_inputs`が`MaterialTerm.required`を無視しており、複数材料の
+       BreakpointLinear軸でrequired=Trueの材料が欠損した場合、backend評価では
+       「評価不能」でも地図では「良好（緑）」に誤表示されうる理論上の不整合が
+       あった。**この項目のみ意図的に未修正**——`if any(term.required...): return None`
+       という安全側の制限を試したところ、T308で意図的にこの挙動を許容する設計として
+       テスト化済み（`test_multi_term_breakpoint_linear_derives_ramp_with_coarser_
+       thresholds`等3件）だったため、レビュー指摘を機械的に適用すると既存の
+       レビュー済み設計判断を無断で覆すことになると判断し、コードは変更せず
+       docstringへ既知の制約として明記するに留めた（現状は既存7軸のどれもこの
+       auto-derive経路を通らないため実害ゼロ、将来のGUI作成軸向けの潜在リスクとして
+       記録）。
+  - **PLAUSIBLE（妥当と判断、修正）**: `generateAxisId`へ`crypto.randomUUID`未対応
+    環境向けのフォールバックを追加／`BACKEND_INTERNAL_URL`の重複定義を
+    `lib/backendInternalUrl.ts`へ集約／`axis_display.py`の`_flag_sum_thresholds`が
+    `_adjacent_midpoint_thresholds`と重複していた末尾ロジックを共通化／
+    `axis_admin.py`のcreate/update両エンドポイントが重複していた`AxisDefinition`
+    構築を`AxisDefinitionPayload.to_definition()`へ集約／`useAxisCatalog`が
+    同時マウント時に複数回同時発火していたフェッチを、同時実行中のリクエストのみ
+    共有する形で重複排除（解決後の結果は永続キャッシュしない、軸スタジオの
+    公開操作を再デプロイなしに反映するというT269の設計を保つため）。
+  - **指摘されたが対応を見送ったもの（上位指摘以外の精査、ユーザー指示により実施）**:
+    `AxisStudio.tsx`の3つの独立boolean状態（判別可能なunion型への整理案）・
+    `useAxisCatalog.ts`/`axisLayers.ts`のTileInputSpec二段階マッピング（変換経路の
+    一本化案）・`MapView.tsx`の複数useMemoの単一オブジェクト統合案は、いずれも
+    実際のバグではなく将来の同期漏れリスクを下げる目的の設計改善であり、
+    本セッションで既に多数の変更が入ったMapView.tsx等へさらに広い範囲の
+    リファクタリングを重ねるリスクの方が、得られる利益より大きいと判断し見送った。
+    `GET /api/axis-catalog`の毎リクエスト再計算・`renderRouteSettingsSectionBody`の
+    未メモ化は、指摘したレビューエージェント自身も実害が無視できる規模と評価して
+    おり対応不要と判断。`registry_defaults.py`の軸id列挙・T305/T306由来のカテゴリ
+    非対称性は、それぞれ`AXIS_DEFINITIONS`と同型の構造的な設計（バグではない）・
+    既に別途認識・記録済みの既存指摘のため対応対象外。
+  - 検証: backend pytest 984 passed / 154 skipped、frontend tsc・eslint・vitest
+    502 passed（新規回帰テスト4件追加）。Playwrightで実サーバーを起動し、
+    `推定`グループのチップ列から`風`が消えていること（修正前は6軸中に混入して
+    いたことをスクリーンショットで確認）、`next.config.ts`が新しい共有モジュール
+    `backendInternalUrl.ts`を問題なく読み込めること（Next.jsのパスエイリアス確立前の
+    Node標準解決でも相対importが機能することの確認）を実機確認した。
 
 ### - [x] T311. 軸スタジオを開くと500エラーになる不具合の調査・恒久対策 規模S（実装完了）
 

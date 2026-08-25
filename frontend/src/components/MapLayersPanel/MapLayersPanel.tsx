@@ -22,7 +22,7 @@ import {
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
-import { STATIC_FILTER_AXES, type StaticFilterAxis, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
+import type { StaticFilterAxis, StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import { InfoIcon } from "@/components/Map/icons";
 import LayerChip from "@/components/Map/LayerChip";
@@ -69,6 +69,13 @@ interface MapLayersPanelProps {
   roadSurfaceSharedLayerIds: readonly MapLayerId[];
   /** 二次軸(推定指標)一覧（page.tsx側でaxisCatalog.secondaryAxesをそのまま渡す）。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
+  /** コードレビュー指摘の修正: 車ストレス・自転車インフラ・停止要因POI・事故等の絞り込み軸
+   * カタログ（page.tsx側でaxisCatalog.rampAxesからbuildStaticFilterAxes()経由で組み立てた
+   * もの、軸スタジオの公開ramp軸を含む）。以前はこのファイル内で静的STATIC_FILTER_AXESを
+   * 直接importしており、軸スタジオで新規公開したramp軸の絞り込みチェックボックスが
+   * 再デプロイまで現れなかった（MapView.tsx側は既にbuildStaticFilterAxes(rampAxes)へ
+   * 移行済みで、この画面だけ取り残されていた）。 */
+  staticFilterAxes: readonly StaticFilterAxis[];
 }
 
 // サイドバーのグループ見出し。改善計画（地図の見え方パネルのグルーピングを地図上チップと
@@ -121,6 +128,7 @@ export default function MapLayersPanel({
   mapLayers,
   roadSurfaceSharedLayerIds,
   secondaryAxes,
+  staticFilterAxes,
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
@@ -317,9 +325,9 @@ export default function MapLayersPanel({
     );
   }
 
-  // layer.idの絞り込み軸一覧（STATIC_FILTER_AXES参照、事故のみ2件）。
+  // layer.idの絞り込み軸一覧（staticFilterAxes prop参照、事故のみ2件）。
   function staticFilterAxesFor(layerId: MapLayerId): readonly StaticFilterAxis[] {
-    return STATIC_FILTER_AXES.filter((axis) => axis.layerId === layerId);
+    return staticFilterAxes.filter((axis) => axis.layerId === layerId);
   }
 
   // 道路情報と同じ「OFF中でも絞り込み操作でき、操作すると自動でONになる」ことの案内文。
