@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import text  # noqa: E402
 
 from app.domain.attributes import ElevationAttribute  # noqa: E402
-from app.domain.graph import RoadGraph, WaySpec, build_road_graph  # noqa: E402
+from app.domain.graph import LeanRoadGraph, WaySpec, build_road_graph  # noqa: E402
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox  # noqa: E402
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
 from app.infrastructure.migrate import apply_pending_migrations  # noqa: E402
@@ -121,7 +121,7 @@ async def main() -> int:
     await create_tables(engine)  # 既存テーブルがあっても成功すること（IF NOT EXISTS相当）
     await create_tables(engine)  # 2回目も成功すること
     check("create_tablesが既存スキーマに対して冪等", True)
-    applied_first = await apply_pending_migrations(engine)
+    await apply_pending_migrations(engine)
     applied_second = await apply_pending_migrations(engine)  # 2回目は空リスト（適用済みスキップ）
     check("apply_pending_migrationsが冪等（2回目は再適用しない）", applied_second == [])
 
@@ -159,7 +159,12 @@ async def main() -> int:
             check("交差点分割の結果が期待どおり（全9Edge）", len(graph.edges) == 9, f"got={len(graph.edges)}")
             primary_edges = {eid: e for eid, e in graph.edges.items() if e.osm_way_id in primary_ids}
             referenced = {e.from_node_id for e in primary_edges.values()} | {e.to_node_id for e in primary_edges.values()}
-            primary_graph = RoadGraph(
+            # 改善計画T262でbuild_road_graphの戻り値がRoadGraph（Pydantic）から
+            # LeanRoadGraph（dataclass、探索専用軽量実装）へ移行済み。graph.nodes/edges
+            # の値もLeanNode/LeanEdgeのため、フィルタ後もLeanRoadGraphとして組み立てる
+            # （改善計画T328で発見: 素通しでRoadGraph(...)へ渡していたためValidationErrorに
+            # なり、このスクリプトはステップ2で毎回クラッシュしていた）。
+            primary_graph = LeanRoadGraph(
                 graph_version=graph.graph_version,
                 nodes={nid: n for nid, n in graph.nodes.items() if nid in referenced},
                 edges=primary_edges,
@@ -243,10 +248,26 @@ async def main() -> int:
             await repo.commit()
 
         print("== 5. GraphService統合（タイルキャッシュのオーケストレーション） ==")
-        # 生データ・Edgeを一旦消し、GraphServiceがPostGISだけでゼロから構築する流れを検証する
-        # （改善計画T222でGraphServiceのDBなし構成・Overpassフォールバックは撤去済みのため、
-        # ここでは`repository`のみを渡す）。
-        await cleanup(engine)
+        # ステップ1-2で保存済みの生データ・Edgeはそのまま残し、完全に新しいセッション・
+        # GraphServiceインスタンス（ここまでのステップのin-processな状態を一切共有しない）
+        # がPostGISだけから同じグラフを読み出せることを検証する（改善計画T222で
+        # GraphServiceのDBなし構成・Overpassフォールバックは撤去済みのため、ここでは
+        # `repository`のみを渡す）。
+        # 改善計画T328で発見: BBOXを覆うタイルをroad_graph_tilesへマークする処理が
+        # ここまで一度も無く（ステップ4がマークするFIXTURE_TILEはマーカー機構単体検証用の
+        # 無関係なタイル）、GraphServiceは`_ensure_tiles_cached`が常にFalseを返すため
+        # 毎回Noneしか返さず、以下2チェックが常にFAILしていた。BBOXのタイルを明示的に
+        # マークしてから呼び出す。
+        async with engine.begin() as conn:
+            for x, y in tiles_covering_bbox(BBOX, ROAD_GRAPH_TILE_ZOOM):
+                await conn.execute(
+                    text(
+                        "INSERT INTO road_graph_tiles (zoom, x, y, fetched_at) "
+                        "VALUES (:z, :x, :y, now()) "
+                        "ON CONFLICT (zoom, x, y) DO UPDATE SET fetched_at = EXCLUDED.fetched_at"
+                    ),
+                    {"z": ROAD_GRAPH_TILE_ZOOM, "x": x, "y": y},
+                )
         async with session_factory() as session:
             service = GraphService(repository=RoadGraphRepository(session))
             result1 = await service.get_or_build_graph_with_attributes(BBOX)

@@ -52,17 +52,25 @@ DISTANCE_TOLERANCE_KM = 5.0
 
 
 async def run_ors(
-    http_client: httpx.AsyncClient, origin: Coordinates, distance_km: float
+    http_client: httpx.AsyncClient, session_factory, origin: Coordinates, distance_km: float
 ) -> dict:
     preference = load_route_preference()
-    engine = OpenRouteServiceEngine(
-        RoutingService(ORSClient(settings.openrouteservice_api_key, http_client)),
-        ElevationService(ElevationClient(), http_client),
-        WindService(WeatherService(WeatherClient(), http_client)),
-        preference,
-    )
-    generator = RouteGenerator(engine, RouteScorer(load_scoring_weights()))
-    return await run_one(generator, origin, distance_km)
+    # 改善計画T328で発見: dependencies.py: get_route_generation_builderは
+    # road_graph_use_repository=True構成下でORSエンジンにもsurface_match_repositoryを
+    # 注入し、路面・停止・交差点・事故の空間マッチ評価を有効化する（openrouteservice_engine.py
+    # の`repository`引数）。本スクリプトはこれまでrepositoryを渡していなかったため、
+    # road_graph側だけフル評価・ORS側は評価軸が欠落した非対称比較になっていた。
+    # run_road_graphと同じく呼び出しごとに新規セッションを使う。
+    async with session_factory() as surface_match_session:
+        engine = OpenRouteServiceEngine(
+            RoutingService(ORSClient(settings.openrouteservice_api_key, http_client)),
+            ElevationService(ElevationClient(), http_client),
+            WindService(WeatherService(WeatherClient(), http_client)),
+            preference,
+            repository=RoadGraphRepository(surface_match_session),
+        )
+        generator = RouteGenerator(engine, RouteScorer(load_scoring_weights()))
+        return await run_one(generator, origin, distance_km)
 
 
 async def run_road_graph(
@@ -126,7 +134,7 @@ async def main() -> int:
                     for engine_name in ("openrouteservice", "road_graph"):
                         try:
                             if engine_name == "openrouteservice":
-                                result = await run_ors(http_client, origin, distance_km)
+                                result = await run_ors(http_client, session_factory, origin, distance_km)
                             else:
                                 result = await run_road_graph(http_client, session_factory, origin, distance_km)
                         except Exception as exc:  # noqa: BLE001 比較検証なので1件の失敗で全体を止めない
