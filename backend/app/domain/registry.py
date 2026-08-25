@@ -18,35 +18,30 @@
 それ以外の既存軸（勾配・風・路面・停止密度・交差点密度・事故密度）はここに登録済み。
 """
 
-from typing import Callable, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Geometry = Literal["edge", "point"]
-DType = Literal["categorical", "numeric", "boolean", "geometry"]
-UpdateCadence = Literal["static", "monthly", "quarterly", "yearly", "on_reimport"]
-
 
 class PrimaryAttributeSpec(BaseModel):
-    """一次属性の宣言。`ingest_fn`はモジュールパス文字列（`"app.domain.osm_adapter.osm_way_to_way_spec"`
-    のような参照）で持ち、実体をimportしない（レジストリ自体は取込パイプラインへ依存しない、
-    宣言のみのモジュールにするため）。
+    """一次属性の宣言。
 
     `label`は一次属性のユーザー向け正式名称（改善計画: 地図レイヤー階層の次数反転）。
     地図チップ・サイドバー・研究タブが表示する「観測データ」側の名称の単一ソースで、
     `export_openapi.py`がaxis-catalog.jsonの`primary_attributes[]`へ書き出し、フロントは
     ここから略名（4文字以下、地図チップ用）への対応表だけを別途持つ（片側import、
     設計原則2）。
+
+    死コード監査（過去の監査）で`ingest_fn`（モジュールパス文字列、`importlib`未使用で誰も
+    解決していなかった）・`source`/`geometry`/`dtype`/`update_cadence`/`description`
+    （唯一の消費者`export_openapi.py`が`attr_id`/`label`/`shared`の3つしか書き出しておらず、
+    宣言されているだけで実際には誰にも消費されていなかった）を削除した。これらは
+    `domain/registry.py`docstringの「排他制約はレジストリ登録時に機械的にチェックする」
+    という設計方針の核とは無関係な、記録用メタデータのつもりで持っていたフィールドだった。
     """
 
     attr_id: str
     label: str
-    source: str
-    geometry: Geometry
-    dtype: DType
-    update_cadence: UpdateCadence
-    description: str
-    ingest_fn: str | None = None
     shared: bool = False
 
 
@@ -199,14 +194,6 @@ def register_axis(spec: AxisSpec) -> None:
             raise AxisInputConflictError(spec.axis_id, existing.axis_id, overlap)
 
     _AXES[spec.axis_id] = spec
-
-
-def get_primary_attribute(attr_id: str) -> PrimaryAttributeSpec:
-    return _PRIMARY_ATTRIBUTES[attr_id]
-
-
-def get_axis(axis_id: str) -> AxisSpec:
-    return _AXES[axis_id]
 
 
 def all_primary_attributes() -> list[PrimaryAttributeSpec]:

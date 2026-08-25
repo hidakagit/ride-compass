@@ -7,20 +7,15 @@ import { cn } from "@/lib/cn";
 // 表現しやすいため採用する。
 export interface CheckboxProps {
   checked?: boolean;
-  defaultChecked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   disabled?: boolean;
-  id?: string;
   "aria-label"?: string;
-  className?: string;
 }
 
-export function Checkbox({ checked, defaultChecked, onCheckedChange, disabled, id, className, ...props }: CheckboxProps) {
+export function Checkbox({ checked, onCheckedChange, disabled, ...props }: CheckboxProps) {
   return (
     <RadixCheckbox.Root
-      id={id}
       checked={checked}
-      defaultChecked={defaultChecked}
       onCheckedChange={(state) => onCheckedChange?.(state === true)}
       disabled={disabled}
       className={cn(
@@ -32,8 +27,7 @@ export function Checkbox({ checked, defaultChecked, onCheckedChange, disabled, i
         // 頼らず単体で正しいサイズになるようにする(改善計画T299フォローアップ)。
         "flex h-[1.1rem] w-[1.1rem] min-h-0 shrink-0 items-center justify-center rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-0",
         "data-[state=checked]:border-[var(--color-accent)] data-[state=checked]:bg-[var(--color-accent)]",
-        "disabled:cursor-default disabled:opacity-55",
-        className
+        "disabled:cursor-default disabled:opacity-55"
       )}
       {...props}
     >

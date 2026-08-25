@@ -84,10 +84,13 @@ async def test_get_conditions_returns_current_when_at_is_none():
     assert conditions.uv_index == 0.0
 
 
-async def test_get_conditions_returns_nearest_hourly_for_future_time():
+async def test_conditions_from_data_returns_nearest_hourly_for_future_time():
+    # get_conditionsはatを取らなくなった（呼び出し元は常にNoneのため引数を削除、
+    # 改善計画のデッドコード監査）。未来時刻の近傍hourly選択ロジック自体は
+    # get_conditions_manyが使う_conditions_from_dataで健在なため、直接テストする。
     service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
-    conditions = await service.get_conditions(POINT, at=datetime(2026, 8, 13, 22, 10))
+    conditions = service._conditions_from_data(SAMPLE_DATA, at=datetime(2026, 8, 13, 22, 10))
 
     # 22:10に最も近いのは22:00
     assert conditions.observed_at == "2026-08-13T22:00"
@@ -100,11 +103,11 @@ async def test_get_conditions_returns_nearest_hourly_for_future_time():
     assert conditions.uv_index == 0.0
 
 
-async def test_get_conditions_returns_none_when_at_is_outside_hourly_range():
+async def test_conditions_from_data_returns_none_when_at_is_outside_hourly_range():
     service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
     # hourlyは2026-08-13の20:00-23:00のみ。翌日はhourlyの範囲外。
-    conditions = await service.get_conditions(POINT, at=datetime(2026, 8, 14, 10, 0))
+    conditions = service._conditions_from_data(SAMPLE_DATA, at=datetime(2026, 8, 14, 10, 0))
 
     assert conditions is None
 

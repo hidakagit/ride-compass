@@ -1216,36 +1216,48 @@ async def test_get_nearest_way_tags_is_designated_true_near_designated_edge(road
     assert [is_designated for _, _, is_designated in result] == [True, False]
 
 
-async def test_is_tile_cached_returns_false_before_marking(road_graph_repository):
-    assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is False
+async def _mark_tile_cached(session, zoom: int, x: int, y: int) -> None:
+    """road_graph_tilesへ直接INSERT（UPSERT）する。改善計画: リポジトリの`mark_tile_cached`
+    （実行時コードから未使用のため削除済み。書き込みは`app/batch/import_pbf.py`の
+    `_mark_tiles`が唯一の実装）の代わりに、テストデータ準備用としてここに置く。"""
+    await session.execute(
+        text(
+            "INSERT INTO road_graph_tiles (zoom, x, y, fetched_at) VALUES (:zoom, :x, :y, now()) "
+            "ON CONFLICT (zoom, x, y) DO UPDATE SET fetched_at = EXCLUDED.fetched_at"
+        ),
+        {"zoom": zoom, "x": x, "y": y},
+    )
 
 
-async def test_mark_tile_cached_then_is_tile_cached_returns_true(road_graph_repository):
-    await road_graph_repository.mark_tile_cached(zoom=12, x=1, y=1)
-
-    assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is True
-    # 隣接タイル・別ズームは影響を受けない
-    assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=2) is False
-    assert await road_graph_repository.is_tile_cached(zoom=13, x=1, y=1) is False
+async def test_get_cached_tiles_returns_empty_set_before_marking(road_graph_repository):
+    assert await road_graph_repository.get_cached_tiles(zoom=12, tiles=[(1, 1)]) == set()
 
 
-async def test_mark_tile_cached_is_idempotent(road_graph_repository):
-    await road_graph_repository.mark_tile_cached(zoom=12, x=1, y=1)
-    await road_graph_repository.mark_tile_cached(zoom=12, x=1, y=1)  # 再マークしても例外なし
+async def test_get_cached_tiles_returns_marked_tile_after_marking(road_graph_repository, road_graph_session):
+    await _mark_tile_cached(road_graph_session, zoom=12, x=1, y=1)
 
-    assert await road_graph_repository.is_tile_cached(zoom=12, x=1, y=1) is True
+    assert await road_graph_repository.get_cached_tiles(zoom=12, tiles=[(1, 1), (1, 2)]) == {(1, 1)}
+    # 別ズームは影響を受けない
+    assert await road_graph_repository.get_cached_tiles(zoom=13, tiles=[(1, 1)]) == set()
+
+
+async def test_marking_tile_cached_twice_is_idempotent(road_graph_repository, road_graph_session):
+    await _mark_tile_cached(road_graph_session, zoom=12, x=1, y=1)
+    await _mark_tile_cached(road_graph_session, zoom=12, x=1, y=1)  # 再マークしても例外なし
+
+    assert await road_graph_repository.get_cached_tiles(zoom=12, tiles=[(1, 1)]) == {(1, 1)}
 
 
 async def test_get_cached_tiles_returns_empty_set_for_empty_input(road_graph_repository):
-    # 改善計画T229: is_tile_cachedをタイル数ぶん個別に呼ぶループを1クエリへ集約するために追加。
+    # 改善計画T229: タイル数ぶん個別に問い合わせるループを1クエリへ集約するために追加。
     assert await road_graph_repository.get_cached_tiles(zoom=12, tiles=[]) == set()
 
 
-async def test_get_cached_tiles_returns_only_marked_tiles_in_one_query(road_graph_repository):
-    await road_graph_repository.mark_tile_cached(zoom=12, x=100, y=200)
-    await road_graph_repository.mark_tile_cached(zoom=12, x=101, y=200)
-    # 別ズームの同じx,yは対象外（is_tile_cachedのズーム独立性と同じ挙動）。
-    await road_graph_repository.mark_tile_cached(zoom=13, x=100, y=200)
+async def test_get_cached_tiles_returns_only_marked_tiles_in_one_query(road_graph_repository, road_graph_session):
+    await _mark_tile_cached(road_graph_session, zoom=12, x=100, y=200)
+    await _mark_tile_cached(road_graph_session, zoom=12, x=101, y=200)
+    # 別ズームの同じx,yは対象外。
+    await _mark_tile_cached(road_graph_session, zoom=13, x=100, y=200)
 
     result = await road_graph_repository.get_cached_tiles(
         zoom=12, tiles=[(100, 200), (101, 200), (102, 200)]
@@ -1273,9 +1285,9 @@ def _mvt_tile_bbox():
     return bbox
 
 
-async def _mark_mvt_coverage(road_graph_repository):
+async def _mark_mvt_coverage(road_graph_session):
     zoom, x, y = MVT_COVERAGE_TILE
-    await road_graph_repository.mark_tile_cached(zoom=zoom, x=x, y=y)
+    await _mark_tile_cached(road_graph_session, zoom=zoom, x=x, y=y)
 
 
 async def test_get_road_surface_tile_mvt_returns_none_when_uncovered(road_graph_repository):
@@ -1290,8 +1302,8 @@ async def test_get_road_surface_tile_mvt_returns_none_when_uncovered(road_graph_
     assert tile is None
 
 
-async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_covered_but_no_ways(road_graph_repository):
-    await _mark_mvt_coverage(road_graph_repository)
+async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_covered_but_no_ways(road_graph_repository, road_graph_session):
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1300,7 +1312,7 @@ async def test_get_road_surface_tile_mvt_returns_empty_bytes_when_covered_but_no
     assert tile == b""
 
 
-async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classification(road_graph_repository):
+async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classification(road_graph_repository, road_graph_session):
     """生成されたMVTがPythonエンコーダ（infrastructure/vector_tile.py）と同じ契約
     （レイヤー名road_surface・surface_good/surface/highwayプロパティ・不明はキー省略）を
     満たすことを、実際にデコードして確認する。分類はclassify_osm_surfaceと同じタグ集合
@@ -1315,7 +1327,7 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
         WaySpec(osm_way_id=4, node_ids=[1, 2], highway="residential", surface="mystery_tag"),  # 未知→不明
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1360,7 +1372,7 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     ]
 
 
-async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_repository):
+async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_repository, road_graph_session):
     import mapbox_vector_tile
 
     way_specs = [
@@ -1368,7 +1380,7 @@ async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_r
         WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential", surface="asphalt"),  # タイル外(35.75付近)
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1378,7 +1390,7 @@ async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_r
     assert len(decoded["road_surface"]["features"]) == 1
 
 
-async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_graph_repository):
+async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_graph_repository, road_graph_session):
     """静的道路属性P0: smoothnessは生タグの正規化のみ（surfaceと同じ流儀）、
     tunnel/bridgeは'yes'のときだけtrueが焼かれ、それ以外はキー省略。"""
     import mapbox_vector_tile
@@ -1394,7 +1406,7 @@ async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_g
         WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", tags={"tunnel": "no"}),
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1414,7 +1426,7 @@ async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_g
     assert "tunnel" not in tunnel_no_way  # tunnel=noはfalseではなくキー自体を省略する
 
 
-async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository):
+async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository, road_graph_session):
     """改善計画T289: 一方通行はosm_raw_ways.direction（forward/backward/both）から
     算出する。both（双方向）はキー省略、forward/backwardはtrueが焼かれる。"""
     import mapbox_vector_tile
@@ -1425,7 +1437,7 @@ async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository):
         WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", direction="both"),
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1438,7 +1450,7 @@ async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository):
     assert "oneway" not in properties_by_way_id[3]  # both（双方向）はキー自体を省略する
 
 
-async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(road_graph_repository):
+async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(road_graph_repository, road_graph_session):
     """SQLのbicycle_infra CASE式がdomain/traffic.py（正準の判定ロジック）と同じ結果になることを、
     複数のタグ組合せで突き合わせる（改善計画: 判定ロジックの二重実装ドリフト検知）。
 
@@ -1466,7 +1478,7 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(ro
         for i, (highway, tags) in enumerate(fixtures)
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1484,7 +1496,7 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(ro
         assert actual.get("bicycle_infra") == expected_infra, (highway, tags)
 
 
-async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repository):
+async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repository, road_graph_session):
     """車ストレスの材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no、
     改善計画: 交通ストレスレシピ外出し基盤）と、night軸の材料タグ（lit、
     domain/registry_defaults.py: inputs=["lit","tunnel"]。かつては安全度軸の材料でも
@@ -1525,7 +1537,7 @@ async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repos
         for i, (highway, tags, _expected) in enumerate(fixtures)
     ]
     await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1580,7 +1592,7 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     await _insert_designation_attribute(road_graph_session, 203, "emergency_transport")
     await _insert_designation_attribute(road_graph_session, 203, "critical_logistics")
     await road_graph_session.commit()
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1613,8 +1625,8 @@ async def test_get_poi_tile_mvt_returns_none_when_uncovered(road_graph_repositor
     assert tile is None
 
 
-async def test_get_poi_tile_mvt_returns_empty_bytes_when_covered_but_no_data(road_graph_repository):
-    await _mark_mvt_coverage(road_graph_repository)
+async def test_get_poi_tile_mvt_returns_empty_bytes_when_covered_but_no_data(road_graph_repository, road_graph_session):
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
@@ -1644,7 +1656,7 @@ async def test_get_poi_tile_mvt_encodes_stop_poi_kind(road_graph_repository, roa
             },
         ],
     )
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
@@ -1743,7 +1755,7 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     await road_graph_repository.recompute_way_attribute_counts(
         [100, 101, 102], datetime.now(timezone.utc)
     )
-    await _mark_mvt_coverage(road_graph_repository)
+    await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE

@@ -69,7 +69,7 @@ class FakeWindService:
 
     async def get_wind_profile(self, points: list[Coordinates], start_time) -> dict:
         segments = [
-            {"distance_km": 1.0, "bearing_deg": 0.0, "arrival_time": start_time, "wind_penalty": 1.5}
+            {"distance_km": 1.0, "arrival_time": start_time, "wind_penalty": 1.5}
             for _ in range(max(len(points) - 1, 0))
         ]
         return {"wind_score": 1.5, "segments": segments}

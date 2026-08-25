@@ -1,14 +1,12 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from app.api.dependencies import client_id, get_region_service
+from app.api.dependencies import get_region_service
+from app.api.routers._tile_validation import check_tile_rate_limit, validate_tile_coords
 from app.config import settings
 from app.domain.evaluation import AxisInspectorResult
-from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
-from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.region_service import RegionService
 
 router = APIRouter()
@@ -39,31 +37,11 @@ _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
 
 def _check_tile_rate_limit(request: Request, prefix: str) -> None:
-    """認証なしで叩ける地域タイルへの簡易な歯止め（1クライアントIPあたり1分間の上限）。
-    地域タイルはPostGISへの実問い合わせ・ディスクキャッシュ書き込みを伴うため、
-    無制限に叩かれるとDB負荷やディスク消費に繋がる（詳細はrate_limiter.py）。
-    路面・POIタイルで同じ上限値（settings.road_tile_rate_limit_per_minute）を
-    使うが、キー・記録先の`prefix`は種別ごとに分ける。
+    """路面・POIタイル向けの`check_tile_rate_limit`薄いラッパー。両タイルとも同じ
+    上限値（settings.road_tile_rate_limit_per_minute）を使うが、キー・記録先の
+    `prefix`は種別ごとに分ける（実処理・事故タイルとの共有は_tile_validation.py参照）。
     """
-    if not check_rate_limit(f"{prefix}:{client_id(request)}", settings.road_tile_rate_limit_per_minute):
-        record_rate_limit_rejection(prefix, client_id(request), f"{settings.road_tile_rate_limit_per_minute}/min")
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
-
-
-def _validate_tile_coords(z: int, x: int, y: int) -> None:
-    """路面・POIタイルで共通のズーム/座標範囲チェック
-    （T54: POIタイルは既存の路面レイヤーと同じズーム範囲に準拠する）。
-    """
-    # MapLibre側もvector sourceのminzoom/maxzoomでこの範囲外は要求しないが、
-    # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。
-    if z < ROAD_TILE_MIN_ZOOM or z > ROAD_TILE_MAX_ZOOM:
-        raise HTTPException(status_code=400, detail="対応していないズームレベルです。")
-    # x/yがそのズームレベルで存在しうる範囲（0 <= x,y < 2**z）を外れると、
-    # domain/region.pyのtile_bounds_lonlatがmath.sinhでOverflowErrorを送出しうるため、
-    # ここで先に弾く（例: 直接APIを叩かれてy=10**18のような極端な値が渡された場合）。
-    tile_index_max = 2**z
-    if not (0 <= x < tile_index_max) or not (0 <= y < tile_index_max):
-        raise HTTPException(status_code=400, detail="タイル座標が範囲外です。")
+    check_tile_rate_limit(request, prefix, settings.road_tile_rate_limit_per_minute)
 
 
 @router.get("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")
@@ -75,7 +53,7 @@ async def region_road_surface_tile(
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
     _check_tile_rate_limit(request, "road-tile")
-    _validate_tile_coords(z, x, y)
+    validate_tile_coords(z, x, y)
     # 同時実行数の上限（_region_tile_semaphoreのコメント参照）は、超過分を待たせて
     # 全件処理する（即座に429で拒否しない）。キャッシュヒットは軽量（実測数ms）なので
     # すぐ解放され、実質的に重い（PostGIS問い合わせを伴う）リクエストだけが待ち行列の
@@ -109,7 +87,7 @@ async def region_poi_tile(
     路面タイルと同じ歯止め・同時実行制御をそのまま流用する。
     """
     _check_tile_rate_limit(request, "poi-tile")
-    _validate_tile_coords(z, x, y)
+    validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
         tile_bytes = await region_service.get_poi_tile(z, x, y)
     return Response(

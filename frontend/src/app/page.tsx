@@ -138,7 +138,11 @@ const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 // 1つの値を共有する（BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 
-const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
+// ramp軸（軸スタジオで増減しうる動的レイヤー）を除いた、ビルド時から固定のレイヤー集合の
+// 既定値。DEFAULT_LAYER_VISIBILITY（静的フォールバック全体）と、useStoredStateの
+// deserialize（下記）がaxisCatalog.loaded===true時に組み立てる「実行時カタログ由来の
+// キー集合」の両方が、この固定部分を共通の土台として使う。
+const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`> = {
   elevation: false,
   // 改善計画T165: 「道路情報」（road）を論理2レイヤーへ分割。旧保存値（road: boolean）から
   // 両方へ移行する処理はuseStoredStateのdeserialize（下記）参照。
@@ -160,9 +164,16 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   thunderNowcast: false,
   tornadoNowcast: false,
   route: true,
+};
+
+const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
+  ...FIXED_LAYER_VISIBILITY_DEFAULTS,
   // 二次軸rampレイヤー（改善計画T145b）。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるため、個別の行を手書きせずカタログから導出する
   // （新しい軸が増えてもこのファイルの編集は不要）。既定はすべてOFF。
+  // これは実行時カタログ未取得時の静的フォールバック（RAMP_AXES＝axisLayers.tsのビルド時
+  // スナップショット）であり、軸スタジオで新規公開された軸のキーはここには含まれない
+  // （フェッチ完了後の扱いはuseStoredStateのdeserialize、下記参照）。
   ...Object.fromEntries(RAMP_AXES.map((axis) => [axisMapLayerId(axis.axisId), false])),
 };
 
@@ -327,11 +338,21 @@ export default function Home() {
   // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState（改善計画T47 R-6）参照。
   // 既知のレイヤーIDかつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、
   // 残りの設定は活かしてデフォルトで埋める）。
+  //
+  // 実バグ修正（デッドコード監査、2026-08-25）: 以前はdeserializeが常にDEFAULT_LAYER_VISIBILITY
+  // （ビルド時静的7軸ぶんのramp軸キーのみ）を走査してホワイトリストにしていたため、軸スタジオで
+  // 新規公開された軸（axis:xxx等）のON/OFF保存値が復元時に黙って捨てられていた
+  // （axisVisibility側は既にaxisCatalog.rampAxesベースへ移行済みで非対称だった）。
+  // axisCatalog.loadedを見て、未フェッチ時はビルド時静的軸集合（DEFAULT_LAYER_VISIBILITY）、
+  // フェッチ完了後は実行時カタログ（axisCatalog.rampAxes）ベースのキー集合を走査するよう
+  // 修正。reloadKeyにaxisCatalog.loadedを渡すことで、マウント直後（静的集合で復元）→
+  // フェッチ完了後（実行時集合で再復元）の2段階復元にしている（useStoredState.ts参照）。
   const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
     LAYER_VISIBILITY_STORAGE_KEY,
     DEFAULT_LAYER_VISIBILITY,
     {
       serialize: (v) => JSON.stringify(v),
+      reloadKey: axisCatalog.loaded,
       deserialize: (raw) => {
         let parsed: unknown;
         try {
@@ -340,7 +361,12 @@ export default function Home() {
           return null;
         }
         if (typeof parsed !== "object" || parsed === null) return null;
-        const next = { ...DEFAULT_LAYER_VISIBILITY };
+        const next: MapLayerVisibility = axisCatalog.loaded
+          ? {
+              ...FIXED_LAYER_VISIBILITY_DEFAULTS,
+              ...Object.fromEntries(axisCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), false])),
+            }
+          : { ...DEFAULT_LAYER_VISIBILITY };
         const parsedRecord = parsed as Record<string, unknown>;
         // 改善計画T165: 「道路情報」（road）の論理分割（roadType/roadSurface）に伴う旧保存値の
         // 移行。旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
@@ -363,8 +389,9 @@ export default function Home() {
   );
   // 二次軸rampレイヤー（改善計画T145b）の表示フラグをMapViewへ渡す形（キー=axisMapLayerId）へ
   // 絞り込む。layerVisibility全体を渡さないのは、MapView側のエフェクト依存を軸レイヤー分に
-  // 限定するため（deserializeがDEFAULT_LAYER_VISIBILITYのキー走査で復元するため、axis:*の
-  // キーも既知のレイヤーIDとして保存・復元の対象に自動で含まれる）。
+  // 限定するため（deserializeがaxisCatalog.rampAxes（フェッチ完了後）またはDEFAULT_LAYER_
+  // VISIBILITY（フェッチ完了前の静的フォールバック）のキー走査で復元するため、軸スタジオ
+  // 公開軸を含むaxis:*のキーも既知のレイヤーIDとして保存・復元の対象に自動で含まれる）。
   const axisVisibility = useMemo(
     () =>
       Object.fromEntries(

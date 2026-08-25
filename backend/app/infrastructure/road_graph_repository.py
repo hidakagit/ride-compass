@@ -27,7 +27,8 @@ node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出される�
 
 `get_graph_in_bbox`自体は「指定bboxと交差するEdgeを返す」単純な空間検索であり、
 「そのbboxが過去に完全に取得済みかどうか」は判定しない。正確なキャッシュカバレッジ判定は
-`RoadGraphTileRow`（タイル取得済みマーカー、is_tile_cached/mark_tile_cached）が担う。
+`RoadGraphTileRow`（タイル取得済みマーカー、読み取りは`get_cached_tiles`、書き込みは
+`app/batch/import_pbf.py`の`_mark_tiles`）が担う。
 呼び出し側（GraphService）は、対象bboxを覆う全タイルが取得済みであることを先に保証し、
 かつ`is_split_up_to_date`で生データ（osm_raw_ways）が前回のsplit以降変わっていないことを
 確認してから`get_graph_in_bbox`を呼ぶ（地域路面レイヤー/RegionServiceがXYZタイル境界を
@@ -1621,16 +1622,9 @@ class RawOsmRepository(_SessionRepository):
         return way_specs, node_coords, primary_way_ids
 
 
-    async def is_tile_cached(self, zoom: int, x: int, y: int) -> bool:
-        stmt = select(RoadGraphTileRow).where(
-            RoadGraphTileRow.zoom == zoom, RoadGraphTileRow.x == x, RoadGraphTileRow.y == y
-        )
-        row = (await self._session.execute(stmt)).scalars().first()
-        return row is not None
-
     async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
         """指定タイル群のうち、取込済み（`road_graph_tiles`に存在する）ものの(x,y)集合を
-        1クエリで返す（改善計画T229: `is_tile_cached`をタイル数ぶん個別に呼ぶループを
+        1クエリで返す（改善計画T229: タイル数ぶん個別に問い合わせるループを
         集約するため。半径10kmの起点1件で6回の個別往復が発生することを実測確認済み）。
         """
         if not tiles:
@@ -1640,18 +1634,6 @@ class RawOsmRepository(_SessionRepository):
         )
         rows = (await self._session.execute(stmt)).all()
         return {(row.x, row.y) for row in rows}
-
-    async def mark_tile_cached(self, zoom: int, x: int, y: int) -> None:
-        # 以前はSession.merge（ORM。INSERTがflushまで保留される）だったが、T6でcommitを
-        # サービス層へ移した結果、同一トランザクション内の後続の生SQL実行
-        # （get_road_surface_tile_mvt等。text()の実行はautoflushの対象外）から保留中の行が
-        # 見えない問題が顕在化した。即時実行されるCoreのUPSERTへ変更する
-        # （_bulk_upsertと同じ方式。挙動は従来のmerge＝存在すればfetched_at更新と同じ）。
-        stmt = pg_insert(RoadGraphTileRow).values(zoom=zoom, x=x, y=y, fetched_at=datetime.now(timezone.utc))
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["zoom", "x", "y"], set_={"fetched_at": stmt.excluded.fetched_at}
-        )
-        await self._session.execute(stmt)
 
 
 class RoadSurfaceTileQuery(_SessionRepository):
@@ -2309,14 +2291,8 @@ class RoadGraphRepository:
     ) -> tuple[list[WaySpec], dict[int, tuple[float, float]], set[int]]:
         return await self.raw_osm.get_way_specs_with_closure(bbox)
 
-    async def is_tile_cached(self, zoom: int, x: int, y: int) -> bool:
-        return await self.raw_osm.is_tile_cached(zoom, x, y)
-
     async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
         return await self.raw_osm.get_cached_tiles(zoom, tiles)
-
-    async def mark_tile_cached(self, zoom: int, x: int, y: int) -> None:
-        await self.raw_osm.mark_tile_cached(zoom, x, y)
 
     # --- 派生グラフ（DerivedGraphRepository） ---
 

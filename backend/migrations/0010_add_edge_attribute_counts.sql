@@ -12,7 +12,7 @@
 -- ACCIDENT_FATAL_WEIGHT参照）。stop_count/intersection_countは単純な件数のためinteger。
 -- bicycle_only=trueの結果のみ保持する（road_graph_engine.pyの実際の呼び出しが常に既定値
 -- bicycle_only=Trueであるため、他の値は現状使われていない）。
-CREATE TABLE edge_attribute_counts (
+CREATE TABLE IF NOT EXISTS edge_attribute_counts (
     edge_id text PRIMARY KEY REFERENCES road_edges(edge_id) ON DELETE CASCADE,
     accident_count double precision NOT NULL,
     stop_count integer NOT NULL,

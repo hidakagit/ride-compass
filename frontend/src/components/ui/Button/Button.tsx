@@ -22,7 +22,6 @@ const buttonVariants = cva(
           "border-[var(--color-accent)] bg-[var(--color-accent)] text-white font-semibold hover:enabled:bg-[var(--color-accent-strong)] hover:enabled:border-[var(--color-accent-strong)]",
         secondary:
           "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--foreground)] hover:enabled:border-[var(--color-accent)]",
-        danger: "border-[var(--color-danger)] bg-[var(--color-danger)] text-white hover:enabled:opacity-90",
         ghost: "border-transparent bg-transparent text-[var(--foreground)] hover:enabled:border-[var(--color-border-strong)]",
       },
       size: {

@@ -2,14 +2,21 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
-  MAP_LAYERS,
-  ROAD_SURFACE_SHARED_LAYER_IDS,
+  buildMapLayers,
+  buildRoadSurfaceSharedLayerIds,
   layerSectionDomId,
   type LayerDataStatusByLayer,
   type MapLayerId,
 } from "@/components/Map/mapLayers";
+import { RAMP_AXES } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
-import { STATIC_FILTER_AXES } from "@/components/Map/staticAttributeLayers";
+import { buildStaticFilterAxes } from "@/components/Map/staticAttributeLayers";
+
+// 改善計画T308: 実運用ではpage.tsxがaxisCatalog（useAxisCatalog）由来のrampAxesを
+// build*()へ渡すが、テストではビルド時静的フォールバック（RAMP_AXES、既存7軸）で十分。
+const MAP_LAYERS = buildMapLayers(RAMP_AXES);
+const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES);
+const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 import MapLayersPanel from "./MapLayersPanel";
 import styles from "./MapLayersPanel.module.css";
 
@@ -67,8 +74,6 @@ function baseProps() {
     layerDataStatus: {} as LayerDataStatusByLayer,
     hasHiddenFilters: false,
     onClearAllFilters: vi.fn(),
-    // 改善計画T308: 実運用ではpage.tsxがaxisCatalog（useAxisCatalog）由来の値を渡すが、
-    // テストでは静的フォールバック（既存7軸）で十分。
     mapLayers: MAP_LAYERS,
     roadSurfaceSharedLayerIds: ROAD_SURFACE_SHARED_LAYER_IDS,
     secondaryAxes: SECONDARY_AXES,

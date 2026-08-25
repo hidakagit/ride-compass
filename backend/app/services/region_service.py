@@ -5,12 +5,12 @@ import time
 from app.config import settings
 from app.domain.evaluation import AxisInspectorResult, RoutePreference, axis_inspector_breakdown
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
-from app.infrastructure import tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
+from app.services.tile_serving import serve_cached_tile
 
 logger = logging.getLogger("ridecompass.region")
 
@@ -234,31 +234,33 @@ class RegionService:
         x: int,
         y: int,
     ) -> bytes:
-        with log_external_call(external_call_name, z=z, x=x, y=y) as fields:
-            cached = await asyncio.to_thread(tile_cache.get, cache_path)
-            if cached is not None:
-                fields["cache"] = "hit"
-                content, _content_type = cached
-                return content
-            fields["cache"] = "miss"
-
-            if self._repository is not None:
-                postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields, label)
-                if postgis_tile is not None:
-                    fields["source"] = "postgis"
-                    fields["tile_bytes"] = len(postgis_tile)
-                    await asyncio.to_thread(tile_cache.set, cache_path, postgis_tile, MVT_CONTENT_TYPE)
-                    return postgis_tile
-
-            # PostGISのカバレッジ外・DB障害、またはrepository未接続。データ未整備として
-            # 空タイルを返す（ログ方針: 常時WARNING。取込漏れ・範囲外アクセスを運用で
-            # 気づけるようにする）。後からPBF取込された際に正しいタイルを再生成できるよう、
-            # キャッシュには保存しない。DB障害の詳細は_tile_from_repository側で既に
-            # WARNING済みのため、ここでは「取込範囲外」表記が誤解を招くerror時は出さない。
-            if fields.get("postgis") != "error":
+        async def fetch_tile(fields: dict) -> bytes | None:
+            if self._repository is None:
+                # repository未接続。DB障害時のWARNING（_tile_from_repository側で既に
+                # 出している）と表記を揃え、ここでは「取込範囲外」表記で常時WARNINGを出す
+                # （ログ方針: 取込漏れ・範囲外アクセスを運用で気づけるようにする）。
                 logger.warning("%sタイルがPostGIS取込範囲外 z=%d x=%d y=%d", label, z, x, y)
-            fields["source"] = "uncovered_empty"
-            return empty_tile
+                return None
+            postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields, label)
+            if postgis_tile is None and fields.get("postgis") != "error":
+                # PostGISのカバレッジ外。DB障害の詳細は_tile_from_repository側で既に
+                # WARNING済みのため、ここでは「取込範囲外」表記が誤解を招くerror時は出さない。
+                logger.warning("%sタイルがPostGIS取込範囲外 z=%d x=%d y=%d", label, z, x, y)
+            return postgis_tile
+
+        # 取得不可の場合、後からPBF取込された際に正しいタイルを再生成できるよう
+        # キャッシュには保存しない（serve_cached_tileはfetch_tileがNoneを返したときのみ
+        # 空タイルを返し、キャッシュ書き込みを行わない）。
+        return await serve_cached_tile(
+            z=z,
+            x=x,
+            y=y,
+            cache_path=cache_path,
+            empty_tile=empty_tile,
+            content_type=MVT_CONTENT_TYPE,
+            external_call_name=external_call_name,
+            fetch_tile=fetch_tile,
+        )
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> bytes:
         return await self._get_tile(

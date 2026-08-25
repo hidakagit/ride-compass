@@ -65,7 +65,6 @@ import {
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
 import {
-  RAMP_AXES,
   axisLineLayerId,
   axisMapLayerId,
   buildAxisRampColorExpression,
@@ -1236,10 +1235,11 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
 
 type OverlayLayerEntry = { key: string; layerId: string; ensure: (map: MapLibreMap) => void };
 
-// 改善計画T308: 軸スタジオが公開したramp軸（RAMP_AXESのビルド時静的フォールバックに限らず、
+// 改善計画T308: 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、
 // 実行時フェッチで増減しうる）を反映できるよう関数化した。呼び出し側（コンポーネント内、
-// useMemo経由）がrampAxesを渡す。
-function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly OverlayLayerEntry[] {
+// useMemo経由）がrampAxesを渡す。テスト（MapView.overlayFilters.test.ts等）から
+// build*(RAMP_AXES)として直接呼べるようexportしている。
+export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly OverlayLayerEntry[] {
   return rampAxes.map((axis) => ({
     key: axisMapLayerId(axis.axisId) as string,
     layerId: axisLineLayerId(axis.axisId),
@@ -1256,7 +1256,7 @@ function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly Overlay
 // 上書き）をその上に置く。
 // 以前はramp軸が配列末尾（最前面）だったため、材料の連動ON（T167）で観測データと推定を
 // 同時に表示しても、後から追加された推定側が観測データを塗り潰して見えなくなっていた。
-function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
+export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
@@ -1271,10 +1271,6 @@ function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLayerEntry[
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
   ];
 }
-
-// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。テスト・フォールバック用。
-// テスト（MapView.overlayFilters.test.ts）から静的フォールバックとして参照できるようexport。
-export const STATIC_OVERLAY_LAYERS: readonly OverlayLayerEntry[] = buildStaticOverlayLayers(buildAxisOverlayLayers(RAMP_AXES));
 
 // 改善計画（2次の下敷きの副作用対応）: 2次（ramp軸）を太く半透明な下敷きに
 // するのは、その材料（1次）が同時に表示されているときだけにする。材料が1つも表示されて
@@ -1316,7 +1312,8 @@ type StaticOverlayKey = string;
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
 // （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
 // MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
-// （MapView.dataStatus.test.ts）から個別レイヤーのsourceIdを参照できるようexportしている。
+// （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
+// 個別レイヤーのsourceIdを参照できるようexportしている。
 // 動的気象レイヤーは要素ごとにraster/gridFill/gridMarkの複数サブソースを持ちうるが、
 // レイヤーデータ状態の追跡（useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、
 // rasterTile→gridFill→gridMarkの優先順で「代表」のsourceIdを1つ選ぶ（現状precipitation
@@ -1330,8 +1327,9 @@ function primaryDynamicWeatherSourceId(id: DynamicWeatherLayerId, spec: DynamicW
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
 
-// 改善計画T308: buildAxisOverlayLayers等と同じ理由で関数化。
-function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly LayerDataSource[] {
+// 改善計画T308: buildAxisOverlayLayers等と同じ理由で関数化。テスト
+// （MapView.dataStatus.test.ts）からbuild*(RAMP_AXES)として直接呼べるようexportしている。
+export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly LayerDataSource[] {
   return [
     { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
     { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
@@ -1365,11 +1363,9 @@ function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly LayerDat
 
 // レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus・
 // clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.ts（改善計画T123）に
-// 集約されている。LAYER_DATA_SOURCES自体はSTATIC_OVERLAY_LAYERS等の他の定数と同じくこの
-// ファイルに残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
-// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。MapView.dataStatus.test.tsから
-// 個別レイヤーのsourceIdを参照できるようexportしている。
-export const LAYER_DATA_SOURCES: readonly LayerDataSource[] = buildLayerDataSources(RAMP_AXES);
+// 集約されている。buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と
+// 同じくこのファイルに残し、フックへ引数として渡す（フック側からMapView.tsxを逆import
+// しないため）。
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を

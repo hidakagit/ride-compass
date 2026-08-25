@@ -4,10 +4,10 @@ Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使っ�
 最小コスト経路を探索する。探索アルゴリズム自体は独自実装せず、標準的なグラフ
 アルゴリズムライブラリのDijkstra実装をそのまま利用する（仕様書34章「探索アルゴリズムを
 独断で変更しない」「独自の経路探索アルゴリズムの実装はしない」の趣旨を踏まえ、
-新規性のある独自アルゴリズムは開発しない）。当初はNetworkX（Python実装）のみを
-使っていたが、改善計画T220（T12 Stage 2）で大規模グラフ（数万エッジ）向けに
-scipy.sparse.csgraph（C実装のDijkstra）も追加した。どちらも標準ライブラリの実装を
-そのまま使うだけで、アルゴリズム自体の独自実装ではない点は変わらない。
+新規性のある独自アルゴリズムは開発しない）。当初はNetworkX（Python実装）を使っていたが、
+改善計画T220（T12 Stage 2）で大規模グラフ（数万エッジ）向けにscipy.sparse.csgraph
+（C実装のDijkstra）へ置き換えた。標準ライブラリの実装をそのまま使うだけで、
+アルゴリズム自体の独自実装ではない点は変わらない。
 
 Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない設計とする
 （仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
@@ -17,7 +17,6 @@ import math
 from collections.abc import Collection
 from dataclasses import dataclass
 
-import networkx as nx
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
@@ -28,33 +27,14 @@ from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 
 
-def build_networkx_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResult]) -> nx.DiGraph:
-    """RoadGraphとEdge CostからNetworkXの有向グラフを構築する。
-
-    Hard Constraintで除外されたEdge（`allowed=False`）やCostが算出できなかったEdge
-    （`cost=None`）はグラフに含めない（仕様書29章：探索対象から除外する）。
-    """
-    nx_graph = nx.DiGraph()
-    for node_id in graph.nodes:
-        nx_graph.add_node(node_id)
-
-    for edge_id, edge in graph.edges.items():
-        cost_result = edge_costs.get(edge_id)
-        if cost_result is None or not cost_result.allowed or cost_result.cost is None:
-            continue
-        nx_graph.add_edge(edge.from_node_id, edge.to_node_id, edge_id=edge_id, weight=cost_result.cost)
-
-    return nx_graph
-
-
 @dataclass
 class SparseRoadGraph:
     """探索グラフのCSR（圧縮行格納）表現（改善計画T220、T12 Stage 2）。
 
     `RoadGraphEngine.trace_loop`が1リクエストにつき最大24回（3区間×8方位）呼ぶ
-    Dijkstraを、NetworkX（Python実装）からscipy.sparse.csgraph（C実装）へ置き換える
-    ために使う。`build_networkx_graph`と同じく、同一ノード間の並行Edgeは1本のみ保持する
-    （後から登場したEdgeで上書き。`graph.edges`の反復順=辞書の挿入順に従う）。
+    Dijkstraを、scipy.sparse.csgraph（C実装）で高速に解くために使う。同一ノード間の
+    並行Edgeは1本のみ保持する（後から登場したEdgeで上書き。`graph.edges`の反復順=
+    辞書の挿入順に従う）。
     """
 
     matrix: csr_matrix
@@ -64,13 +44,13 @@ class SparseRoadGraph:
 
 
 def build_sparse_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResult]) -> SparseRoadGraph:
-    """RoadGraphとEdge Costから`SparseRoadGraph`を構築する（`build_networkx_graph`の
-    scipy版）。Hard Constraintで除外されたEdge・Costが算出できなかったEdgeは含めない
-    （`build_networkx_graph`と同じ）。
+    """RoadGraphとEdge Costから`SparseRoadGraph`を構築する。Hard Constraintで
+    除外されたEdge（`allowed=False`）やCostが算出できなかったEdge（`cost=None`）は
+    含めない（仕様書29章：探索対象から除外する）。
 
-    `scipy.sparse.coo_matrix`は同一(row, col)への重複エントリを合算してしまう
-    （NetworkXの「後勝ちで1本化」とは異なる）ため、疎行列を組む前にPython側のdictで
-    (from_index, to_index)ごとに1本へ集約してから渡す。
+    `scipy.sparse.coo_matrix`は同一(row, col)への重複エントリを合算してしまうため、
+    疎行列を組む前にPython側のdictで(from_index, to_index)ごとに1本（後から登場した
+    Edgeで上書き）へ集約してから渡す。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
@@ -107,7 +87,9 @@ def build_sparse_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResul
 def shortest_path_node_ids_sparse(
     sparse_graph: SparseRoadGraph, start_node_id: str, end_node_id: str
 ) -> list[str] | None:
-    """`shortest_path_node_ids`のscipy版。挙動（到達不能・始点=終点の扱い）は同一。"""
+    """start_node_idからend_node_idまでの最小コスト経路をNode ID列で返す。
+    経路が存在しない（到達不能）場合、または始点・終点がgraph上に無い場合はNoneを返す。
+    """
     if start_node_id == end_node_id:
         return [start_node_id] if start_node_id in sparse_graph.node_id_to_index else None
 
@@ -134,7 +116,7 @@ def shortest_path_node_ids_sparse(
 
 
 def path_to_edge_ids_sparse(sparse_graph: SparseRoadGraph, path_node_ids: list[str]) -> list[str]:
-    """`path_to_edge_ids`のscipy版。Node ID列を、それらを結ぶDirected EdgeのID列へ変換する。"""
+    """Node ID列を、それらを結ぶDirected EdgeのID列へ変換する。"""
     return [
         sparse_graph.edge_id_by_index_pair[
             (sparse_graph.node_id_to_index[u], sparse_graph.node_id_to_index[v])
@@ -160,38 +142,15 @@ def routable_node_ids(sparse_graph: SparseRoadGraph) -> set[str]:
     return {sparse_graph.index_to_node_id[i] for i in connected_indices}
 
 
-def find_nearest_node(graph: RoadGraphLike, point: Coordinates) -> str | None:
-    """総当たりで指定地点に最も近いNodeを探す。
-
-    1回のRoad Graph構築（1リクエスト分のbbox）あたりのNode数は数千程度を想定しており、
-    この規模であれば線形探索でも実用上問題にならない。ノードが1つも無い場合はNoneを返す。
-
-    同じgraphに対して複数回呼ぶ場合（`RoadGraphEngine`は1リクエストにつき最大17回、
-    改善計画T219参照）は、都度線形走査するこの関数ではなく`build_node_spatial_index`＋
-    `find_nearest_node_indexed`を使うと索引を使い回せる。
-    """
-    nearest_node_id: str | None = None
-    nearest_distance: float | None = None
-    for node_id, node in graph.nodes.items():
-        # 改善計画T262: nodeは既にlatitude/longitudeを持つ（NodeLike）ため、
-        # Coordinates（Pydantic）へ包み直さずそのまま渡す（haversine_distance_kmは
-        # LatLon Protocolで受ける）。
-        distance = haversine_distance_km(point, node)
-        if nearest_distance is None or distance < nearest_distance:
-            nearest_distance = distance
-            nearest_node_id = node_id
-    return nearest_node_id
-
-
 @dataclass
 class NodeSpatialIndex:
-    """`find_nearest_node`の線形探索を高速化する緯度経度グリッドバケット索引
+    """緯度経度の総当たり線形探索を高速化するグリッドバケット索引
     （改善計画T219、T12 Stage 1）。
 
-    `RoadGraphEngine`は1リクエストの同じRoad Graphに対し最大17回`find_nearest_node`
-    相当の呼び出しを行う（`prepare`で1回・`trace_loop`で方位ごとに2回）。ノード数が
-    増えるとこの繰り返しが線形探索×17回ぶん積み上がるため、索引を1回だけ構築して
-    使い回す。新規外部ライブラリ（scipy.spatial.cKDTree等）は導入せず、既定の
+    `RoadGraphEngine`は1リクエストの同じRoad Graphに対し最大17回、指定地点に最も
+    近いNodeを探す呼び出しを行う（`prepare`で1回・`trace_loop`で方位ごとに2回）。
+    ノード数が増えるとこの繰り返しが線形探索×17回ぶん積み上がるため、索引を1回だけ
+    構築して使い回す。新規外部ライブラリ（scipy.spatial.cKDTree等）は導入せず、既定の
     `dict`だけで組めるグリッドバケット方式にする（PostGIS空間インデックスが無い
     構成でも同じロジックで動く）。
     """
@@ -233,7 +192,8 @@ def build_node_spatial_index(
 
 
 def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> str | None:
-    """`build_node_spatial_index`が作った索引を使い、指定地点に最も近いNodeを探す。
+    """`build_node_spatial_index`が作った索引を使い、指定地点に最も近いNodeを総当たり
+    より高速に探す。
 
     グリッドバケットを中心セルから外側へリング状に広げながら探索し、既知の最近傍距離が
     「まだ調べていない外側リングのどの点までの距離よりも近い」と保証できた時点で打ち切る
@@ -259,7 +219,8 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
                     continue  # 内側のリングは前回までのループで調べ済み
                 for node_id in index.buckets.get((cell_lat + dx, cell_lon + dy), ()):
                     node = index.graph.nodes[node_id]
-                    # 改善計画T262: find_nearest_node同様、Coordinatesへ包み直さない。
+                    # 改善計画T262: nodeは既にlatitude/longitudeを持つ（NodeLike）ため、
+                    # Coordinatesへ包み直さない。
                     distance = haversine_distance_km(point, node)
                     if nearest_distance is None or distance < nearest_distance:
                         nearest_distance = distance
@@ -268,22 +229,6 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
             break
         radius += 1
     return nearest_node_id
-
-
-def shortest_path_node_ids(nx_graph: nx.DiGraph, start_node_id: str, end_node_id: str) -> list[str] | None:
-    """start_node_idからend_node_idまでの最小コスト経路をNode ID列で返す。
-    経路が存在しない（到達不能）場合はNoneを返す。"""
-    if start_node_id == end_node_id:
-        return [start_node_id]
-    try:
-        return nx.dijkstra_path(nx_graph, start_node_id, end_node_id, weight="weight")
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
-        return None
-
-
-def path_to_edge_ids(nx_graph: nx.DiGraph, path_node_ids: list[str]) -> list[str]:
-    """Node ID列を、それらを結ぶDirected EdgeのID列へ変換する。"""
-    return [nx_graph[u][v]["edge_id"] for u, v in zip(path_node_ids, path_node_ids[1:])]
 
 
 def concat_node_paths(paths: list[list[str]]) -> list[str]:

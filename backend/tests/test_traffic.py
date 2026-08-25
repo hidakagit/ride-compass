@@ -6,25 +6,7 @@ from app.domain.traffic import (
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
-    smoothness_score,
 )
-
-
-class TestSmoothnessScore:
-    def test_excellent_is_100(self):
-        assert smoothness_score({"smoothness": "excellent"}) == 100.0
-
-    def test_horrible_is_0(self):
-        assert smoothness_score({"smoothness": "horrible"}) == 0.0
-
-    def test_case_and_whitespace_insensitive(self):
-        assert smoothness_score({"smoothness": " Good "}) == 85.0
-
-    def test_missing_tag_is_none(self):
-        assert smoothness_score({}) is None
-
-    def test_unknown_value_is_none(self):
-        assert smoothness_score({"smoothness": "mystery"}) is None
 
 
 class TestClassifyBicycleInfrastructure:

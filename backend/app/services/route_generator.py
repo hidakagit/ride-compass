@@ -5,7 +5,8 @@ RouteScorerで総合スコアを付けて並べ替える」という周回生成
 経由地点間の実際の経路計算と評価値（標高・風・路面）の取得方法はエンジン
 （`LoopRoutingEngine`実装）へ委譲し、`config.py`の`routing_engine`設定で
 `OpenRouteServiceEngine`（openrouteservice委譲）と`RoadGraphEngine`
-（自前Road Graph + NetworkX Dijkstra）を切り替える。
+（自前Road Graph + scipy.sparse.csgraph Dijkstra、改善計画T220でNetworkXから移行済み。
+road_graph_engine.py参照）を切り替える。
 
 この分割により、周回戦略側の将来拡張（適応的な半径調整・道路実データからの
 候補地点選定・候補数の増加等、仕様書7-11章・docs/architecture.md 5章）は

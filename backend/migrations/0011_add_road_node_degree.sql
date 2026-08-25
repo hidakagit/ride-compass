@@ -12,4 +12,4 @@
 -- 適用後はbackend/app/batch/precompute_road_node_degrees.pyの実行が必須（適用しただけでは
 -- 全行degree=0のまま、edge_attribute_counts等と同じ運用）。road_edgesが変わるたび
 -- （PBF再取込時等）に再実行が必要な派生データ。
-ALTER TABLE road_nodes ADD COLUMN degree integer NOT NULL DEFAULT 0;
+ALTER TABLE road_nodes ADD COLUMN IF NOT EXISTS degree integer NOT NULL DEFAULT 0;

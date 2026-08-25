@@ -123,9 +123,9 @@ def main() -> None:
     # レイヤー・凡例を自動生成する。新しい軸はレジストリへの登録（＋タイルへの事実の
     # 焼き込み）だけで地図レイヤーが現れる。
     # 一次属性カタログ（改善計画T163、地図レイヤー階層の次数反転）も同じレジストリから
-    # 書き出す。各軸のinputsは既にattr_idのリストとして含まれているため、
-    # フロントはこのprimary_attributesのlabel（正式名）とinputsの組み合わせだけで
-    # 2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
+    # 書き出す。各軸のprimary_attribute_idsは既にattr_idのリストとして含まれているため、
+    # フロントはこのprimary_attributesのlabel（正式名）とprimary_attribute_idsの組み合わせ
+    # だけで2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
     #
     # 改善計画T320: 以前は組み込み6軸を`registry_defaults.py`が手書きで個別登録し、
     # それ以外の軸（軸スタジオ作成軸）だけをここで別ループ（`_auto_ramp_axes`）で
@@ -145,12 +145,13 @@ def main() -> None:
                     # フロント側でwind（category="動的"）を推定指標チップグループから除外
                     # できない（secondaryAxes.ts参照）。
                     "category": AXIS_DEFINITIONS[axis.axis_id].category,
-                    "inputs": axis.inputs,
                     # 改善計画T308: GET /api/axis-catalog（実行時API）のprimary_attribute_ids
                     # と同じ値をキー名も揃えて書き出す（frontend側のCatalogAxis型・
                     # secondaryAxesFromCatalogAxes等が実行時API/静的生成物どちらの入力も
-                    # 同じ変換関数で処理できるようにするため）。inputsキー自体は他の消費者
-                    # （evaluationAxes.test.ts等）が引き続き読むため残す。
+                    # 同じ変換関数で処理できるようにするため）。死コード監査（過去の監査）で、
+                    # 同じ値を重複して書き出していた旧inputsキー（唯一の読み手だった
+                    # frontend/src/lib/evaluationAxes.test.tsはprimary_attribute_ids読みへ
+                    # 移行済み）は削除した。
                     "primary_attribute_ids": axis.inputs,
                     # 改善計画T310: registry.py側のAxisSpecはicon_id等を持たないため、
                     # AXIS_DEFINITIONS側（単一ソース、domain/axis_definitions.py）を都度引く。

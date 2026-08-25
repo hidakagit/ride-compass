@@ -3,9 +3,6 @@
     {
       "axis_id": "gradient",
       "category": "観測",
-      "inputs": [
-        "elevation"
-      ],
       "primary_attribute_ids": [
         "elevation"
       ],
@@ -26,7 +23,6 @@
     {
       "axis_id": "wind",
       "category": "動的",
-      "inputs": [],
       "primary_attribute_ids": [],
       "icon_id": null,
       "chip_label": null,
@@ -45,9 +41,6 @@
     {
       "axis_id": "surface_q",
       "category": "観測",
-      "inputs": [
-        "surface"
-      ],
       "primary_attribute_ids": [
         "surface"
       ],
@@ -82,10 +75,6 @@
     {
       "axis_id": "stop_density",
       "category": "観測",
-      "inputs": [
-        "stop_poi",
-        "intersection"
-      ],
       "primary_attribute_ids": [
         "stop_poi",
         "intersection"
@@ -134,14 +123,6 @@
     {
       "axis_id": "car_stress",
       "category": "推定",
-      "inputs": [
-        "highway",
-        "cycleway",
-        "maxspeed",
-        "lanes",
-        "designation",
-        "motor_vehicle_access"
-      ],
       "primary_attribute_ids": [
         "highway",
         "cycleway",
@@ -168,19 +149,19 @@
             "false_value": 0.0,
             "has_unknown_fallback": true,
             "categories": {
-              "cycleway": 1.0,
-              "living_street": 1.0,
-              "residential": 2.0,
-              "unclassified": 2.0,
               "track": 2.0,
-              "tertiary": 3.0,
-              "tertiary_link": 3.0,
-              "secondary": 3.0,
-              "secondary_link": 3.0,
-              "primary": 4.0,
-              "primary_link": 4.0,
               "trunk": 4.0,
-              "trunk_link": 4.0
+              "primary": 4.0,
+              "cycleway": 1.0,
+              "tertiary": 3.0,
+              "secondary": 3.0,
+              "trunk_link": 4.0,
+              "residential": 2.0,
+              "primary_link": 4.0,
+              "unclassified": 2.0,
+              "living_street": 1.0,
+              "tertiary_link": 3.0,
+              "secondary_link": 3.0
             },
             "breakpoints": null
           },
@@ -193,11 +174,11 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": {
-              "separated": -2.0,
               "lane": -1.0,
+              "roadway": 1.0,
+              "separated": -2.0,
               "shared_busway": 0.0,
-              "shared_pedestrian": 0.0,
-              "roadway": 1.0
+              "shared_pedestrian": 0.0
             },
             "breakpoints": null
           },
@@ -282,9 +263,9 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": {
-              "emergency_transport": 1.0,
+              "both": 1.0,
               "critical_logistics": 1.0,
-              "both": 1.0
+              "emergency_transport": 1.0
             },
             "breakpoints": null
           },
@@ -312,9 +293,6 @@
     {
       "axis_id": "accident",
       "category": "推定",
-      "inputs": [
-        "accident_point"
-      ],
       "primary_attribute_ids": [
         "accident_point"
       ],
@@ -351,10 +329,6 @@
     {
       "axis_id": "night",
       "category": "観測",
-      "inputs": [
-        "lit",
-        "tunnel"
-      ],
       "primary_attribute_ids": [
         "lit",
         "tunnel"

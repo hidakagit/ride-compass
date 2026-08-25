@@ -1,6 +1,5 @@
 from app.domain.osm_adapter import (
     osm_node_to_poi_spec,
-    osm_nodes_to_poi_specs,
     osm_way_to_way_spec,
     osm_ways_to_way_specs,
 )
@@ -208,13 +207,3 @@ def test_osm_node_to_poi_spec_keeps_only_allowed_tags():
     assert spec.tags == {"highway": "crossing", "crossing": "zebra"}
 
 
-def test_osm_nodes_to_poi_specs_filters_out_unrelated_nodes():
-    raw_nodes = [
-        {"id": 200, "tags": {"highway": "traffic_signals"}, "lat": 0.0, "lon": 0.0},
-        {"id": 201, "tags": {}, "lat": 0.0, "lon": 0.0},
-    ]
-
-    specs = osm_nodes_to_poi_specs(raw_nodes)
-
-    assert len(specs) == 1
-    assert specs[0].osm_node_id == 200

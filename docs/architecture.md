@@ -361,7 +361,7 @@ RideCompass/
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「デプロイの反映確認」で新規）
       api/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions
@@ -393,7 +393,7 @@ RideCompass/
         wbgt.py                            ✅ 改善計画T174: 暑さ指数（WBGT）の値→4段階＋非表示の判定（環境省「熱中症予防運動指針」を典拠）、提供期間（4〜10月）判定
         wbgt_points.py                     ✅ 改善計画T174: 情報提供地点（アメダス観測所ベース、約840地点）への最近傍点探索
         flood_forecast.py                  ✅ 改善計画T212: JMA指定河川洪水予報のコード対応表（気象庁公式コード表を典拠、item.code自体が発表/継続/警報解除/完全解除を区別）とレベル2〜5→バッジ4段階への対応、電文からのActiveFloodForecast抽出
-        routing.py                     ✅ build_networkx_graph, find_nearest_node, shortest_path_node_ids, path_to_edge_ids, concat_node_paths（「完全移行」で新規。Route Engine、NetworkXのDijkstraをラップ）
+        routing.py                     ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（T220、scipy.sparse.csgraph版）・build_node_spatial_index/find_nearest_node_indexed・concat_node_paths。NetworkX版（build_networkx_graph/find_nearest_node/shortest_path_node_ids/path_to_edge_ids、「完全移行」時点の実装）はscipy移行後実行時経路から呼ばれなくなっていたため改善計画T321（デッドコード監査）で削除、networkx依存自体もrequirements.txtから撤去
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
         route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・RouteScorer適用を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）
@@ -408,7 +408,9 @@ RideCompass/
         route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）。「完全移行」後もRoad Graphベースの候補に対しそのまま再利用
         region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
         accident_service.py          ✅ 事故点のタイル生成（accident_repository.py経由）。region_service.pyとは別系統（外部静的データソースT50、7章参照）
-        graph_service.py            ✅ GraphService.get_or_build_graph_with_attributes(bbox)でPostGIS（`repository`必須）からRoad Graphを取得・構築（Road Graph移行Phase 1〜3、新規）。「完全移行」でRouteGeneratorから実際に参照されるようになった。当初はrepository未接続時にOverpassから都度構築するDBなし構成を持っていたが、改善計画T222で撤去済み（本番・dev環境は常にrepositoryを注入するため未到達だった）
+        graph_service.py            ✅ GraphService.get_or_build_graph_with_attributes(bbox)でPostGIS（`repository`必須）からRoad Graphを取得・構築（Road Graph移行Phase 1〜3、新規）。「完全移行」でRouteGeneratorから実際に参照されるようになった。当初はrepository未接続時にOverpassから都度構築するDBなし構成を持っていたが、改善計画T222で撤去済み（本番・dev環境は常にrepositoryを注入するため未到達だった）。改善計画T321（デッドコード監査）: T219のタイルキャッシュ導入でホットパスが`_build_search_materials_from_tile_cache`へ移った後、`lean`引数と依存する分岐が実行時到達不能のまま残っていたため削除。T248の材料取得統合（`get_edge_materials_batch`）後に呼び出し元を失っていた素通しラッパー4本（`get_way_tags`/`get_edge_attribute_counts`/`get_elevation_attributes`/`get_designated_edge_ids`）も削除
+        elevation_aggregation.py    ✅ 改善計画T321（デッドコード監査）: 標高集約（獲得標高・最高/最低標高・最大勾配）の最終集約ロジック（sum_or_none/min_or_none/max_or_none）を`elevation_service.py`と`road_graph_engine.py: _aggregate_elevation`の二重実装から切り出して共通化
+        tile_serving.py             ✅ 改善計画T321（デッドコード監査）: タイル配信（キャッシュ確認→fetch_tile→キャッシュ書込/空タイルフォールバック）の骨格を`region_service.py: _get_tile`と`accident_service.py: get_accident_tile`の二重実装から切り出して共通化
         elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graph(graph)でEdge単位の標高属性（形状点をGSI APIへ問い合わせ）を算出（Road Graph移行Phase 3、新規）。「完全移行」でRouteGeneratorから、確定した経路上のEdgeだけに絞って呼ばれるようになった（性能上の理由、decisions/road-graph-migration.md参照）
         evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes, wind=None)でEdge Costを算出（Road Graph移行Phase 4、新規。Phase 5でload_route_preference()を追加。「完全移行」でwind引数を追加しRouteGeneratorから参照されるようになった）。改善計画T240で内部実装をcompute_edge_costs_bulk（domain/evaluation.py、numpyベクトル化）へ切り替え（シグネチャ・戻り値型は不変）
       infrastructure/
@@ -425,9 +427,9 @@ RideCompass/
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
         debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
         database.py                  ✅ SQLAlchemy非同期エンジン・セッションファクトリ（Road Graph移行「永続化」、新規。DB未接続でも既存機能に影響なし）。`get_engine`/`get_session_factory`（command_timeout=20、元は路面タイル配信のハング検知用）と、road_graphエンジンの経路生成専用`get_route_generation_engine`/`get_route_generation_session_factory`（command_timeout=180、改善計画T243）の2系統のエンジンを持つ。未splitエリアの初回タッチ時に発生しうる重い再構築が前者の短いタイムアウトでキャンセルされる本番実測不具合への対応
-        migrate.py                   ✅ 最小マイグレーション機構（`apply_pending_migrations`。改善計画T17、decisions/pre-static-attributes-gate.md 決定3）。`../migrations/`配下の番号付きSQLを`schema_migrations`テーブルで適用管理する。`create_tables`（新規DB向けの基本スキーマのみ）とは役割分離
+        migrate.py                   ✅ 最小マイグレーション機構（`apply_pending_migrations`。改善計画T17、decisions/pre-static-attributes-gate.md 決定3）。`../migrations/`配下の番号付きSQLを`schema_migrations`テーブルで適用管理する。`create_tables`（新規DB向けの基本スキーマのみ）とは役割分離。標準ブートストラップ順は`create_tables()`→`apply_pending_migrations()`（import_pbf.py等）で、0001〜0009は`CREATE TABLE IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`を徹底しこの順序を前提に設計されているが、0010〜0019はこの規約が崩れて素の`CREATE TABLE`/`ADD COLUMN`になっており、新規DBでは`create_tables()`が先に同じテーブル・カラムを作るため0010で`DuplicateTableError`となり以降が未適用のまま中断する欠陥があった（改善計画T321のデッドコード監査で発見、フレッシュDBでの実機検証は誰も踏んでいなかった）。改善計画T321で0010〜0019にも`IF NOT EXISTS`を追加して修正済み（フレッシュDBで19件全適用・axis_definitions 13行のシード投入まで実機検証済み）
         road_graph_models.py         ✅ road_nodes/road_edges/elevation_attributes/surface_attributesのSQLAlchemy ORMモデル（PostGIS Geometry型、Road Graph移行「永続化」、新規）。OsmRawNodeRow/OsmRawWayRow（生OSMデータ、配列型+GINインデックス）を「根本修正」で追加
-        road_graph_repository.py     ✅ 責務別4リポジトリ＋ファサード（改善計画T6で分割）: RawOsmRepository（生OSM層・タイルマーカー）/ DerivedGraphRepository（road_nodes/edges・split_at鮮度判定）/ AttributeRepository（標高・路面属性）/ RoadSurfaceTileQuery（表示用MVT）/ RoadGraphRepository（既存公開APIを保つファサード、DI注入点）。**書き込みメソッドはcommitせず、サービス層が操作のまとまりごとにcommit()を呼ぶ規約**（トランザクション境界の詳細はモジュールdocstring参照）。save_raw_ways/get_way_specs_with_closureは「根本修正」で追加、save_graphはway_ids_to_replaceによるdelete-then-reinsert対応。save_graphは改善計画T245でステージ別所要時間（node_upsert_ms/delete_ms/edge_upsert_ms/total_ms）のINFOログを追加（本番実測でDELETE段の想定外の長時間化を検知したが原因未特定のまま、次回発生時にログで追跡できるようにするため）。改善計画T246で真因（`NOT (edge_id = ANY(new_edge_ids))`除外条件をチャンクごとに毎回再評価していた）を特定し、除外対象を一時テーブル（PK付き）へ1回だけ投入しNOT EXISTS（反結合）で参照する形へ変更、あわせてこの操作専用に`SET LOCAL work_mem`を引き上げ。本番DBのグローバルwork_memも4MB→16MBへ変更済み（`postgresql.conf`、SSH経由）
+        road_graph_repository.py     ✅ 責務別4リポジトリ＋ファサード（改善計画T6で分割）: RawOsmRepository（生OSM層・タイルマーカー）/ DerivedGraphRepository（road_nodes/edges・split_at鮮度判定）/ AttributeRepository（標高・路面属性）/ RoadSurfaceTileQuery（表示用MVT）/ RoadGraphRepository（既存公開APIを保つファサード、DI注入点）。**書き込みメソッドはcommitせず、サービス層が操作のまとまりごとにcommit()を呼ぶ規約**（トランザクション境界の詳細はモジュールdocstring参照）。save_raw_ways/get_way_specs_with_closureは「根本修正」で追加、save_graphはway_ids_to_replaceによるdelete-then-reinsert対応。save_graphは改善計画T245でステージ別所要時間（node_upsert_ms/delete_ms/edge_upsert_ms/total_ms）のINFOログを追加（本番実測でDELETE段の想定外の長時間化を検知したが原因未特定のまま、次回発生時にログで追跡できるようにするため）。改善計画T246で真因（`NOT (edge_id = ANY(new_edge_ids))`除外条件をチャンクごとに毎回再評価していた）を特定し、除外対象を一時テーブル（PK付き）へ1回だけ投入しNOT EXISTS（反結合）で参照する形へ変更、あわせてこの操作専用に`SET LOCAL work_mem`を引き上げ。本番DBのグローバルwork_memも4MB→16MBへ変更済み（`postgresql.conf`、SSH経由）。改善計画T321（デッドコード監査）: `RawOsmRepository.is_tile_cached`/`mark_tile_cached`とその委譲メソッドを削除。実際にタイル取得済みマークを書くのは`app/batch/import_pbf.py: _mark_tiles`（生asyncpgのON CONFLICT DO NOTHING）のみで、削除した2メソッド（ORM UPSERT版、競合時にfetched_atを更新する点で挙動が異なっていた）は実行時未使用の重複実装だった
         valhalla_client.py        ⬜ 将来
         osm_repository.py            ⬜（road_graph_repository.pyが実質この役割を担う）
         accident_repository.py       ✅ AccidentTileQuery（事故点のMVT生成、accident_points専用。road_graph_repository.pyとは別系統）
@@ -438,7 +440,7 @@ RideCompass/
         import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
         import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
         match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
-    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）/ collect_jartic.py（改善計画T53、JARTIC WFSから交通量オープンデータを収集しdev専用のtraffic_stations/traffic_hourlyへ保存。唯一DB書き込みを伴うscripts/。本番Oracle migrationには含めない）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した
+    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した。collect_jartic.py（改善計画T53、JARTIC WFS収集）も、唯一の消費先だったanalyze_jartic_calibration.py削除後は較正データを読む者がいない無意味な処理になっていたため改善計画T321（デッドコード監査）で削除した
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_between / sample_indices / sample_line_coordinates / sample_line_pointsの検証（後者3つは「完全移行」で一度撤去、「ルーティングエンジンの切り替え対応」でOpenRouteServiceEngine用に復元）
@@ -447,7 +449,7 @@ RideCompass/
       test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 経由地点が起点始点/終点の周回を成すこと・距離許容フィルタ・失敗方位のスキップ・prepare失敗時の空返却・**評価が距離フィルタ通過候補だけに行われること**・total_scoreソート・engine_name公開（設計レビュー対応のポート分割で新規）
       test_openrouteservice_engine.py ✅ OpenRouteServiceEngineのエンドツーエンド検証（RouteGenerator経由）: 8方位生成・経路取得失敗時スキップ・標高/風プロファイルのマージ・total_score算出・segments構築・engine_name（旧test_route_generator.pyのopenrouteservice版から改組）
       test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 起点を中心とした「車輪」状のRoad Graphフィクスチャによる8方位生成・許容範囲フィルタ・経路探索失敗時スキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせが1回のみ・標高取得がパス上のEdgeだけ＆距離フィルタ通過候補だけに絞られること（性能回帰テスト）・engine_name（旧test_route_generator.pyのRoad Graph版から改組）
-      test_routing.py          ✅ build_networkx_graph（Hard Constraint除外）・find_nearest_node・shortest_path_node_ids（コスト最小経路・到達不能・始点=終点）・path_to_edge_ids・concat_node_pathsの検証（「完全移行」で新規）
+      test_routing.py          ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（コスト最小経路・到達不能・始点=終点・Hard Constraint除外）・build_node_spatial_index/find_nearest_node_indexed・concat_node_pathsの検証（T321でNetworkX版のテストは実装ごと削除）
       test_routes_generate.py ✅ get_route_generation_builderをDIでモックしたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429・settings.routing_engineによるエンジン選択に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・YAML既定値へのフォールバックの検証を追加）
       test_elevation_service.py ✅ 標高プロファイル（獲得標高・最高/最低標高・最大勾配）の算出・欠損値・有効点2点未満時の扱いの検証（Step5。elevation_service.pyと同じ経緯で削除→復元）
       test_wind_service.py    ✅ 区間ごとの推定到達時刻の計算・wind_penalty算出・天候取得失敗時の扱いの検証（Step7。wind_service.pyと同じ経緯で削除→復元）
@@ -482,7 +484,7 @@ RideCompass/
     migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
-    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で、networkxを「完全移行」（Route Engine）で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加
+    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加。networkxは「完全移行」（Route Engine）時に追加したが、T220でDijkstra本体がscipy.sparse.csgraphへ移行した後もNetworkX版の関数群が実行時経路から呼ばれないまま残っていたため、改善計画T321（デッドコード監査）で依存ごと削除した
     Dockerfile                ✅
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto
@@ -527,10 +529,10 @@ RideCompass/
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
         useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
         useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
-        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重みstate共有に使う）
+        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重みstate共有に使う）。改善計画T321（デッドコード監査）: `reloadKey`オプションを追加。`layerVisibility`の`deserialize`がビルド時静的な軸集合しか走査せず軸スタジオ公開軸のON状態がリロードで消える実バグがあったため、`axisCatalog.loaded`を`reloadKey`に渡すことで「マウント直後は静的フォールバック集合、カタログ取得完了後は実行時軸集合」の2段階でlocalStorageから再復元できるようにした（page.tsx側の対応、下記1831行目周辺参照）
         useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
         useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時は既存7軸の静的フォールバック（axis-catalog.json＋evaluationAxes.tsの手書きラベル）を返す
-        useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）
+        useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）。改善計画T321（デッドコード監査）: `response.materials.length > 0`ガードが「取得中/失敗」と「取得成功0件」を同一視し後者でも静的フォールバックが残り続けるT318と同型のバグとして残存していたため、useAxisCatalog.tsと同じ形へ修正
       lib/
         debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
         adminApiProxy.ts            ✅ 改善計画T305で新設（旧adminToken.ts・useAdminCredentials.tsは撤去）: 軸CRUD管理APIのサーバー側プロキシ本体。`app/admin/api/axis-definitions/`配下の各route handlerから呼ばれ、サーバー環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORDからbackend宛Authorizationヘッダを組み立てて転送する（「管理画面の権限制御」節参照）
@@ -1361,6 +1363,14 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   **再デプロイなしに**地図・凡例・チップへ現れるようになった（旧来の「axis-catalog.json
   へ反映されるのは再デプロイ後」という制約はライブ取得側では解消。ビルド時静的
   生成物自体は取得失敗時フォールバックとして引き続き生成・コミットする）。
+- **改善計画T321（デッドコード監査）**: 上記の`MAP_LAYERS`/`ROAD_SURFACE_SHARED_LAYER_IDS`
+  （`mapLayers.ts`）・`STATIC_FILTER_AXES`（`staticAttributeLayers.ts`）・
+  `STATIC_OVERLAY_LAYERS`/`LAYER_DATA_SOURCES`（`MapView.tsx`）は、`build*(RAMP_AXES)`を
+  静的引数で事前計算してexportしたものだったが、上記の実行時フェッチ化で本体コードの
+  消費者が全て`build*(catalog.rampAxes)`直呼びへ移行済みで、exportされた定数側は
+  テストからしか参照されなくなっていた。定数自体を削除し、テストは`build*(RAMP_AXES)`を
+  明示的に呼ぶ形＋軸スタジオのGUI作成軸を含む拡張カタログでの反映確認テストへ書き換えた
+  （`build*()`関数自体・`RAMP_AXES`フォールバック機構はそのまま存続）。
 - **materials統一（primary_attribute_id/primary_attribute_ids）**: 上記実装中に
   「軸スタジオ作成軸には材料の共起ケーシング・材料一覧ノートUIが効かない」という
   別ギャップが判明した。`primaryAttributes.ts`の`axisMaterials()`/
@@ -1468,6 +1478,14 @@ AxisSpec(axis_id="gradient", ...))`のように手書きしており（`wind`は
 自体はビルド時・テストのみ実行されアプリ起動時には呼ばれないため、軸スタジオでのDB上の
 編集はこの参照を経由して`axis-catalog.json`側へ動的反映されるわけではない
 （`GET /api/axis-catalog`という実行時APIには即座に反映される、下記Stage D節参照）。
+
+**改善計画T321（デッドコード監査）: `PrimaryAttributeSpec`の`ingest_fn`/`source`/`geometry`/
+`dtype`/`update_cadence`/`description`フィールドを削除した**。上記の`AxisSpec.transform_fn`
+等と全く同型の死蔵フィールドで、`ingest_fn`はモジュールパス文字列を持つだけで実際に
+`importlib`等で解決する経路が存在せず、他の5フィールドも唯一の消費者`export_openapi.py`が
+`attr_id`/`label`/`shared`の3つしか書き出していなかった。連動して`Geometry`/`DType`/
+`UpdateCadence`のLiteral型エイリアス（この5フィールド専用）も削除した。単体取得関数
+`get_primary_attribute`/`get_axis`（実行時参照ゼロ、テストのみ使用）も同時に削除した。
 
 **本レジストリ（`registry.py`）が駆動するのは表示メタデータのみ**。コスト計算側は
 改善計画T221 Stage B/Cで`domain/axis_definitions.py: AXIS_DEFINITIONS`（軸定義データ＋

@@ -18,6 +18,17 @@ def _defaults_registered():
     registry.reset_registry_for_testing()
 
 
+def _axis(axis_id: str):
+    """`registry.get_axis`相当（単体取得関数は死コード監査で削除済み、テストローカルに
+    `all_axes()`から引く形へ置き換える）。"""
+    return next(axis for axis in registry.all_axes() if axis.axis_id == axis_id)
+
+
+def _primary_attribute(attr_id: str):
+    """`registry.get_primary_attribute`相当（同上）。"""
+    return next(attr for attr in registry.all_primary_attributes() if attr.attr_id == attr_id)
+
+
 def test_default_primary_attributes_are_registered():
     attr_ids = {attr.attr_id for attr in registry.all_primary_attributes()}
     assert {
@@ -54,7 +65,7 @@ def test_intersection_density_is_not_a_standalone_axis():
     （設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）。"""
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert "intersection_density" not in axis_ids
-    assert registry.get_axis("stop_density").inputs == ["stop_poi", "intersection"]
+    assert _axis("stop_density").inputs == ["stop_poi", "intersection"]
 
 
 def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
@@ -66,7 +77,7 @@ def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
 
 
 def test_car_stress_axis_input_is_exclusive_of_cycleway():
-    car_stress_axis = registry.get_axis("car_stress")
+    car_stress_axis = _axis("car_stress")
     assert "cycleway" in car_stress_axis.inputs
     for axis in registry.all_axes():
         if axis.axis_id != "car_stress":
@@ -74,17 +85,17 @@ def test_car_stress_axis_input_is_exclusive_of_cycleway():
 
 
 def test_night_axis_inputs_are_lit_and_tunnel():
-    night_axis = registry.get_axis("night")
+    night_axis = _axis("night")
     assert set(night_axis.inputs) == {"lit", "tunnel"}
 
 
 def test_accident_axis_input_is_exclusively_accident_point():
-    accident_axis = registry.get_axis("accident")
+    accident_axis = _axis("accident")
     assert accident_axis.inputs == ["accident_point"]
 
 
 def test_supply_poi_is_registered_but_used_by_no_axis():
-    assert registry.get_primary_attribute("supply_poi") is not None
+    assert _primary_attribute("supply_poi") is not None
     for axis in registry.all_axes():
         assert "supply_poi" not in axis.inputs
 
@@ -101,7 +112,7 @@ def test_car_stress_axis_includes_motor_vehicle_access():
     する分岐でmotor_vehicle_accessを実際に消費しているが、登録軸のinputsには記載が
     無かった（排他違反ではないが不完全）。地図レイヤー階層の次数反転検討（改善計画T163）で
     発覚し追加した。"""
-    car_stress_axis = registry.get_axis("car_stress")
+    car_stress_axis = _axis("car_stress")
     assert "motor_vehicle_access" in car_stress_axis.inputs
     for axis in registry.all_axes():
         if axis.axis_id != "car_stress":
@@ -137,7 +148,7 @@ def test_surface_q_and_night_kind_is_auto_derived_ramp():
     完全一致することも確認し、手書きの値が自動導出結果から差し戻されないようにする。
     """
     for axis_id in ("surface_q", "night"):
-        axis = registry.get_axis(axis_id)
+        axis = _axis(axis_id)
         assert axis.display is not None
         assert axis.display.kind == "ramp"
         ramp = derive_ramp_inputs(AXIS_DEFINITIONS[axis_id])
@@ -151,11 +162,11 @@ def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
     実行時スケール変換が必要な材料）の軸は、kindが従来どおりであることを確認する
     （回帰防止）。car_stressは改善計画T292で"bespoke"から"ramp"へ変更されたため、
     本テストの対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
-    assert registry.get_axis("gradient").display.kind == "none"
-    assert registry.get_axis("stop_density").display.kind == "ramp"
-    assert registry.get_axis("stop_density").display.thresholds == [1.0, 2.0, 4.0]
-    assert registry.get_axis("accident").display.kind == "ramp"
-    assert registry.get_axis("accident").display.thresholds == [0.4, 0.8, 1.5]
+    assert _axis("gradient").display.kind == "none"
+    assert _axis("stop_density").display.kind == "ramp"
+    assert _axis("stop_density").display.thresholds == [1.0, 2.0, 4.0]
+    assert _axis("accident").display.kind == "ramp"
+    assert _axis("accident").display.thresholds == [0.4, 0.8, 1.5]
 
 
 def test_car_stress_ramp_display():
@@ -163,7 +174,7 @@ def test_car_stress_ramp_display():
     kind="bespoke"からkind="ramp"へ変更した。derive_ramp_inputsでは解決できない
     （他の軸を参照するBreakpointLinearShapeのため）ためtile_inputsは本ファイルへ
     直接手書きしている。内部軸6つぶんのtile_inputsが揃っていることを確認する。"""
-    display = registry.get_axis("car_stress").display
+    display = _axis("car_stress").display
     assert display.kind == "ramp"
     assert display.thresholds == [2.0, 3.0, 4.0]
     properties = {ti.property for ti in display.tile_inputs}

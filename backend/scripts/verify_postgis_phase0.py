@@ -3,12 +3,17 @@
 docs/osm-pbf-import.md「9. 段階的導入計画」のPhase 0。これまで実DBに対して一度も
 実行されていなかった以下を、実際のPostGIS（PostgreSQL 18 + PostGIS 3.6）で検証する:
 
-- create_tables()（PostGIS拡張の有効化・DDL・GIN/空間インデックス作成の冪等性）
-- save_raw_ways / get_way_specs_with_closure（GINインデックスの&&検索・1ホップ近傍closure）
+- create_tables()（PostGIS拡張の有効化・DDL作成の冪等性。列追加・インデックス追加等の
+  ALTER操作自体はT17でmigrations/へ移設済みのため、続けてapply_pending_migrations()の
+  冪等性も検証する）
+- save_raw_ways / get_way_specs_with_closure（geom空間インデックス[GIST]によるST_DWithin等の
+  近傍検索・1ホップ近傍closure。旧node_ids GINインデックスの&&検索はmigrations/0001で廃止済み）
 - save_graph（Session.mergeによるUPSERT・FK制約・delete-then-reinsert）
 - get_graph_in_bbox（ST_Intersects/ST_MakeEnvelope・ジオメトリ往復での緯度経度軸順）
-- elevation/surface attributesの保存・読込（timestamptz往復を含む）
-- is_tile_cached / mark_tile_cached
+- elevation attributesの保存・読込（timestamptz往復を含む）・surfaceのJOIN導出
+  （専用テーブルsurface_attributesはmigrations/0004でDROP済み。road_edges.osm_way_id経由で
+  osm_raw_ways.surfaceをJOINする、改善計画T9）
+- road_graph_tiles（タイル取得済みマーカー）へのUPSERT・get_cached_tilesでの読み出し
 - GraphService.get_or_build_graph_with_attributes（タイルキャッシュのオーケストレーション一式）
 
 実行方法（backendディレクトリから）:
@@ -31,7 +36,6 @@ from sqlalchemy import text  # noqa: E402
 from app.domain.attributes import ElevationAttribute  # noqa: E402
 from app.domain.graph import RoadGraph, WaySpec, build_road_graph  # noqa: E402
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox  # noqa: E402
-from app.domain.osm_adapter import osm_ways_to_way_specs  # noqa: E402
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
 from app.infrastructure.migrate import apply_pending_migrations  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository, create_tables  # noqa: E402
@@ -192,10 +196,10 @@ async def main() -> int:
 
             print("== 3. Attribute（surface/elevation）の保存・読込 ==")
             # surfaceは専用テーブルを持たず、road_edges.osm_way_id経由でosm_raw_ways.surfaceを
-            # JOIN導出する（改善計画T9）。ステップ1のsave_raw_waysで既に保存済みのため、
-            # ここでの保存操作は不要。
+            # JOIN導出する（改善計画T9、旧surface_attributesテーブルはmigrations/0004でDROP済み）。
+            # ステップ1のsave_raw_waysで既に保存済みのため、ここでの保存操作は不要。
             got_surface = await repo.get_surface_attributes(list(primary_edges))
-            check("surface_attributesの件数一致（8件）", len(got_surface) == 8, f"got={len(got_surface)}")
+            check("surfaceのJOIN導出の件数一致（8件）", len(got_surface) == 8, f"got={len(got_surface)}")
             a_edge = "way-920000000001-seg0-fwd"
             check("surfaceのJOIN導出（Aはasphalt）",
                   got_surface.get(a_edge) == "asphalt")
@@ -218,11 +222,21 @@ async def main() -> int:
             check("elevation_attributesの往復（timestamptz含む）", round_trip_ok)
 
             print("== 4. タイル取得済みマーカー ==")
+            # 改善計画: repository.is_tile_cached/mark_tile_cachedは実行時未使用（実際の
+            # マーキングはapp/batch/import_pbf.py: _mark_tilesが唯一の実装）のため削除済み。
+            # ここでは読み出し側のget_cached_tilesのみを、生SQLで直接マークしたroad_graph_tiles
+            # 行に対して検証する。
             z, x, y = FIXTURE_TILE
-            check("未マークのタイルはis_tile_cached=False", not await repo.is_tile_cached(z, x, y))
-            await repo.mark_tile_cached(z, x, y)
-            await repo.mark_tile_cached(z, x, y)  # UPSERT冪等性
-            check("マーク後はis_tile_cached=True", await repo.is_tile_cached(z, x, y))
+            check("未マークのタイルはget_cached_tilesに含まれない",
+                  await repo.get_cached_tiles(z, [(x, y)]) == set())
+            mark_tile_sql = text(
+                "INSERT INTO road_graph_tiles (zoom, x, y, fetched_at) VALUES (:z, :x, :y, now()) "
+                "ON CONFLICT (zoom, x, y) DO UPDATE SET fetched_at = EXCLUDED.fetched_at"
+            )
+            await session.execute(mark_tile_sql, {"z": z, "x": x, "y": y})
+            await session.execute(mark_tile_sql, {"z": z, "x": x, "y": y})  # UPSERT冪等性
+            check("マーク後はget_cached_tilesに含まれる",
+                  await repo.get_cached_tiles(z, [(x, y)]) == {(x, y)})
             # T6以降、repositoryの書き込みメソッドはcommitしない（呼び出し側が確定する規約）。
             # ブロック内の読み書きは同一セッションで完結するが、ここで確定しないと
             # セッション終了時にロールバックされ、後続の別セッションから見えなくなる。

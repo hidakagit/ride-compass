@@ -79,11 +79,6 @@ def set_accident_years_covered(value: int) -> None:
     _accident_years_covered_cache = value
 
 
-def cached_tile_count() -> int:
-    """テスト・デバッグ用（/api/debug/stats等への統合は将来課題）。"""
-    return len(_tile_materials_cache)
-
-
 def clear() -> None:
     """テスト用。キャッシュを全消去する（本番コードパスからは呼ばない）。"""
     _tile_materials_cache.clear()

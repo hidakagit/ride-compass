@@ -271,10 +271,8 @@ def is_edge_allowed(
         for filter_name, highway_types in HARD_FILTER_HIGHWAY_TYPES.items():
             if filter_name in active_filters and edge.highway in highway_types:
                 return False
-    if "no_bicycle" in active_filters and way_tags is not None:
-        bicycle = (way_tags.get("bicycle") or "").strip().lower()
-        if bicycle == "no":
-            return False
+    if "no_bicycle" in active_filters and way_tags is not None and tag_value_is(way_tags, "bicycle", "no"):
+        return False
     if (
         max_average_grade_percent is not None
         and elevation_attribute is not None

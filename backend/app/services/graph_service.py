@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 
-from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials, surface_by_edge_id
+from app.domain.attributes import SearchMaterials, surface_by_edge_id
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache
@@ -94,22 +94,9 @@ class GraphService:
         return False
 
     async def get_or_build_graph_with_attributes(
-        self, bbox: BoundingBox, *, lean: bool = False
+        self, bbox: BoundingBox
     ) -> tuple[RoadGraphLike, dict[str, str | None]] | None:
         """PostGIS（`repository`）のみを参照してRoad Graphを返す。
-
-        `lean=True`（改善計画T218、T12 Stage 0）: 「生データがsplit以降変わっていない」
-        省略パス（下記）でのみ効く指定で、Edgeのgeometry（形状点列）を取得しない軽量版
-        （`RoadGraphRepository.get_graph_topology_in_bbox`）を使う。探索フェーズ
-        （経路選択、`RoadGraphEngine.prepare`）はgeometryを必要としない
-        （domain/evaluation.py: compute_wind_penaltyがbearing_degを直接使う設計）ため、
-        この引数で切り替える。地図表示（RegionServiceのタイル配信）は実ジオメトリが必要な
-        ため、既定の`lean=False`のまま呼ぶ。生データ変更を検知し再構築が必要な場合
-        （下記のフォールバック経路）は`lean`に関わらず常に`build_road_graph`経由で
-        グラフを返す。改善計画T262により`build_road_graph`自体が`LeanRoadGraph`
-        （dataclass、geometryは実座標を保持）を返すため、この経路も`lean`の値に関わらず
-        軽量なオブジェクト構築で完結する（地図表示側もgeometryは通常どおり取得できる、
-        Pydanticバリデーションのコストだけを避ける設計）。
 
         まず要求bboxを`domain/region.py: ROAD_GRAPH_TILE_ZOOM`のXYZタイル群に分解し、
         `_ensure_tiles_cached`で「生データを取得済みか」を判定する（地域路面レイヤー/
@@ -137,19 +124,10 @@ class GraphService:
         # Edge全量再UPSERTを省略してroad_edges/road_nodesを直接読む（実測で全体の
         # 85〜90%を占めるsave_graphのコストを丸ごと避けられる。docs/osm-pbf-import.md参照）。
         if await self._repository.is_split_up_to_date(bbox):
-            graph = await (
-                self._repository.get_graph_topology_in_bbox(bbox)
-                if lean
-                else self._repository.get_graph_in_bbox(bbox)
-            )
+            graph = await self._repository.get_graph_in_bbox(bbox)
             if graph is None:
                 # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
-                # 改善計画T248: leanの実体型（LeanRoadGraph/RoadGraph）に合わせる。
-                empty_graph: RoadGraphLike = (
-                    LeanRoadGraph(graph_version="cached-empty", nodes={}, edges={})
-                    if lean
-                    else RoadGraph(graph_version="cached-empty", nodes={}, edges={})
-                )
+                empty_graph: RoadGraphLike = RoadGraph(graph_version="cached-empty", nodes={}, edges={})
                 return empty_graph, {}
             surface_attributes = await self._repository.get_surface_attributes(list(graph.edges.keys()))
             return graph, surface_attributes
@@ -216,7 +194,7 @@ class GraphService:
         （surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）を
         まとめて返す（改善計画T219、T12 Stage 1）。
 
-        `get_or_build_graph_with_attributes(lean=True)`は1回のリクエストのbbox全体で
+        `get_or_build_graph_with_attributes`は1回のリクエストのbbox全体で
         素材を都度取得するため、同じエリアへ2回目以降のリクエストが来ても毎回DBへ
         問い合わせていた。本メソッドはbboxをz12タイル（`ROAD_GRAPH_TILE_ZOOM`）に分解し、
         タイル単位でプロセス内メモリキャッシュ（`infrastructure/graph_material_cache.py`）を
@@ -242,7 +220,7 @@ class GraphService:
         return await self._build_search_materials_from_tile_cache(bbox)
 
     async def _build_search_materials_uncached(self, bbox: BoundingBox) -> SearchMaterials | None:
-        built = await self.get_or_build_graph_with_attributes(bbox, lean=True)
+        built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
             return None
         graph, surface_attributes = built
@@ -353,28 +331,7 @@ class GraphService:
         return value
 
     async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
-        """`lean=True`で読み込んだ探索用グラフ（geometryプレースホルダのみ）の一部Edgeへ、
-        実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。
+        """`LeanRoadGraph`として読み込んだ探索用グラフ（geometryプレースホルダのみ）の
+        一部Edgeへ、実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。
         """
         return await self._repository.get_edges_with_geometry(edge_ids)
-
-    async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
-        """事故・停止・交差点の事前集計（`edge_attribute_counts`、改善計画T144→T218で
-        読み取り配線）を返す。
-        """
-        return await self._repository.get_edge_attribute_counts(edge_ids)
-
-    async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
-        """指定edge_idそれぞれの事前計算済み標高属性（average_grade等）を返す
-        （改善計画T218a、T12 Stage 0.5）。`elevation_attributes`テーブルの単純なキー参照
-        のみで、未計算のEdgeへその場でGSIへ問い合わせることはしない（探索フェーズは
-        `app.batch.precompute_elevation_attributes`で事前計算済みの値を読むだけに留め、
-        リクエスト単位のレイテンシに外部API呼び出しを持ち込まない設計）。
-        """
-        return await self._repository.get_elevation_attributes(edge_ids)
-
-    async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
-        """指定edge_idのうちKSJ N10/N12に該当するものの集合を返す（外部静的データソース
-        T51）。
-        """
-        return await self._repository.get_designated_edge_ids(edge_ids)

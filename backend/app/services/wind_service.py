@@ -72,7 +72,6 @@ class WindService:
             segments.append(
                 {
                     "distance_km": meta["distance_km"],
-                    "bearing_deg": meta["bearing_deg"],
                     "arrival_time": meta["arrival_time"],
                     "wind_penalty": wind_penalty,
                 }

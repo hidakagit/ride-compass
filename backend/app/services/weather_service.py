@@ -12,21 +12,21 @@ from app.infrastructure.weather_client import WeatherClient
 class WeatherService:
     """地点の天候を取得する。
 
-    `at`（時刻）を渡せない/Noneの場合は現在の気象を返す。`at`に未来時刻を渡した場合は
-    取得済みの時間別予報（hourly、forecast_days=2分）から最も近い時刻のデータを返す。
-    Step6ではフロントから`at`は渡さない（現在地の現在の天候のみ表示）が、Step7以降で
-    ルート上の各点＋推定到達時刻を渡す拡張がこのメソッドのシグネチャ変更なしで行える。
+    `get_conditions`は常に現在の気象を返す（呼び出し元は天気APIエンドポイント・
+    RoadGraphEngineの起点判定のみで、いずれも過去/未来時刻を渡さない）。
+    ルート上の各点＋推定到達時刻（未来時刻）に対する天候は`get_conditions_many`
+    （WindService用、複数地点・複数時刻をまとめて解決）が担当する。
     """
 
     def __init__(self, client: WeatherClient, http_client: httpx.AsyncClient):
         self._client = client
         self._http_client = http_client
 
-    async def get_conditions(self, point: Coordinates, at: datetime | None = None) -> WeatherConditions | None:
+    async def get_conditions(self, point: Coordinates) -> WeatherConditions | None:
         data = await self._client.get_forecast(self._http_client, point)
         if data is None:
             return None
-        return self._conditions_from_data(data, at)
+        return self._conditions_from_data(data, None)
 
     async def prefetch(self, points: list[Coordinates]) -> None:
         """複数地点の予報をまとめて1回のOpen-Meteo呼び出しでキャッシュへ先読みする（結果は使わない）。

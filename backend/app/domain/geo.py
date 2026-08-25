@@ -103,15 +103,9 @@ def sample_indices(point_count: int, sample_count: int) -> list[int]:
     return sorted({round(i * step) for i in range(sample_count)})
 
 
-def sample_line_coordinates(geometry: dict, sample_count: int) -> list[Coordinates]:
-    """GeoJSON LineStringのgeometryから、始点・終点を含む均等間隔でsample_count点をサンプリングする。"""
-    raw_points = geometry["coordinates"]
-    indices = sample_indices(len(raw_points), sample_count)
-    return [Coordinates(latitude=raw_points[i][1], longitude=raw_points[i][0]) for i in indices]
-
-
 def sample_line_points(geometry: dict, sample_count: int) -> list[tuple[int, Coordinates]]:
-    """sample_line_coordinatesと同じ点を、元のgeometry内でのインデックスと組で返す。
+    """GeoJSON LineStringのgeometryから、始点・終点を含む均等間隔でsample_count点を、
+    元のgeometry内でのインデックスと組でサンプリングする。
 
     標高・風・路面をそれぞれ同じ点集合で評価し、区間ごとに1つの配列として整合させるために使う
     （路面種別はopenrouteserviceのインデックス範囲で返るため、インデックスの共有が必要）。

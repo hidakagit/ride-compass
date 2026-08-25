@@ -9,7 +9,7 @@ import axisCatalog from "@/types/generated/axis-catalog.json";
 
 interface CatalogAxisInputs {
   axis_id: string;
-  inputs: string[];
+  primary_attribute_ids: string[];
 }
 
 describe("evaluationAxes", () => {
@@ -25,16 +25,19 @@ describe("evaluationAxes", () => {
   });
 
   // ドリフト検知: wind（動的データ由来、表示カタログ未登録・材料一覧なし）を除く全軸は、
-  // 必ずaxis-catalog.json（axes[].inputs）に実在する軸を指していること。誤字・
-  // 削除済み軸idを指すと、研究タブの材料一覧（T168）が常に空配列（＝何も表示しない）
-  // のまま気づかれずに壊れるため、ここで明示的にinputsの結果が非空であることを確認する
-  // （改善計画T308: axisMaterials自体は撤去済み[primaryAttributes.ts参照]、このテストは
-  // ビルド時静的生成物自体の整合性検証のため、その生成元axes[].inputsを直接見る）。
+  // 必ずaxis-catalog.json（axes[].primary_attribute_ids）に実在する軸を指していること。
+  // 誤字・削除済み軸idを指すと、研究タブの材料一覧（T168）が常に空配列（＝何も表示しない）
+  // のまま気づかれずに壊れるため、ここで明示的にprimary_attribute_idsの結果が非空である
+  // ことを確認する（改善計画T308: axisMaterials自体は撤去済み[primaryAttributes.ts参照]、
+  // このテストはビルド時静的生成物自体の整合性検証のため、その生成元
+  // axes[].primary_attribute_idsを直接見る。死コード監査（過去の監査）で、GET
+  // /api/axis-catalog（実行時API）と同じキー名の唯一の読み手として、以前の重複キー
+  // inputsからこちらへ移行した）。
   it("wind以外の全軸は、axis-catalog.json上に実在し材料を1件以上持つ", () => {
     const axesWithInputs = axisCatalog.axes as CatalogAxisInputs[];
     for (const axis of PREFERENCE_AXES) {
       if (axis.axisId === "wind") continue;
-      const inputs = axesWithInputs.find((a) => a.axis_id === axis.axisId)?.inputs ?? [];
+      const inputs = axesWithInputs.find((a) => a.axis_id === axis.axisId)?.primary_attribute_ids ?? [];
       expect(inputs.length, `axisId(${axis.axisId})に材料が無い`).toBeGreaterThan(0);
     }
   });

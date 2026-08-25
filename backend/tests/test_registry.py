@@ -6,8 +6,6 @@ from app.domain.registry import (
     PrimaryAttributeSpec,
     all_axes,
     all_primary_attributes,
-    get_axis,
-    get_primary_attribute,
     register_axis,
     register_primary_attribute,
     reset_registry_for_testing,
@@ -27,11 +25,6 @@ def _attr(attr_id: str, shared: bool = False) -> PrimaryAttributeSpec:
     return PrimaryAttributeSpec(
         attr_id=attr_id,
         label=f"test label {attr_id}",
-        source="osm",
-        geometry="edge",
-        dtype="categorical",
-        update_cadence="on_reimport",
-        description=f"test attribute {attr_id}",
         shared=shared,
     )
 
@@ -39,8 +32,8 @@ def _attr(attr_id: str, shared: bool = False) -> PrimaryAttributeSpec:
 class TestRegisterPrimaryAttribute:
     def test_registers_and_retrieves(self):
         register_primary_attribute(_attr("surface"))
-        assert get_primary_attribute("surface").attr_id == "surface"
-        assert all_primary_attributes() == [get_primary_attribute("surface")]
+        assert all_primary_attributes()[0].attr_id == "surface"
+        assert len(all_primary_attributes()) == 1
 
     def test_duplicate_attr_id_raises(self):
         register_primary_attribute(_attr("surface"))
@@ -52,8 +45,8 @@ class TestRegisterAxis:
     def test_registers_axis_with_known_inputs(self):
         register_primary_attribute(_attr("surface"))
         register_axis(AxisSpec(axis_id="surface_q", inputs=["surface"]))
-        assert get_axis("surface_q").axis_id == "surface_q"
-        assert all_axes() == [get_axis("surface_q")]
+        assert all_axes()[0].axis_id == "surface_q"
+        assert len(all_axes()) == 1
 
     def test_unknown_input_raises(self):
         with pytest.raises(ValueError, match="unregistered primary attribute"):

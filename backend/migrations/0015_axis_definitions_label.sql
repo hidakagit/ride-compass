@@ -11,9 +11,9 @@
 -- 本番へ適用するまでの間は評価の振る舞い・表示のいずれも変わらない（T74の教訓を踏まえた
 -- 意図的な安全側ロールアウト、0014と同じ方針）。
 ALTER TABLE axis_definitions
-    ADD COLUMN label TEXT NOT NULL DEFAULT '',
-    ADD COLUMN description TEXT NOT NULL DEFAULT '',
-    ADD COLUMN category TEXT NOT NULL DEFAULT '推定';
+    ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '推定';
 
 -- 既存7軸のlabel/description/categoryをdomain/axis_definitions.pyのAXIS_DEFINITIONSから
 -- そのまま複製する（0014と同じ「挙動・表示が変わらないことがStage移行の前提」原則）。

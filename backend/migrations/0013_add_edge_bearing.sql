@@ -17,7 +17,7 @@
 -- 度へ変換する。road_edgesの各行は既にfrom_node→to_nodeの向きにgeomが格納されている
 -- （domain/graph.py: build_road_graphがforward/backwardを別Edge行として持つ設計）ため、
 -- 各行のST_StartPoint/ST_EndPointをそのまま使えば向きの補正は不要。
-ALTER TABLE road_edges ADD COLUMN bearing_deg double precision;
+ALTER TABLE road_edges ADD COLUMN IF NOT EXISTS bearing_deg double precision;
 
 UPDATE road_edges
 SET bearing_deg = degrees(ST_Azimuth(ST_StartPoint(geom), ST_EndPoint(geom)))

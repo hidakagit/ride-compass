@@ -164,8 +164,3 @@ def osm_node_to_poi_spec(raw_node: dict) -> POISpec | None:
 
 def _filter_allowed_node_tags(tags: dict) -> dict[str, str]:
     return {key: str(value) for key, value in tags.items() if key in ALLOWED_NODE_TAGS and value is not None}
-
-
-def osm_nodes_to_poi_specs(raw_nodes: list[dict]) -> list[POISpec]:
-    specs = (osm_node_to_poi_spec(node) for node in raw_nodes)
-    return [spec for spec in specs if spec is not None]

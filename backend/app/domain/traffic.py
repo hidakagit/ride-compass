@@ -37,26 +37,6 @@ INTERSECTION_MATCH_MAX_DISTANCE_M = 30.0
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
 INTERSECTION_DEGREE_THRESHOLD = 3
 
-# smoothness→スコア(0-100)。未設定・未知の値はNone（評価しない）。
-_SMOOTHNESS_SCORES: dict[str, float] = {
-    "excellent": 100.0,
-    "good": 85.0,
-    "intermediate": 60.0,
-    "bad": 30.0,
-    "very_bad": 10.0,
-    "horrible": 0.0,
-    "very_horrible": 0.0,
-    "impassable": 0.0,
-}
-
-
-def smoothness_score(tags: dict[str, str]) -> float | None:
-    value = tags.get("smoothness")
-    if value is None:
-        return None
-    return _SMOOTHNESS_SCORES.get(value.strip().lower())
-
-
 BicycleInfraClass = Literal[
     "separated", "lane", "shared_busway", "shared_pedestrian", "roadway", "prohibited", "unknown"
 ]

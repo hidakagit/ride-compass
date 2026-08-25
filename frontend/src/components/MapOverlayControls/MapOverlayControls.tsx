@@ -601,12 +601,12 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
       <>
         {withLayer.length > 0 && (
           <p className={styles.detailNotice}>
-            材料: {withLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId]).join("・")}
+            材料: {withLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId] ?? attrId).join("・")}
           </p>
         )}
         {withoutLayer.length > 0 && (
           <p className={`${styles.detailNotice} ${styles.detailRowHidden}`}>
-            地図では未表示の材料: {withoutLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId]).join("・")}
+            地図では未表示の材料: {withoutLayer.map((attrId) => PRIMARY_ATTRIBUTE_CHIP_LABELS[attrId] ?? attrId).join("・")}
           </p>
         )}
       </>

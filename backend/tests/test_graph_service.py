@@ -205,15 +205,9 @@ class FakeRoadGraphRepository:
             result[edge_id] = way.surface if way is not None else None
         return result
 
-    async def is_tile_cached(self, zoom, x, y):
-        return (zoom, x, y) in self.cached_tiles
-
     async def get_cached_tiles(self, zoom, tiles):
         self.get_cached_tiles_call_count += 1
         return {(x, y) for x, y in tiles if (zoom, x, y) in self.cached_tiles}
-
-    async def mark_tile_cached(self, zoom, x, y):
-        self.cached_tiles.add((zoom, x, y))
 
     # --- 改善計画T219: get_search_materials_for_bboxのタイルキャッシュ経路が使うメソッド群。
     # get_graph_topology_in_bboxはgeometryの有無を除けばget_graph_in_bboxと同じ結果でよい
@@ -275,7 +269,7 @@ async def _seed_tile(
     テストのセットアップ側でこの投入を肩代わりする）。"""
     way_specs = osm_ways_to_way_specs(ways)
     await repository.save_raw_ways(way_specs, nodes)
-    await repository.mark_tile_cached(zoom, x, y)
+    repository.cached_tiles.add((zoom, x, y))
     await repository.commit()
 
 
@@ -417,7 +411,7 @@ async def test_with_repository_legitimately_empty_area_returns_empty_graph_not_n
     # 道路が1本も無い地域（海・公園等）を模す。生データが無くてもタイルマーク自体はある
     # （PBF取込バッチはway 0件の地域もタイルとしてマークする）。
     repository = FakeRoadGraphRepository()
-    await repository.mark_tile_cached(ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE)
+    repository.cached_tiles.add((ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE))
     service = GraphService(repository=repository)
 
     first = await service.get_or_build_graph_with_attributes(BBOX)
