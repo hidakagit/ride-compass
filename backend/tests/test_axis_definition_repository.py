@@ -116,9 +116,10 @@ async def test_upsert_then_list_all_round_trips_priority_overrides(road_graph_se
 
 
 async def test_upsert_then_list_all_round_trips_display_fields(road_graph_session):
-    # 改善計画T310回帰テスト: 地図チップ表示要素（icon_id/chip_label/panel_hint/
-    # proxy_hint/display_override）がDB往復で失われないこと（priority_overridesの
-    # 0018回帰と同じパターン、先回りしてテストを用意する）。
+    # 改善計画T310/T318回帰テスト: 地図チップ表示要素（icon_id/chip_label/panel_hint/
+    # show_map_icon/display_override）がDB往復で失われないこと（priority_overridesの
+    # 0018回帰と同じパターン、先回りしてテストを用意する）。show_map_iconは既定Trueとは
+    # 違う値（False）を設定し、既定値と取り違えていないことを確認する。
     definition = AxisDefinition(
         axis_id="display_fields_axis",
         shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
@@ -129,7 +130,7 @@ async def test_upsert_then_list_all_round_trips_display_fields(road_graph_sessio
         icon_id="incline",
         chip_label="テスト",
         panel_hint="パネル向け説明文",
-        proxy_hint="代役案内文",
+        show_map_icon=False,
         display_override=AxisDisplaySpec(
             kind="ramp",
             label="テスト軸[display_fields_axis]",
@@ -148,8 +149,11 @@ async def test_upsert_then_list_all_round_trips_display_fields(road_graph_sessio
 
 
 async def test_upsert_then_list_all_round_trips_display_fields_when_unset(road_graph_session):
-    # 未設定（全てNone）は「フロント側の汎用フォールバックを使う」の意味であり、
-    # priority_overridesの`[]`既定と違ってNoneのままDB往復する必要がある。
+    # icon_id/chip_label/panel_hint/display_overrideの未設定（None）は「フロント側の
+    # 汎用フォールバックを使う」の意味であり、priority_overridesの`[]`既定と違って
+    # Noneのままdb往復する必要がある。show_map_iconはこれらと違い常に確定した真偽値
+    # （既定True）を持つフィールドのため、未設定でもTrueとして往復することを確認する
+    # （改善計画T318）。
     definition = _definition("no_display_fields_axis")
     repository = AxisDefinitionRepository(road_graph_session)
 
@@ -161,7 +165,7 @@ async def test_upsert_then_list_all_round_trips_display_fields_when_unset(road_g
     assert loaded.icon_id is None
     assert loaded.chip_label is None
     assert loaded.panel_hint is None
-    assert loaded.proxy_hint is None
+    assert loaded.show_map_icon is True
     assert loaded.display_override is None
 
 

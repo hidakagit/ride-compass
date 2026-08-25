@@ -129,7 +129,11 @@ class AxisDefinitionFields(BaseModel):
     icon_id: str | None = None
     chip_label: str | None = None
     panel_hint: str | None = None
-    proxy_hint: str | None = None
+    # 改善計画T318: falseなら地図上チップ・地図の見え方パネルの両方からこの軸を丸ごと
+    # 除外する（domain/axis_definitions.py: AxisDefinition.show_map_iconのdocstring参照）。
+    # 旧proxy_hint（専用地図レイヤーを持たない軸向けの代役案内文）はこの真偽値ON/OFFに
+    # 置き換わり撤去した。
+    show_map_icon: bool = True
     # display_overrideはTileInputSpecの構造が複雑なため、AxisComposer.tsx（GUIフォーム）は
     # 現時点で編集UIを持たない（domain/axis_definitions.py: AxisDefinition.display_override
     # のdocstring参照）。それでもAPIレベルでは軸スタジオ（管理API）経由で直接設定・参照
@@ -256,7 +260,7 @@ class AxisDefinitionPayload(AxisDefinitionFields):
             icon_id=self.icon_id,
             chip_label=self.chip_label,
             panel_hint=self.panel_hint,
-            proxy_hint=self.proxy_hint,
+            show_map_icon=self.show_map_icon,
             display_override=self.display_override,
         )
 
@@ -280,7 +284,7 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         icon_id=definition.icon_id,
         chip_label=definition.chip_label,
         panel_hint=definition.panel_hint,
-        proxy_hint=definition.proxy_hint,
+        show_map_icon=definition.show_map_icon,
         display_override=definition.display_override,
     )
 

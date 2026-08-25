@@ -157,7 +157,7 @@ def main() -> None:
                     "icon_id": AXIS_DEFINITIONS[axis.axis_id].icon_id,
                     "chip_label": AXIS_DEFINITIONS[axis.axis_id].chip_label,
                     "panel_hint": AXIS_DEFINITIONS[axis.axis_id].panel_hint,
-                    "proxy_hint": AXIS_DEFINITIONS[axis.axis_id].proxy_hint,
+                    "show_map_icon": AXIS_DEFINITIONS[axis.axis_id].show_map_icon,
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }
                 for axis in all_axes()

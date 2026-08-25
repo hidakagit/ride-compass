@@ -50,8 +50,8 @@ def test_get_axis_catalog_reflects_axis_definitions_content():
 
 
 def test_get_axis_catalog_reflects_display_fields():
-    # 改善計画T310: 地図チップ表示要素（icon_id/chip_label/panel_hint/proxy_hint）が
-    # 軸自身のデータ（AXIS_DEFINITIONS）からそのまま反映されること。
+    # 改善計画T310/T318: 地図チップ表示要素（icon_id/chip_label/panel_hint/
+    # show_map_icon）が軸自身のデータ（AXIS_DEFINITIONS）からそのまま反映されること。
     response = client.get("/api/axis-catalog")
 
     body = response.json()
@@ -61,7 +61,9 @@ def test_get_axis_catalog_reflects_display_fields():
 
     assert gradient["icon_id"] == "incline"
     assert gradient["chip_label"] == "勾配"
-    assert gradient["proxy_hint"] == "（地図表示なし）標高レイヤーで確認できます"
+    # 改善計画T318: show_map_iconは既定Trueのため、明示的にfalseへ変更していない
+    # 既存軸は全て地図上に表示される。
+    assert gradient["show_map_icon"] is True
     assert car_stress["icon_id"] == "warning-triangle"
     assert car_stress["chip_label"] == "圧迫感"
     assert car_stress["panel_hint"] is not None

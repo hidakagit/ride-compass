@@ -32,8 +32,6 @@ export interface SecondaryAxisSummary {
   chipLabel: string;
   /** 対応する表示レイヤー。無ければ専用レイヤーを持たない軸(薄字表示) */
   layerId?: MapLayerId;
-  /** layerId未定義の軸向け、代役レイヤーへの案内文 */
-  proxyHint?: string;
   /** 改善計画T308: この軸が参照する材料の一次属性id一覧（primaryAttributes.ts:
    * PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキーと同じ名前空間）。
    * 実行時APIのprimary_attribute_idsをそのまま反映する。ビルド時静的フォールバックは
@@ -45,15 +43,16 @@ export interface SecondaryAxisSummary {
   iconId?: string;
 }
 
-// 略名・代役案内文（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
-// （SECONDARY_AXIS_CHIP_LABELS/SECONDARY_AXIS_PROXY_HINTS）だったが、改善計画T310で
-// 軸自身のデータ（AXIS_DEFINITIONS.chip_label/proxy_hint、軸スタジオから登録可能）へ
-// 移設し、既存軸限定の特別扱いを解消した（下記secondaryAxesFromCatalogAxes参照）。
-// 専用レイヤーを持たない軸(display.kind==="none")のproxy_hintは、タイル自体は他の軸と
-// 見た目を統一するため個別の注記テキストを常設できない（4文字以下のチップラベル・
-// 小さいタイルという制約、改善計画T166）という理由から、「押せない行がなぜあるのか」を
-// 展開せずに伝える最小限の手当て（（地図表示なし）を先頭に付けタイトル属性で見える
-// ツールチップ、改善計画T202）として使う。
+// 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
+// （SECONDARY_AXIS_CHIP_LABELS）だったが、改善計画T310で軸自身のデータ
+// （AXIS_DEFINITIONS.chip_label、軸スタジオから登録可能）へ移設し、既存軸限定の
+// 特別扱いを解消した（下記secondaryAxesFromCatalogAxes参照）。
+// 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
+// ON/OFFできるようにして」）: 以前は専用レイヤーを持たない軸(display.kind==="none")を
+// 常に無効化されたチップとして表示し、代役案内文（旧proxy_hint）でその理由を説明する
+// 仕組みだったが、show_map_icon（AXIS_DEFINITIONS.show_map_icon、既定true）で軸自身が
+// 「そもそも地図上に表示するかどうか」を選べるようになったため、その案内文は不要になり
+// 撤去した。
 
 // kind==="ramp"の軸はaxisMapLayerId(axis_id)で機械的に求まる（改善計画T278、以前は
 // stop_density/accidentの2件をここへ手書き列挙していたが、ramp軸が増えるたびに追記
@@ -79,13 +78,15 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
  * wind以外には影響しない）。 */
 export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
   return axes
-    .filter((axis) => axis.display !== null && axis.category !== "動的")
+    // 改善計画T318: show_map_icon===falseの軸は地図上チップ・地図の見え方パネルの
+    // 両方から丸ごと除外する（専用レイヤーの有無=display.kindに関わらず一律に効く、
+    // 軸スタジオ側のON/OFF1つで両画面が揃って更新される）。
+    .filter((axis) => axis.display !== null && axis.category !== "動的" && axis.show_map_icon !== false)
     .map((axis) => ({
       axisId: axis.axis_id,
       label: axis.display!.label,
       chipLabel: axis.chip_label ?? axis.display!.label,
       layerId: layerIdFor(axis),
-      proxyHint: axis.proxy_hint ?? undefined,
       primaryAttributeIds: axis.primary_attribute_ids ?? [],
       iconId: axis.icon_id ?? undefined,
     }));

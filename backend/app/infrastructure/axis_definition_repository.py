@@ -49,7 +49,7 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         icon_id=row.icon_id,
         chip_label=row.chip_label,
         panel_hint=row.panel_hint,
-        proxy_hint=row.proxy_hint,
+        show_map_icon=row.show_map_icon,
         display_override=(
             _DISPLAY_OVERRIDE_ADAPTER.validate_python(row.display_override)
             if row.display_override is not None
@@ -106,7 +106,7 @@ class AxisDefinitionRepository:
             icon_id=definition.icon_id,
             chip_label=definition.chip_label,
             panel_hint=definition.panel_hint,
-            proxy_hint=definition.proxy_hint,
+            show_map_icon=definition.show_map_icon,
             display_override=(
                 definition.display_override.model_dump(mode="json")
                 if definition.display_override is not None
@@ -128,7 +128,7 @@ class AxisDefinitionRepository:
                 "icon_id": stmt.excluded.icon_id,
                 "chip_label": stmt.excluded.chip_label,
                 "panel_hint": stmt.excluded.panel_hint,
-                "proxy_hint": stmt.excluded.proxy_hint,
+                "show_map_icon": stmt.excluded.show_map_icon,
                 "display_override": stmt.excluded.display_override,
                 "updated_at": stmt.excluded.updated_at,
             },

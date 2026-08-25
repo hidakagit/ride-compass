@@ -306,11 +306,11 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "停止密度" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "事故密度" })).toBeDisabled();
 
-      // 専用レイヤーの無い軸（勾配のみ）にも個々に▼展開ボタンが付き、代役案内文
-      // （proxyHint）が見える（改善計画T202で先頭に「（地図表示なし）」が付いたため
-      // 部分一致で検証する）
+      // 専用レイヤーの無い軸（勾配のみ）にも個々に▼展開ボタンが付き、材料の一次属性
+      // 一覧（renderMaterialsNote）が見える。改善計画T318で代役案内文（旧proxyHint）は
+      // 撤去したため、専用レイヤーを持たない軸の展開内容は材料一覧のみになった。
       await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
-      expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
+      expect(screen.getByText("材料: 標高")).toBeInTheDocument();
     });
 
     // モバイル限定の小型化（実機フィードバック「推定の横並びが複数行に折り返されて見にくい」
