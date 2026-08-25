@@ -130,7 +130,13 @@ export function useAxisCatalog(): AxisCatalog {
     let cancelled = false;
     fetchAxisCatalogDeduped()
       .then((response) => {
-        if (!cancelled && response.axes.length > 0) {
+        // 改善計画T318フォローアップ: 以前は`response.axes.length > 0`もガード条件に
+        // 含めており、「まだ取得中/取得失敗」と「取得成功したが軸が0件（全軸非公開）」を
+        // 同一視していた。後者でも静的フォールバック（既存7軸）が残り続け、軸スタジオで
+        // 全軸を非公開にしてもルート設定パネルに7軸が表示され続ける実障害があった
+        // （2026-08-25）。取得成功時はaxesが空でもそのままbuildCatalogへ渡す
+        // （フェッチ未完了・失敗時のみFALLBACK_CATALOGに留まる、という区別に一本化）。
+        if (!cancelled) {
           setCatalog(buildCatalog(response.axes));
         }
       })
