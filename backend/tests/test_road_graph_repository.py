@@ -148,6 +148,46 @@ async def test_get_graph_topology_in_bbox_only_returns_edges_intersecting_bbox(r
     assert result_far is None
 
 
+async def test_get_edges_with_geometry_returns_hydrated_geometry_for_requested_edges(road_graph_repository):
+    # 改善計画T218のhydrate経路（trace_loop/preview_segmentの主経路）の実SQL確認。
+    # get_graph_topology_in_bboxで読んだgeometry抜きの探索用グラフから、確定した経路の
+    # edge_idだけを渡して実ジオメトリを取得し直す用途。
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    topology = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
+    edge_id = next(iter(topology.edges))
+
+    hydrated = await road_graph_repository.get_edges_with_geometry([edge_id])
+
+    assert set(hydrated.keys()) == {edge_id}
+    edge = hydrated[edge_id]
+    # topologyの空プレースホルダとは異なり、実際の形状点列が入る（NODE1→NODE2の2点）。
+    assert edge.geometry == [[NODE1[0], NODE1[1]], [NODE2[0], NODE2[1]]]
+    assert edge.from_node_id == topology.edges[edge_id].from_node_id
+    assert edge.to_node_id == topology.edges[edge_id].to_node_id
+    assert edge.distance_m == pytest.approx(topology.edges[edge_id].distance_m)
+    assert edge.osm_way_id == 100
+    assert edge.highway == "residential"
+
+
+async def test_get_edges_with_geometry_ignores_edge_ids_not_found(road_graph_repository):
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    hydrated = await road_graph_repository.get_edges_with_geometry([edge_id, "does-not-exist"])
+
+    assert set(hydrated.keys()) == {edge_id}
+
+
+async def test_get_edges_with_geometry_returns_empty_dict_for_empty_input(road_graph_repository):
+    assert await road_graph_repository.get_edges_with_geometry([]) == {}
+
+
 async def test_save_graph_upserts_same_edge_without_duplicating(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}

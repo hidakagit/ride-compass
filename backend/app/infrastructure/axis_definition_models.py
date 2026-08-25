@@ -63,7 +63,11 @@ class AxisDefinitionRow(Base):
     # domain/axis_definitions.py: AxisDefinition.display_override（AxisDisplaySpec）を
     # `model_dump(mode="json")`したJSONオブジェクト。shape_paramsと同じ規約。
     display_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 改善計画T330: create_tables()（Base.metadata.create_all）が先に走る「まっさらなDBから
+    # のブートストラップ」経路では、DB側のserver_defaultが無いと0014 migrationのINSERT
+    # （updated_atを指定しない）がNOT NULL制約違反になる。他の全カラムはこのため
+    # server_defaultを持つ（本カラムだけ0014導入時に見落とされていた）。
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default="now()")
 
 
 class AxisRegistryMetaRow(Base):

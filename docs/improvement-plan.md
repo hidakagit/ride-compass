@@ -6456,7 +6456,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
     推定）ため採用しなかった。
   - 検証: frontend vitest 65 files / 524 tests passed、eslint/tsc --noEmit clean。
 
-### - [ ] T330. テストカバレッジ欠落の是正（影響度「高」・複数レビューで確認済み） 規模M（未着手）
+### - [x] T330. テストカバレッジ欠落の是正（影響度「高」・複数レビューで確認済み） 規模M（実装完了）
 
 - 背景: T328と同じ監査成果物より、**影響度が高く、かつ独立した複数回のレビューパスで
   一致して検出された**——すなわち一過性の誤検知ではないと確信度が高い——カバレッジ欠落を
@@ -6518,6 +6518,42 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   新設した統合テスト（5番）はCIで実行されることを確認する。
 - 依存: T321（監査の発端）、T328（4番はverify_postgis_phase0.pyの並行修正と整合させる
   必要がある）。
+- **実装メモ（2026-08-25完了）**: 8件すべてにテストを追加した（6並列エージェント、
+  うち3件はPostGIS統合テストのため専用DB`ridecompass_test_agent5`/`_agent6`を追加
+  provisioningし他作業との接続競合を回避）。
+  1. `AxisComposer.test.tsx`新設（17件）: 4テンプレート変換・
+     priority_overrides/display_override素通し保持の回帰・draftFromExisting往復・
+     バリデーションを検証。
+  2. `proxy.test.ts`新設（12件、`@vitest-environment node`）: 資格情報未設定/ヘッダ欠落/
+     Base64デコード失敗/`:`区切り無し/`safeEqual`長さ違いいずれも例外を投げず401、
+     正しい資格情報のみ200を検証。
+  3. `test_route.py`へ`_merge_axis_difficulties`の距離加重平均・部分的axis_id欠損・
+     全区間欠損時の除外を検証する4件を追加。
+  4. `test_road_graph_engine.py`/`test_graph_service.py`/`test_road_graph_repository.py`へ
+     `get_edges_with_geometry`の「hydrated優先」主経路（PostGIS統合テスト含む）と
+     `hard_filters`のエンジンレベル配線確認を追加。
+  5. `test_migrate.py`へ、まっさらなDBから`create_tables()`→`apply_pending_migrations()`
+     を実行し例外なく完了・冪等・`axis_definitions`13行シードまで検証する統合テストを
+     新設。**このテストが実際に本物のバグを検出した**: `AxisDefinitionRow.updated_at`
+     （`app/infrastructure/axis_definition_models.py`）に`server_default`が無く、
+     `create_tables()`が先に走る空DBからのブートストラップ経路でmigration 0014の
+     INSERTがNOT NULL制約違反になっていた（他の全追加カラムは同種の理由で
+     `server_default`を持つのに、最初からあるこのカラムだけ0014導入時に見落とされて
+     いた——T321が修正したIF NOT EXISTS欠如と同じバグ類、本テスト新設で初めて
+     捕捉できた）。`server_default="now()"`を追加して修正。
+  6. `test_match_designations.py`へ`_MATCH_SQL`（ST_Buffer/ST_Intersects/ST_Union）を
+     実際にPostGIS上で実行する統合テスト3件（交差率反映・閾値未満除外・複数指定路線
+     重複時の二重計上防止）を追加。
+  7. `test_database.py`新設（10件）: `get_engine`/`get_route_generation_engine`等の
+     シングルトン性、bind先の整合性、`connect_args`（`command_timeout`等）の反映を検証。
+  8. `useLayerDataStatus.test.ts`新設（7件）: `computeLayerDataStatus`のメモ化
+     （同一source-layer共有時に`querySourceFeatures`が1回のみ）と
+     `clearStaleTrackedSourceErrors`の`isSourceLoaded`条件付きerror解除を検証。
+  検証: backend pytest 1162 passed、ruff clean（既存の無関係な指摘5件は今回の変更前から
+  存在するpre-existingで対象外）。frontend vitest 567 passed、eslint/tsc clean。
+  なお本タスクとは無関係に、直近コミットへのCIで`axis-catalog.json`の生成順序drift
+  （DB接続可否で`categories`辞書のキー順が変わる既存の非決定性）を発見したため、
+  T333として別途起票した。
 
 ### - [ ] T331. テストカバレッジ欠落の是正（影響度「中」・残り） 規模L（未着手）
 
@@ -6572,6 +6608,37 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   B以上へ改善していることを監査成果物の分類表と突き合わせて確認する。規模が大きいため
   複数回のコミットに分割してよい（都度backend/frontend全テストgreenを確認）。
 - 依存: T321（監査の発端）、T330（同種パターンの優先対応）。
+
+### - [ ] T333. axis-catalog.json（categorical材料のcategories辞書）の生成順序がDB接続可否で非決定になる 規模S〜M（未着手）
+
+- 背景: T330（フレッシュDBブートストラップ統合テスト新設）の実装検証中、直近コミット
+  （5325af1）に対するCIで`git diff --exit-code -- frontend/src/types/generated/`が失敗し、
+  `frontend/src/types/generated/axis-catalog.json`の`categorical`材料（`highway`/
+  `bicycle_infra`等）の`categories`辞書のキー順序だけが変わる（値の集合は完全一致）
+  differが検出された。原因を特定済み: `app/services/axis_registry_service.py:93`の
+  `except Exception ... # noqa: BLE001`が、DB接続に失敗した場合は起動を止めず
+  コード内蔵の既定値`AXIS_DEFINITIONS`（`domain/axis_definitions.py`のPython dict
+  リテラル、挿入順が決定的）へフォールバックする設計になっている。一方DBに接続できた
+  場合は`shape_params`（JSONB列）をDBから読み込んで使うため、PostgreSQLのjsonb型が
+  オブジェクトキーを内部的に（キー長→バイト順で）並べ替えた順序になる。つまり
+  `export_openapi.py`（`generate:api`が呼ぶ生成スクリプト）の出力するJSONのキー順序が、
+  実行時にDBへ接続できたかどうかという環境差だけで変わってしまう。CI環境ではDB未接続
+  （またはDBはあるが軸未シード）でコード側フォールバックが発動し、コミット済みの
+  `axis-catalog.json`はDB接続済みの開発環境で生成されたものだったため、順序が食い違った
+  と推測される（値の内容自体に差分は無く、CIが偽陽性でdriftを検知し続ける状態）。
+- 対応内容（案、要設計判断）: `categories`辞書をJSON出力する直前で決定的な順序へ正規化する
+  （例: キーをソートしてから`model_dump`する、またはエクスポート専用のシリアライズ層で
+  `dict(sorted(...))`する）。ただし`AXIS_DEFINITIONS`の辞書の**挿入順自体**は合成
+  （composite）の浮動小数点加算順として意味を持つ場所が別にある
+  （`axis_definitions.py:263`のコメント、`test_evaluation_bulk.py`が検証）ため、
+  正規化の対象を「表示専用の`categories`辞書（`TileInputSpec.categories`、
+  frontendの色分け表示にしか使わない、加算順とは無関係）」に限定し、評価計算に使う
+  他の辞書の挿入順には影響させないこと。
+- 完了条件: DB接続あり/なし両方の環境で`export_openapi.py`を実行し、生成される
+  `axis-catalog.json`が完全一致することを実機確認する。既存のcategorical材料を使う
+  frontend/backendの全テストgreenを維持する。
+- 依存: T330（発見の発端）。CLAUDE.mdの「コミット時の同期ルール」（OpenAPI生成物ドリフト
+  防止）に該当する再発防止対象。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

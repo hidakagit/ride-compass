@@ -168,3 +168,69 @@ def test_aggregate_segments_into_bins_single_edge_larger_than_bin_size_forms_its
     assert len(bins) == 2
     assert bins[0].distance_km == 10.0
     assert bins[1].distance_km == 10.0
+
+
+# _merge_axis_difficulties（改善計画T309・T316フォローアップ: 既存軸の非公開化でKeyError/
+# ValidationErrorになり500になっていた実障害の修正箇所）。axis_id→difficultyの汎用dictを
+# ビン内でaxis_idごとに距離加重平均する。専用のユニットテストが無かった（"axis_difficulties"が
+# test_route.pyに1件も無かった）ため、aggregate_segments_into_bins経由で新規に追加する。
+
+
+def test_aggregate_segments_into_bins_axis_difficulties_distance_weighted_average():
+    segments = [
+        _segment(0, distance_km=0.3, axis_difficulties={"wind": 80.0}),
+        _segment(1, distance_km=0.1, axis_difficulties={"wind": 20.0}),
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    assert len(bins) == 1
+    # (80*0.3 + 20*0.1) / 0.4 = 65.0
+    assert bins[0].axis_difficulties["wind"] == pytest.approx(65.0)
+
+
+def test_aggregate_segments_into_bins_axis_difficulties_averages_only_over_segments_that_have_it():
+    # 一部の区間にしか無いaxis_idは、それを持つ区間だけで加重平均する
+    # （持たない区間を0扱いで巻き込んで薄めてはならない）。
+    segments = [
+        _segment(0, distance_km=0.2, axis_difficulties={"wind": 100.0}),
+        _segment(1, distance_km=0.2, axis_difficulties={}),  # "wind"軸を持たない区間
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    # 0扱いで平均されるなら(100*0.2+0*0.2)/0.4=50.0になってしまうが、
+    # 正しくは持っている区間(0.2km)だけで平均され100.0のまま。
+    assert bins[0].axis_difficulties["wind"] == pytest.approx(100.0)
+
+
+def test_aggregate_segments_into_bins_axis_difficulties_omits_axis_absent_from_every_segment():
+    # ビン内のどの区間にも無いaxis_idは、結果の辞書にキー自体が現れない
+    # （RouteSegmentDetail.axis_difficultiesと同じ「データ無しはキーを持たない」規約）。
+    segments = [
+        _segment(0, distance_km=0.2, axis_difficulties={"wind": 50.0}),
+        _segment(1, distance_km=0.2, axis_difficulties={"wind": 50.0}),
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    assert set(bins[0].axis_difficulties.keys()) == {"wind"}
+    assert "elevation" not in bins[0].axis_difficulties
+
+
+def test_aggregate_segments_into_bins_axis_difficulties_survives_axis_unpublished_mid_route():
+    # T316フォローアップの実障害シナリオに近い形: ある軸("elevation")が経路の途中区間の
+    # axis_difficultiesから欠落している（軸の非公開化を想定）状態でも、
+    # aggregate_segments_into_bins全体が例外を投げずに完了し、他の軸("wind")は正しく
+    # 集約されること。
+    segments = [
+        _segment(0, distance_km=0.2, axis_difficulties={"elevation": 40.0, "wind": 30.0}),
+        _segment(1, distance_km=0.2, axis_difficulties={"wind": 60.0}),  # elevation軸が欠落
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    assert len(bins) == 1
+    assert bins[0].axis_difficulties["elevation"] == pytest.approx(40.0)
+    # (30*0.2 + 60*0.2) / 0.4 = 45.0
+    assert bins[0].axis_difficulties["wind"] == pytest.approx(45.0)

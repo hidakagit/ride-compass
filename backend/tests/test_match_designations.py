@@ -11,7 +11,8 @@ import pytest
 import pytest_asyncio
 
 from app.batch._common import asyncpg_dsn
-from app.batch.match_designations import _write_matches
+from app.batch.match_designations import _write_matches, run_match
+from app.domain.designation import DESIGNATION_MATCH_MIN_RATIO
 from app.domain.graph import WaySpec
 from tests.conftest import TEST_DATABASE_URL
 
@@ -121,3 +122,120 @@ class TestWriteMatches:
         )
         assert row["matched_ratio"] == pytest.approx(0.5)
         assert row["data_version"] == "seed"
+
+
+# --- run_match経由の_MATCH_SQL統合テスト（バッファ交差率計算そのものの検証） ---
+# match_designations.py:44-50のコメントにある通り、_MATCH_SQL（ST_Buffer/ST_Intersects/
+# ST_Union）は過去にgeographyキャストでGiST索引を認識できず30分超無応答になった実績のある
+# 核心ロジックだが、上のTestWriteMatchesは候補・matchedを手組みで渡すだけで_MATCH_SQL自体は
+# 一度も実行していなかった。ここではrun_matchを直接実行し、既知の座標のroute_designations・
+# osm_raw_waysをseedしてSQLそのもの（交差率計算・閾値フィルタ・複数指定路線の重なり）を検証する。
+
+DESIG_KIND = "emergency_transport"
+# 東西方向の指定路線（緯度35.7000固定、経度139.6990→139.7010、長さ約180m）。
+DESIG_LINE = [(35.7000, 139.6990), (35.7000, 139.7010)]
+
+WAY_MATCH_ID = 400  # 指定路線とほぼ重なる（matched_ratio ~= 1.0 を期待）
+WAY_PARTIAL_ID = 401  # 指定路線を直交して横切るだけの長いWay（matched_ratio << 0.5 を期待）
+WAY_FAR_ID = 402  # 指定路線から遠く離れたWay（バッファに一切交差しない）
+
+
+async def _seed_route_designation(
+    conn: asyncpg.Connection, kind: str, coords: list[tuple[float, float]]
+) -> None:
+    """route_designationsへ1行INSERTする（app/batch/import_designations.py: _INSERT_SQLと
+    同じ列構成。座標は(lat, lon)のリストでLINESTRINGを組み立てる）。"""
+    wkt = "LINESTRING(" + ", ".join(f"{lon} {lat}" for lat, lon in coords) + ")"
+    await conn.execute(
+        "INSERT INTO route_designations (kind, name, pref_code, attrs, source, geom, updated_at) "
+        "VALUES ($1, NULL, NULL, '{}'::jsonb, 'test', ST_SetSRID(ST_GeomFromText($2), 4326), now())",
+        kind, wkt,
+    )
+
+
+class TestRunMatch:
+    async def test_intersecting_way_gets_matched_ratio(
+        self, designation_conn, road_graph_repository, road_graph_session
+    ):
+        """指定路線とほぼ重なるWayが、正しいmatched_ratio（閾値以上）でdesignation_attributes
+        へ反映されることを確認する（_MATCH_SQLの交差率計算そのもの）。"""
+        way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
+        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        await road_graph_repository.save_raw_ways([way], node_coords)
+        await road_graph_session.commit()
+        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+
+        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+
+        assert result == 0
+        row = await designation_conn.fetchrow(
+            "SELECT matched_ratio, data_version FROM designation_attributes WHERE osm_way_id = $1 AND kind = $2",
+            WAY_MATCH_ID, DESIG_KIND,
+        )
+        assert row is not None
+        assert row["matched_ratio"] >= DESIGNATION_MATCH_MIN_RATIO
+        assert row["matched_ratio"] == pytest.approx(1.0, abs=0.05)
+        assert row["data_version"] == "buffer20m"
+
+    async def test_non_intersecting_and_below_threshold_ways_are_excluded(
+        self, designation_conn, road_graph_repository, road_graph_session
+    ):
+        """交差率が閾値未満のWay・完全に交差しないWayはdesignation_attributesへ
+        反映されないことを確認する。"""
+        node_coords = {
+            1: DESIG_LINE[0], 2: DESIG_LINE[1],
+            # 閾値未満: 指定路線をほぼ直交して横切るだけの長いWay（約2.2km）。
+            # バッファ幅20mによる交差はその中の約40mのみでratio ~= 0.018。
+            3: (35.690, 139.7000), 4: (35.710, 139.7000),
+            # 完全に交差しない: 指定路線から遠く離れたWay。
+            5: (35.750, 139.750), 6: (35.751, 139.751),
+        }
+        ways = [
+            WaySpec(osm_way_id=WAY_PARTIAL_ID, node_ids=[3, 4], highway="residential"),
+            WaySpec(osm_way_id=WAY_FAR_ID, node_ids=[5, 6], highway="residential"),
+        ]
+        await road_graph_repository.save_raw_ways(ways, node_coords)
+        await road_graph_session.commit()
+        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+
+        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+
+        assert result == 0
+        rows = await designation_conn.fetch(
+            "SELECT osm_way_id FROM designation_attributes WHERE osm_way_id = ANY($1)",
+            [WAY_PARTIAL_ID, WAY_FAR_ID],
+        )
+        assert rows == []
+
+    async def test_overlapping_designations_complete_without_error(
+        self, designation_conn, road_graph_repository, road_graph_session
+    ):
+        """複数の指定路線が重なる/隣接するケースでも例外なく完了し、ST_Unionにより
+        同一(osm_way_id, kind)への交差長が二重計上されない（matched_ratioが1.0を
+        超えない）ことを確認する。異なるkindは別行として独立に反映されることも確認する。"""
+        way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
+        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        await road_graph_repository.save_raw_ways([way], node_coords)
+        await road_graph_session.commit()
+
+        # 同一kindで完全に重複する指定路線を2本（ST_Unionによる二重計上防止の確認）。
+        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+        # 隣接する前半だけをカバーする指定路線をさらに1本（同一kind、部分重複）。
+        await _seed_route_designation(
+            designation_conn, DESIG_KIND, [DESIG_LINE[0], (35.7000, 139.7000)]
+        )
+        # 別kindの指定路線も同じWay区間に重ねる（kindごとに別行になることの確認）。
+        await _seed_route_designation(designation_conn, "critical_logistics", DESIG_LINE)
+
+        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+
+        assert result == 0
+        rows = await designation_conn.fetch(
+            "SELECT kind, matched_ratio FROM designation_attributes WHERE osm_way_id = $1", WAY_MATCH_ID
+        )
+        by_kind = {r["kind"]: r["matched_ratio"] for r in rows}
+        assert set(by_kind) == {"emergency_transport", "critical_logistics"}
+        for ratio in by_kind.values():
+            assert ratio <= 1.0 + 1e-6
+            assert ratio >= DESIGNATION_MATCH_MIN_RATIO
