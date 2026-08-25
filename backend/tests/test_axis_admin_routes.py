@@ -283,14 +283,14 @@ def test_create_persists_and_returns_priority_overrides(override_service):
 
 
 def test_create_persists_and_returns_display_fields(override_service):
-    # 改善計画T310: 地図チップ表示要素（icon_id/chip_label/panel_hint/proxy_hint/
-    # display_override）が管理API経由で設定・参照できること。
+    # 改善計画T310/T318: 地図チップ表示要素（icon_id/chip_label/panel_hint/
+    # show_map_icon/display_override）が管理API経由で設定・参照できること。
     payload = {
         **_PAYLOAD,
         "icon_id": "incline",
         "chip_label": "テスト",
         "panel_hint": "パネル向け説明文",
-        "proxy_hint": "代役案内文",
+        "show_map_icon": False,
         "display_override": {
             "kind": "ramp",
             "label": "テスト軸",
@@ -307,7 +307,7 @@ def test_create_persists_and_returns_display_fields(override_service):
     assert body["icon_id"] == "incline"
     assert body["chip_label"] == "テスト"
     assert body["panel_hint"] == "パネル向け説明文"
-    assert body["proxy_hint"] == "代役案内文"
+    assert body["show_map_icon"] is False
     assert body["display_override"]["kind"] == "ramp"
     assert body["display_override"]["thresholds"] == [1.0, 2.0]
     assert override_service._definitions["test_axis"].icon_id == "incline"
@@ -315,7 +315,9 @@ def test_create_persists_and_returns_display_fields(override_service):
 
 
 def test_create_leaves_display_fields_none_when_omitted(override_service):
-    # 既定は全てNone（未設定=フロント側の汎用フォールバックに委ねる）。
+    # 既定はicon_id/chip_label/panel_hint/display_overrideがNone
+    # （未設定=フロント側の汎用フォールバックに委ねる）、show_map_iconのみTrue
+    # （改善計画T318: 既定で地図上に表示する）。
     response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
 
     assert response.status_code == 201
@@ -323,7 +325,7 @@ def test_create_leaves_display_fields_none_when_omitted(override_service):
     assert body["icon_id"] is None
     assert body["chip_label"] is None
     assert body["panel_hint"] is None
-    assert body["proxy_hint"] is None
+    assert body["show_map_icon"] is True
     assert body["display_override"] is None
 
 

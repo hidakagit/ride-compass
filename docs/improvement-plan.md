@@ -5709,6 +5709,52 @@ Render backendの停止とデプロイ確認機構の修正をもって残作業
 設定パネルからも各メンバーの（！）で説明文（雷の安全注意を含む）が確認できることを
 スクリーンショットで確認した。
 
+**T317追記（同日）**: 地図上チップへの説明文表示（▶パネル本体・折りたたみ中の設定
+パネルの入れ子（！）の両方）は、ユーザー判断「▶内に移動した説明文は消して」により
+撤去した。動的グループの行を「地図の見え方」パネルから撤去する対応（本体）自体は
+変更せず、凡例（legendDetails）のみを表示する元の挙動へ戻した
+（`OverlayLayerChip.hint`フィールド・`renderVisibilitySettings`の入れ子トグル機構を削除）。
+frontend tsc/eslint/vitest 502 passed。
+
+## T318: 軸スタジオに「地図上にアイコン表示」ON/OFFを追加し、proxy_hintを撤去（完了・2026-08-25）
+
+軸スタジオ（AxisComposer.tsx）で作成する軸は、専用の地図レイヤーを持つか持たないかに
+関わらず、公開されている限り常に地図上チップ・「地図の見え方」パネルの両方に何らかの形
+（interactive tileまたは無効化されたグレーの案内タイル）で表示される。専用レイヤーを
+持たない軸向けの「代役案内文（`proxy_hint`）」がその無効化タイルの説明に使われていた。
+
+ユーザー判断: 軸スタジオ側で「この軸のアイコンを地図上に表示するかどうか」を明示的に
+ON/OFFできる新フィールド`show_map_icon`（既定true）を追加し、OFFにした軸は地図上
+チップ・サイドバーの両方から丸ごと除外する。これに伴い`proxy_hint`（DBカラム・
+Pydanticモデル2箇所・OpenAPI生成物・フロントエンド6箇所に及ぶフルスタックのフィールド）
+を撤去した。併せてAxisComposer.tsxのフォーム見出しに残っていた開発用のタスク番号表記
+「(任意、改善計画T310)」もユーザー向け画面から削除した。
+
+実装:
+- backend: `migrations/0020_axis_definitions_show_map_icon.sql`（`show_map_icon BOOLEAN
+  NOT NULL DEFAULT true`追加＋`proxy_hint` DROP、既存行はbackfill不要）。
+  `domain/axis_definitions.py`（`AxisDefinition`）・`api/routers/axis_admin.py`
+  （`AxisDefinitionFields`）・`api/routers/axis_catalog.py`（`AxisCatalogEntry`、
+  必須の真偽値フィールドとして追加）・`infrastructure/axis_definition_models.py`/
+  `axis_definition_repository.py`・`scripts/export_openapi.py`の6箇所を機械的に置き換え。
+- frontend: `secondaryAxes.ts: secondaryAxesFromCatalogAxes()`のフィルタへ
+  `axis.show_map_icon !== false`を1行追加するだけで、地図上チップ
+  （`MapOverlayControls.tsx`）・「地図の見え方」パネル（`MapLayersPanel.tsx`）の両方から
+  対象軸が除外される（`display.kind`のramp/none別分岐は不要）。`renderAxisTile()`の
+  `!member`分岐・`renderProxyAxisSection()`から`proxyHint`表示を削除し、後者は見出し
+  （h3）のみへ簡略化（`renderHintToggle`自体が唯一の呼び出し元を失ったため削除）。
+  `AxisComposer.tsx`は`proxy_hint`のtextareaを`Checkbox`（`isPublished`と同じ部品）へ
+  置き換え、グループ見出しから「、改善計画T310」を削除。
+- ドキュメント: `docs/architecture.md`のT310節を`show_map_icon`へ更新し、T318の追加節を
+  末尾に置いた。
+
+検証: backend pytest 984 passed / 154 skipped（`show_map_icon` true/false双方のround-trip
+テストを含む）。frontend tsc/eslint/vitest 505 passed（`secondaryAxesFromCatalogAxes`の
+除外テスト2件・`AxisStudio`のチェックボックス＋T310文字列不在テスト1件を新規追加）。
+OpenAPI/静的axis-catalog.json再生成後のdiffもクリーン。本番DB migration（0020）は
+コード側の検証が完了した段階のため、適用タイミングは別途ユーザーへ確認する
+（無断で本番へは適用しない）。
+
 ---
 
 完了タスクの日付別一覧は[docs/improvement-plan-archive/README.md](improvement-plan-archive/README.md)を参照

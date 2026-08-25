@@ -512,8 +512,8 @@ export interface components {
             chip_label: string | null;
             /** Panel Hint */
             panel_hint: string | null;
-            /** Proxy Hint */
-            proxy_hint: string | null;
+            /** Show Map Icon */
+            show_map_icon: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
         };
@@ -562,8 +562,11 @@ export interface components {
             chip_label?: string | null;
             /** Panel Hint */
             panel_hint?: string | null;
-            /** Proxy Hint */
-            proxy_hint?: string | null;
+            /**
+             * Show Map Icon
+             * @default true
+             */
+            show_map_icon: boolean;
             display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**
@@ -605,8 +608,11 @@ export interface components {
             chip_label?: string | null;
             /** Panel Hint */
             panel_hint?: string | null;
-            /** Proxy Hint */
-            proxy_hint?: string | null;
+            /**
+             * Show Map Icon
+             * @default true
+             */
+            show_map_icon: boolean;
             display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**

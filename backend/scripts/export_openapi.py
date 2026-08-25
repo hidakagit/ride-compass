@@ -187,7 +187,7 @@ def main() -> None:
                 "icon_id": definition.icon_id,
                 "chip_label": definition.chip_label,
                 "panel_hint": definition.panel_hint,
-                "proxy_hint": definition.proxy_hint,
+                "show_map_icon": definition.show_map_icon,
                 "output_range": [0.0, 100.0],
                 "display": display.model_dump(),
             }
@@ -215,7 +215,7 @@ def main() -> None:
                     "icon_id": AXIS_DEFINITIONS[axis.axis_id].icon_id,
                     "chip_label": AXIS_DEFINITIONS[axis.axis_id].chip_label,
                     "panel_hint": AXIS_DEFINITIONS[axis.axis_id].panel_hint,
-                    "proxy_hint": AXIS_DEFINITIONS[axis.axis_id].proxy_hint,
+                    "show_map_icon": AXIS_DEFINITIONS[axis.axis_id].show_map_icon,
                     "output_range": list(axis.output_range),
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }

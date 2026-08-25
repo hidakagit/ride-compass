@@ -24,15 +24,16 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
       category: "観測",
       default_weight: 0.1,
       // 改善計画T308: GET /api/axis-catalogのレスポンスへdisplay/primary_attribute_idsが
-      // 必須フィールドとして追加された。改善計画T310でicon_id/chip_label/panel_hint/
-      // proxy_hintも同様に必須（値はnull許容）となった。このテストはどれも内容を検証
-      // しないためkind="none"・空配列・nullで済ませる。
+      // 必須フィールドとして追加された。改善計画T310でicon_id/chip_label/panel_hintも
+      // 同様に必須（値はnull許容）となった。改善計画T318でshow_map_icon（真偽値、
+      // null不可）も必須フィールドに加わった。このテストはどれも内容を検証しないため
+      // kind="none"・空配列・null・trueで済ませる。
       display: { kind: "none", label: `ラベル[${axisId}]`, category: "trafficSafety", unit: "", note: "" },
       primary_attribute_ids: [],
       icon_id: null,
       chip_label: null,
       panel_hint: null,
-      proxy_hint: null,
+      show_map_icon: true,
     })),
   };
 }

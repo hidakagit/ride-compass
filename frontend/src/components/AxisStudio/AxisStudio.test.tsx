@@ -32,6 +32,7 @@ function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefini
     default_weight: 0.2,
     is_published: false,
     priority_overrides: [],
+    show_map_icon: true,
     shape: {
       kind: "breakpoint_linear",
       terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
@@ -95,6 +96,21 @@ describe("AxisStudio", () => {
 
     expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("");
+  });
+
+  // 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
+  // ON/OFFできるようにして。ヘッダのT310等の文字は消して」）。
+  it("フォームに地図上アイコン表示のON/OFFチェックボックスがあり、既定でONで、見出しに開発用のタスク番号表記が残っていない", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+
+    const toggle = screen.getByRole("checkbox", { name: "地図上にアイコンを表示する(show_map_icon)" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/改善計画T310/)).not.toBeInTheDocument();
   });
 
   it("モーダルを閉じるとダイアログが消え、一覧はそのまま残る", async () => {

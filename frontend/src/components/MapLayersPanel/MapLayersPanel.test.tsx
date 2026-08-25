@@ -234,17 +234,14 @@ describe("MapLayersPanel", () => {
   // 改善計画T278の自動導出対象外）は、地図チップではタップ不能の灰色タイルとして存在する
   // 一方、以前のパネルはMapLayerId自体を持たないため一覧から完全に抜け落ちていた。
   // 設定項目もON/OFFも無いため、他レイヤーのような開閉式セクションではなく常時見える
-  // 案内行として存在させる。
-  it("専用の表示レイヤーを持たない推定軸（勾配）は開閉式にせず、情報アイコンを押すと案内文が見える", () => {
+  // 案内行として存在させる。改善計画T318で代役案内文（旧proxy_hint）を撤去したため、
+  // この案内行は見出し（h3）のみのシンプルな表示になった（軸スタジオでshow_map_icon
+  // をfalseにすれば行自体を丸ごと消せる、secondaryAxes.test.ts参照）。
+  it("専用の表示レイヤーを持たない推定軸（勾配）は開閉式にせず、見出しのみの案内行として存在する", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
 
-    // 改善計画T202: 案内文は先頭に「（地図表示なし）」が付く（統合レビュー2026-08-22指摘、
-    // 展開せずとも「押せない行がなぜあるのか」が伝わるようにするための接頭辞）ため、
-    // 完全一致ではなく部分一致（正規表現）で検証する。
-    expect(screen.queryByText(/標高レイヤーで確認できます/)).not.toBeInTheDocument();
-    openHint("勾配");
-    expect(screen.getByText(/標高レイヤーで確認できます/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "勾配", level: 3 })).toBeInTheDocument();
   });
 
   // 改善計画T278: surface_q・nightは材料（surface_good・no_lit/has_tunnel）がMVTタイルへ

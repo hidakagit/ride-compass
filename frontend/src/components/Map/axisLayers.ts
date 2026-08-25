@@ -107,7 +107,11 @@ export interface CatalogAxis {
   icon_id?: string | null;
   chip_label?: string | null;
   panel_hint?: string | null;
-  proxy_hint?: string | null;
+  // 改善計画T318: falseならこの軸を地図上チップ・地図の見え方パネルの両方から丸ごと
+  // 除外する（secondaryAxes.ts: secondaryAxesFromCatalogAxes()参照）。未設定は
+  // 「表示する」（true相当）として扱う——ビルド時静的json（axis-catalog.json）は
+  // backendが必ずtrue/falseを返すため実質常に値を持つが、型上はoptionalにしておく。
+  show_map_icon?: boolean;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、

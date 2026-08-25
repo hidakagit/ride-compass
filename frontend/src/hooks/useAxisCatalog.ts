@@ -75,7 +75,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     icon_id: entry.icon_id,
     chip_label: entry.chip_label,
     panel_hint: entry.panel_hint,
-    proxy_hint: entry.proxy_hint,
+    show_map_icon: entry.show_map_icon,
   };
 }
 
