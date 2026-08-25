@@ -1041,8 +1041,12 @@ APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキ�
 4指標のみ残す（区間難易度と違い、停止密度以降の指標は候補間の「おすすめ度」の並び順には
 効かせない、というユーザー承認済みのスコープ判断。P1着手時に決定）。**軸を追加するときは
 必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
-→ 材料の解決（既存材料で足りない場合のみ、抽出箇所は`compute_edge_axis_scores`・
-`compute_edge_costs_bulk`の材料辞書と`AttributeRepository`＋ファサード対称委譲）→
+→ 材料の解決（既存材料で足りない場合のみ。スカラー経路`compute_edge_axis_scores`は
+引き続き手書き。配列経路`compute_edge_costs_bulk`は改善計画T280で`domain/material_catalog.py:
+MaterialSpec.extractor`宣言駆動化済みのため、抽出方法がタグ判定・件数密度等の既知パターンに
+収まる材料なら`material_catalog.py`へ抽出関数を1件足すだけで済み、`compute_edge_costs_bulk`
+自体の変更は不要。既知パターンに収まらない場合や`AttributeRepository`側の事前集計が
+無い場合は従来どおりファサード対称委譲から必要）→
 `domain/axis_definitions.py: AXIS_DEFINITIONS`への定義データ追加（改善計画T221 Stage B/C。
 既存テンプレート＋既存材料の組み合わせならこの1エントリでスカラー/配列両経路の評価・
 区間インスペクタ・`evaluate_axis_difficulties`・既定重み（改善計画T316で

@@ -24,6 +24,7 @@ from app.domain.axis_definitions import (
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty
 from app.domain.graph import EdgeLike, RoadGraphLike
+from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
 from app.domain.night import night_materials
 from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
@@ -535,11 +536,13 @@ def compute_edge_costs_bulk(
 
     構造は「抽出フェーズ」と「計算フェーズ」の2段:
 
-    - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセス（`classify_bicycle_infrastructure`・
-      `parse_lanes`・`parse_maxspeed`・`tag_value_is`等の文字列処理を伴う既存の判定
-      プリミティブをそのまま呼ぶ、ロジックの再実装はしない）をここに集約し、以降で使う
-      数値をすべてnumpy配列へ落とし込む。欠損値は数値材料がNaN、文字列材料（highway・
-      bicycle_infra、dtype=object）がNoneで表現する。
+    - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセスを`MATERIAL_CATALOG`
+      （改善計画T280、`domain/material_catalog.py: MaterialSpec.extractor`）へ委譲し、
+      以降で使う数値をすべてnumpy配列へ落とし込む。欠損値は数値材料がNaN、文字列材料
+      （highway・bicycle_infra等、dtype=object）がNoneで表現する。材料を1件追加する
+      ときはmaterial_catalog.pyへ抽出関数を書いてカタログへ登録するだけでよく、
+      この関数自体の変更は不要（0次ハードフィルタ判定はEdgeの通行可否そのものであり
+      材料の値ではないため、対象外のままここに残す）。
     - 計算フェーズ（Pythonループ無し）: 材料id→配列の辞書に対して`AXIS_DEFINITIONS`
       （domain/axis_definitions.py、改善計画T221 Stage B/C）を軸ごとに適用して
       difficulty配列を求め、重み配列とのマスク付き加重平均（`composite_difficulty`の
@@ -577,30 +580,26 @@ def compute_edge_costs_bulk(
         [edge.bearing_deg if edge.bearing_deg is not None else np.nan for edge in edges], dtype=float
     )
 
-    # --- 抽出フェーズ ---
-    gradient_percent = np.full(n, np.nan)
-    surface_good = np.full(n, np.nan)  # 1.0/0.0/NaN
-    stop_count_per_km = np.full(n, np.nan)
-    intersection_count_per_km = np.full(n, np.nan)
-    accident_count_per_km_year = np.full(n, np.nan)
-    # 改善計画T292: car_stress軸の内部軸5つが参照する一次材料。highway/bicycle_infraは
-    # dtype=objectの文字列配列（欠損=None、CategoricalShape側の`values==key`比較は
-    # Noneに対して常にFalseになるので欠損の伝播に特別な処理は要らない）。
-    highway_for_car_stress: list[str | None] = [None] * n
-    bicycle_infra: list[str | None] = [None] * n
-    maxspeed_kmh = np.full(n, np.nan)
-    lanes_count = np.full(n, np.nan)
-    is_designated_flags = np.zeros(n, dtype=bool)
-    motor_vehicle_no = np.zeros(n, dtype=bool)
-    no_lit = np.zeros(n, dtype=bool)
-    has_tunnel = np.zeros(n, dtype=bool)
+    # --- 抽出フェーズ（改善計画T280: MATERIAL_CATALOGのextractor宣言へ委譲） ---
+    extractable_materials = [spec for spec in MATERIAL_CATALOG.values() if spec.extractor is not None]
+    material_arrays: dict[str, np.ndarray] = {}
+    for spec in extractable_materials:
+        if spec.dtype == "categorical":
+            # np.emptyのdtype=objectは要素をNone初期化する（Python object配列のcalloc特性）。
+            material_arrays[spec.material_id] = np.empty(n, dtype=object)
+        elif spec.dtype == "boolean" and spec.bool_default == "false":
+            material_arrays[spec.material_id] = np.zeros(n, dtype=bool)
+        else:  # numeric、またはbool_default="nan"のboolean（surface_good等）
+            material_arrays[spec.material_id] = np.full(n, np.nan)
+
     hard_filter_excluded = np.zeros(n, dtype=bool)
 
     for i, (edge_id, edge) in enumerate(zip(edge_ids, edges)):
         edge_way_tags = way_tags.get(edge_id) if way_tags is not None else None
 
         # 0次ハードフィルタ（is_edge_allowedと同じ判定、改善計画T266でactive_hard_filters
-        # 引数による上書きに対応）。
+        # 引数による上書きに対応）。材料の値ではなくEdgeの通行可否そのものなので、
+        # 材料抽出とは独立にここへ残す。
         if edge.highway is not None:
             for filter_name, highway_types in HARD_FILTER_HIGHWAY_TYPES.items():
                 if filter_name in active_hard_filters and edge.highway in highway_types:
@@ -613,48 +612,38 @@ def compute_edge_costs_bulk(
         ):
             hard_filter_excluded[i] = True
 
-        elevation_attribute = elevation_attributes.get(edge_id)
-        if elevation_attribute is not None and elevation_attribute.average_grade is not None:
-            gradient_percent[i] = elevation_attribute.average_grade
-            if (
-                max_average_grade_percent is not None
-                and abs(elevation_attribute.average_grade) > max_average_grade_percent
-            ):
-                hard_filter_excluded[i] = True
+        ctx = MaterialExtractionContext(
+            edge=edge,
+            edge_id=edge_id,
+            way_tags=edge_way_tags,
+            distance_km=edge.distance_m / 1000,
+            elevation_attributes=elevation_attributes,
+            surface_attributes=surface_attributes,
+            stop_counts=stop_counts,
+            intersection_counts=intersection_counts,
+            accident_counts=accident_counts,
+            accident_years_covered=accident_years_covered,
+            designated_edge_ids=designated_edge_ids,
+        )
+        for spec in extractable_materials:
+            value = spec.extractor(ctx)
+            array = material_arrays[spec.material_id]
+            if spec.dtype == "categorical":
+                array[i] = value
+            elif spec.dtype == "boolean" and spec.bool_default == "false":
+                array[i] = bool(value) if value is not None else False
+            elif spec.dtype == "boolean":  # bool_default="nan"
+                if value is not None:
+                    array[i] = 1.0 if value else 0.0
+            elif value is not None:  # numeric
+                array[i] = float(value)
 
-        is_good_surface = classify_osm_surface(surface_attributes.get(edge_id))
-        if is_good_surface is not None:
-            surface_good[i] = 1.0 if is_good_surface else 0.0
-
-        distance_km = edge.distance_m / 1000
-        stop_count = stop_counts.get(edge_id)
-        if stop_count is not None and distance_km > 0:
-            stop_count_per_km[i] = stop_count / distance_km
-        intersection_count = intersection_counts.get(edge_id)
-        if intersection_count is not None and distance_km > 0:
-            intersection_count_per_km[i] = intersection_count / distance_km
-        accident_count = accident_counts.get(edge_id)
-        if accident_count is not None and distance_km > 0 and accident_years_covered > 0:
-            accident_count_per_km_year[i] = accident_count / distance_km / accident_years_covered
-
-        is_designated_flags[i] = edge_id in designated_edge_ids
-
-        # 改善計画T292: highway由来の車ストレス内部軸はway_tags未取得時に評価しない
-        # （旧ロジックの「way_tags無し=car_stress全体を評価しない」を維持するため、
-        # edge.highwayが分かっていてもここでは意図的に使わない。
-        # compute_edge_axis_scoresの同名コメント参照）。
-        if edge_way_tags is not None:
-            highway_for_car_stress[i] = edge.highway
-            bicycle_infra[i] = classify_bicycle_infrastructure(edge_way_tags, edge.highway)
-            maxspeed_value = parse_maxspeed(edge_way_tags)
-            if maxspeed_value is not None:
-                maxspeed_kmh[i] = maxspeed_value
-            lanes_value = parse_lanes(edge_way_tags)
-            if lanes_value is not None:
-                lanes_count[i] = lanes_value
-            motor_vehicle_no[i] = tag_value_is(edge_way_tags, "motor_vehicle", "no")
-            no_lit[i] = not tag_value_is(edge_way_tags, "lit", "yes")
-            has_tunnel[i] = tag_value_is(edge_way_tags, "tunnel", "yes")
+    # 勾配の〇次ハードフィルタ（改善計画T280: 抽出済みgradient_percent配列に対する
+    # ベクトル演算1本に分離。NaNとの比較は常にFalseになるため、勾配不明のEdgeへは
+    # 従来どおり適用されない）。
+    if max_average_grade_percent is not None:
+        with np.errstate(invalid="ignore"):
+            hard_filter_excluded |= np.abs(material_arrays["gradient_percent"]) > max_average_grade_percent
 
     # --- 計算フェーズ（Pythonループ無し） ---
     wind_penalty = (
@@ -662,23 +651,9 @@ def compute_edge_costs_bulk(
         if wind is None
         else wind.wind_speed_ms * np.cos(np.radians(wind.wind_direction_deg - bearing_deg))
     )
-
-    material_arrays: dict[str, np.ndarray] = {
-        "gradient_percent": gradient_percent,
-        "wind_penalty": wind_penalty,
-        "surface_good": surface_good,
-        "stop_count_per_km": stop_count_per_km,
-        "intersection_count_per_km": intersection_count_per_km,
-        "accident_count_per_km_year": accident_count_per_km_year,
-        "highway": np.array(highway_for_car_stress, dtype=object),
-        "bicycle_infra": np.array(bicycle_infra, dtype=object),
-        "maxspeed_kmh": maxspeed_kmh,
-        "lanes_count": lanes_count,
-        "is_designated": is_designated_flags,
-        "motor_vehicle_no": motor_vehicle_no,
-        "no_lit": no_lit,
-        "has_tunnel": has_tunnel,
-    }
+    # wind_penaltyはEdge単位のPythonループを経由しない完全ベクトル化計算のため
+    # extractorを持たない（material_catalog.pyのextractorフィールド説明参照）。
+    material_arrays["wind_penalty"] = wind_penalty
     # 改善計画T292: スカラー版compute_edge_axis_scores（`evaluate_axes_scalar`）と同じ
     # 依存順評価（軸が他の軸のdifficultyをmaterialとして参照できる階層構造）。
     # material_arrays_with_axesへは内部軸も含め全軸の結果を混ぜ込む（公開軸が内部軸を

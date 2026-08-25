@@ -32,15 +32,46 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 自動生成タスク（T278、未起票）がbackend内部でのみこの2フィールドを使う想定。
 """
 
-from typing import Literal
+from dataclasses import dataclass
+from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from app.domain.attributes import ElevationAttribute
+from app.domain.graph import EdgeLike
+from app.domain.recipe import cycleway_class as _cycleway_class
+from app.domain.recipe import parse_lanes, parse_maxspeed, tag_value_is
+from app.domain.road import classify_osm_surface
+from app.domain.traffic import classify_bicycle_infrastructure
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
 
 
+@dataclass(frozen=True)
+class MaterialExtractionContext:
+    """改善計画T280: `domain/evaluation.py: compute_edge_costs_bulk`の抽出フェーズが
+    Edge単位に組み立てる入力の束。`MaterialSpec.extractor`はこれを受け取り、その材料の
+    Edge1件分の生値（欠損はNone）を返す。way_tags以外のフィールドはcompute_edge_costs_bulk
+    側で`None`から`{}`/`set()`へ正規化済みの前提（呼び出し元でNoneチェック不要）。"""
+
+    edge: EdgeLike
+    edge_id: str
+    way_tags: dict[str, str] | None
+    distance_km: float
+    elevation_attributes: dict[str, ElevationAttribute]
+    surface_attributes: dict[str, str | None]
+    stop_counts: dict[str, int]
+    intersection_counts: dict[str, int]
+    accident_counts: dict[str, int]
+    accident_years_covered: int
+    designated_edge_ids: set[str]
+
+
+MaterialExtractor = Callable[[MaterialExtractionContext], object]
+
+
 class MaterialSpec(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     material_id: str
     label: str
@@ -76,6 +107,128 @@ class MaterialSpec(BaseModel):
     # axis-catalog.jsonのregistry.py: AxisSpec.inputs[一次属性id]をそのまま使っており、
     # GUI作成軸を含まなかった）。
     primary_attribute_id: str | None = None
+    # 改善計画T280: この材料をcompute_edge_costs_bulkの抽出フェーズへ載せる関数
+    # （MaterialExtractionContext -> 生値、欠損はNone）。Noneは「専用の計算経路を持つため
+    # 汎用抽出の対象外」（wind_penalty: 風向×bearingの完全ベクトル化済み計算で、そもそも
+    # Edge単位のPythonループを経由しない。designation: 種別ごとのper-edge kindが評価
+    # パイプラインへ配線されていない、is_designatedのdocstring参照）。GET /api/material-catalog
+    # の公開レスポンスには含めない（tile_propertyと同じくbackend内部専用）。
+    extractor: MaterialExtractor | None = None
+    # dtype="boolean"の材料でextractorがNoneを返した（＝欠損）ときの配列上の扱い。
+    # "false": bool配列、欠損はFalse（「タグ不在=非該当」とみなす多数派、motor_vehicle_no等）。
+    # "nan": float配列、欠損はNaN（「不明を非該当と混同しない」判断がある少数派、
+    # surface_good）。domain/axis_definitions.py: evaluate_axis_arrayの
+    # `values.dtype == bool`分岐（priority_overridesの真偽比較）が実際に配列dtypeを
+    # 見て分岐するため、この2表現は数値的に等価ではなく、材料ごとに固定する必要がある
+    # （改善計画T280で発見、統一すると当該分岐が壊れる）。
+    bool_default: Literal["false", "nan"] = "false"
+
+
+# --- 改善計画T280: 抽出関数（compute_edge_costs_bulkの旧手書き抽出ループを1材料1関数へ
+# 分解したもの。ロジック自体は移動のみで再実装していない——既存の判定プリミティブ
+# [tag_value_is/parse_maxspeed/parse_lanes/classify_bicycle_infrastructure/
+# classify_osm_surface/cycleway_class]をそのまま呼ぶ）。way_tags依存の材料は
+# way_tags自体が無いEdge（この場合car_stress軸グループ全体を評価しない、旧実装からの
+# 既存挙動）でNoneを返し、bool系はbool_defaultの規約でFalseへ、それ以外はNaN/Noneへ
+# 落ちる。新しい材料を1件増やすときは、この関数を1つ書いてMATERIAL_CATALOGへ
+# extractorとして登録するだけでよく、compute_edge_costs_bulk自体の変更は不要。
+def _extract_gradient_percent(ctx: MaterialExtractionContext) -> float | None:
+    attribute = ctx.elevation_attributes.get(ctx.edge_id)
+    return attribute.average_grade if attribute is not None else None
+
+
+def _extract_surface_good(ctx: MaterialExtractionContext) -> bool | None:
+    return classify_osm_surface(ctx.surface_attributes.get(ctx.edge_id))
+
+
+def _extract_surface(ctx: MaterialExtractionContext) -> str | None:
+    return ctx.surface_attributes.get(ctx.edge_id)
+
+
+def _per_km(count: int | None, distance_km: float) -> float | None:
+    if count is None or distance_km <= 0:
+        return None
+    return count / distance_km
+
+
+def _extract_stop_count_per_km(ctx: MaterialExtractionContext) -> float | None:
+    return _per_km(ctx.stop_counts.get(ctx.edge_id), ctx.distance_km)
+
+
+def _extract_intersection_count_per_km(ctx: MaterialExtractionContext) -> float | None:
+    return _per_km(ctx.intersection_counts.get(ctx.edge_id), ctx.distance_km)
+
+
+def _extract_accident_count_per_km_year(ctx: MaterialExtractionContext) -> float | None:
+    if ctx.accident_years_covered <= 0:
+        return None
+    per_km = _per_km(ctx.accident_counts.get(ctx.edge_id), ctx.distance_km)
+    return per_km / ctx.accident_years_covered if per_km is not None else None
+
+
+def _extract_is_designated(ctx: MaterialExtractionContext) -> bool:
+    return ctx.edge_id in ctx.designated_edge_ids
+
+
+# way_tags依存の材料群: way_tags自体が欠損のときNoneを返す（車ストレス軸グループを
+# まとめて評価しない旧来の意図的な仕様を維持するため、タグ個別の欠損とは区別する）。
+def _extract_highway(ctx: MaterialExtractionContext) -> str | None:
+    return ctx.edge.highway if ctx.way_tags is not None else None
+
+
+def _extract_bicycle_infra(ctx: MaterialExtractionContext) -> str | None:
+    if ctx.way_tags is None:
+        return None
+    return classify_bicycle_infrastructure(ctx.way_tags, ctx.edge.highway)
+
+
+def _extract_cycleway_class(ctx: MaterialExtractionContext) -> str | None:
+    if ctx.way_tags is None:
+        return None
+    return _cycleway_class(ctx.way_tags)
+
+
+def _extract_maxspeed_kmh(ctx: MaterialExtractionContext) -> int | None:
+    if ctx.way_tags is None:
+        return None
+    return parse_maxspeed(ctx.way_tags)
+
+
+def _extract_lanes_count(ctx: MaterialExtractionContext) -> int | None:
+    if ctx.way_tags is None:
+        return None
+    return parse_lanes(ctx.way_tags)
+
+
+def _extract_motor_vehicle_no(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return tag_value_is(ctx.way_tags, "motor_vehicle", "no")
+
+
+def _extract_no_lit(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return not tag_value_is(ctx.way_tags, "lit", "yes")
+
+
+def _extract_has_tunnel(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return tag_value_is(ctx.way_tags, "tunnel", "yes")
+
+
+def _extract_bridge(ctx: MaterialExtractionContext) -> bool | None:
+    if ctx.way_tags is None:
+        return None
+    return tag_value_is(ctx.way_tags, "bridge", "yes")
+
+
+def _extract_smoothness(ctx: MaterialExtractionContext) -> str | None:
+    if ctx.way_tags is None:
+        return None
+    raw = ctx.way_tags.get("smoothness")
+    return raw.strip().lower() if raw else None
 
 
 # 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと
@@ -91,6 +244,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 焼き込める事実データが無い（docs/architecture.md「標高計算」節参照）。
         tile_property=None,
         primary_attribute_id="elevation",
+        extractor=_extract_gradient_percent,
     ),
     "wind_penalty": MaterialSpec(
         material_id="wind_penalty",
@@ -106,6 +260,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="surface_good",
         primary_attribute_id="surface",
+        extractor=_extract_surface_good,
+        # 「路面タグ不明」を「路面が悪い」と混同しないための唯一の例外（他のboolean材料は
+        # bool_default既定の"false"のまま）。
+        bool_default="nan",
     ),
     "stop_count_per_km": MaterialSpec(
         material_id="stop_count_per_km",
@@ -113,6 +271,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
+        extractor=_extract_stop_count_per_km,
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
@@ -120,6 +279,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
+        extractor=_extract_intersection_count_per_km,
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
@@ -133,6 +293,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="accident_per_km",
         tile_property_needs_runtime_scale=True,
         primary_attribute_id="accident_point",
+        extractor=_extract_accident_count_per_km_year,
     ),
     "no_lit": MaterialSpec(
         material_id="no_lit",
@@ -143,6 +304,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="lit",
         tile_property_inverted=True,
         primary_attribute_id="lit",
+        extractor=_extract_no_lit,
     ),
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",
@@ -150,6 +312,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="tunnel",
         primary_attribute_id="tunnel",
+        extractor=_extract_has_tunnel,
     ),
     # --- 改善計画T290: MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
     "bridge": MaterialSpec(
@@ -160,6 +323,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bridge",
         # bridgeに対応する一次属性は未登録（表示専用のtunnel/onewayと異なり一次属性
         # レジストリに追加されていない）。
+        extractor=_extract_bridge,
     ),
     "motor_vehicle_no": MaterialSpec(
         material_id="motor_vehicle_no",
@@ -170,6 +334,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 独立して材料登録していなかった）。
         tile_property="motor_vehicle_no",
         primary_attribute_id="motor_vehicle_access",
+        extractor=_extract_motor_vehicle_no,
     ),
     "oneway": MaterialSpec(
         material_id="oneway",
@@ -177,6 +342,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         # osm_raw_ways.direction（forward/backward/both）から算出（改善計画T289で
         # 一次属性・地図レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
+        # 改善計画T280: extractor未設定（データ源のdirectionはEdgeLikeが持たず、
+        # build_road_graphがforward/backward Edge生成の可否判定に消費するのみで
+        # 保持しない。抽出フェーズへ載せるにはEdgeLikeへのフィールド追加が要り、
+        # 表示専用の一方通行材料のためだけにそこまでする理由が今は無い、DEFER）。
         tile_property="oneway",
         primary_attribute_id="oneway",
     ),
@@ -186,6 +355,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="maxspeed_kmh",
         primary_attribute_id="maxspeed",
+        extractor=_extract_maxspeed_kmh,
     ),
     "lanes_count": MaterialSpec(
         material_id="lanes_count",
@@ -193,6 +363,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="lanes_count",
         primary_attribute_id="lanes",
+        extractor=_extract_lanes_count,
     ),
     "highway": MaterialSpec(
         material_id="highway",
@@ -204,6 +375,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 正準の閉じた値集合はこのプロジェクトで管理していない（OSMタグの生値のため）。
         tile_property="highway",
         primary_attribute_id="highway",
+        extractor=_extract_highway,
     ),
     "surface": MaterialSpec(
         material_id="surface",
@@ -214,6 +386,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # その分類前の生タグ値そのもの。分類後の真偽値は既存材料surface_good）。
         tile_property="surface",
         primary_attribute_id="surface",
+        extractor=_extract_surface,
     ),
     "bicycle_infra": MaterialSpec(
         material_id="bicycle_infra",
@@ -224,6 +397,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # unknownはタイル側でプロパティ省略として表現され現れない）。
         tile_property="bicycle_infra",
         primary_attribute_id="cycleway",
+        extractor=_extract_bicycle_infra,
     ),
     "cycleway_class": MaterialSpec(
         material_id="cycleway_class",
@@ -233,6 +407,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 粗い分類（bicycle_infraのseparated/lane/shared_buswayに相当する部分集合）。
         tile_property="cycleway_class",
         primary_attribute_id="cycleway",
+        extractor=_extract_cycleway_class,
     ),
     "designation": MaterialSpec(
         material_id="designation",
@@ -240,6 +415,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="categorical",
         # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
         # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
+        # 改善計画T280: extractor未設定（種別ごとのper-edge kindがcompute_edge_costs_bulkへ
+        # 配線されていない。is_designatedのコメントにある既存DEFERとまとめて扱う）。
         tile_property="designation",
         primary_attribute_id="designation",
     ),
@@ -257,6 +434,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （評価時にdesignated_edge_idsから都度算出）。
         tile_property=None,
         primary_attribute_id="designation",
+        extractor=_extract_is_designated,
     ),
     "smoothness": MaterialSpec(
         material_id="smoothness",
@@ -267,6 +445,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 対し、smoothnessは実際の走行感（同じasphaltでも荒れ具合が違う等）。
         tile_property="smoothness",
         # smoothnessに対応する一次属性は未登録（bridgeと同じくレジストリ未追加）。
+        extractor=_extract_smoothness,
     ),
 }
 
