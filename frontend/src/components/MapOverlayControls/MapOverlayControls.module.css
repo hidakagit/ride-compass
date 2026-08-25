@@ -443,32 +443,6 @@
   color: #ffffff;
 }
 
-/* 「表示する項目を選ぶ」設定パネル内の各項目に付く説明文トグル（実機フィードバック
-   2026-08-25「動的アイコンの（！）を押すと開くポップアップの中で、さらに（！）を
-   出して」への対応）。hintを持つ項目（現状は動的グループの4件）だけに出る。 */
-.visibilityHintToggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
-  flex-shrink: 0;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-muted);
-  cursor: pointer;
-}
-
-.visibilityHintToggle[aria-expanded="true"] {
-  color: var(--color-accent-strong);
-}
-
-.visibilityHintToggle svg {
-  flex-shrink: 0;
-}
-
 /* 非表示カテゴリは薄く見せ、右側に「非表示」バッジを添えて、地図上には出ていないことを
    一目で分かるようにする（表示中と同じ並びに置いて全体像を見せつつ区別する）。 */
 .detailRowHidden {

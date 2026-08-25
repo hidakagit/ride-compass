@@ -60,14 +60,6 @@ export interface OverlayLayerChip {
    * （以前は絞り込み中のレイヤーしか▶が出なかったが、無条件のレイヤーでも凡例を
    * 確認したいという実機フィードバックを受け、legendDetailsの有無だけで判定するよう変更）。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
-  /** ▶を開いたときにlegendDetailsと併せて常に出す説明文（改善計画、ユーザー判断
-   * 2026-08-25）。summaryと異なりlegendDetailsがあっても抑制されない——動的グループ
-   * （降水ナウキャスト・風・雷・竜巻）は絞り込み機能を持たないため「地図の見え方」
-   * パネルの行自体を撤去しており（MapLayersPanel.tsx参照）、そこで見せていた説明文
-   * （mapLayers.ts: panelHint、雷ナウキャストの安全上の注意等を含む）の行き場がここに
-   * なる。他レイヤーはサイドバーに引き続き説明文があるため重複表示を避け、
-   * page.tsx側でundefinedのまま渡している。 */
-  hint?: string;
   /** 観測グループ内の小見出し分け（改善計画T86→T166）用。mapLayers.ts:
    * MapLayerDescriptor.categoryをそのまま渡す。未指定＝route等のdynamicレイヤーは
    * 次数グループに属さず単独チップのまま。 */
@@ -429,25 +421,6 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
       deserialize: (raw) => deserializeStringSet(raw, (key) => GROUP_VISIBILITY_KEYS.has(key)),
     }
   );
-  // 「表示する項目を選ぶ」設定パネル（renderVisibilitySettings）内の各項目に付く説明文
-  // トグル（実機フィードバック2026-08-25「動的アイコンの（！）を押すと開くポップアップの
-  // 中で、さらに（！）を出して」への対応）。折りたたみ中は各メンバー個別の▶（凡例+説明文）
-  // に辿り着けないため、この設定パネル自体からも説明文を確認できるようにする。開閉状態は
-  // `${scope}:${item.key}`をキーにこのSetで管理する（hiddenIds/expandedIdsとは別の状態、
-  // 「隠すかどうか」「展開するか」とは独立した「説明文を見せるかどうか」の切替のため）。
-  const [openVisibilityHintKeys, setOpenVisibilityHintKeys] = useState<ReadonlySet<string>>(new Set());
-  function toggleVisibilityHint(key: string) {
-    setOpenVisibilityHintKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }
-
   // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
   // （レイヤー数が多い画面向け）だが、CSSの仕様上overflow-yを指定するとoverflow-xも
   // 暗黙にauto扱いになり、そのままではパネルをposition: absoluteでこの行の右へ
@@ -577,7 +550,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
-    const canExpand = Boolean(!member.disabled && (hasLegend || member.summary || member.hint));
+    const canExpand = Boolean(!member.disabled && (hasLegend || member.summary));
     return (
       <ChipButton
         key={key}
@@ -595,17 +568,11 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
         groupTint={groupTint}
         panelContent={
           canExpand ? (
-            <>
-              {hasLegend ? (
-                renderLegendDetails(member.legendDetails!)
-              ) : (
-                !member.hint && <p className={styles.detailNotice}>{member.summary}</p>
-              )}
-              {/* 実機フィードバック（2026-08-25）「読みにくい、凡例と説明文の位置関係を
-                  逆転させて」への対応。先に凡例（帯一覧）で「何が見えているか」を示し、
-                  その下に説明文（panelHint、長文）を続ける方が読みやすいという判断。 */}
-              {member.hint && <p className={styles.detailNotice}>{member.hint}</p>}
-            </>
+            hasLegend ? (
+              renderLegendDetails(member.legendDetails!)
+            ) : (
+              <p className={styles.detailNotice}>{member.summary}</p>
+            )
           ) : (
             <></>
           )
@@ -696,9 +663,6 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
        * undefinedのまま渡す。 */
       layerId?: MapLayerId;
       on?: boolean;
-      /** 折りたたみ中でも説明文へ辿り着けるようにする追加の（！）ボタン用（実機フィード
-       * バック2026-08-25）。未指定の項目（観測/推定グループ）にはボタン自体を出さない。 */
-      hint?: string;
     }[]
   ) {
     const legendKey = `${groupKey}:legend`;
@@ -732,39 +696,23 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                 {items.map((item) => {
                   const hiddenKey = `${scope}:${item.key}`;
                   const isHidden = hiddenIds.has(hiddenKey);
-                  const hintKey = `${scope}:${item.key}`;
-                  const isHintOpen = openVisibilityHintKeys.has(hintKey);
                   return (
-                    <li key={item.key}>
-                      <div className={styles.detailRow}>
-                        <button
-                          type="button"
-                          onClick={() => toggleHidden(hiddenKey, item.layerId, item.on)}
-                          aria-pressed={!isHidden}
-                          aria-label={`${item.label}を${isHidden ? "表示する" : "表示しない"}`}
-                          className={
-                            isHidden
-                              ? styles.visibilityCheckbox
-                              : `${styles.visibilityCheckbox} ${styles.visibilityCheckboxChecked}`
-                          }
-                        >
-                          {isHidden ? "" : "✓"}
-                        </button>
-                        <item.Icon size={16} />
-                        <span className={styles.detailRowLabel}>{item.label}</span>
-                        {item.hint && (
-                          <button
-                            type="button"
-                            onClick={() => toggleVisibilityHint(hintKey)}
-                            aria-expanded={isHintOpen}
-                            aria-label={`${item.label}の説明を${isHintOpen ? "隠す" : "表示"}`}
-                            className={styles.visibilityHintToggle}
-                          >
-                            <InfoIcon size={12} />
-                          </button>
-                        )}
-                      </div>
-                      {item.hint && isHintOpen && <p className={styles.detailNotice}>{item.hint}</p>}
+                    <li key={item.key} className={styles.detailRow}>
+                      <button
+                        type="button"
+                        onClick={() => toggleHidden(hiddenKey, item.layerId, item.on)}
+                        aria-pressed={!isHidden}
+                        aria-label={`${item.label}を${isHidden ? "表示する" : "表示しない"}`}
+                        className={
+                          isHidden
+                            ? styles.visibilityCheckbox
+                            : `${styles.visibilityCheckbox} ${styles.visibilityCheckboxChecked}`
+                        }
+                      >
+                        {isHidden ? "" : "✓"}
+                      </button>
+                      <item.Icon size={16} />
+                      <span className={styles.detailRowLabel}>{item.label}</span>
                     </li>
                   );
                 })}
@@ -1085,7 +1033,6 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                         label: member.chipLabel ?? member.label,
                         layerId: member.id,
                         on: member.on,
-                        hint: member.hint,
                       }))
                     )}
               </div>,
