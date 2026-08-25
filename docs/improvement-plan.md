@@ -6944,16 +6944,58 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 - 依存: T339（材料抽出の宣言化が先に進むなら、値一覧取得の仕組みもその枠組みに
   乗せられる可能性がある。ただし本タスクは独立に着手可能）。
 
-### - [ ] T341. 評価軸材料と地図表示カテゴリラベルの分離原則をdocs/architecture.mdへ反映 規模S〔P3〕
+### - [ ] T341. 地図表示ロジックの定義場所をSQL側へ一本化し、分離原則をdocs/architecture.mdへ反映 規模S〜M〔P3〕— トリガー: T336・T337完了後
 
-- 背景: [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
-  で「評価軸の材料は正規化された生データに統一する」「地図表示用の人間向けカテゴリ
-  ラベルは評価軸の材料とは別レイヤーの関心事として、既存のPython分類ロジック・SQL
-  CASE式をそのまま維持してよい」という原則を確立したが、`docs/architecture.md`の
-  評価システムの説明箇所にはまだ反映されていない。記録が`docs/decisions/`の1ファイルに
-  留まっていると、次にこの領域を触る際に同じ議論を繰り返すリスクが残る。
-- 内容: `docs/architecture.md`の該当節へ、上記原則の要約と
-  `material-normalization-for-axis-composition.md`への参照を追記する。
+- 背景（2026-08-26、当初案からユーザー指摘を受けて修正）: 当初は
+  [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  の原則をドキュメント化するだけの想定だったが、調査の結果`bicycle_infra`/
+  `cycleway_class`の分類ロジックには2種類の異なる重複パターンがあると判明した。
+  - **良い設計（既に片側import、対応不要）**: `surface_good`は`GOOD_OSM_SURFACE_TAGS`/
+    `BAD_OSM_SURFACE_TAGS`という**値のリスト**を`domain/road.py`にのみ定義し、SQL側
+    （`_ROAD_SURFACE_TILE_MVT_SQL`）は`bindparam`でその値を受け取って`ANY()`判定
+    しているだけ（[road_graph_repository.py:186-191](../backend/app/infrastructure/road_graph_repository.py:186)）。
+  - **本物の重複（対応が必要）**: `bicycle_infra`（`domain/traffic.py:
+    classify_bicycle_infrastructure`）・`cycleway_class`（`domain/recipe.py:
+    cycleway_class`）は、**優先順位付き条件分岐というロジック構造そのもの**が
+    Python関数とSQL CASE式の両方に独立して手書きされている（`domain/traffic.py`の
+    docstringに「SQL側にPythonを呼び出す手段が無いため、やむを得ず2箇所に存在する」と
+    明記済み、整合性は`test_road_graph_repository.py`のテストで担保するのみ）。
+  - `classify_bicycle_infrastructure`は`evaluation.py`・`road_graph_engine.py`・
+    `openrouteservice_engine.py`の複数箇所から呼ばれている（全て「car_stress軸の
+    ための材料計算」という同一目的の呼び出し）。
+- 内容: T336（`bicycle_infra`の正規化フラグ化）・T337（`cycleway_class`の未使用状態
+  整理）が完了し、これらのPython分類関数が評価パイプラインから呼ばれなくなった時点で、
+  **地図表示（MVTタイル生成）用の分類ロジックはSQL側のCASE式のみを単一ソースとし、
+  Python側の重複関数（`classify_bicycle_infrastructure`/`cycleway_class`）を削除する**
+  （逆方向＝SQL側を廃止しPython側に統一、は地図タイル生成がPostGISの空間演算と
+  密結合しているため非現実的）。あわせて、この経緯と「評価軸の材料は正規化された
+  生データに統一する」「地図表示用の人間向けカテゴリラベルは評価軸の材料とは別
+  レイヤーの関心事」という原則を`docs/architecture.md`の評価システムの説明箇所へ
+  追記する。
+- 依存: T336・T337（Python側関数を評価パイプラインから切り離す前提作業）。
+
+### - [ ] T342. 材料正規化方針を踏まえた軸スタジオUIの見直し検討 規模未定（調査）〔P3〕— トリガー: T336・T339等の実装が具体化した時点
+
+- 背景: 2026-08-26の設計議論（[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)）
+  で「評価軸の材料は正規化されたフラグ・数値に統一する」方針を確立したことを受け、
+  ユーザーから「軸スタジオのUIも変わると思う」との指摘。現時点では具体的なUI変更を
+  設計するには早いため、想定される影響を記録するに留める。
+- 想定される影響（着手時に再検証すること）:
+  1. **材料選択肢の変化**: T336実施後、`cycleway_has_track`等の正規化フラグ材料が
+     新たに材料カタログへ増える一方、`bicycle_infra`のような複雑なcategorical材料は
+     評価軸の選択肢から外れる（表示専用へ格下げ）可能性がある。
+  2. **「値ごとのスコアを設定」画面（categoricalテンプレート）の出番が減る**: 正規化
+     フラグはboolean化されるため、「該当時/非該当時のスコア」という既存のシンプルな
+     入力で足りるケースが増え、T340が解決しようとしている「値の自由入力」画面自体の
+     使用頻度が下がる可能性がある。
+  3. **「複数要素の足し算」操作の重要性が増す**: 今回の実データ検証（正規化材料の
+     線形結合による近似）を踏まえると、複数の正規化フラグ材料を選んで重みを付けて
+     足し合わせる操作（`flag_sum`/`breakpoint_linear`のterms）が、より中心的な
+     使い方になる可能性がある。現行UIがこの操作をどれだけ快適にサポートできているか
+     の再点検が要る。
+- 内容: 着手時に、その時点のT336・T339の実装状況を踏まえてAxisComposer.tsxの
+  UI変更要否を判断する。
+- 依存: T336・T339（実装が具体化してから中身を判断する）。
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
