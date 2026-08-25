@@ -41,6 +41,11 @@ export interface SecondaryAxisSummary {
    * （AXIS_DEFINITIONS.icon_id）をそのまま反映する。未設定は汎用フォールバック
    * （AxisRampIcon）を使う——axisIconFor()側の責務。 */
   iconId?: string;
+  /** 改善計画T334: 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx:
+   * renderVisibilitySettings）で、この軸の行に個別の情報アイコンを出し、押すと表示する
+   * 説明文。軸自身のデータ（AXIS_DEFINITIONS.panel_hint）をそのまま反映する。未設定なら
+   * 情報アイコン自体を出さない。 */
+  panelHint?: string;
 }
 
 // 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
@@ -89,6 +94,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       layerId: layerIdFor(axis),
       primaryAttributeIds: axis.primary_attribute_ids ?? [],
       iconId: axis.icon_id ?? undefined,
+      panelHint: axis.panel_hint ?? undefined,
     }));
 }
 

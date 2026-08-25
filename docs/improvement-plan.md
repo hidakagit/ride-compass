@@ -6640,6 +6640,50 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 - 依存: T330（発見の発端）。CLAUDE.mdの「コミット時の同期ルール」（OpenAPI生成物ドリフト
   防止）に該当する再発防止対象。
 
+### - [x] T334. 地図チップ「表示する項目を選ぶ」設定パネルの各項目に個別の情報アイコンを追加する 規模M（実装完了・2026-08-25）
+
+- 背景: T317（動的グループを「地図の見え方」パネルから撤去し、地図上チップの▶パネルへ
+  説明文を移設）の同日、ユーザーが直後の指示「▶内に移動した説明文は消して」と、それとは
+  別に「動的アイコン（推定/観測/動的の情報アイコンから開く『表示する項目を選ぶ』
+  ウィンドウ）の配下要素にも個別の情報アイコンを追加してほしい」という依頼を続けて
+  出していたが、後者が実装されないまま抜け落ちていたことが後日判明した。T317追記の
+  一括撤去（▶パネル本体の説明文・折りたたみ中設定パネルの入れ子（！）の両方を撤去）が
+  この依頼も巻き込んで消してしまっていた可能性が高い。
+- 対象範囲の確認: ユーザー確認により、対象は「動的」グループに限らず「推定・観測・動的の
+  3グループすべて」で、かつ「同じ作りになるはず」（グループ間で実装を分けない）という
+  明示指示があった。
+- 決定: `MapOverlayControls.tsx`の`renderVisibilitySettings`（推定/観測/動的の3グループが
+  共通で使う、折りたたみ中に見出し脇の情報アイコンから開く「表示する項目を選ぶ」設定
+  パネル）の各項目行に、説明文(panelHint)を持つ項目だけ個別の情報アイコンを追加し、
+  押すとその項目の行の直下に説明文がインラインで開閉表示されるようにする。T317追記で
+  「読みにくい」とされたのは▶パネル本体への**常時表示**であり、今回は設定パネル内で
+  ユーザーが個別に開閉する形のため矛盾しない。
+- 実装: 3グループ共通の`renderVisibilitySettings`1箇所の改修のみ（グループごとの分岐は
+  追加しない、ユーザー指示どおりの汎用実装）。
+  - データ配線: `mapLayers.ts: MapLayerDescriptor.panelHint`（既存フィールド、観測/動的
+    メンバーの説明文）と`AXIS_DEFINITIONS.panel_hint`（`secondaryAxes.ts:
+    SecondaryAxisSummary`に新規`panelHint`フィールドを追加し、`useAxisCatalog.ts`が
+    既に中継していた`CatalogAxis.panel_hint`をそのまま反映）の2系統を、
+    `MapOverlayControls.tsx: OverlayLayerChip.panelHint`（新規フィールド）と
+    `renderVisibilitySettings`の`items[].description`（新規フィールド）という共通の
+    受け皿へ流し込む。`page.tsx`の`overlayLayers`組み立てへ`panelHint: layer.panelHint`を
+    1行追加。
+  - UI: `items`一覧の各`<li>`に、`description`を持つ項目だけ`InfoIcon`ボタンを追加
+    （`.detailRowLabel`がflex:1のため後続要素は自然と行右端に来る）。押すと
+    `openInfoKeys`（新規state、非表示設定`hiddenIds`とは別のSet、一時的な状態のため
+    localStorageへは永続化しない）を切り替え、開いている項目だけその直下に新しい
+    `<li>`（`.visibilityInfoRow`、チェックボックス列幅ぶん字下げ）で説明文を表示する。
+  - CSS: `.visibilityInfoButton`（`.visibilityCheckbox`に近い1.2rem角の丸ボタン）・
+    `.visibilityInfoButtonActive`・`.visibilityInfoRow`を追加。
+- 検証: frontend tsc --noEmit clean、eslint clean。`MapOverlayControls.test.tsx`に回帰
+  3件追加（観測/動的グループで同じ検証をit.eachで実施し「作りが同じ」ことを裏付け、
+  推定グループはSECONDARY_AXES実データ[stop_density軸のpanel_hint]で確認）。Playwright
+  実機確認: デスクトップで観測グループの設定パネルを開き、panelHintを持つ「道路種別」に
+  情報アイコンが出て押すと説明文が展開/再度押すと閉じること、panelHintを持たない「路面」
+  には情報アイコンが出ないことを確認。モバイル幅390pxでも横スクロールなし・タップ操作
+  可能なことを確認。コンソールエラーなし。
+- 依存: T317（同日の一連の作業、抜け落ちの直接の発端）。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の

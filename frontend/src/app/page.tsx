@@ -747,8 +747,13 @@ export default function Home() {
                         : staticFilterSummaries[layer.id]?.legendDetails;
         // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
         // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
-        // （MapLayersPanel.tsx参照）。地図上チップの▶パネルへ説明文を移す対応は
-        // 「読みにくい」というフィードバックを受けて取りやめた（凡例のみを表示する）。
+        // （MapLayersPanel.tsx参照）。地図上チップの▶パネル本体へ説明文を常時表示する
+        // 対応は「読みにくい」というフィードバックを受けて取りやめた（凡例のみを表示する）。
+        // 改善計画T334: 上記とは別に、折りたたみ中の「表示する項目を選ぶ」設定パネル
+        // （MapOverlayControls.tsx: renderVisibilitySettings）側は、各メンバー行に個別の
+        // 情報アイコンを置き、押したメンバーだけ説明文を表示する形で復活させた
+        // （panelHintは推定/観測/動的の全メンバーへ渡す。同時に常時表示にはしないため
+        // 上記のT317同日追記の判断とは矛盾しない）。
         const isDynamicGroupLayer =
           layer.id === "precipitationNowcast" ||
           layer.id === "windVector" ||
@@ -771,6 +776,8 @@ export default function Home() {
           // 地図上チップのカテゴリ束ね（改善計画T128、MapOverlayControls.tsx）用。
           category: layer.category,
           dataNature: layer.dataNature,
+          // 改善計画T334: 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
+          panelHint: layer.panelHint,
         };
       }),
     [
