@@ -1,8 +1,5 @@
 import type { NextConfig } from "next";
-
-// サーバー側（Next.jsプロセス自身）からバックエンドに到達するためのURL。
-// ブラウザ向けのNEXT_PUBLIC_API_URLとは別物（Docker Composeではサービス名で到達する必要があるため）。
-const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000";
+import { BACKEND_INTERNAL_URL } from "./src/lib/backendInternalUrl";
 
 const nextConfig: NextConfig = {
   output: "standalone",

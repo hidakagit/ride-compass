@@ -149,12 +149,37 @@ def main() -> None:
         # （公開軸car_stressの内訳であって、それ自体が地図に出る意味を持たない）。
         if not definition.is_published:
             continue
-        ramp = derive_ramp_inputs(definition)
-        if ramp is None:
-            continue
+        # コードレビュー指摘の修正: 以前はderive_ramp_inputs()の自動導出結果のみを見ており、
+        # T310で導入したdefinition.display_override（derive_ramp_inputsが解決できない軸
+        # 向けの正式な代替手段）を一切チェックしていなかった。そのため、GUI作成軸が
+        # display_overrideを設定して公開しても、実行時API（axis_display_for()、①display_
+        # override→②自動導出の優先順位）では正しくrampとして現れる一方、この静的
+        # axis-catalog.json生成物には永久に含まれない（export_openapi.pyを再実行しても
+        # 変わらない）という非対称が生じていた。axis_display_for()と同じ優先順位で解決する。
+        if definition.display_override is not None:
+            display = definition.display_override
+        else:
+            ramp = derive_ramp_inputs(definition)
+            if ramp is None:
+                continue
+            display = AxisDisplaySpec(
+                kind="ramp",
+                label=definition.label,
+                # registry.py側のcategory（地図レイヤーのグルーピング用「terrain」
+                # 「road」「trafficSafety」等）とAXIS_DEFINITIONS.category（軸の性質
+                # 「観測」「推定」「動的」）は別語彙で機械的な対応が無いため、
+                # 軸スタジオ作成軸には汎用既定値trafficSafetyを充てる（多くの推定・観測軸が
+                # 実際に属する分類、地図レイヤーパネル上の表示グループが最適でないだけで
+                # 動作自体は壊れない）。カテゴリを選ばせるUIはStage Eのスコープ外。
+                category="trafficSafety",
+                tile_inputs=ramp.tile_inputs,
+                thresholds=ramp.thresholds,
+                note=f"{definition.description}(改善計画T278: 軸スタジオ作成軸の自動導出表示)",
+            )
         _auto_ramp_axes.append(
             {
                 "axis_id": axis_id,
+                "category": definition.category,
                 "inputs": [],
                 "primary_attribute_ids": [],
                 # 改善計画T310: 地図チップ表示要素も実行時API（GET /api/axis-catalog）と
@@ -164,20 +189,7 @@ def main() -> None:
                 "panel_hint": definition.panel_hint,
                 "proxy_hint": definition.proxy_hint,
                 "output_range": [0.0, 100.0],
-                "display": AxisDisplaySpec(
-                    kind="ramp",
-                    label=definition.label,
-                    # registry.py側のcategory（地図レイヤーのグルーピング用「terrain」
-                    # 「road」「trafficSafety」等）とAXIS_DEFINITIONS.category（軸の性質
-                    # 「観測」「推定」「動的」）は別語彙で機械的な対応が無いため、
-                    # 軸スタジオ作成軸には汎用既定値trafficSafetyを充てる（多くの推定・観測軸が
-                    # 実際に属する分類、地図レイヤーパネル上の表示グループが最適でないだけで
-                    # 動作自体は壊れない）。カテゴリを選ばせるUIはStage Eのスコープ外。
-                    category="trafficSafety",
-                    tile_inputs=ramp.tile_inputs,
-                    thresholds=ramp.thresholds,
-                    note=f"{definition.description}(改善計画T278: 軸スタジオ作成軸の自動導出表示)",
-                ).model_dump(),
+                "display": display.model_dump(),
             }
         )
     _write_json(
@@ -186,6 +198,11 @@ def main() -> None:
             "axes": [
                 {
                     "axis_id": axis.axis_id,
+                    # コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的、domain/
+                    # axis_definitions.py: AxisDefinition.category）を書き出す。これが無いと
+                    # フロント側でwind（category="動的"）を推定指標チップグループから除外
+                    # できない（secondaryAxes.ts参照）。
+                    "category": AXIS_DEFINITIONS[axis.axis_id].category,
                     "inputs": axis.inputs,
                     # 改善計画T308: GET /api/axis-catalog（実行時API）のprimary_attribute_ids
                     # と同じ値をキー名も揃えて書き出す（frontend側のCatalogAxis型・

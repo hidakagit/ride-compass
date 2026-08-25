@@ -9,6 +9,7 @@ import {
   type MapLayerId,
 } from "@/components/Map/mapLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
+import { STATIC_FILTER_AXES } from "@/components/Map/staticAttributeLayers";
 import MapLayersPanel from "./MapLayersPanel";
 import styles from "./MapLayersPanel.module.css";
 
@@ -71,6 +72,7 @@ function baseProps() {
     mapLayers: MAP_LAYERS,
     roadSurfaceSharedLayerIds: ROAD_SURFACE_SHARED_LAYER_IDS,
     secondaryAxes: SECONDARY_AXES,
+    staticFilterAxes: STATIC_FILTER_AXES,
   };
 }
 

@@ -349,6 +349,28 @@ def test_create_accepts_chip_label_exactly_four_characters(override_service):
     assert response.json()["chip_label"] == "四字丁度"
 
 
+def test_create_rejects_label_over_four_characters_when_chip_label_omitted(override_service):
+    # コードレビュー指摘の修正確認: chip_label未設定のままlabelが4文字を超える場合も
+    # 422で拒否する（未設定時のフォールバック先labelそのものに長さ制約が無かった
+    # ため、chip_labelを設定し忘れた新規軸で同じレイアウト崩れが再発する経路の再発防止）。
+    payload = {**_PAYLOAD, "label": "五文字超えラベル"}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "test_axis" not in override_service._definitions
+
+
+def test_create_accepts_label_over_four_characters_when_chip_label_set(override_service):
+    payload = {**_PAYLOAD, "label": "五文字超えラベル", "chip_label": "略称"}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    assert response.json()["label"] == "五文字超えラベル"
+    assert response.json()["chip_label"] == "略称"
+
+
 def test_create_returns_409_on_duplicate(override_service):
     override_service._definitions["test_axis"] = _DEFINITION
 

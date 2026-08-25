@@ -83,6 +83,11 @@ interface CatalogTileInput {
 
 export interface CatalogAxis {
   axis_id: string;
+  // コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的）。display.category
+  // （地図レイヤーパネルのグルーピング用「terrain」「trafficSafety」等、別語彙）とは
+  // 異なる概念。secondaryAxes.tsが「動的」軸（wind等、専用の動的UIを別途持つため
+  // 推定指標チップグループには出さない）を除外するために使う。
+  category?: string;
   display: {
     kind: string;
     label: string;

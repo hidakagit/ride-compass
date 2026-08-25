@@ -66,10 +66,20 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
   return undefined;
 }
 
-/** 二次軸(推定指標)一覧を、カタログの並び順のまま変換する。 */
+/** 二次軸(推定指標)一覧を、カタログの並び順のまま変換する。
+ *
+ * コードレビュー指摘の修正: 改善計画T308でaxis_display_for()が全公開軸に対して常に
+ * 非null（kind="none"含む）を返すようになったため、`display !== null`だけのフィルタでは
+ * windのような「動的」軸（category="動的"、専用の動的気象UIを別に持ち、推定指標チップ
+ * グループには元々出す意図が無い）を除外できなくなっていた（以前は静的axis-catalog.json
+ * の生成元registry.pyにwindが登録されておらず、display自体がundefinedだったため
+ * 結果的に除外されていた）。動的軸は「複数材料から合成した推定指標」ではなく生の外部
+ * データそのものという性質の違いがあるため、category==="動的"を明示的に除外する
+ * （軸スタジオが作る軸は常にcategory="推定"固定[改善計画T305]のため、この除外は既存の
+ * wind以外には影響しない）。 */
 export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
   return axes
-    .filter((axis) => axis.display !== null)
+    .filter((axis) => axis.display !== null && axis.category !== "動的")
     .map((axis) => ({
       axisId: axis.axis_id,
       label: axis.display!.label,

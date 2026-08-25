@@ -40,7 +40,16 @@ const SHAPE_KIND_DESCRIPTIONS: Record<ShapeKind, string> = {
 // 編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が無い[str]ため、
 // 半角英数字で読みやすいprefix+乱数のみで十分）。
 function generateAxisId(): string {
-  return `axis_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  // コードレビュー指摘の修正: crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）
+  // でのみ定義される。/adminが平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に
+  // 無いオンプレ運用時の内部LAN IP等）から配信されると、この関数がuseState初期化子内で
+  // TypeErrorを送出し、AxisComposerのマウント自体が失敗する（エラー表示すら出ない）。
+  // Math.randomベースのフォールバックを用意する（axis_idは内部識別子で暗号学的な
+  // 一意性は不要、衝突時はbackend側のPRIMARY KEY制約で409になるだけで安全）。
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `axis_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  }
+  return `axis_${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`;
 }
 
 interface TermDraft {
@@ -79,6 +88,13 @@ interface Draft {
   chipLabel: string;
   panelHint: string;
   proxyHint: string;
+  /** コードレビュー指摘の修正: priority_overrides（改善計画T292、0次条件）・
+   * display_override（改善計画T310、地図ramp閾値の手書き上書き）はどちらもこの
+   * フォームに編集欄を持たないが、既存軸の値をpayloadへ素通しして保持する
+   * （以前はpayloadに含めておらず、公開済み軸を非公開へ戻して軽微な編集をしただけで
+   * これらが黙って失われていた——エラーも警告も出ない静かなデータ破壊だったため）。 */
+  priorityOverrides: AxisDefinitionResponse["priority_overrides"];
+  displayOverride: AxisDefinitionResponse["display_override"];
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -105,6 +121,8 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     chipLabel: "",
     panelHint: "",
     proxyHint: "",
+    priorityOverrides: [],
+    displayOverride: null,
   };
 }
 
@@ -122,6 +140,8 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     chipLabel: def.chip_label ?? "",
     panelHint: def.panel_hint ?? "",
     proxyHint: def.proxy_hint ?? "",
+    priorityOverrides: def.priority_overrides,
+    displayOverride: def.display_override,
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -215,6 +235,13 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       setError("表示名(label)を入力してください。");
       return;
     }
+    // コードレビュー指摘の修正: backend側の検証（axis_admin.py:
+    // _check_label_length_or_chip_label）と同じ条件をここでも先回りしてチェックし、
+    // 送信前にエラーを示す（保存ボタンを押してから422が返るまで待たせない）。
+    if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
+      setError("表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。");
+      return;
+    }
     const payload: AxisDefinitionPayload = {
       axis_id: draft.axisId,
       label: draft.label.trim(),
@@ -233,6 +260,11 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       chip_label: draft.chipLabel.trim() === "" ? null : draft.chipLabel.trim(),
       panel_hint: draft.panelHint.trim() === "" ? null : draft.panelHint.trim(),
       proxy_hint: draft.proxyHint.trim() === "" ? null : draft.proxyHint.trim(),
+      // コードレビュー指摘の修正: このフォームに編集欄を持たないフィールドも、既存値を
+      // 素通しして送る（未送信＝サーバー側の既定値[空リスト/null]で上書きされ、既存軸の
+      // 値が消えるのを防ぐ）。
+      priority_overrides: draft.priorityOverrides,
+      display_override: draft.displayOverride,
     };
     setSaving(true);
     try {

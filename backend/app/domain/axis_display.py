@@ -56,8 +56,21 @@ class RampInputs(BaseModel):
     thresholds: list[float]
 
 
+def _adjacent_midpoint_thresholds(scores: list[float]) -> list[float]:
+    """スコアの集合から、ソート済み隣接値の中間点を閾値として返す（改善計画T308、
+    bool2値の`[(lower+upper)/2]`をN値へ一般化したもの）。"""
+    ordered = sorted(set(scores))
+    return [(a + b) / 2 for a, b in zip(ordered, ordered[1:])]
+
+
 def _flag_sum_thresholds(points: list[float], cap: float | None) -> list[float]:
-    """達成しうる合計値（空集合込みの全部分和、cap適用後）の隣接中間点を閾値として返す。"""
+    """達成しうる合計値（空集合込みの全部分和、cap適用後）の隣接中間点を閾値として返す。
+
+    コードレビュー指摘の修正: 末尾の「sorted→隣接中間点」ロジックが
+    `_adjacent_midpoint_thresholds`と重複していたため、達成しうる合計値の集合を
+    求めるところまでを担い、閾値化自体は共通関数へ委ねる（将来中間点の計算式
+    [丸め・重み付け等]を変更する際、片方だけ直し忘れて挙動が乖離するのを防ぐ）。
+    """
     sums: set[float] = {0.0}
     for r in range(1, len(points) + 1):
         for combo in combinations(points, r):
@@ -65,15 +78,7 @@ def _flag_sum_thresholds(points: list[float], cap: float | None) -> list[float]:
             if cap is not None:
                 total = min(total, cap)
             sums.add(total)
-    ordered = sorted(sums)
-    return [(a + b) / 2 for a, b in zip(ordered, ordered[1:])]
-
-
-def _adjacent_midpoint_thresholds(scores: list[float]) -> list[float]:
-    """スコアの集合から、ソート済み隣接値の中間点を閾値として返す（改善計画T308、
-    bool2値の`[(lower+upper)/2]`をN値へ一般化したもの）。"""
-    ordered = sorted(set(scores))
-    return [(a + b) / 2 for a, b in zip(ordered, ordered[1:])]
+    return _adjacent_midpoint_thresholds(list(sums))
 
 
 def derive_ramp_inputs(definition: AxisDefinition) -> RampInputs | None:
@@ -163,6 +168,24 @@ def derive_ramp_inputs(definition: AxisDefinition) -> RampInputs | None:
             # abs前処理はフロントのbuildAxisRampValueExpressionが未対応（改善計画T308の
             # スコープ外、フォローアップ）。安全側でNone。
             return None
+        # コードレビュー指摘（既知の制約、意図的に許容）: 評価側（evaluate_axis_scalar/
+        # evaluate_axis_array）はrequired=Trueの材料が欠損していれば軸全体をNone/NaN
+        # （評価不能）にするが、フロント側のΣ(property×weight)expression
+        # （buildAxisRampValueExpression）はタイルプロパティ欠損を寄与0として扱う
+        # （coalesce）。required=Falseの材料は「欠損時は寄与0」が評価側の意味論そのものの
+        # ため両者は一致するが、required=Trueの材料ではこの2つの意味論が食い違い、本来
+        # 「評価不能」な区間が地図上では「評価済みで良好（緑）」に誤表示されうる
+        # （TileInputSpecには数値材料の「不明」表現手段が無い——has_unknown_fallbackは
+        # 真偽値/N値カテゴリカル材料専用、buildAxisRampUnknownExpression参照）。
+        # required=Trueの材料を一律に自動導出対象外とする案も検討したが、T308時点で
+        # stop_density（`stop_count_per_km`がrequired=True）を含め意図的に許容する設計と
+        # してテスト化済み（test_single_term_breakpoint_linear_reuses_breakpoints_as_
+        # thresholds・test_multi_term_breakpoint_linear_derives_ramp_with_coarser_
+        # thresholds・test_axis_display_for_derives_gui_created_axis_display参照）ため、
+        # 既存の挙動を変えない。実務上は「必須材料がway単位の事前集計で欠損する」ケース
+        # 自体が稀（way_attribute_countsは欠損時0埋めが基本）なため実害は限定的だが、
+        # GUI作成軸でrequired=True材料が実際にタグ欠損しやすい場合は、この不整合を
+        # 認識した上でdisplay_override（軸自身の手書き上書き）を検討すること。
         tile_inputs = []
         for term in shape.terms:
             spec = specs[term.material]
