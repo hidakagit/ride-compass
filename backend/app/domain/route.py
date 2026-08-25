@@ -42,23 +42,23 @@ class RouteSegmentDetail(BaseModel):
     road_surface_good: bool | None = None
     # 車ストレス(1-5、domain/traffic.py: car_stress_level)・自転車インフラ分類
     # （domain/traffic.py: BicycleInfraClass）の生値。road_surface_goodと同じく、難易度
-    # （car_stress_difficulty）とは別に、将来の色分けモード等での利用に備えて生値も保持する
-    # （静的道路属性P1残り）。bicycle_infraは改善計画T138でcar_stress_difficulty側の独立軸
-    # としては廃止済みだが、一次属性としての生値（表示・デバッグ用）はここに引き続き残す。
+    # （axis_difficulties["car_stress"]）とは別に、将来の色分けモード等での利用に備えて
+    # 生値も保持する（静的道路属性P1残り）。bicycle_infraは改善計画T138でcar_stress軸側の
+    # 独立軸としては廃止済みだが、一次属性としての生値（表示・デバッグ用）はここに
+    # 引き続き残す。
     car_stress: int | None = None
     bicycle_infra: str | None = None
-    elevation_difficulty: float | None = None
-    wind_difficulty: float | None = None
-    road_difficulty: float | None = None
-    # stop_difficultyは改善計画T149で交差点密度（タグなし交差点、低い重みで加算）を
-    # 吸収済み（旧intersection_difficultyは廃止。ルート単位の交差点密度は
-    # RouteCandidate.intersection_densityとして表示用一次属性のまま独立に維持）。
-    stop_difficulty: float | None = None
-    car_stress_difficulty: float | None = None
-    # 外部静的データソース T50残作業（事故密度）。
-    accident_difficulty: float | None = None
-    # 夜間（街灯なし・トンネル、改善計画T139。domain/night.py: night_difficulty）。
-    night_difficulty: float | None = None
+    # 改善計画T309: 以前はelevation_difficulty/wind_difficulty/road_difficulty/
+    # stop_difficulty/car_stress_difficulty/accident_difficulty/night_difficultyという
+    # 既存7軸1対1の固定フィールドだったが、軸スタジオで公開軸を自由に増減できる設計
+    # （T221 Stage D以降の一連の改修の目的そのもの）と矛盾していた。軸スタジオで新規
+    # 公開した軸はこの区間内訳に永遠に出てこず、逆に既存7軸のどれかを非公開にすると
+    # 実装によっては未処理のKeyError/ValidationErrorで500になっていた
+    # （T316フォローアップ、2026-08-25の実障害）。axis_id→difficulty(0-100)の汎用dictへ
+    # 置き換え、公開軸の増減に自動追従する。評価できなかった軸（欠損データ等）は
+    # キー自体を含めない（`compute_edge_axis_scores`・`evaluate_axis_difficulties`と
+    # 同じ「データ無しはキーを持たない」規約）。
+    axis_difficulties: dict[str, float] = Field(default_factory=dict)
     difficulty: float | None = None
 
 
@@ -199,6 +199,22 @@ def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | Non
     return {"type": "LineString", "coordinates": coordinates}
 
 
+def _merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
+    """ビン内の各`RouteSegmentDetail.axis_difficulties`を、axis_idごとに距離加重平均へ
+    集約する（改善計画T309）。ビン内のどの区間にも無いaxis_idは結果にも含めない
+    （`RouteSegmentDetail.axis_difficulties`と同じ「データ無しはキーを持たない」規約）。
+    """
+    axis_ids = {axis_id for s in segments for axis_id in s.axis_difficulties}
+    merged: dict[str, float] = {}
+    for axis_id in axis_ids:
+        value = distance_weighted_difficulty(
+            [(s.axis_difficulties.get(axis_id), s.distance_km) for s in segments]
+        )
+        if value is not None:
+            merged[axis_id] = value
+    return merged
+
+
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
     first, last = segments[0], segments[-1]
     car_stress_avg = distance_weighted_difficulty(
@@ -225,26 +241,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         # ビン単位でも同じ方式で加重平均し最近傍の整数へ丸める。
         car_stress=round(car_stress_avg) if car_stress_avg is not None else None,
         bicycle_infra=_weighted_mode([(s.bicycle_infra, s.distance_km) for s in segments]),
-        elevation_difficulty=distance_weighted_difficulty(
-            [(s.elevation_difficulty, s.distance_km) for s in segments]
-        ),
-        wind_difficulty=distance_weighted_difficulty(
-            [(s.wind_difficulty, s.distance_km) for s in segments]
-        ),
-        road_difficulty=distance_weighted_difficulty(
-            [(s.road_difficulty, s.distance_km) for s in segments]
-        ),
-        stop_difficulty=distance_weighted_difficulty(
-            [(s.stop_difficulty, s.distance_km) for s in segments]
-        ),
-        car_stress_difficulty=distance_weighted_difficulty(
-            [(s.car_stress_difficulty, s.distance_km) for s in segments]
-        ),
-        accident_difficulty=distance_weighted_difficulty(
-            [(s.accident_difficulty, s.distance_km) for s in segments]
-        ),
-        night_difficulty=distance_weighted_difficulty(
-            [(s.night_difficulty, s.distance_km) for s in segments]
-        ),
+        axis_difficulties=_merge_axis_difficulties(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

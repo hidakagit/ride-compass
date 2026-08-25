@@ -138,7 +138,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 - **サンプル点の共有化**: `ElevationService.get_profile`と`WindService.get_wind_score`はそれぞれ独立に`sample_line_coordinates`を呼んでいたが、区間ごとの標高・風・路面を1つの配列としてインデックス整合させるため、`route_generator.py`が`sample_line_points(geometry, SAMPLE_COUNT)`（新規、`domain/geo.py`。座標だけでなく元geometry内でのインデックスも返す）で一度だけ点を取得し、両サービスに共有するようリファクタした。シグネチャも`get_profile(points)` / `get_wind_profile(points, start_time)`に変更（`geometry`ではなく点列を直接受け取る）。
 - **路面の位置対応（2026-08-15、改善計画T21で撤去・置換）**: 当初はopenrouteserviceの`extras.surface.values`（`[[start_idx, end_idx, surface_id], ...]`）を`RouteSegment.surface_values`として保持し`surface_id_at_index`で求めていたが、現在はサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチして`classify_osm_surface`で判定する方式に統一済み（後述「ルーティングエンジンの切り替え対応」）。
 - **難易度の算出（絶対基準）**: `domain/difficulty.py`が、Step8の相対正規化とは異なり**絶対基準**（一般的なロードバイク走行の目安）で0-100点化する。`gradient_difficulty`（0-3%易しい〜9%以上激坂の区分的線形）、`wind_difficulty`（向かい風0-8m/sで0→100、追い風・無風は0）、`road_difficulty`（舗装路0・非舗装80、`domain/road.py`の`GOOD_SURFACE_IDS`と基準を統一）、`composite_difficulty`（重み付き平均、`None`の指標は除外して残りの重みで再正規化、`RouteScorer`と同じ考え方）。重みはStep8の`scoring.yaml`から`distance_weight`を除いた`elevation_weight`/`wind_weight`/`road_weight`をそのまま流用し、スコアリングの優先度と可視化の強調点を一致させている。地図の色分けは「候補間の相対比較」ではなく「客観的にどこが大変か」を示す目的のため、Step8のような候補集合内正規化ではなく絶対基準を採用した。
-- **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（`gradient_percent`, `wind_penalty`, `road_surface_good`, `car_stress`, `bicycle_infra`）と正規化済みの`*_difficulty`（`elevation_difficulty`, `wind_difficulty`, `road_difficulty`, `stop_difficulty`, `car_stress_difficulty`, `accident_difficulty`, `night_difficulty`、総合の`difficulty`。7軸評価モデルの導入で当初のStep9時点の4指標から拡張、正準定義は下記「6. データモデル」の`RouteSegmentDetail`インターフェース参照）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
+- **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（`gradient_percent`, `wind_penalty`, `road_surface_good`, `car_stress`, `bicycle_infra`）と正規化済みの軸別内訳（当初のStep9時点は`elevation_difficulty`等の固定4〜7フィールドだったが、改善計画T309で`axis_difficulties`＝axis_id→difficultyの汎用dict＋総合の`difficulty`へ置換済み。正準定義は下記「6. データモデル」の`RouteSegmentDetail`インターフェース参照）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
 - **フロントエンド**（当初実装）: 選択中候補に`segments`があれば区間ごとの色分けレイヤーを追加し、モード切替ボタン（総合難易度/標高/風/路面）で`line-color`を切り替える形にした。この設計は後述のUI再構成でレイヤー構成ごと見直している。
 
 既知の制約と改善（区間表示の粒度・形状）: 当初はサンプリング密度が12点固定（＝11区間、Step5-7と同じ）で、30kmルートでは1区間約2.7kmと粗く、さらに区間の線は始点・終点を直線で結んでいたためカーブ区間で色分け線が道路から外れていた。「区間が荒すぎて実態が分からない」というフィードバックを受け、次の2点を改善した（2026-08-15）: ①**区間の道なり形状**: `RouteSegmentDetail.geometry`にルートgeometryの部分列（サンプル点インデックスで切り出し。road_graphエンジンはEdge形状点列）を持たせ、フロントはそれをそのまま描画する（追加APIコール無し。geometryがnullの場合のみ従来の直線代替）。②**距離連動サンプリング**: `sample_count_for_distance`（openrouteservice_engine.py）が約1km間隔になるよう点数を決める（下限12点=従来密度、上限32点=外部API問い合わせの安全弁。最悪でも8候補×32点=256 GSIリクエスト/生成。風はTTL＋座標丸めキャッシュにより点数増の影響がほぼ無い）。密度をさらに上げる場合はGSI問い合わせ数とのトレードオフになる（DEMタイル化T10が根本対策）。
@@ -668,9 +668,12 @@ Response 200:
           "car_stress":2, "bicycle_infra":"separated",
           /* ↑ 車ストレス・自転車インフラの生値（P1）。road_surface_goodと
              同じく、難易度への寄与とは別に表示・研究モード用に生値も保持する */
-          "elevation_difficulty":2.0, "wind_difficulty":0.0, "road_difficulty":0.0,
-          "stop_difficulty":5.0, "car_stress_difficulty":25.0, "accident_difficulty":0.0,
-          "night_difficulty":0.0, "difficulty":4.6
+          "axis_difficulties": { "gradient":2.0, "wind":0.0, "surface_q":0.0, "stop_density":5.0,
+            "car_stress":25.0, "accident":0.0 },
+          /* ↑ axis_id→difficulty(0-100)の汎用dict（改善計画T309）。評価できなかった軸は
+             キー自体を省略する（例のnightのように非公開または材料欠損の軸）。軸スタジオでの
+             公開軸の増減にそのまま追従し、固定7フィールドは持たない */
+          "difficulty":4.6
         }
         /* ...区間の数だけ続く（openrouteserviceエンジン: 距離連動サンプリング＝約1km間隔・12〜32点 / road_graphエンジン: Edge数分） */
       ],
@@ -679,14 +682,14 @@ Response 200:
       "intersection_density": 5.2, "accident_density": 0.03,
       /* ↑ P1（停止密度〜交差点密度）・T50（事故密度）。
          RoutePreference（区間難易度）側の重みのみに効き、上のtotal_scoreには含まれない。
-         segments[]側にも軸別difficulty・生値が入る（7章参照） */
+         segments[]側のaxis_difficulties・生値にも軸別内訳が入る（7章参照） */
       "overall_difficulty": 22.5  /* segments.difficultyの距離加重平均（絶対基準、実験間比較用） */
     },
     ...（total_scoreが高い順、最大8件）
   ],
   "engine": "openrouteservice",
   "conditions": {   /* この生成に実際に適用された条件のエコー（実験の記録・再現用。研究IF改善 §10-6）。
-                       重みは上書き値またはYAML既定値のうち実際に使われた方。route_preference・
+                       重みは上書き値またはAXIS_DEFINITIONS由来の既定値のうち実際に使われた方。route_preference・
                        hard_filtersとも常にこの形で全フィールドが埋まって返る
                        （GenerationConditions、上のRequest部分指定不可の説明と対応。改善計画T292で
                        専用Pythonレシピ3つは廃止済み） */
@@ -903,14 +906,11 @@ interface RouteSegmentDetail {
   road_surface_good: boolean | null;
   car_stress: number | null;          // 1-5、P1残り（生値。T138で自転車インフラの寄与を含む）
   bicycle_infra: string | null;       // 分類の生値（表示用一次属性。T138でdifficulty軸からは独立に廃止済み）
-  elevation_difficulty: number | null;
-  wind_difficulty: number | null;
-  road_difficulty: number | null;
-  stop_difficulty: number | null;         // P1（改善計画T149でタグなし交差点の寄与を含む）
-  car_stress_difficulty: number | null;   // P1残り（T138で自転車インフラの寄与を含む）
-  accident_difficulty: number | null;     // T50
-  night_difficulty: number | null;        // 改善計画T139（街灯なし・トンネル、既定重み0）
-  difficulty: number | null;              // 7軸の合成値（絶対基準0-100）
+  axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T309で
+    // 固定7フィールド（elevation_difficulty等）から汎用dictへ置換。評価できなかった軸・
+    // 非公開の軸はキー自体を持たない（`compute_edge_axis_scores`と同じ規約）。軸スタジオでの
+    // 公開軸の増減にそのまま追従する
+  difficulty: number | null;              // 公開軸の合成値（絶対基準0-100）
 }
 
 interface RouteScoreComponent {   // total_scoreの軸別内訳（研究IF改善 §10-2）
@@ -1046,9 +1046,13 @@ APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキ�
 区間インスペクタ・`evaluate_axis_difficulties`・既定重み（改善計画T316で
 `route_preference.yaml`の手書きミラーを撤廃したため、この1エントリだけで自動反映される）
 へ同時反映される）→ フロント`evaluationAxes.ts`のカタログ。エンジンファイルに軸固有の知識（SQL・タグ解釈）を
-書き足さない。区間詳細表示（`RouteSegmentDetail`の軸別固定フィールド＋両エンジンの
-区間ビルダー＋フロントrouteStyleModes）は現状dict化しておらず、軸ごとの手書き追記が
-引き続き必要（T221 Part 2で据え置き判断、improvement-plan.md参照）。**この1本道はコスト計算
+書き足さない。区間詳細表示（`RouteSegmentDetail.axis_difficulties`、改善計画T309で
+axis_id→difficultyの汎用dictへ置換済み）も両エンジンの区間ビルダーからaxis_scores/
+axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの手書き追記は不要
+（フロント`routeStyleModes.ts`の色分けモード自体は風/勾配/路面/総合難易度の4種を
+維持する意図的なキュレーションだが、参照する値式は`buildSteppedMode`の
+`valueExpression`引数へ一般化済みのため新規軸を式に含めるのも1行の追加で済む）。
+**この1本道はコスト計算
 （ルーティング・研究モードの重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例）への
 反映は別経路（下記「一次属性レジストリ・二次軸レジストリ」参照）** — 両者は現状レジストリ
 登録`register_axis()`を挟んで独立しており、軸を追加する際は両方を行う必要がある
@@ -1432,7 +1436,8 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   `AxisComposer.tsx`（GUIフォーム）に編集UIを持たず、管理API直接編集のみ対応
   （データ層は軸自身のフィールドとして特別扱いを解消済みだが、GUIからの閾値調整は
   引き続き軸スタジオの範囲外）。ルート詳細のセグメント別内訳（`RouteSegmentDetail`の
-  既存7軸固定フィールド）は別タスク（T309、保留）として切り出した。
+  既存7軸固定フィールド）は別タスク（T309）として切り出し、後日
+  `axis_difficulties`汎用dictへ置換して解消済み（下記7章・6章参照）。
 
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 

@@ -48,13 +48,15 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       road_surface_good: i % 2 === 0,
       car_stress: (i % 4) + 1,
       bicycle_infra: i % 2 === 0 ? "separated" : "roadway",
-      elevation_difficulty: (i * 7) % 100,
-      wind_difficulty: (i * 13) % 100,
-      road_difficulty: (i * 17) % 100,
-      stop_difficulty: (i * 19) % 100,
-      car_stress_difficulty: (i * 23) % 100,
-      accident_difficulty: (i * 37) % 100,
-      night_difficulty: (i * 41) % 100,
+      axis_difficulties: {
+        gradient: (i * 7) % 100,
+        wind: (i * 13) % 100,
+        surface_q: (i * 17) % 100,
+        stop_density: (i * 19) % 100,
+        car_stress: (i * 23) % 100,
+        accident: (i * 37) % 100,
+        night: (i * 41) % 100,
+      },
       difficulty: (i * 11) % 100,
     });
   }

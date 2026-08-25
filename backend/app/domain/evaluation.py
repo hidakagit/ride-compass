@@ -94,7 +94,19 @@ class RoutePreference(BaseModel):
 
     def with_weight(self, axis_id: str, value: float) -> "RoutePreference":
         """1軸の重みだけを差し替えたコピーを返す（T173のnight重み動的化等、
-        リクエスト間で共有するインスタンスを汚染しないための生成ヘルパー）。"""
+        リクエスト間で共有するインスタンスを汚染しないための生成ヘルパー）。
+
+        改善計画T316フォローアップ: `axis_id`が現在の`weights`（＝現在の公開軸集合、
+        `default_axis_weights()`参照）に無い場合は無変更の`self`をそのまま返す。
+        以前はどんなaxis_idでも強制的にweightsへ追加してRoutePreferenceを再構築して
+        おり、対象軸（night）が軸スタジオで非公開化されると`_validate_and_fill_weights`
+        の「未知のaxis_id」チェックに引っかかり、road_graph_engine.pyのnight動的化
+        （日中の全リクエストで必ず通る経路）が丸ごと500になる実障害があった
+        （2026-08-25）。差し替え対象の軸自体が存在しない以上、差し替える意味も無いため、
+        無変更で返すのが正しい既定動作。
+        """
+        if axis_id not in self.weights:
+            return self
         return RoutePreference(weights={**self.weights, axis_id: value})
 
 

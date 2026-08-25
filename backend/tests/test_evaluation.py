@@ -355,6 +355,19 @@ def test_route_preference_with_weight_returns_modified_copy():
     assert modified.weights["gradient"] == base.weights["gradient"]
 
 
+def test_route_preference_with_weight_returns_self_for_unknown_axis_id():
+    # 改善計画T316フォローアップ回帰テスト: 対象軸が現在の重み辞書（＝現在の公開軸集合）に
+    # 無い場合、強制的にキーを追加してRoutePreferenceを再構築すると
+    # 「未知のaxis_id」バリデーションエラーになる（night軸が軸スタジオで非公開化された際、
+    # road_graph_engine.pyのnight動的化が丸ごと500になった実障害、2026-08-25）。
+    # 差し替え対象の軸自体が存在しない以上、無変更のselfを返すのが正しい。
+    base = RoutePreference(weights={"gradient": 0.15})
+
+    result = base.with_weight("no_such_axis", 0.5)
+
+    assert result is base
+
+
 def test_compute_cost_from_axis_scores_matches_composite_difficulty_semantics():
     cost, difficulty = compute_cost_from_axis_scores(
         distance_m=100.0,

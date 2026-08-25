@@ -2483,82 +2483,12 @@
             ],
             "title": "Bicycle Infra"
           },
-          "elevation_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Elevation Difficulty"
-          },
-          "wind_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Wind Difficulty"
-          },
-          "road_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Road Difficulty"
-          },
-          "stop_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stop Difficulty"
-          },
-          "car_stress_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Car Stress Difficulty"
-          },
-          "accident_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Accident Difficulty"
-          },
-          "night_difficulty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Night Difficulty"
+          "axis_difficulties": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Difficulties"
           },
           "difficulty": {
             "anyOf": [

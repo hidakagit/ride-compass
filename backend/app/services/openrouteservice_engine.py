@@ -363,8 +363,13 @@ class OpenRouteServiceEngine:
             # 算出はlit/tunnelタグのみに基づき不変、重みの掛け替えだけで動的化する設計）。
             # arrival_time不明（風データ取得失敗等）のときは従来どおりnight_weightを
             # そのまま適用する（安全側、night.pyのlitタグ欠落時の判断と同じ考え方）。
+            # 改善計画T316フォローアップ: night軸が軸スタジオで非公開化されると
+            # base_axis_weights（公開軸のみのキー集合）に"night"キーが無くなるため、
+            # 直接indexingだと素のKeyErrorで落ちる（2026-08-25、road_graph_engine.py側の
+            # RoutePreference.with_weight()と同根の実障害。night軸自体が存在しない以上、
+            # 重みも0.0扱いでよい）。
             night_weight = (
-                base_axis_weights["night"]
+                base_axis_weights.get("night", 0.0)
                 if arrival_time is None or is_night(points[i], arrival_time)
                 else 0.0
             )
@@ -416,13 +421,13 @@ class OpenRouteServiceEngine:
                     road_surface_good=road_surface_good,
                     car_stress=car_stress,
                     bicycle_infra=bicycle_infra,
-                    elevation_difficulty=axis_difficulties.axes["gradient"],
-                    wind_difficulty=axis_difficulties.axes["wind"],
-                    road_difficulty=axis_difficulties.axes["surface_q"],
-                    stop_difficulty=axis_difficulties.axes["stop_density"],
-                    car_stress_difficulty=axis_difficulties.axes["car_stress"],
-                    accident_difficulty=axis_difficulties.axes["accident"],
-                    night_difficulty=axis_difficulties.axes["night"],
+                    # 改善計画T309: axis_difficulties.axes（evaluate_axis_difficulties）は
+                    # axis_id→difficultyの汎用dictだが、値がNoneの軸（材料欠損等で評価
+                    # できなかった軸）のキーも残す設計（axis_inspector_breakdownと共通の
+                    # evaluate_axes_scalarをそのまま使うため）。RouteSegmentDetail.
+                    # axis_difficultiesは「データ無しはキーを持たない」規約
+                    # （compute_edge_axis_scoresと同じ）のため、ここでNoneを除外する。
+                    axis_difficulties={k: v for k, v in axis_difficulties.axes.items() if v is not None},
                     difficulty=axis_difficulties.composite,
                 )
             )

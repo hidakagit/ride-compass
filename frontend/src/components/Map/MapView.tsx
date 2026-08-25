@@ -257,8 +257,8 @@ export function segmentsToFeatureCollection(
 // 路面レイヤーの色分け式は常に固定（roadFilterAxes.tsのROAD_LINE_COLOR_AXIS_ID）、
 // ルートレイヤー（風・勾配）の色分け式はモード定義（routeStyleModes.ts）から取得する。
 // ルート側は以降のモード切替もsetPaintProperty/setFilterによる式の差し替えのみ（路面タイルには
-// surface_good/surface/highwayが、ルートのsegmentsにはwind_difficulty/gradient_percentが
-// すべて入っているため再取得は不要）。
+// surface_good/surface/highwayが、ルートのsegmentsにはaxis_difficulties（改善計画T309、
+// axis_id→difficultyの汎用dict）/gradient_percentがすべて入っているため再取得は不要）。
 
 function setLayerVisibility(map: MapLibreMap, layerId: string, visible: boolean) {
   if (!map.getLayer(layerId)) return;

@@ -5354,7 +5354,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   docs/architecture.md追従はこのコミットで実施。
 - 依存: なし（T278[derive_ramp_inputs新設]・T292[car_stressのramp化]の上に積んだ）。
 
-### - [ ] T309. ルート詳細レスポンス（RouteSegmentDetail/RouteCandidate）の軸別内訳を汎用化 規模M（保留・トリガー未到達）
+### - [x] T309. ルート詳細レスポンス（RouteSegmentDetail/RouteCandidate）の軸別内訳を汎用化 規模M（実装完了）
 
 - 背景: T308（推定軸の地図表示自動連動）完了後の洗い出しで、地図表示・評価・materials
   経路は軸スタジオ作成軸まで汎用化された一方、**ルート詳細のセグメント別内訳レスポンス**
@@ -5363,31 +5363,62 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   `road_difficulty`/`stop_difficulty`/`car_stress_difficulty`/`accident_difficulty`/
   `night_difficulty`という7個の固定フィールド（既存7軸1対1）を持ち、
   `road_graph_engine.py`/`openrouteservice_engine.py`が`axis_scores.get("gradient")`等で
-  個別に埋めている。`RouteCandidate`側の集約値はさらに範囲が狭く、7軸中4軸
-  （elevation/wind/road/stop）分のフィールドしか無く、car_stress/accident/nightは
-  ルート集約レベルでは既存軸ですら埋まっていない（T309着手前から存在する非対称、
-  T308による新規劣化ではない）。総合スコアの内訳（`RouteCandidate.score_breakdown:
-  list[RouteScoreComponent]`、`{axis, score, weight, contribution}`）は元々`axis: str`の
-  汎用リストで既に軸スタジオ作成軸を含め全軸を返せる——固定フィールドの問題は
-  **区間ごと**の難易度内訳（地図の難易度色分けレイヤー描画・区間クリックポップアップが
-  参照）に限られる。
-- 保留の影響範囲: 軸スタジオで新規公開した軸は、地図のramp色分け・凡例・重み設定・
-  材料ノート（T308まで完了）には現れるが、区間クリックポップアップやルート詳細画面が
-  参照する**区間単位の難易度内訳**には出てこない（フィールドが無いため常に欠落、
-  エラーにはならない）。ユーザーが軸スタジオで軸を作って地図色分けまで確認できても、
-  「この区間はどの軸のせいで難易度が高いか」を区間単位で見る手段が既存7軸限定のまま
-  という体験の非対称が生じる。対応を保留し続けた場合、次に軸スタジオで新規軸を作って
-  公開するたびにこの非対称が新規軸ぶん積み重なり、後から「区間内訳になぜ出ないのか」が
-  都度問い合わせ・調査対象になりうる。
-- 対応方針（未確定、着手時に設計）: `RouteSegmentDetail`の固定7フィールドを
-  `Dict[str, float | None]`（axis_id→difficulty）のような汎用構造へ置き換える、または
-  固定フィールドは既存7軸の後方互換のため残しつつ汎用の追加フィールドを併設する等の
-  選択肢がある。地図の難易度色分けレイヤー（`routeStyleModes.ts`等）・区間ポップアップ
-  （`axisInspectorPopup.ts`）双方がこのレスポンス形を直接参照しており、変更するとルート
-  詳細画面・区間ポップアップ側の広い改修が要る（ユーザー判断でT308のスコープからは
-  明示的に除外）。
-- 依存: なし（トリガー条件未確定のため優先順位リストには未登録。次に軸スタジオ関連の
-  作業へ着手するタイミングで再検討）。
+  個別に埋めていた。当初は着手を保留していたが、T317（`night`軸非公開時の
+  `RoutePreference.with_weight`ValidationError、本番500）の対応中にユーザーから
+  「対症療法はやめてください。デッドコードを無視してOKにするのはやめてください。
+  推定軸の数は可変にしたい。7つの軸がデフォルトな考え方は捨ててほしい」との明確な
+  再指示を受け、本タスクとして着手した（AskUserQuestionで実施タイミングを確認済み、
+  ユーザー回答「今回やる（推奨、ユーザー意図に忠実）」）。
+- 対策: `RouteSegmentDetail`の固定7フィールドを`axis_difficulties: dict[str, float]`
+  （axis_id→difficulty、`Field(default_factory=dict)`）＋`difficulty: float | None`
+  （総合難易度）の汎用構造へ置き換えた。評価できなかった軸はキー自体を含めない
+  （`compute_edge_axis_scores`・`evaluate_axis_difficulties`と同じ「データ無しはキーを
+  持たない」規約に統一）。
+  - `road_graph_engine.py`/`openrouteservice_engine.py`: 個別代入（7回のkwarg）を
+    `axis_difficulties=axis_scores`（またはNoneを除いたdict内包表記）1行へ置き換え。
+  - `domain/route.py`: `aggregate_segments_into_bins`のビン集約に`_merge_axis_difficulties`
+    （axis_idごとの距離加重平均、ビン内のどのセグメントにも無いaxis_idは結果にも含めない）
+    を新設。
+  - フロント`routeStyleModes.ts`: `buildSteppedMode(field: string, ...)`を
+    `buildSteppedMode(valueExpression: unknown[], ...)`へ一般化し、MapLibre式を
+    `["get", field]`から`["get", "wind", ["get", "axis_difficulties"]]`（ネストget）へ
+    変更。`MapView.tsx`・`MapView.bench.ts`等の呼び出し側・テストを追従。
+  - OpenAPI（`export_openapi.py`）・フロント型（`npm run generate:api`）を同一コミットで
+    再生成。
+- 最終確認（ユーザー指示）: 「7軸に対応する物理名、ALIAS、変数名でgrepして、コメント行
+  以外存在しないことを確認してからこのタスクは完了にしてください」との明示指示に従い、
+  `elevation_difficulty`/`wind_difficulty`/`road_difficulty`/`stop_difficulty`/
+  `car_stress_difficulty`/`accident_difficulty`/`night_difficulty`をbackend/frontend
+  全体でgrepし、残る一致がすべて (a) `domain/difficulty.py`・`domain/night.py`の
+  無関係な既存関数名、(b) コメント、のいずれかであること（`RouteSegmentDetail`の
+  旧フィールドとしての実参照が0件）を確認した。生成物（`openapi.json`/`api.d.ts`）に
+  残っていた旧7フィールドの型定義もOpenAPI再生成で解消済み。
+- 実機検証（ユーザー指示「実機テストをしてからだ手戻りが大きいので、先にやって下さい」
+  に基づき、pushして本番デプロイする前にサンドボックス内でbackend/frontendを実際に
+  起動して検証）:
+  - サンドボックスにPostgreSQL 16+PostGISを導入し、migrations（0014〜0019の軸レジストリ
+    分）を適用した実DBに対しroad_graphエンジンでbackendサーバーを起動。合成の8角形道路網
+    （8ノード・16 Directed Edge）を投入し、実HTTPで`/api/routes/generate`を叩いて
+    `axis_difficulties`が辞書として正しく返ることを確認。
+  - **T316フォローアップ・T317の実障害シナリオをこの実サーバーで再現・確認**:
+    軸スタジオAPI（`/api/admin/axis-definitions/night/unpublish`）で`night`軸を非公開化
+    →ルート再生成→500にならず200、`route_preference`・`axis_difficulties`双方から
+    `night`キーが正しく消えることを確認。さらにユーザーの本番と同じ状態（公開軸が
+    wind/surface_q/accidentの3軸のみ）まで追加で非公開化しても200のままであることを
+    確認し、「軸の数は可変」という意図が実際に守られていることを実証した。
+  - frontendもNext.js dev serverを実起動し、Playwrightで実ブラウザから「ルート生成」
+    ボタンをクリックする実操作を行い、生成された候補一覧・重み配分パネル（軸スタジオ
+    DB由来の7軸が動的に表示される）・「総合難易度」色分けモードの切り替えまで、
+    JSエラー0件で完走することを確認（地図タイル自体の描画はサンドボックスの外部
+    ネットワーク遮断により失敗するが、本タスクの変更と無関係）。
+  - 検証後、サンドボックス内のテスト用DB・サーバープロセス・一時スクリプトはすべて
+    後片付け済み（リポジトリへは残さない）。
+- 検証: backend pytest 997 passed（非PostGIS）＋実DBでのPostGIS統合テスト群も同一
+  セッションで実行しグリーンを確認、ruff（触れた行に新規指摘なし、既存の無関係な
+  指摘のみ）。frontend vitest 503 passed、eslint clean、tsc --noEmit
+  （既存の無関係な`layout.tsx`エラーのみ残存）。
+- 依存: T308（`axis_display_for()`等の基盤）、T316（`load_route_preference()`の
+  動的化）、T317（`RoutePreference.with_weight`の安全化）の上に積んだ。
 
 ### - [x] T310. 軸スタジオへ地図チップ表示要素（アイコン・略称・地図パネル説明文・代役案内・地図ramp閾値上書き）の登録機能を追加 規模M〜L（実装完了）
 
@@ -5655,6 +5686,44 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   修正）を反映して再生成・コミット対象に含めた。
 - 依存: T221 Stage D（軸のDB化・軸スタジオそのもの）、T269（`export_openapi.py`の
   `preference_defaults`が同種の手書きミラーを先行して撤廃済みだった前例）。
+
+### - [x] T317. night軸非公開時にRoutePreference.with_weightがValidationErrorになる不具合の恒久対策（T316フォローアップ） 規模S（実装完了）
+
+- 背景: T316でbackendの`load_route_preference()`はAXIS_DEFINITIONS由来の動的既定値へ
+  移行したが、ユーザーが軸スタジオでさらに`night`軸を非公開化した状態でルート生成すると
+  依然として本番500が発生した。VM上のdockerログで実際のトレースバックを確認したところ、
+  真因は`road_graph_engine.py: _build_search_graph`が`self._route_preference.with_weight
+  ("night", 0.0)`を無条件に呼んでいたこと。`RoutePreference.with_weight()`は
+  `RoutePreference(weights={**self.weights, axis_id: value})`を素朴に構築しており、
+  `weights`のバリデータ（`_validate_and_fill_weights`）が現在の公開軸集合に無い
+  axis_idを拒否するため、`night`が非公開の状態では`"night"`キーの追加そのものが
+  `pydantic_core.ValidationError`になっていた（`unknown axis_id in weights: ['night']`）。
+  同根の問題として`openrouteservice_engine.py`側も`base_axis_weights["night"]`という
+  直接添字アクセスで同様にKeyErrorしうる箇所があった。
+- 対策:
+  - `domain/evaluation.py: RoutePreference.with_weight()`: `axis_id`が現在の`weights`に
+    無い場合は無変更の`self`をそのまま返すよう変更（非公開軸への重み上書きは
+    「その軸は評価に参加しない」を意味するため、無視するのが安全側の挙動）。
+  - `openrouteservice_engine.py`: `base_axis_weights["night"]`を
+    `base_axis_weights.get("night", 0.0)`へ変更し、同様にKeyErrorを防止。
+  - 回帰テストを追加: `test_evaluation.py:
+    test_route_preference_with_weight_returns_self_for_unknown_axis_id`、
+    `test_road_graph_engine.py: test_prepare_does_not_crash_when_night_axis_is_unpublished`
+    （`monkeypatch.setitem(AXIS_DEFINITIONS, "night", ...is_published=False)`で実際の
+    障害状態を再現）、`test_openrouteservice_engine.py:
+    test_evaluate_loops_does_not_crash_when_night_axis_is_unpublished`。
+- この修正の対症療法的な限界（T309着手のきっかけ）: 上記は「非公開軸への書き込みは
+  無視する」という安全弁であり、`RouteSegmentDetail`側の7軸固定フィールド
+  （`elevation_difficulty`等）という、より広い「軸の数は7固定」という前提そのものは
+  未解消のままだった。ユーザーから「修正の方向性あってる？　7つの軸のうちないものが
+  あれば無視してください、という修正は意図と違う。推定軸の数は可変にしたい」との
+  明確な指摘を受け、この限界を解消する本丸としてT309（保留中だったタスク）に
+  着手する流れとなった。
+- 検証: backend pytest（該当ファイル）全パス。本番同等のシナリオ（night軸非公開＋
+  road_graphエンジンでのルート生成）をT309の実機検証時に実サーバーで再現し、
+  500にならないことを最終確認済み（T309エントリ参照）。
+- 依存: T316（`load_route_preference()`の動的化）の直後に発覚した続報。T309（本丸の
+  恒久対策）の前提・トリガーとなった。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

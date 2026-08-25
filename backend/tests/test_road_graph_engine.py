@@ -412,7 +412,7 @@ async def test_candidate_aggregates_stop_density_from_path_edges():
 
     assert candidate.stop_density is not None
     assert candidate.stop_density > 0.0
-    segment_with_stops = next(s for s in candidate.segments if s.stop_difficulty is not None and s.stop_difficulty > 0)
+    segment_with_stops = next(s for s in candidate.segments if s.axis_difficulties.get("stop_density", 0) > 0)
     assert segment_with_stops.difficulty is not None
 
 
@@ -435,7 +435,7 @@ async def test_candidate_stop_density_is_none_when_data_unavailable():
     candidate = next(c for c in candidates if c.id == "route-000")
 
     assert candidate.stop_density is None
-    assert all(s.stop_difficulty is None for s in candidate.segments)
+    assert all("stop_density" not in s.axis_difficulties for s in candidate.segments)
 
 
 async def test_candidate_reflects_bicycle_infra_from_way_tags():
@@ -468,10 +468,10 @@ async def test_candidate_aggregates_intersection_density_from_path_edges():
 
     assert candidate.intersection_density is not None
     assert candidate.intersection_density > 0.0
-    # 改善計画T149: 交差点密度は独立軸を持たずstop_difficulty側へ低い重みで吸収される
+    # 改善計画T149: 交差点密度は独立軸を持たずstop_density側へ低い重みで吸収される
     # （旧intersection_difficultyは廃止）。
     segment_with_intersections = next(
-        s for s in candidate.segments if s.stop_difficulty is not None and s.stop_difficulty > 0
+        s for s in candidate.segments if s.axis_difficulties.get("stop_density", 0) > 0
     )
     assert segment_with_intersections.difficulty is not None
 
@@ -490,7 +490,7 @@ async def test_candidate_aggregates_accident_density_from_path_edges():
     assert candidate.accident_density is not None
     assert candidate.accident_density > 0.0
     segment_with_accidents = next(
-        s for s in candidate.segments if s.accident_difficulty is not None and s.accident_difficulty > 0
+        s for s in candidate.segments if s.axis_difficulties.get("accident", 0) > 0
     )
     assert segment_with_accidents.difficulty is not None
 
@@ -688,6 +688,34 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     # （難易度による割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
     assert night_cost > day_cost
     assert day_cost == pytest.approx(edge.distance_m, abs=0.1)
+
+
+async def test_prepare_does_not_crash_when_night_axis_is_unpublished(monkeypatch):
+    # 改善計画T316フォローアップ回帰テスト: night軸が軸スタジオで非公開化されると
+    # RoutePreference.weightsに"night"キーが存在しなくなる。修正前はwith_weight("night",
+    # 0.0)が強制的に未知のaxis_idをweightsへ追加しようとしてValidationErrorになり、
+    # デフォルトエンジン（road_graph）の日中の全リクエストが丸ごと500になっていた
+    # （2026-08-25の実障害、domain/evaluation.py: RoutePreference.with_weight参照）。
+    from app.domain.axis_definitions import AXIS_DEFINITIONS
+
+    original_night = AXIS_DEFINITIONS["night"]
+    monkeypatch.setitem(AXIS_DEFINITIONS, "night", original_night.model_copy(update={"is_published": False}))
+
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+
+    preference = RoutePreference()
+    assert "night" not in preference.weights  # night非公開のため既定値に含まれない前提の確認
+    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    engine = generator._engine
+
+    daytime = datetime(2024, 6, 21, 3, 0, tzinfo=timezone.utc)
+    day_context = await engine.prepare(ORIGIN, radius_km=1.0, now=daytime)  # 例外が出ないことを確認
+
+    assert day_context.night_active is False
 
 
 async def test_prepare_applies_precomputed_gradient_to_search_cost():
