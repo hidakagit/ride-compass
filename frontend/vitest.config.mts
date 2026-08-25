@@ -16,6 +16,12 @@ export default defineConfig({
     // 生む（SafetyRecipePanel.test.tsx/TrafficStressRecipePanel.test.tsxの情報アイコン開閉テスト
     // 等で複数回再現）。コールドスタート実測（初回6.4秒）に十分な余裕を持たせた値へ引き上げる。
     testTimeout: 15000,
+    // Windows実測: forksプール（既定）はテストファイルごとにOSプロセスを新規起動するため、
+    // プロセス起動コストが重いWindows環境で支配的なオーバーヘッドになる
+    // （[vitest-pool]: Timeout terminating forks workerが頻発）。threadsプールはワーカー
+    // スレッドで実行しプロセス起動を回避する。isolateはfile単位のまま変えないため、
+    // 速度目的でisolate: falseへ倒して不採用になった経緯（後述コメント）とは別軸の変更。
+    pool: "threads",
     // 改善計画T329: 既定のDOM環境をjsdomからhappy-domへ変更（テストスイート全体で
     // 30秒→19秒、約35%短縮を実測。環境構築コストだけでなくテスト本体の実行時間も
     // 縮む）。canvas.getContext("2d")が未実装でnullを返す挙動（windArrowIcon.ts/
