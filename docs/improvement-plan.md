@@ -5135,6 +5135,60 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   今回のスコープ外（モーダル化・説明追加のみ）。将来的にさらに使いやすくする余地は
   あるが、今回の3点の指摘には対応済み。
 
+### - [x] T305. 軸スタジオの使いにくさ（二重ログイン・axis_id・分類・z-index） 規模M（2026-08-25完了）
+
+- 背景: T304に続くユーザー実機フィードバック4点。
+  1. 「Basic認証でログインしたユーザに紐づく評価軸だけを出して（管理者ユーザ名やパスワード
+     欄は不要）」——`/admin`ページ自体は既に`proxy.ts`でBasic認証済みなのに、軸スタジオ
+     画面内でもユーザー名/パスワード入力を求める二重ログインになっていた（backend別
+     オリジンへの直接呼び出しのため、ブラウザがproxy.ts分の認証情報を自動転送しない
+     ことが原因）。
+  2. 「編集画面で情報アイコン（！）を押すと後ろに隠れて見えない」——T304で追加した
+     `FieldLabel`のPopover（z-index:46）が、同じくT304で導入した編集モーダル
+     （`components/ui/Dialog`、z-index:50）より背面になっていた。
+  3. 「axis_idはシステムが勝手に一意な何かを自動採番してくれればよい。設定画面に
+     不要では？画面上は表示名があればよい」。
+  4. 「分類は「推定」のみのはず。軸スタジオから材料である観測や動的が生み出せると
+     おかしい」。
+  5. （ユーザーからの追加指摘）「説明文言がべた書きで全般的にみにくい」、
+     「画面の説明で（改善計画T270）とか要らない」。
+- 対応内容:
+  1. 同一オリジンのNext.js route handler（`frontend/src/app/admin/api/axis-definitions/`
+     配下、`lib/adminApiProxy.ts`）を新設し、軸CRUD APIの呼び出し先をbackend直叩きから
+     これへ変更した。このパスは`proxy.ts`のmatcher（`/admin/:path*`）に含まれるため、
+     ブラウザは`/admin`読込時に一度入力したBasic認証情報を、同一オリジン・同一realmへの
+     後続リクエストへ自身の認証キャッシュから自動付与する（ブラウザ標準の挙動）。
+     route handler側はサーバー環境変数`ADMIN_BASIC_AUTH_USERNAME`/`PASSWORD`（proxy.tsが
+     既に使っている値と同じ、運用上backend側と揃える既存方針のまま）からbackend宛の
+     Authorizationヘッダを組み立てて転送するため、backend向けの資格情報はブラウザへ
+     一切露出しない。旧`lib/adminToken.ts`・`hooks/useAdminCredentials.ts`は撤去し、
+     `AxisStudio.tsx`のユーザー名/パスワード入力欄・保存ボタンも削除した。
+  2. `recipeControls.module.css: .infoTooltip`のz-indexを46→60へ引き上げ（Dialog[50]より
+     確実に上）。
+  3. `AxisComposer.tsx`からaxis_id入力欄を撤去し、`crypto.randomUUID()`由来の値を
+     新規作成・複製時に自動生成する`generateAxisId()`を追加した。編集時は既存の
+     axis_idをそのまま使う（画面には出さない）。
+  4. `AxisComposer.tsx`から分類(category)の選択欄を撤去し、送信payloadで常に
+     `category: "推定"`を送るよう固定した（`Draft`型自体からも`category`フィールドを
+     削除）。一覧表示（`AxisStudio.tsx`）では既存軸の分類は引き続き表示する
+     （建付け軸[観測/動的]の情報自体は有用なため、作成フォーム側だけを制約した）。
+  5. `AxisStudio.tsx`の使い方説明を1段落のべた書きから箇条書き（`<ul>`）へ整理し、
+     `admin/page.tsx`のsubtitleから「（改善計画T270）」等の内部タスク番号参照を削除した。
+- テスト: `AxisStudio.test.tsx`にログイン欄が無いことの確認テストを追加、既存テストを
+  axis_id非表示・表示名基準のダイアログタイトルへ更新。frontend全488件green（T303の
+  マージによる`routePreferenceSync.test.ts`込み）、tsc/eslintクリーン。Playwright実機
+  確認: ログイン画面を経由せず軸一覧が読み込まれること、新規作成モーダルにaxis_id/
+  分類欄が無いこと、材料排他制約に配慮した軸を実際に作成し一覧へ`category: 推定`・
+  自動採番されたaxis_id（title属性）で反映されることを確認、情報アイコンのツールチップが
+  モーダルより前面に表示されることをスクリーンショットで確認。
+- **並行作業とのコンフリクト**: 実装中にmasterでT300（モバイルタブ再編）・T303
+  （route_preference整合性、`RouteSettingsPanel.tsx`の反映effectを`lib/
+  routePreferenceSync.ts`へ共通化）が並行してマージされ、`admin/page.tsx`が軽微に
+  コンフリクトした。マージして解消（開発者ブロックのヒント文言更新はT300側、
+  subtitleの改善計画番号除去は本タスク側、双方とも保持）。
+- 完了条件: 上記4点の実機フィードバックと追加指摘2点への対応、テストgreen、
+  docs/architecture.mdの認可設計節の追従。すべて満たして完了。
+
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
