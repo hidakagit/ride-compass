@@ -705,8 +705,9 @@ describe("MapLayersPanel", () => {
 
   // 改善計画T292: 車ストレス（車の圧迫感）は専用Pythonレシピの廃止に伴い、他の推定軸
   // （停止密度・事故密度等）と同じ汎用ramp機構へ統合された。専用の5段階panelHintDetail
-  // （加点/減点の箇条書き内訳）は廃止され、mapLayers.ts: RAMP_AXIS_PANEL_HINTSの
-  // 単一の説明文（ramp軸共通の形）に置き換わった。
+  // （加点/減点の箇条書き内訳）は廃止され、単一の説明文（ramp軸共通の形）に置き換わった。
+  // 改善計画T310: この説明文は軸id→値の手書き辞書（旧RAMP_AXIS_PANEL_HINTS）ではなく、
+  // 軸自身のデータ（AXIS_DEFINITIONS.panel_hint）から取得する。
   it("車の圧迫感の凡例に判定基準の説明が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();

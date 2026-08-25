@@ -22,6 +22,10 @@ function catalogResponse(): AxisCatalogResponse {
         default_weight: 0.19,
         display: { kind: "none", label: "舗装質", category: "trafficSafety", unit: "", note: "" },
         primary_attribute_ids: ["surface"],
+        icon_id: "wave",
+        chip_label: "舗装",
+        panel_hint: null,
+        proxy_hint: null,
       },
       // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
       // ビルド時静的axis-catalog.jsonには存在しない、実行時APIだけが返す想定。
@@ -51,6 +55,10 @@ function catalogResponse(): AxisCatalogResponse {
           note: "",
         },
         primary_attribute_ids: ["lanes"],
+        icon_id: null,
+        chip_label: null,
+        panel_hint: null,
+        proxy_hint: null,
       },
     ],
   };

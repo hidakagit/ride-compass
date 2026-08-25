@@ -1368,6 +1368,64 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   引き続きスコープ外（T278の`tile_property_direction_dependent`フラグにより該当軸は
   安全側で`kind="none"`のまま）。
 
+### 地図チップ表示要素の軸スタジオ登録化（改善計画T310）
+
+T308完了時点でも、地図チップのアイコン・略称・地図の見え方パネル向け説明文・代役案内・
+ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値のハードコード辞書
+（フロント`SECONDARY_AXIS_ICONS`/`RAMP_AXIS_PANEL_HINTS`/`SECONDARY_AXIS_CHIP_LABELS`/
+`SECONDARY_AXIS_PROXY_HINTS`、backend`axis_display.py`の`STOP_DENSITY_DISPLAY`等）として
+残っていた（汎用フォールバックがあり機能自体は壊れないため、T308の完了条件からは意図的に
+除外していた）。T310でこれらを全廃し、軸自身のデータ（`AxisDefinition`のフィールド、
+軸スタジオ経由でDBへ登録可能）へ移設した:
+
+- **`AxisDefinition`（`axis_definitions.py`）へ`icon_id`/`chip_label`/`panel_hint`/
+  `proxy_hint`（いずれも`str | None`）・`display_override`（`registry.py: AxisDisplaySpec
+  | None`、地図ramp表示のtile_inputs/thresholds/unit/noteをまとめて上書きする既存の型を
+  再利用）を追加した。既存6軸（gradient/surface_q/night/stop_density/car_stress/
+  accident）はこれらを自軸のエントリへ直接記述する（`label`/`description`と同じ、
+  軸自身の宣言データとして単一ソース化）。`car_stress`の`display_override`は内部軸5つの
+  カテゴリカルmapping/breakpointsを参照するため、`AXIS_DEFINITIONS`辞書リテラルの
+  構築中に自分自身を参照できない制約を避けて、共有定数（`_CAR_STRESS_HIGHWAY_BASE_
+  MAPPING`等）をモジュール先頭で先出しし、内部軸の評価shape・car_stressのdisplay_
+  overrideの両方から同じ定数を参照する形で単一ソースを保った。
+- **`axis_display_for()`（`axis_display.py`）は完全に軸id非依存になった**: 優先順位
+  ①`definition.display_override`（設定されていれば）②`derive_ramp_inputs()`の自動導出
+  ③`kind="none"`、という3行の純粋関数のみが残り、軸idを分岐条件に持つコードは無い。
+  `registry_defaults.py`（ビルド時静的axis-catalog.json生成用の別レジストリ、T137）も
+  `AXIS_DEFINITIONS[axis_id].display_override`を参照する形へ揃えた。
+- **`GET /api/axis-catalog`**（`axis_catalog.py: AxisCatalogEntry`）へ`icon_id`/
+  `chip_label`/`panel_hint`/`proxy_hint`を追加（`display_override`は`axis_display_for()`
+  の出力[`display`フィールド]に統合済みのため別フィールド化しない）。
+- **フロント**: `RampAxis`（`axisLayers.ts`）・`SecondaryAxisSummary`（`secondaryAxes.ts`）
+  へ`iconId`/`panelHint`/`chipLabel`/`proxyHint`を追加し、旧ハードコード辞書は全廃した。
+  アイコンは新設の`axisIconPalette.tsx`（固定パレット、`icon_id`→アイコンコンポーネント
+  のフラットな辞書）から`axisIconFor(iconId)`で引く——未知/未設定は汎用`AxisRampIcon`へ
+  安全側フォールバックする。
+- **アイコン登録方式（ユーザー判断、2026-08-25）**: GUIから任意のSVGを登録させる方式
+  （スタイル一貫性・XSSサニタイズのコストが高い）、ラベル頭文字のモノグラム自動生成
+  （既存の手描きアイコンが持つ「形だけで意味が伝わる」性質を失う）と比較検討した結果、
+  あらかじめ用意した固定パレットから`icon_id`を選ぶ方式を採用した。既存6軸の意匠に加え
+  新規軸向けのスペア6種（wind-flow/thermometer/shield/target/clock/layers）を含む計12種
+  を用意（軸スタジオの`AxisComposer.tsx`がドロップダウンで選択・プレビュー表示する）。
+  新しいアイコン形状の追加は引き続き`axisIconPalette.tsx`への1件追加＋コード変更を要する
+  （軸スタジオ側はicon_idを選ぶだけで再デプロイ不要）。
+- **既存軸データの本番DB backfill**（ユーザー指示、2026-08-25）: 上記5フィールドの
+  DBカラム追加（`migrations/0019_axis_definitions_display_fields.sql`）に続けて、
+  既存6軸の値を`AXIS_DEFINITIONS`から`model_dump(mode="json")`で機械的に生成した
+  `UPDATE`文でbackfillする。他のmigration（0014〜0018）と同じく、未適用の環境では
+  Pythonフォールバック（`AXIS_DEFINITIONS`の内蔵既定値）のまま安全に動作する。
+- **chip_labelの4文字制約**（ユーザー指摘、2026-08-25）: 地図チップは4文字以下を前提と
+  した固定サイズのタイル（`MapOverlayControls.module.css`）のため、`AxisDefinitionPayload`
+  （`axis_admin.py`）へ`field_validator`を追加し、5文字以上のchip_labelを422で拒否する
+  （フロントの`AxisComposer.tsx`も`maxLength={4}`で入力段階から防ぐ）。chip_label未設定
+  時のフォールバックは`label`（正式名）だが、`label`が4文字を超える軸（例:「車の圧迫感」
+  5文字）は必ずchip_labelを設定する運用とする。
+- **スコープ外として明記**: `display_override`はTileInputSpecの構造が複雑なため
+  `AxisComposer.tsx`（GUIフォーム）に編集UIを持たず、管理API直接編集のみ対応
+  （データ層は軸自身のフィールドとして特別扱いを解消済みだが、GUIからの閾値調整は
+  引き続き軸スタジオの範囲外）。ルート詳細のセグメント別内訳（`RouteSegmentDetail`の
+  既存7軸固定フィールド）は別タスク（T309、保留）として切り出した。
+
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
 `domain/registry.py`が一次属性（`PrimaryAttributeSpec`）・二次軸（`AxisSpec`）の宣言的な

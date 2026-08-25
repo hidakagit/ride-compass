@@ -1143,6 +1143,50 @@
           "display": {
             "$ref": "#/components/schemas/AxisDisplaySpec"
           },
+          "icon_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Id"
+          },
+          "chip_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chip Label"
+          },
+          "panel_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Hint"
+          },
+          "proxy_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Hint"
+          },
           "primary_attribute_ids": {
             "items": {
               "type": "string"
@@ -1159,6 +1203,10 @@
           "category",
           "default_weight",
           "display",
+          "icon_id",
+          "chip_label",
+          "panel_hint",
+          "proxy_hint",
           "primary_attribute_ids"
         ],
         "title": "AxisCatalogEntry"
@@ -1234,6 +1282,60 @@
             },
             "type": "array",
             "title": "Priority Overrides"
+          },
+          "icon_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Id"
+          },
+          "chip_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chip Label"
+          },
+          "panel_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Hint"
+          },
+          "proxy_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Hint"
+          },
+          "display_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AxisDisplaySpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1301,6 +1403,60 @@
             },
             "type": "array",
             "title": "Priority Overrides"
+          },
+          "icon_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Id"
+          },
+          "chip_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chip Label"
+          },
+          "panel_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Hint"
+          },
+          "proxy_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Hint"
+          },
+          "display_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AxisDisplaySpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

@@ -506,6 +506,14 @@ export interface components {
             /** Default Weight */
             default_weight: number;
             display: components["schemas"]["AxisDisplaySpec"];
+            /** Icon Id */
+            icon_id: string | null;
+            /** Chip Label */
+            chip_label: string | null;
+            /** Panel Hint */
+            panel_hint: string | null;
+            /** Proxy Hint */
+            proxy_hint: string | null;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
         };
@@ -548,6 +556,15 @@ export interface components {
             is_published: boolean;
             /** Priority Overrides */
             priority_overrides?: components["schemas"]["PriorityCondition"][];
+            /** Icon Id */
+            icon_id?: string | null;
+            /** Chip Label */
+            chip_label?: string | null;
+            /** Panel Hint */
+            panel_hint?: string | null;
+            /** Proxy Hint */
+            proxy_hint?: string | null;
+            display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**
          * AxisDefinitionResponse
@@ -582,6 +599,15 @@ export interface components {
             is_published: boolean;
             /** Priority Overrides */
             priority_overrides?: components["schemas"]["PriorityCondition"][];
+            /** Icon Id */
+            icon_id?: string | null;
+            /** Chip Label */
+            chip_label?: string | null;
+            /** Panel Hint */
+            panel_hint?: string | null;
+            /** Proxy Hint */
+            proxy_hint?: string | null;
+            display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**
          * AxisDisplaySpec

@@ -324,6 +324,50 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     expect(labels.gui_created_axis).toBe("テスト用GUI軸");
   });
 
+  it("改善計画T310: panel_hint/icon_idが設定されていればRampAxis.panelHint/iconIdへ反映される", () => {
+    const catalogAxes: CatalogAxis[] = [
+      {
+        axis_id: "with_display_fields",
+        display: {
+          kind: "ramp",
+          label: "テスト軸",
+          category: "trafficSafety",
+          tile_inputs: [{ property: "dummy_per_km", weight: 1.0 }],
+          thresholds: [1.0],
+          unit: "",
+          note: "開発者向けメモ",
+        },
+        panel_hint: "ユーザー向け説明文",
+        icon_id: "incline",
+      },
+    ];
+
+    const rampAxes = rampAxesFromCatalogAxes(catalogAxes);
+    expect(rampAxes[0].panelHint).toBe("ユーザー向け説明文");
+    expect(rampAxes[0].iconId).toBe("incline");
+  });
+
+  it("改善計画T310: panel_hint/icon_id未設定はundefinedのまま（呼び出し側の汎用フォールバックに委ねる）", () => {
+    const catalogAxes: CatalogAxis[] = [
+      {
+        axis_id: "without_display_fields",
+        display: {
+          kind: "ramp",
+          label: "テスト軸2",
+          category: "trafficSafety",
+          tile_inputs: [{ property: "dummy_per_km", weight: 1.0 }],
+          thresholds: [1.0],
+          unit: "",
+          note: "開発者向けメモ",
+        },
+      },
+    ];
+
+    const rampAxes = rampAxesFromCatalogAxes(catalogAxes);
+    expect(rampAxes[0].panelHint).toBeUndefined();
+    expect(rampAxes[0].iconId).toBeUndefined();
+  });
+
   it("kind=noneの軸はRampAxesには含まれないが、ラベル辞書には含まれる", () => {
     const catalogAxes: CatalogAxis[] = [
       {

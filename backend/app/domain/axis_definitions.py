@@ -41,6 +41,7 @@ from app.domain.axis_templates import (
     evaluate_categorical,
     evaluate_flag_sum,
 )
+from app.domain.registry import AxisDisplaySpec, TileInputSpec
 
 # 改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）: 交差点密度は
 # 単独軸を持たず、タグなし交差点(次数3以上のroad_node、信号等のタグが付いていない
@@ -202,6 +203,36 @@ class AxisDefinition(BaseModel):
     # 改善計画T292: 0次条件（軸の通常計算より前に評価される優先確定ルール）。空リストは
     # 「無し」（従来どおりshapeだけで評価）で、既存6軸の挙動には影響しない。
     priority_overrides: list[PriorityCondition] = Field(default_factory=list)
+    # 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
+    # 軸id→値の手書き辞書を廃止し、軸自身のデータとして持たせる。全て未設定＝Noneが既定で、
+    # フロント側は未設定を「汎用フォールバックを使う」の意味で扱う（機能は壊れない）。
+    icon_id: str | None = None
+    """地図チップのアイコン（frontend/src/components/Map/axisIconPalette.tsxの固定
+    パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック。
+    新しいアイコン形状の追加自体は引き続きコード変更を要する——GUIから任意のSVGを
+    登録させる方式はスタイル一貫性・XSSサニタイズのコストが高いためユーザー判断で
+    見送った、docs/improvement-plan.md T310参照）。"""
+    chip_label: str | None = None
+    """地図チップの略称。設定する場合は4文字以内必須（地図チップが固定サイズのタイルの
+    ため、axis_admin.py: AxisDefinitionPayload._check_chip_label_lengthが書き込み時に
+    検証する）。未設定はlabelをそのまま使う——labelが4文字を超える軸（例:「車の圧迫感」
+    5文字）は、そのままだとタイルのレイアウトが崩れるため、その場合は明示的にこの
+    フィールドを設定すること。"""
+    panel_hint: str | None = None
+    """地図の見え方パネル（MapLayersPanel）向けの噛み砕いた説明文。未設定は
+    descriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
+    proxy_hint: str | None = None
+    """display.kind="none"（専用地図レイヤー無し）の軸向け、代役レイヤーへの案内文。
+    未設定は案内なし（無効化されたチップとしてのみ表示）。"""
+    display_override: AxisDisplaySpec | None = None
+    """地図ramp表示（domain/axis_display.py: axis_display_for()が返す値）の手書き上書き。
+    未設定は`derive_ramp_inputs()`による自動導出（不可能ならkind="none"）に委ねる。
+    複数材料の重み付き結合はderive_ramp_inputsが数学的に正確に自動導出できるため
+    通常は不要——統計的に閾値を調整したい場合（stop_density/accident）、または他の軸を
+    参照する材料構成でderive_ramp_inputsが解決できない場合（car_stress、改善計画T292の
+    軸階層）にのみ設定する。軸スタジオのGUIフォーム（AxisComposer.tsx）は現時点で
+    この項目の編集UIを持たない（TileInputSpecの構造が複雑なため、まずは管理API経由の
+    直接編集のみ対応。GUI化は将来検討、docs/improvement-plan.md T310参照）。"""
 
     @property
     def materials(self) -> list[str]:
@@ -231,6 +262,53 @@ class AxisDefinition(BaseModel):
 #
 # 各パラメータの根拠・暫定値の経緯（P2据え置き等）はgit履歴（domain/difficulty.py・
 # domain/night.pyの旧定数定義、T239以前）参照。
+#
+# car_stress内部軸5つのマッピング/breakpointsを、地図表示（display_override.tile_inputs、
+# car_stress公開軸のエントリ参照）と評価shape（各内部軸のエントリ）の両方から参照する
+# 単一ソースとして先出しする（改善計画T310。以前はaxis_display.pyが評価済みの
+# AXIS_DEFINITIONS[...]を事後的に読んで複製を避けていたが、display_overrideを軸自身の
+# フィールドへ変えたことで、AXIS_DEFINITIONS辞書リテラルの構築中に自分自身を参照できない
+# ため、この形で単一ソースを保つ）。
+_CAR_STRESS_HIGHWAY_BASE_MAPPING: dict[str, float] = {
+    "cycleway": 1.0,
+    "living_street": 1.0,
+    "residential": 2.0,
+    "unclassified": 2.0,
+    "track": 2.0,
+    "tertiary": 3.0,
+    "tertiary_link": 3.0,
+    "secondary": 3.0,
+    "secondary_link": 3.0,
+    "primary": 4.0,
+    "primary_link": 4.0,
+    "trunk": 4.0,
+    "trunk_link": 4.0,
+}
+_CAR_STRESS_BICYCLE_INFRA_MAPPING: dict[str, float] = {
+    "separated": -2.0,
+    "lane": -1.0,
+    "shared_busway": 0.0,
+    "shared_pedestrian": 0.0,
+    "roadway": 1.0,
+}
+_CAR_STRESS_MAXSPEED_BREAKPOINTS: list[tuple[float, float]] = [
+    (0.0, -1.0),
+    (30.0, -1.0),
+    (31.0, 0.0),
+    (59.0, 0.0),
+    (60.0, 1.0),
+    (999.0, 1.0),
+]
+_CAR_STRESS_LANES_BREAKPOINTS: list[tuple[float, float]] = [
+    (0.0, -1.0),
+    (1.0, -1.0),
+    (2.0, 0.0),
+    (3.0, 0.0),
+    (4.0, 1.0),
+    (99.0, 1.0),
+]
+_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING: dict[bool, float] = {True: -1000.0, False: 0.0}
+
 AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     # 勾配。材料gradient_percent=Edge単位の平均勾配%（ElevationAttribute.average_grade、
     # 符号付き）。絶対値をとり0-3%易しい/3-6%普通/6-9%大変/9%以上激坂の目安で変換する。
@@ -246,6 +324,9 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="登り坂の急さが小さいほど易しい",
         category="観測",
         is_published=True,
+        icon_id="incline",
+        chip_label="勾配",
+        proxy_hint="（地図表示なし）標高レイヤーで確認できます",
     ),
     # 向かい風。材料wind_penalty=符号付き風ペナルティm/s（正=向かい風、負=追い風。
     # domain/evaluation.py: compute_wind_penalty）。追い風・無風は0、8m/sで100。
@@ -271,6 +352,8 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="舗装路であるほど易しい",
         category="観測",
         is_published=True,
+        icon_id="wave",
+        chip_label="舗装",
     ),
     # 停止密度。材料stop_count_per_km=信号・横断歩道・一時停止・踏切の合計密度(回/km、必須)、
     # intersection_count_per_km=タグなし交差点密度(回/km、補助・欠損は寄与0)。
@@ -293,6 +376,29 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
         category="観測",
         is_published=True,
+        icon_id="density-stack",
+        chip_label="停止密度",
+        panel_hint="信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。"
+        "実際の位置は「停止要因」レイヤーで確認できます。",
+        # 改善計画T310: 以前はaxis_display.py: STOP_DENSITY_DISPLAY（軸id→値のハードコード
+        # 辞書）だったものを、軸自身のフィールドへ移設した（他の既存軸限定の特別扱いと同じ
+        # 理由で特別扱いを解消。docs/improvement-plan.md T310参照）。derive_ramp_inputsは
+        # 技術的にはこの軸も自動導出できるが、既存thresholds[1,2,4]は統計的経験則で単純な
+        # 折れ点流用（自動導出だと[4.0]の1閾値のみ）より段階が細かいため、意図的に手書きの
+        # まま維持する（domain/axis_display.pyのモジュールdocstring参照）。
+        display_override=AxisDisplaySpec(
+            kind="ramp",
+            label="停止密度",
+            category="trafficSafety",
+            tile_inputs=[
+                TileInputSpec(property="stop_per_km", weight=1.0),
+                TileInputSpec(property="intersection_per_km", weight=UNSIGNALED_INTERSECTION_WEIGHT),
+            ],
+            thresholds=[1.0, 2.0, 4.0],
+            unit="回/km",
+            note="信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた"
+            "停止要因の密度。way単位の事前集計（way_attribute_counts）由来",
+        ),
     ),
     # 車ストレス（改善計画T292: 専用Pythonレシピ[旧domain/traffic.py: car_stress_level、
     # CarStressRecipe等]を廃止し、内部軸5つ+公開軸1つの階層構造で再現する）。
@@ -308,24 +414,7 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     # 「highway未登録なら car_stress全体を評価しない」を再現する。
     "car_stress_highway_base": AxisDefinition(
         axis_id="car_stress_highway_base",
-        shape=CategoricalShape(
-            material="highway",
-            mapping={
-                "cycleway": 1.0,
-                "living_street": 1.0,
-                "residential": 2.0,
-                "unclassified": 2.0,
-                "track": 2.0,
-                "tertiary": 3.0,
-                "tertiary_link": 3.0,
-                "secondary": 3.0,
-                "secondary_link": 3.0,
-                "primary": 4.0,
-                "primary_link": 4.0,
-                "trunk": 4.0,
-                "trunk_link": 4.0,
-            },
-        ),
+        shape=CategoricalShape(material="highway", mapping=_CAR_STRESS_HIGHWAY_BASE_MAPPING),
         default_weight=0.0,
         label="車ストレス内部軸: highway基準値",
         description="highway種別による車の圧迫感の基準値(1-4、非公開)",
@@ -343,10 +432,7 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     # 通常除外されるため補正を持たない（未登録→補正なし0点、旧ロジックと同じ扱い）。
     "car_stress_bicycle_infra_adjustment": AxisDefinition(
         axis_id="car_stress_bicycle_infra_adjustment",
-        shape=CategoricalShape(
-            material="bicycle_infra",
-            mapping={"separated": -2.0, "lane": -1.0, "shared_busway": 0.0, "shared_pedestrian": 0.0, "roadway": 1.0},
-        ),
+        shape=CategoricalShape(material="bicycle_infra", mapping=_CAR_STRESS_BICYCLE_INFRA_MAPPING),
         default_weight=0.0,
         label="車ストレス内部軸: 自転車インフラ補正",
         description="自転車インフラ種別による補正(非公開)",
@@ -360,7 +446,7 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         axis_id="car_stress_maxspeed_adjustment",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="maxspeed_kmh")],
-            breakpoints=[(0.0, -1.0), (30.0, -1.0), (31.0, 0.0), (59.0, 0.0), (60.0, 1.0), (999.0, 1.0)],
+            breakpoints=_CAR_STRESS_MAXSPEED_BREAKPOINTS,
         ),
         default_weight=0.0,
         label="車ストレス内部軸: 制限速度補正",
@@ -379,7 +465,7 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         axis_id="car_stress_lanes_adjustment",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="lanes_count")],
-            breakpoints=[(0.0, -1.0), (1.0, -1.0), (2.0, 0.0), (3.0, 0.0), (4.0, 1.0), (99.0, 1.0)],
+            breakpoints=_CAR_STRESS_LANES_BREAKPOINTS,
         ),
         default_weight=0.0,
         label="車ストレス内部軸: 車線数補正",
@@ -416,7 +502,7 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     # 他の内部軸の点数レンジ次第で頭打ちが効かなくなりうる、レビュー時要確認）。
     "car_stress_motor_vehicle_no_adjustment": AxisDefinition(
         axis_id="car_stress_motor_vehicle_no_adjustment",
-        shape=CategoricalShape(material="motor_vehicle_no", mapping={True: -1000.0, False: 0.0}),
+        shape=CategoricalShape(material="motor_vehicle_no", mapping=_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING),
         default_weight=0.0,
         label="車ストレス内部軸: 自動車通行不可の優先確定",
         description="motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
@@ -444,6 +530,68 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
         category="推定",
         is_published=True,
+        icon_id="warning-triangle",
+        chip_label="圧迫感",
+        panel_hint="道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した"
+        "車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして"
+        "確認できます。",
+        # 改善計画T310: 以前はaxis_display.py: CAR_STRESS_DISPLAY（軸id→値のハードコード辞書）
+        # だったものを、軸自身のフィールドへ移設した（他の既存軸限定の特別扱いと同じ理由で
+        # 特別扱いを解消。docs/improvement-plan.md T310参照）。derive_ramp_inputsの自動導出は
+        # 「他の軸を参照するBreakpointLinearShape（このcar_stress自身のterms）」を解決できない
+        # ため対象外のまま（domain/axis_display.pyのモジュールdocstring参照）、
+        # stop_density/accidentと同じ前例で手書き設定する。
+        display_override=AxisDisplaySpec(
+            kind="ramp",
+            label="車の圧迫感",
+            category="trafficSafety",
+            # 値はAXIS_DEFINITIONS内部軸の生の合計（0-100への最終rescale[breakpoints=(1,0)-
+            # (5,100)]は適用しない）。stop_density/accidentも生の集計値へ直接thresholdsを
+            # 置いており、rampの目的は色分けの相対比較であって難易度の絶対値表示ではない
+            # （正確な合成コストは区間インスペクタ/api/region/axis-inspectorが
+            # サーバー側で正確に計算する）。
+            tile_inputs=[
+                TileInputSpec(
+                    property="highway",
+                    categories=_CAR_STRESS_HIGHWAY_BASE_MAPPING,
+                    has_unknown_fallback=True,
+                ),
+                TileInputSpec(
+                    property="bicycle_infra",
+                    categories=_CAR_STRESS_BICYCLE_INFRA_MAPPING,
+                ),
+                TileInputSpec(
+                    property="maxspeed_kmh",
+                    breakpoints=_CAR_STRESS_MAXSPEED_BREAKPOINTS,
+                ),
+                TileInputSpec(
+                    property="lanes_count",
+                    breakpoints=_CAR_STRESS_LANES_BREAKPOINTS,
+                ),
+                TileInputSpec(
+                    # designationはcar_stress内部軸の材料(is_designated、bool)とは別の
+                    # 材料（3値文字列、種別によらず一律+1）のため単一ソース化できない。
+                    property="designation",
+                    categories={"emergency_transport": 1.0, "critical_logistics": 1.0, "both": 1.0},
+                ),
+                TileInputSpec(
+                    property="motor_vehicle_no",
+                    boolean=True,
+                    true_value=_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING[True],
+                    false_value=_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING[False],
+                ),
+            ],
+            # highway基準値（1-4）の区分境界そのもの（4段階の主要因）。他5補正の
+            # 寄与幅（各-2〜+1）に対し、highway基準値が主要な分散要因のため、その
+            # 境界をそのまま閾値に流用する（stop_density/accidentと同じく統計分析
+            # ではなくドメイン知識による選定、実データでの分布確認は必要になれば
+            # 別タスクで実施）。
+            thresholds=[2.0, 3.0, 4.0],
+            note="改善計画T292: highway/bicycle_infra/maxspeed_kmh/lanes_count/"
+            "designation/motor_vehicle_noの6材料から自動計算する。以前は専用の"
+            "手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への"
+            "階層再構成でtile_inputsの重み付き結合として表現できるようになった",
+        ),
     ),
     # 事故密度。材料accident_count_per_km_year=事故密度(件/(km・年)、警察庁統計の
     # 距離・収録年数正規化値)。0で0、0.5件/(km・年)で100。
@@ -458,6 +606,25 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
         category="推定",
         is_published=True,
+        icon_id="density-scatter",
+        chip_label="事故密度",
+        panel_hint="警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの"
+        "目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
+        # 改善計画T310: 以前はaxis_display.py: ACCIDENT_DISPLAY（軸id→値のハードコード辞書）
+        # だったものを、軸自身のフィールドへ移設した（stop_densityと同じ理由）。材料が年正規化
+        # 済みでタイル生値とスケールが異なり、静的な変換係数を持てないためderive_ramp_inputsの
+        # 自動導出対象外のまま（domain/axis_display.pyのモジュールdocstring参照）。
+        display_override=AxisDisplaySpec(
+            kind="ramp",
+            label="事故密度",
+            category="trafficSafety",
+            tile_inputs=[TileInputSpec(property="accident_per_km", weight=1.0)],
+            thresholds=[0.4, 0.8, 1.5],
+            unit="件/km",
+            note="警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の"
+            "距離正規化密度。way単位の事前集計（way_attribute_counts）由来。"
+            "正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
+        ),
     ),
     # 夜間。材料no_lit=街灯なし（litタグ不在は街灯なしとみなす安全側の判断、
     # domain/night.py参照）、has_tunnel=トンネル。各50点加算、上限100。既定重み0で運用。
@@ -469,6 +636,8 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
         category="観測",
         is_published=True,
+        icon_id="crescent-moon",
+        chip_label="夜間",
     ),
 }
 

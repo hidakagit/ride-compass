@@ -157,6 +157,12 @@ def main() -> None:
                 "axis_id": axis_id,
                 "inputs": [],
                 "primary_attribute_ids": [],
+                # 改善計画T310: 地図チップ表示要素も実行時API（GET /api/axis-catalog）と
+                # 同じキー名で書き出す（primary_attribute_idsと同じ理由）。
+                "icon_id": definition.icon_id,
+                "chip_label": definition.chip_label,
+                "panel_hint": definition.panel_hint,
+                "proxy_hint": definition.proxy_hint,
                 "output_range": [0.0, 100.0],
                 "display": AxisDisplaySpec(
                     kind="ramp",
@@ -187,6 +193,12 @@ def main() -> None:
                     # 同じ変換関数で処理できるようにするため）。inputsキー自体は他の消費者
                     # （evaluationAxes.test.ts等）が引き続き読むため残す。
                     "primary_attribute_ids": axis.inputs,
+                    # 改善計画T310: registry.py側のAxisSpecはicon_id等を持たないため、
+                    # AXIS_DEFINITIONS側（単一ソース、domain/axis_definitions.py）を都度引く。
+                    "icon_id": AXIS_DEFINITIONS[axis.axis_id].icon_id,
+                    "chip_label": AXIS_DEFINITIONS[axis.axis_id].chip_label,
+                    "panel_hint": AXIS_DEFINITIONS[axis.axis_id].panel_hint,
+                    "proxy_hint": AXIS_DEFINITIONS[axis.axis_id].proxy_hint,
                     "output_range": list(axis.output_range),
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }

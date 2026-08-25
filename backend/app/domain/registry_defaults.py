@@ -55,20 +55,22 @@ derive_ramp_inputs()`が`AXIS_DEFINITIONS`の材料（`domain/material_catalog.p
 レイヤーパネル側の表示/非表示切替で運用する」方針へ統一した。`gradient`（材料が
 タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
 統計的経験則で単純な折れ点流用では再現不可）・`accident`（材料が年正規化済みでタイル
-生値とスケールが異なり、静的な変換係数を持てない）は自動導出の対象外のまま手書きの
-`display`を維持する（詳細はdomain/axis_display.pyのdocstring、改善計画T278参照）。
+生値とスケールが異なり、静的な変換係数を持てない）は自動導出の対象外のまま、軸自身の
+`AxisDefinition.display_override`（改善計画T310、詳細はdomain/axis_definitions.py・
+axis_display.pyのdocstring参照）に設定した`display`を維持する。
 
 **car_stressのkind="ramp"化（改善計画T292、2026-08-24）**: 専用Pythonレシピ廃止・
 内部軸6つ+公開軸1つの階層構造への再実装に伴い、`car_stress`も`kind="bespoke"`から
 `kind="ramp"`へ変更した。ただし内部軸6つを参照する`BreakpointLinearShape`（他の軸を
 `MaterialTerm.material`として参照する構造）は`derive_ramp_inputs`が解決できないため、
-`stop_density`/`accident`と同じ前例で`tile_inputs`/`thresholds`を本ファイルへ直接
-手書きしている（自動導出ではない）。旧`carStressExpression.ts`（フロントの手書き
-expression）は不要になり削除した。
+`stop_density`/`accident`と同じ前例で`tile_inputs`/`thresholds`を軸自身の
+`display_override`（改善計画T310、以前は本ファイルまたはaxis_display.pyへ直接
+手書きしていた）が持つ（自動導出ではない）。旧`carStressExpression.ts`（フロントの
+手書きexpression）は不要になり削除した。
 """
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.axis_display import ACCIDENT_DISPLAY, CAR_STRESS_DISPLAY, STOP_DENSITY_DISPLAY, derive_ramp_inputs
+from app.domain.axis_display import derive_ramp_inputs
 from app.domain.registry import (
     AxisDisplaySpec,
     AxisSpec,
@@ -358,10 +360,10 @@ def _register_axes() -> None:
             "難易度。交差点密度(intersection)は単独軸を持たず、タグなし交差点として低い重み"
             "（0.3、signal等のstop_poiを1.0とした相対値）でこの軸へ吸収する"
             "（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）",
-            # 改善計画T308: 表示宣言（tile_inputs/thresholds）はaxis_display.pyへ移設
-            # （derive_ramp_inputsが解決できない3軸をaxis_display_for()と共有する単一
-            # ソースにするため、片側import）。
-            display=STOP_DENSITY_DISPLAY,
+            # 改善計画T310: 表示宣言（tile_inputs/thresholds）は軸自身のAxisDefinition.
+            # display_override（domain/axis_definitions.py）が単一ソース（axis_display_for()
+            # と共有、片側import）。以前は専用の軸id→値辞書（axis_display.py）を経由していた。
+            display=AXIS_DEFINITIONS["stop_density"].display_override,
         )
     )
     register_axis(
@@ -382,8 +384,8 @@ def _register_axes() -> None:
             "compute_edge_axis_scores等が依存順評価で行う）。"
             "motor_vehicle_accessは地図レイヤー階層の次数反転検討（改善計画T163）で"
             "inputsからの記載漏れが発覚し追加した（排他違反ではないが不完全だった）",
-            # 改善計画T308: 表示宣言はaxis_display.pyへ移設（STOP_DENSITY_DISPLAYと同じ理由）。
-            display=CAR_STRESS_DISPLAY,
+            # 改善計画T310: 表示宣言は軸自身のdisplay_overrideが単一ソース（stop_densityと同じ理由）。
+            display=AXIS_DEFINITIONS["car_stress"].display_override,
         )
     )
     night_ramp = derive_ramp_inputs(AXIS_DEFINITIONS["night"])
@@ -417,7 +419,7 @@ def _register_axes() -> None:
             output_range=(0.0, 100.0),
             description="事故地点密度（件/(km・年)）から算出する難易度。事故実績のみを入力とし、"
             "他のどの軸とも一次属性を共有しない",
-            # 改善計画T308: 表示宣言はaxis_display.pyへ移設（STOP_DENSITY_DISPLAYと同じ理由）。
-            display=ACCIDENT_DISPLAY,
+            # 改善計画T310: 表示宣言は軸自身のdisplay_overrideが単一ソース（stop_densityと同じ理由）。
+            display=AXIS_DEFINITIONS["accident"].display_override,
         )
     )

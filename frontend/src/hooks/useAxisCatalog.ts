@@ -71,6 +71,10 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
       note: entry.display.note,
     },
     primary_attribute_ids: entry.primary_attribute_ids,
+    icon_id: entry.icon_id,
+    chip_label: entry.chip_label,
+    panel_hint: entry.panel_hint,
+    proxy_hint: entry.proxy_hint,
   };
 }
 

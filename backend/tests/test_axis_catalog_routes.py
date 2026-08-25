@@ -49,6 +49,26 @@ def test_get_axis_catalog_reflects_axis_definitions_content():
     assert gradient["default_weight"] == AXIS_DEFINITIONS["gradient"].default_weight
 
 
+def test_get_axis_catalog_reflects_display_fields():
+    # 改善計画T310: 地図チップ表示要素（icon_id/chip_label/panel_hint/proxy_hint）が
+    # 軸自身のデータ（AXIS_DEFINITIONS）からそのまま反映されること。
+    response = client.get("/api/axis-catalog")
+
+    body = response.json()
+    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
+    gradient = entries_by_id["gradient"]
+    car_stress = entries_by_id["car_stress"]
+
+    assert gradient["icon_id"] == "incline"
+    assert gradient["chip_label"] == "勾配"
+    assert gradient["proxy_hint"] == "（地図表示なし）標高レイヤーで確認できます"
+    assert car_stress["icon_id"] == "warning-triangle"
+    assert car_stress["chip_label"] == "圧迫感"
+    assert car_stress["panel_hint"] is not None
+    # wind等、T310で値を持たない軸は素直にnull（未設定=フロント側の汎用フォールバック）。
+    assert entries_by_id["wind"]["icon_id"] is None
+
+
 def test_get_axis_catalog_excludes_draft_axes(draft_axis):
     # 改善計画T271完了条件: 下書き軸が一般向けAPIに漏れないこと。
     response = client.get("/api/axis-catalog")

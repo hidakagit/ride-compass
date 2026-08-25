@@ -59,6 +59,12 @@ export interface RampAxis {
   thresholds: readonly number[];
   unit: string;
   note: string;
+  /** 改善計画T310: 地図の見え方パネル向けの噛み砕いた説明文（軸自身のデータ）。
+   * 未設定はnote（開発者向け実装メモ）へフォールバック（mapLayers.ts参照）。 */
+  panelHint?: string;
+  /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。未設定は
+   * 汎用フォールバック（AxisRampIcon）。 */
+  iconId?: string;
 }
 
 interface CatalogTileInput {
@@ -90,6 +96,13 @@ export interface CatalogAxis {
   // primary_attribute_ids、backend側で解決済み）。ビルド時静的json（axis-catalog.json）には
   // このフィールドが無いため、その場合はundefined（secondaryAxes.ts側で[]へ補う）。
   primary_attribute_ids?: string[];
+  // 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
+  // 軸id→値の手書き辞書を撤去し、軸自身のデータとして持たせたもの）。全てnull/undefined可
+  // （未設定は各消費側の汎用フォールバックに委ねる）。
+  icon_id?: string | null;
+  chip_label?: string | null;
+  panel_hint?: string | null;
+  proxy_hint?: string | null;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、
@@ -131,6 +144,8 @@ export function rampAxesFromCatalogAxes(axes: readonly CatalogAxis[]): RampAxis[
       thresholds: axis.display!.thresholds,
       unit: axis.display!.unit,
       note: axis.display!.note,
+      panelHint: axis.panel_hint ?? undefined,
+      iconId: axis.icon_id ?? undefined,
     }));
 }
 

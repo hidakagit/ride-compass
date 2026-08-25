@@ -282,6 +282,73 @@ def test_create_persists_and_returns_priority_overrides(override_service):
     assert override_service._definitions["test_axis"].priority_overrides[0].material == "motor_vehicle_no"
 
 
+def test_create_persists_and_returns_display_fields(override_service):
+    # 改善計画T310: 地図チップ表示要素（icon_id/chip_label/panel_hint/proxy_hint/
+    # display_override）が管理API経由で設定・参照できること。
+    payload = {
+        **_PAYLOAD,
+        "icon_id": "incline",
+        "chip_label": "テスト",
+        "panel_hint": "パネル向け説明文",
+        "proxy_hint": "代役案内文",
+        "display_override": {
+            "kind": "ramp",
+            "label": "テスト軸",
+            "tile_inputs": [{"property": "dummy_per_km", "weight": 1.0}],
+            "thresholds": [1.0, 2.0],
+            "unit": "件/km",
+        },
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["icon_id"] == "incline"
+    assert body["chip_label"] == "テスト"
+    assert body["panel_hint"] == "パネル向け説明文"
+    assert body["proxy_hint"] == "代役案内文"
+    assert body["display_override"]["kind"] == "ramp"
+    assert body["display_override"]["thresholds"] == [1.0, 2.0]
+    assert override_service._definitions["test_axis"].icon_id == "incline"
+    assert override_service._definitions["test_axis"].display_override.unit == "件/km"
+
+
+def test_create_leaves_display_fields_none_when_omitted(override_service):
+    # 既定は全てNone（未設定=フロント側の汎用フォールバックに委ねる）。
+    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["icon_id"] is None
+    assert body["chip_label"] is None
+    assert body["panel_hint"] is None
+    assert body["proxy_hint"] is None
+    assert body["display_override"] is None
+
+
+def test_create_rejects_chip_label_over_four_characters(override_service):
+    # 改善計画T310（ユーザー指摘、2026-08-25）: 地図チップは4文字以下前提の固定サイズ
+    # タイルのため、5文字以上のchip_labelは422で拒否する（「車の圧迫感」5文字が
+    # フォールバックのlabelとしてそのまま出てしまうケースの再発防止）。
+    payload = {**_PAYLOAD, "chip_label": "五文字超えチップ"}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "test_axis" not in override_service._definitions
+
+
+def test_create_accepts_chip_label_exactly_four_characters(override_service):
+    payload = {**_PAYLOAD, "chip_label": "四字丁度"}
+    assert len(payload["chip_label"]) == 4  # このテスト自体の前提（境界値ちょうど）を明示する
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    assert response.json()["chip_label"] == "四字丁度"
+
+
 def test_create_returns_409_on_duplicate(override_service):
     override_service._definitions["test_axis"] = _DEFINITION
 

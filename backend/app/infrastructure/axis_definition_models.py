@@ -48,6 +48,17 @@ class AxisDefinitionRow(Base):
     # このカラム自体が存在せず、DB往復（起動時refresh_axis_definitions・管理API
     # 書き込み直後の反映）のたびに設定した0次条件が黙って失われていた。
     priority_overrides: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    # 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
+    # 軸id→値の手書き辞書を撤去し、軸自身のデータとして持たせたもの）。0019 migrationで
+    # NULL許容の追加カラムとして導入（未設定はフロント側の汎用フォールバックに委ねるため、
+    # priority_overridesのような`[]`既定は不要——Noneがそのまま「未設定」の意味を持つ）。
+    icon_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    chip_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    panel_hint: Mapped[str | None] = mapped_column(String, nullable=True)
+    proxy_hint: Mapped[str | None] = mapped_column(String, nullable=True)
+    # domain/axis_definitions.py: AxisDefinition.display_override（AxisDisplaySpec）を
+    # `model_dump(mode="json")`したJSONオブジェクト。shape_paramsと同じ規約。
+    display_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

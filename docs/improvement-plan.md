@@ -5389,7 +5389,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 依存: なし（トリガー条件未確定のため優先順位リストには未登録。次に軸スタジオ関連の
   作業へ着手するタイミングで再検討）。
 
-### - [ ] T310. 軸スタジオへ地図チップ表示要素（アイコン・略称・地図パネル説明文・代役案内・地図ramp閾値上書き）の登録機能を追加 規模M〜L（設計中・アイコン登録方式はユーザー判断待ち）
+### - [x] T310. 軸スタジオへ地図チップ表示要素（アイコン・略称・地図パネル説明文・代役案内・地図ramp閾値上書き）の登録機能を追加 規模M〜L（実装完了）
 
 - 背景: T308の洗い出しで、既存軸だけを特別扱いしているコードのうち以下5件は「汎用
   フォールバックがあり機能は壊れない（未対応でも動く）」という理由でT308スコープ外・
@@ -5411,25 +5411,59 @@ Phaseほど前Phaseの成果を安全網として使える）。**
      に代えて統計的に調整済みのramp閾値を手書きで持つ。他の軸は自動導出結果（導出
      できなければ`kind="none"`）に固定される——軸スタジオでGUIから閾値を調整する
      手段が無い。
-- 対応方針（設計の方向性、要確定）: 1〜4はUI表示用の文字列/参照idであり、
-  `AxisDefinitionFields`（`axis_admin.py`）へ`icon_id: str | None`・
-  `panel_hint: str | None`・`chip_label: str | None`・`proxy_hint: str | None`を追加し、
-  DBマイグレーション（`migrations/0019_...sql`、既存の0014〜0018と同じ「NOT NULL
-  DEFAULT値で後方互換」パターン）・`AxisComposer.tsx`のフォーム項目追加という、
-  T292の`priority_overrides`追加と同型の配線で対応できる見込み。5は性質が異なり
-  （評価shapeではなく地図表示のramp閾値そのものの上書き）、`display_thresholds:
-  list[float] | None`のような別フィールドを追加し、`axis_display_for()`の優先順位
-  （①手書きoverride→②自動導出→③none）の①をDB由来の値へ差し替える設計を想定。
-  **1（アイコン）のみ登録方式が未確定**: 既存アイコンはSVGを1件ずつ手描きしたReact
-  コンポーネント（`icons.tsx`）であり、GUIから任意のSVGを登録させる方式は
-  スタイル一貫性・XSS等のサニタイズコストが高い。代替として (a)
-  あらかじめ用意した固定パレット（10〜数十種の汎用ピクトグラム）から`icon_id`を選ぶ
-  方式（新規アイコン形状の追加自体は引き続きコード変更を要するが、既存パレットからの
-  割当ては軸スタジオから再デプロイ無しに行える）、(b) ラベルの頭文字等から
-  モノグラムバッジを機械的に生成し登録UI自体を無くす方式、(c) 専用アイコンという
-  機能自体をやめ全軸`AxisRampIcon`共通にする方式、の3案を検討中。ユーザーへ相談し
-  方式を確定してから着手する。
-- 依存: T308（`axis_display_for()`・`primary_attribute_ids`等の基盤の上に積む）。
+- 対応方針・実装内容:
+  1. **アイコン登録方式**: ユーザーへ3案（(a)固定パレットから選択／(b)ラベル頭文字の
+     モノグラム自動生成／(c)専用アイコン廃止）を、実際のチップUI上でのモックアップ
+     （Artifact）付きで提示して相談した結果、(a)固定パレット方式を採用。
+     `frontend/src/components/Map/axisIconPalette.tsx`を新設し、既存6軸の意匠
+     （incline/wave/crescent-moon/density-stack/density-scatter/warning-triangle）
+     に加え、新規軸向けのスペア6種（wind-flow/thermometer/shield/target/clock/layers、
+     `icons.tsx`へ4種を新規追加）を含む計12種の固定パレットを用意した。`axisIconFor
+     (iconId)`が未知/未設定のidを汎用`AxisRampIcon`へ安全側でフォールバックする。
+     新規アイコン形状の追加は引き続きこのファイルへの1件追加＋コード変更を要する
+     （軸スタジオ側はicon_idを選ぶだけ、ユーザー承認済み）。
+  2〜4. `panel_hint`/`chip_label`/`proxy_hint`（いずれも`str | None`）を追加。
+  5. `display_override: AxisDisplaySpec | None`を追加（`registry.py`の既存型を
+     そのまま再利用、TileInputSpecの構造が複雑なためAxisComposer.tsxには編集UIを
+     持たせず管理API直接編集のみ対応というスコープ限定を行った）。
+  - 上記5フィールドを`domain/axis_definitions.py: AxisDefinition`・
+    `axis_admin.py: AxisDefinitionFields`（create/update/レスポンスすべて）・
+    `axis_catalog.py: AxisCatalogEntry`（icon_id/chip_label/panel_hint/proxy_hintの4件、
+    display_overrideは`axis_display_for()`の出力に統合済みのため別フィールド化しない）・
+    `infrastructure/axis_definition_models.py`（新規カラム5件、NULL許容）・
+    `axis_definition_repository.py`（読み書き）に配線した。
+  - **既存6軸のデータもコード内蔵の既定値（Pythonフォールバック）だけでなく、
+    実際の本番DB行としてもbackfillする**（ユーザー指示「今ハードコードされている
+    ところは、軸スタジオレコードに対応付けて本番DBに移行してほしい」2026-08-25）。
+    `migrations/0019_axis_definitions_display_fields.sql`が、`ALTER TABLE`での
+    カラム追加に続けて、`AXIS_DEFINITIONS`から`model_dump(mode="json")`で機械的に
+    生成した値（手で書き写していないため転記ミスなし）を`UPDATE`文でDB行へ
+    書き込む。本番環境ではこのmigrationの適用（`scripts/apply_migrations.py`）を
+    もって初めてDB行にも反映される（既存の0014〜0018と同じ、適用まではPython
+    フォールバックのまま動作する設計）。
+  - `axis_display.py: axis_display_for()`は軸id→値のハードコード辞書
+    （`_HAND_WRITTEN_DISPLAY`）を完全に廃止し、`definition.display_override`を見る
+    3行の純粋関数になった（軸id文字列を一切含まない）。`registry_defaults.py`
+    （ビルド時静的axis-catalog.json生成用の別レジストリ）も同様に
+    `AXIS_DEFINITIONS[axis_id].display_override`を参照する形へ統一した。
+  - **chip_labelの4文字制約を検証で強制**（ユーザー指摘「地図アイコンに表示する
+    文字は4文字以下の想定」2026-08-25。「車の圧迫感」[label]は5文字のため、
+    chip_label未設定のままだとフォールバックのlabelがそのままチップに出て
+    レイアウトが崩れる）: `AxisDefinitionPayload`へ`field_validator`を追加し、
+    5文字以上のchip_labelを422で拒否する（フロントも`maxLength={4}`で入力段階から
+    防ぐ）。既存6軸のchip_labelは全て4文字以内で設定済み（最長は「停止密度」
+    「事故密度」の4文字）。
+  - 検証: backend pytest 982 passed / 154 skipped（PostGIS往復の新規テスト2件含む）、
+    frontend tsc・eslint・vitest 500 passed（新規テスト9件、axisIconPalette.test.ts・
+    secondaryAxes.test.ts新設含む）。Playwrightで実サーバーを起動し、`/api/axis-catalog`
+    が新フィールドを返すこと・地図チップのアイコンが従来と見た目一致で表示される
+    こと（軸id→値の辞書からicon_idベースの動的解決へ内部的に置き換わっただけで
+    退行が無いこと）を確認。既存軸だけの特別扱いが残っていないことをユーザー指示で
+    再監査し（`SECONDARY_AXIS_ICONS`等の旧シンボル名を全文検索、過去形の説明コメント
+    以外に実コードが1件も残っていないことを確認）、残るのはT309（区間別内訳の別タスク、
+    意図的にスコープ外）とdisplay_overrideのGUI編集UI（データ層は特別扱い無し、
+    編集フォームのみ未対応、ユーザー承認済みのスコープ限定）の2点のみ。
+- 依存: T308（`axis_display_for()`・`primary_attribute_ids`等の基盤の上に積んだ）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

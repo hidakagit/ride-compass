@@ -14,29 +14,24 @@ import {
 import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import { PRIMARY_ATTRIBUTE_CHIP_LABELS, PRIMARY_ATTRIBUTE_LAYER_IDS } from "@/components/Map/primaryAttributes";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
+import { axisIconFor } from "@/components/Map/axisIconPalette";
 import {
   AccidentIcon,
-  AccidentDensityAxisIcon,
   AxisRampIcon,
   DesignationIcon,
   DynamicDataIcon,
   ElevationIcon,
   EstimatedIndexIcon,
-  GradientAxisIcon,
   InfoIcon,
-  NightAxisIcon,
   ObservedDataIcon,
   RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
-  CarStressIcon,
   BicycleInfraIcon,
-  StopDensityAxisIcon,
   StopPoiIcon,
   SupplyPoiIcon,
   TunnelIcon,
   OnewayIcon,
-  SurfaceQualityAxisIcon,
   RouteIcon,
   ThunderIcon,
   TornadoIcon,
@@ -143,19 +138,12 @@ const DATA_NATURE_ICONS: Record<MapLayerDataNature, (props: { size?: number }) =
 };
 
 // 推定グループの軸タイル（改善計画: 実機フィードバック「2次要素はアイコンだけで区別が
-// つくように」への対応）。axisId（secondaryAxes.ts、確定命名表6軸）ごとに専用アイコンを
-// 割り当てる。member.id（MapLayerId）や自動生成のramp軸レイヤーIDにひも付くLAYER_ICONSとは
-// 別物として持つ理由: stop_density・accidentは専用レイヤーIDがLAYER_ICONSの対象外
-// （axisMapLayerId経由の生成物）で、そのままではAxisRampIcon（汎用フォールバック）に
-// 埋もれてしまうため。renderAxisTileはmemberの有無に関わらずこちらで引く。
-const SECONDARY_AXIS_ICONS: Record<string, (props: { size?: number }) => ReactElement> = {
-  gradient: GradientAxisIcon,
-  surface_q: SurfaceQualityAxisIcon,
-  night: NightAxisIcon,
-  stop_density: StopDensityAxisIcon,
-  car_stress: CarStressIcon,
-  accident: AccidentDensityAxisIcon,
-};
+// つくように」への対応）。member.id（MapLayerId）や自動生成のramp軸レイヤーIDにひも付く
+// LAYER_ICONSとは別に、axis.iconId（secondaryAxes.ts、改善計画T310で軸自身のデータへ移設）
+// から`axisIconFor()`（axisIconPalette.tsx）で引く理由: stop_density・accidentは専用
+// レイヤーIDがLAYER_ICONSの対象外（axisMapLayerId経由の生成物）で、そのままでは
+// AxisRampIcon（汎用フォールバック）に埋もれてしまうため。renderAxisTileはmemberの
+// 有無に関わらずこちらで引く。
 
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
 // JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
@@ -768,7 +756,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     const key = `axis:${axis.axisId}`;
     const member = axis.layerId ? members.find((m) => m.id === axis.layerId) : undefined;
     const materialsNote = renderMaterialsNote(axis.primaryAttributeIds);
-    const Icon = SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon;
+    const Icon = axisIconFor(axis.iconId);
     if (!member) {
       const canExpand = Boolean(axis.proxyHint) || materialsNote !== null;
       return (
@@ -916,7 +904,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                         const axisMember = axis.layerId ? group.members.find((m) => m.id === axis.layerId) : undefined;
                         return {
                           key: axis.axisId,
-                          Icon: SECONDARY_AXIS_ICONS[axis.axisId] ?? AxisRampIcon,
+                          Icon: axisIconFor(axis.iconId),
                           label: axis.chipLabel,
                           layerId: axis.layerId,
                           on: axisMember?.on,

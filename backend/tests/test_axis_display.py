@@ -7,9 +7,6 @@ from app.domain.axis_definitions import (
     MaterialTerm,
 )
 from app.domain.axis_display import (
-    ACCIDENT_DISPLAY,
-    CAR_STRESS_DISPLAY,
-    STOP_DENSITY_DISPLAY,
     axis_display_for,
     derive_ramp_inputs,
 )
@@ -210,13 +207,14 @@ def test_direction_dependent_material_is_not_auto_derived(monkeypatch):
     assert ramp is None
 
 
-def test_axis_display_for_prefers_hand_written_override():
+def test_axis_display_for_prefers_display_override():
     # 改善計画T308: stop_density/accident/car_stressはderive_ramp_inputsが自動導出できる
-    # ようになった（stop_densityはT308一般化後は非Noneになる）場合でも、統計的経験則の
-    # 手書きthresholds（axis_display.py）を優先して返す。
-    assert axis_display_for(AXIS_DEFINITIONS["stop_density"]) is STOP_DENSITY_DISPLAY
-    assert axis_display_for(AXIS_DEFINITIONS["accident"]) is ACCIDENT_DISPLAY
-    assert axis_display_for(AXIS_DEFINITIONS["car_stress"]) is CAR_STRESS_DISPLAY
+    # ようになった（stop_densityはT308一般化後は非Noneになる）場合でも、統計的経験則で
+    # 手書きした軸自身のdisplay_override（改善計画T310で軸id→値のハードコード辞書から
+    # 移設、domain/axis_definitions.py参照）を優先して返す。
+    assert axis_display_for(AXIS_DEFINITIONS["stop_density"]) is AXIS_DEFINITIONS["stop_density"].display_override
+    assert axis_display_for(AXIS_DEFINITIONS["accident"]) is AXIS_DEFINITIONS["accident"].display_override
+    assert axis_display_for(AXIS_DEFINITIONS["car_stress"]) is AXIS_DEFINITIONS["car_stress"].display_override
 
 
 def test_axis_display_for_falls_back_to_auto_derivation():

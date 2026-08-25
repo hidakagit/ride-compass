@@ -43,6 +43,14 @@ class AxisCatalogEntry(BaseModel):
     category: AxisCategory
     default_weight: float
     display: AxisDisplaySpec
+    # 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
+    # 軸id→値の手書き辞書を廃止し、軸自身のデータ[domain/axis_definitions.py:
+    # AxisDefinition]として持たせたもの）。全てNone可（未設定はフロント側の汎用
+    # フォールバックに委ねる）。
+    icon_id: str | None
+    chip_label: str | None
+    panel_hint: str | None
+    proxy_hint: str | None
     # 改善計画T308: この軸が参照する材料を、対応する一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.tsのキーと同じ名前空間）へ
     # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
@@ -103,6 +111,10 @@ async def get_axis_catalog() -> AxisCatalogResponse:
                 category=definition.category,
                 default_weight=definition.default_weight,
                 display=axis_display_for(definition),
+                icon_id=definition.icon_id,
+                chip_label=definition.chip_label,
+                panel_hint=definition.panel_hint,
+                proxy_hint=definition.proxy_hint,
                 primary_attribute_ids=_primary_attribute_ids_for(definition),
             )
             for definition in AXIS_DEFINITIONS.values()
