@@ -7,13 +7,12 @@ import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
-import WeightPanel, { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
-import { axisMaterials, PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
+import WeightPanel, { DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import AxisStudio from "@/components/AxisStudio/AxisStudio";
 import { useStoredJsonState } from "@/hooks/useStoredState";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
-import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
+import type { ScoringWeights } from "@/types/route";
 import styles from "./admin.module.css";
 
 // 軸スタジオ・研究モード・開発者向け機能をまとめた独立URLの管理画面（改善計画T270、
@@ -38,30 +37,6 @@ export default function AdminPage() {
     "ridecompass:scoring-weights",
     DEFAULT_SCORING_WEIGHTS
   );
-  const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
-    "ridecompass:route-preference",
-    DEFAULT_ROUTE_PREFERENCE
-  );
-
-  // 改善計画T168: 区間難易度の重み行の直下へ、その軸が参照する一次属性の一覧を出す
-  // （page.tsxのrenderAxisMaterialsExtraを移設）。
-  function renderAxisMaterialsExtra(axisId: string) {
-    const materials = axisMaterials(axisId);
-    if (materials.length === 0) return null;
-    return (
-      <p className={styles.recipeSharedMaterialHeading}>
-        材料: {materials.map((attrId) => PRIMARY_ATTRIBUTE_LABELS[attrId]).join("・")}
-      </p>
-    );
-  }
-
-  // 改善計画T292: 車ストレス専用の3レシピパネル（CarStressRecipePanel等）は、専用Python
-  // レシピの廃止（内部軸6つ+公開軸1つの階層構造への再実装）に伴い削除した。内部軸の
-  // mapping/breakpointsの調整は軸スタジオ（上のAxisStudio、is_published=falseの
-  // 内部軸も編集対象）で行う。
-  function renderPreferenceFieldExtra(axisId: string) {
-    return renderAxisMaterialsExtra(axisId);
-  }
 
   return (
     <div className={styles.page}>
@@ -94,9 +69,6 @@ export default function AdminPage() {
               onOverrideEnabledChange={setWeightOverrideEnabled}
               scoringWeights={scoringWeights}
               onScoringWeightsChange={setScoringWeights}
-              routePreference={routePreference}
-              onRoutePreferenceChange={setRoutePreference}
-              renderPreferenceFieldExtra={renderPreferenceFieldExtra}
             />
           </Card>
         )}

@@ -1,9 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { FieldLabel, RecipePanelSection, withAutoEnable } from "@/components/Map/recipeControls";
-import Disclosure from "@/components/Disclosure/Disclosure";
-import { PREFERENCE_AXES, SCORING_AXES } from "@/lib/evaluationAxes";
+import { SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights, ScoringWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 import styles from "./WeightPanel.module.css";
@@ -20,9 +18,12 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   road_weight: 0.25,
 };
 
-// 区間難易度の重みの既定値は手書きミラーをやめ、axis-catalog.jsonのpreference_defaults
-// （backend domain/axis_definitions.py: AXIS_DEFINITIONSのdefault_weightを生成物として
-// 書き出したもの、改善計画T221 Stage B）から読む。軸の増減・既定値変更に自動追従する。
+// 区間難易度の重み（route_preference）の既定値。WeightPanel自身はこの値を編集する
+// UIをもう持たない（改善計画T304、下記コメント参照）が、page.tsx/admin/page.tsxが
+// route_preference stateの初期値として引き続き参照するため定数export自体は残す。
+// axis-catalog.jsonのpreference_defaults（backend domain/axis_definitions.py:
+// AXIS_DEFINITIONSのdefault_weightを生成物として書き出したもの、改善計画T221 Stage B）
+// から読むことで、軸の増減・既定値変更に自動追従する。
 export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = axisCatalog.preference_defaults;
 
 interface WeightPanelProps {
@@ -30,16 +31,6 @@ interface WeightPanelProps {
   onOverrideEnabledChange: (enabled: boolean) => void;
   scoringWeights: ScoringWeights;
   onScoringWeightsChange: (weights: ScoringWeights) => void;
-  routePreference: RoutePreferenceWeights;
-  onRoutePreferenceChange: (preference: RoutePreferenceWeights) => void;
-  /** 区間難易度の重み（2次要素）を軸ごとに整理する研究タブの改修（改善計画T145関連）用の
-   * 差し込み枠。軸によっては重みだけでなく参照する一次属性の一覧（admin/page.tsx:
-   * renderAxisMaterialsExtra）等を持ち、以前は「レシピ」という別カテゴリへ分離していたが、
-   * 同じ軸の重みのすぐ下に置く方が「この軸を調整する」ときに探す場所が1箇所で済む。
-   * WeightPanel自身は各軸の個別知識を持たず、呼び出し側がweightKeyごとに何を差し込むか
-   * （無ければnull）を決める汎用の枠として提供する（改善計画T292: 車の圧迫感専用の
-   * CarStressRecipePanel等はこの枠から専用Pythonレシピごと廃止された）。 */
-  renderPreferenceFieldExtra?: (axisId: string) => ReactNode;
 }
 
 interface WeightField<T> {
@@ -59,17 +50,7 @@ const SCORING_FIELDS: WeightField<ScoringWeights>[] = SCORING_AXES.map((axis) =>
   description: axis.description,
 }));
 
-// キーはaxis_id（改善計画T221 Stage B、RoutePreferenceWeightsはaxis_idキーの辞書）。
-const PREFERENCE_FIELDS: WeightField<RoutePreferenceWeights>[] = PREFERENCE_AXES.map((axis) => ({
-  key: axis.axisId,
-  label: axis.label,
-  description: axis.description,
-}));
-
 // ラベル横の情報アイコン（FieldLabel、Map/recipeControls.tsx）でdescriptionを開閉表示する。
-// evaluationAxesのdescriptionフィールドはこれまでコード上に存在するだけでUIに出ていなかった
-// （「車ストレス」等のラベルだけでは実際の判定材料が伝わらないという指摘への対応）。
-// RouteSettingsPanel等、他の呼び出し元と同じ「タップで開くinfoTooltip」パターンを再利用する。
 function WeightInput<T extends Record<string, number>>({
   field,
   values,
@@ -99,97 +80,38 @@ function WeightInput<T extends Record<string, number>>({
   );
 }
 
-// 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）のUI。デバッグモード配下に
-// 置き、一般ユーザーの操作導線には出さない（§14の分離方針）。scoring 4値（total_score算出、
-// 候補集合内の相対評価）とpreference 3値（Edge Cost・区間difficulty算出、絶対評価）は
-// 対象・意味が異なる別設定のため見出しを分けて表示する。
+// おすすめ度の重み（候補ルート同士を比べる3次評価、route_scorer.py: RouteScorer.score）の
+// リクエスト上書きUI（研究インターフェース改善 §10-1/4）。デバッグモード配下に置き、一般
+// ユーザーの操作導線には出さない（§14の分離方針）。
 //
-// 最上位はRecipePanelSection（改善計画: 研究タブのレイアウト改善）。以前は「評価重みを
-// 上書きして生成する」チェックボックス1つが開閉と有効/無効を兼ねていたが、MapLayersPanelの
-// レイヤー折りたたみと同じ「開閉（details）とON/OFF（チップ）を分ける」構成へ揃えた。
-// 内側の各グループの折りたたみ（details、デフォルト全閉）はこのRecipePanelSectionのON/OFFとも
-// 独立させている（MapLayersPanelの各レイヤーが表示ON/OFFと無関係に開閉できるのと同じ設計判断
-// ——有効な間、個々のグループを開くか閉じるかは純粋に「今どれを見たいか」というUI都合であり、
-// 有効/無効の状態と連動させる理由が無いため）。上書き無効中も入力欄は既定値で操作でき、
-// 値を変更すると上書きが自動でONになる（withAutoEnable、MapLayersPanelの
-// 「絞り込みを操作すると自動でON」と同じパターン）。
+// 改善計画T304: 以前は区間難易度の重み（route_preference、2次要素・軸ごとの重み）も
+// このパネルの別グループとして編集できたが、その状態は一般向けルート設定画面
+// （RouteSettingsPanel、`/`）と同一のlocalStorageキーを共有しており、RouteSettingsPanelの
+// チェックボックス+スライダー（観測/推定/動的で分類・プリセット付き）という同じ値への
+// より分かりやすい編集UIが既に存在していた。さらに軸の「既定重み」自体は軸スタジオの
+// AxisComposerでも編集できるため、ここに3つ目の生の数値入力欄を残す意味が薄いという
+// ユーザー指摘を受けて撤去した（区間難易度の重みを研究用途で一時的に変えたい場合は
+// RouteSettingsPanelを使う）。「既定値に戻す」もscoringWeightsのみを対象にする。
 export default function WeightPanel({
   overrideEnabled,
   onOverrideEnabledChange,
   scoringWeights,
   onScoringWeightsChange,
-  routePreference,
-  onRoutePreferenceChange,
-  renderPreferenceFieldExtra,
 }: WeightPanelProps) {
   const handleScoringChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onScoringWeightsChange);
-  const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
 
   return (
     <RecipePanelSection
-      title="評価重み[次回のルート生成に反映]"
-      overrideAriaLabel="評価重みを上書き"
+      title="おすすめ度の重み[候補一覧内の相対評価、次回のルート生成に反映]"
+      overrideAriaLabel="おすすめ度の重みを上書き"
       overrideEnabled={overrideEnabled}
       onOverrideEnabledChange={onOverrideEnabledChange}
     >
       <div className={styles.groups}>
-        {/* 次数タグ（改善計画: 研究パネルも次数でグループ化してほしいという実機
-            フィードバックへの対応。地図の見え方パネルの「観測データ/推定指標（合成）」
-            グループ見出しと同じ「次数で束ねる」考え方を研究タブにも適用するが、研究タブは
-            開発者・研究者向けの画面のため地図側のような言い換え（観測/推定）はせず、
-            docs/improvement-plan.md「評価システムの層構造再設計」の呼称（0次/1次/2次/3次）を
-            そのまま使う。おすすめ度の重みは候補ルート間の重み付き合成
-            （route_scorer.py: RouteScorer.score、3次相当）、区間難易度の重みは
-            route_preference.yamlの各軸[2次要素]と1:1対応する重み（下記コメント参照）で
-            2次相当。表示順「3次→2次」は元々この並びだったため変更していない。 */}
-        <Disclosure
-          className={styles.group}
-          triggerClassName={styles.groupHeader}
-          bodyClassName={styles.groupBody}
-          summary={
-            <>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              <span className={styles.tierBadge}>3次</span>
-              おすすめ度の重み[候補一覧内の相対評価]
-            </>
-          }
-        >
-          {SCORING_FIELDS.map((field) => (
-            <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={handleScoringChange} />
-          ))}
-        </Disclosure>
-
-        <Disclosure
-          className={styles.group}
-          triggerClassName={styles.groupHeader}
-          bodyClassName={styles.groupBody}
-          summary={
-            <>
-              <span aria-hidden="true" className={styles.groupChevron} />
-              <span className={styles.tierBadge}>2次</span>
-              区間難易度の重み[絶対評価]
-            </>
-          }
-        >
-          {PREFERENCE_FIELDS.map((field) => (
-            <div key={String(field.key)} className={styles.fieldGroup}>
-              <WeightInput field={field} values={routePreference} onChange={handlePreferenceChange} />
-              {/* keyof（index signature型）はstring | numberに広がるためStringで確定させる */}
-              {renderPreferenceFieldExtra?.(String(field.key))}
-            </div>
-          ))}
-          {/* エンジン名（road_graph）を見出しへ出さず、制約は脚注に落とす（T30） */}
-          <p className={styles.note}>※ルート形状への反映は一部エンジン[road_graph]のみ</p>
-        </Disclosure>
-
-        <button
-          type="button"
-          className={styles.resetButton}
-          onClick={() => {
-            onScoringWeightsChange(DEFAULT_SCORING_WEIGHTS);
-            onRoutePreferenceChange(DEFAULT_ROUTE_PREFERENCE);
-          }}
-        >
+        {SCORING_FIELDS.map((field) => (
+          <WeightInput key={String(field.key)} field={field} values={scoringWeights} onChange={handleScoringChange} />
+        ))}
+        <button type="button" className={styles.resetButton} onClick={() => onScoringWeightsChange(DEFAULT_SCORING_WEIGHTS)}>
           既定値に戻す
         </button>
       </div>

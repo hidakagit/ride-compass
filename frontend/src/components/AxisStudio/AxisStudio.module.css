@@ -108,10 +108,6 @@
   padding: var(--space-3);
 }
 
-.composerTitle {
-  margin: 0;
-  font-size: var(--font-size-md);
-}
 
 .row {
   display: flex;
@@ -217,6 +213,19 @@
 
 .saveButton {
   font-weight: 700;
+}
+
+/* 「+ 新しい軸を作る」ボタン（改善計画T304）。.addButton（材料/折れ点の行追加等、
+   フォーム内の小さな補助操作）よりは目立たせたい主要導線のため、太字で区別する。 */
+.newAxisButton {
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
 }
 
 .errorText {

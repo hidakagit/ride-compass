@@ -1,72 +1,8 @@
+/* 改善計画T304: 以前は複数グループ（3次/2次）をdetailsで折りたたむ構成だったが、
+   2次グループ（区間難易度の重み）を撤去し1グループのみになったため、内側の折りたたみは
+   廃止しRecipePanelSection直下へフラットに並べる（.group/.groupHeader/.tierBadge等の
+   グループ折りたたみ専用クラスも不要になったため削除した）。 */
 .groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* グループの折りたたみ（details、改善計画: 研究の中身も折りたたみ式に統一）。
-   MapLayersPanel.module.cssの.layerSection/.layerHeader/.chevron/.layerBodyと同じ
-   構成・デフォルト全閉（T38を踏襲）。上書きトグル自体のON/OFFとは独立した状態として
-   個々に開閉できる。 */
-.group {
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-3);
-}
-
-.groupHeader {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  cursor: pointer;
-  min-height: 2rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  list-style: none;
-}
-
-.groupChevron {
-  flex-shrink: 0;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-right: 2px solid var(--color-neutral);
-  border-bottom: 2px solid var(--color-neutral);
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
-}
-
-/* Radix Accordion.Triggerはopen中data-state="open"を自身へ持つ（T254、以前の
-   ネイティブ<details open>属性に代わるフック）。.groupHeaderはTrigger自身のクラス
-   （見出し行全体がトリガーの単純なDisclosure利用のため）。 */
-.groupHeader[data-state="open"] .groupChevron {
-  transform: rotate(45deg);
-}
-
-/* 次数タグ（改善計画: 研究パネルも次数でグループ化。WeightPanel.tsxのコメント参照）。
-   地図の見え方パネルの次数見出し（MapLayersPanel.module.css: .natureTitle）と同じ
-   色トークンを使い、次数という概念自体は同一の視覚言語で表す。 */
-.tierBadge {
-  flex-shrink: 0;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: var(--color-muted-strong);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  padding: 0 0.3rem;
-}
-
-.groupBody {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-bottom: var(--space-2);
-}
-
-/* 区間難易度の重み1軸ぶん（改善計画T128・T145関連、研究タブの軸ごと整理）。重み入力
-   （.field）と、その軸固有の差し込み内容（renderPreferenceFieldExtra、例:
-   車の圧迫感のレシピ調整パネル）を縦に積む。差し込みが無い軸（大半）は.fieldのみで
-   親の.groupBody（gap: --space-2）と見た目が変わらない。 */
-.fieldGroup {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -89,12 +25,6 @@
   padding: 0.15rem 0.4rem;
 }
 
-
-.note {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-  margin: 0;
-}
 
 .resetButton {
   align-self: flex-start;
