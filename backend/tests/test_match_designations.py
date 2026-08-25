@@ -243,89 +243,68 @@ class TestRunMatch:
             assert ratio <= 1.0 + 1e-6
             assert ratio >= DESIGNATION_MATCH_MIN_RATIO
 
-    async def test_diagnostic_t335_raw_match_sql_output_for_two_kinds(
+    async def test_diagnostic_t335_gridsize_candidates_for_empty_intersection(
         self, designation_conn, road_graph_repository, road_graph_session
     ):
         """T335診断専用（一時的、原因特定後に削除する）。
 
-        1回目・2回目の診断ラウンドで、CI（postgis/postgis:16-3.4）では最小構成
-        （1way・1designation・完全一致ジオメトリ）ですら`ST_Intersects=true`なのに
-        `ST_Intersection`が`LINESTRING EMPTY`を返す実データを取得した。当初「線がバッファの
-        生成元と完全一致する退化ケース」という仮説を立てたが、Way座標を10mずらした
-        offset_10mでも同じくEMPTYになったため、この仮説は否定された（ローカルPG18では
-        全パターン常に正常値）。
+        1〜3回目の診断ラウンドで、CI（postgis/postgis:16-3.4）では最小構成
+        （1way・1designation・完全一致ジオメトリ、両者とも`ST_IsValid=true`）ですら
+        `ST_Intersects=true`なのに`ST_Intersection`が`LINESTRING EMPTY`を返す実データを
+        得た。座標完全一致の退化ケース仮説（offset_10mでも再現、否定済み）、他テストの
+        残留行によるCTE干渉仮説（TRUNCATE後も再現、否定済み）、入力ジオメトリ自体の
+        不正仮説（SRID/点数/WKT/IsValidいずれも正常、否定済み）の3つを潰した。
 
-        3回目のこのラウンドでは、まだ検証していない「確認済みの事実」を根拠に別の仮説を
-        検証する: `route_designations`/`designation_attributes`は`osm_raw_ways`等と異なり
-        `Base.metadata`（road_graph_models.py）に属さないテーブルのため、
-        `road_graph_session`フィクスチャの後始末（`for table in
-        reversed(Base.metadata.sorted_tables): await conn.execute(table.delete())`）の
-        対象外であることをコードで確認済み（推測ではない）。このテストクラスの各テストは
-        `route_designations`へINSERTするだけで一切DELETEしないため、CI実行順序次第では
-        本テストの実行時点で他テストの残留行が`route_designations`に蓄積している可能性が
-        ある。この蓄積が`_MATCH_SQL`のCTE処理（多数の重複バッファをJOIN・ST_Union）に
-        干渉していないかを検証するため、本テスト冒頭で明示的にTRUNCATEしてから最小構成を
-        再構築する。あわせて、これまで見ていなかったWayジオメトリ自体の生値
-        （SRID・点数・WKT）も直接確認する（intersection結果だけでなく入力そのものが
-        想定通りかを見る、根拠を積み上げるための基礎チェック）。
+        これはGEOS/PostGIS本体側で報告例のある既知の不具合クラス（OverlayNGの数値
+        ロバストネス問題。ST_Intersectsは頂点近傍判定、ST_Intersectionはnoding処理で
+        別アルゴリズムを使うため食い違いうる）と一致する。PostGIS公式ドキュメント
+        （ST_Intersection: https://postgis.net/docs/ST_Intersection.html）が対策として
+        3引数版（gridSize指定、GEOS 3.9+のsnap-rounding noding経路に切り替わる）を挙げて
+        いるため、本ラウンドではgridSizeを複数の桁で与えた場合に空判定が解消するかを
+        実地検証する（憶測ではなく、公式ドキュメントに明記された対策候補の実測）。
+        比較のためST_Buffer(geom, 0)による正規化も併せて候補に含める。
         """
         await designation_conn.execute("TRUNCATE route_designations, designation_attributes RESTART IDENTITY")
 
-        base_lat, base_lon0, base_lon1 = 35.7000, 139.6990, 139.7010
-        designation_line = [(base_lat, base_lon0), (base_lat, base_lon1)]
-
-        async def _seed_way(way_id: int, lat_offset_deg: float) -> None:
-            way = WaySpec(osm_way_id=way_id, node_ids=[way_id * 10 + 1, way_id * 10 + 2], highway="residential")
-            node_coords = {
-                way_id * 10 + 1: (base_lat + lat_offset_deg, base_lon0),
-                way_id * 10 + 2: (base_lat + lat_offset_deg, base_lon1),
-            }
-            await road_graph_repository.save_raw_ways([way], node_coords)
-
-        WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M = 9001, 9002, 9003
-        await _seed_way(WAY_BASELINE, 0.0)
-        await _seed_way(WAY_OFFSET_3M, 0.00003)  # 緯度1度≈111320mなので0.00003度≈3.3m
-        await _seed_way(WAY_OFFSET_10M, 0.00009)  # ≈10.0m
+        way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
+        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        await road_graph_repository.save_raw_ways([way], node_coords)
         await road_graph_session.commit()
+        designation_id = await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
 
-        designation_id = await _seed_route_designation(designation_conn, "emergency_transport", designation_line)
-
-        # まず入力ジオメトリそのものの生値を確認する（これまでintersection結果だけを見ており、
-        # 入力自体が想定通りかを一度も確認していなかった）。
-        geom_rows = await designation_conn.fetch(
-            """
-            SELECT 'way' AS label, osm_way_id::text AS ref, ST_SRID(geom) AS srid,
-                   ST_NPoints(geom) AS npoints, ST_AsText(geom) AS wkt, ST_IsValid(geom) AS is_valid
-            FROM osm_raw_ways WHERE osm_way_id = ANY($1)
-            UNION ALL
-            SELECT 'designation' AS label, id::text AS ref, ST_SRID(geom), ST_NPoints(geom),
-                   ST_AsText(geom), ST_IsValid(geom)
-            FROM route_designations WHERE id = $2
-            UNION ALL
-            SELECT 'buffer' AS label, id::text AS ref, ST_SRID(ST_Buffer(geom::geography, 20.0)::geometry),
-                   ST_NPoints(ST_Buffer(geom::geography, 20.0)::geometry),
-                   ST_AsText(ST_Buffer(geom::geography, 20.0)::geometry), ST_IsValid(ST_Buffer(geom::geography, 20.0)::geometry)
-            FROM route_designations WHERE id = $2
-            """,
-            [WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M], designation_id,
-        )
-
-        # TRUNCATE直後（他テストの残留行を排除した状態）でbaseline（完全一致）が
-        # 直るかどうかを確認する。
-        after_truncate_row = await designation_conn.fetchrow(
+        rows = await designation_conn.fetch(
             """
             WITH buffered AS MATERIALIZED (
                 SELECT id, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
                 FROM route_designations WHERE id = $1
             )
-            SELECT ST_Intersects(w.geom, b.buffer_geom) AS intersects,
+            SELECT 'baseline' AS candidate,
                    ST_AsText(ST_Intersection(w.geom, b.buffer_geom)) AS wkt,
                    ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography) AS length_m
             FROM osm_raw_ways w CROSS JOIN buffered b WHERE w.osm_way_id = $2
+            UNION ALL
+            SELECT 'gridsize_1e-9',
+                   ST_AsText(ST_Intersection(w.geom, b.buffer_geom, 1e-9)),
+                   ST_Length(ST_Intersection(w.geom, b.buffer_geom, 1e-9)::geography)
+            FROM osm_raw_ways w CROSS JOIN buffered b WHERE w.osm_way_id = $2
+            UNION ALL
+            SELECT 'gridsize_1e-7',
+                   ST_AsText(ST_Intersection(w.geom, b.buffer_geom, 1e-7)),
+                   ST_Length(ST_Intersection(w.geom, b.buffer_geom, 1e-7)::geography)
+            FROM osm_raw_ways w CROSS JOIN buffered b WHERE w.osm_way_id = $2
+            UNION ALL
+            SELECT 'gridsize_1e-5',
+                   ST_AsText(ST_Intersection(w.geom, b.buffer_geom, 1e-5)),
+                   ST_Length(ST_Intersection(w.geom, b.buffer_geom, 1e-5)::geography)
+            FROM osm_raw_ways w CROSS JOIN buffered b WHERE w.osm_way_id = $2
+            UNION ALL
+            SELECT 'buffer_zero',
+                   ST_AsText(ST_Intersection(w.geom, ST_Buffer(b.buffer_geom, 0))),
+                   ST_Length(ST_Intersection(w.geom, ST_Buffer(b.buffer_geom, 0))::geography)
+            FROM osm_raw_ways w CROSS JOIN buffered b WHERE w.osm_way_id = $2
             """,
-            designation_id, WAY_BASELINE,
+            designation_id, WAY_MATCH_ID,
         )
 
-        dump = "\n".join(f"[geom] {dict(r)}" for r in geom_rows)
-        dump += f"\n[after_truncate baseline] {dict(after_truncate_row)}"
-        assert False, f"T335診断ダンプ3回目（TRUNCATE後の再現有無＋入力ジオメトリ生値、自己判定用の意図的な失敗）:\n{dump}"
+        dump = "\n".join(f"[candidate] {dict(r)}" for r in rows)
+        assert False, f"T335診断ダンプ4回目（gridSize/buffer_zero候補の実測、自己判定用の意図的な失敗）:\n{dump}"
