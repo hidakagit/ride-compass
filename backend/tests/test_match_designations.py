@@ -248,23 +248,29 @@ class TestRunMatch:
     ):
         """T335診断専用（一時的、原因特定後に削除する）。
 
-        1回目の診断ラウンドで、CI（postgis/postgis:16-3.4）では最小構成（1way・1designation・
-        完全一致ジオメトリ）ですら`ST_Intersects=true`なのに`ST_Intersection`が
-        `LINESTRING EMPTY`を返すという実データを取得した（ローカルPG18では常に正常値）。
-        GEOSの既知の頑健性問題（線がバッファの生成元と完全一致する退化ケースで交差計算が
-        空になる）と一致する。
+        1回目・2回目の診断ラウンドで、CI（postgis/postgis:16-3.4）では最小構成
+        （1way・1designation・完全一致ジオメトリ）ですら`ST_Intersects=true`なのに
+        `ST_Intersection`が`LINESTRING EMPTY`を返す実データを取得した。当初「線がバッファの
+        生成元と完全一致する退化ケース」という仮説を立てたが、Way座標を10mずらした
+        offset_10mでも同じくEMPTYになったため、この仮説は否定された（ローカルPG18では
+        全パターン常に正常値）。
 
-        このラウンドでは、対策候補を複数同時に検証する（当て推量の一発勝負を避け、CI
-        往復1回で複数の実データを得るため）:
-        - baseline: 完全一致（再現確認用）
-        - offset_3m / offset_10m: Way座標を指定路線から垂直方向へ3m/10mずらす
-          （最初に試して失敗した3mも、他の要因[重複行]を排したこの最小構成で改めて検証する）
-        - buffer_zero: Way側ジオメトリに`ST_Buffer(geom, 0)`を適用してから交差判定
-          （座標を変えず、GEOSの頑健性問題に対する定石の回避策）
-        - snap_to_grid: 両ジオメトリに`ST_SnapToGrid(geom, 1e-7)`を適用してから交差判定
-        - swapped_args: `ST_Intersection`の引数順序を入れ替える（GEOSの一部の頑健性問題は
-          引数順序に依存することが知られている）
+        3回目のこのラウンドでは、まだ検証していない「確認済みの事実」を根拠に別の仮説を
+        検証する: `route_designations`/`designation_attributes`は`osm_raw_ways`等と異なり
+        `Base.metadata`（road_graph_models.py）に属さないテーブルのため、
+        `road_graph_session`フィクスチャの後始末（`for table in
+        reversed(Base.metadata.sorted_tables): await conn.execute(table.delete())`）の
+        対象外であることをコードで確認済み（推測ではない）。このテストクラスの各テストは
+        `route_designations`へINSERTするだけで一切DELETEしないため、CI実行順序次第では
+        本テストの実行時点で他テストの残留行が`route_designations`に蓄積している可能性が
+        ある。この蓄積が`_MATCH_SQL`のCTE処理（多数の重複バッファをJOIN・ST_Union）に
+        干渉していないかを検証するため、本テスト冒頭で明示的にTRUNCATEしてから最小構成を
+        再構築する。あわせて、これまで見ていなかったWayジオメトリ自体の生値
+        （SRID・点数・WKT）も直接確認する（intersection結果だけでなく入力そのものが
+        想定通りかを見る、根拠を積み上げるための基礎チェック）。
         """
+        await designation_conn.execute("TRUNCATE route_designations, designation_attributes RESTART IDENTITY")
+
         base_lat, base_lon0, base_lon1 = 35.7000, 139.6990, 139.7010
         designation_line = [(base_lat, base_lon0), (base_lat, base_lon1)]
 
@@ -284,66 +290,42 @@ class TestRunMatch:
 
         designation_id = await _seed_route_designation(designation_conn, "emergency_transport", designation_line)
 
-        rows = await designation_conn.fetch(
+        # まず入力ジオメトリそのものの生値を確認する（これまでintersection結果だけを見ており、
+        # 入力自体が想定通りかを一度も確認していなかった）。
+        geom_rows = await designation_conn.fetch(
+            """
+            SELECT 'way' AS label, osm_way_id::text AS ref, ST_SRID(geom) AS srid,
+                   ST_NPoints(geom) AS npoints, ST_AsText(geom) AS wkt, ST_IsValid(geom) AS is_valid
+            FROM osm_raw_ways WHERE osm_way_id = ANY($1)
+            UNION ALL
+            SELECT 'designation' AS label, id::text AS ref, ST_SRID(geom), ST_NPoints(geom),
+                   ST_AsText(geom), ST_IsValid(geom)
+            FROM route_designations WHERE id = $2
+            UNION ALL
+            SELECT 'buffer' AS label, id::text AS ref, ST_SRID(ST_Buffer(geom::geography, 20.0)::geometry),
+                   ST_NPoints(ST_Buffer(geom::geography, 20.0)::geometry),
+                   ST_AsText(ST_Buffer(geom::geography, 20.0)::geometry), ST_IsValid(ST_Buffer(geom::geography, 20.0)::geometry)
+            FROM route_designations WHERE id = $2
+            """,
+            [WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M], designation_id,
+        )
+
+        # TRUNCATE直後（他テストの残留行を排除した状態）でbaseline（完全一致）が
+        # 直るかどうかを確認する。
+        after_truncate_row = await designation_conn.fetchrow(
             """
             WITH buffered AS MATERIALIZED (
                 SELECT id, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
-                FROM route_designations
-                WHERE id = $1
-            ),
-            ways AS (
-                SELECT osm_way_id, geom FROM osm_raw_ways WHERE osm_way_id = ANY($2)
+                FROM route_designations WHERE id = $1
             )
-            SELECT
-                w.osm_way_id,
-                'baseline' AS variant,
-                ST_Intersects(w.geom, b.buffer_geom) AS intersects,
-                ST_AsText(ST_Intersection(w.geom, b.buffer_geom)) AS wkt,
-                ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography) AS length_m
-            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
-            UNION ALL
-            SELECT
-                w.osm_way_id,
-                'buffer_zero' AS variant,
-                ST_Intersects(ST_Buffer(w.geom, 0), b.buffer_geom),
-                ST_AsText(ST_Intersection(ST_Buffer(w.geom, 0), b.buffer_geom)),
-                ST_Length(ST_Intersection(ST_Buffer(w.geom, 0), b.buffer_geom)::geography)
-            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
-            UNION ALL
-            SELECT
-                w.osm_way_id,
-                'snap_to_grid' AS variant,
-                ST_Intersects(ST_SnapToGrid(w.geom, 0.0000001), ST_SnapToGrid(b.buffer_geom, 0.0000001)),
-                ST_AsText(ST_Intersection(ST_SnapToGrid(w.geom, 0.0000001), ST_SnapToGrid(b.buffer_geom, 0.0000001))),
-                ST_Length(ST_Intersection(ST_SnapToGrid(w.geom, 0.0000001), ST_SnapToGrid(b.buffer_geom, 0.0000001))::geography)
-            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
-            UNION ALL
-            SELECT
-                w.osm_way_id,
-                'swapped_args' AS variant,
-                ST_Intersects(b.buffer_geom, w.geom),
-                ST_AsText(ST_Intersection(b.buffer_geom, w.geom)),
-                ST_Length(ST_Intersection(b.buffer_geom, w.geom)::geography)
-            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $3
-            UNION ALL
-            SELECT
-                w.osm_way_id,
-                'offset_3m' AS variant,
-                ST_Intersects(w.geom, b.buffer_geom),
-                ST_AsText(ST_Intersection(w.geom, b.buffer_geom)),
-                ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography)
-            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $4
-            UNION ALL
-            SELECT
-                w.osm_way_id,
-                'offset_10m' AS variant,
-                ST_Intersects(w.geom, b.buffer_geom),
-                ST_AsText(ST_Intersection(w.geom, b.buffer_geom)),
-                ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography)
-            FROM ways w CROSS JOIN buffered b WHERE w.osm_way_id = $5
+            SELECT ST_Intersects(w.geom, b.buffer_geom) AS intersects,
+                   ST_AsText(ST_Intersection(w.geom, b.buffer_geom)) AS wkt,
+                   ST_Length(ST_Intersection(w.geom, b.buffer_geom)::geography) AS length_m
+            FROM osm_raw_ways w CROSS JOIN buffered b WHERE w.osm_way_id = $2
             """,
-            designation_id, [WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M],
-            WAY_BASELINE, WAY_OFFSET_3M, WAY_OFFSET_10M,
+            designation_id, WAY_BASELINE,
         )
-        dump = "\n".join(f"[{r['variant']}] way={r['osm_way_id']} {dict(r)}" for r in rows)
-        assert False, f"T335診断ダンプ2回目（対策候補比較、自己判定用の意図的な失敗）:\n{dump}"
+
+        dump = "\n".join(f"[geom] {dict(r)}" for r in geom_rows)
+        dump += f"\n[after_truncate baseline] {dict(after_truncate_row)}"
+        assert False, f"T335診断ダンプ3回目（TRUNCATE後の再現有無＋入力ジオメトリ生値、自己判定用の意図的な失敗）:\n{dump}"
