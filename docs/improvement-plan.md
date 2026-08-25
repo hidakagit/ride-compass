@@ -6708,7 +6708,46 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   可能なことを確認。コンソールエラーなし。
 - 依存: T317（同日の一連の作業、抜け落ちの直接の発端）。
 
-## 残タスクの優先順位（2026-08-24再整理・第18版）
+### - [ ] T335. CI(backend)のtest_match_designations.pyがCI環境（PostGIS 16）でだけ失敗する 規模S〜M（調査中・2026-08-26）
+
+- 背景: T333対応中にCI状況を確認したところ、`api-contract`とは別に`backend`ジョブ
+  （`python -m pytest -q -n auto --dist loadgroup`）が失敗していることを発見した。
+  ユーザーがCIの実ログを共有してくれたことで特定: 失敗箇所は
+  `test_match_designations.py::TestRunMatch::test_overlapping_designations_complete_without_error`
+  （T330で新規追加）で、`critical_logistics`のmatched_ratioが期待通り算出されず
+  `assert set(by_kind) == {"emergency_transport", "critical_logistics"}`が
+  `{"emergency_transport"}`のみで失敗していた。ローカル（実DB・実PostGIS、PG18）では
+  該当ファイル6件とも常にpassし、この失敗は一度も再現しなかった。
+- **訂正（当て推量による誤修正、同日中に発覚・revert済み）**: 当初「Wayの座標を指定路線と
+  完全一致させている退化ケードが原因」という仮説のもとWayの座標を約3mずらす修正を
+  一度コミット・プッシュしたが、根拠となる実測データが無いまま行った当て推量だった。
+  実際にCIへ反映したところ、直していなかった`test_overlapping_designations_...`は
+  相変わらず失敗し、それまでCIでもpassしていた`test_intersecting_way_gets_matched_ratio`
+  まで新たに失敗させてしまった（`candidates=1 matched=0`、matched_ratioが閾値未満に
+  低下）。ユーザー指摘「あてずっぽうはやめて、根拠を作って積み上げて実地検証して」を
+  受け、このコミットは`git revert`で即座に取り消した（コミット`d7e801a`→revert
+  `9b0d686`）。この訂正の重要な副産物: `test_intersecting_way_gets_matched_ratio`は
+  「Way座標が指定路線と完全一致」という全く同じパターンで**CIでも単独では問題なく
+  pass**していた事実が確定した。つまり「完全一致ジオメトリの退化」という当初の仮説
+  そのものが誤りだったと判断する（単独の完全一致では壊れず、複数の指定路線・複数kindが
+  同時に存在する状況でのみ壊れるため、原因は別にある）。
+- 現在の対応（実地検証、当て推量ではなくCIの生データに基づく）: 本番SQL・既存テストは
+  一切変更せず、`TestRunMatch`へ診断専用テスト
+  `test_diagnostic_t335_raw_match_sql_output_for_two_kinds`を追加した。他テストの
+  未クリーンアップ行（`route_designations`は`Base.metadata`の対象外で
+  `road_graph_session`のtruncateが効かないため、`TestRunMatch`内の各テストが挿入した
+  行は後続テストにも残り続ける）や重複行の複雑さを排した最小構成（専用way_id=9001、
+  emergency_transport/critical_logistics各1行、完全一致ジオメトリ）で、`_MATCH_SQL`と
+  同じCTEロジックをratioフィルタ前の中間結果（`ST_Intersects`結果・
+  `ST_GeometryType`・`ST_AsText`・`unioned`後の長さ）まで可視化し、assertを意図的に
+  常に失敗させることでpytestの失敗メッセージにダンプを埋め込み、CIログとして
+  確認できるようにした。ローカル（PG18）ではこの最小構成で両kindとも
+  `intersects=True`・`ratio=1.0`と問題なく、想定どおり再現しない。
+- 次のステップ: このコミットのCI結果（PostGIS 16での実際のダンプ内容）をユーザーに
+  共有してもらい、`intersected`/`matched`各段階でcritical_logisticsとemergency_transport
+  の値がどこから分岐するかを実データで確認してから、根拠に基づく修正を検討する。
+  診断テスト自体は原因特定後に削除する（本番コードに影響しないテスト専用の一時追加）。
+- 依存: T330（当該テストの新規追加元）。
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、

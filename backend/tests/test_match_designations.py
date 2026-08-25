@@ -142,15 +142,18 @@ WAY_FAR_ID = 402  # 指定路線から遠く離れたWay（バッファに一切
 
 async def _seed_route_designation(
     conn: asyncpg.Connection, kind: str, coords: list[tuple[float, float]]
-) -> None:
+) -> int:
     """route_designationsへ1行INSERTする（app/batch/import_designations.py: _INSERT_SQLと
-    同じ列構成。座標は(lat, lon)のリストでLINESTRINGを組み立てる）。"""
+    同じ列構成。座標は(lat, lon)のリストでLINESTRINGを組み立てる）。挿入した行のidを返す
+    （T335診断: 他テストが残す未クリーンアップの行と混同せず対象行だけを見るために使う）。"""
     wkt = "LINESTRING(" + ", ".join(f"{lon} {lat}" for lat, lon in coords) + ")"
-    await conn.execute(
+    row = await conn.fetchrow(
         "INSERT INTO route_designations (kind, name, pref_code, attrs, source, geom, updated_at) "
-        "VALUES ($1, NULL, NULL, '{}'::jsonb, 'test', ST_SetSRID(ST_GeomFromText($2), 4326), now())",
+        "VALUES ($1, NULL, NULL, '{}'::jsonb, 'test', ST_SetSRID(ST_GeomFromText($2), 4326), now()) "
+        "RETURNING id",
         kind, wkt,
     )
+    return row["id"]
 
 
 class TestRunMatch:
@@ -239,3 +242,85 @@ class TestRunMatch:
         for ratio in by_kind.values():
             assert ratio <= 1.0 + 1e-6
             assert ratio >= DESIGNATION_MATCH_MIN_RATIO
+
+    async def test_diagnostic_t335_raw_match_sql_output_for_two_kinds(
+        self, designation_conn, road_graph_repository, road_graph_session
+    ):
+        """T335診断専用（一時的、原因特定後に削除する）。
+
+        CI（postgis/postgis:16-3.4）でのみtest_overlapping_designations_complete_without_error
+        がcritical_logisticsを取りこぼす現象が再現し、ローカル（PG18）では一度も再現しない。
+        当て推量でWay座標をずらす修正を試みたが根拠が無く、むしろCIで別の既存テストまで
+        壊す結果になった（改善計画T335の訂正版参照）。
+
+        このテストは、他テストの未クリーンアップ行（route_designationsはBase.metadataの
+        対象外でroad_graph_sessionのtruncateが効かない）や重複行の複雑さを排除した最小構成
+        （1way・2designation・完全一致ジオメトリ）で、_MATCH_SQLのCTE中間結果
+        （buffered→matched、ratioでのフィルタ前）を生のまま取得する。assertを意図的に
+        常に失敗させ、pytestの失敗メッセージに中間結果を埋め込むことで、CIログとして
+        確認できるようにする（-sフラグなしのCI実行でもprint()は表示されないため、
+        assert文の説明メッセージへ埋め込む方式を取る）。
+        """
+        diag_way_id = 9001
+        way = WaySpec(osm_way_id=diag_way_id, node_ids=[1, 2], highway="residential")
+        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        await road_graph_repository.save_raw_ways([way], node_coords)
+        await road_graph_session.commit()
+
+        id_emergency = await _seed_route_designation(designation_conn, "emergency_transport", DESIG_LINE)
+        id_critical = await _seed_route_designation(designation_conn, "critical_logistics", DESIG_LINE)
+
+        # _MATCH_SQLと同じロジックを、対象2行(id_emergency/id_critical)だけに絞って複製する。
+        # ratioでのフィルタ前の全行・各段階のST_GeometryTypeを見る。
+        diag_rows = await designation_conn.fetch(
+            """
+            WITH buffered AS MATERIALIZED (
+                SELECT id, kind, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
+                FROM route_designations
+                WHERE id = ANY($1)
+            ),
+            intersected AS (
+                SELECT b.id, b.kind,
+                       ST_Intersects(w.geom, b.buffer_geom) AS intersects,
+                       ST_GeometryType(ST_Intersection(w.geom, b.buffer_geom)) AS raw_intersection_type,
+                       ST_AsText(ST_Intersection(w.geom, b.buffer_geom)) AS raw_intersection_wkt,
+                       ST_GeometryType(ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2))
+                           AS extracted_type,
+                       ST_IsEmpty(ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2))
+                           AS extracted_is_empty
+                FROM buffered b
+                JOIN osm_raw_ways w ON w.osm_way_id = $2
+            )
+            SELECT * FROM intersected ORDER BY kind
+            """,
+            [id_emergency, id_critical], diag_way_id,
+        )
+        matched_rows = await designation_conn.fetch(
+            """
+            WITH buffered AS MATERIALIZED (
+                SELECT id, kind, ST_Buffer(geom::geography, 20.0)::geometry AS buffer_geom
+                FROM route_designations
+                WHERE id = ANY($1)
+            ),
+            matched AS (
+                SELECT w.osm_way_id, b.kind,
+                       ST_Length(w.geom::geography) AS way_length_m,
+                       ST_Union(
+                           ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom), 2)
+                       ) AS unioned
+                FROM buffered b
+                JOIN osm_raw_ways w ON w.geom IS NOT NULL AND ST_Intersects(w.geom, b.buffer_geom)
+                WHERE w.osm_way_id = $2
+                GROUP BY w.osm_way_id, b.kind
+            )
+            SELECT osm_way_id, kind, way_length_m,
+                   ST_AsText(unioned) AS unioned_wkt,
+                   ST_Length(unioned::geography) AS unioned_length_m,
+                   ST_Length(unioned::geography) / NULLIF(way_length_m, 0) AS ratio
+            FROM matched ORDER BY kind
+            """,
+            [id_emergency, id_critical], diag_way_id,
+        )
+        dump = "\n".join(f"[intersected] {dict(r)}" for r in diag_rows) + "\n" + \
+               "\n".join(f"[matched] {dict(r)}" for r in matched_rows)
+        assert False, f"T335診断ダンプ（自己判定用の意図的な失敗）:\n{dump}"
