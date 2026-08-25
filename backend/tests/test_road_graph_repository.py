@@ -199,16 +199,24 @@ async def test_save_graph_with_way_ids_to_replace_deletes_then_reinserts_only_ta
 
 
 async def test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyncpg_parameter_limit(
-    road_graph_repository,
+    road_graph_repository, road_graph_session,
 ):
     """改善計画T224の回帰テスト。`new_edge_ids`（再構築対象の全edge_id）を素朴に
     `.not_in(...)`でIN句化すると、要素数が多い場合にasyncpgのプリペアド文パラメータ上限
     （32,767個）を超えて`InterfaceError`になっていた（都心密度のbboxでroad_graphエンジンの
     再構築経路が毎回500エラーになる実障害、統合レビュー2026-08-23で発覚）。
-    16,384件（2^14）を超えるEdgeを1回のsave_graph呼び出しで再構築し、例外なく完了することを
-    確認する（`=ANY(配列)`化により要素数に関わらず1パラメータで済む設計に修正済み）。
+    `=ANY(配列)`化（要素数に関わらず1パラメータで済む設計）に修正済みであることの回帰確認と、
+    `way_ids_to_replace`のDELETEが`_ID_CHUNK_SIZE`（10,000）単位でチャンク分割される境界
+    （1件ずつのIN句化ではなく複数チャンクにまたがる場合でも正しく全件処理されること）を
+    1回のsave_graph呼び出しで両方カバーする。
+
+    改善計画T329: way数はチャンク境界（10,000件）を2回踏破できる最小限（10,050、
+    10,000+50の2チャンク）へ削減し、完了確認も`get_graph_in_bbox`によるジオメトリ
+    フルデコード（全edgeのWKBをPython側までデコードするコスト）ではなく`road_edges`の
+    行数を直接COUNTする軽量クエリへ変更した（元は17,000way/34,000edgeでbackend全体の
+    テスト実行時間の81%[42.75秒]を本テスト単体が占めていた）。
     """
-    way_count = 17_000  # 各wayが2Edge（双方向）を生成するため、new_edge_idsは34,000件になる
+    way_count = 10_050  # 各wayが2Edge（双方向）を生成するため、new_edge_idsは20,100件になる
     ways = [
         WaySpec(osm_way_id=1000 + i, node_ids=[1000 + i, 2000 + i], highway="residential")
         for i in range(way_count)
@@ -218,11 +226,13 @@ async def test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyn
     graph = build_road_graph(ways, nodes, graph_version="v1")
     assert len(graph.edges) == way_count * 2
 
-    await road_graph_repository.save_graph(graph, way_ids_to_replace={w.osm_way_id for w in ways})
+    way_ids = {w.osm_way_id for w in ways}
+    await road_graph_repository.save_graph(graph, way_ids_to_replace=way_ids)
 
-    result = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
-    assert result is not None
-    assert len(result.edges) == way_count * 2
+    edge_count = await road_graph_session.scalar(
+        text("SELECT count(*) FROM road_edges WHERE osm_way_id = ANY(:ids)"), {"ids": list(way_ids)}
+    )
+    assert edge_count == way_count * 2
 
 
 async def test_save_raw_ways_and_get_way_specs_with_closure_returns_empty_for_bbox_without_primary_nodes(
