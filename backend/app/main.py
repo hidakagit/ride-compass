@@ -8,6 +8,7 @@ from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
+from app.infrastructure.http_client import get_http_client
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware
 from app.services.axis_registry_service import refresh_axis_definitions
 
@@ -53,6 +54,17 @@ if settings.routing_engine == "road_graph":
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # httpx.AsyncClientのウォームアップ（デプロイ直後の天候API失敗調査より）:
+    # infrastructure/http_client.pyのコメントの通りクライアント生成はSSLコンテキスト構築
+    # （CA証明書バンドルの読み込み・パース）を伴い、環境によっては数百ms〜1秒かかる。
+    # 遅延生成のままだとデプロイ直後の最初のリクエストがこのコストを負い、
+    # weather_client.pyのように接続タイムアウトがタイト（connect=3.0秒）な外部呼び出しでは
+    # ConnectTimeoutを誘発しやすい（F5で再試行すると成功する非対称性の主因）。
+    # dependencies.pyで実際に使われているtimeout値（10.0, 15.0）をここで前もって構築し、
+    # 起動完了後の最初のリクエストからコストを払わずに済むようにする。
+    get_http_client(10.0)
+    get_http_client(15.0)
+
     # 改善計画T221 Stage D: 評価軸定義（domain/axis_definitions.py: AXIS_DEFINITIONS）を
     # DBから読み込む（未migration・DB未接続の環境ではWARNINGログのみでコード内蔵の
     # 既定値のまま起動を続ける、services/axis_registry_service.py参照）。
