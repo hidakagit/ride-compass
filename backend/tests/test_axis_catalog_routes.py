@@ -101,5 +101,34 @@ def test_get_axis_catalog_display_reflects_gui_created_published_axis():
         assert display["tile_inputs"][0]["property"] == "lanes_count"
         assert display["tile_inputs"][0]["weight"] == 1.0
         assert display["thresholds"] == [10.0]
+        # 改善計画T308: lanes_count材料はprimary_attribute_id="lanes"へ解決される
+        # （material_catalog.py参照）。
+        assert entries_by_id["gui_published_axis"]["primary_attribute_ids"] == ["lanes"]
     finally:
         del AXIS_DEFINITIONS["gui_published_axis"]
+
+
+def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
+    # 改善計画T308: primary_attribute_idsは、以前ビルド時静的生成物
+    # （registry_defaults.py: AxisSpec.inputs、export_openapi.py経由でaxis-catalog.jsonへ
+    # 書き出されていた値）が持っていたのと同じ一次属性id集合を実行時に再現できることの
+    # 回帰確認（既存7軸ぶん、順序は問わない）。
+    response = client.get("/api/axis-catalog")
+    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+
+    assert set(entries_by_id["gradient"]["primary_attribute_ids"]) == {"elevation"}
+    assert set(entries_by_id["surface_q"]["primary_attribute_ids"]) == {"surface"}
+    assert set(entries_by_id["stop_density"]["primary_attribute_ids"]) == {"stop_poi", "intersection"}
+    assert set(entries_by_id["night"]["primary_attribute_ids"]) == {"lit", "tunnel"}
+    assert set(entries_by_id["accident"]["primary_attribute_ids"]) == {"accident_point"}
+    # car_stress: AxisDefinition.materialsは内部軸id(car_stress_highway_base等)を返すため
+    # 再帰的に解決する必要がある（domain/axis_definitions.py T292階層構造、
+    # api/routers/axis_catalog.py: _primary_attribute_ids_for参照）。
+    assert set(entries_by_id["car_stress"]["primary_attribute_ids"]) == {
+        "highway",
+        "cycleway",
+        "maxspeed",
+        "lanes",
+        "designation",
+        "motor_vehicle_access",
+    }

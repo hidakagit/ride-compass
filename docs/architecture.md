@@ -1320,6 +1320,54 @@ axis-catalog.jsonへ反映されるのは再デプロイ後、という既存の
 `kind="ramp"`へ移行し、`carStressExpression.ts`等の手書きフロントコードを廃止して同じ
 `RAMP_AXES`汎用パスへ合流した（下記「停止密度・車ストレス...」節参照）。
 
+### 推定軸の地図表示・実行時配信化とmaterials統一（改善計画T308）
+
+T278（上記）の自動導出は実装されていたが、導出結果の配信経路がビルド時静的生成物
+`axis-catalog.json`のみだった（`export_openapi.py`実行→コミット→デプロイを経て初めて
+反映）。加えてその生成元`registry.py`の`register_axis()`登録は既存7軸のみのハードコードで、
+軸スタジオ（GUI）で新規作成・公開した軸を走査する経路が無く、GUI軸には地図表示が
+一切届かなかった（配信経路のギャップ、T278の導出ロジック自体とは別問題）。T308でこれを
+解消した:
+
+- **`GET /api/axis-catalog`への`display`フィールド追加**: `axis_catalog.py`が
+  `axis_display_for(definition)`（`axis_display.py`、`AXIS_DEFINITIONS`/`MATERIAL_CATALOG`
+  のみを見る純関数、DB/IO無し）を全公開軸へ適用し、レスポンスへ`AxisDisplaySpec`
+  （`kind`/`tile_inputs`/`thresholds`/`unit`等）を含める。`STOP_DENSITY_DISPLAY`/
+  `ACCIDENT_DISPLAY`/`CAR_STRESS_DISPLAY`（自動導出対象外の手書きdisplay）は
+  `registry_defaults.py`から`axis_display.py`へ移設し単一ソース化した。
+- **フロントの実行時フェッチ化**: `RAMP_AXES`/`AXIS_LABELS`（`axisLayers.ts`）・
+  `MAP_LAYERS`/`ROAD_SURFACE_SHARED_LAYER_IDS`（`mapLayers.ts`）・`SECONDARY_AXES`
+  （`secondaryAxes.ts`）・`STATIC_FILTER_AXES`（`staticAttributeLayers.ts`）を、
+  それぞれ`buildX(rampAxes)`形の純関数＋静的フォールバック定数（旧`axis-catalog.json`
+  ベースの値をそのまま計算した後方互換値）へ変換した。`useAxisCatalog.ts`が
+  マウント時の`GET /api/axis-catalog`取得結果からこれらを`useMemo`で算出し、
+  取得完了/失敗時は静的フォールバックを返す（`useMaterialCatalog.ts`と同型のパターン、
+  T269の踏襲）。`page.tsx`/`MapView.tsx`/`MapLayersPanel.tsx`/`MapOverlayControls.tsx`は
+  これらをpropとして受け取るよう変更（`MapView.tsx`はマップ初期化useEffectが一度しか
+  走らない制約のため、`redrawPropsRef`/`interactiveLayerIdsRef`という「refで最新値を
+  参照するクロージャ」パターンで対応）。これにより、軸スタジオで新規公開した軸が
+  **再デプロイなしに**地図・凡例・チップへ現れるようになった（旧来の「axis-catalog.json
+  へ反映されるのは再デプロイ後」という制約はライブ取得側では解消。ビルド時静的
+  生成物自体は取得失敗時フォールバックとして引き続き生成・コミットする）。
+- **materials統一（primary_attribute_id/primary_attribute_ids）**: 上記実装中に
+  「軸スタジオ作成軸には材料の共起ケーシング・材料一覧ノートUIが効かない」という
+  別ギャップが判明した。`primaryAttributes.ts`の`axisMaterials()`/
+  `axisMaterialLayerIds(axisId)`が、静的`axis-catalog.json`専用の`inputs`
+  フィールド（各軸の生一次属性id配列）だけを情報源にしていたため。
+  `MaterialSpec`（`material_catalog.py`）へ`primary_attribute_id: str | None`
+  （material_id→attr_idの対応、registry.pyの一次属性語彙への写像）を追加し、
+  `AxisCatalogEntry`へ`primary_attribute_ids: list[str]`を追加。バックエンドの
+  `_primary_attribute_ids_for(definition)`（`axis_catalog.py`）は`car_stress`のような
+  「他axis_idを`MaterialTerm.material`として参照する内部軸階層」（T292）を`visited`
+  集合で再帰的に解決する。フロントは`axisMaterials`/`axisMaterialLayerIds`を廃し、
+  ライブ/フォールバックいずれの`primary_attribute_ids`も直接渡せる純関数
+  `primaryAttributeIdsToLayerIds(attrIds: readonly string[])`へ置き換えた。
+- 上記に伴い、既存軸だけを特別扱いしていた静的定義（`AXES_WITH_INPUTS`・
+  `CatalogAxisInputs`等）は死んだコードとして削除した。動的ramp（時刻依存の合成表示、
+  例: 風＋路面の推進力軸を時間スライダーに連動させる表現）・向き依存材料の地図表現は
+  引き続きスコープ外（T278の`tile_property_direction_dependent`フラグにより該当軸は
+  安全側で`kind="none"`のまま）。
+
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
 `domain/registry.py`が一次属性（`PrimaryAttributeSpec`）・二次軸（`AxisSpec`）の宣言的な
@@ -1615,12 +1663,15 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
 - **レジストリの完全化（T163）**: `domain/registry.py`/`registry_defaults.py`を一次属性・
   二次軸の命名・材料の単一ソースとして完全化し、`export_openapi.py`が`axis-catalog.json`へ
   `primary_attributes`（attr_id・正式名・shared）を追加で書き出す。
-- **フロント一次属性カタログ（T164）**: [frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
-  `axis-catalog.json`（`primary_attributes`・各軸の`inputs`）だけを情報源に、2次→1次
-  （地図チップの推定軸タイルに材料一覧を表示、T167→T181フォローアップで自動ON連動は
-  撤去し表示のみに変更）・1次→2次（研究タブの重み行に材料一覧を表示、T146区間
-  インスペクタのラベル共通化、T168）の双方向導出を片側importで行う（設計原則2）。
-  地図チップの4文字以内略名はこのファイルのみが持つUI固有の対応（正式名は
+- **フロント一次属性カタログ（T164、T308で情報源を実行時APIへ更新）**: [frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
+  1次→2次（研究タブの重み行に材料一覧を表示、T146区間インスペクタのラベル共通化、
+  T168）の導出を片側importで行う（設計原則2）。2次→1次（地図チップの推定軸タイルに
+  材料一覧を表示、T167→T181フォローアップで自動ON連動は撤去し表示のみに変更）は
+  T308で純関数`primaryAttributeIdsToLayerIds(attrIds)`へ置き換わり、呼び出し側が
+  `useAxisCatalog`（ライブ`GET /api/axis-catalog`の`primary_attribute_ids`、失敗時は
+  `axis-catalog.json`の同フィールドへフォールバック）から取得した属性id配列を直接渡す
+  形になった（旧`axisMaterials()`は静的`axis-catalog.json`の`inputs`専用で廃止、詳細は
+  上記T308節）。地図チップの4文字以内略名はこのファイルのみが持つUI固有の対応（正式名は
   axis-catalog.json側が正）。
 - **道路情報レイヤーの論理分割（T165）**: 従来の単一「道路情報」レイヤーを「道路の種類」
   （`roadType`）と「路面の種類」（`roadSurface`）へ分割（`ROAD_TILE_LAYER_ID`のline-color

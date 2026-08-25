@@ -506,6 +506,8 @@ export interface components {
             /** Default Weight */
             default_weight: number;
             display: components["schemas"]["AxisDisplaySpec"];
+            /** Primary Attribute Ids */
+            primary_attribute_ids: string[];
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {

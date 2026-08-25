@@ -28,8 +28,9 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisDefinition
 from app.domain.axis_display import axis_display_for
+from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.registry import AxisDisplaySpec
 
 router = APIRouter()
@@ -42,18 +43,57 @@ class AxisCatalogEntry(BaseModel):
     category: AxisCategory
     default_weight: float
     display: AxisDisplaySpec
+    # 改善計画T308: この軸が参照する材料を、対応する一次属性id（domain/registry.py:
+    # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.tsのキーと同じ名前空間）へ
+    # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
+    # 材料[car_stress等の階層構造]は除く）。フロント側の「材料が同時表示中は太い下敷きで
+    # 強調する」機能（axisMaterialLayerIds、page.tsx: secondaryAxisCasingLayerIds）・
+    # 「軸の下に材料一覧を出す」機能（MapOverlayControls.tsx: renderMaterialsNote）が、
+    # 軸スタジオの公開軸に対しても同じ仕組みで動くようにするため（以前はビルド時静的生成物
+    # axis-catalog.jsonのregistry.py: AxisSpec.inputsをそのまま使っており、GUI作成軸を
+    # 含まなかった）。
+    primary_attribute_ids: list[str]
 
 
 class AxisCatalogResponse(BaseModel):
     axes: list[AxisCatalogEntry]
 
 
+def _primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
+    """軸が参照する材料を一次属性idへ解決する。`AxisDefinition.materials`は材料idだけで
+    なく他の軸id（改善計画T292の階層構造、例: car_stressの内部軸6つ）も返しうるため、
+    材料id側で見つからないエントリはAXIS_DEFINITIONSの軸として再帰的に解決する
+    （内部軸自体も内部軸を参照しうる想定はないが、循環参照は軸スタジオ側で拒否済み
+    [test_create_rejects_direct_cycle_between_two_axes]のため`visited`で安全側に保護する）。
+    """
+    seen: dict[str, None] = {}
+    visited: set[str] = set()
+
+    def resolve(current: AxisDefinition) -> None:
+        if current.axis_id in visited:
+            return
+        visited.add(current.axis_id)
+        for material_id in current.materials:
+            spec = MATERIAL_CATALOG.get(material_id)
+            if spec is not None:
+                if spec.primary_attribute_id is not None:
+                    seen.setdefault(spec.primary_attribute_id, None)
+                continue
+            referenced_axis = AXIS_DEFINITIONS.get(material_id)
+            if referenced_axis is not None:
+                resolve(referenced_axis)
+
+    resolve(definition)
+    return list(seen)
+
+
 @router.get("/api/axis-catalog", response_model=AxisCatalogResponse)
 async def get_axis_catalog() -> AxisCatalogResponse:
     # AXIS_DEFINITIONSは常に最新（起動時＋管理API書き込み直後にin-place更新済み、
     # services/axis_registry_service.py参照）のため、DBへは触れずプロセス内の値を
-    # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()も同様に
-    # プロセス内メモリだけを見る純粋関数のため、リクエスト毎に呼んでもコストは無視できる。
+    # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()・
+    # _primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
+    # リクエスト毎に呼んでもコストは無視できる。
     return AxisCatalogResponse(
         axes=[
             AxisCatalogEntry(
@@ -63,6 +103,7 @@ async def get_axis_catalog() -> AxisCatalogResponse:
                 category=definition.category,
                 default_weight=definition.default_weight,
                 display=axis_display_for(definition),
+                primary_attribute_ids=_primary_attribute_ids_for(definition),
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

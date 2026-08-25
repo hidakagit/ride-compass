@@ -26,6 +26,7 @@ import {
   RAMP_AXES,
   axisMapLayerId,
   type AxisMapLayerId,
+  type RampAxis,
 } from "./axisLayers";
 
 export type MapLayerId =
@@ -179,7 +180,12 @@ const RAMP_AXIS_PANEL_HINTS: Record<string, string> = {
     "「一次属性・全軸の内訳を見る」から確認できます。",
 };
 
-export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
+// 改善計画T308: MAP_LAYERSのramp軸部分はbuildMapLayers(rampAxes)として関数化し、
+// hooks/useAxisCatalog.tsが実行時に取得したrampAxes（軸スタジオの公開軸を含む）から
+// 呼べるようにした。MAP_LAYERS自体はビルド時静的フォールバック（RAMP_AXES）で
+// 呼んだ結果を指す後方互換export（テスト・フォールバック用）。
+export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayerDescriptor[] {
+  return [
   {
     id: "elevation",
     // ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける
@@ -333,7 +339,7 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
   // （staticAttributeLayers.ts、axisLayers.ts: buildAxisRampLegend由来）が
   // 他の静的レイヤーと同じ仕組みで提供するため、panelHintDetail（文字のみの内訳）は持たない
   // （改善計画: 停止密度・事故密度の凡例追加）。
-  ...RAMP_AXES.map(
+  ...rampAxes.map(
     (axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       label: axis.label,
@@ -441,7 +447,12 @@ export const MAP_LAYERS: readonly MapLayerDescriptor[] = [
     kind: "dynamic",
     description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
   },
-];
+  ];
+}
+
+// ビルド時静的フォールバック（RAMP_AXES）で組み立てた結果。取得完了までの初期表示・
+// フェッチ失敗時、および実行時フェッチを行わない箇所（テスト等）向け。
+export const MAP_LAYERS: readonly MapLayerDescriptor[] = buildMapLayers(RAMP_AXES);
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
@@ -473,14 +484,20 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 // ズーム範囲外の間は、レイヤーのデータ状態表示（T87）を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
 // 定義。片方だけ更新して食い違う、という改善計画の設計原則8違反を避けるため）。
-export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = [
-  "roadType",
-  "roadSurface",
-  "bicycleInfra",
-  "designation",
-  "tunnel",
-  "oneway",
-  // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
-  // （改善計画T292: car_stressもここに含まれるようになった）。
-  ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
-];
+// 改善計画T308: buildMapLayers()と同じ理由で関数化。ROAD_SURFACE_SHARED_LAYER_IDSは
+// ビルド時静的フォールバックで呼んだ結果を指す後方互換export。
+export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {
+  return [
+    "roadType",
+    "roadSurface",
+    "bicycleInfra",
+    "designation",
+    "tunnel",
+    "oneway",
+    // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
+    // （改善計画T292: car_stressもここに含まれるようになった）。
+    ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),
+  ];
+}
+
+export const ROAD_SURFACE_SHARED_LAYER_IDS: readonly MapLayerId[] = buildRoadSurfaceSharedLayerIds(RAMP_AXES);

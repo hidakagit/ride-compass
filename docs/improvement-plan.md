@@ -5284,7 +5284,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   扱うかは着手時に再検討する。
 - 依存: 特になし（トリガー条件の充足待ち）。
 
-### - [ ] T308. 推定軸の地図表示自動連動 規模M〜L（設計完了・実装未着手）
+### - [x] T308. 推定軸の地図表示自動連動 規模M〜L（実装完了）
 
 - 背景: ユーザーからの質問「管理画面で公開した推定要素のみ、地図上でアイコン表示する
   ようにできている？材料はモジュール修正が必要なのは理解できるが、推定軸はあくまで
@@ -5319,13 +5319,40 @@ Phaseほど前Phaseの成果を安全網として使える）。**
      タイル非依存の材料を含む軸は安全側で`kind="none"`（地図に出さない）へ倒す設計とした。
   4. Stage A（Gap2・backend単独）→Stage B（Gap1・backend API＋frontend）の2段階を想定
      （Stage BがStage Aの汎用化を前提とするため）。
-- 現状: 設計のみ完了・ユーザーへ提示済み。実装は未着手（Stage分割・着手順・スコープの
-  最終確認[既存7軸の手書きdisplayをどこまで置き換えるか等]はユーザー判断待ち）。
-- 完了条件（実装着手後）: 上記設計に基づきStage A・Bを実装し、既存7軸の地図表示が
-  一字一句変わらないことをテストで担保した上で、軸スタジオで新規作成・公開した軸が
-  再デプロイなしに地図へ現れることを実機確認する。docs/architecture.md追従（規模M以上・
-  API/表示レイヤー種の変更のため）。
-- 依存: なし（T278[derive_ramp_inputs新設]・T292[car_stressのramp化]の上に積む）。
+- 現状: Stage A（`derive_ramp_inputs`汎用化・`MaterialSpec.tile_property_direction_dependent`
+  追加）・Stage B（`axis_display_for()`新設、`GET /api/axis-catalog`への`display`フィールド
+  追加、フロント`RAMP_AXES`/`MAP_LAYERS`/`SECONDARY_AXES`等を`useAxisCatalog`経由の実行時
+  フェッチ＋静的フォールバックへ切替）とも実装完了。既存7軸の地図表示（ramp閾値・色・
+  レイヤー構成）が旧静的生成物と一字一句一致することをテストで担保。
+  実装中にユーザーから追加要望を受け、当初設計（Gap1・Gap2）の範囲を超えて
+  以下も同一の流れで解消した:
+  - **materials統一**: `axisMaterials`/`axisMaterialLayerIds`（`primaryAttributes.ts`）が
+    静的json専用の`inputs`フィールド参照のまま残っており、軸スタジオ作成軸には
+    「材料の共起ケーシング」「材料一覧ノート」UIが効かないギャップが判明。
+    `MaterialSpec.primary_attribute_id`（material_id→attr_idの対応）を新設し、
+    `AxisCatalogEntry.primary_attribute_ids`（`car_stress`のような内部軸参照を再帰解決した
+    attr_id一覧）をAPIへ追加。フロントは`primaryAttributeIdsToLayerIds(attrIds)`という
+    純関数へ置き換え、ライブデータのattr_idを直接渡す形に統一。
+  - **STATIC_FILTER_AXES統一**: 上記と同じ「静的RAMP_AXES依存」パターンが凡例の値
+    フィルタリング（`staticAttributeLayers.ts`）にも残存していたため、
+    `buildStaticFilterAxes(rampAxes)`関数化＋静的フォールバックの型で統一。
+  - 既存軸だけ特別扱いしている箇所の洗い出しを実施。上記2件は解消、他は
+    「意図的に残す（例: 車速換算等ドメイン固有の表示ロジック）」「対象外
+    （動的ramp・向き依存表現は本タスクのスコープ外、T308冒頭の背景参照）」の
+    いずれかに分類し、削除対象の死んだコードは合わせて除去した
+    （`CatalogAxisInputs`/`AXES_WITH_INPUTS`等）。
+  - 実機確認: フロント/バックエンド両サーバーを起動しPlaywrightで確認。
+    `GET /api/axis-catalog`への実行時フェッチが発生していること（4回、200）、
+    RouteSettingsPanel・MapOverlayControlsがライブレスポンスの重み・軸一覧で描画される
+    こと、`車の圧迫感`（car_stress、内部軸再帰解決のケース）の材料ノートが
+    「材料: 道路種別・インフラ・指定路線／地図では未表示の材料: 制限速度・車線数・
+    車両可否」と期待通り分割表示されることを確認。地図タイル本体（MapLibreの背景地図
+    スタイル取得）は本番タイルサーバーへの外部到達性が無いサンドボックス環境の制約で
+    502となったが、これは本タスクの変更と無関係。
+- 完了条件: 達成済み（上記実機確認・全テストスイート[backend pytest 977 passed / 152
+  skipped、frontend tsc・eslint・vitest 491 passed]がすべてクリーン）。
+  docs/architecture.md追従はこのコミットで実施。
+- 依存: なし（T278[derive_ramp_inputs新設]・T292[car_stressのramp化]の上に積んだ）。
 
 ## 残タスクの優先順位（2026-08-24再整理・第18版）
 

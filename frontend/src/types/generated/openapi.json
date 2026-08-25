@@ -1142,6 +1142,13 @@
           },
           "display": {
             "$ref": "#/components/schemas/AxisDisplaySpec"
+          },
+          "primary_attribute_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Primary Attribute Ids"
           }
         },
         "type": "object",
@@ -1151,7 +1158,8 @@
           "description",
           "category",
           "default_weight",
-          "display"
+          "display",
+          "primary_attribute_ids"
         ],
         "title": "AxisCatalogEntry"
       },

@@ -64,6 +64,18 @@ class MaterialSpec(BaseModel):
     # 一次属性、T289）が、将来方向依存材料が追加された際に安全側へ倒す型的な安全弁として
     # 用意する。
     tile_property_direction_dependent: bool = False
+    # 改善計画T308: この材料の由来となる一次属性id（domain/registry.py:
+    # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
+    # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
+    # bicycle_infra・maxspeed_kmh・stop_count_per_km）と一次属性id（例: cycleway・
+    # maxspeed・stop_poi）は名前が異なる別の名前空間のため、対応が自明でない材料には
+    # 明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ由来のwind_penalty、
+    # 一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが軸ごとにこれを解決して
+    # 返すことで、frontend側（axisMaterialLayerIds、MapOverlayControls.tsxの材料一覧表示）が
+    # 軸スタジオ作成軸に対しても同じ仕組みで動く（従来はビルド時静的生成物
+    # axis-catalog.jsonのregistry.py: AxisSpec.inputs[一次属性id]をそのまま使っており、
+    # GUI作成軸を含まなかった）。
+    primary_attribute_id: str | None = None
 
 
 # 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと
@@ -78,12 +90,14 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 標高は国土地理院APIから都度取得しDBへ恒久保存しない設計のため、タイルへ
         # 焼き込める事実データが無い（docs/architecture.md「標高計算」節参照）。
         tile_property=None,
+        primary_attribute_id="elevation",
     ),
     "wind_penalty": MaterialSpec(
         material_id="wind_penalty",
         label="向かい風ペナルティ(m/s、正=向かい風)",
         dtype="numeric",
-        # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない。
+        # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない。対応する一次属性も
+        # 未登録（動的気象は一次属性レジストリの対象外）。
         tile_property=None,
     ),
     "surface_good": MaterialSpec(
@@ -91,18 +105,21 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="舗装良否",
         dtype="boolean",
         tile_property="surface_good",
+        primary_attribute_id="surface",
     ),
     "stop_count_per_km": MaterialSpec(
         material_id="stop_count_per_km",
         label="停止密度(回/km)",
         dtype="numeric",
         tile_property="stop_per_km",
+        primary_attribute_id="stop_poi",
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
         label="交差点密度(回/km)",
         dtype="numeric",
         tile_property="intersection_per_km",
+        primary_attribute_id="intersection",
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
@@ -115,6 +132,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # registry_defaults.pyの既存accident表示は手書きのまま維持する）。
         tile_property="accident_per_km",
         tile_property_needs_runtime_scale=True,
+        primary_attribute_id="accident_point",
     ),
     "no_lit": MaterialSpec(
         material_id="no_lit",
@@ -124,12 +142,14 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # その否定（litタグ不在は街灯なしとみなす安全側の判断、domain/night.py参照）。
         tile_property="lit",
         tile_property_inverted=True,
+        primary_attribute_id="lit",
     ),
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",
         label="トンネル",
         dtype="boolean",
         tile_property="tunnel",
+        primary_attribute_id="tunnel",
     ),
     # --- 改善計画T290: MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
     "bridge": MaterialSpec(
@@ -138,6 +158,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         # OSMのbridgeタグ（yesのみtrue、それ以外はキー省略＝unknown/false扱い）。
         tile_property="bridge",
+        # bridgeに対応する一次属性は未登録（表示専用のtunnel/onewayと異なり一次属性
+        # レジストリに追加されていない）。
     ),
     "motor_vehicle_no": MaterialSpec(
         material_id="motor_vehicle_no",
@@ -147,6 +169,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # [domain/axis_definitions.py]でも参照される材料だが、軸合成前の生の真偽値自体は
         # 独立して材料登録していなかった）。
         tile_property="motor_vehicle_no",
+        primary_attribute_id="motor_vehicle_access",
     ),
     "oneway": MaterialSpec(
         material_id="oneway",
@@ -155,18 +178,21 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # osm_raw_ways.direction（forward/backward/both）から算出（改善計画T289で
         # 一次属性・地図レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
         tile_property="oneway",
+        primary_attribute_id="oneway",
     ),
     "maxspeed_kmh": MaterialSpec(
         material_id="maxspeed_kmh",
         label="制限速度(km/h)",
         dtype="numeric",
         tile_property="maxspeed_kmh",
+        primary_attribute_id="maxspeed",
     ),
     "lanes_count": MaterialSpec(
         material_id="lanes_count",
         label="車線数",
         dtype="numeric",
         tile_property="lanes_count",
+        primary_attribute_id="lanes",
     ),
     "highway": MaterialSpec(
         material_id="highway",
@@ -177,6 +203,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （import_pbf.py: ALLOWED_HIGHWAY_TYPES）で許可された値のみ実際に現れる。
         # 正準の閉じた値集合はこのプロジェクトで管理していない（OSMタグの生値のため）。
         tile_property="highway",
+        primary_attribute_id="highway",
     ),
     "surface": MaterialSpec(
         material_id="surface",
@@ -186,6 +213,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # domain/road.py: GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS参照（本材料は
         # その分類前の生タグ値そのもの。分類後の真偽値は既存材料surface_good）。
         tile_property="surface",
+        primary_attribute_id="surface",
     ),
     "bicycle_infra": MaterialSpec(
         material_id="bicycle_infra",
@@ -195,6 +223,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （separated/lane/shared_busway/shared_pedestrian/prohibited/roadway。
         # unknownはタイル側でプロパティ省略として表現され現れない）。
         tile_property="bicycle_infra",
+        primary_attribute_id="cycleway",
     ),
     "cycleway_class": MaterialSpec(
         material_id="cycleway_class",
@@ -203,6 +232,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 車ストレスのcycleway補正が参照する3値（track/lane/shared）。bicycle_infraより
         # 粗い分類（bicycle_infraのseparated/lane/shared_buswayに相当する部分集合）。
         tile_property="cycleway_class",
+        primary_attribute_id="cycleway",
     ),
     "designation": MaterialSpec(
         material_id="designation",
@@ -211,6 +241,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
         # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
         tile_property="designation",
+        primary_attribute_id="designation",
     ),
     "is_designated": MaterialSpec(
         material_id="is_designated",
@@ -225,6 +256,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # car_stress_designation_adjustment内部軸と同じくタイル非依存
         # （評価時にdesignated_edge_idsから都度算出）。
         tile_property=None,
+        primary_attribute_id="designation",
     ),
     "smoothness": MaterialSpec(
         material_id="smoothness",
@@ -234,6 +266,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # very_horrible/impassable、正規化: lower/btrim）。surfaceが路面「種別」なのに
         # 対し、smoothnessは実際の走行感（同じasphaltでも荒れ具合が違う等）。
         tile_property="smoothness",
+        # smoothnessに対応する一次属性は未登録（bridgeと同じくレジストリ未追加）。
     ),
 }
 

@@ -156,6 +156,7 @@ def main() -> None:
             {
                 "axis_id": axis_id,
                 "inputs": [],
+                "primary_attribute_ids": [],
                 "output_range": [0.0, 100.0],
                 "display": AxisDisplaySpec(
                     kind="ramp",
@@ -180,6 +181,12 @@ def main() -> None:
                 {
                     "axis_id": axis.axis_id,
                     "inputs": axis.inputs,
+                    # 改善計画T308: GET /api/axis-catalog（実行時API）のprimary_attribute_ids
+                    # と同じ値をキー名も揃えて書き出す（frontend側のCatalogAxis型・
+                    # secondaryAxesFromCatalogAxes等が実行時API/静的生成物どちらの入力も
+                    # 同じ変換関数で処理できるようにするため）。inputsキー自体は他の消費者
+                    # （evaluationAxes.test.ts等）が引き続き読むため残す。
+                    "primary_attribute_ids": axis.inputs,
                     "output_range": list(axis.output_range),
                     "display": axis.display.model_dump() if axis.display is not None else None,
                 }

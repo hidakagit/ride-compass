@@ -5,6 +5,9 @@
       "inputs": [
         "elevation"
       ],
+      "primary_attribute_ids": [
+        "elevation"
+      ],
       "output_range": [
         0.0,
         100.0
@@ -22,6 +25,9 @@
     {
       "axis_id": "surface_q",
       "inputs": [
+        "surface"
+      ],
+      "primary_attribute_ids": [
         "surface"
       ],
       "output_range": [
@@ -55,6 +61,10 @@
     {
       "axis_id": "stop_density",
       "inputs": [
+        "stop_poi",
+        "intersection"
+      ],
+      "primary_attribute_ids": [
         "stop_poi",
         "intersection"
       ],
@@ -102,6 +112,14 @@
     {
       "axis_id": "car_stress",
       "inputs": [
+        "highway",
+        "lanes",
+        "maxspeed",
+        "cycleway",
+        "designation",
+        "motor_vehicle_access"
+      ],
+      "primary_attribute_ids": [
         "highway",
         "lanes",
         "maxspeed",
@@ -274,6 +292,10 @@
         "lit",
         "tunnel"
       ],
+      "primary_attribute_ids": [
+        "lit",
+        "tunnel"
+      ],
       "output_range": [
         0.0,
         100.0
@@ -317,6 +339,9 @@
     {
       "axis_id": "accident",
       "inputs": [
+        "accident_point"
+      ],
+      "primary_attribute_ids": [
         "accident_point"
       ],
       "output_range": [

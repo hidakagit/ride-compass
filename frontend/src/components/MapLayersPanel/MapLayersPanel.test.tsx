@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { layerSectionDomId, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
+import {
+  MAP_LAYERS,
+  ROAD_SURFACE_SHARED_LAYER_IDS,
+  layerSectionDomId,
+  type LayerDataStatusByLayer,
+  type MapLayerId,
+} from "@/components/Map/mapLayers";
+import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import MapLayersPanel from "./MapLayersPanel";
 import styles from "./MapLayersPanel.module.css";
 
@@ -59,6 +66,11 @@ function baseProps() {
     layerDataStatus: {} as LayerDataStatusByLayer,
     hasHiddenFilters: false,
     onClearAllFilters: vi.fn(),
+    // 改善計画T308: 実運用ではpage.tsxがaxisCatalog（useAxisCatalog）由来の値を渡すが、
+    // テストでは静的フォールバック（既存7軸）で十分。
+    mapLayers: MAP_LAYERS,
+    roadSurfaceSharedLayerIds: ROAD_SURFACE_SHARED_LAYER_IDS,
+    secondaryAxes: SECONDARY_AXES,
   };
 }
 

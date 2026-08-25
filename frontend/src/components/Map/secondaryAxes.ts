@@ -15,13 +15,14 @@
 // 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
 
 import type { MapLayerId } from "./mapLayers";
-import { axisMapLayerId } from "./axisLayers";
+import { axisMapLayerId, type CatalogAxis } from "./axisLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
-interface CatalogAxis {
-  axis_id: string;
-  display: { kind: string; label: string } | null;
-}
+// 改善計画T308: 実行時API（GET /api/axis-catalog）から取得したエントリからも同じ形へ
+// 変換できるよう、静的jsonの走査ロジックを共通関数として切り出す（axisLayers.tsの
+// rampAxesFromCatalogAxes等と同じ理由、片側import）。hooks/useAxisCatalog.tsが
+// フェッチ結果から呼ぶ。CatalogAxis型自体はaxisLayers.tsと共有する（同じ形の入力を
+// 両ファイルの変換関数が受け取るため、別々に定義しない）。
 
 export interface SecondaryAxisSummary {
   axisId: string;
@@ -33,6 +34,11 @@ export interface SecondaryAxisSummary {
   layerId?: MapLayerId;
   /** layerId未定義の軸向け、代役レイヤーへの案内文 */
   proxyHint?: string;
+  /** 改善計画T308: この軸が参照する材料の一次属性id一覧（primaryAttributes.ts:
+   * PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキーと同じ名前空間）。
+   * 実行時APIのprimary_attribute_idsをそのまま反映する。ビルド時静的フォールバックは
+   * この情報を持たないため空配列（取得完了までの一時的な機能低下、致命的ではない）。 */
+  primaryAttributeIds: readonly string[];
 }
 
 // 略名（改善計画T166確定命名表）。全軸とも正式名が4文字以下のため実質そのままだが、
@@ -73,13 +79,22 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
   return undefined;
 }
 
+/** 二次軸(推定指標)一覧を、カタログの並び順のまま変換する。 */
+export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
+  return axes
+    .filter((axis) => axis.display !== null)
+    .map((axis) => ({
+      axisId: axis.axis_id,
+      label: axis.display!.label,
+      chipLabel: SECONDARY_AXIS_CHIP_LABELS[axis.axis_id] ?? axis.display!.label,
+      layerId: layerIdFor(axis),
+      proxyHint: SECONDARY_AXIS_PROXY_HINTS[axis.axis_id],
+      primaryAttributeIds: axis.primary_attribute_ids ?? [],
+    }));
+}
+
+// ビルド時静的json由来のフォールバック専用値（モジュール先頭の注記参照）。
 /** 二次軸(推定指標)を、axis-catalog.jsonの並び順(確定命名表と同じ順)で返す。 */
-export const SECONDARY_AXES: readonly SecondaryAxisSummary[] = (axisCatalog.axes as CatalogAxis[])
-  .filter((axis) => axis.display !== null)
-  .map((axis) => ({
-    axisId: axis.axis_id,
-    label: axis.display!.label,
-    chipLabel: SECONDARY_AXIS_CHIP_LABELS[axis.axis_id] ?? axis.display!.label,
-    layerId: layerIdFor(axis),
-    proxyHint: SECONDARY_AXIS_PROXY_HINTS[axis.axis_id],
-  }));
+export const SECONDARY_AXES: readonly SecondaryAxisSummary[] = secondaryAxesFromCatalogAxes(
+  axisCatalog.axes as CatalogAxis[]
+);

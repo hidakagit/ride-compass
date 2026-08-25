@@ -4,8 +4,14 @@
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { axisLineLayerId } from "@/components/Map/axisLayers";
-import { BICYCLE_INFRA_LAYER_ID, STOP_POI_LAYER_ID, SUPPLY_POI_LAYER_ID, setStaticOverlayFilters } from "./MapView";
-import type { StaticFilterAxisId } from "./staticAttributeLayers";
+import {
+  BICYCLE_INFRA_LAYER_ID,
+  STATIC_OVERLAY_LAYERS,
+  STOP_POI_LAYER_ID,
+  SUPPLY_POI_LAYER_ID,
+  setStaticOverlayFilters,
+} from "./MapView";
+import { STATIC_FILTER_AXES, type StaticFilterAxisId } from "./staticAttributeLayers";
 
 // setStaticOverlayFiltersが読む最小限のmapフェイク。__rcStyleReady=trueでrunWhenStyleReadyの
 // 即時実行分岐を通す（MapView.dataStatus.test.tsのfakeMapと同じ発想）。
@@ -45,7 +51,12 @@ function hiddenKeys(partial: Partial<Record<StaticFilterAxisId, readonly string[
 describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むramp軸の汎用フィルタ適用）", () => {
   it("自転車インフラレイヤーのフィルタは指定した非表示キーを反映する", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({ bicycleInfra: ["prohibited"] }));
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      hiddenKeys({ bicycleInfra: ["prohibited"] }),
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES
+    );
 
     const filter = map.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
     expect(evaluateFilter(filter, { bicycle_infra: "prohibited" })).toBe(false);
@@ -54,7 +65,7 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
 
   it("車の圧迫感（axis:car_stress）のrampレイヤーにもフィルタが設定される", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}));
+    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}), STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
 
     const layerId = axisLineLayerId("car_stress");
     expect(map.setFilterCalls.some((c) => c.layerId === layerId)).toBe(true);
@@ -68,7 +79,7 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
 describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分離、改善計画T101）", () => {
   it("stopPoiレイヤーのフィルタはstopPoi側のkindのみ通し、supplyPoi側のkindは弾く", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}));
+    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}), STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
     const filter = map.setFilterCalls.find((c) => c.layerId === STOP_POI_LAYER_ID)!.filter;
 
     expect(evaluateFilter(filter, { kind: "traffic_signals" })).toBe(true);
@@ -77,7 +88,7 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
 
   it("supplyPoiレイヤーのフィルタはsupplyPoi側のkindのみ通し、stopPoi側のkindは弾く", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}));
+    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}), STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
     const filter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
 
     expect(evaluateFilter(filter, { kind: "convenience" })).toBe(true);
@@ -88,7 +99,7 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
     const map = fakeMap();
     // stopPoiの「信号を隠す」操作中でも、supplyPoiレイヤー自体はstopPoi側のkindを通さない。
     const withHiddenTrafficSignals = hiddenKeys({ stopPoi: ["traffic_signals"] });
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], withHiddenTrafficSignals);
+    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], withHiddenTrafficSignals, STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
     const supplyFilter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
 
     expect(evaluateFilter(supplyFilter, { kind: "traffic_signals" })).toBe(false);
