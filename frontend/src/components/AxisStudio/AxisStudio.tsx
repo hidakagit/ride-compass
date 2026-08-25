@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { useAdminCredentials } from "@/hooks/useAdminCredentials";
 import { setAdminCredentials } from "@/lib/adminToken";
 import { materialLabel } from "@/lib/axisMaterialsCatalog";
@@ -30,6 +31,15 @@ export default function AxisStudio() {
   // duplicateFromの内容で初期化する（axis_idは空のまま、is_publishedは常にfalseへ
   // 落とす——公開済み軸を複製しても複製先は下書きから始まる）。
   const [duplicateFrom, setDuplicateFrom] = useState<AxisDefinitionResponse | null>(null);
+  // 改善計画T304: 「編集ボタンを押した後にそのまま編集画面がポップアップ起動してほしい。
+  // 下部エリアの編集エリアまで目が行かない」という実機フィードバックへの対応。以前は
+  // AxisComposerが一覧の下に常時表示（新規作成モード）されており、「編集」を押しても
+  // 一覧のさらに下までスクロールしないと気づけなかった。編集・複製・新規作成のどれかを
+  // 選んだときだけモーダル（components/ui/Dialog）で開く方式へ変更した。creatingNewは
+  // 「新しい軸を作る」ボタンを押したときだけtrueになる（以前は常時この状態がデフォルト
+  // 表示されていたが、一覧を隠さない・目的の操作を選んでから開く、という一貫した導線にする）。
+  const [creatingNew, setCreatingNew] = useState(false);
+  const composerOpen = editingAxisId !== null || duplicateFrom !== null || creatingNew;
 
   async function reload() {
     setListError(null);
@@ -47,6 +57,12 @@ export default function AxisStudio() {
     if (credentials.username !== "" || credentials.password !== "") Promise.resolve().then(() => reload());
   }, [credentials.username, credentials.password]);
 
+  function closeComposer() {
+    setEditingAxisId(null);
+    setDuplicateFrom(null);
+    setCreatingNew(false);
+  }
+
   async function handleSave(payload: AxisDefinitionPayload, isNew: boolean) {
     if (isNew) {
       await createAxisDefinition(payload);
@@ -54,12 +70,12 @@ export default function AxisStudio() {
       await updateAxisDefinition(payload.axis_id, payload);
     }
     await reload();
-    setEditingAxisId(null);
-    setDuplicateFrom(null);
+    closeComposer();
   }
 
   function handleDuplicate(def: AxisDefinitionResponse) {
     setEditingAxisId(null);
+    setCreatingNew(false);
     setDuplicateFrom(def);
   }
 
@@ -92,6 +108,11 @@ export default function AxisStudio() {
   }
 
   const editingDefinition = definitions?.find((d) => d.axis_id === editingAxisId) ?? null;
+  const composerTitle = editingDefinition
+    ? `軸を編集: ${editingDefinition.axis_id}`
+    : duplicateFrom
+      ? `「${duplicateFrom.label}」を複製して新しい軸を作る`
+      : "新しい軸を作る";
 
   return (
     <div className={styles.studio}>
@@ -134,6 +155,14 @@ export default function AxisStudio() {
 
       {(credentials.username !== "" || credentials.password !== "") && (
         <>
+          <p className={styles.hint}>
+            軸は「距離・獲得標高が近い候補の中から、どれくらい走りやすいか」を評価する
+            計算式1本ぶんです。既存の軸を少し調整したいだけなら、一覧から「編集」を押して
+            重みや折れ点を変えるだけで十分です（下書きの軸のみ編集可）。一から新しい軸を
+            作るには「+ 新しい軸を作る」を押してください。公開済み軸は他ユーザーの設定を
+            守るため直接編集・削除できません——「複製して新規作成」→検証→公開、または
+            「非公開に戻す」→編集/削除、という流れになります。
+          </p>
           {listError && <p className={styles.errorText}>{listError}</p>}
           <div className={styles.list}>
             <p className={styles.groupLabel}>登録済みの軸（{definitions?.length ?? "..."}）</p>
@@ -196,16 +225,37 @@ export default function AxisStudio() {
             ))}
           </div>
 
-          <AxisComposer
-            key={editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : "new")}
-            editing={editingDefinition}
-            duplicateFrom={duplicateFrom}
-            onCancelEdit={() => {
+          <button
+            type="button"
+            className={styles.newAxisButton}
+            onClick={() => {
               setEditingAxisId(null);
               setDuplicateFrom(null);
+              setCreatingNew(true);
             }}
-            onSave={handleSave}
-          />
+          >
+            + 新しい軸を作る
+          </button>
+
+          <DialogRoot open={composerOpen} onOpenChange={(open) => { if (!open) closeComposer(); }}>
+            {/* 既定のDialogContentは幅min(90vw,28rem)・高さ内容依存だが、AxisComposerは
+                材料/折れ点/フラグの可変長リストを持つ比較的大きなフォームのため、幅と
+                最大高さ+縦スクロールを拡張する（改善計画T304）。cn()のtwMergeで既定の
+                Tailwindユーティリティ(w-[...]/デフォルトのoverflow無指定)を正しく
+                上書きするため、CSS Modulesではなくここでも同じくTailwindクラス文字列を渡す。 */}
+            <DialogContent
+              title={composerTitle}
+              className="w-[min(94vw,42rem)] max-h-[85vh] overflow-y-auto"
+            >
+              <AxisComposer
+                key={editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : "new")}
+                editing={editingDefinition}
+                duplicateFrom={duplicateFrom}
+                onCancelEdit={closeComposer}
+                onSave={handleSave}
+              />
+            </DialogContent>
+          </DialogRoot>
         </>
       )}
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FieldLabel } from "@/components/Map/recipeControls";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -19,6 +20,18 @@ import styles from "./AxisStudio.module.css";
 
 type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical" | "flag_sum";
 type Category = "観測" | "推定" | "動的";
+
+// 各変換テンプレート(shape)の説明（改善計画T304、「軸スタジオの使い方が分かりにくい」
+// という実機フィードバックへの対応）。選択肢のラベルだけでは何が起きるか分からない
+// という指摘のため、選んだ時点でその意味と具体例を1文で示す。
+const SHAPE_KIND_DESCRIPTIONS: Record<ShapeKind, string> = {
+  breakpoint_linear:
+    "1つ以上の材料を重み付きで足し合わせ、折れ点（入力値→スコア）でなめらかに0〜100点へ変換します。例: 勾配(%)が急なほど点数を下げる。",
+  recipe_then_breakpoint_linear:
+    "他の軸（is_published=falseの内部軸）の計算結果を材料として使う場合に選びます。変換の仕組み自体はひとつ上の区分線形補間と同じです。",
+  categorical: "真偽値1つを見て、該当する/しないの2パターンにそれぞれ固定スコアを割り当てます。例: 一方通行かどうか。",
+  flag_sum: "複数の真偽フラグそれぞれに加点し合計します（上限[cap]を設定可）。例: 危険要因が多いほど減点する。",
+};
 
 interface TermDraft {
   material: string;
@@ -171,10 +184,6 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
-  function startEditing(next: AxisDefinitionResponse | null) {
-    setDraft(next ? draftFromExisting(next, materialOptions) : emptyDraft(materialOptions));
-    setError(null);
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -198,8 +207,10 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
     };
     setSaving(true);
     try {
+      // 改善計画T304: 保存成功後は呼び出し側（AxisStudio）がモーダルごと閉じるため、
+      // ここでフォームをリセットして開いたままにする必要はない（以前の「新規作成時は
+      // 続けて次の1件を入力できるようフォームを空へ戻す」挙動は撤去した）。
       await onSave(payload, isNew);
-      if (isNew) startEditing(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -224,34 +235,34 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
 
   return (
     <form onSubmit={handleSubmit} className={styles.composer}>
-      <h3 className={styles.composerTitle}>
-        {editing
-          ? `軸を編集: ${editing.axis_id}`
-          : duplicateFrom
-            ? `「${duplicateFrom.label}」を複製して新しい軸を作る`
-            : "新しい軸を作る"}
-      </h3>
-
       <div className={styles.row}>
-        <label className={styles.field}>
-          axis_id
+        <div className={styles.field}>
+          <FieldLabel
+            label="axis_id"
+            description="軸の内部識別子（半角英数字とアンダースコア）。ルート設定・APIのキーとして使われ、作成後は変更できません。"
+          />
           <input
             type="text"
             value={draft.axisId}
             disabled={!isNew}
+            aria-label="axis_id"
             onChange={(e) => setDraft((d) => ({ ...d, axisId: e.target.value }))}
             placeholder="例: unpaved_avoidance"
           />
-        </label>
-        <label className={styles.field}>
-          表示名(label)
+        </div>
+        <div className={styles.field}>
+          <FieldLabel
+            label="表示名(label)"
+            description="一般ユーザー向けのルート設定画面・地図の凡例に表示される名前です。"
+          />
           <input
             type="text"
             value={draft.label}
+            aria-label="表示名(label)"
             onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
             placeholder="例: 未舗装回避"
           />
-        </label>
+        </div>
       </div>
 
       <label className={styles.fieldFull}>
@@ -264,34 +275,36 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
       </label>
 
       <div className={styles.row}>
-        <label className={styles.field}>
-          分類(category)
-          <select value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value as Category }))}>
+        <div className={styles.field}>
+          <FieldLabel
+            label="分類(category)"
+            description="観測=タグ・POIをそのまま読む軸／推定=複数の材料を判定式で合成する軸／動的=気象等、時々刻々変わる外部データ由来の軸。一般向けルート設定画面のグループ分けに使われます。"
+          />
+          <select
+            value={draft.category}
+            aria-label="分類(category)"
+            onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value as Category }))}
+          >
             <option value="観測">観測</option>
             <option value="推定">推定</option>
             <option value="動的">動的</option>
           </select>
-        </label>
-        <label className={styles.field}>
-          既定重み(default_weight)
+        </div>
+        <div className={styles.field}>
+          <FieldLabel
+            label="既定重み(default_weight)"
+            description="この軸を誰も上書きしていないときに使われる重みです。0にするとおすすめ度の計算から実質除外されます。"
+          />
           <input
             type="number"
             min="0"
             step="0.01"
+            aria-label="既定重み(default_weight)"
             value={draft.defaultWeight}
             onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
           />
-        </label>
+        </div>
       </div>
-
-      <label className={styles.inlineCheckbox}>
-        <Checkbox
-          checked={draft.isPublished}
-          onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
-          aria-label="公開する"
-        />
-        公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
-      </label>
 
       <label className={styles.fieldFull}>
         変換テンプレート(shape)
@@ -305,6 +318,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
           <option value="flag_sum">フラグ加算（複数の真偽フラグ→加点合計）</option>
         </select>
       </label>
+      <p className={styles.hint}>{SHAPE_KIND_DESCRIPTIONS[draft.shapeKind]}</p>
 
       {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
         <div className={styles.shapeGroup}>
@@ -457,6 +471,15 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
           </label>
         </div>
       )}
+
+      <label className={styles.inlineCheckbox}>
+        <Checkbox
+          checked={draft.isPublished}
+          onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
+          aria-label="公開する"
+        />
+        公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
+      </label>
 
       {error && <p className={styles.errorText}>{error}</p>}
 
