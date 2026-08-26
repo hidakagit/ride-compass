@@ -4039,6 +4039,11 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   実施する（過去の同種整理T8・2026-08-19棚卸と同じ運用）。
 - 完了条件: architecture.md本文の行数削減（目標は着手時に設定）＋decisions/側からの
   リンク整合＋CLAUDE.md/context.mdの参照先が壊れていないこと。
+- **トリガー発火の記録（2026-08-27、統合レビュー第8回 overall O-1）**: architecture.mdは
+  1,741行→2,146行（+23%）まで成長し、T347〜T350（材料正規化＋axis_definitions DB専有化、
+  XL級）という「次の大きな設計転換」がトリガー条件に該当した。ただし本タスク自体は
+  依然未着手。着手判断はユーザー承認後に行う（本エントリは状況記録のみ、着手そのものを
+  意味しない）。
 
 ### - [ ] T287. road_nodes/road_edgesのtext型PKの容量・性能再評価〔P3〕規模S（調査のみ）— トリガー: T127（全国データ取込）の意思決定時に容量試算へ含める
 
@@ -8038,6 +8043,100 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
      に留める（ドキュメント・型レベルの透明性向上のみ、スケール不整合自体は残る）。
 - 優先度: P2相当（起票のみ、着手はしない）。着手方針（上記1/2/3のいずれで進めるか）は
   ユーザー承認後に決定する。
+
+---
+
+### - [ ] T354. docs/architecture.mdのAxisComposer.tsx記述をT332後のウィザード構成へ更新 規模S（起票のみ、未着手）
+
+- 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase4 consistency F-1）で発見。軸スタジオの新規作成フォーム
+  （`frontend/src/components/AxisStudio/AxisComposer.tsx`）はT332（2026-08-25）で単一
+  フォームから4ステップウィザード（基本情報→点数のつけ方→点数の詳細→地図表示・公開）＋
+  カード選択方式へ全面再設計されたが、`docs/architecture.md:526`のAxisComposer.tsx節は
+  再設計前の記述（単一フォーム、「4テンプレート選択」という表現）のまま。architecture.md内に
+  「ウィザード」「T332」の言及が一切ない（`grep -n "ウィザード\|T332" docs/architecture.md`
+  で0件、2026-08-27時点で確認済み）。
+- 対応方針: `docs/architecture.md:526`付近のAxisComposer.tsx節を、実際の4ステップ構成・
+  カード選択・ステップ単位検証（`validateStep`）・chip_label欄の位置（最終ステップ）が
+  分かる内容へ更新する（コード改変を伴わないdocsのみの修正）。
+- 優先度: P2（実害は「後続作業者がarchitecture.mdを一次情報として実装構造を誤認するリスク」
+  に限定）。
+- Scope: S
+
+---
+
+### - [ ] T355. AxisComposer.tsxの規模ウォッチ閾値を新規登録し、churn沈静化後にshape種別ごとの分割を検討 規模S（登録）〜M（分割）（起票のみ、未着手）
+
+- 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase3 complexity F-1）で発見。
+  `frontend/src/components/AxisStudio/AxisComposer.tsx`はT270（2026-08-24新設、474行）から
+  3日間で1,123行（+137%）へ急成長した。`renderShapeParamsStep`（658-1001行、343行）が
+  単一関数内で5つのshape種別（breakpoint_linear/recipe_then_breakpoint_linear/
+  categorical/flag_sum/priority_condition）ごとに異なるUIを分岐しており、複数の変更理由が
+  同居している。`page.tsx`（閾値1,900行）・`MapView.tsx`（閾値2,800行）と異なり、この種の
+  閾値付きKEEPがcontext.md「意図的な設計判断」（Keep List）に未登録。
+- 対応方針: (a) まずcontext.md「意図的な設計判断」（Keep List）へAxisComposer.tsxの
+  閾値付きKEEPを新規登録する（例: 1,400行到達 または 6つ目のshape種到達）。(b) 分割
+  （shape種別ごとのサブコンポーネント抽出）は、直近まで継続していたウィザードUXの調整
+  コミットが沈静化してから判断する（churnが収まっていない現時点での分割は手戻りリスクが
+  高いというレビュー側の判断）。
+- 優先度: P2（実害は未確認だが、`page.tsx`/`MapView.tsx`が過去に閾値未設定のまま成長し
+  事後発見された経緯[2026-08-16文書R-6]と同型のリスクパターンに入りつつある）。
+- Scope: S（(a)登録のみ）〜M（(b)分割まで実施する場合）
+
+---
+
+### - [ ] T356. レビュー履歴ファイル`history/2026-08-26_complexity.md`の不在について記録を整合させる 規模S（起票のみ、未着手）
+
+- 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase3 complexity F-3。同レビューのPhase1全体把握でも
+  独立に同一事実を確認、2経路で裏付け済み）で発見。本ファイル（`docs/improvement-plan.md`）
+  のT349エントリ、および`docs/architecture.md:1131`が、T348第三案を差し戻す決め手の
+  一つとして「複雑度平衡性レビュー（`.claude/commands/review/history/
+  2026-08-26_complexity.md` F-1、P0）」を引用しているが、このファイルは全ブランチの
+  git履歴上に一度も存在しない（`git log --all --diff-filter=A -- "*complexity*.md"`で
+  確認済み）。principles.md標準実行手順5「結果はhistory/へ保存する」が守られなかった
+  可能性がある。
+- 影響: 実害は限定的（T349自体は独立した別の実測根拠[DB読み込み44ms実測]も持っており
+  結論は揺るがない）。ただしレビュー基盤の追跡可能性が損なわれている。
+- 対応方針: 当時のセッション記録（ターミナル履歴・別セッションのログ等）が残っていれば
+  `history/2026-08-26_complexity.md`として遡及的に復元・コミットする。残っていなければ、
+  本ファイルのT349該当箇所・`docs/architecture.md:1131`へ「レビュー結果ファイルは未保存
+  （原因不明）、指摘内容の要約はT349本文参照」と注記する。
+- 優先度: P3。
+- Scope: S
+
+---
+
+### - [ ] T357. road_graph_repository.py・road_graph_engine.pyの規模ウォッチ閾値を新規登録 規模S（起票のみ、未着手）
+
+- 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase3 complexity F-2）で発見。
+  `backend/app/infrastructure/road_graph_repository.py`は前回複雑度レビュー
+  （2026-08-23）でも「単一ファイルの物理行数として最大であり続けている」と記述されながら
+  閾値が設定されず、今回2,030→2,432行（+19.8%）まで成長した。`services/
+  road_graph_engine.py`も675→842行（+24.7%）で新たに閾値監視の対象規模に達した。
+  いずれも責務別クラス構造（repository: `DerivedGraphRepository`/`RawOsmRepository`/
+  `RoadSurfaceTileQuery`/`AttributeRepository`＋ファサード、engine: `LoopRoutingEngine`
+  3段階ポート契約を単一クラス内に維持）は健全であり、現時点で分割は不要と判断されている。
+- 対応方針: context.md「意図的な設計判断」（Keep List）へ両ファイルの閾値付きKEEPを
+  新規登録する（`road_graph_repository.py`: 2,800行到達 または 単一サブクラスが1,000行
+  到達、`road_graph_engine.py`: 1,100行到達を提案）。
+- 優先度: P3。
+- Scope: S
+
+---
+
+### - [ ] T358. T350削除禁止ガードの回帰テストをwind・gradient軸まで拡張 規模S（起票のみ、未着手）
+
+- 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase4 consistency F-2）で発見。
+  `backend/app/services/axis_registry_service.py`の`_CODE_COUPLED_AXIS_IDS`
+  （削除禁止ガード対象、T350）は`car_stress`/`night`/`wind`/`gradient`の4 axis_idを
+  対象にしているが、`backend/tests/test_axis_registry_service.py`は`car_stress`・
+  `night`のみ検証しており、`wind`・`gradient`向けの回帰テストが存在しない。4件とも同じ
+  1行の分岐ロジック（`if axis_id in _CODE_COUPLED_AXIS_IDS`）を通るため現時点の実害は
+  低いが、将来分岐ロジックが変更された際にwind/gradientの回帰だけ検知漏れになるリスクが
+  残る。
+- 対応方針: 既存テストをparametrize化するか、wind・gradientそれぞれの削除拒否テストを
+  1件ずつ追加する。
+- 優先度: P3。
+- Scope: S
 
 ---
 
