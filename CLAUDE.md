@@ -56,6 +56,16 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
   定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
   上げる（T70・T93で対上げ漏れが2回発生）。
+- **`domain/axis_definitions.py: AXIS_DEFINITIONS`の組み込み軸（14エントリ）のshape・
+  weight・表示メタデータを変更したら**、`backend/scripts/generate_axis_migration_sql.py`
+  でSQLを生成し、対応するmigrationファイル（既存軸なら更新、新規軸なら次番号で新規追加）
+  へ反映する（手書き転記でJSON表現を目視確認するのは禁止——T347で`bicycle_infra_quality`の
+  shapeを再設計するたびに手書き確認を繰り返し、migration 0017の`shape_params`が古いまま
+  取り残されるドリフトを見落とした実績を受け、改善計画T348でこのスクリプトを新設）。
+  `tests/test_migrate.py`のブートストラップテストが、まっさらなDBへ全migrationを適用した
+  結果とPython正本の完全一致をpostgis統合テストとして検証する（DB接続が要るため
+  `pytest -m "not postgis"`実行時はスキップされる。ローカルPostgreSQLを起動して
+  `pytest tests/test_migrate.py`を実行し確認すること）。
 - **規模M以上の変更は、着手前の最初のコミットでdocs/improvement-plan.mdへ対応する
   タスクエントリを先に作成する**（T130で一度破られ事後是正された実績を受けT135で
   明文化を検討、2026-08-23のT231棚卸で正式採用）。作業内容が変わりうる大きめの

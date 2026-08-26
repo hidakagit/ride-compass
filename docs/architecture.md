@@ -1093,6 +1093,24 @@ PostGISテーブル`axis_definitions`（+版数管理用`axis_registry_meta`、
 DB未接続環境でのフォールバック値」として引き続き存在する（ソースは1つのままだが、
 役割が「唯一の実データ」から「既定値・安全網」へ変わった）。
 
+**組み込み軸のDBシードは`AXIS_DEFINITIONS`から機械生成する（改善計画T348）**:
+Python側で組み込み軸のshape・weight・表示メタデータを変更した際、対応するmigration
+（`migrations/0014`〜）のSQLを人間が手で書き直す運用は、T347で`bicycle_infra_quality`の
+shapeを複数回再設計するたびに手作業の一致確認が発生し、実際にmigration 0017の
+`shape_params`がT336時点の再設計に追従せず古いまま取り残されるドリフトを生んだ
+（`tests/test_migrate.py`のブートストラップテストが事後に検知）。`backend/scripts/
+generate_axis_migration_sql.py`（DB接続不要、`AXIS_DEFINITIONS`をそのまま読んで
+`model_dump(mode="json")`からSQL文を組み立てるだけ）がこの手書き転記を代替する
+（既存軸の変更は`UPDATE`、新規軸追加は`--insert --sort-order N`で`INSERT`を出力）。
+出力は貼り付け用のSQL文であり、新しいmigrationファイルを自動では作らない——組み込み軸
+1件ごとに人間が意図してmigrationを追加する既存の連番運用（0014〜0021）はそのまま
+維持し、軸スタジオでGUI編集済みの下書き軸を意図せず巻き込む一括再シードは行わない
+設計（下記「自転車インフラの独立公開軸化」節・docs/improvement-plan.md T348参照）。
+`tests/test_migrate.py::test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds`
+が、まっさらなDBへ全migrationを適用した結果と`AXIS_DEFINITIONS`の内容が完全一致することを
+検証する回帰テストとして機能する（postgis統合テストのためDB接続が要る、`pytest -m
+"not postgis"`実行時はスキップされる）。
+
 評価ホットパス（`evaluation.py`/`difficulty.py`等）は従来どおり`AXIS_DEFINITIONS`を
 同期的なモジュールレベル辞書として読む——この既存の読み出し方法は一切変えていない。
 `services/axis_registry_service.py: refresh_axis_definitions`が、(1)アプリ起動時

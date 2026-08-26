@@ -7561,7 +7561,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T348. 組み込み評価軸のDB投入（migration）を`axis_definitions.py`から自動生成し、手書き二重管理を解消 規模M（未着手）
+### - [x] T348. 組み込み評価軸のDB投入（migration）を`axis_definitions.py`から自動生成し、手書き二重管理を解消 規模M（完了）
 
 - 背景: T347の実装中（`bicycle_infra_quality`軸の材料排他チェック衝突への対応）に、
   `domain/axis_definitions.py`（Python literal、`AXIS_DEFINITIONS`）と`axis_definitions`
@@ -7616,13 +7616,38 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 - 実施前に検討する検証（任意、着手判断用）: 第三案は`AXIS_DEFINITIONS`をPython importの
   ままDB接続ゼロで使い続けられるため、オプションAで懸念していたテスト速度・安定性への
   影響はほぼ生じない見込み。実測検証の優先度はAの時より下がったが、着手前に軽く確認しても良い。
-- 未確定事項（実施時に詰める）: (1) 自動生成スクリプトの設計（`AXIS_DEFINITIONS`の現在の
-  内容と直前の生成物との差分から、既存の連番migration方式（0014〜0021）に沿った**増分**
-  migrationを1本出す方式を想定——全件を毎回書き直す一括再シードにはしない。GUI編集済みの
-  非公開軸を意図せず上書きしないため）、(2) 「組み込み軸」と「GUI作成カスタム軸」をDB
-  スキーマ上で区別する`source`列的なものを設けるか（無くても`check_publish_immutability`
-  だけで実害は防げている可能性があり、要否から検討）、(3) 新スクリプトの置き場所・命名
-  （`backend/scripts/`配下、`export_openapi.py`との役割分担）。
+- 実施内容（完了）:
+  1. [x] `backend/scripts/generate_axis_migration_sql.py`を新設。`AXIS_DEFINITIONS`から
+     axis_id（複数可・`--all`）を指定してSQLを標準出力へ出す（既定はUPDATE、
+     `--insert --sort-order N`でINSERT）。DB接続不要、新しいmigrationファイルは自動で
+     作らない（未確定事項(1)(3)を解決: 増分・1軸ずつ手動配置の既存運用を維持、
+     `backend/scripts/`配下に`export_openapi.py`と同型で配置）。実際にmigration
+     `0021_bicycle_infra_axis.sql`のUPDATE/INSERT文を再生成し、手書きした内容と
+     バイト単位で一致することを確認。生成したSQLを実際にPostgreSQLへ適用し、
+     `AxisDefinitionRepository`経由で読み戻した内容が`AXIS_DEFINITIONS`と完全一致する
+     ことも実機検証済み（ラウンドトリップ確認）。
+  2. [x] `tests/test_migrate.py::test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds`
+     を拡張し、まっさらなDBへ全migration適用後の`axis_definitions`テーブル内容が
+     `AXIS_DEFINITIONS`（Python正本）と全14エントリで完全一致することを検証する
+     アサーションを追加（`AxisDefinition`はPydantic BaseModelのため`==`で全フィールド
+     比較できる）。意図的に不一致を注入して実際に検知することを確認済み（値を1つ
+     変えてテストが失敗することを確認後、元に戻した）。
+  3. [x] `source`列（未確定事項(2)）は追加しないと決定: `check_publish_immutability`
+     （T271）が公開済み軸のGUI編集を既に一律禁止しており、Python正本との乖離が
+     起こりうるのは非公開の内部軸6つに限られ、かつその乖離は許容する方針
+     （上記「軸スタジオ（GUI）の編集可能範囲」参照）にしたため、組み込み/カスタムを
+     区別する追加スキーマの実益が無いと判断。
+  4. [x] `CLAUDE.md`の「コミット時の同期ルール」へ本タスクの新ルール（SQL生成スクリプト＋
+     ドリフト検知テストの運用）を追記。`docs/architecture.md`「評価軸定義のDB化＋管理API」
+     節へ機械生成の説明を追記。
+  5. [x] **副産物として発見・修正した実害のあるバグ**（T347の取りこぼし、本タスクで
+     ローカルPostgreSQLを実際に起動してpostgis統合テストを走らせて判明——T347完了時点は
+     `pytest -m "not postgis"`のみで確認しておりDB接続が要るテストは自動スキップされ
+     発見できていなかった）: `tests/test_migrate.py`のブートストラップテストの
+     axis_definitions行数チェックが13行のまま（bicycle_infra_quality追加後の正しい
+     行数14に未更新）、`tests/test_road_graph_repository.py`のMVTタイル生成テスト2件が
+     削除済みの`bicycle_infra`プロパティ・`classify_bicycle_infrastructure`を
+     参照したままだった。別コミットで先行修正済み。
 
 ---
 

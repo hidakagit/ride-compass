@@ -3,8 +3,10 @@ import uuid
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.domain.axis_definitions import AXIS_DEFINITIONS
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.migrate import MIGRATIONS_DIR, _split_statements, apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 from tests.conftest import TEST_DATABASE_URL
@@ -216,3 +218,18 @@ async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(boots
         axis_count = (await conn.execute(text("SELECT count(*) FROM axis_definitions"))).scalar()
     # 公開8軸（migrations/0014・0021）+ car_stress内部軸6（migrations/0017）= 14行
     assert axis_count == 14
+
+    # 改善計画T348: migrationを通してDBへ投入した組み込み軸14件の内容が、
+    # domain/axis_definitions.py: AXIS_DEFINITIONS（Python正本）と完全一致することを
+    # 検証する。手書きmigrationがPython側の変更に追従し忘れる（T347で実際に発覚した、
+    # migration 0017のshape_paramsがT336時点のcar_stress_bicycle_infra_adjustment再設計に
+    # 追従せず旧categorical形のまま取り残されていた実例）ドリフトを、コミット前ではなく
+    # ここで機械的に検知する。
+    async with AsyncSession(bootstrap_engine) as session:
+        db_definitions = await AxisDefinitionRepository(session).list_all()
+    assert set(db_definitions) == set(AXIS_DEFINITIONS)
+    for axis_id, expected in AXIS_DEFINITIONS.items():
+        assert db_definitions[axis_id] == expected, (
+            f"axis_id={axis_id}: DBの内容がaxis_definitions.pyの定義と一致しません"
+            "（対応するmigrationの手書き内容が古い可能性があります）"
+        )
