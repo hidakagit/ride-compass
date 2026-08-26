@@ -7651,6 +7651,63 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [ ] T349. T348（第三案）を差し戻し、軸定義DB同期のフォールバックを廃止しfail-fast化（オプションAへ） 規模M
+
+- 背景: T348完了後、ユーザーとの継続的な議論（2026-08-26）で、第三案（Pythonが正本、
+  DBは実行時override、フォールバック機構は維持）自体が「複数管理はやめて、シンプルに
+  して、重複は省いて」というユーザーの一貫した要望と矛盾すると判明した。第三案採用の
+  決め手だった2つの根拠を検証した結果、いずれも裏付けを欠いていた。
+  1. **「オプションAはテストが遅くなる」という懸念は未検証だった**。実測
+     （session-scopedで1回だけDBから`AXIS_DEFINITIONS`を読み込む、実運用のlifespanと
+     同じパターンを模した一時的なpytestフィクスチャ、コミット対象外）したところ、
+     DB読み込み自体は**44ms**で、DB起動有無による所要時間差（7.06s→12.6s台）は
+     このフィクスチャと無関係な既存のpostgis依存テスト群がDB起動時にスキップされず
+     実行されるようになったことが原因と判明した（対照実験: フィクスチャを無効化した
+     状態でも同じ12.6s台）。
+  2. 複雑度平衡性レビュー（`.claude/commands/review/history/2026-08-26_complexity.md`
+     F-1、P0）が独立に同じ結論へ到達: 「軸定義DB同期のフォールバックは、複雑さそのもの
+     より『検知が受動的（起動ログの目視のみ）』という設計が本質的な問題」。T294→T295と
+     2回、障害のたびに「検知条件を1つ足す」対応を繰り返したが、T295自身が「次も
+     起動ログの目視という“偶然”に頼ることになる」と明記しており、能動的アラート手段は
+     一度も追加されなかった。
+- **T348で新設した`generate_axis_migration_sql.py`＋`test_migrate.py`のドリフト検知
+  テストは撤去しない**（複雑度レビューが「設計原則5に適合する新規KEEP候補」と評価済み。
+  これは「Python正本→migration機械生成」という単一の著述元を保つ仕組みであり、今回
+  問題にしているのは別の話——DBが読めない/古い時に**実行時に**黙ってPython版へ切り替わる
+  フォールバックの方）。
+- 決定事項（オプションA、2026-08-26最終確定）:
+  - `AXIS_DEFINITIONS`（Python literal）自体は撤去しない。引き続きmigration機械生成の
+    唯一の著述元として使う（評価ホットパスからの同期読み出し・`app/`91箇所・
+    `tests/`151箇所の既存参照も変更不要）。
+  - `services/axis_registry_service.py: refresh_axis_definitions`の「DB未接続・0行・
+    未知参照のいずれかで、WARNING/ERRORログのみを出しコード内蔵の既定値のまま動作を
+    続ける」という**実行時フォールバックを廃止**し、いずれの場合も
+    `AxisDefinitionSyncError`を送出してfail-fastする。呼び出し元（`main.py`の
+    lifespan）はこれを捕捉せず、アプリの起動自体を失敗させる。
+  - `.github/workflows/deploy-backend.yml`へmigration適用ステップを追加する
+    （`docker build`直後・`docker stop`より前——旧コンテナが稼働したままの状態で
+    migrationを試行し、失敗時は`set -e`でデプロイ全体を中断、旧コンテナは無傷のまま
+    残る）。これまでmigration適用はデプロイパイプラインに組み込まれておらず、T74由来の
+    「本番へのmigration適用がコードデプロイに遅れる」という既知の運用リスクの根本原因
+    だった。
+  - `backend/Dockerfile`が`app`ディレクトリしかCOPYしておらず`migrations/`・
+    `scripts/`が本番イメージに含まれていなかったため、migration適用ステップ導入の
+    前提としてこれも追加する。
+- 影響範囲: `backend/app/services/axis_registry_service.py`（フォールバック除去・
+  例外送出）、`backend/tests/test_axis_registry_service.py`（フォールバック検証3件を
+  例外送出の検証へ書き換え）、`backend/app/main.py`（lifespanコメント更新）、
+  `backend/Dockerfile`（COPY追加）、`.github/workflows/deploy-backend.yml`
+  （migration適用ステップ追加）、`docs/architecture.md`（Stage D節を更新）。
+- 保留・次に判断が必要な点: 本番デプロイでfail-fastが実際に発火した場合、
+  `--restart unless-stopped`により新コンテナがクラッシュループする（旧コンテナは
+  既に停止済みのため、サービス自体が止まる）。今回のmigration適用ステップ追加により
+  通常のデプロイ経路ではこの状態を回避できる設計だが、手動での`docker run`直接実行等
+  パイプライン外の経路では依然発生しうる。能動的アラート（複雑度レビューF-1提案の
+  `/api/debug/stats`統合・ヘルスチェックdegraded表明）は本タスクのスコープ外
+  （起票案として複雑度レビューに記載済み、別タスクとしてユーザー承認後に着手）。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構
