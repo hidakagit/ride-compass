@@ -14,27 +14,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: E402
 
-from app.config import settings  # noqa: E402
-from app.infrastructure.migrate import apply_pending_migrations  # noqa: E402
+from app.infrastructure.migrate import apply_pending_migrations, run_as_cli_script  # noqa: E402
 
 
-async def main() -> int:
-    engine = create_async_engine(settings.database_url)
-    try:
-        applied = await apply_pending_migrations(engine)
-    except Exception as exc:  # noqa: BLE001 適用失敗の内容をそのまま表示する
-        print(f"MIGRATION FAILED: {exc!r}")
-        return 1
-    finally:
-        await engine.dispose()
-
+async def _apply(engine: AsyncEngine) -> int:
+    applied = await apply_pending_migrations(engine)
     if applied:
         print(f"applied {len(applied)} migration(s): {', '.join(applied)}")
     else:
         print("no pending migrations (already up to date)")
     return 0
+
+
+async def main() -> int:
+    return await run_as_cli_script(_apply, failure_label="MIGRATION FAILED")
 
 
 if __name__ == "__main__":

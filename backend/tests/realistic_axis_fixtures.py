@@ -280,7 +280,11 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
                 ),
             ],
             thresholds=[2.0, 3.0, 4.0],
-            note="highway/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの5材料から自動計算する。",
+            note="改善計画T292: highway/maxspeed_kmh/lanes_count/"
+            "designation/motor_vehicle_noの5材料から自動計算する。以前は専用の"
+            "手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への"
+            "階層再構成でtile_inputsの重み付き結合として表現できるようになった"
+            "（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）",
         ),
     ),
     "accident": AxisDefinition(
@@ -305,7 +309,9 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             tile_inputs=[TileInputSpec(property="accident_per_km", weight=1.0)],
             thresholds=[0.4, 0.8, 1.5],
             unit="件/km",
-            note="警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。",
+            note="警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の"
+            "距離正規化密度。way単位の事前集計（way_attribute_counts）由来。"
+            "正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
         ),
     ),
     "night": AxisDefinition(
@@ -337,14 +343,28 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
 
 
 @contextmanager
-def realistic_axis_definitions():
-    """AXIS_DEFINITIONSの中身を一時的に`REALISTIC_AXIS_DEFINITIONS`へ差し替える
-    （終了時に元の内容へ復元する）。"""
+def axis_definitions_snapshot():
+    """AXIS_DEFINITIONSの現在の中身をスナップショットし、ブロック終了時に復元する
+    （改善計画T350のcode-review対応: 以前はこのスナップショット/復元パターンが
+    本ファイル・test_evaluation_bulk.py・test_axis_registry_service.pyの3箇所に
+    独立実装されていたため、共通プリミティブへ集約した）。
+
+    ブロック内でAXIS_DEFINITIONSへ何を書き込むか（差し替えるか、そもそも書き込まないか）は
+    呼び出し側の責務——本関数自体は「今の中身を憶えておいて、後で戻す」だけを行う。
+    """
     original = dict(AXIS_DEFINITIONS)
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(REALISTIC_AXIS_DEFINITIONS)
     try:
-        yield REALISTIC_AXIS_DEFINITIONS
+        yield original
     finally:
         AXIS_DEFINITIONS.clear()
         AXIS_DEFINITIONS.update(original)
+
+
+@contextmanager
+def realistic_axis_definitions():
+    """AXIS_DEFINITIONSの中身を一時的に`REALISTIC_AXIS_DEFINITIONS`へ差し替える
+    （終了時に元の内容へ復元する）。"""
+    with axis_definitions_snapshot():
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS.update(REALISTIC_AXIS_DEFINITIONS)
+        yield REALISTIC_AXIS_DEFINITIONS

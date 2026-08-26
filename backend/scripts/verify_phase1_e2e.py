@@ -23,10 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx  # noqa: E402
 
 from app.domain.route import Coordinates  # noqa: E402
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
 from app.infrastructure.elevation_client import ElevationClient  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 from app.infrastructure.weather_client import WeatherClient  # noqa: E402
+from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.elevation_attribute_service import ElevationAttributeService  # noqa: E402
 from app.services.evaluation_service import EvaluationService, load_route_preference  # noqa: E402
 from app.services.graph_service import GraphService  # noqa: E402
@@ -46,6 +48,14 @@ async def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     engine = get_engine()
     session_factory = get_session_factory()
+
+    # 改善計画T350: AXIS_DEFINITIONSはDBからのpush型更新でのみ埋まる（Python literal撤去済み）。
+    # 本スクリプトはapp.mainのlifespanを経由しない単体ツールのため、ここで明示的に読み込まないと
+    # load_route_preference()がweights={}の空の軸重みを返し、ルート生成が軸を一切考慮しないまま
+    # 完走してしまい「検証」が実質何も検証しなくなる（DB接続不可時はrefresh_axis_definitions
+    # 自身がfail-fastする）。
+    async with session_factory() as axis_session:
+        await refresh_axis_definitions(AxisDefinitionRepository(axis_session))
 
     started = time.perf_counter()
     try:

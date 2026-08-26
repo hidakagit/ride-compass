@@ -7841,6 +7841,71 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
      backend全テスト（1287件、実DB使用の統合テスト込み）がgreenであることを確認
      （T350と無関係の環境依存1件[このdev機の`.env`が`ROAD_GRAPH_USE_REPOSITORY=true`
      のため、DB未接続前提のテストが実DBへ到達してしまう既存の既知事象]を除く）。
+- **code-reviewフォローアップ（2026-08-27完了）**: `/code-review`（8角度×検証パス）で
+  14件の指摘が見つかり、1件ずつユーザーと方針確認しながら対応した。
+  1. `scripts/export_openapi.py`: DB読み込み失敗時に「コード内蔵の既定値へフォールバック」
+     という docstring 上の説明が、Python literal撤去で実態と矛盾（フォールバック先が
+     存在せず空のaxis-catalog.jsonを無警告で生成）していたため、fail-fast化した
+     （ユーザー判断）。
+  2. `scripts/compare_engines_quality.py`・`scripts/verify_phase1_e2e.py`:
+     `app.main`のlifespanを経由しない単体devツールのため`refresh_axis_definitions`を
+     一度も呼ばず、`RoutePreference()`が`weights={}`の空軸重みで無警告に動作していた
+     （エンジン品質比較・E2E検証が実質何も検証しない状態）。両スクリプトの`main()`冒頭で
+     明示的にDBから読み込むよう修正。
+  3. `tests/test_evaluation_bulk.py`: 合成`car_stress`用highwayマッピングが元の13キーから
+     3キーへ狭まっており、`_build_diverse_graph()`が使うhighway値のうち`cycleway`
+     （本番でも実際にマッピングされていた値）がカバレッジから漏れていたため追加。
+     `motorway`（本番でも未登録＝ハードフィルタ除外前提）・`None`/`unknown_highway`
+     （意図的に欠損/未知経路を検証）はそのままで問題ないと確認。
+  4. `tests/realistic_axis_fixtures.py`を使うautouseフィクスチャが11ファイルへ個別に
+     コピペされ、付け忘れると軸システムが空のまま無警告でgreenになるサイレント失敗
+     リスクがあった。`tests/conftest.py`へsessionスコープのautouseフィクスチャとして
+     集約し、全テストファイル共通で本番相当の14軸を用意する形へ変更
+     （副次的に、235件超のテスト関数それぞれで毎回発生していた無駄なdict clear/update
+     も解消）。**この対応中にユーザーから「そもそも14軸全部ないとテストが動かないのは
+     おかしい」という根本的な指摘があり、原因が`car_stress`/`night`等のaxis_id
+     ハードコード結合（T352の対象）にあると特定した。この根本対応はT352のスコープとし、
+     T352の完了確認基準へ「14軸フルではなく1軸以上の任意構成で動作することの確認」を
+     追加した（T352エントリ参照）。**
+  5. `tests/test_migrate.py`のブートストラップテストからDB値の固定比較を撤去した件
+     （T350本体で対応済み）について、「値の固定検証で何が困るか」という質問を受け
+     目的を再整理: 撤去したのは「Pythonリテラルという別の正本との同期」を守るための
+     検証であり、DBが唯一の正本になった以上この目的自体が消滅した。対症療法的な代替
+     （折れ点の単調性等の形式検証）はT347型のインシデント再発防止にはならないと確認し、
+     追加対応なしで確定した。
+  6. `app/services/axis_registry_service.py`の`_CODE_COUPLED_AXIS_IDS`
+     （削除禁止ガード対象4 axis_id）は、Python literal撤去により全軸一覧を1ファイルで
+     目視確認する手段が失われ、網羅性の監査が困難になった。本質的な解決はT352の対象と
+     判断し、今回は対応しない。
+  7. `.github/workflows/ci.yml`: `api-contract`ジョブと`backend`ジョブが独立に
+     postgresサービスコンテナを起動しGitHub Actions無償枠を余計に消費していたため、
+     `api-contract`のステップを`backend`ジョブへ統合。統合時に**実害のあるバグを発見**:
+     pytestの`road_graph_session`（`tests/conftest.py`）は使用後に`Base.metadata`の
+     全テーブルをTRUNCATEするが、`schema_migrations`（`Base.metadata`外）は対象外の
+     ため、「migration適用済みと記録されているのに実データ（axis_definitions等）は
+     別テストのTRUNCATEで消えている」という不整合が起こりうることが判明
+     （ローカルで実際に再現）。`scripts/bootstrap_ci_db.py`を`tests/test_migrate.py`の
+     ブートストラップテストと同じ「まっさらな状態からの再構築」方式（DROP→create_tables→
+     migration適用）へ変更し解消した。
+  8. `tests/realistic_axis_fixtures.py`・`tests/test_evaluation_bulk.py`・
+     `tests/test_axis_registry_service.py`に3重実装されていたAXIS_DEFINITIONSの
+     スナップショット/復元パターンを、`tests/realistic_axis_fixtures.py:
+     axis_definitions_snapshot()`という共通プリミティブへ集約した。
+  9. `tests/test_migrate.py`が`app/services/axis_registry_service.py:
+     _find_unknown_references`と同じ判定ロジックをテスト内に再実装していたのを、
+     実際に関数を呼ぶ形へ変更（本番の検知ロジックとテストの検証内容が食い違う余地を
+     無くす）。
+  10. `tests/test_evaluation_bulk.py`の`preference`フィクスチャが`_synthetic_axis_
+      definitions`の`extra`引数を転送しておらず、末尾2テストがフィクスチャを経由せず
+      同じ3ステップを手書きで再実装していたのを、`request.param`経由の間接
+      パラメータ化（`@pytest.mark.parametrize(..., indirect=True)`）で解消。
+  11. `scripts/bootstrap_ci_db.py`と`scripts/apply_migrations.py`が持っていた
+      「engine作成→本体処理→例外時ラベル付き表示・dispose」という共通の定型処理を、
+      `app/infrastructure/migrate.py: run_as_cli_script()`へ集約した。
+  12. `tests/realistic_axis_fixtures.py`の`display_override.note`テキストが元の
+      Python literalより短く要約されていた（現時点でアサートするテストは無く実害は
+      無かった）ため、元の文言と一致させた。
+  - 対応後、backend全テスト（1287件）を再度green確認（環境依存1件を除く、上記と同一）。
 
 ---
 
@@ -7907,6 +7972,17 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   本タスクはその対症療法を、性質ベースの宣言的な汎用機構へ置き換える恒久対応。
 - 優先度: P2相当（起票のみ、着手はしない）。T350完了後、着手判断はユーザー承認後、
   別途行う。
+- **完了確認基準に追加（2026-08-27、T350のcode-review対応時にユーザー指摘）**:
+  本タスク完了時、`backend/tests/realistic_axis_fixtures.py`（T350で新設、本番相当の
+  14軸をtests/conftest.pyのセッションスコープautouseフィクスチャとして全テストへ供給する
+  仕組み）に依存しているテスト群が、**14軸フルではなく1つ以上の任意の軸だけで動作する**
+  ことを確認し、その前提でテストを見直すこと。T350時点では「個々のテストが本当は
+  何軸必要か」を精査せず、`car_stress`/`night`等のaxis_idハードコード結合（本タスクの
+  対象そのもの）を避けるための安全側の近道として14軸フルを全テストへ配っていた
+  （2026-08-27、T350のcode-review「そもそも14軸全部ないとテストが動かないのがおかしい」
+  という指摘を受け、対応はT352まで保留と合意）。本タスクで性質ベースの宣言的機構へ
+  置き換われば、この「フルセット必須」という制約自体が本質的に不要になっているはずで、
+  それを実際にテストで裏付けることが本タスクの完了条件の一部となる。
 
 ---
 

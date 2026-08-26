@@ -1,23 +1,15 @@
-import pytest
-
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.difficulty import (
     composite_difficulty,
     distance_weighted_difficulty,
     evaluate_axis_difficulties,
 )
-from tests.realistic_axis_fixtures import realistic_axis_definitions
 
-
-@pytest.fixture(autouse=True)
-def _realistic_axes():
-    # 改善計画T350: 本ファイルはevaluate_axis_scalarの折れ点補間そのものが検証対象
-    # （breakpointsは本番と同じ値をtests/realistic_axis_fixtures.pyで再現している）に加え、
-    # evaluate_axis_difficulties()がグローバルなAXIS_DEFINITIONSをそのまま参照するため、
-    # 一貫した軸システムが必要（tests/realistic_axis_fixtures.py参照）。
-    with realistic_axis_definitions():
-        yield
-
+# 改善計画T350: 本ファイルはevaluate_axis_scalarの折れ点補間そのものが検証対象
+# （breakpointsは本番と同じ値をtests/realistic_axis_fixtures.pyで再現している）に加え、
+# evaluate_axis_difficulties()がグローバルなAXIS_DEFINITIONSをそのまま参照するため、
+# 一貫した軸システムが必要。tests/conftest.pyのセッションスコープautouseフィクスチャが
+# 全テスト共通で用意する。
 
 # 改善計画T320: 以前はgradient_difficulty/wind_difficulty/road_difficulty/stop_difficulty/
 # accident_difficulty（domain/difficulty.py）・night_difficulty（domain/night.py）という

@@ -5,10 +5,10 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.domain.material_catalog import is_known_material
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.migrate import MIGRATIONS_DIR, _split_statements, apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
+from app.services.axis_registry_service import _find_unknown_references
 from tests.conftest import TEST_DATABASE_URL
 
 # xdist_group="postgis": migration_engineは同じridecompass_test DBに対して
@@ -227,11 +227,8 @@ async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(boots
     async with AsyncSession(bootstrap_engine) as session:
         db_definitions = await AxisDefinitionRepository(session).list_all()
     assert len(db_definitions) == 14
-    known_axis_ids = set(db_definitions)
-    for axis_id, definition in db_definitions.items():
-        unknown = [
-            m
-            for m in definition.materials
-            if not is_known_material(m) and m not in known_axis_ids
-        ]
-        assert not unknown, f"axis_id={axis_id}: 未知の材料/軸参照 {unknown}"
+    # 改善計画T350のcode-review対応: 未知の材料/軸参照の判定ロジックを本テストへ
+    # 再実装せず、refresh_axis_definitions（起動時ロード）が実際に使うのと同じ関数を
+    # そのまま呼ぶ（本番の検知ロジックとテストの検証内容が食い違う余地を無くす）。
+    unknown_references = _find_unknown_references(db_definitions)
+    assert not unknown_references, f"未知の材料/軸参照: {unknown_references}"

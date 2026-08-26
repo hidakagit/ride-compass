@@ -1,17 +1,10 @@
-import pytest
-
 from app.domain.attributes import ElevationAttribute
 from app.domain.axis_definitions import default_axis_weights
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.evaluation_service import EvaluationService, load_route_preference
-from tests.realistic_axis_fixtures import realistic_axis_definitions
 
-
-@pytest.fixture(autouse=True)
-def _realistic_axes():
-    # 改善計画T350: tests/test_road_graph_engine.pyと同じ理由（実軸id前提のロジック）。
-    with realistic_axis_definitions():
-        yield
+# 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
+# スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
 
 
 def _make_graph(*edges: DirectedEdge) -> RoadGraph:

@@ -19,6 +19,7 @@ from app.services.axis_registry_service import (
     AxisRegistryAdminService,
     refresh_axis_definitions,
 )
+from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
 
@@ -27,11 +28,11 @@ pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(
 def restore_axis_definitions():
     # refresh_axis_definitionsはグローバルなAXIS_DEFINITIONS（プロセス全体で共有）をin-place
     # 更新するため、他のテストファイルへ汚染が漏れないよう必ずスナップショット・復元する
-    # （services/axis_registry_service.pyのdocstring参照）。
-    snapshot = dict(AXIS_DEFINITIONS)
-    yield
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(snapshot)
+    # （services/axis_registry_service.pyのdocstring参照）。改善計画T350のcode-review対応:
+    # スナップショット/復元の仕組み自体はtests/realistic_axis_fixtures.py:
+    # axis_definitions_snapshot()へ集約済み（3重実装を解消）。
+    with axis_definitions_snapshot():
+        yield
 
 
 def _definition(

@@ -22,16 +22,11 @@ from app.services.evaluation_service import EvaluationService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
 from app.services.route_scorer import RouteScorer
-from tests.realistic_axis_fixtures import realistic_axis_definitions
 
-
-@pytest.fixture(autouse=True)
-def _realistic_axes():
-    # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルが暗黙に前提とする
-    # 「car_stress/night等の実在axis_idを持つ一貫した軸システム」をテスト側で用意する
-    # （tests/realistic_axis_fixtures.py参照。DBの現在値の検証が目的ではない）。
-    with realistic_axis_definitions():
-        yield
+# 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルが暗黙に前提とする
+# 「car_stress/night等の実在axis_idを持つ一貫した軸システム」が必要（DBの現在値の検証が
+# 目的ではない）。tests/conftest.pyのセッションスコープautouseフィクスチャが全テスト共通で
+# 用意する（tests/realistic_axis_fixtures.py参照）。
 
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)

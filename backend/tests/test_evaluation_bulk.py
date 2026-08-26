@@ -27,6 +27,7 @@ from app.domain.evaluation import (
 )
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
+from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルは
 # compute_edge_cost（スカラー版）とcompute_edge_costs_bulk（配列版）の一致を検証する
@@ -39,7 +40,14 @@ from app.domain.weather import WeatherConditions
 
 _INTERNAL_AXIS = AxisDefinition(
     axis_id="test_internal_axis",
-    shape=CategoricalShape(material="highway", mapping={"residential": 1.0, "primary": 3.0, "trunk": 4.0}),
+    # _build_diverse_graph()のhighways一覧（下記）と対応させる。motorwayは本番でも
+    # 未登録（ハードフィルタで除外される想定のためcar_stress自体は評価されない）、
+    # None/unknown_highwayは意図的に「欠損・未知カテゴリ」経路を検証する値のため、
+    # cycleway（本番のhighway基準値では1.0）だけがcategorical分岐の実際のカバレッジに
+    # 必要な追加キー。
+    shape=CategoricalShape(
+        material="highway", mapping={"cycleway": 1.0, "residential": 1.0, "primary": 3.0, "trunk": 4.0}
+    ),
     default_weight=0.0,
     label="テスト内部軸",
     category="推定",
@@ -131,25 +139,33 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
 
 @contextmanager
 def _synthetic_axis_definitions(extra: dict[str, AxisDefinition] | None = None):
-    """AXIS_DEFINITIONSの中身を一時的に合成軸セットへ差し替える（テスト終了後に復元）。"""
-    original = dict(AXIS_DEFINITIONS)
+    """AXIS_DEFINITIONSの中身を一時的に合成軸セットへ差し替える（テスト終了後に復元）。
+
+    改善計画T350のcode-review対応: スナップショット/復元の仕組み自体は
+    tests/realistic_axis_fixtures.py: axis_definitions_snapshot()へ集約済み
+    （本ファイル・test_axis_registry_service.pyとの3重実装を解消）。ここでは
+    「合成軸セット（_SYNTHETIC_AXES + extra）を書き込む」という本ファイル固有の
+    部分だけを持つ。
+    """
     axes = dict(_SYNTHETIC_AXES)
     if extra:
         axes.update(extra)
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(axes)
-    try:
-        yield axes
-    finally:
+    with axis_definitions_snapshot():
         AXIS_DEFINITIONS.clear()
-        AXIS_DEFINITIONS.update(original)
+        AXIS_DEFINITIONS.update(axes)
+        yield axes
 
 
 @pytest.fixture
-def preference():
+def preference(request):
     # 全軸の重みを非ゼロにし、compositeが「一部の軸だけ」で決まらないようにする
     # （デフォルトのnight重み0.0だと夜間軸のバグが合成結果に現れず見逃しうるため）。
-    with _synthetic_axis_definitions() as axes:
+    # 改善計画T350のcode-review対応: request.param経由でextra軸を注入できるようにした
+    # （@pytest.mark.parametrize("preference", [{...}], indirect=True)）。以前は
+    # 末尾2テストがこのフィクスチャを経由せず、同じ3ステップ（軸差し替え・weights計算・
+    # RoutePreference構築）を手書きで再実装していた。
+    extra = getattr(request, "param", None)
+    with _synthetic_axis_definitions(extra) as axes:
         yield RoutePreference(weights={axis_id: 1.0 for axis_id, d in axes.items() if d.is_published})
 
 WIND = WeatherConditions(
@@ -412,7 +428,22 @@ def test_bulk_hard_filters_empty_allows_bicycle_no_edge(preference):
     assert included["e0"].allowed is True
 
 
-def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor():
+_N10_ONLY_AXIS = AxisDefinition(
+    axis_id="custom_n10_only_axis",
+    shape=BreakpointLinearShape(
+        terms=[MaterialTerm(material="is_emergency_transport")],
+        breakpoints=[(0.0, 0.0), (1.0, 100.0)],
+    ),
+    default_weight=1.0,
+    label="テスト用N10軸",
+    description="",
+    category="推定",
+    is_published=True,
+)
+
+
+@pytest.mark.parametrize("preference", [{_N10_ONLY_AXIS.axis_id: _N10_ONLY_AXIS}], indirect=True)
+def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor(preference):
     """改善計画T343回帰テスト: `MaterialSpec.extractor=None`の材料（oneway/designation/
     is_emergency_transport/is_critical_logistics、「トリガー付きDEFER」設計原則9）を
     参照する軸（軸スタジオ経由でGUI作成できてしまう——`_check_materials_are_known`は
@@ -424,19 +455,6 @@ def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor
     非対称性があった）。データが無い材料として恒久的に欠損扱いになる
     （スカラー版と同じグレースフルデグレード）ことも確認する。
     """
-    custom_axis = AxisDefinition(
-        axis_id="custom_n10_only_axis",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="is_emergency_transport")],
-            breakpoints=[(0.0, 0.0), (1.0, 100.0)],
-        ),
-        default_weight=1.0,
-        label="テスト用N10軸",
-        description="",
-        category="推定",
-        is_published=True,
-    )
-
     graph = RoadGraph(
         graph_version="test",
         nodes={
@@ -457,34 +475,35 @@ def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor
         },
     )
 
-    with _synthetic_axis_definitions({custom_axis.axis_id: custom_axis}) as axes:
-        weights = {axis_id: 1.0 for axis_id, d in axes.items() if d.is_published}
-        preference = RoutePreference(weights=weights)
-        # is_emergency_transportの既定値[bool_default="false"]はFalse（欠損ではなく確定値）
-        # のためcustom_n10_only_axis自体は"該当なし"として評価される（0.0）。ここで検証したい
-        # 主眼は例外が起きないこと（KeyErrorしないこと）と、他の軸の合成が壊れないこと。
-        results = compute_edge_costs_bulk(graph, {}, {}, preference, way_tags={"e0": {}}, weights=weights)
+    # is_emergency_transportの既定値[bool_default="false"]はFalse（欠損ではなく確定値）
+    # のためcustom_n10_only_axis自体は"該当なし"として評価される（0.0）。ここで検証したい
+    # 主眼は例外が起きないこと（KeyErrorしないこと）と、他の軸の合成が壊れないこと。
+    results = compute_edge_costs_bulk(
+        graph, {}, {}, preference, way_tags={"e0": {}}, weights=preference.weights
+    )
 
     assert results["e0"].allowed is True
     assert results["e0"].difficulty is not None
     assert results["e0"].cost is not None
 
 
-def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_an_extractor():
+_DESIGNATION_ONLY_AXIS = AxisDefinition(
+    axis_id="custom_designation_only_axis",
+    shape=CategoricalShape(material="designation", mapping={"emergency_transport": 100.0}),
+    default_weight=1.0,
+    label="テスト用designation軸",
+    description="",
+    category="推定",
+    is_published=True,
+)
+
+
+@pytest.mark.parametrize("preference", [{_DESIGNATION_ONLY_AXIS.axis_id: _DESIGNATION_ONLY_AXIS}], indirect=True)
+def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_an_extractor(preference):
     """上のテストのCategoricalShape版。categorical材料はdtype=objectのnumpy配列
     （np.emptyでNone初期化）のため、boolean/numeric材料とは別の初期化コードパスを通る
     （evaluation.py: material_arraysの構築、dtype分岐参照）。designation
     （dtype="categorical"、extractor未設定）を参照する軸でも同様にクラッシュしないこと。"""
-    custom_axis = AxisDefinition(
-        axis_id="custom_designation_only_axis",
-        shape=CategoricalShape(material="designation", mapping={"emergency_transport": 100.0}),
-        default_weight=1.0,
-        label="テスト用designation軸",
-        description="",
-        category="推定",
-        is_published=True,
-    )
-
     graph = RoadGraph(
         graph_version="test",
         nodes={
@@ -505,10 +524,9 @@ def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_
         },
     )
 
-    with _synthetic_axis_definitions({custom_axis.axis_id: custom_axis}) as axes:
-        weights = {axis_id: 1.0 for axis_id, d in axes.items() if d.is_published}
-        preference = RoutePreference(weights=weights)
-        results = compute_edge_costs_bulk(graph, {}, {}, preference, way_tags={"e0": {}}, weights=weights)
+    results = compute_edge_costs_bulk(
+        graph, {}, {}, preference, way_tags={"e0": {}}, weights=preference.weights
+    )
 
     assert results["e0"].allowed is True
     assert results["e0"].difficulty is not None

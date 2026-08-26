@@ -7,8 +7,6 @@ RouteGenerator（戦略層）を通したエンドツーエンドで、エンジ
 
 from datetime import datetime, timezone
 
-import pytest
-
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
@@ -21,15 +19,9 @@ from app.services.openrouteservice_engine import (
 )
 from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator
 from app.services.route_scorer import RouteScorer
-from tests.realistic_axis_fixtures import realistic_axis_definitions
 
-
-@pytest.fixture(autouse=True)
-def _realistic_axes():
-    # 改善計画T350: tests/test_road_graph_engine.pyと同じ理由（実軸id前提のロジック）。
-    with realistic_axis_definitions():
-        yield
-
+# 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
+# スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
 

@@ -7,6 +7,29 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.infrastructure.road_graph_models import Base
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from tests.realistic_axis_fixtures import realistic_axis_definitions
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _realistic_axis_definitions():
+    """全テストへ本番相当の14軸（tests/realistic_axis_fixtures.py参照）を用意する
+    （改善計画T350のcode-reviewで指摘: 以前は各テストファイルへ同じautouseフィクスチャを
+    個別にコピペしており、①付け忘れたファイルはAXIS_DEFINITIONSが空のまま
+    weights={}・軸スコアNoneという退化した軸システムでも例外なくgreenになる構造的な
+    サイレント失敗リスクがあり、②同じ内容の辞書コピーを235件超のテスト関数それぞれで
+    毎回clear/update していた無駄もあった。ここへ集約しsession scope
+    （REALISTIC_AXIS_DEFINITIONSは不変の静的データのため、テストごとに作り直す必要がない）
+    にすることで両方を解消する。
+
+    個々のテストファイル（test_axis_registry_service.py・test_evaluation_bulk.py・
+    test_axis_catalog_routes.py等）が持つ、自前でAXIS_DEFINITIONSを一時的に書き換えて
+    元に戻すフィクスチャ/コンテキストマネージャはこれと独立に動作し続ける——それらは
+    「テスト開始時点の中身」をスナップショットして復元するだけなので、その中身が
+    このセッションフィクスチャ由来のREALISTIC_AXIS_DEFINITIONSであっても問題ない。
+    """
+    with realistic_axis_definitions():
+        yield
+
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB
 # (ridecompass, backend/.envのDATABASE_URLが指す先)とは別のテスト専用DBを使う

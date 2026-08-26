@@ -14,7 +14,6 @@ frontendのnpm run generate:apiを実行して生成物を同じコミットに�
 
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
 
@@ -46,8 +45,6 @@ from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 
-logger = logging.getLogger("ridecompass.export_openapi")
-
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
 SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
@@ -64,35 +61,31 @@ def _write_json(path: Path, data: dict | list) -> None:
     print(f"wrote {path}")
 
 
-async def _try_load_axis_definitions_from_db() -> None:
-    """可能ならDBの軸定義でAXIS_DEFINITIONSをin-place更新する（改善計画T278の
-    バグ修正）。
+async def _load_axis_definitions_from_db() -> None:
+    """DBの軸定義でAXIS_DEFINITIONSをin-place更新する（改善計画T278のバグ修正）。
 
     以前は本スクリプトがAXIS_DEFINITIONSをコード内蔵の静的辞書のまま一切DBへ
     問い合わせなかったため、軸スタジオがDBのみに作った新規軸（コード内蔵の既定値には
     存在しない）が生成物へ一切反映されなかった。
 
-    CIの`api-contract`ジョブはDB接続を持たない（本スクリプトのdocstring参照）ため、
-    接続失敗/未migration時はコード内蔵の既定値のまま生成を続行する
-    （**この呼び出し元での**フォールバック。改善計画T349で
-    `services/axis_registry_service.py: refresh_axis_definitions`自体はfail-fast化
-    したため、この関数が例外を捕捉して生成を継続させる）——DB無しの環境でも生成物の
-    内容（コード内蔵の既定値ぶん）は今までどおり変わらない。本番の起動時fail-fastとは
-    独立した、コードgenツール固有の設計判断（このスクリプトの目的は「DB接続の有無に
-    関わらずビルド時静的生成物を必ず作る」ことで、本番サーバの「DBと不整合なら
-    起動させない」とは別の要件）。
+    改善計画T350: `AXIS_DEFINITIONS`のPython literal撤去に伴い、DB読み込み失敗時に
+    フォールバックする「コード内蔵の既定値」自体が存在しなくなった。以前はCIの
+    `api-contract`ジョブがDB接続を持たなかったため、この関数が例外を捕捉して
+    「空のAXIS_DEFINITIONSのまま生成を続行し、コード内蔵の既定値ぶんの内容だけ
+    出力する」というフォールバックを行っていたが、その出力自体が「空のカタログ」に
+    なってしまい、生成失敗をエラーなく見逃す方が実害が大きいと判断してfail-fast化した
+    （`api-contract`ジョブは同じ改善計画T350でpostgresサービスコンテナを追加済みのため、
+    通常の実行経路では影響しない）。DB接続が無い環境でこのスクリプトを実行すると
+    例外がそのまま送出され、`main()`を異常終了させる。
     """
-    try:
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            await refresh_axis_definitions(AxisDefinitionRepository(session))
-    except Exception as exc:  # noqa: BLE001 生成を止めず内蔵の既定値へフォールバックする（このスクリプト固有）
-        logger.warning("軸定義のDB読み込みに失敗、コード内蔵の既定値を使用します error=%r", exc)
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        await refresh_axis_definitions(AxisDefinitionRepository(session))
 
 
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    asyncio.run(_try_load_axis_definitions_from_db())
+    asyncio.run(_load_axis_definitions_from_db())
     _write_json(OUTPUT_PATH, app.openapi())
     # 路面語彙の正準タグ集合（domain/road.py）。フロントの表示グループ定義
     # （roadFilterAxes.ts）が正準分類とずれていないことをroadFilterAxes.test.tsが

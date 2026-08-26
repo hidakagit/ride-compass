@@ -16,10 +16,13 @@ multiple commands into a prepared statement`）。そのため単純な';'区切
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from app.config import settings
 
 logger = logging.getLogger("ridecompass.migrate")
 
@@ -84,3 +87,24 @@ async def list_pending_migrations(engine: AsyncEngine, migrations_dir: Path = MI
                 row[0] for row in (await conn.execute(text("SELECT filename FROM schema_migrations"))).all()
             }
     return sorted(path.name for path in migrations_dir.glob("*.sql") if path.name not in applied)
+
+
+async def run_as_cli_script(body: Callable[[AsyncEngine], Awaitable[int]], *, failure_label: str) -> int:
+    """DB操作CLIスクリプト共通の定型処理をまとめる（改善計画T350のcode-review対応:
+    `scripts/apply_migrations.py`・`scripts/bootstrap_ci_db.py`の2箇所が、engine作成
+    （`settings.database_url`）→本体処理→例外時はラベル付きで表示・engineをdisposeして
+    終了コードを返す、というほぼ同じtry/except/finally骨格を独立に持っていたため集約した）。
+
+    `body`は実際の処理（`apply_pending_migrations`呼び出し等）を行い、成功時の終了コード
+    （通常0）を返す。例外を送出した場合はここで捕捉し`{failure_label}: {例外}`を標準出力へ
+    表示した上で1を返す（呼び出し元スクリプトはCI失敗時に原因がログへそのまま出ることを
+    期待している）。
+    """
+    engine = create_async_engine(settings.database_url)
+    try:
+        return await body(engine)
+    except Exception as exc:  # noqa: BLE001 呼び出し元スクリプトの標準出力へ原因をそのまま表示する
+        print(f"{failure_label}: {exc!r}")
+        return 1
+    finally:
+        await engine.dispose()

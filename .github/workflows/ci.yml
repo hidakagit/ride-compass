@@ -1,17 +1,20 @@
 # CI（docs/improvement-plan.md T1）。push / PR ごとに backend・frontend の全チェックを回す。
 #
-# - backend: pytest。PostGIS統合テスト（tests/conftest.py の road_graph_session）は
-#   postgis/postgis サービスコンテナ（docker-compose.ymlと同じイメージ）+
-#   TEST_DATABASE_URL 注入で実行する（改善計画T233、consistencyレビュー2026-08-23 F-1:
-#   統合テスト約100件がCIで一度も検証されず、T224の回帰テスト自身もその中に含まれていた
-#   ことが発覚したため追加）。conftest.pyがCREATE EXTENSION postgis・テーブル作成を
-#   自前で行うため、migration適用ステップは不要。
+# - backend: pytest（PostGIS統合テスト込み）→ API契約のドリフト検知（改善計画T4）の順で
+#   1ジョブにまとめている（改善計画T350のcode-review対応で統合、2026-08-27。ジョブ分割時は
+#   postgresサービスコンテナがジョブごとに独立起動しGitHub Actions無償枠を余計に消費する
+#   ため）。PostGIS統合テスト（tests/conftest.py の road_graph_session）は postgis/postgis
+#   サービスコンテナ（docker-compose.ymlと同じイメージ）+ TEST_DATABASE_URL 注入で実行する
+#   （改善計画T233、consistencyレビュー2026-08-23 F-1: 統合テスト約100件がCIで一度も検証
+#   されず、T224の回帰テスト自身もその中に含まれていたことが発覚したため追加）。
+#   API契約チェック（export_openapi.py）は同じコンテナに対しmigration適用後の状態で行う
+#   （ステップ順序の制約はbackendジョブ内のコメント参照——pytestより後に実行必須）。
 # - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
 #   失敗を早く返す。
 # - e2e: クリティカルパス（ルート生成→表示、レイヤー切替）のPlaywrightスモークテスト
 #   （改善計画「別の切り口」対応）。バックエンド・外部API（openrouteservice/Open-Meteo/
 #   OpenFreeMap）には依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
-#   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
+#   （API契約の正しさはbackendジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
 name: CI
 
 on:
@@ -37,73 +40,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # API契約のドリフト検知（docs/improvement-plan.md T4）。
-  # backendのOpenAPIスキーマ→フロント型を再生成し、コミット済みの生成物
-  # （frontend/src/types/generated/）と差分が無いことを確認する。
-  # 差分が出た場合は、backendのモデル変更に対して
-  # backend/scripts/export_openapi.py → cd frontend && npm run generate:api
-  # の実行とコミットが漏れている。
+  # backend単体テスト（PostGIS統合テスト込み）＋API契約のドリフト検知（改善計画T4）を
+  # 1ジョブに統合（改善計画T350のcode-review対応、2026-08-27）。
   #
-  # 改善計画T350: axis_definitions.pyのAXIS_DEFINITIONS（Python literal）を撤去し、
-  # axis_definitionsテーブルが14軸全ての唯一の正本になったため、このジョブにも
-  # postgresサービスコンテナを追加し、migration適用後のDBからaxis-catalog.json等を
-  # 生成する（以前はDB無しでもコード内蔵の既定値へフォールバックして生成できていたが、
-  # そのフォールバック自体が撤去対象だった）。backendジョブと異なりBase.metadata.
-  # create_allではなく、本番と同じブートストラップ経路（create_tables→
-  # apply_pending_migrations、tests/test_migrate.py参照）でmigrationを適用する
-  # （axis_definitionsの初期データはmigration側のINSERT文にしか無いため）。
-  api-contract:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_USER: ridecompass
-          POSTGRES_PASSWORD: ridecompass
-          POSTGRES_DB: ridecompass_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: pip install -r requirements.txt
-        working-directory: backend
-      - run: python scripts/bootstrap_ci_db.py
-        working-directory: backend
-      - run: python scripts/export_openapi.py
-        working-directory: backend
-      - run: npm ci
-        working-directory: frontend
-      - run: npm run generate:api
-        working-directory: frontend
-      - run: git diff --exit-code -- frontend/src/types/generated/
-
+  # 統合の背景: T350でaxis_definitions.pyのAXIS_DEFINITIONS（Python literal）を撤去し
+  # axis_definitionsテーブルが14軸全ての唯一の正本になったことで、API契約チェック
+  # （backend/scripts/export_openapi.py）にも実DB＋migration適用が必須になった。
+  # 当初はapi-contractジョブへ専用のpostgresサービスコンテナを別途追加したが、
+  # code-reviewで「backendジョブと2つの独立したpostgresコンテナが並行起動し、
+  # GitHub Actions無償枠を不必要に消費している」と指摘され、1つのジョブ・1つの
+  # コンテナへ統合した。
+  #
+  # ステップ順序の制約（重要）: pytestの実行を必ずmigration適用（scripts/
+  # bootstrap_ci_db.py）より先に行うこと。tests/test_health.pyの
+  # test_db_status_returns_table_row_counts_and_import_run_status_for_empty_test_dbは
+  # 「ridecompass_test DBがBase.metadata.create_allのみでapply_pending_migrationsを
+  # 経由していない（＝migration未適用）」状態を前提にpending_migrationsが非空である
+  # ことを検証している。先にbootstrap_ci_db.pyでmigrationを適用してしまうと、
+  # このテストが常に失敗するようになる（ローカルで実際に再現・確認済み）。
   backend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
     services:
-      # docker-compose.ymlのpostgresサービスと同じイメージ・認証情報。conftest.pyが
-      # CREATE EXTENSION postgis・テーブル作成（Base.metadata.create_all）を自前で
-      # 行うため、migration適用ステップは不要（road_edges等はSQLAlchemyモデルから
-      # 直接作成される。番号付きmigrationは本番のALTER履歴用）。
+      # docker-compose.ymlのpostgresサービスと同じイメージ・認証情報。
       postgres:
         image: postgis/postgis:16-3.4
         env:
@@ -119,6 +80,7 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
+      DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -129,6 +91,11 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-batch.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       # requirements-batch.txt（-r requirements.txtを内包、+osmium）を入れる。tests/には
       # test_import_pbf.py・test_pbf_source.pyというPBF取込バッチ（app/batch/）専用の
       # テストが存在し無条件でosmiumをimportするため、requirements.txtのみのインストール
@@ -139,8 +106,20 @@ jobs:
       # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/testing.mdパターン2）
-      # なので、それら以外のテストだけが安全に並列化される。
+      # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
+      # このステップは必ずbootstrap_ci_db.py（次のステップ）より先に実行すること。
       - run: python -m pytest -q -n auto --dist loadgroup
+      # ここから改善計画T4のAPI契約ドリフト検知（旧api-contractジョブ）。
+      # 差分が出た場合は、backendのモデル変更に対して
+      # backend/scripts/export_openapi.py → cd frontend && npm run generate:api
+      # の実行とコミットが漏れている。
+      - run: python scripts/bootstrap_ci_db.py
+      - run: python scripts/export_openapi.py
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run generate:api
+        working-directory: frontend
+      - run: git diff --exit-code -- frontend/src/types/generated/
 
   frontend:
     runs-on: ubuntu-latest

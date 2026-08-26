@@ -8,19 +8,18 @@ from app.domain import registry
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.axis_display import derive_ramp_inputs
 from app.domain.registry_defaults import register_defaults
-from tests.realistic_axis_fixtures import realistic_axis_definitions
+
+# 改善計画T350: register_defaults()は呼び出し時点のAXIS_DEFINITIONSをそのまま走査するため、
+# 本番相当の14軸が必要（tests/realistic_axis_fixtures.py参照）。tests/conftest.pyの
+# セッションスコープautouseフィクスチャが全テスト共通で用意する。
 
 
 @pytest.fixture(autouse=True)
 def _defaults_registered():
-    # 改善計画T350: register_defaults()は呼び出し時点のAXIS_DEFINITIONSをそのまま走査する
-    # ため、テスト側で本番相当の14軸（realistic_axis_definitions）を用意する
-    # （tests/realistic_axis_fixtures.py参照）。
-    with realistic_axis_definitions():
-        registry.reset_registry_for_testing()
-        register_defaults()
-        yield
-        registry.reset_registry_for_testing()
+    registry.reset_registry_for_testing()
+    register_defaults()
+    yield
+    registry.reset_registry_for_testing()
 
 
 def _axis(axis_id: str):

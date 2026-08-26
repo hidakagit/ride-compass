@@ -24,11 +24,13 @@ import httpx  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.domain.route import Coordinates  # noqa: E402
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
 from app.infrastructure.elevation_client import ElevationClient  # noqa: E402
 from app.infrastructure.ors_client import ORSClient  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 from app.infrastructure.weather_client import WeatherClient  # noqa: E402
+from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.elevation_attribute_service import ElevationAttributeService  # noqa: E402
 from app.services.elevation_service import ElevationService  # noqa: E402
 from app.services.evaluation_service import EvaluationService, load_route_preference  # noqa: E402
@@ -125,6 +127,13 @@ def _print_result(origin_name: str, engine_name: str, distance_km: float, result
 async def main() -> int:
     engine = get_engine()
     session_factory = get_session_factory()
+
+    # 改善計画T350: AXIS_DEFINITIONSはDBからのpush型更新でのみ埋まる（Python literal撤去済み）。
+    # 本スクリプトはapp.mainのlifespanを経由しない単体ツールのため、ここで明示的に読み込まないと
+    # load_route_preference()がweights={}の空の軸重みを返し、両エンジンとも軸を一切考慮しない
+    # 無意味な比較になってしまう（DB接続不可時はrefresh_axis_definitions自身がfail-fastする）。
+    async with session_factory() as axis_session:
+        await refresh_axis_definitions(AxisDefinitionRepository(axis_session))
 
     rows: list[tuple[str, str, float, dict]] = []
     try:
