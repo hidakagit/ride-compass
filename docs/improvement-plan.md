@@ -7561,7 +7561,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T348. 組み込み評価軸の定義をDBへ全面移行し、Python側フォールバック機構を廃止 規模L（未着手・T347完了後に着手）
+### - [ ] T348. 組み込み評価軸のDB投入（migration）を`axis_definitions.py`から自動生成し、手書き二重管理を解消 規模M（未着手）
 
 - 背景: T347の実装中（`bicycle_infra_quality`軸の材料排他チェック衝突への対応）に、
   `domain/axis_definitions.py`（Python literal、`AXIS_DEFINITIONS`）と`axis_definitions`
@@ -7575,45 +7575,54 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   「コミット時の同期ルール」に既にOpenAPI生成物向けの対処（`export_openapi.py`→
   `npm run generate:api`→`git diff --exit-code`）があるのと同様の構造的対策が必要という
   結論に至った。
-- 設計論議の経緯（ユーザーとの複数往復）: 当初「Pythonを正本のまま維持し、DBへの初期データ
-  投入だけを自動生成する（第三案、DBは実行時のoverride/runtime state）」という方向性を
-  検討したが、ユーザーから「観測（生データ）はPython、推定（軸定義の合成ロジック）は
-  軸スタジオ（DB）の領域、という既存の境界を、Pythonを正本のままにする設計は曖昧にする」
-  「Pythonに組み込み軸の実装を増やし続けると軸を追加するたびにコードが複雑化する」という
-  指摘を受け、最終的に**オプションA（DBを軸定義の唯一の正）を採用**することが確定した
-  （2026-08-26のユーザー最終確認: 「オプションAであっている。生データをPythonにふやすのは
-  いい。今Pythonで作っている組み込み軸をDBに移動して、フォールバック機構も消して、
-  DBレコードに移行してください」）。
-- 確定した設計方針:
-  - **生データ**（`MATERIAL_CATALOG`・`MaterialSpec`・抽出ロジック、`material_catalog.py`/
-    `recipe.py`）: 引き続き完全にPython/コード専有。このタスクのスコープ外、一切変更しない。
-  - **軸定義**（`AXIS_DEFINITIONS`——shape・breakpoints・重み・材料合成ロジック）:
-    今Pythonのリテラルとして持っている組み込み8軸（内部軸6つ含む、全14エントリ）をDBの
-    `axis_definitions`テーブルへ完全移行する。移行後はDBが唯一の正であり、Python側には
-    軸定義のリテラルを残さない。
-  - `axis_registry_service.py: refresh_axis_definitions`が持つ「DB未接続・空・破損時は
-    Python内蔵の既定値へ安全側フォールバックする」機構も削除する。DB接続必須化を受け入れる
-    （起動時DB依存、テストのDB依存化を伴う——このデメリットの実測が下記の検証)。
-- 実施前に必要な検証（ユーザー指示、T347完了後すぐ着手）: DB全面移行によるテスト速度・
-  安定性への影響を実測してから移行を本格実施する。検証観点（提案、実施時に具体化）:
-  (a) 現行のDB非依存な単体テスト（`pytest -m "not postgis"`、1081件）のうちどれだけが
-  軸定義読み込みでDB接続を要するようになるか、(b) 全面DB化した場合の該当テスト群の
-  実行時間比較（現状 vs. PostgreSQL接続込み）、(c) CI環境（pytest-xdist並列化）での
-  安定性（接続プール枯渇・タイムアウト等）、(d) ローカル開発環境構築の複雑化（DB起動を
-  前提とするテストの割合）。ローカルにPostgreSQL 16 + PostGIS導入済み（本セッションで
-  確認）のため実測環境は用意できる。
-- 移行対象: `car_stress_highway_base`・`car_stress_bicycle_infra_adjustment`・
-  `car_stress_maxspeed_adjustment`・`car_stress_lanes_adjustment`・
-  `car_stress_designation_adjustment`・`car_stress_motor_vehicle_no_adjustment`
-  （内部軸6つ、`is_published=False`）・`gradient`・`surface_q`・`wind`・`stop_density`・
-  `car_stress`・`accident`・`night`・`bicycle_infra_quality`（公開軸8つ）の計14エントリ。
-  GUI作成軸（既にDB専有、Python対応物なし）は影響を受けない。
-- 未確定事項（実施時に詰める）: (1) 移行手順（一括migrationで現行Pythonリテラルの内容を
-  DBへ書き込み、その後Pythonリテラルを削除する2段階か、それとも1コミットで両方行うか）、
-  (2) 「組み込み軸」と「GUI作成カスタム軸」をDBスキーマ上で区別する必要があるか
-  （現状は区別が無い。他のAIの意見として提案された`source=builtin/custom`列の要否）、
-  (3) `check_material_exclusivity`等、現状Pythonの`AxisDefinition`データ構造に依存する
-  検証ロジックの移行後の置き場所。
+- 設計論議の経緯（ユーザーとの複数往復、2026-08-26）: 当初検討した3案は
+  (A) DBを軸定義の唯一の正としPython literal・フォールバックを全廃、
+  (B) 単一のJSON/YAMLを正としPython/DB双方がそれを読む、
+  (C) 第三案＝Pythonを正本のまま維持し、DBへの初期データ投入だけを自動生成する
+  （DBは実行時のoverride/runtime state）。一時的にAで確定しかけた
+  （「オプションAであっている。生データをPythonにふやすのはいい。今Pythonで作っている
+  組み込み軸をDBに移動して、フォールバック機構も消して、DBレコードに移行してください」）が、
+  影響範囲の実査（`AXIS_DEFINITIONS`参照が`app/`91箇所・`tests/`151箇所・37ファイル、かつ
+  `tests/conftest.py`にDB依存を避ける仕掛けが無く現状1081件が9秒でDB接続ゼロ完走している
+  実態が判明）を経て「オプションAはリスクが高い」とユーザー判断が覆り、**最終的に第三案を
+  採用することが確定**した。
+- 確定した設計方針（第三案、Aから方針転換）:
+  - **観測（生データ、`MATERIAL_CATALOG`）**: 引き続き完全にPython/コード専有。GUI編集対象外。
+    このタスクのスコープ外、一切変更しない（この境界はA/B/Cどの案でも不変）。
+  - **推定（軸定義、`AXIS_DEFINITIONS`全14エントリ——公開8軸＋car_stress内部軸6つ）**:
+    **Pythonが引き続き唯一の正本**。「観測は生データ、推定は生データの翻訳＝軸スタジオの
+    領域」という既存の境界を保つため、`AxisDefinition.category`フィールド（観測/推定/動的、
+    T267由来の別分類）のラベルに関わらず、実体が複数材料の合成shapeを持つものは全て
+    「推定＝軸定義」としてこの正本管理の対象に含む（`gradient`・`surface_q`・
+    `stop_density`・`night`は`category="観測"`表記だが実体は合成shapeのため対象、旧
+    `bicycle_infra`分類がまさにこのパターンの実例だった）。
+  - DBへの初期投入（migration）は、今回T347でやったような手書きJSON転記をやめ、
+    `AXIS_DEFINITIONS`から自動生成するスクリプト（`export_openapi.py`と同型）を新設する。
+    生成物と実際のmigrationファイルとの`git diff --exit-code`でドリフトを検知する
+    （CLAUDE.mdの「コミット時の同期ルール」へこの新ルールを追記する）。
+  - `axis_registry_service.py: refresh_axis_definitions`の「DB未接続・空・破損時はPython
+    内蔵の既定値へ安全側フォールバックする」機構は**維持する**（Aで検討した廃止は撤回）。
+  - **軸スタジオ（GUI）の編集可能範囲**: 既存の`check_publish_immutability`
+    （T271「公開済み軸は不変」）により、**公開済み軸はそもそもGUIから編集・削除できない**
+    （`unpublish()`で一旦下書きへ戻さない限り）。したがってPython正本とGUI編集が衝突する
+    のは実質「非公開の内部軸6つ」（`car_stress_highway_base`等、`update()`は下書きを拒否
+    しないため理論上GUI編集可能）に限られる。**この非公開軸のGUI編集は、Python正本との
+    同期を取らない方針とする**（2026-08-26ユーザー確定）——新たなガードや一致検証テストは
+    追加しない。下書き状態は元々「編集途中で正本が定まっていない」状態であり、Python発の
+    ものであっても一度GUIで触った時点でDB側が独立した状態になることを許容する。
+    公開済みになった時点から先はPython正本との一致が構造的に保証される
+    （公開＝不変、変更したければPython変更→新migrationという既存パターンのみ）。
+    GUI作成カスタム軸（Python対応物なし）は従来どおり非公開・公開済みともにDB専有。
+- 実施前に検討する検証（任意、着手判断用）: 第三案は`AXIS_DEFINITIONS`をPython importの
+  ままDB接続ゼロで使い続けられるため、オプションAで懸念していたテスト速度・安定性への
+  影響はほぼ生じない見込み。実測検証の優先度はAの時より下がったが、着手前に軽く確認しても良い。
+- 未確定事項（実施時に詰める）: (1) 自動生成スクリプトの設計（`AXIS_DEFINITIONS`の現在の
+  内容と直前の生成物との差分から、既存の連番migration方式（0014〜0021）に沿った**増分**
+  migrationを1本出す方式を想定——全件を毎回書き直す一括再シードにはしない。GUI編集済みの
+  非公開軸を意図せず上書きしないため）、(2) 「組み込み軸」と「GUI作成カスタム軸」をDB
+  スキーマ上で区別する`source`列的なものを設けるか（無くても`check_publish_immutability`
+  だけで実害は防げている可能性があり、要否から検討）、(3) 新スクリプトの置き場所・命名
+  （`backend/scripts/`配下、`export_openapi.py`との役割分担）。
 
 ---
 
