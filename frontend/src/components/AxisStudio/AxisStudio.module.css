@@ -122,6 +122,14 @@
   gap: 0.2rem;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
+  /* 実機不具合の修正: .fieldは.row（横方向flex）内のflexアイテムでもあるため、
+     flexアイテムの既定min-width:auto（中身の最小コンテンツ幅、ここではselectの
+     最長選択肢テキスト幅）のままだと、下のmax-width:100%を付けても「まずこの.field
+     自身が中身に合わせて広がり、その広がった幅の100%」を指すだけで縮まらず、
+     画面外へはみ出し続けていた（改善計画T345・T346で材料/軸のラベルへ物理名[id]を
+     併記するようになり、選択肢テキストが伸びたことで顕在化）。min-width:0で
+     この既定値を上書きし、周囲の幅に合わせて縮められるようにする。 */
+  min-width: 0;
 }
 
 .field input,
@@ -135,6 +143,9 @@
   /* 改善計画T301: ネイティブselectは選択肢テキストの最大幅に合わせて広がるため、
      長いラベルの材料選択肢が狭い画面幅で行からはみ出しうる。 */
   max-width: 100%;
+  /* 実機不具合の修正: select/input自身もflexアイテムのため、上の.fieldと同じ理由で
+     min-width:0が無いとmax-width:100%が効かずはみ出す。 */
+  min-width: 0;
 }
 
 .fieldFull {
@@ -188,6 +199,10 @@
   background: var(--color-surface);
   padding: 0.2rem 0.4rem;
   max-width: 100%;
+  /* 実機不具合の修正（.field select/inputと同じ理由）: .termRowはflex-wrapする横方向
+     flexだが、selectの既定min-width:auto（最長選択肢テキスト幅）がmax-width:100%より
+     優先されるため、min-width:0が無いと画面外へはみ出す。 */
+  min-width: 0;
 }
 
 .breakpointRow input {
