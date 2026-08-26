@@ -7910,6 +7910,61 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [ ] T353. 内部軸の出力が正規化されないまま他軸の材料として参照される（軸参照と材料正規化方針の不整合） 規模M（起票のみ、未着手）
+
+- 背景: 「王子から荒川サイクリングロードへ抜ける周回ルートがヒットしない」というユーザー
+  報告の原因調査（2026-08-27）から発覚。調査自体は別件（`highway`材料が`footway`/`path`を
+  持たずcar_stress軸が評価不能になっている疑い）だったが、その過程で軸の階層構造自体に
+  ある不整合が見つかった。
+
+  公開軸（`is_published=True`）は必ず0〜100の共通スケール（difficulty、0=最も走りやすい・
+  100=最も走りにくい）に正規化する規約がある（`car_stress`のbreakpoints
+  `[[1.0, 0.0], [5.0, 100.0]]`、`bicycle_infra_quality`のbreakpoints
+  `[[-2.0, 0.0], [-1.0, 33.3], [0.0, 66.7], [1.0, 100.0]]`、いずれも出力レンジ0〜100）。
+  一方、`car_stress`を構成する6つの内部軸（`is_published=False`:
+  `car_stress_highway_base`/`car_stress_bicycle_infra_adjustment`/
+  `car_stress_maxspeed_adjustment`/`car_stress_lanes_adjustment`/
+  `car_stress_designation_adjustment`/`car_stress_motor_vehicle_no_adjustment`）には
+  この規約が適用されておらず、各々のbreakpoints設計に依存する恣意的なスケールで出力される
+  （例: `car_stress_highway_base`はcategorical mappingの生値そのまま1.0〜4.0、
+  `car_stress_bicycle_infra_adjustment`はbreakpoint_linearの出力で-2.0〜1.0程度）。
+
+  この正規化されていない内部軸の出力が、`MaterialTerm.material`フィールドを通じて
+  他の軸の「材料」として再利用される仕組み（改善計画T292「軸は他の軸のdifficultyを
+  materialとして参照できる」、`domain/evaluation.py:402`）が、公開軸
+  `bicycle_infra_quality`で実際に使われている——`car_stress_bicycle_infra_adjustment`の
+  -2.0〜1.0という出力を、`bicycle_infra_quality`のbreakpoints
+  `[[-2.0, 0.0], [-1.0, 33.3], [0.0, 66.7], [1.0, 100.0]]`で0〜100へ再スケールしている
+  （`backend/migrations/0021_bicycle_infra_axis.sql`）。
+
+  `docs/decisions/material-normalization-for-axis-composition.md`が確立した「材料は
+  生データに近い正規化された形に統一する」という方針（T336〜T341）は、**生データ→材料**の
+  変換（`bicycle_infra`のような複数タグの複合分類ロジック）のみを検証対象としており、
+  この「軸の出力を他の軸の材料として参照する」（T292）という別の合成経路は正規化方針の
+  対象外のまま残っていた。結果として`MaterialTerm.material`という同じ型・同じ文字列
+  フィールドに、性質の異なる2種類の値が紛れ込んでいる。
+  1. `MATERIAL_CATALOG`に登録された、生データ由来の正規化された値（スケールが
+     `material_catalog.py`のdescriptionで文書化されている）
+  2. `MATERIAL_CATALOG`に未登録・`is_known_material`のチェック対象外で、値域が参照先の
+     内部軸の`shape_params`次第で暗黙に決まる値（軸スタジオで新しい組み合わせを検討する
+     人にとってスケールが自明でなく、参照先の内部軸のbreakpointsが変われば意味も
+     暗黙に変わる、結合度の高さを持つ）
+
+  現状この経路を通っているのは`car_stress`一族6内部軸と、それを参照する
+  `bicycle_infra_quality`の1公開軸のみで、影響範囲自体は限定的。
+- 対応方針（案、着手時に検討・いずれで進めるかユーザー選択待ち）:
+  1. 内部軸も0〜100正規化を必須の規約にする（既存6内部軸のbreakpoints再設計が必要。
+     `car_stress`自体の最終的な計算結果が変わらないよう再較正を要する）。
+  2. 「軸参照」を`MaterialTerm`とは型的に区別する新しい仕組みを導入する（ただし
+     `docs/decisions/material-normalization-for-axis-composition.md`の「新しい
+     プリミティブは追加しない」という結論・目論見書7章の歯止め③との整合を要検討）。
+  3. 計算結果は変えず、内部軸の出力範囲を`AxisDefinition`のメタデータとして明示化する
+     に留める（ドキュメント・型レベルの透明性向上のみ、スケール不整合自体は残る）。
+- 優先度: P2相当（起票のみ、着手はしない）。着手方針（上記1/2/3のいずれで進めるか）は
+  ユーザー承認後に決定する。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構
