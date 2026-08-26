@@ -130,15 +130,27 @@ describe("AxisComposer", () => {
       expect(payload.shape.terms[0].material).toBe("surface_good");
     });
 
-    it("「他の軸の計算結果をもとに点数を変える」(recipe_then_breakpoint_linear)を選ぶとkindがそれになり、前処理の変更も反映される", async () => {
+    // ユーザー指摘（軸同士の線形結合nX+mYがGUIから組めない）への対応の回帰テスト。
+    // 以前はこのテンプレートの材料セレクトがMATERIAL_CATALOGの材料しか出しておらず、
+    // 「他の軸の計算結果を材料として使う」という説明どおりに他の軸を選ぶ手段がGUI上に
+    // 存在しなかった（backend側は元々MaterialTerm.materialへ他axis_idを指定できる設計
+    // だったが、GUIが対応していなかった実装漏れ）。
+    it("「他の軸を重みで足し合わせて点数を変える」(recipe_then_breakpoint_linear)を選ぶと材料セレクトが他の軸一覧になり、既定の折れ点(0→0,100→100)・前処理の変更も反映される", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const otherAxes = [baseDefinition({ axis_id: "wind", label: "風" })];
+      render(
+        <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={onSave} />,
+      );
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /他の軸の計算結果をもとに点数を変える/ }));
+      await user.click(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ }));
       await clickNext(user);
+
+      // 材料セレクトがMATERIAL_CATALOGの材料（勾配%等）ではなく、他の軸(風)の一覧になっている。
+      expect(screen.getByRole("option", { name: "風" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: /勾配%/ })).not.toBeInTheDocument();
 
       await user.selectOptions(screen.getByRole("combobox", { name: "前処理(preprocess)" }), "abs");
 
@@ -149,13 +161,73 @@ describe("AxisComposer", () => {
       const [payload] = onSave.mock.calls[0];
       expect(payload.shape).toEqual({
         kind: "recipe_then_breakpoint_linear",
-        terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
+        terms: [{ material: "wind", weight: 1.0, required: true }],
         preprocess: "abs",
         breakpoints: [
           [0, 0],
-          [10, 100],
+          [100, 100],
         ],
       });
+    });
+
+    it("軸を2つ選んで係数(n, m)を設定すると、nX + mYの重み付き線形結合としてpayloadに反映される", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      const otherAxes = [
+        baseDefinition({ axis_id: "gradient", label: "勾配" }),
+        baseDefinition({ axis_id: "wind", label: "風" }),
+      ];
+      render(
+        <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={onSave} />,
+      );
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "複合軸");
+      await clickNext(user);
+      await user.click(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ }));
+      await clickNext(user);
+
+      // 材料選択selectは前処理(preprocess)selectより前（terms.map内）に並ぶため、
+      // getAllByRole("combobox")の先頭側が材料selectになる。
+      await user.selectOptions(screen.getAllByRole("combobox")[0], "gradient");
+      await user.clear(screen.getByRole("spinbutton", { name: "係数" }));
+      await user.type(screen.getByRole("spinbutton", { name: "係数" }), "2");
+
+      await user.click(screen.getByRole("button", { name: "+ 軸を追加" }));
+      await user.selectOptions(screen.getAllByRole("combobox")[1], "wind");
+      const weightInputs = screen.getAllByRole("spinbutton", { name: "係数" });
+      await user.clear(weightInputs[1]);
+      await user.type(weightInputs[1], "1");
+
+      await clickNext(user);
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.shape).toEqual({
+        kind: "recipe_then_breakpoint_linear",
+        terms: [
+          { material: "gradient", weight: 2, required: true },
+          { material: "wind", weight: 1, required: false },
+        ],
+        preprocess: "identity",
+        breakpoints: [
+          [0, 0],
+          [100, 100],
+        ],
+      });
+    });
+
+    it("組み合わせられる他の軸が無いときは、その旨のヒントが表示され「+ 軸を追加」が無効化される", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
+      await clickNext(user);
+      await user.click(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ }));
+      await clickNext(user);
+
+      expect(screen.getByText(/組み合わせられる他の軸がまだありません/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "+ 軸を追加" })).toBeDisabled();
     });
 
     it("「はい/いいえ、または種類ごとに点数を決める」(categorical・boolean材料)でtrue/falseスコアがmappingになる", async () => {
@@ -366,7 +438,7 @@ describe("AxisComposer", () => {
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
       await clickNext(user);
-      expect(screen.getByRole("radio", { name: /他の軸の計算結果をもとに点数を変える/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ })).toBeChecked();
       expect(screen.getByRole("radio", { name: /^数値の大きさに応じて点数を変える/ })).not.toBeChecked();
     });
 
@@ -493,6 +565,49 @@ describe("AxisComposer", () => {
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
       expect(payload.chip_label).toBe("長い");
+    });
+  });
+
+  // ============================================================
+  // 実機不具合の回帰テスト: ウィザードの最終ステップ(4/4)へ「次へ」で遷移すると
+  // 未変更のまま暗黙に保存されて（ユーザーの目には）モーダルが勝手に閉じる不具合
+  // （本番環境で再現、原因はAxisComposer.tsx 1017行目付近参照）。
+  // ============================================================
+  describe("ウィザードのステップ遷移", () => {
+    it("「次へ」で最終ステップ(4/4)へ着いても、明示的に保存ボタンを押すまでonSaveは呼ばれない", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸K");
+      await clickNext(user); // basic -> shape_kind
+      await clickNext(user); // shape_kind -> shape_params
+      await clickNext(user); // shape_params -> display_publish（実機ではここで暗黙に保存されていた）
+
+      expect(screen.getByText("ステップ 4/4: 地図表示・公開")).toBeInTheDocument();
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    // Reactが「次へ」ボタンと保存ボタンを同じ<button>要素の使い回し（type属性の
+    // その場書き換え）として扱うと、クリックされた直後にtype="button"→"submit"へ
+    // 同期的に変わり、ブラウザ側のクリックのデフォルト動作判定（type="submit"なら
+    // フォーム送信）がこの書き換え後のtypeを見てしまい、「次へ」を押しただけで
+    // フォームが暗黙に送信される（実機で確認、jsdomではこのブラウザ側の判定タイミングの
+    // 差が再現できないため、React側の対策[key指定による強制的な要素の作り直し]が
+    // 効いていることを、DOM要素の参照が別物になっているかで直接確認する）。
+    it("「次へ」ボタンと保存ボタンは同じDOM要素を使い回さない（type属性の書き換えのみだとブラウザのクリック判定に混入し暗黙送信を招く）", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸L");
+      await clickNext(user);
+      await clickNext(user);
+
+      const nextButton = screen.getByRole("button", { name: "次へ" });
+      await user.click(nextButton);
+
+      const createButton = screen.getByRole("button", { name: "作成する" });
+      expect(createButton).not.toBe(nextButton);
     });
   });
 

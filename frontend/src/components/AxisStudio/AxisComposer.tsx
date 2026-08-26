@@ -62,8 +62,9 @@ const SHAPE_KIND_OPTIONS: ShapeKindOption[] = [
   },
   {
     kind: "recipe_then_breakpoint_linear",
-    title: "他の軸の計算結果をもとに点数を変える",
-    description: "内部軸（下書きのまま公開しない軸）の計算結果を材料として使う場合に選びます。仕組み自体は「数値の大きさに応じて点数を変える」と同じです。",
+    title: "他の軸を重みで足し合わせて点数を変える（nX + mYのように）",
+    description:
+      "他の軸（内部軸・公開軸どちらも可）の計算結果に重み(n, m…)を掛けて合計し、必要なら下の折れ点で最終調整します。「勾配の軸を2倍重視、風の軸を1倍」のように複数の軸を組み合わせたいときに選びます。仕組み自体は「数値の大きさに応じて点数を変える」と同じです。",
     advanced: true,
   },
 ];
@@ -357,6 +358,17 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
 
+  // ユーザー指摘（軸同士の線形結合nX+mYがGUIから組めない）への対応: backend側は元々
+  // MaterialTerm.materialへ他の軸のaxis_idを指定できる設計（domain/axis_definitions.py:
+  // AxisDefinition docstring「軸の階層」）だが、「他の軸の計算結果をもとに点数を変える」
+  // テンプレートの材料セレクトがmaterialOptions（MATERIAL_CATALOGの材料のみ）しか
+  // 出しておらず、他の軸を選ぶ手段自体がGUI上に存在しなかった（実装漏れ）。編集中の
+  // 軸自身は自己参照になるため候補から除く。軸のスコアは常に0〜100（difficultyの規約）
+  // のためdtype="numeric"として扱う。
+  const axisTermOptions: readonly AxisMaterialOption[] = (otherAxes ?? [])
+    .filter((a) => a.axis_id !== draft.axisId)
+    .map((a) => ({ id: a.axis_id, label: a.label, description: a.description, dtype: "numeric" as const }));
+
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
@@ -593,7 +605,41 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 name="shapeKind"
                 value={option.kind}
                 checked={draft.shapeKind === option.kind}
-                onChange={() => setDraft((d) => ({ ...d, shapeKind: option.kind }))}
+                onChange={() =>
+                  setDraft((d) => {
+                    if (d.shapeKind === option.kind) return d;
+                    // 材料(terms)の選択候補が「軸一覧」⇔「材料一覧」で入れ替わるテンプレート
+                    // 切り替え時は、選択中のtermsを新しい候補一覧に存在しないidのまま
+                    // 持ち越さないよう、先頭の候補で作り直す（保存不能な組み合わせを防ぐ）。
+                    if (option.kind === "recipe_then_breakpoint_linear") {
+                      return {
+                        ...d,
+                        shapeKind: option.kind,
+                        terms: [{ material: axisTermOptions[0]?.id ?? "", weight: 1.0, required: true }],
+                        preprocess: "identity",
+                        breakpoints: [
+                          [0, 0],
+                          [100, 100],
+                        ],
+                      };
+                    }
+                    if (d.shapeKind === "recipe_then_breakpoint_linear" && option.kind === "breakpoint_linear") {
+                      const firstMaterial =
+                        materialOptions.find((m) => m.dtype === "numeric" || m.dtype === "boolean")?.id ??
+                        materialOptions[0].id;
+                      return {
+                        ...d,
+                        shapeKind: option.kind,
+                        terms: [{ material: firstMaterial, weight: 1.0, required: true }],
+                        breakpoints: [
+                          [0, 0],
+                          [10, 100],
+                        ],
+                      };
+                    }
+                    return { ...d, shapeKind: option.kind };
+                  })
+                }
               />
               <span className={styles.shapeKindOptionBody}>
                 <strong>
@@ -616,61 +662,92 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
 
         {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
           <div className={styles.shapeGroup}>
-            <p className={styles.groupLabel}>材料(terms)</p>
-            <p className={styles.hint}>
-              はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。
-            </p>
+            {draft.shapeKind === "recipe_then_breakpoint_linear" ? (
+              <>
+                <p className={styles.groupLabel}>組み合わせる軸(terms)</p>
+                <p className={styles.hint}>
+                  各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、下の折れ点でスコアへ変換されます（nX + mYのように軸同士を重み付きで足し合わせるイメージです）。
+                </p>
+                {axisTermOptions.length === 0 && (
+                  <p className={styles.errorText}>
+                    組み合わせられる他の軸がまだありません。先に「数値の大きさに応じて点数を変える」等で軸を1つ以上作成してから使えます。
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className={styles.groupLabel}>材料(terms)</p>
+                <p className={styles.hint}>
+                  はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。
+                </p>
+              </>
+            )}
             {/* 改善計画T342: booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
                 backend/app/domain/axis_definitions.py: evaluate_axis_scalarのBreakpointLinearShape
                 分岐参照。T336のcar_stress_bicycle_infra_adjustment軸自体が複数のboolean材料を
                 重み付きで結合するBreakpointLinearShapeの実例で、backend側は元々対応していたが
                 このセレクトがnumeric限定のままだったため、GUIから同種の軸を組めなかった）。
-                categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側でエラーになる）。 */}
-            {draft.terms.map((term, i) => (
-              <div key={i} className={styles.termRow}>
-                <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
-                  {materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean").map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <MaterialInfoButton option={materialOptions.find((m) => m.id === term.material)} />
-                <input
-                  type="number"
-                  step="0.1"
-                  value={term.weight}
-                  aria-label="係数"
-                  onChange={(e) => updateTerm(i, { weight: Number(e.target.value) })}
-                />
-                <label className={styles.inlineCheckbox}>
-                  <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
-                  必須
-                </label>
-                <InfoPopoverButton
-                  ariaLabel="「必須」の説明"
-                  description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
-                />
-                <button
-                  type="button"
-                  onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
-                  disabled={draft.terms.length <= 1}
-                >
-                  削除
-                </button>
-              </div>
-            ))}
+                categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側でエラーになる）。
+                ユーザー指摘への対応: recipe_then_breakpoint_linear（他の軸を組み合わせる
+                テンプレート）は、材料の代わりに他の軸(axisTermOptions)を候補にする
+                （backend側はMaterialTerm.materialへ他axis_idを指定できる設計だったが、
+                このセレクトが材料カタログしか出しておらず選ぶ手段自体が無かった）。 */}
+            {draft.terms.map((term, i) => {
+              const termOptions =
+                draft.shapeKind === "recipe_then_breakpoint_linear"
+                  ? axisTermOptions
+                  : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
+              return (
+                <div key={i} className={styles.termRow}>
+                  <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
+                    {termOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={term.weight}
+                    aria-label="係数"
+                    onChange={(e) => updateTerm(i, { weight: Number(e.target.value) })}
+                  />
+                  <label className={styles.inlineCheckbox}>
+                    <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
+                    必須
+                  </label>
+                  <InfoPopoverButton
+                    ariaLabel="「必須」の説明"
+                    description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
+                    disabled={draft.terms.length <= 1}
+                  >
+                    削除
+                  </button>
+                </div>
+              );
+            })}
             <button
               type="button"
               className={styles.addButton}
+              disabled={draft.shapeKind === "recipe_then_breakpoint_linear" && axisTermOptions.length === 0}
               onClick={() =>
-                setDraft((d) => ({
-                  ...d,
-                  terms: [...d.terms, { material: materialOptions[0].id, weight: 1.0, required: false }],
-                }))
+                setDraft((d) => {
+                  const termOptions =
+                    d.shapeKind === "recipe_then_breakpoint_linear"
+                      ? axisTermOptions
+                      : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
+                  const fallback = termOptions[0]?.id ?? materialOptions[0].id;
+                  return { ...d, terms: [...d.terms, { material: fallback, weight: 1.0, required: false }] };
+                })
               }
             >
-              + 材料を追加
+              + {draft.shapeKind === "recipe_then_breakpoint_linear" ? "軸を追加" : "材料を追加"}
             </button>
 
             <label className={styles.field}>
@@ -1015,11 +1092,23 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           </button>
         )}
         {step !== "display_publish" ? (
-          <button type="button" onClick={goNext} className={styles.saveButton}>
+          // 実機不具合の修正: keyを付けずtype="button"↔"submit"を切り替えると、
+          // 同じ場所（ツリー上の位置）にある同じ要素種別(button)としてReactがDOMノードを
+          // 再利用し、type属性だけをその場で書き換える（要素の作り直しをしない）。
+          // 「次へ」クリックでgoNext()がstepIndexを進めてこの分岐が切り替わると、
+          // クリックを受けたその<button>自身のtype属性が"button"→"submit"へ同期的に
+          // 書き換わり、ブラウザ側のクリックのデフォルト動作判定（type="submit"なら
+          // フォーム送信）がこの書き換え後のtypeを見てしまい、「次へ」を押しただけで
+          // フォームが暗黙に送信されてしまっていた（本番環境で発生していた「ウィザードの
+          // 4/4画面に着くと勝手に閉じる」不具合の原因——実際には閉じたのではなく、
+          // 未変更のドラフトのまま無言で保存・成功しモーダルが閉じていた）。
+          // key を変えることでReactに「別の要素」と認識させ、既存ノードを書き換えず
+          // 必ずunmount→mountさせる（type属性がクリック後に書き変わる余地を無くす）。
+          <button key="next" type="button" onClick={goNext} className={styles.saveButton}>
             次へ
           </button>
         ) : (
-          <button type="submit" disabled={saving} className={styles.saveButton}>
+          <button key="submit" type="submit" disabled={saving} className={styles.saveButton}>
             {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
           </button>
         )}
