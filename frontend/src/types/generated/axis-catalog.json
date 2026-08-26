@@ -125,7 +125,6 @@
       "category": "推定",
       "primary_attribute_ids": [
         "highway",
-        "cycleway",
         "maxspeed",
         "lanes",
         "designation",
@@ -133,7 +132,7 @@
       ],
       "icon_id": "warning-triangle",
       "chip_label": "圧迫感",
-      "panel_hint": "道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして確認できます。",
+      "panel_hint": "道路種別・制限速度・車線数・指定路線・自動車通行可否から推定した車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして確認できます。",
       "show_map_icon": true,
       "display": {
         "kind": "ramp",

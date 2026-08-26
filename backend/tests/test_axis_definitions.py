@@ -59,12 +59,17 @@ def _classify_bicycle_infrastructure_reference(tags: dict[str, str], highway: st
     return "unknown"
 
 
-def test_car_stress_bicycle_infra_adjustment_flag_combinations():
-    """改善計画T336回帰テスト: car_stress_bicycle_infra_adjustmentをbicycle_infra材料
-    （優先順位付き分類）から正規化フラグ材料の線形結合へ置き換えた後も、単独成立時の
-    5値（separated/lane/shared_busway/shared_pedestrianの近似先=roadway/roadway）を
-    再現すること。"""
-    axis = AXIS_DEFINITIONS["car_stress_bicycle_infra_adjustment"]
+def test_bicycle_infra_quality_flag_combinations():
+    """改善計画T353回帰テスト: 旧内部軸car_stress_bicycle_infra_adjustment（1材料1軸
+    原則T268違反のため廃止）が持っていた「正規化フラグ材料の線形結合」を、公開軸
+    bicycle_infra_qualityが直接引き継いだ後も、単独成立時の値が正しいスケール
+    （0=最も走りやすい・100=最も走りにくい）で計算されること。
+
+    旧内部軸は優先順位保持（track/highway=cyclewayが最優先）を線形結合の飽和
+    （breakpointsによる圧縮）で模していたが、bicycle_infra_qualityは飽和を持たない
+    単純な重み付き線形結合のため、複数フラグが同時成立するケースでは優先順位を保持
+    しない（実データ検証済み、T353: 4フラグ同時成立は86,642件中1件のみで実害僅少）。"""
+    axis = AXIS_DEFINITIONS["bicycle_infra_quality"]
     base = {
         "highway_is_cycleway": False,
         "cycleway_has_track": False,
@@ -75,38 +80,50 @@ def test_car_stress_bicycle_infra_adjustment_flag_combinations():
     def score(**flags: bool) -> float | None:
         return evaluate_axis_scalar(axis, {**base, **flags})
 
-    assert score() == 1.0  # roadway相当（何も該当しない既定状態）
-    assert score(cycleway_has_shared=True) == 0.0  # shared_busway相当
-    assert score(cycleway_has_lane=True) == -1.0  # lane相当
-    assert score(cycleway_has_track=True) == -2.0  # separated相当
-    assert score(highway_is_cycleway=True) == -2.0  # separated相当（highway=cycleway側）
-    # 優先順位保持: lane+shared同時成立でもlaneが勝つ（classify_bicycle_infrastructureと
-    # 同じ優先順位、線形結合の単純な積み上げでは本来ズレうる箇所）。
-    assert score(cycleway_has_lane=True, cycleway_has_shared=True) == -1.0
-    # 優先順位保持: track/highway=cyclewayはlane/sharedと同時成立してもseparatedのまま。
-    assert score(cycleway_has_track=True, cycleway_has_lane=True, cycleway_has_shared=True) == -2.0
-    assert score(highway_is_cycleway=True, cycleway_has_lane=True) == -2.0
+    assert score() == 100.0  # roadway相当（何も該当しない既定状態、最も走りにくい）
+    assert score(cycleway_has_shared=True) == 66.7  # shared_busway相当
+    assert score(cycleway_has_lane=True) == 33.3  # lane相当
+    assert score(cycleway_has_track=True) == 0.0  # separated相当（最も走りやすい）
+    assert score(highway_is_cycleway=True) == 0.0  # separated相当（highway=cycleway側）
+    # 優先順位を保持しない: lane+shared同時成立は単純な線形和（-2+-1=-3）になり、
+    # laneまたはshared単独時のどちらとも異なる値になる。
+    assert score(cycleway_has_lane=True, cycleway_has_shared=True) == 16.6
+    # track/highway=cyclewayが1つでも混ざれば飽和（breakpoints両端クランプ）で0.0になる。
+    assert score(cycleway_has_track=True, cycleway_has_lane=True, cycleway_has_shared=True) == 0.0
+    assert score(highway_is_cycleway=True, cycleway_has_lane=True) == 0.0
 
 
-def test_car_stress_bicycle_infra_adjustment_matches_bicycle_infra_mapping_exhaustively():
-    """改善計画T336回帰テスト: 正規化フラグ材料群への置き換え後も、旧bicycle_infra材料
-    ベースのスコア（_OLD_BICYCLE_INFRA_MAPPING、prohibited/unknownは補正なし0点扱い）と
-    実質的に一致することを、cycleway系タグ・highway・bicycleタグの組み合わせを網羅する
-    形で検証する（decisions/material-normalization-for-axis-composition.mdの実データ検証
-    [ズレ0.0127%]と同じ性質の許容ズレを、DBアクセス無しの全数combinatorialで裏付ける）。
+def test_bicycle_infra_quality_matches_bicycle_infra_mapping_for_single_flags():
+    """改善計画T353回帰テスト: bicycle_infra_qualityへ移植した正規化フラグ材料の
+    線形結合が、旧bicycle_infra材料ベースのスコア（_OLD_BICYCLE_INFRA_MAPPING、
+    0-100スケールへ再変換）と一致することを、cycleway系タグ・highway・bicycleタグの
+    組み合わせを網羅する形で検証する。
 
-    唯一のズレはbicycle由来の分岐（shared_pedestrian: highway×bicycleのAND条件、
-    prohibited: bicycle=no）——正規化フラグの線形結合では表現しないと設計判断済みの箇所
-    （material_catalog.py: _extract_highway_is_cycleway等のdocstring参照）。cycleway/
-    highway由来の判定（track/lane/shared_busway/roadwayの優先順位）は1件のズレも
-    無いことをここで担保する。
+    旧`car_stress_bicycle_infra_adjustment`時代のテスト（改善計画T336）は「正規化
+    フラグが1つでも成立すれば1件もズレない」ことを担保していたが、これは旧内部軸が
+    breakpointsによる飽和（優先順位保持の近似）を持っていたため成立していた。
+    bicycle_infra_qualityは単純な線形結合（飽和なし）のため、**複数の正規化フラグが
+    同時成立するケースでは新たにズレうる**（T353の設計変更で意図的に受け入れた差分、
+    実データでは4フラグ同時成立が86,642件中1件のみで実害僅少）。本テストは「ちょうど
+    1つの正規化フラグが成立するケース」に絞ってズレ0件を担保し、複数成立時のズレは
+    別途カウントのみ行う（0件になった場合はこのアサーションごと更新してよい）。
     """
-    axis = AXIS_DEFINITIONS["car_stress_bicycle_infra_adjustment"]
+    axis = AXIS_DEFINITIONS["bicycle_infra_quality"]
+    # 旧内部軸スケール(-2〜1)から、bicycle_infra_qualityの実スケール(0〜100)への
+    # 再変換（同じbreakpoints[[-2,0],[-1,33.3],[0,66.7],[1,100]]で変換した対応値）。
+    old_mapping_rescaled = {
+        "separated": 0.0,
+        "lane": 33.3,
+        "shared_busway": 66.7,
+        "shared_pedestrian": 66.7,
+        "roadway": 100.0,
+    }
     cycleway_values_domain = [None, "no", "track", "lane", "share_busway", "shared_lane", "opposite_lane", "separate"]
     highways = ["cycleway", "path", "footway", "residential", "primary", "trunk", "living_street"]
     bicycles = [None, "yes", "designated", "permissive", "no", "dismount"]
 
-    mismatches_with_infra_flag = []
+    mismatches_single_flag = []
+    mismatches_multiple_flags = 0
     mismatches_without_infra_flag = 0
     total = 0
     for cw, cwl, cwr, cwb, highway, bicycle in itertools.product(
@@ -125,21 +142,25 @@ def test_car_stress_bicycle_infra_adjustment_matches_bicycle_infra_mapping_exhau
             if v is not None
         }
         total += 1
-        old_score = _OLD_BICYCLE_INFRA_MAPPING.get(_classify_bicycle_infrastructure_reference(tags, highway), 0.0)
+        old_score = old_mapping_rescaled.get(_classify_bicycle_infrastructure_reference(tags, highway), 100.0)
         flags = bicycle_infra_flags(tags, highway)
         new_score = evaluate_axis_scalar(axis, flags)
+        flags_true_count = sum(flags.values())
         if old_score != new_score:
-            if any(flags.values()):
-                mismatches_with_infra_flag.append((tags, highway, old_score, new_score))
+            if flags_true_count == 1:
+                mismatches_single_flag.append((tags, highway, old_score, new_score))
+            elif flags_true_count > 1:
+                mismatches_multiple_flags += 1
             else:
                 mismatches_without_infra_flag += 1
 
     assert total > 0
-    # cycleway/highway由来の判定（正規化フラグが1つでも成立するケース）は1件もズレない。
-    assert mismatches_with_infra_flag == []
-    # bicycle由来の分岐（正規化フラグが全て不成立、roadway側へ丸められるケース）のみが
-    # ズレうる。0件になった場合はこのアサーションごと更新してよい（設計上許容している
-    # 近似の存在を示すための下限チェックであり、0への改善を妨げる意図ではない）。
+    # ちょうど1つの正規化フラグが成立するケースは1件もズレない。
+    assert mismatches_single_flag == []
+    # 複数フラグ同時成立（優先順位保持を失った分、T353で意図的に受け入れた差分）と、
+    # bicycle由来の分岐（正規化フラグが全て不成立、roadway側へ丸められるケース）は
+    # ズレうる。
+    assert mismatches_multiple_flags > 0
     assert mismatches_without_infra_flag > 0
 
 
@@ -365,23 +386,22 @@ def test_car_stress_display_level_returns_none_for_none():
 
 
 def test_car_stress_display_level_endpoints_match_breakpoints():
-    # car_stress軸のbreakpoints((1.0, 0.0), (5.0, 100.0))の逆変換であることの確認。
-    assert car_stress_display_level(0.0) == 1
-    assert car_stress_display_level(100.0) == 5
+    # car_stress軸のbreakpoints((0.0, 0.0), (4.0, 100.0))の逆変換であることの確認
+    # （改善計画T353: 自転車インフラ調整の排除に伴い(1.0, 0.0), (5.0, 100.0)から変更）。
+    assert car_stress_display_level(0.0) == 0
+    assert car_stress_display_level(100.0) == 4
 
 
 def test_car_stress_display_level_rounds_half_up_not_banker_rounding():
     # コードレビュー指摘の修正確認: 組み込みround()は偶数丸め(banker's rounding)のため、
-    # difficulty=37.5(level=2.5)はround()だと2、difficulty=62.5(level=3.5)は4という
-    # 非対称な結果になっていた。四捨五入(0.5は常に切り上げ)であればどちらもlevel側の
-    # 整数部+1で統一される。
-    assert car_stress_display_level(37.5) == 3
-    assert car_stress_display_level(62.5) == 4
+    # 四捨五入(0.5は常に切り上げ)であることを、level側が.5になる境界で確認する。
+    assert car_stress_display_level(37.5) == 2  # level=1.5
+    assert car_stress_display_level(62.5) == 3  # level=2.5
 
 
 def test_car_stress_display_level_clamps_out_of_range_difficulty():
-    assert car_stress_display_level(-10.0) == 1
-    assert car_stress_display_level(110.0) == 5
+    assert car_stress_display_level(-10.0) == 0
+    assert car_stress_display_level(110.0) == 4
 
 
 def test_car_stress_display_level_returns_none_when_shape_is_not_breakpoint_linear(monkeypatch):

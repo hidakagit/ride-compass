@@ -193,7 +193,14 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         マッピング済みキーしか引けないため、想定外dtypeの値は常にNone/NaNとなり、
         その軸は全Edgeで恒久的に欠損扱いになる——エラーもログも一切出ないまま）。
         `CategoricalShape`はboolean/categorical材料（改善計画T292でstr多値対応）、
-        `FlagSumShape`はboolean材料、`BreakpointLinearShape`はnumeric材料を前提とする。
+        `FlagSumShape`はboolean材料、`BreakpointLinearShape`はnumeric/boolean材料を
+        前提とする（改善計画T353: `evaluate_axis_scalar`の計算は`value * term.weight`
+        という単純な乗算のため、bool値でも`True==1.0`/`False==0.0`として数値的に
+        正しく計算される——CategoricalShapeのmapping.get(value)のような「想定外dtypeが
+        静かに欠損化する」問題はBreakpointLinearShapeには無い。`car_stress_bicycle_infra_
+        adjustment`[migration経由で作成、本バリデーション導入前から存在]が実際に
+        boolean材料4件をtermsに使い運用されてきた実績があり、このバリデーションが
+        numericのみを許可していたのは意図的な安全策ではなく、単に見落としだった）。
 
         改善計画T292: materialsは`MATERIAL_CATALOG`の材料idだけでなく、他の軸の
         axis_id（軸の階層構造、内部軸→公開軸）も指せる。軸参照はdtypeチェックの
@@ -203,7 +210,7 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         """
         if isinstance(self.shape, BreakpointLinearShape):
             materials = [term.material for term in self.shape.terms]
-            expected_dtypes = {"numeric"}
+            expected_dtypes = {"numeric", "boolean"}
         elif isinstance(self.shape, CategoricalShape):
             materials = [self.shape.material]
             expected_dtypes = {"boolean", "categorical"}

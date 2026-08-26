@@ -594,8 +594,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="cycleway",
         # 改善計画T347フォローアップ: bool_default既定の"false"のままだと、
         # compute_edge_costs_bulk（配列評価経路）が「データ欠損（extractorがNoneを返す）」を
-        # 「確定でFalse」へ丸めてしまい、car_stress_bicycle_infra_adjustment（ひいては
-        # 公開軸bicycle_infra_quality）がhighway未解決の区間を「roadway確定」と誤評価する
+        # 「確定でFalse」へ丸めてしまい、公開軸bicycle_infra_quality（改善計画T353で
+        # car_stress_bicycle_infra_adjustment内部軸を廃止し直接この4材料を持つように
+        # なった）がhighway未解決の区間を「roadway確定」と誤評価する
         # （surface_goodと同じ「不明をFalseと混同してはいけない」ケース）。4材料は常に
         # bicycle_infra_flagsから一括で算出される（個別に欠損することはない）ため、
         # 4件まとめて"nan"にしても副作用は無い。

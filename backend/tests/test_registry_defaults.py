@@ -84,18 +84,19 @@ def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
     assert axis_ids.isdisjoint({"traffic_stress", "safety", "bicycle_infra"})
 
 
-def test_cycleway_axis_input_is_shared_between_car_stress_and_bicycle_infra_quality():
-    # 改善計画T347: bicycle_infra_quality（car_stress内部軸car_stress_bicycle_infra_
-    # adjustmentと同じ正規化フラグ4種を軸参照経由で受け取る、意図的な「ニアリーイコール」
-    # の推定軸）が新設されたことで、cyclewayは両軸が正当に共有する一次属性になった
-    # （domain/registry_defaults.py: shared=True）。以前は「car_stress専用」の排他確認
-    # だったが、その前提自体が変わったため確認内容を書き換える。
+def test_cycleway_axis_input_belongs_exclusively_to_bicycle_infra_quality():
+    # 改善計画T353: car_stress内部軸car_stress_bicycle_infra_adjustment（1材料1軸原則
+    # T268違反のため廃止）を経由してcar_stressが間接的に持っていたcycleway系材料は、
+    # bicycle_infra_quality公開軸だけが直接持つ形に一本化された。car_stress自体は
+    # 自転車インフラの有無に一切影響されなくなったため、cyclewayという一次属性の入力元は
+    # bicycle_infra_qualityのみに戻った（改善計画T347時点の「両軸が共有」という前提は
+    # 本タスクで解消）。
     car_stress_axis = _axis("car_stress")
     bicycle_infra_quality_axis = _axis("bicycle_infra_quality")
-    assert "cycleway" in car_stress_axis.inputs
+    assert "cycleway" not in car_stress_axis.inputs
     assert "cycleway" in bicycle_infra_quality_axis.inputs
     for axis in registry.all_axes():
-        if axis.axis_id not in ("car_stress", "bicycle_infra_quality"):
+        if axis.axis_id != "bicycle_infra_quality":
             assert "cycleway" not in axis.inputs
 
 

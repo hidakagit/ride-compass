@@ -148,10 +148,11 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
     assert set(entries_by_id["accident"]["primary_attribute_ids"]) == {"accident_point"}
     # car_stress: AxisDefinition.materialsは内部軸id(car_stress_highway_base等)を返すため
     # 再帰的に解決する必要がある（domain/axis_definitions.py T292階層構造、
-    # api/routers/axis_catalog.py: _primary_attribute_ids_for参照）。
+    # api/routers/axis_catalog.py: _primary_attribute_ids_for参照）。改善計画T353で
+    # car_stress_bicycle_infra_adjustment内部軸を廃止したため、cycleway（自転車インフラ系
+    # 材料由来）はcar_stressのprimary_attribute_idsから外れbicycle_infra_quality専用になった。
     assert set(entries_by_id["car_stress"]["primary_attribute_ids"]) == {
         "highway",
-        "cycleway",
         "maxspeed",
         "lanes",
         "designation",

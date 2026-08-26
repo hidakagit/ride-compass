@@ -205,11 +205,12 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
         "surface_good": True,
         "stop_count_per_km": 2.0,
         "intersection_count_per_km": 1.0,
-        # 改善計画T292: car_stressは内部軸5つ+公開軸1つの階層構造になったため、
+        # 改善計画T292: car_stressは内部軸4つ+公開軸1つの階層構造になったため、
         # 単一のcar_stress_level材料ではなくhighwayを渡す（highway基準値=2、
-        # 他の補正材料[bicycle_infra/maxspeed_kmh/lanes_count/is_designated/
-        # motor_vehicle_no]は省略=補正なしのため、breakpoints(1,0)-(5,100)で
-        # (2-1)/4*100=25.0になる）。
+        # 他の補正材料[maxspeed_kmh/lanes_count/is_designated/motor_vehicle_no]は
+        # 省略=補正なしのため、breakpoints(0,0)-(4,100)で(2-0)/4*100=50.0になる。
+        # 改善計画T353: 自転車インフラ調整[旧bicycle_infra]はcar_stressから排除し
+        # bicycle_infra_quality公開軸専用になったため、この計算には登場しない）。
         "highway": "residential",
         "accident_count_per_km_year": 0.25,
         "no_lit": False,
@@ -225,7 +226,7 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
     assert result.axes["stop_density"] == evaluate_axis_scalar(
         AXIS_DEFINITIONS["stop_density"], materials
     )
-    assert result.axes["car_stress"] == 25.0
+    assert result.axes["car_stress"] == 50.0
     assert result.axes["accident"] == evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], materials)
     assert result.axes["night"] == evaluate_axis_scalar(AXIS_DEFINITIONS["night"], materials)
     assert result.composite is not None

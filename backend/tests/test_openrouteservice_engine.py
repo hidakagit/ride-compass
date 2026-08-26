@@ -301,7 +301,9 @@ async def test_car_stress_and_bicycle_infra_reflect_nearest_way_tags_when_reposi
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(seg.car_stress == 2 for c in candidates for seg in c.segments)  # primary(4) - track(2)
+    # 改善計画T353: car_stressはhighway種別のみで決まり自転車インフラの有無に影響
+    # されなくなったため、trackがあってもprimary(highway_base=4)のまま最大値4になる。
+    assert all(seg.car_stress == 4 for c in candidates for seg in c.segments)  # primary(4), track非依存
     assert all(c.car_stress_score is not None for c in candidates)
     assert all(c.bicycle_infra_score == 100.0 for c in candidates)
 
@@ -332,12 +334,13 @@ async def test_car_stress_reflects_designation_bonus_when_repository_injected():
     designated_values = await _car_stress_values(repository_designated)
     not_designated_values = await _car_stress_values(repository_not_designated)
 
-    # 改善計画T292/T347: 自転車インフラ関連の正規化フラグ（highway_is_cycleway等）が
-    # 全てFalseの「普通の道路」は、breakpointsの[(-1.0,0.0),(0.0,1.0)]区間により
-    # +1点される（T291合意の変換表と同じ値、旧cycleway_classベースでは「タグ無し=補正0」
-    # だったため、以前より両ケースとも+1）。
-    assert designated_values == {4}
-    assert not_designated_values == {3}
+    # 改善計画T353: car_stressから自転車インフラ調整（旧car_stress_bicycle_infra_
+    # adjustment、1材料1軸原則T268違反のため廃止）を排除したため、highway基準値(2)+
+    # 指定路線補正(designated=1、not_designated=0)のみで決まる。breakpointsは
+    # (0,0)-(4,100)へ再較正済み（旧(1,0)-(5,100)からのシフトで、difficulty自体は
+    # 変わらないが表示レベルは1つ小さくなる）。
+    assert designated_values == {3}  # (2+1-0)/4*100=75% -> level 3
+    assert not_designated_values == {2}  # (2-0)/4*100=50% -> level 2
 
 
 async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():

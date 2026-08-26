@@ -335,22 +335,27 @@ def test_compute_edge_axis_scores_omits_none_axes():
     assert scores == {}
 
 
-def test_compute_edge_axis_scores_car_stress_reflects_bicycle_infra_tags():
-    """改善計画T336回帰テスト: car_stress_bicycle_infra_adjustmentをbicycle_infra材料から
-    正規化フラグ材料（highway_is_cycleway等）へ置き換えた際、compute_edge_axis_scoresが
-    手組みするmaterials辞書に新materialsを混ぜ込み忘れると、この関数経由の車ストレス評価
-    だけが常に「補正なし」に固定されてしまう（required=Trueな内部軸terms→全欠損→
-    car_stress公開軸側required=Falseで0点扱いに丸め込まれ、テストなしでは気付けない）。
-    cycleway=trackタグの有無でcar_stressスコアが変わること（分離自転車道は易しい側=
-    値が小さい）を確認する。"""
+def test_compute_edge_axis_scores_bicycle_infra_quality_reflects_bicycle_infra_tags():
+    """改善計画T353回帰テスト: car_stress_bicycle_infra_adjustment（1材料1軸原則T268
+    違反のため廃止）が担っていた「compute_edge_axis_scoresが手組みするmaterials辞書に
+    正規化フラグ材料（highway_is_cycleway等）を混ぜ込む」役割は、bicycle_infra_quality
+    公開軸が直接引き継いだ。混ぜ込み忘れがあると、この関数経由のbicycle_infra_quality
+    評価だけが常に「データなし」に固定されてしまう（required=Trueなterms→全欠損）。
+    cycleway=trackタグの有無でbicycle_infra_qualityスコアが変わること（分離自転車道は
+    易しい側=値が小さい）を確認する。
+
+    あわせて、T353の設計変更どおりcar_stressは自転車インフラの有無に一切影響されない
+    こと（trackの有無で値が変わらない）も回帰確認する——旧設計ではここが変動していた。"""
     edge = _edge(distance_m=100.0, highway="residential")
 
     without_track = compute_edge_axis_scores(edge, None, None, way_tags={})
     with_track = compute_edge_axis_scores(edge, None, None, way_tags={"cycleway": "track"})
 
-    assert without_track["car_stress"] == 50.0
-    assert with_track["car_stress"] == 0.0
-    assert with_track["car_stress"] < without_track["car_stress"]
+    assert without_track["bicycle_infra_quality"] == 100.0
+    assert with_track["bicycle_infra_quality"] == 0.0
+    assert with_track["bicycle_infra_quality"] < without_track["bicycle_infra_quality"]
+    # car_stressはhighway種別のみで決まり、自転車インフラの有無では変化しない（T353）。
+    assert without_track["car_stress"] == with_track["car_stress"] == 50.0
 
 
 def test_route_preference_weights_fill_defaults_and_reject_unknown_axis():
@@ -480,12 +485,13 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     assert result.covered_weight_fraction == pytest.approx(0.82 / 1.23, abs=0.001)
 
 
-def test_axis_inspector_breakdown_car_stress_reflects_bicycle_infra_tags():
-    """改善計画T336回帰テスト: compute_edge_axis_scores版と同じ理由
-    （車ストレスの自転車インフラ補正が正規化フラグ材料へ置き換わったため、
-    axis_inspector_breakdownが手組みするmaterials辞書にも新materialsを混ぜ込む必要が
-    ある）。cycleway=trackタグの有無で区間インスペクタのcar_stress表示が変わることを
-    確認する。"""
+def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_tags():
+    """改善計画T353回帰テスト: compute_edge_axis_scores版と同じ理由
+    （car_stress_bicycle_infra_adjustment内部軸の廃止に伴い、正規化フラグ材料を
+    bicycle_infra_quality公開軸が直接持つようになったため、axis_inspector_breakdownが
+    手組みするmaterials辞書にも新materialsを混ぜ込む必要がある）。cycleway=trackタグの
+    有無で区間インスペクタのbicycle_infra_quality表示が変わること、car_stressは
+    変わらないことを確認する。"""
     without_track = axis_inspector_breakdown(
         highway="residential", tags={}, is_designated=False, way_counts=None, accident_years_covered=0
     )
@@ -497,11 +503,16 @@ def test_axis_inspector_breakdown_car_stress_reflects_bicycle_infra_tags():
         accident_years_covered=0,
     )
 
-    without_difficulty = next(a.difficulty for a in without_track.axes if a.axis_id == "car_stress")
-    with_difficulty = next(a.difficulty for a in with_track.axes if a.axis_id == "car_stress")
-    assert without_difficulty == 50.0
-    assert with_difficulty == 0.0
-    assert with_difficulty < without_difficulty
+    def difficulty(result, axis_id: str) -> float:
+        return next(a.difficulty for a in result.axes if a.axis_id == axis_id)
+
+    without_infra = difficulty(without_track, "bicycle_infra_quality")
+    with_infra = difficulty(with_track, "bicycle_infra_quality")
+    assert without_infra == 100.0
+    assert with_infra == 0.0
+    assert with_infra < without_infra
+    # car_stressはhighway種別のみで決まり、自転車インフラの有無では変化しない（T353）。
+    assert difficulty(without_track, "car_stress") == difficulty(with_track, "car_stress") == 50.0
 
 
 def test_axis_inspector_breakdown_way_counts_none_marks_count_based_axes_unavailable():

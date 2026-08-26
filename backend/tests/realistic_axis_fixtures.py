@@ -1,4 +1,4 @@
-"""統合寄りのテスト向け、本番相当の14軸データ（改善計画T350）。
+"""統合寄りのテスト向け、本番相当の13軸データ（改善計画T350、T353で14→13軸）。
 
 `domain/axis_definitions.py: AXIS_DEFINITIONS`のPython literalをT350で撤去し、DBが
 唯一の正本になったため、プロセス起動直後は空のままで、`services/axis_registry_service.py:
@@ -53,19 +53,11 @@ _CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS: list[tuple[str, float]] = [
     ("cycleway_has_lane", -2.0),
     ("cycleway_has_shared", -1.0),
 ]
-_CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS: list[tuple[float, float]] = [
-    (-11.0, -2.0),
-    (-4.0, -2.0),
-    (-3.0, -1.0),
-    (-2.0, -1.0),
-    (-1.0, 0.0),
-    (0.0, 1.0),
-]
 _BICYCLE_INFRA_AXIS_BREAKPOINTS: list[tuple[float, float]] = [
-    (-2.0, 0.0),
-    (-1.0, 33.3),
-    (0.0, 66.7),
-    (1.0, 100.0),
+    (-4.0, 0.0),
+    (-2.0, 33.3),
+    (-1.0, 66.7),
+    (0.0, 100.0),
 ]
 _CAR_STRESS_MAXSPEED_BREAKPOINTS: list[tuple[float, float]] = [
     (0.0, -1.0),
@@ -170,21 +162,6 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         category="推定",
         is_published=False,
     ),
-    "car_stress_bicycle_infra_adjustment": AxisDefinition(
-        axis_id="car_stress_bicycle_infra_adjustment",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material=material, weight=weight)
-                for material, weight in _CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS
-            ],
-            breakpoints=_CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS,
-        ),
-        default_weight=0.0,
-        label="車ストレス内部軸: 自転車インフラ補正",
-        description="自転車インフラ種別による補正(非公開)",
-        category="推定",
-        is_published=False,
-    ),
     "car_stress_maxspeed_adjustment": AxisDefinition(
         axis_id="car_stress_maxspeed_adjustment",
         shape=BreakpointLinearShape(
@@ -232,22 +209,21 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         shape=BreakpointLinearShape(
             terms=[
                 MaterialTerm(material="car_stress_highway_base", required=True),
-                MaterialTerm(material="car_stress_bicycle_infra_adjustment", required=False),
                 MaterialTerm(material="car_stress_maxspeed_adjustment", required=False),
                 MaterialTerm(material="car_stress_lanes_adjustment", required=False),
                 MaterialTerm(material="car_stress_designation_adjustment", required=False),
                 MaterialTerm(material="car_stress_motor_vehicle_no_adjustment", required=False),
             ],
-            breakpoints=[(1.0, 0.0), (5.0, 100.0)],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
         ),
         default_weight=0.20,
         label="車の圧迫感",
-        description="推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
+        description="推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
         category="推定",
         is_published=True,
         icon_id="warning-triangle",
         chip_label="圧迫感",
-        panel_hint="道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した"
+        panel_hint="道路種別・制限速度・車線数・指定路線・自動車通行可否から推定した"
         "車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして"
         "確認できます。",
         display_override=AxisDisplaySpec(
@@ -328,7 +304,10 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     "bicycle_infra_quality": AxisDefinition(
         axis_id="bicycle_infra_quality",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="car_stress_bicycle_infra_adjustment")],
+            terms=[
+                MaterialTerm(material=material, weight=weight)
+                for material, weight in _CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS
+            ],
             breakpoints=_BICYCLE_INFRA_AXIS_BREAKPOINTS,
         ),
         default_weight=0.15,

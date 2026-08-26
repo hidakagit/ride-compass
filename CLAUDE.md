@@ -56,18 +56,21 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
   定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
   上げる（T70・T93で対上げ漏れが2回発生）。
-- **評価軸（`axis_definitions`テーブル、全14軸）の追加・変更は手書きのmigration SQL
-  （`backend/migrations/`）で行う**（改善計画T350: `domain/axis_definitions.py:
-  AXIS_DEFINITIONS`のPython literalを撤去し、DBが唯一の正本になった。以前存在した
-  `backend/scripts/generate_axis_migration_sql.py`によるPython→SQL自動生成は、
-  Pythonという著述元自体が無くなったため撤去済み。他のスキーマ変更と同じ標準の運用に
-  合流しただけで、新たな「手書きリスク」を追加するものではない——`AxisShape`の
-  Pydanticバリデーションと`tests/test_migrate.py`のブートストラップテスト[後述]が
-  構造面を引き続き検証する）。`tests/test_migrate.py`のブートストラップテストは、
-  まっさらなDBへ全migrationを適用した結果が「全軸が例外なく読める・未知の材料/軸参照が
-  無い・件数が14で一致する」ことをpostgis統合テストとして検証する（DB接続が要るため
-  `pytest -m "not postgis"`実行時はスキップされる。ローカルPostgreSQLを起動して
-  `pytest tests/test_migrate.py`を実行し確認すること）。
+- **評価軸（`axis_definitions`テーブル、全14軸）の新規追加・削除は手書きのmigration SQL
+  （`backend/migrations/`）で行う。既存の公開軸の`shape_params`（合成ルールの中身：
+  重み・breakpoints・参照する材料）を調整する場合は、`axis_admin`のunpublish→PUT API
+  （軸スタジオのGUI、または直接API呼び出し）→republishで行う**（改善計画T353、
+  2026-08-27）。使い分けの理由: `shape_params`の値そのものは「唯一の正解」が無い
+  継続的チューニング対象であり、監査証跡・ロールバック・開発/本番の厳密な一致は
+  過剰品質と判断した（必要な担保は`AxisShape`のPydanticバリデーションと
+  `check_publish_immutability`のみで足りる）。一方、軸の新規追加・削除（行の増減）は
+  他のDBスキーマ変更と同じ標準運用（migration）に合流させ、レビュー可能性を保つ
+  （改善計画T350の判断を維持）。`domain/axis_definitions.py: AXIS_DEFINITIONS`の
+  Python literalは撤去済みでDBが唯一の正本（T350）。`tests/test_migrate.py`の
+  ブートストラップテストは、まっさらなDBへ全migrationを適用した結果が「全軸が例外なく
+  読める・未知の材料/軸参照が無い・件数が14で一致する」ことをpostgis統合テストとして
+  検証する（DB接続が要るため`pytest -m "not postgis"`実行時はスキップされる。
+  ローカルPostgreSQLを起動して`pytest tests/test_migrate.py`を実行し確認すること）。
 - **規模M以上の変更は、着手前の最初のコミットでdocs/improvement-plan.mdへ対応する
   タスクエントリを先に作成する**（T130で一度破られ事後是正された実績を受けT135で
   明文化を検討、2026-08-23のT231棚卸で正式採用）。作業内容が変わりうる大きめの
