@@ -1391,33 +1391,30 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
     )
     # 不明（タグ無し・未知タグ）はsurface_goodキー自体が省略される（フロントエンドの
     # ["get","surface_good"]==null判定＝グレー表示、Pythonエンコーダと同じ挙動）。
-    # surfaceタグ無しも同様にsurfaceキーごと省略される。bicycle_infraはhighwayさえ分かれば
-    # 常に決まる（静的道路属性P0、いずれもtags未設定の4件はどちらもhighway=residential/track
-    # で「roadway」になる）。車ストレスの材料タグ（maxspeed_kmh/lanes_count/motor_vehicle_no、
-    # 改善計画: 交通ストレスレシピ外出し基盤）はcycleway等のタグ自体が
-    # 無いためすべて省略される（最終値はもうSQL側では計算しない、ファイル冒頭コメント参照）。
-    # smoothness/tunnel/bridgeもtags自体が空のためキーが省略される。
+    # surfaceタグ無しも同様にsurfaceキーごと省略される。車ストレスの材料タグ
+    # （maxspeed_kmh/lanes_count/motor_vehicle_no、改善計画: 交通ストレスレシピ外出し基盤）は
+    # cycleway等のタグ自体が無いためすべて省略される（最終値はもうSQL側では計算しない、
+    # ファイル冒頭コメント参照）。smoothness/tunnel/bridgeもtags自体が空のためキーが省略される。
+    # bicycle_infraプロパティ自体は改善計画T347で削除済み（評価軸bicycle_infra_qualityへ
+    # 置き換え、下記「地図表示ロジックと評価軸材料の分離原則」参照）。
     assert properties == [
-        {"osm_way_id": 3, "highway": "residential", "bicycle_infra": "roadway"},
+        {"osm_way_id": 3, "highway": "residential"},
         {
             "osm_way_id": 1,
             "surface_good": True,
             "surface": "asphalt",
             "highway": "residential",
-            "bicycle_infra": "roadway",
         },
         {
             "osm_way_id": 2,
             "surface_good": False,
             "surface": "gravel",
             "highway": "track",
-            "bicycle_infra": "roadway",
         },
         {
             "osm_way_id": 4,
             "surface": "mystery_tag",
             "highway": "residential",
-            "bicycle_infra": "roadway",
         },
     ]
 
@@ -1500,52 +1497,6 @@ async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository, r
     assert "oneway" not in properties_by_way_id[3]  # both（双方向）はキー自体を省略する
 
 
-async def test_get_road_surface_tile_mvt_bicycle_infra_matches_domain_traffic(road_graph_repository, road_graph_session):
-    """SQLのbicycle_infra CASE式がdomain/traffic.py（正準の判定ロジック）と同じ結果になることを、
-    複数のタグ組合せで突き合わせる（改善計画: 判定ロジックの二重実装ドリフト検知）。
-
-    車ストレスの最終値はもうSQL側で計算しない（改善計画: 交通ストレスレシピ外出し基盤、
-    ファイル冒頭コメント参照）ため、この突き合わせ対象からは外れた。材料タグの検証は
-    test_get_road_surface_tile_mvt_car_stress_ingredients参照。
-    """
-    import mapbox_vector_tile
-
-    from app.domain.traffic import classify_bicycle_infrastructure
-
-    # highwayはこのテスト内で識別キーに使う（MVTのfeature順序はSQLのORDER BY省略により
-    # 保証されないため、各fixtureが一意なhighway値を持つよう構成する）。
-    fixtures: list[tuple[str | None, dict[str, str]]] = [
-        ("cycleway", {}),
-        ("primary", {"cycleway": "track"}),
-        ("primary_link", {"cycleway:left": "lane"}),
-        ("secondary", {"cycleway": "share_busway"}),
-        ("footway", {"bicycle": "designated"}),
-        ("path", {}),
-        ("residential", {"bicycle": "no"}),
-    ]
-    way_specs = [
-        WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
-        for i, (highway, tags) in enumerate(fixtures)
-    ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
-    await _mark_mvt_coverage(road_graph_session)
-
-    tile = await road_graph_repository.get_road_surface_tile_mvt(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
-    decoded = mapbox_vector_tile.decode(tile)
-    assert len(decoded["road_surface"]["features"]) == len(fixtures)
-
-    # osm_way_idはプロパティに含まれないため、highway+タグの組合せで対応付ける
-    # （このテストのfixtureはhighway単体でも一意に区別できるよう設計）
-    properties_by_highway = {f["properties"].get("highway"): f["properties"] for f in decoded["road_surface"]["features"]}
-
-    for highway, tags in fixtures:
-        expected_infra = classify_bicycle_infrastructure(tags, highway)
-        actual = properties_by_highway[highway]
-        assert actual.get("bicycle_infra") == expected_infra, (highway, tags)
-
-
 async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repository, road_graph_session):
     """車ストレスの材料タグ（maxspeed_kmh/lanes_count/motor_vehicle_no、改善計画:
     交通ストレスレシピ外出し基盤）と、night軸の材料タグ（lit、domain/registry_defaults.py:
@@ -1553,10 +1504,10 @@ async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repos
     削除済み）が、SQLで正しく抽出・正規化されることを確認する。最終値の計算はもうSQL側の
     責務ではない（frontend/src/components/Map/axisLayers.ts、domain/axis_definitions.pyの
     AXIS_DEFINITIONSが担う）ため、ここでは「材料タグがタグから正しく取り出せているか」
-    だけを検証する。cycleway由来のタグ（cycleway_class）は改善計画T337でこのタイル
-    プロパティ自体を削除したため、ここでの検証対象からも外れた（cycleway由来の材料は
-    現在bicycle_infraのみタイルへ焼き込まれており、test_get_road_surface_tile_mvt_
-    bicycle_infra_matches_domain_trafficで別途検証済み）。
+    だけを検証する。cycleway由来のタグ（cycleway_class）は改善計画T337で、bicycle_infraは
+    改善計画T347でこのタイルプロパティ自体を削除したため、cycleway由来の材料はもう
+    タイルへ一切焼き込まれない（評価軸bicycle_infra_qualityは正規化フラグ材料4件を
+    Python側で直接タグから算出するため、SQL側のタイルプロパティ経由には依存しない）。
     """
     import mapbox_vector_tile
 

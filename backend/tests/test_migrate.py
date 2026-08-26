@@ -214,5 +214,5 @@ async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(boots
 
     async with bootstrap_engine.connect() as conn:
         axis_count = (await conn.execute(text("SELECT count(*) FROM axis_definitions"))).scalar()
-    # 公開7軸（migrations/0014）+ car_stress内部軸6（migrations/0017）= 13行
-    assert axis_count == 13
+    # 公開8軸（migrations/0014・0021）+ car_stress内部軸6（migrations/0017）= 14行
+    assert axis_count == 14
