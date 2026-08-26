@@ -4008,7 +4008,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   選んでおき、次のUI機能実装と同時または直前に実施するかを判断する。
 - 完了条件: 方針の決定記録（実施自体は閾値到達時でよい）。
 
-### - [ ] T285. 表示系レジストリの縮退 — 軸カタログのランタイム一本化〔P3〕規模M〜L — トリガー: T280完了後、またはGUI作成軸を地図レイヤーへ出す要望が出た時点
+### - [x] T285. 表示系レジストリの縮退 — 軸カタログのランタイム一本化〔P3〕規模M〜L（調査の結果、目的は既に別実装で達成済みと判明・2026-08-27完了）
 
 - 背景: レビュー「目指すべきアーキテクチャ像」§10-2の正式化。軸の情報源が
   計算系（`AXIS_DEFINITIONS`、DB化・ランタイム反映）と表示系（`registry.py`、ビルド時
@@ -4026,6 +4026,43 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   完了して軸を作れるようになった時点で、この制約が次のボトルネックとして顕在化する）。
 - 完了条件: 着手時に確定（少なくともGUI作成軸1件が再デプロイなしで地図レイヤーに
   現れることの実機確認を含める）。
+- **調査結果（2026-08-27）**: 着手前にコードを読んだところ、本タスクが「宿題」として
+  起票した時点（T276実装メモ）以降のT308・T310・T320（いずれも本タスクより後に完了）が、
+  提案されていたのとは異なる形——registry.py側を縮退させるのではなく、frontend側の
+  各消費者を静的importからランタイムAPI経由へ個別に置き換える形——で、実質的に同じ目的を
+  既に達成していたことが判明した。
+  1. **バックエンド側は既にAXIS_DEFINITIONS走査へ一本化済み（T320）**:
+     `domain/registry_defaults.py: _register_axes()`は`car_stress`/`night`等の
+     axis_id直書き手動列挙を撤去し、`AXIS_DEFINITIONS`（`is_published`のみで判定）を
+     そのまま走査する形に既に書き換わっている（`inputs`/`display`は
+     `axis_display.py: primary_attribute_ids_for()`/`axis_display_for()`という
+     `GET /api/axis-catalog`と同一の純粋関数から導出、片側import）。特定axis_idを
+     名指しした条件分岐は無く、GUI作成軸が増えてもこのループ自体は変更不要。
+  2. **フロントエンド側も主要な消費箇所はランタイムAPI（`useAxisCatalog`）駆動へ
+     置き換わっている（T308）**: `page.tsx`の`mapLayers`（`buildMapLayers(axisCatalog.
+     rampAxes)`）・`staticFilterAxes`（`buildStaticFilterAxes(axisCatalog.rampAxes)`）・
+     `layerVisibility`既定値・`secondaryAxes`（`axisCatalog.secondaryAxes`）はいずれも
+     `useAxisCatalog()`（`GET /api/axis-catalog`をマウント時取得）の結果から構築される。
+     `frontend/src/components/Map/secondaryAxes.ts`の`SECONDARY_AXES`（静的
+     axis-catalog.json由来）は、変換ロジック（`secondaryAxesFromCatalogAxes`）を
+     ランタイムフェッチ結果にも適用できる共通関数として切り出した上で、
+     取得中・失敗時のみのフォールバック専用値という位置づけに既に後退していた。
+  3. **実機確認（Playwright + API直接操作、dev DB）**: 軸スタジオ相当の操作
+     （`POST /api/admin/axis-definitions`でcategorical shape・材料`bridge`の新規軸
+     `t285_verify_test`を作成、show_map_icon=true, is_published=true）を行い、
+     **再デプロイなしで**(a) `GET /api/axis-catalog`へ即座に反映（`display.kind`は
+     `derive_ramp_inputs`が単一boolean材料から自動導出した`"ramp"`）、(b) フロントの
+     重み配分パネルに「T285検証用テスト軸」として出現、(c) 地図上「推定」チップ展開後の
+     一覧にも出現、の3点をすべて確認した（スクリーンショット・console error無しを確認）。
+     確認後、unpublish→DELETEでテストデータを削除しdev DBを元の状態へ復元済み。
+  4. **結論**: 本タスクが解決しようとした問題（「GUI作成軸は地図レイヤー・凡例へ永遠に
+     反映されない」）は、提案されていた実装方法（registry.py縮退＋axis-catalog.jsonの
+     スコープ限定）とは異なる方法（各消費者をランタイムAPI優先＋静的フォールバックへ
+     個別に置き換える方法）で、T308・T310・T320を通じて既に解決済みだった。
+     `registry.py`/`axis-catalog.json`自体を縮退させる追加の実装（当初の「内容」節）は
+     不要と判断し、着手しない。静的`axis-catalog.json`が全軸のスナップショットを
+     引き続き持つこと自体は、フォールバックとしての実用性（API未取得時でも軸一覧が
+     機能する）を保つ設計として妥当（新しい根拠なしに問題化しない）。
 
 ### - [x] T286. architecture.mdの経緯記述をdecisions/へ追い出す第2弾〔P3〕規模M（完了・2026-08-27）
 
