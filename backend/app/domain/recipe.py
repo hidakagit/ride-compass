@@ -61,6 +61,11 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
     `services/openrouteservice_engine.py`が手組みするmaterials辞書へそのまま
     `**bicycle_infra_flags(tags, highway)`で混ぜ込める（bicycle_infra[classify_
     bicycle_infrastructure]と同じ材料抽出を1箇所にまとめ、3箇所への手書き複製を避ける）。
+
+    改善計画T359: `shared_pedestrian_path`は、河川敷サイクリングロード等
+    「highway=footway/pathかつbicycle=yes/designated（自転車通行可の歩行者道）」という
+    別のOSMタグパターンを検知する（王子-荒川ルート調査で発覚、highway=cycleway/track等の
+    車道併設インフラとは別に、車道から完全分離された共用道を拾えていなかった）。
     """
     values = cycleway_values(tags)
     return {
@@ -68,6 +73,7 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
         "cycleway_has_track": "track" in values,
         "cycleway_has_lane": "lane" in values,
         "cycleway_has_shared": any(v in ("share_busway", "shared_lane") for v in values),
+        "shared_pedestrian_path": highway in ("footway", "path") and tags.get("bicycle") in ("yes", "designated"),
     }
 
 

@@ -35,6 +35,8 @@ from app.domain.registry import AxisDisplaySpec, TileInputSpec
 _CAR_STRESS_HIGHWAY_BASE_MAPPING: dict[str, float] = {
     "cycleway": 1.0,
     "living_street": 1.0,
+    "footway": 1.0,
+    "path": 1.0,
     "residential": 2.0,
     "unclassified": 2.0,
     "track": 2.0,
@@ -52,6 +54,7 @@ _CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS: list[tuple[str, float]] = [
     ("cycleway_has_track", -4.0),
     ("cycleway_has_lane", -2.0),
     ("cycleway_has_shared", -1.0),
+    ("shared_pedestrian_path", -4.0),
 ]
 _BICYCLE_INFRA_AXIS_BREAKPOINTS: list[tuple[float, float]] = [
     (-4.0, 0.0),

@@ -75,6 +75,7 @@ def test_bicycle_infra_quality_flag_combinations():
         "cycleway_has_track": False,
         "cycleway_has_lane": False,
         "cycleway_has_shared": False,
+        "shared_pedestrian_path": False,
     }
 
     def score(**flags: bool) -> float | None:
@@ -85,6 +86,9 @@ def test_bicycle_infra_quality_flag_combinations():
     assert score(cycleway_has_lane=True) == 33.3  # lane相当
     assert score(cycleway_has_track=True) == 0.0  # separated相当（最も走りやすい）
     assert score(highway_is_cycleway=True) == 0.0  # separated相当（highway=cycleway側）
+    # 改善計画T359: 河川敷サイクリングロード等（highway=footway/pathかつbicycle=yes/
+    # designated）はtrack/highway=cyclewayと同格の重みで最も走りやすい扱いにする。
+    assert score(shared_pedestrian_path=True) == 0.0
     # 優先順位を保持しない: lane+shared同時成立は単純な線形和（-2+-1=-3）になり、
     # laneまたはshared単独時のどちらとも異なる値になる。
     assert score(cycleway_has_lane=True, cycleway_has_shared=True) == 16.6
@@ -107,6 +111,13 @@ def test_bicycle_infra_quality_matches_bicycle_infra_mapping_for_single_flags():
     実データでは4フラグ同時成立が86,642件中1件のみで実害僅少）。本テストは「ちょうど
     1つの正規化フラグが成立するケース」に絞ってズレ0件を担保し、複数成立時のズレは
     別途カウントのみ行う（0件になった場合はこのアサーションごと更新してよい）。
+
+    改善計画T359: `shared_pedestrian`分類（highway=footway/pathかつbicycle=yes/
+    designated/permissive）は、T336時点では正規化フラグでは表現しない「近似対象外」
+    として`shared_busway`相当(66.7)へ丸めていたが、`shared_pedestrian_path`材料の
+    正式追加によりyes/designatedのケースは正確に評価されるようになった（王子-荒川
+    ルート検索の調査で発覚）。ただし`permissive`は対象外のまま（ユーザー方針でyes/
+    designatedのみを対象にしたため）で、そこだけズレが残る。
     """
     axis = AXIS_DEFINITIONS["bicycle_infra_quality"]
     # 旧内部軸スケール(-2〜1)から、bicycle_infra_qualityの実スケール(0〜100)への
@@ -115,7 +126,6 @@ def test_bicycle_infra_quality_matches_bicycle_infra_mapping_for_single_flags():
         "separated": 0.0,
         "lane": 33.3,
         "shared_busway": 66.7,
-        "shared_pedestrian": 66.7,
         "roadway": 100.0,
     }
     cycleway_values_domain = [None, "no", "track", "lane", "share_busway", "shared_lane", "opposite_lane", "separate"]
@@ -142,7 +152,12 @@ def test_bicycle_infra_quality_matches_bicycle_infra_mapping_for_single_flags():
             if v is not None
         }
         total += 1
-        old_score = old_mapping_rescaled.get(_classify_bicycle_infrastructure_reference(tags, highway), 100.0)
+        classification = _classify_bicycle_infrastructure_reference(tags, highway)
+        if classification == "shared_pedestrian":
+            # T359で正式実装したのはyes/designatedのみ（permissiveは対象外のまま）。
+            old_score = 0.0 if bicycle in ("yes", "designated") else 66.7
+        else:
+            old_score = old_mapping_rescaled.get(classification, 100.0)
         flags = bicycle_infra_flags(tags, highway)
         new_score = evaluate_axis_scalar(axis, flags)
         flags_true_count = sum(flags.values())

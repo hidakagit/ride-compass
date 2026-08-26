@@ -170,6 +170,32 @@ def test_bicycle_infra_flag_materials_extract_from_cycleway_and_highway_tags():
     assert cycleway_has_shared.extractor(_ctx(way_tags=None)) is None
 
 
+def test_shared_pedestrian_path_material_extracts_from_footway_and_path_with_bicycle_tag():
+    """改善計画T359: 河川敷サイクリングロード等「highway=footway/pathかつ
+    bicycle=yes/designated」の区間を検知する材料（王子-荒川ルート検索の調査で発覚した、
+    highway=cycleway系材料では拾えないタグパターンへの対応）。"""
+    shared_pedestrian_path = MATERIAL_CATALOG["shared_pedestrian_path"]
+    assert shared_pedestrian_path.extractor(
+        _ctx(way_tags={"bicycle": "designated"}, edge=_edge(highway="footway"))
+    ) is True
+    assert shared_pedestrian_path.extractor(
+        _ctx(way_tags={"bicycle": "yes"}, edge=_edge(highway="path"))
+    ) is True
+    # bicycleタグが無い普通の歩道・自転車通行不可の歩道は該当しない。
+    assert shared_pedestrian_path.extractor(_ctx(way_tags={}, edge=_edge(highway="footway"))) is False
+    assert (
+        shared_pedestrian_path.extractor(_ctx(way_tags={"bicycle": "no"}, edge=_edge(highway="footway"))) is False
+    )
+    # highway=footway/path以外（residential等）は該当しない。
+    assert (
+        shared_pedestrian_path.extractor(
+            _ctx(way_tags={"bicycle": "designated"}, edge=_edge(highway="residential"))
+        )
+        is False
+    )
+    assert shared_pedestrian_path.extractor(_ctx(way_tags=None)) is None
+
+
 def test_oneway_and_designation_remain_unwired_by_design():
     """extractor未設定=意図的なDEFER（material_catalog.pyのコメント参照）。誤って
     extractorが付いた場合にこのテストが落ちるのではなく、逆に外れたことに気付けるよう

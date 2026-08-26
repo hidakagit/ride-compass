@@ -319,6 +319,17 @@ def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
     return None if flags is None else flags["cycleway_has_shared"]
 
 
+# 改善計画T359: highway=cycleway系材料とは別のOSMタグパターン（highway=footway/pathかつ
+# bicycle=yes/designated、河川敷サイクリングロード等の「自転車通行可の歩行者道」）を検知する
+# 正規化フラグ材料。王子-荒川ルート検索の調査で、この種の共用道が評価対象から漏れていたと
+# 発覚（domain/recipe.py: bicycle_infra_flagsのdocstring参照）。抽出ロジック自体は
+# bicycle_infra_flagsへ集約し、ここではbulk抽出フェーズ向けの薄いラッパのみ持つ
+# （上記4関数と同じ構成）。
+def _extract_shared_pedestrian_path(ctx: MaterialExtractionContext) -> bool | None:
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    return None if flags is None else flags["shared_pedestrian_path"]
+
+
 # 改善計画T345フォローアップ: 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
 # MaterialSpec.value_labelsのdocstring参照——「地図表示と評価は別」という方針に基づき、
 # 地図の絞り込みUI（components/Map/roadFilterAxes.ts: HIGHWAY_GROUPS/SURFACE_GROUPS、
@@ -632,6 +643,16 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         bool_default="nan",
         primary_attribute_id="cycleway",
         extractor=_extract_cycleway_has_shared,
+    ),
+    "shared_pedestrian_path": MaterialSpec(
+        material_id="shared_pedestrian_path",
+        label="歩行者自転車共用道",
+        description="車道と分離された歩行者道のうち、自転車の通行が認められている区間（河川敷サイクリングロード等、highway=footway/pathかつbicycle=yes/designated）かどうか。",
+        dtype="boolean",
+        tile_property=None,
+        primary_attribute_id="cycleway",
+        bool_default="nan",
+        extractor=_extract_shared_pedestrian_path,
     ),
     "designation": MaterialSpec(
         material_id="designation",
