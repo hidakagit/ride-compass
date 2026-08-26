@@ -8337,7 +8337,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T360. fresh bootstrap時にcar_stress_bicycle_infra_adjustmentが復活する不整合の解消 規模S〜M（起票のみ、未着手）
+### - [x] T360. fresh bootstrap時にcar_stress_bicycle_infra_adjustmentが復活する不整合の解消 規模S〜M（完了）
 
 - 背景: T286（architecture.mdの経緯記述の切り出し、2026-08-27）着手中に発見。T353
   （2026-08-27、`car_stress_bicycle_infra_adjustment`の廃止・1材料1軸原則への是正）は
@@ -8372,15 +8372,50 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
      更新する。
   3. 本番DBへの反映（T359が既に「未実施・ユーザー承認後」としている本番反映と
      まとめて実施できないか検討する）。
-- 未確定事項（着手時に確認）: このdev DBでは`car_stress`の`terms`が既にT353の
-  API操作で5件（`car_stress_bicycle_infra_adjustment`を含まない）に更新されている
-  ことをT286作業中に確認済みだが、**fresh bootstrap直後（migration適用直後、API操作
-  前）の`car_stress`の`terms`が何件になるか（migrationのシード時点で5件か、それとも
-  6件のままで別途API操作が必要か）は未確認**。migrationファイル自体の内容を確認する
-  ところから着手する。
-- 優先度: P2相当（実害は軸一覧の孤立表示に留まり、ルート生成自体への影響は無いと
-  推測されるが未確認。本番反映という差し迫った作業と関連するため優先度は中程度）。
-  着手判断はユーザー承認後、別途行う。
+- **実施内容（2026-08-27完了）**: 対応方針1・2を実施。`backend/migrations/
+  0022_remove_car_stress_bicycle_infra_adjustment.sql`を新規追加し、dev DBへ
+  API経由で適用済みの最終状態（`car_stress_highway_base`のfootway/path追加・
+  `car_stress`/`bicycle_infra_quality`のshape_params更新・`car_stress_bicycle_infra_
+  adjustment`削除）を、fresh bootstrap（まっさらなDBへ全migration適用）だけでも
+  再現できるようにした。`tests/test_migrate.py`の`axis_count == 14`は`13`へ更新
+  （未確定事項だった「fresh bootstrap直後のcar_stress.termsの件数」は、本migration
+  適用によりmigration時点で5件になることで解消——別途API操作が不要になった）。
+  対応方針3（本番反映）はT359の残作業と合わせて別途実施する。
+- **根本原因の恒久対応はT361として別タスク化**: 今回の不整合は「変更経路が
+  migrationとAPIの2つ存在し、両者の同期漏れが構造的に起き得る」ことが原因であり、
+  本migrationの追加は対症療法（このタスクの発生源自体は残る）。恒久対応の方針は
+  ユーザー判断によりT361（後述）で検討する。
+
+---
+
+### - [ ] T361. axis_definitionsのfresh bootstrapをmigrationシードからDBスナップショット取込みへ転換（migration/API二重管理の恒久解消） 規模M〜L（起票のみ、未着手）
+
+- 背景: T360（本番反映作業の直前に発覚、2026-08-27）で、T353がaxis_definitionsの
+  変更をmigrationではなくaxis_admin APIの直接操作で行った結果、fresh bootstrap
+  （CI・新規開発環境・disaster recovery等、まっさらなDBへ全migrationを順に適用する
+  経路）では削除済みの軸が復活する不整合が発生した。T360では発生済みの不整合を
+  個別migration（0022）で解消したが、これは対症療法に過ぎない。
+  **「軸定義の変更経路がmigrationとAPIの2つ存在する限り、両者の同期漏れは構造的に
+  再発し続ける」**というのが根本原因（ユーザー指摘、2026-08-27）。
+- 対応方針（ユーザー承認済み、方針B）: `axis_definitions`テーブルの**データ**を
+  migrationでシードする運用そのものをやめ、完全にランタイムデータとして扱う。
+  fresh bootstrap時は、空のテーブルへmigrationでシードするのではなく、**本番の
+  現在の状態をダンプしたものを取り込む**運用に切り替える（テーブル構造＝DDLは
+  引き続きmigrationで管理する。データ＝行の内容だけを対象とする）。
+  これにより「API経由で自由に調整できる」という軸スタジオの設計思想（T353で
+  確立: shape_paramsの値は唯一の正解が無い継続的チューニング対象であり、監査証跡・
+  ロールバックは過剰品質）と、「fresh bootstrapとの整合性」を両立できる。
+  検討すべき論点（着手時に詰める）:
+  1. ダンプの取得タイミング・方法（本番デプロイの都度自動化するか、手動運用にするか）。
+  2. dev/CI環境の初期化フロー（`tests/test_migrate.py`のブートストラップテストが
+     「まっさらなDBへmigration適用→ダンプ取込み」の2段階になることへの対応）。
+  3. 「新規軸の追加・削除もmigrationで行う」というT353で確立した運用ルール（CLAUDE.md）
+     も、本方針への統一に伴い見直しが必要になる可能性がある（新規軸追加もAPI経由に
+     一本化するか、DDL相当の変更のみmigrationに残すか）。
+  4. ダンプにテスト用途以外の機微情報が含まれないことの確認（axis_definitions自体は
+     評価ロジックのみで個人情報等は含まないが、念のため）。
+- 優先度: P2相当（実害はT360と同様、軸一覧の一時的な不整合に留まる）。着手判断は
+  ユーザー承認後、別途行う。
 
 ---
 

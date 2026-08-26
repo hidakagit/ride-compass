@@ -56,7 +56,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
   定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
   上げる（T70・T93で対上げ漏れが2回発生）。
-- **評価軸（`axis_definitions`テーブル、全14軸）の新規追加・削除は手書きのmigration SQL
+- **評価軸（`axis_definitions`テーブル、全13軸）の新規追加・削除は手書きのmigration SQL
   （`backend/migrations/`）で行う。既存の公開軸の`shape_params`（合成ルールの中身：
   重み・breakpoints・参照する材料）を調整する場合は、`axis_admin`のunpublish→PUT API
   （軸スタジオのGUI、または直接API呼び出し）→republishで行う**（改善計画T353、

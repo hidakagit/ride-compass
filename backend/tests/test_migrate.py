@@ -216,17 +216,18 @@ async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(boots
 
     async with bootstrap_engine.connect() as conn:
         axis_count = (await conn.execute(text("SELECT count(*) FROM axis_definitions"))).scalar()
-    # 公開8軸（migrations/0014・0021）+ car_stress内部軸6（migrations/0017）= 14行
-    assert axis_count == 14
+    # 公開8軸（migrations/0014・0021）+ car_stress内部軸5（migrations/0017、0022で
+    # car_stress_bicycle_infra_adjustmentを削除）= 13行（改善計画T353/T360）。
+    assert axis_count == 13
 
     # 改善計画T350: axis_definitions.pyのPython literal（AXIS_DEFINITIONS）を撤去し、
-    # DBが14軸全ての唯一の正本になったため、「DB値が特定の内容と一致するか」を検証する
+    # DBが13軸全ての唯一の正本になったため、「DB値が特定の内容と一致するか」を検証する
     # 発想自体が誤りになった（可変であることを前提にDBへ置いているデータを固定検証すると、
     # 正当なチューニングのたびに無意味な失敗を生む）。ここで検証するのは構造のみ:
     # 全軸が例外なく読める（Pydanticバリデーションを通る）・未知の材料/軸参照が無いこと。
     async with AsyncSession(bootstrap_engine) as session:
         db_definitions = await AxisDefinitionRepository(session).list_all()
-    assert len(db_definitions) == 14
+    assert len(db_definitions) == 13
     # 改善計画T350のcode-review対応: 未知の材料/軸参照の判定ロジックを本テストへ
     # 再実装せず、refresh_axis_definitions（起動時ロード）が実際に使うのと同じ関数を
     # そのまま呼ぶ（本番の検知ロジックとテストの検証内容が食い違う余地を無くす）。
