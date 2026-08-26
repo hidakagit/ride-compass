@@ -155,7 +155,7 @@ jobs:
       # 省く（--with-depsのOS依存パッケージ部分は毎回軽量に入れ直す必要があるためキャッシュ
       # 対象外、こちらはapt経由で数秒〜十数秒程度に収まる）。package-lock.jsonの
       # @playwright/testバージョンが変わったらキャッシュキーも変わり自動的に再取得する。
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
