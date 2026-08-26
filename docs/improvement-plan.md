@@ -7081,7 +7081,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   T339の宣言的extractorファクトリとは無関係（値一覧取得はDB直接読み取りのため
   material_catalog.pyのextractor機構を経由しない）。
 
-### - [ ] T341. 地図表示ロジックの定義場所をSQL側へ一本化し、分離原則をdocs/architecture.mdへ反映 規模S〜M〔P3〕— トリガー: T336・T337完了後
+### - [x] T341. 地図表示ロジックの定義場所をSQL側へ一本化し、分離原則をdocs/architecture.mdへ反映 規模S（2026-08-26完了、当初想定から縮小）
 
 - 背景（2026-08-26、当初案からユーザー指摘を受けて修正）: 当初は
   [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
@@ -7100,15 +7100,36 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   - `classify_bicycle_infrastructure`は`evaluation.py`・`road_graph_engine.py`・
     `openrouteservice_engine.py`の複数箇所から呼ばれている（全て「car_stress軸の
     ための材料計算」という同一目的の呼び出し）。
-- 内容: T336（`bicycle_infra`の正規化フラグ化）・T337（`cycleway_class`の未使用状態
-  整理）が完了し、これらのPython分類関数が評価パイプラインから呼ばれなくなった時点で、
-  **地図表示（MVTタイル生成）用の分類ロジックはSQL側のCASE式のみを単一ソースとし、
-  Python側の重複関数（`classify_bicycle_infrastructure`/`cycleway_class`）を削除する**
-  （逆方向＝SQL側を廃止しPython側に統一、は地図タイル生成がPostGISの空間演算と
-  密結合しているため非現実的）。あわせて、この経緯と「評価軸の材料は正規化された
-  生データに統一する」「地図表示用の人間向けカテゴリラベルは評価軸の材料とは別
-  レイヤーの関心事」という原則を`docs/architecture.md`の評価システムの説明箇所へ
-  追記する。
+- 内容（着手時に再調査した結果、当初想定を修正）: 当初は「T336・T337完了後、Python分類
+  関数は評価パイプラインから一切呼ばれなくなるのでSQL側へ一本化（Python側を削除）できる」
+  という想定だったが、実際に呼び出し元を1件ずつ追跡すると誤りだった。
+  - `cycleway_class`（`domain/recipe.py`）: T337で実装自体が既に完全削除済み（呼び出し元
+    ゼロを確認）。この部分はT337時点で完了済みで対応不要だった。
+  - `classify_bicycle_infrastructure`（`domain/traffic.py`）: T336で内部軸
+    `car_stress_bicycle_infra_adjustment`が参照する材料が正規化フラグへ置き換わった結果、
+    `evaluation.py`（`axis_inspector_breakdown`・`compute_edge_axis_scores`）・
+    `openrouteservice_engine.py`が評価用材料辞書へ`"bicycle_infra"`キーを計算・格納する
+    処理は**どの軸からも参照されなくなった死んだコード**になっていた（削除、下記「検証」
+    参照）。一方`classify_bicycle_infrastructure`の呼び出し自体は、評価軸とは無関係な
+    別の消費者（`RouteSegmentDetail.bicycle_infra`区間表示・`RouteCandidate.bicycle_infra_score`
+    ルート集約統計、`road_graph_engine.py`・`openrouteservice_engine.py`が直接使用）が
+    現役で存在するため、**関数・呼び出し自体は削除できない**（削除すると区間表示APIが
+    壊れる）。SQL CASE式とPython関数はどちらも「地図表示」ではなく「MVTタイル生成
+    （SQL）」と「ルートAPI応答（Python）」という**別の実行コンテキストの別消費者**であり、
+    当初想定した「地図表示ロジックの重複」という構図自体が不正確だった。
+  - 実施したのは (1) 上記の死んだコード（`bicycle_infra`キーの評価用材料辞書への
+    格納、3箇所）の削除、(2) この経緯と「評価軸の材料は正規化された生データに統一する」
+    「地図表示用の人間向けカテゴリラベル（SQL CASE式）とAPI表示用のPython分類関数は
+    それぞれ別の実行コンテキストの別消費者であり、評価軸から参照されなくなっても
+    削除対象にはならない」という原則を`docs/architecture.md`（「自転車インフラ」節・
+    新設「地図表示ロジックと評価軸材料の分離原則」節）へ追記、の2点のみ。
+- 検証: `backend/app/domain/evaluation.py`・`backend/app/services/openrouteservice_engine.py`
+  から死んだ`"bicycle_infra"`キー格納3箇所を削除（`classify_bicycle_infrastructure`の
+  呼び出し自体は`openrouteservice_engine.py`の表示用途で1箇所残存、`evaluation.py`は
+  呼び出しごと不要になったためimportも削除）。既存テストは軸評価の出力（axis scores・
+  car_stress値）のみを検証しておりこの内部辞書キーの有無を直接assertしていないため
+  修正不要、新規テストも追加していない（挙動を変えない死んだコードの削除のため）。
+  `ruff check`・非DBテスト1086件全件green。
 - 依存: T336・T337（Python側関数を評価パイプラインから切り離す前提作業）。
 
 ### - [ ] T342. 材料正規化方針を踏まえた軸スタジオUIの見直し検討 規模未定（調査）〔P3〕— トリガー: T336・T339等の実装が具体化した時点

@@ -390,7 +390,6 @@ class OpenRouteServiceEngine:
                     "intersection_count_per_km": intersection_count_per_km,
                     "accident_count_per_km_year": accident_count_per_km_year,
                     "highway": highway_for_car_stress,
-                    "bicycle_infra": bicycle_infra,
                     **car_stress_bicycle_infra_flags,
                     "maxspeed_kmh": maxspeed_kmh,
                     "lanes_count": lanes_count,

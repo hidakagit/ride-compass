@@ -28,7 +28,6 @@ from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionCont
 from app.domain.night import night_materials
 from app.domain.recipe import bicycle_infra_flags, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
-from app.domain.traffic import classify_bicycle_infrastructure
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindCalculator
 
@@ -156,7 +155,6 @@ def axis_inspector_breakdown(
     weights = (preference or RoutePreference()).weights
 
     surface_good = classify_osm_surface(tags.get("surface"))
-    bicycle_infra = classify_bicycle_infrastructure(tags, highway)
     car_stress_bicycle_infra_flags = bicycle_infra_flags(tags, highway)
     maxspeed_kmh = parse_maxspeed(tags)
     lanes_count = parse_lanes(tags)
@@ -182,6 +180,9 @@ def axis_inspector_breakdown(
     # 参照する階層構造になったため、compute_edge_axis_scoresと同じ依存順評価
     # （topological_axis_order）を使う。内部軸は`available=False`相当の扱いのため
     # 最終結果（axes）からは除外し、公開軸のみを返す（旧来のAPI応答形状を維持）。
+    # 改善計画T341: categorical材料bicycle_infraはT336でcar_stress軸から外れ
+    # 正規化フラグ（car_stress_bicycle_infra_flags）へ置き換わったため、ここでは渡さない
+    # （どの軸も参照しない値をここで計算・格納するのは無駄なため削除した）。
     materials: dict[str, object] = {
         "gradient_percent": None,
         "wind_penalty": None,
@@ -190,7 +191,6 @@ def axis_inspector_breakdown(
         "intersection_count_per_km": intersection_per_km,
         "accident_count_per_km_year": accident_per_km_year,
         "highway": highway,
-        "bicycle_infra": bicycle_infra,
         **car_stress_bicycle_infra_flags,
         "maxspeed_kmh": maxspeed_kmh,
         "lanes_count": lanes_count,
@@ -373,7 +373,6 @@ def compute_edge_axis_scores(
     # あえて使わない）。highway基準値軸はrequired=Trueで公開軸car_stressの最初のterm
     # のため、これがNoneなら公開軸全体がNoneになり旧挙動と一致する。
     highway_for_car_stress = edge.highway if way_tags is not None else None
-    bicycle_infra = classify_bicycle_infrastructure(way_tags, edge.highway) if way_tags is not None else None
     car_stress_bicycle_infra_flags = bicycle_infra_flags(way_tags, edge.highway) if way_tags is not None else {}
     maxspeed_kmh = parse_maxspeed(way_tags) if way_tags is not None else None
     lanes_count = parse_lanes(way_tags) if way_tags is not None else None
@@ -393,7 +392,6 @@ def compute_edge_axis_scores(
         "intersection_count_per_km": intersection_count_per_km,
         "accident_count_per_km_year": accident_count_per_km_year,
         "highway": highway_for_car_stress,
-        "bicycle_infra": bicycle_infra,
         **car_stress_bicycle_infra_flags,
         "maxspeed_kmh": maxspeed_kmh,
         "lanes_count": lanes_count,

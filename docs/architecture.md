@@ -1676,17 +1676,50 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
 - **自転車インフラ**: `classify_bicycle_infrastructure`がseparated/lane/shared_busway/
   shared_pedestrian/roadway/prohibited/unknownの7値に分類（優先順位あり）。改善計画T138で
   難易度への寄与は独立軸を持たず車ストレス側（改善計画T292以降は内部軸
-  `car_stress_bicycle_infra_adjustment`、T291でスコア精密化）へ一本化済み。この分類自体
+  `car_stress_bicycle_infra_adjustment`）へ一本化済みだったが、**改善計画T336**で
+  この内部軸が参照する材料自体を、この優先順位付き7値categorical（`bicycle_infra`）から
+  正規化済みboolean材料4件（`highway_is_cycleway`/`cycleway_has_track`/
+  `cycleway_has_lane`/`cycleway_has_shared`、`domain/recipe.py: bicycle_infra_flags`が
+  単一ソース）へ置き換えた（[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+  参照）。この結果、`classify_bicycle_infrastructure`の戻り値（7値分類そのもの）は
+  評価軸のどこからも参照されなくなったが、関数自体・分類ロジックは削除していない
+  （**改善計画T341**で削除の要否を再検証した結果、`RouteSegmentDetail.bicycle_infra`の
+  生値・`RouteCandidate.bicycle_infra_score`のルート集約統計という、評価軸とは独立した
+  表示専用の消費者がそのまま存在するため）。この分類自体
   （`RouteSegmentDetail.bicycle_infra`の生値、
   `RouteCandidate.bicycle_infra_score`のルート集約統計）は一次属性の表示用データとして
   引き続き独立に保持する（地図の「自転車インフラ」レイヤー・研究インターフェースの
-  統計表示はこちらを参照する）。
+  統計表示はこちらを参照する）。`domain/evaluation.py`・`openrouteservice_engine.py`の
+  評価用材料辞書からは、どの軸も参照しなくなった`bicycle_infra`キーの計算・格納自体を
+  削除した（軸評価とAPI表示は別レイヤーの関心事という原則の実例、下記「地図表示ロジックと
+  評価軸材料の分離原則」参照）。
 - **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のroad_node。
   `INTERSECTION_MATCH_MAX_DISTANCE_M=30m`で空間マッチ。改善計画T149で難易度への寄与は
   独立軸を持たず停止密度側（タグなし交差点として`signal`等の0.3倍の重みで加算、
   `domain/difficulty.py: stop_difficulty`）へ一本化済み。ルート単位の集約統計
   （`RouteCandidate.intersection_density`）・地図の点タイル表示（`poi-tiles`の`degree`
   プロパティ）は一次属性の表示用データとして引き続き独立に保持する。
+
+**地図表示ロジックと評価軸材料の分離原則（改善計画T341）**: 評価軸（`AXIS_DEFINITIONS`）が
+参照する材料は、正規化された生データ（数値・boolean・単純categorical）に統一する
+（[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)、
+T336・T338の実例）。一方、地図表示・API応答向けの人間可読な分類ラベル（例:
+`classify_bicycle_infrastructure`の7値分類、MVTタイルの`_ROAD_SURFACE_TILE_MVT_SQL`が
+生成するCASE式の分類プロパティ）は、評価軸の材料とは別レイヤーの関心事であり、
+評価軸から参照されなくなっても削除対象にはならない。
+
+この2つの分類ロジック（Python関数とSQL CASE式）が独立に手書きされ重複する構造
+（`domain/traffic.py`のdocstringが明記するとおり「SQL側にPythonを呼び出す手段が無い」
+ための既知の制約）は、**両者が異なる実行コンテキストの別個の消費者**である限り
+解消できない・する必要がない: SQL CASE式はMVTタイル生成（`RoadGraphRepository`の
+空間クエリ、地図のベクタタイル描画）専用で、Pythonの分類関数はルートAPI応答
+（`RouteSegmentDetail`の区間ごとの分類・`RouteCandidate`のルート集約統計）専用であり、
+後者は前者のSQLクエリ結果を再利用できない別の実行パス（Edge単位・KNN空間マッチの
+ループ処理）で動く。整合性は`test_road_graph_repository.py`の突き合わせテストで担保する。
+（着手前は「T336・T337完了後にPython側の重複関数を削除しSQL側へ一本化する」という
+想定だったが、実際に調査すると`classify_bicycle_infrastructure`はAPI表示用途で
+現役だったため、この想定は成立しなかった。`cycleway_class`のようにPython関数側の
+呼び出し元が本当に0件になったケースのみ、T337のように削除できる。）
 
 いずれも`AttributeRepository`（`road_graph_repository.py`）の対称メソッド
 （`get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`get_way_tags`/`get_nearest_way_tags`、
