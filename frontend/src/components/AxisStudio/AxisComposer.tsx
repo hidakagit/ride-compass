@@ -357,13 +357,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
-  // 改善計画T345フォローアップ（実機フィードバック: 「値」欄に生のタグ値[例: cycleway]が
-  // 表示され、ユーザー向け画面としては分かりにくい）: ラベルが引ける行は既定でラベルの
-  // 読み取り専用表示にし、生のタグ値の入力欄は「候補から選ぶ」または「直接入力する」を
-  // 押したときだけ開く。ラベルが引けない値（手入力した独自の値・材料自体がラベル対応表を
-  // 持たない）は最初から入力欄のまま（隠す意味が無いため）。行indexで管理するため、
-  // 材料を切り替えたときはリセットする（updateCategoricalRowMaterial参照）。
-  const [manualEditCategoricalRows, setManualEditCategoricalRows] = useState<Set<number>>(new Set());
 
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
@@ -760,7 +753,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                             ? [{ value: "", score: 0 }]
                             : d.categoricalRows,
                       }));
-                      setManualEditCategoricalRows(new Set());
                     }}
                   >
                     {materialOptions
@@ -778,7 +770,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 <>
                   <p className={styles.hint}>
                     {categoricalMaterialValues.length > 0
-                      ? "値は下の候補（実データに含まれる値）から選ぶか、直接入力できます。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"
+                      ? "値は下の候補（実データに含まれる値）から選びます。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"
                       : "値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"}
                   </p>
                   <p className={styles.groupLabel}>値ごとのスコア</p>
@@ -786,29 +778,25 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                       100=最も走りにくい）をここにも明記する。 */}
                   <p className={styles.hint}>スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。</p>
                   {draft.categoricalRows.map((row, i) => {
-                    // 改善計画T345フォローアップ: ラベルが引ける値は、既定では生のタグ値
-                    // （例: cycleway）を画面に出さずラベル（例: 自転車・歩行者道）だけを
-                    // 読み取り専用表示する。「候補から選ぶ」で選んだ場合は必ずラベルが
-                    // 引けるためこの表示になる。ラベルが無い値（未知のタグ値の手入力等）は
-                    // 隠す意味が無いため最初から入力欄のまま。
+                    // 改善計画T345フォローアップ（ユーザー指摘: 候補が存在する材料では
+                    // 生のタグ値の直接入力自体が不要——material_catalogに無い値を書く
+                    // 実運用上の必要性は基本無く、直接入力を残すとタイプミスがそのまま
+                    // 「静かに一致しない行」として残る落とし穴になる）: 候補一覧
+                    // （categoricalMaterialValues）がある材料は、候補セレクトでの選択のみを
+                    // 許可し、値は常にラベルの読み取り専用表示にする（生のタグ値は画面に
+                    // 出さない）。候補一覧が無い材料（bicycle_infra等、動的値一覧に
+                    // 対応していない）だけ、従来どおり自由テキスト入力のままにする
+                    // （選ぶ元となる候補自体が存在しないため）。
+                    const hasDynamicCandidates = categoricalMaterialValues.length > 0;
                     const label = materialValueLabel(draft.categoricalMaterial, row.value);
-                    const hasLabel = row.value.trim() !== "" && label !== row.value;
-                    const showRawInput = manualEditCategoricalRows.has(i) || !hasLabel;
                     return (
                       <div key={i} className={styles.termRow}>
-                        {categoricalMaterialValues.length > 0 && (
+                        {hasDynamicCandidates && (
                           <select
                             aria-label="値の候補"
                             value=""
                             onChange={(e) => {
-                              if (e.target.value) {
-                                updateCategoricalRow(i, { value: e.target.value });
-                                setManualEditCategoricalRows((s) => {
-                                  const next = new Set(s);
-                                  next.delete(i);
-                                  return next;
-                                });
-                              }
+                              if (e.target.value) updateCategoricalRow(i, { value: e.target.value });
                             }}
                           >
                             <option value="">候補から選ぶ...</option>
@@ -822,7 +810,14 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                             })}
                           </select>
                         )}
-                        {showRawInput ? (
+                        {hasDynamicCandidates ? (
+                          // 改善計画T345フォローアップ（ユーザー指摘: 「選択欄」と「値の入力欄」の
+                          // 2つだけで見えるようにしたい）: 実体は読み取り専用のinputにする
+                          // （素のspanではなく input[type=text] にすることで、globals.cssの
+                          // 共通スタイルがそのまま当たり見た目が他のinputと揃う）。編集不可
+                          // （readOnly）で、値は候補セレクトからのみ設定する。
+                          <input type="text" value={label} readOnly aria-label="値" placeholder="候補から選択してください" />
+                        ) : (
                           <input
                             type="text"
                             value={row.value}
@@ -830,16 +825,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                             placeholder="例: separated"
                             onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
                           />
-                        ) : (
-                          <span className={styles.inlineCheckbox}>
-                            {label}
-                            <button
-                              type="button"
-                              onClick={() => setManualEditCategoricalRows((s) => new Set(s).add(i))}
-                            >
-                              直接入力する
-                            </button>
-                          </span>
                         )}
                         <input
                           type="number"

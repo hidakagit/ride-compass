@@ -22,7 +22,7 @@ async function clickNext(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AxisComposer 値の候補セレクト", () => {
-  it("動的値一覧に対応する材料(highway)を選ぶと候補セレクトが現れ、選ぶと生のタグ値ではなくラベルが表示される", async () => {
+  it("動的値一覧に対応する材料(highway)を選ぶと候補セレクトが現れ、選ぶと生のタグ値ではなくラベルが読み取り専用表示される", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -35,35 +35,30 @@ describe("AxisComposer 値の候補セレクト", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
 
     const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
-    // 改善計画T345フォローアップ: 値が未設定の間はラベルが引けないため入力欄のまま。
+    // 改善計画T345フォローアップ（ユーザー指摘: 候補が存在する材料では生のタグ値を
+    // 直接入力する必要は無いはず——material_catalogに無い値を書く実運用上の必要性は
+    // 基本無く、タイプミスがそのまま静かに一致しない行として残る落とし穴になる）:
+    // 候補一覧がある材料は候補セレクトでの選択のみを許可し、値欄はglobals.cssの
+    // input共通スタイルを流用した読み取り専用input（実体はinput、typeできない）にする。
     const valueInput = screen.getByLabelText("値");
     expect(valueInput).toHaveValue("");
+    expect(valueInput).toHaveAttribute("readonly");
 
     await user.selectOptions(candidateSelect, "residential");
 
-    // 実機フィードバック: 候補から選んだ後は生のタグ値("residential")を画面に出さず、
-    // ラベル("生活道路")だけを読み取り専用表示する（候補セレクトのoption文字列としても
-    // 同じ文字列が存在するため、表示用span要素に絞って探す）。
-    expect(screen.getByText("生活道路", { selector: "span" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("値")).not.toBeInTheDocument();
+    // 選択後は生のタグ値("residential")ではなくラベル("生活道路")が値欄に表示される。
+    expect(valueInput).toHaveValue("生活道路");
     expect(screen.queryByText("residential")).not.toBeInTheDocument();
     // 候補セレクト自体は選択の起点（value=""）へ戻る（連続で別の値も選べるようにするため）。
     expect(candidateSelect).toHaveValue("");
-
-    // 「直接入力する」を押すと生のタグ値の入力欄へ戻り、候補に無い値も設定できる。
-    await user.click(screen.getByRole("button", { name: "直接入力する" }));
-    const reopenedInput = screen.getByLabelText("値");
-    expect(reopenedInput).toHaveValue("residential");
-    await user.clear(reopenedInput);
-    await user.type(reopenedInput, "primary");
-    expect(reopenedInput).toHaveValue("primary");
 
     await clickNext(user);
     await user.click(screen.getByRole("button", { name: "作成する" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const [payload] = onSave.mock.calls[0];
-    expect(payload.shape).toEqual({ kind: "categorical", material: "highway", mapping: { primary: 0 } });
+    // 保存されるvalue自体は表示用ラベルではなく、選択した生のタグ値のまま。
+    expect(payload.shape).toEqual({ kind: "categorical", material: "highway", mapping: { residential: 0 } });
   });
 
   it("改善計画T345回帰テスト: 候補セレクトの選択肢は論理名(ラベル)のみを表示し、物理値(タグ生値)を併記しない", async () => {
