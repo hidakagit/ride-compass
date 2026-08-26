@@ -1089,9 +1089,9 @@ axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの
 `AXIS_DEFINITIONS`（上記1本道の到達点）はStage Dで、Pythonファイルの定数から
 PostGISテーブル`axis_definitions`（+版数管理用`axis_registry_meta`、
 `migrations/0014_axis_definitions.sql`）を実データソースとする形へ昇格した。
-`domain/axis_definitions.py`のPython辞書は「DBへの初期シード」「migration未適用・
-DB未接続環境でのフォールバック値」として引き続き存在する（ソースは1つのままだが、
-役割が「唯一の実データ」から「既定値・安全網」へ変わった）。
+`domain/axis_definitions.py`のPython辞書は「DBへの初期シード（migration機械生成の
+著述元）」として引き続き存在するが、**フォールバック値としての役割は改善計画T349で
+廃止した**（下記参照）。
 
 **組み込み軸のDBシードは`AXIS_DEFINITIONS`から機械生成する（改善計画T348）**:
 Python側で組み込み軸のshape・weight・表示メタデータを変更した際、対応するmigration
@@ -1116,10 +1116,26 @@ generate_axis_migration_sql.py`（DB接続不要、`AXIS_DEFINITIONS`をその�
 `services/axis_registry_service.py: refresh_axis_definitions`が、(1)アプリ起動時
 （`main.py`のlifespan）と(2)管理API書き込み直後の2箇所だけで、同じdictオブジェクトを
 `.clear()`+`.update()`でin-place更新する「push型」の設計にしたため（再代入すると
-`from ... import AXIS_DEFINITIONS`で束縛済みの参照先が更新されない）。DB未接続・
-テーブル未migration・0行（＝migration未適用）の場合はWARNINGログを出しコード内蔵の
-既定値のまま動作を続けるため、本migrationを本番へ適用するまでの間は評価の振る舞いが
-一切変わらない安全側ロールアウトになっている。
+`from ... import AXIS_DEFINITIONS`で束縛済みの参照先が更新されない）。
+
+**DBを唯一の実行時ソースとするfail-fast設計（改善計画T349）**: 当初（T221 Stage D〜T348）
+はDB未接続・テーブル未migration・0行（＝migration未適用）・未知の材料/軸参照
+（T294〜T295）のいずれかを検出した場合、WARNING/ERRORログを出しコード内蔵の既定値
+（`AXIS_DEFINITIONS`のPythonリテラル）のまま動作を続ける安全側フォールバックだった。
+この設計は「検知が起動ログの目視のみに依存し、次に同種の障害が起きても気づかれない
+まま放置される」という構造的な弱点を持ち（T294→T295で2回、検知条件を1つ足す対応を
+繰り返したが解決しなかった）、複雑度平衡性レビュー（2026-08-26、F-1・P0）で
+指摘を受けてT349で撤去した。現在は上記いずれかを検出すると
+`AxisDefinitionSyncError`を送出し、`main.py`のlifespanがこれを捕捉しないため
+**アプリの起動自体が失敗する**（fail-fast）。これに伴い、`.github/workflows/
+deploy-backend.yml`へ`docker build`直後・旧コンテナ停止前にmigration適用ステップ
+（`scripts/apply_migrations.py`）を追加し、通常のデプロイ経路では migration未適用の
+まま新コンテナが起動を試みてクラッシュループする事態を避けている（`backend/
+Dockerfile`も`migrations/`・`scripts/`をイメージへ同梱するよう変更済み）。
+
+`AXIS_DEFINITIONS`のPythonリテラル自体・`generate_axis_migration_sql.py`
+（改善計画T348、migration機械生成の著述元）は撤去していない——撤去したのは
+「DBが読めない/古い時に実行時に黙ってPython版で動き続ける」という挙動のみ。
 
 管理API（`/api/admin/axis-definitions`、`api/routers/axis_admin.py`）は軸定義の
 CRUDのみを提供する（GUI編集画面は改善計画T270で実装済み、`frontend/src/app/admin/`
@@ -1131,8 +1147,9 @@ PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善�
 よる認可を要求する。認可判定はこの1関数へ集約し差し替え可能にしている。
 妥当性検証は型・範囲チェックのみ（極端な重み設定への意味的な歯止めは設けない、
 2026-08-24ユーザー判断）。ただし「最後の1軸は削除できない」制約だけは例外的に持つ
-（レジストリを空にできてしまうと`refresh_axis_definitions`の0件フォールバックと
-衝突し評価が壊れるため、重みの妥当性とは別次元の構造的な安全策として設ける）。
+（レジストリを空にできてしまうと削除後の`refresh_axis_definitions`が0行を検知し
+`AxisDefinitionSyncError`を送出する[改善計画T349]ため、重みの妥当性とは別次元の
+構造的な安全策として設ける）。
 
 既存のAPIリクエストが参照するaxis_idを管理API経由で削除した場合の整合性チェックは
 意図的に実装していない（改善計画T316: 上書き無しの既定値は常にAXIS_DEFINITIONS由来へ

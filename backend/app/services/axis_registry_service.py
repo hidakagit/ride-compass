@@ -204,9 +204,8 @@ class AxisRegistryAdminService:
     async def delete(self, axis_id: str) -> None:
         # 重みの妥当性検証は型・範囲チェックのみ（2026-08-24ユーザー判断、ADR「Stage D設計
         # メモ」）だが、「レジストリを空にできる」ことは重みの是非とは別次元の構造的な問題
-        # （refresh_axis_definitionsの0件フォールバックと衝突し、削除後にAXIS_DEFINITIONSが
-        # 更新されず古いままになる／評価が全軸なしで完全に壊れる）のため、最後の1軸だけは
-        # 削除できないようにする。
+        # （削除後のrefresh_axis_definitionsが0行を検知しAxisDefinitionSyncErrorを送出する、
+        # 改善計画T349でfail-fast化済み）のため、最後の1軸だけは削除できないようにする。
         existing = await self._repository.list_all()
         if axis_id in existing and len(existing) == 1:
             raise ValueError("最後の1軸は削除できません")

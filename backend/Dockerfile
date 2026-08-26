@@ -6,6 +6,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+# migrations/scripts: 改善計画T349でfail-fast化した都合上、デプロイパイプライン側で
+# `python scripts/apply_migrations.py`（backend/app/infrastructure/migrate.py参照）を
+# 起動前に実行してmigrationを適用する必要があり、そのためにイメージへ同梱する
+# （以前はappディレクトリのみで、DB未接続時は起動を止めない安全側フォールバックが
+# あったためmigration適用漏れがあっても気づかれなかった）。
+COPY migrations ./migrations
+COPY scripts ./scripts
 
 EXPOSE 8000
 

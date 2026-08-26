@@ -62,6 +62,18 @@ jobs:
               sudo sed -i "s#^CORS_ALLOWED_ORIGINS=.*#&,$REQUIRED_ORIGIN#" "$ENV_FILE"
             fi
             sudo docker build -t ridecompass-backend:latest .
+            # migration適用（改善計画T349）: axis_definitionsのDB読み込みがfail-fast化された
+            # ため（services/axis_registry_service.py参照）、migration未適用のまま新コンテナを
+            # 起動すると即座に起動失敗してサービス全体が止まる。旧コンテナをstopする前
+            # （＝サービスが動いたまま）のこのタイミングでmigrationを適用し、失敗時は
+            # set -eでデプロイ全体を中断させる（旧コンテナは無傷のまま残り、down timeにならない）。
+            # ビルド済みイメージをそのまま使い、実際に起動する本番コンテナと同じ依存関係・
+            # 同じmigrationsディレクトリで実行する。
+            sudo docker run --rm \
+              --network=host \
+              --env-file /home/ubuntu/ridecompass-backend.env \
+              ridecompass-backend:latest \
+              python scripts/apply_migrations.py
             # -t 90: docker stopの既定SIGTERM猶予(10秒)は、ルート生成(通常は数秒〜十数秒、
             # 冷パスは最大316秒実測)の完了を待つには短すぎ、デプロイと処理中リクエストが
             # 重なると接続がRSTで強制切断され、フロントで「TypeError: Failed to fetch」

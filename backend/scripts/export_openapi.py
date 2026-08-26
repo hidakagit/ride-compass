@@ -73,15 +73,20 @@ async def _try_load_axis_definitions_from_db() -> None:
     存在しない）が生成物へ一切反映されなかった。
 
     CIの`api-contract`ジョブはDB接続を持たない（本スクリプトのdocstring参照）ため、
-    接続失敗時は`services/axis_registry_service.py: refresh_axis_definitions`と
-    同じ安全側フォールバック（WARNINGログを出しコード内蔵の既定値のまま続行）に
-    倣う——DB無しの環境でも生成物の内容（コード内蔵の既定値ぶん）は今までどおり変わらない。
+    接続失敗/未migration時はコード内蔵の既定値のまま生成を続行する
+    （**この呼び出し元での**フォールバック。改善計画T349で
+    `services/axis_registry_service.py: refresh_axis_definitions`自体はfail-fast化
+    したため、この関数が例外を捕捉して生成を継続させる）——DB無しの環境でも生成物の
+    内容（コード内蔵の既定値ぶん）は今までどおり変わらない。本番の起動時fail-fastとは
+    独立した、コードgenツール固有の設計判断（このスクリプトの目的は「DB接続の有無に
+    関わらずビルド時静的生成物を必ず作る」ことで、本番サーバの「DBと不整合なら
+    起動させない」とは別の要件）。
     """
     try:
         session_factory = get_session_factory()
         async with session_factory() as session:
             await refresh_axis_definitions(AxisDefinitionRepository(session))
-    except Exception as exc:  # noqa: BLE001 生成を止めず内蔵の既定値へ安全側フォールバックする
+    except Exception as exc:  # noqa: BLE001 生成を止めず内蔵の既定値へフォールバックする（このスクリプト固有）
         logger.warning("軸定義のDB読み込みに失敗、コード内蔵の既定値を使用します error=%r", exc)
 
 
