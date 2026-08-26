@@ -251,6 +251,7 @@ export default function AxisStudio() {
             key={editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : "new")}
             editing={editingDefinition}
             duplicateFrom={duplicateFrom}
+            otherAxes={definitions ?? []}
             onCancelEdit={closeComposer}
             onSave={handleSave}
           />

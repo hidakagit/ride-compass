@@ -56,6 +56,27 @@ describe("AxisComposer 値の候補セレクト", () => {
     expect(payload.shape).toEqual({ kind: "categorical", material: "highway", mapping: { primary: 0 } });
   });
 
+  it("改善計画T345回帰テスト: 候補セレクトの選択肢は論理名(ラベル)のみを表示し、物理値(タグ生値)を併記しない", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
+    await clickNext(user);
+    await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+    await clickNext(user);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
+
+    const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
+    // "residential"はlib/materialValueLabels.ts経由でroadFilterAxes.tsのHIGHWAY_GROUPSから
+    // 「生活道路」というラベルを引く。物理値"residential"併記（旧表示「生活道路 (residential)」）
+    // が無いことを確認する。
+    expect(screen.getByRole("option", { name: "生活道路" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /residential/ })).not.toBeInTheDocument();
+    expect(candidateSelect).toBeInTheDocument();
+  });
+
   it("動的値一覧に対応しない材料(bicycle_infra)を選んでいる間は候補セレクトが出ない", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();

@@ -6,7 +6,8 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 
 `tile_property`/`tile_property_inverted`（地図レイヤーのramp自動生成が内部で使う想定、
 T278）は公開レスポンスに含めない——フロントの軸コンポーザーが必要とするのは
-`material_id`/`label`/`dtype`のみのため。
+`material_id`/`label`/`description`/`dtype`のみのため（`description`は改善計画T345で追加、
+軸コンポーザーの情報アイコンから表示する説明文）。
 
 改善計画T338: `MaterialSpec.display_only=True`の材料（現状designationのみ）は
 このレスポンスから除外する（`axis_studio_materials()`）。地図表示専用の材料で、
@@ -37,6 +38,9 @@ router = APIRouter()
 class MaterialCatalogEntry(BaseModel):
     material_id: str
     label: str
+    # 改善計画T345: 軸スタジオの材料選択で、labelだけでは何を表す材料か分かりにくいという
+    # ユーザーフィードバックへの対応。情報アイコン(ⓘ)から表示する説明文。
+    description: str
     dtype: MaterialDType
 
 
@@ -52,7 +56,7 @@ class MaterialValuesResponse(BaseModel):
 async def get_material_catalog() -> MaterialCatalogResponse:
     return MaterialCatalogResponse(
         materials=[
-            MaterialCatalogEntry(material_id=m.material_id, label=m.label, dtype=m.dtype)
+            MaterialCatalogEntry(material_id=m.material_id, label=m.label, description=m.description, dtype=m.dtype)
             for m in axis_studio_materials()
         ]
     )

@@ -186,6 +186,7 @@ def test_direction_dependent_material_is_not_auto_derived(monkeypatch):
         MaterialSpec(
             material_id="test_direction_dependent_material",
             label="テスト用有向材料",
+            description="テスト用の材料。",
             dtype="numeric",
             tile_property="test_direction_dependent_property",
             tile_property_direction_dependent=True,

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { FieldLabel } from "@/components/Map/recipeControls";
+import { InfoIcon } from "@/components/Map/icons";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMaterialValues } from "@/hooks/useMaterialValues";
@@ -10,6 +12,10 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
 import styles from "./AxisStudio.module.css";
+// 情報アイコン(ⓘ)ポップオーバーのCSS（.infoButton/.infoTooltip）はrecipeControls.tsxの
+// FieldLabelが既に定義済みのものをそのまま流用する（同じ見た目・z-index対策[T305]を
+// 材料選択の情報アイコンでも二重定義せず共有するため。改善計画T345）。
+import recipeControlStyles from "@/components/Map/recipeControls.module.css";
 
 // 軸コンポーザー（改善計画T270、T221 Stage E）。表示名→点数のつけ方を選ぶ→点数の詳細→
 // 地図表示・公開、という4ステップのウィザードで軸を組み立てる中核機能。既存の
@@ -65,6 +71,35 @@ const SHAPE_KIND_OPTIONS: ShapeKindOption[] = [
 
 function shapeKindOption(kind: ShapeKind): ShapeKindOption {
   return SHAPE_KIND_OPTIONS.find((o) => o.kind === kind) ?? SHAPE_KIND_OPTIONS[0];
+}
+
+/** 改善計画T345: 材料選択セレクトの隣に置く情報アイコン(ⓘ)。選択中の材料の説明文
+ * （backend/app/domain/material_catalog.py: MaterialSpec.description）をポップオーバーで
+ * 表示する。「材料名だけでは何を表しているか分かりにくい」というユーザー指摘への対応。
+ * 材料が複数行並ぶ欄（terms/flags）でも行ごとに選択中の材料が違うため、FieldLabelを
+ * そのまま流用せずラベル文言を持たない専用の小型トリガーにする（行ごとに毎回同じ文言を
+ * 繰り返し表示すると煩雑なため）。実体はInfoPopoverButton（ラベル文言を持たない汎用版）。 */
+function InfoPopoverButton({ ariaLabel, description }: { ariaLabel: string; description: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button type="button" className={recipeControlStyles.infoButton} aria-label={`${ariaLabel}を${open ? "隠す" : "表示"}`}>
+          <InfoIcon />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className={recipeControlStyles.infoTooltip} side="bottom" align="start" sideOffset={6}>
+          {description}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function MaterialInfoButton({ option }: { option: AxisMaterialOption | undefined }) {
+  if (!option) return null;
+  return <InfoPopoverButton ariaLabel={`${option.label}の説明`} description={option.description} />;
 }
 
 // 改善計画T305: axis_idはユーザー入力欄から撤去した。ユーザーからの指摘「axis_idは
@@ -283,6 +318,10 @@ interface AxisComposerProps {
   /** 複製元（改善計画T271）。editingがnullのとき、この軸の内容（axis_id/is_published除く）
    * で新規作成フォームを初期化する。 */
   duplicateFrom: AxisDefinitionResponse | null;
+  /** 改善計画T345: 既定重み(default_weight)欄に「他の公開軸の重みに対して何%か」を
+   * 参考表示するための、この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものを
+   * そのまま渡す）。省略時（テスト等）は参考表示自体を出さない。 */
+  otherAxes?: readonly AxisDefinitionResponse[];
   onCancelEdit: () => void;
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
@@ -298,7 +337,7 @@ const STEP_TITLES: Record<Step, string> = {
   display_publish: "地図表示・公開",
 };
 
-export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onSave }: AxisComposerProps) {
+export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCancelEdit, onSave }: AxisComposerProps) {
   const materialOptions = useMaterialCatalog();
   const [draft, setDraft] = useState<Draft>(() => {
     if (editing) return draftFromExisting(editing, materialOptions);
@@ -455,6 +494,32 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
     setDraft((d) => ({ ...d, categoricalRows: d.categoricalRows.filter((_, i) => i !== index) }));
   }
 
+  /** 改善計画T345: 既定重みの絶対値だけでは効果が分からないという指摘への対応。
+   * backend側の合成（domain/difficulty.py: composite_difficulty）は重み付き"平均"
+   * （重みの合計で正規化）で、かつ対象は公開軸のみ（domain/axis_definitions.py:
+   * default_axis_weights）のため、「他の公開軸の重み合計に対して何%か」を参考表示する。
+   * 非公開の軸はそもそもこの合成に加わらないため、公開してから意味を持つ旨を案内する。
+   * otherAxes未指定（テスト等）・公開軸が1つも無い場合は表示しない。 */
+  function renderWeightShare() {
+    if (!otherAxes) return null;
+    if (!draft.isPublished) {
+      return (
+        <p className={styles.hint}>
+          この軸は現在非公開のため、重みはルート探索へ直接使われません（公開すると、他の公開軸との比率で効くようになります）。
+        </p>
+      );
+    }
+    const publishedOthers = otherAxes.filter((a) => a.is_published && a.axis_id !== draft.axisId);
+    const total = publishedOthers.reduce((sum, a) => sum + a.default_weight, 0) + draft.defaultWeight;
+    if (total <= 0) return null;
+    const sharePercent = (draft.defaultWeight / total) * 100;
+    return (
+      <p className={styles.hint}>
+        参考: 現在の公開軸全体（{publishedOthers.length + 1}軸）の重み合計に対して約{sharePercent.toFixed(1)}%です。
+      </p>
+    );
+  }
+
   // 選択中iconIdのプレビュー表示用。axisIconFor自体はaxisIconPalette.tsxの固定辞書を
   // 引くだけの純関数だが、react-hooks/static-componentsのeslintルールはコンポーネント
   // 本体直下で`const X = fn(); <X/>`という形を「レンダー毎にコンポーネントを新規生成
@@ -494,7 +559,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
         <div className={styles.field}>
           <FieldLabel
             label="既定重み(default_weight)"
-            description="この軸を誰も上書きしていないときに使われる重みです。0にするとおすすめ度の計算から実質除外されます。"
+            description="この軸を誰も上書きしていないときに使われる重みです。他の公開軸の重みとの比率だけがルートの選ばれ方を左右します（数値そのものに意味はありません。例: 全軸の重みを一律2倍にしても結果は変わりません）。大きくするほど、他の軸に対して相対的にこの軸を重視します。0にすると計算から除外されます。"
           />
           <input
             type="number"
@@ -504,6 +569,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
             value={draft.defaultWeight}
             onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
           />
+          {renderWeightShare()}
         </div>
       </>
     );
@@ -570,6 +636,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                     </option>
                   ))}
                 </select>
+                <MaterialInfoButton option={materialOptions.find((m) => m.id === term.material)} />
                 <input
                   type="number"
                   step="0.1"
@@ -581,6 +648,10 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                   <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
                   必須
                 </label>
+                <InfoPopoverButton
+                  ariaLabel="「必須」の説明"
+                  description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
+                />
                 <button
                   type="button"
                   onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
@@ -610,14 +681,26 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                 <option value="abs">絶対値</option>
               </select>
             </label>
+            {/* 改善計画T345（ユーザー指摘: 「絶対値」の説明が分かりにくい）: 組み込み軸を
+                調査すると、この選択肢を使っているのは現時点でgradient（勾配）軸のみ
+                （domain/axis_definitions.py）。勾配は登り+・下り−の符号付き数値のため、
+                絶対値を取ることで「上りでも下りでも急なほど走りにくい」という軸を組める、
+                という実例をそのままヒントにする。 */}
+            <p className={styles.hint}>
+              材料の値×係数を合計してから、折れ点でスコアに変換する前に行う下ごしらえです。通常は「そのまま」で問題ありません。「絶対値」は合計がマイナスでもプラスとして扱います（例:
+              勾配は上り+・下り−の符号付き数値ですが、絶対値を使うと上り・下りのどちらでも急なほど走りにくい、という軸にできます）。
+            </p>
 
             <p className={styles.groupLabel}>折れ点(breakpoints) [入力値, スコア0-100]</p>
-            {/* 改善計画T327（UIレビュー2026-08-25 F-5）: スコア0〜100が「走りやすさ」か
-                「難しさ」かを明示しないまま数値ペアだけを並べていた。既存軸の実データ
-                （例: gradient軸は勾配0%→0点・15%→100点ではなく、実際は逆で勾配が急なほど
-                スコアが下がる設計）から「スコアは高いほど走りやすい」という規約を明文化する。 */}
+            {/* 改善計画T345: T327（UIレビュー2026-08-25 F-5）が明文化したこのヒント文は
+                実際の向きと逆だった（バグ）。組み込みのgradient軸を確認すると、勾配0%→
+                スコア0・勾配15%→スコア100（description="登り坂の急さが小さいほど易しい"）、
+                すなわち0が最も走りやすく100が最も走りにくい。この値はbackend全体で
+                「difficulty(0-100、大きいほど走りにくい)」として扱われる規約
+                （EdgeCostResult.difficulty等）とも一致する。T327時点の認識が逆だったため
+                ここで向きを訂正する。 */}
             <p className={styles.hint}>
-              スコアは0(最も走りにくい)〜100(最も走りやすい)で入力します。入力値が大きくなるほどスコアを上げれば「値が大きいほど走りやすい」、下げれば「値が大きいほど走りにくい」という軸になります。
+              スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに折れ点を設定してください。
             </p>
             {draft.breakpoints.map((bp, i) => (
               <div key={i} className={styles.breakpointRow}>
@@ -676,6 +759,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                     ))}
                 </select>
               </label>
+              <MaterialInfoButton option={materialOptions.find((m) => m.id === draft.categoricalMaterial)} />
               {selectedDtype === "categorical" ? (
                 <>
                   <p className={styles.hint}>
@@ -684,6 +768,9 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                       : "値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"}
                   </p>
                   <p className={styles.groupLabel}>値ごとのスコア</p>
+                  {/* 改善計画T345: breakpointsと同じ0-100の向き（0=最も走りやすい・
+                      100=最も走りにくい）をここにも明記する。 */}
+                  <p className={styles.hint}>スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。</p>
                   {draft.categoricalRows.map((row, i) => (
                     <div key={i} className={styles.termRow}>
                       {categoricalMaterialValues.length > 0 && (
@@ -699,7 +786,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                             const label = materialValueLabel(draft.categoricalMaterial, v);
                             return (
                               <option key={v} value={v}>
-                                {label === v ? v : `${label} (${v})`}
+                                {label}
                               </option>
                             );
                           })}
@@ -733,16 +820,20 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                   </button>
                 </>
               ) : (
-                <div className={styles.row}>
-                  <label className={styles.field}>
-                    該当時(true)のスコア
-                    <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
-                  </label>
-                  <label className={styles.field}>
-                    非該当時(false)のスコア
-                    <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
-                  </label>
-                </div>
+                <>
+                  {/* 改善計画T345: breakpoints・値ごとのスコアと同じ0-100の向きをここにも明記する。 */}
+                  <p className={styles.hint}>スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。</p>
+                  <div className={styles.row}>
+                    <label className={styles.field}>
+                      該当時(true)のスコア
+                      <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
+                    </label>
+                    <label className={styles.field}>
+                      非該当時(false)のスコア
+                      <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
+                    </label>
+                  </div>
+                </>
               )}
             </div>
           );
@@ -751,6 +842,10 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
         {draft.shapeKind === "flag_sum" && (
           <div className={styles.shapeGroup}>
             <p className={styles.groupLabel}>フラグ(flags)</p>
+            {/* 改善計画T345: breakpoints等と同じ0-100の向き＋加点の合計・上限の挙動を明記する。 */}
+            <p className={styles.hint}>
+              スコア（0=最も走りやすい〜100=最も走りにくい）へ加算する点数です。該当するフラグの点数を合計し、上限(cap)を超えた分は切り捨てられます。マイナスの値も使えます（走りやすさを加味したい減点）。複数のフラグが同時に該当することもあります。
+            </p>
             {draft.flags.map((flag, i) => (
               <div key={i} className={styles.termRow}>
                 <select value={flag.material} onChange={(e) => updateFlag(i, { material: e.target.value })}>
@@ -760,6 +855,7 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
                     </option>
                   ))}
                 </select>
+                <MaterialInfoButton option={materialOptions.find((m) => m.id === flag.material)} />
                 <input type="number" step="1" value={flag.points} aria-label="加点" onChange={(e) => updateFlag(i, { points: Number(e.target.value) })} />
                 <button
                   type="button"

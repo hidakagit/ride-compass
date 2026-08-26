@@ -516,4 +516,101 @@ describe("AxisComposer", () => {
       expect(saveButton).not.toBeDisabled();
     });
   });
+
+  // ============================================================
+  // 改善計画T345: 材料説明の情報アイコン・既定重みの相対比較・必須チェックボックスの説明
+  // ============================================================
+  describe("材料の説明アイコン(情報アイコン)", () => {
+    it("breakpoint_linearの材料(terms)欄で情報アイコンを押すと、選択中の材料の説明文が表示される", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸H");
+      await clickNext(user); // 既定でbreakpoint_linear選択済み
+      await clickNext(user);
+      // 既定材料はgradient_percent（emptyDraftのmaterialOptions[0]）。
+      await user.click(screen.getByRole("button", { name: "勾配%（符号付き）の説明を表示" }));
+
+      expect(screen.getByText(/国土地理院の標高データ/)).toBeInTheDocument();
+    });
+
+    it("材料セレクトで別の材料を選ぶと、情報アイコンの説明文もその材料のものに切り替わる", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸I");
+      await clickNext(user);
+      await clickNext(user);
+
+      const materialSelect = screen.getAllByRole("combobox")[0];
+      await user.selectOptions(materialSelect, "surface_good");
+
+      await user.click(screen.getByRole("button", { name: "舗装良否の説明を表示" }));
+      expect(screen.getByText(/OSMの路面タグ\(surface\)/)).toBeInTheDocument();
+    });
+
+    it("「必須」チェックボックスの隣の情報アイコンに、欠損時の扱いを説明する文言がある", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸J");
+      await clickNext(user);
+      await clickNext(user);
+
+      await user.click(screen.getByRole("button", { name: "「必須」の説明を表示" }));
+      expect(screen.getByText(/軸全体を「評価不能」として扱います/)).toBeInTheDocument();
+    });
+  });
+
+  describe("既定重みの相対比較（otherAxes）", () => {
+    it("otherAxesを渡すと、公開軸全体の重み合計に対する割合が参考表示される", async () => {
+      const user = userEvent.setup();
+      const otherAxes = [
+        baseDefinition({ axis_id: "gradient", is_published: true, default_weight: 0.3 }),
+        baseDefinition({ axis_id: "wind", label: "風", is_published: true, default_weight: 0.1 }),
+      ];
+      render(
+        <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={vi.fn()} />,
+      );
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸K");
+      const weightInput = screen.getByRole("spinbutton", { name: "既定重み(default_weight)" });
+      await user.clear(weightInput);
+      await user.type(weightInput, "0.2");
+
+      // 割合表示は公開する場合のみ意味を持つ（非公開の軸の重みはdefault_axis_weightsから
+      // 除外され合成に加わらないため）。「公開する」チェックボックスは最終ステップにある。
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+      await user.click(screen.getByRole("checkbox", { name: "公開する" }));
+      await user.click(screen.getByRole("button", { name: "戻る" }));
+      await user.click(screen.getByRole("button", { name: "戻る" }));
+      await user.click(screen.getByRole("button", { name: "戻る" }));
+
+      // 新規作成軸(0.2) / (0.3+0.1+0.2) = 33.3%
+      expect(screen.getByText(/約33\.3%/)).toBeInTheDocument();
+    });
+
+    it("非公開のままの軸では、重みが直接使われない旨の注記が出る", async () => {
+      const user = userEvent.setup();
+      render(
+        <AxisComposer editing={null} duplicateFrom={null} otherAxes={[]} onCancelEdit={vi.fn()} onSave={vi.fn()} />,
+      );
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸L");
+
+      expect(screen.getByText(/現在非公開のため、重みはルート探索へ直接使われません/)).toBeInTheDocument();
+    });
+
+    it("otherAxesを渡さない場合は参考表示自体を出さない", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸M");
+
+      expect(screen.queryByText(/重みはルート探索へ直接使われません/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/の重み合計に対して約/)).not.toBeInTheDocument();
+    });
+  });
 });

@@ -82,6 +82,19 @@ def test_get_material_catalog_includes_t290_numeric_and_boolean_materials():
     assert entries_by_id["lanes_count"]["dtype"] == "numeric"
 
 
+def test_get_material_catalog_includes_description():
+    # 改善計画T345: 軸スタジオの材料選択で情報アイコンから表示する説明文。全材料が
+    # 空でない説明文を持つこと、レスポンスのdescriptionがMATERIAL_CATALOGの値と
+    # 一致することを確認する。
+    response = client.get("/api/material-catalog")
+
+    entries = response.json()["materials"]
+    assert len(entries) > 0
+    for entry in entries:
+        assert entry["description"] == MATERIAL_CATALOG[entry["material_id"]].description
+        assert entry["description"].strip() != ""
+
+
 def test_get_material_catalog_response_excludes_internal_tile_fields():
     # 改善計画T277: tile_property/tile_property_inverted/tile_property_needs_runtime_scaleは
     # backend内部（axis_display.py）専用で、公開レスポンスには含めない。

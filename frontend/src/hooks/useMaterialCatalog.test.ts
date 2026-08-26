@@ -18,9 +18,9 @@ import { useMaterialCatalog } from "./useMaterialCatalog";
 function catalogResponse(): MaterialCatalogResponse {
   return {
     materials: [
-      { material_id: "gradient_percent", label: "勾配%（符号付き）", dtype: "numeric" },
+      { material_id: "gradient_percent", label: "勾配%（符号付き）", description: "勾配（%）。", dtype: "numeric" },
       // 静的フォールバック（AXIS_MATERIAL_OPTIONS）には無い、backend側だけへ新規追加された材料。
-      { material_id: "new_material", label: "新規材料テスト", dtype: "boolean" },
+      { material_id: "new_material", label: "新規材料テスト", description: "テスト用の材料。", dtype: "boolean" },
     ],
   };
 }
@@ -35,8 +35,8 @@ describe("useMaterialCatalog", () => {
       expect(result.current.some((m) => m.id === "new_material")).toBe(true);
     });
     expect(result.current).toEqual([
-      { id: "gradient_percent", label: "勾配%（符号付き）", dtype: "numeric" },
-      { id: "new_material", label: "新規材料テスト", dtype: "boolean" },
+      { id: "gradient_percent", label: "勾配%（符号付き）", description: "勾配（%）。", dtype: "numeric" },
+      { id: "new_material", label: "新規材料テスト", description: "テスト用の材料。", dtype: "boolean" },
     ]);
   });
 

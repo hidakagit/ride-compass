@@ -856,6 +856,8 @@ export interface components {
             material_id: string;
             /** Label */
             label: string;
+            /** Description */
+            description: string;
             /**
              * Dtype
              * @enum {string}

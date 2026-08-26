@@ -202,7 +202,10 @@ describe("AxisStudio", () => {
   });
 
   // 改善計画T327（UIレビュー2026-08-25 F-5）: 折れ点(breakpoints)欄に、スコアの向き
-  // （高いほど走りやすい）を明示する説明文が出る回帰テスト。
+  // を明示する説明文が出る回帰テスト。改善計画T345: T327時点の文言は実際の向きと逆
+  // だった（0=最も走りやすい・100=最も走りにくいが正しい。組み込みのgradient軸が
+  // 勾配0%→スコア0・15%→スコア100であることから判明したバグ、AxisComposer.tsx
+  // breakpoints見出し直前のコメント参照）。このテストも修正後の正しい向きへ更新する。
   it("折れ点(breakpoints)のステップにスコアの向きを説明する文言がある", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
     const user = userEvent.setup();
@@ -215,7 +218,7 @@ describe("AxisStudio", () => {
     // 既定の選択（数値の大きさに応じて点数を変える）のまま次へ。
     await user.click(screen.getByRole("button", { name: "次へ" }));
 
-    expect(screen.getByText(/スコアは0\(最も走りにくい\)〜100\(最も走りやすい\)/)).toBeInTheDocument();
+    expect(screen.getByText(/スコアは0\(最も走りやすい\)〜100\(最も走りにくい\)/)).toBeInTheDocument();
   });
 
   // 改善計画T325（UIレビュー2026-08-25 F-3）: 他axis_idを材料として参照する軸（例:

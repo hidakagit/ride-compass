@@ -1913,6 +1913,10 @@
             "type": "string",
             "title": "Label"
           },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
           "dtype": {
             "type": "string",
             "enum": [
@@ -1927,6 +1931,7 @@
         "required": [
           "material_id",
           "label",
+          "description",
           "dtype"
         ],
         "title": "MaterialCatalogEntry"

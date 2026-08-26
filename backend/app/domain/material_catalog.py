@@ -74,6 +74,12 @@ class MaterialSpec(BaseModel):
 
     material_id: str
     label: str
+    # 改善計画T345: 軸スタジオの材料選択で、labelだけでは何を表す材料か分かりにくいという
+    # ユーザーフィードバックへの対応。GET /api/material-catalogの公開レスポンスへ含め、
+    # フロント側は選択中の材料の隣に情報アイコン(ⓘ)でこの説明文を表示する（AxisComposer.tsx:
+    # MaterialInfoButton）。extractor未配線（DEFER）の材料は、選んでも評価軸としては
+    # 機能しない旨をここに明記する（配線状況が変わったら追従が必要）。
+    description: str
     dtype: MaterialDType
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
@@ -299,6 +305,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "gradient_percent": MaterialSpec(
         material_id="gradient_percent",
         label="勾配%（符号付き）",
+        description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
         # 標高は国土地理院APIから都度取得しDBへ恒久保存しない設計のため、タイルへ
         # 焼き込める事実データが無い（docs/architecture.md「標高計算」節参照）。
@@ -309,6 +316,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "wind_penalty": MaterialSpec(
         material_id="wind_penalty",
         label="向かい風ペナルティ(m/s、正=向かい風)",
+        description="出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。追い風・無風はマイナス〜0、向かい風が強いほど大きなプラスの値になります。",
         dtype="numeric",
         # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない。対応する一次属性も
         # 未登録（動的気象は一次属性レジストリの対象外）。
@@ -317,6 +325,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "surface_good": MaterialSpec(
         material_id="surface_good",
         label="舗装良否",
+        description="OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
         dtype="boolean",
         tile_property="surface_good",
         primary_attribute_id="surface",
@@ -328,6 +337,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "stop_count_per_km": MaterialSpec(
         material_id="stop_count_per_km",
         label="停止密度(回/km)",
+        description="信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
         dtype="numeric",
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
@@ -336,6 +346,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
         label="交差点密度(回/km)",
+        description="接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
         dtype="numeric",
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
@@ -344,6 +355,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
         label="事故密度(件/(km・年))",
+        description="警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
         dtype="numeric",
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
         # 年正規化はAXIS_DEFINITIONS側の評価ロジックが行うため、ramp化する場合は
@@ -358,6 +370,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "no_lit": MaterialSpec(
         material_id="no_lit",
         label="街灯なし",
+        description="OSMの街灯タグ(lit)から判定。街灯があると明示されていない区間はtrue（安全側に倒す判断、タグ不明=街灯なし扱い）。",
         dtype="boolean",
         # タイルのlitはタグ有無の真偽（yesのみtrue、それ以外はNULL）。no_lit材料は
         # その否定（litタグ不在は街灯なしとみなす安全側の判断、domain/night.py参照）。
@@ -369,6 +382,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",
         label="トンネル",
+        description="OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
         dtype="boolean",
         tile_property="tunnel",
         primary_attribute_id="tunnel",
@@ -378,6 +392,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "bridge": MaterialSpec(
         material_id="bridge",
         label="橋・高架",
+        description="OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
         dtype="boolean",
         # OSMのbridgeタグ（yesのみtrue、それ以外はキー省略＝unknown/false扱い）。
         tile_property="bridge",
@@ -388,6 +403,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "motor_vehicle_no": MaterialSpec(
         material_id="motor_vehicle_no",
         label="自動車通行不可",
+        description="OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
         dtype="boolean",
         # OSMのmotor_vehicleタグがnoの区間（car_stress_motor_vehicle_no_adjustment内部軸
         # [domain/axis_definitions.py]でも参照される材料だが、軸合成前の生の真偽値自体は
@@ -399,6 +415,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "oneway": MaterialSpec(
         material_id="oneway",
         label="一方通行",
+        description="OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
         dtype="boolean",
         # osm_raw_ways.direction（forward/backward/both）から算出（改善計画T289で
         # 一次属性・地図レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
@@ -412,6 +429,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "maxspeed_kmh": MaterialSpec(
         material_id="maxspeed_kmh",
         label="制限速度(km/h)",
+        description="OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
         dtype="numeric",
         tile_property="maxspeed_kmh",
         primary_attribute_id="maxspeed",
@@ -420,6 +438,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "lanes_count": MaterialSpec(
         material_id="lanes_count",
         label="車線数",
+        description="OSMの車線数タグ(lanes)から解析した車線数。",
         dtype="numeric",
         tile_property="lanes_count",
         primary_attribute_id="lanes",
@@ -428,6 +447,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "highway": MaterialSpec(
         material_id="highway",
         label="道路種別",
+        description="OSMの道路種別タグ(highway)の生値（例: residential/primary/cycleway等）。値ごとに個別のスコアを設定できます。",
         dtype="categorical",
         # OSMのhighwayタグ生値（motorway/trunk/primary/secondary/tertiary/residential/
         # living_street/unclassified/track/cycleway/path/footway等）。取込プロファイル
@@ -440,6 +460,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "surface": MaterialSpec(
         material_id="surface",
         label="路面種別",
+        description="OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
         dtype="categorical",
         # OSMのsurfaceタグ生値（正規化: lower/btrim）。良否の正準分類は
         # domain/road.py: GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS参照（本材料は
@@ -451,6 +472,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "bicycle_infra": MaterialSpec(
         material_id="bicycle_infra",
         label="自転車インフラ種別",
+        description="自転車インフラの分類（separated/lane/shared_busway/shared_pedestrian/roadway/prohibited）。優先順位付きの複合判定のため、通常は下記の正規化フラグ材料（道路種別が自転車道・自転車道併設等）を組み合わせて使うことを推奨します。",
         dtype="categorical",
         # domain/traffic.py: classify_bicycle_infrastructureの分類値
         # （separated/lane/shared_busway/shared_pedestrian/prohibited/roadway。
@@ -466,6 +488,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "highway_is_cycleway": MaterialSpec(
         material_id="highway_is_cycleway",
         label="道路種別が自転車道",
+        description="道路種別(highway)自体が自転車道(cycleway)かどうか。",
         dtype="boolean",
         tile_property=None,
         primary_attribute_id="highway",
@@ -474,6 +497,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "cycleway_has_track": MaterialSpec(
         material_id="cycleway_has_track",
         label="自転車道(track)を併設",
+        description="車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
         dtype="boolean",
         tile_property=None,
         primary_attribute_id="cycleway",
@@ -482,6 +506,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "cycleway_has_lane": MaterialSpec(
         material_id="cycleway_has_lane",
         label="自転車レーン(lane)を併設",
+        description="車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property=None,
         primary_attribute_id="cycleway",
@@ -490,6 +515,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "cycleway_has_shared": MaterialSpec(
         material_id="cycleway_has_shared",
         label="バス共用等の自転車レーンを併設",
+        description="バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property=None,
         primary_attribute_id="cycleway",
@@ -498,6 +524,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "designation": MaterialSpec(
         material_id="designation",
         label="指定路線",
+        description="指定路線の種別（緊急輸送道路[N10]・重要物流道路[N12]・両方該当）。3値の複合判定のため評価軸では使えません（地図表示専用）。評価で使う場合は緊急輸送道路該当[N10]・重要物流道路該当[N12]・指定路線該当のいずれかを使ってください。",
         dtype="categorical",
         # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
         # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
@@ -515,6 +542,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "is_emergency_transport": MaterialSpec(
         material_id="is_emergency_transport",
         label="緊急輸送道路該当[N10]（真偽）",
+        description="緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
         dtype="boolean",
         # 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）: designation（3値、
         # 優先順位付き分類）をbicycle_infra（改善計画T336）と同じ設計思想で正規化する。
@@ -535,6 +563,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "is_critical_logistics": MaterialSpec(
         material_id="is_critical_logistics",
         label="重要物流道路該当[N12]（真偽）",
+        description="重要物流道路[N12]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
         dtype="boolean",
         # is_emergency_transportと対をなす材料。コメントは同上参照。
         tile_property="is_critical_logistics",
@@ -544,6 +573,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "is_designated": MaterialSpec(
         material_id="is_designated",
         label="指定路線該当（真偽）",
+        description="緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
         dtype="boolean",
         # 改善計画T292: car_stress軸の内部軸（designation由来の調整軸）が使う簡略化された
         # 真偽値材料。指定路線の種別（emergency_transport/critical_logistics/both、材料
@@ -559,6 +589,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "smoothness": MaterialSpec(
         material_id="smoothness",
         label="路面の状態",
+        description="OSMの路面状態タグ(smoothness)の生値（excellent〜impassableの7段階）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
         dtype="categorical",
         # OSMのsmoothnessタグ生値（excellent/good/intermediate/bad/very_bad/horrible/
         # very_horrible/impassable、正規化: lower/btrim）。surfaceが路面「種別」なのに
@@ -576,6 +607,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "tracktype": MaterialSpec(
         material_id="tracktype",
         label="未舗装路グレード(tracktype)",
+        description="OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
         dtype="categorical",
         tile_property=None,
         extractor=raw_way_tag_extractor("tracktype", normalize=True),
