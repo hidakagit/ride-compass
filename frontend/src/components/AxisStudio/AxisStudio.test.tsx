@@ -27,7 +27,12 @@ vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
-import { deleteAxisDefinition, listAxisDefinitions } from "@/services/axisAdminApi";
+import {
+  createAxisDefinition,
+  deleteAxisDefinition,
+  listAxisDefinitions,
+  unpublishAxisDefinition,
+} from "@/services/axisAdminApi";
 
 function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
   return {
@@ -337,5 +342,69 @@ describe("AxisStudio", () => {
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
 
     expect(screen.getAllByRole("button", { name: "非公開に戻す" })).toHaveLength(1);
+  });
+
+  // 改善計画T331残り5項目: AxisStudio.tsxのCRUD実行系（複製・削除・非公開化・保存）の
+  // うち、削除は既にテスト済み。ここでは複製・非公開化・保存（新規作成）の配線を確認する。
+
+  it("「複製して新規作成」を押すと複製元の内容で新規作成モーダルが開く（axis_idは新規採番、is_publishedはfalseへ戻る）", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      definition({ axis_id: "gradient", label: "勾配", is_published: true, default_weight: 0.42 }),
+    ]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "複製して新規作成" }));
+
+    expect(screen.getByRole("dialog", { name: "「勾配」を複製して新しい軸を作る" })).toBeInTheDocument();
+    // 複製元の値（表示名・既定重み）は引き継がれる
+    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("勾配");
+    expect(screen.getByRole("spinbutton", { name: "既定重み(default_weight)" })).toHaveValue(0.42);
+  });
+
+  it("「非公開に戻す」を押すとunpublishAxisDefinitionが呼ばれ、一覧が再読み込みされる", async () => {
+    // listAxisDefinitionsはファイル内の全テストで共有されるモックのため（beforeEachでの
+    // リセットが無い、Checkbox関連のResizeObserverモックのみ）、絶対呼び出し回数ではなく
+    // 「この操作の前後での差分」で検証する。
+    vi.mocked(listAxisDefinitions)
+      .mockResolvedValueOnce([definition({ axis_id: "gradient", is_published: true })])
+      .mockResolvedValueOnce([definition({ axis_id: "gradient", is_published: false })]);
+    vi.mocked(unpublishAxisDefinition).mockResolvedValue(definition({ axis_id: "gradient", is_published: false }));
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    const callsBeforeUnpublish = vi.mocked(listAxisDefinitions).mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "非公開に戻す" }));
+
+    expect(unpublishAxisDefinition).toHaveBeenCalledWith("gradient");
+    // 再読み込み後は下書き（is_published: false）扱いになり、「非公開に戻す」ボタンが消える
+    await waitFor(() => expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument());
+    expect(vi.mocked(listAxisDefinitions).mock.calls.length).toBe(callsBeforeUnpublish + 1);
+  });
+
+  it("ウィザードを最後まで完了して保存すると、createAxisDefinitionが呼ばれモーダルが閉じて一覧が再読み込みされる", async () => {
+    vi.mocked(listAxisDefinitions)
+      .mockResolvedValueOnce([definition()])
+      .mockResolvedValueOnce([definition(), definition({ axis_id: "new_axis", label: "新軸" })]);
+    vi.mocked(createAxisDefinition).mockResolvedValue(definition({ axis_id: "new_axis", label: "新軸" }));
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    const callsBeforeSave = vi.mocked(listAxisDefinitions).mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
+    await user.click(screen.getByRole("button", { name: "次へ" })); // 1/4 -> 2/4
+    await user.click(screen.getByRole("button", { name: "次へ" })); // 2/4 -> 3/4（既定のbreakpoint_linearのまま）
+    await user.click(screen.getByRole("button", { name: "次へ" })); // 3/4 -> 4/4（既定の材料・折れ点のまま）
+    await user.click(screen.getByRole("button", { name: "作成する" }));
+
+    await waitFor(() => expect(createAxisDefinition).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(createAxisDefinition).mock.calls[0][0];
+    expect(payload.label).toBe("新軸");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(vi.mocked(listAxisDefinitions).mock.calls.length).toBe(callsBeforeSave + 1);
   });
 });
