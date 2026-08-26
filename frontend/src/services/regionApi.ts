@@ -45,7 +45,11 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v14: 改善計画T337。cycleway_classプロパティを削除した（どの評価軸・地図表示からも
 // 参照されない未使用材料だったため。cycleway由来の材料はbicycle_infraのみ現存）。
 // 削除のみで参照側への影響は無いため、v9のような非互換変更ではない。
-const ROAD_SURFACE_TILE_VERSION = "14";
+// v15: 改善計画T338フォローアップ。designation（3値、地図表示は引き続きこちらを使う）が
+// 畳み込む前の正規化フラグis_emergency_transport/is_critical_logisticsを追加した
+// （評価軸材料として軸スタジオから選べるようにするため）。追加のみで参照側への影響は
+// 無いため、v9のような非互換変更ではない。
+const ROAD_SURFACE_TILE_VERSION = "15";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

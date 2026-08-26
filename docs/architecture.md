@@ -382,7 +382,7 @@ RideCompass/
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239: 7軸の変換ロジックが還元される4テンプレート（evaluate_breakpoint_linear/evaluate_categorical/evaluate_flag_sum/evaluate_recipe_then_breakpoint_linear）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
-        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
+        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。改善計画T338フォローアップ（2026-08-26、ユーザー指摘）でdesignationを正規化フラグ材料is_emergency_transport[N10]/is_critical_logistics[N12]へも分解し24→26材料へ拡張（bicycle_infra→cycleway_has_track等[T336]と同じ設計思想、「表示専用材料の除外」節参照）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
         axis_display.py                  ✅ 改善計画T278: derive_ramp_inputs()。AXIS_DEFINITIONSの軸とMATERIAL_CATALOGから地図ramp表示（tile_inputs/thresholds）を自動導出する（安全に導出できるCategorical/FlagSum/単一材料BreakpointLinearのみ、詳細は「地図表示ルール（kind=ramp）の自動導出」節参照）
         difficulty.py                    ✅ AxisDifficulties（axis_idキーの軸別difficulty辞書＋composite、T221 Stage Bでdict化）, evaluate_axis_difficulties（AXIS_DEFINITIONSをループする薄い関数）, accident_difficulty/gradient_difficulty等の軸別difficulty互換ラッパ（Noneガード・負値ガードのみ担い変換はaxis_definitions.pyへ委譲）。composite_difficulty/distance_weighted_difficultyも同居（7章参照）
         night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。T221 Stage B/Cでnight_materials（lit/tunnelタグ→材料フラグ解決）へ再編、加点値はaxis_definitions.pyのnight軸定義へ移動
@@ -1273,6 +1273,21 @@ T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自�
 まだ無いだけで評価軸化に技術的な障害は無いため`display_only`にはしていない
 （`designation`固有の理由はコード側のフィールドdocstring参照）。
 
+**designationの正規化フラグ分解（改善計画T338フォローアップ、2026-08-26）**: 上記の
+`display_only`対応（3値のまま選択肢から隠すだけ）はT336（`bicycle_infra`→正規化フラグ
+材料）と設計思想が食い違う場当たり的な対応だった、というユーザー指摘を受け、
+`designation`が畳み込む前の生フラグを正規化材料としても分解した。
+`is_emergency_transport`[N10該当]/`is_critical_logistics`[N12該当]を新設（`display_only`
+ではなく軸スタジオの選択肢に現れる）。`_ROAD_SURFACE_TILE_MVT_SQL`が3値`designation`
+CASE式の計算に既に使っていた`d.is_ert`/`d.is_cl`をそのまま2つのタイルプロパティとしても
+焼き込む（`ROAD_SURFACE_TILE_VERSION`13→15）。ただし`extractor`はどちらも未設定のまま
+——`is_designated`（車ストレスの`car_stress_designation_adjustment`内部軸が使う、種別を
+問わない一律加点の簡略化材料）と異なりどの内蔵軸からも参照されないため、種別ごとの
+per-edge kindを評価パイプラインへ運ぶ配線は「軸スタジオで実際に使いたいユーザーが現れる」
+というトリガーが来るまで新設しない（`oneway`/`designation`自体と同じ「トリガー付き
+DEFER」、設計原則9）。`designation`（3値、地図表示専用）自体は方針どおり維持する
+（ユーザー確認済み、地図の凡例レイヤーへの変更は不要）。
+
 **材料抽出の宣言駆動化（改善計画T339）**: T280で「材料→抽出関数」の対応表自体は
 `MaterialSpec.extractor`で宣言的になったが、関数の中身は依然手書きのPythonコードだった。
 実際には大半のextractorが「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」
@@ -1756,7 +1771,12 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 同一KNNに同居。旧`get_nearest_designated_flags`は改善計画T76で統合・削除済み）の対で提供する。
 地図表示は`road-surface-tiles`のMVTに`designation`プロパティ（`emergency_transport`/
 `critical_logistics`/両方該当時は`both`/未該当はプロパティ欠落、`designation_attributes`を
-osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。
+osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。改善計画T338
+フォローアップ（2026-08-26）: この3値へCASE式で畳み込む前の生フラグ（`is_ert`/`is_cl`）を
+`is_emergency_transport`/`is_critical_logistics`という2つの真偽値タイルプロパティとしても
+併せて焼き込み、`material_catalog.py`の同名の正規化材料（軸スタジオで選択可能、ただし
+`extractor`は種別ごとのper-edge kind配線が未整備なためトリガー付きDEFER）が参照する
+（「表示専用材料の除外」節参照）。
 
 ### 静的レイヤー・タイル配信（フロント固定レイヤー＋レジストリ駆動の二次軸ランプレイヤー）
 

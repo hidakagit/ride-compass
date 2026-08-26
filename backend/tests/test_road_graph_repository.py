@@ -1623,6 +1623,10 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     designationへの車ストレス+1補正は（改善計画: 車ストレスレシピ外出し基盤により）
     もうSQL側の責務ではないため、この突き合わせ対象からは外れた
     （domain/traffic.py: car_stress_breakdownのdesignation_adjustment参照）。
+
+    改善計画T338フォローアップ（2026-08-26）: designation（3値、地図表示専用として維持）が
+    畳み込む前の正規化フラグis_emergency_transport[N10]/is_critical_logistics[N12]も
+    同じfixtureで突き合わせる（material_catalog.pyの評価軸材料が参照するtile_property）。
     """
     import mapbox_vector_tile
 
@@ -1655,15 +1659,23 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
 
     ert = properties_by_highway["residential"]
     assert ert.get("designation") == "emergency_transport"
+    assert ert.get("is_emergency_transport") is True
+    assert "is_critical_logistics" not in ert
 
     cl = properties_by_highway["secondary"]
     assert cl.get("designation") == "critical_logistics"
+    assert cl.get("is_critical_logistics") is True
+    assert "is_emergency_transport" not in cl
 
     plain = properties_by_highway["tertiary"]
     assert "designation" not in plain
+    assert "is_emergency_transport" not in plain
+    assert "is_critical_logistics" not in plain
 
     both = properties_by_highway["unclassified"]
     assert both.get("designation") == "both"
+    assert both.get("is_emergency_transport") is True
+    assert both.get("is_critical_logistics") is True
 
 
 # --- get_distinct_material_values（改善計画T340: 軸スタジオの値入力UX改善） ---

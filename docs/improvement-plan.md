@@ -6977,6 +6977,25 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   未使用になっていた`all_materials()`（旧`GET /api/material-catalog`の唯一の呼び出し元）は
   `axis_studio_materials()`へ置き換えて削除した。フロントfallback
   `lib/axisMaterialsCatalog.ts`から`designation`エントリも削除し同期。
+- **フォローアップ（2026-08-26、ユーザー指摘）**: 上記の`display_only`対応は
+  「3値のまま隠す」という場当たり的な対応で、T336（`bicycle_infra`→正規化フラグ材料）と
+  設計思想が食い違っていた、という指摘を受けた。正しくは`designation`を正規化フラグ材料へ
+  も分解すべき——「N10路線かどうか」「N12路線かどうか」「特定路線かどうか」の3つに分け、
+  評価は「特定路線かどうか」（`is_designated`、既存・変更なし）だけで判定する。対応した
+  内容:
+  - `_ROAD_SURFACE_TILE_MVT_SQL`（`infrastructure/road_graph_repository.py`）が既に内部で
+    計算していた`d.is_ert`/`d.is_cl`（3値へCASE式で畳み込む前の生フラグ）を、
+    `is_emergency_transport`/`is_critical_logistics`という2つのタイルプロパティとして
+    そのまま追加焼き込みした（`ROAD_SURFACE_TILE_VERSION`13→15、プロパティ追加のみで
+    デプロイ順序制約なし）。
+  - `material_catalog.py`へ`is_emergency_transport`[N10該当]/`is_critical_logistics`
+    [N12該当]の2材料を新設（`display_only=False`、軸スタジオの選択肢に現れる）。ただし
+    `extractor`は未設定のまま（`is_designated`・`designation`・`oneway`と同じ「トリガー
+    付きDEFER」、設計原則9）——`is_designated`と異なりどの内蔵軸からも参照されないため、
+    種別ごとのper-edge kindをcompute_edge_costs_bulk・3つのスカラー評価経路へ運ぶ配線は
+    実際にそのニーズ（軸スタジオでの利用）が出るまで新設しない。
+  - `designation`（3値、地図表示専用）は方針どおり維持（ユーザー確認済み: 地図の凡例
+    レイヤーは変更不要）。フロントfallback`lib/axisMaterialsCatalog.ts`に2材料を追加。
 
 ### - [x] T339. 材料抽出（extractor）の完全宣言駆動化 規模M〜L〔P2〕（2026-08-25完了）
 

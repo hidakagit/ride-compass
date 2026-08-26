@@ -170,6 +170,20 @@ def test_oneway_and_designation_remain_unwired_by_design():
     assert MATERIAL_CATALOG["designation"].extractor is None
 
 
+def test_is_emergency_transport_and_is_critical_logistics_are_unwired_by_design():
+    """改善計画T338フォローアップ（2026-08-26）: designationを正規化フラグ材料
+    （is_emergency_transport/is_critical_logistics）へ分解したが、is_designatedと違い
+    どの内蔵軸からも参照されないため、種別ごとのper-edge kindを評価パイプラインへ運ぶ
+    配線はトリガー付きDEFERのまま（designation/onewayと同じ既存パターン）。誤って
+    extractorが付いた場合にこのテストが落ちるのではなく、逆に外れたことに気付けるよう
+    現状を固定する。軸スタジオの選択肢からは除外しない（display_only=False、designationとは
+    異なる）。"""
+    assert MATERIAL_CATALOG["is_emergency_transport"].extractor is None
+    assert MATERIAL_CATALOG["is_emergency_transport"].display_only is False
+    assert MATERIAL_CATALOG["is_critical_logistics"].extractor is None
+    assert MATERIAL_CATALOG["is_critical_logistics"].display_only is False
+
+
 # --- 改善計画T339: 汎用extractorファクトリの単体テスト。既存の簡易extractorをこれらの
 # ファクトリへ置き換えた際の振る舞い不変性は、上記の各材料テスト・
 # test_all_cataloged_extractors_run_without_error_on_minimal_and_missing_contextが

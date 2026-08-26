@@ -36,6 +36,16 @@ def test_designation_is_excluded_as_display_only():
     assert MATERIAL_CATALOG["designation"].display_only is True
 
 
+def test_is_emergency_transport_and_is_critical_logistics_are_selectable():
+    # 改善計画T338フォローアップ（2026-08-26）: designationの正規化フラグ版は
+    # designationと異なり軸スタジオの選択肢に現れる（display_only=False）。
+    response = client.get("/api/material-catalog")
+
+    entries_by_id = {entry["material_id"]: entry for entry in response.json()["materials"]}
+    assert entries_by_id["is_emergency_transport"]["dtype"] == "boolean"
+    assert entries_by_id["is_critical_logistics"]["dtype"] == "boolean"
+
+
 def test_get_material_catalog_reflects_material_catalog_content():
     response = client.get("/api/material-catalog")
 

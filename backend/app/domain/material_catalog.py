@@ -507,7 +507,39 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="designation",
         # 改善計画T338: display_onlyのdocstring参照（"both"のAND条件が実データで35.01%と
         # 構造的に頻発するため、軸スタジオでの評価軸材料としての選択肢からは除外する）。
+        # 地図表示（staticAttributeLayers.tsの凡例、車ストレス表示のdisplay_override等）は
+        # 引き続きこの3値プロパティを使う（ユーザー判断、2026-08-26）。評価軸で種別を
+        # 区別したい場合はis_emergency_transport/is_critical_logistics（下記）を使う。
         display_only=True,
+    ),
+    "is_emergency_transport": MaterialSpec(
+        material_id="is_emergency_transport",
+        label="緊急輸送道路該当[N10]（真偽）",
+        dtype="boolean",
+        # 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）: designation（3値、
+        # 優先順位付き分類）をbicycle_infra（改善計画T336）と同じ設計思想で正規化する。
+        # is_ert/is_clは_ROAD_SURFACE_TILE_MVT_SQLが既に計算していた中間値で、'both'/
+        # 'emergency_transport'/'critical_logistics'へ畳み込む前の生フラグをそのまま
+        # 2材料として個別に焼き込む。
+        tile_property="is_emergency_transport",
+        primary_attribute_id="designation",
+        # extractor未設定（is_designatedと同じ「トリガー付きDEFER」、設計原則9）。
+        # is_designated（下記）と異なりどの内蔵軸からも参照されない——ユーザー指示
+        # 「特定路線かどうかだけで評価は判定」の通り、car_stress_designation_adjustment
+        # 内部軸は今後もis_designatedのみを使う。本材料は軸スタジオでユーザーが種別を
+        # 区別する評価軸を自作したくなった時点で初めて配線する（種別ごとのper-edge kindを
+        # compute_edge_costs_bulk/3つのスカラー評価経路へ運ぶ配線は、実際にそのニーズが
+        # 出るまで新設しない）。
+        extractor=None,
+    ),
+    "is_critical_logistics": MaterialSpec(
+        material_id="is_critical_logistics",
+        label="重要物流道路該当[N12]（真偽）",
+        dtype="boolean",
+        # is_emergency_transportと対をなす材料。コメントは同上参照。
+        tile_property="is_critical_logistics",
+        primary_attribute_id="designation",
+        extractor=None,
     ),
     "is_designated": MaterialSpec(
         material_id="is_designated",
@@ -515,12 +547,11 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         # 改善計画T292: car_stress軸の内部軸（designation由来の調整軸）が使う簡略化された
         # 真偽値材料。指定路線の種別（emergency_transport/critical_logistics/both、材料
-        # "designation"）は評価パイプライン側で種別ごとに区別して保持していない
+        # "designation"、改善計画T338フォローアップで正規化フラグ版のis_emergency_transport/
+        # is_critical_logisticsも追加）は評価パイプライン側で種別ごとに区別して保持していない
         # （domain/designation.py: 補正量が種別によらず一律+1のため、種別を評価まで
-        # 運ぶ配線を新設する理由が無い）。"designation"材料自体は将来種別を区別する軸が
-        # 必要になった時点でそちらを使う（トリガー付きDEFER、設計原則9）。
-        # car_stress_designation_adjustment内部軸と同じくタイル非依存
-        # （評価時にdesignated_edge_idsから都度算出）。
+        # 運ぶ配線を新設する理由が無い）。car_stress_designation_adjustment内部軸と同じく
+        # タイル非依存（評価時にdesignated_edge_idsから都度算出）。
         tile_property=None,
         primary_attribute_id="designation",
         extractor=_extract_is_designated,

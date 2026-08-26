@@ -327,6 +327,13 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             WHEN d.is_ert THEN 'emergency_transport'
                             WHEN d.is_cl THEN 'critical_logistics'
                         END AS designation,
+                        -- 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）: 上のdesignation
+                        -- （3値、地図表示専用）が畳み込む前の正規化フラグを、評価軸の材料として
+                        -- 個別に焼き込む。bicycle_infra→cycleway_has_track等（改善計画T336）と
+                        -- 同じ設計——複雑な分類の生値は表示専用として残し、評価用の正規化材料は
+                        -- 別途用意する。d.is_ert/d.is_clは既に計算済みのため追加JOINは不要。
+                        CASE WHEN d.is_ert THEN true END AS is_emergency_transport,
+                        CASE WHEN d.is_cl THEN true END AS is_critical_logistics,
                         -- 事前集計カウントのkm正規化密度（改善計画T145b、冒頭コメント参照）。
                         -- ST_AsMVTはnumeric型をtextへフォールバックするため（maxspeed_kmhの
                         -- コメント参照）、丸めた後にdouble precisionへキャストして焼き込む。

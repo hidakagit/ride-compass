@@ -50,6 +50,8 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
   { id: "cycleway_has_lane", label: "自転車レーン(lane)を併設", dtype: "boolean" },
   { id: "cycleway_has_shared", label: "バス共用等の自転車レーンを併設", dtype: "boolean" },
   { id: "is_designated", label: "指定路線該当（真偽）", dtype: "boolean" },
+  { id: "is_emergency_transport", label: "緊急輸送道路該当[N10]（真偽）", dtype: "boolean" },
+  { id: "is_critical_logistics", label: "重要物流道路該当[N12]（真偽）", dtype: "boolean" },
   { id: "smoothness", label: "路面の状態", dtype: "categorical" },
   { id: "tracktype", label: "未舗装路グレード(tracktype)", dtype: "categorical" },
 ];

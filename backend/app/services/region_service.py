@@ -139,7 +139,13 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # v9のような非互換変更ではない（デプロイ順序制約なし。旧世代の焼き込み済みキャッシュは
 # 未使用の余分なキーを持ったまま残るだけで実害はなく、世代更新自体はキャッシュ陳腐化を
 # 明示するために行う）。
-ROAD_SURFACE_TILE_VERSION = "14"
+# v15: 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）。designation（3値、地図表示
+# 専用として維持）が畳み込む前の正規化フラグis_emergency_transport[N10]/
+# is_critical_logistics[N12]を追加した世代（infrastructure/road_graph_repository.py:
+# _ROAD_SURFACE_TILE_MVT_SQL参照。material_catalog.pyへ評価軸材料としても登録、ただし
+# extractor未設定のトリガー付きDEFER——car_stress軸の評価は引き続きis_designatedのみを
+# 使う）。プロパティ追加のみ（削除なし）で、v10〜v13と同じくデプロイ順序制約なし。
+ROAD_SURFACE_TILE_VERSION = "15"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
