@@ -361,6 +361,36 @@ async def test_delete_raises_key_error_for_unknown_axis_id(road_graph_session):
         await service.delete("unknown")
 
 
+async def test_delete_rejects_code_coupled_axis_id_even_when_draft(road_graph_session):
+    # 改善計画T350: car_stress/night/wind/gradientはroad_graph_engine.py等が
+    # axis_idを直接ハードコード参照しているため、is_published=False（下書き）でも
+    # 削除できない。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("car_stress", is_published=False))
+    await service.create(_definition("other_axis", material="wind_penalty"))
+
+    with pytest.raises(ValueError, match="car_stress"):
+        await service.delete("car_stress")
+
+    assert "car_stress" in AXIS_DEFINITIONS
+
+
+async def test_delete_rejects_code_coupled_axis_id_after_unpublish(road_graph_session):
+    # 改善計画T350: unpublish→deleteの2段階（T302で正式フローとして許容された経路）でも
+    # コード結合axis_idは削除できない。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition("night", is_published=True))
+    await service.create(_definition("other_axis", material="wind_penalty"))
+    await service.unpublish("night")
+
+    with pytest.raises(ValueError, match="night"):
+        await service.delete("night")
+
+    assert "night" in AXIS_DEFINITIONS
+
+
 async def test_delete_rejects_removing_the_last_remaining_axis(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)

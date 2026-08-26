@@ -48,6 +48,18 @@ class AxisDefinitionSyncError(RuntimeError):
     """
 
 
+# 改善計画T350: `AXIS_DEFINITIONS`以外のコード（road_graph_engine.py・
+# openrouteservice_engine.py・frontend routeStyleModes.ts等）がaxis_idを文字列として
+# 直接ハードコード参照している軸。削除されると、is_publishedの状態に関わらず
+# アプリが壊れる（例: car_stress削除でaxis_difficulties.axes.get("car_stress")が
+# Noneになり地図表示のcar_stress_display_levelが常にNone、night削除で
+# 素のKeyErrorが実際に発生した実績あり[2026-08-25]）。is_published（T271、GUI編集の
+# 可否）とは独立の制約で、下書きへ戻した後（unpublish→delete）でも削除できない
+# ようにする。将来、axis_idをハードコード参照するコードが増えた場合はここへ追加する
+# （恒久対応はT352で、性質ベースの宣言的フィールドへ汎用化する予定）。
+_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"car_stress", "night", "wind", "gradient"})
+
+
 # 改善計画T295: コード内蔵の既定axis_id集合（モジュールimport時、AXIS_DEFINITIONSが
 # まだ一度もrefresh_axis_definitionsで上書きされていない時点のスナップショット）。
 # refresh_axis_definitionsが呼ばれるたびに、この集合とDB側集合の差分をログへ出し、
@@ -209,6 +221,10 @@ class AxisRegistryAdminService:
         existing = await self._repository.list_all()
         if axis_id in existing and len(existing) == 1:
             raise ValueError("最後の1軸は削除できません")
+        # 改善計画T350: is_publishedの状態（下書きへ戻した後含む）に関わらず、
+        # コードが名前で直接依存している軸は削除させない。
+        if axis_id in _CODE_COUPLED_AXIS_IDS and axis_id in existing:
+            raise ValueError(f"axis_id={axis_id} はコードから直接参照されているため削除できません")
         if axis_id in existing:
             # 改善計画T271: 公開済み軸の削除も不変制約の対象（updateと同じ理由）。
             check_publish_immutability(existing[axis_id], "deleted")
