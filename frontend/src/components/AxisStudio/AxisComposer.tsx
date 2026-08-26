@@ -357,6 +357,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
+  // 改善計画T345フォローアップ（実機フィードバック: 「値」欄に生のタグ値[例: cycleway]が
+  // 表示され、ユーザー向け画面としては分かりにくい）: ラベルが引ける行は既定でラベルの
+  // 読み取り専用表示にし、生のタグ値の入力欄は「候補から選ぶ」または「直接入力する」を
+  // 押したときだけ開く。ラベルが引けない値（手入力した独自の値・材料自体がラベル対応表を
+  // 持たない）は最初から入力欄のまま（隠す意味が無いため）。行indexで管理するため、
+  // 材料を切り替えたときはリセットする（updateCategoricalRowMaterial参照）。
+  const [manualEditCategoricalRows, setManualEditCategoricalRows] = useState<Set<number>>(new Set());
 
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
@@ -733,33 +740,40 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           const selectedDtype = selectedCategoricalDtype;
           return (
             <div className={styles.shapeGroup}>
-              <label className={styles.field}>
-                材料(material)
-                <select
-                  value={draft.categoricalMaterial}
-                  onChange={(e) => {
-                    const nextMaterial = e.target.value;
-                    const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
-                    setDraft((d) => ({
-                      ...d,
-                      categoricalMaterial: nextMaterial,
-                      categoricalRows:
-                        nextDtype === "categorical" && d.categoricalRows.length === 0
-                          ? [{ value: "", score: 0 }]
-                          : d.categoricalRows,
-                    }));
-                  }}
-                >
-                  {materialOptions
-                    .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <MaterialInfoButton option={materialOptions.find((m) => m.id === draft.categoricalMaterial)} />
+              {/* 改善計画T345フォローアップ（実機フィードバック: 情報アイコンが独立した行に
+                  はみ出て中央寄せに見える不具合）: .fieldはcolumn方向のflexのため、
+                  兄弟要素としてただ並べると縦に積まれてしまう。.row（横方向flex）で
+                  括ってラベルの隣に揃える。 */}
+              <div className={styles.row}>
+                <label className={styles.field}>
+                  材料(material)
+                  <select
+                    value={draft.categoricalMaterial}
+                    onChange={(e) => {
+                      const nextMaterial = e.target.value;
+                      const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
+                      setDraft((d) => ({
+                        ...d,
+                        categoricalMaterial: nextMaterial,
+                        categoricalRows:
+                          nextDtype === "categorical" && d.categoricalRows.length === 0
+                            ? [{ value: "", score: 0 }]
+                            : d.categoricalRows,
+                      }));
+                      setManualEditCategoricalRows(new Set());
+                    }}
+                  >
+                    {materialOptions
+                      .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <MaterialInfoButton option={materialOptions.find((m) => m.id === draft.categoricalMaterial)} />
+              </div>
               {selectedDtype === "categorical" ? (
                 <>
                   <p className={styles.hint}>
@@ -771,50 +785,79 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   {/* 改善計画T345: breakpointsと同じ0-100の向き（0=最も走りやすい・
                       100=最も走りにくい）をここにも明記する。 */}
                   <p className={styles.hint}>スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。</p>
-                  {draft.categoricalRows.map((row, i) => (
-                    <div key={i} className={styles.termRow}>
-                      {categoricalMaterialValues.length > 0 && (
-                        <select
-                          aria-label="値の候補"
-                          value=""
-                          onChange={(e) => {
-                            if (e.target.value) updateCategoricalRow(i, { value: e.target.value });
-                          }}
+                  {draft.categoricalRows.map((row, i) => {
+                    // 改善計画T345フォローアップ: ラベルが引ける値は、既定では生のタグ値
+                    // （例: cycleway）を画面に出さずラベル（例: 自転車・歩行者道）だけを
+                    // 読み取り専用表示する。「候補から選ぶ」で選んだ場合は必ずラベルが
+                    // 引けるためこの表示になる。ラベルが無い値（未知のタグ値の手入力等）は
+                    // 隠す意味が無いため最初から入力欄のまま。
+                    const label = materialValueLabel(draft.categoricalMaterial, row.value);
+                    const hasLabel = row.value.trim() !== "" && label !== row.value;
+                    const showRawInput = manualEditCategoricalRows.has(i) || !hasLabel;
+                    return (
+                      <div key={i} className={styles.termRow}>
+                        {categoricalMaterialValues.length > 0 && (
+                          <select
+                            aria-label="値の候補"
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                updateCategoricalRow(i, { value: e.target.value });
+                                setManualEditCategoricalRows((s) => {
+                                  const next = new Set(s);
+                                  next.delete(i);
+                                  return next;
+                                });
+                              }
+                            }}
+                          >
+                            <option value="">候補から選ぶ...</option>
+                            {categoricalMaterialValues.map((v) => {
+                              const candidateLabel = materialValueLabel(draft.categoricalMaterial, v);
+                              return (
+                                <option key={v} value={v}>
+                                  {candidateLabel}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        )}
+                        {showRawInput ? (
+                          <input
+                            type="text"
+                            value={row.value}
+                            aria-label="値"
+                            placeholder="例: separated"
+                            onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
+                          />
+                        ) : (
+                          <span className={styles.inlineCheckbox}>
+                            {label}
+                            <button
+                              type="button"
+                              onClick={() => setManualEditCategoricalRows((s) => new Set(s).add(i))}
+                            >
+                              直接入力する
+                            </button>
+                          </span>
+                        )}
+                        <input
+                          type="number"
+                          step="1"
+                          value={row.score}
+                          aria-label="スコア"
+                          onChange={(e) => updateCategoricalRow(i, { score: Number(e.target.value) })}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeCategoricalRow(i)}
+                          disabled={draft.categoricalRows.length <= 1}
                         >
-                          <option value="">候補から選ぶ...</option>
-                          {categoricalMaterialValues.map((v) => {
-                            const label = materialValueLabel(draft.categoricalMaterial, v);
-                            return (
-                              <option key={v} value={v}>
-                                {label}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      )}
-                      <input
-                        type="text"
-                        value={row.value}
-                        aria-label="値"
-                        placeholder="例: separated"
-                        onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        value={row.score}
-                        aria-label="スコア"
-                        onChange={(e) => updateCategoricalRow(i, { score: Number(e.target.value) })}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeCategoricalRow(i)}
-                        disabled={draft.categoricalRows.length <= 1}
-                      >
-                        削除
-                      </button>
-                    </div>
-                  ))}
+                          削除
+                        </button>
+                      </div>
+                    );
+                  })}
                   <button type="button" className={styles.addButton} onClick={addCategoricalRow}>
                     + 値を追加
                   </button>

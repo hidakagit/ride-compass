@@ -22,7 +22,7 @@ async function clickNext(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AxisComposer 値の候補セレクト", () => {
-  it("動的値一覧に対応する材料(highway)を選ぶと候補セレクトが現れ、選ぶと値入力欄へ反映される", async () => {
+  it("動的値一覧に対応する材料(highway)を選ぶと候補セレクトが現れ、選ぶと生のタグ値ではなくラベルが表示される", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -35,18 +35,28 @@ describe("AxisComposer 値の候補セレクト", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
 
     const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
+    // 改善計画T345フォローアップ: 値が未設定の間はラベルが引けないため入力欄のまま。
     const valueInput = screen.getByLabelText("値");
     expect(valueInput).toHaveValue("");
 
     await user.selectOptions(candidateSelect, "residential");
 
-    expect(valueInput).toHaveValue("residential");
+    // 実機フィードバック: 候補から選んだ後は生のタグ値("residential")を画面に出さず、
+    // ラベル("生活道路")だけを読み取り専用表示する（候補セレクトのoption文字列としても
+    // 同じ文字列が存在するため、表示用span要素に絞って探す）。
+    expect(screen.getByText("生活道路", { selector: "span" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("値")).not.toBeInTheDocument();
+    expect(screen.queryByText("residential")).not.toBeInTheDocument();
     // 候補セレクト自体は選択の起点（value=""）へ戻る（連続で別の値も選べるようにするため）。
     expect(candidateSelect).toHaveValue("");
 
-    await user.clear(valueInput);
-    await user.type(valueInput, "primary");
-    expect(valueInput).toHaveValue("primary"); // 候補セレクトを経由しない直接入力も引き続き可能
+    // 「直接入力する」を押すと生のタグ値の入力欄へ戻り、候補に無い値も設定できる。
+    await user.click(screen.getByRole("button", { name: "直接入力する" }));
+    const reopenedInput = screen.getByLabelText("値");
+    expect(reopenedInput).toHaveValue("residential");
+    await user.clear(reopenedInput);
+    await user.type(reopenedInput, "primary");
+    expect(reopenedInput).toHaveValue("primary");
 
     await clickNext(user);
     await user.click(screen.getByRole("button", { name: "作成する" }));
