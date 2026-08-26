@@ -33,8 +33,10 @@ class SparseRoadGraph:
 
     `RoadGraphEngine.trace_loop`が1リクエストにつき最大24回（3区間×8方位）呼ぶ
     Dijkstraを、scipy.sparse.csgraph（C実装）で高速に解くために使う。同一ノード間の
-    並行Edgeは1本のみ保持する（後から登場したEdgeで上書き。`graph.edges`の反復順=
-    辞書の挿入順に従う）。
+    並行Edgeは1本のみ保持する（cost最小のEdgeを採用。改善計画T363: 以前は
+    `graph.edges`の反復順＝DBクエリの返却行順で後勝ちしていたが、行順序が実行の
+    たびに変わりうる非決定性の原因だったため、行順序に依存しないcost比較へ改めた。
+    `build_sparse_graph`のdocstring参照）。
     """
 
     matrix: csr_matrix
@@ -49,8 +51,20 @@ def build_sparse_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResul
     含めない（仕様書29章：探索対象から除外する）。
 
     `scipy.sparse.coo_matrix`は同一(row, col)への重複エントリを合算してしまうため、
-    疎行列を組む前にPython側のdictで(from_index, to_index)ごとに1本（後から登場した
-    Edgeで上書き）へ集約してから渡す。
+    疎行列を組む前にPython側のdictで(from_index, to_index)ごとに1本（cost最小のEdgeを
+    採用）へ集約してから渡す。
+
+    改善計画T363: 以前は「後から登場したEdgeで上書き」（`graph.edges`の反復順=辞書の
+    挿入順=DBクエリの返却行順に依存）だったが、`road_edges`をbboxで問い合わせる
+    SQL（`road_graph_repository.py: get_graph_in_bbox`/`get_graph_topology_in_bbox`）に
+    `ORDER BY`が無く、かつ実測（都心規模で`Parallel Bitmap Heap Scan`が選ばれる）で
+    同一クエリの返却行順が実行のたびに変わることを確認した。並行Edgeを持つ(from,to)
+    ペアが実データに実在するため（dev DB実測484件）、「後勝ち」のままだと採用される
+    Edgeが呼び出しのたびに非決定的に入れ替わり、そのEdgeが接続の要（橋・アンダーパス等）
+    だった場合、出発点から先の到達性が同一条件のリクエスト間で成功/失敗を行き来する
+    非決定的バグを引き起こしていた（8方位すべてが同時に"no path found"になる症状と一致）。
+    行順序に依存しない決定的な結果にするため、単純な上書きではなくcostを比較し、
+    より小さい方を採用する（同点なら先に登場した方を保持=変更しない）よう改めた。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
@@ -65,7 +79,10 @@ def build_sparse_graph(graph: RoadGraphLike, edge_costs: dict[str, EdgeCostResul
         to_index = node_id_to_index.get(edge.to_node_id)
         if from_index is None or to_index is None:
             continue
-        best_by_pair[(from_index, to_index)] = (cost_result.cost, edge_id)
+        pair = (from_index, to_index)
+        existing = best_by_pair.get(pair)
+        if existing is None or cost_result.cost < existing[0]:
+            best_by_pair[pair] = (cost_result.cost, edge_id)
 
     if best_by_pair:
         rows, cols, weights = zip(

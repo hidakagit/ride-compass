@@ -214,10 +214,14 @@ def test_path_to_edge_ids_sparse_maps_consecutive_nodes_to_edges():
     assert path_to_edge_ids_sparse(sparse_graph, ["a", "b", "c"]) == ["e1", "e2"]
 
 
-def test_build_sparse_graph_keeps_last_edge_for_parallel_edges():
+def test_build_sparse_graph_keeps_cheapest_edge_for_parallel_edges():
     # scipy.sparse.coo_matrixは同一(row,col)への重複を合算してしまうため、build_sparse_graph
-    # は疎行列を組む前にPython側で「後から登場したEdgeで上書き」（後勝ち）で1本化する
-    # ことを確認する（並行Edgeの回帰観点）。
+    # は疎行列を組む前にPython側で並行Edgeを1本化する（並行Edgeの回帰観点）。
+    # 改善計画T363: 以前は「後から登場したEdgeで上書き」（graph.edgesの辞書挿入順＝
+    # DBクエリの返却行順に依存）だったが、その行順序が非決定的（ORDER BY無し・実測で
+    # Parallel Scanが選ばれ実行のたびに順序が変わる）と判明したため、辞書の挿入順に
+    # 依存しないcost最小のEdgeを採用する方式へ改めた。本テストは「登場順が後の方」と
+    # 「cost最小」を意図的に一致させ、min-cost選択であることを検証する。
     graph = RoadGraph(
         graph_version="v1",
         nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
@@ -229,7 +233,30 @@ def test_build_sparse_graph_keeps_last_edge_for_parallel_edges():
     edge_costs = {"first": _cost("first", cost=999.0), "second": _cost("second", cost=5.0)}
     sparse_graph = build_sparse_graph(graph, edge_costs)
 
-    assert path_to_edge_ids_sparse(sparse_graph, ["a", "b"]) == ["second"]  # 後勝ち
+    assert path_to_edge_ids_sparse(sparse_graph, ["a", "b"]) == ["second"]  # cost最小
+    assert sparse_graph.matrix[sparse_graph.node_id_to_index["a"], sparse_graph.node_id_to_index["b"]] == 5.0
+
+
+def test_build_sparse_graph_parallel_edge_selection_is_order_independent():
+    # 改善計画T363の回帰テスト本体: 登場順が「先」の方がcost最小であっても、
+    # 辞書の挿入順（＝呼び出しごとに変わりうるDB行順序の代理）に関わらず必ず
+    # cost最小のEdgeが選ばれることを検証する（前テストとは登場順とcost最小の
+    # 対応関係を逆にしてある）。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
+        edges={
+            "cheap_first": _edge("cheap_first", "a", "b", distance_m=50.0),
+            "expensive_second": _edge("expensive_second", "a", "b", distance_m=200.0),
+        },
+    )
+    edge_costs = {
+        "cheap_first": _cost("cheap_first", cost=5.0),
+        "expensive_second": _cost("expensive_second", cost=999.0),
+    }
+    sparse_graph = build_sparse_graph(graph, edge_costs)
+
+    assert path_to_edge_ids_sparse(sparse_graph, ["a", "b"]) == ["cheap_first"]
     assert sparse_graph.matrix[sparse_graph.node_id_to_index["a"], sparse_graph.node_id_to_index["b"]] == 5.0
 
 

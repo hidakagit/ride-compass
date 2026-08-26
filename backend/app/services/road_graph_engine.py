@@ -26,8 +26,9 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   OpenRouteServiceEngineの「区間ごとの推定到達時刻の風」とは意味が異なる点に注意。
   レスポンスの`engine`フィールドで識別できる）。
 - `SparseRoadGraph`（domain/routing.py: build_sparse_graph）は同一ノード間の並行Edgeを
-  1本しか保持しない（後から登場したEdgeで上書き）。稀なケースでは最安のEdgeが
-  選ばれない可能性がある。
+  1本しか保持しない（cost最小のEdgeを採用。改善計画T363: 以前は「後から登場した
+  Edgeで上書き」で、DBクエリの返却行順（ORDER BY無し・Parallel Scan）に依存する
+  非決定的な選択だったため改めた）。
 """
 
 import asyncio

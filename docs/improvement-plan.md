@@ -8440,34 +8440,61 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T363. road_graphエンジンの出発点ノード選択が非決定的で、同一条件でも全8方位が同時に失敗することがある 規模M（起票のみ、未着手）
+### - [x] T363. road_graphエンジンの出発点ノード選択が非決定的で、同一条件でも全8方位が同時に失敗することがある 規模M（完了）
 
 - 背景: T353/T359の本番反映後、実際に王子駅座標（35.7526, 139.7392）から distance_km=20
   でルート生成を検証中（2026-08-27）に発覚。**全く同じ座標・同じパラメータで
   連続してリクエストしても、1回目は成功（candidates=5、trace_ok=8/8）、2回目は
   全滅（trace_ok=0/8、"no candidates"）という再現性の無い失敗**を実機で確認した。
   失敗時のtrace_msは約465msと成功時（800ms前後）よりも明らかに短く、8方位すべてが
-  即座に同じ理由で失敗している。
-- 手がかり: `road_graph_engine.py: prepare()`のコメント（改善計画T256）に「幹線道路
-  にしか接続していない地理的最近傍Node（駅前が国道の交差点に直接面する場所、新宿駅・
-  渋谷駅等で実機確認）が選ばれると、そこがHard Constraint除外後のグラフ上では
-  孤立点になり、8方位すべてのDijkstra探索が"no path found"で失敗する」という既知の
-  現象の説明があり、症状が一致する。T256は`routable_node_ids`によるフィルタリングで
-  対策済みのはずだが、今回の再発（かつ同一条件での非決定性）は、この対策が完全ではない
-  か、`node_index`/`sparse_graph`の構築自体に非決定的な要素（並行処理の順序等）が
-  残っている可能性を示唆する。
-- 未確定事項（着手時に確認）: 天候API（Open-Meteo中継プロキシ）の429エラー多発も
-  同時に観測されたが、`RoutingError`の発生源（road graphのsnap・経路探索、
-  `road_graph_engine.py:361,370,375`）は天候データ取得とは別系統のコードであり、
-  直接の原因ではないと推測される（未検証）。まず`origin_node`の選択結果が試行間で
-  実際に変わるのか、DEBUGログを有効にして再現・特定するところから着手する。
-- 影響範囲（保留し続けた場合、何がブロックされ・何が動かなくなるか）: 一般ユーザーが
-  「ルートが見つかりません」という原因不明のエラーに、同じ操作を繰り返すだけで
-  遭遇しうる（再試行すれば直る場合があるため、原因が分からないまま「たまに失敗する
-  不安定なアプリ」という体感を与え続ける）。プロダクト化（ユーザー指摘、2026-08-27）
-  において信頼性上の重大な障害になりうる。
-- 優先度: P1（実害あり、ユーザー体感を直接損なう）。着手はユーザー承認後、次のセッション
-  等で改めて行う。
+  即座に同じ理由で失敗している。調査は2並行セッション（ridecompass-d6・ridecompass-97）
+  で分担し、相互に検証結果を共有しながら進めた。
+- 根本原因（実測で特定済み）: `domain/routing.py: build_sparse_graph`が、同一
+  `(from_node_id, to_node_id)`間に複数の並行Edgeがある場合に「後から登場したEdgeで
+  上書き」（`graph.edges`の辞書反復順＝DBクエリの返却行順に依存）する設計だった。
+  この行順序が非決定的であることを3点の実測で確認した:
+  1. `road_edges`をbboxで問い合わせるSQL（`road_graph_repository.py:
+     get_graph_in_bbox`/`get_graph_topology_in_bbox`）は`ORDER BY`を持たない。
+  2. 実データ規模（20km四方相当）の同クエリをEXPLAINすると`Parallel Bitmap Heap
+     Scan`（Workers Planned: 2）が選ばれる。`Gather`ノードは行順序を保証しない。
+  3. 同一DB接続で同一クエリを3回連続実行し、返却件数・内容（集合）は完全一致する
+     一方、行の並び順は毎回異なることを直接確認した（dev DB実測、193,588件、
+     1回目と2回目でindex 30から食い違う）。
+  加えて、dev DBの`road_edges`には同一`(from_node_id, to_node_id)`を持つ並行Edgeが
+  実在する（実測484件/268,208件中）。この並行Edgeのどちらが探索グラフに残るかが
+  呼び出しごとに非決定的に入れ替わり、そのEdgeが接続の要（橋・アンダーパス等の
+  chokepoint）だった場合、出発点から先の到達性が同一条件のリクエスト間で
+  成功/失敗を行き来していた（8方位すべてが同時に失敗する症状、失敗時にtrace_msが
+  短いことは、origin_nodeが小さい孤立成分に閉じ込められてDijkstraが早期に
+  探索を終えることと整合する）。
+  周辺要因（ridecompass-97の並行調査より）: `GraphService.get_search_materials_for_bbox`
+  は`is_split_up_to_date`の状態でcold（`get_or_build_graph_with_attributes`、bbox
+  厳密な範囲）/warm（`_build_search_materials_from_tile_cache`、タイル境界基準で
+  bboxよりやや広い範囲）の2経路に分岐し、範囲が変わることで含まれる並行Edgeの
+  構成自体も変わりうる。これ自体は上記の根本原因とは別レイヤーだが、非決定性を
+  増幅する周辺要因として作用していた可能性がある（今回は根本原因の修正で解消する
+  ため、この経路分岐自体には手を入れていない）。
+- 除外した仮説: `build_road_graph`（Edge/Node IDはosm_way_id/osm_node_id由来で
+  決定論的）、`get_way_specs_with_closure`の主対象Way抽出クエリ（同一bboxへの
+  3回連続実行でmd5完全一致を確認）は非決定性の原因ではないと確認した。「重なる
+  bboxの再split（1ホップ近傍限定の結果整合的split設計）による接続性変化」という
+  仮説も、開発DBで意図的に未split状態を再現し検証したが、テスト規模では
+  origin_node選択への影響を確認できなかった（根本原因（並行Edgeの非決定的選択）が
+  ほぼ全ての事象を説明するため、この経路の追加検証は行わずクローズした）。
+- 対応内容: `build_sparse_graph`の並行Edge集約を「後勝ち」から「cost最小勝ち」へ
+  変更（[domain/routing.py](../backend/app/domain/routing.py)、数行）。DBの行順序に
+  一切依存せず常に同じ結果になり、かつ元々のdocstringが意図していた「最安Edgeが
+  選ばれる」という意味的に正しい挙動にもなる。`ORDER BY`を追加して行順序自体を
+  固定する案は、大規模結果セットのソートコストが乗るため不採用とした。
+  回帰テスト: [tests/test_routing.py](../backend/tests/test_routing.py)に
+  `test_build_sparse_graph_parallel_edge_selection_is_order_independent`を追加し、
+  「辞書への登場順」と「cost最小」の対応関係を意図的に逆転させても常にcost最小の
+  Edgeが選ばれることを検証する。既存の
+  `test_build_sparse_graph_keeps_cheapest_edge_for_parallel_edges`（旧
+  `_keeps_last_edge_for_parallel_edges`）もmin-cost選択である旨へコメントを更新した。
+- 未実施（次のトリガーで対応）: 本番Oracle VMへの反映（デプロイ）はユーザー承認後に
+  別途実施する。
+- 優先度: P1（実害あり、ユーザー体感を直接損なう）。
 
 ---
 
