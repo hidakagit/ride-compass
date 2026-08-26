@@ -107,6 +107,29 @@ describe("AxisComposer", () => {
       });
     });
 
+    it("改善計画T342回帰テスト: breakpoint_linearの材料(terms)にboolean材料も選べる（backend側のBreakpointLinearShapeは元々bool値を1/0として係数と掛け合わせて評価できていたが、GUIのセレクトがnumeric限定で選べなかった）", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
+      await clickNext(user);
+      await clickNext(user);
+
+      // termRow先頭の材料セレクト（アクセシブルネーム無し、前処理(preprocess)セレクトは
+      // <label>で名前付けされているため区別できる）。静的フォールバックカタログ
+      // （lib/axisMaterialsCatalog.ts）のboolean材料の1つを選ぶ。
+      const materialSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+      await user.selectOptions(materialSelect, "surface_good");
+
+      await clickNext(user);
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.shape.terms[0].material).toBe("surface_good");
+    });
+
     it("「他の軸の計算結果をもとに点数を変える」(recipe_then_breakpoint_linear)を選ぶとkindがそれになり、前処理の変更も反映される", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();

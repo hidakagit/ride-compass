@@ -7132,28 +7132,54 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   `ruff check`・非DBテスト1086件全件green。
 - 依存: T336・T337（Python側関数を評価パイプラインから切り離す前提作業）。
 
-### - [ ] T342. 材料正規化方針を踏まえた軸スタジオUIの見直し検討 規模未定（調査）〔P3〕— トリガー: T336・T339等の実装が具体化した時点
+### - [x] T342. 材料正規化方針を踏まえた軸スタジオUIの見直し検討 規模S（2026-08-26完了）
 
 - 背景: 2026-08-26の設計議論（[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)）
   で「評価軸の材料は正規化されたフラグ・数値に統一する」方針を確立したことを受け、
-  ユーザーから「軸スタジオのUIも変わると思う」との指摘。現時点では具体的なUI変更を
-  設計するには早いため、想定される影響を記録するに留める。
-- 想定される影響（着手時に再検証すること）:
+  ユーザーから「軸スタジオのUIも変わると思う」との指摘。起票時点では具体的なUI変更を
+  設計するには早いため、想定される影響を記録するに留めていた。
+- 想定されていた影響（着手時に再検証した）:
   1. **材料選択肢の変化**: T336実施後、`cycleway_has_track`等の正規化フラグ材料が
      新たに材料カタログへ増える一方、`bicycle_infra`のような複雑なcategorical材料は
      評価軸の選択肢から外れる（表示専用へ格下げ）可能性がある。
+     → **再検証結果**: 正規化フラグ4件は追加された。`bicycle_infra`は評価軸から
+     参照されなくなった（T341で確認）が、`display_only`は付けていない（軸スタジオでは
+     引き続き選択可能。`designation`のようにmapping前提の値が3値程度に収まらず、
+     複雑なcategoricalとしてなお選択肢に残す判断自体はT342の範囲外——GUIから選べる
+     ことがUI上の不整合や不具合を起こしていないため、対応不要と判断）。
   2. **「値ごとのスコアを設定」画面（categoricalテンプレート）の出番が減る**: 正規化
      フラグはboolean化されるため、「該当時/非該当時のスコア」という既存のシンプルな
      入力で足りるケースが増え、T340が解決しようとしている「値の自由入力」画面自体の
      使用頻度が下がる可能性がある。
-  3. **「複数要素の足し算」操作の重要性が増す**: 今回の実データ検証（正規化材料の
-     線形結合による近似）を踏まえると、複数の正規化フラグ材料を選んで重みを付けて
-     足し合わせる操作（`flag_sum`/`breakpoint_linear`のterms）が、より中心的な
-     使い方になる可能性がある。現行UIがこの操作をどれだけ快適にサポートできているか
-     の再点検が要る。
-- 内容: 着手時に、その時点のT336・T339の実装状況を踏まえてAxisComposer.tsxの
-  UI変更要否を判断する。
-- 依存: T336・T339（実装が具体化してから中身を判断する）。
+     → **再検証結果**: 既存UI（`AxisComposer.tsx`の「カテゴリ値」テンプレート内、
+     材料のdtypeでboolean/categoricalの2つの入力パターンを自動切替）は元々どちらの
+     ケースも同じ画面内で自然に扱える構造だったため、使用頻度が変化するだけで
+     UI変更は不要と判断した。
+  3. **「複数要素の足し算」操作の重要性が増す**: 正規化材料の線形結合による近似を
+     踏まえると、複数の正規化フラグ材料を選んで重みを付けて足し合わせる操作
+     （`flag_sum`/`breakpoint_linear`のterms）が、より中心的な使い方になる可能性が
+     あり、現行UIがこの操作をどれだけ快適にサポートできているかの再点検が必要、
+     という想定だった。
+     → **再検証結果（実際に不具合を発見）**: T336が実装した組み込み軸
+     `car_stress_bicycle_infra_adjustment`自体が、まさに複数のboolean材料
+     （`highway_is_cycleway`/`cycleway_has_track`/`cycleway_has_lane`/
+     `cycleway_has_shared`）を重み付きで結合し、任意の折れ点カーブへ変換する
+     `BreakpointLinearShape`の実例（backend側`evaluate_axis_scalar`は
+     `value * term.weight`でboolean値をそのまま1/0として計算できる）。しかし
+     `AxisComposer.tsx`の「数値の大きさに応じて点数を変える」(breakpoint_linear)
+     テンプレートの材料(terms)セレクトは`dtype === "numeric"`限定のフィルタのままで、
+     boolean材料が選択肢に一切現れなかった——つまり**GUIからはT336と同種の軸を
+     組めない**という実害のある欠落だった（`flag_sum`は単純合計+capのみで、
+     breakpoint_linearが持つ「任意の折れ点カーブへの変換」ができないため代替にならない）。
+- 内容: 上記3で見つかった欠落を修正した。`AxisComposer.tsx`のbreakpoint_linear/
+  recipe_then_breakpoint_linearの材料(terms)セレクトのフィルタを`dtype === "numeric"`
+  から`dtype === "numeric" || dtype === "boolean"`へ拡張し（categoricalは対象外のまま
+  ——文字列材料と数値の掛け算はbackend側でエラーになるため）、boolean材料を選んだ場合の
+  挙動（該当時1・非該当時0として係数と掛け合わされる）を説明するヒント文を追加した。
+- 検証: `AxisComposer.test.tsx`に回帰テスト1件を追加（boolean材料`surface_good`を
+  breakpoint_linearの材料として選択・保存し、payloadへ反映されることを確認）。
+  フロント全673件・`npm run lint`・`tsc --noEmit`green。
+- 依存: T336・T339（実装が具体化してから中身を判断する、想定どおり両方の完了後に着手）。
 
 ### - [x] T343. compute_edge_costs_bulkがextractor未設定の材料を参照する軸でKeyErrorする 規模S（2026-08-26完了）
 

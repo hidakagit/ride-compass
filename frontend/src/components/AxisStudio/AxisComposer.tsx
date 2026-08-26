@@ -552,10 +552,19 @@ export default function AxisComposer({ editing, duplicateFrom, onCancelEdit, onS
         {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
           <div className={styles.shapeGroup}>
             <p className={styles.groupLabel}>材料(terms)</p>
+            <p className={styles.hint}>
+              はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。
+            </p>
+            {/* 改善計画T342: booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
+                backend/app/domain/axis_definitions.py: evaluate_axis_scalarのBreakpointLinearShape
+                分岐参照。T336のcar_stress_bicycle_infra_adjustment軸自体が複数のboolean材料を
+                重み付きで結合するBreakpointLinearShapeの実例で、backend側は元々対応していたが
+                このセレクトがnumeric限定のままだったため、GUIから同種の軸を組めなかった）。
+                categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側でエラーになる）。 */}
             {draft.terms.map((term, i) => (
               <div key={i} className={styles.termRow}>
                 <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
-                  {materialOptions.filter((m) => m.dtype === "numeric").map((m) => (
+                  {materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean").map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.label}
                     </option>
