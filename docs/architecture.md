@@ -523,7 +523,7 @@ RideCompass/
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
         DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
-        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: 表示名・既定重み入力→4テンプレート（区分線形補間×2種・カテゴリ値・フラグ加算）選択→パラメータ調整のフォーム。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）。categorical材料の値入力欄は改善計画T340でhooks/useMaterialValues.ts（GET /api/material-catalog/{material_id}/values）＋lib/materialValueLabels.tsが「値の候補」セレクトを添える（値一覧が空の材料は従来どおり自由テキスト入力のみ、詳細は「軸スタジオの値入力UX改善」節参照）
+        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: **改善計画T332で単一フォームから4ステップのウィザードへ再設計**（UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」への対応。ステップ順に「基本情報(basic)」表示名・説明・既定重み→「点数のつけ方を選ぶ(shape_kind)」4種のテンプレート（categorical/breakpoint_linear/flag_sum/recipe_then_breakpoint_linear）を技術名ではなく「はい/いいえ、または種類ごとに点数を決める」等の利用者視点の質問＋具体例つきカードで選択（recipe_then_breakpoint_linearのみ内部軸参照という上級者向け用途のため`advanced`表示）→「点数の詳細を設定(shape_params)」選んだテンプレートに応じた材料・折れ点等の入力→「地図表示・公開(display_publish)」show_map_icon・chip_label等。各ステップは`validateStep()`で個別に検証し、明示的な保存ボタンを押すまで`onSave`は呼ばれない。内部で保持する変換テンプレート自体（4種のshape kind）は変わらず、GUIの導線のみを再構成した）。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）。categorical材料の値入力欄は改善計画T340でhooks/useMaterialValues.ts（GET /api/material-catalog/{material_id}/values）＋lib/materialValueLabels.tsが「値の候補」セレクトを添える（値一覧が空の材料は従来どおり自由テキスト入力のみ、詳細は「軸スタジオの値入力UX改善」節参照）
       hooks/
         useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
@@ -1128,7 +1128,9 @@ lifespanがこれを捕捉しないため**アプリの起動自体が失敗す�
 WARNING/ERRORログを出しコード内蔵の既定値のまま動作を続けていた。この設計は「検知が
 起動ログの目視のみに依存し、次に同種の障害が起きても気づかれないまま放置される」という
 構造的な弱点を持ち[T294→T295で2回、検知条件を1つ足す対応を繰り返したが解決しなかった]、
-複雑度平衡性レビュー[2026-08-26、F-1・P0]で指摘を受けてT349で撤去した）、T350で
+複雑度平衡性レビュー[2026-08-26、F-1・P0。結果ファイル`history/2026-08-26_complexity.md`
+は保存されておらず未確認[T356]、詳細は改善計画T349本文参照]で指摘を受けてT349で
+撤去した）、T350で
 Pythonリテラル自体を撤去したことで「フォールバックしない」ではなく「フォールバック先が
 物理的に存在しない」という、より単純で取り違えようのない構造になった。これに伴い、
 `.github/workflows/deploy-backend.yml`へ`docker build`直後・旧コンテナ停止前に
