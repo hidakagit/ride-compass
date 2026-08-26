@@ -8302,6 +8302,41 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [x] T359. 王子-荒川ルート検索がヒットしない問題への対応（footway/path欠損の穴埋め・共用歩行者自転車道材料の新設） 規模S（完了）
+
+- 背景: T353の発端だった本題（王子から荒川サイクリングロードへ抜ける周回ルートが
+  ヒットしない）に対応。原因は2つ:
+  1. `car_stress_highway_base`のcategorical mappingに`footway`/`path`が登録されて
+     おらず、`car_stress`軸が評価不能（`required=True`のためNone）になっていた。
+  2. 荒川河川敷サイクリングロードの主要区間はOSM上`highway=cycleway`ではなく
+     `highway=footway/path`かつ`bicycle=yes/designated`（「共用歩行者自転車道」）
+     としてマップされており、既存の自転車インフラ材料4種（`highway_is_cycleway`等）
+     ではこのタグパターンを検知できていなかった。
+- 対応内容:
+  1. `car_stress_highway_base`のmappingに`footway`/`path`を追加（値1.0、cycleway・
+     living_streetと同格）。開発DBへ`axis_admin`のPUT API経由で適用済み（この軸は
+     非公開の内部軸のためunpublish不要）。
+  2. `domain/recipe.py: bicycle_infra_flags()`に5つ目のフラグ`shared_pedestrian_path`
+     （highway in footway/path かつ bicycle in yes/designated）を追加し、
+     `domain/material_catalog.py`に対応する材料・extractorを新設。実データ（dev DB
+     86,642件）で既存4フラグとの重複はゼロ件と確認済み（バリデーション不要な
+     独立フラグ）。`bicycle_infra_quality`のtermsへweight=-4.0（track/highway=
+     cycleway同格）で追加（開発DBへAPI経由で適用済み）。
+  3. 全評価経路（`compute_edge_costs_bulk`・`evaluation.py`のscalar経路2箇所・
+     `openrouteservice_engine.py`）は、既存の`bicycle_infra_flags_or_none()`を
+     `**展開`で混ぜ込む設計だったため、上記2の変更はコード変更なしで自動追従した
+     （scalar側3箇所への個別配線が不要だった）。
+  4. `MATERIAL_CATALOG`の新規登録時のバリデーション（`axis_admin.py`）に、既存の
+     内部軸データが現行バリデーション基準を満たしていない実例（`show_map_icon=true`
+     かつ`chip_label`未設定でlabelが4文字超）を発見・是正した（`car_stress_highway_
+     base`に`chip_label="道路基準"`・`show_map_icon=false`を設定、内部軸は元々
+     地図チップに表示されないため意味的にも正しい値）。
+- 未実施（次のトリガーで対応）: **本番DBへの反映**。開発DBのみ適用済みで、本番DBへの
+  同一JSON定義の反映はユーザー承認後に別途実施する。
+- 優先度: P1（ユーザー報告起点の実害修正）。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構
