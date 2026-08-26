@@ -44,8 +44,8 @@ describe("createWindArrowIcon（描画コードパスの実行検証）", () => 
     const calls: string[] = [];
     const ctx = {
       beginPath: vi.fn(() => calls.push("beginPath")),
-      moveTo: vi.fn((..._args: [number, number]) => calls.push("moveTo")),
-      lineTo: vi.fn((..._args: [number, number]) => calls.push("lineTo")),
+      moveTo: vi.fn(() => calls.push("moveTo")),
+      lineTo: vi.fn(() => calls.push("lineTo")),
       closePath: vi.fn(() => calls.push("closePath")),
       fill: vi.fn(() => calls.push("fill")),
       fillStyle: "",
