@@ -91,6 +91,15 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
 - wind_scoreのエンジン間の意味差（engineフィールドで識別する管理された不整合）
 - PBF取込バッチのasyncpg COPY直行（Repository迂回）
+- `AxisComposer.tsx`（規模ウォッチの発火が2026-08-27統合レビュー第8回で確認済み、
+  T270新設[474行]から3日で1,123行[+137%]。改善計画T355で個別の閾値付きKEEPへ
+  昇格——churnが継続中のためすぐには分割せず監視のみ先行する運用。現在有効な閾値・
+  発火状況はimprovement-plan.mdのT355、直近のcomplexityレビュー（history/）を正として
+  参照する）
+- `road_graph_repository.py` / `road_graph_engine.py`（規模ウォッチの発火が2回連続で
+  行き場のないまま繰り返されたため、改善計画T357で個別の閾値付きKEEPへ昇格。現在有効な
+  閾値・発火状況はimprovement-plan.mdのT357、直近のcomplexityレビュー（history/）を
+  正として参照する）
 
 ## タスク・レビュー履歴の基盤
 

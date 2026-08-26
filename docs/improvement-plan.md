@@ -8074,23 +8074,34 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T355. AxisComposer.tsxの規模ウォッチ閾値を新規登録し、churn沈静化後にshape種別ごとの分割を検討 規模S（登録）〜M（分割）（起票のみ、未着手）
+### - [x] T355. AxisComposer.tsxの規模ウォッチ閾値を新規登録し、churn沈静化後にshape種別ごとの分割を検討 規模S（登録）〜M（分割）（(a)登録完了・2026-08-27、(b)分割はトリガー未到達のままDEFER）
 
 - 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase3 complexity F-1）で発見。
   `frontend/src/components/AxisStudio/AxisComposer.tsx`はT270（2026-08-24新設、474行）から
   3日間で1,123行（+137%）へ急成長した。`renderShapeParamsStep`（658-1001行、343行）が
-  単一関数内で5つのshape種別（breakpoint_linear/recipe_then_breakpoint_linear/
-  categorical/flag_sum/priority_condition）ごとに異なるUIを分岐しており、複数の変更理由が
-  同居している。`page.tsx`（閾値1,900行）・`MapView.tsx`（閾値2,800行）と異なり、この種の
-  閾値付きKEEPがcontext.md「意図的な設計判断」（Keep List）に未登録。
+  単一関数内で`ShapeKind`型の4種（breakpoint_linear/recipe_then_breakpoint_linear/
+  categorical/flag_sum）ごとに異なるUIを分岐しており、複数の変更理由が同居している
+  （**訂正、2026-08-27着手時: 起票時点の記述で「5つのshape種別」「priority_condition」に
+  言及していたが、`grep -n "priority_condition" AxisComposer.tsx`は0件でありコード上の
+  誤りだったため訂正する。priority_overridesはbackend専用の別機構で、AxisComposer.tsxの
+  ウィザードには関与しない）。`page.tsx`（閾値1,900行）・`MapView.tsx`（閾値2,800行）と
+  異なり、この種の閾値付きKEEPがcontext.md「意図的な設計判断」（Keep List）に未登録。
 - 対応方針: (a) まずcontext.md「意図的な設計判断」（Keep List）へAxisComposer.tsxの
-  閾値付きKEEPを新規登録する（例: 1,400行到達 または 6つ目のshape種到達）。(b) 分割
+  閾値付きKEEPを新規登録する（例: 1,400行到達 または 5つ目のshape種到達）。(b) 分割
   （shape種別ごとのサブコンポーネント抽出）は、直近まで継続していたウィザードUXの調整
   コミットが沈静化してから判断する（churnが収まっていない現時点での分割は手戻りリスクが
   高いというレビュー側の判断）。
 - 優先度: P2（実害は未確認だが、`page.tsx`/`MapView.tsx`が過去に閾値未設定のまま成長し
   事後発見された経緯[2026-08-16文書R-6]と同型のリスクパターンに入りつつある）。
 - Scope: S（(a)登録のみ）〜M（(b)分割まで実施する場合）
+- **実施内容（2026-08-27、(a)完了）**: `.claude/commands/review/context.md`
+  「意図的な設計判断」（Keep List）へ`AxisComposer.tsx`の閾値付きKEEPを追加した
+  （MapView.tsxと同じ形式——context.mdには実数値を書かず、本エントリと直近の
+  complexityレビューを正として参照する構成）。閾値は「1,400行到達 または 5つ目の
+  shape種到達」を提案値とする。(b)の分割（`renderShapeParamsStep`のshape種別ごとの
+  サブコンポーネント抽出）は、ウィザードUXの調整コミットが直近まで継続していたため
+  見送り、上記閾値のいずれかが発火した時点、またはchurnが十分沈静化したと次回
+  complexityレビューで判断された時点をトリガーとしてDEFERする。
 
 ---
 
@@ -8123,7 +8134,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T357. road_graph_repository.py・road_graph_engine.pyの規模ウォッチ閾値を新規登録 規模S（起票のみ、未着手）
+### - [x] T357. road_graph_repository.py・road_graph_engine.pyの規模ウォッチ閾値を新規登録 規模S（完了・2026-08-27）
 
 - 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase3 complexity F-2）で発見。
   `backend/app/infrastructure/road_graph_repository.py`は前回複雑度レビュー
@@ -8138,6 +8149,13 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   到達、`road_graph_engine.py`: 1,100行到達を提案）。
 - 優先度: P3。
 - Scope: S
+- **実施内容（2026-08-27完了）**: `.claude/commands/review/context.md`「意図的な設計判断」
+  （Keep List）へ両ファイルの閾値付きKEEPを提案どおりの数値で追加した（MapView.tsxと
+  同じ形式、context.mdには実数値を書かず本エントリと直近complexityレビューを正として
+  参照する構成）。前回複雑度レビュー（2026-08-23）から2回連続で「最大ファイル」と
+  行き場なく指摘され続けていた状態を、MapView.tsxの前例（T91→T123）に倣って個別閾値へ
+  昇格させることで解消した。分割自体は不要（責務別クラス構造・3段階ポート契約が
+  健全と判断済み）のため対応しない。
 
 ---
 
