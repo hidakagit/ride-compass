@@ -4027,7 +4027,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 完了条件: 着手時に確定（少なくともGUI作成軸1件が再デプロイなしで地図レイヤーに
   現れることの実機確認を含める）。
 
-### - [ ] T286. architecture.mdの経緯記述をdecisions/へ追い出す第2弾〔P3〕規模M — トリガー: 次の大きな設計転換時に独立タスクとして、またはユーザーの整理指示
+### - [x] T286. architecture.mdの経緯記述をdecisions/へ追い出す第2弾〔P3〕規模M（完了・2026-08-27）
 
 - 背景: レビュー指摘（レポート§7-4）。architecture.mdが1,680行に達し、「現状の姿」を
   記すはずのドキュメントにStep時代の試行錯誤・撤去済み機能の注記（「当初は〜だったが
@@ -4041,9 +4041,41 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   リンク整合＋CLAUDE.md/context.mdの参照先が壊れていないこと。
 - **トリガー発火の記録（2026-08-27、統合レビュー第8回 overall O-1）**: architecture.mdは
   1,741行→2,146行（+23%）まで成長し、T347〜T350（材料正規化＋axis_definitions DB専有化、
-  XL級）という「次の大きな設計転換」がトリガー条件に該当した。ただし本タスク自体は
-  依然未着手。着手判断はユーザー承認後に行う（本エントリは状況記録のみ、着手そのものを
-  意味しない）。
+  XL級）という「次の大きな設計転換」がトリガー条件に該当した。
+- **実施内容（2026-08-27完了）**: 「現状の姿」として残す記述と「経緯・教訓」として
+  decisions/へ移す記述を仕分け、3セクションを対象に実施した。
+  1. 「地図チップの観測/推定/動的グルーピングと一次/二次命名（改善計画T163〜T169）」
+     （131行）→ [decisions/map-chip-primary-secondary-registry.md](decisions/map-chip-primary-secondary-registry.md)へ全文移設、architecture.md側は現状の姿（3区分・タイル化UI・
+     hiddenIds永続化・1次/2次の視覚レイヤー構成）のみの要約（約34行）へ差し替え。
+  2. 「材料カタログの正式レジストリ化（改善計画T277〜T340・T290）」（130行）→
+     [decisions/material-catalog-registry.md](decisions/material-catalog-registry.md)へ全文移設、architecture.md側は現状の姿（MATERIAL_CATALOG単一情報源・
+     公開API2本・extractorファクトリ・値候補API）のみの要約へ差し替え。
+  3. 「地図表示ロジックと評価軸材料の分離原則（T341）」のT347再検証教訓部分（16行）→
+     既存の[decisions/material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)（同じ`bicycle_infra`正規化の
+     系譜を扱う既存ファイル）へ追記する形で統合、architecture.md側は結論のみの1段落へ短縮。
+  - architecture.md本文: **2,148行→1,929行（-219行、-10.2%）**。decisions/リンク3本とも
+    実在確認済み。CLAUDE.md/context.mdからの参照先は本タスクの対象範囲を直接参照していない
+    ため影響なし。
+  - **想定外の副産物（T353とのニアミス発見）**: 上記2の材料カタログ節を現状の姿として
+    書き直す過程で、他セッションが並行して完了させたT353（`car_stress_bicycle_infra_
+    adjustment`の廃止、1材料1軸原則への是正）により、architecture.md内の複数箇所
+    （§4 APIレスポンス説明・§7表・区間インスペクタ節等、10箇所）が「内部軸6つ」
+    「`car_stress_bicycle_infra_adjustment`が現存する」という廃止済みの構造を
+    現在形で記述したまま取り残されていることを発見した。T353のコミット自体は
+    architecture.mdを一切変更していなかった（`git show 3c9d984 --stat`で確認）。
+    本タスクの範囲外だが、同じセクションを触っていたついでに10箇所すべて実測値
+    （ローカルDBへの直接クエリで内部軸5つ・公開軸8つ・材料25件・car_stress
+    breakpoints`[0,0]-[4,100]`を確認済み）に基づき是正した。
+  - **未解決のまま残した論点（要ユーザー判断、着手せず）**: `tests/test_migrate.py`の
+    ブートストラップテスト（まっさらなDBへ全migration適用）は依然`axis_count == 14`を
+    アサートしており、`backend/migrations/`はcar_stress_bicycle_infra_adjustmentを
+    引き続きシードする。T353はこの1件をmigrationではなくaxis_admin APIの
+    直接DELETE（このdev DB限定）で退場させたため、**fresh bootstrap（CI・新規dev機・
+    災害復旧）では現在も廃止されたはずの軸が14件目として復活する**という不整合が
+    残っている。migrationでの恒久的な削除を追加するか、現状の「API手動DELETEを都度
+    再実行する」運用を意図的に採用するかはT353の設計判断の範囲であり、本タスクでは
+    判断・修正しない（CLAUDE.md/`全14軸`表記・`test_migrate.py`のアサーションはいずれも
+    「migrationが実際に作る行数」としては現時点で正しいため変更していない）。
 
 ### - [ ] T287. road_nodes/road_edgesのtext型PKの容量・性能再評価〔P3〕規模S（調査のみ）— トリガー: T127（全国データ取込）の意思決定時に容量試算へ含める
 
@@ -6639,7 +6671,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   （DB接続可否で`categories`辞書のキー順が変わる既存の非決定性）を発見したため、
   T333として別途起票した。
 
-### - [ ] T331. テストカバレッジ欠落の是正（影響度「中」・残り） 規模L（大部分完了・2026-08-26、残り5項目）
+### - [x] T331. テストカバレッジ欠落の是正（影響度「中」） 規模L（完了・2026-08-27）
 
 - 背景: T330に次ぐ優先度の指摘群。T330ほどの緊急性は無いが、放置すると同種のパターン
   （静かに縮退する失敗処理・兄弟ファイルとの非対称・新設モジュールの単体テスト欠如）が
@@ -6700,14 +6732,27 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   一切変更していない（`import_designations`向け`designation_conn`フィクスチャの
   `designation_import_runs`クリア漏れ[他テストとの状態リーク]のみ副次的に修正）。
   コミット: `830473a`（前半4領域）・`7a31719`（後半4領域）。
-- **残り5項目（未対応、次回着手時にこのタスクを再オープン）**:
-  - `precompute_elevation_attributes.py`（テストファイル自体が無い）
-  - `precompute_edge_attribute_counts.py`の`run()`本体・UPSERT
-  - `MapView.tsx`の`routesToFeatureCollection`/`computeRouteBounds`
-  - `AxisStudio.tsx`のCRUD実行系（複製・削除・非公開化・保存）
-  - `routeArrowIcon.ts`/`windArrowIcon.ts`（jsdom/happy-domのcanvas制約で描画ロジック
-    自体が未実行のまま。テスト環境側の制約緩和が必要な可能性があり、他の項目より
-    調査コストが高い）
+- **残り5項目の実施内容（2026-08-27完了）**:
+  - `precompute_elevation_attributes.py`: テストファイルを新設し`_chunked`の
+    最小スモークテスト3件を追加（兄弟`precompute_way_attribute_counts.py`と同型）。
+  - `precompute_edge_attribute_counts.py`の`run()`本体・UPSERT: 実DBを使った結合テスト
+    3件（road_edges1way分の実データ投入→ゼロ件UPSERT確認・再実行時の非重複確認・
+    dry-runの非書き込み確認）を追加。
+  - `MapView.tsx`の`routesToFeatureCollection`/`computeRouteBounds`: 新規ファイル
+    `MapView.routes.test.ts`（`@vitest-environment node`）で6件追加（選択候補の
+    最前面ソート・bounds算出・0件時の挙動）。
+  - `AxisStudio.tsx`のCRUD実行系: 複製（複製元の値引き継ぎ確認）・非公開化
+    （unpublishAxisDefinition呼び出し確認）・保存（ウィザード完走→
+    createAxisDefinition呼び出し・モーダルclose確認）の3件を追加（削除は既存テスト
+    済み）。`listAxisDefinitions`がファイル内全テストで共有されるモック（reset無し）
+    のため、絶対呼び出し回数ではなく操作前後の差分で検証する形にした。
+  - `routeArrowIcon.ts`/`windArrowIcon.ts`: jsdomの`ctx===null`フォールバックしか
+    実行されていなかった問題を、node-canvas等のネイティブ依存を追加せず
+    `HTMLCanvasElement.prototype.getContext`を呼び出し記録スタブへ差し替える方式で
+    解消（実際の描画命令列・座標を検証。ピクセル内容自体の検証は引き続き実機
+    Playwrightの領分）。
+  - 検証: backend全1296件・frontend全688件green、tsc/eslintクリーン確認済み
+    （コミット`7fe8772`）。
 
 ### - [x] T333. axis-catalog.json（categorical材料のcategories辞書）の生成順序がDB接続可否で非決定になる 規模S〜M（実装完了・2026-08-26）
 

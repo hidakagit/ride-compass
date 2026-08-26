@@ -761,7 +761,7 @@ Response 429（`WEATHER_FLOOD_FORECAST_RATE_LIMIT_PER_MINUTE`超過）。
 
 GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポート全体の路面データ（PostGIS/ST_AsMVTで生成したベクタタイル。取込範囲外は空タイル）
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
-  highway/surface/smoothness/tunnel/bridge/`designation`/`oneway`/`osm_way_id`、車の圧迫感（car_stress、改善計画T292で内部軸6つ+公開軸1つの階層構造へ再実装）が
+  highway/surface/smoothness/tunnel/bridge/`designation`/`oneway`/`osm_way_id`、車の圧迫感（car_stress、改善計画T292で内部軸5つ+公開軸1つの階層構造へ再実装）が
   参照する材料タグ`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`と、night軸が
   参照する`lit`（`shoulder`は改善計画T122でP1実測0.0%の死に補正と判明し撤去済み。かつて安全度
   レシピが使っていたが軸自体はT148で削除、`lit`のみT139でnight軸へ転用され現在も使用中）、
@@ -770,7 +770,7 @@ Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリ
   車の圧迫感の最終値は（改善計画T292以降）タイルへ焼き込まず、フロントエンド
   （`axisLayers.ts`の汎用ramp機構、他の推定軸=停止密度・事故密度等と同じ経路。旧
   `carStressExpression.ts`は専用実装を廃止し統合済み）と
-  ルート採点（`domain/axis_definitions.py: AXIS_DEFINITIONS['car_stress']`、内部軸6つの
+  ルート採点（`domain/axis_definitions.py: AXIS_DEFINITIONS['car_stress']`、内部軸5つの
   階層評価。旧`domain/traffic.py: car_stress_breakdown`は廃止）が
   それぞれ材料タグから計算する（7章参照）。`osm_way_id`は表示用ではなく、
   区間クリック時の全軸内訳取得（`POST /api/region/axis-inspector`）が
@@ -798,7 +798,7 @@ Request: `{ "osm_way_id": number }`。GETでなくPOST+JSONボディなのは、
   car-stress-breakdown`・`CarStressBreakdown`も本エンドポイントへ統合・廃止）に伴い削除した）
 Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
   gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）。該当wayが存在しない場合はnull。
-  `axes`は公開軸（is_published=True）のみを返す（car_stressの内部軸6つはaxes.car_stressの
+  `axes`は公開軸（is_published=True）のみを返す（car_stressの内部軸5つはaxes.car_stressの
   difficulty値へ既に合成済みで、個別には現れない）
 Response 422（osm_way_idが整数でない場合）
 Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
@@ -906,7 +906,8 @@ interface RouteSegmentDetail {
   gradient_percent: number | null;
   wind_penalty: number | null;
   road_surface_good: boolean | null;
-  car_stress: number | null;          // 1-5、P1残り（生値。T138で自転車インフラの寄与を含む）
+  car_stress: number | null;          // 0-4（T353以前は1-5）、P1残り（生値。T353で自転車インフラの
+                                       // 寄与はbicycle_infra_quality側へ分離済み）
   axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T309で
     // 固定7フィールド（elevation_difficulty等）から汎用dictへ置換。評価できなかった軸・
     // 非公開の軸はキー自体を持たない（`compute_edge_axis_scores`と同じ規約）。軸スタジオでの
@@ -933,7 +934,7 @@ interface RouteCandidate {
   wind_score: number | null;
   road_score: number | null;
   stop_density: number | null;          // 回/km、P1
-  car_stress_score: number | null;      // 距離加重平均(1-5)、P1残り
+  car_stress_score: number | null;      // 距離加重平均(0-4、T353以前は1-5)、P1残り
   bicycle_infra_score: number | null;   // 専用インフラ区間率(%)、表示用一次属性の集約統計
   intersection_density: number | null;  // 回/km、P1残り
   accident_density: number | null;      // 件/(km・年)、T50
@@ -1017,14 +1018,19 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 判断だったが、専用の自転車インフラを重視したいユーザーが車ストレス全体の重みとは別に
 自転車インフラだけを調整したいという需要が明らかになったため、新設の公開軸
 `bicycle_infra_quality`（`domain/axis_definitions.py`、既定重み0.15、`show_map_icon=false`
-のため専用の地図レイヤーは持たない）として切り出した。ただし材料としては車ストレス側の
-既存内部軸`car_stress_bicycle_infra_adjustment`（cycleway補正、4フラグ材料
-`highway_is_cycleway`/`cycleway_has_track`/`cycleway_has_lane`/`cycleway_has_shared`から
-算出）をそのまま1つの材料として参照する階層構成（改善計画T292の内部軸参照パターンを
-踏襲）にし、生の材料を二重に持たない。これは`domain/axis_definitions.py:
-check_material_exclusivity`（各公開軸が同じ生材料を直接参照することを禁じるガード）を
-自転車インフラだけの専用属性を新設する対症療法ではなく、既存の階層合成パターンで
-自然に満たすため（詳細は「自転車インフラの独立公開軸化」節参照）。この再設計に伴い、
+のため専用の地図レイヤーは持たない）として切り出した。当初（T347時点）は材料として車ストレス側の
+内部軸`car_stress_bicycle_infra_adjustment`（cycleway補正、4フラグ材料から算出）を1つの材料として
+参照する階層構成（改善計画T292の内部軸参照パターンを踏襲）にし、生の材料を二重に持たなかった。
+これは`domain/axis_definitions.py: check_material_exclusivity`（各公開軸が同じ生材料を直接参照
+することを禁じるガード）を、自転車インフラだけの専用属性を新設する対症療法ではなく既存の
+階層合成パターンで自然に満たすためだった。その後**改善計画T353**でこの1材料1軸原則
+（`check_material_exclusivity`）自体の優先順位が見直され、`car_stress_bicycle_infra_adjustment`
+は廃止（車ストレスから自転車インフラ由来の調整を完全排除）、`bicycle_infra_quality`が
+4フラグ材料（`highway_is_cycleway`/`cycleway_has_track`/`cycleway_has_lane`/
+`cycleway_has_shared`）を直接参照する現在の構成へ再設計された（詳細は
+「停止密度・車ストレス・自転車インフラ・交差点密度」節・
+[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）。
+この再設計に伴い、
 `RouteSegmentDetail.bicycle_infra`（7値分類の生値）・`classify_bicycle_infrastructure`
 （分類関数）・MVTタイルの`bicycle_infra`プロパティ・専用地図レイヤー（旧`bicycleInfra`）は
 いずれも削除した。`RouteCandidate.bicycle_infra_score`（ルート集約統計、`ComparisonPanel`が
@@ -1045,10 +1051,10 @@ check_material_exclusivity`（各公開軸が同じ生材料を直接参照す�
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
 | 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
 | 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス（自転車インフラ込み） | `car_stress` | 0.20 | 1-5 | 推定（改善計画T292で`domain/axis_definitions.py: AXIS_DEFINITIONS['car_stress']`の内部軸6つ+公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。T138で旧`infra_weight`0.10を合算。改善計画T150で呼称をtraffic→car_stressへ統一） |
+| 車ストレス | `car_stress` | 0.20 | 0-4（T353以前は自転車インフラ込みで1-5） | 推定（改善計画T292で`axis_definitions`の内部軸5つ+公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
 | 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
-| 自転車インフラ | `bicycle_infra_quality` | 0.15 | -2.0〜1.0（内部軸の出力） | 改善計画T347（内部軸`car_stress_bicycle_infra_adjustment`を単一材料として参照。`show_map_icon=false`のため専用地図レイヤーなし） |
+| 自転車インフラ | `bicycle_infra_quality` | 0.15 | -4.0〜0.0（4フラグ材料の重み付き和） | 改善計画T347で独立公開軸化、T353で正規化フラグ材料4件（`highway_is_cycleway`等）を直接参照する構成へ再設計。`show_map_icon=false`のため専用地図レイヤーなし |
 
 重みのキーは改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名からaxis_idへ統一した
 （`RoutePreference`はaxis_idキーの重み辞書`weights`を持ち、既定値は
@@ -1292,136 +1298,41 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 本タスクの時点では旧`axis-catalog.json`静的読み込みのまま（T270でWeightPanel自体を
 置き換える際に統合する想定）。
 
-### 材料カタログの正式レジストリ化（改善計画T277）
+### 材料カタログの正式レジストリ化（改善計画T277〜T340・T290）
 
-軸が参照する「材料」（`MaterialTerm.material`/`CategoricalShape.material`/
-`FlagSumShape.flags`が指す文字列id、`gradient_percent`等）は、これまで`AXIS_DEFINITIONS`の
-コメントに散文で説明されるだけで正式な一覧を持たず、軸スタジオ（T270）のフロント側
-`lib/axisMaterialsCatalog.ts`が独自にハードコードしていた。`domain/material_catalog.py:
-MaterialSpec`/`MATERIAL_CATALOG`が単一の情報源になった——各材料は`material_id`・`label`・
-`dtype`（numeric/boolean）に加え、内部専用（公開APIには含めない）の`tile_property`
-（MVTタイルへの焼き込み済みプロパティ名、Noneはタイル非依存＝地図レイヤーのramp自動生成
-不可を意味する）・`tile_property_inverted`（no_lit⟵litのような符号反転フラグ）を持つ。
-**材料自体をGUIから追加・編集・削除する経路は用意しない**（ユーザー方針、材料の増減は
-引き続き本ファイルへのコード変更＋デプロイのみで行う）。
+> 経緯・教訓（display_only方針転換の紆余曲折、categorical dtype対応のGUI/backend乖離期間等）は
+> [decisions/material-catalog-registry.md](decisions/material-catalog-registry.md)参照。
 
-新規公開エンドポイント`GET /api/material-catalog`（`api/routers/material_catalog.py`、
-認可不要、読み取り専用）が`material_id`/`label`/`dtype`のみを返す（`tile_property`系は
-地図表示ルール自動生成タスクT278・未起票がbackend内部でのみ使う想定で、公開レスポンスには
-含めない）。フロントは`hooks/useMaterialCatalog.ts`がマウント時に1回取得し、取得完了まで・
-失敗時は`lib/axisMaterialsCatalog.ts`の静的9件（同じ内容のスナップショット）を返す
-（`useAxisCatalog.ts`と同型のパターン）。`components/AxisStudio/AxisComposer.tsx`が
-このhook経由で材料選択ドロップダウンを構成する。
+`domain/material_catalog.py: MaterialSpec`/`MATERIAL_CATALOG`が「材料」（軸が参照する
+`MaterialTerm.material`等の文字列id）の単一の情報源。各材料は`material_id`・`label`・
+`dtype`（"numeric"|"boolean"|"categorical"）に加え、内部専用の`tile_property`
+（MVTタイルへの焼き込み済みプロパティ名、地図レイヤーのramp自動生成に使う）・
+`tile_property_inverted`・`display_only`（軸スタジオの選択肢から除外、地図表示には影響しない。
+現状`designation`のみ該当）を持つ。全25材料（うち`categorical`は`highway`・`surface`・
+`designation`・`smoothness`・`tracktype`の5件。`bicycle_infra`は改善計画T347で正規化フラグ
+材料[`highway_is_cycleway`・`cycleway_has_track`・`cycleway_has_lane`・`cycleway_has_shared`]へ
+分解され材料としては撤去済み）。**材料自体をGUIから追加・編集・削除する
+経路は無い**（ユーザー方針、増減は引き続きコード変更＋デプロイのみ）。
 
-管理API（`api/routers/axis_admin.py: AxisDefinitionPayload`）に
-`_check_materials_are_known`バリデータを追加し、shapeが参照する材料idが
-`MATERIAL_CATALOG`に存在しない場合は422で拒否する（従来は任意の文字列を受け付けて
-しまっていた抜け穴を塞いだ）。
+公開エンドポイント`GET /api/material-catalog`（認可不要、`material_id`/`label`/`dtype`のみ）を
+`hooks/useMaterialCatalog.ts`がマウント時取得し（失敗時は`lib/axisMaterialsCatalog.ts`の
+静的9件へフォールバック）、`AxisComposer.tsx`の材料選択ドロップダウンを構成する。管理API
+（`axis_admin.py: AxisDefinitionPayload`）の`_check_materials_are_known`が、shapeが参照する
+材料idの実在を422で検証する。
 
-T278（地図表示ルール自動生成・軸集合の同期・`kind=ramp`自動判定）は2026-08-24に完了した。
-詳細は次節参照。
+抽出ロジックは汎用パターン（単一タグ生値取得・タグ値一致判定・数値パース・件数密度計算）を
+パラメータ化したextractorファクトリ関数（`raw_way_tag_extractor`/`tag_equals_extractor`/
+`way_tag_parser_extractor`/`count_per_km_extractor`）で宣言的に組み立てる（`MaterialSpec`宣言の
+場で`extractor=tag_equals_extractor("bridge", "yes")`のように直接呼ぶ）。優先順位付き分類等の
+複雑な組み合わせロジック（`bicycle_infra`）のみ専用関数を持つ。
 
-**表示専用材料の除外（改善計画T338）**: `MaterialSpec.display_only=True`の材料は
-`GET /api/material-catalog`（`axis_studio_materials()`）から除外され、軸スタジオの
-選択肢に現れない。現状該当するのは`designation`のみ——3値中"both"が実データで35.01%と
-構造的なAND条件で頻発し（`decisions/material-normalization-for-axis-composition.md`
-参照）、素朴な`CategoricalShape`の値ごとスコア付けでは実態を正しく表現できず誤解を招く
-評価軸を作りやすいため。`MATERIAL_CATALOG`への登録自体は維持し
-（`is_known_material`はTrueのまま）、`tile_property`経由の地図表示
-（`staticAttributeLayers.ts`のdesignation凡例レイヤー・`car_stress`の
-`display_override.tile_inputs`）には影響しない。「登録されているが評価軸から未参照」な
-材料は他にも複数ある（`bridge`/`oneway`/`smoothness`等）が、これらは単に対応する軸が
-まだ無いだけで評価軸化に技術的な障害は無いため`display_only`にはしていない
-（`designation`固有の理由はコード側のフィールドdocstring参照）。
-
-**designationの正規化フラグ分解（改善計画T338フォローアップ、2026-08-26）**: 上記の
-`display_only`対応（3値のまま選択肢から隠すだけ）はT336（`bicycle_infra`→正規化フラグ
-材料）と設計思想が食い違う場当たり的な対応だった、というユーザー指摘を受け、
-`designation`が畳み込む前の生フラグを正規化材料としても分解した。
-`is_emergency_transport`[N10該当]/`is_critical_logistics`[N12該当]を新設（`display_only`
-ではなく軸スタジオの選択肢に現れる）。`_ROAD_SURFACE_TILE_MVT_SQL`が3値`designation`
-CASE式の計算に既に使っていた`d.is_ert`/`d.is_cl`をそのまま2つのタイルプロパティとしても
-焼き込む（`ROAD_SURFACE_TILE_VERSION`13→15）。ただし`extractor`はどちらも未設定のまま
-——`is_designated`（車ストレスの`car_stress_designation_adjustment`内部軸が使う、種別を
-問わない一律加点の簡略化材料）と異なりどの内蔵軸からも参照されないため、種別ごとの
-per-edge kindを評価パイプラインへ運ぶ配線は「軸スタジオで実際に使いたいユーザーが現れる」
-というトリガーが来るまで新設しない（`oneway`/`designation`自体と同じ「トリガー付き
-DEFER」、設計原則9）。`designation`（3値、地図表示専用）自体は方針どおり維持する
-（ユーザー確認済み、地図の凡例レイヤーへの変更は不要）。
-
-**材料抽出の宣言駆動化（改善計画T339）**: T280で「材料→抽出関数」の対応表自体は
-`MaterialSpec.extractor`で宣言的になったが、関数の中身は依然手書きのPythonコードだった。
-実際には大半のextractorが「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」
-「件数/距離の密度計算」という少数の汎用パターンに分類できたため、パラメータ化された
-extractorファクトリ関数（`raw_way_tag_extractor`/`tag_equals_extractor`/
-`way_tag_parser_extractor`/`count_per_km_extractor`、いずれも`material_catalog.py`）を
-新設し、`MaterialSpec`宣言の場で`extractor=tag_equals_extractor("bridge", "yes")`のように
-直接呼び出す形にした（`MaterialSpec`へ`extractor_kind`文字列フィールドを追加する案は、
-GUIから材料を追加・編集できない設計方針の下では実行時に動的解釈する相手が無く実益が
-薄いため見送った）。既存9材料のextractorをこの形へ置き換え、専用関数を9つ削除した。
-汎用パターンに収まる新しい材料は、ファクトリ呼び出し1行の宣言だけで（専用のPython関数を
-書かずに）抽出可能になる——`tracktype`（OSMの未舗装路グレードタグ）がその実証例。
-優先順位付き分類のような複雑な組み合わせロジック（`bicycle_infra`）は対象外で専用関数
-のまま。
-
-**軸スタジオの値入力UX改善（改善計画T340）**: `highway`/`surface`/`smoothness`はOSMタグの
-生値でオープンエンドなため、`AxisComposer.tsx`の「値ごとのスコア」入力欄がタグ生値の
-暗記・手入力を要求するUX課題を抱えていた（2026-08-26ユーザー報告）。新設エンドポイント
-`GET /api/material-catalog/{material_id}/values`（`api/routers/material_catalog.py`、
-認可不要）が、DBに実際に取り込まれている値の一覧（重複無し・ソート済み）を返す。DB読み取り
-は`RawOsmRepository.get_distinct_material_values`（`infrastructure/
-road_graph_repository.py`、単純な`SELECT DISTINCT`。surface/smoothnessは
-`_ROAD_SURFACE_TILE_MVT_SQL`と同じ`lower(btrim(...))`正規化、highwayは生値のまま）が
-担い、DB未接続・DB障害時のグレースフルデグレード（空リスト、`log_external_call`による
-ログ・統計）は`RegionService.get_material_values`（`get_axis_inspector`と同じ方針）が
-担う。既知だが動的値一覧に対応していない材料（`tracktype`等）は空リスト、未知の
-材料idは404。
-
-日本語ラベルの付与は「UI語彙のカタログ集約」原則に従いbackend側では行わず、
-frontend側`lib/materialValueLabels.ts`が単一の情報源になる。highway/surfaceは既存の
-地図絞り込みUIカタログ（`components/Map/roadFilterAxes.ts`のHIGHWAY_GROUPS/
-SURFACE_GROUPS）から「タグ値→表示グループの日本語ラベル」を導出（export済みに変更、
-同じ語彙を2箇所に手書きしない）、smoothnessはOSM標準8値のラベルを新規定義した。未知の
-値・未登録の材料idはタグ値そのまま表示するフォールバック（`materialValueLabel`）。
-
-`AxisComposer.tsx`の値入力欄は自由テキスト入力を完全に置き換えず、`useMaterialValues`
-フック（`hooks/useMaterialValues.ts`）が取得した値一覧がある材料でのみ、隣に「値の候補」
-セレクトを添える形にした（選ぶと自由テキスト入力欄へ反映される。値一覧が空の間は候補
-セレクト自体を表示せず、従来どおりの自由テキスト入力のみ）。新しいタグ値がDBへまだ
-反映されていないケース・想定外の値を先回りして設定したいケースを塞がないための判断。
-
-**材料の網羅登録（改善計画T290）**: MVTタイル（`_ROAD_SURFACE_TILE_MVT_SQL`）には
-既存7軸が実際に使う材料以外にも生データ（`highway`・`surface`・`smoothness`・
-`bridge`・`bicycle_infra`・`cycleway_class`・`maxspeed_kmh`・`lanes_count`・
-`motor_vehicle_no`・`designation`・`oneway`）が既に焼き込まれていたが、
-`MATERIAL_CATALOG`には登録されていなかった。「評価や地図描画に使えそうな生データは
-全部材料登録しておく」という設計一貫性の方針（ユーザー方針、2026-08-24）に基づき、
-11材料すべてを登録し**9材料→20材料**へ拡張した。`dtype`を
-`Literal["numeric", "boolean"]`から`Literal["numeric", "boolean", "categorical"]`へ
-拡張し、多値カテゴリカルな6件（`highway`・`surface`・`bicycle_infra`・
-`cycleway_class`・`designation`・`smoothness`）は`categorical`として登録した。
-（`cycleway_class`は改善計画T337で削除済み。地図描画に使えそうという理由で網羅登録
-されたが、実際にはMVTタイルへ焼き込むだけで評価軸・地図表示のどちらからも参照されない
-まま残っていたため。「使えそうな生データを登録しておく」網羅登録方針自体は、実際に
-参照されるようになるかを継続的に見直す前提であることの実例）。
-
-**「登録」と「評価軸での利用」は独立**: 執筆当初（T290）は`CategoricalShape.mapping`が
-`dict[bool, float]`（真偽値限定）だったため、`categorical`材料は軸スタジオの選択肢には
-現れるがまだどの評価軸の材料としても使えない状態だった。その後改善計画T292で
-`CategoricalShape.mapping`が`dict[bool | str, float]`へ拡張され（`_check_materials_are_known`
-の許容dtypeも`categorical`を含むよう追従）、内部軸（`car_stress_highway_base`・
-`car_stress_bicycle_infra_adjustment`等）が実際にcategorical材料を使うようになった。
-ただし軸スタジオGUI（`AxisComposer.tsx`）側は「カテゴリ値」テンプレートの材料選択が
-`dtype === "boolean"`のみに絞られたままで、GUIからcategorical材料を選べない状態が
-改善計画T322まで残っていた（バックエンドの利用可否とGUIの選択可否がT292時点で
-乖離していた）。T322で「カテゴリ値」テンプレートの材料選択肢へcategorical dtype材料も
-含め、選択時は値(自由入力)ごとのスコアを複数行で設定できるUIへ拡張し、この乖離を解消した。
-
-フロント側`lib/axisMaterialsCatalog.ts: AxisMaterialOption`は`boolean: boolean`
-（2値フラグ）から`dtype: AxisMaterialDType`（"numeric"/"boolean"/"categorical"の3値）へ
-変更した——旧実装のまま`categorical`材料を追加すると`!boolean`（numeric用フィルタ）に
-誤って混入し、選べるのに送信時にエラーになるUXを生んでいたため、T290に付随する
-必須の追従修正として対応した。
+`GET /api/material-catalog/{material_id}/values`（認可不要）が、DBに実際に取り込まれている値の
+一覧（`RawOsmRepository.get_distinct_material_values`、DB未接続時は空リストへグレースフル
+デグレード）を返し、`AxisComposer.tsx`の値入力欄（`hooks/useMaterialValues.ts`）が自由テキスト
+入力の隣に「値の候補」セレクトとして添える（値一覧が空の材料は従来どおり自由テキストのみ）。
+日本語ラベルはbackend側では持たず、frontend側`lib/materialValueLabels.ts`が単一の情報源
+（highway/surfaceは`roadFilterAxes.ts`のHIGHWAY_GROUPS/SURFACE_GROUPSから導出、smoothnessは
+OSM標準8値を新規定義、未知の値・材料idはタグ値そのまま表示するフォールバック）。
 
 ### 地図表示ルール（kind=ramp）の自動導出（改善計画T278）
 
@@ -1444,7 +1355,7 @@ UI側の表示/非表示切替で運用する方針へ変更）・`night`（材�
 以前はkind="bespoke"でフロントにexpressionが無く実質レイヤー無し）の2軸が対象になり、
 `registry_defaults.py`の`display`がこの自動導出値へ置き換わった。`gradient`（材料が
 タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
-統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（改善計画T292以降、他の6内部軸
+統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（改善計画T292以降、他の5内部軸
 [`car_stress_highway_base`等、`MaterialTerm.material`として他axis_idを参照]を合成する
 `BreakpointLinearShape`のため、参照先も材料であることを前提とする`derive_ramp_inputs`では
 解決できない）・`accident`（材料`accident_count_per_km_year`が収録年数[実行時にDBから
@@ -1701,66 +1612,50 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   traffic_signals/crossing/stop/give_way/level_crossingへ分類、`STOP_POI_MATCH_MAX_DISTANCE_M
   =15m`でEdge/サンプル点へ空間マッチ）。集約は`distance_weighted_stop_density`
   （合計count÷合計distance_km）。
-- **車ストレス**（改善計画T150で「交通ストレス」から改称）: 改善計画T292で専用Pythonレシピ
-  （旧`domain/traffic.py: car_stress_level`/`car_stress_breakdown`・`CarStressRecipe`・
-  `car_stress_recipe.yaml`。highway基本値に対面通行の少車線道路への緩和などをif分岐で
-  加減点していく手続き的な実装だった）を廃止し、`domain/axis_definitions.py:
-  AXIS_DEFINITIONS`上の内部軸6つ+公開軸1つの宣言的な階層構造で再実装した。内部軸
-  （いずれも`is_published=False`、他の軸から参照される専用の推定軸で一般ユーザーへは
-  公開しない）は`car_stress_highway_base`（highway種別の基準値1-4、旧
-  `ROAD_SUITABILITY_BASE_BY_HIGHWAY`と同一の12区分）・`car_stress_bicycle_infra_adjustment`
-  （正規化フラグ材料4件の重み付き線形和をbreakpointsで-2.0〜+1.0へ写像し、T291で
-  承認済みの旧6値スケール[separated=-2/lane=-1/shared_busway=0/shared_pedestrian=0/
-  roadway=+1]を近似する。改善計画T336で旧`bicycle_infra`カテゴリカル材料直接参照から
-  現在の形へ再設計済み）・`car_stress_maxspeed_adjustment`
+- **車ストレス**（改善計画T150で「交通ストレス」から改称）: 改善計画T292で専用Pythonレシピを
+  廃止し、`axis_definitions`（T350でDB専有化済み）上の内部軸5つ+公開軸1つの宣言的な
+  階層構造で再実装した。内部軸（いずれも`is_published=False`、他の軸から参照される専用の
+  推定軸で一般ユーザーへは公開しない）は`car_stress_highway_base`（highway種別の基準値1-4、
+  旧`ROAD_SUITABILITY_BASE_BY_HIGHWAY`と同一の12区分）・`car_stress_maxspeed_adjustment`
   （低速緩和-1/高速+1）・`car_stress_lanes_adjustment`（少車線緩和-1/多車線+1）・
   `car_stress_designation_adjustment`（T51指定路線該当+1）・
   `car_stress_motor_vehicle_no_adjustment`（motor_vehicle=noの区間を最良値へ強制する
   優先確定を、他の内部軸の取りうる最大合計を確実に下回る固定マイナス項-1000として表現し、
-  breakpointsのクランプで必ず最良値0へ張り付かせる。詳細は同ファイルのコメント参照）。
-  公開軸`car_stress`（`BreakpointLinearShape`、breakpoints `(1,0)-(5,100)`）はこの6軸を
-  加重合成し、highway基準値（`required=True`）が未登録なら旧ロジックと同じくNone
-  （未評価）になる。未知highwayは評価対象外。表示用の1-5生値
-  （`RouteSegmentDetail.car_stress`）は公開軸`car_stress`のdifficulty(0-100)を
-  `domain/axis_definitions.py: car_stress_display_level`で逆変換して求める。
-  地図表示は最終値をタイルへ焼き込まず、内部軸の材料のうち5つ（highway/maxspeed_kmh/
+  breakpointsのクランプで必ず最良値0へ張り付かせる。詳細は同ファイルのコメント参照）の5つ
+  （改善計画T353: 自転車インフラ補正`car_stress_bicycle_infra_adjustment`は1材料1軸原則
+  ［T268: `check_material_exclusivity`］を優先し廃止、下記「自転車インフラ」参照）。
+  公開軸`car_stress`（`BreakpointLinearShape`、breakpoints `[0,0]-[4,100]`、T353で
+  `(1,0)-(5,100)`から再較正。自転車インフラ非該当の道路では旧来と評価が完全一致）は
+  この5軸を加重合成し、highway基準値（`required=True`）が未登録ならNone（未評価）になる。
+  未知highwayは評価対象外。表示用の0-4生値（`RouteSegmentDetail.car_stress`）は公開軸
+  `car_stress`のdifficulty(0-100)を`domain/axis_definitions.py: car_stress_display_level`
+  で逆変換して求める（breakpointsを動的に読むため0-4スケールへ自動追従、UIに単位表記は無い）。
+  地図表示は最終値をタイルへ焼き込まず、内部軸の材料5つ（highway/maxspeed_kmh/
   lanes_count/designation/motor_vehicle_no、T290でMVTへ焼き込み済み）を
   フロント側（`components/Map/axisLayers.ts`のramp汎用機構、下記「レジストリ駆動の
-  二次軸ランプレイヤー」節参照。旧`carStressExpression.ts`は専用実装を廃止し統合済み）で
-  再合成する。改善計画T347: 自転車インフラ補正（`car_stress_bicycle_infra_adjustment`）は
-  この地図ランプ表示（`tile_inputs`）からは除外した（旧`bicycle_infra`タイルプロパティ
-  自体を削除したため、代替プロパティを新設せず「5材料での近似」に切り替えた。評価側の
-  car_stress自身が使う6内部軸の合成には影響しない、地図の色分け表示専用の近似）。
-  `axis_definitions.py`が内部軸のmapping/breakpointsをそのまま転記した
-  `tile_inputs`を手書き登録しており（`stop_density`/`accident`と同じ「複数材料の合成の
-  ためderive_ramp_inputsの自動導出対象外」の前例）、最終値を計算済みでタイルへ焼き込む
-  従来方式（レシピを変えるたびに世界中のタイルキャッシュを作り直す必要があった、
-  T92/T93）とは異なりタイル世代を上げずにcar_stress自体の判定ロジックを変更できる。
-  研究モード限定の専用調整UI（旧`CarStressRecipePanel`・`RoadSuitabilityRecipePanel`・
-  `MotorVehicleDensityRecipePanel`）は、任意の軸をGUIで組み立てられる軸スタジオ
-  （改善計画T270）が代替したため削除した。ルート採点の重み上書きは他の公開軸と同じく
-  `/api/routes/generate`の`route_preference`（§10-1）で行う。
-- **自転車インフラ**: 改善計画T138で難易度への寄与は独立軸を持たず車ストレス側
-  （改善計画T292以降は内部軸`car_stress_bicycle_infra_adjustment`）へ一本化済みだったが、
-  **改善計画T336**でこの内部軸が参照する材料自体を、優先順位付き7値categorical
-  （旧`bicycle_infra`材料、`domain/traffic.py: classify_bicycle_infrastructure`が生成）から
-  正規化済みboolean材料4件（`highway_is_cycleway`/`cycleway_has_track`/
-  `cycleway_has_lane`/`cycleway_has_shared`、`domain/recipe.py: bicycle_infra_flags`が
-  単一ソース）へ置き換えた（[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
-  参照）。この時点では`classify_bicycle_infrastructure`の戻り値（7値分類そのもの）は
-  評価軸のどこからも参照されなくなったが、`RouteSegmentDetail.bicycle_infra`の生値・
-  `RouteCandidate.bicycle_infra_score`のルート集約統計という表示専用の独立した消費者が
-  残っていたため、**改善計画T341**では関数・分類ロジック自体は削除しない判断をしていた。
-  **改善計画T347**でさらに踏み込み、消費者側を再検討した: 自転車インフラを独立の
-  公開評価軸`bicycle_infra_quality`として新設したことで、区間ごとの生値
-  `RouteSegmentDetail.bicycle_infra`は評価軸のdifficulty表示（`axis_difficulties`）で
-  代替可能になり削除。ルート集約統計`RouteCandidate.bicycle_infra_score`
-  （`ComparisonPanel`が使用、引き続き存続）は、7値分類経由ではなく正規化フラグ4件を
-  直接受け取る`is_dedicated_bicycle_infra(flags)`（旧関数とは別の新設関数）から算出する
-  形に配線し直した。これにより両方の消費者が7値分類を必要としなくなったため、
-  `classify_bicycle_infrastructure`本体・`bicycle_infra`材料・MVTタイルの
-  `bicycle_infra`プロパティ（`_ROAD_SURFACE_TILE_MVT_SQL`のCASE式）を全て削除した
-  （下記「地図表示ロジックと評価軸材料の分離原則」の教訓も参照）。
+  二次軸ランプレイヤー」節参照）で再合成する。`axis_definitions.py`が内部軸の
+  mapping/breakpointsをそのまま転記した`tile_inputs`を手書き登録しており
+  （`stop_density`/`accident`と同じ「複数材料の合成のためderive_ramp_inputsの自動導出
+  対象外」の前例）、最終値を計算済みでタイルへ焼き込む従来方式（レシピを変えるたびに
+  世界中のタイルキャッシュを作り直す必要があった、T92/T93）とは異なりタイル世代を
+  上げずにcar_stress自体の判定ロジックを変更できる。評価軸の`shape_params`調整
+  （今回のT353含む）はmigrationではなくaxis_admin APIの unpublish→PUT→republish経由で
+  行う運用（CLAUDE.md参照、監査証跡・ロールバックを要さない継続的チューニング対象という
+  判断）。ルート採点の重み上書きは他の公開軸と同じく`/api/routes/generate`の
+  `route_preference`（§10-1）で行う。
+- **自転車インフラ**: 独立の公開評価軸`bicycle_infra_quality`（`BreakpointLinearShape`、
+  breakpoints `[-4,0]-[0,100]`）が、正規化済みboolean材料4件（`highway_is_cycleway`
+  weight -4・`cycleway_has_track`weight -4・`cycleway_has_lane`weight -2・
+  `cycleway_has_shared`weight -1、`domain/recipe.py: bicycle_infra_flags`が単一ソース）を
+  直接参照する（改善計画T353、1材料1軸原則［T268］を優先し、それまで軸参照
+  ［T292］経由でcar_stress側の内部軸`car_stress_bicycle_infra_adjustment`を仲介していた
+  構成から、直接参照へ再設計した）。旧`bicycle_infra`（優先順位付き7値categorical、
+  `domain/traffic.py: classify_bicycle_infrastructure`）・`RouteSegmentDetail.
+  bicycle_infra`の生値は評価軸のdifficulty表示（`axis_difficulties`）で代替可能になり
+  削除済み（改善計画T347）。ルート集約統計`RouteCandidate.bicycle_infra_score`
+  （`ComparisonPanel`が使用、引き続き存続）は正規化フラグ4件を直接受け取る
+  `is_dedicated_bicycle_infra(flags)`から算出する（詳細な経緯・教訓は
+  [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）。
 - **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のroad_node。
   `INTERSECTION_MATCH_MAX_DISTANCE_M=30m`で空間マッチ。改善計画T149で難易度への寄与は
   独立軸を持たず停止密度側（タグなし交差点として`signal`等の0.3倍の重みで加算、
@@ -1768,30 +1663,14 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   （`RouteCandidate.intersection_density`）・地図の点タイル表示（`poi-tiles`の`degree`
   プロパティ）は一次属性の表示用データとして引き続き独立に保持する。
 
-**地図表示ロジックと評価軸材料の分離原則（改善計画T341）**: 評価軸（`AXIS_DEFINITIONS`）が
-参照する材料は、正規化された生データ（数値・boolean・単純categorical）に統一する
-（[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)、
-T336・T338の実例）。一方、地図表示・API応答向けの人間可読な分類ラベル（例:
-MVTタイルの`_ROAD_SURFACE_TILE_MVT_SQL`が生成するCASE式の分類プロパティ）は、評価軸の
-材料とは別レイヤーの関心事であり、評価軸から参照されなくなったという理由**だけ**では
-削除対象にはならない——別の独立した消費者が実在する限りは。
-
-**改善計画T347によるT341の再検証（教訓）**: T341は`classify_bicycle_infrastructure`
-（Python関数）とMVTタイルの`bicycle_infra`プロパティ（SQL CASE式）という2つの独立した
-7値分類の重複実装について、「評価軸から参照されなくなっても、`RouteSegmentDetail.
-bicycle_infra`・`RouteCandidate.bicycle_infra_score`という表示専用の消費者が存在する限り
-削除しない」という結論を出していたが、これは「今の消費者の実装を固定した上で削除可否だけを
-判定する」という一段浅い検証だった。T347では一歩進めて**消費者側を再設計できないか**を
-検証し、実際に両方の消費者を7値分類非依存な形へ置き換えられた（自転車インフラを独立の
-公開評価軸として新設し区間生値を代替、ルート集約統計は正規化フラグ直読みの新関数
-`is_dedicated_bicycle_infra(flags)`へ配線し直し）。その結果、Python関数・SQL CASE式・
-専用材料`bicycle_infra`のいずれも削除できた。**教訓**: 「削除対象にはならない」という
-判定は「今の消費者を前提とする限り」という条件付きであり、恒久的な結論として扱わない
-——別タスクで消費者側の設計が変われば再検証が必要になりうる。この2つの分類ロジックが
-独立に手書きされ重複する構造自体（`domain/traffic.py`のdocstringが明記するとおり
-「SQL側にPythonを呼び出す手段が無い」ための既知の制約）は一般には残り続けるため、
-新たに同種の重複が生じた場合は同じ観点（消費者側は本当にこの分類が必要か）で
-都度再検証すること。
+**地図表示ロジックと評価軸材料の分離原則（改善計画T341、教訓はT347再検証込みで
+[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）**:
+評価軸（`AXIS_DEFINITIONS`）が参照する材料は正規化された生データ（数値・boolean・単純
+categorical）に統一する。地図表示・API応答向けの人間可読な分類ラベルは評価軸の材料とは
+別レイヤーの関心事であり、評価軸から参照されなくなったという理由**だけ**では削除対象に
+ならない——別の独立した消費者が実在する限りは（ただしこの判定は「今の消費者を前提とする
+限り」という条件付きであり、消費者側の設計が変われば再検証が必要になりうる。T347では
+`bicycle_infra`の7値分類がこの再検証により実際に削除できた例）。
 
 いずれも`AttributeRepository`（`road_graph_repository.py`）の対称メソッド
 （`get_stop_poi_counts`/`get_nearest_stop_poi_counts`、`get_way_tags`/`get_nearest_way_tags`、
@@ -1968,143 +1847,46 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 自動生成する（`RAMP_AXES`、`page.tsx`/`mapLayers.ts`/`MapView.tsx`が
 `MapLayerId`の`axis:${string}`テンプレート型経由でチップ・パネル・凡例・地図レイヤーへ自動
 合流。新しいramp軸はレジストリ登録＋タイル焼き込みだけで地図に現れる）。改善計画T292で
-car_stress（内部軸6つの合成値、複数材料の重み付き結合のため`derive_ramp_inputs`の自動導出
+car_stress（内部軸5つの合成値、複数材料の重み付き結合のため`derive_ramp_inputs`の自動導出
 対象外だが`tile_inputs`は手書きで`kind=ramp`登録済み。上記「停止密度・車ストレス...」節
 参照）もこの汎用パスへ合流し、専用の手書きexpression（旧`carStressExpression.ts`）は
 不要になった。現在`kind=bespoke`の軸は無く、gradient/surface_qは`kind=none`（既存の
 標高図・道路情報レイヤーが代替）。night軸はT145a（データ充実待ちで保留）まで未生成。
 
-### 地図チップの観測/推定/動的グルーピングと一次/二次命名の完全化（改善計画T163〜T169）
+### 地図チップの観測/推定/動的グルーピングと一次/二次命名（改善計画T163〜T169）
 
-T137〜T145bで導入したレジストリ制は、当初「一次属性」「二次軸」という用語・単一ソースが
-バックエンド（`registry_defaults.py`）にしか無く、フロントは独自の命名・カタログ（P1/P2、
-観測データ/推定指標が別々の対応表）を個別に持っていた。T163〜T169はこの二重管理を解消し、
-地図チップUIの最上位グルーピングをレジストリの区分そのものへ揃える改修。
+> 経緯・教訓（T167の自動ON連動導入→T181/T214での撤去、T215のタッチスクロール不具合対応等）は
+> [decisions/map-chip-primary-secondary-registry.md](decisions/map-chip-primary-secondary-registry.md)参照。
 
-- **レジストリの完全化（T163）**: `domain/registry.py`/`registry_defaults.py`を一次属性・
-  二次軸の命名・材料の単一ソースとして完全化し、`export_openapi.py`が`axis-catalog.json`へ
-  `primary_attributes`（attr_id・正式名・shared）を追加で書き出す。
-- **フロント一次属性カタログ（T164、T308で情報源を実行時APIへ更新）**: [frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
-  1次→2次（研究タブの重み行に材料一覧を表示、T146区間インスペクタのラベル共通化、
-  T168）の導出を片側importで行う（設計原則2）。2次→1次（地図チップの推定軸タイルに
-  材料一覧を表示、T167→T181フォローアップで自動ON連動は撤去し表示のみに変更）は
-  T308で純関数`primaryAttributeIdsToLayerIds(attrIds)`へ置き換わり、呼び出し側が
-  `useAxisCatalog`（ライブ`GET /api/axis-catalog`の`primary_attribute_ids`、失敗時は
-  `axis-catalog.json`の同フィールドへフォールバック）から取得した属性id配列を直接渡す
-  形になった（旧`axisMaterials()`は静的`axis-catalog.json`の`inputs`専用で廃止、詳細は
-  上記T308節）。地図チップの4文字以内略名はこのファイルのみが持つUI固有の対応（正式名は
-  axis-catalog.json側が正）。
-- **道路情報レイヤーの論理分割（T165）**: 従来の単一「道路情報」レイヤーを「道路の種類」
-  （`roadType`）と「路面の種類」（`roadSurface`）へ分割（`ROAD_TILE_LAYER_ID`のline-color
-  expressionを軸ごとに分離）。
-- **チップ最上位の次数反転（T166）**: 地図チップの最上位グルーピングを、従来の
-  カテゴリ単位（道路状態/交通・安全/自転車インフラ等、`MapLayerCategory`）から、
-  「観測データ（`raw`、OSM/警察庁等の生タグをそのまま分類表示）」「推定指標（合成）
-  （`composite`、複数材料から計算した二次軸）」「動的データ（`dynamic`、T170以降の
-  時刻依存レイヤー）」の3区分（`MapLayerDataNature`）へ反転した。従来のカテゴリは
-  観測グループ内の小見出しへ役割を移した。
-- **材料の表示（T167・T168、T181フォローアップで自動ON連動を撤去）**: 二次軸（推定指標）を
-  ONにすると`primaryAttributes.ts`の`inputs`が指す一次属性（観測データ）レイヤーを自動的に
-  ONするカスケードを当初T167で導入したが、T181で観測グループのメンバーを個別に「表示項目の
-  設定」で非表示にできるようになったことで、非表示にしたメンバーが推定側の操作で裏から
-  ONにされ、かつ非表示設定でチップ自体が隠れているためOFFに戻す手段が無い、という不整合を
-  生むようになった（実機フィードバック「自由にメンバを表示非表示できることで、裏で表示
-  状態で残るのは避けたい」）ため、このカスケードは撤去した（`handleLayerToggle`は単純な
-  `setLayerVisibility`のみ）。代わりに、推定軸タイルの▼展開時（`renderMaterialsNote`、
-  MapOverlayControls.tsx）に「材料: ○○」として関連する一次属性を常に表示することで、
-  どの観測データが計算に使われているかをユーザーが把握できるようにする（自動ONはしない）。
-  逆方向として、研究タブの各軸の重み行の直下にその軸が参照する材料一覧を表示し、
-  区間インスペクタのラベルも同じカタログへ統一する（T168、こちらは変更なし）。
-- **チップのタイル化・マトリックス化（T169）**: 観測/推定グループの地図チップを、
-  展開方向（▶=個々のメンバーの凡例展開／▼=グループ自体の縦積み展開）を統一した
-  タイル状のマトリックスへ作り直した。モバイル幅では推定軸タイルを縮小、専用アイコンの
-  追加、折りたたみ時限定のアイコン凡例表示など、実機フィードバックを受けた反復調整を
-  複数回行った（詳細はコミット履歴のT169続き群参照）。
-- **1次/2次の地図上表現統一（「梅・竹・松」）**: 1次「素材」レイヤー（道路種別/路面の合成・
-  自転車インフラ・指定路線）は`line-offset`で道路に並行する複数トラックへ分離し
-  （`ROAD_MATERIAL_TRACK_LAYER_IDS`、同時ONでも互いを覆い隠さない）、2次（car_stress・
-  ramp軸）はそれより太く半透明な「下敷き」として1次の下に重ねる。下敷き幅
-  （`SECONDARY_AXIS_CASING_WIDTH`）は1次トラック数×オフセット間隔＋自身の太さから
-  計算式で導出し（設計原則2の「導出できる関係」拡張）、素材の本数が変わっても手計算し
-  直す必要がない。
-- **表示項目の設定パネル（T181）**: T169以降レイヤー追加が続き、観測グループ展開時に
-  8メンバーが縦一列に並んでモバイル幅で見切れる報告を受け、グループ見出しのⓘボタン
-  （従来は読み取り専用の凡例）を「表示する項目を選ぶ」設定パネルへ拡張した
-  （`MapOverlayControls.tsx`の`renderVisibilitySettings`、旧`renderGroupLegendToggle`）。
-  各項目にチェックボックス風ボタンを持たせ、非表示に選んだメンバー/軸のIDを
-  `hiddenIds`（`${scope}:${id}`、scope="raw"|"composite"|"dynamic"）へ記録し、
-  グループ本体の展開時はこのセットに含まれない項目だけを描画する
-  （`renderObservedMemberRows`のフィルタ、`group:composite`分岐の`SECONDARY_AXES.filter`）。
-  非表示IDのSetという設計（表示IDのSetではなく）により、既定では全件表示のまま新規
-  レイヤーが自動的に見える。設定は`expandedIds`と同様のページ内一時的なUI状態で、
-  永続化はしない。MapOverlayControlsが「レイヤー固有の知識を持たない汎用描画係」で
-  あるという既存方針は維持（scope・keyはbuildChipGroups/SECONDARY_AXES側の値をそのまま
-  受け取るのみ）。カテゴリ（`MapLayerCategory`）を観測グループのもう1段の自動折りたたみ
-  として使う案を先に検討したが、ユーザーの実際の要望は能動的なON/OFF選択だったため
-  不採用にした経緯がある。
-  非表示に選んだ項目に対応するレイヤーが表示中（ON）だった場合、`toggleHidden`が
-  `onToggle`（page.tsxの`handleLayerToggle`）を呼んでその場でOFFにする（実機フィードバック
-  「設定で非表示にした場合、裏でレイヤ表示ONになっていればOFFにして」）。これを行わないと、
-  チップ一覧から消えたレイヤーが地図には描画され続け、かつOFFにする手段（チップ自体）も
-  無くなってしまう。逆方向（非表示解除）はチップを選べる状態に戻すだけで、レイヤーを
-  自動でONにはしない（「隠す/出す」はチップの見た目の設定、ON/OFFの意思決定はユーザーが
-  個別に行うという既存方針を維持）。`layerVisibility`（page.tsx）が唯一の情報源で
-  `handleLayerToggle`が唯一の更新経路という既存の状態管理に対し、`hiddenIds`はあくまで
-  表示専用のローカルUI状態のままであり、`onToggle`経由でしか外側の状態に影響しない
-  （新しい状態の持ち方を増やしていない）。
-- **材料連動ONの撤去（T214）**: T167で導入した「推定指標ONで材料の観測データレイヤーも
-  連動ON」するカスケードは、T181の非表示設定と組み合わさると「非表示にしたメンバーが
-  推定側の操作で裏からONにされ、かつチップが隠れているためOFFに戻せない」という不整合を
-  生むようになったため撤去した（`page.tsx`の`handleLayerToggle`は単純な
-  `setLayerVisibility`のみに戻した）。代わりに、材料一覧の表示（`renderMaterialsNote`、
-  T167で同時導入）はON/OFFに関わらずそのまま残し、どの観測データが計算に使われているかを
-  ユーザーが把握する手段として維持する（自動ONはしない）。
-- **内訳パネルの画面下端はみ出し対策（T215）**: `.detailPanelBase`が`overflow-y: auto`
-  （内部スクロールが必要）と`touch-action: none`（地図へのジェスチャー誤認防止）を
-  同時に持っていたため、`touch-action: none`がネイティブのタッチスクロール自体を無効化し、
-  パネルの中身が`max-height`（16rem/45vh）を超えるとモバイルでスクロールできなくなる
-  不具合があった（実機フィードバック「スクロールできないことがある」）。`touch-action`を
-  `pan-y`へ変更し、縦方向のネイティブスクロールを許可しつつ横方向のパン・ピンチズームは
-  引き続き無効化する。あわせて、パネルは`position: fixed`でJSが測った行の位置から浮かせる
-  ため、行が画面下端に近いとCSS既定の最大高さぶんがビューポート外へはみ出し内部スクロール
-  でも原理的に到達できない領域ができる問題があり、`toggleExpanded`が`window.innerHeight`
-  から利用可能な高さを逆算して`maxHeight`を動的に縮めるようにした（横方向の`maxWidth`を
-  画面幅から逆算する既存の仕組みと同じ考え方、下限120px）。
-- **グループ開閉・表示項目設定の永続化（T216）**: ユーザー要望「グループの選択状態等は
-  保持しておいて、次開いた時に同じ状態にして。時間経過で変動する要素以外は、過去の設定
-  内容はlocalStorage等で保持してほしい」を受け、`expandedIds`のうちグループ本体の開閉
-  （`GROUP_VISIBILITY_KEYS`）と`hiddenIds`（T181の表示項目設定）を`useStoredState`
-  （`ridecompass:map-overlay-expanded-groups`・`ridecompass:map-overlay-hidden-ids`）で
-  localStorageへ永続化した。個々の凡例展開（member:/axis:/単独チップ/`${groupKey}:legend`）は
-  「今ちょっと確認のために開いている」一時的な状態であり、次回訪問時に勝手にポップアップが
-  開いた状態で再現されるのは望ましくないため保存対象から除外する（serialize/deserialize
-  両方でGROUP_VISIBILITY_KEYSにフィルタする）。各レイヤーのON/OFF自体（`layerVisibility`）は
-  T47 R-6の時点で既に`useStoredState`で永続化済みのため今回の対応不要（動的レイヤーの
-  実際のデータ・現在時刻に依存するフレームインデックス等の「時間経過で変動する要素」は
-  そもそも永続化の対象にしていない）。
-- **トンネルの独立レイヤー化（T217）**: tunnel（一次属性、OSMのtunnelタグ）は
-  night軸（推定グループ、T145a）の材料として`road-surface-tiles`へ既に焼き込み済み
-  だったが、他の一次属性と違い観測グループ内に色分けレイヤー・チップを持たず、区間
-  ポップアップでのみ確認できる状態だった（「地図上に描画可能な状態で保持しているが
-  レイヤー未追加の要素」の洗い出しで判明）。designation（指定路線）と同じ構成
-  （road_surfaceソースを再利用する独立lineレイヤー、該当区間のみ`tunnel: true`）で
-  観測グループのメンバーとして追加した（バックエンド側の変更は無し）。これに伴い
-  `PRIMARY_ATTRIBUTE_LAYER_IDS`にtunnelが移り`PRIMARY_ATTRIBUTES_WITHOUT_LAYER`から
-  外れたため、night軸の材料一覧（T167の`renderMaterialsNote`）は
-  「材料: トンネル」「地図では未表示の材料: 街灯」（litのみ引き続きレイヤー無し）に変わる。
-- **一方通行の独立レイヤー化（T289）**: 一方通行はグラフ構造レベルで既に完全に
-  ハンドリング済み（`domain/osm_adapter.py: _resolve_direction`が`oneway`/
-  `oneway:bicycle`タグ[contraflow例外込み]からforward/backward/bothを解決し、
-  `domain/graph.py: build_road_graph`が逆方向のEdge自体を生成しないため、探索は
-  構造的に一方通行を守っており逆走経路は原理的に生成されない）。一方通行かどうかを
-  評価・表示に使う材料としては未配線だったため、T217（トンネル）と同型の一次属性・
-  独立レイヤー追加を行った。tunnelと異なり`osm_raw_ways.direction`列（forward/
-  backward/both）自体はDB永続化済みだがMVTタイルへは未焼き込みだったため、
-  `_ROAD_SURFACE_TILE_MVT_SQL`へ`CASE WHEN w.direction != 'both' THEN true END AS
-  oneway`を追加した（タイル世代v13）。どの評価軸のinputsにも含めない、表示専用の
-  一次属性（`registry_defaults.py`へ登録、評価軸には組み込まない設計判断）。
-  評価軸の危険色（`AXIS_RAMP_COLORS`）とは意図的に別の中立色（青系`#2563eb`）を使い、
-  「色が付く＝評価に効く」という他の観測レイヤーの読み方と混同しない。
+地図チップの最上位グルーピングは「観測データ（`raw`、OSM/警察庁等の生タグをそのまま分類表示）」
+「推定指標（合成）（`composite`、複数材料から計算した二次軸）」「動的データ（`dynamic`、
+T170以降の時刻依存レイヤー）」の3区分（`MapLayerDataNature`）。一次属性・二次軸の命名・材料の
+単一ソースは`domain/registry.py`/`registry_defaults.py`（T163）で、`export_openapi.py`が
+`axis-catalog.json`へ書き出す。フロント側は[frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
+1次→2次・2次→1次の導出を片側importで行う（T164、T308で情報源を実行時APIへ更新。詳細は
+上記T308節）。
+
+観測/推定グループの地図チップはタイル状のマトリックス（▶=メンバー個々の凡例展開／
+▼=グループ自体の縦積み展開、T169）。グループ見出しのⓘボタンから「表示する項目を選ぶ」設定
+パネル（`MapOverlayControls.tsx`の`renderVisibilitySettings`）を開け、非表示に選んだ
+メンバー/軸のIDは`hiddenIds`（`${scope}:${id}`、scope="raw"|"composite"|"dynamic"）へ記録し、
+対応レイヤーが表示中（ON）だった場合は`toggleHidden`がその場でOFFにする（T181）。非表示IDの
+Setという設計（表示IDのSetではなく）により、新規レイヤーは既定で全件表示のまま自動的に見える。
+グループ本体の開閉（`GROUP_VISIBILITY_KEYS`）と`hiddenIds`は`useStoredState`で
+localStorage永続化（T216）。個々の凡例展開は「今ちょっと確認のための」一時的なUI状態のため
+永続化の対象外。
+
+1次「素材」レイヤー（道路種別/路面の合成・自転車インフラ・指定路線）は`line-offset`で道路に
+並行する複数トラックへ分離（`ROAD_MATERIAL_TRACK_LAYER_IDS`、同時ONでも互いを覆い隠さない）、
+2次（car_stress・ramp軸）はそれより太く半透明な「下敷き」として1次の下に重ねる（「梅・竹・松」）。
+下敷き幅（`SECONDARY_AXIS_CASING_WIDTH`）は1次トラック数×オフセット間隔＋自身の太さから
+計算式で導出する（設計原則2の「導出できる関係」拡張）。
+
+一次属性の推定軸への連動ON/OFF（材料選択でレイヤーが自動ON等）は導入後に不整合が判明し撤去済み
+（T167→T181/T214）。現状は推定軸タイル展開時に「材料: ○○」として関連する一次属性を常に
+表示するのみで、自動ONはしない。トンネル（T217）・一方通行（T289）は評価軸に組み込まない
+表示専用の一次属性として、他の観測レイヤーと同じ独立レイヤー構成（`PRIMARY_ATTRIBUTE_LAYER_IDS`）で
+追加済み。
 
 ### 区間インスペクタ（改善計画T146）
 
@@ -2118,9 +1900,8 @@ T137〜T145bで導入したレジストリ制は、当初「一次属性」「�
 `way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
 その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・
 stop_density・accident・night・bicycle_infra_qualityの6軸（`AXIS_DEFINITIONS`の公開軸のうち
-gradient/windを除く。bicycle_infra_qualityは改善計画T347で内部軸
-`car_stress_bicycle_infra_adjustment`参照へ再設計されたが、これも単独wayのtags/highwayだけで
-算出可能なため引き続き対象に含まれる）を算出する。gradient・windは単独wayでは算出できない
+gradient/windを除く。bicycle_infra_qualityは正規化フラグ材料4件（改善計画T353）を直接参照するが、
+これも単独wayのtags/highwayだけで算出可能なため引き続き対象に含まれる）を算出する。gradient・windは単独wayでは算出できない
 （ルート文脈が必要）ため`AxisInspectorAxis.available=false`で常に返し、`composite_difficulty`は
 取得できた軸だけの加重平均（`covered_weight_fraction`が全8軸重みに対する充足率を示す参考値）。
 
