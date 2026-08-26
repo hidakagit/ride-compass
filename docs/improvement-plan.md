@@ -7708,7 +7708,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T350. axis_definitionsを全14軸DB専有化し、Python literalを撤去（フル版オプションA） 規模XL
+### - [x] T350. axis_definitionsを全14軸DB専有化し、Python literalを撤去（フル版オプションA） 規模XL（完了）
 
 - 背景: T349完了後もユーザーから「複数管理はやめて、シンプルにして」という指摘が継続し、
   DB設計書（`.claude/`外の一時artifact、2026-08-27公開）を用いた対話的な検証を経て、
@@ -7793,6 +7793,54 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   2. 151箇所のテスト参照のうち、「合成データへの書き換え」と「関係性アサーションへの
      書き換え」のどちらが適切かはファイルごとに判断が要る（本エントリの検証は
      代表的なファイル数件の抜き取りに留まる）。
+- 実施内容（2026-08-27完了）:
+  1. `domain/axis_definitions.py: AXIS_DEFINITIONS`の14軸分のPython literal（360行）を
+     撤去し`{}`へ変更。型定義（`AxisDefinition`等）・評価用純粋関数
+     （`evaluate_axis_scalar`等）のみ残す。付随して、リテラル構築専用だった
+     `UNSIGNALED_INTERSECTION_WEIGHT`等のヘルパー定数・未使用となった`TileInputSpec`
+     importも削除。
+  2. `backend/scripts/generate_axis_migration_sql.py`を削除。以降、軸の追加・変更は
+     他のスキーマ変更と同じ手書きmigration SQLで行う。
+  3. `axis_registry_service.py`の`_CODE_BUILTIN_AXIS_IDS`（改善計画T295、import時点の
+     axis_id集合スナップショット）とそれに依存するcode_only/db_only差分ログを撤去
+     ——`AXIS_DEFINITIONS`が常に空スタートになったことでこの差分が意味を失うため
+     （常に全件db_onlyになるだけ）。`refresh_axis_definitions`はaxis数のみをINFOログに残す。
+  4. `tests/test_migrate.py`のブートストラップテストから、DB内容とAXIS_DEFINITIONSの
+     値比較アサーション（T348で追加）を撤去し、「軸数が14件」「全軸の材料/軸参照が
+     既知」という構造検証のみへ縮小。
+  5. `CLAUDE.md`「コミット時の同期ルール」・`docs/architecture.md`「評価軸定義のDB化
+     ＋管理API」節を更新し、Python literal撤去後の実態（DBが唯一の正本、
+     migrationは手書き）を反映。
+  6. **想定外の派生対応**: CIの`api-contract`ジョブ（`scripts/export_openapi.py`実行、
+     `axis-catalog.json`等の生成）がDB接続を持たず、`AXIS_DEFINITIONS`のPython内蔵
+     フォールバックが撤去されたことで生成物が空になる問題を発見（ユーザー承認の上、
+     案Aで対応）。`api-contract`ジョブへ`postgres`サービスコンテナを追加し、新設した
+     `backend/scripts/bootstrap_ci_db.py`（`create_tables`→`apply_pending_migrations`の
+     ブートストラップ経路）でmigration適用後のDBから生成するよう変更した。ローカルで
+     実DBに対して`export_openapi.py`を実行し、生成される`axis-catalog.json`が
+     変更前と完全に同一（バイト差分なし）であることを確認済み。
+  7. `app/`側91箇所（T348時点の概算）は大半が関数内での動的な`AXIS_DEFINITIONS`読み出し
+     （起動時`refresh_axis_definitions`実行後に評価される）であり、実質的な修正は
+     上記3の1箇所のみで済んだ。
+  8. `tests/`側は当初の14ファイル・151箇所という見積もりに加え、`AXIS_DEFINITIONS`を
+     直接参照していなくても`RoutePreference()`・`compute_edge_cost`等の経由で暗黙に
+     実軸id（`car_stress`/`night`等）付きの一貫した軸システムを前提にしていたファイル
+     （`test_road_graph_engine.py`・`test_openrouteservice_engine.py`・
+     `test_evaluation_service.py`・`test_region_service.py`・`test_routes_generate.py`・
+     `test_routes_preview.py`・`test_registry_defaults.py`・`test_axis_catalog_routes.py`）
+     も広く影響を受けることが判明した。個別の合成データではなく、本番相当の14軸構造を
+     忠実に再現した共有テストフィクスチャ`tests/realistic_axis_fixtures.py`
+     （`REALISTIC_AXIS_DEFINITIONS`＋`realistic_axis_definitions()`コンテキスト
+     マネージャ）を新設し、必要なファイルへautouseフィクスチャとして適用する形で
+     対応した（DB値の検証が目的ではなく、他ロジックのテストを成立させるための
+     テスト専用データという位置付け）。純粋に評価関数の折れ点補間の正しさ等を検証する
+     `test_axis_display.py`・`test_evaluation_bulk.py`はテストファイル内ローカルの
+     合成軸データへ書き換えた（当初方針どおり）。
+  9. まっさらなDB（ローカルPostgreSQL、`create_tables`→`apply_pending_migrations`）への
+     全14軸ラウンドトリップを`test_migrate.py`のブートストラップテストで確認済み。
+     backend全テスト（1287件、実DB使用の統合テスト込み）がgreenであることを確認
+     （T350と無関係の環境依存1件[このdev機の`.env`が`ROAD_GRAPH_USE_REPOSITORY=true`
+     のため、DB未接続前提のテストが実DBへ到達してしまう既存の既知事象]を除く）。
 
 ---
 

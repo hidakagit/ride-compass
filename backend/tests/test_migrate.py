@@ -5,7 +5,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS
+from app.domain.material_catalog import is_known_material
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.migrate import MIGRATIONS_DIR, _split_statements, apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
@@ -219,17 +219,19 @@ async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(boots
     # 公開8軸（migrations/0014・0021）+ car_stress内部軸6（migrations/0017）= 14行
     assert axis_count == 14
 
-    # 改善計画T348: migrationを通してDBへ投入した組み込み軸14件の内容が、
-    # domain/axis_definitions.py: AXIS_DEFINITIONS（Python正本）と完全一致することを
-    # 検証する。手書きmigrationがPython側の変更に追従し忘れる（T347で実際に発覚した、
-    # migration 0017のshape_paramsがT336時点のcar_stress_bicycle_infra_adjustment再設計に
-    # 追従せず旧categorical形のまま取り残されていた実例）ドリフトを、コミット前ではなく
-    # ここで機械的に検知する。
+    # 改善計画T350: axis_definitions.pyのPython literal（AXIS_DEFINITIONS）を撤去し、
+    # DBが14軸全ての唯一の正本になったため、「DB値が特定の内容と一致するか」を検証する
+    # 発想自体が誤りになった（可変であることを前提にDBへ置いているデータを固定検証すると、
+    # 正当なチューニングのたびに無意味な失敗を生む）。ここで検証するのは構造のみ:
+    # 全軸が例外なく読める（Pydanticバリデーションを通る）・未知の材料/軸参照が無いこと。
     async with AsyncSession(bootstrap_engine) as session:
         db_definitions = await AxisDefinitionRepository(session).list_all()
-    assert set(db_definitions) == set(AXIS_DEFINITIONS)
-    for axis_id, expected in AXIS_DEFINITIONS.items():
-        assert db_definitions[axis_id] == expected, (
-            f"axis_id={axis_id}: DBの内容がaxis_definitions.pyの定義と一致しません"
-            "（対応するmigrationの手書き内容が古い可能性があります）"
-        )
+    assert len(db_definitions) == 14
+    known_axis_ids = set(db_definitions)
+    for axis_id, definition in db_definitions.items():
+        unknown = [
+            m
+            for m in definition.materials
+            if not is_known_material(m) and m not in known_axis_ids
+        ]
+        assert not unknown, f"axis_id={axis_id}: 未知の材料/軸参照 {unknown}"

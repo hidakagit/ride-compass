@@ -60,14 +60,6 @@ class AxisDefinitionSyncError(RuntimeError):
 _CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"car_stress", "night", "wind", "gradient"})
 
 
-# 改善計画T295: コード内蔵の既定axis_id集合（モジュールimport時、AXIS_DEFINITIONSが
-# まだ一度もrefresh_axis_definitionsで上書きされていない時点のスナップショット）。
-# refresh_axis_definitionsが呼ばれるたびに、この集合とDB側集合の差分をログへ出し、
-# 「GUIで新規軸を作った」「削除済み軸がDBに残っている」等の意図した/しない差分を
-# 常に目視できるようにする（起動ログの目視以外に検知手段が無かったT294の教訓）。
-_CODE_BUILTIN_AXIS_IDS: frozenset[str] = frozenset(AXIS_DEFINITIONS)
-
-
 def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:
     """各軸のshapeが参照する材料id・軸idのうち、`MATERIAL_CATALOG`にも同じ`definitions`内の
     軸idにも存在しないものを検出する（改善計画T295）。
@@ -101,10 +93,9 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     送出する（fail-fast）。呼び出し元（main.pyのlifespan）はこれを捕捉しないため、
     DBが期待する状態でなければアプリの起動自体が失敗する。
 
-    `AXIS_DEFINITIONS`（Python literal）自体は撤去していない——
-    `scripts/generate_axis_migration_sql.py`（改善計画T348）がmigrationを機械生成する
-    際の唯一の著述元として引き続き使う。撤去したのは「DBが読めない/古い時に実行時に
-    黙ってPython版で動き続ける」というフォールバックの挙動のみ。
+    改善計画T350: `AXIS_DEFINITIONS`のPython literal自体も撤去し、DBを14軸全ての唯一の
+    正本にした。以降、この関数が唯一のロード経路であり、Python側にフォールバック用の
+    既定値は一切残っていない。
 
     0行を検知対象に含めても、管理API側で「最後の1軸は削除できない」制約
     （AxisRegistryAdminService.delete参照）を設けているため、正常適用後のテーブルが
@@ -124,16 +115,7 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
             "軸定義DBに未知の材料/軸参照を検出しました"
             f"（migration未適用・DB定義が半端に古い可能性、改善計画T294/T295参照） unknown={unknown_references}"
         )
-    # 改善計画T295: axis_id集合の差分は「良い/悪い」を判定できない（GUIで作った軸が
-    # コードに無いのは正常）ため、常にINFOで出す（docs/logging.md「起動時の構成
-    # スナップショット」）。差分が無い場合も空リストのまま出力し、「この検証が実際に
-    # 走った」ことをログから確認できるようにする。
-    missing_in_db = sorted(_CODE_BUILTIN_AXIS_IDS - set(definitions))
-    extra_in_db = sorted(set(definitions) - _CODE_BUILTIN_AXIS_IDS)
-    logger.info(
-        "軸定義をDBから読み込みました axes=%d code_only=%s db_only=%s",
-        len(definitions), missing_in_db, extra_in_db,
-    )
+    logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)
 

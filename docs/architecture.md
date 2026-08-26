@@ -1089,53 +1089,52 @@ axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの
 `AXIS_DEFINITIONS`（上記1本道の到達点）はStage Dで、Pythonファイルの定数から
 PostGISテーブル`axis_definitions`（+版数管理用`axis_registry_meta`、
 `migrations/0014_axis_definitions.sql`）を実データソースとする形へ昇格した。
-`domain/axis_definitions.py`のPython辞書は「DBへの初期シード（migration機械生成の
-著述元）」として引き続き存在するが、**フォールバック値としての役割は改善計画T349で
-廃止した**（下記参照）。
+**改善計画T350で`domain/axis_definitions.py`のPython辞書リテラル自体も撤去し、
+DBが14軸全ての唯一の正本になった**（下記参照）。同モジュールに残るのは型定義
+（`AxisDefinition`等のPydanticモデル）と評価用の純粋関数（`evaluate_axis_scalar`等）
+のみで、実データは一切持たない。
 
-**組み込み軸のDBシードは`AXIS_DEFINITIONS`から機械生成する（改善計画T348）**:
-Python側で組み込み軸のshape・weight・表示メタデータを変更した際、対応するmigration
-（`migrations/0014`〜）のSQLを人間が手で書き直す運用は、T347で`bicycle_infra_quality`の
-shapeを複数回再設計するたびに手作業の一致確認が発生し、実際にmigration 0017の
-`shape_params`がT336時点の再設計に追従せず古いまま取り残されるドリフトを生んだ
-（`tests/test_migrate.py`のブートストラップテストが事後に検知）。`backend/scripts/
-generate_axis_migration_sql.py`（DB接続不要、`AXIS_DEFINITIONS`をそのまま読んで
-`model_dump(mode="json")`からSQL文を組み立てるだけ）がこの手書き転記を代替する
-（既存軸の変更は`UPDATE`、新規軸追加は`--insert --sort-order N`で`INSERT`を出力）。
-出力は貼り付け用のSQL文であり、新しいmigrationファイルを自動では作らない——組み込み軸
-1件ごとに人間が意図してmigrationを追加する既存の連番運用（0014〜0021）はそのまま
-維持し、軸スタジオでGUI編集済みの下書き軸を意図せず巻き込む一括再シードは行わない
-設計（下記「自転車インフラの独立公開軸化」節・docs/improvement-plan.md T348参照）。
-`tests/test_migrate.py::test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds`
-が、まっさらなDBへ全migrationを適用した結果と`AXIS_DEFINITIONS`の内容が完全一致することを
-検証する回帰テストとして機能する（postgis統合テストのためDB接続が要る、`pytest -m
-"not postgis"`実行時はスキップされる）。
+**組み込み軸の追加・変更は手書きのmigration SQLで行う（改善計画T350）**:
+T348で導入した`backend/scripts/generate_axis_migration_sql.py`（Python側の
+`AXIS_DEFINITIONS`を著述元にSQLを機械生成する）は、著述元のPython literal自体が
+無くなったため撤去した。以降、軸の追加・変更は他のスキーマ変更と同じ標準の運用
+（`migrations/`配下へ手書きの番号付きSQLファイルを追加）に合流する——構造化JSON
+表現（`shape_params`）の手書きに対しては、`AxisShape`のPydanticバリデーションと
+下記のブートストラップ構造検証が引き続き効く。`tests/test_migrate.py::
+test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds`は、まっさらなDBへ
+全migrationを適用した結果について「軸数が14件であること」「全軸の材料/軸参照が
+既知であること（未知参照が無いこと）」という**構造検証のみ**を行う回帰テストとして
+機能する（postgis統合テストのためDB接続が要る、`pytest -m "not postgis"`実行時は
+スキップされる）。DB値が特定の数値であることを検証するテスト（例:
+`weights["gradient"] == 0.15`）は意図的に持たない——可変であることを前提にDBへ
+置いているデータを固定検証すると、正当なチューニングのたびに無意味な失敗を生むだけで
+実際のバグを検知しないため。
 
 評価ホットパス（`evaluation.py`/`difficulty.py`等）は従来どおり`AXIS_DEFINITIONS`を
 同期的なモジュールレベル辞書として読む——この既存の読み出し方法は一切変えていない。
 `services/axis_registry_service.py: refresh_axis_definitions`が、(1)アプリ起動時
 （`main.py`のlifespan）と(2)管理API書き込み直後の2箇所だけで、同じdictオブジェクトを
 `.clear()`+`.update()`でin-place更新する「push型」の設計にしたため（再代入すると
-`from ... import AXIS_DEFINITIONS`で束縛済みの参照先が更新されない）。
+`from ... import AXIS_DEFINITIONS`で束縛済みの参照先が更新されない）。**このpush型
+更新が唯一のロード経路になったため、`AXIS_DEFINITIONS`は起動直後の一瞬（lifespan内で
+`refresh_axis_definitions`が呼ばれるまで）は空のままである点に注意**（`main.py`の
+lifespanが同期的にawaitするため、リクエストを受け付け始める時点では既に埋まっている）。
 
-**DBを唯一の実行時ソースとするfail-fast設計（改善計画T349）**: 当初（T221 Stage D〜T348）
-はDB未接続・テーブル未migration・0行（＝migration未適用）・未知の材料/軸参照
-（T294〜T295）のいずれかを検出した場合、WARNING/ERRORログを出しコード内蔵の既定値
-（`AXIS_DEFINITIONS`のPythonリテラル）のまま動作を続ける安全側フォールバックだった。
-この設計は「検知が起動ログの目視のみに依存し、次に同種の障害が起きても気づかれない
-まま放置される」という構造的な弱点を持ち（T294→T295で2回、検知条件を1つ足す対応を
-繰り返したが解決しなかった）、複雑度平衡性レビュー（2026-08-26、F-1・P0）で
-指摘を受けてT349で撤去した。現在は上記いずれかを検出すると
-`AxisDefinitionSyncError`を送出し、`main.py`のlifespanがこれを捕捉しないため
-**アプリの起動自体が失敗する**（fail-fast）。これに伴い、`.github/workflows/
-deploy-backend.yml`へ`docker build`直後・旧コンテナ停止前にmigration適用ステップ
-（`scripts/apply_migrations.py`）を追加し、通常のデプロイ経路では migration未適用の
-まま新コンテナが起動を試みてクラッシュループする事態を避けている（`backend/
-Dockerfile`も`migrations/`・`scripts/`をイメージへ同梱するよう変更済み）。
-
-`AXIS_DEFINITIONS`のPythonリテラル自体・`generate_axis_migration_sql.py`
-（改善計画T348、migration機械生成の著述元）は撤去していない——撤去したのは
-「DBが読めない/古い時に実行時に黙ってPython版で動き続ける」という挙動のみ。
+**DBを唯一の実行時ソースとするfail-fast設計（改善計画T349、T350で単純化）**:
+DB未接続・テーブル未migration・0行（＝migration未適用）・未知の材料/軸参照
+（T294〜T295）のいずれかを検出すると`AxisDefinitionSyncError`を送出し、`main.py`の
+lifespanがこれを捕捉しないため**アプリの起動自体が失敗する**（fail-fast）。T349時点
+では「Pythonリテラルへ安全側フォールバックする」という選択肢自体が存在したが（当初は
+WARNING/ERRORログを出しコード内蔵の既定値のまま動作を続けていた。この設計は「検知が
+起動ログの目視のみに依存し、次に同種の障害が起きても気づかれないまま放置される」という
+構造的な弱点を持ち[T294→T295で2回、検知条件を1つ足す対応を繰り返したが解決しなかった]、
+複雑度平衡性レビュー[2026-08-26、F-1・P0]で指摘を受けてT349で撤去した）、T350で
+Pythonリテラル自体を撤去したことで「フォールバックしない」ではなく「フォールバック先が
+物理的に存在しない」という、より単純で取り違えようのない構造になった。これに伴い、
+`.github/workflows/deploy-backend.yml`へ`docker build`直後・旧コンテナ停止前に
+migration適用ステップ（`scripts/apply_migrations.py`）を追加し、通常のデプロイ経路では
+migration未適用のまま新コンテナが起動を試みてクラッシュループする事態を避けている
+（`backend/Dockerfile`も`migrations/`・`scripts/`をイメージへ同梱するよう変更済み）。
 
 管理API（`/api/admin/axis-definitions`、`api/routers/axis_admin.py`）は軸定義の
 CRUDのみを提供する（GUI編集画面は改善計画T270で実装済み、`frontend/src/app/admin/`
@@ -1161,9 +1160,15 @@ PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善�
 そのタイミングが実際に到来したため決着した）。
 
 `export_openapi.py`が生成する`axis-catalog.json`（フロントのビルド時静的import）は
-本Stageでは変更していない——CIの`api-contract`ジョブがDB接続を持たないため、引き続き
-Python内蔵の`AXIS_DEFINITIONS`から生成する（正確には`axes[]`/`primary_attributes[]`は
-下記`registry.py`由来、`preference_defaults`のみ`AXIS_DEFINITIONS`由来。T269実装メモ参照）。
+`_try_load_axis_definitions_from_db()`がDBから読み込んだ`AXIS_DEFINITIONS`を著述元に
+生成する（正確には`axes[]`/`primary_attributes[]`は下記`registry.py`由来、
+`preference_defaults`のみ`AXIS_DEFINITIONS`由来。T269実装メモ参照）。改善計画T350で
+Python内蔵の既定値というフォールバック先が無くなったため、CIの`api-contract`ジョブ
+（`.github/workflows/ci.yml`）にも`postgres`サービスコンテナを追加し、本番と同じ
+ブートストラップ経路（`create_tables`→`apply_pending_migrations`、`backend/scripts/
+bootstrap_ci_db.py`）でmigration適用後のDBから生成するよう変更した（以前はDB接続に
+失敗してもコード内蔵の既定値へ黙ってフォールバックできていたが、そのフォールバック
+自体が撤去対象だったため、生成そのものに実DBが必須になった）。
 
 ### 軸の公開フローと統治ルール（改善計画T271）
 

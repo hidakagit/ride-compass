@@ -125,8 +125,12 @@ async def test_refresh_allows_axis_referencing_another_axis_in_same_batch(road_g
     assert set(AXIS_DEFINITIONS) == {"base_axis", "dependent_axis"}
 
 
-async def test_refresh_logs_axis_id_diff_between_code_and_db(road_graph_session, caplog):
-    # 改善計画T295: コード内蔵のaxis_id集合とDB側集合の差分を常にINFOで出す。
+async def test_refresh_logs_axis_count(road_graph_session, caplog):
+    # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、コード内蔵axis_id集合との
+    # 差分ログ（_CODE_BUILTIN_AXIS_IDS、改善計画T295）は撤去した——DBが唯一の正本になった
+    # ため「コード側にだけある/DB側にだけある」という差分の概念自体が意味を失う
+    # （AXIS_DEFINITIONSは常に空スタートのため、この差分は常に全件db_onlyになるだけ）。
+    # 読み込み件数のINFOログのみ残る。
     caplog.set_level(logging.INFO, logger="ridecompass.axis_registry")
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("test_axis"), sort_order=0)
@@ -134,9 +138,7 @@ async def test_refresh_logs_axis_id_diff_between_code_and_db(road_graph_session,
 
     await refresh_axis_definitions(repository)
 
-    assert "code_only=" in caplog.text
-    assert "db_only=" in caplog.text
-    assert "'test_axis'" in caplog.text
+    assert "axes=1" in caplog.text
 
 
 # --- AxisRegistryAdminService（管理APIのユースケース層） ---

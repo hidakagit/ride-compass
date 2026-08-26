@@ -8,12 +8,20 @@ from app.infrastructure.debug_log import get_stats, reset_stats
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import region_service as region_service_module
 from app.services.region_service import RegionService
+from tests.realistic_axis_fixtures import realistic_axis_definitions
 
 
 @pytest.fixture(autouse=True)
 def use_temp_tile_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _realistic_axes():
+    # 改善計画T350: tests/test_road_graph_engine.pyと同じ理由（実軸id前提のロジック）。
+    with realistic_axis_definitions():
+        yield
 
 
 Z, X, Y = 14, 14551, 6447

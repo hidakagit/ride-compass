@@ -14,6 +14,14 @@ from app.domain.evaluation import (
 )
 from app.domain.graph import DirectedEdge
 from app.domain.weather import WeatherConditions
+from tests.realistic_axis_fixtures import realistic_axis_definitions
+
+
+@pytest.fixture(autouse=True)
+def _realistic_axes():
+    # 改善計画T350: tests/test_road_graph_engine.pyと同じ理由（実軸id前提のロジック）。
+    with realistic_axis_definitions():
+        yield
 
 
 def _edge(**overrides) -> DirectedEdge:

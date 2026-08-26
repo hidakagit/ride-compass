@@ -20,6 +20,15 @@ from app.services.route_scorer import load_scoring_weights
 from app.services.routing_service import RoutingService
 from app.services.weather_service import WeatherService
 from app.services.wind_service import WindService
+from tests.realistic_axis_fixtures import realistic_axis_definitions
+
+
+@pytest.fixture(autouse=True)
+def _realistic_axes():
+    # 改善計画T350: tests/test_road_graph_engine.pyと同じ理由（実軸id前提のロジック）。
+    with realistic_axis_definitions():
+        yield
+
 
 client = TestClient(app)
 

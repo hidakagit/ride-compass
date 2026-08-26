@@ -1,9 +1,8 @@
 from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
-    UNSIGNALED_INTERSECTION_WEIGHT,
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
+    FlagSumShape,
     MaterialTerm,
 )
 from app.domain.axis_display import (
@@ -11,12 +10,27 @@ from app.domain.axis_display import (
     derive_ramp_inputs,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
-from app.domain.registry import TileInputSpec
+from app.domain.registry import AxisDisplaySpec, TileInputSpec
+
+# 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルのテストは
+# derive_ramp_inputs/axis_display_for（純粋関数）の正しさをshapeの種類ごとに検証する
+# ことが目的であって、実運用の軸の値を検証したいわけではないため、実軸（AXIS_DEFINITIONS
+# の各エントリ）を使わずテストファイル内で定義した合成軸データへ書き換えた。参照する
+# material id（surface_good・no_lit・has_tunnel・gradient_percent等）はMATERIAL_CATALOG
+# 側の実データで、AXIS_DEFINITIONSとは別レジストリのため引き続き実在するものを使う。
 
 
 def test_categorical_shape_derives_two_band_ramp():
-    # surface_q: 材料surface_good（真偽値、tile_property="surface_good"）、mapping True=0.0/False=80.0
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["surface_q"])
+    # surface_qを模した合成軸: 材料surface_good（真偽値、tile_property="surface_good"）、
+    # mapping True=0.0/False=80.0
+    definition = AxisDefinition(
+        axis_id="synthetic_surface_q",
+        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+    ramp = derive_ramp_inputs(definition)
 
     assert ramp is not None
     assert len(ramp.tile_inputs) == 1
@@ -65,8 +79,16 @@ def test_categorical_shape_with_str_multi_value_material_derives_ramp():
 
 
 def test_flag_sum_shape_derives_subset_sum_thresholds():
-    # night: no_lit(材料、tile_property="lit"の否定)50点 + has_tunnel(tile_property="tunnel")50点、cap100
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["night"])
+    # nightを模した合成軸: no_lit(材料、tile_property="lit"の否定)50点 +
+    # has_tunnel(tile_property="tunnel")50点、cap100
+    definition = AxisDefinition(
+        axis_id="synthetic_night",
+        shape=FlagSumShape(flags=[("no_lit", 50.0), ("has_tunnel", 50.0)], cap=100.0),
+        default_weight=0.0,
+        label="テスト軸",
+        category="観測",
+    )
+    ramp = derive_ramp_inputs(definition)
 
     assert ramp is not None
     assert len(ramp.tile_inputs) == 2
@@ -140,38 +162,84 @@ def test_multi_term_breakpoint_linear_derives_ramp_with_coarser_thresholds():
     # `axis_display_for()`は既存7軸のうちstop_density/accident/car_stressについては
     # 引き続き手書きoverrideを優先する（本関数はより粗い代替として動作するだけで、
     # 既存の手書きを置き換えるものではないことをこのテストで明示する）。
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["stop_density"])
+    # stop_densityを模した合成軸: 材料stop_count_per_km(weight=1.0)+
+    # intersection_count_per_km(weight=0.3、旧UNSIGNALED_INTERSECTION_WEIGHT定数の値。
+    # T350でAXIS_DEFINITIONS撤去に伴い定数自体は撤去したためここへ直接書く)。
+    definition = AxisDefinition(
+        axis_id="synthetic_stop_density",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km"),
+                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        ),
+        default_weight=0.2,
+        label="テスト軸",
+        category="観測",
+    )
+    ramp = derive_ramp_inputs(definition)
 
     assert ramp is not None
     assert ramp.tile_inputs == [
         TileInputSpec(property="stop_per_km", weight=1.0),
-        TileInputSpec(property="intersection_per_km", weight=UNSIGNALED_INTERSECTION_WEIGHT),
+        TileInputSpec(property="intersection_per_km", weight=0.3),
     ]
     assert ramp.thresholds == [4.0]
 
 
 def test_tile_independent_material_is_not_auto_derived():
-    # gradient: 材料gradient_percentがタイル非依存（GSI APIから都度取得）。
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["gradient"])
+    # gradientを模した合成軸: 材料gradient_percentがタイル非依存（GSI APIから都度取得）。
+    definition = AxisDefinition(
+        axis_id="synthetic_gradient",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        ),
+        default_weight=0.15,
+        label="テスト軸",
+        category="観測",
+    )
+    ramp = derive_ramp_inputs(definition)
 
     assert ramp is None
 
 
 def test_axis_referencing_breakpoint_linear_is_not_auto_derived():
-    # car_stress（改善計画T292）: BreakpointLinearShapeのtermsが材料ではなく他の軸
-    # （car_stress_highway_base等、is_published=Falseの内部軸）を参照する。
-    # MATERIAL_CATALOGには存在しないためspecがNoneとなり自動導出対象外になる
-    # （tile_inputs/thresholdsはregistry_defaults.pyへ直接手書きしている）。
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["car_stress"])
+    # car_stressを模した合成軸（改善計画T292）: BreakpointLinearShapeのtermsが材料ではなく
+    # 他の軸（is_published=Falseの内部軸）を参照する。MATERIAL_CATALOGには存在しないため
+    # specがNoneとなり自動導出対象外になる（tile_inputs/thresholdsは手書きoverrideで持つ）。
+    definition = AxisDefinition(
+        axis_id="synthetic_car_stress",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="synthetic_internal_axis", required=True)],
+            breakpoints=[(1.0, 0.0), (5.0, 100.0)],
+        ),
+        default_weight=0.2,
+        label="テスト軸",
+        category="推定",
+    )
+    ramp = derive_ramp_inputs(definition)
 
     assert ramp is None
 
 
 def test_runtime_scale_material_is_not_auto_derived():
-    # accident: 材料accident_count_per_km_yearは年正規化済みだがタイル生値
+    # accidentを模した合成軸: 材料accident_count_per_km_yearは年正規化済みだがタイル生値
     # (accident_per_km)は年正規化前で実行時に変動するスケール係数が必要なため
     # 自動導出対象外（改善計画T278の制約2）。
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["accident"])
+    definition = AxisDefinition(
+        axis_id="synthetic_accident",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="accident_count_per_km_year")],
+            breakpoints=[(0.0, 0.0), (0.5, 100.0)],
+        ),
+        default_weight=0.08,
+        label="テスト軸",
+        category="推定",
+    )
+    ramp = derive_ramp_inputs(definition)
 
     assert ramp is None
 
@@ -209,31 +277,57 @@ def test_direction_dependent_material_is_not_auto_derived(monkeypatch):
 
 
 def test_axis_display_for_prefers_display_override():
-    # 改善計画T308: stop_density/accident/car_stressはderive_ramp_inputsが自動導出できる
-    # ようになった（stop_densityはT308一般化後は非Noneになる）場合でも、統計的経験則で
-    # 手書きした軸自身のdisplay_override（改善計画T310で軸id→値のハードコード辞書から
-    # 移設、domain/axis_definitions.py参照）を優先して返す。
-    assert axis_display_for(AXIS_DEFINITIONS["stop_density"]) is AXIS_DEFINITIONS["stop_density"].display_override
-    assert axis_display_for(AXIS_DEFINITIONS["accident"]) is AXIS_DEFINITIONS["accident"].display_override
-    assert axis_display_for(AXIS_DEFINITIONS["car_stress"]) is AXIS_DEFINITIONS["car_stress"].display_override
+    # 改善計画T308: derive_ramp_inputsが自動導出できる形状であっても、軸自身が
+    # display_override（改善計画T310で軸id→値のハードコード辞書から移設）を持つ場合は
+    # そちらを優先して返す（stop_density/accident/car_stressの実運用と同じ理由づけ、
+    # ここでは形状は問わず「overrideがあれば優先される」という関数の振る舞いだけを見る）。
+    override = AxisDisplaySpec(kind="ramp", label="手書き上書き", category="trafficSafety")
+    definition = AxisDefinition(
+        axis_id="synthetic_with_override",
+        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+        display_override=override,
+    )
+
+    assert axis_display_for(definition) is override
 
 
 def test_axis_display_for_falls_back_to_auto_derivation():
-    # surface_q・nightは手書きoverrideが無いため、derive_ramp_inputsの結果をそのまま使う。
-    display = axis_display_for(AXIS_DEFINITIONS["surface_q"])
+    # 手書きoverrideが無い軸は、derive_ramp_inputsの結果をそのまま使う。
+    definition = AxisDefinition(
+        axis_id="synthetic_surface_q",
+        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+    display = axis_display_for(definition)
     assert display.kind == "ramp"
-    assert display.label == AXIS_DEFINITIONS["surface_q"].label
-    ramp = derive_ramp_inputs(AXIS_DEFINITIONS["surface_q"])
+    assert display.label == definition.label
+    ramp = derive_ramp_inputs(definition)
     assert ramp is not None
     assert display.tile_inputs == ramp.tile_inputs
     assert display.thresholds == ramp.thresholds
 
 
 def test_axis_display_for_returns_none_kind_when_not_derivable():
-    # gradient: 材料gradient_percentがタイル非依存のため自動導出不可、手書きoverrideも無い。
-    display = axis_display_for(AXIS_DEFINITIONS["gradient"])
+    # 材料がタイル非依存のため自動導出不可、手書きoverrideも無い軸はkind="none"になる。
+    definition = AxisDefinition(
+        axis_id="synthetic_gradient",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        ),
+        default_weight=0.15,
+        label="テスト軸",
+        category="観測",
+    )
+    display = axis_display_for(definition)
     assert display.kind == "none"
-    assert display.label == AXIS_DEFINITIONS["gradient"].label
+    assert display.label == definition.label
     assert display.tile_inputs == []
     assert display.thresholds == []
 

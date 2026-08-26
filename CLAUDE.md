@@ -56,14 +56,16 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
   定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
   上げる（T70・T93で対上げ漏れが2回発生）。
-- **`domain/axis_definitions.py: AXIS_DEFINITIONS`の組み込み軸（14エントリ）のshape・
-  weight・表示メタデータを変更したら**、`backend/scripts/generate_axis_migration_sql.py`
-  でSQLを生成し、対応するmigrationファイル（既存軸なら更新、新規軸なら次番号で新規追加）
-  へ反映する（手書き転記でJSON表現を目視確認するのは禁止——T347で`bicycle_infra_quality`の
-  shapeを再設計するたびに手書き確認を繰り返し、migration 0017の`shape_params`が古いまま
-  取り残されるドリフトを見落とした実績を受け、改善計画T348でこのスクリプトを新設）。
-  `tests/test_migrate.py`のブートストラップテストが、まっさらなDBへ全migrationを適用した
-  結果とPython正本の完全一致をpostgis統合テストとして検証する（DB接続が要るため
+- **評価軸（`axis_definitions`テーブル、全14軸）の追加・変更は手書きのmigration SQL
+  （`backend/migrations/`）で行う**（改善計画T350: `domain/axis_definitions.py:
+  AXIS_DEFINITIONS`のPython literalを撤去し、DBが唯一の正本になった。以前存在した
+  `backend/scripts/generate_axis_migration_sql.py`によるPython→SQL自動生成は、
+  Pythonという著述元自体が無くなったため撤去済み。他のスキーマ変更と同じ標準の運用に
+  合流しただけで、新たな「手書きリスク」を追加するものではない——`AxisShape`の
+  Pydanticバリデーションと`tests/test_migrate.py`のブートストラップテスト[後述]が
+  構造面を引き続き検証する）。`tests/test_migrate.py`のブートストラップテストは、
+  まっさらなDBへ全migrationを適用した結果が「全軸が例外なく読める・未知の材料/軸参照が
+  無い・件数が14で一致する」ことをpostgis統合テストとして検証する（DB接続が要るため
   `pytest -m "not postgis"`実行時はスキップされる。ローカルPostgreSQLを起動して
   `pytest tests/test_migrate.py`を実行し確認すること）。
 - **規模M以上の変更は、着手前の最初のコミットでdocs/improvement-plan.mdへ対応する

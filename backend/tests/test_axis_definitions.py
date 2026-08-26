@@ -18,6 +18,17 @@ from app.domain.axis_definitions import (
     evaluate_axis_scalar,
 )
 from app.domain.recipe import bicycle_infra_flags, cycleway_values
+from tests.realistic_axis_fixtures import realistic_axis_definitions
+
+
+@pytest.fixture(autouse=True)
+def _realistic_axes():
+    # 改善計画T350: 本ファイルは実際のcar_stress内部軸階層（highway基準値+5補正の
+    # 加重合成、-1000マイナス項の安全マージン等）そのものを検証するため、
+    # tests/realistic_axis_fixtures.pyで本番相当の14軸を用意する。
+    with realistic_axis_definitions():
+        yield
+
 
 # 改善計画T292由来の旧`_CAR_STRESS_BICYCLE_INFRA_MAPPING`と同じ5値
 # （axis_definitions.py参照、地図表示ramp用に現在も定数として維持している）。

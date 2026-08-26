@@ -43,8 +43,33 @@ jobs:
   # 差分が出た場合は、backendのモデル変更に対して
   # backend/scripts/export_openapi.py → cd frontend && npm run generate:api
   # の実行とコミットが漏れている。
+  #
+  # 改善計画T350: axis_definitions.pyのAXIS_DEFINITIONS（Python literal）を撤去し、
+  # axis_definitionsテーブルが14軸全ての唯一の正本になったため、このジョブにも
+  # postgresサービスコンテナを追加し、migration適用後のDBからaxis-catalog.json等を
+  # 生成する（以前はDB無しでもコード内蔵の既定値へフォールバックして生成できていたが、
+  # そのフォールバック自体が撤去対象だった）。backendジョブと異なりBase.metadata.
+  # create_allではなく、本番と同じブートストラップ経路（create_tables→
+  # apply_pending_migrations、tests/test_migrate.py参照）でmigrationを適用する
+  # （axis_definitionsの初期データはmigration側のINSERT文にしか無いため）。
   api-contract:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: ridecompass
+          POSTGRES_PASSWORD: ridecompass
+          POSTGRES_DB: ridecompass_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -58,6 +83,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: pip install -r requirements.txt
+        working-directory: backend
+      - run: python scripts/bootstrap_ci_db.py
         working-directory: backend
       - run: python scripts/export_openapi.py
         working-directory: backend

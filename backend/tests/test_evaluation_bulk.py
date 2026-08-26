@@ -7,10 +7,19 @@
 """
 
 import itertools
+from contextlib import contextmanager
 
 import pytest
 
 from app.domain.attributes import ElevationAttribute
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    FlagSumShape,
+    MaterialTerm,
+)
 from app.domain.evaluation import (
     RoutePreference,
     compute_edge_cost,
@@ -19,19 +28,129 @@ from app.domain.evaluation import (
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
 
-# 全軸の重みを非ゼロにし、compositeが「一部の軸だけ」で決まらないようにする
-# （デフォルトのnight重み0.0だと夜間軸のバグが合成結果に現れず見逃しうるため）。
-PREFERENCE = RoutePreference(
-    weights={
-        "gradient": 1.0,
-        "wind": 1.0,
-        "surface_q": 1.0,
-        "stop_density": 1.0,
-        "car_stress": 1.0,
-        "accident": 1.0,
-        "night": 1.0,
-    }
+# 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルは
+# compute_edge_cost（スカラー版）とcompute_edge_costs_bulk（配列版）の一致を検証する
+# ことが目的であって実運用の軸の値を検証したいわけではないため、実軸データを使わず
+# テストファイル内で定義した合成軸データへ書き換えた。shapeの種類（BreakpointLinear
+# [preprocess="abs"あり/なし・単項/複数項・必須/任意項]・Categorical・FlagSum・
+# 軸参照[car_stressが内部軸を参照する階層構造]）は実運用の8軸構成をなるべく再現し、
+# 検証したいコードパスの網羅性を落とさないようにしている。materialは実在の
+# MATERIAL_CATALOGエントリ（AXIS_DEFINITIONSとは別レジストリのため実データのまま）。
+
+_INTERNAL_AXIS = AxisDefinition(
+    axis_id="test_internal_axis",
+    shape=CategoricalShape(material="highway", mapping={"residential": 1.0, "primary": 3.0, "trunk": 4.0}),
+    default_weight=0.0,
+    label="テスト内部軸",
+    category="推定",
+    is_published=False,
 )
+
+_SYNTHETIC_AXES: dict[str, AxisDefinition] = {
+    "gradient": AxisDefinition(
+        axis_id="gradient",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        ),
+        default_weight=0.15,
+        label="テスト勾配",
+        category="観測",
+        is_published=True,
+    ),
+    "wind": AxisDefinition(
+        axis_id="wind",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="wind_penalty")],
+            breakpoints=[(0.0, 0.0), (8.0, 100.0)],
+        ),
+        default_weight=0.26,
+        label="テスト風",
+        category="動的",
+        is_published=True,
+    ),
+    "surface_q": AxisDefinition(
+        axis_id="surface_q",
+        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.19,
+        label="テスト舗装質",
+        category="観測",
+        is_published=True,
+    ),
+    "stop_density": AxisDefinition(
+        axis_id="stop_density",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km"),
+                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        ),
+        default_weight=0.2,
+        label="テスト停止密度",
+        category="観測",
+        is_published=True,
+    ),
+    "test_internal_axis": _INTERNAL_AXIS,
+    "car_stress": AxisDefinition(
+        axis_id="car_stress",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="test_internal_axis", required=True),
+                MaterialTerm(material="lanes_count", weight=0.1, required=False),
+            ],
+            breakpoints=[(1.0, 0.0), (5.0, 100.0)],
+        ),
+        default_weight=0.2,
+        label="テスト車ストレス",
+        category="推定",
+        is_published=True,
+    ),
+    "accident": AxisDefinition(
+        axis_id="accident",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="accident_count_per_km_year")],
+            breakpoints=[(0.0, 0.0), (0.5, 100.0)],
+        ),
+        default_weight=0.08,
+        label="テスト事故密度",
+        category="推定",
+        is_published=True,
+    ),
+    "night": AxisDefinition(
+        axis_id="night",
+        shape=FlagSumShape(flags=[("no_lit", 50.0), ("has_tunnel", 50.0)], cap=100.0),
+        default_weight=0.0,
+        label="テスト夜間",
+        category="観測",
+        is_published=True,
+    ),
+}
+
+
+@contextmanager
+def _synthetic_axis_definitions(extra: dict[str, AxisDefinition] | None = None):
+    """AXIS_DEFINITIONSの中身を一時的に合成軸セットへ差し替える（テスト終了後に復元）。"""
+    original = dict(AXIS_DEFINITIONS)
+    axes = dict(_SYNTHETIC_AXES)
+    if extra:
+        axes.update(extra)
+    AXIS_DEFINITIONS.clear()
+    AXIS_DEFINITIONS.update(axes)
+    try:
+        yield axes
+    finally:
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS.update(original)
+
+
+@pytest.fixture
+def preference():
+    # 全軸の重みを非ゼロにし、compositeが「一部の軸だけ」で決まらないようにする
+    # （デフォルトのnight重み0.0だと夜間軸のバグが合成結果に現れず見逃しうるため）。
+    with _synthetic_axis_definitions() as axes:
+        yield RoutePreference(weights={axis_id: 1.0 for axis_id, d in axes.items() if d.is_published})
 
 WIND = WeatherConditions(
     temperature_c=20.0,
@@ -150,16 +269,16 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
 @pytest.mark.parametrize("wind", [None, WIND])
 @pytest.mark.parametrize("max_average_grade_percent", [None, 8.0])
 @pytest.mark.parametrize("penalty_strength", [1.0, 2.5])
-def test_bulk_matches_scalar_for_every_edge(wind, max_average_grade_percent, penalty_strength):
+def test_bulk_matches_scalar_for_every_edge(preference, wind, max_average_grade_percent, penalty_strength):
     graph, materials = _build_diverse_graph()
-    weights = PREFERENCE.weights
+    weights = preference.weights
 
     scalar_results = {
         edge_id: compute_edge_cost(
             edge,
             materials["elevation_attributes"].get(edge_id),
             materials["surface_attributes"].get(edge_id),
-            PREFERENCE,
+            preference,
             weights=weights,
             wind=wind,
             stop_count=materials["stop_counts"].get(edge_id),
@@ -178,7 +297,7 @@ def test_bulk_matches_scalar_for_every_edge(wind, max_average_grade_percent, pen
         graph,
         materials["elevation_attributes"],
         materials["surface_attributes"],
-        PREFERENCE,
+        preference,
         wind=wind,
         stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
@@ -200,9 +319,9 @@ def test_bulk_matches_scalar_for_every_edge(wind, max_average_grade_percent, pen
     assert not mismatches, f"{len(mismatches)}件不一致: {mismatches[:5]}"
 
 
-def test_bulk_returns_empty_dict_for_empty_graph():
+def test_bulk_returns_empty_dict_for_empty_graph(preference):
     graph = RoadGraph(graph_version="test", nodes={}, edges={})
-    result = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE)
+    result = compute_edge_costs_bulk(graph, {}, {}, preference)
     assert result == {}
 
 
@@ -210,20 +329,20 @@ def test_bulk_returns_empty_dict_for_empty_graph():
     "hard_filters",
     [frozenset(), frozenset({"no_bicycle"}), frozenset({"motorway"}), frozenset({"no_bicycle", "motorway", "trunk"})],
 )
-def test_bulk_hard_filters_override_matches_scalar(hard_filters):
+def test_bulk_hard_filters_override_matches_scalar(preference, hard_filters):
     """改善計画T266: hard_filters引数の上書きが、bulk/scalarで同じ結果になることを
     確認する（compute_edge_costs_bulkはこれまでDEFAULT_HARD_FILTERS決め打ちだった、
     かつno_bicycleフィルタはフィルタ名の有効/無効に関わらず常時適用されるバグがあった）。
     """
     graph, materials = _build_diverse_graph()
-    weights = PREFERENCE.weights
+    weights = preference.weights
 
     scalar_results = {
         edge_id: compute_edge_cost(
             edge,
             materials["elevation_attributes"].get(edge_id),
             materials["surface_attributes"].get(edge_id),
-            PREFERENCE,
+            preference,
             weights=weights,
             stop_count=materials["stop_counts"].get(edge_id),
             way_tags=materials["way_tags"].get(edge_id),
@@ -240,7 +359,7 @@ def test_bulk_hard_filters_override_matches_scalar(hard_filters):
         graph,
         materials["elevation_attributes"],
         materials["surface_attributes"],
-        PREFERENCE,
+        preference,
         stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
         intersection_counts=materials["intersection_counts"],
@@ -260,7 +379,7 @@ def test_bulk_hard_filters_override_matches_scalar(hard_filters):
     assert not mismatches, f"{len(mismatches)}件不一致: {mismatches[:5]}"
 
 
-def test_bulk_hard_filters_empty_allows_bicycle_no_edge():
+def test_bulk_hard_filters_empty_allows_bicycle_no_edge(preference):
     """no_bicycleフィルタが無効化されている場合、bicycle=noのEdgeも除外されない
     （改善計画T266で修正したバグの直接的な回帰確認）。"""
     graph = RoadGraph(
@@ -284,16 +403,16 @@ def test_bulk_hard_filters_empty_allows_bicycle_no_edge():
     )
     way_tags = {"e0": {"bicycle": "no"}}
 
-    excluded = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE, way_tags=way_tags)
+    excluded = compute_edge_costs_bulk(graph, {}, {}, preference, way_tags=way_tags)
     assert excluded["e0"].allowed is False
 
     included = compute_edge_costs_bulk(
-        graph, {}, {}, PREFERENCE, way_tags=way_tags, hard_filters=frozenset({"motorway", "trunk"})
+        graph, {}, {}, preference, way_tags=way_tags, hard_filters=frozenset({"motorway", "trunk"})
     )
     assert included["e0"].allowed is True
 
 
-def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor(monkeypatch):
+def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor():
     """改善計画T343回帰テスト: `MaterialSpec.extractor=None`の材料（oneway/designation/
     is_emergency_transport/is_critical_logistics、「トリガー付きDEFER」設計原則9）を
     参照する軸（軸スタジオ経由でGUI作成できてしまう——`_check_materials_are_known`は
@@ -305,8 +424,6 @@ def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor
     非対称性があった）。データが無い材料として恒久的に欠損扱いになる
     （スカラー版と同じグレースフルデグレード）ことも確認する。
     """
-    from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
-
     custom_axis = AxisDefinition(
         axis_id="custom_n10_only_axis",
         shape=BreakpointLinearShape(
@@ -319,7 +436,6 @@ def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor
         category="推定",
         is_published=True,
     )
-    monkeypatch.setitem(AXIS_DEFINITIONS, custom_axis.axis_id, custom_axis)
 
     graph = RoadGraph(
         graph_version="test",
@@ -341,24 +457,24 @@ def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor
         },
     )
 
-    weights = {**PREFERENCE.weights, "custom_n10_only_axis": 1.0}
-    # is_emergency_transportの既定値[bool_default="false"]はFalse（欠損ではなく確定値）
-    # のためcustom_n10_only_axis自体は"該当なし"として評価される（0.0）。ここで検証したい
-    # 主眼は例外が起きないこと（KeyErrorしないこと）と、他の軸の合成が壊れないこと。
-    results = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE, way_tags={"e0": {}}, weights=weights)
+    with _synthetic_axis_definitions({custom_axis.axis_id: custom_axis}) as axes:
+        weights = {axis_id: 1.0 for axis_id, d in axes.items() if d.is_published}
+        preference = RoutePreference(weights=weights)
+        # is_emergency_transportの既定値[bool_default="false"]はFalse（欠損ではなく確定値）
+        # のためcustom_n10_only_axis自体は"該当なし"として評価される（0.0）。ここで検証したい
+        # 主眼は例外が起きないこと（KeyErrorしないこと）と、他の軸の合成が壊れないこと。
+        results = compute_edge_costs_bulk(graph, {}, {}, preference, way_tags={"e0": {}}, weights=weights)
 
     assert results["e0"].allowed is True
     assert results["e0"].difficulty is not None
     assert results["e0"].cost is not None
 
 
-def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_an_extractor(monkeypatch):
+def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_an_extractor():
     """上のテストのCategoricalShape版。categorical材料はdtype=objectのnumpy配列
     （np.emptyでNone初期化）のため、boolean/numeric材料とは別の初期化コードパスを通る
     （evaluation.py: material_arraysの構築、dtype分岐参照）。designation
     （dtype="categorical"、extractor未設定）を参照する軸でも同様にクラッシュしないこと。"""
-    from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, CategoricalShape
-
     custom_axis = AxisDefinition(
         axis_id="custom_designation_only_axis",
         shape=CategoricalShape(material="designation", mapping={"emergency_transport": 100.0}),
@@ -368,7 +484,6 @@ def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_
         category="推定",
         is_published=True,
     )
-    monkeypatch.setitem(AXIS_DEFINITIONS, custom_axis.axis_id, custom_axis)
 
     graph = RoadGraph(
         graph_version="test",
@@ -390,8 +505,10 @@ def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_
         },
     )
 
-    weights = {**PREFERENCE.weights, "custom_designation_only_axis": 1.0}
-    results = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE, way_tags={"e0": {}}, weights=weights)
+    with _synthetic_axis_definitions({custom_axis.axis_id: custom_axis}) as axes:
+        weights = {axis_id: 1.0 for axis_id, d in axes.items() if d.is_published}
+        preference = RoutePreference(weights=weights)
+        results = compute_edge_costs_bulk(graph, {}, {}, preference, way_tags={"e0": {}}, weights=weights)
 
     assert results["e0"].allowed is True
     assert results["e0"].difficulty is not None
