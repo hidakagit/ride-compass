@@ -1,6 +1,5 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
 import {
   LAYER_DATA_STATUS_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
@@ -24,7 +23,6 @@ import {
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import type { StaticFilterAxis, StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
-import { InfoIcon } from "@/components/Map/icons";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -133,39 +131,7 @@ export default function MapLayersPanel({
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadWidthAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
 
-  // レイヤー見出し行（Disclosureのtrailing、開閉状態に関わらず常に見える箇所）に置く
-  // 情報アイコン（実機フィードバック「情報アイコンは、折りたたみを展開しなくても見れる
-  // ようにして」への対応）。以前はrenderHintToggleでセクション本文（Disclosureのbody、
-  // 展開しないと見えない）に置いていたが、WarningBadge.tsx（気象警報のサマリーボタン）と
-  // 同じRadix Popoverへ差し替え、開閉トリガー（button）の外に置くことで折りたたんだままでも
-  // 説明文へアクセスできるようにする。trailingはtrigger（button）の外に置かれるため、
-  // Popover.Triggerをbuttonにしてもbutton内buttonにならない（Disclosure.tsx冒頭コメント参照）。
-  function renderHintPopoverTrigger(subjectLabel: string, hint: string | undefined, detail?: readonly string[]) {
-    if (!hint) return null;
-    return (
-      <Popover.Root>
-        <Popover.Trigger asChild>
-          <button type="button" className={styles.hintPopoverTrigger} aria-label={`${subjectLabel}の説明を表示`}>
-            <InfoIcon size={14} />
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content className={styles.hintPopoverContent} side="bottom" align="end" sideOffset={6}>
-            <p className={styles.mutedHint}>{hint}</p>
-            {detail && detail.length > 0 && (
-              <ul className={styles.hintList}>
-                {detail.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            )}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-    );
-  }
-
-  // 路面の種類・道路の種類の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditor
+// 路面の種類・道路の種類の絞り込みは即時反映（T31。旧「下書き→適用」はRoadFilterEditor
   // ごと廃止し、ルート凡例のチェックと同じ方式へ統一した）。OFF中に操作したら
   // レイヤーを自動でONにする（設定したのに何も起きない状態を作らない）。
   // 改善計画T165: 「道路情報」（road）が路面の種類（surface軸→roadSurfaceレイヤー）・
@@ -438,16 +404,13 @@ export default function MapLayersPanel({
         // HTMLにならず、以前summary内で必要だったpreventDefault/stopPropagation
         // （details開閉のデフォルト動作との衝突回避）も不要になった。
         trailing={
-          <>
-            {renderHintPopoverTrigger(layer.label, layer.panelHint, layer.panelHintDetail)}
-            <LayerChip
-              label="表示"
-              ariaLabel={`${layer.label}レイヤーを表示`}
-              on={layerVisibility[layer.id]}
-              dataStatus={visibleDataStatus(layer.id)}
-              onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
-            />
-          </>
+          <LayerChip
+            label="表示"
+            ariaLabel={`${layer.label}レイヤーを表示`}
+            on={layerVisibility[layer.id]}
+            dataStatus={visibleDataStatus(layer.id)}
+            onClick={() => onLayerToggle(layer.id, !layerVisibility[layer.id])}
+          />
         }
       >
         {renderSectionBody(layer)}

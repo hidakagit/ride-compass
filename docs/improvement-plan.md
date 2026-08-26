@@ -6802,16 +6802,16 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   には情報アイコンが出ないことを確認。モバイル幅390pxでも横スクロールなし・タップ操作
   可能なことを確認。コンソールエラーなし。
 - 依存: T317（同日の一連の作業、抜け落ちの直接の発端）。
-- 2026-08-26追記（撤去）: 同じ説明文(panelHint)がサイドバー「地図の見え方」パネル
-  （MapLayersPanel.tsx: renderHintPopoverTrigger、各レイヤーセクション見出し脇に常設）
-  からも確認できるようになったため、地図上チップの「表示する項目を選ぶ」設定パネル側
-  （本タスクで追加した個別情報アイコン）は重複と判断し撤去した。`MapOverlayControls.tsx`
-  の`renderVisibilitySettings`から情報アイコンボタン・`openInfoKeys`state・
-  `OverlayLayerChip.panelHint`フィールドを削除、`page.tsx`のpanelHint配線・
-  `MapOverlayControls.module.css`の`.visibilityInfoButton`系スタイル・回帰テスト3件も
-  合わせて削除。`panelHint`データ自体（mapLayers.ts/secondaryAxes.ts）はMapLayersPanel.tsx
-  側が使い続けるため変更していない。tsc --noEmit clean、関連テスト71件パス、Playwright
-  実機確認で観測・推定・動的の3グループとも情報アイコンが出ないことを確認。
+- 2026-08-26追記（撤去→再修正）: 一度「同じ説明文がサイドバー『地図の見え方』パネル
+  （MapLayersPanel.tsx: renderHintPopoverTrigger）からも確認できるため重複」と判断し、
+  地図チップ側（本タスクで追加した個別情報アイコン）を撤去したが、これはユーザーの
+  実際の意図と逆だった。ユーザーの元々の依頼は「サイドバー側の重複アイコンを消してほしい」
+  であり、地図チップ側は維持すべきものだった（撤去コミット自体にユーザー指示の直接引用が
+  無く、AIセッション側の解釈のみで判断していたことが誤りの原因）。本追記時点で
+  `git revert`により地図チップ側の個別情報アイコンを復元し、代わりにサイドバー側
+  `MapLayersPanel.tsx: renderHintPopoverTrigger`とその専用CSS
+  （`.hintPopoverTrigger`/`.hintPopoverContent`/`.hintList`）・関連テスト2件を削除した。
+  今後、ユーザー指示を理由に機能を撤去する場合は指示の直接引用を残すこと（本件の教訓）。
 
 ### - [x] T335. CI(backend)のtest_match_designations.pyがCI環境（PostGIS 16）でだけ失敗する 規模S〜M（2026-08-26完了）
 

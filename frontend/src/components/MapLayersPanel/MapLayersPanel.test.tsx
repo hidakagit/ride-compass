@@ -94,20 +94,12 @@ function openSection(id: MapLayerId) {
 
 // 個別セクションの開閉自体ではなく中身の挙動を検証する大半のテストのために、レンダー直後に
 // 全セクションを開く一括版。Accordion.Triggerだけを`[aria-controls]`の有無で区別する
-// （情報アイコンのrenderHintPopoverTriggerボタンやFieldLabelのPopover.Triggerも同じ
-// aria-expanded="false"を持つが、いずれもaria-controlsを持たないため誤って開いてしまわない）。
+// （FieldLabelのPopover.Triggerも同じaria-expanded="false"を持つが、aria-controlsを
+// 持たないため誤って開いてしまわない）。
 function openAllSections() {
   document
     .querySelectorAll('button[aria-expanded="false"][aria-controls]')
     .forEach((button) => fireEvent.click(button));
-}
-
-// 各メンバーの説明（panelHint）は情報アイコン（renderHintPopoverTrigger、実機フィードバック
-// 「情報アイコンは、折りたたみ展開せずに見れるようにして」への対応）を押すまで本文がDOMに
-// 出ないが、アイコン自体はセクションの開閉状態と無関係に常に見える（Disclosureのtrailing、
-// トリガーボタンの外）。このヘルパーはセクションを開いているかどうかに関わらず使える。
-function openHint(subjectLabel: string) {
-  fireEvent.click(screen.getByRole("button", { name: `${subjectLabel}の説明を表示` }));
 }
 
 // パネルの枠組み（レイヤーカタログからのセクション生成・表示チップ・凡例チェックの
@@ -208,28 +200,6 @@ describe("MapLayersPanel", () => {
     expect(compositeGroup).toBeTruthy();
     const titles = Array.from(compositeGroup!.querySelectorAll("h3")).map((h) => h.textContent);
     expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "事故密度", "夜間"]);
-  });
-
-  // 実機フィードバック「各メンバーの説明は、情報アイコン（！）を押したら見えるようにして」
-  // （説明文は押すまで常時表示しない）、続けて「情報アイコンは、折りたたみ展開せずに見れる
-  // ようにして」（アイコン自体はセクションを開かなくても見える）の2段階の実機フィードバックへの
-  // 対応。以前はセクションを開く（<details>）だけで説明文（panelHint）が常に見えており、
-  // 車ストレスの8行に及ぶ判定内訳などが常時表示されて読みにくいという指摘につながっていた
-  // その後、情報アイコン自体もセクションを開かないと現れない（Disclosureのbodyにあった）ため
-  // 探すのに開閉操作が要るという指摘を受け、情報アイコンをtrailing（トリガーの外、常時表示）へ
-  // 移設した（MapLayersPanel.tsx: renderHintPopoverTrigger）。
-  it("レイヤーの情報アイコンはセクションを開かなくても見え、押すとPopoverで説明が表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    // openAllSections/openSectionを一切呼ばない＝セクションを閉じたままでもアイコンが
-    // 見え、説明文は押すまで出ないことの両方を確認する。
-    expect(screen.queryByText("国土地理院の色別標高図を重ねる")).not.toBeInTheDocument();
-
-    const toggle = screen.getByRole("button", { name: "標高図の説明を表示" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
-
-    expect(screen.getByText("国土地理院の色別標高図を重ねる")).toBeInTheDocument();
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
   // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
@@ -699,19 +669,6 @@ describe("MapLayersPanel", () => {
     openSection("roadSurface");
     expect(screen.getByRole("checkbox", { name: /砂利・締固め/ })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
-  });
-
-  // 改善計画T292: 車ストレス（車の圧迫感）は専用Pythonレシピの廃止に伴い、他の推定軸
-  // （停止密度・事故密度等）と同じ汎用ramp機構へ統合された。専用の5段階panelHintDetail
-  // （加点/減点の箇条書き内訳）は廃止され、単一の説明文（ramp軸共通の形）に置き換わった。
-  // 改善計画T310: この説明文は軸id→値の手書き辞書（旧RAMP_AXIS_PANEL_HINTS）ではなく、
-  // 軸自身のデータ（AXIS_DEFINITIONS.panel_hint）から取得する。
-  it("車の圧迫感の凡例に判定基準の説明が表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("axis:car_stress");
-    openHint("車の圧迫感");
-    expect(screen.getByText(/道路種別・自転車インフラ・制限速度・車線数・指定路線・自動車通行可否から推定した/)).toBeInTheDocument();
   });
 
   // 「不明」がしきい値段階と並ぶ数値段階に見えないよう、区切り線付きの専用クラスで

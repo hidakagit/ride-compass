@@ -67,6 +67,13 @@ export interface OverlayLayerChip {
    * MapLayerDescriptor.dataNatureをそのまま渡す。categoryを持つチップは必ずこれで
    * 観測/推定のどちらかへ束ねられる（未指定は"raw"扱い）。 */
   dataNature?: MapLayerDataNature;
+  /** 改善計画T334: 「表示する項目を選ぶ」設定パネル（renderVisibilitySettings）で、
+   * この項目の行に個別の情報アイコンを出し、押すと表示する説明文。mapLayers.ts:
+   * MapLayerDescriptor.panelHintをそのまま渡す。未設定なら情報アイコン自体を出さない。
+   * ▶パネル本体（renderRawMemberTile等）へ常時表示する用途にはもう使わない
+   * （T317同日追記で「読みにくい」とされ撤去済みのため、このフィールドは設定パネル
+   * 内の任意開閉表示専用）。 */
+  panelHint?: string;
 }
 
 interface MapOverlayControlsProps {
@@ -471,6 +478,24 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     }
   }
 
+  // 改善計画T334: 「表示する項目を選ぶ」設定パネル内、各項目の情報アイコンで説明文
+  // (panelHint)を開閉する状態。個々の凡例展開（member:/axis:等）と同じく「今ちょっと
+  // 確認のために開いている」一時的な状態のため、localStorageへは永続化しない
+  // （serializeStringSet/deserializeStringSetの対象に含めない）。キーは
+  // `${scope}:${item.key}`でhiddenIdsと同じ名前空間の作り方に揃える。
+  const [openInfoKeys, setOpenInfoKeys] = useState<ReadonlySet<string>>(new Set());
+  function toggleInfo(key: string) {
+    setOpenInfoKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
   // anchor="right"（従来どおり行の右へ）/"down"（行の直下へ）。いずれもdocument.bodyへ
   // ポータルしてposition: fixedで浮かせる（下記ChipButton参照）。▼方向（推定グループの
   // 軸タイル）を最初はchipRowItem内の通常のフロー+position: absoluteで実装したが、
@@ -661,6 +686,9 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
        * undefinedのまま渡す。 */
       layerId?: MapLayerId;
       on?: boolean;
+      /** 改善計画T334: 行の右側に個別の情報アイコンを出し、押すと表示する説明文。
+       * 未設定なら情報アイコン自体を出さない。 */
+      description?: string;
     }[]
   ) {
     const legendKey = `${groupKey}:legend`;
@@ -691,10 +719,15 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
           createPortal(
             <div className={styles.detailPanel} style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth, maxHeight: rect.maxHeight }}>
               <ul className={styles.detailList}>
-                {items.map((item) => {
+                {items.flatMap((item) => {
                   const hiddenKey = `${scope}:${item.key}`;
                   const isHidden = hiddenIds.has(hiddenKey);
-                  return (
+                  // 改善計画T334: infoKeyはhiddenKeyと同じ`${scope}:${item.key}`名前空間だが
+                  // 別のSet（openInfoKeys）で管理するため、非表示設定と情報アイコンの開閉は
+                  // 互いに影響しない。
+                  const infoKey = hiddenKey;
+                  const isInfoOpen = openInfoKeys.has(infoKey);
+                  const row = (
                     <li key={item.key} className={styles.detailRow}>
                       <button
                         type="button"
@@ -711,8 +744,31 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                       </button>
                       <item.Icon size={16} />
                       <span className={styles.detailRowLabel}>{item.label}</span>
+                      {item.description && (
+                        <button
+                          type="button"
+                          onClick={() => toggleInfo(infoKey)}
+                          aria-expanded={isInfoOpen}
+                          aria-label={`${item.label}の説明を${isInfoOpen ? "隠す" : "表示"}`}
+                          title="説明を表示"
+                          className={
+                            isInfoOpen
+                              ? `${styles.visibilityInfoButton} ${styles.visibilityInfoButtonActive}`
+                              : styles.visibilityInfoButton
+                          }
+                        >
+                          <InfoIcon size={12} />
+                        </button>
+                      )}
                     </li>
                   );
+                  if (!item.description || !isInfoOpen) return [row];
+                  return [
+                    row,
+                    <li key={`${item.key}:info`} className={styles.visibilityInfoRow}>
+                      <p className={styles.detailNotice}>{item.description}</p>
+                    </li>,
+                  ];
                 })}
               </ul>
             </div>,
@@ -909,6 +965,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                           label: axis.chipLabel,
                           layerId: axis.layerId,
                           on: axisMember?.on,
+                          description: axis.panelHint,
                         };
                       })
                     )}
@@ -977,6 +1034,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                         label: member.chipLabel ?? member.label,
                         layerId: member.id,
                         on: member.on,
+                        description: member.panelHint,
                       }))
                     )}
               </div>,
@@ -1034,6 +1092,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                         label: member.chipLabel ?? member.label,
                         layerId: member.id,
                         on: member.on,
+                        description: member.panelHint,
                       }))
                     )}
               </div>,
