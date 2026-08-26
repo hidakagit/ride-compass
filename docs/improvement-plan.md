@@ -7651,7 +7651,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T349. T348（第三案）を差し戻し、軸定義DB同期のフォールバックを廃止しfail-fast化（オプションAへ） 規模M
+### - [x] T349. T348（第三案）を差し戻し、軸定義DB同期のフォールバックを廃止しfail-fast化（オプションAへ） 規模M（完了）
 
 - 背景: T348完了後、ユーザーとの継続的な議論（2026-08-26）で、第三案（Pythonが正本、
   DBは実行時override、フォールバック機構は維持）自体が「複数管理はやめて、シンプルに
@@ -7705,6 +7705,128 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   パイプライン外の経路では依然発生しうる。能動的アラート（複雑度レビューF-1提案の
   `/api/debug/stats`統合・ヘルスチェックdegraded表明）は本タスクのスコープ外
   （起票案として複雑度レビューに記載済み、別タスクとしてユーザー承認後に着手）。
+
+---
+
+### - [ ] T350. axis_definitionsを全14軸DB専有化し、Python literalを撤去（フル版オプションA） 規模XL
+
+- 背景: T349完了後もユーザーから「複数管理はやめて、シンプルにして」という指摘が継続し、
+  DB設計書（`.claude/`外の一時artifact、2026-08-27公開）を用いた対話的な検証を経て、
+  T349（フォールバック撤去のみ）では重複管理の本質——`AXIS_DEFINITIONS`（Python literal）と
+  `axis_definitions`DBテーブルの2箇所に同じ軸定義が物理的に存在し続けること自体——を
+  解決していないと確認された。以下の検証を経て「DBを14軸全部の唯一の正本にする」方針が
+  確定した。
+  1. **境界線の確定**: 「コードでしか制御できないもの（MVTタイルに焼き込まれている・
+     外部から取り込んだ生データそのもの）＝`MATERIAL_CATALOG`」「それ以外＝
+     `AXIS_DEFINITIONS`」という原則で線引きすると、公開済み軸を含む全14軸とも
+     MVT焼き込み・生データのどちらにも該当しない（実装確認済み: `gradient`等の8公開軸は
+     生の材料[`gradient_percent`等]を変換[breakpoints]した推定値であり、MVT生成SQL
+     [`_ROAD_SURFACE_TILE_MVT_SQL`]に焼き込まれているのは`surface_good`等の生材料の方で
+     軸の合成スコア自体ではない）。`is_published`によるGUI編集不可は
+     `check_publish_immutability`というアプリ層のガバナンスルールであり、データの
+     本質的な不変性ではない（新規軸作成時に`is_published=true`を直接指定すること自体は
+     `AxisRegistryAdminService.create()`で塞がれていない）。
+  2. **テスト速度の実測**: session-scopedで1回だけDBから読み込む構成で44ms、
+     「DB起動有無で7秒→12秒台」という差は無関係な既存postgis依存テストの実行有無が
+     原因と判明（T349時点の実測）。
+  3. **テスト方針の確定**: 「DB値が特定の数値であること」を検証するテスト
+     （`weights["gradient"] == 0.15`等）は**丸ごと不要と判断し削除**（可変であることを
+     前提にDBへ置いているデータを、特定の値へ固定検証すること自体が誤り。正当な
+     チューニングのたびに無意味な失敗を生むだけで実際のバグを検知しない）。関数の
+     正しさを検証したいテスト（`evaluate_axis_scalar`のbreakpoints補間等）は、本物の
+     `AXIS_DEFINITIONS`ではなくテストファイル内で定義した合成軸データへ書き換える
+     （`test_evaluation_bulk.py`の`monkeypatch.setitem`パターンが既存の実例）。
+  4. **コード結合axis_idの発見**: `AXIS_DEFINITIONS`以外のbackend/frontendコードが、
+     特定のaxis_idを文字列としてハードコードして依存している箇所を実際に検索・確認した。
+     - `car_stress`: `road_graph_engine.py`/`openrouteservice_engine.py`が
+       `axis_difficulties.axes.get("car_stress")`で直接参照、`car_stress_display_level()`
+       （`axis_definitions.py:929`）が地図表示用1-5値への逆変換に使用。軸の存在が
+       前提（削除で素の`KeyError`）。shape型への前提はT320で緩和済み（BreakpointLinearShape
+       以外はNoneへ安全側フォールバック）。
+     - `night`: `road_graph_engine.py`/`openrouteservice_engine.py`のT173時刻依存ロジック
+       （市民薄明の外なら重みそのまま、日中なら0倍）が`"night"`を直接参照。軸の**重み**の
+       扱いにのみ影響し、軸の定義（materials→difficulty変換）自体には特殊性なし
+       （他の軸と同じ`evaluate_axis_scalar`経路）。2026-08-25に軸の非公開化で
+       素の`KeyError`が実際に発生した実績があり、現在は`.get("night", 0.0)`で緩和済み。
+     - `wind`・`gradient`: frontend`routeStyleModes.ts`のルート色分け機能
+       （`RouteStyleModeId`、MapLibre expressionで`axis_difficulties.wind`等を直接参照）が
+       この2軸のみ対応。軸の定義自体には特殊性はなく、色分け機能というUI機能側が
+       この2軸の存在を前提にしているだけ（対応拡張は本タスクと無関係な別の機能追加）。
+     - **結論**: 4軸とも個別の再設計は不要で、共通して「削除されると困る」という
+       1点のみ。`is_published`とは独立に、削除を拒否する専用ガードを追加する。
+- 決定事項（フル版オプションA、2026-08-27最終確定）:
+  - `domain/axis_definitions.py: AXIS_DEFINITIONS`のPython literal（14軸分の実データ）を
+    撤去する。Pythonに残すのは型定義（`AxisDefinition`等のPydanticモデル、
+    `evaluate_axis_scalar`等のドメイン純関数）のみ。
+  - `axis_definitions`DBテーブルを唯一の正本にする。起動時（`main.py`のlifespan）に
+    DBから1回読み込み`AXIS_DEFINITIONS`（モジュールレベルdict、オブジェクト自体は
+    引き続き存在——起動時に空からpushされる形へ変わるだけ）へpushする、という
+    現行の読み出し経路（91箇所の同期的な辞書アクセス）は変更しない。
+  - T349のfail-fast方針は維持・単純化する: DB未接続・0行・未知参照はいずれも
+    `AxisDefinitionSyncError`を送出し起動を失敗させる（「Pythonへフォールバック」という
+    概念自体が無くなるため、ドキュメント上の説明も単純化する）。
+  - **削除禁止ガード**: `car_stress`・`night`・`wind`・`gradient`の4axis_idについて、
+    `AxisRegistryAdminService.delete()`が`is_published`の状態に関わらず削除を拒否する
+    （最後の1軸ガードと同じ形の、コード結合axis_id専用ガード）。将来コード側で新たに
+    axis_idをハードコード参照する箇所が増えた場合はこのガード対象リストへ追加する
+    （増える可能性のあるものとして、これ以外のfrontend/backendコードを都度確認する）。
+  - `backend/scripts/generate_axis_migration_sql.py`・`tests/test_migrate.py`の
+    ドリフト検知アサーションを撤去する（Pythonという著述元が無くなるため、生成・照合の
+    対象が消滅する）。新規axis追加・既存axis変更は、以降**手書きのmigration SQL**で行う
+    （このプロジェクトの他のスキーマ変更と同じ標準の運用に合流するだけで、新たな
+    「手書きリスク」を追加するものではない——構造化JSON表現[`shape_params`]の手書きが
+    怖いという固有の懸念には、`AxisShape`のPydanticバリデーションと
+    `test_migrate.py`のブートストラップ構造検証[後述]が引き続き効く）。
+  - テスト方針: 上記「テスト方針の確定」通り。DB値そのものを検証するテストは削除。
+    `test_migrate.py`のブートストラップテストは「特定の値と一致するか」ではなく
+    「全migration適用後、全axisが例外なく読める・未知参照が無い・件数が合う」という
+    **構造検証のみ**へ縮小する（現状の`AXIS_DEFINITIONS`との値比較アサーションを撤去）。
+- 影響範囲（概算、着手時に確定）: `app/`91箇所・`tests/`151箇所・37ファイル
+  （T348起票時点の実査）。うち大半はテスト（`test_difficulty.py`32箇所等）で、
+  「合成データへの書き換え」または「関係性アサーションへの書き換え」の機械的な修正。
+  `axis_admin.py`の一覧・取得APIは元々DB直読みのため変更不要。
+- 未確定事項（着手時に決める）:
+  1. 削除禁止ガード対象リスト（`car_stress`/`night`/`wind`/`gradient`の4件）の
+     網羅性——今回の検索は`app/`直下・frontend `src/`直下への一発grepであり、
+     間接参照（関数経由でのaxis_id依存等）を洗いきれていない可能性がある。着手時に
+     より丁寧な洗い出しを行う。
+  2. 151箇所のテスト参照のうち、「合成データへの書き換え」と「関係性アサーションへの
+     書き換え」のどちらが適切かはファイルごとに判断が要る（本エントリの検証は
+     代表的なファイル数件の抜き取りに留まる）。
+
+---
+
+### - [ ] T351. 派生データの世代管理・Raw→Derived系譜追跡の強化 規模M〜L（起票のみ、未着手）
+
+- 背景: T350のDB設計書レビュー（ユーザー、2026-08-27）で指摘。DB設計書自体を
+  実装（`*_models.py`・`migrations/*.sql`）と突き合わせて検証済みで、以下は実際に
+  裏付けが取れている:
+  1. `edge_attribute_counts`/`way_attribute_counts`は`computed_at`のみを持ち、
+     どの`accident_import_runs`/`osm_import_runs`の内容から計算されたかを追跡する列
+     （例: `source_accident_import_run_id`）が無い。事故データを2025年版→2026年版へ
+     更新した場合、`accident_points`は最新でも`edge_attribute_counts`が旧版のまま
+     という状態がDB上検出不能。
+  2. 「入力データのバージョン（source_version）」と「計算ロジックのバージョン
+     （algorithm_version）」が`computed_at`という1つのタイムスタンプへ混在しており、
+     区別されていない（例: 事故集計の半径条件を50m→30mへ変更した場合、入力データは
+     同じでも再計算が必要——これを`computed_at`だけでは判別できない）。
+  3. `designation_attributes`（複合PK`osm_way_id, kind`）に`route_designations.id`への
+     参照が無く、同kindの複数`route_designations`行が同じWayへマッチした場合、
+     どの行が実際にマッチしたか特定できない（実装確認済み、`DesignationAttributeRow`に
+     該当列なし）。
+  4. `osm_import_runs`/`accident_import_runs`/`designation_import_runs`という
+     「取込の実行記録」自体は存在するが、そこから生データ・派生データへの追跡経路
+     （FKまたは明示的な参照列）が無い。
+- 対応方針（案、着手時に検討）: `edge_attribute_counts`/`way_attribute_counts`へ
+  `source_version`・`algorithm_version`相当の列を追加する、または汎用的な
+  `data_processing_runs`（raw→graph生成→属性計算→評価、という処理世代を横断管理する
+  テーブル）を新設する、のいずれかを比較検討する。`designation_attributes`への
+  `route_designation_id`列追加は比較的小さい変更で対応できる見込み。
+- **T350（axis_definitions DB専有化）とは独立したタスクとして扱う**——同一のDB設計書
+  レビューから同時に見つかった指摘だが、対象領域（評価軸の正本管理 vs 派生データの
+  系譜管理）が異なり、1つのタスクへ混ぜるとどちらの完了条件も曖昧になる
+  （2026-08-27ユーザー判断）。
+- 優先度: P1（起票のみ、着手はしない）。着手判断はユーザー承認後、別途行う。
 
 ---
 
