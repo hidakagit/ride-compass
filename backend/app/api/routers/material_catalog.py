@@ -30,6 +30,12 @@ DB未接続構成（`road_graph_use_repository=False`）では空リストを返
 （`domain/material_catalog.py`、材料定義自体の一部）へ一元化した。本APIのレスポンスに
 `label`を含めることで、frontendは受け取った値をそのまま表示するだけでよくなる
 （frontend側の対訳表は撤去済み）。
+
+改善計画T345さらなるフォローアップ2: `values.label`（`MaterialSpec.value_label`）・
+`materials.label`（`MaterialSpec.full_label`）ともに「論理名 - 物理名」形式
+（例: 材料"道路種別 - highway"、値"自転車専用道 - cycleway"）で返す。論理名だけでは
+どのOSMタグ値に対応するか分からない・軸定義（`AxisDefinitionResponse`）や外部ドキュメント
+上で物理名を探す必要がある、というユーザー要望への対応。
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -44,6 +50,9 @@ router = APIRouter()
 
 class MaterialCatalogEntry(BaseModel):
     material_id: str
+    # 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式（MaterialSpec.full_label、
+    # 例: "道路種別 - highway"）。論理名だけでは物理名(material_id)が分からないという
+    # ユーザー要望への対応。
     label: str
     # 改善計画T345: 軸スタジオの材料選択で、labelだけでは何を表す材料か分かりにくいという
     # ユーザーフィードバックへの対応。情報アイコン(ⓘ)から表示する説明文。
@@ -57,9 +66,10 @@ class MaterialCatalogResponse(BaseModel):
 
 class MaterialValueEntry(BaseModel):
     value: str
-    # 改善計画T345フォローアップ: タグ生値の日本語ラベル。ラベル対訳表に無い値は
-    # valueと同じ文字列（MaterialSpec.value_labelのフォールバック、新しいOSMタグ値が
-    # DBに現れてもAPIが失敗しないようにするため）。
+    # 改善計画T345フォローアップ: 「論理名 - 物理名」形式（例: "自転車専用道 - cycleway"）。
+    # ラベル対訳表に無い値はvalueと同じ文字列（MaterialSpec.value_labelのフォールバック、
+    # 新しいOSMタグ値がDBに現れてもAPIが失敗しないようにするため。この場合論理名が無い
+    # ため" - "は付かない）。
     label: str
 
 
@@ -71,7 +81,9 @@ class MaterialValuesResponse(BaseModel):
 async def get_material_catalog() -> MaterialCatalogResponse:
     return MaterialCatalogResponse(
         materials=[
-            MaterialCatalogEntry(material_id=m.material_id, label=m.label, description=m.description, dtype=m.dtype)
+            MaterialCatalogEntry(
+                material_id=m.material_id, label=m.full_label(), description=m.description, dtype=m.dtype
+            )
             for m in axis_studio_materials()
         ]
     )

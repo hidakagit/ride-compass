@@ -265,11 +265,22 @@ def test_highway_surface_smoothness_have_distinct_value_labels():
 
 
 def test_value_label_falls_back_to_the_raw_value_for_unknown_values():
+    # 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式で返す
+    # （例: "住宅街の道路 - residential"）。
     highway = MATERIAL_CATALOG["highway"]
-    assert highway.value_label("residential") == "住宅街の道路"
+    assert highway.value_label("residential") == "住宅街の道路 - residential"
+    # 対訳表に無い値（論理名が無い）は物理名のみ、" - "は付かない。
     assert highway.value_label("some_new_osm_value") == "some_new_osm_value"
 
     # value_labelsを持たない材料（例: gradient_percent）は常にvalueそのまま。
     gradient = MATERIAL_CATALOG["gradient_percent"]
     assert gradient.value_labels == {}
     assert gradient.value_label("anything") == "anything"
+
+
+def test_full_label_combines_label_and_material_id():
+    # 改善計画T345さらなるフォローアップ2: 材料名も値と同じ「論理名 - 物理名」形式
+    # （例: "道路種別 - highway"）で軸スタジオへ返す（full_labelはGET /api/material-catalogの
+    # labelフィールドが使う）。
+    highway = MATERIAL_CATALOG["highway"]
+    assert highway.full_label() == "道路種別 - highway"

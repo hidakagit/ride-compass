@@ -7365,6 +7365,32 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   非DBテスト1090件、`export_openapi.py`→`npm run generate:api`実行しドリフト無しを確認。
   frontend（`useMaterialValues`のテストを新レスポンス形状へ更新、`lib/materialValueLabels.ts`
   とそのテストは撤去）全676件・lint・tsc green。
+  - **さらなるフォローアップ2（同日、ユーザー指摘）**: 値ラベル・材料ラベルとも
+    「論理名 - 物理名」形式（例: 値「自転車専用道 - cycleway」、材料「道路種別 -
+    highway」）へ統一してほしいという指摘。論理名だけでは対応するOSMタグ値・材料id
+    (material_id)が分からず、軸定義やドキュメント上で物理名を探す必要があった実運用上の
+    不便への対応。
+    - `MaterialSpec.value_label(value)`（`domain/material_catalog.py`）を、対訳表に
+      論理名があれば`f"{label} - {value}"`を返すよう変更（対訳表に無い値は従来どおり
+      物理名のみ、フォールバック）。
+    - 材料名側にも同じ発想で`MaterialSpec.full_label()`を新設（`f"{self.label} -
+      {self.material_id}"`）し、`GET /api/material-catalog`の`label`フィールドが
+      これを返すようにした（`api/routers/material_catalog.py: get_material_catalog`）。
+    - frontendの静的フォールバック（`lib/axisMaterialsCatalog.ts: AXIS_MATERIAL_OPTIONS`）
+      も同じ形式へ手動で揃えた（動的取得失敗時のみ使われるため自動追従はしないが、
+      表示形式は一致させておく）。`AxisComposer.tsx`・`useMaterialValues.ts`側は
+      backendが返す文字列をそのまま表示するだけのため、コード変更は不要だった。
+    - レスポンスのフィールド型（`str`）自体は変わらないため`export_openapi.py`実行後も
+      OpenAPI生成物に差分無し（文字列の中身が変わるだけで、型定義には影響しない）。
+    検証: backend `test_value_label_falls_back_to_the_raw_value_for_unknown_values`・
+    新設`test_full_label_combines_label_and_material_id`、
+    `test_material_catalog_routes.py`の該当アサーションを新形式へ更新。非DBテスト
+    1085件（＋2件）green、`export_openapi.py`実行しドリフト無しを確認。frontend:
+    `AxisComposer.materialValues.test.tsx`・`AxisComposer.test.tsx`・
+    `AxisStudio.test.tsx`の該当アサーション（候補セレクトの選択肢名・情報アイコンの
+    aria-label・材料選択肢名）を新形式へ更新（候補セレクトが物理値を併記しないことを
+    確認していた回帰テストは、新形式で併記することを確認するテストへ書き換えた）。
+    全676件・lint・tsc green。
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、

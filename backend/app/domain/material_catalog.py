@@ -158,9 +158,20 @@ class MaterialSpec(BaseModel):
     value_labels: dict[str, str] = {}
 
     def value_label(self, value: str) -> str:
-        """タグ生値から日本語ラベルを引く。対訳表に無い値はvalueそのまま
-        （フォールバック、新しいOSMタグ値がDBに現れてもAPIが失敗しないようにするため）。"""
-        return self.value_labels.get(value, value)
+        """タグ生値から「論理名 - 物理名」形式の表示用ラベルを組み立てる（例:
+        "自転車専用道 - cycleway"、改善計画T345さらなるフォローアップ2）。対訳表に無い値は
+        物理名のみ返す（フォールバック、新しいOSMタグ値がDBに現れてもAPIが失敗しない
+        ようにするため。この場合論理名が無いため" - "を付けない）。"""
+        label = self.value_labels.get(value)
+        if label is None:
+            return value
+        return f"{label} - {value}"
+
+    def full_label(self) -> str:
+        """材料名を「論理名 - 物理名」形式の表示用ラベルにする（例: "道路種別 - highway"、
+        value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する、
+        改善計画T345さらなるフォローアップ2）。"""
+        return f"{self.label} - {self.material_id}"
 
 
 # --- 改善計画T280: 抽出関数（compute_edge_costs_bulkの旧手書き抽出ループを1材料1関数へ

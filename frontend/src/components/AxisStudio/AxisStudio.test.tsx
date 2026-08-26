@@ -157,8 +157,9 @@ describe("AxisStudio", () => {
     await user.click(screen.getByRole("button", { name: "次へ" }));
 
     const materialSelect = screen.getByRole("combobox", { name: "材料(material)" });
-    // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として自転車インフラ種別を含む。
-    expect(screen.getByRole("option", { name: "自転車インフラ種別" })).toBeInTheDocument();
+    // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として自転車インフラ種別を含む
+    // （改善計画T345さらなるフォローアップ2: labelは「論理名 - 物理名」形式）。
+    expect(screen.getByRole("option", { name: "自転車インフラ種別 - bicycle_infra" })).toBeInTheDocument();
     await user.selectOptions(materialSelect, "bicycle_infra");
 
     expect(screen.queryByText("該当時(true)のスコア")).not.toBeInTheDocument();

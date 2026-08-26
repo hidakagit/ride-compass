@@ -9,14 +9,16 @@ import AxisComposer from "./AxisComposer";
 
 // 改善計画T345フォローアップ: ラベルはbackend（MaterialSpec.value_labels）が返す前提へ
 // 変更したため、モック応答も{value, label}形式にする（frontend側の翻訳表は撤去済み）。
+// さらなるフォローアップ2: backendが返すlabelは「論理名 - 物理名」形式
+// （MaterialSpec.value_label、例: "住宅街の道路 - residential"）。
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   getMaterialValues: vi.fn(async (materialId: string) => {
     if (materialId === "highway") {
       return {
         values: [
-          { value: "residential", label: "住宅街の道路" },
-          { value: "primary", label: "主要幹線道路" },
+          { value: "residential", label: "住宅街の道路 - residential" },
+          { value: "primary", label: "主要幹線道路 - primary" },
         ],
       };
     }
@@ -53,9 +55,9 @@ describe("AxisComposer 値の候補セレクト", () => {
 
     await user.selectOptions(candidateSelect, "residential");
 
-    // 選択後は生のタグ値("residential")ではなくラベル("住宅街の道路")が値欄に表示される。
-    expect(valueInput).toHaveValue("住宅街の道路");
-    expect(screen.queryByText("residential")).not.toBeInTheDocument();
+    // 選択後は「論理名 - 物理名」形式のラベル("住宅街の道路 - residential")が値欄に
+    // 表示される（改善計画T345さらなるフォローアップ2）。
+    expect(valueInput).toHaveValue("住宅街の道路 - residential");
     // 候補セレクト自体は選択の起点（value=""）へ戻る（連続で別の値も選べるようにするため）。
     expect(candidateSelect).toHaveValue("");
 
@@ -68,7 +70,7 @@ describe("AxisComposer 値の候補セレクト", () => {
     expect(payload.shape).toEqual({ kind: "categorical", material: "highway", mapping: { residential: 0 } });
   });
 
-  it("改善計画T345回帰テスト: 候補セレクトの選択肢は論理名(ラベル)のみを表示し、物理値(タグ生値)を併記しない", async () => {
+  it("改善計画T345さらなるフォローアップ2回帰テスト: 候補セレクトの選択肢は「論理名 - 物理名」形式で物理値(タグ生値)を併記する", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -81,10 +83,9 @@ describe("AxisComposer 値の候補セレクト", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
 
     const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
-    // 候補セレクトはbackendが返すlabel（"住宅街の道路"）をそのまま表示し、物理値
-    // "residential"併記（旧表示「住宅街の道路 (residential)」）は無いことを確認する。
-    expect(screen.getByRole("option", { name: "住宅街の道路" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /residential/ })).not.toBeInTheDocument();
+    // 候補セレクトはbackendが返すlabel（"住宅街の道路 - residential"）をそのまま表示する。
+    // 論理名だけではどのOSMタグ値に対応するか分からないというユーザー要望への対応。
+    expect(screen.getByRole("option", { name: "住宅街の道路 - residential" })).toBeInTheDocument();
     expect(candidateSelect).toBeInTheDocument();
   });
 

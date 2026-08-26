@@ -14,6 +14,9 @@ export type AxisMaterialDType = "numeric" | "boolean" | "categorical";
 
 export interface AxisMaterialOption {
   id: string;
+  /** 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式（例: "道路種別 - highway"）。
+   * backend/app/domain/material_catalog.py: MaterialSpec.full_label()と同じ形式で、
+   * 動的取得（GET /api/material-catalog）が失敗した場合のフォールバックとして揃える。 */
   label: string;
   /** 改善計画T345: 情報アイコン(ⓘ)から表示する説明文。backend/app/domain/
    * material_catalog.py: MaterialSpec.descriptionが単一ソース。 */
@@ -34,156 +37,156 @@ export interface AxisMaterialOption {
 export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
   {
     id: "gradient_percent",
-    label: "勾配%（符号付き）",
+    label: "勾配%（符号付き） - gradient_percent",
     description: "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
     dtype: "numeric",
   },
   {
     id: "wind_penalty",
-    label: "向かい風ペナルティ(m/s、正=向かい風)",
+    label: "向かい風ペナルティ(m/s、正=向かい風) - wind_penalty",
     description:
       "出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。追い風・無風はマイナス〜0、向かい風が強いほど大きなプラスの値になります。",
     dtype: "numeric",
   },
   {
     id: "surface_good",
-    label: "舗装良否",
+    label: "舗装良否 - surface_good",
     description: "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
     dtype: "boolean",
   },
   {
     id: "stop_count_per_km",
-    label: "停止密度(回/km)",
+    label: "停止密度(回/km) - stop_count_per_km",
     description: "信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
     dtype: "numeric",
   },
   {
     id: "intersection_count_per_km",
-    label: "交差点密度(回/km)",
+    label: "交差点密度(回/km) - intersection_count_per_km",
     description: "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
     dtype: "numeric",
   },
   {
     id: "accident_count_per_km_year",
-    label: "事故密度(件/(km・年))",
+    label: "事故密度(件/(km・年)) - accident_count_per_km_year",
     description: "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
     dtype: "numeric",
   },
   {
     id: "no_lit",
-    label: "街灯なし",
+    label: "街灯なし - no_lit",
     description: "OSMの街灯タグ(lit)から判定。街灯があると明示されていない区間はtrue（安全側に倒す判断、タグ不明=街灯なし扱い）。",
     dtype: "boolean",
   },
   {
     id: "has_tunnel",
-    label: "トンネル",
+    label: "トンネル - has_tunnel",
     description: "OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
     dtype: "boolean",
   },
   {
     id: "bridge",
-    label: "橋・高架",
+    label: "橋・高架 - bridge",
     description: "OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
     dtype: "boolean",
   },
   {
     id: "motor_vehicle_no",
-    label: "自動車通行不可",
+    label: "自動車通行不可 - motor_vehicle_no",
     description: "OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
     dtype: "boolean",
   },
   {
     id: "oneway",
-    label: "一方通行",
+    label: "一方通行 - oneway",
     description:
       "OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
     dtype: "boolean",
   },
   {
     id: "maxspeed_kmh",
-    label: "制限速度(km/h)",
+    label: "制限速度(km/h) - maxspeed_kmh",
     description: "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
     dtype: "numeric",
   },
   {
     id: "lanes_count",
-    label: "車線数",
+    label: "車線数 - lanes_count",
     description: "OSMの車線数タグ(lanes)から解析した車線数。",
     dtype: "numeric",
   },
   {
     id: "highway",
-    label: "道路種別",
+    label: "道路種別 - highway",
     description: "OSMの道路種別タグ(highway)の生値（例: residential/primary/cycleway等）。値ごとに個別のスコアを設定できます。",
     dtype: "categorical",
   },
   {
     id: "surface",
-    label: "路面種別",
+    label: "路面種別 - surface",
     description: "OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
     dtype: "categorical",
   },
   {
     id: "bicycle_infra",
-    label: "自転車インフラ種別",
+    label: "自転車インフラ種別 - bicycle_infra",
     description:
       "自転車インフラの分類（separated/lane/shared_busway/shared_pedestrian/roadway/prohibited）。優先順位付きの複合判定のため、通常は下記の正規化フラグ材料（道路種別が自転車道・自転車道併設等）を組み合わせて使うことを推奨します。",
     dtype: "categorical",
   },
   {
     id: "highway_is_cycleway",
-    label: "道路種別が自転車道",
+    label: "道路種別が自転車道 - highway_is_cycleway",
     description: "道路種別(highway)自体が自転車道(cycleway)かどうか。",
     dtype: "boolean",
   },
   {
     id: "cycleway_has_track",
-    label: "自転車道(track)を併設",
+    label: "自転車道(track)を併設 - cycleway_has_track",
     description: "車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
     dtype: "boolean",
   },
   {
     id: "cycleway_has_lane",
-    label: "自転車レーン(lane)を併設",
+    label: "自転車レーン(lane)を併設 - cycleway_has_lane",
     description: "車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
     dtype: "boolean",
   },
   {
     id: "cycleway_has_shared",
-    label: "バス共用等の自転車レーンを併設",
+    label: "バス共用等の自転車レーンを併設 - cycleway_has_shared",
     description: "バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
     dtype: "boolean",
   },
   {
     id: "is_designated",
-    label: "指定路線該当（真偽）",
+    label: "指定路線該当（真偽） - is_designated",
     description: "緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
     dtype: "boolean",
   },
   {
     id: "is_emergency_transport",
-    label: "緊急輸送道路該当[N10]（真偽）",
+    label: "緊急輸送道路該当[N10]（真偽） - is_emergency_transport",
     description:
       "緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
     dtype: "boolean",
   },
   {
     id: "is_critical_logistics",
-    label: "重要物流道路該当[N12]（真偽）",
+    label: "重要物流道路該当[N12]（真偽） - is_critical_logistics",
     description:
       "重要物流道路[N12]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
     dtype: "boolean",
   },
   {
     id: "smoothness",
-    label: "路面の状態",
+    label: "路面の状態 - smoothness",
     description: "OSMの路面状態タグ(smoothness)の生値（excellent〜impassableの7段階）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
     dtype: "categorical",
   },
   {
     id: "tracktype",
-    label: "未舗装路グレード(tracktype)",
+    label: "未舗装路グレード(tracktype) - tracktype",
     description: "OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
     dtype: "categorical",
   },

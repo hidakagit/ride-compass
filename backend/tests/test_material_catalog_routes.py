@@ -52,7 +52,8 @@ def test_get_material_catalog_reflects_material_catalog_content():
     entries_by_id = {entry["material_id"]: entry for entry in response.json()["materials"]}
     gradient_percent = entries_by_id["gradient_percent"]
 
-    assert gradient_percent["label"] == MATERIAL_CATALOG["gradient_percent"].label
+    # 改善計画T345さらなるフォローアップ2: labelは「論理名 - 物理名」形式(full_label)。
+    assert gradient_percent["label"] == MATERIAL_CATALOG["gradient_percent"].full_label()
     assert gradient_percent["dtype"] == "numeric"
 
 
@@ -132,11 +133,12 @@ def test_get_material_values_returns_sorted_distinct_values_from_service():
     assert response.status_code == 200
     # 改善計画T345フォローアップ: 値ごとに日本語ラベルも返す
     # （MaterialSpec.value_labels、地図の絞り込みUIのグルーピングとは独立の1値1ラベル）。
+    # さらなるフォローアップ2: 「論理名 - 物理名」形式。
     assert response.json() == {
         "values": [
-            {"value": "cycleway", "label": "自転車専用道"},
-            {"value": "primary", "label": "主要幹線道路"},
-            {"value": "residential", "label": "住宅街の道路"},
+            {"value": "cycleway", "label": "自転車専用道 - cycleway"},
+            {"value": "primary", "label": "主要幹線道路 - primary"},
+            {"value": "residential", "label": "住宅街の道路 - residential"},
         ]
     }
     assert fake.last_material_id == "highway"

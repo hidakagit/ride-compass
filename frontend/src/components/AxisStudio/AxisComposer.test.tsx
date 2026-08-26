@@ -529,7 +529,8 @@ describe("AxisComposer", () => {
       await clickNext(user); // 既定でbreakpoint_linear選択済み
       await clickNext(user);
       // 既定材料はgradient_percent（emptyDraftのmaterialOptions[0]）。
-      await user.click(screen.getByRole("button", { name: "勾配%（符号付き）の説明を表示" }));
+      // 改善計画T345さらなるフォローアップ2: 材料labelは「論理名 - 物理名」形式。
+      await user.click(screen.getByRole("button", { name: "勾配%（符号付き） - gradient_percentの説明を表示" }));
 
       expect(screen.getByText(/国土地理院の標高データ/)).toBeInTheDocument();
     });
@@ -545,7 +546,7 @@ describe("AxisComposer", () => {
       const materialSelect = screen.getAllByRole("combobox")[0];
       await user.selectOptions(materialSelect, "surface_good");
 
-      await user.click(screen.getByRole("button", { name: "舗装良否の説明を表示" }));
+      await user.click(screen.getByRole("button", { name: "舗装良否 - surface_goodの説明を表示" }));
       expect(screen.getByText(/OSMの路面タグ\(surface\)/)).toBeInTheDocument();
     });
 
