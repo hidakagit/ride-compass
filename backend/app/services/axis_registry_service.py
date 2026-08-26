@@ -34,6 +34,20 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 
 logger = logging.getLogger("ridecompass.axis_registry")
 
+
+class AxisDefinitionSyncError(RuntimeError):
+    """軸定義DBが期待する状態でない場合に送出する（改善計画T349）。
+
+    T348の第三案（DB未接続・0行・未知参照時はコード内蔵の既定値へ安全側フォールバック）を
+    ユーザー判断で差し戻し、fail-fastへ変更した。呼び出し元（main.pyのlifespan）はこの
+    例外を捕捉せず、アプリの起動自体を失敗させる。「DBが正で、コードとの不整合
+    （migration未適用等）があれば起動が落ちる」という単純な運用にすることで、T294
+    （本番でmigration 0017/0018未適用のまま起動していた事象）のように検知が起動ログの
+    目視だけに依存し気づかれないまま放置されるリスクを構造的に無くす（T295で「検知条件を
+    1つ足す」対応を繰り返しても解決しなかった問題、複雑度レビュー2026-08-26 F-1参照）。
+    """
+
+
 # 改善計画T295: コード内蔵の既定axis_id集合（モジュールimport時、AXIS_DEFINITIONSが
 # まだ一度もrefresh_axis_definitionsで上書きされていない時点のスナップショット）。
 # refresh_axis_definitionsが呼ばれるたびに、この集合とDB側集合の差分をログへ出し、
@@ -66,46 +80,38 @@ def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str
 async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
     """DBの内容でAXIS_DEFINITIONSをin-place更新する。
 
-    DB未接続・axis_definitionsテーブル未migration・0行（=migration未適用、またはテストの
-    `Base.metadata.create_all`のようにテーブルだけ作られてシードされていない環境）の場合は
-    WARNINGログを出し、domain/axis_definitions.py内蔵の既定値のまま動作を続ける
-    （本番でmigration適用がデプロイに遅れて追いつかない既知のリスクへの安全側動作、
-    docs/improvement-plan.md T74参照）。この安全側フォールバックにより、本migrationを
-    本番へ適用するまでの間は評価の振る舞いが一切変わらない。
+    改善計画T349（T348第三案からの差し戻し）: DB未接続・axis_definitionsテーブル0行
+    （=migration未適用、またはテストの`Base.metadata.create_all`のようにテーブルだけ
+    作られてシードされていない環境）・未知の材料/軸参照（T294: migration適用が半端で
+    旧shape_paramsが削除済み材料を参照し続けていたケース）のいずれかを検出した場合、
+    以前はWARNING/ERRORログのみでdomain/axis_definitions.py内蔵の既定値のまま動作を
+    続ける安全側フォールバックだったが、これを廃止し`AxisDefinitionSyncError`を
+    送出する（fail-fast）。呼び出し元（main.pyのlifespan）はこれを捕捉しないため、
+    DBが期待する状態でなければアプリの起動自体が失敗する。
 
-    0行をフォールバック対象に含めても、管理API側で「最後の1軸は削除できない」制約
+    `AXIS_DEFINITIONS`（Python literal）自体は撤去していない——
+    `scripts/generate_axis_migration_sql.py`（改善計画T348）がmigrationを機械生成する
+    際の唯一の著述元として引き続き使う。撤去したのは「DBが読めない/古い時に実行時に
+    黙ってPython版で動き続ける」というフォールバックの挙動のみ。
+
+    0行を検知対象に含めても、管理API側で「最後の1軸は削除できない」制約
     （AxisRegistryAdminService.delete参照）を設けているため、正常適用後のテーブルが
     運用中に意図せず空になることは無い。
-
-    **「安全側フォールバック」の実際の限界（改善計画T295、T294の教訓を受けた訂正）**:
-    上記の0行・例外という2条件は「テーブルが全く読めない」状態しか検知できない。
-    「行はあるが一部の軸が削除済みの材料id・axis_idを参照している」ような**半端に古い**
-    状態（T294で実際に発生。0017適用・0018未適用の環境で、旧car_stress行が削除済み材料
-    car_stress_levelを参照し続けていたが、0018のカラム不在によるSELECT自体の例外という
-    **偶然**でしか検知できていなかった）は、この2条件のどちらにも該当せず、読み込みに
-    成功した内容をそのままAXIS_DEFINITIONSへ反映してしまう。`_find_unknown_references`が
-    この種の状態を明示的に検出し、検出時はDB内容を採用せずコード内蔵の既定値へ
-    フォールバックする（0行・例外と同じ安全側動作）。この検証を経て初めて
-    「読み込んだ内容を採用してよい」という意味での安全側フォールバックが成立する。
     """
     try:
         definitions = await repository.list_all()
-    except Exception as exc:  # noqa: BLE001 起動を止めず内蔵の既定値へ安全側フォールバックする
-        logger.warning("軸定義のDB読み込みに失敗、コード内蔵の既定値を使用します error=%r", exc)
-        return
+    except Exception as exc:  # noqa: BLE001 fail-fast用に専用の例外へラップして再送出する
+        raise AxisDefinitionSyncError(f"軸定義のDB読み込みに失敗しました error={exc!r}") from exc
     if not definitions:
-        logger.warning(
-            "axis_definitionsテーブルが空です（migration未適用の可能性）。コード内蔵の既定値を使用します"
+        raise AxisDefinitionSyncError(
+            "axis_definitionsテーブルが空です（migration未適用の可能性）"
         )
-        return
     unknown_references = _find_unknown_references(definitions)
     if unknown_references:
-        logger.error(
-            "軸定義DBに未知の材料/軸参照を検出しました。コード内蔵の既定値を使用します"
-            "（migration未適用・DB定義が半端に古い可能性、改善計画T294/T295参照） unknown=%s",
-            unknown_references,
+        raise AxisDefinitionSyncError(
+            "軸定義DBに未知の材料/軸参照を検出しました"
+            f"（migration未適用・DB定義が半端に古い可能性、改善計画T294/T295参照） unknown={unknown_references}"
         )
-        return
     # 改善計画T295: axis_id集合の差分は「良い/悪い」を判定できない（GUIで作った軸が
     # コードに無いのは正常）ため、常にINFOで出す（docs/logging.md「起動時の構成
     # スナップショット」）。差分が無い場合も空リストのまま出力し、「この検証が実際に

@@ -14,7 +14,11 @@ from app.domain.axis_definitions import (
 )
 from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
-from app.services.axis_registry_service import AxisRegistryAdminService, refresh_axis_definitions
+from app.services.axis_registry_service import (
+    AxisDefinitionSyncError,
+    AxisRegistryAdminService,
+    refresh_axis_definitions,
+)
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
 
@@ -54,14 +58,16 @@ def _definition(
 # --- refresh_axis_definitions（起動時ロード相当） ---
 
 
-async def test_refresh_keeps_builtin_defaults_when_table_empty(road_graph_session, caplog):
+async def test_refresh_raises_when_table_empty(road_graph_session):
+    # 改善計画T349: 以前はコード内蔵の既定値へ安全側フォールバックしていたが、
+    # fail-fastへ変更した（AXIS_DEFINITIONSは変更されないまま例外が送出される）。
     original = dict(AXIS_DEFINITIONS)
     repository = AxisDefinitionRepository(road_graph_session)
 
-    await refresh_axis_definitions(repository)
+    with pytest.raises(AxisDefinitionSyncError, match="空です"):
+        await refresh_axis_definitions(repository)
 
     assert AXIS_DEFINITIONS == original
-    assert "コード内蔵の既定値を使用します" in caplog.text
 
 
 async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_session):
@@ -74,35 +80,36 @@ async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_sess
     assert set(AXIS_DEFINITIONS.keys()) == {"test_axis"}
 
 
-async def test_refresh_falls_back_on_repository_error(road_graph_session, caplog):
+async def test_refresh_raises_on_repository_error(road_graph_session):
+    # 改善計画T349: DB接続自体が失敗した場合もfail-fast（AxisDefinitionSyncErrorへラップして再送出）。
     original = dict(AXIS_DEFINITIONS)
 
     class _BrokenRepository:
         async def list_all(self):
             raise RuntimeError("boom")
 
-    await refresh_axis_definitions(_BrokenRepository())
+    with pytest.raises(AxisDefinitionSyncError, match="軸定義のDB読み込みに失敗"):
+        await refresh_axis_definitions(_BrokenRepository())
 
     assert AXIS_DEFINITIONS == original
-    assert "軸定義のDB読み込みに失敗" in caplog.text
 
 
-async def test_refresh_falls_back_when_axis_references_unknown_material(road_graph_session, caplog):
-    # 改善計画T295: T294の教訓（DBの行は読めるが、削除済み材料idを参照する「半端に古い」
-    # 状態のまま黙って採用されてしまっていた）の再現。AxisRegistryAdminService.createは
-    # 材料の実在チェックを行わない（そのチェックはAPI層のAxisDefinitionPayloadのみが持つ）
-    # ため、ここではrepositoryへ直接、未知の材料を参照する軸を書き込む形で
-    # 「半端に古いDB」を再現する。
+async def test_refresh_raises_when_axis_references_unknown_material(road_graph_session):
+    # 改善計画T294/T295の教訓（DBの行は読めるが、削除済み材料idを参照する「半端に古い」
+    # 状態）の再現。AxisRegistryAdminService.createは材料の実在チェックを行わない
+    # （そのチェックはAPI層のAxisDefinitionPayloadのみが持つ）ため、ここでは
+    # repositoryへ直接、未知の材料を参照する軸を書き込む形で「半端に古いDB」を再現する。
+    # 改善計画T349: 検出時は以前のフォールバックではなくfail-fastする。
     original = dict(AXIS_DEFINITIONS)
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("test_axis", material="deleted_material"), sort_order=0)
     await repository.commit()
 
-    await refresh_axis_definitions(repository)
+    with pytest.raises(AxisDefinitionSyncError, match="deleted_material") as exc_info:
+        await refresh_axis_definitions(repository)
 
+    assert "未知の材料/軸参照を検出しました" in str(exc_info.value)
     assert AXIS_DEFINITIONS == original
-    assert "未知の材料/軸参照を検出しました" in caplog.text
-    assert "deleted_material" in caplog.text
 
 
 async def test_refresh_allows_axis_referencing_another_axis_in_same_batch(road_graph_session):

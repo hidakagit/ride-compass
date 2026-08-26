@@ -65,9 +65,10 @@ async def lifespan(app: FastAPI):
     get_http_client(10.0)
     get_http_client(15.0)
 
-    # 改善計画T221 Stage D: 評価軸定義（domain/axis_definitions.py: AXIS_DEFINITIONS）を
-    # DBから読み込む（未migration・DB未接続の環境ではWARNINGログのみでコード内蔵の
-    # 既定値のまま起動を続ける、services/axis_registry_service.py参照）。
+    # 改善計画T221 Stage D / T349: 評価軸定義（domain/axis_definitions.py: AXIS_DEFINITIONS）を
+    # DBから読み込む。未migration・DB未接続・DB定義が半端に古い場合はAxisDefinitionSyncError
+    # を送出し、ここで捕捉しないため起動自体が失敗する（fail-fast、
+    # services/axis_registry_service.py参照）。
     async with get_session_factory()() as session:
         await refresh_axis_definitions(AxisDefinitionRepository(session))
     yield
