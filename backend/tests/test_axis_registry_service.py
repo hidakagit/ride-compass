@@ -364,19 +364,22 @@ async def test_delete_raises_key_error_for_unknown_axis_id(road_graph_session):
         await service.delete("unknown")
 
 
-async def test_delete_rejects_code_coupled_axis_id_even_when_draft(road_graph_session):
+@pytest.mark.parametrize("axis_id", ["car_stress", "night", "wind", "gradient"])
+async def test_delete_rejects_code_coupled_axis_id_even_when_draft(road_graph_session, axis_id):
     # 改善計画T350: car_stress/night/wind/gradientはroad_graph_engine.py等が
     # axis_idを直接ハードコード参照しているため、is_published=False（下書き）でも
-    # 削除できない。
+    # 削除できない。改善計画T358（統合レビュー第8回consistency F-2）: 4件とも
+    # `_CODE_COUPLED_AXIS_IDS`の同じ1行の分岐を通るが、car_stress/nightのみが
+    # テストされ、wind/gradientの回帰テストが無かったため4件全件をparametrize化した。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition("car_stress", is_published=False))
+    await service.create(_definition(axis_id, is_published=False))
     await service.create(_definition("other_axis", material="wind_penalty"))
 
-    with pytest.raises(ValueError, match="car_stress"):
-        await service.delete("car_stress")
+    with pytest.raises(ValueError, match=axis_id):
+        await service.delete(axis_id)
 
-    assert "car_stress" in AXIS_DEFINITIONS
+    assert axis_id in AXIS_DEFINITIONS
 
 
 async def test_delete_rejects_code_coupled_axis_id_after_unpublish(road_graph_session):

@@ -8159,7 +8159,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T358. T350削除禁止ガードの回帰テストをwind・gradient軸まで拡張 規模S（起票のみ、未着手）
+### - [x] T358. T350削除禁止ガードの回帰テストをwind・gradient軸まで拡張 規模S（完了・2026-08-27）
 
 - 背景: 統合レビュー第8回（2026-08-27、[history/2026-08-27_all.md](../.claude/commands/review/history/2026-08-27_all.md) Phase4 consistency F-2）で発見。
   `backend/app/services/axis_registry_service.py`の`_CODE_COUPLED_AXIS_IDS`
@@ -8173,6 +8173,13 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   1件ずつ追加する。
 - 優先度: P3。
 - Scope: S
+- **実施内容（2026-08-27完了）**: `test_delete_rejects_code_coupled_axis_id_even_when_draft`
+  を`@pytest.mark.parametrize("axis_id", ["car_stress", "night", "wind", "gradient"])`で
+  4 axis_id全件をカバーする形へ拡張した（下書き状態からの削除拒否パス）。unpublish後の
+  削除拒否パス（別のコード経路）は既存の`night`単体テストで引き続きカバーする
+  （両パスとも同じ`_CODE_COUPLED_AXIS_IDS`分岐を通るため、4id×2パスの総当たりまでは
+  不要と判断）。`backend/tests/test_axis_registry_service.py`（36件、ローカルPostgreSQL）
+  全件greenを確認。
 
 ---
 
