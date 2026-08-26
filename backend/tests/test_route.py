@@ -136,17 +136,6 @@ def test_aggregate_segments_into_bins_car_stress_rounds_weighted_average():
     assert bins[0].car_stress == 3
 
 
-def test_aggregate_segments_into_bins_picks_bicycle_infra_by_largest_distance():
-    segments = [
-        _segment(0, distance_km=0.1, bicycle_infra="lane"),
-        _segment(1, distance_km=0.35, bicycle_infra="none"),
-    ]
-
-    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
-
-    assert bins[0].bicycle_infra == "none"
-
-
 def test_aggregate_segments_into_bins_road_surface_good_picks_majority_by_distance():
     segments = [
         _segment(0, distance_km=0.1, road_surface_good=False),

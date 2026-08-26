@@ -69,7 +69,6 @@ export const PRIMARY_ATTRIBUTE_CHIP_LABELS: Record<string, string> = {
 export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = {
   highway: "roadType",
   surface: "roadSurface",
-  cycleway: "bicycleInfra",
   designation: "designation",
   elevation: "elevation",
   stop_poi: "stopPoi",
@@ -86,7 +85,13 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
 
 // 表示レイヤーを意図的に持たない一次属性（改善計画T163の確定命名表で「なし」と明示した4件、
 // +評価軸から参照されないbicycle_access・区間の共通コンテキストgeometry）。tunnelは上記の
-// 追加でこの一覧から外れた（litは引き続きレイヤー無し）。
+// 追加でこの一覧から外れた（litは引き続きレイヤー無し）。改善計画T347: cycleway
+// （highway_is_cycleway/cycleway_has_track等の正規化フラグ材料4種が参照する一次属性。
+// car_stress軸の内部補正と新設の公開軸bicycle_infra_qualityの両方が参照するため、
+// domain/registry_defaults.pyでshared=Trueとして登録されている）は専用レイヤー
+// （旧bicycleInfra）自体を廃止したためここへ加えた——一次属性としては引き続き存在するが、
+// 地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に委ねる。
+// show_map_icon=falseのため専用レイヤーは持たない）。
 // PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
 // 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
 export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
@@ -97,6 +102,7 @@ export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
   "bicycle_access",
   "motor_vehicle_access",
   "geometry",
+  "cycleway",
 ]);
 
 /** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す

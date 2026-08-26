@@ -55,9 +55,13 @@ def test_default_axes_are_registered_without_conflict():
     # 改善計画T320: _register_axes()はAXIS_DEFINITIONSの公開軸すべてを走査して登録する
     # ため、windも含む（以前は本ファイルへの手書き登録から意図的に除外していたが、
     # GET /api/axis-catalogという実行時APIは元々windも含めて返しており、静的生成物
-    # だけが取り残されていた不整合を解消した）。
+    # だけが取り残されていた不整合を解消した）。改善計画T347: bicycle_infra_qualityが
+    # 公開軸として加わった。
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
-    assert axis_ids == {"gradient", "wind", "surface_q", "stop_density", "accident", "car_stress", "night"}
+    assert axis_ids == {
+        "gradient", "wind", "surface_q", "stop_density", "accident", "car_stress", "night",
+        "bicycle_infra_quality",
+    }
 
 
 def test_intersection_density_is_not_a_standalone_axis():
@@ -76,11 +80,18 @@ def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
     assert axis_ids.isdisjoint({"traffic_stress", "safety", "bicycle_infra"})
 
 
-def test_car_stress_axis_input_is_exclusive_of_cycleway():
+def test_cycleway_axis_input_is_shared_between_car_stress_and_bicycle_infra_quality():
+    # 改善計画T347: bicycle_infra_quality（car_stress内部軸car_stress_bicycle_infra_
+    # adjustmentと同じ正規化フラグ4種を軸参照経由で受け取る、意図的な「ニアリーイコール」
+    # の推定軸）が新設されたことで、cyclewayは両軸が正当に共有する一次属性になった
+    # （domain/registry_defaults.py: shared=True）。以前は「car_stress専用」の排他確認
+    # だったが、その前提自体が変わったため確認内容を書き換える。
     car_stress_axis = _axis("car_stress")
+    bicycle_infra_quality_axis = _axis("bicycle_infra_quality")
     assert "cycleway" in car_stress_axis.inputs
+    assert "cycleway" in bicycle_infra_quality_axis.inputs
     for axis in registry.all_axes():
-        if axis.axis_id != "car_stress":
+        if axis.axis_id not in ("car_stress", "bicycle_infra_quality"):
             assert "cycleway" not in axis.inputs
 
 
@@ -178,7 +189,8 @@ def test_car_stress_ramp_display():
     assert display.kind == "ramp"
     assert display.thresholds == [2.0, 3.0, 4.0]
     properties = {ti.property for ti in display.tile_inputs}
-    assert properties == {"highway", "bicycle_infra", "maxspeed_kmh", "lanes_count", "designation", "motor_vehicle_no"}
+    # 改善計画T347: bicycle_infraタイルプロパティ自体を削除したため6→5材料へ。
+    assert properties == {"highway", "maxspeed_kmh", "lanes_count", "designation", "motor_vehicle_no"}
     highway_input = next(ti for ti in display.tile_inputs if ti.property == "highway")
     assert highway_input.categories is not None
     assert highway_input.has_unknown_fallback is True
@@ -203,7 +215,9 @@ def test_register_defaults_does_not_crash_when_a_builtin_axis_is_removed(monkeyp
 
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert "gradient" not in axis_ids
-    assert axis_ids == {"wind", "surface_q", "stop_density", "accident", "car_stress", "night"}
+    assert axis_ids == {
+        "wind", "surface_q", "stop_density", "accident", "car_stress", "night", "bicycle_infra_quality",
+    }
 
 
 def test_registry_axis_ids_match_axis_definitions():

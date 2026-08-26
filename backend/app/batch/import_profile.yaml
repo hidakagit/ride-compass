@@ -36,9 +36,7 @@ elements:
   # 改善計画T99（docs/static-road-attributes-plan.md §2.1「歩行者共用」）: 自転車歩行者共用道
   # （河川敷サイクリングロード等に多い、highway=footway/pathかつ自転車通行可）。上のroadsルールが
   # footway/pathを一律除外しているため（71%が該当し容量対策で除外、上記コメント参照）、
-  # 自転車が実際に走る区間だけを別ルールでAND条件（highway AND bicycle）で拾う。マッチした
-  # wayはdomain/traffic.py: classify_bicycle_infrastructureが`shared_pedestrian`へ分類する
-  # （分類ロジック自体はP0で実装済み、取込側が空だったため実データに出ていなかった）。
+  # 自転車が実際に走る区間だけを別ルールでAND条件（highway AND bicycle）で拾う。
   - name: shared_pedestrian_ways
     element_type: way
     match:

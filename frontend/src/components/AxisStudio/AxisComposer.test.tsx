@@ -265,7 +265,7 @@ describe("AxisComposer", () => {
       await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
       await clickNext(user);
 
-      await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "bicycle_infra");
+      await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
       let valueInputs = screen.getAllByLabelText("値");
       await user.type(valueInputs[0], "separated");
       let scoreInputs = screen.getAllByLabelText("スコア");
@@ -287,7 +287,7 @@ describe("AxisComposer", () => {
 
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
-      expect(payload.shape).toEqual(categoricalShape("bicycle_infra", { separated: 60, none: 10 }));
+      expect(payload.shape).toEqual(categoricalShape("tracktype", { separated: 60, none: 10 }));
     });
 
     it("「複数の要素の有無を数えて減点・加点する」(flag_sum)で加点・上限の入力がそのままshapeになる", async () => {
@@ -459,7 +459,7 @@ describe("AxisComposer", () => {
 
     it("categorical(多値材料)軸を編集で開くと、材料選択と値ごとのスコア行が反映される", async () => {
       const editing = baseDefinition({
-        shape: categoricalShape("bicycle_infra", { separated: 80, none: -10 }),
+        shape: categoricalShape("tracktype", { separated: 80, none: -10 }),
       });
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
@@ -467,7 +467,7 @@ describe("AxisComposer", () => {
       await clickNext(user);
       await clickNext(user);
 
-      expect(screen.getByRole("combobox", { name: "材料(material)" })).toHaveValue("bicycle_infra");
+      expect(screen.getByRole("combobox", { name: "材料(material)" })).toHaveValue("tracktype");
       const valueInputs = screen.getAllByLabelText("値") as HTMLInputElement[];
       const scoreInputs = screen.getAllByLabelText("スコア") as HTMLInputElement[];
       const rows = valueInputs.map((el, i) => [el.value, scoreInputs[i].valueAsNumber]);
@@ -524,7 +524,7 @@ describe("AxisComposer", () => {
       await clickNext(user);
       await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
       await clickNext(user);
-      await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "bicycle_infra");
+      await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
 
       await clickNext(user);
 

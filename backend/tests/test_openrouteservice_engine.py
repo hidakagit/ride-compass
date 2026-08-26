@@ -299,7 +299,6 @@ async def test_car_stress_and_bicycle_infra_reflect_nearest_way_tags_when_reposi
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(seg.car_stress == 2 for c in candidates for seg in c.segments)  # primary(4) - track(2)
-    assert all(seg.bicycle_infra == "separated" for c in candidates for seg in c.segments)
     assert all(c.car_stress_score is not None for c in candidates)
     assert all(c.bicycle_infra_score == 100.0 for c in candidates)
 
@@ -330,20 +329,23 @@ async def test_car_stress_reflects_designation_bonus_when_repository_injected():
     designated_values = await _car_stress_values(repository_designated)
     not_designated_values = await _car_stress_values(repository_not_designated)
 
-    # 改善計画T292: bicycle_infra（6値）ベースの補正導入により、cyclewayタグが無い
-    # 普通の道路は"roadway"に分類され+1点される（T291合意の変換表、旧cycleway_class
-    # ベースでは「タグ無し=補正0」だったため、以前より両ケースとも+1）。
+    # 改善計画T292/T347: 自転車インフラ関連の正規化フラグ（highway_is_cycleway等）が
+    # 全てFalseの「普通の道路」は、breakpointsの[(-1.0,0.0),(0.0,1.0)]区間により
+    # +1点される（T291合意の変換表と同じ値、旧cycleway_classベースでは「タグ無し=補正0」
+    # だったため、以前より両ケースとも+1）。
     assert designated_values == {4}
     assert not_designated_values == {3}
 
 
 async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():
-    # get_nearest_way_tagsが空間マッチに失敗した点(highway=None)を返すケース
+    # get_nearest_way_tagsが空間マッチに失敗した点(highway=None・tags={})を返すケース
     # （repository自体は注入されている＝実運用でも道路網カバレッジの境界等で起こりうる）。
-    # classify_bicycle_infrastructureは判定不能を"unknown"（Noneではない）で返すため、
-    # is_dedicated_bicycle_infraが"unknown"をNone扱いしないと、この「データ欠損」が
-    # 「専用インフラではないと確認された区間」としてbicycle_infra_scoreの分母へ
-    # 誤って混入してしまう(0.0にはならず、Noneのまま＝分母から除外されるのが正しい)。
+    # 改善計画T347回帰テスト: 旧classify_bicycle_infrastructureは判定不能を"unknown"
+    # （Noneではない）で返し、is_dedicated_bicycle_infraがこれをNone扱いすることで
+    # データ欠損をbicycle_infra_scoreの分母から除外していた。新しいbicycle_infra_flagsは
+    # 常に具体的なbool値を返すため区別が無く、呼び出し側（openrouteservice_engine.py）が
+    # highwayの有無を見て明示的にNoneへ倒す必要がある（tagsだけを見るとtags={}を通過して
+    # しまい、データ欠損が「専用インフラではないと確認された区間」として誤って混入する）。
     repository = FakeSurfaceRepository(default_tag="asphalt", default_highway=None, default_way_tags={})
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
@@ -356,7 +358,6 @@ async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(seg.bicycle_infra == "unknown" for c in candidates for seg in c.segments)
     assert all(c.bicycle_infra_score is None for c in candidates)
 
 
@@ -372,7 +373,6 @@ async def test_car_stress_and_bicycle_infra_are_none_without_repository():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(seg.car_stress is None for c in candidates for seg in c.segments)
-    assert all(seg.bicycle_infra is None for c in candidates for seg in c.segments)
     assert all(c.car_stress_score is None and c.bicycle_infra_score is None for c in candidates)
 
 
@@ -561,7 +561,7 @@ async def test_night_weight_zeroed_during_daytime_and_applied_at_night():
     repository = FakeSurfaceRepository()  # default_way_tags={}（litタグ無し）はnight_difficulty=50.0
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
-                 "car_stress": 0.0, "accident": 0.0, "night": 1.0}
+                 "car_stress": 0.0, "accident": 0.0, "night": 1.0, "bicycle_infra_quality": 0.0}
     )
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0)]),

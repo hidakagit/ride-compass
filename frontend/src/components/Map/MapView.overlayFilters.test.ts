@@ -5,7 +5,7 @@ import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
 import {
-  BICYCLE_INFRA_LAYER_ID,
+  DESIGNATION_LAYER_ID,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
   buildAxisOverlayLayers,
@@ -55,18 +55,18 @@ function hiddenKeys(partial: Partial<Record<StaticFilterAxisId, readonly string[
 // 統合された。setStaticOverlayFiltersはレシピ引数を取らなくなり、車の圧迫感専用の
 // フィルタ差し替えロジックも不要になった（STATIC_FILTER_AXESの静的なlegendをそのまま使う）。
 describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むramp軸の汎用フィルタ適用）", () => {
-  it("自転車インフラレイヤーのフィルタは指定した非表示キーを反映する", () => {
+  it("指定路線レイヤーのフィルタは指定した非表示キーを反映する", () => {
     const map = fakeMap();
     setStaticOverlayFilters(
       map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
-      hiddenKeys({ bicycleInfra: ["prohibited"] }),
+      hiddenKeys({ designation: ["emergency_transport"] }),
       STATIC_OVERLAY_LAYERS,
       STATIC_FILTER_AXES
     );
 
-    const filter = map.setFilterCalls.find((c) => c.layerId === BICYCLE_INFRA_LAYER_ID)!.filter;
-    expect(evaluateFilter(filter, { bicycle_infra: "prohibited" })).toBe(false);
-    expect(evaluateFilter(filter, { bicycle_infra: "separated" })).toBe(true);
+    const filter = map.setFilterCalls.find((c) => c.layerId === DESIGNATION_LAYER_ID)!.filter;
+    expect(evaluateFilter(filter, { designation: "emergency_transport" })).toBe(false);
+    expect(evaluateFilter(filter, { designation: "critical_logistics" })).toBe(true);
   });
 
   it("車の圧迫感（axis:car_stress）のrampレイヤーにもフィルタが設定される", () => {

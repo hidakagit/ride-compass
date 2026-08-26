@@ -158,7 +158,7 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
     route_preference = {
         "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
         "car_stress": 0.0, "accident": 0.0,
-        "night": 0.0,
+        "night": 0.0, "bicycle_infra_quality": 0.0,
     }
 
     try:

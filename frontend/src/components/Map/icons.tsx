@@ -154,23 +154,6 @@ export function CarStressIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 自転車インフラ: 二輪と車体を表す最小限の自転車シルエット */
-export function BicycleInfraIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <circle cx="5" cy="14.5" r="2.7" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="15" cy="14.5" r="2.7" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        d="M5 14.5 9.5 6.5h2.5l3 8M9.5 6.5 7 11.2h6.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 /** 指定路線（外部静的データソース T51、緊急輸送道路・重要物流道路）: 道路標識風の盾形 */
 export function DesignationIcon({ size = 16 }: IconProps) {
   return (

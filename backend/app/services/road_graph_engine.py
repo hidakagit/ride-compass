@@ -48,6 +48,7 @@ from app.domain.evaluation import (
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
+from app.domain.recipe import bicycle_infra_flags_or_none
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import (
@@ -59,7 +60,6 @@ from app.domain.route import (
 )
 from app.domain.twilight import is_night
 from app.domain.traffic import (
-    classify_bicycle_infrastructure,
     distance_weighted_bicycle_infra_score,
     distance_weighted_intersection_density,
     distance_weighted_stop_density,
@@ -463,7 +463,9 @@ class RoadGraphEngine:
         accident_density = _aggregate_accident_density(
             edges_in_path, context.accident_counts, context.accident_years_covered
         )
-        segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
+        segments, bicycle_infra_dedicated = self._build_segment_details(
+            edges_in_path, elevation_attributes, context, start_time
+        )
         # ルート全体の集約値（car_stress_score等）はビン化前のEdge単位segmentsから計算する
         # （ビン単位のcar_stress自体が既に丸め済みのため、ビン後の値を使うと丸め誤差が
         # 二重に乗ってしまう。改善計画T11）。
@@ -471,7 +473,7 @@ class RoadGraphEngine:
             [(s.car_stress, s.distance_km) for s in segments]
         )
         bicycle_infra_score = distance_weighted_bicycle_infra_score(
-            [(s.distance_km, is_dedicated_bicycle_infra(s.bicycle_infra)) for s in segments]
+            [(s.distance_km, dedicated) for s, dedicated in zip(segments, bicycle_infra_dedicated)]
         )
         # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
         # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
@@ -499,7 +501,7 @@ class RoadGraphEngine:
         elevation_attributes: dict,
         context: _RoadGraphContext,
         start_time: datetime,
-    ) -> list[RouteSegmentDetail]:
+    ) -> tuple[list[RouteSegmentDetail], list[bool | None]]:
         # 改善計画T79: 以前は11個の位置引数を取り、うち8個はcontextフィールドの単純展開
         # だった（同型dict[str, int]が3つ並び、順序取り違えが検知されない構造）。
         # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
@@ -513,6 +515,10 @@ class RoadGraphEngine:
             else self._route_preference.with_weight("night", 0.0)
         )
         segments = []
+        # 改善計画T347: 旧classify_bicycle_infrastructureの削除に伴い、bicycle_infra_score
+        # （RouteCandidate、専用インフラ区間の距離加重率%）算出用の判定を、
+        # RouteSegmentDetailのフィールドではなくこの並行リストで保持する。
+        bicycle_infra_dedicated: list[bool | None] = []
         cumulative_km = 0.0
 
         for edge in edges:
@@ -528,8 +534,8 @@ class RoadGraphEngine:
             wind_penalty = compute_wind_penalty(edge, context.wind)
             road_surface_good = classify_osm_surface(surface_type)
             is_designated = edge.edge_id in context.designated_edge_ids
-            bicycle_infra = (
-                classify_bicycle_infrastructure(edge_way_tags, edge.highway) if edge_way_tags is not None else None
+            bicycle_infra_dedicated.append(
+                is_dedicated_bicycle_infra(bicycle_infra_flags_or_none(edge_way_tags, edge.highway))
             )
 
             # 改善計画T143: 区間表示の軸別スコアは、コスト計算（compute_edge_cost、
@@ -584,7 +590,6 @@ class RoadGraphEngine:
                     wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
                     road_surface_good=road_surface_good,
                     car_stress=car_stress,
-                    bicycle_infra=bicycle_infra,
                     # 改善計画T309: axis_scores（compute_edge_axis_scores）は既にaxis_id→
                     # difficultyの汎用dict（データ無しの軸はキー自体を持たない）のため、
                     # そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
@@ -594,7 +599,7 @@ class RoadGraphEngine:
             )
             cumulative_km += distance_km
 
-        return segments
+        return segments, bicycle_infra_dedicated
 
 
 def _build_node_pair_index(graph: RoadGraphLike) -> dict[tuple[str, str], EdgeLike]:

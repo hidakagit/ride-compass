@@ -26,7 +26,7 @@ from app.domain.difficulty import composite_difficulty
 from app.domain.graph import EdgeLike, RoadGraphLike
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
 from app.domain.night import night_materials
-from app.domain.recipe import bicycle_infra_flags, parse_lanes, parse_maxspeed, tag_value_is
+from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindCalculator
@@ -134,7 +134,7 @@ class AxisInspectorResult(BaseModel):
     # 取得可能な軸だけの加重平均（`composite_difficulty`と同じ「データ無しは除外し
     # 残りの重みで再正規化」方針）。1つも取得できなければNone。
     composite_difficulty: float | None
-    # 全7軸の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
+    # 全8軸の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
     # 「◯%相当の軸のみで算出」という参考値である旨を示すために使う。
     covered_weight_fraction: float | None
 
@@ -155,7 +155,7 @@ def axis_inspector_breakdown(
     weights = (preference or RoutePreference()).weights
 
     surface_good = classify_osm_surface(tags.get("surface"))
-    car_stress_bicycle_infra_flags = bicycle_infra_flags(tags, highway)
+    car_stress_bicycle_infra_flags = bicycle_infra_flags_or_none(tags, highway) or {}
     maxspeed_kmh = parse_maxspeed(tags)
     lanes_count = parse_lanes(tags)
     motor_vehicle_no = tag_value_is(tags, "motor_vehicle", "no")
@@ -364,8 +364,8 @@ def compute_edge_axis_scores(
     # 改善計画T292: 車ストレスは専用Pythonレシピ（car_stress_level等）を廃止し、
     # AXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造（axis_definitions.py:
     # "car_stress_highway_base"等のコメント参照）で再現する。ここでは一次材料
-    # （highway/bicycle_infra/maxspeed_kmh/lanes_count/is_designated/motor_vehicle_no）を
-    # 素直に抽出するだけで、highway基準値以外の判定式は一切持たない。
+    # （highway/自転車インフラ正規化フラグ4種/maxspeed_kmh/lanes_count/is_designated/
+    # motor_vehicle_no）を素直に抽出するだけで、highway基準値以外の判定式は一切持たない。
     #
     # way_tagsがNone（データ未取得）の場合、旧ロジックはcar_stress全体を評価しなかった
     # （car_stress_level(...) if way_tags is not None else None）。この挙動を保つため、
@@ -373,7 +373,7 @@ def compute_edge_axis_scores(
     # あえて使わない）。highway基準値軸はrequired=Trueで公開軸car_stressの最初のterm
     # のため、これがNoneなら公開軸全体がNoneになり旧挙動と一致する。
     highway_for_car_stress = edge.highway if way_tags is not None else None
-    car_stress_bicycle_infra_flags = bicycle_infra_flags(way_tags, edge.highway) if way_tags is not None else {}
+    car_stress_bicycle_infra_flags = bicycle_infra_flags_or_none(way_tags, edge.highway) or {}
     maxspeed_kmh = parse_maxspeed(way_tags) if way_tags is not None else None
     lanes_count = parse_lanes(way_tags) if way_tags is not None else None
     motor_vehicle_no = tag_value_is(way_tags, "motor_vehicle", "no") if way_tags is not None else None
@@ -541,7 +541,7 @@ def compute_edge_costs_bulk(
     - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセスを`MATERIAL_CATALOG`
       （改善計画T280、`domain/material_catalog.py: MaterialSpec.extractor`）へ委譲し、
       以降で使う数値をすべてnumpy配列へ落とし込む。欠損値は数値材料がNaN、文字列材料
-      （highway・bicycle_infra等、dtype=object）がNoneで表現する。材料を1件追加する
+      （highway・surface等、dtype=object）がNoneで表現する。材料を1件追加する
       ときはmaterial_catalog.pyへ抽出関数を書いてカタログへ登録するだけでよく、
       この関数自体の変更は不要（0次ハードフィルタ判定はEdgeの通行可否そのものであり
       材料の値ではないため、対象外のままここに残す）。

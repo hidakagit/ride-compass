@@ -33,33 +33,41 @@ describe("evaluationAxes", () => {
   // axes[].primary_attribute_idsを直接見る。死コード監査（過去の監査）で、GET
   // /api/axis-catalog（実行時API）と同じキー名の唯一の読み手として、以前の重複キー
   // inputsからこちらへ移行した）。
-  it("wind以外の全軸は、axis-catalog.json上に実在し材料を1件以上持つ", () => {
+  // 改善計画T347: bicycle_infra_qualityもwindと同じく専用地図レイヤーを持たない
+  // （show_map_icon=false）ため、SECONDARY_AXESには存在しない。
+  const AXES_WITHOUT_MAP_LAYER = ["wind", "bicycle_infra_quality"];
+
+  it("地図レイヤーを持たない軸(wind・bicycle_infra_quality)以外は、axis-catalog.json上に実在し材料を1件以上持つ", () => {
     const axesWithInputs = axisCatalog.axes as CatalogAxisInputs[];
     for (const axis of PREFERENCE_AXES) {
-      if (axis.axisId === "wind") continue;
+      if (AXES_WITHOUT_MAP_LAYER.includes(axis.axisId)) continue;
       const inputs = axesWithInputs.find((a) => a.axis_id === axis.axisId)?.primary_attribute_ids ?? [];
       expect(inputs.length, `axisId(${axis.axisId})に材料が無い`).toBeGreaterThan(0);
     }
   });
 
-  // windは表示カタログ（axes[]）に対応軸を持たない（動的データ由来でレイヤーなし）。
-  // 誤って登録され忘れているだけかもしれない他の軸と区別するため明示的に確認する。
-  it("windは表示カタログ（SECONDARY_AXES）に存在しない", () => {
-    expect(SECONDARY_AXES.some((axis) => axis.axisId === "wind")).toBe(false);
+  // wind・bicycle_infra_qualityは表示カタログ（axes[]）に対応軸を持たない
+  // （動的データ由来・show_map_icon=falseでレイヤーなし）。誤って登録され忘れている
+  // だけかもしれない他の軸と区別するため明示的に確認する。
+  it("wind・bicycle_infra_qualityは表示カタログ（SECONDARY_AXES）に存在しない", () => {
+    for (const axisId of AXES_WITHOUT_MAP_LAYER) {
+      expect(SECONDARY_AXES.some((axis) => axis.axisId === axisId)).toBe(false);
+    }
   });
 
   // 実機フィードバック「研究タブ、2次要素の調整の仕方が全然わからない。地図表示、地図の
   // 見え方パネルと考え方を併せて再設計して」への対応。SECONDARY_AXES（地図チップ・
   // 地図の見え方パネルの推定グループが共有する単一ソース）の並び・ラベルをそのまま
   // なぞっていることを回帰確認する。
-  it("wind以外の軸は、地図（SECONDARY_AXES）と同じ並び順・同じラベルで並ぶ", () => {
-    const withoutWind = PREFERENCE_AXES.filter((axis) => axis.axisId !== "wind");
-    expect(withoutWind.map((axis) => axis.axisId)).toEqual(SECONDARY_AXES.map((axis) => axis.axisId));
-    expect(withoutWind.map((axis) => axis.label)).toEqual(SECONDARY_AXES.map((axis) => axis.label));
+  it("地図レイヤーを持たない軸を除くと、地図（SECONDARY_AXES）と同じ並び順・同じラベルで並ぶ", () => {
+    const withoutMapLayerAxes = PREFERENCE_AXES.filter((axis) => !AXES_WITHOUT_MAP_LAYER.includes(axis.axisId));
+    expect(withoutMapLayerAxes.map((axis) => axis.axisId)).toEqual(SECONDARY_AXES.map((axis) => axis.axisId));
+    expect(withoutMapLayerAxes.map((axis) => axis.label)).toEqual(SECONDARY_AXES.map((axis) => axis.label));
   });
 
-  // windはSECONDARY_AXESに対応軸を持たないため、末尾に追加される。
-  it("windは末尾に位置する", () => {
-    expect(PREFERENCE_AXES[PREFERENCE_AXES.length - 1].axisId).toBe("wind");
+  // wind・bicycle_infra_qualityはSECONDARY_AXESに対応軸を持たないため、この順で末尾に
+  // 追加される（evaluationAxes.ts: PREFERENCE_AXESの定義順）。
+  it("wind・bicycle_infra_qualityはこの順で末尾に位置する", () => {
+    expect(PREFERENCE_AXES.slice(-2).map((axis) => axis.axisId)).toEqual(["wind", "bicycle_infra_quality"]);
   });
 });

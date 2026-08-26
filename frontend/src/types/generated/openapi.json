@@ -1039,7 +1039,7 @@
     "/api/material-catalog/{material_id}/values": {
       "get": {
         "summary": "Get Material Values",
-        "description": "改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`bicycle_infra`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は\nいずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード\n方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。",
+        "description": "改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は\nいずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード\n方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。",
         "operationId": "get_material_values_api_material_catalog__material_id__values_get",
         "parameters": [
           {
@@ -1734,7 +1734,7 @@
           "mapping"
         ],
         "title": "CategoricalShape",
-        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と\nstr（highway/bicycle_infra等、MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`\n自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで\n新テンプレートは不要だった。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残ってしまい、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる回帰があった——実データ検証で発覚、\"true\"/\"false\"以外の文字列キーは\nbool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。"
+        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と\nstr（highway/designation等、MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`\n自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで\n新テンプレートは不要だった。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残ってしまい、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる回帰があった——実データ検証で発覚、\"true\"/\"false\"以外の文字列キーは\nbool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。"
       },
       "Coordinates": {
         "properties": {
@@ -2532,17 +2532,6 @@
             ],
             "title": "Car Stress"
           },
-          "bicycle_infra": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bicycle Infra"
-          },
           "axis_difficulties": {
             "additionalProperties": {
               "type": "number"
@@ -2687,7 +2676,7 @@
           "property"
         ],
         "title": "TileInputSpec",
-        "description": "地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278・T292）。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`、改善計画T278）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n`invert`は材料がタイルプロパティの否定（例: no_lit⟵lit）の場合に立てる。\n\n`has_unknown_fallback`（レビュー指摘の修正、改善計画T278）: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: no_lit⟵lit、has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け、例: `bicycle_infra`は評価側のmappingが\n全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。\n`has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は\n評価側でcar_stress軸全体を評価しない[required=True]。以前はフロント側の実装が\nプロパティの**欠損**のみを「不明」判定していたため、この「値はあるが未登録」の\nケースを見落とし、実際には未評価のはずの区間が0点=最良[緑]色で表示される\n不整合があった。`axisLayers.ts: buildAxisRampUnknownExpression`参照）。\nboolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`、改善計画T292）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n`car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。"
+        "description": "地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278・T292）。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`、改善計画T278）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n`invert`は材料がタイルプロパティの否定（例: no_lit⟵lit）の場合に立てる。\n\n`has_unknown_fallback`（レビュー指摘の修正、改善計画T278）: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: no_lit⟵lit、has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが\n全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。\n`has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は\n評価側でcar_stress軸全体を評価しない[required=True]。以前はフロント側の実装が\nプロパティの**欠損**のみを「不明」判定していたため、この「値はあるが未登録」の\nケースを見落とし、実際には未評価のはずの区間が0点=最良[緑]色で表示される\n不整合があった。`axisLayers.ts: buildAxisRampUnknownExpression`参照）。\nboolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`、改善計画T292）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n`car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。"
       },
       "ValidationError": {
         "properties": {
@@ -2712,6 +2701,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

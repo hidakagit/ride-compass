@@ -145,7 +145,14 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # _ROAD_SURFACE_TILE_MVT_SQL参照。material_catalog.pyへ評価軸材料としても登録、ただし
 # extractor未設定のトリガー付きDEFER——car_stress軸の評価は引き続きis_designatedのみを
 # 使う）。プロパティ追加のみ（削除なし）で、v10〜v13と同じくデプロイ順序制約なし。
-ROAD_SURFACE_TILE_VERSION = "15"
+# v16: 改善計画T347。bicycle_infraプロパティを削除した世代（infrastructure/
+# road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。地図表示は専用レイヤーごと
+# 廃止し、評価軸側は新設の公開軸「自転車インフラ」（axis_definitions.py:
+# bicycle_infra_quality、正規化フラグ4種の重み付き線形和）へ置き換えたため、地図表示・
+# 評価軸のどちらからも一切参照されなくなった。v14と同じくプロパティ削除を伴うが未使用の
+# ためデプロイ順序制約なし（旧世代の焼き込み済みキャッシュはbicycle_infraキーを持ったまま
+# 残るだけで実害はない）。
+ROAD_SURFACE_TILE_VERSION = "16"
 
 # 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
 # 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。

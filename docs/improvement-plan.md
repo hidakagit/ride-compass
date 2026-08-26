@@ -7464,6 +7464,159 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   （`AxisStudio.module.css`）。Playwrightでモバイル相当の狭い画面幅(412px)にて実機確認し、
   水平スクロールが発生しないことを確認済み。
 
+### - [x] T347. bicycle_infra材料・地図レイヤー・classify_bicycle_infrastructureの完全削除、代替推定軸の新設 規模L（完了）
+
+- 背景: T345/T346のUX改善作業中、軸スタジオの材料一覧から`bicycle_infra`（自転車インフラ種別、
+  優先順位付き7値categorical）を除きたいというユーザー相談から出発し、調査を重ねる中で
+  スコープが段階的に拡大した。
+  1. 当初「MATERIAL_CATALOGから消せるか」という相談 → 調査の結果、評価軸（AXIS_DEFINITIONS）
+     からはT336で参照されなくなっている一方、(a)地図の独立レイヤー「自転車インフラ」の
+     唯一のデータソース、(b)公開軸`car_stress`の地図ランプ表示`display_override.tile_inputs`
+     の6項中1項、(c)`RouteCandidate.bicycle_infra_score`（研究/比較パネルで表示中）の
+     算出根拠、という3つの現役消費者があると判明（過去のT341が同じ精査をした上で
+     「削除しない」と明示的に結論していた経緯も判明）。
+  2. ユーザー判断: 「自転車インフラ」地図レイヤー自体を削除する、car_stressランプは
+     レイヤーが無くなれば無関係、正規化フラグとの再現ズレ(実データ0.0127%)は許容、
+     T341の結論は「ほぼニアリーイコールの代替推定軸を用意する」ことで覆せる——との
+     方針提示を受け、削除対象を確定。
+  3. さらにユーザー指摘: `classify_bicycle_infrastructure`（優先順位if-elifによる7値分類、
+     `domain/traffic.py`）というPython側の生データ加工ロジックの存在自体が、「生データの
+     分類・加工ロジックをPythonに手書きしない（材料は正規化済みの生値のみを持ち、
+     人間可読な分類はSQL CASE式かAXIS_DEFINITIONSの宣言的shapeへ寄せる）」という設計方針に
+     反するとの指摘を受け、この関数自体とSQL側の対応するCASE式も削除対象に含めた。
+     調査の結果、`RouteSegmentDetail.bicycle_infra`（区間ごとの分類値）はfrontendのどこからも
+     読まれておらず削除して無害と判明。`RouteCandidate.bicycle_infra_score`
+     （研究/比較パネルで現役使用中）は、`classify_bicycle_infrastructure`の7値分類を
+     経由せず、より単純な正規化フラグ材料（`domain/recipe.py: bicycle_infra_flags`、
+     既に両engineで算出済み）から直接「専用インフラ(separated/lane相当)かどうか」を
+     判定するよう作り直せば、分類関数を使わずに同じ集計値を再現できると判断した。
+- 内容（完了）:
+  1. [x] `domain/axis_definitions.py`へ公開軸「自転車インフラ」（`bicycle_infra_quality`）を
+     新設。**当初計画から設計変更**: 当初案（`_CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS`を
+     複製して独自breakpointsで再スケール）は、実装中に`domain/axis_definitions.py:
+     check_material_exclusivity`（軸スタジオ書き込み経路が使う実評価エンジン側の材料排他
+     チェック）が`car_stress_bicycle_infra_adjustment`との材料重複を検出し拒否することが
+     判明。生の4フラグ材料を直接複製する代わりに、既存の内部軸
+     `car_stress_bicycle_infra_adjustment`自体を単一の`MaterialTerm`として参照する
+     階層構成（T292の内部軸参照パターンを踏襲）へ再設計した。これにより「4フラグの解釈
+     ロジックを2箇所（car_stress側とbicycle_infra_quality側）で独立に手書きし今後も
+     同期し続けなければならない」という新たな二重管理を生まずに済んだ（DRY、排他チェック
+     通過は副産物）。breakpointsは内部軸自身の出力レンジ[-2.0, 1.0]を0-100へ線形写像する
+     4点`[(-2.0,0.0),(-1.0,33.3),(0.0,66.7),(1.0,100.0)]`。
+  2. [x] `domain/material_catalog.py`から`bicycle_infra`材料（`MaterialSpec`）を削除
+     （26→25材料）。あわせて`highway_is_cycleway`の`primary_attribute_id`を`highway`から
+     `cycleway`へ再割当て（4フラグ材料全てが`cycleway`一次属性を共有する形に統一。
+     `registry.py`の表示レジストリ側でも`car_stress`と`bicycle_infra_quality`が両方
+     `cycleway`を参照する排他衝突があり、ユーザー指示「どちらかを消す」を受けてこの形で
+     解消——`highway`は`car_stress_highway_base`専用のまま非共有を維持）。
+  3. [x] `domain/traffic.py`の`classify_bicycle_infrastructure`を削除。`is_dedicated_bicycle_infra`は
+     正規化フラグ（`domain/recipe.py: bicycle_infra_flags`の戻り値dict）を直接受け取る
+     形へ書き換え、7値分類を経由しない。
+  4. [x] `domain/route.py`の`RouteSegmentDetail.bicycle_infra`フィールドを削除
+     （`RouteCandidate.bicycle_infra_score`は維持、算出元のみ変更）。
+  5. [x] `openrouteservice_engine.py`・`road_graph_engine.py`・`evaluation.py`の
+     `bicycle_infra_score`/評価用材料辞書の算出を`bicycle_infra_flags`直接参照へ書き換え。
+     **実装中に発見した回帰（当初計画に無し）**: 旧`classify_bicycle_infrastructure`は
+     「`highway`がNoneかつ他の判定材料も無い」場合を最終catch-allで`unknown`扱いしていたが、
+     新ロジックへの移行時、この「データ欠落＝unknown」判定を4箇所（material_catalog.py・
+     evaluation.py 2箇所・openrouteservice_engine.py・road_graph_engine.py）で個別に
+     手書きし直す必要があると判明。1回目の実装は判定条件が旧ロジックと微妙に異なり
+     （`highway is None`単独catch-allの再現に失敗、または逆に厳しすぎて`cycleway=track`
+     単独タグのケースを誤ってunknown化）2種類のリグレッションを起こしたため、
+     `domain/recipe.py`に`bicycle_infra_flags_or_none(tags, highway)`を新設して
+     旧ロジックの分岐順序を正確に再現する形へ1箇所へ統一した。
+  6. [x] さらに実装中に発見した2つ目の回帰（当初計画に無し）: 4フラグ材料の`bool_default`が
+     既定の`"false"`のままだったため、ベクトル化評価経路`compute_edge_costs_bulk`が
+     `None`（データ欠落）を`False`（確認済みでインフラ無し）へ丸めてしまい、上記5の
+     修正だけでは`EvaluationService.evaluate_graph`側の欠落データテストが引き続き失敗した。
+     `surface_good`と同じ`bool_default="nan"`を4フラグ材料へ追加して解消。
+  7. [x] `road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`から`bicycle_infra`のCASE式を
+     削除し、`ROAD_SURFACE_TILE_VERSION`を13→16へ対上げ。`car_stress`軸の
+     `display_override.tile_inputs`から`bicycle_infra`項を除去（地図ランプ表示は5材料での
+     近似に変更、評価側car_stress自身の6内部軸合成には影響なし）。
+  8. [x] frontend「自転車インフラ」地図レイヤーを完全削除
+     （`staticAttributeLayers.ts`・`mapLayers.ts`・`MapView.tsx`のレイヤー追加・道路情報
+     ポップアップの行・`MapLayersPanel.tsx`・`MapOverlayControls.tsx`・`primaryAttributes.ts`の
+     `cycleway`→`bicycleInfra`対応を`PRIMARY_ATTRIBUTES_WITHOUT_LAYER`へ変更・
+     `useLayerDataStatus.ts`のグループ化）。`axisMaterialsCatalog.ts`の静的フォールバックからも
+     削除。`evaluationAxes.ts`の`PREFERENCE_AXES`へ`bicycle_infra_quality`を`wind`と同じ
+     「地図レイヤー非対応の重み調整可能軸」として追加（研究タブの重みスライダーに追加、
+     ユーザー明示承認前に前例踏襲で実施）。
+  9. [x] `export_openapi.py`→`npm run generate:api`でOpenAPI生成物・`region-tile-config.json`を
+     追従、ドリフト無しを確認。実装中に`frontend/src/services/regionApi.ts`の
+     `ROAD_SURFACE_TILE_VERSION`ハードコードが`"15"`のまま（backend側のv16対上げに
+     追従し忘れていた既存ドリフト、今回のタイル世代対上げ作業で連鎖的に発見・修正）。
+  10. [x] 影響する既存テスト（backend 1081 passed / frontend 675 passed、多数）を更新。
+      backend側では上記5・6のリグレッションを検出したテストがそのまま回帰テストとして機能。
+  11. [x] `docs/architecture.md`を全面改訂: 「自転車インフラ」節・「地図表示ロジックと
+      評価軸材料の分離原則（改善計画T341）」節を、T341の結論（「削除しない」）が
+      「当時の消費者構成を前提とする限りの判断であり恒久的な結論ではない」という教訓とともに
+      改訂。7軸→8軸への軸数変更に伴う一覧・本文中の言及を全箇所更新。
+      `frontend`/`backend`双方の`tsc`/`eslint`/`ruff check`をクリーンに確認。
+- 完了後のフォローアップ（このT347の作業中にユーザーとの設計論議で発覚した、別スコープの
+  課題）: `domain/axis_definitions.py`（Python）と`axis_definitions`DBテーブルの
+  「同じ軸定義を人間が2箇所に手書きする」二重管理構造そのもの（今回のbicycle_infra_quality
+  再設計でも、Python側の変更に合わせてmigrationのJSON表現を手で書き直し、目視+アドホック
+  スクリプトで一致確認する作業が発生した）。詳細は下記T348で起票する。
+
+---
+
+### - [ ] T348. 組み込み評価軸の定義をDBへ全面移行し、Python側フォールバック機構を廃止 規模L（未着手・T347完了後に着手）
+
+- 背景: T347の実装中（`bicycle_infra_quality`軸の材料排他チェック衝突への対応）に、
+  `domain/axis_definitions.py`（Python literal、`AXIS_DEFINITIONS`）と`axis_definitions`
+  DBテーブル（migrationのINSERT文）の間で「同じ軸定義を人間が2箇所に手書きし、
+  一致するよう手動で確認し続けなければならない」という二重管理構造が実害として顕在化した
+  （`bicycle_infra_quality`のshapeをPython側で再設計するたびに、対応するmigration
+  `0021_bicycle_infra_axis.sql`のJSON表現を手で書き直し、
+  `model_dump(mode="json")`の出力とのアドホックな一致確認スクリプトで検証する作業が
+  複数回発生）。この種の「2箇所を人間が同期させる」ドリフトはOpenAPI生成物ドリフト
+  （3回）・architecture.md未追従（5回以上）と同じパターンで、CLAUDE.mdの
+  「コミット時の同期ルール」に既にOpenAPI生成物向けの対処（`export_openapi.py`→
+  `npm run generate:api`→`git diff --exit-code`）があるのと同様の構造的対策が必要という
+  結論に至った。
+- 設計論議の経緯（ユーザーとの複数往復）: 当初「Pythonを正本のまま維持し、DBへの初期データ
+  投入だけを自動生成する（第三案、DBは実行時のoverride/runtime state）」という方向性を
+  検討したが、ユーザーから「観測（生データ）はPython、推定（軸定義の合成ロジック）は
+  軸スタジオ（DB）の領域、という既存の境界を、Pythonを正本のままにする設計は曖昧にする」
+  「Pythonに組み込み軸の実装を増やし続けると軸を追加するたびにコードが複雑化する」という
+  指摘を受け、最終的に**オプションA（DBを軸定義の唯一の正）を採用**することが確定した
+  （2026-08-26のユーザー最終確認: 「オプションAであっている。生データをPythonにふやすのは
+  いい。今Pythonで作っている組み込み軸をDBに移動して、フォールバック機構も消して、
+  DBレコードに移行してください」）。
+- 確定した設計方針:
+  - **生データ**（`MATERIAL_CATALOG`・`MaterialSpec`・抽出ロジック、`material_catalog.py`/
+    `recipe.py`）: 引き続き完全にPython/コード専有。このタスクのスコープ外、一切変更しない。
+  - **軸定義**（`AXIS_DEFINITIONS`——shape・breakpoints・重み・材料合成ロジック）:
+    今Pythonのリテラルとして持っている組み込み8軸（内部軸6つ含む、全14エントリ）をDBの
+    `axis_definitions`テーブルへ完全移行する。移行後はDBが唯一の正であり、Python側には
+    軸定義のリテラルを残さない。
+  - `axis_registry_service.py: refresh_axis_definitions`が持つ「DB未接続・空・破損時は
+    Python内蔵の既定値へ安全側フォールバックする」機構も削除する。DB接続必須化を受け入れる
+    （起動時DB依存、テストのDB依存化を伴う——このデメリットの実測が下記の検証)。
+- 実施前に必要な検証（ユーザー指示、T347完了後すぐ着手）: DB全面移行によるテスト速度・
+  安定性への影響を実測してから移行を本格実施する。検証観点（提案、実施時に具体化）:
+  (a) 現行のDB非依存な単体テスト（`pytest -m "not postgis"`、1081件）のうちどれだけが
+  軸定義読み込みでDB接続を要するようになるか、(b) 全面DB化した場合の該当テスト群の
+  実行時間比較（現状 vs. PostgreSQL接続込み）、(c) CI環境（pytest-xdist並列化）での
+  安定性（接続プール枯渇・タイムアウト等）、(d) ローカル開発環境構築の複雑化（DB起動を
+  前提とするテストの割合）。ローカルにPostgreSQL 16 + PostGIS導入済み（本セッションで
+  確認）のため実測環境は用意できる。
+- 移行対象: `car_stress_highway_base`・`car_stress_bicycle_infra_adjustment`・
+  `car_stress_maxspeed_adjustment`・`car_stress_lanes_adjustment`・
+  `car_stress_designation_adjustment`・`car_stress_motor_vehicle_no_adjustment`
+  （内部軸6つ、`is_published=False`）・`gradient`・`surface_q`・`wind`・`stop_density`・
+  `car_stress`・`accident`・`night`・`bicycle_infra_quality`（公開軸8つ）の計14エントリ。
+  GUI作成軸（既にDB専有、Python対応物なし）は影響を受けない。
+- 未確定事項（実施時に詰める）: (1) 移行手順（一括migrationで現行Pythonリテラルの内容を
+  DBへ書き込み、その後Pythonリテラルを削除する2段階か、それとも1コミットで両方行うか）、
+  (2) 「組み込み軸」と「GUI作成カスタム軸」をDBスキーマ上で区別する必要があるか
+  （現状は区別が無い。他のAIの意見として提案された`source=builtin/custom`列の要否）、
+  (3) `check_material_exclusivity`等、現状Pythonの`AxisDefinition`データ構造に依存する
+  検証ロジックの移行後の置き場所。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構

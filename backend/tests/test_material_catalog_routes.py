@@ -67,7 +67,7 @@ def test_get_material_catalog_includes_categorical_dtype():
 
     assert entries_by_id["highway"]["dtype"] == "categorical"
     assert entries_by_id["surface"]["dtype"] == "categorical"
-    assert entries_by_id["bicycle_infra"]["dtype"] == "categorical"
+    assert entries_by_id["tracktype"]["dtype"] == "categorical"
     assert entries_by_id["smoothness"]["dtype"] == "categorical"
 
 
@@ -151,19 +151,19 @@ def test_get_material_values_unknown_material_id_is_404():
 
 
 def test_get_material_values_known_material_without_dynamic_support_returns_empty_list():
-    # 改善計画T340: bicycle_infraのように事前に閉じた値集合を持つ既知の材料は404にせず、
+    # 改善計画T340: tracktypeのように事前に閉じた値集合を持つ既知の材料は404にせず、
     # 空リストを返す（フロント側は空リスト→自由テキスト入力へフォールバックする）。
     fake = FakeRegionServiceForMaterialValues(values=[])
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/material-catalog/bicycle_infra/values")
+        response = client.get("/api/material-catalog/tracktype/values")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.json() == {"values": []}
-    assert fake.last_material_id == "bicycle_infra"
+    assert fake.last_material_id == "tracktype"
 
 
 def test_get_material_values_without_db_repository_returns_empty_list():

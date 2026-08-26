@@ -1,24 +1,30 @@
-// 静的道路属性 P0（docs/static-road-attributes-plan.md）の新規レイヤー
-// （車ストレス・自転車インフラ）、T54（既取込データの可視化漏れ解消）の
-// 停止要因POIレイヤー（交差点密度は同時に追加したがT96で地図可視化を撤去済み）、
-// 外部静的データソース T50（警察庁交通事故統計）の色分け定義。
+// 静的道路属性 P0（docs/static-road-attributes-plan.md）の新規レイヤー（車ストレス）、
+// T54（既取込データの可視化漏れ解消）の停止要因POIレイヤー（交差点密度は同時に追加した
+// がT96で地図可視化を撤去済み）、外部静的データソース T50（警察庁交通事故統計）の
+// 色分け定義。
+//
+// 改善計画T347: 「自転車インフラ」の専用地図レイヤー（旧BICYCLE_INFRA_CATEGORIES）は
+// ここから削除した。優先順位付き分類（backend/app/domain/traffic.py:
+// classify_bicycle_infrastructure、旧bicycle_infraタイルプロパティ）自体をPython側に
+// 生データ加工ロジックを持たせない設計原則に反するとして廃止し、既に評価軸の材料として
+// 使われている正規化フラグ4種（highway_is_cycleway等）だけを正準とする方針へ変更した
+// ため（地図表示専用の再分類ロジックを別途新設する選択肢は取らなかった）。
 //
 // roadFilterAxes.tsの軸機構（複数の生タグ値を少数のグループへ束ねる、絞り込み可能・
 // 「路面」レイヤーの色分け軸として共有）とは異なり、これらはバックエンドが既に
-// 1つの分類値（car_stress=1-5の整数、bicycle_infra/kind=列挙文字列、
-// involves_bicycle/fatal=真偽値）へ変換済みのプロパティのため、生値→グループの
-// 対応表は不要で単純なmatch/case式で足りる。
-// 車ストレス・自転車インフラは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/
-// ROAD_TILE_SOURCE_LAYERを共有）と同じソースの独立レイヤーだが、停止要因POI
-// （region-poi-tiles）・事故（region-accident-tiles）は点データのためそれぞれ別ソース
-// （MapView.tsx参照）になる。交差点密度（次数3以上のroad_node）はバックエンドの
-// poi-tilesが引き続き焼き込むが、道路網を見れば概ね自明という判断で地図上の独立可視化
-// レイヤーとしては提供しない（ルーティング材料のintersection_weightとしては引き続き使う）。
+// 1つの分類値（car_stress=1-5の整数、kind=列挙文字列、involves_bicycle/fatal=真偽値）
+// へ変換済みのプロパティのため、生値→グループの対応表は不要で単純なmatch/case式で足りる。
+// 車ストレスは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有）
+// と同じソースの独立レイヤーだが、停止要因POI（region-poi-tiles）・事故
+// （region-accident-tiles）は点データのためそれぞれ別ソース（MapView.tsx参照）になる。
+// 交差点密度（次数3以上のroad_node）はバックエンドのpoi-tilesが引き続き焼き込むが、
+// 道路網を見れば概ね自明という判断で地図上の独立可視化レイヤーとしては提供しない
+// （ルーティング材料のintersection_weightとしては引き続き使う）。
 // 改善計画T63: 各レイヤーの絞り込みはSTATIC_FILTER_AXES（ファイル末尾）にカタログ化し、
 // legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
 // buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
 // 機械的展開するのではなく、レイヤーごとにアプリの目的（安全・快適なルート判断）に沿った軸を選ぶ:
-// - 車ストレス・自転車インフラ・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
+// - 車ストレス・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
 //   直接選べるカテゴリ絞り込みがそのまま「車道混在の区間だけ」「踏切だけ」等のニーズに合う。
 // - 事故は当事者（自転車関連/その他）に加え、既に円の拡大で強調している重大度（死亡事故か否か）を
 //   独立した第2軸として持たせ、道路情報の「路面の種類×道路の種類」と同じAND絞り込みで
@@ -48,20 +54,18 @@ const COLOR_UNKNOWN = "#9ca3af";
 // 桃など）へ差し替えた。各カテゴリ群は互いに独立した凡例・レイヤーのため、色の使い回しは
 // 問題にならない（同じ画面で並べて比較されることが無い）。
 //
-// (B) 2次の材料そのもの（順序を持つ）: 自転車インフラ・指定路線・事故の当事者区分
-// （自転車関連/その他）は、実際に2次の計算材料として使われている（自転車インフラ・
-// 指定路線は改善計画T292のcar_stress内部軸（domain/axis_definitions.py:
-// car_stress_bicycle_infra_adjustment「分離自転車道: -2」等・
-// car_stress_designation_adjustment「指定路線に該当: +1」）の材料。
-// 事故の当事者区分はbackend/app/infrastructure/road_graph_repository.pyの
+// (B) 2次の材料そのもの（順序を持つ）: 指定路線・事故の当事者区分（自転車関連/その他）は、
+// 実際に2次の計算材料として使われている（指定路線は改善計画T292のcar_stress内部軸
+// （domain/axis_definitions.py: car_stress_designation_adjustment「指定路線に該当: +1」）
+// の材料。事故の当事者区分はbackend/app/infrastructure/road_graph_repository.pyの
 // 事故密度集計がbicycle_only=true固定＝自転車関連の事故だけを数え、その他は数えない
 // ＝寄与ゼロ、domain/accident.py: distance_weighted_accident_density参照）。つまりこれらは
 // 「安全寄り→危険寄り」という2次と同じ意味の順序を実際に持っており、中立色にしてしまうと
 // 「濃ければ強い？」というだけの手がかりの無い色になってしまう（実機フィードバック
 // 「1次の軸色の意味合いが読めない」「1次の点要素にも順序付けがあれば反映してほしい」）。
 // これらは2次と同じ緑→赤の配色言語（AXIS_RAMP_COLORS系）へ揃え、「1次のこの色は2次の
-// この色と同じ方向を指す」と直接読めるようにする（下記BICYCLE_INFRA_CATEGORIES/
-// DESIGNATION_CATEGORIES/ACCIDENT_COLOR_BICYCLE参照）。事故の重大度（死亡事故か否か）は
+// この色と同じ方向を指す」と直接読めるようにする（下記DESIGNATION_CATEGORIES/
+// ACCIDENT_COLOR_BICYCLE参照）。事故の重大度（死亡事故か否か）は
 // ACCIDENT_FATAL_WEIGHTによる実際の重み差があり、これも(B)（下のACCIDENT_SEVERITY_*、
 // 竹の時点から既に赤を維持）。
 // 「不明・他/対象外/その他（寄与しない側）」はどの種類でも中立グレーのままとし、
@@ -78,7 +82,7 @@ export interface CategoryDef {
 }
 
 // 「文字列列挙プロパティ→(label対訳表・凡例・match色分け式)の3点セット」の共通ビルダー
-// （改善計画T82）。BICYCLE_INFRA/DESIGNATION/STOP_POIの3組が同じ骨格
+// （改善計画T82）。DESIGNATION/STOP_POI/SUPPLY_POIが同じ骨格
 // （Object.fromEntries変換・["=="]フィルタ＋unknown用["!","has"]フォールバック・
 // ["match", ["coalesce",...]]色分け式）を逐語コピーしていたのを1箇所へ集約する。
 // CAR_STRESS（数値キー）・ACCIDENT（当事者/重大度の2値をcase式で直接書く方が
@@ -122,45 +126,6 @@ function buildCategoricalLayerDefs(
   return { labels, legend, colorExpression, opacityExpression };
 }
 
-// backend/app/domain/traffic.py: classify_bicycle_infrastructureの列挙値と1:1対応
-// （separated/lane/shared_busway/shared_pedestrian/roadway/prohibited、算出不能はunknown）。
-//
-// shared_pedestrianのラベル「歩道[自転車通行可]」は、roadFilterAxes.tsの「道路の種類」軸
-// にあるhighway分類グループ「自転車・歩行者道」（highway=cycleway/path/footway/pedestrian/
-// bridleway/steps）とは別概念（前者=自転車の通行条件、後者=道路種別タグ）だが、
-// 中黒の有無だけの表記だと紛らわしいため区別できる書き方にしてある（改善計画T62）。
-// 包含関係もきれいではない: highway=cycleway⊂separatedだが、path/footwayはbicycleタグ
-// 次第でshared_pedestrianになる場合とroadwayに落ちる場合があり、pedestrian/bridleway/
-// stepsはどちらの個別分岐も無くroadwayへ落ちる。cycleway=track併設の幹線道路は
-// highway側では「自転車・歩行者道」に入らないままseparatedになる（非対称）。
-// 改善計画（1次/2次の地図上表現の統一）: 車の圧迫感の材料（改善計画T292のcar_stress
-// 内部軸、domain/axis_definitions.py: car_stress_bicycle_infra_adjustment
-// 「分離自転車道: -2／自転車レーン・共有の車線表示: -1」参照）そのものであり、
-// 上から下へ「安全寄り→危険寄り」の実際の順序を持つ。梅で車ストレス
-// 5段階に適用したのと同じ手順（AXIS_RAMP_COLORSの4色をそのまま複数段階へ再利用し、
-// 段階数の差分だけMaterial系の中間色を新規に挿入）で6段階の緑→赤を割り付ける。
-// 1段目(separated)・4〜6段目(shared_pedestrian/roadway/prohibited)はAXIS_RAMP_COLORSの
-// 4色をそのまま再利用し、2〜3段目(lane/shared_busway)にMaterial Light Green 500・
-// Lime 500を新規に挿入して段差をつなぐ。
-const BICYCLE_INFRA_CATEGORIES: CategoryDef[] = [
-  { key: "separated", label: "分離自転車道", color: AXIS_RAMP_COLORS[0] },
-  { key: "lane", label: "自転車レーン", color: "#8bc34a" },
-  { key: "shared_busway", label: "バス専用道等の共用", color: "#cddc39" },
-  { key: "shared_pedestrian", label: "歩道[自転車通行可]", color: AXIS_RAMP_COLORS[1] },
-  { key: "roadway", label: "車道[専用施設なし]", color: AXIS_RAMP_COLORS[2] },
-  { key: "prohibited", label: "自転車通行不可", color: AXIS_RAMP_COLORS[3] },
-];
-
-const bicycleInfraDefs = buildCategoricalLayerDefs("bicycle_infra", BICYCLE_INFRA_CATEGORIES, "不明・他");
-
-// key→labelの対訳表。MapView.tsxのポップアップ表示が参照する（改善計画T46。以前は
-// MapView.tsx内に同じ6件を手作業で複製しており、この配列とのドリフト検知テストが
-// 無かった。UI語彙表はカタログファイルにのみ書く、という方針の具体化）。
-export const BICYCLE_INFRA_LABELS: Record<string, string> = bicycleInfraDefs.labels;
-export const BICYCLE_INFRA_LEGEND: LegendEntry[] = bicycleInfraDefs.legend;
-export const BICYCLE_INFRA_COLOR_EXPRESSION: unknown[] = bicycleInfraDefs.colorExpression;
-export const BICYCLE_INFRA_OPACITY_EXPRESSION: unknown[] = bicycleInfraDefs.opacityExpression;
-
 // 指定路線コンフレーション機構（外部静的データソース T51、国土数値情報N10/N12）の色分け定義。
 // backend/app/infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLの
 // designationプロパティ（emergency_transport/critical_logistics/both/未該当はプロパティ欠落）と
@@ -189,7 +154,9 @@ const DESIGNATION_CATEGORIES: CategoryDef[] = [
 
 const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CATEGORIES, "対象外");
 
-// key→labelの対訳表。MapView.tsxのポップアップ表示が参照する（BICYCLE_INFRA_LABELSと同じ理由）。
+// key→labelの対訳表。MapView.tsxのポップアップ表示が参照する（改善計画T46。以前は
+// MapView.tsx内に同じ複製を手作業で持っており、この配列とのドリフト検知テストが
+// 無かった。UI語彙表はカタログファイルにのみ書く、という方針の具体化）。
 export const DESIGNATION_LABELS: Record<string, string> = designationDefs.labels;
 export const DESIGNATION_LEGEND: LegendEntry[] = designationDefs.legend;
 export const DESIGNATION_COLOR_EXPRESSION: unknown[] = designationDefs.colorExpression;
@@ -340,7 +307,7 @@ const STOP_POI_CATEGORIES: CategoryDef[] = [
 
 // osm_raw_pois.kindは取込時にclassify_stop_poiで5値のいずれかへ分類済みのため実際には
 // unknown（プロパティ欠落）は出現しない想定だが、match式のフォールバック（COLOR_UNKNOWN）
-// と対にして凡例側にも残す（bicycleInfra等と同じ「不明・他」の扱い）。
+// と対にして凡例側にも残す（designation等と同じ「不明・他」の扱い）。
 const stopPoiDefs = buildCategoricalLayerDefs("kind", STOP_POI_CATEGORIES, "不明・他");
 
 export const STOP_POI_LABELS: Record<string, string> = stopPoiDefs.labels;
@@ -379,7 +346,6 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c)
 // リテラル列挙できず、RampAxis["axisId"]（string）を足しあわせる（改善計画T145b: 停止/事故密度の
 // 凡例追加。ここに追加のコード変更なしにSTATIC_FILTER_AXESへ含められる）。
 export type StaticFilterAxisId =
-  | "bicycleInfra"
   | "designation"
   | "tunnel"
   | "oneway"
@@ -408,7 +374,6 @@ export interface StaticFilterAxis {
 // (RAMP_AXES)として直接呼べる。
 export function buildStaticFilterAxes(rampAxes: readonly RampAxis[]): readonly StaticFilterAxis[] {
   return [
-    { axisId: "bicycleInfra", layerId: "bicycleInfra", legend: BICYCLE_INFRA_LEGEND },
     { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
     { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },
     { axisId: "oneway", layerId: "oneway", legend: ONEWAY_LEGEND },

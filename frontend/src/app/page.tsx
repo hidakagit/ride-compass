@@ -117,7 +117,7 @@ const DISTANCE_TOLERANCE_KM = 5;
 
 // 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
 // （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
-// 道路情報の2軸に加え、改善計画T63で車ストレス・自転車インフラ・指定路線・停止要因POI・
+// 道路情報の2軸に加え、改善計画T63で車ストレス・指定路線・停止要因POI・
 // 事故（当事者/重大度）の絞り込みにも同じ猶予を適用する。
 const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
@@ -148,7 +148,6 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // 両方へ移行する処理はuseStoredStateのdeserialize（下記）参照。
   roadType: false,
   roadSurface: false,
-  bicycleInfra: false,
   designation: false,
   tunnel: false,
   oneway: false,
@@ -1603,7 +1602,6 @@ export default function Home() {
             dynamicWeather={dynamicWeather}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}
-            showBicycleInfra={layerVisibility.bicycleInfra}
             showDesignation={layerVisibility.designation}
             showTunnel={layerVisibility.tunnel}
             showOneway={layerVisibility.oneway}

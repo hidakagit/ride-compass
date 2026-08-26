@@ -49,7 +49,10 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 畳み込む前の正規化フラグis_emergency_transport/is_critical_logisticsを追加した
 // （評価軸材料として軸スタジオから選べるようにするため）。追加のみで参照側への影響は
 // 無いため、v9のような非互換変更ではない。
-const ROAD_SURFACE_TILE_VERSION = "15";
+// v16: 改善計画T347。bicycle_infraプロパティを削除した（地図表示は専用レイヤーごと廃止し、
+// 評価軸側は新設の公開軸「自転車インフラ」bicycle_infra_qualityへ置き換えたため、
+// 地図表示・評価軸のどちらからも一切参照されなくなった）。
+const ROAD_SURFACE_TILE_VERSION = "16";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

@@ -103,12 +103,20 @@ def test_no_lit_default_differs_between_missing_way_tags_and_missing_tag():
     assert spec.extractor(_ctx(way_tags={"lit": "yes"})) is False
 
 
-def test_highway_and_bicycle_infra_require_way_tags_present():
+def test_highway_requires_way_tags_present():
     # car_stress軸グループ全体をway_tags欠損時に評価しない既存仕様（way_tagsが空dictでも
     # 「取得できた」扱いなのでway_tags=Noneとは区別する）。
     highway_spec = MATERIAL_CATALOG["highway"]
     assert highway_spec.extractor(_ctx(way_tags={}, edge=_edge(highway="trunk"))) == "trunk"
     assert highway_spec.extractor(_ctx(way_tags=None, edge=_edge(highway="trunk"))) is None
+
+
+def test_bicycle_infra_material_removed():
+    """改善計画T347回帰テスト: bicycle_infra（優先順位付き分類、classify_bicycle_infrastructure
+    経由）は「Python側に生データ加工ロジックを持たせない」設計原則に反するとして削除した。
+    正規化フラグ材料4件（下記test_bicycle_infra_flag_materials_extract_from_cycleway_and_
+    highway_tags参照）だけを正準とする。誤って復活しないことを固定するテスト。"""
+    assert "bicycle_infra" not in MATERIAL_CATALOG
 
 
 def test_bridge_smoothness_surface_are_now_extractable():

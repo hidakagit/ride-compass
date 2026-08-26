@@ -498,7 +498,10 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
     candidate = next(c for c in candidates if c.id == "route-000")
 
     assert candidate.bicycle_infra_score is not None
-    segment_with_track = next(s for s in candidate.segments if s.bicycle_infra == "separated")
+    # 改善計画T347: RouteSegmentDetail.bicycle_infra（生値の分類文字列）は削除済みのため、
+    # cycleway=track区間が正しく認識されたことは評価軸bicycle_infra_quality（分離自転車道は
+    # 最良値0.0）で確認する。
+    segment_with_track = next(s for s in candidate.segments if s.axis_difficulties.get("bicycle_infra_quality") == 0.0)
     assert segment_with_track is not None
 
 
@@ -711,7 +714,7 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     # 0にし、night重みだけが探索コストへ効くようにする（差分をnight軸だけに起因させる）。
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
-                 "car_stress": 0.0, "accident": 0.0, "night": 1.0}
+                 "car_stress": 0.0, "accident": 0.0, "night": 1.0, "bicycle_infra_quality": 0.0}
     )
     generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
     engine = generator._engine
@@ -774,7 +777,7 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     preference = RoutePreference(
         weights={"gradient": 1.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
-                 "car_stress": 0.0, "accident": 0.0, "night": 0.0}
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0, "bicycle_infra_quality": 0.0}
     )
     steep_climb = ElevationAttribute(
         edge_id="e1", average_grade=10.0, data_source="test", calculated_at="t"
@@ -898,7 +901,7 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     way_tags = {"e1": {}}
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
-                 "car_stress": 0.0, "accident": 0.0, "night": 1.0}
+                 "car_stress": 0.0, "accident": 0.0, "night": 1.0, "bicycle_infra_quality": 0.0}
     )
     generator, _, _ = make_generator(None, way_tags=way_tags, route_preference=preference)
     engine = generator._engine
@@ -915,8 +918,11 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
     night_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=True)
 
-    day_segments = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
-    night_segments = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
+    # 改善計画T347: _build_segment_detailsはbicycle_infra_score集計用の並列リスト
+    # （list[bool | None]）も返すタプルになった（RouteSegmentDetail.bicycle_infra
+    # フィールド削除に伴う付け替え）。
+    day_segments, _ = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
+    night_segments, _ = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
 
     # night_weight=1.0のみ有効な本ケースでは、日中はcompositeを合成できる重みが1つも
     # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。

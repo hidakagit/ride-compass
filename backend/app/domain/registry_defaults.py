@@ -69,7 +69,21 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(PrimaryAttributeSpec(attr_id="highway", label="道路の種類"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="lanes", label="車線数"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ"))
+    register_primary_attribute(
+        PrimaryAttributeSpec(
+            attr_id="cycleway",
+            label="自転車インフラ",
+            # 改善計画T347: highway_is_cycleway/cycleway_has_track/cycleway_has_lane/
+            # cycleway_has_sharedの4材料は、car_stress軸（内部のcar_stress_bicycle_infra_
+            # adjustment経由）と、新設の公開軸bicycle_infra_qualityの両方が正当に参照する
+            # （後者はcar_stressの内部補正とほぼ同一の重みを再利用した「ニアリーイコールの
+            # 推定軸」として意図的に設計したため、2軸が同じ一次属性を共有すること自体が
+            # 想定どおり）。geometryと同じ「複数軸が参照してよい共通の一次属性」として
+            # 排他チェック対象外にする（highway自体はcar_stress_highway_baseが単独で使う
+            # ため、shared化せず排他チェックを維持する）。
+            shared=True,
+        )
+    )
     register_primary_attribute(PrimaryAttributeSpec(attr_id="surface", label="路面の種類"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="bicycle_access", label="自転車通行可否"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否"))

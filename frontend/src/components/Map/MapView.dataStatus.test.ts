@@ -77,21 +77,20 @@ describe("computeLayerDataStatus", () => {
     expect(status).toEqual({});
   });
 
-  it("roadType/roadSurface/axis:car_stress/bicycleInfra/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
+  it("roadType/roadSurface/axis:car_stress/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
     const map = fakeMap({
       emptySourceLayers: [{ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" }],
     });
     const status = computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:car_stress": true, bicycleInfra: true, designation: true },
+      { roadType: true, roadSurface: true, "axis:car_stress": true, designation: true },
       LAYER_DATA_SOURCES,
     );
     expect(status).toEqual({
       roadType: "empty",
       roadSurface: "empty",
       "axis:car_stress": "empty",
-      bicycleInfra: "empty",
       designation: "empty",
     });
   });
@@ -104,18 +103,18 @@ describe("computeLayerDataStatus", () => {
     expect(errored).toEqual({ elevation: "error" });
   });
 
-  // レビュー指摘: roadType/roadSurface/axis:car_stress/bicycleInfra/designationが同じ
+  // レビュー指摘: roadType/roadSurface/axis:car_stress/designationが同じ
   // (sourceId, sourceLayer)を共有するため、素朴に実装するとquerySourceFeaturesが同じ引数で
-  // 5回呼ばれていた（road_surfaceは実測6,273件、sourcedata等の高頻度イベントのたびに
+  // 複数回呼ばれていた（road_surfaceは実測6,273件、sourcedata等の高頻度イベントのたびに
   // 呼ばれるため無視できないコスト）。1回のcomputeLayerDataStatus呼び出し内では
   // (sourceId, sourceLayer)ペアごとに1回だけ呼ぶことを確認する。
-  it("同じ(sourceId, sourceLayer)を共有する5レイヤーが同時に見えていても、querySourceFeaturesは1回しか呼ばれない", () => {
+  it("同じ(sourceId, sourceLayer)を共有する4レイヤーが同時に見えていても、querySourceFeaturesは1回しか呼ばれない", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({ querySourceFeaturesCalls: calls });
     computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:car_stress": true, bicycleInfra: true, designation: true },
+      { roadType: true, roadSurface: true, "axis:car_stress": true, designation: true },
       LAYER_DATA_SOURCES,
     );
     expect(calls).toHaveLength(1);
@@ -164,20 +163,19 @@ describe("isRoadSurfaceGroupVisible", () => {
   // レビュー指摘: 以前はregionZoomTooWideがroad（現roadType/roadSurface）のvisibilityだけを
   // 見ていたため、road自体はOFFのままaxis:car_stress等だけONで表示範囲が広すぎる場合に、
   // ズーム範囲外の案内が一切出ない不整合があった。road_surfaceタイルを共有する
-  // 7レイヤー（roadType/roadSurface/axis:car_stress/bicycleInfra/designation/tunnel/oneway、
-  // 改善計画T165でroadが論理2レイヤーへ分割、T289でonewayを追加）のいずれか1つでも
-  // ONならtrueを返すことを確認する。
-  it("roadType/roadSurface/axis:car_stress/bicycleInfra/designation/tunnel/onewayのいずれか1つでもONならtrue", () => {
+  // 6レイヤー（roadType/roadSurface/axis:car_stress/designation/tunnel/oneway、
+  // 改善計画T165でroadが論理2レイヤーへ分割、T289でonewayを追加、T347でbicycleInfraを
+  // 削除）のいずれか1つでもONならtrueを返すことを確認する。
+  it("roadType/roadSurface/axis:car_stress/designation/tunnel/onewayのいずれか1つでもONならtrue", () => {
     expect(isRoadSurfaceGroupVisible({ roadType: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
     expect(isRoadSurfaceGroupVisible({ roadSurface: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
     expect(isRoadSurfaceGroupVisible({ "axis:car_stress": true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ bicycleInfra: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
     expect(isRoadSurfaceGroupVisible({ designation: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
     expect(isRoadSurfaceGroupVisible({ tunnel: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
     expect(isRoadSurfaceGroupVisible({ oneway: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
   });
 
-  it("7レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
+  it("6レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
     expect(
       isRoadSurfaceGroupVisible(
         {

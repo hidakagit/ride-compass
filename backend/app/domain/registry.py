@@ -66,11 +66,11 @@ class TileInputSpec(BaseModel):
     evaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。
 
     N値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:
-    CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の
+    CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の
     場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
     （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
     （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
-    圧迫感等の点数に反映すれば足りる材料向け、例: `bicycle_infra`は評価側のmappingが
+    圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが
     全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。
     `has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく
     「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/

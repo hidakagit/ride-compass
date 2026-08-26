@@ -166,23 +166,6 @@
             "breakpoints": null
           },
           {
-            "property": "bicycle_infra",
-            "weight": 1.0,
-            "boolean": false,
-            "invert": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": {
-              "lane": -1.0,
-              "roadway": 1.0,
-              "separated": -2.0,
-              "shared_busway": 0.0,
-              "shared_pedestrian": 0.0
-            },
-            "breakpoints": null
-          },
-          {
             "property": "maxspeed_kmh",
             "weight": 1.0,
             "boolean": false,
@@ -287,7 +270,7 @@
           4.0
         ],
         "unit": "",
-        "note": "改善計画T292: highway/bicycle_infra/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの6材料から自動計算する。以前は専用の手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への階層再構成でtile_inputsの重み付き結合として表現できるようになった"
+        "note": "改善計画T292: highway/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの5材料から自動計算する。以前は専用の手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への階層再構成でtile_inputsの重み付き結合として表現できるようになった（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）"
       }
     },
     {
@@ -372,6 +355,26 @@
         "unit": "",
         "note": ""
       }
+    },
+    {
+      "axis_id": "bicycle_infra_quality",
+      "category": "推定",
+      "primary_attribute_ids": [
+        "cycleway"
+      ],
+      "icon_id": null,
+      "chip_label": "自転車道",
+      "panel_hint": null,
+      "show_map_icon": false,
+      "display": {
+        "kind": "none",
+        "label": "自転車インフラ",
+        "category": "trafficSafety",
+        "tile_inputs": [],
+        "thresholds": [],
+        "unit": "",
+        "note": ""
+      }
     }
   ],
   "primary_attributes": [
@@ -393,7 +396,7 @@
     {
       "attr_id": "cycleway",
       "label": "自転車インフラ",
-      "shared": false
+      "shared": true
     },
     {
       "attr_id": "surface",
@@ -468,6 +471,7 @@
     "stop_density": 0.2,
     "car_stress": 0.2,
     "accident": 0.08,
-    "night": 0.0
+    "night": 0.0,
+    "bicycle_infra_quality": 0.15
   }
 }

@@ -7,8 +7,6 @@ import {
   ACCIDENT_LEGEND,
   ACCIDENT_RADIUS_EXPRESSION,
   ACCIDENT_SEVERITY_LEGEND,
-  BICYCLE_INFRA_COLOR_EXPRESSION,
-  BICYCLE_INFRA_LEGEND,
   buildStaticFilterAxes,
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_LABELS,
@@ -41,35 +39,6 @@ import { RAMP_AXES } from "./axisLayers";
 const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 
 describe("staticAttributeLayers", () => {
-  it("自転車インフラの凡例キーはdomain/traffic.pyのBicycleInfraClass列挙値+不明と一致する", () => {
-    const keys = BICYCLE_INFRA_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(
-      new Set(["separated", "lane", "shared_busway", "shared_pedestrian", "roadway", "prohibited", "unknown"]),
-    );
-    expect(new Set(keys).size).toBe(keys.length);
-  });
-
-  it("自転車インフラのmatch式はプロパティ欠落時に凡例のunknown色へ落ちる", () => {
-    expect(BICYCLE_INFRA_COLOR_EXPRESSION[0]).toBe("match");
-    const unknownColor = BICYCLE_INFRA_LEGEND.find((e) => e.key === "unknown")!.color;
-    expect(BICYCLE_INFRA_COLOR_EXPRESSION[BICYCLE_INFRA_COLOR_EXPRESSION.length - 1]).toBe(unknownColor);
-  });
-
-  it("自転車インフラの凡例の色とmatch式に出てくる色が一致する", () => {
-    const legendColors = new Set(BICYCLE_INFRA_LEGEND.map((e) => e.color));
-    const expressionColors = BICYCLE_INFRA_COLOR_EXPRESSION.filter(
-      (item): item is string => typeof item === "string" && item.startsWith("#"),
-    );
-    for (const color of expressionColors) {
-      expect(legendColors.has(color)).toBe(true);
-    }
-  });
-
-  it("自転車インフラの凡例エントリごとに一意な色を持つ（見分けられる配色）", () => {
-    const colors = BICYCLE_INFRA_LEGEND.map((e) => e.color);
-    expect(new Set(colors).size).toBe(colors.length);
-  });
-
   it("事故レイヤーの凡例キーは自転車関連/その他の2値で重複が無い", () => {
     const keys = ACCIDENT_LEGEND.map((e) => e.key);
     expect(new Set(keys)).toEqual(new Set(["bicycle", "other"]));
@@ -262,7 +231,6 @@ describe("staticAttributeLayers", () => {
   it("STATIC_FILTER_AXESの各軸は対応するLEGEND定数と同じ内容を参照する", () => {
     const byAxisId = Object.fromEntries(STATIC_FILTER_AXES.map((axis) => [axis.axisId, axis.legend]));
     const expected: Record<string, readonly LegendEntry[]> = {
-      bicycleInfra: BICYCLE_INFRA_LEGEND,
       stopPoi: STOP_POI_LEGEND,
       supplyPoi: SUPPLY_POI_LEGEND,
       accidentParty: ACCIDENT_LEGEND,
@@ -278,8 +246,8 @@ describe("staticAttributeLayers", () => {
     const supplyPoiAxis = STATIC_FILTER_AXES.find((axis) => axis.axisId === "supplyPoi");
     expect(stopPoiAxis?.baseFilter).toEqual(["in", ["get", "kind"], ["literal", STOP_POI_KINDS]]);
     expect(supplyPoiAxis?.baseFilter).toEqual(["in", ["get", "kind"], ["literal", SUPPLY_POI_KINDS]]);
-    // 他の軸（例: bicycleInfra）はkindプロパティを持たない別ソースのためbaseFilter不要。
-    expect(STATIC_FILTER_AXES.find((axis) => axis.axisId === "bicycleInfra")?.baseFilter).toBeUndefined();
+    // 他の軸（例: designation）はkindプロパティを持たない別ソースのためbaseFilter不要。
+    expect(STATIC_FILTER_AXES.find((axis) => axis.axisId === "designation")?.baseFilter).toBeUndefined();
   });
 
   it("事故は当事者・重大度の2軸を持ち、それ以外のレイヤーは1軸のみ", () => {

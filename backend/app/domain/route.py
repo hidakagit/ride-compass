@@ -40,14 +40,10 @@ class RouteSegmentDetail(BaseModel):
     gradient_percent: float | None = None
     wind_penalty: float | None = None
     road_surface_good: bool | None = None
-    # 車ストレス(1-5、domain/traffic.py: car_stress_level)・自転車インフラ分類
-    # （domain/traffic.py: BicycleInfraClass）の生値。road_surface_goodと同じく、難易度
-    # （axis_difficulties["car_stress"]）とは別に、将来の色分けモード等での利用に備えて
-    # 生値も保持する（静的道路属性P1残り）。bicycle_infraは改善計画T138でcar_stress軸側の
-    # 独立軸としては廃止済みだが、一次属性としての生値（表示・デバッグ用）はここに
-    # 引き続き残す。
+    # 車ストレス(1-5、domain/traffic.py: car_stress_level)の生値。road_surface_goodと
+    # 同じく、難易度（axis_difficulties["car_stress"]）とは別に、将来の色分けモード等での
+    # 利用に備えて生値も保持する（静的道路属性P1残り）。
     car_stress: int | None = None
-    bicycle_infra: str | None = None
     # 改善計画T309: 以前はelevation_difficulty/wind_difficulty/road_difficulty/
     # stop_difficulty/car_stress_difficulty/accident_difficulty/night_difficultyという
     # 既存7軸1対1の固定フィールドだったが、軸スタジオで公開軸を自由に増減できる設計
@@ -139,7 +135,7 @@ def aggregate_segments_into_bins(
     - 距離加重平均: gradient_percent/wind_penalty/car_stress/各difficulty系
       （domain/difficulty.py: distance_weighted_difficulty、Noneの区間は除外し
       残りの距離で再正規化。ルート全体の集約と同じ考え方）
-    - 距離加重多数決: road_surface_good/bicycle_infra（カテゴリ値のため平均ではなく、
+    - 距離加重多数決: road_surface_good（カテゴリ値のため平均ではなく、
       ビン内で最も距離の長い値を代表値とする。Noneの区間は除外）
     - 先頭からの引き継ぎ: cumulative_distance_km/estimated_arrival_time/
       start_latitude/start_longitude（ビン開始時点の値）
@@ -240,7 +236,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         # も同じくdistance_weighted_difficultyで連続値として扱っている（既存の前例）ため、
         # ビン単位でも同じ方式で加重平均し最近傍の整数へ丸める。
         car_stress=round(car_stress_avg) if car_stress_avg is not None else None,
-        bicycle_infra=_weighted_mode([(s.bicycle_infra, s.distance_km) for s in segments]),
         axis_difficulties=_merge_axis_difficulties(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

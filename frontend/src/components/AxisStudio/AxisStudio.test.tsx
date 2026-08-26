@@ -141,7 +141,7 @@ describe("AxisStudio", () => {
   });
 
   // 改善計画T322: 「はい/いいえ、または種類ごとに点数を決める」の材料選択にcategorical
-  // dtype材料（bicycle_infra等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
+  // dtype材料（tracktype等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
   // 改善計画T332でウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、
   // という3ステップに分かれている。
   it("「はい/いいえ、または種類ごとに点数を決める」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
@@ -157,10 +157,10 @@ describe("AxisStudio", () => {
     await user.click(screen.getByRole("button", { name: "次へ" }));
 
     const materialSelect = screen.getByRole("combobox", { name: "材料(material)" });
-    // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として自転車インフラ種別を含む
+    // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として未舗装路グレードを含む
     // （改善計画T345さらなるフォローアップ2: labelは「論理名 - 物理名」形式）。
-    expect(screen.getByRole("option", { name: "自転車インフラ種別 - bicycle_infra" })).toBeInTheDocument();
-    await user.selectOptions(materialSelect, "bicycle_infra");
+    expect(screen.getByRole("option", { name: "未舗装路グレード(tracktype) - tracktype" })).toBeInTheDocument();
+    await user.selectOptions(materialSelect, "tracktype");
 
     expect(screen.queryByText("該当時(true)のスコア")).not.toBeInTheDocument();
     const valueInput = screen.getByLabelText("値");

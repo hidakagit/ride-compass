@@ -69,3 +69,28 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
         "cycleway_has_lane": "lane" in values,
         "cycleway_has_shared": any(v in ("share_busway", "shared_lane") for v in values),
     }
+
+
+def bicycle_infra_flags_or_none(tags: dict[str, str] | None, highway: str | None) -> dict[str, bool] | None:
+    """改善計画T347フォローアップ: `bicycle_infra_flags`を「データ欠損はNone」の規約に
+    倒すラッパー。呼び出し元（material_catalog.pyのextractor・evaluation.py:
+    compute_edge_axis_scores・openrouteservice_engine.py/road_graph_engine.pyの
+    _build_segment_details）が同じガード条件を4箇所で手書きしていたため、旧
+    classify_bicycle_infrastructureが実際に持っていた「unknown」判定条件をここへ
+    1箇所へ集約する（設計原則1: 正準定義は1箇所）。
+
+    `tags is None`（タグ自体が未取得）はNone。`bicycle_infra_flags`自体はhighway=Noneでも
+    例外を投げず具体的なbool値を返してしまうが、素朴に`highway is None`だけをNoneへ倒すと、
+    旧関数が実際には許していた「highwayは不明だがcyclewayタグから分離自転車道と判定できる」
+    ケース（`highway == "cycleway" or "track" in values`をhighwayの有無より先に判定していた
+    ため、cyclewayタグさえあればhighwayがNoneでも判定できた）まで誤ってNoneに倒してしまう。
+    旧関数が本当にunknownを返していたのは「highwayも解決できず、かつcycleway由来の
+    いずれのフラグも立たない」場合のみ（最終catch-all）なので、フラグ計算後にその条件
+    （highway=None かつ 全フラグFalse）でだけNoneへ倒す。
+    """
+    if tags is None:
+        return None
+    flags = bicycle_infra_flags(tags, highway)
+    if highway is None and not any(flags.values()):
+        return None
+    return flags

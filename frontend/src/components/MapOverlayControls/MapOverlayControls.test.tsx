@@ -555,14 +555,16 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
       await user.click(screen.getByRole("button", { name: "推定" }));
 
-      // 車の圧迫感: 道路種別・インフラ・指定路線はレイヤーあり、制限速度・車線数・車両可否は無し
+      // 車の圧迫感: 道路種別・指定路線はレイヤーあり、インフラ・制限速度・車線数・車両可否は無し
       // 改善計画T320: 一次属性の解決順がAXIS_DEFINITIONSの内部軸材料の走査順（highway→
       // cycleway→maxspeed→lanes→designation→motor_vehicle_access）に一本化されたため、
       // 未表示材料の並びも制限速度→車線数の順になった（以前はregistry_defaults.pyの
       // 手書きinputs順が偶然lanes→maxspeedだった）。
+      // 改善計画T347: cycleway（インフラ）の専用地図レイヤー（旧bicycleInfra）を廃止した
+      // ため、「表示」側から「未表示」側の先頭（走査順で highway の次）へ移った。
       await user.click(screen.getByRole("button", { name: "車の圧迫感の凡例を表示" }));
-      expect(screen.getByText("材料: 道路種別・インフラ・指定路線")).toBeInTheDocument();
-      expect(screen.getByText("地図では未表示の材料: 制限速度・車線数・車両可否")).toBeInTheDocument();
+      expect(screen.getByText("材料: 道路種別・指定路線")).toBeInTheDocument();
+      expect(screen.getByText("地図では未表示の材料: インフラ・制限速度・車線数・車両可否")).toBeInTheDocument();
 
       // 勾配: 材料の標高にはレイヤーがある（未表示材料は無し）
       await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));

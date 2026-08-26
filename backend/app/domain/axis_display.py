@@ -30,7 +30,7 @@ Literal自体を削除済み、registry.py参照）。
 データへ移設した）。`display_override`も未設定なら`kind="none"`（地図に出ない）。
 
 **T308での用途拡大**: 上記の一般化により、軸スタジオ（GUI）で作成された軸
-（複数材料の重み付き結合や、highway/bicycle_infra等のstr N値カテゴリカル材料を使う軸を
+（複数材料の重み付き結合や、highway/surface等のstr N値カテゴリカル材料を使う軸を
 含む）も、タイル焼き込み済み・実行時スケール変換不要・方向非依存の材料だけで構成されて
 いれば、個別の手書き登録なしに自動導出の対象になる（本モジュールの`axis_display_for()`が
 呼び出し元、docs/decisions/t308-axis-map-display-auto-derivation.md参照）。

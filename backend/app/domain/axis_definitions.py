@@ -1,6 +1,6 @@
 """評価軸の定義データと汎用評価関数（改善計画T221 Stage B/C、ADR: docs/decisions/t221-axis-registry.md）。
 
-現行7軸（勾配・向かい風・舗装質・停止密度・車ストレス・事故密度・夜間）の
+現行8軸（勾配・向かい風・舗装質・停止密度・車ストレス・事故密度・夜間・自転車インフラ）の
 「一次属性由来の材料 → 軸別difficulty(0-100)」変換を、コード（軸ごとの関数）ではなく
 **データ（`AXIS_DEFINITIONS`）**として宣言する。変換の計算自体はStage A（T239）の
 4テンプレート（`domain/axis_templates.py`）が担い、本モジュールは
@@ -87,7 +87,7 @@ class CategoricalShape(BaseModel):
     """カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
 
     改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と
-    str（highway/bicycle_infra等、MATERIAL_CATALOGのdtype="categorical"材料、
+    str（highway/designation等、MATERIAL_CATALOGのdtype="categorical"材料、
     3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`
     自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで
     新テンプレートは不要だった。
@@ -260,7 +260,7 @@ class AxisDefinition(BaseModel):
         return list(seen)
 
 
-# 7軸の定義。**辞書の挿入順は合成（composite）の加算順として意味を持つ**
+# 8軸の定義。**辞書の挿入順は合成（composite）の加算順として意味を持つ**
 # （スカラー版`composite_difficulty`のPython `sum()`と配列版`_neumaier_accumulate`の
 # 浮動小数点結果をビット単位で一致させるには加算順が同一である必要がある。
 # `tests/test_evaluation_bulk.py`が全Edge一致で検証する）。
@@ -289,18 +289,11 @@ _CAR_STRESS_HIGHWAY_BASE_MAPPING: dict[str, float] = {
     "trunk": 4.0,
     "trunk_link": 4.0,
 }
-_CAR_STRESS_BICYCLE_INFRA_MAPPING: dict[str, float] = {
-    "separated": -2.0,
-    "lane": -1.0,
-    "shared_busway": 0.0,
-    "shared_pedestrian": 0.0,
-    "roadway": 1.0,
-}
-# 改善計画T336: car_stress_bicycle_infra_adjustment内部軸を、bicycle_infra材料
-# （優先順位付き分類）ではなく正規化フラグ材料群の線形結合で再現するための重み・折れ点。
-# 上の_CAR_STRESS_BICYCLE_INFRA_MAPPINGと同じ5値（separated/lane/shared_busway/
-# shared_pedestrian/roadway、prohibitedは0点扱い）を、優先順位（track/highway=cycleway
-# ＞lane＞shared_busway等）を保ったまま次の重み付き和で再現する。
+# 改善計画T336: car_stress_bicycle_infra_adjustment内部軸を、旧bicycle_infra材料
+# （優先順位付き分類、改善計画T347で削除済み）ではなく正規化フラグ材料群の線形結合で
+# 再現するための重み・折れ点。旧分類の5値（separated=-2.0/lane=-1.0/shared_busway=0.0/
+# shared_pedestrian=0.0/roadway=1.0、prohibitedは0点扱い）を、優先順位
+# （track/highway=cycleway＞lane＞shared_busway等）を保ったまま次の重み付き和で再現する。
 #
 # - highway_is_cycleway・cycleway_has_trackは同じ最優先階層（どちらか一方でもseparated
 #   確定）のため、他の2フラグを両方足し合わせても届かない大きさの重み(-4.0、
@@ -309,7 +302,7 @@ _CAR_STRESS_BICYCLE_INFRA_MAPPING: dict[str, float] = {
 #   カバー）。
 # - cycleway_has_lane(-2.0)・cycleway_has_shared(-1.0)は互いに排他ではない
 #   （両方成立時-3.0）が、[-3.0, -2.0]区間もlane(-1.0)で平坦にしてあるため、
-#   lane側が優先されるclassify_bicycle_infrastructureの判定順と一致する。
+#   lane側が優先される旧classify_bicycle_infrastructureの判定順と一致する。
 #
 # 4フラグいずれも不成立（0.0）はroadway(+1.0)として近似する。bicycle由来の分岐
 # （shared_pedestrian・prohibited）はこの4フラグに含まれないためroadway側へ丸められる
@@ -330,6 +323,21 @@ _CAR_STRESS_BICYCLE_INFRA_FLAG_BREAKPOINTS: list[tuple[float, float]] = [
     (-2.0, -1.0),
     (-1.0, 0.0),
     (0.0, 1.0),
+]
+# 改善計画T347（ユーザー指摘: check_material_exclusivityがcar_stress_bicycle_infra_
+# adjustmentとの材料重複で衝突していた反省を受け、材料を複製せず軸参照へ作り替えた）:
+# 公開軸「自転車インフラ」は、car_stress_bicycle_infra_adjustment（正規化フラグ4種の
+# 重み付き線形和、実データ検証済み）の出力[-2.0, 1.0]をそのまま1つの材料（軸参照）として
+# 受け取り、breakpointsだけをdifficultyの規約（0=最も走りやすい・100=最も走りにくい）へ
+# 線形再スケールする（score=(v+2)/3*100）。car_stress自身が内部軸を合成するのと同じ
+# 階層構造（改善計画T292）で、生の材料を2軸が別々に持つのではなく1箇所（car_stress_
+# bicycle_infra_adjustment）だけが持つ——check_material_exclusivity（材料の排他帰属
+# チェック）は軸参照を対象外とするため、この形にするだけで材料の二重計上にもならない。
+_BICYCLE_INFRA_AXIS_BREAKPOINTS: list[tuple[float, float]] = [
+    (-2.0, 0.0),
+    (-1.0, 33.3),
+    (0.0, 66.7),
+    (1.0, 100.0),
 ]
 _CAR_STRESS_MAXSPEED_BREAKPOINTS: list[tuple[float, float]] = [
     (0.0, -1.0),
@@ -601,10 +609,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
                     categories=_CAR_STRESS_HIGHWAY_BASE_MAPPING,
                     has_unknown_fallback=True,
                 ),
-                TileInputSpec(
-                    property="bicycle_infra",
-                    categories=_CAR_STRESS_BICYCLE_INFRA_MAPPING,
-                ),
+                # 改善計画T347: bicycle_infraタイルプロパティ自体を削除したため、この
+                # tile_inputも除去した（下記noteの5材料へ変更）。評価側のcar_stress
+                # 自身のterms（car_stress_bicycle_infra_adjustment内部軸）には影響しない
+                # （地図ランプ表示専用のtile_inputsのみの変更、5材料での近似になる）。
                 TileInputSpec(
                     property="maxspeed_kmh",
                     breakpoints=_CAR_STRESS_MAXSPEED_BREAKPOINTS,
@@ -632,10 +640,11 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             # ではなくドメイン知識による選定、実データでの分布確認は必要になれば
             # 別タスクで実施）。
             thresholds=[2.0, 3.0, 4.0],
-            note="改善計画T292: highway/bicycle_infra/maxspeed_kmh/lanes_count/"
-            "designation/motor_vehicle_noの6材料から自動計算する。以前は専用の"
+            note="改善計画T292: highway/maxspeed_kmh/lanes_count/"
+            "designation/motor_vehicle_noの5材料から自動計算する。以前は専用の"
             "手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への"
-            "階層再構成でtile_inputsの重み付き結合として表現できるようになった",
+            "階層再構成でtile_inputsの重み付き結合として表現できるようになった"
+            "（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）",
         ),
     ),
     # 事故密度。材料accident_count_per_km_year=事故密度(件/(km・年)、警察庁統計の
@@ -683,6 +692,31 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         is_published=True,
         icon_id="crescent-moon",
         chip_label="夜間",
+    ),
+    # 改善計画T347: 旧bicycle_infra材料（優先順位付き分類、MATERIAL_CATALOGから削除済み）
+    # の代替。正規化フラグ4種（highway_is_cycleway等）を直接持たず、car_stress内部軸
+    # car_stress_bicycle_infra_adjustment（同じ4フラグの重み付き線形和、実データ検証済み
+    # 0.0127%ズレ）を単一の材料（軸参照）として受け取り、breakpointsだけをdifficultyの
+    # 規約(0-100)へ再スケールする（_BICYCLE_INFRA_AXIS_BREAKPOINTS参照）。car_stress自身が
+    # 内部軸を合成するのと同じ階層構造（改善計画T292）——生の4材料を2軸が別々に持つと
+    # check_material_exclusivity（材料の排他帰属チェック）が二重計上として拒否するため、
+    # 材料ではなく軸参照にすることで技術的にも1箇所だけが材料を持つ状態を保つ。
+    # 地図表示は持たない（show_map_icon=False）——旧bicycle_infraタイルプロパティ自体を
+    # 削除したため、この4フラグから地図ramp用のタイル値を新設しない限りタイル表示できず、
+    # 今回はスコープ外（軸スタジオ・ルート設定のroute_preference重み付けでの利用が主目的）。
+    "bicycle_infra_quality": AxisDefinition(
+        axis_id="bicycle_infra_quality",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="car_stress_bicycle_infra_adjustment")],
+            breakpoints=_BICYCLE_INFRA_AXIS_BREAKPOINTS,
+        ),
+        default_weight=0.15,
+        label="自転車インフラ",
+        description="専用の自転車インフラ（分離自転車道・自転車レーン等）が整備されているほど易しい。",
+        category="推定",
+        is_published=True,
+        chip_label="自転車道",
+        show_map_icon=False,
     ),
 }
 
@@ -742,7 +776,7 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     比較になるため）スキップする。重複が見つかれば`AxisMaterialConflictError`を送出する
     （登録は行わない、呼び出し元の責務）。
 
-    現時点の`AXIS_DEFINITIONS`（7軸）には`registry.py`の`shared=True`相当（距離等、
+    現時点の`AXIS_DEFINITIONS`（8軸）には`registry.py`の`shared=True`相当（距離等、
     複数軸が参照してよい共通コンテキスト）の材料が存在しないため、`shared`フラグは
     持たない。将来そうした材料が必要になった時点で`MaterialTerm`側への追加を検討する。
 

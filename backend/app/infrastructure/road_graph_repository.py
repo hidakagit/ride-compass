@@ -211,18 +211,17 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 # - smoothness: 生タグをlower(btrim())で正規化して焼くだけ（surfaceと同じ流儀）
 # - tunnel/bridge: タグ値'yes'のときだけtrueを焼く（それ以外はキー省略＝ST_AsMVTがNULLを
 #   省略する既存の挙動をそのまま使う。「非該当」が大多数のため省略した方がタイルが軽い）
-# - bicycle_infra: domain/traffic.py（classify_bicycle_infrastructure）と1:1対応するCASE式。
-#   SQLにPythonを呼び出す手段が無いためやむを得ず判定ロジックを2箇所持つが、
-#   test_road_graph_repository.pyの整合性テストで同じ入力に対し常に同じ出力になることを
-#   担保する。
 # - car_stress（車ストレス、1-5）は改善計画（交通ストレスレシピ外出し基盤）以降、
 #   ここでは**計算済みの最終値を焼かない**。タイルは全ユーザー共有でキャッシュされる
 #   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
 #   判定基準（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに
 #   世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
-#   （bicycle_infra/maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを
-#   流用。改善計画T337: cycleway_classプロパティは評価軸・地図表示のどちらからも参照が
-#   無くなったため削除済み）だけを焼き込み、最終値の計算はフロントエンド側
+#   （maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを流用。
+#   改善計画T337: cycleway_classプロパティ、T347: bicycle_infraプロパティは評価軸・
+#   地図表示のどちらからも参照が無くなったため削除済み。自転車インフラの評価は
+#   is_emergency_transport等と同じ正規化フラグ材料（highway_is_cycleway等、
+#   domain/recipe.py: bicycle_infra_flags）へ移行済み）だけを焼き込み、最終値の計算は
+#   フロントエンド側
 #   （改善計画T292: frontend/src/components/Map/axisLayers.ts、汎用ramp
 #   パイプライン。専用手書きexpression`carStressExpression.ts`は廃止済み）と
 #   ルート採点（domain/axis_definitions.pyのAXIS_DEFINITIONS、car_stressを
@@ -289,16 +288,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- 含まれない）。一方通行の逆方向は既にbuild_road_graphがEdge自体を
                         -- 生成しないため、探索の正しさには無関係（表示専用の一次属性）。
                         CASE WHEN w.direction != 'both' THEN true END AS oneway,
-                        CASE
-                            WHEN w.highway = 'cycleway' OR 'track' = ANY(cw.values) THEN 'separated'
-                            WHEN 'lane' = ANY(cw.values) THEN 'lane'
-                            WHEN cw.values && ARRAY['share_busway', 'shared_lane'] THEN 'shared_busway'
-                            WHEN w.highway IN ('path', 'footway')
-                                 AND lower(btrim(w.tags->>'bicycle')) IN ('yes', 'designated', 'permissive')
-                                THEN 'shared_pedestrian'
-                            WHEN lower(btrim(w.tags->>'bicycle')) = 'no' THEN 'prohibited'
-                            WHEN w.highway IS NOT NULL THEN 'roadway'
-                        END AS bicycle_infra,
                         -- ST_AsMVTはnumeric型を認識せずtextへフォールバックする（実機確認で
                         -- 判明。フロントのMapLibre expressionが数値比較できなくなる）ため、
                         -- integerへキャストしてから焼き込む。0以下はPythonのparse_maxspeed/
@@ -329,9 +318,10 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         END AS designation,
                         -- 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）: 上のdesignation
                         -- （3値、地図表示専用）が畳み込む前の正規化フラグを、評価軸の材料として
-                        -- 個別に焼き込む。bicycle_infra→cycleway_has_track等（改善計画T336）と
-                        -- 同じ設計——複雑な分類の生値は表示専用として残し、評価用の正規化材料は
-                        -- 別途用意する。d.is_ert/d.is_clは既に計算済みのため追加JOINは不要。
+                        -- 個別に焼き込む。旧bicycle_infra→cycleway_has_track等（改善計画T336・
+                        -- T347で完全移行）と同じ設計——複雑な分類の生値は表示専用として残し、
+                        -- 評価用の正規化材料は別途用意する。d.is_ert/d.is_clは既に計算済みの
+                        -- ため追加JOINは不要。
                         CASE WHEN d.is_ert THEN true END AS is_emergency_transport,
                         CASE WHEN d.is_cl THEN true END AS is_critical_logistics,
                         -- 事前集計カウントのkm正規化密度（改善計画T145b、冒頭コメント参照）。
@@ -347,14 +337,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
                         )::double precision AS intersection_per_km
                     FROM osm_raw_ways w
-                    CROSS JOIN LATERAL (
-                        SELECT ARRAY[
-                            lower(btrim(w.tags->>'cycleway')),
-                            lower(btrim(w.tags->>'cycleway:left')),
-                            lower(btrim(w.tags->>'cycleway:right')),
-                            lower(btrim(w.tags->>'cycleway:both'))
-                        ] AS values
-                    ) cw
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
                     LEFT JOIN (
                         -- 指定路線コンフレーション機構（外部静的データソース T51）。
@@ -628,8 +610,7 @@ _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
 
 # 静的道路属性P1残り（車ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
 # 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
-# （domain/axis_definitions.pyのcar_stress軸/domain/traffic.py:
-# classify_bicycle_infrastructureの入力）。
+# （domain/axis_definitions.pyのcar_stress軸/domain/recipe.py: bicycle_infra_flagsの入力）。
 # 改善計画T76: is_designated（外部静的データソース T51、KSJ N10/N12該当）もここへ統合する。
 # 以前はget_nearest_designated_flagsが同一サンプル点集合に対して独立のLATERAL KNN
 # （WITH pts〜LEFT JOIN LATERAL road_edgesの骨格ごとコピー）を3本目のラウンドトリップとして
@@ -1657,7 +1638,7 @@ class RawOsmRepository(_SessionRepository):
         （surface/smoothnessは`lower(btrim(...))`、highwayは生値のまま——OSM取込
         プロファイル[`batch/import_pbf.py: ALLOWED_HIGHWAY_TYPES`]で既に許可リスト化
         された正準値のため正規化不要）を使う。単純な`SELECT DISTINCT`で足りる
-        （複雑な優先順位付き分類を要する`bicycle_infra`等はこの対象外、
+        （複雑な優先順位付き分類を要する材料はこの対象外、
         material_catalog.pyのdisplay_only/dtype="categorical"のうち事前に閉じた値集合を
         持つ材料は本APIを使う必要が無い）。未対応の`material_id`は空リストを返す
         （呼び出し元のrouterが404を判断する）。

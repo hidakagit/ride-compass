@@ -128,13 +128,6 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     dtype: "categorical",
   },
   {
-    id: "bicycle_infra",
-    label: "自転車インフラ種別 - bicycle_infra",
-    description:
-      "自転車インフラの分類（separated/lane/shared_busway/shared_pedestrian/roadway/prohibited）。優先順位付きの複合判定のため、通常は下記の正規化フラグ材料（道路種別が自転車道・自転車道併設等）を組み合わせて使うことを推奨します。",
-    dtype: "categorical",
-  },
-  {
     id: "highway_is_cycleway",
     label: "道路種別が自転車道 - highway_is_cycleway",
     description: "道路種別(highway)自体が自転車道(cycleway)かどうか。",

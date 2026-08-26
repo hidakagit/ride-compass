@@ -72,7 +72,8 @@ ALLOWED_WAY_TAGS = frozenset(
         "shoulder",
         # 改善計画T99: shared_pedestrian_waysルールで新たに取り込む自転車歩行者道の歩車分離有無。
         # 取込コストがゼロ（既存のtags jsonbへ相乗り）なため、T102の採用可否判断を待たず保持する。
-        # 分類ロジック（classify_bicycle_infrastructure）への反映はT102の実測結果を待って判断する。
+        # 自転車インフラ分類（domain/recipe.py: bicycle_infra_flags）への反映はT102の
+        # 実測結果を待って判断する。
         "segregated",
         # 改善計画T102: 街灯の有無。関東全域実測で全体1.1%・幹線道路4.8%と既採用tagの水準を
         # 上回り採用推奨と判断（詳細はstatic-road-attributes-plan.md §2.5）。取込コストは

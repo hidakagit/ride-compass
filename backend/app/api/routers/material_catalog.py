@@ -96,7 +96,7 @@ async def get_material_values(
 ) -> MaterialValuesResponse:
     """改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
     未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
-    材料（`bicycle_infra`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
+    材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
     いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
     方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
     """

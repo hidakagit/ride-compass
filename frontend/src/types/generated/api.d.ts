@@ -469,7 +469,7 @@ export interface paths {
          * Get Material Values
          * @description 改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
          *     未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
-         *     材料（`bicycle_infra`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
+         *     材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
          *     いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
          *     方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
          */
@@ -750,7 +750,7 @@ export interface components {
          * @description カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
          *
          *     改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と
-         *     str（highway/bicycle_infra等、MATERIAL_CATALOGのdtype="categorical"材料、
+         *     str（highway/designation等、MATERIAL_CATALOGのdtype="categorical"材料、
          *     3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`
          *     自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで
          *     新テンプレートは不要だった。
@@ -1124,8 +1124,6 @@ export interface components {
             road_surface_good?: boolean | null;
             /** Car Stress */
             car_stress?: number | null;
-            /** Bicycle Infra */
-            bicycle_infra?: string | null;
             /** Axis Difficulties */
             axis_difficulties?: {
                 [key: string]: number;
@@ -1172,11 +1170,11 @@ export interface components {
          *     evaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。
          *
          *     N値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:
-         *     CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/bicycle_infra等）の
+         *     CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の
          *     場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
          *     （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
          *     （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
-         *     圧迫感等の点数に反映すれば足りる材料向け、例: `bicycle_infra`は評価側のmappingが
+         *     圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが
          *     全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。
          *     `has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく
          *     「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/
@@ -1247,6 +1245,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** WbgtStatus */
         WbgtStatus: {

@@ -51,8 +51,9 @@ describe("primaryAttributes", () => {
   // primaryAttributeIdsToLayerIdsへ渡すだけの汎用関数として残す。
 
   it("primaryAttributeIdsToLayerIdsはレイヤーを持つ材料だけを重複無しで返す", () => {
-    // car_stressの材料6件のうちレイヤーを持つのはcycleway/designation/highway
-    // （lanes/maxspeed/motor_vehicle_accessはレイヤー無し）
+    // car_stressの材料6件のうちレイヤーを持つのはdesignation/highwayのみ
+    // （lanes/maxspeed/motor_vehicle_accessはレイヤー無し。改善計画T347: cyclewayは
+    // 専用レイヤー[旧bicycleInfra]廃止によりレイヤー無しへ移った）。
     const layerIds = primaryAttributeIdsToLayerIds([
       "highway",
       "lanes",
@@ -61,7 +62,7 @@ describe("primaryAttributes", () => {
       "designation",
       "motor_vehicle_access",
     ]);
-    expect(new Set(layerIds)).toEqual(new Set(["roadType", "bicycleInfra", "designation"]));
+    expect(new Set(layerIds)).toEqual(new Set(["roadType", "designation"]));
     expect(layerIds.length).toBe(new Set(layerIds).size); // 重複が無い
   });
 

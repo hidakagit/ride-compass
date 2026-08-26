@@ -40,7 +40,7 @@ export interface AxisTileInput {
    * has_unknown_fallback参照）。既定false（欠損=falseとみなしてよい材料、例:
    * no_lit⟵lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
-  /** N値文字列材料（改善計画T292、例: highway/bicycle_infra）。タイルプロパティの
+  /** N値文字列材料（改善計画T292、例: highway/designation）。タイルプロパティの
    * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
    * （registry.py: TileInputSpec.categories参照）。 */
   categories?: Record<string, number>;
@@ -222,7 +222,7 @@ export function rampColorForBand(index: number, bandCount: number): string {
 }
 
 // 既存4段階軸（gradient/surface_q/stop_density/night/accident等）・staticAttributeLayers.ts
-// の非ramp用途（BICYCLE_INFRA/DESIGNATION/TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
+// の非ramp用途（DESIGNATION/TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
 // rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
 export const AXIS_RAMP_COLORS = [
   rampColorForBand(0, 4),

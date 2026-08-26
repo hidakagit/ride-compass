@@ -27,7 +27,6 @@ function baseProps() {
       roadType: false,
       roadSurface: false,
       "axis:car_stress": false,
-      bicycleInfra: false,
       designation: false,
       tunnel: false,
       oneway: false,
@@ -44,11 +43,10 @@ function baseProps() {
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
     onRoadLegendToggle: vi.fn(),
     onRoadAxisSetHidden: vi.fn(),
-    // car_stress（改善計画T292でramp軸化）はbicycleInfra等と同じStaticFilterAxisId文字列
+    // car_stress（改善計画T292でramp軸化）はdesignation等と同じStaticFilterAxisId文字列
     // （axisIdそのもの、layerVisibility側の"axis:car_stress"とは別の値）を使う。
     staticFilterHiddenKeysByAxis: {
       car_stress: [],
-      bicycleInfra: [],
       designation: [],
       tunnel: [],
       oneway: [],
@@ -58,7 +56,6 @@ function baseProps() {
       accidentSeverity: [],
     } as Record<
       | "car_stress"
-      | "bicycleInfra"
       | "designation"
       | "tunnel"
       | "oneway"
@@ -145,7 +142,6 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-roadSurface")).toBeInTheDocument();
     // axis:car_stressはコロンを含むためCSS ID選択子（#...）では壊れる。属性選択子で確認する。
     expect(container.querySelector('[id="map-layer-section-axis:car_stress"]')).toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-bicycleInfra")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-tunnel")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
@@ -193,7 +189,6 @@ describe("MapLayersPanel", () => {
     expect(natureTitleFor("accidents")).toBe("観測データ");
     expect(natureTitleFor("stopPoi")).toBe("観測データ");
     expect(natureTitleFor("supplyPoi")).toBe("観測データ");
-    expect(natureTitleFor("bicycleInfra")).toBe("観測データ");
     expect(natureTitleFor("elevation")).toBe("観測データ");
   });
 
@@ -321,7 +316,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: false,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -415,7 +409,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: true,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -445,7 +438,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: false,
           "axis:car_stress": true,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -474,7 +466,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: false,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -514,7 +505,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: true,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -545,7 +535,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: false,
           "axis:car_stress": true,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -575,7 +564,6 @@ describe("MapLayersPanel", () => {
           roadType: true,
           roadSurface: true,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -606,7 +594,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: false,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -638,7 +625,6 @@ describe("MapLayersPanel", () => {
           roadType: false,
           roadSurface: true,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -667,7 +653,6 @@ describe("MapLayersPanel", () => {
           roadType: true,
           roadSurface: false,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -696,7 +681,6 @@ describe("MapLayersPanel", () => {
           roadType: true,
           roadSurface: true,
           "axis:car_stress": false,
-          bicycleInfra: false,
           designation: false,
           tunnel: false,
           oneway: false,
@@ -743,14 +727,6 @@ describe("MapLayersPanel", () => {
     expect(row?.className).toMatch(/legendCheckboxRowFallback/);
   });
 
-  it("自転車インフラの凡例に道路情報（路面）との違いの説明が表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("bicycleInfra");
-    openHint("自転車インフラ");
-    expect(screen.getByText(/「路面の種類」レイヤーの/)).toBeInTheDocument();
-  });
-
   it("停止要因POIの凡例（種別ごとの色分け）が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
@@ -794,7 +770,6 @@ describe("MapLayersPanel", () => {
         {...baseProps()}
         staticFilterHiddenKeysByAxis={{
           car_stress: [],
-          bicycleInfra: [],
           designation: [],
           stopPoi: [],
           supplyPoi: [],

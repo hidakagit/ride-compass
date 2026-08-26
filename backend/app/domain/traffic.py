@@ -4,20 +4,17 @@
 根拠のない推測はしない）。正準定義はここ1箇所（domain/road.pyのGOOD/BAD_OSM_SURFACE_TAGSと
 同じ「正準1箇所」の運用、改善計画T7原則）。
 
-MVT生成（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL）はbicycle_infraのみSQL側で
-同じ判定基準をCASE式として実装しており、classify_bicycle_infrastructureと1:1対応させる
-（test_road_graph_repository.pyの整合性テストで突き合わせる。SQL側にPythonを呼び出す手段が
-無いため、判定ロジック自体はやむを得ず2箇所に存在するが、同じ入力に対し常に同じ出力になる
-ことをテストで担保する）。
-
 車ストレス（改善計画T150で「交通ストレス」から改称）は専用Pythonレシピ（旧
 car_stress_breakdown/car_stress_level）を改善計画T292で廃止し、AXIS_DEFINITIONS
 （domain/axis_definitions.py）の内部軸5つ+公開軸1つの階層構造で再現している。
+
+改善計画T347: 旧`classify_bicycle_infrastructure`（優先順位付き分類、SQL CASE式との
+2箇所手書き複製が「生データの分類ロジックをPythonに持たせない」方針に反するという
+ユーザー指摘を受け削除）は、正規化フラグ材料4種（`domain/recipe.py: bicycle_infra_flags`）
+の組み合わせへ置き換えた。`is_dedicated_bicycle_infra`はこのフラグ辞書を直接受け取る。
 """
 
 from typing import Literal
-
-from app.domain.recipe import cycleway_values
 
 # 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
 # openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数、
@@ -36,40 +33,6 @@ INTERSECTION_MATCH_MAX_DISTANCE_M = 30.0
 
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
 INTERSECTION_DEGREE_THRESHOLD = 3
-
-BicycleInfraClass = Literal[
-    "separated", "lane", "shared_busway", "shared_pedestrian", "roadway", "prohibited", "unknown"
-]
-
-
-def classify_bicycle_infrastructure(tags: dict[str, str], highway: str | None) -> BicycleInfraClass:
-    """自転車インフラ分類（優先順位: separated＞lane＞shared_busway等＞shared_pedestrian＞
-    roadway/prohibited＞unknown。計画書§2.4）。
-
-    cycleway/cycleway:left/right/bothタグは`car_stress_bicycle_infra_adjustment`
-    （domain/axis_definitions.py、改善計画T292でAXIS_DEFINITIONSの内部軸へ再設計）でも
-    「専用自転車道の有無」の補正に使われている（separatedなら-2、laneなら-1）。同じ入力を
-    別目的で解釈しているため、bicycle_infra_score（本分類ベース）とcar_stress_score
-    （車ストレス）は完全には独立ではなく、専用自転車道が併設された区間では両方が
-    同時に「易しい」側へ動く（改善計画T62、意図的な設計でありバグではない）。
-    """
-    values = cycleway_values(tags)
-    bicycle = (tags.get("bicycle") or "").strip().lower()
-
-    if highway == "cycleway" or "track" in values:
-        return "separated"
-    if "lane" in values:
-        return "lane"
-    if any(v in ("share_busway", "shared_lane") for v in values):
-        return "shared_busway"
-    if highway in ("path", "footway") and bicycle in ("yes", "designated", "permissive"):
-        return "shared_pedestrian"
-    if bicycle == "no":
-        return "prohibited"
-    if highway is not None:
-        return "roadway"
-    return "unknown"
-
 
 StopPoiKind = Literal["traffic_signals", "crossing", "stop", "give_way", "level_crossing"]
 
@@ -164,22 +127,27 @@ def distance_weighted_intersection_density(segments: list[tuple[float, int | Non
     return _density_per_km(segments)
 
 
-# 分離自転車道・自転車レーンを「専用インフラ」とみなす分類（bicycle_infra_score算出用）。
-DEDICATED_BICYCLE_INFRA_CLASSES: frozenset[str] = frozenset({"separated", "lane"})
+def is_dedicated_bicycle_infra(flags: dict[str, bool] | None) -> bool | None:
+    """正規化フラグ（`domain/recipe.py: bicycle_infra_flags`の戻り値）が「専用インフラ
+    （分離自転車道・自転車レーン）」を示すかどうかを3値で返す（不明はNone。
+    road.py: classify_osm_surfaceの3値判定と同じ考え方）。
 
+    改善計画T347: 旧`classify_bicycle_infrastructure`の優先順位付き分類（separated/lane/
+    shared_busway等の7値）を廃止し、cycleway/highway由来の判定のみを担う正規化フラグ4種
+    （highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）から
+    直接判定する。「専用」＝旧separated相当(highway_is_cycleway or cycleway_has_track)
+    または旧lane相当(cycleway_has_lane)。cycleway_has_shared（旧shared_busway相当）は
+    専用インフラに含めない（旧分類と同じ扱い）。
 
-def is_dedicated_bicycle_infra(bicycle_infra: BicycleInfraClass | None) -> bool | None:
-    """自転車インフラ分類が「専用インフラ（分離・レーン）」かどうかを3値で返す
-    （不明はNone。road.py: classify_osm_surfaceの3値判定と同じ考え方）。
-
-    `classify_bicycle_infrastructure`は判定不能（highway等の入力が無い）な場合Noneではなく
-    文字列`"unknown"`を返す仕様のため、ここでも明示的にNone扱いする。これを怠ると、
-    ORSエンジンでway_tagsの空間マッチに失敗した区間（データ欠損）が「専用インフラではないと
-    確認された区間」としてdistance_weighted_bicycle_infra_scoreの分母に混入してしまう。
+    `flags`がNone（way_tagsの空間マッチに失敗した区間、データ欠損）の場合はNoneを返す。
+    これを怠ると、データ欠損区間が「専用インフラではないと確認された区間」として
+    distance_weighted_bicycle_infra_scoreの分母に混入してしまう。
     """
-    if bicycle_infra is None or bicycle_infra == "unknown":
+    if flags is None:
         return None
-    return bicycle_infra in DEDICATED_BICYCLE_INFRA_CLASSES
+    return flags.get("highway_is_cycleway", False) or flags.get("cycleway_has_track", False) or flags.get(
+        "cycleway_has_lane", False
+    )
 
 
 def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]) -> float | None:

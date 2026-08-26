@@ -7,14 +7,17 @@
 いた）。本モジュールがその単一ソースになる。
 
 **材料の「登録」と「評価軸での利用」は独立している（改善計画T290）**: MVTタイル
-（`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）には、既存7軸が実際に使う
-材料以外にも多くの生データ（highway・surface・smoothness・bicycle_infra等）が
+（`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）には、既存8軸が実際に使う
+材料以外にも多くの生データ（highway・surface・smoothness等）が
 既に焼き込まれている。設計の一貫性のため、これらも「評価や地図描画に使えそうな
 生データ」として本カタログへ網羅的に登録する（ユーザー方針、2026-08-24）。
 `dtype="categorical"`の材料は、改善計画T292で`domain/axis_definitions.py: CategoricalShape`
 （`mapping: dict[bool | str, float]`）が文字列多値も扱えるよう拡張されたため、既に
-car_stress軸の内部軸（highway・bicycle_infra、car_stress_highway_base/
-car_stress_bicycle_infra_adjustment）が実際に利用している。それ以外のcategorical材料は
+car_stress軸の内部軸（highway、car_stress_highway_base）が実際に利用している
+（改善計画T347: 自転車インフラの内部軸`car_stress_bicycle_infra_adjustment`は
+7値categorical材料`bicycle_infra`ではなく正規化フラグ材料4件のbreakpoint_linear合成へ
+既にT336で移行済みだったため、`bicycle_infra`材料自体は評価軸未使用のまま残置されていたが、
+T347で削除した）。それ以外のcategorical材料は
 登録済みでも対応する軸が無ければ評価には使われない（軸スタジオの材料選択肢には現れる）。
 
 **設計方針（ユーザー指示、2026-08-24）**: 材料は今後システムメンテナンス（コード変更＋
@@ -39,9 +42,8 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import EdgeLike
-from app.domain.recipe import bicycle_infra_flags, parse_lanes, parse_maxspeed, tag_value_is
+from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
-from app.domain.traffic import classify_bicycle_infrastructure
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
 
@@ -176,8 +178,8 @@ class MaterialSpec(BaseModel):
 
 # --- 改善計画T280: 抽出関数（compute_edge_costs_bulkの旧手書き抽出ループを1材料1関数へ
 # 分解したもの。ロジック自体は移動のみで再実装していない——既存の判定プリミティブ
-# [tag_value_is/parse_maxspeed/parse_lanes/classify_bicycle_infrastructure/
-# classify_osm_surface]をそのまま呼ぶ）。way_tags依存の材料は
+# [tag_value_is/parse_maxspeed/parse_lanes/classify_osm_surface]をそのまま呼ぶ）。
+# way_tags依存の材料は
 # way_tags自体が無いEdge（この場合car_stress軸グループ全体を評価しない、旧実装からの
 # 既存挙動）でNoneを返し、bool系はbool_defaultの規約でFalseへ、それ以外はNaN/Noneへ
 # 落ちる。新しい材料を1件増やすときは、この関数を1つ書いてMATERIAL_CATALOGへ
@@ -285,16 +287,10 @@ def _extract_highway(ctx: MaterialExtractionContext) -> str | None:
     return ctx.edge.highway if ctx.way_tags is not None else None
 
 
-def _extract_bicycle_infra(ctx: MaterialExtractionContext) -> str | None:
-    if ctx.way_tags is None:
-        return None
-    return classify_bicycle_infrastructure(ctx.way_tags, ctx.edge.highway)
-
-
-# 改善計画T336: bicycle_infra材料（優先順位付き分類）を評価軸から切り離すための正規化
-# フラグ材料群。domain/traffic.py: classify_bicycle_infrastructureの判定条件のうち、
-# cycleway/highway由来の部分（優先順位: track/highway=cycleway ＞ lane ＞ shared_busway等）
-# をそのままOR条件の真偽値へ分解したもの（decisions/material-normalization-for-
+# 改善計画T336: 旧bicycle_infra材料（優先順位付き分類、改善計画T347で削除済み）を評価軸から
+# 切り離すための正規化フラグ材料群。domain/traffic.py: 旧classify_bicycle_infrastructureの
+# 判定条件のうち、cycleway/highway由来の部分（優先順位: track/highway=cycleway ＞ lane ＞
+# shared_busway等）をそのままOR条件の真偽値へ分解したもの（decisions/material-normalization-for-
 # axis-composition.md参照）。bicycle由来の分岐（shared_pedestrian・prohibited、
 # highway×bicycleのAND条件）は正規化フラグの線形結合では近似できないと実データ検証済み
 # のため意図的に対象外（軸定義側の車ストレス補正では「roadway」扱いへ丸められる、
@@ -304,27 +300,23 @@ def _extract_bicycle_infra(ctx: MaterialExtractionContext) -> str | None:
 # 同じ構成）、ここではbulk抽出フェーズ（MaterialExtractionContext）向けの薄いラッパのみ
 # 持つ。
 def _extract_highway_is_cycleway(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["highway_is_cycleway"]
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    return None if flags is None else flags["highway_is_cycleway"]
 
 
 def _extract_cycleway_has_track(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_track"]
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    return None if flags is None else flags["cycleway_has_track"]
 
 
 def _extract_cycleway_has_lane(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_lane"]
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    return None if flags is None else flags["cycleway_has_lane"]
 
 
 def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
-    if ctx.way_tags is None:
-        return None
-    return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_shared"]
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    return None if flags is None else flags["cycleway_has_shared"]
 
 
 # 改善計画T345フォローアップ: 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
@@ -575,18 +567,15 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         extractor=_extract_surface,
         value_labels=_SURFACE_VALUE_LABELS,
     ),
-    "bicycle_infra": MaterialSpec(
-        material_id="bicycle_infra",
-        label="自転車インフラ種別",
-        description="自転車インフラの分類（separated/lane/shared_busway/shared_pedestrian/roadway/prohibited）。優先順位付きの複合判定のため、通常は下記の正規化フラグ材料（道路種別が自転車道・自転車道併設等）を組み合わせて使うことを推奨します。",
-        dtype="categorical",
-        # domain/traffic.py: classify_bicycle_infrastructureの分類値
-        # （separated/lane/shared_busway/shared_pedestrian/prohibited/roadway。
-        # unknownはタイル側でプロパティ省略として表現され現れない）。
-        tile_property="bicycle_infra",
-        primary_attribute_id="cycleway",
-        extractor=_extract_bicycle_infra,
-    ),
+    # 改善計画T347: 優先順位付き分類材料bicycle_infra（旧classify_bicycle_infrastructure
+    # 由来）は、生データの分類・加工ロジックをPython側に手書きしないという設計方針に
+    # 反していた（分類がSQL CASE式とPython関数の2箇所に独立して手書き複製されていた）
+    # うえ、評価軸からも参照されなくなっていたため削除した。地図の専用レイヤー「自転車
+    # インフラ」・car_stressランプのbicycle_infra項・classify_bicycle_infrastructure
+    # 自体も同時に削除し、下の正規化フラグ材料4種の組み合わせのみを単一の情報源とする
+    # （公開軸「自転車インフラ」[bicycle_infra_quality]がこれらを重み付き線形結合する、
+    # domain/axis_definitions.py参照）。経緯はdocs/architecture.md「自転車インフラ」節・
+    # docs/improvement-plan.md T347参照。
     # 改善計画T336: bicycle_infraを評価軸から切り離すための正規化フラグ材料群
     # （_extract_highway_is_cycleway等のdocstring参照）。地図表示用のtile_propertyは
     # 持たない（bicycle_infraのタイルプロパティをそのまま流用でき、専用カラムを
@@ -597,7 +586,20 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="道路種別(highway)自体が自転車道(cycleway)かどうか。",
         dtype="boolean",
         tile_property=None,
-        primary_attribute_id="highway",
+        # 改善計画T347（ユーザー指摘: 実在しない疑似属性を発明する対症療法ではなく、
+        # 実在の一次属性のうち片方だけへ寄せて解消する）。判定式はhighway生タグを見るが、
+        # 意味的には他3材料と同じ「自転車走行環境の分類」という1つのまとまりのため、
+        # cycleway_has_track等と同じprimary_attribute_id="cycleway"へ寄せる（highway自体は
+        # car_stress_highway_baseが単独で使う一次属性のまま、排他チェック対象を維持する）。
+        primary_attribute_id="cycleway",
+        # 改善計画T347フォローアップ: bool_default既定の"false"のままだと、
+        # compute_edge_costs_bulk（配列評価経路）が「データ欠損（extractorがNoneを返す）」を
+        # 「確定でFalse」へ丸めてしまい、car_stress_bicycle_infra_adjustment（ひいては
+        # 公開軸bicycle_infra_quality）がhighway未解決の区間を「roadway確定」と誤評価する
+        # （surface_goodと同じ「不明をFalseと混同してはいけない」ケース）。4材料は常に
+        # bicycle_infra_flagsから一括で算出される（個別に欠損することはない）ため、
+        # 4件まとめて"nan"にしても副作用は無い。
+        bool_default="nan",
         extractor=_extract_highway_is_cycleway,
     ),
     "cycleway_has_track": MaterialSpec(
@@ -607,6 +609,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property=None,
         primary_attribute_id="cycleway",
+        bool_default="nan",
         extractor=_extract_cycleway_has_track,
     ),
     "cycleway_has_lane": MaterialSpec(
@@ -616,6 +619,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property=None,
         primary_attribute_id="cycleway",
+        bool_default="nan",
         extractor=_extract_cycleway_has_lane,
     ),
     "cycleway_has_shared": MaterialSpec(
@@ -624,6 +628,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property=None,
+        bool_default="nan",
         primary_attribute_id="cycleway",
         extractor=_extract_cycleway_has_shared,
     ),

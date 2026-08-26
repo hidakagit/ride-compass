@@ -17,8 +17,7 @@ from app.domain.axis_definitions import (
     check_publish_immutability,
     evaluate_axis_scalar,
 )
-from app.domain.recipe import bicycle_infra_flags
-from app.domain.traffic import classify_bicycle_infrastructure
+from app.domain.recipe import bicycle_infra_flags, cycleway_values
 
 # 改善計画T292由来の旧`_CAR_STRESS_BICYCLE_INFRA_MAPPING`と同じ5値
 # （axis_definitions.py参照、地図表示ramp用に現在も定数として維持している）。
@@ -29,6 +28,30 @@ _OLD_BICYCLE_INFRA_MAPPING = {
     "shared_pedestrian": 0.0,
     "roadway": 1.0,
 }
+
+
+def _classify_bicycle_infrastructure_reference(tags: dict[str, str], highway: str | None) -> str:
+    """改善計画T347で削除したdomain/traffic.py: classify_bicycle_infrastructure
+    （優先順位付き分類）の複製。本番コードとしては「Pythonに生データ加工ロジックを
+    持たせない」設計原則に反するとして削除したが、このテストファイルが検証している
+    「正規化フラグの線形結合が旧分類とどれだけ一致するか（decisions/material-
+    normalization-for-axis-composition.md、実データ検証0.0127%ズレ）」という
+    回帰保証自体は引き続き価値があるため、テスト専用の参照実装としてここにだけ残す
+    （本番からは呼ばれない）。"""
+    values = cycleway_values(tags)
+    if highway == "cycleway" or "track" in values:
+        return "separated"
+    if "lane" in values:
+        return "lane"
+    if any(v in ("share_busway", "shared_lane") for v in values):
+        return "shared_busway"
+    if highway in ("path", "footway") and tags.get("bicycle") in ("yes", "designated", "permissive"):
+        return "shared_pedestrian"
+    if tags.get("bicycle") == "no":
+        return "prohibited"
+    if highway is not None:
+        return "roadway"
+    return "unknown"
 
 
 def test_car_stress_bicycle_infra_adjustment_flag_combinations():
@@ -97,7 +120,7 @@ def test_car_stress_bicycle_infra_adjustment_matches_bicycle_infra_mapping_exhau
             if v is not None
         }
         total += 1
-        old_score = _OLD_BICYCLE_INFRA_MAPPING.get(classify_bicycle_infrastructure(tags, highway), 0.0)
+        old_score = _OLD_BICYCLE_INFRA_MAPPING.get(_classify_bicycle_infrastructure_reference(tags, highway), 0.0)
         flags = bicycle_infra_flags(tags, highway)
         new_score = evaluate_axis_scalar(axis, flags)
         if old_score != new_score:
@@ -123,8 +146,12 @@ def test_car_stress_lanes_adjustment_applies_regardless_of_separated_cycleway():
     # 将来誤って部分的に復活させないための回帰テスト。
     lanes_adjustment = AXIS_DEFINITIONS["car_stress_lanes_adjustment"]
 
-    with_separated_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "bicycle_infra": "separated"})
-    without_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "bicycle_infra": None})
+    # lanes_countだけを材料とするaxisのため、分離自転車道の正規化フラグ（cycleway_has_track
+    # 等）が立っているかどうかに関わらず同じ結果になることを確認する。
+    with_separated_cycleway = evaluate_axis_scalar(
+        lanes_adjustment, {"lanes_count": 1.0, "cycleway_has_track": True}
+    )
+    without_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "cycleway_has_track": False})
 
     assert with_separated_cycleway == -1.0
     assert without_cycleway == -1.0
@@ -177,7 +204,7 @@ def test_update_skips_self_comparison():
 
 
 PUBLISHED_AXIS_IDS = frozenset(
-    {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night"}
+    {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night", "bicycle_infra_quality"}
 )
 
 
@@ -185,14 +212,15 @@ def test_builtin_seven_axes_are_all_published():
     # 改善計画T271完了条件: 既存7軸（本番稼働中、一般ユーザーへ既に公開済み）は
     # is_published=Trueでなければならない（backfill漏れ・既定値の取り違えを防ぐ）。
     # 改善計画T292: car_stress軸を支える内部軸（is_published=False、他の公開軸から
-    # 参照される専用の推定軸）がAXIS_DEFINITIONSへ加わったため、対象を公開7軸へ絞る。
+    # 参照される専用の推定軸）がAXIS_DEFINITIONSへ加わったため、対象を公開軸へ絞る。
+    # 改善計画T347でbicycle_infra_qualityが加わり公開軸は8つになった（関数名は歴史的名残）。
     for axis_id in PUBLISHED_AXIS_IDS:
         assert AXIS_DEFINITIONS[axis_id].is_published is True
 
 
 def test_internal_axes_are_not_published():
-    # 上のテストと対になる確認: 公開7軸以外（car_stressを支える内部軸）は
-    # is_published=Falseのまま運用する（改善計画T292、内部軸の恒久的な終着点）。
+    # 上のテストと対になる確認: 公開軸（PUBLISHED_AXIS_IDS）以外（car_stressを支える
+    # 内部軸）はis_published=Falseのまま運用する（改善計画T292、内部軸の恒久的な終着点）。
     for axis_id, definition in AXIS_DEFINITIONS.items():
         if axis_id not in PUBLISHED_AXIS_IDS:
             assert definition.is_published is False, axis_id

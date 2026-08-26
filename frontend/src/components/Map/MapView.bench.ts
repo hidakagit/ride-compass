@@ -47,7 +47,6 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       wind_penalty: (i % 7) - 3,
       road_surface_good: i % 2 === 0,
       car_stress: (i % 4) + 1,
-      bicycle_infra: i % 2 === 0 ? "separated" : "roadway",
       axis_difficulties: {
         gradient: (i * 7) % 100,
         wind: (i * 13) % 100,

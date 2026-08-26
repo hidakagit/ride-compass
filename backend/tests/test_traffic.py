@@ -1,5 +1,4 @@
 from app.domain.traffic import (
-    classify_bicycle_infrastructure,
     classify_stop_poi,
     classify_supply_poi,
     distance_weighted_bicycle_infra_score,
@@ -7,45 +6,6 @@ from app.domain.traffic import (
     distance_weighted_stop_density,
     is_dedicated_bicycle_infra,
 )
-
-
-class TestClassifyBicycleInfrastructure:
-    def test_highway_cycleway_is_separated(self):
-        assert classify_bicycle_infrastructure({}, "cycleway") == "separated"
-
-    def test_cycleway_track_is_separated(self):
-        assert classify_bicycle_infrastructure({"cycleway": "track"}, "primary") == "separated"
-
-    def test_cycleway_left_right_are_normalized(self):
-        assert classify_bicycle_infrastructure({"cycleway:left": "track"}, "primary") == "separated"
-        assert classify_bicycle_infrastructure({"cycleway:right": "lane"}, "primary") == "lane"
-
-    def test_cycleway_lane_is_lane(self):
-        assert classify_bicycle_infrastructure({"cycleway": "lane"}, "primary") == "lane"
-
-    def test_shared_busway_or_shared_lane(self):
-        assert classify_bicycle_infrastructure({"cycleway": "share_busway"}, "primary") == "shared_busway"
-        assert classify_bicycle_infrastructure({"cycleway": "shared_lane"}, "primary") == "shared_busway"
-
-    def test_footway_with_bicycle_designated_is_shared_pedestrian(self):
-        assert classify_bicycle_infrastructure({"bicycle": "designated"}, "footway") == "shared_pedestrian"
-
-    def test_path_with_bicycle_no_tag_is_roadway_not_shared(self):
-        # bicycle=yes/designated/permissiveの明示が無ければ共用歩道扱いにしない
-        assert classify_bicycle_infrastructure({}, "path") == "roadway"
-
-    def test_bicycle_no_is_prohibited(self):
-        assert classify_bicycle_infrastructure({"bicycle": "no"}, "residential") == "prohibited"
-
-    def test_plain_highway_is_roadway(self):
-        assert classify_bicycle_infrastructure({}, "residential") == "roadway"
-
-    def test_no_highway_no_tags_is_unknown(self):
-        assert classify_bicycle_infrastructure({}, None) == "unknown"
-
-    def test_dedicated_cycleway_wins_over_bicycle_no(self):
-        # 分離自転車道タグがある場合はbicycle=noより優先される（優先順位: separated>prohibited）
-        assert classify_bicycle_infrastructure({"bicycle": "no"}, "cycleway") == "separated"
 
 
 class TestClassifyStopPoi:
@@ -160,27 +120,45 @@ class TestDistanceWeightedIntersectionDensity:
 
 
 class TestIsDedicatedBicycleInfra:
-    def test_separated_is_dedicated(self):
-        assert is_dedicated_bicycle_infra("separated") is True
+    # 改善計画T347: classify_bicycle_infrastructureの優先順位付き分類（separated/lane/
+    # shared_busway等の文字列）を廃止し、domain/recipe.py: bicycle_infra_flagsが返す
+    # 正規化フラグ辞書を直接受け取るようになった（highway_is_cycleway/cycleway_has_track/
+    # cycleway_has_lane=専用インフラ確定、cycleway_has_shared単独=非専用）。
 
-    def test_lane_is_dedicated(self):
-        assert is_dedicated_bicycle_infra("lane") is True
+    def test_highway_is_cycleway_is_dedicated(self):
+        assert is_dedicated_bicycle_infra({"highway_is_cycleway": True}) is True
 
-    def test_roadway_is_not_dedicated(self):
-        assert is_dedicated_bicycle_infra("roadway") is False
+    def test_cycleway_has_track_is_dedicated(self):
+        assert is_dedicated_bicycle_infra({"cycleway_has_track": True}) is True
 
-    def test_shared_pedestrian_is_not_dedicated(self):
-        assert is_dedicated_bicycle_infra("shared_pedestrian") is False
+    def test_cycleway_has_lane_is_dedicated(self):
+        assert is_dedicated_bicycle_infra({"cycleway_has_lane": True}) is True
+
+    def test_cycleway_has_shared_alone_is_not_dedicated(self):
+        # バス専用道等の共用（旧shared_busway相当）は専用インフラとして数えない
+        assert is_dedicated_bicycle_infra({"cycleway_has_shared": True}) is False
+
+    def test_all_flags_false_is_not_dedicated(self):
+        assert (
+            is_dedicated_bicycle_infra(
+                {
+                    "highway_is_cycleway": False,
+                    "cycleway_has_track": False,
+                    "cycleway_has_lane": False,
+                    "cycleway_has_shared": False,
+                }
+            )
+            is False
+        )
+
+    def test_missing_keys_default_to_false(self):
+        assert is_dedicated_bicycle_infra({}) is False
 
     def test_none_passthrough(self):
+        # 判定不能(ORSエンジンでway_tagsの空間マッチに失敗した区間等)はNoneを返す。ここで
+        # False扱いすると「データ欠損」がdistance_weighted_bicycle_infra_scoreの分母に
+        # 「非専用インフラ確定」として混入してしまう。
         assert is_dedicated_bicycle_infra(None) is None
-
-    def test_unknown_is_treated_as_none_not_false(self):
-        # classify_bicycle_infrastructureは判定不能(highway等が無い)場合Noneではなく
-        # "unknown"を返す。ここでFalse扱いすると「データ欠損」が
-        # distance_weighted_bicycle_infra_scoreの分母に「非専用インフラ確定」として
-        # 混入してしまう(ORSエンジンでway_tagsの空間マッチに失敗した区間で発生しうる)。
-        assert is_dedicated_bicycle_infra("unknown") is None
 
 
 class TestDistanceWeightedBicycleInfraScore:

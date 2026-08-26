@@ -358,7 +358,10 @@ def test_route_preference_weights_fill_defaults_and_reject_unknown_axis():
     assert preference.weights["car_stress"] == 0.4
     assert preference.weights["night"] == 0.1
     assert preference.weights["gradient"] == 0.15  # 既定値で補完
-    assert set(preference.weights) == {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night"}
+    # 改善計画T347: bicycle_infra_qualityが公開軸として加わった。
+    assert set(preference.weights) == {
+        "gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night", "bicycle_infra_quality",
+    }
 
     with pytest.raises(ValueError, match="unknown axis_id"):
         RoutePreference(weights={"no_such_axis": 1.0})
@@ -461,12 +464,17 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     assert by_id["stop_density"].available is True
     assert by_id["accident"].available is True
     assert by_id["night"].available is True
+    # 改善計画T347: bicycle_infra_qualityはcar_stressのhighway基準値ゲートに依存しない
+    # （highway="residential"かつcyclewayタグ無しでも「専用インフラ無し」として算出可能）
+    # ため、他の軸とは独立にavailable=Trueになる。
+    assert by_id["bicycle_infra_quality"].available is True
     assert by_id["gradient"].available is False
     assert by_id["gradient"].difficulty is None
     assert by_id["wind"].available is False
     assert result.composite_difficulty is not None
-    # 全7軸の重み合計1.08のうちgradient(0.15)+wind(0.26)を除いた0.67ぶんが取得できている
-    assert result.covered_weight_fraction == pytest.approx(0.67 / 1.08, abs=0.001)
+    # 全8軸（改善計画T347でbicycle_infra_quality追加）の重み合計1.23のうち
+    # gradient(0.15)+wind(0.26)を除いた0.82ぶんが取得できている。
+    assert result.covered_weight_fraction == pytest.approx(0.82 / 1.23, abs=0.001)
 
 
 def test_axis_inspector_breakdown_car_stress_reflects_bicycle_infra_tags():
@@ -517,8 +525,10 @@ def test_axis_inspector_breakdown_unknown_highway_yields_no_usable_composite():
     """判定基準未登録のhighway・タグ無し・way_counts無しでは、車ストレス・路面・
     停止密度・事故密度すべてavailable=Falseになる。night_difficultyだけはタグが
     空辞書でも常に加点式でスコアを返す（lit無し=+50）ため唯一availableになるが、
-    night_weightの既定値は0.0のため合成コストへは効かず、covered_weight_fractionも
-    0のまま（composite_difficultyの「重み合計0ならNone」動作）。"""
+    night_weightの既定値は0.0のため合成コストへは効かない。改善計画T347:
+    bicycle_infra_qualityはcar_stressのhighway基準値ゲートに依存しない
+    （highwayの値そのものは判定基準未登録でも、cyclewayタグが無ければ「専用インフラ
+    無し」として算出できる）ため、唯一weight>0で合成に効く軸としてavailableになる。"""
     result = axis_inspector_breakdown(
         highway="motorway",  # car_stress_levelの判定基準に未登録
         tags={},
@@ -533,8 +543,10 @@ def test_axis_inspector_breakdown_unknown_highway_yields_no_usable_composite():
     assert by_id["stop_density"].available is False
     assert by_id["accident"].available is False
     assert by_id["night"].available is True  # weight=0.0のため合成には無影響
-    assert result.composite_difficulty is None
-    assert result.covered_weight_fraction == 0.0
+    assert by_id["bicycle_infra_quality"].available is True
+    assert by_id["bicycle_infra_quality"].difficulty == 100.0  # 専用インフラ無し(roadway相当)
+    assert result.composite_difficulty == 100.0
+    assert result.covered_weight_fraction == pytest.approx(0.15 / 1.23, abs=0.001)
 
 
 def test_axis_inspector_breakdown_weights_match_route_preference_weights():

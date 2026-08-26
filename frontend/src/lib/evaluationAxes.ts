@@ -65,15 +65,19 @@ const PREFERENCE_AXIS_DESCRIPTIONS: Record<string, string> = {
     "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
   accident: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
   night: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
+  bicycle_infra_quality: "専用の自転車インフラ（分離自転車道・自転車レーン等）が整備されているほど易しい",
 };
 
-// 区間難易度の重み（2次要素）7軸。改善計画: 「研究タブの2次要素の調整の仕方がわからない、
+// 区間難易度の重み（2次要素）8軸。改善計画: 「研究タブの2次要素の調整の仕方がわからない、
 // 地図表示・地図の見え方パネルと考え方を併せて再設計して」という実機フィードバックへの
 // 対応。SECONDARY_AXES（secondaryAxes.ts、地図チップ・地図の見え方パネルの推定グループが
 // 共有する単一ソース）をそのままなぞって並び順・ラベルを導出することで、「研究タブの
 // この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import、
 // 新しい軸が増えてもこのファイルの変更は不要）。windは対応する軸がSECONDARY_AXESに
 // 無いため（表示カタログ未登録、動的データ由来でレイヤーを持たない）末尾へ別途追加する。
+// 改善計画T347: bicycle_infra_qualityはaxis-catalog.json上には実在するが、専用地図
+// レイヤーを持たない（show_map_icon=false）ためSECONDARY_AXESのフィルタで除外される。
+// windと同じ理由（地図表示は無いが重み調整はできてよい軸）で末尾へ別途追加する。
 export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
   ...SECONDARY_AXES.map(
     (axis): PreferenceAxisDef => ({
@@ -83,6 +87,11 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
     })
   ),
   { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind },
+  {
+    axisId: "bicycle_infra_quality",
+    label: "自転車インフラ",
+    description: PREFERENCE_AXIS_DESCRIPTIONS.bicycle_infra_quality,
+  },
 ];
 
 // 軸の分類（観測/推定/動的、改善計画T267で確定・目論見書3章）は、一般向けルート設定画面

@@ -89,7 +89,7 @@ describe("AxisComposer 値の候補セレクト", () => {
     expect(candidateSelect).toBeInTheDocument();
   });
 
-  it("動的値一覧に対応しない材料(bicycle_infra)を選んでいる間は候補セレクトが出ない", async () => {
+  it("動的値一覧に対応しない材料(tracktype)を選んでいる間は候補セレクトが出ない", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -99,7 +99,7 @@ describe("AxisComposer 値の候補セレクト", () => {
     await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
     await clickNext(user);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "bicycle_infra");
+    await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
 
     await waitFor(() => expect(screen.getAllByLabelText("値").length).toBeGreaterThan(0));
     expect(screen.queryByRole("combobox", { name: "値の候補" })).not.toBeInTheDocument();

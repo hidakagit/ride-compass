@@ -17,10 +17,13 @@
 // 見つけやすさが悪化するため、kindより一段細かい単位で分ける:
 // - roadCondition（道路状態）: 道路の種類・路面の種類（T165で「道路情報」から分割）・指定路線
 // - trafficSafety（交通・安全）: 車ストレス・事故・停止要因
-// - bicycleInfra（自転車インフラ）: 自転車インフラ
 // - terrain（地形）: 標高図
 // - amenity（補給・施設、改善計画T101）: 補給・休憩ポイント。安全・リスクの指標ではなく
 //   trafficSafetyへ含めるのは意味的に不適切なため独立カテゴリにした
+// 改善計画T347: 旧bicycleInfra（自転車インフラ）カテゴリ・専用レイヤーはここから削除した
+// （このカテゴリの利用者が当該レイヤー1つだけだったため、レイヤーの廃止に伴いカテゴリ自体も
+// 廃止。評価軸側は新設の公開軸「自転車インフラ」bicycle_infra_qualityへ置き換え、地図
+// レイヤーは持たない[show_map_icon=false]）。
 
 import {
   axisMapLayerId,
@@ -32,7 +35,6 @@ export type MapLayerId =
   | "elevation"
   | "roadType"
   | "roadSurface"
-  | "bicycleInfra"
   | "designation"
   | "tunnel"
   | "oneway"
@@ -70,7 +72,7 @@ export type MapLayerKind = "static" | "dynamic";
 // staticレイヤーの中分類（改善計画T86）。staticが8種に達しflatな一覧のまま並んでいたため、
 // サイドバー（MapLayersPanel）の見出しをkind単位からこの単位へ変更する。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
-export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra" | "terrain" | "amenity" | "weather";
+export type MapLayerCategory = "roadCondition" | "trafficSafety" | "terrain" | "amenity" | "weather";
 
 // カテゴリの表示順・見出し文言の単一ソース（改善計画T86→T128）。以前はMapLayersPanel.tsx
 // だけが持っていたが、T128（地図上チップのカテゴリ束ね）でMapOverlayControls.tsxも
@@ -79,7 +81,6 @@ export type MapLayerCategory = "roadCondition" | "trafficSafety" | "bicycleInfra
 export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
   "roadCondition",
   "trafficSafety",
-  "bicycleInfra",
   "terrain",
   "amenity",
   "weather",
@@ -203,21 +204,6 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     description: "路面の材質を色で表示[アスファルト・砂利・土など]",
   },
   {
-    id: "bicycleInfra",
-    label: "自転車インフラ",
-    chipLabel: "インフラ",
-    kind: "static",
-    category: "bicycleInfra",
-    description: "分離自転車道・自転車レーン等、自転車走行環境の分類を色分け表示",
-    // 「道路情報（路面）」との違いが分からないという実機フィードバック（同T40）を受け、
-    // 両者が独立した軸であることを明記する（T165で「道路情報」は「路面の種類」レイヤーへ
-    // 論理分割されたため、参照先の名称もそちらへ更新した）。
-    panelHint:
-      "自転車が走る帯の構造[専用道・レーン・車道混在など]を表します。「路面の種類」レイヤーの" +
-      "路面の種類[アスファルト/砂利など、舗装の物理的な状態]とは別の軸で、" +
-      "組み合わせて確認できます。",
-  },
-  {
     id: "designation",
     // 外部静的データソース T51（国土数値情報 N10/N12）。指定路線コンフレーション機構が
     // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
@@ -231,8 +217,9 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     // （改善計画T292: domain/axis_definitions.py: car_stress_designation_adjustment参照）。
     // 改善計画T89: 「車ストレスと指定路線は何が違うのか」という実機フィードバックを受け、
     // 指定路線が「行政指定という事実」の表示であり、車ストレスはそれを含む複数要因
-    // （道路種別・車線数・制限速度・自転車インフラ）を合成した推定指標であるという
-    // 役割の違いを明記する（car_stress軸自身のpanel_hint、AXIS_DEFINITIONS参照と対で参照）。
+    // （道路種別・車線数・制限速度・自転車インフラ関連の正規化フラグ）を合成した推定指標
+    // であるという役割の違いを明記する（car_stress軸自身のpanel_hint、AXIS_DEFINITIONS
+    // 参照と対で参照）。
     panelHint:
       "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
       "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
@@ -242,7 +229,7 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     // トンネル（一次属性、OSMのtunnelタグ）。これまで観測配下に専用レイヤーを持たず、
     // 区間ポップアップのみで確認できたが（改善計画: 地図上に描画可能な状態で保持している
     // 要素の洗い出しで判明）、他の一次属性と同じ独立レイヤーとして観測グループへ追加する。
-    // designation・bicycleInfraと同じroad_surfaceソースの独立レイヤー。
+    // designationと同じroad_surfaceソースの独立レイヤー。
     id: "tunnel",
     label: "トンネル",
     kind: "static",
@@ -448,7 +435,7 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
 
-// roadType/roadSurface（T165で「道路情報」から論理分割）/bicycleInfra/designation/tunnel/
+// roadType/roadSurface（T165で「道路情報」から論理分割）/designation/tunnel/
 // onewayは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/
 // ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を共有しているため、そのタイルの
 // minzoom未満（regionZoomTooWide）ではタイル自体が要求されず、同時に
@@ -462,7 +449,6 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
   return [
     "roadType",
     "roadSurface",
-    "bicycleInfra",
     "designation",
     "tunnel",
     "oneway",

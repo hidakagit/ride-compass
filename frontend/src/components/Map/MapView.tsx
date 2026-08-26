@@ -36,9 +36,6 @@ import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
-  BICYCLE_INFRA_COLOR_EXPRESSION,
-  BICYCLE_INFRA_OPACITY_EXPRESSION,
-  BICYCLE_INFRA_LABELS,
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_OPACITY_EXPRESSION,
   DESIGNATION_LABELS,
@@ -136,8 +133,7 @@ function dynamicWeatherIds(id: DynamicWeatherLayerId, sub: "raster" | "fill" | "
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-export const BICYCLE_INFRA_LAYER_ID = "region-bicycle-infra-line";
-const DESIGNATION_LAYER_ID = "region-designation-line";
+export const DESIGNATION_LAYER_ID = "region-designation-line";
 const TUNNEL_LAYER_ID = "region-tunnel-line";
 const ONEWAY_LAYER_ID = "region-oneway-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
@@ -171,14 +167,13 @@ const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 const MATERIAL_TRACK_OFFSET_STEP = 2;
 const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   ROAD_TILE_LAYER_ID,
-  BICYCLE_INFRA_LAYER_ID,
   DESIGNATION_LAYER_ID,
   TUNNEL_LAYER_ID,
   ONEWAY_LAYER_ID,
 ] as const;
 // 改善計画（1次/2次の地図上表現の統一、松）: ramp軸（車の圧迫感[T292]・停止密度・事故密度等、
 // axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
-// 独立レイヤーとして重ねて描画される。以前は1次（bicycleInfra/designation）と同じ
+// 独立レイヤーとして重ねて描画される。以前は1次（designation等）と同じ
 // 太さ・不透明度（3px・0.85）で塗っていたため、同時にONにすると後から追加された
 // レイヤーが前のレイヤーを完全に覆い隠すだけで、材料（T167で連動ONする観測データ）と
 // 推定の両方を同時に読み取れなかった（実機フィードバック「1次と2次の地図上表現を
@@ -967,8 +962,8 @@ function applyRoadLayerState(
   });
 }
 
-// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
-// インフラ・指定路線）を並列トラックへ分離するオフセット計算。定数
+// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・指定路線等）を
+// 並列トラックへ分離するオフセット計算。定数
 // （MATERIAL_TRACK_OFFSET_STEP/ROAD_MATERIAL_TRACK_LAYER_IDS）・下敷き幅との連動理由は
 // 上部のDEFAULT_ROAD_LINE_WIDTH直後のコメント参照。
 // 現在ONの素材レイヤー集合から各レイヤーのline-offsetを計算して適用する。ON中のものだけを
@@ -977,12 +972,11 @@ function applyRoadLayerState(
 // 次にONにしたときに古いオフセット値が一瞬残らないようにする。
 function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
-  visible: { road: boolean; bicycleInfra: boolean; designation: boolean; tunnel: boolean; oneway: boolean }
+  visible: { road: boolean; designation: boolean; tunnel: boolean; oneway: boolean }
 ) {
   runWhenStyleReady(map, () => {
     const visibleByLayerId: Record<string, boolean> = {
       [ROAD_TILE_LAYER_ID]: visible.road,
-      [BICYCLE_INFRA_LAYER_ID]: visible.bicycleInfra,
       [DESIGNATION_LAYER_ID]: visible.designation,
       [TUNNEL_LAYER_ID]: visible.tunnel,
       [ONEWAY_LAYER_ID]: visible.oneway,
@@ -998,30 +992,7 @@ function applyRoadMaterialTrackOffsets(
   });
 }
 
-function ensureBicycleInfraLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getLayer(BICYCLE_INFRA_LAYER_ID)) return;
-    map.addLayer({
-      id: BICYCLE_INFRA_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": BICYCLE_INFRA_COLOR_EXPRESSION as any,
-        "line-width": 3,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-opacity": BICYCLE_INFRA_OPACITY_EXPRESSION as any,
-        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-        "line-offset": 0,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 指定路線（外部静的データソース T51、KSJ N10/N12）。車ストレス・自転車インフラと同じく
+// 指定路線（外部静的データソース T51、KSJ N10/N12）。車ストレスと同じく
 // 路面と同じベクタソースを再利用する独立レイヤー。designationプロパティは該当区間のみ
 // 値を持つ（未該当はプロパティ欠落、DESIGNATION_COLOR_EXPRESSIONのcoalesceで灰色に倒す）。
 function ensureDesignationLayer(map: MapLibreMap) {
@@ -1201,7 +1172,7 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 }
 
 // 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
-// 6レイヤー（標高・車ストレス・自転車インフラ・指定路線・事故・停止要因POI）は、
+// 5レイヤー（標高・車ストレス・指定路線・事故・停止要因POI）は、
 // いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
 // 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
 // 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
@@ -1209,7 +1180,7 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // 二次軸の汎用rampレイヤー（改善計画T145b）。axis-catalog.json（backendレジストリ生成物）の
 // kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
 // カタログ宣言のしきい値で色分けする線レイヤーを自動生成する。ensure関数は他の静的
-// レイヤー（ensureBicycleInfraLayer等）と同じ「初期化時に一度だけ追加、以降はvisibility
+// レイヤー（ensureDesignationLayer等）と同じ「初期化時に一度だけ追加、以降はvisibility
 // 切替のみ」パターン。
 function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
@@ -1251,7 +1222,7 @@ export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly 
 // スタックの最上位へ積み上げるため、この配列の並び順がそのままensureAllStaticOverlayLayers
 // （下記）でのensure()呼び出し順＝実際の描画の重なり順（先＝背面、後＝前面）になる。
 // ramp軸（車の圧迫感[T292]・停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
-// WIDTH/OPACITYの太く半透明な下敷き）をroad_surface本体の直上へまとめ、bicycleInfra・
+// WIDTH/OPACITYの太く半透明な下敷き）をroad_surface本体の直上へまとめ、
 // designation・accidents・stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした
 // 上書き）をその上に置く。
 // 以前はramp軸が配列末尾（最前面）だったため、材料の連動ON（T167）で観測データと推定を
@@ -1262,7 +1233,6 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
     // 吸収されたため、以前ここにあった専用エントリ（ensureCarStressLayer）は不要になった。
     ...axisOverlayLayers,
-    { key: "bicycleInfra", layerId: BICYCLE_INFRA_LAYER_ID, ensure: ensureBicycleInfraLayer },
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
@@ -1304,7 +1274,7 @@ function applySecondaryAxisCasingStyles(
 type StaticOverlayKey = string;
 
 // レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
-// roadType/roadSurface（T165で「道路情報」から論理分割）/bicycleInfra/designation/tunnel/
+// roadType/roadSurface（T165で「道路情報」から論理分割）/designation/tunnel/
 // oneway/車の圧迫感等のramp軸（T292でcar_stressも合流）は同じroad_surfaceタイルを
 // 再利用しているため（T59でroad_edgesが未構築の地点では、これらのレイヤーが同時に
 // empty/errorになるのが正しい挙動）、あえて同じ
@@ -1333,7 +1303,6 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
   return [
     { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
     { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-    { key: "bicycleInfra", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
     { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
     { key: "tunnel", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
     { key: "oneway", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
@@ -1351,7 +1320,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
       sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
     })),
     // 二次軸rampレイヤー（T145b、改善計画T292でcar_stressも含む）はroad_surfaceタイルへ
-    // 焼き込み済みのプロパティを読む（bicycleInfra等と同じソース共有。
+    // 焼き込み済みのプロパティを読む（designation等と同じソース共有。
     // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
     ...rampAxes.map((axis) => ({
       key: axisMapLayerId(axis.axisId) as MapLayerId,
@@ -1540,7 +1509,6 @@ interface RoadSurfacePopupProperties {
   bridge?: boolean | null;
   /** 一方通行（一次属性、OSM onewayタグ。改善計画T289）。未該当（双方向）はプロパティ欠落。 */
   oneway?: boolean | null;
-  bicycle_infra?: string | null;
   /** 指定路線コンフレーション機構（外部静的データソース T51）。未該当はプロパティ欠落。 */
   designation?: string | null;
 }
@@ -1560,9 +1528,6 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
   if (properties.smoothness) {
     rows.push(`路面状態: ${SMOOTHNESS_LABELS[properties.smoothness] ?? properties.smoothness}`);
-  }
-  if (properties.bicycle_infra) {
-    rows.push(`自転車インフラ: ${BICYCLE_INFRA_LABELS[properties.bicycle_infra] ?? properties.bicycle_infra}`);
   }
   if (properties.designation) {
     rows.push(DESIGNATION_LABELS[properties.designation] ?? properties.designation);
@@ -1630,11 +1595,9 @@ interface MapViewProps {
   showRoadType: boolean;
   /** 路面の種類（改善計画T165で「道路情報」から論理分割）。色で反映する。 */
   showRoadSurface: boolean;
-  /** 自転車インフラ（静的道路属性P0）。路面と同じソースを再利用する独立レイヤー。
-   * 改善計画T292: 車の圧迫感（旧showCarStress）はaxisVisibility["axis:car_stress"]
-   * （他のramp軸と同じ経路）へ統合されたため、この専用propsは廃止した。 */
-  showBicycleInfra: boolean;
-  /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。 */
+  /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。
+   * 改善計画T347: 旧showBicycleInfra（自転車インフラの専用地図レイヤー）はここから削除した
+   * （評価軸bicycle_infra_qualityへ置き換え、地図レイヤーは持たない）。 */
   showDesignation: boolean;
   /** トンネル（一次属性、OSMのtunnelタグ）。designationと同じく路面と同じソースを
    * 再利用する独立レイヤー。 */
@@ -1704,7 +1667,6 @@ export default function MapView({
   dynamicWeather,
   showRoadType,
   showRoadSurface,
-  showBicycleInfra,
   showDesignation,
   showTunnel,
   showOneway,
@@ -1776,7 +1738,6 @@ export default function MapView({
     dynamicWeather,
     showRoadType,
     showRoadSurface,
-    showBicycleInfra,
     showDesignation,
     showTunnel,
     showOneway,
@@ -1820,7 +1781,6 @@ export default function MapView({
       dynamicWeather,
       showRoadType,
       showRoadSurface,
-      showBicycleInfra,
       showDesignation,
       showTunnel,
       showOneway,
@@ -1848,7 +1808,6 @@ export default function MapView({
     dynamicWeather,
     showRoadType,
     showRoadSurface,
-    showBicycleInfra,
     showDesignation,
     showTunnel,
     showOneway,
@@ -1884,7 +1843,6 @@ export default function MapView({
       dynamicWeather,
       showRoadType,
       showRoadSurface,
-      showBicycleInfra,
       showDesignation,
       showTunnel,
       showOneway,
@@ -1905,7 +1863,6 @@ export default function MapView({
       map,
       {
         elevation: showElevation,
-        bicycleInfra: showBicycleInfra,
         designation: showDesignation,
         tunnel: showTunnel,
         oneway: showOneway,
@@ -1925,7 +1882,6 @@ export default function MapView({
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, {
       road: showRoadSurface || showRoadType,
-      bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
       oneway: showOneway,
@@ -1936,7 +1892,6 @@ export default function MapView({
         {
           roadType: showRoadType,
           roadSurface: showRoadSurface,
-          bicycleInfra: showBicycleInfra,
           designation: showDesignation,
           tunnel: showTunnel,
           oneway: showOneway,
@@ -1968,7 +1923,6 @@ export default function MapView({
       showElevation,
       showRoadType,
       showRoadSurface,
-      showBicycleInfra,
       showDesignation,
       showTunnel,
       showOneway,
@@ -1981,7 +1935,6 @@ export default function MapView({
       elevation: showElevation,
       roadType: showRoadType,
       roadSurface: showRoadSurface,
-      bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
       oneway: showOneway,
@@ -2060,12 +2013,12 @@ export default function MapView({
     resizeObserver.observe(mapContainerRef.current);
     // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
     // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）。
-    // ensureAllStaticOverlayLayers内のbicycleInfra/designation/ramp軸はROAD_TILE_SOURCE_ID
+    // ensureAllStaticOverlayLayers内のdesignation/ramp軸はROAD_TILE_SOURCE_ID
     // （road_surfaceベクタソース）を再利用する依存関係があるため、そのソースを実際に作る
     // ensureRoadSurfaceTileLayerを先に呼ぶ必要がある。いずれも初回はmap.once("load", ...)への
     // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
     // 以前はensureAllStaticOverlayLayers（elevationも含む）がensureRoadSurfaceTileLayerより
-    // 先だったため、bicycleInfra等のaddLayerがソース未作成のまま実行され
+    // 先だったため、designation等のaddLayerがソース未作成のまま実行され
     // 「source "region-road-surface-tiles" not found」エラーが発生していた（実機フィードバックで
     // 発覚）。標高を先に単独ensureしてから路面ソースを作ることで「標高が最背面、その上に路面」
     // の意図を保ったまま直す（ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが
@@ -2138,7 +2091,6 @@ export default function MapView({
       const {
         showRoadType,
         showRoadSurface,
-        showBicycleInfra,
         showDesignation,
         showTunnel,
         showOneway,
@@ -2150,7 +2102,6 @@ export default function MapView({
           {
             roadType: showRoadType,
             roadSurface: showRoadSurface,
-            bicycleInfra: showBicycleInfra,
             designation: showDesignation,
             tunnel: showTunnel,
             oneway: showOneway,
@@ -2376,7 +2327,6 @@ export default function MapView({
       map,
       {
         elevation: showElevation,
-        bicycleInfra: showBicycleInfra,
         designation: showDesignation,
         tunnel: showTunnel,
         oneway: showOneway,
@@ -2394,7 +2344,6 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [
     showElevation,
-    showBicycleInfra,
     showDesignation,
     showTunnel,
     showOneway,
@@ -2440,9 +2389,9 @@ export default function MapView({
   // ズームに応じて自動で行うため、明示的なfetchは不要）。色・太さ・線種は
   // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
   // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
-  // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するbicycleInfra/
-  // designation/tunnelのON/OFFでも変わりうるため、依存配列に含めてこれらの
-  // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままbicycleInfra等
+  // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するdesignation/
+  // tunnelのON/OFFでも変わりうるため、依存配列に含めてこれらの
+  // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままdesignation等
   // だけONで表示範囲が広すぎる場合に案内が一切出なかった不整合の修正）。ramp軸（車の圧迫感・
   // 停止密度・事故密度等）はこのチェックの対象外のまま（従来からの既知の制約、T292でも変更なし）。
   useEffect(() => {
@@ -2451,7 +2400,6 @@ export default function MapView({
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, {
       road: showRoadSurface || showRoadType,
-      bicycleInfra: showBicycleInfra,
       designation: showDesignation,
       tunnel: showTunnel,
       oneway: showOneway,
@@ -2462,7 +2410,6 @@ export default function MapView({
         {
           roadType: showRoadType,
           roadSurface: showRoadSurface,
-          bicycleInfra: showBicycleInfra,
           designation: showDesignation,
           tunnel: showTunnel,
           oneway: showOneway,
@@ -2475,7 +2422,6 @@ export default function MapView({
   }, [
     showRoadType,
     showRoadSurface,
-    showBicycleInfra,
     showDesignation,
     showTunnel,
     showOneway,
