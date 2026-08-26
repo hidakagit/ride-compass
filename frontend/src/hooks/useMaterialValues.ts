@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { MaterialValueEntry } from "@/types/route";
 import { getMaterialValues } from "@/services/materialCatalogApi";
 
 interface MaterialValuesState {
   materialId: string | null;
-  values: readonly string[];
+  values: readonly MaterialValueEntry[];
 }
 
 /** 材料の実データ値一覧（改善計画T340）。軸スタジオ（AxisComposer.tsx）が
  * highway/surface/smoothnessのようなオープンエンドな多値材料の値入力欄を、
- * テキスト自由入力から選択式へ切り替えるために使う。
+ * テキスト自由入力から選択式へ切り替えるために使う。各値の日本語ラベル(label)は
+ * backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが単一ソース
+ * （改善計画T345フォローアップ、地図の絞り込みUIのグルーピングとは独立）。
  *
  * `materialId`がnull、または動的値一覧に対応していない材料（bicycle_infra等）・
  * DB未接続・DB障害・取得中はいずれも空配列を返す——呼び出し側は空配列を
@@ -18,7 +21,7 @@ interface MaterialValuesState {
  * （useMaterialCatalogと違い静的フォールバック一覧を持たない。値の一覧は材料ごとに
  * 異なる実データそのものであり、コード側で妥当なフォールバック値を用意できないため）。
  */
-export function useMaterialValues(materialId: string | null): readonly string[] {
+export function useMaterialValues(materialId: string | null): readonly MaterialValueEntry[] {
   const [state, setState] = useState<MaterialValuesState>({ materialId, values: [] });
 
   // materialIdが変わった直後（このレンダーの間）は、前の材料の値一覧を一瞬でも

@@ -17,19 +17,26 @@ T278）は公開レスポンスに含めない——フロントの軸コンポ�
 改善計画T340: `GET /api/material-catalog/{material_id}/values`（同じく認可不要・
 読み取り専用）を追加した。highway/surface/smoothnessはOSMタグの生値でオープンエンドな
 ため、`AxisComposer.tsx`の値入力欄が「タグ生値を暗記して手入力する」というUX課題を
-抱えていた（2026-08-26ユーザー報告）。DBに実際に取り込まれている値を動的取得し、
-既知の値は軸コンポーザー側（`lib/materialValueLabels.ts`）が日本語ラベルへ変換、
-未知の値はタグ値そのまま表示するフォールバックとする。ラベル付与自体はUI語彙のため
-backend側では行わない（「UI語彙のカタログ集約」原則、frontend側の単一カタログに
-まとめる）。DB未接続構成（`road_graph_use_repository=False`）では空リストを返し、
-呼び出し側（フロント）が自由テキスト入力へフォールバックする。
+抱えていた（2026-08-26ユーザー報告）。DBに実際に取り込まれている値を動的取得し返す。
+DB未接続構成（`road_graph_use_repository=False`）では空リストを返し、呼び出し側
+（フロント）が自由テキスト入力へフォールバックする。
+
+改善計画T345フォローアップ: 当初（T340）はラベル付与を「UI語彙のカタログ集約」原則に
+従いfrontend側（`lib/materialValueLabels.ts`、地図の絞り込みUIのグルーピングを流用）で
+行っていたが、地図表示用のグルーピングは意図的に多対一（例: motorway/trunk/primary等
+複数値が同じ「幹線道路」）なため、軸スタジオの候補一覧で同じラベルが並び見分けが
+付かなくなる実害が判明した。「地図表示と評価は別」という方針のもと、値の意味は
+材料そのものの定義に属するドメイン知識と位置づけ直し、`MaterialSpec.value_labels`
+（`domain/material_catalog.py`、材料定義自体の一部）へ一元化した。本APIのレスポンスに
+`label`を含めることで、frontendは受け取った値をそのまま表示するだけでよくなる
+（frontend側の対訳表は撤去済み）。
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.dependencies import get_region_service
-from app.domain.material_catalog import MaterialDType, axis_studio_materials, is_known_material
+from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, axis_studio_materials, is_known_material
 from app.services.region_service import RegionService
 
 router = APIRouter()
@@ -48,8 +55,16 @@ class MaterialCatalogResponse(BaseModel):
     materials: list[MaterialCatalogEntry]
 
 
+class MaterialValueEntry(BaseModel):
+    value: str
+    # 改善計画T345フォローアップ: タグ生値の日本語ラベル。ラベル対訳表に無い値は
+    # valueと同じ文字列（MaterialSpec.value_labelのフォールバック、新しいOSMタグ値が
+    # DBに現れてもAPIが失敗しないようにするため）。
+    label: str
+
+
 class MaterialValuesResponse(BaseModel):
-    values: list[str]
+    values: list[MaterialValueEntry]
 
 
 @router.get("/api/material-catalog", response_model=MaterialCatalogResponse)
@@ -76,4 +91,5 @@ async def get_material_values(
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
     values = await region_service.get_material_values(material_id)
-    return MaterialValuesResponse(values=values)
+    spec = MATERIAL_CATALOG[material_id]
+    return MaterialValuesResponse(values=[MaterialValueEntry(value=v, label=spec.value_label(v)) for v in values])

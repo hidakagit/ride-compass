@@ -142,6 +142,25 @@ class MaterialSpec(BaseModel):
     # `staticAttributeLayers.ts`の凡例）は本フラグと無関係にtile_property経由で
     # 引き続き動作する。
     display_only: bool = False
+    # 改善計画T345フォローアップ: 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表
+    # （タグ値→ラベル）。highway/surface/smoothnessのようなオープンエンドな多値材料
+    # だけが持つ（他は空dict）。軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが
+    # `GET /api/material-catalog/{material_id}/values`経由で表示するラベルの単一ソース。
+    # T340時点ではこの対訳表をfrontend側（地図の絞り込みUIのグルーピングを流用）に
+    # 置いていたが、地図表示用のグルーピングは意図的に多対一（例: motorway/trunk/primary
+    # 等複数値が同じ「幹線道路」）なため、候補セレクトへ流用すると同じラベルの選択肢が
+    # 並び見分けが付かなくなる実害が判明した（ユーザー指摘「地図表示と評価は別」）。
+    # 値の意味は材料そのものの定義に属するドメイン知識のため、他のフィールドと同じく
+    # ここ（MaterialSpec自体）へ一元化する（material_id文字列をキーにした別の並列辞書に
+    # すると、材料の追加・削除のたびに2箇所を同期する必要が生じ、過去に繰り返し実害を
+    # 出してきた同期漏れパターン[T180・T185・T218のOpenAPIドリフト、T70・T93のタイル
+    # 世代対上げ漏れ等]と同型のリスクを持ち込むため避ける）。
+    value_labels: dict[str, str] = {}
+
+    def value_label(self, value: str) -> str:
+        """タグ生値から日本語ラベルを引く。対訳表に無い値はvalueそのまま
+        （フォールバック、新しいOSMタグ値がDBに現れてもAPIが失敗しないようにするため）。"""
+        return self.value_labels.get(value, value)
 
 
 # --- 改善計画T280: 抽出関数（compute_edge_costs_bulkの旧手書き抽出ループを1材料1関数へ
@@ -295,6 +314,80 @@ def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
     if ctx.way_tags is None:
         return None
     return bicycle_infra_flags(ctx.way_tags, ctx.edge.highway)["cycleway_has_shared"]
+
+
+# 改善計画T345フォローアップ: 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
+# MaterialSpec.value_labelsのdocstring参照——「地図表示と評価は別」という方針に基づき、
+# 地図の絞り込みUI（components/Map/roadFilterAxes.ts: HIGHWAY_GROUPS/SURFACE_GROUPS、
+# 意図的に多対一）とは独立した1値1ラベルの専用対訳表。各値の日本語ラベルはOSM wiki
+# （Key:highway/Key:surface）の一般的なタグ定義に基づく。定義位置をMaterialSpecの
+# コンストラクタ呼び出し直下ではなくここへ分けているのは、22〜24件のdict literalを
+# 個々のMaterialSpec(...)呼び出しへインラインで書くと材料定義ブロックの見通しが悪くなる
+# ため（値自体はvalue_labels=...で各MaterialSpecへそのまま渡し、単一ソースはあくまで
+# MaterialSpec側——このモジュール内に閉じた実装都合の分割であり、material_id文字列を
+# キーにした材料をまたぐ別辞書ではない）。
+_HIGHWAY_VALUE_LABELS: dict[str, str] = {
+    "motorway": "高速道路",
+    "motorway_link": "高速道路の連絡路",
+    "trunk": "幹線道路",
+    "trunk_link": "幹線道路の連絡路",
+    "primary": "主要幹線道路",
+    "primary_link": "主要幹線道路の連絡路",
+    "secondary": "地方主要道",
+    "secondary_link": "地方主要道の連絡路",
+    "tertiary": "地方道",
+    "tertiary_link": "地方道の連絡路",
+    "unclassified": "未区分の道路",
+    "residential": "住宅街の道路",
+    "living_street": "生活道路（歩車共存）",
+    "service": "施設内通路",
+    "road": "種別不明の道路",
+    "cycleway": "自転車専用道",
+    "path": "小道・遊歩道",
+    "footway": "歩道",
+    "pedestrian": "歩行者専用道路",
+    "bridleway": "乗馬道",
+    "steps": "階段",
+    "track": "農道・林道",
+}
+
+_SURFACE_VALUE_LABELS: dict[str, str] = {
+    "asphalt": "アスファルト",
+    "paved": "舗装（種別不明）",
+    "chipseal": "チップシール舗装",
+    "concrete": "コンクリート",
+    "concrete:plates": "コンクリート版",
+    "concrete:lanes": "コンクリート帯（轍部のみ舗装）",
+    "paving_stones": "石畳（切石）",
+    "sett": "石畳（玉石）",
+    "cobblestone": "玉石舗装",
+    "unhewn_cobblestone": "玉石舗装（未加工）",
+    "bricks": "レンガ舗装",
+    "gravel": "砂利",
+    "fine_gravel": "細砂利",
+    "compacted": "締固め砂利",
+    "pebblestone": "小石敷き",
+    "rock": "岩盤",
+    "unpaved": "未舗装（種別不明）",
+    "dirt": "土",
+    "ground": "地面（土・砂利混合）",
+    "earth": "土（地表面）",
+    "mud": "泥",
+    "sand": "砂",
+    "grass": "芝・草地",
+    "woodchips": "ウッドチップ",
+}
+
+_SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
+    "excellent": "非常に良好（ロードバイク推奨）",
+    "good": "良好",
+    "intermediate": "普通",
+    "bad": "悪い",
+    "very_bad": "かなり悪い",
+    "horrible": "劣悪",
+    "very_horrible": "極めて劣悪",
+    "impassable": "通行不能",
+}
 
 
 # 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと
@@ -456,6 +549,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="highway",
         primary_attribute_id="highway",
         extractor=_extract_highway,
+        value_labels=_HIGHWAY_VALUE_LABELS,
     ),
     "surface": MaterialSpec(
         material_id="surface",
@@ -468,6 +562,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="surface",
         primary_attribute_id="surface",
         extractor=_extract_surface,
+        value_labels=_SURFACE_VALUE_LABELS,
     ),
     "bicycle_infra": MaterialSpec(
         material_id="bicycle_infra",
@@ -597,6 +692,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="smoothness",
         # smoothnessに対応する一次属性は未登録（bridgeと同じくレジストリ未追加）。
         extractor=raw_way_tag_extractor("smoothness", normalize=True),
+        value_labels=_SMOOTHNESS_VALUE_LABELS,
     ),
     # 改善計画T339完了条件の実証: 専用のPython関数を書かず、汎用ファクトリ
     # （raw_way_tag_extractor）への宣言追加だけで抽出可能にした新規材料。tracktypeは

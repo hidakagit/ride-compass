@@ -17,14 +17,22 @@ describe("useMaterialValues", () => {
     expect(getMaterialValues).not.toHaveBeenCalled();
   });
 
-  it("フェッチが完了すると値一覧を返す", async () => {
+  it("フェッチが完了すると値一覧（value/labelの組）を返す", async () => {
     vi.mocked(getMaterialValues).mockResolvedValue({
-      values: ["residential", "primary"],
+      values: [
+        { value: "residential", label: "住宅街の道路" },
+        { value: "primary", label: "主要幹線道路" },
+      ],
     } satisfies MaterialValuesResponse);
 
     const { result } = renderHook(() => useMaterialValues("highway"));
 
-    await waitFor(() => expect(result.current).toEqual(["residential", "primary"]));
+    await waitFor(() =>
+      expect(result.current).toEqual([
+        { value: "residential", label: "住宅街の道路" },
+        { value: "primary", label: "主要幹線道路" },
+      ]),
+    );
     expect(getMaterialValues).toHaveBeenCalledWith("highway");
   });
 
@@ -39,19 +47,22 @@ describe("useMaterialValues", () => {
 
   it("materialIdが変わると値一覧を引き継がずリセットしてから再取得する", async () => {
     vi.mocked(getMaterialValues).mockImplementation(async (materialId: string) => ({
-      values: materialId === "highway" ? ["residential"] : ["good"],
+      values:
+        materialId === "highway"
+          ? [{ value: "residential", label: "住宅街の道路" }]
+          : [{ value: "good", label: "良好" }],
     }));
 
     const { result, rerender } = renderHook(({ materialId }) => useMaterialValues(materialId), {
       initialProps: { materialId: "highway" as string | null },
     });
 
-    await waitFor(() => expect(result.current).toEqual(["residential"]));
+    await waitFor(() => expect(result.current).toEqual([{ value: "residential", label: "住宅街の道路" }]));
 
     rerender({ materialId: "smoothness" });
 
     // 前の材料（highway）の値一覧を一瞬でも引きずらない。
     expect(result.current).toEqual([]);
-    await waitFor(() => expect(result.current).toEqual(["good"]));
+    await waitFor(() => expect(result.current).toEqual([{ value: "good", label: "良好" }]));
   });
 });

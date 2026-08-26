@@ -7,11 +7,18 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import AxisComposer from "./AxisComposer";
 
+// 改善計画T345フォローアップ: ラベルはbackend（MaterialSpec.value_labels）が返す前提へ
+// 変更したため、モック応答も{value, label}形式にする（frontend側の翻訳表は撤去済み）。
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   getMaterialValues: vi.fn(async (materialId: string) => {
     if (materialId === "highway") {
-      return { values: ["residential", "primary"] };
+      return {
+        values: [
+          { value: "residential", label: "住宅街の道路" },
+          { value: "primary", label: "主要幹線道路" },
+        ],
+      };
     }
     return { values: [] };
   }),
@@ -46,8 +53,8 @@ describe("AxisComposer 値の候補セレクト", () => {
 
     await user.selectOptions(candidateSelect, "residential");
 
-    // 選択後は生のタグ値("residential")ではなくラベル("生活道路")が値欄に表示される。
-    expect(valueInput).toHaveValue("生活道路");
+    // 選択後は生のタグ値("residential")ではなくラベル("住宅街の道路")が値欄に表示される。
+    expect(valueInput).toHaveValue("住宅街の道路");
     expect(screen.queryByText("residential")).not.toBeInTheDocument();
     // 候補セレクト自体は選択の起点（value=""）へ戻る（連続で別の値も選べるようにするため）。
     expect(candidateSelect).toHaveValue("");
@@ -74,10 +81,9 @@ describe("AxisComposer 値の候補セレクト", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
 
     const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
-    // "residential"はlib/materialValueLabels.ts経由でroadFilterAxes.tsのHIGHWAY_GROUPSから
-    // 「生活道路」というラベルを引く。物理値"residential"併記（旧表示「生活道路 (residential)」）
-    // が無いことを確認する。
-    expect(screen.getByRole("option", { name: "生活道路" })).toBeInTheDocument();
+    // 候補セレクトはbackendが返すlabel（"住宅街の道路"）をそのまま表示し、物理値
+    // "residential"併記（旧表示「住宅街の道路 (residential)」）は無いことを確認する。
+    expect(screen.getByRole("option", { name: "住宅街の道路" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /residential/ })).not.toBeInTheDocument();
     expect(candidateSelect).toBeInTheDocument();
   });

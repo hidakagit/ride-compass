@@ -252,3 +252,24 @@ def test_all_materials_have_a_non_empty_description():
     # description記入漏れを検知する）。
     for spec in MATERIAL_CATALOG.values():
         assert spec.description.strip() != "", f"{spec.material_id} has no description"
+
+
+def test_highway_surface_smoothness_have_distinct_value_labels():
+    # 改善計画T345フォローアップ: 地図の絞り込みUIのグルーピング（多対一）とは独立した
+    # 1値1ラベルの対訳表を持つことを確認する（同じラベルが複数のタグ値に付いていると、
+    # 軸スタジオの候補セレクトで見分けが付かなくなる実害が過去に発生したため）。
+    for material_id in ("highway", "surface", "smoothness"):
+        value_labels = MATERIAL_CATALOG[material_id].value_labels
+        assert len(value_labels) > 0, f"{material_id} has no value_labels"
+        assert len(set(value_labels.values())) == len(value_labels), f"{material_id} has duplicate labels"
+
+
+def test_value_label_falls_back_to_the_raw_value_for_unknown_values():
+    highway = MATERIAL_CATALOG["highway"]
+    assert highway.value_label("residential") == "住宅街の道路"
+    assert highway.value_label("some_new_osm_value") == "some_new_osm_value"
+
+    # value_labelsを持たない材料（例: gradient_percent）は常にvalueそのまま。
+    gradient = MATERIAL_CATALOG["gradient_percent"]
+    assert gradient.value_labels == {}
+    assert gradient.value_label("anything") == "anything"

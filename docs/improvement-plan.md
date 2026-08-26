@@ -7333,6 +7333,38 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   検証: `AxisComposer.materialValues.test.tsx`の該当テストを最終UX（候補選択後は
   readOnly inputにラベル表示、直接入力の撤去）に合わせて更新。フロント全680件・lint・tsc
   green。
+  - **さらなるフォローアップ（同日、実機のスクリーンショットで発覚した2件＋ユーザー指摘）**:
+    1. highwayの候補セレクトで「自転車・歩行者道」「幹線道路」等が複数個ずつ並び
+       見分けが付かなくなっている実機不具合を発見。原因は、値ごとのラベルを
+       `roadFilterAxes.ts`のHIGHWAY_GROUPS/SURFACE_GROUPS（地図の色分け専用、意図的に
+       多対一——例: motorway/trunk/primary等6値が同じ「幹線道路」）から流用していたため
+       （T340時点の「UI語彙のカタログ集約」判断）。ユーザー指摘「地図表示と評価は別。
+       そのルールで統一して」を受け、地図の色分けグルーピングとは独立した1値1ラベルの
+       専用対訳表へ差し替えた。
+    2. 「1値1ラベルの対訳表はOSM wikiのDescription等から取れないか」という提案を受け
+       OSM wiki（Key:highway/Key:surface）の直接取得を試みたが、`wiki.openstreetmap.org`
+       はネットワークegressポリシーでブロックされておりWebFetch・archive.orgミラー経由
+       とも失敗した。WebSearchの断片的なスニペット（例: motorwayの正式説明「高速の
+       自動車交通が安全に走行できるように設計された高規格幹線道路」）で大枠の妥当性のみ
+       確認し、OSMタグの一般的な定義に基づく独自の1値1ラベル対訳表（例:
+       residential→「住宅街の道路」、motorway→「高速道路」）で運用する。
+    3. 続けて「1値1ラベルの対訳表はmaterial_catalog側にまとめて持てないか」という提案を
+       受け、「材料の属性値はまとめて持ちたい、地図表現は別で構わない」という設計方針を
+       確認した上で、この対訳表をfrontend（`lib/materialValueLabels.ts`、撤去した）から
+       backend `domain/material_catalog.py: MaterialSpec.value_labels`（材料定義自体の
+       一部）へ全面移設した。`GET /api/material-catalog/{material_id}/values`の
+       レスポンス形状を`values: string[]`から`values: {value, label}[]`へ変更し、
+       ラベル付与自体をbackendが担う（frontendは受け取った値をそのまま表示するだけ）。
+       material_id文字列をキーにした材料をまたぐ別辞書（同期漏れリスクのある並列構造、
+       T180・T185・T218のOpenAPIドリフト等と同型）にはせず、`MaterialSpec`自身の
+       フィールドとして材料定義1件の中に閉じ込めた。
+    4. 併せて、「候補から選ぶ」への一本化後に残った読み取り専用の値欄が、見た目上は
+       編集可能なinputと区別が付きにくいという指摘を受け、`:read-only`疑似クラスで
+       背景・文字色をグレーへ落とすCSSを追加した。
+  検証: backend（`MaterialSpec.value_labels`の重複無しテスト・フォールバックテスト追加）
+  非DBテスト1090件、`export_openapi.py`→`npm run generate:api`実行しドリフト無しを確認。
+  frontend（`useMaterialValues`のテストを新レスポンス形状へ更新、`lib/materialValueLabels.ts`
+  とそのテストは撤去）全676件・lint・tsc green。
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、

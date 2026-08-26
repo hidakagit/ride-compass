@@ -194,6 +194,17 @@
   width: 5rem;
 }
 
+/* 改善計画T345フォローアップ（実機フィードバック: 手入力不要な値欄は編集できないと
+   見た目でも分かるようにしたい）: 「値ごとのスコア」欄で候補セレクトからのみ値を
+   設定する読み取り専用input（AxisComposer.tsx参照）を、他の編集可能なinputと
+   視覚的に区別する。globals.cssのinput[type=text]共通スタイルの上から、背景と
+   文字色だけをグレーに落とす。 */
+.termRow input:read-only {
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  cursor: default;
+}
+
 .inlineCheckbox {
   display: inline-flex;
   align-items: center;

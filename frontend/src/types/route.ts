@@ -81,4 +81,7 @@ export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
 
 // 材料の実データ値一覧（改善計画T340）。GET /api/material-catalog/{material_id}/valuesの
 // レスポンス。highway/surface/smoothnessのようなオープンエンドな多値材料向け。
+// 改善計画T345フォローアップ: 各値に日本語ラベル(label)も付く
+// （backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが単一ソース）。
+export type MaterialValueEntry = Schemas["MaterialValueEntry"];
 export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];

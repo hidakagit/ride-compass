@@ -1976,11 +1976,29 @@
         "title": "MaterialTerm",
         "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。"
       },
+      "MaterialValueEntry": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "MaterialValueEntry"
+      },
       "MaterialValuesResponse": {
         "properties": {
           "values": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/MaterialValueEntry"
             },
             "type": "array",
             "title": "Values"

@@ -7,7 +7,6 @@ import { InfoIcon } from "@/components/Map/icons";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMaterialValues } from "@/hooks/useMaterialValues";
-import { materialValueLabel } from "@/lib/materialValueLabels";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
@@ -788,7 +787,11 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     // 対応していない）だけ、従来どおり自由テキスト入力のままにする
                     // （選ぶ元となる候補自体が存在しないため）。
                     const hasDynamicCandidates = categoricalMaterialValues.length > 0;
-                    const label = materialValueLabel(draft.categoricalMaterial, row.value);
+                    // 選択中の値のラベルは、取得済みの候補一覧（backendが返すMaterialSpec.
+                    // value_labelsのラベル）から引く。候補一覧に無い値（編集を開いた時点で
+                    // 既存軸が保持していたが、実データが変わり現在は候補から外れた値等）は
+                    // 生のタグ値そのままにフォールバックする。
+                    const label = categoricalMaterialValues.find((v) => v.value === row.value)?.label ?? row.value;
                     return (
                       <div key={i} className={styles.termRow}>
                         {hasDynamicCandidates && (
@@ -800,14 +803,11 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                             }}
                           >
                             <option value="">候補から選ぶ...</option>
-                            {categoricalMaterialValues.map((v) => {
-                              const candidateLabel = materialValueLabel(draft.categoricalMaterial, v);
-                              return (
-                                <option key={v} value={v}>
-                                  {candidateLabel}
-                                </option>
-                              );
-                            })}
+                            {categoricalMaterialValues.map((v) => (
+                              <option key={v.value} value={v.value}>
+                                {v.label}
+                              </option>
+                            ))}
                           </select>
                         )}
                         {hasDynamicCandidates ? (

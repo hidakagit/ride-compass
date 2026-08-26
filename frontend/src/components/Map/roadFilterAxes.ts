@@ -178,10 +178,11 @@ const HIGHWAY_LINE_WIDTH_UNKNOWN = HIGHWAY_LINE_WIDTH_LOCAL;
 const HIGHWAY_DASHARRAY_SOLID = [1, 0];
 const HIGHWAY_DASHARRAY_UNKNOWN = [2, 1.5];
 
-// OSMのhighwayタグ（道路種別）の表示用グルーピング。
-// 改善計画T340: 軸スタジオ（lib/materialValueLabels.ts）が「値→ラベル」の日本語対訳を
-// このグルーピングから導出するため、export必須（UI語彙のカタログ集約——同じ語彙を
-// 2箇所に手書きしない）。
+// OSMのhighwayタグ（道路種別）の表示用グルーピング（地図の色分け・線幅専用、意図的に
+// 多対一）。改善計画T345フォローアップ: 以前は軸スタジオの値ラベルもここから導出して
+// いたが、地図表示と評価で必要な粒度が異なる（軸スタジオは1値1ラベルが必要）ため分離した
+// （backend/app/domain/material_catalog.py: MaterialSpec.value_labels参照、「地図表示と
+// 評価は別」の方針）。このexportは地図の絞り込みUI専用として維持する。
 export const HIGHWAY_GROUPS: CategoryGroup[] = [
   {
     key: "arterial",

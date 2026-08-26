@@ -130,7 +130,15 @@ def test_get_material_values_returns_sorted_distinct_values_from_service():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"values": ["cycleway", "primary", "residential"]}
+    # 改善計画T345フォローアップ: 値ごとに日本語ラベルも返す
+    # （MaterialSpec.value_labels、地図の絞り込みUIのグルーピングとは独立の1値1ラベル）。
+    assert response.json() == {
+        "values": [
+            {"value": "cycleway", "label": "自転車専用道"},
+            {"value": "primary", "label": "主要幹線道路"},
+            {"value": "residential", "label": "住宅街の道路"},
+        ]
+    }
     assert fake.last_material_id == "highway"
 
 

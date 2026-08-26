@@ -891,10 +891,17 @@ export interface components {
              */
             required: boolean;
         };
+        /** MaterialValueEntry */
+        MaterialValueEntry: {
+            /** Value */
+            value: string;
+            /** Label */
+            label: string;
+        };
         /** MaterialValuesResponse */
         MaterialValuesResponse: {
             /** Values */
-            values: string[];
+            values: components["schemas"]["MaterialValueEntry"][];
         };
         /**
          * PriorityCondition
