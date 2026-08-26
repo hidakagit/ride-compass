@@ -586,8 +586,19 @@ def compute_edge_costs_bulk(
 
     # --- 抽出フェーズ（改善計画T280: MATERIAL_CATALOGのextractor宣言へ委譲） ---
     extractable_materials = [spec for spec in MATERIAL_CATALOG.values() if spec.extractor is not None]
+    # 改善計画T343: 配列はMATERIAL_CATALOG全材料ぶん確保する（抽出ループは
+    # extractable_materialsのみ回す＝extractor未設定材料[oneway/designation/
+    # is_emergency_transport/is_critical_logistics等、「トリガー付きDEFER」設計原則9]は
+    # 既定値[NaN/False]のまま残る）。以前はextractable_materialsのみ確保しており、
+    # そのような材料をMaterialTerm等で参照するGUI作成軸（`_check_materials_are_known`は
+    # is_known_materialのみ検証しextractor有無は見ないため、軸スタジオから素朴に作成
+    # できてしまう）を評価するとevaluate_axis_arrayの`materials[term.material]`が
+    # KeyErrorで/api/routes/generate自体を落としていた（スカラー版evaluate_axis_scalarは
+    # `materials.get(...)`のためこの経路では発生しない非対称性があった）。全材料ぶん
+    # 確保することで「材料はあるがデータが無い」という既存の意味論（欠損）へ揃え、
+    # スカラー版と同じグレースフルデグレード（その軸だけ恒久的に欠損扱い）にする。
     material_arrays: dict[str, np.ndarray] = {}
-    for spec in extractable_materials:
+    for spec in MATERIAL_CATALOG.values():
         if spec.dtype == "categorical":
             # np.emptyのdtype=objectは要素をNone初期化する（Python object配列のcalloc特性）。
             material_arrays[spec.material_id] = np.empty(n, dtype=object)

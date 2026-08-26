@@ -291,3 +291,108 @@ def test_bulk_hard_filters_empty_allows_bicycle_no_edge():
         graph, {}, {}, PREFERENCE, way_tags=way_tags, hard_filters=frozenset({"motorway", "trunk"})
     )
     assert included["e0"].allowed is True
+
+
+def test_bulk_does_not_crash_on_axis_referencing_a_material_without_an_extractor(monkeypatch):
+    """改善計画T343回帰テスト: `MaterialSpec.extractor=None`の材料（oneway/designation/
+    is_emergency_transport/is_critical_logistics、「トリガー付きDEFER」設計原則9）を
+    参照する軸（軸スタジオ経由でGUI作成できてしまう——`_check_materials_are_known`は
+    `is_known_material`のみ検証しextractor有無は見ない）が読み込まれても、
+    `compute_edge_costs_bulk`がKeyErrorでクラッシュしないこと。以前は
+    `material_arrays`をextractorありの材料ぶんしか確保しておらず、
+    `evaluate_axis_array`の`materials[term.material]`がKeyErrorになっていた
+    （スカラー版`evaluate_axis_scalar`は`materials.get(...)`のため発生しない
+    非対称性があった）。データが無い材料として恒久的に欠損扱いになる
+    （スカラー版と同じグレースフルデグレード）ことも確認する。
+    """
+    from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+
+    custom_axis = AxisDefinition(
+        axis_id="custom_n10_only_axis",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="is_emergency_transport")],
+            breakpoints=[(0.0, 0.0), (1.0, 100.0)],
+        ),
+        default_weight=1.0,
+        label="テスト用N10軸",
+        description="",
+        category="推定",
+        is_published=True,
+    )
+    monkeypatch.setitem(AXIS_DEFINITIONS, custom_axis.axis_id, custom_axis)
+
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "a": Node(node_id="a", latitude=35.0, longitude=139.0),
+            "b": Node(node_id="b", latitude=35.0, longitude=139.001),
+        },
+        edges={
+            "e0": DirectedEdge(
+                edge_id="e0",
+                from_node_id="a",
+                to_node_id="b",
+                geometry=[[35.0, 139.0], [35.0, 139.001]],
+                distance_m=100.0,
+                osm_way_id=1,
+                highway="residential",
+                bearing_deg=0.0,
+            )
+        },
+    )
+
+    weights = {**PREFERENCE.weights, "custom_n10_only_axis": 1.0}
+    # is_emergency_transportの既定値[bool_default="false"]はFalse（欠損ではなく確定値）
+    # のためcustom_n10_only_axis自体は"該当なし"として評価される（0.0）。ここで検証したい
+    # 主眼は例外が起きないこと（KeyErrorしないこと）と、他の軸の合成が壊れないこと。
+    results = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE, way_tags={"e0": {}}, weights=weights)
+
+    assert results["e0"].allowed is True
+    assert results["e0"].difficulty is not None
+    assert results["e0"].cost is not None
+
+
+def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_an_extractor(monkeypatch):
+    """上のテストのCategoricalShape版。categorical材料はdtype=objectのnumpy配列
+    （np.emptyでNone初期化）のため、boolean/numeric材料とは別の初期化コードパスを通る
+    （evaluation.py: material_arraysの構築、dtype分岐参照）。designation
+    （dtype="categorical"、extractor未設定）を参照する軸でも同様にクラッシュしないこと。"""
+    from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, CategoricalShape
+
+    custom_axis = AxisDefinition(
+        axis_id="custom_designation_only_axis",
+        shape=CategoricalShape(material="designation", mapping={"emergency_transport": 100.0}),
+        default_weight=1.0,
+        label="テスト用designation軸",
+        description="",
+        category="推定",
+        is_published=True,
+    )
+    monkeypatch.setitem(AXIS_DEFINITIONS, custom_axis.axis_id, custom_axis)
+
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "a": Node(node_id="a", latitude=35.0, longitude=139.0),
+            "b": Node(node_id="b", latitude=35.0, longitude=139.001),
+        },
+        edges={
+            "e0": DirectedEdge(
+                edge_id="e0",
+                from_node_id="a",
+                to_node_id="b",
+                geometry=[[35.0, 139.0], [35.0, 139.001]],
+                distance_m=100.0,
+                osm_way_id=1,
+                highway="residential",
+                bearing_deg=0.0,
+            )
+        },
+    )
+
+    weights = {**PREFERENCE.weights, "custom_designation_only_axis": 1.0}
+    results = compute_edge_costs_bulk(graph, {}, {}, PREFERENCE, way_tags={"e0": {}}, weights=weights)
+
+    assert results["e0"].allowed is True
+    assert results["e0"].difficulty is not None
+    assert results["e0"].cost is not None
