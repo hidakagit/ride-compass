@@ -8337,6 +8337,53 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [ ] T360. fresh bootstrap時にcar_stress_bicycle_infra_adjustmentが復活する不整合の解消 規模S〜M（起票のみ、未着手）
+
+- 背景: T286（architecture.mdの経緯記述の切り出し、2026-08-27）着手中に発見。T353
+  （2026-08-27、`car_stress_bicycle_infra_adjustment`の廃止・1材料1軸原則への是正）は
+  このdev DBに対してmigrationではなくaxis_admin APIの直接DELETEで実施された
+  （T353本文「DB変更はmigrationではなくaxis_adminのAPI(unpublish->PUT->republish、
+  DELETE)経由で実施」）。一方`backend/migrations/`のシードSQLは変更されておらず、
+  `tests/test_migrate.py`のブートストラップテスト（まっさらなDBへ全migration適用）も
+  依然`axis_count == 14`をアサートしたまま（このdev DBの実測は13）。
+- 影響範囲（保留し続けた場合、何がブロックされ・何が動かなくなるか）:
+  - **CI・新規dev機・本番への初回migration適用**など、「まっさらなDBへ全migrationを
+    順に適用する」経路（fresh bootstrap）を通るあらゆる環境で、T353が廃止したはずの
+    `car_stress_bicycle_infra_adjustment`軸が14件目として復活する。復活した軸は
+    `car_stress`のどの`terms`からも参照されない孤立した下書き軸になるため、
+    ルート生成・評価そのものは壊れない（`car_stress`の`terms`は既にmigrationの
+    シード時点でも5件のはず——要確認、下記「未確定事項」参照）が、**軸一覧
+    （軸スタジオ・`GET /api/axis-catalog`）に「本来存在しないはずの内部軸」が
+    見え続け、T353が達成したかった「1材料1軸原則への是正」がfresh bootstrap環境では
+    体現されない**という一貫性の欠落が残る。
+  - `tests/test_migrate.py`のブートストラップテストは、この不整合そのものを検知する
+    設計になっていない（`axis_count == 14`が「正」として固定化されているため、
+    このテストが緑である限り誰も気づかない）。将来別の担当者がこのテストを見て
+    「14軸が正しい状態」と誤認するリスクがある。
+  - 本番DBは2026-08-27時点でT353のAPI経由DELETEが未反映（T353本文の「本番反映は
+    別途」を参照）。**本番への反映方法を決める際、この不整合（migrationの扱いを
+    どうするか）も同時に決めないと、本番だけがdev DBと異なる手順で「13軸化」される
+    可能性がある**。
+- 対応方針（案、着手時に検討）:
+  1. `car_stress_bicycle_infra_adjustment`をシードする既存migrationを直接書き換える
+     （このプロジェクトの通常のmigration運用——`create_tables`へのALTER追記禁止
+     原則との整合を要確認。当該行を削除する新規migrationを追加する方が安全な可能性）。
+  2. 上記1に伴い、`tests/test_migrate.py`の`axis_count == 14`アサーションを`13`へ
+     更新する。
+  3. 本番DBへの反映（T359が既に「未実施・ユーザー承認後」としている本番反映と
+     まとめて実施できないか検討する）。
+- 未確定事項（着手時に確認）: このdev DBでは`car_stress`の`terms`が既にT353の
+  API操作で5件（`car_stress_bicycle_infra_adjustment`を含まない）に更新されている
+  ことをT286作業中に確認済みだが、**fresh bootstrap直後（migration適用直後、API操作
+  前）の`car_stress`の`terms`が何件になるか（migrationのシード時点で5件か、それとも
+  6件のままで別途API操作が必要か）は未確認**。migrationファイル自体の内容を確認する
+  ところから着手する。
+- 優先度: P2相当（実害は軸一覧の孤立表示に留まり、ルート生成自体への影響は無いと
+  推測されるが未確認。本番反映という差し迫った作業と関連するため優先度は中程度）。
+  着手判断はユーザー承認後、別途行う。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構
