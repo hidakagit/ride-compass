@@ -8554,29 +8554,34 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
     未指定時は従来の`generate_loops`へ分岐。openrouteserviceエンジン
     （`get_route(waypoints)`は既に任意長対応済みだが今回未検証）で`waypoints`
     指定時は400を返すガードを追加。OpenAPI型を再生成しfrontend生成物へ反映。
-  - frontend: `MapView.tsx`の`handleClick`を、フィーチャーヒットの有無に関わらず
-    必ずポップアップを開く形へ変更し、既存の道路詳細ポップアップ（ヒット時のみ）の
-    末尾に新規`waypointPopup.ts`（`axisInspectorPopup.ts`と同じ構成）の
-    「この地点を経由地に追加」ボタンを常に付けた。空白地点クリックでもこのボタンが
-    出る。`waypointMarkersRef`で複数マーカーを管理（既存マーカーを全remove→
-    全作り直しの簡易実装、番号付き円形div、現在地マーカーとは別色）、マーカー
-    クリックで即削除。`page.tsx`にwaypoints state・ハンドラを追加し、
-    経由地が1件以上あればリクエストへ`waypoints`を含める。地図右上に件数+クリア
-    ボタンを表示。`RouteList.tsx`は`id==="route-waypoints"`のとき
-    「〜方向」を付けず`direction_label`（「経由地ルート」）をそのまま表示。
+  - frontend（初回実装、2026-08-27午前）: `MapView.tsx`の`handleClick`を、
+    フィーチャーヒットの有無に関わらず必ずポップアップを開き、末尾に新規
+    `waypointPopup.ts`の「この地点を経由地に追加」ボタンを常に付ける形にした。
+    `page.tsx`にwaypoints state・ハンドラを追加し、経由地が1件以上あればリクエストへ
+    `waypoints`を含める。地図右上に件数+クリアボタンを表示。`RouteList.tsx`は
+    `id==="route-waypoints"`のとき「〜方向」を付けず`direction_label`
+    （「経由地ルート」）をそのまま表示。
+  - **UX再設計（実機フィードバックを受け同日中に再実装）**: 実機（スマホ）で
+    動作確認したところ「よりシンプルで視覚的な表現がいい」との指摘を受け、
+    ポップアップ+テキストボタンの2段階操作を撤去。**地物の無い空白地点のクリックは
+    ポップアップを介さず即座に経由地ピンを追加する1段階の操作へ変更**した
+    （`handleClick`は`queryRenderedFeatures`が0件のとき`onWaypointAdd`を直接呼んで
+    `return`、地物ヒット時は従来どおり詳細ポップアップのみを表示し経由地追加の
+    UIは付けない）。この再設計に伴い`waypointPopup.ts`・`waypointPopup.test.ts`は
+    削除（ポップアップ経由のボタンという方式自体を廃止したため）。
+    `waypointMarkersRef`による複数マーカー管理（既存マーカーを全remove→
+    全作り直しの簡易実装、番号付き円形div、現在地マーカーとは別色）・
+    マーカークリックで即削除・件数+クリアボタン表示は変更なし。
   - テスト: backend側は`test_route_generator.py`に`generate_via_waypoints`の
     新規テスト4件、`test_road_graph_engine.py`に経由地チェーンのtrace_loop一般化
-    テスト・bbox分岐テスト・逆回りスキップの回帰テストなど8件を追加。frontend側は
-    `waypointPopup.test.ts`を新設（axisInspectorPopup.test.tsと同じ構成）。
+    テスト・bbox分岐テスト・逆回りスキップの回帰テストなど8件を追加。
     backend全体1308件中1306件成功（残り2件は本タスクと無関係な既存のローカルDB
-    環境依存の失敗、変更前から再現）、frontend全体688件成功、tsc/eslint共にクリーン。
-  - 実機確認: dev serverで地図の空白地点クリック→「経由地に追加」ボタン表示→
-    押下でボタンが「追加しました」に変わり地図右上に「経由地: 1件」+クリアボタンが
-    表示されることを確認した。ただしこのセッションのBrowserペインは画面に
-    表示されておらずcompositing（rAF駆動の描画）が働かない制約があり、
-    マーカーpin自体の画面上の見た目（マップキャンバス上の描画）は確認できていない
-    （既存の現在地マーカーも同じ理由で同環境では描画されないことを確認済みのため、
-    本タスクの新規回帰ではなく環境固有の制約と判断）。
+    環境依存の失敗、変更前から再現）、frontend全体688件成功、tsc/eslint共にクリーン
+    （再設計後も同数を維持: waypointPopup.test.ts 3件削除と入れ替わりで
+    増減なし）。
+  - 実機確認: dev serverをスマホから同一Wi-Fi経由で操作し、初回実装の
+    ポップアップ+ボタン方式を確認後、上記の再設計版（空白クリック即追加）へ
+    差し替えた。
 
 ---
 

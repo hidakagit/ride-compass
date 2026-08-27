@@ -23,10 +23,6 @@ import {
   attachAxisInspectorHandler,
 } from "@/components/Map/axisInspectorPopup";
 import {
-  buildWaypointAddAffordanceHtml,
-  attachWaypointAddHandler,
-} from "@/components/Map/waypointPopup";
-import {
   KNOWN_LINE_OPACITY,
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
@@ -2059,18 +2055,29 @@ export default function MapView({
     ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
-    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。改善計画T364:
-    // フィーチャーの有無にかかわらず必ずポップアップを開き、末尾に「経由地に追加」ボタンを
-    // 常に付ける（空白地点クリックでも経由地を追加できるようにするため）。
+    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。改善計画T364
+    // （実機フィードバックで再設計、2026-08-27）: 当初はフィーチャーの有無を問わず常に
+    // ポップアップ+ボタンを出す2段階の操作にしていたが、「よりシンプルで視覚的な表現が
+    // いい」という指摘を受け、地物が無い空白地点のクリックはポップアップを介さず
+    // 即座にピンを追加する1段階の操作へ変更した。地物（道路・ルート等）クリックは
+    // 従来どおり詳細ポップアップのみを表示する（経由地追加ボタンは付けない、
+    // この使い分け自体はT364着手時のユーザー指示のまま維持）。
     function handleClick(e: MapMouseEvent) {
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
-      const features = layers.length > 0 ? map.queryRenderedFeatures(e.point, { layers }) : [];
+      if (layers.length === 0) {
+        onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        return;
+      }
+      const features = map.queryRenderedFeatures(e.point, { layers });
+      if (features.length === 0) {
+        onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        return;
+      }
 
-      const feature = features[0] as (typeof features)[number] | undefined;
-      const roadSurfaceProperties = feature?.properties as unknown as RoadSurfacePopupProperties | undefined;
-      const detailHtml = !feature
-        ? ""
-        : feature.layer.id === DETAIL_LAYER_ID
+      const feature = features[0];
+      const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
+      const html =
+        feature.layer.id === DETAIL_LAYER_ID
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
           : feature.layer.id === ACCIDENT_LAYER_ID
             ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
@@ -2078,33 +2085,26 @@ export default function MapView({
               ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
               : feature.layer.id === SUPPLY_POI_LAYER_ID
                 ? buildSupplyPoiPopupHtml(feature.properties as unknown as SupplyPoiPopupProperties)
-                : buildRoadSurfacePopupHtml(roadSurfaceProperties!);
+                : buildRoadSurfacePopupHtml(roadSurfaceProperties);
 
       popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({ closeButton: true })
-        .setLngLat(e.lngLat)
-        .setHTML(detailHtml + buildWaypointAddAffordanceHtml())
-        .addTo(map);
-
-      const popupElement = popupRef.current.getElement();
-      if (popupElement) {
-        attachWaypointAddHandler(popupElement, () => {
-          onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
-        });
-      }
+      popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 
       // 区間インスペクタ（改善計画T146）はbuildRoadSurfacePopupHtml側でosm_way_idの
       // 有無だけを見て出しているため、配線側も同じ条件に揃える（道路以外のフィーチャーには
       // osm_way_id自体が無い）。改善計画T292: 車ストレス専用の内訳ボタン（旧
       // attachCarStressBreakdownHandler、レシピ上書き引数）は専用Pythonレシピの廃止に伴い
       // 削除し、この区間インスペクタ（全軸の内訳、車の圧迫感を含む）へ一本化した。
-      if (roadSurfaceProperties?.osm_way_id != null && popupElement) {
-        // 改善計画T320: axisLabelsはredrawPropsRef.current経由で読む（handleClickを
-        // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
-        // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
-        // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
-        // ままになってしまう）。
-        attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
+      if (roadSurfaceProperties.osm_way_id != null) {
+        const popupElement = popupRef.current.getElement();
+        if (popupElement) {
+          // 改善計画T320: axisLabelsはredrawPropsRef.current経由で読む（handleClickを
+          // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
+          // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
+          // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
+          // ままになってしまう）。
+          attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
+        }
       }
     }
 
