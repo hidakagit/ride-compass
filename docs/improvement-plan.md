@@ -8953,7 +8953,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [x] T374. chipRow/estimatedFlatRowをスクロール／ドラッグ廃止し、ページング送りボタン方式へ再設計 規模S（2026-08-27完了、実機検証未了）
+### - [x] T374. chipRow/estimatedFlatRowをスクロール／ドラッグ廃止し、ページング送りボタン方式へ再設計 規模S（2026-08-27完了、実機検証も完了）
 
 - 背景: T373のJSポインタドラッグ方式は、副作用として`handleChipRowScroll`（scroll
   イベントで`expandedIds`を全クリアする既存の潜在バグ）を露呈させ、「観測・動的
@@ -8978,6 +8978,43 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   はクリーン。ただし実行環境の著しい速度低下（ユーザー報告「重たすぎて動いていない」）
   によりdevサーバーでのブラウザ実機確認（実際のクリック操作・視覚確認）は未了のまま
   コミットしている。次回セッションで実機確認を行うこと。
+- 実機検証（2026-08-27追記）: 次回セッションでnpm installの上devサーバーを起動し、
+  Playwright（e2e/fixtures.tsと同じモック方針を移植した使い捨てスクリプト、
+  `frontend/node_modules`配下から`@playwright/test`のchromiumを起動）で複数のビューポート
+  （420×500・375×667=iPhone SE相当・667×375=横向き・390×844=iPhone 12・844×390=横向き）を
+  実際にクリック操作して検証した結果、2件の実装バグを発見・修正した（ユーザー自身も
+  並行してスマホ実機で「スマホでは動いていない」と報告、自動検証結果と一致）。
+  1. **▼「下を表示」がモバイルタブバーの裏に隠れる**: `.wrapper`はz-index 20で
+     `.mobileTabBar`（z-index 45、page.module.css）より意図して下に配置されているため、
+     `.chipRowViewport`の中身が伸びきると▼ボタンがタブバーの表示域まで達し、スタッキング上
+     完全に隠れて押せなくなっていた。`.chipRowViewport`側の`max-height: min(80vh, 42rem)`は
+     ビューポート全体基準の値で、`.wrapper`自身の実際の上端位置（ルート設定バー等、地図より
+     上に乗る要素の高さぶん`.mapPane`の上端からオフセットされている）を知らないため、
+     タブバー分を差し引いても位置がずれる。修正: モバイル幅（`max-width: 640px`）で
+     `.wrapper`に`bottom: calc(var(--space-3) + var(--mobile-tabbar-height))`を追加。
+     top/bottom両方指定＋height:autoの絶対配置要素は上端-下端間の距離がそのまま使用高さに
+     なる性質を使い、`.wrapper`の実際の高さをタブバー手前で頭打ちにした
+     （`.pageButton`はflex-shrink: 0で実寸維持、`.chipRowViewport`はoverflow: hiddenで
+     自動最小サイズ0のため既定のflex-shrinkで縮む）。`bottomControlRow`と同じ
+     `--mobile-tabbar-height`底上げパターン（既存のMapLibre帰属表示修正と同種の実績あり）。
+  2. **▶「右を表示」（推定グループの横ページ送り）がモバイルでそもそも発火しない/画面外へ
+     クリップされる**: `.headerLegendRow`（推定グループの見出し+◀+`.estimatedFlatRowViewport`
+     +▶を横並びにする箱）に`max-width`が無く、`align-self: flex-start`（cross軸stretchなし）
+     の下では`.chipRow`側の`max-width: 100%`クランプが伝播しなかった。結果、この箱自身が
+     軸タイル全部ぶんの自然幅（実測406px、380px幅の画面ですら406px）まで際限なく広がり、
+     内側の`.estimatedFlatRowViewport`の`max-width: 100%`が「広がりきった後のこの箱基準」で
+     解決されて実質無効化されていた（`clientWidth === scrollWidth`となりオーバーフロー自体が
+     検知されず、`usePagedOverflow`の`hasMore`が常にfalseでボタンが出ない。仮に出ても
+     `.chipRowViewport`のoverflow: hiddenで画面外へクリップされ押せない）。修正:
+     `.headerLegendRow`に`max-width: 100%; min-width: 0;`を追加し、`.wrapper`が持つ実際の
+     画面幅ぶんの上限をこの行まで確実に伝播させた（`.estimatedFlatRowViewport`に既にある
+     同じ組み合わせと揃える）。
+  修正後、上記5ビューポートで▲▼／◀▶ボタンの出現・実クリックでのtranslateY/X変化・
+  観測/推定グループの展開状態保持（`closeFloatingPanels`がGROUP_VISIBILITY_KEYSを保持する
+  設計どおり）・凡例パネルを開いたままページ送りしても凡例だけ閉じグループは展開維持、を
+  すべて確認した。iPhone 12相当（390×844）では観測グループ8件が80vh上限に収まりそもそも
+  オーバーフローせず▼ボタン自体が出ない（意図どおり）。回帰確認としてtsc・eslint・
+  vitest（フロントエンド全691件）もクリーン。
 
 ---
 

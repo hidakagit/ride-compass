@@ -24,6 +24,28 @@
   max-width: calc(100% - 2 * var(--space-3) - 3rem);
 }
 
+/* 改善計画T374フォローアップ（実機確認、ユーザー報告「スマホでは動いていない」）:
+   .wrapperはz-index 20でモバイルの.mobileTabBar（z-index 45、画面下部固定、下記
+   .mobileTabBarのコメント参照）より意図して下に配置されているため、.chipRowViewportの
+   中身が伸びきると「下を表示」ボタンがタブバーの表示域まで達し、スタッキング上タブバー
+   配下に完全に隠れて押せなくなっていた（Playwright実機確認で発覚）。.chipRowViewport側の
+   max-height: min(80vh, 42rem)は「.wrapperの上端からの距離」ではなくビューポート全体を
+   基準にした値で、.wrapper自身の実際の上端位置（ルート設定バー等、地図より上に乗る要素の
+   高さぶん.mapPaneの上端から追加でオフセットされている）を知らないため、タブバーぶんの
+   余白を差し引いても位置がずれる。widthのmax-widthと違い、heightは「top起点で際限なく
+   伸びる」defaultのままでは`.chipRowViewport`側だけでは解決できないため、モバイル幅では
+   .wrapper自体にbottomも与えて上端-下端間の距離を確定させる（top/bottom両方指定＋
+   height:autoの絶対配置要素は、その距離がそのまま使用高さになる）。これにより.wrapperの
+   実際の高さがタブバー手前で頭打ちになり、flexboxの既定の縮小（.chipRowViewportは
+   flex-shrink未指定=1・overflow: hiddenで自動最小サイズ0のため縮められる、.pageButtonは
+   flex-shrink: 0で常に実寸を保つ）が効いて、はみ出す前提の▲▼ボタン自身は必ずこの範囲内に
+   収まる。bottomControlRow（page.module.css）と同じ`--mobile-tabbar-height`底上げパターン。 */
+@media (max-width: 640px) {
+  .wrapper {
+    bottom: calc(var(--space-3) + var(--mobile-tabbar-height));
+  }
+}
+
 /* .wrapperのpointer-events: noneは、ここより下のchipRow/iconWithToggleにも継承される
    （pointer-eventsは継承プロパティ）。以前は.wrapper > *（=chipRow）だけに
    pointer-events: autoを戻していたが、それだとchipRow全体（行間のgap、チップの無い
@@ -96,12 +118,24 @@
    `${group.key}:row`）を保ち、このクラス（折りたたみ時）と.estimatedFlatRow/
    .observedExpandedColumn（展開時）を出し分けるだけにしている。ラッパーdivを別物に
    差し替えるとheader（ChipButton）がその瞬間にアンマウント/再マウントされ、フォーカスや
-   aria状態が失われるため。align-selfは.chipRowItemと同じ理由でflex-startに戻す。 */
+   aria状態が失われるため。align-selfは.chipRowItemと同じ理由でflex-startに戻す。
+   改善計画T374フォローアップ（実機確認、ユーザー報告「スマホでは動いていない」）:
+   推定グループ展開時はこのdivがheader+◀+.estimatedFlatRowViewport+▶を1行に収める箱にも
+   なるが、align-self: flex-start（=cross軸のstretchをしない）の下ではmax-widthが無いと
+   .chipRow側のmax-width: 100%クランプが効かず、このdiv自身が中身（軸タイル全部ぶん）の
+   自然幅まで際限なく広がってしまう。結果、.estimatedFlatRowViewportのmax-width: 100%が
+   広がりきった後のこのdiv基準で解決されるため実質無効化され、ResizeObserverが
+   はみ出しを検知できず◀▶ページ送りボタン自体が発火しない、または発火しても
+   chipRowViewportのoverflow: hiddenで画面外へクリップされ押せない、という不具合になって
+   いた（Playwright実機確認で発覚）。max-width: 100%（＋子を縮められるようmin-width: 0）を
+   ここに置き、.wrapperが持つ実際の画面幅ぶんの上限を確実にこの行まで伝播させる。 */
 .headerLegendRow {
   display: flex;
   align-items: flex-start;
   gap: var(--space-1);
   align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* 観測グループ展開時、見出しとメンバータイルを縦に積むラッパー（上の.headerLegendRowと
