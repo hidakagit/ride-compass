@@ -76,13 +76,20 @@
      （マウスホイール・タッチスワイプ・キーボード操作でのスクロールは引き続き機能する）。 */
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* 旧Edge/IE */
-  /* ユーザー報告（2026-08-27）「縦横スクロール自体できない」への対応。この箱は地図
-     （MapLibre GL、キャンバス自体はtouch-action: noneでジェスチャーを自前処理する）の
-     上に重なるオーバーレイのため、touch-actionを明示しないと、タッチ開始点がここでも
-     ブラウザがどちらの要素（このオーバーレイの縦スクロール／下の地図のパン・ズーム）へ
-     ジェスチャーを渡すべきか曖昧になりうる。pan-yを明示し「縦方向のみこの要素自身が
-     処理する」とブラウザへ伝える（横方向の2本指ピンチ等は地図へ素通しされたまま）。 */
-  touch-action: pan-y;
+  /* 改善計画T371フォローアップ（ユーザー報告「スクロールは相変わらずできない」
+     「アイコンの上に指でスクロールするのはできないの？」、2026-08-27）: touch-action:
+     pan-yだけでは解決しなかった。中の.iconChip等がタッチ開始点になった場合、そちら自身の
+     touch-action: none（地図とのピンチズーム競合対策、既存）がタッチジェスチャーの制限として
+     優先され、祖先のpan-yは効かない。代わりにMapOverlayControls.tsx: useDragScrollで
+     pointerイベントを自前で拾いscrollTopへ反映する方式へ切り替えたため、ここでも
+     ブラウザのネイティブなタッチジェスチャー処理を全面的に無効化し、JS側のスクロールと
+     二重に効かないようにする（マウスホイールでの縦スクロールはtouch-actionの対象外のため
+     引き続きネイティブに機能する）。overscroll-behaviorはスクロール端まで到達した際に
+     ページ自体のスクロール/引っ張って更新（pull-to-refresh）へ伝播しないようにする
+     （ユーザー報告「スマホだと縦スクロールしようとしてページ再読込を誤動作してしまう」
+     への対応）。 */
+  touch-action: none;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -578,12 +585,14 @@
      出る等は避けたい」）でスクロールバーの描画だけ消す。 */
   scrollbar-width: none;
   -ms-overflow-style: none;
-  /* .chipRowと同じ理由（ユーザー報告「縦横スクロール自体できない」）。この行はaxis:*の
-     タイル（ChipButton、.iconChip/.expandToggleにも個別のpointer-events: autoがある）を
-     横一列に並べたもので、タイルとタイルの間の隙間・行自体の余白は.wrapperから継承した
-     pointer-events: noneのままの可能性があるため、横方向のタッチジェスチャーをこの行
-     自身が処理するとブラウザへ明示する。 */
-  touch-action: pan-x;
+  /* .chipRowと同じ理由（ユーザー報告「アイコンの上に指でスクロールするのはできないの？」）。
+     中の.iconChip等自身がtouch-action: noneを持つため、この行のtouch-actionだけを
+     pan-xにしても効かない。MapOverlayControls.tsx: useDragScrollのpointerイベントで
+     scrollLeftを自前管理する方式へ切り替え、ここもtouch-action: noneでブラウザの
+     ネイティブなタッチジェスチャー処理を無効化する（マウスホイールでの横スクロールは
+     対象外のまま機能する）。overscroll-behaviorは.chipRowと同じ理由。 */
+  touch-action: none;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
