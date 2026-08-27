@@ -1297,6 +1297,26 @@ async def test_generate_via_waypoints_visits_multiple_interior_waypoints_in_orde
     assert candidates[0].distance_km == pytest.approx(expected_km, abs=0.01)
 
 
+async def test_generate_via_waypoints_with_destination_ends_at_destination_not_origin():
+    # 改善計画T365: destination指定時は終点が起点に戻らない片道ルートになる。
+    point_a = destination_point(ORIGIN, 90, 1.0)
+    destination = destination_point(ORIGIN, 180, 1.0)
+    graph = _chain_graph(ORIGIN, [point_a, destination])
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[point_a], distance_km=4.0, destination=destination
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].id == "route-destination"
+    assert candidates[0].direction_label == "目的地ルート"
+    # 起点への復路（destination→o、e2-*）は通らないはず。o→p0（e0）+p0→destination（e1）
+    # の2区間ぶんの距離だけになる。
+    expected_km = round((graph.edges["e0-fwd"].distance_m + graph.edges["e1-fwd"].distance_m) / 1000, 2)
+    assert candidates[0].distance_km == pytest.approx(expected_km, abs=0.01)
+
+
 async def test_generate_via_waypoints_returns_empty_when_a_waypoint_cannot_be_snapped():
     point_a = destination_point(ORIGIN, 90, 1.0)
     unreachable = destination_point(ORIGIN, 90, 50.0)  # bboxからも大きく外れる孤立地点

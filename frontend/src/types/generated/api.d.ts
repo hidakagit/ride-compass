@@ -834,6 +834,7 @@ export interface components {
             hard_filters: components["schemas"]["HardFilterOverride"];
             /** Waypoints */
             waypoints: components["schemas"]["Coordinates"][] | null;
+            destination: components["schemas"]["Coordinates"] | null;
             /** Generated At */
             generated_at: string;
         };
@@ -1026,6 +1027,7 @@ export interface components {
             hard_filters?: components["schemas"]["HardFilterOverride"] | null;
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
+            destination?: components["schemas"]["Coordinates"] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

@@ -160,6 +160,24 @@
   border-color: transparent;
 }
 
+/* 改善計画T365: 生成済みルートのクリア。refreshButtonと同じ控えめなテキストリンク見た目
+   （地図データ再読み込みと同種の「たまに使う運用ボタン」）。 */
+.clearRoutesButton {
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  background: transparent;
+  border: none;
+  padding: 0.3rem 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.clearRoutesButton:hover {
+  color: var(--foreground);
+}
+
 .mapPane {
   flex: 1;
   position: relative;

@@ -1664,6 +1664,15 @@ interface MapViewProps {
   onWaypointAdd: (coordinates: Coordinates) => void;
   /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
   onWaypointRemove: (index: number) => void;
+  /** 改善計画T365: 目的地（最大1点、指定時は起点に戻らず目的地で終わる片道ルートになる）。 */
+  destination: Coordinates | null;
+  /** trueの間は次の1タップだけ、地物ヒット判定を迂回して目的地を置く
+   * （page.tsxの「目的地を設定」ボタン押下でtrueになり、配置後は自動的にfalseへ戻る）。 */
+  destinationArmed: boolean;
+  /** 目的地を置く1タップで呼ばれる。 */
+  onDestinationSet: (coordinates: Coordinates) => void;
+  /** 目的地マーカークリックで呼ばれる（解除）。 */
+  onDestinationClear: () => void;
 }
 
 export default function MapView({
@@ -1697,11 +1706,16 @@ export default function MapView({
   waypoints,
   onWaypointAdd,
   onWaypointRemove,
+  destination,
+  destinationArmed,
+  onDestinationSet,
+  onDestinationClear,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const waypointMarkersRef = useRef<Marker[]>([]);
+  const destinationMarkerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   // 改善計画T308: 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
@@ -1743,6 +1757,10 @@ export default function MapView({
   // 最新のonWaypointAddを読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
   const onWaypointAddRef = useRef(onWaypointAdd);
   const onWaypointRemoveRef = useRef(onWaypointRemove);
+  // 改善計画T365: 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
+  const onDestinationSetRef = useRef(onDestinationSet);
+  const onDestinationClearRef = useRef(onDestinationClear);
+  const destinationArmedRef = useRef(destinationArmed);
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -1792,6 +1810,18 @@ export default function MapView({
   useEffect(() => {
     onWaypointRemoveRef.current = onWaypointRemove;
   }, [onWaypointRemove]);
+
+  useEffect(() => {
+    onDestinationSetRef.current = onDestinationSet;
+  }, [onDestinationSet]);
+
+  useEffect(() => {
+    onDestinationClearRef.current = onDestinationClear;
+  }, [onDestinationClear]);
+
+  useEffect(() => {
+    destinationArmedRef.current = destinationArmed;
+  }, [destinationArmed]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -2061,8 +2091,14 @@ export default function MapView({
     // いい」という指摘を受け、地物が無い空白地点のクリックはポップアップを介さず
     // 即座にピンを追加する1段階の操作へ変更した。地物（道路・ルート等）クリックは
     // 従来どおり詳細ポップアップのみを表示する（経由地追加ボタンは付けない、
-    // この使い分け自体はT364着手時のユーザー指示のまま維持）。
+    // この使い分け自体はT364着手時のユーザー指示のまま維持）。改善計画T365:
+    // 「目的地を設定」ボタンで武装した直後の1タップだけは、地物ヒット判定を
+    // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。
     function handleClick(e: MapMouseEvent) {
+      if (destinationArmedRef.current) {
+        onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        return;
+      }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
@@ -2277,6 +2313,7 @@ export default function MapView({
       markerRef.current = null;
       popupRef.current = null;
       waypointMarkersRef.current = [];
+      destinationMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2330,6 +2367,32 @@ export default function MapView({
 
     runWhenStyleReady(map, applyWaypointMarkers);
   }, [waypoints]);
+
+  // 改善計画T365: 目的地マーカーを更新（最大1点）。経由地の番号付き円とは見た目を変え、
+  // 「終点」であることが一目で分かる旗アイコン(絵文字)にする。クリックで解除。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const applyDestinationMarker = () => {
+      destinationMarkerRef.current?.remove();
+      destinationMarkerRef.current = null;
+      if (!destination) return;
+
+      const el = document.createElement("div");
+      el.textContent = "🏁";
+      el.style.cssText = "font-size:28px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));";
+      el.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onDestinationClearRef.current();
+      });
+      destinationMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" })
+        .setLngLat([destination.longitude, destination.latitude])
+        .addTo(map);
+    };
+
+    runWhenStyleReady(map, applyDestinationMarker);
+  }, [destination]);
 
   // ルート候補のベース表示を更新（選択状態が変わったら選択色にも反映する）
   useEffect(() => {

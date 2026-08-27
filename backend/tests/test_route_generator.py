@@ -257,3 +257,43 @@ async def test_generate_via_waypoints_does_not_call_route_scorer():
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 
     assert candidates[0].total_score is None
+
+
+DESTINATION = Coordinates(latitude=35.90, longitude=139.80)
+
+
+async def test_generate_via_waypoints_with_destination_ends_at_destination_not_origin():
+    generator, engine = make_generator({None: 20.0})
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0, destination=DESTINATION
+    )
+
+    # 改善計画T365: 終点は起点ではなく指定した目的地になる（末尾に起点を足し戻さない）。
+    assert engine.traced_waypoints[None] == [ORIGIN, WAYPOINT_A, DESTINATION]
+    # bboxがdestinationも覆うよう、prepareへ渡す点集合にdestinationを含める。
+    assert engine.prepare_waypoints == [WAYPOINT_A, DESTINATION]
+    assert len(candidates) == 1
+    assert candidates[0].id == "route-destination"
+    assert candidates[0].direction_label == "目的地ルート"
+
+
+async def test_generate_via_waypoints_destination_only_without_intermediate_waypoints():
+    generator, engine = make_generator({None: 20.0})
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION
+    )
+
+    assert engine.traced_waypoints[None] == [ORIGIN, DESTINATION]
+    assert len(candidates) == 1
+    assert candidates[0].id == "route-destination"
+
+
+async def test_generate_via_waypoints_without_destination_still_loops_back_to_origin():
+    generator, engine = make_generator({None: 12.0})
+
+    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert engine.traced_waypoints[None][-1] == ORIGIN
+    assert candidates[0].id == "route-waypoints"

@@ -221,6 +221,7 @@ function makeConditions(overrides: Partial<GenerationConditions> = {}): Generati
     max_average_grade_percent: null,
     hard_filters: { no_bicycle: true, motorway: true, trunk: true },
     waypoints: null,
+    destination: null,
     generated_at: "2026-08-25T12:00:00+09:00",
     ...overrides,
   };
@@ -380,6 +381,33 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 候補0件はエラー表示であって例外ではないため、次に条件を変えて再試行できるよう
     // loading状態も解除されている（ボタンが再び押せる）ことを合わせて確認する。
     expect(screen.getByRole("button", { name: "ルート生成" })).not.toBeDisabled();
+  });
+
+  it("改善計画T365: 「ルートをクリア」ボタンで生成済みの候補一覧をリセットできる", async () => {
+    // RouteList自体はこのファイル全体でモック済み（21行目のvi.mock、内容表示は
+    // RouteList.test.tsxが別途検証済み）のため、ここではpage.tsx側の状態
+    // （routes.length > 0で出す「ルートをクリア」ボタン自体の表示/非表示）で
+    // handleRoutesClearの配線を検証する。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    expect(screen.queryByRole("button", { name: "ルートをクリア" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "ルートをクリア" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+
+    expect(screen.queryByRole("button", { name: "ルートをクリア" })).not.toBeInTheDocument();
   });
 
   it("生成中に例外が投げられたとき、そのメッセージをエラー表示する", async () => {

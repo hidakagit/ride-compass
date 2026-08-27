@@ -14,6 +14,9 @@ interface RouteListProps {
 // このファイルを直接編集する必要が無い。
 const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => axis.label).join("・")}を重み付けして算出[この一覧内での相対評価]`;
 
+// 改善計画T364/T365: 8方位以外の単一経路（経由地ルート・目的地ルート）のid集合。
+const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
+
 export default function RouteList({ routes, selectedRouteId, onSelect }: RouteListProps) {
   if (routes.length === 0) return null;
 
@@ -38,11 +41,12 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
                 {route.total_score != null && (
                   <strong>おすすめ度 {Math.round(route.total_score)}点 / </strong>
                 )}
-                {/* 改善計画T364: 経由地ルート(id==="route-waypoints")は候補が常に1件で
-                    「方位」という概念が無いため、direction_label（「経由地ルート」固定文言、
-                    candidate_identity参照）をそのまま表示し「〜方向」は付けない。 */}
-                {route.id === "route-waypoints" ? route.direction_label : `${route.direction_label}方向`} —{" "}
-                {route.distance_km.toFixed(1)} km
+                {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
+                    (route-destination)は候補が常に1件で「方位」という概念が無いため、
+                    direction_label（固定文言、route_generator.py参照）をそのまま表示し
+                    「〜方向」は付けない。 */}
+                {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
+                — {route.distance_km.toFixed(1)} km
                 {route.elevation_gain_m != null && ` / 獲得標高 ${Math.round(route.elevation_gain_m)} m`}
                 {route.wind_score != null &&
                   ` / ${route.wind_score >= 0 ? "向かい風" : "追い風"} ${Math.abs(route.wind_score).toFixed(1)} m/s`}

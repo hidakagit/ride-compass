@@ -363,18 +363,30 @@ class RoadGraphEngine:
     async def trace_loop(
         self, context: _RoadGraphContext, waypoints: list[Coordinates], bearing: int | None
     ) -> TracedLoop:
-        # waypoints = [起点, 中間経由地..., 起点]（8方位探索ではRouteGenerator._loop_waypoints
-        # が経由地2点の固定三角形を、改善計画T364の経由地指定ルートではユーザー指定の
-        # 中間経由地1〜N点を渡す）。起点は最近接NodeをprepareでスナップしたNodeを使い、
-        # 中間経由地はここでスナップする（改善計画T219: prepareで構築済みの索引を使い回す、
-        # 都度線形探索しない）。
+        # waypoints = [起点, 中間経由地..., 終点]（8方位探索ではRouteGenerator._loop_waypoints
+        # が経由地2点の固定三角形＋終点=起点を、改善計画T364の経由地指定ルートでは
+        # ユーザー指定の中間経由地1〜N点＋終点=起点を、改善計画T365の目的地指定ルートでは
+        # さらに終点=目的地（起点と異なる座標）を渡す）。起点は最近接Nodeをprepareでスナップ
+        # したNodeを使い、中間経由地はここでスナップする（改善計画T219: prepareで構築済みの
+        # 索引を使い回す、都度線形探索しない）。
         interior_nodes = []
         for point in waypoints[1:-1]:
             node = find_nearest_node_indexed(context.node_index, point)
             if node is None:
                 raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
             interior_nodes.append(node)
-        node_sequence = [context.origin_node, *interior_nodes, context.origin_node]
+        # 改善計画T365: 終点が起点と同一座標（周回、T364までの唯一の形）ならprepareで
+        # 特別扱い済みのcontext.origin_nodeをそのまま再利用する（起終点を同じNodeに
+        # 揃えないと周回が閉じない）。終点が起点と異なる座標（目的地ルート）の場合のみ
+        # find_nearest_node_indexedで独立にスナップする。
+        end_point = waypoints[-1]
+        if end_point.latitude == waypoints[0].latitude and end_point.longitude == waypoints[0].longitude:
+            end_node = context.origin_node
+        else:
+            end_node = find_nearest_node_indexed(context.node_index, end_point)
+            if end_node is None:
+                raise RoutingError(f"direction {bearing}: could not snap destination to road graph")
+        node_sequence = [context.origin_node, *interior_nodes, end_node]
 
         # 改善計画T220（T12 Stage 2）: Dijkstra本体はNetworkX（Python実装）ではなく
         # scipy.sparse.csgraph（C実装）で行う（1リクエストにつき最大24回、実測で

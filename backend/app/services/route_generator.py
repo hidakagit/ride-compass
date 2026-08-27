@@ -199,25 +199,33 @@ class RouteGenerator:
         origin: Coordinates,
         waypoints: list[Coordinates],
         distance_km: float,
+        destination: Coordinates | None = None,
     ) -> list[RouteCandidate]:
-        """改善計画T364: ユーザーが指定した経由地（中継地）を順に通る単一経路を生成する。
+        """改善計画T364/T365: ユーザーが指定した経由地（中継地）を順に通る単一経路を生成する。
 
         `generate_loops`の8方位探索・距離許容フィルタとは独立した経路（経由地が
         あれば、目的は「近い距離の周回」ではなく「指定した地点を通ること」自体のため）。
         `distance_km`はRoad Graph取得bboxの見積り半径にのみ使う参考値で、実際の距離は
-        経由地の配置で決まる（距離フィルタは行わない）。
+        経由地の配置で決まる（距離フィルタは行わない）。`destination`省略時は起点に
+        戻る周回（従来のT364挙動）、指定時は起点に戻らず目的地で終わる片道ルートになる
+        （T365、`candidate_identity`とは別に終点到達後にid/direction_labelを
+        route-destination/目的地ルートへ上書きする）。
         """
         radius_km = distance_km * RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        full_waypoints = [origin, *waypoints, origin]
+        end_point = destination if destination is not None else origin
+        full_waypoints = [origin, *waypoints, end_point]
+        # 改善計画T365: bboxが目的地もカバーするよう、prepareへ渡す点集合に含める
+        # （経由地のみのbbox計算は`_bbox_covering_points`、road_graph_engine.py参照）。
+        bbox_points = [*waypoints, destination] if destination is not None else waypoints
 
-        context = await self._engine.prepare(origin, radius_km, waypoints=waypoints)
+        context = await self._engine.prepare(origin, radius_km, waypoints=bbox_points)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
             logger.warning(
-                "generate(via_waypoints) engine=%s origin=%s waypoints=%d -> no context prepare_ms=%d",
-                self.engine_name, origin_label, len(waypoints), prepare_ms,
+                "generate(via_waypoints) engine=%s origin=%s waypoints=%d destination=%s -> no context prepare_ms=%d",
+                self.engine_name, origin_label, len(waypoints), destination is not None, prepare_ms,
             )
             return []
 
@@ -226,8 +234,8 @@ class RouteGenerator:
             traced = await self._engine.trace_loop(context, full_waypoints, bearing=None)
         except RoutingError as exc:
             logger.warning(
-                "generate(via_waypoints) engine=%s origin=%s waypoints=%d -> trace failed: %s",
-                self.engine_name, origin_label, len(waypoints), exc,
+                "generate(via_waypoints) engine=%s origin=%s waypoints=%d destination=%s -> trace failed: %s",
+                self.engine_name, origin_label, len(waypoints), destination is not None, exc,
             )
             return []
         trace_ms = round((time.monotonic() - trace_started) * 1000)
@@ -236,6 +244,11 @@ class RouteGenerator:
         start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, [traced], start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
+        if destination is not None:
+            candidates = [
+                c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
+                for c in candidates
+            ]
         # 改善計画T364: 候補は常に1件のため、RouteScorer（候補集合内でのmin-max正規化）は
         # 呼ばない。domain/scoring.py: normalize_min_maxはlo==hiのとき常に中立100点を返す
         # ため、候補1件に対して呼ぶと「常に満点」という誤解を招く数値になってしまう。
@@ -245,9 +258,9 @@ class RouteGenerator:
         total_ms = round((time.monotonic() - started) * 1000)
 
         logger.info(
-            "generate(via_waypoints) engine=%s origin=%s waypoints=%d target_km=%.1f -> distance_km=%.1f "
+            "generate(via_waypoints) engine=%s origin=%s waypoints=%d destination=%s target_km=%.1f -> distance_km=%.1f "
             "prepare_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
-            self.engine_name, origin_label, len(waypoints), distance_km, traced.distance_km,
+            self.engine_name, origin_label, len(waypoints), destination is not None, distance_km, traced.distance_km,
             prepare_ms, trace_ms, evaluate_ms, total_ms,
         )
         return candidates

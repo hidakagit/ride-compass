@@ -1875,6 +1875,16 @@
             ],
             "title": "Waypoints"
           },
+          "destination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Coordinates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "generated_at": {
             "type": "string",
             "title": "Generated At"
@@ -1892,6 +1902,7 @@
           "max_average_grade_percent",
           "hard_filters",
           "waypoints",
+          "destination",
           "generated_at"
         ],
         "title": "GenerationConditions",
@@ -2345,6 +2356,16 @@
               }
             ],
             "title": "Waypoints"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Coordinates"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

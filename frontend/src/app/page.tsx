@@ -258,6 +258,18 @@ export default function Home() {
   }, []);
   const handleWaypointsClear = useCallback(() => setWaypoints([]), []);
 
+  // 改善計画T365: 目的地（最大1点）。指定時は起点に戻らず目的地で終わる片道ルートになる
+  // （handleGenerate参照）。destinationArmedは「目的地を設定」ボタン押下から次の1タップ
+  // までの間だけtrueになり、地図クリックが目的地配置として扱われる（MapView.tsx参照）。
+  const [destination, setDestination] = useState<Coordinates | null>(null);
+  const [destinationArmed, setDestinationArmed] = useState(false);
+  const handleDestinationArm = useCallback(() => setDestinationArmed(true), []);
+  const handleDestinationSet = useCallback((point: Coordinates) => {
+    setDestination(point);
+    setDestinationArmed(false);
+  }, []);
+  const handleDestinationClear = useCallback(() => setDestination(null), []);
+
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
   // 出すため（生成条件系の反映タイミング可視化、T31）。
@@ -270,6 +282,14 @@ export default function Home() {
     distanceKm: number;
     weightsKey: string;
   } | null>(null);
+
+  // 改善計画T365: 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。
+  // 経由地・目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。
+  const handleRoutesClear = useCallback(() => {
+    setRoutes([]);
+    setSelectedRouteId(null);
+    setGeneratedConditions(null);
+  }, []);
 
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
   // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
@@ -1272,6 +1292,9 @@ export default function Home() {
         // 改善計画T364: 経由地が1件以上あれば8方位探索ではなく単一経路生成へ切り替える
         // （backend側の分岐はapi/routers/routes.py参照）。
         ...(waypoints.length > 0 ? { waypoints } : {}),
+        // 改善計画T365: 目的地指定時は起点に戻らず目的地で終わる片道ルートになる
+        // （destinationだけでもwaypointsが空でも単一経路生成へ切り替わる、routes.py参照）。
+        ...(destination ? { destination } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -1377,6 +1400,13 @@ export default function Home() {
           <p className={styles.emptyHint}>
             距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます
           </p>
+        )}
+        {/* 改善計画T365: 生成済みの候補一覧・地図描画・選択状態だけをリセットする
+            （経由地・目的地のピンは対象外、別々のクリア操作として使い分ける）。 */}
+        {routes.length > 0 && (
+          <button type="button" className={styles.clearRoutesButton} onClick={handleRoutesClear}>
+            ルートをクリア
+          </button>
         )}
         <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
         {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
@@ -1646,18 +1676,38 @@ export default function Home() {
             waypoints={waypoints}
             onWaypointAdd={handleWaypointAdd}
             onWaypointRemove={handleWaypointRemove}
+            destination={destination}
+            destinationArmed={destinationArmed}
+            onDestinationSet={handleDestinationSet}
+            onDestinationClear={handleDestinationClear}
           />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />
 
-          {waypoints.length > 0 && (
-            <div className={styles.waypointControl}>
-              経由地: {waypoints.length}件
-              <button type="button" onClick={handleWaypointsClear}>
-                クリア
+          <div className={styles.waypointControl}>
+            {waypoints.length > 0 && (
+              <span>
+                経由地: {waypoints.length}件
+                <button type="button" onClick={handleWaypointsClear}>
+                  クリア
+                </button>
+              </span>
+            )}
+            {destinationArmed ? (
+              <span>地図をタップして目的地を指定</span>
+            ) : destination ? (
+              <span>
+                🏁目的地: 設定済み
+                <button type="button" onClick={handleDestinationClear}>
+                  解除
+                </button>
+              </span>
+            ) : (
+              <button type="button" onClick={handleDestinationArm}>
+                🏁目的地を設定
               </button>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+

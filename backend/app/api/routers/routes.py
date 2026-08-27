@@ -166,15 +166,19 @@ class RouteGenerateRequest(BaseModel):
     # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
     # 成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
+    # 改善計画T365: 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの
+    # 場合は従来通り起点で終わる周回）。waypoints同様road_graphエンジンのみ対応。
+    destination: Coordinates | None = None
 
     @model_validator(mode="after")
     def _check_waypoints_within_range(self) -> "RouteGenerateRequest":
-        if not self.waypoints:
+        points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
+        if not points:
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
-        for point in self.waypoints:
+        for point in points:
             if haversine_distance_km(origin, point) > self.distance_km:
-                raise ValueError("waypoints must be within distance_km of the origin")
+                raise ValueError("waypoints/destination must be within distance_km of the origin")
         return self
 
 
@@ -200,6 +204,8 @@ class GenerationConditions(BaseModel):
     hard_filters: HardFilterOverride
     # 改善計画T364: 指定された経由地（未指定はNone、従来どおりの8方位探索）。
     waypoints: list[Coordinates] | None
+    # 改善計画T365: 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
+    destination: Coordinates | None
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -245,20 +251,22 @@ async def generate_routes(
         request.max_average_grade_percent,
         hard_filters_override,
     )
-    # 改善計画T364: 経由地指定はroad_graphエンジンのみ対応（openrouteservice_engine.pyは
-    # get_route(waypoints)の任意長リスト対応自体はあるが、今回未検証のため明示的に拒否する）。
-    if request.waypoints and setup.generator.engine_name != "road_graph":
+    # 改善計画T364/T365: 経由地・目的地指定はroad_graphエンジンのみ対応
+    # （openrouteservice_engine.pyはget_route(waypoints)の任意長リスト対応自体は
+    # あるが、今回未検証のため明示的に拒否する）。
+    if (request.waypoints or request.destination) and setup.generator.engine_name != "road_graph":
         raise HTTPException(
-            status_code=400, detail="waypointsはroad_graphエンジンでのみ利用できます。"
+            status_code=400, detail="waypoints/destinationはroad_graphエンジンでのみ利用できます。"
         )
 
     async with _generate_semaphore:
         origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
-        if request.waypoints:
+        if request.waypoints or request.destination:
             candidates = await setup.generator.generate_via_waypoints(
                 origin=origin,
-                waypoints=request.waypoints,
+                waypoints=request.waypoints or [],
                 distance_km=request.distance_km,
+                destination=request.destination,
             )
         else:
             candidates = await setup.generator.generate_loops(
@@ -280,6 +288,7 @@ async def generate_routes(
             max_average_grade_percent=setup.max_average_grade_percent,
             hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
             waypoints=request.waypoints,
+            destination=request.destination,
             generated_at=datetime.now(JST).isoformat(),
         ),
     )
