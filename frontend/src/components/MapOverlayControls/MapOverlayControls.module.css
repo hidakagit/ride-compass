@@ -647,6 +647,17 @@
   cursor: pointer;
   touch-action: none;
   pointer-events: auto;
+  /* 改善計画T381（ユーザー指摘「長押しすると、コピーを効かれるのが微妙に嫌」）:
+     長押し連続送り（useHoldRepeat）を追加したことで、ボタンの中身（▲▼◀▶の文字
+     グリフ）を長押しする機会が増え、iOS Safari等の「長押しでテキスト選択・コピー
+     メニューを出す」既定のコールアウトが誘発されるようになった。touch-action: none
+     はスクロール/ズーム等のジェスチャーだけを制御する仕様で、この種のテキスト選択
+     コールアウトは対象外のため別途抑止が必要（DynamicLayerTimeSlider.module.cssの
+     ドラッグハンドルと同じ理由でuser-select: noneを使う定番パターン）。
+     -webkit-touch-callout: noneはiOS Safari固有の長押しコールアウト（コピー・
+     共有等のメニュー）自体を止める。 */
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .pageButton:hover {
