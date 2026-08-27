@@ -8675,7 +8675,37 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   が、ここでコミットした初期スナップショット（migrationのシード内容と同一）から
   既に乖離している場合（API経由の追加チューニングが入っている場合）は、ユーザーの
   判断で`dump_axis_definitions_snapshot.py`を本番/devへ向けて実行し、生成された
-  差分を確認のうえコミットし直すこと。
+  差分を確認のうえコミットし直すこと（残作業はT377として起票）。
+
+---
+
+### - [ ] T377. axis_definitionsスナップショットを本番/devの実際の内容へ再生成する 規模S（未着手・トリガー: ユーザーによる本番/dev DB接続確認後）
+
+- 背景: T361で`backend/fixtures/axis_definitions_snapshot.json`を新設したが、この
+  セッションからは本番/dev DBへ接続できないため、初期内容はローカルのまっさらな
+  DBへ全migration（0001〜0022）を適用した結果（13軸）をそのままダンプしたものに
+  留まっている。T353以降、本番/devの実際の`axis_definitions`がaxis_admin API経由の
+  チューニングでこの初期スナップショットから既に乖離している可能性がある
+  （具体的にどの軸がどう変わっているかはこのセッションからは確認できていない）。
+- 影響範囲（保留し続けた場合、何がブロックされるか）: 実害が顕在化するのは
+  「本番/devのaxis_definitionsが空になり、かつfresh bootstrapツール
+  （`scripts/bootstrap_fresh_db.py`）で復元する」場面（新規environment構築・disaster
+  recovery）に限られる——通常運用（既存DBへのデプロイ・バッチ実行）ではこの
+  スナップショットは一切参照されない設計（T361のモジュールdocstring参照）ため、
+  今すぐ何かが壊れているわけではない。ただし、そのタイミングが実際に来たとき、
+  スナップショットが古いままだと「T353以降に本番で積んだチューニングが、まさに
+  disaster recoveryで復旧すべき瞬間に失われる」という、最も困るタイミングで顕在化する
+  問題になる。また今回のT361自体が「migrationとスナップショットの内容がAPI操作で
+  静かに乖離し続ける」ことへの対応だったため、このスナップショット自体を長期間
+  更新しないまま放置すると同種の乖離が再発する。
+- 対応方針: ユーザー（またはDB接続権限を持つ別セッション）が本番/dev DBへ
+  `DATABASE_URL`を向けて`backend/scripts/dump_axis_definitions_snapshot.py`を実行し、
+  生成された`backend/fixtures/axis_definitions_snapshot.json`の差分（
+  `git diff -- backend/fixtures/axis_definitions_snapshot.json`）を確認したうえで
+  コミットする。差分が無ければ（＝実際は乖離していなかった場合）本タスクは
+  「差分無しを確認した」ことをもって完了とする。
+- 完了条件: 本番（または少なくともdev）DBに対して`dump_axis_definitions_snapshot.py`を
+  実行し、その結果を確認・コミット（または「差分無し」を確認）したこと。
 
 ---
 
