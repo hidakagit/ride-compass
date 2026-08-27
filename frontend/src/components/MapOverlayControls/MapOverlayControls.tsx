@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
@@ -259,92 +259,82 @@ function renderLegendDetails(axes: readonly LegendFilterSummaryAxis[]) {
   );
 }
 
-// 改善計画T371フォローアップ（ユーザー報告「スクロールは相変わらずできない」「アイコンの
-// 上に指でスクロールするのはできないの？」、2026-08-27）: .chipRow/.estimatedFlatRowへの
-// touch-action指定だけでは解決しなかった。原因は個々のアイコンボタン（.iconChip等）自身が
-// touch-action: noneを持つため（地図とのピンチズーム競合を避ける既存対策、実機フィードバック
-// 起因）——touch-actionは子孫方向へ制限が積み重なる仕様のため、タッチの起点がボタン自身
-// だと祖先（.chipRow等）側のpan-x/pan-yは効かず、そのジェスチャーはブラウザのネイティブ
-// スクロール処理に一切渡らない。ピンチズーム対策自体は手放せないため、代わりにpointer
-// イベントを自前で拾いscrollLeft/scrollTopへ反映する（touch-action: noneはブラウザの
-// ネイティブなスクロール"処理"だけを無効化するもので、pointer/touchイベント自体の配信は
-// 妨げないため、この方式ならボタンの上から始めたドラッグでも動く）。実際にドラッグしたと
-// 判定した場合（移動量がDRAG_CLICK_SUPPRESS_THRESHOLD_PXを超えた場合）は、続けて発火する
-// clickイベントをキャプチャフェーズで止め、意図しないON/OFF切り替え・展開トグルを防ぐ。
-const DRAG_CLICK_SUPPRESS_THRESHOLD_PX = 6;
+// 改善計画T374（ユーザー指摘、2026-08-27）: T370〜T373のドラッグスクロール方式
+// （useDragScroll、削除済み）は、地図とのピンチズーム競合を避けるための既存対策
+// （.iconChip自身のtouch-action: none）と正面衝突し続け、ドラッグ検知・クリック抑止・
+// setPointerCapture等の後追いパッチが積み重なって煩雑化した上、実際のスクロール発生が
+// 既存のhandleChipRowScroll（スクロールで凡例パネルを閉じる処理、position: fixedパネルが
+// 行に追従できないため）を誤って誘発し「グループの展開状態ごと全部閉じてしまう」不具合も
+// 引き起こした。要件は「はみ出したアイコンを直感的に確認できればよい」だけなので、
+// ドラッグ操作を伴うスクロール自体をやめ、はみ出した分だけ▼/▶ボタンでページ送りする
+// 方式へ変更する（ユーザー提案の設計）。ボタンのクリックはtouch-actionの影響を受けない
+// （touch-actionはpan/zoom等の"ジェスチャー"だけを制御する仕様で、タップ由来のclickは
+// 対象外）ため、.iconChipのtouch-action: noneと衝突しない。ドラッグ検知・クリック抑止・
+// scrollイベント経由の副作用が丸ごと不要になる。
+//
+// 表示領域（overflow: hiddenで固定サイズ、スクロールバー自体が存在しない）の中身を
+// translateX/Yで押し引きし、まだ隠れている分がある間だけ矢印ボタンを出す。
+const PAGE_STEP_PX = 56; // 1回の送りで進める量（アイコン1個ぶん強、タイル+gapの実測値に近い）
 
-interface DragState {
-  pointerId: number;
-  startClientPos: number;
-  startScrollPos: number;
-  dragged: boolean;
-}
+function usePagedOverflow(axis: "x" | "y") {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [maxOffset, setMaxOffset] = useState(0);
 
-function useDragScroll(axis: "x" | "y") {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<DragState | null>(null);
-  const suppressClickRef = useRef(false);
-
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // マウスは左ボタンのみ対象（右クリック等のドラッグ扱いを避ける）。タッチ・ペンはそのまま。
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    // 既に別のポインタを追跡中（2本指操作の2本目等）なら無視し、最初の指の追跡を崩さない。
-    if (dragRef.current) return;
-    const el = ref.current;
-    if (!el) return;
-    dragRef.current = {
-      pointerId: e.pointerId,
-      startClientPos: axis === "x" ? e.clientX : e.clientY,
-      startScrollPos: axis === "x" ? el.scrollLeft : el.scrollTop,
-      dragged: false,
-    };
+  const measure = () => {
+    const viewport = viewportRef.current;
+    const track = trackRef.current;
+    if (!viewport || !track) return;
+    const viewportSize = axis === "x" ? viewport.clientWidth : viewport.clientHeight;
+    const trackSize = axis === "x" ? track.scrollWidth : track.scrollHeight;
+    const nextMax = Math.max(0, trackSize - viewportSize);
+    setMaxOffset(nextMax);
+    setOffset((prev) => Math.min(prev, nextMax));
   };
 
-  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const el = ref.current;
-    const drag = dragRef.current;
-    if (!el || !drag || drag.pointerId !== e.pointerId) return;
-    const clientPos = axis === "x" ? e.clientX : e.clientY;
-    const delta = clientPos - drag.startClientPos;
-    if (!drag.dragged) {
-      // 閾値未満はタップ（クリック）の可能性を残す。閾値を超えて初めてドラッグ確定とし、
-      // ここでポインタをキャプチャする（指が要素外へ出てもmove/upを引き続き受け取るため）。
-      if (Math.abs(delta) < DRAG_CLICK_SUPPRESS_THRESHOLD_PX) return;
-      drag.dragged = true;
-      suppressClickRef.current = true;
-      // setPointerCaptureは指がこの要素の外へ出てもmove/upを引き続き受け取るための
-      // 保険で無くても致命的ではないため、失敗しても（ブラウザ・入力デバイスの組み合わせに
-      // よっては拒否されうる）スクロール自体は続行する。
-      try {
-        el.setPointerCapture(e.pointerId);
-      } catch {
-        // no-op
-      }
-    }
-    if (axis === "x") {
-      el.scrollLeft = drag.startScrollPos - delta;
-    } else {
-      el.scrollTop = drag.startScrollPos - delta;
-    }
+  // viewport（表示領域）・track（実コンテンツ）はコールバックrefのため、どちらが先に
+  // アタッチされるか（マウント順）に依存せず、両方揃った時点でResizeObserverを張り直す
+  // （どちらかがアンマウントされたら破棄する）。ResizeObserverを使うことで、軸の増減・
+  // 展開/収納・フィルタ設定・画面回転等、はみ出し量に影響しうる変化を網羅的に検知する
+  // （個々の変化のたびに手動でmeasure()を呼ぶ箇所を列挙する保守コストを避ける）。
+  const rewireObserver = () => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    const viewport = viewportRef.current;
+    const track = trackRef.current;
+    if (!viewport || !track) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(track);
+    resizeObserverRef.current = observer;
+    measure();
   };
 
-  const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== e.pointerId) return;
-    const el = ref.current;
-    if (drag.dragged && el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-    dragRef.current = null;
+  const registerViewport = (el: HTMLDivElement | null) => {
+    viewportRef.current = el;
+    rewireObserver();
+  };
+  const registerTrack = (el: HTMLDivElement | null) => {
+    trackRef.current = el;
+    rewireObserver();
   };
 
-  const onClickCapture = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
+  const pageForward = () => setOffset((prev) => Math.min(maxOffset, prev + PAGE_STEP_PX));
+  const pageBackward = () => setOffset((prev) => Math.max(0, prev - PAGE_STEP_PX));
+  const reset = () => setOffset(0);
 
-  return { ref, onPointerDown, onPointerMove, onPointerUp: endDrag, onPointerCancel: endDrag, onClickCapture };
+  return {
+    registerViewport,
+    registerTrack,
+    offset,
+    pageForward,
+    pageBackward,
+    reset,
+    hasMore: offset < maxOffset,
+    hasLess: offset > 0,
+  };
 }
 
 // チップ本体の共通コンポーネント。単独チップ（グループ化されないレイヤー）とグループ
@@ -529,28 +519,29 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
   // 行の実際の画面位置をJSで測ってposition: fixedで配置することでクリップを回避する。
   const [panelRects, setPanelRects] = useState<Partial<Record<string, PanelRect>>>({});
   const rowRefs = useRef<Partial<Record<string, HTMLDivElement | null>>>({});
-  // 改善計画T371フォローアップ: .chipRow（縦）・.estimatedFlatRow（横）それぞれの
-  // 手動ドラッグスクロール（useDragScroll参照）。
-  // JSXのprops側でオブジェクトのメンバー式（例: verticalDragScroll.onPointerDown）を
-  // 直接参照すると、react-hooks/refs lintルールが「レンダー中のref参照」と誤検知する
-  // ため（返り値にrefフィールドを含むカスタムフックのため保守的に判定される）、ここで
-  // 一度分割代入し裸の変数としてJSXへ渡す。
+  // 改善計画T374: .chipRow（縦）・.estimatedFlatRow（横）それぞれの、はみ出し分の
+  // ページ送り（usePagedOverflow参照）。JSXのprops側でオブジェクトのメンバー式
+  // （例: chipRowPaging.registerTrack）を直接参照すると、react-hooks/refs lintルールが
+  // 「レンダー中のref参照」と誤検知するため（返り値にref操作を含む関数を持つカスタム
+  // フックのため保守的に判定される）、ここで一度分割代入し裸の変数としてJSXへ渡す。
   const {
-    ref: verticalDragScrollRef,
-    onPointerDown: onChipRowPointerDown,
-    onPointerMove: onChipRowPointerMove,
-    onPointerUp: onChipRowPointerUp,
-    onPointerCancel: onChipRowPointerCancel,
-    onClickCapture: onChipRowClickCapture,
-  } = useDragScroll("y");
+    registerViewport: registerChipRowViewport,
+    registerTrack: registerChipRowTrack,
+    offset: chipRowOffset,
+    pageForward: pageChipRowForward,
+    pageBackward: pageChipRowBackward,
+    hasMore: chipRowHasMore,
+    hasLess: chipRowHasLess,
+  } = usePagedOverflow("y");
   const {
-    ref: horizontalDragScrollRef,
-    onPointerDown: onEstimatedRowPointerDown,
-    onPointerMove: onEstimatedRowPointerMove,
-    onPointerUp: onEstimatedRowPointerUp,
-    onPointerCancel: onEstimatedRowPointerCancel,
-    onClickCapture: onEstimatedRowClickCapture,
-  } = useDragScroll("x");
+    registerViewport: registerEstimatedRowViewport,
+    registerTrack: registerEstimatedRowTrack,
+    offset: estimatedRowOffset,
+    pageForward: pageEstimatedRowForward,
+    pageBackward: pageEstimatedRowBackward,
+    hasMore: estimatedRowHasMore,
+    hasLess: estimatedRowHasLess,
+  } = usePagedOverflow("x");
 
   // 観測/推定/動的グループで「表示する項目を選ぶ」設定（改善計画T181）。ユーザー報告
   // 「縦アイコンが多くて見切れるようになってきた」への対応として、グループ見出しの
@@ -670,11 +661,18 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     });
   };
 
-  // アイコン列をスクロールすると、position: fixedのパネルは行に追従できず表示が
-  // ずれたままになる。ずれたパネルを見せ続けるより、スクロールを開くと同時に
-  // いったん全部閉じる方が単純で分かりやすい。
-  const handleChipRowScroll = () => {
-    if (expandedIds.size > 0) setExpandedIds(new Set());
+  // 改善計画T374: ページ送り（▲▼/◀▶）を押すと、position: fixedの凡例パネルは
+  // 行に追従できず表示がずれたままになるため閉じる。以前（T370〜T373のドラッグ
+  // スクロール、handleChipRowScroll）はexpandedIdsを丸ごとクリアしており、
+  // グループ自体の展開状態（GROUP_VISIBILITY_KEYS）まで一緒に閉じてしまい
+  // 「観測/動的グループを開いて送ろうとすると全部折りたたまれる」不具合になっていた。
+  // ページ送り自体はグループを開いたまま行いたい操作のため、フローティングパネル系の
+  // キー（member:/axis:/単独チップ/${groupKey}:legend）だけを対象にする。
+  const closeFloatingPanels = () => {
+    setExpandedIds((prev) => {
+      const next = new Set([...prev].filter((key) => GROUP_VISIBILITY_KEYS.has(key)));
+      return next.size === prev.size ? prev : next;
+    });
   };
 
   // 観測グループの1メンバー（改善計画T166→T169でタイル化）。推定グループの軸タイルと
@@ -1012,16 +1010,26 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
 
   return (
     <div className={styles.wrapper}>
-      <div
-        className={styles.chipRow}
-        ref={verticalDragScrollRef}
-        onScroll={handleChipRowScroll}
-        onPointerDown={onChipRowPointerDown}
-        onPointerMove={onChipRowPointerMove}
-        onPointerUp={onChipRowPointerUp}
-        onPointerCancel={onChipRowPointerCancel}
-        onClickCapture={onChipRowClickCapture}
-      >
+      {chipRowHasLess && (
+        <button
+          type="button"
+          className={styles.pageButton}
+          onClick={() => {
+            closeFloatingPanels();
+            pageChipRowBackward();
+          }}
+          aria-label="上を表示"
+          title="上を表示"
+        >
+          ▲
+        </button>
+      )}
+      <div className={styles.chipRowViewport} ref={registerChipRowViewport}>
+        <div
+          className={styles.chipRow}
+          ref={registerChipRowTrack}
+          style={{ transform: `translateY(-${chipRowOffset}px)` }}
+        >
         {chipGroups.flatMap((group) => {
           // 推定グループ。▶を開くと、独立したカードに閉じ込めず、6軸のタイルを推定チップと
           // 同じ上端・同じ間隔の横並びとして地続きに展開する（観測グループの▼縦並び地続き化
@@ -1077,25 +1085,53 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
             // （以前divのkeyを折りたたみ/展開で別の値にしていたところ、実機ではなくテストで
             // 展開直後にaria-expandedの取得元DOMノードが差し替わっている不具合が発覚した）。
             return [
-              <div
-                key={`${group.key}:row`}
-                className={isExpanded ? styles.estimatedFlatRow : styles.headerLegendRow}
-                // 折りたたみ中（headerLegendRow）はスクロール対象が無いため、展開中のみ
-                // ドラッグスクロールのハンドラを付ける（折りたたみ中に見出しをドラッグ気味に
-                // タップしてもclickが誤って抑止されないようにするため）。
-                ref={isExpanded ? horizontalDragScrollRef : undefined}
-                onPointerDown={isExpanded ? onEstimatedRowPointerDown : undefined}
-                onPointerMove={isExpanded ? onEstimatedRowPointerMove : undefined}
-                onPointerUp={isExpanded ? onEstimatedRowPointerUp : undefined}
-                onPointerCancel={isExpanded ? onEstimatedRowPointerCancel : undefined}
-                onClickCapture={isExpanded ? onEstimatedRowClickCapture : undefined}
-              >
+              <div key={`${group.key}:row`} className={styles.headerLegendRow}>
                 {header}
-                {isExpanded
-                  ? secondaryAxes.filter((axis) => !hiddenIds.has(`composite:${axis.axisId}`)).map((axis) =>
-                      renderAxisTile(axis, group.members)
-                    )
-                  : renderVisibilitySettings(
+                {isExpanded && (
+                  <>
+                    {estimatedRowHasLess && (
+                      <button
+                        type="button"
+                        className={styles.pageButton}
+                        onClick={() => {
+                          closeFloatingPanels();
+                          pageEstimatedRowBackward();
+                        }}
+                        aria-label="左を表示"
+                        title="左を表示"
+                      >
+                        ◀
+                      </button>
+                    )}
+                    <div className={styles.estimatedFlatRowViewport} ref={registerEstimatedRowViewport}>
+                      <div
+                        className={styles.estimatedFlatRow}
+                        ref={registerEstimatedRowTrack}
+                        style={{ transform: `translateX(-${estimatedRowOffset}px)` }}
+                      >
+                        {secondaryAxes
+                          .filter((axis) => !hiddenIds.has(`composite:${axis.axisId}`))
+                          .map((axis) => renderAxisTile(axis, group.members))}
+                      </div>
+                    </div>
+                    {estimatedRowHasMore && (
+                      <button
+                        type="button"
+                        className={styles.pageButton}
+                        onClick={() => {
+                          closeFloatingPanels();
+                          pageEstimatedRowForward();
+                        }}
+                        aria-label="右を表示"
+                        title="右を表示"
+                      >
+                        ▶
+                      </button>
+                    )}
+                  </>
+                )}
+                {!isExpanded &&
+                  renderVisibilitySettings(
                       group.key,
                       label,
                       "composite",
@@ -1277,7 +1313,22 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
             />
           );
         })}
+        </div>
       </div>
+      {chipRowHasMore && (
+        <button
+          type="button"
+          className={styles.pageButton}
+          onClick={() => {
+            closeFloatingPanels();
+            pageChipRowForward();
+          }}
+          aria-label="下を表示"
+          title="下を表示"
+        >
+          ▼
+        </button>
+      )}
     </div>
   );
 }

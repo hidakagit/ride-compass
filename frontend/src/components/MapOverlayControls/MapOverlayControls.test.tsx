@@ -274,11 +274,14 @@ describe("MapOverlayControls", () => {
 
       const estimatedButton = screen.getByRole("button", { name: "推定" });
       const carStressButton = screen.getByRole("button", { name: "車の圧迫感" });
-      // ChipButtonは自身をchipRowItemとして返すため、推定チップの行と軸タイルの行は
-      // 同じ親（横並びのestimatedFlatRow）を共有する兄弟要素になる。
-      expect(estimatedButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
-        carStressButton.closest('[class*="chipRowItem"]')?.parentElement
-      );
+      // 改善計画T374: はみ出した分のページ送り（▲▼/◀▶）導入に伴い、推定チップ本体
+      // （header）と軸タイル群は、はみ出し量測定・translateXの都合上
+      // .estimatedFlatRowViewport（表示領域）を挟む1階層分の入れ子になったが、
+      // 両者を包む.headerLegendRow自体は依然として1つ（地続きのまま、独立カードへは
+      // 閉じ込めていない）であることを確認する。
+      const headerRow = estimatedButton.closest('[class*="headerLegendRow"]');
+      expect(headerRow).toBeTruthy();
+      expect(headerRow?.contains(carStressButton)).toBe(true);
     });
 
     // マトリックス化（改善計画T169）: 推定グループの内訳は、観測グループのメンバーと同じ

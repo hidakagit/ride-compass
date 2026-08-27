@@ -35,26 +35,13 @@
    局所化し、それ以外の隙間は地図キャンバス（touch-action: none）へタッチを
    素通しする。 */
 
-/* アイコンチップの縦並び。画面が低い（モバイル横向き等）場合や、レイヤー数が多く縦に
-   収まりきらない場合に地図の下端を超えないよう縦スクロールで受ける。widthは.wrapperと同じく
-   内容量（アイコンチップの幅）に合わせて縮める（以前はwidth: 100%で.wrapper側の広い箱幅
-   （条件サマリ用に確保していた28rem）に固定していたため、この箱の右端が実際のアイコン列より
-   ずっと右に来てしまい、縦スクロール時のスクロールバーが地図上の離れた位置に浮いて見える
-   不具合があった。実機フィードバック「スクロールバーが変な位置に見切れて出る」への対応）。 */
-.chipRow {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: max-content;
-  /* width: max-contentは「折り返しなしの最大幅」で計算されるため、推定グループを
-     横並び地続き展開（.estimatedFlatRow、flex-wrap: wrap）したときにこの値だけだと
-     親.wrapperのmax-width（ズームコントロール分を除いた画面幅）を無視して画面外まで
-     はみ出してしまう（実機確認で発見。以前は推定の内訳を独立カードに閉じ込めており、
-     カード自身がmax-widthを持っていたため顕在化しなかった）。max-width: 100%を足すと、
-     幅が余っているとき（通常の縦一列）はwidth: max-contentどおり内容量に縮み、幅が
-     足りないとき（横並び展開）だけ親の実際の幅で頭打ちになり、その頭打ち幅を基準に
-     .estimatedFlatRowのflex-wrapが正しく折り返す。 */
-  max-width: 100%;
+/* 改善計画T374: T370〜T373のドラッグスクロール（.chipRow自身がoverflow-y: auto＋
+   touch-action等でスクロールを担う設計）をやめ、「表示領域（.chipRowViewport、
+   固定サイズでoverflow: hidden＝スクロールバーもドラッグも一切発生しない）＋
+   中身（.chipRow、translateYで押し引きするだけ）」の2層構成へ変更した。ページ送り
+   （▲▼ボタン、MapOverlayControls.tsx参照）はクリックで動くため、地図とのピンチズーム
+   競合対策（.iconChip側のtouch-action: none）と衝突しない。 */
+.chipRowViewport {
   /* 30remは、推定グループの内訳をdocument.bodyへポータルしていた頃（chipRowの高さに
      算入されない）を基準にした値。地続き化（改善計画）で推定・観測の両方の内訳が
      chipRow自身の高さに積み上がるようになったため、両方同時に開くと30remでは
@@ -62,35 +49,25 @@
      への対応）。デスクトップの縦幅には余裕があることが多いのでrem側の上限を上げ、
      モバイル横向き等の低い画面でも地図の下端を超えないようvh側の上限は維持する。 */
   max-height: min(80vh, 42rem);
-  overflow-y: auto;
+  overflow: hidden;
+  width: max-content;
+  max-width: 100%;
+}
+
+/* アイコンチップの縦並び（.chipRowViewportの中身、translateYで押し引きされる）。
+   widthは.wrapperと同じく内容量（アイコンチップの幅）に合わせて縮める。 */
+.chipRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: max-content;
+  max-width: 100%;
   /* .wrapperのpointer-events: noneを継承すると、チップとチップの間の隙間（gap）が
-     タッチを拾えずスクロールできない。この箱は内容量ぶんに縮めた（横幅が狭い）ため、
-     ここだけpointer-events: autoに戻して縦スクロールを可能にしても、地図の2本指ピンチを
-     誤って奪う範囲は小さい（実機フィードバック「スクロールしても最後のチップまで
-     たどり着けない」への対応）。 */
+     タッチを拾えずページ送りボタン自体は押せてもチップが押せなくなるため、ここだけ
+     pointer-events: autoに戻す。この箱は内容量ぶんに縮めた（横幅が狭い）ため、
+     地図の2本指ピンチを誤って奪う範囲は小さい。 */
   pointer-events: auto;
-  /* ユーザー指摘（2026-08-27）「背景が変になる、スクロールバーが出る等は避けたい」への
-     対応。ネイティブのスクロールバー自体（トラック・つまみ）が地図の上に浮いて見え、
-     縦スクロール時のスクロールバーが変な位置に見切れる（上記コメント参照）系の見た目の
-     不安定さの根本を断つため、スクロール自体は残したままスクロールバーの描画だけ消す
-     （マウスホイール・タッチスワイプ・キーボード操作でのスクロールは引き続き機能する）。 */
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* 旧Edge/IE */
-  /* 改善計画T371フォローアップ（ユーザー報告「スクロールは相変わらずできない」
-     「アイコンの上に指でスクロールするのはできないの？」、2026-08-27）: touch-action:
-     pan-yだけでは解決しなかった。中の.iconChip等がタッチ開始点になった場合、そちら自身の
-     touch-action: none（地図とのピンチズーム競合対策、既存）がタッチジェスチャーの制限として
-     優先され、祖先のpan-yは効かない。代わりにMapOverlayControls.tsx: useDragScrollで
-     pointerイベントを自前で拾いscrollTopへ反映する方式へ切り替えたため、ここでも
-     ブラウザのネイティブなタッチジェスチャー処理を全面的に無効化し、JS側のスクロールと
-     二重に効かないようにする（マウスホイールでの縦スクロールはtouch-actionの対象外のため
-     引き続きネイティブに機能する）。overscroll-behaviorはスクロール端まで到達した際に
-     ページ自体のスクロール/引っ張って更新（pull-to-refresh）へ伝播しないようにする
-     （ユーザー報告「スマホだと縦スクロールしようとしてページ再読込を誤動作してしまう」
-     への対応）。 */
-  touch-action: none;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
+  transition: transform 0.15s ease-out;
 }
 
 .chipRow::-webkit-scrollbar {
@@ -561,43 +538,27 @@
 /* 推定グループの▶内訳（改善計画: サブフレーム廃止、chipRowと地続き化）: 独立したカードに
    閉じ込めず、推定チップ本体（header）とSECONDARY_AXES軸のタイルを同じ上端・同じ間隔で
    横並びにする（実機フィードバック「推定も▶で同じ上端・同じ列間で横並び展開してほしい」
-   への対応。観測グループの縦並び地続き化と対になる横並び版）。chipRowの子として並ぶため
-   align-selfでstretchを打ち消す。タイル自体の見た目（四角アイコン+略名、ON/OFF）は
-   地図チップ本体・観測グループのメンバータイルと同じChipButton（.iconChip/
-   .iconChipActive）を再利用するため、ここでは並び方向だけを定義する。
-   改善計画T369フォローアップ（ユーザー指摘、2026-08-27）: 以前は地図の幅に収まらない分を
-   折り返していた（「横スクロールは指では扱いにくい」という判断）が、軸が増えるたびに
-   折り返しが縦幅を圧迫し観測/動的グループを地図の下へ押し下げてしまう
-   （T367で自転車インフラが加わり7軸になったことで顕在化）。観測/動的グループが
-   .chipRow自体の縦スクロール（overflow-y: auto）に任せているのと対称に、推定グループは
-   横1行に固定しoverflow-x: autoで横スクロールへ切り替えた（min-width: 0でflexアイテムの
-   既定の縮小抑制を打ち消し、実際にスクロール可能な幅まで縮められるようにする）。 */
+   への対応。観測グループの縦並び地続き化と対になる横並び版）。タイル自体の見た目
+   （四角アイコン+略名、ON/OFF）は地図チップ本体・観測グループのメンバータイルと同じ
+   ChipButton（.iconChip/.iconChipActive）を再利用するため、ここでは並び方向だけを定義する。
+   改善計画T374: T369（折り返し）→T370（横スクロール）と変遷したが、T370のドラッグ
+   スクロールは.iconChip側のtouch-action: none（ピンチズーム対策）と衝突し続けたため、
+   .chipRowViewport/.chipRow（縦）と対称な「.estimatedFlatRowViewport（固定幅・
+   overflow: hidden）＋.estimatedFlatRow（translateXで押し引きされる中身）」の2層構成へ
+   変更した。はみ出した分はドラッグではなく◀▶ボタンでページ送りする
+   （MapOverlayControls.tsx参照）。 */
+.estimatedFlatRowViewport {
+  overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .estimatedFlatRow {
   display: flex;
   flex-wrap: nowrap;
   gap: var(--space-2);
   align-items: flex-start;
-  align-self: flex-start;
-  overflow-x: auto;
-  max-width: 100%;
-  min-width: 0;
-  /* .chipRowの縦スクロールと同じ理由（ユーザー指摘「背景が変になる、スクロールバーが
-     出る等は避けたい」）でスクロールバーの描画だけ消す。 */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  /* .chipRowと同じ理由（ユーザー報告「アイコンの上に指でスクロールするのはできないの？」）。
-     中の.iconChip等自身がtouch-action: noneを持つため、この行のtouch-actionだけを
-     pan-xにしても効かない。MapOverlayControls.tsx: useDragScrollのpointerイベントで
-     scrollLeftを自前管理する方式へ切り替え、ここもtouch-action: noneでブラウザの
-     ネイティブなタッチジェスチャー処理を無効化する（マウスホイールでの横スクロールは
-     対象外のまま機能する）。overscroll-behaviorは.chipRowと同じ理由。 */
-  touch-action: none;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.estimatedFlatRow::-webkit-scrollbar {
-  display: none;
+  transition: transform 0.15s ease-out;
 }
 
 /* 推定グループの軸タイル（改善計画: 実機フィードバック「▼トグルを各メンバの下部に
@@ -615,5 +576,32 @@
    撤回済み）、ユーザー指摘（2026-08-27）「推定軸のアイコングループも観測アイコン
    グループのようなサイズにして、他と同じく4文字略字までアイコンに含めたい」を受け、
    モバイル限定の縮小も撤去した。画面幅によらず観測グループのメンバータイル（一次要素、
-   .iconChipの既定サイズ・略名表示）と常に同じ見た目にする。折り返し（.estimatedFlatRowの
-   flex-wrap: wrap）で複数行になること自体は許容する。 */
+   .iconChipの既定サイズ・略名表示）と常に同じ見た目にする。 */
+
+/* 改善計画T374: はみ出した分のページ送りボタン（▲▼/◀▶、MapOverlayControls.tsx参照）。
+   .expandToggleと同じ丸ボタンの見た目に揃える。ピンチズームの片方の指がここに乗った
+   場合の対策として.iconChip/.expandToggleと同じくtouch-action: noneを持たせる
+   （ボタン自体のクリックはtouch-actionの影響を受けないため、この指定があってもクリック
+   操作自体は妨げられない）。.wrapperのpointer-events: noneを継承するため、ここで
+   pointer-events: autoに戻す。 */
+.pageButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  cursor: pointer;
+  touch-action: none;
+  pointer-events: auto;
+  align-self: center;
+}
+
+.pageButton:hover {
+  border-color: var(--color-accent);
+}
