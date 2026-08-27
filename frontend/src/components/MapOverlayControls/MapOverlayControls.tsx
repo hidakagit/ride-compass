@@ -1092,7 +1092,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                     {estimatedRowHasLess && (
                       <button
                         type="button"
-                        className={styles.pageButton}
+                        className={`${styles.pageButton} ${styles.pageButtonHorizontal}`}
                         onClick={() => {
                           closeFloatingPanels();
                           pageEstimatedRowBackward();
@@ -1117,7 +1117,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                     {estimatedRowHasMore && (
                       <button
                         type="button"
-                        className={styles.pageButton}
+                        className={`${styles.pageButton} ${styles.pageButtonHorizontal}`}
                         onClick={() => {
                           closeFloatingPanels();
                           pageEstimatedRowForward();

@@ -647,9 +647,22 @@
   cursor: pointer;
   touch-action: none;
   pointer-events: auto;
-  align-self: center;
 }
 
 .pageButton:hover {
   border-color: var(--color-accent);
+}
+
+/* ユーザー報告（2026-08-27、推定グループ展開時に再現）「▼アイコンが出る位置がおかしい」:
+   .pageButtonは縦送り（▲▼、.wrapper直下＝列flexの子）と横送り（◀▶、.headerLegendRow
+   直下＝行flexの子）の両方で共用しているため、align-self: centerを共通クラスに
+   置いていると軸ごとに意味が逆になる（列flexではクロス軸=水平方向の中央寄せ、行flexでは
+   クロス軸=垂直方向の中央寄せ）。推定グループを展開すると.estimatedFlatRow（横並びの
+   軸タイル列）が.wrapperのwidth: max-contentを大きく広げるため、▲▼にalign-self: centerが
+   付いていると広がった.wrapper内で水平中央へ引き寄せられ、縦一列のチップ列から離れた
+   位置（地図の余白）に浮いて見えてしまっていた。縦送り用は.wrapper自身のalign-items:
+   flex-start（チップ列と同じ左寄せ）に委ね、横送り用（◀▶）だけこのモディファイアで
+   明示的に中央寄せする。 */
+.pageButtonHorizontal {
+  align-self: center;
 }
