@@ -1414,6 +1414,8 @@ export interface components {
             is_day: number | null;
             /** Sunset */
             sunset: string | null;
+            /** Sunrise */
+            sunrise: string | null;
             /** Precipitation Probability Max Percent */
             precipitation_probability_max_percent: number | null;
             /** Wind Speed Max Ms */
@@ -1432,11 +1434,13 @@ export interface components {
          * @description 「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、
          *     ユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は
          *     荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の
-         *     やり取りを経て、2時間おき8コマ・"HH:MM"表記に決着）。
-         *     periodは"06:00"〜"20:00"の代表時刻文字列（weather_service.py: _PERIOD_TARGET_HOURS・
-         *     _period_outlooks参照。朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・
-         *     「6時」等の表示ラベルへの整形はfrontend側が担う）。weather_codeの意味・アイコンへの
-         *     変換はWeatherConditions.weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
+         *     やり取りを経て、2時間おき8コマ・"HH:MM"表記に決着。さらに次のフォローアップで
+         *     「現在時刻を含む時間帯から2時間毎」（固定6時始まりではなく現在時刻基準）へ変更）。
+         *     periodは代表時刻の"HH:MM"文字列（weather_service.py: _period_outlooks参照。現在時刻を
+         *     2時間単位のグリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。
+         *     朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの
+         *     整形はfrontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.
+         *     weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
          */
         WeatherPeriodOutlook: {
             /** Period */

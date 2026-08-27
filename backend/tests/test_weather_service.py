@@ -21,10 +21,12 @@ SAMPLE_DATA = {
         "weather_code": 3,
         "is_day": 0,
     },
-    # 改善計画T385フォローアップ:「今日の見通し」の天気の流れ（_period_outlooks、
-    # 06:00〜20:00の2時間おき8コマ）を意味のある値で検証するため、時刻範囲を当日06:00まで
-    # 拡張し、weather_code/is_dayを追加した（従来の20:00〜23:00の4点は既存テストの期待値と
-    # 一致するようそのまま維持）。
+    # 改善計画T385フォローアップ:「今日の見通し」の天気の流れ（_period_outlooks）を意味の
+    # ある値で検証するため、時刻範囲を当日06:00〜翌日10:00まで拡張し、weather_code/is_dayを
+    # 追加した（従来の20:00〜23:00の4点は既存テストの期待値と一致するようそのまま維持）。
+    # currentの観測時刻21:15は2時間グリッドで20:00始まりのため、_period_outlooksが生成する
+    # 8コマ（20:00,22:00,00:00,02:00,04:00,06:00,08:00,10:00）は翌日にまたがる
+    # （後続フォローアップ「現在時刻を含む時間帯から2時間毎」の日またぎ検証を兼ねる）。
     "hourly": {
         "time": [
             "2026-08-13T06:00",
@@ -38,21 +40,29 @@ SAMPLE_DATA = {
             "2026-08-13T21:00",
             "2026-08-13T22:00",
             "2026-08-13T23:00",
+            "2026-08-14T00:00",
+            "2026-08-14T02:00",
+            "2026-08-14T04:00",
+            "2026-08-14T06:00",
+            "2026-08-14T08:00",
+            "2026-08-14T10:00",
         ],
-        "temperature_2m": [22.0, 24.0, 26.5, 28.5, 29.0, 27.5, 26.0, 25.0, 24.5, 24.0, 23.8],
-        "wind_speed_10m": [2.0, 2.2, 2.5, 2.8, 3.0, 2.9, 2.7, 3.0, 2.8, 2.5, 2.2],
-        "wind_direction_10m": [50, 55, 58, 60, 62, 63, 61, 60, 65, 70, 75],
-        "precipitation_probability": [10, 15, 20, 30, 40, 45, 50, 50, 60, 70, 80],
-        "apparent_temperature": [22.5, 24.5, 27.0, 29.5, 30.0, 28.0, 26.5, 27.5, 27.1, 26.6, 26.0],
-        "wind_gusts_10m": [3.0, 3.2, 3.8, 4.5, 5.0, 4.8, 4.5, 5.5, 4.8, 4.2, 3.9],
-        "precipitation": [0.0, 0.0, 0.0, 0.1, 0.2, 0.2, 0.3, 0.3, 0.2, 0.1, 0.0],
-        "uv_index": [0.5, 2.0, 4.5, 6.5, 7.0, 5.0, 2.5, 1.0, 0.0, 0.0, 0.0],
-        "weather_code": [1, 1, 2, 2, 3, 3, 61, 3, 3, 3, 3],
-        "is_day": [0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+        "temperature_2m": [22.0, 24.0, 26.5, 28.5, 29.0, 27.5, 26.0, 25.0, 24.5, 24.0, 23.8, 23.0, 22.0, 21.5, 22.5, 24.5, 27.0],
+        "wind_speed_10m": [2.0, 2.2, 2.5, 2.8, 3.0, 2.9, 2.7, 3.0, 2.8, 2.5, 2.2, 2.0, 1.8, 1.5, 1.8, 2.0, 2.3],
+        "wind_direction_10m": [50, 55, 58, 60, 62, 63, 61, 60, 65, 70, 75, 80, 85, 88, 90, 92, 95],
+        "precipitation_probability": [10, 15, 20, 30, 40, 45, 50, 50, 60, 70, 80, 75, 70, 60, 40, 20, 15],
+        "apparent_temperature": [22.5, 24.5, 27.0, 29.5, 30.0, 28.0, 26.5, 27.5, 27.1, 26.6, 26.0, 25.5, 24.0, 23.0, 24.0, 26.0, 28.5],
+        "wind_gusts_10m": [3.0, 3.2, 3.8, 4.5, 5.0, 4.8, 4.5, 5.5, 4.8, 4.2, 3.9, 3.5, 3.0, 2.5, 2.8, 3.2, 3.6],
+        "precipitation": [0.0, 0.0, 0.0, 0.1, 0.2, 0.2, 0.3, 0.3, 0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        "uv_index": [0.5, 2.0, 4.5, 6.5, 7.0, 5.0, 2.5, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 1.5, 3.5],
+        "weather_code": [1, 1, 2, 2, 3, 3, 61, 3, 3, 3, 3, 3, 3, 2, 1, 1, 1],
+        "is_day": [0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
     },
     # 改善計画T385:「今日の見通し」パネル用（forecast_days=2、index0=今日）。
+    # sunrise（改善計画T385フォローアップ2、夜明け前/日没前の切り替え表示用）。
     "daily": {
         "time": ["2026-08-13", "2026-08-14"],
+        "sunrise": ["2026-08-13T05:12", "2026-08-14T05:11"],
         "sunset": ["2026-08-13T18:41", "2026-08-14T18:40"],
         "precipitation_probability_max": [80, 60],
         "wind_speed_10m_max": [5.5, 4.0],
@@ -117,6 +127,8 @@ async def test_get_conditions_returns_current_when_at_is_none():
     assert conditions.weather_code == 3
     assert conditions.is_day == 0
     # 改善計画T385: 今日の見通し4項目はdailyのindex0（今日）から読む
+    # 改善計画T385フォローアップ2: sunriseもdailyのindex0（今日）から読む
+    assert conditions.sunrise == "2026-08-13T05:12"
     assert conditions.sunset == "2026-08-13T18:41"
     assert conditions.precipitation_probability_max_percent == 80
     assert conditions.wind_speed_max_ms == 5.5
@@ -124,16 +136,18 @@ async def test_get_conditions_returns_current_when_at_is_none():
     assert conditions.temperature_min_c == 23.0
     # 改善計画T385フォローアップ: UV最大値はdailyのindex0（今日）から読む
     assert conditions.uv_index_max == 7.0
-    # 改善計画T385フォローアップ: 今日の見通しの天気の流れは06:00〜20:00の2時間おき8コマ
+    # 改善計画T385フォローアップ2: 今日の見通しの天気の流れは「現在時刻を含む時間帯から
+    # 2時間毎」。observed_at=21:15は2時間グリッドで20:00始まりのため8コマは
+    # 20:00,22:00,00:00,02:00,04:00,06:00,08:00,10:00（翌日にまたがる）
     assert conditions.today_periods == [
-        WeatherPeriodOutlook(period="06:00", weather_code=1, temperature_c=22.0, precipitation_probability_percent=10),
-        WeatherPeriodOutlook(period="08:00", weather_code=1, temperature_c=24.0, precipitation_probability_percent=15),
-        WeatherPeriodOutlook(period="10:00", weather_code=2, temperature_c=26.5, precipitation_probability_percent=20),
-        WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=28.5, precipitation_probability_percent=30),
-        WeatherPeriodOutlook(period="14:00", weather_code=3, temperature_c=29.0, precipitation_probability_percent=40),
-        WeatherPeriodOutlook(period="16:00", weather_code=3, temperature_c=27.5, precipitation_probability_percent=45),
-        WeatherPeriodOutlook(period="18:00", weather_code=61, temperature_c=26.0, precipitation_probability_percent=50),
         WeatherPeriodOutlook(period="20:00", weather_code=3, temperature_c=25.0, precipitation_probability_percent=50),
+        WeatherPeriodOutlook(period="22:00", weather_code=3, temperature_c=24.0, precipitation_probability_percent=70),
+        WeatherPeriodOutlook(period="00:00", weather_code=3, temperature_c=23.0, precipitation_probability_percent=75),
+        WeatherPeriodOutlook(period="02:00", weather_code=3, temperature_c=22.0, precipitation_probability_percent=70),
+        WeatherPeriodOutlook(period="04:00", weather_code=2, temperature_c=21.5, precipitation_probability_percent=60),
+        WeatherPeriodOutlook(period="06:00", weather_code=1, temperature_c=22.5, precipitation_probability_percent=40),
+        WeatherPeriodOutlook(period="08:00", weather_code=1, temperature_c=24.5, precipitation_probability_percent=20),
+        WeatherPeriodOutlook(period="10:00", weather_code=1, temperature_c=27.0, precipitation_probability_percent=15),
     ]
 
 
@@ -158,6 +172,7 @@ async def test_conditions_from_data_returns_nearest_hourly_for_future_time():
     # いずれも取得しないため常にNone
     assert conditions.weather_code is None
     assert conditions.is_day is None
+    assert conditions.sunrise is None
     assert conditions.sunset is None
     assert conditions.precipitation_probability_max_percent is None
     assert conditions.wind_speed_max_ms is None
@@ -171,8 +186,9 @@ async def test_conditions_from_data_returns_nearest_hourly_for_future_time():
 async def test_conditions_from_data_returns_none_when_at_is_outside_hourly_range():
     service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
-    # hourlyは2026-08-13の20:00-23:00のみ。翌日はhourlyの範囲外。
-    conditions = service._conditions_from_data(SAMPLE_DATA, at=datetime(2026, 8, 14, 10, 0))
+    # hourlyは2026-08-13T06:00〜2026-08-14T10:00のみ（改善計画T385フォローアップ2で
+    # 天気の流れの日またぎ検証用に拡張）。それより先は範囲外。
+    conditions = service._conditions_from_data(SAMPLE_DATA, at=datetime(2026, 8, 15, 10, 0))
 
     assert conditions is None
 
@@ -194,27 +210,67 @@ async def test_get_conditions_falls_back_to_none_when_t172_fields_are_missing():
     # 新規項目がNoneになるだけで既存項目は従来どおり取得できることを確認する。
     assert conditions.weather_code is None
     assert conditions.is_day is None
+    assert conditions.sunrise is None
     assert conditions.sunset is None
     assert conditions.precipitation_probability_max_percent is None
     assert conditions.wind_speed_max_ms is None
     assert conditions.temperature_max_c is None
     assert conditions.temperature_min_c is None
     assert conditions.uv_index_max is None
-    # 改善計画T385フォローアップ: dailyが丸ごと無くてもtoday_periodsは8コマ分生成される。
-    # hourlyの時刻範囲が20:00〜23:00のみのため、範囲外の06:00〜18:00は全項目None、
-    # 範囲内の20:00はweather_code列自体が無いためweather_codeのみNoneへ倒れ、
-    # temperature_c/precipitation_probability_percentは通常どおり取得できる
+    # 改善計画T385フォローアップ2: dailyが丸ごと無くてもtoday_periodsは8コマ分生成される。
+    # observed_at=21:15は2時間グリッドで20:00始まりのため8コマは20:00,22:00,00:00,02:00,
+    # 04:00,06:00,08:00,10:00（翌日にまたがる）。hourlyの時刻範囲が20:00〜23:00（当日のみ）
+    # のため、範囲内の20:00・22:00はweather_code列自体が無いためweather_codeのみNoneへ倒れ
+    # temperature_c/precipitation_probability_percentは通常どおり取得でき、翌日にまたがる
+    # 残り6コマは範囲外のため全項目Noneになる
     # （_hourly_index_value・_within_hourly_rangeのフィールド単位graceful degradation）。
     assert conditions.today_periods == [
+        WeatherPeriodOutlook(period="20:00", weather_code=None, temperature_c=25.0, precipitation_probability_percent=50),
+        WeatherPeriodOutlook(period="22:00", weather_code=None, temperature_c=24.0, precipitation_probability_percent=70),
+        WeatherPeriodOutlook(period="00:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
+        WeatherPeriodOutlook(period="02:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
+        WeatherPeriodOutlook(period="04:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
         WeatherPeriodOutlook(period="06:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
         WeatherPeriodOutlook(period="08:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
         WeatherPeriodOutlook(period="10:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
-        WeatherPeriodOutlook(period="12:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
-        WeatherPeriodOutlook(period="14:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
-        WeatherPeriodOutlook(period="16:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
-        WeatherPeriodOutlook(period="18:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None),
-        WeatherPeriodOutlook(period="20:00", weather_code=None, temperature_c=25.0, precipitation_probability_percent=50),
     ]
+
+
+def test_period_outlooks_starts_from_the_two_hour_slot_containing_now():
+    # ユーザー要望「現在時刻を含む時間帯（例：今7時なら6時の天気）から2時間毎」の直接検証。
+    # 7時は2時間グリッド（0/2/4...時）で6時始まりの区間に含まれるため、先頭コマは06:00になる。
+    hourly = {
+        "time": ["2026-08-13T06:00", "2026-08-13T08:00", "2026-08-13T10:00"],
+        "weather_code": [1, 2, 3],
+        "temperature_2m": [20.0, 21.0, 22.0],
+        "precipitation_probability": [10, 20, 30],
+    }
+
+    periods = WeatherService._period_outlooks(hourly, "2026-08-13T07:10")
+
+    assert [p.period for p in periods] == [
+        "06:00", "08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00",
+    ]
+    assert periods[0].weather_code == 1
+    assert periods[0].temperature_c == 20.0
+    assert periods[0].precipitation_probability_percent == 10
+    assert periods[1].weather_code == 2
+    assert periods[2].weather_code == 3
+    # 10:00より先（12:00〜）はhourlyの範囲外のため全項目None
+    assert periods[3] == WeatherPeriodOutlook(
+        period="12:00", weather_code=None, temperature_c=None, precipitation_probability_percent=None
+    )
+
+
+def test_period_outlooks_rounds_down_even_hour_unchanged():
+    # 現在時刻がちょうど2時間グリッドの境界（例: 8時）なら、その時刻自体が先頭コマになる
+    # （切り下げの境界条件）。
+    hourly = {"time": ["2026-08-13T08:00"], "weather_code": [5], "temperature_2m": [18.0], "precipitation_probability": [5]}
+
+    periods = WeatherService._period_outlooks(hourly, "2026-08-13T08:00")
+
+    assert periods[0].period == "08:00"
+    assert periods[0].weather_code == 5
 
 
 async def test_get_conditions_returns_none_when_forecast_unavailable():

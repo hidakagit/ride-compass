@@ -472,6 +472,7 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
       observed_at: "2026-08-25T12:00:00+09:00",
       weather_code: null,
       is_day: null,
+      sunrise: null,
       sunset: null,
       precipitation_probability_max_percent: null,
       wind_speed_max_ms: null,

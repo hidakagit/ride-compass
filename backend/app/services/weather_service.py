@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 
@@ -139,6 +139,7 @@ class WeatherService:
                 # get_conditions（この分岐）でのみ取得する（下のelse分岐＝
                 # get_conditions_manyはdailyを取得していないため常にNone）。
                 daily = data.get("daily") or {}
+                sunrise = self._daily_index_value(daily, "sunrise", 0)
                 sunset = self._daily_index_value(daily, "sunset", 0)
                 precipitation_probability_max = self._daily_index_value(daily, "precipitation_probability_max", 0)
                 wind_speed_max = self._daily_index_value(daily, "wind_speed_10m_max", 0)
@@ -148,7 +149,7 @@ class WeatherService:
                 # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の
                 # 流れが分かるものも欲しい」）: dailyの日次集約値だけでは「日中いつ頃
                 # 崩れるか」が分からないため、hourlyから2時間おき8コマの代表時刻を抜き出す
-                # （_PERIOD_TARGET_HOURS参照）。
+                # （_period_outlooks参照）。
                 today_periods = self._period_outlooks(hourly, observed_at)
             else:
                 target = at.strftime("%Y-%m-%dT%H:%M")
@@ -174,6 +175,7 @@ class WeatherService:
                 # （天気アイコン・今日の見通しはルート評価には使わない表示専用の情報）。
                 weather_code = None
                 is_day = None
+                sunrise = None
                 sunset = None
                 precipitation_probability_max = None
                 wind_speed_max = None
@@ -197,6 +199,7 @@ class WeatherService:
             observed_at=observed_at,
             weather_code=weather_code,
             is_day=is_day,
+            sunrise=sunrise,
             sunset=sunset,
             precipitation_probability_max_percent=precipitation_probability_max,
             wind_speed_max_ms=wind_speed_max,
@@ -253,31 +256,27 @@ class WeatherService:
 
     # 改善計画T385フォローアップ: 「今日の見通し」パネルの時間帯別コマ。
     # 当初「朝/午後/夜」3コマ→ユーザー指摘「少し荒い」→「天気・気温・降水確率をもう少し
-    # 細かい粒度でスマホ横幅に収まる表現で」を経て、2時間おき8コマ（6時〜20時、日中の
-    # 走行時間帯をカバー）・代表時刻そのままの単純採用に決着。severity（重大度）で
-    # 「その区間で最も荒れた時刻」を選ぶ方式ではなく代表1時刻をそのまま使うのは、
-    # 重大度ランキングがweather_code→アイコン判定と同種の「意味づけ」であり、
-    # frontend/weatherCode.tsへ集約する既存方針（backendは生の値を素通しするだけ）に
-    # 合わせたため。既存の_nearest_hourly_index/_hourly_index_valueをそのまま再利用できる
-    # 利点もある。
-    _PERIOD_TARGET_HOURS: tuple[str, ...] = (
-        "06:00",
-        "08:00",
-        "10:00",
-        "12:00",
-        "14:00",
-        "16:00",
-        "18:00",
-        "20:00",
-    )
+    # 細かい粒度でスマホ横幅に収まる表現で」→固定6時始まり8コマ→後続フォローアップ
+    # 「現在時刻を含む時間帯（例：今7時なら6時の天気）から2時間毎」を経て、現在時刻を
+    # 2時間グリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おき8コマ・代表時刻
+    # そのままの単純採用に決着。severity（重大度）で「その区間で最も荒れた時刻」を選ぶ
+    # 方式ではなく代表1時刻をそのまま使うのは、重大度ランキングがweather_code→
+    # アイコン判定と同種の「意味づけ」であり、frontend/weatherCode.tsへ集約する既存方針
+    # （backendは生の値を素通しするだけ）に合わせたため。既存の_nearest_hourly_index/
+    # _hourly_index_valueをそのまま再利用できる利点もある。
+    _PERIOD_SLOT_COUNT = 8
+    _PERIOD_INTERVAL_HOURS = 2
 
     @classmethod
     def _period_outlooks(cls, hourly: dict, observed_at: str) -> list[WeatherPeriodOutlook]:
-        today = observed_at[:10]
+        now = datetime.fromisoformat(observed_at)
+        start_hour = now.hour - (now.hour % cls._PERIOD_INTERVAL_HOURS)
+        start = now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
         times = hourly.get("time") or []
         results = []
-        for hhmm in cls._PERIOD_TARGET_HOURS:
-            target = f"{today}T{hhmm}"
+        for i in range(cls._PERIOD_SLOT_COUNT):
+            slot_time = start + timedelta(hours=cls._PERIOD_INTERVAL_HOURS * i)
+            target = slot_time.strftime("%Y-%m-%dT%H:%M")
             index = cls._nearest_hourly_index(times, target) if cls._within_hourly_range(times, target) else None
             weather_code = None if index is None else cls._hourly_index_value(hourly, "weather_code", index)
             temperature = None if index is None else cls._hourly_index_value(hourly, "temperature_2m", index)
@@ -286,7 +285,7 @@ class WeatherService:
             )
             results.append(
                 WeatherPeriodOutlook(
-                    period=hhmm,
+                    period=slot_time.strftime("%H:%M"),
                     weather_code=weather_code,
                     temperature_c=temperature,
                     precipitation_probability_percent=precipitation_probability,

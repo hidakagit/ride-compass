@@ -181,6 +181,7 @@ WIND = WeatherConditions(
     observed_at="2026-01-01T00:00",
     weather_code=None,
     is_day=None,
+    sunrise=None,
     sunset=None,
     precipitation_probability_max_percent=None,
     wind_speed_max_ms=None,

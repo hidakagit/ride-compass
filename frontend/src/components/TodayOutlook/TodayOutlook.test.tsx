@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
 import TodayOutlook from "./TodayOutlook";
 
@@ -18,6 +18,7 @@ function makeWeather(overrides: Partial<WeatherConditions>): WeatherConditions {
     observed_at: "2026-08-28T00:00:00Z",
     weather_code: null,
     is_day: null,
+    sunrise: null,
     sunset: null,
     precipitation_probability_max_percent: null,
     wind_speed_max_ms: null,
@@ -63,6 +64,62 @@ describe("TodayOutlook（改善計画T385）", () => {
 
     expect(screen.getByText("18:24")).toBeInTheDocument();
     expect(screen.getByText("日没")).toBeInTheDocument();
+  });
+
+  describe("夜明け前/日没前の切り替え（ユーザー要望「夜明け前なら夜明け時間、日没前なら" +
+    "日没時間をそれぞれ出して」）", () => {
+    // userEvent（内部でreal timerのsetTimeoutに依存）とvi.useFakeTimersを併用すると
+    // タイムアウトするため、setTimeout等はそのままにDate.nowだけを差し替える。
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("現在時刻が夜明け前なら夜明けを表示する", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T04:00:00").getTime());
+      const user = userEvent.setup();
+      render(
+        <TodayOutlook
+          weather={makeWeather({ sunrise: "2026-08-28T05:12", sunset: "2026-08-28T18:24" })}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
+
+      expect(screen.getByText("夜明け")).toBeInTheDocument();
+      expect(screen.getByText("05:12")).toBeInTheDocument();
+      expect(screen.queryByText("日没")).not.toBeInTheDocument();
+    });
+
+    it("現在時刻が夜明け後・日没前なら従来どおり日没を表示する", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00").getTime());
+      const user = userEvent.setup();
+      render(
+        <TodayOutlook
+          weather={makeWeather({ sunrise: "2026-08-28T05:12", sunset: "2026-08-28T18:24" })}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
+
+      expect(screen.getByText("日没")).toBeInTheDocument();
+      expect(screen.getByText("18:24")).toBeInTheDocument();
+      expect(screen.queryByText("夜明け")).not.toBeInTheDocument();
+    });
+
+    it("現在時刻が日没後は日没済みを表示する（今日のsunriseは既に過去のため次の夜明けへは切り替わらない）", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T20:00:00").getTime());
+      const user = userEvent.setup();
+      render(
+        <TodayOutlook
+          weather={makeWeather({ sunrise: "2026-08-28T05:12", sunset: "2026-08-28T18:24" })}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
+
+      expect(screen.getByText("日没")).toBeInTheDocument();
+      expect(screen.getByText("日没済み")).toBeInTheDocument();
+    });
   });
 
   it("降水確率(最大)・風(最大)・気温レンジがある場合はそれぞれ表示する", async () => {

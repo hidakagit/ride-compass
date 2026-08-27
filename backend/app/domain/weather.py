@@ -5,11 +5,13 @@ class WeatherPeriodOutlook(BaseModel):
     """「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、
     ユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は
     荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の
-    やり取りを経て、2時間おき8コマ・"HH:MM"表記に決着）。
-    periodは"06:00"〜"20:00"の代表時刻文字列（weather_service.py: _PERIOD_TARGET_HOURS・
-    _period_outlooks参照。朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・
-    「6時」等の表示ラベルへの整形はfrontend側が担う）。weather_codeの意味・アイコンへの
-    変換はWeatherConditions.weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
+    やり取りを経て、2時間おき8コマ・"HH:MM"表記に決着。さらに次のフォローアップで
+    「現在時刻を含む時間帯から2時間毎」（固定6時始まりではなく現在時刻基準）へ変更）。
+    periodは代表時刻の"HH:MM"文字列（weather_service.py: _period_outlooks参照。現在時刻を
+    2時間単位のグリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。
+    朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの
+    整形はfrontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.
+    weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
     """
 
     period: str
@@ -45,6 +47,11 @@ class WeatherConditions(BaseModel):
     # get_conditions_many（ルート上の各点・未来時刻向け、WindService用）はdailyを
     # 取得していないため常にNoneになる（今日の見通しはルート評価には使わない情報のため）。
     sunset: str | None
+    # 改善計画T385フォローアップ2（ユーザー要望「夜明け前なら夜明け時間、日没前なら
+    # 日没時間をそれぞれ出して」）: 早朝（夜明け前）は遠い日没時刻より近い夜明け時刻の
+    # 方が有益なため追加。どちらを表示するかの判定はfrontend側（TodayOutlook.tsx）が
+    # 現在時刻とsunrise/sunsetを比較して行う（backendは両方の生値を渡すだけ）。
+    sunrise: str | None
     precipitation_probability_max_percent: float | None
     wind_speed_max_ms: float | None
     temperature_max_c: float | None
@@ -56,9 +63,10 @@ class WeatherConditions(BaseModel):
     # get_conditionsのみ埋まる。
     uv_index_max: float | None
     # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の流れが
-    # 分かるものも欲しい」）: 2時間おき8コマ（6時〜20時）の天気アイコン・気温・降水確率の
-    # 並びで「今日の見通し」パネルへ表示する。dailyではなくhourlyのweather_code/is_day/
-    # temperature_2m/precipitation_probabilityから作るため、get_conditionsでのみ埋まり、
-    # get_conditions_manyでは常に空リスト（Noneではなくリストなので、フロント側は
-    # nullチェック無しで.filter/.mapできる）。
+    # 分かるものも欲しい」、さらに後続フォローアップで「現在時刻を含む時間帯から2時間毎」
+    # へ変更）: 現在時刻を2時間グリッドへ切り下げた時刻を起点に2時間おき8コマの天気アイコン・
+    # 気温・降水確率の並びで「今日の見通し」パネルへ表示する。dailyではなくhourlyの
+    # weather_code/is_day/temperature_2m/precipitation_probabilityから作るため、
+    # get_conditionsでのみ埋まり、get_conditions_manyでは常に空リスト（Noneではなく
+    # リストなので、フロント側はnullチェック無しで.filter/.mapできる）。
     today_periods: list[WeatherPeriodOutlook]

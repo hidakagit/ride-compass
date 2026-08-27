@@ -571,7 +571,7 @@ async def test_candidate_aggregates_wind_score_when_weather_available():
         wind_direction_label="北", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
         weather_code=None, is_day=None,
-        sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
+        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
         temperature_max_c=None, temperature_min_c=None,
         uv_index_max=None, today_periods=[],
     )
@@ -1180,7 +1180,7 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
         weather_code=None, is_day=None,
-        sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
+        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
         temperature_max_c=None, temperature_min_c=None,
         uv_index_max=None, today_periods=[],
     )
@@ -1389,7 +1389,7 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
         weather_code=None, is_day=None,
-        sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
+        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
         temperature_max_c=None, temperature_min_c=None,
         uv_index_max=None, today_periods=[],
     )

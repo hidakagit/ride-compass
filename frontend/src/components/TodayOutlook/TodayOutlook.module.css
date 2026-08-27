@@ -23,9 +23,11 @@
 }
 
 /* パネル本体（Popover.Content）。WarningBadge.module.cssの.detailPanelと同じ
-   「フローティングカード」の見た目・z-indexに揃える。 */
+   「フローティングカード」の見た目・z-indexに揃える。改善計画T385フォローアップ2
+   （ユーザー指摘「パネルの横幅をもう少し広げて。スマホ横幅をふさぎ切らないように」）:
+   15.5rem→19rem。max-widthは維持し、狭い画面では画面幅いっぱいにはならないようにする。 */
 .panel {
-  width: 15.5rem;
+  width: 19rem;
   max-width: calc(100vw - 2 * var(--space-3));
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);

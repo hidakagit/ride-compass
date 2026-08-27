@@ -3226,6 +3226,17 @@
             ],
             "title": "Sunset"
           },
+          "sunrise": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sunrise"
+          },
           "precipitation_probability_max_percent": {
             "anyOf": [
               {
@@ -3304,6 +3315,7 @@
           "weather_code",
           "is_day",
           "sunset",
+          "sunrise",
           "precipitation_probability_max_percent",
           "wind_speed_max_ms",
           "temperature_max_c",
@@ -3361,7 +3373,7 @@
           "precipitation_probability_percent"
         ],
         "title": "WeatherPeriodOutlook",
-        "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、\nユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は\n荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の\nやり取りを経て、2時間おき8コマ・\"HH:MM\"表記に決着）。\nperiodは\"06:00\"〜\"20:00\"の代表時刻文字列（weather_service.py: _PERIOD_TARGET_HOURS・\n_period_outlooks参照。朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・\n「6時」等の表示ラベルへの整形はfrontend側が担う）。weather_codeの意味・アイコンへの\n変換はWeatherConditions.weather_codeと同じくfrontend側（weatherCode.ts）に集約する。"
+        "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、\nユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は\n荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の\nやり取りを経て、2時間おき8コマ・\"HH:MM\"表記に決着。さらに次のフォローアップで\n「現在時刻を含む時間帯から2時間毎」（固定6時始まりではなく現在時刻基準）へ変更）。\nperiodは代表時刻の\"HH:MM\"文字列（weather_service.py: _period_outlooks参照。現在時刻を\n2時間単位のグリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。\n朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの\n整形はfrontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.\nweather_codeと同じくfrontend側（weatherCode.ts）に集約する。"
       },
       "WeatherWarnings": {
         "properties": {

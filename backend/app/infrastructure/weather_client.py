@@ -223,8 +223,9 @@ class WeatherClient:
                 "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
                 "precipitation,apparent_temperature,uv_index,weather_code,is_day",
                 # weather_code・is_dayはhourlyにも追加する（改善計画T385フォローアップ、
-                # 「今日の見通し」パネルの天気の流れ表示用。06:00〜20:00の2時間おき8コマを
-                # weather_service.py: _period_outlooksが抜き出す）。
+                # 「今日の見通し」パネルの天気の流れ表示用。現在時刻を2時間グリッドへ
+                # 切り下げた時刻を起点に2時間おき8コマをweather_service.py:
+                # _period_outlooksが抜き出す）。
                 "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
                 "wind_gusts_10m,precipitation,uv_index,apparent_temperature,weather_code,is_day",
                 # 改善計画T385: 「今日の見通し」パネル（日没・今日の降水確率最大・
@@ -240,7 +241,10 @@ class WeatherClient:
                 # 天気アイコンtitleに格下げしたが、title属性はスマホのタップでは実質
                 # 見えないため、今日の見通しパネル（タップで確実に開くPopover）へ
                 # 今日のUV最大値を追加して確実に見えるようにする。
-                "daily": "sunset,precipitation_probability_max,wind_speed_10m_max,"
+                # sunrise（改善計画T385フォローアップ2、ユーザー要望「夜明け前なら夜明け
+                # 時間、日没前なら日没時間をそれぞれ出して」）: 早朝は遠い日没時刻より
+                # 近い夜明け時刻の方が有益なため追加。
+                "daily": "sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,"
                 "temperature_2m_max,temperature_2m_min,uv_index_max",
                 "forecast_days": 2,
                 "timezone": "Asia/Tokyo",

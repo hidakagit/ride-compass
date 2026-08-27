@@ -39,6 +39,7 @@ describe("getCurrentWeather", () => {
       observed_at: "2026-08-14T00:00:00Z",
       weather_code: 1,
       is_day: 1,
+      sunrise: "2026-08-14T05:12",
       sunset: "2026-08-14T18:30",
       precipitation_probability_max_percent: 40,
       wind_speed_max_ms: 6.0,

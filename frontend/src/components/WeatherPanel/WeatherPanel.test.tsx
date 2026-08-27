@@ -17,6 +17,7 @@ function makeWeather(overrides: Partial<WeatherConditions>): WeatherConditions {
     observed_at: "2026-08-14T00:00:00Z",
     weather_code: null,
     is_day: null,
+    sunrise: null,
     sunset: null,
     precipitation_probability_max_percent: null,
     wind_speed_max_ms: null,
