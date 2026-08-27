@@ -1194,14 +1194,19 @@ export default function Home() {
         className={styles.weatherHeader}
         title="風向・風速はルート候補の評価に使われます"
       >
-        <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
-        {/* 警報バッジ＋デバッグアイコンのグループ（UI改善: 上部バーの見切れ対応）。
-            端末幅が狭い・警報の文言が長い等で.weatherHeader全体が入り切らない場合、
-            以前はhtml,body{overflow-x:hidden}（globals.css）によってこのグループが
-            画面外へサイレントに切れて完全に見えなくなっていた。.weatherHeaderを
-            横スクロール可能にした上で、このグループをposition:stickyで右端に固定し、
-            スクロールしても警報バッジが常に見える状態を保つ（「警報の存在に気づけない
-            ことを避ける」という既存の安全側方針、WarningBadge.tsx冒頭コメント参照）。 */}
+        {/* ユーザー指摘（2026-08-28）「上部バーで、固定部分がなるべく見切れないように」:
+            以前は下記.headerActions側だけをposition: sticky; right: 0で常時可視にし、
+            この天候の数値側は既定のflex-shrink（1）のまま.weatherHeaderの残り幅に
+            押し込まれ、入り切らない分はWeatherPanel自身の内部overflow-x: auto
+            （scrollbar-width: noneでスクロールバーの手がかりも無い）へ静かに逃げていた。
+            風向・風速はルート評価の起点（ヘッダー本来の主目的、header自身のtitle参照）
+            であるため、警報バッジより優先して常に見える側へ入れ替える: flex-shrink: 0で
+            常に自然幅を保ち、position: sticky; left: 0で.weatherHeaderの左端に固定する。
+            警報バッジ・デバッグアイコン（.headerActions）は代わりに、入り切らなければ
+            スクロールしないと見えない状態を許容する。 */}
+        <div className={styles.weatherStats}>
+          <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+        </div>
         <div className={styles.headerActions}>
           <WarningBadgeList items={warningBadgeItems} />
           {/* デバッグログの起動アイコン（改善計画T300）。以前は「開発者」タブ内のボタン
