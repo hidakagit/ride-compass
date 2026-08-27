@@ -15,7 +15,6 @@ import type { AxisCatalogResponse } from "@/types/route";
 // スタブにして、テストからlayerVisibilityの実効値を検証できるようにする。
 
 vi.mock("@/components/Map/MapView", () => ({ default: () => null }));
-vi.mock("@/components/LocationControl/LocationControl", () => ({ default: () => null }));
 vi.mock("@/components/MapLayersPanel/MapLayersPanel", () => ({ default: () => null }));
 vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
 vi.mock("@/components/RouteList/RouteList", () => ({ default: () => null }));

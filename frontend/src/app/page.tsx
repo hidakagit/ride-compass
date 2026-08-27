@@ -7,7 +7,6 @@ import { Card } from "@/components/ui/Card/Card";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { Button } from "@/components/ui/Button/Button";
 import MapView from "@/components/Map/MapView";
-import LocationControl, { type OriginButtonState } from "@/components/LocationControl/LocationControl";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllLayersIcon,
@@ -256,28 +255,11 @@ export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
     useLocation();
 
-  // 改善計画T366: 出発地点を地図タップで手動指定する。目的地ボタン（handleDestinationButtonClick）
-  // と同じ3状態循環（未指定→武装→指定済み、武装中はキャンセル可）。「現在地に戻す」は
-  // handleLocateMeを呼び直すだけで良い（geolocation再取得がlocationSourceを"geolocation"へ
-  // 戻す、useLocation.ts参照）。
-  const [originArmed, setOriginArmed] = useState(false);
-  const handleOriginButtonClick = useCallback(() => {
-    if (originArmed) {
-      setOriginArmed(false);
-    } else if (locationSource === "manual") {
-      handleLocateMe();
-    } else {
-      setOriginArmed(true);
-    }
-  }, [originArmed, locationSource, handleLocateMe]);
-  const handleOriginSet = useCallback(
-    (point: Coordinates) => {
-      setManualLocation(point);
-      setOriginArmed(false);
-    },
-    [setManualLocation]
-  );
-  const originState: OriginButtonState = originArmed ? "armed" : locationSource === "manual" ? "manual" : "unset";
+  // 改善計画T372（実機フィードバック「赤ピンの移動方法が分かりにくい」を受けT366の
+  // ボタン武装方式から再設計）: 出発地点は地図上の赤ピン自体をドラッグ&ドロップして
+  // 動かす（MapView.tsx: onOriginSet、マーカーのdragendから呼ばれる）。「現在地に戻す」は
+  // 既存の「現在地に移動」ボタン（handleLocateMe）がそのまま兼ねるため、専用の
+  // ボタン・武装状態はもう持たない。
   // 改善計画T308: 軸カタログ（ramp表示・凡例チップグルーピングを含む）を先頭で取得する。
   // axisVisibility/secondaryAxisCasingLayerIds（下記）・地図チップ組み立てが参照するため、
   // それらより前で宣言する必要がある。取得完了までとエラー時は静的フォールバック
@@ -1435,13 +1417,6 @@ export default function Home() {
   function renderRouteSectionBody() {
     return (
       <>
-        <LocationControl
-          location={location}
-          source={locationSource}
-          originState={originState}
-          onOriginButtonClick={handleOriginButtonClick}
-        />
-
         <RouteForm
           distance={distanceInput}
           onDistanceChange={setDistanceInput}
@@ -1670,12 +1645,6 @@ export default function Home() {
           （生成結果自体は下部「ルート結果」タブ、renderRouteOutcomeSectionBody参照）。 */}
       {isMobile && (
         <div className={styles.mobileActionBar}>
-          <LocationControl
-            location={location}
-            source={locationSource}
-            originState={originState}
-            onOriginButtonClick={handleOriginButtonClick}
-          />
           <RouteForm
             distance={distanceInput}
             onDistanceChange={setDistanceInput}
@@ -1792,8 +1761,7 @@ export default function Home() {
             onDestinationSet={handleDestinationSet}
             onDestinationClear={handleDestinationClear}
             pinPlacementEnabled={routeMode === "destination"}
-            originArmed={originArmed}
-            onOriginSet={handleOriginSet}
+            onOriginSet={setManualLocation}
           />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />

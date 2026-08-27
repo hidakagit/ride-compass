@@ -83,6 +83,27 @@ const MAP_STYLE = "/api/basemap/styles/liberty";
 const ORIGIN_MARKER_COLOR = "#e11d48";
 const ORIGIN_MARKER_FALLBACK_COLOR = "#9ca3af";
 
+// 改善計画T372（実機フィードバック「赤ピンアイコンと実際の地図上現在地アイコンが異なる、
+// 揃えてほしい」）: 出発地点マーカーは以前maplibregl.Markerの既定のしずく形アイコンを
+// 使っていたが、「現在地に移動」ボタン（page.tsx）の十字線+中心ドットのアイコンと形が
+// 揃っていなかった。同じSVG（十字線+中心ドット、地図アプリの現在地アイコンの定番形状）を
+// 白背景の円に乗せて共通化する。しずく形（下端が地点を指す）と違いこの形は左右対称なため、
+// アンカーを"bottom"ではなく"center"にする（地点＝アイコンの中心）。
+function createOriginMarkerElement(color: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.style.cssText =
+    "width:32px; height:32px; border-radius:50%; background:#fff; display:flex; " +
+    "align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4); " +
+    "touch-action:none; cursor:grab;";
+  el.innerHTML =
+    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">` +
+    `<circle cx="12" cy="12" r="3" fill="${color}" />` +
+    `<path d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z" ` +
+    `stroke="${color}" stroke-width="2" stroke-linecap="round" />` +
+    `</svg>`;
+  return el;
+}
+
 // 国土地理院の色別標高図（ラスタタイル、APIキー不要）。地理院タイルはブラウザから直接
 // 埋め込む利用を想定して公開されているため、基礎地図タイルとは異なりバックエンド経由の
 // プロキシは行わない（別オリジンのため、基礎地図タイルとの接続数競合も発生しない）。
@@ -1688,12 +1709,10 @@ interface MapViewProps {
    * 空白地点クリックでの経由地追加を行わない（従来どおり地物ヒット時のみ詳細ポップアップを
    * 表示する、周回モード中は地図上に経由地・目的地ピンを持たせない設計のため）。 */
   pinPlacementEnabled: boolean;
-  /** 改善計画T366: trueの間は次の1タップだけ、地物ヒット判定・経由地追加より先に出発地点を
-   * 設定する（destinationArmedと同じ「次の1タップだけ武装」パターン）。routeModeに関わらず
-   * 常に使える（周回・目的地どちらのモードでも出発地は変えられて良いため、
-   * pinPlacementEnabledのゲート対象外）。 */
-  originArmed: boolean;
-  /** 出発地点を置く1タップで呼ばれる（page.tsx: useLocation().setManualLocation）。 */
+  /** 改善計画T372（実機フィードバック「赤ピンの移動方法が分かりにくい」を受けT366の
+   * ボタン武装方式から再設計）: 出発地点マーカーをドラッグ&ドロップで動かした（dragend）
+   * ときに呼ばれる（page.tsx: useLocation().setManualLocation）。地図アプリで一般的な
+   * 「ピンをつかんで動かす」操作そのものなので説明用のUIを別途持たない。 */
   onOriginSet: (coordinates: Coordinates) => void;
 }
 
@@ -1734,7 +1753,6 @@ export default function MapView({
   onDestinationSet,
   onDestinationClear,
   pinPlacementEnabled,
-  originArmed,
   onOriginSet,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1793,9 +1811,13 @@ export default function MapView({
   const destinationArmedRef = useRef(destinationArmed);
   // 改善計画T365-2: 周回モード中は空白地点クリックでの経由地追加を行わない。
   const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
-  // 改善計画T366: 出発地点の武装状態・コールバックもrefで最新値を読む。
-  const originArmedRef = useRef(originArmed);
+  // 改善計画T372: 出発地点マーカーのdragendコールバックもrefで最新値を読む。
   const onOriginSetRef = useRef(onOriginSet);
+  // trueの間、位置更新effect（下部）がmap.flyTo（カメラ移動）をスキップする。
+  // ドラッグ操作自体で既にその地点が画面内に見えているため、setManualLocation経由で
+  // location/locationSourceが更新された直後に不要なカメラ移動（ズームリセットを含む）を
+  // 起こさないようにするためのワンショットフラグ（dragendハンドラでtrueに立てる）。
+  const skipNextFlyToRef = useRef(false);
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -1861,10 +1883,6 @@ export default function MapView({
   useEffect(() => {
     pinPlacementEnabledRef.current = pinPlacementEnabled;
   }, [pinPlacementEnabled]);
-
-  useEffect(() => {
-    originArmedRef.current = originArmed;
-  }, [originArmed]);
 
   useEffect(() => {
     onOriginSetRef.current = onOriginSet;
@@ -2143,15 +2161,10 @@ export default function MapView({
     // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。改善計画
     // T365-2: 周回モード中（pinPlacementEnabled=false）は空白地点クリックでの経由地追加を
     // 行わず、従来どおり地物ヒット時のみ詳細ポップアップを表示する（周回モードは距離指定の
-    // 8方位探索のみを扱い、地図上に経由地・目的地ピンを持たせない設計）。改善計画T366:
-    // 出発地点の武装は目的地の武装より先に判定する（同時に武装することは無い想定だが、
-    // 「後から押した方を優先する」意味は無く単に判定順を固定するだけ）。routeModeに
-    // 関わらず常に使える（pinPlacementEnabledのゲート対象外）。
+    // 8方位探索のみを扱い、地図上に経由地・目的地ピンを持たせない設計）。改善計画T372:
+    // 出発地点の指定はT366のボタン武装方式からドラッグ&ドロップ方式へ置き換えたため、
+    // ここでの武装チェックは無い（出発地点マーカー自体のdragendハンドラ、下部のuseEffect参照）。
     function handleClick(e: MapMouseEvent) {
-      if (originArmedRef.current) {
-        onOriginSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
-        return;
-      }
       if (destinationArmedRef.current) {
         onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;
@@ -2380,22 +2393,40 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 位置が変わったら地図とマーカーを更新
+  // 位置が変わったら地図とマーカーを更新。改善計画T372: 出発地点マーカーはドラッグで
+  // 動かせる（draggable、実機フィードバック「赤ピンの移動方法が分かりにくい」を受けT366の
+  // ボタン武装方式から置き換え）。dragendでonOriginSet（page.tsx:
+  // setManualLocation）を呼び、位置・locationSourceを更新する。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const applyLocation = () => {
-      map.flyTo({ center: [location.longitude, location.latitude], zoom: 13 });
+      // ドラッグ操作自体で既にその地点が画面内に見えているため、setManualLocation経由の
+      // 更新直後はカメラ移動（ズームリセットを含む）をスキップする。
+      if (skipNextFlyToRef.current) {
+        skipNextFlyToRef.current = false;
+      } else {
+        map.flyTo({ center: [location.longitude, location.latitude], zoom: 13 });
+      }
 
       if (markerRef.current && appliedMarkerSourceRef.current === locationSource) {
         markerRef.current.setLngLat([location.longitude, location.latitude]);
       } else {
         markerRef.current?.remove();
         const color = locationSource === "default" ? ORIGIN_MARKER_FALLBACK_COLOR : ORIGIN_MARKER_COLOR;
-        markerRef.current = new maplibregl.Marker({ color })
+        markerRef.current = new maplibregl.Marker({
+          element: createOriginMarkerElement(color),
+          anchor: "center",
+          draggable: true,
+        })
           .setLngLat([location.longitude, location.latitude])
           .addTo(map);
+        markerRef.current.on("dragend", () => {
+          const lngLat = markerRef.current!.getLngLat();
+          skipNextFlyToRef.current = true;
+          onOriginSetRef.current({ latitude: lngLat.lat, longitude: lngLat.lng });
+        });
         appliedMarkerSourceRef.current = locationSource;
       }
     };
@@ -2406,7 +2437,12 @@ export default function MapView({
   // 改善計画T364: 経由地マーカーを更新（最大でも8件程度のため、差分更新はせず
   // 既存マーカーを全部remove→全部作り直す簡易実装）。現在地マーカー（#e11d48）とは
   // 別色（#2563eb）にし、番号付きの円形divで訪問順序を示す。クリックで即削除する
-  // （確認ダイアログなし、間違えてもすぐ打ち直せるため）。
+  // （確認ダイアログなし、間違えてもすぐ打ち直せるため）。改善計画T372:
+  // touch-action:noneが無いと、地図をドラッグでパンしようとした指の起点がこの
+  // マーカー要素に乗った場合、ブラウザがこの要素自身のタッチ挙動（既定=auto）を
+  // 優先してしまいMapLibre側のパンジェスチャーとして確定しないことがある
+  // （実機フィードバック「地図上スクロールが効かないことがある」で発覚。
+  // .locateButtonが同じ理由で既に持っていた対策と同じもの）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -2419,7 +2455,7 @@ export default function MapView({
         el.style.cssText =
           "width:24px; height:24px; border-radius:50%; background:#2563eb; color:#fff; " +
           "font-size:12px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
-          "cursor:pointer; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4);";
+          "cursor:pointer; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4); touch-action:none;";
         el.addEventListener("click", (event) => {
           event.stopPropagation();
           onWaypointRemoveRef.current(index);
@@ -2446,7 +2482,10 @@ export default function MapView({
 
       const el = document.createElement("div");
       el.textContent = "🏁";
-      el.style.cssText = "font-size:28px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));";
+      // 改善計画T372: touch-action:noneの理由は経由地マーカーと同じ（このコメント直上の
+      // 経由地マーカーのuseEffect参照）。
+      el.style.cssText =
+        "font-size:28px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;";
       el.addEventListener("click", (event) => {
         event.stopPropagation();
         onDestinationClearRef.current();
