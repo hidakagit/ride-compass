@@ -52,6 +52,10 @@ class AxisCatalogEntry(BaseModel):
     # 改善計画T318: falseなら地図上チップ・地図の見え方パネルの両方からこの軸を丸ごと
     # 除外する（domain/axis_definitions.py: AxisDefinition.show_map_iconのdocstring参照）。
     show_map_icon: bool
+    # 改善計画T352: この軸のdifficultyを、ルート地図の色分けモード（frontend
+    # routeStyleModes.ts）の選択肢として動的に使えるかの宣言（domain/axis_definitions.py:
+    # AxisDefinition.supports_route_coloringのdocstring参照）。
+    supports_route_coloring: bool
     # 改善計画T308: この軸が参照する材料を、対応する一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.tsのキーと同じ名前空間）へ
     # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
@@ -88,6 +92,7 @@ async def get_axis_catalog() -> AxisCatalogResponse:
                 chip_label=definition.chip_label,
                 panel_hint=definition.panel_hint,
                 show_map_icon=definition.show_map_icon,
+                supports_route_coloring=definition.supports_route_coloring,
                 primary_attribute_ids=primary_attribute_ids_for(definition),
             )
             for definition in AXIS_DEFINITIONS.values()

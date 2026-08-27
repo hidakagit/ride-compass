@@ -26,18 +26,18 @@ describe("routeStyleModes", () => {
   });
 
   it("データ欠落（プロパティnull）はグレーへ倒してからstep式で色分けする（to-numberのnull→0変換対策）", () => {
-    const wind = getRouteStyleMode("wind");
+    const wind = getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
     expect(wind.colorExpression[0]).toBe("case");
     expect(wind.colorExpression[1]).toEqual(["==", ["get", "wind", ["get", "axis_difficulties"]], null]);
     expect(wind.colorExpression[2]).toBe("#9ca3af");
     expect((wind.colorExpression[3] as unknown[])[0]).toBe("step");
 
-    const gradient = getRouteStyleMode("gradient");
+    const gradient = getRouteStyleMode(ROUTE_STYLE_MODES, "gradient");
     expect(gradient.colorExpression[1]).toEqual(["==", ["get", "gradient_percent"], null]);
   });
 
   it("勾配モードは符号付き（下り〜平坦〜上り）の5カテゴリ+データなし", () => {
-    const gradient = getRouteStyleMode("gradient");
+    const gradient = getRouteStyleMode(ROUTE_STYLE_MODES, "gradient");
     expect(gradient.legend.map((entry) => entry.key)).toEqual([
       "downhill",
       "flat",
@@ -56,7 +56,7 @@ describe("routeStyleModes", () => {
   });
 
   it("凡例タップのフィルタが風モードの各カテゴリで機能する（隣接カテゴリと境界が重ならない）", () => {
-    const wind = getRouteStyleMode("wind");
+    const wind = getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
     const normal = wind.legend.find((entry) => entry.key === "normal");
     expect(normal?.filter).toEqual([
       "all",
@@ -68,7 +68,7 @@ describe("routeStyleModes", () => {
   });
 
   it("路面モードは3値（舗装/未舗装/データなし）を判定値そのままで色分けする", () => {
-    const road = getRouteStyleMode("road");
+    const road = getRouteStyleMode(ROUTE_STYLE_MODES, "road");
     expect(road.legend.map((entry) => entry.key)).toEqual(["paved", "unpaved", "nodata"]);
     // データ欠落（null）はグレーへ倒すのが最初の分岐（to-number変換を挟まない直接比較）
     expect(road.colorExpression[0]).toBe("case");
@@ -84,7 +84,7 @@ describe("routeStyleModes", () => {
   });
 
   it("総合難易度モードはdifficulty(0-100絶対基準)を風モードと同じ3段階で色分けする", () => {
-    const difficulty = getRouteStyleMode("difficulty");
+    const difficulty = getRouteStyleMode(ROUTE_STYLE_MODES, "difficulty");
     expect(difficulty.legend.map((entry) => entry.key)).toEqual(["easy", "normal", "hard", "nodata"]);
     expect(difficulty.colorExpression[1]).toEqual(["==", ["get", "difficulty"], null]);
     const normal = difficulty.legend.find((entry) => entry.key === "normal");
@@ -97,12 +97,12 @@ describe("routeStyleModes", () => {
   });
 
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {
-    expect(isRouteStyleModeId("wind")).toBe(true);
-    expect(isRouteStyleModeId("gradient")).toBe(true);
-    expect(isRouteStyleModeId("road")).toBe(true);
-    expect(isRouteStyleModeId("difficulty")).toBe(true);
-    expect(isRouteStyleModeId("slope")).toBe(false);
-    expect(isRouteStyleModeId("")).toBe(false);
-    expect(isRouteStyleModeId(null)).toBe(false);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "wind")).toBe(true);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "gradient")).toBe(true);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "road")).toBe(true);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "difficulty")).toBe(true);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "slope")).toBe(false);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "")).toBe(false);
+    expect(isRouteStyleModeId(ROUTE_STYLE_MODES, null)).toBe(false);
   });
 });

@@ -50,6 +50,8 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         chip_label=row.chip_label,
         panel_hint=row.panel_hint,
         show_map_icon=row.show_map_icon,
+        time_scope=row.time_scope,
+        supports_route_coloring=row.supports_route_coloring,
         display_override=(
             _DISPLAY_OVERRIDE_ADAPTER.validate_python(row.display_override)
             if row.display_override is not None
@@ -107,6 +109,8 @@ class AxisDefinitionRepository:
             chip_label=definition.chip_label,
             panel_hint=definition.panel_hint,
             show_map_icon=definition.show_map_icon,
+            time_scope=definition.time_scope,
+            supports_route_coloring=definition.supports_route_coloring,
             display_override=(
                 definition.display_override.model_dump(mode="json")
                 if definition.display_override is not None
@@ -129,6 +133,8 @@ class AxisDefinitionRepository:
                 "chip_label": stmt.excluded.chip_label,
                 "panel_hint": stmt.excluded.panel_hint,
                 "show_map_icon": stmt.excluded.show_map_icon,
+                "time_scope": stmt.excluded.time_scope,
+                "supports_route_coloring": stmt.excluded.supports_route_coloring,
                 "display_override": stmt.excluded.display_override,
                 "updated_at": stmt.excluded.updated_at,
             },

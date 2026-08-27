@@ -1366,6 +1366,10 @@
             "type": "boolean",
             "title": "Show Map Icon"
           },
+          "supports_route_coloring": {
+            "type": "boolean",
+            "title": "Supports Route Coloring"
+          },
           "primary_attribute_ids": {
             "items": {
               "type": "string"
@@ -1386,6 +1390,7 @@
           "chip_label",
           "panel_hint",
           "show_map_icon",
+          "supports_route_coloring",
           "primary_attribute_ids"
         ],
         "title": "AxisCatalogEntry"
@@ -1499,6 +1504,20 @@
             "type": "boolean",
             "title": "Show Map Icon",
             "default": true
+          },
+          "time_scope": {
+            "type": "string",
+            "enum": [
+              "always",
+              "night_only"
+            ],
+            "title": "Time Scope",
+            "default": "always"
+          },
+          "supports_route_coloring": {
+            "type": "boolean",
+            "title": "Supports Route Coloring",
+            "default": false
           },
           "display_override": {
             "anyOf": [
@@ -1614,6 +1633,20 @@
             "type": "boolean",
             "title": "Show Map Icon",
             "default": true
+          },
+          "time_scope": {
+            "type": "string",
+            "enum": [
+              "always",
+              "night_only"
+            ],
+            "title": "Time Scope",
+            "default": "always"
+          },
+          "supports_route_coloring": {
+            "type": "boolean",
+            "title": "Supports Route Coloring",
+            "default": false
           },
           "display_override": {
             "anyOf": [

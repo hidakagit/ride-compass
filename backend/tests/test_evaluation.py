@@ -3,6 +3,13 @@ import inspect
 import pytest
 
 from app.domain.attributes import ElevationAttribute
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisDefinition,
+    BreakpointLinearShape,
+    MaterialTerm,
+    time_scoped_weights,
+)
 from app.domain.evaluation import (
     RoutePreference,
     axis_inspector_breakdown,
@@ -14,6 +21,7 @@ from app.domain.evaluation import (
 )
 from app.domain.graph import DirectedEdge
 from app.domain.weather import WeatherConditions
+from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
 # スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
@@ -395,6 +403,61 @@ def test_route_preference_with_weight_returns_self_for_unknown_axis_id():
     result = base.with_weight("no_such_axis", 0.5)
 
     assert result is base
+
+
+def test_route_preference_with_time_scope_zeros_night_only_axis_when_scope_inactive():
+    # 改善計画T352: axis_id"night"の直接ハードコードから、AxisDefinition.time_scope
+    # （実フィクスチャではnightのみ"night_only"）ベースの汎用ロジックへ置き換えた回帰テスト。
+    base = RoutePreference().with_weight("night", 0.7)
+
+    scoped = base.with_time_scope(frozenset())
+
+    assert scoped.weights["night"] == 0.0
+    assert scoped.weights["gradient"] == base.weights["gradient"]  # 他軸は無変更
+
+
+def test_route_preference_with_time_scope_keeps_weight_when_scope_active():
+    base = RoutePreference().with_weight("night", 0.7)
+
+    scoped = base.with_time_scope(frozenset({"night_only"}))
+
+    assert scoped.weights["night"] == 0.7
+    assert scoped.weights == base.weights
+
+
+def test_route_preference_with_time_scope_ignores_axis_not_in_weights():
+    # with_weightのT316フォローアップ（未知axis_idは無変更）と同じ理由: time_scope対象の
+    # 軸自体がweightsに存在しない（内部軸・非公開化済み等）場合、KeyError等では落ちず
+    # 単に無視される。
+    base = RoutePreference(weights={"gradient": 0.15})
+
+    result = base.with_time_scope(frozenset())
+
+    assert result is base
+
+
+def test_time_scoped_weights_works_with_a_single_night_only_axis():
+    # 改善計画T352完了条件: night軸のtime_scope汎用化が、本番相当の13軸フルセット
+    # （tests/realistic_axis_fixtures.py）に依存せず、1軸だけのAXIS_DEFINITIONSでも
+    # 正しく動作することを確認する（フルセット必須という制約が解消されたことの裏付け）。
+    with axis_definitions_snapshot():
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS["only_axis"] = AxisDefinition(
+            axis_id="only_axis",
+            shape=BreakpointLinearShape(
+                terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (1.0, 100.0)]
+            ),
+            default_weight=0.5,
+            label="テスト専用軸",
+            is_published=True,
+            time_scope="night_only",
+        )
+
+        active = time_scoped_weights({"only_axis": 0.7}, frozenset({"night_only"}))
+        inactive = time_scoped_weights({"only_axis": 0.7}, frozenset())
+
+        assert active == {"only_axis": 0.7}
+        assert inactive == {"only_axis": 0.0}
 
 
 def test_compute_cost_from_axis_scores_matches_composite_difficulty_semantics():

@@ -90,6 +90,11 @@ interface CatalogTileInput {
 
 export interface CatalogAxis {
   axis_id: string;
+  // 改善計画T352: 軸自身の表示名（トップレベル、display.labelとは独立）。
+  // display（地図ramp表示の宣言）がkind="none"の軸（例: wind）でも設定される。
+  // routeStyleModesFromCatalogAxes（routeStyleModes.ts）がsupports_route_coloring軸の
+  // ルート色分けモードのラベルとして使う。
+  label: string;
   // コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的）。display.category
   // （地図レイヤーパネルのグルーピング用「terrain」「trafficSafety」等、別語彙）とは
   // 異なる概念。secondaryAxes.tsが「動的」軸（wind等、専用の動的UIを別途持つため
@@ -119,6 +124,10 @@ export interface CatalogAxis {
   // 「表示する」（true相当）として扱う——ビルド時静的json（axis-catalog.json）は
   // backendが必ずtrue/falseを返すため実質常に値を持つが、型上はoptionalにしておく。
   show_map_icon?: boolean;
+  // 改善計画T352: この軸のdifficultyを、ルート地図の色分けモード
+  // （routeStyleModes.ts: routeColorableModesFromCatalogAxes）の選択肢として動的に
+  // 使えるかの宣言。未設定はfalse相当（対象外）として扱う。
+  supports_route_coloring?: boolean;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、

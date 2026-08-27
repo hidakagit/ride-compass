@@ -22,6 +22,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "no_chip_label_axis",
+        label: "正式名テスト",
         display: { kind: "ramp", label: "正式名テスト", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
       },
     ];
@@ -35,6 +36,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "gui_axis",
+        label: "GUI軸の正式名",
         display: { kind: "none", label: "GUI軸の正式名", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
         chip_label: "略称",
         icon_id: "shield",
@@ -52,11 +54,13 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "hidden_axis",
+        label: "非表示軸",
         display: { kind: "none", label: "非表示軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
         show_map_icon: false,
       },
       {
         axis_id: "shown_axis",
+        label: "表示軸",
         display: { kind: "none", label: "表示軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
         show_map_icon: true,
       },
@@ -71,6 +75,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "unset_axis",
+        label: "未設定軸",
         display: { kind: "none", label: "未設定軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
       },
     ];
@@ -88,11 +93,13 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       const catalogAxes: CatalogAxis[] = [
         {
           axis_id: "wind",
+          label: "風",
           category: "動的",
           display: { kind: "none", label: "風", category: "weather", tile_inputs: [], thresholds: [], unit: "", note: "" },
         },
         {
           axis_id: "gradient",
+          label: "勾配",
           category: "推定",
           display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
         },
@@ -111,6 +118,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       const catalogAxes: CatalogAxis[] = [
         {
           axis_id: "car_stress",
+          label: "車の圧迫感",
           display: { kind: "ramp", label: "車の圧迫感", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
         },
       ];

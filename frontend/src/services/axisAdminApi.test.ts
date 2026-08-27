@@ -33,6 +33,8 @@ const axisResponse: AxisDefinitionResponse = {
   category: "推定",
   is_published: false,
   show_map_icon: true,
+  time_scope: "always",
+  supports_route_coloring: false,
 };
 
 const axisPayload: AxisDefinitionPayload = { ...axisResponse };

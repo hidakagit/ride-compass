@@ -223,17 +223,17 @@ class RoadGraphEngine:
         elevation_attributes = materials.elevation_attributes
 
         wind = await self._weather_service.get_conditions(wind_and_night_origin)
-        # 改善計画T173: night軸の動的化。区間ごとの到達時刻は探索中は未確定のため（風と
-        # 同じモジュールdocstringの制約）、出発地点の座標・呼び出し時点を出発時刻の近似として
-        # 採用し、起点が市民薄明の外（夜間）ならnight_weightをそのまま、日中なら0倍にした
-        # RoutePreferenceのコピーを探索コストへ渡す（self._route_preference自体は
-        # 書き換えない、リクエスト間で共有される状態のため）。
+        # 改善計画T173: 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の
+        # 動的化。区間ごとの到達時刻は探索中は未確定のため（風と同じモジュールdocstringの
+        # 制約）、出発地点の座標・呼び出し時点を出発時刻の近似として採用し、起点が市民薄明の
+        # 外（夜間）ならnight_only軸の重みをそのまま、日中なら0倍にしたRoutePreferenceの
+        # コピーを探索コストへ渡す（self._route_preference自体は書き換えない、リクエスト間で
+        # 共有される状態のため）。改善計画T352: axis_id"night"のハードコード分岐を
+        # AxisDefinition.time_scopeによる汎用ロジックへ置き換えた
+        # （RoutePreference.with_time_scope参照）。
         night_active = is_night(wind_and_night_origin, now)
-        search_preference = (
-            self._route_preference
-            if night_active
-            else self._route_preference.with_weight("night", 0.0)
-        )
+        active_scopes = frozenset({"night_only"}) if night_active else frozenset()
+        search_preference = self._route_preference.with_time_scope(active_scopes)
         # 改善計画T218a: 探索用Costへ事前計算済みgradientを組み込む（モジュールdocstring参照）。
         search_edge_costs = self._evaluation_service.evaluate_graph(
             graph, elevation_attributes, surface_attributes, wind=wind, stop_counts=stop_counts,
@@ -540,13 +540,12 @@ class RoadGraphEngine:
         # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
         # （edges=方位ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
         # 引数）のため、これらだけを個別引数として残しcontextを1引数で渡す。
-        # 改善計画T173: night_weightはcontext.night_active（prepare時点の判定、探索コストで
-        # 使ったものと同一）で0倍にする。表示（本関数）と探索コストが食い違わないようにする。
-        preference = (
-            self._route_preference
-            if context.night_active
-            else self._route_preference.with_weight("night", 0.0)
-        )
+        # 改善計画T173: 時間帯依存軸の重みはcontext.night_active（prepare時点の判定、
+        # 探索コストで使ったものと同一）で0倍にする。表示（本関数）と探索コストが
+        # 食い違わないようにする。改善計画T352: 汎用ロジックへ置き換え（上記_build_search_
+        # graph参照）。
+        active_scopes = frozenset({"night_only"}) if context.night_active else frozenset()
+        preference = self._route_preference.with_time_scope(active_scopes)
         segments = []
         # 改善計画T347: 旧classify_bicycle_infrastructureの削除に伴い、bicycle_infra_score
         # （RouteCandidate、専用インフラ区間の距離加重率%）算出用の判定を、

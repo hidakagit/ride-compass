@@ -19,6 +19,7 @@ from app.domain.axis_definitions import (
     default_axis_weights,
     evaluate_axes_scalar,
     evaluate_axis_array,
+    time_scoped_weights,
     topological_axis_order,
 )
 from app.domain.axis_templates import round1_array
@@ -108,6 +109,16 @@ class RoutePreference(BaseModel):
         if axis_id not in self.weights:
             return self
         return RoutePreference(weights={**self.weights, axis_id: value})
+
+    def with_time_scope(self, active_scopes: frozenset[str] = frozenset()) -> "RoutePreference":
+        """time_scope（AXIS_DEFINITIONS参照）が"always"以外の軸のうち、
+        `active_scopes`に含まれないものの重みを0倍にしたコピーを返す
+        （T173のnight動的化を汎用化したもの、改善計画T352。`with_weight`と同じく
+        リクエスト間で共有するインスタンスを汚染しない生成ヘルパー）。"""
+        overridden = time_scoped_weights(self.weights, active_scopes)
+        if overridden == self.weights:
+            return self
+        return RoutePreference(weights=overridden)
 
 
 # 区間インスペクタ（改善計画T146）。「一次属性→二次軸→三次合成コスト」をレジストリの

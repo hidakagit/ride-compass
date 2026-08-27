@@ -6,7 +6,7 @@
 スコープ外。
 """
 
-from typing import Awaitable, TypeVar
+from typing import Awaitable, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -100,6 +100,12 @@ class AxisDefinitionFields(BaseModel):
     # 旧proxy_hint（専用地図レイヤーを持たない軸向けの代役案内文）はこの真偽値ON/OFFに
     # 置き換わり撤去した。
     show_map_icon: bool = True
+    # 改善計画T352: axis_idハードコード分岐を性質ベースの宣言的フィールドへ汎用化した
+    # もの（domain/axis_definitions.py: AxisDefinition.time_scope/
+    # supports_route_coloringのdocstring参照）。AxisComposer.tsx（GUIフォーム）は
+    # display_overrideと同様、現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
+    time_scope: Literal["always", "night_only"] = "always"
+    supports_route_coloring: bool = False
     # display_overrideはTileInputSpecの構造が複雑なため、AxisComposer.tsx（GUIフォーム）は
     # 現時点で編集UIを持たない（domain/axis_definitions.py: AxisDefinition.display_override
     # のdocstring参照）。それでもAPIレベルでは軸スタジオ（管理API）経由で直接設定・参照
@@ -234,6 +240,8 @@ class AxisDefinitionPayload(AxisDefinitionFields):
             chip_label=self.chip_label,
             panel_hint=self.panel_hint,
             show_map_icon=self.show_map_icon,
+            time_scope=self.time_scope,
+            supports_route_coloring=self.supports_route_coloring,
             display_override=self.display_override,
         )
 
@@ -258,6 +266,8 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         chip_label=definition.chip_label,
         panel_hint=definition.panel_hint,
         show_map_icon=definition.show_map_icon,
+        time_scope=definition.time_scope,
+        supports_route_coloring=definition.supports_route_coloring,
         display_override=definition.display_override,
     )
 

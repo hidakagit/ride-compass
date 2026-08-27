@@ -586,6 +586,8 @@ export interface components {
             panel_hint: string | null;
             /** Show Map Icon */
             show_map_icon: boolean;
+            /** Supports Route Coloring */
+            supports_route_coloring: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
         };
@@ -639,6 +641,17 @@ export interface components {
              * @default true
              */
             show_map_icon: boolean;
+            /**
+             * Time Scope
+             * @default always
+             * @enum {string}
+             */
+            time_scope: "always" | "night_only";
+            /**
+             * Supports Route Coloring
+             * @default false
+             */
+            supports_route_coloring: boolean;
             display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**
@@ -685,6 +698,17 @@ export interface components {
              * @default true
              */
             show_map_icon: boolean;
+            /**
+             * Time Scope
+             * @default always
+             * @enum {string}
+             */
+            time_scope: "always" | "night_only";
+            /**
+             * Supports Route Coloring
+             * @default false
+             */
+            supports_route_coloring: boolean;
             display_override?: components["schemas"]["AxisDisplaySpec"] | null;
         };
         /**

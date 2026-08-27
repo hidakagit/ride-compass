@@ -37,7 +37,6 @@ import {
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
-  ROUTE_STYLE_MODES,
   getRouteStyleMode,
   isRouteStyleModeId,
   type RouteStyleModeId,
@@ -442,7 +441,7 @@ export default function Home() {
   const [routeStyleModeId, setRouteStyleModeId] = useStoredState<RouteStyleModeId>(
     ROUTE_STYLE_MODE_STORAGE_KEY,
     DEFAULT_ROUTE_STYLE_MODE_ID,
-    { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(raw) ? raw : null) },
+    { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
   );
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
@@ -696,14 +695,20 @@ export default function Home() {
   );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
-    ? `色分け: ${getRouteStyleMode(routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
+    ? `色分け: ${getRouteStyleMode(axisCatalog.routeStyleModes, routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
     : null;
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
       hasDetail
-        ? [{ label: "", legend: getRouteStyleMode(routeStyleModeId).legend, hiddenKeys: hiddenRouteLegendKeys }]
+        ? [
+            {
+              label: "",
+              legend: getRouteStyleMode(axisCatalog.routeStyleModes, routeStyleModeId).legend,
+              hiddenKeys: hiddenRouteLegendKeys,
+            },
+          ]
         : [],
-    [hasDetail, routeStyleModeId, hiddenRouteLegendKeys],
+    [hasDetail, routeStyleModeId, hiddenRouteLegendKeys, axisCatalog.routeStyleModes],
   );
 
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
@@ -1086,7 +1091,7 @@ export default function Home() {
   // ルート未生成時の案内は、以前は「地図の見え方」から「ルートを作る」への誘導リンクを
   // 持っていたが、この移設によりリンク自体が不要になった（既にこのパネルの中にいるため）。
   function renderRouteColorSectionBody() {
-    const routeStyleMode = getRouteStyleMode(routeStyleModeId);
+    const routeStyleMode = getRouteStyleMode(axisCatalog.routeStyleModes, routeStyleModeId);
     function handleRouteModeSelect(id: RouteStyleModeId) {
       setRouteStyleModeId(id);
       if (!layerVisibility.route) handleLayerToggle("route", true);
@@ -1114,7 +1119,7 @@ export default function Home() {
               value={routeStyleModeId}
               onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
             >
-              {ROUTE_STYLE_MODES.map((mode) => (
+              {axisCatalog.routeStyleModes.map((mode) => (
                 <RadioGroup.Item
                   key={mode.id}
                   value={mode.id}
@@ -1329,6 +1334,7 @@ export default function Home() {
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
             routeLayerOn={layerVisibility.route}
+            routeStyleModes={axisCatalog.routeStyleModes}
             routeStyleModeId={routeStyleModeId}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
             onRegionZoomHintChange={setRegionZoomTooWide}

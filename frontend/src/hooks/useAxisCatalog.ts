@@ -15,6 +15,11 @@ import {
   type RampAxis,
 } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES, secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+import {
+  ROUTE_STYLE_MODES,
+  routeStyleModesFromCatalogAxes,
+  type RouteStyleMode,
+} from "@/components/Map/routeStyleModes";
 
 // ビルド時静的生成物（既存7軸の既定重み、開発中のフォールバック用）。GET /api/axis-catalog
 // （改善計画T269）はこれと同じ形の情報をDBの最新内容から動的に返す。
@@ -33,6 +38,9 @@ export interface AxisCatalog {
   /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む、改善計画T308でフェッチ
    * 対応）。フェッチ完了までとエラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
+  /** ルート地図の色分けモード一覧（改善計画T352、supports_route_coloring軸を動的に含む）。
+   * フェッチ完了までとエラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
+  routeStyleModes: readonly RouteStyleMode[];
   /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを
    * 表す（改善計画T320）。falseの間（未取得・取得失敗）は他フィールドが静的フォールバック
    * （ビルド時の既存7軸スナップショット）である可能性があるため、呼び出し側が
@@ -48,6 +56,7 @@ const FALLBACK_CATALOG: AxisCatalog = {
   rampAxes: RAMP_AXES,
   axisLabels: AXIS_LABELS,
   secondaryAxes: SECONDARY_AXES,
+  routeStyleModes: ROUTE_STYLE_MODES,
   loaded: false,
 };
 
@@ -59,6 +68,7 @@ const FALLBACK_CATALOG: AxisCatalog = {
 function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
   return {
     axis_id: entry.axis_id,
+    label: entry.label,
     category: entry.category,
     display: {
       kind: entry.display.kind,
@@ -84,6 +94,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     chip_label: entry.chip_label,
     panel_hint: entry.panel_hint,
     show_map_icon: entry.show_map_icon,
+    supports_route_coloring: entry.supports_route_coloring,
   };
 }
 
@@ -100,6 +111,7 @@ function buildCatalog(entries: readonly AxisCatalogEntry[]): AxisCatalog {
     rampAxes: rampAxesFromCatalogAxes(catalogAxes),
     axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
+    routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),
     loaded: true,
   };
 }

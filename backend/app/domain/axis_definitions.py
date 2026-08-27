@@ -225,6 +225,28 @@ class AxisDefinition(BaseModel):
     （専用地図レイヤーを持たない軸向けの代役案内文）は、この真偽値ON/OFFで
     「そもそも表示しない」という選択肢自体が持てるようになったことで不要となり撤去した
     （ユーザー判断2026-08-25、改善計画T318）。"""
+    time_scope: Literal["always", "night_only"] = "always"
+    """改善計画T352: この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
+    従来は`road_graph_engine.py`/`openrouteservice_engine.py`のT173ロジックが
+    `"night"`というaxis_idを直接分岐条件にしていた（市民薄明の外なら重みそのまま、
+    日中なら0倍）。両エンジンは「`time_scope != "always"`な軸のうち、現在の
+    `active_scopes`に含まれないものの重みを0倍にする」という汎用ロジックへ置き換わり、
+    このフィールドが唯一の分岐条件になった（`RoutePreference.with_time_scope`、
+    `domain/axis_definitions.py: time_scoped_weights`参照）。将来、別の時間帯依存軸
+    （例: 通勤ラッシュ限定）を追加する場合も、このフィールドへ新しい値
+    （例: "commute_only"）を1つ増やすだけでよく、エンジン側のコード変更は不要。"""
+    supports_route_coloring: bool = False
+    """改善計画T352: この軸のdifficulty（0-100）を、ルート地図の色分けモード
+    （frontend/src/components/Map/routeStyleModes.ts）の選択肢として使えるかの宣言。
+    従来は`RouteStyleModeId`が`"wind"`・`"gradient"`を固定の文字列unionとして
+    ハードコードしていた。true設定の軸は`axis_difficulties[axis_id]`を値source とする
+    汎用の3段階（易しい/普通/難しい）色分けモードとして自動的に選択肢へ現れる
+    （`routeStyleModesFromCatalogAxes`参照）。**`gradient`はこの機構の対象外のまま
+    据え置く**——gradient色分けは向き（登り/下り）を区別するため、difficulty
+    （前処理でabsを取った絶対値）ではなく符号付きの生材料`gradient_percent`を直接
+    読む必要があり、単純な「difficultyを3段階で塗る」という本フラグの汎用機構では
+    表現できない（この非対称性は起票時点[T352]で既に想定済み、`routeStyleModes.ts`の
+    コメント参照）。"""
     display_override: AxisDisplaySpec | None = None
     """地図ramp表示（domain/axis_display.py: axis_display_for()が返す値）の手書き上書き。
     未設定は`derive_ramp_inputs()`による自動導出（不可能ならkind="none"）に委ねる。
@@ -466,6 +488,30 @@ def default_axis_weights() -> dict[str, float]:
         for axis_id, definition in AXIS_DEFINITIONS.items()
         if definition.is_published
     }
+
+
+def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[str]) -> dict[str, float]:
+    """`weights`のうち、`time_scope`が"always"以外（AXIS_DEFINITIONS参照）かつ
+    `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す（改善計画T352、
+    元のT173 night動的化ロジックの汎用化。`weights`自体は変更しない）。
+
+    従来は`road_graph_engine.py`/`openrouteservice_engine.py`が`"night"`という
+    axis_idを直接分岐条件にしていたが、`AxisDefinition.time_scope`という性質ベースの
+    宣言的フィールドを持つことで、エンジン側は「この性質を持つ軸を探して掛け替える」
+    という汎用ロジックだけを持てばよくなった。将来別の時間帯依存軸を追加する際も、
+    その軸のtime_scopeを設定するだけでよく、エンジン側のコード変更は不要。
+
+    `weights`に無いaxis_id（内部軸への重み・非公開化された軸等）は無視する
+    （`RoutePreference.with_weight`の「対象軸が存在しなければ無変更」という既定動作、
+    改善計画T316フォローアップと同じ理由）。"""
+    overrides = {
+        axis_id: 0.0
+        for axis_id, definition in AXIS_DEFINITIONS.items()
+        if axis_id in weights and definition.time_scope != "always" and definition.time_scope not in active_scopes
+    }
+    if not overrides:
+        return dict(weights)
+    return {**weights, **overrides}
 
 
 def car_stress_display_level(difficulty: float | None) -> int | None:

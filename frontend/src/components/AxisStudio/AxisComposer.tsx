@@ -181,6 +181,11 @@ interface Draft {
    * これらが黙って失われていた——エラーも警告も出ない静かなデータ破壊だったため）。 */
   priorityOverrides: AxisDefinitionResponse["priority_overrides"];
   displayOverride: AxisDefinitionResponse["display_override"];
+  /** 改善計画T352: time_scope/supports_route_coloringも同じ理由（このフォームに編集欄を
+   * 持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
+   * AxisDefinition.time_scope/supports_route_coloringのdocstring参照。 */
+  timeScope: AxisDefinitionResponse["time_scope"];
+  supportsRouteColoring: AxisDefinitionResponse["supports_route_coloring"];
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -210,6 +215,8 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     showMapIcon: true,
     priorityOverrides: [],
     displayOverride: null,
+    timeScope: "always",
+    supportsRouteColoring: false,
   };
 }
 
@@ -229,6 +236,8 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     showMapIcon: def.show_map_icon,
     priorityOverrides: def.priority_overrides,
     displayOverride: def.display_override,
+    timeScope: def.time_scope,
+    supportsRouteColoring: def.supports_route_coloring,
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -461,6 +470,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       // 値が消えるのを防ぐ）。
       priority_overrides: draft.priorityOverrides,
       display_override: draft.displayOverride,
+      time_scope: draft.timeScope,
+      supports_route_coloring: draft.supportsRouteColoring,
     };
     setSaving(true);
     try {

@@ -7,8 +7,21 @@ openrouteservice_engine・evaluation_service・route_generator等、ルート生
 テストするファイルの多くは、DBを介さず`RoutePreference()`や`compute_edge_cost`等を直接
 呼ぶため、グローバルな`AXIS_DEFINITIONS`に「car_stress/night/gradient/wind等の実在の
 axis_idを持つ、一貫した軸システム」が入っていることを暗黙に前提にしている
-（`road_graph_engine.py`等が"car_stress"/"night"をハードコード参照するため、単なる
-ダミー軸では代替できない）。
+（`road_graph_engine.py`等が"car_stress"をハードコード参照するため、単なるダミー軸では
+代替できない）。
+
+**改善計画T352の完了確認（2026-08-28）**: 以前はnight・windの重み掛け替えロジックも
+axis_idの直接ハードコードで、この「フルセット必須」の一因だった。T352で`time_scope`・
+`supports_route_coloring`という性質ベースの宣言的フィールドへ汎用化した結果、
+night・windは（car_stressと異なり）**もはや実在を前提としない**——存在しない場合は
+単に「この性質を持つ軸が無い」として何も掛け替えず動作する（KeyError等では落ちない、
+`test_evaluation.py: test_with_time_scope_*`・`test_axis_registry_service.py:
+test_delete_allows_axis_id_after_t352_generalization`で裏付け済み）。それでも本
+autouseフィクスチャ自体は撤去・縮小していない——car_stressのハードコード
+（T352の対象外、`services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`参照）が
+残る以上、多くの既存テストが暗黙に「一貫した軸システム」を前提にし続けており、
+個々のテストを1軸ずつに絞り込む監査は本タスクのスコープ外と判断した
+（改善計画T352完了メモ参照）。
 
 本モジュールは、撤去前のPython literalと同じ構造（axis_id・shape・材料参照・階層）を
 テストコード側に複製した「テスト専用の固定フィクスチャ」。DBの現在値を検証する目的では
@@ -108,6 +121,7 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="向かい風が弱いほど易しい",
         category="動的",
         is_published=True,
+        supports_route_coloring=True,
     ),
     "surface_q": AxisDefinition(
         axis_id="surface_q",
@@ -303,6 +317,7 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         is_published=True,
         icon_id="crescent-moon",
         chip_label="夜間",
+        time_scope="night_only",
     ),
     "bicycle_infra_quality": AxisDefinition(
         axis_id="bicycle_infra_quality",

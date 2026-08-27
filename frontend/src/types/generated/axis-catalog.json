@@ -2,6 +2,8 @@
   "axes": [
     {
       "axis_id": "gradient",
+      "label": "勾配",
+      "supports_route_coloring": false,
       "category": "観測",
       "primary_attribute_ids": [
         "elevation"
@@ -22,6 +24,8 @@
     },
     {
       "axis_id": "wind",
+      "label": "風",
+      "supports_route_coloring": true,
       "category": "動的",
       "primary_attribute_ids": [],
       "icon_id": null,
@@ -40,6 +44,8 @@
     },
     {
       "axis_id": "surface_q",
+      "label": "舗装質",
+      "supports_route_coloring": false,
       "category": "観測",
       "primary_attribute_ids": [
         "surface"
@@ -74,6 +80,8 @@
     },
     {
       "axis_id": "stop_density",
+      "label": "停止密度",
+      "supports_route_coloring": false,
       "category": "観測",
       "primary_attribute_ids": [
         "stop_poi",
@@ -122,6 +130,8 @@
     },
     {
       "axis_id": "car_stress",
+      "label": "車の圧迫感",
+      "supports_route_coloring": false,
       "category": "推定",
       "primary_attribute_ids": [
         "highway",
@@ -274,6 +284,8 @@
     },
     {
       "axis_id": "accident",
+      "label": "事故密度",
+      "supports_route_coloring": false,
       "category": "推定",
       "primary_attribute_ids": [
         "accident_point"
@@ -310,6 +322,8 @@
     },
     {
       "axis_id": "night",
+      "label": "夜間",
+      "supports_route_coloring": false,
       "category": "観測",
       "primary_attribute_ids": [
         "lit",
@@ -357,6 +371,8 @@
     },
     {
       "axis_id": "bicycle_infra_quality",
+      "label": "自転車インフラ",
+      "supports_route_coloring": false,
       "category": "推定",
       "primary_attribute_ids": [
         "cycleway"

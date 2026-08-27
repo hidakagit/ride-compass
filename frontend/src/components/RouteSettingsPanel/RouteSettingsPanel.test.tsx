@@ -34,6 +34,7 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
       chip_label: null,
       panel_hint: null,
       show_map_icon: true,
+      supports_route_coloring: false,
     })),
   };
 }

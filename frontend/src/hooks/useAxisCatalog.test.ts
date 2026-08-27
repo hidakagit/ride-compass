@@ -26,6 +26,7 @@ function catalogResponse(): AxisCatalogResponse {
         chip_label: "舗装",
         panel_hint: null,
         show_map_icon: true,
+        supports_route_coloring: false,
       },
       // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
       // ビルド時静的axis-catalog.jsonには存在しない、実行時APIだけが返す想定。
@@ -59,6 +60,7 @@ function catalogResponse(): AxisCatalogResponse {
         chip_label: null,
         panel_hint: null,
         show_map_icon: true,
+        supports_route_coloring: false,
       },
     ],
   };

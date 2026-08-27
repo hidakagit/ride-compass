@@ -36,6 +36,8 @@ function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDe
     is_published: false,
     priority_overrides: [],
     show_map_icon: true,
+    time_scope: "always",
+    supports_route_coloring: false,
     display_override: null,
     shape: {
       kind: "breakpoint_linear",

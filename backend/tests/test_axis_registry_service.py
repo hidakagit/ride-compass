@@ -364,13 +364,15 @@ async def test_delete_raises_key_error_for_unknown_axis_id(road_graph_session):
         await service.delete("unknown")
 
 
-@pytest.mark.parametrize("axis_id", ["car_stress", "night", "wind", "gradient"])
+@pytest.mark.parametrize("axis_id", ["car_stress", "gradient"])
 async def test_delete_rejects_code_coupled_axis_id_even_when_draft(road_graph_session, axis_id):
-    # 改善計画T350: car_stress/night/wind/gradientはroad_graph_engine.py等が
-    # axis_idを直接ハードコード参照しているため、is_published=False（下書き）でも
-    # 削除できない。改善計画T358（統合レビュー第8回consistency F-2）: 4件とも
-    # `_CODE_COUPLED_AXIS_IDS`の同じ1行の分岐を通るが、car_stress/nightのみが
-    # テストされ、wind/gradientの回帰テストが無かったため4件全件をparametrize化した。
+    # 改善計画T350: car_stress/gradientはroad_graph_engine.py等がaxis_idを直接
+    # ハードコード参照しているため、is_published=False（下書き）でも削除できない。
+    # 改善計画T358（統合レビュー第8回consistency F-2）: `_CODE_COUPLED_AXIS_IDS`の同じ
+    # 1行の分岐を通る全件をparametrize化した。改善計画T352: 当時はnight/windも
+    # このリストに含めていたが、time_scope/supports_route_coloringという宣言的
+    # フィールドへの汎用化に伴いコード結合が解消されたため対象から外した
+    # （下記test_delete_allows_axis_id_after_t352_generalization参照）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition(axis_id, is_published=False))
@@ -387,14 +389,31 @@ async def test_delete_rejects_code_coupled_axis_id_after_unpublish(road_graph_se
     # コード結合axis_idは削除できない。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition("night", is_published=True))
+    await service.create(_definition("gradient", is_published=True))
     await service.create(_definition("other_axis", material="wind_penalty"))
-    await service.unpublish("night")
+    await service.unpublish("gradient")
 
-    with pytest.raises(ValueError, match="night"):
-        await service.delete("night")
+    with pytest.raises(ValueError, match="gradient"):
+        await service.delete("gradient")
 
-    assert "night" in AXIS_DEFINITIONS
+    assert "gradient" in AXIS_DEFINITIONS
+
+
+@pytest.mark.parametrize("axis_id", ["night", "wind"])
+async def test_delete_allows_axis_id_after_t352_generalization(road_graph_session, axis_id):
+    # 改善計画T352: night（time_scope="night_only"）・wind（supports_route_coloring=True）は
+    # 以前`_CODE_COUPLED_AXIS_IDS`に含まれ削除禁止だったが、road_graph_engine.py/
+    # openrouteservice_engine.pyのT173ロジック・frontend routeStyleModes.tsの
+    # ハードコードをそれぞれ宣言的フィールドへ汎用化したことで、axis_idの直接
+    # ハードコードが解消された。削除できる（コード結合が無いことの回帰テスト）。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(_definition(axis_id, is_published=False))
+    await service.create(_definition("other_axis", material="wind_penalty"))
+
+    await service.delete(axis_id)
+
+    assert axis_id not in AXIS_DEFINITIONS
 
 
 async def test_delete_rejects_removing_the_last_remaining_axis(road_graph_session):

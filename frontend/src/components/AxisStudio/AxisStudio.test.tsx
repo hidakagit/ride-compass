@@ -44,6 +44,8 @@ function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefini
     is_published: false,
     priority_overrides: [],
     show_map_icon: true,
+    time_scope: "always",
+    supports_route_coloring: false,
     shape: {
       kind: "breakpoint_linear",
       terms: [{ material: "gradient_percent", weight: 1.0, required: true }],

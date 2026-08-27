@@ -194,6 +194,17 @@ async def bootstrap_engine():
     await _drop_all_public_tables(engine)
 
     yield engine
+
+    # 後片付け（2026-08-28追加）: このフィクスチャを使うテストはapply_pending_migrationsを
+    # 実際に実行するため、schema_migrationsテーブルが実データとして作成・全件記録された
+    # 状態のままengineが破棄される。TEST_DATABASE_URLは実在の永続PostgreSQLのため、
+    # 後始末しないと同じセッション内で後に実行される他のpostgis系テストファイル
+    # （road_graph_session/road_graph_engineフィクスチャはBase.metadata.create_allのみで
+    # schema_migrationsを作らない前提）が、意図せず「migration適用済み」状態を観測してしまう
+    # （test_health.pyのdb_status系テストが、schema_migrations不在＝全マイグレーション未適用を
+    # 前提にしており、この汚染で実際に環境依存で失敗する実障害を確認した）。冒頭と同じ
+    # 全DROPを終了時にも行い、次のテストへ影響を残さない。
+    await _drop_all_public_tables(engine)
     await engine.dispose()
 
 

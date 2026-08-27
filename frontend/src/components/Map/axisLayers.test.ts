@@ -315,6 +315,7 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "gui_created_axis",
+        label: "テスト用GUI軸",
         display: {
           kind: "ramp",
           label: "テスト用GUI軸",
@@ -348,6 +349,7 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "with_display_fields",
+        label: "テスト軸",
         display: {
           kind: "ramp",
           label: "テスト軸",
@@ -371,6 +373,7 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "without_display_fields",
+        label: "テスト軸2",
         display: {
           kind: "ramp",
           label: "テスト軸2",
@@ -392,6 +395,7 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "not_derivable_axis",
+        label: "地図に出ない軸",
         display: { kind: "none", label: "地図に出ない軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
       },
     ];

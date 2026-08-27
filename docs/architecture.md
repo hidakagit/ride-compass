@@ -1566,6 +1566,44 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   `show_map_icon=false`にして表示自体を止める、というのが新しい設計判断）。
   `MapLayersPanel.tsx: renderProxyAxisSection()`も同様に見出し（h3）のみへ簡略化した。
 
+#### `time_scope`/`supports_route_coloring`の追加（改善計画T352、2026-08-28）
+
+`road_graph_engine.py`/`openrouteservice_engine.py`のT173ロジック（市民薄明の外なら
+`night`軸の重みそのまま、日中なら0倍）とfrontend `routeStyleModes.ts`の`RouteStyleModeId`
+（`"wind"`固定）が、それぞれ`"night"`/`"wind"`というaxis_idを直接ハードコード分岐して
+いた。これを`AxisDefinition`の2つの宣言的フィールドへ汎用化した
+（`migrations/0023_axis_definitions_time_scope_route_coloring.sql`でカラム追加、
+既存軸はnight/windのみ明示的にbackfill）。
+
+- **`time_scope: "always" | "night_only"`（既定`"always"`）**: この軸の重みが常に有効か、
+  特定の時間帯でのみ有効かの宣言。`domain/axis_definitions.py: time_scoped_weights()`が
+  `AXIS_DEFINITIONS`を走査し、`time_scope`が`"always"`以外かつ現在の`active_scopes`に
+  含まれない軸の重みを0にする。`RoutePreference.with_time_scope()`（`evaluation.py`）が
+  これをラップし、road_graph_engine.pyの2箇所（探索コスト・区間表示）は`night_active`を
+  `active_scopes`へ変換して渡すだけになった。openrouteservice_engine.pyも同じ関数を
+  区間ごとに呼ぶ形へ置き換えた。将来別の時間帯依存軸（例: 通勤ラッシュ限定）を追加する
+  場合も、このフィールドへ新しい値を1つ増やすだけでよく、エンジン側のコード変更は不要。
+- **`supports_route_coloring: bool`（既定`false`）**: この軸のdifficulty（0-100）を、
+  ルート地図の色分けモード（`routeStyleModes.ts`）の選択肢として使えるかの宣言。
+  `GET /api/axis-catalog`（`AxisCatalogEntry.supports_route_coloring`）経由でフロントへ
+  渡り、`routeStyleModesFromCatalogAxes()`が該当軸から`axis_difficulties[axis_id]`を
+  値sourceとする汎用の3段階（易しい/普通/難しい）色分けモードを動的に組み立てる
+  （`useAxisCatalog`の`routeStyleModes`フィールド、フェッチ完了までは静的axis-catalog.json
+  由来のフォールバック）。windはこの汎用パターンに素直に乗るため対象とした。
+  **`gradient`はこの機構の対象外のまま固定エントリで残る**——向き（登り/下り）を
+  区別するため、difficulty（前処理でabsを取った絶対値）ではなく符号付きの生材料
+  `gradient_percent`を直接読む特殊実装のままであり、単純な「difficultyを3段階で塗る」
+  という本フラグの汎用機構では表現できない。`road`（`road_surface_good`由来）・
+  `difficulty`（全軸の重み付き合成コスト）も同じ理由で固定のまま
+  （`RouteStyleModeId`型は`"gradient" | "road" | "difficulty" | (string & {})`
+  という「固定3種＋任意の軸id」の形に変わった）。
+- **削除禁止ガードの縮小**: `services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`
+  から`night`/`wind`を除いた（`car_stress`/`gradient`はそれぞれ別の理由で対象外のまま
+  残る）。上記の汎用化により、これらのaxis_idを削除してもハードコード参照によるcrashが
+  起きなくなったため。
+- **軸スタジオの編集UI**: `display_override`と同様、現時点で編集UIを持たない
+  （`AxisComposer.tsx`は既存値をpayloadへ素通しするのみ、管理API直接編集のみ対応）。
+
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
 `domain/registry.py`が一次属性（`PrimaryAttributeSpec`）・二次軸（`AxisSpec`）の宣言的な

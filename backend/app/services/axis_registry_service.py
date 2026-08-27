@@ -48,16 +48,24 @@ class AxisDefinitionSyncError(RuntimeError):
     """
 
 
-# 改善計画T350: `AXIS_DEFINITIONS`以外のコード（road_graph_engine.py・
-# openrouteservice_engine.py・frontend routeStyleModes.ts等）がaxis_idを文字列として
-# 直接ハードコード参照している軸。削除されると、is_publishedの状態に関わらず
-# アプリが壊れる（例: car_stress削除でaxis_difficulties.axes.get("car_stress")が
-# Noneになり地図表示のcar_stress_display_levelが常にNone、night削除で
-# 素のKeyErrorが実際に発生した実績あり[2026-08-25]）。is_published（T271、GUI編集の
+# 改善計画T350: `AXIS_DEFINITIONS`以外のコードがaxis_idを文字列として直接ハードコード
+# 参照している軸。削除されると、is_publishedの状態に関わらずアプリが壊れる
+# （例: car_stress削除でaxis_difficulties.axes.get("car_stress")がNoneになり
+# 地図表示のcar_stress_display_levelが常にNone）。is_published（T271、GUI編集の
 # 可否）とは独立の制約で、下書きへ戻した後（unpublish→delete）でも削除できない
-# ようにする。将来、axis_idをハードコード参照するコードが増えた場合はここへ追加する
-# （恒久対応はT352で、性質ベースの宣言的フィールドへ汎用化する予定）。
-_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"car_stress", "night", "wind", "gradient"})
+# ようにする。将来、axis_idをハードコード参照するコードが増えた場合はここへ追加する。
+#
+# 改善計画T352: 以前は`night`（road_graph_engine.py/openrouteservice_engine.pyの
+# T173ロジック）・`wind`（frontend routeStyleModes.tsのRouteStyleModeId）もここに
+# 含めていたが、それぞれ`AxisDefinition.time_scope`・`supports_route_coloring`という
+# 性質ベースの宣言的フィールドへ汎用化したことで、axis_idの直接ハードコードが
+# コードから消えた（削除しても対応するコードが黙って「この性質を持つ軸が無い」として
+# 動作するだけで、KeyError等では落ちない）。`gradient`は対象外のまま据え置く——
+# frontend routeStyleModes.tsのgradient色分けモードは`axis_difficulties.gradient`
+# ではなく生材料`gradient_percent`を直接読む特殊実装のままのため
+# （domain/axis_definitions.py: AxisDefinition.supports_route_coloringのdocstring参照）、
+# 汎用フラグでは代替できていない。
+_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"car_stress", "gradient"})
 
 
 def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:

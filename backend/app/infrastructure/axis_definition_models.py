@@ -60,6 +60,13 @@ class AxisDefinitionRow(Base):
     # 全て「表示する」が現状の挙動のためbackfill不要）。旧proxy_hint（専用地図レイヤーを
     # 持たない軸向けの代役案内文、NULL許容カラム）はこの真偽値へ置き換わり撤去した。
     show_map_icon: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    # 改善計画T352: axis_idハードコード分岐（road_graph_engine.py等のnight判定・
+    # frontend routeStyleModes.tsのwind色分け選択肢）を性質ベースの宣言的フィールドへ
+    # 汎用化したもの。0023 migrationでNOT NULL DEFAULTの追加カラムとして導入
+    # （既存全軸は'always'/falseが移行時点の実際の挙動と一致するため、night/windのみ
+    # 明示的にbackfillした）。
+    time_scope: Mapped[str] = mapped_column(String, nullable=False, server_default="always")
+    supports_route_coloring: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # domain/axis_definitions.py: AxisDefinition.display_override（AxisDisplaySpec）を
     # `model_dump(mode="json")`したJSONオブジェクト。shape_paramsと同じ規約。
     display_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

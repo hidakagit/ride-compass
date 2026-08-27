@@ -30,7 +30,7 @@ import asyncio
 from dataclasses import dataclass
 
 from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M, distance_weighted_accident_density
-from app.domain.axis_definitions import car_stress_display_level
+from app.domain.axis_definitions import car_stress_display_level, time_scoped_weights
 from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
@@ -368,22 +368,24 @@ class OpenRouteServiceEngine:
                 else None
             )
 
-            # 改善計画T173: night軸の動的化。区間の推定到達時刻（wind_penaltyと同じ
-            # arrival_time、追加の計算は行わない）がその地点の市民薄明の外なら
-            # night_weightをそのまま、日中なら0倍にして合成する（night_difficulty自体の
-            # 算出はlit/tunnelタグのみに基づき不変、重みの掛け替えだけで動的化する設計）。
-            # arrival_time不明（風データ取得失敗等）のときは従来どおりnight_weightを
-            # そのまま適用する（安全側、night.pyのlitタグ欠落時の判断と同じ考え方）。
-            # 改善計画T316フォローアップ: night軸が軸スタジオで非公開化されると
-            # base_axis_weights（公開軸のみのキー集合）に"night"キーが無くなるため、
-            # 直接indexingだと素のKeyErrorで落ちる（2026-08-25、road_graph_engine.py側の
-            # RoutePreference.with_weight()と同根の実障害。night軸自体が存在しない以上、
-            # 重みも0.0扱いでよい）。
-            night_weight = (
-                base_axis_weights.get("night", 0.0)
+            # 改善計画T173: 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の
+            # 動的化。区間の推定到達時刻（wind_penaltyと同じarrival_time、追加の計算は
+            # 行わない）がその地点の市民薄明の外なら重みをそのまま、日中なら0倍にして
+            # 合成する（night_difficulty自体の算出はlit/tunnelタグのみに基づき不変、
+            # 重みの掛け替えだけで動的化する設計）。arrival_time不明（風データ取得失敗等）
+            # のときは従来どおり重みをそのまま適用する（安全側、night.pyのlitタグ欠落時の
+            # 判断と同じ考え方）。改善計画T352: axis_id"night"のハードコード分岐を
+            # AxisDefinition.time_scopeによる汎用ロジック（time_scoped_weights）へ
+            # 置き換えた。対象軸が軸スタジオで非公開化されてbase_axis_weightsに
+            # キーが無くなった場合も、time_scoped_weights自体が「weightsに無いaxis_idは
+            # 無視する」ため素のKeyErrorにはならない（2026-08-25の実障害と同根の安全策、
+            # 改善計画T316フォローアップ）。
+            active_scopes = (
+                frozenset({"night_only"})
                 if arrival_time is None or is_night(points[i], arrival_time)
-                else 0.0
+                else frozenset()
             )
+            point_axis_weights = time_scoped_weights(base_axis_weights, active_scopes)
 
             # 改善計画T221 Stage B/C: 材料値の辞書＋axis_idキーの重み辞書を渡す形へ変更
             # （旧: 軸ごとの位置引数15個）。各材料の意味はdomain/axis_definitions.py参照。
@@ -403,7 +405,7 @@ class OpenRouteServiceEngine:
                     "motor_vehicle_no": motor_vehicle_no,
                     **night_materials(tags),
                 },
-                {**base_axis_weights, "night": night_weight},
+                point_axis_weights,
             )
             # car_stress（1-5の生値、RouteSegmentDetail.car_stress・route候補集計用）は
             # 公開軸car_stressのdifficulty(0-100)をcar_stress_display_levelで逆変換して

@@ -9,8 +9,15 @@
 // 将来、トラフィック等「ルート沿いに出す有向・時間変化データ」もここへモードを足す。
 
 import type { LegendEntry } from "./legendFilter";
+import type { CatalogAxis } from "./axisLayers";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 
-export type RouteStyleModeId = "wind" | "gradient" | "road" | "difficulty";
+// 改善計画T352: 以前は"wind"も固定文字列unionの一員だったが、supports_route_coloring
+// フラグを持つ任意の軸（現状はwindのみ）がaxis-catalogから動的に選択肢へ加わるように
+// なったため、固定IDでは表現しきれなくなった。"gradient"/"road"/"difficulty"は
+// 引き続き固定（下記STATIC_MODES参照、動的機構では代替できない理由はROUTE_STYLE_MODES
+// 定義のコメント参照）、動的な軸IDはstringとして許容する。
+export type RouteStyleModeId = "gradient" | "road" | "difficulty" | (string & {});
 
 export interface RouteStyleMode {
   id: RouteStyleModeId;
@@ -65,15 +72,17 @@ function buildSteppedMode(
   };
 }
 
-export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
-  {
-    id: "wind",
-    label: "風の影響",
-    // wind軸のdifficultyは0-100（axis_difficulties.wind、改善計画T309）。以前は連続補間
-    // （0緑〜50アンバー〜100赤）だったが、凡例タップのカテゴリフィルタと対応させるため
-    // 3段階のステップへ変更した（見た目は近い）。
+// 改善計画T352: 難易度(0-100)を汎用の3段階（易しい/普通/難しい）で塗る色分けモードを、
+// supports_route_coloringを持つ軸（axis-catalog由来、現状はwindのみ）から自動生成する。
+// 対象軸はaxis_difficulties[axis_id]（改善計画T309）を値sourceとする——windはこの
+// 汎用パターンに素直に乗る単純な難易度軸のため、以前はハードコードしていた"wind"の
+// エントリをこの汎用機構へ置き換えた。
+export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
+  return {
+    id: axis.axis_id,
+    label: `${axis.label}の影響`,
     ...buildSteppedMode(
-      ["get", "wind", ["get", "axis_difficulties"]],
+      ["get", axis.axis_id, ["get", "axis_difficulties"]],
       [
         { key: "easy", label: "易しい", color: COLOR_EASY },
         { key: "normal", label: "普通", color: COLOR_NORMAL },
@@ -81,7 +90,18 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
       ],
       [33, 66]
     ),
-  },
+  };
+}
+
+// gradient/road/difficultyは汎用機構（supports_route_coloring）の対象外のまま固定で持つ。
+// - gradient: 向き（登り/下り）を区別するため、difficulty（前処理でabsを取った絶対値）
+//   ではなく符号付きの生材料gradient_percentを直接読む特殊実装（domain/axis_definitions.py:
+//   AxisDefinition.supports_route_coloringのdocstring参照）。
+// - road: axis_difficulties由来ではなくroad_surface_good（真偽値、区間ごとの舗装判定）を
+//   読む別系統のモードで、そもそも軸のdifficultyという概念に乗らない。
+// - difficulty: 単一軸ではなく全軸の重み付き合成コスト（総合難易度）を表示するモードで、
+//   特定のaxis_idに紐づかない。
+const STATIC_MODES: RouteStyleMode[] = [
   {
     id: "gradient",
     label: "勾配",
@@ -145,12 +165,31 @@ export const ROUTE_STYLE_MODES: RouteStyleMode[] = [
   },
 ];
 
-export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = "wind";
-
-export function isRouteStyleModeId(value: string | null | undefined): value is RouteStyleModeId {
-  return ROUTE_STYLE_MODES.some((mode) => mode.id === value);
+// 改善計画T352: supports_route_coloring軸（axis-catalog由来、動的）＋STATIC_MODES
+// （gradient/road/difficulty、固定）を組み合わせた、実際に選択肢として使うモード一覧を
+// 組み立てる。useAxisCatalog（hooks/useAxisCatalog.ts）が、実行時API取得結果・
+// ビルド時静的フォールバックの両方からこの関数で同じ形の一覧を作る（axisLayers.ts:
+// rampAxesFromCatalogAxes等と同じ片側importパターン）。
+export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
+  const dynamicModes = axes.filter((axis) => axis.supports_route_coloring).map(routeColorableModeFromAxis);
+  return [...dynamicModes, ...STATIC_MODES];
 }
 
-export function getRouteStyleMode(id: RouteStyleModeId): RouteStyleMode {
-  return ROUTE_STYLE_MODES.find((mode) => mode.id === id) ?? ROUTE_STYLE_MODES[0];
+// ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと
+// 同じ位置付け）。useAxisCatalogがGET /api/axis-catalog取得完了までの間・失敗時に使う。
+export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromCatalogAxes(
+  axisCatalog.axes as CatalogAxis[]
+);
+
+export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = "wind";
+
+export function isRouteStyleModeId(
+  modes: readonly RouteStyleMode[],
+  value: string | null | undefined
+): value is RouteStyleModeId {
+  return modes.some((mode) => mode.id === value);
+}
+
+export function getRouteStyleMode(modes: readonly RouteStyleMode[], id: RouteStyleModeId): RouteStyleMode {
+  return modes.find((mode) => mode.id === id) ?? modes[0];
 }

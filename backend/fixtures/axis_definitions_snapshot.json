@@ -46,7 +46,9 @@
             }
           ]
         },
-        "show_map_icon": false
+        "show_map_icon": false,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 0
     },
@@ -84,7 +86,9 @@
             }
           ]
         },
-        "show_map_icon": false
+        "show_map_icon": false,
+        "time_scope": "always",
+        "supports_route_coloring": true
       },
       "sort_order": 1
     },
@@ -109,7 +113,9 @@
           },
           "material": "surface_good"
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 2
     },
@@ -187,7 +193,9 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 3
     },
@@ -381,7 +389,9 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 4
     },
@@ -443,7 +453,9 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 5
     },
@@ -474,7 +486,9 @@
           ],
           "kind": "flag_sum"
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "night_only",
+        "supports_route_coloring": false
       },
       "sort_order": 6
     },
@@ -512,7 +526,9 @@
           },
           "material": "highway"
         },
-        "show_map_icon": false
+        "show_map_icon": false,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 7
     },
@@ -566,7 +582,9 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 9
     },
@@ -620,7 +638,9 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 10
     },
@@ -645,7 +665,9 @@
           },
           "material": "is_designated"
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 11
     },
@@ -670,7 +692,9 @@
           },
           "material": "motor_vehicle_no"
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 12
     },
@@ -736,7 +760,9 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": true,
+        "time_scope": "always",
+        "supports_route_coloring": false
       },
       "sort_order": 13
     }

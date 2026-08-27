@@ -1660,6 +1660,10 @@ interface MapViewProps {
    * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
+  /** 改善計画T352: ルート色分けモード一覧（axis-catalog由来、supports_route_coloring軸を
+   * 動的に含む）。page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的
+   * フォールバック）をそのまま渡す。 */
+  routeStyleModes: readonly RouteStyleMode[];
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
   onRegionZoomHintChange: (tooWide: boolean) => void;
@@ -1736,6 +1740,7 @@ export default function MapView({
   roadHiddenKeysByMode,
   staticLegendHiddenKeysByAxis,
   routeLayerOn,
+  routeStyleModes,
   routeStyleModeId,
   hiddenRouteLegendKeys,
   onRegionZoomHintChange,
@@ -1822,6 +1827,7 @@ export default function MapView({
     routes,
     selectedRouteId,
     routeLayerOn,
+    routeStyleModes,
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
@@ -1893,6 +1899,7 @@ export default function MapView({
       routes,
       selectedRouteId,
       routeLayerOn,
+      routeStyleModes,
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
@@ -1920,6 +1927,7 @@ export default function MapView({
     routes,
     selectedRouteId,
     routeLayerOn,
+    routeStyleModes,
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
@@ -1955,6 +1963,7 @@ export default function MapView({
       routes,
       selectedRouteId,
       routeLayerOn,
+      routeStyleModes,
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
@@ -2026,7 +2035,7 @@ export default function MapView({
 
     const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
     if (routeLayerOn && selected?.segments) {
-      drawDetailSegments(map, selected.segments, getRouteStyleMode(routeStyleModeId), hiddenRouteLegendKeys);
+      drawDetailSegments(map, selected.segments, getRouteStyleMode(routeStyleModes, routeStyleModeId), hiddenRouteLegendKeys);
     } else {
       hideDetailSegments(map);
     }
@@ -2541,12 +2550,12 @@ export default function MapView({
     if (!map) return;
 
     if (routeLayerOn && selectedCandidate?.segments) {
-      drawDetailSegments(map, selectedCandidate.segments, getRouteStyleMode(routeStyleModeId), hiddenRouteLegendKeys);
+      drawDetailSegments(map, selectedCandidate.segments, getRouteStyleMode(routeStyleModes, routeStyleModeId), hiddenRouteLegendKeys);
     } else {
       hideDetailSegments(map);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, selectedRouteId, routeLayerOn, routeStyleModeId, hiddenRouteLegendKeys]);
+  }, [routes, selectedRouteId, routeLayerOn, routeStyleModes, routeStyleModeId, hiddenRouteLegendKeys]);
 
   // 標高・車ストレス・自転車インフラ・指定路線・トンネル・事故・停止要因POI・補給休憩POI
   // （T101）は、いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
