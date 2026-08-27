@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
@@ -73,6 +73,7 @@ import { debugLog } from "@/lib/debugLog";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredJsonState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
@@ -534,6 +535,14 @@ export default function Home() {
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
   const isMobile = useIsMobile();
+
+  // 地図上の▼ページ送り判定（MapOverlayControls.tsx: usePagedOverflow）が、兄弟要素として
+  // 重なる気象タイムラインパネル（下記.bottomControlRow）の占有高さを知らず、パネル表示中に
+  // 一番下のアイコンチップがパネルの裏へ隠れてしまう不具合への対応。共通の祖先（.mapPane）へ
+  // 実測高さをCSS変数として反映し、MapOverlayControls.module.cssの.wrapper側で読む。
+  const mapPaneRef = useRef<HTMLDivElement>(null);
+  const bottomControlRowRef = useRef<HTMLDivElement>(null);
+  useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
 
   // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
   // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
@@ -1299,7 +1308,7 @@ export default function Home() {
         {/* app-map-paneはpage.module.css側のモバイル向けMapLibre帰属表示オフセット規則
             （.maplibregl-ctrl-bottom-*、globals.cssのapp-debug-console等と同じマーカークラスの
             手法）が参照するグローバルなマーカークラス。 */}
-        <div className={`${styles.mapPane} app-map-pane`}>
+        <div ref={mapPaneRef} className={`${styles.mapPane} app-map-pane`}>
           <MapView
             routes={routes}
             selectedRouteId={selectedRouteId}
@@ -1350,7 +1359,7 @@ export default function Home() {
               時刻依存レイヤーの時刻スライダーを横並びで置く。ボタンはレイヤーの種類を問わず
               常時押せる必要があるため無条件で出し、スライダーは時刻依存レイヤーが1つ以上ON
               のときだけ隣に出す（改善計画T170、設計原則12: 地図の視界を圧迫しない）。 */}
-          <div className={styles.bottomControlRow}>
+          <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
             <button
               type="button"
               onClick={handleClearAllLayers}

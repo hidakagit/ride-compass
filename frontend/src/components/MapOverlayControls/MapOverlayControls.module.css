@@ -39,10 +39,22 @@
    実際の高さがタブバー手前で頭打ちになり、flexboxの既定の縮小（.chipRowViewportは
    flex-shrink未指定=1・overflow: hiddenで自動最小サイズ0のため縮められる、.pageButtonは
    flex-shrink: 0で常に実寸を保つ）が効いて、はみ出す前提の▲▼ボタン自身は必ずこの範囲内に
-   収まる。bottomControlRow（page.module.css）と同じ`--mobile-tabbar-height`底上げパターン。 */
+   収まる。bottomControlRow（page.module.css）と同じ`--mobile-tabbar-height`底上げパターン。
+
+   不具合追記（ユーザー報告「下部のタイムラインバーが出ているときのことが考慮されて
+   いない」）: 上記はタブバー分の底上げのみで、地図下部中央に浮く気象タイムライン
+   パネル（page.tsxの.bottomControlRow、時刻依存レイヤーON時のみ表示・レイヤー数に応じて
+   flex-wrapで1段/2段に高さが変わる）の占有分は考慮していなかった。.wrapperと
+   .bottomControlRowはpage.tsx上で兄弟要素（共通の親は.mapPane）のため、CSSだけでは
+   互いの実寸を参照できない。page.tsx側でResizeObserver（useElementHeightCssVar、
+   frontend/src/hooks/）が.bottomControlRowの実測高さを.mapPaneへ`--bottom-control-row-
+   height`としてinline styleで書き込み、ここで読む。未設定時（JS実行前・SSR）は
+   0pxへフォールバックする。 */
 @media (max-width: 640px) {
   .wrapper {
-    bottom: calc(var(--space-3) + var(--mobile-tabbar-height));
+    bottom: calc(
+      var(--space-3) + var(--mobile-tabbar-height) + var(--bottom-control-row-height, 0px)
+    );
   }
 }
 
