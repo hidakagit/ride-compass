@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "./RouteSettingsPanel";
@@ -112,78 +111,4 @@ describe("RouteSettingsPanel", () => {
     expect(onRoutePreferenceChange).not.toHaveBeenCalled();
   });
 
-  // 改善計画T313回帰テスト: 「バランス以外のルート設定を選択すると、重み配分がMAXに
-  // ならない」不具合。以前はプリセットが言及しない軸をcatalog.defaultWeights（非ゼロ）で
-  // 補っていたため、軸スタジオ経由でプリセット未対応の軸（既存7軸以外）が公開されると、
-  // 非バランスプリセットの重み配分にその軸の既定重みが黙って混入し、対象軸の相対比率が
-  // 意図した値まで上がらなくなっていた。
-  it("非バランスプリセット適用時、プリセットが言及しない軸は0になる（catalog既定重みで薄まらない）", async () => {
-    // 既存7軸に加え、プリセットが一切知らない軸スタジオ発の公開軸`new_axis`を含むカタログ。
-    vi.mocked(getAxisCatalog).mockResolvedValue(
-      catalogResponse([
-        "gradient", "surface_q", "stop_density", "night", "car_stress", "accident", "wind", "new_axis",
-      ]),
-    );
-    const user = userEvent.setup();
-    const onRoutePreferenceChange = vi.fn();
-
-    render(
-      <RouteSettingsPanel
-        hardFilters={DEFAULT_HARD_FILTERS}
-        onHardFiltersChange={vi.fn()}
-        routePreference={{}}
-        onRoutePreferenceChange={onRoutePreferenceChange}
-        overrideEnabled={false}
-        onOverrideEnabledChange={vi.fn()}
-      />,
-    );
-
-    // プリセットボタン自体は静的フォールバックカタログの段階から常に描画されるため、
-    // 実カタログ（new_axisを含む8軸）への切り替わりを軸一覧の描画で待ってからクリックする。
-    await waitFor(() => expect(screen.getByText("ラベル[new_axis]")).toBeInTheDocument());
-    await user.click(screen.getByText("自転車専用道を優先"));
-
-    const applied = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-    expect(applied).toEqual({
-      gradient: 0.1, surface_q: 0.12, stop_density: 0.22, night: 0.0,
-      car_stress: 0.45, accident: 0.08, wind: 0.03, new_axis: 0,
-    });
-  });
-
-  // 改善計画T320回帰テスト: プリセット（自転車専用道を優先/最短時間重視/安全重視）が
-  // 対象とする既存7軸のうち車の圧迫感等が軸スタジオで非公開化されても、ゴーストキーの
-  // 混入自体は既に修正済みだが、プリセットが「1つも該当軸を持たない」状態でボタンを
-  // 有効なまま残すと、押しても実質何も変わらない（zeroFilledのまま）操作になり
-  // ユーザーから見て設計不整合になる。対象軸が0件のプリセットは無効化する。
-  it("プリセットが対象とする軸が1つも公開されていない場合、そのプリセットボタンを無効化する", async () => {
-    // 「自転車専用道を優先」が参照するgradient/surface_q/stop_density/night/car_stress/
-    // accident/windのいずれも含まないカタログ（軸スタジオのGUI作成軸だけが公開されている想定）。
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["new_axis_a", "new_axis_b"]));
-    const user = userEvent.setup();
-    const onRoutePreferenceChange = vi.fn();
-
-    render(
-      <RouteSettingsPanel
-        hardFilters={DEFAULT_HARD_FILTERS}
-        onHardFiltersChange={vi.fn()}
-        routePreference={{}}
-        onRoutePreferenceChange={onRoutePreferenceChange}
-        overrideEnabled={false}
-        onOverrideEnabledChange={vi.fn()}
-      />,
-    );
-
-    await waitFor(() => expect(screen.getByText("ラベル[new_axis_a]")).toBeInTheDocument());
-
-    const presetButton = screen.getByText("自転車専用道を優先");
-    expect(presetButton).toBeDisabled();
-
-    onRoutePreferenceChange.mockClear();
-    await user.click(presetButton);
-    // disabledボタンはクリックしてもonClickが発火しない（applyPresetが呼ばれない）。
-    expect(onRoutePreferenceChange).not.toHaveBeenCalled();
-
-    // バランスプリセット（catalog.defaultWeightsそのもの）は常に対象軸を持つため無効化しない。
-    expect(screen.getByText("バランス")).not.toBeDisabled();
-  });
 });

@@ -11,8 +11,13 @@ import styles from "./RouteSettingsPanel.module.css";
 
 // 一般ユーザー向けルート設定画面（改善計画T267、目論見書4章「①一般ユーザ向け
 // ルーティング設定」）。研究モード（WeightPanel）とは別の導線で、常に表示される
-// メインの操作面に置く。0次(除外)→軸選択+重み→重み配分の可視化→プリセット、という
-// 並びは提示済みのモックアップをそのまま実装したもの。
+// メインの操作面に置く。0次(除外)→軸選択+重み→重み配分の可視化、という並びは
+// 提示済みのモックアップをそのまま実装したもの。
+//
+// プリセット（「バランス」「自転車専用道を優先」等のボタン）は撤去した（2026-08-27
+// ユーザー判断: 重み配分の根拠が不明瞭なため）。既存7軸を名指しした固定の重み値
+// （「叩き台」段階のまま実走検証を経ていなかった）だったが、後日きちんと設計した
+// プロファイル機能として再実装する想定。復元する場合はgit履歴（本コミット直前）参照。
 //
 // 改善計画T306: 以前は軸を観測/推定/動的の3カテゴリへ見出し付きで分けて表示していた
 // （T267の意図的な設計判断）。しかし改善計画T305で軸スタジオのGUIが常にcategory="推定"
@@ -20,7 +25,7 @@ import styles from "./RouteSettingsPanel.module.css";
 // というハードコードされた非対称性が生まれた。この非対称性を無くすため、ルート設定画面の
 // 表示からカテゴリによるグルーピングを撤去し、公開済みの軸を（内部的な観測/推定/動的の
 // 分類に関わらず）フラットに1本のリストとして表示する。軸の`category`データ自体は
-// backend側にそのまま残す（他の用途・将来のプロファイル機能[下記]のために消さない）。
+// backend側にそのまま残す（他の用途・将来のプロファイル機能のために消さない）。
 //
 // 軸の一覧・既定重みはuseAxisCatalog（改善計画T269）経由でGET /api/axis-catalogから
 // 取得する（is_published=Trueのみ）。軸スタジオ（T270）がDBへ追加した軸も、コード変更・
@@ -45,40 +50,6 @@ const STACK_BAR_COLORS = ["#7f77dd", "#1d9e75", "#d85a30", "#d4537e", "#378add",
 function stackBarColorForIndex(index: number): string {
   return STACK_BAR_COLORS[index % STACK_BAR_COLORS.length];
 }
-
-interface Preset {
-  label: string;
-  /** 部分指定可。未言及の軸は0（このプリセットの対象外）で補われる（applyPreset参照）。
-   * カタログにまだ無い将来の軸を差し替え不要のまま安全に無視できる。 */
-  weights: RoutePreferenceWeights;
-}
-
-// 既存7軸向けの重みは叩き台（目論見書8章「要判断事項」、実走検証を経て確定する）。
-// バランスプリセットのみカタログの既定重みをそのまま使うため、コンポーネント内で組み立てる
-// （PRESETS参照）。
-const NON_DEFAULT_PRESETS: readonly Preset[] = [
-  {
-    label: "自転車専用道を優先",
-    weights: {
-      gradient: 0.1, surface_q: 0.12, stop_density: 0.22, night: 0.0,
-      car_stress: 0.45, accident: 0.08, wind: 0.03,
-    },
-  },
-  {
-    label: "最短時間重視",
-    weights: {
-      gradient: 0.05, surface_q: 0.05, stop_density: 0.05, night: 0.0,
-      car_stress: 0.05, accident: 0.0, wind: 0.1,
-    },
-  },
-  {
-    label: "安全重視",
-    weights: {
-      gradient: 0.05, surface_q: 0.05, stop_density: 0.2, night: 0.1,
-      car_stress: 0.3, accident: 0.3, wind: 0.0,
-    },
-  },
-];
 
 function totalWeight(weights: RoutePreferenceWeights): number {
   return Object.values(weights).reduce((sum, w) => sum + (w > 0 ? w : 0), 0);
@@ -126,23 +97,6 @@ export default function RouteSettingsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog.defaultWeights]);
 
-  const PRESETS: readonly Preset[] = [
-    { label: "バランス", weights: catalog.defaultWeights },
-    ...NON_DEFAULT_PRESETS,
-  ];
-
-  // 改善計画T320: NON_DEFAULT_PRESETSは既存7軸を名指しした固定コンテンツのため、
-  // 軸スタジオでその軸群がすべて非公開・削除されると、押しても実質何も変わらない
-  // （zeroFilledのままの重み配分になる）操作になってしまう。「一見選べるのに押しても
-  // 意味を持たない」状態はユーザーから見て設計不整合（何が起きたのか分からない）と
-  // 判断し、プリセットが対象とする軸が1つも現在の公開軸集合に無い場合はボタンを
-  // 無効化し、理由をtitleで示す。1つでも重なりがあれば「部分的には効く」ため有効のまま
-  // にする（applyPreset側の対処により、存在しない軸のキーはzeroFilledから自然に除かれる）。
-  const publishedAxisIds = new Set(Object.keys(catalog.defaultWeights));
-  function presetIsApplicable(preset: Preset): boolean {
-    return Object.keys(preset.weights).some((axisId) => publishedAxisIds.has(axisId));
-  }
-
   // チェックを外した軸の重みを覚えておき、再度チェックしたときに元へ戻す
   // （routePreference自体は常に0を含む「実際に送る値」のため、ここでしか保持できない）。
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({
@@ -159,60 +113,10 @@ export default function RouteSettingsPanel({
     handlePreferenceChange({ ...routePreference, [axisId]: value });
   }
 
-  function applyPreset(preset: Preset) {
-    // 未言及の軸は0（このプリセットの対象外）で補い、全既知axis_idを常に埋めた状態で
-    // backendへ送る（PRESET定義側の部分指定を許すための必須処理、backendのキー完全一致
-    // 検証・RoutePreferenceWeights._check_axis_keys対応）。
-    // 改善計画T313: 以前は0ではなくcatalog.defaultWeightsで補っていたため、軸スタジオで
-    // 新しい公開軸が増えるたびに「自転車専用道を優先」等の非バランスプリセットへその軸の
-    // 既定重みが黙って混入し、重み配分の合計が増えて対象軸（car_stress等）の相対比率が
-    // 意図した値まで上がらなくなる不具合があった（バランスプリセットはweights自体が
-    // catalog.defaultWeightsそのもので全軸を明示済みのため、この変更による影響を受けない）。
-    const zeroFilled: RoutePreferenceWeights = Object.fromEntries(
-      Object.keys(catalog.defaultWeights).map((axisId) => [axisId, 0]),
-    );
-    // 改善計画T320: NON_DEFAULT_PRESETSは既存7軸を名指しした固定コンテンツのため、
-    // 軸スタジオで非公開化・削除された軸のキーがpreset.weights側に残っていることがある。
-    // フィルタせずspreadすると、zeroFilledには無いはずの軸idがmergedに復活し（例:
-    // 全軸非公開でzeroFilled={}でも、プリセットのgradient等がそのままmergedへ残る）、
-    // 重み配分バーの合計計算・送信ペイロードの両方が実際の公開軸集合と食い違う。
-    // catalog.defaultWeightsに存在する（＝現在公開されている）軸のキーだけを反映する。
-    const presetWeightsForPublishedAxes = Object.fromEntries(
-      Object.entries(preset.weights).filter(([axisId]) => axisId in zeroFilled),
-    );
-    const merged: RoutePreferenceWeights = { ...zeroFilled, ...presetWeightsForPublishedAxes };
-    setLastWeights((prev) => {
-      const next = { ...prev };
-      for (const [axisId, weight] of Object.entries(merged)) {
-        if (weight > 0) next[axisId] = weight;
-      }
-      return next;
-    });
-    handlePreferenceChange(merged);
-  }
-
   const total = totalWeight(routePreference);
 
   return (
     <div className="flex flex-col gap-3">
-      <div className={styles.presets}>
-        {PRESETS.map((preset) => {
-          const applicable = presetIsApplicable(preset);
-          return (
-            <button
-              key={preset.label}
-              type="button"
-              className={styles.presetButton}
-              disabled={!applicable}
-              title={applicable ? undefined : "対象の軸が現在すべて非公開のため使用できません"}
-              onClick={() => applyPreset(preset)}
-            >
-              {preset.label}
-            </button>
-          );
-        })}
-      </div>
-
       <div className={styles.hardFilters}>
         <p className={styles.sectionLabel}>除外する道路</p>
         <div className={styles.chipRow}>
