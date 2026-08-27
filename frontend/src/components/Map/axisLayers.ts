@@ -65,6 +65,13 @@ export interface RampAxis {
   /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。未設定は
    * 汎用フォールバック（AxisRampIcon）。 */
   iconId?: string;
+  /** 改善計画: 地図チップの略名（4文字以下、確定命名表どおり、CatalogAxis.chip_label由来）。
+   * 未設定はlabel（正式名）へフォールバック（mapLayers.ts参照）。以前はこのフィールド自体が
+   * 無く、ramp軸駆動の地図チップ（推定グループの軸タイル・地図の見え方パネル双方）が
+   * 常にlabelへフォールバックし続けていた（実機フィードバック「推定軸のアイコングループも
+   * 観測アイコングループのようなサイズにして、他と同じく4文字略字までアイコン含めたい」で
+   * 発覚、2026-08-27）。 */
+  chipLabel?: string;
 }
 
 interface CatalogTileInput {
@@ -155,6 +162,7 @@ export function rampAxesFromCatalogAxes(axes: readonly CatalogAxis[]): RampAxis[
       note: axis.display!.note,
       panelHint: axis.panel_hint ?? undefined,
       iconId: axis.icon_id ?? undefined,
+      chipLabel: axis.chip_label ?? undefined,
     }));
 }
 

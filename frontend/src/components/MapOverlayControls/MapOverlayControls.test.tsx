@@ -300,8 +300,10 @@ describe("MapOverlayControls", () => {
       // レイヤーはある（改善計画T278でsurface_q・nightもkind="ramp"の自動導出表示を
       // 持つようになった）がlayers propに渡されていない軸（舗装質・夜間・停止密度・
       // 事故密度）も同様にdisabledのタイルとして並ぶ（layersに無いので対応するチップを
-      // 引けない）
-      expect(screen.getByRole("button", { name: "舗装質" })).toBeDisabled();
+      // 引けない）。専用レイヤーの無い軸（このブランチ）はaxis.chipLabel（4文字以下の
+      // 略名）で表示されるため、舗装質のみ正式名（3文字）と異なる略名「舗装」（2文字）
+      // で問い合わせる（他3軸はlabelと同じ略名のため見分けが付かない）。
+      expect(screen.getByRole("button", { name: "舗装" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "夜間" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "停止密度" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "事故密度" })).toBeDisabled();

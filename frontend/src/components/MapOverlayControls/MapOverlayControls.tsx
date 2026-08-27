@@ -158,6 +158,13 @@ const PANEL_GAP_PX = 8;
 // 画面下端からのはみ出し対策（下記toggleExpanded参照）をJS側で計算するために数値でも
 // 持つ必要がある）。
 const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot font-size 16pxベース）
+// 内訳パネルの最小幅（実機フィードバック「凡例が見切れる」への対応、2026-08-27）。
+// 画面右端に近いタイル（例: 推定グループ末尾の軸）の▼/▶を押すと、rect.right基準の
+// leftが既にビューポート右端に近く、この最小幅すら確保できないままpanelRect.leftを
+// 使ってしまい、パネルがビューポート外へはみ出して読めなくなっていた。leftをこの分
+// だけビューポート内へ押し戻すことで、パネル自身が必ずこの最小幅ぶんは画面内に収まる
+// ようにする（下記toggleExpanded参照）。
+const MIN_PANEL_WIDTH_PX = 160;
 // グループ本体の開閉キー（改善計画T199、下記toggleExpandedのコメント参照）。
 // floatingパネルを持たないため排他制御の対象外にする。
 const GROUP_VISIBILITY_KEYS = new Set(["group:composite", "group:raw", "group:dynamic"]);
@@ -510,7 +517,15 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
       if (row) {
         const rect = row.getBoundingClientRect();
         const top = anchor === "down" ? rect.bottom + PANEL_GAP_PX : rect.top;
-        const left = anchor === "down" ? rect.left : rect.right + PANEL_GAP_PX;
+        const rawLeft = anchor === "down" ? rect.left : rect.right + PANEL_GAP_PX;
+        // 画面右端からのはみ出し対策（実機フィードバック「凡例が見切れる」への対応）。
+        // 画面右端に近いタイル（推定グループ末尾の軸等）だとrawLeftが既にビューポート
+        // 右端に近く、下のmaxWidth計算のMath.max(160, ...)フロアにより最小幅160pxが
+        // 強制されてもleft自体を動かさないままだとパネルがビューポート外へはみ出して
+        // しまう。leftをこの分だけ画面内へ押し戻し、パネルが必ずMIN_PANEL_WIDTH_PXぶん
+        // 画面内に収まるようにする（画面幅自体がそれより狭い極端なケースはPANEL_GAP_PX
+        // まで詰める）。
+        const left = Math.min(rawLeft, Math.max(PANEL_GAP_PX, window.innerWidth - MIN_PANEL_WIDTH_PX - PANEL_GAP_PX));
         // 画面下端からのはみ出し対策（実機フィードバック「スクロールできないことがある」）。
         // position: fixedのためtopが画面下端に近いと、CSS既定の最大高さ（16rem）ぶんが
         // ビューポート外へはみ出してしまい、パネル自身のoverflow-y: autoでスクロールしても
@@ -522,7 +537,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
         const maxHeight = Math.max(120, Math.min(DETAIL_PANEL_MAX_HEIGHT_PX, availableHeight));
         setPanelRects((prev) => ({
           ...prev,
-          [id]: { top, left, maxWidth: Math.max(160, window.innerWidth - left - PANEL_GAP_PX), maxHeight },
+          [id]: { top, left, maxWidth: Math.max(MIN_PANEL_WIDTH_PX, window.innerWidth - left - PANEL_GAP_PX), maxHeight },
         }));
       }
     }
@@ -823,7 +838,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
           key={key}
           Icon={Icon}
           label={axis.label}
-          chipLabel={axis.label}
+          chipLabel={axis.chipLabel}
           active={false}
           disabled
           onTap={() => {}}

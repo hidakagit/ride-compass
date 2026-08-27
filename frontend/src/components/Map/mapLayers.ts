@@ -307,6 +307,7 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     (axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       label: axis.label,
+      chipLabel: axis.chipLabel,
       kind: "static",
       category: axis.category as MapLayerCategory,
       // ramp軸は定義上「一次属性（tile_inputs）を重み付けで合成した二次軸スコア」
