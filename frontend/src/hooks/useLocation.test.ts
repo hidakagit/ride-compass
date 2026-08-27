@@ -97,6 +97,53 @@ describe("useLocation", () => {
     expect(result.current.locating).toBe(false);
   });
 
+  // 改善計画T366: 地図タップによる出発地点の手動指定。
+  describe("setManualLocation", () => {
+    it("locationとlocationSourceを更新する", () => {
+      const { result } = renderHook(() => useLocation());
+
+      act(() => {
+        result.current.setManualLocation({ latitude: 35.6812, longitude: 139.7671 });
+      });
+
+      expect(result.current.location).toEqual({ latitude: 35.6812, longitude: 139.7671 });
+      expect(result.current.locationSource).toBe("manual");
+    });
+
+    it("マウント時の自動取得がまだ未解決のまま手動指定した後、遅れて解決しても手動指定を上書きしない", () => {
+      const { result } = renderHook(() => useLocation());
+      expect(calls).toHaveLength(1); // マウント時取得はまだ未解決
+
+      act(() => {
+        result.current.setManualLocation({ latitude: 35.6812, longitude: 139.7671 });
+      });
+
+      act(() => {
+        calls[0].success(makePosition(1, 1));
+      });
+
+      expect(result.current.location).toEqual({ latitude: 35.6812, longitude: 139.7671 });
+      expect(result.current.locationSource).toBe("manual");
+    });
+
+    it("手動指定後にhandleLocateMeを呼ぶとgeolocationへ戻る", () => {
+      const { result } = renderHook(() => useLocation());
+      act(() => {
+        result.current.setManualLocation({ latitude: 35.6812, longitude: 139.7671 });
+      });
+
+      act(() => {
+        result.current.handleLocateMe();
+      });
+      act(() => {
+        calls[calls.length - 1].success(makePosition(34.6937, 135.5023));
+      });
+
+      expect(result.current.location).toEqual({ latitude: 34.6937, longitude: 135.5023 });
+      expect(result.current.locationSource).toBe("geolocation");
+    });
+  });
+
   // locationReady（実機フィードバック「天候がすぐ出てその後リフレッシュされる」対応、
   // page.tsxの天候・警報等フェッチがこのフラグで「DEFAULT_LOCATIONぶんの使い捨て
   // リクエスト」を発行しないよう待ち合わせる）。

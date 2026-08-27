@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import type { LocationSource } from "@/types/route";
 import LocationControl from "./LocationControl";
 
@@ -7,6 +8,8 @@ function baseProps() {
   return {
     location: { latitude: 35.123456, longitude: 139.654321 },
     source: "geolocation" as LocationSource,
+    originState: "unset" as const,
+    onOriginButtonClick: vi.fn(),
   };
 }
 
@@ -14,6 +17,7 @@ describe("LocationControl", () => {
   it.each([
     ["geolocation" as LocationSource, "現在地[取得済み]"],
     ["default" as LocationSource, "初期地点[東京・王子]"],
+    ["manual" as LocationSource, "指定地点"],
   ])("sourceが%sのとき「%s」が表示される", (source, label) => {
     render(<LocationControl {...baseProps()} source={source} />);
     // ラベルに含まれる[]は正規表現の特殊文字（文字クラス）のためエスケープしてから使う
@@ -40,6 +44,27 @@ describe("LocationControl", () => {
         "title",
         "出発地点: 現在地[取得済み] (35.12346, 139.65432)"
       );
+    });
+  });
+
+  describe("改善計画T366: 出発地点の手動指定ボタン", () => {
+    it.each([
+      ["unset" as const, "出発地点を指定（地図をタップ）"],
+      ["armed" as const, "地図をタップして出発地点を指定（タップでキャンセル）"],
+      ["manual" as const, "現在地に戻す"],
+    ])("originStateが%sのときボタンのアクセシブルネームが「%s」になる", (originState, label) => {
+      render(<LocationControl {...baseProps()} originState={originState} />);
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    });
+
+    it("ボタン押下でonOriginButtonClickが呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onOriginButtonClick = vi.fn();
+      render(<LocationControl {...baseProps()} onOriginButtonClick={onOriginButtonClick} />);
+
+      await user.click(screen.getByRole("button", { name: "出発地点を指定（地図をタップ）" }));
+
+      expect(onOriginButtonClick).toHaveBeenCalledTimes(1);
     });
   });
 });

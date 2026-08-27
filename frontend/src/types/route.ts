@@ -17,9 +17,11 @@ type Schemas = components["schemas"];
 
 export type Coordinates = Schemas["Coordinates"];
 
-// フロント専用（位置情報の出所）。APIには現れない。手動入力は撤去済み（改善計画T35）のため
-// "manual"は持たない。
-export type LocationSource = "geolocation" | "default";
+// フロント専用（位置情報の出所）。APIには現れない。緯度経度の手書きテキスト入力は撤去済み
+// （改善計画T35）だが、改善計画T366で地図タップによる出発地点の手動指定を再導入したため
+// "manual"を持つ（T35が撤去したのはテキスト欄という入力方式であり、手動指定という概念自体
+// ではない）。
+export type LocationSource = "geolocation" | "default" | "manual";
 
 export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
   geometry: GeoJSON.LineString;

@@ -8657,6 +8657,50 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
     新規テスト6件を追加。frontend全体693件成功、tsc/eslintクリーン。実機
     （dev server）でも周回⇔目的地の往復・目的地の武装/設定/解除サイクルを確認済み。
 
+### - [x] T366. 出発地点を地図タップで手動指定できるようにする 規模M（2026-08-27完了）
+
+- 背景: T364/T365で経由地・目的地を地図タップで指定できるようになったが、出発地点は
+  依然として現在地（geolocation）または既定地点（王子）に固定されていた。ユーザー要望
+  「出発地も指定できるようにしたい」（2026-08-27）。緯度経度のテキスト入力欄は改善計画
+  T35でモバイル実機フィードバックにより撤去済みだが、これは入力方式（テキスト欄）の
+  問題であり、出発地を手動で変えられること自体を否定するものではない。
+- UI設計方針（ユーザー選択、2026-08-27）: 目的地機能で確立した「専用ボタン押下→次の
+  1タップで地図上の地点を指定→解除/リセット」という操作感を出発地にも適用する
+  （地図上に新規の丸ボタンを追加する案・現在地ピンをドラッグして移動する案は不採用）。
+  ボタンは`LocationControl`（「出発地点: …」表示のコンポーネント）に追加する。
+  指定中は既存の現在地マーカー（赤ピン）がそのままその地点へ移動する（新規マーカー種別は
+  追加しない）。「現在地に戻す」操作で`handleLocateMe`を再実行し、geolocationへ戻す。
+- 対応方針:
+  1. `types/route.ts`: `LocationSource`に`"manual"`を追加（T35が撤去したのはテキスト欄
+     という入力方式であり、手動指定という概念自体ではない、という整理をコメントに残す）。
+  2. `useLocation.ts`: `setManualLocation(point)`を追加。`location`/`locationSource`
+     ("manual")を更新し、マウント時の非同期geolocation取得がまだ解決していない場合に
+     手動指定を上書きしてしまわないよう、`handleLocateMe`と同じ`latestGeolocationRequestId`
+     無効化パターンを使う。
+  3. `LocationControl.tsx`: `originState`("unset"|"armed"|"manual")・
+     `onOriginButtonClick`をpropsに追加。RouteFormの目的地ボタンと同じ3状態循環
+     （未指定→武装→指定済み→武装中はキャンセル可）。指定済み時は「現在地に戻す」を押すと
+     `handleLocateMe`を呼ぶ形にする（page.tsx側でクリック1つに集約する）。
+  4. `MapView.tsx`: `originArmed`/`onOriginSet`propsを追加し、`handleClick`の先頭
+     （`destinationArmedRef`のチェックと同じ位置）で武装中は地物ヒット判定を迂回して
+     出発地点を設定する。出発地の指定はroute_modeに関わらず常に使えるようにする
+     （`pinPlacementEnabled`によるゲートの対象外、周回モードでも目的地モードでも出発地は
+     変えられて良いため）。
+  5. `page.tsx`: `originArmed` stateとクリックサイクルのハンドラを追加し、
+     `LocationControl`（デスクトップ・モバイル両方の呼び出し）・`MapView`へ配線する。
+  - `types/route.ts`の`LocationSource`に`"manual"`を追加。`useLocation.ts`に
+    `setManualLocation(point)`を追加（`handleLocateMe`と同じリクエストID無効化パターンで、
+    マウント時の自動取得が後から解決しても手動指定を上書きしない）。
+  - テスト: `useLocation.test.ts`に`setManualLocation`関連3件、
+    `LocationControl.test.tsx`にoriginState別ラベル・クリック配線の新規テスト5件を追加。
+    frontend全体698件成功（既存の無関係な失敗3件——`evaluationAxes.test.ts`の
+    `bicycle_infra_quality`欠落・`regionApi.test.ts`のタイル世代v16/v17不一致——は
+    T353時点からの既存drift、本タスクとは無関係と確認しbackground taskとして別途起票）。
+    tsc/eslintクリーン。実機（dev server）で武装→地図タップ→指定済み表示→
+    「現在地に戻す」（このBrowserペイン環境ではgeolocation権限が無く失敗するが、
+    既存のhandleLocateMeのエラー表示が正しく出ることを確認、配線自体は正しい）の
+    一連のサイクルを確認済み。
+
 ---
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の

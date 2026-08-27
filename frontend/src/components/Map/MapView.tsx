@@ -1677,6 +1677,13 @@ interface MapViewProps {
    * 空白地点クリックでの経由地追加を行わない（従来どおり地物ヒット時のみ詳細ポップアップを
    * 表示する、周回モード中は地図上に経由地・目的地ピンを持たせない設計のため）。 */
   pinPlacementEnabled: boolean;
+  /** 改善計画T366: trueの間は次の1タップだけ、地物ヒット判定・経由地追加より先に出発地点を
+   * 設定する（destinationArmedと同じ「次の1タップだけ武装」パターン）。routeModeに関わらず
+   * 常に使える（周回・目的地どちらのモードでも出発地は変えられて良いため、
+   * pinPlacementEnabledのゲート対象外）。 */
+  originArmed: boolean;
+  /** 出発地点を置く1タップで呼ばれる（page.tsx: useLocation().setManualLocation）。 */
+  onOriginSet: (coordinates: Coordinates) => void;
 }
 
 export default function MapView({
@@ -1715,6 +1722,8 @@ export default function MapView({
   onDestinationSet,
   onDestinationClear,
   pinPlacementEnabled,
+  originArmed,
+  onOriginSet,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -1768,6 +1777,9 @@ export default function MapView({
   const destinationArmedRef = useRef(destinationArmed);
   // 改善計画T365-2: 周回モード中は空白地点クリックでの経由地追加を行わない。
   const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
+  // 改善計画T366: 出発地点の武装状態・コールバックもrefで最新値を読む。
+  const originArmedRef = useRef(originArmed);
+  const onOriginSetRef = useRef(onOriginSet);
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -1833,6 +1845,14 @@ export default function MapView({
   useEffect(() => {
     pinPlacementEnabledRef.current = pinPlacementEnabled;
   }, [pinPlacementEnabled]);
+
+  useEffect(() => {
+    originArmedRef.current = originArmed;
+  }, [originArmed]);
+
+  useEffect(() => {
+    onOriginSetRef.current = onOriginSet;
+  }, [onOriginSet]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -2107,8 +2127,15 @@ export default function MapView({
     // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。改善計画
     // T365-2: 周回モード中（pinPlacementEnabled=false）は空白地点クリックでの経由地追加を
     // 行わず、従来どおり地物ヒット時のみ詳細ポップアップを表示する（周回モードは距離指定の
-    // 8方位探索のみを扱い、地図上に経由地・目的地ピンを持たせない設計）。
+    // 8方位探索のみを扱い、地図上に経由地・目的地ピンを持たせない設計）。改善計画T366:
+    // 出発地点の武装は目的地の武装より先に判定する（同時に武装することは無い想定だが、
+    // 「後から押した方を優先する」意味は無く単に判定順を固定するだけ）。routeModeに
+    // 関わらず常に使える（pinPlacementEnabledのゲート対象外）。
     function handleClick(e: MapMouseEvent) {
+      if (originArmedRef.current) {
+        onOriginSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        return;
+      }
       if (destinationArmedRef.current) {
         onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;

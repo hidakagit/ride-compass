@@ -18,6 +18,11 @@ export interface UseLocationResult {
   locating: boolean;
   locateError: string | null;
   handleLocateMe: () => void;
+  /** 改善計画T366: 地図タップで出発地点を手動指定する（MapView.tsx: originArmed経由）。
+   * locationSourceを"manual"にし、まだ解決していないマウント時の自動取得や進行中の
+   * handleLocateMe呼び出しが後から上書きしないようリクエストIDを無効化する
+   * （handleLocateMeと同じ「後発の明示操作を優先する」パターン）。 */
+  setManualLocation: (point: Coordinates) => void;
 }
 
 // 位置情報の取得・保持を一箇所に集約するフック（マウント時の自動取得／地図上の「現在地に
@@ -102,6 +107,17 @@ export function useLocation(): UseLocationResult {
     );
   }, []);
 
+  // 改善計画T366: 地図タップによる出発地点の手動指定。マウント時の自動取得・
+  // handleLocateMeによる再取得は非同期のため、手動指定した後にそれらが遅れて解決して
+  // 上書きしてしまわないよう、handleLocateMeと同じリクエストID無効化を行う。
+  const setManualLocation = useCallback((point: Coordinates) => {
+    latestGeolocationRequestId.current += 1;
+    setLocation(point);
+    setLocationSource("manual");
+    setLocating(false);
+    setLocateError(null);
+  }, []);
+
   return {
     location,
     locationSource,
@@ -109,5 +125,6 @@ export function useLocation(): UseLocationResult {
     locating,
     locateError,
     handleLocateMe,
+    setManualLocation,
   };
 }
