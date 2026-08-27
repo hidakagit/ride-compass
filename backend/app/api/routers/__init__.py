@@ -15,6 +15,9 @@
   認可不要。一般向けルート設定画面がGUI編集済みの軸を再デプロイなしに取得するために使う）
 - material_catalog.py: /api/material-catalog（材料カタログの読み取り専用API、改善計画T277。
   認可不要。軸スタジオの材料選択候補を、材料自体の追加はコード変更のみのまま動的取得させる）
+- debug_admin.py: /api/admin/debug（debug_modeのランタイム切替・直近ログ取得、改善計画
+  T378。axis_admin.pyと同じHTTP Basic認証が必要。本番でSSHせずに一時的なDEBUGログ
+  取得を行うための運用API）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。
 """
@@ -26,6 +29,7 @@ from app.api.routers import (
     axis_admin,
     axis_catalog,
     basemap,
+    debug_admin,
     health,
     material_catalog,
     region,
@@ -43,3 +47,4 @@ api_router.include_router(basemap.router)
 api_router.include_router(axis_admin.router)
 api_router.include_router(axis_catalog.router)
 api_router.include_router(material_catalog.router)
+api_router.include_router(debug_admin.router)

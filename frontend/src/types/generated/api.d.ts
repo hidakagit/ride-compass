@@ -482,6 +482,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/debug/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Debug Mode */
+        get: operations["read_debug_mode_api_admin_debug_mode_get"];
+        put?: never;
+        /**
+         * Update Debug Mode
+         * @description debug_modeをランタイムで切り替える（`.env`は書き換えない、プロセス再起動不要）。
+         *
+         *     再起動・再デプロイのたびに環境変数の値（既定false）へ自動的に戻る
+         *     （debug_control.pyのdocstring参照。戻し忘れのリスクを構造的に避ける設計）。
+         */
+        post: operations["update_debug_mode_api_admin_debug_mode_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/debug/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Recent Logs
+         * @description 直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。
+         *
+         *     `contains`で部分一致フィルタ（例: T318調査の`distance filter rejected`）、
+         *     `limit`でフィルタ後の末尾N件に絞り込める。debug_modeがOFFの間はDEBUGレベルの
+         *     行自体がそもそも記録されない点に注意（先に`POST /mode`で有効化すること）。
+         */
+        get: operations["read_recent_logs_api_admin_debug_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -781,6 +829,16 @@ export interface components {
             latitude: number;
             /** Longitude */
             longitude: number;
+        };
+        /** DebugModeRequest */
+        DebugModeRequest: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** DebugModeResponse */
+        DebugModeResponse: {
+            /** Debug Mode */
+            debug_mode: boolean;
         };
         /**
          * FlagSumShape
@@ -2083,6 +2141,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaterialValuesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_debug_mode_api_admin_debug_mode_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugModeResponse"];
+                };
+            };
+        };
+    };
+    update_debug_mode_api_admin_debug_mode_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DebugModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugModeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_recent_logs_api_admin_debug_logs_get: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+                contains?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
                 };
             };
             /** @description Validation Error */
