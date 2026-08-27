@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
+import type { WeatherConditions } from "@/types/weather";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（openrouteservice/Open-Meteo/
 // OpenFreeMap）」には依存しない。APIコントラクトの正しさはCIのapi-contractジョブ
@@ -83,14 +84,36 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
   };
 }
 
-export function weatherConditionsFixture() {
+// 戻り値へWeatherConditions型注釈を付ける（改善計画T385フォローアップ2のCI障害を受けて追加）:
+// このフィクスチャは型注釈が無かったためbackendのWeatherConditionsへ新規フィールドを追加
+// しても構造的部分型でコンパイルが通ってしまい、フィールド欠落に気づけなかった。
+// TodayOutlook.tsx側は「today_periodsは常に配列（Noneではない）」というbackend契約を
+// 前提に`.length`へ無条件アクセスするため、このフィクスチャがtoday_periods自体を
+// 持たない（undefined）とE2E実行時にTypeErrorで描画が丸ごと落ちる
+// （「element was detached from the DOM, retrying」の形でCIに現れた）。型注釈により
+// 今後のフィールド追加時はtscがこのフィクスチャの更新漏れを検知する。
+export function weatherConditionsFixture(): WeatherConditions {
   return {
     temperature_c: 18.5,
+    apparent_temperature_c: null,
     wind_speed_ms: 2.1,
     wind_direction_deg: 90,
     wind_direction_label: "東",
+    wind_gusts_ms: null,
     precipitation_probability_percent: 10,
+    precipitation_mm: null,
+    uv_index: null,
     observed_at: new Date().toISOString(),
+    weather_code: null,
+    is_day: null,
+    sunrise: null,
+    sunset: null,
+    precipitation_probability_max_percent: null,
+    wind_speed_max_ms: null,
+    temperature_max_c: null,
+    temperature_min_c: null,
+    uv_index_max: null,
+    today_periods: [],
   };
 }
 
