@@ -6199,7 +6199,44 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   取得したログ（手順8の出力）を次のセッションへ貼り付ければ、「次の一歩(1)」の分析
   （20km時と25km/30km時の方位別traced距離の分布比較）にそのまま進める。
 
-### - [x] T319. 全軸を軸スタジオで非公開にしても、ルート設定パネルに既存7軸が残り続ける不具合を修正 規模S（実装完了）
+### - [ ] T377. debug_modeのランタイム切替とログ取得を管理APIから行えるようにする 規模S〜M
+
+- 背景: T318の調査で、本番debug_modeの一時有効化にSSHログイン・env file編集・
+  コンテナ再作成が必要になることが運用上のボトルネックだと判明した（ユーザー指摘
+  「毎回サーバにログインしないとできないのは今後の運用考えると微妙」）。
+  `settings.debug_mode`（backend/app/config.py）は起動時に一度だけ読まれる環境変数で、
+  実際の用途は`main.py`が`logging.basicConfig`のレベルを決めるためだけ（grep実測、
+  他に分岐箇所なし）と確認済み。ランタイムでロガーのレベルを切り替えるだけで済み、
+  再起動は本質的に不要。
+- 対応方針:
+  1. `axis_admin.py`内に定義済みの`require_admin_basic_auth`（HTTP Basic認証、T272）を
+     `app/api/admin_auth.py`（新設）へ切り出し、両ルーターから共有する
+     （認可ロジックの複製を避ける、axis_admin.py自身のdocstringが謳う「1関数への集約」を
+     実態として保つ）。
+  2. `settings.debug_mode`をミュータブルなまま runtime toggle 関数（例:
+     `set_debug_mode(enabled: bool)`、`logging.getLogger().setLevel(...)`と
+     `settings.debug_mode`の両方を更新）から書き換えられるようにする。永続化はしない
+     （.envは変更しない、プロセス再起動・再デプロイで自動的に安全側=false へ戻る設計。
+     SSH手順のように「戻し忘れ」のリスクを構造的に避ける）。
+  3. ルートロガーへ追加のリングバッファ`logging.Handler`をアタッチし、直近N件
+     （既定1000件程度）のログ整形済み文字列をプロセス内に保持する。既存の
+     `RequestIdLogFilter`（request_log.py）を同じくこのハンドラにも適用し、
+     常時ログと同じ`[req:xxx]`付きの体裁で取得できるようにする。
+  4. 新規ルーター`app/api/routers/debug_admin.py`（`/api/admin/debug`、
+     `require_admin_basic_auth`必須）: `POST /mode`（`{"enabled": bool}`→切替、
+     現在値を返す）・`GET /logs`（直近ログを返す、`limit`・部分一致`contains`の
+     任意クエリパラメータ、T318のユースケース`?contains=distance+filter+rejected`を
+     念頭に置く）。
+- 完了条件: 本番でSSHせずに、①`POST /api/admin/debug/mode`でdebug_modeを有効化→
+  ②通常どおりリクエストを叩く→③`GET /api/admin/debug/logs?contains=...`でDEBUGログを
+  取得→④`POST /api/admin/debug/mode`で無効化、という一連の操作がHTTP経由（Basic認証）
+  だけで完結することを実機確認する。backend pytest（新規: 認可なし401・認可ありの
+  切替/取得往復・リングバッファの上限件数）・OpenAPI再生成→
+  `frontend/src/types/generated/`のdiffクリーンを確認（新規ルーター追加のためコミット時の
+  同期ルール対象）。
+- 影響範囲（保留した場合）: T318の次の一歩（本番debug_mode有効化）は、都度SSHでの
+  env編集・コンテナ再作成が必要な現行手順のまま。1回きりの調査なら許容範囲だが、
+  今後同種の本番限定事象（T105等）が起きるたびに同じ運用コストがかかり続ける。
 
 - 背景: T318調査の折にユーザーから追加で報告。軸スタジオですべての軸（7軸）を非公開に
   すると、期待では「ルート設定パネルの軸一覧が0件」になるはずが、実際には既定の7軸が
