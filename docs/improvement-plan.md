@@ -390,6 +390,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [x] [T316](tasks/T316.md). route_preference.yaml撤廃（既定重みの情報源をAXIS_DEFINITIONSへ一本化） 規模S（実装完了）
 - [x] [T317](tasks/T317.md). night軸非公開時にRoutePreference.with_weightがValidationErrorになる不具合の恒久対策（T316フォローアップ） 規模S（実装完了）
 - [x] [T318](tasks/T318.md). 起点(35.75,139.74)でdistance_km=25/30が候補0件になる（distance_km=20はヒット） 規模S〜M（2026-08-28完了・T363の副次的解消として決着）
+- [ ] [T382](tasks/T382.md). road_graphエンジンのprepare_msが距離拡大に伴い異常に遅い（30kmで54.5秒） 規模不明（起票のみ、未着手）
 - [x] [T379](tasks/T379.md). debug_modeのランタイム切替とログ取得を管理APIから行えるようにする 規模S〜M（2026-08-27完了）
 - [x] [T319](tasks/T319.md). 全軸を軸スタジオで非公開にしても、ルート設定パネルに既存7軸が残り続ける不具合を修正 規模S（実装完了）
 - [x] [T320](tasks/T320.md). 既存7軸ハードコーディングの全面再監査と修正（T319で見落とした残り分） 規模M（実装完了）
