@@ -736,10 +736,10 @@
             }
           ]
         },
-        "show_map_icon": false
+        "show_map_icon": true
       },
       "sort_order": 13
     }
   ],
-  "revision": 1
+  "revision": 16
 }
