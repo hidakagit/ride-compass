@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
@@ -54,37 +54,13 @@ import RouteForm, { type DestinationButtonState, type RouteMode } from "@/compon
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
-import WarningBadgeList, { type WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
-import DynamicLayerTimeSlider, {
-  type DynamicLayerTimeSliderFrame,
-} from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
-import {
-  fetchNowcastFrames,
-  precipitationFrames,
-  precipitationRenderPayload,
-  trimToCurrentAndFuture,
-  PRECIPITATION_INTENSITY_LEVELS,
-  type NowcastFrame,
-} from "@/components/Map/precipitationNowcast";
-import { windFrames, windRenderPayload, WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
-import {
-  fetchThunderNowcastFrames,
-  thunderFrames,
-  thunderRenderPayload,
-  tornadoRenderPayload,
-  THUNDER_ACTIVITY_LEVELS,
-  TORNADO_POTENTIAL_LEVELS,
-  type ThunderNowcastFrame,
-} from "@/components/Map/thunderNowcast";
-import {
-  formatDynamicFrameHourMinute,
-  formatDynamicFrameMinuteOnly,
-  formatDynamicFrameTime,
-  frameIndexForTime,
-  mergeFrameTimes,
-  nearestTimeIndex,
-} from "@/components/Map/dynamicWeather";
-import { useWeatherGrid } from "@/hooks/useWeatherGrid";
+import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
+import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
+import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
+import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
+import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
+import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
+import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 // 改善計画T270: WeightPanel自体（編集UI）は/adminへ移設したが、既定値定数は
@@ -100,7 +76,6 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredJsonState } from "@/hooks/useStoredState";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather, getFloodForecasts, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
 import type {
   Coordinates,
   HardFilterOverride,
@@ -108,7 +83,6 @@ import type {
   RoutePreferenceWeights,
   ScoringWeights,
 } from "@/types/route";
-import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./page.module.css";
 
@@ -372,50 +346,10 @@ export default function Home() {
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
   const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
-  const [weather, setWeather] = useState<WeatherConditions | null>(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const [weatherError, setWeatherError] = useState<string | null>(null);
 
-  // 警報・注意報バッジ（改善計画T205）。天候と同じ地点変更起点で取得するが、失敗時は
-  // バックエンド契約どおり「警報なし」（空配列）として扱うため、weatherErrorと違い
-  // エラー表示用のstateは持たない（通信エラー自体はDebugConsoleのcategory
-  // "api:weatherWarnings"で追える）。
-  const [weatherWarnings, setWeatherWarnings] = useState<WeatherWarnings | null>(null);
-
-  // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ理由・同じstate設計
-  // （エラー表示state無し、失敗時はbackend契約どおりlevel=nullとして扱う）。
-  const [wbgtStatus, setWbgtStatus] = useState<WbgtStatus | null>(null);
-
-  // 河川氾濫予報バッジ（改善計画T212）。警報・注意報バッジと同じ理由・同じstate設計。
-  const [floodForecasts, setFloodForecasts] = useState<FloodForecasts | null>(null);
-
-  // 動的気象レイヤー（降水ナウキャスト・風）が指す対象時刻（T183再設計、実機フィードバック
-  // 「時間経過はスライドバー1本で表現する」）。ONの全レイヤーのフレーム時刻を統合した
-  // 1本のタイムライン（dynamicWeather.ts: mergeFrameTimes）上の1点で、各レイヤーはこの
-  // 時刻に対応する自分のフレームを描画する（下のdynamicWeather memo参照。選択時刻がその
-  // レイヤーのデータ範囲外なら描画しない）。
-  const [dynamicLayerTargetTime, setDynamicLayerTargetTime] = useState(() => new Date());
-
-  // 降水ナウキャストの時刻一覧（改善計画T170/T171）。フェッチ・更新間隔は
-  // layerVisibility.precipitationNowcastがONの間だけ動かすeffect（下記）が管理する。
-  // スライダー位置(index)はnowcastFrames自体ではなく共有のdynamicLayerTargetTimeから
-  // 都度導出する（下のsliderIndex参照）ため、ここでは持たない。
-  const [nowcastFrames, setNowcastFrames] = useState<NowcastFrame[]>([]);
-  const [nowcastLoading, setNowcastLoading] = useState(false);
-  const [nowcastError, setNowcastError] = useState<string | null>(null);
-
-  // 雷・竜巻の時刻一覧（改善計画T204）。雷ナウキャストと竜巻発生確度ナウキャストは同じ
-  // targetTimes_N3.json由来のため、両トグルのどちらか一方でもONの間だけ1本のfetchで
-  // 両方をカバーする（nowcastFramesと同じ理由・同じパターン）。
-  const [thunderNowcastFrames, setThunderNowcastFrames] = useState<ThunderNowcastFrame[]>([]);
-  const [thunderNowcastLoading, setThunderNowcastLoading] = useState(false);
-  const [thunderNowcastError, setThunderNowcastError] = useState<string | null>(null);
-
-  // 風・延長降水予報（T183）が共有する格子点マップの取得結果はuseWeatherGrid（下記）が
-  // 管理する。スライダー位置はdynamicLayerTargetTimeから導出するため、ここでは持たない。
   // MapViewから伝わる現在のビューポート（改善計画T180、MapView.tsx: onViewportChange参照）。
   // moveend/zoomendのたびに素の値が来るため、フェッチ用にはデバウンスして使う
-  // （下のwindDetailフェッチeffect参照）。
+  // （useDynamicWeatherLayers/useWeatherGrid内のwindDetailフェッチeffect参照）。
   const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
 
   // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
@@ -911,389 +845,34 @@ export default function Home() {
     setMapViewport(viewport);
   }, []);
 
-  // 現在地が変わったらその地点の天候を取得(ルート生成時の風評価の起点にもなる)。
-  // マウント直後はDEFAULT_LOCATIONで取得が走り、その直後にGeolocationが成功すると
-  // 実際の現在地でも取得が走る。ネットワーク遅延次第で先に投げた方が後に返ってくることが
-  // あるため、リクエストごとに連番を振り「一番最後に投げたリクエストの結果か」を確認してから
-  // setWeatherする（古い応答が新しい応答を上書きしないようにする）。
-  const latestWeatherRequestId = useRef(0);
-  const fetchWeatherFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestWeatherRequestId.current;
-    setWeatherLoading(true);
-    setWeatherError(null);
-    getCurrentWeather(next)
-      .then((conditions) => {
-        if (requestId !== latestWeatherRequestId.current) return;
-        setWeather(conditions);
-      })
-      .catch((error: unknown) => {
-        if (requestId !== latestWeatherRequestId.current) return;
-        setWeatherError(error instanceof Error ? error.message : "不明なエラーが発生しました");
-      })
-      .finally(() => {
-        if (requestId !== latestWeatherRequestId.current) return;
-        setWeatherLoading(false);
-      });
-  }, []);
+  // 現在地の天候（WeatherPanel向け）と警告バッジ3種（JMA警報・注意報T205／WBGT T174／
+  // 河川氾濫予報T212）のフェッチ・状態管理（改善計画T375でuseWeatherConditionsへ抽出）。
+  // locationReadyになるまで待ち、その後はlocationが変わるたびに再フェッチする。
+  const { weather, weatherLoading, weatherError, warningBadgeItems } = useWeatherConditions(location, locationReady);
 
-  // マウント直後はDEFAULT_LOCATION、その直後にGeolocationが成功すると実際の現在地で
-  // locationが変わる。以前は固定時間（1.5秒）のデバウンスでこれを間引いていたが、
-  // Geolocationの許可ダイアログへの応答等でその時間を超えることが多く、結局
-  // DEFAULT_LOCATIONぶん＋実地点ぶんの2回Open-Meteoへ問い合わせてしまっていた
-  // （実機フィードバック「天候がすぐ出てその後リフレッシュされる」＝時間ベースの間引きでは
-  // 解決しない構造的な問題だったと判明）。マウント時の自動取得が確定するまで
-  // （locationReady、useLocation.ts参照）待ってから1回だけfetchWeatherForする形にし、
-  // 「いつ確定するか分からない」ものを固定時間の推測で間引くのをやめた。確定後
-  // （handleLocateMeによる再取得等）はlocationReadyがtrueのまま変わらないため、
-  // locationの変化に即座に反応する（従来どおり遅延なし）。
-  // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
-  // （react-hooks/set-state-in-effect対策、SystemStatusPanel.tsxと同じ流儀）。
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchWeatherFor(location));
-  }, [locationReady, location, fetchWeatherFor]);
-
-  // 警報・注意報バッジ（改善計画T205）。天候と同じ「locationReadyになるまで待つ」方式
-  // （上記参照）。通信エラー時は例外を投げるだけで、警報なし（空配列）として静かに扱う
-  // （バックエンド自体が失敗時に空warningsを返す契約のため、これは主にネットワーク到達
-  // 不能等の場合。T205完了条件「取得失敗時は警告なし」）。
-  const latestWarningsRequestId = useRef(0);
-  const fetchWarningsFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestWarningsRequestId.current;
-    getWeatherWarnings(next)
-      .then((result) => {
-        if (requestId !== latestWarningsRequestId.current) return;
-        setWeatherWarnings(result);
-      })
-      .catch(() => {
-        if (requestId !== latestWarningsRequestId.current) return;
-        setWeatherWarnings(null);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchWarningsFor(location));
-  }, [locationReady, location, fetchWarningsFor]);
-
-  // WBGT警告バッジ（改善計画T174）。警報・注意報バッジと同じ「locationReadyになるまで
-  // 待つ」方式。提供期間外（11〜3月）・取得失敗・「ほぼ安全」のいずれもbackend契約どおり
-  // level=nullとして静かに扱う。
-  const latestWbgtRequestId = useRef(0);
-  const fetchWbgtFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestWbgtRequestId.current;
-    getWbgtStatus(next)
-      .then((result) => {
-        if (requestId !== latestWbgtRequestId.current) return;
-        setWbgtStatus(result);
-      })
-      .catch(() => {
-        if (requestId !== latestWbgtRequestId.current) return;
-        setWbgtStatus(null);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchWbgtFor(location));
-  }, [locationReady, location, fetchWbgtFor]);
-
-  // 河川氾濫予報バッジ（改善計画T212）。他の警告バッジと同じ「locationReadyになるまで
-  // 待つ」方式。取得失敗・対象河川なしのいずれもbackend契約どおりforecasts=[]として
-  // 静かに扱う。
-  const latestFloodRequestId = useRef(0);
-  const fetchFloodForecastsFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestFloodRequestId.current;
-    getFloodForecasts(next)
-      .then((result) => {
-        if (requestId !== latestFloodRequestId.current) return;
-        setFloodForecasts(result);
-      })
-      .catch(() => {
-        if (requestId !== latestFloodRequestId.current) return;
-        setFloodForecasts(null);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchFloodForecastsFor(location));
-  }, [locationReady, location, fetchFloodForecastsFor]);
-
-  const warningBadgeItems = useMemo<WarningBadgeItem[]>(() => {
-    const jmaItems: WarningBadgeItem[] = weatherWarnings
-      ? weatherWarnings.warnings.map((warning) => ({
-          id: warning.code,
-          label: warning.name,
-          level: warning.level as WarningBadgeItem["level"],
-          source: "jma",
-          title: [
-            warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
-            "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
-          ]
-            .filter(Boolean)
-            .join(" / "),
-        }))
-      : [];
-    // WBGTはlevelがnull（提供期間外・取得失敗・「ほぼ安全」のいずれか）の間は表示しない
-    // （T174完了条件、JMA警報が0件の場合と同じ「無ければ何も出ない」挙動）。
-    const wbgtItem: WarningBadgeItem[] =
-      wbgtStatus?.level && wbgtStatus.value != null
-        ? [
-            {
-              id: "wbgt",
-              label: `暑さ指数${wbgtStatus.label ?? ""}`,
-              level: wbgtStatus.level as WarningBadgeItem["level"],
-              source: "wbgt",
-              title: `暑さ指数 ${wbgtStatus.value.toFixed(1)} / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります`,
-            },
-          ]
-        : [];
-    // 河川氾濫予報（T212）。対象河川が無い/取得失敗の間はforecasts=[]のため何も出ない。
-    const floodItems: WarningBadgeItem[] = (floodForecasts?.forecasts ?? []).map((forecast) => ({
-      id: `flood-${forecast.river_code}`,
-      label: forecast.label,
-      level: forecast.badge_level as WarningBadgeItem["level"],
-      source: "flood",
-      title: `${forecast.condition} / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります`,
-    }));
-    return [...jmaItems, ...wbgtItem, ...floodItems];
-  }, [weatherWarnings, wbgtStatus, floodForecasts]);
-
-  // 降水ナウキャストの時刻一覧（改善計画T170/T171）。レイヤーがONの間だけ取得し、
-  // 実況が5分毎に更新されるのに合わせて定期的に再取得する（OFFの間はfetch自体しない、
-  // 他の外部APIと同じ「表示中のものだけ叩く」方針）。取得失敗時は例外を投げず
-  // nowcastErrorへ記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ
-  // 例外、片方だけの失敗は部分的な結果を返すため、ここへ来るのは両方失敗した場合のみ）。
-  const NOWCAST_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+  // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト）のフェッチ・
+  // 共有タイムライン・MapView向け描画ペイロード（改善計画T375でuseDynamicWeatherLayersへ
+  // 抽出）。各要素は対応するshow*がtrueの間だけフェッチする。
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
-  useEffect(() => {
-    if (!showPrecipitationNowcast) return;
-    let cancelled = false;
-    const load = async (isFirstLoad: boolean) => {
-      if (isFirstLoad) setNowcastLoading(true);
-      try {
-        // 実況（targetTimes_N1）は現在時刻より前ぶんを多く含む（実機確認: 2026-08-20時点で
-        // 約3時間分）。過去の降水を振り返る用途はアプリの性質上無いため（実機フィードバック
-        // 「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を左端に」）、
-        // trimToCurrentAndFutureで「現在」より前を切り捨て、スライダーの左端（index 0）が
-        // 常に「現在」になるようにする。
-        const frames = trimToCurrentAndFuture(await fetchNowcastFrames());
-        if (cancelled) return;
-        setNowcastFrames(frames);
-        setNowcastError(null);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "降水ナウキャストの取得に失敗しました";
-        // fetchNowcastFrames自体（jmaNowcastFrames.ts経由）はdebugLogへ記録済みだが、
-        // ここ（catch側）でも失敗した事実自体をログする。取得失敗はUI（nowcastError→
-        // dynamicLayerError）には出るがデバッグコンソールには出ていなかった
-        // （2026-08-24実機調査で発覚した「異常があってもログに出ない」箇所の1つ）。
-        debugLog("api:jma-nowcast-times", "降水ナウキャストの読み込みに失敗", { error: message }, "error");
-        setNowcastError(message);
-      } finally {
-        if (!cancelled && isFirstLoad) setNowcastLoading(false);
-      }
-    };
-    Promise.resolve().then(() => load(true));
-    const intervalId = window.setInterval(() => load(false), NOWCAST_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPrecipitationNowcast]);
-
-  // 雷・竜巻の時刻一覧（改善計画T204）。雷ナウキャスト・竜巻発生確度ナウキャストは同じ
-  // targetTimes_N3.json由来のため、どちらか一方でもONの間だけ1本のfetchで両方をカバーする
-  // （nowcastFramesと同じ理由・同じ更新間隔。雷は10分毎更新のためnowcastの5分より長くても
-  // 足りるが、揃えておく方が実装として単純なため同じ間隔にした）。
   const showThunderNowcast = layerVisibility.thunderNowcast;
   const showTornadoNowcast = layerVisibility.tornadoNowcast;
-  useEffect(() => {
-    if (!showThunderNowcast && !showTornadoNowcast) return;
-    let cancelled = false;
-    const load = async (isFirstLoad: boolean) => {
-      if (isFirstLoad) setThunderNowcastLoading(true);
-      try {
-        const frames = trimToCurrentAndFuture(await fetchThunderNowcastFrames());
-        if (cancelled) return;
-        setThunderNowcastFrames(frames);
-        setThunderNowcastError(null);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "雷ナウキャストの取得に失敗しました";
-        // 降水ナウキャストのcatchと同じ理由でログする（2026-08-24実機調査）。
-        debugLog("api:jma-nowcast-times", "雷・竜巻ナウキャストの読み込みに失敗", { error: message }, "error");
-        setThunderNowcastError(message);
-      } finally {
-        if (!cancelled && isFirstLoad) setThunderNowcastLoading(false);
-      }
-    };
-    Promise.resolve().then(() => load(true));
-    const intervalId = window.setInterval(() => load(false), NOWCAST_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showThunderNowcast, showTornadoNowcast]);
-
   const showWindVector = layerVisibility.windVector;
-  // 風・降水延長予報（T183、ユーザー要望「風と同じ考え方で、風と汎用化して実装してほしい」）
-  // が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。バックエンドは1回のOpen-Meteo
-  // 呼び出しで風向・風速・降水量をまとめて返すため、どちらか一方でもONならenabledにすることで
-  // 両方ONのときも1本のフェッチで済む。gridは常に「現在」から始まる粗い格子（フレーム時刻軸が
-  // 使う）、effectiveGridは詳細格子があればそちらを優先した表示用の格子（gridMark/gridFillの
-  // ジオメトリ計算に使う）。effectiveGridSpacingDegはeffectiveGridの実際の格子間隔（T185で
-  // ズーム依存になったため、gridFillのセルサイズはここから得た値をそのまま使う）。
   const {
-    grid: windGrid,
-    effectiveGrid: effectiveWindGrid,
-    effectiveGridSpacingDeg,
-    loading: windLoading,
-    error: windError,
-  } = useWeatherGrid(showWindVector || showPrecipitationNowcast, mapViewport);
-
-  // 各要素のフレーム列（データ層、dynamicWeather.ts: DynamicWeatherFrame[]）。表示層は
-  // ここから先、どの要素がどのデータソースから来ているかを一切意識しない
-  // （T183再設計「データ取得の差異はデータ層で吸収」）。
-  const windFramesList = useMemo(() => windFrames(windGrid), [windGrid]);
-  const precipFramesList = useMemo(() => precipitationFrames(nowcastFrames, windGrid), [nowcastFrames, windGrid]);
-  // 雷・竜巻は同じthunderNowcastFrames（targetTimes_N3.json由来）を共有する1本のフレーム列
-  // （改善計画T204）。雷ナウキャストと違い延長予報を持たないため、precipFramesListのような
-  // 複数ソース統合は不要（thunderFramesがそのままdynamicWeather.tsの共通フレーム列を返す）。
-  const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
-
-  // ONの全レイヤーのフレーム時刻を統合した共有タイムライン（T183再設計、実機フィードバック
-  // 「時間経過はスライドバー1本で表現する」）。降水ナウキャスト（5分刻み）と風・延長予報
-  // （1時間刻み）が混ざると、目盛りが「近い将来は細かく、遠い将来は粗い」を自然に実現する
-  // （個別のUIロジックは不要）。
-  const activeFrameLists = useMemo(() => {
-    const lists: { time: Date }[][] = [];
-    if (showWindVector) lists.push(windFramesList);
-    if (showPrecipitationNowcast) lists.push(precipFramesList);
-    if (showThunderNowcast || showTornadoNowcast) lists.push(thunderFramesList);
-    return lists;
-  }, [
+    dynamicWeather,
+    sliderFrames,
+    sliderIndex,
+    sliderCurrentIndex,
+    handleSliderIndexChange,
+    handleDynamicLayerNow,
+    dynamicLayerLoading,
+    dynamicLayerError,
+  } = useDynamicWeatherLayers({
     showWindVector,
-    windFramesList,
     showPrecipitationNowcast,
-    precipFramesList,
     showThunderNowcast,
     showTornadoNowcast,
-    thunderFramesList,
-  ]);
-  const timeline = useMemo(() => mergeFrameTimes(activeFrameLists), [activeFrameLists]);
-
-  // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
-  // 表示用ラベル列。
-  const sliderIndex = useMemo(() => nearestTimeIndex(timeline, dynamicLayerTargetTime), [timeline, dynamicLayerTargetTime]);
-  // hourMark/tickLabelは実機フィードバック「メモリを簡潔に出して」「横スクロールでメモリの
-  // 方が移動するように」「ルーラーにもう少し目盛りを細かく表示して。日付部分は不要、時刻
-  // のみ。時刻も細いところは分だけにする等」への対応（DynamicLayerTimeSlider.tsx冒頭コメント
-  // 参照）。正時判定はgetUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが無いため、
-  // 実行環境のローカルタイムゾーンに左右されずJSTの正時と一致する）。延長予報（60分以降）は
-  // 全フレームが正時のため、hourMark（目盛りの線を太くするだけ）は毎コマ付けても密度の問題は
-  // 無いが、tickLabel（目盛りの下に出す文字）を毎時間ぶん全部「HH:mm」で出すと目盛り間隔
-  // （TICK_SPACING_PX）に対して文字が重なってしまう（実機Playwright確認で発覚）。2時間おきに
-  // 間引くことで文字同士の重なりを避けつつ、以前（3時間おき）より密度を上げた。正時でない
-  // 密なコマ（降水ナウキャストの5分刻み等）は文字自体を短い分のみ表記にできるため、間引かず
-  // 毎コマぶん出す。
-  const sliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () =>
-      timeline.map((time) => {
-        const isHour = time.getUTCMinutes() === 0;
-        return {
-          label: formatDynamicFrameTime(time),
-          hourMark: isHour,
-          tickLabel: isHour
-            ? time.getUTCHours() % 2 === 0
-              ? formatDynamicFrameHourMinute(time)
-              : undefined
-            : formatDynamicFrameMinuteOnly(time),
-        };
-      }),
-    [timeline]
-  );
-  // 「現在」に戻るボタン（改善計画、実機フィードバック「現況に戻すボタンも横に追加して」）の
-  // ジャンプ先index。ボタンはフェッチのたびではなく毎回押された時点の「現在」に戻したいため、
-  // timeline自体から都度計算する。
-  const sliderCurrentIndex = useMemo(() => nearestTimeIndex(timeline, new Date()), [timeline]);
-
-  // スライダー操作（改善計画、実機フィードバック「同じ日時を示した状態で連動させ、変えるのは
-  // 感度（スライド時の差）だけ」→T183で1本のスライダーへ統合）。DynamicLayerTimeSlider自体の
-  // onIndexChangeはタイムライン上のindexしか知らないため、ここで実時刻へ変換してから共有の
-  // dynamicLayerTargetTimeへ書き込む（「現在」ボタン＝onIndexChange(sliderCurrentIndex)の
-  // 呼び出しも同じ経路を通るため、別扱い不要）。
-  const handleSliderIndexChange = useCallback(
-    (index: number) => {
-      const time = timeline[index];
-      if (time) setDynamicLayerTargetTime(time);
-    },
-    [timeline]
-  );
-  const handleDynamicLayerNow = useCallback(() => setDynamicLayerTargetTime(new Date()), []);
-
-  // 選択中の共有時刻（dynamicLayerTargetTime）に対応する各要素のペイロード。該当時刻がその
-  // 要素のデータ範囲外なら描画しない（frameIndexForTimeがnullを返す、要件「該当時間データが
-  // ない場合、地図には描画しない」。従来の「端のフレームへクランプして古いデータを見せ続ける」
-  // 挙動は廃止）。表示層（MapView.tsx）はkindしか見ないため、降水がナウキャスト由来
-  // （rasterTile）か延長予報由来（gridFill）かはここで既に吸収済み。
-  const windPayload = useMemo(() => {
-    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
-    if (index == null || effectiveWindGrid.length === 0) return undefined;
-    return windRenderPayload(effectiveWindGrid, windFramesList[index].ref);
-  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
-  const precipitationPayload = useMemo(() => {
-    const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return precipitationRenderPayload(nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg, precipFramesList[index].ref);
-  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg]);
-  // 雷・竜巻は同じフレーム列・同じrefを共有し、プロダクトコードだけが異なる
-  // （thunderRenderPayload/tornadoRenderPayloadの違い、thunderNowcast.ts参照）。
-  const thunderPayload = useMemo(() => {
-    const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return thunderRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
-  }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
-  const tornadoPayload = useMemo(() => {
-    const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return tornadoRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
-  }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
-
-  // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
-  // 新しい動的気象要素を追加してもMapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
-  const dynamicWeather = useMemo(
-    () => ({
-      windVector: { visible: showWindVector, payload: windPayload },
-      precipitationNowcast: { visible: showPrecipitationNowcast, payload: precipitationPayload },
-      thunderNowcast: { visible: showThunderNowcast, payload: thunderPayload },
-      tornadoNowcast: { visible: showTornadoNowcast, payload: tornadoPayload },
-    }),
-    [
-      showWindVector,
-      windPayload,
-      showPrecipitationNowcast,
-      precipitationPayload,
-      showThunderNowcast,
-      thunderPayload,
-      showTornadoNowcast,
-      tornadoPayload,
-    ]
-  );
-
-  // 共有スライダーのloading/error表示。windLoading/windErrorは両要素が使う格子点フェッチ
-  // （useWeatherGrid、ONのどちらか一方でも走る）、nowcastLoading/nowcastErrorは降水ナウキャスト
-  // 固有のフェッチ、thunderNowcastLoading/thunderNowcastErrorは雷・竜巻共有のフェッチ。
-  // 風のみONならnowcast/thunderの状態は無関係（フェッチ自体走らない）。
-  const dynamicLayerLoading =
-    windLoading || (showPrecipitationNowcast && nowcastLoading) || ((showThunderNowcast || showTornadoNowcast) && thunderNowcastLoading);
-  const dynamicLayerError =
-    windError ??
-    (showPrecipitationNowcast ? nowcastError : null) ??
-    (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null);
+    mapViewport,
+  });
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの

@@ -4047,7 +4047,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   のため、T375として別途起票し実施する（コミット時の同期ルール:
   規模M以上は着手前にタスクエントリを先に作成）。
 
-### - [ ] T375. page.tsxの気象・動的レイヤー系state（13件）をカスタムフックへ抽出 規模M — トリガー: ユーザーの実装着手指示
+### - [x] T375. page.tsxの気象・動的レイヤー系state（13件）をカスタムフックへ抽出 規模M（2026-08-27完了）
 
 - 背景: T284の分割方針決定（本ファイル該当節参照）。page.tsxが規模ウォッチ閾値
   （1,900行・状態40件）へ到達したため、最も抽出効果が高いと判断した気象・動的レイヤー系
@@ -4071,6 +4071,43 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   保っていることを実機確認する。抽出後のpage.tsx行数・state数を計測し、規模ウォッチの
   数値を本ファイルへ記録し直す。
 - 依存: T284（分割方針の決定）。
+- **実装（2026-08-27完了）**: 着手時の判断は「無理に1本の巨大フックへ統合せず、既存の
+  関心の分かれ方を保つ」を採用し、2フックへ分割した。
+  1. `hooks/useWeatherConditions.ts`（新規）: 現在地の天候（`weather`/`weatherLoading`/
+     `weatherError`、WeatherPanel向け）と警告バッジ3種（`weatherWarnings`/`wbgtStatus`/
+     `floodForecasts`、JMA警報・注意報T205／WBGT T174／河川氾濫予報T212）——4本とも
+     「locationReadyになるまで待ち、location変更のたびに再フェッチする」という同じ形の
+     effectを持つため1フックへ統合。`warningBadgeItems`（3種を統合するuseMemo）も
+     ここへ含め、page.tsx側は`{ weather, weatherLoading, weatherError,
+     warningBadgeItems } = useWeatherConditions(location, locationReady)`の1行で済む。
+  2. `hooks/useDynamicWeatherLayers.ts`（新規）: 降水ナウキャスト（`nowcastFrames`等
+     T170/T171）・雷竜巻ナウキャスト（`thunderNowcastFrames`等T204）・
+     `dynamicLayerTargetTime`（共有タイムライン、T183）に加え、既存の`useWeatherGrid`
+     呼び出しと、そこから導出する全ての派生値（フレーム列・タイムライン・スライダー
+     props・MapView向け`dynamicWeather`ペイロード・loading/error統合）まで丸ごと1フックへ
+     まとめた。`dynamicLayerTargetTime`は「ナウキャスト側 or 独立」の判断が必要だった項目
+     だが、風・降水・雷竜巻すべてが参照する共有タイムラインの起点であるため、このフック
+     自身の内部stateとして持たせた（page.tsxはこのフックの戻り値だけを消費する）。
+     page.tsx側は`showWindVector`等4つの真偽値＋`mapViewport`を渡し、`dynamicWeather`・
+     スライダー用props・loading/errorを受け取るだけになった。
+  「値・loading・error」3点セットの重複パターン自体の共通化（着手前に検討予定だった
+  項目）は、天候本体・降水ナウキャスト・雷竜巻ナウキャストで微妙にエラーハンドリングの
+  詳細が異なる（デバッグログの有無、backend契約でnullフォールバックするか例外を出すか等）
+  ため、無理に共通化すると条件分岐だらけの抽象化になると判断し見送った。3つとも独立した
+  effectのまま、それぞれのフック内に素直に書いている。
+  MapView.tsx・DynamicLayerTimeSlider.tsx側への変更は不要だった（`dynamicWeather`の
+  型・スライダーpropsの形を完全に維持したまま移設したため）。
+- **検証結果（2026-08-27）**: page.tsx **1,925行→1,504行**（421行減）・state
+  **40件→27件**（ちょうど対象の13件減）。両閾値（1,900行・40件）を下回る状態へ回復した。
+  frontend tsc・eslint・vitest（691件）green。Playwright実機確認（使い捨てスクリプト、
+  `e2e/fixtures.ts`と同じモック方針）で、抽出前の元コードとの比較を含め以下を確認:
+  天候パネル（気温等）の表示・警報サマリーバッジ（JMA警報+WBGT+河川氾濫予報の統合）の
+  表示とポップオーバー詳細・動的レイヤー（風）ON後のDynamicLayerTimeSlider出現と
+  スライダー操作、いずれも抽出前と同じ挙動。検証中に発見した
+  「風レイヤーON時にエラー文言が出る」事象は、検証スクリプト自身が`GET
+  /api/weather/wind-grid`のレスポンス形（`{points, times}`必須）を誤って空配列でモックした
+  ことによるテスト側の不備と判明（抽出前の元コードでも同じ誤ったモックで同一事象が再現
+  することを確認済み）。アプリ本体の不具合ではなく、対応不要。
 
 ### - [x] T285. 表示系レジストリの縮退 — 軸カタログのランタイム一本化〔P3〕規模M〜L（調査の結果、目的は既に別実装で達成済みと判明・2026-08-27完了）
 
