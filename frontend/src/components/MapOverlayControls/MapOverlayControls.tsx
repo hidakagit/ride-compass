@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
@@ -334,6 +334,97 @@ function usePagedOverflow(axis: "x" | "y") {
     reset,
     hasMore: offset < maxOffset,
     hasLess: offset > 0,
+  };
+}
+
+// 改善計画T380フォローアップ（ユーザー指摘、2026-08-27）「押し続けるとそのまま送って
+// ほしい」「誤タップで背後の地図を拡大してしまうことがある」への対応。従来はワンタップ
+// =1ステップのみで、複数ステップ送るには小さい丸ボタン（1.6rem四方）へ素早く連打する
+// 必要があった。連打中はhasMore/hasLessの変化でボタン自体の出現・消滅が起きて位置が
+// わずかに動くため、タップが外れて地図キャンバス側に着弾しやすく、それが2連続になると
+// 地図側のダブルタップズームとして誤って解釈されていたと考えられる。「押しっぱなしで
+// 連続送り」を用意すれば連打そのものが不要になり、地図への誤タップの機会を減らせる。
+//
+// クリック（マウス・タッチ・キーボードのEnter/Spaceいずれも最終的にonClickへ集約される）
+// を「1回押した分」の唯一の実行経路として維持しつつ、pointerdown/upだけで「長押し中の
+// 追加リピート」を制御する。素早いワンタップはpointerdown後すぐにpointerupするため
+// delayMs待ちのタイマーが発火する前に解除され、onClickの1回だけが実行される。長押し時
+// だけタイマー発火後にintervalMsごとの追加ステップが走る。長押し後に指を離すと通常どおり
+// clickイベントも発火するが、直前にリピートが一度でも発火していれば「既に十分送った後の
+// 余計な1回」になるためheldRefで判定して無視する。
+// canRepeatは呼び出し側のhasMore/hasLessをそのまま渡す。ページ送りが上限/下限に達すると
+// 呼び出し元のJSXがボタン自体を描画しなくなり（押している最中でも起こりうる）、その
+// 瞬間pointerup/leaveがこの要素へ届かない可能性があるため、タイマー発火のたびに
+// canRepeatRef（render毎に最新値へ更新）を確認し、falseならタイマー自身を止めて
+// 放置されたintervalが動き続けないようにする。
+function useHoldRepeat(action: () => void, canRepeat: boolean, delayMs = 450, intervalMs = 120) {
+  const actionRef = useRef(action);
+  const canRepeatRef = useRef(canRepeat);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 直前のpointerdown長押しで実際にリピートが1回でも発火したか（発火直後のclickを
+  // 抑止するための判定に使う）。
+  const heldRef = useRef(false);
+
+  const clearTimers = () => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  // ref書き込みはレンダー中に行えない（react-hooks/refsルール）ため、コミット後の
+  // 副作用として同期する。setTimeout/setIntervalのコールバックは複数レンダーを
+  // またいで生存するため、古いレンダーのaction/canRepeatを掴んだままにならないよう
+  // 常に最新値を参照できるようにする。
+  useEffect(() => {
+    actionRef.current = action;
+    canRepeatRef.current = canRepeat;
+  });
+
+  // グループの折りたたみ等でボタン自体がアンマウントされてもタイマーが残り続けない
+  // ようにする。
+  useEffect(() => clearTimers, []);
+
+  const fireIfPossible = () => {
+    if (!canRepeatRef.current) {
+      clearTimers();
+      return;
+    }
+    actionRef.current();
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return; // 主ボタン（左クリック・タッチ・ペン）以外は対象外
+    clearTimers();
+    heldRef.current = false;
+    timeoutRef.current = setTimeout(() => {
+      heldRef.current = true;
+      fireIfPossible();
+      intervalRef.current = setInterval(fireIfPossible, intervalMs);
+    }, delayMs);
+  };
+
+  const stop = () => clearTimers();
+
+  const handleClick = () => {
+    if (heldRef.current) {
+      heldRef.current = false;
+      return;
+    }
+    actionRef.current();
+  };
+
+  return {
+    onPointerDown: handlePointerDown,
+    onPointerUp: stop,
+    onPointerLeave: stop,
+    onPointerCancel: stop,
+    onClick: handleClick,
   };
 }
 
@@ -675,6 +766,27 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     });
   };
 
+  // 改善計画T380フォローアップ: ▲▼/◀▶それぞれの「押しっぱなしで連続送り」
+  // （useHoldRepeat参照）。closeFloatingPanels()は既存のクリックハンドラと同じく
+  // ページ送りのたびに呼ぶ（何も開いていなければsetExpandedIdsが同一参照を返すため
+  // 再レンダーは発生せず、繰り返し呼んでも無害）。
+  const chipRowBackwardHold = useHoldRepeat(() => {
+    closeFloatingPanels();
+    pageChipRowBackward();
+  }, chipRowHasLess);
+  const chipRowForwardHold = useHoldRepeat(() => {
+    closeFloatingPanels();
+    pageChipRowForward();
+  }, chipRowHasMore);
+  const estimatedRowBackwardHold = useHoldRepeat(() => {
+    closeFloatingPanels();
+    pageEstimatedRowBackward();
+  }, estimatedRowHasLess);
+  const estimatedRowForwardHold = useHoldRepeat(() => {
+    closeFloatingPanels();
+    pageEstimatedRowForward();
+  }, estimatedRowHasMore);
+
   // 観測グループの1メンバー（改善計画T166→T169でタイル化）。推定グループの軸タイルと
   // 同じ「アイコン+略名の四角タイル+隣に付随する凡例展開ボタン」をChipButtonの再利用で
   // 表す（見た目を全要素で統一するというユーザー指摘への対応）。観測グループ自体は
@@ -1014,10 +1126,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
         <button
           type="button"
           className={styles.pageButton}
-          onClick={() => {
-            closeFloatingPanels();
-            pageChipRowBackward();
-          }}
+          {...chipRowBackwardHold}
           aria-label="上を表示"
           title="上を表示"
         >
@@ -1093,10 +1202,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                       <button
                         type="button"
                         className={`${styles.pageButton} ${styles.pageButtonHorizontal}`}
-                        onClick={() => {
-                          closeFloatingPanels();
-                          pageEstimatedRowBackward();
-                        }}
+                        {...estimatedRowBackwardHold}
                         aria-label="左を表示"
                         title="左を表示"
                       >
@@ -1118,10 +1224,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                       <button
                         type="button"
                         className={`${styles.pageButton} ${styles.pageButtonHorizontal}`}
-                        onClick={() => {
-                          closeFloatingPanels();
-                          pageEstimatedRowForward();
-                        }}
+                        {...estimatedRowForwardHold}
                         aria-label="右を表示"
                         title="右を表示"
                       >
@@ -1319,10 +1422,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
         <button
           type="button"
           className={styles.pageButton}
-          onClick={() => {
-            closeFloatingPanels();
-            pageChipRowForward();
-          }}
+          {...chipRowForwardHold}
           aria-label="下を表示"
           title="下を表示"
         >
