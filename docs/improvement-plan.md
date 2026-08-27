@@ -8703,6 +8703,57 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [x] T367. 軸スタジオ由来の推定軸「自転車インフラ」を地図上へ自動表示できるようにする 規模M（2026-08-27完了）
+
+- 背景: ユーザー要望「軸スタジオで作った推定軸を、地図上アイコンで自動表示・
+  マッピングされるようにしたい」（2026-08-27）。具体例として確認したのは公開軸
+  「自転車インフラ」（`bicycle_infra_quality`）——`is_published=true`だが
+  `show_map_icon=false`のため地図に一切出ない状態だった。
+- 調査結果: 「軸スタジオ作成軸の地図表示」自体は改善計画T278/T308で既に自動導出の
+  仕組みが実装済み（`domain/axis_display.py: derive_ramp_inputs`。公開＋
+  `show_map_icon`有効＋材料が全てタイル焼き込み済みなら再デプロイ不要で即座に地図へ
+  出る）。原因は`bicycle_infra_quality`が参照する5正規化フラグ材料
+  （`highway_is_cycleway`/`cycleway_has_track`/`cycleway_has_lane`/
+  `cycleway_has_shared`/`shared_pedestrian_path`）が、改善計画T347で旧
+  `bicycle_infra`タイルプロパティを削除して以降`tile_property`を持たず
+  （`derive_ramp_inputs`の対象外）、`show_map_icon`もT347実装時に「windと同じ
+  地図レイヤー非対応軸」として`false`へ設定されていた（`evaluationAxes.ts`の
+  コメントに「ユーザー明示承認前に前例踏襲で実施」と明記——正式な承認を経ない
+  暫定判断のまま残っていた）ため。
+- 対応内容:
+  1. `domain/material_catalog.py`: 5材料へ`tile_property`を新設（`is_emergency_
+     transport`/`is_critical_logistics`[T338フォローアップ]と同じ「複雑な分類の
+     生値は表示専用として残し、評価用の正規化材料は別途タイルへ焼き込む」設計）。
+  2. `infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`へ
+     5材料ぶんのCASE式を追加（`domain/recipe.py: bicycle_infra_flags`と同じ
+     判定式）。`services/region_service.py: ROAD_SURFACE_TILE_VERSION`を
+     16→17へ対上げ（`regionApi.ts`側と対で）。
+  3. `bicycle_infra_quality`の`show_map_icon`をtrueへ変更（開発DBへ
+     `axis_admin`のunpublish→update(is_published=true)経由で適用済み。
+     shape_params自体は無変更）。
+  4. `evaluationAxes.ts: PREFERENCE_AXES`の末尾手書き追加（wind同様の
+     「地図レイヤー非対応」特別扱い）を撤去——`SECONDARY_AXES`へ自然に含まれる
+     ようになったため、二重登録を避ける。
+  5. `backend/scripts/export_openapi.py`→`npm run generate:api`で生成物を
+     再生成（`axis-catalog.json`の`bicycle_infra_quality.display.kind`が
+     `"none"`→`"ramp"`に変わったことを確認、`region-tile-config.json`の
+     `tile_version`も17に追従）。
+  6. テスト: `test_road_graph_repository.py`へ5フラグのタイル焼き込みを
+     `domain/recipe.py: bicycle_infra_flags`と突き合わせる回帰テストを追加
+     （postgis統合テスト）。`evaluationAxes.test.ts`・`MapLayersPanel.test.tsx`
+     ・`regionApi.test.ts`の期待値をbicycle_infra_qualityが地図レイヤーを
+     持つようになった前提へ更新。backend全体237件・frontend全体701件成功、
+     tsc/eslintクリーン。実機（dev server）で「自転車インフラ」チップが推定
+     グループ末尾に他軸と同じ形式（トグル可能・凡例あり）で表示されることを
+     確認済み（地図タイル自体の描画は本開発環境固有のbasemap読み込み失敗により
+     未確認だが、他の全軸も同じ制約下にあり本タスク固有の問題ではない）。
+- 未実施（次のトリガーで対応）: 本番DBへの反映（`show_map_icon`変更のAPI適用・
+  デプロイ）はユーザー承認後に別途実施する。
+- 優先度: P2（機能改善、実害は軽微だが軸スタジオの価値提案そのもの——「作った軸が
+  自動で地図に出る」——を裏切っていた状態だったため着手）。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構

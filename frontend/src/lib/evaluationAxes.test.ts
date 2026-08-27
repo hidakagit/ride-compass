@@ -33,11 +33,11 @@ describe("evaluationAxes", () => {
   // axes[].primary_attribute_idsを直接見る。死コード監査（過去の監査）で、GET
   // /api/axis-catalog（実行時API）と同じキー名の唯一の読み手として、以前の重複キー
   // inputsからこちらへ移行した）。
-  // 改善計画T347: bicycle_infra_qualityもwindと同じく専用地図レイヤーを持たない
-  // （show_map_icon=false）ため、SECONDARY_AXESには存在しない。
-  const AXES_WITHOUT_MAP_LAYER = ["wind", "bicycle_infra_quality"];
+  // 改善計画T367: bicycle_infra_qualityは地図表示に対応した（show_map_icon=true）ため
+  // SECONDARY_AXESへ自然に含まれるようになり、地図レイヤーを持たない軸はwindのみになった。
+  const AXES_WITHOUT_MAP_LAYER = ["wind"];
 
-  it("地図レイヤーを持たない軸(wind・bicycle_infra_quality)以外は、axis-catalog.json上に実在し材料を1件以上持つ", () => {
+  it("地図レイヤーを持たない軸(wind)以外は、axis-catalog.json上に実在し材料を1件以上持つ", () => {
     const axesWithInputs = axisCatalog.axes as CatalogAxisInputs[];
     for (const axis of PREFERENCE_AXES) {
       if (AXES_WITHOUT_MAP_LAYER.includes(axis.axisId)) continue;
@@ -46,10 +46,9 @@ describe("evaluationAxes", () => {
     }
   });
 
-  // wind・bicycle_infra_qualityは表示カタログ（axes[]）に対応軸を持たない
-  // （動的データ由来・show_map_icon=falseでレイヤーなし）。誤って登録され忘れている
-  // だけかもしれない他の軸と区別するため明示的に確認する。
-  it("wind・bicycle_infra_qualityは表示カタログ（SECONDARY_AXES）に存在しない", () => {
+  // windは表示カタログ（axes[]）に対応軸を持たない（動的データ由来でレイヤーなし）。
+  // 誤って登録され忘れているだけかもしれない他の軸と区別するため明示的に確認する。
+  it("windは表示カタログ（SECONDARY_AXES）に存在しない", () => {
     for (const axisId of AXES_WITHOUT_MAP_LAYER) {
       expect(SECONDARY_AXES.some((axis) => axis.axisId === axisId)).toBe(false);
     }
@@ -65,9 +64,9 @@ describe("evaluationAxes", () => {
     expect(withoutMapLayerAxes.map((axis) => axis.label)).toEqual(SECONDARY_AXES.map((axis) => axis.label));
   });
 
-  // wind・bicycle_infra_qualityはSECONDARY_AXESに対応軸を持たないため、この順で末尾に
-  // 追加される（evaluationAxes.ts: PREFERENCE_AXESの定義順）。
-  it("wind・bicycle_infra_qualityはこの順で末尾に位置する", () => {
-    expect(PREFERENCE_AXES.slice(-2).map((axis) => axis.axisId)).toEqual(["wind", "bicycle_infra_quality"]);
+  // windはSECONDARY_AXESに対応軸を持たないため、末尾に追加される
+  // （evaluationAxes.ts: PREFERENCE_AXESの定義順）。
+  it("windはこの位置（末尾）に位置する", () => {
+    expect(PREFERENCE_AXES.at(-1)?.axisId).toBe("wind");
   });
 });

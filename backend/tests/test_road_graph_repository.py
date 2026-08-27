@@ -1629,6 +1629,58 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     assert both.get("is_critical_logistics") is True
 
 
+async def test_get_road_surface_tile_mvt_bicycle_infra_flags_match_domain_recipe(
+    road_graph_repository, road_graph_session,
+):
+    """改善計画T367: 公開軸「自転車インフラ」（bicycle_infra_quality）が参照する
+    5正規化フラグ材料（domain/recipe.py: bicycle_infra_flagsと同じ判定式）が
+    _ROAD_SURFACE_TILE_MVT_SQLへ正しく焼き込まれることを確認する（SQL⇔Python
+    二重実装のドリフト検知、test_get_road_surface_tile_mvt_designation_matches_
+    designation_kindsと同じ考え方）。
+    """
+    import mapbox_vector_tile
+
+    from app.domain.recipe import bicycle_infra_flags
+
+    cycleway_way = WaySpec(osm_way_id=210, node_ids=[1, 2], highway="cycleway")
+    track_way = WaySpec(osm_way_id=211, node_ids=[1, 2], highway="residential", tags={"cycleway": "track"})
+    lane_way = WaySpec(
+        osm_way_id=212, node_ids=[1, 2], highway="residential", tags={"cycleway:right": "lane"}
+    )
+    shared_way = WaySpec(
+        osm_way_id=213, node_ids=[1, 2], highway="residential", tags={"cycleway": "shared_lane"}
+    )
+    shared_path_way = WaySpec(
+        osm_way_id=214, node_ids=[1, 2], highway="footway", tags={"bicycle": "designated"}
+    )
+    plain_way = WaySpec(osm_way_id=215, node_ids=[1, 2], highway="residential")
+    ways = [cycleway_way, track_way, lane_way, shared_way, shared_path_way, plain_way]
+    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
+    graph = build_road_graph(ways, {1: NODE1, 2: NODE2}, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    properties_by_way_id = {
+        f["properties"].get("osm_way_id"): f["properties"] for f in decoded["road_surface"]["features"]
+    }
+
+    for way in ways:
+        expected = bicycle_infra_flags(way.tags or {}, way.highway)
+        actual = properties_by_way_id[way.osm_way_id]
+        for flag, expected_value in expected.items():
+            # タイル側は真偽値プロパティをtrueのときだけ焼き込み、falseはキー省略
+            # （他の真偽値材料[tunnel/bridge等]と同じ規約、NULLIFではなくCASE式自体が
+            # ELSE無し=NULLのため）。
+            if expected_value:
+                assert actual.get(flag) is True, f"way={way.osm_way_id} flag={flag}"
+            else:
+                assert flag not in actual, f"way={way.osm_way_id} flag={flag}"
+
+
 # --- get_distinct_material_values（改善計画T340: 軸スタジオの値入力UX改善） ---
 
 

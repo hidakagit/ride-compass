@@ -588,15 +588,21 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     # domain/axis_definitions.py参照）。経緯はdocs/architecture.md「自転車インフラ」節・
     # docs/improvement-plan.md T347参照。
     # 改善計画T336: bicycle_infraを評価軸から切り離すための正規化フラグ材料群
-    # （_extract_highway_is_cycleway等のdocstring参照）。地図表示用のtile_propertyは
-    # 持たない（bicycle_infraのタイルプロパティをそのまま流用でき、専用カラムを
-    # 新設する理由が無い。wind_penalty/is_designatedと同じ評価パイプライン専用材料）。
+    # （_extract_highway_is_cycleway等のdocstring参照）。
+    # 改善計画T367（ユーザー要望「軸スタジオで作った推定軸を地図上アイコンで自動表示
+    # したい」）: T347で旧bicycle_infraタイルプロパティを削除して以降tile_propertyを
+    # 持たなかったため、公開軸「自転車インフラ」（bicycle_infra_quality）が
+    # derive_ramp_inputs（domain/axis_display.py）の対象外＝地図に一切出ない状態が
+    # 続いていた。5材料それぞれへ専用のtile_propertyを新設し、_ROAD_SURFACE_TILE_MVT_SQL
+    # （road_graph_repository.py）へ焼き込む（is_emergency_transport/is_critical_logistics
+    # [T338フォローアップ]と同じ「複雑な分類の生値は表示専用として残し、評価用の正規化
+    # 材料は別途タイルへ焼き込む」設計）。
     "highway_is_cycleway": MaterialSpec(
         material_id="highway_is_cycleway",
         label="道路種別が自転車道",
         description="道路種別(highway)自体が自転車道(cycleway)かどうか。",
         dtype="boolean",
-        tile_property=None,
+        tile_property="highway_is_cycleway",
         # 改善計画T347（ユーザー指摘: 実在しない疑似属性を発明する対症療法ではなく、
         # 実在の一次属性のうち片方だけへ寄せて解消する）。判定式はhighway生タグを見るが、
         # 意味的には他3材料と同じ「自転車走行環境の分類」という1つのまとまりのため、
@@ -619,7 +625,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="自転車道(track)を併設",
         description="車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
         dtype="boolean",
-        tile_property=None,
+        tile_property="cycleway_has_track",
         primary_attribute_id="cycleway",
         bool_default="nan",
         extractor=_extract_cycleway_has_track,
@@ -629,7 +635,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="自転車レーン(lane)を併設",
         description="車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
         dtype="boolean",
-        tile_property=None,
+        tile_property="cycleway_has_lane",
         primary_attribute_id="cycleway",
         bool_default="nan",
         extractor=_extract_cycleway_has_lane,
@@ -639,7 +645,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="バス共用等の自転車レーンを併設",
         description="バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
         dtype="boolean",
-        tile_property=None,
+        tile_property="cycleway_has_shared",
         bool_default="nan",
         primary_attribute_id="cycleway",
         extractor=_extract_cycleway_has_shared,
@@ -649,7 +655,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="歩行者自転車共用道",
         description="車道と分離された歩行者道のうち、自転車の通行が認められている区間（河川敷サイクリングロード等、highway=footway/pathかつbicycle=yes/designated）かどうか。",
         dtype="boolean",
-        tile_property=None,
+        tile_property="shared_pedestrian_path",
         primary_attribute_id="cycleway",
         bool_default="nan",
         extractor=_extract_shared_pedestrian_path,

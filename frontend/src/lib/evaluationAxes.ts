@@ -75,9 +75,10 @@ const PREFERENCE_AXIS_DESCRIPTIONS: Record<string, string> = {
 // この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import、
 // 新しい軸が増えてもこのファイルの変更は不要）。windは対応する軸がSECONDARY_AXESに
 // 無いため（表示カタログ未登録、動的データ由来でレイヤーを持たない）末尾へ別途追加する。
-// 改善計画T347: bicycle_infra_qualityはaxis-catalog.json上には実在するが、専用地図
-// レイヤーを持たない（show_map_icon=false）ためSECONDARY_AXESのフィルタで除外される。
-// windと同じ理由（地図表示は無いが重み調整はできてよい軸）で末尾へ別途追加する。
+// 改善計画T367: bicycle_infra_qualityは改善計画T347時点ではshow_map_icon=falseだったため
+// windと同じ「地図レイヤー非対応」扱いで末尾へ別途追加していたが、T367で地図表示に対応し
+// show_map_icon=trueへ変更したためSECONDARY_AXESへ自然に含まれるようになった（手書きの
+// 個別追加は不要、二重登録を避けるため撤去）。
 export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
   ...SECONDARY_AXES.map(
     (axis): PreferenceAxisDef => ({
@@ -87,11 +88,6 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
     })
   ),
   { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind },
-  {
-    axisId: "bicycle_infra_quality",
-    label: "自転車インフラ",
-    description: PREFERENCE_AXIS_DESCRIPTIONS.bicycle_infra_quality,
-  },
 ];
 
 // 軸の分類（観測/推定/動的、改善計画T267で確定・目論見書3章）は、一般向けルート設定画面

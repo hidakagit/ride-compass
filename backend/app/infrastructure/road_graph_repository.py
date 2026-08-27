@@ -324,6 +324,34 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- ため追加JOINは不要。
                         CASE WHEN d.is_ert THEN true END AS is_emergency_transport,
                         CASE WHEN d.is_cl THEN true END AS is_critical_logistics,
+                        -- 改善計画T367（ユーザー要望「軸スタジオで作った推定軸を地図上
+                        -- アイコンで自動表示したい」）: 公開軸「自転車インフラ」
+                        -- （bicycle_infra_quality）が参照する5正規化フラグ材料
+                        -- （domain/recipe.py: bicycle_infra_flagsと同じ判定式、
+                        -- domain/material_catalog.py参照）。T347で旧bicycle_infra
+                        -- プロパティを削除して以降tile_propertyを持たず、derive_ramp_inputs
+                        -- （domain/axis_display.py）の対象外＝地図に一切出ない状態が続いて
+                        -- いたため復活させる（旧bicycle_infraと違い、複数の独立フラグとして
+                        -- 個別に焼き込む設計。is_emergency_transport/is_critical_logisticsと
+                        -- 同じ理由）。
+                        CASE WHEN w.highway = 'cycleway' THEN true END AS highway_is_cycleway,
+                        CASE WHEN 'track' = ANY(ARRAY[
+                            lower(btrim(w.tags->>'cycleway')), lower(btrim(w.tags->>'cycleway:left')),
+                            lower(btrim(w.tags->>'cycleway:right')), lower(btrim(w.tags->>'cycleway:both'))
+                        ]) THEN true END AS cycleway_has_track,
+                        CASE WHEN 'lane' = ANY(ARRAY[
+                            lower(btrim(w.tags->>'cycleway')), lower(btrim(w.tags->>'cycleway:left')),
+                            lower(btrim(w.tags->>'cycleway:right')), lower(btrim(w.tags->>'cycleway:both'))
+                        ]) THEN true END AS cycleway_has_lane,
+                        CASE WHEN ARRAY[
+                            lower(btrim(w.tags->>'cycleway')), lower(btrim(w.tags->>'cycleway:left')),
+                            lower(btrim(w.tags->>'cycleway:right')), lower(btrim(w.tags->>'cycleway:both'))
+                        ] && ARRAY['share_busway', 'shared_lane'] THEN true END AS cycleway_has_shared,
+                        CASE
+                            WHEN w.highway IN ('footway', 'path')
+                                 AND lower(btrim(w.tags->>'bicycle')) IN ('yes', 'designated')
+                                THEN true
+                        END AS shared_pedestrian_path,
                         -- 事前集計カウントのkm正規化密度（改善計画T145b、冒頭コメント参照）。
                         -- ST_AsMVTはnumeric型をtextへフォールバックするため（maxspeed_kmhの
                         -- コメント参照）、丸めた後にdouble precisionへキャストして焼き込む。

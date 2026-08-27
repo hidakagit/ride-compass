@@ -52,7 +52,10 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // v16: 改善計画T347。bicycle_infraプロパティを削除した（地図表示は専用レイヤーごと廃止し、
 // 評価軸側は新設の公開軸「自転車インフラ」bicycle_infra_qualityへ置き換えたため、
 // 地図表示・評価軸のどちらからも一切参照されなくなった）。
-const ROAD_SURFACE_TILE_VERSION = "16";
+// v17: 改善計画T367。公開軸「自転車インフラ」（bicycle_infra_quality）が参照する
+// 5正規化フラグ材料（highway_is_cycleway等）を追加した。v16でtile_propertyを失って以降
+// derive_ramp_inputsの対象外＝地図に一切出ない状態が続いていたため復活させる。
+const ROAD_SURFACE_TILE_VERSION = "17";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
 // 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの

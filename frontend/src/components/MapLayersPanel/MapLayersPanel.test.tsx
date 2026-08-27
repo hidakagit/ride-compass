@@ -186,12 +186,14 @@ describe("MapLayersPanel", () => {
 
   // 実機フィードバック「推定指標の上から数えた順番を地図上の左から数えた順番と一致させて」
   // への対応。地図チップの推定グループは軸カタログ順（SECONDARY_AXES＝axis-catalog.json由来、
-  // 勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間）で横並びに展開されるため、
-  // パネル側もこの順を再現する（以前はcategory順で、地図チップの並びと食い違っていた）。
+  // 勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）で横並びに展開される
+  // ため、パネル側もこの順を再現する（以前はcategory順で、地図チップの並びと食い違っていた）。
   // 改善計画T320: axis-catalog.jsonの生成がAXIS_DEFINITIONSのsort_order（accident=5,
   // night=6）どおりの順で走査するようになったため、事故密度が夜間より前になった
   // （以前は生成スクリプト側の手書き登録順が偶然night→accidentだった）。
-  it("推定グループの並び順が地図チップの並び（勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間）と一致する", () => {
+  // 改善計画T367: 自転車インフラ（bicycle_infra_quality）が地図表示に対応した
+  // （show_map_icon=true）ため、sort_order最後尾の軸としてSECONDARY_AXESの末尾に加わった。
+  it("推定グループの並び順が地図チップの並び（勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）と一致する", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
     const compositeHeading = Array.from(container.querySelectorAll("h2")).find(
       (h) => h.textContent === "推定指標（合成）",
@@ -199,7 +201,7 @@ describe("MapLayersPanel", () => {
     const compositeGroup = compositeHeading?.closest(`.${styles.natureGroup}`);
     expect(compositeGroup).toBeTruthy();
     const titles = Array.from(compositeGroup!.querySelectorAll("h3")).map((h) => h.textContent);
-    expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "事故密度", "夜間"]);
+    expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "事故密度", "夜間", "自転車インフラ"]);
   });
 
   // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。

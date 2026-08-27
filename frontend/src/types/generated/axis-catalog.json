@@ -364,13 +364,73 @@
       "icon_id": null,
       "chip_label": "自転車道",
       "panel_hint": null,
-      "show_map_icon": false,
+      "show_map_icon": true,
       "display": {
-        "kind": "none",
+        "kind": "ramp",
         "label": "自転車インフラ",
         "category": "trafficSafety",
-        "tile_inputs": [],
-        "thresholds": [],
+        "tile_inputs": [
+          {
+            "property": "highway_is_cycleway",
+            "weight": -4.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          },
+          {
+            "property": "cycleway_has_track",
+            "weight": -4.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          },
+          {
+            "property": "cycleway_has_lane",
+            "weight": -2.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          },
+          {
+            "property": "cycleway_has_shared",
+            "weight": -1.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          },
+          {
+            "property": "shared_pedestrian_path",
+            "weight": -4.0,
+            "boolean": false,
+            "invert": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null
+          }
+        ],
+        "thresholds": [
+          -2.0,
+          -1.0,
+          0.0
+        ],
         "unit": "",
         "note": ""
       }
