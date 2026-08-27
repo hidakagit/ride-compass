@@ -1,7 +1,10 @@
+from contextlib import asynccontextmanager
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import RouteGenerationSetup, get_route_generation_builder
+from app.api.dependencies import RouteGenerationSetup, _assemble_route_generation_setup
+from app.api.routers import routes as routes_module
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
@@ -61,24 +64,26 @@ class FakeRouteGenerator:
         return self._candidates
 
 
-def override_generation_builder(candidates: list[RouteCandidate], captured: dict | None = None):
-    """get_route_generation_builderのDI上書き。capturedを渡すと、エンドポイントが
-    ビルダーへ渡した重み上書き（無ければNone）を記録する。"""
+def fake_open_route_generation_setup(candidates: list[RouteCandidate], captured: dict | None = None):
+    """`open_route_generation_setup`（改善計画T265、バックグラウンドジョブが使う
+    非同期コンテキストマネージャ）のフェイク版。`captured`を渡すと、ジョブへ渡された
+    重み上書き（無ければNone）を記録する。"""
 
-    def build(
+    @asynccontextmanager
+    async def _open(
         preference_override=None,
         scoring_weights_override=None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters_override: frozenset[str] | None = None,
-    ) -> RouteGenerationSetup:
+    ):
         if captured is not None:
             captured["preference"] = preference_override
             captured["scoring"] = scoring_weights_override
             captured["penalty_strength"] = penalty_strength
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
-        return RouteGenerationSetup(
+        yield RouteGenerationSetup(
             generator=FakeRouteGenerator(candidates),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
@@ -87,10 +92,25 @@ def override_generation_builder(candidates: list[RouteCandidate], captured: dict
             hard_filters=hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS,
         )
 
-    return lambda: build
+    return _open
 
 
-def test_generate_routes_returns_candidates_and_engine():
+def submit_and_await_done(body: dict) -> dict:
+    """POST /api/routes/generateでジョブを投稿し、GET /api/routes/generate/{job_id}で
+    status=="done"になった結果を返す（改善計画T265）。`BackgroundTasks`は`TestClient`の
+    リクエストサイクル内で同期的に実行されるため、ポーリングのための待機は不要——
+    投稿直後の1回のGETで結果が確定している。"""
+    submit_response = client.post("/api/routes/generate", json=body)
+    assert submit_response.status_code == 202, submit_response.text
+    job_id = submit_response.json()["job_id"]
+    poll_response = client.get(f"/api/routes/generate/{job_id}")
+    assert poll_response.status_code == 200, poll_response.text
+    payload = poll_response.json()
+    assert payload["status"] == "done", payload
+    return payload["result"]
+
+
+def test_generate_routes_returns_candidates_and_engine(monkeypatch):
     candidates = [
         RouteCandidate(
             id="route-000",
@@ -99,47 +119,32 @@ def test_generate_routes_returns_candidates_and_engine():
             geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
         )
     ]
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder(candidates)
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup(candidates))
 
-    try:
-        response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    finally:
-        app.dependency_overrides.clear()
+    result = submit_and_await_done(REQUEST_BODY)
 
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body["routes"]) == 1
-    assert body["routes"][0]["id"] == "route-000"
-    assert body["routes"][0]["direction_label"] == "北"
-    assert body["engine"] == "fake-engine"
+    assert len(result["routes"]) == 1
+    assert result["routes"][0]["id"] == "route-000"
+    assert result["routes"][0]["direction_label"] == "北"
+    assert result["engine"] == "fake-engine"
 
 
-def test_generate_routes_returns_empty_list_when_no_candidates_match():
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+def test_generate_routes_returns_empty_list_when_no_candidates_match(monkeypatch):
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
 
-    try:
-        response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    finally:
-        app.dependency_overrides.clear()
+    result = submit_and_await_done(REQUEST_BODY)
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["routes"] == []
-    assert body["engine"] == "fake-engine"
+    assert result["routes"] == []
+    assert result["engine"] == "fake-engine"
 
 
-def test_generate_routes_echoes_applied_conditions():
+def test_generate_routes_echoes_applied_conditions(monkeypatch):
     # 実験の記録・再現用に、実際に適用された条件（重み含む）をレスポンスへエコーする
     # （研究インターフェース改善 §10-6）。上書き無しの場合は既定重みがそのまま入る。
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
 
-    try:
-        response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    finally:
-        app.dependency_overrides.clear()
+    conditions = submit_and_await_done(REQUEST_BODY)["conditions"]
 
-    assert response.status_code == 200
-    conditions = response.json()["conditions"]
     assert conditions["latitude"] == REQUEST_BODY["latitude"]
     assert conditions["longitude"] == REQUEST_BODY["longitude"]
     assert conditions["distance_km"] == REQUEST_BODY["distance_km"]
@@ -152,11 +157,11 @@ def test_generate_routes_echoes_applied_conditions():
     assert "+09:00" in conditions["generated_at"]
 
 
-def test_generate_routes_applies_weight_overrides_and_echoes_them():
-    # リクエストの重み上書きがビルダーへ渡り、conditionsに適用値がエコーされる
+def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
+    # リクエストの重み上書きがジョブへ渡り、conditionsに適用値がエコーされる
     # （研究インターフェース改善 §10-1）。
     captured: dict = {}
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
     scoring_weights = {"distance_weight": 0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}
     route_preference = {
         "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
@@ -164,92 +169,64 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them():
         "night": 0.0, "bicycle_infra_quality": 0.0,
     }
 
-    try:
-        response = client.post(
-            "/api/routes/generate",
-            json={**REQUEST_BODY, "scoring_weights": scoring_weights, "route_preference": route_preference},
-        )
-    finally:
-        app.dependency_overrides.clear()
+    result = submit_and_await_done(
+        {**REQUEST_BODY, "scoring_weights": scoring_weights, "route_preference": route_preference}
+    )
 
-    assert response.status_code == 200
     assert captured["scoring"] == scoring_weights
     assert captured["preference"] == RoutePreference(weights=route_preference)
-    conditions = response.json()["conditions"]
+    conditions = result["conditions"]
     assert conditions["scoring_weights"] == scoring_weights
     assert conditions["route_preference"] == route_preference
 
 
-def test_generate_routes_echoes_default_hard_filters_when_omitted():
+def test_generate_routes_echoes_default_hard_filters_when_omitted(monkeypatch):
     # 改善計画T266: hard_filters省略時はDEFAULT_HARD_FILTERS（全フィルタ有効）が
     # そのままconditionsへエコーされる。
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
 
-    try:
-        response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    finally:
-        app.dependency_overrides.clear()
+    conditions = submit_and_await_done(REQUEST_BODY)["conditions"]
 
-    assert response.status_code == 200
-    conditions = response.json()["conditions"]
     assert conditions["hard_filters"] == {"no_bicycle": True, "motorway": True, "trunk": True}
 
 
-def test_generate_routes_applies_hard_filters_override_and_echoes_them():
-    # 改善計画T266: hard_filtersの個別ON/OFF上書きがビルダーへ渡り、conditionsへ
+def test_generate_routes_applies_hard_filters_override_and_echoes_them(monkeypatch):
+    # 改善計画T266: hard_filtersの個別ON/OFF上書きがジョブへ渡り、conditionsへ
     # 適用値がエコーされる。
     captured: dict = {}
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([], captured)
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
     hard_filters = {"no_bicycle": True, "motorway": True, "trunk": False}
 
-    try:
-        response = client.post(
-            "/api/routes/generate", json={**REQUEST_BODY, "hard_filters": hard_filters}
-        )
-    finally:
-        app.dependency_overrides.clear()
+    result = submit_and_await_done({**REQUEST_BODY, "hard_filters": hard_filters})
 
-    assert response.status_code == 200
     assert captured["hard_filters"] == frozenset({"no_bicycle", "motorway"})
-    conditions = response.json()["conditions"]
-    assert conditions["hard_filters"] == hard_filters
+    assert result["conditions"]["hard_filters"] == hard_filters
 
 
 def test_generate_routes_rejects_hard_filters_with_missing_keys():
     # RoutePreferenceWeightsと同じ「上書きするなら全項目を明示する」方針
-    # （改善計画T266）。
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
-
-    try:
-        response = client.post(
-            "/api/routes/generate", json={**REQUEST_BODY, "hard_filters": {"no_bicycle": True}}
-        )
-    finally:
-        app.dependency_overrides.clear()
+    # （改善計画T266）。リクエストボディの検証はジョブ作成前に働くため、フェイクの
+    # 差し替え無しでも422になる。
+    response = client.post("/api/routes/generate", json={**REQUEST_BODY, "hard_filters": {"no_bicycle": True}})
 
     assert response.status_code == 422
 
 
 def test_generate_routes_is_rate_limited_per_client():
     # ルート生成は最も高コストなエンドポイント（外部APIクォータ・数十秒の処理時間）のため、
-    # per-IPの上限を超えたリクエストは429で拒否する。
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
+    # per-IPの上限を超えたリクエストは429で拒否する（ジョブ作成前、投稿時点の同期チェック）。
+    for _ in range(settings.generate_rate_limit_per_minute - 1):
+        rate_limiter.check_rate_limit("generate:testclient", settings.generate_rate_limit_per_minute)
+    assert client.post("/api/routes/generate", json=REQUEST_BODY).status_code == 202
 
-    try:
-        for _ in range(settings.generate_rate_limit_per_minute - 1):
-            rate_limiter.check_rate_limit("generate:testclient", settings.generate_rate_limit_per_minute)
-        assert client.post("/api/routes/generate", json=REQUEST_BODY).status_code == 200
-        response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    finally:
-        app.dependency_overrides.clear()
+    response = client.post("/api/routes/generate", json=REQUEST_BODY)
 
     assert response.status_code == 429
 
 
 async def test_generate_routes_rejects_when_concurrency_limit_reached():
     # 同時実行数の上限に達している間は待たせず429を返す（外部サービスへの負荷の積み上げ防止）。
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
-
+    # 改善計画T265: この判定はジョブ作成前・投稿時点のまま変更していない。
     acquired = 0
     try:
         while not _generate_semaphore.locked():
@@ -259,23 +236,55 @@ async def test_generate_routes_rejects_when_concurrency_limit_reached():
     finally:
         for _ in range(acquired):
             _generate_semaphore.release()
-        app.dependency_overrides.clear()
 
     assert response.status_code == 429
 
 
-def _lightweight_generation_builder():
-    # get_route_generation_builderはFastAPIのDependsで解決される前提の関数だが、ここでは
-    # 依存を直接渡して「settings.routing_engineに応じたエンジン選択」と重みの既定値/上書きの
-    # 反映だけを検証する。いずれの依存もコンストラクタではI/Oを行わないため、http_client・
+def test_generate_job_status_returns_404_for_unknown_job_id():
+    # 改善計画T265: 完了から時間が経過して破棄された、またはそもそも存在しないjob_idは
+    # 404（例外を握りつぶさず、フロントがポーリングを打ち切れるようにする）。
+    response = client.get("/api/routes/generate/does-not-exist")
+
+    assert response.status_code == 404
+
+
+def test_generate_job_status_returns_failed_with_error_message(monkeypatch):
+    # 改善計画T265: バックグラウンドジョブ内の例外はレスポンスへ伝播できないため、
+    # job_registryへ記録してポーリング側がstatus=="failed"として観測できることを確認する。
+    @asynccontextmanager
+    async def _raise_setup(*args, **kwargs):
+        raise RuntimeError("生成中に想定外のエラー")
+        yield  # noqa: このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
+
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
+
+    submit_response = client.post("/api/routes/generate", json=REQUEST_BODY)
+    assert submit_response.status_code == 202
+    job_id = submit_response.json()["job_id"]
+    poll_response = client.get(f"/api/routes/generate/{job_id}")
+
+    assert poll_response.status_code == 200
+    body = poll_response.json()
+    assert body["status"] == "failed"
+    assert "生成中に想定外のエラー" in body["error"]
+
+
+def _lightweight_route_generation_setup(preference_override=None, scoring_weights_override=None):
+    # _assemble_route_generation_setupはFastAPIのDependsで解決される前提の依存を
+    # 直接渡して呼べる純粋関数（改善計画T265でget_route_generation_builderのクロージャから
+    # 抽出）。「settings.routing_engineに応じたエンジン選択」と重みの既定値/上書きの反映
+    # だけを検証する。いずれの依存もコンストラクタではI/Oを行わないため、http_client・
     # session（RoadGraphRepository）はNoneでよい。
-    return get_route_generation_builder(
+    return _assemble_route_generation_setup(
         routing_service=RoutingService(ORSClient("test-key", http_client=None)),
         elevation_service=ElevationService(ElevationClient(), http_client=None),
         wind_service=WindService(WeatherService(WeatherClient(), http_client=None)),
         graph_service=GraphService(repository=RoadGraphRepository(session=None)),
         elevation_attribute_service=ElevationAttributeService(ElevationClient(), http_client=None),
         weather_service=WeatherService(WeatherClient(), http_client=None),
+        surface_match_repository=None,
+        preference_override=preference_override,
+        scoring_weights_override=scoring_weights_override,
     )
 
 
@@ -299,36 +308,32 @@ def _lightweight_generation_builder():
     ],
 )
 def test_generate_routes_rejects_invalid_request_body(overrides):
-    app.dependency_overrides[get_route_generation_builder] = override_generation_builder([])
-
-    try:
-        response = client.post("/api/routes/generate", json={**REQUEST_BODY, **overrides})
-    finally:
-        app.dependency_overrides.clear()
+    # リクエストボディの検証はジョブ作成前に働くため、フェイクの差し替え無しでも422になる。
+    response = client.post("/api/routes/generate", json={**REQUEST_BODY, **overrides})
 
     assert response.status_code == 422
 
 
-def test_generation_builder_selects_engine_from_settings(monkeypatch):
+def test_generation_setup_selects_engine_from_settings(monkeypatch):
     monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
-    assert _lightweight_generation_builder()(None, None).generator.engine_name == "openrouteservice"
+    assert _lightweight_route_generation_setup().generator.engine_name == "openrouteservice"
 
     monkeypatch.setattr(settings, "routing_engine", "road_graph")
-    assert _lightweight_generation_builder()(None, None).generator.engine_name == "road_graph"
+    assert _lightweight_route_generation_setup().generator.engine_name == "road_graph"
 
 
-def test_generation_builder_uses_yaml_defaults_when_no_override():
-    setup = _lightweight_generation_builder()(None, None)
+def test_generation_setup_uses_yaml_defaults_when_no_override():
+    setup = _lightweight_route_generation_setup()
 
     assert setup.scoring_weights == load_scoring_weights()
     assert setup.route_preference == load_route_preference()
 
 
-def test_generation_builder_uses_overrides_when_provided():
+def test_generation_setup_uses_overrides_when_provided():
     preference = RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0, "wind": 0.0})
     scoring_weights = {"distance_weight": 1.0, "elevation_weight": 0.0, "wind_weight": 0.0, "road_weight": 0.0}
 
-    setup = _lightweight_generation_builder()(preference, scoring_weights)
+    setup = _lightweight_route_generation_setup(preference, scoring_weights)
 
     assert setup.route_preference is preference
     assert setup.scoring_weights == scoring_weights

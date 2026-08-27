@@ -98,6 +98,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/routes/generate/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Generate Job */
+        get: operations["get_generate_job_api_routes_generate__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/weather": {
         parameters: {
             query?: never;
@@ -1078,6 +1095,30 @@ export interface components {
             /** Overall Difficulty */
             overall_difficulty?: number | null;
         };
+        /**
+         * RouteGenerateJobCreatedResponse
+         * @description `POST /api/routes/generate`の応答（改善計画T265）。
+         *
+         *     冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒[T248実測]）が
+         *     ブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ
+         *     切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/
+         *     {job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。
+         */
+        RouteGenerateJobCreatedResponse: {
+            /** Job Id */
+            job_id: string;
+        };
+        /** RouteGenerateJobStatusResponse */
+        RouteGenerateJobStatusResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed";
+            result?: components["schemas"]["RouteGenerateResponse"] | null;
+            /** Error */
+            error?: string | null;
+        };
         /** RouteGenerateRequest */
         RouteGenerateRequest: {
             /** Latitude */
@@ -1580,12 +1621,43 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteGenerateJobCreatedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_generate_job_api_routes_generate__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RouteGenerateResponse"];
+                    "application/json": components["schemas"]["RouteGenerateJobStatusResponse"];
                 };
             };
             /** @description Validation Error */

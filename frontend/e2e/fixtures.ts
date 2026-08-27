@@ -114,8 +114,15 @@ export async function installApiMocks(page: Page): Promise<void> {
     route.fulfill({ json: weatherConditionsFixture() })
   );
 
+  // 改善計画T265: ルート生成はバックグラウンドジョブ化された。POST（ジョブ投稿）は
+  // 即座にjob_idを返し、GET .../generate/{job_id}（ポーリング）は1回目から
+  // status="done"を返す（e2eはUI操作の疎通確認が目的で、待ち状態の遷移自体は
+  // frontend/src/services/routeApi.test.tsが検証するためここでは再現しない）。
   await page.route(`${API_BASE}/api/routes/generate`, (route) =>
-    route.fulfill({ json: routeGenerateResponseFixture() })
+    route.fulfill({ status: 202, json: { job_id: "e2e-fake-job" } })
+  );
+  await page.route(`${API_BASE}/api/routes/generate/*`, (route) =>
+    route.fulfill({ json: { status: "done", result: routeGenerateResponseFixture(), error: null } })
   );
 
   // 基礎地図スタイル（/api/basemap/styles/liberty）と、それ以外のbasemap配下

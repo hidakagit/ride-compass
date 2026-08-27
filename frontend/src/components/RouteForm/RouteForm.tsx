@@ -15,6 +15,9 @@ interface RouteFormProps {
   onDistanceChange: (value: string) => void;
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
+  /** 改善計画T265: 生成中(loading)のボタン文言を差し替える（例:「生成中...(12秒経過)」
+   * 「順番待ち...」）。未指定時は従来どおり「生成中...」/「…」（compact時）を使う。 */
+  progressLabel?: string;
   /** モバイル上部の操作バー向け（改善計画T250）。出発地点・生成ボタンと同じ行に収める
    * ため、ラベル文言を削って幅を詰める（アクセシブルネームはaria-labelで維持）。 */
   compact?: boolean;
@@ -37,6 +40,7 @@ export default function RouteForm({
   onDistanceChange,
   onGenerate,
   loading,
+  progressLabel,
   compact = false,
   routeMode,
   onRouteModeChange,
@@ -154,7 +158,7 @@ export default function RouteForm({
       )}
 
       <Button variant="primary" type="submit" disabled={loading}>
-        {loading ? (compact ? "…" : "生成中...") : compact ? "生成" : "ルート生成"}
+        {loading ? (compact ? "…" : (progressLabel ?? "生成中...")) : compact ? "生成" : "ルート生成"}
       </Button>
       {error && <ErrorText>{error}</ErrorText>}
     </form>

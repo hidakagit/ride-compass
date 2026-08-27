@@ -76,7 +76,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredJsonState } from "@/hooks/useStoredState";
-import { generateRoutes } from "@/services/routeApi";
+import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
 import type {
   Coordinates,
   HardFilterOverride,
@@ -244,6 +244,11 @@ export default function Home() {
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 改善計画T265: ルート生成のバックグラウンドジョブ化に伴う進捗表示。生成中(loading)の
+  // 間だけ意味を持ち、待ち(queued)/実行中(running)の別と経過時間をボタン文言へ反映する
+  // （RouteForm.tsx: progressLabel参照）。生成開始直後・完了直後はnull
+  // （queued/runningのどちらかが確定するまでの一瞬はloadingのみでラベルを出さない）。
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // 改善計画T364: 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する
@@ -912,6 +917,7 @@ export default function Home() {
 
   async function handleGenerate(distanceKm: number) {
     setLoading(true);
+    setGenerationProgress(null);
     setErrorMessage(null);
     try {
       // 改善計画T303: 送信直前にキー整合を補正する（上のコメント参照）。RouteSettingsPanel
@@ -955,7 +961,7 @@ export default function Home() {
         // （backend側の分岐はapi/routers/routes.py参照）。
         ...(routeMode === "destination" && waypoints.length > 0 ? { waypoints } : {}),
         ...(routeMode === "destination" && destination ? { destination } : {}),
-      });
+      }, setGenerationProgress);
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
       // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
@@ -1000,8 +1006,19 @@ export default function Home() {
       setErrorMessage(message);
     } finally {
       setLoading(false);
+      setGenerationProgress(null);
     }
   }
+
+  // 改善計画T265: RouteForm（デスクトップ・モバイル両方の呼び出し箇所で共有）のボタン文言。
+  // queued（同時実行数上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
+  // RouteForm側の既定文言（「生成中...」）に委ねる。
+  const generationProgressLabel =
+    generationProgress?.status === "queued"
+      ? "順番待ち..."
+      : generationProgress?.status === "running"
+        ? `生成中...(${Math.round(generationProgress.elapsedMs / 1000)}秒経過)`
+        : undefined;
 
   // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
   // デスクトップの<details>専用（改善計画T250でモバイルはヘッダーの操作バーへ出発地点・
@@ -1016,6 +1033,7 @@ export default function Home() {
           onDistanceChange={setDistanceInput}
           onGenerate={handleGenerate}
           loading={loading}
+          progressLabel={generationProgressLabel}
           routeMode={routeMode}
           onRouteModeChange={handleRouteModeChange}
           waypointCount={waypoints.length}
