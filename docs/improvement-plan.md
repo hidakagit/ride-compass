@@ -8709,6 +8709,42 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [x] T378. 地図オーバーレイの▼ページ送り判定が、気象タイムラインパネル表示中の占有高さを考慮しておらず、末尾チップがパネルの裏に隠れる不具合を修正 規模S（2026-08-27完了）
+
+- 背景: ユーザー報告（スマホ実機のスクリーンショット付き）「下にアイコンが溢れたときは
+  ▼アイコンで送るようにして。以前改修しているが、下部のタイムラインバーが出ている
+  ときのことが考慮されていない」。T374で実装した▼ページ送り（`usePagedOverflow`）・
+  T374フォローアップで実装したモバイルタブバー分の底上げ（`.wrapper`の`bottom: calc(...
+  + var(--mobile-tabbar-height))`、`MapOverlayControls.module.css`）は、地図下部中央に
+  浮く気象タイムラインパネル（`page.tsx`の`.bottomControlRow`、時刻依存レイヤーが
+  1つ以上ONのときだけ表示）の占有高さを考慮していなかった。`.wrapper`と
+  `.bottomControlRow`はpage.tsx上で兄弟要素（共通の親は`.mapPane`）のため、CSSだけでは
+  互いの実寸を参照できず、パネル表示中は「表示領域」の判定が過小評価され、末尾の
+  アイコンチップがパネルの裏へ隠れて操作不能になっていた。
+- 対応: 新設フック`frontend/src/hooks/useElementHeightCssVar.ts`が、`.bottomControlRow`を
+  ResizeObserverで実測し、共通祖先`.mapPane`へ`--bottom-control-row-height`という
+  CSSカスタムプロパティをinline styleで書き込む（`globals.css`の`--mobile-tabbar-height`と
+  同じ「CSS変数で高さを共有する」パターンだが、こちらは表示中のレイヤー数による高さの
+  変化[`.dynamicLayerSliders`のflex-wrap]にも実測で追従する）。`page.tsx`は`mapPaneRef`・
+  `bottomControlRowRef`の2つのrefをそれぞれの要素へ付与し、`useElementHeightCssVar`を
+  1行呼ぶだけ。`MapOverlayControls.module.css`の`.wrapper`のモバイル用`bottom`計算へ
+  `+ var(--bottom-control-row-height, 0px)`を追加した（未設定時は0pxへフォールバック）。
+  既存の`usePagedOverflow`（`.chipRowViewport`のResizeObserver）・flexboxの縮小ロジック
+  （T374）は無変更のまま、`.wrapper`の使用可能な高さが正しく縮むことで自動的に
+  正しいタイミングで▼が出るようになる。
+- 検証: `useElementHeightCssVar.test.ts`（新規3件）・`MapOverlayControls.test.tsx`・
+  `page.test.tsx`はクリーン。フロントエンド全694件・tsc（`next typegen`後）・eslintも
+  クリーン。ローカルでNext.js devサーバー＋backend（T361で構築したローカルPostGIS）を
+  実際に起動し、Playwrightでモバイル幅（393×852）の実機を再現して検証: 観測グループ
+  （9件）・動的グループ（4件）を展開し降水レイヤーをONにした状態で、▼を末尾まで
+  連打しても`.chipRowViewport`の下端が`.bottomControlRow`の上端を一度も超えない
+  （重なりが発生しない）ことを座標計算・スクリーンショットの両方で確認した。
+  （気象APIへの実際のネットワーク到達はサンドボックス環境の制約上できず、
+  `DynamicLayerTimeSlider`は「Failed to fetch」のエラー表示状態だったが、`.bottomControlRow`
+  自体は実際の高さで描画されるため、レイアウトの検証としては同等に機能する。）
+
+---
+
 ### - [x] T362. 本番DBで6公開軸がis_published=falseになっていた不整合の発見・修正 規模S（完了）
 
 - 背景: T353/T359/T360の本番反映作業中（2026-08-27）に、本番`GET /api/axis-catalog`
