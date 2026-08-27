@@ -13,58 +13,34 @@ function baseProps() {
   };
 }
 
+// 改善計画T368: 「出発地点: …」の常時表示テキスト＋緯度経度は撤去し、出発地点を
+// 手動指定するアイコンボタン1つだけを持つ（状態の説明はaria-label/titleへ退避）。
+// GPS取得済みかフォールバックかの視覚的区別は現在地マーカーの色（MapView.tsx）が担う。
 describe("LocationControl", () => {
-  it.each([
-    ["geolocation" as LocationSource, "現在地[取得済み]"],
-    ["default" as LocationSource, "初期地点[東京・王子]"],
-    ["manual" as LocationSource, "指定地点"],
-  ])("sourceが%sのとき「%s」が表示される", (source, label) => {
-    render(<LocationControl {...baseProps()} source={source} />);
-    // ラベルに含まれる[]は正規表現の特殊文字（文字クラス）のためエスケープしてから使う
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    expect(screen.getByText(new RegExp(escaped), { selector: "span" })).toBeInTheDocument();
-  });
-
-  it("緯度経度が小数点以下5桁でフォーマットされて表示される", () => {
-    render(<LocationControl {...baseProps()} />);
-    expect(screen.getByText(/35\.12346, 139\.65432/)).toBeInTheDocument();
-  });
-
-  it("手動入力欄は表示されない", () => {
+  it("手動入力欄・常時表示テキストは表示されない", () => {
     render(<LocationControl {...baseProps()} />);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/出発地点/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/35\.12346, 139\.65432/)).not.toBeInTheDocument();
   });
 
-  describe("compact", () => {
-    it("座標を省いた1行表示になり、詳細はtitle属性に残る", () => {
-      render(<LocationControl {...baseProps()} compact />);
-      expect(screen.getByText(/出発: 現在地\[取得済み\]/)).toBeInTheDocument();
-      expect(screen.queryByText(/35\.12346, 139\.65432/)).not.toBeInTheDocument();
-      expect(screen.getByText(/出発: 現在地\[取得済み\]/)).toHaveAttribute(
-        "title",
-        "出発地点: 現在地[取得済み] (35.12346, 139.65432)"
-      );
-    });
+  it.each([
+    ["unset" as const, "geolocation" as LocationSource, "出発地点を指定（現在: 現在地[取得済み] 35.12346, 139.65432）"],
+    ["unset" as const, "default" as LocationSource, "出発地点を指定（現在: 初期地点[東京・王子] 35.12346, 139.65432）"],
+    ["armed" as const, "geolocation" as LocationSource, "地図をタップして出発地点を指定（タップでキャンセル）"],
+    ["manual" as const, "manual" as LocationSource, "現在地に戻す（現在の出発地点: 指定地点 35.12346, 139.65432）"],
+  ])("originStateが%s・sourceが%sのときボタンのアクセシブルネームが「%s」になる", (originState, source, label) => {
+    render(<LocationControl {...baseProps()} originState={originState} source={source} />);
+    expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
   });
 
-  describe("改善計画T366: 出発地点の手動指定ボタン", () => {
-    it.each([
-      ["unset" as const, "出発地点を指定（地図をタップ）"],
-      ["armed" as const, "地図をタップして出発地点を指定（タップでキャンセル）"],
-      ["manual" as const, "現在地に戻す"],
-    ])("originStateが%sのときボタンのアクセシブルネームが「%s」になる", (originState, label) => {
-      render(<LocationControl {...baseProps()} originState={originState} />);
-      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
-    });
+  it("ボタン押下でonOriginButtonClickが呼ばれる", async () => {
+    const user = userEvent.setup();
+    const onOriginButtonClick = vi.fn();
+    render(<LocationControl {...baseProps()} onOriginButtonClick={onOriginButtonClick} />);
 
-    it("ボタン押下でonOriginButtonClickが呼ばれる", async () => {
-      const user = userEvent.setup();
-      const onOriginButtonClick = vi.fn();
-      render(<LocationControl {...baseProps()} onOriginButtonClick={onOriginButtonClick} />);
+    await user.click(screen.getByRole("button"));
 
-      await user.click(screen.getByRole("button", { name: "出発地点を指定（地図をタップ）" }));
-
-      expect(onOriginButtonClick).toHaveBeenCalledTimes(1);
-    });
+    expect(onOriginButtonClick).toHaveBeenCalledTimes(1);
   });
 });

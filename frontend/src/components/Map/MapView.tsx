@@ -6,6 +6,7 @@ import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMa
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   Coordinates,
+  LocationSource,
   RouteCandidate,
   RouteSegmentDetail,
 } from "@/types/route";
@@ -76,6 +77,11 @@ import styles from "./MapView.module.css";
 // リクエストがブラウザのオリジン単位の同時接続数上限を埋めてしまいAPI呼び出しが詰まる
 // ことが実機確認で判明したため、あえてAPI_BASE_URLとは別オリジン（相対パス＝:3000）にしている。
 const MAP_STYLE = "/api/basemap/styles/liberty";
+
+// 改善計画T368: 出発地点マーカーの色。GPS取得失敗時のフォールバック（"default"）だけを
+// グレーにし、それ以外（実際のGPS取得・手動指定）は従来どおりの赤にする。
+const ORIGIN_MARKER_COLOR = "#e11d48";
+const ORIGIN_MARKER_FALLBACK_COLOR = "#9ca3af";
 
 // 国土地理院の色別標高図（ラスタタイル、APIキー不要）。地理院タイルはブラウザから直接
 // 埋め込む利用を想定して公開されているため、基礎地図タイルとは異なりバックエンド経由の
@@ -1580,6 +1586,11 @@ interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
   location: Coordinates;
+  /** 改善計画T368: 出発地点マーカーの色分けに使う（LocationControl.tsxのテキスト表示を
+   * 廃止した代わりに、GPS取得失敗時のフォールバック（"default"）だけをグレーで視覚的に
+   * 区別する。実際のGPS取得（"geolocation"）と手動指定（"manual"）はどちらも
+   * 「意図した位置」という点で同格のため、従来どおりの赤で区別しない）。 */
+  locationSource: LocationSource;
   showElevation: boolean;
   /** 動的気象レイヤー（降水ナウキャスト=改善計画T170/T171、風の矢印=T178フォローアップ、
    * T183で降水延長予報を追加してから両者を再設計）。要素id（DynamicWeatherLayerId）ごとに
@@ -1690,6 +1701,7 @@ export default function MapView({
   routes,
   selectedRouteId,
   location,
+  locationSource,
   showElevation,
   dynamicWeather,
   showRoadType,
@@ -1728,6 +1740,10 @@ export default function MapView({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  // 改善計画T368: 現在マーカーへ適用済みのlocationSource（色を変える必要があるかの判定用、
+  // 単なる位置更新（setLngLat）では色を変えられないmaplibregl.Markerの制約を踏まえ、
+  // sourceが変わった場合だけ作り直す）。
+  const appliedMarkerSourceRef = useRef<LocationSource | null>(null);
   const waypointMarkersRef = useRef<Marker[]>([]);
   const destinationMarkerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -2356,6 +2372,7 @@ export default function MapView({
       // 1回目のmarkerが残ったまま2回目（実際に画面に残る方）のmapには一度も追加されず、
       // 以降locationが変わっても現在地マーカーが永久に表示されなくなる。
       markerRef.current = null;
+      appliedMarkerSourceRef.current = null;
       popupRef.current = null;
       waypointMarkersRef.current = [];
       destinationMarkerRef.current = null;
@@ -2371,17 +2388,20 @@ export default function MapView({
     const applyLocation = () => {
       map.flyTo({ center: [location.longitude, location.latitude], zoom: 13 });
 
-      if (markerRef.current) {
+      if (markerRef.current && appliedMarkerSourceRef.current === locationSource) {
         markerRef.current.setLngLat([location.longitude, location.latitude]);
       } else {
-        markerRef.current = new maplibregl.Marker({ color: "#e11d48" })
+        markerRef.current?.remove();
+        const color = locationSource === "default" ? ORIGIN_MARKER_FALLBACK_COLOR : ORIGIN_MARKER_COLOR;
+        markerRef.current = new maplibregl.Marker({ color })
           .setLngLat([location.longitude, location.latitude])
           .addTo(map);
+        appliedMarkerSourceRef.current = locationSource;
       }
     };
 
     runWhenStyleReady(map, applyLocation);
-  }, [location]);
+  }, [location, locationSource]);
 
   // 改善計画T364: 経由地マーカーを更新（最大でも8件程度のため、差分更新はせず
   // 既存マーカーを全部remove→全部作り直す簡易実装）。現在地マーカー（#e11d48）とは

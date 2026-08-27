@@ -1673,7 +1673,6 @@ export default function Home() {
           <LocationControl
             location={location}
             source={locationSource}
-            compact
             originState={originState}
             onOriginButtonClick={handleOriginButtonClick}
           />
@@ -1757,6 +1756,7 @@ export default function Home() {
             routes={routes}
             selectedRouteId={selectedRouteId}
             location={location}
+            locationSource={locationSource}
             showElevation={layerVisibility.elevation}
             dynamicWeather={dynamicWeather}
             showRoadType={layerVisibility.roadType}
