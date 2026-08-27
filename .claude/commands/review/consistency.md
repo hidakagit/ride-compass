@@ -27,7 +27,14 @@ $ARGUMENTS があればそれを対象範囲とする。無指定なら前回同
   docs/complexity-review-2026-08-16.mdは「乖離は検出されなかった」としたが、実際には静的道路属性
   P0/P1が丸ごと未文書化のまま残っていた（history/2026-08-16_all.md F-1参照）**）
 - API仕様と実装の乖離: openapi.json / `types/generated/api.d.ts` が最新か
-  （生成→`git diff --exit-code` 相当の確認。CIのapi-contractジョブと同じ観点）
+  （生成→`git diff --exit-code` 相当の確認。CIのapi-contractジョブと同じ観点）。
+  **同型のドリフトが3回以上再発した実績がある**（T180・T185・T218→CLAUDE.mdへ
+  ルール昇格→昇格の翌日に4回目が発生、history/2026-08-24_overall.md F-1）。
+  書かれた手順・CLAUDE.mdへの格上げだけでは再発を防げなかった一方、その後の
+  機械的検知の強化で収束した（history/2026-08-25_overall.md）。**同種の手動同期
+  ペア（生成→diff確認という定型作業を要するもの）で2回以上の再発が観測された
+  場合は、Recommendationとして「手順の再徹底」ではなく「機械的検知の追加
+  （pre-commit/CI/テストでの強制）」を既定の第一候補にする。**
 - データモデルとDBの乖離: `road_graph_models.py` 等のモデル定義と
   `backend/migrations/` の番号付きSQLの整合。migration未起票のスキーマ差分はないか
 - ドメインルールと実装の乖離: 正準定義（domain/road.py の路面語彙、highway 3スコープ表、

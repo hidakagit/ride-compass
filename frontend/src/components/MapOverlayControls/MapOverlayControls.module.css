@@ -632,37 +632,57 @@
    （ボタン自体のクリックはtouch-actionの影響を受けないため、この指定があってもクリック
    操作自体は妨げられない）。.wrapperのpointer-events: noneを継承するため、ここで
    pointer-events: autoに戻す。 */
+/* 改善計画T381フォローアップ（ユーザー指摘の変遷、2026-08-27）:
+   「他アイコンの幅や高さまでもう少し広げると操作性が増す」→「丸型だとスペースをその分
+   取るので角型で」→「▼は横幅だけ長め・▶は縦幅だけ長めにして、なるべくスペースを
+   有効利用したい」。丸ボタン+固定サイズ拡大（一時的な中間実装）ではなく、既に確保
+   されている周囲の余白をalign-self: stretchでそのまま埋める方式にする。stretchは
+   常に「今いるflexコンテナのクロス軸」を埋めるため、縦送り（▲▼、.wrapper直下＝列flex
+   の子、クロス軸=横方向）では横に長い帯、横送り（◀▶、.headerLegendRow直下＝行flex
+   の子、クロス軸=縦方向）では縦に長い帯に自動でなる（T380で問題になったalign-self:
+   centerのような軸ごとの意味の反転が起きない、常に「今いる場所の余白を埋める」という
+   同じ意味になるため）。埋める側の寸法（縦送りなら横幅、横送りなら縦幅）はコンテナの
+   実際の幅・高さに追従するため、推定グループ展開時の.wrapper幅変化にも自動で対応する。
+   角型（border-radius: var(--radius-md)、.iconChip等と同じ丸め方）にすることで、
+   丸ボタンの四隅に生じていた無駄な余白も無くす。 */
 .pageButton {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.6rem;
+  align-self: stretch;
   height: 1.6rem;
+  padding: 0 0.3rem;
   flex-shrink: 0;
-  padding: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
   color: var(--foreground);
+  font-size: 1.1rem;
   cursor: pointer;
   touch-action: none;
   pointer-events: auto;
+  /* 改善計画T381（ユーザー指摘「長押しすると、コピーを効かれるのが微妙に嫌」）:
+     長押し連続送り（useHoldRepeat）を追加したことで、ボタンの中身（▲▼◀▶の文字
+     グリフ）を長押しする機会が増え、iOS Safari等の「長押しでテキスト選択・コピー
+     メニューを出す」既定のコールアウトが誘発されるようになった。touch-action: none
+     はスクロール/ズーム等のジェスチャーだけを制御する仕様で、この種のテキスト選択
+     コールアウトは対象外のため別途抑止が必要（DynamicLayerTimeSlider.module.cssの
+     ドラッグハンドルと同じ理由でuser-select: noneを使う定番パターン）。
+     -webkit-touch-callout: noneはiOS Safari固有の長押しコールアウト（コピー・
+     共有等のメニュー）自体を止める。 */
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .pageButton:hover {
   border-color: var(--color-accent);
 }
 
-/* ユーザー報告（2026-08-27、推定グループ展開時に再現）「▼アイコンが出る位置がおかしい」:
-   .pageButtonは縦送り（▲▼、.wrapper直下＝列flexの子）と横送り（◀▶、.headerLegendRow
-   直下＝行flexの子）の両方で共用しているため、align-self: centerを共通クラスに
-   置いていると軸ごとに意味が逆になる（列flexではクロス軸=水平方向の中央寄せ、行flexでは
-   クロス軸=垂直方向の中央寄せ）。推定グループを展開すると.estimatedFlatRow（横並びの
-   軸タイル列）が.wrapperのwidth: max-contentを大きく広げるため、▲▼にalign-self: centerが
-   付いていると広がった.wrapper内で水平中央へ引き寄せられ、縦一列のチップ列から離れた
-   位置（地図の余白）に浮いて見えてしまっていた。縦送り用は.wrapper自身のalign-items:
-   flex-start（チップ列と同じ左寄せ）に委ね、横送り用（◀▶）だけこのモディファイアで
-   明示的に中央寄せする。 */
+/* 横送り（◀▶）用の上書き。.pageButtonの「短辺=height固定・長辺=幅方向のstretch」を
+   90度回転させ、「短辺=width固定・長辺=高さ方向のstretch」にする
+   （align-self: stretch自体は.pageButtonからそのまま引き継ぐ）。 */
 .pageButtonHorizontal {
-  align-self: center;
+  height: auto;
+  width: 1.6rem;
+  padding: 0.3rem 0;
 }

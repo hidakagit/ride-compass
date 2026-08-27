@@ -42,22 +42,34 @@
   display: none;
 }
 
-/* 警報バッジ＋デバッグアイコンのグループ。.weatherHeaderがoverflow-x: autoで
-   横スクロールするようになった際、この右側グループだけはposition: stickyで
-   右端に固定し続ける——スクロールに巻き込んで見えなくなることを避ける。警報の
-   存在自体はスクロール操作なしで常に気づける状態を保つ（WarningBadge.tsx冒頭
-   コメントの「全件表示という安全側の方針」と同じ理由）。以前はデバッグアイコン
-   単体にml-autoで右寄せしていたが、それをこのグループへ引き継いだ
-   （グループ内にバッジが無い場合でもデバッグアイコンは引き続き右端に来る）。 */
+/* 天候の数値（気温・風向風速・降水確率・UV指数、WeatherPanel）のラッパー。ユーザー指摘
+   （2026-08-28）「固定部分がなるべく見切れないように」への対応で、.headerActions
+   （警報バッジ・デバッグアイコン）より優先して常に見える側へ入れ替えた
+   （page.tsxの該当コメント参照）。flex-shrink: 0で.weatherHeaderの残り幅に押し込まれて
+   縮むことを防ぎ、position: sticky; left: 0で横スクロールしても左端に留まり続ける。
+   backgroundは.headerActionsが元々持っていたのと同じ理由（sticky要素の下を
+   スクロールで通過する他要素を隠すため）で必要。 */
+.weatherStats {
+  flex-shrink: 0;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-surface);
+}
+
+/* 警報バッジ＋デバッグアイコンのグループ。ユーザー指摘（2026-08-28）「バッジ部分以降は
+   スクロールで消えるのは許容」を受け、以前ここにあったposition: sticky; right: 0
+   （スクロールに巻き込まれず常時可視にする指定）を撤去した。.weatherHeaderの残り幅に
+   入り切らない場合は、.weatherStats（天候の数値、上記）を左端に残したまま右側へ
+   スクロールしないと見えない状態になる（意図的な優先度の入れ替え）。flex-shrink: 0は
+   維持し、バッジ自身の文字が潰れて縮むのではなくグループごとスクロールで隠れる
+   挙動にする。 */
 .headerActions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
   margin-left: auto;
-  position: sticky;
-  right: 0;
-  background: var(--color-surface);
 }
 
 /* モバイル専用の操作バー（出発地点・距離・生成ボタン、改善計画T250）。「ルートを作る」

@@ -1,6 +1,6 @@
 # RideCompass プロジェクト固有レビューコンテキスト
 
-最終更新: 2026-08-18
+最終更新: 2026-08-27
 
 レビュー実行時に参照するプロジェクト固有情報。詳細仕様の写しではなく
 「レビューの判断に必要な構造・思想・履歴」のみを置く。
@@ -105,10 +105,14 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 
 - **タスク登録**: docs/improvement-plan.md。T番号＋チェックボックス＋
   規模（S=1時間以内/M=半日/L=1日以上）＋トリガー条件。**現在のT番号・進行中/未着手一覧は
-  improvement-plan.mdの末尾（オープンなタスクを含む節のみが残る）を都度参照する
-  （本ファイルには具体的な番号・件数を書かない。書いた瞬間から陳腐化するため）。**
-  完了済みタスクの実施記録・完了タスク一覧（旧「記録」テーブル）は2026-08-19の棚卸し整理で
-  docs/improvement-plan-archive/（日付ごとのファイル＋README.md索引）へ退避済み。
+  improvement-plan.mdの一覧（インデックス）を都度参照する（本ファイルには具体的な
+  番号・件数を書かない。書いた瞬間から陳腐化するため）。2026-08-27、タスク単位の
+  ファイル分割を実施済み**: improvement-plan.md本体はチェックボックス付きリンクの
+  一覧のみを持ち、各タスクの背景・対応方針・実装メモ・検証結果は
+  `docs/tasks/Txxx.md`（未完了・完了を問わず1タスク=1ファイル）にある。
+  日付ごとの完了記録アーカイブ（`docs/improvement-plan-archive/`、2026-08-19棚卸で
+  新設）は本分割より前の運用で、両者の使い分けは`docs/improvement-plan-archive/README.md`
+  の注記を参照。
   レビュー指摘はimprovement-plan.mdへ起票する
   （起票はユーザー承認後）。1タスク=1コミット、挙動変更はテスト先行。
 - **基盤構築以前の過去レビュー**（docs/直下、再発チェックの参照元）:
@@ -122,8 +126,9 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 
 ## 現在の開発フェーズと今後想定される主要な変更（2026-08-16時点の要約。正は improvement-plan.md）
 
-- 既定エンジンはopenrouteservice（評価情報の見える化・精査を優先）。RoadGraphエンジンの
-  探索品質・性能改善は将来拡張として継続。
+- 既定エンジンは`backend/app/config.py`の`routing_engine`設定値を都度確認する
+  （2026-08-23のT247で`road_graph`へ切替済み。以後も切替が起こりうるため、本ファイルには
+  固定の既定値を書かない）。openrouteserviceは非既定でも引き続き選択可能な並存エンジン。
 - 進行中/未着手タスクの一覧はimprovement-plan.mdを都度参照する（本ファイルには転記しない）。
 - トリガー待ちDEFER: T10（DEMタイル化）・T11（segmentsビン化）・T12（Road Graphスケール設計ADR）。
 - UIは「研究モード」（localStorage `ridecompass:research-enabled`、WeightPanel・ComparisonPanel等）と
