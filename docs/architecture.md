@@ -113,7 +113,7 @@ bboxを組む。`_build_best_candidate`のT274逆回り最適化（周回の向�
 サイズ上限・退避（LRU等）は無い簡易実装であり、キャッシュサイズの上限・退避（LRU等）は将来課題として残る。
 
 ### 天候取得の設計と「地点＋時刻」対応（Step6）
-`WeatherClient`（[backend/app/infrastructure/weather_client.py](../backend/app/infrastructure/weather_client.py)）はOpen-Meteo Forecast APIから`current`（現在の気象）と`hourly`（`forecast_days=2`分の時間別予報：気温・風速・風向・降水確率）、`get_forecast`（単一地点、/api/weather用）はさらに`daily`（今日・明日の日次見通し：日没・降水確率最大・最大風速・気温レンジ、改善計画T385「今日の見通し」パネル用）を**1回のリクエストでまとめて取得**することを実機確認済み（`get_forecast_many`＝WindService用の複数地点一括取得は`daily`を含まない。クォータ削減のため意図的に変数を絞っており、日次見通しはルート評価に使わないため）。標高と同じ「範囲でまとめて取得してキャッシュ」の原則を適用しているが、気象データは時間で変化するため**TTL付き**（`get_forecast`＝単一地点/api/weatherパネル用は30分、緯度経度は標高より粗い精度で丸める）にしている点が標高キャッシュとの違い。
+`WeatherClient`（[backend/app/infrastructure/weather_client.py](../backend/app/infrastructure/weather_client.py)）はOpen-Meteo Forecast APIから`current`（現在の気象）と`hourly`（`forecast_days=2`分の時間別予報：気温・風速・風向・降水確率・weather_code/is_day）、`get_forecast`（単一地点、/api/weather用）はさらに`daily`（今日・明日の日次見通し：日没・降水確率最大・最大風速・気温レンジ・UV指数最大、改善計画T385「今日の見通し」パネル用）を**1回のリクエストでまとめて取得**することを実機確認済み（`get_forecast_many`＝WindService用の複数地点一括取得は`daily`を含まず`hourly`もwind_speed_10m/wind_direction_10m/precipitationのみに絞る。クォータ削減のため意図的に変数を絞っており、日次見通し・天気アイコン・天気の流れはルート評価に使わないため）。hourlyのweather_code（T385フォローアップ）は「今日の見通し」パネルの天気の流れ（today_periods、06:00〜20:00の2時間おき8コマ）が使う。標高と同じ「範囲でまとめて取得してキャッシュ」の原則を適用しているが、気象データは時間で変化するため**TTL付き**（`get_forecast`＝単一地点/api/weatherパネル用は30分、緯度経度は標高より粗い精度で丸める）にしている点が標高キャッシュとの違い。
 
 `get_forecast_many`（複数地点をまとめて取得、風の格子点マップ・降水延長予報が使う）は、TTLを3時間・キャッシュをメモリ（L1、プロセス内、高速）＋SQLite（L2、`cache_db.py`の`wind_forecast_cache`テーブル、プロセス再起動をまたいで永続化）の2段構成にしている（T194〜T195、「改善計画」参照）。Open-Meteoが本番（Render、共有の送信元IP）で429を返す事象が繰り返し発生しており、L1のみだとプロセス再起動・コンテナ再作成のたびにキャッシュが消え無駄な再取得（＝日次クォータの消費）が発生していたため、再起動をまたいでも直前の値をL2から復元できるようにした。L1に無い/古いキーだけL2を引き、見つかった分（新鮮・陳腐問わず）をL1へ書き戻してから既存のTTL判定・障害時のstale fallback判定に合流させる設計のため、呼び出し側（`WindService`・`get_wind_grid`）のインターフェースは変わらない。
 
@@ -541,9 +541,14 @@ RideCompass/
           is_dayから快晴/くもり/霧/雨/雪/雷雨と昼夜を判定、判定ロジックは同ディレクトリの
           weatherCode.tsに集約。UV指数自体はチップのtitleへ格下げ）
         TodayOutlook/TodayOutlook.tsx ✅ 改善計画T385: 「今日の見通し」二次パネル
-          （日没時刻・今日の降水確率最大・最大風速・気温レンジ）。常設ヘッダーには
+          （日没時刻・今日の降水確率最大・最大風速・気温レンジ・UV指数最大）。常設ヘッダーには
           項目を足さず、WarningBadgeと同じRadix Popoverパターンでタップ時のみ開く
-          （T384調査「場所・季節を問わず常に意味を持つ値」だけに絞った日次見通し）
+          （T384調査「場所・季節を問わず常に意味を持つ値」だけに絞った日次見通し）。
+          T385フォローアップ: UV指数最大値の追加（常設ヘッダーのtitle属性はスマホの
+          タップでは実質見えないため、確実に見えるここへ追加）と、「今日の天気の流れ」
+          （today_periods、06:00〜20:00の2時間おき8コマ、時刻・天気アイコン・気温・
+          降水確率を横スクロール可能な帯で表示。weatherCode.tsのアイコン判定を再利用）
+          を追加した
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
         DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
@@ -735,12 +740,15 @@ Response 429（per-IPで1分あたりGENERATE_RATE_LIMIT_PER_MINUTE=10回を超�
 
 GET /api/weather?latitude=35.7597&longitude=139.7387   # Step6: 現在地の天候
 Response 200:
-{ "temperature_c":24.6, "apparent_temperature_c":27.1, "wind_speed_ms":1.93, "wind_direction_deg":69.0, "wind_direction_label":"東", "wind_gusts_ms":4.8, "precipitation_probability_percent":100.0, "precipitation_mm":0.2, "uv_index":6.2, "observed_at":"2026-08-13T21:15", "weather_code":3, "is_day":1, "sunset":"2026-08-13T18:41", "precipitation_probability_max_percent":80.0, "wind_speed_max_ms":5.5, "temperature_max_c":29.0, "temperature_min_c":23.0 }
+{ "temperature_c":24.6, "apparent_temperature_c":27.1, "wind_speed_ms":1.93, "wind_direction_deg":69.0, "wind_direction_label":"東", "wind_gusts_ms":4.8, "precipitation_probability_percent":100.0, "precipitation_mm":0.2, "uv_index":6.2, "observed_at":"2026-08-13T21:15", "weather_code":3, "is_day":1, "sunset":"2026-08-13T18:41", "precipitation_probability_max_percent":80.0, "wind_speed_max_ms":5.5, "temperature_max_c":29.0, "temperature_min_c":23.0, "uv_index_max":8.5, "today_periods":[{"period":"06:00","weather_code":1,"temperature_c":22.0,"precipitation_probability_percent":10.0}, "... 06:00〜20:00の2時間おき8コマ"] }
 # weather_code/is_dayは改善計画T385（天気アイコン化、UV指数の夜間常時0.0問題への対応）、
-# sunset以下4項目は同T385「今日の見通し」パネル用（daily、forecast_days=2のindex0=今日）。
+# sunset〜uv_index_maxは同T385「今日の見通し」パネル用（daily、forecast_days=2のindex0=今日）。
+# today_periods（T385フォローアップ、WeatherPeriodOutlook配列）はhourlyから06:00〜20:00の
+# 2時間おき8コマを抜き出した「今日の天気の流れ」。periodは"HH:MM"の代表時刻文字列そのもので、
+# 「朝/午後/夜」等の意味づけラベルへの整形はbackendが持たずfrontend（TodayOutlook.tsx）が担う。
 # いずれもget_conditions（at=None、この経路）でのみ埋まり、ルート評価用のget_conditions_many
-# （WindService、未来時刻指定）では常にnull（判定ロジックはfrontend/weatherCode.tsに集約、
-# backendは生のweather_code/is_dayを素通しするだけ）。
+# （WindService、未来時刻指定）では常にnull/空リスト（判定ロジックはfrontend/weatherCode.tsに
+# 集約、backendは生のweather_code/is_dayを素通しするだけ）。
 Response 502（Open-Meteo呼び出し失敗時）:
 { "detail": "天候情報の取得に失敗しました" }
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:

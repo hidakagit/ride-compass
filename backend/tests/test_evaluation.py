@@ -217,6 +217,8 @@ def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
         wind_speed_max_ms=None,
         temperature_max_c=None,
         temperature_min_c=None,
+        uv_index_max=None,
+        today_periods=[],
     )
 
 

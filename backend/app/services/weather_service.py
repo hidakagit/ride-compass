@@ -4,7 +4,7 @@ import httpx
 
 from app.domain.geo import compass_label
 from app.domain.route import Coordinates
-from app.domain.weather import WeatherConditions
+from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure.weather_client import WeatherClient
 
@@ -144,6 +144,12 @@ class WeatherService:
                 wind_speed_max = self._daily_index_value(daily, "wind_speed_10m_max", 0)
                 temperature_max = self._daily_index_value(daily, "temperature_2m_max", 0)
                 temperature_min = self._daily_index_value(daily, "temperature_2m_min", 0)
+                uv_index_max = self._daily_index_value(daily, "uv_index_max", 0)
+                # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の
+                # 流れが分かるものも欲しい」）: dailyの日次集約値だけでは「日中いつ頃
+                # 崩れるか」が分からないため、hourlyから2時間おき8コマの代表時刻を抜き出す
+                # （_PERIOD_TARGET_HOURS参照）。
+                today_periods = self._period_outlooks(hourly, observed_at)
             else:
                 target = at.strftime("%Y-%m-%dT%H:%M")
                 if not self._within_hourly_range(hourly["time"], target):
@@ -173,6 +179,8 @@ class WeatherService:
                 wind_speed_max = None
                 temperature_max = None
                 temperature_min = None
+                uv_index_max = None
+                today_periods = []
         except (KeyError, IndexError, TypeError):
             return None
 
@@ -194,6 +202,8 @@ class WeatherService:
             wind_speed_max_ms=wind_speed_max,
             temperature_max_c=temperature_max,
             temperature_min_c=temperature_min,
+            uv_index_max=uv_index_max,
+            today_periods=today_periods,
         )
 
     @staticmethod
@@ -240,3 +250,46 @@ class WeatherService:
         if not values or index >= len(values):
             return None
         return values[index]
+
+    # 改善計画T385フォローアップ: 「今日の見通し」パネルの時間帯別コマ。
+    # 当初「朝/午後/夜」3コマ→ユーザー指摘「少し荒い」→「天気・気温・降水確率をもう少し
+    # 細かい粒度でスマホ横幅に収まる表現で」を経て、2時間おき8コマ（6時〜20時、日中の
+    # 走行時間帯をカバー）・代表時刻そのままの単純採用に決着。severity（重大度）で
+    # 「その区間で最も荒れた時刻」を選ぶ方式ではなく代表1時刻をそのまま使うのは、
+    # 重大度ランキングがweather_code→アイコン判定と同種の「意味づけ」であり、
+    # frontend/weatherCode.tsへ集約する既存方針（backendは生の値を素通しするだけ）に
+    # 合わせたため。既存の_nearest_hourly_index/_hourly_index_valueをそのまま再利用できる
+    # 利点もある。
+    _PERIOD_TARGET_HOURS: tuple[str, ...] = (
+        "06:00",
+        "08:00",
+        "10:00",
+        "12:00",
+        "14:00",
+        "16:00",
+        "18:00",
+        "20:00",
+    )
+
+    @classmethod
+    def _period_outlooks(cls, hourly: dict, observed_at: str) -> list[WeatherPeriodOutlook]:
+        today = observed_at[:10]
+        times = hourly.get("time") or []
+        results = []
+        for hhmm in cls._PERIOD_TARGET_HOURS:
+            target = f"{today}T{hhmm}"
+            index = cls._nearest_hourly_index(times, target) if cls._within_hourly_range(times, target) else None
+            weather_code = None if index is None else cls._hourly_index_value(hourly, "weather_code", index)
+            temperature = None if index is None else cls._hourly_index_value(hourly, "temperature_2m", index)
+            precipitation_probability = (
+                None if index is None else cls._hourly_index_value(hourly, "precipitation_probability", index)
+            )
+            results.append(
+                WeatherPeriodOutlook(
+                    period=hhmm,
+                    weather_code=weather_code,
+                    temperature_c=temperature,
+                    precipitation_probability_percent=precipitation_probability,
+                )
+            )
+        return results

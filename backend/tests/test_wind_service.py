@@ -52,6 +52,8 @@ def headwind_conditions(speed_ms: float = 5.0) -> WeatherConditions:
         wind_speed_max_ms=None,
         temperature_max_c=None,
         temperature_min_c=None,
+        uv_index_max=None,
+        today_periods=[],
     )
 
 

@@ -573,6 +573,7 @@ async def test_candidate_aggregates_wind_score_when_weather_available():
         weather_code=None, is_day=None,
         sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
         temperature_max_c=None, temperature_min_c=None,
+        uv_index_max=None, today_periods=[],
     )
     generator, _, _ = make_generator(graph, wind=wind)
 
@@ -1181,6 +1182,7 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         weather_code=None, is_day=None,
         sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
         temperature_max_c=None, temperature_min_c=None,
+        uv_index_max=None, today_periods=[],
     )
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 1.0, "surface_q": 0.0, "stop_density": 0.0,
@@ -1389,6 +1391,7 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         weather_code=None, is_day=None,
         sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
         temperature_max_c=None, temperature_min_c=None,
+        uv_index_max=None, today_periods=[],
     )
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 1.0, "surface_q": 0.0, "stop_density": 0.0,

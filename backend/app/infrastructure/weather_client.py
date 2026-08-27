@@ -222,18 +222,26 @@ class WeatherClient:
                 # WeatherPanel/weatherCode.ts参照）。
                 "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
                 "precipitation,apparent_temperature,uv_index,weather_code,is_day",
+                # weather_code・is_dayはhourlyにも追加する（改善計画T385フォローアップ、
+                # 「今日の見通し」パネルの天気の流れ表示用。06:00〜20:00の2時間おき8コマを
+                # weather_service.py: _period_outlooksが抜き出す）。
                 "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
-                "wind_gusts_10m,precipitation,uv_index,apparent_temperature",
+                "wind_gusts_10m,precipitation,uv_index,apparent_temperature,weather_code,is_day",
                 # 改善計画T385: 「今日の見通し」パネル（日没・今日の降水確率最大・
-                # 最大風速・気温レンジ）用。current/hourlyの瞬間値と違い1日1個の値
-                # のため別枠のdailyパラメータで取る。forecast_days=2・timezone=Asia/Tokyo
-                # は既存のcurrent/hourlyと共用のため、daily[0]がタイムゾーン基準の
-                # 「今日」に一致する（get_forecast_many/WIND_GRID_VARIABLESには含めない。
-                # WindServiceは地点数十件を並列取得するため、1地点あたりの取得項目を
-                # 増やすとクォータ消費への影響が大きく、日次見通しはget_forecast
-                # （単一地点、この関数）でしか使わないため不要）。
+                # 最大風速・気温レンジ・UV指数最大）用。current/hourlyの瞬間値と違い
+                # 1日1個の値のため別枠のdailyパラメータで取る。forecast_days=2・
+                # timezone=Asia/Tokyoは既存のcurrent/hourlyと共用のため、daily[0]が
+                # タイムゾーン基準の「今日」に一致する（get_forecast_many/
+                # WIND_GRID_VARIABLESには含めない。WindServiceは地点数十件を並列取得
+                # するため、1地点あたりの取得項目を増やすとクォータ消費への影響が大きく、
+                # 日次見通しはget_forecast（単一地点、この関数）でしか使わないため不要）。
+                # uv_index_max（改善計画T385フォローアップ、ユーザー指摘「UV指数は
+                # スマホからだとどこから見えるのか」）: 現在値のuv_indexはWeatherPanelの
+                # 天気アイコンtitleに格下げしたが、title属性はスマホのタップでは実質
+                # 見えないため、今日の見通しパネル（タップで確実に開くPopover）へ
+                # 今日のUV最大値を追加して確実に見えるようにする。
                 "daily": "sunset,precipitation_probability_max,wind_speed_10m_max,"
-                "temperature_2m_max,temperature_2m_min",
+                "temperature_2m_max,temperature_2m_min,uv_index_max",
                 "forecast_days": 2,
                 "timezone": "Asia/Tokyo",
                 "wind_speed_unit": "ms",

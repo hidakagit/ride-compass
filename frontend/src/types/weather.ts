@@ -3,6 +3,8 @@
 import type { components } from "./generated/api";
 
 export type WeatherConditions = components["schemas"]["WeatherConditions"];
+// 「今日の見通し」パネルの天気の流れ（today_periods、改善計画T385フォローアップ）1コマぶん。
+export type WeatherPeriodOutlook = components["schemas"]["WeatherPeriodOutlook"];
 // バックエンドの応答本体（改善計画T203、時刻配列を1本だけ持つ）。weatherApi.tsの
 // getWindGrid/getWindGridDetailが受け取る生の形で、フロント内部では使わない
 // （services/weatherApi.ts参照）。

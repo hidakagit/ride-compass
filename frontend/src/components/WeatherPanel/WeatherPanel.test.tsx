@@ -22,6 +22,8 @@ function makeWeather(overrides: Partial<WeatherConditions>): WeatherConditions {
     wind_speed_max_ms: null,
     temperature_max_c: null,
     temperature_min_c: null,
+    uv_index_max: null,
+    today_periods: [],
     ...overrides,
   };
 }

@@ -3176,6 +3176,24 @@
               }
             ],
             "title": "Temperature Min C"
+          },
+          "uv_index_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uv Index Max"
+          },
+          "today_periods": {
+            "items": {
+              "$ref": "#/components/schemas/WeatherPeriodOutlook"
+            },
+            "type": "array",
+            "title": "Today Periods"
           }
         },
         "type": "object",
@@ -3196,9 +3214,61 @@
           "precipitation_probability_max_percent",
           "wind_speed_max_ms",
           "temperature_max_c",
-          "temperature_min_c"
+          "temperature_min_c",
+          "uv_index_max",
+          "today_periods"
         ],
         "title": "WeatherConditions"
+      },
+      "WeatherPeriodOutlook": {
+        "properties": {
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "weather_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weather Code"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          },
+          "precipitation_probability_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Probability Percent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "weather_code",
+          "temperature_c",
+          "precipitation_probability_percent"
+        ],
+        "title": "WeatherPeriodOutlook",
+        "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、\nユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は\n荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の\nやり取りを経て、2時間おき8コマ・\"HH:MM\"表記に決着）。\nperiodは\"06:00\"〜\"20:00\"の代表時刻文字列（weather_service.py: _PERIOD_TARGET_HOURS・\n_period_outlooks参照。朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・\n「6時」等の表示ラベルへの整形はfrontend側が担う）。weather_codeの意味・アイコンへの\n変換はWeatherConditions.weather_codeと同じくfrontend側（weatherCode.ts）に集約する。"
       },
       "WeatherWarnings": {
         "properties": {

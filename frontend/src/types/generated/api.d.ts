@@ -1381,6 +1381,31 @@ export interface components {
             temperature_max_c: number | null;
             /** Temperature Min C */
             temperature_min_c: number | null;
+            /** Uv Index Max */
+            uv_index_max: number | null;
+            /** Today Periods */
+            today_periods: components["schemas"]["WeatherPeriodOutlook"][];
+        };
+        /**
+         * WeatherPeriodOutlook
+         * @description 「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、
+         *     ユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は
+         *     荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の
+         *     やり取りを経て、2時間おき8コマ・"HH:MM"表記に決着）。
+         *     periodは"06:00"〜"20:00"の代表時刻文字列（weather_service.py: _PERIOD_TARGET_HOURS・
+         *     _period_outlooks参照。朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・
+         *     「6時」等の表示ラベルへの整形はfrontend側が担う）。weather_codeの意味・アイコンへの
+         *     変換はWeatherConditions.weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
+         */
+        WeatherPeriodOutlook: {
+            /** Period */
+            period: string;
+            /** Weather Code */
+            weather_code: number | null;
+            /** Temperature C */
+            temperature_c: number | null;
+            /** Precipitation Probability Percent */
+            precipitation_probability_percent: number | null;
         };
         /** WeatherWarnings */
         WeatherWarnings: {

@@ -5,7 +5,7 @@ from app.api.dependencies import get_flood_service, get_warning_service, get_wbg
 from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
-from app.domain.weather import WeatherConditions
+from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
 from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.flood_service import FloodForecasts
@@ -56,6 +56,10 @@ def test_get_weather_returns_conditions_on_success():
         wind_speed_max_ms=5.5,
         temperature_max_c=29.0,
         temperature_min_c=23.0,
+        uv_index_max=8.5,
+        today_periods=[
+            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_probability_percent=20),
+        ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
 
@@ -100,6 +104,10 @@ def test_get_weather_is_rate_limited_per_client():
         wind_speed_max_ms=5.5,
         temperature_max_c=29.0,
         temperature_min_c=23.0,
+        uv_index_max=8.5,
+        today_periods=[
+            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_probability_percent=20),
+        ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
 

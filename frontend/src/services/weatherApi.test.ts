@@ -44,6 +44,8 @@ describe("getCurrentWeather", () => {
       wind_speed_max_ms: 6.0,
       temperature_max_c: 30.0,
       temperature_min_c: 24.0,
+      uv_index_max: 8.0,
+      today_periods: [],
     };
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => weather }));
     vi.stubGlobal("fetch", fetchMock);
