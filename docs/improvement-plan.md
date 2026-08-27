@@ -8714,6 +8714,63 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   接続不可のため）。dev/本番のaxis_definitionsが完全に一致している保証は無く、本番固有の
   チューニングがあれば別途本番接続時に再実行が必要（次回本番SSHアクセスがある作業の
   ついでに確認するのが望ましい）。
+- **本番向け手順書（2026-08-28作成）**: このリモート実行環境はSSH鍵ファイル自体は
+  ローカルディスク上に存在する（`~/.ssh/ridecompass_oracle`）ものの、自動モードの
+  分類器が本番VMへのSSH接続を安全上ブロックするため実行不可。ユーザー自身の端末から
+  実行できるよう手順を書き出す。T318のDEBUG_MODE手順と異なり、このスクリプトは
+  `axis_definitions`テーブルへのSELECTのみ（書き込み無し）で、既存の本番コンテナ
+  （`ridecompass-backend`）には一切触れない使い捨てコンテナで実行するため、
+  コンテナ再作成・ダウンタイム・切り戻し手順が不要。
+  - **接続先の要確認事項**: `backend/.env.oracle.local`記載のIP（`193.123.166.150`、
+    2026-08-15時点）と、このdev機の`~/.ssh/known_hosts`に接続履歴が残る別IP
+    （`168.138.193.26`、対応する鍵`~/.ssh/ridecompass_vm`は2026-08-25作成）の
+    どちらが現在の本番VMか確認できていない（VM再作成でIPが変わる仕様、
+    `docs/oracle-cloud-postgis-migration`メモリ参照）。実行前に
+    `oci compute instance list-vnics`または直近のGitHub Actions
+    「Deploy Backend to Oracle VM」の実行ログで`ORACLE_VM_HOST`の実際の値を
+    確認してから、下記`$ORACLE_VM_HOST`・鍵ファイルを実際の値へ置き換えること。
+
+  ```bash
+  # ===== フェーズA: VM上で実行（SSH接続後） =====
+  ssh -i ~/.ssh/<実際の鍵> ubuntu@$ORACLE_VM_HOST
+
+  # デプロイ用チェックアウトを最新化
+  # （次回デプロイのgit reset --hardでどのみち上書きされるため、ここで進めても安全）
+  cd ~/ridecompass-repo
+  git fetch --depth 1 origin master
+  git reset --hard origin/master
+
+  # 既存の本番backendイメージで一度だけ使い捨てコンテナを実行
+  # （--network=host + env-fileは本番コンテナと同一設定でDATABASE_URLが本番DBを指す。
+  #   -vでfixturesディレクトリだけ差し替えるため、イメージ内蔵の初期値は上書きされる）
+  sudo docker run --rm \
+    --network=host \
+    --env-file /home/ubuntu/ridecompass-backend.env \
+    -v ~/ridecompass-repo/backend/fixtures:/app/fixtures \
+    ridecompass-backend:latest \
+    python scripts/dump_axis_definitions_snapshot.py
+
+  # コンテナ内はroot実行のため、書き込まれたファイルの所有者をubuntuへ戻す
+  sudo chown ubuntu:ubuntu ~/ridecompass-repo/backend/fixtures/axis_definitions_snapshot.json
+
+  # 差分をその場で確認（無ければ「本番とdevは一致していた」ことが分かる）
+  cd ~/ridecompass-repo && git diff -- backend/fixtures/axis_definitions_snapshot.json
+  ```
+
+  ```bash
+  # ===== フェーズB: 差分がある場合、ローカル（dev機）へ持ち帰る =====
+  # dev機側で実行。scpの宛先パスは実際のローカルリポジトリの場所に合わせること
+  scp -i ~/.ssh/<実際の鍵> \
+    ubuntu@$ORACLE_VM_HOST:~/ridecompass-repo/backend/fixtures/axis_definitions_snapshot.json \
+    "backend/fixtures/axis_definitions_snapshot.json"
+  ```
+
+  フェーズB完了後は、通常のdev DB向けT377実施時と同じ流れ（`git diff` → 内容確認 →
+  `git add` → コミット）でよい。VM上のgitにpush用の認証情報が構成されているか不明
+  （デプロイワークフローはpullのみで検証済み）なため、pushはVM上ではなくローカルの
+  通常のgit運用に任せる設計にした。差分が無ければ`git checkout --
+  backend/fixtures/axis_definitions_snapshot.json`でVM側の変更を破棄し、
+  「本番/devで差分無しを確認した」ことをもって本番側の確認も完了とする。
 
 ---
 
