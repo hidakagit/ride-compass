@@ -6,6 +6,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
+from app.infrastructure.axis_definitions_snapshot import (
+    SNAPSHOT_PATH,
+    dump_axis_definitions_snapshot,
+    load_axis_definitions_snapshot,
+)
 from app.infrastructure.migrate import MIGRATIONS_DIR, _split_statements, apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 from app.services.axis_registry_service import _find_unknown_references
@@ -194,9 +199,9 @@ async def bootstrap_engine():
 
 @pytest.mark.asyncio
 async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(bootstrap_engine):
-    """本番の唯一のブートストラップ経路（app/batch/import_pbf.pyが使う
-    create_tables()→apply_pending_migrations()の順）を、テーブルが1つも無いまっさらな
-    状態から検証する。
+    """fresh bootstrap経路（app/batch/import_pbf.pyが使うcreate_tables()→
+    apply_pending_migrations()の順、改善計画T361で最後にload_axis_definitions_snapshot()が
+    続く）を、テーブルが1つも無いまっさらな状態から検証する。
 
     road_graph_engineフィクスチャ（tests/conftest.py）はBase.metadata.create_allのみで
     migrationを一度も経由せず、この組み合わせを検証する自動テストがCIに存在しなかった
@@ -215,21 +220,86 @@ async def test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds(boots
     assert second_applied == []  # 2回目は空リスト（冪等、再適用しない）
 
     async with bootstrap_engine.connect() as conn:
-        axis_count = (await conn.execute(text("SELECT count(*) FROM axis_definitions"))).scalar()
+        migration_seeded_axis_count = (await conn.execute(text("SELECT count(*) FROM axis_definitions"))).scalar()
+    # 改善計画T361以降、migrations/配下へ軸の行データを追加することはしない
+    # （0014〜0022が過去の履歴として残すシード13行が引き続き適用されるだけ）。
     # 公開8軸（migrations/0014・0021）+ car_stress内部軸5（migrations/0017、0022で
     # car_stress_bicycle_infra_adjustmentを削除）= 13行（改善計画T353/T360）。
-    assert axis_count == 13
+    assert migration_seeded_axis_count == 13
+
+    # 改善計画T361: fresh bootstrapの最終段は、migrationが残したシード行を
+    # スナップショットファイル（fixtures/axis_definitions_snapshot.json）の内容で
+    # 丸ごと置き換える。migrationのシード行がそのまま最終状態になる today の内容とは
+    # 独立に検証するため、投入前後で行数が変わりうる想定で書く
+    # （snapshotが将来migrationのシードと異なる内容へ更新されても壊れないように）。
+    async with AsyncSession(bootstrap_engine) as session:
+        repository = AxisDefinitionRepository(session)
+        snapshot_axis_count = await load_axis_definitions_snapshot(repository)
+        db_definitions = await repository.list_all()
+    assert snapshot_axis_count == len(db_definitions)
 
     # 改善計画T350: axis_definitions.pyのPython literal（AXIS_DEFINITIONS）を撤去し、
-    # DBが13軸全ての唯一の正本になったため、「DB値が特定の内容と一致するか」を検証する
+    # DBが軸全ての唯一の正本になったため、「DB値が特定の内容と一致するか」を検証する
     # 発想自体が誤りになった（可変であることを前提にDBへ置いているデータを固定検証すると、
     # 正当なチューニングのたびに無意味な失敗を生む）。ここで検証するのは構造のみ:
     # 全軸が例外なく読める（Pydanticバリデーションを通る）・未知の材料/軸参照が無いこと。
-    async with AsyncSession(bootstrap_engine) as session:
-        db_definitions = await AxisDefinitionRepository(session).list_all()
-    assert len(db_definitions) == 13
     # 改善計画T350のcode-review対応: 未知の材料/軸参照の判定ロジックを本テストへ
     # 再実装せず、refresh_axis_definitions（起動時ロード）が実際に使うのと同じ関数を
     # そのまま呼ぶ（本番の検知ロジックとテストの検証内容が食い違う余地を無くす）。
     unknown_references = _find_unknown_references(db_definitions)
     assert not unknown_references, f"未知の材料/軸参照: {unknown_references}"
+
+
+@pytest.mark.asyncio
+async def test_load_axis_definitions_snapshot_round_trips_with_dump(bootstrap_engine):
+    """dump_axis_definitions_snapshot()で書き出した内容を、テーブルを空にした状態から
+    load_axis_definitions_snapshot()で読み戻すと元と同じ内容になることを検証する
+    （改善計画T361）。実際のfixtures/axis_definitions_snapshot.jsonではなく、
+    tmp_pathへ書き出した使い捨てファイルを使う（本番のスナップショットファイルを
+    テスト実行のたびに上書きしないため）。
+    """
+    await create_tables(bootstrap_engine)
+    await apply_pending_migrations(bootstrap_engine)
+
+    dump_path = SNAPSHOT_PATH.parent / f"_test_dump_{uuid.uuid4().hex[:8]}.json"
+    try:
+        async with AsyncSession(bootstrap_engine) as session:
+            repository = AxisDefinitionRepository(session)
+            original = await repository.list_all()
+            dumped_count = await dump_axis_definitions_snapshot(repository, path=dump_path)
+            assert dumped_count == len(original)
+
+            await repository.delete_all()
+            await repository.commit()
+            assert await repository.count() == 0
+
+            loaded_count = await load_axis_definitions_snapshot(repository, path=dump_path)
+            assert loaded_count == dumped_count
+
+            reloaded = await repository.list_all()
+        assert reloaded.keys() == original.keys()
+        for axis_id, definition in original.items():
+            assert reloaded[axis_id] == definition
+    finally:
+        dump_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_load_axis_definitions_snapshot_replaces_existing_rows(bootstrap_engine):
+    """load_axis_definitions_snapshot()はテーブルが空でなくても無条件にDELETE→投入し直す
+    （改善計画T361: fresh bootstrap専用ツールからのみ呼ぶ設計で、空チェックはしない。
+    `app/infrastructure/axis_definitions_snapshot.py`のモジュールdocstring参照）。
+    migrationがシードした行が既にある状態から呼んでも、スナップショット由来の内容へ
+    正しく置き換わることを検証する。
+    """
+    await create_tables(bootstrap_engine)
+    await apply_pending_migrations(bootstrap_engine)
+
+    async with AsyncSession(bootstrap_engine) as session:
+        repository = AxisDefinitionRepository(session)
+        pre_count = await repository.count()
+        assert pre_count > 0  # migrationのシードで既に非0のはず（テスト前提の確認）
+
+        loaded_count = await load_axis_definitions_snapshot(repository)
+        post_definitions = await repository.list_all()
+    assert loaded_count == len(post_definitions)
