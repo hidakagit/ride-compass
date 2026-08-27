@@ -136,10 +136,12 @@ class OpenRouteServiceEngine:
         # 「repository未注入時は該当評価をスキップしNoneを返す」パターン。
         self._repository = repository
 
-    async def prepare(self, origin: Coordinates, radius_km: float):
+    async def prepare(
+        self, origin: Coordinates, radius_km: float, waypoints: list[Coordinates] | None = None
+    ):
         return _NO_CONTEXT
 
-    async def trace_loop(self, context, waypoints: list[Coordinates], bearing: int) -> TracedLoop:
+    async def trace_loop(self, context, waypoints: list[Coordinates], bearing: int | None) -> TracedLoop:
         try:
             segment = await self._routing_service.get_route(waypoints)
         except RoutingError as exc:

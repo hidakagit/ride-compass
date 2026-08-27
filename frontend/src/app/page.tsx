@@ -247,6 +247,17 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // 改善計画T364: 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する
+  // 単一経路を生成する）。指定があれば8方位探索は行わない（handleGenerate参照）。
+  const [waypoints, setWaypoints] = useState<Coordinates[]>([]);
+  const handleWaypointAdd = useCallback((point: Coordinates) => {
+    setWaypoints((prev) => [...prev, point]);
+  }, []);
+  const handleWaypointRemove = useCallback((index: number) => {
+    setWaypoints((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+  const handleWaypointsClear = useCallback(() => setWaypoints([]), []);
+
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
   // 出すため（生成条件系の反映タイミング可視化、T31）。
@@ -1258,6 +1269,9 @@ export default function Home() {
         hard_filters: hardFilters,
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
+        // 改善計画T364: 経由地が1件以上あれば8方位探索ではなく単一経路生成へ切り替える
+        // （backend側の分岐はapi/routers/routes.py参照）。
+        ...(waypoints.length > 0 ? { waypoints } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -1629,9 +1643,21 @@ export default function Home() {
             experimentSlots={researchEnabled ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
+            waypoints={waypoints}
+            onWaypointAdd={handleWaypointAdd}
+            onWaypointRemove={handleWaypointRemove}
           />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />
+
+          {waypoints.length > 0 && (
+            <div className={styles.waypointControl}>
+              経由地: {waypoints.length}件
+              <button type="button" onClick={handleWaypointsClear}>
+                クリア
+              </button>
+            </div>
+          )}
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+

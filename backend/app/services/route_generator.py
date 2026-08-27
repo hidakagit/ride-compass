@@ -60,24 +60,36 @@ JST = timezone(timedelta(hours=9))
 @dataclass
 class TracedLoop:
     """trace_loopの結果。距離フィルタに必要な情報と、evaluate_loopsが完全な
-    RouteCandidateを組み立てるためのエンジン固有の中間データを運ぶ。"""
+    RouteCandidateを組み立てるためのエンジン固有の中間データを運ぶ。
 
-    bearing: int
+    改善計画T364: bearing=Noneは経由地(waypoints)指定ルートを表す。8方位探索と異なり
+    「向き」という概念を持たず、ユーザーが指定した訪問順序をそのまま保持する必要がある
+    （road_graph_engine.py: _build_best_candidateの逆回り合成をスキップする判定に使う）。
+    """
+
+    bearing: int | None
     distance_km: float
     data: Any
 
 
-def candidate_identity(bearing: int) -> dict[str, str]:
-    """方位から候補のid・方位ラベルを導出する（両エンジンで共通の命名規則）。"""
+def candidate_identity(bearing: int | None) -> dict[str, str]:
+    """方位から候補のid・方位ラベルを導出する（両エンジンで共通の命名規則）。
+    改善計画T364: bearing=None（経由地指定ルート）は固定のid・ラベルを返す。"""
+    if bearing is None:
+        return {"id": "route-waypoints", "direction_label": "経由地ルート"}
     return {"id": f"route-{bearing:03d}", "direction_label": compass_label(bearing)}
 
 
 class LoopRoutingEngine(Protocol):
     engine_name: str
 
-    async def prepare(self, origin: Coordinates, radius_km: float) -> Any | None: ...
+    async def prepare(
+        self, origin: Coordinates, radius_km: float, waypoints: list[Coordinates] | None = None
+    ) -> Any | None: ...
 
-    async def trace_loop(self, context: Any, waypoints: list[Coordinates], bearing: int) -> TracedLoop: ...
+    async def trace_loop(
+        self, context: Any, waypoints: list[Coordinates], bearing: int | None
+    ) -> TracedLoop: ...
 
     async def evaluate_loops(
         self, context: Any, traced: list[TracedLoop], start_time: datetime
@@ -178,6 +190,64 @@ class RouteGenerator:
             "prepare_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
             self.engine_name, origin_label, distance_km, len(candidates),
             len(traced_all), len(DIRECTIONS_DEG), failed_bearings, filtered_out,
+            prepare_ms, trace_ms, evaluate_ms, total_ms,
+        )
+        return candidates
+
+    async def generate_via_waypoints(
+        self,
+        origin: Coordinates,
+        waypoints: list[Coordinates],
+        distance_km: float,
+    ) -> list[RouteCandidate]:
+        """改善計画T364: ユーザーが指定した経由地（中継地）を順に通る単一経路を生成する。
+
+        `generate_loops`の8方位探索・距離許容フィルタとは独立した経路（経由地が
+        あれば、目的は「近い距離の周回」ではなく「指定した地点を通ること」自体のため）。
+        `distance_km`はRoad Graph取得bboxの見積り半径にのみ使う参考値で、実際の距離は
+        経由地の配置で決まる（距離フィルタは行わない）。
+        """
+        radius_km = distance_km * RADIUS_RATIO
+        started = time.monotonic()
+        origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
+        full_waypoints = [origin, *waypoints, origin]
+
+        context = await self._engine.prepare(origin, radius_km, waypoints=waypoints)
+        prepare_ms = round((time.monotonic() - started) * 1000)
+        if context is None:
+            logger.warning(
+                "generate(via_waypoints) engine=%s origin=%s waypoints=%d -> no context prepare_ms=%d",
+                self.engine_name, origin_label, len(waypoints), prepare_ms,
+            )
+            return []
+
+        trace_started = time.monotonic()
+        try:
+            traced = await self._engine.trace_loop(context, full_waypoints, bearing=None)
+        except RoutingError as exc:
+            logger.warning(
+                "generate(via_waypoints) engine=%s origin=%s waypoints=%d -> trace failed: %s",
+                self.engine_name, origin_label, len(waypoints), exc,
+            )
+            return []
+        trace_ms = round((time.monotonic() - trace_started) * 1000)
+
+        evaluate_started = time.monotonic()
+        start_time = datetime.now(JST)
+        candidates = await self._engine.evaluate_loops(context, [traced], start_time)
+        candidates = [self._with_overall_difficulty(c) for c in candidates]
+        # 改善計画T364: 候補は常に1件のため、RouteScorer（候補集合内でのmin-max正規化）は
+        # 呼ばない。domain/scoring.py: normalize_min_maxはlo==hiのとき常に中立100点を返す
+        # ため、候補1件に対して呼ぶと「常に満点」という誤解を招く数値になってしまう。
+        # total_scoreはRouteCandidateで元々None許容であり、frontend側（RouteList.tsx）は
+        # 既にtotal_score != nullで無表示に倒す分岐を持つ。
+        evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
+        total_ms = round((time.monotonic() - started) * 1000)
+
+        logger.info(
+            "generate(via_waypoints) engine=%s origin=%s waypoints=%d target_km=%.1f -> distance_km=%.1f "
+            "prepare_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
+            self.engine_name, origin_label, len(waypoints), distance_km, traced.distance_km,
             prepare_ms, trace_ms, evaluate_ms, total_ms,
         )
         return candidates

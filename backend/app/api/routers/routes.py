@@ -16,6 +16,7 @@ from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
+from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
@@ -159,6 +160,22 @@ class RouteGenerateRequest(BaseModel):
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。road_graphエンジンの
     # みに効く。
     hard_filters: HardFilterOverride | None = None
+    # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
+    # 通過する単一経路を生成する）。指定時は8方位探索を行わずroad_graphエンジンのみで
+    # 対応する（openrouteservice_engine.py参照）。bboxが際限なく広がらないよう、
+    # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
+    # 成否に委ねる）。
+    waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
+
+    @model_validator(mode="after")
+    def _check_waypoints_within_range(self) -> "RouteGenerateRequest":
+        if not self.waypoints:
+            return self
+        origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
+        for point in self.waypoints:
+            if haversine_distance_km(origin, point) > self.distance_km:
+                raise ValueError("waypoints must be within distance_km of the origin")
+        return self
 
 
 class GenerationConditions(BaseModel):
@@ -181,6 +198,8 @@ class GenerationConditions(BaseModel):
     max_average_grade_percent: float | None
     # 改善計画T266: 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
+    # 改善計画T364: 指定された経由地（未指定はNone、従来どおりの8方位探索）。
+    waypoints: list[Coordinates] | None
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str
 
@@ -226,14 +245,27 @@ async def generate_routes(
         request.max_average_grade_percent,
         hard_filters_override,
     )
+    # 改善計画T364: 経由地指定はroad_graphエンジンのみ対応（openrouteservice_engine.pyは
+    # get_route(waypoints)の任意長リスト対応自体はあるが、今回未検証のため明示的に拒否する）。
+    if request.waypoints and setup.generator.engine_name != "road_graph":
+        raise HTTPException(
+            status_code=400, detail="waypointsはroad_graphエンジンでのみ利用できます。"
+        )
 
     async with _generate_semaphore:
         origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
-        candidates = await setup.generator.generate_loops(
-            origin=origin,
-            distance_km=request.distance_km,
-            distance_tolerance_km=request.distance_tolerance_km,
-        )
+        if request.waypoints:
+            candidates = await setup.generator.generate_via_waypoints(
+                origin=origin,
+                waypoints=request.waypoints,
+                distance_km=request.distance_km,
+            )
+        else:
+            candidates = await setup.generator.generate_loops(
+                origin=origin,
+                distance_km=request.distance_km,
+                distance_tolerance_km=request.distance_tolerance_km,
+            )
     return RouteGenerateResponse(
         routes=candidates,
         engine=setup.generator.engine_name,
@@ -247,6 +279,7 @@ async def generate_routes(
             penalty_strength=setup.penalty_strength,
             max_average_grade_percent=setup.max_average_grade_percent,
             hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
+            waypoints=request.waypoints,
             generated_at=datetime.now(JST).isoformat(),
         ),
     )

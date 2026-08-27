@@ -76,6 +76,7 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
       penalty_strength: 1.0,
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
+      waypoints: null,
       generated_at: new Date().toISOString(),
     },
   };

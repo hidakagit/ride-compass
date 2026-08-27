@@ -23,6 +23,10 @@ import {
   attachAxisInspectorHandler,
 } from "@/components/Map/axisInspectorPopup";
 import {
+  buildWaypointAddAffordanceHtml,
+  attachWaypointAddHandler,
+} from "@/components/Map/waypointPopup";
+import {
   KNOWN_LINE_OPACITY,
   ROAD_FILTER_AXES,
   ROAD_LINE_COLOR_AXIS_ID,
@@ -1657,6 +1661,13 @@ interface MapViewProps {
    * 表示されず生のaxis_idがそのまま出ていた（動的なaxisLabelsが用意済みなのに
    * 消費者が無かった配線漏れ）。 */
   axisLabels: Record<string, string>;
+  /** 改善計画T364: ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
+   * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
+  waypoints: Coordinates[];
+  /** 空白地点クリック時の「経由地に追加」ボタン押下で呼ばれる。 */
+  onWaypointAdd: (coordinates: Coordinates) => void;
+  /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
+  onWaypointRemove: (index: number) => void;
 }
 
 export default function MapView({
@@ -1687,10 +1698,14 @@ export default function MapView({
   experimentSlots,
   rampAxes,
   axisLabels,
+  waypoints,
+  onWaypointAdd,
+  onWaypointRemove,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  const waypointMarkersRef = useRef<Marker[]>([]);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   // 改善計画T308: 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
@@ -1728,6 +1743,10 @@ export default function MapView({
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
+  // 改善計画T364: handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
+  // 最新のonWaypointAddを読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
+  const onWaypointAddRef = useRef(onWaypointAdd);
+  const onWaypointRemoveRef = useRef(onWaypointRemove);
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -1769,6 +1788,14 @@ export default function MapView({
   useEffect(() => {
     onLayerDataStatusChangeRef.current = onLayerDataStatusChange;
   }, [onLayerDataStatusChange]);
+
+  useEffect(() => {
+    onWaypointAddRef.current = onWaypointAdd;
+  }, [onWaypointAdd]);
+
+  useEffect(() => {
+    onWaypointRemoveRef.current = onWaypointRemove;
+  }, [onWaypointRemove]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -2032,17 +2059,18 @@ export default function MapView({
     ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
-    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）
+    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。改善計画T364:
+    // フィーチャーの有無にかかわらず必ずポップアップを開き、末尾に「経由地に追加」ボタンを
+    // 常に付ける（空白地点クリックでも経由地を追加できるようにするため）。
     function handleClick(e: MapMouseEvent) {
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
-      if (layers.length === 0) return;
-      const features = map.queryRenderedFeatures(e.point, { layers });
-      if (features.length === 0) return;
+      const features = layers.length > 0 ? map.queryRenderedFeatures(e.point, { layers }) : [];
 
-      const feature = features[0];
-      const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
-      const html =
-        feature.layer.id === DETAIL_LAYER_ID
+      const feature = features[0] as (typeof features)[number] | undefined;
+      const roadSurfaceProperties = feature?.properties as unknown as RoadSurfacePopupProperties | undefined;
+      const detailHtml = !feature
+        ? ""
+        : feature.layer.id === DETAIL_LAYER_ID
           ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
           : feature.layer.id === ACCIDENT_LAYER_ID
             ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
@@ -2050,26 +2078,33 @@ export default function MapView({
               ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
               : feature.layer.id === SUPPLY_POI_LAYER_ID
                 ? buildSupplyPoiPopupHtml(feature.properties as unknown as SupplyPoiPopupProperties)
-                : buildRoadSurfacePopupHtml(roadSurfaceProperties);
+                : buildRoadSurfacePopupHtml(roadSurfaceProperties!);
 
       popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+      popupRef.current = new maplibregl.Popup({ closeButton: true })
+        .setLngLat(e.lngLat)
+        .setHTML(detailHtml + buildWaypointAddAffordanceHtml())
+        .addTo(map);
+
+      const popupElement = popupRef.current.getElement();
+      if (popupElement) {
+        attachWaypointAddHandler(popupElement, () => {
+          onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        });
+      }
 
       // 区間インスペクタ（改善計画T146）はbuildRoadSurfacePopupHtml側でosm_way_idの
       // 有無だけを見て出しているため、配線側も同じ条件に揃える（道路以外のフィーチャーには
       // osm_way_id自体が無い）。改善計画T292: 車ストレス専用の内訳ボタン（旧
       // attachCarStressBreakdownHandler、レシピ上書き引数）は専用Pythonレシピの廃止に伴い
       // 削除し、この区間インスペクタ（全軸の内訳、車の圧迫感を含む）へ一本化した。
-      if (roadSurfaceProperties.osm_way_id != null) {
-        const popupElement = popupRef.current.getElement();
-        if (popupElement) {
-          // 改善計画T320: axisLabelsはredrawPropsRef.current経由で読む（handleClickを
-          // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
-          // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
-          // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
-          // ままになってしまう）。
-          attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
-        }
+      if (roadSurfaceProperties?.osm_way_id != null && popupElement) {
+        // 改善計画T320: axisLabelsはredrawPropsRef.current経由で読む（handleClickを
+        // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
+        // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
+        // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
+        // ままになってしまう）。
+        attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
       }
     }
 
@@ -2241,6 +2276,7 @@ export default function MapView({
       // 以降locationが変わっても現在地マーカーが永久に表示されなくなる。
       markerRef.current = null;
       popupRef.current = null;
+      waypointMarkersRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2264,6 +2300,36 @@ export default function MapView({
 
     runWhenStyleReady(map, applyLocation);
   }, [location]);
+
+  // 改善計画T364: 経由地マーカーを更新（最大でも8件程度のため、差分更新はせず
+  // 既存マーカーを全部remove→全部作り直す簡易実装）。現在地マーカー（#e11d48）とは
+  // 別色（#2563eb）にし、番号付きの円形divで訪問順序を示す。クリックで即削除する
+  // （確認ダイアログなし、間違えてもすぐ打ち直せるため）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const applyWaypointMarkers = () => {
+      waypointMarkersRef.current.forEach((marker) => marker.remove());
+      waypointMarkersRef.current = waypoints.map((point, index) => {
+        const el = document.createElement("div");
+        el.textContent = String(index + 1);
+        el.style.cssText =
+          "width:24px; height:24px; border-radius:50%; background:#2563eb; color:#fff; " +
+          "font-size:12px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
+          "cursor:pointer; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4);";
+        el.addEventListener("click", (event) => {
+          event.stopPropagation();
+          onWaypointRemoveRef.current(index);
+        });
+        return new maplibregl.Marker({ element: el })
+          .setLngLat([point.longitude, point.latitude])
+          .addTo(map);
+      });
+    };
+
+    runWhenStyleReady(map, applyWaypointMarkers);
+  }, [waypoints]);
 
   // ルート候補のベース表示を更新（選択状態が変わったら選択色にも反映する）
   useEffect(() => {

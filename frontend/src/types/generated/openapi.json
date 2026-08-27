@@ -1861,6 +1861,20 @@
           "hard_filters": {
             "$ref": "#/components/schemas/HardFilterOverride"
           },
+          "waypoints": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Coordinates"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waypoints"
+          },
           "generated_at": {
             "type": "string",
             "title": "Generated At"
@@ -1877,6 +1891,7 @@
           "penalty_strength",
           "max_average_grade_percent",
           "hard_filters",
+          "waypoints",
           "generated_at"
         ],
         "title": "GenerationConditions",
@@ -2315,6 +2330,21 @@
                 "type": "null"
               }
             ]
+          },
+          "waypoints": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Coordinates"
+                },
+                "type": "array",
+                "maxItems": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waypoints"
           }
         },
         "type": "object",

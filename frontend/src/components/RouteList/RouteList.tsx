@@ -38,7 +38,11 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
                 {route.total_score != null && (
                   <strong>おすすめ度 {Math.round(route.total_score)}点 / </strong>
                 )}
-                {route.direction_label}方向 — {route.distance_km.toFixed(1)} km
+                {/* 改善計画T364: 経由地ルート(id==="route-waypoints")は候補が常に1件で
+                    「方位」という概念が無いため、direction_label（「経由地ルート」固定文言、
+                    candidate_identity参照）をそのまま表示し「〜方向」は付けない。 */}
+                {route.id === "route-waypoints" ? route.direction_label : `${route.direction_label}方向`} —{" "}
+                {route.distance_km.toFixed(1)} km
                 {route.elevation_gain_m != null && ` / 獲得標高 ${Math.round(route.elevation_gain_m)} m`}
                 {route.wind_score != null &&
                   ` / ${route.wind_score >= 0 ? "向かい風" : "追い風"} ${Math.abs(route.wind_score).toFixed(1)} m/s`}

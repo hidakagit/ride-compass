@@ -147,6 +147,7 @@ class FakeGraphService:
         # （AttributeRepository.get_edge_attribute_countsの実挙動、テストで未設定のedge_idは0扱い）。
         self._stop_data_available = stop_data_available
         self.call_count = 0
+        self.last_bbox = None
 
     async def get_or_build_graph_with_attributes(self, bbox):
         self.call_count += 1
@@ -160,6 +161,7 @@ class FakeGraphService:
         # 持たない（本物のGraphServiceがタイルキャッシュ経由で組み立てるのと同じ
         # 中身になることをテストの他アサーション側は期待していないため、call_count計測
         # 目的のget_or_build_graph_with_attributesを呼ぶだけでよい）。
+        self.last_bbox = bbox
         built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
             return None
@@ -1238,5 +1240,152 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
 
     candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
 
+    assert candidate.segments[0].start_latitude == pytest.approx(ORIGIN.latitude)
+    assert candidate.segments[0].start_longitude == pytest.approx(ORIGIN.longitude)
+
+
+# --- 改善計画T364: 経由地(waypoints)指定ルート ---
+
+
+def _chain_graph(origin: Coordinates, points: list[Coordinates]) -> RoadGraph:
+    """origin→points[0]→points[1]→...→originという一本道（双方向）のRoad Graphを作る。
+
+    ノードidは起点が"o"、points[i]が"p{i}"。各区間を双方向Edge2本（往復）で結ぶ
+    （一方通行にすると逆回り不能になり別の検証観点と混ざるため、ここでは双方向にする）。
+    """
+    all_points = [origin, *points, origin]
+    nodes = {"o": Node(node_id="o", latitude=origin.latitude, longitude=origin.longitude)}
+    for i, point in enumerate(points):
+        nodes[f"p{i}"] = Node(node_id=f"p{i}", latitude=point.latitude, longitude=point.longitude)
+    node_ids = ["o", *[f"p{i}" for i in range(len(points))], "o"]
+
+    edges: dict[str, DirectedEdge] = {}
+    for i, (from_id, to_id) in enumerate(zip(node_ids, node_ids[1:])):
+        from_coord, to_coord = all_points[i], all_points[i + 1]
+        edges[f"e{i}-fwd"] = _edge(f"e{i}-fwd", from_id, to_id, from_coord, to_coord, highway="residential")
+        edges[f"e{i}-bwd"] = _edge(f"e{i}-bwd", to_id, from_id, to_coord, from_coord, highway="residential")
+    return RoadGraph(graph_version="test", nodes=nodes, edges=edges)
+
+
+async def test_generate_via_waypoints_visits_a_single_interior_waypoint():
+    point_a = destination_point(ORIGIN, 90, 1.0)
+    graph = _chain_graph(ORIGIN, [point_a])
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[point_a], distance_km=2.0)
+
+    assert len(candidates) == 1
+    assert candidates[0].id == "route-waypoints"
+    node_ids = [edge.from_node_id for edge in graph.edges.values()]  # sanity: グラフ自体は "o"/"p0" のみ
+    assert set(node_ids) <= {"o", "p0"}
+
+
+async def test_generate_via_waypoints_visits_multiple_interior_waypoints_in_order():
+    point_a = destination_point(ORIGIN, 90, 1.0)
+    point_b = destination_point(ORIGIN, 180, 1.0)
+    point_c = destination_point(ORIGIN, 270, 1.0)
+    graph = _chain_graph(ORIGIN, [point_a, point_b, point_c])
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[point_a, point_b, point_c], distance_km=6.0
+    )
+
+    assert len(candidates) == 1
+    # 3経由地×往復2区間=6 Edgeぶんの距離になっているはず（一本道なので迂回のしようがない）。
+    expected_km = round(sum(e.distance_m for e in graph.edges.values()) / 2 / 1000, 2)
+    assert candidates[0].distance_km == pytest.approx(expected_km, abs=0.01)
+
+
+async def test_generate_via_waypoints_returns_empty_when_a_waypoint_cannot_be_snapped():
+    point_a = destination_point(ORIGIN, 90, 1.0)
+    unreachable = destination_point(ORIGIN, 90, 50.0)  # bboxからも大きく外れる孤立地点
+    graph = _chain_graph(ORIGIN, [point_a])
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[point_a, unreachable], distance_km=2.0
+    )
+
+    assert candidates == []
+
+
+async def test_prepare_uses_bbox_covering_waypoints_when_specified():
+    # 改善計画T364: 経由地はradius_km圏外にありうるため、8方位探索と同じ
+    # _bbox_around_point（起点中心の円）ではなく、preview_segmentと同じ
+    # _bbox_covering_points（複数点の外接矩形）を使うことを確認する。
+    far_point = destination_point(ORIGIN, 90, 20.0)  # radius_kmよりずっと遠い
+    graph = _chain_graph(ORIGIN, [far_point])
+    generator, graph_service, _ = make_generator(graph)
+
+    await generator._engine.prepare(ORIGIN, radius_km=1.0, waypoints=[far_point])
+
+    expected_bbox = road_graph_engine._bbox_covering_points(
+        [ORIGIN, far_point], road_graph_engine.PREVIEW_BBOX_MARGIN_KM
+    )
+    assert graph_service.last_bbox == expected_bbox
+    # 円形bboxだと遠方のfar_pointを覆わないことの確認（分岐が実際に効いていることの裏付け）。
+    circular_bbox = road_graph_engine._bbox_around_point(ORIGIN, 1.0 + road_graph_engine.BBOX_MARGIN_MIN_KM)
+    assert far_point.longitude > circular_bbox.max_longitude
+
+
+async def test_prepare_uses_circular_bbox_when_no_waypoints():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, graph_service, _ = make_generator(graph)
+
+    await generator._engine.prepare(ORIGIN, radius_km=10.0)
+
+    expected_bbox = road_graph_engine._bbox_around_point(
+        ORIGIN, 10.0 + max(road_graph_engine.BBOX_MARGIN_MIN_KM, 10.0 * road_graph_engine.BBOX_MARGIN_RATIO)
+    )
+    assert graph_service.last_bbox == expected_bbox
+
+
+async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_reverse_is_favored():
+    # 改善計画T364最重要回帰: 8方位探索と同条件（強い向かい風で逆回りの方がwind
+    # difficultyが低い）でも、traced.bearing is Noneの経由地ルートでは訪問順序が要件
+    # そのものなので、_build_best_candidateは逆回り合成をスキップし順方向を維持する。
+    coord_a = destination_point(ORIGIN, 90, 1.0)
+    edge_fwd = _edge("e-fwd", "o", "a", ORIGIN, coord_a, highway="residential")
+    edge_bwd = _edge("e-bwd", "a", "o", coord_a, ORIGIN, highway="residential")
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "a": Node(node_id="a", latitude=coord_a.latitude, longitude=coord_a.longitude),
+        },
+        edges={"e-fwd": edge_fwd, "e-bwd": edge_bwd},
+    )
+    wind = WeatherConditions(
+        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=8.0, wind_direction_deg=90.0,
+        wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
+        precipitation_mm=None, uv_index=None, observed_at="t",
+    )
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 1.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0}
+    )
+    engine = RoadGraphEngine(
+        graph_service=None,
+        elevation_attribute_service=FakeElevationAttributeService({}),
+        evaluation_service=EvaluationService(preference),
+        weather_service=FakeWeatherService(wind),
+        route_preference=preference,
+    )
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags={},
+        intersection_counts={}, accident_counts={}, accident_years_covered=0,
+        designated_edge_ids=set(), wind=wind, origin_node="o",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        node_pair_index=road_graph_engine._build_node_pair_index(graph),
+    )
+    traced = road_graph_engine.TracedLoop(
+        bearing=None, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
+    )
+
+    candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
+
+    # 逆回り(a→o、追い風)の方がwind difficultyは低いはずだが、bearing=Noneなので
+    # 順方向(o→a)のまま維持される。
     assert candidate.segments[0].start_latitude == pytest.approx(ORIGIN.latitude)
     assert candidate.segments[0].start_longitude == pytest.approx(ORIGIN.longitude)

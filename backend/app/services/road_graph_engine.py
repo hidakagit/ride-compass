@@ -261,14 +261,24 @@ class RoadGraphEngine:
         )
 
     async def prepare(
-        self, origin: Coordinates, radius_km: float, now: datetime | None = None
+        self,
+        origin: Coordinates,
+        radius_km: float,
+        now: datetime | None = None,
+        waypoints: list[Coordinates] | None = None,
     ) -> _RoadGraphContext | None:
         # nowは改善計画T173のnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
         # 注入できるよう引数化した（wind同様、探索中は到達時刻が未確定のためprepare実行時点を
         # 出発時刻の近似として使う簡略化、詳細は_build_search_graph参照）。
         now = now or datetime.now(timezone.utc)
-        margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
-        bbox = _bbox_around_point(origin, radius_km + margin_km)
+        if waypoints:
+            # 改善計画T364: ユーザー指定の経由地は起点から半径radius_km以内とは限らない
+            # ため、8方位探索の円形bbox（_bbox_around_point）ではなく、preview_segmentと
+            # 同じ「複数点の外接矩形+固定マージン」を使う。
+            bbox = _bbox_covering_points([origin, *waypoints], PREVIEW_BBOX_MARGIN_KM)
+        else:
+            margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
+            bbox = _bbox_around_point(origin, radius_km + margin_km)
 
         search = await self._build_search_graph(bbox, origin, now)
         if search is None:
@@ -351,26 +361,32 @@ class RoadGraphEngine:
         return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)
 
     async def trace_loop(
-        self, context: _RoadGraphContext, waypoints: list[Coordinates], bearing: int
+        self, context: _RoadGraphContext, waypoints: list[Coordinates], bearing: int | None
     ) -> TracedLoop:
-        # waypoints = [起点, 経由地A, 経由地B, 起点]（RouteGenerator._loop_waypoints）。
-        # 起点は最近接NodeをprepareでスナップしたNodeを使い、経由地2点をここでスナップする
-        # （改善計画T219: prepareで構築済みの索引を使い回す、都度線形探索しない）。
-        node_a = find_nearest_node_indexed(context.node_index, waypoints[1])
-        node_b = find_nearest_node_indexed(context.node_index, waypoints[2])
-        if node_a is None or node_b is None:
-            raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
+        # waypoints = [起点, 中間経由地..., 起点]（8方位探索ではRouteGenerator._loop_waypoints
+        # が経由地2点の固定三角形を、改善計画T364の経由地指定ルートではユーザー指定の
+        # 中間経由地1〜N点を渡す）。起点は最近接NodeをprepareでスナップしたNodeを使い、
+        # 中間経由地はここでスナップする（改善計画T219: prepareで構築済みの索引を使い回す、
+        # 都度線形探索しない）。
+        interior_nodes = []
+        for point in waypoints[1:-1]:
+            node = find_nearest_node_indexed(context.node_index, point)
+            if node is None:
+                raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
+            interior_nodes.append(node)
+        node_sequence = [context.origin_node, *interior_nodes, context.origin_node]
 
         # 改善計画T220（T12 Stage 2）: Dijkstra本体はNetworkX（Python実装）ではなく
         # scipy.sparse.csgraph（C実装）で行う（1リクエストにつき最大24回、実測で
         # ボトルネックと判明。モジュールdocstring参照）。context.sparse_graphを使う。
-        path_1 = shortest_path_node_ids_sparse(context.sparse_graph, context.origin_node, node_a)
-        path_2 = shortest_path_node_ids_sparse(context.sparse_graph, node_a, node_b)
-        path_3 = shortest_path_node_ids_sparse(context.sparse_graph, node_b, context.origin_node)
-        if path_1 is None or path_2 is None or path_3 is None:
-            raise RoutingError(f"direction {bearing}: no path found between waypoints")
+        segment_paths = []
+        for from_node, to_node in zip(node_sequence, node_sequence[1:]):
+            segment_path = shortest_path_node_ids_sparse(context.sparse_graph, from_node, to_node)
+            if segment_path is None:
+                raise RoutingError(f"direction {bearing}: no path found between waypoints")
+            segment_paths.append(segment_path)
 
-        full_path = concat_node_paths([path_1, path_2, path_3])
+        full_path = concat_node_paths(segment_paths)
         edge_ids = path_to_edge_ids_sparse(context.sparse_graph, full_path)
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
@@ -408,11 +424,15 @@ class RoadGraphEngine:
         RouteGenerator._with_overall_difficultyと同じ指標）が小さい方を採用する
         （両方向を別候補として追加するのではなく、方位ごとに良い方だけを残す設計。
         経路中に一方通行Edgeが1つでもあれば逆回りは物理的に成立しないため、その場合は
-        順方向のみを返す）。
+        順方向のみを返す）。改善計画T364: ユーザーが指定した経由地ルート
+        （traced.bearing is None）は訪問順序そのものが要件のため、逆回り合成は行わない。
         """
         edges_in_path: list[EdgeLike] = traced.data
         elevation_attributes = await self._fetch_elevation_attributes(context, edges_in_path)
         forward_candidate = self._build_candidate(context, traced, edges_in_path, elevation_attributes, start_time)
+
+        if traced.bearing is None:
+            return forward_candidate
 
         reverse_edges = _reverse_traced_edges(edges_in_path, context.node_pair_index)
         if reverse_edges is None:

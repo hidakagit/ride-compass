@@ -8498,7 +8498,7 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
-### - [ ] T364. 経由地（中継地）を指定できるルート生成への拡張 規模M〜L（起票のみ、未着手）
+### - [x] T364. 経由地（中継地）を指定できるルート生成への拡張 規模M〜L（2026-08-27完了）
 
 - 背景: T353/T359で王子-荒川ルート問題（footway/pathの評価漏れ）に対応したが、
   実機検証の結果、材料・評価軸の改善だけでは解決しないことが判明した
@@ -8527,6 +8527,56 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   3. 将来の「目的地までのルート探索」への拡張を見据え、経由地機能をその基盤として
      設計する（着手時にAPI・データモデルの拡張性を検討）。
 - 優先度: ユーザーの中長期ロードマップ次第。着手判断は別途行う。
+- **実装結果（2026-08-27完了、フル実装・road_graphエンジンのみ対応）**:
+  - backend: `route_generator.py`に`generate_via_waypoints`を新設（`generate_loops`
+    とは独立、8方位探索・距離フィルタ・RouteScorerを一切通らない一本道。候補は
+    常に1件のためRouteScorer.score呼び出しは意図的にスキップ、`total_score`は
+    Noneのまま）。`TracedLoop.bearing`を`int | None`に拡張し、`bearing=None`が
+    経由地ルートを表す規約にした（`candidate_identity`が`id="route-waypoints"`
+    ・`direction_label="経由地ルート"`を返す）。
+  - backend: `road_graph_engine.py`の`trace_loop`を、旧来の
+    `waypoints[1]`/`waypoints[2]`決め打ち3本(`path_1/2/3`)から、中間経由地を
+    任意個数受け取り`node_sequence`のペアを順に`shortest_path_node_ids_sparse`で
+    繋ぐ汎用ループへ一般化した（waypointsが2点の8方位探索は従来と全く同じ3ペアに
+    帰着するため、既存テストは無改修で通った）。`prepare`は`waypoints`指定時のみ
+    `_bbox_around_point`（起点中心の円、8方位探索用）ではなく`_bbox_covering_points`
+    （複数点の外接矩形+マージン、`preview_segment`と同じ）を使う分岐を追加した
+    （経由地はradius_km圏外にありうるため）。
+  - **設計上の要注意点（プランに明記し実装で対応済み）**: `_build_best_candidate`は
+    T274で「周回の向きに意味が無い」8方位探索向けに、無条件で逆回り経路を合成し
+    difficultyが低い方を採用する最適化を持つ。経由地ルートは訪問順序の保持が
+    要件そのものなので、`traced.bearing is None`のときはこの逆回り合成を
+    スキップする分岐を追加した（テスト
+    `test_build_best_candidate_does_not_reverse_waypoint_route_even_when_reverse_is_favored`
+    で、逆回りの方が有利になるよう仕込んだ状況でも順方向が維持されることを確認）。
+  - backend: `/api/routes/generate`に`waypoints`（最大8件、起点からdistance_km
+    以内という緩いバリデーション）を追加。指定時は`generate_via_waypoints`へ、
+    未指定時は従来の`generate_loops`へ分岐。openrouteserviceエンジン
+    （`get_route(waypoints)`は既に任意長対応済みだが今回未検証）で`waypoints`
+    指定時は400を返すガードを追加。OpenAPI型を再生成しfrontend生成物へ反映。
+  - frontend: `MapView.tsx`の`handleClick`を、フィーチャーヒットの有無に関わらず
+    必ずポップアップを開く形へ変更し、既存の道路詳細ポップアップ（ヒット時のみ）の
+    末尾に新規`waypointPopup.ts`（`axisInspectorPopup.ts`と同じ構成）の
+    「この地点を経由地に追加」ボタンを常に付けた。空白地点クリックでもこのボタンが
+    出る。`waypointMarkersRef`で複数マーカーを管理（既存マーカーを全remove→
+    全作り直しの簡易実装、番号付き円形div、現在地マーカーとは別色）、マーカー
+    クリックで即削除。`page.tsx`にwaypoints state・ハンドラを追加し、
+    経由地が1件以上あればリクエストへ`waypoints`を含める。地図右上に件数+クリア
+    ボタンを表示。`RouteList.tsx`は`id==="route-waypoints"`のとき
+    「〜方向」を付けず`direction_label`（「経由地ルート」）をそのまま表示。
+  - テスト: backend側は`test_route_generator.py`に`generate_via_waypoints`の
+    新規テスト4件、`test_road_graph_engine.py`に経由地チェーンのtrace_loop一般化
+    テスト・bbox分岐テスト・逆回りスキップの回帰テストなど8件を追加。frontend側は
+    `waypointPopup.test.ts`を新設（axisInspectorPopup.test.tsと同じ構成）。
+    backend全体1308件中1306件成功（残り2件は本タスクと無関係な既存のローカルDB
+    環境依存の失敗、変更前から再現）、frontend全体688件成功、tsc/eslint共にクリーン。
+  - 実機確認: dev serverで地図の空白地点クリック→「経由地に追加」ボタン表示→
+    押下でボタンが「追加しました」に変わり地図右上に「経由地: 1件」+クリアボタンが
+    表示されることを確認した。ただしこのセッションのBrowserペインは画面に
+    表示されておらずcompositing（rAF駆動の描画）が働かない制約があり、
+    マーカーpin自体の画面上の見た目（マップキャンバス上の描画）は確認できていない
+    （既存の現在地マーカーも同じ理由で同環境では描画されないことを確認済みのため、
+    本タスクの新規回帰ではなく環境固有の制約と判断）。
 
 ---
 

@@ -267,6 +267,29 @@
   color: var(--color-muted);
 }
 
+/* 改善計画T364: 経由地の件数表示+クリアボタン。MapOverlayControls（top-left）・
+   locateButton（bottom-right）と重ならないtop-rightに置く。 */
+.waypointControl {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow-float);
+}
+
+.waypointControl button {
+  font: inherit;
+  cursor: pointer;
+}
+
 .locateButton {
   position: absolute;
   right: var(--space-3);

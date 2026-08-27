@@ -56,6 +56,21 @@ Windows環境では `uvicorn --reload` はリローダー親プロセスとワ�
 - `distance_tolerance_km`のデフォルト値を、実データが蓄積された段階で仕様書どおりの±2km程度まで狭める
 - 8方位に加え、方位内で複数の経由地点パターンを試す（候補数を増やす）
 
+**経由地（中継地）指定ルート（改善計画T364）**: 上記の固定三角形waypoint生成は「特定の
+経由地を通るルート形状」をそもそも表現できない制約があるため、ユーザーが地図上で
+指定した経由地を順に通る単一経路を生成する別経路`RouteGenerator.generate_via_waypoints`
+を追加した（`generate_loops`とは独立、8方位探索・距離フィルタ・`RouteScorer`を通らない）。
+`TracedLoop.bearing`が`None`のときがこの経由地ルートを表す規約で、`candidate_identity`は
+`id="route-waypoints"`・`direction_label="経由地ルート"`を返す。候補が常に1件のため
+`RouteScorer.score`（min-max正規化）は意図的に呼ばず、`total_score`は`None`のまま
+返る。`road_graph_engine.py`の`trace_loop`は中間経由地を任意個数受け取れる汎用ループへ
+一般化されており（waypoints=2点の8方位探索は従来と同じ3ペアに帰着）、`prepare`は
+経由地指定時のみ`_bbox_covering_points`（複数点の外接矩形、`preview_segment`と同じ）で
+bboxを組む。`_build_best_candidate`のT274逆回り最適化（周回の向きに意味が無い8方位探索
+向け）は、経由地ルートでは訪問順序の保持が要件そのものなので`bearing is None`のとき
+スキップする。現状road_graphエンジンのみ対応（openrouteserviceエンジンは
+`get_route(waypoints)`が既に任意長リスト対応済みだが未検証のため、APIが400を返す）。
+
 ### 標高計算のアルゴリズムと既知の制約（Step5）
 `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）は、各ルートのGeoJSON LineStringから始点・終点を含む点列（当初は12点固定。現在はエンジンが`sample_count_for_distance`で距離連動の約1km間隔・12〜32点を決めて渡す。Step9で点列を直接受け取るシグネチャへ変更）をサンプリングし、国土地理院の標高API（1リクエスト=1地点）に問い合わせる。獲得標高は連続区間の正の標高差の合計、最大勾配は`|標高差| / 水平距離`の最大値（%、水平距離は`haversine_distance_km`で算出）。標高が取得できない区間（海上・データ範囲外・通信エラー）は`None`として扱い、有効な点が2点未満なら標高関連フィールドはすべて`None`を返す（ルート自体は除外しない）。
 
@@ -396,7 +411,7 @@ RideCompass/
         routing.py                     ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（T220、scipy.sparse.csgraph版）・build_node_spatial_index/find_nearest_node_indexed・concat_node_paths。NetworkX版（build_networkx_graph/find_nearest_node/shortest_path_node_ids/path_to_edge_ids、「完全移行」時点の実装）はscipy移行後実行時経路から呼ばれなくなっていたため改善計画T321（デッドコード監査）で削除、networkx依存自体もrequirements.txtから撤去
       services/
         routing_service.py     ✅ ORSClient等をラップ（waypointsリスト対応）。`/api/routes/preview`専用に加え、`routing_engine=="openrouteservice"`のときは`OpenRouteServiceEngine`からも使われる
-        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・RouteScorer適用を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）
+        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・RouteScorer適用を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）。改善計画T364で経由地指定ルート専用の`generate_via_waypoints`（8方位探索・RouteScorerを通らない一本道）を追加
         openrouteservice_engine.py ✅ `OpenRouteServiceEngine`。経路はRoutingService（openrouteservice委譲）、標高・風はElevationService+WindService（ルート単位の距離連動サンプリング、約1km間隔・12〜32点＝`sample_count_for_distance`）、路面は同じサンプル点を`RoadGraphRepository.get_nearest_surface_tags`（`repository`未注入時はNone、改善計画T21）で自前DBのEdgeへ空間マッチして評価するエンジン（Road Graph移行前の実装をポート化）。segmentsにはルートgeometryから切り出した区間の道なり形状を付与
         road_graph_engine.py   ✅ `RoadGraphEngine`。Road Graph + Evaluation Engine + Route Engine（domain/routing.py）で経路・評価を行うエンジン（「完全移行」の実装をポート化。prepareでRoad Graph1回取得、evaluate_loopsで経路上Edgeのみ標高取得）
         elevation_service.py    ✅ エンジンから渡されたサンプル点列（距離連動、約1km間隔・12〜32点）についてGSI標高APIで獲得標高・最高/最低標高・最大勾配を算出（Step5。「完全移行」でRoad Graphエンジンからは不要になり一度削除、「ルーティングエンジンの切り替え対応」で`OpenRouteServiceEngine`用に復元）

@@ -832,6 +832,8 @@ export interface components {
             /** Max Average Grade Percent */
             max_average_grade_percent: number | null;
             hard_filters: components["schemas"]["HardFilterOverride"];
+            /** Waypoints */
+            waypoints: components["schemas"]["Coordinates"][] | null;
             /** Generated At */
             generated_at: string;
         };
@@ -1022,6 +1024,8 @@ export interface components {
             /** Max Average Grade Percent */
             max_average_grade_percent?: number | null;
             hard_filters?: components["schemas"]["HardFilterOverride"] | null;
+            /** Waypoints */
+            waypoints?: components["schemas"]["Coordinates"][] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

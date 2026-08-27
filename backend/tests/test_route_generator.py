@@ -28,15 +28,19 @@ class FakeEngine:
 
     engine_name = "fake"
 
-    def __init__(self, distances_by_bearing: dict[int, float | Exception], prepare_result: object = "ctx"):
+    def __init__(
+        self, distances_by_bearing: dict[int | None, float | Exception], prepare_result: object = "ctx"
+    ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
         self.prepare_calls: list[tuple[Coordinates, float]] = []
-        self.traced_waypoints: dict[int, list[Coordinates]] = {}
+        self.prepare_waypoints: list[Coordinates] | None = None
+        self.traced_waypoints: dict[int | None, list[Coordinates]] = {}
         self.evaluated_traced: list[TracedLoop] | None = None
 
-    async def prepare(self, origin, radius_km):
+    async def prepare(self, origin, radius_km, waypoints=None):
         self.prepare_calls.append((origin, radius_km))
+        self.prepare_waypoints = waypoints
         return self._prepare_result
 
     async def trace_loop(self, context, waypoints, bearing):
@@ -209,3 +213,47 @@ async def test_overall_difficulty_is_none_when_segments_missing():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.overall_difficulty is None for c in candidates)
+
+
+WAYPOINT_A = Coordinates(latitude=35.80, longitude=139.75)
+WAYPOINT_B = Coordinates(latitude=35.82, longitude=139.77)
+
+
+async def test_generate_via_waypoints_traces_full_loop_in_order():
+    generator, engine = make_generator({None: 12.0})
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[WAYPOINT_A, WAYPOINT_B], distance_km=10.0
+    )
+
+    assert engine.traced_waypoints[None] == [ORIGIN, WAYPOINT_A, WAYPOINT_B, ORIGIN]
+    assert engine.prepare_waypoints == [WAYPOINT_A, WAYPOINT_B]
+    assert len(candidates) == 1
+    assert candidates[0].id == "route-waypoints"
+
+
+async def test_generate_via_waypoints_returns_empty_when_prepare_returns_none():
+    generator, engine = make_generator({None: 12.0}, prepare_result=None)
+
+    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert candidates == []
+    assert engine.evaluated_traced is None
+
+
+async def test_generate_via_waypoints_returns_empty_when_trace_fails():
+    generator, _ = make_generator({None: RoutingError("no route")})
+
+    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert candidates == []
+
+
+async def test_generate_via_waypoints_does_not_call_route_scorer():
+    # 候補が常に1件のため、min-maxで常に満点になるRouteScorer.scoreを意図的に呼ばない
+    # （generate_via_waypointsのdocstring参照）。total_scoreはNoneのまま返る。
+    generator, _ = make_generator({None: 12.0})
+
+    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert candidates[0].total_score is None
