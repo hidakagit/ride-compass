@@ -22,7 +22,12 @@
   border-radius: var(--radius-sm);
   padding: 0.4rem var(--space-2);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-  pointer-events: auto;
+  /* .wrapperのpointer-events: noneを継承する。以前はこの箱全体にpointer-events: autoを
+     戻していたが、それだとtimeHeaderとcontrolsRowの間のgap・paddingの余白まで
+     タッチを奪ってしまい、地図の下端に重なるこの帯全体で地図のパン操作ができなく
+     なっていた（不具合報告「地図上スクロールができない」）。ファイル冒頭のコメントで
+     謳っている「実際に操作するコントロール自身だけautoへ戻す」方針（
+     MapOverlayControls.module.cssの.wrapperと同じ方式）に、この.panel自身も揃える。 */
   /* 実機フィードバック「バー自体をもう少し長くして」を受け260px固定から拡大。
      モバイルの狭い画面では90vw（左右の余白を確保しつつほぼ画面幅）、それ以上の
      画面ではmax-widthで頭打ちにする（際限なく伸びて他の地図UIと衝突しないよう）。 */
@@ -47,6 +52,7 @@
    * .rulerViewport・.nowButton）へ個別に明示する方針（MapOverlayControls.module.cssの
    * .iconChip等と同じ「実際に押せる要素へも明示する」方針）へ揃えている。 */
   touch-action: none;
+  pointer-events: auto;
 }
 
 .controlsRow {
@@ -181,6 +187,7 @@
   cursor: pointer;
   /* .timeHeaderと同じ理由（.panelコメント付近参照）。 */
   touch-action: none;
+  pointer-events: auto;
 }
 
 .nowButton:disabled {

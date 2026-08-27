@@ -9080,6 +9080,31 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
   オーバーフローせず▼ボタン自体が出ない（意図どおり）。回帰確認としてtsc・eslint・
   vitest（フロントエンド全691件）もクリーン。
 
+### - [x] T375. 地図オーバーレイの`pointer-events: auto`がボタン以外の隙間ごとタッチを奪い、地図パン操作ができなくなる不具合を修正 規模S（2026-08-27完了）
+
+- 背景: ユーザー報告（スマホ実機のスクリーンショット付き）「下スクロールがスライドバー等に
+  邪魔されて出てこない」「地図上スクロールができない」。
+- 原因: `MapOverlayControls.module.css`の`.chipRow`（左側の縦一列アイコンチップの箱）と
+  `DynamicLayerTimeSlider.module.css`の`.panel`（下部時刻スライダーの外枠）が、いずれも
+  `.wrapper`のpointer-events: none（地図のドラッグ・ズームを妨げないための既定方針。
+  実際に押せるボタン自身にだけautoを局所的に戻す設計、`.wrapper`のコメント参照）に
+  反して、箱全体へpointer-events: autoを適用していた。`.chipRow`はT374（ページング
+  送りボタン方式への再設計）でドラッグスクロールを廃止した際にこの指定を消し忘れた
+  回帰（T373時点では自前ドラッグ実装のためチップ間の隙間もタッチを拾う必要があったが、
+  T374移行後は不要になっていた）。`.panel`は当初からボタン以外の余白（gap・padding）
+  までタッチを奪う指定だった。結果、縦一列に並んだチップの隙間・時刻スライダー帯全体
+  （幅最大90vw、地図下端に重なる）がタッチを奪い、その領域から地図をパンしようとしても
+  反応しなかった。
+- 対応: `.chipRow`の`pointer-events: auto`を削除し`.wrapper`のnoneを継承させる
+  （ボタン自身＝`.iconChip`/`.expandToggle`等は既に個別にautoを持つため影響なし）。
+  `.panel`も同様に`pointer-events: auto`を削除し、代わりに実際に操作する`.timeHeader`・
+  `.nowButton`へ個別に付与（`.rulerViewport`は元から個別付与済み）。時刻スライダーは
+  対象レイヤーがONの間だけマウントされ、OFF時はDOMごと外れるため（`page.tsx`の
+  `showPrecipitationNowcast`等の条件付きレンダー）、表示/非表示の切り替え自体には
+  影響しない。
+- 検証: `MapOverlayControls.test.tsx`・`DynamicLayerTimeSlider.test.tsx`（計47件）は
+  クリーン。実機での地図パン操作の確認は次回セッションで行うこと。
+
 ---
 
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
