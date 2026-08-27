@@ -636,8 +636,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
+  /* 改善計画T381フォローアップ（ユーザー指摘「▼▶アイコンを他アイコンの幅や高さまで
+     もう少し広げると操作性が増す」）: 以前は1.6rem四方（他のアイコンチップ
+     [.iconChip、実測約51×43px]や凡例展開の.expandToggleと同じ最小サイズ）だったが、
+     長押し連続送り（T381）を導入したことでタップの正確さがより重要になったため、
+     他のアイコンチップの高さ（実測約2.67rem）に近い2.6rem四方へ広げる。丸ボタンの
+     見た目を保つため幅・高さは常に同じ値にする。 */
+  width: 2.6rem;
+  height: 2.6rem;
+  font-size: 1.1rem;
   flex-shrink: 0;
   padding: 0;
   border-radius: 50%;
