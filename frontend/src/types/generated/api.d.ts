@@ -1367,6 +1367,20 @@ export interface components {
             uv_index: number | null;
             /** Observed At */
             observed_at: string;
+            /** Weather Code */
+            weather_code: number | null;
+            /** Is Day */
+            is_day: number | null;
+            /** Sunset */
+            sunset: string | null;
+            /** Precipitation Probability Max Percent */
+            precipitation_probability_max_percent: number | null;
+            /** Wind Speed Max Ms */
+            wind_speed_max_ms: number | null;
+            /** Temperature Max C */
+            temperature_max_c: number | null;
+            /** Temperature Min C */
+            temperature_min_c: number | null;
         };
         /** WeatherWarnings */
         WeatherWarnings: {

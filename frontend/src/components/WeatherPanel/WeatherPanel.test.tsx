@@ -15,6 +15,13 @@ function makeWeather(overrides: Partial<WeatherConditions>): WeatherConditions {
     precipitation_mm: null,
     uv_index: null,
     observed_at: "2026-08-14T00:00:00Z",
+    weather_code: null,
+    is_day: null,
+    sunset: null,
+    precipitation_probability_max_percent: null,
+    wind_speed_max_ms: null,
+    temperature_max_c: null,
+    temperature_min_c: null,
     ...overrides,
   };
 }
@@ -81,12 +88,34 @@ describe("WeatherPanel", () => {
     expect(container.querySelector('[title*="1.3mm/h"]')).toBeInTheDocument();
   });
 
-  it("uv_indexがある場合はUV指数の専用チップを数値のみ(文字ラベル無し)で表示する", () => {
-    const weather = makeWeather({ uv_index: 7.4 });
+  // 改善計画T385: UV指数専用チップを撤去し、weather_code+is_dayから決まる天気アイコンへ
+  // 置き換えた（夜間はuv_indexが常に0.0になり情報価値が無いままヘッダーを圧迫していたため）。
+  it("weather_codeがある場合は天気アイコンのチップを表示し、titleにラベルを持つ", () => {
+    const weather = makeWeather({ weather_code: 3, is_day: 1 }); // 3=くもり
     const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
 
-    expect(container.querySelector('[title="UV指数"]')).toBeInTheDocument();
-    expect(container.textContent).toMatch(/7\.4/);
+    expect(container.querySelector('[title*="くもり"]')).toBeInTheDocument();
+  });
+
+  it("weather_codeが無い場合は天気アイコンのチップを表示しない", () => {
+    const weather = makeWeather({ weather_code: null });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.querySelector('[title*="くもり"]')).not.toBeInTheDocument();
+  });
+
+  it("is_day=0(夜間)かつ快晴(weather_code=0)の場合は月アイコン用のtitleになる", () => {
+    const weather = makeWeather({ weather_code: 0, is_day: 0 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.querySelector('[title*="快晴"]')).toBeInTheDocument();
+  });
+
+  it("uv_indexがある場合は天気アイコンのtitleにUV指数を併記する", () => {
+    const weather = makeWeather({ weather_code: 1, is_day: 1, uv_index: 7.4 });
+    const { container } = render(<WeatherPanel weather={weather} loading={false} error={null} />);
+
+    expect(container.querySelector('[title*="UV指数 7.4"]')).toBeInTheDocument();
   });
 
   it("wind_direction_degぶん矢印を回転させる(+180度、吹いてくる方向ではなく吹いていく方向を指す)", () => {

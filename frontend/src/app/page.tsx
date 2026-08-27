@@ -53,6 +53,7 @@ import RouteForm, { type DestinationButtonState, type RouteMode } from "@/compon
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
+import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
 import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
@@ -1211,6 +1212,11 @@ export default function Home() {
             スクロールしないと見えない状態を許容する。 */}
         <div className={styles.weatherStats}>
           <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+          {/* 改善計画T385: 「今日の見通し」（日没・今日の降水確率最大・最大風速・気温
+              レンジ）。.weatherStatsと同じ左寄せ固定グループに含め、警報バッジより
+              優先して常に見える側に置く（T384調査「常設ヘッダーへ項目を足さず二次
+              パネルへ集約する」の結論どおり、瞬間値のWeatherPanelとは別枠のトグルにする）。 */}
+          <TodayOutlook weather={weather} />
         </div>
         <div className={styles.headerActions}>
           <WarningBadgeList items={warningBadgeItems} />

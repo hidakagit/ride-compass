@@ -215,10 +215,25 @@ class WeatherClient:
             params = {
                 "latitude": point.latitude,
                 "longitude": point.longitude,
+                # weather_code（WMO天気コード）・is_dayは改善計画T385（天気アイコン化）用。
+                # UV指数は夜間常に0.0になり項目としての情報価値が無いままヘッダーを
+                # 圧迫していたため、weather_code+is_dayから快晴/くもり/霧/雨/雪/雷雨と
+                # 昼夜を判定するアイコン1個へ置き換える（frontend/src/components/
+                # WeatherPanel/weatherCode.ts参照）。
                 "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
-                "precipitation,apparent_temperature,uv_index",
+                "precipitation,apparent_temperature,uv_index,weather_code,is_day",
                 "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
                 "wind_gusts_10m,precipitation,uv_index,apparent_temperature",
+                # 改善計画T385: 「今日の見通し」パネル（日没・今日の降水確率最大・
+                # 最大風速・気温レンジ）用。current/hourlyの瞬間値と違い1日1個の値
+                # のため別枠のdailyパラメータで取る。forecast_days=2・timezone=Asia/Tokyo
+                # は既存のcurrent/hourlyと共用のため、daily[0]がタイムゾーン基準の
+                # 「今日」に一致する（get_forecast_many/WIND_GRID_VARIABLESには含めない。
+                # WindServiceは地点数十件を並列取得するため、1地点あたりの取得項目を
+                # 増やすとクォータ消費への影響が大きく、日次見通しはget_forecast
+                # （単一地点、この関数）でしか使わないため不要）。
+                "daily": "sunset,precipitation_probability_max,wind_speed_10m_max,"
+                "temperature_2m_max,temperature_2m_min",
                 "forecast_days": 2,
                 "timezone": "Asia/Tokyo",
                 "wind_speed_unit": "ms",

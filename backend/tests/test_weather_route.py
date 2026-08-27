@@ -49,6 +49,13 @@ def test_get_weather_returns_conditions_on_success():
         precipitation_mm=0.5,
         uv_index=6.2,
         observed_at="2026-08-13T21:15",
+        weather_code=2,
+        is_day=1,
+        sunset="2026-08-13T18:41",
+        precipitation_probability_max_percent=80,
+        wind_speed_max_ms=5.5,
+        temperature_max_c=29.0,
+        temperature_min_c=23.0,
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
 
@@ -86,6 +93,13 @@ def test_get_weather_is_rate_limited_per_client():
         precipitation_mm=0.5,
         uv_index=6.2,
         observed_at="2026-08-13T21:15",
+        weather_code=2,
+        is_day=1,
+        sunset="2026-08-13T18:41",
+        precipitation_probability_max_percent=80,
+        wind_speed_max_ms=5.5,
+        temperature_max_c=29.0,
+        temperature_min_c=23.0,
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
 

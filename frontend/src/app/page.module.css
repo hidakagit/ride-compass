@@ -42,14 +42,20 @@
   display: none;
 }
 
-/* 天候の数値（気温・風向風速・降水確率・UV指数、WeatherPanel）のラッパー。ユーザー指摘
-   （2026-08-28）「固定部分がなるべく見切れないように」への対応で、.headerActions
-   （警報バッジ・デバッグアイコン）より優先して常に見える側へ入れ替えた
-   （page.tsxの該当コメント参照）。flex-shrink: 0で.weatherHeaderの残り幅に押し込まれて
-   縮むことを防ぎ、position: sticky; left: 0で横スクロールしても左端に留まり続ける。
-   backgroundは.headerActionsが元々持っていたのと同じ理由（sticky要素の下を
-   スクロールで通過する他要素を隠すため）で必要。 */
+/* 天候の数値（気温・風向風速・降水確率・天気アイコン、WeatherPanel）＋「今日の見通し」
+   トグル（TodayOutlook、改善計画T385）のラッパー。ユーザー指摘（2026-08-28）
+   「固定部分がなるべく見切れないように」への対応で、.headerActions（警報バッジ・
+   デバッグアイコン）より優先して常に見える側へ入れ替えた（page.tsxの該当コメント参照）。
+   flex-shrink: 0で.weatherHeaderの残り幅に押し込まれて縮むことを防ぎ、
+   position: sticky; left: 0で横スクロールしても左端に留まり続ける。backgroundは
+   .headerActionsが元々持っていたのと同じ理由（sticky要素の下をスクロールで通過する
+   他要素を隠すため）で必要。display: flexは子（WeatherPanelの.row・TodayOutlookの
+   トグルボタン）を横並びにするため（T385でTodayOutlookを追加するまでは子が
+   WeatherPanel1個だけだったため不要だった）。 */
 .weatherStats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   flex-shrink: 0;
   position: sticky;
   left: 0;

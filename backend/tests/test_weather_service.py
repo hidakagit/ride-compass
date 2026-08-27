@@ -17,6 +17,8 @@ SAMPLE_DATA = {
         "wind_gusts_10m": 4.8,
         "precipitation": 0.2,
         "uv_index": 0.0,
+        "weather_code": 3,
+        "is_day": 0,
     },
     "hourly": {
         "time": ["2026-08-13T20:00", "2026-08-13T21:00", "2026-08-13T22:00", "2026-08-13T23:00"],
@@ -28,6 +30,15 @@ SAMPLE_DATA = {
         "wind_gusts_10m": [5.5, 4.8, 4.2, 3.9],
         "precipitation": [0.3, 0.2, 0.1, 0.0],
         "uv_index": [1.0, 0.0, 0.0, 0.0],
+    },
+    # 改善計画T385:「今日の見通し」パネル用（forecast_days=2、index0=今日）。
+    "daily": {
+        "time": ["2026-08-13", "2026-08-14"],
+        "sunset": ["2026-08-13T18:41", "2026-08-14T18:40"],
+        "precipitation_probability_max": [80, 60],
+        "wind_speed_10m_max": [5.5, 4.0],
+        "temperature_2m_max": [29.0, 28.0],
+        "temperature_2m_min": [23.0, 22.5],
     },
 }
 
@@ -82,6 +93,15 @@ async def test_get_conditions_returns_current_when_at_is_none():
     assert conditions.wind_gusts_ms == 4.8
     assert conditions.precipitation_mm == 0.2
     assert conditions.uv_index == 0.0
+    # 改善計画T385: weather_code/is_dayはcurrentからそのまま読む
+    assert conditions.weather_code == 3
+    assert conditions.is_day == 0
+    # 改善計画T385: 今日の見通し4項目はdailyのindex0（今日）から読む
+    assert conditions.sunset == "2026-08-13T18:41"
+    assert conditions.precipitation_probability_max_percent == 80
+    assert conditions.wind_speed_max_ms == 5.5
+    assert conditions.temperature_max_c == 29.0
+    assert conditions.temperature_min_c == 23.0
 
 
 async def test_conditions_from_data_returns_nearest_hourly_for_future_time():
@@ -101,6 +121,15 @@ async def test_conditions_from_data_returns_nearest_hourly_for_future_time():
     assert conditions.wind_gusts_ms == 4.2
     assert conditions.precipitation_mm == 0.1
     assert conditions.uv_index == 0.0
+    # 改善計画T385: get_conditions_many経路（at指定あり）はweather_code/is_day・dailyの
+    # いずれも取得しないため常にNone
+    assert conditions.weather_code is None
+    assert conditions.is_day is None
+    assert conditions.sunset is None
+    assert conditions.precipitation_probability_max_percent is None
+    assert conditions.wind_speed_max_ms is None
+    assert conditions.temperature_max_c is None
+    assert conditions.temperature_min_c is None
 
 
 async def test_conditions_from_data_returns_none_when_at_is_outside_hourly_range():
@@ -125,6 +154,15 @@ async def test_get_conditions_falls_back_to_none_when_t172_fields_are_missing():
     assert conditions.wind_gusts_ms is None
     assert conditions.precipitation_mm is None
     assert conditions.uv_index is None
+    # 改善計画T385: weather_code/is_day・dailyブロック自体が無い応答でも例外にならず、
+    # 新規項目がNoneになるだけで既存項目は従来どおり取得できることを確認する。
+    assert conditions.weather_code is None
+    assert conditions.is_day is None
+    assert conditions.sunset is None
+    assert conditions.precipitation_probability_max_percent is None
+    assert conditions.wind_speed_max_ms is None
+    assert conditions.temperature_max_c is None
+    assert conditions.temperature_min_c is None
 
 
 async def test_get_conditions_returns_none_when_forecast_unavailable():
