@@ -6198,7 +6198,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
   取得したログ（手順8の出力）を次のセッションへ貼り付ければ、「次の一歩(1)」の分析
   （20km時と25km/30km時の方位別traced距離の分布比較）にそのまま進める。
-- **代替手順（2026-08-27、T378完了後）**: T378で`/api/admin/debug`管理API
+- **代替手順（2026-08-27、T379完了後）**: T379で`/api/admin/debug`管理API
   （HTTP Basic認証）が使えるようになったため、本番へデプロイ済みであれば上記SSH手順の
   代わりに以下のcurlだけで完結する（コンテナ再作成・ダウンタイム無し）:
   ```bash
@@ -6207,11 +6207,11 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   curl -u "$ADMIN_USER:$ADMIN_PASS" "https://<本番API>/api/admin/debug/logs?contains=distance+filter+rejected"
   curl -u "$ADMIN_USER:$ADMIN_PASS" -X POST https://<本番API>/api/admin/debug/mode -d '{"enabled": false}' -H "Content-Type: application/json"
   ```
-  ただしT378はこのタスク（T318）と同じコミットでデプロイされるまでは本番に存在しない
-  （T378完了時点でmasterへは反映済みだが、本番デプロイ自体は別途`deploy-backend.yml`の
+  ただしT379はこのタスク（T318）と同じコミットでデプロイされるまでは本番に存在しない
+  （T379完了時点でmasterへは反映済みだが、本番デプロイ自体は別途`deploy-backend.yml`の
   実行が必要）。デプロイ前に試す場合は上記のSSH手順（手順1〜9）を使うこと。
 
-### - [x] T378. debug_modeのランタイム切替とログ取得を管理APIから行えるようにする 規模S〜M（2026-08-27完了）
+### - [x] T379. debug_modeのランタイム切替とログ取得を管理APIから行えるようにする 規模S〜M（2026-08-27完了）
 
 - 背景: T318の調査で、本番debug_modeの一時有効化にSSHログイン・env file編集・
   コンテナ再作成が必要になることが運用上のボトルネックだと判明した（ユーザー指摘
@@ -6251,7 +6251,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   今後同種の本番限定事象（T105等）が起きるたびに同じ運用コストがかかり続ける。
 - **番号の振り直し（2026-08-27）**: 起票時点では「T377」として採番したが、並行セッションが
   同時期に別内容（T361残作業の起票）へ同じ「T377」を独立に使っていたため、本タスクを
-  T378へ振り直した（push前に発覚、master統合済みの相手側を優先）。
+  T379へ振り直した（push前に発覚、master統合済みの相手側を優先）。
 - **実装（2026-08-27完了）**:
   1. `require_admin_basic_auth`を`axis_admin.py`から`app/api/admin_auth.py`（新設）へ
      切り出し、両ルーターから共有する形にした。

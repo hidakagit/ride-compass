@@ -1,6 +1,6 @@
 """管理API共通の認可境界（改善計画T221 Stage D、Basic認証化はT272）。
 
-元は`axis_admin.py`にのみ定義されていたが、T378（debug_modeの管理API化）で
+元は`axis_admin.py`にのみ定義されていたが、T379（debug_modeの管理API化）で
 2つ目の管理ルーターが同じ認可を必要としたため、複製を避けてここへ切り出した。
 """
 

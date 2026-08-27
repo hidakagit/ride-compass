@@ -16,7 +16,7 @@
 - material_catalog.py: /api/material-catalog（材料カタログの読み取り専用API、改善計画T277。
   認可不要。軸スタジオの材料選択候補を、材料自体の追加はコード変更のみのまま動的取得させる）
 - debug_admin.py: /api/admin/debug（debug_modeのランタイム切替・直近ログ取得、改善計画
-  T378。axis_admin.pyと同じHTTP Basic認証が必要。本番でSSHせずに一時的なDEBUGログ
+  T379。axis_admin.pyと同じHTTP Basic認証が必要。本番でSSHせずに一時的なDEBUGログ
   取得を行うための運用API）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。

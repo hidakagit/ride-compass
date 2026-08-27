@@ -1,4 +1,4 @@
-"""debug_modeのランタイム切替・直近ログ取得の管理API（改善計画T378）。
+"""debug_modeのランタイム切替・直近ログ取得の管理API（改善計画T379）。
 
 T318の本番調査で「本番debug_modeの一時有効化に毎回SSHが必要」という運用上の
 ボトルネックが判明したことへの対応。axis_admin.pyと同じ`require_admin_basic_auth`

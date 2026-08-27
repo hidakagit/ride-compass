@@ -25,7 +25,7 @@ logging.basicConfig(
 for _handler in logging.getLogger().handlers:
     _handler.addFilter(RequestIdLogFilter())
 
-# 改善計画T378: debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
+# 改善計画T379: debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
 # 保持するハンドラをルートロガーへ追加する（api/routers/debug_admin.py経由で取得）。
 install_ring_buffer_handler()
 

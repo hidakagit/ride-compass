@@ -1,4 +1,4 @@
-"""debug_modeのランタイム切替・直近ログの保持（改善計画T378）。
+"""debug_modeのランタイム切替・直近ログの保持（改善計画T379）。
 
 `settings.debug_mode`（config.py）は元々プロセス起動時に一度だけ読まれる環境変数で、
 唯一の用途は`main.py`が`logging.basicConfig`のログレベルを決めることだけだった
