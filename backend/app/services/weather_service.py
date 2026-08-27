@@ -132,7 +132,18 @@ class WeatherService:
                 wind_gusts = current.get("wind_gusts_10m")
                 precipitation = current.get("precipitation")
                 uv_index = current.get("uv_index")
+                weather_code = current.get("weather_code")
+                is_day = current.get("is_day")
                 precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
+                # 改善計画T385: 「今日の見通し」（daily、forecast_days=2のindex0=今日）。
+                # get_conditions（この分岐）でのみ取得する（下のelse分岐＝
+                # get_conditions_manyはdailyを取得していないため常にNone）。
+                daily = data.get("daily") or {}
+                sunset = self._daily_index_value(daily, "sunset", 0)
+                precipitation_probability_max = self._daily_index_value(daily, "precipitation_probability_max", 0)
+                wind_speed_max = self._daily_index_value(daily, "wind_speed_10m_max", 0)
+                temperature_max = self._daily_index_value(daily, "temperature_2m_max", 0)
+                temperature_min = self._daily_index_value(daily, "temperature_2m_min", 0)
             else:
                 target = at.strftime("%Y-%m-%dT%H:%M")
                 if not self._within_hourly_range(hourly["time"], target):
@@ -152,6 +163,16 @@ class WeatherService:
                 wind_gusts = self._hourly_index_value(hourly, "wind_gusts_10m", index)
                 precipitation = self._hourly_index_value(hourly, "precipitation", index)
                 uv_index = self._hourly_index_value(hourly, "uv_index", index)
+                # 改善計画T385: この分岐（get_conditions_many、ルート上の各点・未来時刻）は
+                # weather_code/is_day・dailyのいずれも取得していないため常にNoneにする
+                # （天気アイコン・今日の見通しはルート評価には使わない表示専用の情報）。
+                weather_code = None
+                is_day = None
+                sunset = None
+                precipitation_probability_max = None
+                wind_speed_max = None
+                temperature_max = None
+                temperature_min = None
         except (KeyError, IndexError, TypeError):
             return None
 
@@ -166,6 +187,13 @@ class WeatherService:
             precipitation_mm=precipitation,
             uv_index=uv_index,
             observed_at=observed_at,
+            weather_code=weather_code,
+            is_day=is_day,
+            sunset=sunset,
+            precipitation_probability_max_percent=precipitation_probability_max,
+            wind_speed_max_ms=wind_speed_max,
+            temperature_max_c=temperature_max,
+            temperature_min_c=temperature_min,
         )
 
     @staticmethod
@@ -200,6 +228,15 @@ class WeatherService:
         存在しない/配列が短い場合はNoneへ倒す（新規追加パラメータのため既存キャッシュ済み
         レスポンスに含まれないケースを想定）。"""
         values = hourly.get(field)
+        if not values or index >= len(values):
+            return None
+        return values[index]
+
+    @staticmethod
+    def _daily_index_value(daily: dict, field: str, index: int):
+        """daily配列から既知のindexで値を引く（改善計画T385、_hourly_index_valueのdaily版）。
+        forecast_days=2・timezone=Asia/Tokyoのindex 0が「今日」に対応する。"""
+        values = daily.get(field)
         if not values or index >= len(values):
             return None
         return values[index]

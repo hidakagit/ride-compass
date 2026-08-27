@@ -37,6 +37,13 @@ describe("getCurrentWeather", () => {
       precipitation_mm: 0.1,
       uv_index: 3.5,
       observed_at: "2026-08-14T00:00:00Z",
+      weather_code: 1,
+      is_day: 1,
+      sunset: "2026-08-14T18:30",
+      precipitation_probability_max_percent: 40,
+      wind_speed_max_ms: 6.0,
+      temperature_max_c: 30.0,
+      temperature_min_c: 24.0,
     };
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => weather }));
     vi.stubGlobal("fetch", fetchMock);

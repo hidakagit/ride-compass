@@ -1,0 +1,90 @@
+/* トグルボタン（Popover.Trigger）。WarningBadge.module.cssの.summaryButtonと違い
+   警戒色を持たない中立な操作ボタンのため、.expandToggle系（MapOverlayControls）と同じ
+   「枠線だけの丸ボタン」に寄せる。天候ヘッダー内で天気アイコンの直後に置く想定
+   （page.tsx参照）。 */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.trigger[data-state="open"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* パネル本体（Popover.Content）。WarningBadge.module.cssの.detailPanelと同じ
+   「フローティングカード」の見た目・z-indexに揃える。 */
+.panel {
+  width: 15.5rem;
+  max-width: calc(100vw - 2 * var(--space-3));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2) var(--space-3);
+  z-index: 46;
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+  text-transform: uppercase;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-3);
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  color: var(--color-accent);
+}
+
+.item svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.62rem;
+  color: var(--color-muted);
+}
+
+.value {
+  display: block;
+  color: var(--foreground);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.unit {
+  font-weight: 400;
+  font-size: 0.75em;
+  color: var(--color-muted);
+}
+
+.sub {
+  display: block;
+  font-weight: 400;
+  font-size: 0.68rem;
+  color: var(--color-muted);
+}

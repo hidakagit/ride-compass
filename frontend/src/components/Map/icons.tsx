@@ -394,6 +394,59 @@ export function SunIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 天気アイコン（天候ヘッダ、改善計画T385）: 夜間の快晴。三日月 */
+export function MoonIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M17.4 10.6A7.4 7.4 0 1 1 9.3 2.5 5.8 5.8 0 0 0 17.4 10.6Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 天気アイコン（天候ヘッダ、改善計画T385）: くもり。丸みを帯びた雲のシルエット */
+export function CloudIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M6.3 14.6a3.3 3.3 0 0 1 .4-6.6 4.3 4.3 0 0 1 8.1-1.3 3.6 3.6 0 0 1-.4 7.9H6.3Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 天気アイコン（天候ヘッダ、改善計画T385）: 霧。視界不良を表す水平線3本 */
+export function FogIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M3 7h11M3 10.2h14M3 13.4h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 天気アイコン（天候ヘッダ、改善計画T385）: 雪。3本の直径が交差する結晶 */
+export function SnowflakeIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 3v14M4.5 6.5l11 7M15.5 6.5l-11 7"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** 全レイヤー一括OFF: 丸で囲んだバツ印（「クリア」の意味、地図上のチップ一括OFF用） */
 export function ClearAllLayersIcon({ size = 16 }: IconProps) {
   return (

@@ -3192,6 +3192,83 @@
           "observed_at": {
             "type": "string",
             "title": "Observed At"
+          },
+          "weather_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weather Code"
+          },
+          "is_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Day"
+          },
+          "sunset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sunset"
+          },
+          "precipitation_probability_max_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Probability Max Percent"
+          },
+          "wind_speed_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Speed Max Ms"
+          },
+          "temperature_max_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature Max C"
+          },
+          "temperature_min_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature Min C"
           }
         },
         "type": "object",
@@ -3205,7 +3282,14 @@
           "precipitation_probability_percent",
           "precipitation_mm",
           "uv_index",
-          "observed_at"
+          "observed_at",
+          "weather_code",
+          "is_day",
+          "sunset",
+          "precipitation_probability_max_percent",
+          "wind_speed_max_ms",
+          "temperature_max_c",
+          "temperature_min_c"
         ],
         "title": "WeatherConditions"
       },

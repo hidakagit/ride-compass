@@ -210,6 +210,13 @@ def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
         precipitation_mm=None,
         uv_index=None,
         observed_at="2026-01-01T00:00",
+        weather_code=None,
+        is_day=None,
+        sunset=None,
+        precipitation_probability_max_percent=None,
+        wind_speed_max_ms=None,
+        temperature_max_c=None,
+        temperature_min_c=None,
     )
 
 
