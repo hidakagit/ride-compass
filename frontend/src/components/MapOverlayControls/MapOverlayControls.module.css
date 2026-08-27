@@ -84,11 +84,13 @@
   gap: var(--space-2);
   width: max-content;
   max-width: 100%;
-  /* .wrapperのpointer-events: noneを継承すると、チップとチップの間の隙間（gap）が
-     タッチを拾えずページ送りボタン自体は押せてもチップが押せなくなるため、ここだけ
-     pointer-events: autoに戻す。この箱は内容量ぶんに縮めた（横幅が狭い）ため、
-     地図の2本指ピンチを誤って奪う範囲は小さい。 */
-  pointer-events: auto;
+  /* .wrapperのpointer-events: noneを継承させる。T374でドラッグスクロールをやめて
+     ▲▼ボタンによるページ送りへ変更したため、チップ間の隙間（gap）自体をタッチ可能に
+     しておく理由は無くなっている。それにもかかわらずここへpointer-events: autoが
+     残っていたため、縦一列に並んだチップの隙間（画面の縦方向に何段ぶんにもなる）が
+     まとめてタッチを奪い、地図のパン操作ができなくなっていた（不具合報告「地図上
+     スクロールができない」）。上の.wrapperのコメント（49-58行目付近）で謳っている
+     「実際に押せるボタン（.iconChip/.expandToggle）だけに局所化する」方針どおりに戻す。 */
   transition: transform 0.15s ease-out;
 }
 
