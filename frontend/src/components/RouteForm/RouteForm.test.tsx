@@ -2,22 +2,35 @@ import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import RouteForm from "./RouteForm";
+import RouteForm, { type DestinationButtonState, type RouteMode } from "./RouteForm";
 
 // RouteFormは制御コンポーネント（距離はpage.tsxが持ち、生成条件のdirty判定に使う）のため、
 // テストでは距離stateを持つ最小のラッパーで包んで実際の入力操作を再現する。
+// 改善計画T365-2: routeMode等も同様に制御propsのため、既定値loop（従来どおり距離入力を
+// 表示）でラップする。目的地モード自体の検証は専用describeブロックで行う。
 function ControlledRouteForm({
   onGenerate,
   loading,
   initialDistance = "30",
   compact = false,
+  initialRouteMode = "loop",
+  waypointCount = 0,
+  onWaypointsClear = vi.fn(),
+  destinationState = "unset",
+  onDestinationButtonClick = vi.fn(),
 }: {
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
   initialDistance?: string;
   compact?: boolean;
+  initialRouteMode?: RouteMode;
+  waypointCount?: number;
+  onWaypointsClear?: () => void;
+  destinationState?: DestinationButtonState;
+  onDestinationButtonClick?: () => void;
 }) {
   const [distance, setDistance] = useState(initialDistance);
+  const [routeMode, setRouteMode] = useState<RouteMode>(initialRouteMode);
   return (
     <RouteForm
       distance={distance}
@@ -25,6 +38,12 @@ function ControlledRouteForm({
       onGenerate={onGenerate}
       loading={loading}
       compact={compact}
+      routeMode={routeMode}
+      onRouteModeChange={setRouteMode}
+      waypointCount={waypointCount}
+      onWaypointsClear={onWaypointsClear}
+      destinationState={destinationState}
+      onDestinationButtonClick={onDestinationButtonClick}
     />
   );
 }
@@ -144,6 +163,91 @@ describe("RouteForm", () => {
       await user.click(screen.getByRole("button", { name: "生成" }));
 
       expect(onGenerate).toHaveBeenCalledWith(30);
+    });
+  });
+
+  describe("改善計画T365-2: 周回/目的地モード切り替え", () => {
+    it("目的地モードに切り替えると距離入力が消え、目的地ボタンが表示される", async () => {
+      const user = userEvent.setup();
+      render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} />);
+
+      await user.click(screen.getByRole("button", { name: "目的地" }));
+
+      expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" })).toBeInTheDocument();
+    });
+
+    it("目的地モードで経由地・目的地とも未指定のまま送信するとエラーになりonGenerateは呼ばれない", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
+      await user.click(screen.getByRole("button", { name: "目的地" }));
+
+      await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+      expect(onGenerate).not.toHaveBeenCalled();
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "地図をタップして目的地か経由地を指定してください。",
+      );
+    });
+
+    it("目的地モードでdestinationState=setなら送信でonGenerate(0)が呼ばれる（距離はpage.tsx側で自動算出）", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(
+        <ControlledRouteForm onGenerate={onGenerate} loading={false} initialRouteMode="destination" destinationState="set" />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+      expect(onGenerate).toHaveBeenCalledWith(0);
+    });
+
+    it("目的地モードで経由地が1件以上あれば目的地未設定でも送信できる", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(
+        <ControlledRouteForm onGenerate={onGenerate} loading={false} initialRouteMode="destination" waypointCount={1} />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+      expect(onGenerate).toHaveBeenCalledWith(0);
+    });
+
+    it("経由地クリアボタンでonWaypointsClearが呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onWaypointsClear = vi.fn();
+      render(
+        <ControlledRouteForm
+          onGenerate={vi.fn()}
+          loading={false}
+          initialRouteMode="destination"
+          waypointCount={2}
+          onWaypointsClear={onWaypointsClear}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "経由地をクリア" }));
+
+      expect(onWaypointsClear).toHaveBeenCalledTimes(1);
+    });
+
+    it("目的地ボタン押下でonDestinationButtonClickが呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onDestinationButtonClick = vi.fn();
+      render(
+        <ControlledRouteForm
+          onGenerate={vi.fn()}
+          loading={false}
+          initialRouteMode="destination"
+          onDestinationButtonClick={onDestinationButtonClick}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" }));
+
+      expect(onDestinationButtonClick).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -22,3 +22,90 @@
   font-size: 0.75rem;
   white-space: nowrap;
 }
+
+/* 改善計画T365-2: 周回/目的地モード切り替え（セグメントコントロール）。距離・生成ボタンと
+   同じ行に収まるよう小さめにする。 */
+.modeToggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.modeButton,
+.modeButtonActive {
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modeButtonActive {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* 目的地モードの経由地件数チップ・目的地ボタン。距離入力の代わりにこの行へ収まる。 */
+.destinationSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.summaryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  background: var(--color-surface-2);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+}
+
+.summaryChip button {
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.destinationChip,
+.destinationChipArmed,
+.destinationChipSet {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.3rem 0.5rem;
+}
+
+.destinationChipArmed {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  animation: destinationPulse 1.2s ease-in-out infinite;
+}
+
+.destinationChipSet {
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
+  border-color: var(--color-accent);
+}
+
+@keyframes destinationPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

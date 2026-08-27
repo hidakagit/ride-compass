@@ -1673,6 +1673,10 @@ interface MapViewProps {
   onDestinationSet: (coordinates: Coordinates) => void;
   /** 目的地マーカークリックで呼ばれる（解除）。 */
   onDestinationClear: () => void;
+  /** 改善計画T365-2: 周回/目的地モードの切り替え（page.tsx: routeMode）。falseの間は
+   * 空白地点クリックでの経由地追加を行わない（従来どおり地物ヒット時のみ詳細ポップアップを
+   * 表示する、周回モード中は地図上に経由地・目的地ピンを持たせない設計のため）。 */
+  pinPlacementEnabled: boolean;
 }
 
 export default function MapView({
@@ -1710,6 +1714,7 @@ export default function MapView({
   destinationArmed,
   onDestinationSet,
   onDestinationClear,
+  pinPlacementEnabled,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -1761,6 +1766,8 @@ export default function MapView({
   const onDestinationSetRef = useRef(onDestinationSet);
   const onDestinationClearRef = useRef(onDestinationClear);
   const destinationArmedRef = useRef(destinationArmed);
+  // 改善計画T365-2: 周回モード中は空白地点クリックでの経由地追加を行わない。
+  const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
   const redrawPropsRef = useRef({
     routes,
     selectedRouteId,
@@ -1822,6 +1829,10 @@ export default function MapView({
   useEffect(() => {
     destinationArmedRef.current = destinationArmed;
   }, [destinationArmed]);
+
+  useEffect(() => {
+    pinPlacementEnabledRef.current = pinPlacementEnabled;
+  }, [pinPlacementEnabled]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -2093,7 +2104,10 @@ export default function MapView({
     // 従来どおり詳細ポップアップのみを表示する（経由地追加ボタンは付けない、
     // この使い分け自体はT364着手時のユーザー指示のまま維持）。改善計画T365:
     // 「目的地を設定」ボタンで武装した直後の1タップだけは、地物ヒット判定を
-    // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。
+    // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。改善計画
+    // T365-2: 周回モード中（pinPlacementEnabled=false）は空白地点クリックでの経由地追加を
+    // 行わず、従来どおり地物ヒット時のみ詳細ポップアップを表示する（周回モードは距離指定の
+    // 8方位探索のみを扱い、地図上に経由地・目的地ピンを持たせない設計）。
     function handleClick(e: MapMouseEvent) {
       if (destinationArmedRef.current) {
         onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
@@ -2101,12 +2115,16 @@ export default function MapView({
       }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
-        onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        if (pinPlacementEnabledRef.current) {
+          onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        }
         return;
       }
       const features = map.queryRenderedFeatures(e.point, { layers });
       if (features.length === 0) {
-        onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        if (pinPlacementEnabledRef.current) {
+          onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+        }
         return;
       }
 

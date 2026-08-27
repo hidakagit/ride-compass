@@ -51,7 +51,7 @@ import LayerChip from "@/components/Map/LayerChip";
 // 複製しない）。
 import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
-import RouteForm from "@/components/RouteForm/RouteForm";
+import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteList from "@/components/RouteList/RouteList";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
@@ -114,6 +114,24 @@ import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } fro
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
+
+// backend/app/api/routers/routes.pyのRouteGenerateRequest.distance_km（Field(gt=0, le=100)）と
+// 一致させる（目的地モードの自動算出値もこの上限でクランプする、handleGenerate参照）。
+const MAX_DISTANCE_KM = 100;
+
+// 改善計画T365-2: 目的地モードでは距離をユーザーに入力させず、地図上の経由地・目的地から
+// 自動算出する（backend/app/domain/geo.py: haversine_distance_kmと同じ球面距離の簡易実装。
+// フロントは既存の距離計算ユーティリティを持たないためここに最小実装する）。
+function haversineKm(a: Coordinates, b: Coordinates): number {
+  const EARTH_RADIUS_KM = 6371;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
+}
 
 // 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
 // （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
@@ -263,12 +281,38 @@ export default function Home() {
   // までの間だけtrueになり、地図クリックが目的地配置として扱われる（MapView.tsx参照）。
   const [destination, setDestination] = useState<Coordinates | null>(null);
   const [destinationArmed, setDestinationArmed] = useState(false);
-  const handleDestinationArm = useCallback(() => setDestinationArmed(true), []);
+
+  // 改善計画T365-2: 周回（距離指定、従来の8方位探索）/目的地（地図タップで経由地・目的地を
+  // 指定）モードの切り替え。実機フィードバック「経由地・目的地の操作パネルが地図上で邪魔」を
+  // 受け、地図上の浮動パネルを廃止しRouteForm（距離入力・生成ボタンと同じ場所）へ統合した。
+  // モード切り替え自体は経由地・目的地の値を消さない（周回モードへ切り替えても地図上のピンは
+  // 保持し、目的地モードへ戻れば復元される。地図への表示・追加受付だけがモードで変わる、
+  // handleGenerate/MapView.tsxのpinPlacementEnabled参照）。
+  const [routeMode, setRouteMode] = useState<RouteMode>("loop");
+  const handleRouteModeChange = useCallback((mode: RouteMode) => {
+    setRouteMode(mode);
+    // 武装中に周回モードへ切り替えた場合、目的地モードへ戻るまで武装状態を持ち越さない。
+    setDestinationArmed(false);
+  }, []);
+
   const handleDestinationSet = useCallback((point: Coordinates) => {
     setDestination(point);
     setDestinationArmed(false);
   }, []);
   const handleDestinationClear = useCallback(() => setDestination(null), []);
+  // ボタン1個で「未設定→武装→設定済み→解除」を一巡させる（実機フィードバック「アイコンだけに
+  // して」を受け、武装中に同じボタンを押すとキャンセルできるようにした、以前はキャンセル手段が
+  // 無かった）。
+  const handleDestinationButtonClick = useCallback(() => {
+    if (destinationArmed) {
+      setDestinationArmed(false);
+    } else if (destination) {
+      setDestination(null);
+    } else {
+      setDestinationArmed(true);
+    }
+  }, [destinationArmed, destination]);
+  const destinationState: DestinationButtonState = destinationArmed ? "armed" : destination ? "set" : "unset";
 
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
@@ -281,6 +325,10 @@ export default function Home() {
     longitude: number;
     distanceKm: number;
     weightsKey: string;
+    // 改善計画T365-2: 目的地モードで生成した場合はdistanceKmが地図上のピンからの
+    // 自動算出値になり、distanceInput（RouteFormが表示しない値）とは無関係になるため、
+    // conditionsDirtyの距離比較はloopモードで生成したときだけ行う。
+    routeMode: RouteMode;
   } | null>(null);
 
   // 改善計画T365: 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。
@@ -1258,7 +1306,8 @@ export default function Home() {
     routes.length > 0 &&
     (location.latitude !== generatedConditions.latitude ||
       location.longitude !== generatedConditions.longitude ||
-      Number(distanceInput) !== generatedConditions.distanceKm ||
+      routeMode !== generatedConditions.routeMode ||
+      (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
       currentWeightsKey !== generatedConditions.weightsKey);
 
   async function handleGenerate(distanceKm: number) {
@@ -1276,10 +1325,23 @@ export default function Home() {
       const syncedRoutePreference = axisCatalog.loaded
         ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
         : null;
+      // 改善計画T365-2: 周回モードでは経由地・目的地の値が残っていても送らない
+      // （モード切り替え自体は値を消さないため、地図上にピンが残っていても周回モード中は
+      // 無視する。地図表示もrouteMode==="destination"のときだけ、page.tsx→MapView.tsx参照）。
+      // 目的地モードでは距離をRouteForm（distanceKm=0固定）から受け取らず、地図上の
+      // 経由地・目的地から自動算出する。distance_kmはbackendのbbox見積り半径のほか、
+      // 「起点から近すぎる=distance_km未満」バリデーション（routes.py:
+      // _check_waypoints_within_range）の基準にもなるため、実際に指定した点の最遠距離を
+      // 必ず上回る値にする（+1kmの余裕、MAX_DISTANCE_KMで頭打ち）。
+      const destinationModePoints = routeMode === "destination" ? [...waypoints, ...(destination ? [destination] : [])] : [];
+      const effectiveDistanceKm =
+        routeMode === "destination"
+          ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
+          : distanceKm;
       const { routes: candidates, conditions, engine } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
-        distance_km: distanceKm,
+        distance_km: effectiveDistanceKm,
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
         penalty_strength: 1.0,
@@ -1289,12 +1351,10 @@ export default function Home() {
         hard_filters: hardFilters,
         ...(weightOverrideEnabled ? { scoring_weights: scoringWeights } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
-        // 改善計画T364: 経由地が1件以上あれば8方位探索ではなく単一経路生成へ切り替える
+        // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
         // （backend側の分岐はapi/routers/routes.py参照）。
-        ...(waypoints.length > 0 ? { waypoints } : {}),
-        // 改善計画T365: 目的地指定時は起点に戻らず目的地で終わる片道ルートになる
-        // （destinationだけでもwaypointsが空でも単一経路生成へ切り替わる、routes.py参照）。
-        ...(destination ? { destination } : {}),
+        ...(routeMode === "destination" && waypoints.length > 0 ? { waypoints } : {}),
+        ...(routeMode === "destination" && destination ? { destination } : {}),
       });
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
@@ -1303,8 +1363,9 @@ export default function Home() {
       setGeneratedConditions({
         latitude: location.latitude,
         longitude: location.longitude,
-        distanceKm,
+        distanceKm: effectiveDistanceKm,
         weightsKey: currentWeightsKey,
+        routeMode,
       });
       if (candidates.length === 0) {
         setErrorMessage("条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
@@ -1357,6 +1418,12 @@ export default function Home() {
           onDistanceChange={setDistanceInput}
           onGenerate={handleGenerate}
           loading={loading}
+          routeMode={routeMode}
+          onRouteModeChange={handleRouteModeChange}
+          waypointCount={waypoints.length}
+          onWaypointsClear={handleWaypointsClear}
+          destinationState={destinationState}
+          onDestinationButtonClick={handleDestinationButtonClick}
         />
         {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
         {renderRouteSettingsSectionBody()}
@@ -1581,6 +1648,12 @@ export default function Home() {
             onGenerate={handleGenerate}
             loading={loading}
             compact
+            routeMode={routeMode}
+            onRouteModeChange={handleRouteModeChange}
+            waypointCount={waypoints.length}
+            onWaypointsClear={handleWaypointsClear}
+            destinationState={destinationState}
+            onDestinationButtonClick={handleDestinationButtonClick}
           />
           {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
         </div>
@@ -1673,41 +1746,20 @@ export default function Home() {
             experimentSlots={researchEnabled ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
-            waypoints={waypoints}
+            // 改善計画T365-2: 周回モード中は地図上のピンを表示・追加受付しない
+            // （モード切り替え自体はwaypoints/destination state自体を消さないため、
+            // 目的地モードへ戻れば復元される）。
+            waypoints={routeMode === "destination" ? waypoints : []}
             onWaypointAdd={handleWaypointAdd}
             onWaypointRemove={handleWaypointRemove}
-            destination={destination}
-            destinationArmed={destinationArmed}
+            destination={routeMode === "destination" ? destination : null}
+            destinationArmed={routeMode === "destination" && destinationArmed}
             onDestinationSet={handleDestinationSet}
             onDestinationClear={handleDestinationClear}
+            pinPlacementEnabled={routeMode === "destination"}
           />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />
-
-          <div className={styles.waypointControl}>
-            {waypoints.length > 0 && (
-              <span>
-                経由地: {waypoints.length}件
-                <button type="button" onClick={handleWaypointsClear}>
-                  クリア
-                </button>
-              </span>
-            )}
-            {destinationArmed ? (
-              <span>地図をタップして目的地を指定</span>
-            ) : destination ? (
-              <span>
-                🏁目的地: 設定済み
-                <button type="button" onClick={handleDestinationClear}>
-                  解除
-                </button>
-              </span>
-            ) : (
-              <button type="button" onClick={handleDestinationArm}>
-                🏁目的地を設定
-              </button>
-            )}
-          </div>
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+
