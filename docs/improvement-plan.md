@@ -6122,6 +6122,82 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   ローカル再現不可という調査結果は再利用可能、やり直し不要）。
 - 依存: T309/T317のデプロイ後に発見（原因ではないと判断済みだが、時系列として直後の
   実機確認で発覚）。
+- **手順書（2026-08-27作成）**: このリモート実行環境からは本番Oracle Cloud VM
+  （`.github/workflows/deploy-backend.yml`が参照する`ORACLE_VM_HOST`/`ORACLE_VM_SSH_KEY`）
+  へのSSH到達手段・認証情報が無いため、ユーザー自身またはSSH権限を持つ別セッションが
+  実行できるよう、上記「次の一歩(1)」の具体的な実行手順をここへ書き出す。DEBUG_MODEは
+  起動時に一度だけ読まれる設定（`backend/app/config.py: Settings.debug_mode`）のため、
+  有効化にはコンテナの再作成が要る（コード変更は無いため`docker build`は不要、既存イメージ
+  `ridecompass-backend:latest`をそのまま使う）。作業中（手順4〜9）はコンテナ再作成2回分の
+  数秒間のダウンタイムと、その間の全トラフィックのDEBUGログ増量が発生するため、
+  可能なら低トラフィック帯に実施すること。
+
+  ```bash
+  # 1. SSH接続
+  ssh ubuntu@$ORACLE_VM_HOST
+
+  # 2. 復元用に現在の設定を控える
+  sudo docker inspect ridecompass-backend --format '{{range .Config.Env}}{{println .}}{{end}}' | grep GIT_COMMIT
+  # → 出力された GIT_COMMIT=xxxxxxx を控える
+  grep '^DEBUG_MODE=' /home/ubuntu/ridecompass-backend.env || echo "DEBUG_MODE未設定（既定false）"
+
+  # 3. env fileをバックアップ
+  sudo cp /home/ubuntu/ridecompass-backend.env /home/ubuntu/ridecompass-backend.env.bak-t318
+
+  # 4. DEBUG_MODEを有効化
+  sudo sed -i '/^DEBUG_MODE=/d' /home/ubuntu/ridecompass-backend.env
+  echo "DEBUG_MODE=true" | sudo tee -a /home/ubuntu/ridecompass-backend.env
+
+  # 5. コンテナを再作成（deploy-backend.ymlのdocker run部分と同一コマンド、GIT_COMMITは手順2の値に置き換える）
+  sudo docker stop -t 90 ridecompass-backend
+  sudo docker rm ridecompass-backend
+  sudo docker run -d \
+    --name ridecompass-backend \
+    --restart unless-stopped \
+    --memory=6g --memory-swap=6g \
+    --network=host \
+    --log-opt max-size=10m --log-opt max-file=5 \
+    --env-file /home/ubuntu/ridecompass-backend.env \
+    -e GIT_COMMIT="<手順2で控えた値>" \
+    ridecompass-backend:latest
+
+  # 6. 起動確認（起動時ログにdebug_mode=Trueが出ることを確認）
+  sudo docker logs ridecompass-backend --tail 20
+  curl -s http://localhost:8000/health
+
+  # 7. 事象を再現する（本番実機確認と同じ起点。distance_km=30が「候補0件」、
+  #    比較用にdistance_km=20がヒットすることを確認）
+  curl -s -X POST http://localhost:8000/api/routes/generate \
+    -H "Content-Type: application/json" \
+    -d '{"latitude": 35.7507, "longitude": 139.7419, "distance_km": 30, "distance_tolerance_km": 5}'
+  curl -s -X POST http://localhost:8000/api/routes/generate \
+    -H "Content-Type: application/json" \
+    -d '{"latitude": 35.7507, "longitude": 139.7419, "distance_km": 20, "distance_tolerance_km": 5}'
+
+  # 8. DEBUGログを取得（上記「次の一歩(1)」の本体、route_generator.py:159-160に実装済み）
+  sudo docker logs ridecompass-backend 2>&1 | grep "distance filter rejected" | tail -20
+  # 参考: 経路探索の所要時間（prepare_ms=41017の再現有無、副次観測節参照）
+  sudo docker logs ridecompass-backend 2>&1 | grep -E "generate engine=|prepare_ms" | tail -10
+
+  # 9.【重要】DEBUG_MODEを必ず元に戻す
+  sudo cp /home/ubuntu/ridecompass-backend.env.bak-t318 /home/ubuntu/ridecompass-backend.env
+  sudo docker stop -t 90 ridecompass-backend
+  sudo docker rm ridecompass-backend
+  sudo docker run -d \
+    --name ridecompass-backend \
+    --restart unless-stopped \
+    --memory=6g --memory-swap=6g \
+    --network=host \
+    --log-opt max-size=10m --log-opt max-file=5 \
+    --env-file /home/ubuntu/ridecompass-backend.env \
+    -e GIT_COMMIT="<手順2で控えた値>" \
+    ridecompass-backend:latest
+  curl -s http://localhost:8000/health
+  sudo rm /home/ubuntu/ridecompass-backend.env.bak-t318
+  ```
+
+  取得したログ（手順8の出力）を次のセッションへ貼り付ければ、「次の一歩(1)」の分析
+  （20km時と25km/30km時の方位別traced距離の分布比較）にそのまま進める。
 
 ### - [x] T319. 全軸を軸スタジオで非公開にしても、ルート設定パネルに既存7軸が残り続ける不具合を修正 規模S（実装完了）
 
