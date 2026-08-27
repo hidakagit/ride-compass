@@ -3997,7 +3997,7 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   `.env.example`のプロファイル表も追従する。
 - 完了条件: 変更の実施＋.env.example追従＋architecture.md該当箇所の更新。
 
-### - [ ] T284. page.tsx閾値発火前の分割方針の事前確認〔P3〕規模S（判断のみ）— トリガー: 次のUI機能（page.tsxへ追記が見込まれるもの）の着手前
+### - [x] T284. page.tsx閾値発火前の分割方針の事前確認〔P3〕規模S（判断のみ、2026-08-27完了・閾値到達済みと判明）
 
 - 背景: 規模ウォッチ実測（2026-08-24）: page.tsx **1,773行**（閾値1,900、残127行）・
   state **36件**（useState 28＋useStoredState 5＋useStoredJsonState 3、閾値40）。
@@ -4007,6 +4007,70 @@ Phaseほど前Phaseの成果を安全網として使える）。**
   useReducer化 or レシピ軸単位のカスタムフック化、複雑度レビュー2026-08-18 F-3の候補）を
   選んでおき、次のUI機能実装と同時または直前に実施するかを判断する。
 - 完了条件: 方針の決定記録（実施自体は閾値到達時でよい）。
+- **再実測（2026-08-27）**: page.tsx **1,925行**（閾値1,900を**既に超過**）・状態
+  **40件**（useState 32＋useStoredState 5＋useStoredJsonState 3、閾値40へ**到達**）。
+  T374までのMapOverlayControls関連コミットが積み重なる間に、判断を待たず閾値そのものに
+  達していた。
+- **40件の実際の内訳（実測・カテゴリ分け）**:
+  1. 気象・動的レイヤー系 **13件**: `weather`/`weatherLoading`/`weatherError`・
+     `weatherWarnings`（T205）・`wbgtStatus`（T174）・`floodForecasts`（T212）・
+     `dynamicLayerTargetTime`（T183）・`nowcastFrames`/`nowcastLoading`/`nowcastError`
+     （T170/T171）・`thunderNowcastFrames`/`thunderNowcastLoading`/`thunderNowcastError`
+     （T204）
+  2. ルート生成コア **10件**: `routes`/`selectedRouteId`/`loading`/`errorMessage`/
+     `waypoints`/`destination`/`destinationArmed`/`routeMode`/`distanceInput`/
+     `generatedConditions`
+  3. 地図・レイヤー表示系 **7件**: `mapViewport`/`layerVisibility`/`routeStyleModeId`/
+     `hiddenLegendKeysByMode`/`regionZoomTooWide`/`layerDataStatus`/`refreshToken`
+  4. レシピ/研究モード系 **5件**: `weightOverrideEnabled`/`scoringWeights`/
+     `routePreference`/`hardFilters`/`experimentSlots`
+  5. UIパネル制御系 **5件**: `generateOpen`/`sidebarCollapsed`/`mobileSheet`/
+     `mobileSheetHeightVh`/`debugConsoleOpen`
+- **決定**: 2026-08-18時点のF-3仮説（「レイヤー可視性系のuseReducer化」または
+  「レシピ軸単位のカスタムフック化」）は、気象・動的レイヤー機能（T170〜T178・
+  T204〜T217）が実装される**前**に立てられたものだった。実測すると気象・動的レイヤー系が
+  最大クラスタ（13件、全体の32.5%）に成長しており、当初の2候補より優先度が高いと
+  判断する。この群は他カテゴリ（ルート生成コア・地図レイヤー・レシピ）との結合が薄く
+  （地点/ビューポート変更を起点にfetchし、結果を対応するレイヤー/バッジUIへ渡すだけ）、
+  「値・loading・error」3点セットのパターンが4回（weather本体・nowcast・
+  thunderNowcast、warnings/wbgt/floodは3点のうちerror省略の亜種）繰り返されており
+  抽出効果が最も高い。加えて`useWeatherGrid.ts`（風・延長降水予報T183向け、既存）が
+  既にこの方向の前例として存在し、同じ設計をnowcast/thunderNowcast/weather本体へ
+  拡張する形で自然に合流できる。**分割方針を「気象・動的レイヤー系のカスタムフック化
+  （`useWeatherGrid`と同系統）」に更新し、レイヤー可視性のuseReducer化は当面見送る**
+  （地図・レイヤー表示系7件は気象系ほど密集しておらず、抽出効果が相対的に低いため）。
+- **実施タイミングの判断**: 完了条件は「実施自体は閾値到達時でよい」としていたが、
+  上記のとおり両閾値（行数・state数）とも既に到達済みのため、次のUI機能着手を待たず
+  実施すべきと判断する。ただし本タスク自体は「判断のみ」の規模Sスコープであり、実際の
+  抽出作業（気象・動的レイヤー系13件の切り出し、影響する`useEffect`・fetch処理・
+  MapView.tsx/DynamicLayerTimeSlider等の呼び出し側の追従を含む）は規模M相当の別作業
+  のため、T375として別途起票し実施する（コミット時の同期ルール:
+  規模M以上は着手前にタスクエントリを先に作成）。
+
+### - [ ] T375. page.tsxの気象・動的レイヤー系state（13件）をカスタムフックへ抽出 規模M — トリガー: ユーザーの実装着手指示
+
+- 背景: T284の分割方針決定（本ファイル該当節参照）。page.tsxが規模ウォッチ閾値
+  （1,900行・状態40件）へ到達したため、最も抽出効果が高いと判断した気象・動的レイヤー系
+  state 13件（`weather`/`weatherLoading`/`weatherError`・`weatherWarnings`・
+  `wbgtStatus`・`floodForecasts`・`dynamicLayerTargetTime`・`nowcastFrames`/
+  `nowcastLoading`/`nowcastError`・`thunderNowcastFrames`/`thunderNowcastLoading`/
+  `thunderNowcastError`）を切り出す。
+- 対応方針: 既存の`hooks/useWeatherGrid.ts`（風・延長降水予報T183向け、地点/ビューポート
+  変更を起点にfetchしvalue/loading相当を返す既存パターン）と同系統の設計に揃える。
+  「値・loading・error」3点セット×2（weather本体・nowcast・thunderNowcast、warnings/
+  wbgt/floodはerror省略の亜種）の重複したfetch effectパターンを共通化できるかも
+  合わせて検討する（無理に1本の巨大フックへ統合せず、既存の関心の分かれ方
+  ―天候本体/警報系/ナウキャスト系―を保つのが望ましいか、着手時に判断）。
+  `dynamicLayerTargetTime`は降水・雷・竜巻ナウキャストが共有するタイムライン上の1点
+  （`dynamicWeather.ts: mergeFrameTimes`参照）のため、どのフックに属させるか
+  （ナウキャスト側 or 独立）も着手時に判断する。
+- 完了条件: 対象13件がpage.tsx本体から消え、抽出先フック（群）から返る値をpage.tsxが
+  そのまま使う形に置き換わっていること。MapView.tsx・DynamicLayerTimeSlider等の
+  呼び出し側に影響が及ぶ場合はその追従も含める。フロントtsc/eslint/vitestに加え、
+  Playwrightで気象バッジ・降水/雷/竜巻ナウキャストレイヤーの表示が抽出前と同じ挙動を
+  保っていることを実機確認する。抽出後のpage.tsx行数・state数を計測し、規模ウォッチの
+  数値を本ファイルへ記録し直す。
+- 依存: T284（分割方針の決定）。
 
 ### - [x] T285. 表示系レジストリの縮退 — 軸カタログのランタイム一本化〔P3〕規模M〜L（調査の結果、目的は既に別実装で達成済みと判明・2026-08-27完了）
 
