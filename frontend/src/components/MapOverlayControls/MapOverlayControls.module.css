@@ -76,6 +76,14 @@
      （マウスホイール・タッチスワイプ・キーボード操作でのスクロールは引き続き機能する）。 */
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* 旧Edge/IE */
+  /* ユーザー報告（2026-08-27）「縦横スクロール自体できない」への対応。この箱は地図
+     （MapLibre GL、キャンバス自体はtouch-action: noneでジェスチャーを自前処理する）の
+     上に重なるオーバーレイのため、touch-actionを明示しないと、タッチ開始点がここでも
+     ブラウザがどちらの要素（このオーバーレイの縦スクロール／下の地図のパン・ズーム）へ
+     ジェスチャーを渡すべきか曖昧になりうる。pan-yを明示し「縦方向のみこの要素自身が
+     処理する」とブラウザへ伝える（横方向の2本指ピンチ等は地図へ素通しされたまま）。 */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chipRow::-webkit-scrollbar {
@@ -570,6 +578,13 @@
      出る等は避けたい」）でスクロールバーの描画だけ消す。 */
   scrollbar-width: none;
   -ms-overflow-style: none;
+  /* .chipRowと同じ理由（ユーザー報告「縦横スクロール自体できない」）。この行はaxis:*の
+     タイル（ChipButton、.iconChip/.expandToggleにも個別のpointer-events: autoがある）を
+     横一列に並べたもので、タイルとタイルの間の隙間・行自体の余白は.wrapperから継承した
+     pointer-events: noneのままの可能性があるため、横方向のタッチジェスチャーをこの行
+     自身が処理するとブラウザへ明示する。 */
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
 }
 
 .estimatedFlatRow::-webkit-scrollbar {

@@ -8854,6 +8854,27 @@ T332であり、直後に続くテスト品質監査のT328〜T331とは無関�
 
 ---
 
+### - [x] T371. chipRow/estimatedFlatRowへtouch-actionを明示しスクロール不能を修正 規模S（2026-08-27完了）
+
+- 背景: T370直後、ユーザー報告「縦横スクロール自体できない。スクロールバーは不要だけど、
+  スクロール自体はできてほしい。技術的に可能？」（2026-08-27）。
+- 対応: `.chipRow`（縦スクロール）に`touch-action: pan-y`、`.estimatedFlatRow`
+  （横スクロール）に`touch-action: pan-x`を明示（あわせて`-webkit-overflow-scrolling:
+  touch`も追加）。両要素は地図（MapLibre GL、キャンバス自体は`touch-action: none`で
+  ジェスチャーを自前処理する）の上に重なるオーバーレイのため、`touch-action`未指定
+  （既定`auto`）のままだと、タッチ開始点でブラウザがこのオーバーレイのスクロールと
+  下の地図のパン/ズームのどちらへジェスチャーを渡すべきか曖昧になりうる。
+  `pointer-events`（`.chipRow`で`auto`、`.estimatedFlatRow`は継承で`auto`）は
+  実機（ブラウザのcomputed style）で確認済みのため問題なく、touch-action側が欠けて
+  いたと判断した。
+- 検証の限界: このセッションの実行環境ではBrowserペインが実際には表示されておらず
+  （画面キャプチャ不可）、実タッチ/マウスドラッグでのスクロール自体は再現・確認
+  できていない。`getComputedStyle`でtouch-action/pointer-eventsが意図どおり
+  （pan-y/pan-x・auto）に適用されていることと、tsc/eslint/既存テスト（frontend全体
+  697件）が引き続き成功することは確認済み。実機での最終確認をユーザーへ依頼する。
+
+---
+
 第17版以降、**T263残作業（Render backendの停止）が完了した**。並行稼働期間は当初想定の
 1日間より短い約1時間強だったが、ユーザー判断により前倒しで停止を実施。その過程で、
 Render固有の自動注入環境変数`RENDER_GIT_COMMIT`に依存していたデプロイ確認機構
