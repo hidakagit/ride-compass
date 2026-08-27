@@ -1113,25 +1113,52 @@ axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの
 PostGISテーブル`axis_definitions`（+版数管理用`axis_registry_meta`、
 `migrations/0014_axis_definitions.sql`）を実データソースとする形へ昇格した。
 **改善計画T350で`domain/axis_definitions.py`のPython辞書リテラル自体も撤去し、
-DBが14軸全ての唯一の正本になった**（下記参照）。同モジュールに残るのは型定義
+DBが軸全ての唯一の正本になった**（軸数は変遷している。現在値は`GET /api/axis-catalog`
+またはDBそのものを一次情報とすること、下記参照）。同モジュールに残るのは型定義
 （`AxisDefinition`等のPydanticモデル）と評価用の純粋関数（`evaluate_axis_scalar`等）
 のみで、実データは一切持たない。
 
-**組み込み軸の追加・変更は手書きのmigration SQLで行う（改善計画T350）**:
-T348で導入した`backend/scripts/generate_axis_migration_sql.py`（Python側の
-`AXIS_DEFINITIONS`を著述元にSQLを機械生成する）は、著述元のPython literal自体が
-無くなったため撤去した。以降、軸の追加・変更は他のスキーマ変更と同じ標準の運用
-（`migrations/`配下へ手書きの番号付きSQLファイルを追加）に合流する——構造化JSON
-表現（`shape_params`）の手書きに対しては、`AxisShape`のPydanticバリデーションと
-下記のブートストラップ構造検証が引き続き効く。`tests/test_migrate.py::
-test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds`は、まっさらなDBへ
-全migrationを適用した結果について「軸数が14件であること」「全軸の材料/軸参照が
-既知であること（未知参照が無いこと）」という**構造検証のみ**を行う回帰テストとして
-機能する（postgis統合テストのためDB接続が要る、`pytest -m "not postgis"`実行時は
-スキップされる）。DB値が特定の数値であることを検証するテスト（例:
-`weights["gradient"] == 0.15`）は意図的に持たない——可変であることを前提にDBへ
-置いているデータを固定検証すると、正当なチューニングのたびに無意味な失敗を生むだけで
-実際のバグを検知しないため。
+**軸の行データ（追加・削除・shape_params調整すべて）はaxis_admin API経由でのみ行う
+（改善計画T361、T350から方針変更）**: T350時点では「新規追加・削除はmigration、
+shape_params調整のみAPI」という使い分けだったが、T353がAPI直接操作で軸を変更した
+結果、fresh bootstrap（まっさらなDBへ全migration適用）が再現する内容と実際のDB
+（本番/dev）の内容が乖離する不整合が発生した（T360）。「軸定義の変更経路がmigrationと
+APIの2つ存在する限り、両者の同期漏れは構造的に再発し続ける」という根本原因に対応し、
+`backend/migrations/`は`axis_definitions`/`axis_registry_meta`の**テーブル構造（DDL）
+のみ**を管理する運用へ変更した（0014〜0022の過去の行データ入りmigrationは、この
+プロジェクトの標準運用どおり書き換えず、以降の新規migrationへ軸の行データを追加する
+こともしない）。T348で導入した`backend/scripts/generate_axis_migration_sql.py`は
+T350時点で既に撤去済み。
+
+fresh bootstrap（CI・新規開発環境・disaster recovery）の実データは、
+`backend/fixtures/axis_definitions_snapshot.json`（現在の実DBの内容を
+`backend/scripts/dump_axis_definitions_snapshot.py`でダンプしたスナップショット）から
+用意する。`backend/scripts/bootstrap_fresh_db.py`（新規環境用、`create_tables()`→
+`apply_pending_migrations()`→スナップショット読み込みの一連を実行する）・
+`backend/scripts/bootstrap_ci_db.py`（CI用）が、`app/infrastructure/
+axis_definitions_snapshot.py: load_axis_definitions_snapshot`でテーブルを丸ごと
+スナップショットの内容へ置き換える。この関数は**無条件に**テーブルを空にしてから
+投入するため、fresh bootstrap専用ツールからのみ呼ぶ——通常のアプリ起動経路
+（`main.py`のlifespan・`refresh_axis_definitions`）や、稼働中のDBへ繰り返し実行される
+`app/batch/import_pbf.py`等からは呼ばない（誤って本番の生きた軸データを
+スナップショットの内容で上書きする事故を防ぐため）。`refresh_axis_definitions`の
+「テーブルが空なら`AxisDefinitionSyncError`で起動自体を失敗させる」というfail-fast方針
+（T349/T350）はこの変更後も維持する——fresh bootstrapツールを踏まずにアプリを
+起動しようとした場合、自動修復せず起動が落ちるのが正しい挙動という判断を引き続き
+踏襲する。スナップショットの更新は手動運用（本番/devでAPI経由の軸変更を行った後、
+`dump_axis_definitions_snapshot.py`を都度手動実行してリフレッシュしコミットする。
+低頻度な操作のためデプロイパイプラインへの自動組み込みはしない）。
+
+構造化JSON表現（`shape_params`）の手書き（軸スタジオのフォーム経由）に対しては、
+`AxisShape`のPydanticバリデーションと下記のブートストラップ構造検証が引き続き効く。
+`tests/test_migrate.py::test_bootstrap_from_empty_db_create_tables_then_migrate_succeeds`
+は、まっさらなDBへ全migration適用→スナップショット読み込みまでの一連の流れについて
+「軸数がスナップショットの件数と一致すること」「全軸の材料/軸参照が既知であること
+（未知参照が無いこと）」という**構造検証のみ**を行う回帰テストとして機能する
+（postgis統合テストのためDB接続が要る、`pytest -m "not postgis"`実行時はスキップ
+される）。DB値が特定の数値であることを検証するテスト（例: `weights["gradient"] ==
+0.15`）は意図的に持たない——可変であることを前提にDBへ置いているデータを固定検証
+すると、正当なチューニングのたびに無意味な失敗を生むだけで実際のバグを検知しないため。
 
 評価ホットパス（`evaluation.py`/`difficulty.py`等）は従来どおり`AXIS_DEFINITIONS`を
 同期的なモジュールレベル辞書として読む——この既存の読み出し方法は一切変えていない。

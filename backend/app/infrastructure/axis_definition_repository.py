@@ -23,7 +23,7 @@ display_override（改善計画T310、地図ramp表示の手書き上書き）�
 from datetime import datetime, timezone
 
 from pydantic import TypeAdapter
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -143,8 +143,30 @@ class AxisDefinitionRepository:
             await self._bump_revision()
         return deleted
 
+    async def count(self) -> int:
+        """行数のみ（改善計画T361: fresh bootstrap用スナップショット読み込み前の状態確認に使う。
+        `infrastructure/axis_definitions_snapshot.py`参照）。"""
+        return await self._session.scalar(select(func.count()).select_from(AxisDefinitionRow)) or 0
+
+    async def delete_all(self) -> int:
+        """全行を削除する（改善計画T361: fresh bootstrap専用のスナップショット読み込みが、
+        投入前にテーブルを丸ごと空にするために使う。`upsert`/`delete`と違い個別revisionの
+        +1は行わない——呼び出し側[`load_axis_definitions_snapshot`]がこの後の一括投入の
+        締めくくりでスナップショット由来のrevisionへ直接セットするため、ここでの
+        中間的なrevision操作は無意味）。"""
+        result = await self._session.execute(delete(AxisDefinitionRow))
+        return result.rowcount or 0
+
     async def get_revision(self) -> int | None:
         return await self._session.scalar(select(AxisRegistryMetaRow.revision).where(AxisRegistryMetaRow.id == 1))
+
+    async def set_revision(self, revision: int) -> None:
+        """revisionを指定値へ直接セットする（改善計画T361: スナップショット読み込み後、
+        ダンプ時点の値を復元するために使う。通常の書き込み[`upsert`/`delete`]が使う
+        `_bump_revision`の+1方式とは別の、直接代入の経路）。"""
+        await self._session.execute(
+            update(AxisRegistryMetaRow).where(AxisRegistryMetaRow.id == 1).values(revision=revision)
+        )
 
     async def _bump_revision(self) -> None:
         await self._session.execute(

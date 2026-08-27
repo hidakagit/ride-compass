@@ -56,21 +56,36 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
   定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
   上げる（T70・T93で対上げ漏れが2回発生）。
-- **評価軸（`axis_definitions`テーブル、全13軸）の新規追加・削除は手書きのmigration SQL
-  （`backend/migrations/`）で行う。既存の公開軸の`shape_params`（合成ルールの中身：
-  重み・breakpoints・参照する材料）を調整する場合は、`axis_admin`のunpublish→PUT API
-  （軸スタジオのGUI、または直接API呼び出し）→republishで行う**（改善計画T353、
-  2026-08-27）。使い分けの理由: `shape_params`の値そのものは「唯一の正解」が無い
-  継続的チューニング対象であり、監査証跡・ロールバック・開発/本番の厳密な一致は
-  過剰品質と判断した（必要な担保は`AxisShape`のPydanticバリデーションと
-  `check_publish_immutability`のみで足りる）。一方、軸の新規追加・削除（行の増減）は
-  他のDBスキーマ変更と同じ標準運用（migration）に合流させ、レビュー可能性を保つ
-  （改善計画T350の判断を維持）。`domain/axis_definitions.py: AXIS_DEFINITIONS`の
-  Python literalは撤去済みでDBが唯一の正本（T350）。`tests/test_migrate.py`の
-  ブートストラップテストは、まっさらなDBへ全migrationを適用した結果が「全軸が例外なく
-  読める・未知の材料/軸参照が無い・件数が14で一致する」ことをpostgis統合テストとして
-  検証する（DB接続が要るため`pytest -m "not postgis"`実行時はスキップされる。
-  ローカルPostgreSQLを起動して`pytest tests/test_migrate.py`を実行し確認すること）。
+- **評価軸（`axis_definitions`テーブル）の新規追加・削除・既存軸の`shape_params`調整は、
+  すべて`axis_admin`のAPI（軸スタジオのGUI、または直接API呼び出し。新規追加=POST、
+  削除=unpublish→DELETE、公開軸の調整=unpublish→PUT→republish）経由で行う。
+  `backend/migrations/`は`axis_definitions`/`axis_registry_meta`の**テーブル構造
+  （DDL）のみ**を管理し、以後の新規migrationへ軸の行データ（INSERT/UPDATE/DELETE）を
+  追加することはない**（改善計画T361、2026-08-27。従来は新規追加・削除のみmigration・
+  shape_params調整のみAPIという使い分けだった[T353]が、T353がAPI直接操作で軸を変更した
+  結果fresh bootstrapとの内容が乖離する不整合が発生し[T360]、「変更経路がmigrationと
+  APIの2つ存在する限り同期漏れが構造的に再発する」という根本原因への対応として、行
+  データの変更経路をAPIへ一本化した）。0014〜0022（過去に追加した行データ入りの
+  migration）はこのプロジェクトの標準運用どおり書き換えない。fresh bootstrap（CI・
+  新規環境・disaster recovery、まっさらなDBへ`create_tables()`→
+  `apply_pending_migrations()`を適用した直後）は、`backend/fixtures/
+  axis_definitions_snapshot.json`（現在の実DBの内容を`backend/scripts/
+  dump_axis_definitions_snapshot.py`でダンプしたスナップショット）を`backend/scripts/
+  bootstrap_fresh_db.py`（新規環境用）・`backend/scripts/bootstrap_ci_db.py`（CI用）が
+  読み込み、テーブルを丸ごと置き換えて実データを用意する
+  （`app/infrastructure/axis_definitions_snapshot.py: load_axis_definitions_snapshot`）。
+  このロードは無条件にテーブルを空にしてから投入するfresh bootstrap専用の操作のため、
+  通常のアプリ起動経路（`main.py`のlifespan・`refresh_axis_definitions`）や、稼働中の
+  DBに対して繰り返し実行される`app/batch/import_pbf.py`等からは呼ばない（誤って本番の
+  生きた軸データをスナップショットの内容で上書きする事故を防ぐため）。スナップショットの
+  更新は手動運用（本番/devでAPI経由の軸変更を行った後、`dump_axis_definitions_snapshot.py`
+  を都度手動実行してリフレッシュしコミットする。自動化はしていない——低頻度な操作の
+  ためデプロイパイプラインへ組み込むリスクの方が上回ると判断した）。
+  `domain/axis_definitions.py: AXIS_DEFINITIONS`のPython literalは撤去済みでDBが
+  唯一の正本（T350、変更なし）。`tests/test_migrate.py`のブートストラップテストは、
+  まっさらなDBへ全migration適用→スナップショット読み込みまでの一連の流れを検証する
+  （DB接続が要るため`pytest -m "not postgis"`実行時はスキップされる。ローカル
+  PostgreSQLを起動して`pytest tests/test_migrate.py`を実行し確認すること）。
 - **規模M以上の変更は、着手前の最初のコミットでdocs/improvement-plan.mdへ対応する
   タスクエントリを先に作成する**（T130で一度破られ事後是正された実績を受けT135で
   明文化を検討、2026-08-23のT231棚卸で正式採用）。作業内容が変わりうる大きめの

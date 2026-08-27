@@ -1,0 +1,745 @@
+{
+  "axes": [
+    {
+      "definition": {
+        "axis_id": "gradient",
+        "category": "観測",
+        "chip_label": "勾配",
+        "default_weight": 0.15,
+        "description": "登り坂の急さが小さいほど易しい",
+        "display_override": null,
+        "icon_id": "incline",
+        "is_published": true,
+        "label": "勾配",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              3.0,
+              25.0
+            ],
+            [
+              6.0,
+              50.0
+            ],
+            [
+              9.0,
+              75.0
+            ],
+            [
+              15.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "abs",
+          "terms": [
+            {
+              "material": "gradient_percent",
+              "required": true,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 0
+    },
+    {
+      "definition": {
+        "axis_id": "wind",
+        "category": "動的",
+        "chip_label": null,
+        "default_weight": 0.26,
+        "description": "向かい風が弱いほど易しい",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": true,
+        "label": "風",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              8.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "wind_penalty",
+              "required": true,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 1
+    },
+    {
+      "definition": {
+        "axis_id": "surface_q",
+        "category": "観測",
+        "chip_label": "舗装",
+        "default_weight": 0.19,
+        "description": "舗装路であるほど易しい",
+        "display_override": null,
+        "icon_id": "wave",
+        "is_published": true,
+        "label": "舗装質",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "kind": "categorical",
+          "mapping": {
+            "false": 80.0,
+            "true": 0.0
+          },
+          "material": "surface_good"
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 2
+    },
+    {
+      "definition": {
+        "axis_id": "stop_density",
+        "category": "観測",
+        "chip_label": "停止密度",
+        "default_weight": 0.2,
+        "description": "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
+        "display_override": {
+          "category": "trafficSafety",
+          "kind": "ramp",
+          "label": "停止密度",
+          "note": "信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた停止要因の密度。way単位の事前集計（way_attribute_counts）由来",
+          "thresholds": [
+            1.0,
+            2.0,
+            4.0
+          ],
+          "tile_inputs": [
+            {
+              "boolean": false,
+              "breakpoints": null,
+              "categories": null,
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "stop_per_km",
+              "true_value": 0.0,
+              "weight": 1.0
+            },
+            {
+              "boolean": false,
+              "breakpoints": null,
+              "categories": null,
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "intersection_per_km",
+              "true_value": 0.0,
+              "weight": 0.3
+            }
+          ],
+          "unit": "回/km"
+        },
+        "icon_id": "density-stack",
+        "is_published": true,
+        "label": "停止密度",
+        "panel_hint": "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              4.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "stop_count_per_km",
+              "required": true,
+              "weight": 1.0
+            },
+            {
+              "material": "intersection_count_per_km",
+              "required": false,
+              "weight": 0.3
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 3
+    },
+    {
+      "definition": {
+        "axis_id": "car_stress",
+        "category": "推定",
+        "chip_label": "圧迫感",
+        "default_weight": 0.2,
+        "description": "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
+        "display_override": {
+          "category": "trafficSafety",
+          "kind": "ramp",
+          "label": "車の圧迫感",
+          "note": "改善計画T292: highway/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの5材料から自動計算する。以前は専用の手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への階層再構成でtile_inputsの重み付き結合として表現できるようになった（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）",
+          "thresholds": [
+            2.0,
+            3.0,
+            4.0
+          ],
+          "tile_inputs": [
+            {
+              "boolean": false,
+              "breakpoints": null,
+              "categories": {
+                "cycleway": 1.0,
+                "living_street": 1.0,
+                "primary": 4.0,
+                "primary_link": 4.0,
+                "residential": 2.0,
+                "secondary": 3.0,
+                "secondary_link": 3.0,
+                "tertiary": 3.0,
+                "tertiary_link": 3.0,
+                "track": 2.0,
+                "trunk": 4.0,
+                "trunk_link": 4.0,
+                "unclassified": 2.0
+              },
+              "false_value": 0.0,
+              "has_unknown_fallback": true,
+              "invert": false,
+              "property": "highway",
+              "true_value": 0.0,
+              "weight": 1.0
+            },
+            {
+              "boolean": false,
+              "breakpoints": [
+                [
+                  0.0,
+                  -1.0
+                ],
+                [
+                  30.0,
+                  -1.0
+                ],
+                [
+                  31.0,
+                  0.0
+                ],
+                [
+                  59.0,
+                  0.0
+                ],
+                [
+                  60.0,
+                  1.0
+                ],
+                [
+                  999.0,
+                  1.0
+                ]
+              ],
+              "categories": null,
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "maxspeed_kmh",
+              "true_value": 0.0,
+              "weight": 1.0
+            },
+            {
+              "boolean": false,
+              "breakpoints": [
+                [
+                  0.0,
+                  -1.0
+                ],
+                [
+                  1.0,
+                  -1.0
+                ],
+                [
+                  2.0,
+                  0.0
+                ],
+                [
+                  3.0,
+                  0.0
+                ],
+                [
+                  4.0,
+                  1.0
+                ],
+                [
+                  99.0,
+                  1.0
+                ]
+              ],
+              "categories": null,
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "lanes_count",
+              "true_value": 0.0,
+              "weight": 1.0
+            },
+            {
+              "boolean": false,
+              "breakpoints": null,
+              "categories": {
+                "both": 1.0,
+                "critical_logistics": 1.0,
+                "emergency_transport": 1.0
+              },
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "designation",
+              "true_value": 0.0,
+              "weight": 1.0
+            },
+            {
+              "boolean": true,
+              "breakpoints": null,
+              "categories": null,
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "motor_vehicle_no",
+              "true_value": -1000.0,
+              "weight": 1.0
+            }
+          ],
+          "unit": ""
+        },
+        "icon_id": "warning-triangle",
+        "is_published": true,
+        "label": "車の圧迫感",
+        "panel_hint": "道路種別・制限速度・車線数・指定路線・自動車通行可否から推定した車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして確認できます。",
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              4.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "car_stress_highway_base",
+              "required": true,
+              "weight": 1.0
+            },
+            {
+              "material": "car_stress_maxspeed_adjustment",
+              "required": false,
+              "weight": 1.0
+            },
+            {
+              "material": "car_stress_lanes_adjustment",
+              "required": false,
+              "weight": 1.0
+            },
+            {
+              "material": "car_stress_designation_adjustment",
+              "required": false,
+              "weight": 1.0
+            },
+            {
+              "material": "car_stress_motor_vehicle_no_adjustment",
+              "required": false,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 4
+    },
+    {
+      "definition": {
+        "axis_id": "accident",
+        "category": "推定",
+        "chip_label": "事故密度",
+        "default_weight": 0.08,
+        "description": "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
+        "display_override": {
+          "category": "trafficSafety",
+          "kind": "ramp",
+          "label": "事故密度",
+          "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
+          "thresholds": [
+            0.4,
+            0.8,
+            1.5
+          ],
+          "tile_inputs": [
+            {
+              "boolean": false,
+              "breakpoints": null,
+              "categories": null,
+              "false_value": 0.0,
+              "has_unknown_fallback": false,
+              "invert": false,
+              "property": "accident_per_km",
+              "true_value": 0.0,
+              "weight": 1.0
+            }
+          ],
+          "unit": "件/km"
+        },
+        "icon_id": "density-scatter",
+        "is_published": true,
+        "label": "事故密度",
+        "panel_hint": "警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.5,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "accident_count_per_km_year",
+              "required": true,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 5
+    },
+    {
+      "definition": {
+        "axis_id": "night",
+        "category": "観測",
+        "chip_label": "夜間",
+        "default_weight": 0.0,
+        "description": "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
+        "display_override": null,
+        "icon_id": "crescent-moon",
+        "is_published": true,
+        "label": "夜間",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "cap": 100.0,
+          "flags": [
+            [
+              "no_lit",
+              50.0
+            ],
+            [
+              "has_tunnel",
+              50.0
+            ]
+          ],
+          "kind": "flag_sum"
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 6
+    },
+    {
+      "definition": {
+        "axis_id": "car_stress_highway_base",
+        "category": "推定",
+        "chip_label": "道路基準",
+        "default_weight": 0.0,
+        "description": "highway種別による車の圧迫感の基準値(1-4、非公開)",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": false,
+        "label": "車ストレス内部軸: highway基準値",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "kind": "categorical",
+          "mapping": {
+            "cycleway": 1.0,
+            "footway": 1.0,
+            "living_street": 1.0,
+            "path": 1.0,
+            "primary": 4.0,
+            "primary_link": 4.0,
+            "residential": 2.0,
+            "secondary": 3.0,
+            "secondary_link": 3.0,
+            "tertiary": 3.0,
+            "tertiary_link": 3.0,
+            "track": 2.0,
+            "trunk": 4.0,
+            "trunk_link": 4.0,
+            "unclassified": 2.0
+          },
+          "material": "highway"
+        },
+        "show_map_icon": false
+      },
+      "sort_order": 7
+    },
+    {
+      "definition": {
+        "axis_id": "car_stress_maxspeed_adjustment",
+        "category": "推定",
+        "chip_label": null,
+        "default_weight": 0.0,
+        "description": "制限速度による補正(非公開)",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": false,
+        "label": "車ストレス内部軸: 制限速度補正",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              -1.0
+            ],
+            [
+              30.0,
+              -1.0
+            ],
+            [
+              31.0,
+              0.0
+            ],
+            [
+              59.0,
+              0.0
+            ],
+            [
+              60.0,
+              1.0
+            ],
+            [
+              999.0,
+              1.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "maxspeed_kmh",
+              "required": true,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 9
+    },
+    {
+      "definition": {
+        "axis_id": "car_stress_lanes_adjustment",
+        "category": "推定",
+        "chip_label": null,
+        "default_weight": 0.0,
+        "description": "車線数による補正(非公開)",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": false,
+        "label": "車ストレス内部軸: 車線数補正",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              -1.0
+            ],
+            [
+              2.0,
+              0.0
+            ],
+            [
+              3.0,
+              0.0
+            ],
+            [
+              4.0,
+              1.0
+            ],
+            [
+              99.0,
+              1.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "lanes_count",
+              "required": true,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 10
+    },
+    {
+      "definition": {
+        "axis_id": "car_stress_designation_adjustment",
+        "category": "推定",
+        "chip_label": null,
+        "default_weight": 0.0,
+        "description": "指定路線(緊急輸送道路・重要物流道路)該当による補正(非公開)",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": false,
+        "label": "車ストレス内部軸: 指定路線補正",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "kind": "categorical",
+          "mapping": {
+            "false": 0.0,
+            "true": 1.0
+          },
+          "material": "is_designated"
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 11
+    },
+    {
+      "definition": {
+        "axis_id": "car_stress_motor_vehicle_no_adjustment",
+        "category": "推定",
+        "chip_label": null,
+        "default_weight": 0.0,
+        "description": "motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": false,
+        "label": "車ストレス内部軸: 自動車通行不可の優先確定",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "kind": "categorical",
+          "mapping": {
+            "false": 0.0,
+            "true": -1000.0
+          },
+          "material": "motor_vehicle_no"
+        },
+        "show_map_icon": true
+      },
+      "sort_order": 12
+    },
+    {
+      "definition": {
+        "axis_id": "bicycle_infra_quality",
+        "category": "推定",
+        "chip_label": "自転車道",
+        "default_weight": 0.15,
+        "description": "専用の自転車インフラ（分離自転車道・自転車レーン等、河川敷サイクリングロード等の自転車通行可の歩行者道を含む）が整備されているほど易しい。",
+        "display_override": null,
+        "icon_id": null,
+        "is_published": true,
+        "label": "自転車インフラ",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              -4.0,
+              0.0
+            ],
+            [
+              -2.0,
+              33.3
+            ],
+            [
+              -1.0,
+              66.7
+            ],
+            [
+              0.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "highway_is_cycleway",
+              "required": true,
+              "weight": -4.0
+            },
+            {
+              "material": "cycleway_has_track",
+              "required": true,
+              "weight": -4.0
+            },
+            {
+              "material": "cycleway_has_lane",
+              "required": true,
+              "weight": -2.0
+            },
+            {
+              "material": "cycleway_has_shared",
+              "required": true,
+              "weight": -1.0
+            },
+            {
+              "material": "shared_pedestrian_path",
+              "required": true,
+              "weight": -4.0
+            }
+          ]
+        },
+        "show_map_icon": false
+      },
+      "sort_order": 13
+    }
+  ],
+  "revision": 1
+}

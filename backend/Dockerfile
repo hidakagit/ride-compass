@@ -13,6 +13,9 @@ COPY app ./app
 # あったためmigration適用漏れがあっても気づかれなかった）。
 COPY migrations ./migrations
 COPY scripts ./scripts
+# axis_definitionsのfresh bootstrap用スナップショット（改善計画T361）。
+# scripts/bootstrap_fresh_db.py・scripts/dump_axis_definitions_snapshot.pyが読み書きする。
+COPY fixtures ./fixtures
 
 EXPOSE 8000
 
