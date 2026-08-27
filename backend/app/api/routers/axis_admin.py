@@ -6,16 +6,14 @@
 スコープ外。
 """
 
-import secrets
 from typing import Awaitable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.exc import DBAPIError
 
+from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_axis_registry_admin_service
-from app.config import settings
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisCategory,
@@ -30,8 +28,6 @@ from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
 
 router = APIRouter(prefix="/api/admin/axis-definitions", tags=["axis-admin"])
-
-_basic_auth = HTTPBasic(realm="RideCompass admin", auto_error=False)
 
 _T = TypeVar("_T")
 
@@ -57,36 +53,6 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
                 "（backend/scripts/apply_migrations.pyの適用状況を確認してください）"
             ),
         ) from exc
-
-
-async def require_admin_basic_auth(credentials: HTTPBasicCredentials | None = Depends(_basic_auth)) -> None:
-    """管理APIの認可境界（改善計画T221 Stage D、Basic認証化は改善計画T272）。
-
-    HTTP Basic認証（環境変数`ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_PASSWORD`、
-    settings参照）。以前は共有トークンheader（X-Admin-Token）による簡易保護だったが、
-    T272でユーザー方針（2026-08-24: 「将来的にはアカウント制としたいが、現状は動作確認・
-    研究用のためBasic認証として後から拡張する」）に基づきBasic認証へ置き換えた。
-    `secrets.compare_digest`でタイミング攻撃を避ける（ユーザー名・パスワードどちらも）。
-    未設定（既定""）の環境では常に拒否し、うっかり無保護公開しない。
-    認可判定をこの1関数（FastAPI Dependency）へ集約しているため、将来アカウント制へ
-    差し替える際もこの関数の中身だけを変えればよい（Stage D設計の継続）。
-    401はブラウザの標準Basic認証ダイアログを起動させるため`WWW-Authenticate`ヘッダを
-    付ける（`auto_error=False`でHTTPBasic自体の自動401を無効化し、常にこの関数が
-    ヘッダ付きの401を明示的に返す——資格情報の有無に関わらず一貫した応答にするため）。
-    """
-    unauthorized = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="管理APIへのアクセスが許可されていません",
-        headers={"WWW-Authenticate": 'Basic realm="RideCompass admin"'},
-    )
-    if not settings.admin_basic_auth_username or not settings.admin_basic_auth_password:
-        raise unauthorized
-    if credentials is None:
-        raise unauthorized
-    username_ok = secrets.compare_digest(credentials.username, settings.admin_basic_auth_username)
-    password_ok = secrets.compare_digest(credentials.password, settings.admin_basic_auth_password)
-    if not (username_ok and password_ok):
-        raise unauthorized
 
 
 class AxisDefinitionFields(BaseModel):

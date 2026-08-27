@@ -1075,6 +1075,152 @@
           }
         }
       }
+    },
+    "/api/admin/debug/mode": {
+      "get": {
+        "tags": [
+          "debug-admin"
+        ],
+        "summary": "Read Debug Mode",
+        "operationId": "read_debug_mode_api_admin_debug_mode_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugModeResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "debug-admin"
+        ],
+        "summary": "Update Debug Mode",
+        "description": "debug_modeをランタイムで切り替える（`.env`は書き換えない、プロセス再起動不要）。\n\n再起動・再デプロイのたびに環境変数の値（既定false）へ自動的に戻る\n（debug_control.pyのdocstring参照。戻し忘れのリスクを構造的に避ける設計）。",
+        "operationId": "update_debug_mode_api_admin_debug_mode_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebugModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugModeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
+    "/api/admin/debug/logs": {
+      "get": {
+        "tags": [
+          "debug-admin"
+        ],
+        "summary": "Read Recent Logs",
+        "description": "直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。\n\n`contains`で部分一致フィルタ（例: T318調査の`distance filter rejected`）、\n`limit`でフィルタ後の末尾N件に絞り込める。debug_modeがOFFの間はDEBUGレベルの\n行自体がそもそも記録されない点に注意（先に`POST /mode`で有効化すること）。",
+        "operationId": "read_recent_logs_api_admin_debug_logs_get",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "contains",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Contains"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Read Recent Logs Api Admin Debug Logs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1757,6 +1903,32 @@
           "longitude"
         ],
         "title": "Coordinates"
+      },
+      "DebugModeRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "DebugModeRequest"
+      },
+      "DebugModeResponse": {
+        "properties": {
+          "debug_mode": {
+            "type": "boolean",
+            "title": "Debug Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "debug_mode"
+        ],
+        "title": "DebugModeResponse"
       },
       "FlagSumShape": {
         "properties": {

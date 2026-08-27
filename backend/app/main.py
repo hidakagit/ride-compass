@@ -8,6 +8,7 @@ from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
+from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware
 from app.services.axis_registry_service import refresh_axis_definitions
@@ -23,6 +24,10 @@ logging.basicConfig(
 )
 for _handler in logging.getLogger().handlers:
     _handler.addFilter(RequestIdLogFilter())
+
+# 改善計画T379: debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
+# 保持するハンドラをルートロガーへ追加する（api/routers/debug_admin.py経由で取得）。
+install_ring_buffer_handler()
 
 # httpxは1リクエストごとに"HTTP Request: ..."をINFOで出す。外部API呼び出しの記録は
 # log_external_call(debug_log.py)が成功=DEBUG/失敗=WARNINGの方針で担っており、
