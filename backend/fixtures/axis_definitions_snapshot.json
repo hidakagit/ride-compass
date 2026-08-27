@@ -3,7 +3,7 @@
     {
       "definition": {
         "axis_id": "gradient",
-        "category": "観測",
+        "category": "推定",
         "chip_label": "勾配",
         "default_weight": 0.15,
         "description": "登り坂の急さが小さいほど易しい",
@@ -46,14 +46,14 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": false
       },
       "sort_order": 0
     },
     {
       "definition": {
         "axis_id": "wind",
-        "category": "動的",
+        "category": "推定",
         "chip_label": null,
         "default_weight": 0.26,
         "description": "向かい風が弱いほど易しい",
@@ -84,7 +84,7 @@
             }
           ]
         },
-        "show_map_icon": true
+        "show_map_icon": false
       },
       "sort_order": 1
     },
@@ -741,5 +741,5 @@
       "sort_order": 13
     }
   ],
-  "revision": 16
+  "revision": 24
 }
