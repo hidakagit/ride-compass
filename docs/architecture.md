@@ -634,6 +634,11 @@ POST /api/routes/generate   # Step4: 周回ルート候補生成、Step5: 標高
                             # ルーティングエンジンはsettings.routing_engineで切り替え（既定road_graph、改善計画T247）。
                             # レスポンスのengineフィールドでどちらのエンジンが生成したかを識別できる
                             # （wind_score等はエンジンによって算出の意味が異なるため。設計レビュー対応で追加）。
+                            # 改善計画T265: 冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒
+                            # [T248実測]）がブラウザのfetchを長時間ブロックしないよう、バックグラウンド
+                            # ジョブ化した。本エンドポイントは即座（数百ms）にjob_idを返すのみで、実際の
+                            # 生成は下のGET /api/routes/generate/{job_id}をポーリングして完了を待つ
+                            # （frontend services/routeApi.ts: generateRoutes参照）。
 Request:
 { "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5, "route_type":"loop" }
 Request（評価重みの上書き。研究用・省略可。docs/research-interface-review-2026-08-15.md §10-1）:
@@ -661,8 +666,23 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
   # domain/evaluation.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
   # 「2次の重み」とは異なり、Falseにしたフィルタに該当する道路はコストを上げるのではなく
   # 探索グラフから除外しない＝候補に含める（0次＝スコア計算に一切登場しないハード制約）
-Response 200:
+Response 202（ジョブを受理、即座に返る）:
+{ "job_id": "5f2e1a3b4c5d6e7f8a9b0c1d2e3f4a5b" }
+Response 400（waypoints/destination指定がroad_graphエンジン以外の構成で送られた場合）:
+{ "detail": "waypoints/destinationはroad_graphエンジンでのみ利用できます。" }
+
+GET /api/routes/generate/{job_id}   # ジョブの状態をポーリングする（改善計画T265）。
+                                    # POST側のper-IPレート制限・同時実行数上限は投稿時点のまま
+                                    # （待ち行列化はしていない）。本エンドポイント自体は認可・
+                                    # レート制限を課さない（job_idはUUID相当で推測困難、GET自体は
+                                    # 軽量なメモリ参照のみのため）。
+Response 200（status="queued"|"running"、結果はまだ無い）:
+{ "status": "running", "result": null, "error": null }
+Response 200（status="done"、resultにPOST側が従来返していた本文がそのまま入る）:
 {
+  "status": "done",
+  "error": null,
+  "result": {
   "routes": [
     {
       "id":"route-090", "direction_label":"東", "distance_km":32.7,
@@ -720,12 +740,48 @@ Response 200:
     "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":true },
     "generated_at": "2026-08-15T14:30:00+09:00"
   }
+  }
 }
+Response 200（status="failed"、ジョブ内部で例外が発生した場合。バックグラウンドタスクの
+             例外はHTTPレスポンスへ伝播できないため、ここへ記録して初めてクライアントが知る）:
+{ "status": "failed", "result": null, "error": "..." }
+Response 404（job_idが未知、または完了から10分経過して破棄された場合。
+             infrastructure/job_registry.py: _JOB_TTL_SECONDS参照）:
+{ "detail": "ジョブが見つかりません（完了から時間が経過して破棄された可能性があります）" }
+
+（POST /api/routes/generate側のRate limit）
 Response 429（per-IPで1分あたりGENERATE_RATE_LIMIT_PER_MINUTE=10回を超過、またはプロセス全体の
              同時実行数GENERATE_MAX_CONCURRENT=2に到達している場合。最も高コストなエンドポイントのため、
              外部サービス（openrouteservice/Overpass/GSI）への負荷の積み上げを防ぐ。設計レビュー対応で追加）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
+```
 
+### 汎用ジョブレジストリ（改善計画T265）
+
+`infrastructure/job_registry.py`は、`POST /api/routes/generate`の冷パス（上記参照）を
+バックグラウンド化するために新設した、プロセス内メモリのみの汎用非同期ジョブ管理
+（`create_job`/`get_job`/`set_running`/`set_done`/`set_failed`、完了から10分経過した
+ジョブはTTLベースで自動パージ）。単一プロセスデプロイ前提（`axis_registry_service.py`の
+push型更新と同じ前提）で、ルート生成の型（`RouteGenerateResponse`等）を一切知らない
+汎用モジュールにしてある（`result`は`Any`型、`api/routers/routes.py`との循環importを
+避けるため）。将来他の重い処理（例: 大規模バッチのオンデマンド実行）にも転用できる。
+
+実行にはFastAPIの`BackgroundTasks`（`asyncio.create_task`ではなく）を使う——本番の
+ASGIサーバーはレスポンス送出後にタスクを実行するため「即座に返す」要件を満たしつつ、
+`TestClient`はリクエストサイクル内でバックグラウンドタスクまで同期的に実行するため、
+テストが`asyncio.sleep`によるポーリング待ちを必要とせず決定的になる（`tests/
+test_routes_generate.py`参照）。
+
+バックグラウンドタスクはFastAPIのリクエストスコープ外（レスポンス送出後）で実行される
+ため、リクエストスコープのDBセッション（`Depends`経由）をそのまま使えない
+（`graph_service.py: _warm_tile_cache_background`と同じ制約）。`api/dependencies.py:
+open_route_generation_setup`（`@asynccontextmanager`）が、既存のDI用ジェネレータ関数を
+`asynccontextmanager()`でラップして独立したセッションを開く（セッション開閉ロジックの
+複製はしない）。「どのサービスをどのエンジンへどう組み立てるか」自体は
+`_assemble_route_generation_setup`（純粋関数）へ一本化し、DIベースの旧経路・
+バックグラウンドジョブの両方から呼ばれる。
+
+```
 GET /api/weather?latitude=35.7597&longitude=139.7387   # Step6: 現在地の天候
 Response 200:
 { "temperature_c":24.6, "wind_speed_ms":1.93, "wind_direction_deg":69.0, "wind_direction_label":"東", "precipitation_probability_percent":100.0, "observed_at":"2026-08-13T21:15" }

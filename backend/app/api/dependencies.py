@@ -5,8 +5,9 @@
 すべてここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
 """
 
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable
 
 from fastapi import Depends, Request
 
@@ -115,18 +116,6 @@ class RouteGenerationSetup:
     hard_filters: frozenset[str]
 
 
-RouteGenerationBuilder = Callable[
-    [
-        RoutePreference | None,
-        dict[str, float] | None,
-        float,
-        float | None,
-        frozenset[str] | None,
-    ],
-    RouteGenerationSetup,
-]
-
-
 async def get_graph_service():
     # PostGISのみを参照し、取込範囲外はOverpassへ問い合わせずデータ未整備として扱う
     # （改善計画T22でOverpassフォールバックを撤去済み。改善計画T222でDBなし構成
@@ -177,63 +166,96 @@ async def get_surface_match_repository():
         yield None
 
 
-def get_route_generation_builder(
-    routing_service: RoutingService = Depends(get_routing_service),
-    elevation_service: ElevationService = Depends(get_elevation_service),
-    wind_service: WindService = Depends(get_wind_service),
-    graph_service: GraphService = Depends(get_graph_service),
-    elevation_attribute_service: ElevationAttributeService = Depends(get_elevation_attribute_service),
-    weather_service: WeatherService = Depends(get_weather_service),
-    surface_match_repository: RoadGraphRepository | None = Depends(get_surface_match_repository),
-) -> RouteGenerationBuilder:
-    # 周回生成戦略（8方位・距離フィルタ・スコアリング）はRouteGeneratorが単一で持ち、
-    # settings.routing_engineに応じて経路計算・評価のエンジンだけを差し替える（config.py参照）。
-    # 両エンジン分の依存関係をまとめてDepends宣言しているため、使わない側の依存
-    # （httpx.AsyncClient等、いずれも実際のI/Oはこの時点で発生しない軽量なもの）も毎回
-    # 構築されるが、FastAPIのDIで条件分岐に応じて一部のDependsだけを解決する簡単な方法が
-    # 無いため、単純さを優先してこの形にしている。
-    #
-    # RouteGenerator本体ではなくビルダー（呼び出し可能）を返すのは、評価の重みを
-    # リクエストボディで上書きできるため（研究インターフェース改善 §10-1）。DI解決の時点では
-    # ボディが未検証のため、エンドポイントが検証済みの上書き値（無ければNone）を渡して
-    # 組み立てを完了する。上書きが無い場合はYAML既定値を読む（従来挙動と同一。
-    # YAMLはリクエスト毎に再読込されるため、編集はサーバー再起動なしで反映される）。
-    def build(
-        preference_override: RoutePreference | None = None,
-        scoring_weights_override: dict[str, float] | None = None,
-        penalty_strength: float = 1.0,
-        max_average_grade_percent: float | None = None,
-        hard_filters_override: frozenset[str] | None = None,
-    ) -> RouteGenerationSetup:
-        preference = preference_override or load_route_preference()
-        scoring_weights = scoring_weights_override or load_scoring_weights()
-        hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
-        if settings.routing_engine == "road_graph":
-            engine = RoadGraphEngine(
-                graph_service,
-                elevation_attribute_service,
-                EvaluationService(preference),
-                weather_service,
-                preference,
-                penalty_strength,
-                max_average_grade_percent,
-                hard_filters,
-            )
-        else:
-            engine = OpenRouteServiceEngine(
-                routing_service, elevation_service, wind_service, preference,
-                repository=surface_match_repository,
-            )
-        return RouteGenerationSetup(
-            generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
-            scoring_weights=scoring_weights,
-            route_preference=preference,
-            penalty_strength=penalty_strength,
-            max_average_grade_percent=max_average_grade_percent,
-            hard_filters=hard_filters,
-        )
+def _assemble_route_generation_setup(
+    routing_service: RoutingService,
+    elevation_service: ElevationService,
+    wind_service: WindService,
+    graph_service: GraphService,
+    elevation_attribute_service: ElevationAttributeService,
+    weather_service: WeatherService,
+    surface_match_repository: RoadGraphRepository | None,
+    preference_override: RoutePreference | None = None,
+    scoring_weights_override: dict[str, float] | None = None,
+    penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
+    hard_filters_override: frozenset[str] | None = None,
+) -> RouteGenerationSetup:
+    """組み立て済みの7サービスと評価条件から`RouteGenerationSetup`を作る（改善計画T265）。
 
-    return build
+    `get_route_generation_builder`（FastAPI DI経由、リクエストスコープのセッション）・
+    `open_route_generation_setup`（バックグラウンドジョブ用、リクエストスコープ外の
+    独立セッション）の両方から呼ばれる共通ロジック。「どのサービスをどのエンジンへ
+    どう組み立てるか」はここへ一本化し、セッションの開き方（DIかAsyncExitStackか）だけを
+    呼び出し側で分ける。
+    """
+    preference = preference_override or load_route_preference()
+    scoring_weights = scoring_weights_override or load_scoring_weights()
+    hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
+    if settings.routing_engine == "road_graph":
+        engine = RoadGraphEngine(
+            graph_service,
+            elevation_attribute_service,
+            EvaluationService(preference),
+            weather_service,
+            preference,
+            penalty_strength,
+            max_average_grade_percent,
+            hard_filters,
+        )
+    else:
+        engine = OpenRouteServiceEngine(
+            routing_service, elevation_service, wind_service, preference,
+            repository=surface_match_repository,
+        )
+    return RouteGenerationSetup(
+        generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
+        scoring_weights=scoring_weights,
+        route_preference=preference,
+        penalty_strength=penalty_strength,
+        max_average_grade_percent=max_average_grade_percent,
+        hard_filters=hard_filters,
+    )
+
+
+@asynccontextmanager
+async def open_route_generation_setup(
+    preference_override: RoutePreference | None = None,
+    scoring_weights_override: dict[str, float] | None = None,
+    penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
+    hard_filters_override: frozenset[str] | None = None,
+) -> AsyncIterator[RouteGenerationSetup]:
+    """`get_route_generation_builder`のバックグラウンドジョブ版（改善計画T265）。
+
+    FastAPIのリクエストスコープ外（`BackgroundTasks`経由、レスポンス送出後に実行される）
+    で使うため、`Depends`は使えない——リクエストのDBセッションはハンドラ関数が返った
+    時点で閉じられ、その後もバックグラウンドタスクが同じセッションを使い続けようとすると
+    失敗する（`graph_service.py: _warm_tile_cache_background`が同じ理由で新規セッションを
+    開いているのと同じ制約）。
+
+    DB接続を要する3つの依存（`get_graph_service`/`get_elevation_attribute_service`/
+    `get_surface_match_repository`）は、既存のDI用ジェネレータ関数をそのまま
+    `asynccontextmanager()`でラップして`AsyncExitStack`で開く（セッション開閉ロジックを
+    複製しない）。残り4つ（httpx共有クライアント系）はセッション非依存のため直接呼ぶ。
+    """
+    async with AsyncExitStack() as stack:
+        routing_service = get_routing_service()
+        elevation_service = get_elevation_service()
+        weather_service = get_weather_service()
+        wind_service = get_wind_service(weather_service)
+        graph_service = await stack.enter_async_context(asynccontextmanager(get_graph_service)())
+        elevation_attribute_service = await stack.enter_async_context(
+            asynccontextmanager(get_elevation_attribute_service)()
+        )
+        surface_match_repository = await stack.enter_async_context(
+            asynccontextmanager(get_surface_match_repository)()
+        )
+        yield _assemble_route_generation_setup(
+            routing_service, elevation_service, wind_service, graph_service,
+            elevation_attribute_service, weather_service, surface_match_repository,
+            preference_override, scoring_weights_override, penalty_strength,
+            max_average_grade_percent, hard_filters_override,
+        )
 
 
 PreviewBuilder = Callable[[Coordinates, Coordinates], Awaitable[RouteSegment]]

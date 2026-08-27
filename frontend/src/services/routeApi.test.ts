@@ -142,7 +142,7 @@ describe("routeApi", () => {
     });
   });
 
-  describe("generateRoutes", () => {
+  describe("generateRoutes（改善計画T265: バックグラウンドジョブ化）", () => {
     const request: RouteGenerateRequest = {
       latitude: 35.0,
       longitude: 139.0,
@@ -152,60 +152,117 @@ describe("routeApi", () => {
       penalty_strength: 1.0,
     };
 
-    it("成功時はroutes・conditions・engineを返す", async () => {
-      const routes: RouteCandidate[] = [
-        {
-          id: "route-1",
-          direction_label: "北",
-          distance_km: 30,
-          geometry: { type: "LineString", coordinates: [] },
-          elevation_gain_m: null,
-          min_elevation_m: null,
-          max_elevation_m: null,
-          max_gradient_percent: null,
-          wind_score: null,
-          road_score: null,
-          stop_density: null,
-          car_stress_score: null,
-          bicycle_infra_score: null,
-          intersection_density: null,
-          accident_density: null,
-          total_score: null,
-          score_breakdown: null,
-          segments: null,
-          overall_difficulty: null,
-        },
-      ];
-      const conditions: GenerationConditions = {
-        latitude: 35.0,
-        longitude: 139.0,
+    const routes: RouteCandidate[] = [
+      {
+        id: "route-1",
+        direction_label: "北",
         distance_km: 30,
-        distance_tolerance_km: 5,
-        scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
-        route_preference: {
-          gradient: 0.15, surface_q: 0.19, wind: 0.26, stop_density: 0.2,
-          car_stress: 0.2, accident: 0.08,
-          night: 0.0,
-        },
-        penalty_strength: 1.0,
-        max_average_grade_percent: null,
-        hard_filters: { no_bicycle: true, motorway: true, trunk: true },
-        waypoints: null,
-        destination: null,
-        generated_at: "2026-08-15T12:00:00+09:00",
-      };
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          makeResponse({
-            json: async () => ({ routes, engine: "road_graph", conditions }),
-          }),
-        ),
-      );
+        geometry: { type: "LineString", coordinates: [] },
+        elevation_gain_m: null,
+        min_elevation_m: null,
+        max_elevation_m: null,
+        max_gradient_percent: null,
+        wind_score: null,
+        road_score: null,
+        stop_density: null,
+        car_stress_score: null,
+        bicycle_infra_score: null,
+        intersection_density: null,
+        accident_density: null,
+        total_score: null,
+        score_breakdown: null,
+        segments: null,
+        overall_difficulty: null,
+      },
+    ];
+    const conditions: GenerationConditions = {
+      latitude: 35.0,
+      longitude: 139.0,
+      distance_km: 30,
+      distance_tolerance_km: 5,
+      scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
+      route_preference: {
+        gradient: 0.15, surface_q: 0.19, wind: 0.26, stop_density: 0.2,
+        car_stress: 0.2, accident: 0.08,
+        night: 0.0,
+      },
+      penalty_strength: 1.0,
+      max_average_grade_percent: null,
+      hard_filters: { no_bicycle: true, motorway: true, trunk: true },
+      waypoints: null,
+      destination: null,
+      generated_at: "2026-08-15T12:00:00+09:00",
+    };
 
-      const result = await generateRoutes(request);
+    /** POST /api/routes/generateはjob_idを、GET .../generate/{job_id}は
+     * pollResponsesを順に1回ずつ返すfetchモック（複数回目以降は最後の要素を返し続ける）。 */
+    function stubFetchForJob(pollResponses: unknown[]) {
+      let pollCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
+        if (options?.method === "POST") {
+          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
+        }
+        const body = pollResponses[Math.min(pollCount, pollResponses.length - 1)];
+        pollCount += 1;
+        return Promise.resolve(makeResponse({ json: async () => body }));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("投稿直後のポーリングで完了していればroutes・conditions・engineを返す", async () => {
+      vi.useFakeTimers();
+      stubFetchForJob([{ status: "done", result: { routes, engine: "road_graph", conditions } }]);
+
+      const resultPromise = generateRoutes(request);
+      await vi.advanceTimersByTimeAsync(1500); // POLL_INTERVAL_MS分だけ進める
+      const result = await resultPromise;
 
       expect(result).toEqual({ routes, engine: "road_graph", conditions });
+    });
+
+    it("queued→runningの間はonProgressへ経過時間つきで通知し、doneで結果を返す", async () => {
+      vi.useFakeTimers();
+      stubFetchForJob([
+        { status: "queued" },
+        { status: "running" },
+        { status: "done", result: { routes, engine: "road_graph", conditions } },
+      ]);
+      const onProgress = vi.fn();
+
+      const resultPromise = generateRoutes(request, onProgress);
+      await vi.advanceTimersByTimeAsync(1500 * 3);
+      await resultPromise;
+
+      expect(onProgress).toHaveBeenNthCalledWith(1, { status: "queued", elapsedMs: expect.any(Number) });
+      expect(onProgress).toHaveBeenNthCalledWith(2, { status: "running", elapsedMs: expect.any(Number) });
+      expect(onProgress).toHaveBeenCalledTimes(2); // doneの回はonProgressを呼ばない
+    });
+
+    it("failedの場合はerrorメッセージでrejectする", async () => {
+      vi.useFakeTimers();
+      stubFetchForJob([{ status: "failed", error: "冷パスでタイムアウトしました" }]);
+
+      const resultPromise = generateRoutes(request);
+      resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
+      await vi.advanceTimersByTimeAsync(1500);
+
+      await expect(resultPromise).rejects.toThrow("冷パスでタイムアウトしました");
+    });
+
+    it("6分経過してもdone/failedにならない場合はタイムアウトとしてrejectする", async () => {
+      vi.useFakeTimers();
+      stubFetchForJob([{ status: "running" }]); // 常にrunningを返し続ける
+
+      const resultPromise = generateRoutes(request);
+      resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
+      await vi.advanceTimersByTimeAsync(400000); // MAX_POLL_DURATION_MS(360000ms)を超える
+
+      await expect(resultPromise).rejects.toThrow("タイムアウト");
     });
   });
 });

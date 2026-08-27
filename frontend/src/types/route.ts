@@ -49,6 +49,15 @@ export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse
   routes: RouteCandidate[];
 };
 
+// 改善計画T265: バックグラウンドジョブ化に伴う型。POST /api/routes/generateは即座に
+// job_idを返し、GET /api/routes/generate/{job_id}をポーリングして結果を得る
+// （frontend services/routeApi.ts参照）。
+export type RouteGenerateJobCreatedResponse = Schemas["RouteGenerateJobCreatedResponse"];
+
+export type RouteGenerateJobStatusResponse = Omit<Required<Schemas["RouteGenerateJobStatusResponse"]>, "result"> & {
+  result: RouteGenerateResponse | null;
+};
+
 export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 // 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き(改善計画T266)。

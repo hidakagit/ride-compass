@@ -1,16 +1,16 @@
 import asyncio
+import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, RootModel, model_validator
 
 from app.api.dependencies import (
     PreviewBuilder,
-    RouteGenerationBuilder,
     client_id,
     get_preview_builder,
-    get_route_generation_builder,
+    open_route_generation_setup,
 )
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
@@ -18,11 +18,13 @@ from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
+from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.route_generator import JST
 
 router = APIRouter()
+logger = logging.getLogger("ridecompass.generate")
 
 # ルート生成の同時実行上限（settings.generate_max_concurrent、config.pyのコメント参照）。
 # 上限を超えた分は待たせず429で即座に返し、ブラウザのリトライや連打で外部サービスへの
@@ -219,12 +221,26 @@ class RouteGenerateResponse(BaseModel):
     conditions: GenerationConditions
 
 
-@router.post("/api/routes/generate", response_model=RouteGenerateResponse)
-async def generate_routes(
-    request: RouteGenerateRequest,
-    http_request: Request,
-    build_generation: RouteGenerationBuilder = Depends(get_route_generation_builder),
-) -> RouteGenerateResponse:
+class RouteGenerateJobCreatedResponse(BaseModel):
+    """`POST /api/routes/generate`の応答（改善計画T265）。
+
+    冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒[T248実測]）が
+    ブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ
+    切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/
+    {job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。
+    """
+
+    job_id: str
+
+
+class RouteGenerateJobStatusResponse(BaseModel):
+    status: job_registry.JobStatus
+    result: RouteGenerateResponse | None = None
+    error: str | None = None
+
+
+@router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
+async def generate_routes(request: RouteGenerateRequest, http_request: Request, background_tasks: BackgroundTasks) -> RouteGenerateJobCreatedResponse:
     if not check_rate_limit(f"generate:{client_id(http_request)}", settings.generate_rate_limit_per_minute):
         record_rate_limit_rejection(
             "generate", client_id(http_request), f"{settings.generate_rate_limit_per_minute}/min"
@@ -232,63 +248,96 @@ async def generate_routes(
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
     # 積み上がるのを防ぐ。locked()確認とacquireの間に隙間はあるが、多少の超過は許容する簡易実装）。
+    # 改善計画T265: バックグラウンドジョブ化後もこの「投稿時点で即429」という既定の挙動は
+    # 変えない（ジョブを積んで順番待ちさせる設計は今回のスコープ外）。
     if _generate_semaphore.locked():
         record_rate_limit_rejection(
             "generate-concurrency", client_id(http_request), f"concurrent={settings.generate_max_concurrent}"
         )
         raise HTTPException(status_code=429, detail="ルート生成が混み合っています。しばらく待ってから再試行してください。")
 
-    # 重みの上書き（省略時はビルダー側でYAML既定値を読む）。適用された値はconditionsへエコーする。
-    preference_override = (
-        RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
-    )
-    scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
-    hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
-    setup = build_generation(
-        preference_override,
-        scoring_override,
-        request.penalty_strength,
-        request.max_average_grade_percent,
-        hard_filters_override,
-    )
     # 改善計画T364/T365: 経由地・目的地指定はroad_graphエンジンのみ対応
     # （openrouteservice_engine.pyはget_route(waypoints)の任意長リスト対応自体は
-    # あるが、今回未検証のため明示的に拒否する）。
-    if (request.waypoints or request.destination) and setup.generator.engine_name != "road_graph":
+    # あるが、今回未検証のため明示的に拒否する）。改善計画T265: 以前はRouteGenerationSetup
+    # を組み立ててからengine_nameを見ていたが、engine_nameはsettings.routing_engineから
+    # 一意に決まる（road_graph_engine.py/openrouteservice_engine.pyのクラス属性参照）ため、
+    # 投稿時点でジョブを作らず即座に判定できる。
+    if (request.waypoints or request.destination) and settings.routing_engine != "road_graph":
         raise HTTPException(
             status_code=400, detail="waypoints/destinationはroad_graphエンジンでのみ利用できます。"
         )
 
-    async with _generate_semaphore:
-        origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
-        if request.waypoints or request.destination:
-            candidates = await setup.generator.generate_via_waypoints(
-                origin=origin,
-                waypoints=request.waypoints or [],
-                distance_km=request.distance_km,
-                destination=request.destination,
-            )
-        else:
-            candidates = await setup.generator.generate_loops(
-                origin=origin,
-                distance_km=request.distance_km,
-                distance_tolerance_km=request.distance_tolerance_km,
-            )
-    return RouteGenerateResponse(
-        routes=candidates,
-        engine=setup.generator.engine_name,
-        conditions=GenerationConditions(
-            latitude=request.latitude,
-            longitude=request.longitude,
-            distance_km=request.distance_km,
-            distance_tolerance_km=request.distance_tolerance_km,
-            scoring_weights=ScoringWeights(**setup.scoring_weights),
-            route_preference=RoutePreferenceWeights(setup.route_preference.weights),
-            penalty_strength=setup.penalty_strength,
-            max_average_grade_percent=setup.max_average_grade_percent,
-            hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
-            waypoints=request.waypoints,
-            destination=request.destination,
-            generated_at=datetime.now(JST).isoformat(),
-        ),
-    )
+    job_id = job_registry.create_job()
+    background_tasks.add_task(_run_generate_job, job_id, request)
+    return RouteGenerateJobCreatedResponse(job_id=job_id)
+
+
+@router.get("/api/routes/generate/{job_id}", response_model=RouteGenerateJobStatusResponse)
+async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
+    record = job_registry.get_job(job_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404, detail="ジョブが見つかりません（完了から時間が経過して破棄された可能性があります）"
+        )
+    return RouteGenerateJobStatusResponse(status=record.status, result=record.result, error=record.error)
+
+
+async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
+    """`generate_routes`が`BackgroundTasks`経由でレスポンス送出後に実行するジョブ本体
+    （改善計画T265）。例外はここで捕捉してjob_registryへ記録する——`BackgroundTasks`の
+    例外はどこにも伝播せず、素通しするとサーバーログにしか残らずクライアントは
+    永久にポーリングし続けることになる。"""
+    try:
+        # 重みの上書き（省略時はopen_route_generation_setup側でYAML既定値を読む）。
+        # 適用された値はconditionsへエコーする。
+        preference_override = (
+            RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
+        )
+        scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
+        hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
+
+        async with _generate_semaphore:
+            job_registry.set_running(job_id)
+            async with open_route_generation_setup(
+                preference_override,
+                scoring_override,
+                request.penalty_strength,
+                request.max_average_grade_percent,
+                hard_filters_override,
+            ) as setup:
+                origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
+                if request.waypoints or request.destination:
+                    candidates = await setup.generator.generate_via_waypoints(
+                        origin=origin,
+                        waypoints=request.waypoints or [],
+                        distance_km=request.distance_km,
+                        destination=request.destination,
+                    )
+                else:
+                    candidates = await setup.generator.generate_loops(
+                        origin=origin,
+                        distance_km=request.distance_km,
+                        distance_tolerance_km=request.distance_tolerance_km,
+                    )
+                response = RouteGenerateResponse(
+                    routes=candidates,
+                    engine=setup.generator.engine_name,
+                    conditions=GenerationConditions(
+                        latitude=request.latitude,
+                        longitude=request.longitude,
+                        distance_km=request.distance_km,
+                        distance_tolerance_km=request.distance_tolerance_km,
+                        scoring_weights=ScoringWeights(**setup.scoring_weights),
+                        route_preference=RoutePreferenceWeights(setup.route_preference.weights),
+                        penalty_strength=setup.penalty_strength,
+                        max_average_grade_percent=setup.max_average_grade_percent,
+                        hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
+                        waypoints=request.waypoints,
+                        destination=request.destination,
+                        generated_at=datetime.now(JST).isoformat(),
+                    ),
+                )
+        job_registry.set_done(job_id, response)
+    except Exception as exc:  # noqa: BLE001 バックグラウンドジョブの例外はここで必ず捕捉し記録する
+        logger.exception("ルート生成ジョブが失敗 job_id=%s", job_id)
+        job_registry.set_failed(job_id, str(exc))
