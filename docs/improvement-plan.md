@@ -6198,8 +6198,20 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 
   取得したログ（手順8の出力）を次のセッションへ貼り付ければ、「次の一歩(1)」の分析
   （20km時と25km/30km時の方位別traced距離の分布比較）にそのまま進める。
+- **代替手順（2026-08-27、T378完了後）**: T378で`/api/admin/debug`管理API
+  （HTTP Basic認証）が使えるようになったため、本番へデプロイ済みであれば上記SSH手順の
+  代わりに以下のcurlだけで完結する（コンテナ再作成・ダウンタイム無し）:
+  ```bash
+  curl -u "$ADMIN_USER:$ADMIN_PASS" -X POST https://<本番API>/api/admin/debug/mode -d '{"enabled": true}' -H "Content-Type: application/json"
+  curl -X POST https://<本番API>/api/routes/generate -d '{"latitude": 35.7507, "longitude": 139.7419, "distance_km": 30, "distance_tolerance_km": 5}' -H "Content-Type: application/json"
+  curl -u "$ADMIN_USER:$ADMIN_PASS" "https://<本番API>/api/admin/debug/logs?contains=distance+filter+rejected"
+  curl -u "$ADMIN_USER:$ADMIN_PASS" -X POST https://<本番API>/api/admin/debug/mode -d '{"enabled": false}' -H "Content-Type: application/json"
+  ```
+  ただしT378はこのタスク（T318）と同じコミットでデプロイされるまでは本番に存在しない
+  （T378完了時点でmasterへは反映済みだが、本番デプロイ自体は別途`deploy-backend.yml`の
+  実行が必要）。デプロイ前に試す場合は上記のSSH手順（手順1〜9）を使うこと。
 
-### - [ ] T378. debug_modeのランタイム切替とログ取得を管理APIから行えるようにする 規模S〜M
+### - [x] T378. debug_modeのランタイム切替とログ取得を管理APIから行えるようにする 規模S〜M（2026-08-27完了）
 
 - 背景: T318の調査で、本番debug_modeの一時有効化にSSHログイン・env file編集・
   コンテナ再作成が必要になることが運用上のボトルネックだと判明した（ユーザー指摘
@@ -6237,6 +6249,32 @@ Phaseほど前Phaseの成果を安全網として使える）。**
 - 影響範囲（保留した場合）: T318の次の一歩（本番debug_mode有効化）は、都度SSHでの
   env編集・コンテナ再作成が必要な現行手順のまま。1回きりの調査なら許容範囲だが、
   今後同種の本番限定事象（T105等）が起きるたびに同じ運用コストがかかり続ける。
+- **番号の振り直し（2026-08-27）**: 起票時点では「T377」として採番したが、並行セッションが
+  同時期に別内容（T361残作業の起票）へ同じ「T377」を独立に使っていたため、本タスクを
+  T378へ振り直した（push前に発覚、master統合済みの相手側を優先）。
+- **実装（2026-08-27完了）**:
+  1. `require_admin_basic_auth`を`axis_admin.py`から`app/api/admin_auth.py`（新設）へ
+     切り出し、両ルーターから共有する形にした。
+  2. `app/infrastructure/debug_control.py`（新設）: `set_debug_mode(enabled)`が
+     `settings.debug_mode`とルートロガーのレベルを同時に書き換える（`.env`は変更しない、
+     プロセス再起動・再デプロイのたびに環境変数の値=既定falseへ自動的に戻る）。
+     ルートロガーへ追加するリングバッファ`logging.Handler`（既定最大1000件、
+     `RequestIdLogFilter`適用済み）と、`get_recent_logs(limit, contains)`も同モジュールに実装。
+  3. `app/api/routers/debug_admin.py`（新設、`/api/admin/debug`、`require_admin_basic_auth`
+     必須）: `POST /mode`・`GET /mode`・`GET /logs`（`limit`/`contains`クエリ対応）。
+  4. `main.py`起動時に`install_ring_buffer_handler()`を呼び、既存の標準出力ハンドラは
+     そのまま残して追加のハンドラとして装着（既存の常時ログ出力に影響なし）。
+- **検証（2026-08-27）**: backend pytest 1289件green（新規9件: 認可401×3・
+  debug_modeの有効化/無効化往復・`GET /mode`の現在値反映・`contains`/`limit`フィルタ・
+  debug_mode OFF中はログが記録されないこと・リングバッファの上限件数）。frontend
+  tsc/eslint/vitest 691件green。OpenAPI再生成→`frontend/src/types/generated/`の
+  diff確認（新規エンドポイント2件ぶんの型のみ、axis-catalog.jsonの無関係な差分
+  [DB状態依存のshow_map_icon値]は誤って含めないよう除外）。実機確認: ローカルで
+  PostgreSQL 16+PostGISをセットアップしbackendを起動、①認証なしで401→②Basic認証で
+  `POST /mode {"enabled":true}`→③`/api/debug/stats`のdebug_mode反映確認→④適当な
+  リクエストを叩く→⑤`GET /logs?limit=5`・`GET /logs?contains=...`で実際のログ行
+  （`[req:xxx]`付き）を取得→⑥`POST /mode {"enabled":false}`で無効化、という一連の
+  操作がSSH不要・HTTP経由のみで完結することをcurlで確認した。
 
 ### - [x] T319. 全軸を軸スタジオで非公開にしても、ルート設定パネルに既存7軸が残り続ける不具合を修正 規模S（実装完了）
 
