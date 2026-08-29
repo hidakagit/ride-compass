@@ -462,3 +462,4 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [x] [T387](tasks/T387.md). JMA気象データ連携基盤の新設（Redis導入）とPostGIS揮発データのRedis移行 規模L（2026-08-29完了。機能④[axis_definitions同期]はT349方針により見送り、MSM本実装はT389へ切り出し。本番Redis導入・性能実測とも完了、PostGIS単体比約5.9倍高速化を確認）
 - [ ] [T388](tasks/T388.md). job_registryのマルチワーカー対応〔P3〕規模S — トリガー: backendの複数ワーカー/複数プロセス構成の採用時（現状は単一プロセスデプロイのため未到達）
 - [ ] [T389](tasks/T389.md). MSM（5kmメッシュ）GRIB2パーサーの本実装 規模M〜L — トリガー: JMBSC契約費用（月額約13,500円＋初回50,000円）を払ってでも導入する段階になった時点（2026-08-29ユーザー判断で保留、正式サービス化すれば再検討）
+- [ ] [T390](tasks/T390.md). road_graph評価ホットパスのis_split_up_to_date・get_edges_with_geometryをRedis cache-aside化 規模M — ユーザー指示（DB全般見直し）
