@@ -1,0 +1,21 @@
+-- 改善計画T409（display_override廃止の最終処理、docs/tasks/T409.md）。
+--
+-- T404でcar_stress/stop_density/accidentの3軸（旧display_overrideの唯一の利用者）を
+-- display_thresholds_overrideへ移行し、3軸ともdisplay_overrideをNULLへ戻し済み
+-- （T404完了時点でdev DBを確認済み）。旧display_overrideフィールド自体（コード側の
+-- AxisDefinition.display_override・axis_display_for()の後方互換フォールバック分岐・
+-- axis_admin.pyのPayload/Responseフィールド・axis_definition_repository.pyの(逆)
+-- シリアライズは本migrationと同一コミットで削除済み）に続き、DBカラムも削除する。
+--
+-- CLAUDE.md「コミット時の同期ルール」により、axis_definitionsのテーブル構造（DDL）変更は
+-- backend/migrations/で行う（行データの変更ではなくスキーマ変更のためこの経路が正しい）。
+--
+-- 適用前提: 全行のdisplay_overrideがNULLであること（着手時にdev DBで確認済み）。
+-- 本番DBへの適用はCLAUDE.md「既存DBの行データを新しいコードが読めなくなる変更を含む
+-- backend変更は、本番DBのデータ移行を完了させてからpushする」の対象——本migrationは
+-- 既存行のdisplay_overrideが全てNULLである前提のためデータ損失は起きないが、
+-- 本番backendが新コード（display_overrideカラムを一切読み書きしない）へ切り替わる前に
+-- このDROP COLUMNを本番DBへ適用する必要は無い一方、pushのタイミングは本番運用への
+-- 影響を考慮してユーザー判断とする（docs/tasks/T409.md参照）。
+ALTER TABLE axis_definitions
+    DROP COLUMN IF EXISTS display_override;

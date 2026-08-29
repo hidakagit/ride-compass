@@ -286,10 +286,7 @@ interface Draft {
   /** 改善計画T271: 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
    * backend側で更新・削除が拒否される（不変制約）ため、確定前によく確認してからONにする。 */
   isPublished: boolean;
-  /** 改善計画T310: 地図チップ表示要素（未設定は空文字列で表し、送信時にnullへ変換する）。
-   * display_override（地図rampの閾値上書き）はTileInputSpecの構造が複雑なため、
-   * このフォームには編集欄を持たない（domain/axis_definitions.py: AxisDefinition.
-   * display_overrideのdocstring参照。管理API経由の直接編集のみ対応）。 */
+  /** 改善計画T310: 地図チップ表示要素（未設定は空文字列で表し、送信時にnullへ変換する）。 */
   iconId: string;
   chipLabel: string;
   panelHint: string;
@@ -297,18 +294,16 @@ interface Draft {
    * どうか。既定true（表示する）。旧proxyHint（専用地図レイヤーを持たない軸向けの
    * 代役案内文）はこのON/OFFに置き換わり撤去した。 */
   showMapIcon: boolean;
-  /** コードレビュー指摘の修正: priority_overrides（改善計画T292、0次条件）・
-   * display_override（改善計画T310、地図ramp閾値の手書き上書き）はどちらもこの
+  /** コードレビュー指摘の修正: priority_overrides（改善計画T292、0次条件）はこの
    * フォームに編集欄を持たないが、既存軸の値をpayloadへ素通しして保持する
    * （以前はpayloadに含めておらず、公開済み軸を非公開へ戻して軽微な編集をしただけで
-   * これらが黙って失われていた——エラーも警告も出ない静かなデータ破壊だったため）。 */
+   * これが黙って失われていた——エラーも警告も出ない静かなデータ破壊だったため）。 */
   priorityOverrides: AxisDefinitionResponse["priority_overrides"];
-  displayOverride: AxisDefinitionResponse["display_override"];
   /** 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は
-   * 自動導出したしきい値をそのまま使う。数値の配列を直接編集するシンプルなUIで、
-   * 生JSON編集が必要なdisplayOverrideとは異なりこのフォームで直接編集できる
-   * （domain/axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring
-   * 参照）。 */
+   * 自動導出したしきい値をそのまま使う。数値の配列を直接編集するシンプルなUIで
+   * このフォームで直接編集できる（旧display_overrideは生JSON編集が必要で編集欄を
+   * 持てなかったが、改善計画T409でフィールド自体を削除した。domain/axis_definitions.py:
+   * AxisDefinition.display_thresholds_overrideのdocstring参照）。 */
   displayThresholdsOverride: number[] | null;
   /** 改善計画T352: time_scope/supports_route_coloringも同じ理由（このフォームに編集欄を
    * 持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
@@ -341,7 +336,6 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     panelHint: "",
     showMapIcon: true,
     priorityOverrides: [],
-    displayOverride: null,
     displayThresholdsOverride: null,
     timeScope: "always",
     supportsRouteColoring: false,
@@ -363,7 +357,6 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     panelHint: def.panel_hint ?? "",
     showMapIcon: def.show_map_icon,
     priorityOverrides: def.priority_overrides,
-    displayOverride: def.display_override,
     displayThresholdsOverride: def.display_thresholds_override ?? null,
     timeScope: def.time_scope,
     supportsRouteColoring: def.supports_route_coloring,
@@ -614,7 +607,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       // 素通しして送る（未送信＝サーバー側の既定値[空リスト/null]で上書きされ、既存軸の
       // 値が消えるのを防ぐ）。
       priority_overrides: draft.priorityOverrides,
-      display_override: draft.displayOverride,
       display_thresholds_override: draft.displayThresholdsOverride,
       time_scope: draft.timeScope,
       supports_route_coloring: draft.supportsRouteColoring,

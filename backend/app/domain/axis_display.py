@@ -27,11 +27,12 @@ BreakpointLinearShapeへ統合した際に判明した制約）:
 既存のkind="none"軸を壊さない安全側の判断。改善計画T298: kind="bespoke"は利用ゼロのため
 Literal自体を削除済み、registry.py参照）。
 
-この関数が対象外と判定した軸は、`AxisDefinition.display_override`（軸自身が持つ手書きの
-`AxisDisplaySpec`、改善計画T310）が設定されていれば`axis_display_for()`がそちらを使う
-（統計的に閾値を調整したい軸・他の軸を参照する材料構成でこの関数が解決できない軸向け。
-以前は軸id→値のハードコード辞書だったが、他の既存軸限定の特別扱いと同じ理由で軸自身の
-データへ移設した）。`display_override`も未設定なら`kind="none"`（地図に出ない）。
+この関数が対象外と判定した軸は`axis_display_for()`が`kind="none"`を返す（地図に出ない）。
+以前は`AxisDefinition.display_override`（軸自身が持つ手書きの`AxisDisplaySpec`、改善計画
+T310）が設定されていればそちらを後方互換フォールバックとして使う仕組みだったが、
+car_stress/stop_density/accidentの3軸をT404で本関数の自動導出＋`display_thresholds_
+override`へ移行しdisplay_overrideが不要になったことを受け、改善計画T409でフィールド・
+DBカラムごと削除した（docs/tasks/T409.md参照）。
 
 **T308での用途拡大**: 上記の一般化により、軸スタジオ（GUI）で作成された軸
 （複数材料の重み付き結合や、highway/surface等のstr N値カテゴリカル材料を使う軸を
@@ -316,7 +317,8 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
         # 既存の挙動を変えない。実務上は「必須材料がway単位の事前集計で欠損する」ケース
         # 自体が稀（way_attribute_countsは欠損時0埋めが基本）なため実害は限定的だが、
         # GUI作成軸でrequired=True材料が実際にタグ欠損しやすい場合は、この不整合を
-        # 認識した上でdisplay_override（軸自身の手書き上書き）を検討すること。
+        # 認識した上で運用すること（改善計画T409で旧手書き上書き`display_override`は
+        # 削除済みのため、現時点で個別の軸だけ回避する手段は無い）。
         tile_inputs = []
         for term in shape.terms:
             spec = specs.get(term.material)
@@ -421,9 +423,9 @@ def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
 
 def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     """軸の地図表示宣言（改善計画T308、T310で軸id別の特別扱いを解消、T404で
-    display_override廃止方針に合わせ優先順位を書き換え）。`GET /api/axis-catalog`が
-    公開軸すべてに対して呼ぶ想定の純粋関数（`AXIS_DEFINITIONS`・`MATERIAL_CATALOG`という
-    プロセス内メモリだけを見る、DB/IO無し）。
+    display_override廃止方針に合わせ優先順位を書き換え、T409でdisplay_override自体を
+    削除）。`GET /api/axis-catalog`が公開軸すべてに対して呼ぶ想定の純粋関数
+    （`AXIS_DEFINITIONS`・`MATERIAL_CATALOG`というプロセス内メモリだけを見る、DB/IO無し）。
 
     優先順位（改善計画T404、docs/tasks/T404.md）:
     ①`derive_ramp_inputs()`が自動導出に成功し、かつ`definition.display_thresholds_override`
@@ -431,15 +433,11 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     自動導出した`tile_inputs`とこのしきい値を組み合わせる。
     ②`derive_ramp_inputs()`が成功し`display_thresholds_override`が無ければ、自動導出した
     しきい値をそのまま使う。
-    ③`derive_ramp_inputs()`自体が失敗した場合のみ、`definition.display_override`
-    （廃止予定の生JSON上書き、`tile_inputs`まで含む）が設定されていればそれを使う
-    （後方互換のセーフティネット。`display_thresholds_override`は「tile_inputs自体は
-    自動導出できる軸の、色分けしきい値だけ」を上書きする仕組みのため、
-    `derive_ramp_inputs`がそもそも失敗するケースはカバーできない——旧優先順位[改善計画
-    T310]では`display_override`が最優先だったが、`car_stress`/`stop_density`/`accident`の
-    3軸をT404で`display_thresholds_override`へ移行し`display_override`をNULLへ戻す想定
-    のため、通常運用ではこの分岐に到達しない見込み）。
-    ④どれも得られなければ`kind="none"`。
+    ③`derive_ramp_inputs()`自体が失敗すれば`kind="none"`（改善計画T409以前は
+    `definition.display_override`という生JSON上書きを後方互換フォールバックとして使う
+    ③'があったが、`car_stress`/`stop_density`/`accident`の3軸をT404で
+    `display_thresholds_override`へ移行しdisplay_overrideが不要になったことを確認した
+    うえでT409でフィールド・DBカラムごと削除した。docs/tasks/T409.md参照）。
 
     `unit`・`category`（凡例の単位・地図レイヤーパネルの並び順区分）は材料構成から
     機械的に導出できないため、自動導出ケースではAxisDisplaySpecの既定値
@@ -460,6 +458,4 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
             tile_inputs=ramp.tile_inputs,
             thresholds=thresholds,
         )
-    if definition.display_override is not None:
-        return definition.display_override
     return AxisDisplaySpec(kind="none", label=definition.label)

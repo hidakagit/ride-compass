@@ -803,7 +803,6 @@ export interface components {
              * @default false
              */
             supports_route_coloring: boolean;
-            display_override?: components["schemas"]["AxisDisplaySpec"] | null;
             /** Display Thresholds Override */
             display_thresholds_override?: number[] | null;
         };
@@ -869,7 +868,6 @@ export interface components {
              * @default false
              */
             supports_route_coloring: boolean;
-            display_override?: components["schemas"]["AxisDisplaySpec"] | null;
             /** Display Thresholds Override */
             display_thresholds_override?: number[] | null;
             display: components["schemas"]["AxisDisplaySpec"];

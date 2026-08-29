@@ -1884,16 +1884,6 @@
             "title": "Supports Route Coloring",
             "default": false
           },
-          "display_override": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AxisDisplaySpec"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "display_thresholds_override": {
             "anyOf": [
               {
@@ -2023,16 +2013,6 @@
             "type": "boolean",
             "title": "Supports Route Coloring",
             "default": false
-          },
-          "display_override": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AxisDisplaySpec"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "display_thresholds_override": {
             "anyOf": [

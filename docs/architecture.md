@@ -1975,12 +1975,13 @@ T310時点の`axis_display_for()`優先順位（①`display_override` ②`derive
   ではなく「色分け段階の刻み方の好み」の問題のため、新設した`AxisDefinition.
   display_thresholds_override: list[float] | None`（`axis_definitions`テーブルへ
   `migrations/0025_axis_definitions_display_thresholds_override.sql`でカラム追加）へ
-  切り出した。`axis_display_for()`の優先順位は①`derive_ramp_inputs()`成功＋
+  切り出した。T404時点の`axis_display_for()`の優先順位は①`derive_ramp_inputs()`成功＋
   `display_thresholds_override`設定→自動導出tile_inputsとこのしきい値を組み合わせる、
   ②成功＋未設定→自動導出のしきい値そのまま、③`derive_ramp_inputs()`失敗時のみ旧
   `display_override`を後方互換フォールバックとして使用、④どちらも無ければ`kind="none"`
-  （`display_override`自体は削除せず残す。実際に不要になったことを確認したうえで
-  DBカラム削除する後続タスクT407へ切り出した）。
+  だった（`display_override`自体は削除せず残し、実際に不要になったことを確認したうえで
+  DBカラム削除する後続タスクT409へ切り出した——このセクション末尾「`display_override`の
+  完全撤去」節でT409完了後の状態へ更新済み）。
 - **軸スタジオGUI**（`AxisComposer.tsx`）へ「地図の色分けしきい値」編集項目を追加した。
   生JSON編集が必要な`display_override`と異なり、数値配列の追加/削除/編集のみの
   シンプルなUI（`AxisDefinitionResponse.display_thresholds_override`）。管理API
@@ -1999,6 +2000,28 @@ T310時点の`axis_display_for()`優先順位（①`display_override` ②`derive
   （`car_stress_highway_base`の実際のmapping）へ自動的に修正された。
 
 詳細はdocs/tasks/T404.md参照。
+
+#### `display_override`の完全撤去（改善計画T409、2026-08-30）
+
+T404で残した後方互換の`display_override`（フィールド・DBカラムとも）を、car_stress/
+stop_density/accidentの3軸が実際に不要になったことを確認したうえで削除した。**現状**
+（T404時点の上記の3行・4段階の優先順位の記述は本節で置き換わる）:
+
+- `AxisDefinition`（`axis_definitions.py`）は`display_override`フィールドを持たない
+  （`display_thresholds_override`のみ）。
+- `axis_display_for()`の優先順位は2段階のみ: ①`derive_ramp_inputs()`成功＋
+  `display_thresholds_override`設定→自動導出tile_inputsとこのしきい値を組み合わせる
+  （未設定なら自動導出のしきい値そのまま）、②`derive_ramp_inputs()`失敗→`kind="none"`。
+- `axis_definitions`テーブルの`display_override`列は`migrations/
+  0026_axis_definitions_drop_display_override.sql`（`DROP COLUMN`、DDLのみ）で削除した。
+  `AxisDefinitionRow`・`axis_definition_repository.py`の(逆)シリアライズ・
+  `axis_admin.py`のPayload/Responseフィールドも同一コミットで削除済み。
+  `AxisDisplaySpec`（`registry.py`）自体は`axis_display_for()`の戻り値・
+  `AxisDefinitionResponse.display`の型として引き続き使われているため削除していない。
+- フロント（`AxisComposer.tsx`）の`displayOverride`素通し保持コードも削除した
+  （`displayThresholdsOverride`は影響なく残る）。
+
+詳細はdocs/tasks/T409.md参照。
 
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 

@@ -120,12 +120,13 @@ class TileInputSpec(BaseModel):
     @classmethod
     def _sort_categories(cls, value: dict[str, float] | None) -> dict[str, float] | None:
         # 改善計画T333: このフィールドの値は情報源によって挿入順が非決定になりうる
-        # （手書きのPython dictリテラル[AXIS_DEFINITIONS.display_override等]は決定的だが、
-        # DBのdisplay_override[JSONB列]へ一度でも往復するとPostgreSQLのjsonb内部順
-        # [キー長→バイト順]へ変わり両者は一致しない）。ここは表示専用（frontendの色分け
-        # 表示にしか使わない）のため、モデル構築のたびにキーをソートして経路によらず
-        # 決定的な順序へ正規化する。TileInputSpecはPydanticモデルのためこのvalidatorが
-        # 構築元（コード内リテラル・DB読み込み・APIリクエストボディ）を問わず一律に効く。
+        # （`derive_ramp_inputs`が材料の`categories`辞書リテラルから構築する経路は決定的
+        # だが、以前存在したDBのdisplay_override[JSONB列、改善計画T409で削除]へ一度でも
+        # 往復するとPostgreSQLのjsonb内部順[キー長→バイト順]へ変わり両者は一致しなかった）。
+        # ここは表示専用（frontendの色分け表示にしか使わない）のため、モデル構築のたびに
+        # キーをソートして経路によらず決定的な順序へ正規化する。TileInputSpecはPydantic
+        # モデルのためこのvalidatorが構築元（コード内リテラル・APIレスポンス等）を
+        # 問わず一律に効く。
         if value is None:
             return None
         return dict(sorted(value.items()))

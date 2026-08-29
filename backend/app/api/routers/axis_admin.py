@@ -104,20 +104,16 @@ class AxisDefinitionFields(BaseModel):
     # 改善計画T352: axis_idハードコード分岐を性質ベースの宣言的フィールドへ汎用化した
     # もの（domain/axis_definitions.py: AxisDefinition.time_scope/
     # supports_route_coloringのdocstring参照）。AxisComposer.tsx（GUIフォーム）は
-    # display_overrideと同様、現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
+    # 現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
     time_scope: Literal["always", "night_only"] = "always"
     supports_route_coloring: bool = False
-    # display_overrideはTileInputSpecの構造が複雑なため、AxisComposer.tsx（GUIフォーム）は
-    # 現時点で編集UIを持たない（domain/axis_definitions.py: AxisDefinition.display_override
-    # のdocstring参照）。それでもAPIレベルでは軸スタジオ（管理API）経由で直接設定・参照
-    # できるようにしておく（フィールド自体を隠さない——将来のGUI化・直接API呼び出しの
-    # どちらでも同じ経路で軸データとして永続化されるようにするため）。
-    display_override: AxisDisplaySpec | None = None
     # 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
     # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
-    # display_overrideと異なり、AxisComposer.tsx（GUIフォーム）が「数値の配列を編集する」
-    # という単純なUIで直接編集できる（バリデーションは下のAxisDefinitionPayload._
-    # check_display_thresholds_override_is_ascending参照）。
+    # 旧display_override（TileInputSpecの構造が複雑なためGUI編集を持てなかった生JSON
+    # 上書き、改善計画T409でフィールド・DBカラムごと削除済み）と異なり、AxisComposer.tsx
+    # （GUIフォーム）が「数値の配列を編集する」という単純なUIで直接編集できる
+    # （バリデーションは下のAxisDefinitionPayload._check_display_thresholds_override_
+    # is_ascending参照）。
     display_thresholds_override: list[float] | None = None
 
 
@@ -265,7 +261,6 @@ class AxisDefinitionPayload(AxisDefinitionFields):
             show_map_icon=self.show_map_icon,
             time_scope=self.time_scope,
             supports_route_coloring=self.supports_route_coloring,
-            display_override=self.display_override,
             display_thresholds_override=self.display_thresholds_override,
         )
 
@@ -301,7 +296,6 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         show_map_icon=definition.show_map_icon,
         time_scope=definition.time_scope,
         supports_route_coloring=definition.supports_route_coloring,
-        display_override=definition.display_override,
         display_thresholds_override=definition.display_thresholds_override,
         display=axis_display_for(definition),
     )

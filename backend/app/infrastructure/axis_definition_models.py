@@ -67,11 +67,6 @@ class AxisDefinitionRow(Base):
     # 明示的にbackfillした）。
     time_scope: Mapped[str] = mapped_column(String, nullable=False, server_default="always")
     supports_route_coloring: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # domain/axis_definitions.py: AxisDefinition.display_override（AxisDisplaySpec）を
-    # `model_dump(mode="json")`したJSONオブジェクト。shape_paramsと同じ規約。
-    # 改善計画T404で廃止方針が決まった非推奨カラム（後方互換のセーフティネットとしてのみ
-    # 残す。display_thresholds_overrideのdocstring・移行方針はdocs/tasks/T404.md参照）。
-    display_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
     # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
     # 0025 migrationでNULL許容の追加カラムとして導入（未設定はderive_ramp_inputsが
