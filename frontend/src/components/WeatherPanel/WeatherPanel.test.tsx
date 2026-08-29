@@ -125,21 +125,22 @@ describe("WeatherPanel", () => {
       vi.restoreAllMocks();
     });
 
-    it("日の出前なら日の出時刻を表示する", () => {
+    it("日の出前なら↑（上昇）矢印付きで日の出時刻を表示する（改善計画T387フォローアップ2、" +
+      "「アイコン+時刻だけだと何の時刻か分からない」というユーザー指摘への対応）", () => {
       vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T04:00:00").getTime());
       const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
-      expect(container.textContent).toMatch(/05:12/);
+      expect(container.textContent).toMatch(/↑05:12/);
       expect(container.querySelector('[title*="日の出"]')).toBeInTheDocument();
     });
 
-    it("日中は日没時刻を表示する", () => {
+    it("日中は↓（下降）矢印付きで日没時刻を表示する", () => {
       vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00").getTime());
       const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
-      expect(container.textContent).toMatch(/18:24/);
+      expect(container.textContent).toMatch(/↓18:24/);
       expect(container.querySelector('[title*="日没"]')).toBeInTheDocument();
     });
 
@@ -162,10 +163,10 @@ describe("WeatherPanel", () => {
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
       // 天気アイコン用・日の出日没用の2チップに分かれず、1つのチップへ両方収まる
-      // （svgアイコンが1個のみ、titleに両方の情報を持つ）。
+      // （svgアイコンが1個のみ、titleに両方の情報を持つ）。矢印(↓)が時刻の意味を補う。
       const chip = container.querySelector('[title*="晴れ"][title*="日没"]');
       expect(chip).toBeInTheDocument();
-      expect(chip?.textContent).toMatch(/18:24/);
+      expect(chip?.textContent).toMatch(/↓18:24/);
     });
   });
 

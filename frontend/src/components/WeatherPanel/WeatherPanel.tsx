@@ -64,8 +64,15 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
       <span className={styles.stat} title={temperatureTitle}>
         <ThermometerIcon size={16} />
         <span className={styles.srOnly}>気温: </span>
-        {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
-        <span className={styles.unit}>℃</span>
+        {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする（改善計画
+            T387フォローアップ2026-08-29「.unit周りの余白を詰められないか」対応。flexboxの
+            gapは直接の子要素すべての間に均等に効くため、数値と単位を別々の子要素のまま
+            にすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい意図しない余白に
+            なっていた）。 */}
+        <span>
+          {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
+          <span className={styles.unit}>℃</span>
+        </span>
       </span>
 
       <span className={styles.divider} aria-hidden="true" />
@@ -76,8 +83,10 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
             <WindDirectionArrowIcon size={16} />
           </span>
           <span className={styles.srOnly}>{amedas.wind_direction_label}の風: </span>
-          {amedas.wind_speed_ms.toFixed(1)}
-          <span className={styles.unit}>m/s</span>
+          <span>
+            {amedas.wind_speed_ms.toFixed(1)}
+            <span className={styles.unit}>m/s</span>
+          </span>
         </span>
       )}
 
@@ -87,8 +96,10 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
           <span className={styles.stat} title="直近10分間の降水量">
             <RaindropIcon size={16} />
             <span className={styles.srOnly}>降水量: </span>
-            {amedas.precipitation_10min_mm.toFixed(1)}
-            <span className={styles.unit}>mm</span>
+            <span>
+              {amedas.precipitation_10min_mm.toFixed(1)}
+              <span className={styles.unit}>mm</span>
+            </span>
           </span>
         </>
       )}
@@ -115,7 +126,20 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
               {weatherDisplay ? `天気: ${weatherDisplay.label}` : ""}
               {twilightIso != null ? `${twilightTitle}: ` : ""}
             </span>
-            {twilightIso != null && formatClockTime(twilightIso)}
+            {twilightIso != null && (
+              // 「天気アイコン＋時刻」だけだと何の時刻か伝わらないというユーザー指摘
+              // （2026-08-29「雨アイコン＋18:13だとさっぱりわからない」）を受け、昇る/沈むを
+              // 直感的に示す矢印を時刻の直前に添える（多くの天気アプリで使われる日の出↑/
+              // 日没↓の慣習的表現。時計アイコンより幅を取らず、天気アイコンと組み合わせても
+              // 意味の混同が起きない）。矢印と時刻は1つのspanにまとめ、.statのgapが間に
+              // 入って離れて見えないようにする（数値・単位と同じ理由）。
+              <span>
+                <span className={styles.twilightArrow} aria-hidden="true">
+                  {beforeSunrise ? "↑" : "↓"}
+                </span>
+                {formatClockTime(twilightIso)}
+              </span>
+            )}
           </span>
         </>
       )}
