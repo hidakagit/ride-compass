@@ -39,6 +39,15 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - レート制限の境界値テストは `rate_limiter.check_rate_limit` を直接呼んで上限-1件を埋め、実HTTPは境界の1〜2回に絞る（上限回数分の実HTTPループ厳禁）
 - PostGIS統合テスト（road_graph_session、conftest.py）はファイル単位でエンジン・イベントループを共有する設計。新規ファイルでは `pytestmark = pytest.mark.asyncio(loop_scope="module")` が必要（自前の追加async fixtureにも `loop_scope="module"` を明示）。CIはpytest-xdistで並列化しているため `pytest.mark.xdist_group(name="postgis")` も併せて必須（詳細はdocs/testing.md参照）
 - フロントエンドの新規テストがDOM（render/renderHook/window等）を使わない純ロジックなら、ファイル先頭へ `// @vitest-environment node` docblockを付ける（実装側関数の隠れたDOM依存にも注意、詳細はdocs/testing.md参照）
+- **修正→確認を繰り返す反復フェーズでは、変更に直接関係するテストファイルだけを絞り込んで
+  実行する**（backend例: `pytest backend/tests/test_foo.py -q`、frontend例:
+  `npx vitest run <該当ファイル> --pool=threads`）。バックエンド全体
+  （`pytest -q -m "not postgis"`）・フロントエンド全体（`npx vitest run`・
+  `tsc --noEmit`・`eslint`）のようなフルスイートは、**実装が安定し反復が収束した後の
+  最終検証として1回だけ**実行する。毎回の微修正のたびにフルスイートを回すと、
+  「微修正→長いフルテスト→NG発見→修正→また長いフルテスト」という非効率なループに
+  陥る（2026-08-30、T405実装中に実際にこのループが発生しユーザーが指摘、以降の
+  全セッション向けにここへ標準化）。
 
 ## コミット時の同期ルール（必読）
 
