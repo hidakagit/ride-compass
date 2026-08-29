@@ -9,7 +9,7 @@ from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.route import RouteCandidate
-from app.infrastructure import rate_limiter
+from app.infrastructure import job_registry, rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -240,6 +240,35 @@ async def test_generate_routes_rejects_when_concurrency_limit_reached():
     assert response.status_code == 429
 
 
+def test_generate_routes_acquires_semaphore_before_scheduling_background_job(monkeypatch):
+    # 改善計画T386（T265コードレビュー指摘1件目、CONFIRMED回帰テスト）: 以前は
+    # POSTハンドラで`_generate_semaphore.locked()`を確認するだけで、実際の取得
+    # （`async with _generate_semaphore:`）は`BackgroundTasks`経由でレスポンス送出後に
+    # 実行される`_run_generate_job`側だった。両者の間にHTTPレスポンス送出という実I/Oが
+    # 挟まるため、複数リクエストがほぼ同時に届くと上限を超える数が202で受理されうる
+    # レースがあった（ASGITransport上のin-memory送受信は実I/Oを伴わずawaitでも
+    # 中断しないため、httpx.AsyncClientでの並行リクエスト再現は非現実的——このテストは
+    # 代わりに「バックグラウンドジョブが動き出す時点で、セマフォが既にPOSTハンドラ側で
+    # 減算済みである」という、レースを構造的に閉じている不変条件を直接検証する）。
+    observed_semaphore_values: list[int] = []
+
+    async def _fake_run_generate_job(job_id: str, request) -> None:
+        # 本物の_run_generate_jobを丸ごと差し替える。観測した時点で既に取得済みなら、
+        # POSTハンドラ側での同期取得が効いている証拠になる。取得した分はここで解放し
+        # テスト後の状態を元に戻す（本物のfinally節と同じ役割）。
+        observed_semaphore_values.append(_generate_semaphore._value)
+        job_registry.set_done(job_id, None)
+        _generate_semaphore.release()
+
+    monkeypatch.setattr(routes_module, "_run_generate_job", _fake_run_generate_job)
+
+    response = client.post("/api/routes/generate", json=REQUEST_BODY)
+
+    assert response.status_code == 202
+    assert observed_semaphore_values == [settings.generate_max_concurrent - 1]
+    assert _generate_semaphore._value == settings.generate_max_concurrent
+
+
 def test_generate_job_status_returns_404_for_unknown_job_id():
     # 改善計画T265: 完了から時間が経過して破棄された、またはそもそも存在しないjob_idは
     # 404（例外を握りつぶさず、フロントがポーリングを打ち切れるようにする）。
@@ -248,12 +277,15 @@ def test_generate_job_status_returns_404_for_unknown_job_id():
     assert response.status_code == 404
 
 
-def test_generate_job_status_returns_failed_with_error_message(monkeypatch):
+def test_generate_job_status_returns_failed_with_generic_error_message(monkeypatch):
     # 改善計画T265: バックグラウンドジョブ内の例外はレスポンスへ伝播できないため、
     # job_registryへ記録してポーリング側がstatus=="failed"として観測できることを確認する。
+    # 改善計画T386（T265コードレビュー指摘3件目、CONFIRMED）: 例外の生メッセージ
+    # （openrouteserviceの生レスポンス本文等を含みうる）はクライアントへ公開せず、
+    # 汎用メッセージのみを返す。詳細はlogger.exceptionでサーバーログにのみ残す。
     @asynccontextmanager
     async def _raise_setup(*args, **kwargs):
-        raise RuntimeError("生成中に想定外のエラー")
+        raise RuntimeError("生成中に想定外のエラー（本来ログにのみ残るべき内部詳細）")
         yield  # noqa: このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
 
     monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
@@ -266,7 +298,30 @@ def test_generate_job_status_returns_failed_with_error_message(monkeypatch):
     assert poll_response.status_code == 200
     body = poll_response.json()
     assert body["status"] == "failed"
-    assert "生成中に想定外のエラー" in body["error"]
+    assert "生成中に想定外のエラー" not in body["error"]
+    assert body["error"] == "ルート生成に失敗しました。時間をおいて再度お試しください。"
+
+
+def test_generate_job_failure_releases_concurrency_semaphore(monkeypatch):
+    # 改善計画T386（T265コードレビュー指摘1件目、CONFIRMED）: セマフォは投稿時点の
+    # POSTハンドラで取得するようになった（TOCTOUレース対応）ため、ジョブが例外で
+    # 終わった場合でも_run_generate_job側のfinallyで確実に解放され、リークしないことを
+    # 確認する（リークすると同時実行枠が徐々に埋まり、無関係な後続リクエストが429に
+    # なっていく）。
+    @asynccontextmanager
+    async def _raise_setup(*args, **kwargs):
+        raise RuntimeError("失敗")
+        yield  # noqa: このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
+
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
+
+    submit_response = client.post("/api/routes/generate", json=REQUEST_BODY)
+    job_id = submit_response.json()["job_id"]
+    poll_response = client.get(f"/api/routes/generate/{job_id}")
+    assert poll_response.json()["status"] == "failed"
+
+    assert not _generate_semaphore.locked()
+    assert _generate_semaphore._value == settings.generate_max_concurrent
 
 
 def _lightweight_route_generation_setup(preference_override=None, scoring_weights_override=None):

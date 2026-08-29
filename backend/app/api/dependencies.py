@@ -170,8 +170,8 @@ def _assemble_route_generation_setup(
     routing_service: RoutingService,
     elevation_service: ElevationService,
     wind_service: WindService,
-    graph_service: GraphService,
-    elevation_attribute_service: ElevationAttributeService,
+    graph_service: GraphService | None,
+    elevation_attribute_service: ElevationAttributeService | None,
     weather_service: WeatherService,
     surface_match_repository: RoadGraphRepository | None,
     preference_override: RoutePreference | None = None,
@@ -182,11 +182,12 @@ def _assemble_route_generation_setup(
 ) -> RouteGenerationSetup:
     """組み立て済みの7サービスと評価条件から`RouteGenerationSetup`を作る（改善計画T265）。
 
-    `get_route_generation_builder`（FastAPI DI経由、リクエストスコープのセッション）・
-    `open_route_generation_setup`（バックグラウンドジョブ用、リクエストスコープ外の
-    独立セッション）の両方から呼ばれる共通ロジック。「どのサービスをどのエンジンへ
-    どう組み立てるか」はここへ一本化し、セッションの開き方（DIかAsyncExitStackか）だけを
-    呼び出し側で分ける。
+    唯一の呼び出し元`open_route_generation_setup`から「どのサービスをどのエンジンへ
+    どう組み立てるか」を切り離すための純粋関数（テストからも直接呼べる、
+    tests/test_routes_generate.py参照）。`graph_service`/`elevation_attribute_service`は
+    `settings.routing_engine=="road_graph"`のときのみ使う（そうでなければNoneのまま
+    未使用）。呼び出し側（`open_route_generation_setup`）はこの利用パターンに合わせて
+    使わない側のDBセッションを開かない（改善計画T386、T265コードレビュー指摘4件目）。
     """
     preference = preference_override or load_route_preference()
     scoring_weights = scoring_weights_override or load_scoring_weights()
@@ -225,7 +226,8 @@ async def open_route_generation_setup(
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
 ) -> AsyncIterator[RouteGenerationSetup]:
-    """`get_route_generation_builder`のバックグラウンドジョブ版（改善計画T265）。
+    """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ
+    （改善計画T265）。
 
     FastAPIのリクエストスコープ外（`BackgroundTasks`経由、レスポンス送出後に実行される）
     で使うため、`Depends`は使えない——リクエストのDBセッションはハンドラ関数が返った
@@ -237,19 +239,31 @@ async def open_route_generation_setup(
     `get_surface_match_repository`）は、既存のDI用ジェネレータ関数をそのまま
     `asynccontextmanager()`でラップして`AsyncExitStack`で開く（セッション開閉ロジックを
     複製しない）。残り4つ（httpx共有クライアント系）はセッション非依存のため直接呼ぶ。
+
+    改善計画T386（T265コードレビュー指摘4件目、CONFIRMED）: `_assemble_route_generation_setup`は
+    `settings.routing_engine`に応じてroad_graph/openrouteservice片方のサービスしか使わないため、
+    使わない側のDBセッションは開かない。`get_surface_match_repository`が路面/事故タイル配信と
+    共有する逼迫気味のプール（`config.py`参照）から接続を取得する点は特に、road_graphエンジン
+    構成でジョブの全期間（冷パスで最大316秒[T248実測]）未使用の接続を無駄に保持し続けるのを
+    避ける効果が大きい。
     """
     async with AsyncExitStack() as stack:
         routing_service = get_routing_service()
         elevation_service = get_elevation_service()
         weather_service = get_weather_service()
         wind_service = get_wind_service(weather_service)
-        graph_service = await stack.enter_async_context(asynccontextmanager(get_graph_service)())
-        elevation_attribute_service = await stack.enter_async_context(
-            asynccontextmanager(get_elevation_attribute_service)()
-        )
-        surface_match_repository = await stack.enter_async_context(
-            asynccontextmanager(get_surface_match_repository)()
-        )
+        if settings.routing_engine == "road_graph":
+            graph_service = await stack.enter_async_context(asynccontextmanager(get_graph_service)())
+            elevation_attribute_service = await stack.enter_async_context(
+                asynccontextmanager(get_elevation_attribute_service)()
+            )
+            surface_match_repository = None
+        else:
+            graph_service = None
+            elevation_attribute_service = None
+            surface_match_repository = await stack.enter_async_context(
+                asynccontextmanager(get_surface_match_repository)()
+            )
         yield _assemble_route_generation_setup(
             routing_service, elevation_service, wind_service, graph_service,
             elevation_attribute_service, weather_service, surface_match_repository,

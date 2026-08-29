@@ -103,6 +103,13 @@ const POLL_INTERVAL_MS = 1500;
 // 上回る値にする。以前は単発fetchのAbortSignal.timeoutだったが、改善計画T265で
 // ポーリングの総待ち時間上限へ役割が変わった（値自体は据え置き）。
 const MAX_POLL_DURATION_MS = 360000;
+// 改善計画T386（T265コードレビュー指摘2件目、CONFIRMED）: 1回のポーリング失敗（一時的な
+// ネットワーク瞬断・5xx）で生成全体を即座に失敗させず、この回数まで連続失敗を許容してから
+// 諦める。バックエンド側`_run_generate_job`はジョブをキャンセルする手段が無く握ったままの
+// ため、早すぎる諦めは同時実行枠（既定2）を無駄に占有させる孤立ジョブを生みやすい一方、
+// 諦めが遅すぎても本当に接続が切れているケースの検知が遅れるため、POLL_INTERVAL_MS込みで
+// 数十秒程度（5回×1.5秒間隔）に収める。
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -131,15 +138,45 @@ export async function generateRoutes(
     "/api/routes/generate", request, 15000,
   );
   const startedAt = performance.now();
+  let consecutivePollFailures = 0;
 
-  for (;;) {
-    const elapsedMs = performance.now() - startedAt;
-    if (elapsedMs > MAX_POLL_DURATION_MS) {
-      debugLog("api:route", "失敗 (ポーリングタイムアウト)", { jobId, elapsedMs }, "error");
+  for (let pollCount = 0; ; pollCount += 1) {
+    if (performance.now() - startedAt > MAX_POLL_DURATION_MS) {
+      debugLog("api:route", "失敗 (ポーリングタイムアウト)", { jobId, elapsedMs: performance.now() - startedAt }, "error");
       throw new Error("ルート生成がタイムアウトしました");
     }
-    await sleep(POLL_INTERVAL_MS);
-    const status = await pollGenerationJob(jobId);
+    // 改善計画T386（T265コードレビュー指摘6件目、CONFIRMED）: 初回だけsleepを挟まず
+    // 即座にポーリングする。以前は毎回ループ先頭でsleepしていたため、サーバー側の生成が
+    // 数百ms〜1秒程度で終わる典型的なウォームパスでも必ずPOLL_INTERVAL_MS分待たされていた。
+    if (pollCount > 0) {
+      await sleep(POLL_INTERVAL_MS);
+    }
+
+    let status: RouteGenerateJobStatusResponse;
+    try {
+      status = await pollGenerationJob(jobId);
+      consecutivePollFailures = 0;
+    } catch (error) {
+      consecutivePollFailures += 1;
+      // 改善計画T386（T265コードレビュー指摘2件目、CONFIRMED）: 1回の一時的な失敗では
+      // 生成全体を落とさず、次のポーリングでリトライする。
+      debugLog(
+        "api:route",
+        `ポーリング失敗、リトライします (${consecutivePollFailures}/${MAX_CONSECUTIVE_POLL_FAILURES})`,
+        { jobId, error: error instanceof Error ? error.message : String(error) },
+        "error",
+      );
+      if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+        throw error instanceof Error ? error : new Error("ルート生成の状態取得に失敗しました");
+      }
+      continue;
+    }
+
+    // 改善計画T386（T265コードレビュー指摘8件目、CONFIRMED）: onProgressへ渡す経過時間は
+    // GETの応答が返った直後（＝実際に観測できた最新時点）で計算する。以前はループ先頭
+    // （sleep・GETの前）で計算していたため、表示が常にPOLL_INTERVAL_MS+GET応答時間ぶん
+    // 遅れていた。
+    const elapsedMs = performance.now() - startedAt;
     if (status.status === "done") {
       if (!status.result) {
         // 型上はstatus"done"でもresultがnullでありうる（RouteGenerateJobStatusResponse.

@@ -20,9 +20,13 @@ from typing import Any, Literal
 JobStatus = Literal["queued", "running", "done", "failed"]
 
 # 完了（done/failed）から10分経過したジョブは次のcreate_job()呼び出し時に掃除する
-# （定期タスクを新設せず、`infrastructure/debug_control.py`のリングバッファと同じ
-# 「呼ばれたついでに掃除」方式）。ジョブ生成頻度に対して十分長く、ポーリング側の
-# 最大待機時間[frontend routeApi.tsのMAX_POLL_DURATION_MS=360秒]より十分長い値。
+# （定期タスクを新設せず、`infrastructure/rate_limiter.py`の
+# `dict + time.monotonic() + 呼び出し時_sweep`と同じ「呼ばれたついでに掃除」方式。
+# 改善計画T386、T265コードレビュー指摘9件目: 以前は`debug_control.py`のリングバッファと
+# 同じ方式と書いていたが、そちらは`deque(maxlen=...)`による件数ベースの暗黙FIFO破棄で
+# TTL・時刻判定を持たず、構造が異なる参照ミスだった）。ジョブ生成頻度に対して十分長く、
+# ポーリング側の最大待機時間[frontend routeApi.tsのMAX_POLL_DURATION_MS=360秒]より
+# 十分長い値。
 _JOB_TTL_SECONDS = 600.0
 
 

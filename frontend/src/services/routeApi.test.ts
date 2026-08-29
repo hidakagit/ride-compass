@@ -214,13 +214,12 @@ describe("routeApi", () => {
       vi.useRealTimers();
     });
 
-    it("投稿直後のポーリングで完了していればroutes・conditions・engineを返す", async () => {
-      vi.useFakeTimers();
+    it("投稿直後（sleep無し）のポーリングで完了していればroutes・conditions・engineを返す", async () => {
+      // 改善計画T386（T265コードレビュー指摘6件目）: 初回はsleepを挟まず即座にポーリング
+      // するため、タイマーを進めなくても解決する。
       stubFetchForJob([{ status: "done", result: { routes, engine: "road_graph", conditions } }]);
 
-      const resultPromise = generateRoutes(request);
-      await vi.advanceTimersByTimeAsync(1500); // POLL_INTERVAL_MS分だけ進める
-      const result = await resultPromise;
+      const result = await generateRoutes(request);
 
       expect(result).toEqual({ routes, engine: "road_graph", conditions });
     });
@@ -235,7 +234,8 @@ describe("routeApi", () => {
       const onProgress = vi.fn();
 
       const resultPromise = generateRoutes(request, onProgress);
-      await vi.advanceTimersByTimeAsync(1500 * 3);
+      // 初回ポーリングはsleep無しのため、2回目以降の分だけ進めればよい。
+      await vi.advanceTimersByTimeAsync(1500 * 2);
       await resultPromise;
 
       expect(onProgress).toHaveBeenNthCalledWith(1, { status: "queued", elapsedMs: expect.any(Number) });
@@ -244,14 +244,9 @@ describe("routeApi", () => {
     });
 
     it("failedの場合はerrorメッセージでrejectする", async () => {
-      vi.useFakeTimers();
       stubFetchForJob([{ status: "failed", error: "冷パスでタイムアウトしました" }]);
 
-      const resultPromise = generateRoutes(request);
-      resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
-      await vi.advanceTimersByTimeAsync(1500);
-
-      await expect(resultPromise).rejects.toThrow("冷パスでタイムアウトしました");
+      await expect(generateRoutes(request)).rejects.toThrow("冷パスでタイムアウトしました");
     });
 
     it("6分経過してもdone/failedにならない場合はタイムアウトとしてrejectする", async () => {
@@ -263,6 +258,79 @@ describe("routeApi", () => {
       await vi.advanceTimersByTimeAsync(400000); // MAX_POLL_DURATION_MS(360000ms)を超える
 
       await expect(resultPromise).rejects.toThrow("タイムアウト");
+    });
+
+    it("onProgressへ渡すelapsedMsはGET応答が返った直後の最新値になる", async () => {
+      // 改善計画T386（T265コードレビュー指摘8件目）: 以前はsleep・GETの前（古い時点）で
+      // 計算していたため、実際の経過時間よりPOLL_INTERVAL_MS分ほど少なく表示され続けていた。
+      vi.useFakeTimers();
+      let pollCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
+        if (options?.method === "POST") {
+          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
+        }
+        pollCount += 1;
+        if (pollCount === 1) {
+          return Promise.resolve(makeResponse({ json: async () => ({ status: "running" }) }));
+        }
+        return Promise.resolve(
+          makeResponse({ json: async () => ({ status: "done", result: { routes, engine: "road_graph", conditions } }) }),
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const onProgress = vi.fn();
+
+      const resultPromise = generateRoutes(request, onProgress);
+      await vi.advanceTimersByTimeAsync(1500);
+      await resultPromise;
+
+      // 1回目のポーリング（sleep無し、GET直後）で観測されたelapsedMsは、
+      // POLL_INTERVAL_MS(1500ms)分の待機より前の極小値のはず。
+      expect(onProgress).toHaveBeenCalledTimes(1);
+      expect(onProgress.mock.calls[0][0].elapsedMs).toBeLessThan(1500);
+    });
+
+    it("ポーリングが一時的に失敗しても、規定回数までは生成全体を失敗させずリトライする", async () => {
+      // 改善計画T386（T265コードレビュー指摘2件目）: 1回の一時的な通信エラー・5xxで
+      // generateRoutes全体を即座に失敗させない。
+      vi.useFakeTimers();
+      let pollCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
+        if (options?.method === "POST") {
+          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
+        }
+        pollCount += 1;
+        if (pollCount <= 2) {
+          return Promise.resolve(makeResponse({ ok: false, status: 503, json: async () => ({ detail: "一時的なエラー" }) }));
+        }
+        return Promise.resolve(
+          makeResponse({ json: async () => ({ status: "done", result: { routes, engine: "road_graph", conditions } }) }),
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const resultPromise = generateRoutes(request);
+      await vi.advanceTimersByTimeAsync(1500 * 3);
+      const result = await resultPromise;
+
+      expect(result).toEqual({ routes, engine: "road_graph", conditions });
+    });
+
+    it("ポーリングの失敗が規定回数連続した場合は失敗としてrejectする", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
+        if (options?.method === "POST") {
+          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
+        }
+        return Promise.resolve(makeResponse({ ok: false, status: 503, json: async () => ({ detail: "サーバーエラー" }) }));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const resultPromise = generateRoutes(request);
+      resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
+      await vi.advanceTimersByTimeAsync(1500 * 10);
+
+      await expect(resultPromise).rejects.toThrow("サーバーエラー");
     });
   });
 });
