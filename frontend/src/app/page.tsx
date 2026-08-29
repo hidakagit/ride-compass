@@ -1038,9 +1038,11 @@ export default function Home() {
   // [時刻,向き]の入力（dynamicLayerTargetTime・windBearingDeg）は共有する。mapViewportは
   // 同じMapView.tsx: onViewportChange経由の値を共有する。
   //
-  // ルート確定後（hasDetail）は、視界内の全道路への一律色分けというこのチップの役割自体を
+  // ルート確定後（hasDetail）は、視界内の全道路への一律色分けというこの機能の役割自体を
   // 終了する（T414契約: ルート確定後はルート自身の実際の進行方向・到達時刻を使う
-  // routeStyleModes「風」モードへ委ねる、下のoverlayLayers組み立てでチップ自体もdisabledにする）。
+  // routeStyleModes「風」モードへ委ねる。改善計画T418で起動元が地図上チップから
+  // ルート設定パネルへ移ったため、hasDetail時のdisabled化は
+  // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
   const showWindAxis = layerVisibility.windAxis && !hasDetail;
   const windAxisPenalties = useWindAxisPenalties(showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
   // 環境グループの風penalty gridFill（改善計画T414）も同じ理由でルート確定後は表示しない。
