@@ -103,39 +103,15 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
 ];
 
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
- * 推定指標（合成）か、時刻で内容が変わる動的データか。地図上チップの最上位グルーピングに
- * 使う（改善計画T166、次数反転。T171で3値目「dynamic」を追加）。
- * T128時点ではtrafficSafetyカテゴリを展開したときの小見出しとしてのみ使っていたが、
- * T166でチップ最上位の分類そのものへ昇格した（categoryは観測グループ内の小見出しへ
- * 役割を移した、下記MapLayerDescriptor.categoryのコメント参照）。 */
+ * 推定指標（合成）か、時刻で内容が変わる動的データか。改善計画T166でチップ最上位の
+ * 分類そのものへ一時昇格したが、T406で地図上チップ（MapOverlayControls.tsx）の最上位は
+ * 「道路/評価軸/環境/スポット」（下記MapOverlayGroup、対象ベースの分類）へ再編済み。
+ * このMapLayerDataNature自体は表示グルーピングの単位ではなくなったが、(a) mapOverlayGroupFor
+ * が"composite"を「評価軸」グループ判定の入力に使う、(b) T413でサイドバー
+ * （MapLayersPanel.tsx）もMapOverlayGroupへ統一した際、"dynamic"（降水ナウキャスト等、
+ * 帯単位の絞り込み機能を持たないレイヤー。ユーザー判断2026-08-25）をサイドバーの詳細
+ * セクションから除外する判定に引き続き使う、の2点で残っている。 */
 export type MapLayerDataNature = "raw" | "composite" | "dynamic";
-export const MAP_LAYER_DATA_NATURE_LABELS: Record<MapLayerDataNature, string> = {
-  composite: "推定指標（合成）",
-  raw: "観測データ",
-  // 改善計画T171: 降水ナウキャスト等、時刻を指定すると内容が変わるレイヤーの最上位グループ。
-  dynamic: "動的データ",
-};
-/** 観測/推定/動的の表示順。地図の見え方パネル（サイドバー、MapLayersPanel）専用の順序。
- * 以前は地図チップ側（MapOverlayControls.tsx: buildChipGroups、「推定→観測」に確定済み
- * [T166]）と同じ配列をここから参照する単一ソースだったが、「パネル内は推定より観測を
- * 上にしてほしい」という実機フィードバックを受け、パネルだけ「観測→推定」へ反転した
- * （チップ側のbuildChipGroupsは変更していないため両者は独立して食い違う。意図的な
- * 差異であり、統一し直す指摘があれば再度揃える）。動的グループはT171で新設したばかりで
- * 既存2グループより関心の的が絞られるため末尾に置く。 */
-export const MAP_LAYER_DATA_NATURE_ORDER: readonly MapLayerDataNature[] = ["raw", "composite", "dynamic"];
-/** 地図チップ最上位グループの略名（4文字以下、改善計画T166確定命名表）。正式名は上記
- * MAP_LAYER_DATA_NATURE_LABELS。地図チップ=略名／サイドバー・研究タブ=正式名の使い分けは
- * 個別レイヤーのlabel/chipLabelと同じ規則（MapLayerDescriptorのコメント参照）。
- * 改善計画T406: 地図上チップ（MapOverlayControls.tsx）の最上位グルーピングは
- * 「道路/評価軸/環境/スポット」（下記MapOverlayGroup）へ再編済みだが、サイドバー
- * （MapLayersPanel.tsx）は「観測/推定」の2見出しを従来どおり使い続ける独立した設計判断
- * のため、この定数群自体は削除せず残す（T406実装準備調査、両者は別のUI surfaceとして
- * 意図的に語彙が異なる。統一する場合は別タスクとして起票すること）。 */
-export const MAP_LAYER_DATA_NATURE_CHIP_LABELS: Record<MapLayerDataNature, string> = {
-  composite: "推定",
-  raw: "観測",
-  dynamic: "動的",
-};
 
 /** 改善計画T406: 地図上チップ（MapOverlayControls.tsx）最上位の4グループ。旧「観測/推定/
  * 動的」（データの出自による分類、上記MapLayerDataNature）を廃止し、「対象（何についての
@@ -146,9 +122,13 @@ export const MAP_LAYER_DATA_NATURE_CHIP_LABELS: Record<MapLayerDataNature, strin
  *   T405のway_id→wind_penalty配信層「風（評価軸）」windAxis）
  * - environment（環境）: 標高／降水ナウキャスト・風（矢印）・雷・竜巻等の面レイヤー
  * - spot（スポット）: 停止要因POI・補給POI・事故地点等の点レイヤー
- * MapLayerDataNature（raw/composite/dynamic）とは独立した分類軸で、サイドバー
- * （MapLayersPanel.tsx）はこちらへ追従せず引き続きMAP_LAYER_DATA_NATURE_*を使う
- * （上記MAP_LAYER_DATA_NATURE_CHIP_LABELSのコメント参照）。 */
+ * 改善計画T413: 以前はサイドバー（MapLayersPanel.tsx）だけ「観測/推定」の旧2見出し
+ * （MapLayerDataNature由来）を独立して使い続けていたが、チップとサイドバーで語彙が
+ * 食い違う不整合（複雑度平衡原則8「UI語彙のカタログ集約」違反）だったため、サイドバーも
+ * mapOverlayGroupForベースのこの4分類へ統一した。降水ナウキャスト等
+ * dataNature="dynamic"のレイヤー（帯単位の絞り込み機能を持たない、ユーザー判断
+ * 2026-08-25）はグループ再編後もサイドバーの詳細セクションからは引き続き除外している
+ * （MapLayersPanel.tsx参照。ON/OFFは地図上チップ側で操作可能なため実害なし）。 */
 export type MapOverlayGroup = "road" | "axis" | "environment" | "spot";
 
 export const MAP_OVERLAY_GROUP_LABELS: Record<MapOverlayGroup, string> = {
@@ -157,7 +137,9 @@ export const MAP_OVERLAY_GROUP_LABELS: Record<MapOverlayGroup, string> = {
   environment: "環境",
   spot: "スポット",
 };
-/** 地図チップの略名（4文字以下、MAP_LAYER_DATA_NATURE_CHIP_LABELSと同じ規則）。 */
+/** 地図チップの略名（4文字以下）。改善計画T413でサイドバーもMAP_OVERLAY_GROUP_LABELS
+ * （正式名）を使うようになったため、地図チップ=略名／サイドバー=正式名という他レイヤーの
+ * label/chipLabelと同じ使い分けになった。 */
 export const MAP_OVERLAY_GROUP_CHIP_LABELS: Record<MapOverlayGroup, string> = {
   road: "道路",
   axis: "評価軸",
@@ -220,16 +202,16 @@ export interface MapLayerDescriptor {
    * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
   chipLabel?: string;
   kind: MapLayerKind;
-  /** サイドバー（MapLayersPanel）のグループ見出しに使う中分類（改善計画T86）。地図上チップ
-   * では、T128時点ではこれ自体が最上位のグルーピング単位だったが、T166で最上位は
-   * dataNature（観測/推定）へ役割を譲り、categoryは観測グループを展開したときの
-   * 小見出し（トピック別）としてのみ使う（推定グループの中はcategoryを使わず6軸を
-   * フラットに列挙する、MapOverlayControls.tsx参照）。kind:"static"のレイヤーのみ持つ
-   * （dynamicは今のところroute1種のみのため不要）。 */
+  /** 地図上チップ・サイドバーどちらの最上位グルーピング（mapOverlayGroupFor、改善計画T406/
+   * T413）も、これ自体（roadCondition/trafficSafety/terrain/amenity/weather）を入力の
+   * 一部として使う。合わせてサイドバーの表示順（MAP_LAYER_CATEGORY_ORDER）・地図上チップの
+   * 「道路」「環境」「スポット」各グループ内のトピック別小見出しにも使う（「評価軸」
+   * グループの中はcategoryを使わずSECONDARY_AXES順にフラット列挙、MapOverlayControls.tsx
+   * 参照）。kind:"static"のレイヤーのみ持つ（dynamicは今のところroute1種のみのため不要）。 */
   category?: MapLayerCategory;
-  /** 生データか推定指標（合成）か（MAP_LAYER_DATA_NATURE_LABELS参照）。地図上チップの
-   * 最上位グルーピング単位（改善計画T166）。省略時は"raw"扱い（大半のレイヤーは
-   * 生タグ・生座標の分類表示のため、明示するのは合成側のみで足りる）。 */
+  /** 生データか推定指標（合成）か時刻で変わる動的データか（MapLayerDataNature参照）。
+   * mapOverlayGroupForが"composite"を「評価軸」グループ判定に使う。省略時は"raw"扱い
+   * （大半のレイヤーは生タグ・生座標の分類表示のため、明示するのは合成/動的側のみで足りる）。 */
   dataNature?: MapLayerDataNature;
   /** ONにすると何が表示されるかの短い説明（チップのtitleに使う） */
   description: string;

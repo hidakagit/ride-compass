@@ -112,22 +112,21 @@ function openAllSections() {
 // 下書き→適用を廃止し、チェック方式へ統一）。「生成したルートの色分け」（route）は
 // このパネルの対象外へ移設したため、そちらの挙動はpage.tsx側で検証する。
 describe("MapLayersPanel", () => {
-  // 改善計画（地図の見え方パネルのグルーピングを地図上チップと統一。T171で3値目
-  // 「動的」を追加）: 見出しは次数（観測/推定/動的）のみのフラットな1階層。地図上チップ側が
+  // 改善計画T413（地図の見え方パネルのグルーピングを地図上チップ[T406]と統一）: 見出しは
+  // 「道路/評価軸/環境/スポット」（mapOverlayGroupFor）のみのフラットな1階層。地図上チップ側が
   // 実機フィードバックでカテゴリ見出しを廃止した経緯（改善計画T169）と揃え、こちらも
   // 中分類（category）の見出しは出さない（「地図の見え方と合わせて、中分類は不要」という
-  // 実機フィードバック）。「生成したルートの色分け」（route、次数を持たない）はこのパネルの
-  // 対象外へ移設した（「ルートを作る」パネル、page.tsx参照）。
-  it("レイヤーカタログの全レイヤーが、次数見出し（観測/推定）のみのフラットな一覧としてセクションで並ぶ", () => {
+  // 実機フィードバック）。「生成したルートの色分け」（route、どのグループにも属さない）は
+  // このパネルの対象外へ移設した（「ルートを作る」パネル、page.tsx参照）。
+  it("レイヤーカタログの全レイヤーが、グループ見出し（道路/評価軸/環境/スポット）のみのフラットな一覧としてセクションで並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
-    const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    // パネル内は観測を推定より上にする（実機フィードバック「推定指標よりも観測指標を
-    // 上にして」への対応。地図チップ側の「推定→観測」順とはあえて独立させている、
-    // mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDERのコメント参照）。動的グループ（降水
-    // ナウキャスト・風・雷・竜巻）はユーザー判断（2026-08-25）により絞り込み機能を
-    // 持たないためこのパネルから撤去済み（見出し自体が出ない、下記の別テスト参照）。
-    expect(natureHeadings).toEqual(["観測データ", "推定指標（合成）"]);
+    const groupHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    // 表示順は地図上チップと同じMAP_OVERLAY_GROUP_ORDER（道路→評価軸→環境→スポット）を
+    // そのまま使う（旧「観測/推定」時代のパネル専用反転は廃止、mapLayers.tsのコメント参照）。
+    // 降水ナウキャスト・風・雷・竜巻等dataNature="dynamic"のレイヤーはユーザー判断
+    // （2026-08-25）により絞り込み機能を持たないためこのパネルから撤去済み（下記の別テスト参照）。
+    expect(groupHeadings).toEqual(["道路", "評価軸", "環境", "スポット"]);
 
     // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
     // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
@@ -147,50 +146,52 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-route")).not.toBeInTheDocument();
   });
 
-  // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は観測
-  // グループと違い、凡例の帯単位で表示/非表示を切り替える絞り込み機能を持たない
+  // ユーザー判断（2026-08-25）: 降水ナウキャスト・風・雷・竜巻等dataNature="dynamic"の
+  // レイヤーは他のレイヤーと違い、凡例の帯単位で表示/非表示を切り替える絞り込み機能を持たない
   // （降水の直近60分・雷・竜巻は気象庁配信の完成画像のみで生データがフロントに来ない
   // ため技術的に困難、風のみ限定的に可能だが「仕様を統一する」ため実装しない判断）。
   // 絞り込み機能が無い以上このパネルに出しても「表示」トグル以外に意味のある操作が
-  // 無いため、見出し・4行を丸ごと撤去した（ON/OFFは地図上チップで引き続き操作できる、
-  // 各レイヤーの説明文はMapOverlayControls.tsxの▶パネルへ移設——MapOverlayControls.
-  // test.tsx参照）。
-  it("動的グループ（降水ナウキャスト・風・雷・竜巻）は見出し・行とも表示されない", () => {
+  // 無いため、丸ごと撤去した（ON/OFFは地図上チップで引き続き操作できる、各レイヤーの
+  // 説明文はMapOverlayControls.tsxの▶パネルへ移設——MapOverlayControls.test.tsx参照）。
+  // 改善計画T413でグループ再編後もこの除外自体は変更していない。
+  it("dataNature=dynamicのレイヤー（降水ナウキャスト・風・雷・竜巻）は行が表示されない", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
-    const natureHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    expect(natureHeadings).not.toContain("動的データ");
     expect(container.querySelector("#map-layer-section-precipitationNowcast")).not.toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-windVector")).not.toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-thunderNowcast")).not.toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-tornadoNowcast")).not.toBeInTheDocument();
   });
 
-  it("レイヤーが想定した次数グループの下に属する", () => {
+  // 改善計画T413: mapOverlayGroupForの判定どおり、道路の純粋な属性（roadType/roadSurface/
+  // designation）は「道路」、軸スタジオが作る評価軸（axis:car_stress）は「評価軸」、
+  // 点レイヤー（accidents/stopPoi/supplyPoi）は「スポット」、標高図（terrain）は「環境」に
+  // 属する。以前はcar_stress以外の全レイヤーが単一の「観測」グループへ一緒くたに入っていた
+  // （地図上チップ側は既にT406でこの4分類だったため、パネルとチップで所属グループの語彙が
+  // 食い違っていた）。
+  it("レイヤーが地図上チップ（mapOverlayGroupFor）と同じグループの下に属する", () => {
     render(<MapLayersPanel {...baseProps()} />);
 
-    function natureTitleFor(layerId: string): string | null {
+    function overlayGroupTitleFor(layerId: string): string | null {
       // axis:car_stressのようなコロンを含むIDはCSS ID選択子（#...）では壊れるため
       // getElementByIdで引く（属性値としては通常のCSS.escape不要な安全な経路）。
       const section = document.getElementById(`map-layer-section-${layerId}`);
-      const nature = section?.closest(`.${styles.natureGroup}`);
-      return nature?.querySelector(`.${styles.natureTitle}`)?.textContent ?? null;
+      const group = section?.closest(`.${styles.overlayGroup}`);
+      return group?.querySelector(`.${styles.overlayGroupTitle}`)?.textContent ?? null;
     }
 
-    // axis:car_stressのみ推定指標（合成）、他は観測データ（車ストレスは車の圧迫感の材料から
-    // 合成した推定指標、mapLayers.ts参照）
-    expect(natureTitleFor("axis:car_stress")).toBe("推定指標（合成）");
-    expect(natureTitleFor("roadType")).toBe("観測データ");
-    expect(natureTitleFor("roadSurface")).toBe("観測データ");
-    expect(natureTitleFor("designation")).toBe("観測データ");
-    expect(natureTitleFor("accidents")).toBe("観測データ");
-    expect(natureTitleFor("stopPoi")).toBe("観測データ");
-    expect(natureTitleFor("supplyPoi")).toBe("観測データ");
-    expect(natureTitleFor("elevation")).toBe("観測データ");
+    expect(overlayGroupTitleFor("axis:car_stress")).toBe("評価軸");
+    expect(overlayGroupTitleFor("roadType")).toBe("道路");
+    expect(overlayGroupTitleFor("roadSurface")).toBe("道路");
+    expect(overlayGroupTitleFor("designation")).toBe("道路");
+    expect(overlayGroupTitleFor("accidents")).toBe("スポット");
+    expect(overlayGroupTitleFor("stopPoi")).toBe("スポット");
+    expect(overlayGroupTitleFor("supplyPoi")).toBe("スポット");
+    expect(overlayGroupTitleFor("elevation")).toBe("環境");
   });
 
   // 実機フィードバック「推定指標の上から数えた順番を地図上の左から数えた順番と一致させて」
-  // への対応。地図チップの推定グループは軸カタログ順（SECONDARY_AXES＝axis-catalog.json由来、
+  // への対応。地図チップの評価軸グループは軸カタログ順（SECONDARY_AXES＝axis-catalog.json由来、
   // 勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）で横並びに展開される
   // ため、パネル側もこの順を再現する（以前はcategory順で、地図チップの並びと食い違っていた）。
   // 改善計画T320: axis-catalog.jsonの生成がAXIS_DEFINITIONSのsort_order（accident=5,
@@ -198,14 +199,12 @@ describe("MapLayersPanel", () => {
   // （以前は生成スクリプト側の手書き登録順が偶然night→accidentだった）。
   // 改善計画T367: 自転車インフラ（bicycle_infra_quality）が地図表示に対応した
   // （show_map_icon=true）ため、sort_order最後尾の軸としてSECONDARY_AXESの末尾に加わった。
-  it("推定グループの並び順が地図チップの並び（勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）と一致する", () => {
+  it("評価軸グループの並び順が地図チップの並び（勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）と一致する", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
-    const compositeHeading = Array.from(container.querySelectorAll("h2")).find(
-      (h) => h.textContent === "推定指標（合成）",
-    );
-    const compositeGroup = compositeHeading?.closest(`.${styles.natureGroup}`);
-    expect(compositeGroup).toBeTruthy();
-    const titles = Array.from(compositeGroup!.querySelectorAll("h3")).map((h) => h.textContent);
+    const axisHeading = Array.from(container.querySelectorAll("h2")).find((h) => h.textContent === "評価軸");
+    const axisGroup = axisHeading?.closest(`.${styles.overlayGroup}`);
+    expect(axisGroup).toBeTruthy();
+    const titles = Array.from(axisGroup!.querySelectorAll("h3")).map((h) => h.textContent);
     expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "事故密度", "夜間", "自転車インフラ"]);
   });
 

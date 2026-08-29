@@ -3,15 +3,16 @@
 import {
   LAYER_DATA_STATUS_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
-  MAP_LAYER_DATA_NATURE_LABELS,
-  MAP_LAYER_DATA_NATURE_ORDER,
+  MAP_OVERLAY_GROUP_LABELS,
+  MAP_OVERLAY_GROUP_ORDER,
   layerSectionDomId,
+  mapOverlayGroupFor,
   type LayerDataStatus,
   type LayerDataStatusByLayer,
-  type MapLayerDataNature,
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
+  type MapOverlayGroup,
 } from "@/components/Map/mapLayers";
 import {
   ROAD_LINE_COLOR_AXIS_ID,
@@ -76,24 +77,28 @@ interface MapLayersPanelProps {
   staticFilterAxes: readonly StaticFilterAxis[];
 }
 
-// サイドバーのグループ見出し。改善計画（地図の見え方パネルのグルーピングを地図上チップと
-// 統一）: 見出しは次数（推定/観測、mapLayers.ts: MAP_LAYER_DATA_NATURE_ORDER/LABELS）のみの
-// 1階層。以前は中分類（category、改善計画T86、MAP_LAYER_CATEGORY_ORDER/LABELS）ごとの
-// 見出し（h2）も持っていたが、地図上チップ側（MapOverlayControls.tsx）が実機フィードバックを
-// 受けてカテゴリ見出しを廃止しフラット化した経緯（改善計画T169）と揃え、こちらも中分類の
-// 見出しは出さない（「地図の見え方と合わせて、中分類は不要」という実機フィードバック）。
-// categoryはあくまで観測グループ内のレイヤー並び順（MAP_LAYER_CATEGORY_ORDER）を
-// 揃えるための内部キーとしてのみ使う。「生成したルートの色分け」（dynamic/route）は次数を
-// 持たないレイヤーで観測/推定どちらにも属さないため、地図の見え方パネルからは撤去し
+// サイドバーのグループ見出し。改善計画T413（地図の見え方パネルのグルーピングを地図上チップと
+// 統一）: 見出しは「道路/評価軸/環境/スポット」（mapLayers.ts: MAP_OVERLAY_GROUP_ORDER/
+// LABELS、mapOverlayGroupFor）のみの1階層。以前はここが独自の「観測/推定」2見出し
+// （MapLayerDataNature由来）を持ち、地図上チップ側（T406で「道路/評価軸/環境/スポット」へ
+// 再編済み）と語彙が食い違っていた（複雑度平衡原則8「UI語彙のカタログ集約」違反）ため、
+// mapOverlayGroupForを単一ソースとして統一した。以前は中分類（category、改善計画T86、
+// MAP_LAYER_CATEGORY_ORDER/LABELS）ごとの見出し（h2）も持っていたが、地図上チップ側
+// （MapOverlayControls.tsx）が実機フィードバックを受けてカテゴリ見出しを廃止しフラット化
+// した経緯（改善計画T169）と揃え、こちらも中分類の見出しは出さない（「地図の見え方と
+// 合わせて、中分類は不要」という実機フィードバック）。categoryはあくまで「道路」「環境」
+// 「スポット」各グループ内のレイヤー並び順（MAP_LAYER_CATEGORY_ORDER）を揃えるための
+// 内部キーとしてのみ使う。降水ナウキャスト等dataNature="dynamic"のレイヤー（帯単位の
+// 絞り込み機能を持たない、ユーザー判断2026-08-25）は、グループ再編後もこのパネルの詳細
+// セクションからは引き続き除外する（ON/OFFは地図上チップ側で操作できるため実害なし。
+// mapOverlayGroupFor自体はwindAxis等のdynamicレイヤーも「評価軸」等へ判定するが、この
+// パネルではdataNature="dynamic"を先に弾くため現れない）。「生成したルートの色分け」
+// （dynamic/route）はどのグループにも属さないレイヤーのため、地図の見え方パネルからは撤去し
 // 「ルートを作る」パネル側へ移設した（page.tsx: renderRouteSectionBody参照。実機
 // フィードバック「ルートを作るパネルがルートに関する制御、地図の見え方パネルが地図自体の
 // 制御」への対応。そちらは見出し＋本文の見た目としてこのファイルの.group/.groupTitleを
 // 再利用しているため、このファイル自身はもう使っていなくてもクラス定義は残す）。
-// 見出し文言はmapLayers.tsを単一ソースとし、地図上チップのグルーピング
-// （改善計画T128/T166、MapOverlayControls.tsx）と共有するが、次数グループの表示順
-// （MAP_LAYER_DATA_NATURE_ORDER）自体はパネル専用に「観測→推定」へ反転済み（実機
-// フィードバック「推定指標よりも観測指標を上に」への対応。mapLayers.tsのコメント参照）。
-// 推定グループ内のレイヤー並び順は、地図チップの推定グループが横並びで見せている軸の順序
+// 評価軸グループ内のレイヤー並び順は、地図チップの評価軸グループが横並びで見せている軸の順序
 // （SECONDARY_AXES、axis-catalog.json由来）と一致させる（実機フィードバック「推定指標の
 // 上から数えた順番を地図上の左から数えた順番と一致させて」への対応。以前はcategory順
 // だったため、地図チップの並び[勾配・舗装質・停止密度・車の圧迫感・夜間・事故密度]と
@@ -418,14 +423,14 @@ export default function MapLayersPanel({
     );
   }
 
-  // 推定グループの1件（secondaryAxes props由来）。専用の表示レイヤーを持つ軸はmapLayersの
+  // 評価軸グループの1件（secondaryAxes props由来）。専用の表示レイヤーを持つ軸はmapLayersの
   // 対応するレイヤーを、持たない軸（proxy）はaxis自体を返す（上記コメント参照）。
   type CompositeEntry =
     | { kind: "layer"; layer: MapLayerDescriptor }
     | { kind: "proxy"; axis: SecondaryAxisSummary };
 
   // secondaryAxes（改善計画T308: axisCatalog.secondaryAxes、地図チップの左からの並びと
-  // 同じ順序）をそのままなぞって推定グループの並び順を作る。地図チップ側と単一ソースを
+  // 同じ順序）をそのままなぞって評価軸グループの並び順を作る。地図チップ側と単一ソースを
   // 共有することで、軸の追加・並び替えがあってもここを個別に追従させる必要がない。
   function orderedCompositeEntries(): readonly CompositeEntry[] {
     return secondaryAxes.map((axis): CompositeEntry => {
@@ -472,41 +477,37 @@ export default function MapLayersPanel({
           絞り込みを一括クリア
         </button>
       </div>
-      {MAP_LAYER_DATA_NATURE_ORDER.map((dataNature: MapLayerDataNature) => {
-        // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
-        // 観測グループと違い凡例の帯単位で表示/非表示を切り替える絞り込み機能を持たない
-        // （降水の直近60分・雷・竜巻は気象庁配信の完成画像のみで生データがフロントに来ない
-        // ため技術的に困難、風のみ限定的に可能だが「仕様を統一する」ため実装しない判断）。
-        // 絞り込み機能が無い以上このパネルに出しても「表示」トグル以外に意味のある操作が
-        // 無く、そのトグル自体は地図上チップ（MapOverlayControls.tsx）で引き続き操作できる
-        // ため、動的グループの見出し・4行を丸ごとこのパネルから除外する。各レイヤーの
-        // 説明文（panelHint）は地図上チップの▶パネルへ移設した
-        // （page.tsx: overlayLayersのhint、MapOverlayControls.tsx: renderRawMemberTile参照）。
-        if (dataNature === "dynamic") return null;
-        if (dataNature === "composite") {
-          // 推定グループだけは地図チップの並び（SECONDARY_AXES）を使う（上記コメント参照）。
+      {MAP_OVERLAY_GROUP_ORDER.map((group: MapOverlayGroup) => {
+        if (group === "axis") {
+          // 評価軸グループだけは地図チップの並び（SECONDARY_AXES）を使う（上記コメント参照）。
           const entries = orderedCompositeEntries();
           if (entries.length === 0) return null;
           return (
-            <div key={dataNature} className={styles.natureGroup}>
-              <h2 className={styles.natureTitle}>{MAP_LAYER_DATA_NATURE_LABELS[dataNature]}</h2>
+            <div key={group} className={styles.overlayGroup}>
+              <h2 className={styles.overlayGroupTitle}>{MAP_OVERLAY_GROUP_LABELS[group]}</h2>
               {entries.map((entry) =>
                 entry.kind === "layer" ? renderLayerSection(entry.layer) : renderProxyAxisSection(entry.axis)
               )}
             </div>
           );
         }
-        // categoryは見出しにはせず、地図上チップの観測グループと同じ並び順
-        // （MAP_LAYER_CATEGORY_ORDER）を揃えるためだけに使う内部キー（上記コメント参照）。
+        // 「道路」「環境」「スポット」は、mapOverlayGroupForで地図上チップと同じグループへ
+        // 判定されるレイヤーのうち、dataNature="dynamic"（絞り込み機能を持たない、上記
+        // コメント参照）を除いたものを、categoryの並び順（MAP_LAYER_CATEGORY_ORDER）で
+        // 揃えて列挙する。
         const layers = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
           mapLayers.filter(
-            (layer) => layer.kind === "static" && layer.category === category && (layer.dataNature ?? "raw") === dataNature
+            (layer) =>
+              layer.kind === "static" &&
+              layer.category === category &&
+              (layer.dataNature ?? "raw") !== "dynamic" &&
+              mapOverlayGroupFor(layer) === group
           )
         );
         if (layers.length === 0) return null;
         return (
-          <div key={dataNature} className={styles.natureGroup}>
-            <h2 className={styles.natureTitle}>{MAP_LAYER_DATA_NATURE_LABELS[dataNature]}</h2>
+          <div key={group} className={styles.overlayGroup}>
+            <h2 className={styles.overlayGroupTitle}>{MAP_OVERLAY_GROUP_LABELS[group]}</h2>
             {layers.map(renderLayerSection)}
           </div>
         );

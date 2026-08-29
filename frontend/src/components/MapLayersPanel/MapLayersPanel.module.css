@@ -12,16 +12,17 @@
   visibility: hidden;
 }
 
-/* 次数（観測/推定）グループ。地図の見え方パネルの唯一のグループ見出し（改善計画:
-   地図の見え方パネルのグルーピングを地図上チップと統一。中分類=categoryごとの見出しは
-   地図上チップ側が実機フィードバックで廃止済みのため、こちらも持たずフラットにする）。 */
-.natureGroup + .natureGroup {
+/* 最上位（道路/評価軸/環境/スポット）グループ。地図の見え方パネルの唯一のグループ見出し
+   （改善計画T413: 地図の見え方パネルのグルーピングを地図上チップ[T406]と統一。中分類=
+   categoryごとの見出しは地図上チップ側が実機フィードバックで廃止済みのため、こちらも
+   持たずフラットにする）。 */
+.overlayGroup + .overlayGroup {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
   margin-top: var(--space-1);
 }
 
-.natureTitle {
+.overlayGroupTitle {
   font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--foreground);
@@ -29,7 +30,7 @@
 }
 
 /* 中分類（category、改善計画T86）によるグループ見出し。地図の見え方パネル自身はもう
-   使っていない（上記.natureGroup/.natureTitleのコメント参照）が、「生成したルートの
+   使っていない（上記.overlayGroup/.overlayGroupTitleのコメント参照）が、「生成したルートの
    色分け」セクション（page.tsx: renderRouteColorSectionBody）が見出し＋本文の見た目として
    このクラスをそのまま再利用しているため定義は残す。 */
 .group + .group {
