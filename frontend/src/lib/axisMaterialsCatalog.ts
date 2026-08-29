@@ -22,7 +22,7 @@ export interface AxisMaterialOption {
    * material_catalog.py: MaterialSpec.descriptionが単一ソース。 */
   description: string;
   /** "numeric"=数値材料（BreakpointLinearShape向け）、"boolean"=真偽値材料
-   * （CategoricalShape/FlagSumShape向け）、"categorical"=文字列多値材料
+   * （BreakpointLinearShape/CategoricalShape向け）、"categorical"=文字列多値材料
    * （CategoricalShapeがbool/str両方に対応、改善計画T292）。 */
   dtype: AxisMaterialDType;
 }

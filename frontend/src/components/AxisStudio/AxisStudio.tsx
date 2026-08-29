@@ -19,7 +19,6 @@ import styles from "./AxisStudio.module.css";
 // 材料として参照する内部軸階層」）も混在しうる。
 function materialIdsOf(shape: AxisShape): string[] {
   if (shape.kind === "categorical") return [shape.material];
-  if (shape.kind === "flag_sum") return shape.flags.map(([material]) => material);
   return shape.terms.map((t) => t.material);
 }
 

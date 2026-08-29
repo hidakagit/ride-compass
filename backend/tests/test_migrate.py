@@ -268,6 +268,13 @@ async def test_load_axis_definitions_snapshot_round_trips_with_dump(bootstrap_en
     （改善計画T361）。実際のfixtures/axis_definitions_snapshot.jsonではなく、
     tmp_pathへ書き出した使い捨てファイルを使う（本番のスナップショットファイルを
     テスト実行のたびに上書きしないため）。
+
+    改善計画T396フォローアップ: `apply_pending_migrations`直後（スナップショット読込前）は
+    0014〜0022の過去migrationがシードした行データ（書き換え禁止の運用のため、旧shape
+    構造のまま残る——本タスクでいえばnight軸の旧`flag_sum`）がテーブルに残っている。
+    実際のfresh bootstrap（bootstrap_fresh_db.py/bootstrap_ci_db.py）は必ずmigration適用
+    直後にスナップショット読込までを一連で行い、この中間状態のままDBを読むことは無いため、
+    ここでも同じ順序（migration→スナップショット読込）を経てから読み取る。
     """
     await create_tables(bootstrap_engine)
     await apply_pending_migrations(bootstrap_engine)
@@ -276,6 +283,7 @@ async def test_load_axis_definitions_snapshot_round_trips_with_dump(bootstrap_en
     try:
         async with AsyncSession(bootstrap_engine) as session:
             repository = AxisDefinitionRepository(session)
+            await load_axis_definitions_snapshot(repository)
             original = await repository.list_all()
             dumped_count = await dump_axis_definitions_snapshot(repository, path=dump_path)
             assert dumped_count == len(original)

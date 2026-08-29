@@ -17,7 +17,6 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
-    FlagSumShape,
     MaterialTerm,
 )
 from app.domain.evaluation import (
@@ -128,7 +127,13 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
     ),
     "night": AxisDefinition(
         axis_id="night",
-        shape=FlagSumShape(flags=[("no_lit", 50.0), ("has_tunnel", 50.0)], cap=100.0),
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="no_lit", weight=50.0),
+                MaterialTerm(material="has_tunnel", weight=50.0),
+            ],
+            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        ),
         default_weight=0.0,
         label="テスト夜間",
         category="観測",

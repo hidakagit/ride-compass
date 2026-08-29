@@ -263,17 +263,37 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
       falseScore: shape.mapping["false"] ?? 0,
     };
   }
-  if (shape.kind === "flag_sum") {
+  // 改善計画T396: backendはbreakpoint_linear/recipe_then_breakpoint_linear/flag_sumの
+  // 3種を"breakpoint_linear"1種へ統合したため、保存済みのkindだけでは元々どのカードで
+  // 作られた軸かを判別できない。termsの構造（材料か他軸か・全termがboolean材料か）から
+  // 表示するカードを推定し直す（domain/axis_display.pyの構造判定と同じ考え方）。
+  const isAxisReference = (material: string) => !materialOptions.some((m) => m.id === material);
+  if (shape.terms.length > 0 && shape.terms.every((t) => isAxisReference(t.material))) {
+    return {
+      ...common,
+      shapeKind: "recipe_then_breakpoint_linear",
+      terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
+      preprocess: shape.preprocess,
+      breakpoints: shape.breakpoints,
+    };
+  }
+  const isIdentityClampCurve =
+    shape.breakpoints.length === 2 &&
+    shape.breakpoints[0][0] === 0 &&
+    shape.breakpoints[0][1] === 0 &&
+    shape.breakpoints[1][0] === shape.breakpoints[1][1];
+  const allBoolean = shape.terms.every((t) => materialOptions.find((m) => m.id === t.material)?.dtype === "boolean");
+  if (shape.terms.length > 0 && allBoolean && isIdentityClampCurve && shape.preprocess === "identity") {
     return {
       ...common,
       shapeKind: "flag_sum",
-      flags: shape.flags.map(([material, points]) => ({ material, points })),
-      cap: shape.cap ?? null,
+      flags: shape.terms.map((t) => ({ material: t.material, points: t.weight })),
+      cap: shape.breakpoints[1][0],
     };
   }
   return {
     ...common,
-    shapeKind: shape.kind,
+    shapeKind: "breakpoint_linear",
     terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
     preprocess: shape.preprocess,
     breakpoints: shape.breakpoints,
@@ -288,9 +308,13 @@ function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readon
 }
 
 function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]): AxisShape {
+  // 改善計画T396: backend側はbreakpoint_linear/recipe_then_breakpoint_linear/flag_sumの
+  // 3種を「連続演算」1種（kind="breakpoint_linear"）へ統合した。draft.shapeKindは
+  // ユーザー向けカード選択（UIの入り口）としては引き続き4種を保つが、保存する
+  // shape.kindは常に"breakpoint_linear"へ正規化する。
   if (draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") {
     return {
-      kind: draft.shapeKind,
+      kind: "breakpoint_linear",
       terms: draft.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
       preprocess: draft.preprocess,
       breakpoints: draft.breakpoints,
@@ -313,10 +337,18 @@ function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]
       mapping: { true: draft.trueScore, false: draft.falseScore },
     };
   }
+  // 改善計画T396: 旧flag_sum（真偽値フラグの加点合計）はbreakpoint_linearの特殊形
+  // （全termがboolean材料、breakpoints=[[0,0],[cap,cap]]の恒等クランプ）として保存する。
+  // cap未入力時は達成しうる最大合計（全フラグのpoints合計）を既定のクランプ上限にする。
+  const cap = draft.cap ?? draft.flags.reduce((sum, f) => sum + f.points, 0);
   return {
-    kind: "flag_sum",
-    flags: draft.flags.map((f) => [f.material, f.points] as [string, number]),
-    cap: draft.cap,
+    kind: "breakpoint_linear",
+    terms: draft.flags.map((f) => ({ material: f.material, weight: f.points, required: true })),
+    preprocess: "identity",
+    breakpoints: [
+      [0, 0],
+      [cap, cap],
+    ],
   };
 }
 

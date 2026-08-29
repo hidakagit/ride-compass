@@ -1,26 +1,19 @@
-"""評価軸の変換ロジックが還元できる4つの汎用テンプレート（改善計画T221 Stage A、T239）。
+"""評価軸の変換ロジックが還元できる2つの汎用プリミティブ（改善計画T221 Stage A・T239、
+T396で4テンプレートから再編）。
 
-`docs/decisions/t221-axis-registry.md`の調査で、旧7軸（勾配・向かい風・路面・停止密度・
-車ストレス・事故密度・夜間）の一次属性→軸別difficulty(0-100)変換は、実質以下の4パターンに
-還元できると判明した。
+- **連続演算**（`evaluate_breakpoint_linear`）: 材料（または他軸のスコア）を重み付き
+  結合し、区分線形カーブ（両端クランプ）でスコア化する。旧4テンプレートのうち
+  「区分線形補間」「フラグ加算」（`evaluate_flag_sum`、boolean材料限定の特殊形だった）
+  「レシピ→レベル→区分線形補間」（`evaluate_recipe_then_breakpoint_linear`、他軸参照を
+  表す別名にすぎず実装は本関数のエイリアスだった）はすべてこの1関数に還元される
+  （T396で統合、`domain/axis_definitions.py: BreakpointLinearShape`docstring参照）。
+- **離散演算**（`evaluate_categorical`）: 単一の離散値（bool/カテゴリ文字列）を
+  テーブル引きでスコア化する。
 
-- **区分線形補間**（`evaluate_breakpoint_linear`）: 勾配・向かい風・停止密度・事故密度・
-  車ストレスを支える内部軸の一部（highway基本値・制限速度補正・車線数補正）が該当。
-  両端でクランプする折れ線補間。
-- **カテゴリ→定数**（`evaluate_categorical`）: 路面（舗装/非舗装）、車ストレスを支える
-  内部軸の一部（自転車インフラ補正・指定路線補正・motor_vehicle=no優先確定）が該当。
-- **フラグ加算**（`evaluate_flag_sum`）: 夜間（街灯なし・トンネル）が該当。
-- **レシピ→レベル→区分線形補間**（`evaluate_recipe_then_breakpoint_linear`）: 導入当時は
-  専用Pythonレシピ（highway別基準値＋各種タグ補正を1関数で算出する車ストレス判定）を
-  想定していたが、改善計画T292でその専用レシピ自体を廃止し、car_stress軸を
-  `domain/axis_definitions.py`の内部軸6つ+公開軸1つの階層構造（区分線形補間・
-  カテゴリ→定数の組み合わせ）へ再設計したため、現在この種別を使う軸は無い
-  （実装自体は`evaluate_breakpoint_linear`のエイリアスとしてそのまま残置。
-  `kind="recipe_then_breakpoint_linear"`という語彙は目論見書の歯止め③
-  [テンプレート4種の線引き]に触れるため、未使用であっても保守的に残す設計判断。
-  改善計画T298でのレビュー再確認: 利用ゼロだが「未使用の残骸」ではなく目論見書と
-  結び付いた意図的なKEEPと確定した——削除を検討するのは目論見書のテンプレート4種
-  自体を見直す時のみで、それ以外のトリガーでは削除しない）。
+「合成」（他軸のスコアを次の軸の入力として使う階層構造、改善計画T292）は独立した
+プリミティブではなく、連続演算の結合ステップの性質——`terms`の各materialが
+材料id・他軸のaxis_idのどちらも区別なく指せることから生じる（`axis_definitions.py:
+topological_axis_order`が依存順の評価を担う）。
 
 各関数はスカラー（Python float/bool/int）とnumpy配列の両方を受け付ける。スカラー入力には
 Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
@@ -51,11 +44,6 @@ def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
     return float(np.interp(value, xp, fp))
 
 
-# レシピ→レベル→区分線形補間（car_stress）。レベル計算自体は呼び出し側（軸固有のレシピ判定）
-# の責務で、ここに来た時点では既に区分線形補間そのものになっているため実装を共有する。
-evaluate_recipe_then_breakpoint_linear = evaluate_breakpoint_linear
-
-
 def evaluate_categorical(value, mapping: dict, default: float | None = None):
     """カテゴリ値→定数のマッピング。配列入力は要素ごとに`mapping`を適用し、NaN・None
     （不明値のプレースホルダ、材料により表現が異なる。dtype=object の文字列配列は
@@ -84,18 +72,6 @@ def evaluate_categorical(value, mapping: dict, default: float | None = None):
         matched = (keys_array[idx] == safe_value) & ~missing
         return np.where(matched, key_scores[idx], fill)
     return mapping.get(value, default)
-
-
-def evaluate_flag_sum(flags_and_points: list[tuple], cap: float | None = None):
-    """(フラグ, 加点)の組を合計する。フラグはスカラー（bool）・numpy配列のどちらでもよい
-    （リスト内で混在してはならない——呼び出し元は同じ形状で揃えて渡すこと）。
-    """
-    is_array = any(isinstance(flag, np.ndarray) for flag, _ in flags_and_points)
-    if is_array:
-        total = sum(np.asarray(flag, dtype=float) * points for flag, points in flags_and_points)
-        return np.minimum(total, cap) if cap is not None else total
-    total = sum((1.0 if flag else 0.0) * points for flag, points in flags_and_points)
-    return min(total, cap) if cap is not None else total
 
 
 def round1_array(values: np.ndarray) -> np.ndarray:

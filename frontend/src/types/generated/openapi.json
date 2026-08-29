@@ -1659,9 +1659,6 @@
               },
               {
                 "$ref": "#/components/schemas/CategoricalShape"
-              },
-              {
-                "$ref": "#/components/schemas/FlagSumShape"
               }
             ],
             "title": "Shape"
@@ -1788,9 +1785,6 @@
               },
               {
                 "$ref": "#/components/schemas/CategoricalShape"
-              },
-              {
-                "$ref": "#/components/schemas/FlagSumShape"
               }
             ],
             "title": "Shape"
@@ -2073,10 +2067,7 @@
         "properties": {
           "kind": {
             "type": "string",
-            "enum": [
-              "breakpoint_linear",
-              "recipe_then_breakpoint_linear"
-            ],
+            "const": "breakpoint_linear",
             "title": "Kind",
             "default": "breakpoint_linear"
           },
@@ -2120,7 +2111,7 @@
           "breakpoints"
         ],
         "title": "BreakpointLinearShape",
-        "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n`kind=\"recipe_then_breakpoint_linear\"`は計算上は同一で、材料が軸固有のレシピ判定\n（car_stress: `domain/traffic.py: car_stress_level`）の算出済み結果であることを\n表す命名（ADRの4テンプレート名に対応）。"
+        "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n改善計画T396: 軸スタジオの設計精査で、旧4テンプレート\n（breakpoint_linear/recipe_then_breakpoint_linear/categorical/flag_sum）は\n実質「連続演算（結合＋整形、本shape）」「離散演算（`CategoricalShape`）」の\n2プリミティブに還元でき、合成（他軸参照）はどちらの独立テンプレートでもなく\n連続演算の結合ステップの性質にすぎないと判明した。これに伴い\n`recipe_then_breakpoint_linear`（旧: 材料が軸固有のレシピ判定の算出済み結果で\nあることを表す別名kind、実装は本shapeのエイリアス）は撤去した——`terms`の各\nmaterialは元々材料id・軸idのどちらも区別なく指せる設計のため、別kindを持たせる\n理由が無かった。旧`FlagSumShape`（真偽値フラグの加点合計）も本shapeへ統合済み\n（全termがboolean材料の場合として表現する。`domain/axis_display.py:\nderive_ramp_inputs`の構造判定・移行方法は同モジュールのコメント参照）。"
       },
       "CategoricalShape": {
         "properties": {
@@ -2197,51 +2188,6 @@
           "debug_mode"
         ],
         "title": "DebugModeResponse"
-      },
-      "FlagSumShape": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "flag_sum",
-            "title": "Kind",
-            "default": "flag_sum"
-          },
-          "flags": {
-            "items": {
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
-              ],
-              "type": "array",
-              "maxItems": 2,
-              "minItems": 2
-            },
-            "type": "array",
-            "maxItems": 12,
-            "title": "Flags"
-          },
-          "cap": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cap"
-          }
-        },
-        "type": "object",
-        "required": [
-          "flags"
-        ],
-        "title": "FlagSumShape",
-        "description": "(boolフラグ材料, 加点)の合計、capでクランプ（丸めなし）。いずれかの材料が\n欠損なら軸全体を欠損として扱う（現行night軸はway_tags未取得時に全フラグが\nまとめて欠損する構造のため、部分欠損の細かい規約は定めない）。"
       },
       "FloodForecasts": {
         "properties": {

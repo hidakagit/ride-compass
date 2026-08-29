@@ -473,18 +473,30 @@
         "panel_hint": null,
         "priority_overrides": [],
         "shape": {
-          "cap": 100.0,
-          "flags": [
+          "breakpoints": [
             [
-              "no_lit",
-              50.0
+              0.0,
+              0.0
             ],
             [
-              "has_tunnel",
-              50.0
+              100.0,
+              100.0
             ]
           ],
-          "kind": "flag_sum"
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "no_lit",
+              "required": true,
+              "weight": 50.0
+            },
+            {
+              "material": "has_tunnel",
+              "required": true,
+              "weight": 50.0
+            }
+          ]
         },
         "show_map_icon": true,
         "time_scope": "night_only",

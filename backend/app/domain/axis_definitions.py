@@ -43,7 +43,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
-    evaluate_flag_sum,
 )
 from app.domain.registry import AxisDisplaySpec
 
@@ -66,14 +65,22 @@ class MaterialTerm(BaseModel):
 class BreakpointLinearShape(BaseModel):
     """区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
 
-    `kind="recipe_then_breakpoint_linear"`は計算上は同一で、材料が軸固有のレシピ判定
-    （car_stress: `domain/traffic.py: car_stress_level`）の算出済み結果であることを
-    表す命名（ADRの4テンプレート名に対応）。
+    改善計画T396: 軸スタジオの設計精査で、旧4テンプレート
+    （breakpoint_linear/recipe_then_breakpoint_linear/categorical/flag_sum）は
+    実質「連続演算（結合＋整形、本shape）」「離散演算（`CategoricalShape`）」の
+    2プリミティブに還元でき、合成（他軸参照）はどちらの独立テンプレートでもなく
+    連続演算の結合ステップの性質にすぎないと判明した。これに伴い
+    `recipe_then_breakpoint_linear`（旧: 材料が軸固有のレシピ判定の算出済み結果で
+    あることを表す別名kind、実装は本shapeのエイリアス）は撤去した——`terms`の各
+    materialは元々材料id・軸idのどちらも区別なく指せる設計のため、別kindを持たせる
+    理由が無かった。旧`FlagSumShape`（真偽値フラグの加点合計）も本shapeへ統合済み
+    （全termがboolean材料の場合として表現する。`domain/axis_display.py:
+    derive_ramp_inputs`の構造判定・移行方法は同モジュールのコメント参照）。
     """
 
     model_config = ConfigDict(frozen=True)
 
-    kind: Literal["breakpoint_linear", "recipe_then_breakpoint_linear"] = "breakpoint_linear"
+    kind: Literal["breakpoint_linear"] = "breakpoint_linear"
     terms: list[MaterialTerm]
     preprocess: Literal["identity", "abs"] = "identity"
     breakpoints: list[tuple[float, float]]
@@ -102,25 +109,7 @@ class CategoricalShape(BaseModel):
     mapping: dict[Annotated[Union[bool, str], Field(union_mode="left_to_right")], float]
 
 
-class FlagSumShape(BaseModel):
-    """(boolフラグ材料, 加点)の合計、capでクランプ（丸めなし）。いずれかの材料が
-    欠損なら軸全体を欠損として扱う（現行night軸はway_tags未取得時に全フラグが
-    まとめて欠損する構造のため、部分欠損の細かい規約は定めない）。"""
-
-    model_config = ConfigDict(frozen=True)
-
-    kind: Literal["flag_sum"] = "flag_sum"
-    # 改善計画T278のderive_ramp_inputs（domain/axis_display.py: _flag_sum_thresholds）が
-    # 達成しうる合計値を全部分集合（2^N-1通り）列挙して求めるため、Nを明示的に上限で
-    # 保護する（レビュー指摘: 以前は上限が無く、軸スタジオUIの「+ フラグを追加」で
-    # 際限なく増やせた）。現行の「材料の天井」（目論見書7章・歯止め4、材料は全軸合計で
-    # MATERIAL_CATALOGの登録数までしか増やせない設計）を踏まえれば実運用でこの上限に
-    # 達することは無い想定の、余裕を持った安全弁。
-    flags: list[tuple[str, float]] = Field(max_length=12)
-    cap: float | None = None
-
-
-AxisShape = BreakpointLinearShape | CategoricalShape | FlagSumShape
+AxisShape = BreakpointLinearShape | CategoricalShape
 
 
 AxisCategory = Literal["観測", "推定", "動的"]
@@ -265,10 +254,8 @@ class AxisDefinition(BaseModel):
         （改善計画T292、`check_material_exclusivity`参照）。"""
         if isinstance(self.shape, BreakpointLinearShape):
             shape_materials = [term.material for term in self.shape.terms]
-        elif isinstance(self.shape, CategoricalShape):
-            shape_materials = [self.shape.material]
         else:
-            shape_materials = [material for material, _ in self.shape.flags]
+            shape_materials = [self.shape.material]
         override_materials = [cond.material for cond in self.priority_overrides]
         # 順序を安定させつつ重複を除く（同じ材料をpriority_overridesとshapeの両方が
         # 参照するケース、例: motor_vehicle_noを他のtermでも使う場合を許容するため）。
@@ -588,19 +575,11 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
         if shape.preprocess == "abs":
             total = abs(total)
         return round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
-    if isinstance(shape, CategoricalShape):
-        value = materials.get(shape.material)
-        if value is None:
-            return None
-        return evaluate_categorical(value, shape.mapping)
-    # FlagSumShape
-    flag_values = []
-    for material, points in shape.flags:
-        value = materials.get(material)
-        if value is None:
-            return None
-        flag_values.append((value, points))
-    return evaluate_flag_sum(flag_values, cap=shape.cap)
+    # CategoricalShape
+    value = materials.get(shape.material)
+    if value is None:
+        return None
+    return evaluate_categorical(value, shape.mapping)
 
 
 def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, float | None], dict[str, object]]:
@@ -655,17 +634,12 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
         if shape.preprocess == "abs":
             total = np.abs(total)
         result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
-    elif isinstance(shape, CategoricalShape):
-        # コードレビュー指摘の修正: `evaluate_categorical`は`values == key`という
-        # 要素ごとの比較のみでbool配列・str(dtype=object)配列のどちらも正しく動く
-        # （`bool配列 == True/False`は`bool配列 == 1.0/0.0`と同じ結果になる、実データ
-        # 検証済み）ため、bool材料をfloatキーへ変換する特別扱いは不要だった。
-        result = evaluate_categorical(materials[shape.material], shape.mapping)
     else:
-        # FlagSumShape
-        result = evaluate_flag_sum(
-            [(materials[material], points) for material, points in shape.flags], cap=shape.cap
-        )
+        # CategoricalShape。`evaluate_categorical`は`values == key`という要素ごとの比較
+        # のみでbool配列・str(dtype=object)配列のどちらも正しく動く（`bool配列 ==
+        # True/False`は`bool配列 == 1.0/0.0`と同じ結果になる、実データ検証済み）ため、
+        # bool材料をfloatキーへ変換する特別扱いは不要だった。
+        result = evaluate_categorical(materials[shape.material], shape.mapping)
     for override in reversed(definition.priority_overrides):
         values = materials[override.material]
         # bool配列（フラグ材料、例: motor_vehicle_no）は"true"/"false"の文字列表現へ

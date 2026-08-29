@@ -511,7 +511,7 @@ RideCompass/
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
-        axis_templates.py                ✅ 改善計画T221 Stage A/T239: 7軸の変換ロジックが還元される4テンプレート（evaluate_breakpoint_linear/evaluate_categorical/evaluate_flag_sum/evaluate_recipe_then_breakpoint_linear）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
+        axis_templates.py                ✅ 改善計画T221 Stage A/T239、T396で2プリミティブへ再編: evaluate_breakpoint_linear（連続演算、旧evaluate_flag_sum/evaluate_recipe_then_breakpoint_linearを統合）・evaluate_categorical（離散演算）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
         material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_inverted/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。改善計画T338フォローアップ（2026-08-26、ユーザー指摘）でdesignationを正規化フラグ材料is_emergency_transport[N10]/is_critical_logistics[N12]へも分解し24→26材料へ拡張（bicycle_infra→cycleway_has_track等[T336]と同じ設計思想、「表示専用材料の除外」節参照）。改善計画T347で7値categorical材料`bicycle_infra`自体（`classify_bicycle_infrastructure`の分類結果を保持していた、材料としては使用者無し）を削除し26→25材料。同時に`highway_is_cycleway`の`primary_attribute_id`を`highway`から`cycleway`へ再割当て（4フラグ材料全てが`cycleway`一次属性を共有する形に統一し、`highway`はcar_stress_highway_base専用のまま非共有を維持）、4フラグ材料全てへ`bool_default="nan"`を追加（ベクトル化評価経路`compute_edge_costs_bulk`が欠落値を`False`へ丸めて「データ無し」を「確認済みでインフラ無し」と誤判定していた回帰を修正、`surface_good`の既存踏襲）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
         axis_display.py                  ✅ 改善計画T278: derive_ramp_inputs()。AXIS_DEFINITIONSの軸とMATERIAL_CATALOGから地図ramp表示（tile_inputs/thresholds）を自動導出する（安全に導出できるCategorical/FlagSum/単一材料BreakpointLinearのみ、詳細は「地図表示ルール（kind=ramp）の自動導出」節参照）
@@ -594,7 +594,7 @@ RideCompass/
       test_scoring.py         ✅ normalize_min_maxの方向反転・全同値時の中立100点・None扱いの検証
       test_route_scorer.py    ✅ RouteScorer.scoreの正常系・指標欠損時の重み再正規化・score_breakdown（寄与点の合計=total_score）・全重み0時のtotal_score=Noneの検証
       test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
-      test_axis_templates.py   ✅ 改善計画T239: 4テンプレート（区分線形補間・カテゴリ→定数・フラグ加算）のスカラー/配列両モードの一致・NaN伝播の検証
+      test_axis_templates.py   ✅ 改善計画T239、T396で2プリミティブへ再編: 連続演算（区分線形補間、boolean材料の重み付き和も含む）・離散演算（カテゴリ→定数）のスカラー/配列両モードの一致・NaN伝播の検証
       test_region.py           ✅ tile_bounds_lonlatの検証（zoom0で全世界を覆う・隣接タイルの境界一致など、Step10改訂）。tiles_covering_bboxの検証（単一/複数タイル・世界端でのクランプ）を追加（Road Graphのタイル単位キャッシュ導入時、新規）
       test_region_service.py  ✅ RegionService.get_road_surface_tileのタイルキャッシュ利用/未キャッシュ時の挙動の検証（Step10改訂）
       test_region_routes.py   ✅ /api/region/road-surface-tiles/{z}/{x}/{y}.pbfのDIモックテスト・ズーム範囲外リクエストの400（Step10改訂）
@@ -1447,6 +1447,48 @@ Python内蔵の既定値というフォールバック先が無くなったた�
 bootstrap_ci_db.py`）でmigration適用後のDBから生成するよう変更した（以前はDB接続に
 失敗してもコード内蔵の既定値へ黙ってフォールバックできていたが、そのフォールバック
 自体が撤去対象だったため、生成そのものに実DBが必須になった）。
+
+### shapeの2プリミティブ化（改善計画T396）
+
+軸スタジオの設計精査（ユーザーとのセッション、2026-08-29）で、`AxisShape`の旧4種
+（`breakpoint_linear`/`recipe_then_breakpoint_linear`/`categorical`/`flag_sum`）は
+実質2つの独立した原型に還元できると判明し、以下へ再編した。
+
+- **連続演算**（`BreakpointLinearShape`、kind不変）: 材料（または他軸のスコア）を
+  `terms`で重み付き結合し、`breakpoints`の区分線形カーブ（両端クランプ）でスコア化する。
+  `recipe_then_breakpoint_linear`（他軸参照を表す別名kind、実装は本shapeのエイリアス
+  だった）は撤去した——`MaterialTerm.material`は元々材料id・軸idのどちらも区別なく
+  指せる設計のため、別kindを持たせる理由が無かった。旧`FlagSumShape`（真偽値フラグの
+  加点合計、`flags`+`cap`）も本shapeへ統合した——全termがboolean材料の場合として
+  `terms`（`weight`が旧`points`）＋`breakpoints=[[0,0],[cap,cap]]`（恒等クランプ）で
+  表現する。
+- **離散演算**（`CategoricalShape`、変更なし）: 単一の離散値（bool/カテゴリ文字列）を
+  `mapping`でテーブル引きしスコア化する。
+
+「合成」（他軸のスコアを次の軸の入力として使う階層構造、改善計画T292）は独立した
+プリミティブではなく、連続演算の結合ステップの性質——`terms`の各materialが材料id・
+他軸のaxis_idのどちらも区別なく指せることから生じる。`topological_axis_order`
+（依存順評価、上記「軸の階層」節参照）はこの整理でも変更していない。
+
+**移行**: night軸（唯一の`flag_sum`利用軸）は`axis_definitions`テーブル・
+`backend/fixtures/axis_definitions_snapshot.json`とも新形状へ移行済み（本番・dev
+両方、行データはT361の運用どおりaxis_admin API相当の経路——本件は既存データの型
+移行のためPydantic検証を経由できず、`shape_params`カラムを直接UPDATEする一時
+スクリプトで実施し実行後に削除した）。`domain/axis_display.py: derive_ramp_inputs`
+（地図ramp表示の自動導出）は、旧`FlagSumShape`という型で分岐していた閾値計算
+（達成しうる合計値の部分和・隣接中間点）を、「`BreakpointLinearShape`で全termが
+boolean材料か」という構造判定へ書き換えることで、night軸の地図表示を維持した
+（材料が20件超だと部分和の組合せ爆発を避けるため自動導出対象外にする安全弁付き）。
+
+**フロント**: `AxisComposer.tsx`のUI（4枚のカード「数値の大きさに応じて」/
+「はい/いいえ、または種類ごとに」/「複数の要素の有無を数えて」/「他の軸を重みで
+足し合わせて」）は変更していない——UIの入り口は用途別に4つのまま保ち、保存時に
+`kind`を常に`breakpoint_linear`または`categorical`へ正規化するだけに留めた
+（表側の選択肢数と裏のprimitive数を一致させる必要は無いという判断）。編集で開いた
+ときにどのカードを初期選択するかは、保存済み`kind`だけでは判別できなくなったため、
+`draftFromExisting`が`terms`の構造（全termが他軸参照か／全termがboolean材料かつ
+breakpointsが恒等クランプか）から推定し直す。UIの3カード化（合成カードを独立の
+primitiveとして扱わない前提での再設計）は別途検討中で未着手。
 
 ### 軸の公開フローと統治ルール（改善計画T271）
 

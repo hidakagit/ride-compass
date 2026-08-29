@@ -4,17 +4,21 @@
 全てMVTタイルへ焼き込み済み（`tile_property`保持）であれば、その軸の地図ramp表示
 （`registry.py: TileInputSpec`のΣproperty×weight・真偽値のcase分岐）を自動導出できる。
 
-**安全に自動導出できるケースに限定する**（改善計画T278調査・T308一般化で判明した制約）:
+**安全に自動導出できるケースに限定する**（改善計画T278調査・T308一般化・T396でFlagSumShapeを
+BreakpointLinearShapeへ統合した際に判明した制約）:
 - `CategoricalShape`（真偽値材料1件、またはstr N値材料1件）: 真偽値は2値の中間点、
   str N値は達成しうるスコアの隣接中間点を閾値とする（改善計画T308でstr N値も対応）。
-- `FlagSumShape`（真偽値フラグN件）: 達成しうる合計値（部分和の全組合せ、cap適用後）の
-  隣接中間点を閾値とする。
-- `BreakpointLinearShape`で`preprocess="identity"`の場合（改善計画T308で単一材料・
-  weight=1.0限定を撤廃）: `total = Σ(material_value × term.weight)`という評価側の量は、
-  termごとに`TileInputSpec(property, weight=term.weight)`を並べてフロントが計算する量と
-  完全に同一（同じ材料・同じ重み・同じ演算）であるため、`shape.breakpoints`のx値
-  （先頭除く）は元のterm数・重みに関わらずそのまま妥当な閾値として流用できる
-  （近似ではなく数学的に厳密な流用）。
+- `BreakpointLinearShape`で全termがboolean材料の場合（改善計画T396、旧`FlagSumShape`の
+  代替）: 各termは該当時1・非該当時0として振る舞うため、達成しうる合計値は「重み（旧flag_sum
+  でいう加点）の空集合込み全部分和」に限られる（連続値と違い中間の値を取らない）。この
+  部分和集合（`shape.breakpoints`の最終x値でクランプ）の隣接中間点を閾値とする。
+- `BreakpointLinearShape`で`preprocess="identity"`かつ全termがboolean材料**ではない**場合
+  （改善計画T308で単一材料・weight=1.0限定を撤廃）: `total = Σ(material_value × term.weight)`
+  という評価側の量は、termごとに`TileInputSpec(property, weight=term.weight)`を並べて
+  フロントが計算する量と完全に同一（同じ材料・同じ重み・同じ演算）であるため、
+  `shape.breakpoints`のx値（先頭除く）は元のterm数・重みに関わらずそのまま妥当な閾値として
+  流用できる（近似ではなく数学的に厳密な流用。連続値は中間の値も取りうるため、boolean限定
+  ケースと違い部分和集合ではなくbreakpoints自体のx値をそのまま使ってよい）。
 
 それ以外（`preprocess="abs"`[フロントの`buildAxisRampValueExpression`が未対応]・
 タイル非依存材料・実行時スケール変換が必要な材料[`tile_property_needs_runtime_scale=True`]・
@@ -46,7 +50,6 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
-    FlagSumShape,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.registry import AxisDisplaySpec, TileInputSpec
@@ -64,8 +67,11 @@ def _adjacent_midpoint_thresholds(scores: list[float]) -> list[float]:
     return [(a + b) / 2 for a, b in zip(ordered, ordered[1:])]
 
 
-def _flag_sum_thresholds(points: list[float], cap: float | None) -> list[float]:
-    """達成しうる合計値（空集合込みの全部分和、cap適用後）の隣接中間点を閾値として返す。
+def _boolean_terms_thresholds(weights: list[float], cap: float | None) -> list[float]:
+    """全termがboolean材料のBreakpointLinearShape向け（改善計画T396、旧`FlagSumShape`の
+    `_flag_sum_thresholds`を一般化）。各termは該当時weight・非該当時0の2値しか取らないため、
+    達成しうる合計値は「重みの空集合込み全部分和」に限られる（連続値と異なり中間の値を
+    取らない）。この部分和集合（capでクランプ後）の隣接中間点を閾値として返す。
 
     コードレビュー指摘の修正: 末尾の「sorted→隣接中間点」ロジックが
     `_adjacent_midpoint_thresholds`と重複していたため、達成しうる合計値の集合を
@@ -73,8 +79,8 @@ def _flag_sum_thresholds(points: list[float], cap: float | None) -> list[float]:
     [丸め・重み付け等]を変更する際、片方だけ直し忘れて挙動が乖離するのを防ぐ）。
     """
     sums: set[float] = {0.0}
-    for r in range(1, len(points) + 1):
-        for combo in combinations(points, r):
+    for r in range(1, len(weights) + 1):
+        for combo in combinations(weights, r):
             total = sum(combo)
             if cap is not None:
                 total = min(total, cap)
@@ -147,23 +153,6 @@ def derive_ramp_inputs(definition: AxisDefinition) -> RampInputs | None:
             thresholds=_adjacent_midpoint_thresholds(distinct_scores),
         )
 
-    if isinstance(shape, FlagSumShape):
-        tile_inputs = []
-        for material, points in shape.flags:
-            spec = specs[material]
-            assert spec is not None and spec.tile_property is not None
-            tile_inputs.append(
-                TileInputSpec(
-                    property=spec.tile_property,
-                    boolean=True,
-                    invert=spec.tile_property_inverted,
-                    true_value=points,
-                    false_value=0.0,
-                )
-            )
-        thresholds = _flag_sum_thresholds([points for _, points in shape.flags], shape.cap)
-        return RampInputs(tile_inputs=tile_inputs, thresholds=thresholds)
-
     if isinstance(shape, BreakpointLinearShape):
         if shape.preprocess != "identity":
             # abs前処理はフロントのbuildAxisRampValueExpressionが未対応（改善計画T308の
@@ -191,21 +180,47 @@ def derive_ramp_inputs(definition: AxisDefinition) -> RampInputs | None:
         for term in shape.terms:
             spec = specs[term.material]
             assert spec is not None and spec.tile_property is not None
-            if spec.tile_property_inverted:
+            if spec.tile_property_inverted and spec.dtype != "boolean":
                 # tile_property_inverted（否定）はboolean材料の「no_lit⟵litの否定」を表す
                 # ためだけに定義された概念で、数値材料に対する「反転」の意味は未定義
                 # （フロントのbuildAxisRampValueExpressionも数値側の分岐ではinvertを一切
                 # 読まない）。以前はここでinvertを無視したまま素通りしており、将来
                 # tile_property_inverted=Trueの数値材料が追加された場合に色分けが反転した
                 # まま気づかれない欠陥があった。数値材料の反転は未対応のため、安全側で
-                # ramp化不可（None）とする。
+                # ramp化不可（None）とする（boolean材料は下のtrue/false分岐で反転を扱う）。
                 return None
-            tile_inputs.append(TileInputSpec(property=spec.tile_property, weight=term.weight))
-        # 改善計画T308: 単一term・weight=1.0限定を撤廃。total=Σ(material_value×term.weight)は
-        # 評価側の量とフロント表示側の量が完全に同一の演算のため、term数・重みによらず
-        # shape.breakpointsのx値（先頭除く）をそのまま閾値として流用できる（モジュール
-        # docstring参照）。
-        thresholds = [bp[0] for bp in shape.breakpoints[1:]]
+            if spec.dtype == "boolean":
+                # 改善計画T396: 旧FlagSumShapeの代替。該当時term.weight・非該当時0の2値。
+                tile_inputs.append(
+                    TileInputSpec(
+                        property=spec.tile_property,
+                        boolean=True,
+                        invert=spec.tile_property_inverted,
+                        true_value=term.weight,
+                        false_value=0.0,
+                    )
+                )
+            else:
+                tile_inputs.append(TileInputSpec(property=spec.tile_property, weight=term.weight))
+
+        if all(specs[term.material] is not None and specs[term.material].dtype == "boolean" for term in shape.terms):
+            # 改善計画T396: 全termがboolean材料なら、達成しうる合計値は部分和集合に限られる
+            # （連続値と異なり中間の値を取らない）ため、その隣接中間点を閾値とする
+            # （旧FlagSumShapeの`_flag_sum_thresholds`と同じロジック、cap相当はbreakpointsの
+            # 最終x値）。旧`FlagSumShape.flags`はPydantic側でmax_length=12を持っていたが
+            # （全部分和2^N-1通りの組合せ爆発を避けるため）、統合後のtermsにその制約が
+            # 無くなったので、同じ安全弁をここに移設する（GUIは今のところ「材料の天井」で
+            # 実質12を超えない想定だが、直接API呼び出しでは制限されないため）。
+            if len(shape.terms) > 12:
+                return None
+            cap = shape.breakpoints[-1][0]
+            thresholds = _boolean_terms_thresholds([term.weight for term in shape.terms], cap)
+        else:
+            # 改善計画T308: 単一term・weight=1.0限定を撤廃。total=Σ(material_value×term.weight)
+            # は評価側の量とフロント表示側の量が完全に同一の演算のため、term数・重みによらず
+            # shape.breakpointsのx値（先頭除く）をそのまま閾値として流用できる（モジュール
+            # docstring参照。連続値は中間の値も取りうるためboolean限定ケースと異なる）。
+            thresholds = [bp[0] for bp in shape.breakpoints[1:]]
         return RampInputs(tile_inputs=tile_inputs, thresholds=thresholds)
 
     return None

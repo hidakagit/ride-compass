@@ -2,7 +2,6 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
-    FlagSumShape,
     MaterialTerm,
 )
 from app.domain.axis_display import (
@@ -78,12 +77,19 @@ def test_categorical_shape_with_str_multi_value_material_derives_ramp():
     assert ramp.thresholds == [3.0]
 
 
-def test_flag_sum_shape_derives_subset_sum_thresholds():
-    # nightを模した合成軸: no_lit(材料、tile_property="lit"の否定)50点 +
-    # has_tunnel(tile_property="tunnel")50点、cap100
+def test_boolean_terms_breakpoint_linear_derives_subset_sum_thresholds():
+    # 改善計画T396: 旧FlagSumShapeをBreakpointLinearShapeへ統合。nightを模した合成軸:
+    # no_lit(材料、tile_property="lit"の否定)50点 + has_tunnel(tile_property="tunnel")
+    # 50点、breakpoints=[(0,0),(100,100)]（cap=100相当）。
     definition = AxisDefinition(
         axis_id="synthetic_night",
-        shape=FlagSumShape(flags=[("no_lit", 50.0), ("has_tunnel", 50.0)], cap=100.0),
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="no_lit", weight=50.0),
+                MaterialTerm(material="has_tunnel", weight=50.0),
+            ],
+            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        ),
         default_weight=0.0,
         label="テスト軸",
         category="観測",
@@ -100,29 +106,42 @@ def test_flag_sum_shape_derives_subset_sum_thresholds():
     assert tunnel_input.true_value == 50.0
     # 達成しうる合計{0,50,100}の隣接中間点
     assert ramp.thresholds == [25.0, 75.0]
-    # FlagSumShapeはタグ不在に既に軸定義側の安全側デフォルト意味（無灯火・非トンネル）が
-    # あるため、欠損を「不明」として特別扱いしない（CategoricalShapeとの違いの確認）。
+    # 全termがboolean材料の軸はタグ不在に既に軸定義側の安全側デフォルト意味
+    # （無灯火・非トンネル）があるため、欠損を「不明」として特別扱いしない
+    # （CategoricalShapeとの違いの確認）。
     assert no_lit_input.has_unknown_fallback is False
     assert tunnel_input.has_unknown_fallback is False
 
 
-def test_breakpoint_linear_shape_with_inverted_material_is_not_auto_derived():
+def test_inverted_numeric_material_is_not_auto_derived(monkeypatch):
     # レビュー指摘の修正確認: tile_property_invertedはboolean材料の否定（no_lit⟵lit）
     # のためだけに定義された概念で、数値材料の「反転」は未定義（フロントの
     # buildAxisRampValueExpressionも数値分岐ではinvertを読まない）。誤って色分けが
-    # 反転したまま気づかれないより、自動導出対象外（None）にする方が安全。
+    # 反転したまま気づかれないより、自動導出対象外（None）にする方が安全。改善計画T396で
+    # boolean材料は正しくtrue/false分岐で扱えるようになったため（上のテスト参照）、
+    # この安全弁はnumeric dtypeの材料でのみ検証する（テスト専用材料を一時登録）。
+    monkeypatch.setitem(
+        MATERIAL_CATALOG,
+        "test_inverted_numeric_material",
+        MaterialSpec(
+            material_id="test_inverted_numeric_material",
+            label="テスト用反転数値材料",
+            description="テスト用の材料。",
+            dtype="numeric",
+            tile_property="test_inverted_numeric_property",
+            tile_property_inverted=True,
+        ),
+    )
     definition = AxisDefinition(
         axis_id="synthetic_inverted_numeric",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="no_lit", weight=1.0)],
+            terms=[MaterialTerm(material="test_inverted_numeric_material", weight=1.0)],
             breakpoints=[(0.0, 0.0), (10.0, 100.0)],
         ),
         default_weight=0.1,
         label="テスト軸",
         category="推定",
     )
-    # no_litは実際はboolean材料だが、ここではtile_property_inverted=Trueを持つ材料を
-    # BreakpointLinearShape（数値材料前提）に使った場合の挙動だけを検証する目的で使う。
 
     ramp = derive_ramp_inputs(definition)
 
@@ -130,22 +149,24 @@ def test_breakpoint_linear_shape_with_inverted_material_is_not_auto_derived():
 
 
 def test_single_term_breakpoint_linear_reuses_breakpoints_as_thresholds():
+    # 改善計画T396: 全termがboolean材料の軸は部分和ベースの閾値計算（別テスト
+    # test_boolean_terms_breakpoint_linear_derives_subset_sum_thresholds参照）へ分岐する
+    # ため、この「breakpointsのx値をそのまま流用する」経路の検証には数値材料
+    # （lanes_count）を使う。
     definition = AxisDefinition(
         axis_id="synthetic_single_term",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="surface_good", weight=1.0)],
+            terms=[MaterialTerm(material="lanes_count", weight=1.0)],
             breakpoints=[(0.0, 0.0), (10.0, 50.0), (20.0, 100.0)],
         ),
         default_weight=0.1,
         label="テスト軸",
         category="推定",
     )
-    # surface_goodは実際は真偽値材料だが、ここでは単一材料weight=1.0のBreakpointLinear
-    # 経路（数値材料ケース）のみを検証する目的で使う。
     ramp = derive_ramp_inputs(definition)
 
     assert ramp is not None
-    assert ramp.tile_inputs == [TileInputSpec(property="surface_good", weight=1.0)]
+    assert ramp.tile_inputs == [TileInputSpec(property="lanes_count", weight=1.0)]
     assert ramp.thresholds == [10.0, 20.0]
 
 

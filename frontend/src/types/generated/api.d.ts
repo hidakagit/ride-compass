@@ -692,7 +692,7 @@ export interface components {
             /** Axis Id */
             axis_id: string;
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"] | components["schemas"]["FlagSumShape"];
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
             /** Default Weight */
             default_weight: number;
             /** Label */
@@ -749,7 +749,7 @@ export interface components {
             /** Axis Id */
             axis_id: string;
             /** Shape */
-            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"] | components["schemas"]["FlagSumShape"];
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
             /** Default Weight */
             default_weight: number;
             /** Label */
@@ -877,17 +877,25 @@ export interface components {
          * BreakpointLinearShape
          * @description 区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
          *
-         *     `kind="recipe_then_breakpoint_linear"`は計算上は同一で、材料が軸固有のレシピ判定
-         *     （car_stress: `domain/traffic.py: car_stress_level`）の算出済み結果であることを
-         *     表す命名（ADRの4テンプレート名に対応）。
+         *     改善計画T396: 軸スタジオの設計精査で、旧4テンプレート
+         *     （breakpoint_linear/recipe_then_breakpoint_linear/categorical/flag_sum）は
+         *     実質「連続演算（結合＋整形、本shape）」「離散演算（`CategoricalShape`）」の
+         *     2プリミティブに還元でき、合成（他軸参照）はどちらの独立テンプレートでもなく
+         *     連続演算の結合ステップの性質にすぎないと判明した。これに伴い
+         *     `recipe_then_breakpoint_linear`（旧: 材料が軸固有のレシピ判定の算出済み結果で
+         *     あることを表す別名kind、実装は本shapeのエイリアス）は撤去した——`terms`の各
+         *     materialは元々材料id・軸idのどちらも区別なく指せる設計のため、別kindを持たせる
+         *     理由が無かった。旧`FlagSumShape`（真偽値フラグの加点合計）も本shapeへ統合済み
+         *     （全termがboolean材料の場合として表現する。`domain/axis_display.py:
+         *     derive_ramp_inputs`の構造判定・移行方法は同モジュールのコメント参照）。
          */
         BreakpointLinearShape: {
             /**
              * Kind
              * @default breakpoint_linear
-             * @enum {string}
+             * @constant
              */
-            kind: "breakpoint_linear" | "recipe_then_breakpoint_linear";
+            kind: "breakpoint_linear";
             /** Terms */
             terms: components["schemas"]["MaterialTerm"][];
             /**
@@ -948,27 +956,6 @@ export interface components {
         DebugModeResponse: {
             /** Debug Mode */
             debug_mode: boolean;
-        };
-        /**
-         * FlagSumShape
-         * @description (boolフラグ材料, 加点)の合計、capでクランプ（丸めなし）。いずれかの材料が
-         *     欠損なら軸全体を欠損として扱う（現行night軸はway_tags未取得時に全フラグが
-         *     まとめて欠損する構造のため、部分欠損の細かい規約は定めない）。
-         */
-        FlagSumShape: {
-            /**
-             * Kind
-             * @default flag_sum
-             * @constant
-             */
-            kind: "flag_sum";
-            /** Flags */
-            flags: [
-                string,
-                number
-            ][];
-            /** Cap */
-            cap?: number | null;
         };
         /** FloodForecasts */
         FloodForecasts: {

@@ -1,7 +1,7 @@
 """評価軸が参照する材料（material）の正式カタログ（改善計画T277）。
 
 `domain/axis_definitions.py: AXIS_DEFINITIONS`の各軸（`MaterialTerm.material`・
-`CategoricalShape.material`・`FlagSumShape.flags`）が参照する材料idは、これまで
+`CategoricalShape.material`）が参照する材料idは、これまで
 `AXIS_DEFINITIONS`のコメントに散文で説明されるだけで、正式な一覧として宣言されていな
 かった（軸スタジオ実装時、フロント側`axisMaterialsCatalog.ts`が独自にハードコードして
 いた）。本モジュールがその単一ソースになる。

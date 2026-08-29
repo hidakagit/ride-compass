@@ -56,8 +56,20 @@ function categoricalShape(material: string, mapping: Record<string, number>): Ax
   return { kind: "categorical", material, mapping };
 }
 
+// 改善計画T396: 旧flag_sumはbreakpoint_linearの特殊形（全termがboolean材料、
+// breakpoints=[[0,0],[cap,cap]]の恒等クランプ）として保存される（AxisComposer.tsx:
+// buildShapeの同コメント参照）。cap未指定時は達成しうる最大合計を既定値にする。
 function flagSumShape(flags: [string, number][], cap: number | null): AxisShape {
-  return { kind: "flag_sum", flags, cap };
+  const resolvedCap = cap ?? flags.reduce((sum, [, points]) => sum + points, 0);
+  return {
+    kind: "breakpoint_linear",
+    terms: flags.map(([material, points]) => ({ material, weight: points, required: true })),
+    preprocess: "identity",
+    breakpoints: [
+      [0, 0],
+      [resolvedCap, resolvedCap],
+    ],
+  };
 }
 
 async function clickNext(user: ReturnType<typeof userEvent.setup>) {
@@ -162,7 +174,7 @@ describe("AxisComposer", () => {
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
       expect(payload.shape).toEqual({
-        kind: "recipe_then_breakpoint_linear",
+        kind: "breakpoint_linear",
         terms: [{ material: "wind", weight: 1.0, required: true }],
         preprocess: "abs",
         breakpoints: [
@@ -206,7 +218,7 @@ describe("AxisComposer", () => {
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
       expect(payload.shape).toEqual({
-        kind: "recipe_then_breakpoint_linear",
+        kind: "breakpoint_linear",
         terms: [
           { material: "gradient", weight: 2, required: true },
           { material: "wind", weight: 1, required: false },
@@ -424,11 +436,14 @@ describe("AxisComposer", () => {
       expect(scoreInputs.map((el) => el.valueAsNumber)).toEqual([10, 90]);
     });
 
-    it("recipe_then_breakpoint_linear軸を編集で開くと、上級者向けカードが選択済みになる", async () => {
+    it("他軸参照のterms(recipe_then_breakpoint_linear相当)を編集で開くと、上級者向けカードが選択済みになる", async () => {
+      // 改善計画T396: 保存済みkindは常にbreakpoint_linearへ統合済みのため、材料一覧に
+      // 存在しない参照（wind、材料カタログには無くaxis_idの想定）を使い、構造判定
+      // （draftFromExisting）が「他軸参照termsのみ」からこのカードを推定することを確認する。
       const editing = baseDefinition({
         shape: {
-          kind: "recipe_then_breakpoint_linear",
-          terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
+          kind: "breakpoint_linear",
+          terms: [{ material: "wind", weight: 1.0, required: true }],
           preprocess: "identity",
           breakpoints: [
             [0, 0],

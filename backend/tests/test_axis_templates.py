@@ -10,8 +10,6 @@ import numpy as np
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
-    evaluate_flag_sum,
-    evaluate_recipe_then_breakpoint_linear,
 )
 
 BREAKPOINTS = [(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.0, 100.0)]
@@ -39,13 +37,6 @@ def test_evaluate_breakpoint_linear_array_propagates_nan():
     assert not np.isnan(array_result[0])
     assert np.isnan(array_result[1])
     assert not np.isnan(array_result[2])
-
-
-def test_evaluate_recipe_then_breakpoint_linear_is_same_as_breakpoint_linear():
-    car_stress_breakpoints = [(1, 0.0), (5, 100.0)]
-    assert evaluate_recipe_then_breakpoint_linear(3, car_stress_breakpoints) == evaluate_breakpoint_linear(
-        3, car_stress_breakpoints
-    )
 
 
 def test_evaluate_categorical_scalar():
@@ -99,19 +90,14 @@ def test_evaluate_categorical_array_bool_keys_matches_scalar():
     assert result[2] == 0.0
 
 
-def test_evaluate_flag_sum_scalar_sums_and_caps():
-    assert evaluate_flag_sum([(True, 50.0), (False, 50.0)]) == 50.0
-    assert evaluate_flag_sum([(True, 50.0), (True, 50.0)]) == 100.0
-    assert evaluate_flag_sum([(True, 60.0), (True, 60.0)], cap=100.0) == 100.0
+def test_evaluate_breakpoint_linear_sums_boolean_terms_like_flag_sum():
+    # 改善計画T396: 旧evaluate_flag_sumはboolean材料の重み付き和＋クランプの特殊形で、
+    # breakpoints=[(0, 0), (cap, cap)]のevaluate_breakpoint_linearと等価だった。
+    breakpoints = [(0.0, 0.0), (100.0, 100.0)]
 
+    def combine(a: bool, b: float, weight_a: float, weight_b: float) -> float:
+        return evaluate_breakpoint_linear(a * weight_a + b * weight_b, breakpoints)
 
-def test_evaluate_flag_sum_array_matches_scalar_elementwise():
-    flags_a = [True, False, True]
-    flags_b = [False, True, True]
-    scalar_results = [
-        evaluate_flag_sum([(a, 50.0), (b, 50.0)], cap=100.0) for a, b in zip(flags_a, flags_b)
-    ]
-    array_result = evaluate_flag_sum(
-        [(np.array(flags_a), 50.0), (np.array(flags_b), 50.0)], cap=100.0
-    )
-    assert list(array_result) == scalar_results
+    assert combine(True, False, 50.0, 50.0) == 50.0
+    assert combine(True, True, 50.0, 50.0) == 100.0
+    assert combine(True, True, 60.0, 60.0) == 100.0  # capでクランプ

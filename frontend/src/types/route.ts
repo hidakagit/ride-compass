@@ -82,8 +82,7 @@ export type AxisDefinitionResponse = Schemas["AxisDefinitionResponse"];
 export type MaterialTerm = Schemas["MaterialTerm"];
 export type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
 export type CategoricalShape = Schemas["CategoricalShape"];
-export type FlagSumShape = Schemas["FlagSumShape"];
-export type AxisShape = BreakpointLinearShape | CategoricalShape | FlagSumShape;
+export type AxisShape = BreakpointLinearShape | CategoricalShape;
 
 // 材料カタログ（改善計画T277）。GET /api/material-catalogのレスポンス。軸スタジオの
 // 材料選択候補を、材料自体の追加時にコード変更・再デプロイだけで反映する。

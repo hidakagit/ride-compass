@@ -277,12 +277,14 @@ def test_create_returns_422_when_categorical_shape_mapping_keys_mismatch_materia
     assert "highway" in response.text
 
 
-def test_create_returns_422_when_flag_sum_shape_uses_numeric_material(override_service):
+def test_create_returns_422_when_shape_kind_is_removed_flag_sum(override_service):
+    # 改善計画T396: FlagSumShapeはBreakpointLinearShapeへ統合され撤去された。
+    # 旧kind="flag_sum"は判別union自体が受け付けなくなったことを確認する回帰テスト。
     payload = {
         **_PAYLOAD,
         "shape": {
             "kind": "flag_sum",
-            "flags": [["accident_count_per_km_year", 50.0]],
+            "flags": [["no_lit", 50.0]],
             "cap": 100.0,
         },
     }
@@ -290,7 +292,6 @@ def test_create_returns_422_when_flag_sum_shape_uses_numeric_material(override_s
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
 
     assert response.status_code == 422
-    assert "accident_count_per_km_year" in response.text
 
 
 def test_create_returns_201_and_persists(override_service):
