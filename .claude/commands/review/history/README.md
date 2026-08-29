@@ -24,6 +24,13 @@ YYYY-MM-DD_<review-type>.md
 これらもレビュー履歴の一部として、再発チェック・比較の参照元に含めること。
 docs/ から history/ への移動はしない（improvement-plan.md 等からのリンクを維持するため）。
 
+## スコア推移（トレンド追跡）
+
+`scores.md`が種別ごとの経時トレンドを1ファイルにまとめた追記専用テーブル
+（[principles.md](../principles.md)「スコアサマリ」節参照）。個別レビュー実施時は、
+そのレビューの`history/YYYY-MM-DD_<type>.md`本体に加えて、`scores.md`の対応する
+種別テーブルへも1行追記すること。
+
 ## 各履歴ファイルに最低限含める項目
 
 principles.md の標準フォーマットに従っていれば自然に満たされるが、以下は必須:

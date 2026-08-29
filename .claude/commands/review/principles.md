@@ -91,12 +91,27 @@ Evidenceには必ず `ファイルパス:行番号` または具体的なシン�
 ## Regression / Previous Findings
 （過去レビューで指摘済みの問題の再発有無、解消済みの明示）
 
+## スコアサマリ
+
+Findingsの件数から**機械的に**算出する（主観採点はしない。恣意性を避けるため計算式は
+固定）。History内で経時比較できるよう`history/scores.md`（[history/README.md](history/README.md)
+参照）へも同じ値を1行追記する。
+
+| 指標 | 値 |
+|---|---|
+| P0件数 / P1件数 / P2件数 / P3件数 | |
+| 総合スコア（100点満点） | `100 - (P0×20 + P1×10 + P2×3 + P3×1)`、下限0 |
+| 前回同種レビューからの差分 | 総合スコア ±n（新規+n件・解消-n件、Regression節と整合させる） |
+| REMOVE/SIMPLIFY/REFACTOR件数 | （技術的負債の量的目安） |
+| DEFER件数（トリガー未到達） | （将来対応の積み上がり具合） |
+
 ## Overall Judgment
 ```
 
 - 優先度: P0=Critical / P1=High / P2=Medium / P3=Low
 - Confidence: High（コードで確認済み）/ Medium（一部推測）/ Low（推測中心）
-- 該当なしのセクションは「該当なし」と1行書く（省略しない）
+- 該当なしのセクションは「該当なし」と1行書く（省略しない）。スコアサマリの各値も
+  0件なら0と明記する（空欄にしない）
 
 ## 共通実行手順
 
@@ -134,7 +149,8 @@ Evidenceには必ず `ファイルパス:行番号` または具体的なシン�
    番号はユーザーが起票する時点で確定する）。
 4. コード・docs・テストを実際に読んで調査する（推測でFindingsを書かない）。
 5. 標準フォーマットで結果をまとめ、`history/YYYY-MM-DD_<review-type>.md` として保存する
-   （命名・記載項目は [history/README.md](history/README.md) 参照）。
+   （命名・記載項目は [history/README.md](history/README.md) 参照）。**スコアサマリの値を
+   `history/scores.md`へも1行追記する**（トレンド追跡用、history/README.md参照）。
 6. P0/P1の指摘は docs/improvement-plan.md への **起票案**（タスク名・規模・トリガー）として
    提示する。improvement-plan.md 自体はユーザー承認後にのみ編集する。
 
