@@ -106,16 +106,13 @@ bboxを組む。`_build_best_candidate`のT274逆回り最適化（周回の向�
   hydrate済みの値を反転して使う）。経路中に一方通行（逆方向Edgeが存在しない）区間が
   1つでもあれば逆回りは物理的に成立しないため、その方位は順方向のみを候補とする。
 
-### SQLite永続キャッシュ（`cache_db.py`、気象グリッド）
-`cache_db.py`（[backend/app/infrastructure/cache_db.py](../backend/app/infrastructure/cache_db.py)）は、プロセス再起動やコンテナ再作成をまたいで再利用したいキャッシュを、ファイルベースのSQLite（`backend/data/ridecompass_cache.db`、新規pip依存なし）へ永続化する共通インフラ。スレッドローカルな接続の使い回し（`_get_connection`）・SQLiteエラー時は「未キャッシュ」またはno-op扱いへフォールバックする方針（DB側の障害が本体機能を失敗させない）を持つ。現在は気象グリッド用途のみで使われている:
-- **`wind_forecast_cache`テーブル**（気象グリッド＝風・降水延長予報、T194〜T195）: `WeatherClient.get_forecast_many`（下記）が、プロセス内メモリキャッシュ（L1、`_wind_forecast_cache`）でヒットしなかったキーだけをここ（L2）から引く2段構成。詳細は下記「天候取得の設計」節参照。
-
-サイズ上限・退避（LRU等）は無い簡易実装であり、キャッシュサイズの上限・退避（LRU等）は将来課題として残る。
+### 気象グリッドのRedis永続キャッシュ（`wind_forecast_cache.py`、改善計画T398）
+`wind_forecast_cache.py`（[backend/app/infrastructure/wind_forecast_cache.py](../backend/app/infrastructure/wind_forecast_cache.py)）は、`WeatherClient.get_forecast_many`（下記）が、プロセス内メモリキャッシュ（L1、`_wind_forecast_cache`）でヒットしなかったキーだけをここ（L2）から引く2段構成のL2キャッシュ。プロセス再起動・コンテナ再作成をまたいで再利用する目的は変わらないが、2026-08-30（T398）にファイルベースのSQLite（旧`cache_db.py`、`backend/data/ridecompass_cache.db`）から、JMAアメダス連携（T387）で導入済みのRedisキャッシュ基盤（下記「Redisキャッシュ基盤とJMAアメダス連携」節）へ一本化した。理由は、同居するVM上に既にRedisが稼働しているため、SQLiteファイルという別系統の永続化を並行して維持する意義が薄れたこと。road_graph_tilesのRedis cache-asideと異なりPostGIS等の正本フォールバックは持たない（Open-Meteoへの再フェッチが常に可能なため）。キー`wind:forecast:{lat}:{lon}`・TTLは`WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS`（24時間、下記）に合わせている。Redis自体が疎通不能な場合は空辞書を返すfail-openで、`WeatherClient`側は「未キャッシュ」として実フェッチへ進む（機能は止まらず、Open-Meteoへの再取得頻度が上がるだけ）。旧SQLite実装（`cache_db.py`、`test_cache_db.py`）は本移行で削除済み。
 
 ### 天候取得の設計と「地点＋時刻」対応（Step6）
 `WeatherClient`（[backend/app/infrastructure/weather_client.py](../backend/app/infrastructure/weather_client.py)）はOpen-Meteo Forecast APIから`current`（現在の気象）と`hourly`（`forecast_days=2`分の時間別予報：気温・風速・風向・降水確率・weather_code/is_day）、`get_forecast`（単一地点、/api/weather用）はさらに`daily`（今日・明日の日次見通し：夜明け・日没・降水確率最大・最大風速・気温レンジ・UV指数最大、改善計画T385「今日の見通し」パネル用）を**1回のリクエストでまとめて取得**することを実機確認済み（`get_forecast_many`＝WindService用の複数地点一括取得は`daily`を含まず`hourly`もwind_speed_10m/wind_direction_10m/precipitationのみに絞る。クォータ削減のため意図的に変数を絞っており、日次見通し・天気アイコン・天気の流れはルート評価に使わないため）。hourlyのweather_code（T385フォローアップ）は「今日の見通し」パネルの天気の流れ（today_periods、観測時刻を含む2時間区間から2時間おき8コマ、T385フォローアップ2で固定6時始まりから現在時刻基準へ変更）が使う。標高と同じ「範囲でまとめて取得してキャッシュ」の原則を適用しているが、気象データは時間で変化するため**TTL付き**（`get_forecast`＝単一地点/api/weatherパネル用は30分、緯度経度は標高より粗い精度で丸める）にしている点が標高キャッシュとの違い。
 
-`get_forecast_many`（複数地点をまとめて取得、風の格子点マップ・降水延長予報が使う）は、TTLを3時間・キャッシュをメモリ（L1、プロセス内、高速）＋SQLite（L2、`cache_db.py`の`wind_forecast_cache`テーブル、プロセス再起動をまたいで永続化）の2段構成にしている（T194〜T195、「改善計画」参照）。Open-Meteoが本番（Render、共有の送信元IP）で429を返す事象が繰り返し発生しており、L1のみだとプロセス再起動・コンテナ再作成のたびにキャッシュが消え無駄な再取得（＝日次クォータの消費）が発生していたため、再起動をまたいでも直前の値をL2から復元できるようにした。L1に無い/古いキーだけL2を引き、見つかった分（新鮮・陳腐問わず）をL1へ書き戻してから既存のTTL判定・障害時のstale fallback判定に合流させる設計のため、呼び出し側（`WindService`・`get_wind_grid`）のインターフェースは変わらない。
+`get_forecast_many`（複数地点をまとめて取得、風の格子点マップ・降水延長予報が使う）は、TTLを3時間・キャッシュをメモリ（L1、プロセス内、高速）＋Redis（L2、`wind_forecast_cache.py`、プロセス再起動をまたいで永続化。改善計画T398、旧SQLite）の2段構成にしている（T194〜T195、「改善計画」参照）。Open-Meteoが本番（Render、共有の送信元IP）で429を返す事象が繰り返し発生しており、L1のみだとプロセス再起動・コンテナ再作成のたびにキャッシュが消え無駄な再取得（＝日次クォータの消費）が発生していたため、再起動をまたいでも直前の値をL2から復元できるようにした。L1に無い/古いキーだけL2を引き、見つかった分（新鮮・陳腐問わず）をL1へ書き戻してから既存のTTL判定・障害時のstale fallback判定に合流させる設計のため、呼び出し側（`WindService`・`get_wind_grid`）のインターフェースは変わらない。
 
 `WeatherService.get_conditions(point, at: datetime | None = None)`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）は、`at=None`なら`current`ブロックを返し、未来時刻を渡すと`hourly`配列から最も近い時刻のデータを検索して返す。**Step6のUIでは`at`を渡さず現在地の現在の天候のみ表示するが**、この時刻指定インターフェースにより、将来「ルート上の各サンプル点＋推定通過時刻（`RouteCandidate`の距離・所要時間から按分計算できる）」を渡して「2時間後にその地点は雨か」を判定する拡張が、サービス層の設計変更なしで追加できる（ユーザー要望への対応）。既知の制約: `at`が取得済みhourly範囲（当日+翌日）を超える場合、現状は最も近い時刻を返してしまう（範囲外チェック未実装）ため、`at`を実際に使う機能を追加する際にガードを入れる必要がある。
 
@@ -287,9 +284,9 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   ②気象Gridの道路評価Gridからの分離③気象Gridの固定化④TTL付きDB永続キャッシュ⑤
   バックグラウンド更新⑥利用者増加時のOpen-Meteo自前運用）の実装到達点を調査・記録した
   （T194、④まで完了・⑤⑥は未着手のまま記録のみ）。④は`get_forecast_many`をL1（プロセス内
-  メモリ）→L2（`cache_db.py`のSQLite、標高キャッシュと同じ仕組みを相乗り）→実フェッチの
-  順に問い合わせる形で実装し（T195）、TTLを30分→3時間、失敗時のstaleフォールバック許容幅を
-  3時間→24時間へ拡大した。あわせてOracle Cloud VM上のリレープロキシ（`OPEN_METEO_BASE_URL`、
+  メモリ）→L2（当初は`cache_db.py`のSQLite、2026-08-30のT398でRedis
+  `wind_forecast_cache.py`へ移行）→実フェッチの順に問い合わせる形で実装し（T195）、
+  TTLを30分→3時間、失敗時のstaleフォールバック許容幅を3時間→24時間へ拡大した。あわせてOracle Cloud VM上のリレープロキシ（`OPEN_METEO_BASE_URL`、
   T179）で送信元IPを本番の共有IPから分離する経路も用意済みだが、本番では未有効化（T182の
   調査でクォータ枯渇は送信元IP非依存の現象と判明したため）。
 - **時刻スライダーのルーラー化（T170・T188〜T193）**: [frontend/src/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx](../frontend/src/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx)は
@@ -334,6 +331,7 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   astralによるローカル計算（`domain/twilight.py: sunrise_sunset_jst`）で、クエリ地点
   そのもの・当日（JST）の値を`get_nearest_observation`が都度計算して合成する
   （Redisにはキャッシュしない。計算コストが無視できるほど軽いため）。
+- **気象グリッド（`app/infrastructure/wind_forecast_cache.py`、改善計画T398）**: アメダスとは異なり、こちらはOpen-Meteo（上記）の`get_forecast_many`（風・降水延長予報の格子点マップ）が使うL2永続キャッシュで、詳細は上記「気象グリッドのRedis永続キャッシュ」節参照。正本を持たないcache-aside（Open-Meteoへ再フェッチ可能なため）である点がroad_graph_tilesとの違い。
 - **`GET /api/weather`と`GET /api/weather/amedas`は完全に独立**（2026-08-29、方針
   「常設エリアは実測値、今日の見通しは予測値」）: 当初は`/api/weather`が内部でアメダスの
   現在値を上書きマージしていたが、frontend側で常設ヘッダー（WeatherPanel、実測値専用）と
@@ -547,13 +545,13 @@ RideCompass/
       infrastructure/
         ors_client.py           ✅ openrouteservice Directions API（cycling-road、複数経由地対応。`extra_info=surface`は改善計画T21で撤去済み、路面評価は自前DB空間マッチへ統一）
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
-        weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ。get_forecast_manyはL1メモリ+L2 SQLite永続化の2段、T194〜T195）
+        weather_client.py       ✅ Open-Meteo Forecast API（current+hourlyをまとめて取得、TTLキャッシュ。get_forecast_manyはL1メモリ+L2永続化の2段、T194〜T195。L2は当初SQLiteだったが2026-08-30のT398でRedis[wind_forecast_cache.py]へ移行）
         jma_warning_client.py    ✅ 改善計画T205: 国土地理院逆ジオコーダ（緯度経度→市区町村コード）・JMA地域マスタarea.json（24時間TTL）・JMA警報API r8（10分TTL）の3クライアント。いずれも失敗時はNoneを返す（tenacity再試行は無し）。TTLキャッシュは`cachetools.TTLCache`を使用（改善計画T244、flood/wbgtクライアントと同型のキャッシュ実装重複を解消）
         wbgt_client.py            ✅ 改善計画T174: 環境省WBGT情報提供地点マスタCSV（24時間TTL）・暑さ指数予測値WebAPI（1時間TTL、直近6時間の発表時刻を検索範囲とする連続期間指定）の2クライアント。サイト側の「自動化ツールからの高頻度アクセスは控えて」注記に配慮しtenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
         flood_client.py            ✅ 改善計画T212: JMA指定河川洪水予報API（10分TTL、全国分を1回のGETで取得）のクライアント。tenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
         vector_tile.py               ✅ 路面データをMVT（Mapbox Vector Tile）にエンコード（Web Mercator投影、Step10改訂）
-        cache_db.py                 ✅ SQLite永続キャッシュ（標高: Step5用。気象グリッド(wind_forecast_cache): T194〜T195用。路面セルのキャッシュはStep10改訂でtile_cache.pyに統合し削除）
-        tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10）
+        wind_forecast_cache.py       ✅ 気象グリッド（風・降水延長予報）のRedis永続キャッシュ（改善計画T398。標高キャッシュ・路面セルキャッシュは無関係、それぞれtile_cache.py・DEMタイル化[T10]参照。旧SQLite実装cache_db.pyはこの移行で削除済み）
+        tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10。T398でDATA_DIR定数の定義元になった）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
         debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
@@ -607,7 +605,7 @@ RideCompass/
       test_evaluation_service.py ✅ EvaluationService.evaluate_graphのDIモックテスト（Hard Constraint除外・属性欠損・空グラフ・カスタムRoutePreference）（Road Graph移行Phase 4、新規。Phase 5でload_route_preference（既定パス/カスタムパス）・設定ファイル経由デフォルトの検証を追加）
       test_graph_service.py   ✅ GraphService.build_graph_with_surface_tags_for_bboxのDIモックテスト（Road Graph移行Phase 1、新規）。get_or_build_graph_with_attributesのタイル単位キャッシュ動作（単一/複数タイル・部分キャッシュ・一部タイル取得失敗）の検証を追加
       test_vector_tile.py      ✅ encode_road_surface_tileのデコード可能性・座標範囲・surface_goodプロパティ・2点未満のway除外の検証（Step10改訂）
-      test_cache_db.py        ✅ SQLite永続キャッシュ読み書きの検証（標高: Step5用。気象グリッド: T194〜T195用。路面セルのテストはStep10改訂で撤去）
+      test_wind_forecast_cache.py ✅ 気象グリッドのRedis永続キャッシュ読み書きの検証（改善計画T398。フェイクRedis使用、実I/Oなし。旧SQLite版test_cache_db.pyはこの移行で削除）
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
       test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）。basemap/refreshのper-IPレート制限（6回/分）の429検証を追加
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
@@ -615,7 +613,7 @@ RideCompass/
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
     migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
     scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
-    data/                       ✅ SQLite永続キャッシュ（ridecompass_cache.db、標高用）・地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）
+    data/                       ✅ 地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）。旧SQLite永続キャッシュ（ridecompass_cache.db）はT398でRedisへ移行し撤去済み
     requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加。networkxは「完全移行」（Route Engine）時に追加したが、T220でDijkstra本体がscipy.sparse.csgraphへ移行した後もNetworkX版の関数群が実行時経路から呼ばれないまま残っていたため、改善計画T321（デッドコード監査）で依存ごと削除した
     Dockerfile                ✅
     .env.example              ✅

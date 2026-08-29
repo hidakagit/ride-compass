@@ -1,9 +1,12 @@
 import hashlib
 import logging
 import shutil
+from pathlib import Path
 
-from app.infrastructure.cache_db import DATA_DIR
-
+# 改善計画T398でcache_db.py（SQLite永続キャッシュ）を撤去した際、唯一の非SQLite用途
+# だったDATA_DIRの定義をここへ移設した（地図タイル・路面ベクタタイルのファイルキャッシュは
+# 元々SQLiteとは無関係で、DATA_DIRという保存先ディレクトリの定数だけを間借りしていた）。
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 CACHE_DIR = DATA_DIR / "tile_cache"
 
 logger = logging.getLogger("app.infrastructure.tile_cache")
@@ -44,7 +47,7 @@ def set(path: str, content: bytes, content_type: str) -> None:
     # キャッシュ書き込みはあくまで高速化目的で、呼び出し元は取得済みのcontentを既に
     # 返せる状態にある。ディスクフル・権限エラー等（OSError）でここが失敗しても、
     # basemap/road-surfaceタイルの配信自体を丸ごと500にする理由にはならないため、
-    # 標高・天候キャッシュ（cache_db.py）と同じ「キャッシュ書き込み失敗は握りつぶす」
+    # 天候キャッシュ（wind_forecast_cache.py）と同じ「キャッシュ書き込み失敗は握りつぶす」
     # 方針に合わせ、警告ログのみでno-opにフォールバックする。
     try:
         key = _cache_key(path)

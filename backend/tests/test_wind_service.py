@@ -5,8 +5,8 @@ import pytest
 
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
-from app.infrastructure import cache_db
 from app.infrastructure import weather_client as weather_client_module
+from app.infrastructure import wind_forecast_cache
 from app.infrastructure.weather_client import WeatherClient
 from app.services.weather_service import WeatherService
 from app.services.wind_service import WindService
@@ -14,13 +14,40 @@ from app.services.wind_service import WindService
 START_TIME = datetime(2026, 8, 13, 12, 0)
 
 
+class _FakeRedis:
+    """wind_forecast_cache.pyが使うコマンド（mget/pipeline.set）だけを実装したフェイク
+    （test_road_graph_tile_cache.pyと同じパターン）。"""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    async def mget(self, keys):
+        return [self.store.get(key) for key in keys]
+
+    def pipeline(self, transaction=False):
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    def __init__(self, redis: "_FakeRedis"):
+        self._redis = redis
+        self._ops = []
+
+    def set(self, key, value, ex=None):
+        self._ops.append((key, value))
+        return self
+
+    async def execute(self):
+        for key, value in self._ops:
+            self._redis.store[key] = value
+
+
 @pytest.fixture(autouse=True)
-def use_temp_cache_db(tmp_path, monkeypatch):
-    # get_forecast_manyがcache_db（標高キャッシュと共通のSQLite永続化、T195）へ書き込むように
-    # なったため、実DBファイルを汚染しないようテストごとに使い捨てのtmp_pathへ差し替える
-    # （test_cache_db.py・test_weather_client_cache.pyと同じ既存パターン）。
-    monkeypatch.setattr(cache_db, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(cache_db, "DB_PATH", tmp_path / "test_cache.db")
+def use_fake_wind_forecast_redis(monkeypatch):
+    # get_forecast_manyがwind_forecast_cache（Redis、L2、改善計画T398）へ書き込むように
+    # なったため、実Redisへ繋がずテストごとに使い捨てのフェイクへ差し替える
+    # （test_weather_client_cache.pyと同じ既存パターン）。
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: _FakeRedis())
 
 
 def northbound_points() -> list[Coordinates]:

@@ -12,7 +12,7 @@ from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, stop
 
 from app.config import settings
 from app.domain.route import Coordinates
-from app.infrastructure import cache_db
+from app.infrastructure import wind_forecast_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
 # 天候は数km単位でしか変わらないため、標高キャッシュ（4桁）より粗い精度で丸める。
@@ -25,10 +25,12 @@ CACHE_TTL_SECONDS = 30 * 60
 # 呼び出し）側はCACHE_TTL_SECONDS/STALE_FALLBACK_MAX_AGE_SECONDSのまま変えない
 # （こちらは値を変える理由が無い上、DB永続化の対象もget_forecast_many側だけのため）。
 # 3時間はOpen-Meteoの予報モデル自体の更新頻度に対して十分な鮮度であり、かつ1日あたりの
-# 総フェッチ回数（＝クォータ消費）を大きく削減できる（旧30分TTLの1/6）。DB永続化
-# （cache_db.get_wind_forecast_many/set_wind_forecast_many）によりプロセス再起動をまたいで
-# 生き残るようになったため、フォールバック窓も従来の3時間（再起動のたびに消えるメモリ
-# キャッシュ前提の値）から24時間へ伸ばし、Open-Meteo側の長時間障害への耐性を上げる。
+# 総フェッチ回数（＝クォータ消費）を大きく削減できる（旧30分TTLの1/6）。Redis永続化
+# （wind_forecast_cache.get_wind_forecast_many/set_wind_forecast_many、改善計画T398。
+# 導入当初はcache_db.py・SQLiteだったが、T387で導入済みのRedisへ基盤を1本化した）に
+# よりプロセス再起動をまたいで生き残るようになったため、フォールバック窓も従来の3時間
+# （再起動のたびに消えるメモリキャッシュ前提の値）から24時間へ伸ばし、Open-Meteo側の
+# 長時間障害への耐性を上げる。
 WIND_GRID_CACHE_TTL_SECONDS = 3 * 60 * 60
 WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
 
@@ -85,10 +87,10 @@ _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 # get_forecastがキャッシュヒットとして読んでしまい、/api/weatherパネルの気温等が
 # 欠落したまま返る（黙って空欄になる）事故になり得るため。両者は変数セットが異なる
 # 別物として扱う。1プロセス内の高速な繰り返し参照を担うL1キャッシュで、プロセス再起動を
-# またいだ永続化はcache_db.py（wind_forecast_cacheテーブル）がL2として別途担う
+# またいだ永続化はwind_forecast_cache.py（Redis、改善計画T398）がL2として別途担う
 # （改善計画「Open-Meteo 429根本対策」④、get_forecast_many参照）。_forecast_cache
-# （こちら）はDB永続化の対象外のまま（/api/weatherは単発呼び出しで再起動時の再取得コストが
-# 小さく、DB化の効果が薄いため）。
+# （こちら）はRedis永続化の対象外のまま（/api/weatherは単発呼び出しで再起動時の再取得コストが
+# 小さく、永続化の効果が薄いため）。
 _wind_forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
 
@@ -289,8 +291,8 @@ class WeatherClient:
         改善計画「Open-Meteo 429根本対策」④: _wind_forecast_cacheはプロセス内メモリのため
         Renderのようなプラットフォームでのプロセス再起動・コンテナ再作成のたびに消え、
         再起動直後のアクセスがOpen-Meteoへの無駄な再取得（＝1日あたりのクォータ消費）を
-        招いていた。cache_db.py（wind_forecast_cacheテーブル、SQLite）へL2として永続化し、
-        L1（メモリ）に無いキーだけL2を引いてから不足分だけ実際にフェッチする。
+        招いていた。wind_forecast_cache.py（Redis、改善計画T398。旧cache_db.py・SQLite）へ
+        L2として永続化し、L1（メモリ）に無いキーだけL2を引いてから不足分だけ実際にフェッチする。
         """
         keys: list[tuple[float, float]] = []
         seen: set[tuple[float, float]] = set()
@@ -311,13 +313,13 @@ class WeatherClient:
                 needs_lookup.append(key)
 
         # メモリキャッシュ（L1）に無い/古い分だけ、プロセス再起動をまたいで永続化された
-        # DB（L2、cache_db.py）を引く（改善計画「Open-Meteo 429根本対策」④）。見つかった分は
-        # 新鮮・陳腐問わずL1へ書き戻し、以降のTTL判定・フォールバック判定を既存のL1中心の
-        # ロジックのまま使い回す（L2は「再起動直後にL1が空でも前回の値が拾える」ための層で、
-        # 1リクエスト内で繰り返し引く用途はL1が引き続き担う）。
+        # Redis（L2、wind_forecast_cache.py）を引く（改善計画「Open-Meteo 429根本対策」④）。
+        # 見つかった分は新鮮・陳腐問わずL1へ書き戻し、以降のTTL判定・フォールバック判定を
+        # 既存のL1中心のロジックのまま使い回す（L2は「再起動直後にL1が空でも前回の値が
+        # 拾える」ための層で、1リクエスト内で繰り返し引く用途はL1が引き続き担う）。
         if needs_lookup:
-            db_hits = await cache_db.get_wind_forecast_many(needs_lookup)
-            for key, cached in db_hits.items():
+            redis_hits = await wind_forecast_cache.get_wind_forecast_many(needs_lookup)
+            for key, cached in redis_hits.items():
                 _wind_forecast_cache[key] = cached
 
         to_fetch: list[tuple[float, float]] = []
@@ -359,11 +361,11 @@ class WeatherClient:
                 for key in to_fetch[len(entries) :]:
                     results[key] = None
 
-                # 新規取得分をDB（L2）へ書き戻す。プロセスが再起動しても次回はここから
+                # 新規取得分をRedis（L2）へ書き戻す。プロセスが再起動しても次回はここから
                 # 拾えるようにする（改善計画「Open-Meteo 429根本対策」④）。書き込み失敗は
-                # レスポンス自体には影響しない（cache_db.set_wind_forecast_many参照）。
+                # レスポンス自体には影響しない（wind_forecast_cache.set_wind_forecast_many参照）。
                 if newly_fetched:
-                    await cache_db.set_wind_forecast_many(newly_fetched)
+                    await wind_forecast_cache.set_wind_forecast_many(newly_fetched)
 
                 # 再試行を尽くしても失敗した地点は、TTL切れ後もWIND_GRID_STALE_FALLBACK_MAX_
                 # AGE_SECONDS以内のキャッシュがあれば代用する（get_forecastと同じ方針）。

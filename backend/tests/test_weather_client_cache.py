@@ -2,9 +2,37 @@ import httpx
 import pytest
 
 from app.domain.route import Coordinates
-from app.infrastructure import cache_db
 from app.infrastructure import weather_client as weather_client_module
+from app.infrastructure import wind_forecast_cache
 from app.infrastructure.weather_client import WeatherClient
+
+
+class FakeRedis:
+    """wind_forecast_cache.pyが使うコマンド（mget/pipeline.set）だけを実装したフェイク
+    （test_road_graph_tile_cache.pyと同じパターン）。"""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    async def mget(self, keys):
+        return [self.store.get(key) for key in keys]
+
+    def pipeline(self, transaction=False):
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    def __init__(self, redis: FakeRedis):
+        self._redis = redis
+        self._ops = []
+
+    def set(self, key, value, ex=None):
+        self._ops.append((key, value))
+        return self
+
+    async def execute(self):
+        for key, value in self._ops:
+            self._redis.store[key] = value
 
 
 class FakeResponse:
@@ -143,12 +171,13 @@ def clear_weather_cache():
 
 
 @pytest.fixture(autouse=True)
-def use_temp_cache_db(tmp_path, monkeypatch):
-    """get_forecast_manyがcache_db（wind_forecast_cacheテーブル、DB永続化のL2）を叩くように
-    なったため、test_cache_db.pyのuse_temp_dbと同じ方針でテスト専用の一時DBへ差し替える
-    （実ファイルdata/ridecompass_cache.dbを汚さない・テスト間で状態が漏れないため）。"""
-    monkeypatch.setattr(cache_db, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(cache_db, "DB_PATH", tmp_path / "test_cache.db")
+def fake_wind_forecast_redis(monkeypatch):
+    """get_forecast_manyがwind_forecast_cache（Redis、L2、改善計画T398）を叩くため、
+    test_road_graph_tile_cache.pyと同じ方針でフェイクRedisへ差し替える（実Redisへは
+    繋がず、テスト間で状態が漏れないようテストごとに新規インスタンスにする）。"""
+    fake = FakeRedis()
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: fake)
+    return fake
 
 
 @pytest.fixture(autouse=True)
@@ -430,9 +459,10 @@ class NeverCalledHttpClient:
 async def test_get_forecast_many_persists_successful_fetch_to_db(
     monkeypatch,
 ):
-    """改善計画「Open-Meteo 429根本対策」④の回帰テスト: 新規取得分がDB（L2、cache_db.py）へ
-    書き戻されることを確認する。メモリキャッシュ（L1）をクリアしただけの状態＝プロセス
-    再起動直後を模して、DB側だけを直接読み、期待した値が入っていることを見る。"""
+    """改善計画「Open-Meteo 429根本対策」④の回帰テスト: 新規取得分がRedis（L2、
+    wind_forecast_cache.py、改善計画T398）へ書き戻されることを確認する。メモリキャッシュ
+    （L1）をクリアしただけの状態＝プロセス再起動直後を模して、Redis側だけを直接読み、
+    期待した値が入っていることを見る。"""
     client = WeatherClient()
     point = Coordinates(latitude=35.62, longitude=139.63)
     http_client = FakeHttpClient([{"current": {}, "hourly": {}, "tag": "persisted"}])
@@ -440,13 +470,13 @@ async def test_get_forecast_many_persists_successful_fetch_to_db(
     await client.get_forecast_many(http_client, [point])
 
     key = WeatherClient.cache_key(point)
-    db_hits = await cache_db.get_wind_forecast_many([key])
-    assert db_hits[key][1]["tag"] == "persisted"
+    redis_hits = await wind_forecast_cache.get_wind_forecast_many([key])
+    assert redis_hits[key][1]["tag"] == "persisted"
 
 
 async def test_get_forecast_many_reuses_db_cache_after_memory_cache_cleared():
-    """プロセス再起動を模す: メモリキャッシュ（L1）だけをクリアしDB（L2）は残した状態で
-    再度呼ぶと、DBの値がL1へ復元されOpen-Meteoへの再取得（HTTP呼び出し）が発生しない
+    """プロセス再起動を模す: メモリキャッシュ（L1）だけをクリアしRedis（L2）は残した状態で
+    再度呼ぶと、Redisの値がL1へ復元されOpen-Meteoへの再取得（HTTP呼び出し）が発生しない
     ことを確認する（改善計画「Open-Meteo 429根本対策」④の主眼＝再起動のたびに無駄な
     フェッチが走らないこと）。"""
     client = WeatherClient()
@@ -455,8 +485,8 @@ async def test_get_forecast_many_reuses_db_cache_after_memory_cache_cleared():
         FakeHttpClient([{"current": {}, "hourly": {}, "tag": "from-db"}]), [point]
     )
 
-    # メモリキャッシュ（L1）だけをクリアする。DB（L2）はcache_dbモジュール側の永続化なので
-    # そのまま残る。
+    # メモリキャッシュ（L1）だけをクリアする。Redis（L2）はwind_forecast_cacheモジュール側の
+    # 永続化なのでそのまま残る。
     weather_client_module._wind_forecast_cache.clear()
 
     results = await client.get_forecast_many(NeverCalledHttpClient(), [point])
@@ -465,8 +495,8 @@ async def test_get_forecast_many_reuses_db_cache_after_memory_cache_cleared():
 
 
 async def test_get_forecast_many_refetches_when_db_cache_exceeds_ttl():
-    """DB（L2）にヒットしても、WIND_GRID_CACHE_TTL_SECONDSを超えていれば陳腐化とみなし
-    再取得する（DB永続化がTTL判定自体を骨抜きにしないことの回帰テスト）。"""
+    """Redis（L2）にヒットしても、WIND_GRID_CACHE_TTL_SECONDSを超えていれば陳腐化とみなし
+    再取得する（Redis永続化がTTL判定自体を骨抜きにしないことの回帰テスト）。"""
     client = WeatherClient()
     point = Coordinates(latitude=35.66, longitude=139.67)
     await client.get_forecast_many(
@@ -474,10 +504,12 @@ async def test_get_forecast_many_refetches_when_db_cache_exceeds_ttl():
     )
     key = WeatherClient.cache_key(point)
 
-    # DB上のfetched_atを直接書き換えてTTL切れを模す（L1はこの後クリアするため、
+    # Redis上のfetched_atを直接書き換えてTTL切れを模す（L1はこの後クリアするため、
     # L2側だけが唯一の判定材料になる）。
     fetched_at, data = weather_client_module._wind_forecast_cache[key]
-    await cache_db.set_wind_forecast_many({key: (fetched_at - weather_client_module.WIND_GRID_CACHE_TTL_SECONDS - 1, data)})
+    await wind_forecast_cache.set_wind_forecast_many(
+        {key: (fetched_at - weather_client_module.WIND_GRID_CACHE_TTL_SECONDS - 1, data)}
+    )
     weather_client_module._wind_forecast_cache.clear()
 
     http_client = FakeHttpClient([{"current": {}, "hourly": {}, "tag": "refetched"}])

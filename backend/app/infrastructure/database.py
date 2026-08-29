@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.config import settings
 
 # エンジンはアプリ全体で1つだけ生成する（SQLAlchemyの標準的な使い方。内部でコネクション
-# プールを管理するため、cache_db.pyのようにリクエストごとに新規接続を作る必要はない）。
+# プールを管理するため、リクエストごとに新規接続を作る必要はない）。
 # create_async_engineは遅延接続のため、DBが実際に起動していなくてもこの時点では失敗しない。
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
