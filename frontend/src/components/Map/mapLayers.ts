@@ -64,6 +64,13 @@ export type MapLayerId =
   // 評価軸には組み込まず警告表示のみ（T170〜T178節の設計判断を踏襲）。
   | "thunderNowcast"
   | "tornadoNowcast"
+  // キキクル（危険度分布）+線状降水帯予測マップ（改善計画T410）。thunderNowcast等と同じ
+  // 理由でkind="static"・dataNature="dynamic"。回避一択の危険（防災リスクそのもの）のため
+  // 評価軸には組み込まず警告表示のみ。
+  | "landslideRisk"
+  | "heavyRainRisk"
+  | "inundationRisk"
+  | "linearRainbandRisk"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
   // （axisLayers.ts: axisMapLayerId参照）。
@@ -437,6 +444,67 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "スライダーが現れ、実況（直近）から60分先までの竜巻等の激しい突風の可能性を切り替えて" +
       "確認できます。発生確度2は気象庁の「竜巻注意」情報につながる絞り込んだ予測です。" +
       "非公式の内部APIを利用しているため、取得に失敗することがあります。",
+  },
+  {
+    // 土砂キキクル（改善計画T410）。気象庁「危険度分布」のうち土砂災害。他の動的レイヤーと
+    // 異なり未来方向の複数フレームを持たない「現在の防災リスク」のスナップショットのみ
+    // （riskMap.tsのモジュールdocstring参照）。時刻スライダーを動かして「現在」の近傍から
+    // 外れると自動的に非表示になる（他の動的レイヤーと同じ範囲外判定）。
+    id: "landslideRisk",
+    label: "土砂キキクル",
+    chipLabel: "土砂",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁 危険度分布（土砂災害）の現在の危険度を表示",
+    panelHint:
+      "気象庁「キキクル」のうち土砂災害の危険度分布です。実況と短時間予測を統合した" +
+      "「今の危険度」を5段階（白→黄→赤→紫→黒の順に危険度が上がる）の色分けで示します。" +
+      "他のレイヤーと異なり未来の時刻へは対応せず、常に最新の危険度のみを表示します。" +
+      "非公式の内部APIを利用しているため、取得に失敗することがあります。",
+  },
+  {
+    id: "heavyRainRisk",
+    label: "大雨キキクル",
+    chipLabel: "大雨",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁 危険度分布（大雨）の現在の危険度を表示",
+    panelHint:
+      "気象庁「キキクル」のうち大雨の危険度分布です。土砂キキクルと同じ5段階の色分けで、" +
+      "実況と短時間予測を統合した「今の危険度」を示します。常に最新の危険度のみを表示" +
+      "します。非公式の内部APIを利用しているため、取得に失敗することがあります。",
+  },
+  {
+    id: "inundationRisk",
+    label: "浸水キキクル",
+    chipLabel: "浸水",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁 危険度分布（浸水害）の現在の危険度を表示",
+    panelHint:
+      "気象庁「キキクル」のうち浸水害の危険度分布です。土砂キキクルと同じ5段階の色分けで、" +
+      "実況と短時間予測を統合した「今の危険度」を示します。常に最新の危険度のみを表示" +
+      "します。非公式の内部APIを利用しているため、取得に失敗することがあります。" +
+      "洪水キキクル（河川単位の危険度）はデータ形式が異なるため未対応です。",
+  },
+  {
+    // 線状降水帯予測マップ（改善計画T408で単独機能としては見送ったsjfcstmap、T410でキキクルと
+    // 合わせて「現在の防災リスク」として実装）。
+    id: "linearRainbandRisk",
+    label: "線状降水帯予測マップ",
+    chipLabel: "線状帯",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁 線状降水帯による今後3時間以内の危険域を表示",
+    panelHint:
+      "気象庁の線状降水帯予測マップです。今後3時間以内に線状降水帯による大雨のおそれが" +
+      "ある領域を表示します（赤色の領域）。キキクルと同様、常に最新の危険度のみを表示し、" +
+      "未来の時刻へは対応しません。非公式の内部APIを利用しているため、取得に失敗する" +
+      "ことがあります。",
   },
   {
     id: "route",

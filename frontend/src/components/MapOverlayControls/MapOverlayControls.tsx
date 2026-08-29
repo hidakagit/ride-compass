@@ -22,7 +22,11 @@ import {
   DynamicDataIcon,
   ElevationIcon,
   EstimatedIndexIcon,
+  HeavyRainRiskIcon,
   InfoIcon,
+  InundationRiskIcon,
+  LandslideRiskIcon,
+  LinearRainbandRiskIcon,
   ObservedDataIcon,
   RaindropIcon,
   RoadIcon,
@@ -136,6 +140,10 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   windAxis: WindIcon,
   thunderNowcast: ThunderIcon,
   tornadoNowcast: TornadoIcon,
+  landslideRisk: LandslideRiskIcon,
+  heavyRainRisk: HeavyRainRiskIcon,
+  inundationRisk: InundationRiskIcon,
+  linearRainbandRisk: LinearRainbandRiskIcon,
   route: RouteIcon,
 };
 

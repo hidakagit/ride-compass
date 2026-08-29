@@ -379,6 +379,67 @@ export function TornadoIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 土砂キキクル（地図チップ、改善計画T410）: 山の斜面に警告の三角 */
+export function LandslideRiskIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M2.5 15.5 8 5l3 5.5 2-3 4.5 8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+      <path d="M9.5 8.5v3.6M9.5 13.9v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 大雨キキクル（地図チップ、改善計画T410）: 密集した雨粒（大雨を表す） */
+export function HeavyRainRiskIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M6.2 3.5 3.5 8.8M11 3.5 8.3 8.8M15.8 3.5l-2.7 5.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M10 9.8c-2.4 3.6-4.4 6.4-4.4 8.6a4.4 4.4 0 0 0 8.8 0c0-2.2-2-5-4.4-8.6Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** 浸水キキクル（地図チップ、改善計画T410）: 水面の波 */
+export function InundationRiskIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M2.5 8c1.4-1.6 2.8-1.6 4.2 0s2.8 1.6 4.2 0 2.8-1.6 4.2 0 2.8 1.6 4.2 0"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M2.5 13c1.4-1.6 2.8-1.6 4.2 0s2.8 1.6 4.2 0 2.8-1.6 4.2 0 2.8 1.6 4.2 0"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 線状降水帯予測マップ（地図チップ、改善計画T410）: 帯状に連なる積乱雲 */
+export function LinearRainbandRiskIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M3 12.5a3 3 0 0 1 1-5.8 3.6 3.6 0 0 1 6.9-1.3 3 3 0 0 1 4.6 3.6A3 3 0 0 1 15 14H4.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M6 16.5h1.5M9.5 16.5H11M13 16.5h1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** UV指数（天候ヘッダ、改善計画T172）: 太陽 */
 export function SunIcon({ size = 16 }: IconProps) {
   return (

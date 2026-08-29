@@ -264,7 +264,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   数値予報モデルによる予測、`rasterTile`表現）。`member`フィールドが"immed"（直近0〜6時間、
   高頻度更新）と"none"（7〜15時間先、毎正時更新）の2系統を持ち、同一basetime配下に
   中間ランの単発validtimeや別プロダクト（線状降水帯予測マップ`sjfcstmap`、
-  [T408](tasks/T408.md)で調査予定）の行が混在するため、`elements.includes("rasrf")`で
+  [T410](tasks/T410.md)で実装）の行が混在するため、`elements.includes("rasrf")`で
   絞り込んだ上で「異なるvalidtimeを複数持つ最新のbasetime」を選ぶ（`fetchRasrfFrames`）。
   ②+15時間より先（〜約48時間先）は上記の風と同じ格子点マップへ`precipitation`（mm/h）を
   相乗りさせ、`gridFill`表現（格子をセルとして塗る）で継ぎ足す。1回のフェッチで風・
@@ -282,6 +282,20 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   `trimToCurrentAndFuture`・`parseValidtime`）は[frontend/src/components/Map/jmaNowcastFrames.ts](../frontend/src/components/Map/jmaNowcastFrames.ts)
   （降水・雷の2つ目の消費者が現れたことを受けT204でprecipitationNowcast.tsから抽出）が
   単一の情報源として持つ。
+- **キキクル（危険度分布）・線状降水帯予測マップ（T410）**: [frontend/src/components/Map/riskMap.ts](../frontend/src/components/Map/riskMap.ts)が
+  気象庁キキクル（土砂`land`・大雨`rain_mesh`・浸水`inund`、`https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json`）と
+  線状降水帯予測マップ（`sjfcstmap`、rasrfと同じ`targetTimes.json`にelements違いの別行として
+  混在）を`rasterTile`表現で重ねる。要素コードは`properties.xml`記載の製品コードと実際の
+  タイルパスが食い違う例があり（大雨は製品コードが`heavyrain`だが実タイルパスは
+  `rain_mesh`）、必ずJMA公式ページ（`https://www.jma.go.jp/bosai/risk/`）をBrowserペインで
+  操作し実ネットワークログで裏取りした（洪水`flood`は`.pbf`＝Mapbox Vector Tileで方式が
+  異なるためスコープ外）。この4レイヤーは`validtime === basetime`（未来方向のフレームを
+  一切持たない「現在のみ」のスナップショット、10分おき更新）という他の動的レイヤーに無い
+  性質を持つため、共有タイムライン（`activeFrameLists`/`frameIndexForTime`）には乗せず、
+  スライダーのつまみ位置が「現在」ボタンのジャンプ先indexと一致する間だけ最新1枚を描画し、
+  未来側へ動かした間は非表示にする（実機フィードバック「12時間後の雷が常時マップに警告
+  されているのは嫌」を受けた設計。単に無条件で常時表示すると、現在のスナップショットが
+  あたかも選択中の未来時刻の危険度であるかのように誤解を招くため）。
 - **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
   night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
@@ -361,9 +375,10 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
   ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
   （候補はMSMのみだが[T389](tasks/T389.md)は保留中）。降水短時間予報（`jmatile/data/
-  rasrf/`、無料・公式、15時間先まで確認済み）と線状降水帯予測マップ（`sjfcstmap`、
-  無料・公式）は2026-08-29に存在を確認したが未実装・未検証。UV指数・weather_code相当の
-  JMAプロダクトは無料の代替が見つからずOpen-Meteo依存を継続している。
+  rasrf/`、無料・公式、15時間先まで確認済み）は[T407](tasks/T407.md)、線状降水帯予測マップ
+  （`sjfcstmap`、無料・公式）はキキクルと合わせて[T410](tasks/T410.md)で実装済み
+  （いずれも「動的気象レイヤー」節参照）。UV指数・weather_code相当のJMAプロダクトは
+  無料の代替が見つからずOpen-Meteo依存を継続している。
 - **road_graph_tilesのRedis cache-aside（`app/infrastructure/road_graph_tile_cache.py`）**:
   `road_graph_tiles`（タイル取得済みマーカー、9章参照）はPostGIS上の一時的な揮発データの
   代表例だが、**PostGISを正本のまま維持し、Redisは読み取り高速化のための派生キャッシュに
@@ -652,6 +667,7 @@ RideCompass/
         Map/precipitationNowcast.ts   ✅ 改善計画T171・T183: 気象庁降水ナウキャスト（実況〜+60分）＋延長予報（+60分以降、風と共通の格子点マップへ相乗り）のデータ層
         Map/jmaNowcastFrames.ts        ✅ 改善計画T204: JMAナウキャスト系（降水・雷/竜巻）に共通する時刻一覧の取得・整形（fetchJmaTargetTimes/trimToCurrentAndFuture/parseValidtime）。precipitationNowcast.tsから抽出、両ファイルが単一の情報源として参照
         Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
+        Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のデータ層。全て「現在のみ」のスナップショット（未来フレームを持たない）で、共有タイムラインには乗せずスライダーが「現在」位置の間だけ描画する
         Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
         DynamicLayerTimeSlider/       ✅ 改善計画T170・T188〜T193: 時刻依存レイヤー共通の時刻スライダーUI（横スクロールルーラー、Pointer Events自前ドラッグ）。レイヤー固有の時刻形式を知らない汎用コンポーネント
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）

@@ -26,6 +26,17 @@ import {
   type ThunderNowcastFrame,
 } from "@/components/Map/thunderNowcast";
 import {
+  fetchCurrentRiskFrames,
+  fetchLinearRainbandFrames,
+  heavyRainRenderPayload,
+  inundationRenderPayload,
+  landRenderPayload,
+  linearRainbandRenderPayload,
+  type CurrentRiskFrames,
+  type RiskFrameRef,
+} from "@/components/Map/riskMap";
+import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
+import {
   formatDynamicFrameHourMinute,
   formatDynamicFrameMinuteOnly,
   formatDynamicFrameTime,
@@ -45,12 +56,22 @@ const NOWCAST_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // 降水短時間予報（改善計画T407）の再取得間隔。直近0〜6時間の"immed"系列が最も高頻度で
 // 更新される部分（precipitationNowcast.ts: fetchRasrfFrames参照）に合わせる。
 const RASRF_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+// キキクル・線状降水帯予測マップ（改善計画T410）の再取得間隔。キキクルは10分おき更新
+// （riskMap.tsのモジュールdocstring参照）に合わせる。
+const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
+const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = { land: EMPTY_RISK_FRAMES, heavyRain: EMPTY_RISK_FRAMES, inundation: EMPTY_RISK_FRAMES };
 
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
   showPrecipitationNowcast: boolean;
   showThunderNowcast: boolean;
   showTornadoNowcast: boolean;
+  showLandslideRisk: boolean;
+  showHeavyRainRisk: boolean;
+  showInundationRisk: boolean;
+  showLinearRainbandRisk: boolean;
   mapViewport: MapViewport | null;
 }
 
@@ -80,6 +101,10 @@ export function useDynamicWeatherLayers({
   showPrecipitationNowcast,
   showThunderNowcast,
   showTornadoNowcast,
+  showLandslideRisk,
+  showHeavyRainRisk,
+  showInundationRisk,
+  showLinearRainbandRisk,
   mapViewport,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
   // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
@@ -183,6 +208,58 @@ export function useDynamicWeatherLayers({
     };
   }, [showThunderNowcast, showTornadoNowcast]);
 
+  // キキクル（土砂・大雨・浸水、改善計画T410）の「現在」フレーム。3種で1本のtargetTimes.json
+  // を共有するため（riskMap.ts参照）、いずれか1つでもONの間だけ1本のfetchでまとめて取得する
+  // （thunderNowcastFramesと同じ考え方）。未来方向のフレームを持たないため取得失敗時も
+  // nowcastのような「部分結果」は無く、フェッチ自体を諦めてエラーのみ記録する。
+  const [currentRiskFrames, setCurrentRiskFrames] = useState<CurrentRiskFrames>(EMPTY_CURRENT_RISK_FRAMES);
+  useEffect(() => {
+    if (!showLandslideRisk && !showHeavyRainRisk && !showInundationRisk) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const frames = await fetchCurrentRiskFrames();
+        if (cancelled) return;
+        setCurrentRiskFrames(frames);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "危険度分布（キキクル）の取得に失敗しました";
+        debugLog("api:jma-nowcast-times", "キキクルの読み込みに失敗", { error: message }, "error");
+      }
+    };
+    Promise.resolve().then(load);
+    const intervalId = window.setInterval(load, RISK_MAP_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [showLandslideRisk, showHeavyRainRisk, showInundationRisk]);
+
+  // 線状降水帯予測マップ（改善計画T410）の「現在」フレーム。キキクルとはtargetTimes.json
+  // 自体が別（rasrfのtargetTimes.jsonにelements違いの別行として混在、riskMap.ts参照）。
+  const [linearRainbandFrames, setLinearRainbandFrames] = useState<DynamicWeatherFrame<RiskFrameRef>[]>(EMPTY_RISK_FRAMES);
+  useEffect(() => {
+    if (!showLinearRainbandRisk) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const frames = await fetchLinearRainbandFrames();
+        if (cancelled) return;
+        setLinearRainbandFrames(frames);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "線状降水帯予測マップの取得に失敗しました";
+        debugLog("api:jma-nowcast-times", "線状降水帯予測マップの読み込みに失敗", { error: message }, "error");
+      }
+    };
+    Promise.resolve().then(load);
+    const intervalId = window.setInterval(load, RISK_MAP_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [showLinearRainbandRisk]);
+
   // 風・降水延長予報（T183）が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。
   // どちらか一方でもONならenabledにすることで両方ONのときも1本のフェッチで済む。
   const {
@@ -203,10 +280,25 @@ export function useDynamicWeatherLayers({
   );
   // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列（改善計画T204）。
   const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
+  // キキクル3種+線状降水帯予測マップ（改善計画T410）。riskMap.tsが既にDynamicWeatherFrame
+  // 形式で返すが、他レイヤーと異なり共有タイムライン・frameIndexForTimeには乗せない
+  // （下記の理由）。
+  const { land: landFramesList, heavyRain: heavyRainFramesList, inundation: inundationFramesList } = currentRiskFrames;
 
   // ONの全レイヤーのフレーム時刻を統合した共有タイムライン（T183再設計、実機フィードバック
   // 「時間経過はスライドバー1本で表現する」）。降水ナウキャスト（5分刻み）と風・延長予報
   // （1時間刻み）が混ざると、目盛りが「近い将来は細かく、遠い将来は粗い」を自然に実現する。
+  // **キキクル・線状降水帯予測マップ（改善計画T410）はここに含めない**: frameIndexForTimeの
+  // 範囲判定は`FRAME_RANGE_EPSILON_MS`（1秒）という狭い許容誤差で「選択中の時刻がこの
+  // フレームの時刻とほぼ一致するか」を見る設計だが、これは「複数フレームの中から該当する
+  // 1枚を選ぶ」用途（例: 5分刻みのナウキャストで正確な1枚を当てる）を想定したものであり、
+  // 「常に1枚だけの現在値スナップショットを、10分に1回更新されるデータの鮮度のまま表示する」
+  // キキクル系とは噛み合わない（実機確認: フレームのvalidtimeと実際の「今」の間には
+  // 直近の更新から最大10分程度のズレが常にあり、1秒の許容誤差を必ず超える。実機で
+  // このズレのせいで一切描画されない不具合を発見・修正した）。キキクル系はタイムラインとは
+  // 別に「スライダーが『現在』位置にあるときだけ最新の1枚を表示し、未来側へ動かした間は
+  // 非表示にする」（実機フィードバック「12時間後の雷が常時マップに警告されているのは嫌」、
+  // 下記payload計算のisAtNow参照）。
   const activeFrameLists = useMemo(() => {
     const lists: { time: Date }[][] = [];
     if (showWindVector) lists.push(windFramesList);
@@ -287,6 +379,35 @@ export function useDynamicWeatherLayers({
     if (index == null) return undefined;
     return tornadoRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
   }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
+  // キキクル・線状降水帯予測マップ（改善計画T410）。実機フィードバック「12時間後の雷が
+  // 常時マップに警告されているのは嫌」: スライダーを未来へ動かしても常時表示したままだと、
+  // 「現在」時点のスナップショットがあたかもその未来時刻の危険度であるかのように見えて
+  // しまう。そのため他レイヤーのようなframeIndexForTimeによる時刻一致ではなく、
+  // 「スライダーが『現在』位置にあるときだけ」表示する（sliderIndex/sliderCurrentIndexは
+  // 同じtimelineに対するnearestTimeIndexの結果なので、一致=つまみが実質「現在」を指して
+  // いる）。未来側へ動かした間はundefinedとなり非表示（frames自体は保持し続けるため、
+  // 「現在」へ戻せば即座に再表示される）。
+  const isAtNow = sliderIndex === sliderCurrentIndex;
+  const landslideRiskPayload = useMemo(() => {
+    if (!isAtNow) return undefined;
+    const frame = landFramesList[0];
+    return frame ? landRenderPayload(frame.ref) : undefined;
+  }, [landFramesList, isAtNow]);
+  const heavyRainRiskPayload = useMemo(() => {
+    if (!isAtNow) return undefined;
+    const frame = heavyRainFramesList[0];
+    return frame ? heavyRainRenderPayload(frame.ref) : undefined;
+  }, [heavyRainFramesList, isAtNow]);
+  const inundationRiskPayload = useMemo(() => {
+    if (!isAtNow) return undefined;
+    const frame = inundationFramesList[0];
+    return frame ? inundationRenderPayload(frame.ref) : undefined;
+  }, [inundationFramesList, isAtNow]);
+  const linearRainbandRiskPayload = useMemo(() => {
+    if (!isAtNow) return undefined;
+    const frame = linearRainbandFrames[0];
+    return frame ? linearRainbandRenderPayload(frame.ref) : undefined;
+  }, [linearRainbandFrames, isAtNow]);
 
   // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
   // 新しい動的気象要素を追加してもMapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
@@ -296,8 +417,29 @@ export function useDynamicWeatherLayers({
       precipitationNowcast: { visible: showPrecipitationNowcast, payload: precipitationPayload },
       thunderNowcast: { visible: showThunderNowcast, payload: thunderPayload },
       tornadoNowcast: { visible: showTornadoNowcast, payload: tornadoPayload },
+      landslideRisk: { visible: showLandslideRisk, payload: landslideRiskPayload },
+      heavyRainRisk: { visible: showHeavyRainRisk, payload: heavyRainRiskPayload },
+      inundationRisk: { visible: showInundationRisk, payload: inundationRiskPayload },
+      linearRainbandRisk: { visible: showLinearRainbandRisk, payload: linearRainbandRiskPayload },
     }),
-    [showWindVector, windPayload, showPrecipitationNowcast, precipitationPayload, showThunderNowcast, thunderPayload, showTornadoNowcast, tornadoPayload]
+    [
+      showWindVector,
+      windPayload,
+      showPrecipitationNowcast,
+      precipitationPayload,
+      showThunderNowcast,
+      thunderPayload,
+      showTornadoNowcast,
+      tornadoPayload,
+      showLandslideRisk,
+      landslideRiskPayload,
+      showHeavyRainRisk,
+      heavyRainRiskPayload,
+      showInundationRisk,
+      inundationRiskPayload,
+      showLinearRainbandRisk,
+      linearRainbandRiskPayload,
+    ]
   );
 
   // 共有スライダーのloading/error表示。windLoading/windErrorは両要素が使う格子点フェッチ
