@@ -101,8 +101,10 @@ export default function RouteSettingsPanel({
 
   // 改善計画T418: 軸id→地図表示レイヤーIDの解決。専用の表示レイヤーを持つ軸
   // （kind="ramp"、catalog.secondaryAxesのlayerId）はそのままレイヤーIDを返す。
-  // 風（wind）はcategory="動的"のためcatalog.secondaryAxesには現れない特殊軸
-  // （secondaryAxes.ts: secondaryAxesFromCatalogAxesのコメント参照）だが、
+  // 風（wind）はcatalog.secondaryAxesには現れない特殊軸だが、除外理由は
+  // `show_map_icon=false`のみ（category自体は他の軸と同じ"推定"——旧コメントは
+  // category="動的"のためと誤って説明していたが、2026-08-30にDBスナップショット
+  // [backend/fixtures/axis_definitions_snapshot.json]で確認し訂正した）。
   // way_id→wind_penalty配信層「windAxis」という専用レイヤーを持つためaxisIdで直接
   // 判定する。どちらにも該当しない軸（勾配等、kind="none"）はundefined
   // （地図表示非対応、docs/tasks/T400.md「7. kind=noneが残る範囲」節参照）。
