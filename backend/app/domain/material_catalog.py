@@ -414,8 +414,16 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="勾配%（符号付き）",
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
-        # 標高は国土地理院APIから都度取得しDBへ恒久保存しない設計のため、タイルへ
-        # 焼き込める事実データが無い（docs/architecture.md「標高計算」節参照）。
+        # 標高自体はDEMタイル（infrastructure/tile_cache.py、永続・TTL無し）・Edge単位の
+        # 計算済み属性（elevation_attributesテーブル、precompute_elevation_attributes
+        # バッチ＋リクエスト時の遅延書き込みの両経路で埋まる）とも既に永続化されている
+        # （改善計画T10・T218a、2026-08-30のT399調査で確認・本コメントの旧記述を訂正）。
+        # タイルへ焼き込めない本当の理由は別にある: この値は進行方向依存の符号付き値
+        # （登り坂プラス・下り坂マイナス）で、1つのOSM Way（地図上の1本の線）に対し
+        # 往復2方向ぶんの異なる値を持ちうるため、方向を持たない静的なMVTタイルの
+        # プロパティ1個には焼き込めない（風向風速と同じ制約）。方向依存材料を地図表示へ
+        # 乗せる仕組み自体はT400（Redis経由のway_id→値配信＋setFeatureState）で
+        # 別途検討中。
         tile_property=None,
         primary_attribute_id="elevation",
         extractor=_extract_gradient_percent,
