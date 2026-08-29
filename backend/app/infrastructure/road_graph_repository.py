@@ -1962,30 +1962,6 @@ class AttributeRepository(_SessionRepository):
         )
         return _restore_ordinality_order(result.all(), len(points), 0)
 
-    async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
-        """指定edge_idそれぞれについて、road_edges.osm_way_id経由のosm_raw_ways.tags
-        （静的道路属性P0の許可リストタグ）を返す（静的道路属性P1残り、車ストレス・
-        自転車インフラ評価の入力）。get_surface_attributesと同じJOINパターン。
-
-        該当way自体が無い/tagsが空のEdgeは`{}`（highwayはEdge側に既に保持済みのため、
-        タグが空でも車ストレスの基本値は評価できる。domain/evaluation.py:
-        compute_edge_cost参照）。「データ未取得（repository未注入）」との区別は
-        呼び出し元（本メソッド自体を呼ぶかどうか）で行う。
-        """
-        if not edge_ids:
-            return {}
-        result: dict[str, dict[str, str]] = {}
-        for id_chunk in _chunked(edge_ids, 50_000):
-            stmt = (
-                select(RoadEdgeRow.edge_id, OsmRawWayRow.tags)
-                .select_from(RoadEdgeRow)
-                .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
-                .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
-            )
-            for edge_id, tags in (await self._session.execute(stmt)).all():
-                result[edge_id] = tags or {}
-        return result
-
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         """osm_way_id完全一致で(highway, tags, is_designated)を返す（改善計画T90）。
 
@@ -2423,9 +2399,6 @@ class RoadGraphRepository:
         self, points: list[tuple[float, float]], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> list[int]:
         return await self.attributes.get_nearest_stop_poi_counts(points, max_distance_m=max_distance_m)
-
-    async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
-        return await self.attributes.get_way_tags(edge_ids)
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)

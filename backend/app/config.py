@@ -32,12 +32,19 @@ class Settings(BaseSettings):
     # Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして使うかどうか。
     # ElevationAttributeService・地図表示系（RegionService/AccidentService、
     # ORSエンジンの路面評価用surface_match_repository）へRoadGraphRepositoryを注入するかを
-    # 切り替える。database_urlのDBへ実際に接続できる環境でのみTrueにすること（既定Falseの
-    # ままならこれらはDBなしで動作する）。GraphService（get_or_build_graph_with_attributes等、
+    # 切り替える。database_urlのDBへ実際に接続できない環境ではFalseにすること（これらは
+    # DBなしで動作する）。GraphService（get_or_build_graph_with_attributes等、
     # routing_engine=road_graphのルート生成が使う）はこの設定に関わらず常にrepositoryを
     # 必要とする（改善計画T222でDBなし構成を撤去済みのため、Falseのままroad_graphエンジンを
     # 使うとGraphService経由のDBアクセスが失敗する）。
-    road_graph_use_repository: bool = False
+    # 改善計画T283: 既定はTrue（DB接続ありを前提）。以前はFalseが既定だったため、新環境
+    # 構築時にこの設定を明示し忘れると「ルート生成は動くのに地図レイヤーがすべて空」という
+    # 気づきにくい縮退になっていた（レビュー指摘）。DB接続失敗時は既存の空タイル
+    # フォールバック（vector_tile.py: encode_empty_road_surface_tile等）が効くため、
+    # DBが無い環境でTrueのままでも安全側に倒れる（単に空タイルが返るだけ）。DBなし構成を
+    # 明示的に選びたい場合（.env.exampleの「開発（DBなし）」プロファイル等）は引き続き
+    # 明示的にFalseを設定すること。
+    road_graph_use_repository: bool = True
     # 基礎地図プロキシ（/api/basemap）のスタイルJSON内URL書き換えに使う絶対URL。
     # MapLibreは相対URLをスタイル自身の取得元ではなくページのオリジンに対して解決してしまう
     # ため絶対URLへの書き換えが必須で、かつフロントエンド（Next.jsのrewrites経由でこの

@@ -805,41 +805,6 @@ async def test_get_nearest_stop_poi_counts_counts_pois_near_each_point(road_grap
 # --- 静的道路属性P1残り（車ストレス・自転車インフラ・交差点密度の評価組み込み） ---
 
 
-async def test_get_way_tags_returns_empty_dict_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_way_tags([]) == {}
-
-
-async def test_get_way_tags_joins_via_osm_way_id(road_graph_repository):
-    way = WaySpec(
-        osm_way_id=100, node_ids=[1, 2], highway="residential", tags={"lanes": "2", "maxspeed": "40"}
-    )
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-    edge_id = next(iter(graph.edges))
-
-    result = await road_graph_repository.get_way_tags([edge_id, "nonexistent-edge"])
-
-    assert set(result.keys()) == {edge_id}
-    assert result[edge_id] == {"lanes": "2", "maxspeed": "40"}
-
-
-async def test_get_way_tags_is_empty_dict_when_raw_way_not_found(road_graph_repository):
-    """road_edges.osm_way_idに対応するosm_raw_ways行が無い場合（LEFT JOINで不一致）は`{}`
-    （get_surface_attributesのNoneとは違い、taglessと同じ扱いにする。domain/evaluation.py:
-    compute_edge_costのway_tagsコメント参照）。"""
-    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
-    nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)  # save_raw_waysを呼ばない＝osm_raw_ways側は空
-    edge_id = next(iter(graph.edges))
-
-    result = await road_graph_repository.get_way_tags([edge_id])
-
-    assert result[edge_id] == {}
-
-
 async def test_get_way_tags_by_osm_way_id_returns_highway_tags_and_is_designated(
     road_graph_repository, road_graph_session
 ):

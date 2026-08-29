@@ -350,12 +350,6 @@ class GraphService:
         graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
         return materials
 
-    async def get_way_tags(self, edge_ids: list[str]) -> dict[str, dict[str, str]]:
-        """指定edge_idそれぞれの許可リストタグ（静的道路属性P0）を返す（静的道路属性P1残り、
-        車ストレス・自転車インフラ評価の入力）。
-        """
-        return await self._repository.get_way_tags(edge_ids)
-
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数を返す。
 

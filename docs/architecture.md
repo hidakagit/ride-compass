@@ -17,7 +17,7 @@
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Frontendスタイリング | Tailwind CSS v4（新規UI）+ CSS Modules（既存、機能改修時に段階移行）+ Radix UI + `frontend/src/components/ui/` | T252でTailwind併用導入、T299でRadix UI + 自前UIコンポーネント層（Button/Input/Card/Dialog/Checkbox）を新設。使い分け基準・Design Token一覧・意図的に作らないものは[frontend-design-system.md](frontend-design-system.md)参照 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
-| DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。Overpassフォールバックは改善計画T22で撤去済みのため、取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、`routing_engine=road_graph`を使うには`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService/ORSエンジンの路面評価用repository]のみに引き続き効く設定として残る）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
+| DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。Overpassフォールバックは改善計画T22で撤去済みのため、取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、`routing_engine=road_graph`を使うには`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService/ORSエンジンの路面評価用repository]のみに引き続き効く設定として残る。既定値はtrue[改善計画T283、2026-08-29——以前は既定falseだったため、新環境構築時にこの設定を明示し忘れると「ルート生成は動くのに地図レイヤーがすべて空」という気づきにくい縮退になっていた。DB未接続環境では既存の空タイルフォールバックが効くため、既定trueのままでも安全側に倒れる]）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
 | ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **切り替え可能**（既定: road_graph、`config.py`の`routing_engine`設定で`openrouteservice`にも切替可） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価だけを`LoopRoutingEngine`ポート経由で`OpenRouteServiceEngine`（[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、外部APIキー方式、Road Graph移行前の実装）または`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のscipy.sparse.csgraph Dijkstraを使う）へ委譲する。改善計画T236（経路品質比較、致命的な差異なし）・T241（道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て、既定値を`road_graph`へ切り替えた（改善計画T247、2026-08-23）。レスポンスの`engine`フィールドでどちらが生成したかを識別できる。詳細は「ルーティングエンジンの切り替え対応」および[decisions/road-graph-migration.md](decisions/road-graph-migration.md)参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **切り替え可能**（`routing_engine`設定に連動、改善計画T237） | Step3の疎通確認用エンドポイント。`routing_engine=="road_graph"`なら`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）、それ以外は従来どおり`RoutingService`（[backend/app/services/routing_service.py](../backend/app/services/routing_service.py)）経由の`ORSClient`（単純最短距離）。`dependencies.py: get_preview_builder`が分岐を持つ。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
@@ -311,6 +311,14 @@ Open-Meteo（上記）に加え、JMA（気象庁）のアメダス観測値を�
 redis_client.py`）。ローカル開発は`docker-compose.yml`のredisサービス、本番はOracle
 Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する想定（backendコンテナが
 `--network=host`のため追加設定なしで到達できる）。
+
+**メモリ上限（改善計画T393、2026-08-29）**: 本番`/etc/redis/redis.conf`へ
+`maxmemory 2gb`・`maxmemory-policy volatile-lru`を設定済み（VM全体11GB中、PostgreSQL・
+backendアプリ[コンテナ`--memory=6g`上限]との共存を考慮した保守的な値）。導入当初
+（T387）はこの上限が未設定（`maxmemory=0`＝無制限・`noeviction`）のままだったため、
+Redisの用途を広げる際に上限なくメモリを消費し、同居するVM全体のメモリを圧迫する
+リスクがあった。現行キーは全てTTL付きのため`volatile-lru`（TTL付きキーの中からLRUで
+退避）を選んでいる。
 
 - **アメダス（`app/services/jma_amedas_service.py`）**: 気象データはPostGISへ書き込まず
   Redis上で完結させる（気象データは短命でディスクI/O向きではないため）。JMAの観測値
