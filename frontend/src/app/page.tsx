@@ -1279,7 +1279,9 @@ export default function Home() {
             2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
             （評価重み・車ストレスレシピ、renderResearchSectionBody参照）とは分け、
             RouteListの並びであるこのブロックに残す。 */}
-        {researchEnabled && <ComparisonPanel slots={experimentSlots} axisLabels={axisCatalog.axisLabels} />}
+        {researchEnabled && (
+          <ComparisonPanel slots={experimentSlots} axisLabels={axisCatalog.axisLabels} axes={axisCatalog.axes} />
+        )}
         {renderRouteColorSectionBody()}
       </>
     );

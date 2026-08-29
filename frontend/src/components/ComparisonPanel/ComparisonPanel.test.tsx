@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RouteCandidate } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import ComparisonPanel from "./ComparisonPanel";
@@ -68,20 +69,36 @@ const SAMPLE_AXIS_LABELS: Record<string, string> = {
   car_stress: "車の圧迫感",
   accident: "事故密度",
   night: "夜間",
+  bicycle_infra_quality: "自転車インフラ",
 };
+
+// 改善計画T421: axesは呼び出し側（page.tsx）がuseAxisCatalog().axesを渡す実行時カタログ
+// （axisId・label・並び順の正本）。RouteAxisProfile.test.tsxと同じ形の固定フィクスチャ。
+const SAMPLE_AXES: readonly PreferenceAxisDef[] = [
+  { axisId: "gradient", label: "勾配", description: "" },
+  { axisId: "surface_q", label: "舗装質", description: "" },
+  { axisId: "wind", label: "風", description: "" },
+  { axisId: "stop_density", label: "停止密度", description: "" },
+  { axisId: "car_stress", label: "車の圧迫感", description: "" },
+  { axisId: "accident", label: "事故密度", description: "" },
+  { axisId: "night", label: "夜間", description: "" },
+  { axisId: "bicycle_infra_quality", label: "自転車インフラ", description: "" },
+];
 
 describe("ComparisonPanel", () => {
   it("スロットが1件以下のときは何も表示しない", () => {
-    const { container } = render(<ComparisonPanel slots={[makeSlot({})]} axisLabels={SAMPLE_AXIS_LABELS} />);
+    const { container } = render(
+      <ComparisonPanel slots={[makeSlot({})]} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />
+    );
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("スロットが2件以上のとき、生値と絶対難易度の比較表を表示する", () => {
+  it("スロットが2件以上のとき、生の物理量と絶対難易度の比較表を表示する", () => {
     const slots = [
       makeSlot({ id: "a", topCandidate: makeCandidate({ distance_km: 30.1, overall_difficulty: 40 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ distance_km: 29.8, overall_difficulty: 55 }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
     expect(screen.getByText(/30\.1 km/)).toBeInTheDocument();
     expect(screen.getByText(/29\.8 km/)).toBeInTheDocument();
@@ -94,50 +111,89 @@ describe("ComparisonPanel", () => {
       makeSlot({ id: "a", topCandidate: makeCandidate({ total_score: 12.3 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ total_score: 45.6 }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
     expect(screen.queryByText(/12\.3/)).not.toBeInTheDocument();
     expect(screen.queryByText(/45\.6/)).not.toBeInTheDocument();
   });
 
-  it("停止密度の行を表示する(改善計画T45、静的属性P1で追加された軸)", () => {
-    const slots = [
-      makeSlot({ id: "a", topCandidate: makeCandidate({ stop_density: 1.5 }) }),
-      makeSlot({ id: "b", topCandidate: makeCandidate({ stop_density: null }) }),
-    ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
-
-    expect(screen.getByText("停止密度")).toBeInTheDocument();
-    expect(screen.getByText("1.50 回/km")).toBeInTheDocument();
-  });
-
-  it("車ストレス・自転車インフラ率・交差点密度の行を表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
+  it("個別軸の行はaxis_difficultiesベースで動的生成する(改善計画T421、旧stop_density等のレガシーフィールド直接参照を撤去)", () => {
     const slots = [
       makeSlot({
         id: "a",
-        topCandidate: makeCandidate({ car_stress_score: 2.3, bicycle_infra_score: 12.4, intersection_density: 3.1 }),
+        topCandidate: makeCandidate({ axis_difficulties: { stop_density: 42.5 } }),
       }),
-      makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
-    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
-    expect(screen.getByText("2.3")).toBeInTheDocument();
-    expect(screen.getByText("自転車インフラ率")).toBeInTheDocument();
-    expect(screen.getByText("12%")).toBeInTheDocument();
-    expect(screen.getByText("交差点密度")).toBeInTheDocument();
-    expect(screen.getByText("3.10 回/km")).toBeInTheDocument();
+    expect(screen.getByText("停止密度")).toBeInTheDocument();
+    expect(screen.getByText("42.5")).toBeInTheDocument();
   });
 
-  it("事故密度の行を表示する(外部静的データソース T50残作業、8軸目)", () => {
+  it("車の圧迫感・自転車インフラ・事故密度等の個別軸行をaxis_difficultiesから表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
     const slots = [
-      makeSlot({ id: "a", topCandidate: makeCandidate({ accident_density: 0.15 }) }),
-      makeSlot({ id: "b", topCandidate: makeCandidate({}) }),
+      makeSlot({
+        id: "a",
+        topCandidate: makeCandidate({
+          axis_difficulties: { car_stress: 23.0, bicycle_infra_quality: 12.4, accident: 8.1 },
+        }),
+      }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
+    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
+    expect(screen.getByText("23.0")).toBeInTheDocument();
+    expect(screen.getByText("自転車インフラ")).toBeInTheDocument();
+    expect(screen.getByText("12.4")).toBeInTheDocument();
     expect(screen.getByText("事故密度")).toBeInTheDocument();
-    expect(screen.getByText("0.15 件/(km・年)")).toBeInTheDocument();
+    expect(screen.getByText("8.1")).toBeInTheDocument();
+  });
+
+  it("旧RouteCandidateレガシーフィールド(stop_density等)へ値を入れてもaxis_difficultiesが空なら個別軸行は出ない(直接参照の撤去を確認する回帰テスト)", () => {
+    const slots = [
+      makeSlot({
+        id: "a",
+        topCandidate: makeCandidate({
+          stop_density: 1.5,
+          car_stress_score: 2.3,
+          bicycle_infra_score: 12.4,
+          intersection_density: 3.1,
+          accident_density: 0.15,
+          axis_difficulties: {},
+        }),
+      }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
+    ];
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+
+    expect(screen.queryByText("停止密度")).not.toBeInTheDocument();
+    expect(screen.queryByText("車の圧迫感")).not.toBeInTheDocument();
+    expect(screen.queryByText("自転車インフラ")).not.toBeInTheDocument();
+    expect(screen.queryByText("交差点密度")).not.toBeInTheDocument();
+    expect(screen.queryByText("事故密度")).not.toBeInTheDocument();
+  });
+
+  it("個別軸行は軸カタログ(axes)の並び順で表示する(改善計画T421、RouteAxisProfileと同じ規約)", () => {
+    const slots = [
+      makeSlot({
+        id: "a",
+        topCandidate: makeCandidate({
+          axis_difficulties: { accident: 8.1, gradient: 15.0, wind: 33.0 },
+        }),
+      }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
+    ];
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+
+    const rowHeaders = screen.getAllByRole("rowheader").map((el) => el.textContent);
+    const gradientIndex = rowHeaders.indexOf("勾配");
+    const windIndex = rowHeaders.indexOf("風");
+    const accidentIndex = rowHeaders.indexOf("事故密度");
+    expect(gradientIndex).toBeGreaterThanOrEqual(0);
+    expect(windIndex).toBeGreaterThan(gradientIndex);
+    expect(accidentIndex).toBeGreaterThan(windIndex);
   });
 
   it("重みの表示(title属性)に評価軸カタログの全軸が含まれる(改善計画T45)", () => {
@@ -145,7 +201,7 @@ describe("ComparisonPanel", () => {
     // stop_weightが実験条件の表示から漏れていた(研究モードでstop_weightを変えて
     // 比較しても条件表示に差が現れない実害)。カタログ生成後は全軸が含まれる。
     const slots = [makeSlot({ id: "a" }), makeSlot({ id: "b" })];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     expect(headers).toHaveLength(2);
@@ -171,7 +227,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b" }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     expect(headers[0].getAttribute("title")).toContain("gui_published_axis0.3");
@@ -188,7 +244,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b" }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     const title = headers[0].getAttribute("title") ?? "";
