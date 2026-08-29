@@ -31,10 +31,14 @@ function isBeforeSunrise(sunrise: string | null): boolean {
   return sunrise != null && Date.now() < new Date(sunrise).getTime();
 }
 
+// 実行環境のローカルタイムゾーンに左右されないよう常にJSTで整形する（dynamicWeather.ts:
+// formatDynamicFrameHourMinuteと同じ理由。getHours()/getMinutes()はホストマシンの
+// ローカルタイムゾーンに依存するため、UTC環境（CI等）で実行すると日没時刻が9時間ずれる
+// バグがあった）。
 function formatClockTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "--:--";
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
 }
 
 export default function WeatherPanel({ amedas, loading, error }: WeatherPanelProps) {

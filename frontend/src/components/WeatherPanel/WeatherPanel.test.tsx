@@ -127,7 +127,7 @@ describe("WeatherPanel", () => {
 
     it("日の出前なら↑（上昇）矢印付きで日の出時刻を表示する（改善計画T387フォローアップ2、" +
       "「アイコン+時刻だけだと何の時刻か分からない」というユーザー指摘への対応）", () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T04:00:00").getTime());
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T04:00:00+09:00").getTime());
       const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
@@ -136,7 +136,7 @@ describe("WeatherPanel", () => {
     });
 
     it("日中は↓（下降）矢印付きで日没時刻を表示する", () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00").getTime());
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00+09:00").getTime());
       const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
@@ -153,7 +153,7 @@ describe("WeatherPanel", () => {
 
     it("天気アイコンと日の出/日没は1チップに統合され、両方の情報を持つ（改善計画T387" +
       "フォローアップ、ヘッダーのバッジ見切れ対策でチップ数を増やさないための統合）", () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00").getTime());
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00+09:00").getTime());
       const amedas = makeAmedas({
         precipitation_10min_mm: 0,
         sunshine_10min_minutes: 8,
