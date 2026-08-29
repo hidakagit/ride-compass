@@ -522,3 +522,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [ ] [T424](tasks/T424.md). 材料カタログ0件時にAxisComposer（軸スタジオ）がクラッシュする不具合を修正 規模S（P0・唯一の重大指摘）
 - [ ] [T425](tasks/T425.md). ゼロベース網羅レビューのP1指摘13件の対応検討 規模M
 - [ ] [T426](tasks/T426.md). ゼロベース網羅レビューのP2/P3指摘72件の棚卸し 規模M〜L
+- [ ] [T427](tasks/T427.md). architecture.mdの記述整合（サイドバー4分類・軸スタジオテンプレート数） 規模S（`/review:all`第9回、2026-08-30起票）
+- [ ] [T428](tasks/T428.md). architecture.mdの経緯記述をdecisions/へ抽出（第3弾） 規模M（`/review:all`第9回、2026-08-30起票）
+- [ ] [T429](tasks/T429.md). `pytest -m "not postgis"`が実は何もフィルタしていない問題を修正 規模S（`/review:all`第9回、2026-08-30起票）
+- [ ] [T430](tasks/T430.md). MapView.tsxのKeep List閾値更新 規模S（`/review:all`第9回、2026-08-30起票）
