@@ -67,6 +67,7 @@ import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLa
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { WIND_AXIS_FEATURE_STATE_KEY, windAxisColorExpression } from "@/components/Map/windAxisLayer";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
+import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
 import {
@@ -699,7 +700,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
       // 再現しない想定、未検証）。表示自体は次のpayload反映で自己回復し実害は無いが、
       // 「visibility:noneの間は要求されない」という以前の説明は不正確だったため訂正する。
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 10,
@@ -732,7 +733,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   thunderNowcast: {
     raster: {
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 10,
@@ -742,7 +743,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   tornadoNowcast: {
     raster: {
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 10,
@@ -755,7 +756,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   landslideRisk: {
     raster: {
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 11,
@@ -765,7 +766,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   heavyRainRisk: {
     raster: {
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 11,
@@ -775,7 +776,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   inundationRisk: {
     raster: {
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 11,
@@ -785,7 +786,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   linearRainbandRisk: {
     raster: {
       placeholderTileUrl:
-        "https://www.jma.go.jp/bosai/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png",
+        `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`,
       opacity: 0.65,
       minzoom: 4,
       maxzoom: 10,

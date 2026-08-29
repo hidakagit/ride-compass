@@ -210,6 +210,13 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 既知の制約: PostGIS未取込範囲（またはDBなし構成）は常に空タイルになるため、その範囲では路面レイヤーが表示されない（Overpassフォールバックは改善計画T22で撤去済み）。取込済み範囲内であれば初回表示から高速（`ST_AsMVT`でPostGIS側がMVTバイナリまで生成するため、Pythonでの追加エンコード処理を挟まない）。
 
+#### JMA動的タイル系レイヤーのバックエンド経由プロキシ＋キャッシュ（改善計画T412）
+`JmaTileClient`（[backend/app/infrastructure/jma_tile_client.py](../backend/app/infrastructure/jma_tile_client.py)）が降水ナウキャスト・降水短時間予報（rasrf）・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ（下記「動的気象レイヤー」節参照）が使うJMA bosaiエンドポイント（時刻一覧JSON・ラスタタイルPNG）を`BasemapClient`と同じ「pathを丸ごとプロキシ」方式（`GET /api/jma-tile/{path:path}`、`next.config.ts`の`/api/jma-tile/*`rewritesで同一オリジン化）でプロキシする。
+
+- **経緯**: 従来これらは各ユーザーのブラウザがJMAの非公式内部API（`https://www.jma.go.jp/bosai/...`）へ直接fetchしており、バックエンド・キャッシュを一切経由しなかった。T410（キキクル）の実機フィードバック検討中、「防災級の情報は常時ONにすべきでは」という指摘を受け、常時ON化の前提として「利用者数に比例してJMAへの負荷が線形に増えない構成」への切り替えが必要と判断し、ユーザー方針「動的なデータはなるべくバックエンド経由に」に沿って実施した。
+- **キャッシュ戦略の分岐**: `BasemapClient`のOpenFreeMapタイルと異なり、JMA側は2種類の更新頻度が混在する。①ラスタタイル本体（`basetime/validtime/z/x/y`が確定した時点で内容が不変）は`tile_cache.py`の永続ファイルキャッシュへそのまま乗せる。②`targetTimes*.json`（数分〜数十分単位で更新される時刻一覧）を同じ永続キャッシュへ乗せると更新後も古い内容を無期限に返し続けてしまうため、`jma_warning_client.py`と同じ`cachetools.TTLCache`（プロセス内、TTL=2分）を別途用意し、パスの末尾が`targetTimes*.json`かどうかで振り分ける。
+- **横展開の検討と対象外の判断**: JMA以外に同様の直接fetchが無いか調査した結果、国土地理院の色別標高図タイル（`cyberjapandata.gsi.go.jp`、`MapView.tsx`）のみ該当したが、これは「ブラウザからの直接埋め込み利用を前提に国が公開している正式なAPI」であり、JMAの「非公式の内部API」への配慮とは動機が異なるため対象外とした（Open-Meteo・基礎地図・路面/事故/POIタイルは既にバックエンド経由のためそもそも対象外）。ただし色別標高図は時刻に依存しない静的データのため、レスポンス速度向上目的の永続キャッシュ化は別途軽量タスクとして検討する余地がある。
+
 ### 動的気象レイヤー（風・降水延長予報）の共通契約（改善計画T170〜T195）
 
 Step10の標高・路面は「地域に固定・時間で変わらない」重ね描きだったが、ユーザー要望
@@ -515,7 +522,7 @@ RideCompass/
       api/
         admin_auth.py           ✅ 管理API共通の認可境界（`require_admin_basic_auth`、HTTP Basic認証）。元はaxis_admin.pyにのみ定義されていたが、改善計画T379でdebug_admin.pyも同じ認可を必要としたため複製を避けてここへ切り出した
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
         weather.py               ✅ WeatherConditions
@@ -578,6 +585,7 @@ RideCompass/
         wind_forecast_cache.py       ✅ 気象グリッド（風・降水延長予報）のRedis永続キャッシュ（改善計画T398。標高キャッシュ・路面セルキャッシュは無関係、それぞれtile_cache.py・DEMタイル化[T10]参照。旧SQLite実装cache_db.pyはこの移行で削除済み）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10。T398でDATA_DIR定数の定義元になった）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
+        jma_tile_client.py           ✅ 改善計画T412: JMA動的タイル系（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ）のプロキシ。basemap_client.pyと同じpath丸ごとプロキシ方式だが、ラスタタイル本体はtile_cache.py（永続）・targetTimes*.jsonはTTLCache（2分）とキャッシュ戦略を分岐する
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
         debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
         debug_control.py             ✅ 改善計画T379。`set_debug_mode`（`settings.debug_mode`とルートロガーのレベルをランタイムで切替、`.env`は書き換えず再起動不要）と、ルートロガーへ追加するリングバッファ`logging.Handler`（直近最大1000件を保持、`get_recent_logs`で`limit`/`contains`絞り込み取得）。`api/routers/debug_admin.py`から呼ばれる。本番でSSHせずにdebug_modeの一時有効化・DEBUGログ取得を行うための運用機構（T318の調査で判明した運用上のボトルネックへの対応）
@@ -633,6 +641,8 @@ RideCompass/
       test_wind_forecast_cache.py ✅ 気象グリッドのRedis永続キャッシュ読み書きの検証（改善計画T398。フェイクRedis使用、実I/Oなし。旧SQLite版test_cache_db.pyはこの移行で削除）
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
       test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）。basemap/refreshのper-IPレート制限（6回/分）の429検証を追加
+      test_jma_tile_client.py ✅ 改善計画T412: JmaTileClientのプロキシ・キャッシュ戦略の分岐（ラスタタイル=永続tile_cache／targetTimes*.json=TTLCache）の検証
+      test_jma_tile_routes.py ✅ 改善計画T412: /api/jma-tile/{path}のDIモックテスト。502エラー・per-IPレート制限（300回/分）の429検証
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
       test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
@@ -644,7 +654,7 @@ RideCompass/
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto
   frontend/
-    next.config.ts               ✅ `/api/basemap/*`と`/api/region/road-surface-tiles/*`をバックエンドへプロキシするrewrites（同一オリジン維持、Step10・Step10改訂）
+    next.config.ts               ✅ `/api/basemap/*`と`/api/region/road-surface-tiles/*`、`/api/jma-tile/*`（改善計画T412）をバックエンドへプロキシするrewrites（同一オリジン維持、Step10・Step10改訂）
     src/
       proxy.ts                   ✅ 改善計画T272: `/admin`ルーティング境界のHTTP Basic認証（Next.js 16の`middleware.ts`改称後の規約名、frontend/AGENTS.md参照）。環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可
       app/

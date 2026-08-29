@@ -94,7 +94,7 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
     it("landRenderPayloadはrisk/{basetime}/{member}/{validtime}/surf/land/... を返す", () => {
       expect(landRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "https://www.jma.go.jp/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png",
       });
     });
 
@@ -102,14 +102,14 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
       expect(heavyRainRenderPayload(ref)).toEqual({
         kind: "rasterTile",
         tileUrlTemplate:
-          "https://www.jma.go.jp/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png",
+          "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png",
       });
     });
 
     it("inundationRenderPayloadは要素コードinundを使う", () => {
       expect(inundationRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "https://www.jma.go.jp/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png",
       });
     });
 
@@ -118,7 +118,7 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
       expect(linearRainbandRenderPayload(sjfcstRef)).toEqual({
         kind: "rasterTile",
         tileUrlTemplate:
-          "https://www.jma.go.jp/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png",
+          "/api/jma-tile/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png",
       });
     });
   });

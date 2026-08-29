@@ -138,6 +138,10 @@ class Settings(BaseSettings):
     # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
     # Overpass/OpenFreeMapへの実問い合わせが毎回発生し続けてしまう）。
     basemap_refresh_rate_limit_per_minute: int = 6
+    # JMA動的タイル系レイヤー（改善計画T412）のプロキシ。降水ナウキャスト・rasrf・
+    # 雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップの各タイル・時刻一覧をまとめて
+    # 経由するため、basemapと同水準の上限にする。
+    jma_tile_rate_limit_per_minute: int = 300
     # Open-Meteo Forecast APIの呼び出し先。既定は本家直叩き（ローカル開発用）。
     # 本番（Render）はOpen-Meteo側が送信元IP単位でレート制限しており、Renderの共有
     # アウトバウンドIPだと他テナントの分も巻き添えで429が常態化する不具合が確認された

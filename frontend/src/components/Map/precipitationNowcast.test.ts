@@ -282,7 +282,7 @@ describe("precipitationNowcast", () => {
       });
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "https://www.jma.go.jp/bosai/jmatile/data/nowc/20260820030000/none/20260820030500/surf/hrpns/{z}/{x}/{y}.png",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260820030000/none/20260820030500/surf/hrpns/{z}/{x}/{y}.png",
       });
     });
 
@@ -302,7 +302,7 @@ describe("precipitationNowcast", () => {
       });
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "https://www.jma.go.jp/bosai/jmatile/data/rasrf/20260820030000/immed/20260820040000/surf/rasrf/{z}/{x}/{y}.png",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/rasrf/20260820030000/immed/20260820040000/surf/rasrf/{z}/{x}/{y}.png",
       });
     });
 

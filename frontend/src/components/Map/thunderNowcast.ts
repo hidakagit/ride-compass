@@ -14,11 +14,11 @@
 // あわせて実装する。
 
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
+import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
 
-const TARGET_TIMES_N3_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N3.json";
+const TARGET_TIMES_N3_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N3.json`;
 
 /** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。 */
 export async function fetchThunderNowcastFrames(): Promise<ThunderNowcastFrame[]> {
@@ -35,7 +35,7 @@ export function thunderFrames(frames: readonly ThunderNowcastFrame[]): DynamicWe
 }
 
 function tileUrlTemplate(frame: ThunderNowcastFrame, product: "thns" | "trns"): string {
-  return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/${product}/{z}/{x}/{y}.png`;
+  return `${JMA_TILE_BASE_URL}/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/${product}/{z}/{x}/{y}.png`;
 }
 
 /** thunderFramesが返したref（frames内のindex）から、雷ナウキャストの描画ペイロードを

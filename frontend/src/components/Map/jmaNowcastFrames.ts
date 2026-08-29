@@ -8,6 +8,16 @@
 
 import { fetchJson } from "@/lib/fetchJson";
 
+// JMA bosaiタイル系（時刻一覧JSON・ラスタタイルPNG）の共通ベースURL（改善計画T412）。
+// 以前は各消費者（precipitationNowcast.ts/thunderNowcast.ts/riskMap.ts）が
+// `https://www.jma.go.jp/bosai/...`へ直接fetchしており、利用者数に比例してJMAの非公式
+// 内部APIへの負荷が線形に増える上、同一タイルの再取得もキャッシュされず毎回JMAへ
+// 実問い合わせしていた。バックエンドのプロキシ＋キャッシュ
+// （backend/app/infrastructure/jma_tile_client.py、`GET /api/jma-tile/{path}`）経由に
+// 切り替え、同一オリジン（他のタイル系＝basemap/road-surface等と同じ理由、
+// next.config.tsのrewritesコメント参照）で配信する。
+export const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
+
 export interface JmaNowcastFrame {
   basetime: string;
   validtime: string;

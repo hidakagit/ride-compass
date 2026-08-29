@@ -6,10 +6,13 @@
 // ——気象庁側で実況と短時間予測を統合済みの「現在の危険度」単一値のみを配信する
 // （実機確認2026-08-30: targetTimes.jsonの全エントリでvalidtime===basetime）。そのため
 // ユーザー判断により「現在の防災リスク」という括りでキキクル3種+sjfcstmapをまとめて扱う。
-// フレーム列は常に「現在」を表す最大1件のみとし、他の動的レイヤーと同じ共有タイムライン・
-// frameIndexForTime（dynamicWeather.ts）にそのまま乗せる——選択中の時刻が「現在」の
-// 近傍から外れると、範囲外判定により自動的に非表示になる（既存の「該当時間データが無い
-// 場合は描画しない」ルールがそのまま効くため、専用の表示制御コードは不要）。
+// フレーム列は常に「現在」を表す最大1件のみ返す。**他の動的レイヤーと違い共有タイムライン・
+// frameIndexForTimeには乗せない**（実機フィードバック「12時間後の雷が常時マップに警告
+// されているのは嫌」を受けた設計変更、useDynamicWeatherLayers.tsのisAtNow判定参照）:
+// フレームのvalidtimeは実際の「今」から最大10分ほど遅れるのが常態で、frameIndexForTimeの
+// 1秒の許容誤差には収まらない上、そもそも「常に1枚だけの現在値」をスライダー未来位置でも
+// 表示し続けるのは「現在のスナップショットがあたかも選択中の未来時刻の危険度であるかの
+// ように見える」誤解を招く。スライダーが「現在」位置にある間だけ最新の1枚を表示する。
 //
 // **洪水キキクル（flood）は実装対象外**: 実機確認（Playwright的手法、Browserペインで
 // JMA公式ページの実際の通信を観測）の結果、他3種（土砂・大雨・浸水）と異なり`.pbf`
@@ -19,13 +22,13 @@
 // 対応外のため、着手する場合は別タスクとして切り出す。
 
 import { fetchJson } from "@/lib/fetchJson";
-import { parseValidtime } from "@/components/Map/jmaNowcastFrames";
+import { JMA_TILE_BASE_URL, parseValidtime } from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
-const RISK_TARGET_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json";
+const RISK_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/risk/targetTimes.json`;
 // 線状降水帯予測マップ(sjfcstmap)は降水短時間予報(rasrf)と同じtargetTimes.jsonに
 // elements違いの別行として混在する（改善計画T407実装メモ参照）。
-const RASRF_TARGET_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/rasrf/targetTimes.json";
+const RASRF_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/targetTimes.json`;
 
 interface RawRiskTargetTime {
   basetime: string;
@@ -89,7 +92,7 @@ export async function fetchLinearRainbandFrames(): Promise<DynamicWeatherFrame<R
 }
 
 function tileUrlTemplate(group: "risk" | "rasrf", elementId: string, ref: RiskFrameRef): string {
-  return `https://www.jma.go.jp/bosai/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.png`;
+  return `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.png`;
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {

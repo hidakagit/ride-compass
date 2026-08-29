@@ -21,6 +21,7 @@ from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
+from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
@@ -366,6 +367,10 @@ async def get_accident_service():
 
 def get_basemap_client():
     return BasemapClient(get_http_client(15.0), settings.basemap_public_base_url)
+
+
+def get_jma_tile_client():
+    return JmaTileClient(get_http_client(15.0))
 
 
 async def get_axis_registry_admin_service():

@@ -80,7 +80,7 @@ describe("thunderNowcast（改善計画T204）", () => {
       const payload = thunderRenderPayload(frames, 0);
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "https://www.jma.go.jp/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/thns/{z}/{x}/{y}.png",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/thns/{z}/{x}/{y}.png",
       });
     });
 
@@ -88,7 +88,7 @@ describe("thunderNowcast（改善計画T204）", () => {
       const payload = tornadoRenderPayload(frames, 0);
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "https://www.jma.go.jp/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/trns/{z}/{x}/{y}.png",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/trns/{z}/{x}/{y}.png",
       });
     });
 

@@ -23,7 +23,7 @@
 // 共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
 
 import { gridCellRing, type DynamicWeatherFrame, type DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
+import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
@@ -35,8 +35,8 @@ export type NowcastFrame = JmaNowcastFrame;
 // の import パスを変えずに使えるよう再エクスポートする。
 export { parseValidtime, trimToCurrentAndFuture };
 
-const TARGET_TIMES_N1_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json";
-const TARGET_TIMES_N2_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N2.json";
+const TARGET_TIMES_N1_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N1.json`;
+const TARGET_TIMES_N2_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N2.json`;
 
 // 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
 // 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する（改善計画T387
@@ -54,7 +54,7 @@ const TARGET_TIMES_N2_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targe
 // 組み合わせになりうるため、**必ずelements.includes("rasrf")で絞り込んでから**
 // 「異なるvalidtimeの種類数が複数ある最新のbasetime」を選ぶ（絞り込み後は同一
 // (basetime, validtime, member)にrasrf行が高々1つのため、複数行の優先順位付けは不要）。
-const RASRF_TARGET_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/rasrf/targetTimes.json";
+const RASRF_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/targetTimes.json`;
 
 interface RawRasrfTargetTime {
   basetime: string;
@@ -211,13 +211,13 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: stri
 /** 降水ナウキャストのラスタタイルURLテンプレート（{z}/{x}/{y}はMapLibreが実際の値へ
  * 展開するプレースホルダ、置換せずそのまま埋め込む）。 */
 function nowcastTileUrlTemplate(frame: NowcastFrame): string {
-  return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/{z}/{x}/{y}.png`;
+  return `${JMA_TILE_BASE_URL}/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/{z}/{x}/{y}.png`;
 }
 
 /** 降水短時間予報のラスタタイルURLテンプレート。ナウキャストと異なりmemberがURLパスに
  * そのまま入る（"immed"/"none"、fetchRasrfFrames参照）。 */
 function rasrfTileUrlTemplate(frame: RasrfFrame): string {
-  return `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/${frame.member}/${frame.validtime}/surf/rasrf/{z}/{x}/{y}.png`;
+  return `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/${frame.basetime}/${frame.member}/${frame.validtime}/surf/rasrf/{z}/{x}/{y}.png`;
 }
 
 export interface PrecipitationGridCellProperties {
