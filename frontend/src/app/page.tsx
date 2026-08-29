@@ -60,6 +60,7 @@ import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicL
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
+import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
@@ -155,6 +156,11 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
   tornadoNowcast: false,
+  // 改善計画T410: キキクル（危険度分布）+線状降水帯予測マップ。同じ理由で既定OFF。
+  landslideRisk: false,
+  heavyRainRisk: false,
+  inundationRisk: false,
+  linearRainbandRisk: false,
   route: true,
 };
 
@@ -208,6 +214,22 @@ const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "",
     legend: TORNADO_POTENTIAL_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
+// キキクル（土砂・大雨・浸水、改善計画T410）共通の5段階凡例（riskMap.tsが単一の情報源）。
+const RISK_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: RISK_LEVEL_COLORS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
+// 線状降水帯予測マップはキキクルと異なり単色（赤=危険域あり）の凡例。
+const LINEAR_RAINBAND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: [{ key: "risk", label: "今後3時間以内に大雨のおそれ", color: "#ff0000", filter: UNUSED_LEGEND_FILTER }],
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
@@ -796,7 +818,11 @@ export default function Home() {
                       ? THUNDER_LEGEND_DETAILS
                       : layer.id === "tornadoNowcast"
                         ? TORNADO_LEGEND_DETAILS
-                        : staticFilterSummaries[layer.id]?.legendDetails;
+                        : layer.id === "landslideRisk" || layer.id === "heavyRainRisk" || layer.id === "inundationRisk"
+                          ? RISK_LEGEND_DETAILS
+                          : layer.id === "linearRainbandRisk"
+                            ? LINEAR_RAINBAND_LEGEND_DETAILS
+                            : staticFilterSummaries[layer.id]?.legendDetails;
         // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
         // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
         // （MapLayersPanel.tsx参照）。地図上チップの▶パネル本体へ説明文を常時表示する
@@ -810,7 +836,11 @@ export default function Home() {
           layer.id === "precipitationNowcast" ||
           layer.id === "windVector" ||
           layer.id === "thunderNowcast" ||
-          layer.id === "tornadoNowcast";
+          layer.id === "tornadoNowcast" ||
+          layer.id === "landslideRisk" ||
+          layer.id === "heavyRainRisk" ||
+          layer.id === "inundationRisk" ||
+          layer.id === "linearRainbandRisk";
         return {
           id: layer.id,
           label: layer.label,
@@ -901,6 +931,11 @@ export default function Home() {
   const showThunderNowcast = layerVisibility.thunderNowcast;
   const showTornadoNowcast = layerVisibility.tornadoNowcast;
   const showWindVector = layerVisibility.windVector;
+  // キキクル+線状降水帯予測マップ（改善計画T410）。
+  const showLandslideRisk = layerVisibility.landslideRisk;
+  const showHeavyRainRisk = layerVisibility.heavyRainRisk;
+  const showInundationRisk = layerVisibility.inundationRisk;
+  const showLinearRainbandRisk = layerVisibility.linearRainbandRisk;
   const {
     dynamicWeather,
     sliderFrames,
@@ -915,6 +950,10 @@ export default function Home() {
     showPrecipitationNowcast,
     showThunderNowcast,
     showTornadoNowcast,
+    showLandslideRisk,
+    showHeavyRainRisk,
+    showInundationRisk,
+    showLinearRainbandRisk,
     mapViewport,
   });
 
@@ -1455,7 +1494,14 @@ export default function Home() {
             >
               <ClearAllLayersIcon size={14} />
             </button>
-            {(showPrecipitationNowcast || showWindVector || showThunderNowcast || showTornadoNowcast) && (
+            {(showPrecipitationNowcast ||
+              showWindVector ||
+              showThunderNowcast ||
+              showTornadoNowcast ||
+              showLandslideRisk ||
+              showHeavyRainRisk ||
+              showInundationRisk ||
+              showLinearRainbandRisk) && (
               <div className={styles.dynamicLayerSliders}>
                 <DynamicLayerTimeSlider
                   frames={sliderFrames}

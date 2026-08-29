@@ -38,6 +38,10 @@ function baseProps() {
       windVector: false,
       thunderNowcast: false,
       tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
     },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
@@ -299,6 +303,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         onLayerToggle={onLayerToggle}
       />,
@@ -392,6 +400,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         regionZoomTooWide={true}
       />,
@@ -421,6 +433,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         layerDataStatus={{ "axis:car_stress": "error" }}
       />,
@@ -449,6 +465,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         layerDataStatus={{ stopPoi: "empty" }}
       />,
@@ -488,6 +508,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -518,6 +542,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ "axis:car_stress": "empty" }}
@@ -547,6 +575,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -577,6 +609,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ stopPoi: "empty" }}
@@ -608,6 +644,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
       />,
     );
@@ -636,6 +676,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
       />,
     );
@@ -664,6 +708,10 @@ describe("MapLayersPanel", () => {
           windVector: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      linearRainbandRisk: false,
         }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,

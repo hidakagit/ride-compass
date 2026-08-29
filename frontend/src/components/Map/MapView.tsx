@@ -743,6 +743,49 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
       attribution: "気象庁",
     },
   },
+  // キキクル（危険度分布）+線状降水帯予測マップ（改善計画T410）。他のraster専用スペック
+  // （thunderNowcast等）と同じ単純な構成。実機確認済みのzoom範囲（risk.properties.xml:
+  // minZoom=4/maxZoom=14/maxNativeZoom=11、sjfcstmapはmaxNativeZoom=10）に合わせる。
+  landslideRisk: {
+    raster: {
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 11,
+      attribution: "気象庁",
+    },
+  },
+  heavyRainRisk: {
+    raster: {
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 11,
+      attribution: "気象庁",
+    },
+  },
+  inundationRisk: {
+    raster: {
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 11,
+      attribution: "気象庁",
+    },
+  },
+  linearRainbandRisk: {
+    raster: {
+      placeholderTileUrl:
+        "https://www.jma.go.jp/bosai/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png",
+      opacity: 0.65,
+      minzoom: 4,
+      maxzoom: 10,
+      attribution: "気象庁",
+    },
+  },
 };
 
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ

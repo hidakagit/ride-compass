@@ -45,6 +45,14 @@ export const DYNAMIC_WEATHER_LAYER_IDS = [
   // （雷だけ確認したい/竜巻は非表示にしたい、という独立したON/OFFニーズに応えるため）。
   "thunderNowcast",
   "tornadoNowcast",
+  // キキクル（危険度分布：土砂・大雨・浸水）+線状降水帯予測マップ（改善計画T410）。
+  // 他の動的レイヤーと異なり未来方向の複数フレームを持たない「現在の防災リスク」の
+  // スナップショットのみ（riskMap.tsのモジュールdocstring参照）。洪水キキクルはベクタ
+  // タイル（.pbf）形式で本基盤の対応外のため未実装（別タスクで扱う）。
+  "landslideRisk",
+  "heavyRainRisk",
+  "inundationRisk",
+  "linearRainbandRisk",
 ] as const satisfies readonly MapLayerId[];
 export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
 
