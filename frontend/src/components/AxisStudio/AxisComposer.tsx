@@ -318,14 +318,19 @@ interface Draft {
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
-  const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0].id;
+  // T424修正: materialOptionsが空配列（useMaterialCatalogが取得成功したがmaterials
+  // 0件の場合、docs/tasks/T424.md参照）のとき、以前は`materialOptions[0].id`を無条件
+  // 参照しマウント直後にTypeErrorでクラッシュしていた。空文字列(""へ)フォールバックし、
+  // 呼び出し元(AxisComposer本体)が materialOptions.length === 0 のとき早期にエラー状態
+  // UIへ切り替えてこの空文字列のdraftをそもそも画面に出さないようにする。
+  const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0]?.id ?? "";
   return {
     axisId: generateAxisId(),
     label: "",
     description: "",
     defaultWeight: 0.1,
     shapeKind: "breakpoint_linear",
-    terms: [{ material: materialOptions[0].id, weight: 1.0, required: true }],
+    terms: [{ material: materialOptions[0]?.id ?? "", weight: 1.0, required: true }],
     preprocess: "identity",
     breakpoints: [
       [0, 0],
@@ -499,6 +504,32 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
+
+  // T424修正: useMaterialCatalog()は取得成功したがmaterialsが0件のとき、静的
+  // フォールバック（AXIS_MATERIAL_OPTIONS）へは留まらず空配列をそのまま返す仕様
+  // （useMaterialCatalog.tsのdocstring参照、2026-08-25の修正）。backend側の
+  // material_catalog.pyが運用上の何らかの理由（材料レジストリ空・DB接続不調時の
+  // 空応答等）で0件を返すとここに到達する。材料が1件も無ければ「材料」「値ごとの
+  // スコア」等どのステップも選択肢が作れず、ウィザードを進めても保存不能な軸しか
+  // 作れない（かつdraft初期化時のフォールバックが空文字列のmaterial idになるため、
+  // そのまま送信すればbackend側のバリデーションエラーになる）。ウィザード全体の
+  // 代わりに空状態エラーを出し、材料が0件のままではフォームを開かせない。
+  // 上記のフック呼び出し（useMaterialCatalog/useState/useMaterialValues）はすべて
+  // このガードより前で無条件に呼び終えているため、Rules of Hooksには反しない。
+  if (materialOptions.length === 0) {
+    return (
+      <div className={styles.composer}>
+        <p className={styles.errorText}>
+          材料カタログを取得できませんでした（0件の応答）。時間をおいて再度開くか、backend側の材料カタログ（material_catalog.py）の状態を確認してください。
+        </p>
+        <div className={styles.row}>
+          <button type="button" onClick={onCancelEdit}>
+            閉じる
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ユーザー指摘（軸同士の線形結合nX+mYがGUIから組めない）への対応: backend側は元々
   // MaterialTerm.materialへ他の軸のaxis_idを指定できる設計（domain/axis_definitions.py:
@@ -802,9 +833,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                       };
                     }
                     if (d.shapeKind === "recipe_then_breakpoint_linear" && option.kind === "breakpoint_linear") {
+                      // T424修正: materialOptionsが空のときはfindも[0]も両方undefinedになりうる
+                      // ため、最終フォールバックは""（この分岐へ到達する時点で早期リターン済みの
+                      // はずだが、念のため無条件アクセスを排除する）。
                       const firstMaterial =
                         materialOptions.find((m) => m.dtype === "numeric" || m.dtype === "boolean")?.id ??
-                        materialOptions[0].id;
+                        materialOptions[0]?.id ??
+                        "";
                       return {
                         ...d,
                         shapeKind: option.kind,
@@ -921,7 +956,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     d.shapeKind === "recipe_then_breakpoint_linear"
                       ? axisTermOptions
                       : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
-                  const fallback = termOptions[0]?.id ?? materialOptions[0].id;
+                  // T424修正: materialOptionsが空のとき無条件アクセスでクラッシュしないよう""へ。
+                  const fallback = termOptions[0]?.id ?? materialOptions[0]?.id ?? "";
                   return { ...d, terms: [...d.terms, { material: fallback, weight: 1.0, required: false }] };
                 })
               }
