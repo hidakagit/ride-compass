@@ -10,7 +10,7 @@ from app.domain.axis_display import (
     derive_ramp_inputs,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
-from app.domain.registry import AxisDisplaySpec, TileInputSpec
+from app.domain.registry import TileInputSpec
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルのテストは
 # derive_ramp_inputs/axis_display_for（純粋関数）の正しさをshapeの種類ごとに検証する
@@ -623,48 +623,6 @@ def test_direction_dependent_material_is_not_auto_derived(monkeypatch):
     ramp = derive_ramp_inputs(definition)
 
     assert ramp is None
-
-
-def test_axis_display_for_prefers_auto_derivation_over_display_override():
-    # 改善計画T404: 優先順位を書き換えた（axis_display_for()のdocstring参照）。
-    # derive_ramp_inputsが自動導出できる形状であれば、軸自身がdisplay_override
-    # （改善計画T310で軸id→値のハードコード辞書から移設、T404で廃止方針）を持っていても
-    # 自動導出の結果を優先する（旧T308時点の優先順位[display_override最優先]から反転した）。
-    override = AxisDisplaySpec(kind="ramp", label="手書き上書き", category="trafficSafety")
-    definition = AxisDefinition(
-        axis_id="synthetic_with_override",
-        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
-        default_weight=0.1,
-        label="テスト軸",
-        category="観測",
-        display_override=override,
-    )
-
-    display = axis_display_for(definition)
-
-    assert display is not override
-    assert display.kind == "ramp"
-    assert display.label == definition.label  # display_overrideのlabel("手書き上書き")ではない
-
-
-def test_axis_display_for_uses_display_override_only_as_fallback():
-    # 改善計画T404: derive_ramp_inputs自体が失敗する軸（タイル非依存材料等）向けの
-    # 後方互換セーフティネットとしてのみdisplay_overrideを使う。
-    override = AxisDisplaySpec(kind="ramp", label="手書き上書き", category="trafficSafety")
-    definition = AxisDefinition(
-        axis_id="synthetic_gradient_with_override",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="gradient_percent")],
-            preprocess="abs",
-            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
-        ),
-        default_weight=0.15,
-        label="テスト軸",
-        category="観測",
-        display_override=override,
-    )
-
-    assert axis_display_for(definition) is override
 
 
 def test_axis_display_for_falls_back_to_auto_derivation():

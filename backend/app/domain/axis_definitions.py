@@ -44,7 +44,6 @@ from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
 )
-from app.domain.registry import AxisDisplaySpec
 
 
 class MaterialTerm(BaseModel):
@@ -236,19 +235,6 @@ class AxisDefinition(BaseModel):
     読む必要があり、単純な「difficultyを3段階で塗る」という本フラグの汎用機構では
     表現できない（この非対称性は起票時点[T352]で既に想定済み、`routeStyleModes.ts`の
     コメント参照）。"""
-    display_override: AxisDisplaySpec | None = None
-    """地図ramp表示（domain/axis_display.py: axis_display_for()が返す値）の手書き上書き。
-    改善計画T404で廃止方針が決まった非推奨フィールド（docs/tasks/T404.md参照）。
-    `derive_ramp_inputs()`自体が失敗する軸（tile非依存材料・方向依存材料等を含む軸）向けの
-    後方互換セーフティネットとしてのみ残す——`axis_display_for()`は`derive_ramp_inputs()`が
-    成功する限りこのフィールドを参照しない（優先順位は`axis_display_for()`のdocstring
-    参照）。以前は「複数材料の重み付き結合を`derive_ramp_inputs`が解決できない場合
-    （car_stress、軸階層）」「色分けの段階を統計的に細かく刻みたい場合（stop_density/
-    accident）」の2用途で使っていたが、前者はT404で`derive_ramp_inputs`の軸参照再帰解決
-    ＋実行時スケール定数化により自動導出可能になり、後者は`display_thresholds_override`
-    （下記、色分けしきい値だけの軽量な上書き）へ切り出された。新規軸はこのフィールドを
-    使わないこと。軸スタジオのGUIフォーム（AxisComposer.tsx）はこの項目の編集UIを持たない
-    （既存値の素通し保持のみ）。"""
     display_thresholds_override: list[float] | None = None
     """地図の色分けしきい値だけを差し替える軽量な上書き（改善計画T404、
     docs/tasks/T404.md）。未設定は`derive_ramp_inputs()`が計算したしきい値
@@ -259,11 +245,11 @@ class AxisDefinition(BaseModel):
     （何段階に分けるか）まではbreakpointsのX軸の値をそのまま流用するため粗くなりがちで
     （車の圧迫感[2段階]・停止密度/事故密度[各2段階]が実例）、見やすさのために人間が
     細かく刻みたいという正当なニーズがある。これは`tile_inputs`の自動導出能力の
-    問題ではなく「見やすさの好み」の問題のため、`display_override`（tile_inputsまで
-    含む生JSON上書き、廃止予定）とは別の、しきい値だけの軽量なフィールドとして
+    問題ではなく「見やすさの好み」の問題のため、旧`display_override`（tile_inputsまで
+    含む生JSON上書き、TileInputSpecの構造が複雑なためGUI編集を持てなかった。改善計画
+    T409でフィールド・DBカラムごと削除済み）とは別の、しきい値だけの軽量なフィールドとして
     独立させた——軸スタジオのGUI（AxisComposer.tsx）が「数値の配列を編集する」という
-    単純なUIで直接編集できる（`display_override`はTileInputSpecの構造が複雑なため
-    GUI編集を持たなかった）。値は昇順の数値配列（段階境界値）で、単位は
+    単純なUIで直接編集できる。値は昇順の数値配列（段階境界値）で、単位は
     `AxisDefinition.shape`のbreakpointsのX軸と同じ「材料スケール」
     （`tile_property_needs_runtime_scale`な材料を含む軸でも、実行時スケール変換後の
     スケール——年数等の変換係数が変わっても値を書き直す必要が無い）。`derive_ramp_inputs`

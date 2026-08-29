@@ -3,11 +3,11 @@
     {
       "definition": {
         "axis_id": "gradient",
-        "category": "推定",
+        "category": "観測",
         "chip_label": "勾配",
         "default_weight": 0.15,
         "description": "登り坂の急さが小さいほど易しい",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": "incline",
         "is_published": true,
         "label": "勾配",
@@ -46,20 +46,20 @@
             }
           ]
         },
-        "show_map_icon": false,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "show_map_icon": true,
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 0
     },
     {
       "definition": {
         "axis_id": "wind",
-        "category": "推定",
+        "category": "動的",
         "chip_label": null,
         "default_weight": 0.26,
         "description": "向かい風が弱いほど易しい",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": true,
         "label": "風",
@@ -86,9 +86,9 @@
             }
           ]
         },
-        "show_map_icon": false,
-        "time_scope": "always",
-        "supports_route_coloring": true
+        "show_map_icon": true,
+        "supports_route_coloring": true,
+        "time_scope": "always"
       },
       "sort_order": 1
     },
@@ -99,7 +99,7 @@
         "chip_label": "舗装",
         "default_weight": 0.19,
         "description": "舗装路であるほど易しい",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": "wave",
         "is_published": true,
         "label": "舗装質",
@@ -114,8 +114,8 @@
           "material": "surface_good"
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 2
     },
@@ -126,42 +126,11 @@
         "chip_label": "停止密度",
         "default_weight": 0.2,
         "description": "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
-        "display_override": {
-          "category": "trafficSafety",
-          "kind": "ramp",
-          "label": "停止密度",
-          "note": "信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた停止要因の密度。way単位の事前集計（way_attribute_counts）由来",
-          "thresholds": [
-            1.0,
-            2.0,
-            4.0
-          ],
-          "tile_inputs": [
-            {
-              "boolean": false,
-              "breakpoints": null,
-              "categories": null,
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "stop_per_km",
-              "true_value": 0.0,
-              "weight": 1.0
-            },
-            {
-              "boolean": false,
-              "breakpoints": null,
-              "categories": null,
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "intersection_per_km",
-              "true_value": 0.0,
-              "weight": 0.3
-            }
-          ],
-          "unit": "回/km"
-        },
+        "display_thresholds_override": [
+          1.0,
+          2.0,
+          4.0
+        ],
         "icon_id": "density-stack",
         "is_published": true,
         "label": "停止密度",
@@ -194,8 +163,8 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 3
     },
@@ -206,143 +175,11 @@
         "chip_label": "圧迫感",
         "default_weight": 0.2,
         "description": "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
-        "display_override": {
-          "category": "trafficSafety",
-          "kind": "ramp",
-          "label": "車の圧迫感",
-          "note": "改善計画T292: highway/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの5材料から自動計算する。以前は専用の手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への階層再構成でtile_inputsの重み付き結合として表現できるようになった（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）",
-          "thresholds": [
-            2.0,
-            3.0,
-            4.0
-          ],
-          "tile_inputs": [
-            {
-              "boolean": false,
-              "breakpoints": null,
-              "categories": {
-                "cycleway": 1.0,
-                "living_street": 1.0,
-                "primary": 4.0,
-                "primary_link": 4.0,
-                "residential": 2.0,
-                "secondary": 3.0,
-                "secondary_link": 3.0,
-                "tertiary": 3.0,
-                "tertiary_link": 3.0,
-                "track": 2.0,
-                "trunk": 4.0,
-                "trunk_link": 4.0,
-                "unclassified": 2.0
-              },
-              "false_value": 0.0,
-              "has_unknown_fallback": true,
-              "invert": false,
-              "property": "highway",
-              "true_value": 0.0,
-              "weight": 1.0
-            },
-            {
-              "boolean": false,
-              "breakpoints": [
-                [
-                  0.0,
-                  -1.0
-                ],
-                [
-                  30.0,
-                  -1.0
-                ],
-                [
-                  31.0,
-                  0.0
-                ],
-                [
-                  59.0,
-                  0.0
-                ],
-                [
-                  60.0,
-                  1.0
-                ],
-                [
-                  999.0,
-                  1.0
-                ]
-              ],
-              "categories": null,
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "maxspeed_kmh",
-              "true_value": 0.0,
-              "weight": 1.0
-            },
-            {
-              "boolean": false,
-              "breakpoints": [
-                [
-                  0.0,
-                  -1.0
-                ],
-                [
-                  1.0,
-                  -1.0
-                ],
-                [
-                  2.0,
-                  0.0
-                ],
-                [
-                  3.0,
-                  0.0
-                ],
-                [
-                  4.0,
-                  1.0
-                ],
-                [
-                  99.0,
-                  1.0
-                ]
-              ],
-              "categories": null,
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "lanes_count",
-              "true_value": 0.0,
-              "weight": 1.0
-            },
-            {
-              "boolean": false,
-              "breakpoints": null,
-              "categories": {
-                "both": 1.0,
-                "critical_logistics": 1.0,
-                "emergency_transport": 1.0
-              },
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "designation",
-              "true_value": 0.0,
-              "weight": 1.0
-            },
-            {
-              "boolean": true,
-              "breakpoints": null,
-              "categories": null,
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "motor_vehicle_no",
-              "true_value": -1000.0,
-              "weight": 1.0
-            }
-          ],
-          "unit": ""
-        },
+        "display_thresholds_override": [
+          2.0,
+          3.0,
+          4.0
+        ],
         "icon_id": "warning-triangle",
         "is_published": true,
         "label": "車の圧迫感",
@@ -390,8 +227,8 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 4
     },
@@ -402,31 +239,11 @@
         "chip_label": "事故密度",
         "default_weight": 0.08,
         "description": "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
-        "display_override": {
-          "category": "trafficSafety",
-          "kind": "ramp",
-          "label": "事故密度",
-          "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
-          "thresholds": [
-            0.4,
-            0.8,
-            1.5
-          ],
-          "tile_inputs": [
-            {
-              "boolean": false,
-              "breakpoints": null,
-              "categories": null,
-              "false_value": 0.0,
-              "has_unknown_fallback": false,
-              "invert": false,
-              "property": "accident_per_km",
-              "true_value": 0.0,
-              "weight": 1.0
-            }
-          ],
-          "unit": "件/km"
-        },
+        "display_thresholds_override": [
+          0.133,
+          0.267,
+          0.5
+        ],
         "icon_id": "density-scatter",
         "is_published": true,
         "label": "事故密度",
@@ -454,8 +271,8 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 5
     },
@@ -466,7 +283,7 @@
         "chip_label": "夜間",
         "default_weight": 0.0,
         "description": "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": "crescent-moon",
         "is_published": true,
         "label": "夜間",
@@ -499,8 +316,8 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "night_only",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "night_only"
       },
       "sort_order": 6
     },
@@ -511,7 +328,7 @@
         "chip_label": "道路基準",
         "default_weight": 0.0,
         "description": "highway種別による車の圧迫感の基準値(1-4、非公開)",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": false,
         "label": "車ストレス内部軸: highway基準値",
@@ -539,8 +356,8 @@
           "material": "highway"
         },
         "show_map_icon": false,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 7
     },
@@ -551,7 +368,7 @@
         "chip_label": null,
         "default_weight": 0.0,
         "description": "制限速度による補正(非公開)",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": false,
         "label": "車ストレス内部軸: 制限速度補正",
@@ -595,8 +412,8 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 9
     },
@@ -607,7 +424,7 @@
         "chip_label": null,
         "default_weight": 0.0,
         "description": "車線数による補正(非公開)",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": false,
         "label": "車ストレス内部軸: 車線数補正",
@@ -651,8 +468,8 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 10
     },
@@ -663,7 +480,7 @@
         "chip_label": null,
         "default_weight": 0.0,
         "description": "指定路線(緊急輸送道路・重要物流道路)該当による補正(非公開)",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": false,
         "label": "車ストレス内部軸: 指定路線補正",
@@ -678,8 +495,8 @@
           "material": "is_designated"
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 11
     },
@@ -690,7 +507,7 @@
         "chip_label": null,
         "default_weight": 0.0,
         "description": "motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": false,
         "label": "車ストレス内部軸: 自動車通行不可の優先確定",
@@ -705,8 +522,8 @@
           "material": "motor_vehicle_no"
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 12
     },
@@ -717,7 +534,7 @@
         "chip_label": "自転車道",
         "default_weight": 0.15,
         "description": "専用の自転車インフラ（分離自転車道・自転車レーン等、河川敷サイクリングロード等の自転車通行可の歩行者道を含む）が整備されているほど易しい。",
-        "display_override": null,
+        "display_thresholds_override": null,
         "icon_id": null,
         "is_published": true,
         "label": "自転車インフラ",
@@ -773,11 +590,11 @@
           ]
         },
         "show_map_icon": true,
-        "time_scope": "always",
-        "supports_route_coloring": false
+        "supports_route_coloring": false,
+        "time_scope": "always"
       },
       "sort_order": 13
     }
   ],
-  "revision": 24
+  "revision": 22
 }

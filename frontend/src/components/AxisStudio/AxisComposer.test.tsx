@@ -1,15 +1,15 @@
 // AxisComposer.tsx（軸スタジオの中核フォーム、T270で新設・T332で4ステップウィザードへ
 // 再構成）自体には今までテストが無かった（AxisStudio.test.tsxはAxisStudio経由の統合的な
-// 導線確認が主で、buildShape()の4テンプレート・priority_overrides/display_overrideの
-// 素通し保持・draftFromExisting往復までは踏み込んでいない）。ここではAxisComposerを
+// 導線確認が主で、buildShape()の4テンプレート・priority_overridesの素通し保持・
+// draftFromExisting往復までは踏み込んでいない）。ここではAxisComposerを
 // 単体でレンダリングし（Dialog等の呼び出し元の関心事を持ち込まない）、ウィザードを
 // userEventで実際に操作してonSaveへ渡るpayloadを検証する。
 //
 // 最優先: コメント（AxisComposer.tsx 138-144行目付近）にある通り、priority_overrides
-// （改善計画T292、0次条件）・display_override（改善計画T310、地図ramp閾値の手書き上書き）は
-// 「以前はコードレビュー指摘まで黙って失われていた」という実データ消失バグの修正対象。
-// このフォームに編集欄を持たないこの2フィールドが、編集フォームを経由しても元の値の
-// ままpayloadへ素通しされることを検証する回帰テストを最優先で書く。
+// （改善計画T292、0次条件）は「以前はコードレビュー指摘まで黙って失われていた」という
+// 実データ消失バグの修正対象。このフォームに編集欄を持たないこのフィールドが、編集
+// フォームを経由しても元の値のままpayloadへ素通しされることを検証する回帰テストを
+// 最優先で書く。
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -38,7 +38,6 @@ function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDe
     show_map_icon: true,
     time_scope: "always",
     supports_route_coloring: false,
-    display_override: null,
     shape: {
       kind: "breakpoint_linear",
       terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
@@ -342,34 +341,13 @@ describe("AxisComposer", () => {
   });
 
   // ============================================================
-  // 最優先の回帰テスト: priority_overrides / display_override の素通し保持
+  // 最優先の回帰テスト: priority_overrides の素通し保持
   // ============================================================
-  describe("priority_overrides・display_overrideの素通し保持（回帰テスト）", () => {
-    it("編集フォームに欄を持たないpriority_overrides/display_overrideが、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
+  describe("priority_overridesの素通し保持（回帰テスト）", () => {
+    it("編集フォームに欄を持たないpriority_overridesが、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
       const priorityOverrides = [{ material: "no_lit", equals: "true", value: -1000 }];
-      const displayOverride = {
-        kind: "ramp" as const,
-        label: "テスト表示",
-        category: "trafficSafety",
-        tile_inputs: [
-          {
-            property: "gradient_abs",
-            weight: 1,
-            boolean: false,
-            invert: false,
-            true_value: 0,
-            false_value: 0,
-            has_unknown_fallback: false,
-            needs_runtime_scale: false,
-          },
-        ],
-        thresholds: [10, 50, 90],
-        unit: "%",
-        note: "test note",
-      };
       const editing = baseDefinition({
         priority_overrides: priorityOverrides,
-        display_override: displayOverride,
       });
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
@@ -391,13 +369,12 @@ describe("AxisComposer", () => {
       expect(isNew).toBe(false);
       expect(payload.label).toBe("勾配改");
       expect(payload.default_weight).toBeCloseTo(0.35);
-      // 本題: このフォームに編集欄を持たない2フィールドが編集前の値のまま渡ること。
+      // 本題: このフォームに編集欄を持たないフィールドが編集前の値のまま渡ること。
       expect(payload.priority_overrides).toEqual(priorityOverrides);
-      expect(payload.display_override).toEqual(displayOverride);
     });
 
-    it("priority_overridesが空配列・display_overrideがnullの既存軸を編集しても、[]・nullのまま保存され欠落しない", async () => {
-      const editing = baseDefinition({ priority_overrides: [], display_override: null });
+    it("priority_overridesが空配列の既存軸を編集しても、[]のまま保存され欠落しない", async () => {
+      const editing = baseDefinition({ priority_overrides: [] });
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -410,7 +387,6 @@ describe("AxisComposer", () => {
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
       expect(payload.priority_overrides).toEqual([]);
-      expect(payload.display_override).toBeNull();
     });
   });
 

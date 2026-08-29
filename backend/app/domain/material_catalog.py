@@ -154,7 +154,7 @@ class MaterialSpec(BaseModel):
     # 表現できない（線形結合による近似も不向きと検証済み）。ユーザーが軸スタジオで
     # 誤って使い、意図と異なる評価軸を作ってしまうことを防ぐため、選択肢自体から
     # 除外する（評価目的で指定路線を使いたい場合は既に単純化済みの`is_designated`
-    # [真偽値]を使う）。地図表示（`car_stress`の`display_override.tile_inputs`・
+    # [真偽値]を使う）。地図表示（`car_stress`の自動導出ramp表示[`derive_ramp_inputs`]・
     # `staticAttributeLayers.ts`の凡例）は本フラグと無関係にtile_property経由で
     # 引き続き動作する。
     display_only: bool = False
@@ -695,7 +695,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="designation",
         # 改善計画T338: display_onlyのdocstring参照（"both"のAND条件が実データで35.01%と
         # 構造的に頻発するため、軸スタジオでの評価軸材料としての選択肢からは除外する）。
-        # 地図表示（staticAttributeLayers.tsの凡例、車ストレス表示のdisplay_override等）は
+        # 地図表示（staticAttributeLayers.tsの凡例、車ストレス表示の自動導出ramp表示等）は
         # 引き続きこの3値プロパティを使う（ユーザー判断、2026-08-26）。評価軸で種別を
         # 区別したい場合はis_emergency_transport/is_critical_logistics（下記）を使う。
         display_only=True,

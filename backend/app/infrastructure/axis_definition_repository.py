@@ -14,10 +14,11 @@ shape_paramsの(逆)シリアライズは`AxisShape.model_dump(mode="json")` /
 priority_overrides（改善計画T292、0次条件）も同様に`list[PriorityCondition]`を
 `model_dump(mode="json")`したJSON配列としてそのまま往復する。
 
-display_override（改善計画T310、地図ramp表示の手書き上書き。T404で廃止方針）も同じ規約で
-`AxisDisplaySpec.model_dump(mode="json")` / `TypeAdapter(AxisDisplaySpec).validate_python(...)`
-を使う。未設定はNoneのまま往復する（priority_overridesの`[]`既定と異なり、
-「軸自身が上書きを持たない」という意味自体をNoneで表す）。
+display_override（改善計画T310、地図ramp表示の手書き上書き。T404で廃止方針が決まり、
+car_stress/stop_density/accidentの3軸を移行済みだったことを確認したうえで改善計画T409で
+フィールド・DBカラムごと削除した）は、以前は`AxisDisplaySpec.model_dump(mode="json")` /
+`TypeAdapter(AxisDisplaySpec).validate_python(...)`で同じ規約の往復をしていたが、現在は
+このリポジトリが扱うフィールドではない。
 
 display_thresholds_override（改善計画T404、地図の色分けしきい値だけの軽量な上書き）は
 単純な`list[float] | None`のため、JSONB列とPythonの`list`/`None`をそのまま素通しする
@@ -32,12 +33,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.axis_definitions import AxisDefinition, AxisShape, PriorityCondition
-from app.domain.registry import AxisDisplaySpec
 from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisRegistryMetaRow
 
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
 _PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
-_DISPLAY_OVERRIDE_ADAPTER: TypeAdapter[AxisDisplaySpec] = TypeAdapter(AxisDisplaySpec)
 
 
 def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
@@ -56,11 +55,6 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         show_map_icon=row.show_map_icon,
         time_scope=row.time_scope,
         supports_route_coloring=row.supports_route_coloring,
-        display_override=(
-            _DISPLAY_OVERRIDE_ADAPTER.validate_python(row.display_override)
-            if row.display_override is not None
-            else None
-        ),
         display_thresholds_override=row.display_thresholds_override,
     )
 
@@ -116,11 +110,6 @@ class AxisDefinitionRepository:
             show_map_icon=definition.show_map_icon,
             time_scope=definition.time_scope,
             supports_route_coloring=definition.supports_route_coloring,
-            display_override=(
-                definition.display_override.model_dump(mode="json")
-                if definition.display_override is not None
-                else None
-            ),
             display_thresholds_override=definition.display_thresholds_override,
             updated_at=datetime.now(timezone.utc),
         )
@@ -141,7 +130,6 @@ class AxisDefinitionRepository:
                 "show_map_icon": stmt.excluded.show_map_icon,
                 "time_scope": stmt.excluded.time_scope,
                 "supports_route_coloring": stmt.excluded.supports_route_coloring,
-                "display_override": stmt.excluded.display_override,
                 "display_thresholds_override": stmt.excluded.display_thresholds_override,
                 "updated_at": stmt.excluded.updated_at,
             },
