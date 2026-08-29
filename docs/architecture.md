@@ -382,13 +382,16 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
      cache-aside化。bbox内の主対象Wayが1件でも未splitならFalseを返す判定のため
      タイル単位でTrue/Falseへ分解できず、**覆う全タイルにマーカーが揃っている場合のみ
      PostGISを省略する**（部分ヒットでは正しさを優先してPostGISへフォールバックする）。
-     本番実測: 中央値1.52ms/回（1リクエスト1回）。
+     本番実測（着手前・PostGIS単体）: 中央値1.52ms/回。デプロイ後の実効果
+     （Redisキャッシュヒット時）: 平均0.22ms/回（約7倍高速化、`get_cached_tiles`
+     [T387、0.17ms]と同水準）。
   2. **`get_edges_with_geometry`**（`DerivedGraphRepository.get_edges_with_geometry`、
      `trace_loop`が8方位ぶん`asyncio.gather`で呼ぶホットパス）: edge_id単位で
      `infrastructure/road_edge_geometry_cache.py`にcache-aside化（TTL 24時間）。
      `DirectedEdge`（domain/graph.py）はshapelyジオメトリを含まないプレーンなPydantic
-     モデルのためJSON化するだけで済む。本番実測: 100 edgesのバッチで平均4.69ms/回
-     （1リクエスト最大8回）。
+     モデルのためJSON化するだけで済む。本番実測（着手前・PostGIS単体）: 100 edgesの
+     バッチで平均4.69ms/回（1リクエスト最大8回）。デプロイ後の実効果
+     （Redisキャッシュヒット時）: 平均1.37ms/回（約3.4倍高速化）。
   - **無効化（正しさの担保）**: 両キャッシュともTTLは取りこぼしに対する自己修復用の
     安全網に過ぎず、正しさは書き込み側のprecise invalidationが担う。
     `GraphService.get_or_build_graph_with_attributes`が`save_graph`成功直後にそのbboxの
