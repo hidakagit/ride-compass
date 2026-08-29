@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
-import type { ErrorEvent as MapLibreErrorEvent, GeoJSONSource, Map as MapLibreMap, Marker, MapMouseEvent } from "maplibre-gl";
+import type {
+  ErrorEvent as MapLibreErrorEvent,
+  GeoJSONSource,
+  Map as MapLibreMap,
+  Marker,
+  MapLayerMouseEvent,
+  MapMouseEvent,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   Coordinates,
@@ -23,6 +30,10 @@ import {
   buildAxisInspectorAffordanceHtml,
   attachAxisInspectorHandler,
 } from "@/components/Map/axisInspectorPopup";
+// ルート線専用のクリック内訳ポップアップ（改善計画T403）。axisInspectorPopup.ts
+// （一般道路網向け、サーバーへのfetchあり）とは別経路の独立モジュール
+// （routeSegmentChartPopup.ts側の冒頭コメント参照）。
+import { buildRouteSegmentChartPopupHtml } from "@/components/Map/routeSegmentChartPopup";
 import {
   KNOWN_LINE_OPACITY,
   ROAD_FILTER_AXES,
@@ -1491,19 +1502,6 @@ function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[]) {
   runWhenStyleReady(map, () => map.fitBounds(bounds, { padding: 40 }));
 }
 
-function formatTime(iso: string | null): string {
-  if (!iso) return "不明";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "不明";
-  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatWind(penalty: number | null): string {
-  if (penalty == null) return "データなし";
-  const label = penalty >= 0 ? "向かい風" : "追い風";
-  return `${label} ${Math.abs(penalty).toFixed(1)} m/s`;
-}
-
 function formatRoad(good: boolean | null): string {
   if (good == null) return "不明";
   return good ? "舗装路" : "未舗装路";
@@ -1514,15 +1512,10 @@ function formatRoad(good: boolean | null): string {
 // 密度の1.4へ詰めた。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 
-function buildSegmentPopupHtml(segment: RouteSegmentProperties): string {
-  const gradient = segment.gradient_percent != null ? `${segment.gradient_percent.toFixed(1)}%` : "不明";
-  return `<div style="${POPUP_BODY_STYLE}">
-    <strong>${segment.cumulative_distance_km.toFixed(1)} km地点</strong>[到達予想 ${formatTime(segment.estimated_arrival_time)}]<br/>
-    勾配: ${gradient}<br/>
-    風: ${formatWind(segment.wind_penalty)}<br/>
-    路面: ${formatRoad(segment.road_surface_good)}
-  </div>`;
-}
+// ルート線（DETAIL_LAYER_ID）クリック時のポップアップ本体は改善計画T403で
+// routeSegmentChartPopup.ts（buildRouteSegmentChartPopupHtml）へ分離した。
+// 旧buildSegmentPopupHtml（勾配/風/路面のみのテキスト箇条書き）は、既にフェッチ済みの
+// axis_difficulties（軸スタジオの全軸内訳、勾配・風も含む）を活かせていなかったため撤去。
 
 // 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
@@ -2178,6 +2171,20 @@ export default function MapView({
         onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;
       }
+      // 改善計画T403: ルート線（DETAIL_LAYER_ID）は下のhandleRouteSegmentClickという
+      // 専用ハンドラを別途map.on("click", DETAIL_LAYER_ID, ...)で登録している。MapLibreは
+      // map全体のgenericな"click"（このhandleClick）とlayer-scopedな"click"を互いに独立して
+      // 両方発火するため、ここで何もガードしないとルート線をクリックしたときに専用ハンドラの
+      // レーダーチャートポップアップと、この下の一般道路網向けポップアップが同時に開いてしまう
+      // （ルート線は常にroad_surfaceタイルより上に重ねて描画される、drawDetailSegments参照）。
+      // ルート線がヒットした場合はここで即座に抜け、一般道路網側の判定・ポップアップ表示を
+      // 一切行わない。
+      if (
+        map.getLayer(DETAIL_LAYER_ID) &&
+        map.queryRenderedFeatures(e.point, { layers: [DETAIL_LAYER_ID] }).length > 0
+      ) {
+        return;
+      }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         if (pinPlacementEnabledRef.current) {
@@ -2196,15 +2203,13 @@ export default function MapView({
       const feature = features[0];
       const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
       const html =
-        feature.layer.id === DETAIL_LAYER_ID
-          ? buildSegmentPopupHtml(feature.properties as unknown as RouteSegmentProperties)
-          : feature.layer.id === ACCIDENT_LAYER_ID
-            ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
-            : feature.layer.id === STOP_POI_LAYER_ID
-              ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
-              : feature.layer.id === SUPPLY_POI_LAYER_ID
-                ? buildSupplyPoiPopupHtml(feature.properties as unknown as SupplyPoiPopupProperties)
-                : buildRoadSurfacePopupHtml(roadSurfaceProperties);
+        feature.layer.id === ACCIDENT_LAYER_ID
+          ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
+          : feature.layer.id === STOP_POI_LAYER_ID
+            ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
+            : feature.layer.id === SUPPLY_POI_LAYER_ID
+              ? buildSupplyPoiPopupHtml(feature.properties as unknown as SupplyPoiPopupProperties)
+              : buildRoadSurfacePopupHtml(roadSurfaceProperties);
 
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -2225,6 +2230,26 @@ export default function MapView({
           attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
         }
       }
+    }
+
+    // ルート線専用のクリックハンドラ（改善計画T403）。MapLibreのlayer-scoped listener
+    // （map.on(type, layerId, listener)）を使い、上のhandleClick（一般道路網向け、複数レイヤーを
+    // queryRenderedFeaturesで横断判定する汎用ディスパッチャ）とは別経路として独立させている。
+    // DETAIL_LAYER_IDがまだstyleに追加されていない（ルート未生成）間はMapLibre側が内部で
+    // existingLayersを毎回フィルタしており、レイヤー不在でも例外を投げず単に発火しない
+    // （maplibre-gl-dev.js: Map.prototype._createDelegatedListener参照）ため、地図初期化時に
+    // 先読み登録しても安全。feature.properties（RouteSegmentDetailのgeometry除いた形、
+    // segmentsToFeatureCollectionが焼き込み済み）をそのまま使い、サーバーへの新規リクエストは
+    // 発生させない。
+    function handleRouteSegmentClick(e: MapLayerMouseEvent) {
+      const feature = e.features?.[0];
+      if (!feature) return;
+      popupRef.current?.remove();
+      const html = buildRouteSegmentChartPopupHtml(
+        feature.properties as unknown as RouteSegmentProperties,
+        redrawPropsRef.current.axisLabels
+      );
+      popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
     }
 
     function handleMouseMove(e: MapMouseEvent) {
@@ -2361,6 +2386,9 @@ export default function MapView({
     }
 
     map.on("click", handleClick);
+    // 改善計画T403: ルート線専用（layer-scoped）。上のhandleClick（generic）とは独立して
+    // 両方このイベントで発火するため、handleClick冒頭のガードと対で機能する。
+    map.on("click", DETAIL_LAYER_ID, handleRouteSegmentClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
     map.on("load", handleLoad);
@@ -2378,6 +2406,7 @@ export default function MapView({
       map.off("styledata", collapseAttribution);
       map.off("sourcedata", collapseAttribution);
       map.off("click", handleClick);
+      map.off("click", DETAIL_LAYER_ID, handleRouteSegmentClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);

@@ -20,6 +20,7 @@ import {
   buildAxisRampValueExpression,
   rampAxesFromCatalogAxes,
   rampColorForBand,
+  rampColorForValue,
 } from "./axisLayers";
 import { buildMapLayers, buildRoadSurfaceSharedLayerIds } from "./mapLayers";
 
@@ -247,6 +248,29 @@ describe("rampColorForBand（改善計画T292: 可変バンド数の配色一般
     for (let i = 0; i < 5; i++) {
       expect(rampColorForBand(i, 5)).toMatch(/^#[0-9a-f]{6}$/);
     }
+  });
+});
+
+// 改善計画T403: ルート区間クリック内訳のレーダーチャート（routeSegmentChartPopup.ts）が
+// 使う連続スケール版。rampColorForBandと同じRAMP_COLOR_ANCHORSを共有しているため、
+// 離散版と両端が一致することを確認する。
+describe("rampColorForValue（改善計画T403: 0-100連続値の統一パレット着色）", () => {
+  it("両端はrampColorForBandの緑・赤アンカーと一致する", () => {
+    expect(rampColorForValue(0)).toBe(AXIS_RAMP_COLORS[0]);
+    expect(rampColorForValue(100)).toBe(AXIS_RAMP_COLORS[3]);
+  });
+
+  it("範囲外の値はクランプされる（負値→緑、100超→赤）", () => {
+    expect(rampColorForValue(-10)).toBe(AXIS_RAMP_COLORS[0]);
+    expect(rampColorForValue(150)).toBe(AXIS_RAMP_COLORS[3]);
+  });
+
+  it("maxを変えても比率で同じ色になる（50/100 と 5/10 は同じ）", () => {
+    expect(rampColorForValue(50, 100)).toBe(rampColorForValue(5, 10));
+  });
+
+  it("色は#rrggbb形式", () => {
+    expect(rampColorForValue(42)).toMatch(/^#[0-9a-f]{6}$/);
   });
 });
 

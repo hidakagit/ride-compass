@@ -159,7 +159,7 @@ def test_aggregate_segments_into_bins_single_edge_larger_than_bin_size_forms_its
     assert bins[1].distance_km == 10.0
 
 
-# _merge_axis_difficulties（改善計画T309・T316フォローアップ: 既存軸の非公開化でKeyError/
+# merge_axis_difficulties（改善計画T309・T316フォローアップ: 既存軸の非公開化でKeyError/
 # ValidationErrorになり500になっていた実障害の修正箇所）。axis_id→difficultyの汎用dictを
 # ビン内でaxis_idごとに距離加重平均する。専用のユニットテストが無かった（"axis_difficulties"が
 # test_route.pyに1件も無かった）ため、aggregate_segments_into_bins経由で新規に追加する。

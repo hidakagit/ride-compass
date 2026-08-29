@@ -196,6 +196,24 @@
   color: var(--foreground);
 }
 
+/* 改善計画T402: ルート全体プロファイル（BottomSheet）を開く導線。clearRoutesButtonと
+   同じ控えめなテキストリンク見た目（「たまに開く詳細画面への導線」という性質が近いため）。 */
+.routeProfileButton {
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  background: transparent;
+  border: none;
+  padding: 0.3rem 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.routeProfileButton:hover {
+  color: var(--foreground);
+}
+
 .mapPane {
   flex: 1;
   position: relative;

@@ -10,10 +10,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchNowcastFrames,
+  fetchRasrfFrames,
   precipitationFrames,
   precipitationRenderPayload,
   trimToCurrentAndFuture,
   type NowcastFrame,
+  type RasrfFrame,
 } from "@/components/Map/precipitationNowcast";
 import { windFrames, windRenderPayload, type MapViewport } from "@/components/Map/windLayer";
 import {
@@ -40,6 +42,9 @@ import { debugLog } from "@/lib/debugLog";
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
 // 雷は10分毎更新のため5分より長くても足りるが、実装を単純にするため揃えている）。
 const NOWCAST_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+// 降水短時間予報（改善計画T407）の再取得間隔。直近0〜6時間の"immed"系列が最も高頻度で
+// 更新される部分（precipitationNowcast.ts: fetchRasrfFrames参照）に合わせる。
+const RASRF_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
@@ -118,6 +123,34 @@ export function useDynamicWeatherLayers({
     };
   }, [showPrecipitationNowcast]);
 
+  // 降水短時間予報の時刻一覧（改善計画T407、60分〜15時間先）。「降水」チップの一部
+  // （precipitationNowcast.ts: precipitationFrames参照）のため、ナウキャストと同じ
+  // showPrecipitationNowcastで開閉する。取得失敗はnowcastと同じくエラーメッセージへ記録するが、
+  // precipitationFramesがrasrfFrames=[]でも自然にextended予報へフォールバックするため、
+  // 「降水」チップ自体は動作を続ける（フェイルソフト）。
+  const [rasrfFrames, setRasrfFrames] = useState<RasrfFrame[]>([]);
+  useEffect(() => {
+    if (!showPrecipitationNowcast) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const frames = await fetchRasrfFrames();
+        if (cancelled) return;
+        setRasrfFrames(frames);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "降水短時間予報の取得に失敗しました";
+        debugLog("api:jma-nowcast-times", "降水短時間予報の読み込みに失敗", { error: message }, "error");
+      }
+    };
+    Promise.resolve().then(load);
+    const intervalId = window.setInterval(load, RASRF_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [showPrecipitationNowcast]);
+
   // 雷・竜巻の時刻一覧（改善計画T204）。同じtargetTimes_N3.json由来のため、どちらか一方でも
   // ONの間だけ1本のfetchで両方をカバーする（nowcastFramesと同じ理由・同じ更新間隔）。
   const [thunderNowcastFrames, setThunderNowcastFrames] = useState<ThunderNowcastFrame[]>([]);
@@ -164,7 +197,10 @@ export function useDynamicWeatherLayers({
   // ここから先、どの要素がどのデータソースから来ているかを一切意識しない
   // （T183再設計「データ取得の差異はデータ層で吸収」）。
   const windFramesList = useMemo(() => windFrames(windGrid), [windGrid]);
-  const precipFramesList = useMemo(() => precipitationFrames(nowcastFrames, windGrid), [nowcastFrames, windGrid]);
+  const precipFramesList = useMemo(
+    () => precipitationFrames(nowcastFrames, rasrfFrames, windGrid),
+    [nowcastFrames, rasrfFrames, windGrid]
+  );
   // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列（改善計画T204）。
   const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
 
@@ -231,8 +267,14 @@ export function useDynamicWeatherLayers({
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;
-    return precipitationRenderPayload(nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg, precipFramesList[index].ref);
-  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, effectiveWindGrid, effectiveGridSpacingDeg]);
+    return precipitationRenderPayload(
+      nowcastFrames,
+      rasrfFrames,
+      effectiveWindGrid,
+      effectiveGridSpacingDeg,
+      precipFramesList[index].ref
+    );
+  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, rasrfFrames, effectiveWindGrid, effectiveGridSpacingDeg]);
   // 雷・竜巻は同じフレーム列・同じrefを共有し、プロダクトコードだけが異なる
   // （thunderRenderPayload/tornadoRenderPayloadの違い、thunderNowcast.ts参照）。
   const thunderPayload = useMemo(() => {

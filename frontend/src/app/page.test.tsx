@@ -209,6 +209,7 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
     score_breakdown: null,
     segments: null,
     overall_difficulty: null,
+    axis_difficulties: {},
     ...overrides,
   };
 }

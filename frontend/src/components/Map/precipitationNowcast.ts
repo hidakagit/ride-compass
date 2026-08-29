@@ -11,15 +11,20 @@
 // T183（動的気象レイヤーの再設計）で、気象庁ナウキャスト（+60分が上限、JMA提供APIの
 // 仕様上の制約で回避不可）より先の時間帯を、風と共通の格子点マップ（windLayer.ts、
 // 自前実装・Open-Meteo REST API経由・約48時間先まで）が相乗りで返すprecipitation_mmを
-// 使って延長した。「降水」の地図チップ・時刻スライダーは1つのまま（ユーザー要望「アイコンは
-// 1つ。ただし内部は時間によって使い分けて」「1要素でもデータの取り方が複数あり得る。
-// これはデータ取得層Nだが、差異はデータ取得層で吸収。画面表示時にはそれは意識しない
-// ようにしたい」）とし、2ソースの統合をこのファイル（precipitationFrames）が担い、
-// 表示層（page.tsx/MapView.tsx）へはdynamicWeather.tsの共通契約（DynamicWeatherFrame/
-// DynamicWeatherRenderPayload）だけを渡す。
+// 使って延長した。改善計画T407（T387「無償範囲で追加できるJMAデータの調査」の続き）で、
+// この延長予報とナウキャストの間に気象庁 降水短時間予報（rasrf、60分〜15時間先、
+// 数値予報モデルによる予測）を挿入し、3段構成にした——rasrfの範囲まではJMA公式データ
+// （精度が高い方から: ナウキャスト[実況の外挿]→rasrf[数値予報モデル]）、それ以降は
+// Open-Meteoの粗いモデル予報という優先順位。「降水」の地図チップ・時刻スライダーは1つの
+// まま（ユーザー要望「アイコンは1つ。ただし内部は時間によって使い分けて」「1要素でも
+// データの取り方が複数あり得る。これはデータ取得層Nだが、差異はデータ取得層で吸収。
+// 画面表示時にはそれは意識しないようにしたい」）とし、3ソースの統合をこのファイル
+// （precipitationFrames）が担い、表示層（page.tsx/MapView.tsx）へはdynamicWeather.tsの
+// 共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
 
 import { gridCellRing, type DynamicWeatherFrame, type DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
+import { fetchJson } from "@/lib/fetchJson";
 import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
@@ -32,6 +37,78 @@ export { parseValidtime, trimToCurrentAndFuture };
 
 const TARGET_TIMES_N1_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json";
 const TARGET_TIMES_N2_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N2.json";
+
+// 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
+// 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する（改善計画T387
+// 「無償範囲で追加できるJMAデータの調査」で発見・実機確認済み、対応する起票がT407）。
+// 実機確認（2026-08-30）で判明した構造: targetTimes.jsonは`member`フィールドを持ち、
+// "immed"（直近0〜6時間、高頻度更新の詳細予報）と"none"（7〜15時間先、毎正時更新の
+// 延長予報）の2系統が混在する。ナウキャストのN1/N2と違い、同じmember内にも「毎正時の
+// 完全な複数validtime群」と「10分毎の中間ランが返す単発validtime（basetime===validtime）」が
+// 混在するため、単純に「最新basetime」を取るだけでは不十分——中間ランを拾うと1フレームしか
+// 得られない。**加えて**、同じtargetTimes.jsonには線状降水帯予測マップ（sjfcstmap、
+// docs/tasks/T387.md参照。rasrfとは別プロダクト）も混在し、同一(basetime, validtime, member)
+// に対しrasrf無し・sjfcstmapのみのelementsを持つ行が別途存在しうる（実機確認: 本番相当データで
+// 114行中73行がelementsにrasrfを含まないsjfcstmap単体行だった）。これらは「異なるvalidtimeの
+// 種類数」を数える際にノイズになる上、そのままタイルURLを組み立てるとrasrf画像が存在しない
+// 組み合わせになりうるため、**必ずelements.includes("rasrf")で絞り込んでから**
+// 「異なるvalidtimeの種類数が複数ある最新のbasetime」を選ぶ（絞り込み後は同一
+// (basetime, validtime, member)にrasrf行が高々1つのため、複数行の優先順位付けは不要）。
+const RASRF_TARGET_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/rasrf/targetTimes.json";
+
+interface RawRasrfTargetTime {
+  basetime: string;
+  validtime: string;
+  member: string;
+  elements: string[];
+}
+
+export interface RasrfFrame extends JmaNowcastFrame {
+  /** タイルURLのパス階層（"immed"=直近0〜6時間、"none"=7〜15時間先）。ナウキャストの
+   * URLは常にmember="none"固定だったため`JmaNowcastFrame`自体には無いフィールド。 */
+  member: string;
+}
+
+/** rawの中から、指定member・rasrf搭載行に絞ったうえで、最も新しい「異なるvalidtimeを
+ * 複数持つbasetime」（＝完全な予報ラン、単発の中間ランではない）のフレームだけを返す。
+ * 該当が無ければ空配列。 */
+function latestFullRunFrames(raw: readonly RawRasrfTargetTime[], member: string): RawRasrfTargetTime[] {
+  const entries = raw.filter((e) => e.member === member && e.elements.includes("rasrf"));
+  const validtimesByBasetime = new Map<string, Set<string>>();
+  for (const e of entries) {
+    if (!validtimesByBasetime.has(e.basetime)) validtimesByBasetime.set(e.basetime, new Set());
+    validtimesByBasetime.get(e.basetime)!.add(e.validtime);
+  }
+  const fullRunBasetimes = [...validtimesByBasetime.entries()]
+    .filter(([, validtimes]) => validtimes.size > 1)
+    .map(([basetime]) => basetime);
+  if (fullRunBasetimes.length === 0) return [];
+  const latestBasetime = fullRunBasetimes.sort().at(-1);
+  return entries.filter((e) => e.basetime === latestBasetime);
+}
+
+/** 降水短時間予報の時刻一覧を取得し、直近0〜6時間（member="immed"）と7〜15時間先
+ * （member="none"）それぞれの最新の完全な予報ランを1本の時系列へ統合する。両者は
+ * validtimeの範囲が重ならない設計（実機確認済み）だが、念のためvalidtime重複時は
+ * より詳細なimmed側を優先する（Map.setで後勝ちにするため、noneを先に積む）。 */
+export async function fetchRasrfFrames(): Promise<RasrfFrame[]> {
+  const data = await fetchJson<unknown>(RASRF_TARGET_TIMES_URL, {
+    timeoutMs: 15000,
+    category: "api:jma-nowcast-times",
+    errorLabel: "降水短時間予報の時刻一覧",
+  });
+  if (!Array.isArray(data)) throw new Error("降水短時間予報の時刻一覧の形式が想定と異なります");
+  const raw = data as RawRasrfTargetTime[];
+
+  const byValidtime = new Map<string, RasrfFrame>();
+  for (const e of latestFullRunFrames(raw, "none")) {
+    byValidtime.set(e.validtime, { basetime: e.basetime, validtime: e.validtime, isForecast: true, member: e.member });
+  }
+  for (const e of latestFullRunFrames(raw, "immed")) {
+    byValidtime.set(e.validtime, { basetime: e.basetime, validtime: e.validtime, isForecast: true, member: e.member });
+  }
+  return [...byValidtime.values()].sort((a, b) => a.validtime.localeCompare(b.validtime));
+}
 
 /** 実況・予測を合わせた時系列を、validtime昇順（過去→未来）で返す。片方の取得だけ
  * 失敗しても、もう片方が使えるなら部分的な時系列を返す（両方失敗したときだけ例外）。 */
@@ -137,6 +214,12 @@ function nowcastTileUrlTemplate(frame: NowcastFrame): string {
   return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/{z}/{x}/{y}.png`;
 }
 
+/** 降水短時間予報のラスタタイルURLテンプレート。ナウキャストと異なりmemberがURLパスに
+ * そのまま入る（"immed"/"none"、fetchRasrfFrames参照）。 */
+function rasrfTileUrlTemplate(frame: RasrfFrame): string {
+  return `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/${frame.member}/${frame.validtime}/surf/rasrf/{z}/{x}/{y}.png`;
+}
+
 export interface PrecipitationGridCellProperties {
   /** 降水量（mm/h相当）。 */
   mmPerHour: number;
@@ -166,48 +249,66 @@ function precipitationGridToCellFeatureCollection(
 }
 
 /** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、
- * 5分刻み）由来でindexはnowcastFrames内のindex、"extended"なら風と共通の格子点マップ
- * （自前実装、約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm内の
- * indexを指す。precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrame
- * のtimeしか見ない、ファイル冒頭のコメント参照）。 */
-export type PrecipitationFrameRef = { source: "nowcast"; index: number } | { source: "extended"; index: number };
+ * 5分刻み、レーダー実況の外挿）由来でindexはnowcastFrames内のindex、"rasrf"なら気象庁
+ * 降水短時間予報（改善計画T407、60分〜15時間先、数値予報モデルによる予測）由来で
+ * indexはrasrfFrames内のindex、"extended"なら風と共通の格子点マップ（Open-Meteo経由、
+ * 15時間先以降・約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm
+ * 内のindexを指す。3段は精度の性質が異なる（nowcast=実況外挿で直近ほど高信頼、
+ * rasrf=数値予報モデルによる予測、extended=Open-Meteoの粗いモデル予報）。
+ * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
+ * 見ない、ファイル冒頭のコメント参照）。 */
+export type PrecipitationFrameRef =
+  | { source: "nowcast"; index: number }
+  | { source: "rasrf"; index: number }
+  | { source: "extended"; index: number };
 
-/** 気象庁ナウキャスト（0〜60分、5分刻み）と風と共通の格子点マップ由来の延長予報
- * （60分以降、約48時間先まで・1時間刻み）を1つのフレーム列へ統合する（データ取得層での
- * 差異吸収、ファイル冒頭のコメント参照）。extendedGridはnowcastの最終フレーム以前の時刻を
- * 含みうる（windGridは常に「現在」から始まるため）が、ナウキャストと重複する近い将来を
- * 延長予報側でも出すと同じ時間帯が二重に見えて紛らわしいため、ナウキャストの最終フレームより
- * 後の時刻だけを延長側として採用する。 */
+/** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先、改善計画T407）・
+ * 風と共通の格子点マップ由来の延長予報（15時間先以降、約48時間先まで）を1つのフレーム列へ
+ * 統合する（データ取得層での差異吸収、ファイル冒頭のコメント参照）。各段は前段の最終フレーム
+ * より後の時刻だけを採用する（近い将来の二重表示を避ける、nowcast→rasrfの境界も
+ * rasrf→extendedの境界も同じ考え方）。rasrfFramesが空（取得失敗等）の場合はnowcastの
+ * 直後からextendedを採用する形へ自然にフォールバックする。 */
 export function precipitationFrames(
   nowcastFrames: readonly NowcastFrame[],
+  rasrfFrames: readonly RasrfFrame[],
   extendedGrid: readonly WindGridPoint[]
 ): DynamicWeatherFrame<PrecipitationFrameRef>[] {
   const nowcastPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = nowcastFrames.map((frame, index) => ({
     time: parseValidtime(frame.validtime),
     ref: { source: "nowcast", index },
   }));
-
   const lastNowcastMs =
     nowcastFrames.length > 0 ? parseValidtime(nowcastFrames[nowcastFrames.length - 1].validtime).getTime() : -Infinity;
+
+  const rasrfPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = [];
+  let lastRasrfMs = lastNowcastMs;
+  rasrfFrames.forEach((frame, index) => {
+    const parsedTime = parseValidtime(frame.validtime);
+    if (parsedTime.getTime() <= lastNowcastMs) return;
+    rasrfPart.push({ time: parsedTime, ref: { source: "rasrf", index } });
+    lastRasrfMs = Math.max(lastRasrfMs, parsedTime.getTime());
+  });
+
   const extendedTimes = extendedGrid[0]?.times ?? [];
   const extendedPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = [];
   extendedTimes.forEach((time, index) => {
     const parsedTime = parseJstTime(time);
-    if (parsedTime.getTime() <= lastNowcastMs) return;
+    if (parsedTime.getTime() <= lastRasrfMs) return;
     extendedPart.push({ time: parsedTime, ref: { source: "extended", index } });
   });
 
-  return [...nowcastPart, ...extendedPart];
+  return [...nowcastPart, ...rasrfPart, ...extendedPart];
 }
 
 /** precipitationFramesが返したrefから、地図へ渡す描画ペイロードを組み立てる。sourceで
- * rasterTile（気象庁ナウキャストのタイル）とgridFill（延長予報、格子を色で塗る）を
- * 切り替える——「アイコンは1つ。ただし内部は時間によって使い分けて」というユーザー要望を
- * ここで実現する。spacingDegはextendedGridの実際の格子間隔（度）を呼び出し側が渡す
- * （useWeatherGrid.tsのeffectiveGridSpacingDeg、T185でズーム依存の詳細間隔になったため、
+ * rasterTile（気象庁ナウキャスト・降水短時間予報のタイル）とgridFill（延長予報、格子を
+ * 色で塗る）を切り替える——「アイコンは1つ。ただし内部は時間によって使い分けて」という
+ * ユーザー要望をここで実現する。spacingDegはextendedGridの実際の格子間隔（度）を呼び出し側が
+ * 渡す（useWeatherGrid.tsのeffectiveGridSpacingDeg、T185でズーム依存の詳細間隔になったため、
  * このファイル自身は「粗いか詳細か」の判定を持たず、渡された値をそのまま使うだけにする）。 */
 export function precipitationRenderPayload(
   nowcastFrames: readonly NowcastFrame[],
+  rasrfFrames: readonly RasrfFrame[],
   extendedGrid: readonly WindGridPoint[],
   spacingDeg: number,
   ref: PrecipitationFrameRef
@@ -215,6 +316,10 @@ export function precipitationRenderPayload(
   if (ref.source === "nowcast") {
     const frame = nowcastFrames[ref.index];
     return frame ? { kind: "rasterTile", tileUrlTemplate: nowcastTileUrlTemplate(frame) } : undefined;
+  }
+  if (ref.source === "rasrf") {
+    const frame = rasrfFrames[ref.index];
+    return frame ? { kind: "rasterTile", tileUrlTemplate: rasrfTileUrlTemplate(frame) } : undefined;
   }
   if (extendedGrid.length === 0) return undefined;
   return { kind: "gridFill", geojson: precipitationGridToCellFeatureCollection(extendedGrid, ref.index, spacingDeg) };

@@ -257,10 +257,20 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   は「各点がtimesを持つ」既存表現のまま変えておらず、`services/weatherApi.ts`の
   `toWindGridPoints`がバックエンド応答を受け取った直後にtimesを各点へ合成し直すことで、
   ワイヤーフォーマット（削減対象）とフロント内部データモデル（既存ロジック）を分離した。
-- **降水延長予報（T183）**: 気象庁降水ナウキャスト（[frontend/src/components/Map/precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)、
-  実況〜+60分・5分刻み、`rasterTile`表現）は仕様上+60分が上限のため、それ以降は上記の
-  風と同じ格子点マップへ`precipitation`（mm/h）を相乗りさせ、`gridFill`表現（格子をセルとして
-  塗る）で継ぎ足す。1回のフェッチで風・延長予報の両方を賄うためOpen-Meteoクォータは増えない。
+- **降水延長予報（T183・T407）**: 気象庁降水ナウキャスト（[frontend/src/components/Map/precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)、
+  実況〜+60分・5分刻み、`rasterTile`表現）は仕様上+60分が上限のため、それ以降を2段で
+  継ぎ足す。①改善計画T407（2026-08-30）: +60分〜+15時間は気象庁 降水短時間予報
+  （`rasrf`、`https://www.jma.go.jp/bosai/jmatile/data/rasrf/targetTimes.json`、
+  数値予報モデルによる予測、`rasterTile`表現）。`member`フィールドが"immed"（直近0〜6時間、
+  高頻度更新）と"none"（7〜15時間先、毎正時更新）の2系統を持ち、同一basetime配下に
+  中間ランの単発validtimeや別プロダクト（線状降水帯予測マップ`sjfcstmap`、
+  [T408](tasks/T408.md)で調査予定）の行が混在するため、`elements.includes("rasrf")`で
+  絞り込んだ上で「異なるvalidtimeを複数持つ最新のbasetime」を選ぶ（`fetchRasrfFrames`）。
+  ②+15時間より先（〜約48時間先）は上記の風と同じ格子点マップへ`precipitation`（mm/h）を
+  相乗りさせ、`gridFill`表現（格子をセルとして塗る）で継ぎ足す。1回のフェッチで風・
+  延長予報の両方を賄うためOpen-Meteoクォータは増えない。各段は前段の最終フレームより
+  後の時刻だけを採用し、近い将来の二重表示を避ける（ナウキャスト→rasrf→延長予報の
+  2つの境界とも同じロジック、`precipitationFrames`）。
 - **雷ナウキャスト・竜巻発生確度ナウキャスト（T204）**: [frontend/src/components/Map/thunderNowcast.ts](../frontend/src/components/Map/thunderNowcast.ts)が
   降水と同じbosai/jmatile/data/nowc/系（プロダクトコード`thns`＝雷・`trns`＝竜巻）を
   `rasterTile`表現のみで重ねる。降水と異なり`targetTimes_N3.json`1本に実況〜+60分の予測が
@@ -649,6 +659,12 @@ RideCompass/
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー・プリセット）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
+        RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
+          を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
+          useAxisCatalog().axesから取得しハードコード辞書は持たない。バー色は
+          Map/axisLayers.tsのrampColorForBand(Math.round(value), 101)を再利用し地図の段階配色
+          （緑→黄→橙→赤）と一致させる。既存のBottomSheet（page.tsx: routeProfileOpen、
+          mobileSheetの3タブ排他ドメインとは独立）から開く導線
         WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水量・天気アイコン・日の出/日没
           表示（Step6、改善計画T387フォローアップで大幅刷新）。改善計画T387フォローアップ
           （2026-08-29、方針「常設エリアは実測値、今日の見通しは予測値」）: データ源を
@@ -864,7 +880,11 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
       /* ↑ P1（停止密度〜交差点密度）・T50（事故密度）。
          RoutePreference（区間難易度）側の重みのみに効き、上のtotal_scoreには含まれない。
          segments[]側のaxis_difficulties・生値にも軸別内訳が入る（7章参照） */
-      "overall_difficulty": 22.5  /* segments.difficultyの距離加重平均（絶対基準、実験間比較用） */
+      "overall_difficulty": 22.5,  /* segments.difficultyの距離加重平均（絶対基準、実験間比較用） */
+      "axis_difficulties": { "gradient":1.8, "wind":0.4, "surface_q":0.0, "stop_density":4.2,
+        "car_stress":22.0, "accident":0.0, "bicycle_infra_quality":0.0 }
+      /* ↑ 改善計画T402。segments[]のaxis_difficultiesを候補全区間に集約したルート単位版
+         （overall_difficultyと対）。BottomSheet「ルート全体プロファイル」（横棒グラフ一覧）が消費する */
     },
     ...（total_scoreが高い順、最大8件）
   ],
@@ -1181,6 +1201,11 @@ interface RouteCandidate {
   score_breakdown: RouteScoreComponent[] | null;
   segments: RouteSegmentDetail[] | null;
   overall_difficulty: number | null;  // segments.difficultyの距離加重平均（絶対基準、実験間比較用。研究IF改善§10-7）
+  axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T402で新設。
+    // RouteSegmentDetail.axis_difficultiesと同じ汎用dictを候補の全区間へ集約したもの
+    // （merge_axis_difficultiesをビン単位ではなく候補全体に1回適用するだけ）。stop_density等の
+    // 個別フィールド群（上記）は旧来の軸1対1固定設計の名残で軸スタジオの軸増減に追従しないが、
+    // こちらは追従する。フロントのBottomSheet「ルート全体プロファイル」（横棒グラフ一覧）が消費する
 }
 
 interface RouteGenerateRequest {
