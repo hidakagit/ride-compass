@@ -3,7 +3,7 @@
 
 FakeRegionRepository（test_region_service.py）と同じ流儀で、RoadGraphRepository/
 WeatherServiceが持つメソッドのうち本サービスが実際に呼ぶものだけをダックタイピングした
-フェイクへ差し替える。Redisはtest_wind_way_penalty_cache.pyと同じFakeRedisパターンで
+フェイクへ差し替える。Redisはtest_dynamic_way_value_cache.pyと同じFakeRedisパターンで
 使う（実Redis不要）。
 
 T414での設計変更: 走行方位（bearing_deg）は道路自身の向きではなく、呼び出し側
@@ -18,7 +18,7 @@ import pytest
 
 from app.domain.wind import WindCalculator
 from app.domain.wind_grid import WindGridPoint
-from app.infrastructure import wind_way_penalty_cache
+from app.infrastructure import dynamic_way_value_cache
 from app.services.route_generator import JST
 from app.services.wind_way_service import WindWayService
 
@@ -39,7 +39,7 @@ class FakeRedis:
 @pytest.fixture(autouse=True)
 def use_fake_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(wind_way_penalty_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client", lambda: fake)
     return fake
 
 
@@ -88,7 +88,7 @@ TIMES = ["2026-08-30T08:00", "2026-08-30T09:00", "2026-08-30T10:00"]
 async def test_repository_none_returns_empty_dict():
     service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
@@ -98,7 +98,7 @@ async def test_uncovered_tile_returns_empty_dict_without_calling_weather():
     weather_service = FakeWeatherService(TIMES, make_grid_point(TIMES, [5.0, 5.0, 5.0], [0.0, 0.0, 0.0]))
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0)
 
     assert result == {}
     assert weather_service.calls == []  # カバレッジ外は風データを取りに行かない
@@ -108,7 +108,7 @@ async def test_covered_but_no_ways_returns_empty_dict():
     repository = FakeWayIdsRepository(way_ids=[])
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
@@ -124,7 +124,7 @@ async def test_computes_wind_penalty_from_bearing_and_wind_grid():
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT, bearing_deg)
+    result = await service.get_way_values(Z, X, Y, AT, bearing_deg)
 
     expected = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
     assert result == {1: expected, 2: expected}
@@ -137,8 +137,8 @@ async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    first = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
-    second = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    first = await service.get_way_values(Z, X, Y, AT, 0.0)
+    second = await service.get_way_values(Z, X, Y, AT, 0.0)
 
     assert first == second
     # way_id一覧の取得（DBクエリ）は都度行うが、風グリッドの再取得はキャッシュヒットのため1回のみ。
@@ -152,8 +152,8 @@ async def test_different_bearing_bucket_recomputes():
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    first = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
-    second = await service.get_way_wind_penalties(Z, X, Y, AT, 90.0)
+    first = await service.get_way_values(Z, X, Y, AT, 0.0)
+    second = await service.get_way_values(Z, X, Y, AT, 90.0)
 
     assert first != second
     assert len(weather_service.calls) == 2
@@ -164,7 +164,7 @@ async def test_wind_grid_unavailable_returns_empty_dict():
     weather_service = FakeWeatherService(TIMES, None)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
@@ -176,7 +176,7 @@ async def test_time_outside_wind_grid_range_returns_empty_dict():
     service = WindWayService(repository=repository, weather_service=weather_service)
 
     far_future = datetime(2027, 1, 1, 0, 0)
-    result = await service.get_way_wind_penalties(Z, X, Y, far_future, 0.0)
+    result = await service.get_way_values(Z, X, Y, far_future, 0.0)
 
     assert result == {}
 
@@ -185,7 +185,7 @@ async def test_repository_error_returns_empty_dict():
     repository = FakeWayIdsRepository(way_ids=None, error=RuntimeError("db down"))
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
@@ -202,6 +202,6 @@ async def test_at_none_defaults_to_now_without_raising():
     weather_service = FakeWeatherService(wide_times, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, None, 0.0)
+    result = await service.get_way_values(Z, X, Y, None, 0.0)
 
     assert set(result.keys()) == {1}

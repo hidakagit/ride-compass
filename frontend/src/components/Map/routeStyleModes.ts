@@ -31,10 +31,19 @@ export interface RouteStyleMode {
 const COLOR_EASY = "#16a34a";
 const COLOR_NORMAL = "#f59e0b";
 const COLOR_HARD = "#dc2626";
-const COLOR_NO_DATA = "#9ca3af";
-const COLOR_DOWNHILL = "#0284c7";
-const COLOR_UP_MILD = "#eab308";
-const COLOR_UP_STEEP = "#ea580c";
+export const COLOR_NO_DATA = "#9ca3af";
+export const COLOR_DOWNHILL = "#0284c7";
+export const COLOR_UP_MILD = "#eab308";
+export const COLOR_UP_STEEP = "#ea580c";
+// 改善計画T423: 「評価軸」グループの勾配（gradientAxisLayer.ts）が、ルート確定後の
+// STATIC_MODES「gradient」（下記）と同じ配色・しきい値を使うためexportする——両者とも
+// gradient_percent（符号付き%）という同じ単位・スケールの値を塗るため（風の場合と異なり、
+// pre-route/post-routeで値のスケールが変わらない。domain/gradient.pyのモジュールdocstring・
+// windAxisLayer.tsのWIND_AXIS_THRESHOLDSコメント参照——風はpre-route[m/s]・post-route
+// [正規化済みdifficulty 0-100]で単位自体が異なるため色分けも独立に持つ）。
+export const GRADIENT_COLOR_HARD = COLOR_HARD;
+export const GRADIENT_COLOR_FLAT = COLOR_EASY;
+export const GRADIENT_BOUNDARIES: readonly number[] = [-2, 2, 6, 10];
 
 // 数値プロパティの段階分け（凡例カテゴリ）から色式とフィルタ述語付き凡例を組み立てる。
 // boundaries[i]は「カテゴリiとi+1の境界値」（カテゴリ数-1個）。値がnull（データ欠落）の

@@ -1,5 +1,6 @@
-"""way_id→wind_penalty配信層（改善計画T405→T414で作り直し、docs/tasks/T400.md「2. 動的要素
-（時刻・向き等）を含む材料は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」節）。
+"""way_id→wind_penalty配信層（改善計画T405→T414で作り直し、T423でキャッシュ層を
+`dynamic_way_value_cache.py`へ汎用化、docs/tasks/T400.md「2. 動的要素（時刻・向き等）を
+含む材料は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」節）。
 
 「評価軸」グループとしての風（ルート未確定時、視界内の全道路へユーザー指定の[時刻,向き]を
 一律適用する線表示）の基盤。「環境」グループの風（時刻＋方位スライダー＋`gridFill`面表示、
@@ -14,7 +15,17 @@ windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]
 持つ（風グリッドもタイル中心1点で代表させる既存の近似のため）——道路自身の向きの取得
 （旧`get_way_bearings_in_tile`、ST_Azimuth）は不要になり、対象タイルに存在するway_idの一覧
 （`get_way_ids_in_tile`）だけを取得すればよい。計算結果のキャッシュも、way_idごとではなく
-タイル単位のスカラー値1個で足りる（`wind_way_penalty_cache.py`のモジュールdocstring参照）。
+タイル単位のスカラー値1個で足りる（way_id一覧全件へ同値をbroadcastしたdictとして
+`dynamic_way_value_cache.py`へ渡す）。
+
+**T423での設計変更**: 勾配（第2の具体例、`gradient_way_service.py`）の実装と同時に、
+専用キャッシュモジュール（旧`wind_way_penalty_cache.py`）を`dynamic_way_value_cache.py`
+（材料id駆動、`dict[way_id, float]`の汎用表現）へ汎用化した。風はこれまでどおり
+「全way_idへ同値をbroadcastしたdict」を渡すだけで、キャッシュ層自体の挙動は変わらない
+（勾配のようなway単位の値も同じインターフェースで扱えるようになっただけ）。公開メソッド名も
+`get_way_wind_penalties`から`get_way_values`へ変更し、`GradientWayService`と同じ
+`(z, x, y, at, bearing_deg) -> dict[int, float]`という統一インターフェースへ揃えた
+（`api/routers/region.py`が材料非依存に呼べるようにするため）。
 """
 
 import logging
@@ -25,16 +36,19 @@ from app.domain.route import Coordinates
 from app.domain.wind import WindCalculator
 from app.domain.wind_grid import nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
+from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.wind_way_penalty_cache import get_tile_penalty, set_tile_penalty
+from app.infrastructure.weather_client import WIND_GRID_CACHE_TTL_SECONDS
 from app.services.route_generator import JST
 from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.wind_way")
 
+MATERIAL_ID = "wind"
+
 
 def _hour_bucket(at: datetime) -> str:
-    """時刻を1時間バケットへ丸める（wind_way_penalty_cache.pyのキー、モジュールdocstring参照）。"""
+    """時刻を1時間バケットへ丸める（dynamic_way_value_cache.pyのキー参照）。"""
     return at.strftime("%Y-%m-%dT%H")
 
 
@@ -67,7 +81,7 @@ class WindWayService:
         self._repository = repository
         self._weather_service = weather_service
 
-    async def get_way_wind_penalties(
+    async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float
     ) -> dict[int, float]:
         """指定タイル内のway_idごとのwind_penaltyを返す（T414の訂正後契約では、同じタイル内の
@@ -101,11 +115,11 @@ class WindWayService:
             fields["way_count"] = len(way_ids)
 
             hour_bucket = _hour_bucket(target)
-            cached = await get_tile_penalty(z, x, y, hour_bucket, bearing_deg)
+            cached = await get_tile_values(MATERIAL_ID, z, x, y, hour_bucket, bearing_deg)
             if cached is not None:
                 fields["cache_hit"] = len(way_ids)
                 fields["cache_status"] = "hit"
-                penalty = cached
+                penalty = next(iter(cached.values()), 0.0)
             else:
                 fields["cache_status"] = "miss"
 
@@ -125,7 +139,8 @@ class WindWayService:
                 wind_speed = wind_grid_point.wind_speed_ms[index]
                 wind_direction = wind_grid_point.wind_direction_deg[index]
                 penalty = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
-                await set_tile_penalty(z, x, y, hour_bucket, bearing_deg, penalty)
+                values = dict.fromkeys(way_ids, penalty)
+                await set_tile_values(MATERIAL_ID, z, x, y, hour_bucket, bearing_deg, values, WIND_GRID_CACHE_TTL_SECONDS)
                 fields["computed"] = len(way_ids)
 
             # T414の訂正後契約では同じタイル内の全wayが同じ値を持つため、キャッシュhit/miss

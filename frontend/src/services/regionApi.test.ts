@@ -16,7 +16,7 @@ import {
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
   fetchAxisInspector,
-  fetchWindWayPenalties,
+  fetchDynamicWayValues,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
@@ -127,15 +127,15 @@ describe("regionApi", () => {
     });
   });
 
-  // way_id→wind_penalty配信層（改善計画T405）。fetchAxisInspectorと違い、失敗時は例外を
-  // 投げず空オブジェクトへフォールバックする（背景の色分けレイヤーという補助的な機能のため、
-  // regionApi.tsのdocstring参照）。
-  describe("fetchWindWayPenalties", () => {
+  // way_id→動的値配信層（風・勾配、改善計画T405→T414→T423）。fetchAxisInspectorと違い、
+  // 失敗時は例外を投げず空オブジェクトへフォールバックする（背景の色分けレイヤーという
+  // 補助的な機能のため、regionApi.tsのdocstring参照）。
+  describe("fetchDynamicWayValues", () => {
     afterEach(() => {
       vi.mocked(debugLog).mockClear();
     });
 
-    it("z/x/y・bearing_degを含むURLへGETし、{way_id: wind_penalty}のJSONをそのまま返す", async () => {
+    it("material_id・z/x/y・bearing_degを含むURLへGETし、{way_id: 値}のJSONをそのまま返す", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -144,7 +144,7 @@ describe("regionApi", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchWindWayPenalties(14, 14551, 6447, 90);
+      const result = await fetchDynamicWayValues("wind", 14, 14551, 6447, 90);
 
       const [url, options] = fetchMock.mock.calls[0];
       // fetchAxisInspectorと同じ理由（アプリのfetch()から直接呼ぶ、MapLibreのWeb Worker
@@ -154,6 +154,21 @@ describe("regionApi", () => {
       expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90");
       expect(options.method ?? "GET").toBe("GET");
       expect(result).toEqual({ "1": 2.34, "2": -1.5 });
+    });
+
+    it("material_idが変わればパスも変わる（改善計画T423、材料id駆動のエンドポイント統一）", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await fetchDynamicWayValues("gradient", 14, 14551, 6447, 90);
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/gradient/14/14551/6447?bearing_deg=90");
     });
 
     it("atを渡すとISO文字列のクエリパラメータとして付与する", async () => {
@@ -166,7 +181,7 @@ describe("regionApi", () => {
       vi.stubGlobal("fetch", fetchMock);
       const at = new Date("2026-08-30T09:00:00.000Z");
 
-      await fetchWindWayPenalties(14, 14551, 6447, 0, at);
+      await fetchDynamicWayValues("wind", 14, 14551, 6447, 0, at);
 
       const [url] = fetchMock.mock.calls[0];
       expect(new URL(String(url)).searchParams.get("at")).toBe(at.toISOString());
@@ -178,13 +193,13 @@ describe("regionApi", () => {
         vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }),
       );
 
-      await expect(fetchWindWayPenalties(14, 14551, 6447, 0)).resolves.toEqual({});
+      await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({});
     });
 
     it("通信エラー時も例外を投げず空オブジェクトを返す", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
 
-      await expect(fetchWindWayPenalties(14, 14551, 6447, 0)).resolves.toEqual({});
+      await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({});
     });
   });
 

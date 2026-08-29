@@ -693,7 +693,7 @@ RideCompass/
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
-        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・風（`wind`、axisIdで直接`windAxis`へ紐付け）だけがトグルを持ち、持たない軸（勾配等、kind="none"）とルート確定後の風は押せない案内表示になる
+        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・風（`wind`、axisIdで直接`windAxis`へ紐付け）・改善計画T423で追加した勾配（`gradient`、axisIdで直接`gradientAxis`へ紐付け）だけがトグルを持ち、持たない軸とルート確定後の風・勾配は押せない案内表示になる
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・おすすめ度（total_score）表示（Step4-5-7-8）。改善計画T421: サマリ行を「距離」と「軸による重みづけ（おすすめ度）」の2つへ単純化し、旧scoring.yaml時代の個別フィールド（獲得標高・風評価・路面）の表示は撤去した（値自体はRouteCandidateに引き続き残る）。軸ごとの内訳はレーダーチャート（区間クリック、T403）・RouteAxisProfile（T402）で見る
         RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
           を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
@@ -2397,7 +2397,7 @@ car_stress（内部軸5つの合成値、複数材料の重み付き結合のた
 不要になった。現在`kind=bespoke`の軸は無く、gradient/surface_qは`kind=none`（既存の
 標高図・道路情報レイヤーが代替）。night軸はT145a（データ充実待ちで保留）まで未生成。
 
-### 動的材料の状態別表現契約とway_id→wind_penalty配信層（改善計画T405→T414で作り直し）
+### 動的材料の状態別表現契約とway_id→動的値配信層（改善計画T405→T414→T423で汎用化）
 
 上記の二次軸ランプレイヤーは「事実はタイルに焼き込み、解釈（重み・しきい値）はクライアント側の
 MapLibre expressionで行う」方式だが、風のように**道路自身に紐づかない外部条件（風向風速）が
@@ -2470,10 +2470,89 @@ axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成�
 変更していないが、それを起動するUIは改善計画T418で地図上チップから撤去し、ルート設定パネル
 （`RouteSettingsPanel.tsx`）の「風」行から起動する形へ移設した（下記節参照）。
 
-勾配（gradient）も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、T218a）の
-ため、同じ状態機械に乗せることは設計上可能（T400.md「2.」節の3軸表）だが、勾配は「向きの出所が
-道路自身に内在」という風とは異なる性質を持ち、ユーザー指定の向きと道路自身の向きの対応付けが
-未決定のため、実装は別タスク（[T423](tasks/T423.md)）とする。
+#### 勾配（gradient、第2の具体例）と配信機構の汎用化（改善計画T423、T411の実施）
+
+勾配も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、T218a）のため同じ状態
+機械に乗る（[T423](tasks/T423.md)、2026-08-30完了）。風・勾配の2例が揃ったことをトリガーに、
+[T411](tasks/T411.md)（バックエンド配信機構の汎用化検討）も同時に実施した。
+
+**風との違い（設計上の要点）**: 風は「道路自身の向きが不要」という訂正を経た材料（T414）だが、
+勾配は逆に**道路自身の向きが本質的に必要**——`gradient_percent`自体が道路の始点→終点方向を
+基準にした符号付き値のため。この違いを吸収するため、汎用化した配信機構は「1タイルにつき
+スカラー値1個をway_id一覧全件へbroadcastする」（風）と「1タイルにつきway_idごとに異なる値を
+持つ」（勾配）の両方を同じキャッシュ表現（`dict[way_id, float]`のJSON）で扱えるようにした。
+
+**符号補正（確定済みの設計判断）**: `effective_gradient = gradient_percent × cos(道路自身の
+向き − ユーザー指定の向き)`という連続的なcos補正を採用した
+（[domain/gradient.py](../backend/app/domain/gradient.py): `GradientCalculator.
+effective_gradient`）。道路の向きと指定方向のなす角度に応じて滑らかに変化し、二値反転案
+（±90°で符号切替）のような境界での不自然な急変が無い。同じ道路の逆方向のroad_edges行
+（forward/backward）のどちらを使っても、道路の向き±180度・gradient_percentの符号反転が
+同時に起きるため計算結果は変わらない（cosは偶関数）。
+
+**T411の実施内容（汎用化）**:
+- **エンドポイント**: `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`という風専用の
+  固定パスを`GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}`
+  （[region.py](../backend/app/api/routers/region.py): `region_dynamic_way_values`）へ
+  一本化した。`material_id`は[domain/dynamic_way_values.py](../backend/app/domain/dynamic_way_values.py):
+  `DYNAMIC_WAY_VALUE_MATERIALS`（材料ごとの`needs_time`/`needs_bearing`宣言、勾配は
+  `needs_time=False`）で検証し、未知のidは404・向き依存の材料でbearing_deg省略は422。
+  DI（`api/dependencies.py: get_dynamic_way_value_service`）は`material_id`パスパラメータを
+  直接受け取り、材料に応じたサービス（`WindWayService`/`GradientWayService`）をDBセッション
+  1つだけで組み立てる（両方を毎回Dependsすると2重にセッションを開いてしまうため）。
+- **キャッシュ層**: 旧`wind_way_penalty_cache.py`（風専用、キーは`(z,x,y,時刻,向き)`→
+  スカラー値1個）を[dynamic_way_value_cache.py](../backend/app/infrastructure/dynamic_way_value_cache.py)
+  （材料id駆動、キーは`(material_id,z,x,y,時刻,向き)`→`{way_id: 値}`のJSON）へ汎用化した。
+  風は従来どおり全way_idへ同値をbroadcastしたdictを渡すだけで動作は変わらない。
+- **サービス層**: `WindWayService`（風専用、風グリッド取得＋`WindCalculator.wind_penalty`）
+  と[GradientWayService](../backend/app/services/gradient_way_service.py)（勾配専用、
+  `RoadGraphRepository.get_way_gradient_inputs_in_tile`でway単位の`(gradient_percent,
+  road_bearing_deg)`を取得しway単位で`GradientCalculator.effective_gradient`を計算）は、
+  どちらも`get_way_values(z, x, y, at, bearing_deg) -> dict[int, float]`という統一
+  インターフェースを持つ（`at`は勾配側では無視するが、router側の材料非依存な呼び出しを
+  可能にするため受け取る）。材料ごとの計算式自体は各サービスの専用ロジックのまま——
+  2具体例しかない現時点で共通のProvider抽象を無理に導入せず、キャッシュ層という実際に
+  共有できる部分だけを汎用化した（複雑度平衡の原則）。
+- **フロント**: タイル座標計算・複数タイル応答統合（`tilesCoveringViewport`/
+  `mergeDynamicWayValues`）を[dynamicWayValues.ts](../frontend/src/components/Map/dynamicWayValues.ts)
+  へ抽出し、`windAxisLayer.ts`（風固有の配色・しきい値）・新設`gradientAxisLayer.ts`
+  （勾配固有の配色・しきい値、ルート確定後の`routeStyleModes.ts`と同じ配色・しきい値
+  `GRADIENT_BOUNDARIES`を共有）が個別に持つ。フェッチ本体は`services/regionApi.ts:
+  fetchDynamicWayValues(materialId, ...)`・状態管理は`hooks/useDynamicWayValues.ts:
+  useDynamicWayValues(materialId, ...)`として統合した（旧`fetchWindWayPenalties`/
+  `useWindAxisPenalties`を汎用化、風・勾配どちらもこの1本のフック・1本のfetch関数を使う）。
+
+**環境グループの勾配gridFill（面表示）**: 風のgridFillは矢印と共有の独立した気象グリッド
+（道路と無関係な空間フィールド）から作れたが、勾配にはそのような独立フィールドが無い
+——勾配は本質的に道路（way）ごとの属性である。そのため、評価軸グループ向けに既にフェッチ
+済みのway単位`effective_gradient`値（追加のAPI呼び出し無し）を、フェッチ元のタイル境界
+そのものを1セルとして平均集計した面表示へ変換する
+（[gradientGridFill.ts](../frontend/src/components/Map/gradientGridFill.ts):
+`gradientGridCellsFromTileResponses`。タイル境界の算出は`dynamicWayValues.ts:
+tileBoundsLonLat`、`domain/region.py: tile_bounds_lonlat`のJS移植）。
+
+**向き指定UI**: `WindBearingSlider`をそのまま再利用した（新規コンポーネント無し）——
+value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う汎用的な形（時刻は
+コンポーネントの外[`DynamicLayerTimeSlider`]で完結）だったため、コード変更は不要だった。
+`page.tsx`は風（`windBearingDeg`）・勾配（`gradientBearingDeg`）で独立したstateを持ち、
+それぞれ`WindBearingSlider`を独立してマウントする。
+
+**preprocess="abs"対応（改善計画T404の先送り分）**: T423での調査の結果、実装しないことを
+最終決定した——absを使う軸は`gradient`のみで、`gradient`が参照する材料`gradient_percent`は
+`tile_property_direction_dependent=True`（方向依存材料）でもあり、方向依存材料を含む軸は
+`derive_ramp_inputs`がこの時点で`None`を返すよう既に設計されている。つまりabs対応を実装
+しても`gradient`のkind="ramp"化には一切寄与しない（2つの独立した制約が両方ともこの軸を
+弾く）——かつ`gradient`の地図表示は上記のとおりRedis経由のway_id→値配信という別経路に
+決着しており、そもそもramp（MVTタイル焼き込み）を必要としない。詳細は
+[domain/axis_display.py](../backend/app/domain/axis_display.py)のモジュールdocstring参照。
+
+**ルート確定後**（勾配）: `routeStyleModes.ts`の`STATIC_MODES`が持つ`"gradient"`モード
+（`gradient_percent`という符号付き生材料を直接読み、登り/下りを区別する専用実装、T352起票時
+から存在）が既にこの役割を担っており、T423で新規に実装したものではない——風の`"wind"`
+モード（`supports_route_coloring`経由の汎用難易度色分け）とは異なる仕組みだが、これは
+勾配が「向きを区別する必要があり難易度[0-100]という抽象化では表現できない」という固有の
+性質による意図的な非対称（`domain/axis_definitions.py: AxisDefinition.
+supports_route_coloring`のdocstring参照）。
 
 ### 地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）と一次/二次命名（改善計画T163〜T169）
 
@@ -2493,7 +2572,7 @@ axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成�
 [docs/tasks/T406.md](tasks/T406.md)参照）、続く改善計画T418（2026-08-30）で「評価軸」チップ
 自体を地図UIから撤去し「道路/環境/スポット」の3分類になった
 （[docs/tasks/T418.md](tasks/T418.md)参照）。評価軸（`car_stress`等の軸スタジオが作る全軸、
-`windAxis`）は、道路・環境・スポットと違い**ルートの状態と常に結び付いた道具**（ルート生成前は
+`windAxis`・`gradientAxis`）は、道路・環境・スポットと違い**ルートの状態と常に結び付いた道具**（ルート生成前は
 重み配分を検討する材料、生成後は結果を分析する材料）であり、ルートの有無に関係なく意味が
 一定な「地図そのものの見え方」設定として常設チップに置くこと自体が目的と合っていなかった、
 という判断による。評価軸の色分けは、ルート未確定時はルート設定パネル
@@ -2503,8 +2582,8 @@ axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成�
 `mapLayers.ts: mapOverlayGroupFor()`が既存の`category`/`dataNature`フィールドから機械的に
 導出する（道路=`category==="roadCondition"`、環境=`category==="terrain"||"weather"`、
 スポット=`category==="trafficSafety"||"amenity"`）。軸スタジオ由来のレイヤー
-（`isAxisStudioLayer()`、`dataNature==="composite"`のramp軸・way_id→wind_penalty配信層
-`windAxis`）はcategory判定より先に除外され、地図上チップ・サイドバーのどちらにも一切現れない
+（`isAxisStudioLayer()`、`dataNature==="composite"`のramp軸・way_id→動的値配信層
+`windAxis`/`gradientAxis`）はcategory判定より先に除外され、地図上チップ・サイドバーのどちらにも一切現れない
 （`MapOverlayControls.tsx: buildChipGroups`が単独チップへのフォールバックからも明示的に
 除外する）。「道路」はT406時点は「評価軸」と幾何[線]を共有する排他ドメインだったが、T418で
 評価軸チップ自体が撤去されたため単独ドメインになった（`mapOverlayExclusiveDomainFor()`が

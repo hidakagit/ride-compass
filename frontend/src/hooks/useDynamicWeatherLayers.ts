@@ -64,7 +64,8 @@ const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 // コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、
 // windBearingDegをそのままuseMemoの依存に使うとドラッグのたびにGeoJSON再構築＋MapView側の
-// source.setData()が連打される。useWindAxisPenalties.tsのbearingDegデバウンスと同じ値を使う。
+// source.setData()が連打される。useDynamicWayValues.ts（改善計画T423で旧
+// useWindAxisPenalties.tsから汎用化）のbearingDegデバウンスと同じ値を使う。
 const WIND_BEARING_DEBOUNCE_MS = 500;
 
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];

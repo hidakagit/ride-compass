@@ -3,7 +3,7 @@ from collections import defaultdict
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_region_service, get_wind_way_service
+from app.api.dependencies import get_dynamic_way_value_service, get_region_service
 from app.config import settings
 from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
@@ -238,24 +238,27 @@ def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_
     assert response.status_code == 200
 
 
-class FakeWindWayService:
-    """改善計画T405→T414で作り直し: /api/region/dynamic-way-values/wind向けフェイク。"""
+class FakeDynamicWayValueService:
+    """改善計画T405→T414→T423で材料id駆動へ汎用化: /api/region/dynamic-way-values/
+    {material_id}向けフェイク。風・勾配どちらのテストにも使う（get_way_valuesという
+    統一インターフェース、region.py参照）。"""
 
-    def __init__(self, penalties=None):
-        self._penalties = penalties if penalties is not None else {}
+    def __init__(self, values=None):
+        self._values = values if values is not None else {}
         self.last_request = None
 
-    async def get_way_wind_penalties(self, z, x, y, at, bearing_deg):
+    async def get_way_values(self, z, x, y, at, bearing_deg):
         self.last_request = (z, x, y, at, bearing_deg)
-        return self._penalties
+        return self._values
 
 
-def test_region_dynamic_way_values_wind_returns_penalties_json():
-    fake = FakeWindWayService(penalties={1: 2.34, 2: -1.5})
-    app.dependency_overrides[get_wind_way_service] = lambda: fake
+@pytest.mark.parametrize("material_id", ["wind", "gradient"])
+def test_region_dynamic_way_values_returns_values_json(material_id):
+    fake = FakeDynamicWayValueService(values={1: 2.34, 2: -1.5})
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447", params={"bearing_deg": 90})
+        response = client.get(f"/api/region/dynamic-way-values/{material_id}/14/14551/6447", params={"bearing_deg": 90})
     finally:
         app.dependency_overrides.clear()
 
@@ -265,20 +268,29 @@ def test_region_dynamic_way_values_wind_returns_penalties_json():
     assert fake.last_request == (14, 14551, 6447, None, 90.0)
 
 
-def test_region_dynamic_way_values_wind_requires_bearing_deg_query_param():
-    app.dependency_overrides[get_wind_way_service] = lambda: FakeWindWayService()
+@pytest.mark.parametrize("material_id", ["wind", "gradient"])
+def test_region_dynamic_way_values_requires_bearing_deg_query_param(material_id):
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: FakeDynamicWayValueService()
 
     try:
-        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447")
+        response = client.get(f"/api/region/dynamic-way-values/{material_id}/14/14551/6447")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
 
 
+def test_region_dynamic_way_values_unknown_material_id_returns_404():
+    # dependency_overridesを使わず実際のget_dynamic_way_value_serviceを通す
+    # （material_idバリデーション自体の検証、改善計画T423のT411実施部分）。
+    response = client.get("/api/region/dynamic-way-values/rain/14/14551/6447", params={"bearing_deg": 0})
+
+    assert response.status_code == 404
+
+
 def test_region_dynamic_way_values_wind_passes_at_query_param():
-    fake = FakeWindWayService()
-    app.dependency_overrides[get_wind_way_service] = lambda: fake
+    fake = FakeDynamicWayValueService()
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
 
     try:
         response = client.get(
@@ -292,8 +304,22 @@ def test_region_dynamic_way_values_wind_passes_at_query_param():
     assert fake.last_request[3].isoformat() == "2026-08-30T09:00:00"
 
 
-def test_region_dynamic_way_values_wind_rejects_too_low_zoom():
-    app.dependency_overrides[get_wind_way_service] = lambda: FakeWindWayService()
+def test_region_dynamic_way_values_gradient_does_not_require_at_query_param():
+    # 勾配は時刻に依存しないため、atを省略しても200（wind同様Noneが渡るだけ）。
+    fake = FakeDynamicWayValueService()
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/dynamic-way-values/gradient/14/14551/6447", params={"bearing_deg": 0})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake.last_request == (14, 14551, 6447, None, 0.0)
+
+
+def test_region_dynamic_way_values_rejects_too_low_zoom():
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: FakeDynamicWayValueService()
 
     try:
         response = client.get("/api/region/dynamic-way-values/wind/5/10/10", params={"bearing_deg": 0})
@@ -303,9 +329,9 @@ def test_region_dynamic_way_values_wind_rejects_too_low_zoom():
     assert response.status_code == 400
 
 
-def test_region_dynamic_way_values_wind_rate_limit_is_independent_from_road_surface_tile_rate_limit():
+def test_region_dynamic_way_values_rate_limit_is_independent_from_road_surface_tile_rate_limit():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_wind_way_service] = lambda: FakeWindWayService()
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: FakeDynamicWayValueService()
 
     try:
         for _ in range(settings.road_tile_rate_limit_per_minute):

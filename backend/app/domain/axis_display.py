@@ -20,12 +20,25 @@ BreakpointLinearShapeへ統合した際に判明した制約）:
   流用できる（近似ではなく数学的に厳密な流用。連続値は中間の値も取りうるため、boolean限定
   ケースと違い部分和集合ではなくbreakpoints自体のx値をそのまま使ってよい）。
 
-それ以外（`preprocess="abs"`[フロントの`buildAxisRampValueExpression`が未対応]・
-タイル非依存材料・実行時スケール変換が必要な材料[`tile_property_needs_runtime_scale=True`]・
-方向依存材料[`tile_property_direction_dependent=True`、改善計画T308]を含む軸、
-他の軸を参照する`MaterialTerm`を含む軸）は`None`を返す（自動導出対象外——地図に出ない。
-既存のkind="none"軸を壊さない安全側の判断。改善計画T298: kind="bespoke"は利用ゼロのため
-Literal自体を削除済み、registry.py参照）。
+それ以外（`preprocess="abs"`・タイル非依存材料・実行時スケール変換が必要な材料
+[`tile_property_needs_runtime_scale=True`]・方向依存材料
+[`tile_property_direction_dependent=True`、改善計画T308]を含む軸、他の軸を参照する
+`MaterialTerm`を含む軸）は`None`を返す（自動導出対象外——地図に出ない。既存のkind="none"軸を
+壊さない安全側の判断。改善計画T298: kind="bespoke"は利用ゼロのためLiteral自体を削除済み、
+registry.py参照）。
+
+**`preprocess="abs"`対応は実装しないと最終決定した**（改善計画T404で先送り→T423で調査・
+決定）。absを使う軸は現行`AXIS_DEFINITIONS`では`gradient`のみで、`gradient`が参照する
+材料`gradient_percent`は`tile_property_direction_dependent=True`（方向依存材料、
+`material_catalog.py`参照）でもある——上記のとおり方向依存材料を含む軸はこの時点で
+`None`が確定するため、`preprocess="abs"`対応を実装しても`gradient`のkind="ramp"化には
+**一切寄与しない**（2つの独立した制約が両方ともこの軸を弾く）。かつ`gradient`の地図表示は
+T423でRedis経由のway_id→値配信（`gradient_way_service.py`）という別経路に決着しており、
+そもそもramp（MVTタイル焼き込み）を必要としない。absを使う他の軸が今後追加される見込みも
+無いため、「動機のない機能を先回りして作らない」という複雑度平衡の原則
+（docs/complexity-review-2026-08-16.md）に沿い、フロント（`buildAxisRampValueExpression`）
+側の対応も含めて実装しないことを確定する。新たにabs前処理を使う軸（方向非依存の材料に
+absを適用したい場合等）が具体的に必要になった時点で、改めて着手を検討すること。
 
 この関数が対象外と判定した軸は`axis_display_for()`が`kind="none"`を返す（地図に出ない）。
 以前は`AxisDefinition.display_override`（軸自身が持つ手書きの`AxisDisplaySpec`、改善計画
@@ -297,8 +310,8 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
 
     if isinstance(shape, BreakpointLinearShape):
         if shape.preprocess != "identity":
-            # abs前処理はフロントのbuildAxisRampValueExpressionが未対応（改善計画T308の
-            # スコープ外、フォローアップ）。安全側でNone。
+            # abs前処理は実装しないと確定済み（改善計画T404→T423、モジュールdocstring
+            # 「`preprocess="abs"`対応は実装しないと最終決定した」節参照）。安全側でNone。
             return None
         # コードレビュー指摘（既知の制約、意図的に許容）: 評価側（evaluate_axis_scalar/
         # evaluate_axis_array）はrequired=Trueの材料が欠損していれば軸全体をNone/NaN

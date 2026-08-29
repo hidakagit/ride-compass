@@ -435,6 +435,57 @@ _WAY_IDS_IN_TILE_SQL = text(
 )
 
 
+# way_id→勾配（gradient_percent）配信層（改善計画T423、docs/tasks/T423.md）。上の
+# _WAY_IDS_IN_TILE_SQLと同じカバレッジ判定・空間フィルタだが、勾配はway_idの一覧だけでは
+# 足りない——T400.md「2.」節どおり、勾配は「道路自身の向き」が本質的に必要な材料
+# （風とは異なる性質、docs/tasks/T423.md「重要な注意点」参照）のため、各wayの
+# gradient_percent（elevation_attributes.average_grade）とbearing_deg（road_edges）を
+# 併せて返す。
+#
+# gradient_percent・bearing_degはOSM Way単位ではなくRoad Graph Edge単位
+# （road_edges、交差点で分割済み）の値のため、1つのwayが複数のedgeへ分割されている場合は
+# 代表として1本だけを選ぶ（DISTINCT ON、edge_id昇順で決定論的に固定）——同じwayの
+# 別区間で勾配が変わりうる実際の地形までは表現しないタイル単位の近似で、wind_way_service.py
+# が「風グリッドをタイル中心1点で代表させる」近似を採用しているのと同じ考え方。
+# forward/backward（road_edges is同じ物理区間を往復2方向で別行として持つ、domain/graph.py:
+# build_road_graph参照）のどちらを拾っても、domain/gradient.py: GradientCalculatorの
+# cos補正の結果は変わらない（bearing_degが180度反転し同時にgradient_percentの符号も
+# 反転するため、cos(180度)=-1との積で符号が2回反転し打ち消し合う。domain/gradient.pyの
+# モジュールdocstring・test_gradient.py参照）ため、代表の選び方自体は結果に影響しない。
+_WAY_GRADIENT_INPUTS_IN_TILE_SQL = text(
+    """
+    WITH coverage AS (
+        SELECT EXISTS(
+            SELECT 1 FROM road_graph_tiles
+            WHERE zoom = :coverage_zoom AND x = :coverage_x AND y = :coverage_y
+        ) AS covered
+    )
+    SELECT
+        coverage.covered,
+        CASE WHEN coverage.covered THEN (
+            SELECT COALESCE(
+                jsonb_object_agg(t.osm_way_id::text, jsonb_build_array(t.average_grade, t.bearing_deg)),
+                '{}'::jsonb
+            )
+            FROM (
+                SELECT DISTINCT ON (re.osm_way_id)
+                    re.osm_way_id,
+                    ea.average_grade,
+                    re.bearing_deg
+                FROM road_edges re
+                JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
+                WHERE re.osm_way_id IS NOT NULL
+                  AND ea.average_grade IS NOT NULL
+                  AND re.bearing_deg IS NOT NULL
+                  AND ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+                ORDER BY re.osm_way_id, re.edge_id
+            ) t
+        ) END AS way_gradient_inputs
+    FROM coverage
+    """
+)
+
+
 # 改善計画T54（既取込データの可視化漏れ解消）: 停止要因POI（osm_raw_pois）を1タイルへ
 # 焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定（road_graph_tilesのz12祖先
 # タイルマーク）を再利用しつつ、対象データソースが別テーブルの点データのため道路（way）とは
@@ -1865,6 +1916,35 @@ class RoadSurfaceTileQuery(_SessionRepository):
             return None
         return [int(way_id) for way_id in (way_ids or [])]
 
+    async def get_way_gradient_inputs_in_tile(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> dict[int, tuple[float, float]] | None:
+        """way_id→勾配（gradient_percent）配信層（改善計画T423）用に、指定タイル範囲へ
+        存在するway_idごとの`(gradient_percent, road_bearing_deg)`を返す。契約は
+        get_way_ids_in_tileと同じ（カバレッジ外はNone、カバレッジ内0件は空dict）。
+        gradient_percent・bearing_degのいずれかが欠損しているedgeは除外する
+        （_WAY_GRADIENT_INPUTS_IN_TILE_SQLのコメント参照）。
+        """
+        coverage_zoom, coverage_x, coverage_y = coverage_tile
+        result = await self._session.execute(
+            _WAY_GRADIENT_INPUTS_IN_TILE_SQL,
+            {
+                "coverage_zoom": coverage_zoom,
+                "coverage_x": coverage_x,
+                "coverage_y": coverage_y,
+                "xmin": bbox.min_longitude,
+                "ymin": bbox.min_latitude,
+                "xmax": bbox.max_longitude,
+                "ymax": bbox.max_latitude,
+            },
+        )
+        covered, way_gradient_inputs = result.one()
+        if not covered:
+            return None
+        return {
+            int(way_id): (float(pair[0]), float(pair[1])) for way_id, pair in (way_gradient_inputs or {}).items()
+        }
+
 
 class AttributeRepository(_SessionRepository):
     """Edge単位のRoad Attribute（elevation_attributes）の読み書き。
@@ -2563,3 +2643,10 @@ class RoadGraphRepository:
         # 改善計画T405→T414: way_id→wind_penalty配信層。詳細はRoadSurfaceTileQuery.
         # get_way_ids_in_tileのdocstring参照。
         return await self.tile_query.get_way_ids_in_tile(z, x, y, bbox, coverage_tile)
+
+    async def get_way_gradient_inputs_in_tile(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> dict[int, tuple[float, float]] | None:
+        # 改善計画T423: way_id→勾配配信層。詳細はRoadSurfaceTileQuery.
+        # get_way_gradient_inputs_in_tileのdocstring参照。
+        return await self.tile_query.get_way_gradient_inputs_in_tile(z, x, y, bbox, coverage_tile)

@@ -435,10 +435,16 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # タイルへ焼き込めない本当の理由は別にある: この値は進行方向依存の符号付き値
         # （登り坂プラス・下り坂マイナス）で、1つのOSM Way（地図上の1本の線）に対し
         # 往復2方向ぶんの異なる値を持ちうるため、方向を持たない静的なMVTタイルの
-        # プロパティ1個には焼き込めない（風向風速と同じ制約）。方向依存材料を地図表示へ
-        # 乗せる仕組み自体はT400（Redis経由のway_id→値配信＋setFeatureState）で
-        # 別途検討中。
+        # プロパティ1個には焼き込めない（風向風速と同じ制約）。
+        # **改善計画T423で解決**: 方向依存材料を地図表示へ乗せる仕組みは、風と同型の
+        # Redis経由way_id→値配信（`services/gradient_way_service.py`、
+        # `GET /api/region/dynamic-way-values/gradient/{z}/{x}/{y}`）として実装した。
+        # `tile_property`は今後も設定しない方針を確定する（MVT焼き込み経路[kind="ramp"、
+        # `axis_display.py: derive_ramp_inputs`]はそもそも方向非依存の材料しか安全に
+        # 表現できないため、`tile_property_direction_dependent=True`と両輪でこの材料が
+        # ramp化されないことを明示する）。
         tile_property=None,
+        tile_property_direction_dependent=True,
         primary_attribute_id="elevation",
         extractor=_extract_gradient_percent,
     ),

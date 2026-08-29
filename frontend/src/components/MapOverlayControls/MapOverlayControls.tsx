@@ -137,6 +137,12 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   // 同じ風のデータを扱うwindVectorと同じWindIconを流用する。T418でこのチップ自体は
   // 地図上から撤去したが、RouteSettingsPanel側がこのIcon辞書は引き続き参照しうるため残す。
   windAxis: WindIcon,
+  // 改善計画T423: 勾配の環境グループ面表示・評価軸配信層。専用アイコンは持たず、同じ地形
+  // データを扱うelevation（標高図）と同じElevationIconを流用する（windVector/windAxisが
+  // WindIconを共有するのと同じパターン）。gradientAxisもT418と同じ理由でチップとしては
+  // 地図上に出ないが、RouteSettingsPanel側の参照に備えてRecordを完全に埋める。
+  gradientFill: ElevationIcon,
+  gradientAxis: ElevationIcon,
   thunderNowcast: ThunderIcon,
   tornadoNowcast: TornadoIcon,
   landslideRisk: LandslideRiskIcon,

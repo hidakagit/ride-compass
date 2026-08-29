@@ -67,6 +67,8 @@ import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLa
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { WIND_AXIS_FEATURE_STATE_KEY, windAxisColorExpression } from "@/components/Map/windAxisLayer";
 import { windPenaltyFillColorExpression } from "@/components/Map/windPenalty";
+import { GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisColorExpression } from "@/components/Map/gradientAxisLayer";
+import { gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
@@ -186,6 +188,16 @@ const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
 // applyWindPenaltyFillGeojson参照。
 const WIND_PENALTY_FILL_SOURCE_ID = "wind-penalty-fill-source";
 const WIND_PENALTY_FILL_LAYER_ID = "region-wind-penalty-fill";
+// way_id→勾配（effective_gradient）配信層（改善計画T423）。WIND_AXIS_LAYER_IDと同型
+// ——ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けは
+// setFeatureState経由の値（gradientAxisColorExpression、gradientAxisLayer.ts）を読む。
+const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
+// 環境グループの勾配gridFill（改善計画T423）。WIND_PENALTY_FILL_*と同型だが、風と異なり
+// 独立した矢印表示を持たないため（gradientGridFill.tsのモジュールdocstring参照）
+// DYNAMIC_WEATHER_RENDERERS汎用機構へ乗せられない制約は無い——それでも風・勾配で
+// 実装パターンを揃えるため、bespokeなensure/apply関数のまま統一する。
+const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
+const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
 const TUNNEL_LAYER_ID = "region-tunnel-line";
 const ONEWAY_LAYER_ID = "region-oneway-line";
@@ -1031,8 +1043,9 @@ function ensureWindAxisLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// way_id→wind_penalty配信層（改善計画T405）。useWindAxisPenalties（hooks）が取得した
-// {way_id: wind_penalty}をMapLibreのsetFeatureStateで地物へ差し込む。パン・ズームで
+// way_id→wind_penalty配信層（改善計画T405）。useDynamicWayValues（hooks、改善計画T423で
+// 旧useWindAxisPenaltiesから汎用化）が取得した{way_id: wind_penalty}をMapLibreの
+// setFeatureStateで地物へ差し込む。パン・ズームで
 // 表示範囲が変わり、直前に取得した一部のway_idが最新の応答に含まれなくなっても、
 // 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
 // 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
@@ -1092,6 +1105,83 @@ function ensureWindPenaltyFillLayer(map: MapLibreMap) {
 function applyWindPenaltyFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
   if (!map.getSource(WIND_PENALTY_FILL_SOURCE_ID)) return;
   const source = map.getSource(WIND_PENALTY_FILL_SOURCE_ID) as GeoJSONSource | undefined;
+  source?.setData(geojson ?? EMPTY_FEATURE_COLLECTION);
+}
+
+// way_id→勾配（effective_gradient）配信層（改善計画T423）。ensureWindAxisLayerと同型
+// ——道路自身の向きが本質的に必要という材料の性質の違い（T423.mdの重要な注意点）は
+// backend側（gradient_way_service.py）の計算に閉じており、フロントのMapLibre配線は
+// windAxisと変わらない。
+function ensureGradientAxisLayer(map: MapLibreMap) {
+  ensureRoadSurfaceTileLayer(map);
+  const applyData = () => {
+    if (map.getLayer(GRADIENT_AXIS_LAYER_ID)) return;
+    map.addLayer({
+      id: GRADIENT_AXIS_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": gradientAxisColorExpression() as any,
+        "line-width": DEFAULT_ROAD_LINE_WIDTH,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// hooks/useDynamicWayValues.tsが取得した{way_id: effective_gradient}をMapLibreの
+// setFeatureStateで地物へ差し込む（applyWindAxisPenaltiesと同じ「古い値は明示的に消さない」
+// 方針、モジュールdocstring参照）。
+function applyGradientAxisValues(map: MapLibreMap, values: ReadonlyMap<number, number>) {
+  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
+  values.forEach((value, wayId) => {
+    map.setFeatureState(
+      { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: wayId },
+      { [GRADIENT_AXIS_FEATURE_STATE_KEY]: value },
+    );
+  });
+}
+
+/** 改善計画T423: gradientAxis（評価軸グループの勾配、視界内の全道路への一律色分け）が
+ * 終了する瞬間（showGradientAxisがfalseへ切り替わる瞬間——ルート確定・手動OFFのいずれも
+ * 含む）に、それまでsetFeatureStateで差し込んだ全道路ぶんの値を明示的にクリアする
+ * （clearWindAxisFeatureStateと同じ理由、T414の契約「ルート確定後はルート以外の道路を
+ * 無色に戻す」参照）。 */
+function clearGradientAxisFeatureState(map: MapLibreMap) {
+  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
+  map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
+}
+
+// 環境グループの勾配gridFill（改善計画T423）。ensureWindPenaltyFillLayerと同型。
+function ensureGradientFillLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(GRADIENT_FILL_LAYER_ID)) return;
+    map.addSource(GRADIENT_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION });
+    map.addLayer({
+      id: GRADIENT_FILL_LAYER_ID,
+      type: "fill",
+      source: GRADIENT_FILL_SOURCE_ID,
+      layout: { visibility: "none" },
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "fill-color": gradientFillColorExpression() as any,
+        "fill-opacity": 0.4,
+      },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+/** hooks/useDynamicWayValues.ts由来のgradientFillPayload（GeoJSON、gradientGridFill.ts:
+ * gradientGridCellsFromTileResponsesが組み立てる）をsourceへ反映する。visibility自体は
+ * STATIC_OVERLAY_LAYERS一括effect（showGradientFill）が別途担当する
+ * （applyWindPenaltyFillGeojsonと同じ「値の反映」と「表示ON/OFF」を分離する設計）。 */
+function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
+  if (!map.getSource(GRADIENT_FILL_SOURCE_ID)) return;
+  const source = map.getSource(GRADIENT_FILL_SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(geojson ?? EMPTY_FEATURE_COLLECTION);
 }
 
@@ -1433,6 +1523,10 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     // 改善計画T414: 環境グループの風penalty gridFill。windVector（矢印）と重ね描きするため
     // road_surfaceソースとは独立のジオメトリ（格子セル）を持つ。
     { key: "windPenaltyFill", layerId: WIND_PENALTY_FILL_LAYER_ID, ensure: ensureWindPenaltyFillLayer },
+    // 改善計画T423: way_id→勾配配信層（評価軸グループとしての勾配）。
+    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: ensureGradientAxisLayer },
+    // 改善計画T423: 環境グループの勾配gridFill（タイル境界セル）。
+    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: ensureGradientFillLayer },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -1795,7 +1889,8 @@ interface MapViewProps {
    * T406（パネル構成再編）が完了するまでの暫定措置として、既存の「動的」グループへ
    * 一時的なチップとして追加している（mapLayers.ts: windAxis参照）。 */
   showWindAxis: boolean;
-  /** hooks/useWindAxisPenalties.tsが現在のビューポートに対して取得したway_id→wind_penalty
+  /** hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから汎用化）が
+   * 現在のビューポートに対して取得したway_id→wind_penalty
    * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
    * setFeatureStateで路面タイルの地物へ差し込む（applyWindAxisPenalties参照）。 */
   windAxisPenalties: ReadonlyMap<number, number>;
@@ -1805,6 +1900,18 @@ interface MapViewProps {
    * hooks/useDynamicWeatherLayers.tsが計算した値をそのまま渡す。 */
   showWindPenaltyFill: boolean;
   windPenaltyGeojson: GeoJSON.FeatureCollection | undefined;
+  /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxis/windAxisPenaltiesと
+   * 同型——「評価軸」グループとしての勾配。hooks/useDynamicWayValues.tsが現在のビューポート
+   * に対して取得したway_id→effective_gradient（%、正=登り・負=下り）。 */
+  showGradientAxis: boolean;
+  gradientAxisValues: ReadonlyMap<number, number>;
+  /** 改善計画T423: 環境グループの勾配gridFill（windPenaltyFillと同型）。showGradientFillは
+   * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
+   * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
+   * byTileをgradientGridFill.ts: gradientGridCellsFromTileResponsesで変換した値をそのまま
+   * 渡す。 */
+  showGradientFill: boolean;
+  gradientFillGeojson: GeoJSON.FeatureCollection | undefined;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
@@ -1904,6 +2011,10 @@ export default function MapView({
   windAxisPenalties,
   showWindPenaltyFill,
   windPenaltyGeojson,
+  showGradientAxis,
+  gradientAxisValues,
+  showGradientFill,
+  gradientFillGeojson,
   showAccidents,
   showStopPoi,
   showSupplyPoi,
@@ -2011,6 +2122,8 @@ export default function MapView({
     showOneway,
     showWindAxis,
     showWindPenaltyFill,
+    showGradientAxis,
+    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2085,6 +2198,8 @@ export default function MapView({
       showOneway,
       showWindAxis,
       showWindPenaltyFill,
+      showGradientAxis,
+      showGradientFill,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -2115,6 +2230,8 @@ export default function MapView({
     showOneway,
     showWindAxis,
     showWindPenaltyFill,
+    showGradientAxis,
+    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2153,6 +2270,8 @@ export default function MapView({
       showOneway,
       showWindAxis,
       showWindPenaltyFill,
+      showGradientAxis,
+      showGradientFill,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -2175,6 +2294,8 @@ export default function MapView({
         oneway: showOneway,
         windAxis: showWindAxis,
         windPenaltyFill: showWindPenaltyFill,
+        gradientAxis: showGradientAxis,
+        gradientFill: showGradientFill,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -2792,6 +2913,8 @@ export default function MapView({
         oneway: showOneway,
         windAxis: showWindAxis,
         windPenaltyFill: showWindPenaltyFill,
+        gradientAxis: showGradientAxis,
+        gradientFill: showGradientFill,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -2811,6 +2934,8 @@ export default function MapView({
     showOneway,
     showWindAxis,
     showWindPenaltyFill,
+    showGradientAxis,
+    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2824,7 +2949,7 @@ export default function MapView({
     axisOverlayLayers,
   ]);
 
-  // way_id→wind_penalty配信層（改善計画T405）。hooks/useWindAxisPenalties.tsが現在の
+  // way_id→wind_penalty配信層（改善計画T405）。hooks/useDynamicWayValues.tsが現在の
   // ビューポートに対して取得した値をMapLibreのsetFeatureStateへ反映する。上の
   // STATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの切替）とは別のeffectにする理由は動的気象
   // レイヤーと同じ——windAxisPenaltiesはパン・ズームのたびに変わりうる値のため、他の
@@ -2855,6 +2980,26 @@ export default function MapView({
     if (!map) return;
     runWhenStyleReady(map, () => applyWindPenaltyFillGeojson(map, windPenaltyGeojson));
   }, [windPenaltyGeojson]);
+
+  // way_id→勾配（effective_gradient）配信層（改善計画T423）。上のwindAxisPenalties/
+  // clearWindAxisFeatureState/windPenaltyGeojson effectと同型（同じ理由・同じ分離方針）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    runWhenStyleReady(map, () => applyGradientAxisValues(map, gradientAxisValues));
+  }, [gradientAxisValues]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || showGradientAxis) return;
+    runWhenStyleReady(map, () => clearGradientAxisFeatureState(map));
+  }, [showGradientAxis]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    runWhenStyleReady(map, () => applyGradientFillGeojson(map, gradientFillGeojson));
+  }, [gradientFillGeojson]);
 
   // 動的気象レイヤー（降水ナウキャスト・風の矢印、改善計画T170/T171/T178、T183で降水延長予報を
   // 追加してから再設計）。いずれもpayloadが地図上の時刻スライダー操作のたびに変わるため、

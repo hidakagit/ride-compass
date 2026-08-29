@@ -62,6 +62,15 @@ export type MapLayerId =
   // チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）どちらにも
   // 現れないようにする。
   | "windAxis"
+  // 環境グループの勾配面表示（改善計画T423）。windVectorに相当する「向きに依存する
+  // 材料の環境グループ表現」だが、勾配には風のような独立した空間フィールド（矢印で表す
+  // ベクトル場）が無いため矢印表示は持たず、gridFill（タイル境界をセルとする面表示、
+  // gradientGridFill.ts）のみを持つ。
+  | "gradientFill"
+  // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型——道路自身の
+  // 向きが本質的に必要という点が風とは異なる性質（T423.mdの重要な注意点参照）だが、
+  // 配信・setFeatureState連携の枠組み自体はwindAxisと共有する（dynamicWayValues.ts）。
+  | "gradientAxis"
   // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。precipitationNowcastと同じ
   // 理由でkind="static"・dataNature="dynamic"。「回避一択」の危険（雷・竜巻）のため
   // 評価軸には組み込まず警告表示のみ（T170〜T178節の設計判断を踏襲）。
@@ -168,15 +177,16 @@ const MAP_OVERLAY_EXCLUSIVE_DOMAIN: Record<MapOverlayGroup, MapOverlayExclusiveD
   spot: "point",
 };
 
-/** 軸スタジオ由来のレイヤーか（改善計画T418）。ramp軸（dataNature==="composite"）・
- * way_id→wind_penalty配信層（id==="windAxis"）はどちらも、T406時点は地図上チップの
- * 「評価軸」グループへ束ねられていたが、T418でそのチップ自体を撤去しルート設定パネルへ
- * 移設した。地図上チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の
- * 両方が、この判定を使ってこれらのレイヤーを描画対象から除外する
- * （mapOverlayGroupForが返すundefinedは「route等、単独チップとして出す」ものと「軸スタジオ
- * 由来のため地図UIには一切出さない」ものの2種類が混在するため、区別に使う専用の判定）。 */
+/** 軸スタジオ由来のレイヤーか（改善計画T418、T423でgradientAxisを追加）。ramp軸
+ * （dataNature==="composite"）・way_id→動的値配信層（id==="windAxis"|"gradientAxis"）は
+ * いずれも、T406時点は地図上チップの「評価軸」グループへ束ねられていたが、T418でそのチップ
+ * 自体を撤去しルート設定パネルへ移設した。地図上チップ（MapOverlayControls.tsx）・
+ * サイドバー（MapLayersPanel.tsx）の両方が、この判定を使ってこれらのレイヤーを描画対象から
+ * 除外する（mapOverlayGroupForが返すundefinedは「route等、単独チップとして出す」ものと
+ * 「軸スタジオ由来のため地図UIには一切出さない」ものの2種類が混在するため、区別に使う
+ * 専用の判定）。 */
 export function isAxisStudioLayer(layer: { id: MapLayerId; dataNature?: MapLayerDataNature }): boolean {
-  return layer.id === "windAxis" || layer.dataNature === "composite";
+  return layer.id === "windAxis" || layer.id === "gradientAxis" || layer.dataNature === "composite";
 }
 
 /** レイヤー1件が属するMapOverlayGroupを判定する（改善計画T406/T418）。category/
@@ -495,6 +505,42 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "（面塗り）と同じ時刻・向きの指定を共有します。ルートを生成・選択すると、この一律の" +
       "色分けは終了し、代わりに「生成したルートの色分け」の「風」で、ルート自身の実際の" +
       "進行方向・到達時刻に基づく色分けをルート線だけに適用できます。",
+  },
+  {
+    // 環境グループの勾配面表示（改善計画T423）。windVectorと異なり独立した空間フィールドを
+    // 持たないため（gradientGridFill.tsのモジュールdocstring参照）、矢印は無くgridFillのみ。
+    id: "gradientFill",
+    label: "勾配（面）",
+    chipLabel: "勾配",
+    kind: "static",
+    category: "terrain",
+    dataNature: "dynamic",
+    description: "指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示",
+    panelHint:
+      "ONにすると地図下部にコンパススライダーが現れます。指定した走行方位（向き）と、" +
+      "そのタイル内の道路網が持つ実際の勾配・向きから、実効的な勾配（登り/下り）の平均を" +
+      "タイル単位の面で色分けします（改善計画T423）。「評価軸」グループの「勾配」（線）と" +
+      "同じ向きの指定を共有します。",
+  },
+  {
+    // way_id→勾配（effective_gradient）配信層（改善計画T423、docs/tasks/T400.md「2. 動的
+    // 要素…の二重表現」節）。上のgradientFill（タイル単位の面表示、探索用の「環境」表現）
+    // とは独立した評価軸としての表現——windAxisと同型（改善計画T418で地図上チップとしては
+    // 撤去し、ルート設定パネル[RouteSettingsPanel.tsx]の「勾配」行から起動する形へ移設）。
+    id: "gradientAxis",
+    label: "勾配（評価軸）",
+    chipLabel: "勾配軸",
+    kind: "static",
+    category: "terrain",
+    dataNature: "dynamic",
+    description: "指定した走行方位で進んだ場合の実効勾配を視界内の全道路へ一律に線色分け表示",
+    panelHint:
+      "ONにすると地図下部のコンパススライダーが使えるようになります。指定した走行方位と、" +
+      "各道路自身の勾配・向きから、その方向へ走った場合の実効的な勾配を計算して視界内の" +
+      "全道路を一律に色分けします（改善計画T423）。登るほど赤に、下るほど青に近づきます。" +
+      "「環境」グループの「勾配」（面塗り）と同じ向きの指定を共有します。ルートを生成・" +
+      "選択すると、この一律の色分けは終了し、代わりに「生成したルートの色分け」の「勾配」" +
+      "で、ルート自身の実際の進行方向に基づく色分けをルート線だけに適用できます。",
   },
   {
     // 雷ナウキャスト（改善計画T204）。T171実装メモが「プロダクトコード未確認のため

@@ -107,17 +107,21 @@ export default function RouteSettingsPanel({
   // category="動的"のためと誤って説明していたが、2026-08-30にDBスナップショット
   // [backend/fixtures/axis_definitions_snapshot.json]で確認し訂正した）。
   // way_id→wind_penalty配信層「windAxis」という専用レイヤーを持つためaxisIdで直接
-  // 判定する。どちらにも該当しない軸（勾配等、kind="none"）はundefined
-  // （地図表示非対応、docs/tasks/T400.md「7. kind=noneが残る範囲」節参照）。
+  // 判定する。改善計画T423: 勾配（gradient）も同じ理由でwindと同様の特殊軸——way_id→
+  // 勾配配信層「gradientAxis」を専用レイヤーとして持つためaxisIdで直接判定する
+  // （T400.md「7. kind=noneが残る範囲」節が「まだ地図表示用のデータ取得経路が無いだけ」
+  // としていた説明どおり、T423の実装でこの軸もkind=noneから外れた）。どちらにも該当
+  // しない軸はundefined（地図表示非対応）。
   function mapColorLayerIdFor(axisId: string): MapLayerId | undefined {
     if (axisId === "wind") return "windAxis";
+    if (axisId === "gradient") return "gradientAxis";
     return catalog.secondaryAxes.find((a) => a.axisId === axisId)?.layerId;
   }
 
   // 改善計画T418: 軸1件ぶんの「地図で色分け」トグル。専用レイヤーが無い軸・ルート確定後の
-  // 風はどちらも押せない案内表示にする（上記hasDetailのコメント参照）。トグル自体は
-  // 既存のramp軸描画ロジック（axisVisibility、MapView.tsx）・windAxis配信層
-  // （useWindAxisPenalties）をそのまま流用し、layerVisibility[layerId]のON/OFFを
+  // 風・勾配はどちらも押せない案内表示にする（上記hasDetailのコメント参照）。トグル自体は
+  // 既存のramp軸描画ロジック（axisVisibility、MapView.tsx）・windAxis/gradientAxis配信層
+  // （useDynamicWayValues）をそのまま流用し、layerVisibility[layerId]のON/OFFを
   // 切り替えるだけ——このコンポーネントは地図描画そのものには関与しない。
   function renderMapColorToggle(axis: PreferenceAxisDef) {
     const layerId = mapColorLayerIdFor(axis.axisId);
@@ -128,9 +132,10 @@ export default function RouteSettingsPanel({
         </span>
       );
     }
-    if (layerId === "windAxis" && hasDetail) {
+    if ((layerId === "windAxis" || layerId === "gradientAxis") && hasDetail) {
+      const label = layerId === "windAxis" ? "風" : "勾配";
       return (
-        <span className={styles.mapColorUnavailable} title='ルート確定後は「生成したルートの色分け」の「風」で確認できます'>
+        <span className={styles.mapColorUnavailable} title={`ルート確定後は「生成したルートの色分け」の「${label}」で確認できます`}>
           地図表示なし
         </span>
       );

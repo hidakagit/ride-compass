@@ -12,6 +12,7 @@ from typing import AsyncIterator, Awaitable, Callable
 from fastapi import Depends, Request
 
 from app.config import settings
+from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS
 from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -38,6 +39,7 @@ from app.services.route_generator import RouteGenerator
 from app.services.route_scorer import RouteScorer, load_scoring_weights
 from app.services.routing_service import RoutingService
 from app.services.flood_service import FloodService
+from app.services.gradient_way_service import GradientWayService
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
@@ -340,17 +342,34 @@ async def get_region_service():
         yield RegionService()
 
 
-async def get_wind_way_service(
+async def get_dynamic_way_value_service(
+    material_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    # 改善計画T405: way_id→wind_penalty配信層（「評価軸」グループとしての風）。
-    # get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
-    # パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
+    """改善計画T423（T411の実施）: way_id→動的値配信層（風・勾配、「評価軸」グループ）の
+    材料id駆動な単一の注入点。`material_id`（パスパラメータ）を見て、DBセッションを1つだけ
+    開いた上でその材料に対応するサービスを組み立てる——router側でwind/gradient両方の
+    サービスをDependsするとリクエストごとにDBセッションが2重に開いてしまうため、
+    この関数自体が分岐して1セッションで済ませる。`material_id`が未知の場合はNoneを返し、
+    呼び出し元（region.py）が404を返す。
+
+    get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
+    パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
+    """
+    if material_id not in DYNAMIC_WAY_VALUE_MATERIALS:
+        yield None
+        return
+
+    def _build(repository: RoadGraphRepository | None):
+        if material_id == "wind":
+            return WindWayService(repository=repository, weather_service=weather_service)
+        return GradientWayService(repository=repository)
+
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
-            yield WindWayService(repository=RoadGraphRepository(session), weather_service=weather_service)
+            yield _build(RoadGraphRepository(session))
     else:
-        yield WindWayService(repository=None, weather_service=weather_service)
+        yield _build(None)
 
 
 async def get_accident_service():

@@ -78,6 +78,8 @@ function baseLayerVisibility(): MapLayerVisibility {
     precipitationNowcast: false,
     windVector: false,
     windAxis: false,
+    gradientFill: false,
+    gradientAxis: false,
     thunderNowcast: false,
     tornadoNowcast: false,
     landslideRisk: false,
@@ -200,14 +202,17 @@ describe("RouteSettingsPanel", () => {
       expect(onLayerToggle).toHaveBeenCalledWith("axis:car_stress", true);
     });
 
-    it("専用の表示レイヤーを持たない軸（kind=none、勾配等）は色分けトグルの代わりに非対応の案内が出る", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient"], { gradient: "none" }));
+    it("専用の表示レイヤーを持たない軸（kind=none、風・勾配以外の未対応軸）は色分けトグルの代わりに非対応の案内が出る", async () => {
+      // 改善計画T423: 勾配（gradient）はgradientAxisという専用レイヤーを持つようになった
+      // ため、この「地図表示非対応」ケースの例としては使えなくなった。wind/gradient
+      // どちらでもない、まだ地図表示用のデータ取得経路が無い軸の例として架空のaxisIdを使う。
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["no_map_layer_axis"], { no_map_layer_axis: "none" }));
 
       render(
         <RouteSettingsPanel
           hardFilters={DEFAULT_HARD_FILTERS}
           onHardFiltersChange={vi.fn()}
-          routePreference={{ gradient: 0.3 }}
+          routePreference={{ no_map_layer_axis: 0.3 }}
           onRoutePreferenceChange={vi.fn()}
           overrideEnabled={false}
           onOverrideEnabledChange={vi.fn()}
@@ -299,6 +304,53 @@ describe("RouteSettingsPanel", () => {
 
       await waitFor(() => expect(screen.getByText("地図表示なし")).toBeInTheDocument());
       expect(screen.queryByRole("button", { name: "風で地図を色分け表示" })).not.toBeInTheDocument();
+    });
+
+    it("勾配（gradient）はsecondaryAxesに現れない特殊軸だが、gradientAxisレイヤーへの色分けトグルとして機能する（改善計画T423）", async () => {
+      const user = userEvent.setup();
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient"], { gradient: "none" }));
+      const onLayerToggle = vi.fn();
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.15 }}
+          onRoutePreferenceChange={vi.fn()}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+          {...baseNewProps()}
+          onLayerToggle={onLayerToggle}
+        />,
+      );
+
+      const toggle = await screen.findByRole("button", { name: "ラベル[gradient]で地図を色分け表示" });
+      await user.click(toggle);
+      expect(onLayerToggle).toHaveBeenCalledWith("gradientAxis", true);
+    });
+
+    it("ルート確定後（hasDetail=true）は勾配の色分けトグルが非対応の案内に切り替わる（改善計画T423）", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient"], { gradient: "none" }));
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.15 }}
+          onRoutePreferenceChange={vi.fn()}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+          {...baseNewProps()}
+          hasDetail
+        />,
+      );
+
+      await waitFor(() => expect(screen.getByText("地図表示なし")).toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: "ラベル[gradient]で地図を色分け表示" })).not.toBeInTheDocument();
+      expect(screen.getByText("地図表示なし")).toHaveAttribute(
+        "title",
+        'ルート確定後は「生成したルートの色分け」の「勾配」で確認できます',
+      );
     });
   });
 });

@@ -65,7 +65,8 @@ import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/win
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
-import { useWindAxisPenalties } from "@/hooks/useWindAxisPenalties";
+import { useDynamicWayValues } from "@/hooks/useDynamicWayValues";
+import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
@@ -159,6 +160,9 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   windVector: false,
   // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）。同じ理由で既定OFF。
   windAxis: false,
+  // 改善計画T423: 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
+  gradientFill: false,
+  gradientAxis: false,
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
   tornadoNowcast: false,
@@ -1044,9 +1048,37 @@ export default function Home() {
   // ルート設定パネルへ移ったため、hasDetail時のdisabled化は
   // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
   const showWindAxis = layerVisibility.windAxis && !hasDetail;
-  const windAxisPenalties = useWindAxisPenalties(showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
+  const windAxisData = useDynamicWayValues("wind", showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
+  const windAxisPenalties = windAxisData.values;
   // 環境グループの風penalty gridFill（改善計画T414）も同じ理由でルート確定後は表示しない。
   const showWindPenaltyFill = showWindVector && !hasDetail;
+
+  // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
+  // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有せず、
+  // 向き（gradientBearingDeg）だけ独立したstateとして持つ——`WindBearingSlider`は
+  // 「新規コンポーネントは作らない」方針どおり同じコンポーネントを再利用するが、値そのもの
+  // は風とは独立（docs/tasks/T423.md「確定済みの設計判断」3.）。「環境」グループ
+  // （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ1つの入力
+  // （向き）を共有する（T400.md「2.」節と同じ構造）。表示のON/OFF自体は別チップのまま。
+  const [gradientBearingDeg, setGradientBearingDeg] = useState(0);
+  const showGradientFill = layerVisibility.gradientFill && !hasDetail;
+  const showGradientAxis = layerVisibility.gradientAxis && !hasDetail;
+  // 環境（面）・評価軸（線）どちらかがONの間だけフェッチする（表示中のものだけ叩く方針）。
+  // gradientFillはgradientAxisとは独立に、フェッチ済みのway単位データをタイル単位で集計
+  // するだけで作れる（gradientGridFill.tsのモジュールdocstring参照、追加のAPI呼び出し
+  // 不要）ため、フェッチ自体は1本で両方の表現を賄う。
+  const gradientAxisData = useDynamicWayValues(
+    "gradient",
+    showGradientAxis || showGradientFill,
+    mapViewport,
+    gradientBearingDeg,
+    undefined
+  );
+  const gradientAxisValues = gradientAxisData.values;
+  const gradientFillPayload = useMemo(
+    () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
+    [showGradientFill, gradientAxisData.byTile]
+  );
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
@@ -1548,6 +1580,10 @@ export default function Home() {
             windAxisPenalties={windAxisPenalties}
             showWindPenaltyFill={showWindPenaltyFill}
             windPenaltyGeojson={windPenaltyPayload}
+            showGradientAxis={showGradientAxis}
+            gradientAxisValues={gradientAxisValues}
+            showGradientFill={showGradientFill}
+            gradientFillGeojson={gradientFillPayload}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}
@@ -1631,6 +1667,15 @@ export default function Home() {
                 なくhasDetailも見て出し分ける）。 */}
             {(showWindVector || layerVisibility.windAxis) && !hasDetail && (
               <WindBearingSlider value={windBearingDeg} onChange={setWindBearingDeg} ariaLabel="風の走行方位" />
+            )}
+            {/* 改善計画T423: 勾配の必要パラメータ（向きのみ、時刻非依存）を指定する
+                コンパススライダー。風と同じWindBearingSliderを再利用する（新規コンポーネント
+                は作らない、docs/tasks/T423.md「確定済みの設計判断」3.）。「環境」
+                （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ
+                入力を共有する（T400.md「2.」節と同じ構造）。値そのもの（gradientBearingDeg）
+                は風（windBearingDeg）とは独立。 */}
+            {(layerVisibility.gradientFill || layerVisibility.gradientAxis) && !hasDetail && (
+              <WindBearingSlider value={gradientBearingDeg} onChange={setGradientBearingDeg} ariaLabel="勾配の走行方位" />
             )}
           </div>
 
