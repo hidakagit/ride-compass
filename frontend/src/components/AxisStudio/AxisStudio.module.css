@@ -10,16 +10,34 @@
   margin: 0;
 }
 
-/* 改善計画T305: 使い方の説明を1段落のべた書きにせず箇条書きへ分ける
-   （実機フィードバック「説明文言がべた書きで全般的にみにくい」への対応）。 */
-.hintList {
-  margin: 0;
-  padding-left: 1.2rem;
-  color: var(--color-muted);
-  font-size: var(--font-size-md);
+/* 改善計画T397フォローアップ（ユーザー指摘: 公開済み/未公開をタブで分けたい・説明文が
+   多く見にくい）: 旧.hintList（T305で箇条書き化した使い方説明）は撤去した。下書き/
+   公開済みタブで見える操作ボタン自体が状況ごとに変わるため、「編集は下書きのみ」等の
+   説明を別途書く必要が薄れたため。 */
+.tabs {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: var(--space-2);
+}
+
+.tabList {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabTrigger {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--color-muted);
+  padding: 0.3rem 0.2rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabTrigger[data-state="active"] {
+  color: var(--foreground);
+  border-bottom-color: var(--color-accent, #2563eb);
 }
 
 .list {
@@ -64,27 +82,6 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   overflow-wrap: anywhere;
-}
-
-/* 改善計画T271: 公開状態バッジ。align-self:flex-startで.listRowMain(column)内の
-   .listLabelの隣に収まるように */
-.publishedBadge,
-.draftBadge {
-  align-self: flex-start;
-  font-size: var(--font-size-xs, 0.75rem);
-  font-weight: 700;
-  border-radius: var(--radius-sm);
-  padding: 0.05rem 0.4rem;
-}
-
-.publishedBadge {
-  color: var(--color-success, #1a7f37);
-  background: var(--color-success-muted, rgba(26, 127, 55, 0.12));
-}
-
-.draftBadge {
-  color: var(--color-muted);
-  background: var(--color-surface-2);
 }
 
 .listRowActions {

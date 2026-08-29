@@ -336,16 +336,26 @@ describe("AxisStudio", () => {
     confirmSpy.mockRestore();
   });
 
-  it("公開済み軸には「非公開に戻す」ボタンが表示され、下書き軸には表示されない", async () => {
+  // 改善計画T397フォローアップ（ユーザー指摘: 公開済み/未公開をタブで分けたい）:
+  // 「非公開に戻す」は公開済みタブにのみ現れ、下書きタブには編集・削除ボタンが現れる
+  // （公開済みタブは編集・削除ボタン自体を出さない設計、AxisStudio.tsx参照）。
+  it("下書きタブには編集・削除ボタンが、公開済みタブには非公開に戻すボタンが現れる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
       definition({ axis_id: "gradient", is_published: true }),
       definition({ axis_id: "draft_axis", label: "下書き軸", is_published: false }),
     ]);
+    const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("下書き軸")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "編集" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument();
 
-    expect(screen.getAllByRole("button", { name: "非公開に戻す" })).toHaveLength(1);
+    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
+
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "非公開に戻す" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "編集" })).not.toBeInTheDocument();
   });
 
   // 改善計画T331残り5項目: AxisStudio.tsxのCRUD実行系（複製・削除・非公開化・保存）の
@@ -358,6 +368,8 @@ describe("AxisStudio", () => {
     const user = userEvent.setup();
     render(<AxisStudio />);
 
+    // 改善計画T397フォローアップ: 公開済み軸は公開済みタブにいる。
+    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "複製して新規作成" }));
 
@@ -378,6 +390,8 @@ describe("AxisStudio", () => {
     const user = userEvent.setup();
     render(<AxisStudio />);
 
+    // 改善計画T397フォローアップ: 公開済み軸は公開済みタブにいる。
+    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     const callsBeforeUnpublish = vi.mocked(listAxisDefinitions).mock.calls.length;
     await user.click(screen.getByRole("button", { name: "非公開に戻す" }));

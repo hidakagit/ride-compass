@@ -42,11 +42,7 @@ export default function AdminPage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>軸スタジオ・研究/開発者ツール</h1>
-        <p className={styles.subtitle}>
-          このページは独立URL（/admin）の管理画面です。一般向けルート設定はトップページ
-          （/）を使ってください。評価重み・レシピの設定はブラウザのlocalStorage経由で
-          トップページと共有されます。
-        </p>
+        <p className={styles.subtitle}>研究/開発者向けの管理画面です。一般向けはトップページ（/）へ。</p>
       </header>
 
       <section className={styles.section}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { materialLabel } from "@/lib/axisMaterialsCatalog";
 import {
@@ -153,52 +154,82 @@ export default function AxisStudio() {
       ? `「${duplicateFrom.label}」を複製して新しい軸を作る`
       : "新しい軸を作る";
 
+  const draftDefs = definitions?.filter((d) => !d.is_published) ?? [];
+  const publishedDefs = definitions?.filter((d) => d.is_published) ?? [];
+
+  function renderRowMain(def: AxisDefinitionResponse) {
+    return (
+      <div className={styles.listRowMain}>
+        <span className={styles.listLabel} title={`axis_id: ${def.axis_id}`}>
+          {def.label}
+        </span>
+        <span className={styles.listMeta}>
+          {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
+          {materialIdsOf(def.shape)
+            .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
+            .join("・")}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.studio}>
       <p className={styles.hint}>
-        軸は「距離・獲得標高が近い候補の中から、どれくらい走りやすいか」を評価する計算式
-        1本ぶんです。
+        軸は「距離・獲得標高が近い候補の中から、どれくらい走りやすいか」を評価する計算式です。
       </p>
-      <ul className={styles.hintList}>
-        <li>少し調整したいだけなら、一覧から「編集」（下書きの軸のみ）</li>
-        <li>一から作るなら「+ 新しい軸を作る」</li>
-        <li>
-          公開済み軸は他ユーザーの設定を守るため直接編集・削除できません。改良は「複製して
-          新規作成」→検証→公開、削除は「非公開に戻す」→削除、という流れになります。
-        </li>
-      </ul>
       {listError && <p className={styles.errorText}>{listError}</p>}
-      <div className={styles.list}>
-        <p className={styles.groupLabel}>登録済みの軸（{definitions?.length ?? "..."}）</p>
-        {definitions?.map((def) => (
-          <div key={def.axis_id} className={styles.listRow}>
-            <div className={styles.listRowMain}>
-              <span className={styles.listLabel} title={`axis_id: ${def.axis_id}`}>
-                {def.label}
-              </span>
-              <span className={def.is_published ? styles.publishedBadge : styles.draftBadge}>
-                {def.is_published ? "公開済み" : "下書き"}
-              </span>
-              <span className={styles.listMeta}>
-                {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
-                {materialIdsOf(def.shape)
-                  .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
-                  .join("・")}
-              </span>
+
+      {/* 改善計画T397フォローアップ（ユーザー指摘: 公開済みと未公開をタブで分けたい）。
+          下書きタブを既定にする——新規作成した軸はまず下書きから始まり、実際の編集・
+          削除操作もほぼ下書きに対して行うため。公開済みタブは編集・削除ボタン自体を
+          出さない（常に無効化されているだけの状態を見せるより、そもそも出さない方が
+          シンプル。改良は「複製して新規作成」、削除は先に「非公開に戻す」という導線は
+          複製・非公開に戻すボタンの隣に残す）。 */}
+      <Tabs.Root className={styles.tabs} defaultValue="draft">
+        <Tabs.List className={styles.tabList}>
+          <Tabs.Trigger className={styles.tabTrigger} value="draft">
+            下書き（{draftDefs.length}）
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabTrigger} value="published">
+            公開済み（{publishedDefs.length}）
+          </Tabs.Trigger>
+        </Tabs.List>
+
+        <Tabs.Content className={styles.list} value="draft">
+          {draftDefs.length === 0 && <p className={styles.hint}>下書きの軸はありません。</p>}
+          {draftDefs.map((def) => (
+            <div key={def.axis_id} className={styles.listRow}>
+              {renderRowMain(def)}
+              <div className={styles.listRowActions}>
+                <button type="button" onClick={() => setEditingAxisId(def.axis_id)}>
+                  編集
+                </button>
+                <button type="button" onClick={() => handleDuplicate(def)}>
+                  複製して新規作成
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(def.axis_id)}
+                  disabled={deletingAxisId === def.axis_id || (definitions?.length ?? 0) <= 1}
+                  title={(definitions?.length ?? 0) <= 1 ? "最後の1軸は削除できません" : undefined}
+                >
+                  削除
+                </button>
+              </div>
             </div>
-            <div className={styles.listRowActions}>
-              <button
-                type="button"
-                onClick={() => setEditingAxisId(def.axis_id)}
-                disabled={def.is_published}
-                title={def.is_published ? "公開済み軸は編集できません（複製して編集してください）" : undefined}
-              >
-                編集
-              </button>
-              <button type="button" onClick={() => handleDuplicate(def)}>
-                複製して新規作成
-              </button>
-              {def.is_published && (
+          ))}
+        </Tabs.Content>
+
+        <Tabs.Content className={styles.list} value="published">
+          {publishedDefs.length === 0 && <p className={styles.hint}>公開済みの軸はありません。</p>}
+          {publishedDefs.map((def) => (
+            <div key={def.axis_id} className={styles.listRow}>
+              {renderRowMain(def)}
+              <div className={styles.listRowActions}>
+                <button type="button" onClick={() => handleDuplicate(def)}>
+                  複製して新規作成
+                </button>
                 <button
                   type="button"
                   onClick={() => handleUnpublish(def.axis_id)}
@@ -207,25 +238,11 @@ export default function AxisStudio() {
                 >
                   非公開に戻す
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => handleDelete(def.axis_id)}
-                disabled={deletingAxisId === def.axis_id || (definitions?.length ?? 0) <= 1 || def.is_published}
-                title={
-                  def.is_published
-                    ? "公開済み軸は削除できません（先に「非公開に戻す」を押してください）"
-                    : (definitions?.length ?? 0) <= 1
-                      ? "最後の1軸は削除できません"
-                      : undefined
-                }
-              >
-                削除
-              </button>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </Tabs.Content>
+      </Tabs.Root>
 
       <button
         type="button"
