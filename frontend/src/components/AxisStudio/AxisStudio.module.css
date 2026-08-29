@@ -293,3 +293,58 @@
   flex-direction: column;
   gap: 0.15rem;
 }
+
+/* 改善計画T397: 係数・スコアのスライダー+数値入力の組み合わせ（AxisComposer.tsx:
+   SliderNumberField）。 */
+.sliderNumberField {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sliderNumberField input[type="range"] {
+  width: 6rem;
+}
+
+.sliderNumberField input[type="number"] {
+  width: 4.5rem;
+  font-size: var(--font-size-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  padding: 0.2rem 0.4rem;
+}
+
+/* 改善計画T397: 下ごしらえ（そのまま/絶対値）のラジオボタン行。選択肢が2つしかない
+   ため、ドロップダウンではなく常に両方を見せるラジオボタンにした。 */
+.radioRow {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* 改善計画T397: 折れ点(breakpoints)のドラッグ式曲線プレビュー（AxisComposer.tsx:
+   BreakpointCurveEditor）。既存の数値入力行の上に添える補助的な可視化・操作手段。 */
+.curveEditor {
+  width: 100%;
+  max-width: 24rem;
+  height: 10rem;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  touch-action: none;
+}
+
+.curveAxis {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+}
+
+.curveLine {
+  fill: none;
+  stroke: var(--color-accent, #2563eb);
+  stroke-width: 2;
+}
+
+.curvePoint {
+  fill: var(--color-accent, #2563eb);
+  cursor: grab;
+}

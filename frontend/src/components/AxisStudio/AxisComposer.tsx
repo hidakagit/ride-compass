@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import { InfoIcon } from "@/components/Map/icons";
@@ -30,13 +30,17 @@ import recipeControlStyles from "@/components/Map/recipeControls.module.css";
 // 返す候補から選ぶ（目論見書7章・歯止め4「材料の天井」。API取得失敗時はlib/
 // axisMaterialsCatalog.tsの静的フォールバックへ自動的に切り替わる）。
 
-type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical" | "flag_sum";
+type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical";
 
-// 改善計画T332: 「変換テンプレート(shape)」という技術名のドロップダウンを、
-// 「どうやって点数をつけたいか」という利用者視点の質問＋カード選択へ置き換える
-// （旧SHAPE_KIND_DESCRIPTIONSは「用語が何か」の説明だったが、こちらは「どんな時に選ぶか」
-// を主役にする）。recipe_then_breakpoint_linearのみ、内部軸参照という上級者向けの用途の
-// ため`advanced: true`を付け、他3枚より控えめに表示する。
+// 改善計画T397: 軸スタジオの合成ロジックが2プリミティブ+合成へ再設計された（T396）ことに
+// 合わせ、4枚のカードを3枚へ整理した。「複数の要素の有無を数えて減点・加点する」
+// （旧flag_sum）は「数値の大きさに応じて点数を変える」（なめらか評価）に吸収した——
+// backend側では元々同一の仕組み（真偽値材料は該当時1・非該当時0として係数と掛け合わされる）
+// で、専用の別画面を持たせる理由が無かったため（カードの説明文に両方の具体例を残し、
+// どちらの用途で来たユーザーも迷わないようにする）。recipe_then_breakpoint_linear
+// （かけあわせ評価）は他の軸を組み合わせる専用の入口として引き続き独立させるが、
+// 「純粋な重み付き結合（nX + mY）」に絞り、折れ点の編集UIは出さない（ユーザー判断、
+// 条件判定等は含めない）。
 interface ShapeKindOption {
   kind: ShapeKind;
   title: string;
@@ -46,25 +50,21 @@ interface ShapeKindOption {
 
 const SHAPE_KIND_OPTIONS: ShapeKindOption[] = [
   {
-    kind: "categorical",
-    title: "はい/いいえ、または種類ごとに点数を決める",
-    description: "例: 一方通行かどうか、自転車専用道かどうか、道路の種類ごとに点数を変える。",
-  },
-  {
     kind: "breakpoint_linear",
-    title: "数値の大きさに応じて点数を変える",
-    description: "例: 勾配(%)が急なほど点数を下げる、停止回数が多いほど点数を下げる。",
+    title: "なめらか評価",
+    description:
+      "数値の大きさに応じて点数を変えたり（例: 勾配(%)が急なほど点数を下げる）、複数の要素の有無を数えて減点・加点したり（例: 街灯なし・トンネルなど、危険要素が当てはまるほど点数を下げる）します。",
   },
   {
-    kind: "flag_sum",
-    title: "複数の要素の有無を数えて減点・加点する",
-    description: "例: 街灯なし・トンネルなど、危険要素が当てはまるほど点数を下げる。",
+    kind: "categorical",
+    title: "ぴったり評価",
+    description: "はい/いいえ、または種類ごとに点数を決めます（例: 一方通行かどうか、道路の種類ごとに点数を変える）。",
   },
   {
     kind: "recipe_then_breakpoint_linear",
-    title: "他の軸を重みで足し合わせて点数を変える（nX + mYのように）",
+    title: "かけあわせ評価",
     description:
-      "他の軸（内部軸・公開軸どちらも可）の計算結果に重み(n, m…)を掛けて合計し、必要なら下の折れ点で最終調整します。「勾配の軸を2倍重視、風の軸を1倍」のように複数の軸を組み合わせたいときに選びます。仕組み自体は「数値の大きさに応じて点数を変える」と同じです。",
+      "既にある軸（内部軸・公開軸どちらも可）のスコアに重み(n, m…)を掛けて合計します（nX + mYのように）。「勾配の軸を2倍重視、風の軸を1倍」のように複数の軸を組み合わせたいときに選びます。",
     advanced: true,
   },
 ];
@@ -102,6 +102,125 @@ function MaterialInfoButton({ option }: { option: AxisMaterialOption | undefined
   return <InfoPopoverButton ariaLabel={`${option.label}の説明`} description={option.description} />;
 }
 
+/** 改善計画T397: 係数・スコアの入力を「スライダーで大まかに調整＋数値で正確に入力」の
+ * 組み合わせにする（ユーザー指摘: 数値入力だけでなくスライダーも使いたい）。両者は同じ
+ * stateを指すため常に同期する。値そのものの取りうる範囲は材料ごとに大きく異なる
+ * （傾斜の係数1.0、車線数の係数0.1、旧flag_sumの加点50等）ため、スライダーの範囲は
+ * あくまで「大まかな調整用の目安」とし、範囲外の値は数値入力欄から直接指定できる
+ * （スライダー自体はその値を表示できないが、隣の数値入力の値がそのまま送信される）。 */
+function SliderNumberField({
+  value,
+  onChange,
+  label,
+  min,
+  max,
+  step,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}) {
+  const clamped = Math.min(max, Math.max(min, value));
+  return (
+    <span className={styles.sliderNumberField}>
+      <input
+        type="range"
+        aria-label={`${label}(スライダー)`}
+        min={min}
+        max={max}
+        step={step}
+        value={clamped}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <input
+        type="number"
+        step={step}
+        value={value}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </span>
+  );
+}
+
+/** 改善計画T397: 折れ点(breakpoints)をドラッグで調整できる曲線エディタ。既存の数値入力
+ * 行（正確な値の入力・行の追加削除）はそのまま残し、この曲線はその可視化＋補助的な
+ * 操作手段として上に添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
+ * 横軸・縦軸とも現在のbreakpointsの値から自動的にスケールする。 */
+function BreakpointCurveEditor({
+  breakpoints,
+  onChangePoint,
+}: {
+  breakpoints: [number, number][];
+  onChangePoint: (index: number, pos: 0 | 1, value: number) => void;
+}) {
+  const width = 400;
+  const height = 160;
+  const padding = 28;
+  const xs = breakpoints.map((bp) => bp[0]);
+  const ys = breakpoints.map((bp) => bp[1]);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const yMin = Math.min(0, ...ys);
+  const yMax = Math.max(100, ...ys);
+  const xSpan = xMax - xMin || 1;
+  const ySpan = yMax - yMin || 1;
+
+  function toScreen(bp: [number, number]): [number, number] {
+    const sx = padding + ((bp[0] - xMin) / xSpan) * (width - padding * 2);
+    const sy = height - padding - ((bp[1] - yMin) / ySpan) * (height - padding * 2);
+    return [sx, sy];
+  }
+
+  function fromScreen(sx: number, sy: number): [number, number] {
+    const x = xMin + ((sx - padding) / (width - padding * 2)) * xSpan;
+    const y = yMin + ((height - padding - sy) / (height - padding * 2)) * ySpan;
+    return [Math.round(x * 10) / 10, Math.round(y)];
+  }
+
+  const points = breakpoints.map(toScreen);
+  const polyline = points.map(([x, y]) => `${x},${y}`).join(" ");
+
+  function handlePointerMove(e: ReactPointerEvent<SVGCircleElement>, index: number) {
+    if (e.buttons !== 1) return;
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const sx = ((e.clientX - rect.left) / rect.width) * width;
+    const sy = ((e.clientY - rect.top) / rect.height) * height;
+    const [x, y] = fromScreen(sx, sy);
+    onChangePoint(index, 0, x);
+    onChangePoint(index, 1, y);
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className={styles.curveEditor}
+      role="img"
+      aria-label="折れ点の曲線プレビュー（ドラッグで調整可能）"
+    >
+      <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className={styles.curveAxis} />
+      <line x1={padding} y1={padding} x2={padding} y2={height - padding} className={styles.curveAxis} />
+      <polyline points={polyline} className={styles.curveLine} />
+      {points.map(([x, y], i) => (
+        <circle
+          key={i}
+          cx={x}
+          cy={y}
+          r={7}
+          className={styles.curvePoint}
+          onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+          onPointerMove={(e) => handlePointerMove(e, i)}
+        />
+      ))}
+    </svg>
+  );
+}
+
 // 改善計画T305: axis_idはユーザー入力欄から撤去した。ユーザーからの指摘「axis_idは
 // システムが勝手に一意な何かを自動採番してくれればよい。設定画面に不要では？画面上は
 // 表示名があればよい」への対応——内部識別子であって人間が読む必要はなく、実際に画面上で
@@ -125,11 +244,6 @@ interface TermDraft {
   material: string;
   weight: number;
   required: boolean;
-}
-
-interface FlagDraft {
-  material: string;
-  points: number;
 }
 
 /** 改善計画T322: categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
@@ -158,8 +272,6 @@ interface Draft {
   /** 改善計画T322: categoricalMaterialのdtypeが"categorical"のときのみ使う行群。
    * dtype="boolean"の材料を選んでいる間はtrueScore/falseScoreの方を使う。 */
   categoricalRows: CategoricalRowDraft[];
-  flags: FlagDraft[];
-  cap: number | null;
   /** 改善計画T271: 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
    * backend側で更新・削除が拒否される（不変制約）ため、確定前によく確認してからONにする。 */
   isPublished: boolean;
@@ -206,8 +318,6 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     trueScore: 0,
     falseScore: 80,
     categoricalRows: [],
-    flags: [{ material: firstBoolean, points: 50 }],
-    cap: 100,
     isPublished: false,
     iconId: "",
     chipLabel: "",
@@ -263,10 +373,11 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
       falseScore: shape.mapping["false"] ?? 0,
     };
   }
-  // 改善計画T396: backendはbreakpoint_linear/recipe_then_breakpoint_linear/flag_sumの
+  // 改善計画T396/T397: backendはbreakpoint_linear/recipe_then_breakpoint_linear/flag_sumの
   // 3種を"breakpoint_linear"1種へ統合したため、保存済みのkindだけでは元々どのカードで
-  // 作られた軸かを判別できない。termsの構造（材料か他軸か・全termがboolean材料か）から
-  // 表示するカードを推定し直す（domain/axis_display.pyの構造判定と同じ考え方）。
+  // 作られた軸かを判別できない。termsの構造（材料か他軸か）から表示するカードを推定し直す
+  // （domain/axis_display.pyの構造判定と同じ考え方）。旧flag_sum相当（全termがboolean材料）は
+  // T397で「なめらか評価」カードへ吸収されたため、専用の判別は不要になった。
   const isAxisReference = (material: string) => !materialOptions.some((m) => m.id === material);
   if (shape.terms.length > 0 && shape.terms.every((t) => isAxisReference(t.material))) {
     return {
@@ -275,20 +386,6 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
       terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
       preprocess: shape.preprocess,
       breakpoints: shape.breakpoints,
-    };
-  }
-  const isIdentityClampCurve =
-    shape.breakpoints.length === 2 &&
-    shape.breakpoints[0][0] === 0 &&
-    shape.breakpoints[0][1] === 0 &&
-    shape.breakpoints[1][0] === shape.breakpoints[1][1];
-  const allBoolean = shape.terms.every((t) => materialOptions.find((m) => m.id === t.material)?.dtype === "boolean");
-  if (shape.terms.length > 0 && allBoolean && isIdentityClampCurve && shape.preprocess === "identity") {
-    return {
-      ...common,
-      shapeKind: "flag_sum",
-      flags: shape.terms.map((t) => ({ material: t.material, points: t.weight })),
-      cap: shape.breakpoints[1][0],
     };
   }
   return {
@@ -320,35 +417,20 @@ function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]
       breakpoints: draft.breakpoints,
     };
   }
-  if (draft.shapeKind === "categorical") {
-    const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
-    if (dtype === "categorical") {
-      return {
-        kind: "categorical",
-        material: draft.categoricalMaterial,
-        mapping: Object.fromEntries(
-          draft.categoricalRows.filter((r) => r.value.trim() !== "").map((r) => [r.value.trim(), r.score]),
-        ),
-      };
-    }
+  const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
+  if (dtype === "categorical") {
     return {
       kind: "categorical",
       material: draft.categoricalMaterial,
-      mapping: { true: draft.trueScore, false: draft.falseScore },
+      mapping: Object.fromEntries(
+        draft.categoricalRows.filter((r) => r.value.trim() !== "").map((r) => [r.value.trim(), r.score]),
+      ),
     };
   }
-  // 改善計画T396: 旧flag_sum（真偽値フラグの加点合計）はbreakpoint_linearの特殊形
-  // （全termがboolean材料、breakpoints=[[0,0],[cap,cap]]の恒等クランプ）として保存する。
-  // cap未入力時は達成しうる最大合計（全フラグのpoints合計）を既定のクランプ上限にする。
-  const cap = draft.cap ?? draft.flags.reduce((sum, f) => sum + f.points, 0);
   return {
-    kind: "breakpoint_linear",
-    terms: draft.flags.map((f) => ({ material: f.material, weight: f.points, required: true })),
-    preprocess: "identity",
-    breakpoints: [
-      [0, 0],
-      [cap, cap],
-    ],
+    kind: "categorical",
+    material: draft.categoricalMaterial,
+    mapping: { true: draft.trueScore, false: draft.falseScore },
   };
 }
 
@@ -529,10 +611,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     }));
   }
 
-  function updateFlag(index: number, patch: Partial<FlagDraft>) {
-    setDraft((d) => ({ ...d, flags: d.flags.map((f, i) => (i === index ? { ...f, ...patch } : f)) }));
-  }
-
   function updateCategoricalRow(index: number, patch: Partial<CategoricalRowDraft>) {
     setDraft((d) => ({
       ...d,
@@ -709,11 +787,11 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
               <>
                 <p className={styles.groupLabel}>組み合わせる軸(terms)</p>
                 <p className={styles.hint}>
-                  各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、下の折れ点でスコアへ変換されます（nX + mYのように軸同士を重み付きで足し合わせるイメージです）。
+                  各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、そのままスコアになります（nX + mYのように軸同士を重み付きで足し合わせるだけの、純粋な結合です）。
                 </p>
                 {axisTermOptions.length === 0 && (
                   <p className={styles.errorText}>
-                    組み合わせられる他の軸がまだありません。先に「数値の大きさに応じて点数を変える」等で軸を1つ以上作成してから使えます。
+                    組み合わせられる他の軸がまだありません。先に「なめらか評価」等で軸を1つ以上作成してから使えます。
                   </p>
                 )}
               </>
@@ -721,20 +799,15 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
               <>
                 <p className={styles.groupLabel}>材料(terms)</p>
                 <p className={styles.hint}>
-                  はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。
+                  はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます。街灯なし・トンネルなど、複数の危険要素の有無を数えて減点・加点したい場合もここに追加してください）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。
                 </p>
               </>
             )}
             {/* 改善計画T342: booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
                 backend/app/domain/axis_definitions.py: evaluate_axis_scalarのBreakpointLinearShape
-                分岐参照。T336のcar_stress_bicycle_infra_adjustment軸自体が複数のboolean材料を
-                重み付きで結合するBreakpointLinearShapeの実例で、backend側は元々対応していたが
-                このセレクトがnumeric限定のままだったため、GUIから同種の軸を組めなかった）。
-                categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側でエラーになる）。
-                ユーザー指摘への対応: recipe_then_breakpoint_linear（他の軸を組み合わせる
-                テンプレート）は、材料の代わりに他の軸(axisTermOptions)を候補にする
-                （backend側はMaterialTerm.materialへ他axis_idを指定できる設計だったが、
-                このセレクトが材料カタログしか出しておらず選ぶ手段自体が無かった）。 */}
+                分岐参照）。categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側で
+                エラーになる）。recipe_then_breakpoint_linear（かけあわせ評価）は、材料の代わりに
+                他の軸(axisTermOptions)を候補にする。 */}
             {draft.terms.map((term, i) => {
               const termOptions =
                 draft.shapeKind === "recipe_then_breakpoint_linear"
@@ -750,12 +823,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     ))}
                   </select>
                   <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
-                  <input
-                    type="number"
-                    step="0.1"
+                  <SliderNumberField
+                    label="係数"
                     value={term.weight}
-                    aria-label="係数"
-                    onChange={(e) => updateTerm(i, { weight: Number(e.target.value) })}
+                    onChange={(next) => updateTerm(i, { weight: next })}
+                    min={draft.shapeKind === "recipe_then_breakpoint_linear" ? -5 : -100}
+                    max={draft.shapeKind === "recipe_then_breakpoint_linear" ? 5 : 100}
+                    step={draft.shapeKind === "recipe_then_breakpoint_linear" ? 0.05 : 0.1}
                   />
                   <label className={styles.inlineCheckbox}>
                     <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
@@ -793,55 +867,77 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
               + {draft.shapeKind === "recipe_then_breakpoint_linear" ? "軸を追加" : "材料を追加"}
             </button>
 
-            <label className={styles.field}>
-              前処理(preprocess)
-              <select value={draft.preprocess} onChange={(e) => setDraft((d) => ({ ...d, preprocess: e.target.value as "identity" | "abs" }))}>
-                <option value="identity">そのまま</option>
-                <option value="abs">絶対値</option>
-              </select>
-            </label>
-            {/* 改善計画T345（ユーザー指摘: 「絶対値」の説明が分かりにくい）: 組み込み軸を
-                調査すると、この選択肢を使っているのは現時点でgradient（勾配）軸のみ
-                （domain/axis_definitions.py）。勾配は登り+・下り−の符号付き数値のため、
-                絶対値を取ることで「上りでも下りでも急なほど走りにくい」という軸を組める、
-                という実例をそのままヒントにする。 */}
-            <p className={styles.hint}>
-              材料の値×係数を合計してから、折れ点でスコアに変換する前に行う下ごしらえです。通常は「そのまま」で問題ありません。「絶対値」は合計がマイナスでもプラスとして扱います（例:
-              勾配は上り+・下り−の符号付き数値ですが、絶対値を使うと上り・下りのどちらでも急なほど走りにくい、という軸にできます）。
-            </p>
+            {/* 改善計画T397: 「かけあわせ評価」は純粋な重み付き結合に絞り、下ごしらえ・
+                折れ点の編集UIを出さない（保存時は既定値[そのまま・恒等クランプ0→0,100→100]の
+                まま送信される、buildShape/renderShapeKindStepのdefault設定参照）。 */}
+            {draft.shapeKind === "breakpoint_linear" && (
+              <>
+                <p className={styles.groupLabel}>下ごしらえ</p>
+                <div className={styles.radioRow}>
+                  <label className={styles.inlineCheckbox}>
+                    <input
+                      type="radio"
+                      name="preprocess"
+                      checked={draft.preprocess === "identity"}
+                      onChange={() => setDraft((d) => ({ ...d, preprocess: "identity" }))}
+                    />
+                    そのまま
+                  </label>
+                  <label className={styles.inlineCheckbox}>
+                    <input
+                      type="radio"
+                      name="preprocess"
+                      checked={draft.preprocess === "abs"}
+                      onChange={() => setDraft((d) => ({ ...d, preprocess: "abs" }))}
+                    />
+                    絶対値
+                  </label>
+                </div>
+                {/* 改善計画T345（ユーザー指摘: 「絶対値」の説明が分かりにくい）: 組み込み軸を
+                    調査すると、この選択肢を使っているのは現時点でgradient（勾配）軸のみ
+                    （domain/axis_definitions.py）。勾配は登り+・下り−の符号付き数値のため、
+                    絶対値を取ることで「上りでも下りでも急なほど走りにくい」という軸を組める、
+                    という実例をそのままヒントにする。 */}
+                <p className={styles.hint}>
+                  材料の値×係数を合計してから、折れ点でスコアに変換する前に行う下ごしらえです。通常は「そのまま」で問題ありません。「絶対値」は合計がマイナスでもプラスとして扱います（例:
+                  勾配は上り+・下り−の符号付き数値ですが、絶対値を使うと上り・下りのどちらでも急なほど走りにくい、という軸にできます）。
+                </p>
 
-            <p className={styles.groupLabel}>折れ点(breakpoints) [入力値, スコア0-100]</p>
-            {/* 改善計画T345: T327（UIレビュー2026-08-25 F-5）が明文化したこのヒント文は
-                実際の向きと逆だった（バグ）。組み込みのgradient軸を確認すると、勾配0%→
-                スコア0・勾配15%→スコア100（description="登り坂の急さが小さいほど易しい"）、
-                すなわち0が最も走りやすく100が最も走りにくい。この値はbackend全体で
-                「difficulty(0-100、大きいほど走りにくい)」として扱われる規約
-                （EdgeCostResult.difficulty等）とも一致する。T327時点の認識が逆だったため
-                ここで向きを訂正する。 */}
-            <p className={styles.hint}>
-              スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに折れ点を設定してください。
-            </p>
-            {draft.breakpoints.map((bp, i) => (
-              <div key={i} className={styles.breakpointRow}>
-                <input type="number" step="0.1" value={bp[0]} aria-label="入力値" onChange={(e) => updateBreakpoint(i, 0, Number(e.target.value))} />
-                <span>→</span>
-                <input type="number" step="1" value={bp[1]} aria-label="スコア" onChange={(e) => updateBreakpoint(i, 1, Number(e.target.value))} />
+                <p className={styles.groupLabel}>折れ点(breakpoints) [入力値, スコア0-100]</p>
+                {/* 改善計画T345: T327（UIレビュー2026-08-25 F-5）が明文化したこのヒント文は
+                    実際の向きと逆だった（バグ）。組み込みのgradient軸を確認すると、勾配0%→
+                    スコア0・勾配15%→スコア100（description="登り坂の急さが小さいほど易しい"）、
+                    すなわち0が最も走りやすく100が最も走りにくい。この値はbackend全体で
+                    「difficulty(0-100、大きいほど走りにくい)」として扱われる規約
+                    （EdgeCostResult.difficulty等）とも一致する。T327時点の認識が逆だったため
+                    ここで向きを訂正する。 */}
+                <p className={styles.hint}>
+                  スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに折れ点を設定してください。下の図はドラッグでも調整できます。
+                </p>
+                <BreakpointCurveEditor breakpoints={draft.breakpoints} onChangePoint={updateBreakpoint} />
+                {draft.breakpoints.map((bp, i) => (
+                  <div key={i} className={styles.breakpointRow}>
+                    <input type="number" step="0.1" value={bp[0]} aria-label="入力値" onChange={(e) => updateBreakpoint(i, 0, Number(e.target.value))} />
+                    <span>→</span>
+                    <input type="number" step="1" value={bp[1]} aria-label="スコア" onChange={(e) => updateBreakpoint(i, 1, Number(e.target.value))} />
+                    <button
+                      type="button"
+                      onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
+                      disabled={draft.breakpoints.length <= 2}
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
                 <button
                   type="button"
-                  onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
-                  disabled={draft.breakpoints.length <= 2}
+                  className={styles.addButton}
+                  onClick={() => setDraft((d) => ({ ...d, breakpoints: [...d.breakpoints, [0, 0]] }))}
                 >
-                  削除
+                  + 折れ点を追加
                 </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className={styles.addButton}
-              onClick={() => setDraft((d) => ({ ...d, breakpoints: [...d.breakpoints, [0, 0]] }))}
-            >
-              + 折れ点を追加
-            </button>
+              </>
+            )}
           </div>
         )}
 
@@ -946,12 +1042,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                             onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
                           />
                         )}
-                        <input
-                          type="number"
-                          step="1"
+                        <SliderNumberField
+                          label="スコア"
                           value={row.score}
-                          aria-label="スコア"
-                          onChange={(e) => updateCategoricalRow(i, { score: Number(e.target.value) })}
+                          onChange={(next) => updateCategoricalRow(i, { score: next })}
+                          min={-100}
+                          max={100}
+                          step={1}
                         />
                         <button
                           type="button"
@@ -974,11 +1071,25 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   <div className={styles.row}>
                     <label className={styles.field}>
                       該当時(true)のスコア
-                      <input type="number" step="1" value={draft.trueScore} onChange={(e) => setDraft((d) => ({ ...d, trueScore: Number(e.target.value) }))} />
+                      <SliderNumberField
+                        label="該当時(true)のスコア"
+                        value={draft.trueScore}
+                        onChange={(next) => setDraft((d) => ({ ...d, trueScore: next }))}
+                        min={-100}
+                        max={100}
+                        step={1}
+                      />
                     </label>
                     <label className={styles.field}>
                       非該当時(false)のスコア
-                      <input type="number" step="1" value={draft.falseScore} onChange={(e) => setDraft((d) => ({ ...d, falseScore: Number(e.target.value) }))} />
+                      <SliderNumberField
+                        label="非該当時(false)のスコア"
+                        value={draft.falseScore}
+                        onChange={(next) => setDraft((d) => ({ ...d, falseScore: next }))}
+                        min={-100}
+                        max={100}
+                        step={1}
+                      />
                     </label>
                   </div>
                 </>
@@ -987,56 +1098,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           );
         })()}
 
-        {draft.shapeKind === "flag_sum" && (
-          <div className={styles.shapeGroup}>
-            <p className={styles.groupLabel}>フラグ(flags)</p>
-            {/* 改善計画T345: breakpoints等と同じ0-100の向き＋加点の合計・上限の挙動を明記する。 */}
-            <p className={styles.hint}>
-              スコア（0=最も走りやすい〜100=最も走りにくい）へ加算する点数です。該当するフラグの点数を合計し、上限(cap)を超えた分は切り捨てられます。マイナスの値も使えます（走りやすさを加味したい減点）。複数のフラグが同時に該当することもあります。
-            </p>
-            {draft.flags.map((flag, i) => (
-              <div key={i} className={styles.termRow}>
-                <select value={flag.material} onChange={(e) => updateFlag(i, { material: e.target.value })}>
-                  {materialOptions.filter((m) => m.dtype === "boolean").map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <MaterialInfoButton option={materialOptions.find((m) => m.id === flag.material)} />
-                <input type="number" step="1" value={flag.points} aria-label="加点" onChange={(e) => updateFlag(i, { points: Number(e.target.value) })} />
-                <button
-                  type="button"
-                  onClick={() => setDraft((d) => ({ ...d, flags: d.flags.filter((_, j) => j !== i) }))}
-                  disabled={draft.flags.length <= 1}
-                >
-                  削除
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className={styles.addButton}
-              onClick={() =>
-                setDraft((d) => ({
-                  ...d,
-                  flags: [...d.flags, { material: materialOptions.find((m) => m.dtype === "boolean")?.id ?? "", points: 10 }],
-                }))
-              }
-            >
-              + フラグを追加
-            </button>
-            <label className={styles.field}>
-              上限(cap、任意)
-              <input
-                type="number"
-                step="1"
-                value={draft.cap ?? ""}
-                onChange={(e) => setDraft((d) => ({ ...d, cap: e.target.value === "" ? null : Number(e.target.value) }))}
-              />
-            </label>
-          </div>
-        )}
       </>
     );
   }

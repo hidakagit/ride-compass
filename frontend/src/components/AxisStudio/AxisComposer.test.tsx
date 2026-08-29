@@ -81,7 +81,7 @@ describe("AxisComposer", () => {
   // buildShape(): 4テンプレート（+categoricalの2dtype）の変換結果検証
   // ============================================================
   describe("点数のつけ方(shape)テンプレートごとのpayload変換", () => {
-    it("「数値の大きさに応じて点数を変える」(breakpoint_linear)で入力した係数・折れ点がそのままshapeになる", async () => {
+    it("「なめらか評価」(breakpoint_linear)で入力した係数・折れ点がそのままshapeになる", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -148,8 +148,10 @@ describe("AxisComposer", () => {
     // 以前はこのテンプレートの材料セレクトがMATERIAL_CATALOGの材料しか出しておらず、
     // 「他の軸の計算結果を材料として使う」という説明どおりに他の軸を選ぶ手段がGUI上に
     // 存在しなかった（backend側は元々MaterialTerm.materialへ他axis_idを指定できる設計
-    // だったが、GUIが対応していなかった実装漏れ）。
-    it("「他の軸を重みで足し合わせて点数を変える」(recipe_then_breakpoint_linear)を選ぶと材料セレクトが他の軸一覧になり、既定の折れ点(0→0,100→100)・前処理の変更も反映される", async () => {
+    // だったが、GUIが対応していなかった実装漏れ）。改善計画T397: 「かけあわせ評価」は
+    // 純粋な重み付き結合に絞ったため、下ごしらえ(preprocess)・折れ点の編集UIは出ない
+    // （常にpreprocess="identity"・恒等クランプ[[0,0],[100,100]]のまま送信される）。
+    it("「かけあわせ評価」(recipe_then_breakpoint_linear)を選ぶと材料セレクトが他の軸一覧になり、下ごしらえ・折れ点の編集UIは出ない", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       const otherAxes = [baseDefinition({ axis_id: "wind", label: "風" })];
@@ -159,14 +161,15 @@ describe("AxisComposer", () => {
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ }));
+      await user.click(screen.getByRole("radio", { name: /かけあわせ評価/ }));
       await clickNext(user);
 
       // 材料セレクトがMATERIAL_CATALOGの材料（勾配%等）ではなく、他の軸(風)の一覧になっている。
       expect(screen.getByRole("option", { name: "風" })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: /勾配%/ })).not.toBeInTheDocument();
-
-      await user.selectOptions(screen.getByRole("combobox", { name: "前処理(preprocess)" }), "abs");
+      // 純粋な重み付き結合に絞ったため、下ごしらえ・折れ点の編集UIは表示されない。
+      expect(screen.queryByText("下ごしらえ")).not.toBeInTheDocument();
+      expect(screen.queryByText(/折れ点\(breakpoints\)/)).not.toBeInTheDocument();
 
       await clickNext(user);
       await user.click(screen.getByRole("button", { name: "作成する" }));
@@ -176,7 +179,7 @@ describe("AxisComposer", () => {
       expect(payload.shape).toEqual({
         kind: "breakpoint_linear",
         terms: [{ material: "wind", weight: 1.0, required: true }],
-        preprocess: "abs",
+        preprocess: "identity",
         breakpoints: [
           [0, 0],
           [100, 100],
@@ -197,11 +200,9 @@ describe("AxisComposer", () => {
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "複合軸");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ }));
+      await user.click(screen.getByRole("radio", { name: /かけあわせ評価/ }));
       await clickNext(user);
 
-      // 材料選択selectは前処理(preprocess)selectより前（terms.map内）に並ぶため、
-      // getAllByRole("combobox")の先頭側が材料selectになる。
       await user.selectOptions(screen.getAllByRole("combobox")[0], "gradient");
       await user.clear(screen.getByRole("spinbutton", { name: "係数" }));
       await user.type(screen.getByRole("spinbutton", { name: "係数" }), "2");
@@ -237,21 +238,21 @@ describe("AxisComposer", () => {
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ }));
+      await user.click(screen.getByRole("radio", { name: /かけあわせ評価/ }));
       await clickNext(user);
 
       expect(screen.getByText(/組み合わせられる他の軸がまだありません/)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "+ 軸を追加" })).toBeDisabled();
     });
 
-    it("「はい/いいえ、または種類ごとに点数を決める」(categorical・boolean材料)でtrue/falseスコアがmappingになる", async () => {
+    it("「ぴったり評価」(categorical・boolean材料)でtrue/falseスコアがmappingになる", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸A");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+      await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
       await clickNext(user);
 
       const trueInput = screen.getByRole("spinbutton", { name: "該当時(true)のスコア" });
@@ -269,14 +270,14 @@ describe("AxisComposer", () => {
       expect(payload.shape).toEqual(categoricalShape("surface_good", { true: 15, false: 85 }));
     });
 
-    it("「はい/いいえ、または種類ごとに点数を決める」(categorical・多値材料)で値ごとのスコア行がmappingになり、空行は除外される", async () => {
+    it("「ぴったり評価」(categorical・多値材料)で値ごとのスコア行がmappingになり、空行は除外される", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸B");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+      await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
       await clickNext(user);
 
       await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
@@ -304,33 +305,36 @@ describe("AxisComposer", () => {
       expect(payload.shape).toEqual(categoricalShape("tracktype", { separated: 60, none: 10 }));
     });
 
-    it("「複数の要素の有無を数えて減点・加点する」(flag_sum)で加点・上限の入力がそのままshapeになる", async () => {
+    // 改善計画T397: 旧「複数の要素の有無を数えて減点・加点する」(flag_sum)カードは
+    // 「なめらか評価」に吸収された。boolean材料をterms(材料)に追加し、係数(旧points相当)を
+    // 入力するだけで同じ結果（terms×breakpoints=[[0,0],[cap,cap]]の恒等クランプ）を
+    // 組めることを確認する。
+    it("「なめらか評価」でboolean材料の係数をマイナスにできる（旧flag_sumの減点相当）", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /複数の要素の有無を数えて減点・加点する/ }));
-      await clickNext(user);
+      await clickNext(user); // 既定でbreakpoint_linear（なめらか評価）が選択済み
+
+      const materialSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+      await user.selectOptions(materialSelect, "surface_good");
 
       // 負の数値をuser.typeで1文字ずつ入力すると、"-"のみ入力された瞬間の中間状態で
       // Number("-")===NaNとなり、この<input>を制御しているReactの状態がNaNへ倒れて
       // 入力済みの"-"ごと失われる（実測: 最終的に"-20"ではなく"20"になる）。
       // 実際のユーザー操作（ペースト等、中間状態を経ない一括入力）に近いfireEvent.changeで
       // 最終値を直接設定する。
-      const pointsInput = screen.getByRole("spinbutton", { name: "加点" });
-      fireEvent.change(pointsInput, { target: { value: "-20" } });
-      const capInput = screen.getByRole("spinbutton", { name: "上限(cap、任意)" });
-      await user.clear(capInput);
-      await user.type(capInput, "40");
+      const weightInput = screen.getByRole("spinbutton", { name: "係数" });
+      fireEvent.change(weightInput, { target: { value: "-20" } });
 
       await clickNext(user);
       await user.click(screen.getByRole("button", { name: "作成する" }));
 
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
-      expect(payload.shape).toEqual(flagSumShape([["surface_good", -20]], 40));
+      expect(payload.shape.terms).toEqual([{ material: "surface_good", weight: -20, required: true }]);
     });
   });
 
@@ -426,7 +430,7 @@ describe("AxisComposer", () => {
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
       await clickNext(user);
-      expect(screen.getByRole("radio", { name: /^数値の大きさに応じて点数を変える/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /なめらか評価/ })).toBeChecked();
       await clickNext(user);
 
       expect(screen.getByRole("spinbutton", { name: "係数" })).toHaveValue(3);
@@ -455,8 +459,8 @@ describe("AxisComposer", () => {
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
       await clickNext(user);
-      expect(screen.getByRole("radio", { name: /他の軸を重みで足し合わせて点数を変える/ })).toBeChecked();
-      expect(screen.getByRole("radio", { name: /^数値の大きさに応じて点数を変える/ })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: /かけあわせ評価/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /なめらか評価/ })).not.toBeChecked();
     });
 
     it("categorical(boolean材料)軸を編集で開くと、true/falseスコアが反映される", async () => {
@@ -467,7 +471,7 @@ describe("AxisComposer", () => {
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
       await clickNext(user);
-      expect(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /ぴったり評価/ })).toBeChecked();
       await clickNext(user);
 
       expect(screen.getByRole("spinbutton", { name: "該当時(true)のスコア" })).toHaveValue(-30);
@@ -496,7 +500,10 @@ describe("AxisComposer", () => {
       );
     });
 
-    it("flag_sum軸を編集で開くと、フラグの加点・上限が反映される", async () => {
+    // 改善計画T397: 旧flag_sum軸（boolean材料のみのterms）は、backend側では既にただの
+    // breakpoint_linearとして保存されているため、編集で開くと（4カード化前と違い専用の
+    // 判別は行わず）「なめらか評価」カードで開き、termsがそのまま反映される。
+    it("boolean材料のみのterms（旧flag_sum相当）を編集で開くと、なめらか評価カードで係数が反映される", async () => {
       const editing = baseDefinition({
         shape: flagSumShape(
           [
@@ -510,12 +517,11 @@ describe("AxisComposer", () => {
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
       await clickNext(user);
-      expect(screen.getByRole("radio", { name: /複数の要素の有無を数えて減点・加点する/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /なめらか評価/ })).toBeChecked();
       await clickNext(user);
 
-      const pointsInputs = screen.getAllByRole("spinbutton", { name: "加点" });
-      expect(pointsInputs.map((el) => (el as HTMLInputElement).valueAsNumber)).toEqual([-30, -20]);
-      expect(screen.getByRole("spinbutton", { name: "上限(cap、任意)" })).toHaveValue(50);
+      const weightInputs = screen.getAllByRole("spinbutton", { name: "係数" });
+      expect(weightInputs.map((el) => (el as HTMLInputElement).valueAsNumber)).toEqual([-30, -20]);
     });
   });
 
@@ -539,7 +545,7 @@ describe("AxisComposer", () => {
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
       await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+      await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
       await clickNext(user);
       await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
 

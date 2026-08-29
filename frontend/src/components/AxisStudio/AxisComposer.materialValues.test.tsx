@@ -38,7 +38,7 @@ describe("AxisComposer 値の候補セレクト", () => {
 
     await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
     await clickNext(user);
-    await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
     await clickNext(user);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
@@ -77,7 +77,7 @@ describe("AxisComposer 値の候補セレクト", () => {
 
     await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
     await clickNext(user);
-    await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
     await clickNext(user);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
@@ -96,7 +96,7 @@ describe("AxisComposer 値の候補セレクト", () => {
 
     await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
     await clickNext(user);
-    await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
     await clickNext(user);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");

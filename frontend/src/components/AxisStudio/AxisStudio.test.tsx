@@ -147,11 +147,11 @@ describe("AxisStudio", () => {
     expect(screen.getByText("勾配")).toBeInTheDocument();
   });
 
-  // 改善計画T322: 「はい/いいえ、または種類ごとに点数を決める」の材料選択にcategorical
-  // dtype材料（tracktype等）も現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。
-  // 改善計画T332でウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、
-  // という3ステップに分かれている。
-  it("「はい/いいえ、または種類ごとに点数を決める」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
+  // 改善計画T322: 「ぴったり評価」の材料選択にcategorical dtype材料（tracktype等）も
+  // 現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。改善計画T332で
+  // ウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、という
+  // 3ステップに分かれている（改善計画T397でカード名を「ぴったり評価」へ変更）。
+  it("「ぴったり評価」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
@@ -160,7 +160,7 @@ describe("AxisStudio", () => {
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
     await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
     await user.click(screen.getByRole("button", { name: "次へ" }));
-    await user.click(screen.getByRole("radio", { name: /はい\/いいえ、または種類ごとに点数を決める/ }));
+    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
     await user.click(screen.getByRole("button", { name: "次へ" }));
 
     const materialSelect = screen.getByRole("combobox", { name: "材料(material)" });
