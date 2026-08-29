@@ -68,6 +68,34 @@ def generate_wind_grid_points(
     return points
 
 
+def nearest_grid_point(
+    point: Coordinates,
+    bbox: tuple[float, float, float, float] = WIND_GRID_BBOX,
+    spacing_deg: float = WIND_GRID_SPACING_DEG,
+) -> Coordinates:
+    """任意の地点から、generate_wind_grid_pointsと同じ固定ラティス（bboxの原点基準、
+    spacing_deg間隔）上の最寄り格子点を返す（改善計画T405）。way_id→wind_penalty配信層
+    （WindWayService）が、タイル中心のような任意座標に対する風を求める際、新規の
+    任意地点をOpen-Meteoへ問い合わせず既存の固定格子点を再利用するために使う——
+    generate_wind_grid_detail_pointsのdocstringにある「原点を固定し常に同じ絶対座標の
+    格子点を生成する」というキャッシュ共有の理由がそのまま当てはまる（weather_client.py:
+    WeatherClient.cache_keyの丸め精度[小数2桁]は格子間隔[0.1度]より粗いため、この格子点は
+    generate_wind_grid_pointsが生成する格子点と同じキャッシュキーへ必ず一致する）。
+
+    範囲外の地点はbboxの端へクランプしてから最寄りを求める（呼び出し元がWIND_GRID_BBOX外の
+    タイルを渡すことは想定していないが、境界付近での取りこぼしを避ける安全側の処理）。
+    """
+    min_lon, min_lat, max_lon, max_lat = bbox
+    clamped_lat = min(max(point.latitude, min_lat), max_lat)
+    clamped_lon = min(max(point.longitude, min_lon), max_lon)
+    i = round((clamped_lat - min_lat) / spacing_deg)
+    j = round((clamped_lon - min_lon) / spacing_deg)
+    return Coordinates(
+        latitude=round(min_lat + i * spacing_deg, 4),
+        longitude=round(min_lon + j * spacing_deg, 4),
+    )
+
+
 # 改善計画T180: 「風の強さを面（ヒートマップ）で見たい」というユーザー要望を受け、
 # 通常ズーム（13前後）でも密な表示ができる詳細格子を追加した。全域を常時この密度で
 # 取得すると624点（0.1°間隔）より遥かに多くなりOpen-Meteo・自バックエンドとも負荷が増すため、

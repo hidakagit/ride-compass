@@ -51,6 +51,14 @@ export type MapLayerId =
   // 格子点サンプリング（バックエンド新設、GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
+  // way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——道路自身の
+  // 向きから計算したwind_penaltyをway単位でsetFeatureState経由で線色分けする、windVector
+  // （面・矢印、探索用）とは独立の見せ方（docs/tasks/T400.md「2. 動的要素…の二重表現」節）。
+  // T406（パネル構成再編、旧「観測/推定/動的」を「道路/評価軸/環境/スポット」へ再編し
+  // 「評価軸」を独立チップにする）が完了するまでの暫定措置として、既存の「動的」グループへ
+  // 一時的なチップとして追加している。windVectorと同じkind="static"・dataNature="dynamic"
+  // （値は時間で変わるが、表示方式はvisibility切替のみの常設レイヤー）。
+  | "windAxis"
   // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。precipitationNowcastと同じ
   // 理由でkind="static"・dataNature="dynamic"。「回避一択」の危険（雷・竜巻）のため
   // 評価軸には組み込まず警告表示のみ（T170〜T178節の設計判断を踏襲）。
@@ -374,6 +382,27 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "まで切り替えて確認できます。",
   },
   {
+    // way_id→wind_penalty配信層（改善計画T405、docs/tasks/T400.md「2. 動的要素…の二重表現」
+    // 節）。上のwindVector（格子点・矢印・面表示、探索用の「環境」表現）とは独立した
+    // 「評価軸」表現——道路自身の向きと最寄りの風グリッド値からwind_penaltyを計算し、
+    // backendのRedis配信層（way_idキー）・新設APIを経由してMapLibreのsetFeatureStateで
+    // 道路線そのものを色分けする。T406完了までの暫定チップ（このファイル冒頭のwindAxisの
+    // コメント参照）。
+    id: "windAxis",
+    label: "風（評価軸）",
+    chipLabel: "風軸",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "道路自身の向きから計算した向かい風/追い風の強さを線色分け表示[現在時刻]",
+    panelHint:
+      "道路それぞれの向きと、最寄りの風予報格子点の風向・風速から、その道路を進んだ場合の" +
+      "向かい風/追い風の強さを計算して色分けします。赤に近いほど向かい風が強く、緑に近い" +
+      "ほど追い風が強いことを表します。道路の向き（地図データ上の始点→終点）を基準に" +
+      "計算するため、実際に逆向きに走る場合は向かい風/追い風が逆になる点にご注意ください。" +
+      "常に現在時刻の風で計算します（時刻を選ぶスライダーはありません）。",
+  },
+  {
     // 雷ナウキャスト（改善計画T204）。T171実装メモが「プロダクトコード未確認のため
     // 別レイヤー・別調査として残す」としていた宿題。降水ナウキャストと同じ気象庁配信
     // （bosai/jmatile/data/nowc/、プロダクトコードthns）だが、実況〜60分先までのみで
@@ -457,6 +486,13 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
     "designation",
     "tunnel",
     "oneway",
+    // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）も同じ
+    // road_surfaceタイル（ソース）を再利用する独立レイヤーのため、ズーム範囲外判定
+    // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_penalty値）はタイルの
+    // プロパティではなく別経路のfetchで来るため、T87のloading/empty/error状態表示
+    // （useLayerDataStatus）の対象には含めていない（MapView.tsx: getLayerVisibility参照。
+    // T406でのUI統合時に必要性を再検討する）。
+    "windAxis",
     // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
     // （改善計画T292: car_stressもここに含まれるようになった）。
     ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),

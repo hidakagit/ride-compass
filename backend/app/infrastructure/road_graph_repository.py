@@ -397,6 +397,64 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
 )
 
 
+# way_id→wind_penalty配信層（改善計画T405、docs/tasks/T400.md「2. 動的要素（時刻・向き等）を
+# 含む材料は『環境』と『道路』の二重表現を持つ」節）。「評価軸」グループとしての風
+# （道路自身の向きで塗る線表示）の基盤。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定
+# （road_graph_tilesのz12祖先タイルマーク）・同じST_Intersectsフィルタで対象wayを絞るが、
+# MVTエンコード（ST_AsMVT/ST_AsMVTGeom）は行わない——返すのはway_id→bearing_degの単純な
+# 集合のみで、実際のwind_penalty計算（風向風速との合成）はPython側（WindWayService）が担う
+# （材料事実はDB/タイルに、解釈はサービス層に、というT145b以来の方針をここでも踏襲）。
+#
+# bearing_degの求め方はmigration 0013_add_edge_bearing.sql（road_edges.bearing_degの
+# バックフィルSQL）と同じ関数（ST_Azimuth、北=0・時計回り）を、road_edges（交差点分割済みの
+# 有向グラフ、ルーティング専用）ではなくosm_raw_ways（未分割の生way、地図表示側が読む実体）に
+# 対して適用する。ただし**geographyへキャストしてから**ST_Azimuthを呼ぶ点が migration 0013
+# と異なる（設計判断、コード実装時に発覚）。migration 0013はgeometry型のままST_Azimuthへ
+# 渡しており、これは緯度経度を平面（xy）として扱う単純な角度計算のため、経度1度の実距離が
+# 緯度で変わる（実距離 = 経度1度分 × cos(緯度)）ことを無視した歪みを持つ——例えば緯度35.7度
+# 付近で「緯度・経度とも+0.001度」というwayはgeometry型ST_Azimuthだと45.0度（線形に等しい
+# 変化量→単純な平面上の45度）を返すが、実際の地表面上の方位角はcos(35.7度)≈0.81を反映した
+# 約39.1度であり、domain/geo.py: bearing_between（球面三角法）が返す値もこちらに一致する
+# （tests/test_road_graph_repository.py:
+# test_get_way_bearings_in_tile_matches_domain_bearing_betweenで実測・回帰検知）。
+# 風の向かい風/追い風判定は方位角の誤差がそのままwind_penaltyの誤差（最大で
+# wind_speed_ms×(cos(誤差前)-cos(誤差後))）に直結するため、migration 0013由来の平面近似を
+# そのまま踏襲せず、球面（geography、PostGISはWGS84回転楕円体上の測地線方位角を計算する）
+# ベースの正確な値を使う。road_edges.bearing_deg自体（既存の平面近似のまま）を訂正する対応は
+# 本タスク（改善計画T405）のスコープ外——影響範囲の精査・既存の探索コスト計算への影響評価が
+# 別途必要なため、気づいた事実として本コメントに残すに留める。
+#
+# 始点と終点が同一点（極端に短いway・自己交差等）だとST_AzimuthはNULLを返すため、その行は
+# FILTERで自動的に除外される（bearing不明のwayは戻り値のdictへ含まれず、色を塗らない）。
+_WAY_BEARINGS_IN_TILE_SQL = text(
+    """
+    WITH coverage AS (
+        SELECT EXISTS(
+            SELECT 1 FROM road_graph_tiles
+            WHERE zoom = :coverage_zoom AND x = :coverage_x AND y = :coverage_y
+        ) AS covered
+    )
+    SELECT
+        coverage.covered,
+        CASE WHEN coverage.covered THEN (
+            SELECT COALESCE(
+                jsonb_object_agg(w.osm_way_id, bearing.deg) FILTER (WHERE bearing.deg IS NOT NULL),
+                '{}'::jsonb
+            )
+            FROM osm_raw_ways w
+            CROSS JOIN LATERAL (
+                SELECT degrees(
+                    ST_Azimuth(ST_StartPoint(w.geom)::geography, ST_EndPoint(w.geom)::geography)
+                ) AS deg
+            ) bearing
+            WHERE w.geom IS NOT NULL
+              AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+        ) END AS bearings
+    FROM coverage
+    """
+)
+
+
 # 改善計画T54（既取込データの可視化漏れ解消）: 停止要因POI（osm_raw_pois）を1タイルへ
 # 焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定（road_graph_tilesのz12祖先
 # タイルマーク）を再利用しつつ、対象データソースが別テーブルの点データのため道路（way）とは
@@ -1800,6 +1858,32 @@ class RoadSurfaceTileQuery(_SessionRepository):
             return None
         return bytes(tile) if tile is not None else b""
 
+    async def get_way_bearings_in_tile(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> dict[int, float] | None:
+        """way_id→wind_penalty配信層（改善計画T405）用に、指定タイル範囲のwayのbearing_degを
+        まとめて返す。契約はget_road_surface_tile_mvtと同じ（カバレッジ外はNone、カバレッジ内
+        0件は空dict）。呼び出し元（WindWayService）がbearingごとにWindCalculator.wind_penaltyを
+        計算する（設計意図は_WAY_BEARINGS_IN_TILE_SQLのコメント参照）。
+        """
+        coverage_zoom, coverage_x, coverage_y = coverage_tile
+        result = await self._session.execute(
+            _WAY_BEARINGS_IN_TILE_SQL,
+            {
+                "coverage_zoom": coverage_zoom,
+                "coverage_x": coverage_x,
+                "coverage_y": coverage_y,
+                "xmin": bbox.min_longitude,
+                "ymin": bbox.min_latitude,
+                "xmax": bbox.max_longitude,
+                "ymax": bbox.max_latitude,
+            },
+        )
+        covered, bearings = result.one()
+        if not covered:
+            return None
+        return {int(way_id): float(bearing_deg) for way_id, bearing_deg in (bearings or {}).items()}
+
 
 class AttributeRepository(_SessionRepository):
     """Edge単位のRoad Attribute（elevation_attributes）の読み書き。
@@ -2491,3 +2575,10 @@ class RoadGraphRepository:
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> bytes | None:
         return await self.tile_query.get_poi_tile_mvt(z, x, y, bbox, coverage_tile)
+
+    async def get_way_bearings_in_tile(
+        self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
+    ) -> dict[int, float] | None:
+        # 改善計画T405: way_id→wind_penalty配信層。詳細はRoadSurfaceTileQuery.
+        # get_way_bearings_in_tileのdocstring参照。
+        return await self.tile_query.get_way_bearings_in_tile(z, x, y, bbox, coverage_tile)

@@ -148,6 +148,46 @@ export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspecto
   return data;
 }
 
+// way_id→wind_penalty配信層（改善計画T405、docs/tasks/T400.md「2. 動的要素…の二重表現」節）。
+// 「評価軸」グループとしての風向けに、指定タイル内のway_idごとのwind_penaltyをまとめて取得する。
+// road-surface-tiles（MapLibreのWeb Worker経由）とは別経路で、fetchAxisInspectorと同じく
+// アプリのfetch()から直接呼ぶ（絶対URL化は不要）。バージョンクエリを持たない
+// （road-surface-tilesと異なりブラウザHTTPキャッシュに乗せない想定の軽量JSON、値自体は
+// backend側のRedis TTLで新鮮さを管理するため）。
+const WIND_WAY_PENALTY_PATH = "/api/region/dynamic-way-values/wind";
+
+/** 指定タイル（road-surface-tilesと同じz/x/y）内のway_idごとのwind_penaltyをまとめて取得する。
+ * 失敗時は例外を投げず空オブジェクトへフォールバックする——背景の色分けレイヤーという
+ * 補助的な機能のため、道路タイル自体の表示・他レイヤーを巻き込んで止めない
+ * （useWeatherGridのdetailGrid取得と同じ「補助機能はサイレントにフォールバック」方針）。 */
+export async function fetchWindWayPenalties(z: number, x: number, y: number): Promise<Record<string, number>> {
+  const url = `${API_BASE_URL}${WIND_WAY_PENALTY_PATH}/${z}/${x}/${y}`;
+  const startedAt = performance.now();
+  debugLog("api:wind-way-penalty", "リクエスト開始", { url });
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const durationMs = Math.round(performance.now() - startedAt);
+    if (!response.ok) {
+      debugLog("api:wind-way-penalty", `失敗 (HTTP ${response.status})`, { durationMs }, "error");
+      return {};
+    }
+    const data = (await response.json()) as Record<string, number>;
+    debugLog("api:wind-way-penalty", "成功", { durationMs, wayCount: Object.keys(data).length });
+    return data;
+  } catch (error) {
+    debugLog(
+      "api:wind-way-penalty",
+      "失敗 (通信エラー)",
+      {
+        durationMs: Math.round(performance.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "error",
+    );
+    return {};
+  }
+}
+
 export async function refreshBasemapCache(): Promise<void> {
   const startedAt = performance.now();
   debugLog("api:basemap-refresh", "リクエスト開始");

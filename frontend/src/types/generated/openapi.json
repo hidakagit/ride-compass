@@ -670,6 +670,85 @@
         }
       }
     },
+    "/api/region/dynamic-way-values/wind/{z}/{x}/{y}": {
+      "get": {
+        "summary": "Region Dynamic Way Values Wind",
+        "description": "「評価軸」グループとしての風（改善計画T405、docs/tasks/T400.md「2. 動的要素…の\n二重表現」節）。指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、\nbackend/app/domain/wind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量な\nJSONエンドポイント。\n\n静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイント新設に伴う\n変更なし）とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの\n`setFeatureState`で合成する（`frontend/src/components/Map/windAxisLayer.ts`参照）。\n`way_id`が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由するため、\nパン・ズームで同じ道路が再び視界に入っても風グリッド・DBへの再問い合わせは1時間\nバケットの範囲内では発生しない。\n\n`at`（クエリパラメータ）省略時は現在時刻（Asia/Tokyo）を使う。路面・POIタイルと同じ\nレート制限・座標検証・DB接続プールのsemaphoreを共有する（`region_service.py`の\n`_region_tile_semaphore`のコメント参照——MVTエンコードは伴わないが同じPostGIS\nコネクションプールを取り合うため）。",
+        "operationId": "region_dynamic_way_values_wind_api_region_dynamic_way_values_wind__z___x___y__get",
+        "parameters": [
+          {
+            "name": "z",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Z"
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "X"
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Y"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "title": "Response Region Dynamic Way Values Wind Api Region Dynamic Way Values Wind  Z   X   Y  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/axis-inspector": {
       "post": {
         "summary": "Region Axis Inspector",

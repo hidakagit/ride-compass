@@ -16,6 +16,7 @@ import {
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
   fetchAxisInspector,
+  fetchWindWayPenalties,
   poiTileUrl,
   refreshBasemapCache,
   roadSurfaceTileUrl,
@@ -123,6 +124,51 @@ describe("regionApi", () => {
       );
 
       await expect(fetchAxisInspector(12345)).rejects.toThrow(/リクエストが多すぎます/);
+    });
+  });
+
+  // way_id→wind_penalty配信層（改善計画T405）。fetchAxisInspectorと違い、失敗時は例外を
+  // 投げず空オブジェクトへフォールバックする（背景の色分けレイヤーという補助的な機能のため、
+  // regionApi.tsのdocstring参照）。
+  describe("fetchWindWayPenalties", () => {
+    afterEach(() => {
+      vi.mocked(debugLog).mockClear();
+    });
+
+    it("z/x/yを含むURLへGETし、{way_id: wind_penalty}のJSONをそのまま返す", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({ "1": 2.34, "2": -1.5 }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await fetchWindWayPenalties(14, 14551, 6447);
+
+      const [url, options] = fetchMock.mock.calls[0];
+      // fetchAxisInspectorと同じ理由（アプリのfetch()から直接呼ぶ、MapLibreのWeb Worker
+      // 経由ではない）でAPI_BASE_URL（既定値、テスト環境ではNEXT_PUBLIC_API_URL未設定時の
+      // フォールバックhttp://localhost:8000）を使う。roadSurfaceTileUrl等（window.location.
+      // origin経由）とは異なる点に注意。
+      expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447");
+      expect(options.method ?? "GET").toBe("GET");
+      expect(result).toEqual({ "1": 2.34, "2": -1.5 });
+    });
+
+    it("HTTPエラー時は例外を投げず空オブジェクトを返す", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }),
+      );
+
+      await expect(fetchWindWayPenalties(14, 14551, 6447)).resolves.toEqual({});
+    });
+
+    it("通信エラー時も例外を投げず空オブジェクトを返す", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
+
+      await expect(fetchWindWayPenalties(14, 14551, 6447)).resolves.toEqual({});
     });
   });
 

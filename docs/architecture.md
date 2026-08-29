@@ -2336,6 +2336,46 @@ car_stress（内部軸5つの合成値、複数材料の重み付き結合のた
 不要になった。現在`kind=bespoke`の軸は無く、gradient/surface_qは`kind=none`（既存の
 標高図・道路情報レイヤーが代替）。night軸はT145a（データ充実待ちで保留）まで未生成。
 
+### way_id→wind_penalty配信層とsetFeatureState連携（改善計画T405）
+
+上記の二次軸ランプレイヤーは「事実はタイルに焼き込み、解釈（重み・しきい値）はクライアント側の
+MapLibre expressionで行う」方式だが、風のように**道路自身に紐づかない外部条件（風向風速）が
+関与する材料**は、レシピ非依存の事実そのものがタイル生成時点では定まらない（同じ道路でも
+時刻によって値が変わる）ため、この方式に乗らない。そこで風は「環境（面・探索用、`gridFill`。
+風の格子点マップ§動的気象レイヤー参照）」と「評価軸（道路自身の向きで塗る線表示、以下）」の
+2つの独立した見せ方を持つ（設計判断の背景は[docs/tasks/T400.md](tasks/T400.md)「2.」参照。
+「環境」グループの連続回転スライダー付き面表示は未実装、以下は「評価軸」グループの基盤のみ）。
+
+- **backend**: `WindWayService.get_way_wind_penalties(z, x, y, at)`
+  （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル範囲の
+  `osm_raw_ways`から`way_id→bearing_deg`（`RoadGraphRepository.get_way_bearings_in_tile`、
+  `ST_Azimuth(...::geography)`で測地線方位角を求める）を取得し、最寄りの風グリッド格子点
+  （`domain/wind_grid.py: nearest_grid_point`が既存の固定ラティスへスナップしキャッシュを
+  共有）の風向風速と`WindCalculator.wind_penalty`（既存の純粋関数、`domain/wind.py`）で
+  合成する。way自身は「走行方向」を持たないため、`osm_raw_ways.geom`に格納された向き
+  （start→end、OSM入力データの並び順）のまま評価する設計上の単純化がある（実際に終点→始点
+  方向へ走行した場合は向かい風/追い風が逆になりうる。ルート確定後の正確な風表示は別経路
+  ——`RouteSegmentDetail.axis_difficulties`、区間ごとの実進行方向を使う——が担う）。
+  計算結果は`way_id`をキーに1時間バケット付きでRedisへキャッシュする
+  （[wind_way_penalty_cache.py](../backend/app/infrastructure/wind_way_penalty_cache.py)、
+  TTLは風グリッドの新鮮判定TTL`WIND_GRID_CACHE_TTL_SECONDS`と同じ3時間）。新設のAPI
+  `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照）が`{way_id: wind_penalty}`を
+  返す——静的なroad-surface-tiles（MVT、変更なし）とは完全に別経路のJSONエンドポイント。
+- **frontend**: `ROAD_TILE_SOURCE_ID`のvector sourceへ`promoteId: { [ROAD_TILE_SOURCE_LAYER]:
+  "osm_way_id" }`を設定し、既存の`osm_way_id`プロパティ（区間インスペクタ用に元から焼き込み
+  済み）をMapLibreの`feature.id`へ昇格させる（バックエンド側のタイル内容・世代は変更不要）。
+  `hooks/useWindAxisPenalties.ts`が現在のビューポート（500msデバウンス）を覆う道路タイル
+  分をまとめてfetchし（`windAxisLayer.ts: tilesCoveringViewport`、パン・ズームのたびに
+  個別`way_id`を都度問い合わせない設計）、`MapView.tsx`が`map.setFeatureState({source,
+  sourceLayer, id: wayId}, {windPenalty: value})`で道路タイルの地物へ後から値を差し込む。
+  色分けは`["feature-state","windPenalty"]`を読むMapLibre expression
+  （`windAxisLayer.ts: windAxisColorExpression`）で、通常のramp軸と同じ`RAMP_COLOR_ANCHORS`
+  パレットを使う。地図チップは`mapLayers.ts`の`windAxis`（T406完了までは既存の「動的」
+  グループへの暫定チップ）。
+- 勾配（gradient）も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、
+  T218a）のため、同型のRedis配信層を新設すれば同じ仕組みに乗せられる見込み（T400.md「7.」参照、
+  未着手）。
+
 ### 地図チップの観測/推定/動的グルーピングと一次/二次命名（改善計画T163〜T169）
 
 > 経緯・教訓（T167の自動ON連動導入→T181/T214での撤去、T215のタッチスクロール不具合対応等）は

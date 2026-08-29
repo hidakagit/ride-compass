@@ -1,13 +1,15 @@
 import asyncio
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from app.api.dependencies import get_region_service
+from app.api.dependencies import get_region_service, get_wind_way_service
 from app.api.routers._tile_validation import check_tile_rate_limit, validate_tile_coords
 from app.config import settings
 from app.domain.evaluation import AxisInspectorResult
 from app.services.region_service import RegionService
+from app.services.wind_way_service import WindWayService
 
 router = APIRouter()
 
@@ -95,6 +97,38 @@ async def region_poi_tile(
         media_type="application/vnd.mapbox-vector-tile",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@router.get("/api/region/dynamic-way-values/wind/{z}/{x}/{y}")
+async def region_dynamic_way_values_wind(
+    z: int,
+    x: int,
+    y: int,
+    request: Request,
+    at: datetime | None = None,
+    wind_way_service: WindWayService = Depends(get_wind_way_service),
+) -> dict[int, float]:
+    """「評価軸」グループとしての風（改善計画T405、docs/tasks/T400.md「2. 動的要素…の
+    二重表現」節）。指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、
+    backend/app/domain/wind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量な
+    JSONエンドポイント。
+
+    静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイント新設に伴う
+    変更なし）とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの
+    `setFeatureState`で合成する（`frontend/src/components/Map/windAxisLayer.ts`参照）。
+    `way_id`が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由するため、
+    パン・ズームで同じ道路が再び視界に入っても風グリッド・DBへの再問い合わせは1時間
+    バケットの範囲内では発生しない。
+
+    `at`（クエリパラメータ）省略時は現在時刻（Asia/Tokyo）を使う。路面・POIタイルと同じ
+    レート制限・座標検証・DB接続プールのsemaphoreを共有する（`region_service.py`の
+    `_region_tile_semaphore`のコメント参照——MVTエンコードは伴わないが同じPostGIS
+    コネクションプールを取り合うため）。
+    """
+    _check_tile_rate_limit(request, "wind-way-penalty")
+    validate_tile_coords(z, x, y)
+    async with _region_tile_semaphore:
+        return await wind_way_service.get_way_wind_penalties(z, x, y, at)
 
 
 class AxisInspectorRequest(BaseModel):

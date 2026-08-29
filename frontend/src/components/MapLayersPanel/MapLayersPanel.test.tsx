@@ -36,6 +36,7 @@ function baseProps() {
       route: false,
       precipitationNowcast: false,
       windVector: false,
+      windAxis: false,
       thunderNowcast: false,
       tornadoNowcast: false,
     },
@@ -297,6 +298,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -390,6 +392,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -419,6 +422,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -447,6 +451,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -486,6 +491,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -516,6 +522,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -545,6 +552,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -575,6 +583,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -606,6 +615,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -634,6 +644,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}
@@ -662,6 +673,7 @@ describe("MapLayersPanel", () => {
           route: false,
           precipitationNowcast: false,
           windVector: false,
+          windAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
         }}

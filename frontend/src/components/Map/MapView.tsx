@@ -65,6 +65,7 @@ import {
 } from "@/components/Map/staticAttributeLayers";
 import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
+import { WIND_AXIS_FEATURE_STATE_KEY, windAxisColorExpression } from "@/components/Map/windAxisLayer";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
@@ -171,6 +172,11 @@ function dynamicWeatherIds(id: DynamicWeatherLayerId, sub: "raster" | "fill" | "
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
+// way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
+// SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと
+// 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
+// （windAxisColorExpression、windAxisLayer.ts）を読む点が異なる。
+const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
 const TUNNEL_LAYER_ID = "region-tunnel-line";
 const ONEWAY_LAYER_ID = "region-oneway-line";
@@ -921,6 +927,12 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       tiles: [roadSurfaceTileUrl()],
       minzoom: ROAD_TILE_MIN_ZOOM,
       maxzoom: ROAD_TILE_MAX_ZOOM,
+      // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）がMapLibreの
+      // setFeatureStateでこのソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは
+      // 既定では安定したidを持たないため、既存のosm_way_idプロパティ（区間インスペクタ用に
+      // 元から焼き込み済み、_ROAD_SURFACE_TILE_MVT_SQL参照）をfeature.idへ昇格させる
+      // （バックエンド側のタイル内容・世代は変更不要）。
+      promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" },
     });
     map.addLayer({
       id: ROAD_TILE_LAYER_ID,
@@ -940,6 +952,48 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
     });
   };
   runWhenStyleReady(map, applyData);
+}
+
+// way_id→wind_penalty配信層（改善計画T405）。designation/tunnel/onewayと同じくROAD_TILE_
+// SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはタイルのプロパティ
+// ではなくsetFeatureState経由の値（applyWindAxisPenalties参照）を読む。ensureRoadSurfaceTileLayer
+// を先に呼び、promoteId付きのsourceが確実に存在する状態でレイヤーを追加する（designation等の
+// 既存レイヤーもこのソースへ依存する順序を暗黙に仮定しており、それと同じ前提）。
+function ensureWindAxisLayer(map: MapLibreMap) {
+  ensureRoadSurfaceTileLayer(map);
+  const applyData = () => {
+    if (map.getLayer(WIND_AXIS_LAYER_ID)) return;
+    map.addLayer({
+      id: WIND_AXIS_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "line-color": windAxisColorExpression() as any,
+        "line-width": DEFAULT_ROAD_LINE_WIDTH,
+      },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// way_id→wind_penalty配信層（改善計画T405）。useWindAxisPenalties（hooks）が取得した
+// {way_id: wind_penalty}をMapLibreのsetFeatureStateで地物へ差し込む。パン・ズームで
+// 表示範囲が変わり、直前に取得した一部のway_idが最新の応答に含まれなくなっても、
+// 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
+// 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
+// 値そのものはbackend側のRedis TTL[weather_client.WIND_GRID_CACHE_TTL_SECONDS]の範囲でしか
+// 新鮮さを保証しないため、古い値が長時間残り続けることはない）。
+function applyWindAxisPenalties(map: MapLibreMap, penalties: ReadonlyMap<number, number>) {
+  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
+  penalties.forEach((value, wayId) => {
+    map.setFeatureState(
+      { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: wayId },
+      { [WIND_AXIS_FEATURE_STATE_KEY]: value },
+    );
+  });
 }
 
 // 路面レイヤーの表示状態を一括反映する（改善計画T165: 「道路情報」を「路面の種類」
@@ -1274,6 +1328,9 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
+    // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
+    // ensureWindAxisLayer内でensureRoadSurfaceTileLayer（promoteId付きsource）を先に呼ぶ。
+    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: ensureWindAxisLayer },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -1630,6 +1687,16 @@ interface MapViewProps {
   /** 一方通行（一次属性、OSM onewayタグ、改善計画T289）。tunnelと同じく路面と同じソースを
    * 再利用する独立レイヤー。評価軸には組み込まない表示専用。 */
   showOneway: boolean;
+  /** way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——designation/
+   * tunnel/onewayと同じく路面と同じソースを再利用する独立レイヤーだが、値はタイルの
+   * プロパティではなくwindAxisPenalties（別経路のAPI、setFeatureStateで合成）から来る。
+   * T406（パネル構成再編）が完了するまでの暫定措置として、既存の「動的」グループへ
+   * 一時的なチップとして追加している（mapLayers.ts: windAxis参照）。 */
+  showWindAxis: boolean;
+  /** hooks/useWindAxisPenalties.tsが現在のビューポートに対して取得したway_id→wind_penalty
+   * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
+   * setFeatureStateで路面タイルの地物へ差し込む（applyWindAxisPenalties参照）。 */
+  windAxisPenalties: ReadonlyMap<number, number>;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
@@ -1725,6 +1792,8 @@ export default function MapView({
   showDesignation,
   showTunnel,
   showOneway,
+  showWindAxis,
+  windAxisPenalties,
   showAccidents,
   showStopPoi,
   showSupplyPoi,
@@ -1830,6 +1899,7 @@ export default function MapView({
     showDesignation,
     showTunnel,
     showOneway,
+    showWindAxis,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -1902,6 +1972,7 @@ export default function MapView({
       showDesignation,
       showTunnel,
       showOneway,
+      showWindAxis,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1930,6 +2001,7 @@ export default function MapView({
     showDesignation,
     showTunnel,
     showOneway,
+    showWindAxis,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -1966,6 +2038,7 @@ export default function MapView({
       showDesignation,
       showTunnel,
       showOneway,
+      showWindAxis,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -1986,6 +2059,7 @@ export default function MapView({
         designation: showDesignation,
         tunnel: showTunnel,
         oneway: showOneway,
+        windAxis: showWindAxis,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -2601,6 +2675,7 @@ export default function MapView({
         designation: showDesignation,
         tunnel: showTunnel,
         oneway: showOneway,
+        windAxis: showWindAxis,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -2618,6 +2693,7 @@ export default function MapView({
     showDesignation,
     showTunnel,
     showOneway,
+    showWindAxis,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2630,6 +2706,19 @@ export default function MapView({
     staticOverlayLayers,
     axisOverlayLayers,
   ]);
+
+  // way_id→wind_penalty配信層（改善計画T405）。hooks/useWindAxisPenalties.tsが現在の
+  // ビューポートに対して取得した値をMapLibreのsetFeatureStateへ反映する。上の
+  // STATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの切替）とは別のeffectにする理由は動的気象
+  // レイヤーと同じ——windAxisPenaltiesはパン・ズームのたびに変わりうる値のため、他の
+  // show*系フラグ群と同居させると無関係な再実行が増える。showWindAxisがfalseの間もpenalties
+  // 自体はhooks側でenabled=falseにより空のMapへ戻るため、ここでは値をそのまま反映するだけで
+  // 十分（非表示レイヤーへfeature-stateを設定しても表示には影響しない）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    runWhenStyleReady(map, () => applyWindAxisPenalties(map, windAxisPenalties));
+  }, [windAxisPenalties]);
 
   // 動的気象レイヤー（降水ナウキャスト・風の矢印、改善計画T170/T171/T178、T183で降水延長予報を
   // 追加してから再設計）。いずれもpayloadが地図上の時刻スライダー操作のたびに変わるため、

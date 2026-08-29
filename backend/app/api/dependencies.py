@@ -42,6 +42,7 @@ from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
 from app.services.wind_service import WindService
+from app.services.wind_way_service import WindWayService
 
 
 def client_id(request: Request) -> str:
@@ -336,6 +337,19 @@ async def get_region_service():
             yield RegionService(repository=RoadGraphRepository(session))
     else:
         yield RegionService()
+
+
+async def get_wind_way_service(
+    weather_service: WeatherService = Depends(get_weather_service),
+):
+    # 改善計画T405: way_id→wind_penalty配信層（「評価軸」グループとしての風）。
+    # get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
+    # パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield WindWayService(repository=RoadGraphRepository(session), weather_service=weather_service)
+    else:
+        yield WindWayService(repository=None, weather_service=weather_service)
 
 
 async def get_accident_service():

@@ -130,6 +130,10 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   precipitationNowcast: RaindropIcon,
   windVector: WindIcon,
+  // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。専用アイコンは
+  // 持たず、同じ風のデータを扱うwindVectorと同じWindIconを流用する（T406でのUI統合時に
+  // 見た目の区別が必要になれば見直す、暫定チップという位置づけのため）。
+  windAxis: WindIcon,
   thunderNowcast: ThunderIcon,
   tornadoNowcast: TornadoIcon,
   route: RouteIcon,

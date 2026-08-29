@@ -61,6 +61,7 @@ import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNo
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
+import { useWindAxisPenalties } from "@/hooks/useWindAxisPenalties";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
@@ -152,6 +153,8 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   precipitationNowcast: false,
   // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
+  // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。同じ理由で既定OFF。
+  windAxis: false,
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
   tornadoNowcast: false,
@@ -918,6 +921,12 @@ export default function Home() {
     mapViewport,
   });
 
+  // way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——上の
+  // useDynamicWeatherLayers（「環境」グループの面・矢印表示）とは独立したフェッチ。
+  // mapViewportは同じMapView.tsx: onViewportChange経由の値を共有する。
+  const showWindAxis = layerVisibility.windAxis;
+  const windAxisPenalties = useWindAxisPenalties(showWindAxis, mapViewport);
+
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
   // 廃止に伴い比較対象から削除した。
@@ -1405,6 +1414,8 @@ export default function Home() {
             showDesignation={layerVisibility.designation}
             showTunnel={layerVisibility.tunnel}
             showOneway={layerVisibility.oneway}
+            showWindAxis={showWindAxis}
+            windAxisPenalties={windAxisPenalties}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}

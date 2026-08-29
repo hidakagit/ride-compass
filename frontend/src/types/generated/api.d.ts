@@ -329,6 +329,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/region/dynamic-way-values/wind/{z}/{x}/{y}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Dynamic Way Values Wind
+         * @description 「評価軸」グループとしての風（改善計画T405、docs/tasks/T400.md「2. 動的要素…の
+         *     二重表現」節）。指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、
+         *     backend/app/domain/wind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量な
+         *     JSONエンドポイント。
+         *
+         *     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイント新設に伴う
+         *     変更なし）とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの
+         *     `setFeatureState`で合成する（`frontend/src/components/Map/windAxisLayer.ts`参照）。
+         *     `way_id`が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由するため、
+         *     パン・ズームで同じ道路が再び視界に入っても風グリッド・DBへの再問い合わせは1時間
+         *     バケットの範囲内では発生しない。
+         *
+         *     `at`（クエリパラメータ）省略時は現在時刻（Asia/Tokyo）を使う。路面・POIタイルと同じ
+         *     レート制限・座標検証・DB接続プールのsemaphoreを共有する（`region_service.py`の
+         *     `_region_tile_semaphore`のコメント参照——MVTエンコードは伴わないが同じPostGIS
+         *     コネクションプールを取り合うため）。
+         */
+        get: operations["region_dynamic_way_values_wind_api_region_dynamic_way_values_wind__z___x___y__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/axis-inspector": {
         parameters: {
             query?: never;
@@ -2049,6 +2084,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    region_dynamic_way_values_wind_api_region_dynamic_way_values_wind__z___x___y__get: {
+        parameters: {
+            query?: {
+                at?: string | null;
+            };
+            header?: never;
+            path: {
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
             /** @description Validation Error */
