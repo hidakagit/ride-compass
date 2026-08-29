@@ -93,23 +93,29 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
         </>
       )}
 
-      {weatherDisplay && (
+      {/* 天気アイコン＋日の出/日没を1チップへ統合する（改善計画T387フォローアップ、
+          2026-08-29実機フィードバック「バー右端のログ表示アイコンが消えてる、前より
+          スペースが減ってるのでバッジ見切れる可能性が高い」への対応）。.weatherStatsは
+          flex-shrink: 0で常に自然幅を保つ設計（page.module.css参照）のため、チップを
+          1個増やすと右側の.headerActions（警報バッジ・デバッグアイコン）を押し出して
+          隠してしまう。日の出/日没チップを新設で独立させず、既に昼夜判定のため
+          sunrise/sunsetを参照している天気アイコンチップへ統合し、正味のチップ数を
+          増やさないようにした（情報量は維持——アイコン＋時刻の両方を引き続き表示する）。 */}
+      {(weatherDisplay != null || twilightIso != null) && (
         <>
           <span className={styles.divider} aria-hidden="true" />
-          <span className={styles.stat} title={weatherDisplay.label}>
-            <weatherDisplay.Icon size={16} />
-            <span className={styles.srOnly}>天気: {weatherDisplay.label}</span>
-          </span>
-        </>
-      )}
-
-      {twilightIso != null && (
-        <>
-          <span className={styles.divider} aria-hidden="true" />
-          <span className={styles.stat} title={twilightTitle}>
-            <ClockIcon size={15} />
-            <span className={styles.srOnly}>{twilightTitle}: </span>
-            {formatClockTime(twilightIso)}
+          <span
+            className={styles.stat}
+            title={[weatherDisplay?.label, twilightIso != null ? `${twilightTitle} ${formatClockTime(twilightIso)}` : null]
+              .filter(Boolean)
+              .join(" / ")}
+          >
+            {weatherDisplay ? <weatherDisplay.Icon size={16} /> : <ClockIcon size={15} />}
+            <span className={styles.srOnly}>
+              {weatherDisplay ? `天気: ${weatherDisplay.label}` : ""}
+              {twilightIso != null ? `${twilightTitle}: ` : ""}
+            </span>
+            {twilightIso != null && formatClockTime(twilightIso)}
           </span>
         </>
       )}

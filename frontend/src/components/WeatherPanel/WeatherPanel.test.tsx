@@ -131,7 +131,7 @@ describe("WeatherPanel", () => {
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
       expect(container.textContent).toMatch(/05:12/);
-      expect(container.querySelector('[title="日の出"]')).toBeInTheDocument();
+      expect(container.querySelector('[title*="日の出"]')).toBeInTheDocument();
     });
 
     it("日中は日没時刻を表示する", () => {
@@ -140,14 +140,32 @@ describe("WeatherPanel", () => {
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
       expect(container.textContent).toMatch(/18:24/);
-      expect(container.querySelector('[title="日没"]')).toBeInTheDocument();
+      expect(container.querySelector('[title*="日没"]')).toBeInTheDocument();
     });
 
-    it("sunrise/sunsetが無い場合はチップを表示しない", () => {
+    it("sunrise/sunsetが無く天気も判定できない場合はチップを表示しない", () => {
       const amedas = makeAmedas({ sunrise: null, sunset: null });
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
-      expect(container.querySelector('[title="日の出"], [title="日没"]')).not.toBeInTheDocument();
+      expect(container.querySelector('[title*="日の出"], [title*="日没"]')).not.toBeInTheDocument();
+    });
+
+    it("天気アイコンと日の出/日没は1チップに統合され、両方の情報を持つ（改善計画T387" +
+      "フォローアップ、ヘッダーのバッジ見切れ対策でチップ数を増やさないための統合）", () => {
+      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00").getTime());
+      const amedas = makeAmedas({
+        precipitation_10min_mm: 0,
+        sunshine_10min_minutes: 8,
+        sunrise: "2026-08-28T05:12:00+09:00",
+        sunset: "2026-08-28T18:24:00+09:00",
+      });
+      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
+
+      // 天気アイコン用・日の出日没用の2チップに分かれず、1つのチップへ両方収まる
+      // （svgアイコンが1個のみ、titleに両方の情報を持つ）。
+      const chip = container.querySelector('[title*="晴れ"][title*="日没"]');
+      expect(chip).toBeInTheDocument();
+      expect(chip?.textContent).toMatch(/18:24/);
     });
   });
 
