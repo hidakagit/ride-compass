@@ -122,7 +122,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Weather */
+        /**
+         * Get Weather
+         * @description 今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
+         *     改善計画T387フォローアップ（2026-08-29）: 常設ヘッダー（現在値の気温・体感温度・
+         *     風速風向）はアメダス実測を使う`GET /api/weather/amedas`へ分離したため、
+         *     このエンドポイントはOpen-Meteoの値をそのまま返す（以前あったアメダス優先の
+         *     上書きは削除。常設ヘッダーはこのレスポンスを参照しなくなったため不要になった）。
+         */
         get: operations["get_weather_api_weather_get"];
         put?: never;
         post?: never;
@@ -605,6 +612,10 @@ export interface components {
         /**
          * AmedasObservation
          * @description 最寄りアメダス観測所の直近観測値。
+         *
+         *     突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない
+         *     （改善計画T387フォローアップ、2026-08-29に実データで確認: 全1,286観測所の
+         *     キー一覧にgust相当のフィールドが1つも無い）ため、このモデルに含めない。
          */
         AmedasObservation: {
             /** Station Id */
@@ -629,6 +640,12 @@ export interface components {
             wind_direction_label: string | null;
             /** Precipitation 10Min Mm */
             precipitation_10min_mm: number | null;
+            /** Sunshine 10Min Minutes */
+            sunshine_10min_minutes: number | null;
+            /** Sunrise */
+            sunrise: string | null;
+            /** Sunset */
+            sunset: string | null;
         };
         /** AxisCatalogEntry */
         AxisCatalogEntry: {

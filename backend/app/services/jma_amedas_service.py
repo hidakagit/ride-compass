@@ -26,6 +26,7 @@
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -37,6 +38,7 @@ from app.domain.jma_amedas import (
     wind_direction_label_from_jma_code,
 )
 from app.domain.route import Coordinates
+from app.domain.twilight import sunrise_sunset_jst
 from app.infrastructure import jma_amedas_client
 from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.redis_client import (
@@ -48,6 +50,7 @@ from app.infrastructure.redis_client import (
 
 logger = logging.getLogger("app.services.jma_amedas_service")
 
+_JST = ZoneInfo("Asia/Tokyo")
 _REDIS_KEY_PREFIX = "jma:amedas"
 _REDIS_TTL_SECONDS = 15 * 60
 # バッチ実行間隔（main.py参照）。上のモジュールdocstring「バッチ間隔」節を参照。
@@ -94,7 +97,17 @@ class JmaAmedasService:
         if nearest is None:
             return None
         station_id, _name, _latitude, _longitude = nearest
-        return await self._get_from_redis(station_id)
+        observation = await self._get_from_redis(station_id)
+        if observation is None:
+            return None
+        # 日の出/日没はJMA/Open-Meteoに問い合わせず、クエリ地点そのものに対してその場で
+        # ローカル計算する（改善計画T387フォローアップ）。最寄り観測所の位置ではなく
+        # リクエストのpointを使う（観測所境界付近でのわずかなズレを避けるため、かつ
+        # Redisキャッシュ済みの観測値と違い計算コストが無視できるほど軽いため都度計算で
+        # 問題ない）。
+        today = datetime.now(_JST).date()
+        sunrise, sunset = sunrise_sunset_jst(point, today)
+        return observation.model_copy(update={"sunrise": sunrise, "sunset": sunset})
 
     async def _get_from_redis(self, station_id: str) -> AmedasObservation | None:
         if not redis_available():
@@ -121,6 +134,11 @@ class JmaAmedasService:
             wind_direction_deg=_optional_float(fields.get("wind_direction_deg")),
             wind_direction_label=fields.get("wind_direction_label") or None,
             precipitation_10min_mm=_optional_float(fields.get("precipitation_10min_mm")),
+            sunshine_10min_minutes=_optional_float(fields.get("sunshine_10min_minutes")),
+            # sunrise/sunsetはRedisに保存しない（クエリ地点依存のためget_nearest_observation
+            # がこの後で都度埋める）。ここでは常にNoneのプレースホルダ。
+            sunrise=None,
+            sunset=None,
         )
 
     async def refresh_all_stations(self) -> int:
@@ -167,6 +185,10 @@ class JmaAmedasService:
                     wind_direction_deg=wind_direction_degrees_from_jma_code(wind_direction_code),
                     wind_direction_label=wind_direction_label_from_jma_code(wind_direction_code),
                     precipitation_10min_mm=_first_value(raw.get("precipitation10m")),
+                    sunshine_10min_minutes=_first_value(raw.get("sun10m")),
+                    # クエリ地点依存のためバッチ時点では決められない（get_nearest_observation参照）。
+                    sunrise=None,
+                    sunset=None,
                 )
             )
         await self._save_all_to_redis(observations)
@@ -193,6 +215,7 @@ class JmaAmedasService:
                         "wind_direction_deg": _redis_value(observation.wind_direction_deg),
                         "wind_direction_label": observation.wind_direction_label or "",
                         "precipitation_10min_mm": _redis_value(observation.precipitation_10min_mm),
+                        "sunshine_10min_minutes": _redis_value(observation.sunshine_10min_minutes),
                     },
                 )
                 pipe.expire(key, _REDIS_TTL_SECONDS)

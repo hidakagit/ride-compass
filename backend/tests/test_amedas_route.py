@@ -37,6 +37,9 @@ SAMPLE = AmedasObservation(
     wind_direction_deg=180.0,
     wind_direction_label="南",
     precipitation_10min_mm=0.0,
+    sunshine_10min_minutes=5.0,
+    sunrise="2026-08-29T05:12:00+09:00",
+    sunset="2026-08-29T18:41:00+09:00",
 )
 
 

@@ -7,16 +7,29 @@
 // 「警告なし」（null/空配列）としてbackend契約どおり静かに扱う点まで共通のため、元は
 // page.tsx内に個別に書かれていた4本のfetch effectをまとめて1フックにした。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWeather, getFloodForecasts, getWbgtStatus, getWeatherWarnings } from "@/services/weatherApi";
+import {
+  getAmedasObservation,
+  getCurrentWeather,
+  getFloodForecasts,
+  getWbgtStatus,
+  getWeatherWarnings,
+} from "@/services/weatherApi";
 import type { Coordinates } from "@/types/route";
-import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
+import type { AmedasObservation, FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
 import type { WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
 
 export interface UseWeatherConditionsResult {
-  /** 現在地の天候（WeatherPanel向け）。 */
+  /** 今日の見通し（TodayOutlook向け）。Open-Meteoの予報値（日次集計・weather_code・
+   * UV指数等）で、常設ヘッダーはこれを参照しない（改善計画T387フォローアップ、
+   * 2026-08-29「常設エリアは実測値、今日の見通しは予測値」の方針分離）。 */
   weather: WeatherConditions | null;
   weatherLoading: boolean;
   weatherError: string | null;
+  /** 最寄りアメダス観測所の実測値（WeatherPanel＝常設ヘッダー向け）。Open-Meteoの成否・
+   * 速度から独立してフェッチする。 */
+  amedas: AmedasObservation | null;
+  amedasLoading: boolean;
+  amedasError: string | null;
   /** JMA警報・注意報・WBGT・河川氾濫予報を統合したバッジ一覧（WarningBadgeList向け）。 */
   warningBadgeItems: WarningBadgeItem[];
 }
@@ -55,6 +68,38 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     if (!locationReady) return;
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [locationReady, location, fetchWeatherFor]);
+
+  // 最寄りアメダス観測所の実測値（改善計画T387フォローアップ）。weather（Open-Meteo）とは
+  // 独立したフェッチ・状態にすることで、常設ヘッダーの表示がOpen-Meteoの障害・遅延から
+  // 影響を受けないようにする。
+  const [amedas, setAmedas] = useState<AmedasObservation | null>(null);
+  const [amedasLoading, setAmedasLoading] = useState(false);
+  const [amedasError, setAmedasError] = useState<string | null>(null);
+
+  const latestAmedasRequestId = useRef(0);
+  const fetchAmedasFor = useCallback((next: Coordinates) => {
+    const requestId = ++latestAmedasRequestId.current;
+    setAmedasLoading(true);
+    setAmedasError(null);
+    getAmedasObservation(next)
+      .then((observation) => {
+        if (requestId !== latestAmedasRequestId.current) return;
+        setAmedas(observation);
+      })
+      .catch((error: unknown) => {
+        if (requestId !== latestAmedasRequestId.current) return;
+        setAmedasError(error instanceof Error ? error.message : "不明なエラーが発生しました");
+      })
+      .finally(() => {
+        if (requestId !== latestAmedasRequestId.current) return;
+        setAmedasLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!locationReady) return;
+    Promise.resolve().then(() => fetchAmedasFor(location));
+  }, [locationReady, location, fetchAmedasFor]);
 
   // 警報・注意報バッジ（改善計画T205）。通信エラー時は例外を投げるだけで、警報なし
   // （空配列）として静かに扱う（バックエンド自体が失敗時に空warningsを返す契約のため、
@@ -163,5 +208,13 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     return [...jmaItems, ...wbgtItem, ...floodItems];
   }, [weatherWarnings, wbgtStatus, floodForecasts]);
 
-  return { weather, weatherLoading, weatherError, warningBadgeItems };
+  return {
+    weather,
+    weatherLoading,
+    weatherError,
+    amedas,
+    amedasLoading,
+    amedasError,
+    warningBadgeItems,
+  };
 }

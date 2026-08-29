@@ -25,11 +25,14 @@ sunrise-sunset.org（NOAA準拠の公開API）の実測値との突き合わせ�
 """
 
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from astral import Observer
 from astral.sun import sun
 
 from app.domain.route import Coordinates
+
+_JST = ZoneInfo("Asia/Tokyo")
 
 # at前後の探索範囲（日数）。市民薄明が定義できる緯度なら1日あれば足りるが、日付跨ぎの
 # 経度ずれ（上記docstring参照）を確実に吸収するため余裕を持たせる。
@@ -63,6 +66,23 @@ def is_night(coordinates: Coordinates, at: datetime) -> bool:
             break
         is_day = is_dawn
     return not is_day
+
+
+def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | None, str | None]:
+    """`coordinates`地点の`on_date`（JST基準の暦日）における日の出・日没時刻をJST ISO文字列
+    （例: "2026-08-29T05:12:00+09:00"）で返す（改善計画T387フォローアップ、ユーザー指示
+    2026-08-29「日の出日没も予報が不要なので上部常設バーに移動」）。
+
+    is_nightと違い市民薄明ではなく実際の日の出・日没（太陽の中心が地平線と一致する瞬間）を
+    返す——Open-Meteoのdaily.sunrise/sunsetと同じ定義に揃えるため（TodayOutlookが従来
+    表示していたものと同じ意味の値を、外部APIを使わずローカル計算で置き換える）。
+    極夜・白夜等、日の出/日没が定義できない緯度では(None, None)を返す。"""
+    observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
+    try:
+        s = sun(observer, date=on_date, tzinfo=_JST)
+    except ValueError:
+        return None, None
+    return s["sunrise"].isoformat(), s["sunset"].isoformat()
 
 
 def _civil_dawn_dusk(observer: Observer, day: date) -> tuple[datetime, datetime] | None:

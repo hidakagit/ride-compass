@@ -22,6 +22,16 @@
   color: var(--color-accent);
 }
 
+/* 取得失敗時の表示（改善計画T387フォローアップ、ユーザー指示2026-08-29「取得失敗した
+   ことを何かパネルでわかるようにして」）。以前はweather===nullを「取得失敗」と
+   「まだ読み込み中/意味のある値が無い」の区別なく同じ扱い（トグル自体を出さない）に
+   していたが、実際に取得が失敗したことは常設要素として気づけるようにする。 */
+.triggerError {
+  composes: trigger;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
 /* パネル本体（Popover.Content）。WarningBadge.module.cssの.detailPanelと同じ
    「フローティングカード」の見た目・z-indexに揃える。改善計画T385フォローアップ2
    （ユーザー指摘「パネルの横幅をもう少し広げて。スマホ横幅をふさぎ切らないように」）:

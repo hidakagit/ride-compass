@@ -865,10 +865,20 @@ export default function Home() {
     setMapViewport(viewport);
   }, []);
 
-  // 現在地の天候（WeatherPanel向け）と警告バッジ3種（JMA警報・注意報T205／WBGT T174／
-  // 河川氾濫予報T212）のフェッチ・状態管理（改善計画T375でuseWeatherConditionsへ抽出）。
+  // 今日の見通し（TodayOutlook向け、Open-Meteo予報）・最寄りアメダス実測値（WeatherPanel＝
+  // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報T205／WBGT T174／河川氾濫予報T212）の
+  // フェッチ・状態管理（改善計画T375でuseWeatherConditionsへ抽出、T387フォローアップで
+  // weather[Open-Meteo]とamedas[アメダス実測]を独立フェッチへ分離）。
   // locationReadyになるまで待ち、その後はlocationが変わるたびに再フェッチする。
-  const { weather, weatherLoading, weatherError, warningBadgeItems } = useWeatherConditions(location, locationReady);
+  const {
+    weather,
+    weatherLoading,
+    weatherError,
+    amedas,
+    amedasLoading,
+    amedasError,
+    warningBadgeItems,
+  } = useWeatherConditions(location, locationReady);
 
   // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト）のフェッチ・
   // 共有タイムライン・MapView向け描画ペイロード（改善計画T375でuseDynamicWeatherLayersへ
@@ -1229,12 +1239,12 @@ export default function Home() {
             警報バッジ・デバッグアイコン（.headerActions）は代わりに、入り切らなければ
             スクロールしないと見えない状態を許容する。 */}
         <div className={styles.weatherStats}>
-          <WeatherPanel weather={weather} loading={weatherLoading} error={weatherError} />
+          <WeatherPanel amedas={amedas} loading={amedasLoading} error={amedasError} />
           {/* 改善計画T385: 「今日の見通し」（日没・今日の降水確率最大・最大風速・気温
               レンジ）。.weatherStatsと同じ左寄せ固定グループに含め、警報バッジより
               優先して常に見える側に置く（T384調査「常設ヘッダーへ項目を足さず二次
               パネルへ集約する」の結論どおり、瞬間値のWeatherPanelとは別枠のトグルにする）。 */}
-          <TodayOutlook weather={weather} />
+          <TodayOutlook weather={weather} loading={weatherLoading} error={weatherError} />
         </div>
         <div className={styles.headerActions}>
           <WarningBadgeList items={warningBadgeItems} />

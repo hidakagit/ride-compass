@@ -29,6 +29,7 @@ OBSERVATION_MAP = {
         "wind": [3.5, 0],
         "windDirection": [8, 0],
         "precipitation10m": [0.0, 0],
+        "sun10m": [5.0, 0],
     },
     "99999": {
         "temp": [10.0, 0],
@@ -125,6 +126,11 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
     assert result.wind_speed_ms == 3.5
     assert result.wind_direction_label == "南"
     assert result.precipitation_10min_mm == 0.0
+    assert result.sunshine_10min_minutes == 5.0
+    # sunrise/sunsetはRedisキャッシュではなくget_nearest_observationがクエリ地点に対して
+    # その場でastral計算する（jma_amedas_service.pyのdocstring参照）。
+    assert result.sunrise is not None
+    assert result.sunset is not None
 
 
 async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypatch):

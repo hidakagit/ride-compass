@@ -193,6 +193,7 @@
     "/api/weather": {
       "get": {
         "summary": "Get Weather",
+        "description": "今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。\n改善計画T387フォローアップ（2026-08-29）: 常設ヘッダー（現在値の気温・体感温度・\n風速風向）はアメダス実測を使う`GET /api/weather/amedas`へ分離したため、\nこのエンドポイントはOpen-Meteoの値をそのまま返す（以前あったアメダス優先の\n上書きは削除。常設ヘッダーはこのレスポンスを参照しなくなったため不要になった）。",
         "operationId": "get_weather_api_weather_get",
         "parameters": [
           {
@@ -1478,6 +1479,39 @@
               }
             ],
             "title": "Precipitation 10Min Mm"
+          },
+          "sunshine_10min_minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sunshine 10Min Minutes"
+          },
+          "sunrise": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sunrise"
+          },
+          "sunset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sunset"
           }
         },
         "type": "object",
@@ -1492,10 +1526,13 @@
           "wind_speed_ms",
           "wind_direction_deg",
           "wind_direction_label",
-          "precipitation_10min_mm"
+          "precipitation_10min_mm",
+          "sunshine_10min_minutes",
+          "sunrise",
+          "sunset"
         ],
         "title": "AmedasObservation",
-        "description": "最寄りアメダス観測所の直近観測値。"
+        "description": "最寄りアメダス観測所の直近観測値。\n\n突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない\n（改善計画T387フォローアップ、2026-08-29に実データで確認: 全1,286観測所の\nキー一覧にgust相当のフィールドが1つも無い）ため、このモデルに含めない。"
       },
       "AxisCatalogEntry": {
         "properties": {

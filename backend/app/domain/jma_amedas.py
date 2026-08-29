@@ -53,7 +53,12 @@ def apparent_temperature_from_amedas(
 
 
 class AmedasObservation(BaseModel):
-    """最寄りアメダス観測所の直近観測値。"""
+    """最寄りアメダス観測所の直近観測値。
+
+    突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない
+    （改善計画T387フォローアップ、2026-08-29に実データで確認: 全1,286観測所の
+    キー一覧にgust相当のフィールドが1つも無い）ため、このモデルに含めない。
+    """
 
     station_id: str
     station_name: str
@@ -66,3 +71,13 @@ class AmedasObservation(BaseModel):
     wind_direction_deg: float | None
     wind_direction_label: str | None
     precipitation_10min_mm: float | None
+    # 直近10分間の日照時間（分、0〜10）。天気アイコンの簡易分類
+    # （晴れ/くもり/雨/雪、frontend側）が降水量と組み合わせて使う。
+    sunshine_10min_minutes: float | None
+    # 常設ヘッダーへ日の出/日没を表示するため追加（改善計画T387フォローアップ、
+    # ユーザー指示2026-08-29「日の出日没も予報が不要なので上部常設バーに移動」）。
+    # JMA/Open-Meteoいずれにも問い合わせず、astralによるローカル天文計算
+    # （domain/twilight.py: sunrise_sunset_jst）で求める。クエリ地点（最寄り観測所ではなく
+    # リクエストのlatitude/longitudeそのもの）・当日（JST）の値。
+    sunrise: str | None
+    sunset: str | None

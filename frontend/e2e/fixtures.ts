@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
-import type { WeatherConditions } from "@/types/weather";
+import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（openrouteservice/Open-Meteo/
 // OpenFreeMap）」には依存しない。APIコントラクトの正しさはCIのapi-contractジョブ
@@ -117,6 +117,31 @@ export function weatherConditionsFixture(): WeatherConditions {
   };
 }
 
+// 最寄りアメダス観測所の実測値フィクスチャ（改善計画T387フォローアップ）。/api/weather*の
+// 汎用ワイルドカード（後述installApiMocks）はWeatherConditions型のweatherConditionsFixture()を
+// 返すため、フィールド名が異なるAmedasObservation（station_id/station_name等）を使う
+// /api/weather/amedasには専用ルートが必要——無いとWeatherPanel（常設ヘッダー）が
+// undefinedフィールドだらけの誤った形のデータを受け取ることになる（型注釈が無いと
+// tscでは検知できない。weatherConditionsFixtureの型注釈導入の経緯コメント参照）。
+export function amedasObservationFixture(): AmedasObservation {
+  return {
+    station_id: "44132",
+    station_name: "東京",
+    latitude: 35.69,
+    longitude: 139.76,
+    observed_at: new Date().toISOString(),
+    temperature_c: 18.5,
+    apparent_temperature_c: null,
+    wind_speed_ms: 2.1,
+    wind_direction_deg: 90,
+    wind_direction_label: "東",
+    precipitation_10min_mm: null,
+    sunshine_10min_minutes: null,
+    sunrise: null,
+    sunset: null,
+  };
+}
+
 // MapLibreのスタイル読み込み先（MapView.tsx: MAP_STYLE）。sources/layersを空にして
 // 外部タイル・グリフ・スプライトへの追加リクエストが発生しない自己完結スタイルにする
 // （地図の見た目は検証対象外、UI操作の疎通のみが目的）。
@@ -135,6 +160,11 @@ export async function installApiMocks(page: Page): Promise<void> {
 
   await page.route(`${API_BASE}/api/weather*`, (route) =>
     route.fulfill({ json: weatherConditionsFixture() })
+  );
+  // /api/weather*より後に登録し、Playwrightのルート優先順位（後から登録した方が先に
+  // マッチ判定される）で/api/weather/amedasだけこちらを優先させる。
+  await page.route(`${API_BASE}/api/weather/amedas*`, (route) =>
+    route.fulfill({ json: amedasObservationFixture() })
   );
 
   // 改善計画T265: ルート生成はバックグラウンドジョブ化された。POST（ジョブ投稿）は

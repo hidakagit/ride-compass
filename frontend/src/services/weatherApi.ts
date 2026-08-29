@@ -1,5 +1,13 @@
 import type { Coordinates } from "@/types/route";
-import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint, WindGridResponse } from "@/types/weather";
+import type {
+  AmedasObservation,
+  FloodForecasts,
+  WbgtStatus,
+  WeatherConditions,
+  WeatherWarnings,
+  WindGridPoint,
+  WindGridResponse,
+} from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -15,6 +23,18 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
   const data = await fetchJson<WeatherConditions>(url, { timeoutMs: 15000, category: "api:weather", errorLabel: "天候情報" });
   debugLog("api:weather", "詳細", { precipitation_probability_percent: data.precipitation_probability_percent });
   return data;
+}
+
+// 最寄りアメダス観測所の実測値（改善計画T387フォローアップ）。常設ヘッダー（WeatherPanel）が
+// getCurrentWeather（Open-Meteo、TodayOutlook専用）とは独立に呼ぶ。取得失敗時はbackendが
+// 502を返す契約（backend/app/api/routers/weather.py: get_amedas参照）。
+export async function getAmedasObservation(point: Coordinates): Promise<AmedasObservation> {
+  const params = new URLSearchParams({
+    latitude: String(point.latitude),
+    longitude: String(point.longitude),
+  });
+  const url = `${API_BASE_URL}/api/weather/amedas?${params}`;
+  return fetchJson<AmedasObservation>(url, { timeoutMs: 15000, category: "api:amedas", errorLabel: "アメダス観測値" });
 }
 
 // 警報・注意報バッジ（改善計画T205）。取得失敗時もbackend側が空のwarningsで200を返す

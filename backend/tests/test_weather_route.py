@@ -1,13 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import (
-    get_amedas_service,
-    get_flood_service,
-    get_warning_service,
-    get_wbgt_service,
-    get_weather_service,
-)
+from app.api.dependencies import get_flood_service, get_warning_service, get_wbgt_service, get_weather_service
 from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
@@ -43,19 +37,6 @@ class FakeWeatherService:
         return self._wind_times, self._wind_grid
 
 
-class FakeAmedasService:
-    """/api/weatherがアメダス優先マージ（改善計画T387フォローアップ）用に呼ぶ
-    JmaAmedasServiceの代替。Noneを返せばOpen-Meteoの値がそのまま素通りする
-    （実ネットワーク呼び出し・実Redisに触れないよう、/api/weatherの全テストで
-    get_amedas_serviceのオーバーライドが必須）。"""
-
-    def __init__(self, observation=None):
-        self._observation = observation
-
-    async def get_nearest_observation(self, point):
-        return self._observation
-
-
 def test_get_weather_returns_conditions_on_success():
     conditions = WeatherConditions(
         temperature_c=24.6,
@@ -82,7 +63,6 @@ def test_get_weather_returns_conditions_on_success():
         ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
-    app.dependency_overrides[get_amedas_service] = lambda: FakeAmedasService()
 
     try:
         response = client.get("/api/weather", params={"latitude": 35.7597, "longitude": 139.7387})
@@ -95,71 +75,8 @@ def test_get_weather_returns_conditions_on_success():
     assert body["wind_direction_label"] == "東"
 
 
-def test_get_weather_prefers_amedas_current_values_when_available():
-    """改善計画T387フォローアップ（ユーザー指示2026-08-29）: 現在値の気温・体感温度・
-    風速風向はアメダス実測が取得できればそちらを優先する。降水確率等はOpen-Meteoのまま。"""
-    from app.domain.jma_amedas import AmedasObservation
-
-    conditions = WeatherConditions(
-        temperature_c=24.6,
-        apparent_temperature_c=27.1,
-        wind_speed_ms=2.5,
-        wind_direction_deg=69,
-        wind_direction_label="東",
-        wind_gusts_ms=4.8,
-        precipitation_probability_percent=60,
-        precipitation_mm=0.5,
-        uv_index=6.2,
-        observed_at="2026-08-13T21:15",
-        weather_code=2,
-        is_day=1,
-        sunrise="2026-08-13T05:12",
-        sunset="2026-08-13T18:41",
-        precipitation_probability_max_percent=80,
-        wind_speed_max_ms=5.5,
-        temperature_max_c=29.0,
-        temperature_min_c=23.0,
-        uv_index_max=8.5,
-        today_periods=[],
-    )
-    amedas = AmedasObservation(
-        station_id="44132",
-        station_name="東京",
-        latitude=35.69,
-        longitude=139.76,
-        observed_at="2026-08-13T21:10:00+09:00",
-        temperature_c=25.1,
-        apparent_temperature_c=26.4,
-        wind_speed_ms=3.0,
-        wind_direction_deg=180.0,
-        wind_direction_label="南",
-        precipitation_10min_mm=0.0,
-    )
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
-    app.dependency_overrides[get_amedas_service] = lambda: FakeAmedasService(amedas)
-
-    try:
-        response = client.get("/api/weather", params={"latitude": 35.68, "longitude": 139.76})
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    body = response.json()
-    # アメダス由来（上書き対象）
-    assert body["temperature_c"] == 25.1
-    assert body["apparent_temperature_c"] == 26.4
-    assert body["wind_speed_ms"] == 3.0
-    assert body["wind_direction_deg"] == 180.0
-    assert body["wind_direction_label"] == "南"
-    # Open-Meteoのまま（アメダスに相当データが無い項目）
-    assert body["precipitation_probability_percent"] == 60
-    assert body["uv_index"] == 6.2
-    assert body["observed_at"] == "2026-08-13T21:15"
-
-
 def test_get_weather_returns_502_when_unavailable():
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None)
-    app.dependency_overrides[get_amedas_service] = lambda: FakeAmedasService()
 
     try:
         response = client.get("/api/weather", params={"latitude": 35.7597, "longitude": 139.7387})
@@ -195,7 +112,6 @@ def test_get_weather_is_rate_limited_per_client():
         ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
-    app.dependency_overrides[get_amedas_service] = lambda: FakeAmedasService()
 
     try:
         for _ in range(settings.weather_rate_limit_per_minute - 1):

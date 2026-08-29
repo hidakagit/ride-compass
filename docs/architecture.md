@@ -321,14 +321,18 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
   リクエスト経路（`GET /api/weather/amedas`）はRedis読み取り専用で、JMAへは問い合わせない。
   体感温度はJMAが提供しないため、気温・湿度・風速からBOM（オーストラリア気象局）の
   Apparent Temperature式で自前計算する（`domain/jma_amedas.py:
-  apparent_temperature_from_amedas`）。
-- **`GET /api/weather`のアメダス優先化**: 現在値のうち気温・体感温度・風速風向は、
-  最寄りアメダス観測所の実測値が取得できればそちらを優先し、Open-Meteo（モデル推定）を
-  上書きする（`api/routers/weather.py: _prefer_amedas_current_values`）。降水確率・
-  降水量・UV指数・weather_code・「今日の見通し」（日次集計）はアメダスに相当データが
-  無いか単位が異なる（アメダスは10分降水量、Open-Meteoは時間降水量[mm/h]）ため
-  Open-Meteoのまま。Open-Meteo自体が失敗した場合はアメダス単独でのレスポンス構築は
-  行わず、従来どおり502を返す。
+  apparent_temperature_from_amedas`）。日照時間（`sunshine_10min_minutes`、frontend側の
+  簡易天気アイコン判定に使う）もRedisへ含める。日の出/日没はJMA/Open-Meteoに問い合わせず
+  astralによるローカル計算（`domain/twilight.py: sunrise_sunset_jst`）で、クエリ地点
+  そのもの・当日（JST）の値を`get_nearest_observation`が都度計算して合成する
+  （Redisにはキャッシュしない。計算コストが無視できるほど軽いため）。
+- **`GET /api/weather`と`GET /api/weather/amedas`は完全に独立**（2026-08-29、方針
+  「常設エリアは実測値、今日の見通しは予測値」）: 当初は`/api/weather`が内部でアメダスの
+  現在値を上書きマージしていたが、frontend側で常設ヘッダー（WeatherPanel、実測値専用）と
+  今日の見通し（TodayOutlook、Open-Meteo予報専用）のデータ取得自体を分離した
+  （`useWeatherConditions.ts`のweather/amedasが独立フェッチ）結果、`/api/weather`側の
+  マージは誰も参照しなくなったため削除した。`/api/weather`は常にOpen-Meteoの値をそのまま
+  返す（TodayOutlook専用）。
 - **降水ナウキャスト・MSMのRedis化は見送り済み（2026-08-29）**: 当初はナウキャストの
   タイムスタンプ解決ヘルパー（`jma_tile_service.py`）とMSMのRedis保存スケルトン
   （`jma_msm_service.py`）も実装したが、(1) ナウキャストはフロントエンド
@@ -596,21 +600,34 @@ RideCompass/
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー・プリセット）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
-        WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水確率・天気アイコン表示（Step6）。
-          天気アイコンは改善計画T385でUV指数の常時表示から置き換えた（weather_code・
-          is_dayから快晴/くもり/霧/雨/雪/雷雨と昼夜を判定、判定ロジックは同ディレクトリの
-          weatherCode.tsに集約。UV指数自体はチップのtitleへ格下げ）
+        WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水量・天気アイコン・日の出/日没
+          表示（Step6、改善計画T387フォローアップで大幅刷新）。改善計画T387フォローアップ
+          （2026-08-29、方針「常設エリアは実測値、今日の見通しは予測値」）: データ源を
+          Open-Meteo（`GET /api/weather`、旧`WeatherConditions`）から最寄りアメダス観測所の
+          実測値（`GET /api/weather/amedas`、`AmedasObservation`）へ切替え、TodayOutlookとは
+          独立にフェッチする（`useWeatherConditions.ts`のamedas/amedasLoading/amedasError）。
+          これにより常設ヘッダーの表示がOpen-Meteoの障害・遅延から影響を受けなくなった。
+          降水確率（予報）はアメダスに相当データが無いため実測降水量（mm/10分）へ意味を
+          変更、天気アイコンはOpen-Meteoのweather_codeではなくアメダスの日照時間
+          （sunshine_10min_minutes）・降水量・気温から晴れ/くもり/雨/雪を簡易判定する
+          専用ロジック（同ディレクトリのamedasWeatherIcon.ts、weatherCode.tsとは別物・
+          霧雷雨は判別不可）。突風はアメダスの速報値レスポンスに突風フィールドが存在しない
+          （実データ確認済み）ため非表示。日の出/日没チップを新規追加（予報不要のため
+          backend側でastralによるローカル計算、TodayOutlookから移設）。
         TodayOutlook/TodayOutlook.tsx ✅ 改善計画T385: 「今日の見通し」二次パネル
-          （夜明け/日没時刻・今日の降水確率最大・最大風速・気温レンジ・UV指数最大）。
+          （今日の降水確率最大・最大風速・気温レンジ・UV指数最大、今日の天気の流れ）。
           常設ヘッダーには項目を足さず、WarningBadgeと同じRadix Popoverパターンでタップ時
           のみ開く（T384調査「場所・季節を問わず常に意味を持つ値」だけに絞った日次見通し）。
+          データ源は引き続きOpen-Meteo（`weather`）のみで、予報専用パネルという位置づけ。
           T385フォローアップ: UV指数最大値の追加（常設ヘッダーのtitle属性はスマホの
           タップでは実質見えないため、確実に見えるここへ追加）と、「今日の天気の流れ」
           （today_periods、現在時刻を含む2時間区間から2時間おき8コマ、時刻・天気アイコン・
           気温・降水確率を横スクロール可能な帯で表示。weatherCode.tsのアイコン判定を再利用）
           を追加した。T385フォローアップ2: パネル幅を15.5rem→19rem（スマホ横幅を塞ぎ切らない
-          範囲で拡張）、日没固定表示を「夜明け前ならsunrise、それ以外はsunset」の切り替えへ
-          変更（現在時刻とsunrise/sunsetの比較はfrontend側で行う）
+          範囲で拡張）。T387フォローアップ（2026-08-29）: 日の出/日没は常設ヘッダー
+          （WeatherPanel）へ移設したため本パネルから撤去。取得失敗（error）時は警戒色の
+          トリガーで気づけるようにした（旧実装はweather===nullを「取得失敗」「読み込み中」
+          「意味のある値が無い」の区別なく同じ扱い＝トグル非表示にしていた）。
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
         DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
@@ -876,14 +893,16 @@ Response 502（Open-Meteo呼び出し失敗時）:
 { "detail": "天候情報の取得に失敗しました" }
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
-# 改善計画T387: temperature_c/apparent_temperature_c/wind_speed_ms/wind_direction_deg/
-# wind_direction_labelは、最寄りアメダス観測所の実測値が取得できればそちらへ差し替わる
-# （1章「Redisキャッシュ基盤とJMA気象データ連携」参照）。それ以外のフィールドは常にOpen-Meteo由来。
+# 改善計画T387フォローアップ（2026-08-29）: 以前はここでアメダス実測値を上書きマージ
+# していたが、常設ヘッダー（WeatherPanel）がGET /api/weather/amedasを直接呼ぶよう分離
+# したため削除した。このエンドポイントは常にOpen-Meteoの値をそのまま返す
+# （今日の見通しTodayOutlook専用）。
 
-GET /api/weather/amedas?latitude=...&longitude=...   # 最寄りアメダス観測所の直近観測値（改善計画T387）
+GET /api/weather/amedas?latitude=...&longitude=...   # 最寄りアメダス観測所の直近観測値（改善計画T387、常設ヘッダー用）
 Response 200:
 { "station_id":"44132", "station_name":"東京", "latitude":35.69, "longitude":139.76,
   "observed_at":"2026-08-29T12:00:00+09:00", "temperature_c":26.5, "apparent_temperature_c":27.8,
+  "sunshine_10min_minutes":5.0, "sunrise":"2026-08-29T05:12:00+09:00", "sunset":"2026-08-29T18:41:00+09:00",
   "wind_speed_ms":3.5, "wind_direction_deg":180.0, "wind_direction_label":"南", "precipitation_10min_mm":0.0 }
 Response 502（Redis未温間・最寄り観測所がセンサー未搭載等）:
 { "detail": "アメダス観測値の取得に失敗しました" }

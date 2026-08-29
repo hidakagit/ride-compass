@@ -35,48 +35,18 @@ logger = logging.getLogger("ridecompass.weather")
 router = APIRouter()
 
 
-def _prefer_amedas_current_values(conditions: WeatherConditions, amedas: AmedasObservation | None) -> WeatherConditions:
-    """/api/weatherの「現在値」部分（気温・体感温度・風速風向）をアメダス実測優先にする
-    （改善計画T387フォローアップ、ユーザー指示2026-08-29）。
-
-    アメダスは実際の観測値のためOpen-Meteoの「現在値」（モデル推定）より正確だが、
-    観測専用APIで予報機能を持たない。体感温度はJMAが直接提供しないため、アメダスの
-    気温・湿度・風速から自前計算する（domain/jma_amedas.py: apparent_temperature_from_amedas、
-    Open-Meteoとは異なる計算式のため厳密には一致しない近似値）。上書き対象は気温・
-    体感温度・風速風向のみに限定し、降水確率・降水量・UV指数・weather_code・「今日の
-    見通し」（日次集計・today_periods）はいずれもアメダスに相当データが無いか単位が
-    異なる（precipitation_mmはOpen-Meteo側が時間降水量[mm/h]、アメダスは10分降水量のため
-    単純な倍率換算は精度を偽装することになる）ためOpen-Meteoのまま維持する。
-    風は速度・方位を必ずセットで上書きする（一方だけ差し替えると内部矛盾したペアになるため）。
-    観測時刻(observed_at)はOpen-Meteo側のまま維持する（レスポンス全体の「いつの情報か」は
-    引き続きOpen-Meteo基準とし、アメダス由来の値だけが数分ずれうる点は許容する）。
-    アメダスが取得できない（Redis未温間・最寄り観測所がセンサー未搭載等）場合はOpen-Meteoの
-    値をそのまま使う（フォールバック）。
-    """
-    if amedas is None:
-        return conditions
-    updates: dict[str, float] = {}
-    if amedas.temperature_c is not None:
-        updates["temperature_c"] = amedas.temperature_c
-    if amedas.apparent_temperature_c is not None:
-        updates["apparent_temperature_c"] = amedas.apparent_temperature_c
-    if amedas.wind_speed_ms is not None and amedas.wind_direction_deg is not None:
-        updates["wind_speed_ms"] = amedas.wind_speed_ms
-        updates["wind_direction_deg"] = amedas.wind_direction_deg
-        updates["wind_direction_label"] = amedas.wind_direction_label
-    if not updates:
-        return conditions
-    return conditions.model_copy(update=updates)
-
-
 @router.get("/api/weather", response_model=WeatherConditions)
 async def get_weather(
     http_request: Request,
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
     weather_service: WeatherService = Depends(get_weather_service),
-    amedas_service: JmaAmedasService = Depends(get_amedas_service),
 ) -> WeatherConditions:
+    """今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
+    改善計画T387フォローアップ（2026-08-29）: 常設ヘッダー（現在値の気温・体感温度・
+    風速風向）はアメダス実測を使う`GET /api/weather/amedas`へ分離したため、
+    このエンドポイントはOpen-Meteoの値をそのまま返す（以前あったアメダス優先の
+    上書きは削除。常設ヘッダーはこのレスポンスを参照しなくなったため不要になった）。"""
     # 以前はここでの範囲チェックをCoordinates（Pydanticモデル）任せにしており、
     # 範囲外の値（例: latitude=999）はFastAPIの422ではなくpydantic.ValidationErrorが
     # 関数内から送出され未処理の500になっていた。Queryのge/leでFastAPI層で弾く。
@@ -85,16 +55,10 @@ async def get_weather(
             "weather", client_id(http_request), f"{settings.weather_rate_limit_per_minute}/min"
         )
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
-    point = Coordinates(latitude=latitude, longitude=longitude)
-    conditions = await weather_service.get_conditions(point)
+    conditions = await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude))
     if conditions is None:
         raise HTTPException(status_code=502, detail="天候情報の取得に失敗しました")
-    # 改善計画T387フォローアップ: Open-Meteoの取得が成功した場合のみ、現在値の気温・
-    # 風速風向をアメダス実測値で上書きする（Open-Meteo自体が失敗した場合は502のまま、
-    # アメダス単独でのレスポンス構築はしない——体感温度・今日の見通し等はアメダスに
-    # 相当データが無くWeatherConditionsを完成させられないため）。
-    amedas = await amedas_service.get_nearest_observation(point)
-    return _prefer_amedas_current_values(conditions, amedas)
+    return conditions
 
 
 @router.get("/api/weather/warnings", response_model=WeatherWarnings)

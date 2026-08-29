@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
 import TodayOutlook from "./TodayOutlook";
 
@@ -40,86 +40,35 @@ function makePeriod(overrides: Partial<WeatherPeriodOutlook>): WeatherPeriodOutl
   };
 }
 
-describe("TodayOutlook（改善計画T385）", () => {
-  it("weatherがnullの場合は何も描画しない", () => {
-    const { container } = render(<TodayOutlook weather={null} />);
+// 改善計画T387フォローアップ（2026-08-29）: 日の出/日没は常設ヘッダー（WeatherPanel）へ
+// 移設したため、TodayOutlookの表示対象から外れた（旧「夜明け前/日没前の切り替え」テストは
+// WeatherPanel.test.tsxへ移設）。
+describe("TodayOutlook（改善計画T385・T387フォローアップ）", () => {
+  it("weatherがnullでloading/errorも無い場合は何も描画しない", () => {
+    const { container } = render(<TodayOutlook weather={null} loading={false} error={null} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("loading中は何も描画しない（トグルのチラつきを避ける）", () => {
+    const { container } = render(<TodayOutlook weather={null} loading={true} error={null} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("errorがある場合は警戒色のトリガーを表示し、開くとエラー内容が見える", async () => {
+    const user = userEvent.setup();
+    render(<TodayOutlook weather={null} loading={false} error="取得に失敗しました" />);
+
+    const trigger = screen.getByRole("button", { name: "今日の見通しの取得に失敗しました" });
+    expect(trigger).toBeInTheDocument();
+
+    await user.click(trigger);
+
+    expect(screen.getByText(/取得に失敗しました/)).toBeInTheDocument();
   });
 
   it("今日の見通し4項目が全てnullの場合はトグル自体を出さない", () => {
-    const { container } = render(<TodayOutlook weather={makeWeather({})} />);
+    const { container } = render(<TodayOutlook weather={makeWeather({})} loading={false} error={null} />);
     expect(container).toBeEmptyDOMElement();
-  });
-
-  it("sunsetがあればトグルボタンを表示する", () => {
-    render(<TodayOutlook weather={makeWeather({ sunset: "2026-08-28T18:24" })} />);
-    expect(screen.getByRole("button", { name: "今日の見通しを表示" })).toBeInTheDocument();
-  });
-
-  it("ボタンを押すと日没時刻(時:分)がPopoverで見える", async () => {
-    const user = userEvent.setup();
-    render(<TodayOutlook weather={makeWeather({ sunset: "2026-08-28T18:24" })} />);
-
-    await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-    expect(screen.getByText("18:24")).toBeInTheDocument();
-    expect(screen.getByText("日没")).toBeInTheDocument();
-  });
-
-  describe("夜明け前/日没前の切り替え（ユーザー要望「夜明け前なら夜明け時間、日没前なら" +
-    "日没時間をそれぞれ出して」）", () => {
-    // userEvent（内部でreal timerのsetTimeoutに依存）とvi.useFakeTimersを併用すると
-    // タイムアウトするため、setTimeout等はそのままにDate.nowだけを差し替える。
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
-    it("現在時刻が夜明け前なら夜明けを表示する", async () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T04:00:00").getTime());
-      const user = userEvent.setup();
-      render(
-        <TodayOutlook
-          weather={makeWeather({ sunrise: "2026-08-28T05:12", sunset: "2026-08-28T18:24" })}
-        />
-      );
-
-      await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-      expect(screen.getByText("夜明け")).toBeInTheDocument();
-      expect(screen.getByText("05:12")).toBeInTheDocument();
-      expect(screen.queryByText("日没")).not.toBeInTheDocument();
-    });
-
-    it("現在時刻が夜明け後・日没前なら従来どおり日没を表示する", async () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00").getTime());
-      const user = userEvent.setup();
-      render(
-        <TodayOutlook
-          weather={makeWeather({ sunrise: "2026-08-28T05:12", sunset: "2026-08-28T18:24" })}
-        />
-      );
-
-      await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-      expect(screen.getByText("日没")).toBeInTheDocument();
-      expect(screen.getByText("18:24")).toBeInTheDocument();
-      expect(screen.queryByText("夜明け")).not.toBeInTheDocument();
-    });
-
-    it("現在時刻が日没後は日没済みを表示する（今日のsunriseは既に過去のため次の夜明けへは切り替わらない）", async () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T20:00:00").getTime());
-      const user = userEvent.setup();
-      render(
-        <TodayOutlook
-          weather={makeWeather({ sunrise: "2026-08-28T05:12", sunset: "2026-08-28T18:24" })}
-        />
-      );
-
-      await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-      expect(screen.getByText("日没")).toBeInTheDocument();
-      expect(screen.getByText("日没済み")).toBeInTheDocument();
-    });
   });
 
   it("降水確率(最大)・風(最大)・気温レンジがある場合はそれぞれ表示する", async () => {
@@ -132,6 +81,8 @@ describe("TodayOutlook（改善計画T385）", () => {
           temperature_max_c: 27.0,
           temperature_min_c: 15.4,
         })}
+        loading={false}
+        error={null}
       />
     );
 
@@ -147,7 +98,9 @@ describe("TodayOutlook（改善計画T385）", () => {
 
   it("値が無い項目は行ごと表示しない", async () => {
     const user = userEvent.setup();
-    render(<TodayOutlook weather={makeWeather({ sunset: "2026-08-28T18:24" })} />);
+    render(
+      <TodayOutlook weather={makeWeather({ uv_index_max: 8.5 })} loading={false} error={null} />
+    );
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 
@@ -159,7 +112,7 @@ describe("TodayOutlook（改善計画T385）", () => {
   it("UV指数（最大）がある場合はトグルを出し値を表示する（ユーザー指摘: 常設ヘッダーの" +
     "UV指数はスマホから見えづらいため確実にタップで開けるここへ表示する）", async () => {
     const user = userEvent.setup();
-    render(<TodayOutlook weather={makeWeather({ uv_index_max: 8.5 })} />);
+    render(<TodayOutlook weather={makeWeather({ uv_index_max: 8.5 })} loading={false} error={null} />);
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 
@@ -179,7 +132,7 @@ describe("TodayOutlook（改善計画T385）", () => {
       makePeriod({ period: "18:00" }),
       makePeriod({ period: "20:00", temperature_c: 25.0, precipitation_probability_percent: 50 }),
     ];
-    render(<TodayOutlook weather={makeWeather({ today_periods: periods })} />);
+    render(<TodayOutlook weather={makeWeather({ today_periods: periods })} loading={false} error={null} />);
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 
@@ -193,7 +146,9 @@ describe("TodayOutlook（改善計画T385）", () => {
 
   it("today_periodsが空の場合は天気の流れセクションを出さない", async () => {
     const user = userEvent.setup();
-    render(<TodayOutlook weather={makeWeather({ sunset: "2026-08-28T18:24" })} />);
+    render(
+      <TodayOutlook weather={makeWeather({ uv_index_max: 8.5 })} loading={false} error={null} />
+    );
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 
@@ -203,7 +158,7 @@ describe("TodayOutlook（改善計画T385）", () => {
   it("コマのweather_codeがnullでも気温・降水確率は表示しアイコン欠落を代替表示で埋める", async () => {
     const user = userEvent.setup();
     const periods = [makePeriod({ period: "06:00", weather_code: null, temperature_c: null, precipitation_probability_percent: null })];
-    render(<TodayOutlook weather={makeWeather({ today_periods: periods })} />);
+    render(<TodayOutlook weather={makeWeather({ today_periods: periods })} loading={false} error={null} />);
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 

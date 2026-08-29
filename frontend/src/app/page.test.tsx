@@ -53,6 +53,7 @@ vi.mock("@/hooks/useLocation", () => ({
 
 vi.mock("@/services/weatherApi", () => ({
   getCurrentWeather: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
+  getAmedasObservation: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
   getFloodForecasts: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
   getWbgtStatus: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
   getWeatherWarnings: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
@@ -170,9 +171,9 @@ import { useEffect, useState } from "react";
 import { act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateRoutes } from "@/services/routeApi";
-import { getCurrentWeather, getWeatherWarnings, getWbgtStatus, getFloodForecasts } from "@/services/weatherApi";
+import { getAmedasObservation, getCurrentWeather, getWeatherWarnings, getWbgtStatus, getFloodForecasts } from "@/services/weatherApi";
 import type { RouteCandidate, GenerationConditions } from "@/types/route";
-import type { WeatherConditions, WeatherWarnings, WbgtStatus, FloodForecasts } from "@/types/weather";
+import type { AmedasObservation, WeatherConditions, WeatherWarnings, WbgtStatus, FloodForecasts } from "@/types/weather";
 
 // "@/services/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
 // generateRoutesは実I/O（fetch）を伴うため、既存の他サービスモックと同じくvi.fn()化する。
@@ -308,8 +309,8 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
 
   vi.doMock("@/components/WeatherPanel/WeatherPanel", () => ({
     default: options.exposeWeatherPanel
-      ? (props: { weather: { temperature_c: number } | null }) => (
-          <div data-testid="weather-panel">{JSON.stringify({ temp: props.weather?.temperature_c ?? null })}</div>
+      ? (props: { amedas: { temperature_c: number } | null }) => (
+          <div data-testid="weather-panel">{JSON.stringify({ temp: props.amedas?.temperature_c ?? null })}</div>
         )
       : () => null,
   }));
@@ -348,13 +349,14 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     window.localStorage.clear();
     vi.mocked(generateRoutes).mockReset();
     vi.mocked(getAxisCatalog).mockReset();
-    // このdescribeブロックのHomeマウントもfetchWeatherFor等（4並列fetch）を必ず1回ずつ
-    // 発火させる（renderFreshHomeがexposeWeatherPanel等を指定していないため未使用の
-    // レスポンスとして握りつぶされるだけだが、getCurrentWeather等は下の
-    // 「並列fetchの競合対策」describeブロックとvi.fn()インスタンスを共有している。
-    // 呼び出し回数をクリアしておかないと、そちらのtoHaveBeenCalledTimes(1)が
-    // このブロックぶんの呼び出しを含んでしまい失敗する）。
+    // このdescribeブロックのHomeマウントもfetchWeatherFor等（5並列fetch、改善計画T387
+    // フォローアップでamedasが独立フェッチに加わった）を必ず1回ずつ発火させる
+    // （renderFreshHomeがexposeWeatherPanel等を指定していないため未使用のレスポンスとして
+    // 握りつぶされるだけだが、getCurrentWeather等は下の「並列fetchの競合対策」
+    // describeブロックとvi.fn()インスタンスを共有している。呼び出し回数をクリアしておかないと、
+    // そちらのtoHaveBeenCalledTimes(1)がこのブロックぶんの呼び出しを含んでしまい失敗する）。
     vi.mocked(getCurrentWeather).mockClear();
+    vi.mocked(getAmedasObservation).mockClear();
     vi.mocked(getWeatherWarnings).mockClear();
     vi.mocked(getWbgtStatus).mockClear();
     vi.mocked(getFloodForecasts).mockClear();
@@ -482,6 +484,24 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
       today_periods: [],
     };
   }
+  function makeAmedas(temperature_c: number): AmedasObservation {
+    return {
+      station_id: "44132",
+      station_name: "東京",
+      latitude: 35.69,
+      longitude: 139.76,
+      observed_at: "2026-08-25T12:00:00+09:00",
+      temperature_c,
+      apparent_temperature_c: null,
+      wind_speed_ms: 3,
+      wind_direction_deg: 90,
+      wind_direction_label: "東",
+      precipitation_10min_mm: null,
+      sunshine_10min_minutes: null,
+      sunrise: null,
+      sunset: null,
+    };
+  }
   function makeWarnings(name: string): WeatherWarnings {
     return {
       area_name: null,
@@ -514,6 +534,7 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
   afterEach(() => {
     window.localStorage.clear();
     vi.mocked(getCurrentWeather).mockReset();
+    vi.mocked(getAmedasObservation).mockReset();
     vi.mocked(getWeatherWarnings).mockReset();
     vi.mocked(getWbgtStatus).mockReset();
     vi.mocked(getFloodForecasts).mockReset();
@@ -521,16 +542,19 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
     latestLocationSetter = null;
   });
 
-  it("地点を連続変更したとき、天候・警報・WBGT・氾濫予報の4つとも古い応答が新しい応答を上書きしない", async () => {
+  it("地点を連続変更したとき、アメダス・警報・WBGT・氾濫予報の4つとも古い応答が新しい応答を上書きしない", async () => {
     vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
+    // WeatherPanel（本テストの対象）はgetAmedasObservationのみを参照する
+    // （getCurrentWeatherはTodayOutlook向けで本テストでは未検証のため単純に解決するだけ）。
+    vi.mocked(getCurrentWeather).mockResolvedValue(makeWeather(0));
 
     // それぞれ「1回目(古い方)」「2回目(新しい方)」のリクエストに対応するdeferredを用意し、
     // あとで意図的に2回目→1回目の順で解決する(応答順序の入れ替え、テスト方針#5)。
-    const weatherOld = createDeferred<WeatherConditions>();
-    const weatherNew = createDeferred<WeatherConditions>();
-    vi.mocked(getCurrentWeather)
-      .mockImplementationOnce(() => weatherOld.promise)
-      .mockImplementationOnce(() => weatherNew.promise);
+    const amedasOld = createDeferred<AmedasObservation>();
+    const amedasNew = createDeferred<AmedasObservation>();
+    vi.mocked(getAmedasObservation)
+      .mockImplementationOnce(() => amedasOld.promise)
+      .mockImplementationOnce(() => amedasNew.promise);
 
     const warningsOld = createDeferred<WeatherWarnings>();
     const warningsNew = createDeferred<WeatherWarnings>();
@@ -559,7 +583,7 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
 
     // マウント直後の1回目のfetch(古い方のリクエスト)が発火するまで待つ。
     await waitFor(() => {
-      expect(getCurrentWeather).toHaveBeenCalledTimes(1);
+      expect(getAmedasObservation).toHaveBeenCalledTimes(1);
       expect(getWeatherWarnings).toHaveBeenCalledTimes(1);
       expect(getWbgtStatus).toHaveBeenCalledTimes(1);
       expect(getFloodForecasts).toHaveBeenCalledTimes(1);
@@ -570,7 +594,7 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
       latestLocationSetter?.({ latitude: 36.0, longitude: 140.0 });
     });
     await waitFor(() => {
-      expect(getCurrentWeather).toHaveBeenCalledTimes(2);
+      expect(getAmedasObservation).toHaveBeenCalledTimes(2);
       expect(getWeatherWarnings).toHaveBeenCalledTimes(2);
       expect(getWbgtStatus).toHaveBeenCalledTimes(2);
       expect(getFloodForecasts).toHaveBeenCalledTimes(2);
@@ -578,7 +602,7 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
 
     // 後から投げた(新しい)リクエストを先に解決する。
     await act(async () => {
-      weatherNew.resolve(makeWeather(20));
+      amedasNew.resolve(makeAmedas(20));
       warningsNew.resolve(makeWarnings("新警報"));
       wbgtNew.resolve(makeWbgt("危険", 32));
       floodNew.resolve(makeFlood("新氾濫予報"));
@@ -593,7 +617,7 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
 
     // 先に投げた(古い)リクエストが後から解決しても、新しい応答を上書きしない。
     await act(async () => {
-      weatherOld.resolve(makeWeather(10));
+      amedasOld.resolve(makeAmedas(10));
       warningsOld.resolve(makeWarnings("旧警報"));
       wbgtOld.resolve(makeWbgt("警戒", 28));
       floodOld.resolve(makeFlood("旧氾濫予報"));
@@ -612,36 +636,37 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
     expect(badgesText).not.toContain("旧氾濫予報");
   });
 
-  it("天候fetch単体でも、2回目に投げたリクエストが先に解決すれば古い1回目の応答は無視される", async () => {
+  it("アメダスfetch単体でも、2回目に投げたリクエストが先に解決すれば古い1回目の応答は無視される", async () => {
     vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
+    vi.mocked(getCurrentWeather).mockResolvedValue(makeWeather(0));
     vi.mocked(getWeatherWarnings).mockResolvedValue({ area_name: null, report_datetime: null, warnings: [] });
     vi.mocked(getWbgtStatus).mockResolvedValue({ level: null, label: null, value: null, observed_at: null });
     vi.mocked(getFloodForecasts).mockResolvedValue({ forecasts: [] });
 
-    const first = createDeferred<WeatherConditions>();
-    const second = createDeferred<WeatherConditions>();
-    vi.mocked(getCurrentWeather)
+    const first = createDeferred<AmedasObservation>();
+    const second = createDeferred<AmedasObservation>();
+    vi.mocked(getAmedasObservation)
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
 
     const HomeFresh = await renderFreshHome({ statefulLocation: true, exposeWeatherPanel: true });
     render(<HomeFresh />);
 
-    await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getAmedasObservation).toHaveBeenCalledTimes(1));
     await act(async () => {
       latestLocationSetter?.({ latitude: 36.0, longitude: 140.0 });
     });
-    await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getAmedasObservation).toHaveBeenCalledTimes(2));
 
     // 2回目(新しい方)を先に解決する(テスト方針#5: 応答順序の意図的な入れ替え)。
     await act(async () => {
-      second.resolve(makeWeather(25));
+      second.resolve(makeAmedas(25));
     });
     await waitFor(() => expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":25'));
 
     // 1回目(古い方)が後から解決しても上書きされない。
     await act(async () => {
-      first.resolve(makeWeather(5));
+      first.resolve(makeAmedas(5));
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":25');
