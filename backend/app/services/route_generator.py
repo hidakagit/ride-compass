@@ -34,7 +34,7 @@ from typing import Any, Protocol
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.geo import compass_label, destination_point
-from app.domain.route import Coordinates, RouteCandidate
+from app.domain.route import Coordinates, RouteCandidate, merge_axis_difficulties
 from app.services.route_scorer import RouteScorer
 
 # ルート生成のステージ別サマリログ(方針は docs/logging.md)。1リクエスト=1行のINFOで
@@ -178,6 +178,7 @@ class RouteGenerator:
         start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
+        candidates = [self._with_axis_difficulties(c) for c in candidates]
 
         candidates = self._route_scorer.score(candidates, distance_km)
         candidates.sort(key=lambda c: c.total_score if c.total_score is not None else -1, reverse=True)
@@ -244,6 +245,7 @@ class RouteGenerator:
         start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, [traced], start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
+        candidates = [self._with_axis_difficulties(c) for c in candidates]
         if destination is not None:
             candidates = [
                 c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
@@ -275,6 +277,17 @@ class RouteGenerator:
             [(s.difficulty, s.distance_km) for s in candidate.segments]
         )
         return candidate.model_copy(update={"overall_difficulty": overall})
+
+    @staticmethod
+    def _with_axis_difficulties(candidate: RouteCandidate) -> RouteCandidate:
+        """segmentsのaxis_difficulties（区間ごとのaxis_id→difficulty）をルート全区間へ
+        集約し、overall_difficultyと対になるルート全体版を付与する（改善計画T402）。
+        既存の`merge_axis_difficulties`（domain/route.py、_merge_segment_bin用に元々あった
+        もの）を候補全区間に対して1回適用するだけで得られ、新しい計算式は不要。"""
+        if not candidate.segments:
+            return candidate
+        axis_difficulties = merge_axis_difficulties(candidate.segments)
+        return candidate.model_copy(update={"axis_difficulties": axis_difficulties})
 
     @staticmethod
     def _loop_waypoints(origin: Coordinates, bearing: int, radius_km: float) -> list[Coordinates]:

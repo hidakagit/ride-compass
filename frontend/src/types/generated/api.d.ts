@@ -1107,6 +1107,14 @@ export interface components {
          *     `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
          *     domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
          *     合計distance_km」に収録年数での正規化を加えた集約）。
+         *
+         *     `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ
+         *     axis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの
+         *     （改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位
+         *     ではなく候補全体へ適用）。`car_stress_score`等の個別フィールド群は旧来の軸1対1固定
+         *     設計の名残（改善計画T400節4参照）で、軸スタジオでの軸増減に追従しない。新規の消費
+         *     （BottomSheetのルート全体プロファイル等）はこちらを使うこと。評価できなかった軸は
+         *     キー自体を含めない（segments欠損時は空dict）。
          */
         RouteCandidate: {
             /** Id */
@@ -1149,6 +1157,10 @@ export interface components {
             segments?: components["schemas"]["RouteSegmentDetail"][] | null;
             /** Overall Difficulty */
             overall_difficulty?: number | null;
+            /** Axis Difficulties */
+            axis_difficulties?: {
+                [key: string]: number;
+            };
         };
         /**
          * RouteGenerateJobCreatedResponse

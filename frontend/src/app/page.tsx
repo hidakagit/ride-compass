@@ -52,6 +52,7 @@ import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteList from "@/components/RouteList/RouteList";
+import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
@@ -223,6 +224,13 @@ const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
 // それぞれ移設した）。
 const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
+// 選択中ルートの全体プロファイル（改善計画T402）のシート見出しのDOM id。
+// 上の3つと違い、mobileSheetの3タブとは独立した排他ドメイン外の開閉状態
+// （routeProfileOpen、下記）で開閉する。デスクトップの「ルートを作る」ブロック・
+// モバイルの「ルート結果」タブのどちらからも、候補ルートを選択した状態で開ける
+// （renderRouteOutcomeSectionBody参照。両方から呼ばれる共通関数のため導線を1箇所で
+// 一元化できる）。
+const ROUTE_PROFILE_SHEET_TITLE_ID = "route-profile-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | "map" | null;
 
@@ -509,6 +517,12 @@ export default function Home() {
       },
     },
   );
+  // 選択中ルートの全体プロファイル（axis_difficulties、改善計画T402）シートの開閉。
+  // mobileSheetの3タブ（ルート設定/ルート結果/地図の見え方）とは独立の排他ドメイン
+  // （デスクトップでも開けるため、isMobile限定のmobileSheetとは別状態にする）。
+  // 高さはmobileSheetHeightVh/handleMobileSheetHeightChange/commitMobileSheetHeightを
+  // 他の3シートと共有する（1つの値を共有する既存方針、BottomSheet.tsx冒頭コメント参照）。
+  const [routeProfileOpen, setRouteProfileOpen] = useState(false);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   // レイヤーごとのデータ取得状態（改善計画T87）。MapViewが実際のタイル取得結果
   // （sourcedata/sourcedataloading/errorイベント）から算出し、サイドバー（MapLayersPanel）へ
@@ -1102,6 +1116,32 @@ export default function Home() {
           </button>
         )}
         <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+        {/* ルート全体プロファイル（改善計画T400節4・T402）。選択中ルートのaxis_difficulties
+            （軸ごとの難易度、軸スタジオの軸増減に自動追従）を横棒グラフ一覧で見せる導線。
+            候補一覧のすぐ下＝「選択したルートについてもっと詳しく見る」操作として自然な位置に
+            置いた（デスクトップの「ルートを作る」ブロック・モバイルの「ルート結果」タブの
+            どちらもこの関数を経由するため、両方に同じ導線が一度に付く）。 */}
+        {hasDetail && (
+          <button type="button" className={styles.routeProfileButton} onClick={() => setRouteProfileOpen(true)}>
+            ルート全体プロファイルを見る
+          </button>
+        )}
+        {/* BottomSheetはposition: fixedのオーバーレイのため、DOM上どこに置いても見た目は
+            変わらない。mobileSheetの3タブとは独立に開閉するため、isMobile分岐の外側
+            （この関数自体がデスクトップ・モバイル両方から呼ばれる）に置ける。 */}
+        {selectedCandidate && (
+          <BottomSheet
+            open={routeProfileOpen}
+            onClose={() => setRouteProfileOpen(false)}
+            title="ルート全体プロファイル"
+            titleId={ROUTE_PROFILE_SHEET_TITLE_ID}
+            heightVh={mobileSheetHeightVh}
+            onHeightChange={handleMobileSheetHeightChange}
+            onHeightCommit={commitMobileSheetHeight}
+          >
+            <RouteAxisProfile axes={axisCatalog.axes} axisDifficulties={selectedCandidate.axis_difficulties} />
+          </BottomSheet>
+        )}
         {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
             2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
             （評価重み・車ストレスレシピ、renderResearchSectionBody参照）とは分け、

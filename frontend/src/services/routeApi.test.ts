@@ -173,6 +173,7 @@ describe("routeApi", () => {
         score_breakdown: null,
         segments: null,
         overall_difficulty: null,
+        axis_difficulties: {},
       },
     ];
     const conditions: GenerationConditions = {
