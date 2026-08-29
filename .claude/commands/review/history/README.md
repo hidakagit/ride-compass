@@ -9,7 +9,12 @@
 YYYY-MM-DD_<review-type>.md
 ```
 
-- review-type: `overall` / `complexity` / `consistency` / `ui` / `all` / `improve`
+- review-type: `overall` / `complexity` / `consistency` / `ui` / `all` / `improve` /
+  `codereview` / `codereview-self`（2026-08-30追加、README.md「定期的なレビュー」節参照）。
+  `codereview`はユーザーがターミナルで起動した本物の`/code-review`（`ultra`含む、複数
+  エージェント・クラウド実行）の結果。`codereview-self`はセッション自身が`ReportFindings`
+  ツールで行った簡易な自己レビューの結果——**品質・カバレッジが本物より劣ることを
+  history内でも明記すること**、2つを混同しない
 - 例: `2026-08-16_overall.md`、`2026-08-16_all.md`
 - 同日に同種を複数回実行した場合は `_2` 等の連番を付ける
 
