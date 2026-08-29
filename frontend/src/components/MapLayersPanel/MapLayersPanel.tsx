@@ -23,7 +23,6 @@ import {
 } from "@/components/Map/roadFilterAxes";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import type { StaticFilterAxis, StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
-import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -66,8 +65,6 @@ interface MapLayersPanelProps {
   /** road_surfaceタイルを共有するレイヤーのMapLayerId一覧（page.tsx側でmapLayersと同じ
    * rampAxesからbuildRoadSurfaceSharedLayerIds()経由で組み立てたもの）。 */
   roadSurfaceSharedLayerIds: readonly MapLayerId[];
-  /** 二次軸(推定指標)一覧（page.tsx側でaxisCatalog.secondaryAxesをそのまま渡す）。 */
-  secondaryAxes: readonly SecondaryAxisSummary[];
   /** コードレビュー指摘の修正: 車ストレス・自転車インフラ・停止要因POI・事故等の絞り込み軸
    * カタログ（page.tsx側でaxisCatalog.rampAxesからbuildStaticFilterAxes()経由で組み立てた
    * もの、軸スタジオの公開ramp軸を含む）。以前はこのファイル内で静的STATIC_FILTER_AXESを
@@ -78,8 +75,8 @@ interface MapLayersPanelProps {
 }
 
 // サイドバーのグループ見出し。改善計画T413（地図の見え方パネルのグルーピングを地図上チップと
-// 統一）: 見出しは「道路/評価軸/環境/スポット」（mapLayers.ts: MAP_OVERLAY_GROUP_ORDER/
-// LABELS、mapOverlayGroupFor）のみの1階層。以前はここが独自の「観測/推定」2見出し
+// 統一）: 見出しは「道路/環境/スポット」（mapLayers.ts: MAP_OVERLAY_GROUP_ORDER/LABELS、
+// mapOverlayGroupFor）のみの1階層。以前はここが独自の「観測/推定」2見出し
 // （MapLayerDataNature由来）を持ち、地図上チップ側（T406で「道路/評価軸/環境/スポット」へ
 // 再編済み）と語彙が食い違っていた（複雑度平衡原則8「UI語彙のカタログ集約」違反）ため、
 // mapOverlayGroupForを単一ソースとして統一した。以前は中分類（category、改善計画T86、
@@ -90,24 +87,21 @@ interface MapLayersPanelProps {
 // 「スポット」各グループ内のレイヤー並び順（MAP_LAYER_CATEGORY_ORDER）を揃えるための
 // 内部キーとしてのみ使う。降水ナウキャスト等dataNature="dynamic"のレイヤー（帯単位の
 // 絞り込み機能を持たない、ユーザー判断2026-08-25）は、グループ再編後もこのパネルの詳細
-// セクションからは引き続き除外する（ON/OFFは地図上チップ側で操作できるため実害なし。
-// mapOverlayGroupFor自体はwindAxis等のdynamicレイヤーも「評価軸」等へ判定するが、この
-// パネルではdataNature="dynamic"を先に弾くため現れない）。「生成したルートの色分け」
-// （dynamic/route）はどのグループにも属さないレイヤーのため、地図の見え方パネルからは撤去し
-// 「ルートを作る」パネル側へ移設した（page.tsx: renderRouteSectionBody参照。実機
-// フィードバック「ルートを作るパネルがルートに関する制御、地図の見え方パネルが地図自体の
-// 制御」への対応。そちらは見出し＋本文の見た目としてこのファイルの.group/.groupTitleを
-// 再利用しているため、このファイル自身はもう使っていなくてもクラス定義は残す）。
-// 評価軸グループ内のレイヤー並び順は、地図チップの評価軸グループが横並びで見せている軸の順序
-// （SECONDARY_AXES、axis-catalog.json由来）と一致させる（実機フィードバック「推定指標の
-// 上から数えた順番を地図上の左から数えた順番と一致させて」への対応。以前はcategory順
-// だったため、地図チップの並び[勾配・舗装質・停止密度・車の圧迫感・夜間・事故密度]と
-// 食い違っていた）。専用の表示レイヤーを持たない軸（勾配・舗装質・夜間、地図チップでは
-// 灰色のタップ不能タイル）も、地図チップと同じくパネルにも存在させる（実機フィードバック
-// 「地図上でグレー表示のものも展開だけさせず存在させて」への対応。以前はMapLayerId自体を
-// 持たないためパネルから完全に抜け落ちていた）。ただし設定できる項目が無いため、他レイヤーの
-// ような開閉式の<details>にはせず、常時見える案内行（renderProxyAxisSection）として出す
-// （「展開だけさせず」＝折りたたみ式にすると開かない限り存在に気づけないため）。
+// セクションからは引き続き除外する（ON/OFFは地図上チップ側で操作できるため実害なし）。
+// 「生成したルートの色分け」（dynamic/route）はどのグループにも属さないレイヤーのため、
+// 地図の見え方パネルからは撤去し「ルートを作る」パネル側へ移設した（page.tsx:
+// renderRouteSectionBody参照。実機フィードバック「ルートを作るパネルがルートに関する
+// 制御、地図の見え方パネルが地図自体の制御」への対応。そちらは見出し＋本文の見た目として
+// このファイルの.group/.groupTitleを再利用しているため、このファイル自身はもう
+// 使っていなくてもクラス定義は残す）。
+// 改善計画T418: 軸スタジオが作る評価軸（car_stress等・windAxis）は、T406時点は
+// mapOverlayGroupForが"評価軸"グループへ束ね、専用の表示レイヤーを持たない軸（勾配等）は
+// 常時見える案内行（旧renderProxyAxisSection）として存在させていたが、評価軸チップ自体を
+// 地図UIから撤去しルート設定パネル（RouteSettingsPanel.tsx）へ移設したのに伴い、この
+// パネルからも評価軸のセクション自体を丸ごと撤去した——軸スタジオ由来のレイヤー
+// （isAxisStudioLayer、mapLayers.ts）はmapOverlayGroupForが常にundefinedを返すため、
+// 下記の「道路」「環境」「スポット」列挙（mapOverlayGroupFor(layer) === groupの絞り込み）
+// には自然に現れない。
 // 地図レイヤーの「細かな設定」をすべて集約するサイドバー内パネル。
 // レイヤーごとに1セクション（見出し＋表示スイッチ＋凡例・絞り込み等の設定）を持ち、
 // セクションの枠組みはMAP_LAYERS（レイヤーカタログ）の列挙で描画する。地図の上
@@ -130,7 +124,6 @@ export default function MapLayersPanel({
   onClearAllFilters,
   mapLayers,
   roadSurfaceSharedLayerIds,
-  secondaryAxes,
   staticFilterAxes,
 }: MapLayersPanelProps) {
   const roadColorAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
@@ -423,38 +416,6 @@ export default function MapLayersPanel({
     );
   }
 
-  // 評価軸グループの1件（secondaryAxes props由来）。専用の表示レイヤーを持つ軸はmapLayersの
-  // 対応するレイヤーを、持たない軸（proxy）はaxis自体を返す（上記コメント参照）。
-  type CompositeEntry =
-    | { kind: "layer"; layer: MapLayerDescriptor }
-    | { kind: "proxy"; axis: SecondaryAxisSummary };
-
-  // secondaryAxes（改善計画T308: axisCatalog.secondaryAxes、地図チップの左からの並びと
-  // 同じ順序）をそのままなぞって評価軸グループの並び順を作る。地図チップ側と単一ソースを
-  // 共有することで、軸の追加・並び替えがあってもここを個別に追従させる必要がない。
-  function orderedCompositeEntries(): readonly CompositeEntry[] {
-    return secondaryAxes.map((axis): CompositeEntry => {
-      const layer = axis.layerId ? mapLayers.find((l) => l.id === axis.layerId) : undefined;
-      return layer ? { kind: "layer", layer } : { kind: "proxy", axis };
-    });
-  }
-
-  // 専用の表示レイヤーを持たない推定軸（勾配・舗装質・夜間）の1件分。地図チップでは
-  // タップ不能の灰色タイルとして存在するのと同じ理由で、開閉式の<details>にはせず
-  // 常時見える案内行にする（上記コメント参照）。設定項目もON/OFFも無いため、
-  // 他レイヤーのセクション（renderLayerSection）とは別の軽量な描画にする。
-  function renderProxyAxisSection(axis: SecondaryAxisSummary) {
-    // 改善計画T318: 以前はここに代役案内文（旧proxy_hint）を開く情報アイコンを
-    // 出していたが、show_map_iconのON/OFFで「そもそも表示するかどうか」を選べる
-    // ようになったため撤去した。この見出しに来る軸はshow_map_icon=trueのまま専用
-    // レイヤーを持たないだけなので、見出し（h3）のみのシンプルな案内行にする。
-    return (
-      <div key={`axis-proxy-${axis.axisId}`} className={styles.proxyAxisSection}>
-        <h3 className={styles.proxyAxisTitle}>{axis.label}</h3>
-      </div>
-    );
-  }
-
   return (
     // gap-2(0.5rem)は要素間の余白を詰めてほしいという実機フィードバックを受けた縮小値（T41）
     <div className="flex flex-col gap-2">
@@ -478,19 +439,6 @@ export default function MapLayersPanel({
         </button>
       </div>
       {MAP_OVERLAY_GROUP_ORDER.map((group: MapOverlayGroup) => {
-        if (group === "axis") {
-          // 評価軸グループだけは地図チップの並び（SECONDARY_AXES）を使う（上記コメント参照）。
-          const entries = orderedCompositeEntries();
-          if (entries.length === 0) return null;
-          return (
-            <div key={group} className={styles.overlayGroup}>
-              <h2 className={styles.overlayGroupTitle}>{MAP_OVERLAY_GROUP_LABELS[group]}</h2>
-              {entries.map((entry) =>
-                entry.kind === "layer" ? renderLayerSection(entry.layer) : renderProxyAxisSection(entry.axis)
-              )}
-            </div>
-          );
-        }
         // 「道路」「環境」「スポット」は、mapOverlayGroupForで地図上チップと同じグループへ
         // 判定されるレイヤーのうち、dataNature="dynamic"（絞り込み機能を持たない、上記
         // コメント参照）を除いたものを、categoryの並び順（MAP_LAYER_CATEGORY_ORDER）で

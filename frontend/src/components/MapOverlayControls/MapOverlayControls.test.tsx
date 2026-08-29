@@ -2,7 +2,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls";
-import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 
 function baseLayers(): OverlayLayerChip[] {
   return [
@@ -16,10 +15,6 @@ function baseProps() {
   return {
     layers: baseLayers(),
     onToggle: vi.fn(),
-    // 改善計画T308: secondaryAxesが実行時APIから取得したprops経由になったため、
-    // 以前ここが直接importしていた静的SECONDARY_AXES（既存6軸）をそのまま既定値にする
-    // （評価軸グループの内訳を検証する既存テストの挙動を変えないため）。
-    secondaryAxes: SECONDARY_AXES,
   };
 }
 
@@ -161,16 +156,19 @@ describe("MapOverlayControls", () => {
     expect(screen.queryByRole("button", { name: "ルートの凡例を表示" })).not.toBeInTheDocument();
   });
 
-  // 最上位グループ束ね（改善計画T406、旧「次数束ね」T166を全面再編）: 旧「観測/推定/動的」
-  // （データの出自による3分類）を廃止し、「対象（何についての情報か）」で束ね直した
-  // 「道路/評価軸/環境/スポット」の4グループへ再編した（docs/tasks/T400.md「1. パネルの
-  // 最上位グルーピング」節）。mapOverlayGroupFor()（mapLayers.ts）の判定規則:
+  // 最上位グループ束ね（改善計画T406、旧「次数束ね」T166を全面再編、T418で評価軸グループを
+  // 撤去）: 旧「観測/推定/動的」（データの出自による3分類）を廃止し、「対象（何についての
+  // 情報か）」で束ね直した「道路/環境/スポット」の3グループになった（docs/tasks/T400.md
+  // 「1. パネルの最上位グルーピング」節、docs/tasks/T418.md）。mapOverlayGroupFor()
+  // （mapLayers.ts）の判定規則:
   // - 道路: category==="roadCondition"
-  // - 評価軸: dataNature==="composite"（またはid==="windAxis"）
   // - 環境: category==="terrain"||"weather"
-  // - スポット: category==="trafficSafety"||"amenity"のうちdataNatureがcompositeでないもの
-  // - どれにも該当しない（category未指定、route等）は単独チップのまま
-  describe("最上位グループ束ね（改善計画T406）", () => {
+  // - スポット: category==="trafficSafety"||"amenity"
+  // - 軸スタジオ由来のレイヤー（isAxisStudioLayer、dataNature==="composite"またはid===
+  //   "windAxis"）はどのグループにも属さず、単独チップとしても出ない（下記
+  //   「軸スタジオ由来レイヤーの撤去（改善計画T418）」参照）
+  // - それ以外どれにも該当しない（category未指定、route等）は単独チップのまま
+  describe("最上位グループ束ね（改善計画T406/T418）", () => {
     function groupedLayers(): OverlayLayerChip[] {
       return [
         { id: "route", label: "ルート", on: false }, // どのグループにも属さない→単独のまま
@@ -182,7 +180,7 @@ describe("MapOverlayControls", () => {
       ];
     }
 
-    it("道路（roadCondition）・評価軸（composite）・環境（terrain/weather）・スポット（trafficSafety/amenityのnon-composite）へそれぞれ束ねられ、個別ボタンは出ない", () => {
+    it("道路（roadCondition）・環境（terrain/weather）・スポット（trafficSafety/amenity）へそれぞれ束ねられ、個別ボタンは出ない。軸スタジオ由来（composite）は単独チップとしても出ない", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
 
       expect(screen.getByRole("button", { name: "ルート" })).toBeInTheDocument(); // どのグループにも属さない単独チップ
@@ -192,17 +190,56 @@ describe("MapOverlayControls", () => {
       expect(screen.queryByRole("button", { name: "事故地点" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "標高図" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "道路" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "評価軸" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "評価軸" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "環境" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "スポット" })).toBeInTheDocument();
     });
 
-    it("チップ列は道路→評価軸→環境→スポット→ルートの順で並ぶ（docs/tasks/T400.mdの記載順）", () => {
+    it("チップ列は道路→環境→スポット→ルートの順で並ぶ（docs/tasks/T400.mdの記載順のうち評価軸を除いたもの）", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
       const names = screen
-        .getAllByRole("button", { name: /^(道路|評価軸|環境|スポット|ルート)$/ })
+        .getAllByRole("button", { name: /^(道路|環境|スポット|ルート)$/ })
         .map((el) => el.textContent);
-      expect(names).toEqual(["道路", "評価軸", "環境", "スポット", "ルート"]);
+      expect(names).toEqual(["道路", "環境", "スポット", "ルート"]);
+    });
+  });
+
+  // 軸スタジオ由来レイヤーの撤去（改善計画T418）: ramp軸（dataNature==="composite"）・
+  // windAxisは、評価軸チップ自体が地図UIから撤去されたため、単独チップとしても
+  // 復活しない（buildChipGroupsのisAxisStudioLayer除外、mapLayers.ts参照）。
+  describe("軸スタジオ由来レイヤーの撤去（改善計画T418）", () => {
+    it("ramp軸（dataNature=composite）はどのグループにも束ねられず、単独チップとしても出ない", () => {
+      const layers: OverlayLayerChip[] = [
+        { id: "route", label: "ルート", on: false },
+        { id: "axis:car_stress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
+      ];
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      expect(screen.getByRole("button", { name: "ルート" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "評価軸" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "スポット" })).not.toBeInTheDocument();
+    });
+
+    it("windAxisはどのグループにも束ねられず、単独チップとしても出ない", () => {
+      const layers: OverlayLayerChip[] = [
+        { id: "route", label: "ルート", on: false },
+        {
+          id: "windAxis",
+          label: "風（評価軸）",
+          chipLabel: "風軸",
+          on: false,
+          category: "weather",
+          dataNature: "dynamic",
+        },
+      ];
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      expect(screen.getByRole("button", { name: "ルート" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "風軸" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "評価軸" })).not.toBeInTheDocument();
+      // windAxis以外にメンバーが無いため環境グループ自体も出ない
+      expect(screen.queryByRole("button", { name: "環境" })).not.toBeInTheDocument();
     });
   });
 
@@ -611,182 +648,4 @@ describe("MapOverlayControls", () => {
     });
   });
 
-  // 評価軸グループ（改善計画T406、旧「推定指標（合成）」group:compositeを継承）。
-  // マトリックス化（改善計画T169）した軸タイル（ChipButton）を横並びで並べる構成自体は
-  // 変更していない。
-  describe("評価軸グループ（改善計画T406）", () => {
-    function groupedLayers(): OverlayLayerChip[] {
-      return [
-        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
-        { id: "axis:car_stress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
-        { id: "accidents", label: "事故地点", on: false, category: "trafficSafety" },
-      ];
-    }
-
-    it("評価軸グループを開いても内訳を囲むカード（サブフレーム）は出ず、評価軸チップ本体と軸タイルは同じ上端の横並びの兄弟要素になる", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-      expect(document.body.querySelector('[class*="detailPanel"]')).not.toBeInTheDocument();
-
-      const axisButton = screen.getByRole("button", { name: "評価軸" });
-      const carStressButton = screen.getByRole("button", { name: "車の圧迫感" });
-      const headerRow = axisButton.closest('[class*="headerLegendRow"]');
-      expect(headerRow).toBeTruthy();
-      expect(headerRow?.contains(carStressButton)).toBe(true);
-    });
-
-    it("評価軸グループを開くと確定命名表の6軸すべてがタイルとして並び、専用レイヤーの無い軸は押せない情報タイルになる", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-      const carStressToggle = screen.getByRole("button", { name: "車の圧迫感" });
-      expect(carStressToggle).toHaveAttribute("aria-pressed", "true");
-      expect(carStressToggle).not.toBeDisabled();
-
-      const gradientTile = screen.getByRole("button", { name: "勾配" });
-      expect(gradientTile).toBeDisabled();
-      expect(screen.getByRole("button", { name: "舗装" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "夜間" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "停止密度" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "事故密度" })).toBeDisabled();
-
-      await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
-      expect(screen.getByText("材料: 標高")).toBeInTheDocument();
-    });
-
-    it("評価軸グループはcompositeチップが1件も渡されなくても常に表示される（SECONDARY_AXESの情報タイルがあるため）", () => {
-      render(<MapOverlayControls {...baseProps()} />); // baseLayers()にcompositeチップなし
-      expect(screen.getByRole("button", { name: "評価軸" })).toBeInTheDocument();
-    });
-
-    it("折りたたみ中だけ見出しの脇に「表示項目を設定」ボタンが出て、展開すると消える", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-
-      const settingsToggle = screen.getByRole("button", { name: "評価軸の表示項目を設定" });
-      expect(settingsToggle).toBeInTheDocument();
-
-      await user.click(settingsToggle);
-      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "評価軸" })).toHaveAttribute("aria-expanded", "false");
-      for (const chipLabel of ["勾配", "舗装", "夜間", "停止密度", "圧迫感", "事故密度"]) {
-        expect(screen.getByText(chipLabel)).toBeInTheDocument();
-      }
-
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-      expect(screen.getByRole("button", { name: "車の圧迫感" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "評価軸の表示項目を設定" })).not.toBeInTheDocument();
-    });
-
-    it("表示項目の設定で非表示に選ぶと、グループを開いてもそのメンバー/軸だけが出ない", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "圧迫感を表示しない" }));
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "勾配" })).toBeInTheDocument(); // 他は影響なし
-    });
-
-    it("表示項目の設定で非表示に選ぶと、そのレイヤーがONなら即座にOFFにされる", async () => {
-      const user = userEvent.setup();
-      const onToggle = vi.fn();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} onToggle={onToggle} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "圧迫感を表示しない" }));
-      expect(onToggle).toHaveBeenCalledWith("axis:car_stress", false);
-    });
-
-    it("推定グループの表示項目設定でも、panelHintを持つ軸には情報アイコンが出て説明文が開閉する", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸の表示項目を設定" }));
-
-      const infoButton = screen.getByRole("button", { name: "停止密度の説明を表示" });
-      expect(infoButton).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "勾配の説明を表示" })).not.toBeInTheDocument();
-
-      await user.click(infoButton);
-      expect(screen.getByText(/信号・横断歩道・一時停止・踏切等の停止要因/)).toBeInTheDocument();
-    });
-
-    it("評価軸グループの各軸タイルの▼を開くと材料一覧が出て、表示レイヤーの有無で分けて表示される", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-
-      await user.click(screen.getByRole("button", { name: "車の圧迫感の凡例を表示" }));
-      expect(screen.getByText("材料: 道路種別・指定路線")).toBeInTheDocument();
-      expect(screen.getByText("地図では未表示の材料: 制限速度・車線数・車両可否")).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "勾配の凡例を表示" }));
-      expect(screen.getByText("材料: 標高")).toBeInTheDocument();
-    });
-  });
-
-  // windAxis（「風（評価軸）」、改善計画T405）の評価軸グループへの正式統合（改善計画T406）。
-  // 以前は暫定的に「動的」グループ（現・環境グループ）へ間借りしていたが、道路自身の向きから
-  // 計算するway単位の評価軸という性質のため、評価軸グループへ移した（docs/tasks/T400.md
-  // 「2. 動的要素…の二重表現」節）。backendのwind軸自身はcategory="動的"のため
-  // secondaryAxesには現れない（secondaryAxes.tsのコメント参照）特殊メンバーのため、
-  // mapLayers.ts: mapOverlayGroupForがid==="windAxis"を明示的に評価軸グループへ判定する。
-  describe("windAxisの評価軸グループへの統合（改善計画T405/T406）", () => {
-    function layersWithWindAxis(): OverlayLayerChip[] {
-      return [
-        {
-          id: "windAxis",
-          label: "風（評価軸）",
-          chipLabel: "風軸",
-          on: false,
-          category: "weather",
-          dataNature: "dynamic",
-        },
-      ];
-    }
-
-    it("windAxisは「環境」ではなく「評価軸」グループへ束ねられる", () => {
-      render(<MapOverlayControls {...baseProps()} layers={layersWithWindAxis()} />);
-      // 環境グループはwindAxis以外のメンバーが無いため出現しない
-      expect(screen.queryByRole("button", { name: "環境" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "評価軸" })).toBeInTheDocument();
-    });
-
-    it("評価軸グループを開くとwindAxisがタイルとして並び、タップでonToggleが呼ばれる", async () => {
-      const user = userEvent.setup();
-      const onToggle = vi.fn();
-      render(<MapOverlayControls {...baseProps()} layers={layersWithWindAxis()} onToggle={onToggle} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-      const windAxisToggle = screen.getByRole("button", { name: "風軸" });
-      expect(windAxisToggle).toBeInTheDocument();
-
-      await user.click(windAxisToggle);
-      expect(onToggle).toHaveBeenCalledWith("windAxis", true);
-    });
-
-    it("折りたたみ中の「表示項目を設定」一覧にもwindAxisが現れる", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={layersWithWindAxis()} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸の表示項目を設定" }));
-      expect(screen.getByText("風軸")).toBeInTheDocument();
-    });
-
-    it("表示項目の設定でwindAxisを非表示に選ぶと、評価軸グループを開いてもタイルが出ない", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={layersWithWindAxis()} />);
-
-      await user.click(screen.getByRole("button", { name: "評価軸の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "風軸を表示しない" }));
-      await user.click(screen.getByRole("button", { name: "評価軸" }));
-      expect(screen.queryByRole("button", { name: "風軸" })).not.toBeInTheDocument();
-    });
-  });
 });

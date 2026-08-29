@@ -20,6 +20,7 @@ import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/comp
 import {
   buildMapLayers,
   buildRoadSurfaceSharedLayerIds,
+  isAxisStudioLayer,
   mapOverlayExclusiveDomainFor,
   type LayerDataStatusByLayer,
   type MapLayerId,
@@ -156,7 +157,7 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   precipitationNowcast: false,
   // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
-  // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。同じ理由で既定OFF。
+  // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）。同じ理由で既定OFF。
   windAxis: false,
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
@@ -703,14 +704,22 @@ export default function Home() {
   // （MapOverlayControls.tsx、T167で導入済み）が▼展開時に「材料: ○○」として常に示すため、
   // 連動ONで自動的に地図へ出す必要性は薄いと判断した。
   //
-  // 改善計画T406: パネル構成再編（道路/評価軸/環境/スポットの4チップ・3排他ドメイン、
+  // 改善計画T406: パネル構成再編（道路/環境/スポットの3チップ・3排他ドメイン、
   // docs/tasks/T400.md「1. パネルの最上位グルーピング」節）に伴い、チップ本体のON/OFFを
-  // 「同一排他ドメイン内は1つだけ選べる」ラジオボタン方式へ変更する。「道路」と「評価軸」は
-  // どちらも幾何が線のため排他ドメインを共有し、「環境」（面）・「スポット」（点）は
-  // それぞれ独立した排他ドメインを持つ（mapLayers.ts: mapOverlayExclusiveDomainFor参照）。
+  // 「同一排他ドメイン内は1つだけ選べる」ラジオボタン方式へ変更する。「環境」（面）・
+  // 「スポット」（点）はそれぞれ独立した排他ドメインを持ち、「道路」（線）はT406時点は
+  // 「評価軸」と排他ドメインを共有していたが、T418で評価軸チップ自体を地図UIから撤去した
+  // ため単独ドメインになった（mapLayers.ts: mapOverlayExclusiveDomainFor参照）。
   // ONにする操作のときだけ、同じ排他ドメインに属する他の全レイヤーIDをOFFにする
   // （OFFにする操作自体は他レイヤーに影響しない）。ルート等どの排他ドメインにも属さない
   // レイヤーは対象外のまま複数同時ONを許す（従来どおり）。
+  //
+  // 改善計画T418: 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・windAxis）は
+  // 地図上チップとしては撤去しルート設定パネルへ移設したが、複数を同時にONにすると
+  // 同じ道路ジオメトリへ線を重ねて見にくくなるという排他ドメインの元々の目的
+  // （道路と評価軸を1つの"line"ドメインで束ねていた理由）はそのまま当てはまるため、
+  // 地図上チップの3ドメイン（road/environment/spot）とは独立に、軸スタジオ由来の
+  // レイヤー同士だけで1つだけ選べる排他制御を維持する。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
       setLayerVisibility((prev) => {
@@ -724,6 +733,11 @@ export default function Home() {
               if (mapOverlayExclusiveDomainFor(other) === domain) {
                 next[other.id] = false;
               }
+            }
+          } else if (layer && isAxisStudioLayer(layer)) {
+            for (const other of mapLayers) {
+              if (other.id === id) continue;
+              if (isAxisStudioLayer(other)) next[other.id] = false;
             }
           }
         }
@@ -834,20 +848,17 @@ export default function Home() {
   const overlayLayers = useMemo<OverlayLayerChip[]>(
     () =>
       mapLayers.map((layer) => {
-        // 改善計画T414: windAxis（評価軸グループの風、視界内の全道路への一律色分け）は
-        // ルート確定後は使えない——ルート確定後の風の色分けは「生成したルートの色分け」の
-        // 「風」（routeStyleModesの"wind"モード、ルート線のみへルート自身の実際の進行方向・
-        // 到達時刻で色付け）に一本化する（T400.md「2.」節「評価軸チップとroute StyleModesの
-        // 『風』モードを1つに統合する」）。
+        // 改善計画T418: windAxis（way_id→wind_penalty配信層）・ramp軸（axis:${string}）は
+        // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
+        // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
+        // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
+        // layerVisibilityへ引き続きアクセスできるようにするためだけの目的になった。
+        // ルート確定後の風の一律色分け終了（旧T414時点のdisabled分岐）はRouteSettingsPanel.tsx:
+        // renderMapColorToggleのhasDetail判定へ移設済み。
         // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
-        // 1箇所で決める（無効化理由が増えても、ここへ1本追加するだけでdisabled/titleの両方に
-        // 反映される）。
-        const disabledReason =
-          layer.id === "route" && !hasDetail
-            ? "ルートを生成・選択すると使えます"
-            : layer.id === "windAxis" && hasDetail
-              ? "ルート確定後は「生成したルートの色分け」の「風」で確認できます"
-              : null;
+        // 1箇所で決める（T414時点の設計を踏襲、無効化理由が増えても1本追加するだけで
+        // disabled/titleの両方に反映される）。
+        const disabledReason = layer.id === "route" && !hasDetail ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
         const summary =
           layer.id === "roadSurface"
@@ -989,10 +1000,13 @@ export default function Home() {
   const showInundationRisk = layerVisibility.inundationRisk;
   const showLinearRainbandRisk = layerVisibility.linearRainbandRisk;
   // 動的材料の状態別表現契約（改善計画T414、docs/tasks/T400.md「2.」節）の[時刻,向き]のうち
-  // 「向き」。「環境」グループ（風penalty gridFill）・「評価軸」グループ（windAxis）が同じ
-  // 1つの入力を共有する（[時刻]の共有はdynamicLayerTargetTime、下記）。ルート確定中は
-  // パラメータ指定UI自体を出さないため実質未使用になるが、値そのものは保持しておき、
-  // ルート未確定へ戻ったときに直前の指定を引き継ぐ。
+  // 「向き」。「環境」グループ（風penalty gridFill）・評価軸としての風（windAxis、T418で
+  // ルート設定パネルから起動する形へ移設）が同じ1つの入力を共有する（[時刻]の共有は
+  // dynamicLayerTargetTime、下記）。この入力共有の関係性自体はT418でも変更していない
+  // （windAxisの起動場所がルート設定パネルへ移っても、向きの指定元は環境グループの
+  // コンパススライダーのまま、docs/tasks/T418.md「T414完了を踏まえた補足」節）。
+  // ルート確定中はパラメータ指定UI自体を出さないため実質未使用になるが、値そのものは
+  // 保持しておき、ルート未確定へ戻ったときに直前の指定を引き継ぐ。
   const [windBearingDeg, setWindBearingDeg] = useState(0);
   const {
     dynamicWeather,
@@ -1018,8 +1032,9 @@ export default function Home() {
     mapViewport,
   });
 
-  // way_id→wind_penalty配信層（改善計画T405→T414で作り直し）。「評価軸」グループとしての
-  // 風——上のuseDynamicWeatherLayers（「環境」グループの面・矢印表示）とは独立したフェッチだが、
+  // way_id→wind_penalty配信層（改善計画T405→T414で作り直し、T418でルート設定パネルへ
+  // 移設）。評価軸としての風——上のuseDynamicWeatherLayers（「環境」グループの面・矢印表示）
+  // とは独立したフェッチだが、
   // [時刻,向き]の入力（dynamicLayerTargetTime・windBearingDeg）は共有する。mapViewportは
   // 同じMapView.tsx: onViewportChange経由の値を共有する。
   //
@@ -1201,6 +1216,9 @@ export default function Home() {
           onRoutePreferenceChange={setRoutePreference}
           overrideEnabled={weightOverrideEnabled}
           onOverrideEnabledChange={setWeightOverrideEnabled}
+          layerVisibility={layerVisibility}
+          onLayerToggle={handleLayerToggle}
+          hasDetail={hasDetail}
         />
       </div>
     );
@@ -1365,7 +1383,6 @@ export default function Home() {
           onClearAllFilters={handleClearAllFilters}
           mapLayers={mapLayers}
           roadSurfaceSharedLayerIds={roadSurfaceSharedLayerIds}
-          secondaryAxes={axisCatalog.secondaryAxes}
           staticFilterAxes={staticFilterAxes}
         />
       </Card>
@@ -1554,7 +1571,7 @@ export default function Home() {
             onOriginSet={setManualLocation}
           />
 
-          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} secondaryAxes={axisCatalog.secondaryAxes} />
+          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+
@@ -1595,11 +1612,14 @@ export default function Home() {
               </div>
             )}
             {/* 改善計画T414: 風の必要パラメータ（時刻＋向き）のうち「向き」を指定する
-                コンパススライダー。「環境」（風penalty gridFill）・「評価軸」（windAxis）の
-                両チップが同じ入力を共有する（T400.md「2.」節）。ルート確定後（hasDetail）は
-                パラメータ指定UI自体を消す（windAxisは既にdisabledだが、windVectorは
-                ルート確定後も矢印表示のためON/OFFできるままなので、コンパス自体は
-                showWindVectorだけでなくhasDetailも見て出し分ける）。 */}
+                コンパススライダー。「環境」（風penalty gridFill）・評価軸としての風
+                （windAxis、T418でルート設定パネルから起動する形へ移設）が同じ入力を
+                共有する（T400.md「2.」節。このコンパススライダー自体の位置は変えて
+                いない——向きの指定元は環境グループ側のままでよい、というT418の判断）。
+                ルート確定後（hasDetail）はパラメータ指定UI自体を消す（windAxisの起動側は
+                ルート設定パネル側でも既にdisabledになるが、windVectorはルート確定後も
+                矢印表示のためON/OFFできるままなので、コンパス自体はshowWindVectorだけで
+                なくhasDetailも見て出し分ける）。 */}
             {(showWindVector || layerVisibility.windAxis) && !hasDetail && (
               <WindBearingSlider value={windBearingDeg} onChange={setWindBearingDeg} ariaLabel="風の走行方位" />
             )}

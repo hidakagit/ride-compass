@@ -70,6 +70,24 @@
   color: var(--color-muted);
 }
 
+/* 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）。行の末尾に
+   固定幅で置き、風の重み値の桁数変化等で位置がぶれないようweightValueと同じく
+   flex-shrink: 0にする。 */
+.mapColorToggle {
+  flex-shrink: 0;
+}
+
+/* 専用の地図表示レイヤーを持たない軸（勾配等、kind="none"）、またはルート確定後の風
+   （既に「生成したルートの色分け」へ役割を譲っている）向けの、押せない案内表示。
+   LayerChipと視覚的な占有幅を揃えるため同程度のpaddingを持たせる。 */
+.mapColorUnavailable {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  padding: 0.2rem 0.5rem;
+  cursor: default;
+}
+
 .resetButton {
   align-self: flex-start;
   font-size: var(--font-size-sm);

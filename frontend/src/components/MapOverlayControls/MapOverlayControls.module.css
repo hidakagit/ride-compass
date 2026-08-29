@@ -125,24 +125,22 @@
   align-self: flex-start;
 }
 
-/* 観測/推定グループ見出しが折りたたまれている間だけ、見出しチップの右に「アイコンの意味」
+/* 観測グループ見出しが折りたたまれている間だけ、見出しチップの右に「アイコンの意味」
    凡例トグル（renderGroupLegendToggle、InfoIcon）を並べる横並びの小さな行（実機
    フィードバック「折りたたみ時だけ見える独立した凡例入口にしたい」への対応）。見出し
    （header）を包むラッパーdiv自体は折りたたみ/展開の間で同じキー（MapOverlayControls.tsx:
-   `${group.key}:row`）を保ち、このクラス（折りたたみ時）と.estimatedFlatRow/
-   .observedExpandedColumn（展開時）を出し分けるだけにしている。ラッパーdivを別物に
-   差し替えるとheader（ChipButton）がその瞬間にアンマウント/再マウントされ、フォーカスや
-   aria状態が失われるため。align-selfは.chipRowItemと同じ理由でflex-startに戻す。
+   `${group.key}:row`）を保ち、このクラス（折りたたみ時）と.observedExpandedColumn
+   （展開時）を出し分けるだけにしている。ラッパーdivを別物に差し替えるとheader
+   （ChipButton）がその瞬間にアンマウント/再マウントされ、フォーカスやaria状態が
+   失われるため。align-selfは.chipRowItemと同じ理由でflex-startに戻す。
    改善計画T374フォローアップ（実機確認、ユーザー報告「スマホでは動いていない」）:
-   推定グループ展開時はこのdivがheader+◀+.estimatedFlatRowViewport+▶を1行に収める箱にも
-   なるが、align-self: flex-start（=cross軸のstretchをしない）の下ではmax-widthが無いと
-   .chipRow側のmax-width: 100%クランプが効かず、このdiv自身が中身（軸タイル全部ぶん）の
-   自然幅まで際限なく広がってしまう。結果、.estimatedFlatRowViewportのmax-width: 100%が
-   広がりきった後のこのdiv基準で解決されるため実質無効化され、ResizeObserverが
-   はみ出しを検知できず◀▶ページ送りボタン自体が発火しない、または発火しても
-   chipRowViewportのoverflow: hiddenで画面外へクリップされ押せない、という不具合になって
-   いた（Playwright実機確認で発覚）。max-width: 100%（＋子を縮められるようmin-width: 0）を
-   ここに置き、.wrapperが持つ実際の画面幅ぶんの上限を確実にこの行まで伝播させる。 */
+   T418で評価軸グループ（横並び展開、◀▶ページ送り）を撤去する前は、このdivがheader+
+   横並びタイル列を1行に収める箱にもなっており、align-self: flex-start
+   （=cross軸のstretchをしない）の下ではmax-widthが無いと.chipRow側のmax-width: 100%
+   クランプが効かず自然幅まで際限なく広がってしまう不具合があった（Playwright実機確認で
+   発覚）。max-width: 100%（＋子を縮められるようmin-width: 0）は撤去後の現在の用途
+   （見出し+設定トグルボタンの折りたたみ時の横並び）では必須ではなくなったが、崩す
+   積極的な理由も無いためそのまま残している。 */
 .headerLegendRow {
   display: flex;
   align-items: flex-start;
@@ -228,16 +226,13 @@
   cursor: default;
 }
 
-/* 最上位グループ（道路/評価軸/環境/スポット、改善計画T406で「観測/推定/動的」から再編）の
-   色分け（実機フィードバック「それぞれのタイル及びそのグループ配下を少しずつ色を変えて
-   グルーピングして」）。見出しチップ・メンバータイルの両方に同じグループの色を適用し、
-   縦一列に並んだチップがどのグループの一員か一目で分かるようにする。OFF（未選択）時は
-   枠線だけをグループ色にする（背景は素のまま）。 */
+/* 最上位グループ（道路/環境/スポット、改善計画T406で「観測/推定/動的」から再編、T418で
+   評価軸グループを撤去）の色分け（実機フィードバック「それぞれのタイル及びそのグループ
+   配下を少しずつ色を変えてグルーピングして」）。見出しチップ・メンバータイルの両方に
+   同じグループの色を適用し、縦一列に並んだチップがどのグループの一員か一目で分かる
+   ようにする。OFF（未選択）時は枠線だけをグループ色にする（背景は素のまま）。 */
 .iconChipGroupRoad {
   border-color: var(--color-group-road);
-}
-.iconChipGroupAxis {
-  border-color: var(--color-group-axis);
 }
 .iconChipGroupEnvironment {
   border-color: var(--color-group-environment);
@@ -267,11 +262,6 @@
   border-color: var(--color-group-road-on);
   color: #ffffff;
 }
-.iconChipGroupAxis.iconChipActive {
-  background: var(--color-group-axis-on);
-  border-color: var(--color-group-axis-on);
-  color: #ffffff;
-}
 .iconChipGroupEnvironment.iconChipActive {
   background: var(--color-group-environment-on);
   border-color: var(--color-group-environment-on);
@@ -283,17 +273,16 @@
   color: #ffffff;
 }
 
-/* グループ見出し（道路/評価軸/環境/スポット、ChipButtonのexpandViaSelf=trueだけに付く
+/* グループ見出し（道路/環境/スポット、ChipButtonのexpandViaSelf=trueだけに付く
    .groupHeaderChipマーカー）の折りたたみ/展開（実機フィードバック「展開中は薄色でON、
    展開解除は灰色でOFFを示して」）。メンバータイル（.iconChipGroupRoad等）は対象外で
    常に枠線だけグループ色のまま変わらない（.groupHeaderChipと組み合わさったときだけ
-   ここが上書きする）。既存の4グループ（road/axis/environment/spot）はすべて見出しに
-   groupTintを渡しているため、groupTintを持たない見出しは現状存在しない。 */
+   ここが上書きする）。既存の3グループ（road/environment/spot、T418で評価軸を撤去）は
+   すべて見出しにgroupTintを渡しているため、groupTintを持たない見出しは現状存在しない。 */
 
 /* 折りたたみ時（OFF）＝灰色。以前の.iconChipExpanded（実機フィードバック「見出しの
    ハイライトをメンバーと区別が付くように。展開はもっと地味な色でいい」）と同じ配色。 */
 .groupHeaderChip.iconChipGroupRoad,
-.groupHeaderChip.iconChipGroupAxis,
 .groupHeaderChip.iconChipGroupEnvironment,
 .groupHeaderChip.iconChipGroupSpot {
   background: var(--color-surface-2);
@@ -312,11 +301,6 @@
   background: var(--color-group-road-bg);
   border-color: var(--color-group-road);
   color: var(--color-group-road);
-}
-.groupHeaderChip.iconChipGroupAxis.iconChipExpanded {
-  background: var(--color-group-axis-bg);
-  border-color: var(--color-group-axis);
-  color: var(--color-group-axis);
 }
 .groupHeaderChip.iconChipGroupEnvironment.iconChipExpanded {
   background: var(--color-group-environment-bg);
@@ -598,50 +582,9 @@
   );
 }
 
-/* 推定グループの▶内訳（改善計画: サブフレーム廃止、chipRowと地続き化）: 独立したカードに
-   閉じ込めず、推定チップ本体（header）とSECONDARY_AXES軸のタイルを同じ上端・同じ間隔で
-   横並びにする（実機フィードバック「推定も▶で同じ上端・同じ列間で横並び展開してほしい」
-   への対応。観測グループの縦並び地続き化と対になる横並び版）。タイル自体の見た目
-   （四角アイコン+略名、ON/OFF）は地図チップ本体・観測グループのメンバータイルと同じ
-   ChipButton（.iconChip/.iconChipActive）を再利用するため、ここでは並び方向だけを定義する。
-   改善計画T374: T369（折り返し）→T370（横スクロール）と変遷したが、T370のドラッグ
-   スクロールは.iconChip側のtouch-action: none（ピンチズーム対策）と衝突し続けたため、
-   .chipRowViewport/.chipRow（縦）と対称な「.estimatedFlatRowViewport（固定幅・
-   overflow: hidden）＋.estimatedFlatRow（translateXで押し引きされる中身）」の2層構成へ
-   変更した。はみ出した分はドラッグではなく◀▶ボタンでページ送りする
-   （MapOverlayControls.tsx参照）。 */
-.estimatedFlatRowViewport {
-  overflow: hidden;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.estimatedFlatRow {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: var(--space-2);
-  align-items: flex-start;
-  transition: transform 0.15s ease-out;
-}
-
-/* 推定グループの軸タイル（改善計画: 実機フィードバック「▼トグルを各メンバの下部に
-   出せないか」への対応）。ChipButtonのtileVariant="axis"を付けたタイルだけに付く
-   .chipRowItemAxis（MapOverlayControls.tsx参照）を対象に、▼トグルをアイコンチップの
-   右ではなく下へ積む（.iconToggleRowをflex-direction: columnへ変更）。この並び替え自体は
-   画面幅を問わず常時適用する（「スマホじゃなくても」という指摘への対応）。 */
-.chipRowItemAxis .iconToggleRow {
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-/* 改善計画: 以前はモバイル幅のみ軸タイルをアイコンのみへ縮小し略名を隠していたが
-   （「推定の横並びが複数行に折り返されて見にくい」への対応、その後フルブラウザでは
-   撤回済み）、ユーザー指摘（2026-08-27）「推定軸のアイコングループも観測アイコン
-   グループのようなサイズにして、他と同じく4文字略字までアイコンに含めたい」を受け、
-   モバイル限定の縮小も撤去した。画面幅によらず観測グループのメンバータイル（一次要素、
-   .iconChipの既定サイズ・略名表示）と常に同じ見た目にする。 */
-
-/* 改善計画T374: はみ出した分のページ送りボタン（▲▼/◀▶、MapOverlayControls.tsx参照）。
+/* 改善計画T374: はみ出した分のページ送りボタン（▲▼、MapOverlayControls.tsx参照）。
+   改善計画T418で評価軸グループ（横並び展開、◀▶送り・.estimatedFlatRow*・
+   .chipRowItemAxis）を撤去したのに伴い、縦送り（▲▼）だけが残っている。
    .expandToggleと同じ丸ボタンの見た目に揃える。ピンチズームの片方の指がここに乗った
    場合の対策として.iconChip/.expandToggleと同じくtouch-action: noneを持たせる
    （ボタン自体のクリックはtouch-actionの影響を受けないため、この指定があってもクリック
@@ -691,13 +634,4 @@
 
 .pageButton:hover {
   border-color: var(--color-accent);
-}
-
-/* 横送り（◀▶）用の上書き。.pageButtonの「短辺=height固定・長辺=幅方向のstretch」を
-   90度回転させ、「短辺=width固定・長辺=高さ方向のstretch」にする
-   （align-self: stretch自体は.pageButtonからそのまま引き継ぐ）。 */
-.pageButtonHorizontal {
-  height: auto;
-  width: 1.6rem;
-  padding: 0.3rem 0;
 }

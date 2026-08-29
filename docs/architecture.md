@@ -693,7 +693,7 @@ RideCompass/
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
-        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー・プリセット）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）
+        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・風（`wind`、axisIdで直接`windAxis`へ紐付け）だけがトグルを持ち、持たない軸（勾配等、kind="none"）とルート確定後の風は押せない案内表示になる
         RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
         RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
           を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
@@ -2295,10 +2295,10 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 としては引き続き使う）。色分け・凡例・絞り込み軸の定義は
 [frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
 に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
-地図上チップ（`MapOverlayControls.tsx`）最上位のグルーピング（道路/評価軸/環境/スポット）は
-改善計画T406により`MapOverlayGroup`が担う。サイドバー（`MapLayersPanel.tsx`、「地図の見え方」
-パネル）は独立した設計判断として引き続き`MapLayerDataNature`（観測/推定/動的）の2見出しを
-使う（「地図チップの最上位グルーピング（道路/評価軸/環境/スポット、改善計画T406）」節参照）。
+地図上チップ（`MapOverlayControls.tsx`）最上位のグルーピング（道路/環境/スポット）は
+改善計画T406/T418により`MapOverlayGroup`が担う。サイドバー（`MapLayersPanel.tsx`、「地図の
+見え方」パネル）も改善計画T413で同じ`mapOverlayGroupFor`を単一ソースとして使うよう統一済み
+（「地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）」節参照）。
 
 タイル配信は3系統:
 
@@ -2388,7 +2388,11 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 実装（道路自身のOSM格納方向・現在時刻固定で評価）はこの契約と矛盾する誤った前提に基づいて
 おり、T414（2026-08-30）で作り直した**。
 
-**ルート未確定時**（「環境」「評価軸」両グループが同じ[時刻,向き]入力を共有する）:
+**ルート未確定時**（「環境」グループ・評価軸としての風が同じ[時刻,向き]入力を共有する。
+改善計画T418で評価軸は独立した地図チップではなくなったが、この入力共有の関係性自体は
+維持している——windAxisの色分けを起動する場所がルート設定パネル
+[`RouteSettingsPanel.tsx`]へ移っても、向きの指定元は「環境」グループのコンパススライダー
+[`WindBearingSlider`]のまま）:
 
 - **環境（面、`gridFill`）**: 風の矢印（`windVector`、格子点マップ§動的気象レイヤー参照）と
   同じフェッチ済みの風グリッド（`useWeatherGrid`のeffectiveGrid）から、コンパススライダー
@@ -2428,24 +2432,27 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   同じしきい値・配色（`WIND_AXIS_THRESHOLDS`）を共有する。
 
 **ルート確定後**: パラメータ指定UI（コンパススライダー・上記windAxisの一律色分け）は終了する
-（`page.tsx`が`hasDetail`で`showWindAxis`/`showWindPenaltyFill`をfalseへ倒し、windAxisチップ
-自体もdisabledにする。`MapView.tsx: clearWindAxisFeatureState`が`map.removeFeatureState`で
-それまでの全道路ぶんのfeature-stateを明示的にクリアする）。代わりに、既に実装済みだった
-`RouteSegmentDetail.axis_difficulties.wind`（ルート生成時点で区間ごとの実進行方向・実到達
-時刻を使って計算済み、`routeStyleModesFromCatalogAxes`がaxis-catalogの`wind`軸の
-`supports_route_coloring`フラグから自動生成する`routeStyleModes`の"wind"モード、「ルート
-設定/結果パネル」の「生成したルートの色分け」）が、ルート線のみへの正確な色分けを担う——
-これはT400.md「3.」節の実装（T352）で既に存在しており、T414で新規に実装したものではない。
+（`page.tsx`が`hasDetail`で`showWindAxis`/`showWindPenaltyFill`をfalseへ倒し、
+`RouteSettingsPanel.tsx: renderMapColorToggle`が風の色分けトグルを「地図表示なし」の
+案内表示へ切り替える[改善計画T418]。`MapView.tsx: clearWindAxisFeatureState`が
+`map.removeFeatureState`でそれまでの全道路ぶんのfeature-stateを明示的にクリアする）。
+代わりに、既に実装済みだった`RouteSegmentDetail.axis_difficulties.wind`（ルート生成時点で
+区間ごとの実進行方向・実到達時刻を使って計算済み、`routeStyleModesFromCatalogAxes`が
+axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成する`routeStyleModes`の
+"wind"モード、「ルート設定/結果パネル」の「生成したルートの色分け」）が、ルート線のみへの
+正確な色分けを担う——これはT400.md「3.」節の実装（T352）で既に存在しており、T414で新規に
+実装したものではない。
 
-地図チップは`mapLayers.ts`の`windAxis`——改善計画T406完了後は「評価軸」グループへ正式統合済み
-（`mapOverlayGroupFor`がidで特別扱いする唯一の例外、下記節参照）。
+`mapLayers.ts`の`windAxis`レイヤー自体（`layerVisibility.windAxis`のON/OFF・実際の地図描画）は
+変更していないが、それを起動するUIは改善計画T418で地図上チップから撤去し、ルート設定パネル
+（`RouteSettingsPanel.tsx`）の「風」行から起動する形へ移設した（下記節参照）。
 
 勾配（gradient）も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、T218a）の
 ため、同じ状態機械に乗せることは設計上可能（T400.md「2.」節の3軸表）だが、勾配は「向きの出所が
 道路自身に内在」という風とは異なる性質を持ち、ユーザー指定の向きと道路自身の向きの対応付けが
 未決定のため、実装は別タスク（[T423](tasks/T423.md)）とする。
 
-### 地図チップの最上位グルーピング（道路/評価軸/環境/スポット、改善計画T406）と一次/二次命名（改善計画T163〜T169）
+### 地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）と一次/二次命名（改善計画T163〜T169）
 
 > 経緯・教訓（T167の自動ON連動導入→T181/T214での撤去、T215のタッチスクロール不具合対応等）は
 > [decisions/map-chip-primary-secondary-registry.md](decisions/map-chip-primary-secondary-registry.md)参照。
@@ -2458,39 +2465,50 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 
 **地図上チップ（`MapOverlayControls.tsx`）の最上位グルーピング**は改善計画T406（2026-08-30）で
 「観測データ/推定指標（合成）/動的データ」（データの出自による3分類）から「道路/評価軸/環境/
-スポット」（対象＝何についての情報かによる4分類）へ再編した
+スポット」（対象＝何についての情報かによる4分類）へ再編し
 （[docs/tasks/T400.md](tasks/T400.md)「1. パネルの最上位グルーピング」節・
-[docs/tasks/T406.md](tasks/T406.md)参照）。`mapLayers.ts: mapOverlayGroupFor()`が
-既存の`category`/`dataNature`フィールドから機械的に導出する（道路=`category==="roadCondition"`、
-評価軸=`dataNature==="composite"`、環境=`category==="terrain"||"weather"`、スポット=
-`category==="trafficSafety"||"amenity"`のうちcomposite以外）。唯一の例外はway_id→
-wind_penalty配信層`windAxis`（改善計画T405）で、`category="weather"`のままidで評価軸グループへ
-判定される（backendの`wind`軸自身が`category="動的"`のため`secondaryAxes`には現れない特殊
-メンバーのため、`SecondaryAxisSummary`を経由しない専用の描画関数`renderWindAxisTile`を持つ）。
-「道路」と「評価軸」はどちらも幾何が線のため、見た目は別チップのまま選択の**排他ドメインを
-共有**する（`mapOverlayExclusiveDomainFor()`が返す`"line"|"area"|"point"`の3ドメイン、
-`page.tsx: handleLayerToggle`がONにする操作のとき同じドメインの他レイヤーを自動でOFFにする
-——チップ本体のON/OFF＝`ChipButton`の`onTap`をラジオボタン化したもので、ⓘボタンの
-「表示する項目を選ぶ」設定パネル[下記]は対象外）。「環境」（面）・「スポット」（点）は
-それぞれ独立した排他ドメイン。ルート本体（category未指定）はどの排他ドメインにも属さない。
+[docs/tasks/T406.md](tasks/T406.md)参照）、続く改善計画T418（2026-08-30）で「評価軸」チップ
+自体を地図UIから撤去し「道路/環境/スポット」の3分類になった
+（[docs/tasks/T418.md](tasks/T418.md)参照）。評価軸（`car_stress`等の軸スタジオが作る全軸、
+`windAxis`）は、道路・環境・スポットと違い**ルートの状態と常に結び付いた道具**（ルート生成前は
+重み配分を検討する材料、生成後は結果を分析する材料）であり、ルートの有無に関係なく意味が
+一定な「地図そのものの見え方」設定として常設チップに置くこと自体が目的と合っていなかった、
+という判断による。評価軸の色分けは、ルート未確定時はルート設定パネル
+（`RouteSettingsPanel.tsx`、下記）の軸ごとの行から、ルート確定後は「生成したルートの色分け」
+（`routeStyleModes.ts`）から、それぞれ起動する。
 
-**サイドバー（`MapLayersPanel.tsx`、「地図の見え方」パネル）の最上位グルーピング**は
-T406のスコープ外として意図的に変更していない。引き続き「観測データ（`raw`、OSM/警察庁等の
-生タグをそのまま分類表示）」「推定指標（合成）（`composite`、複数材料から計算した二次軸）」の
-2区分（`MapLayerDataNature`、動的データ`dynamic`はサイドバーに設定行を持たないため2区分のみ
-表示）を使う——チップ側とサイドバー側で最上位の語彙が異なる状態が残っている（意図的な
-積み残し、docs/tasks/T406.md「積み残し」節参照）。
+`mapLayers.ts: mapOverlayGroupFor()`が既存の`category`/`dataNature`フィールドから機械的に
+導出する（道路=`category==="roadCondition"`、環境=`category==="terrain"||"weather"`、
+スポット=`category==="trafficSafety"||"amenity"`）。軸スタジオ由来のレイヤー
+（`isAxisStudioLayer()`、`dataNature==="composite"`のramp軸・way_id→wind_penalty配信層
+`windAxis`）はcategory判定より先に除外され、地図上チップ・サイドバーのどちらにも一切現れない
+（`MapOverlayControls.tsx: buildChipGroups`が単独チップへのフォールバックからも明示的に
+除外する）。「道路」はT406時点は「評価軸」と幾何[線]を共有する排他ドメインだったが、T418で
+評価軸チップ自体が撤去されたため単独ドメインになった（`mapOverlayExclusiveDomainFor()`が
+返す`"line"|"area"|"point"`の3ドメイン、`page.tsx: handleLayerToggle`がONにする操作のとき
+同じドメインの他レイヤーを自動でOFFにする——チップ本体のON/OFF＝`ChipButton`の`onTap`を
+ラジオボタン化したもので、ⓘボタンの「表示する項目を選ぶ」設定パネル[下記]は対象外）。
+「環境」（面）・「スポット」（点）はそれぞれ独立した排他ドメイン。ルート本体
+（category未指定）・軸スタジオ由来のレイヤーはどの排他ドメインにも属さない——ただし軸
+スタジオ由来のレイヤー同士は、同じ道路ジオメトリへ線を重ねて見にくくなることを防ぐという
+排他ドメインの元々の目的に沿い、`page.tsx: handleLayerToggle`が地図上チップの3ドメインとは
+独立に「軸スタジオ由来レイヤー同士は1つだけ選べる」という排他制御を維持する。
+
+**サイドバー（`MapLayersPanel.tsx`、「地図の見え方」パネル）の最上位グルーピング**は改善計画
+T413（2026-08-30）で地図上チップと同じ`mapOverlayGroupFor`を単一ソースとして使うよう統一
+済み（以前は独立した設計判断として`MapLayerDataNature`[観測/推定/動的]の2見出しを使って
+いたが、この不整合を解消した）。T418の評価軸グループ撤去にもそのまま追従し、道路/環境/
+スポットの3分類になっている。
 
 道路/環境/スポットグループの地図チップはタイル状のマトリックス（▶=メンバー個々の凡例展開／
-▼=グループ自体の縦積み展開、T169。評価軸グループのみ▶=グループ自体の横並び展開）。グループ
-見出しのⓘボタンから「表示する項目を選ぶ」設定パネル（`MapOverlayControls.tsx`の
-`renderVisibilitySettings`）を開け、非表示に選んだメンバー/軸のIDは`hiddenIds`
-（`${scope}:${id}`、scope="road"|"axis"|"environment"|"spot"、T406で旧"raw"|"composite"|
-"dynamic"から改名）へ記録し、対応レイヤーが表示中（ON）だった場合は`toggleHidden`がその場で
-OFFにする（T181）。非表示IDのSetという設計（表示IDのSetではなく）により、新規レイヤーは
-既定で全件表示のまま自動的に見える。グループ本体の開閉（`GROUP_VISIBILITY_KEYS`）と
-`hiddenIds`は`useStoredState`でlocalStorage永続化（T216）。個々の凡例展開は「今ちょっと
-確認のための」一時的なUI状態のため永続化の対象外。
+▼=グループ自体の縦積み展開、T169）。グループ見出しのⓘボタンから「表示する項目を選ぶ」
+設定パネル（`MapOverlayControls.tsx`の`renderVisibilitySettings`）を開け、非表示に選んだ
+メンバーのIDは`hiddenIds`（`${scope}:${id}`、scope="road"|"environment"|"spot"、T406で
+旧"raw"|"composite"|"dynamic"から改名、T418で"axis"を撤去）へ記録し、対応レイヤーが表示中
+（ON）だった場合は`toggleHidden`がその場でOFFにする（T181）。非表示IDのSetという設計
+（表示IDのSetではなく）により、新規レイヤーは既定で全件表示のまま自動的に見える。グループ
+本体の開閉（`GROUP_VISIBILITY_KEYS`）と`hiddenIds`は`useStoredState`でlocalStorage永続化
+（T216）。個々の凡例展開は「今ちょっと確認のための」一時的なUI状態のため永続化の対象外。
 
 1次「素材」レイヤー（道路種別/路面の合成・自転車インフラ・指定路線）は`line-offset`で道路に
 並行する複数トラックへ分離（`ROAD_MATERIAL_TRACK_LAYER_IDS`、同時ONでも互いを覆い隠さない）、

@@ -712,8 +712,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   // 選択中iconIdのプレビュー表示用。axisIconFor自体はaxisIconPalette.tsxの固定辞書を
   // 引くだけの純関数だが、react-hooks/static-componentsのeslintルールはコンポーネント
   // 本体直下で`const X = fn(); <X/>`という形を「レンダー毎にコンポーネントを新規生成
-  // している」と静的に誤検知する（MapOverlayControls.tsxのrenderAxisTile等、ネストした
-  // 関数内では同じ形でも誤検知しないため、ここも小さな関数に包んで回避する）。
+  // している」と静的に誤検知する（MapOverlayControls.tsxのrenderRawMemberTile等、
+  // ネストした関数内では同じ形でも誤検知しないため、ここも小さな関数に包んで回避する）。
   function renderIconPreview() {
     const PreviewIcon = axisIconFor(draft.iconId || null);
     return <PreviewIcon size={20} />;
