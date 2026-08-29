@@ -26,17 +26,23 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* 改善計画T397フォローアップ2（ユーザー指摘: ダークモードだと色味が似すぎていて選択状態が
+   分かりにくい）: 下線だけでは--foreground（非選択の--color-mutedとの差がダークモードで
+   弱い）に頼ることになるため、選択中タブに--color-accent-bg（ライト/ダークとも専用に
+   定義済みのトークン）の背景を足し、地の色に左右されにくい見た目にする。 */
 .tabTrigger {
   font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--color-muted);
-  padding: 0.3rem 0.2rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
 
 .tabTrigger[data-state="active"] {
-  color: var(--foreground);
+  color: var(--color-accent, #2563eb);
+  background: var(--color-accent-bg);
   border-bottom-color: var(--color-accent, #2563eb);
 }
 
@@ -94,6 +100,19 @@
      折り返す理由が生まれないため無意味だった）。flex-shrinkを許可することで初めて
      wrapが機能し、ボタンが押せない状態を解消する。 */
   flex-wrap: wrap;
+}
+
+/* 改善計画T397フォローアップ2（ユーザー指摘: ダークモードでボタン同士の色味が似すぎている）:
+   取り消せない操作（削除）だけ枠線・文字色を--color-dangerにして他の2ボタンと区別する。
+   背景は塗りつぶさない（一覧の並び操作で毎回目に入るため、常時警告色で塗ると煩わしい）。 */
+.deleteButton {
+  border-color: var(--color-danger, #dc2626);
+  color: var(--color-danger, #dc2626);
+}
+
+.deleteButton:disabled {
+  border-color: var(--color-border-strong);
+  color: var(--color-muted);
 }
 
 .composer {

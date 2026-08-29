@@ -175,9 +175,8 @@ export default function AxisStudio() {
 
   return (
     <div className={styles.studio}>
-      <p className={styles.hint}>
-        軸は「距離・獲得標高が近い候補の中から、どれくらい走りやすいか」を評価する計算式です。
-      </p>
+      {/* 改善計画T397フォローアップ2（ユーザー指摘: 見出し「評価軸（軸スタジオ）」と
+          タイトルが被る・軸の説明も何が言いたいか分からない）: 常設の説明文は撤去した。 */}
       {listError && <p className={styles.errorText}>{listError}</p>}
 
       {/* 改善計画T397フォローアップ（ユーザー指摘: 公開済みと未公開をタブで分けたい）。
@@ -210,6 +209,7 @@ export default function AxisStudio() {
                 </button>
                 <button
                   type="button"
+                  className={styles.deleteButton}
                   onClick={() => handleDelete(def.axis_id)}
                   disabled={deletingAxisId === def.axis_id || (definitions?.length ?? 0) <= 1}
                   title={(definitions?.length ?? 0) <= 1 ? "最後の1軸は削除できません" : undefined}

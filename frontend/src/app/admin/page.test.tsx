@@ -1,13 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// /adminページ（改善計画T270軸スタジオ・T331でpage.tsx自体の未テストを解消）。
-// 軸スタジオ・研究モード・開発者向けの各セクションを束ねるだけの薄いコンテナのため、
-// 地図等の重いコンポーネントは無く子コンポーネントの実体はここでは検証しない
-// （各コンポーネント自身のテストファイルの責務）。ここではpage.tsx固有のロジック——
-// researchEnabled/debugEnabledによる条件表示の出し分け、systemStatusOpenの開閉トグル、
-// weightOverrideEnabled/scoringWeightsのuseStoredJsonState経由でのlocalStorage同期——
-// だけを確認する。
+// /adminページ（改善計画T270軸スタジオ・T331でpage.tsx自体の未テストを解消、T397フォロー
+// アップ2で縦積みDisclosure3枚からタブ3枚へ再構成）。軸スタジオ・研究モード・開発者向けの
+// 各タブを束ねるだけの薄いコンテナのため、地図等の重いコンポーネントは無く子コンポーネント
+// の実体はここでは検証しない（各コンポーネント自身のテストファイルの責務）。ここでは
+// page.tsx固有のロジック——researchEnabled/debugEnabledによる条件表示の出し分け、
+// systemStatusOpenの開閉トグル、weightOverrideEnabled/scoringWeightsのuseStoredJsonState
+// 経由でのlocalStorage同期——だけを確認する。
 
 vi.mock("@/components/BackendStatus", () => ({ default: () => <div data-testid="backend-status" /> }));
 vi.mock("@/components/DebugPanel/DebugPanel", () => ({ default: () => <div data-testid="debug-panel" /> }));
@@ -56,18 +56,17 @@ vi.mock("@/hooks/useDebugLog", () => ({ useDebugEnabled: () => useDebugEnabledMo
 
 import AdminPage from "./page";
 
-// 「開発者」セクションはDisclosureにdefaultOpenを渡していないため既定で閉じている
-// （「研究」セクションと異なりRadix Accordion.Contentは閉状態だと中身自体をレンダリングしない、
-// 実機確認で判明）。DebugPanel/BackendStatus/システム状況トグル等、このセクション配下を
-// 検証するテストは、先にトリガーをクリックして開いてから中身を見る必要がある。
-async function openDeveloperSection() {
+// 改善計画T397フォローアップ2: 軸スタジオ/研究/開発者はRadix Tabsの3タブになった
+// （既定で開いているのは先頭の「軸スタジオ」のみ、Tabs.Contentは非選択中DOMへ現れない）。
+// 研究・開発者タブの中身を検証するテストは、先にタブ自体をクリックして選択する必要がある。
+async function openTab(name: "軸スタジオ" | "研究" | "開発者") {
   const { default: userEvent } = await import("@testing-library/user-event");
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "開発者" }));
+  await user.click(screen.getByRole("tab", { name }));
   return user;
 }
 
-describe("AdminPage（/admin、改善計画T270・T272）", () => {
+describe("AdminPage（/admin、改善計画T270・T272・T397）", () => {
   beforeEach(() => {
     window.localStorage.clear();
     useResearchEnabledMock.mockReturnValue(false);
@@ -79,46 +78,57 @@ describe("AdminPage（/admin、改善計画T270・T272）", () => {
     vi.clearAllMocks();
   });
 
-  it("見出しと軸スタジオ・研究セクションを表示する（開発者セクションは既定で閉じている）", () => {
+  it("見出しと3つのタブを表示し、既定で軸スタジオタブが選択されている", () => {
     render(<AdminPage />);
 
     expect(screen.getByRole("heading", { name: "軸スタジオ・研究/開発者ツール" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "軸スタジオ" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("axis-studio")).toBeInTheDocument();
-    expect(screen.getByTestId("research-panel")).toBeInTheDocument();
-    // 「開発者」はDisclosureのdefaultOpenを渡していないため既定で閉じており、
-    // 中身（DebugPanel/BackendStatus）はまだDOMへ現れない。
+    // 研究・開発者タブは非選択のため中身はまだDOMへ現れない。
+    expect(screen.queryByTestId("research-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("debug-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("backend-status")).not.toBeInTheDocument();
   });
 
-  it("「開発者」セクションを開くとDebugPanel/BackendStatusを表示する", async () => {
+  it("「研究」タブを開くとResearchPanelを表示する", async () => {
     render(<AdminPage />);
 
-    await openDeveloperSection();
+    await openTab("研究");
+
+    expect(screen.getByTestId("research-panel")).toBeInTheDocument();
+  });
+
+  it("「開発者」タブを開くとDebugPanel/BackendStatusを表示する", async () => {
+    render(<AdminPage />);
+
+    await openTab("開発者");
 
     expect(screen.getByTestId("debug-panel")).toBeInTheDocument();
     expect(screen.getByTestId("backend-status")).toBeInTheDocument();
   });
 
-  it("研究モードOFFの間はWeightPanelを表示せずヒントのみ表示する", () => {
+  it("研究モードOFFの間はWeightPanelを表示せずヒントのみ表示する", async () => {
     useResearchEnabledMock.mockReturnValue(false);
     render(<AdminPage />);
+    await openTab("研究");
 
     expect(screen.queryByTestId("weight-panel")).not.toBeInTheDocument();
     expect(screen.getByText(/研究モードは現在OFFです/)).toBeInTheDocument();
   });
 
-  it("研究モードONの間はWeightPanelを表示しヒントを表示しない", () => {
+  it("研究モードONの間はWeightPanelを表示しヒントを表示しない", async () => {
     useResearchEnabledMock.mockReturnValue(true);
     render(<AdminPage />);
+    await openTab("研究");
 
     expect(screen.getByTestId("weight-panel")).toBeInTheDocument();
     expect(screen.queryByText(/研究モードは現在OFFです/)).not.toBeInTheDocument();
   });
 
-  it("デバッグモードOFFの間はDebugConsole案内ヒントを表示しない", () => {
+  it("デバッグモードOFFの間はDebugConsole案内ヒントを表示しない", async () => {
     useDebugEnabledMock.mockReturnValue(false);
     render(<AdminPage />);
+    await openTab("開発者");
 
     expect(screen.queryByText(/デバッグログの表示はトップページ/)).not.toBeInTheDocument();
   });
@@ -127,14 +137,14 @@ describe("AdminPage（/admin、改善計画T270・T272）", () => {
     useDebugEnabledMock.mockReturnValue(true);
     render(<AdminPage />);
 
-    await openDeveloperSection();
+    await openTab("開発者");
 
     expect(screen.getByText(/デバッグログの表示はトップページ/)).toBeInTheDocument();
   });
 
   it("「システム状況を表示」ボタンでSystemStatusPanelのopenをトグルする", async () => {
     render(<AdminPage />);
-    const user = await openDeveloperSection();
+    const user = await openTab("開発者");
 
     const toggleButton = screen.getByRole("button", { name: "システム状況を表示" });
     expect(toggleButton).toHaveAttribute("aria-pressed", "false");
@@ -148,7 +158,7 @@ describe("AdminPage（/admin、改善計画T270・T272）", () => {
 
   it("SystemStatusPanelのonCloseはsystemStatusOpenをfalseへ戻す", async () => {
     render(<AdminPage />);
-    const user = await openDeveloperSection();
+    const user = await openTab("開発者");
 
     await user.click(screen.getByRole("button", { name: "システム状況を表示" }));
     expect(screen.getByTestId("system-status-panel")).toHaveAttribute("data-open", "true");
@@ -161,9 +171,8 @@ describe("AdminPage（/admin、改善計画T270・T272）", () => {
 
   it("WeightPanelのonOverrideEnabledChangeはlocalStorage（ridecompass:weight-override-enabled）へ保存する", async () => {
     useResearchEnabledMock.mockReturnValue(true);
-    const { default: userEvent } = await import("@testing-library/user-event");
-    const user = userEvent.setup();
     render(<AdminPage />);
+    const user = await openTab("研究");
 
     await user.click(screen.getByRole("button", { name: "override-on" }));
 
@@ -173,9 +182,8 @@ describe("AdminPage（/admin、改善計画T270・T272）", () => {
 
   it("WeightPanelのonScoringWeightsChangeはlocalStorage（ridecompass:scoring-weights）へ保存する", async () => {
     useResearchEnabledMock.mockReturnValue(true);
-    const { default: userEvent } = await import("@testing-library/user-event");
-    const user = userEvent.setup();
     render(<AdminPage />);
+    const user = await openTab("研究");
 
     await user.click(screen.getByRole("button", { name: "change-weight" }));
 
@@ -183,10 +191,11 @@ describe("AdminPage（/admin、改善計画T270・T272）", () => {
     expect(stored.gradient).toBe(0.9);
   });
 
-  it("localStorageに保存済みの評価重みがあれば初期表示に反映される", () => {
+  it("localStorageに保存済みの評価重みがあれば初期表示に反映される", async () => {
     useResearchEnabledMock.mockReturnValue(true);
     window.localStorage.setItem("ridecompass:weight-override-enabled", "true");
     render(<AdminPage />);
+    await openTab("研究");
 
     expect(screen.getByTestId("weight-panel")).toHaveAttribute("data-override-enabled", "true");
   });
