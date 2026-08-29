@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 
@@ -30,9 +30,21 @@ vi.mock("@/components/RouteSettingsPanel/RouteSettingsPanel", async (importOrigi
 });
 
 // 実際に組み立てられたoverlayLayers（id・on）をテストから読み取れるようにするスタブ。
+// 改善計画T406: 排他ドメイン（道路/評価軸/環境/スポット）のON/OFF実装はpage.tsx:
+// handleLayerToggle側にあるため、そのハンドラをテストから直接クリックで駆動できるよう
+// レイヤーごとの切り替えボタンも描画する（onToggle(id, !on)を呼ぶだけの薄いスタブ）。
 vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
-  default: (props: { layers: Array<{ id: string; on: boolean }> }) => (
-    <div data-testid="overlay-layers">{JSON.stringify(props.layers.map((l) => [l.id, l.on]))}</div>
+  default: (props: { layers: Array<{ id: string; on: boolean }>; onToggle: (id: string, on: boolean) => void }) => (
+    <>
+      {/* JSON文字列の要素自体はbutton群を子に含めない（既存テストがtextContentを丸ごと
+          JSON.parseするため、button群を同じ要素の子にするとテキストが混ざって壊れる）。 */}
+      <div data-testid="overlay-layers">{JSON.stringify(props.layers.map((l) => [l.id, l.on]))}</div>
+      {props.layers.map((l) => (
+        <button key={l.id} type="button" onClick={() => props.onToggle(l.id, !l.on)}>
+          {`toggle:${l.id}`}
+        </button>
+      ))}
+    </>
   ),
 }));
 
@@ -148,6 +160,99 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
     const layers = JSON.parse(text) as Array<[string, boolean | null]>;
     const guiAxisEntry = layers.find(([id]) => id === "axis:gui_created_axis");
     expect(guiAxisEntry?.[1]).not.toBe(true);
+  });
+});
+
+// ============================================================================
+// 改善計画T406: パネル構成再編（道路/評価軸/環境/スポットの4チップ・3排他ドメイン、
+// docs/tasks/T400.md「1. パネルの最上位グルーピング」節）。排他ドメイン判定自体
+// （mapOverlayGroupFor/mapOverlayExclusiveDomainFor、mapLayers.ts）はMapOverlayControls.test.tsx
+// で検証済みだが、実際にONにした際の排他ロジック本体はpage.tsx: handleLayerToggleにある
+// ため、ここでは上のdescribeブロックと同じくMapOverlayControlsを軽量スタブに差し替え、
+// スタブが呼ぶonToggleが実際のhandleLayerToggleへ届くことを利用して検証する
+// （スタブはlayers.idごとにtoggle:${id}という名前のボタンを描画し、押すとonToggle(id, !on)
+// を呼ぶ）。getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバック
+// RAMP_AXESのままレイヤーカタログを固定するため。解決させるとテストの axes: [] が
+// 実カタログとして上書きされ、axis:car_stress等の二次軸レイヤー自体が消えてしまう）。
+describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T406）", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.mocked(getAxisCatalog).mockReset();
+  });
+
+  function overlayLayersOnMap(): Map<string, boolean> {
+    const text = screen.getByTestId("overlay-layers").textContent ?? "[]";
+    const layers = JSON.parse(text) as Array<[string, boolean]>;
+    return new Map(layers);
+  }
+
+  it("道路と評価軸は排他ドメインを共有する: 道路をONにすると評価軸はOFFになり、その逆も成り立つ", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {})); // 解決させない（静的フォールバックのまま固定）
+    render(<Home />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:axis:car_stress" }));
+    expect(overlayLayersOnMap().get("axis:car_stress")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle:roadType" }));
+    const afterRoadOn = overlayLayersOnMap();
+    expect(afterRoadOn.get("roadType")).toBe(true);
+    expect(afterRoadOn.get("axis:car_stress")).toBe(false); // 排他ドメイン共有により自動OFF
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle:axis:car_stress" }));
+    const afterAxisOnAgain = overlayLayersOnMap();
+    expect(afterAxisOnAgain.get("axis:car_stress")).toBe(true);
+    expect(afterAxisOnAgain.get("roadType")).toBe(false); // 逆方向も同様に自動OFF
+  });
+
+  it("環境ドメインは道路/評価軸ドメインと独立: 環境内では排他だが、道路/評価軸には影響しない", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:elevation" }));
+    const afterElevationOn = overlayLayersOnMap();
+    expect(afterElevationOn.get("roadType")).toBe(true); // 別ドメインのため影響なし
+    expect(afterElevationOn.get("elevation")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle:precipitationNowcast" }));
+    const afterPrecipOn = overlayLayersOnMap();
+    expect(afterPrecipOn.get("elevation")).toBe(false); // 環境ドメイン内は排他
+    expect(afterPrecipOn.get("precipitationNowcast")).toBe(true);
+    expect(afterPrecipOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
+  });
+
+  it("スポットドメインは他ドメインと独立: スポット内では排他だが、道路/評価軸/環境には影響しない", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:stopPoi" }));
+    const afterStopPoiOn = overlayLayersOnMap();
+    expect(afterStopPoiOn.get("stopPoi")).toBe(true);
+    expect(afterStopPoiOn.get("roadType")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle:accidents" }));
+    const afterAccidentsOn = overlayLayersOnMap();
+    expect(afterAccidentsOn.get("stopPoi")).toBe(false); // スポットドメイン内は排他
+    expect(afterAccidentsOn.get("accidents")).toBe(true);
+    expect(afterAccidentsOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
+  });
+
+  it("ルートはどの排他ドメインにも属さない: 道路/評価軸のON操作と無関係にON/OFFできる", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    // routeは既定でON（DEFAULT_LAYER_VISIBILITY参照）
+    expect(overlayLayersOnMap().get("route")).toBe(true);
+
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:axis:car_stress" }));
+    const afterBothToggled = overlayLayersOnMap();
+    // route自体はどちらの操作の影響も受けずONのまま
+    expect(afterBothToggled.get("route")).toBe(true);
   });
 });
 

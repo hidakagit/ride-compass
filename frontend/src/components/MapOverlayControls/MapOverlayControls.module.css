@@ -228,18 +228,22 @@
   cursor: default;
 }
 
-/* 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
-   グループ配下を少しずつ色を変えてグルーピングして」）。見出しチップ・メンバータイルの
-   両方に同じグループの色を適用し、縦一列に並んだチップがどのグループの一員か一目で
-   分かるようにする。OFF（未選択）時は枠線だけをグループ色にする（背景は素のまま）。 */
-.iconChipGroupRaw {
-  border-color: var(--color-group-raw);
+/* 最上位グループ（道路/評価軸/環境/スポット、改善計画T406で「観測/推定/動的」から再編）の
+   色分け（実機フィードバック「それぞれのタイル及びそのグループ配下を少しずつ色を変えて
+   グルーピングして」）。見出しチップ・メンバータイルの両方に同じグループの色を適用し、
+   縦一列に並んだチップがどのグループの一員か一目で分かるようにする。OFF（未選択）時は
+   枠線だけをグループ色にする（背景は素のまま）。 */
+.iconChipGroupRoad {
+  border-color: var(--color-group-road);
 }
-.iconChipGroupComposite {
-  border-color: var(--color-group-composite);
+.iconChipGroupAxis {
+  border-color: var(--color-group-axis);
 }
-.iconChipGroupDynamic {
-  border-color: var(--color-group-dynamic);
+.iconChipGroupEnvironment {
+  border-color: var(--color-group-environment);
+}
+.iconChipGroupSpot {
+  border-color: var(--color-group-spot);
 }
 
 /* グループを持たない単独チップ（ルート等）のON色。青一色。 */
@@ -258,34 +262,40 @@
    ON＝そのグループ色で塗りつぶし」という単純な二値に統一する（青が出てくるのは
    グループを持たない単独チップだけ）。コンパウンドセレクタ（2クラス、詳細度0,2,0）で
    .iconChipActive単体（0,1,0）より優先させる。 */
-.iconChipGroupRaw.iconChipActive {
-  background: var(--color-group-raw-on);
-  border-color: var(--color-group-raw-on);
+.iconChipGroupRoad.iconChipActive {
+  background: var(--color-group-road-on);
+  border-color: var(--color-group-road-on);
   color: #ffffff;
 }
-.iconChipGroupComposite.iconChipActive {
-  background: var(--color-group-composite-on);
-  border-color: var(--color-group-composite-on);
+.iconChipGroupAxis.iconChipActive {
+  background: var(--color-group-axis-on);
+  border-color: var(--color-group-axis-on);
   color: #ffffff;
 }
-.iconChipGroupDynamic.iconChipActive {
-  background: var(--color-group-dynamic-on);
-  border-color: var(--color-group-dynamic-on);
+.iconChipGroupEnvironment.iconChipActive {
+  background: var(--color-group-environment-on);
+  border-color: var(--color-group-environment-on);
+  color: #ffffff;
+}
+.iconChipGroupSpot.iconChipActive {
+  background: var(--color-group-spot-on);
+  border-color: var(--color-group-spot-on);
   color: #ffffff;
 }
 
-/* グループ見出し（推定/観測/動的、ChipButtonのexpandViaSelf=trueだけに付く
+/* グループ見出し（道路/評価軸/環境/スポット、ChipButtonのexpandViaSelf=trueだけに付く
    .groupHeaderChipマーカー）の折りたたみ/展開（実機フィードバック「展開中は薄色でON、
-   展開解除は灰色でOFFを示して」）。メンバータイル（.iconChipGroupRaw等）は対象外で
+   展開解除は灰色でOFFを示して」）。メンバータイル（.iconChipGroupRoad等）は対象外で
    常に枠線だけグループ色のまま変わらない（.groupHeaderChipと組み合わさったときだけ
-   ここが上書きする）。既存の3グループ（raw/composite/dynamic）はすべて見出しに
+   ここが上書きする）。既存の4グループ（road/axis/environment/spot）はすべて見出しに
    groupTintを渡しているため、groupTintを持たない見出しは現状存在しない。 */
 
 /* 折りたたみ時（OFF）＝灰色。以前の.iconChipExpanded（実機フィードバック「見出しの
    ハイライトをメンバーと区別が付くように。展開はもっと地味な色でいい」）と同じ配色。 */
-.groupHeaderChip.iconChipGroupRaw,
-.groupHeaderChip.iconChipGroupComposite,
-.groupHeaderChip.iconChipGroupDynamic {
+.groupHeaderChip.iconChipGroupRoad,
+.groupHeaderChip.iconChipGroupAxis,
+.groupHeaderChip.iconChipGroupEnvironment,
+.groupHeaderChip.iconChipGroupSpot {
   background: var(--color-surface-2);
   border-color: var(--color-neutral);
   color: var(--foreground);
@@ -295,23 +305,28 @@
    通常濃度の色。メンバーのON＝濃い塗りつぶし+白文字とは意図的に差を付け、見出し自体は
    「メンバーのON/OFFを表す青ではない」という既存の考え方を保ちつつ、どのグループを
    開いているかが色でも分かるようにする）。コンパウンドセレクタ（3クラス、詳細度0,3,0）で
-   .iconChipGroupRaw.iconChipActive（0,2,0）等より優先させる必要は無い
+   .iconChipGroupRoad.iconChipActive（0,2,0）等より優先させる必要は無い
    （見出しはisActiveVisual=trueのときiconChipExpandedを使いiconChipActiveは使わない
    ため、両者が同時に付くことはない）。 */
-.groupHeaderChip.iconChipGroupRaw.iconChipExpanded {
-  background: var(--color-group-raw-bg);
-  border-color: var(--color-group-raw);
-  color: var(--color-group-raw);
+.groupHeaderChip.iconChipGroupRoad.iconChipExpanded {
+  background: var(--color-group-road-bg);
+  border-color: var(--color-group-road);
+  color: var(--color-group-road);
 }
-.groupHeaderChip.iconChipGroupComposite.iconChipExpanded {
-  background: var(--color-group-composite-bg);
-  border-color: var(--color-group-composite);
-  color: var(--color-group-composite);
+.groupHeaderChip.iconChipGroupAxis.iconChipExpanded {
+  background: var(--color-group-axis-bg);
+  border-color: var(--color-group-axis);
+  color: var(--color-group-axis);
 }
-.groupHeaderChip.iconChipGroupDynamic.iconChipExpanded {
-  background: var(--color-group-dynamic-bg);
-  border-color: var(--color-group-dynamic);
-  color: var(--color-group-dynamic);
+.groupHeaderChip.iconChipGroupEnvironment.iconChipExpanded {
+  background: var(--color-group-environment-bg);
+  border-color: var(--color-group-environment);
+  color: var(--color-group-environment);
+}
+.groupHeaderChip.iconChipGroupSpot.iconChipExpanded {
+  background: var(--color-group-spot-bg);
+  border-color: var(--color-group-spot);
+  color: var(--color-group-spot);
 }
 
 .iconLabel {

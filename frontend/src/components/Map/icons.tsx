@@ -270,6 +270,39 @@ export function DynamicDataIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 環境（改善計画T406、地図チップ最上位グループ）: 標高（terrain）・降水/風/雷等（weather）を
+ * まとめて表す雲のシルエット。旧「動的データ」（DynamicDataIcon、時計）は主にweather側の
+ * 象徴だったが、環境グループはterrain（標高）も含むため、より広く「屋外環境」を表す形にした。 */
+export function EnvironmentDataIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M6 15a3.3 3.3 0 0 1 .4-6.58A4.6 4.6 0 0 1 15.3 9.6 3 3 0 0 1 14.7 15H6Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** スポット（改善計画T406、地図チップ最上位グループ）: 停止要因・補給・事故等の点データを
+ * まとめて表す地図ピンのシルエット。 */
+export function SpotDataIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 18s6-6.7 6-11a6 6 0 0 0-12 0c0 4.3 6 11 6 11Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="7" r="1.8" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** ルート: 起点・終点のドットと曲がりくねった経路 */
 export function RouteIcon({ size = 16 }: IconProps) {
   return (

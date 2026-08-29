@@ -5,11 +5,14 @@ import { createPortal } from "react-dom";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
   MAP_LAYER_CATEGORY_ORDER,
-  MAP_LAYER_DATA_NATURE_CHIP_LABELS,
-  MAP_LAYER_DATA_NATURE_LABELS,
+  MAP_OVERLAY_GROUP_CHIP_LABELS,
+  MAP_OVERLAY_GROUP_LABELS,
+  MAP_OVERLAY_GROUP_ORDER,
+  mapOverlayGroupFor,
   type MapLayerCategory,
   type MapLayerDataNature,
   type MapLayerId,
+  type MapOverlayGroup,
 } from "@/components/Map/mapLayers";
 import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import { PRIMARY_ATTRIBUTE_CHIP_LABELS, PRIMARY_ATTRIBUTE_LAYER_IDS } from "@/components/Map/primaryAttributes";
@@ -19,18 +22,18 @@ import {
   AccidentIcon,
   AxisRampIcon,
   DesignationIcon,
-  DynamicDataIcon,
   ElevationIcon,
+  EnvironmentDataIcon,
   EstimatedIndexIcon,
   HeavyRainRiskIcon,
   InfoIcon,
   InundationRiskIcon,
   LandslideRiskIcon,
   LinearRainbandRiskIcon,
-  ObservedDataIcon,
   RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
+  SpotDataIcon,
   StopPoiIcon,
   SupplyPoiIcon,
   TunnelIcon,
@@ -63,13 +66,13 @@ export interface OverlayLayerChip {
    * （以前は絞り込み中のレイヤーしか▶が出なかったが、無条件のレイヤーでも凡例を
    * 確認したいという実機フィードバックを受け、legendDetailsの有無だけで判定するよう変更）。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
-  /** 観測グループ内の小見出し分け（改善計画T86→T166）用。mapLayers.ts:
-   * MapLayerDescriptor.categoryをそのまま渡す。未指定＝route等のdynamicレイヤーは
-   * 次数グループに属さず単独チップのまま。 */
+  /** グループ内の小見出し分け（改善計画T86→T166）用。mapLayers.ts:
+   * MapLayerDescriptor.categoryをそのまま渡す。未指定＝route等はどのグループにも
+   * 属さず単独チップのまま。 */
   category?: MapLayerCategory;
-  /** 地図チップ最上位のグルーピング単位（改善計画T166、次数反転）。mapLayers.ts:
-   * MapLayerDescriptor.dataNatureをそのまま渡す。categoryを持つチップは必ずこれで
-   * 観測/推定のどちらかへ束ねられる（未指定は"raw"扱い）。 */
+  /** 改善計画T406: mapOverlayGroupFor()がcategoryと合わせて最上位グループ（道路/評価軸/
+   * 環境/スポット）を判定するために使う。mapLayers.ts: MapLayerDescriptor.dataNatureを
+   * そのまま渡す。 */
   dataNature?: MapLayerDataNature;
   /** 改善計画T334: 「表示する項目を選ぶ」設定パネル（renderVisibilitySettings）で、
    * この項目の行に個別の情報アイコンを出し、押すと表示する説明文。mapLayers.ts:
@@ -88,34 +91,36 @@ interface MapOverlayControlsProps {
   secondaryAxes: readonly SecondaryAxisSummary[];
 }
 
-// 次数（観測/推定）単位でグルーピングされたチップの中身。categoryを持たないレイヤー
-// （route等）は単独チップ（members.length === 1）としてまとめて表現し、単独/グループの
-// 分岐をレンダリング側で1本化する（T128から続く設計、実装時の想定どおり「1件だけの
-// グループ」として同じコンポーネントで扱う）。"group:raw"/"group:composite"は
-// members.length===0でも（推定側はSECONDARY_AXESの薄字項目があるため）チップ自体を出す。
+// 最上位グループ（改善計画T406: 道路/評価軸/環境/スポット）単位でグルーピングされた
+// チップの中身。どのグループにも属さないレイヤー（route等）は単独チップ
+// （members.length === 1）としてまとめて表現し、単独/グループの分岐をレンダリング側で
+// 1本化する（T128から続く設計、実装時の想定どおり「1件だけのグループ」として同じ
+// コンポーネントで扱う）。"group:axis"はmembers.length===0でも（SECONDARY_AXESの薄字項目が
+// あるため）チップ自体を出す。
 interface ChipGroup {
   key: string;
   members: readonly OverlayLayerChip[];
 }
 
-// categoryを持つレイヤーをdataNature（観測/推定/動的、改善計画T166→T171で3値目追加）で
-// 3グループへ束ね、categoryを持たないレイヤー（route等のkind="dynamic"。動的データ
-// グループとは別物なので混同しないこと）は元の並び順のまま末尾へ単独チップとして追加する。
-// 推定グループは、対応する表示レイヤーを持つチップが1件も無くてもSECONDARY_AXESの
-// 薄字項目（勾配・舗装質・夜間）を見せるため常に出す。観測・動的グループはcategoryを持つ
-// メンバーが1件以上あるときだけ出す。
+// 改善計画T406: レイヤーをmapOverlayGroupFor()（mapLayers.ts）で最上位グループ
+// （道路/評価軸/環境/スポット）へ束ね、どのグループにも属さないレイヤー（route等）は
+// 元の並び順のまま末尾へ単独チップとして追加する。「評価軸」グループは、対応する表示
+// レイヤーを持つチップが1件も無くてもSECONDARY_AXESの薄字項目（勾配等）を見せるため
+// 常に出す。他の3グループはメンバーが1件以上あるときだけ出す。
+// 表示順はMAP_OVERLAY_GROUP_ORDER（道路→評価軸→環境→スポット、docs/tasks/T400.md
+// 「最終形」の記載順）に従う。旧「観測/推定/動的」（次数、MapLayerDataNature）とは
+// 独立した分類軸のため、この関数はdataNatureそのものではなくmapOverlayGroupForの
+// 判定結果だけを見る。
 function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   const groups: ChipGroup[] = [];
-  // 表示順は推定→観測（実機フィードバックにより入替え。以前は観測→推定だった）→動的
-  // （改善計画T171で新設したばかりで既存2グループより関心の的が絞られるため末尾）。
-  const estimatedMembers = layers.filter((layer) => layer.category && layer.dataNature === "composite");
-  groups.push({ key: "group:composite", members: estimatedMembers });
-  const observedMembers = layers.filter((layer) => layer.category && (layer.dataNature ?? "raw") === "raw");
-  if (observedMembers.length > 0) groups.push({ key: "group:raw", members: observedMembers });
-  const dynamicMembers = layers.filter((layer) => layer.category && layer.dataNature === "dynamic");
-  if (dynamicMembers.length > 0) groups.push({ key: "group:dynamic", members: dynamicMembers });
+  for (const group of MAP_OVERLAY_GROUP_ORDER) {
+    const members = layers.filter((layer) => mapOverlayGroupFor(layer) === group);
+    if (group === "axis" || members.length > 0) {
+      groups.push({ key: `group:${group}`, members });
+    }
+  }
   for (const layer of layers) {
-    if (!layer.category) groups.push({ key: layer.id, members: [layer] });
+    if (!mapOverlayGroupFor(layer)) groups.push({ key: layer.id, members: [layer] });
   }
   return groups;
 }
@@ -147,11 +152,16 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   route: RouteIcon,
 };
 
-// 次数グループチップ（改善計画T166、T171で3種目「動的」を追加）を代表するアイコン。
-const DATA_NATURE_ICONS: Record<MapLayerDataNature, (props: { size?: number }) => ReactElement> = {
-  raw: ObservedDataIcon,
-  composite: EstimatedIndexIcon,
-  dynamic: DynamicDataIcon,
+// 最上位グループチップ（改善計画T406: 道路/評価軸/環境/スポット）を代表するアイコン。
+// 道路=RoadIcon（個別メンバーroadTypeと共用、群のテーマそのもの）・評価軸=EstimatedIndexIcon
+// （旧「推定指標（合成）」グループのメーターアイコンをそのまま流用、意味が一致するため）・
+// 環境=EnvironmentDataIcon（雲、terrain+weatherを併せて表す新規アイコン）・
+// スポット=SpotDataIcon（地図ピン、新規アイコン）。
+const MAP_OVERLAY_GROUP_ICONS: Record<MapOverlayGroup, (props: { size?: number }) => ReactElement> = {
+  road: RoadIcon,
+  axis: EstimatedIndexIcon,
+  environment: EnvironmentDataIcon,
+  spot: SpotDataIcon,
 };
 
 // 推定グループの軸タイル（改善計画: 実機フィードバック「2次要素はアイコンだけで区別が
@@ -178,8 +188,9 @@ const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot fon
 // ようにする（下記toggleExpanded参照）。
 const MIN_PANEL_WIDTH_PX = 160;
 // グループ本体の開閉キー（改善計画T199、下記toggleExpandedのコメント参照）。
-// floatingパネルを持たないため排他制御の対象外にする。
-const GROUP_VISIBILITY_KEYS = new Set(["group:composite", "group:raw", "group:dynamic"]);
+// floatingパネルを持たないため排他制御の対象外にする。改善計画T406で3グループ
+// （raw/composite/dynamic）から4グループ（道路/評価軸/環境/スポット）へ再編した。
+const GROUP_VISIBILITY_KEYS = new Set(["group:road", "group:axis", "group:environment", "group:spot"]);
 
 // グループの開閉・表示項目の設定をlocalStorageへ永続化する（改善計画、ユーザー要望
 // 「グループの選択状態等は保持しておいて、次開いた時に同じ状態にして。時間経過で変動する
@@ -451,6 +462,15 @@ function useHoldRepeat(action: () => void, canRepeat: boolean, delayMs = 450, in
 // になり、Reactが毎回アンマウント/再マウントしてDOMノードの同一性が失われる（展開直後に
 // 別要素へ差し替わり、テストや実機のフォーカス・aria状態が壊れる）ため、モジュール直下の
 // 安定した関数として定義する。panelRects/rowRefsは親の状態のためprops経由で受け取る。
+// groupTint（MapOverlayGroup）→CSSクラスの対訳表。ChipButtonはチップ1個ごとに呼ばれるため
+// モジュール直下の定数として1回だけ作る（レンダーごとの再生成を避ける）。
+const GROUP_TINT_CLASSES: Record<MapOverlayGroup, string> = {
+  road: styles.iconChipGroupRoad,
+  axis: styles.iconChipGroupAxis,
+  environment: styles.iconChipGroupEnvironment,
+  spot: styles.iconChipGroupSpot,
+};
+
 function ChipButton({
   Icon,
   label,
@@ -516,15 +536,15 @@ function ChipButton({
    * ON/OFFを表さないため、青（.iconChipActive）を使うと「このグループの内容が地図に
    * 出ている」と誤読されてしまう。 */
   expandViaSelf?: boolean;
-  /** 次数グループ（推定/観測/動的）の色分け（実機フィードバック「それぞれのタイル及びその
-   * グループ配下を少しずつ色を変えてグルーピングして」）。未指定＝category/dataNatureを
-   * 持たない単独チップ（ルート等）は無色のまま。 */
-  groupTint?: "raw" | "composite" | "dynamic";
+  /** 最上位グループ（改善計画T406: 道路/評価軸/環境/スポット）の色分け（実機フィードバック
+   * 「それぞれのタイル及びそのグループ配下を少しずつ色を変えてグルーピングして」）。
+   * 未指定＝どのグループにも属さない単独チップ（ルート等）は無色のまま。 */
+  groupTint?: MapOverlayGroup;
 }) {
   const arrowGlyph = expandDirection === "right" || expandDirection === "flatRight" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
   const isActiveVisual = expandViaSelf ? isExpanded : active;
-  const groupTintClass = groupTint === "raw" ? styles.iconChipGroupRaw : groupTint === "composite" ? styles.iconChipGroupComposite : groupTint === "dynamic" ? styles.iconChipGroupDynamic : "";
+  const groupTintClass = groupTint ? GROUP_TINT_CLASSES[groupTint] : "";
   // グループ見出し（推定/観測/動的、expandViaSelf=true）だけに付く印（実機フィードバック
   // 「展開中は薄色でON、展開解除は灰色でOFFを示して」）。メンバータイルは常に枠線だけ
   // グループ色のままにしたいため、見出しだけを区別するマーカークラスをCSS側の
@@ -593,9 +613,9 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
   // 凡例を常時表示すると地図の視界を圧迫するという実機フィードバックを受け、既定は
   // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
   // 開閉はキーのSetで個別管理する。キーはレイヤーID（単独チップ）・`member:${id}`
-  // （観測グループのメンバー）・`axis:${axisId}`（推定グループの軸タイル）・
-  // グループキー`group:composite`/`group:raw`/`group:dynamic`（改善計画T166、次数
-  // グループ本体の開閉）・`${groupKey}:legend`（アイコンの意味凡例）のいずれか。
+  // （道路/環境/スポットグループのメンバー）・`axis:${axisId}`（評価軸グループの軸タイル）・
+  // グループキー`group:road`/`group:axis`/`group:environment`/`group:spot`（改善計画T166→
+  // T406、グループ本体の開閉）・`${groupKey}:legend`（アイコンの意味凡例）のいずれか。
   // グループ本体の開閉はfloatingパネルを持たない（member/axisの一覧をchipRowへ
   // インラインで差し込むだけ）ため複数グループを同時に開いても重ならないが、
   // それ以外（member:/axis:/単独チップ/${groupKey}:legend）はdocument.bodyへ
@@ -646,14 +666,15 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
     hasLess: estimatedRowHasLess,
   } = usePagedOverflow("x");
 
-  // 観測/推定/動的グループで「表示する項目を選ぶ」設定（改善計画T181）。ユーザー報告
-  // 「縦アイコンが多くて見切れるようになってきた」への対応として、グループ見出しの
-  // Ⓘボタン（従来は読み取り専用の「アイコンの意味」凡例だった）を、配下メンバー/軸の
-  // 表示・非表示を選べる設定パネルへ拡張する。グループ本体を開くと、ここで非表示に
-  // 選んだもの以外だけが並ぶ（絞り込みは各グループ内で完結し、既定＝何も非表示に
-  // 選んでいない状態では従来どおり全件表示）。キーは`${scope}:${memberOrAxisId}`
-  // （scope="raw"|"composite"|"dynamic"、グループ間でIDが衝突しても名前空間で区別
-  // できるようにする）。ユーザー要望「過去の設定内容はlocalStorageで保持してほしい」を
+  // 道路/評価軸/環境/スポットグループで「表示する項目を選ぶ」設定（改善計画T181、T406で
+  // 旧「観測/推定/動的」から再編）。ユーザー報告「縦アイコンが多くて見切れるようになって
+  // きた」への対応として、グループ見出しのⓘボタン（従来は読み取り専用の「アイコンの意味」
+  // 凡例だった）を、配下メンバー/軸の表示・非表示を選べる設定パネルへ拡張する。グループ
+  // 本体を開くと、ここで非表示に選んだもの以外だけが並ぶ（絞り込みは各グループ内で完結し、
+  // 既定＝何も非表示に選んでいない状態では従来どおり全件表示）。キーは
+  // `${scope}:${memberOrAxisId}`（scope="road"|"axis"|"environment"|"spot"、グループ間で
+  // IDが衝突しても名前空間で区別できるようにする）。ユーザー要望「過去の設定内容は
+  // localStorageで保持してほしい」を
   // 受け、localStorageへ永続化する（レイヤー構成が変わり存在しないIDが残っても、
   // renderVisibilitySettings側は現在渡された項目とのマッチングでしか使わないため実害はない）。
   const [hiddenIds, setHiddenIds] = useStoredState<ReadonlySet<string>>(
@@ -815,7 +836,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
   // 参照）だけが内容になる想定だが、canExpandがlegendDetailsの有無だけで判定していたため
   // ▶自体が消えて案内文を開けなくなっていた。単独チップ側（本ファイル末尾のcanExpand=
   // hasLegendDetails || Boolean(layer.summary)）と同じ判定へ揃える）。
-  function renderRawMemberTile(member: OverlayLayerChip, groupTint: "raw" | "dynamic") {
+  function renderRawMemberTile(member: OverlayLayerChip, groupTint: "road" | "environment" | "spot") {
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
@@ -897,18 +918,21 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
 
   // メンバー増加（観測グループは現状8件）で展開直後に画面下端を超えて見切れるという
   // 実機フィードバックを受け、Ⓘの設定パネル（renderVisibilitySettings）で非表示に
-  // 選んだメンバーはここで除外する（改善計画T181）。
+  // 選んだメンバーはここで除外する（改善計画T181）。改善計画T406: groupTint/scopeは
+  // 常に同じグループ値（"road"|"environment"|"spot"のいずれか）を渡すため1引数に統合した
+  // （旧「観測/動的」の2グループ時代はraw/dynamicの2値しか無く別々の意味に見えたが、
+  // 4グループ化で単なる同一値の重複渡しになったため）。
   function renderObservedMemberRows(
     members: readonly OverlayLayerChip[],
-    groupTint: "raw" | "dynamic",
-    scope: "raw" | "dynamic"
+    group: "road" | "environment" | "spot"
   ): ReactElement[] {
     return orderObservedMembers(members)
-      .filter((member) => !hiddenIds.has(`${scope}:${member.id}`))
-      .map((member) => renderRawMemberTile(member, groupTint));
+      .filter((member) => !hiddenIds.has(`${group}:${member.id}`))
+      .map((member) => renderRawMemberTile(member, group));
   }
 
-  // 観測/推定/動的グループ見出しの「表示する項目を選ぶ」設定パネル（改善計画T181）。
+  // 道路/評価軸/環境/スポットグループ見出しの「表示する項目を選ぶ」設定パネル（改善計画T181、
+  // T406で旧「観測/推定/動的」の3グループから4グループへ再編）。
   // 以前は読み取り専用の「アイコンの意味」凡例（一覧を見せるだけ）だったが、ユーザー
   // 報告「縦アイコンが多くて見切れるようになってきた」への対応として、各項目に表示/
   // 非表示のチェックボックスを持たせ、ここで選んだ項目だけがグループ展開時に並ぶように
@@ -922,7 +946,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
   function renderVisibilitySettings(
     groupKey: string,
     groupLabel: string,
-    scope: "raw" | "composite" | "dynamic",
+    scope: MapOverlayGroup,
     items: readonly {
       key: string;
       Icon: (props: { size?: number }) => ReactElement;
@@ -1078,7 +1102,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
           onExpandToggle={() => toggleExpanded(key, "down")}
           expandDirection="down"
           tileVariant="axis"
-          groupTint="composite"
+          groupTint="axis"
           panelContent={
             <div className={styles.detailBody}>
               {/* モバイルではタイル本体の略名を.chipRowItemAxisで視覚的に隠す（横並びを
@@ -1114,13 +1138,61 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
         onExpandToggle={() => toggleExpanded(key, "down")}
         expandDirection="down"
         tileVariant="axis"
-        groupTint="composite"
+        groupTint="axis"
         panelContent={
           <div className={styles.detailBody}>
             <div className={styles.detailAxisLabel}>{axis.chipLabel}</div>
             {showLegend && renderLegendDetails(member.legendDetails!)}
             {materialsNote}
           </div>
+        }
+        panelRect={panelRects[key]}
+        registerRow={(el) => {
+          rowRefs.current[key] = el;
+        }}
+      />
+    );
+  }
+
+  // 改善計画T405/T406: windAxis（way_id→wind_penalty配信層、「風（評価軸）」）は
+  // backendのwind軸自身がcategory="動的"のためsecondaryAxesには現れない特殊メンバー
+  // （secondaryAxes.ts: secondaryAxesFromCatalogAxesのコメント参照、動的気象UIの風
+  // [windVector]と評価軸としての風[windAxis]は別の軸として扱う）。renderAxisTileの
+  // ようにSecondaryAxisSummaryを起点にできないため、OverlayLayerChipを直接受け取り
+  // 他の軸タイルと同じ見た目（ChipButton, tileVariant="axis", expandDirection="down"）
+  // で描画する専用関数にする。中身はrenderRawMemberTileとほぼ同じだが、expandDirection/
+  // tileVariant/groupTintが軸タイル向けの値に固定される点だけが異なる。
+  function renderWindAxisTile(member: OverlayLayerChip) {
+    const key = `member:${member.id}`;
+    const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
+    const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
+    const canExpand = Boolean(!member.disabled && (hasLegend || member.summary));
+    return (
+      <ChipButton
+        key={key}
+        Icon={Icon}
+        label={member.label}
+        chipLabel={member.chipLabel ?? member.label}
+        active={Boolean(member.on && !member.disabled)}
+        disabled={member.disabled}
+        title={member.title}
+        onTap={() => onToggle(member.id, !member.on)}
+        canExpand={canExpand}
+        isExpanded={canExpand && expandedIds.has(key)}
+        onExpandToggle={() => toggleExpanded(key, "down")}
+        expandDirection="down"
+        tileVariant="axis"
+        groupTint="axis"
+        panelContent={
+          canExpand ? (
+            hasLegend ? (
+              renderLegendDetails(member.legendDetails!)
+            ) : (
+              <p className={styles.detailNotice}>{member.summary}</p>
+            )
+          ) : (
+            <></>
+          )
         }
         panelRect={panelRects[key]}
         registerRow={(el) => {
@@ -1152,33 +1224,42 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
           style={{ transform: `translateY(-${chipRowOffset}px)` }}
         >
         {chipGroups.flatMap((group) => {
-          // 推定グループ。▶を開くと、独立したカードに閉じ込めず、6軸のタイルを推定チップと
-          // 同じ上端・同じ間隔の横並びとして地続きに展開する（観測グループの▼縦並び地続き化
-          // と対になる実機フィードバック「推定も▶で同じ上端・同じ列間で横並び展開してほしい」
-          // への対応）。ChipButton自身はexpandDirection="flatRight"で▶→◀（180度回転）の
-          // 見た目だけを持ち、内訳は描画しない。header自体も横並びの先頭要素として
-          // .estimatedFlatRowに含める（アイコン+トグルと軸タイルの上端を揃えるため）。
-          if (group.key === "group:composite") {
-            const RepresentativeIcon = DATA_NATURE_ICONS.composite;
+          // 評価軸グループ（改善計画T406、旧「推定指標（合成）」group:composite）。▶を開くと、
+          // 独立したカードに閉じ込めず、SECONDARY_AXESの軸タイルを評価軸チップと同じ上端・
+          // 同じ間隔の横並びとして地続きに展開する（実機フィードバック「推定も▶で同じ上端・
+          // 同じ列間で横並び展開してほしい」への対応、道路/環境/スポットグループの▼縦並び
+          // 地続き化と対になる横並び版）。ChipButton自身はexpandDirection="flatRight"で
+          // ▶→◀（180度回転）の見た目だけを持ち、内訳は描画しない。header自体も横並びの
+          // 先頭要素として.estimatedFlatRowに含める（アイコン+トグルと軸タイルの上端を
+          // 揃えるため）。
+          if (group.key === "group:axis") {
+            const RepresentativeIcon = MAP_OVERLAY_GROUP_ICONS.axis;
             const isExpanded = expandedIds.has(group.key);
-            const label = MAP_LAYER_DATA_NATURE_LABELS.composite;
-            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS.composite;
+            const label = MAP_OVERLAY_GROUP_LABELS.axis;
+            const chipLabel = MAP_OVERLAY_GROUP_CHIP_LABELS.axis;
+            // 改善計画T405/T406: windAxis（「風（評価軸）」）はbackendのwind軸自身が
+            // category="動的"のためsecondaryAxesには現れない特殊メンバー（renderWindAxisTile
+            // 直前のコメント参照）。group.members（mapOverlayGroupFor経由でこの評価軸
+            // グループへ機械的に分類済み）から個別に拾い、軸タイル列の末尾へ追加のタイルとして
+            // 差し込む。
+            const windAxisMember = group.members.find((m) => m.id === "windAxis");
+            const itemCount = secondaryAxes.length + (windAxisMember ? 1 : 0);
             const header = (
               <ChipButton
                 key={group.key}
                 Icon={RepresentativeIcon}
                 label={label}
                 chipLabel={chipLabel}
-                // 次数グループ本体は展開/収納の見出しであり、タップしてもレイヤーの
-                // ON/OFFは切り替わらない（実機フィードバック「観測/推定はONにならなくて
-                // いい」への対応。以前はメンバーが1件でもONならこの見出し自体も
-                // アクティブ表示にしていたが、材料の連動ON（T167）で意図せず「推定」
-                // 全体が光って見える不具合になっていた）。activeはexpandViaSelf=trueの下では
-                // 無視され、見出しのactive見た目は展開状態(isExpanded)から決まる
-                // （実機フィードバック「展開三角アイコンをなくし、展開状態は推定と観測
-                // アイコンの状態で表現して」への対応）。
+                // グループ本体は展開/収納の見出しであり、タップしてもレイヤーのON/OFFは
+                // 切り替わらない（実機フィードバック「観測/推定はONにならなくていい」への
+                // 対応。以前はメンバーが1件でもONならこの見出し自体もアクティブ表示に
+                // していたが、材料の連動ON（T167）で意図せず「推定」全体が光って見える
+                // 不具合になっていた）。activeはexpandViaSelf=trueの下では無視され、見出しの
+                // active見た目は展開状態(isExpanded)から決まる（実機フィードバック「展開
+                // 三角アイコンをなくし、展開状態は推定と観測アイコンの状態で表現して」への
+                // 対応）。
                 active={false}
-                title={`${label}[${secondaryAxes.length}件をタップで一覧]`}
+                title={`${label}[${itemCount}件をタップで一覧]`}
                 onTap={() => {
                   toggleExpanded(group.key);
                   closeGroupLegend(group.key);
@@ -1188,7 +1269,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flatRight"
                 expandViaSelf
-                groupTint="composite"
+                groupTint="axis"
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
@@ -1228,8 +1309,9 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                         style={{ transform: `translateX(-${estimatedRowOffset}px)` }}
                       >
                         {secondaryAxes
-                          .filter((axis) => !hiddenIds.has(`composite:${axis.axisId}`))
+                          .filter((axis) => !hiddenIds.has(`axis:${axis.axisId}`))
                           .map((axis) => renderAxisTile(axis, group.members))}
+                        {windAxisMember && !hiddenIds.has(`axis:${windAxisMember.id}`) && renderWindAxisTile(windAxisMember)}
                       </div>
                     </div>
                     {estimatedRowHasMore && (
@@ -1249,41 +1331,61 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                   renderVisibilitySettings(
                       group.key,
                       label,
-                      "composite",
-                      secondaryAxes.map((axis) => {
-                        const axisMember = axis.layerId ? group.members.find((m) => m.id === axis.layerId) : undefined;
-                        return {
-                          key: axis.axisId,
-                          Icon: axisIconFor(axis.iconId),
-                          label: axis.chipLabel,
-                          layerId: axis.layerId,
-                          on: axisMember?.on,
-                          description: axis.panelHint,
-                        };
-                      })
+                      "axis",
+                      [
+                        ...secondaryAxes.map((axis) => {
+                          const axisMember = axis.layerId ? group.members.find((m) => m.id === axis.layerId) : undefined;
+                          return {
+                            key: axis.axisId,
+                            Icon: axisIconFor(axis.iconId),
+                            label: axis.chipLabel,
+                            layerId: axis.layerId,
+                            on: axisMember?.on,
+                            description: axis.panelHint,
+                          };
+                        }),
+                        ...(windAxisMember
+                          ? [
+                              {
+                                key: windAxisMember.id,
+                                Icon: LAYER_ICONS[windAxisMember.id] ?? AxisRampIcon,
+                                label: windAxisMember.chipLabel ?? windAxisMember.label,
+                                layerId: windAxisMember.id,
+                                on: windAxisMember.on,
+                                description: windAxisMember.panelHint,
+                              },
+                            ]
+                          : []),
+                      ]
                     )}
               </div>,
             ];
           }
 
-          // 観測グループ。▼を開くと、独立したカードに閉じ込めず、道路種別・路面などの
-          // メンバーをchipRowの直接の子として観測チップの直後に地続きで差し込む（実機
-          // フィードバック「サブフレームの中でなく、観測チップと同列に縦並びで展開してほしい」
-          // への対応）。ChipButton自身はexpandDirection="flat"で▼矢印の見た目だけを持ち、
-          // 内訳は描画しない（renderObservedMemberRowsを別途sibling要素として返す）。
-          if (group.key === "group:raw") {
-            const RepresentativeIcon = DATA_NATURE_ICONS.raw;
+          // 道路/環境/スポットグループ（改善計画T406、旧group:raw/group:dynamicと同じ
+          // 「▼縦積み・地続き展開」の構成を共有する）。▼を開くと、独立したカードに
+          // 閉じ込めず、メンバーをchipRowの直接の子としてグループチップの直後に地続きで
+          // 差し込む（実機フィードバック「サブフレームの中でなく、観測チップと同列に縦並びで
+          // 展開してほしい」への対応）。ChipButton自身はexpandDirection="flat"で▼矢印の
+          // 見た目だけを持ち、内訳は描画しない（renderObservedMemberRowsを別途sibling要素
+          // として返す）。3グループとも見た目・挙動が完全に同一のため、1つの分岐にまとめる
+          // （旧実装は「観測」「動的」で内容がほぼ同じ2ブロックを別々に持っていたが、
+          // 4グループ化でさらに1ブロック増えるため重複を解消した）。
+          const flatGroup =
+            group.key === "group:road" ? "road" : group.key === "group:environment" ? "environment" : group.key === "group:spot" ? "spot" : undefined;
+          if (flatGroup) {
+            const RepresentativeIcon = MAP_OVERLAY_GROUP_ICONS[flatGroup];
             const isExpanded = expandedIds.has(group.key);
-            const label = MAP_LAYER_DATA_NATURE_LABELS.raw;
-            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS.raw;
+            const label = MAP_OVERLAY_GROUP_LABELS[flatGroup];
+            const chipLabel = MAP_OVERLAY_GROUP_CHIP_LABELS[flatGroup];
             const header = (
               <ChipButton
                 key={group.key}
                 Icon={RepresentativeIcon}
                 label={label}
                 chipLabel={chipLabel}
-                // group:compositeと同じ理由（上のコメント参照）でactiveは無視され、
-                // 見出しのactive見た目は展開状態(isExpanded)から決まる。
+                // 評価軸グループと同じ理由（上のコメント参照）でactiveは無視され、見出しの
+                // active見た目は展開状態(isExpanded)から決まる。
                 active={false}
                 title={`${label}[${group.members.length}件をタップで一覧]`}
                 onTap={() => {
@@ -1295,7 +1397,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                 onExpandToggle={() => toggleExpanded(group.key)}
                 expandDirection="flat"
                 expandViaSelf
-                groupTint="raw"
+                groupTint={flatGroup}
                 panelContent={<></>}
                 panelRect={panelRects[group.key]}
                 registerRow={(el) => {
@@ -1303,9 +1405,9 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
                 }}
               />
             );
-            // group:compositeと同じ理由（上のコメント参照）で、折りたたみ中だけ見出しの脇に
+            // 評価軸グループと同じ理由（上のコメント参照）で、折りたたみ中だけ見出しの脇に
             // 「アイコンの意味」凡例の入口を出し、展開後は消す。ラッパーdivのkeyは折りたたみ/
-            // 展開のどちらでも同じ値に固定し、headerのDOMノードを保つ（group:compositeと
+            // 展開のどちらでも同じ値に固定し、headerのDOMノードを保つ（評価軸グループと
             // 同じ理由）。展開時は元どおりメンバーを縦積みするため.observedExpandedColumn
             // （chipRowと同じcolumn flex）、折りたたみ時は見出し+凡例トグルの横並びのため
             // .headerLegendRowを使う。
@@ -1316,11 +1418,11 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
               >
                 {header}
                 {isExpanded
-                  ? renderObservedMemberRows(group.members, "raw", "raw")
+                  ? renderObservedMemberRows(group.members, flatGroup)
                   : renderVisibilitySettings(
                       group.key,
                       label,
-                      "raw",
+                      flatGroup,
                       orderObservedMembers(group.members).map((member) => ({
                         key: member.id,
                         Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
@@ -1334,65 +1436,7 @@ export default function MapOverlayControls({ layers, onToggle, secondaryAxes }: 
             ];
           }
 
-          // 動的グループ（改善計画T171、新設）。観測グループ（group:raw、直上）と全く同じ
-          // 「▼縦積み・地続き展開」の構成を使う（renderObservedMemberRows/orderObservedMembers
-          // は名称に反しobserved固有の処理を持たない汎用関数のため、そのまま再利用する）。
-          if (group.key === "group:dynamic") {
-            const RepresentativeIcon = DATA_NATURE_ICONS.dynamic;
-            const isExpanded = expandedIds.has(group.key);
-            const label = MAP_LAYER_DATA_NATURE_LABELS.dynamic;
-            const chipLabel = MAP_LAYER_DATA_NATURE_CHIP_LABELS.dynamic;
-            const header = (
-              <ChipButton
-                key={group.key}
-                Icon={RepresentativeIcon}
-                label={label}
-                chipLabel={chipLabel}
-                active={false}
-                title={`${label}[${group.members.length}件をタップで一覧]`}
-                onTap={() => {
-                  toggleExpanded(group.key);
-                  closeGroupLegend(group.key);
-                }}
-                canExpand
-                isExpanded={isExpanded}
-                onExpandToggle={() => toggleExpanded(group.key)}
-                expandDirection="flat"
-                expandViaSelf
-                groupTint="dynamic"
-                panelContent={<></>}
-                panelRect={panelRects[group.key]}
-                registerRow={(el) => {
-                  rowRefs.current[group.key] = el;
-                }}
-              />
-            );
-            return [
-              <div
-                key={`${group.key}:row`}
-                className={isExpanded ? styles.observedExpandedColumn : styles.headerLegendRow}
-              >
-                {header}
-                {isExpanded
-                  ? renderObservedMemberRows(group.members, "dynamic", "dynamic")
-                  : renderVisibilitySettings(
-                      group.key,
-                      label,
-                      "dynamic",
-                      orderObservedMembers(group.members).map((member) => ({
-                        key: member.id,
-                        Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
-                        label: member.chipLabel ?? member.label,
-                        layerId: member.id,
-                        on: member.on,
-                        description: member.panelHint,
-                      }))
-                    )}
-              </div>,
-            ];
-          }
-
-          // categoryを持たない単独チップ（route等のdynamicレイヤー）。
+          // どのグループにも属さない単独チップ（route等）。
           const layer = group.members[0];
           // 二次軸rampレイヤー（改善計画T145b）はレジストリ生成物から自動で増えるため
           // レイヤーIDごとの専用アイコンを持たず、共通のAxisRampIconへフォールバックする

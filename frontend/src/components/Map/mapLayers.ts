@@ -54,10 +54,11 @@ export type MapLayerId =
   // way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——道路自身の
   // 向きから計算したwind_penaltyをway単位でsetFeatureState経由で線色分けする、windVector
   // （面・矢印、探索用）とは独立の見せ方（docs/tasks/T400.md「2. 動的要素…の二重表現」節）。
-  // T406（パネル構成再編、旧「観測/推定/動的」を「道路/評価軸/環境/スポット」へ再編し
-  // 「評価軸」を独立チップにする）が完了するまでの暫定措置として、既存の「動的」グループへ
-  // 一時的なチップとして追加している。windVectorと同じkind="static"・dataNature="dynamic"
-  // （値は時間で変わるが、表示方式はvisibility切替のみの常設レイヤー）。
+  // T406でMapOverlayControls.tsxの「評価軸」グループへ正式に統合済み（mapOverlayGroupFor
+  // 参照）。category/dataNatureの値自体はwindVectorと同じkind="static"・dataNature="dynamic"
+  // のまま変えていない（値は時間で変わるが、表示方式はvisibility切替のみの常設レイヤーという
+  // 性質はwindVectorと同じであり、この2フィールドは元々MapLayersPanel側の分類にも使うため）。
+  // mapOverlayGroupForがid="windAxis"を特別扱いして「評価軸」グループへ判定する。
   | "windAxis"
   // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。precipitationNowcastと同じ
   // 理由でkind="static"・dataNature="dynamic"。「回避一択」の危険（雷・竜巻）のため
@@ -124,12 +125,90 @@ export const MAP_LAYER_DATA_NATURE_LABELS: Record<MapLayerDataNature, string> = 
 export const MAP_LAYER_DATA_NATURE_ORDER: readonly MapLayerDataNature[] = ["raw", "composite", "dynamic"];
 /** 地図チップ最上位グループの略名（4文字以下、改善計画T166確定命名表）。正式名は上記
  * MAP_LAYER_DATA_NATURE_LABELS。地図チップ=略名／サイドバー・研究タブ=正式名の使い分けは
- * 個別レイヤーのlabel/chipLabelと同じ規則（MapLayerDescriptorのコメント参照）。 */
+ * 個別レイヤーのlabel/chipLabelと同じ規則（MapLayerDescriptorのコメント参照）。
+ * 改善計画T406: 地図上チップ（MapOverlayControls.tsx）の最上位グルーピングは
+ * 「道路/評価軸/環境/スポット」（下記MapOverlayGroup）へ再編済みだが、サイドバー
+ * （MapLayersPanel.tsx）は「観測/推定」の2見出しを従来どおり使い続ける独立した設計判断
+ * のため、この定数群自体は削除せず残す（T406実装準備調査、両者は別のUI surfaceとして
+ * 意図的に語彙が異なる。統一する場合は別タスクとして起票すること）。 */
 export const MAP_LAYER_DATA_NATURE_CHIP_LABELS: Record<MapLayerDataNature, string> = {
   composite: "推定",
   raw: "観測",
   dynamic: "動的",
 };
+
+/** 改善計画T406: 地図上チップ（MapOverlayControls.tsx）最上位の4グループ。旧「観測/推定/
+ * 動的」（データの出自による分類、上記MapLayerDataNature）を廃止し、「対象（何についての
+ * 情報か）」で束ね直したもの（docs/tasks/T400.md「1. パネルの最上位グルーピング」節）。
+ * - road（道路）: 道路の純粋な属性のみ（道路種別・路面種別・指定路線・トンネル・一方通行）
+ * - axis（評価軸）: 軸スタジオが作るもの全て（car_stress・stop_density・accident密度・
+ *   night・surface_q等の既存組み込み軸＋今後軸スタジオで新規作成される全ての軸、および
+ *   T405のway_id→wind_penalty配信層「風（評価軸）」windAxis）
+ * - environment（環境）: 標高／降水ナウキャスト・風（矢印）・雷・竜巻等の面レイヤー
+ * - spot（スポット）: 停止要因POI・補給POI・事故地点等の点レイヤー
+ * MapLayerDataNature（raw/composite/dynamic）とは独立した分類軸で、サイドバー
+ * （MapLayersPanel.tsx）はこちらへ追従せず引き続きMAP_LAYER_DATA_NATURE_*を使う
+ * （上記MAP_LAYER_DATA_NATURE_CHIP_LABELSのコメント参照）。 */
+export type MapOverlayGroup = "road" | "axis" | "environment" | "spot";
+
+export const MAP_OVERLAY_GROUP_LABELS: Record<MapOverlayGroup, string> = {
+  road: "道路",
+  axis: "評価軸",
+  environment: "環境",
+  spot: "スポット",
+};
+/** 地図チップの略名（4文字以下、MAP_LAYER_DATA_NATURE_CHIP_LABELSと同じ規則）。 */
+export const MAP_OVERLAY_GROUP_CHIP_LABELS: Record<MapOverlayGroup, string> = {
+  road: "道路",
+  axis: "評価軸",
+  environment: "環境",
+  spot: "スポット",
+};
+/** チップの表示順（道路→評価軸→環境→スポット、docs/tasks/T400.md「最終形」の記載順）。 */
+export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = ["road", "axis", "environment", "spot"];
+
+/** 排他ドメイン（改善計画T406）。「道路」と「評価軸」はどちらも幾何としては線のため、
+ * 選択の排他を共有する（1つを選ぶと他方の選択も自動的に解除される）。「環境」（面）・
+ * 「スポット」（点）はそれぞれ独立した排他ドメインを持つ。ルート本体（category未指定の
+ * dynamicレイヤー）はどの排他ドメインにも属さない（対象外、docs/tasks/T400.md参照）。 */
+export type MapOverlayExclusiveDomain = "line" | "area" | "point";
+const MAP_OVERLAY_EXCLUSIVE_DOMAIN: Record<MapOverlayGroup, MapOverlayExclusiveDomain> = {
+  road: "line",
+  axis: "line",
+  environment: "area",
+  spot: "point",
+};
+
+/** レイヤー1件が属するMapOverlayGroupを判定する（改善計画T406）。category/dataNatureの
+ * 既存フィールドだけで機械的に判定できるが、windAxis（改善計画T405の暫定チップ、
+ * category="weather"・dataNature="dynamic"のまま追加されていた）だけは例外的に
+ * idで判定する——道路自身の向きから計算するway単位の評価軸のため、本来は「評価軸」
+ * グループに属するべきだがcategory/dataNatureの値がそれを表せていない
+ * （mapLayers.ts冒頭のwindAxisコメント参照）。route等、どのグループにも属さない
+ * レイヤーはundefinedを返す。 */
+export function mapOverlayGroupFor(layer: {
+  id: MapLayerId;
+  category?: MapLayerCategory;
+  dataNature?: MapLayerDataNature;
+}): MapOverlayGroup | undefined {
+  if (layer.id === "windAxis") return "axis";
+  if (layer.dataNature === "composite") return "axis";
+  if (layer.category === "roadCondition") return "road";
+  if (layer.category === "terrain" || layer.category === "weather") return "environment";
+  if (layer.category === "trafficSafety" || layer.category === "amenity") return "spot";
+  return undefined;
+}
+
+/** レイヤー1件が属する排他ドメインを判定する（mapOverlayGroupForのラッパー）。
+ * どのグループにも属さないレイヤー（route等）はundefined＝排他制御の対象外。 */
+export function mapOverlayExclusiveDomainFor(layer: {
+  id: MapLayerId;
+  category?: MapLayerCategory;
+  dataNature?: MapLayerDataNature;
+}): MapOverlayExclusiveDomain | undefined {
+  const group = mapOverlayGroupFor(layer);
+  return group ? MAP_OVERLAY_EXCLUSIVE_DOMAIN[group] : undefined;
+}
 
 export interface MapLayerDescriptor {
   id: MapLayerId;
@@ -559,7 +638,8 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
     // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_penalty値）はタイルの
     // プロパティではなく別経路のfetchで来るため、T87のloading/empty/error状態表示
     // （useLayerDataStatus）の対象には含めていない（MapView.tsx: getLayerVisibility参照。
-    // T406でのUI統合時に必要性を再検討する）。
+    // T406でUI統合（評価軸グループへの正式統合）は完了したが、この対象外の判断自体は
+    // 変更不要と判断しそのまま維持した）。
     "windAxis",
     // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
     // （改善計画T292: car_stressもここに含まれるようになった）。

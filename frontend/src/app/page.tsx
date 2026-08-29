@@ -20,6 +20,7 @@ import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/comp
 import {
   buildMapLayers,
   buildRoadSurfaceSharedLayerIds,
+  mapOverlayExclusiveDomainFor,
   type LayerDataStatusByLayer,
   type MapLayerId,
   type MapLayerVisibility,
@@ -671,6 +672,17 @@ export default function Home() {
     LEGEND_FILTER_DEBOUNCE_MS,
   );
 
+  // 改善計画T308: MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes
+  // （実行時フェッチ、軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
+  // 改善計画T406: handleLayerToggle（直下）が排他ドメイン判定のためmapLayers全体を
+  // 参照する必要があり、以前はoverlayLayers組み立て（後方）の直前で定義していたものを
+  // ここへ前倒しした（依存するaxisCatalogは既にこの手前[275行目付近]で定義済み）。
+  const mapLayers = useMemo(() => buildMapLayers(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
+  const roadSurfaceSharedLayerIds = useMemo(
+    () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes),
+    [axisCatalog.rampAxes]
+  );
+
   // 改善計画T167で導入した「推定指標をONにすると材料の観測データレイヤーも連動ON」する
   // カスケードは撤去した（改善計画T181フォローアップ、実機フィードバック「自由にメンバを
   // 表示非表示できることで、裏で表示状態で残るのは避けたい」）。T181で観測グループの
@@ -681,11 +693,35 @@ export default function Home() {
   // 材料がどれか（どの観測データが計算に使われているか）は`renderMaterialsNote`
   // （MapOverlayControls.tsx、T167で導入済み）が▼展開時に「材料: ○○」として常に示すため、
   // 連動ONで自動的に地図へ出す必要性は薄いと判断した。
+  //
+  // 改善計画T406: パネル構成再編（道路/評価軸/環境/スポットの4チップ・3排他ドメイン、
+  // docs/tasks/T400.md「1. パネルの最上位グルーピング」節）に伴い、チップ本体のON/OFFを
+  // 「同一排他ドメイン内は1つだけ選べる」ラジオボタン方式へ変更する。「道路」と「評価軸」は
+  // どちらも幾何が線のため排他ドメインを共有し、「環境」（面）・「スポット」（点）は
+  // それぞれ独立した排他ドメインを持つ（mapLayers.ts: mapOverlayExclusiveDomainFor参照）。
+  // ONにする操作のときだけ、同じ排他ドメインに属する他の全レイヤーIDをOFFにする
+  // （OFFにする操作自体は他レイヤーに影響しない）。ルート等どの排他ドメインにも属さない
+  // レイヤーは対象外のまま複数同時ONを許す（従来どおり）。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
-      setLayerVisibility((prev) => ({ ...prev, [id]: on }));
+      setLayerVisibility((prev) => {
+        const next: MapLayerVisibility = { ...prev, [id]: on };
+        if (on) {
+          const layer = mapLayers.find((l) => l.id === id);
+          const domain = layer ? mapOverlayExclusiveDomainFor(layer) : undefined;
+          if (domain) {
+            for (const other of mapLayers) {
+              if (other.id === id) continue;
+              if (mapOverlayExclusiveDomainFor(other) === domain) {
+                next[other.id] = false;
+              }
+            }
+          }
+        }
+        return next;
+      });
     },
-    [setLayerVisibility],
+    [setLayerVisibility, mapLayers],
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
@@ -783,14 +819,6 @@ export default function Home() {
     }
     return result;
   }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);
-
-  // 改善計画T308: MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes
-  // （実行時フェッチ、軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
-  const mapLayers = useMemo(() => buildMapLayers(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
-  const roadSurfaceSharedLayerIds = useMemo(
-    () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes),
-    [axisCatalog.rampAxes]
-  );
 
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。

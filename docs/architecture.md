@@ -2285,8 +2285,10 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 としては引き続き使う）。色分け・凡例・絞り込み軸の定義は
 [frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
 に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
-チップ最上位のグルーピング（観測データ/推定指標/動的データ）はT166以降の完全化により
-`MapLayerDataNature`が担う（「地図チップの観測/推定/動的グルーピング」節参照）。
+地図上チップ（`MapOverlayControls.tsx`）最上位のグルーピング（道路/評価軸/環境/スポット）は
+改善計画T406により`MapOverlayGroup`が担う。サイドバー（`MapLayersPanel.tsx`、「地図の見え方」
+パネル）は独立した設計判断として引き続き`MapLayerDataNature`（観測/推定/動的）の2見出しを
+使う（「地図チップの最上位グルーピング（道路/評価軸/環境/スポット、改善計画T406）」節参照）。
 
 タイル配信は3系統:
 
@@ -2396,34 +2398,58 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   sourceLayer, id: wayId}, {windPenalty: value})`で道路タイルの地物へ後から値を差し込む。
   色分けは`["feature-state","windPenalty"]`を読むMapLibre expression
   （`windAxisLayer.ts: windAxisColorExpression`）で、通常のramp軸と同じ`RAMP_COLOR_ANCHORS`
-  パレットを使う。地図チップは`mapLayers.ts`の`windAxis`（T406完了までは既存の「動的」
-  グループへの暫定チップ）。
+  パレットを使う。地図チップは`mapLayers.ts`の`windAxis`——改善計画T406完了後は「評価軸」
+  グループへ正式統合済み（`mapOverlayGroupFor`がidで特別扱いする唯一の例外、下記節参照）。
 - 勾配（gradient）も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、
   T218a）のため、同型のRedis配信層を新設すれば同じ仕組みに乗せられる見込み（T400.md「7.」参照、
   未着手）。
 
-### 地図チップの観測/推定/動的グルーピングと一次/二次命名（改善計画T163〜T169）
+### 地図チップの最上位グルーピング（道路/評価軸/環境/スポット、改善計画T406）と一次/二次命名（改善計画T163〜T169）
 
 > 経緯・教訓（T167の自動ON連動導入→T181/T214での撤去、T215のタッチスクロール不具合対応等）は
 > [decisions/map-chip-primary-secondary-registry.md](decisions/map-chip-primary-secondary-registry.md)参照。
 
-地図チップの最上位グルーピングは「観測データ（`raw`、OSM/警察庁等の生タグをそのまま分類表示）」
-「推定指標（合成）（`composite`、複数材料から計算した二次軸）」「動的データ（`dynamic`、
-T170以降の時刻依存レイヤー）」の3区分（`MapLayerDataNature`）。一次属性・二次軸の命名・材料の
-単一ソースは`domain/registry.py`/`registry_defaults.py`（T163）で、`export_openapi.py`が
-`axis-catalog.json`へ書き出す。フロント側は[frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
+一次属性・二次軸の命名・材料の単一ソースは`domain/registry.py`/`registry_defaults.py`（T163）で、
+`export_openapi.py`が`axis-catalog.json`へ書き出す。フロント側は
+[frontend/src/components/Map/primaryAttributes.ts](../frontend/src/components/Map/primaryAttributes.ts)が
 1次→2次・2次→1次の導出を片側importで行う（T164、T308で情報源を実行時APIへ更新。詳細は
 上記T308節）。
 
-観測/推定グループの地図チップはタイル状のマトリックス（▶=メンバー個々の凡例展開／
-▼=グループ自体の縦積み展開、T169）。グループ見出しのⓘボタンから「表示する項目を選ぶ」設定
-パネル（`MapOverlayControls.tsx`の`renderVisibilitySettings`）を開け、非表示に選んだ
-メンバー/軸のIDは`hiddenIds`（`${scope}:${id}`、scope="raw"|"composite"|"dynamic"）へ記録し、
-対応レイヤーが表示中（ON）だった場合は`toggleHidden`がその場でOFFにする（T181）。非表示IDの
-Setという設計（表示IDのSetではなく）により、新規レイヤーは既定で全件表示のまま自動的に見える。
-グループ本体の開閉（`GROUP_VISIBILITY_KEYS`）と`hiddenIds`は`useStoredState`で
-localStorage永続化（T216）。個々の凡例展開は「今ちょっと確認のための」一時的なUI状態のため
-永続化の対象外。
+**地図上チップ（`MapOverlayControls.tsx`）の最上位グルーピング**は改善計画T406（2026-08-30）で
+「観測データ/推定指標（合成）/動的データ」（データの出自による3分類）から「道路/評価軸/環境/
+スポット」（対象＝何についての情報かによる4分類）へ再編した
+（[docs/tasks/T400.md](tasks/T400.md)「1. パネルの最上位グルーピング」節・
+[docs/tasks/T406.md](tasks/T406.md)参照）。`mapLayers.ts: mapOverlayGroupFor()`が
+既存の`category`/`dataNature`フィールドから機械的に導出する（道路=`category==="roadCondition"`、
+評価軸=`dataNature==="composite"`、環境=`category==="terrain"||"weather"`、スポット=
+`category==="trafficSafety"||"amenity"`のうちcomposite以外）。唯一の例外はway_id→
+wind_penalty配信層`windAxis`（改善計画T405）で、`category="weather"`のままidで評価軸グループへ
+判定される（backendの`wind`軸自身が`category="動的"`のため`secondaryAxes`には現れない特殊
+メンバーのため、`SecondaryAxisSummary`を経由しない専用の描画関数`renderWindAxisTile`を持つ）。
+「道路」と「評価軸」はどちらも幾何が線のため、見た目は別チップのまま選択の**排他ドメインを
+共有**する（`mapOverlayExclusiveDomainFor()`が返す`"line"|"area"|"point"`の3ドメイン、
+`page.tsx: handleLayerToggle`がONにする操作のとき同じドメインの他レイヤーを自動でOFFにする
+——チップ本体のON/OFF＝`ChipButton`の`onTap`をラジオボタン化したもので、ⓘボタンの
+「表示する項目を選ぶ」設定パネル[下記]は対象外）。「環境」（面）・「スポット」（点）は
+それぞれ独立した排他ドメイン。ルート本体（category未指定）はどの排他ドメインにも属さない。
+
+**サイドバー（`MapLayersPanel.tsx`、「地図の見え方」パネル）の最上位グルーピング**は
+T406のスコープ外として意図的に変更していない。引き続き「観測データ（`raw`、OSM/警察庁等の
+生タグをそのまま分類表示）」「推定指標（合成）（`composite`、複数材料から計算した二次軸）」の
+2区分（`MapLayerDataNature`、動的データ`dynamic`はサイドバーに設定行を持たないため2区分のみ
+表示）を使う——チップ側とサイドバー側で最上位の語彙が異なる状態が残っている（意図的な
+積み残し、docs/tasks/T406.md「積み残し」節参照）。
+
+道路/環境/スポットグループの地図チップはタイル状のマトリックス（▶=メンバー個々の凡例展開／
+▼=グループ自体の縦積み展開、T169。評価軸グループのみ▶=グループ自体の横並び展開）。グループ
+見出しのⓘボタンから「表示する項目を選ぶ」設定パネル（`MapOverlayControls.tsx`の
+`renderVisibilitySettings`）を開け、非表示に選んだメンバー/軸のIDは`hiddenIds`
+（`${scope}:${id}`、scope="road"|"axis"|"environment"|"spot"、T406で旧"raw"|"composite"|
+"dynamic"から改名）へ記録し、対応レイヤーが表示中（ON）だった場合は`toggleHidden`がその場で
+OFFにする（T181）。非表示IDのSetという設計（表示IDのSetではなく）により、新規レイヤーは
+既定で全件表示のまま自動的に見える。グループ本体の開閉（`GROUP_VISIBILITY_KEYS`）と
+`hiddenIds`は`useStoredState`でlocalStorage永続化（T216）。個々の凡例展開は「今ちょっと
+確認のための」一時的なUI状態のため永続化の対象外。
 
 1次「素材」レイヤー（道路種別/路面の合成・自転車インフラ・指定路線）は`line-offset`で道路に
 並行する複数トラックへ分離（`ROAD_MATERIAL_TRACK_LAYER_IDS`、同時ONでも互いを覆い隠さない）、
