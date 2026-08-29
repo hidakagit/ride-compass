@@ -462,5 +462,8 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [x] [T387](tasks/T387.md). JMA気象データ連携基盤の新設（Redis導入）とPostGIS揮発データのRedis移行 規模L（2026-08-29完了。機能④[axis_definitions同期]はT349方針により見送り、MSM本実装はT389へ切り出し。本番Redis導入・性能実測とも完了、PostGIS単体比約5.9倍高速化を確認）
 - [ ] [T388](tasks/T388.md). job_registryのマルチワーカー対応〔P3〕規模S — トリガー: backendの複数ワーカー/複数プロセス構成の採用時（現状は単一プロセスデプロイのため未到達）
 - [ ] [T389](tasks/T389.md). MSM（5kmメッシュ）GRIB2パーサーの本実装 規模M〜L — トリガー: JMBSC契約費用（月額約13,500円＋初回50,000円）を払ってでも導入する段階になった時点（2026-08-29ユーザー判断で保留、正式サービス化すれば再検討）
-- [x] [T390](tasks/T390.md). road_graph評価ホットパスのis_split_up_to_date・get_edges_with_geometryをRedis cache-aside化 規模M — ユーザー指示（DB全般見直し）（2026-08-29完了、本番未反映）
+- [x] [T390](tasks/T390.md). road_graph評価ホットパスのis_split_up_to_date・get_edges_with_geometryをRedis cache-aside化 規模M — ユーザー指示（DB全般見直し）（2026-08-29完了、本番デプロイ・実測とも完了、warm時約3〜7倍高速化を確認）
 - [x] [T391](tasks/T391.md). generate_loopsの8方位並列trace_loopが共有するGraphServiceのAsyncSessionを保護 規模S（2026-08-29完了、T390調査の副産物としてユーザーが発見したバグ疑いの調査・対応）
+- [ ] [T392](tasks/T392.md). タイル材料一式（graph_material_cache）のRedis複製化〔調査のみ・保留〕規模M — トリガー: デプロイ直後のレイテンシがユーザー体験上の問題になった時点、またはbackendの複数ワーカー化（T388と同時に再検討）（2026-08-29、本番実測の結果ユーザー判断で見送り。30km周回で3.1倍高速化を確認したが投資対効果が弱くメモリリスクもあるため保留）
+- [ ] [T393](tasks/T393.md). 本番Redisにmaxmemoryと退避ポリシーが未設定〔P2〕規模S — T392の実測検証中に発見（2026-08-29）。現状は使用量が小さく実害無いが、Redis用途拡張前に対応推奨
+- [ ] [T394](tasks/T394.md). GraphService.get_way_tagsが未使用の可能性〔調査のみ〕規模S — T392の棚卸し中に発見（2026-08-29）
