@@ -173,6 +173,35 @@
   pointer-events: none;
 }
 
+/* 1コマ戻る/進むボタン（実機フィードバック「意図したところにピッタリ止めるのが難しい」）。
+   .nowButtonと同じ枠線だけの見た目だが、文字ではなく矢印1文字だけの正方形に近い
+   コンパクトな形にする（ドラッグ＝大まかな位置合わせ、こちらはピンポイントの1コマ単位
+   調整という役割分担のため、主役の.rulerViewportより目立たせない）。 */
+.stepButton {
+  flex-shrink: 0;
+  min-width: 1.6rem;
+  padding: 0.2rem 0.3rem;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  /* .timeHeaderと同じ理由（.panelコメント付近参照）。 */
+  touch-action: none;
+  pointer-events: auto;
+}
+
+.stepButton:disabled {
+  /* 端のコマに達したときはno-op（.nowButton:disabledと同じ、押しても何も起きない状態を
+     無効表示にする方針）。 */
+  color: var(--color-muted);
+  border-color: var(--color-border-strong);
+  cursor: default;
+}
+
 /* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
    .timeHeaderより控えめな、枠線だけの補助ボタン。 */
 .nowButton {

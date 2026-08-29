@@ -180,6 +180,15 @@ export default function DynamicLayerTimeSlider({
     }
   };
 
+  // 1コマ戻る/進むボタン（実機フィードバック「意図したところにピッタリ止めるのが難しい」）。
+  // ドラッグは大まかな位置合わせ、このボタンはピンポイントの1コマ単位調整という役割分担。
+  // キーボードのArrowLeft/Rightと同じ移動量だが、タップ操作の主要導線として並べる。
+  const stepIndex = (delta: number) => {
+    if (frames.length === 0) return;
+    const next = Math.min(frames.length - 1, Math.max(0, index + delta));
+    if (next !== index) onIndexChange(next);
+  };
+
   if (error) {
     return (
       <div className={styles.wrapper}>
@@ -206,6 +215,18 @@ export default function DynamicLayerTimeSlider({
             日付をまたいだときの曖昧さはこの1行だけが解消する。 */}
         <div className={styles.timeHeader}>{frame.label}</div>
         <div className={styles.controlsRow}>
+          {/* 1つ前のコマへ（実機フィードバック「意図したところにピッタリ止めるのが難しい」、
+              上記stepIndexコメント参照）。 */}
+          <button
+            type="button"
+            className={styles.stepButton}
+            onClick={() => stepIndex(-1)}
+            disabled={index <= 0}
+            aria-label={`${ariaLabel}を1つ前へ`}
+            title="1つ前へ"
+          >
+            ‹
+          </button>
           {/* 実機フィードバック「見た目は現状のままで良くて、横スクロールでメモリの方が
               移動するようにしたい」への対応。ネイティブのinput[type=range]（つまみをドラッグ・
               目盛りへコマ送り）をやめ、横スクロールで目盛り自体を動かすルーラーに置き換えた。
@@ -238,6 +259,17 @@ export default function DynamicLayerTimeSlider({
             </div>
             <div className={styles.leftIndicator} style={{ left: INDICATOR_OFFSET_PX }} aria-hidden="true" />
           </div>
+          {/* 1つ次のコマへ（上記「1つ前のコマへ」ボタンと対）。 */}
+          <button
+            type="button"
+            className={styles.stepButton}
+            onClick={() => stepIndex(1)}
+            disabled={index >= frames.length - 1}
+            aria-label={`${ariaLabel}を1つ次へ`}
+            title="1つ次へ"
+          >
+            ›
+          </button>
           {/* 「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」）。
               未来・過去側を見ていたスライダー位置を、ワンタップで実時刻へ戻す（onNowコメント
               参照）。既に「現在」を見ているときはno-opのため無効化する（MapOverlayControls.tsxの

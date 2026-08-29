@@ -188,6 +188,84 @@ describe("DynamicLayerTimeSlider", () => {
     });
   });
 
+  describe("1コマ戻る/進むボタン（実機フィードバック「意図したところにピッタリ止めるのが難しい」）", () => {
+    it("「1つ次へ」を押すとindex+1でonIndexChangeが呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onIndexChange = vi.fn();
+      render(
+        <DynamicLayerTimeSlider
+          frames={FRAMES}
+          index={1}
+          onIndexChange={onIndexChange}
+          currentIndex={0}
+          onNow={vi.fn()}
+          loading={false}
+          loadingLabel="取得中..."
+          error={null}
+          ariaLabel="気象レイヤーの表示時刻"
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" }));
+      expect(onIndexChange).toHaveBeenCalledWith(2);
+    });
+
+    it("「1つ前へ」を押すとindex-1でonIndexChangeが呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onIndexChange = vi.fn();
+      render(
+        <DynamicLayerTimeSlider
+          frames={FRAMES}
+          index={1}
+          onIndexChange={onIndexChange}
+          currentIndex={0}
+          onNow={vi.fn()}
+          loading={false}
+          loadingLabel="取得中..."
+          error={null}
+          ariaLabel="気象レイヤーの表示時刻"
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" }));
+      expect(onIndexChange).toHaveBeenCalledWith(0);
+    });
+
+    it("先頭では「1つ前へ」、末尾では「1つ次へ」が無効化される", () => {
+      const { rerender } = render(
+        <DynamicLayerTimeSlider
+          frames={FRAMES}
+          index={0}
+          onIndexChange={vi.fn()}
+          currentIndex={0}
+          onNow={vi.fn()}
+          loading={false}
+          loadingLabel="取得中..."
+          error={null}
+          ariaLabel="気象レイヤーの表示時刻"
+        />
+      );
+      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" })).not.toBeDisabled();
+
+      rerender(
+        <DynamicLayerTimeSlider
+          frames={FRAMES}
+          index={2}
+          onIndexChange={vi.fn()}
+          currentIndex={0}
+          onNow={vi.fn()}
+          loading={false}
+          loadingLabel="取得中..."
+          error={null}
+          ariaLabel="気象レイヤーの表示時刻"
+        />
+      );
+      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" })).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" })).toBeDisabled();
+    });
+  });
+
   describe("「現在」に戻るボタン（実機フィードバック「現況に戻すボタンも横に追加して」「現在リセットすると23:00になって上バーが消えた」）", () => {
     it("index===currentIndexのときは無効化される", () => {
       render(
