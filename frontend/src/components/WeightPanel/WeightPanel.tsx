@@ -13,9 +13,7 @@ import styles from "./WeightPanel.module.css";
 // この定数が古くなっても通常時の挙動には影響しない）。
 export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   distance_weight: 0.3,
-  elevation_weight: 0.15,
-  wind_weight: 0.3,
-  road_weight: 0.25,
+  difficulty_weight: 0.7,
 };
 
 // 区間難易度の重み（route_preference）の既定値。WeightPanel自身はこの値を編集する

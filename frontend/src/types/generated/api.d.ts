@@ -1321,16 +1321,17 @@ export interface components {
          *
          *     値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は
          *     無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。
+         *
+         *     改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty
+         *     （軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて
+         *     いたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の
+         *     2指標へ単純化した。
          */
         ScoringWeights: {
             /** Distance Weight */
             distance_weight: number;
-            /** Elevation Weight */
-            elevation_weight: number;
-            /** Wind Weight */
-            wind_weight: number;
-            /** Road Weight */
-            road_weight: number;
+            /** Difficulty Weight */
+            difficulty_weight: number;
         };
         /**
          * TileInputSpec

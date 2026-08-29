@@ -19,7 +19,7 @@ describe("WeightPanel", () => {
 
     await user.click(screen.getByText(TITLE));
 
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(4);
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
   });
 
   it("上書きチップをクリックするとonOverrideEnabledChangeが呼ばれる", async () => {
@@ -91,7 +91,7 @@ describe("WeightPanel", () => {
       <WeightPanel
         overrideEnabled={true}
         onOverrideEnabledChange={vi.fn()}
-        scoringWeights={{ distance_weight: 0.9, elevation_weight: 0.9, wind_weight: 0.9, road_weight: 0.9 }}
+        scoringWeights={{ distance_weight: 0.9, difficulty_weight: 0.9 }}
         onScoringWeightsChange={onScoringChange}
       />,
     );

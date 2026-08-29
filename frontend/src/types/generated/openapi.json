@@ -3061,31 +3061,19 @@
             "minimum": 0.0,
             "title": "Distance Weight"
           },
-          "elevation_weight": {
+          "difficulty_weight": {
             "type": "number",
             "minimum": 0.0,
-            "title": "Elevation Weight"
-          },
-          "wind_weight": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Wind Weight"
-          },
-          "road_weight": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Road Weight"
+            "title": "Difficulty Weight"
           }
         },
         "type": "object",
         "required": [
           "distance_weight",
-          "elevation_weight",
-          "wind_weight",
-          "road_weight"
+          "difficulty_weight"
         ],
         "title": "ScoringWeights",
-        "description": "total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。\n\n値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は\n無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。"
+        "description": "total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。\n\n値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は\n無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。\n\n改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty\n（軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて\nいたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の\n2指標へ単純化した。"
       },
       "TileInputSpec": {
         "properties": {

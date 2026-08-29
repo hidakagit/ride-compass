@@ -10,7 +10,7 @@ import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
 const API_BASE = "http://localhost:8000";
 
-const SCORING_WEIGHTS = { distance_weight: 1, elevation_weight: 1, wind_weight: 1, road_weight: 1 };
+const SCORING_WEIGHTS = { distance_weight: 1, difficulty_weight: 1 };
 // キーはaxis_id（改善計画T221 Stage B、backend AXIS_DEFINITIONS参照）。
 // RoutePreferenceWeightsはindex signature型のため旧キーでも型検査を通ってしまう
 // （コンパイルではドリフト検知できない）。実キー集合の正はaxis-catalog.jsonの

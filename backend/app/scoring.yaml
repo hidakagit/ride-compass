@@ -1,7 +1,11 @@
 # 総合スコア(total_score)算出時の各指標の重み。合計が1.0になるよう管理する。
 # 一部の候補で特定の指標が取得できなかった場合は、残りの重みで再正規化して合成する。
+#
+# 改善計画T401: 従来はdistance/elevation/wind/roadの4指標を個別にハードコード計算していたが、
+# elevation/wind/roadはoverall_difficulty（軸スタジオのRoutePreference.weightsで既に
+# 重み付け合成済みの値）に既に織り込まれているため二重管理だった。「候補は軸スタジオで
+# 決めた尺度で比較されるべき」という方針のもと、distance（目標距離への近さ）とdifficulty
+# （overall_difficulty）の2指標へ単純化した。
 scoring:
   distance_weight: 0.30
-  elevation_weight: 0.15
-  wind_weight: 0.30
-  road_weight: 0.25
+  difficulty_weight: 0.70

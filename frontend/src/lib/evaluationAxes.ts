@@ -28,11 +28,13 @@ export interface ScoringAxisDef {
   description: string;
 }
 
+// 改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty
+// （軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて
+// いたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の
+// 2指標へ単純化した。
 const SCORING_AXIS_META: Record<keyof ScoringWeights, Omit<ScoringAxisDef, "id" | "weightKey">> = {
   distance_weight: { label: "距離の合わせ込み", description: "指定距離との差の小ささ" },
-  elevation_weight: { label: "獲得標高", description: "獲得標高が小さいほど高評価" },
-  wind_weight: { label: "向かい風", description: "向かい風の影響が小さいほど高評価" },
-  road_weight: { label: "舗装率", description: "舗装路の割合が高いほど高評価" },
+  difficulty_weight: { label: "総合難易度", description: "軸スタジオの重みで合成した総合難易度が小さいほど高評価" },
 };
 
 export const SCORING_AXES: readonly ScoringAxisDef[] = (

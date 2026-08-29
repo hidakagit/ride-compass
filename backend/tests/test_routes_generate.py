@@ -39,9 +39,7 @@ REQUEST_BODY = {
 
 DEFAULT_SCORING_WEIGHTS = {
     "distance_weight": 0.30,
-    "elevation_weight": 0.15,
-    "wind_weight": 0.30,
-    "road_weight": 0.25,
+    "difficulty_weight": 0.70,
 }
 
 
@@ -162,7 +160,7 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
     # （研究インターフェース改善 §10-1）。
     captured: dict = {}
     monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
-    scoring_weights = {"distance_weight": 0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}
+    scoring_weights = {"distance_weight": 0.1, "difficulty_weight": 0.9}
     route_preference = {
         "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
         "car_stress": 0.0, "accident": 0.0,
@@ -356,7 +354,7 @@ def _lightweight_route_generation_setup(preference_override=None, scoring_weight
         {"route_type": "not-a-real-type"},
         # 重み上書きは非負のみ許可。部分指定（フィールド欠け）は「クラス既定値が黙って入る」
         # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
-        {"scoring_weights": {"distance_weight": -0.1, "elevation_weight": 0.2, "wind_weight": 0.3, "road_weight": 0.4}},
+        {"scoring_weights": {"distance_weight": -0.1, "difficulty_weight": 0.9}},
         {"scoring_weights": {"distance_weight": 0.5}},
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
@@ -386,7 +384,7 @@ def test_generation_setup_uses_yaml_defaults_when_no_override():
 
 def test_generation_setup_uses_overrides_when_provided():
     preference = RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0, "wind": 0.0})
-    scoring_weights = {"distance_weight": 1.0, "elevation_weight": 0.0, "wind_weight": 0.0, "road_weight": 0.0}
+    scoring_weights = {"distance_weight": 1.0, "difficulty_weight": 0.0}
 
     setup = _lightweight_route_generation_setup(preference, scoring_weights)
 

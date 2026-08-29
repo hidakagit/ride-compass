@@ -30,7 +30,7 @@ from app.services.route_scorer import RouteScorer
 
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
-SCORING_WEIGHTS = {"distance_weight": 0.30, "elevation_weight": 0.15, "wind_weight": 0.30, "road_weight": 0.25}
+SCORING_WEIGHTS = {"distance_weight": 0.30, "difficulty_weight": 0.70}
 
 
 def make_route_scorer() -> RouteScorer:

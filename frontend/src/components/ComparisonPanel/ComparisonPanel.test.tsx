@@ -39,7 +39,7 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
       longitude: 139.0,
       distance_km: 30,
       distance_tolerance_km: 5,
-      scoring_weights: { distance_weight: 0.3, elevation_weight: 0.15, wind_weight: 0.3, road_weight: 0.25 },
+      scoring_weights: { distance_weight: 0.3, difficulty_weight: 0.7 },
       route_preference: {
         gradient: 0.15, surface_q: 0.19, wind: 0.26, stop_density: 0.2,
         car_stress: 0.2, accident: 0.08,

@@ -480,7 +480,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 ## 地図×評価軸の連動モデル再設計（2026-08-29〜30）
 
 - [ ] [T400](tasks/T400.md). 地図×評価軸の連動モデル再設計（パネル構成・動的材料の二重表現・display_override廃止）規模L（設計方針決定、下記T401〜T406へ分割し実装着手）
-- [ ] [T401](tasks/T401.md). RouteScorerをdistance/difficultyの2指標へ単純化 規模S〜M（T400節5より分割）
+- [x] [T401](tasks/T401.md). RouteScorerをdistance/difficultyの2指標へ単純化 規模S〜M（T400節5より分割、2026-08-30完了）
 - [ ] [T402](tasks/T402.md). Route.axis_difficulties新設とBottomSheetルート全体プロファイル 規模M（T400節4より分割）
 - [ ] [T403](tasks/T403.md). ルート区間クリック内訳（小型チャート） 規模S〜M（T400節3より分割）
 - [ ] [T404](tasks/T404.md). display_override廃止（JS変換ロジック拡張＋軸スタジオの色分けしきい値編集） 規模M〜L（T400節6より分割）

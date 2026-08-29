@@ -15,7 +15,7 @@ def load_scoring_weights(path: Path = SCORING_CONFIG_PATH) -> dict[str, float]:
 
 
 class RouteScorer:
-    """距離・獲得標高・風・路面の各指標を重み付け合成し、total_scoreを算出する。
+    """距離の合わせ込みと総合難易度の2指標を重み付け合成し、total_scoreを算出する。
 
     正規化は`score()`に渡された候補集合内でのmin-max（`domain/scoring.py`）で行うため、
     同じ`generate_loops`呼び出し内の候補同士の相対比較としてのみ意味を持つ
@@ -23,6 +23,12 @@ class RouteScorer:
 
     total_scoreと同時に、軸別の内訳（`RouteCandidate.score_breakdown`）も候補へ付与する
     （「なぜこの点数か」を分解して確認できるようにする。研究インターフェース改善 §10-2）。
+
+    改善計画T401: 従来は距離・獲得標高・風・路面の4指標を個別にハードコード計算していたが、
+    獲得標高・風・路面は`overall_difficulty`（軸スタジオの`RoutePreference.weights`で
+    既に重み付け合成済みの値）に既に織り込まれており二重管理だった。「候補は軸スタジオで
+    決めた尺度で比較されるべき」という方針のもと、distance（目標距離への近さ）と
+    difficulty（overall_difficulty、小さいほど高評価）の2指標へ単純化した。
     """
 
     def __init__(self, weights: dict[str, float]):
@@ -38,17 +44,9 @@ class RouteScorer:
                 normalize_min_max(distance_diffs, higher_is_better=False),
                 self._weights["distance_weight"],
             ),
-            "elevation": (
-                normalize_min_max([c.elevation_gain_m for c in candidates], higher_is_better=False),
-                self._weights["elevation_weight"],
-            ),
-            "wind": (
-                normalize_min_max([c.wind_score for c in candidates], higher_is_better=False),
-                self._weights["wind_weight"],
-            ),
-            "road": (
-                normalize_min_max([c.road_score for c in candidates], higher_is_better=True),
-                self._weights["road_weight"],
+            "difficulty": (
+                normalize_min_max([c.overall_difficulty for c in candidates], higher_is_better=False),
+                self._weights["difficulty_weight"],
             ),
         }
 
