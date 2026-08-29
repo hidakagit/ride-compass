@@ -52,19 +52,17 @@ const SHAPE_KIND_OPTIONS: ShapeKindOption[] = [
   {
     kind: "breakpoint_linear",
     title: "なめらか評価",
-    description:
-      "数値の大きさに応じて点数を変えたり（例: 勾配(%)が急なほど点数を下げる）、複数の要素の有無を数えて減点・加点したり（例: 街灯なし・トンネルなど、危険要素が当てはまるほど点数を下げる）します。",
+    description: "数値の大きさや、複数の要素の有無に応じて点数を変える（例: 勾配が急なほど、街灯なしが該当するほど）",
   },
   {
     kind: "categorical",
     title: "ぴったり評価",
-    description: "はい/いいえ、または種類ごとに点数を決めます（例: 一方通行かどうか、道路の種類ごとに点数を変える）。",
+    description: "はい/いいえ、または種類ごとに点数を決める（例: 一方通行かどうか、道路の種類ごと）",
   },
   {
     kind: "recipe_then_breakpoint_linear",
     title: "かけあわせ評価",
-    description:
-      "既にある軸（内部軸・公開軸どちらも可）のスコアに重み(n, m…)を掛けて合計します（nX + mYのように）。「勾配の軸を2倍重視、風の軸を1倍」のように複数の軸を組み合わせたいときに選びます。",
+    description: "既にある軸のスコアに重みを掛けて合計する（例: 勾配の軸を2倍重視、風の軸を1倍）",
     advanced: true,
   },
 ];
@@ -100,6 +98,19 @@ function InfoPopoverButton({ ariaLabel, description }: { ariaLabel: string; desc
 function MaterialInfoButton({ option }: { option: AxisMaterialOption | undefined }) {
   if (!option) return null;
   return <InfoPopoverButton ariaLabel={`${option.label}の説明`} description={option.description} />;
+}
+
+/** 改善計画T397フォローアップ（ユーザー指摘: 説明文が常に表示されていて見にくい）:
+ * 見出し＋詳しい説明は(ⓘ)ポップオーバーへ折りたたむ（表示名・既定重み欄で既に使っている
+ * FieldLabelと同じ考え方を、フォーム項目1つではなく材料一覧・折れ点等のセクション
+ * 単位に広げたもの）。descriptionを省略した場合は見出しだけを出す。 */
+function SectionLabel({ label, description }: { label: string; description?: string }) {
+  return (
+    <div className={styles.sectionLabelRow}>
+      <p className={styles.groupLabel}>{label}</p>
+      {description && <InfoPopoverButton ariaLabel={`${label}の説明`} description={description} />}
+    </div>
+  );
 }
 
 /** 改善計画T397: 係数・スコアの入力を「スライダーで大まかに調整＋数値で正確に入力」の
@@ -780,15 +791,19 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     return (
       <>
         <p className={styles.groupLabel}>選択中: {shapeKindOption(draft.shapeKind).title}</p>
+        {/* 改善計画T397フォローアップ（ユーザー指摘: 説明文が多く見にくい）: 折れ点・
+            カテゴリのスコア・true/falseスコアの3箇所で繰り返していた「0=走りやすい・
+            100=走りにくい」を、このステップの先頭で1回だけ短く伝える形へ統合した。 */}
+        <p className={styles.hint}>スコアは0(走りやすい)〜100(走りにくい)です。</p>
 
         {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
           <div className={styles.shapeGroup}>
             {draft.shapeKind === "recipe_then_breakpoint_linear" ? (
               <>
-                <p className={styles.groupLabel}>組み合わせる軸(terms)</p>
-                <p className={styles.hint}>
-                  各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、そのままスコアになります（nX + mYのように軸同士を重み付きで足し合わせるだけの、純粋な結合です）。
-                </p>
+                <SectionLabel
+                  label="組み合わせる軸"
+                  description="各軸のスコア(0〜100)に係数(n, m…)を掛けた合計が、そのままスコアになります（nX + mYのように軸同士を重み付きで足し合わせるだけの、純粋な結合です）。"
+                />
                 {axisTermOptions.length === 0 && (
                   <p className={styles.errorText}>
                     組み合わせられる他の軸がまだありません。先に「なめらか評価」等で軸を1つ以上作成してから使えます。
@@ -796,12 +811,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 )}
               </>
             ) : (
-              <>
-                <p className={styles.groupLabel}>材料(terms)</p>
-                <p className={styles.hint}>
-                  はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます。街灯なし・トンネルなど、複数の危険要素の有無を数えて減点・加点したい場合もここに追加してください）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。
-                </p>
-              </>
+              <SectionLabel
+                label="材料"
+                description="はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます。街灯なし・トンネルなど、複数の危険要素の有無を数えて減点・加点したい場合もここに追加してください）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。"
+              />
             )}
             {/* 改善計画T342: booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
                 backend/app/domain/axis_definitions.py: evaluate_axis_scalarのBreakpointLinearShape
@@ -823,13 +836,16 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     ))}
                   </select>
                   <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
+                  {/* 改善計画T397フォローアップ（ユーザー指摘: スライダーが小さいのに数字が
+                      大きく振れて設定しにくい）: 典型的な係数の範囲（±10）に絞り、範囲外の
+                      値（旧flag_sumの加点50等）は数値欄から直接入力する想定にした。 */}
                   <SliderNumberField
                     label="係数"
                     value={term.weight}
                     onChange={(next) => updateTerm(i, { weight: next })}
-                    min={draft.shapeKind === "recipe_then_breakpoint_linear" ? -5 : -100}
-                    max={draft.shapeKind === "recipe_then_breakpoint_linear" ? 5 : 100}
-                    step={draft.shapeKind === "recipe_then_breakpoint_linear" ? 0.05 : 0.1}
+                    min={-10}
+                    max={10}
+                    step={0.1}
                   />
                   <label className={styles.inlineCheckbox}>
                     <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
@@ -872,7 +888,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 まま送信される、buildShape/renderShapeKindStepのdefault設定参照）。 */}
             {draft.shapeKind === "breakpoint_linear" && (
               <>
-                <p className={styles.groupLabel}>下ごしらえ</p>
+                <SectionLabel
+                  label="下ごしらえ"
+                  description={
+                    "材料の値×係数を合計してから、折れ点でスコアに変換する前に行う下ごしらえです。通常は「そのまま」で問題ありません。「絶対値」は合計がマイナスでもプラスとして扱います" +
+                    "（例: 勾配は上り+・下り−の符号付き数値ですが、絶対値を使うと上り・下りのどちらでも急なほど走りにくい、という軸にできます）。"
+                  }
+                />
                 <div className={styles.radioRow}>
                   <label className={styles.inlineCheckbox}>
                     <input
@@ -893,27 +915,19 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     絶対値
                   </label>
                 </div>
-                {/* 改善計画T345（ユーザー指摘: 「絶対値」の説明が分かりにくい）: 組み込み軸を
-                    調査すると、この選択肢を使っているのは現時点でgradient（勾配）軸のみ
-                    （domain/axis_definitions.py）。勾配は登り+・下り−の符号付き数値のため、
-                    絶対値を取ることで「上りでも下りでも急なほど走りにくい」という軸を組める、
-                    という実例をそのままヒントにする。 */}
-                <p className={styles.hint}>
-                  材料の値×係数を合計してから、折れ点でスコアに変換する前に行う下ごしらえです。通常は「そのまま」で問題ありません。「絶対値」は合計がマイナスでもプラスとして扱います（例:
-                  勾配は上り+・下り−の符号付き数値ですが、絶対値を使うと上り・下りのどちらでも急なほど走りにくい、という軸にできます）。
-                </p>
 
-                <p className={styles.groupLabel}>折れ点(breakpoints) [入力値, スコア0-100]</p>
                 {/* 改善計画T345: T327（UIレビュー2026-08-25 F-5）が明文化したこのヒント文は
                     実際の向きと逆だった（バグ）。組み込みのgradient軸を確認すると、勾配0%→
                     スコア0・勾配15%→スコア100（description="登り坂の急さが小さいほど易しい"）、
                     すなわち0が最も走りやすく100が最も走りにくい。この値はbackend全体で
                     「difficulty(0-100、大きいほど走りにくい)」として扱われる規約
                     （EdgeCostResult.difficulty等）とも一致する。T327時点の認識が逆だったため
-                    ここで向きを訂正する。 */}
-                <p className={styles.hint}>
-                  スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに折れ点を設定してください。下の図はドラッグでも調整できます。
-                </p>
+                    ここで向きを訂正する。改善計画T397フォローアップ: 説明文はポップオーバーへ
+                    折りたたむ（0-100の向きの説明は下の共通キャプション参照）。 */}
+                <SectionLabel
+                  label="折れ点"
+                  description="値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに設定してください。図はドラッグでも調整できます。"
+                />
                 <BreakpointCurveEditor breakpoints={draft.breakpoints} onChangePoint={updateBreakpoint} />
                 {draft.breakpoints.map((bp, i) => (
                   <div key={i} className={styles.breakpointRow}>
@@ -983,15 +997,15 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
               </div>
               {selectedDtype === "categorical" ? (
                 <>
-                  <p className={styles.hint}>
-                    {categoricalMaterialValues.length > 0
-                      ? "値は下の候補（実データに含まれる値）から選びます。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"
-                      : "値は元データのタグ値と完全に一致する文字列で入力します。ここに設定していない値の区間は、この軸では評価対象外（データなし扱い）になります。"}
-                  </p>
-                  <p className={styles.groupLabel}>値ごとのスコア</p>
-                  {/* 改善計画T345: breakpointsと同じ0-100の向き（0=最も走りやすい・
-                      100=最も走りにくい）をここにも明記する。 */}
-                  <p className={styles.hint}>スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。</p>
+                  <SectionLabel
+                    label="値ごとのスコア"
+                    description={
+                      (categoricalMaterialValues.length > 0
+                        ? "値は下の候補（実データに含まれる値）から選びます。"
+                        : "値は元データのタグ値と完全に一致する文字列で入力します。") +
+                      "ここに設定していない値の区間は評価対象外（データなし扱い）になります。"
+                    }
+                  />
                   {draft.categoricalRows.map((row, i) => {
                     // 改善計画T345フォローアップ（ユーザー指摘: 候補が存在する材料では
                     // 生のタグ値の直接入力自体が不要——material_catalogに無い値を書く
@@ -1066,8 +1080,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 </>
               ) : (
                 <>
-                  {/* 改善計画T345: breakpoints・値ごとのスコアと同じ0-100の向きをここにも明記する。 */}
-                  <p className={styles.hint}>スコアは0(最も走りやすい)〜100(最も走りにくい)で入力します。</p>
                   <div className={styles.row}>
                     <label className={styles.field}>
                       該当時(true)のスコア
@@ -1106,11 +1118,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     return (
       <>
         <div className={styles.shapeGroup}>
-          <p className={styles.groupLabel}>地図チップ表示要素(任意)</p>
-          <p className={styles.hint}>
-            いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は
-            説明(description)がそれぞれ代わりに使われる）。
-          </p>
+          <SectionLabel
+            label="地図チップ表示要素(任意)"
+            description="いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は説明(description)がそれぞれ代わりに使われる）。"
+          />
           <label className={styles.inlineCheckbox}>
             <Checkbox
               checked={draft.showMapIcon}

@@ -169,7 +169,7 @@ describe("AxisComposer", () => {
       expect(screen.queryByRole("option", { name: /勾配%/ })).not.toBeInTheDocument();
       // 純粋な重み付き結合に絞ったため、下ごしらえ・折れ点の編集UIは表示されない。
       expect(screen.queryByText("下ごしらえ")).not.toBeInTheDocument();
-      expect(screen.queryByText(/折れ点\(breakpoints\)/)).not.toBeInTheDocument();
+      expect(screen.queryByText("折れ点")).not.toBeInTheDocument();
 
       await clickNext(user);
       await user.click(screen.getByRole("button", { name: "作成する" }));

@@ -294,6 +294,14 @@
   gap: 0.15rem;
 }
 
+/* 改善計画T397フォローアップ: 見出し＋(ⓘ)ポップオーバーの行（AxisComposer.tsx:
+   SectionLabel）。 */
+.sectionLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
 /* 改善計画T397: 係数・スコアのスライダー+数値入力の組み合わせ（AxisComposer.tsx:
    SliderNumberField）。 */
 .sliderNumberField {
@@ -303,7 +311,11 @@
 }
 
 .sliderNumberField input[type="range"] {
-  width: 6rem;
+  /* 改善計画T397フォローアップ（ユーザー指摘: スライダーが小さいのに数字が大きく振れて
+     設定しにくい）: 6remでは指1本ぶんの移動量に対して値が飛びすぎていた。幅を広げ、
+     range自体も現実的な範囲へ狭めた（SliderNumberField呼び出し側のmin/max参照）ことで
+     1px当たりの変化量を小さくする。 */
+  width: 12rem;
 }
 
 .sliderNumberField input[type="number"] {
