@@ -1,6 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,6 +14,8 @@ from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware
 from app.services.axis_registry_service import refresh_axis_definitions
+from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
+from app.services.jma_tile_service import NOWCAST_REFRESH_INTERVAL_MINUTES, get_latest_nowcast_timestamp
 
 # ログレベルの方針(詳細は docs/logging.md):
 # - INFO以上(アクセスサマリ・ルート生成サマリ・外部APIエラーWARNING等)は常時出力し、
@@ -57,6 +61,52 @@ if settings.routing_engine == "road_graph":
         settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
     )
 
+_scheduler = AsyncIOScheduler()
+
+
+async def _refresh_amedas_job() -> None:
+    """定期バッチ本体（改善計画T387）。JMAアメダスは1地点だけを絞り込めず全国約1,300
+    観測所ぶんを1レスポンスで返すAPIのため、都度リクエストのたびに個別フェッチするのではなく
+    ここで全国分をまとめて取得しRedisへ書き戻す（jma_amedas_service.pyのdocstring参照）。
+    ジョブ内の例外はAPSchedulerがログするが、このプロジェクトの命名規約（ridecompass.*）に
+    揃えたWARNINGも残す（外部API呼び出し自体の詳細WARNINGはjma_amedas_client.py内の
+    log_external_callが別途出す）。
+    """
+    try:
+        count = await JmaAmedasService(get_http_client(10.0)).refresh_all_stations()
+        logging.getLogger("ridecompass.jma_amedas_scheduler").debug("アメダス定期更新完了 count=%d", count)
+    except Exception:
+        logging.getLogger("ridecompass.jma_amedas_scheduler").warning("アメダス定期更新に失敗しました", exc_info=True)
+
+
+async def _refresh_nowcast_timestamp_job() -> None:
+    """降水ナウキャストの最新basetime/validtimeをRedisへ能動的に温める（改善計画T387）。
+    get_latest_nowcast_timestamp自体はリクエスト経路からの呼び出しでも成立する
+    （Redisキャッシュミス時にJMAへフェッチするcache-aside、jma_tile_service.py参照）が、
+    定期実行しておくことでリクエスト起点の初回アクセスが毎回JMA呼び出しの待ち時間を
+    負わずに済む。"""
+    try:
+        timestamp = await get_latest_nowcast_timestamp(get_http_client(10.0))
+        logging.getLogger("ridecompass.jma_nowcast_scheduler").debug(
+            "ナウキャスト定期更新完了 basetime=%s", timestamp.basetime if timestamp else None
+        )
+    except Exception:
+        logging.getLogger("ridecompass.jma_nowcast_scheduler").warning("ナウキャスト定期更新に失敗しました", exc_info=True)
+
+
+# JMAデータ種別ごとの定期バッチ登録（改善計画T387、ユーザー指示2026-08-29「気象庁側の
+# 更新頻度に合わせて定期実行できる仕組み」）。(ジョブ関数, 実行間隔[分], job_id)のリストに
+# しておき、新しいJMAデータ種別を追加するときはここへ1行足すだけでよい。
+# MSM（風データ、実運用は3時間おきのモデル実行。TTLはjma_msm_service.py参照）は
+# GRIB2パーサーが未実装（jma_msm_service.py: parse_grib2_stub）のため、実装され次第
+# ここへ追加する——ダミーのジョブを今から登録すると、実装されるまで毎回失敗ログを
+# 吐き続けるだけになるため見送る。
+_JMA_REFRESH_JOBS: list[tuple] = [
+    (_refresh_amedas_job, AMEDAS_REFRESH_INTERVAL_MINUTES, "refresh_amedas"),
+    (_refresh_nowcast_timestamp_job, NOWCAST_REFRESH_INTERVAL_MINUTES, "refresh_nowcast_timestamp"),
+]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # httpx.AsyncClientのウォームアップ（デプロイ直後の天候API失敗調査より）:
@@ -76,7 +126,22 @@ async def lifespan(app: FastAPI):
     # services/axis_registry_service.py参照）。
     async with get_session_factory()() as session:
         await refresh_axis_definitions(AxisDefinitionRepository(session))
+
+    # 改善計画T387: JMAデータ種別ごとの定期バッチ（_JMA_REFRESH_JOBS参照）。
+    # next_run_time=nowで起動直後にも1回即時実行し、次の定期実行（interval分後）を待たずに
+    # データを温める（コールドスタート時に対応APIがinterval分ぶんキャッシュ空で
+    # 502になり続けるのを避ける）。
+    for job_func, interval_minutes, job_id in _JMA_REFRESH_JOBS:
+        _scheduler.add_job(
+            job_func,
+            trigger="interval",
+            minutes=interval_minutes,
+            next_run_time=datetime.now(),
+            id=job_id,
+        )
+    _scheduler.start()
     yield
+    _scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="RideCompass API", lifespan=lifespan)

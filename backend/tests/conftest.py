@@ -5,9 +5,23 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.infrastructure import redis_client
 from app.infrastructure.road_graph_models import Base
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.realistic_axis_fixtures import realistic_axis_definitions
+
+
+@pytest.fixture(autouse=True)
+def _reset_redis_circuit_breaker():
+    """redis_client.pyのサーキットブレーカー状態をテスト間でリセットする（改善計画T387）。
+
+    グローバル状態（プロセス内モジュール変数）のため、Redis疎通不能をシミュレートする
+    テストが1つでも実行されると、リセットせずに残る限り無関係な後続テスト（正常系の
+    フェイクRedisを使うテスト）まで「クールダウン中」と誤判定されてしまう。
+    """
+    redis_client.reset_circuit_breaker()
+    yield
+    redis_client.reset_circuit_breaker()
 
 
 @pytest.fixture(autouse=True, scope="session")

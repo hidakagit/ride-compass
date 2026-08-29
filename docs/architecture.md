@@ -303,6 +303,64 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   切替を1つのフックへ集約する（元はpage.tsx内に直接書かれていた風専用ロジックを、風と
   降水延長予報が共有できる形へ切り出した）。
 
+### Redisキャッシュ基盤とJMA気象データ連携（改善計画T387）
+
+Open-Meteo（上記）に加え、JMA（気象庁）の公開データ（アメダス観測値・高解像度降水
+ナウキャスト・MSM）を扱うため、Redisを新規インフラとして導入した。Redisは以下2つの
+用途に限定して使う「TTL付きキャッシュ、またはPostGIS/実データ源へのフォールバックが
+必ず効くcache-aside」専用の層で、正本データを持たない（`app/infrastructure/
+redis_client.py`）。ローカル開発は`docker-compose.yml`のredisサービス、本番はOracle
+Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する想定（backendコンテナが
+`--network=host`のため追加設定なしで到達できる）。
+
+- **JMAデータ3種（`app/services/jma_amedas_service.py`・`jma_tile_service.py`・
+  `jma_msm_service.py`）**: いずれも気象データはPostGISへ書き込まずRedis上で完結させる
+  （気象データは短命でディスクI/O向きではないため）。
+  - **アメダス**: JMAの観測値エンドポイントは1地点だけを絞り込めず全国約1,300観測所ぶんを
+    1レスポンスで返す仕様のため、リクエストのたびに個別フェッチせず、`main.py`の
+    APScheduler定期バッチ（`AMEDAS_REFRESH_INTERVAL_MINUTES=10分`、気象庁の公式観測・
+    配信周期に合わせた値）が全国分をまとめて取得しRedis Hash（`jma:amedas:{station_id}`、
+    TTL 15分）へ書き戻す。リクエスト経路（`GET /api/weather/amedas`）はRedis読み取り
+    専用で、JMAへは問い合わせない。体感温度はJMAが提供しないため、気温・湿度・風速から
+    BOM（オーストラリア気象局）のApparent Temperature式で自前計算する
+    （`domain/jma_amedas.py: apparent_temperature_from_amedas`）。
+  - **`GET /api/weather`のアメダス優先化**: 現在値のうち気温・体感温度・風速風向は、
+    最寄りアメダス観測所の実測値が取得できればそちらを優先し、Open-Meteo（モデル推定）を
+    上書きする（`api/routers/weather.py: _prefer_amedas_current_values`）。降水確率・
+    降水量・UV指数・weather_code・「今日の見通し」（日次集計）はアメダスに相当データが
+    無いか単位が異なる（アメダスは10分降水量、Open-Meteoは時間降水量[mm/h]）ため
+    Open-Meteoのまま。Open-Meteo自体が失敗した場合はアメダス単独でのレスポンス構築は
+    行わず、従来どおり502を返す。
+  - **ナウキャスト**: PNGタイル本体は取得・中継せず、最新basetime/validtimeの解決と
+    タイルURLテンプレートの組み立てのみを担う（`jma_tile_service.py`）。バッチ間隔・
+    TTLは気象庁の公式配信周期（5分間隔）に合わせた。
+  - **MSM（5kmメッシュ）**: GRIB2バイナリの実解析は[T389](tasks/T389.md)へ切り出し、
+    本タスクではRedis保存インターフェース（Hash `jma:msm:{mesh_id}`、TTL 2時間）と
+    データ構造のみ定義したスケルトン。
+  - **Open-Meteo全面代替の可否**: ルート評価（`WindService`、区間ごと・将来時刻の風速
+    風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
+    ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
+    （候補はMSMのみ）。UV指数・weather_code相当のJMAプロダクトは今回未調査のまま
+    Open-Meteo依存を継続している。
+- **road_graph_tilesのRedis cache-aside（`app/infrastructure/road_graph_tile_cache.py`）**:
+  `road_graph_tiles`（タイル取得済みマーカー、9章参照）はPostGIS上の一時的な揮発データの
+  代表例だが、**PostGISを正本のまま維持し、Redisは読み取り高速化のための派生キャッシュに
+  限定した**（フルRedis移行はしない）。理由: このマーカーはルート生成のゲーティングに
+  使われ、失うと該当bboxのルート生成が「データ未整備」として拒否される
+  （改善計画T22でOverpassフォールバックを撤去済みのため自動復旧手段が無い）。Redisは
+  永続化設定を持たない前提のキャッシュ層のため、ここを正本にすると再起動・エビクション
+  のたびに広範囲のルート生成が壊れる重大な後退になる。読み取り時にRedisへキーが
+  無ければPostGISへフォールバックし、見つかった分をRedisへ書き戻す。
+  - **性能**: `GraphService._ensure_tiles_cached`（ルート生成のリクエストごとに実行される
+    ホットパス）のPostGIS往復をRedisで肩代わりする狙い。実測（開発機、12タイル×30回）:
+    Redis正常時は未計測（開発機にRedis実体を用意できず、OCI VM側での実測が必要）。
+    Redis疎通不能時は当初4,066ms/回という致命的な遅延が判明し（Windows環境、TCP接続
+    タイムアウトの既定値起因）、`redis_client.py`へ短い接続タイムアウト（0.2秒）と
+    サーキットブレーカー（直近失敗から10秒はRedis接続自体を試みない）を追加して
+    18ms/回（初回のみ約200ms、以降はPostGIS単体の実測約12ms/回相当）まで改善した。
+    Redis障害時にPostGIS単独より遅く・不安定になってはならないという設計上の要請から、
+    このタイムアウト・サーキットブレーカーは全JMA用途のRedisアクセスにも共通適用している。
+
 ### ルーティングエンジンの切り替え対応（openrouteservice ⇄ Road Graph）
 「Road Graphを実際のルーティングへ接続する移行（完全移行）」で`/api/routes/generate`をopenrouteservice委譲からRoad Graph + NetworkX（Dijkstra）ベースへ全面置き換えたが、Road Graphの経路探索自体（ルーティングエンジンとしての精度・速度）はまだ発展途上で、今後も継続して手を入れる将来拡張と位置付けている。一方で、標高・風・路面といった「評価に必要な情報」の取得方法や地図上の見える化は、経路探索エンジンがどちらであっても検証を進めたい。そのため、経路探索エンジンを設定で切り替えられるようにし、openrouteservice委譲（外部APIキーのみで動く、枯れた実装）を使いながら評価まわりの精査を進められるようにした。
 
@@ -598,6 +656,8 @@ RideCompass/
 - `frontend`: Next.jsアプリ（ポート3000）
 - `backend`: FastAPIアプリ（ポート8000）
 - `postgres`: `postgis/postgis` イメージ（ポート5432）。Step1-2ではバックエンドから未接続だが、将来のルート/POIデータ保存に備えて土台として用意。
+- `redis`: `redis:7-alpine` イメージ（ポート6379、改善計画T387）。JMA気象データの短命
+  キャッシュ・road_graph_tilesのcache-aside層専用（永続化ボリュームは持たない）。
 
 Valhallaは自前構築の複雑さ（OSM PBF抽出・タイルビルド）を踏まえ、Step3実装時に改めて「Docker Composeに含めるか」「外部サービス(openrouteservice)を使うか」を判断する。現時点では暫定的にopenrouteservice APIを使う想定のため、Compose上のコンテナ化は不要。
 
@@ -813,6 +873,19 @@ Response 200:
 Response 502（Open-Meteo呼び出し失敗時）:
 { "detail": "天候情報の取得に失敗しました" }
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
+{ "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
+# 改善計画T387: temperature_c/apparent_temperature_c/wind_speed_ms/wind_direction_deg/
+# wind_direction_labelは、最寄りアメダス観測所の実測値が取得できればそちらへ差し替わる
+# （1章「Redisキャッシュ基盤とJMA気象データ連携」参照）。それ以外のフィールドは常にOpen-Meteo由来。
+
+GET /api/weather/amedas?latitude=...&longitude=...   # 最寄りアメダス観測所の直近観測値（改善計画T387）
+Response 200:
+{ "station_id":"44132", "station_name":"東京", "latitude":35.69, "longitude":139.76,
+  "observed_at":"2026-08-29T12:00:00+09:00", "temperature_c":26.5, "apparent_temperature_c":27.8,
+  "wind_speed_ms":3.5, "wind_direction_deg":180.0, "wind_direction_label":"南", "precipitation_10min_mm":0.0 }
+Response 502（Redis未温間・最寄り観測所がセンサー未搭載等）:
+{ "detail": "アメダス観測値の取得に失敗しました" }
+Response 429（同一クライアントIPから1分あたり30リクエスト（`WEATHER_AMEDAS_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 GET /api/weather/wind-grid   # 風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水追加、T203で応答形をtimes1本化。1章「動的気象レイヤー」参照）

@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # 河川氾濫予報バッジ（改善計画T212）。/weather/warnings・/weather/wbgtと同じ地点変更
     # デバウンス起点で呼ばれる。洪水予報API自体は10分TTLキャッシュが効く。
     weather_flood_forecast_rate_limit_per_minute: int = 30
+    # 最寄りアメダス観測値（改善計画T387）。他の/weather系バッジと同じ地点変更デバウンス
+    # 起点で呼ばれる想定。観測値自体はRedis Hash（TTL 15分）でキャッシュされるため、
+    # 実際のJMA呼び出しは大半がキャッシュヒットになる。
+    weather_amedas_rate_limit_per_minute: int = 30
     # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
     # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
     # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。
@@ -150,6 +154,16 @@ class Settings(BaseSettings):
     # 同じ値を設定運用することで実質1つの資格情報として扱う。
     admin_basic_auth_username: str = ""
     admin_basic_auth_password: str = ""
+
+    # Redis（改善計画T387）。JMA気象データ（アメダス・降水ナウキャスト・MSM）の短命キャッシュと、
+    # road_graph_tilesタイル取得済みマーカーのcache-aside層（infrastructure/road_graph_tile_cache.py）
+    # が使う。いずれもTTL付きキャッシュ、またはPostGIS（正本）へフォールバック可能なcache-asideの
+    # ため、Redis側に永続化（RDB/AOF）設定は要らない設計にしてある（再起動・キャッシュ消失時は
+    # 次回アクセスで自己修復する。infrastructure/redis_client.pyのdocstring参照）。
+    # 本番はOracle Cloud VM上にネイティブ（apt、PostgreSQLと同じ構成）で導入する想定。
+    # backendコンテナは--network=hostで起動するため、この既定値（localhost）のまま
+    # VM上のRedisへ到達できる（導入手順はdocs/architecture.md参照）。
+    redis_url: str = "redis://localhost:6379/0"
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

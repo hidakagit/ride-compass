@@ -97,6 +97,7 @@ from app.domain.traffic import (
     STOP_POI_KINDS,
     STOP_POI_MATCH_MAX_DISTANCE_M,
 )
+from app.infrastructure import road_graph_tile_cache
 from app.infrastructure.designation_models import DesignationAttributeRow
 from app.infrastructure.vector_tile import (
     ROAD_SURFACE_LAYER_NAME,
@@ -1645,17 +1646,28 @@ class RawOsmRepository(_SessionRepository):
 
 
     async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
-        """指定タイル群のうち、取込済み（`road_graph_tiles`に存在する）ものの(x,y)集合を
-        1クエリで返す（改善計画T229: タイル数ぶん個別に問い合わせるループを
-        集約するため。半径10kmの起点1件で6回の個別往復が発生することを実測確認済み）。
+        """指定タイル群のうち、取込済み（`road_graph_tiles`に存在する）ものの(x,y)集合を返す
+        （改善計画T229: タイル数ぶん個別に問い合わせるループを集約するため。半径10kmの起点1件で
+        6回の個別往復が発生することを実測確認済み）。
+
+        改善計画T387: まずRedis（cache-aside、road_graph_tile_cache.py）で判定できる分は
+        PostGISへ問い合わせず即答する。Redisで判定できなかった（cold cache）タイルだけを
+        従来どおりPostGISへ1クエリでまとめて問い合わせ、見つかった分をRedisへ書き戻す。
         """
         if not tiles:
             return set()
+        cached = await road_graph_tile_cache.get_cached_subset(zoom, tiles)
+        remaining = [tile for tile in tiles if tile not in cached]
+        if not remaining:
+            return cached
         stmt = select(RoadGraphTileRow.x, RoadGraphTileRow.y).where(
-            RoadGraphTileRow.zoom == zoom, tuple_(RoadGraphTileRow.x, RoadGraphTileRow.y).in_(tiles)
+            RoadGraphTileRow.zoom == zoom, tuple_(RoadGraphTileRow.x, RoadGraphTileRow.y).in_(remaining)
         )
         rows = (await self._session.execute(stmt)).all()
-        return {(row.x, row.y) for row in rows}
+        found = {(row.x, row.y) for row in rows}
+        if found:
+            await road_graph_tile_cache.mark_fetched(zoom, list(found))
+        return cached | found
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:
         """改善計画T340: 軸スタジオ（AxisComposer.tsx）の値入力UX改善。highway/surface/

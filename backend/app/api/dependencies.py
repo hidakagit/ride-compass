@@ -37,6 +37,7 @@ from app.services.route_generator import RouteGenerator
 from app.services.route_scorer import RouteScorer, load_scoring_weights
 from app.services.routing_service import RoutingService
 from app.services.flood_service import FloodService
+from app.services.jma_amedas_service import JmaAmedasService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
@@ -74,6 +75,12 @@ def get_warning_service():
     # 改善計画T205（警報・注意報バッジ）。GSI逆ジオコーダ・JMA地域マスタ・JMA警報APIは
     # いずれも軽量なJSON取得のため、他のサービスと同じ共有httpx.AsyncClientを使う。
     return WarningService(get_http_client(10.0))
+
+
+def get_amedas_service():
+    # 改善計画T387（JMAアメダス観測値）。観測所マスタ・生観測値の取得は軽量なJSONのため
+    # 他のJMA系サービスと同じ共有httpx.AsyncClientを使う。
+    return JmaAmedasService(get_http_client(10.0))
 
 
 def get_wbgt_service():

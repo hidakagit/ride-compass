@@ -401,6 +401,59 @@
         }
       }
     },
+    "/api/weather/amedas": {
+      "get": {
+        "summary": "Get Amedas",
+        "description": "出発地点近傍の最寄りアメダス観測所の直近観測値を返す（改善計画T387）。\n観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。\n観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。\n警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。",
+        "operationId": "get_amedas_api_weather_amedas_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmedasObservation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/weather/wind-grid": {
       "get": {
         "summary": "Get Wind Grid",
@@ -1337,6 +1390,112 @@
           "additions"
         ],
         "title": "ActiveWarning"
+      },
+      "AmedasObservation": {
+        "properties": {
+          "station_id": {
+            "type": "string",
+            "title": "Station Id"
+          },
+          "station_name": {
+            "type": "string",
+            "title": "Station Name"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "observed_at": {
+            "type": "string",
+            "title": "Observed At"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          },
+          "apparent_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apparent Temperature C"
+          },
+          "wind_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Speed Ms"
+          },
+          "wind_direction_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Direction Deg"
+          },
+          "wind_direction_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Direction Label"
+          },
+          "precipitation_10min_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation 10Min Mm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station_id",
+          "station_name",
+          "latitude",
+          "longitude",
+          "observed_at",
+          "temperature_c",
+          "apparent_temperature_c",
+          "wind_speed_ms",
+          "wind_direction_deg",
+          "wind_direction_label",
+          "precipitation_10min_mm"
+        ],
+        "title": "AmedasObservation",
+        "description": "最寄りアメダス観測所の直近観測値。"
       },
       "AxisCatalogEntry": {
         "properties": {

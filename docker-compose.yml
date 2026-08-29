@@ -25,12 +25,32 @@ services:
       # SQLAlchemyの非同期エンジン（asyncpgドライバ）用のURLスキーム。
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@postgres:5432/ridecompass
       BASEMAP_PUBLIC_BASE_URL: http://localhost:3000/api/basemap
+      # JMA気象データキャッシュ・road_graph_tilesのcache-aside層（改善計画T387）。
+      # サービス名"redis"はDockerネットワーク内のみで解決するため、config.pyの既定値
+      # （localhost、本番--network=host用）をここで上書きする。
+      REDIS_URL: redis://redis:6379/0
     volumes:
       # 標高/路面/地図タイルの永続キャッシュ（SQLite＋ファイルキャッシュ）をコンテナ再作成後も保持する
       - ./backend/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    # 改善計画T387: JMA気象データの短命キャッシュ・road_graph_tilesタイル取得済み
+    # マーカーのcache-aside層。全用途がTTL付きキャッシュまたはPostGIS（正本）への
+    # フォールバックが効く設計のため、永続化ボリュームは設けない
+    # （コンテナ再作成でキャッシュが消えても次回アクセスで自己修復する）。
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   postgres:
     image: postgis/postgis:16-3.4

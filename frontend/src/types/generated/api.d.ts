@@ -201,6 +201,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/weather/amedas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Amedas
+         * @description 出発地点近傍の最寄りアメダス観測所の直近観測値を返す（改善計画T387）。
+         *     観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
+         *     観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。
+         *     警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。
+         */
+        get: operations["get_amedas_api_weather_amedas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/weather/wind-grid": {
         parameters: {
             query?: never;
@@ -578,6 +601,34 @@ export interface components {
             level: string;
             /** Additions */
             additions: string[];
+        };
+        /**
+         * AmedasObservation
+         * @description 最寄りアメダス観測所の直近観測値。
+         */
+        AmedasObservation: {
+            /** Station Id */
+            station_id: string;
+            /** Station Name */
+            station_name: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Observed At */
+            observed_at: string;
+            /** Temperature C */
+            temperature_c: number | null;
+            /** Apparent Temperature C */
+            apparent_temperature_c: number | null;
+            /** Wind Speed Ms */
+            wind_speed_ms: number | null;
+            /** Wind Direction Deg */
+            wind_direction_deg: number | null;
+            /** Wind Direction Label */
+            wind_direction_label: string | null;
+            /** Precipitation 10Min Mm */
+            precipitation_10min_mm: number | null;
         };
         /** AxisCatalogEntry */
         AxisCatalogEntry: {
@@ -1790,6 +1841,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FloodForecasts"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_amedas_api_weather_amedas_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmedasObservation"];
                 };
             };
             /** @description Validation Error */

@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.dependencies import (
     client_id,
+    get_amedas_service,
     get_flood_service,
     get_warning_service,
     get_wbgt_service,
     get_weather_service,
 )
 from app.config import settings
+from app.domain.jma_amedas import AmedasObservation
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
 from app.domain.wind_grid import (
@@ -25,11 +27,46 @@ from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.flood_service import FloodForecasts, FloodService
 from app.services.warning_service import WarningService, WeatherWarnings
 from app.services.wbgt_service import WbgtService, WbgtStatus
+from app.services.jma_amedas_service import JmaAmedasService
 from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.weather")
 
 router = APIRouter()
+
+
+def _prefer_amedas_current_values(conditions: WeatherConditions, amedas: AmedasObservation | None) -> WeatherConditions:
+    """/api/weatherの「現在値」部分（気温・体感温度・風速風向）をアメダス実測優先にする
+    （改善計画T387フォローアップ、ユーザー指示2026-08-29）。
+
+    アメダスは実際の観測値のためOpen-Meteoの「現在値」（モデル推定）より正確だが、
+    観測専用APIで予報機能を持たない。体感温度はJMAが直接提供しないため、アメダスの
+    気温・湿度・風速から自前計算する（domain/jma_amedas.py: apparent_temperature_from_amedas、
+    Open-Meteoとは異なる計算式のため厳密には一致しない近似値）。上書き対象は気温・
+    体感温度・風速風向のみに限定し、降水確率・降水量・UV指数・weather_code・「今日の
+    見通し」（日次集計・today_periods）はいずれもアメダスに相当データが無いか単位が
+    異なる（precipitation_mmはOpen-Meteo側が時間降水量[mm/h]、アメダスは10分降水量のため
+    単純な倍率換算は精度を偽装することになる）ためOpen-Meteoのまま維持する。
+    風は速度・方位を必ずセットで上書きする（一方だけ差し替えると内部矛盾したペアになるため）。
+    観測時刻(observed_at)はOpen-Meteo側のまま維持する（レスポンス全体の「いつの情報か」は
+    引き続きOpen-Meteo基準とし、アメダス由来の値だけが数分ずれうる点は許容する）。
+    アメダスが取得できない（Redis未温間・最寄り観測所がセンサー未搭載等）場合はOpen-Meteoの
+    値をそのまま使う（フォールバック）。
+    """
+    if amedas is None:
+        return conditions
+    updates: dict[str, float] = {}
+    if amedas.temperature_c is not None:
+        updates["temperature_c"] = amedas.temperature_c
+    if amedas.apparent_temperature_c is not None:
+        updates["apparent_temperature_c"] = amedas.apparent_temperature_c
+    if amedas.wind_speed_ms is not None and amedas.wind_direction_deg is not None:
+        updates["wind_speed_ms"] = amedas.wind_speed_ms
+        updates["wind_direction_deg"] = amedas.wind_direction_deg
+        updates["wind_direction_label"] = amedas.wind_direction_label
+    if not updates:
+        return conditions
+    return conditions.model_copy(update=updates)
 
 
 @router.get("/api/weather", response_model=WeatherConditions)
@@ -38,6 +75,7 @@ async def get_weather(
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
     weather_service: WeatherService = Depends(get_weather_service),
+    amedas_service: JmaAmedasService = Depends(get_amedas_service),
 ) -> WeatherConditions:
     # 以前はここでの範囲チェックをCoordinates（Pydanticモデル）任せにしており、
     # 範囲外の値（例: latitude=999）はFastAPIの422ではなくpydantic.ValidationErrorが
@@ -47,10 +85,16 @@ async def get_weather(
             "weather", client_id(http_request), f"{settings.weather_rate_limit_per_minute}/min"
         )
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
-    conditions = await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude))
+    point = Coordinates(latitude=latitude, longitude=longitude)
+    conditions = await weather_service.get_conditions(point)
     if conditions is None:
         raise HTTPException(status_code=502, detail="天候情報の取得に失敗しました")
-    return conditions
+    # 改善計画T387フォローアップ: Open-Meteoの取得が成功した場合のみ、現在値の気温・
+    # 風速風向をアメダス実測値で上書きする（Open-Meteo自体が失敗した場合は502のまま、
+    # アメダス単独でのレスポンス構築はしない——体感温度・今日の見通し等はアメダスに
+    # 相当データが無くWeatherConditionsを完成させられないため）。
+    amedas = await amedas_service.get_nearest_observation(point)
+    return _prefer_amedas_current_values(conditions, amedas)
 
 
 @router.get("/api/weather/warnings", response_model=WeatherWarnings)
@@ -114,6 +158,28 @@ async def get_flood_forecast(
         )
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
     return await flood_service.get_forecasts(Coordinates(latitude=latitude, longitude=longitude))
+
+
+@router.get("/api/weather/amedas", response_model=AmedasObservation)
+async def get_amedas(
+    http_request: Request,
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    amedas_service: JmaAmedasService = Depends(get_amedas_service),
+) -> AmedasObservation:
+    """出発地点近傍の最寄りアメダス観測所の直近観測値を返す（改善計画T387）。
+    観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
+    観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。
+    警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。"""
+    if not check_rate_limit(f"amedas:{client_id(http_request)}", settings.weather_amedas_rate_limit_per_minute):
+        record_rate_limit_rejection(
+            "amedas", client_id(http_request), f"{settings.weather_amedas_rate_limit_per_minute}/min"
+        )
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    observation = await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude))
+    if observation is None:
+        raise HTTPException(status_code=502, detail="アメダス観測値の取得に失敗しました")
+    return observation
 
 
 def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
