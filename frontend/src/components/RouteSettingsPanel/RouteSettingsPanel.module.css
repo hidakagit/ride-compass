@@ -4,10 +4,52 @@
   margin: 0 0 var(--space-2);
 }
 
+/* 改善計画T419: 既定でON（除外）の3項目は使用頻度が低く既定値のまま変えない利用者が
+   大半と見込まれるため、常時展開ではなくDisclosure折りたたみにした
+   （MapLayersPanel.module.cssの.layerSection/.layerHeader/.chevronと同種の見た目、
+   ただしこのパネル専用のためスタイル自体は複製せずここで定義する）。 */
 .hardFilters {
   background: var(--color-surface-2);
   border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
+  padding: 0.3rem var(--space-3);
+}
+
+.hardFiltersTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 2rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.hardFiltersChevron {
+  flex-shrink: 0;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid var(--color-neutral);
+  border-bottom: 2px solid var(--color-neutral);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.hardFiltersTrigger[data-state="open"] .hardFiltersChevron {
+  transform: rotate(45deg);
+}
+
+/* 既定値から変更済みであることの小さな気づき（折りたたんだままでも見える）。
+   開閉状態に関わらず常に見えるよう、Disclosureのtriggerの中（開閉トリガー自体）に置く。 */
+.hardFiltersBadge {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+.hardFiltersBody {
+  padding-top: var(--space-1);
 }
 
 .chipRow {

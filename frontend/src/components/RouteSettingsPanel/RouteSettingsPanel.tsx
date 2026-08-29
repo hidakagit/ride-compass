@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
+import Disclosure from "@/components/Disclosure/Disclosure";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
@@ -182,10 +183,29 @@ export default function RouteSettingsPanel({
 
   const total = totalWeight(routePreference);
 
+  // 改善計画T419: 既定でON（除外）の3項目が常に展開表示でスペースを取りすぎるという
+  // 実機フィードバックを受け、MapLayersPanel（.layerSection/.layerHeader/.chevron相当）と
+  // 同じDisclosure折りたたみへ変更した。既定値のまま変えない利用者が大半と見込まれるため
+  // 既定で閉じるが、既に既定値から変更済みの場合は「変更していることに気づかず開けない」
+  // 事故を避けるため既定で開く（defaultOpenはuncontrolledのDisclosureの初期値としてのみ
+  // 効く。以降の開閉はユーザー操作に委ねる）。
+  const hardFilterCustomized = HARD_FILTER_CHIPS.some(({ key }) => (hardFilters[key] ?? true) !== true);
+
   return (
     <div className="flex flex-col gap-3">
-      <div className={styles.hardFilters}>
-        <p className={styles.sectionLabel}>除外する道路</p>
+      <Disclosure
+        className={styles.hardFilters}
+        triggerClassName={styles.hardFiltersTrigger}
+        bodyClassName={styles.hardFiltersBody}
+        defaultOpen={hardFilterCustomized}
+        summary={
+          <>
+            <span aria-hidden="true" className={styles.hardFiltersChevron} />
+            除外する道路
+            {hardFilterCustomized && <span className={styles.hardFiltersBadge}>変更あり</span>}
+          </>
+        }
+      >
         <div className={styles.chipRow}>
           {HARD_FILTER_CHIPS.map(({ key, label }) => (
             <LayerChip
@@ -197,7 +217,7 @@ export default function RouteSettingsPanel({
             />
           ))}
         </div>
-      </div>
+      </Disclosure>
 
       <div className={styles.stackBarWrap}>
         <p className={styles.sectionLabel}>重み配分</p>
