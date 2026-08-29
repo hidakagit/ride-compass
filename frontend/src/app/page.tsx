@@ -1207,10 +1207,15 @@ export default function Home() {
   // （weightOverrideEnabled）の状態を共有する（page.tsx冒頭のstate宣言・handleGenerateの
   // コメント参照）。モバイルの「ルート設定」タブ、デスクトップの「ルートを作る」ブロック
   // 前半から呼ぶ（改善計画T300、旧renderRouteResultsBodyの前半を分離）。
-  function renderRouteSettingsSectionBody() {
+  // 改善計画T419: 見出し「ルート設定」は呼び出し元によって要否が変わる。デスクトップは
+  // 外側のDisclosure見出しが「ルートを作る」（このセクションと後続のルート結果の両方を
+  // 束ねる大枠）のため、このセクション自身の見出しとして必要。モバイルはBottomSheet自体の
+  // title="ルート設定"（下記BottomSheet呼び出し参照）と文言が重複するため、showHeading=false
+  // で抑制する（実機フィードバック「見出しが二重に表示される」）。
+  function renderRouteSettingsSectionBody(showHeading: boolean = true) {
     return (
       <div className={layerPanelStyles.group}>
-        <h2 className={layerPanelStyles.groupTitle}>ルート設定</h2>
+        {showHeading && <h2 className={layerPanelStyles.groupTitle}>ルート設定</h2>}
         <RouteSettingsPanel
           hardFilters={hardFilters}
           onHardFiltersChange={setHardFilters}
@@ -1720,7 +1725,9 @@ export default function Home() {
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderRouteSettingsSectionBody()}
+            {/* 改善計画T419: BottomSheet自体のtitle="ルート設定"と中身のh2見出しが重複するため、
+                ここではshowHeading=falseで内側の見出しを抑制する。 */}
+            {renderRouteSettingsSectionBody(false)}
           </BottomSheet>
 
           <BottomSheet
