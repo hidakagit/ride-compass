@@ -223,19 +223,37 @@ function lerpColor(a: string, b: string, t: number): string {
   return rgbToHex([ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t]);
 }
 
-/** bandCount段階中index番目(0始まり)の色。RAMP_COLOR_ANCHORSを緑(0)→赤(1)の相対位置で
- * 線形補間する。bandCount=4のとき旧AXIS_RAMP_COLORSと完全一致する（axisLayers.test.ts）。 */
-export function rampColorForBand(index: number, bandCount: number): string {
-  const t = bandCount <= 1 ? 0 : Math.min(1, Math.max(0, index / (bandCount - 1)));
+/** RAMP_COLOR_ANCHORS（緑(0)→赤(1)）をt（0〜1の相対位置）で線形補間する共通ロジック。
+ * rampColorForBand（段階index/bandCountからの離散色）・rampColorForValue（0-100連続値からの
+ * 色、改善計画T403でルート区間クリック内訳チャート用に追加）の両方がこれを経由することで、
+ * アンカー定義（緑→黄→橙→赤の4点）を1箇所だけに保つ（設計原則2: 定数の片側import）。 */
+function rampColorForRatio(t: number): string {
+  const clamped = Math.min(1, Math.max(0, t));
   for (let i = 0; i < RAMP_COLOR_ANCHORS.length - 1; i++) {
     const [t0, c0] = RAMP_COLOR_ANCHORS[i];
     const [t1, c1] = RAMP_COLOR_ANCHORS[i + 1];
-    if (t <= t1 || i === RAMP_COLOR_ANCHORS.length - 2) {
-      const localT = t1 === t0 ? 0 : Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
+    if (clamped <= t1 || i === RAMP_COLOR_ANCHORS.length - 2) {
+      const localT = t1 === t0 ? 0 : Math.min(1, Math.max(0, (clamped - t0) / (t1 - t0)));
       return lerpColor(c0, c1, localT);
     }
   }
   return RAMP_COLOR_ANCHORS[RAMP_COLOR_ANCHORS.length - 1][1];
+}
+
+/** bandCount段階中index番目(0始まり)の色。RAMP_COLOR_ANCHORSを緑(0)→赤(1)の相対位置で
+ * 線形補間する。bandCount=4のとき旧AXIS_RAMP_COLORSと完全一致する（axisLayers.test.ts）。 */
+export function rampColorForBand(index: number, bandCount: number): string {
+  const t = bandCount <= 1 ? 0 : index / (bandCount - 1);
+  return rampColorForRatio(t);
+}
+
+/** difficulty値（0=易しい〜100=大変、RouteSegmentDetail.axis_difficultiesと同じ基準）を
+ * 統一パレット（RAMP_COLOR_ANCHORS）で連続的に着色する。ramp軸の地図色分け
+ * （rampColorForBand、thresholdsによる段階色）とは異なり、区間内訳チャート
+ * （routeSegmentChartPopup.ts、改善計画T403）はしきい値を持たない軸横断の値そのものを
+ * 見せたいため、bandへ量子化せず値/maxの比率をそのまま連続スケールへ渡す。 */
+export function rampColorForValue(value: number, max = 100): string {
+  return rampColorForRatio(max <= 0 ? 0 : value / max);
 }
 
 // 既存4段階軸（gradient/surface_q/stop_density/night/accident等）・staticAttributeLayers.ts

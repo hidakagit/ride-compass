@@ -96,6 +96,14 @@ class RouteCandidate(BaseModel):
     `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
     domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
     合計distance_km」に収録年数での正規化を加えた集約）。
+
+    `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ
+    axis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの
+    （改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位
+    ではなく候補全体へ適用）。`car_stress_score`等の個別フィールド群は旧来の軸1対1固定
+    設計の名残（改善計画T400節4参照）で、軸スタジオでの軸増減に追従しない。新規の消費
+    （BottomSheetのルート全体プロファイル等）はこちらを使うこと。評価できなかった軸は
+    キー自体を含めない（segments欠損時は空dict）。
     """
 
     id: str
@@ -117,6 +125,7 @@ class RouteCandidate(BaseModel):
     score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
+    axis_difficulties: dict[str, float] = Field(default_factory=dict)
 
 
 # 改善計画T11（レビュー指摘M3）: road_graphエンジンのsegmentsはEdge単位（交差点間、
@@ -195,9 +204,12 @@ def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | Non
     return {"type": "LineString", "coordinates": coordinates}
 
 
-def _merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """ビン内の各`RouteSegmentDetail.axis_difficulties`を、axis_idごとに距離加重平均へ
-    集約する（改善計画T309）。ビン内のどの区間にも無いaxis_idは結果にも含めない
+def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
+    """複数の`RouteSegmentDetail.axis_difficulties`を、axis_idごとに距離加重平均へ
+    集約する（改善計画T309）。`_merge_segment_bin`がビン単位（500m）の集約に使うほか、
+    `RouteCandidate.axis_difficulties`（改善計画T402）はこの関数を候補の全区間へ1回
+    適用するだけで得られる（新しい計算式は不要、`route_generator.py`参照）。
+    渡されたsegments群のどの区間にも無いaxis_idは結果にも含めない
     （`RouteSegmentDetail.axis_difficulties`と同じ「データ無しはキーを持たない」規約）。
     """
     axis_ids = {axis_id for s in segments for axis_id in s.axis_difficulties}
@@ -236,6 +248,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         # も同じくdistance_weighted_difficultyで連続値として扱っている（既存の前例）ため、
         # ビン単位でも同じ方式で加重平均し最近傍の整数へ丸める。
         car_stress=round(car_stress_avg) if car_stress_avg is not None else None,
-        axis_difficulties=_merge_axis_difficulties(segments),
+        axis_difficulties=merge_axis_difficulties(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )
