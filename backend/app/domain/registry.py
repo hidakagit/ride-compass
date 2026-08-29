@@ -89,6 +89,20 @@ class TileInputSpec(BaseModel):
     `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
     `car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`
     expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
+
+    `needs_runtime_scale`（改善計画T404）: この材料のタイル生値が実行時にしか決まらない
+    係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.
+    tile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`
+    ——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の
+    生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は
+    このフラグが立つ材料も自動導出の対象に含める（以前はこのフラグを持つ材料を含む軸を
+    一律`None`[自動導出不可]としていたが、`weight`が「タイル生値→材料スケール」の
+    静的な変換係数を表現できないだけで、`GET /api/axis-catalog`が実行時に取得した
+    スケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば
+    正しく解決できるため、T404でこの制約を緩和した）。`thresholds`は元々
+    `AxisDefinition.shape.breakpoints`由来の「材料スケール」の値のため、この
+    フラグを持たない他のtile_inputと同じ意味のまま扱ってよい（フロント側だけが
+    このフラグを見てtile生値に追加のスケール定数を掛ける）。
     """
 
     property: str
@@ -100,6 +114,7 @@ class TileInputSpec(BaseModel):
     has_unknown_fallback: bool = False
     categories: dict[str, float] | None = None
     breakpoints: list[tuple[float, float]] | None = None
+    needs_runtime_scale: bool = False
 
     @field_validator("categories")
     @classmethod

@@ -23,6 +23,7 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     PriorityCondition,
 )
+from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
@@ -112,6 +113,12 @@ class AxisDefinitionFields(BaseModel):
     # できるようにしておく（フィールド自体を隠さない——将来のGUI化・直接API呼び出しの
     # どちらでも同じ経路で軸データとして永続化されるようにするため）。
     display_override: AxisDisplaySpec | None = None
+    # 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
+    # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
+    # display_overrideと異なり、AxisComposer.tsx（GUIフォーム）が「数値の配列を編集する」
+    # という単純なUIで直接編集できる（バリデーションは下のAxisDefinitionPayload._
+    # check_display_thresholds_override_is_ascending参照）。
+    display_thresholds_override: list[float] | None = None
 
 
 class AxisDefinitionPayload(AxisDefinitionFields):
@@ -149,6 +156,23 @@ class AxisDefinitionPayload(AxisDefinitionFields):
                 "set chip_label explicitly (4 characters or fewer) for the map chip"
             )
         return self
+
+    @field_validator("display_thresholds_override")
+    @classmethod
+    def _check_display_thresholds_override_is_ascending(cls, value: list[float] | None) -> list[float] | None:
+        """改善計画T404: 色分けの段階境界値は昇順でなければ意味を持たない
+        （`buildAxisRampColorExpression`[axisLayers.ts]のMapLibre `step` expressionが
+        昇順を前提とする——降順・同値混在だと未定義動作になる）。空リストも「境界が
+        0個で常に1段階」を意味してしまい実質意味が無いため、設定する場合は最低1件を要求する
+        （axis_admin.py: chip_labelの4文字制約と同じ、入力欄の少なさに比べて事故りやすい
+        値のためAPIレベルで弾く）。"""
+        if value is None:
+            return None
+        if len(value) == 0:
+            raise ValueError("display_thresholds_override is set but empty; provide at least one threshold or omit it")
+        if any(b <= a for a, b in zip(value, value[1:])):
+            raise ValueError(f"display_thresholds_override must be strictly ascending, got {value!r}")
+        return value
 
     @model_validator(mode="after")
     def _check_materials_are_known(self) -> "AxisDefinitionPayload":
@@ -242,13 +266,23 @@ class AxisDefinitionPayload(AxisDefinitionFields):
             time_scope=self.time_scope,
             supports_route_coloring=self.supports_route_coloring,
             display_override=self.display_override,
+            display_thresholds_override=self.display_thresholds_override,
         )
 
 
 class AxisDefinitionResponse(AxisDefinitionFields):
     """一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
     `AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は
-    継承しない（`AxisDefinitionFields`のdocstring参照）。"""
+    継承しない（`AxisDefinitionFields`のdocstring参照）。
+
+    `display`（改善計画T404）: `domain/axis_display.py: axis_display_for()`の計算結果
+    （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が
+    「自動導出が失敗している（kind="none"）ので、この軸の材料には地図表示用のデータ取得
+    経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）
+    は`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの
+    レスポンスにしか無い。"""
+
+    display: AxisDisplaySpec
 
 
 def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
@@ -268,6 +302,8 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         time_scope=definition.time_scope,
         supports_route_coloring=definition.supports_route_coloring,
         display_override=definition.display_override,
+        display_thresholds_override=definition.display_thresholds_override,
+        display=axis_display_for(definition),
     )
 
 

@@ -49,6 +49,7 @@ function catalogResponse(): AxisCatalogResponse {
               true_value: 0,
               false_value: 0,
               has_unknown_fallback: false,
+              needs_runtime_scale: false,
             },
           ],
           thresholds: [10.0],
@@ -63,6 +64,9 @@ function catalogResponse(): AxisCatalogResponse {
         supports_route_coloring: false,
       },
     ],
+    // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
+    // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
+    material_runtime_scales: {},
   };
 }
 
@@ -90,7 +94,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
   });
 
   it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、静的フォールバックへ戻さずそのまま空を返す", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue({ axes: [] });
+    vi.mocked(getAxisCatalog).mockResolvedValue({ axes: [], material_runtime_scales: {} });
 
     const { result } = renderHook(() => useAxisCatalog());
 

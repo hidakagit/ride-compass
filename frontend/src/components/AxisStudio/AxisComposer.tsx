@@ -304,6 +304,12 @@ interface Draft {
    * これらが黙って失われていた——エラーも警告も出ない静かなデータ破壊だったため）。 */
   priorityOverrides: AxisDefinitionResponse["priority_overrides"];
   displayOverride: AxisDefinitionResponse["display_override"];
+  /** 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は
+   * 自動導出したしきい値をそのまま使う。数値の配列を直接編集するシンプルなUIで、
+   * 生JSON編集が必要なdisplayOverrideとは異なりこのフォームで直接編集できる
+   * （domain/axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring
+   * 参照）。 */
+  displayThresholdsOverride: number[] | null;
   /** 改善計画T352: time_scope/supports_route_coloringも同じ理由（このフォームに編集欄を
    * 持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
    * AxisDefinition.time_scope/supports_route_coloringのdocstring参照。 */
@@ -336,6 +342,7 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     showMapIcon: true,
     priorityOverrides: [],
     displayOverride: null,
+    displayThresholdsOverride: null,
     timeScope: "always",
     supportsRouteColoring: false,
   };
@@ -357,6 +364,7 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     showMapIcon: def.show_map_icon,
     priorityOverrides: def.priority_overrides,
     displayOverride: def.display_override,
+    displayThresholdsOverride: def.display_thresholds_override ?? null,
     timeScope: def.time_scope,
     supportsRouteColoring: def.supports_route_coloring,
   };
@@ -532,6 +540,18 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
         return "表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。";
       }
+      // 改善計画T404: backend側の検証（axis_admin.py: AxisDefinitionPayload._check_
+      // display_thresholds_override_is_ascending）と同じ条件を先回りしてチェックする。
+      if (draft.displayThresholdsOverride !== null) {
+        if (draft.displayThresholdsOverride.length === 0) {
+          return "色分けのしきい値を1件以上入力するか、上書きをオフにしてください。";
+        }
+        for (let i = 1; i < draft.displayThresholdsOverride.length; i++) {
+          if (draft.displayThresholdsOverride[i] <= draft.displayThresholdsOverride[i - 1]) {
+            return "色分けのしきい値は小さい順に並べてください（同じ値は使えません）。";
+          }
+        }
+      }
     }
     return null;
   }
@@ -595,6 +615,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       // 値が消えるのを防ぐ）。
       priority_overrides: draft.priorityOverrides,
       display_override: draft.displayOverride,
+      display_thresholds_override: draft.displayThresholdsOverride,
       time_scope: draft.timeScope,
       supports_route_coloring: draft.supportsRouteColoring,
     };
@@ -635,6 +656,31 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
 
   function removeCategoricalRow(index: number) {
     setDraft((d) => ({ ...d, categoricalRows: d.categoricalRows.filter((_, i) => i !== index) }));
+  }
+
+  // 改善計画T404: 色分けのしきい値（display_thresholds_override）編集用ヘルパー。
+  // 生のJSON編集ではなく、数値の配列だけを直接編集するシンプルなUIにする
+  // （AxisDefinition.display_thresholds_overrideのdocstring参照）。
+  function updateThresholdOverrideValue(index: number, value: number) {
+    setDraft((d) => ({
+      ...d,
+      displayThresholdsOverride: (d.displayThresholdsOverride ?? []).map((v, i) => (i === index ? value : v)),
+    }));
+  }
+
+  function addThresholdOverrideValue() {
+    setDraft((d) => {
+      const current = d.displayThresholdsOverride ?? [];
+      const next = current.length > 0 ? current[current.length - 1] + 1 : 1;
+      return { ...d, displayThresholdsOverride: [...current, next] };
+    });
+  }
+
+  function removeThresholdOverrideValue(index: number) {
+    setDraft((d) => ({
+      ...d,
+      displayThresholdsOverride: (d.displayThresholdsOverride ?? []).filter((_, i) => i !== index),
+    }));
   }
 
   /** 改善計画T345: 既定重みの絶対値だけでは効果が分からないという指摘への対応。
@@ -1115,8 +1161,69 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   }
 
   function renderDisplayPublishStep() {
+    // 改善計画T404: 自動導出（derive_ramp_inputs）もdisplay_thresholds_overrideも効かず
+    // 地図表示不可（kind="none"）な場合の注記（T400.mdで文言を確定済み）。新規作成中
+    // （editingがnull）はまだbackendが計算したdisplayを持たないため、既存軸の編集時のみ
+    // 判定する（保存すればkindが確定するため、新規作成時は保存後に軸一覧から再度開けば
+    // 確認できる）。
+    const showMapDisplayUnavailableNote = editing !== null && editing.display.kind === "none";
     return (
       <>
+        {showMapDisplayUnavailableNote && (
+          <p className={styles.hint}>
+            この軸で使っている材料の一部は、まだ地図表示用のデータ取得経路が用意されていません（ルート探索のコストには反映されます）
+          </p>
+        )}
+
+        <div className={styles.shapeGroup}>
+          <SectionLabel
+            label="地図の色分けしきい値(任意)"
+            description="未設定のままなら自動計算されたしきい値が使われます。段階を細かく刻みたい場合だけ、境界値を小さい順に入力してください（例: 1, 2, 4 と入力すると、1未満／1〜2／2〜4／4以上の4段階になります）。地図表示自体ができない軸（上の注記が出ている場合）には効果がありません。"
+          />
+          {draft.displayThresholdsOverride === null ? (
+            <button
+              type="button"
+              className={styles.addButton}
+              onClick={() => setDraft((d) => ({ ...d, displayThresholdsOverride: [1] }))}
+            >
+              + しきい値を自分で設定する
+            </button>
+          ) : (
+            <>
+              {draft.displayThresholdsOverride.map((value, i) => (
+                <div key={i} className={styles.termRow}>
+                  {/* 改善計画T404: しきい値は軸によって整数（stop_density: 1,2,4）にも
+                      小数（accident: 0.133,0.267,0.5）にもなりうるため、step="any"で
+                      刻み幅を固定しない（step="0.1"のような固定刻みは、浮動小数点誤差で
+                      「1」のような値さえHTML5のstep制約検証に引っかかりsubmitイベント
+                      自体が発火しなくなる実バグをテスト作成時に発見・修正した）。 */}
+                  <input
+                    type="number"
+                    step="any"
+                    value={value}
+                    aria-label={`しきい値${i + 1}`}
+                    onChange={(e) => updateThresholdOverrideValue(i, Number(e.target.value))}
+                  />
+                  <button type="button" onClick={() => removeThresholdOverrideValue(i)}>
+                    削除
+                  </button>
+                </div>
+              ))}
+              <div className={styles.row}>
+                <button type="button" className={styles.addButton} onClick={addThresholdOverrideValue}>
+                  + しきい値を追加
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDraft((d) => ({ ...d, displayThresholdsOverride: null }))}
+                >
+                  自動計算に戻す
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className={styles.shapeGroup}>
           <SectionLabel
             label="地図チップ表示要素(任意)"

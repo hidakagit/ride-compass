@@ -14,10 +14,14 @@ shape_paramsの(逆)シリアライズは`AxisShape.model_dump(mode="json")` /
 priority_overrides（改善計画T292、0次条件）も同様に`list[PriorityCondition]`を
 `model_dump(mode="json")`したJSON配列としてそのまま往復する。
 
-display_override（改善計画T310、地図ramp表示の手書き上書き）も同じ規約で
+display_override（改善計画T310、地図ramp表示の手書き上書き。T404で廃止方針）も同じ規約で
 `AxisDisplaySpec.model_dump(mode="json")` / `TypeAdapter(AxisDisplaySpec).validate_python(...)`
 を使う。未設定はNoneのまま往復する（priority_overridesの`[]`既定と異なり、
 「軸自身が上書きを持たない」という意味自体をNoneで表す）。
+
+display_thresholds_override（改善計画T404、地図の色分けしきい値だけの軽量な上書き）は
+単純な`list[float] | None`のため、JSONB列とPythonの`list`/`None`をそのまま素通しする
+（他の2フィールドと異なりPydanticモデルへの往復変換自体が不要）。
 """
 
 from datetime import datetime, timezone
@@ -57,6 +61,7 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
             if row.display_override is not None
             else None
         ),
+        display_thresholds_override=row.display_thresholds_override,
     )
 
 
@@ -116,6 +121,7 @@ class AxisDefinitionRepository:
                 if definition.display_override is not None
                 else None
             ),
+            display_thresholds_override=definition.display_thresholds_override,
             updated_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
@@ -136,6 +142,7 @@ class AxisDefinitionRepository:
                 "time_scope": stmt.excluded.time_scope,
                 "supports_route_coloring": stmt.excluded.supports_route_coloring,
                 "display_override": stmt.excluded.display_override,
+                "display_thresholds_override": stmt.excluded.display_thresholds_override,
                 "updated_at": stmt.excluded.updated_at,
             },
         )

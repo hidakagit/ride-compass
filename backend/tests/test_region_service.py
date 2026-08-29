@@ -420,3 +420,40 @@ async def test_material_values_db_error_is_counted_in_debug_stats():
     assert stats["errors"] == 1
     assert stats["error_types"] == {"RuntimeError": 1}
     reset_stats()
+
+
+# --- 事故データ収録年数（改善計画T404、GET /api/axis-catalogのmaterial_runtime_scales用） ---
+
+
+async def test_accident_years_covered_returns_repository_result():
+    repository = FakeRegionRepository()
+    repository.accident_years_covered_result = 3
+    service = RegionService(repository=repository)
+
+    assert await service.get_accident_years_covered() == 3
+
+
+async def test_accident_years_covered_no_repository_returns_zero():
+    service = RegionService()
+
+    assert await service.get_accident_years_covered() == 0
+
+
+async def test_accident_years_covered_db_error_returns_zero():
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    assert await service.get_accident_years_covered() == 0
+
+
+async def test_accident_years_covered_db_error_is_counted_in_debug_stats():
+    reset_stats()
+    repository = FakeRegionRepository(error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    await service.get_accident_years_covered()
+
+    stats = get_stats()["external"]["region:accident-years-covered"]
+    assert stats["errors"] == 1
+    assert stats["error_types"] == {"RuntimeError": 1}
+    reset_stats()

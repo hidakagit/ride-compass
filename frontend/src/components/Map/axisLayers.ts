@@ -86,6 +86,14 @@ interface CatalogTileInput {
   // undefinedではなくnullとしてシリアライズするため、nullも許容する。
   categories?: Record<string, number> | null;
   breakpoints?: (readonly [number, number])[] | null;
+  /** 改善計画T404: このtile_inputのタイル生値が実行時にしか決まらないスケール定数での
+   * 変換を要する場合true（backend/app/domain/registry.py: TileInputSpec.
+   * needs_runtime_scale参照、例: accident_per_km→件/(km・年)への年数正規化）。
+   * `rampAxesFromCatalogAxes`が`runtimeScales`引数（GET /api/axis-catalogの
+   * material_runtime_scales、tile property名→スケール係数）を使ってweightへ
+   * 事前に掛け合わせて解決するため、後段（buildAxisRampValueExpression等）は
+   * このフラグを意識しなくてよい。 */
+  needs_runtime_scale?: boolean | null;
 }
 
 export interface CatalogAxis {
@@ -148,7 +156,18 @@ export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<
   };
 }
 
-export function rampAxesFromCatalogAxes(axes: readonly CatalogAxis[]): RampAxis[] {
+/** `runtimeScales`（改善計画T404、GET /api/axis-catalogのmaterial_runtime_scales、
+ * tile property名→スケール係数）は、`needs_runtime_scale`なtile_inputの`weight`へ
+ * 構築時に一度だけ掛け合わせて解決する（後段のbuildAxisRampValueExpression等は
+ * 解決済みのweightだけを見ればよく、実行時スケールの概念を意識しなくてよい）。
+ * 該当するtile propertyのスケール係数がまだ解決できていない場合（ビルド時静的
+ * フォールバックaxis-catalog.jsonの使用中、または収録年数0件等でbackendがキーを
+ * 含めなかった場合）はweight=0として寄与を無くす（安全側のデグレード。RegionService.
+ * get_accident_years_coveredのdocstring参照）。 */
+export function rampAxesFromCatalogAxes(
+  axes: readonly CatalogAxis[],
+  runtimeScales: Readonly<Record<string, number>> = {},
+): RampAxis[] {
   return axes
     .filter((axis) => axis.display?.kind === "ramp")
     .map((axis) => ({
@@ -157,7 +176,7 @@ export function rampAxesFromCatalogAxes(axes: readonly CatalogAxis[]): RampAxis[
       category: axis.display!.category,
       tileInputs: axis.display!.tile_inputs.map((input) => ({
         property: input.property,
-        weight: input.weight,
+        weight: input.needs_runtime_scale ? input.weight * (runtimeScales[input.property] ?? 0) : input.weight,
         boolean: input.boolean,
         invert: input.invert,
         trueValue: input.true_value,

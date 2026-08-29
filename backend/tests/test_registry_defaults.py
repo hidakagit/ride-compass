@@ -174,22 +174,31 @@ def test_surface_q_and_night_kind_is_auto_derived_ramp():
 
 
 def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
-    """改善計画T278の自動導出対象外（複数材料の重み付き結合・タイル非依存材料・
-    実行時スケール変換が必要な材料）の軸は、kindが従来どおりであることを確認する
-    （回帰防止）。car_stressは改善計画T292で"bespoke"から"ramp"へ変更されたため、
-    本テストの対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
+    """改善計画T278・T404の自動導出対象外/対象の境界回帰防止テスト。gradientは
+    方向依存材料（gradient_percent）のためkind="none"のまま変わらない。stop_density/
+    accidentは改善計画T404でderive_ramp_inputsの自動導出対象になった（実行時スケール
+    変換が必要な材料も含むよう緩和、tests/realistic_axis_fixtures.py参照）が、色分けの
+    段階自体はdisplay_thresholds_override（軽量な数値配列の上書き）で従来と同じ細かさを
+    保つ。car_stressは改善計画T292で"bespoke"から"ramp"へ変更されたため、本テストの
+    対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
     assert _axis("gradient").display.kind == "none"
     assert _axis("stop_density").display.kind == "ramp"
     assert _axis("stop_density").display.thresholds == [1.0, 2.0, 4.0]
     assert _axis("accident").display.kind == "ramp"
-    assert _axis("accident").display.thresholds == [0.4, 0.8, 1.5]
+    # 改善計画T404: 旧display_override時代の閾値[0.4, 0.8, 1.5]はタイル生値（年正規化前、
+    # 収録3年分）のスケールだった。derive_ramp_inputsの自動導出＋display_thresholds_
+    # overrideは材料スケール（年正規化後）で表現するため、収録年数3で割った値になる
+    # （tests/realistic_axis_fixtures.py参照、本番DBの実際の移行値と同じ）。
+    assert _axis("accident").display.thresholds == [0.133, 0.267, 0.5]
 
 
 def test_car_stress_ramp_display():
-    """改善計画T292: car_stressは内部軸6つ+公開軸1つの階層構造への再実装に伴い
-    kind="bespoke"からkind="ramp"へ変更した。derive_ramp_inputsでは解決できない
-    （他の軸を参照するBreakpointLinearShapeのため）ためtile_inputsは本ファイルへ
-    直接手書きしている。内部軸6つぶんのtile_inputsが揃っていることを確認する。"""
+    """改善計画T292: car_stressは内部軸5つ+公開軸1つの階層構造への再実装に伴い
+    kind="bespoke"からkind="ramp"へ変更した。改善計画T404: derive_ramp_inputsが
+    軸参照を再帰的に解決してtile_inputsを自動導出できるようになった
+    （_resolve_referenced_axis_tile_input参照、旧・本ファイルへ直接手書きしていた
+    display_overrideは廃止しdisplay_thresholds_overrideへ移行済み）。内部軸5つぶんの
+    tile_inputsが揃っていることを確認する。"""
     display = _axis("car_stress").display
     assert display.kind == "ramp"
     assert display.thresholds == [2.0, 3.0, 4.0]

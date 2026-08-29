@@ -1878,6 +1878,67 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 - **軸スタジオの編集UI**: `display_override`と同様、現時点で編集UIを持たない
   （`AxisComposer.tsx`は既存値をpayloadへ素通しするのみ、管理API直接編集のみ対応）。
 
+### `display_override`廃止（改善計画T404、2026-08-30）
+
+T310時点の`axis_display_for()`優先順位（①`display_override` ②`derive_ramp_inputs()`の
+自動導出 ③`kind="none"`）・「`car_stress`/`stop_density`/`accident`は自動導出対象外の
+まま手書き`display_override`を維持する」という上記の記述はT404で刷新した。
+
+- **`derive_ramp_inputs()`の拡張**（`domain/axis_display.py`）: 2点の制約を緩和した。
+  - **軸参照の再帰解決**: `MaterialTerm.material`が材料idではなく別の軸id（`car_stress`が
+    参照する5つの内部軸のような階層構造、改善計画T292）を指す場合、
+    `_resolve_referenced_axis_tile_input()`が参照先を再帰的に解決する。安全に変換できる
+    のは(a) 参照先が`CategoricalShape`（値をそのまま返す、追加変換なし）、(b) 参照先が
+    単一term・weight=1.0・preprocess="identity"の`BreakpointLinearShape`
+    （`TileInputSpec.breakpoints`の自己変換材料としてそのまま表現できる）の2パターンのみ
+    （それ以外は安全側でNone、`visited`集合で循環参照からも保護）。これにより`car_stress`
+    （highway/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの5材料へ展開）が
+    手書き`display_override`無しで自動導出できるようになった。
+  - **実行時スケール変換の定数化**: `tile_property_needs_runtime_scale=True`な材料
+    （`accident_count_per_km_year`）も自動導出の対象に含める。タイル生値→材料スケールの
+    静的な変換係数は持てないため、`TileInputSpec.needs_runtime_scale`で印を付けるに
+    とどめ、実際のスケール係数（収録年数の逆数）は`GET /api/axis-catalog`が
+    `material_runtime_scales`（tile property名→係数、リクエスト毎に`RegionService.
+    get_accident_years_covered()`で解決）として別途返し、フロントの
+    `axisLayers.ts: rampAxesFromCatalogAxes()`が構築時に一度だけ`weight`へ掛け合わせて
+    解決する（未解決時はweight=0の安全側デグレード）。これにより`accident`も自動導出
+    できるようになった。
+  - `is_designated`材料（`material_catalog.py`）へ`tile_property="designation"`・新設の
+    `tile_property_categorical_true_values`（dtype="boolean"だがタイル側は複数値の
+    文字列プロパティで表現される材料向け）を追加し、`car_stress_designation_adjustment`
+    内部軸（従来タイル非依存だった）もタイル駆動で自動導出できるようにした。
+- **色分けしきい値の粒度問題は別フィールドへ分離**: `derive_ramp_inputs()`の`thresholds`は
+  `AxisDefinition.shape.breakpoints`のX軸値をそのまま流用するため、複数材料の組み合わせ
+  （car_stress）や単純な線形正規化（stop_density/accident）では粗い色分けしか作れない
+  （車の圧迫感2段階・停止密度/事故密度2段階）。これは`tile_inputs`の自動導出能力の問題
+  ではなく「色分け段階の刻み方の好み」の問題のため、新設した`AxisDefinition.
+  display_thresholds_override: list[float] | None`（`axis_definitions`テーブルへ
+  `migrations/0025_axis_definitions_display_thresholds_override.sql`でカラム追加）へ
+  切り出した。`axis_display_for()`の優先順位は①`derive_ramp_inputs()`成功＋
+  `display_thresholds_override`設定→自動導出tile_inputsとこのしきい値を組み合わせる、
+  ②成功＋未設定→自動導出のしきい値そのまま、③`derive_ramp_inputs()`失敗時のみ旧
+  `display_override`を後方互換フォールバックとして使用、④どちらも無ければ`kind="none"`
+  （`display_override`自体は削除せず残す。実際に不要になったことを確認したうえで
+  DBカラム削除する後続タスクT407へ切り出した）。
+- **軸スタジオGUI**（`AxisComposer.tsx`）へ「地図の色分けしきい値」編集項目を追加した。
+  生JSON編集が必要な`display_override`と異なり、数値配列の追加/削除/編集のみの
+  シンプルなUI（`AxisDefinitionResponse.display_thresholds_override`）。管理API
+  （`axis_admin.py`）は昇順・非空をバリデーションする。あわせて`AxisDefinitionResponse`
+  へ`display`（`axis_display_for()`の計算結果）を新設した——下書き軸は
+  `GET /api/axis-catalog`に現れないため、軸スタジオが「この軸は地図表示用のデータ取得
+  経路が無い（`kind="none"`）」という注記を編集画面に出すには、この管理APIのレスポンス
+  経由でしか判定できないため。
+- **dev DBの移行**: `car_stress`/`stop_density`/`accident`の3軸の`display_override`を
+  NULL化し`display_thresholds_override`（car_stress: `[2,3,4]`・stop_density:
+  `[1,2,4]`・accident: `[0.133,0.267,0.5]`——旧`[0.4,0.8,1.5]`はタイル生値スケール
+  [年正規化前]だったため、材料スケール[年正規化後]への移行に伴い収録年数3で除算して
+  再較正）へ、`axis_admin` API相当の`AxisRegistryAdminService`経由（unpublish→update→
+  再publish）で移行した。副産物として、`car_stress`の`highway`系tile_inputsが従来の
+  手書き13値（`footway`/`path`が漏れていた、改善計画T359のドリフト）から正しい15値
+  （`car_stress_highway_base`の実際のmapping）へ自動的に修正された。
+
+詳細はdocs/tasks/T404.md参照。
+
 ### 一次属性レジストリ・二次軸レジストリ（改善計画T137）
 
 `domain/registry.py`が一次属性（`PrimaryAttributeSpec`）・二次軸（`AxisSpec`）の宣言的な
@@ -1989,12 +2050,13 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   地図表示は最終値をタイルへ焼き込まず、内部軸の材料5つ（highway/maxspeed_kmh/
   lanes_count/designation/motor_vehicle_no、T290でMVTへ焼き込み済み）を
   フロント側（`components/Map/axisLayers.ts`のramp汎用機構、下記「レジストリ駆動の
-  二次軸ランプレイヤー」節参照）で再合成する。`axis_definitions.py`が内部軸の
-  mapping/breakpointsをそのまま転記した`tile_inputs`を手書き登録しており
-  （`stop_density`/`accident`と同じ「複数材料の合成のためderive_ramp_inputsの自動導出
-  対象外」の前例）、最終値を計算済みでタイルへ焼き込む従来方式（レシピを変えるたびに
-  世界中のタイルキャッシュを作り直す必要があった、T92/T93）とは異なりタイル世代を
-  上げずにcar_stress自体の判定ロジックを変更できる。評価軸の`shape_params`調整
+  二次軸ランプレイヤー」節参照）で再合成する。改善計画T404以降、この`tile_inputs`は
+  `derive_ramp_inputs()`が5つの内部軸参照を再帰的に解決して自動導出する（手書き登録は
+  廃止済み、上記「`display_override`廃止」節参照）。色分けの段階（thresholds）は自動導出
+  だと粗くなるため`display_thresholds_override=[2,3,4]`で細かく指定している。最終値を
+  計算済みでタイルへ焼き込む従来方式（レシピを変えるたびに世界中のタイルキャッシュを
+  作り直す必要があった、T92/T93）とは異なりタイル世代を上げずにcar_stress自体の判定
+  ロジックを変更できる。評価軸の`shape_params`調整
   （今回のT353含む）はmigrationではなくaxis_admin APIの unpublish→PUT→republish経由で
   行う運用（CLAUDE.md参照、監査証跡・ロールバックを要さない継続的チューニング対象という
   判断）。ルート採点の重み上書きは他の公開軸と同じく`/api/routes/generate`の

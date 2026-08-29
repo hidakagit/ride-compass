@@ -360,6 +360,36 @@ class RegionService:
             highway, tags, is_designated = way_tags_result
             return axis_inspector_breakdown(highway, tags, is_designated, way_counts, accident_years_covered, RoutePreference())
 
+    async def get_accident_years_covered(self) -> int:
+        """改善計画T404: `GET /api/axis-catalog`が地図表示の実行時スケール定数
+        （`material_runtime_scales`）を組み立てるために使う。事故データの収録年数
+        （accident_import_runsの成功run、年重複なし）——`domain/axis_display.py:
+        derive_ramp_inputs`が自動導出したaccident軸のtile_input（`accident_per_km`の
+        生値、年正規化前）を、フロントのJS式が`1/accident_years_covered`倍して
+        材料スケール（件/(km・年)）へ変換する。
+
+        `repository`未注入・DB例外はいずれも0へ倒す（get_material_valuesと同じ
+        グレースフルデグレード方針）。呼び出し元（axis_catalog.py）は0を「解決不能」
+        として扱い、`material_runtime_scales`に該当エントリを含めない（0除算を避ける
+        安全側の判断。この場合accident軸のtile_inputはneeds_runtime_scale=Trueのまま
+        スケール定数を持たないため、フロント側は寄与0[常に緑]として描画する——事故データ
+        自体が0件収録という実運用ではまず起こらない縮退ケースのため、軽微な誤表示として
+        許容する）。
+        """
+        if self._repository is None:
+            return 0
+        with log_external_call("region:accident-years-covered") as fields:
+            try:
+                years = await self._repository.get_accident_years_covered()
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(0)へ倒す（他メソッドと同じ方針）
+                fields["result"] = "error"
+                fields["warned"] = True
+                fields["error_type"] = error_type_label(exc)
+                logger.warning("事故データ収録年数のPostGIS読み取りに失敗 error=%r", exc)
+                return 0
+            fields["years_covered"] = years
+            return years
+
     async def get_material_values(self, material_id: str) -> list[str]:
         """改善計画T340: 軸スタジオ（AxisComposer.tsx）の値入力UX改善。指定した材料id
         （highway/surface/smoothness、`infrastructure/road_graph_repository.py:

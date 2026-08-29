@@ -69,7 +69,14 @@ class AxisDefinitionRow(Base):
     supports_route_coloring: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # domain/axis_definitions.py: AxisDefinition.display_override（AxisDisplaySpec）を
     # `model_dump(mode="json")`したJSONオブジェクト。shape_paramsと同じ規約。
+    # 改善計画T404で廃止方針が決まった非推奨カラム（後方互換のセーフティネットとしてのみ
+    # 残す。display_thresholds_overrideのdocstring・移行方針はdocs/tasks/T404.md参照）。
     display_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
+    # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
+    # 0025 migrationでNULL許容の追加カラムとして導入（未設定はderive_ramp_inputsが
+    # 計算したしきい値をそのまま使うため、既存行への追加自体は現在の地図表示に影響しない）。
+    display_thresholds_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # 改善計画T330: create_tables()（Base.metadata.create_all）が先に走る「まっさらなDBから
     # のブートストラップ」経路では、DB側のserver_defaultが無いと0014 migrationのINSERT
     # （updated_atを指定しない）がNOT NULL制約違反になる。他の全カラムはこのため

@@ -41,6 +41,7 @@ from typing import Callable, Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.domain.attributes import ElevationAttribute
+from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.graph import EdgeLike
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
@@ -102,6 +103,19 @@ class MaterialSpec(BaseModel):
     # 一次属性、T289）が、将来方向依存材料が追加された際に安全側へ倒す型的な安全弁として
     # 用意する。
     tile_property_direction_dependent: bool = False
+    # 改善計画T404: この材料がdtype="boolean"だが、タイル側には対応する真偽値プロパティが
+    # 無く、代わりに複数値の文字列(categorical)プロパティ`tile_property`の値がここに列挙する
+    # 「いずれか」に該当する場合にtrueとみなせる場合に設定する（例: is_designated——
+    # 評価時はdesignated_edge_idsから都度算出するタイル非依存の材料だが、地図表示の
+    # 自動導出（derive_ramp_inputs、axis_display.py）向けには、同じ情報を持つ既存の
+    # タイルプロパティ"designation"[3値categorical、emergency_transport/critical_logistics/
+    # both]を「trueに該当するどれか」として流用できる）。設定する場合は`tile_property`も
+    # 必ずそのcategoricalプロパティ名にすること。derive_ramp_inputsはこの材料が
+    # CategoricalShapeのbool2値mappingに使われた場合、`categories={v: true_score for v in
+    # tile_property_categorical_true_values}`というTileInputSpecへ変換する（categories
+    # 未該当は常に寄与0扱いのため、false_score=0.0の場合のみ安全に表現できる。それ以外は
+    # 安全側でNoneを返し自動導出を諦める）。
+    tile_property_categorical_true_values: tuple[str, ...] | None = None
     # 改善計画T308: この材料の由来となる一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
     # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
@@ -727,9 +741,22 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # "designation"、改善計画T338フォローアップで正規化フラグ版のis_emergency_transport/
         # is_critical_logisticsも追加）は評価パイプライン側で種別ごとに区別して保持していない
         # （domain/designation.py: 補正量が種別によらず一律+1のため、種別を評価まで
-        # 運ぶ配線を新設する理由が無い）。car_stress_designation_adjustment内部軸と同じく
-        # タイル非依存（評価時にdesignated_edge_idsから都度算出）。
-        tile_property=None,
+        # 運ぶ配線を新設する理由が無い）。評価時（extractor）はcar_stress_designation_
+        # adjustment内部軸と同じくタイル非依存（designated_edge_idsから都度算出）のまま
+        # 変更しない。
+        #
+        # 改善計画T404: 一方、地図表示の自動導出（derive_ramp_inputs、axis_display.py）向けに
+        # `tile_property`は"designation"（3値categorical、既に他の材料"designation"が使う
+        # 同じタイルプロパティ）を指す。指定路線該当=このプロパティが既知の3値
+        # （emergency_transport/critical_logistics/both、_ROAD_SURFACE_TILE_MVT_SQL
+        # [road_graph_repository.py]のCASE式が書き込む値と1:1）のいずれかであることと
+        # 同値なため、`tile_property_categorical_true_values`で表現する。評価用の
+        # extractorはdesignated_edge_ids由来のまま変えないため、この2つの経路
+        # （評価/地図表示）が別ソースを見ている点はis_designated材料に限った既知の
+        # 非対称——値そのものは常に一致する（両方ともKSJ N10/N12マッチング結果由来）ため
+        # 実害はない。
+        tile_property="designation",
+        tile_property_categorical_true_values=(*sorted(CAR_STRESS_DESIGNATION_KINDS), "both"),
         primary_attribute_id="designation",
         extractor=_extract_is_designated,
     ),

@@ -90,7 +90,9 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
 
-    # stop_densityは手書きoverride（axis_display.py: STOP_DENSITY_DISPLAY）を優先する。
+    # 改善計画T404: stop_densityはderive_ramp_inputsが自動導出したtile_inputsに
+    # display_thresholds_override（軽量な色分けしきい値の上書き、tests/
+    # realistic_axis_fixtures.py参照）を組み合わせる。
     stop_density_display = entries_by_id["stop_density"]["display"]
     assert stop_density_display["kind"] == "ramp"
     assert stop_density_display["thresholds"] == [1.0, 2.0, 4.0]
@@ -158,3 +160,25 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
         "designation",
         "motor_vehicle_access",
     }
+
+
+def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
+    # 改善計画T404: accidentは実行時スケール変換（収録年数での正規化）が必要な材料
+    # （accident_count_per_km_year）を使うが、derive_ramp_inputsは自動導出の対象に
+    # 含めるようになった。TileInputSpec.needs_runtime_scale=Trueで印を付け、実際の
+    # スケール定数はmaterial_runtime_scales（レスポンス直下）で別途返す。
+    response = client.get("/api/axis-catalog")
+    body = response.json()
+    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
+
+    accident_tile_inputs = entries_by_id["accident"]["display"]["tile_inputs"]
+    assert len(accident_tile_inputs) == 1
+    assert accident_tile_inputs[0]["property"] == "accident_per_km"
+    assert accident_tile_inputs[0]["needs_runtime_scale"] is True
+
+    # material_runtime_scalesは常にレスポンスへ含まれる（テスト環境はroad_graph_use_
+    # repository=Falseのためrepository未注入、RegionService.get_accident_years_coveredが
+    # 0を返し、0除算を避けてキー自体を含めない安全側の挙動になる——本番相当のDB接続時の
+    # 挙動はtest_region_service.pyのget_accident_years_covered系テスト参照）。
+    assert "material_runtime_scales" in body
+    assert isinstance(body["material_runtime_scales"], dict)

@@ -238,13 +238,36 @@ class AxisDefinition(BaseModel):
     コメント参照）。"""
     display_override: AxisDisplaySpec | None = None
     """地図ramp表示（domain/axis_display.py: axis_display_for()が返す値）の手書き上書き。
-    未設定は`derive_ramp_inputs()`による自動導出（不可能ならkind="none"）に委ねる。
-    複数材料の重み付き結合はderive_ramp_inputsが数学的に正確に自動導出できるため
-    通常は不要——統計的に閾値を調整したい場合（stop_density/accident）、または他の軸を
-    参照する材料構成でderive_ramp_inputsが解決できない場合（car_stress、改善計画T292の
-    軸階層）にのみ設定する。軸スタジオのGUIフォーム（AxisComposer.tsx）は現時点で
-    この項目の編集UIを持たない（TileInputSpecの構造が複雑なため、まずは管理API経由の
-    直接編集のみ対応。GUI化は将来検討、docs/improvement-plan.md T310参照）。"""
+    改善計画T404で廃止方針が決まった非推奨フィールド（docs/tasks/T404.md参照）。
+    `derive_ramp_inputs()`自体が失敗する軸（tile非依存材料・方向依存材料等を含む軸）向けの
+    後方互換セーフティネットとしてのみ残す——`axis_display_for()`は`derive_ramp_inputs()`が
+    成功する限りこのフィールドを参照しない（優先順位は`axis_display_for()`のdocstring
+    参照）。以前は「複数材料の重み付き結合を`derive_ramp_inputs`が解決できない場合
+    （car_stress、軸階層）」「色分けの段階を統計的に細かく刻みたい場合（stop_density/
+    accident）」の2用途で使っていたが、前者はT404で`derive_ramp_inputs`の軸参照再帰解決
+    ＋実行時スケール定数化により自動導出可能になり、後者は`display_thresholds_override`
+    （下記、色分けしきい値だけの軽量な上書き）へ切り出された。新規軸はこのフィールドを
+    使わないこと。軸スタジオのGUIフォーム（AxisComposer.tsx）はこの項目の編集UIを持たない
+    （既存値の素通し保持のみ）。"""
+    display_thresholds_override: list[float] | None = None
+    """地図の色分けしきい値だけを差し替える軽量な上書き（改善計画T404、
+    docs/tasks/T404.md）。未設定は`derive_ramp_inputs()`が計算したしきい値
+    （`AxisDefinition.shape`のbreakpoints由来のX軸スケール値）をそのまま使う。
+
+    `derive_ramp_inputs`は「材料の値をどう合成して1つの表示用の値にするか」
+    （`tile_inputs`）は数学的に厳密に自動導出できるが、色分けの**段階の刻み方**
+    （何段階に分けるか）まではbreakpointsのX軸の値をそのまま流用するため粗くなりがちで
+    （車の圧迫感[2段階]・停止密度/事故密度[各2段階]が実例）、見やすさのために人間が
+    細かく刻みたいという正当なニーズがある。これは`tile_inputs`の自動導出能力の
+    問題ではなく「見やすさの好み」の問題のため、`display_override`（tile_inputsまで
+    含む生JSON上書き、廃止予定）とは別の、しきい値だけの軽量なフィールドとして
+    独立させた——軸スタジオのGUI（AxisComposer.tsx）が「数値の配列を編集する」という
+    単純なUIで直接編集できる（`display_override`はTileInputSpecの構造が複雑なため
+    GUI編集を持たなかった）。値は昇順の数値配列（段階境界値）で、単位は
+    `AxisDefinition.shape`のbreakpointsのX軸と同じ「材料スケール」
+    （`tile_property_needs_runtime_scale`な材料を含む軸でも、実行時スケール変換後の
+    スケール——年数等の変換係数が変わっても値を書き直す必要が無い）。`derive_ramp_inputs`
+    自体が失敗する軸（kind="none"）には効果が無い（`axis_display_for()`の優先順位参照）。"""
 
     @property
     def materials(self) -> list[str]:

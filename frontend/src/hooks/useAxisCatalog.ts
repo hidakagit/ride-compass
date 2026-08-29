@@ -84,6 +84,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
         has_unknown_fallback: input.has_unknown_fallback,
         categories: input.categories ?? null,
         breakpoints: input.breakpoints ?? null,
+        needs_runtime_scale: input.needs_runtime_scale,
       })),
       thresholds: entry.display.thresholds ?? [],
       unit: entry.display.unit,
@@ -98,7 +99,10 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
   };
 }
 
-function buildCatalog(entries: readonly AxisCatalogEntry[]): AxisCatalog {
+function buildCatalog(
+  entries: readonly AxisCatalogEntry[],
+  materialRuntimeScales: Readonly<Record<string, number>>,
+): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
   const axes: PreferenceAxisDef[] = entries.map((entry) => {
     defaultWeights[entry.axis_id] = entry.default_weight;
@@ -108,7 +112,7 @@ function buildCatalog(entries: readonly AxisCatalogEntry[]): AxisCatalog {
   return {
     axes,
     defaultWeights,
-    rampAxes: rampAxesFromCatalogAxes(catalogAxes),
+    rampAxes: rampAxesFromCatalogAxes(catalogAxes, materialRuntimeScales),
     axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
     routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),
@@ -164,7 +168,7 @@ export function useAxisCatalog(): AxisCatalog {
         // （2026-08-25）。取得成功時はaxesが空でもそのままbuildCatalogへ渡す
         // （フェッチ未完了・失敗時のみFALLBACK_CATALOGに留まる、という区別に一本化）。
         if (!cancelled) {
-          setCatalog(buildCatalog(response.axes));
+          setCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
         }
       })
       .catch(() => {

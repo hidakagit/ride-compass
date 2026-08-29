@@ -48,6 +48,9 @@ function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDe
         [10, 100],
       ],
     },
+    // 改善計画T404: displayはAxisDefinitionResponseの必須フィールド（axis_display_for()の
+    // 計算結果）。gradient_percentはタイル非依存のためkind="none"が実際の値と一致する。
+    display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
     ...overrides,
   };
 }
@@ -357,6 +360,7 @@ describe("AxisComposer", () => {
             true_value: 0,
             false_value: 0,
             has_unknown_fallback: false,
+            needs_runtime_scale: false,
           },
         ],
         thresholds: [10, 50, 90],
@@ -407,6 +411,162 @@ describe("AxisComposer", () => {
       const [payload] = onSave.mock.calls[0];
       expect(payload.priority_overrides).toEqual([]);
       expect(payload.display_override).toBeNull();
+    });
+  });
+
+  // ============================================================
+  // 改善計画T404: 地図の色分けしきい値(display_thresholds_override)編集UI・
+  // kind="none"の注記
+  // ============================================================
+  describe("地図の色分けしきい値(display_thresholds_override)編集", () => {
+    it("既定は上書きオフで、「+ しきい値を自分で設定する」を押すと1件の入力欄が現れる", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
+      await clickNext(user); // basic -> shape_kind
+      await clickNext(user); // shape_kind -> shape_params
+      await clickNext(user); // shape_params -> display_publish
+
+      expect(screen.queryByLabelText("しきい値1")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      expect(screen.getByLabelText("しきい値1")).toHaveValue(1);
+
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.display_thresholds_override).toEqual([1]);
+    });
+
+    it("しきい値を追加・編集・削除でき、「自動計算に戻す」でnullへ戻る", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
+      const thresholdInput1 = screen.getByLabelText("しきい値1") as HTMLInputElement;
+      const thresholdInput2 = screen.getByLabelText("しきい値2") as HTMLInputElement;
+      await user.clear(thresholdInput1);
+      await user.type(thresholdInput1, "1");
+      await user.clear(thresholdInput2);
+      await user.type(thresholdInput2, "4");
+
+      await user.click(screen.getByRole("button", { name: "自動計算に戻す" }));
+      expect(screen.queryByLabelText("しきい値1")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.display_thresholds_override).toBeNull();
+    });
+
+    it("しきい値が降順・同値だと保存直前の検証でエラーになりステップが進まない", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
+      const thresholdInput1 = screen.getByLabelText("しきい値1") as HTMLInputElement;
+      const thresholdInput2 = screen.getByLabelText("しきい値2") as HTMLInputElement;
+      await user.clear(thresholdInput1);
+      await user.type(thresholdInput1, "4");
+      await user.clear(thresholdInput2);
+      await user.type(thresholdInput2, "1");
+
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+
+      expect(screen.getByText(/小さい順に並べてください/)).toBeInTheDocument();
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    it("編集中の軸がkind=noneの場合、地図表示用のデータ取得経路が無い旨の注記が出る", async () => {
+      const editing = baseDefinition({
+        display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+      });
+      const user = userEvent.setup();
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(
+        screen.getByText(
+          "この軸で使っている材料の一部は、まだ地図表示用のデータ取得経路が用意されていません（ルート探索のコストには反映されます）",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("編集中の軸がkind=rampの場合、注記は出ない", async () => {
+      const editing = baseDefinition({
+        display: {
+          kind: "ramp",
+          label: "勾配",
+          category: "trafficSafety",
+          tile_inputs: [
+            {
+              property: "dummy_per_km",
+              weight: 1.0,
+              boolean: false,
+              invert: false,
+              true_value: 0,
+              false_value: 0,
+              has_unknown_fallback: false,
+              needs_runtime_scale: false,
+            },
+          ],
+          thresholds: [1.0],
+          unit: "",
+          note: "",
+        },
+      });
+      const user = userEvent.setup();
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(screen.queryByText(/まだ地図表示用のデータ取得経路が用意されていません/)).not.toBeInTheDocument();
+    });
+
+    it("新規作成中（editing=null）は注記を出さない", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(screen.queryByText(/まだ地図表示用のデータ取得経路が用意されていません/)).not.toBeInTheDocument();
+    });
+
+    it("既存軸のdisplay_thresholds_overrideが編集フォームへ初期反映される", async () => {
+      const editing = baseDefinition({ display_thresholds_override: [1, 2, 4] });
+      const user = userEvent.setup();
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(screen.getByLabelText("しきい値1")).toHaveValue(1);
+      expect(screen.getByLabelText("しきい値2")).toHaveValue(2);
+      expect(screen.getByLabelText("しきい値3")).toHaveValue(4);
     });
   });
 

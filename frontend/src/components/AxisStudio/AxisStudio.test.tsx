@@ -55,6 +55,9 @@ function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefini
         [10, 100],
       ],
     },
+    // 改善計画T404: displayはAxisDefinitionResponseの必須フィールド（axis_display_for()の
+    // 計算結果）。gradient_percentはタイル非依存のためkind="none"が実際の値と一致する。
+    display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
     ...overrides,
   };
 }

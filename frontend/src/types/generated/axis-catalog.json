@@ -68,7 +68,8 @@
             "false_value": 80.0,
             "has_unknown_fallback": true,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           }
         ],
         "thresholds": [
@@ -105,7 +106,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "intersection_per_km",
@@ -116,7 +118,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           }
         ],
         "thresholds": [
@@ -124,8 +127,8 @@
           2.0,
           4.0
         ],
-        "unit": "回/km",
-        "note": "信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた停止要因の密度。way単位の事前集計（way_attribute_counts）由来"
+        "unit": "",
+        "note": ""
       }
     },
     {
@@ -159,7 +162,9 @@
             "has_unknown_fallback": true,
             "categories": {
               "cycleway": 1.0,
+              "footway": 1.0,
               "living_street": 1.0,
+              "path": 1.0,
               "primary": 4.0,
               "primary_link": 4.0,
               "residential": 2.0,
@@ -172,7 +177,8 @@
               "trunk_link": 4.0,
               "unclassified": 2.0
             },
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "maxspeed_kmh",
@@ -208,7 +214,8 @@
                 999.0,
                 1.0
               ]
-            ]
+            ],
+            "needs_runtime_scale": false
           },
           {
             "property": "lanes_count",
@@ -244,7 +251,8 @@
                 99.0,
                 1.0
               ]
-            ]
+            ],
+            "needs_runtime_scale": false
           },
           {
             "property": "designation",
@@ -259,7 +267,8 @@
               "critical_logistics": 1.0,
               "emergency_transport": 1.0
             },
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "motor_vehicle_no",
@@ -270,7 +279,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           }
         ],
         "thresholds": [
@@ -279,7 +289,7 @@
           4.0
         ],
         "unit": "",
-        "note": "改善計画T292: highway/maxspeed_kmh/lanes_count/designation/motor_vehicle_noの5材料から自動計算する。以前は専用の手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への階層再構成でtile_inputsの重み付き結合として表現できるようになった（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）"
+        "note": ""
       }
     },
     {
@@ -308,16 +318,17 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": true
           }
         ],
         "thresholds": [
-          0.4,
-          0.8,
-          1.5
+          0.133,
+          0.267,
+          0.5
         ],
-        "unit": "件/km",
-        "note": "警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の距離正規化密度。way単位の事前集計（way_attribute_counts）由来。正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる"
+        "unit": "",
+        "note": ""
       }
     },
     {
@@ -347,7 +358,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "tunnel",
@@ -358,7 +370,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           }
         ],
         "thresholds": [
@@ -395,7 +408,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "cycleway_has_track",
@@ -406,7 +420,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "cycleway_has_lane",
@@ -417,7 +432,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "cycleway_has_shared",
@@ -428,7 +444,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           },
           {
             "property": "shared_pedestrian_path",
@@ -439,7 +456,8 @@
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
-            "breakpoints": null
+            "breakpoints": null,
+            "needs_runtime_scale": false
           }
         ],
         "thresholds": [

@@ -680,6 +680,13 @@ export interface components {
         AxisCatalogResponse: {
             /** Axes */
             axes: components["schemas"]["AxisCatalogEntry"][];
+            /**
+             * Material Runtime Scales
+             * @default {}
+             */
+            material_runtime_scales: {
+                [key: string]: number;
+            };
         };
         /**
          * AxisDefinitionPayload
@@ -738,12 +745,21 @@ export interface components {
              */
             supports_route_coloring: boolean;
             display_override?: components["schemas"]["AxisDisplaySpec"] | null;
+            /** Display Thresholds Override */
+            display_thresholds_override?: number[] | null;
         };
         /**
          * AxisDefinitionResponse
          * @description 一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
          *     `AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は
          *     継承しない（`AxisDefinitionFields`のdocstring参照）。
+         *
+         *     `display`（改善計画T404）: `domain/axis_display.py: axis_display_for()`の計算結果
+         *     （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が
+         *     「自動導出が失敗している（kind="none"）ので、この軸の材料には地図表示用のデータ取得
+         *     経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）
+         *     は`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの
+         *     レスポンスにしか無い。
          */
         AxisDefinitionResponse: {
             /** Axis Id */
@@ -795,6 +811,9 @@ export interface components {
              */
             supports_route_coloring: boolean;
             display_override?: components["schemas"]["AxisDisplaySpec"] | null;
+            /** Display Thresholds Override */
+            display_thresholds_override?: number[] | null;
+            display: components["schemas"]["AxisDisplaySpec"];
         };
         /**
          * AxisDisplaySpec
@@ -1378,6 +1397,20 @@ export interface components {
          *     `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
          *     `car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`
          *     expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
+         *
+         *     `needs_runtime_scale`（改善計画T404）: この材料のタイル生値が実行時にしか決まらない
+         *     係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.
+         *     tile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`
+         *     ——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の
+         *     生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は
+         *     このフラグが立つ材料も自動導出の対象に含める（以前はこのフラグを持つ材料を含む軸を
+         *     一律`None`[自動導出不可]としていたが、`weight`が「タイル生値→材料スケール」の
+         *     静的な変換係数を表現できないだけで、`GET /api/axis-catalog`が実行時に取得した
+         *     スケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば
+         *     正しく解決できるため、T404でこの制約を緩和した）。`thresholds`は元々
+         *     `AxisDefinition.shape.breakpoints`由来の「材料スケール」の値のため、この
+         *     フラグを持たない他のtile_inputと同じ意味のまま扱ってよい（フロント側だけが
+         *     このフラグを見てtile生値に追加のスケール定数を掛ける）。
          */
         TileInputSpec: {
             /** Property */
@@ -1421,6 +1454,11 @@ export interface components {
                 number,
                 number
             ][] | null;
+            /**
+             * Needs Runtime Scale
+             * @default false
+             */
+            needs_runtime_scale: boolean;
         };
         /** ValidationError */
         ValidationError: {

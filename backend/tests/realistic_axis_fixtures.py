@@ -42,8 +42,6 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
-from app.domain.registry import AxisDisplaySpec, TileInputSpec
-
 _CAR_STRESS_HIGHWAY_BASE_MAPPING: dict[str, float] = {
     "cycleway": 1.0,
     "living_street": 1.0,
@@ -155,19 +153,11 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         chip_label="停止密度",
         panel_hint="信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。"
         "実際の位置は「停止要因」レイヤーで確認できます。",
-        display_override=AxisDisplaySpec(
-            kind="ramp",
-            label="停止密度",
-            category="trafficSafety",
-            tile_inputs=[
-                TileInputSpec(property="stop_per_km", weight=1.0),
-                TileInputSpec(property="intersection_per_km", weight=_UNSIGNALED_INTERSECTION_WEIGHT),
-            ],
-            thresholds=[1.0, 2.0, 4.0],
-            unit="回/km",
-            note="信号・横断歩道・一時停止・踏切に無タグ交差点（重み0.3）を加えた"
-            "停止要因の密度。way単位の事前集計（way_attribute_counts）由来",
-        ),
+        # 改善計画T404: derive_ramp_inputsが自動導出したtile_inputsをそのまま使い、
+        # 色分けの段階だけをdisplay_thresholds_override（軽量な数値配列）で細かく刻む
+        # （旧display_override[tile_inputsまで含む生JSON上書き]は廃止方針、本番DBも
+        # T404で同じ内容へ移行済み。docs/tasks/T404.md参照）。
+        display_thresholds_override=[1.0, 2.0, 4.0],
     ),
     "car_stress_highway_base": AxisDefinition(
         axis_id="car_stress_highway_base",
@@ -242,42 +232,11 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         panel_hint="道路種別・制限速度・車線数・指定路線・自動車通行可否から推定した"
         "車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして"
         "確認できます。",
-        display_override=AxisDisplaySpec(
-            kind="ramp",
-            label="車の圧迫感",
-            category="trafficSafety",
-            tile_inputs=[
-                TileInputSpec(
-                    property="highway",
-                    categories=_CAR_STRESS_HIGHWAY_BASE_MAPPING,
-                    has_unknown_fallback=True,
-                ),
-                TileInputSpec(
-                    property="maxspeed_kmh",
-                    breakpoints=_CAR_STRESS_MAXSPEED_BREAKPOINTS,
-                ),
-                TileInputSpec(
-                    property="lanes_count",
-                    breakpoints=_CAR_STRESS_LANES_BREAKPOINTS,
-                ),
-                TileInputSpec(
-                    property="designation",
-                    categories={"emergency_transport": 1.0, "critical_logistics": 1.0, "both": 1.0},
-                ),
-                TileInputSpec(
-                    property="motor_vehicle_no",
-                    boolean=True,
-                    true_value=_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING[True],
-                    false_value=_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING[False],
-                ),
-            ],
-            thresholds=[2.0, 3.0, 4.0],
-            note="改善計画T292: highway/maxspeed_kmh/lanes_count/"
-            "designation/motor_vehicle_noの5材料から自動計算する。以前は専用の"
-            "手書きexpression（旧carStressExpression.ts）が必要だったが、内部軸への"
-            "階層再構成でtile_inputsの重み付き結合として表現できるようになった"
-            "（改善計画T347でbicycle_infraタイルプロパティ自体を削除したため6→5材料へ）",
-        ),
+        # 改善計画T404: 5つの内部軸参照はderive_ramp_inputsが再帰的に解決してtile_inputsを
+        # 自動導出できるようになった（_resolve_referenced_axis_tile_input参照）。色分けの
+        # 段階だけをdisplay_thresholds_overrideで細かく刻む（旧display_override廃止方針、
+        # 本番DBもT404で同じ内容へ移行済み。docs/tasks/T404.md参照）。
+        display_thresholds_override=[2.0, 3.0, 4.0],
     ),
     "accident": AxisDefinition(
         axis_id="accident",
@@ -294,17 +253,13 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         chip_label="事故密度",
         panel_hint="警察庁の交通事故統計をもとに、自転車関連事故が沿線でどれだけ近くに集中しているかの"
         "目安です[死亡事故は重めに算入]。実際の発生地点は「事故」レイヤーで確認できます。",
-        display_override=AxisDisplaySpec(
-            kind="ramp",
-            label="事故密度",
-            category="trafficSafety",
-            tile_inputs=[TileInputSpec(property="accident_per_km", weight=1.0)],
-            thresholds=[0.4, 0.8, 1.5],
-            unit="件/km",
-            note="警察庁統計（収録全年分、死亡事故は重み付き）の自転車関連事故の"
-            "距離正規化密度。way単位の事前集計（way_attribute_counts）由来。"
-            "正確な事故地点は既存の事故レイヤー（accidents、生の点表示）で確認できる",
-        ),
+        # 改善計画T404: derive_ramp_inputsは実行時スケール変換（収録年数での正規化）が
+        # 必要な材料も自動導出の対象に含めるようになった（TileInputSpec.needs_runtime_
+        # scale、実際のスケール定数はGET /api/axis-catalogが解決する）。旧display_override
+        # の閾値[0.4, 0.8, 1.5]はタイル生値（年正規化前、収録3年分）のスケールだったため、
+        # 材料スケール（年正規化後）のdisplay_thresholds_overrideへ変換する際は
+        # 収録年数3で割った値（本番DBの実際の移行値と同じ、docs/tasks/T404.md参照）を使う。
+        display_thresholds_override=[0.133, 0.267, 0.5],
     ),
     "night": AxisDefinition(
         axis_id="night",

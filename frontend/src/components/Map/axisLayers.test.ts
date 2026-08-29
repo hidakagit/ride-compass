@@ -146,13 +146,17 @@ describe("axisLayers", () => {
     expect(unknownEntry!.label).toBe("不明");
   });
 
-  it("車ストレス（car_stress）はhighway未登録値（footway/path等）を0点[最良]ではなく灰色「不明」にする（改善計画T297）", () => {
+  it("車ストレス（car_stress）はhighway未登録値（service等）を0点[最良]ではなく灰色「不明」にする（改善計画T297）", () => {
     // 背景: highwayのcategories入力はhas_unknown_fallback=trueが以前から設定済み
     // だったが、buildAxisRampUnknownExpressionはプロパティの「欠損」しか見ておらず
-    // 「値はあるが未登録」（highway="footway"等、プロパティは常に存在する）を
+    // 「値はあるが未登録」（highway="service"等、プロパティは常に存在する）を
     // 見落としていた。評価側（domain/axis_definitions.py: evaluate_axis_scalar）は
     // 未登録値をNone（評価不能）として扱う——required=Trueの材料でNoneは軸全体を
     // 評価不能にする——ため、表示側もこれに合わせて「不明」へ倒す必要がある。
+    // 改善計画T404: footway/pathはderive_ramp_inputsの軸参照再帰解決により、以前は
+    // display_overrideの手書き漏れで未登録扱いだったのが正しく登録済みへ修正された
+    // （car_stress_highway_baseのmapping参照）ため、本テストの「未登録値」の例は
+    // serviceへ差し替えた。
     const carStress = RAMP_AXES.find((axis) => axis.axisId === "car_stress")!;
     const highwayInput = carStress.tileInputs.find((input) => input.property === "highway")!;
     expect(highwayInput.hasUnknownFallback).toBe(true);
@@ -162,7 +166,7 @@ describe("axisLayers", () => {
     expect(unknownExpression).not.toBeNull();
 
     // "match"式の分岐: 登録済みの値(例: "residential")はfalse(不明ではない)、
-    // 未登録の値(例: "footway")・プロパティ欠損時のsentinel("__unknown__")はtrue(不明)。
+    // 未登録の値(例: "service")・プロパティ欠損時のsentinel("__unknown__")はtrue(不明)。
     const [op, valueExpr, ...branches] = unknownExpression as unknown[];
     expect(op).toBe("match");
     expect(valueExpr).toEqual(["coalesce", ["get", "highway"], "__unknown__"]);
@@ -174,7 +178,7 @@ describe("axisLayers", () => {
       expect(idx).toBeGreaterThanOrEqual(0);
       expect(pairs[idx + 1]).toBe(false);
     }
-    expect(pairs).not.toContain("footway");
+    expect(pairs).not.toContain("service");
 
     const legend = buildAxisRampLegend(carStress);
     const unknownEntry = legend.find((entry) => entry.isFallback);
@@ -402,5 +406,76 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
 
     expect(rampAxesFromCatalogAxes(catalogAxes)).toHaveLength(0);
     expect(axisLabelsFromCatalogAxes(catalogAxes).not_derivable_axis).toBe("地図に出ない軸");
+  });
+
+  // 改善計画T404: needs_runtime_scale=trueなtile_inputは、runtimeScales引数
+  // （GET /api/axis-catalogのmaterial_runtime_scales）を使ってweightへ構築時に
+  // 一度だけ掛け合わせて解決する。
+  it("needs_runtime_scale=trueなtile_inputはruntimeScalesでweightが解決される", () => {
+    const catalogAxes: CatalogAxis[] = [
+      {
+        axis_id: "accident",
+        label: "事故密度",
+        display: {
+          kind: "ramp",
+          label: "事故密度",
+          category: "trafficSafety",
+          tile_inputs: [{ property: "accident_per_km", weight: 1.0, needs_runtime_scale: true }],
+          thresholds: [0.5],
+          unit: "件/km",
+          note: "",
+        },
+      },
+    ];
+
+    const rampAxes = rampAxesFromCatalogAxes(catalogAxes, { accident_per_km: 1 / 3 });
+
+    expect(rampAxes[0].tileInputs[0].weight).toBeCloseTo(1 / 3);
+  });
+
+  it("needs_runtime_scaleなtile_inputのスケール定数が未解決（フォールバック中等）の場合、weightは0（安全側の寄与0）になる", () => {
+    const catalogAxes: CatalogAxis[] = [
+      {
+        axis_id: "accident",
+        label: "事故密度",
+        display: {
+          kind: "ramp",
+          label: "事故密度",
+          category: "trafficSafety",
+          tile_inputs: [{ property: "accident_per_km", weight: 1.0, needs_runtime_scale: true }],
+          thresholds: [0.5],
+          unit: "件/km",
+          note: "",
+        },
+      },
+    ];
+
+    // runtimeScales省略（既定{}）。ビルド時静的フォールバックjsonの使用中に相当する。
+    const rampAxes = rampAxesFromCatalogAxes(catalogAxes);
+
+    expect(rampAxes[0].tileInputs[0].weight).toBe(0);
+  });
+
+  it("needs_runtime_scaleではないtile_inputはruntimeScalesを渡してもweightが変わらない", () => {
+    const catalogAxes: CatalogAxis[] = [
+      {
+        axis_id: "stop_density",
+        label: "停止密度",
+        display: {
+          kind: "ramp",
+          label: "停止密度",
+          category: "trafficSafety",
+          tile_inputs: [{ property: "stop_per_km", weight: 1.0 }],
+          thresholds: [1.0],
+          unit: "回/km",
+          note: "",
+        },
+      },
+    ];
+
+    // 無関係なキーを含むruntimeScalesを渡しても、needs_runtime_scaleでないtile_inputには影響しない。
+    const rampAxes = rampAxesFromCatalogAxes(catalogAxes, { accident_per_km: 1 / 3 });
+
+    expect(rampAxes[0].tileInputs[0].weight).toBe(1.0);
   });
 });

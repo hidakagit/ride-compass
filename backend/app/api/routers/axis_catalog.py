@@ -23,14 +23,24 @@
 ——`domain/registry.py`のレジストリ由来で、GUI作成軸を走査する経路自体が無かった——
 にしか地図表示情報が無く、GUI作成軸は技術的にramp化可能な材料構成であっても地図に
 一切現れなかった。docs/decisions/t308-axis-map-display-auto-derivation.md参照）。
+
+**`material_runtime_scales`（改善計画T404）**: `derive_ramp_inputs`は実行時にしか
+決まらないスケール変換が必要な材料（`tile_property_needs_runtime_scale=True`、例:
+`accident_count_per_km_year`）も自動導出の対象に含めるようになったが、その変換係数
+（収録年数の逆数）自体は`domain/axis_display.py`のような純粋関数では計算できないため
+（DBアクセスが要る）、本エンドポイントがリクエスト毎に1回だけ`RegionService`経由で
+解決しレスポンスへ含める。フロントのJS式ビルダーがこれを取得しタイル生値に掛け合わせる
+（docs/tasks/T404.md参照）。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.api.dependencies import get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory
 from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
 from app.domain.registry import AxisDisplaySpec
+from app.services.region_service import RegionService
 
 router = APIRouter()
 
@@ -70,15 +80,37 @@ class AxisCatalogEntry(BaseModel):
 
 class AxisCatalogResponse(BaseModel):
     axes: list[AxisCatalogEntry]
+    # 改善計画T404: 実行時にしか決まらないスケール定数（`GET /api/axis-catalog`が
+    # リクエスト毎に1回だけDBから解決する「たまにしか変わらないグローバル定数」）。
+    # `tile_property_needs_runtime_scale=True`な材料（material_catalog.py参照）の
+    # material_id→スケール係数（タイル生値に掛けると材料スケールへ変換できる倍率）。
+    # フロントのJS式ビルダー（axisLayers.ts: buildAxisRampValueExpression）が
+    # `TileInputSpec.needs_runtime_scale=True`なtile_inputに対してこの係数を追加で
+    # 掛け合わせる。値が解決できない材料（現状はaccident_count_per_km_year、収録年数が
+    # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料の寄与を
+    # 0として扱う（RegionService.get_accident_years_coveredのdocstring参照）。
+    material_runtime_scales: dict[str, float] = {}
 
 
 @router.get("/api/axis-catalog", response_model=AxisCatalogResponse)
-async def get_axis_catalog() -> AxisCatalogResponse:
+async def get_axis_catalog(region_service: RegionService = Depends(get_region_service)) -> AxisCatalogResponse:
     # AXIS_DEFINITIONSは常に最新（起動時＋管理API書き込み直後にin-place更新済み、
     # services/axis_registry_service.py参照）のため、DBへは触れずプロセス内の値を
     # そのまま返す（評価ホットパスと同じ同期アクセス方式）。axis_display_for()・
     # primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
     # リクエスト毎に呼んでもコストは無視できる。
+    #
+    # 改善計画T404: material_runtime_scalesだけが例外的にDB（accident_years_covered）を
+    # 見る。現時点でtile_property_needs_runtime_scale=Trueな材料は
+    # accident_count_per_km_year 1件のみのため、ここでは決め打ちで解決する
+    # （将来2件目が増えたら、材料ごとのスケール源をどう解決するかも合わせて設計し
+    # 直す必要がある——「material_idごとに任意のスケール源を宣言できる」汎用機構は
+    # 現時点で利用者が1件しかいないため、過剰な抽象化を避けてYAGNI原則に従った）。
+    material_runtime_scales: dict[str, float] = {}
+    accident_years_covered = await region_service.get_accident_years_covered()
+    if accident_years_covered > 0:
+        material_runtime_scales["accident_count_per_km_year"] = 1 / accident_years_covered
+
     return AxisCatalogResponse(
         axes=[
             AxisCatalogEntry(
@@ -97,5 +129,6 @@ async def get_axis_catalog() -> AxisCatalogResponse:
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published
-        ]
+        ],
+        material_runtime_scales=material_runtime_scales,
     )

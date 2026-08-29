@@ -365,6 +365,56 @@ def test_create_leaves_display_fields_none_when_omitted(override_service):
     assert body["panel_hint"] is None
     assert body["show_map_icon"] is True
     assert body["display_override"] is None
+    assert body["display_thresholds_override"] is None
+    # 改善計画T404: derive_ramp_inputsが自動導出できない軸（材料gradient_percentが
+    # タイル非依存）のためdisplayはkind="none"（軸自身のデータには影響しない、
+    # AxisDefinitionResponse.displayのdocstring参照）。
+    assert body["display"]["kind"] == "none"
+
+
+def test_create_persists_and_returns_display_thresholds_override(override_service):
+    # 改善計画T404: 色分けしきい値だけの軽量な上書き（display_thresholds_override）が
+    # 管理API経由で設定・参照できること。
+    payload = {**_PAYLOAD, "display_thresholds_override": [1.0, 2.0, 4.0]}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["display_thresholds_override"] == [1.0, 2.0, 4.0]
+    assert override_service._definitions["test_axis"].display_thresholds_override == [1.0, 2.0, 4.0]
+
+
+def test_create_rejects_non_ascending_display_thresholds_override(override_service):
+    # 改善計画T404: axis_admin.py: AxisDefinitionPayload._check_display_thresholds_
+    # override_is_ascendingの検証（色分けの段階境界値は昇順でなければ意味を持たない）。
+    payload = {**_PAYLOAD, "display_thresholds_override": [2.0, 1.0, 4.0]}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_create_rejects_empty_display_thresholds_override(override_service):
+    payload = {**_PAYLOAD, "display_thresholds_override": []}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_get_returns_display_field_computed_from_derive_ramp_inputs(override_service):
+    # 改善計画T404: displayフィールド（axis_display_for()の計算結果）が単体取得
+    # レスポンスにも含まれ、kind="none"の軸で軸スタジオが注記を出せるようにする
+    # （AxisComposer.tsx: showMapDisplayUnavailableNote参照）。
+    override_service._definitions["test_axis"] = _DEFINITION
+
+    response = client.get("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    # _DEFINITIONの材料gradient_percentはタイル非依存のためkind="none"。
+    assert body["display"]["kind"] == "none"
 
 
 def test_create_rejects_chip_label_over_four_characters(override_service):
