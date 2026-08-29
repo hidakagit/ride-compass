@@ -839,7 +839,16 @@ export default function Home() {
         // 「風」（routeStyleModesの"wind"モード、ルート線のみへルート自身の実際の進行方向・
         // 到達時刻で色付け）に一本化する（T400.md「2.」節「評価軸チップとroute StyleModesの
         // 『風』モードを1つに統合する」）。
-        const disabled = (layer.id === "route" && !hasDetail) || (layer.id === "windAxis" && hasDetail);
+        // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
+        // 1箇所で決める（無効化理由が増えても、ここへ1本追加するだけでdisabled/titleの両方に
+        // 反映される）。
+        const disabledReason =
+          layer.id === "route" && !hasDetail
+            ? "ルートを生成・選択すると使えます"
+            : layer.id === "windAxis" && hasDetail
+              ? "ルート確定後は「生成したルートの色分け」の「風」で確認できます"
+              : null;
+        const disabled = disabledReason !== null;
         const summary =
           layer.id === "roadSurface"
             ? roadSurfaceSummary
@@ -893,13 +902,9 @@ export default function Home() {
           on: layerVisibility[layer.id],
           disabled,
           // 動的グループはサイドバーに設定行が無くなったため「[設定はサイドバー]」を付けない。
-          title: disabled
-            ? layer.id === "windAxis"
-              ? "ルート確定後は「生成したルートの色分け」の「風」で確認できます"
-              : "ルートを生成・選択すると使えます"
-            : isDynamicGroupLayer
-              ? layer.description
-              : `${layer.description}[設定はサイドバー]`,
+          title:
+            disabledReason ??
+            (isDynamicGroupLayer ? layer.description : `${layer.description}[設定はサイドバー]`),
           summary,
           legendDetails,
           // 地図上チップのカテゴリ束ね（改善計画T128、MapOverlayControls.tsx）用。

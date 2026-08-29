@@ -105,25 +105,29 @@ class WindWayService:
             if cached is not None:
                 fields["cache_hit"] = len(way_ids)
                 fields["cache_status"] = "hit"
-                return dict.fromkeys(way_ids, cached)
-            fields["cache_status"] = "miss"
+                penalty = cached
+            else:
+                fields["cache_status"] = "miss"
 
-            grid_point = nearest_grid_point(_tile_center(bbox))
-            times, points = await self._weather_service.get_wind_grid([grid_point])
-            wind_grid_point = points[0] if points else None
-            if wind_grid_point is None:
-                fields["wind_grid"] = "unavailable"
-                logger.warning("風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
-                return {}
-            index = _nearest_time_index(times, target)
-            if index is None:
-                fields["wind_grid"] = "out_of_range"
-                logger.warning("風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
-                return {}
+                grid_point = nearest_grid_point(_tile_center(bbox))
+                times, points = await self._weather_service.get_wind_grid([grid_point])
+                wind_grid_point = points[0] if points else None
+                if wind_grid_point is None:
+                    fields["wind_grid"] = "unavailable"
+                    logger.warning("風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
+                    return {}
+                index = _nearest_time_index(times, target)
+                if index is None:
+                    fields["wind_grid"] = "out_of_range"
+                    logger.warning("風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
+                    return {}
 
-            wind_speed = wind_grid_point.wind_speed_ms[index]
-            wind_direction = wind_grid_point.wind_direction_deg[index]
-            penalty = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
-            await set_tile_penalty(z, x, y, hour_bucket, bearing_deg, penalty)
-            fields["computed"] = len(way_ids)
+                wind_speed = wind_grid_point.wind_speed_ms[index]
+                wind_direction = wind_grid_point.wind_direction_deg[index]
+                penalty = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
+                await set_tile_penalty(z, x, y, hour_bucket, bearing_deg, penalty)
+                fields["computed"] = len(way_ids)
+
+            # T414の訂正後契約では同じタイル内の全wayが同じ値を持つため、キャッシュhit/miss
+            # いずれの経路もここで1回だけbroadcastする。
             return dict.fromkeys(way_ids, penalty)

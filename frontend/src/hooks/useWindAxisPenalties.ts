@@ -17,6 +17,9 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 // LEGEND_FILTER_DEBOUNCE_MSより長め。useWeatherGrid.tsのWEATHER_GRID_DETAIL_VIEWPORT_
 // DEBOUNCE_MSと同じ値（ネットワーク往復を伴う地図系フェッチの標準的な間隔として揃える）。
 const WIND_AXIS_VIEWPORT_DEBOUNCE_MS = 500;
+// コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、bearingDeg
+// もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
+// 連続イベント数ぶんのfetchが発生してしまう）。
 
 /** enabled中、現在のビューポート（デバウンス済み）を覆う道路タイル分をまとめて取得し、
  * way_id→wind_penaltyのMapへ統合して返す。連続する呼び出しの間に古いリクエストが後から
@@ -25,8 +28,9 @@ const WIND_AXIS_VIEWPORT_DEBOUNCE_MS = 500;
  * またぐため世代番号で判定する）。
  *
  * 改善計画T414: `bearingDeg`（コンパススライダー、環境グループと共有）・`at`
- * （共有タイムライン、環境グループと共有）を毎回のフェッチへ渡す。どちらかが変わるたびに
- * 依存配列経由で再フェッチする（enabled/debouncedViewportの変化と同じ扱い）。 */
+ * （共有タイムライン、環境グループと共有）を毎回のフェッチへ渡す。`bearingDeg`は
+ * viewportと同様デバウンス後の値を使い、どちらかが変わるたびに依存配列経由で再フェッチする
+ * （enabled/debouncedViewportの変化と同じ扱い）。 */
 export function useWindAxisPenalties(
   enabled: boolean,
   mapViewport: MapViewport | null,
@@ -35,6 +39,7 @@ export function useWindAxisPenalties(
 ): ReadonlyMap<number, number> {
   const [penalties, setPenalties] = useState<Map<number, number>>(() => new Map());
   const debouncedViewport = useDebouncedValue(mapViewport, WIND_AXIS_VIEWPORT_DEBOUNCE_MS);
+  const debouncedBearingDeg = useDebouncedValue(bearingDeg, WIND_AXIS_VIEWPORT_DEBOUNCE_MS);
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
@@ -50,7 +55,7 @@ export function useWindAxisPenalties(
       const tiles: TileXY[] = tilesCoveringViewport(debouncedViewport, ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM);
       const seq = ++requestSeqRef.current;
       const responses = await Promise.all(
-        tiles.map((tile) => fetchWindWayPenalties(tile.z, tile.x, tile.y, bearingDeg, at))
+        tiles.map((tile) => fetchWindWayPenalties(tile.z, tile.x, tile.y, debouncedBearingDeg, at))
       );
       if (cancelled || seq !== requestSeqRef.current) return;
       setPenalties(mergeWindWayPenalties(responses));
@@ -58,7 +63,7 @@ export function useWindAxisPenalties(
     return () => {
       cancelled = true;
     };
-  }, [enabled, debouncedViewport, bearingDeg, at]);
+  }, [enabled, debouncedViewport, debouncedBearingDeg, at]);
 
   return penalties;
 }

@@ -14,8 +14,7 @@
 
 import type { WindGridPoint } from "@/types/weather";
 import { gridCellRing } from "./dynamicWeather";
-import { WIND_AXIS_THRESHOLDS } from "./windAxisLayer";
-import { COLOR_UNKNOWN, rampColorForBand } from "./axisLayers";
+import { buildWindPenaltyColorExpression } from "./windAxisLayer";
 
 /** 走行方位と風向風速から、走行への風の影響（ペナルティ）を計算する。backend/app/domain/
  * wind.py: WindCalculator.wind_penaltyの純粋なJS移植（正の値=向かい風、負の値=追い風）。
@@ -56,16 +55,11 @@ export function windPenaltyGridToCellFeatureCollection(
 }
 
 /** wind_penalty（["get","windPenalty"]）を色へ変換するMapLibre fill-color式。評価軸グループ
- * （windAxisLayer.ts: windAxisColorExpression、feature-state経由）と同じ配色・しきい値
- * （WIND_AXIS_THRESHOLDS）を使う——環境（面）・評価軸（線）は同じ[時刻,向き]入力を共有する
- * という契約（T400.md「2.」節）に加え、色の意味も揃えることで両者を見比べやすくする。
- * feature-state版と異なり、こちらはgeojson sourceのプロパティを直接["get",...]で読む。 */
+ * （windAxisLayer.ts: windAxisColorExpression、feature-state経由）と同じ配色・しきい値の
+ * 組み立てロジック（buildWindPenaltyColorExpression）を共有する——環境（面）・評価軸（線）は
+ * 同じ[時刻,向き]入力を共有するという契約（T400.md「2.」節）に加え、色の意味も揃えることで
+ * 両者を見比べやすくする。feature-state版と異なり、こちらはgeojson sourceのプロパティを
+ * 直接["get",...]で読む。 */
 export function windPenaltyFillColorExpression(): unknown[] {
-  const value = ["get", "windPenalty"];
-  const bandCount = WIND_AXIS_THRESHOLDS.length + 1;
-  const stepExpression: unknown[] = ["step", value, rampColorForBand(0, bandCount)];
-  WIND_AXIS_THRESHOLDS.forEach((threshold, index) => {
-    stepExpression.push(threshold, rampColorForBand(index + 1, bandCount));
-  });
-  return ["case", ["==", value, null], COLOR_UNKNOWN, stepExpression];
+  return buildWindPenaltyColorExpression(["get", "windPenalty"]);
 }
