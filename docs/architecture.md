@@ -303,45 +303,47 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   切替を1つのフックへ集約する（元はpage.tsx内に直接書かれていた風専用ロジックを、風と
   降水延長予報が共有できる形へ切り出した）。
 
-### Redisキャッシュ基盤とJMA気象データ連携（改善計画T387）
+### Redisキャッシュ基盤とJMAアメダス連携（改善計画T387）
 
-Open-Meteo（上記）に加え、JMA（気象庁）の公開データ（アメダス観測値・高解像度降水
-ナウキャスト・MSM）を扱うため、Redisを新規インフラとして導入した。Redisは以下2つの
-用途に限定して使う「TTL付きキャッシュ、またはPostGIS/実データ源へのフォールバックが
+Open-Meteo（上記）に加え、JMA（気象庁）のアメダス観測値を扱うため、Redisを新規インフラ
+として導入した。Redisは「TTL付きキャッシュ、またはPostGIS/実データ源へのフォールバックが
 必ず効くcache-aside」専用の層で、正本データを持たない（`app/infrastructure/
 redis_client.py`）。ローカル開発は`docker-compose.yml`のredisサービス、本番はOracle
 Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する想定（backendコンテナが
 `--network=host`のため追加設定なしで到達できる）。
 
-- **JMAデータ3種（`app/services/jma_amedas_service.py`・`jma_tile_service.py`・
-  `jma_msm_service.py`）**: いずれも気象データはPostGISへ書き込まずRedis上で完結させる
-  （気象データは短命でディスクI/O向きではないため）。
-  - **アメダス**: JMAの観測値エンドポイントは1地点だけを絞り込めず全国約1,300観測所ぶんを
-    1レスポンスで返す仕様のため、リクエストのたびに個別フェッチせず、`main.py`の
-    APScheduler定期バッチ（`AMEDAS_REFRESH_INTERVAL_MINUTES=10分`、気象庁の公式観測・
-    配信周期に合わせた値）が全国分をまとめて取得しRedis Hash（`jma:amedas:{station_id}`、
-    TTL 15分）へ書き戻す。リクエスト経路（`GET /api/weather/amedas`）はRedis読み取り
-    専用で、JMAへは問い合わせない。体感温度はJMAが提供しないため、気温・湿度・風速から
-    BOM（オーストラリア気象局）のApparent Temperature式で自前計算する
-    （`domain/jma_amedas.py: apparent_temperature_from_amedas`）。
-  - **`GET /api/weather`のアメダス優先化**: 現在値のうち気温・体感温度・風速風向は、
-    最寄りアメダス観測所の実測値が取得できればそちらを優先し、Open-Meteo（モデル推定）を
-    上書きする（`api/routers/weather.py: _prefer_amedas_current_values`）。降水確率・
-    降水量・UV指数・weather_code・「今日の見通し」（日次集計）はアメダスに相当データが
-    無いか単位が異なる（アメダスは10分降水量、Open-Meteoは時間降水量[mm/h]）ため
-    Open-Meteoのまま。Open-Meteo自体が失敗した場合はアメダス単独でのレスポンス構築は
-    行わず、従来どおり502を返す。
-  - **ナウキャスト**: PNGタイル本体は取得・中継せず、最新basetime/validtimeの解決と
-    タイルURLテンプレートの組み立てのみを担う（`jma_tile_service.py`）。バッチ間隔・
-    TTLは気象庁の公式配信周期（5分間隔）に合わせた。
-  - **MSM（5kmメッシュ）**: GRIB2バイナリの実解析は[T389](tasks/T389.md)へ切り出し、
-    本タスクではRedis保存インターフェース（Hash `jma:msm:{mesh_id}`、TTL 2時間）と
-    データ構造のみ定義したスケルトン。
-  - **Open-Meteo全面代替の可否**: ルート評価（`WindService`、区間ごと・将来時刻の風速
-    風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
-    ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
-    （候補はMSMのみ）。UV指数・weather_code相当のJMAプロダクトは今回未調査のまま
-    Open-Meteo依存を継続している。
+- **アメダス（`app/services/jma_amedas_service.py`）**: 気象データはPostGISへ書き込まず
+  Redis上で完結させる（気象データは短命でディスクI/O向きではないため）。JMAの観測値
+  エンドポイントは1地点だけを絞り込めず全国約1,300観測所ぶんを1レスポンスで返す仕様の
+  ため、リクエストのたびに個別フェッチせず、`main.py`のAPScheduler定期バッチ
+  （`AMEDAS_REFRESH_INTERVAL_MINUTES=10分`、気象庁の公式観測・配信周期に合わせた値）が
+  全国分をまとめて取得しRedis Hash（`jma:amedas:{station_id}`、TTL 15分）へ書き戻す。
+  リクエスト経路（`GET /api/weather/amedas`）はRedis読み取り専用で、JMAへは問い合わせない。
+  体感温度はJMAが提供しないため、気温・湿度・風速からBOM（オーストラリア気象局）の
+  Apparent Temperature式で自前計算する（`domain/jma_amedas.py:
+  apparent_temperature_from_amedas`）。
+- **`GET /api/weather`のアメダス優先化**: 現在値のうち気温・体感温度・風速風向は、
+  最寄りアメダス観測所の実測値が取得できればそちらを優先し、Open-Meteo（モデル推定）を
+  上書きする（`api/routers/weather.py: _prefer_amedas_current_values`）。降水確率・
+  降水量・UV指数・weather_code・「今日の見通し」（日次集計）はアメダスに相当データが
+  無いか単位が異なる（アメダスは10分降水量、Open-Meteoは時間降水量[mm/h]）ため
+  Open-Meteoのまま。Open-Meteo自体が失敗した場合はアメダス単独でのレスポンス構築は
+  行わず、従来どおり502を返す。
+- **降水ナウキャスト・MSMのRedis化は見送り済み（2026-08-29）**: 当初はナウキャストの
+  タイムスタンプ解決ヘルパー（`jma_tile_service.py`）とMSMのRedis保存スケルトン
+  （`jma_msm_service.py`）も実装したが、(1) ナウキャストはフロントエンド
+  （[precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)）が
+  既に独自に`targetTimes_N1/N2.json`を直接取得しタイルURLを組み立てており、バックエンド側
+  ヘルパーは完全に重複・未使用だったため削除、(2) MSMはGRIB2解析が
+  [T389](tasks/T389.md)（JMBSCとの有償契約が前提、保留中）に切り出されており実体を伴わない
+  スケルトンのままだったため削除した。
+- **Open-Meteo全面代替の可否**: ルート評価（`WindService`、区間ごと・将来時刻の風速
+  風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
+  ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
+  （候補はMSMのみだが[T389](tasks/T389.md)は保留中）。降水短時間予報（`jmatile/data/
+  rasrf/`、無料・公式、15時間先まで確認済み）と線状降水帯予測マップ（`sjfcstmap`、
+  無料・公式）は2026-08-29に存在を確認したが未実装・未検証。UV指数・weather_code相当の
+  JMAプロダクトは無料の代替が見つからずOpen-Meteo依存を継続している。
 - **road_graph_tilesのRedis cache-aside（`app/infrastructure/road_graph_tile_cache.py`）**:
   `road_graph_tiles`（タイル取得済みマーカー、9章参照）はPostGIS上の一時的な揮発データの
   代表例だが、**PostGISを正本のまま維持し、Redisは読み取り高速化のための派生キャッシュに
