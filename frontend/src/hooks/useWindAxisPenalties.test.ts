@@ -20,33 +20,34 @@ describe("useWindAxisPenalties（改善計画T405: way_id→wind_penalty配信�
   });
 
   it("enabled=falseの間はフェッチせず、空のMapを返す", () => {
-    const { result } = renderHook(() => useWindAxisPenalties(false, VIEWPORT));
+    const { result } = renderHook(() => useWindAxisPenalties(false, VIEWPORT, 0, undefined));
     expect(fetchWindWayPenalties).not.toHaveBeenCalled();
     expect(result.current.size).toBe(0);
   });
 
   it("viewportがnullの間はフェッチしない", () => {
-    const { result } = renderHook(() => useWindAxisPenalties(true, null));
+    const { result } = renderHook(() => useWindAxisPenalties(true, null, 0, undefined));
     expect(fetchWindWayPenalties).not.toHaveBeenCalled();
     expect(result.current.size).toBe(0);
   });
 
   it("enabled=trueで、現在のビューポートを覆うタイル分をフェッチし統合した結果を返す", async () => {
     vi.mocked(fetchWindWayPenalties).mockResolvedValue({ "1": 2.5, "2": -1.0 });
+    const at = new Date("2026-08-30T09:00:00Z");
 
-    const { result } = renderHook(() => useWindAxisPenalties(true, VIEWPORT));
+    const { result } = renderHook(() => useWindAxisPenalties(true, VIEWPORT, 90, at));
 
     await waitFor(() => expect(result.current.size).toBe(2));
     expect(result.current.get(1)).toBe(2.5);
     expect(result.current.get(2)).toBe(-1.0);
-    expect(fetchWindWayPenalties).toHaveBeenCalledWith(14, 14549, 6450);
+    expect(fetchWindWayPenalties).toHaveBeenCalledWith(14, 14549, 6450, 90, at);
   });
 
   it("OFFへ切り替えると結果を空へ戻す", async () => {
     vi.mocked(fetchWindWayPenalties).mockResolvedValue({ "1": 2.5 });
 
     const { result, rerender } = renderHook(
-      ({ enabled }: { enabled: boolean }) => useWindAxisPenalties(enabled, VIEWPORT),
+      ({ enabled }: { enabled: boolean }) => useWindAxisPenalties(enabled, VIEWPORT, 0, undefined),
       { initialProps: { enabled: true } },
     );
 
@@ -60,7 +61,7 @@ describe("useWindAxisPenalties（改善計画T405: way_id→wind_penalty配信�
   it("タイル取得が失敗しても（fetchWindWayPenaltiesが空オブジェクトで解決する前提で）例外を投げず空のMapに収束する", async () => {
     vi.mocked(fetchWindWayPenalties).mockResolvedValue({});
 
-    const { result } = renderHook(() => useWindAxisPenalties(true, VIEWPORT));
+    const { result } = renderHook(() => useWindAxisPenalties(true, VIEWPORT, 0, undefined));
 
     await waitFor(() => expect(fetchWindWayPenalties).toHaveBeenCalled());
     expect(result.current.size).toBe(0);

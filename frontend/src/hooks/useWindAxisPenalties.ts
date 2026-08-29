@@ -22,8 +22,17 @@ const WIND_AXIS_VIEWPORT_DEBOUNCE_MS = 500;
  * way_id→wind_penaltyのMapへ統合して返す。連続する呼び出しの間に古いリクエストが後から
  * 解決しても新しい結果を上書きしないよう、リクエストの世代（seq）で最新のものだけを
  * 反映する（useWeatherGridのcancelledパターンと同じ意図、複数タイルのPromise.allを
- * またぐため世代番号で判定する）。 */
-export function useWindAxisPenalties(enabled: boolean, mapViewport: MapViewport | null): ReadonlyMap<number, number> {
+ * またぐため世代番号で判定する）。
+ *
+ * 改善計画T414: `bearingDeg`（コンパススライダー、環境グループと共有）・`at`
+ * （共有タイムライン、環境グループと共有）を毎回のフェッチへ渡す。どちらかが変わるたびに
+ * 依存配列経由で再フェッチする（enabled/debouncedViewportの変化と同じ扱い）。 */
+export function useWindAxisPenalties(
+  enabled: boolean,
+  mapViewport: MapViewport | null,
+  bearingDeg: number,
+  at: Date | undefined
+): ReadonlyMap<number, number> {
   const [penalties, setPenalties] = useState<Map<number, number>>(() => new Map());
   const debouncedViewport = useDebouncedValue(mapViewport, WIND_AXIS_VIEWPORT_DEBOUNCE_MS);
   const requestSeqRef = useRef(0);
@@ -40,14 +49,16 @@ export function useWindAxisPenalties(enabled: boolean, mapViewport: MapViewport 
       }
       const tiles: TileXY[] = tilesCoveringViewport(debouncedViewport, ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM);
       const seq = ++requestSeqRef.current;
-      const responses = await Promise.all(tiles.map((tile) => fetchWindWayPenalties(tile.z, tile.x, tile.y)));
+      const responses = await Promise.all(
+        tiles.map((tile) => fetchWindWayPenalties(tile.z, tile.x, tile.y, bearingDeg, at))
+      );
       if (cancelled || seq !== requestSeqRef.current) return;
       setPenalties(mergeWindWayPenalties(responses));
     });
     return () => {
       cancelled = true;
     };
-  }, [enabled, debouncedViewport]);
+  }, [enabled, debouncedViewport, bearingDeg, at]);
 
   return penalties;
 }

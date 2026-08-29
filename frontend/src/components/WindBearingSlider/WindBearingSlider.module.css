@@ -1,0 +1,35 @@
+/* DynamicLayerTimeSlider.module.cssと同じ方針: 地図のドラッグ・ズーム操作を妨げないよう、
+   余白部分はpointer-eventsを透過させ、実際に操作するコントロール自身だけautoへ戻す。 */
+.wrapper {
+  pointer-events: none;
+}
+
+.panel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+  /* 地図の上/近くに置く前提のため、パン・ズームジェスチャーとの競合を避ける
+     （WindBearingSlider.tsxコメント参照、実機での最終確認は別途要）。 */
+  touch-action: none;
+}
+
+.centerValue {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--foreground);
+  text-align: center;
+}
+
+.centerCardinal {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--color-muted);
+  text-align: center;
+}

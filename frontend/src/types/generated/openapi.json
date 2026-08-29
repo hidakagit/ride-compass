@@ -673,7 +673,7 @@
     "/api/region/dynamic-way-values/wind/{z}/{x}/{y}": {
       "get": {
         "summary": "Region Dynamic Way Values Wind",
-        "description": "「評価軸」グループとしての風（改善計画T405、docs/tasks/T400.md「2. 動的要素…の\n二重表現」節）。指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、\nbackend/app/domain/wind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量な\nJSONエンドポイント。\n\n静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイント新設に伴う\n変更なし）とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの\n`setFeatureState`で合成する（`frontend/src/components/Map/windAxisLayer.ts`参照）。\n`way_id`が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由するため、\nパン・ズームで同じ道路が再び視界に入っても風グリッド・DBへの再問い合わせは1時間\nバケットの範囲内では発生しない。\n\n`at`（クエリパラメータ）省略時は現在時刻（Asia/Tokyo）を使う。路面・POIタイルと同じ\nレート制限・座標検証・DB接続プールのsemaphoreを共有する（`region_service.py`の\n`_region_tile_semaphore`のコメント参照——MVTエンコードは伴わないが同じPostGIS\nコネクションプールを取り合うため）。",
+        "description": "「評価軸」グループとしての風（改善計画T405→T414で作り直し、docs/tasks/T400.md\n「2. 動的要素…は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」節）。\n指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、backend/app/domain/\nwind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量なJSONエンドポイント。\nこのエンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は\nルート自身の実進行方向・実到達時刻から計算済みの`axis_difficulties.wind`\n（`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。\n\n`bearing_deg`（クエリパラメータ、必須）はユーザーがコンパススライダーで指定した走行方位\n（0〜360度、北=0・時計回り）。全道路へ一律適用するため、道路自身の向きは計算に使わない\n（T414の訂正、モジュールdocstring参照）。\n\n静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイント新設に伴う\n変更なし）とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの\n`setFeatureState`で合成する（`frontend/src/components/Map/windAxisLayer.ts`参照）。\nタイル単位の値が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由する\nため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの\n範囲内では風グリッド・DBへの再問い合わせは発生しない。\n\n`at`（クエリパラメータ）省略時は現在時刻（Asia/Tokyo）を使う。路面・POIタイルと同じ\nレート制限・座標検証・DB接続プールのsemaphoreを共有する（`region_service.py`の\n`_region_tile_semaphore`のコメント参照——MVTエンコードは伴わないが同じPostGIS\nコネクションプールを取り合うため）。",
         "operationId": "region_dynamic_way_values_wind_api_region_dynamic_way_values_wind__z___x___y__get",
         "parameters": [
           {
@@ -701,6 +701,15 @@
             "schema": {
               "type": "integer",
               "title": "Y"
+            }
+          },
+          {
+            "name": "bearing_deg",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Bearing Deg"
             }
           },
           {

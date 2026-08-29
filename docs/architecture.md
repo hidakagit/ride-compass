@@ -2374,45 +2374,76 @@ car_stress（内部軸5つの合成値、複数材料の重み付き結合のた
 不要になった。現在`kind=bespoke`の軸は無く、gradient/surface_qは`kind=none`（既存の
 標高図・道路情報レイヤーが代替）。night軸はT145a（データ充実待ちで保留）まで未生成。
 
-### way_id→wind_penalty配信層とsetFeatureState連携（改善計画T405）
+### 動的材料の状態別表現契約とway_id→wind_penalty配信層（改善計画T405→T414で作り直し）
 
 上記の二次軸ランプレイヤーは「事実はタイルに焼き込み、解釈（重み・しきい値）はクライアント側の
 MapLibre expressionで行う」方式だが、風のように**道路自身に紐づかない外部条件（風向風速）が
 関与する材料**は、レシピ非依存の事実そのものがタイル生成時点では定まらない（同じ道路でも
-時刻によって値が変わる）ため、この方式に乗らない。そこで風は「環境（面・探索用、`gridFill`。
-風の格子点マップ§動的気象レイヤー参照）」と「評価軸（道路自身の向きで塗る線表示、以下）」の
-2つの独立した見せ方を持つ（設計判断の背景は[docs/tasks/T400.md](tasks/T400.md)「2.」参照。
-「環境」グループの連続回転スライダー付き面表示は未実装、以下は「評価軸」グループの基盤のみ）。
+時刻によって値が変わる）ため、この方式に乗らない。
 
-- **backend**: `WindWayService.get_way_wind_penalties(z, x, y, at)`
-  （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル範囲の
-  `osm_raw_ways`から`way_id→bearing_deg`（`RoadGraphRepository.get_way_bearings_in_tile`、
-  `ST_Azimuth(...::geography)`で測地線方位角を求める）を取得し、最寄りの風グリッド格子点
-  （`domain/wind_grid.py: nearest_grid_point`が既存の固定ラティスへスナップしキャッシュを
-  共有）の風向風速と`WindCalculator.wind_penalty`（既存の純粋関数、`domain/wind.py`）で
-  合成する。way自身は「走行方向」を持たないため、`osm_raw_ways.geom`に格納された向き
-  （start→end、OSM入力データの並び順）のまま評価する設計上の単純化がある（実際に終点→始点
-  方向へ走行した場合は向かい風/追い風が逆になりうる。ルート確定後の正確な風表示は別経路
-  ——`RouteSegmentDetail.axis_difficulties`、区間ごとの実進行方向を使う——が担う）。
-  計算結果は`way_id`をキーに1時間バケット付きでRedisへキャッシュする
-  （[wind_way_penalty_cache.py](../backend/app/infrastructure/wind_way_penalty_cache.py)、
-  TTLは風グリッドの新鮮判定TTL`WIND_GRID_CACHE_TTL_SECONDS`と同じ3時間）。新設のAPI
-  `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照）が`{way_id: wind_penalty}`を
-  返す——静的なroad-surface-tiles（MVT、変更なし）とは完全に別経路のJSONエンドポイント。
-- **frontend**: `ROAD_TILE_SOURCE_ID`のvector sourceへ`promoteId: { [ROAD_TILE_SOURCE_LAYER]:
-  "osm_way_id" }`を設定し、既存の`osm_way_id`プロパティ（区間インスペクタ用に元から焼き込み
-  済み）をMapLibreの`feature.id`へ昇格させる（バックエンド側のタイル内容・世代は変更不要）。
-  `hooks/useWindAxisPenalties.ts`が現在のビューポート（500msデバウンス）を覆う道路タイル
-  分をまとめてfetchし（`windAxisLayer.ts: tilesCoveringViewport`、パン・ズームのたびに
-  個別`way_id`を都度問い合わせない設計）、`MapView.tsx`が`map.setFeatureState({source,
-  sourceLayer, id: wayId}, {windPenalty: value})`で道路タイルの地物へ後から値を差し込む。
-  色分けは`["feature-state","windPenalty"]`を読むMapLibre expression
-  （`windAxisLayer.ts: windAxisColorExpression`）で、通常のramp軸と同じ`RAMP_COLOR_ANCHORS`
-  パレットを使う。地図チップは`mapLayers.ts`の`windAxis`——改善計画T406完了後は「評価軸」
-  グループへ正式統合済み（`mapOverlayGroupFor`がidで特別扱いする唯一の例外、下記節参照）。
-- 勾配（gradient）も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、
-  T218a）のため、同型のRedis配信層を新設すれば同じ仕組みに乗せられる見込み（T400.md「7.」参照、
-  未着手）。
+こうした「動的材料」は、材料非依存の共通**状態機械**（[docs/tasks/T400.md](tasks/T400.md)
+「2.」節、[T414](tasks/T414.md)で確立）に従う: ルート未確定時は「ユーザーが指定したパラメータ
+（風なら時刻＋走行方位）を視界内の全道路へ一律適用」・ルート確定後は「ルート自身の実値
+（実進行方向・実到達時刻）でルート線のみへ着色」。風はこの契約の最初の実装例——**T405時点の
+実装（道路自身のOSM格納方向・現在時刻固定で評価）はこの契約と矛盾する誤った前提に基づいて
+おり、T414（2026-08-30）で作り直した**。
+
+**ルート未確定時**（「環境」「評価軸」両グループが同じ[時刻,向き]入力を共有する）:
+
+- **環境（面、`gridFill`）**: 風の矢印（`windVector`、格子点マップ§動的気象レイヤー参照）と
+  同じフェッチ済みの風グリッド（`useWeatherGrid`のeffectiveGrid）から、コンパススライダー
+  （`WindBearingSlider`、`@fseehawer/react-circular-slider`採用）で指定した走行方位を使い、
+  **クライアント側だけ**でwind_penaltyを計算する（`frontend/src/components/Map/
+  windPenalty.ts: windPenalty`、backend `WindCalculator.wind_penalty`のJS移植）——追加の
+  API呼び出しは発生しない。`MapView.tsx: ensureWindPenaltyFillLayer`/
+  `applyWindPenaltyFillGeojson`が独立したgeojson source/fillレイヤーとして矢印
+  （gridMark）の背後に薄く重ね描きする（`DYNAMIC_WEATHER_RENDERERS`汎用機構は「1要素につき
+  単一payload.kind」前提のため、矢印と面塗りを同時表示するこの用途には乗らず、windAxisと
+  同型のbespoke実装にした）。
+- **評価軸（線）**: `WindWayService.get_way_wind_penalties(z, x, y, at, bearing_deg)`
+  （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル内の
+  way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`——T414で道路自身の向き計算
+  [`ST_Azimuth`]が不要になったため、旧`get_way_bearings_in_tile`より大幅に単純化した
+  クエリへ置き換え）を取得し、最寄りの風グリッド格子点（`domain/wind_grid.py:
+  nearest_grid_point`）の風向風速と、**ユーザーが指定した単一の走行方位**（全道路共通、
+  道路自身の向きは計算に使わない）から`WindCalculator.wind_penalty`で1回だけ計算し、
+  タイル内の全way_idへ同じ値を割り当てる（同じタイル内の全wayは常に同じ値を持つ——
+  風グリッドをタイル中心1点で代表させる既存の近似＋走行方位が全道路共通のため）。
+  計算結果は`(z, x, y, 時刻バケット, 向きバケット[5度刻み]) → スカラー値1個`という
+  タイル単位のキーでRedisへキャッシュする（[wind_way_penalty_cache.py]
+  (../backend/app/infrastructure/wind_way_penalty_cache.py)、TTLは風グリッドの新鮮判定TTL
+  `WIND_GRID_CACHE_TTL_SECONDS`と同じ3時間）——T405時点は`way_id`単位のキー（旧設計、
+  道路自身の向きが固定値だったため時刻だけが変数だった）だったが、T414で走行方位も
+  ユーザー指定の変数になったことを受け、はるかに小さいタイル単位のキー空間へ再設計した。
+  `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照、`bearing_deg`クエリ
+  パラメータ必須）が`{way_id: wind_penalty}`を返す——静的なroad-surface-tiles（MVT、
+  変更なし）とは完全に別経路のJSONエンドポイント。
+  フロントは`ROAD_TILE_SOURCE_ID`のvector sourceへ`promoteId: { [ROAD_TILE_SOURCE_LAYER]:
+  "osm_way_id" }`を設定し、既存の`osm_way_id`プロパティをMapLibreの`feature.id`へ昇格させる。
+  `hooks/useWindAxisPenalties.ts`が現在のビューポート（500msデバウンス）を覆う道路タイル分を
+  まとめてfetchし（`windAxisLayer.ts: tilesCoveringViewport`）、`MapView.tsx`が
+  `map.setFeatureState({source, sourceLayer, id: wayId}, {windPenalty: value})`で道路タイル
+  の地物へ後から値を差し込む。色分けは`["feature-state","windPenalty"]`を読むMapLibre
+  expression（`windAxisLayer.ts: windAxisColorExpression`）で、環境グループのgridFillと
+  同じしきい値・配色（`WIND_AXIS_THRESHOLDS`）を共有する。
+
+**ルート確定後**: パラメータ指定UI（コンパススライダー・上記windAxisの一律色分け）は終了する
+（`page.tsx`が`hasDetail`で`showWindAxis`/`showWindPenaltyFill`をfalseへ倒し、windAxisチップ
+自体もdisabledにする。`MapView.tsx: clearWindAxisFeatureState`が`map.removeFeatureState`で
+それまでの全道路ぶんのfeature-stateを明示的にクリアする）。代わりに、既に実装済みだった
+`RouteSegmentDetail.axis_difficulties.wind`（ルート生成時点で区間ごとの実進行方向・実到達
+時刻を使って計算済み、`routeStyleModesFromCatalogAxes`がaxis-catalogの`wind`軸の
+`supports_route_coloring`フラグから自動生成する`routeStyleModes`の"wind"モード、「ルート
+設定/結果パネル」の「生成したルートの色分け」）が、ルート線のみへの正確な色分けを担う——
+これはT400.md「3.」節の実装（T352）で既に存在しており、T414で新規に実装したものではない。
+
+地図チップは`mapLayers.ts`の`windAxis`——改善計画T406完了後は「評価軸」グループへ正式統合済み
+（`mapOverlayGroupFor`がidで特別扱いする唯一の例外、下記節参照）。
+
+勾配（gradient）も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、T218a）の
+ため、同じ状態機械に乗せることは設計上可能（T400.md「2.」節の3軸表）だが、勾配は「向きの出所が
+道路自身に内在」という風とは異なる性質を持ち、ユーザー指定の向きと道路自身の向きの対応付けが
+未決定のため、実装は別タスク（[T423](tasks/T423.md)）とする。
 
 ### 地図チップの最上位グルーピング（道路/評価軸/環境/スポット、改善計画T406）と一次/二次命名（改善計画T163〜T169）
 

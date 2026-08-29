@@ -1,18 +1,20 @@
-"""way_id→wind_penalty配信層（改善計画T405、docs/tasks/T400.md「2. 動的要素（時刻・向き等）を
-含む材料は『環境』と『道路』の二重表現を持つ」節）。
+"""way_id→wind_penalty配信層（改善計画T405→T414で作り直し、docs/tasks/T400.md「2. 動的要素
+（時刻・向き等）を含む材料は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」節）。
 
-「評価軸」グループとしての風（軸スタジオの軸と同じ扱いで道路そのものを線で塗る表示）の
-基盤。「環境」グループの風（時刻＋方位スライダー＋`gridFill`面表示、windLayer.ts/
-dynamicWeather.ts）とは別経路——本サービスは、道路のbearing_deg
-（`RoadGraphRepository.get_way_bearings_in_tile`、osm_raw_ways.geomのstart→end基準）と、
-既存の風グリッド（`WeatherService.get_wind_grid`、格子点ごとの時間別風向風速）を掛け合わせて
-`WindCalculator.wind_penalty`（backend/app/domain/wind.py、既存の純粋関数をそのまま流用）を
-計算するだけの薄いオーケストレーション層で、新しいドメインロジックは持たない。
+「評価軸」グループとしての風（ルート未確定時、視界内の全道路へユーザー指定の[時刻,向き]を
+一律適用する線表示）の基盤。「環境」グループの風（時刻＋方位スライダー＋`gridFill`面表示、
+windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]のユーザー入力を共有する**
+（T400.md「2.」節）。
 
-対象範囲はリクエストされたタイル座標（z/x/y）に絞る（全国・全way分の常時計算は非現実的、
-T405.mdの設計方針）。計算結果は`way_id`をキーにRedisへキャッシュする
-（`wind_way_penalty_cache.py`）ため、同じ道路が複数タイル・複数ズームレベルにまたがって
-現れても再計算しない。
+**T414での設計変更**: T405時点の実装は、道路のbearing_deg（道路自身のOSM格納方向）と
+風グリッドを掛け合わせて`wind_penalty`を計算していたが、これは実機フィードバックで発覚した
+設計ミスだった——道路自身の向きはデータ収集上の都合で決まる値であり、ユーザーの走行方向とは
+無関係。訂正後は、走行方位（travel_bearing_deg）は**ユーザーがコンパススライダーで指定した
+単一の値**（全道路共通）を使う。この結果、同じタイル内の全wayは常に同じwind_penalty値を
+持つ（風グリッドもタイル中心1点で代表させる既存の近似のため）——道路自身の向きの取得
+（旧`get_way_bearings_in_tile`、ST_Azimuth）は不要になり、対象タイルに存在するway_idの一覧
+（`get_way_ids_in_tile`）だけを取得すればよい。計算結果のキャッシュも、way_idごとではなく
+タイル単位のスカラー値1個で足りる（`wind_way_penalty_cache.py`のモジュールdocstring参照）。
 """
 
 import logging
@@ -24,7 +26,7 @@ from app.domain.wind import WindCalculator
 from app.domain.wind_grid import nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.wind_way_penalty_cache import get_way_penalties_many, set_way_penalties_many
+from app.infrastructure.wind_way_penalty_cache import get_tile_penalty, set_tile_penalty
 from app.services.route_generator import JST
 from app.services.weather_service import WeatherService
 
@@ -65,11 +67,17 @@ class WindWayService:
         self._repository = repository
         self._weather_service = weather_service
 
-    async def get_way_wind_penalties(self, z: int, x: int, y: int, at: datetime | None) -> dict[int, float]:
-        """指定タイル内のway_idごとのwind_penaltyを返す。repository未接続・取込範囲外・
+    async def get_way_wind_penalties(
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float
+    ) -> dict[int, float]:
+        """指定タイル内のway_idごとのwind_penaltyを返す（T414の訂正後契約では、同じタイル内の
+        全wayは同じ値を持つ——モジュールdocstring参照）。repository未接続・取込範囲外・
         風データ取得不能等はいずれも空dictへ倒す（地図表示という既存機能全体を落とさず、
         「この道路には色が付かない」という安全側の劣化で済ませる、他タイル系メソッドと
         同じグレースフルデグレード方針）。
+
+        bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
+        時計回り）。全道路共通の値として使う。
         """
         if self._repository is None:
             return {}
@@ -79,28 +87,26 @@ class WindWayService:
 
         with log_external_call("region:wind-way-penalty", z=z, x=x, y=y) as fields:
             try:
-                bearings = await self._repository.get_way_bearings_in_tile(
+                way_ids = await self._repository.get_way_ids_in_tile(
                     z, x, y, bbox, (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
                 )
             except Exception as exc:  # noqa: BLE001 DB障害は空dictへ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
                 fields["warned"] = True
-                logger.warning("風の評価軸配信のbearing取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
+                logger.warning("風の評価軸配信のway_id取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
                 return {}
-            if not bearings:
-                fields["postgis"] = "uncovered" if bearings is None else "empty"
+            if not way_ids:
+                fields["postgis"] = "uncovered" if way_ids is None else "empty"
                 return {}
-            fields["way_count"] = len(bearings)
+            fields["way_count"] = len(way_ids)
 
             hour_bucket = _hour_bucket(target)
-            way_ids = list(bearings.keys())
-            cached = await get_way_penalties_many(way_ids, hour_bucket)
-            fields["cache_hit"] = len(cached)
-            missing_ids = [way_id for way_id in way_ids if way_id not in cached]
-            if not missing_ids:
+            cached = await get_tile_penalty(z, x, y, hour_bucket, bearing_deg)
+            if cached is not None:
+                fields["cache_hit"] = len(way_ids)
                 fields["cache_status"] = "hit"
-                return cached
-            fields["cache_status"] = "partial" if cached else "miss"
+                return dict.fromkeys(way_ids, cached)
+            fields["cache_status"] = "miss"
 
             grid_point = nearest_grid_point(_tile_center(bbox))
             times, points = await self._weather_service.get_wind_grid([grid_point])
@@ -108,19 +114,16 @@ class WindWayService:
             if wind_grid_point is None:
                 fields["wind_grid"] = "unavailable"
                 logger.warning("風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
-                return cached
+                return {}
             index = _nearest_time_index(times, target)
             if index is None:
                 fields["wind_grid"] = "out_of_range"
                 logger.warning("風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
-                return cached
+                return {}
 
             wind_speed = wind_grid_point.wind_speed_ms[index]
             wind_direction = wind_grid_point.wind_direction_deg[index]
-            computed = {
-                way_id: round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearings[way_id]), 2)
-                for way_id in missing_ids
-            }
-            await set_way_penalties_many(computed, hour_bucket)
-            fields["computed"] = len(computed)
-            return {**cached, **computed}
+            penalty = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
+            await set_tile_penalty(z, x, y, hour_bucket, bearing_deg, penalty)
+            fields["computed"] = len(way_ids)
+            return dict.fromkeys(way_ids, penalty)

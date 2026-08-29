@@ -135,7 +135,7 @@ describe("regionApi", () => {
       vi.mocked(debugLog).mockClear();
     });
 
-    it("z/x/yを含むURLへGETし、{way_id: wind_penalty}のJSONをそのまま返す", async () => {
+    it("z/x/y・bearing_degを含むURLへGETし、{way_id: wind_penalty}のJSONをそのまま返す", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -144,16 +144,32 @@ describe("regionApi", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchWindWayPenalties(14, 14551, 6447);
+      const result = await fetchWindWayPenalties(14, 14551, 6447, 90);
 
       const [url, options] = fetchMock.mock.calls[0];
       // fetchAxisInspectorと同じ理由（アプリのfetch()から直接呼ぶ、MapLibreのWeb Worker
       // 経由ではない）でAPI_BASE_URL（既定値、テスト環境ではNEXT_PUBLIC_API_URL未設定時の
       // フォールバックhttp://localhost:8000）を使う。roadSurfaceTileUrl等（window.location.
       // origin経由）とは異なる点に注意。
-      expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447");
+      expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90");
       expect(options.method ?? "GET").toBe("GET");
       expect(result).toEqual({ "1": 2.34, "2": -1.5 });
+    });
+
+    it("atを渡すとISO文字列のクエリパラメータとして付与する", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const at = new Date("2026-08-30T09:00:00.000Z");
+
+      await fetchWindWayPenalties(14, 14551, 6447, 0, at);
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(new URL(String(url)).searchParams.get("at")).toBe(at.toISOString());
     });
 
     it("HTTPエラー時は例外を投げず空オブジェクトを返す", async () => {
@@ -162,13 +178,13 @@ describe("regionApi", () => {
         vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }),
       );
 
-      await expect(fetchWindWayPenalties(14, 14551, 6447)).resolves.toEqual({});
+      await expect(fetchWindWayPenalties(14, 14551, 6447, 0)).resolves.toEqual({});
     });
 
     it("通信エラー時も例外を投げず空オブジェクトを返す", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
 
-      await expect(fetchWindWayPenalties(14, 14551, 6447)).resolves.toEqual({});
+      await expect(fetchWindWayPenalties(14, 14551, 6447, 0)).resolves.toEqual({});
     });
   });
 

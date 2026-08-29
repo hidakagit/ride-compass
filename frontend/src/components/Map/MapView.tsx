@@ -66,6 +66,7 @@ import {
 import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { WIND_AXIS_FEATURE_STATE_KEY, windAxisColorExpression } from "@/components/Map/windAxisLayer";
+import { windPenaltyFillColorExpression } from "@/components/Map/windPenalty";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
@@ -178,6 +179,13 @@ const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （windAxisColorExpression、windAxisLayer.ts）を読む点が異なる。
 const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
+// 環境グループの風penalty gridFill（改善計画T414）。DYNAMIC_WEATHER_RENDERERS汎用機構
+// （precipitationNowcast等）は使わない——windVector（矢印、gridMark）と同時に表示するため、
+// 1つのDynamicWeatherLayerIdにつき単一payload.kindしか表示できない既存の汎用機構には
+// 乗せられない（applyDynamicWeatherStateのコメント参照）。ensureWindPenaltyFillLayer/
+// applyWindPenaltyFillGeojson参照。
+const WIND_PENALTY_FILL_SOURCE_ID = "wind-penalty-fill-source";
+const WIND_PENALTY_FILL_LAYER_ID = "region-wind-penalty-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
 const TUNNEL_LAYER_ID = "region-tunnel-line";
 const ONEWAY_LAYER_ID = "region-oneway-line";
@@ -1040,6 +1048,53 @@ function applyWindAxisPenalties(map: MapLibreMap, penalties: ReadonlyMap<number,
   });
 }
 
+/** 改善計画T414: windAxis（評価軸グループの風、視界内の全道路への一律色分け）が終了する
+ * 瞬間（showWindAxisがfalseへ切り替わる瞬間——ルート確定・手動OFFのいずれも含む）に、
+ * それまでsetFeatureStateで差し込んだ全道路ぶんの値を明示的にクリアする。上の
+ * applyWindAxisPenaltiesは（enabledのままパン・ズームで一部way_idが新しい応答へ含まれ
+ * なくなる通常のケース向けに）意図的に古い値を残す設計だが、T414の契約は「ルート確定後は
+ * ルート以外の道路を無色に戻す」ことを明示的に要求している——WIND_AXIS_LAYER_ID自体は
+ * visibility:noneで非表示になるため視覚上は問題ないが、契約どおり値そのものも消しておく
+ * （再度ONにしたときに一瞬だけ古い値がちらつくのを防ぐ副次効果もある）。 */
+function clearWindAxisFeatureState(map: MapLibreMap) {
+  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
+  map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
+}
+
+// 環境グループの風penalty gridFill（改善計画T414）。降水延長予報のgridFill（ensureDynamic
+// WeatherLayerのspec.gridFillブランチ）と同じ「geojson source + fillレイヤー」構成だが、
+// windVector（矢印、gridMark）と同時に表示するための独立レイヤーとして持つ（ファイル冒頭の
+// WIND_PENALTY_FILL_SOURCE_IDコメント参照）。
+function ensureWindPenaltyFillLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getLayer(WIND_PENALTY_FILL_LAYER_ID)) return;
+    map.addSource(WIND_PENALTY_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+    map.addLayer({
+      id: WIND_PENALTY_FILL_LAYER_ID,
+      type: "fill",
+      source: WIND_PENALTY_FILL_SOURCE_ID,
+      layout: { visibility: "none" },
+      paint: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "fill-color": windPenaltyFillColorExpression() as any,
+        // 矢印（windVector、gridMark）の背後に敷く面塗りのため、降水延長予報
+        // （PRECIPITATION_FILL_OPACITY=0.55）よりさらに控えめにし、矢印の視認性を保つ。
+        "fill-opacity": 0.4,
+      },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+/** hooks/useDynamicWeatherLayers.tsが計算したwindPenaltyPayload（GeoJSON）をsourceへ反映する。
+ * visibility自体はSTATIC_OVERLAY_LAYERS一括effect（showWindPenaltyFill）が別途担当する
+ * （applyWindAxisPenaltiesと同じ「値の反映」と「表示ON/OFF」を分離する設計）。 */
+function applyWindPenaltyFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
+  if (!map.getSource(WIND_PENALTY_FILL_SOURCE_ID)) return;
+  const source = map.getSource(WIND_PENALTY_FILL_SOURCE_ID) as GeoJSONSource | undefined;
+  source?.setData(geojson ?? EMPTY_FEATURE_COLLECTION);
+}
+
 // 路面レイヤーの表示状態を一括反映する（改善計画T165: 「道路情報」を「路面の種類」
 // （roadSurface、色）・「道路の種類」（roadType、太さ・線種）の論理2レイヤーへ分割。
 // 物理的には同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
@@ -1375,6 +1430,9 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // ensureWindAxisLayer内でensureRoadSurfaceTileLayer（promoteId付きsource）を先に呼ぶ。
     { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: ensureWindAxisLayer },
+    // 改善計画T414: 環境グループの風penalty gridFill。windVector（矢印）と重ね描きするため
+    // road_surfaceソースとは独立のジオメトリ（格子セル）を持つ。
+    { key: "windPenaltyFill", layerId: WIND_PENALTY_FILL_LAYER_ID, ensure: ensureWindPenaltyFillLayer },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -1741,6 +1799,12 @@ interface MapViewProps {
    * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
    * setFeatureStateで路面タイルの地物へ差し込む（applyWindAxisPenalties参照）。 */
   windAxisPenalties: ReadonlyMap<number, number>;
+  /** 改善計画T414: 環境グループの風penalty gridFill（windVectorの矢印と同時に表示）。
+   * showWindPenaltyFillはwindVectorのチップON/OFFとは独立のフラグとして渡す
+   * （ルート確定後はページ側がfalseへ倒す想定、page.tsx参照）。windPenaltyGeojsonは
+   * hooks/useDynamicWeatherLayers.tsが計算した値をそのまま渡す。 */
+  showWindPenaltyFill: boolean;
+  windPenaltyGeojson: GeoJSON.FeatureCollection | undefined;
   /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
@@ -1838,6 +1902,8 @@ export default function MapView({
   showOneway,
   showWindAxis,
   windAxisPenalties,
+  showWindPenaltyFill,
+  windPenaltyGeojson,
   showAccidents,
   showStopPoi,
   showSupplyPoi,
@@ -1944,6 +2010,7 @@ export default function MapView({
     showTunnel,
     showOneway,
     showWindAxis,
+    showWindPenaltyFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2017,6 +2084,7 @@ export default function MapView({
       showTunnel,
       showOneway,
       showWindAxis,
+      showWindPenaltyFill,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -2046,6 +2114,7 @@ export default function MapView({
     showTunnel,
     showOneway,
     showWindAxis,
+    showWindPenaltyFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2083,6 +2152,7 @@ export default function MapView({
       showTunnel,
       showOneway,
       showWindAxis,
+      showWindPenaltyFill,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -2104,6 +2174,7 @@ export default function MapView({
         tunnel: showTunnel,
         oneway: showOneway,
         windAxis: showWindAxis,
+        windPenaltyFill: showWindPenaltyFill,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -2720,6 +2791,7 @@ export default function MapView({
         tunnel: showTunnel,
         oneway: showOneway,
         windAxis: showWindAxis,
+        windPenaltyFill: showWindPenaltyFill,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -2738,6 +2810,7 @@ export default function MapView({
     showTunnel,
     showOneway,
     showWindAxis,
+    showWindPenaltyFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2763,6 +2836,25 @@ export default function MapView({
     if (!map) return;
     runWhenStyleReady(map, () => applyWindAxisPenalties(map, windAxisPenalties));
   }, [windAxisPenalties]);
+
+  // 改善計画T414: showWindAxisがfalseへ切り替わった瞬間（ルート確定・手動OFFいずれも含む）
+  // に、それまでの全道路ぶんのfeature-stateを明示的にクリアする（clearWindAxisFeatureState
+  // 参照）。マウント直後（showWindAxisの初期値がfalse）にも走るが、その時点ではまだ
+  // setFeatureStateが1件も呼ばれていないため無害（空振り）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || showWindAxis) return;
+    runWhenStyleReady(map, () => clearWindAxisFeatureState(map));
+  }, [showWindAxis]);
+
+  // 環境グループの風penalty gridFill（改善計画T414）。上のwindAxisPenalties effectと同じ
+  // 理由で、show*系フラグ群とは別の専用effectに分離する（windPenaltyGeojsonは時刻・向きの
+  // 操作のたびに変わりうる値のため）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    runWhenStyleReady(map, () => applyWindPenaltyFillGeojson(map, windPenaltyGeojson));
+  }, [windPenaltyGeojson]);
 
   // 動的気象レイヤー（降水ナウキャスト・風の矢印、改善計画T170/T171/T178、T183で降水延長予報を
   // 追加してから再設計）。いずれもpayloadが地図上の時刻スライダー操作のたびに変わるため、

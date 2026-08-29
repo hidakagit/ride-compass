@@ -239,14 +239,14 @@ def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_
 
 
 class FakeWindWayService:
-    """改善計画T405: /api/region/dynamic-way-values/wind向けフェイク。"""
+    """改善計画T405→T414で作り直し: /api/region/dynamic-way-values/wind向けフェイク。"""
 
     def __init__(self, penalties=None):
         self._penalties = penalties if penalties is not None else {}
         self.last_request = None
 
-    async def get_way_wind_penalties(self, z, x, y, at):
-        self.last_request = (z, x, y, at)
+    async def get_way_wind_penalties(self, z, x, y, at, bearing_deg):
+        self.last_request = (z, x, y, at, bearing_deg)
         return self._penalties
 
 
@@ -255,14 +255,25 @@ def test_region_dynamic_way_values_wind_returns_penalties_json():
     app.dependency_overrides[get_wind_way_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447")
+        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447", params={"bearing_deg": 90})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     # JSONのキーは常に文字列（intキーは自動的にstrへ変換される、Python標準のjson.dumps挙動）。
     assert response.json() == {"1": 2.34, "2": -1.5}
-    assert fake.last_request == (14, 14551, 6447, None)
+    assert fake.last_request == (14, 14551, 6447, None, 90.0)
+
+
+def test_region_dynamic_way_values_wind_requires_bearing_deg_query_param():
+    app.dependency_overrides[get_wind_way_service] = lambda: FakeWindWayService()
+
+    try:
+        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
 
 
 def test_region_dynamic_way_values_wind_passes_at_query_param():
@@ -271,7 +282,8 @@ def test_region_dynamic_way_values_wind_passes_at_query_param():
 
     try:
         response = client.get(
-            "/api/region/dynamic-way-values/wind/14/14551/6447", params={"at": "2026-08-30T09:00:00"}
+            "/api/region/dynamic-way-values/wind/14/14551/6447",
+            params={"at": "2026-08-30T09:00:00", "bearing_deg": 0},
         )
     finally:
         app.dependency_overrides.clear()
@@ -284,7 +296,7 @@ def test_region_dynamic_way_values_wind_rejects_too_low_zoom():
     app.dependency_overrides[get_wind_way_service] = lambda: FakeWindWayService()
 
     try:
-        response = client.get("/api/region/dynamic-way-values/wind/5/10/10")
+        response = client.get("/api/region/dynamic-way-values/wind/5/10/10", params={"bearing_deg": 0})
     finally:
         app.dependency_overrides.clear()
 
@@ -300,7 +312,7 @@ def test_region_dynamic_way_values_wind_rate_limit_is_independent_from_road_surf
             rate_limiter.check_rate_limit("road-tile:testclient", settings.road_tile_rate_limit_per_minute)
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
-        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447")
+        response = client.get("/api/region/dynamic-way-values/wind/14/14551/6447", params={"bearing_deg": 0})
     finally:
         app.dependency_overrides.clear()
 

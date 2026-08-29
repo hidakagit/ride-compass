@@ -105,20 +105,28 @@ async def region_dynamic_way_values_wind(
     x: int,
     y: int,
     request: Request,
+    bearing_deg: float,
     at: datetime | None = None,
     wind_way_service: WindWayService = Depends(get_wind_way_service),
 ) -> dict[int, float]:
-    """「評価軸」グループとしての風（改善計画T405、docs/tasks/T400.md「2. 動的要素…の
-    二重表現」節）。指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、
-    backend/app/domain/wind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量な
-    JSONエンドポイント。
+    """「評価軸」グループとしての風（改善計画T405→T414で作り直し、docs/tasks/T400.md
+    「2. 動的要素…は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」節）。
+    指定タイル内のway_idごとのwind_penalty（正=向かい風・負=追い風、backend/app/domain/
+    wind.py: WindCalculator.wind_penalty参照）をまとめて返す軽量なJSONエンドポイント。
+    このエンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は
+    ルート自身の実進行方向・実到達時刻から計算済みの`axis_difficulties.wind`
+    （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
+
+    `bearing_deg`（クエリパラメータ、必須）はユーザーがコンパススライダーで指定した走行方位
+    （0〜360度、北=0・時計回り）。全道路へ一律適用するため、道路自身の向きは計算に使わない
+    （T414の訂正、モジュールdocstring参照）。
 
     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイント新設に伴う
     変更なし）とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの
     `setFeatureState`で合成する（`frontend/src/components/Map/windAxisLayer.ts`参照）。
-    `way_id`が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由するため、
-    パン・ズームで同じ道路が再び視界に入っても風グリッド・DBへの再問い合わせは1時間
-    バケットの範囲内では発生しない。
+    タイル単位の値が地図表示専用のRedisキャッシュ（`wind_way_penalty_cache.py`）を経由する
+    ため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの
+    範囲内では風グリッド・DBへの再問い合わせは発生しない。
 
     `at`（クエリパラメータ）省略時は現在時刻（Asia/Tokyo）を使う。路面・POIタイルと同じ
     レート制限・座標検証・DB接続プールのsemaphoreを共有する（`region_service.py`の
@@ -128,7 +136,7 @@ async def region_dynamic_way_values_wind(
     _check_tile_rate_limit(request, "wind-way-penalty")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        return await wind_way_service.get_way_wind_penalties(z, x, y, at)
+        return await wind_way_service.get_way_wind_penalties(z, x, y, at, bearing_deg)
 
 
 class AxisInspectorRequest(BaseModel):

@@ -58,6 +58,7 @@ import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
 import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
+import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
@@ -833,7 +834,12 @@ export default function Home() {
   const overlayLayers = useMemo<OverlayLayerChip[]>(
     () =>
       mapLayers.map((layer) => {
-        const disabled = layer.id === "route" && !hasDetail;
+        // 改善計画T414: windAxis（評価軸グループの風、視界内の全道路への一律色分け）は
+        // ルート確定後は使えない——ルート確定後の風の色分けは「生成したルートの色分け」の
+        // 「風」（routeStyleModesの"wind"モード、ルート線のみへルート自身の実際の進行方向・
+        // 到達時刻で色付け）に一本化する（T400.md「2.」節「評価軸チップとroute StyleModesの
+        // 『風』モードを1つに統合する」）。
+        const disabled = (layer.id === "route" && !hasDetail) || (layer.id === "windAxis" && hasDetail);
         const summary =
           layer.id === "roadSurface"
             ? roadSurfaceSummary
@@ -888,7 +894,9 @@ export default function Home() {
           disabled,
           // 動的グループはサイドバーに設定行が無くなったため「[設定はサイドバー]」を付けない。
           title: disabled
-            ? "ルートを生成・選択すると使えます"
+            ? layer.id === "windAxis"
+              ? "ルート確定後は「生成したルートの色分け」の「風」で確認できます"
+              : "ルートを生成・選択すると使えます"
             : isDynamicGroupLayer
               ? layer.description
               : `${layer.description}[設定はサイドバー]`,
@@ -975,6 +983,12 @@ export default function Home() {
   const showHeavyRainRisk = layerVisibility.heavyRainRisk;
   const showInundationRisk = layerVisibility.inundationRisk;
   const showLinearRainbandRisk = layerVisibility.linearRainbandRisk;
+  // 動的材料の状態別表現契約（改善計画T414、docs/tasks/T400.md「2.」節）の[時刻,向き]のうち
+  // 「向き」。「環境」グループ（風penalty gridFill）・「評価軸」グループ（windAxis）が同じ
+  // 1つの入力を共有する（[時刻]の共有はdynamicLayerTargetTime、下記）。ルート確定中は
+  // パラメータ指定UI自体を出さないため実質未使用になるが、値そのものは保持しておき、
+  // ルート未確定へ戻ったときに直前の指定を引き継ぐ。
+  const [windBearingDeg, setWindBearingDeg] = useState(0);
   const {
     dynamicWeather,
     sliderFrames,
@@ -984,8 +998,11 @@ export default function Home() {
     handleDynamicLayerNow,
     dynamicLayerLoading,
     dynamicLayerError,
+    windPenaltyPayload,
+    dynamicLayerTargetTime,
   } = useDynamicWeatherLayers({
     showWindVector,
+    windBearingDeg,
     showPrecipitationNowcast,
     showThunderNowcast,
     showTornadoNowcast,
@@ -996,11 +1013,18 @@ export default function Home() {
     mapViewport,
   });
 
-  // way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——上の
-  // useDynamicWeatherLayers（「環境」グループの面・矢印表示）とは独立したフェッチ。
-  // mapViewportは同じMapView.tsx: onViewportChange経由の値を共有する。
-  const showWindAxis = layerVisibility.windAxis;
-  const windAxisPenalties = useWindAxisPenalties(showWindAxis, mapViewport);
+  // way_id→wind_penalty配信層（改善計画T405→T414で作り直し）。「評価軸」グループとしての
+  // 風——上のuseDynamicWeatherLayers（「環境」グループの面・矢印表示）とは独立したフェッチだが、
+  // [時刻,向き]の入力（dynamicLayerTargetTime・windBearingDeg）は共有する。mapViewportは
+  // 同じMapView.tsx: onViewportChange経由の値を共有する。
+  //
+  // ルート確定後（hasDetail）は、視界内の全道路への一律色分けというこのチップの役割自体を
+  // 終了する（T414契約: ルート確定後はルート自身の実際の進行方向・到達時刻を使う
+  // routeStyleModes「風」モードへ委ねる、下のoverlayLayers組み立てでチップ自体もdisabledにする）。
+  const showWindAxis = layerVisibility.windAxis && !hasDetail;
+  const windAxisPenalties = useWindAxisPenalties(showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
+  // 環境グループの風penalty gridFill（改善計画T414）も同じ理由でルート確定後は表示しない。
+  const showWindPenaltyFill = showWindVector && !hasDetail;
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
@@ -1491,6 +1515,8 @@ export default function Home() {
             showOneway={layerVisibility.oneway}
             showWindAxis={showWindAxis}
             windAxisPenalties={windAxisPenalties}
+            showWindPenaltyFill={showWindPenaltyFill}
+            windPenaltyGeojson={windPenaltyPayload}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}
@@ -1562,6 +1588,15 @@ export default function Home() {
                   ariaLabel="気象レイヤーの表示時刻"
                 />
               </div>
+            )}
+            {/* 改善計画T414: 風の必要パラメータ（時刻＋向き）のうち「向き」を指定する
+                コンパススライダー。「環境」（風penalty gridFill）・「評価軸」（windAxis）の
+                両チップが同じ入力を共有する（T400.md「2.」節）。ルート確定後（hasDetail）は
+                パラメータ指定UI自体を消す（windAxisは既にdisabledだが、windVectorは
+                ルート確定後も矢印表示のためON/OFFできるままなので、コンパス自体は
+                showWindVectorだけでなくhasDetailも見て出し分ける）。 */}
+            {(showWindVector || layerVisibility.windAxis) && !hasDetail && (
+              <WindBearingSlider value={windBearingDeg} onChange={setWindBearingDeg} ariaLabel="風の走行方位" />
             )}
           </div>
 

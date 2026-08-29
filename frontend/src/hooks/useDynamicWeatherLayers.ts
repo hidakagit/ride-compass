@@ -18,6 +18,7 @@ import {
   type RasrfFrame,
 } from "@/components/Map/precipitationNowcast";
 import { windFrames, windRenderPayload, type MapViewport } from "@/components/Map/windLayer";
+import { windPenaltyGridToCellFeatureCollection } from "@/components/Map/windPenalty";
 import {
   fetchThunderNowcastFrames,
   thunderFrames,
@@ -65,6 +66,10 @@ const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = { land: EMPTY_RISK_FRAMES, 
 
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
+  /** 改善計画T414: 評価軸グループとしての風（windAxis）とパラメータ入力を共有するための
+   * ユーザー指定走行方位（コンパススライダー、0〜360度、北=0・時計回り）。「環境」グループの
+   * 風penalty gridFill表示（windPenaltyPayload、下記）の計算に使う。 */
+  windBearingDeg: number;
   showPrecipitationNowcast: boolean;
   showThunderNowcast: boolean;
   showTornadoNowcast: boolean;
@@ -90,6 +95,15 @@ export interface UseDynamicWeatherLayersResult {
   handleDynamicLayerNow: () => void;
   dynamicLayerLoading: boolean;
   dynamicLayerError: string | null;
+  /** 改善計画T414: 環境グループの風penalty gridFill（bespoke、DYNAMIC_WEATHER_RENDERERS
+   * 汎用機構は使わない——windVectorの矢印[gridMark]と同時に表示するため、payloadが単一の
+   * kindしか持てない既存の汎用機構[precipitationNowcastのraster/gridFillと同じ「同時に
+   * 両方は出ない」設計]には乗せられない、MapView.tsx: ensureWindPenaltyFillLayer参照）。
+   * 選択中の共有時刻・windBearingDegに対応するデータが無ければundefined。 */
+  windPenaltyPayload: GeoJSON.FeatureCollection | undefined;
+  /** 改善計画T414: windAxis（評価軸グループの風、backend API）が同じ[時刻]を共有するために
+   * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
+  dynamicLayerTargetTime: Date;
 }
 
 /** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト）の
@@ -98,6 +112,7 @@ export interface UseDynamicWeatherLayersResult {
  * （他の外部APIと同じ「表示中のものだけ叩く」方針）。 */
 export function useDynamicWeatherLayers({
   showWindVector,
+  windBearingDeg,
   showPrecipitationNowcast,
   showThunderNowcast,
   showTornadoNowcast,
@@ -356,6 +371,19 @@ export function useDynamicWeatherLayers({
     if (index == null || effectiveWindGrid.length === 0) return undefined;
     return windRenderPayload(effectiveWindGrid, windFramesList[index].ref);
   }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
+  // 環境グループの風penalty gridFill（改善計画T414）。windPayload（矢印gridMark）と同じ
+  // frameIndexForTime（同じwindFramesList・同じdynamicLayerTargetTime）を使うため、両者は
+  // 常に同じ時刻のデータを指す。windBearingDegはユーザー指定の走行方位（全格子点共通）。
+  const windPenaltyPayload = useMemo(() => {
+    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
+    if (index == null || effectiveWindGrid.length === 0) return undefined;
+    return windPenaltyGridToCellFeatureCollection(
+      effectiveWindGrid,
+      windFramesList[index].ref,
+      windBearingDeg,
+      effectiveGridSpacingDeg
+    );
+  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid, windBearingDeg, effectiveGridSpacingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;
@@ -460,5 +488,7 @@ export function useDynamicWeatherLayers({
     handleDynamicLayerNow,
     dynamicLayerLoading,
     dynamicLayerError,
+    windPenaltyPayload,
+    dynamicLayerTargetTime,
   };
 }

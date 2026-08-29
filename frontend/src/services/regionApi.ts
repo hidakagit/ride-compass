@@ -159,9 +159,21 @@ const WIND_WAY_PENALTY_PATH = "/api/region/dynamic-way-values/wind";
 /** 指定タイル（road-surface-tilesと同じz/x/y）内のway_idごとのwind_penaltyをまとめて取得する。
  * 失敗時は例外を投げず空オブジェクトへフォールバックする——背景の色分けレイヤーという
  * 補助的な機能のため、道路タイル自体の表示・他レイヤーを巻き込んで止めない
- * （useWeatherGridのdetailGrid取得と同じ「補助機能はサイレントにフォールバック」方針）。 */
-export async function fetchWindWayPenalties(z: number, x: number, y: number): Promise<Record<string, number>> {
-  const url = `${API_BASE_URL}${WIND_WAY_PENALTY_PATH}/${z}/${x}/${y}`;
+ * （useWeatherGridのdetailGrid取得と同じ「補助機能はサイレントにフォールバック」方針）。
+ *
+ * 改善計画T414: `bearingDeg`（ユーザーがコンパススライダーで指定した走行方位、0〜360度、
+ * 北=0・時計回り）を必須クエリパラメータとして渡す。`at`は環境グループ（矢印・gridFill）と
+ * 共有する時刻（省略時はbackend側が現在時刻を使う）。 */
+export async function fetchWindWayPenalties(
+  z: number,
+  x: number,
+  y: number,
+  bearingDeg: number,
+  at?: Date
+): Promise<Record<string, number>> {
+  const params = new URLSearchParams({ bearing_deg: String(bearingDeg) });
+  if (at) params.set("at", at.toISOString());
+  const url = `${API_BASE_URL}${WIND_WAY_PENALTY_PATH}/${z}/${x}/${y}?${params.toString()}`;
   const startedAt = performance.now();
   debugLog("api:wind-way-penalty", "リクエスト開始", { url });
   try {

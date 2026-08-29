@@ -1924,78 +1924,60 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     assert "accident_per_km" not in way_a_props
 
 
-# --- get_way_bearings_in_tile（改善計画T405、way_id→wind_penalty配信層のbearing_deg取得）---
+# --- get_way_ids_in_tile（改善計画T405→T414で作り直し、way_id→wind_penalty配信層の
+# way_id取得。旧get_way_bearings_in_tileはT414で道路自身の向きの計算が不要になったため、
+# より単純なway_id一覧の取得へ置き換えた）---
 
 
-async def test_get_way_bearings_in_tile_returns_none_when_uncovered(road_graph_repository):
+async def test_get_way_ids_in_tile_returns_none_when_uncovered(road_graph_repository):
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
 
-    result = await road_graph_repository.get_way_bearings_in_tile(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
+    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
     assert result is None
 
 
-async def test_get_way_bearings_in_tile_returns_empty_dict_when_covered_but_no_ways(
+async def test_get_way_ids_in_tile_returns_empty_list_when_covered_but_no_ways(
     road_graph_repository, road_graph_session
 ):
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_bearings_in_tile(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
+    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
-    assert result == {}
+    assert result == []
 
 
-async def test_get_way_bearings_in_tile_matches_domain_bearing_between(road_graph_repository, road_graph_session):
-    """ST_Azimuth(...::geography)で求めるbearing_degが、domain/geo.py: bearing_between
-    （球面三角法によるPython実装）とほぼ一致することを確認する（二重実装のドリフト検知、
-    他のbicycle_infra_flags等のテストと同じ方針）。PostGISのgeography型ST_AzimuthはWGS84
-    回転楕円体上の測地線方位角、bearing_betweenは完全な球体近似のため、理論上わずかな差
-    （実測: NODE1-NODE2間で約0.12度）が残る——_WAY_BEARINGS_IN_TILE_SQLのコメントにある
-    「geometry型のままだと平面近似で約6度ずれる」問題とは別種・別桁の話であり、許容差
-    abs=0.5度はこの残差を吸収しつつ、万一geographyキャストが失われて平面近似（約6度ずれ）へ
-    後退した場合には確実に検知できる値として選んだ。"""
-    from app.domain.geo import LatLonPoint, bearing_between
-
+async def test_get_way_ids_in_tile_returns_way_id(road_graph_repository, road_graph_session):
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_bearings_in_tile(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
+    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
-    assert result is not None
-    expected = bearing_between(LatLonPoint(*NODE1), LatLonPoint(*NODE2))
-    assert result[1] == pytest.approx(expected, abs=0.5)
+    assert result == [1]
 
 
-async def test_get_way_bearings_in_tile_excludes_ways_outside_tile(road_graph_repository, road_graph_session):
+async def test_get_way_ids_in_tile_excludes_ways_outside_tile(road_graph_repository, road_graph_session):
     way_inside = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     way_outside = WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential")
     await road_graph_repository.save_raw_ways([way_inside, way_outside], {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_bearings_in_tile(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
+    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
     assert result is not None
-    assert set(result.keys()) == {1}
+    assert set(result) == {1}
 
 
-async def test_get_way_bearings_in_tile_omits_zero_length_way(road_graph_repository, road_graph_session):
-    """始点=終点（極端に短いway）はST_AzimuthがNULLを返すため戻り値から除外される。"""
+async def test_get_way_ids_in_tile_includes_zero_length_way(road_graph_repository, road_graph_session):
+    """始点=終点（極端に短いway）は、旧get_way_bearings_in_tile（ST_Azimuth依存）では
+    NULLとして除外されていたが、bearing計算自体が無くなったget_way_ids_in_tileでは
+    除外理由が無いため、ジオメトリさえ存在すれば結果に含む。"""
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE1})
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_bearings_in_tile(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
+    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
-    assert result == {}
+    assert result == [1]

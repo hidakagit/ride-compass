@@ -1,9 +1,15 @@
-"""WindWayService（改善計画T405、way_id→wind_penalty配信層のオーケストレーション）のテスト。
+"""WindWayService（改善計画T405→T414で作り直し、way_id→wind_penalty配信層の
+オーケストレーション）のテスト。
 
 FakeRegionRepository（test_region_service.py）と同じ流儀で、RoadGraphRepository/
 WeatherServiceが持つメソッドのうち本サービスが実際に呼ぶものだけをダックタイピングした
 フェイクへ差し替える。Redisはtest_wind_way_penalty_cache.pyと同じFakeRedisパターンで
 使う（実Redis不要）。
+
+T414での設計変更: 走行方位（bearing_deg）は道路自身の向きではなく、呼び出し側
+（コンパススライダー）が指定する引数になった。同じタイル内の全wayは常に同じ
+wind_penaltyを持つ（風グリッドをタイル中心1点で代表させる既存の近似＋向きが全道路共通の
+ため）。
 """
 
 from datetime import datetime
@@ -23,25 +29,11 @@ class FakeRedis:
     def __init__(self):
         self.store: dict[str, str] = {}
 
-    async def mget(self, keys):
-        return [self.store.get(key) for key in keys]
+    async def get(self, key):
+        return self.store.get(key)
 
-    def pipeline(self, transaction=False):
-        return FakePipeline(self)
-
-
-class FakePipeline:
-    def __init__(self, redis: FakeRedis):
-        self._redis = redis
-        self._ops = []
-
-    def set(self, key, value, ex=None):
-        self._ops.append((key, value))
-        return self
-
-    async def execute(self):
-        for key, value in self._ops:
-            self._redis.store[key] = value
+    async def set(self, key, value, ex=None):
+        self.store[key] = value
 
 
 @pytest.fixture(autouse=True)
@@ -51,19 +43,19 @@ def use_fake_redis(monkeypatch):
     return fake
 
 
-class FakeBearingRepository:
-    """RoadGraphRepositoryのうちget_way_bearings_in_tileだけを実装したフェイク。"""
+class FakeWayIdsRepository:
+    """RoadGraphRepositoryのうちget_way_ids_in_tileだけを実装したフェイク。"""
 
-    def __init__(self, bearings: dict[int, float] | None, error: Exception | None = None):
-        self._bearings = bearings
+    def __init__(self, way_ids: list[int] | None, error: Exception | None = None):
+        self._way_ids = way_ids
         self._error = error
         self.calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
 
-    async def get_way_bearings_in_tile(self, z, x, y, bbox, coverage_tile):
+    async def get_way_ids_in_tile(self, z, x, y, bbox, coverage_tile):
         self.calls.append((z, x, y, coverage_tile))
         if self._error is not None:
             raise self._error
-        return self._bearings
+        return self._way_ids
 
 
 class FakeWeatherService:
@@ -96,111 +88,104 @@ TIMES = ["2026-08-30T08:00", "2026-08-30T09:00", "2026-08-30T10:00"]
 async def test_repository_none_returns_empty_dict():
     service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT)
+    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
 
 async def test_uncovered_tile_returns_empty_dict_without_calling_weather():
-    repository = FakeBearingRepository(bearings=None)
+    repository = FakeWayIdsRepository(way_ids=None)
     weather_service = FakeWeatherService(TIMES, make_grid_point(TIMES, [5.0, 5.0, 5.0], [0.0, 0.0, 0.0]))
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT)
+    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
 
     assert result == {}
     assert weather_service.calls == []  # カバレッジ外は風データを取りに行かない
 
 
 async def test_covered_but_no_ways_returns_empty_dict():
-    repository = FakeBearingRepository(bearings={})
+    repository = FakeWayIdsRepository(way_ids=[])
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT)
+    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
 
 async def test_computes_wind_penalty_from_bearing_and_wind_grid():
-    # way1は真北向き(bearing=0)。9時の風は南寄り10m/s、風向(気象学=吹いてくる方向)=180度
-    # →真北へ進むと正面から風を受ける向かい風になり、wind_penalty=speed*cos(180-0)=-10になる
-    # はず……ではなく、WindCalculator.wind_penaltyの定義どおりに直接計算して突き合わせる
-    # （二重実装を避ける、既存の車ストレス系テストと同じ方針）。
-    repository = FakeBearingRepository(bearings={1: 0.0, 2: 90.0})
+    # T414: 走行方位はユーザー指定の単一の値（全道路共通）。同じタイル内のway1・way2は
+    # 常に同じwind_penaltyを持つ（WindCalculator.wind_penaltyの定義どおりに直接計算して
+    # 突き合わせる、二重実装を避ける既存の車ストレス系テストと同じ方針）。
+    repository = FakeWayIdsRepository(way_ids=[1, 2])
     wind_speed, wind_direction = 6.0, 200.0
+    bearing_deg = 45.0
     grid_point = make_grid_point(TIMES, [1.0, wind_speed, 1.0], [10.0, wind_direction, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT)
+    result = await service.get_way_wind_penalties(Z, X, Y, AT, bearing_deg)
 
-    assert result == {
-        1: round(WindCalculator.wind_penalty(wind_speed, wind_direction, 0.0), 2),
-        2: round(WindCalculator.wind_penalty(wind_speed, wind_direction, 90.0), 2),
-    }
+    expected = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
+    assert result == {1: expected, 2: expected}
     assert len(weather_service.calls) == 1
 
 
-async def test_second_call_within_same_hour_bucket_is_served_from_cache():
-    repository = FakeBearingRepository(bearings={1: 0.0})
+async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
+    repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    first = await service.get_way_wind_penalties(Z, X, Y, AT)
-    second = await service.get_way_wind_penalties(Z, X, Y, AT)
+    first = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    second = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
 
     assert first == second
-    # bearing取得（DBクエリ）は都度行うが、風グリッドの再取得はキャッシュヒットのため1回のみ。
+    # way_id一覧の取得（DBクエリ）は都度行うが、風グリッドの再取得はキャッシュヒットのため1回のみ。
     assert len(repository.calls) == 2
     assert len(weather_service.calls) == 1
 
 
-async def test_partial_cache_only_computes_missing_way_ids():
+async def test_different_bearing_bucket_recomputes():
+    repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
-    service = WindWayService(
-        repository=FakeBearingRepository(bearings={1: 0.0}), weather_service=weather_service
-    )
-    await service.get_way_wind_penalties(Z, X, Y, AT)  # way1をキャッシュへ積む
+    service = WindWayService(repository=repository, weather_service=weather_service)
 
-    # 同じタイルにway2が増えたケース（例: 再取込・別ズームの祖先タイルで新規way判明）。
-    service_with_new_way = WindWayService(
-        repository=FakeBearingRepository(bearings={1: 0.0, 2: 45.0}), weather_service=weather_service
-    )
-    result = await service_with_new_way.get_way_wind_penalties(Z, X, Y, AT)
+    first = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
+    second = await service.get_way_wind_penalties(Z, X, Y, AT, 90.0)
 
-    assert set(result.keys()) == {1, 2}
-    assert len(weather_service.calls) == 2  # way2ぶんの不足を補うため再度風グリッドを取得
+    assert first != second
+    assert len(weather_service.calls) == 2
 
 
 async def test_wind_grid_unavailable_returns_empty_dict():
-    repository = FakeBearingRepository(bearings={1: 0.0})
+    repository = FakeWayIdsRepository(way_ids=[1])
     weather_service = FakeWeatherService(TIMES, None)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT)
+    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
 
 async def test_time_outside_wind_grid_range_returns_empty_dict():
-    repository = FakeBearingRepository(bearings={1: 0.0})
+    repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
     far_future = datetime(2027, 1, 1, 0, 0)
-    result = await service.get_way_wind_penalties(Z, X, Y, far_future)
+    result = await service.get_way_wind_penalties(Z, X, Y, far_future, 0.0)
 
     assert result == {}
 
 
 async def test_repository_error_returns_empty_dict():
-    repository = FakeBearingRepository(bearings=None, error=RuntimeError("db down"))
+    repository = FakeWayIdsRepository(way_ids=None, error=RuntimeError("db down"))
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
-    result = await service.get_way_wind_penalties(Z, X, Y, AT)
+    result = await service.get_way_wind_penalties(Z, X, Y, AT, 0.0)
 
     assert result == {}
 
@@ -210,13 +195,13 @@ async def test_at_none_defaults_to_now_without_raising():
     # Open-MeteoのhourlyがnaiveなJST文字列を返すことに整合させるため）。テストのwide_timesも
     # 同じ基準（JST）で「今日1日分の全時間帯」を用意し、テスト実行環境のタイムゾーンに
     # 依存せず必ず範囲内に収まるようにする。
-    repository = FakeBearingRepository(bearings={1: 0.0})
+    repository = FakeWayIdsRepository(way_ids=[1])
     now_jst = datetime.now(JST)
     wide_times = [f"{now_jst.year:04d}-{now_jst.month:02d}-{now_jst.day:02d}T{h:02d}:00" for h in range(24)]
     grid_point = make_grid_point(wide_times, [3.0] * 24, [45.0] * 24)
     weather_service = FakeWeatherService(wide_times, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_wind_penalties(Z, X, Y, None)
+    result = await service.get_way_wind_penalties(Z, X, Y, None, 0.0)
 
     assert set(result.keys()) == {1}
