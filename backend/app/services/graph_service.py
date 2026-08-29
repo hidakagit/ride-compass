@@ -5,7 +5,7 @@ import time
 from app.domain.attributes import SearchMaterials, surface_by_edge_id
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
-from app.infrastructure import graph_material_cache
+from app.infrastructure import graph_material_cache, road_graph_tile_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -101,6 +101,28 @@ class GraphService:
         )
         return False
 
+    async def _ensure_split_up_to_date(self, bbox: BoundingBox) -> bool:
+        """`is_split_up_to_date`のRedis cache-aside（改善計画T390）。
+
+        `_ensure_tiles_cached`と同じ「bboxを覆う全z12タイルについて、Redisで
+        判定できる分は即答し、できない分だけPostGISへ問い合わせる」構造。
+        `is_split_up_to_date`はbbox内の主対象Wayが1件でも未splitならFalseを返す判定のため、
+        タイル単位でTrue/Falseへ分解できない——Redisに「split鮮度確認済み」が立っている
+        タイルが1枚でも欠けていれば、bbox全体をPostGISへ問い合わせて確定させる（部分的な
+        キャッシュヒットで済ませない、正しさを優先する設計）。Trueと確定した場合のみ、
+        覆う全タイルへ確認済みマーカーを書き戻す（road_graph_tile_cache.get_split_fresh_subset/
+        mark_split_freshのdocstring参照。Falseはキャッシュしない——次回のリクエストで
+        `get_or_build_graph_with_attributes`がsave_graph経由で改めてマークする）。
+        """
+        tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+        fresh_tiles = await road_graph_tile_cache.get_split_fresh_subset(ROAD_GRAPH_TILE_ZOOM, tiles)
+        if len(fresh_tiles) == len(tiles):
+            return True
+        up_to_date = await self._repository.is_split_up_to_date(bbox)
+        if up_to_date:
+            await road_graph_tile_cache.mark_split_fresh(ROAD_GRAPH_TILE_ZOOM, tiles)
+        return up_to_date
+
     async def get_or_build_graph_with_attributes(
         self, bbox: BoundingBox
     ) -> tuple[RoadGraphLike, dict[str, str | None]] | None:
@@ -131,7 +153,7 @@ class GraphService:
         # 生データ（osm_raw_ways）が前回のsplit以降変わっていなければ、closure再計算・
         # Edge全量再UPSERTを省略してroad_edges/road_nodesを直接読む（実測で全体の
         # 85〜90%を占めるsave_graphのコストを丸ごと避けられる。docs/osm-pbf-import.md参照）。
-        if await self._repository.is_split_up_to_date(bbox):
+        if await self._ensure_split_up_to_date(bbox):
             graph = await self._repository.get_graph_in_bbox(bbox)
             if graph is None:
                 # 道路が1本も無い地域を確認できた（取得に失敗したのではない）。空グラフを返す。
@@ -186,6 +208,15 @@ class GraphService:
         # road_edges.osm_way_id経由でosm_raw_ways.surfaceから導出するため、Edge単位の
         # 保存は不要、改善計画T9）。
         await self._repository.commit()
+        # 改善計画T390: このbboxの主対象Way（primary_way_ids）は今まさにsplit_at=now相当まで
+        # 更新済みのため、is_split_up_to_dateのcache-asideへ即座に確認済みマークを書き戻す
+        # （次回同一エリアへのリクエストがPostGISへ再確認しに行かずに済む。bboxを覆う
+        # タイル集合は_ensure_split_up_to_dateと同じtiles_covering_bboxで求める——
+        # primary_way_idsは元々このbboxに対するis_split_up_to_date判定が対象にした集合と
+        # 同一なので、このbboxのタイル集合をそのままフレッシュとしてマークしてよい）。
+        await road_graph_tile_cache.mark_split_fresh(
+            ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+        )
         save_ms = round((time.monotonic() - save_started) * 1000)
         total_ms = round((time.monotonic() - rebuild_started) * 1000)
         logger.info(
@@ -222,7 +253,7 @@ class GraphService:
         if not await self._ensure_tiles_cached(bbox):
             return None
 
-        if not await self._repository.is_split_up_to_date(bbox):
+        if not await self._ensure_split_up_to_date(bbox):
             return await self._build_search_materials_uncached(bbox)
 
         return await self._build_search_materials_from_tile_cache(bbox)

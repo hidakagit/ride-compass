@@ -93,6 +93,9 @@ class FakeRoadGraphRepository:
         # GraphService.get_edges_with_geometryのFake用ストア。
         self.edges_with_geometry: dict = {}
         self.get_edges_with_geometry_call_count = 0
+        # 改善計画T390: is_split_up_to_dateのRedis cache-aside（_ensure_split_up_to_date）の
+        # 検証用。
+        self.is_split_up_to_date_call_count = 0
 
     async def commit(self) -> None:
         # 実装はサービス層が操作のまとまりごとにcommitを呼ぶ規約（T6）。Fakeは即時反映の
@@ -153,6 +156,7 @@ class FakeRoadGraphRepository:
         return way_specs, node_coords, set(primary_ways.keys())
 
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
+        self.is_split_up_to_date_call_count += 1
         primary_way_ids = self._primary_way_ids_in_bbox(bbox)
         for way_id in primary_way_ids:
             touched_at = self._raw_way_touched_at.get(way_id, 0)
@@ -816,3 +820,102 @@ async def test_warm_tile_cache_background_discards_in_flight_marker_even_on_fail
     await graph_service_module._warm_tile_cache_background(*BBOX_TILE)
 
     assert BBOX_TILE not in graph_service_module._warming_tiles
+
+
+# --- 改善計画T390: is_split_up_to_dateのRedis cache-aside（_ensure_split_up_to_date） ---
+
+
+async def test_ensure_split_up_to_date_skips_repository_when_redis_has_all_tiles_fresh(monkeypatch):
+    repository = FakeRoadGraphRepository()
+    service = GraphService(repository=repository)
+
+    async def fake_get_split_fresh_subset(zoom, tiles):
+        return set(tiles)
+
+    monkeypatch.setattr(
+        graph_service_module.road_graph_tile_cache, "get_split_fresh_subset", fake_get_split_fresh_subset
+    )
+
+    result = await service._ensure_split_up_to_date(BBOX)
+
+    assert result is True
+    # Redis側で全タイルが確認済みのため、PostGIS（repository）へは一切問い合わせない。
+    assert repository.is_split_up_to_date_call_count == 0
+
+
+async def test_ensure_split_up_to_date_falls_back_to_repository_and_marks_fresh_on_true(monkeypatch):
+    repository = FakeRoadGraphRepository()  # 何もtouchされていないため常にTrue
+    service = GraphService(repository=repository)
+    marked: list[tuple[int, list[tuple[int, int]]]] = []
+
+    async def fake_get_split_fresh_subset(zoom, tiles):
+        return set()  # 全タイル未確認
+
+    async def fake_mark_split_fresh(zoom, tiles):
+        marked.append((zoom, list(tiles)))
+
+    monkeypatch.setattr(
+        graph_service_module.road_graph_tile_cache, "get_split_fresh_subset", fake_get_split_fresh_subset
+    )
+    monkeypatch.setattr(graph_service_module.road_graph_tile_cache, "mark_split_fresh", fake_mark_split_fresh)
+
+    result = await service._ensure_split_up_to_date(BBOX)
+
+    assert result is True
+    assert repository.is_split_up_to_date_call_count == 1
+    assert marked == [(ROAD_GRAPH_TILE_ZOOM, [BBOX_TILE])]
+
+
+async def test_ensure_split_up_to_date_does_not_mark_fresh_when_repository_returns_false(monkeypatch):
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    repository = FakeRoadGraphRepository()
+    # save_graphを呼ばずtouchのみ発生させた状態＝is_split_up_to_dateがFalseを返す
+    # （test_with_repository_cached_tile_computes_split_on_first_readと同じ前提）。
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
+    service = GraphService(repository=repository)
+    marked: list = []
+
+    async def fake_get_split_fresh_subset(zoom, tiles):
+        return set()
+
+    async def fake_mark_split_fresh(zoom, tiles):
+        marked.append((zoom, tiles))
+
+    monkeypatch.setattr(
+        graph_service_module.road_graph_tile_cache, "get_split_fresh_subset", fake_get_split_fresh_subset
+    )
+    monkeypatch.setattr(graph_service_module.road_graph_tile_cache, "mark_split_fresh", fake_mark_split_fresh)
+
+    result = await service._ensure_split_up_to_date(BBOX)
+
+    assert result is False
+    # 未確認のまま（Falseを誤って確認済みとキャッシュしない）。
+    assert marked == []
+
+
+async def test_get_or_build_graph_with_attributes_marks_split_fresh_after_rebuild(monkeypatch):
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
+    repository = FakeRoadGraphRepository()
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
+    service = GraphService(repository=repository)
+    marked: list[tuple[int, list[tuple[int, int]]]] = []
+
+    async def fake_get_split_fresh_subset(zoom, tiles):
+        return set()
+
+    async def fake_mark_split_fresh(zoom, tiles):
+        marked.append((zoom, list(tiles)))
+
+    monkeypatch.setattr(
+        graph_service_module.road_graph_tile_cache, "get_split_fresh_subset", fake_get_split_fresh_subset
+    )
+    monkeypatch.setattr(graph_service_module.road_graph_tile_cache, "mark_split_fresh", fake_mark_split_fresh)
+
+    result = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert result is not None
+    # 未splitタイルのrebuild（save_graph）完了直後に、そのbboxを覆うタイルへ
+    # split鮮度確認済みマークが書き戻される。
+    assert marked == [(ROAD_GRAPH_TILE_ZOOM, [BBOX_TILE])]

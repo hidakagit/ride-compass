@@ -1,4 +1,5 @@
-"""road_graph_tilesタイル取得済みマーカーのRedis cache-aside層（改善計画T387）。
+"""road_graph_tilesタイル取得済みマーカー・split鮮度マーカーのRedis cache-aside層
+（改善計画T387・T390）。
 
 `road_graph_tiles`（PostGIS）は「このタイルはOverpass/PBF取込を完了した」という完了
 マーカーであり、地理データそのものではない（road_graph_models.py: RoadGraphTileRowの
@@ -80,5 +81,85 @@ async def mark_fetched(zoom: int, tiles: list[tuple[int, int]]) -> None:
     except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
         record_redis_failure()
         log_throttled_warning("cache:road-tile-redis", "[cache:road-tile-redis] write failed error=%r", exc)
+    else:
+        record_redis_success()
+
+
+# 改善計画T390: `is_split_up_to_date`（DerivedGraphRepository）の判定結果のcache-aside。
+# `_KEY_PREFIX`（取得済みマーカー）とは異なるキー空間を持つ別種のタイルマーカー
+# ——「このタイルは取得済みか」（一度立てば実質恒久）と「このタイルのsplit結果は生データより
+# 新しいか」（PBF再import・遅延rebuildのたびに変わりうる）はライフサイクルが異なるため、
+# TTLも意図的に短くしている（正しさの担保は主に書き込み側のprecise invalidationが担う
+# ——GraphService.get_or_build_graph_with_attributesがsave_graph成功直後にmark_split_freshを
+# 呼び、app/batch/import_pbf.py: _mark_tilesが再importのたびにinvalidate_split_freshを
+# 呼ぶ。TTLはその取りこぼしに対する自己修復用の安全網に過ぎない）。
+_SPLIT_FRESH_KEY_PREFIX = "road:tile:split-fresh"
+_SPLIT_FRESH_TTL_SECONDS = 60 * 60
+
+
+def _split_fresh_key(zoom: int, x: int, y: int) -> str:
+    return f"{_SPLIT_FRESH_KEY_PREFIX}:{zoom}:{x}:{y}"
+
+
+async def get_split_fresh_subset(zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
+    """Redis側で「split結果が生データより新しいと確認済み」と判定できたタイルの集合を返す。
+
+    含まれないタイルは「未確認」を意味し、呼び出し元が`is_split_up_to_date`でPostGISへ
+    確認する必要がある（get_cached_subsetと同じ「分かる分だけ即答する」役割）。
+    """
+    if not tiles or not redis_available():
+        return set()
+    client = get_redis_client()
+    keys = [_split_fresh_key(zoom, x, y) for x, y in tiles]
+    try:
+        values = await client.mget(keys)
+    except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
+        record_redis_failure()
+        log_throttled_warning(
+            "cache:road-tile-redis", "[cache:road-tile-redis] split-fresh read failed error=%r", exc
+        )
+        return set()
+    record_redis_success()
+    return {tile for tile, value in zip(tiles, values) if value is not None}
+
+
+async def mark_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> None:
+    """`is_split_up_to_date`がTrueと確認できたbboxが覆うタイル群を、split鮮度確認済みとして
+    Redisへ書き戻す（`GraphService`が`is_split_up_to_date`のPostGISフォールバック直後、
+    および`get_or_build_graph_with_attributes`が`save_graph`成功直後に呼ぶ）。
+    """
+    if not tiles or not redis_available():
+        return
+    client = get_redis_client()
+    try:
+        pipe = client.pipeline(transaction=False)
+        for x, y in tiles:
+            pipe.set(_split_fresh_key(zoom, x, y), "1", ex=_SPLIT_FRESH_TTL_SECONDS)
+        await pipe.execute()
+    except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
+        record_redis_failure()
+        log_throttled_warning(
+            "cache:road-tile-redis", "[cache:road-tile-redis] split-fresh write failed error=%r", exc
+        )
+    else:
+        record_redis_success()
+
+
+async def invalidate_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> None:
+    """PBF再importでosm_raw_waysが変わりうるタイルのsplit鮮度マーカーを無効化する
+    （`app/batch/import_pbf.py: _mark_tiles`が取得済みマーカーの更新と同時に呼ぶ）。
+
+    初回import（マーカー自体がまだ無い）でも無害（存在しないキーのDELETEは単なる no-op）。
+    """
+    if not tiles or not redis_available():
+        return
+    client = get_redis_client()
+    try:
+        await client.delete(*(_split_fresh_key(zoom, x, y) for x, y in tiles))
+    except Exception as exc:  # noqa: BLE001 無効化失敗はTTL経由で自己修復する
+        record_redis_failure()
+        log_throttled_warning(
+            "cache:road-tile-redis", "[cache:road-tile-redis] split-fresh invalidate failed error=%r", exc
+        )
     else:
         record_redis_success()

@@ -13,10 +13,11 @@ from shapely.geometry import Point
 from sqlalchemy import insert, text
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.graph import WaySpec, build_road_graph
+from app.domain.graph import DirectedEdge, WaySpec, build_road_graph
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*/route_designationsテーブルを登録するためのimport
+from app.infrastructure import road_edge_geometry_cache
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, OsmRawPoiRow
 
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
@@ -188,6 +189,71 @@ async def test_get_edges_with_geometry_returns_empty_dict_for_empty_input(road_g
     assert await road_graph_repository.get_edges_with_geometry([]) == {}
 
 
+# --- 改善計画T390: get_edges_with_geometryのRedis cache-aside ---
+
+
+async def test_get_edges_with_geometry_uses_redis_cache_hit_without_querying_postgis(
+    road_graph_repository, monkeypatch
+):
+    # PostGISへは一切保存していないedge_idでも、Redis側でヒットすればそれを返す
+    # （road_edge_geometry_cache.py自体の正しさはtest_road_edge_geometry_cache.pyで別途
+    # 検証済み。ここではrepository側の配線——キャッシュ優先・ヒット分はPostGISへ
+    # 問い合わせない——だけを確認する）。
+    cached_edge = DirectedEdge(
+        edge_id="cached-only",
+        from_node_id="n1",
+        to_node_id="n2",
+        geometry=[[35.0, 139.0], [35.001, 139.001]],
+        distance_m=10.0,
+        osm_way_id=999,
+        highway="residential",
+        bearing_deg=45.0,
+    )
+
+    async def fake_get_cached_edges(edge_ids):
+        return {"cached-only": cached_edge}
+
+    monkeypatch.setattr(road_edge_geometry_cache, "get_cached_edges", fake_get_cached_edges)
+
+    result = await road_graph_repository.get_edges_with_geometry(["cached-only"])
+
+    assert result == {"cached-only": cached_edge}
+
+
+async def test_get_edges_with_geometry_only_queries_postgis_for_cache_misses(road_graph_repository, monkeypatch):
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    edge_id = next(iter(graph.edges))
+
+    cached_edge = DirectedEdge(
+        edge_id="cached-only", from_node_id="n1", to_node_id="n2",
+        geometry=[[0.0, 0.0]], distance_m=1.0,
+    )
+    requested_edge_ids: list[list[str]] = []
+
+    async def fake_get_cached_edges(edge_ids):
+        requested_edge_ids.append(list(edge_ids))
+        return {"cached-only": cached_edge}
+
+    cached_write: dict = {}
+
+    async def fake_cache_edges(edges):
+        cached_write.update(edges)
+
+    monkeypatch.setattr(road_edge_geometry_cache, "get_cached_edges", fake_get_cached_edges)
+    monkeypatch.setattr(road_edge_geometry_cache, "cache_edges", fake_cache_edges)
+
+    result = await road_graph_repository.get_edges_with_geometry([edge_id, "cached-only"])
+
+    assert set(result.keys()) == {edge_id, "cached-only"}
+    assert requested_edge_ids == [[edge_id, "cached-only"]]
+    # PostGISから新たに読んだ分（cached-onlyはキャッシュ既ヒットのため含まれない）だけを
+    # Redisへ書き戻す。
+    assert set(cached_write.keys()) == {edge_id}
+
+
 async def test_save_graph_upserts_same_edge_without_duplicating(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
@@ -198,6 +264,26 @@ async def test_save_graph_upserts_same_edge_without_duplicating(road_graph_repos
 
     result = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
     assert len(result.edges) == 2  # 増えない(決定論的なedge_idでUPSERT)
+
+
+async def test_save_graph_invalidates_edge_geometry_cache_for_saved_edges(road_graph_repository, monkeypatch):
+    # 改善計画T390: 同じedge_idが再split後に異なる形状で再利用されるケースに備え、
+    # save_graphが今回保存したedge_idぶんを無条件でRedis cache-asideから無効化すること
+    # を確認する（road_edge_geometry_cache.py自体の正しさは
+    # test_road_edge_geometry_cache.pyで別途検証済み）。
+    ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    invalidated: list[list[str]] = []
+
+    async def fake_invalidate_edges(edge_ids):
+        invalidated.append(sorted(edge_ids))
+
+    monkeypatch.setattr(road_edge_geometry_cache, "invalidate_edges", fake_invalidate_edges)
+
+    await road_graph_repository.save_graph(graph)
+
+    assert invalidated == [sorted(graph.edges.keys())]
 
 
 async def test_save_graph_with_way_ids_to_replace_deletes_then_reinserts_only_target_way(road_graph_repository):

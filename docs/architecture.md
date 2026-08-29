@@ -370,6 +370,42 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
     （中央値0.16ms）で約5.9倍高速。開発機実測（約12ms/回）よりPostGIS単体自体が大幅に
     速いのは、本番はアプリ・PostGIS・Redisが同一VM上（`--network=host`）でネットワーク
     往復がほぼ無いため。詳細はdocs/tasks/T387.md参照。
+- **split鮮度マーカー・edge geometryのRedis cache-aside（改善計画T390）**: T387完了後の
+  ユーザー指示「評価ロジックで使う一時的なPostGISデータをRedis化できないか、DB全般を
+  見直して」を受け、PostGIS全読み取りパスを棚卸しした結果、road_graph_tilesと同じ
+  「in-processキャッシュ（`graph_material_cache.py`）がヒットする最速パスでも必ず
+  PostGISへ問い合わせる」性質を持つ2箇所を追加でRedis化した（本番実測、docs/tasks/
+  T390.md参照）:
+  1. **`is_split_up_to_date`**（`DerivedGraphRepository.is_split_up_to_date`）:
+     `GraphService._ensure_split_up_to_date`が`road_graph_tile_cache.py`の
+     split鮮度マーカー（`road:tile:split-fresh:{zoom}:{x}:{y}`、TTL 1時間）を介して
+     cache-aside化。bbox内の主対象Wayが1件でも未splitならFalseを返す判定のため
+     タイル単位でTrue/Falseへ分解できず、**覆う全タイルにマーカーが揃っている場合のみ
+     PostGISを省略する**（部分ヒットでは正しさを優先してPostGISへフォールバックする）。
+     本番実測: 中央値1.52ms/回（1リクエスト1回）。
+  2. **`get_edges_with_geometry`**（`DerivedGraphRepository.get_edges_with_geometry`、
+     `trace_loop`が8方位ぶん`asyncio.gather`で呼ぶホットパス）: edge_id単位で
+     `infrastructure/road_edge_geometry_cache.py`にcache-aside化（TTL 24時間）。
+     `DirectedEdge`（domain/graph.py）はshapelyジオメトリを含まないプレーンなPydantic
+     モデルのためJSON化するだけで済む。本番実測: 100 edgesのバッチで平均4.69ms/回
+     （1リクエスト最大8回）。
+  - **無効化（正しさの担保）**: 両キャッシュともTTLは取りこぼしに対する自己修復用の
+    安全網に過ぎず、正しさは書き込み側のprecise invalidationが担う。
+    `GraphService.get_or_build_graph_with_attributes`が`save_graph`成功直後にそのbboxの
+    split鮮度マーカーを書き戻し、`DerivedGraphRepository.save_graph`が今回保存した
+    edge_idぶんのgeometryキャッシュを無条件で無効化する（同じedge_idが再split後に
+    異なる形状で再利用されるケースに備える）。`app/batch/import_pbf.py: _mark_tiles`は
+    PBF再importのたびに対象タイルのsplit鮮度マーカーを無効化する（`osm_raw_ways`が
+    変わりPostGIS側のroad_edgesが古くなりうるため、次回アクセスで確実にPostGISへ
+    再確認させる）。
+  - **設計上見送った箇所**: `graph_material_cache.py`（z12タイル単位の道路グラフ
+    トポロジ・材料一式、いわゆる「splitデータ」本体）は既に単一ワーカーのプロセス内
+    LRUキャッシュでカバー済みのため対象外とした。単一ワーカー稼働の現状でこれを
+    Redis化すると「ゼロコストのdict参照」を「ネットワーク往復」に変える純粋な悪化に
+    しかならない（T388のjob_registryと同じ「マルチワーカー化まではトリガー未到達」の
+    構図）。デプロイ再起動でこのプロセス内キャッシュが消える問題への対策としての価値は
+    あるが、`RoadGraphLike`はshapelyジオメトリ等を含み素直にシリアライズできないため
+    実装コストと釣り合わない。
 
 ### ルーティングエンジンの切り替え対応（openrouteservice ⇄ Road Graph）
 「Road Graphを実際のルーティングへ接続する移行（完全移行）」で`/api/routes/generate`をopenrouteservice委譲からRoad Graph + NetworkX（Dijkstra）ベースへ全面置き換えたが、Road Graphの経路探索自体（ルーティングエンジンとしての精度・速度）はまだ発展途上で、今後も継続して手を入れる将来拡張と位置付けている。一方で、標高・風・路面といった「評価に必要な情報」の取得方法や地図上の見える化は、経路探索エンジンがどちらであっても検証を進めたい。そのため、経路探索エンジンを設定で切り替えられるようにし、openrouteservice委譲（外部APIキーのみで動く、枯れた実装）を使いながら評価まわりの精査を進められるようにした。
