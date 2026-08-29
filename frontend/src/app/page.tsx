@@ -160,11 +160,19 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
   tornadoNowcast: false,
-  // 改善計画T410: キキクル（危険度分布）+線状降水帯予測マップ。同じ理由で既定OFF。
-  landslideRisk: false,
-  heavyRainRisk: false,
-  inundationRisk: false,
-  linearRainbandRisk: false,
+  // 改善計画T420: キキクル（危険度分布）+線状降水帯予測マップ。他の動的レイヤーと異なり
+  // 既定ON（route: trueと同じ「設計原則12の例外」扱い）。実機フィードバック「キキクルの
+  // ような防災級の情報は、ユーザー操作を待たず表示すべきでは（予兆があってからチップを
+  // ONにするのでは手遅れ）」を受けた判断。ラスタタイルは危険度ゼロの場所では実質透明
+  // （T410実装メモ参照）なので、既定ONでも平常時の地図の見た目は変わらない。チップ自体は
+  // 残すため、不要ならユーザーが個別にOFFへ戻すこともできる（T412調査時に検討した
+  // 「集約バッジ＋トグル撤去」案は、キキクルの現在警戒度を正確に判定するAPI・データが
+  // JMA側に存在せず実装コストに見合わないと判断し見送った。既存の警報・注意報バッジが
+  // 近い役割を果たす）。
+  landslideRisk: true,
+  heavyRainRisk: true,
+  inundationRisk: true,
+  linearRainbandRisk: true,
   route: true,
 };
 
