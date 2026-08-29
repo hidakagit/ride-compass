@@ -794,14 +794,18 @@ _REBUILD_RAW_INTERSECTION_NODES_SQL = text(
 _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
     """
     INSERT INTO way_attribute_counts
-        (osm_way_id, length_m, accident_count, stop_count, intersection_count, computed_at)
+        (osm_way_id, length_m, accident_count, stop_count, intersection_count, computed_at,
+         source_accident_import_run_id, source_osm_import_run_id, algorithm_version)
     SELECT
         w.osm_way_id,
         ST_Length(w.geom::geography),
         COALESCE(acc.cnt, 0),
         COALESCE(st.cnt, 0),
         COALESCE(ix.cnt, 0),
-        :computed_at
+        :computed_at,
+        :source_accident_import_run_id,
+        :source_osm_import_run_id,
+        :algorithm_version
     FROM osm_raw_ways w
     LEFT JOIN LATERAL (
         SELECT SUM(CASE WHEN a.fatal THEN :fatal_weight ELSE 1 END) AS cnt
@@ -831,7 +835,10 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         accident_count = EXCLUDED.accident_count,
         stop_count = EXCLUDED.stop_count,
         intersection_count = EXCLUDED.intersection_count,
-        computed_at = EXCLUDED.computed_at
+        computed_at = EXCLUDED.computed_at,
+        source_accident_import_run_id = EXCLUDED.source_accident_import_run_id,
+        source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
+        algorithm_version = EXCLUDED.algorithm_version
     """
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
@@ -2277,11 +2284,21 @@ class AttributeRepository(_SessionRepository):
         )
 
     async def recompute_way_attribute_counts(
-        self, osm_way_ids: list[int], computed_at: datetime
+        self,
+        osm_way_ids: list[int],
+        computed_at: datetime,
+        source_accident_import_run_id: int | None = None,
+        source_osm_import_run_id: int | None = None,
+        algorithm_version: str | None = None,
     ) -> None:
         """指定osm_way_idのway_attribute_counts（way単位の事実カウント、改善計画T145b）を
         再計算しUPSERTする。事前にrebuild_raw_intersection_nodesの実行が必要
         （intersection_countの参照先。_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQLのコメント参照）。
+
+        source_*_import_run_id/algorithm_versionは派生データの系譜追跡（改善計画T351、
+        migration 0024）用。呼び出し元（precompute_way_attribute_counts.py）が実行時点の
+        最新成功run idを一度だけ取得し、全チャンクへ同じ値を渡す想定（テスト等で省略時は
+        Noneのまま書き込まれる）。
         """
         if not osm_way_ids:
             return
@@ -2297,6 +2314,9 @@ class AttributeRepository(_SessionRepository):
                 "stop_distance_deg": _meters_to_bbox_margin_deg(STOP_POI_MATCH_MAX_DISTANCE_M),
                 "intersection_distance_m": INTERSECTION_MATCH_MAX_DISTANCE_M,
                 "intersection_distance_deg": _meters_to_bbox_margin_deg(INTERSECTION_MATCH_MAX_DISTANCE_M),
+                "source_accident_import_run_id": source_accident_import_run_id,
+                "source_osm_import_run_id": source_osm_import_run_id,
+                "algorithm_version": algorithm_version,
             },
         )
 
@@ -2448,8 +2468,17 @@ class RoadGraphRepository:
     async def rebuild_raw_intersection_nodes(self) -> None:
         await self.attributes.rebuild_raw_intersection_nodes()
 
-    async def recompute_way_attribute_counts(self, osm_way_ids: list[int], computed_at: datetime) -> None:
-        await self.attributes.recompute_way_attribute_counts(osm_way_ids, computed_at)
+    async def recompute_way_attribute_counts(
+        self,
+        osm_way_ids: list[int],
+        computed_at: datetime,
+        source_accident_import_run_id: int | None = None,
+        source_osm_import_run_id: int | None = None,
+        algorithm_version: str | None = None,
+    ) -> None:
+        await self.attributes.recompute_way_attribute_counts(
+            osm_way_ids, computed_at, source_accident_import_run_id, source_osm_import_run_id, algorithm_version
+        )
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
 

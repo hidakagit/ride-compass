@@ -8,9 +8,9 @@ ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repositoryフ�
 """
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from app.batch.precompute_edge_attribute_counts import _chunked, run
+from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION, _chunked, run
 from app.domain.graph import WaySpec, build_road_graph
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow
 from tests.conftest import TEST_DATABASE_URL
@@ -68,6 +68,12 @@ class TestRunOrchestration:
         assert {r.stop_count for r in rows} == {0}
         assert {r.intersection_count for r in rows} == {0}
         assert all(r.computed_at is not None for r in rows)
+        # 派生データの系譜追跡（改善計画T351）: import_runsが1件も無い環境ではsource_*が
+        # NULLのまま書き込まれる（呼び出し元は無条件にNoneを渡すため例外にはならない）。
+        # algorithm_versionは常に埋まる。
+        assert all(r.algorithm_version == ALGORITHM_VERSION for r in rows)
+        assert {r.source_accident_import_run_id for r in rows} == {None}
+        assert {r.source_osm_import_run_id for r in rows} == {None}
 
     async def test_rerun_upserts_without_duplicating(self, road_graph_repository, road_graph_session):
         await _seed_one_way(road_graph_repository, road_graph_session)
@@ -86,3 +92,32 @@ class TestRunOrchestration:
         assert result == 0
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
         assert rows == []
+
+    async def test_source_run_ids_reflect_latest_succeeded_runs(self, road_graph_repository, road_graph_session):
+        """派生データの系譜追跡（改善計画T351）: accident_import_runs/osm_import_runsの
+        最新成功run idがsource_*_import_run_idへ書き込まれることを確認する（高水位マーク、
+        migration 0024のコメント参照）。"""
+        await _seed_one_way(road_graph_repository, road_graph_session)
+        accident_run_id = (
+            await road_graph_session.execute(
+                text(
+                    "INSERT INTO accident_import_runs (occurred_year, file_name, status, started_at, finished_at) "
+                    "VALUES (2025, 'test.csv', 'succeeded', now(), now()) RETURNING id"
+                )
+            )
+        ).scalar_one()
+        osm_run_id = (
+            await road_graph_session.execute(
+                text(
+                    "INSERT INTO osm_import_runs (pbf_name, profile_hash, status, started_at, finished_at) "
+                    "VALUES ('test.pbf', 'hash', 'succeeded', now(), now()) RETURNING id"
+                )
+            )
+        ).scalar_one()
+        await road_graph_session.commit()
+
+        assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+
+        rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
+        assert {r.source_accident_import_run_id for r in rows} == {accident_run_id}
+        assert {r.source_osm_import_run_id for r in rows} == {osm_run_id}

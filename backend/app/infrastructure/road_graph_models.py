@@ -185,6 +185,19 @@ class EdgeAttributeCountsRow(Base):
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 派生データの系譜追跡（改善計画T351、migration 0024）。source_*_import_run_idは
+    # このバッチ実行時点でのstatus='succeeded'なimport_runsのMAX(id)（高水位マーク、
+    # 詳細はmigrationのコメント参照）。algorithm_versionは計算ロジック自体の版数。
+    # 実際のFK制約（accident_import_runs.id/osm_import_runs.id）はmigration側でのみ持つ
+    # （ORM側はミラー、EdgeAttributeCountsRowクラスdocstring参照）。ここへ
+    # SQLAlchemyの`ForeignKey(...)`を書くとBase.metadata経由でaccident_models.py/
+    # road_graph_models.py双方のインポートを要求するようになり、precompute_edge_attribute_
+    # counts.py単体実行のように参照先モデルを一切importしないプロセスで
+    # `Base.metadata.sorted_tables`/`create_all`実行時にNoReferencedTableErrorを起こす
+    # （実機確認済み、2026-08-30）。素のInteger列に留めることでこの依存を切る。
+    source_accident_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class RawIntersectionNodeRow(Base):
@@ -224,6 +237,11 @@ class WayAttributeCountsRow(Base):
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 派生データの系譜追跡（改善計画T351、migration 0024）。EdgeAttributeCountsRowと同じ
+    # 高水位マーク方式・同じ理由でForeignKey()を持たない素のInteger（コメントはそちら参照）。
+    source_accident_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class OsmImportRunRow(Base):

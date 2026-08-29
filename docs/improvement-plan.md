@@ -424,7 +424,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [x] [T348](tasks/T348.md). 組み込み評価軸のDB投入（migration）を`axis_definitions.py`から自動生成し、手書き二重管理を解消 規模M（完了）
 - [x] [T349](tasks/T349.md). T348（第三案）を差し戻し、軸定義DB同期のフォールバックを廃止しfail-fast化（オプションAへ） 規模M（完了）
 - [x] [T350](tasks/T350.md). axis_definitionsを全14軸DB専有化し、Python literalを撤去（フル版オプションA） 規模XL（完了）
-- [ ] [T351](tasks/T351.md). 派生データの世代管理・Raw→Derived系譜追跡の強化 規模M〜L（起票のみ、未着手）
+- [x] [T351](tasks/T351.md). 派生データの世代管理・Raw→Derived系譜追跡の強化 規模M〜L（2026-08-30完了。source_*_import_run_id高水位マーク＋algorithm_version＋matched_route_designation_ids配列で対応方針(a)を実装、migration 0024）
 - [x] [T352](tasks/T352.md). axis_idハードコード分岐を宣言的フィールドへ汎用化（時刻依存・地図色分け対応） 規模M（2026-08-28完了）
 - [x] [T353](tasks/T353.md). 内部軸の出力が正規化されないまま他軸の材料として参照される（軸参照と材料正規化方針の不整合） 規模M（完了）
 - [x] [T354](tasks/T354.md). docs/architecture.mdのAxisComposer.tsx記述をT332後のウィザード構成へ更新 規模S（完了・2026-08-27）

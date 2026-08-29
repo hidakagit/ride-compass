@@ -31,7 +31,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -43,6 +43,18 @@ logger = logging.getLogger("app.batch.precompute_way_attribute_counts")
 # 1チャンクあたりのway数。precompute_edge_attribute_counts.pyと同じ理由で
 # request向けcommand_timeoutを受けない専用エンジンで動くため大きめでも安全側。
 CHUNK_SIZE = 5_000
+
+# 派生データの系譜追跡（改善計画T351）。precompute_edge_attribute_counts.pyと同じ意味・
+# 同じ運用（ROAD_SURFACE_TILE_VERSIONと同種の手動版数）。edge単位版とway単位版は同じ
+# 集計ロジック（意味論は共通、_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQLのコメント参照）のため
+# 同じ版数文字列を使うが、対象テーブルが別のため定数自体は独立に持つ（それぞれが
+# 単独で読めることを優先、edge側の値と実際に揃っているかはコードレビュー時の目視確認）。
+ALGORITHM_VERSION = "v1"
+
+_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
+    "SELECT MAX(id) FROM accident_import_runs WHERE status = 'succeeded'"
+)
+_LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 
 
 def _chunked(items: list[int], size: int) -> list[list[int]]:
@@ -61,8 +73,13 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 .where(OsmRawWayRow.highway.is_not(None))
             )
             way_ids = [row[0] for row in result.all()]
+            source_accident_run_id = (await session.execute(_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL)).scalar_one()
+            source_osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
 
-        logger.info("対象way数: %d件（chunk_size=%d）", len(way_ids), CHUNK_SIZE)
+        logger.info(
+            "対象way数: %d件（chunk_size=%d） source_accident_run_id=%s source_osm_run_id=%s",
+            len(way_ids), CHUNK_SIZE, source_accident_run_id, source_osm_run_id,
+        )
         if dry_run:
             logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
@@ -87,7 +104,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             chunk_started = time.perf_counter()
             async with session_factory() as session:
                 repository = RoadGraphRepository(session)
-                await repository.recompute_way_attribute_counts(chunk, now)
+                await repository.recompute_way_attribute_counts(
+                    chunk, now, source_accident_run_id, source_osm_run_id, ALGORITHM_VERSION
+                )
                 await session.commit()
             total_written += len(chunk)
             logger.info(

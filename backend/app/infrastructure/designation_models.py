@@ -15,7 +15,7 @@ from datetime import datetime
 
 from geoalchemy2 import Geometry
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.road_graph_models import Base
@@ -57,6 +57,14 @@ class DesignationAttributeRow(Base):
     matched_ratio: Mapped[float] = mapped_column(Float, nullable=False)
     data_version: Mapped[str | None] = mapped_column(String, nullable=True)
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 派生データの系譜追跡（改善計画T351、migration 0024）。matched_route_designation_idsは
+    # このWay×kindのmatched_ratioへ実際に寄与した全route_designations.id（複数可、
+    # ST_Unionで集約されるため1:多になりうる。match_designations.pyのdocstring参照）。
+    # source_osm_import_run_idはEdgeAttributeCountsRow（road_graph_models.py）と同じ
+    # 高水位マーク方式・同じ理由でForeignKey()を持たない素のInteger（road_graph_models.py:
+    # EdgeAttributeCountsRowのコメント参照。実FK制約はmigrationのみで持つ）。
+    matched_route_designation_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class DesignationImportRunRow(Base):

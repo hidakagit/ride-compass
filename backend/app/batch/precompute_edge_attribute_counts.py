@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -41,12 +41,35 @@ logger = logging.getLogger("app.batch.precompute_edge_attribute_counts")
 # 大きいが、request向けのcommand_timeout=20秒（infrastructure/database.py参照）を受けない
 # 専用エンジン（バッチ・検証スクリプト共通の慣例、measure_axis_stats.py等参照）で動くため、
 # 大きめでも安全側。実測に応じて調整可能。
-CHUNK_SIZE = 5_000
+# 改善計画T351で列数が5→8へ増えたため、5,000のままだとasyncpgのバインドパラメータ上限
+# （32,767個/クエリ、T224の教訓と同じ制約）を1チャンクのUPSERT（列数×行数）だけで
+# 超過する（5,000行×8列=40,000）ようになった。4,000行×8列=32,000で上限内に収まる値へ
+# 引き下げる（実機確認済み、2026-08-30）。
+CHUNK_SIZE = 4_000
+
+# 計算ロジック自体（半径・重み付け等）の版数（改善計画T351）。region_service.py:
+# ROAD_SURFACE_TILE_VERSIONと同じ「パラメータを変えたら手動で上げる」運用。入力データの
+# 版数（source_*_import_run_id）とは別軸で、入力が同じでもロジック変更時は再計算が要ることを
+# 判別可能にするために持つ。
+ALGORITHM_VERSION = "v1"
+
+_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
+    "SELECT MAX(id) FROM accident_import_runs WHERE status = 'succeeded'"
+)
+_LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 
 
 async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
     result = await session.execute(select(RoadEdgeRow.edge_id))
     return [row[0] for row in result.all()]
+
+
+async def _fetch_source_run_ids(session: AsyncSession) -> tuple[int | None, int | None]:
+    """派生データの系譜追跡（改善計画T351）用に、このバッチ実行時点でのaccident_import_runs/
+    osm_import_runsの最新成功run idを取得する（高水位マーク、migrationのコメント参照）。"""
+    accident_run_id = (await session.execute(_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL)).scalar_one()
+    osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
+    return accident_run_id, osm_run_id
 
 
 def _chunked(items: list[str], size: int) -> list[list[str]]:
@@ -64,6 +87,9 @@ async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
             "stop_count": stmt.excluded.stop_count,
             "intersection_count": stmt.excluded.intersection_count,
             "computed_at": stmt.excluded.computed_at,
+            "source_accident_import_run_id": stmt.excluded.source_accident_import_run_id,
+            "source_osm_import_run_id": stmt.excluded.source_osm_import_run_id,
+            "algorithm_version": stmt.excluded.algorithm_version,
         },
     )
     await session.execute(stmt)
@@ -77,8 +103,12 @@ async def run(database_url: str | None, dry_run: bool) -> int:
     try:
         async with session_factory() as session:
             edge_ids = await _fetch_all_edge_ids(session)
+            source_accident_run_id, source_osm_run_id = await _fetch_source_run_ids(session)
 
-        logger.info("対象edge数: %d件（chunk_size=%d）", len(edge_ids), CHUNK_SIZE)
+        logger.info(
+            "対象edge数: %d件（chunk_size=%d） source_accident_run_id=%s source_osm_run_id=%s",
+            len(edge_ids), CHUNK_SIZE, source_accident_run_id, source_osm_run_id,
+        )
         if dry_run:
             logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
@@ -115,6 +145,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                         "stop_count": stop_counts.get(edge_id, 0),
                         "intersection_count": intersection_counts.get(edge_id, 0),
                         "computed_at": now,
+                        "source_accident_import_run_id": source_accident_run_id,
+                        "source_osm_import_run_id": source_osm_run_id,
+                        "algorithm_version": ALGORITHM_VERSION,
                     }
                     for edge_id in chunk
                 ]

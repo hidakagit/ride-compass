@@ -83,17 +83,20 @@ class TestWriteMatches:
 
         elapsed = await _write_matches(
             designation_conn,
-            candidates=[(OSM_WAY_ID, "emergency_transport", 0.9)],
-            matched=[(OSM_WAY_ID, "emergency_transport", 0.9)],
+            candidates=[(OSM_WAY_ID, "emergency_transport", 0.9, [1])],
+            matched=[(OSM_WAY_ID, "emergency_transport", 0.9, [1])],
             data_version="buffer20m",
         )
 
         assert elapsed >= 0.0
         row = await designation_conn.fetchrow(
-            "SELECT matched_ratio, data_version FROM designation_attributes WHERE osm_way_id = $1", OSM_WAY_ID
+            "SELECT matched_ratio, data_version, matched_route_designation_ids "
+            "FROM designation_attributes WHERE osm_way_id = $1",
+            OSM_WAY_ID,
         )
         assert row["matched_ratio"] == pytest.approx(0.9)
         assert row["data_version"] == "buffer20m"
+        assert row["matched_route_designation_ids"] == [1]
 
     async def test_rolls_back_delete_when_insert_fails_midway(
         self, designation_conn, road_graph_repository, road_graph_session, monkeypatch
@@ -112,8 +115,8 @@ class TestWriteMatches:
         with pytest.raises(RuntimeError):
             await _write_matches(
                 designation_conn,
-                candidates=[(OSM_WAY_ID, "emergency_transport", 0.9)],
-                matched=[(OSM_WAY_ID, "emergency_transport", 0.9)],
+                candidates=[(OSM_WAY_ID, "emergency_transport", 0.9, [1])],
+                matched=[(OSM_WAY_ID, "emergency_transport", 0.9, [1])],
                 data_version="buffer20m",
             )
 
@@ -215,31 +218,68 @@ class TestRunMatch:
     ):
         """複数の指定路線が重なる/隣接するケースでも例外なく完了し、ST_Unionにより
         同一(osm_way_id, kind)への交差長が二重計上されない（matched_ratioが1.0を
-        超えない）ことを確認する。異なるkindは別行として独立に反映されることも確認する。"""
+        超えない）ことを確認する。異なるkindは別行として独立に反映されることも確認する。
+        matched_route_designation_ids（改善計画T351）が同一kindへ寄与した全route_designations
+        行のidを漏れなく含むことも確認する（ST_Unionで長さは1本に集約されても、
+        寄与元の行数は失われないことの回帰テスト）。"""
         way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
         node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
         await road_graph_repository.save_raw_ways([way], node_coords)
         await road_graph_session.commit()
 
         # 同一kindで完全に重複する指定路線を2本（ST_Unionによる二重計上防止の確認）。
-        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
-        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+        id_a = await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+        id_b = await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
         # 隣接する前半だけをカバーする指定路線をさらに1本（同一kind、部分重複）。
-        await _seed_route_designation(
+        id_c = await _seed_route_designation(
             designation_conn, DESIG_KIND, [DESIG_LINE[0], (35.7000, 139.7000)]
         )
         # 別kindの指定路線も同じWay区間に重ねる（kindごとに別行になることの確認）。
-        await _seed_route_designation(designation_conn, "critical_logistics", DESIG_LINE)
+        id_d = await _seed_route_designation(designation_conn, "critical_logistics", DESIG_LINE)
 
         result = await run_match(TEST_DATABASE_URL, dry_run=False)
 
         assert result == 0
         rows = await designation_conn.fetch(
-            "SELECT kind, matched_ratio FROM designation_attributes WHERE osm_way_id = $1", WAY_MATCH_ID
+            "SELECT kind, matched_ratio, matched_route_designation_ids "
+            "FROM designation_attributes WHERE osm_way_id = $1",
+            WAY_MATCH_ID,
         )
         by_kind = {r["kind"]: r["matched_ratio"] for r in rows}
         assert set(by_kind) == {"emergency_transport", "critical_logistics"}
         for ratio in by_kind.values():
             assert ratio <= 1.0 + 1e-6
             assert ratio >= DESIGNATION_MATCH_MIN_RATIO
+
+        # route_designationsは他テストの残留行と共有され得るため（本テストの関心事では
+        # ないテスト分離の話）、部分集合チェックに留める——今回seedした3行が漏れなく
+        # 含まれていることが本テストの主眼。
+        ids_by_kind = {r["kind"]: set(r["matched_route_designation_ids"]) for r in rows}
+        assert {id_a, id_b, id_c} <= ids_by_kind["emergency_transport"]
+        assert id_d in ids_by_kind["critical_logistics"]
+
+    async def test_source_osm_import_run_id_reflects_latest_succeeded_run(
+        self, designation_conn, road_graph_repository, road_graph_session
+    ):
+        """派生データの系譜追跡（改善計画T351）: run_matchが実行時点でのosm_import_runs
+        （status='succeeded'）のMAX(id)をsource_osm_import_run_idとして書き込むことを確認する。"""
+        way = WaySpec(osm_way_id=WAY_MATCH_ID, node_ids=[1, 2], highway="residential")
+        node_coords = {1: DESIG_LINE[0], 2: DESIG_LINE[1]}
+        await road_graph_repository.save_raw_ways([way], node_coords)
+        await road_graph_session.commit()
+        await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
+
+        run_id = await designation_conn.fetchval(
+            "INSERT INTO osm_import_runs (pbf_name, profile_hash, status, started_at, finished_at) "
+            "VALUES ('test.pbf', 'hash', 'succeeded', now(), now()) RETURNING id"
+        )
+
+        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+
+        assert result == 0
+        row = await designation_conn.fetchrow(
+            "SELECT source_osm_import_run_id FROM designation_attributes WHERE osm_way_id = $1 AND kind = $2",
+            WAY_MATCH_ID, DESIG_KIND,
+        )
+        assert row["source_osm_import_run_id"] == run_id
 

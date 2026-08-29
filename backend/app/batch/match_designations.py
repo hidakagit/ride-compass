@@ -71,27 +71,36 @@ matched AS (
            ST_Length(w.geom::geography) AS way_length_m,
            ST_Union(
                ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom, 1e-7), 2)
-           ) AS unioned
+           ) AS unioned,
+           -- 派生データの系譜追跡（改善計画T351）: この(osm_way_id, kind)のmatched_ratioへ
+           -- 実際に寄与した全route_designations.id（複数のroute_designations行が同じWayへ
+           -- 寄与しうるため配列で保持する）。
+           array_agg(DISTINCT b.id) AS route_designation_ids
     FROM buffered b
     JOIN osm_raw_ways w ON w.geom IS NOT NULL AND ST_Intersects(w.geom, b.buffer_geom)
     GROUP BY w.osm_way_id, b.kind
 )
-SELECT osm_way_id, kind, ST_Length(unioned::geography) / NULLIF(way_length_m, 0) AS ratio
+SELECT osm_way_id, kind, ST_Length(unioned::geography) / NULLIF(way_length_m, 0) AS ratio,
+       route_designation_ids
 FROM matched
 """
 
 _DELETE_SQL = "DELETE FROM designation_attributes WHERE kind = ANY($1)"
 _INSERT_SQL = """
-INSERT INTO designation_attributes (osm_way_id, kind, matched_ratio, data_version, calculated_at)
-VALUES ($1, $2, $3, $4, now())
+INSERT INTO designation_attributes
+    (osm_way_id, kind, matched_ratio, data_version, calculated_at,
+     matched_route_designation_ids, source_osm_import_run_id)
+VALUES ($1, $2, $3, $4, now(), $5, $6)
 """
+_LATEST_SUCCEEDED_OSM_RUN_ID_SQL = "SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'"
 
 
 async def _write_matches(
     conn: asyncpg.Connection,
-    candidates: list[tuple[int, str, float]],
-    matched: list[tuple[int, str, float]],
+    candidates: list[tuple[int, str, float, list[int]]],
+    matched: list[tuple[int, str, float, list[int]]],
     data_version: str,
+    source_osm_import_run_id: int | None = None,
 ) -> float:
     """DELETE→executemany INSERTを1トランザクションに括り、candidatesが0件のときは
     DELETEごとスキップする（改善計画T73）。戻り値はinsert所要秒（スキップ時は0.0）。
@@ -99,6 +108,9 @@ async def _write_matches(
     route_designationsが空（import未実行・取込失敗後）やバッファ閾値不整合でcandidatesが
     0件のとき、従来はDELETEだけ実行され既存designation_attributesが0件INSERTで
     静かに全消しされていた。
+
+    source_osm_import_run_idは派生データの系譜追跡（改善計画T351）用、呼び出し元
+    （run_match）が実行時点の最新成功osm_import_runs.idを一度だけ取得し渡す。
     """
     if not candidates:
         logger.warning(
@@ -114,7 +126,10 @@ async def _write_matches(
         # （本番はOracle遠隔DBのため特に顕著）。executemanyで1ラウンドトリップにバッチ化する。
         await conn.executemany(
             _INSERT_SQL,
-            [(osm_way_id, kind, ratio, data_version_local) for osm_way_id, kind, ratio in matched],
+            [
+                (osm_way_id, kind, ratio, data_version_local, route_designation_ids, source_osm_import_run_id)
+                for osm_way_id, kind, ratio, route_designation_ids in matched
+            ],
         )
     return time.perf_counter() - insert_started
 
@@ -126,7 +141,11 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
     try:
         logger.info("マッチング開始: buffer_width_m=%.1f kinds=%s", DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
         rows = await conn.fetch(_MATCH_SQL, DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
-        candidates = [(r["osm_way_id"], r["kind"], r["ratio"]) for r in rows if r["ratio"] is not None]
+        candidates = [
+            (r["osm_way_id"], r["kind"], r["ratio"], r["route_designation_ids"])
+            for r in rows
+            if r["ratio"] is not None
+        ]
         matched = [c for c in candidates if c[2] >= DESIGNATION_MATCH_MIN_RATIO]
 
         if dry_run:
@@ -139,8 +158,12 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
                 logger.info("dry-run kind=%s: matched=%d", kind, len(kind_matched))
             return 0
 
+        # 派生データの系譜追跡（改善計画T351）: このマッチング実行時点でのosm_import_runsの
+        # 最新成功run id（高水位マーク、migration 0024のコメント参照）。
+        source_osm_import_run_id = await conn.fetchval(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)
+
         data_version = f"buffer{DESIGNATION_BUFFER_WIDTH_M:.0f}m"
-        insert_elapsed = await _write_matches(conn, candidates, matched, data_version)
+        insert_elapsed = await _write_matches(conn, candidates, matched, data_version, source_osm_import_run_id)
 
         # 改善計画T73: candidates=0（_write_matches内でWARNING済み）はここでは重複ログしない。
         # candidatesはあってもmatched=0（全てratio閾値未満）はWARNING（docs/logging.mdの

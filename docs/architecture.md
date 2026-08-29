@@ -2118,6 +2118,46 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 `extractor`は種別ごとのper-edge kind配線が未整備なためトリガー付きDEFER）が参照する
 （「表示専用材料の除外」節参照）。
 
+### 派生データの系譜追跡（改善計画T351、migration 0024）
+
+T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_counts`/
+`designation_attributes`（いずれも上記の事前計算バッチが書く派生データ）が
+`computed_at`/`calculated_at`しか持たず、(a) どの`accident_import_runs`/
+`osm_import_runs`の内容から計算したか、(b) 「入力データが古い」のか「計算ロジックが
+変わった」のかを区別する手段が無いと判明した（[docs/tasks/T351.md](tasks/T351.md)参照）。
+以下の列を追加した:
+
+- **`source_accident_import_run_id`/`source_osm_import_run_id`**（`edge_attribute_counts`・
+  `way_attribute_counts`・`designation_attributes`のうちaccident/osm各データに依存する列のみ）:
+  バッチ実行時点での`accident_import_runs`/`osm_import_runs`の`status='succeeded'`な行の
+  中でのMAX(id)（**高水位マーク**）。行単位の厳密な系譜ではなく「この計算はどのデータ世代
+  までを見ていたか」を表す——`accident_import_runs`は年ごとに複数行が積み上がる設計のため
+  全年度を列挙する代わりに、単調増加するidの最大値を記録・比較するだけで新規取込の有無を
+  検出できるという設計判断。ORM側は`ForeignKey()`を持たない素の`Integer`列（実FK制約は
+  migrationのみが持つ）——`road_graph_models.py`が`accident_models.py`/
+  `designation_models.py`の存在を知らずに定義できることを優先した（クロスモジュールFKを
+  ORM側にも書くと、参照先モデルをimportしないプロセス——`precompute_edge_attribute_counts.py`
+  単体実行時のテストフィクスチャ等——で`Base.metadata.sorted_tables`/`create_all`が
+  `NoReferencedTableError`を起こすことを実機確認したため）。
+- **`algorithm_version`**（`edge_attribute_counts`・`way_attribute_counts`のみ）: 計算ロジック
+  自体（半径・重み付け等のパラメータ）の版数。`region_service.py: ROAD_SURFACE_TILE_VERSION`と
+  同じ「パラメータを変えたら手動で上げる」文字列定数で、各バッチモジュール自身が持つ
+  （`precompute_edge_attribute_counts.py`/`precompute_way_attribute_counts.py`の
+  `ALGORITHM_VERSION`）。`designation_attributes`は既存の`data_version`列
+  （バッファ幅`buffer{N}m`）が実質同じ役割を既に果たしているため新設していない。
+- **`matched_route_designation_ids`**（`designation_attributes`のみ）: この`(osm_way_id, kind)`の
+  `matched_ratio`へ実際に寄与した全`route_designations.id`（`integer[]`）。
+  `match_designations.py`の`_MATCH_SQL`は同一`(osm_way_id, kind)`に複数の`route_designations`行が
+  交差する場合、`ST_Union`で交差長を1本に集約してから比率を求める（二重計上防止のため）。
+  単一のFK列では「実際にどの行が寄与したか」を表現できないため、寄与した全行のidを
+  `array_agg(DISTINCT b.id)`で配列として保持する設計にした。
+
+**現時点でできること・できないこと**: これらの列は「記録」のみで、生データが更新された際に
+自動で再計算をトリガーする仕組みは持たない（[docs/batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)
+「段階2・3」参照）。記録された値を人が`SELECT`で参照し、現在の`accident_import_runs`/
+`osm_import_runs`のMAX(id)と比較することで「再計算が必要か」を判断できるようになっただけ——
+T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、この列がそのまま材料になる。
+
 ### 静的レイヤー・タイル配信（フロント固定レイヤー＋レジストリ駆動の二次軸ランプレイヤー）
 
 [frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の

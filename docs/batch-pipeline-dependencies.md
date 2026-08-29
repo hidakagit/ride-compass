@@ -12,6 +12,16 @@
 各スクリプトのdocstring・`import_profile.yaml`が正準（本ファイルはそれらの要約・
 横断的な依存関係の可視化）。
 
+**2026-08-30追記（改善計画T351）**: ⑤`precompute_edge_attribute_counts.py`・
+⑦`precompute_way_attribute_counts.py`・⑧`match_designations.py`が書き込む先
+（`edge_attribute_counts`/`way_attribute_counts`/`designation_attributes`）へ、
+実行時点の`accident_import_runs`/`osm_import_runs`の最新成功run id
+（`source_accident_import_run_id`/`source_osm_import_run_id`、高水位マーク）と
+`algorithm_version`を記録する列を追加した。これにより「このバッチはどのデータ世代を
+見て計算したか」がDB上で機械的に確認できるようになったが、下記「段階2・3（本ファイルの
+対象外）」の鮮度台帳のような自動検知・自動再計算のトリガー機構自体はまだ実装していない
+——現状は記録された値を人が`SELECT`で参照し比較する運用のまま。詳細はdocs/tasks/T351.md参照。
+
 ## 1. 依存順序（実行順）
 
 ```
@@ -83,4 +93,7 @@
 
 統合エントリポイント（`python -m app.batch.refresh_derived`等、実行順序を自動解決する
 単一コマンド）と、鮮度台帳（生データ更新時刻 vs 派生computed_atを機械比較できる仕組み）は
-改善計画T281段階2・3として別途トリガー待ち（docs/improvement-plan.md参照）。
+改善計画T281段階2・3として別途トリガー待ち（docs/improvement-plan.md参照）。**2026-08-30
+追記**: 改善計画T351が鮮度台帳の材料となる列（source_*_import_run_id・algorithm_version、
+上記冒頭の追記参照）を先行して用意した。段階3着手時はこの列を読むだけで鮮度台帳を構築でき、
+新たな系譜追跡機構をゼロから設計する必要はない。
