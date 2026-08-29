@@ -618,6 +618,51 @@ async def test_get_edges_with_geometry_returns_empty_dict_when_none_cached():
     assert result == {}
 
 
+class ReentrancyDetectingRepository(FakeRoadGraphRepository):
+    """repositoryへの同時アクセス（再入）を検出するフェイク。
+
+    実体のRoadGraphRepositoryはSQLAlchemyのAsyncSessionを内包しており、複数コルーチンから
+    同時に使うと未定義動作/例外になる（RouteGenerator.generate_loopsが8方位を
+    asyncio.gatherで並列実行し、RoadGraphEngine.trace_loopが同一GraphService
+    （＝同一AsyncSession）のget_edges_with_geometryを同時に呼ぶ経路。改善計画T391、
+    test_elevation_attribute_service.pyの同名フェイクと同じ考え方）。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._in_use = False
+        self.concurrent_access_detected = False
+
+    async def get_edges_with_geometry(self, edge_ids):
+        if self._in_use:
+            self.concurrent_access_detected = True
+        self._in_use = True
+        await asyncio.sleep(0)  # 制御を手放し、並列呼び出しに割り込む機会を与える
+        try:
+            return await super().get_edges_with_geometry(edge_ids)
+        finally:
+            self._in_use = False
+
+
+async def test_get_edges_with_geometry_serializes_concurrent_calls():
+    """8方位並列のtrace_loopを模して同時に呼んでも、repositoryアクセスが直列化されること
+    （改善計画T391、AsyncSessionの同時使用クラッシュの回帰テスト）。"""
+    repository = ReentrancyDetectingRepository()
+    repository.edges_with_geometry = {
+        f"e{i}": DirectedEdge(
+            edge_id=f"e{i}", from_node_id="a", to_node_id="b",
+            geometry=[[35.700, 139.700], [35.701, 139.701]], distance_m=100.0,
+        )
+        for i in range(8)
+    }
+    service = GraphService(repository=repository)
+
+    results = await asyncio.gather(*(service.get_edges_with_geometry([f"e{i}"]) for i in range(8)))
+
+    assert not repository.concurrent_access_detected
+    assert all(result for result in results)
+
+
 async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and_caches_independently():
     ways = [
         {"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]},

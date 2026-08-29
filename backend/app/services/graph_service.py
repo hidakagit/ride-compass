@@ -69,6 +69,14 @@ class GraphService:
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
+        # 改善計画T391: get_edges_with_geometryのみ、RouteGenerator.generate_loopsの
+        # 8方位asyncio.gather経由でRoadGraphEngine.trace_loopから同時に呼ばれうる
+        # （このメソッド以外は常にgather開始前のprepare段階で逐次呼ばれるため対象外）。
+        # repository内包のSQLAlchemy AsyncSessionは同一セッションへの同時アクセスが
+        # 未定義動作/例外を招くため（elevation_attribute_service.pyの同種ロックと同じ理由、
+        # docs/decisions/road-graph-migration.md「AsyncSessionの同時使用クラッシュ」参照）、
+        # そこだけロックで直列化する。
+        self._repository_lock = asyncio.Lock()
 
     async def _ensure_tiles_cached(self, bbox: BoundingBox) -> bool:
         """bboxを覆う全z12タイルが取込済みかを1クエリで判定する（改善計画T229:
@@ -333,5 +341,10 @@ class GraphService:
     async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
         """`LeanRoadGraph`として読み込んだ探索用グラフ（geometryプレースホルダのみ）の
         一部Edgeへ、実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。
+
+        改善計画T391: 呼び出し元`RoadGraphEngine.trace_loop`はRouteGenerator.generate_loopsの
+        8方位`asyncio.gather`から同時に呼ばれるため、`self._repository_lock`で直列化する
+        （`__init__`のコメント参照）。
         """
-        return await self._repository.get_edges_with_geometry(edge_ids)
+        async with self._repository_lock:
+            return await self._repository.get_edges_with_geometry(edge_ids)
