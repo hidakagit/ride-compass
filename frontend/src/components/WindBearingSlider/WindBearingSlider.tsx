@@ -24,7 +24,9 @@ import styles from "./WindBearingSlider.module.css";
 
 const CARDINAL_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"] as const;
 
-/** 0〜360度の向きを8方位の日本語ラベルへ変換する（コンパスの中央に出す読み上げ用）。 */
+/** 0〜360度の向きを8方位の日本語ラベルへ変換する（コンパスの中央に出す読み上げ用）。
+ * backend/app/domain/geo.py: compass_labelの二重実装——ラベル配列・丸めアルゴリズムとも
+ * 同じ値を保つこと（既知の入出力ペアでドリフト検知するWindBearingSlider.test.ts参照）。 */
 export function cardinalLabel(bearingDeg: number): string {
   const normalized = ((bearingDeg % 360) + 360) % 360;
   const index = Math.round(normalized / 45) % 8;

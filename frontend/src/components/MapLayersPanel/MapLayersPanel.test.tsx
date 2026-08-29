@@ -9,7 +9,6 @@ import {
   type MapLayerId,
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES } from "@/components/Map/axisLayers";
-import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import { buildStaticFilterAxes } from "@/components/Map/staticAttributeLayers";
 
 // 改善計画T308: 実運用ではpage.tsxがaxisCatalog（useAxisCatalog）由来のrampAxesを
@@ -78,7 +77,6 @@ function baseProps() {
     onClearAllFilters: vi.fn(),
     mapLayers: MAP_LAYERS,
     roadSurfaceSharedLayerIds: ROAD_SURFACE_SHARED_LAYER_IDS,
-    secondaryAxes: SECONDARY_AXES,
     staticFilterAxes: STATIC_FILTER_AXES,
   };
 }
@@ -112,21 +110,23 @@ function openAllSections() {
 // 下書き→適用を廃止し、チェック方式へ統一）。「生成したルートの色分け」（route）は
 // このパネルの対象外へ移設したため、そちらの挙動はpage.tsx側で検証する。
 describe("MapLayersPanel", () => {
-  // 改善計画T413（地図の見え方パネルのグルーピングを地図上チップ[T406]と統一）: 見出しは
-  // 「道路/評価軸/環境/スポット」（mapOverlayGroupFor）のみのフラットな1階層。地図上チップ側が
-  // 実機フィードバックでカテゴリ見出しを廃止した経緯（改善計画T169）と揃え、こちらも
-  // 中分類（category）の見出しは出さない（「地図の見え方と合わせて、中分類は不要」という
-  // 実機フィードバック）。「生成したルートの色分け」（route、どのグループにも属さない）は
-  // このパネルの対象外へ移設した（「ルートを作る」パネル、page.tsx参照）。
-  it("レイヤーカタログの全レイヤーが、グループ見出し（道路/評価軸/環境/スポット）のみのフラットな一覧としてセクションで並ぶ", () => {
+  // 改善計画T413（地図の見え方パネルのグルーピングを地図上チップ[T406]と統一）・T418
+  // （評価軸グループの撤去）: 見出しは「道路/環境/スポット」（mapOverlayGroupFor）のみの
+  // フラットな1階層。地図上チップ側が実機フィードバックでカテゴリ見出しを廃止した経緯
+  // （改善計画T169）と揃え、こちらも中分類（category）の見出しは出さない（「地図の見え方と
+  // 合わせて、中分類は不要」という実機フィードバック）。「生成したルートの色分け」
+  // （route、どのグループにも属さない）は「ルートを作る」パネル（page.tsx参照）、評価軸
+  // （軸スタジオ由来のレイヤー、car_stress等）はルート設定パネル（RouteSettingsPanel.tsx、
+  // docs/tasks/T418.md）へそれぞれ移設し、このパネルの対象外になった。
+  it("レイヤーカタログの全レイヤーが、グループ見出し（道路/環境/スポット）のみのフラットな一覧としてセクションで並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
     const groupHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    // 表示順は地図上チップと同じMAP_OVERLAY_GROUP_ORDER（道路→評価軸→環境→スポット）を
-    // そのまま使う（旧「観測/推定」時代のパネル専用反転は廃止、mapLayers.tsのコメント参照）。
+    // 表示順は地図上チップと同じMAP_OVERLAY_GROUP_ORDER（道路→環境→スポット）をそのまま
+    // 使う（旧「観測/推定」時代のパネル専用反転は廃止、mapLayers.tsのコメント参照）。
     // 降水ナウキャスト・風・雷・竜巻等dataNature="dynamic"のレイヤーはユーザー判断
     // （2026-08-25）により絞り込み機能を持たないためこのパネルから撤去済み（下記の別テスト参照）。
-    expect(groupHeadings).toEqual(["道路", "評価軸", "環境", "スポット"]);
+    expect(groupHeadings).toEqual(["道路", "環境", "スポット"]);
 
     // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
     // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
@@ -136,14 +136,16 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadType")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadSurface")).toBeInTheDocument();
-    // axis:car_stressはコロンを含むためCSS ID選択子（#...）では壊れる。属性選択子で確認する。
-    expect(container.querySelector('[id="map-layer-section-axis:car_stress"]')).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-tunnel")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-stopPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-supplyPoi")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-accidents")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-route")).not.toBeInTheDocument();
+    // 改善計画T418: 評価軸チップ自体を地図UIから撤去したため、axis:car_stress等の
+    // 軸スタジオ由来レイヤーはこのパネルのどのセクションとしても現れない
+    // （属性選択子で確認。コロンを含むIDはCSS ID選択子[#...]では壊れる）。
+    expect(container.querySelector('[id="map-layer-section-axis:car_stress"]')).not.toBeInTheDocument();
   });
 
   // ユーザー判断（2026-08-25）: 降水ナウキャスト・風・雷・竜巻等dataNature="dynamic"の
@@ -164,23 +166,19 @@ describe("MapLayersPanel", () => {
   });
 
   // 改善計画T413: mapOverlayGroupForの判定どおり、道路の純粋な属性（roadType/roadSurface/
-  // designation）は「道路」、軸スタジオが作る評価軸（axis:car_stress）は「評価軸」、
-  // 点レイヤー（accidents/stopPoi/supplyPoi）は「スポット」、標高図（terrain）は「環境」に
-  // 属する。以前はcar_stress以外の全レイヤーが単一の「観測」グループへ一緒くたに入っていた
-  // （地図上チップ側は既にT406でこの4分類だったため、パネルとチップで所属グループの語彙が
-  // 食い違っていた）。
+  // designation）は「道路」、点レイヤー（accidents/stopPoi/supplyPoi）は「スポット」、
+  // 標高図（terrain）は「環境」に属する。以前はcar_stress以外の全レイヤーが単一の
+  // 「観測」グループへ一緒くたに入っていた（地図上チップ側は既にT406でこの分類だったため、
+  // パネルとチップで所属グループの語彙が食い違っていた）。
   it("レイヤーが地図上チップ（mapOverlayGroupFor）と同じグループの下に属する", () => {
     render(<MapLayersPanel {...baseProps()} />);
 
     function overlayGroupTitleFor(layerId: string): string | null {
-      // axis:car_stressのようなコロンを含むIDはCSS ID選択子（#...）では壊れるため
-      // getElementByIdで引く（属性値としては通常のCSS.escape不要な安全な経路）。
       const section = document.getElementById(`map-layer-section-${layerId}`);
       const group = section?.closest(`.${styles.overlayGroup}`);
       return group?.querySelector(`.${styles.overlayGroupTitle}`)?.textContent ?? null;
     }
 
-    expect(overlayGroupTitleFor("axis:car_stress")).toBe("評価軸");
     expect(overlayGroupTitleFor("roadType")).toBe("道路");
     expect(overlayGroupTitleFor("roadSurface")).toBe("道路");
     expect(overlayGroupTitleFor("designation")).toBe("道路");
@@ -188,51 +186,6 @@ describe("MapLayersPanel", () => {
     expect(overlayGroupTitleFor("stopPoi")).toBe("スポット");
     expect(overlayGroupTitleFor("supplyPoi")).toBe("スポット");
     expect(overlayGroupTitleFor("elevation")).toBe("環境");
-  });
-
-  // 実機フィードバック「推定指標の上から数えた順番を地図上の左から数えた順番と一致させて」
-  // への対応。地図チップの評価軸グループは軸カタログ順（SECONDARY_AXES＝axis-catalog.json由来、
-  // 勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）で横並びに展開される
-  // ため、パネル側もこの順を再現する（以前はcategory順で、地図チップの並びと食い違っていた）。
-  // 改善計画T320: axis-catalog.jsonの生成がAXIS_DEFINITIONSのsort_order（accident=5,
-  // night=6）どおりの順で走査するようになったため、事故密度が夜間より前になった
-  // （以前は生成スクリプト側の手書き登録順が偶然night→accidentだった）。
-  // 改善計画T367: 自転車インフラ（bicycle_infra_quality）が地図表示に対応した
-  // （show_map_icon=true）ため、sort_order最後尾の軸としてSECONDARY_AXESの末尾に加わった。
-  it("評価軸グループの並び順が地図チップの並び（勾配・舗装質・停止密度・車の圧迫感・事故密度・夜間・自転車インフラ）と一致する", () => {
-    const { container } = render(<MapLayersPanel {...baseProps()} />);
-    const axisHeading = Array.from(container.querySelectorAll("h2")).find((h) => h.textContent === "評価軸");
-    const axisGroup = axisHeading?.closest(`.${styles.overlayGroup}`);
-    expect(axisGroup).toBeTruthy();
-    const titles = Array.from(axisGroup!.querySelectorAll("h3")).map((h) => h.textContent);
-    expect(titles).toEqual(["勾配", "舗装質", "停止密度", "車の圧迫感", "事故密度", "夜間", "自転車インフラ"]);
-  });
-
-  // 実機フィードバック「地図上でグレー表示のものも展開だけさせず存在させて」への対応。
-  // 専用の表示レイヤーを持たない軸（勾配。材料gradient_percentがタイル非依存のため
-  // 改善計画T278の自動導出対象外）は、地図チップではタップ不能の灰色タイルとして存在する
-  // 一方、以前のパネルはMapLayerId自体を持たないため一覧から完全に抜け落ちていた。
-  // 設定項目もON/OFFも無いため、他レイヤーのような開閉式セクションではなく常時見える
-  // 案内行として存在させる。改善計画T318で代役案内文（旧proxy_hint）を撤去したため、
-  // この案内行は見出し（h3）のみのシンプルな表示になった（軸スタジオでshow_map_icon
-  // をfalseにすれば行自体を丸ごと消せる、secondaryAxes.test.ts参照）。
-  it("専用の表示レイヤーを持たない推定軸（勾配）は開閉式にせず、見出しのみの案内行として存在する", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-
-    expect(screen.getByRole("heading", { name: "勾配", level: 3 })).toBeInTheDocument();
-  });
-
-  // 改善計画T278: surface_q・nightは材料（surface_good・no_lit/has_tunnel）がMVTタイルへ
-  // 焼き込み済みのためkind="ramp"の自動導出表示を持つようになり、以前の「専用レイヤー無し」
-  // 案内行（proxy）から、他のramp軸（停止密度・事故密度）と同じ実レイヤーセクション
-  // （ON/OFFチップ付き）へ変わった。
-  it("改善計画T278でramp表示になった舗装質・夜間は、他のレイヤーと同じON/OFFチップ付きセクションとして表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-
-    expect(screen.getByRole("button", { name: "舗装質レイヤーを表示" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "夜間レイヤーを表示" })).toBeInTheDocument();
   });
 
   it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {
@@ -423,8 +376,8 @@ describe("MapLayersPanel", () => {
           elevation: false,
           roadType: false,
           roadSurface: false,
-          "axis:car_stress": true,
-          designation: false,
+          "axis:car_stress": false,
+          designation: true,
           tunnel: false,
           oneway: false,
           stopPoi: false,
@@ -441,10 +394,10 @@ describe("MapLayersPanel", () => {
       inundationRisk: false,
       linearRainbandRisk: false,
         }}
-        layerDataStatus={{ "axis:car_stress": "error" }}
+        layerDataStatus={{ designation: "error" }}
       />,
     );
-    openSection("axis:car_stress");
+    openSection("designation");
     expect(screen.getByText(/データの取得に失敗しました/)).toBeInTheDocument();
   });
 
@@ -485,10 +438,10 @@ describe("MapLayersPanel", () => {
     render(
       <MapLayersPanel
         {...baseProps()}
-        layerDataStatus={{ "axis:car_stress": "error" }}
+        layerDataStatus={{ designation: "error" }}
       />,
     );
-    openSection("axis:car_stress");
+    openSection("designation");
     expect(screen.queryByText(/データの取得に失敗しました/)).not.toBeInTheDocument();
   });
 
@@ -524,40 +477,6 @@ describe("MapLayersPanel", () => {
     );
     openSection("roadSurface");
     expect(screen.getByText("表示範囲が広すぎます。ズームインしてください。")).toBeInTheDocument();
-    expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
-  });
-
-  it("改善計画T87レビュー指摘: road_surfaceタイルを共有するaxis:car_stressも、regionZoomTooWide中はデータ状態の案内を出さない", () => {
-    render(
-      <MapLayersPanel
-        {...baseProps()}
-        layerVisibility={{
-          elevation: false,
-          roadType: false,
-          roadSurface: false,
-          "axis:car_stress": true,
-          designation: false,
-          tunnel: false,
-          oneway: false,
-          stopPoi: false,
-          supplyPoi: false,
-          accidents: false,
-          route: false,
-          precipitationNowcast: false,
-          windVector: false,
-          windAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-      landslideRisk: false,
-      heavyRainRisk: false,
-      inundationRisk: false,
-      linearRainbandRisk: false,
-        }}
-        regionZoomTooWide={true}
-        layerDataStatus={{ "axis:car_stress": "empty" }}
-      />,
-    );
-    openSection("axis:car_stress");
     expect(screen.queryByText("この範囲に表示できるデータがありません")).not.toBeInTheDocument();
   });
 
@@ -732,39 +651,12 @@ describe("MapLayersPanel", () => {
     expect(screen.getByRole("checkbox", { name: /アスファルト/ })).toBeChecked();
   });
 
-  // 「不明」がしきい値段階と並ぶ数値段階に見えないよう、区切り線付きの専用クラスで
-  // 分離する（legendFilter.ts: LegendEntry.isFallback）。車の圧迫感はhighway材料が
-  // 未登録の道路種別（path/footway等）で「不明」になる（axis_display.py参照）。
-  it("車の圧迫感の凡例で「不明」はしきい値段階と区切って表示される", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("axis:car_stress");
-    const section = document.getElementById(layerSectionDomId("axis:car_stress")) as HTMLElement;
-    const fallbackLabel = within(section).getByText("不明");
-    const row = fallbackLabel.closest("label");
-    expect(row?.className).toMatch(/legendCheckboxRowFallback/);
-  });
-
   it("停止要因POIの凡例（種別ごとの色分け）が表示される", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
     openSection("stopPoi");
     expect(screen.getByText("信号")).toBeInTheDocument();
     expect(screen.getByText("踏切")).toBeInTheDocument();
-  });
-
-  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・停止要因POI・
-  // 事故）も、OFF中の案内・凡例チェックボックスの絞り込み操作・自動ONが道路情報と
-  // 同じ挙動になったことを検証する。
-  it("車ストレスOFFのときはOFF案内が出て、絞り込みチェックはOFF中でも操作できる", () => {
-    render(<MapLayersPanel {...baseProps()} />);
-    openAllSections();
-    openSection("axis:car_stress");
-    // OFF案内の文言は他レイヤーとも共通のため、セクション内に絞って確認する
-    const section = document.getElementById(layerSectionDomId("axis:car_stress")) as HTMLElement;
-    expect(within(section).getByText(/絞り込みを操作すると自動でONになります/)).toBeInTheDocument();
-    // 車の圧迫感のrampしきい値[2,3,4]（registry_defaults.py参照）の最下段バンドラベル。
-    expect(screen.getByRole("checkbox", { name: "2未満" })).toBeInTheDocument();
   });
 
   it("事故のセクションは当事者・重大度の2軸が別々の見出しで表示され、死亡事故だけの絞り込みができる", async () => {

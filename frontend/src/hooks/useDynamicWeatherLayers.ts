@@ -49,6 +49,7 @@ import {
 } from "@/components/Map/dynamicWeather";
 import type { DynamicLayerTimeSliderFrame } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { debugLog } from "@/lib/debugLog";
 
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
@@ -60,6 +61,11 @@ const RASRF_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 // キキクル・線状降水帯予測マップ（改善計画T410）の再取得間隔。キキクルは10分おき更新
 // （riskMap.tsのモジュールdocstring参照）に合わせる。
 const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+// コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、
+// windBearingDegをそのままuseMemoの依存に使うとドラッグのたびにGeoJSON再構築＋MapView側の
+// source.setData()が連打される。useWindAxisPenalties.tsのbearingDegデバウンスと同じ値を使う。
+const WIND_BEARING_DEBOUNCE_MS = 500;
 
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
 const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = { land: EMPTY_RISK_FRAMES, heavyRain: EMPTY_RISK_FRAMES, inundation: EMPTY_RISK_FRAMES };
@@ -126,6 +132,7 @@ export function useDynamicWeatherLayers({
   // 1本のタイムライン（下記timeline）上の1点で、各レイヤーはこの時刻に対応する自分の
   // フレームを描画する。
   const [dynamicLayerTargetTime, setDynamicLayerTargetTime] = useState(() => new Date());
+  const debouncedWindBearingDeg = useDebouncedValue(windBearingDeg, WIND_BEARING_DEBOUNCE_MS);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。取得失敗時は例外を投げずnowcastErrorへ
   // 記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ例外、片方だけの
@@ -373,17 +380,18 @@ export function useDynamicWeatherLayers({
   }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
   // 環境グループの風penalty gridFill（改善計画T414）。windPayload（矢印gridMark）と同じ
   // frameIndexForTime（同じwindFramesList・同じdynamicLayerTargetTime）を使うため、両者は
-  // 常に同じ時刻のデータを指す。windBearingDegはユーザー指定の走行方位（全格子点共通）。
+  // 常に同じ時刻のデータを指す。windBearingDegはユーザー指定の走行方位（全格子点共通）、
+  // デバウンス済みの値を使う（WIND_BEARING_DEBOUNCE_MS参照）。
   const windPenaltyPayload = useMemo(() => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || effectiveWindGrid.length === 0) return undefined;
     return windPenaltyGridToCellFeatureCollection(
       effectiveWindGrid,
       windFramesList[index].ref,
-      windBearingDeg,
+      debouncedWindBearingDeg,
       effectiveGridSpacingDeg
     );
-  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid, windBearingDeg, effectiveGridSpacingDeg]);
+  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;

@@ -86,16 +86,23 @@ export const WIND_AXIS_FEATURE_STATE_KEY = "windPenalty";
 // 連携の基盤でありUI・しきい値の作り込みはT406[パネル構成再編]以降の課題）。
 export const WIND_AXIS_THRESHOLDS: readonly number[] = [-6, -2, 2, 6];
 
-/** wind_penaltyのfeature-state値を色へ変換するMapLibre expression。値が無い地物
- * （まだフェッチしていない・その位置のway_idが応答に含まれなかった等）はCOLOR_UNKNOWN
- * （灰色、他のramp軸の「不明」表示と同じ色）にする。["feature-state", key]は該当キーが
- * 未設定のfeatureに対しnullを返す（MapLibreの仕様）。 */
-export function windAxisColorExpression(): unknown[] {
-  const value = ["feature-state", WIND_AXIS_FEATURE_STATE_KEY];
+/** wind_penalty値（WIND_AXIS_THRESHOLDSのしきい値・配色）を色へ変換するMapLibre expressionを
+ * 組み立てる共通ロジック。値の取得元（feature-state or geojsonプロパティ）だけが呼び出し側で
+ * 異なる——評価軸グループ（windAxisColorExpression、feature-state経由）と環境グループの
+ * gridFill（windPenalty.ts: windPenaltyFillColorExpression、["get",...]経由）が同じ配色・
+ * しきい値を共有するという契約（T400.md「2.」節）をコード上でも1箇所に集約する。値が無い地物
+ * （まだフェッチしていない等）はCOLOR_UNKNOWN（灰色、他のramp軸の「不明」表示と同じ色）にする。 */
+export function buildWindPenaltyColorExpression(valueExpression: unknown[]): unknown[] {
   const bandCount = WIND_AXIS_THRESHOLDS.length + 1;
-  const stepExpression: unknown[] = ["step", value, rampColorForBand(0, bandCount)];
+  const stepExpression: unknown[] = ["step", valueExpression, rampColorForBand(0, bandCount)];
   WIND_AXIS_THRESHOLDS.forEach((threshold, index) => {
     stepExpression.push(threshold, rampColorForBand(index + 1, bandCount));
   });
-  return ["case", ["==", value, null], COLOR_UNKNOWN, stepExpression];
+  return ["case", ["==", valueExpression, null], COLOR_UNKNOWN, stepExpression];
+}
+
+/** wind_penaltyのfeature-state値を色へ変換するMapLibre expression。["feature-state", key]は
+ * 該当キーが未設定のfeatureに対しnullを返す（MapLibreの仕様）。 */
+export function windAxisColorExpression(): unknown[] {
+  return buildWindPenaltyColorExpression(["feature-state", WIND_AXIS_FEATURE_STATE_KEY]);
 }

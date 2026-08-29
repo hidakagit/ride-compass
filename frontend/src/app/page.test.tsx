@@ -164,17 +164,22 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
 });
 
 // ============================================================================
-// 改善計画T406: パネル構成再編（道路/評価軸/環境/スポットの4チップ・3排他ドメイン、
-// docs/tasks/T400.md「1. パネルの最上位グルーピング」節）。排他ドメイン判定自体
-// （mapOverlayGroupFor/mapOverlayExclusiveDomainFor、mapLayers.ts）はMapOverlayControls.test.tsx
-// で検証済みだが、実際にONにした際の排他ロジック本体はpage.tsx: handleLayerToggleにある
-// ため、ここでは上のdescribeブロックと同じくMapOverlayControlsを軽量スタブに差し替え、
-// スタブが呼ぶonToggleが実際のhandleLayerToggleへ届くことを利用して検証する
-// （スタブはlayers.idごとにtoggle:${id}という名前のボタンを描画し、押すとonToggle(id, !on)
-// を呼ぶ）。getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバック
-// RAMP_AXESのままレイヤーカタログを固定するため。解決させるとテストの axes: [] が
-// 実カタログとして上書きされ、axis:car_stress等の二次軸レイヤー自体が消えてしまう）。
-describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T406）", () => {
+// 改善計画T406/T418: パネル構成再編（道路/環境/スポットの3チップ・3排他ドメイン、
+// docs/tasks/T400.md「1. パネルの最上位グルーピング」節）。T406時点は「道路」と
+// 「評価軸」が排他ドメイン(line)を共有していたが、T418で評価軸チップ自体を地図UIから
+// 撤去したため道路は単独ドメインになった。軸スタジオ由来のレイヤー（ramp軸・windAxis）は
+// 地図上チップの3ドメインとは独立に、同士だけで1つだけ選べる排他制御を維持する
+// （同じ道路ジオメトリへ線を重ねて見にくくなることを防ぐという元々の目的は変わらない
+// ため、docs/tasks/T418.md参照）。排他ドメイン判定自体（mapOverlayGroupFor/
+// mapOverlayExclusiveDomainFor、mapLayers.ts）はMapOverlayControls.test.tsxで検証済みだが、
+// 実際にONにした際の排他ロジック本体はpage.tsx: handleLayerToggleにあるため、ここでは
+// 上のdescribeブロックと同じくMapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶ
+// onToggleが実際のhandleLayerToggleへ届くことを利用して検証する（スタブはlayers.idごとに
+// toggle:${id}という名前のボタンを描画し、押すとonToggle(id, !on)を呼ぶ）。
+// getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバックRAMP_AXESの
+// ままレイヤーカタログを固定するため。解決させるとテストの axes: [] が実カタログとして
+// 上書きされ、axis:car_stress等の二次軸レイヤー自体が消えてしまう）。
+describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T406/T418）", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -189,7 +194,7 @@ describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T4
     return new Map(layers);
   }
 
-  it("道路と評価軸は排他ドメインを共有する: 道路をONにすると評価軸はOFFになり、その逆も成り立つ", async () => {
+  it("道路は単独ドメイン: 道路をONにしても評価軸（ramp軸）はOFFにならない", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {})); // 解決させない（静的フォールバックのまま固定）
     render(<Home />);
 
@@ -199,15 +204,28 @@ describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T4
     fireEvent.click(screen.getByRole("button", { name: "toggle:roadType" }));
     const afterRoadOn = overlayLayersOnMap();
     expect(afterRoadOn.get("roadType")).toBe(true);
-    expect(afterRoadOn.get("axis:car_stress")).toBe(false); // 排他ドメイン共有により自動OFF
-
-    fireEvent.click(screen.getByRole("button", { name: "toggle:axis:car_stress" }));
-    const afterAxisOnAgain = overlayLayersOnMap();
-    expect(afterAxisOnAgain.get("axis:car_stress")).toBe(true);
-    expect(afterAxisOnAgain.get("roadType")).toBe(false); // 逆方向も同様に自動OFF
+    // T418で道路と評価軸の排他ドメイン共有を廃止したため、両方ONのまま保たれる
+    expect(afterRoadOn.get("axis:car_stress")).toBe(true);
   });
 
-  it("環境ドメインは道路/評価軸ドメインと独立: 環境内では排他だが、道路/評価軸には影響しない", async () => {
+  it("軸スタジオ由来のレイヤー同士は排他: 別の評価軸をONにすると前の評価軸はOFFになるが、道路には影響しない", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:axis:car_stress" }));
+    const afterCarStressOn = overlayLayersOnMap();
+    expect(afterCarStressOn.get("roadType")).toBe(true); // 道路は影響を受けない
+    expect(afterCarStressOn.get("axis:car_stress")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle:windAxis" }));
+    const afterWindAxisOn = overlayLayersOnMap();
+    expect(afterWindAxisOn.get("axis:car_stress")).toBe(false); // 軸スタジオ由来同士は排他
+    expect(afterWindAxisOn.get("windAxis")).toBe(true);
+    expect(afterWindAxisOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
+  });
+
+  it("環境ドメインは道路/評価軸と独立: 環境内では排他だが、道路/評価軸には影響しない", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
@@ -224,7 +242,7 @@ describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T4
     expect(afterPrecipOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
   });
 
-  it("スポットドメインは他ドメインと独立: スポット内では排他だが、道路/評価軸/環境には影響しない", async () => {
+  it("スポットドメインは他ドメインと独立: スポット内では排他だが、道路/環境には影響しない", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 

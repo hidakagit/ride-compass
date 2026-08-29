@@ -6,6 +6,8 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import type { MapLayerId, MapLayerVisibility } from "@/components/Map/mapLayers";
+import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
 
@@ -67,6 +69,20 @@ interface RouteSettingsPanelProps {
    * 意識しない（トグルUIをこのパネルには出さない）。 */
   overrideEnabled: boolean;
   onOverrideEnabledChange: (enabled: boolean) => void;
+  /** 改善計画T418: 軸ごとの「この条件で地図を色分け」トグル用。地図レイヤーの表示状態
+   * （page.tsx: layerVisibility）をそのまま渡す。地図UIの評価軸チップを撤去したのに
+   * 伴い、軸選択・重み設定と同じこの行から地図色分けを起動できるようにした
+   * （docs/tasks/T418.md「やること」2.）。専用の表示レイヤーを持つ軸（kind="ramp"・
+   * wind）だけがトグルを持ち、持たない軸（勾配等）は非対応の案内のみ出す。 */
+  layerVisibility: MapLayerVisibility;
+  onLayerToggle: (id: MapLayerId, on: boolean) => void;
+  /** ルートが確定済みか（page.tsx: hasDetail）。改善計画T414の状態機械どおり、風
+   * （windAxis）はルート確定後は視界内の全道路への一律色分けという役割を終了し、
+   * 「生成したルートの色分け」の「風」モードへ案内する（T400.md「2.」節。T418で
+   * この案内自体を地図上チップからルート設定パネルへ移設した）。風以外の軸
+   * （car_stress等）は動的パラメータを持たないためルート確定後も一律色分けを続けられ、
+   * この対象外のまま変更していない。 */
+  hasDetail: boolean;
 }
 
 export default function RouteSettingsPanel({
@@ -76,9 +92,58 @@ export default function RouteSettingsPanel({
   onRoutePreferenceChange,
   overrideEnabled,
   onOverrideEnabledChange,
+  layerVisibility,
+  onLayerToggle,
+  hasDetail,
 }: RouteSettingsPanelProps) {
   const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
+
+  // 改善計画T418: 軸id→地図表示レイヤーIDの解決。専用の表示レイヤーを持つ軸
+  // （kind="ramp"、catalog.secondaryAxesのlayerId）はそのままレイヤーIDを返す。
+  // 風（wind）はcategory="動的"のためcatalog.secondaryAxesには現れない特殊軸
+  // （secondaryAxes.ts: secondaryAxesFromCatalogAxesのコメント参照）だが、
+  // way_id→wind_penalty配信層「windAxis」という専用レイヤーを持つためaxisIdで直接
+  // 判定する。どちらにも該当しない軸（勾配等、kind="none"）はundefined
+  // （地図表示非対応、docs/tasks/T400.md「7. kind=noneが残る範囲」節参照）。
+  function mapColorLayerIdFor(axisId: string): MapLayerId | undefined {
+    if (axisId === "wind") return "windAxis";
+    return catalog.secondaryAxes.find((a) => a.axisId === axisId)?.layerId;
+  }
+
+  // 改善計画T418: 軸1件ぶんの「地図で色分け」トグル。専用レイヤーが無い軸・ルート確定後の
+  // 風はどちらも押せない案内表示にする（上記hasDetailのコメント参照）。トグル自体は
+  // 既存のramp軸描画ロジック（axisVisibility、MapView.tsx）・windAxis配信層
+  // （useWindAxisPenalties）をそのまま流用し、layerVisibility[layerId]のON/OFFを
+  // 切り替えるだけ——このコンポーネントは地図描画そのものには関与しない。
+  function renderMapColorToggle(axis: PreferenceAxisDef) {
+    const layerId = mapColorLayerIdFor(axis.axisId);
+    if (!layerId) {
+      return (
+        <span className={styles.mapColorUnavailable} title="この軸はまだ地図表示用のデータ取得経路が用意されていません[ルート探索のコストには反映されます]">
+          地図表示なし
+        </span>
+      );
+    }
+    if (layerId === "windAxis" && hasDetail) {
+      return (
+        <span className={styles.mapColorUnavailable} title='ルート確定後は「生成したルートの色分け」の「風」で確認できます'>
+          地図表示なし
+        </span>
+      );
+    }
+    const on = layerVisibility[layerId] ?? false;
+    return (
+      <span className={styles.mapColorToggle}>
+        <LayerChip
+          label="色分け"
+          on={on}
+          ariaLabel={`${axis.label}で地図を色分け表示`}
+          onClick={() => onLayerToggle(layerId, !on)}
+        />
+      </span>
+    );
+  }
 
   // カタログとroutePreferenceのキー集合を双方向に同期する（改善計画T269・T302）。
   // backendのroute_preference検証は「上書きするなら既知の全axis_idを明示する」方針
@@ -181,6 +246,7 @@ export default function RouteSettingsPanel({
                 className={styles.slider}
               />
               <span className={styles.weightValue}>{weight.toFixed(2)}</span>
+              {renderMapColorToggle(axis)}
             </div>
           );
         })}
