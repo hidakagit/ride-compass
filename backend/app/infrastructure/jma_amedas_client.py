@@ -11,8 +11,15 @@ from cachetools import TTLCache
 
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
-AMEDAS_STATION_TABLE_URL = "https://www.jma.go.jp/bosai/amedas/const/amedas.json"
-AMEDAS_LATEST_TIME_URL = "https://www.jma.go.jp/bosai/amedas/data/latest_time_list.json"
+# 2026-08-29、実機（curl）で全エンドポイントを検証した結果2件が誤り（存在しないURLで
+# 常時404、実装時は机上のURL推測のまま未検証だった）と判明し修正:
+# - 観測所マスタは`amedas.json`ではなく`amedastable.json`
+# - 最新時刻は`latest_time_list.json`（JSON配列を想定）ではなく`latest_time.txt`
+#   （ISO時刻文字列1個のプレーンテキスト。fetch_latest_observation_time参照）
+# 3つとも実データで構造（lat/lon=[度,分]配列、temp/wind/windDirection/humidity/
+# precipitation10mのキー名）を確認済み。
+AMEDAS_STATION_TABLE_URL = "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
+AMEDAS_LATEST_TIME_URL = "https://www.jma.go.jp/bosai/amedas/data/latest_time.txt"
 AMEDAS_OBSERVATION_URL_TEMPLATE = "https://www.jma.go.jp/bosai/amedas/data/map/{timestamp}.json"
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
@@ -56,7 +63,11 @@ async def fetch_station_table(client: httpx.AsyncClient) -> dict | None:
 
 
 async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None:
-    """最新の観測時刻一覧のうち先頭（最新）のISO時刻文字列を返す。"""
+    """最新の観測時刻（ISO時刻文字列1個）を返す。
+
+    レスポンスはJSON配列ではなく、ISO時刻文字列1個だけのプレーンテキスト
+    （例: "2026-08-29T17:00:00+09:00"、実機確認済み）。
+    """
     with log_external_call("weather:jma-amedas-latest-time") as fields:
         cached = _latest_time_cache.get(_LATEST_TIME_CACHE_KEY)
         if cached is not None:
@@ -66,18 +77,17 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
         try:
             response = await client.get(AMEDAS_LATEST_TIME_URL, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            latest = response.text.strip()
+        except httpx.HTTPError as exc:
             fields["result"] = "error"
             fields["error"] = repr(exc)
             fields["error_type"] = error_type_label(exc)
             return None
-        if not isinstance(data, list) or not data:
+        if not latest:
             fields["result"] = "error"
             fields["error_type"] = "unexpected_shape"
             return None
         fields["result"] = "ok"
-        latest = data[0]
         _latest_time_cache[_LATEST_TIME_CACHE_KEY] = latest
         return latest
 
