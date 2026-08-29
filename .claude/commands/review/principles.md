@@ -147,7 +147,35 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
    **起票案にはT番号を仮置きしない**
    （並行セッションとの番号衝突がT119で2回発生した実績。「起票案」とだけ書き、
    番号はユーザーが起票する時点で確定する）。
-4. コード・docs・テストを実際に読んで調査する（推測でFindingsを書かない）。
+4. **対象範囲の変更ファイルは全件・全文を読む**（テーマでサンプリングしない、全レンズ共通の
+   機械的手順。経緯・根拠は[_history.md](_history.md)「全レンズ共通『変更ファイルは全件・
+   全文を読む』手順の新設」参照）。
+   a. **ベースラインコミットを確定する**: `history/`の直近同種レビューファイル冒頭に
+      記録された「対象コミット」を読み、その値をベースラインとする。記録が無い場合は
+      前回レビュー日時に近いコミットを`git log`で特定する。
+   b. **一時ブランチを作る**: `git branch review-<レンズ名>-baseline <ベースラインSHA>`
+      （`<レンズ名>`はoverall/complexity/consistency/ui。worktreeは不要、diffの基準点として
+      使うだけでチェックアウトしない）。
+   c. **差分規模を機械的に測る**: `git diff review-<レンズ名>-baseline...HEAD --stat`で
+      変更ファイル数を確認する。
+   d. **分割要否の判定（閾値固定）**: 変更ファイル数が**15件超**、または変更対象ファイルの
+      現在の合計行数（`git diff review-<レンズ名>-baseline...HEAD --name-only`の各ファイルを
+      `wc -l`で合算）が**5,000行超**のいずれかに該当したら「分割」、いずれも未満なら「単独」。
+      - **単独**（目安10ファイル以下）: 自分で対象ファイルを`Read`（diffではなくファイル
+        全体）し、変更箇所の呼び出し元・呼び出し先（`Grep`でシンボル検索）まで辿って調査する。
+      - **分割**: `backend/app/{domain,services,infrastructure,api,batch}`・
+        `frontend/src/{components,hooks,services,app,lib}`の各ディレクトリを1シャードの単位
+        とし、変更ファイルの現在行数合計が**6,000行を超えるシャードはさらに分割**する。
+        各シャードを`general-purpose` Agentへ`run_in_background: true`で委任する。
+        各Agentへのプロンプトには次を含める: 対象ファイル一覧（シャード内の変更ファイルの
+        フルパス）／「diffではなく各ファイルを全文Readし、変更箇所の呼び出し元・呼び出し先も
+        `Grep`で辿ること」という明示指示／このレンズ固有の確認観点（各`overall.md`/
+        `complexity.md`/`consistency.md`/`ui.md`の該当節）／出力形式（`file`・`line`・
+        `category`・`severity`・`summary`・`failure_scenario`のMarkdown箇条書き、日本語）／
+        「編集・削除は一切行わない（読み取り専用）」の明記。
+   e. **集約**: 全シャード完了後、指摘を重複統合し、severity順に並べて標準Findings
+      フォーマットへ統合する。
+   f. **後片付け**: `git branch -D review-<レンズ名>-baseline`で一時ブランチを削除する。
 5. 標準フォーマットで結果をまとめ、`history/YYYY-MM-DD_<review-type>.md` として保存する
    （命名・記載項目は [history/README.md](history/README.md) 参照）。**スコアサマリの値を
    `history/scores.md`へも1行追記する**（トレンド追跡用、history/README.md参照）。

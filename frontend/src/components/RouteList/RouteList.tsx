@@ -11,8 +11,12 @@ interface RouteListProps {
 }
 
 // 評価軸カタログ（lib/evaluationAxes.ts）から生成する（改善計画T25）。軸を増やしても
-// このファイルを直接編集する必要が無い。
-const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => axis.label).join("・")}を重み付けして算出[この一覧内での相対評価]`;
+// このファイルを直接編集する必要が無い。改善計画T421: ラベルのみの列挙（「距離の合わせ込み・
+// 総合難易度を重み付けして算出」）だと、後者の「総合難易度」が何を合成した値かが伝わらず、
+// ルート色分けモードの「総合難易度」（区間ごとの絶対基準スコア、routeStyleModes.ts）と
+// 同名で紛らわしいという実機指摘を受け、各軸のdescription（軸スタジオの重みで合成した値
+// であることを説明する文言）を併記する形へ見直した。
+const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => `${axis.label}（${axis.description}）`).join("・")}を重み付けして算出[この一覧内での相対評価]`;
 
 // 改善計画T364/T365: 8方位以外の単一経路（経由地ルート・目的地ルート）のid集合。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
@@ -26,7 +30,13 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
           簡潔な説明を添える（backend/app/scoring.yamlの重み付けに対応。この一覧内の
           候補同士でのみ比較できる相対評価であり、他のリクエストの結果とは比較できない）。
           表示名は「総合スコア」から「おすすめ度」へ変更（T30）: ルート色分けの「総合難易度」と
-          極性が逆（スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。 */}
+          極性が逆（スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。
+          改善計画T421: サマリ行は「距離」と「軸による重みづけ（おすすめ度=total_score、
+          T401でdistance_weight+difficulty_weightの2指標へ単純化済み）」の2つへ単純化する
+          確定仕様に合わせ、旧scoring.yaml時代の個別フィールド（獲得標高・風・舗装率）は
+          撤去した（値自体は引き続きRouteCandidateに残るが、候補順位付け・このサマリ行の
+          どちらからも参照しない）。軸ごとの内訳を見たい場合はレーダーチャート
+          （区間クリック、T403）・ルート全体プロファイル（BottomSheet、T402）を使う。 */}
       <p className={styles.scoreHint}>{SCORE_HINT}</p>
       <ul className={styles.list}>
         {routes.map((route) => {
@@ -47,10 +57,6 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
                     「〜方向」は付けない。 */}
                 {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
                 — {route.distance_km.toFixed(1)} km
-                {route.elevation_gain_m != null && ` / 獲得標高 ${Math.round(route.elevation_gain_m)} m`}
-                {route.wind_score != null &&
-                  ` / ${route.wind_score >= 0 ? "向かい風" : "追い風"} ${Math.abs(route.wind_score).toFixed(1)} m/s`}
-                {route.road_score != null && ` / 舗装率 ${Math.round(route.road_score)}%`}
               </button>
             </li>
           );

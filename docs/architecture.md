@@ -694,7 +694,7 @@ RideCompass/
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
         RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・風（`wind`、axisIdで直接`windAxis`へ紐付け）だけがトグルを持ち、持たない軸（勾配等、kind="none"）とルート確定後の風は押せない案内表示になる
-        RouteList/RouteList.tsx  ✅ 候補一覧・選択・獲得標高・風評価・路面・総合スコア表示（Step4-5-7-8）
+        RouteList/RouteList.tsx  ✅ 候補一覧・選択・おすすめ度（total_score）表示（Step4-5-7-8）。改善計画T421: サマリ行を「距離」と「軸による重みづけ（おすすめ度）」の2つへ単純化し、旧scoring.yaml時代の個別フィールド（獲得標高・風評価・路面）の表示は撤去した（値自体はRouteCandidateに引き続き残る）。軸ごとの内訳はレーダーチャート（区間クリック、T403）・RouteAxisProfile（T402）で見る
         RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
           を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
           useAxisCatalog().axesから取得しハードコード辞書は持たない。バー色は
