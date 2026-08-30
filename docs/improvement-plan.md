@@ -556,7 +556,7 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 - [x] [T445](tasks/T445.md). WindWayService/GradientWayServiceのbearing_deg型シグネチャがルーター層とOptional不一致〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [x] [T446](tasks/T446.md). buildRoadSurfaceSharedLayerIdsがgradientAxisを含まない非対称＋古いコメントの訂正〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [x] [T447](tasks/T447.md). secondaryAxes.tsのコメントがwindのcategory/show_map_icon除外機構を逆に説明している〔P2〕規模S（2026-08-30起票・2026-08-31完了）
-- [ ] [T448](tasks/T448.md). T427.mdのFinding 1が結果的に解消済みなのに未更新のまま半陳腐化〔P2〕規模S（2026-08-30起票）
+- [x] [T448](tasks/T448.md). T427.mdのFinding 1が結果的に解消済みなのに未更新のまま半陳腐化〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [ ] [T449](tasks/T449.md). architecture.mdが軸スタジオのshape kind数について自己矛盾している〔P2〕規模S（2026-08-30起票）
 - [ ] [T450](tasks/T450.md). needs_bearing=False分岐が未テストのまま宣言されている〔P3〕規模S（2026-08-30起票）
 - [ ] [T451](tasks/T451.md). MapView.tsxにT432で削除済みの関数を参照する古いコメントが残る〔P3〕規模S（2026-08-30起票）
