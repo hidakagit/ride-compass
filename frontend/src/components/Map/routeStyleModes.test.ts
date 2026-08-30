@@ -7,7 +7,10 @@ import {
   filterRouteStyleModesByPreference,
   getRouteStyleMode,
   isRouteStyleModeId,
+  routeStyleModesFromCatalogAxes,
 } from "./routeStyleModes";
+import type { CatalogAxis } from "./axisLayers";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 
 describe("routeStyleModes", () => {
   it("4つのモード（風の影響・勾配・路面・総合難易度）を定義し、デフォルトは風", () => {
@@ -101,14 +104,36 @@ describe("routeStyleModes", () => {
     ]);
   });
 
-  it("改善計画T434: filterRouteStyleModesByPreferenceは重み0の軸（gradient/wind）を除外し、対応する軸を持たないroad/difficultyは常に残す", () => {
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0.26 });
+  it("改善計画T434: filterRouteStyleModesByPreferenceは重み0の軸（gradient/wind）を除外し、対応する軸を持たないdifficultyは常に残す", () => {
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0.26, surface_q: 0.19 });
     expect(filtered.map((m) => m.id)).toEqual(["wind", "road", "difficulty"]);
   });
 
-  it("改善計画T434: 全軸の重みが0でもroad/difficultyは残るため一覧が空にならない", () => {
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0 });
-    expect(filtered.map((m) => m.id)).toEqual(["road", "difficulty"]);
+  it("改善計画T434フォローアップ: roadはmode.id自体ではなく登記された軸id\"surface_q\"の重みで判定する", () => {
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0.15, wind: 0.26, surface_q: 0 });
+    expect(filtered.map((m) => m.id)).toEqual(["wind", "gradient", "difficulty"]);
+  });
+
+  it("改善計画T434: 全軸の重みが0でもdifficultyは残るため一覧が空にならない", () => {
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0, surface_q: 0 });
+    expect(filtered.map((m) => m.id)).toEqual(["difficulty"]);
+  });
+
+  it("改善計画T434フォローアップ: gradient軸が軸カタログから消える（軸スタジオでunpublish）と、STATIC_MODESのgradientエントリも一覧から消える", () => {
+    const axesWithoutGradient = (axisCatalog.axes as CatalogAxis[]).filter((axis) => axis.axis_id !== "gradient");
+    const modes = routeStyleModesFromCatalogAxes(axesWithoutGradient);
+    expect(modes.map((m) => m.id)).toEqual(["wind", "road", "difficulty"]);
+  });
+
+  it("改善計画T434フォローアップ: surface_q軸が軸カタログから消えると、road_surface_goodを表示するroadエントリも一覧から消える（road_surface_goodとsurface_q軸の材料surface_goodはclassify_osm_surface由来の同一材料）", () => {
+    const axesWithoutSurfaceQ = (axisCatalog.axes as CatalogAxis[]).filter((axis) => axis.axis_id !== "surface_q");
+    const modes = routeStyleModesFromCatalogAxes(axesWithoutSurfaceQ);
+    expect(modes.map((m) => m.id)).toEqual(["wind", "gradient", "difficulty"]);
+  });
+
+  it("改善計画T434フォローアップ: difficultyはどの軸にも対応しないため、軸が0件でも一覧から消えない", () => {
+    const modes = routeStyleModesFromCatalogAxes([]);
+    expect(modes.map((m) => m.id)).toEqual(["difficulty"]);
   });
 
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {
