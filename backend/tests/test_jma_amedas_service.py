@@ -104,6 +104,47 @@ async def test_refresh_all_stations_caches_every_station_in_one_batch(monkeypatc
     assert fake_redis.hashes["jma:amedas:99999"]["apparent_temperature_c"] == ""
 
 
+async def test_refresh_all_stations_warns_when_station_table_fetch_fails(monkeypatch, caplog):
+    # 改善計画T425（ゼロベース網羅レビュー指摘）: 全滅バッチ（count=0）が以前は無警告
+    # だった。main.py: _refresh_amedas_jobは例外の有無しか見ていないため、サービス層
+    # 自身がWARNINGを出す必要がある。
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(jma_amedas_client, "fetch_station_table", lambda http_client: _async_return({}))
+    service = JmaAmedasService(http_client=None)
+
+    with caplog.at_level("WARNING", logger="app.services.jma_amedas_service"):
+        count = await service.refresh_all_stations()
+
+    assert count == 0
+    assert any("観測所マスタ" in record.message for record in caplog.records)
+
+
+async def test_refresh_all_stations_warns_when_latest_observation_time_fetch_fails(monkeypatch, caplog):
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(jma_amedas_client, "fetch_latest_observation_time", lambda http_client: _async_return(None))
+    service = JmaAmedasService(http_client=None)
+
+    with caplog.at_level("WARNING", logger="app.services.jma_amedas_service"):
+        count = await service.refresh_all_stations()
+
+    assert count == 0
+    assert any("最新観測時刻" in record.message for record in caplog.records)
+
+
+async def test_refresh_all_stations_warns_when_observation_map_fetch_fails(monkeypatch, caplog):
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(
+        jma_amedas_client, "fetch_observation_map", lambda http_client, timestamp: _async_return(None)
+    )
+    service = JmaAmedasService(http_client=None)
+
+    with caplog.at_level("WARNING", logger="app.services.jma_amedas_service"):
+        count = await service.refresh_all_stations()
+
+    assert count == 0
+    assert any("観測値マップ" in record.message for record in caplog.records)
+
+
 async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeypatch):
     fake_redis = _patch_client(monkeypatch)
     service = JmaAmedasService(http_client=None)

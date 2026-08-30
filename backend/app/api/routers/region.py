@@ -4,8 +4,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from app.api.dependencies import get_dynamic_way_value_service, get_region_service
-from app.api.routers._tile_validation import check_tile_rate_limit, validate_tile_coords
+from app.api.dependencies import enforce_rate_limit, get_dynamic_way_value_service, get_region_service
+from app.api.routers._tile_validation import validate_tile_coords
 from app.config import settings
 from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS
 from app.domain.evaluation import AxisInspectorResult
@@ -39,11 +39,11 @@ _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
 
 def _check_tile_rate_limit(request: Request, prefix: str) -> None:
-    """路面・POIタイル向けの`check_tile_rate_limit`薄いラッパー。両タイルとも同じ
+    """路面・POIタイル向けの`enforce_rate_limit`薄いラッパー。両タイルとも同じ
     上限値（settings.road_tile_rate_limit_per_minute）を使うが、キー・記録先の
-    `prefix`は種別ごとに分ける（実処理・事故タイルとの共有は_tile_validation.py参照）。
+    `prefix`は種別ごとに分ける。
     """
-    check_tile_rate_limit(request, prefix, settings.road_tile_rate_limit_per_minute)
+    enforce_rate_limit(request, prefix, settings.road_tile_rate_limit_per_minute)
 
 
 @router.get("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")

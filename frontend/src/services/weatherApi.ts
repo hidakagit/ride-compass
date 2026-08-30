@@ -9,10 +9,9 @@ import type {
   WindGridResponse,
 } from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
+import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export async function getCurrentWeather(point: Coordinates): Promise<WeatherConditions> {
   const params = new URLSearchParams({

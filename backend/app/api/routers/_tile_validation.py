@@ -1,31 +1,16 @@
-"""地域タイル系エンドポイント（路面・POI・事故）で共通のレート制限・座標検証。
+"""地域タイル系エンドポイント（路面・POI・事故）で共通の座標検証。
 
 region.py（路面/POIタイル）とaccidents.py（事故タイル）が同じズーム範囲チェック・
-`2**z`座標範囲チェック・レート制限処理を個別に実装していた（デッドコード監査で重複と
-判明）ため、共有可能な形へ切り出した。挙動（ズーム範囲・座標範囲・エラー文言）は
-元の実装から変更していない。
+`2**z`座標範囲チェックを個別に実装していた（デッドコード監査で重複と判明）ため、
+共有可能な形へ切り出した。挙動（ズーム範囲・座標範囲・エラー文言）は元の実装から
+変更していない。レート制限（旧`check_tile_rate_limit`）は改善計画T425で
+`app.api.dependencies.enforce_rate_limit`へ一般化・移設済み（地域タイル系に限らず
+全routerが対象になったため）。
 """
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 
-from app.api.dependencies import client_id
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
-from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.infrastructure.rate_limiter import check_rate_limit
-
-
-def check_tile_rate_limit(request: Request, prefix: str, limit_per_minute: int) -> None:
-    """認証なしで叩ける地域タイル系エンドポイントへの簡易な歯止め（1クライアントIPあたり
-    1分間の上限）。地域タイル・事故タイルはいずれもPostGISへの実問い合わせ・ディスク
-    キャッシュ書き込みを伴うため、無制限に叩かれるとDB負荷やディスク消費に繋がる
-    （詳細はrate_limiter.py）。キー・記録先の`prefix`、上限値`limit_per_minute`は
-    タイル種別ごとに呼び出し元が指定する（路面/POIタイルは
-    `settings.road_tile_rate_limit_per_minute`、事故タイルは
-    `settings.accident_tile_rate_limit_per_minute`と別の設定値を使う）。
-    """
-    if not check_rate_limit(f"{prefix}:{client_id(request)}", limit_per_minute):
-        record_rate_limit_rejection(prefix, client_id(request), f"{limit_per_minute}/min")
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
 
 
 def validate_tile_coords(z: int, x: int, y: int) -> None:

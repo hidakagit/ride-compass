@@ -48,12 +48,16 @@ export async function fetchJmaTargetTimes(url: string, label: string): Promise<R
   return data as RawJmaTargetTime[];
 }
 
-/** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。無ければ末尾（最新フレーム）。 */
+/** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。実況フレームが1件も無ければ
+ * 切り捨てるべき「過去」のフレーム自体が存在しないため、先頭(0)を返し全フレームを残す
+ * （改善計画T425、ゼロベース網羅レビュー指摘: 以前は末尾[frames.length - 1]を返しており、
+ * 実況0件時に最も未来の1フレームだけを残して残り全部を切り捨ててしまい、降水/雷/竜巻
+ * ナウキャストが実質空になる逆転したフォールバックだった）。 */
 function latestObservedFrameIndex(frames: readonly JmaNowcastFrame[]): number {
   for (let i = frames.length - 1; i >= 0; i--) {
     if (!frames[i].isForecast) return i;
   }
-  return Math.max(0, frames.length - 1);
+  return 0;
 }
 
 /** 実況フレームは現在時刻より前（過去〜現在）ぶんを多く含む。サイクリング向けアプリの

@@ -1,3 +1,4 @@
+import httpx
 import pytest
 
 from app.domain.route import Coordinates
@@ -138,6 +139,39 @@ async def test_get_elevation_falls_back_through_dem_type_priority():
 
     assert result == pytest.approx(12.0, abs=0.1)
     assert http_client.requested_types == ["dem5a", "dem5b", "dem5c"]
+
+
+async def test_transient_communication_error_is_not_cached_permanently():
+    # 改善計画T425: 一時的な通信エラー（タイムアウト等）が404（カバレッジ外、恒久的に
+    # 正しい）と同じ扱いで_tile_grid_cacheへNoneとして恒久キャッシュされ、以降ずっと
+    # 標高Noneに固定される不具合があった。このタイルは実際にはdem5aにのみカバレッジが
+    # あり（dem5b/dem5c/demは恒久的に404＝正しい不在）、dem5aへの最初の問い合わせだけが
+    # 一時的な通信エラーになるケースを再現する。エラーが解消すれば次回呼び出しで
+    # dem5aを再取得でき、他タイプの恒久404キャッシュとは独立して回復することを確認する。
+    class FlakyTieredHttpClient:
+        def __init__(self, elevation: float):
+            self.elevation = elevation
+            self.dem5a_call_count = 0
+
+        async def get(self, url, params=None):
+            requested_type = url.split("/xyz/")[1].split("/")[0]
+            if requested_type != "dem5a":
+                return FakeResponse("", status_code=404)
+            self.dem5a_call_count += 1
+            if self.dem5a_call_count == 1:
+                raise httpx.ConnectTimeout("boom")
+            return FakeResponse(_flat_tile_text(self.elevation))
+
+    client = ElevationClient()
+    point = Coordinates(latitude=35.681, longitude=139.767)
+    flaky_client = FlakyTieredHttpClient(elevation=15.0)
+
+    first = await client.get_elevation(flaky_client, point)
+    assert first is None
+
+    second = await client.get_elevation(flaky_client, point)
+    assert second == pytest.approx(15.0, abs=0.1)
+    assert flaky_client.dem5a_call_count == 2  # 1回目のエラーが恒久キャッシュされていれば2回目は呼ばれない
 
 
 async def test_get_elevation_returns_none_for_missing_pixel_marker():

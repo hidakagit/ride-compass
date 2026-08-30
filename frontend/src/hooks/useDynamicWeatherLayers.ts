@@ -239,6 +239,10 @@ export function useDynamicWeatherLayers({
   // 持たないため取得失敗時もnowcastのような「部分結果」は無く、フェッチ自体を諦めて
   // エラーのみ記録する。
   const [currentRiskFrames, setCurrentRiskFrames] = useState<CurrentRiskFrames>(EMPTY_CURRENT_RISK_FRAMES);
+  // 改善計画T425（ゼロベース網羅レビュー指摘）: 以前はエラーをdebugLogへ記録するのみで
+  // dynamicLayerErrorへ反映しておらず、キキクル（「防災」カテゴリ、常時マウント）の取得が
+  // 失敗してもユーザーへ一切可視化されなかった。
+  const [currentRiskError, setCurrentRiskError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -246,10 +250,12 @@ export function useDynamicWeatherLayers({
         const frames = await fetchCurrentRiskFrames();
         if (cancelled) return;
         setCurrentRiskFrames(frames);
+        setCurrentRiskError(null);
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "危険度分布（キキクル）の取得に失敗しました";
         debugLog("api:jma-nowcast-times", "キキクルの読み込みに失敗", { error: message }, "error");
+        setCurrentRiskError(message);
       }
     };
     Promise.resolve().then(load);
@@ -264,6 +270,9 @@ export function useDynamicWeatherLayers({
   // キキクルとはtargetTimes.json自体が別（rasrfのtargetTimes.jsonにelements違いの別行として
   // 混在、riskMap.ts参照）。「降水」チップ（showPrecipitationNowcast）に連動する。
   const [linearRainbandFrames, setLinearRainbandFrames] = useState<DynamicWeatherFrame<RiskFrameRef>[]>(EMPTY_RISK_FRAMES);
+  // 改善計画T425（ゼロベース網羅レビュー指摘）: currentRiskErrorと同じ理由でdynamicLayerErrorへ
+  // 反映する（線状降水帯予測マップは「降水」チップ配下のためshowPrecipitationNowcast連動）。
+  const [linearRainbandError, setLinearRainbandError] = useState<string | null>(null);
   useEffect(() => {
     if (!showPrecipitationNowcast) return;
     let cancelled = false;
@@ -272,10 +281,12 @@ export function useDynamicWeatherLayers({
         const frames = await fetchLinearRainbandFrames();
         if (cancelled) return;
         setLinearRainbandFrames(frames);
+        setLinearRainbandError(null);
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "線状降水帯予測マップの取得に失敗しました";
         debugLog("api:jma-nowcast-times", "線状降水帯予測マップの読み込みに失敗", { error: message }, "error");
+        setLinearRainbandError(message);
       }
     };
     Promise.resolve().then(load);
@@ -499,11 +510,18 @@ export function useDynamicWeatherLayers({
   // 共有スライダーのloading/error表示。windLoading/windErrorは両要素が使う格子点フェッチ
   // （useWeatherGrid、ONのどちらか一方でも走る）、nowcastLoading/nowcastErrorは降水ナウキャスト
   // 固有のフェッチ、thunderNowcastLoading/thunderNowcastErrorは雷・竜巻共有のフェッチ。
-  // 風のみONならnowcast/thunderの状態は無関係（フェッチ自体走らない）。
+  // 風のみONならnowcast/thunderの状態は無関係（フェッチ自体走らない）。currentRiskError
+  // （キキクル）はshow*ガードを持たず常時マウントのため無条件に含める。linearRainbandError
+  // （線状降水帯予測マップ）は「降水」チップ配下のためshowPrecipitationNowcast連動
+  // （改善計画T425、以前はどちらもdynamicLayerErrorに含まれずエラーがユーザーへ不可視だった）。
   const dynamicLayerLoading =
     windLoading || (showPrecipitationNowcast && nowcastLoading) || ((showThunderNowcast || showTornadoNowcast) && thunderNowcastLoading);
   const dynamicLayerError =
-    windError ?? (showPrecipitationNowcast ? nowcastError : null) ?? (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null);
+    windError ??
+    (showPrecipitationNowcast ? nowcastError : null) ??
+    (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null) ??
+    currentRiskError ??
+    (showPrecipitationNowcast ? linearRainbandError : null);
 
   return {
     dynamicWeather,

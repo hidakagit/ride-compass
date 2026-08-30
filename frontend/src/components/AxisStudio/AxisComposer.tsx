@@ -552,6 +552,17 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     if (target === "basic") {
       if (draft.label.trim() === "") return "表示名(label)を入力してください。";
     }
+    if (target === "shape_params" && draft.shapeKind === "breakpoint_linear") {
+      // 改善計画T425（ゼロベース網羅レビュー指摘）: display_thresholds_override
+      // （色分け表示用）と同じ昇順チェックを、評価に使うdraft.breakpoints
+      // （backend: shape.breakpoints）にも先回りして適用する。backend側の対応する
+      // 検証（axis_admin.py: _check_materials_are_known内）は保存時の最終防衛のため、
+      // ここでは早期にステップへ留めてユーザーへ知らせる。
+      const xs = draft.breakpoints.map((bp) => bp[0]);
+      if (xs.some((x, i) => i > 0 && x <= xs[i - 1])) {
+        return "折れ点は横軸（左の入力欄）の値が小さい順になるようにしてください（同じ値は使えません）。";
+      }
+    }
     if (target === "shape_params" && draft.shapeKind === "categorical") {
       // 改善計画T322: categorical材料選択時、値の行が1つも入力されていないと
       // mapping={}のまま保存されてしまい（全区間で評価不能=欠損になるだけで保存自体は

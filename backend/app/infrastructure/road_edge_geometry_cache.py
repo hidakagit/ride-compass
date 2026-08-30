@@ -23,7 +23,7 @@ Falseへ倒れ、そこから`save_graph`が呼ばれて初めて本モジュー
 import logging
 
 from app.domain.graph import DirectedEdge
-from app.infrastructure.debug_log import log_throttled_warning
+from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.redis_client import (
     get_redis_client,
     record_redis_failure,
@@ -54,27 +54,32 @@ async def get_cached_edges(edge_ids: list[str]) -> dict[str, DirectedEdge]:
         return {}
     client = get_redis_client()
     keys = [_key(edge_id) for edge_id in edge_ids]
-    try:
-        values = await client.mget(keys)
-    except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
-        record_redis_failure()
-        log_throttled_warning("cache:edge-geometry-redis", "[cache:edge-geometry-redis] read failed error=%r", exc)
-        return {}
-    record_redis_success()
-    result: dict[str, DirectedEdge] = {}
-    for edge_id, value in zip(edge_ids, values):
-        if value is None:
-            continue
+    with log_external_call("cache:edge-geometry-redis", edge_count=len(edge_ids)) as fields:
         try:
-            result[edge_id] = DirectedEdge.model_validate_json(value)
-        except ValueError as exc:
-            # スキーマ変更等で旧形式の値が残っていた場合はキャッシュ無視でPostGISへ倒す
-            # （road_edgesが正本のため、パース失敗を握りつぶしても実害はない）。
-            log_throttled_warning(
-                "cache:edge-geometry-redis", "[cache:edge-geometry-redis] parse failed edge_id=%s error=%r",
-                edge_id, exc,
-            )
-    return result
+            values = await client.mget(keys)
+        except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return {}
+        record_redis_success()
+        result: dict[str, DirectedEdge] = {}
+        for edge_id, value in zip(edge_ids, values):
+            if value is None:
+                continue
+            try:
+                result[edge_id] = DirectedEdge.model_validate_json(value)
+            except ValueError as exc:
+                # スキーマ変更等で旧形式の値が残っていた場合はキャッシュ無視でPostGISへ倒す
+                # （road_edgesが正本のため、パース失敗を握りつぶしても実害はない）。
+                log_throttled_warning(
+                    "cache:edge-geometry-redis", "[cache:edge-geometry-redis] parse failed edge_id=%s error=%r",
+                    edge_id, exc,
+                )
+        fields["result"] = "ok"
+        fields["cache"] = "hit" if result else "miss"
+        return result
 
 
 async def cache_edges(edges: dict[str, DirectedEdge]) -> None:
@@ -82,16 +87,20 @@ async def cache_edges(edges: dict[str, DirectedEdge]) -> None:
     if not edges or not redis_available():
         return
     client = get_redis_client()
-    try:
-        pipe = client.pipeline(transaction=False)
-        for edge_id, edge in edges.items():
-            pipe.set(_key(edge_id), edge.model_dump_json(), ex=_TTL_SECONDS)
-        await pipe.execute()
-    except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
-        record_redis_failure()
-        log_throttled_warning("cache:edge-geometry-redis", "[cache:edge-geometry-redis] write failed error=%r", exc)
-    else:
-        record_redis_success()
+    with log_external_call("cache:edge-geometry-redis", edge_count=len(edges)) as fields:
+        try:
+            pipe = client.pipeline(transaction=False)
+            for edge_id, edge in edges.items():
+                pipe.set(_key(edge_id), edge.model_dump_json(), ex=_TTL_SECONDS)
+            await pipe.execute()
+        except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"
 
 
 async def invalidate_edges(edge_ids: list[str]) -> None:
@@ -103,12 +112,14 @@ async def invalidate_edges(edge_ids: list[str]) -> None:
     if not edge_ids or not redis_available():
         return
     client = get_redis_client()
-    try:
-        await client.delete(*(_key(edge_id) for edge_id in edge_ids))
-    except Exception as exc:  # noqa: BLE001 無効化失敗はTTL経由で自己修復する
-        record_redis_failure()
-        log_throttled_warning(
-            "cache:edge-geometry-redis", "[cache:edge-geometry-redis] invalidate failed error=%r", exc
-        )
-    else:
-        record_redis_success()
+    with log_external_call("cache:edge-geometry-redis", edge_count=len(edge_ids)) as fields:
+        try:
+            await client.delete(*(_key(edge_id) for edge_id in edge_ids))
+        except Exception as exc:  # noqa: BLE001 無効化失敗はTTL経由で自己修復する
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"

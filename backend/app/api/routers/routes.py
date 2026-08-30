@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, RootModel, model_validator
 from app.api.dependencies import (
     PreviewBuilder,
     client_id,
+    enforce_rate_limit,
     get_preview_builder,
     open_route_generation_setup,
 )
@@ -20,7 +21,6 @@ from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.route_generator import JST
 
 router = APIRouter()
@@ -43,11 +43,7 @@ async def preview_route(
     http_request: Request,
     preview: PreviewBuilder = Depends(get_preview_builder),
 ) -> RouteSegment:
-    if not check_rate_limit(f"preview:{client_id(http_request)}", settings.preview_rate_limit_per_minute):
-        record_rate_limit_rejection(
-            "preview", client_id(http_request), f"{settings.preview_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "preview", settings.preview_rate_limit_per_minute)
     try:
         return await preview(request.origin, request.destination)
     except RoutingError as exc:
@@ -244,11 +240,7 @@ class RouteGenerateJobStatusResponse(BaseModel):
 
 @router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
 async def generate_routes(request: RouteGenerateRequest, http_request: Request, background_tasks: BackgroundTasks) -> RouteGenerateJobCreatedResponse:
-    if not check_rate_limit(f"generate:{client_id(http_request)}", settings.generate_rate_limit_per_minute):
-        record_rate_limit_rejection(
-            "generate", client_id(http_request), f"{settings.generate_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "generate", settings.generate_rate_limit_per_minute)
 
     # 改善計画T364/T365: 経由地・目的地指定はroad_graphエンジンのみ対応
     # （openrouteservice_engine.pyはget_route(waypoints)の任意長リスト対応自体は

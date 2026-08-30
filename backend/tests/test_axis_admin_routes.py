@@ -193,6 +193,28 @@ def test_create_returns_422_for_unknown_material(override_service):
     assert "not_a_real_material" in response.text
 
 
+def test_create_returns_422_when_breakpoint_linear_shape_breakpoints_not_ascending(override_service):
+    # 改善計画T425（ゼロベース網羅レビュー指摘）: shape.breakpointsのx昇順は
+    # evaluate_breakpoint_linear（axis_templates.py）のnp.interpが前提とする不変条件
+    # だが、これまで検証が一切無かった（display_thresholds_override側の同種チェック
+    # [T404]は色分け表示用の別フィールドで対象外）。昇順でないと補間結果が未定義動作に
+    # なり、評価時に無警告のままおかしいスコアが返り続ける。
+    payload = {
+        **_PAYLOAD,
+        "shape": {
+            "kind": "breakpoint_linear",
+            "terms": [{"material": "gradient_percent", "weight": 1.0, "required": True}],
+            "preprocess": "identity",
+            "breakpoints": [[10.0, 100.0], [0.0, 0.0]],
+        },
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "breakpoints" in response.text
+
+
 def test_create_returns_422_when_categorical_shape_uses_numeric_material(override_service):
     # レビュー指摘の修正確認: CategoricalShape/FlagSumShapeはboolean材料前提だが、
     # 以前は材料の存在チェックのみでdtypeを見ておらず、numeric材料（例:
@@ -318,6 +340,22 @@ def test_create_persists_and_returns_priority_overrides(override_service):
         {"material": "motor_vehicle_no", "equals": "true", "value": 0.0}
     ]
     assert override_service._definitions["test_axis"].priority_overrides[0].material == "motor_vehicle_no"
+
+
+def test_create_returns_422_for_unknown_priority_override_material(override_service):
+    # 改善計画T425（ゼロベース網羅レビュー指摘）: priority_overrides[*].materialは
+    # shapeが参照する材料と違って検証されず、typo等の未知材料を指定しても保存できて
+    # しまい、評価時に0次条件が無警告のまま一切発動しないバグがあった。
+    payload = {
+        **_PAYLOAD,
+        "priority_overrides": [{"material": "not_a_real_material", "equals": "true", "value": 0.0}],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "not_a_real_material" in response.text
+    assert "test_axis" not in override_service._definitions
 
 
 def test_create_persists_and_returns_display_fields(override_service):

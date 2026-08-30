@@ -147,13 +147,21 @@ class JmaAmedasService:
         """
         stations = await jma_amedas_client.fetch_station_table(self._http_client)
         if not stations:
+            # 改善計画T425（ゼロベース網羅レビュー指摘）: 以前はここから静かに0を返しており、
+            # 呼び出し元main.py: _refresh_amedas_jobは例外の有無しか見ていないため
+            # count=0の全滅バッチが完全に無警告のまま繰り返される可能性があった
+            # （個別の外部API呼び出し詳細はjma_amedas_client.py内のlog_external_callが
+            # 出すが、「今回のバッチが実質何もできなかった」というサービス層の要約は無い）。
+            logger.warning("アメダス観測所マスタの取得に失敗しました（全滅バッチ）")
             return 0
         latest_time = await jma_amedas_client.fetch_latest_observation_time(self._http_client)
         if latest_time is None:
+            logger.warning("アメダス最新観測時刻の取得に失敗しました（全滅バッチ）")
             return 0
         compact_timestamp = datetime.fromisoformat(latest_time).strftime("%Y%m%d%H%M%S")
         observation_map = await jma_amedas_client.fetch_observation_map(self._http_client, compact_timestamp)
         if observation_map is None:
+            logger.warning("アメダス観測値マップの取得に失敗しました（全滅バッチ）time=%s", compact_timestamp)
             return 0
 
         observations = []

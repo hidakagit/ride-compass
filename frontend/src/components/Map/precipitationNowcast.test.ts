@@ -153,6 +153,14 @@ describe("precipitationNowcast", () => {
       expect(trimToCurrentAndFuture(frames)).toEqual(frames);
     });
 
+    it("改善計画T425回帰テスト: 実況フレームが1件も無い（全てisForecast=true）場合、末尾の1件だけに削られず全フレームを残す", () => {
+      // 以前はフォールバックが逆転しており（latestObservedFrameIndexが末尾indexを返す）、
+      // 実況0件時に最も未来の1フレームだけが残り、降水/雷/竜巻ナウキャストが実質空に
+      // なっていた（ゼロベース網羅レビュー指摘）。
+      const frames = [frame("1", true), frame("2", true), frame("3", true)];
+      expect(trimToCurrentAndFuture(frames)).toEqual(frames);
+    });
+
     it("空配列を渡すと空配列を返す", () => {
       expect(trimToCurrentAndFuture([])).toEqual([]);
     });

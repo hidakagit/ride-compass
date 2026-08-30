@@ -176,6 +176,14 @@ function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSour
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, haloLayerId: `${base}-halo`, iconId: `${base}-icon` };
 }
+// 環境グループの風penalty gridFill（改善計画T414、T432でDYNAMIC_WEATHER_RENDERERS汎用機構へ
+// 統合）のlayer id。GRADIENT_FILL_LAYER_ID（STATIC_OVERLAY_LAYERS経由でinteractiveLayerIdsに
+// 含まれる）と異なり、こちらはDYNAMIC_WEATHER_RENDERERS側の管理下にありSTATIC_OVERLAY_LAYERS
+// に無いため、そのままではinteractiveLayerIdsに含まれずクリック判定の対象外——ただし専用の
+// ポップアップ内容を持たないため、単に対象に加えるのではなくDETAIL_LAYER_IDと同じ「ヒットした
+// ら何もしない」早期returnガードで、下に重なるroad_surfaceの誤ったポップアップを防ぐ
+// （改善計画T425、ゼロベース網羅レビュー指摘）。
+const WIND_PENALTY_FILL_LAYER_ID = dynamicWeatherIds("windVector", "penaltyFill", "fill").layerId;
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
@@ -2124,6 +2132,8 @@ export default function MapView({
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     axisLabels,
+    windAxisPenalties,
+    gradientAxisValues,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -2199,6 +2209,8 @@ export default function MapView({
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
       axisLabels,
+      windAxisPenalties,
+      gradientAxisValues,
     };
   }, [
     routes,
@@ -2230,6 +2242,8 @@ export default function MapView({
     roadSurfaceSharedLayerIds,
     experimentSlots,
     axisLabels,
+    windAxisPenalties,
+    gradientAxisValues,
   ]);
 
   // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
@@ -2268,6 +2282,8 @@ export default function MapView({
       axisOverlayLayers,
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
+      windAxisPenalties,
+      gradientAxisValues,
     } = redrawPropsRef.current;
     setStaticOverlayVisibility(
       map,
@@ -2290,6 +2306,13 @@ export default function MapView({
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
       applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
+    // 改善計画T425（ゼロベース網羅レビュー指摘）: WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID
+    // （評価軸グループの風・勾配）はプロパティではなくsetFeatureStateで色付けするため、
+    // map.setStyle()でレイヤー自体が作り直された後は明示的に再適用しないと無色のまま
+    // 残ってしまう（windAxisPenalties/gradientAxisValues自体の値は変わっていないため、
+    // 通常の[windAxisPenalties]依存effectは再実行されない）。
+    applyAxisFeatureStateValues(map, WIND_AXIS_FEATURE_STATE_KEY, windAxisPenalties);
+    applyAxisFeatureStateValues(map, GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisValues);
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, {
@@ -2474,6 +2497,17 @@ export default function MapView({
       if (
         map.getLayer(DETAIL_LAYER_ID) &&
         map.queryRenderedFeatures(e.point, { layers: [DETAIL_LAYER_ID] }).length > 0
+      ) {
+        return;
+      }
+      // 改善計画T425（ゼロベース網羅レビュー指摘）: 風penalty gridFill
+      // （WIND_PENALTY_FILL_LAYER_ID）はinteractiveLayerIdsに含まれず専用ポップアップも
+      // 持たないため、以前はここでガードせず下に重なるroad_surfaceタイルへそのまま
+      // クリック判定が抜け、誤った路面ポップアップが出ていた。DETAIL_LAYER_IDと同じ
+      // 「ヒットしたら何もしない」早期returnで防ぐ。
+      if (
+        map.getLayer(WIND_PENALTY_FILL_LAYER_ID) &&
+        map.queryRenderedFeatures(e.point, { layers: [WIND_PENALTY_FILL_LAYER_ID] }).length > 0
       ) {
         return;
       }

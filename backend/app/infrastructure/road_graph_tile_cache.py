@@ -21,7 +21,7 @@ PostGIS単独の従来動作へfail-openする（呼び出し元はRedis障害�
 
 import logging
 
-from app.infrastructure.debug_log import log_throttled_warning
+from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.redis_client import (
     get_redis_client,
     record_redis_failure,
@@ -54,14 +54,20 @@ async def get_cached_subset(zoom: int, tiles: list[tuple[int, int]]) -> set[tupl
         return set()
     client = get_redis_client()
     keys = [_key(zoom, x, y) for x, y in tiles]
-    try:
-        values = await client.mget(keys)
-    except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
-        record_redis_failure()
-        log_throttled_warning("cache:road-tile-redis", "[cache:road-tile-redis] read failed error=%r", exc)
-        return set()
-    record_redis_success()
-    return {tile for tile, value in zip(tiles, values) if value is not None}
+    with log_external_call("cache:road-tile-redis", tile_count=len(tiles)) as fields:
+        try:
+            values = await client.mget(keys)
+        except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return set()
+        record_redis_success()
+        found = {tile for tile, value in zip(tiles, values) if value is not None}
+        fields["result"] = "ok"
+        fields["cache"] = "hit" if found else "miss"
+        return found
 
 
 async def mark_fetched(zoom: int, tiles: list[tuple[int, int]]) -> None:
@@ -73,16 +79,20 @@ async def mark_fetched(zoom: int, tiles: list[tuple[int, int]]) -> None:
     if not tiles or not redis_available():
         return
     client = get_redis_client()
-    try:
-        pipe = client.pipeline(transaction=False)
-        for x, y in tiles:
-            pipe.set(_key(zoom, x, y), "1", ex=_TTL_SECONDS)
-        await pipe.execute()
-    except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
-        record_redis_failure()
-        log_throttled_warning("cache:road-tile-redis", "[cache:road-tile-redis] write failed error=%r", exc)
-    else:
-        record_redis_success()
+    with log_external_call("cache:road-tile-redis", tile_count=len(tiles)) as fields:
+        try:
+            pipe = client.pipeline(transaction=False)
+            for x, y in tiles:
+                pipe.set(_key(zoom, x, y), "1", ex=_TTL_SECONDS)
+            await pipe.execute()
+        except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"
 
 
 # 改善計画T390: `is_split_up_to_date`（DerivedGraphRepository）の判定結果のcache-aside。
@@ -111,16 +121,20 @@ async def get_split_fresh_subset(zoom: int, tiles: list[tuple[int, int]]) -> set
         return set()
     client = get_redis_client()
     keys = [_split_fresh_key(zoom, x, y) for x, y in tiles]
-    try:
-        values = await client.mget(keys)
-    except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
-        record_redis_failure()
-        log_throttled_warning(
-            "cache:road-tile-redis", "[cache:road-tile-redis] split-fresh read failed error=%r", exc
-        )
-        return set()
-    record_redis_success()
-    return {tile for tile, value in zip(tiles, values) if value is not None}
+    with log_external_call("cache:road-tile-redis", op="split-fresh-read", tile_count=len(tiles)) as fields:
+        try:
+            values = await client.mget(keys)
+        except Exception as exc:  # noqa: BLE001 Redis障害はPostGISへのfail-open対象
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return set()
+        record_redis_success()
+        found = {tile for tile, value in zip(tiles, values) if value is not None}
+        fields["result"] = "ok"
+        fields["cache"] = "hit" if found else "miss"
+        return found
 
 
 async def mark_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> None:
@@ -131,18 +145,20 @@ async def mark_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> None:
     if not tiles or not redis_available():
         return
     client = get_redis_client()
-    try:
-        pipe = client.pipeline(transaction=False)
-        for x, y in tiles:
-            pipe.set(_split_fresh_key(zoom, x, y), "1", ex=_SPLIT_FRESH_TTL_SECONDS)
-        await pipe.execute()
-    except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
-        record_redis_failure()
-        log_throttled_warning(
-            "cache:road-tile-redis", "[cache:road-tile-redis] split-fresh write failed error=%r", exc
-        )
-    else:
-        record_redis_success()
+    with log_external_call("cache:road-tile-redis", op="split-fresh-write", tile_count=len(tiles)) as fields:
+        try:
+            pipe = client.pipeline(transaction=False)
+            for x, y in tiles:
+                pipe.set(_split_fresh_key(zoom, x, y), "1", ex=_SPLIT_FRESH_TTL_SECONDS)
+            await pipe.execute()
+        except Exception as exc:  # noqa: BLE001 書き込み失敗はPostGIS側の正本に影響しない
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"
 
 
 async def invalidate_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> None:
@@ -154,12 +170,14 @@ async def invalidate_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> Non
     if not tiles or not redis_available():
         return
     client = get_redis_client()
-    try:
-        await client.delete(*(_split_fresh_key(zoom, x, y) for x, y in tiles))
-    except Exception as exc:  # noqa: BLE001 無効化失敗はTTL経由で自己修復する
-        record_redis_failure()
-        log_throttled_warning(
-            "cache:road-tile-redis", "[cache:road-tile-redis] split-fresh invalidate failed error=%r", exc
-        )
-    else:
-        record_redis_success()
+    with log_external_call("cache:road-tile-redis", op="split-fresh-invalidate", tile_count=len(tiles)) as fields:
+        try:
+            await client.delete(*(_split_fresh_key(zoom, x, y) for x, y in tiles))
+        except Exception as exc:  # noqa: BLE001 無効化失敗はTTL経由で自己修復する
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"

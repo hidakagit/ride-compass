@@ -124,6 +124,27 @@ describe("AxisComposer", () => {
       });
     });
 
+    it("改善計画T425回帰テスト: 折れ点の横軸が昇順でないまま次へ進もうとすると、進まずエラーが出る", async () => {
+      // 「+ 折れ点を追加」は新しい折れ点を既定値[0, 0]で末尾に追加するため、既存の
+      // 最後の点(10, 100)より横軸が小さく、追加しただけで非昇順になる（そのまま
+      // 気づかず保存すると、backend側のnp.interpが前提とする不変条件が破れ評価結果が
+      // 未定義動作になっていた——ゼロベース網羅レビュー指摘、items 12）。
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
+      await clickNext(user);
+      await clickNext(user);
+
+      await user.click(screen.getByRole("button", { name: "+ 折れ点を追加" }));
+      await clickNext(user);
+
+      expect(
+        screen.getByText("折れ点は横軸（左の入力欄）の値が小さい順になるようにしてください（同じ値は使えません）。"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("ステップ 3/4: 点数の詳細を設定")).toBeInTheDocument();
+    });
+
     it("改善計画T342回帰テスト: breakpoint_linearの材料(terms)にboolean材料も選べる（backend側のBreakpointLinearShapeは元々bool値を1/0として係数と掛け合わせて評価できていたが、GUIのセレクトがnumeric限定で選べなかった）", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();

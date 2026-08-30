@@ -9,7 +9,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 
 from app.config import settings
 from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS
@@ -20,10 +20,12 @@ from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
+from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.ors_client import ORSClient
+from app.infrastructure.rate_limiter import check_rate_limit
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
 from app.services.accident_service import AccidentService
@@ -56,6 +58,21 @@ def client_id(request: Request) -> str:
     プロキシの単一IPに潰れる点に注意（tests/test_client_ip_behind_proxy.py参照）。
     """
     return request.client.host if request.client else "unknown"
+
+
+def enforce_rate_limit(request: Request, prefix: str, limit_per_minute: int) -> None:
+    """per-IPレート制限を確認し、超過していれば記録した上で429を送出する（改善計画T425）。
+
+    check_rate_limit→超過時のrecord_rate_limit_rejection→HTTPException(429)という
+    3行のブロックが各routerへ個別に複製されていた（weather.py 7箇所・basemap.py 2箇所・
+    jma_tile.py 1箇所・routes.py 2箇所、いずれも文言・組み立て方が完全に同一）ため、
+    ここへ集約する。`prefix`はレート制限のキー・rejection集計カテゴリの両方を兼ねる
+    （`f"{prefix}:{client_id(request)}"`)。地域タイル系エンドポイント専用だった
+    旧`_tile_validation.check_tile_rate_limit`と同じ実装で、対象を全routerへ広げたもの。
+    """
+    if not check_rate_limit(f"{prefix}:{client_id(request)}", limit_per_minute):
+        record_rate_limit_rejection(prefix, client_id(request), f"{limit_per_minute}/min")
+        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
 
 
 def get_routing_service():

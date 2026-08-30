@@ -51,6 +51,20 @@ DEM_TILE_CONTENT_TYPE = "text/plain; charset=utf-8"
 _tile_grid_cache: dict[tuple[str, int, int], list[list[float | None]] | None] = {}
 
 
+class _CoverageGap:
+    """DEMタイルがそのdem_typeの整備区域外であること（GSIが404を返す）を表すセンチネル。
+
+    改善計画T425: `_fetch_tile`が一時的な通信エラー（タイムアウト・5xx等）でも同じく
+    `None`を返していたため、`_get_tile_grid`がその場限りの障害まで`_tile_grid_cache`へ
+    「このタイルにはデータが無い」として恒久キャッシュしてしまい、プロセスが再起動する
+    まで標高が永久にNone固定になるバグがあった。整備区域外（404、恒久的に正しい）と
+    通信エラー（一時的、次回リトライすべき）を区別するためのセンチネル。
+    """
+
+
+_COVERAGE_GAP = _CoverageGap()
+
+
 def _parse_dem_tile_text(text: str) -> list[list[float | None]]:
     """DEMタイルのテキスト本文（256行×256列のカンマ区切り、欠測は"e"）をパースする。"""
     return [
@@ -139,13 +153,18 @@ class ElevationClient:
                 return grid
 
         fields["cache"] = "miss"
-        grid = await self._fetch_tile(client, dem_type, tile_x, tile_y, path, fields)
+        result = await self._fetch_tile(client, dem_type, tile_x, tile_y, path, fields)
+        if result is None:
+            # 一時的な通信エラー（タイムアウト・5xx等）。恒久キャッシュせず、次回呼び出しで
+            # 再取得を試みられるようにする（_CoverageGap docstring参照）。
+            return None
+        grid = None if isinstance(result, _CoverageGap) else result
         _tile_grid_cache[cache_key] = grid
         return grid
 
     async def _fetch_tile(
         self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, path: str, fields: dict
-    ) -> list[list[float | None]] | None:
+    ) -> list[list[float | None]] | _CoverageGap | None:
         url = DEM_TILE_URL.format(type=dem_type, z=DEM_ZOOM, x=tile_x, y=tile_y)
         try:
             response = await client.get(url)
@@ -153,13 +172,16 @@ class ElevationClient:
             if response.status_code == 404:
                 # カバレッジ外（そのdem_typeの整備区域外）。エラーではなく「このタイルには
                 # 無い」として扱い、呼び出し元が次の優先順位へフォールバックする
-                # （旧GSI点APIの「守備範囲外は"-----"」と同じ位置づけ）。
-                return None
+                # （旧GSI点APIの「守備範囲外は"-----"」と同じ位置づけ）。恒久的に正しい
+                # 事実のため、呼び出し元は_tile_grid_cacheへNoneとして恒久キャッシュしてよい。
+                return _COVERAGE_GAP
             response.raise_for_status()
             text = response.text
         except httpx.HTTPError as exc:
             fields["error"] = repr(exc)
             fields["error_type"] = error_type_label(exc)
+            # 一時的な通信エラー。Noneを返すが、404（_COVERAGE_GAP）とは区別し
+            # 呼び出し元に恒久キャッシュさせない。
             return None
 
         grid = _parse_dem_tile_text(text)

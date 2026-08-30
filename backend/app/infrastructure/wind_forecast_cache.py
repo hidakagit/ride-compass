@@ -22,7 +22,7 @@ weather_client.py側のstale fallback判定でも使われなくなるため、R
 
 import json
 
-from app.infrastructure.debug_log import log_throttled_warning
+from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.redis_client import (
     get_redis_client,
     record_redis_failure,
@@ -48,25 +48,30 @@ async def get_wind_forecast_many(
         return {}
     client = get_redis_client()
     redis_keys = [_key(lat, lon) for lat, lon in keys]
-    try:
-        values = await client.mget(redis_keys)
-    except Exception as exc:  # noqa: BLE001 Redis障害は「未キャッシュ」へのfail-open対象
-        record_redis_failure()
-        log_throttled_warning("cache:wind-forecast-redis", "[cache:wind-forecast-redis] read failed error=%r", exc)
-        return {}
-    record_redis_success()
-
-    result: dict[tuple[float, float], tuple[float, dict]] = {}
-    for key, raw in zip(keys, values):
-        if raw is None:
-            continue
+    with log_external_call("cache:wind-forecast-redis", key_count=len(keys)) as fields:
         try:
-            fetched_at, data = json.loads(raw)
-        except (ValueError, TypeError):
-            # 壊れたエントリ（手動編集・フォーマット変更等）は未キャッシュ扱いにする。
-            continue
-        result[key] = (fetched_at, data)
-    return result
+            values = await client.mget(redis_keys)
+        except Exception as exc:  # noqa: BLE001 Redis障害は「未キャッシュ」へのfail-open対象
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return {}
+        record_redis_success()
+
+        result: dict[tuple[float, float], tuple[float, dict]] = {}
+        for key, raw in zip(keys, values):
+            if raw is None:
+                continue
+            try:
+                fetched_at, data = json.loads(raw)
+            except (ValueError, TypeError):
+                # 壊れたエントリ（手動編集・フォーマット変更等）は未キャッシュ扱いにする。
+                continue
+            result[key] = (fetched_at, data)
+        fields["result"] = "ok"
+        fields["cache"] = "hit" if result else "miss"
+        return result
 
 
 async def set_wind_forecast_many(entries: dict[tuple[float, float], tuple[float, dict]]) -> None:
@@ -76,13 +81,17 @@ async def set_wind_forecast_many(entries: dict[tuple[float, float], tuple[float,
     if not entries or not redis_available():
         return
     client = get_redis_client()
-    try:
-        pipe = client.pipeline(transaction=False)
-        for (lat, lon), (fetched_at, data) in entries.items():
-            pipe.set(_key(lat, lon), json.dumps([fetched_at, data]), ex=_TTL_SECONDS)
-        await pipe.execute()
-    except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
-        record_redis_failure()
-        log_throttled_warning("cache:wind-forecast-redis", "[cache:wind-forecast-redis] write failed error=%r", exc)
-    else:
-        record_redis_success()
+    with log_external_call("cache:wind-forecast-redis", entry_count=len(entries)) as fields:
+        try:
+            pipe = client.pipeline(transaction=False)
+            for (lat, lon), (fetched_at, data) in entries.items():
+                pipe.set(_key(lat, lon), json.dumps([fetched_at, data]), ex=_TTL_SECONDS)
+            await pipe.execute()
+        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"

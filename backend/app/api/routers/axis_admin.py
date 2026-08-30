@@ -210,6 +210,16 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         if isinstance(self.shape, BreakpointLinearShape):
             materials = [term.material for term in self.shape.terms]
             expected_dtypes = {"numeric", "boolean"}
+            # 改善計画T425（ゼロベース網羅レビュー指摘）: shape.breakpointsのx昇順は
+            # `evaluate_breakpoint_linear`（axis_templates.py）のnp.interpが前提とする
+            # 不変条件だが、これまで検証が一切無かった（display_thresholds_override側の
+            # 同種チェック[_check_display_thresholds_override_is_ascending、改善計画T404]は
+            # 色分け表示用の別フィールドで、評価に使うこちらのshape.breakpointsは対象外
+            # だった）。昇順でないと補間結果が未定義動作になり、評価時に無警告のまま
+            # おかしいスコアが返り続ける。
+            xs = [bp[0] for bp in self.shape.breakpoints]
+            if any(b <= a for a, b in zip(xs, xs[1:])):
+                raise ValueError(f"shape.breakpoints must be strictly ascending by x, got {self.shape.breakpoints!r}")
         else:
             materials = [self.shape.material]
             expected_dtypes = {"boolean", "categorical"}
@@ -243,6 +253,24 @@ class AxisDefinitionPayload(AxisDefinitionFields):
                     f"material '{self.shape.material}' has dtype={dtype!r} but mapping keys are "
                     f"{sorted(t.__name__ for t in key_types)} (expected all {expected_key_type.__name__})"
                 )
+        # 改善計画T425（ゼロベース網羅レビュー指摘）: priority_overrides[*].materialは
+        # 上の検証（shapeが参照する材料のみ対象）の対象外だったため、未知の材料id・軸id
+        # （typo等）を指定しても保存でき、評価時にmaterials.get(override.material)が
+        # 常にNoneを返し0次条件が無警告のまま一切発動しないバグがあった。shapeと同じ
+        # 「未知の材料/軸参照」チェックをここでも行う（equalsは文字列固定で比較先の値の
+        # 型を問わないため、dtype検証は対象外——boolean/categorical/numericいずれの
+        # materialも文字列化して比較できる、_priority_override_matches_scalar参照）。
+        unknown_override_materials = sorted(
+            {
+                cond.material
+                for cond in self.priority_overrides
+                if not is_known_material(cond.material) and cond.material not in AXIS_DEFINITIONS
+            }
+        )
+        if unknown_override_materials:
+            raise ValueError(
+                f"unknown material(s)/axis reference(s) in priority_overrides: {unknown_override_materials}"
+            )
         return self
 
     def to_definition(self) -> AxisDefinition:

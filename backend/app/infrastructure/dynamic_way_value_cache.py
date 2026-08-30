@@ -28,7 +28,7 @@ TTLは呼び出し元（各材料のサービス）が渡す——風は気象�
 
 import json
 
-from app.infrastructure.debug_log import log_throttled_warning
+from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.redis_client import (
     get_redis_client,
     record_redis_failure,
@@ -66,21 +66,31 @@ async def get_tile_values(
         return None
     client = get_redis_client()
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg)
-    try:
-        raw = await client.get(key)
-    except Exception as exc:  # noqa: BLE001 Redis障害は「未キャッシュ」へのfail-open対象
-        record_redis_failure()
-        log_throttled_warning(f"cache:dynway-{material_id}-redis", "[cache:dynway-%s-redis] read failed error=%r", material_id, exc)
-        return None
-    record_redis_success()
-    if raw is None:
-        return None
-    try:
-        parsed = json.loads(raw)
-        return {int(way_id): float(value) for way_id, value in parsed.items()}
-    except (ValueError, TypeError, json.JSONDecodeError, AttributeError):
-        # 壊れたエントリ（手動編集等）は未キャッシュ扱いにする。
-        return None
+    with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
+        try:
+            raw = await client.get(key)
+        except Exception as exc:  # noqa: BLE001 Redis障害は「未キャッシュ」へのfail-open対象
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+            return None
+        record_redis_success()
+        if raw is None:
+            fields["result"] = "ok"
+            fields["cache"] = "miss"
+            return None
+        try:
+            parsed = json.loads(raw)
+            values = {int(way_id): float(value) for way_id, value in parsed.items()}
+        except (ValueError, TypeError, json.JSONDecodeError, AttributeError):
+            # 壊れたエントリ（手動編集等）は未キャッシュ扱いにする。
+            fields["result"] = "ok"
+            fields["cache"] = "miss"
+            return None
+        fields["result"] = "ok"
+        fields["cache"] = "hit"
+        return values
 
 
 async def set_tile_values(
@@ -101,10 +111,14 @@ async def set_tile_values(
     client = get_redis_client()
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg)
     payload = json.dumps({str(way_id): value for way_id, value in values.items()})
-    try:
-        await client.set(key, payload, ex=ttl_seconds)
-    except Exception as exc:  # noqa: BLE001 書き込み失敗は次回の実計算で自己修復する
-        record_redis_failure()
-        log_throttled_warning(f"cache:dynway-{material_id}-redis", "[cache:dynway-%s-redis] write failed error=%r", material_id, exc)
-    else:
-        record_redis_success()
+    with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
+        try:
+            await client.set(key, payload, ex=ttl_seconds)
+        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回の実計算で自己修復する
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"

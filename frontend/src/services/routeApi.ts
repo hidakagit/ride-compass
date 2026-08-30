@@ -7,11 +7,10 @@ import type {
   RoutePreviewRequest,
   RouteSegment,
 } from "@/types/route";
+import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 import { fetchJson } from "@/lib/fetchJson";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function postJson<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
   const startedAt = performance.now();

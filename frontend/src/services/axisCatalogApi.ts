@@ -1,7 +1,6 @@
 import type { AxisCatalogResponse } from "@/types/route";
+import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { fetchJson } from "@/lib/fetchJson";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // 軸カタログ取得（改善計画T269）。認可不要の読み取り専用API。軸スタジオ（T270）が
 // 管理API経由でDBへ追加した軸も、この取得だけでフロントへ反映される。

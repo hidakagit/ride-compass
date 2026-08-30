@@ -6,7 +6,7 @@ from app.config import settings
 from app.domain.evaluation import AxisInspectorResult, RoutePreference, axis_inspector_breakdown
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.infrastructure.database import get_session_factory
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
@@ -268,13 +268,22 @@ class RegionService:
                 # repository未接続。DB障害時のWARNING（_tile_from_repository側で既に
                 # 出している）と表記を揃え、ここでは「取込範囲外」表記で常時WARNINGを出す
                 # （ログ方針: 取込漏れ・範囲外アクセスを運用で気づけるようにする）。
-                logger.warning("%sタイルがPostGIS取込範囲外 z=%d x=%d y=%d", label, z, x, y)
+                # 改善計画T425（ゼロベース網羅レビュー指摘）: 地図を眺めるだけで未取込
+                # エリアへ何度もアクセスされうる高頻度WARNINGのため、抑制ヘルパー
+                # （毎分カテゴリごと5件）経由にする（他の外部I/O系WARNINGと同じ方針）。
+                log_throttled_warning(
+                    f"{external_call_name}-uncovered", "[%s] %sタイルがPostGIS取込範囲外 z=%d x=%d y=%d",
+                    external_call_name, label, z, x, y,
+                )
                 return None
             postgis_tile = await self._tile_from_repository(repository_method, z, x, y, fields, label)
             if postgis_tile is None and fields.get("postgis") != "error":
                 # PostGISのカバレッジ外。DB障害の詳細は_tile_from_repository側で既に
                 # WARNING済みのため、ここでは「取込範囲外」表記が誤解を招くerror時は出さない。
-                logger.warning("%sタイルがPostGIS取込範囲外 z=%d x=%d y=%d", label, z, x, y)
+                log_throttled_warning(
+                    f"{external_call_name}-uncovered", "[%s] %sタイルがPostGIS取込範囲外 z=%d x=%d y=%d",
+                    external_call_name, label, z, x, y,
+                )
             return postgis_tile
 
         # 取得不可の場合、後からPBF取込された際に正しいタイルを再生成できるよう

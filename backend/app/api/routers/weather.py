@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.dependencies import (
-    client_id,
+    enforce_rate_limit,
     get_amedas_service,
     get_flood_service,
     get_warning_service,
@@ -22,8 +22,6 @@ from app.domain.wind_grid import (
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
 )
-from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.infrastructure.rate_limiter import check_rate_limit
 from app.services.flood_service import FloodForecasts, FloodService
 from app.services.warning_service import WarningService, WeatherWarnings
 from app.services.wbgt_service import WbgtService, WbgtStatus
@@ -50,11 +48,7 @@ async def get_weather(
     # 以前はここでの範囲チェックをCoordinates（Pydanticモデル）任せにしており、
     # 範囲外の値（例: latitude=999）はFastAPIの422ではなくpydantic.ValidationErrorが
     # 関数内から送出され未処理の500になっていた。Queryのge/leでFastAPI層で弾く。
-    if not check_rate_limit(f"weather:{client_id(http_request)}", settings.weather_rate_limit_per_minute):
-        record_rate_limit_rejection(
-            "weather", client_id(http_request), f"{settings.weather_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "weather", settings.weather_rate_limit_per_minute)
     conditions = await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude))
     if conditions is None:
         raise HTTPException(status_code=502, detail="天候情報の取得に失敗しました")
@@ -73,13 +67,7 @@ async def get_weather_warnings(
     場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり
     このfail-openは意図的な仕様のため、502は返さない——T174（WBGT警告）と共有する
     「安全側ではないが失敗時は警告なしとする」という既定の方針）。"""
-    if not check_rate_limit(
-        f"weather-warnings:{client_id(http_request)}", settings.weather_warnings_rate_limit_per_minute
-    ):
-        record_rate_limit_rejection(
-            "weather-warnings", client_id(http_request), f"{settings.weather_warnings_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "weather-warnings", settings.weather_warnings_rate_limit_per_minute)
     return await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
 
 
@@ -94,11 +82,7 @@ async def get_wbgt(
     提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の
     いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。T205の警報・
     注意報バッジと同じfail-open方針のため502は返さない）。"""
-    if not check_rate_limit(f"weather-wbgt:{client_id(http_request)}", settings.weather_wbgt_rate_limit_per_minute):
-        record_rate_limit_rejection(
-            "weather-wbgt", client_id(http_request), f"{settings.weather_wbgt_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "weather-wbgt", settings.weather_wbgt_rate_limit_per_minute)
     return await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude))
 
 
@@ -112,15 +96,9 @@ async def get_flood_forecast(
     """出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す（改善計画T212、
     T176調査で発見したAPIを使う）。地点解決・洪水予報自体の取得のどこで失敗しても
     例外にせず空を返す（T205/T174と共有するfail-open方針、502は返さない）。"""
-    if not check_rate_limit(
-        f"weather-flood-forecast:{client_id(http_request)}", settings.weather_flood_forecast_rate_limit_per_minute
-    ):
-        record_rate_limit_rejection(
-            "weather-flood-forecast",
-            client_id(http_request),
-            f"{settings.weather_flood_forecast_rate_limit_per_minute}/min",
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(
+        http_request, "weather-flood-forecast", settings.weather_flood_forecast_rate_limit_per_minute
+    )
     return await flood_service.get_forecasts(Coordinates(latitude=latitude, longitude=longitude))
 
 
@@ -135,11 +113,7 @@ async def get_amedas(
     観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
     観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。
     警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。"""
-    if not check_rate_limit(f"amedas:{client_id(http_request)}", settings.weather_amedas_rate_limit_per_minute):
-        record_rate_limit_rejection(
-            "amedas", client_id(http_request), f"{settings.weather_amedas_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "amedas", settings.weather_amedas_rate_limit_per_minute)
     observation = await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude))
     if observation is None:
         raise HTTPException(status_code=502, detail="アメダス観測値の取得に失敗しました")
@@ -174,11 +148,7 @@ async def get_wind_grid(
     502にしない）。ただし全地点が失敗した場合は502を返す（改善計画T200、
     _reject_if_all_points_failed参照）。時刻配列はpoints内の各点からは外し、応答トップ
     レベルに1本だけ持つ（改善計画T203、WindGridResponseのdocstring参照）。"""
-    if not check_rate_limit(f"wind-grid:{client_id(http_request)}", settings.wind_grid_rate_limit_per_minute):
-        record_rate_limit_rejection(
-            "wind-grid", client_id(http_request), f"{settings.wind_grid_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "wind-grid", settings.wind_grid_rate_limit_per_minute)
     points = generate_wind_grid_points()
     times, grid = await weather_service.get_wind_grid(points)
     _reject_if_all_points_failed("wind-grid", points, grid)
@@ -206,13 +176,7 @@ async def get_wind_grid_detail(
     許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
     フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。
     全地点が失敗した場合は502を返す（改善計画T200、_reject_if_all_points_failed参照）。"""
-    if not check_rate_limit(
-        f"wind-grid-detail:{client_id(http_request)}", settings.wind_grid_detail_rate_limit_per_minute
-    ):
-        record_rate_limit_rejection(
-            "wind-grid-detail", client_id(http_request), f"{settings.wind_grid_detail_rate_limit_per_minute}/min"
-        )
-        raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
+    enforce_rate_limit(http_request, "wind-grid-detail", settings.wind_grid_detail_rate_limit_per_minute)
     if min_lon >= max_lon or min_lat >= max_lat:
         raise HTTPException(status_code=400, detail="表示範囲が不正です。")
     if spacing_deg not in WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG:
