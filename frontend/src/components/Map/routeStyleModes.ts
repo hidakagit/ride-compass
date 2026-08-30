@@ -103,14 +103,32 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   };
 }
 
-// gradient/road/difficultyは汎用機構（supports_route_coloring）の対象外のまま固定で持つ。
-// - gradient: 向き（登り/下り）を区別するため、difficulty（前処理でabsを取った絶対値）
-//   ではなく符号付きの生材料gradient_percentを直接読む特殊実装（domain/axis_definitions.py:
-//   AxisDefinition.supports_route_coloringのdocstring参照）。
-// - road: axis_difficulties由来ではなくroad_surface_good（真偽値、区間ごとの舗装判定）を
-//   読む別系統のモードで、そもそも軸のdifficultyという概念に乗らない。
+// gradient/road/difficultyは汎用機構（supports_route_coloring）の対象外のまま固定の
+// RouteStyleMode定義（label/legend/colorExpression）で持つ——難易度[0-100]の3段階という
+// 汎用パターンでは表現できない値（符号付き・真偽値）を扱う、または特定の軸に紐づかない
+// ため。ただし「表現形式が汎用パターンに乗らない」ことと「軸スタジオの軸と無関係」は
+// 別の話であり、STATIC_MODE_AXIS_IDSは各STATIC_MODESエントリが実際に読む材料の由来元と
+// なる軸id（route_preferenceのキーと一致）を登記するレジストリ（改善計画T434
+// フォローアップ、2026-08-30。「軸スタジオで公開した軸と評価軸を登記してほしい」という
+// 指摘を受けて追加）。routeStyleModesFromCatalogAxes（公開状態）・
+// filterRouteStyleModesByPreference（重み）の両方がこのレジストリを介して軸と同期する。
+// - gradient → axis_id "gradient": 向き（登り/下り）を区別するため、difficulty
+//   （前処理でabsを取った絶対値）ではなく符号付きの生材料gradient_percentを直接読む
+//   （domain/axis_definitions.py: AxisDefinition.supports_route_coloringのdocstring参照）。
+//   mode.idと軸idの文字列が偶然一致しているだけで、対応関係自体はこのレジストリが
+//   明示的に保証する。
+// - road → axis_id "surface_q"（路面品質）: road_surface_good（route_generator側）と
+//   surface_q軸が読む材料"surface_good"（material_catalog.py: _extract_surface_good）は
+//   どちらもclassify_osm_surface()由来の同一材料。route_generator側はこれを真偽値の
+//   まま表示するため、surface_q軸のdifficulty[0-100]化（true_value=0/false_value=80）を
+//   経由しない別実装だが、由来元の軸はsurface_qで一致する。
 // - difficulty: 単一軸ではなく全軸の重み付き合成コスト（総合難易度）を表示するモードで、
-//   特定のaxis_idに紐づかない。
+//   特定のaxis_idに紐づかない。このレジストリに含まれないため常に残る。
+const STATIC_MODE_AXIS_IDS: Readonly<Record<string, string>> = {
+  gradient: "gradient",
+  road: "surface_q",
+};
+
 const STATIC_MODES: RouteStyleMode[] = [
   {
     id: "gradient",
@@ -180,25 +198,40 @@ const STATIC_MODES: RouteStyleMode[] = [
 // 組み立てる。useAxisCatalog（hooks/useAxisCatalog.ts）が、実行時API取得結果・
 // ビルド時静的フォールバックの両方からこの関数で同じ形の一覧を作る（axisLayers.ts:
 // rampAxesFromCatalogAxes等と同じ片側importパターン）。
+//
+// 改善計画T434フォローアップ: dynamicModesはaxesに存在しない軸を自動的に除外するが
+// （supports_route_coloringでフィルタするため）、STATIC_MODESは元々axesを一切参照しない
+// 固定配列だったため、gradient/surface_q軸が軸スタジオでunpublishされてaxesから消えても
+// 対応するSTATIC_MODESエントリだけが取り残されて表示され続ける非対称があった（ユーザー
+// 指摘「軸スタジオで公開した軸と評価軸を登記してほしい」で発覚、2026-08-30）。
+// STATIC_MODE_AXIS_IDSに登記されたSTATIC_MODESエントリ（gradient/road）も、dynamicModesと
+// 同じくその軸がaxesに存在する場合だけ残す。difficultyはレジストリに含まれないため、
+// この判定を経由せず常に残る。
 export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
+  const publishedAxisIds = new Set(axes.map((axis) => axis.axis_id));
   const dynamicModes = axes.filter((axis) => axis.supports_route_coloring).map(routeColorableModeFromAxis);
-  return [...dynamicModes, ...STATIC_MODES];
+  const staticModes = STATIC_MODES.filter((mode) => {
+    const axisId = STATIC_MODE_AXIS_IDS[mode.id];
+    return axisId === undefined || publishedAxisIds.has(axisId);
+  });
+  return [...dynamicModes, ...staticModes];
 }
 
 // 改善計画T434: routeStyleModesFromCatalogAxes（公開軸カタログ由来）はroutePreferenceの
 // 重みを知らないため、ユーザーがルート設定パネルでチェックを外した（重み0にした）軸の
 // モードも選択肢に残り続けてしまう（「勾配は常にあるからハードコードでいいという話では
 // ない」という指摘、2026-08-30）。dynamicModes（wind等、routeColorableModeFromAxisが
-// id=axis.axis_idで生成）と、STATIC_MODESのうちgradient（AxisDefinition.supports_route_
-// coloringのdocstring参照、意図的にaxis_id文字列"gradient"をmode.idとして共有）は
-// route_preferenceの重み>0のときだけ残す。road/difficultyはどのaxis_idとも一致しない
-// （road_surface_goodは軸に紐づかない別系統、difficultyは全軸の合成のため単一の
-// enabled/disabled概念を持たない）ため、常に残す。
+// id=axis.axis_idで生成）と、STATIC_MODE_AXIS_IDSに登記されたSTATIC_MODESエントリ
+// （gradient/road）は、登記先の軸の重み>0のときだけ残す。difficultyはレジストリに
+// 含まれない（対応する軸が無い）ため、常に残す。
 export function filterRouteStyleModesByPreference(
   modes: readonly RouteStyleMode[],
   routePreference: RoutePreferenceWeights
 ): RouteStyleMode[] {
-  return modes.filter((mode) => !(mode.id in routePreference) || (routePreference[mode.id] ?? 0) > 0);
+  return modes.filter((mode) => {
+    const axisId = STATIC_MODE_AXIS_IDS[mode.id] ?? mode.id;
+    return !(axisId in routePreference) || (routePreference[axisId] ?? 0) > 0;
+  });
 }
 
 // ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと

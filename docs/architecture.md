@@ -2574,14 +2574,33 @@ value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う
 性質による意図的な非対称（`domain/axis_definitions.py: AxisDefinition.
 supports_route_coloring`のdocstring参照）。
 
-**T434（route_preferenceの重みによる選択肢の絞り込み）**: `STATIC_MODES`
-（gradient/road/difficulty）・`routeStyleModesFromCatalogAxes`由来のモード（wind等）は、
-いずれも「その軸が公開されているか」だけで選択肢の有無が決まり、ユーザーがルート設定
-パネルで軸の重みを0にした（＝評価から外した）状態を反映しなかった。`page.tsx`側で
-`filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, routePreference)`を
-かけた結果を実際に画面へ出す一覧として使う形に変更し、`mode.id`がroutePreferenceの
-キーと一致するモード（gradient/wind等）だけ重み>0を要求する。road/difficultyはどの
-axis_idとも一致しないため対象外（常に選択肢に残る）。
+**T434（route_preferenceの重み・軸スタジオの公開状態による選択肢の絞り込み）**:
+`STATIC_MODES`（gradient/road/difficulty）・`routeStyleModesFromCatalogAxes`由来の
+モード（wind等）は、いずれも「その軸が公開されているか」「重みが0でないか」を見ずに
+選択肢の有無が決まっていた。`routeStyleModes.ts`の`STATIC_MODE_AXIS_IDS`を、各
+STATIC_MODESエントリが実際に読む材料の由来元となる軸id（route_preferenceのキーと
+一致）を登記するレジストリとして新設した:
+```ts
+const STATIC_MODE_AXIS_IDS: Readonly<Record<string, string>> = {
+  gradient: "gradient",
+  road: "surface_q",
+};
+```
+`gradient`はmode.idと軸idの文字列が偶然一致しているだけ（対応関係自体はこのレジストリが
+明示的に保証する）。`road`はmode.idと軸idが一致しない例——`road_surface_good`
+（route_generator側が表示する真偽値）と`surface_q`軸が読む材料`surface_good`
+（`material_catalog.py: _extract_surface_good`）は、どちらも`classify_osm_surface()`
+由来の同一材料であり、mode.idの文字列だけでは対応関係を検出できない（このレジストリを
+新設する前は、mode.idがroutePreferenceのキーと一致するかだけで判定しており、road自身が
+実は軸に対応していたことを見落としていた）。`difficulty`は単一軸ではなく全軸の重み付き
+合成コストのため、このレジストリに含まれず常に選択肢に残る。
+- `routeStyleModesFromCatalogAxes(axes)`: レジストリに登記された軸（gradient/surface_q）が
+  `axes`（軸スタジオの現在の公開軸集合）に存在しない場合、対応するSTATIC_MODESエントリを
+  一覧から除外する——dynamicModes（wind等）が`supports_route_coloring`でaxesから
+  自動的に絞られるのと同じ扱いになる。
+- `filterRouteStyleModesByPreference(modes, routePreference)`（`page.tsx`側で
+  `axisCatalog.routeStyleModes`へ適用し、実際に画面へ出す一覧として使う）: レジストリの
+  軸idの重みが0のモードを除外する。
 
 ### 地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）と一次/二次命名（改善計画T163〜T169）
 
