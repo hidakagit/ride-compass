@@ -605,3 +605,20 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 ## openrouteserviceエンジンの完全削除（2026-08-31・ユーザー指示）
 
 - [x] [T462](tasks/T462.md). openrouteserviceエンジンを完全削除しroad_graphへ一本化する 規模L（2026-08-31完了）
+
+## 統合レビュー第3回の起票（2026-08-31、review:all、ユーザー承認済み「全件起票して」）
+
+T440〜T471（69コミット）を対象とした3回目の統合レビュー
+（[history/2026-08-31_all.md](../.claude/commands/review/history/2026-08-31_all.md)、
+総合スコア29/100）の全指摘（P1×2・P2×5[まとめ含む]・P3×2[まとめ含む]・DEFER×2）を
+ユーザー承認により起票する。
+
+- [ ] [T472](tasks/T472.md). jma_amedas_service.pyのRedis呼び出しをfail-open契約へ統一〔P1〕規模S（2026-08-31起票）
+- [ ] [T473](tasks/T473.md). windBoundaries/gradientBoundariesの軸専用propを汎用機構へ統合し環境グループの配線漏れを解消〔P1〕規模S〜M（2026-08-31起票）
+- [ ] [T474](tasks/T474.md). モジュール設計書・architecture.md・タスクファイルのドキュメントドリフト一括修正（10箇所）〔P2〕規模M（2026-08-31起票）
+- [ ] [T475](tasks/T475.md). 軸スタジオAPI経由のDB変更に「本番DB反映」を完了条件として明記するCLAUDE.md追記提案〔P2〕規模S（2026-08-31起票）
+- [ ] [T476](tasks/T476.md). MapOverlayControls.test.tsxへWidthSwatch統合・ref安定化の回帰テストを追加〔P2〕規模S〜M（2026-08-31起票）
+- [ ] [T477](tasks/T477.md). T463/T464のタスク番号取り違えを実装コメント・テストコメントで一括訂正〔P2〕規模S（2026-08-31起票）
+- [ ] [T478](tasks/T478.md). 統合レビュー第3回P3級指摘の一括対応（死コード削除・docs/テストの軽微是正10件）〔P3〕規模M（2026-08-31起票）
+- [ ] [T479](tasks/T479.md). region_service.py/graph_service.pyのクールダウン付きバックグラウンドトリガー共通化〔DEFER〕規模S（2026-08-31起票、トリガー=3箇所目発生時）
+- [ ] [T480](tasks/T480.md). 動的材料のクリックガード（WIND_PENALTY_FILL_LAYER_ID等）の汎用化〔DEFER〕規模S（2026-08-31起票、トリガー=3件目の動的材料追加時）
