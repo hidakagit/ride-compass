@@ -149,6 +149,10 @@ class AxisRegistryAdminService:
         return existing[0] if existing else None
 
     async def create(self, definition: AxisDefinition) -> None:
+        # 改善計画T469: 読み取り→Python側での検証→書き込みの手順全体をadvisory lockで
+        # 直列化する（TOCTOUレース対策、axis_definition_repository.py: acquire_write_lock
+        # のdocstring参照）。
+        await self._repository.acquire_write_lock()
         # レビュー指摘の修正: 以前は存在チェック用get()（単一行）と排他チェック用
         # list_all()（全件）を別々に発行しており、後者が前者を情報として完全に
         # 包含するため冗長だった。list_all_with_sort_order()を1回だけ呼び、
@@ -182,6 +186,8 @@ class AxisRegistryAdminService:
         await refresh_axis_definitions(self._repository)
 
     async def update(self, axis_id: str, definition: AxisDefinition) -> None:
+        # 改善計画T469: TOCTOUレース対策（create()と同じ、acquire_write_lockのdocstring参照）。
+        await self._repository.acquire_write_lock()
         # レビュー指摘の修正: 以前はaxis_id存在チェック用get()（単一行、sort_order取得も
         # 兼ねる）と排他チェック用list_all()（全件）を別々に発行しており冗長だった。
         # list_all_with_sort_order()を1回だけ呼び、両方をここから賄う。
@@ -207,6 +213,8 @@ class AxisRegistryAdminService:
         await refresh_axis_definitions(self._repository)
 
     async def delete(self, axis_id: str) -> None:
+        # 改善計画T469: TOCTOUレース対策（create()と同じ、acquire_write_lockのdocstring参照）。
+        await self._repository.acquire_write_lock()
         # 重みの妥当性検証は型・範囲チェックのみ（2026-08-24ユーザー判断、ADR「Stage D設計
         # メモ」）だが、「レジストリを空にできる」ことは重みの是非とは別次元の構造的な問題
         # （削除後のrefresh_axis_definitionsが0行を検知しAxisDefinitionSyncErrorを送出する、
@@ -253,6 +261,8 @@ class AxisRegistryAdminService:
         単独で使うと、旧設定を保持したブラウザで次回のルート生成がRoutePreferenceWeights
         のキー完全一致検証で422になるため、フロント実装とセットで使うこと。
         """
+        # 改善計画T469: TOCTOUレース対策（create()と同じ、acquire_write_lockのdocstring参照）。
+        await self._repository.acquire_write_lock()
         existing = await self._repository.list_all_with_sort_order()
         if axis_id not in existing:
             raise KeyError(axis_id)

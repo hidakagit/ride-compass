@@ -232,7 +232,13 @@ class RegionService:
                 z, x, y, tile_bounds_lonlat(z, x, y), (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
             )
         except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する（上記docstring）
-            logger.warning("%sタイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", label, z, x, y, exc)
+            # 改善計画T469（T426棚卸しでは未検出の追加スコープ）: パン/ズームのたびに
+            # 大量のタイルリクエストが飛びうる最も高頻度な経路にも関わらず、
+            # log_throttled_warning未経由のままだった（呼び出し元の"-uncovered"表記
+            # [L274/283]は既に抑制ヘルパー経由なのに、こちら側だけ揃っていなかった）。
+            log_throttled_warning(
+                f"region:{label}-error", "%sタイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", label, z, x, y, exc,
+            )
             fields["postgis"] = "error"
             fields["postgis_error"] = repr(exc)
             return None
@@ -361,7 +367,13 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                logger.warning("区間インスペクタのPostGIS読み取りに失敗 osm_way_id=%d error=%r", osm_way_id, exc)
+                # 改善計画T469: 他のPostGIS読み取り失敗WARNING（region:*-uncovered等）と同じ
+                # 抑制ヘルパー経由へ揃える（区間インスペクタは地図クリックのたびに呼ばれうる
+                # ため、DB障害時にログが未抑制のまま溢れるリスクは他タイル系と同型）。
+                log_throttled_warning(
+                    "region:axis-inspector", "区間インスペクタのPostGIS読み取りに失敗 osm_way_id=%d error=%r",
+                    osm_way_id, exc,
+                )
                 return None
             fields["lookup"] = "ok"
             fields["way_counts_available"] = way_counts is not None
@@ -393,7 +405,8 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                logger.warning("事故データ収録年数のPostGIS読み取りに失敗 error=%r", exc)
+                # 改善計画T469: 他のPostGIS読み取り失敗WARNINGと同じ抑制ヘルパー経由へ揃える。
+                log_throttled_warning("region:accident-years-covered", "事故データ収録年数のPostGIS読み取りに失敗 error=%r", exc)
                 return 0
             fields["years_covered"] = years
             return years
@@ -416,7 +429,11 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                logger.warning("材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r", material_id, exc)
+                # 改善計画T469: 他のPostGIS読み取り失敗WARNINGと同じ抑制ヘルパー経由へ揃える。
+                log_throttled_warning(
+                    "region:material-values", "材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r",
+                    material_id, exc,
+                )
                 return []
             fields["value_count"] = len(values)
             return values

@@ -154,6 +154,54 @@ async def test_with_repository_cache_miss_fetches_and_persists():
     assert "edge-1" in repository.attributes
 
 
+# 改善計画T469: GSI一時障害で全点の標高取得に失敗したEdgeは、以前はそのまま永続化され
+# （elevation_attributes行が存在する＝キャッシュ済み扱いになる）、GSI復旧後も二度と
+# 再問い合わせされなくなっていた。永続化をスキップし、次回呼び出しでmissing扱いに戻る
+# （＝再試行される）ことを確認する。
+async def test_all_points_missing_elevation_is_not_persisted_and_retried_next_call():
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.700, 139.700], [35.701, 139.700]], distance_m=100.0,
+    )
+    graph = _make_graph(edge)
+    client = FakeElevationClient({})  # 全地点で取得失敗（GSI障害相当）
+    repository = FakeElevationAttributeRepository()
+    service = ElevationAttributeService(client, http_client=None, repository=repository)
+
+    first = await service.get_attributes_for_graph(graph)
+
+    assert first["edge-1"].start_elevation_m is None
+    assert repository.save_call_count == 0
+    assert "edge-1" not in repository.attributes
+
+    # GSI復旧後、値が得られるようになれば次回呼び出しで再試行され、今度は永続化される。
+    client._elevations_by_point = {(35.700, 139.700): 10.0, (35.701, 139.700): 20.0}
+    second = await service.get_attributes_for_graph(graph)
+
+    assert second["edge-1"].start_elevation_m == 10.0
+    assert client.call_count == 4  # 1回目2点 + 2回目2点（1回目はキャッシュされていないため再問い合わせ）
+    assert repository.save_call_count == 1
+    assert "edge-1" in repository.attributes
+
+
+async def test_partial_points_missing_elevation_is_still_persisted():
+    # 一部の点だけ欠損（valid>=2）の場合は従来どおり永続化される（全滅ケースのみが対象）。
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.700, 139.700], [35.701, 139.700], [35.702, 139.700]], distance_m=200.0,
+    )
+    graph = _make_graph(edge)
+    client = FakeElevationClient({(35.700, 139.700): 10.0, (35.701, 139.700): 20.0})  # 3点目のみ欠損
+    repository = FakeElevationAttributeRepository()
+    service = ElevationAttributeService(client, http_client=None, repository=repository)
+
+    attributes = await service.get_attributes_for_graph(graph)
+
+    assert attributes["edge-1"].start_elevation_m == 10.0
+    assert repository.save_call_count == 1
+    assert "edge-1" in repository.attributes
+
+
 class ReentrancyDetectingRepository(FakeElevationAttributeRepository):
     """repositoryへの同時アクセス（再入）を検出するフェイク。
 
@@ -194,7 +242,16 @@ async def test_concurrent_calls_serialize_repository_access():
         )
         for i in range(4)
     ]
-    client = FakeElevationClient({})
+    # 改善計画T469: 全点Noneの標高（GSI障害相当）はもう永続化されない
+    # （elevation_attribute_service.py: get_attributes_for_graph参照）ため、このテストの
+    # 本来の関心事（repositoryアクセスの直列化）を検証し続けるには、各Edgeが実際に
+    # 永続化される（=有効な標高を1つ以上持つ）よう座標ごとに値を用意する必要がある。
+    elevations_by_point = {
+        (lat, lon): 10.0
+        for edge in edges
+        for lat, lon in edge.geometry
+    }
+    client = FakeElevationClient(elevations_by_point)
     repository = ReentrancyDetectingRepository()
     service = ElevationAttributeService(client, http_client=None, repository=repository)
 

@@ -28,7 +28,7 @@ display_thresholds_override（改善計画T404、地図の色分けしきい値�
 from datetime import datetime, timezone
 
 from pydantic import TypeAdapter
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,18 @@ from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisReg
 
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
 _PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
+
+# 改善計画T469: create/update/delete/unpublish（AxisRegistryAdminService）の
+# 「読み取り→Python側で検証→書き込み」という手順がロック無しのTOCTOUレースだった
+# （例: 2つのcreate()が同時に走ると、互いのsort_orderやcheck_material_exclusivity判定が
+# 相手の変更を見ないまま古いスナップショットに基づいて計算され、書き込み後に不整合な
+# 状態[sort_order衝突・材料の二重帰属]が残りうる）。トランザクションスコープの
+# PostgreSQL advisory lock（pg_advisory_xact_lock）で直列化する——asyncio.Lock（同一
+# プロセス内のみ有効）ではなくDBレベルのロックにするのは、このファイル冒頭の
+# 「将来複数ワーカー化する際は」という既知の制約と同じ理由（複数プロセス構成でも機能する）。
+# キー値自体に意味は無く、他のadvisory lock用途と衝突しない固定値であればよい
+# （"AXISDEFS"の8バイトASCIIをbigintとして解釈しただけ）。
+_WRITE_LOCK_KEY = 0x4158495344454653
 
 
 def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
@@ -63,6 +75,12 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
 class AxisDefinitionRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def acquire_write_lock(self) -> None:
+        """axis_definitionsへの書き込み系操作（create/update/delete/unpublish）の冒頭で
+        呼ぶ。トランザクションスコープのadvisory lock（_WRITE_LOCK_KEY参照）を取得し、
+        呼び出し側のcommit()/セッション終了時のrollbackで自動的に解放される。"""
+        await self._session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _WRITE_LOCK_KEY})
 
     async def list_all(self) -> dict[str, AxisDefinition]:
         """axis_idキーの辞書。sort_order昇順（挿入順=合成の加算順）を保つ。"""

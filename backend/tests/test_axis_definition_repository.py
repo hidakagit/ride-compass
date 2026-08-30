@@ -1,4 +1,7 @@
+import asyncio
+
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.axis_definitions import (
     AxisDefinition,
@@ -27,6 +30,28 @@ def _definition(axis_id: str = "test_axis", default_weight: float = 0.1) -> Axis
         description="テスト用ダミー軸",
         category="推定",
     )
+
+
+# 改善計画T469: create/update/delete/unpublish（AxisRegistryAdminService）のTOCTOUレース
+# 対策として新設したacquire_write_lockが、実際に別トランザクションをブロックすることを
+# 確認する（advisory lockがトランザクションスコープで正しく機能しているかの回帰テスト）。
+async def test_acquire_write_lock_blocks_until_holder_commits(road_graph_session, road_graph_engine):
+    repository = AxisDefinitionRepository(road_graph_session)
+    await repository.acquire_write_lock()  # road_graph_sessionが未commitのままロックを保持
+
+    async with AsyncSession(road_graph_engine, expire_on_commit=False) as other_session:
+        other_repository = AxisDefinitionRepository(other_session)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(other_repository.acquire_write_lock(), timeout=0.5)
+        await other_session.rollback()
+
+    await repository.commit()  # ロック解放
+
+    # 解放後は別セッションからでも即座に取得できる。
+    async with AsyncSession(road_graph_engine, expire_on_commit=False) as third_session:
+        third_repository = AxisDefinitionRepository(third_session)
+        await asyncio.wait_for(third_repository.acquire_write_lock(), timeout=0.5)
+        await third_session.rollback()
 
 
 async def test_list_all_returns_empty_dict_when_no_rows(road_graph_session):

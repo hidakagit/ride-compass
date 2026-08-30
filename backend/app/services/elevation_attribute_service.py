@@ -68,11 +68,24 @@ class ElevationAttributeService:
         computed = {edge.edge_id: attribute for edge, attribute in zip(missing, results)}
 
         if self._repository is not None and computed:
-            async with self._repository_lock:
-                await self._repository.save_elevation_attributes(list(computed.values()))
-                # repositoryはcommitしない規約（road_graph_repository.pyのdocstring参照）のため、
-                # 保存のまとまりをここで確定する。
-                await self._repository.commit()
+            # 改善計画T469: GSIの一時障害等で該当Edgeの形状点すべてが標高取得に失敗した
+            # 場合、compute_elevation_attribute（domain/attributes.py）はstart_elevation_m等
+            # 全フィールドNoneのAttributeを返す。これをそのまま永続化すると、次回以降
+            # get_elevation_attributesのキャッシュ判定（edge_idの行が存在するかのみを見る）
+            # がヒットしてしまい、GSI障害が復旧した後も二度と再問い合わせされなくなる。
+            # 有効な標高を1つも得られなかった（=start_elevation_mがNoneのまま）Attributeは
+            # 永続化せず、次回のget_attributes_for_graph呼び出しで missing 扱いとなり
+            # 再試行されるようにする（今回の呼び出し元へは、そのままcomputedに含めて返す。
+            # ルート生成側は標高情報無しを許容する既存の設計を踏襲する）。
+            persistable = {
+                edge_id: attribute for edge_id, attribute in computed.items() if attribute.start_elevation_m is not None
+            }
+            if persistable:
+                async with self._repository_lock:
+                    await self._repository.save_elevation_attributes(list(persistable.values()))
+                    # repositoryはcommitしない規約（road_graph_repository.pyのdocstring参照）のため、
+                    # 保存のまとまりをここで確定する。
+                    await self._repository.commit()
 
         return {**cached, **computed}
 

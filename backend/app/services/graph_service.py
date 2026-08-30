@@ -19,18 +19,30 @@ logger = logging.getLogger("ridecompass.graph")
 # _maybe_trigger_graph_build/_build_graph_for_tile_backgroundと同じ考え方。対象データ
 # ・キャッシュ先が異なる別モジュールのため状態は分けて持つ）。
 _warming_tiles: set[tuple[int, int, int]] = set()
+# 改善計画T469: 温め失敗後、同じタイルが即座に無条件で再試行され続けると（対象bboxを含む
+# リクエストのたびにトリガーされるため）、持続的に失敗する要因（DB障害等）があった場合に
+# 無駄なバックグラウンドセッションを開き続けてしまう。region_service.py:
+# _last_build_check/_GRAPH_CHECK_TTL_SECONDSと同じ設計（試行[成功/失敗問わず]ごとに
+# 一定時間は同じタイルへの再試行を抑える、成功時は次回のキャッシュヒット判定で
+# そもそもこのクールダウンへ到達しないため実質は失敗時の再試行間隔として働く）。
+_last_warm_attempt: dict[tuple[int, int, int], float] = {}
+_WARM_RECHECK_TTL_SECONDS = 300.0
 
 
 def _maybe_warm_tile_cache(bbox: BoundingBox) -> None:
+    now = time.monotonic()
     for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
         tile = (x, y)
         if tile in _warming_tiles or graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y) is not None:
             continue
+        last_attempt = _last_warm_attempt.get(tile)
+        if last_attempt is not None and now - last_attempt < _WARM_RECHECK_TTL_SECONDS:
+            continue
         _warming_tiles.add(tile)
-        asyncio.create_task(_warm_tile_cache_background(x, y))
+        asyncio.create_task(_warm_tile_cache_background(x, y, now))
 
 
-async def _warm_tile_cache_background(x: int, y: int) -> None:
+async def _warm_tile_cache_background(x: int, y: int, attempted_at: float) -> None:
     """リクエストのセッションとは別の新規セッションを使う（HTTPレスポンスが返った後も
     タスクを続けるため、T59の_build_graph_for_tile_backgroundと同じ理由）。"""
     try:
@@ -44,6 +56,7 @@ async def _warm_tile_cache_background(x: int, y: int) -> None:
         )
     finally:
         _warming_tiles.discard((x, y))
+        _last_warm_attempt[(x, y)] = attempted_at
 
 
 class GraphService:

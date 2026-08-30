@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -27,9 +28,12 @@ def _clear_graph_material_cache():
 def _clear_warming_tiles():
     # 改善計画T248: _warming_tilesもgraph_material_cacheと同じくプロセス内メモリの
     # モジュールグローバルのため、テスト間で漏れないよう明示的にクリアする。
+    # 改善計画T469: _last_warm_attempt（温め失敗後の再試行クールダウン）も同様。
     graph_service_module._warming_tiles.clear()
+    graph_service_module._last_warm_attempt.clear()
     yield
     graph_service_module._warming_tiles.clear()
+    graph_service_module._last_warm_attempt.clear()
 
 BBOX = BoundingBox(min_latitude=35.70, min_longitude=139.70, max_latitude=35.71, max_longitude=139.71)
 # ROAD_GRAPH_TILE_ZOOM(=12)においてBBOXはちょうど1タイルに収まる（[(3637, 1612)]）。
@@ -755,7 +759,7 @@ async def test_maybe_warm_tile_cache_schedules_background_task_per_uncached_tile
     warmed: list[tuple[int, int]] = []
     started = asyncio.Event()
 
-    async def fake_warm(x: int, y: int) -> None:
+    async def fake_warm(x: int, y: int, attempted_at: float) -> None:
         warmed.append((x, y))
         started.set()
 
@@ -770,7 +774,7 @@ async def test_maybe_warm_tile_cache_schedules_background_task_per_uncached_tile
 async def test_maybe_warm_tile_cache_skips_tile_already_in_material_cache(monkeypatch):
     warmed: list[tuple[int, int]] = []
 
-    async def fake_warm(x: int, y: int) -> None:
+    async def fake_warm(x: int, y: int, attempted_at: float) -> None:
         warmed.append((x, y))
 
     monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
@@ -793,7 +797,7 @@ async def test_maybe_warm_tile_cache_skips_tile_already_in_material_cache(monkey
 async def test_maybe_warm_tile_cache_skips_tile_already_warming(monkeypatch):
     warmed: list[tuple[int, int]] = []
 
-    async def fake_warm(x: int, y: int) -> None:
+    async def fake_warm(x: int, y: int, attempted_at: float) -> None:
         warmed.append((x, y))
 
     monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
@@ -812,9 +816,53 @@ async def test_warm_tile_cache_background_discards_in_flight_marker_even_on_fail
     monkeypatch.setattr(GraphService, "_get_or_build_tile_materials", failing_get_or_build)
     graph_service_module._warming_tiles.add(BBOX_TILE)
 
-    await graph_service_module._warm_tile_cache_background(*BBOX_TILE)
+    await graph_service_module._warm_tile_cache_background(*BBOX_TILE, 123.0)
 
     assert BBOX_TILE not in graph_service_module._warming_tiles
+
+
+# 改善計画T469: 温め失敗後、同じタイルが無条件で即時再試行され続けない
+# （_WARM_RECHECK_TTL_SECONDS経過まではスキップする）ことの回帰テスト。
+async def test_warm_tile_cache_background_records_attempt_time_even_on_failure(monkeypatch):
+    async def failing_get_or_build(self, x: int, y: int) -> SearchMaterials:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(GraphService, "_get_or_build_tile_materials", failing_get_or_build)
+
+    await graph_service_module._warm_tile_cache_background(*BBOX_TILE, 123.0)
+
+    assert graph_service_module._last_warm_attempt[BBOX_TILE] == 123.0
+
+
+async def test_maybe_warm_tile_cache_skips_recently_failed_tile_within_cooldown(monkeypatch):
+    warmed: list[tuple[int, int]] = []
+
+    async def fake_warm(x: int, y: int, attempted_at: float) -> None:
+        warmed.append((x, y))
+
+    monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
+    graph_service_module._last_warm_attempt[BBOX_TILE] = time.monotonic()  # 直前に失敗した想定
+
+    graph_service_module._maybe_warm_tile_cache(BBOX)
+    await asyncio.sleep(0)
+
+    assert warmed == []
+
+
+async def test_maybe_warm_tile_cache_retries_after_cooldown_elapses(monkeypatch):
+    warmed: list[tuple[int, int]] = []
+
+    async def fake_warm(x: int, y: int, attempted_at: float) -> None:
+        warmed.append((x, y))
+
+    monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
+    # クールダウン（_WARM_RECHECK_TTL_SECONDS=300秒）を十分に超えた過去の失敗として記録。
+    graph_service_module._last_warm_attempt[BBOX_TILE] = time.monotonic() - 301.0
+
+    graph_service_module._maybe_warm_tile_cache(BBOX)
+    await asyncio.sleep(0)
+
+    assert warmed == [BBOX_TILE]
 
 
 # --- 改善計画T390: is_split_up_to_dateのRedis cache-aside（_ensure_split_up_to_date） ---
