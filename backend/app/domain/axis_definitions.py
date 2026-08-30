@@ -260,6 +260,22 @@ class AxisDefinition(BaseModel):
     （`tile_property_needs_runtime_scale`な材料を含む軸でも、実行時スケール変換後の
     スケール——年数等の変換係数が変わっても値を書き直す必要が無い）。`derive_ramp_inputs`
     自体が失敗する軸（kind="none"）には効果が無い（`axis_display_for()`の優先順位参照）。"""
+    dedicated_way_value_layer: bool = False
+    """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
+    dynamic_way_value_cache.py`）を持つかの宣言。従来`RouteSettingsPanel.tsx`・
+    `mapLayers.ts`・`MapView.tsx`が`axis_id`の文字列比較（`"wind"`/`"gradient"`）で
+    直接ハードコード分岐していたのを、`supports_route_coloring`と同様に性質ベースの
+    宣言的フィールドへ汎用化したもの。
+
+    `supports_route_coloring`との違い: あちらは**ルート確定後**の色分け
+    （`axis_difficulties[axis_id]`を`routeStyleModes.ts`の3段階色分けモードとして
+    使えるかの宣言、shape・breakpointsから機械的に判定可能な性質）。こちらは
+    **ルート未確定時**でも地図上の視界内の全道路を線色分け表示できるか、という
+    工学的事実——「専用のway_id配信レイヤーがbackendに実際に実装されているか」は
+    軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
+    同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
+    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する
+    （現状trueなのは`wind`・`gradient`の2軸のみ）。"""
 
     @property
     def materials(self) -> list[str]:

@@ -374,6 +374,27 @@ def test_create_persists_and_returns_display_thresholds_override(override_servic
     assert override_service._definitions["test_axis"].display_thresholds_override == [1.0, 2.0, 4.0]
 
 
+def test_create_persists_and_returns_dedicated_way_value_layer(override_service):
+    # この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
+    # （dedicated_way_value_layer）が管理API経由で設定・参照できること。
+    # supports_route_coloringと同じ配線パターン（axis_admin.py: AxisDefinitionFields参照）。
+    payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    assert response.json()["dedicated_way_value_layer"] is True
+    assert override_service._definitions["test_axis"].dedicated_way_value_layer is True
+
+
+def test_create_leaves_dedicated_way_value_layer_false_when_omitted(override_service):
+    # 既定はFalse（この専用レイヤーを持たない大多数の軸の実際の状態と一致する）。
+    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    assert response.json()["dedicated_way_value_layer"] is False
+
+
 def test_create_rejects_non_ascending_display_thresholds_override(override_service):
     # 改善計画T404: axis_admin.py: AxisDefinitionPayload._check_display_thresholds_
     # override_is_ascendingの検証（色分けの段階境界値は昇順でなければ意味を持たない）。

@@ -1,0 +1,21 @@
+-- 軸スタジオの評価軸定義へ「専用のway_id→値配信レイヤー（Redis経由）を持つか」の
+-- 宣言的フィールド（dedicated_way_value_layer）を追加する。domain/axis_definitions.py:
+-- AxisDefinition.dedicated_way_value_layerへ同じフィールドを追加済み。
+--
+-- 従来frontend側（RouteSettingsPanel.tsx/mapLayers.ts/MapView.tsx）がaxis_idの
+-- 文字列比較（"wind"/"gradient"）で直接ハードコード分岐していた。この2軸だけが
+-- 専用のway_id→値配信レイヤー（backend/app/infrastructure/dynamic_way_value_cache.py）を
+-- 持つためルート未確定時から地図上で線色分け表示できるが、これは軸の評価ロジック
+-- （shape）自体からは自動導出できない工学的事実のため、supports_route_coloringと
+-- 同様に明示的なフィールドとして持たせる。
+--
+-- NOT NULL DEFAULT false（既定値なし＝この専用レイヤーを持たない大多数の軸の
+-- 実際の状態と一致するため、既存行へのALTER TABLE ADD COLUMN自体は全行falseの
+-- ままでも現在の挙動に影響しない）。
+--
+-- CLAUDE.md「コミット時の同期ルール」により、axis_definitionsの行データ（wind/gradientの
+-- dedicated_way_value_layer=trueへのbackfill）はこのmigrationではなくaxis_admin API
+-- （unpublish→PUT→republish）経由で行う。本migrationはテーブル構造（DDL）のみを追加する
+-- （0025_axis_definitions_display_thresholds_override.sqlと同じ方針）。
+ALTER TABLE axis_definitions
+    ADD COLUMN IF NOT EXISTS dedicated_way_value_layer BOOLEAN NOT NULL DEFAULT false;

@@ -115,6 +115,11 @@ class AxisDefinitionFields(BaseModel):
     # （バリデーションは下のAxisDefinitionPayload._check_display_thresholds_override_
     # is_ascending参照）。
     display_thresholds_override: list[float] | None = None
+    # この軸が専用のway_id→値配信レイヤー（Redis経由、domain/axis_definitions.py:
+    # AxisDefinition.dedicated_way_value_layerのdocstring参照）を持つかの宣言。
+    # time_scope/supports_route_coloringと同じ理由でAxisComposer.tsx（GUIフォーム）は
+    # 現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
+    dedicated_way_value_layer: bool = False
 
 
 class AxisDefinitionPayload(AxisDefinitionFields):
@@ -262,6 +267,7 @@ class AxisDefinitionPayload(AxisDefinitionFields):
             time_scope=self.time_scope,
             supports_route_coloring=self.supports_route_coloring,
             display_thresholds_override=self.display_thresholds_override,
+            dedicated_way_value_layer=self.dedicated_way_value_layer,
         )
 
 
@@ -297,6 +303,7 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
         time_scope=definition.time_scope,
         supports_route_coloring=definition.supports_route_coloring,
         display_thresholds_override=definition.display_thresholds_override,
+        dedicated_way_value_layer=definition.dedicated_way_value_layer,
         display=axis_display_for(definition),
     )
 

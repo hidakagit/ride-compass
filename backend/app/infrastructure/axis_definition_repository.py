@@ -56,6 +56,7 @@ def _row_to_definition(row: AxisDefinitionRow) -> AxisDefinition:
         time_scope=row.time_scope,
         supports_route_coloring=row.supports_route_coloring,
         display_thresholds_override=row.display_thresholds_override,
+        dedicated_way_value_layer=row.dedicated_way_value_layer,
     )
 
 
@@ -131,6 +132,7 @@ class AxisDefinitionRepository:
                 "time_scope": stmt.excluded.time_scope,
                 "supports_route_coloring": stmt.excluded.supports_route_coloring,
                 "display_thresholds_override": stmt.excluded.display_thresholds_override,
+                "dedicated_way_value_layer": stmt.excluded.dedicated_way_value_layer,
                 "updated_at": stmt.excluded.updated_at,
             },
         )

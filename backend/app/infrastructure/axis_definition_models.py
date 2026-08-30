@@ -72,6 +72,12 @@ class AxisDefinitionRow(Base):
     # 0025 migrationでNULL許容の追加カラムとして導入（未設定はderive_ramp_inputsが
     # 計算したしきい値をそのまま使うため、既存行への追加自体は現在の地図表示に影響しない）。
     display_thresholds_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # 専用のway_id→値配信レイヤー（Redis経由、app/infrastructure/dynamic_way_value_cache.py）
+    # を持つかの宣言（domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layerの
+    # docstring参照）。新規migrationで追加するNOT NULL DEFAULTの追加カラム（既存全軸は
+    # falseが移行時点の実際の挙動と一致する。wind/gradientのbackfillはCLAUDE.md
+    # 「コミット時の同期ルール」によりmigrationではなくaxis_admin API経由で行う）。
+    dedicated_way_value_layer: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # 改善計画T330: create_tables()（Base.metadata.create_all）が先に走る「まっさらなDBから
     # のブートストラップ」経路では、DB側のserver_defaultが無いと0014 migrationのINSERT
     # （updated_atを指定しない）がNOT NULL制約違反になる。他の全カラムはこのため
