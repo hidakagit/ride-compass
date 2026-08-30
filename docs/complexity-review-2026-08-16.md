@@ -181,6 +181,36 @@ T184が正しく設計した新しい成長軸（動的気象レイヤーの描�
   DYNAMIC_WEATHER_RENDERERS 2件（閾値5件に対し余裕あり）・page.tsx 1,615行
   （新閾値1,900行に対し285行の余裕）・state 13件（閾値40件に対し余裕あり）。
 
+**2026-08-31（T430）再検討**: 統合レビュー第9回（complexity F-1）で、MapView.tsxが
+2,992行（閾値2,800行に対し192行の超過で発火）・DYNAMIC_WEATHER_RENDERERSが8件
+（閾値5件に対し3件の超過で発火）と判明した。精査の結果、増分の大半（DYNAMIC_WEATHER_
+RENDERERSの追加ぶんのうち大多数）は雷竜巻・キキクル3種（landslideRisk/heavyRainRisk/
+inundationRisk）等、raster専用の単純な宣言的エントリ（`STATIC_OVERLAY_LAYERS`のramp軸と
+同じ「宣言だけが増える種類」）で、`ensureWindPenaltyFillLayer`のようなbespoke ensure/
+apply関数の増加とは性質が異なるが、現在のカウント方式（DynamicWeatherLayerId単位の
+種類数）では両者が閾値上で混在していた。
+
+以下の2点を対応した（コード変更なし、カウント方式・閾値の再定義のみ）:
+1. raster専用の宣言的エントリ（precipitationNowcast.main/linearRainband・thunderNowcast・
+   tornadoNowcast・landslideRisk・heavyRainRisk・inundationRiskの計7件）は、
+   `STATIC_OVERLAY_LAYERS`のramp軸と同じ「宣言だけが増える種類はノーカウント」（T157）
+   扱いへ改める。
+2. 種類数条件を「gridFill/gridMark等の描画ロジックを持つレンダラー、またはbespoke
+   ensure/apply関数が新規に増えた件数」へ再定義する（現在該当するのは
+   precipitationNowcast.main.gridFill・windVector.arrow.gridMark・
+   windVector.penaltyFill.gridFillの3件）。
+
+新しい閾値: **「MapView.tsx 3,200行到達」または「手書きSTATIC_OVERLAY_LAYERS（ramp軸除く）
+10件到達」または「bespoke種の軸3件目」または「5つ目のレシピ軸をMapView内へミラー追加
+しようとした時点」または「gridFill/gridMark等の描画ロジックを持つ動的気象レンダラー、
+またはbespoke ensure/apply関数が5件目に増加した時点」**（行数閾値2,800→3,200、種類数の
+数え方を再定義。他条件は維持）。
+- 実測（2026-08-31時点）: MapView.tsx 3,175行（新閾値3,200行に対し25行の余裕——
+  T465/T466等の同日の別修正で近い将来再発火しうる、次回のレビューで優先的に確認する
+  こと）・DYNAMIC_WEATHER_RENDERERS うち描画ロジックを持つ件数3件（新閾値5件に対し
+  余裕あり、raster専用7件はノーカウント）・手書きSTATIC_OVERLAY_LAYERS/bespoke種/
+  レシピ軸は前回実測から変更なし。
+
 ### R-7. BICYCLE_INFRA_LABELSの語彙複製 → T46
 
 `MapView.tsx`のポップアップ用ラベル辞書（6件）が`staticAttributeLayers.ts`の

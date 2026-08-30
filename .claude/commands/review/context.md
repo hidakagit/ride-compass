@@ -89,7 +89,7 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 - `/api/routes/preview` の残置（Step3疎通確認用）
 - `page.tsx` / `MapView.tsx` の分割見送り（肥大化はcomplexity.mdの「規模ウォッチ」で
   横断監視する。MapView.tsxのみ個別の閾値付きKEEPがあり、現在有効な閾値・発火状況は
-  直近のcomplexityレビュー（history/）とimprovement-plan.mdの該当タスク（T91→T123）を
+  直近のcomplexityレビュー（history/）とimprovement-plan.mdの該当タスク（T91→T123→T430）を
   正として参照する。特定ファイル個別の閾値は原則新設せず、規模ウォッチの発火→
   精査で判断する）
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
