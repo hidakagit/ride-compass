@@ -37,7 +37,9 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 // 動的気象レイヤーの一覧（単一の情報源、MapView.tsx: DYNAMIC_WEATHER_RENDERERS・
 // page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
 // ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。
-export const DYNAMIC_WEATHER_LAYER_IDS = [
+//
+// チップ（layerVisibility）でON/OFFする要素（改善計画T432）。
+export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   "precipitationNowcast",
   "windVector",
   // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。同じtargetTimes_N3.json
@@ -45,15 +47,20 @@ export const DYNAMIC_WEATHER_LAYER_IDS = [
   // （雷だけ確認したい/竜巻は非表示にしたい、という独立したON/OFFニーズに応えるため）。
   "thunderNowcast",
   "tornadoNowcast",
-  // キキクル（危険度分布：土砂・大雨・浸水）+線状降水帯予測マップ（改善計画T410）。
-  // 他の動的レイヤーと異なり未来方向の複数フレームを持たない「現在の防災リスク」の
-  // スナップショットのみ（riskMap.tsのモジュールdocstring参照）。洪水キキクルはベクタ
-  // タイル（.pbf）形式で本基盤の対応外のため未実装（別タスクで扱う）。
-  "landslideRisk",
-  "heavyRainRisk",
-  "inundationRisk",
-  "linearRainbandRisk",
 ] as const satisfies readonly MapLayerId[];
+
+// キキクル（危険度分布：土砂・大雨・浸水、改善計画T410）。「防災」カテゴリとして
+// WarningBadgeと同じ常時マウント・チップ無しにする（改善計画T432、T420の「既定ON」方針を
+// 訂正）。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの
+// 一部として扱い、ここには含めない（MapView.tsx: DYNAMIC_WEATHER_RENDERERSの
+// precipitationNowcastグループのlinearRainbandソース参照）。洪水キキクルはベクタタイル
+// （.pbf）形式で本基盤の対応外のため未実装（別タスクで扱う）。
+export const ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS = ["landslideRisk", "heavyRainRisk", "inundationRisk"] as const;
+
+export const DYNAMIC_WEATHER_LAYER_IDS = [
+  ...CHIP_DYNAMIC_WEATHER_LAYER_IDS,
+  ...ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS,
+] as const;
 export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
 
 /** フレーム1つぶんの描画内容。表示層はこのkindだけで描画方法を決める（データソースの
@@ -62,6 +69,31 @@ export type DynamicWeatherRenderPayload =
   | { kind: "rasterTile"; tileUrlTemplate: string }
   | { kind: "gridFill"; geojson: GeoJSON.FeatureCollection }
   | { kind: "gridMark"; geojson: GeoJSON.FeatureCollection };
+
+/** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
+ * 一意であればよい（改善計画T432、「1レイヤーID=1 kind」制約の解消。単一ソースしか
+ * 持たないグループも"main"という1キーだけを持つ——ソース1つならキー省略可、という特例は
+ * 設けず呼び出し側の分岐を増やさない）。 */
+export type DynamicWeatherSourceId = string;
+
+/** 1ソースぶんの表示状態。visible/payloadどちらか欠けても非表示
+ * （MapView.tsx: applyDynamicWeatherState参照）。 */
+export interface DynamicWeatherSourceState {
+  visible: boolean;
+  payload: DynamicWeatherRenderPayload | undefined;
+}
+
+/** 1グループぶんの状態。ソースキー→状態（改善計画T432）。 */
+export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;
+
+/** targetがnowからwindowMsミリ秒先までの範囲内か（改善計画T432、線状降水帯予測マップ用）。
+ * frameIndexForTimeと違いフレーム列を前提とせず、単発スナップショットが「表示すべき時間窓」に
+ * 入っているかだけを判定する。下限側にもFRAME_RANGE_EPSILON_MSの余裕を持たせ、境界ちょうど
+ * （例: targetが厳密にnowと同時刻）で浮動小数の丸めに揺られないようにする。 */
+export function isWithinFutureWindow(target: Date, now: Date, windowMs: number): boolean {
+  const diffMs = target.getTime() - now.getTime();
+  return diffMs >= -FRAME_RANGE_EPSILON_MS && diffMs <= windowMs;
+}
 
 /** 動的レイヤーの時刻フレーム。refはそのレイヤーのデータ層だけが解釈する内部参照
  * （降水なら「ナウキャストのindex」か「格子のindex」か等）。表示層はtimeしか見ない。 */

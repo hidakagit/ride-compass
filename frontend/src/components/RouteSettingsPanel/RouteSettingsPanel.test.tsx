@@ -82,10 +82,6 @@ function baseLayerVisibility(): MapLayerVisibility {
     gradientAxis: false,
     thunderNowcast: false,
     tornadoNowcast: false,
-    landslideRisk: false,
-    heavyRainRisk: false,
-    inundationRisk: false,
-    linearRainbandRisk: false,
   };
 }
 

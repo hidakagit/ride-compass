@@ -224,18 +224,29 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
 設計にしてほしい」を受け、**時刻によって内容が変わる**地域重ね描きレイヤー（気象庁
 降水ナウキャスト・風の矢印・延長降水予報）を第三の種別として導入した。
 
-- **共通契約（T184）**: [frontend/src/components/Map/dynamicWeather.ts](../frontend/src/components/Map/dynamicWeather.ts)が
+- **共通契約（T184、T432でグループ内複数ソースへ一般化）**: [frontend/src/components/Map/dynamicWeather.ts](../frontend/src/components/Map/dynamicWeather.ts)が
   DOM/MapLibreを知らない純粋なデータ層として、(1) 表現は`rasterTile`（配信元描画済み画像）／
   `gridFill`（格子を色で塗る）／`gridMark`（格子中央にアイコン）の3種のみ、(2) ONの全レイヤーの
   フレーム時刻を`mergeFrameTimes`で1本のタイムラインへ統合し時刻スライダーを1本に共有、
   (3) 選択時刻がそのレイヤーのデータ範囲外なら`frameIndexForTime`が`null`を返し**描画しない**
   （旧設計は端のフレームへクランプして古いデータを見せ続けていた）、という3つの制約を定義する。
+  **改善計画T432**: 当初`DynamicWeatherLayerId`（1グループ）は同時に1つのpayload（=1つの
+  kind）しか持てなかったため、風の評価軸penalty面表示（`windPenaltyFill`、windVectorの矢印と
+  同時表示が必要）がこの機構を迂回した個別実装になっていた。`DynamicWeatherGroupState`
+  （ソースキー→`{visible, payload}`）を導入し「1グループ＝複数の名前付きソース、各ソースが
+  独立してkind/payloadを持てる」形へ一般化したことで、`windPenaltyFill`を汎用機構へ統合し
+  （`windVector`グループの`arrow`+`penaltyFill`の2ソース）、線状降水帯予測マップも
+  `precipitationNowcast`グループの4つ目のソース（`linearRainband`、既存3段=`main`と独立に
+  重畳）として実現した（詳細は下記「キキクル・線状降水帯予測マップ」節参照）。
   新しい動的要素の追加は「①`domain/wind_grid.py: WindGridPoint`へ値フィールド追加＋
   `weather_client.py: WIND_GRID_VARIABLES`へOpen-Meteo変数追加（フェッチは相乗り）
   ②要素専用のデータ層モジュール新設（フレーム列＋ペイロード関数）③`MapView.tsx:
-  DYNAMIC_WEATHER_RENDERERS`へ描画スペック1エントリ追加④`mapLayers.ts`へチップ追加」の
-  4ステップに一本化されている。`page.tsx`はこの契約に従い、旧5個の風/降水個別propsを
-  `dynamicWeather: Record<DynamicWeatherLayerId, {visible, payload}>`単一propへ統合した。
+  DYNAMIC_WEATHER_RENDERERS`へ描画スペック1エントリ追加（グループ内の新規ソースとして
+  追加する場合はそのグループの既存エントリへソースキーを1つ足すだけでよい）④`mapLayers.ts`
+  へチップ追加（既存グループへのソース追加の場合はチップ自体は不要）」という手順に一本化
+  されている。`page.tsx`はこの契約に従い、旧5個の風/降水個別propsを
+  `dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>`単一propへ
+  統合した。
 - **風の格子点マップ（T178、フォローアップ）**: 気象庁MSM由来の`@openmeteo/weather-map-layer`
   （GPLv2）を当初採用したが、(1) GPLv2依存が避けられない、(2) 矢印の長さがライブラリ側で
   ズームレベル依存に固定され自由に表現できない、という制約に実機で行き当たり、ユーザー判断
@@ -289,30 +300,38 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   `trimToCurrentAndFuture`・`parseValidtime`）は[frontend/src/components/Map/jmaNowcastFrames.ts](../frontend/src/components/Map/jmaNowcastFrames.ts)
   （降水・雷の2つ目の消費者が現れたことを受けT204でprecipitationNowcast.tsから抽出）が
   単一の情報源として持つ。
-- **キキクル（危険度分布）・線状降水帯予測マップ（T410）**: [frontend/src/components/Map/riskMap.ts](../frontend/src/components/Map/riskMap.ts)が
+- **キキクル（危険度分布）・線状降水帯予測マップ（T410、T432で扱いが分岐）**: [frontend/src/components/Map/riskMap.ts](../frontend/src/components/Map/riskMap.ts)が
   気象庁キキクル（土砂`land`・大雨`rain_mesh`・浸水`inund`、`https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json`）と
   線状降水帯予測マップ（`sjfcstmap`、rasrfと同じ`targetTimes.json`にelements違いの別行として
-  混在）を`rasterTile`表現で重ねる。要素コードは`properties.xml`記載の製品コードと実際の
+  混在）のタイル・時刻取得を担う。要素コードは`properties.xml`記載の製品コードと実際の
   タイルパスが食い違う例があり（大雨は製品コードが`heavyrain`だが実タイルパスは
   `rain_mesh`）、必ずJMA公式ページ（`https://www.jma.go.jp/bosai/risk/`）をBrowserペインで
   操作し実ネットワークログで裏取りした（洪水`flood`は`.pbf`＝Mapbox Vector Tileで方式が
   異なるためスコープ外）。この4レイヤーは`validtime === basetime`（未来方向のフレームを
   一切持たない「現在のみ」のスナップショット、10分おき更新）という他の動的レイヤーに無い
-  性質を持つため、共有タイムライン（`activeFrameLists`/`frameIndexForTime`）には乗せず、
-  スライダーのつまみ位置が「現在」ボタンのジャンプ先indexと一致する間だけ最新1枚を描画し、
-  未来側へ動かした間は非表示にする（実機フィードバック「12時間後の雷が常時マップに警告
-  されているのは嫌」を受けた設計。単に無条件で常時表示すると、現在のスナップショットが
-  あたかも選択中の未来時刻の危険度であるかのように誤解を招くため）。
-- **既定ON化（T420）**: 他の動的レイヤー（降水・風・雷等）は「設計原則12: 明示的にONに
-  して初めて出る」規約に従い既定OFFだが、この4レイヤーだけは`page.tsx:
-  FIXED_LAYER_VISIBILITY_DEFAULTS`で既定ON（`route: true`と同じ例外パターン）にしている。
-  実機フィードバック「防災級の情報はユーザー操作を待たず表示すべき（予兆があってから
-  チップをONにするのでは手遅れ）」への対応。ラスタタイルは危険度ゼロの場所では実質透明
-  （実機確認済み）なので、既定ONでも平常時の地図の見た目は変わらない。「複数の危機を
-  1つの防災アイコンへ集約する」案も検討したが、キキクルの現在警戒度を返すJSON APIが
-  JMA側に存在せず（配信されているのはラスタ画像のみ、実機確認済み）正確な判定には
-  ピクセル解析等の新規実装が必要と判明したため見送り、既存のJMA警報・注意報バッジ
-  （`WarningBadge`、T205）が近い役割を果たすという整理で決着した。
+  性質を持つ。**改善計画T432**: 当初T410はこの4レイヤーを「現在の防災リスク」として一括り
+  にしていたが、データソースの系統（risk vs rasrf）と予報の性質が異なると判明したため
+  訂正した:
+  - **キキクル3種（土砂・大雨・浸水）**: 「防災」カテゴリとして`WarningBadge`
+    （`frontend/src/components/WarningBadge`、T205）と同様の常時マウント（チップ無し・
+    `layerVisibility`自体を持たない）へ変更した。以前は「12時間後の雷が常時マップに警告
+    されているのは嫌」という実機フィードバックを受け「共有タイムラインのスライダーが
+    『現在』位置にある間だけ表示」（isAtNow判定）にしていたが、チップ・スライダーの
+    どちらとも接続しない独立表示になったことで当時の懸念は構造的に発生しなくなり、
+    isAtNowゲーティング自体を撤回した。`useDynamicWeatherLayers.ts`が常にフェッチし、
+    `frames[0]`があれば常に表示する。地図上チップ・「地図の見え方」パネルどちらにも
+    個別の行は現れない（色の意味を確認する専用の凡例表示は撤去済み、既知の制約）。
+  - **線状降水帯予測マップ**: データソースが実はrisk系統ではなくrasrf系統（降水短時間予報
+    と同じ）と判明したため「降水」チップ（`precipitationNowcast`グループ）の4つ目の
+    ソース（`linearRainband`）へ再分類した。「今後3時間以内におそれ」という予報の性質に
+    合わせ、共有タイムラインの選択時刻が現在〜3時間先の範囲内のときだけ、既存3段
+    （ナウキャスト→rasrf→延長予報、`main`ソース）と独立に重畳表示する
+    （`isWithinFutureWindow`、`dynamicWeather.ts`参照）。既存3段と異なり「降水」チップの
+    ON/OFFのみに連動し、共有タイムラインとの連動は保ったまま。
+  - 過去に検討し見送った「複数の危機を1つの防災アイコンへ集約する」案（T412調査時）は
+    T432でも再確認したが判断は変わらず、既存のJMA警報・注意報バッジ（`WarningBadge`）が
+    近い役割を果たすという整理のまま据え置いた（キキクルの現在警戒度を返すJSON APIが
+    JMA側に存在せず、正確な判定にはピクセル解析等の新規実装が必要なため）。
 - **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
   night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
@@ -687,7 +706,7 @@ RideCompass/
         Map/precipitationNowcast.ts   ✅ 改善計画T171・T183: 気象庁降水ナウキャスト（実況〜+60分）＋延長予報（+60分以降、風と共通の格子点マップへ相乗り）のデータ層
         Map/jmaNowcastFrames.ts        ✅ 改善計画T204: JMAナウキャスト系（降水・雷/竜巻）に共通する時刻一覧の取得・整形（fetchJmaTargetTimes/trimToCurrentAndFuture/parseValidtime）。precipitationNowcast.tsから抽出、両ファイルが単一の情報源として参照
         Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
-        Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のデータ層。全て「現在のみ」のスナップショット（未来フレームを持たない）で、共有タイムラインには乗せずスライダーが「現在」位置の間だけ描画する
+        Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のタイル・時刻取得データ層。全て「現在のみ」のスナップショット（未来フレームを持たない）。改善計画T432でキキクル3種は「防災」カテゴリとして共有タイムラインと無関係な常時マウントへ、線状降水帯予測マップは「降水」チップ傘下（現在〜3時間先のみisWithinFutureWindowで重畳）へそれぞれ再分類
         Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
         DynamicLayerTimeSlider/       ✅ 改善計画T170・T188〜T193: 時刻依存レイヤー共通の時刻スライダーUI（横スクロールルーラー、Pointer Events自前ドラッグ）。レイヤー固有の時刻形式を知らない汎用コンポーネント
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
@@ -2422,11 +2441,12 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   （`WindBearingSlider`、`@fseehawer/react-circular-slider`採用）で指定した走行方位を使い、
   **クライアント側だけ**でwind_penaltyを計算する（`frontend/src/components/Map/
   windPenalty.ts: windPenalty`、backend `WindCalculator.wind_penalty`のJS移植）——追加の
-  API呼び出しは発生しない。`MapView.tsx: ensureWindPenaltyFillLayer`/
-  `applyWindPenaltyFillGeojson`が独立したgeojson source/fillレイヤーとして矢印
-  （gridMark）の背後に薄く重ね描きする（`DYNAMIC_WEATHER_RENDERERS`汎用機構は「1要素につき
-  単一payload.kind」前提のため、矢印と面塗りを同時表示するこの用途には乗らず、windAxisと
-  同型のbespoke実装にした）。
+  API呼び出しは発生しない。矢印（gridMark）の背後に薄く重ね描きする面塗りは、当初
+  `DYNAMIC_WEATHER_RENDERERS`汎用機構が「1グループにつき単一payload.kind」前提だったため
+  `ensureWindPenaltyFillLayer`/`applyWindPenaltyFillGeojson`という独立実装（bespoke）に
+  していたが、**改善計画T432**でこの制約自体を「1グループ＝複数の名前付きソース」へ
+  一般化したことで、`windVector`グループの`penaltyFill`ソースとして汎用機構へ統合した
+  （§動的気象レイヤー参照。bespoke実装は撤去済み）。
 - **評価軸（線）**: `WindWayService.get_way_wind_penalties(z, x, y, at, bearing_deg)`
   （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル内の
   way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`——T414で道路自身の向き計算

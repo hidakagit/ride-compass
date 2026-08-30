@@ -63,7 +63,6 @@ import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider"
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
-import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { useDynamicWayValues } from "@/hooks/useDynamicWayValues";
 import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
@@ -166,19 +165,14 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
   tornadoNowcast: false,
-  // 改善計画T420: キキクル（危険度分布）+線状降水帯予測マップ。他の動的レイヤーと異なり
-  // 既定ON（route: trueと同じ「設計原則12の例外」扱い）。実機フィードバック「キキクルの
-  // ような防災級の情報は、ユーザー操作を待たず表示すべきでは（予兆があってからチップを
-  // ONにするのでは手遅れ）」を受けた判断。ラスタタイルは危険度ゼロの場所では実質透明
-  // （T410実装メモ参照）なので、既定ONでも平常時の地図の見た目は変わらない。チップ自体は
-  // 残すため、不要ならユーザーが個別にOFFへ戻すこともできる（T412調査時に検討した
-  // 「集約バッジ＋トグル撤去」案は、キキクルの現在警戒度を正確に判定するAPI・データが
-  // JMA側に存在せず実装コストに見合わないと判断し見送った。既存の警報・注意報バッジが
-  // 近い役割を果たす）。
-  landslideRisk: true,
-  heavyRainRisk: true,
-  inundationRisk: true,
-  linearRainbandRisk: true,
+  // 改善計画T410でキキクル（危険度分布：土砂・大雨・浸水）+線状降水帯予測マップを
+  // 実装した際、当初は既定ON・チップ付きの個別レイヤー（T420）として扱っていたが、
+  // 改善計画T432で「防災級の情報は、ユーザー操作を待たず表示すべき（予兆があってから
+  // チップをONにするのでは手遅れ）」という当初の動機に立ち返り、キキクル3種は
+  // WarningBadgeと同様の常時マウント（チップ無し・layerVisibility自体を持たない）へ
+  // 訂正した。線状降水帯予測マップはrisk系統ではなくrasrf系統（降水短時間予報と同じ）と
+  // 判明したため「降水」チップの傘下へ統合し、これも個別のlayerVisibilityキーを持たない
+  // （frontend/src/hooks/useDynamicWeatherLayers.ts参照）。
   route: true,
 };
 
@@ -204,10 +198,18 @@ const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 // windLayer.ts側（実際の描画・凡例双方の単一の情報源）から持ってくる。他レイヤーと違い
 // 絞り込み状態を持たないため、useMemoではなくモジュール直下の固定値でよい。
 const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
+// 改善計画T432: 線状降水帯予測マップが「降水」チップの傘下（4つ目のソース）へ統合された
+// ため、専用の凡例ブロックを`accidents`の「当事者/重大度」と同じ複数ブロックパターンで
+// このPRECIPITATION_LEGEND_DETAILS自体へ追加した（実データはriskMap.tsが単一の情報源）。
 const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "",
     legend: PRECIPITATION_INTENSITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+  {
+    label: "線状降水帯予測マップ（現在〜3時間先のみ）",
+    legend: [{ key: "linearRainband", label: "今後3時間以内に大雨のおそれ", color: "#ff0000", filter: UNUSED_LEGEND_FILTER }],
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
@@ -235,22 +237,10 @@ const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
-// キキクル（土砂・大雨・浸水、改善計画T410）共通の5段階凡例（riskMap.tsが単一の情報源）。
-const RISK_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
-  {
-    label: "",
-    legend: RISK_LEVEL_COLORS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-];
-// 線状降水帯予測マップはキキクルと異なり単色（赤=危険域あり）の凡例。
-const LINEAR_RAINBAND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
-  {
-    label: "",
-    legend: [{ key: "risk", label: "今後3時間以内に大雨のおそれ", color: "#ff0000", filter: UNUSED_LEGEND_FILTER }],
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-];
+// 改善計画T432: キキクル3種（土砂・大雨・浸水）は地図上チップ（▶パネル）自体を持たない
+// 常時マウントへ変更したため、専用の凡例ブロック（旧RISK_LEGEND_DETAILS）は表示先を失い
+// 撤去した。色の意味（5段階、riskMap.tsが単一の情報源）を確認する導線が無くなった点は
+// 既知の制約として残る（改善計画T432以降の課題）。
 
 // 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>専用
 // （改善計画T300: モバイルは「ルート設定」「ルート結果」の2タブへ分割したため、
@@ -887,11 +877,7 @@ export default function Home() {
                       ? THUNDER_LEGEND_DETAILS
                       : layer.id === "tornadoNowcast"
                         ? TORNADO_LEGEND_DETAILS
-                        : layer.id === "landslideRisk" || layer.id === "heavyRainRisk" || layer.id === "inundationRisk"
-                          ? RISK_LEGEND_DETAILS
-                          : layer.id === "linearRainbandRisk"
-                            ? LINEAR_RAINBAND_LEGEND_DETAILS
-                            : staticFilterSummaries[layer.id]?.legendDetails;
+                        : staticFilterSummaries[layer.id]?.legendDetails;
         // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
         // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
         // （MapLayersPanel.tsx参照）。地図上チップの▶パネル本体へ説明文を常時表示する
@@ -905,11 +891,7 @@ export default function Home() {
           layer.id === "precipitationNowcast" ||
           layer.id === "windVector" ||
           layer.id === "thunderNowcast" ||
-          layer.id === "tornadoNowcast" ||
-          layer.id === "landslideRisk" ||
-          layer.id === "heavyRainRisk" ||
-          layer.id === "inundationRisk" ||
-          layer.id === "linearRainbandRisk";
+          layer.id === "tornadoNowcast";
         return {
           id: layer.id,
           label: layer.label,
@@ -991,18 +973,19 @@ export default function Home() {
     warningBadgeItems,
   } = useWeatherConditions(location, locationReady);
 
-  // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト）のフェッチ・
-  // 共有タイムライン・MapView向け描画ペイロード（改善計画T375でuseDynamicWeatherLayersへ
-  // 抽出）。各要素は対応するshow*がtrueの間だけフェッチする。
+  // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
+  // フェッチ・共有タイムライン・MapView向け描画ペイロード（改善計画T375でuseDynamicWeather
+  // Layersへ抽出）。各要素は対応するshow*がtrueの間だけフェッチする（キキクル3種は
+  // 改善計画T432で「防災」カテゴリとして常時マウントへ変更したためshow*を持たない）。
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
   const showThunderNowcast = layerVisibility.thunderNowcast;
   const showTornadoNowcast = layerVisibility.tornadoNowcast;
   const showWindVector = layerVisibility.windVector;
-  // キキクル+線状降水帯予測マップ（改善計画T410）。
-  const showLandslideRisk = layerVisibility.landslideRisk;
-  const showHeavyRainRisk = layerVisibility.heavyRainRisk;
-  const showInundationRisk = layerVisibility.inundationRisk;
-  const showLinearRainbandRisk = layerVisibility.linearRainbandRisk;
+  // 環境グループの風penalty gridFill（改善計画T414）。windVectorのチップON/OFFとは独立に
+  // ルート確定後（hasDetail）はfalseへ倒す（T414契約: ルート確定後はルート自身の実際の
+  // 進行方向・到達時刻を使うrouteStyleModes「風」モードへ委ねる）。useDynamicWeatherLayers
+  // 呼び出しより前に計算する必要がある（改善計画T432でオプションとして渡すため）。
+  const showWindPenaltyFill = showWindVector && !hasDetail;
   // 動的材料の状態別表現契約（改善計画T414、docs/tasks/T400.md「2.」節）の[時刻,向き]のうち
   // 「向き」。「環境」グループ（風penalty gridFill）・評価軸としての風（windAxis、T418で
   // ルート設定パネルから起動する形へ移設）が同じ1つの入力を共有する（[時刻]の共有は
@@ -1021,18 +1004,14 @@ export default function Home() {
     handleDynamicLayerNow,
     dynamicLayerLoading,
     dynamicLayerError,
-    windPenaltyPayload,
     dynamicLayerTargetTime,
   } = useDynamicWeatherLayers({
     showWindVector,
     windBearingDeg,
+    showWindPenaltyFill,
     showPrecipitationNowcast,
     showThunderNowcast,
     showTornadoNowcast,
-    showLandslideRisk,
-    showHeavyRainRisk,
-    showInundationRisk,
-    showLinearRainbandRisk,
     mapViewport,
   });
 
@@ -1050,8 +1029,6 @@ export default function Home() {
   const showWindAxis = layerVisibility.windAxis && !hasDetail;
   const windAxisData = useDynamicWayValues("wind", showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
   const windAxisPenalties = windAxisData.values;
-  // 環境グループの風penalty gridFill（改善計画T414）も同じ理由でルート確定後は表示しない。
-  const showWindPenaltyFill = showWindVector && !hasDetail;
 
   // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
   // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有せず、
@@ -1578,8 +1555,6 @@ export default function Home() {
             showOneway={layerVisibility.oneway}
             showWindAxis={showWindAxis}
             windAxisPenalties={windAxisPenalties}
-            showWindPenaltyFill={showWindPenaltyFill}
-            windPenaltyGeojson={windPenaltyPayload}
             showGradientAxis={showGradientAxis}
             gradientAxisValues={gradientAxisValues}
             showGradientFill={showGradientFill}
@@ -1634,14 +1609,11 @@ export default function Home() {
             >
               <ClearAllLayersIcon size={14} />
             </button>
-            {(showPrecipitationNowcast ||
-              showWindVector ||
-              showThunderNowcast ||
-              showTornadoNowcast ||
-              showLandslideRisk ||
-              showHeavyRainRisk ||
-              showInundationRisk ||
-              showLinearRainbandRisk) && (
+            {/* 改善計画T432: キキクル3種は「防災」カテゴリとして共有タイムラインと無関係な
+                常時マウントへ変更したため、この条件から除外した（このスライダー自体は
+                動かせるが表示に影響しない）。線状降水帯予測マップは「降水」チップ傘下の
+                ソースのため、showPrecipitationNowcastで既にカバーされる。 */}
+            {(showPrecipitationNowcast || showWindVector || showThunderNowcast || showTornadoNowcast) && (
               <div className={styles.dynamicLayerSliders}>
                 <DynamicLayerTimeSlider
                   frames={sliderFrames}

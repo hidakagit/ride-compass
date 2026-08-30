@@ -7,6 +7,7 @@ import {
   formatDynamicFrameTime,
   frameIndexForTime,
   gridCellRing,
+  isWithinFutureWindow,
   mergeFrameTimes,
   nearestTimeIndex,
 } from "./dynamicWeather";
@@ -90,6 +91,35 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
       expect(maxLon).toBeCloseTo(139.82);
       expect(maxLat).toBeCloseTo(35.73);
       expect(ring[0]).toEqual(ring[ring.length - 1]);
+    });
+  });
+
+  describe("isWithinFutureWindow（改善計画T432、線状降水帯予測マップの表示時間窓判定）", () => {
+    const now = new Date("2026-08-30T12:00:00+09:00");
+    const windowMs = 3 * 60 * 60 * 1000;
+
+    it("現在時刻ちょうどは範囲内", () => {
+      expect(isWithinFutureWindow(now, now, windowMs)).toBe(true);
+    });
+
+    it("時間窓の範囲内（例: 2時間59分先）は範囲内", () => {
+      const target = new Date(now.getTime() + windowMs - 60 * 1000);
+      expect(isWithinFutureWindow(target, now, windowMs)).toBe(true);
+    });
+
+    it("時間窓ちょうど（3時間先）は範囲内", () => {
+      const target = new Date(now.getTime() + windowMs);
+      expect(isWithinFutureWindow(target, now, windowMs)).toBe(true);
+    });
+
+    it("時間窓を超えた未来（3時間1分先）は範囲外", () => {
+      const target = new Date(now.getTime() + windowMs + 60 * 1000);
+      expect(isWithinFutureWindow(target, now, windowMs)).toBe(false);
+    });
+
+    it("過去（現在より前）は範囲外", () => {
+      const target = new Date(now.getTime() - 60 * 1000);
+      expect(isWithinFutureWindow(target, now, windowMs)).toBe(false);
     });
   });
 });

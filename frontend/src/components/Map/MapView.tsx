@@ -75,8 +75,10 @@ import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
 import {
   DYNAMIC_WEATHER_LAYER_IDS,
+  CHIP_DYNAMIC_WEATHER_LAYER_IDS,
+  type DynamicWeatherGroupState,
   type DynamicWeatherLayerId,
-  type DynamicWeatherRenderPayload,
+  type DynamicWeatherSourceId,
 } from "@/components/Map/dynamicWeather";
 import {
   axisLineLayerId,
@@ -165,11 +167,13 @@ const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
-// 動的気象レイヤー（風・降水、T183再設計）のsource/layer id。要素id×描画方式（raster/fill/
-// mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
-// ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。
-function dynamicWeatherIds(id: DynamicWeatherLayerId, sub: "raster" | "fill" | "mark") {
-  const base = `region-dynamic-weather-${id}-${sub}`;
+// 動的気象レイヤー（風・降水、T183再設計）のsource/layer id。要素id×ソース×描画方式
+// （raster/fill/mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい
+// 定数を足す必要はない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。
+// 改善計画T432: sourceを追加し「1グループ=複数の名前付きソース」を表現できるようにした
+// （単一ソースのグループは"main"という1キーだけを持つ）。
+function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark") {
+  const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, haloLayerId: `${base}-halo`, iconId: `${base}-icon` };
 }
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
@@ -181,21 +185,19 @@ const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （windAxisColorExpression、windAxisLayer.ts）を読む点が異なる。
 const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
-// 環境グループの風penalty gridFill（改善計画T414）。DYNAMIC_WEATHER_RENDERERS汎用機構
-// （precipitationNowcast等）は使わない——windVector（矢印、gridMark）と同時に表示するため、
-// 1つのDynamicWeatherLayerIdにつき単一payload.kindしか表示できない既存の汎用機構には
-// 乗せられない（applyDynamicWeatherStateのコメント参照）。ensureWindPenaltyFillLayer/
-// applyWindPenaltyFillGeojson参照。
-const WIND_PENALTY_FILL_SOURCE_ID = "wind-penalty-fill-source";
-const WIND_PENALTY_FILL_LAYER_ID = "region-wind-penalty-fill";
 // way_id→勾配（effective_gradient）配信層（改善計画T423）。WIND_AXIS_LAYER_IDと同型
 // ——ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けは
 // setFeatureState経由の値（gradientAxisColorExpression、gradientAxisLayer.ts）を読む。
 const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
-// 環境グループの勾配gridFill（改善計画T423）。WIND_PENALTY_FILL_*と同型だが、風と異なり
-// 独立した矢印表示を持たないため（gradientGridFill.tsのモジュールdocstring参照）
-// DYNAMIC_WEATHER_RENDERERS汎用機構へ乗せられない制約は無い——それでも風・勾配で
-// 実装パターンを揃えるため、bespokeなensure/apply関数のまま統一する。
+// 環境グループの勾配gridFill（改善計画T423）。当初は「風・勾配で実装パターンを揃えるため」
+// windPenaltyFillと同じbespokeなensure/apply関数として実装していたが、改善計画T432で
+// windPenaltyFillはwindVector（矢印、gridMark）と同時表示する必要からDYNAMIC_WEATHER_
+// RENDERERS汎用機構（windVectorグループのpenaltyFillソース）へ統合した。gradientFillは
+// 独立した矢印表示を持たず単独のチップのため汎用機構へ乗せられない制約は元々無い
+// （gradientGridFill.tsのモジュールdocstring参照）が、page.tsx側の配線（useDynamicWayValues
+// 由来の別系統フック）まで作り直す統合コストが今回のスコープを超えるため、bespokeな
+// ensure/apply関数のまま据え置く（風との実装パターンの一致は崩れた——追従は将来の
+// フォローアップ課題とする）。
 const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
 const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
@@ -703,47 +705,83 @@ interface DynamicWeatherRendererSpec {
   gridMark?: DynamicWeatherMarkSpec;
 }
 
+// 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースごとの描画スペック（改善計画
+// T432、「1レイヤーID=1 kind」制約の解消）。単一ソースしか持たないグループは"main"という
+// 1キーだけを持つ。
+type DynamicWeatherGroupSpec = Partial<Record<DynamicWeatherSourceId, DynamicWeatherRendererSpec>>;
+
 // 動的気象レイヤーの描画スペック一覧（唯一の情報源）。新しい要素を追加するときはここへ
 // 1エントリ足すだけでよい（dynamicWeather.ts冒頭の「1本道」コメント参照）。色・アイコン式を
 // 参照するため、それらのconst定義より後（JSのconstはhoistされないため）に置く必要がある。
-const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRendererSpec> = {
+const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGroupSpec> = {
   precipitationNowcast: {
-    raster: {
-      // 初期化時のsourceプレースホルダ（applyDynamicWeatherStateが本物のURLへsetTilesで
-      // 差し替えてからvisibility:visibleにする、ensureRoadSurfaceTileLayer等と同じ
-      // 「仮の初期値」パターン。setTiles→visibility切替の順序自体は守られている）。
-      // 既知の制約（改善計画T202、統合レビュー2026-08-22指摘）: `next dev`実行時、この
-      // プレースホルダURL（時刻部分が全ゼロの架空値）へ実際にタイルリクエストが飛び
-      // JMA側で404になることを実機Playwright確認で観測した。React Strict Modeの
-      // 開発時二重実行（mount→cleanup→再mount）で、初回payload未確定時に一瞬visible=trueの
-      // 状態が生じている可能性が高い（本番ビルドではStrict Modeの二重実行が発生しないため
-      // 再現しない想定、未検証）。表示自体は次のpayload反映で自己回復し実害は無いが、
-      // 「visibility:noneの間は要求されない」という以前の説明は不正確だったため訂正する。
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 10,
-      attribution: "気象庁",
+    main: {
+      raster: {
+        // 初期化時のsourceプレースホルダ（applyDynamicWeatherStateが本物のURLへsetTilesで
+        // 差し替えてからvisibility:visibleにする、ensureRoadSurfaceTileLayer等と同じ
+        // 「仮の初期値」パターン。setTiles→visibility切替の順序自体は守られている）。
+        // 既知の制約（改善計画T202、統合レビュー2026-08-22指摘）: `next dev`実行時、この
+        // プレースホルダURL（時刻部分が全ゼロの架空値）へ実際にタイルリクエストが飛び
+        // JMA側で404になることを実機Playwright確認で観測した。React Strict Modeの
+        // 開発時二重実行（mount→cleanup→再mount）で、初回payload未確定時に一瞬visible=trueの
+        // 状態が生じている可能性が高い（本番ビルドではStrict Modeの二重実行が発生しないため
+        // 再現しない想定、未検証）。表示自体は次のpayload反映で自己回復し実害は無いが、
+        // 「visibility:noneの間は要求されない」という以前の説明は不正確だったため訂正する。
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 10,
+        attribution: "気象庁",
+      },
+      gridFill: {
+        valueProperty: "mmPerHour",
+        colorExpression: PRECIPITATION_COLOR_SCALE_EXPRESSION,
+        opacity: PRECIPITATION_FILL_OPACITY,
+        minValueToShow: PRECIPITATION_NONE_THRESHOLD_MM,
+      },
     },
-    gridFill: {
-      valueProperty: "mmPerHour",
-      colorExpression: PRECIPITATION_COLOR_SCALE_EXPRESSION,
-      opacity: PRECIPITATION_FILL_OPACITY,
-      minValueToShow: PRECIPITATION_NONE_THRESHOLD_MM,
+    // 線状降水帯予測マップ（改善計画T410、T432でrisk系統からrasrf系統・「降水」チップ傘下へ
+    // 再分類）。ナウキャスト/rasrf/延長予報（"main"）と独立に重畳表示する——フレーム列を
+    // 持たない単発スナップショットのため、共有タイムラインが「現在〜3時間先」の範囲内に
+    // あるときだけpayloadが渡る（useDynamicWeatherLayers.ts: linearRainbandVisible参照）。
+    linearRainband: {
+      raster: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 10,
+        attribution: "気象庁",
+      },
     },
   },
   windVector: {
-    gridMark: {
-      createIcon: createWindArrowIcon,
-      colorExpression: WIND_COLOR_SCALE_EXPRESSION,
-      valueProperty: "speed",
-      rotateProperty: "bearing",
-      minScale: WIND_ICON_MIN_SCALE,
-      maxScale: WIND_ICON_MAX_SCALE,
-      maxValueForFullScale: 15,
-      haloScaleMultiplier: WIND_ICON_HALO_SCALE_MULTIPLIER,
-      minValueToShow: WIND_CALM_THRESHOLD_MS,
+    // 矢印（改善計画T178）。
+    arrow: {
+      gridMark: {
+        createIcon: createWindArrowIcon,
+        colorExpression: WIND_COLOR_SCALE_EXPRESSION,
+        valueProperty: "speed",
+        rotateProperty: "bearing",
+        minScale: WIND_ICON_MIN_SCALE,
+        maxScale: WIND_ICON_MAX_SCALE,
+        maxValueForFullScale: 15,
+        haloScaleMultiplier: WIND_ICON_HALO_SCALE_MULTIPLIER,
+        minValueToShow: WIND_CALM_THRESHOLD_MS,
+      },
+    },
+    // 環境グループの風penalty gridFill（改善計画T414、T432で汎用機構へ統合）。矢印（gridMark）
+    // と同時に表示するための独立ソース。
+    penaltyFill: {
+      gridFill: {
+        valueProperty: "windPenalty",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        colorExpression: windPenaltyFillColorExpression() as any,
+        // 矢印の背後に敷く面塗りのため、降水延長予報（PRECIPITATION_FILL_OPACITY=0.55）
+        // よりさらに控えめにし、矢印の視認性を保つ。
+        opacity: 0.4,
+      },
     },
   },
   // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。降水ナウキャストと同じ
@@ -751,229 +789,241 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherRen
   // Open-Meteo側に雷・竜巻に相当するデータが無いため）。プロダクトコード違い（thns/trns）
   // だけの単純なrasterのみのスペックで、gridFill/gridMarkは持たない。
   thunderNowcast: {
-    raster: {
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 10,
-      attribution: "気象庁",
+    main: {
+      raster: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 10,
+        attribution: "気象庁",
+      },
     },
   },
   tornadoNowcast: {
-    raster: {
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 10,
-      attribution: "気象庁",
+    main: {
+      raster: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 10,
+        attribution: "気象庁",
+      },
     },
   },
-  // キキクル（危険度分布）+線状降水帯予測マップ（改善計画T410）。他のraster専用スペック
-  // （thunderNowcast等）と同じ単純な構成。実機確認済みのzoom範囲（risk.properties.xml:
-  // minZoom=4/maxZoom=14/maxNativeZoom=11、sjfcstmapはmaxNativeZoom=10）に合わせる。
+  // キキクル（危険度分布、改善計画T410、T432で「防災」カテゴリとして常時マウントへ変更）。
+  // 他のraster専用スペック（thunderNowcast等）と同じ単純な構成。実機確認済みのzoom範囲
+  // （risk.properties.xml: minZoom=4/maxZoom=14/maxNativeZoom=11）に合わせる。
   landslideRisk: {
-    raster: {
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 11,
-      attribution: "気象庁",
+    main: {
+      raster: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 11,
+        attribution: "気象庁",
+      },
     },
   },
   heavyRainRisk: {
-    raster: {
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 11,
-      attribution: "気象庁",
+    main: {
+      raster: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 11,
+        attribution: "気象庁",
+      },
     },
   },
   inundationRisk: {
-    raster: {
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 11,
-      attribution: "気象庁",
-    },
-  },
-  linearRainbandRisk: {
-    raster: {
-      placeholderTileUrl:
-        `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`,
-      opacity: 0.65,
-      minzoom: 4,
-      maxzoom: 10,
-      attribution: "気象庁",
+    main: {
+      raster: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 11,
+        attribution: "気象庁",
+      },
     },
   },
 };
 
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
-// パターン）。spec.raster/gridFill/gridMarkのうち実際に指定されているものだけを追加する。
-function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, spec: DynamicWeatherRendererSpec) {
+// パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMarkのうち実際に
+// 指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
+function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
   const applyData = () => {
-    if (spec.raster) {
-      const { sourceId, layerId } = dynamicWeatherIds(id, "raster");
-      if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, {
-          type: "raster",
-          tiles: [spec.raster.placeholderTileUrl],
-          tileSize: 256,
-          minzoom: spec.raster.minzoom,
-          maxzoom: spec.raster.maxzoom,
-          attribution: spec.raster.attribution,
-        });
-        map.addLayer({
-          id: layerId,
-          type: "raster",
-          source: sourceId,
-          paint: { "raster-opacity": spec.raster.opacity },
-          layout: { visibility: "none" },
-        });
-      }
-    }
-    if (spec.gridFill) {
-      const { sourceId, layerId } = dynamicWeatherIds(id, "fill");
-      if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
-        map.addLayer({
-          id: layerId,
-          type: "fill",
-          source: sourceId,
-          layout: { visibility: "none" },
-          paint: {
-            "fill-color": spec.gridFill.colorExpression,
-            "fill-opacity": spec.gridFill.opacity,
-          },
-          filter:
-            spec.gridFill.minValueToShow != null
-              ? [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow]
-              : undefined,
-        });
-      }
-    }
-    if (spec.gridMark) {
-      const mark = spec.gridMark;
-      const { sourceId, layerId, haloLayerId, iconId } = dynamicWeatherIds(id, "mark");
-      if (!map.getSource(sourceId)) {
-        if (!map.hasImage(iconId)) {
-          // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
-          // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
-          // 範囲では実用上問題ない簡易的な使い方）。
-          map.addImage(iconId, mark.createIcon(), { sdf: true });
+    for (const [source, spec] of Object.entries(groupSpec)) {
+      if (!spec) continue;
+      if (spec.raster) {
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, {
+            type: "raster",
+            tiles: [spec.raster.placeholderTileUrl],
+            tileSize: 256,
+            minzoom: spec.raster.minzoom,
+            maxzoom: spec.raster.maxzoom,
+            attribution: spec.raster.attribution,
+          });
+          map.addLayer({
+            id: layerId,
+            type: "raster",
+            source: sourceId,
+            paint: { "raster-opacity": spec.raster.opacity },
+            layout: { visibility: "none" },
+          });
         }
-        map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
-        // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
-        // 関わらずマークの輪郭が視認できるようにする（実機フィードバック「矢印見にくい」
-        // 対応）。主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。ほぼ無い
-        // 値の地点はマーク自体を出さない（ユーザーフィードバック「ほぼ無風でも矢印が出るのが
-        // 違和感」）フィルタをハロー層・主層の両方に掛ける。
-        map.addLayer({
-          id: haloLayerId,
-          type: "symbol",
-          source: sourceId,
-          layout: {
-            "icon-image": iconId,
-            "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
-            "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
-            "icon-allow-overlap": false,
-            "icon-ignore-placement": false,
-            "icon-size": zoomAndPropertyIconSizeExpression(
-              mark.valueProperty,
-              mark.minScale,
-              mark.maxScale,
-              mark.maxValueForFullScale,
-              mark.haloScaleMultiplier
-            ),
-            visibility: "none",
-          },
-          paint: {
-            "icon-color": "#1f2937",
-            "icon-opacity": 0.85,
-          },
-          filter:
-            mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
-        });
-        map.addLayer({
-          id: layerId,
-          type: "symbol",
-          source: sourceId,
-          layout: {
-            "icon-image": iconId,
-            "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
-            "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
-            "icon-allow-overlap": false,
-            "icon-ignore-placement": false,
-            // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
-            // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
-            "icon-size": zoomAndPropertyIconSizeExpression(
-              mark.valueProperty,
-              mark.minScale,
-              mark.maxScale,
-              mark.maxValueForFullScale,
-              1
-            ),
-            visibility: "none",
-          },
-          paint: {
-            "icon-color": mark.colorExpression,
-            "icon-opacity": 1,
-          },
-          filter:
-            mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
-        });
+      }
+      if (spec.gridFill) {
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+          map.addLayer({
+            id: layerId,
+            type: "fill",
+            source: sourceId,
+            layout: { visibility: "none" },
+            paint: {
+              "fill-color": spec.gridFill.colorExpression,
+              "fill-opacity": spec.gridFill.opacity,
+            },
+            filter:
+              spec.gridFill.minValueToShow != null
+                ? [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow]
+                : undefined,
+          });
+        }
+      }
+      if (spec.gridMark) {
+        const mark = spec.gridMark;
+        const { sourceId, layerId, haloLayerId, iconId } = dynamicWeatherIds(id, source, "mark");
+        if (!map.getSource(sourceId)) {
+          if (!map.hasImage(iconId)) {
+            // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
+            // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
+            // 範囲では実用上問題ない簡易的な使い方）。
+            map.addImage(iconId, mark.createIcon(), { sdf: true });
+          }
+          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+          // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
+          // 関わらずマークの輪郭が視認できるようにする（実機フィードバック「矢印見にくい」
+          // 対応）。主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。ほぼ無い
+          // 値の地点はマーク自体を出さない（ユーザーフィードバック「ほぼ無風でも矢印が出るのが
+          // 違和感」）フィルタをハロー層・主層の両方に掛ける。
+          map.addLayer({
+            id: haloLayerId,
+            type: "symbol",
+            source: sourceId,
+            layout: {
+              "icon-image": iconId,
+              "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
+              "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
+              "icon-allow-overlap": false,
+              "icon-ignore-placement": false,
+              "icon-size": zoomAndPropertyIconSizeExpression(
+                mark.valueProperty,
+                mark.minScale,
+                mark.maxScale,
+                mark.maxValueForFullScale,
+                mark.haloScaleMultiplier
+              ),
+              visibility: "none",
+            },
+            paint: {
+              "icon-color": "#1f2937",
+              "icon-opacity": 0.85,
+            },
+            filter:
+              mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
+          });
+          map.addLayer({
+            id: layerId,
+            type: "symbol",
+            source: sourceId,
+            layout: {
+              "icon-image": iconId,
+              "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
+              "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
+              "icon-allow-overlap": false,
+              "icon-ignore-placement": false,
+              // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
+              // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
+              "icon-size": zoomAndPropertyIconSizeExpression(
+                mark.valueProperty,
+                mark.minScale,
+                mark.maxScale,
+                mark.maxValueForFullScale,
+                1
+              ),
+              visibility: "none",
+            },
+            paint: {
+              "icon-color": mark.colorExpression,
+              "icon-opacity": 1,
+            },
+            filter:
+              mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
+          });
+        }
       }
     }
   };
   runWhenStyleReady(map, applyData);
 }
 
-// payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。visibleとpayloadの
-// どちらか一方でも欠けていれば非表示のまま（フェッチ未完了・取得失敗時、あるいは選択時刻が
-// このレイヤーのデータ範囲外で「描画しない」場合に、古いフレームが一瞬見えるのを防ぐ）。
-// payload.kindがspecの複数サブレイヤー（precipitationNowcastのraster/gridFill）のどれと
-// 対応するかだけを見て、対応しないサブレイヤーは常に非表示にする（=同時に両方は出ない）。
+// payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。グループ配下の
+// 各ソースについて、visibleとpayloadのどちらか一方でも欠けていれば非表示のまま（フェッチ
+// 未完了・取得失敗時、あるいは選択時刻がそのソースのデータ範囲外で「描画しない」場合に、
+// 古いフレームが一瞬見えるのを防ぐ）。payload.kindがそのソースのspecの複数サブレイヤー
+// （precipitationNowcast.mainのraster/gridFill等）のどれと対応するかだけを見て、対応しない
+// サブレイヤーは常に非表示にする（=同時に両方は出ない）。改善計画T432: ソースをまたいだ
+// 複数payloadの同時表示（windVectorのarrow+penaltyFill等）は、グループ内の別ソースとして
+// 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
 function applyDynamicWeatherState(
   map: MapLibreMap,
   id: DynamicWeatherLayerId,
-  spec: DynamicWeatherRendererSpec,
-  visible: boolean,
-  payload: DynamicWeatherRenderPayload | undefined
+  groupSpec: DynamicWeatherGroupSpec,
+  groupState: DynamicWeatherGroupState | undefined
 ) {
   runWhenStyleReady(map, () => {
-    ensureDynamicWeatherLayer(map, id, spec);
-    if (spec.raster) {
-      const { sourceId, layerId } = dynamicWeatherIds(id, "raster");
-      if (payload?.kind === "rasterTile") {
-        const source = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
-        source?.setTiles([payload.tileUrlTemplate]);
+    ensureDynamicWeatherLayer(map, id, groupSpec);
+    for (const [source, spec] of Object.entries(groupSpec)) {
+      if (!spec) continue;
+      const state = groupState?.[source];
+      const visible = state?.visible ?? false;
+      const payload = state?.payload;
+      if (spec.raster) {
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
+        if (payload?.kind === "rasterTile") {
+          const rasterSource = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
+          rasterSource?.setTiles([payload.tileUrlTemplate]);
+        }
+        setLayerVisibility(map, layerId, visible && payload?.kind === "rasterTile");
       }
-      setLayerVisibility(map, layerId, visible && payload?.kind === "rasterTile");
-    }
-    if (spec.gridFill) {
-      const { sourceId, layerId } = dynamicWeatherIds(id, "fill");
-      if (payload?.kind === "gridFill") {
-        const source = map.getSource(sourceId) as GeoJSONSource | undefined;
-        source?.setData(payload.geojson);
+      if (spec.gridFill) {
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
+        if (payload?.kind === "gridFill") {
+          const fillSource = map.getSource(sourceId) as GeoJSONSource | undefined;
+          fillSource?.setData(payload.geojson);
+        }
+        setLayerVisibility(map, layerId, visible && payload?.kind === "gridFill");
       }
-      setLayerVisibility(map, layerId, visible && payload?.kind === "gridFill");
-    }
-    if (spec.gridMark) {
-      const { sourceId, layerId, haloLayerId } = dynamicWeatherIds(id, "mark");
-      if (payload?.kind === "gridMark") {
-        const source = map.getSource(sourceId) as GeoJSONSource | undefined;
-        source?.setData(payload.geojson);
+      if (spec.gridMark) {
+        const { sourceId, layerId, haloLayerId } = dynamicWeatherIds(id, source, "mark");
+        if (payload?.kind === "gridMark") {
+          const markSource = map.getSource(sourceId) as GeoJSONSource | undefined;
+          markSource?.setData(payload.geojson);
+        }
+        const shouldShow = visible && payload?.kind === "gridMark";
+        setLayerVisibility(map, haloLayerId, shouldShow);
+        setLayerVisibility(map, layerId, shouldShow);
       }
-      const shouldShow = visible && payload?.kind === "gridMark";
-      setLayerVisibility(map, haloLayerId, shouldShow);
-      setLayerVisibility(map, layerId, shouldShow);
     }
   });
 }
@@ -1074,40 +1124,6 @@ function clearWindAxisFeatureState(map: MapLibreMap) {
   map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
 }
 
-// 環境グループの風penalty gridFill（改善計画T414）。降水延長予報のgridFill（ensureDynamic
-// WeatherLayerのspec.gridFillブランチ）と同じ「geojson source + fillレイヤー」構成だが、
-// windVector（矢印、gridMark）と同時に表示するための独立レイヤーとして持つ（ファイル冒頭の
-// WIND_PENALTY_FILL_SOURCE_IDコメント参照）。
-function ensureWindPenaltyFillLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getLayer(WIND_PENALTY_FILL_LAYER_ID)) return;
-    map.addSource(WIND_PENALTY_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
-    map.addLayer({
-      id: WIND_PENALTY_FILL_LAYER_ID,
-      type: "fill",
-      source: WIND_PENALTY_FILL_SOURCE_ID,
-      layout: { visibility: "none" },
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "fill-color": windPenaltyFillColorExpression() as any,
-        // 矢印（windVector、gridMark）の背後に敷く面塗りのため、降水延長予報
-        // （PRECIPITATION_FILL_OPACITY=0.55）よりさらに控えめにし、矢印の視認性を保つ。
-        "fill-opacity": 0.4,
-      },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-/** hooks/useDynamicWeatherLayers.tsが計算したwindPenaltyPayload（GeoJSON）をsourceへ反映する。
- * visibility自体はSTATIC_OVERLAY_LAYERS一括effect（showWindPenaltyFill）が別途担当する
- * （applyWindAxisPenaltiesと同じ「値の反映」と「表示ON/OFF」を分離する設計）。 */
-function applyWindPenaltyFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
-  if (!map.getSource(WIND_PENALTY_FILL_SOURCE_ID)) return;
-  const source = map.getSource(WIND_PENALTY_FILL_SOURCE_ID) as GeoJSONSource | undefined;
-  source?.setData(geojson ?? EMPTY_FEATURE_COLLECTION);
-}
-
 // way_id→勾配（effective_gradient）配信層（改善計画T423）。ensureWindAxisLayerと同型
 // ——道路自身の向きが本質的に必要という材料の性質の違い（T423.mdの重要な注意点）は
 // backend側（gradient_way_service.py）の計算に閉じており、フロントのMapLibre配線は
@@ -1178,7 +1194,9 @@ function ensureGradientFillLayer(map: MapLibreMap) {
 /** hooks/useDynamicWayValues.ts由来のgradientFillPayload（GeoJSON、gradientGridFill.ts:
  * gradientGridCellsFromTileResponsesが組み立てる）をsourceへ反映する。visibility自体は
  * STATIC_OVERLAY_LAYERS一括effect（showGradientFill）が別途担当する
- * （applyWindPenaltyFillGeojsonと同じ「値の反映」と「表示ON/OFF」を分離する設計）。 */
+ * （applyWindAxisPenaltiesと同じ「値の反映」と「表示ON/OFF」を分離する設計。改善計画T432で
+ * 風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ移ったため、この比較対象を
+ * 風からwindAxisPenaltiesへ差し替えた）。 */
 function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
   if (!map.getSource(GRADIENT_FILL_SOURCE_ID)) return;
   const source = map.getSource(GRADIENT_FILL_SOURCE_ID) as GeoJSONSource | undefined;
@@ -1520,9 +1538,6 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // ensureWindAxisLayer内でensureRoadSurfaceTileLayer（promoteId付きsource）を先に呼ぶ。
     { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: ensureWindAxisLayer },
-    // 改善計画T414: 環境グループの風penalty gridFill。windVector（矢印）と重ね描きするため
-    // road_surfaceソースとは独立のジオメトリ（格子セル）を持つ。
-    { key: "windPenaltyFill", layerId: WIND_PENALTY_FILL_LAYER_ID, ensure: ensureWindPenaltyFillLayer },
     // 改善計画T423: way_id→勾配配信層（評価軸グループとしての勾配）。
     { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: ensureGradientAxisLayer },
     // 改善計画T423: 環境グループの勾配gridFill（タイル境界セル）。
@@ -1575,15 +1590,29 @@ type StaticOverlayKey = string;
 // MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
 // （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
 // 個別レイヤーのsourceIdを参照できるようexportしている。
-// 動的気象レイヤーは要素ごとにraster/gridFill/gridMarkの複数サブソースを持ちうるが、
-// レイヤーデータ状態の追跡（useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、
-// rasterTile→gridFill→gridMarkの優先順で「代表」のsourceIdを1つ選ぶ（現状precipitation
-// Nowcastは常にraster、windVectorは常にgridMarkが選ばれる。取得失敗の検知対象という
-// 位置づけは旧PRECIPITATION_NOWCAST_SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。
-function primaryDynamicWeatherSourceId(id: DynamicWeatherLayerId, spec: DynamicWeatherRendererSpec): string {
-  if (spec.raster) return dynamicWeatherIds(id, "raster").sourceId;
-  if (spec.gridFill) return dynamicWeatherIds(id, "fill").sourceId;
-  return dynamicWeatherIds(id, "mark").sourceId;
+// 動的気象レイヤーは要素ごとに複数の名前付きソース（改善計画T432）、各ソースがさらに
+// raster/gridFill/gridMarkの複数サブレイヤーを持ちうるが、レイヤーデータ状態の追跡
+// （useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、「代表」のソース・
+// サブレイヤーを1つ選ぶ（取得失敗の検知対象という位置づけは旧PRECIPITATION_NOWCAST_
+// SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。防災3種（キキクル、常時マウント・チップ無し）は
+// 対応するUI要素が無いためこの追跡対象に含めない（呼び出し側でCHIP_DYNAMIC_WEATHER_
+// LAYER_IDSに絞る）。
+const PRIMARY_DYNAMIC_WEATHER_SOURCE: Record<(typeof CHIP_DYNAMIC_WEATHER_LAYER_IDS)[number], DynamicWeatherSourceId> = {
+  precipitationNowcast: "main",
+  windVector: "arrow",
+  thunderNowcast: "main",
+  tornadoNowcast: "main",
+};
+
+function primaryDynamicWeatherSourceId(
+  id: (typeof CHIP_DYNAMIC_WEATHER_LAYER_IDS)[number],
+  groupSpec: DynamicWeatherGroupSpec
+): string {
+  const source = PRIMARY_DYNAMIC_WEATHER_SOURCE[id];
+  const spec = groupSpec[source];
+  if (spec?.raster) return dynamicWeatherIds(id, source, "raster").sourceId;
+  if (spec?.gridFill) return dynamicWeatherIds(id, source, "fill").sourceId;
+  return dynamicWeatherIds(id, source, "mark").sourceId;
 }
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
@@ -1602,11 +1631,12 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
     // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計）。
-    // DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しい要素を追加してもここへ手動で
-    // 1行足す必要はない。GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無く
-    // querySourceFeaturesによる0件判定（empty）は元から対象外、ラスタタイル（raster）は
-    // elevationと同じく取得失敗のみ検知対象。
-    ...DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
+    // CHIP_DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しいチップ付き要素を追加しても
+    // ここへ手動で1行足す必要はない（改善計画T432: 防災3種はチップが無いため対象外）。
+    // GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無くquerySourceFeatures
+    // による0件判定（empty）は元から対象外、ラスタタイル（raster）はelevationと同じく
+    // 取得失敗のみ検知対象。
+    ...CHIP_DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
       key: id,
       sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
     })),
@@ -1860,13 +1890,14 @@ interface MapViewProps {
   locationSource: LocationSource;
   showElevation: boolean;
   /** 動的気象レイヤー（降水ナウキャスト=改善計画T170/T171、風の矢印=T178フォローアップ、
-   * T183で降水延長予報を追加してから両者を再設計）。要素id（DynamicWeatherLayerId）ごとに
-   * ON/OFFと、page.tsx側が各要素のデータ層関数（precipitationRenderPayload/
-   * windRenderPayload）から計算した「選択中の共有時刻に対応するペイロード」を渡す。
-   * payloadが未定（フェッチ未完了・取得失敗、あるいは選択時刻がその要素のデータ範囲外で
-   * 「描画しない」場合）の間はvisible=trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・
-   * applyDynamicWeatherState参照）。要素を追加してもこのプロパティ自体は変わらない。 */
-  dynamicWeather: Partial<Record<DynamicWeatherLayerId, { visible: boolean; payload: DynamicWeatherRenderPayload | undefined }>>;
+   * T183で降水延長予報を追加してから両者を再設計、T432でグループ内に複数の名前付きソースを
+   * 持てる形へ一般化）。要素id（DynamicWeatherLayerId）ごとに、ソースキー→ON/OFFと
+   * page.tsx側が各要素のデータ層関数（precipitationRenderPayload/windRenderPayload）から
+   * 計算した「選択中の共有時刻に対応するペイロード」を渡す。payloadが未定（フェッチ未完了・
+   * 取得失敗、あるいは選択時刻がその要素のデータ範囲外で「描画しない」場合）の間はvisible=
+   * trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・applyDynamicWeatherState参照）。
+   * 要素・ソースを追加してもこのプロパティ自体は変わらない。 */
+  dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
   /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
    * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
    * applyRoadLayerState参照）。 */
@@ -1894,12 +1925,6 @@ interface MapViewProps {
    * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
    * setFeatureStateで路面タイルの地物へ差し込む（applyWindAxisPenalties参照）。 */
   windAxisPenalties: ReadonlyMap<number, number>;
-  /** 改善計画T414: 環境グループの風penalty gridFill（windVectorの矢印と同時に表示）。
-   * showWindPenaltyFillはwindVectorのチップON/OFFとは独立のフラグとして渡す
-   * （ルート確定後はページ側がfalseへ倒す想定、page.tsx参照）。windPenaltyGeojsonは
-   * hooks/useDynamicWeatherLayers.tsが計算した値をそのまま渡す。 */
-  showWindPenaltyFill: boolean;
-  windPenaltyGeojson: GeoJSON.FeatureCollection | undefined;
   /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxis/windAxisPenaltiesと
    * 同型——「評価軸」グループとしての勾配。hooks/useDynamicWayValues.tsが現在のビューポート
    * に対して取得したway_id→effective_gradient（%、正=登り・負=下り）。 */
@@ -2009,8 +2034,6 @@ export default function MapView({
   showOneway,
   showWindAxis,
   windAxisPenalties,
-  showWindPenaltyFill,
-  windPenaltyGeojson,
   showGradientAxis,
   gradientAxisValues,
   showGradientFill,
@@ -2121,7 +2144,6 @@ export default function MapView({
     showTunnel,
     showOneway,
     showWindAxis,
-    showWindPenaltyFill,
     showGradientAxis,
     showGradientFill,
     showAccidents,
@@ -2197,7 +2219,6 @@ export default function MapView({
       showTunnel,
       showOneway,
       showWindAxis,
-      showWindPenaltyFill,
       showGradientAxis,
       showGradientFill,
       showAccidents,
@@ -2229,7 +2250,6 @@ export default function MapView({
     showTunnel,
     showOneway,
     showWindAxis,
-    showWindPenaltyFill,
     showGradientAxis,
     showGradientFill,
     showAccidents,
@@ -2269,7 +2289,6 @@ export default function MapView({
       showTunnel,
       showOneway,
       showWindAxis,
-      showWindPenaltyFill,
       showGradientAxis,
       showGradientFill,
       showAccidents,
@@ -2293,7 +2312,6 @@ export default function MapView({
         tunnel: showTunnel,
         oneway: showOneway,
         windAxis: showWindAxis,
-        windPenaltyFill: showWindPenaltyFill,
         gradientAxis: showGradientAxis,
         gradientFill: showGradientFill,
         accidents: showAccidents,
@@ -2305,8 +2323,7 @@ export default function MapView({
     );
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      const state = dynamicWeather[id];
-      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], state?.visible ?? false, state?.payload);
+      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
@@ -2912,7 +2929,6 @@ export default function MapView({
         tunnel: showTunnel,
         oneway: showOneway,
         windAxis: showWindAxis,
-        windPenaltyFill: showWindPenaltyFill,
         gradientAxis: showGradientAxis,
         gradientFill: showGradientFill,
         accidents: showAccidents,
@@ -2933,7 +2949,6 @@ export default function MapView({
     showTunnel,
     showOneway,
     showWindAxis,
-    showWindPenaltyFill,
     showGradientAxis,
     showGradientFill,
     showAccidents,
@@ -2972,17 +2987,10 @@ export default function MapView({
     runWhenStyleReady(map, () => clearWindAxisFeatureState(map));
   }, [showWindAxis]);
 
-  // 環境グループの風penalty gridFill（改善計画T414）。上のwindAxisPenalties effectと同じ
-  // 理由で、show*系フラグ群とは別の専用effectに分離する（windPenaltyGeojsonは時刻・向きの
-  // 操作のたびに変わりうる値のため）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    runWhenStyleReady(map, () => applyWindPenaltyFillGeojson(map, windPenaltyGeojson));
-  }, [windPenaltyGeojson]);
-
   // way_id→勾配（effective_gradient）配信層（改善計画T423）。上のwindAxisPenalties/
-  // clearWindAxisFeatureState/windPenaltyGeojson effectと同型（同じ理由・同じ分離方針）。
+  // clearWindAxisFeatureState effectと同型（同じ理由・同じ分離方針）。改善計画T432:
+  // 環境グループの風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ統合したため、
+  // 専用effectは撤去し下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収された。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3010,8 +3018,7 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      const state = dynamicWeather[id];
-      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], state?.visible ?? false, state?.payload);
+      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
     recomputeLayerDataStatus();
   }, [dynamicWeather, recomputeLayerDataStatus]);
