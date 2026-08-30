@@ -175,16 +175,11 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
         `summary`・`failure_scenario`のMarkdown箇条書き、日本語）／「編集・削除は一切行わない
         （読み取り専用）」の明記。
       - **この分割要否判定・ドメインシャーディングはoverall・consistencyにのみ適用する。
-        complexity・uiは対象規模（変更ファイル数・行数）に関わらず常に単独実施する**
-        （complexityの規模ウォッチ表・変更コスト表はリポジトリ全体の横断計測が主体で
-        コストが差分サイズに比例せず、uiは実機確認のため並列化できない。詳細は
+        complexity・uiは対象規模に関わらず常に単独実施する**（経緯は
         [_history.md](_history.md)「2026-08-31: シャーディング規則の適用範囲を
         overall/consistencyへ限定」参照）。
       - **レンズ構造（overall/complexity/consistency/ui）そのものを、ドメイン構造
-        （backend/frontend等）へ置き換えてはならない**。シャーディングは各レンズの
-        担当範囲内で行うものであり、レンズを跨いだ分割単位で代替してよいという規則では
-        ない（2026-08-30、統合レビュー第2回でこの誤りが発生し複雑度レンズが実質空洞化
-        した実績を受けて明記。詳細は_history.md同項参照）。
+        （backend/frontend等）へ置き換えてはならない**（経緯は_history.md同項参照）。
    e. **集約**: 全シャード完了後、指摘を重複統合し、severity順に並べて標準Findings
       フォーマットへ統合する。
    f. **後片付け**: `git branch -D review-<レンズ名>-baseline`で一時ブランチを削除する。
