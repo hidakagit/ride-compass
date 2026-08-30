@@ -64,6 +64,26 @@ describe("useMaterialCatalog", () => {
     expect(result.current).toEqual(AXIS_MATERIAL_OPTIONS);
   });
 
+  // 改善計画T470: useAxisCatalog.tsの同時フェッチ排除（inFlightCatalogFetch）と同じ
+  // パターンをuseMaterialCatalogへも適用した回帰テスト。同時にマウントした2箇所が
+  // 同じリクエストを共有し、GET /api/material-catalogは1回しか発火しない。
+  // 注意: 「マウント直後（フェッチ未解決）」テスト（下記）より前に置くこと——
+  // あちらは永久に解決しないPromiseをinFlightMaterialCatalogFetchへ残すため、
+  // 後で実行すると本テストの新規フェッチがそのPromiseへ相乗りしてしまい解決しない。
+  it("複数箇所が同時にマウントしても、実行中のフェッチを共有し1回しか発火しない", async () => {
+    vi.mocked(getMaterialCatalog).mockClear();
+    vi.mocked(getMaterialCatalog).mockResolvedValue(catalogResponse());
+
+    const first = renderHook(() => useMaterialCatalog());
+    const second = renderHook(() => useMaterialCatalog());
+
+    await waitFor(() => {
+      expect(first.result.current.some((m) => m.id === "new_material")).toBe(true);
+      expect(second.result.current.some((m) => m.id === "new_material")).toBe(true);
+    });
+    expect(getMaterialCatalog).toHaveBeenCalledTimes(1);
+  });
+
   it("マウント直後（フェッチ未解決）は静的フォールバックを返す", () => {
     vi.mocked(getMaterialCatalog).mockReturnValue(new Promise(() => {}));
 

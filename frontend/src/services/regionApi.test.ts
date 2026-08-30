@@ -230,6 +230,7 @@ describe("regionApi", () => {
           ok: false,
           status: 502,
           headers: new Headers(),
+          json: async () => ({}),
         }),
       );
 
@@ -247,6 +248,7 @@ describe("regionApi", () => {
           ok: false,
           status: 502,
           headers: new Headers(),
+          json: async () => ({}),
         }),
       );
 

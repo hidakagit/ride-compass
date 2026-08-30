@@ -5,6 +5,22 @@ import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { AXIS_MATERIAL_OPTIONS } from "@/lib/axisMaterialsCatalog";
 import { getMaterialCatalog } from "@/services/materialCatalogApi";
 
+// 改善計画T470: useAxisCatalog.ts（同時マウントしたpage.tsx・RouteSettingsPanel.tsxが
+// GET /api/axis-catalogを2重に発火していた実バグの修正）と同じ同時フェッチ排除パターン。
+// useMaterialCatalogは現状<AxisComposer>単独からのみ呼ばれ同時マウントの実害は無いが、
+// 軸スタジオのUIが今後複数箇所からこのフックを呼ぶ構成に変わっても同種の2重フェッチ
+// バグを再発させないための予防的な統一（useAxisCatalog.tsとの一貫性）。
+let inFlightMaterialCatalogFetch: ReturnType<typeof getMaterialCatalog> | null = null;
+
+function fetchMaterialCatalogDeduped(): ReturnType<typeof getMaterialCatalog> {
+  if (inFlightMaterialCatalogFetch) return inFlightMaterialCatalogFetch;
+  const request = getMaterialCatalog().finally(() => {
+    if (inFlightMaterialCatalogFetch === request) inFlightMaterialCatalogFetch = null;
+  });
+  inFlightMaterialCatalogFetch = request;
+  return request;
+}
+
 /** 材料カタログ（改善計画T277）。マウント時に一度`GET /api/material-catalog`を取得し、
  * backend/app/domain/material_catalog.pyへ追加された材料をコード変更・再デプロイなしに
  * 軸スタジオへ反映する。取得完了までとエラー時は静的フォールバック
@@ -15,7 +31,7 @@ export function useMaterialCatalog(): readonly AxisMaterialOption[] {
 
   useEffect(() => {
     let cancelled = false;
-    getMaterialCatalog()
+    fetchMaterialCatalogDeduped()
       .then((response) => {
         // 実バグ修正（デッドコード監査、2026-08-25）: 以前は`response.materials.length > 0`も
         // ガード条件に含めており、useAxisCatalog.tsで既に修正した同型のバグ（「まだ取得中/

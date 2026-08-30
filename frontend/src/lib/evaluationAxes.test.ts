@@ -69,4 +69,14 @@ describe("evaluationAxes", () => {
   it("windはこの位置（末尾）に位置する", () => {
     expect(PREFERENCE_AXES.at(-1)?.axisId).toBe("wind");
   });
+
+  // ドリフト検知（改善計画T470）: PREFERENCE_AXIS_DESCRIPTIONS（evaluationAxes.ts内の
+  // 手書き辞書）にaxis_idの対応が無いと、description: PREFERENCE_AXIS_DESCRIPTIONS[axisId]
+  // ?? ""により黙って空文字になり、研究タブ（WeightPanel）にその軸の説明文だけが
+  // 表示されない不具合が気づかれないまま残る。新しい軸がSECONDARY_AXESへ追加されたら、
+  // PREFERENCE_AXIS_DESCRIPTIONSへの対応する説明文追加を忘れていないかここで検知する。
+  it("全軸がPREFERENCE_AXIS_DESCRIPTIONSに説明文を持つ（空文字への黙ったフォールバックが無い）", () => {
+    const missing = PREFERENCE_AXES.filter((axis) => axis.description === "").map((axis) => axis.axisId);
+    expect(missing, `説明文が無い軸: ${missing.join(", ")}`).toEqual([]);
+  });
 });

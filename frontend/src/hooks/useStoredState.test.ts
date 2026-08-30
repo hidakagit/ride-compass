@@ -117,6 +117,38 @@ describe("useStoredState", () => {
     expect(result.current[0]).toEqual({ fixed: true, dynamic: true });
   });
 
+  // 改善計画T470: keyが動的に変わるケース（現状の呼び出し側はいずれも静的keyのため
+  // 未発生だが、将来追加されうる）で、新しいkeyに保存値が無いと前のkeyで復元した値が
+  // 残り続けてしまう不整合の回帰テスト。
+  it("keyが変化し、新しいkeyに保存値が無い場合はdefaultValueへ戻る（前のkeyの値を引きずらない）", () => {
+    window.localStorage.setItem("k5-a", "42");
+
+    const { result, rerender } = renderHook(
+      ({ key }: { key: string }) => useStoredState(key, 1, jsonOptions),
+      { initialProps: { key: "k5-a" } },
+    );
+    expect(result.current[0]).toBe(42);
+
+    rerender({ key: "k5-b" }); // k5-bには保存値が無い
+
+    expect(result.current[0]).toBe(1);
+  });
+
+  it("keyが変化し、新しいkeyにも保存値がある場合はそちらを復元する", () => {
+    window.localStorage.setItem("k6-a", "42");
+    window.localStorage.setItem("k6-b", "99");
+
+    const { result, rerender } = renderHook(
+      ({ key }: { key: string }) => useStoredState(key, 1, jsonOptions),
+      { initialProps: { key: "k6-a" } },
+    );
+    expect(result.current[0]).toBe(42);
+
+    rerender({ key: "k6-b" });
+
+    expect(result.current[0]).toBe(99);
+  });
+
   it("reloadKeyを渡さない場合は従来どおり初回マウント時の1回だけ復元する", () => {
     window.localStorage.setItem("k4", "42");
     const { result, rerender } = renderHook(() => useStoredState("k4", 1, jsonOptions));

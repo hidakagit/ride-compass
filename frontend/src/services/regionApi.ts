@@ -3,6 +3,61 @@ import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
+interface PostRequestOptions {
+  category: string;
+  /** 「{errorLabel}に失敗しました」の形でエラーメッセージに使う対象名。 */
+  errorLabel: string;
+  /** 指定時はJSONボディとして送る（Content-Type: application/jsonも自動で付く）。
+   * 省略時はボディ無しのPOST（refreshBasemapCacheのような操作系エンドポイント向け）。 */
+  body?: unknown;
+  timeoutMs?: number;
+}
+
+// 改善計画T470: fetchAxisInspector・refreshBasemapCacheが、fetch()自体の失敗（通信エラー）→
+// !response.okの判定→エラーボディ解析→整形したErrorをthrow、という同じ約20行のPOST用骨格を
+// 独立に持っていた（lib/fetchJson.tsのGET専用ラッパーと同型だが、POSTはボディ・成功時の
+// レスポンス解釈が呼び出しごとに異なるため、GET側のfetchJsonとは別に本ファイル内へ持つ——
+// routeApi.ts: postJsonと同じ判断）。成功時のレスポンス本体解析・成功ログのfields組み立ては
+// 呼び出し側ごとに異なる（fetchAxisInspectorはJSONボディを持ちcompositeを追加ログするが
+// refreshBasemapCacheはボディ無しでレスポンス本体も読まない）ため、ここでは「fetch→
+// 通信エラー処理→ok確認→失敗時throw」までを共通化し、成功時のResponseはそのまま返す。
+async function postAndCheckOk(
+  path: string,
+  { category, errorLabel, body, timeoutMs = 15000 }: PostRequestOptions,
+): Promise<{ response: Response; durationMs: number; requestId: string | null }> {
+  const startedAt = performance.now();
+  const url = `${API_BASE_URL}${path}`;
+  debugLog(category, "リクエスト開始", body !== undefined ? { url, body } : { url });
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      ...(body !== undefined ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    debugLog(
+      category,
+      "失敗 (通信エラー)",
+      { durationMs: Math.round(performance.now() - startedAt), error: error instanceof Error ? error.message : String(error) },
+      "error",
+    );
+    throw error instanceof Error ? error : new Error(`${errorLabel}に失敗しました`);
+  }
+  const durationMs = Math.round(performance.now() - startedAt);
+  // バックエンドが全リクエストに付与するリクエストID(backend/app/infrastructure/request_log.py)。
+  const requestId = response.headers.get("x-request-id");
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    debugLog(category, `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
+    const detail = formatErrorDetail(errorBody?.detail) ?? `${errorLabel}に失敗しました[HTTP ${response.status}]`;
+    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
+  }
+  return { response, durationMs, requestId };
+}
+
 const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 const ACCIDENT_TILE_PATH = "/api/region/accident-tiles/{z}/{x}/{y}.pbf";
 const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
@@ -109,39 +164,11 @@ export const ROAD_TILE_MAX_ZOOM = 15;
 // region.py参照）。改善計画T292: 車ストレス専用の内訳取得（旧fetchCarStressBreakdown、
 // レシピ上書きパラメータ）は専用Pythonレシピの廃止に伴い削除し、このAPIへ一本化した。
 export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspectorResult | null> {
-  const url = `${API_BASE_URL}/api/region/axis-inspector`;
-  const startedAt = performance.now();
-  debugLog("api:axis-inspector", "リクエスト開始", { url, osmWayId });
-
-  // fetch()自体の失敗（タイムアウト・通信エラー）はresponse.okのチェック以前の例外のため、
-  // ここで捕まえないとdebugLogに一切残らない（refreshBasemapCacheで確立したパターン）。
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ osm_way_id: osmWayId }),
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (error) {
-    debugLog(
-      "api:axis-inspector",
-      "失敗 (通信エラー)",
-      { durationMs: Math.round(performance.now() - startedAt), error: error instanceof Error ? error.message : String(error) },
-      "error",
-    );
-    throw error instanceof Error ? error : new Error("内訳取得に失敗しました");
-  }
-  const durationMs = Math.round(performance.now() - startedAt);
-  const requestId = response.headers.get("x-request-id");
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    debugLog("api:axis-inspector", `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `内訳取得に失敗しました[HTTP ${response.status}]`;
-    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
-  }
-
+  const { response, durationMs, requestId } = await postAndCheckOk("/api/region/axis-inspector", {
+    category: "api:axis-inspector",
+    errorLabel: "内訳取得",
+    body: { osm_way_id: osmWayId },
+  });
   const data: AxisInspectorResult | null = await response.json();
   debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });
   return data;
@@ -207,45 +234,12 @@ export async function fetchDynamicWayValues(
 }
 
 export async function refreshBasemapCache(): Promise<void> {
-  const startedAt = performance.now();
-  debugLog("api:basemap-refresh", "リクエスト開始");
   // 以前はtry/catchも!response.okのチェックも無く、ネットワークエラー時は
   // 未処理のPromise rejectionになり、失敗時に呼び出し元(MapView.tsx)へ何も伝わらず
-  // 「変わらないデータを更新」ボタンが無反応に見えていた。
-  //
-  // 改善計画T328で発見: fetch()自体の失敗（通信エラー）と!response.ok（HTTPエラー）を
-  // 同じtry節で扱っていたため、HTTPエラー時にthrowしたErrorをこのtry節直後のcatchが
-  // 再捕捉し、「失敗 (HTTP xxx)」ログの直後に「失敗 (通信エラー)」という誤ったラベルで
-  // 二重にログしていた（例外メッセージ自体は正しいため実害は無いが、障害調査時にログを
-  // 誤誘導する）。fetchAxisInspectorと同じ構造（fetch()自体の失敗だけをtryで囲み、
-  // !response.okの判定はtryの外で行う）へ揃える。
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}/api/basemap/refresh`, {
-      method: "POST",
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (error) {
-    debugLog(
-      "api:basemap-refresh",
-      "失敗 (通信エラー)",
-      {
-        durationMs: Math.round(performance.now() - startedAt),
-        error: error instanceof Error ? error.message : String(error),
-      },
-      "error",
-    );
-    throw error instanceof Error ? error : new Error("地図キャッシュの更新に失敗しました");
-  }
-  const durationMs = Math.round(performance.now() - startedAt);
-  const requestId = response.headers.get("x-request-id");
-  debugLog(
-    "api:basemap-refresh",
-    response.ok ? "成功" : `失敗 (HTTP ${response.status})`,
-    { durationMs, requestId },
-    response.ok ? "info" : "error",
-  );
-  if (!response.ok) {
-    throw new Error(`地図キャッシュの更新に失敗しました[HTTP ${response.status}]`);
-  }
+  // 「変わらないデータを更新」ボタンが無反応に見えていた（改善計画T328で発見・修正）。
+  const { durationMs, requestId } = await postAndCheckOk("/api/basemap/refresh", {
+    category: "api:basemap-refresh",
+    errorLabel: "地図キャッシュの更新",
+  });
+  debugLog("api:basemap-refresh", "成功", { durationMs, requestId });
 }

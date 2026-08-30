@@ -21,7 +21,7 @@ import {
 } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 // バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
 // 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
@@ -31,8 +31,8 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
 // パン・ズームのたびに（デバウンス済みとはいえ）呼ばれうるため、道路情報の絞り込み等の
 // LEGEND_FILTER_DEBOUNCE_MSより長め。地図フィルタの再適用と違いネットワーク往復を伴うため、
-// より鷹揚な間隔にしている。
-const WEATHER_GRID_DETAIL_VIEWPORT_DEBOUNCE_MS = 500;
+// より鷹揚な間隔にしている（改善計画T470: 値自体はuseDebouncedValue.ts:
+// MAP_FETCH_DEBOUNCE_MSへ集約、他の地図系フェッチデバウンスと共有）。
 
 export interface UseWeatherGridResult {
   /** 粗い格子（関東本土全域を常時カバー、trim済み＝「現在」より前を切り捨て済み）。 */
@@ -104,7 +104,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   }, [enabled]);
 
   // ズームインして狭い範囲を見ているときだけ、現在のビューポートに交差する密な格子を取得する。
-  const debouncedMapViewport = useDebouncedValue(mapViewport, WEATHER_GRID_DETAIL_VIEWPORT_DEBOUNCE_MS);
+  const debouncedMapViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
   // rawGridRefと同じ理由（穴あき対策のマージ用、trim前の生の状態）。ただしこちらはビューポート
   // に応じてbboxが動くため、無限に古い地点を溜め込まないよう、マージ前に「現在のbboxに
   // 含まれる地点だけ」へ絞り込んでから使う（bbox外の地点は既に画面外なので補う意味が無く、

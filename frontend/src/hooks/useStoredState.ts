@@ -51,15 +51,27 @@ export function useStoredState<T>(
   // deserializeは意図的にrefへ退避しない（reloadKeyが変わった際、その時点の最新の
   // deserializeクロージャを使って再復元したいため。reloadKey省略時はkeyが不変な限り
   // このeffectは初回のみ実行される、元の挙動のまま）。
+  //
+  // 改善計画T470: 以前はraw==null（保存値が無い）のとき何もせずreturnしていたため、
+  // keyが動的に変わるケース（現状の呼び出し側はいずれも静的keyのため未発生だが、将来
+  // 追加されうる）で、新しいkeyに保存値が無いと前のkeyで復元した値が残り続けてしまう
+  // 不整合があった。raw==null・deserialize失敗のいずれもdefaultValueへ明示的に戻す。
   useIsomorphicLayoutEffect(() => {
     try {
       const raw = window.localStorage.getItem(key);
-      if (raw == null) return;
+      if (raw == null) {
+        setValue(defaultValue);
+        return;
+      }
       const parsed = deserialize(raw);
-      if (parsed != null) setValue(parsed);
+      setValue(parsed != null ? parsed : defaultValue);
     } catch {
-      // 読み出し不可・壊れた値はデフォルトのまま
+      // 読み出し不可・壊れた値はデフォルトへ
+      setValue(defaultValue);
     }
+    // defaultValueは意図的に依存へ含めない。呼び出し側が毎レンダー新しいオブジェクト/配列
+    // リテラルを渡すことが多く、依存に含めるとkey/reloadKeyが変わっていなくても無限に
+    // 再実行されうる（page.tsxのuseStoredState呼び出し箇所参照）。
   }, [key, reloadKey]);
 
   const commit = useCallback(

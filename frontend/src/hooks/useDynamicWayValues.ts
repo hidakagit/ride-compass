@@ -18,12 +18,8 @@ import { useEffect, useRef, useState } from "react";
 import { mergeDynamicWayValues, tilesCoveringViewport, type TileXY } from "@/components/Map/dynamicWayValues";
 import type { MapViewport } from "@/components/Map/windLayer";
 import { fetchDynamicWayValues, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 
-// パン・ズームのたびに（デバウンス済みとはいえ）呼ばれうるため、道路情報の絞り込み等の
-// LEGEND_FILTER_DEBOUNCE_MSより長め。useWeatherGrid.tsのWEATHER_GRID_DETAIL_VIEWPORT_
-// DEBOUNCE_MSと同じ値（ネットワーク往復を伴う地図系フェッチの標準的な間隔として揃える）。
-const DYNAMIC_WAY_VALUES_VIEWPORT_DEBOUNCE_MS = 500;
 // コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、bearingDeg
 // もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
 // 連続イベント数ぶんのfetchが発生してしまう）。
@@ -61,8 +57,8 @@ export function useDynamicWayValues(
   at: Date | undefined
 ): UseDynamicWayValuesResult {
   const [result, setResult] = useState<UseDynamicWayValuesResult>(EMPTY_RESULT);
-  const debouncedViewport = useDebouncedValue(mapViewport, DYNAMIC_WAY_VALUES_VIEWPORT_DEBOUNCE_MS);
-  const debouncedBearingDeg = useDebouncedValue(bearingDeg, DYNAMIC_WAY_VALUES_VIEWPORT_DEBOUNCE_MS);
+  const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
+  const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);
   const requestSeqRef = useRef(0);
 
   useEffect(() => {

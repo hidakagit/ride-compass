@@ -7,7 +7,7 @@
 // useWeatherGrid経由の風/延長降水予報T183）と、そこから導出する共有タイムライン
 // （T183再設計「時間経過はスライドバー1本で表現する」）・DynamicLayerTimeSlider向けの
 // props・MapView向けのdynamicWeatherプロパティを、この1フックへまとめた。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   fetchNowcastFrames,
   fetchRasrfFrames,
@@ -51,8 +51,8 @@ import {
 } from "@/components/Map/dynamicWeather";
 import type { DynamicLayerTimeSliderFrame } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { debugLog } from "@/lib/debugLog";
+import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { usePolledFetch } from "@/hooks/usePolledFetch";
 
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
 // 雷は10分毎更新のため5分より長くても足りるが、実装を単純にするため揃えている）。
@@ -67,8 +67,8 @@ const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 // コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、
 // windBearingDegをそのままuseMemoの依存に使うとドラッグのたびにGeoJSON再構築＋MapView側の
 // source.setData()が連打される。useDynamicWayValues.ts（改善計画T423で旧
-// useWindAxisPenalties.tsから汎用化）のbearingDegデバウンスと同じ値を使う。
-const WIND_BEARING_DEBOUNCE_MS = 500;
+// useWindAxisPenalties.tsから汎用化）のbearingDegデバウンスと同じ値を使う
+// （改善計画T470: useDebouncedValue.ts: MAP_FETCH_DEBOUNCE_MSへ集約）。
 
 // 線状降水帯予測マップ（改善計画T432でrisk系統からrasrf系統・「降水」チップ傘下へ再分類）を
 // 重ねて表示する時間窓。「今後3時間以内に大雨のおそれ」という予報の意味そのものに合わせる。
@@ -76,6 +76,9 @@ const LINEAR_RAINBAND_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
 const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = { land: EMPTY_RISK_FRAMES, heavyRain: EMPTY_RISK_FRAMES, inundation: EMPTY_RISK_FRAMES };
+const EMPTY_NOWCAST_FRAMES: NowcastFrame[] = [];
+const EMPTY_RASRF_FRAMES: RasrfFrame[] = [];
+const EMPTY_THUNDER_NOWCAST_FRAMES: ThunderNowcastFrame[] = [];
 
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
@@ -134,105 +137,54 @@ export function useDynamicWeatherLayers({
   // 1本のタイムライン（下記timeline）上の1点で、各レイヤーはこの時刻に対応する自分の
   // フレームを描画する。
   const [dynamicLayerTargetTime, setDynamicLayerTargetTime] = useState(() => new Date());
-  const debouncedWindBearingDeg = useDebouncedValue(windBearingDeg, WIND_BEARING_DEBOUNCE_MS);
+  const debouncedWindBearingDeg = useDebouncedValue(windBearingDeg, MAP_FETCH_DEBOUNCE_MS);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。取得失敗時は例外を投げずnowcastErrorへ
   // 記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ例外、片方だけの
   // 失敗は部分的な結果を返すため、ここへ来るのは両方失敗した場合のみ）。
-  const [nowcastFrames, setNowcastFrames] = useState<NowcastFrame[]>([]);
-  const [nowcastLoading, setNowcastLoading] = useState(false);
-  const [nowcastError, setNowcastError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!showPrecipitationNowcast) return;
-    let cancelled = false;
-    const load = async (isFirstLoad: boolean) => {
-      if (isFirstLoad) setNowcastLoading(true);
-      try {
-        // 実況（targetTimes_N1）は現在時刻より前ぶんを多く含む。過去の降水を振り返る用途は
-        // アプリの性質上無いため、trimToCurrentAndFutureで「現在」より前を切り捨て、
-        // スライダーの左端（index 0）が常に「現在」になるようにする。
-        const frames = trimToCurrentAndFuture(await fetchNowcastFrames());
-        if (cancelled) return;
-        setNowcastFrames(frames);
-        setNowcastError(null);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "降水ナウキャストの取得に失敗しました";
-        // 改善計画T441: この後もwindow.setIntervalで定期的に再取得するフェイルソフト設計
-        // （下の各fetch同様）のため、単発の取得失敗は"error"ではなく"warn"とする。
-        debugLog("api:jma-nowcast-times", "降水ナウキャストの読み込みに失敗", { error: message }, "warn");
-        setNowcastError(message);
-      } finally {
-        if (!cancelled && isFirstLoad) setNowcastLoading(false);
-      }
-    };
-    Promise.resolve().then(() => load(true));
-    const intervalId = window.setInterval(() => load(false), NOWCAST_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [showPrecipitationNowcast]);
+  // 改善計画T441: この後もwindow.setIntervalで定期的に再取得するフェイルソフト設計
+  // （下の各fetch同様）のため、単発の取得失敗は"error"ではなく"warn"とする
+  // （usePolledFetch.ts参照）。
+  const {
+    data: rawNowcastFrames,
+    loading: nowcastLoading,
+    error: nowcastError,
+  } = usePolledFetch(fetchNowcastFrames, EMPTY_NOWCAST_FRAMES, {
+    enabled: showPrecipitationNowcast,
+    intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
+    label: "降水ナウキャスト",
+  });
+  // 実況（targetTimes_N1）は現在時刻より前ぶんを多く含む。過去の降水を振り返る用途は
+  // アプリの性質上無いため、trimToCurrentAndFutureで「現在」より前を切り捨て、
+  // スライダーの左端（index 0）が常に「現在」になるようにする。
+  const nowcastFrames = useMemo(() => trimToCurrentAndFuture(rawNowcastFrames), [rawNowcastFrames]);
 
   // 降水短時間予報の時刻一覧（改善計画T407、60分〜15時間先）。「降水」チップの一部
   // （precipitationNowcast.ts: precipitationFrames参照）のため、ナウキャストと同じ
   // showPrecipitationNowcastで開閉する。取得失敗はnowcastと同じくエラーメッセージへ記録するが、
   // precipitationFramesがrasrfFrames=[]でも自然にextended予報へフォールバックするため、
   // 「降水」チップ自体は動作を続ける（フェイルソフト）。
-  const [rasrfFrames, setRasrfFrames] = useState<RasrfFrame[]>([]);
-  useEffect(() => {
-    if (!showPrecipitationNowcast) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const frames = await fetchRasrfFrames();
-        if (cancelled) return;
-        setRasrfFrames(frames);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "降水短時間予報の取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "降水短時間予報の読み込みに失敗", { error: message }, "warn");
-      }
-    };
-    Promise.resolve().then(load);
-    const intervalId = window.setInterval(load, RASRF_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [showPrecipitationNowcast]);
+  const { data: rasrfFrames } = usePolledFetch(fetchRasrfFrames, EMPTY_RASRF_FRAMES, {
+    enabled: showPrecipitationNowcast,
+    intervalMs: RASRF_REFRESH_INTERVAL_MS,
+    label: "降水短時間予報",
+  });
 
   // 雷・竜巻の時刻一覧（改善計画T204）。同じtargetTimes_N3.json由来のため、どちらか一方でも
   // ONの間だけ1本のfetchで両方をカバーする（nowcastFramesと同じ理由・同じ更新間隔）。
-  const [thunderNowcastFrames, setThunderNowcastFrames] = useState<ThunderNowcastFrame[]>([]);
-  const [thunderNowcastLoading, setThunderNowcastLoading] = useState(false);
-  const [thunderNowcastError, setThunderNowcastError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!showThunderNowcast && !showTornadoNowcast) return;
-    let cancelled = false;
-    const load = async (isFirstLoad: boolean) => {
-      if (isFirstLoad) setThunderNowcastLoading(true);
-      try {
-        const frames = trimToCurrentAndFuture(await fetchThunderNowcastFrames());
-        if (cancelled) return;
-        setThunderNowcastFrames(frames);
-        setThunderNowcastError(null);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "雷ナウキャストの取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "雷・竜巻ナウキャストの読み込みに失敗", { error: message }, "warn");
-        setThunderNowcastError(message);
-      } finally {
-        if (!cancelled && isFirstLoad) setThunderNowcastLoading(false);
-      }
-    };
-    Promise.resolve().then(() => load(true));
-    const intervalId = window.setInterval(() => load(false), NOWCAST_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [showThunderNowcast, showTornadoNowcast]);
+  const {
+    data: rawThunderNowcastFrames,
+    loading: thunderNowcastLoading,
+    error: thunderNowcastError,
+  } = usePolledFetch(fetchThunderNowcastFrames, EMPTY_THUNDER_NOWCAST_FRAMES, {
+    enabled: showThunderNowcast || showTornadoNowcast,
+    intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
+    label: "雷・竜巻ナウキャスト",
+  });
+  const thunderNowcastFrames = useMemo(
+    () => trimToCurrentAndFuture(rawThunderNowcastFrames),
+    [rawThunderNowcastFrames],
+  );
 
   // キキクル（土砂・大雨・浸水、改善計画T410）の「現在」フレーム。3種で1本のtargetTimes.json
   // を共有するため（riskMap.ts参照）1本のfetchでまとめて取得する（thunderNowcastFramesと
@@ -240,64 +192,25 @@ export function useDynamicWeatherLayers({
   // したため、show*ガードを持たずマウント時に常にフェッチする。未来方向のフレームを
   // 持たないため取得失敗時もnowcastのような「部分結果」は無く、フェッチ自体を諦めて
   // エラーのみ記録する。
-  const [currentRiskFrames, setCurrentRiskFrames] = useState<CurrentRiskFrames>(EMPTY_CURRENT_RISK_FRAMES);
   // 改善計画T425（ゼロベース網羅レビュー指摘）: 以前はエラーをdebugLogへ記録するのみで
   // dynamicLayerErrorへ反映しておらず、キキクル（「防災」カテゴリ、常時マウント）の取得が
   // 失敗してもユーザーへ一切可視化されなかった。
-  const [currentRiskError, setCurrentRiskError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const frames = await fetchCurrentRiskFrames();
-        if (cancelled) return;
-        setCurrentRiskFrames(frames);
-        setCurrentRiskError(null);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "危険度分布（キキクル）の取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "キキクルの読み込みに失敗", { error: message }, "warn");
-        setCurrentRiskError(message);
-      }
-    };
-    Promise.resolve().then(load);
-    const intervalId = window.setInterval(load, RISK_MAP_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const { data: currentRiskFrames, error: currentRiskError } = usePolledFetch(
+    fetchCurrentRiskFrames,
+    EMPTY_CURRENT_RISK_FRAMES,
+    { enabled: true, intervalMs: RISK_MAP_REFRESH_INTERVAL_MS, label: "危険度分布（キキクル）" },
+  );
 
   // 線状降水帯予測マップ（改善計画T410、T432で「降水」チップ傘下へ再分類）の「現在」フレーム。
   // キキクルとはtargetTimes.json自体が別（rasrfのtargetTimes.jsonにelements違いの別行として
   // 混在、riskMap.ts参照）。「降水」チップ（showPrecipitationNowcast）に連動する。
-  const [linearRainbandFrames, setLinearRainbandFrames] = useState<DynamicWeatherFrame<RiskFrameRef>[]>(EMPTY_RISK_FRAMES);
   // 改善計画T425（ゼロベース網羅レビュー指摘）: currentRiskErrorと同じ理由でdynamicLayerErrorへ
   // 反映する（線状降水帯予測マップは「降水」チップ配下のためshowPrecipitationNowcast連動）。
-  const [linearRainbandError, setLinearRainbandError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!showPrecipitationNowcast) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const frames = await fetchLinearRainbandFrames();
-        if (cancelled) return;
-        setLinearRainbandFrames(frames);
-        setLinearRainbandError(null);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "線状降水帯予測マップの取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "線状降水帯予測マップの読み込みに失敗", { error: message }, "warn");
-        setLinearRainbandError(message);
-      }
-    };
-    Promise.resolve().then(load);
-    const intervalId = window.setInterval(load, RISK_MAP_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [showPrecipitationNowcast]);
+  const { data: linearRainbandFrames, error: linearRainbandError } = usePolledFetch(
+    fetchLinearRainbandFrames,
+    EMPTY_RISK_FRAMES,
+    { enabled: showPrecipitationNowcast, intervalMs: RISK_MAP_REFRESH_INTERVAL_MS, label: "線状降水帯予測マップ" },
+  );
 
   // 風・降水延長予報（T183）が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。
   // どちらか一方でもONならenabledにすることで両方ONのときも1本のフェッチで済む。
@@ -401,7 +314,7 @@ export function useDynamicWeatherLayers({
   // 統一）。windPayload（矢印gridMark）と同じframeIndexForTime（同じwindFramesList・同じ
   // dynamicLayerTargetTime）を使うため、両者は常に同じ時刻のデータを指す。windBearingDegは
   // ユーザー指定の走行方位（全格子点共通）、デバウンス済みの値を使う
-  // （WIND_BEARING_DEBOUNCE_MS参照）。
+  // （MAP_FETCH_DEBOUNCE_MS参照）。
   const windPenaltyPayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || effectiveWindGrid.length === 0) return undefined;
