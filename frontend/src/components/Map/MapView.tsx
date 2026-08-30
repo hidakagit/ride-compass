@@ -1068,105 +1068,69 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// way_id→wind_penalty配信層（改善計画T405）。designation/tunnel/onewayと同じくROAD_TILE_
-// SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはタイルのプロパティ
-// ではなくsetFeatureState経由の値（applyWindAxisPenalties参照）を読む。ensureRoadSurfaceTileLayer
-// を先に呼び、promoteId付きのsourceが確実に存在する状態でレイヤーを追加する（designation等の
-// 既存レイヤーもこのソースへ依存する順序を暗黙に仮定しており、それと同じ前提）。
-function ensureWindAxisLayer(map: MapLibreMap) {
-  ensureRoadSurfaceTileLayer(map);
-  const applyData = () => {
-    if (map.getLayer(WIND_AXIS_LAYER_ID)) return;
-    map.addLayer({
-      id: WIND_AXIS_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": windAxisColorExpression() as any,
-        "line-width": DEFAULT_ROAD_LINE_WIDTH,
-      },
-      layout: { visibility: "none" },
-    });
+// 改善計画T440: 専用のway_id→動的値配信層を持つ軸（風・勾配）のensure/apply/clearが、
+// レイヤーID・色式・feature-stateキーだけが違う同型の関数として軸ごとに手書きで
+// 重複していた（ensureWindAxisLayer/ensureGradientAxisLayer等）。makeEnsureAxisRampLayer
+// （ramp軸向け、上記）と同じ「1ファクトリ+N呼び出し」パターンへ統一する。
+//
+// way_id→値配信層（改善計画T405/T423）。designation/tunnel/onewayと同じくROAD_TILE_
+// SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはタイルの
+// プロパティではなくsetFeatureState経由の値（applyAxisFeatureStateValues参照）を読む。
+// ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
+// レイヤーを追加する（designation等の既存レイヤーもこのソースへ依存する順序を暗黙に
+// 仮定しており、それと同じ前提）。
+function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unknown[]): (map: MapLibreMap) => void {
+  return (map: MapLibreMap) => {
+    ensureRoadSurfaceTileLayer(map);
+    const applyData = () => {
+      if (map.getLayer(layerId)) return;
+      map.addLayer({
+        id: layerId,
+        type: "line",
+        source: ROAD_TILE_SOURCE_ID,
+        "source-layer": ROAD_TILE_SOURCE_LAYER,
+        paint: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "line-color": colorExpression as any,
+          "line-width": DEFAULT_ROAD_LINE_WIDTH,
+        },
+        layout: { visibility: "none" },
+      });
+    };
+    runWhenStyleReady(map, applyData);
   };
-  runWhenStyleReady(map, applyData);
 }
 
-// way_id→wind_penalty配信層（改善計画T405）。useDynamicWayValues（hooks、改善計画T423で
-// 旧useWindAxisPenaltiesから汎用化）が取得した{way_id: wind_penalty}をMapLibreの
-// setFeatureStateで地物へ差し込む。パン・ズームで
+// useDynamicWayValues（hooks、改善計画T423で旧useWindAxisPenaltiesから汎用化）が
+// 取得した{way_id: 値}をMapLibreのsetFeatureStateで地物へ差し込む。パン・ズームで
 // 表示範囲が変わり、直前に取得した一部のway_idが最新の応答に含まれなくなっても、
 // 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
 // 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
-// 値そのものはbackend側のRedis TTL[weather_client.WIND_GRID_CACHE_TTL_SECONDS]の範囲でしか
-// 新鮮さを保証しないため、古い値が長時間残り続けることはない）。
-function applyWindAxisPenalties(map: MapLibreMap, penalties: ReadonlyMap<number, number>) {
-  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
-  penalties.forEach((value, wayId) => {
-    map.setFeatureState(
-      { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: wayId },
-      { [WIND_AXIS_FEATURE_STATE_KEY]: value },
-    );
-  });
-}
-
-/** 改善計画T414: windAxis（評価軸グループの風、視界内の全道路への一律色分け）が終了する
- * 瞬間（showWindAxisがfalseへ切り替わる瞬間——ルート確定・手動OFFのいずれも含む）に、
- * それまでsetFeatureStateで差し込んだ全道路ぶんの値を明示的にクリアする。上の
- * applyWindAxisPenaltiesは（enabledのままパン・ズームで一部way_idが新しい応答へ含まれ
- * なくなる通常のケース向けに）意図的に古い値を残す設計だが、T414の契約は「ルート確定後は
- * ルート以外の道路を無色に戻す」ことを明示的に要求している——WIND_AXIS_LAYER_ID自体は
- * visibility:noneで非表示になるため視覚上は問題ないが、契約どおり値そのものも消しておく
- * （再度ONにしたときに一瞬だけ古い値がちらつくのを防ぐ副次効果もある）。 */
-function clearWindAxisFeatureState(map: MapLibreMap) {
-  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
-  map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
-}
-
-// way_id→勾配（effective_gradient）配信層（改善計画T423）。ensureWindAxisLayerと同型
-// ——道路自身の向きが本質的に必要という材料の性質の違い（T423.mdの重要な注意点）は
-// backend側（gradient_way_service.py）の計算に閉じており、フロントのMapLibre配線は
-// windAxisと変わらない。
-function ensureGradientAxisLayer(map: MapLibreMap) {
-  ensureRoadSurfaceTileLayer(map);
-  const applyData = () => {
-    if (map.getLayer(GRADIENT_AXIS_LAYER_ID)) return;
-    map.addLayer({
-      id: GRADIENT_AXIS_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": gradientAxisColorExpression() as any,
-        "line-width": DEFAULT_ROAD_LINE_WIDTH,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// hooks/useDynamicWayValues.tsが取得した{way_id: effective_gradient}をMapLibreの
-// setFeatureStateで地物へ差し込む（applyWindAxisPenaltiesと同じ「古い値は明示的に消さない」
-// 方針、モジュールdocstring参照）。
-function applyGradientAxisValues(map: MapLibreMap, values: ReadonlyMap<number, number>) {
+// 値そのものはbackend側のRedis TTLの範囲でしか新鮮さを保証しないため、古い値が長時間
+// 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（WIND_AXIS_FEATURE_STATE_
+// KEY/GRADIENT_AXIS_FEATURE_STATE_KEY）。
+function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, values: ReadonlyMap<number, number>) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   values.forEach((value, wayId) => {
     map.setFeatureState(
       { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: wayId },
-      { [GRADIENT_AXIS_FEATURE_STATE_KEY]: value },
+      { [featureStateKey]: value },
     );
   });
 }
 
-/** 改善計画T423: gradientAxis（評価軸グループの勾配、視界内の全道路への一律色分け）が
- * 終了する瞬間（showGradientAxisがfalseへ切り替わる瞬間——ルート確定・手動OFFのいずれも
- * 含む）に、それまでsetFeatureStateで差し込んだ全道路ぶんの値を明示的にクリアする
- * （clearWindAxisFeatureStateと同じ理由、T414の契約「ルート確定後はルート以外の道路を
- * 無色に戻す」参照）。 */
-function clearGradientAxisFeatureState(map: MapLibreMap) {
+/** 改善計画T414/T423: windAxis/gradientAxis（評価軸グループの風・勾配、視界内の全道路への
+ * 一律色分け）が終了する瞬間（showWindAxis/showGradientAxisがfalseへ切り替わる瞬間
+ * ——ルート確定・手動OFFのいずれも含む）に、それまでsetFeatureStateで差し込んだ全道路
+ * ぶんの値を明示的にクリアする。上のapplyAxisFeatureStateValuesは（enabledのまま
+ * パン・ズームで一部way_idが新しい応答へ含まれなくなる通常のケース向けに）意図的に
+ * 古い値を残す設計だが、T414の契約は「ルート確定後はルート以外の道路を無色に戻す」ことを
+ * 明示的に要求している——レイヤー自体はvisibility:noneで非表示になるため視覚上は
+ * 問題ないが、契約どおり値そのものも消しておく（再度ONにしたときに一瞬だけ古い値が
+ * ちらつくのを防ぐ副次効果もある）。removeFeatureStateはsource/sourceLayer単位で
+ * 全キーをまとめて消す（MapLibreの仕様）ため、風・勾配どちらの終了判定からでも同じこの
+ * 1関数を呼べばよい（feature-stateキーごとの個別クリアは元々できない）。 */
+function clearRoadTileFeatureState(map: MapLibreMap) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
 }
@@ -1194,7 +1158,7 @@ function ensureGradientFillLayer(map: MapLibreMap) {
 /** hooks/useDynamicWayValues.ts由来のgradientFillPayload（GeoJSON、gradientGridFill.ts:
  * gradientGridCellsFromTileResponsesが組み立てる）をsourceへ反映する。visibility自体は
  * STATIC_OVERLAY_LAYERS一括effect（showGradientFill）が別途担当する
- * （applyWindAxisPenaltiesと同じ「値の反映」と「表示ON/OFF」を分離する設計。改善計画T432で
+ * （applyAxisFeatureStateValuesと同じ「値の反映」と「表示ON/OFF」を分離する設計。改善計画T432で
  * 風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ移ったため、この比較対象を
  * 風からwindAxisPenaltiesへ差し替えた）。 */
 function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
@@ -1535,11 +1499,12 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
-    // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
-    // ensureWindAxisLayer内でensureRoadSurfaceTileLayer（promoteId付きsource）を先に呼ぶ。
-    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: ensureWindAxisLayer },
-    // 改善計画T423: way_id→勾配配信層（評価軸グループとしての勾配）。
-    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: ensureGradientAxisLayer },
+    // 改善計画T405/T440: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
+    // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
+    // source）を先に呼ぶ。
+    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, windAxisColorExpression()) },
+    // 改善計画T423/T440: way_id→勾配配信層（評価軸グループとしての勾配）。
+    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, gradientAxisColorExpression()) },
     // 改善計画T423: 環境グループの勾配gridFill（タイル境界セル）。
     { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: ensureGradientFillLayer },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
@@ -1923,7 +1888,7 @@ interface MapViewProps {
   /** hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから汎用化）が
    * 現在のビューポートに対して取得したway_id→wind_penalty
    * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
-   * setFeatureStateで路面タイルの地物へ差し込む（applyWindAxisPenalties参照）。 */
+   * setFeatureStateで路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。 */
   windAxisPenalties: ReadonlyMap<number, number>;
   /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxis/windAxisPenaltiesと
    * 同型——「評価軸」グループとしての勾配。hooks/useDynamicWayValues.tsが現在のビューポート
@@ -2974,33 +2939,33 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    runWhenStyleReady(map, () => applyWindAxisPenalties(map, windAxisPenalties));
+    runWhenStyleReady(map, () => applyAxisFeatureStateValues(map, WIND_AXIS_FEATURE_STATE_KEY, windAxisPenalties));
   }, [windAxisPenalties]);
 
   // 改善計画T414: showWindAxisがfalseへ切り替わった瞬間（ルート確定・手動OFFいずれも含む）
-  // に、それまでの全道路ぶんのfeature-stateを明示的にクリアする（clearWindAxisFeatureState
+  // に、それまでの全道路ぶんのfeature-stateを明示的にクリアする（clearRoadTileFeatureState
   // 参照）。マウント直後（showWindAxisの初期値がfalse）にも走るが、その時点ではまだ
   // setFeatureStateが1件も呼ばれていないため無害（空振り）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map || showWindAxis) return;
-    runWhenStyleReady(map, () => clearWindAxisFeatureState(map));
+    runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
   }, [showWindAxis]);
 
   // way_id→勾配（effective_gradient）配信層（改善計画T423）。上のwindAxisPenalties/
-  // clearWindAxisFeatureState effectと同型（同じ理由・同じ分離方針）。改善計画T432:
+  // clearRoadTileFeatureState effectと同型（同じ理由・同じ分離方針）。改善計画T432:
   // 環境グループの風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ統合したため、
   // 専用effectは撤去し下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収された。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    runWhenStyleReady(map, () => applyGradientAxisValues(map, gradientAxisValues));
+    runWhenStyleReady(map, () => applyAxisFeatureStateValues(map, GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisValues));
   }, [gradientAxisValues]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || showGradientAxis) return;
-    runWhenStyleReady(map, () => clearGradientAxisFeatureState(map));
+    runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
   }, [showGradientAxis]);
 
   useEffect(() => {
