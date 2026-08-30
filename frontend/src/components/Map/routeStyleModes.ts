@@ -190,7 +190,16 @@ export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromC
   axisCatalog.axes as CatalogAxis[]
 );
 
-export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = "wind";
+// 改善計画T433: 以前は"wind"を固定文字列でハードコードしており、axis-catalog由来の
+// dynamicModes（現状はwindのみ）が偶然modes[0]と一致することに暗黙に依存していた
+// （バックエンド側でwindのsupports_route_coloringをfalseにする、または軸自体をunpublish
+// すると、この定数だけが古い値のまま残り、getRouteStyleModeの「見つからなければmodes[0]」
+// フォールバックで実際の初期選択（gradient等）と定数の値が静かに食い違う——ゼロベース
+// レビュー2026-08-30 §4で指摘）。ROUTE_STYLE_MODES[0]から導出することで、この一致を
+// コード上で強制する（STATIC_MODESが常に非空のためROUTE_STYLE_MODESが空になることはなく、
+// [0]は必ず存在する）。dynamicModesが1件も無くなればgradient（STATIC_MODESの先頭）へ
+// 自動的にフォールバックする。
+export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = ROUTE_STYLE_MODES[0].id;
 
 export function isRouteStyleModeId(
   modes: readonly RouteStyleMode[],

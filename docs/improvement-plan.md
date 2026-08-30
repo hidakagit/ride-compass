@@ -528,3 +528,4 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [ ] [T428](tasks/T428.md). architecture.mdの経緯記述をdecisions/へ抽出（第3弾） 規模M（`/review:all`第9回、2026-08-30起票）
 - [ ] [T429](tasks/T429.md). `pytest -m "not postgis"`が実は何もフィルタしていない問題を修正 規模S（`/review:all`第9回、2026-08-30起票）
 - [ ] [T430](tasks/T430.md). MapView.tsxのKeep List閾値更新 規模S（`/review:all`第9回、2026-08-30起票）
+- [x] [T433](tasks/T433.md). ルート結果の色分けモード既定値のハードコードを解消 規模S（2026-08-30完了。ゼロベースレビュー指摘＋ユーザー直接指摘）

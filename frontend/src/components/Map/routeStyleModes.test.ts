@@ -14,6 +14,10 @@ describe("routeStyleModes", () => {
     expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe("wind");
   });
 
+  it("改善計画T433: デフォルトはハードコードではなくROUTE_STYLE_MODES[0]から導出される（axis-catalogの構成が変わっても静かに食い違わない）", () => {
+    expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe(ROUTE_STYLE_MODES[0].id);
+  });
+
   it("各モードは凡例と色式を持ち、凡例の色・キーに重複がなく、データなしカテゴリを含む", () => {
     for (const mode of ROUTE_STYLE_MODES) {
       expect(mode.colorExpression.length).toBeGreaterThan(0);
