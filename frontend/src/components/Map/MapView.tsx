@@ -1143,7 +1143,12 @@ function clearRoadTileFeatureState(map: MapLibreMap) {
   map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
 }
 
-// 環境グループの勾配gridFill（改善計画T423）。ensureWindPenaltyFillLayerと同型。
+// 環境グループの勾配gridFill（改善計画T423）。
+// 改善計画T451（コメント訂正）: かつて比較対象だった`ensureWindPenaltyFillLayer`は
+// 改善計画T432で撤去され、風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
+// 移った（下のapplyGradientFillGeojsonのコメント参照）。勾配gridFillは独立した空間
+// フィールドを持たないため（gradientGridFill.tsのモジュールdocstring参照）、この
+// 汎用機構には乗せずensure/apply専用関数のまま残している。
 // 改善計画T443: makeEnsureDedicatedWayValueLayer呼び出し（windAxis/gradientAxis）と同じく
 // ファクトリ化し、軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で
 // 受け取れるようにした（以前はboundaries引数を渡す経路が無く、常にビルド時既定値
