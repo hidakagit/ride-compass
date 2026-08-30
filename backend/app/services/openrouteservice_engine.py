@@ -29,9 +29,9 @@
 import asyncio
 from dataclasses import dataclass
 
-from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M, distance_weighted_accident_density
+from app.domain.accident import ACCIDENT_MATCH_MAX_DISTANCE_M
 from app.domain.axis_definitions import car_stress_display_level, time_scoped_weights
-from app.domain.difficulty import distance_weighted_difficulty, evaluate_axis_difficulties
+from app.domain.difficulty import evaluate_axis_difficulties
 from app.domain.errors import RoutingError
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import sample_line_points
@@ -43,10 +43,6 @@ from app.domain.twilight import is_night
 from app.domain.traffic import (
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     STOP_POI_MATCH_MAX_DISTANCE_M,
-    distance_weighted_bicycle_infra_score,
-    distance_weighted_intersection_density,
-    distance_weighted_stop_density,
-    is_dedicated_bicycle_infra,
 )
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_service import ElevationService
@@ -237,7 +233,7 @@ class OpenRouteServiceEngine:
         # （road_graph_engine.pyと同じdistance_weighted_road_score、改善計画T21）。
         results = []
         for i, c in enumerate(candidates):
-            segments, bicycle_infra_dedicated = self._build_segment_details(
+            segments = self._build_segment_details(
                 points=points_per_candidate[i],
                 indices=indices_per_candidate[i],
                 elevations=elevations_per_candidate[i],
@@ -247,35 +243,11 @@ class OpenRouteServiceEngine:
                 route_geometry=c.geometry,
             )
             road_score = distance_weighted_road_score([(s.distance_km, s.road_surface_good) for s in segments])
-            # stop_density（回/km）も路面と同じ「サンプル点iの値を区間iの代表値として使う」
-            # 近似（road_graph_engine.pyの_aggregate_stop_densityと集約方法は同じ。repository
-            # 未注入時はNoneが並び、distance_weighted_stop_density側で「実測0件」と区別して除外される）。
-            stop_density = distance_weighted_stop_density(
-                [(s.distance_km, attributes_per_candidate[i][j].stop_count) for j, s in enumerate(segments)]
-            )
-            # 車ストレス・自転車インフラ・交差点密度（静的道路属性P1残り）も同じ「サンプル点iの
-            # 値を区間iの代表値として使う」近似で集約する。
-            car_stress_score = distance_weighted_difficulty([(s.car_stress, s.distance_km) for s in segments])
-            bicycle_infra_score = distance_weighted_bicycle_infra_score(
-                [(s.distance_km, dedicated) for s, dedicated in zip(segments, bicycle_infra_dedicated)]
-            )
-            intersection_density = distance_weighted_intersection_density(
-                [(s.distance_km, attributes_per_candidate[i][j].intersection_count) for j, s in enumerate(segments)]
-            )
-            accident_density = distance_weighted_accident_density(
-                [(s.distance_km, attributes_per_candidate[i][j].accident_count) for j, s in enumerate(segments)],
-                accident_years_covered,
-            )
             results.append(
                 c.model_copy(
                     update={
                         "segments": segments,
                         "road_score": road_score,
-                        "stop_density": stop_density,
-                        "car_stress_score": car_stress_score,
-                        "bicycle_infra_score": bicycle_infra_score,
-                        "intersection_density": intersection_density,
-                        "accident_density": accident_density,
                     }
                 )
             )
@@ -290,7 +262,7 @@ class OpenRouteServiceEngine:
         attributes: list[_PointAttributes],
         accident_years_covered: int,
         route_geometry: dict,
-    ) -> tuple[list[RouteSegmentDetail], list[bool | None]]:
+    ) -> list[RouteSegmentDetail]:
         # 区間難易度の合成重みはRoutePreference（Edge単位の絶対評価用の重み、既定値は
         # load_route_preference→AXIS_DEFINITIONS由来）を使う。
         # 以前はscoring.yaml（候補集合内の相対評価用）を流用しており、RoadGraphEngineと
@@ -300,11 +272,6 @@ class OpenRouteServiceEngine:
         # 区間ごとにはnight軸の動的な掛け替え（T173、下記）だけを上書きする。
         base_axis_weights = preference.weights
         segments = []
-        # 改善計画T347: 旧classify_bicycle_infrastructureの削除に伴い、bicycle_infra_score
-        # （RouteCandidate、専用インフラ区間の距離加重率%）算出用の判定を、
-        # RouteSegmentDetailのフィールドではなくこの並行リストで保持する
-        # （is_dedicated_bicycle_infraはbicycle_infra_flagsの戻り値を直接受け取る）。
-        bicycle_infra_dedicated: list[bool | None] = []
         cumulative_km = 0.0
         # 区間の道なり形状: サンプル点はルートgeometry上の点（インデックス付き）なので、
         # 隣接サンプル点間の座標列をそのまま切り出せば区間形状になる（追加のAPIコール無し。
@@ -353,7 +320,6 @@ class OpenRouteServiceEngine:
             # 維持するため）。
             highway_for_car_stress = highway if tags is not None else None
             car_stress_bicycle_infra_flags = bicycle_infra_flags_or_none(tags, highway)
-            bicycle_infra_dedicated.append(is_dedicated_bicycle_infra(car_stress_bicycle_infra_flags))
             maxspeed_kmh = parse_maxspeed(tags) if tags is not None else None
             lanes_count = parse_lanes(tags) if tags is not None else None
             motor_vehicle_no = tag_value_is(tags, "motor_vehicle", "no") if tags is not None else None
@@ -445,4 +411,4 @@ class OpenRouteServiceEngine:
             )
             cumulative_km += distance_km
 
-        return segments, bicycle_infra_dedicated
+        return segments

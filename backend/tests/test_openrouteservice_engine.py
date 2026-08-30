@@ -260,7 +260,6 @@ async def test_stop_density_reflects_nearest_poi_counts_when_repository_injected
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.stop_density is not None and c.stop_density > 0.0 for c in candidates)
     assert all(
         seg.axis_difficulties.get("stop_density", 0) > 0.0 for c in candidates for seg in c.segments
     )
@@ -268,7 +267,7 @@ async def test_stop_density_reflects_nearest_poi_counts_when_repository_injected
     assert len(repository.stop_count_calls) == 1
 
 
-async def test_stop_density_is_zero_without_nearby_pois():
+async def test_stop_density_axis_is_zero_without_nearby_pois():
     repository = FakeSurfaceRepository(default_tag="asphalt", default_stop_count=0)
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
@@ -281,7 +280,7 @@ async def test_stop_density_is_zero_without_nearby_pois():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.stop_density == 0.0 for c in candidates)
+    assert all(seg.axis_difficulties.get("stop_density") == 0.0 for c in candidates for seg in c.segments)
 
 
 async def test_car_stress_and_bicycle_infra_reflect_nearest_way_tags_when_repository_injected():
@@ -304,8 +303,9 @@ async def test_car_stress_and_bicycle_infra_reflect_nearest_way_tags_when_reposi
     # 改善計画T353: car_stressはhighway種別のみで決まり自転車インフラの有無に影響
     # されなくなったため、trackがあってもprimary(highway_base=4)のまま最大値4になる。
     assert all(seg.car_stress == 4 for c in candidates for seg in c.segments)  # primary(4), track非依存
-    assert all(c.car_stress_score is not None for c in candidates)
-    assert all(c.bicycle_infra_score == 100.0 for c in candidates)
+    assert all(
+        seg.axis_difficulties.get("bicycle_infra_quality") == 0.0 for c in candidates for seg in c.segments
+    )
 
 
 async def test_car_stress_reflects_designation_bonus_when_repository_injected():
@@ -343,15 +343,15 @@ async def test_car_stress_reflects_designation_bonus_when_repository_injected():
     assert not_designated_values == {2}  # (2-0)/4*100=50% -> level 2
 
 
-async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():
+async def test_bicycle_infra_quality_axis_excludes_points_unmatched_to_any_way():
     # get_nearest_way_tagsが空間マッチに失敗した点(highway=None・tags={})を返すケース
     # （repository自体は注入されている＝実運用でも道路網カバレッジの境界等で起こりうる）。
     # 改善計画T347回帰テスト: 旧classify_bicycle_infrastructureは判定不能を"unknown"
     # （Noneではない）で返し、is_dedicated_bicycle_infraがこれをNone扱いすることで
-    # データ欠損をbicycle_infra_scoreの分母から除外していた。新しいbicycle_infra_flagsは
-    # 常に具体的なbool値を返すため区別が無く、呼び出し側（openrouteservice_engine.py）が
-    # highwayの有無を見て明示的にNoneへ倒す必要がある（tagsだけを見るとtags={}を通過して
-    # しまい、データ欠損が「専用インフラではないと確認された区間」として誤って混入する）。
+    # データ欠損を分母から除外していた。新しいbicycle_infra_flagsは常に具体的なbool値を
+    # 返すため区別が無く、呼び出し側（openrouteservice_engine.py）がhighwayの有無を見て
+    # 明示的にNoneへ倒す必要がある（tagsだけを見るとtags={}を通過してしまい、データ欠損が
+    # 「専用インフラではないと確認された区間」として誤って混入する）。
     repository = FakeSurfaceRepository(default_tag="asphalt", default_highway=None, default_way_tags={})
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
@@ -364,10 +364,12 @@ async def test_bicycle_infra_score_excludes_points_unmatched_to_any_way():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.bicycle_infra_score is None for c in candidates)
+    assert all(
+        "bicycle_infra_quality" not in seg.axis_difficulties for c in candidates for seg in c.segments
+    )
 
 
-async def test_car_stress_and_bicycle_infra_are_none_without_repository():
+async def test_car_stress_and_bicycle_infra_axes_are_absent_without_repository():
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
         FakeElevationService(),
@@ -379,9 +381,9 @@ async def test_car_stress_and_bicycle_infra_are_none_without_repository():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(seg.car_stress is None for c in candidates for seg in c.segments)
-    assert all(c.car_stress_score is None and c.bicycle_infra_score is None for c in candidates)
-
-
+    assert all(
+        "bicycle_infra_quality" not in seg.axis_difficulties for c in candidates for seg in c.segments
+    )
 
 
 async def test_intersection_density_reflects_nearest_intersection_counts_when_repository_injected():
@@ -397,7 +399,6 @@ async def test_intersection_density_reflects_nearest_intersection_counts_when_re
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.intersection_density is not None and c.intersection_density > 0.0 for c in candidates)
     # 改善計画T149: 交差点密度は独立軸を持たずstop_density側へ低い重みで吸収される
     # （旧intersection_difficultyは廃止）。
     assert all(
@@ -421,13 +422,12 @@ async def test_accident_density_reflects_nearest_accident_counts_when_repository
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.accident_density is not None and c.accident_density > 0.0 for c in candidates)
     assert all(
         seg.axis_difficulties.get("accident", 0) > 0 for c in candidates for seg in c.segments
     )
 
 
-async def test_accident_density_is_none_without_repository():
+async def test_accident_axis_is_absent_without_repository():
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
         FakeElevationService(),
@@ -438,25 +438,10 @@ async def test_accident_density_is_none_without_repository():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.accident_density is None for c in candidates)
     assert all("accident" not in seg.axis_difficulties for c in candidates for seg in c.segments)
 
 
-async def test_intersection_density_is_none_without_repository():
-    engine = OpenRouteServiceEngine(
-        FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
-        FakeElevationService(),
-        FakeWindService(),
-        RoutePreference(),
-    )
-    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
-
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
-
-    assert all(c.intersection_density is None for c in candidates)
-
-
-async def test_stop_density_is_none_without_repository():
+async def test_stop_density_axis_is_absent_without_repository():
     engine = OpenRouteServiceEngine(
         FakeRoutingService([segment(30.0) for _ in DIRECTIONS_DEG]),
         FakeElevationService(),
@@ -467,7 +452,6 @@ async def test_stop_density_is_none_without_repository():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert all(c.stop_density is None for c in candidates)
     assert all("stop_density" not in seg.axis_difficulties for c in candidates for seg in c.segments)
 
 

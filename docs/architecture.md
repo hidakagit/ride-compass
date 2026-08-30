@@ -553,7 +553,7 @@ RideCompass/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
         routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
-        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments含む）
+        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments・axis_difficulties含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み）
         weather.py               ✅ WeatherConditions
         errors.py               ✅ RoutingError
         geo.py                   ✅ destination_point, haversine_distance_km, sample_indices, sample_line_coordinates, sample_line_points, compass_label, bearing_between
@@ -566,8 +566,8 @@ RideCompass/
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
         recipe.py                      ✅ 改善計画T122: タグ由来の材料タグを正規化する純関数群（parse_lanes/parse_maxspeed/cycleway_values/tag_value_is/bicycle_infra_flags[T336]）。旧`RoadSuitabilityRecipe`等の専用Pythonレシピ採点構造（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order）は改善計画T292でcar_stress軸をAXIS_DEFINITIONSの内部軸階層へ再設計した際に削除済み。cycleway_class関数は改善計画T337で削除済み（唯一の呼び出し元だった同名材料が評価軸・地図表示のどちらからも未使用だったため）。改善計画T347: `bicycle_infra_flags_or_none(tags, highway)`（tagsがNone、またはhighwayがNoneかつ全フラグFalseの場合のみNoneを返す「データ欠落＝unknown」判定を一箇所に集約）を追加。material_catalog.py/evaluation.py/openrouteservice_engine.py/road_graph_engine.pyの4箇所が個別に手書きしていた同等の判定（旧`classify_bicycle_infrastructure`のhighway=None最終catch-all分岐を暗黙に踏襲していたが、フラグベースの新ロジックへ移行した際に4箇所とも独自に再実装が必要になっていた）をこの1関数へ統一
-        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi/distance_weighted_stop_density/distance_weighted_intersection_density/distance_weighted_bicycle_infra_score、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。`is_dedicated_bicycle_infra`は7値分類の代わりに正規化フラグ材料4件（`bicycle_infra_flags`）を受け取る形へシグネチャ変更し、`distance_weighted_bicycle_infra_score`（`RouteCandidate.bicycle_infra_score`集約統計、フロントで引き続き使用）と共に存続
-        accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT, distance_weighted_accident_density（7章参照）
+        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。改善計画T431: `distance_weighted_stop_density`/`distance_weighted_intersection_density`/`distance_weighted_bicycle_infra_score`/`is_dedicated_bicycle_infra`（旧`RouteCandidate`個別フィールド集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み。区間ごとの評価軸（axis_difficulties）は`domain/evaluation.py`が直接材料合成する
+        accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT（7章参照）。改善計画T431: `distance_weighted_accident_density`（旧`RouteCandidate.accident_density`集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239、T396で2プリミティブへ再編: evaluate_breakpoint_linear（連続演算、旧evaluate_flag_sum/evaluate_recipe_then_breakpoint_linearを統合）・evaluate_categorical（離散演算）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
@@ -930,11 +930,6 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
         /* ...区間の数だけ続く（openrouteserviceエンジン: 距離連動サンプリング＝約1km間隔・12〜32点 / road_graphエンジン: Edge数分） */
       ],
       "geometry": { "type":"LineString","coordinates":[...] },
-      "stop_density": 3.1, "car_stress_score": 2.4, "bicycle_infra_score": 18.0,
-      "intersection_density": 5.2, "accident_density": 0.03,
-      /* ↑ P1（停止密度〜交差点密度）・T50（事故密度）。
-         RoutePreference（区間難易度）側の重みのみに効き、上のtotal_scoreには含まれない。
-         segments[]側のaxis_difficulties・生値にも軸別内訳が入る（7章参照） */
       "overall_difficulty": 22.5,  /* segments.difficultyの距離加重平均（絶対基準、実験間比較用） */
       "axis_difficulties": { "gradient":1.8, "wind":0.4, "surface_q":0.0, "stop_density":4.2,
         "car_stress":22.0, "accident":0.0, "bicycle_infra_quality":0.0 }
@@ -1247,20 +1242,17 @@ interface RouteCandidate {
   max_gradient_percent: number | null;
   wind_score: number | null;
   road_score: number | null;
-  stop_density: number | null;          // 回/km、P1
-  car_stress_score: number | null;      // 距離加重平均(0-4、T353以前は1-5)、P1残り
-  bicycle_infra_score: number | null;   // 専用インフラ区間率(%)、表示用一次属性の集約統計
-  intersection_density: number | null;  // 回/km、P1残り
-  accident_density: number | null;      // 件/(km・年)、T50
   total_score: number | null;
   score_breakdown: RouteScoreComponent[] | null;
   segments: RouteSegmentDetail[] | null;
   overall_difficulty: number | null;  // segments.difficultyの距離加重平均（絶対基準、実験間比較用。研究IF改善§10-7）
   axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T402で新設。
     // RouteSegmentDetail.axis_difficultiesと同じ汎用dictを候補の全区間へ集約したもの
-    // （merge_axis_difficultiesをビン単位ではなく候補全体に1回適用するだけ）。stop_density等の
-    // 個別フィールド群（上記）は旧来の軸1対1固定設計の名残で軸スタジオの軸増減に追従しないが、
-    // こちらは追従する。フロントのBottomSheet「ルート全体プロファイル」（横棒グラフ一覧）が消費する
+    // （merge_axis_difficultiesをビン単位ではなく候補全体に1回適用するだけ）。軸スタジオの
+    // 軸増減に自動追従する。フロントのBottomSheet「ルート全体プロファイル」（横棒グラフ一覧）が
+    // 消費する。旧来の軸1対1固定設計の名残だった個別フィールド群（stop_density・
+    // car_stress_score・bicycle_infra_score・intersection_density・accident_density）は
+    // 改善計画T431でフロントエンドの末端消費者ゼロを確認した上で撤去済み
 }
 
 interface RouteGenerateRequest {
@@ -1311,9 +1303,10 @@ scoring.yaml（total_score）には含めない（stop_weightと同じ
 廃止し車ストレス側へ統合済み（9軸→8軸。当時の車ストレス判定（旧`car_closeness()`、
 改善計画T292で内部軸`car_stress_bicycle_infra_adjustment`へ再設計）のcycleway補正が既に
 自転車インフラの情報を反映しているため、独立に同じ情報を二重に持たない設計）。
-ルート集約統計（`bicycle_infra_score`、専用インフラ区間の距離加重率%）自体は一次属性の
-表示用データとして引き続き保持する。区間ごとの生値（`RouteSegmentDetail.bicycle_infra`、
-7値分類）は改善計画T347で削除した（下記「自転車インフラの独立公開軸化」節参照）。
+ルート集約統計（`bicycle_infra_score`、専用インフラ区間の距離加重率%）は改善計画T431で
+フロントエンド末端消費者ゼロを確認した上で削除済み（`axis_difficulties["bicycle_infra_quality"]`
+が正）。区間ごとの生値（`RouteSegmentDetail.bicycle_infra`、7値分類）は改善計画T347で削除した
+（下記「自転車インフラの独立公開軸化」節参照）。
 
 続く改善計画T139で、安全度軸（旧`safety_weight`）自体を廃止した。highway・cycleway・
 maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側へ吸収済みのため重複実装せず、
@@ -1329,8 +1322,8 @@ maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側
 （旧`intersection_weight`）の独立軸を廃止し停止密度側へ統合した。`domain/difficulty.py:
 stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に加え、次数3以上のタグなし
 交差点の密度を低い重み（0.3、signal等を1.0とした相対値）で加算する（8軸→7軸）。
-ルート単位の交差点密度（`RouteCandidate.intersection_density`）は表示用の一次属性
-集約統計として引き続き独立に保持する。
+ルート単位の交差点密度（`RouteCandidate.intersection_density`）は改善計画T431でフロント
+エンド末端消費者ゼロを確認した上で削除済み。
 
 続く改善計画T347で、自転車インフラをT138とは逆方向に「独立公開軸」として復活させた
 （7軸→8軸）。T138時点は自転車インフラの寄与を車ストレス側へ統合する（重みを分離しない）
@@ -1352,8 +1345,8 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 この再設計に伴い、
 `RouteSegmentDetail.bicycle_infra`（7値分類の生値）・`classify_bicycle_infrastructure`
 （分類関数）・MVTタイルの`bicycle_infra`プロパティ・専用地図レイヤー（旧`bicycleInfra`）は
-いずれも削除した。`RouteCandidate.bicycle_infra_score`（ルート集約統計、`ComparisonPanel`が
-参照）のみ独立に存続する。
+いずれも削除した。`RouteCandidate.bicycle_infra_score`（ルート集約統計）も改善計画T431で
+`ComparisonPanel`が`axis_difficulties`駆動へ移行したことで末端消費者ゼロになり削除済み。
 
 ### 8軸の一覧と重み
 
@@ -2181,15 +2174,17 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   `domain/traffic.py: classify_bicycle_infrastructure`）・`RouteSegmentDetail.
   bicycle_infra`の生値は評価軸のdifficulty表示（`axis_difficulties`）で代替可能になり
   削除済み（改善計画T347）。ルート集約統計`RouteCandidate.bicycle_infra_score`
-  （`ComparisonPanel`が使用、引き続き存続）は正規化フラグ4件を直接受け取る
-  `is_dedicated_bicycle_infra(flags)`から算出する（詳細な経緯・教訓は
+  （`is_dedicated_bicycle_infra(flags)`から算出していた）も、改善計画T431で
+  `ComparisonPanel`が`axis_difficulties`駆動へ移行し末端消費者ゼロになったため削除済み
+  （詳細な経緯・教訓は
   [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）。
 - **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のroad_node。
   `INTERSECTION_MATCH_MAX_DISTANCE_M=30m`で空間マッチ。改善計画T149で難易度への寄与は
   独立軸を持たず停止密度側（タグなし交差点として`signal`等の0.3倍の重みで加算、
   `domain/difficulty.py: stop_difficulty`）へ一本化済み。ルート単位の集約統計
-  （`RouteCandidate.intersection_density`）・地図の点タイル表示（`poi-tiles`の`degree`
-  プロパティ）は一次属性の表示用データとして引き続き独立に保持する。
+  `RouteCandidate.intersection_density`は改善計画T431で末端消費者ゼロを確認した上で
+  削除済み。地図の点タイル表示（`poi-tiles`の`degree`プロパティ）は表示専用の別経路
+  として引き続き独立に保持する。
 
 **地図表示ロジックと評価軸材料の分離原則（改善計画T341、教訓はT347再検証込みで
 [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）**:
@@ -2237,8 +2232,11 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 異なる別スキーマのため未対応）。migration `0006_add_accident_points.sql`で
 `accident_points`（`accident_id`主キー・`occurred_year`・`fatal`・`involves_bicycle`・
 `geom`）・`accident_import_runs`（取込実行の記録）を追加。`domain/accident.py`が
-純関数群（`ACCIDENT_MATCH_MAX_DISTANCE_M=30m`、`distance_weighted_accident_density`＝
-合計count÷合計distance_km÷収録年数で「件/(km・年)」へ正規化）を持つ。収録年数は
+純関数群（`ACCIDENT_MATCH_MAX_DISTANCE_M=30m`等）を持つ。合計count÷合計distance_km÷
+収録年数で「件/(km・年)」へ正規化する`distance_weighted_accident_density`は、
+`RouteCandidate.accident_density`集約用として存在していたが改善計画T431で末端消費者
+ゼロを確認した上で削除済み（区間ごとのaccident軸評価は`domain/evaluation.py`が直接
+材料合成する）。収録年数は
 `AttributeRepository.get_accident_years_covered`（`accident_import_runs`のsucceeded run数、
 年重複なし）でハードコードせず動的取得する。地図表示は`GET /api/region/accident-tiles`
 （後述、`AccidentService`/`AccidentTileQuery`）。

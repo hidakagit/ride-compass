@@ -58,8 +58,8 @@ const COLOR_UNKNOWN = "#9ca3af";
 // 実際に2次の計算材料として使われている（指定路線は改善計画T292のcar_stress内部軸
 // （domain/axis_definitions.py: car_stress_designation_adjustment「指定路線に該当: +1」）
 // の材料。事故の当事者区分はbackend/app/infrastructure/road_graph_repository.pyの
-// 事故密度集計がbicycle_only=true固定＝自転車関連の事故だけを数え、その他は数えない
-// ＝寄与ゼロ、domain/accident.py: distance_weighted_accident_density参照）。つまりこれらは
+// 事故密度集計SQLがbicycle_only=true固定＝自転車関連の事故だけを数え、その他は数えない
+// ＝寄与ゼロ）。つまりこれらは
 // 「安全寄り→危険寄り」という2次と同じ意味の順序を実際に持っており、中立色にしてしまうと
 // 「濃ければ強い？」というだけの手がかりの無い色になってしまう（実機フィードバック
 // 「1次の軸色の意味合いが読めない」「1次の点要素にも順序付けがあれば反映してほしい」）。
@@ -238,11 +238,10 @@ export const ONEWAY_OPACITY_EXPRESSION: unknown[] = [
 //
 // 改善計画（1次の点要素の順序付け）: 竹では「当事者（自転車関連/その他）は事実の種類の
 // 区別であり重大度ではない」という理由で評価色の赤から中立色へ差し替えていたが、実際には
-// 順序があることが判明した。事故密度（2次、accident_density）はbackend/app/infrastructure/
-// road_graph_repository.py:
-// bicycle_only=true固定（involves_bicycleのみ）で集計しており、自転車関連の事故だけが
-// 事故密度スコアへ寄与し、その他（自転車が絡まない事故）は寄与しない
-// （domain/accident.py: distance_weighted_accident_density）。つまり指定路線の
+// 順序があることが判明した。事故密度（2次、評価軸accident）はbackend/app/infrastructure/
+// road_graph_repository.pyの事故密度集計SQLがbicycle_only=true固定（involves_bicycleのみ）
+// で集計しており、自転車関連の事故だけが事故密度スコアへ寄与し、その他（自転車が
+// 絡まない事故）は寄与しない。つまり指定路線の
 // 該当/対象外と同じ「材料として寄与するか否か」の二値で、自転車関連＝寄与する側は
 // AXIS_RAMP_COLORSの赤（2次の危険側と同じ意味）、その他＝寄与しない側は中立グレーのまま
 // にする。重大度（死亡事故か否か）は下のACCIDENT_SEVERITY_*を参照（そちらは

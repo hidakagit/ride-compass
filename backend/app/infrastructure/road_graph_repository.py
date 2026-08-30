@@ -694,7 +694,7 @@ _DESIGNATED_EDGE_IDS_SQL = text(
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
 # 事故データの収録年数（accident_import_runsの成功run数、年重複なしのdistinct件数）。
-# distance_weighted_accident_density（domain/accident.py）の「件/(km・年)」正規化に使う。
+# domain/evaluation.py: compute_edge_axis_scoresの「件/(km・年)」正規化に使う。
 # ハードコード定数にせず動的取得することで、将来の年次追加取込で自動的に正しくなる。
 _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
@@ -2289,8 +2289,8 @@ class AttributeRepository(_SessionRepository):
 
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数（accident_import_runsの成功run、年重複なし）を返す。
-        distance_weighted_accident_density（domain/accident.py）の「件/(km・年)」
-        正規化に使う。1リクエスト1回だけ呼ぶ想定（stop_counts等と同じタイミング）。
+        domain/evaluation.py: compute_edge_axis_scoresの「件/(km・年)」正規化に使う。
+        1リクエスト1回だけ呼ぶ想定（stop_counts等と同じタイミング）。
         """
         result = await self._session.execute(_ACCIDENT_YEARS_COVERED_SQL)
         return result.scalar_one()

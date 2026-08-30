@@ -2734,61 +2734,6 @@
             ],
             "title": "Road Score"
           },
-          "stop_density": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stop Density"
-          },
-          "car_stress_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Car Stress Score"
-          },
-          "bicycle_infra_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bicycle Infra Score"
-          },
-          "intersection_density": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Intersection Density"
-          },
-          "accident_density": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Accident Density"
-          },
           "total_score": {
             "anyOf": [
               {
@@ -2855,7 +2800,7 @@
           "geometry"
         ],
         "title": "RouteCandidate",
-        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、\n静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷\n合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。\n\n`car_stress_score`: ルート全体の車ストレス（1-5）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。\n`bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)\n（domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。\n`intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。\nいずれも静的道路属性P1残り。\n\n`accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。\ndomain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷\n合計distance_km」に収録年数での正規化を加えた集約）。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。`car_stress_score`等の個別フィールド群は旧来の軸1対1固定\n設計の名残（改善計画T400節4参照）で、軸スタジオでの軸増減に追従しない。新規の消費\n（BottomSheetのルート全体プロファイル等）はこちらを使うこと。評価できなかった軸は\nキー自体を含めない（segments欠損時は空dict）。"
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。\n\n改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・\n`intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の\n名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で\nフロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ\n移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.py・\nopenrouteservice_engine.pyの集約計算）もこのフィールドへ値を渡すためだけの\n処理だったため、併せて撤去済み。"
       },
       "RouteGenerateJobCreatedResponse": {
         "properties": {
